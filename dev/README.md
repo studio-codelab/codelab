@@ -11,7 +11,7 @@ avec un acces Postgres deja configure dans l'environnement de session.
 - Un script de demarrage (`CMD` du `Dockerfile`) qui, a chaque lancement du conteneur :
   1. Genere les cles hote SSH si elles n'existent pas encore dans le volume persistant, sinon reutilise celles
      deja presentes (voir [Cles hote SSH](#cles-hote-ssh-et-empreinte-stable)).
-  2. Ecrit `SSH_PUBLIC_KEY` dans `/home/vscode/.ssh/authorized_keys`.
+  2. Reconstruit `authorized_keys` a partir de `authorized_keys.d/` (`codelab-ssh-key sync`).
   3. Exporte les variables de connexion Postgres (`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`) pour
      qu'elles soient disponibles dans toute session SSH interactive (voir
      [Variables Postgres dans une session SSH](#variables-postgres-dans-une-session-ssh)).
@@ -35,17 +35,17 @@ avec un acces Postgres deja configure dans l'environnement de session.
 
 | Variable | Origine | Usage |
 |---|---|---|
-| `SSH_PUBLIC_KEY` | Saisie a l'installation ZimaOS | **Ajoutee** a `authorized_keys` si absente — les cles deja presentes sont conservees |
+| `SSH_PUBLIC_KEY` | Saisie a l'installation ZimaOS, **facultative** | Enregistree dans `authorized_keys.d/compose.pub` si absente — sert a amorcer une installation neuve, plus necessaire ensuite |
 | `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` | Fixees dans `docker-compose.yml` | Connexion a `codelab-postgres` |
 | `CODELAB_ENV_FILE` | Fixee dans `docker-compose.yml` | `credentials.env` : `POSTGRES_PASSWORD` y est lu pour construire `PGPASSWORD` |
-| `CODELAB_SSH_DIR` | Fixee dans `docker-compose.yml` | Dossier unique des cles : `authorized_keys` + `host_keys/` |
+| `CODELAB_SSH_DIR` | Fixee dans `docker-compose.yml` | Dossier unique des cles : `authorized_keys.d/`, `authorized_keys` (derive) + `host_keys/` |
 
 ## Volumes attendus
 
 | Point de montage | Contenu |
 |---|---|
 | `/workspace` | Ton code — partage avec `codelab-dagster`, `codelab-dagster-daemon` et `codelab-app-manager` |
-| `/var/lib/codelab/ssh` | Tout le SSH au meme endroit : `authorized_keys` et `host_keys/` (cote hote : `config/ssh/`) |
+| `/var/lib/codelab/ssh` | Tout le SSH au meme endroit : `authorized_keys.d/`, `authorized_keys` et `host_keys/` (cote hote : `config/ssh/`) |
 | `/var/lib/codelab/config` | Lecture seule — `credentials.env`, d'ou est lu le mot de passe Postgres |
 
 ## Droits sur les cles : le piege
