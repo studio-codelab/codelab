@@ -320,12 +320,16 @@ configure_pg_profile || echo "[codelab-dev] identifiants Postgres non pre-rempli
 # ------------------------------- demarrage -------------------------------
 
 mkdir -p /run/sshd
-# "-D -e" plutot que le lancement en demon : sans ca, sshd journalise vers
-# syslog, absent du conteneur, et "docker logs codelab-dev" ne dit jamais
-# POURQUOI une authentification echoue -- on l'a paye cher en diagnostiquant
-# un "Permission denied (publickey)" a l'aveugle. "-D" garde sshd au premier
-# plan et "-e" envoie ses journaux sur stderr ; l'esperluette le remet en
-# tache de fond en lui laissant le stderr du conteneur. Teste : "-E /dev/stderr"
-# ne remonte que le demarrage, pas les evenements d'authentification.
-/usr/sbin/sshd -D -e &
+echo "[codelab-dev] pret -- SSH sur le port 22 (2222 depuis l'hote), workspace : $WORKSPACE_DIR"
+
+# sshd devient le processus principal (voir le CMD du Dockerfile). Deux
+# consequences qui valent d'etre dites :
+#
+#   - ses journaux d'authentification arrivent dans "docker logs codelab-dev",
+#     y compris les refus. Un "Permission denied (publickey)" cote client ne
+#     dit jamais pourquoi ; c'est ici qu'on le lit.
+#   - il recoit le SIGTERM de "docker stop" et s'arrete proprement. La version
+#     precedente lancait sshd en tache de fond derriere un veilleur Python qui,
+#     en PID 1 et sans gestionnaire de signal, ignorait SIGTERM : chaque arret
+#     attendait les dix secondes du delai de grace avant un SIGKILL.
 exec "$@"
