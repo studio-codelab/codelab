@@ -32,7 +32,7 @@ RUN groupadd -g 2000 codelab
 # Copies "par defaut", jamais utilisees directement : entrypoint.sh ne les
 # deploie que si /workspace (volume utilisateur) ou DAGSTER_HOME (volume
 # d'etat) sont vides, au tout premier demarrage.
-COPY dagster/definitions.py /opt/dagster/definitions.default.py
+COPY workspace /opt/dagster/workspace.default
 COPY dagster/dagster.yaml /opt/dagster/dagster.yaml.default
 COPY dagster/entrypoint.sh /opt/dagster/entrypoint.sh
 RUN chmod +x /opt/dagster/entrypoint.sh
