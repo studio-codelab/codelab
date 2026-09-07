@@ -9,10 +9,11 @@
 #
 #   2. Cles autorisees, une par machine. CODELAB_SSH_DIR/authorized_keys.d/
 #      contient un fichier "<nom>.pub" par ordinateur ; authorized_keys est
-#      reconstruit a partir de ce dossier au demarrage (voir
-#      dev/ssh-keys.sh). SSH_PUBLIC_KEY n'est qu'une source parmi
-#      d'autres, et devient optionnelle une fois une cle enregistree : la
-#      stack redemarre sans elle sans perdre l'acces.
+#      reconstruit a partir de ce dossier au demarrage. Autoriser une
+#      machine = y deposer un fichier puis redemarrer le conteneur ; lui
+#      retirer l'acces = supprimer ce fichier. SSH_PUBLIC_KEY n'est qu'une
+#      source parmi d'autres et devient optionnelle une fois une cle
+#      enregistree : la stack redemarre sans elle sans perdre l'acces.
 #
 #   3. Identifiants Postgres dans les shells SSH. Un sshd ne fait pas heriter
 #      ses sessions de l'environnement du process qui l'a lance (comportement
@@ -22,7 +23,7 @@
 #
 #   4. Permissions du workspace. /workspace est partage avec Dagster et
 #      app-manager, qui y ecrivent en root. Le socle (groupe commun, setgid,
-#      umask 002) est pose par codelab-permissions, appele ci-dessous.
+#      umask 002) est pose plus bas.
 #
 #   5. Ne jamais bloquer le demarrage. Ce service n'a volontairement pas de
 #      "depends_on: service_healthy" (ZimaOS laisse le conteneur en "Created"
@@ -41,6 +42,14 @@ SSH_USER="${CODELAB_SSH_USER:-vscode}"
 SSH_DIR="${CODELAB_SSH_DIR:-/var/lib/codelab/ssh}"
 HOST_KEYS_DIR="$SSH_DIR/host_keys"
 AUTHORIZED_KEYS="$SSH_DIR/authorized_keys"
+KEYS_D="$SSH_DIR/authorized_keys.d"
+# Empreinte de la derniere reconstruction, utilisee pour distinguer deux
+# lignes d'authorized_keys qui se ressemblent : une cle ajoutee a la main
+# apres coup (a recuperer) et une cle que NOUS avons ecrite au demarrage
+# precedent puis retiree du dossier depuis (a laisser mourir). Sans elle,
+# supprimer un .pub ne retirerait rien -- la cle serait reprise pour une
+# ajoutee a la main au demarrage suivant.
+DERIVED_SNAPSHOT="$SSH_DIR/.derived-keys"
 ENV_FILE="${CODELAB_ENV_FILE:-/var/lib/codelab/config/credentials.env}"
 PROFILE=/etc/profile.d/codelab-pg.sh
 UMASK_PROFILE=/etc/profile.d/codelab-umask.sh
@@ -145,11 +154,110 @@ cp -f "$HOST_KEYS_DIR"/ssh_host_*_key "$HOST_KEYS_DIR"/ssh_host_*_key.pub /etc/s
 chmod 600 /etc/ssh/ssh_host_*_key
 chmod 644 /etc/ssh/ssh_host_*_key.pub
 
-# Cles autorisees : reconstruction de authorized_keys depuis
-# authorized_keys.d/. Non fatal -- une erreur ici doit laisser sshd demarrer
-# avec le fichier precedent plutot que couper l'acces au conteneur.
-codelab-ssh-key sync || echo "[codelab-dev] synchronisation des cles autorisees" \
-    "en echec : authorized_keys reste tel quel."
+# ----------------------- cles autorisees par machine -----------------------
+#
+# authorized_keys.d/ contient un fichier "<nom>.pub" par ordinateur autorise.
+# authorized_keys est DERIVE : reconstruit ici a chaque demarrage comme
+# l'union de ce dossier. Ajouter une machine, c'est deposer un fichier ; en
+# retirer une, c'est en supprimer un. Rien n'est jamais perdu implicitement.
+#
+# Une cle ecrite directement dans authorized_keys (a la main depuis le
+# ZimaOS, ou par une version anterieure de cette image) n'est pas ignoree :
+# elle est recuperee dans authorized_keys.d/manuel.pub avant reconstruction.
+# Le vieux geste continue donc de fonctionner.
+
+# Identite d'une cle : son type et son corps base64, sans le commentaire.
+# Deux lignes qui ne different que par le commentaire ("... lucas@portable"
+# vs "... lucas@mac") sont la MEME cle ; sans cette normalisation elles
+# s'accumuleraient toutes les deux.
+key_ids() {
+    awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^(ssh-|ecdsa-|sk-)/) { print $i " " $(i+1); next } }' "$@" 2>/dev/null
+}
+
+sync_authorized_keys() {
+    mkdir -p "$KEYS_D"
+    chmod 755 "$KEYS_D"
+
+    known="$(key_ids "$KEYS_D"/*.pub)"
+
+    # 1. Recuperation des lignes ecrites directement dans authorized_keys.
+    if [ -s "$AUTHORIZED_KEYS" ]; then
+        recovered=0
+        while IFS= read -r line; do
+            case "$line" in ''|\#*) continue ;; esac
+            id="$(printf '%s\n' "$line" | key_ids)"
+            [ -n "$id" ] || continue
+            if printf '%s\n' "$known" | grep -qxF "$id"; then continue; fi
+            if [ -f "$DERIVED_SNAPSHOT" ] && grep -qxF "$id" "$DERIVED_SNAPSHOT"; then continue; fi
+            printf '%s\n' "$line" >> "$KEYS_D/manuel.pub"
+            recovered=$((recovered + 1))
+        done < "$AUTHORIZED_KEYS"
+        if [ "$recovered" -gt 0 ]; then
+            echo "[codelab-dev] $recovered cle(s) ecrite(s) a la main recuperee(s) dans manuel.pub."
+            known="$(key_ids "$KEYS_D"/*.pub)"
+        fi
+    fi
+
+    # 2. SSH_PUBLIC_KEY : variable d'installation ZimaOS, facultative une
+    #    fois la cle enregistree dans le dossier.
+    if [ -n "${SSH_PUBLIC_KEY:-}" ]; then
+        id="$(printf '%s\n' "$SSH_PUBLIC_KEY" | key_ids)"
+        if [ -n "$id" ] && ! printf '%s\n' "$known" | grep -qxF "$id"; then
+            printf '%s\n' "$SSH_PUBLIC_KEY" >> "$KEYS_D/compose.pub"
+            echo "[codelab-dev] cle de SSH_PUBLIC_KEY enregistree dans compose.pub."
+        fi
+    fi
+
+    # 3. Reconstruction. Ecriture dans un temporaire puis deplacement : sshd
+    #    ne doit jamais tomber sur un authorized_keys tronque, ce qui
+    #    refuserait toutes les connexions pendant l'ecriture.
+    tmp="$AUTHORIZED_KEYS.tmp.$$"
+    snap="$DERIVED_SNAPSHOT.tmp.$$"
+    : > "$snap"
+    {
+        echo "# Fichier DERIVE, reconstruit a chaque demarrage de codelab-dev."
+        echo "# Ne pas editer ici : deposer un fichier <machine>.pub dans"
+        echo "# authorized_keys.d/, puis redemarrer le conteneur. Une ligne"
+        echo "# ajoutee malgre tout ici n'est pas perdue : elle est recuperee"
+        echo "# dans authorized_keys.d/manuel.pub au demarrage suivant."
+    } > "$tmp"
+
+    count=0
+    for f in "$KEYS_D"/*.pub; do
+        [ -f "$f" ] || continue
+        name="$(basename "$f" .pub)"
+        while IFS= read -r line; do
+            case "$line" in ''|\#*) continue ;; esac
+            id="$(printf '%s\n' "$line" | key_ids)"
+            [ -n "$id" ] || continue
+            if grep -qxF "$id" "$snap"; then continue; fi
+            printf '%s\n' "$id" >> "$snap"
+            echo "# $name" >> "$tmp"
+            printf '%s\n' "$line" >> "$tmp"
+            count=$((count + 1))
+        done < "$f"
+    done
+
+    mv "$snap" "$DERIVED_SNAPSHOT"
+    chmod 600 "$DERIVED_SNAPSHOT"
+    mv "$tmp" "$AUTHORIZED_KEYS"
+    # Refaits a chaque demarrage : un fichier depose depuis l'hote appartient
+    # a root, et sshd (StrictModes) refuse alors de le lire pour le compte de
+    # l'utilisateur.
+    chown "$SSH_USER:$SSH_USER" "$AUTHORIZED_KEYS" 2>/dev/null || true
+    chmod 600 "$AUTHORIZED_KEYS"
+
+    if [ "$count" -eq 0 ]; then
+        echo "[codelab-dev] AUCUNE cle autorisee -- aucune connexion SSH ne sera possible."
+    else
+        echo "[codelab-dev] $count cle(s) autorisee(s) depuis $KEYS_D."
+    fi
+}
+
+# Non fatal : une erreur ici doit laisser sshd demarrer avec le fichier
+# precedent plutot que couper l'acces au conteneur.
+sync_authorized_keys || echo "[codelab-dev] reconstruction des cles autorisees en echec :" \
+    "authorized_keys reste tel quel."
 
 # Pose la directive au demarrage plutot qu'au build : le chemin vient de
 # CODELAB_SSH_DIR, sshd et l'entrypoint ne peuvent donc pas diverger.
