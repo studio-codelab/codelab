@@ -11,7 +11,7 @@ avec un acces Postgres deja configure dans l'environnement de session.
 - Un script de demarrage (`CMD` du `Dockerfile`) qui, a chaque lancement du conteneur :
   1. Genere les cles hote SSH si elles n'existent pas encore dans le volume persistant, sinon reutilise celles
      deja presentes (voir [Cles hote SSH](#cles-hote-ssh-et-empreinte-stable)).
-  2. Reconstruit `authorized_keys` a partir de `authorized_keys.d/` (`codelab-ssh-key sync`).
+  2. Reconstruit `authorized_keys` a partir de `authorized_keys.d/` .
   3. Exporte les variables de connexion Postgres (`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`) pour
      qu'elles soient disponibles dans toute session SSH interactive (voir
      [Variables Postgres dans une session SSH](#variables-postgres-dans-une-session-ssh)).
