@@ -1,0 +1,165 @@
+"""
+Alertes par mail sur echec de job Dagster.
+
+Le capteur est exécuté par codelab-dagster-daemon (le service qui tourne deja
+dans la stack). Il se declenche sur chaque run en echec, tous jobs confondus.
+
+Deux endroits a parametrer, et un seul contient un secret :
+
+  - les DESTINATAIRES, juste en dessous, dans ce fichier ;
+  - les identifiants SMTP, dans un bloc "codelab-alertes" de credentials.env.
+
+Le fichier credentials.env est gere par bloc -- chaque service ne reecrit que
+le sien -- donc un bloc ajoute a la main sous un nom qu'aucun service ne
+connait survit aux redemarrages. C'est le seul endroit ou mettre un mot de
+passe dans CodeLab.
+
+    # ===== codelab-alertes =====
+    # Identifiants SMTP pour les alertes Dagster. Bloc ajoute a la main :
+    # aucun service ne le reecrit.
+    SMTP_HOST=smtp.gmail.com
+    SMTP_PORT=587
+    SMTP_TLS=starttls          # starttls (defaut) | ssl (port 465) | none
+    SMTP_USER=moi@gmail.com
+    SMTP_PASSWORD=xxxxxxxxxxxxxxxx
+    # ===== /codelab-alertes =====
+
+Sans ce bloc, le capteur ne fait rien et le dit dans ses logs : il ne fait
+jamais echouer un run.
+"""
+import os
+import smtplib
+import ssl
+import sys
+from email.message import EmailMessage
+
+from dagster import DefaultSensorStatus, RunFailureSensorContext, run_failure_sensor
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import checks  # noqa: E402  (lecteur de credentials.env, deja utilise ailleurs)
+
+# --------------------------------------------------------------------------
+# Destinataires des alertes. C'est ICI qu'on les change, pas dans
+# credentials.env : une adresse de destination n'est pas un secret. La garder
+# dans le code la rend visible en relecture, suivie par git, et evite de
+# toucher au fichier d'identifiants pour un changement anodin.
+DESTINATAIRES = [
+    "moi@example.com",
+]
+# --------------------------------------------------------------------------
+
+# Adresse publique de l'interface Dagster, pour que le mail contienne un lien
+# cliquable vers le run. A ajuster si tu accedes au ZimaOS autrement.
+DAGSTER_URL = os.environ.get("CODELAB_DAGSTER_URL", "http://<IP-ZimaOS>:3000")
+
+
+def config_smtp():
+    """Renvoie la configuration, ou None si le bloc est absent/incomplet."""
+    cfg = {
+        "host": checks.read_env("SMTP_HOST"),
+        "port": int(checks.read_env("SMTP_PORT") or 587),
+        "tls": (checks.read_env("SMTP_TLS") or "starttls").lower(),
+        "user": checks.read_env("SMTP_USER"),
+        "password": checks.read_env("SMTP_PASSWORD"),
+        # Gmail et la plupart des fournisseurs refusent d'expedier au nom
+        # d'une autre adresse que celle du compte : l'expediteur suit donc
+        # SMTP_USER, sauf ALERTE_FROM explicite.
+        "expediteur": checks.read_env("ALERTE_FROM") or checks.read_env("SMTP_USER"),
+        "destinataires": [a.strip() for a in DESTINATAIRES if a.strip()],
+    }
+    # user/password restent optionnels : un relais interne peut ne pas
+    # demander d'authentification.
+    manquants = []
+    if not cfg["host"]:
+        manquants.append("SMTP_HOST")
+    if not cfg["expediteur"]:
+        manquants.append("SMTP_USER (ou ALERTE_FROM)")
+    if not cfg["destinataires"]:
+        manquants.append("DESTINATAIRES")
+    return (None, manquants) if manquants else (cfg, [])
+
+
+def envoyer(cfg, sujet, corps):
+    msg = EmailMessage()
+    msg["Subject"] = sujet
+    msg["From"] = cfg["expediteur"]
+    msg["To"] = ", ".join(cfg["destinataires"])
+    msg.set_content(corps)
+
+    def _login(s):
+        if cfg["user"] and cfg["password"]:
+            s.login(cfg["user"], cfg["password"])
+
+    if cfg["tls"] == "ssl":
+        # SMTPS : session chiffree des la connexion (port 465 en general).
+        with smtplib.SMTP_SSL(cfg["host"], cfg["port"],
+                              context=ssl.create_default_context(), timeout=20) as s:
+            _login(s)
+            s.send_message(msg)
+    elif cfg["tls"] == "none":
+        # Relais interne sans chiffrement. A ne faire que sur un reseau de
+        # confiance : les identifiants passeraient en clair.
+        with smtplib.SMTP(cfg["host"], cfg["port"], timeout=20) as s:
+            _login(s)
+            s.send_message(msg)
+    else:
+        # STARTTLS : on ouvre en clair puis on chiffre AVANT de s'authentifier.
+        with smtplib.SMTP(cfg["host"], cfg["port"], timeout=20) as s:
+            s.ehlo()
+            s.starttls(context=ssl.create_default_context())
+            s.ehlo()
+            _login(s)
+            s.send_message(msg)
+
+
+def corps_du_mail(context: RunFailureSensorContext):
+    run = context.dagster_run
+    erreur = context.failure_event.message or "(aucun message)"
+    if context.failure_event.event_specific_data is not None:
+        err = getattr(context.failure_event.event_specific_data, "error", None)
+        if err is not None:
+            erreur = err.to_string()
+
+    return "\n".join([
+        f"Job     : {run.job_name}",
+        f"Run     : {run.run_id}",
+        f"Statut  : ECHEC",
+        f"Lien    : {DAGSTER_URL}/runs/{run.run_id}",
+        "",
+        "Erreur",
+        "------",
+        erreur.strip()[:3000],
+        "",
+        "-- CodeLab, capteur alerte_mail_echec",
+    ])
+
+
+@run_failure_sensor(
+    name="alerte_mail_echec",
+    description="Envoie un mail a chaque run Dagster en echec.",
+    # Actif des le chargement du code : sans ca, il faut penser a l'activer a
+    # la main dans l'interface, et on ne s'en apercoit qu'en ratant une alerte.
+    default_status=DefaultSensorStatus.RUNNING,
+)
+def alerte_mail_echec(context: RunFailureSensorContext):
+    cfg, manquants = config_smtp()
+    if cfg is None:
+        # Volontairement non fatal : une alerte qui ne part pas ne doit pas
+        # ajouter une panne a la panne qu'elle signale.
+        context.log.warning(
+            f"Alerte mail non envoyee, configuration incomplete : {', '.join(manquants)}. "
+            f"Les identifiants SMTP vont dans le bloc codelab-alertes de "
+            f"{checks.ENV_FILE} ; les destinataires dans DESTINATAIRES, en tete "
+            f"de alertes.py.")
+        return
+
+    run = context.dagster_run
+    sujet = f"[CodeLab] Echec du job {run.job_name}"
+    try:
+        envoyer(cfg, sujet, corps_du_mail(context))
+        context.log.info(f"Alerte envoyee a {', '.join(cfg['destinataires'])} "
+                         f"pour le run {run.run_id}.")
+    except Exception as e:
+        context.log.error(f"Envoi de l'alerte impossible ({type(e).__name__}: {e}). "
+                          f"Verifie le bloc codelab-alertes dans {checks.ENV_FILE}.")
