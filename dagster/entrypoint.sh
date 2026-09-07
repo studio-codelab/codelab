@@ -5,7 +5,9 @@
 #      de secrets CodeLab -- et l'exposer en DAGSTER_PG_PASSWORD, car
 #      dagster.yaml ne sait lire un secret que depuis une env var.
 #   2. Amorcer /opt/dagster/home et /workspace au tout premier demarrage,
-#      sans jamais ecraser ce que l'utilisateur a deja modifie.
+#      sans jamais ecraser ce que l'utilisateur a deja modifie. /workspace
+#      recoit un squelette complet : README des conventions, definitions.py
+#      agregateur, et le projet "diagnostic" qui sert de modele.
 #   3. Poser le socle de permissions sur /workspace (groupe commun, setgid),
 #      pour que les fichiers ecrits par les jobs restent modifiables depuis
 #      une session SSH.
@@ -93,9 +95,51 @@ if [ ! -f "${DAGSTER_HOME}/dagster.yaml" ]; then
   echo "[codelab] dagster.yaml initialise dans ${DAGSTER_HOME} (stockage Postgres)."
 fi
 
-if [ ! -f /workspace/definitions.py ]; then
-  cp /opt/dagster/definitions.default.py /workspace/definitions.py
-  echo "[codelab] /workspace/definitions.py absent : exemple copie depuis l'image."
+# --------------------------- amorcage du workspace ---------------------------
+#
+# Le squelette livre avec l'image (README, definitions.py agregateur, projet
+# "diagnostic" qui sert de modele) est copie dans /workspace au premier
+# demarrage. Un marqueur evite de le refaire ensuite : sans lui, supprimer un
+# projet le verrait reapparaitre a chaque redemarrage, ce qui est
+# insupportable a l'usage.
+#
+# Regle absolue : on ne remplace JAMAIS un fichier existant. Le workspace
+# contient le travail de l'utilisateur ; une copie qui ecrase est une perte de
+# donnees silencieuse. Un fichier deja present sous le meme nom est copie a
+# cote avec le suffixe .exemple, et l'utilisateur decide.
+WORKSPACE_SEED=/opt/dagster/workspace.default
+SEED_MARKER=/workspace/.codelab/workspace-v1
+
+if [ ! -f "$SEED_MARKER" ] && [ -d "$WORKSPACE_SEED" ]; then
+  echo "[codelab] amorcage de /workspace depuis le squelette de l'image..."
+  for entree in "$WORKSPACE_SEED"/*; do
+    [ -e "$entree" ] || continue
+    nom="$(basename "$entree")"
+    cible="/workspace/$nom"
+    if [ ! -e "$cible" ]; then
+      cp -r "$entree" "$cible"
+      echo "[codelab]   $nom copie."
+    elif [ -f "$entree" ]; then
+      # Cas typique : un definitions.py ecrit avant cette version. On depose
+      # la nouvelle version a cote plutot que de l'ecraser -- il contient
+      # peut-etre des assets qui n'existent que la.
+      cp -f "$entree" "$cible.exemple"
+      echo "[codelab]   $nom existe deja : nouvelle version deposee dans $nom.exemple," \
+           "a fusionner a la main."
+    else
+      echo "[codelab]   $nom existe deja : laisse tel quel."
+    fi
+  done
+
+  # Le squelette sort avec le groupe et les droits du workspace, sinon les
+  # sessions SSH ne pourraient pas modifier des fichiers copies par root.
+  chgrp -R "$CODELAB_GROUP" /workspace 2>/dev/null || true
+  chmod -R g+rwX /workspace 2>/dev/null || true
+  find /workspace -type d -exec chmod g+s {} + 2>/dev/null || true
+
+  mkdir -p "$(dirname "$SEED_MARKER")"
+  echo "Supprimer ce fichier fait recopier le squelette de l'image au prochain demarrage." > "$SEED_MARKER"
+  chgrp "$CODELAB_GROUP" "$SEED_MARKER" 2>/dev/null || true
 fi
 
 exec "$@"
