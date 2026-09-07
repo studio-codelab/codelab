@@ -94,6 +94,32 @@ L'empreinte du serveur, elle, ne change pas : les cles hote sont generees une se
 absente -- un fichier tronque par un arret brutal ferait echouer `sshd` et repartir sur une nouvelle
 identite, donc sur le `REMOTE HOST IDENTIFICATION HAS CHANGED` cote client.
 
+## Contenu par defaut du workspace
+
+[#contenu-par-defaut-du-workspace](#contenu-par-defaut-du-workspace)
+
+Au tout premier demarrage, `codelab-dagster` depose un squelette dans `/workspace` :
+
+```
+/workspace/
+├── README.md            <- conventions : anatomie d'un projet, secrets, base, dependances
+├── definitions.py       <- agregateur Dagster : decouvre les projets, ne pas modifier
+└── diagnostic/          <- projet modele ET outil de diagnostic de la stack
+```
+
+Un projet est **un dossier**. S'il contient un `definitions.py` exposant une variable `defs`,
+Dagster le decouvre tout seul au rechargement du code -- il n'y a aucun fichier central a editer
+pour declarer un nouveau projet. Un projet qui ne se charge pas est ignore avec un message dans les
+logs, sans rendre les autres invisibles.
+
+`diagnostic/` sert de modele : il montre sur un cas fonctionnel un asset Dagster, une application
+web, un module partage entre les deux, la lecture de `credentials.env` et l'ecriture en base. Le
+copier est le moyen le plus rapide de demarrer (`cp -r /workspace/diagnostic /workspace/mon-projet`).
+
+**Rien n'est jamais ecrase.** Un fichier deja present sous le meme nom est copie a cote en
+`.exemple`, a fusionner a la main. La copie n'a lieu qu'une fois, tracee par
+`/workspace/.codelab/workspace-v1` : un projet supprime ne reapparait pas au redemarrage.
+
 ## Workspace partage entre les services
 
 [#workspace-partage](#workspace-partage)
@@ -233,6 +259,7 @@ codelab/
 ├── docker-compose.yml
 ├── icon.svg / icon.png
 ├── .github/workflows/build-images.yml
+├── workspace/     # squelette depose dans /workspace au premier demarrage
 ├── dev/           # SSH + VS Code Remote-SSH — voir dev/README.md
 ├── dagster/       # orchestration de jobs — voir dagster/README.md
 └── app-manager/   # deploiement d'applications — voir app-manager/README.md
