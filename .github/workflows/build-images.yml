@@ -78,8 +78,8 @@ jobs:
             type=semver,pattern={{version}},enable=${{ github.ref_type == 'tag' }}
 
       # Contexte = racine du repo : les Dockerfiles font
-      # "COPY dev/requirements.txt", "COPY dagster/definitions.py", etc.,
-      # des chemins relatifs a la racine, pas a leur propre dossier.
+      # "COPY dev/entrypoint.sh", "COPY workspace", etc., des chemins
+      # relatifs a la racine, pas a leur propre dossier.
       - name: Build & push ${{ matrix.name }}
         uses: docker/build-push-action@v5
         with:
