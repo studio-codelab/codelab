@@ -40,8 +40,7 @@ RUN pip install --no-cache-dir -r /opt/codelab/dev/requirements.txt
 
 COPY dev/runner.py /opt/codelab/dev/runner.py
 COPY dev/entrypoint.sh /opt/codelab/dev/entrypoint.sh
-COPY dev/ssh-keys.sh /usr/local/bin/codelab-ssh-key
-RUN chmod +x /opt/codelab/dev/entrypoint.sh /usr/local/bin/codelab-ssh-key
+RUN chmod +x /opt/codelab/dev/entrypoint.sh
 
 RUN mkdir -p /run/sshd \
     && sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config \
