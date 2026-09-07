@@ -23,7 +23,7 @@ central a tenir a jour.
 ├── definitions.py       <- point d'entree Dagster, tu n'as pas a le modifier
 └── mon-projet/
     ├── README.md        <- a quoi sert ce projet, comment le lancer
-    ├── definitions.py   <- OPTIONNEL : les assets/jobs Dagster du projet
+    ├── definitions.py   <- OPTIONNEL : tout le cote Dagster (assets, jobs, capteurs)
     └── app.py           <- OPTIONNEL : une application web
 ```
 
@@ -69,7 +69,15 @@ donc directement, sans prefixe :
 import checks          # /workspace/mon-projet/checks.py
 ```
 
-C'est ce qui permet d'ecrire un projet comme un simple dossier de scripts. Revers de la medaille :
+C'est ce qui permet d'ecrire un projet comme un simple dossier de scripts.
+
+Attention en revanche a **ce qu'un module partage importe**. Les images n'ont pas les memes paquets :
+Flask n'existe que dans `app-manager`, Dagster que dans `codelab-dagster`. Un module importe des deux
+cotes -- comme `diagnostic/checks.py` -- ne doit donc importer ni l'un ni l'autre, sinon il fera
+planter le service qui n'a pas le paquet. Garde le code commun dans un module neutre, et le code
+specifique dans `definitions.py` (Dagster) ou `app.py` (web).
+
+Autre revers :
 deux projets ne peuvent pas avoir deux modules de meme nom charges en meme temps. Si tu ecris un
 `utils.py` dans deux projets differents, prefixe-les (`utils_facturation.py`) ou regroupe-les dans
 un sous-dossier.
