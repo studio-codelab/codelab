@@ -69,15 +69,16 @@ comme l'union de ce dossier. Ajouter un ordinateur, c'est deposer un fichier ; e
 en supprimer un.
 
 ```
-codelab-ssh-key list                       # les machines autorisees, avec leur empreinte
-codelab-ssh-key add portable < cle.pub     # autoriser une machine
-codelab-ssh-key remove portable            # lui retirer l'acces
-```
+# autoriser une machine
+cp ~/cle.pub /DATA/AppData/codelab/config/ssh/authorized_keys.d/portable.pub
+docker restart codelab-dev
 
-Depuis l'hote ZimaOS, la meme chose sans session SSH :
+# lui retirer l'acces
+rm /DATA/AppData/codelab/config/ssh/authorized_keys.d/portable.pub
+docker restart codelab-dev
 
-```
-docker exec -i codelab-dev codelab-ssh-key add portable < ~/cle.pub
+# voir les machines autorisees
+ls /DATA/AppData/codelab/config/ssh/authorized_keys.d/
 ```
 
 Deux consequences utiles :
