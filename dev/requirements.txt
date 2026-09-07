@@ -1,3 +1,0 @@
-dagster
-dagster-webserver
-psycopg[binary]
