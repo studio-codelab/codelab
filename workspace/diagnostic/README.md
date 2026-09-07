@@ -37,10 +37,9 @@ projet -> *Lancer le build*), puis demarre l'application. Cote Dagster il n'y a 
 ├── definitions.py            <- agregateur : decouvre les projets, ne pas modifier
 ├── README.md                 <- conventions communes a tous les projets
 └── diagnostic/
-    ├── definitions.py        <- l'asset diagnostic_codelab + le capteur d'alerte
-    ├── app.py                <- application web, lancee par app-manager
+    ├── definitions.py        <- cote Dagster : l'asset + le capteur d'alerte mail
+    ├── app.py                <- cote web : l'application lancee par app-manager
     ├── checks.py             <- les sondes, partagees par les deux
-    ├── alertes.py            <- capteur d'alerte mail sur echec de job
     └── README.md
 ```
 
@@ -96,7 +95,7 @@ service hors du reseau, pas une panne du service lui-meme.
 
 ## Alertes par mail sur echec
 
-`alertes.py` ajoute un capteur Dagster qui envoie un mail a **chaque run en echec**, tous jobs confondus —
+`definitions.py` contient un capteur Dagster qui envoie un mail a **chaque run en echec**, tous jobs confondus —
 pas seulement l'asset de diagnostic. Il est execute par `codelab-dagster-daemon`, qui tourne deja dans la
 stack : rien a installer, rien a ajouter au `docker-compose.yml`.
 
@@ -104,7 +103,7 @@ stack : rien a installer, rien a ajouter au `docker-compose.yml`.
 
 Deux endroits, et un seul contient un secret.
 
-**Les destinataires, dans `alertes.py`.** Une adresse de destination n'est pas un secret : la garder dans le
+**Les destinataires, en tete de `definitions.py`.** Une adresse de destination n'est pas un secret : la garder dans le
 code la rend visible en relecture, suivie par git, et evite de toucher au fichier d'identifiants pour un
 changement anodin.
 
