@@ -59,6 +59,65 @@ son mot de passe admin et sa cle de session. Une valeur deja presente n'est jama
 
 Sauvegarder ce fichier (et `config/ssh/`) suffit a sauvegarder tous les acces.
 
+## Acces SSH depuis plusieurs ordinateurs
+
+[#acces-ssh-plusieurs-ordinateurs](#acces-ssh-plusieurs-ordinateurs)
+
+Chaque machine autorisee a son propre fichier dans `config/ssh/authorized_keys.d/`.
+`authorized_keys` n'est plus edite a la main : c'est un fichier **derive**, reconstruit au demarrage
+comme l'union de ce dossier. Ajouter un ordinateur, c'est deposer un fichier ; en retirer un, c'est
+en supprimer un.
+
+```
+codelab-ssh-key list                       # les machines autorisees, avec leur empreinte
+codelab-ssh-key add portable < cle.pub     # autoriser une machine
+codelab-ssh-key remove portable            # lui retirer l'acces
+```
+
+Depuis l'hote ZimaOS, la meme chose sans session SSH :
+
+```
+docker exec -i codelab-dev codelab-ssh-key add portable < ~/cle.pub
+```
+
+Deux consequences utiles :
+
+- **`SSH_PUBLIC_KEY` devient facultative.** Elle ne sert qu'a enregistrer une premiere cle sur une
+  installation neuve. Ensuite, reimporter le compose en laissant le champ vide ne coupe plus rien.
+- **Ecrire directement dans `authorized_keys` continue de marcher.** Une ligne ajoutee a la main est
+  recuperee dans `authorized_keys.d/manuel.pub` au demarrage suivant, puis reprise dans le fichier
+  derive -- elle n'est pas ecrasee par la reconstruction.
+
+L'empreinte du serveur, elle, ne change pas : les cles hote sont generees une seule fois dans
+`config/ssh/host_keys/`. Elles ne sont regenerees que si une cle est **illisible**, pas seulement
+absente -- un fichier tronque par un arret brutal ferait echouer `sshd` et repartir sur une nouvelle
+identite, donc sur le `REMOTE HOST IDENTIFICATION HAS CHANGED` cote client.
+
+## Workspace partage entre les services
+
+[#workspace-partage](#workspace-partage)
+
+`/workspace` est ecrit par trois services aux identites differentes : les sessions SSH en `vscode`
+(uid 1000), Dagster et app-manager en `root`. Sans precaution, un fichier produit par un job Dagster
+sort en `root:root 0644` et n'est plus modifiable depuis VS Code -- et l'inverse est vrai aussi.
+
+Trois mecanismes, poses automatiquement au demarrage, garantissent l'ecriture partagee :
+
+| Mecanisme                        | Role                                                     |
+| -------------------------------- | -------------------------------------------------------- |
+| Groupe `codelab` (**gid 2000**)  | present dans les 3 images, sous le meme numero            |
+| `setgid` sur `/workspace` (2775) | tout fichier cree herite du groupe du dossier parent      |
+| `umask 002`                      | ce groupe herite aussi du droit d'ecriture, pas juste du nom |
+
+Les trois sont necessaires : le setgid seul donne le bon groupe en lecture seule, l'umask seul ne
+change pas le groupe. Des ACL par defaut (`setfacl -d`) viennent en filet supplementaire quand le
+systeme de fichiers les supporte.
+
+Le tout est applique par l'entrypoint de `codelab-dev`, `codelab-dagster` et `codelab-app-manager`.
+La passe recursive sur les fichiers deja presents n'est faite qu'une fois, tracee par
+`/workspace/.codelab/permissions-v1` -- **supprimer ce marqueur force une reapplication complete** au
+prochain redemarrage, ce qui est la reparation a tenter en premier si un fichier resiste.
+
 ## Persistance des donnees
 
 Tout vit sous `/DATA/AppData/codelab/` sur le disque du ZimaOS (aucun volume Docker nomme) : ca survit a un
