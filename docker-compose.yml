@@ -70,7 +70,12 @@ services:
       - "2222:22"
 
     environment:
-      SSH_PUBLIC_KEY: ${SSH_PUBLIC_KEY}
+      # Optionnelle. Elle sert a enregistrer une premiere cle sur une
+      # installation neuve ; une fois celle-ci enregistree dans
+      # config/ssh/authorized_keys.d/, la stack redemarre sans elle sans
+      # perdre l'acces. Les machines suivantes s'ajoutent avec
+      # "codelab-ssh-key add <nom>", sans repasser par le compose.
+      SSH_PUBLIC_KEY: ${SSH_PUBLIC_KEY:-}
       PGHOST: codelab-postgres
       PGPORT: "5432"
       PGDATABASE: codelab
@@ -85,11 +90,12 @@ services:
       # dans l'ecran d'install ZimaOS. Doit rester identique sur les 4
       # services qui le montent (dev, dagster, dagster-daemon, app-manager).
       - /DATA/AppData/codelab/workspace:/workspace
-      # Un seul dossier pour tout le SSH : authorized_keys (cles autorisees)
-      # et host_keys/ (identite du serveur, pour que l'empreinte ne change
-      # pas a chaque recreation du conteneur). Remplace les anciens
-      # dev-ssh/ et dev-host-keys/. En lecture-ecriture : c'est ce service
-      # qui genere les cles hote au premier demarrage.
+      # Un seul dossier pour tout le SSH : authorized_keys.d/ (une cle
+      # publique par machine autorisee), authorized_keys (fichier derive,
+      # reconstruit au demarrage) et host_keys/ (identite du serveur, pour
+      # que l'empreinte ne change pas a chaque recreation du conteneur).
+      # En lecture-ecriture : c'est ce service qui genere les cles hote au
+      # premier demarrage et qui reconstruit le fichier derive.
       - /DATA/AppData/codelab/config/ssh:/var/lib/codelab/ssh
       # Cible differente du montage ci-dessus, donc pas d'imbrication : le
       # fichier de secrets reste en lecture seule pour ce conteneur.
