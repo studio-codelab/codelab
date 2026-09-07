@@ -1,165 +1,173 @@
 """
-Alertes par mail sur echec de job Dagster.
+CodeLab -- application de diagnostic.
 
-Le capteur est exécuté par codelab-dagster-daemon (le service qui tourne deja
-dans la stack). Il se declenche sur chaque run en echec, tous jobs confondus.
+Tourne dans le conteneur codelab-app-manager, lancee par le panneau, et
+verifie depuis la que les cinq services se parlent :
 
-Deux endroits a parametrer, et un seul contient un secret :
+  config      credentials.env lisible -> volume config monte
+  workspace   /workspace/definitions.py visible -> volume partage
+  postgres    pilote present, connexion avec le mot de passe du fichier partage
+  dagster     http://codelab-dagster:3000 joignable sur le reseau codelab
+  dev         codelab-dev:22 accepte une connexion (banniere SSH), et
+              authorized_keys est lisible par l'utilisateur SSH
 
-  - les DESTINATAIRES, juste en dessous, dans ce fichier ;
-  - les identifiants SMTP, dans un bloc "codelab-alertes" de credentials.env.
+Et surtout : la table codelab_diagnostic contient des lignes ecrites par
+CETTE application ET par l'asset Dagster. Voir les deux sources dans le
+meme tableau est la preuve que la chaine complete fonctionne.
 
-Le fichier credentials.env est gere par bloc -- chaque service ne reecrit que
-le sien -- donc un bloc ajoute a la main sous un nom qu'aucun service ne
-connait survit aux redemarrages. C'est le seul endroit ou mettre un mot de
-passe dans CodeLab.
+    Commande de build     : pip install --target vendor "psycopg[binary]"
+    Commande de lancement : python3 app.py
 
-    # ===== codelab-alertes =====
-    # Identifiants SMTP pour les alertes Dagster. Bloc ajoute a la main :
-    # aucun service ne le reecrit.
-    SMTP_HOST=smtp.gmail.com
-    SMTP_PORT=587
-    SMTP_TLS=starttls          # starttls (defaut) | ssl (port 465) | none
-    SMTP_USER=moi@gmail.com
-    SMTP_PASSWORD=xxxxxxxxxxxxxxxx
-    # ===== /codelab-alertes =====
-
-Sans ce bloc, le capteur ne fait rien et le dit dans ses logs : il ne fait
-jamais echouer un run.
+Ce fichier tourne dans codelab-app-manager, une image qui contient Flask mais
+PAS Dagster : il ne doit donc jamais importer dagster, sous peine de ne plus
+demarrer du tout (le panneau le relance alors en boucle). Le code Dagster du
+projet -- l'asset et le capteur d'alerte -- vit dans definitions.py, execute
+par l'autre conteneur. Le code commun aux deux vit dans checks.py, qui
+n'importe ni flask ni dagster.
 """
 import os
-import smtplib
-import ssl
 import sys
-from email.message import EmailMessage
+import traceback
+from datetime import datetime, timezone
 
-from dagster import DefaultSensorStatus, RunFailureSensorContext, run_failure_sensor
+# psycopg n'est pas dans l'image app-manager : la commande de build l'installe
+# dans ./vendor, a cote du code, sans toucher au conteneur.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor"))
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from flask import Flask  # noqa: E402  (present dans l'image app-manager)
 
-import checks  # noqa: E402  (lecteur de credentials.env, deja utilise ailleurs)
+import checks  # noqa: E402
 
-# --------------------------------------------------------------------------
-# Destinataires des alertes. C'est ICI qu'on les change, pas dans
-# credentials.env : une adresse de destination n'est pas un secret. La garder
-# dans le code la rend visible en relecture, suivie par git, et evite de
-# toucher au fichier d'identifiants pour un changement anodin.
-DESTINATAIRES = [
-    "moi@example.com",
-]
-# --------------------------------------------------------------------------
+app = Flask(__name__)
+SOURCE = "app-manager"
 
-# Adresse publique de l'interface Dagster, pour que le mail contienne un lien
-# cliquable vers le run. A ajuster si tu accedes au ZimaOS autrement.
-DAGSTER_URL = os.environ.get("CODELAB_DAGSTER_URL", "http://<IP-ZimaOS>:3000")
-
-
-def config_smtp():
-    """Renvoie la configuration, ou None si le bloc est absent/incomplet."""
-    cfg = {
-        "host": checks.read_env("SMTP_HOST"),
-        "port": int(checks.read_env("SMTP_PORT") or 587),
-        "tls": (checks.read_env("SMTP_TLS") or "starttls").lower(),
-        "user": checks.read_env("SMTP_USER"),
-        "password": checks.read_env("SMTP_PASSWORD"),
-        # Gmail et la plupart des fournisseurs refusent d'expedier au nom
-        # d'une autre adresse que celle du compte : l'expediteur suit donc
-        # SMTP_USER, sauf ALERTE_FROM explicite.
-        "expediteur": checks.read_env("ALERTE_FROM") or checks.read_env("SMTP_USER"),
-        "destinataires": [a.strip() for a in DESTINATAIRES if a.strip()],
-    }
-    # user/password restent optionnels : un relais interne peut ne pas
-    # demander d'authentification.
-    manquants = []
-    if not cfg["host"]:
-        manquants.append("SMTP_HOST")
-    if not cfg["expediteur"]:
-        manquants.append("SMTP_USER (ou ALERTE_FROM)")
-    if not cfg["destinataires"]:
-        manquants.append("DESTINATAIRES")
-    return (None, manquants) if manquants else (cfg, [])
-
-
-def envoyer(cfg, sujet, corps):
-    msg = EmailMessage()
-    msg["Subject"] = sujet
-    msg["From"] = cfg["expediteur"]
-    msg["To"] = ", ".join(cfg["destinataires"])
-    msg.set_content(corps)
-
-    def _login(s):
-        if cfg["user"] and cfg["password"]:
-            s.login(cfg["user"], cfg["password"])
-
-    if cfg["tls"] == "ssl":
-        # SMTPS : session chiffree des la connexion (port 465 en general).
-        with smtplib.SMTP_SSL(cfg["host"], cfg["port"],
-                              context=ssl.create_default_context(), timeout=20) as s:
-            _login(s)
-            s.send_message(msg)
-    elif cfg["tls"] == "none":
-        # Relais interne sans chiffrement. A ne faire que sur un reseau de
-        # confiance : les identifiants passeraient en clair.
-        with smtplib.SMTP(cfg["host"], cfg["port"], timeout=20) as s:
-            _login(s)
-            s.send_message(msg)
-    else:
-        # STARTTLS : on ouvre en clair puis on chiffre AVANT de s'authentifier.
-        with smtplib.SMTP(cfg["host"], cfg["port"], timeout=20) as s:
-            s.ehlo()
-            s.starttls(context=ssl.create_default_context())
-            s.ehlo()
-            _login(s)
-            s.send_message(msg)
+CSS = """
+:root{--bg:#f6f7f9;--surface:#fff;--surface2:#f0f1f3;--line:#e2e4e8;--txt:#1c2129;--dim:#5b6472;
+ --dim2:#8891a0;--ok:#1a7f37;--ok-bg:rgba(26,127,55,.1);--ok-bd:rgba(26,127,55,.3);
+ --err:#cf222e;--err-bg:rgba(207,34,46,.08);--err-bd:rgba(207,34,46,.28);--accent:#316dca}
+@media(prefers-color-scheme:dark){:root{--bg:#0d1117;--surface:#161b22;--surface2:#1c2129;
+ --line:#262c36;--txt:#e6edf3;--dim:#8b949e;--dim2:#6e7681;--ok:#3fb950;--ok-bg:rgba(63,185,80,.12);
+ --ok-bd:rgba(63,185,80,.35);--err:#f85149;--err-bg:rgba(248,81,73,.12);--err-bd:rgba(248,81,73,.35);
+ --accent:#4c8eff}}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--txt);font:14px/1.55 -apple-system,BlinkMacSystemFont,
+ "Segoe UI",Roboto,sans-serif;padding:34px 20px;-webkit-font-smoothing:antialiased}
+.wrap{max-width:880px;margin:0 auto}
+h1{font-size:19px;font-weight:650;margin-bottom:4px}
+.sub{color:var(--dim);font-size:13px;margin-bottom:24px}
+.verdict{padding:14px 17px;border-radius:12px;font-weight:600;margin-bottom:24px;
+ border:1px solid transparent;line-height:1.5}
+.verdict.ok{background:var(--ok-bg);color:var(--ok);border-color:var(--ok-bd)}
+.verdict.ko{background:var(--err-bg);color:var(--err);border-color:var(--err-bd)}
+h2{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--dim2);
+ margin:28px 0 10px}
+table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--line);
+ border-radius:12px;overflow:hidden}
+th{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--dim2);
+ text-align:left;padding:10px 14px;background:var(--surface2);border-bottom:1px solid var(--line)}
+td{padding:11px 14px;border-top:1px solid var(--line);vertical-align:top}
+tr:first-child td{border-top:none}
+.st{font-weight:700;white-space:nowrap;width:1%}
+.st.ok{color:var(--ok)} .st.ko{color:var(--err)}
+.nom{font-weight:600;white-space:nowrap}
+.det{color:var(--dim);font-size:12.5px;font-family:ui-monospace,Menlo,monospace;word-break:break-word}
+.src{font-weight:600}
+code{font-family:ui-monospace,Menlo,monospace;background:var(--bg);border:1px solid var(--line);
+ border-radius:5px;padding:1px 5px;font-size:12px}
+.note{color:var(--dim);font-size:12.5px;margin-top:12px;line-height:1.6}
+.err{background:var(--err-bg);border:1px solid var(--err-bd);color:var(--err);padding:12px 14px;
+ border-radius:10px;font-family:ui-monospace,Menlo,monospace;font-size:12px;white-space:pre-wrap}
+"""
 
 
-def corps_du_mail(context: RunFailureSensorContext):
-    run = context.dagster_run
-    erreur = context.failure_event.message or "(aucun message)"
-    if context.failure_event.event_specific_data is not None:
-        err = getattr(context.failure_event.event_specific_data, "error", None)
-        if err is not None:
-            erreur = err.to_string()
-
-    return "\n".join([
-        f"Job     : {run.job_name}",
-        f"Run     : {run.run_id}",
-        f"Statut  : ECHEC",
-        f"Lien    : {DAGSTER_URL}/runs/{run.run_id}",
-        "",
-        "Erreur",
-        "------",
-        erreur.strip()[:3000],
-        "",
-        "-- CodeLab, capteur alerte_mail_echec",
-    ])
+def esc(v):
+    return str(v).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-@run_failure_sensor(
-    name="alerte_mail_echec",
-    description="Envoie un mail a chaque run Dagster en echec.",
-    # Actif des le chargement du code : sans ca, il faut penser a l'activer a
-    # la main dans l'interface, et on ne s'en apercoit qu'en ratant une alerte.
-    default_status=DefaultSensorStatus.RUNNING,
-)
-def alerte_mail_echec(context: RunFailureSensorContext):
-    cfg, manquants = config_smtp()
-    if cfg is None:
-        # Volontairement non fatal : une alerte qui ne part pas ne doit pas
-        # ajouter une panne a la panne qu'elle signale.
-        context.log.warning(
-            f"Alerte mail non envoyee, configuration incomplete : {', '.join(manquants)}. "
-            f"Les identifiants SMTP vont dans le bloc codelab-alertes de "
-            f"{checks.ENV_FILE} ; les destinataires dans DESTINATAIRES, en tete "
-            f"de alertes.py.")
-        return
+@app.get("/health")
+def health():
+    return {"ok": True}
 
-    run = context.dagster_run
-    sujet = f"[CodeLab] Echec du job {run.job_name}"
+
+@app.get("/")
+def index():
+    resultats = checks.run_all()
+
+    # Battement de coeur : cette page ecrit sa propre ligne a chaque visite,
+    # l'asset Dagster ecrit les siennes. Les deux sources doivent apparaitre.
+    ecriture, par_source, recentes, erreur_db = None, [], [], None
     try:
-        envoyer(cfg, sujet, corps_du_mail(context))
-        context.log.info(f"Alerte envoyee a {', '.join(cfg['destinataires'])} "
-                         f"pour le run {run.run_id}.")
-    except Exception as e:
-        context.log.error(f"Envoi de l'alerte impossible ({type(e).__name__}: {e}). "
-                          f"Verifie le bloc codelab-alertes dans {checks.ENV_FILE}.")
+        conn = checks.connect_pg()
+        try:
+            ecriture = f"ligne #{checks.write_heartbeat(conn, SOURCE, 'visite de la page')} inseree"
+            par_source, recentes = checks.read_heartbeats(conn)
+        finally:
+            conn.close()
+    except checks.PiloteAbsent as e:
+        erreur_db = str(e)
+    except Exception:
+        erreur_db = traceback.format_exc(limit=3)
+
+    lignes = "".join(
+        f'<tr><td class="st {"ok" if ok else "ko"}">{"OK" if ok else "ECHEC"}</td>'
+        f'<td class="nom">{esc(nom)}</td><td class="det">{esc(det)}</td></tr>'
+        for ok, nom, det in resultats)
+
+    sondes_ok = all(ok for ok, _, _ in resultats)
+    dagster_a_ecrit = "dagster" in {s for s, _, _ in par_source}
+    complet = sondes_ok and erreur_db is None and dagster_a_ecrit
+
+    if complet:
+        verdict = ('<div class="verdict ok">Chaine complete verifiee &mdash; les cinq services '
+                   'communiquent, et Postgres contient des ecritures de l\'application '
+                   '<em>et</em> de Dagster.</div>')
+    elif sondes_ok and erreur_db is None:
+        verdict = ('<div class="verdict ko">Les huit sondes passent, mais aucune ligne ecrite par '
+                   'Dagster. Materialise l\'asset <code>diagnostic_codelab</code> depuis '
+                   'http://&lt;IP&gt;:3000, puis recharge cette page.</div>')
+    else:
+        verdict = ('<div class="verdict ko">Au moins une verification echoue &mdash; le detail est '
+                   'dans la colonne de droite.</div>')
+
+    if erreur_db:
+        bloc_db = f'<div class="err">{esc(erreur_db)}</div>'
+    elif par_source:
+        bloc_db = ('<table><tr><th>Source</th><th>Lignes</th><th>Derniere ecriture</th></tr>'
+                   + "".join(f'<tr><td class="src">{esc(s)}</td><td>{n}</td>'
+                             f'<td class="det">{esc(d)}</td></tr>' for s, n, d in par_source)
+                   + '</table>')
+        if not dagster_a_ecrit:
+            bloc_db += ('<div class="note">Aucune ligne <code>dagster</code> : c\'est le seul '
+                        'maillon encore non verifie.</div>')
+    else:
+        bloc_db = ('<div class="note">Table vide. Elle vient d\'etre creee ; recharge la page, '
+                   'puis materialise l\'asset Dagster.</div>')
+
+    recent = ("".join(
+        f'<tr><td class="det">#{i}</td><td class="src">{esc(s)}</td>'
+        f'<td class="det">{esc(d or "")}</td><td class="det">{esc(t)}</td></tr>'
+        for i, s, d, t in recentes)
+        or '<tr><td colspan="4" class="det">aucune ligne</td></tr>')
+
+    quand = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+    return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CodeLab &middot; diagnostic</title><style>{CSS}</style></head><body><div class="wrap">
+<h1>Diagnostic CodeLab</h1>
+<div class="sub">Execute dans <code>codelab-app-manager</code> &mdash; {esc(quand)}
+{f' &mdash; {esc(ecriture)}' if ecriture else ''}</div>
+{verdict}
+<h2>Verifications</h2>
+<table><tr><th>Etat</th><th>Cible</th><th>Detail</th></tr>{lignes}</table>
+<h2>Table {checks.TABLE} &mdash; qui a ecrit</h2>
+{bloc_db}
+<h2>Dernieres ecritures</h2>
+<table><tr><th>Id</th><th>Source</th><th>Detail</th><th>Date</th></tr>{recent}</table>
+<div class="note">Cette page ecrit une ligne <code>app-manager</code> a chaque rechargement.
+Les lignes <code>dagster</code> viennent de l'asset <code>diagnostic_codelab</code> de
+<code>/workspace/definitions.py</code>.</div>
+</div></body></html>"""
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), threaded=True)
