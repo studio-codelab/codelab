@@ -8,28 +8,36 @@ avec un acces Postgres deja configure dans l'environnement de session.
 - Base `python:3.13-slim` + `openssh-server`, `git`, `curl`, `sudo`.
 - Un utilisateur `vscode` (UID 1000), sans mot de passe, authentification **uniquement par cle publique**
   (`PasswordAuthentication no`, `PermitRootLogin no`).
-- Un script de demarrage (`CMD` du `Dockerfile`) qui, a chaque lancement du conteneur :
-  1. Genere les cles hote SSH si elles n'existent pas encore dans le volume persistant, sinon reutilise celles
+- Un script de demarrage (`ENTRYPOINT` du `Dockerfile`) qui, a chaque lancement du conteneur :
+  1. Pose le socle de permissions sur `/workspace` (groupe partage, setgid, `umask 002`) pour que les
+     fichiers restent modifiables depuis SSH comme depuis Dagster.
+  2. Genere les cles hote SSH si elles n'existent pas encore dans le volume persistant, sinon reutilise celles
      deja presentes (voir [Cles hote SSH](#cles-hote-ssh-et-empreinte-stable)).
-  2. Reconstruit `authorized_keys` a partir de `authorized_keys.d/` .
-  3. Exporte les variables de connexion Postgres (`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`) pour
+  3. Reconstruit `authorized_keys` a partir de `authorized_keys.d/`.
+  4. Exporte les variables de connexion Postgres (`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`) pour
      qu'elles soient disponibles dans toute session SSH interactive (voir
      [Variables Postgres dans une session SSH](#variables-postgres-dans-une-session-ssh)).
-  4. Demarre `sshd` en arriere-plan.
-  5. Passe la main a `runner.py`, qui ne fait que maintenir le conteneur en vie (`sleep infinity`) — tout le
-     travail reel se fait via les sessions SSH, pas dans ce process.
+  5. Passe la main a `sshd`, qui devient le processus principal du conteneur.
+
+`sshd` est le processus principal, pas un demon lance en arriere-plan derriere un veilleur. Deux
+consequences : ses journaux d'authentification arrivent dans `docker logs codelab-dev` (c'est la
+qu'on lit *pourquoi* un `Permission denied (publickey)` se produit), et il recoit le `SIGTERM` de
+`docker stop`, donc l'arret est immediat au lieu d'attendre les dix secondes du delai de grace.
 
 ## Fichiers
 
 | Fichier | Role |
 |---|---|
-| `Dockerfile` | Construction de l'image et script de demarrage |
-| `requirements.txt` | Dependances Python installees dans l'image (`dagster`, `dagster-webserver`, `psycopg[binary]`) |
-| `runner.py` | Process qui maintient le conteneur actif apres le demarrage de `sshd` |
+| `Dockerfile` | Construction de l'image (paquets, utilisateur, dependances Python) |
+| `entrypoint.sh` | Toute la logique de demarrage |
 
-> `requirements.txt` inclut `dagster`/`dagster-webserver` pour permettre d'inspecter ou de tester du code Dagster
-> directement depuis ce conteneur (ex. lancer un job en local avant de le pousser), en plus de l'instance Dagster
-> dediee qui tourne dans les conteneurs `codelab-dagster*`.
+Deux fichiers, c'est tout. Les dependances Python sont declarees directement dans le `Dockerfile`
+plutot que dans un `requirements.txt` separe : trois paquets ne justifient pas un fichier de plus, et
+la liste se lit a l'endroit ou elle est installee.
+
+> L'image inclut `dagster` et `dagster-webserver` pour permettre d'inspecter ou de tester du code Dagster
+> directement depuis ce conteneur (ex. `dagster asset materialize` avant de passer par l'interface), en plus
+> de l'instance dediee qui tourne dans les conteneurs `codelab-dagster*`.
 
 ## Variables d'environnement
 
