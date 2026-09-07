@@ -34,11 +34,14 @@ RUN groupadd -g 2000 codelab \
 RUN sed -i 's/^UMASK.*/UMASK\t\t002/' /etc/login.defs \
     && grep -q '^UMASK' /etc/login.defs || echo 'UMASK 002' >> /etc/login.defs
 
-COPY dev/requirements.txt /opt/codelab/dev/requirements.txt
+# dagster et dagster-webserver servent a lancer un job a la main en SSH
+# ("dagster asset materialize"), sans passer par l'interface. psycopg donne
+# un client Postgres utilisable directement depuis un script du workspace.
+RUN pip install --no-cache-dir \
+    dagster \
+    dagster-webserver \
+    "psycopg[binary]"
 
-RUN pip install --no-cache-dir -r /opt/codelab/dev/requirements.txt
-
-COPY dev/runner.py /opt/codelab/dev/runner.py
 COPY dev/entrypoint.sh /opt/codelab/dev/entrypoint.sh
 RUN chmod +x /opt/codelab/dev/entrypoint.sh
 
@@ -49,8 +52,12 @@ RUN mkdir -p /run/sshd \
 
 EXPOSE 22
 
-# Toute la logique de demarrage (cles SSH, identifiants Postgres) vit dans
-# dev/entrypoint.sh : un script versionne et testable, plutot qu'une ligne de
-# shell echappee dans un CMD.
+# Toute la logique de demarrage (permissions, cles SSH, identifiants
+# Postgres) vit dans dev/entrypoint.sh : un script versionne et testable,
+# plutot qu'une ligne de shell echappee dans un CMD.
+#
+# sshd EST le processus principal du conteneur -- il n'y a pas de veilleur
+# separe a garder en vie a cote. "-D" le maintient au premier plan et "-e"
+# envoie ses journaux sur stderr, donc dans "docker logs".
 ENTRYPOINT ["/opt/codelab/dev/entrypoint.sh"]
-CMD ["python", "/opt/codelab/dev/runner.py"]
+CMD ["/usr/sbin/sshd", "-D", "-e"]
