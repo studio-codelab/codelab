@@ -100,6 +100,43 @@ Dagster, une application web et un module partage entre les deux :
 cp -r /workspace/diagnostic /workspace/mon-projet
 ```
 
+### Sans passer par le terminal
+
+Les memes gestes existent en **taches VS Code**, livrees dans
+`/workspace/.vscode/tasks.json`. Menu **Terminal > Executer la tache...** (ou
+Ctrl+Maj+P, « Executer la tache ») :
+
+| Tache | Ce qu'elle fait |
+|---|---|
+| **CodeLab : nouveau projet** | dossier, `git init`, `.gitignore`, `AGENTS.md` |
+| **CodeLab : creer la base du projet** | `codelab db`, schema et `search_path` |
+| **CodeLab : mettre a jour le manuel de l'agent** | rafraichit le bloc CodeLab du `AGENTS.md` |
+
+VS Code demande le nom du projet dans une boite de dialogue et affiche le
+resultat ; il n'y a rien a taper. Les taches appellent l'outil `codelab` du
+conteneur plutot que de recopier ses commandes : la logique reste a un seul
+endroit.
+
+Ouvre `/workspace` comme dossier dans VS Code, sinon les taches ne sont pas
+proposees (elles vivent dans le `.vscode` de ce dossier).
+
+Le reste du parcours est deja sans terminal : le panneau de l'app-manager fait
+l'ajout, le build, le deploiement et les logs, et l'explorateur de VS Code cree
+fichiers et dossiers au clic droit.
+
+Ce qui echappe encore aux taches : l'echafaudage d'un projet front
+(`npm create vite`), qui reste une commande a lancer. C'est la place naturelle
+d'un `codelab new --stack`, pas d'une ligne de shell recopiee dans un fichier
+de configuration.
+
+> **Installation deja en place :** le squelette n'est copie qu'une fois, au
+> premier demarrage. Pour recuperer `.vscode/` sur un workspace existant, une
+> commande sur l'hote suffit :
+>
+> ```bash
+> docker cp codelab-dagster:/opt/dagster/workspace.default/.vscode /DATA/AppData/codelab/workspace/
+> ```
+
 ---
 
 ## 3. Deployer
