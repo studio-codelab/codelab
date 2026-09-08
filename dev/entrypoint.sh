@@ -11,9 +11,9 @@
 #      contient un fichier "<nom>.pub" par ordinateur ; authorized_keys est
 #      reconstruit a partir de ce dossier au demarrage. Autoriser une
 #      machine = y deposer un fichier puis redemarrer le conteneur ; lui
-#      retirer l'acces = supprimer ce fichier. SSH_PUBLIC_KEY n'est qu'une
-#      source parmi d'autres et devient optionnelle une fois une cle
-#      enregistree : la stack redemarre sans elle sans perdre l'acces.
+#      retirer l'acces = supprimer ce fichier. C'est la SEULE source : il n'y
+#      a pas de variable d'environnement qui injecte une cle au passage, donc
+#      pas de cle autorisee dont l'origine ne se lise pas dans ce dossier.
 #
 #   3. Identifiants Postgres dans les shells SSH. Un sshd ne fait pas heriter
 #      ses sessions de l'environnement du process qui l'a lance (comportement
@@ -78,12 +78,12 @@ BASHRC=/home/vscode/.bashrc
 #      mais en lecture seule.
 #
 # La passe recursive sur les fichiers deja presents ne tourne qu'une fois,
-# tracee par un marqueur. Supprimer /workspace/.codelab/permissions-v1 force
+# tracee par un marqueur. Supprimer /workspace/.codelab/permissions-v2 force
 # une reapplication complete au prochain demarrage : c'est la reparation a
 # tenter en premier si un fichier resiste.
 CODELAB_GROUP="${CODELAB_GROUP:-codelab}"
 WORKSPACE_DIR="${WORKSPACE:-/workspace}"
-PERM_MARKER="$WORKSPACE_DIR/.codelab/permissions-v1"
+PERM_MARKER="$WORKSPACE_DIR/.codelab/permissions-v2"
 
 mkdir -p "$WORKSPACE_DIR"
 chgrp "$CODELAB_GROUP" "$WORKSPACE_DIR" 2>/dev/null || true
@@ -255,17 +255,7 @@ sync_authorized_keys() {
         fi
     fi
 
-    # 2. SSH_PUBLIC_KEY : variable passee au premier demarrage, facultative
-    #    une fois la cle enregistree dans le dossier.
-    if [ -n "${SSH_PUBLIC_KEY:-}" ]; then
-        id="$(printf '%s\n' "$SSH_PUBLIC_KEY" | key_ids)"
-        if [ -n "$id" ] && ! printf '%s\n' "$known" | grep -qxF "$id"; then
-            printf '%s\n' "$SSH_PUBLIC_KEY" >> "$KEYS_D/compose.pub"
-            echo "[codelab-dev] cle de SSH_PUBLIC_KEY enregistree dans compose.pub."
-        fi
-    fi
-
-    # 3. Reconstruction. Ecriture dans un temporaire puis deplacement : sshd
+    # 2. Reconstruction. Ecriture dans un temporaire puis deplacement : sshd
     #    ne doit jamais tomber sur un authorized_keys tronque, ce qui
     #    refuserait toutes les connexions pendant l'ecriture.
     tmp="$AUTHORIZED_KEYS.tmp.$$"
@@ -306,6 +296,8 @@ sync_authorized_keys() {
 
     if [ "$count" -eq 0 ]; then
         echo "[codelab-dev] AUCUNE cle autorisee -- aucune connexion SSH ne sera possible."
+        echo "[codelab-dev] Deposer une cle publique dans $KEYS_D/<machine>.pub"
+        echo "[codelab-dev] (cote hote : .../config/ssh/authorized_keys.d/), puis redemarrer ce conteneur."
     else
         echo "[codelab-dev] $count cle(s) autorisee(s) depuis $KEYS_D."
     fi

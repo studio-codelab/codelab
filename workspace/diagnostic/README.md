@@ -51,7 +51,8 @@ decouvre tout seul. Il n'y a **pas** de fichier central a editer pour declarer u
 
 1. Ouvre `http://<IP-du-serveur>:9001/diagnostic/`. Huit verifications s'affichent, et la page ecrit une ligne
    `app-manager` en base a chaque rechargement.
-2. Le bandeau reste rouge tant que Dagster n'a rien ecrit. Va sur `http://<IP-du-serveur>:3000/`, materialise
+2. Le bandeau reste rouge tant que Dagster n'a rien ecrit. Va sur `http://<IP-du-serveur>:3000/` (identifiants dans `credentials.env`, cles `DAGSTER_USER` et
+   `DAGSTER_PASSWORD`), materialise
    l'asset **`diagnostic_codelab`**, puis recharge la page.
 3. Bandeau vert = chaine complete.
 

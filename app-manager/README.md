@@ -42,6 +42,22 @@ applications est gere directement par ce service.
 
 ## Fiabilite, observabilite, deploiement
 
+- **Les applications et leurs builds ne tournent pas en root** — le service, lui, en a besoin au demarrage
+  (groupe et setgid sur `/workspace`), mais tout ce qu'il lance bascule sur l'utilisateur `codelab-app`
+  (uid 1001, groupe `codelab`). Ce que cela fermait : `credentials.env` est monte ici en `0600 root`, donc
+  un processus enfant lance en root pouvait lire le mot de passe Postgres, celui du panneau et la cle de
+  session. Le vecteur realiste n'est pas l'application mais son build — `npm ci` execute les scripts
+  `postinstall` de toutes les dependances transitives, et une seule compromise suffit. `git pull` est
+  concerne aussi : un depot peut porter des hooks.
+  Les enfants recoivent un `HOME` dedie dans le volume d'etat (`home/`) : sans lui `npm` echoue sur son
+  cache, `/root` n'etant plus accessible. Le marqueur de permissions passe a `permissions-v2` pour rejouer
+  une fois la passe sur un workspace existant, dont les fichiers ont pu etre produits en root.
+- **Le cookie de session du panneau n'est pas transmis aux applications** — elles sont servies sur la meme
+  origine (`:9001/<app>/`), le navigateur le leur envoie donc, et le proxy le relayait tel quel : une
+  application deployee pouvait lire la session admin et piloter le panneau. Seul ce cookie est retire, ceux
+  de l'application passent. La meme origine reste : une XSS dans une application reste une XSS dans
+  l'origine du panneau, et y remedier demanderait un port ou un sous-domaine par application — ce que ce
+  proxy a justement pour but d'eviter.
 - **Le panneau est le point d'entree de toute la stack** — il execute des commandes arbitraires (lancement,
   build) sous l'identite du service. Quatre garde-fous, dans cet esprit :
   - cookie de session en `SameSite=Lax` et `HttpOnly`. Les actions du panneau sont des `POST` sans corps :
@@ -121,8 +137,19 @@ applications est gere directement par ce service.
 
 | Fichier | Role |
 |---|---|
-| `Dockerfile` | Construction de l'image (Flask, psutil, requests, Node.js) |
-| `app.py` | Le service complet : auth, API, proxy, dashboard |
+| `Dockerfile` | Construction de l'image (Flask, psutil, requests, Node.js, git) |
+| `entrypoint.sh` | Permissions partagees sur `/workspace`, puis demarrage |
+| `app/app.py` | Le service : authentification, API, cycle de vie des process, reverse proxy |
+| `app/dashboard.html` | L'interface du panneau |
+| `app/login.html` | La page de connexion |
+| `tests/` | Les regressions gardees (`python -m pytest app-manager/tests -q`) |
+
+L'application vit dans `app/` : une seule ligne de `COPY` dans le `Dockerfile`, et la racine du service
+reste lisible — l'image, le demarrage, la documentation, les tests.
+
+Les deux pages etaient des chaines Python dans `app/app.py` — 67 Ko sur une seule ligne pour le tableau de
+bord. Elles sont lues une fois au demarrage, et `__ROOT__` y est remplace par la racine du workspace au
+moment de servir la page. Un fichier `.html` se relit, se diffe et se colore ; une chaine echappee, non.
 
 ## Authentification
 
@@ -168,7 +195,6 @@ silencieusement sans bloquer le demarrage du service — c'est une commodite, pa
 
 | Variable | Role |
 |---|---|
-| `APP_MANAGER_DIR` | Ou vit `app.py` dans l'image (`/opt/codelab/app-manager`) — lecture seule |
 | `APP_MANAGER_STATE` | Ou vivent `apps.json`, les logs, le mot de passe admin et la cle de session — le seul dossier que le service ecrit |
 | `APP_MANAGER_ROOT` | Racine du navigateur de dossiers et des chemins d'applications (`/workspace`) |
 | `APP_MANAGER_SHARED_CONFIG` | Dossier de `credentials.env`, le fichier unique de secrets (`/var/lib/codelab/config`) |

@@ -3,7 +3,7 @@
 # Strictement identique a docker-compose.yml, plus les metadonnees "x-casaos"
 # que ces interfaces lisent pour afficher l'application : icone (encodee en
 # base64 pour ne dependre d'aucune URL), titre, description, application
-# principale et port a ouvrir, le libelle du champ SSH_PUBLIC_KEY demande a
+# principale et port a ouvrir, la note affichee a
 # l'installation, et la note affichee avant installation (x-casaos.tips).
 #
 # Docker Compose ignore les cles "x-*" : ce fichier reste utilisable tel quel
@@ -37,23 +37,28 @@ x-casaos:
   tips:
     before_install:
       fr_FR: |
-        ### Une seule valeur a fournir
+        ### Rien a saisir, une chose a faire apres l'installation
 
-        **`SSH_PUBLIC_KEY`** : ta cle publique SSH, le contenu de
-        `~/.ssh/id_ed25519.pub` par exemple. C'est elle qui ouvrira ta
-        session sur le conteneur de developpement, en tant qu'utilisateur
-        `vscode`.
+        Aucun champ a remplir ici. L'acces SSH s'ouvre en deposant ta cle
+        publique dans un dossier, apres le premier demarrage :
 
-        Elle n'est necessaire qu'au premier demarrage : une fois
-        enregistree, la stack redemarre sans elle. Pour autoriser une autre
-        machine ensuite, deposer sa cle publique dans
-        `/DATA/AppData/codelab/config/ssh/authorized_keys.d/<nom>.pub`, puis
-        redemarrer le conteneur `codelab-dev`.
+        `/DATA/AppData/codelab/config/ssh/authorized_keys.d/<nom>.pub`
+
+        un fichier par machine autorisee (le contenu de
+        `~/.ssh/id_ed25519.pub`, par exemple), puis redemarrer le conteneur
+        `codelab-dev`. Retirer l'acces a une machine, c'est supprimer son
+        fichier.
+
+        > **Tant qu'aucune cle n'est deposee, aucune connexion SSH n'est
+        > possible** -- c'est voulu : la liste des machines autorisees se lit
+        > entierement dans ce dossier, et nulle part ailleurs. Le panneau
+        > (port 9001) et Dagster (port 3000) restent accessibles sans SSH.
 
         ### Ports
 
         - `2222` — SSH et VS Code Remote-SSH (utilisateur `vscode`)
         - `3000` — Dagster, orchestration et planification des jobs
+          (protege par mot de passe)
         - `9001` — panneau de gestion des applications (page d'accueil)
 
         ### Donnees
@@ -69,27 +74,32 @@ x-casaos:
 
         ### Mots de passe
 
-        Rien a choisir : celui de Postgres et celui du panneau sont generes
-        au premier demarrage et ecrits dans
+        Rien a choisir : ceux de Postgres, du panneau et de Dagster sont
+        generes au premier demarrage et ecrits dans
         `/DATA/AppData/codelab/config/credentials.env`, lisible directement
         depuis le gestionnaire de fichiers.
       en_US: |
-        ### One value to provide
+        ### Nothing to fill in, one thing to do after installing
 
-        **`SSH_PUBLIC_KEY`**: your SSH public key, the contents of
-        `~/.ssh/id_ed25519.pub` for instance. It is what opens your session
-        on the development container, as the `vscode` user.
+        No field to fill here. SSH access is opened by dropping your public
+        key into a folder, after the first start:
 
-        It is only needed on the first start: once recorded, the stack
-        restarts without it. To authorize another machine later, drop its
-        public key into
-        `/DATA/AppData/codelab/config/ssh/authorized_keys.d/<name>.pub` and
-        restart the `codelab-dev` container.
+        `/DATA/AppData/codelab/config/ssh/authorized_keys.d/<name>.pub`
+
+        one file per authorized machine (the contents of
+        `~/.ssh/id_ed25519.pub`, for instance), then restart the
+        `codelab-dev` container. Revoking a machine means deleting its file.
+
+        > **Until a key is dropped there, no SSH connection is possible** --
+        > by design: the list of authorized machines is readable entirely
+        > from that folder, and nowhere else. The panel (port 9001) and
+        > Dagster (port 3000) remain reachable without SSH.
 
         ### Ports
 
         - `2222` — SSH and VS Code Remote-SSH (`vscode` user)
         - `3000` — Dagster, job orchestration and scheduling
+          (password protected)
         - `9001` — application manager panel (landing page)
 
         ### Data
@@ -171,13 +181,6 @@ services:
       - "2222:22"
 
     environment:
-      # Optionnelle. Elle sert a enregistrer une premiere cle sur une
-      # installation neuve ; une fois celle-ci enregistree dans
-      # config/ssh/authorized_keys.d/, la stack redemarre sans elle sans
-      # perdre l'acces. Les machines suivantes s'ajoutent en deposant leur
-      # cle publique dans ce meme dossier (un fichier "<nom>.pub" par
-      # machine), sans repasser par le compose.
-      SSH_PUBLIC_KEY: ${SSH_PUBLIC_KEY:-}
       PGHOST: codelab-postgres
       PGPORT: "5432"
       # Une session SSH atterrit dans la base du projet modele, pas dans la
@@ -216,13 +219,6 @@ services:
     # connexion a la base n'est necessaire que lorsque l'utilisateur s'en
     # sert depuis une session SSH, pas au boot du conteneur lui-meme.
 
-    x-casaos:
-      envs:
-        - container: SSH_PUBLIC_KEY
-          description:
-            en_US: "Your public SSH key (contents of e.g. ~/.ssh/id_ed25519.pub) to connect as the 'vscode' user."
-            fr_FR: "Ta cle publique SSH (contenu de ~/.ssh/id_ed25519.pub par exemple) pour te connecter en tant qu'utilisateur 'vscode'."
-
     networks:
       - codelab
 
@@ -232,8 +228,11 @@ services:
     container_name: codelab-dagster
     restart: unless-stopped
 
-    ports:
-      - "3000:3000"
+    # Pas de "ports" ici, volontairement : Dagster n'a aucune
+    # authentification, et son interface permet de lancer des jobs -- donc
+    # d'executer du code. Il n'est accessible qu'a travers
+    # codelab-dagster-proxy, qui publie le port 3000 et demande un mot de
+    # passe.
 
     environment:
       DAGSTER_HOME: /opt/dagster/home
@@ -321,7 +320,6 @@ services:
       - /DATA/AppData/codelab/config:/var/lib/codelab/config
 
     environment:
-      APP_MANAGER_DIR: /opt/codelab/app-manager
       APP_MANAGER_STATE: /var/lib/codelab/app-manager
       APP_MANAGER_ROOT: /workspace
       MANAGER_PORT: "9001"
@@ -329,6 +327,44 @@ services:
 
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:9001/health')\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+    networks:
+      - codelab
+
+
+  # Reverse proxy authentifiant devant Dagster. Dagster (edition open source)
+  # n'a AUCUNE authentification : qui atteint son port peut lancer un job,
+  # donc executer du code arbitraire sur la machine. Le port 3000 de l'hote
+  # arrive donc ici, et le port de codelab-dagster n'est plus publie -- il
+  # n'est joignable que depuis le reseau interne de la stack.
+  codelab-dagster-proxy:
+    image: ghcr.io/lucasrtn/codelab-dagster-proxy:latest
+    container_name: codelab-dagster-proxy
+    restart: unless-stopped
+
+    ports:
+      - "3000:3000"
+
+    volumes:
+      # Lecture-ecriture : ce service ajoute son propre bloc (identifiants
+      # d'acces a Dagster) dans le credentials.env partage.
+      - /DATA/AppData/codelab/config:/var/lib/codelab/config
+
+    depends_on:
+      - codelab-dagster
+
+    healthcheck:
+      # 401 attendu sans identifiants : c'est la preuve que nginx repond ET
+      # que l'authentification est bien en place. Un 200 ici signifierait
+      # qu'elle est tombee.
+      # Pas de "-q" : c'est justement le message d'erreur de wget qui porte le
+      # code. Un 401 prouve que nginx repond ET que l'authentification tient ;
+      # serveur injoignable, le message est tout autre et le test echoue.
+      test: ["CMD-SHELL", "wget -O /dev/null http://127.0.0.1:3000/ 2>&1 | grep -q 401"]
       interval: 10s
       timeout: 5s
       retries: 5

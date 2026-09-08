@@ -54,7 +54,6 @@ la liste se lit a l'endroit ou elle est installee.
 
 | Variable | Origine | Usage |
 |---|---|---|
-| `SSH_PUBLIC_KEY` | Passee au premier demarrage, **facultative** | Enregistree dans `authorized_keys.d/compose.pub` si absente — sert a amorcer une installation neuve, plus necessaire ensuite |
 | `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` | Fixees dans `docker-compose.yml` | Connexion a `codelab-postgres`. `PGDATABASE=diagnostic` : une session SSH atterrit dans la base du projet modele, pas dans la base d'instance de Dagster |
 | `CODELAB_ENV_FILE` | Fixee dans `docker-compose.yml` | `credentials.env` : `POSTGRES_PASSWORD` y est lu pour construire `PGPASSWORD` |
 | `CODELAB_SSH_DIR` | Fixee dans `docker-compose.yml` | Dossier unique des cles : `authorized_keys.d/`, `authorized_keys` (derive) + `host_keys/` |
@@ -148,9 +147,16 @@ reposer le schema et le `search_path`. Puis, dans le `.env` du projet : `CODELAB
 ```bash
 docker build -f dev/Dockerfile -t codelab-dev-test .   # contexte = racine du depot
 docker run --rm -it \
-  -e SSH_PUBLIC_KEY="$(cat ~/.ssh/id_ed25519.pub)" \
+  -v "$PWD/essai-ssh:/var/lib/codelab/ssh" \
   -p 2222:22 \
   codelab-dev-test
+```
+
+Deposer sa cle avant de lancer, sinon aucune connexion n'est possible :
+
+```bash
+mkdir -p essai-ssh/authorized_keys.d
+cp ~/.ssh/id_ed25519.pub essai-ssh/authorized_keys.d/essai.pub
 ```
 
 Sans variables `PG*` ni `credentials.env` accessible, la partie Postgres du script est ignoree : le script

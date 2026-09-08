@@ -35,7 +35,6 @@ on:
       - "dagster/**"
       - "workspace/**"
       - "app-manager/**"
-      - "tests/**"
       - "docker-compose.yml"
       - "docker-compose-casaos.yml"
       - ".github/workflows/build-images.yml"
@@ -68,7 +67,7 @@ jobs:
         run: pip install flask psutil requests pytest
 
       - name: pytest
-        run: python -m pytest tests/ -q
+        run: python -m pytest app-manager/tests -q
 
   build:
     needs: tests
@@ -83,6 +82,8 @@ jobs:
             dockerfile: dev/Dockerfile
           - name: codelab-dagster
             dockerfile: dagster/Dockerfile
+          - name: codelab-dagster-proxy
+            dockerfile: dagster/proxy/Dockerfile
           - name: codelab-app-manager
             dockerfile: app-manager/Dockerfile
 
