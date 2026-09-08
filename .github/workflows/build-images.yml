@@ -18,6 +18,7 @@ on:
       - "postgres/**"
       - "dev/**"
       - "dagster/**"
+      - "dagster-proxy/**"
       - "workspace/**"
       - "app-manager/**"
       - "docker-compose.yml"
@@ -33,6 +34,7 @@ on:
       - "postgres/**"
       - "dev/**"
       - "dagster/**"
+      - "dagster-proxy/**"
       - "workspace/**"
       - "app-manager/**"
       - "tests/**"
@@ -83,6 +85,8 @@ jobs:
             dockerfile: dev/Dockerfile
           - name: codelab-dagster
             dockerfile: dagster/Dockerfile
+          - name: codelab-dagster-proxy
+            dockerfile: dagster-proxy/Dockerfile
           - name: codelab-app-manager
             dockerfile: app-manager/Dockerfile
 

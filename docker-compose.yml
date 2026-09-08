@@ -1,13 +1,13 @@
 # CodeLab -- environnement de developpement auto-heberge.
 #
-#   SSH_PUBLIC_KEY="$(cat ~/.ssh/id_ed25519.pub)" docker compose up -d
+#   docker compose up -d
 #
 # Les donnees vivent sous /DATA/AppData/codelab/ sur l'hote ; pour les ranger
 # ailleurs, editer les chemins hote des volumes ci-dessous.
 #
 # Une variante de ce fichier, docker-compose-casaos.yml, ajoute les
 # metadonnees d'affichage lues par les interfaces d'installation de type
-# CasaOS (icone, titre, libelle du champ SSH_PUBLIC_KEY, note affichee avant
+# CasaOS (icone, titre, note affichee avant
 # installation). Le reste est
 # identique : toute modification faite ici doit y etre reportee.
 
@@ -73,13 +73,6 @@ services:
       - "2222:22"
 
     environment:
-      # Optionnelle. Elle sert a enregistrer une premiere cle sur une
-      # installation neuve ; une fois celle-ci enregistree dans
-      # config/ssh/authorized_keys.d/, la stack redemarre sans elle sans
-      # perdre l'acces. Les machines suivantes s'ajoutent en deposant leur
-      # cle publique dans ce meme dossier (un fichier "<nom>.pub" par
-      # machine), sans repasser par le compose.
-      SSH_PUBLIC_KEY: ${SSH_PUBLIC_KEY:-}
       PGHOST: codelab-postgres
       PGPORT: "5432"
       # Une session SSH atterrit dans la base du projet modele, pas dans la
@@ -127,8 +120,11 @@ services:
     container_name: codelab-dagster
     restart: unless-stopped
 
-    ports:
-      - "3000:3000"
+    # Pas de "ports" ici, volontairement : Dagster n'a aucune
+    # authentification, et son interface permet de lancer des jobs -- donc
+    # d'executer du code. Il n'est accessible qu'a travers
+    # codelab-dagster-proxy, qui publie le port 3000 et demande un mot de
+    # passe.
 
     environment:
       DAGSTER_HOME: /opt/dagster/home
@@ -224,6 +220,44 @@ services:
 
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:9001/health')\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+    networks:
+      - codelab
+
+
+  # Reverse proxy authentifiant devant Dagster. Dagster (edition open source)
+  # n'a AUCUNE authentification : qui atteint son port peut lancer un job,
+  # donc executer du code arbitraire sur la machine. Le port 3000 de l'hote
+  # arrive donc ici, et le port de codelab-dagster n'est plus publie -- il
+  # n'est joignable que depuis le reseau interne de la stack.
+  codelab-dagster-proxy:
+    image: ghcr.io/lucasrtn/codelab-dagster-proxy:latest
+    container_name: codelab-dagster-proxy
+    restart: unless-stopped
+
+    ports:
+      - "3000:3000"
+
+    volumes:
+      # Lecture-ecriture : ce service ajoute son propre bloc (identifiants
+      # d'acces a Dagster) dans le credentials.env partage.
+      - /DATA/AppData/codelab/config:/var/lib/codelab/config
+
+    depends_on:
+      - codelab-dagster
+
+    healthcheck:
+      # 401 attendu sans identifiants : c'est la preuve que nginx repond ET
+      # que l'authentification est bien en place. Un 200 ici signifierait
+      # qu'elle est tombee.
+      # Pas de "-q" : c'est justement le message d'erreur de wget qui porte le
+      # code. Un 401 prouve que nginx repond ET que l'authentification tient ;
+      # serveur injoignable, le message est tout autre et le test echoue.
+      test: ["CMD-SHELL", "wget -O /dev/null http://127.0.0.1:3000/ 2>&1 | grep -q 401"]
       interval: 10s
       timeout: 5s
       retries: 5

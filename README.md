@@ -10,7 +10,8 @@ une base de donnees partagee, un acces SSH/VS Code, un orchestrateur de jobs et 
 |---|---|---|
 | **Postgres** | Serveur de bases partage : une base par projet, plus la base `dagster` | interne uniquement |
 | **Dev** | Acces SSH + VS Code Remote-SSH, avec un utilisateur dedie | `2222` |
-| **Dagster** | Orchestration et planification de jobs (interface web + daemon) | `3000` |
+| **Dagster** | Orchestration et planification de jobs (interface web + daemon) | interne uniquement |
+| **Dagster-proxy** | Authentification devant Dagster, qui n'en a aucune | `3000` |
 | **App-manager** | Deploiement et supervision des applications que tu developpes | `9001` |
 
 Zero configuration manuelle apres l'installation : mot de passe de base de donnees genere automatiquement, cles
@@ -20,14 +21,20 @@ SSH generees et persistees, et connexion a Postgres deja prete dans l'environnem
 
 ```bash
 git clone https://github.com/lucasrtn/codelab.git && cd codelab
-SSH_PUBLIC_KEY="$(cat ~/.ssh/id_ed25519.pub)" docker compose up -d
+docker compose up -d
+
+# puis autoriser ta machine en SSH : un fichier par ordinateur
+sudo install -Dm644 ~/.ssh/id_ed25519.pub \
+  /DATA/AppData/codelab/config/ssh/authorized_keys.d/mon-portable.pub
+docker restart codelab-dev
 ```
 
-1. **`SSH_PUBLIC_KEY`** est la seule valeur a fournir : ta cle publique SSH, celle avec laquelle tu te
-   connecteras en tant qu'utilisateur `vscode`. Elle n'est necessaire qu'au premier demarrage — une fois
-   enregistree, la stack redemarre sans elle. Pour autoriser une autre machine ensuite, deposer sa cle
-   publique dans `/DATA/AppData/codelab/config/ssh/authorized_keys.d/<nom>.pub`, puis redemarrer le
-   conteneur `codelab-dev`.
+1. **Rien a fournir au demarrage.** L'acces SSH s'ouvre en deposant une cle publique dans
+   `config/ssh/authorized_keys.d/`, un fichier par machine ; `authorized_keys` en est **derive** a chaque
+   demarrage. Autoriser une machine = y deposer un fichier ; lui retirer l'acces = le supprimer. Tant
+   qu'aucune cle n'est deposee, aucune connexion SSH n'est possible — c'est voulu : la liste des machines
+   autorisees se lit entierement dans ce dossier, et nulle part ailleurs. Le panneau (`9001`) et Dagster
+   (`3000`) restent accessibles sans SSH.
 2. Les donnees vivent sous `/DATA/AppData/codelab/` (voir [Persistance des donnees](#persistance-des-donnees)).
    Pour les ranger ailleurs, changer les chemins hote des volumes dans `docker-compose.yml` — ce sont des
    chemins litteraux, pas des variables.
@@ -36,8 +43,8 @@ SSH_PUBLIC_KEY="$(cat ~/.ssh/id_ed25519.pub)" docker compose up -d
 
 Si ton serveur expose une interface d'installation par collage de compose (les app stores de type CasaOS,
 par exemple), utilise plutot `docker-compose-casaos.yml` : c'est le meme fichier, plus les metadonnees
-d'affichage que ces interfaces savent lire — icone, titre, description du champ `SSH_PUBLIC_KEY`, et une
-note recapitulant cle SSH, ports et emplacement des donnees, affichee avant l'installation.
+d'affichage que ces interfaces savent lire — icone, titre, et une note recapitulant la marche a suivre
+pour la cle SSH, les ports et l'emplacement des donnees, affichee avant l'installation.
 
 ## Utilisation
 
@@ -64,6 +71,10 @@ recuperer). Le parcours complet, du dossier vide a l'application en ligne, est d
 [`DEVELOPPER.md`](DEVELOPPER.md).
 
 **Dagster** : `http://<IP-du-serveur>:3000/` — charge `/workspace/definitions.py` comme code Dagster.
+Protege par mot de passe : Dagster n'a aucune authentification a lui, et son interface permet de lancer un
+job, donc d'executer du code. Un reverse proxy (`codelab-dagster-proxy`) en ajoute une devant, et le port de
+Dagster lui-meme n'est plus publie. Identifiants dans `credentials.env` (`DAGSTER_USER`,
+`DAGSTER_PASSWORD`), voir [`dagster-proxy/README.md`](dagster-proxy/README.md).
 
 **Agents** : `codelab agents` dans un projet y ecrit le mode d'emploi de la stack (perimetre d'ecriture,
 acces a la base, conventions Dagster et app-manager) sous forme d'un `AGENTS.md`, lu par `codex` avant
@@ -71,8 +82,8 @@ chaque tache. Voir [`DEVELOPPER.md`](DEVELOPPER.md).
 
 ## Un seul fichier de secrets
 
-Mot de passe Postgres, mot de passe admin app-manager, cle de session : **tout est dans `credentials.env`, et
-nulle part ailleurs.** Aucun fichier mono-secret a cote, rien a aller chercher dans un conteneur :
+Mot de passe Postgres, mot de passe admin app-manager, mot de passe Dagster, cle de session : **tout est
+dans `credentials.env`, et nulle part ailleurs.** Aucun fichier mono-secret a cote, rien a aller chercher dans un conteneur :
 ```bash
 cat /DATA/AppData/codelab/config/credentials.env
 ```
@@ -105,10 +116,8 @@ docker restart codelab-dev
 ls /DATA/AppData/codelab/config/ssh/authorized_keys.d/
 ```
 
-Deux consequences utiles :
+Une consequence utile :
 
-- **`SSH_PUBLIC_KEY` devient facultative.** Elle ne sert qu'a enregistrer une premiere cle sur une
-  installation neuve. Ensuite, reimporter le compose en laissant le champ vide ne coupe plus rien.
 - **Ecrire directement dans `authorized_keys` continue de marcher.** Une ligne ajoutee a la main est
   recuperee dans `authorized_keys.d/manuel.pub` au demarrage suivant, puis reprise dans le fichier
   derive -- elle n'est pas ecrasee par la reconstruction.
@@ -218,9 +227,9 @@ sinon Dagster repart d'un `DAGSTER_HOME` vide et reinitialise sa configuration :
 sudo mv /DATA/AppData/codelab/dagster-home /DATA/AppData/codelab/dagster
 ```
 
-Sans cette etape, tout fonctionne quand meme : de nouvelles cles hote sont generees et `SSH_PUBLIC_KEY` est
-re-autorisee automatiquement — mais l'empreinte du serveur change (`ssh-keygen -R "[<IP-du-serveur>]:2222"` cote
-client) et les cles ajoutees a la main sont perdues.
+Sans cette etape, de nouvelles cles hote sont generees — l'empreinte du serveur change
+(`ssh-keygen -R "[<IP-du-serveur>]:2222"` cote client) et **les cles autorisees sont perdues** : il faut
+redeposer un `.pub` dans `authorized_keys.d/` pour retrouver l'acces SSH.
 
 ## Tests
 
@@ -300,11 +309,13 @@ python3 -c "import base64; print('data:image/png;base64,' + base64.b64encode(ope
 codelab/
 ├── docker-compose.yml
 ├── DEVELOPPER.md  # developper un projet et le deployer -- a lire en premier
+├── tests/         # regressions gardees : detection, chemins, auth, privileges
 ├── icon.svg / icon.png
 ├── .github/workflows/build-images.yml
 ├── workspace/     # squelette depose dans /workspace au premier demarrage
 ├── dev/           # SSH + VS Code Remote-SSH — voir dev/README.md
 ├── dagster/       # orchestration de jobs — voir dagster/README.md
+├── dagster-proxy/ # authentification devant Dagster — voir dagster-proxy/README.md
 └── app-manager/   # deploiement d'applications — voir app-manager/README.md
 ```
 
