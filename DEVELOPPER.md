@@ -1,0 +1,164 @@
+# Developper et deployer dans CodeLab
+
+De la page blanche a l'application en ligne. Ce document remplace les notes
+accumulees au fil des essais : tout ce qui suit correspond a l'etat actuel des
+images, sans contournement a rejouer a la main.
+
+---
+
+## 1. Ou suis-je ?
+
+La moitie des problemes vient d'une commande lancee dans le mauvais
+environnement. Il y en a trois.
+
+| Environnement | Comment y aller | Ce qu'on y trouve |
+|---|---|---|
+| Ordinateur local | terminal habituel | VS Code et ses extensions « UI », rien du projet |
+| Conteneur `codelab-dev` | `ssh vscode@<IP-du-serveur> -p 2222` | le code, node, npm, codex, `/workspace` |
+| Hote (le serveur) | `ssh <user>@<IP-du-serveur>` (port 22) | Docker, les volumes de la stack |
+
+Pour trancher, une commande :
+
+```bash
+hostname && whoami && ls -d /workspace
+```
+
+Dans `codelab-dev` : un hostname hexadecimal, l'utilisateur `vscode`, et
+`/workspace` existe. Sinon, on est ailleurs.
+
+**`/workspace` est le seul dossier partage** entre les services et le seul qui
+survive a une mise a jour d'image. `/home/vscode` et `/usr/local` sont
+reconstruits a partir de l'image a chaque recreation du conteneur : ce qui doit
+durer va dans `/workspace`, ou dans le `Dockerfile` du service.
+
+> Ne jamais donner un chemin absolu a un agent lance depuis l'ordinateur local :
+> il chercherait un `/workspace/...` qui n'existe que sur le serveur. Dire
+> « dans le projet courant ».
+
+---
+
+## 2. Le cycle complet
+
+```bash
+ssh vscode@<IP-du-serveur> -p 2222     # 1. entrer dans le conteneur
+cd /workspace/mon-projet               # 2. jamais depuis l'ordinateur local
+codex                                  # 3. developper (voir section 4)
+npm run build                          # 4. verifier que le build passe
+```
+
+5. Ouvrir `http://<IP-du-serveur>:9001/`, **Ajouter un projet**, choisir le
+   dossier : les commandes de lancement et de build sont proposees
+   automatiquement (section 3).
+6. Activer l'application. Elle est servie sur
+   `http://<IP-du-serveur>:9001/mon-projet/`.
+
+Aucune installation prealable : node, npm, `codex`, `git` et le client Postgres
+sont dans l'image `codelab-dev` ; node, npm et `git` sont aussi dans l'image
+`codelab-app-manager`, qui est celle qui execute les builds.
+
+---
+
+## 3. Deployer
+
+Le formulaire d'ajout inspecte le dossier et propose **deux** commandes : une de
+build, une de lancement. Cliquer sur la suggestion remplit les deux champs.
+
+| Le dossier contient | Build propose | Lancement propose |
+|---|---|---|
+| Vite, Astro, Parcel, CRA, Angular (avec un script `build`) | `npm ci && npm run build` | `python3 -m http.server $PORT --directory dist` |
+| Next.js | `npm ci && npm run build` | `npx next start --port $PORT` |
+| un `package.json` avec un script `start` | `npm ci` (+ `&& npm run build` si le script existe) | `npm start` |
+| `manage.py` (Django) | `pip install -r requirements.txt` | `python3 manage.py runserver 0.0.0.0:$PORT` |
+| `app.py` / `main.py` | `pip install -r requirements.txt` | `python3 app.py` |
+| `index.html` seul | — | `python3 -m http.server $PORT` |
+
+Trois regles derriere ce tableau :
+
+- **`$PORT` est fourni par l'app-manager.** La variable est injectee dans
+  l'environnement du processus lance : ecrire `$PORT` plutot qu'un numero en dur
+  evite d'avoir a resynchroniser la commande quand le port change.
+- **Le build a besoin de node, le service non.** Pour un front, ce qui part en
+  ligne est le dossier produit par le build, servi par le `http.server` de
+  Python. Rien a redemarrer si node change de version, et pas de serveur de
+  developpement (`vite dev`) expose en continu.
+- **`npm ci` quand il y a un lockfile**, `npm install` sinon : installation
+  reproductible, et plus rapide.
+
+Apres chaque modification du code : **Lancer le build**, puis **Redemarrer**,
+tous deux dans le menu « ... » de la tuile.
+
+### Application servie sous un sous-chemin
+
+L'app-manager sert chaque application sous `/<nom>/`. Un front construit pour la
+racine y affiche une page blanche et des 404 sur ses assets. Pour Vite :
+
+```js
+// vite.config.js
+export default defineConfig({ base: '/mon-projet/' })
+```
+
+L'equivalent existe partout : `basePath` pour Next.js, `--base-href` pour
+Angular, `homepage` dans le `package.json` pour Create React App.
+
+---
+
+## 4. Codex
+
+`codex` est installe dans l'image et `CODEX_HOME` pointe sur
+`/workspace/.codex`, cree au demarrage du conteneur avec un `config.toml` par
+defaut. L'authentification et les reglages survivent donc aux mises a jour
+d'image : `codex login` n'est a refaire que la premiere fois.
+
+Le flux OAuth ouvre un serveur sur le port 1455 **dans le conteneur**. Depuis
+l'ordinateur local, dans un second terminal :
+
+```bash
+ssh -p 2222 -L 1455:127.0.0.1:1455 vscode@<IP-du-serveur>
+```
+
+puis, cote conteneur, `codex login` et ouvrir l'URL affichee. Sans tunnel :
+`codex login --device-auth`. C'est fait quand `/workspace/.codex/auth.json`
+existe.
+
+```bash
+cd /workspace/mon-projet
+codex                 # session interactive (/model, /approvals, /new)
+codex exec "..."      # commande unique, sans memoire entre deux appels
+codex resume          # reprendre une session
+```
+
+Un `AGENTS.md` a la racine du projet est lu automatiquement : y mettre la stack,
+les commandes (test, build, demarrage), le fait qu'on est dans un conteneur, et
+les conventions du projet.
+
+**L'extension VS Code `openai.chatgpt` ne fonctionne pas ici** : elle est
+declaree « UI-only », donc executee sur l'ordinateur local, ou il n'y a ni le
+projet ni node (`Failed to create unified exec process`). Le reglage
+`"remote.extensionKind": { "openai.chatgpt": ["ui"] }` reflete cette contrainte,
+il est correct. Utiliser la CLI dans le terminal integre — glisser l'onglet du
+terminal vers le bord droit donne une disposition editeur + agent equivalente a
+un panneau.
+
+---
+
+## 5. Quand ca ne marche pas
+
+```bash
+# l'application repond-elle ?
+curl -I http://codelab-app-manager:9001/mon-projet/
+
+# l'app-manager est-il debout ? (302 vers /login = oui)
+curl -I http://<IP-du-serveur>:9001/
+```
+
+Depuis `codelab-dev`, `127.0.0.1` designe **codelab-dev**, pas les autres
+services : les joindre par leur nom de conteneur (`codelab-app-manager`,
+`codelab-postgres`).
+
+| Symptome | Cause habituelle |
+|---|---|
+| Page blanche, 404 sur les assets | `base` non configure — section 3 |
+| `Permission denied` sur un script | preferer `bash script.sh` a `./script.sh` |
+| Build en echec | le journal complet est dans « Voir les logs » |
+| Pastille rouge clignotante | boucle de crash : 5 echecs de suite, redemarrage automatique suspendu |
+| Un fichier n'est plus modifiable | supprimer `/workspace/.codelab/permissions-v1` et redemarrer la stack |

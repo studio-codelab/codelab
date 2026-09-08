@@ -42,6 +42,18 @@ applications est gere directement par ce service.
 
 ## Fiabilite, observabilite, deploiement
 
+- **Node et git sont dans l'image** — ce service build les applications qu'il deploie : sans `npm`, tout projet
+  front echouait en `npm: command not found` alors que la meme commande marchait en SSH, et la parade etait
+  d'ecrire un `PATH` avec un numero de version de node fige dans la commande de build. Une commande de build
+  s'ecrit donc simplement `npm ci && npm run build`. `git` est la pour le bouton « Git pull ».
+- **Detection du couple build + lancement** — a l'ajout d'un projet, le dossier est inspecte et les deux
+  commandes sont proposees d'un coup (Vite, Astro, Parcel, CRA, Angular, Next.js, Django, Flask, statique).
+  Pour un front, la suggestion sert le dossier produit par le build avec le `http.server` de Python plutot
+  que le serveur de developpement du framework. Le tableau complet est dans
+  [`../DEVELOPPER.md`](../DEVELOPPER.md).
+- **`$PORT` dans l'environnement de l'application** — le port interne attribue est injecte dans le processus
+  lance : la commande peut s'ecrire `--port $PORT` au lieu d'un numero en dur a resynchroniser.
+
 - **Redemarrage automatique en cas de crash** — un thread de fond (`monitor_tick`, toutes les 10s) redemarre
   automatiquement toute application marquee active dont le process est mort de maniere inattendue (crash, pas
   un arret volontaire via le menu). Plafonne a 5 tentatives par tranche de 10 minutes : au-dela, l'application
@@ -156,7 +168,7 @@ silencieusement sans bloquer le demarrage du service — c'est une commodite, pa
 | `/logout` | POST | oui | Termine la session |
 | `/api/apps` | GET | oui | Liste des applications, avec statut, metriques en direct, `crash_looping`, `is_git`, `has_build` |
 | `/api/browse?path=...` | GET | oui | Navigateur de dossiers, borne a `APP_MANAGER_ROOT` |
-| `/api/detect?path=...` | GET | oui | Suggere une commande de lancement a partir du contenu du dossier |
+| `/api/detect?path=...` | GET | oui | Suggere une commande de lancement **et** une commande de build a partir du contenu du dossier |
 | `/api/add` | POST | oui | Enregistre une application existante (nom, chemin, commande, build, limite memoire) |
 | `/api/app/<nom>` | PUT | oui | Modifie le chemin/la commande/le build/la limite memoire d'une application **arretee** |
 | `/api/toggle/<nom>` | POST | oui | Demarre ou arrete une application |

@@ -7,19 +7,24 @@ avec un acces Postgres deja configure dans l'environnement de session.
 
 - Base `python:3.13-slim` + `openssh-server`, `git`, `curl`, `sudo`, `postgresql-client`, `node`/`npm`.
 - `codex`, l'agent de developpement en ligne de commande d'OpenAI (`npm install -g @openai/codex`),
-  disponible dans le PATH de toute session SSH.
+  disponible dans le PATH de toute session SSH. `CODEX_HOME` est pose sur `/workspace/.codex` par
+  l'entrypoint, avec un `config.toml` par defaut ecrit une seule fois : l'authentification et les reglages
+  survivent a une recreation du conteneur, `codex login` n'est a faire qu'une fois. Usage quotidien dans
+  [`../DEVELOPPER.md`](../DEVELOPPER.md).
 - Un utilisateur `vscode` (UID 1000), sans mot de passe, authentification **uniquement par cle publique**
   (`PasswordAuthentication no`, `PermitRootLogin no`).
 - Un script de demarrage (`ENTRYPOINT` du `Dockerfile`) qui, a chaque lancement du conteneur :
   1. Pose le socle de permissions sur `/workspace` (groupe partage, setgid, `umask 002`) pour que les
      fichiers restent modifiables depuis SSH comme depuis Dagster.
-  2. Genere les cles hote SSH si elles n'existent pas encore dans le volume persistant, sinon reutilise celles
+  2. Pose `CODEX_HOME=/workspace/.codex` et cree ce dossier, pour que l'authentification de `codex`
+     survive a une recreation du conteneur.
+  3. Genere les cles hote SSH si elles n'existent pas encore dans le volume persistant, sinon reutilise celles
      deja presentes (voir [Cles hote SSH](#cles-hote-ssh-et-empreinte-stable)).
-  3. Reconstruit `authorized_keys` a partir de `authorized_keys.d/`.
-  4. Exporte les variables de connexion Postgres (`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`) pour
+  4. Reconstruit `authorized_keys` a partir de `authorized_keys.d/`.
+  5. Exporte les variables de connexion Postgres (`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`) pour
      qu'elles soient disponibles dans toute session SSH interactive (voir
      [Variables Postgres dans une session SSH](#variables-postgres-dans-une-session-ssh)).
-  5. Passe la main a `sshd`, qui devient le processus principal du conteneur.
+  6. Passe la main a `sshd`, qui devient le processus principal du conteneur.
 
 `sshd` est le processus principal, pas un demon lance en arriere-plan derriere un veilleur. Deux
 consequences : ses journaux d'authentification arrivent dans `docker logs codelab-dev` (c'est la

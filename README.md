@@ -60,7 +60,8 @@ nommer une base (`psql -d dagster`). Details dans `workspace/README.md`.
 
 **App-manager** : `http://<IP-du-serveur>:9001/` — demarrer/arreter tes apps deployees depuis `/workspace`, consulter
 leurs logs. Protege par mot de passe, genere automatiquement au premier demarrage (voir ci-dessous pour le
-recuperer).
+recuperer). Le parcours complet, du dossier vide a l'application en ligne, est decrit dans
+[`DEVELOPPER.md`](DEVELOPPER.md).
 
 **Dagster** : `http://<IP-du-serveur>:3000/` — charge `/workspace/definitions.py` comme code Dagster.
 
@@ -280,6 +281,7 @@ python3 -c "import base64; print('data:image/png;base64,' + base64.b64encode(ope
 ```text
 codelab/
 ├── docker-compose.yml
+├── DEVELOPPER.md  # developper un projet et le deployer -- a lire en premier
 ├── icon.svg / icon.png
 ├── .github/workflows/build-images.yml
 ├── workspace/     # squelette depose dans /workspace au premier demarrage
@@ -288,5 +290,6 @@ codelab/
 └── app-manager/   # deploiement d'applications — voir app-manager/README.md
 ```
 
-Ce README couvre l'installation et l'usage global. Le fonctionnement interne de chaque service (scripts de
+Ce README couvre l'installation et l'usage global ; `DEVELOPPER.md` couvre le travail quotidien
+(developper dans le conteneur, deployer sur l'app-manager). Le fonctionnement interne de chaque service (scripts de
 demarrage, variables d'environnement, pieges connus) est documente dans son propre `README.md`.
