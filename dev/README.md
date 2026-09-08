@@ -5,7 +5,9 @@ avec un acces Postgres deja configure dans l'environnement de session.
 
 ## Ce que fait l'image
 
-- Base `python:3.13-slim` + `openssh-server`, `git`, `curl`, `sudo`.
+- Base `python:3.13-slim` + `openssh-server`, `git`, `curl`, `sudo`, `postgresql-client`, `node`/`npm`.
+- `codex`, l'agent de developpement en ligne de commande d'OpenAI (`npm install -g @openai/codex`),
+  disponible dans le PATH de toute session SSH.
 - Un utilisateur `vscode` (UID 1000), sans mot de passe, authentification **uniquement par cle publique**
   (`PasswordAuthentication no`, `PermitRootLogin no`).
 - Un script de demarrage (`ENTRYPOINT` du `Dockerfile`) qui, a chaque lancement du conteneur :

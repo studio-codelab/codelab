@@ -15,6 +15,8 @@ RUN apt-get update \
         sudo \
         acl \
         postgresql-client \
+        nodejs \
+        npm \
     && rm -rf /var/lib/apt/lists/*
 
 # Groupe partage entre les trois services qui ecrivent dans /workspace
@@ -42,6 +44,20 @@ RUN pip install --no-cache-dir \
     dagster \
     dagster-webserver \
     "psycopg[binary]"
+
+# Codex, l'agent de developpement en ligne de commande d'OpenAI, utilisable
+# depuis une session SSH. Installe globalement (/usr/local/bin/codex), donc
+# dans le PATH de l'utilisateur "vscode" comme de root.
+#
+# C'est ce paquet qui amene node et npm dans l'image, plus haut : la base
+# python:3.13-slim n'en a pas. npm resout ici la dependance optionnelle
+# correspondant a l'architecture de build (@openai/codex-linux-x64 ou
+# -linux-arm64) -- les deux images sont publiees, les deux fonctionnent.
+#
+# Volontairement non epingle, comme les paquets pip ci-dessus : la version
+# est celle du jour du build. Pour figer, remplacer par "@openai/codex@X.Y.Z".
+RUN npm install -g @openai/codex \
+    && npm cache clean --force
 
 COPY dev/entrypoint.sh /opt/codelab/dev/entrypoint.sh
 RUN chmod +x /opt/codelab/dev/entrypoint.sh
