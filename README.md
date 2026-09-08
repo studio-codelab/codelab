@@ -25,8 +25,9 @@ SSH_PUBLIC_KEY="$(cat ~/.ssh/id_ed25519.pub)" docker compose up -d
 
 1. **`SSH_PUBLIC_KEY`** est la seule valeur a fournir : ta cle publique SSH, celle avec laquelle tu te
    connecteras en tant qu'utilisateur `vscode`. Elle n'est necessaire qu'au premier demarrage — une fois
-   enregistree, la stack redemarre sans elle, et les machines suivantes s'ajoutent avec
-   `codelab-ssh-key add <nom>`.
+   enregistree, la stack redemarre sans elle. Pour autoriser une autre machine ensuite, deposer sa cle
+   publique dans `/DATA/AppData/codelab/config/ssh/authorized_keys.d/<nom>.pub`, puis redemarrer le
+   conteneur `codelab-dev`.
 2. Les donnees vivent sous `/DATA/AppData/codelab/` (voir [Persistance des donnees](#persistance-des-donnees)).
    Pour les ranger ailleurs, changer les chemins hote des volumes dans `docker-compose.yml` — ce sont des
    chemins litteraux, pas des variables.
@@ -35,7 +36,8 @@ SSH_PUBLIC_KEY="$(cat ~/.ssh/id_ed25519.pub)" docker compose up -d
 
 Si ton serveur expose une interface d'installation par collage de compose (les app stores de type CasaOS,
 par exemple), utilise plutot `docker-compose-casaos.yml` : c'est le meme fichier, plus les metadonnees
-d'affichage (icone, titre, description du champ `SSH_PUBLIC_KEY`) que ces interfaces savent lire.
+d'affichage que ces interfaces savent lire — icone, titre, description du champ `SSH_PUBLIC_KEY`, et une
+note recapitulant cle SSH, ports et emplacement des donnees, affichee avant l'installation.
 
 ## Utilisation
 

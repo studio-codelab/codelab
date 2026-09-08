@@ -7,7 +7,8 @@
 #
 # Une variante de ce fichier, docker-compose-casaos.yml, ajoute les
 # metadonnees d'affichage lues par les interfaces d'installation de type
-# CasaOS (icone, titre, libelle du champ SSH_PUBLIC_KEY). Le reste est
+# CasaOS (icone, titre, libelle du champ SSH_PUBLIC_KEY, note affichee avant
+# installation). Le reste est
 # identique : toute modification faite ici doit y etre reportee.
 
 services:
@@ -75,8 +76,9 @@ services:
       # Optionnelle. Elle sert a enregistrer une premiere cle sur une
       # installation neuve ; une fois celle-ci enregistree dans
       # config/ssh/authorized_keys.d/, la stack redemarre sans elle sans
-      # perdre l'acces. Les machines suivantes s'ajoutent avec
-      # "codelab-ssh-key add <nom>", sans repasser par le compose.
+      # perdre l'acces. Les machines suivantes s'ajoutent en deposant leur
+      # cle publique dans ce meme dossier (un fichier "<nom>.pub" par
+      # machine), sans repasser par le compose.
       SSH_PUBLIC_KEY: ${SSH_PUBLIC_KEY:-}
       PGHOST: codelab-postgres
       PGPORT: "5432"

@@ -3,8 +3,8 @@
 # Strictement identique a docker-compose.yml, plus les metadonnees "x-casaos"
 # que ces interfaces lisent pour afficher l'application : icone (encodee en
 # base64 pour ne dependre d'aucune URL), titre, description, application
-# principale et port a ouvrir, plus le libelle du champ SSH_PUBLIC_KEY
-# demande a l'installation.
+# principale et port a ouvrir, le libelle du champ SSH_PUBLIC_KEY demande a
+# l'installation, et la note affichee avant installation (x-casaos.tips).
 #
 # Docker Compose ignore les cles "x-*" : ce fichier reste utilisable tel quel
 # avec "docker compose up -d". A garder en phase avec docker-compose.yml a
@@ -29,6 +29,85 @@ x-casaos:
   title:
     en_US: CodeLab
     fr_FR: CodeLab
+
+  # Affiche avant l'installation, dans une fenetre que l'utilisateur doit
+  # lire puis valider. C'est le seul endroit ou dire ce qu'il faut savoir
+  # AVANT de cliquer -- la cle SSH a fournir, les ports, l'emplacement des
+  # donnees. Markdown accepte.
+  tips:
+    before_install:
+      fr_FR: |
+        ### Une seule valeur a fournir
+
+        **`SSH_PUBLIC_KEY`** : ta cle publique SSH, le contenu de
+        `~/.ssh/id_ed25519.pub` par exemple. C'est elle qui ouvrira ta
+        session sur le conteneur de developpement, en tant qu'utilisateur
+        `vscode`.
+
+        Elle n'est necessaire qu'au premier demarrage : une fois
+        enregistree, la stack redemarre sans elle. Pour autoriser une autre
+        machine ensuite, deposer sa cle publique dans
+        `/DATA/AppData/codelab/config/ssh/authorized_keys.d/<nom>.pub`, puis
+        redemarrer le conteneur `codelab-dev`.
+
+        ### Ports
+
+        - `2222` — SSH et VS Code Remote-SSH (utilisateur `vscode`)
+        - `3000` — Dagster, orchestration et planification des jobs
+        - `9001` — panneau de gestion des applications (page d'accueil)
+
+        ### Donnees
+
+        Tout est ecrit sous `/DATA/AppData/codelab/` : ton code
+        (`workspace/`), la base Postgres, l'etat de Dagster et le fichier
+        d'identifiants (`config/credentials.env`). Ces dossiers survivent a
+        une mise a jour d'image, a une recreation de conteneur et a une
+        reinstallation.
+
+        > A la desinstallation, refuser la suppression des donnees de
+        > l'application pour les conserver.
+
+        ### Mots de passe
+
+        Rien a choisir : celui de Postgres et celui du panneau sont generes
+        au premier demarrage et ecrits dans
+        `/DATA/AppData/codelab/config/credentials.env`, lisible directement
+        depuis le gestionnaire de fichiers.
+      en_US: |
+        ### One value to provide
+
+        **`SSH_PUBLIC_KEY`**: your SSH public key, the contents of
+        `~/.ssh/id_ed25519.pub` for instance. It is what opens your session
+        on the development container, as the `vscode` user.
+
+        It is only needed on the first start: once recorded, the stack
+        restarts without it. To authorize another machine later, drop its
+        public key into
+        `/DATA/AppData/codelab/config/ssh/authorized_keys.d/<name>.pub` and
+        restart the `codelab-dev` container.
+
+        ### Ports
+
+        - `2222` — SSH and VS Code Remote-SSH (`vscode` user)
+        - `3000` — Dagster, job orchestration and scheduling
+        - `9001` — application manager panel (landing page)
+
+        ### Data
+
+        Everything is written under `/DATA/AppData/codelab/`: your code
+        (`workspace/`), the Postgres database, Dagster state and the
+        credentials file (`config/credentials.env`). These folders survive
+        an image update, a container recreation and a reinstall.
+
+        > When uninstalling, decline the removal of application data to
+        > keep it.
+
+        ### Passwords
+
+        Nothing to choose: the Postgres password and the panel password are
+        generated on first start and written to
+        `/DATA/AppData/codelab/config/credentials.env`, readable straight
+        from the file manager.
 
 services:
 
@@ -95,8 +174,9 @@ services:
       # Optionnelle. Elle sert a enregistrer une premiere cle sur une
       # installation neuve ; une fois celle-ci enregistree dans
       # config/ssh/authorized_keys.d/, la stack redemarre sans elle sans
-      # perdre l'acces. Les machines suivantes s'ajoutent avec
-      # "codelab-ssh-key add <nom>", sans repasser par le compose.
+      # perdre l'acces. Les machines suivantes s'ajoutent en deposant leur
+      # cle publique dans ce meme dossier (un fichier "<nom>.pub" par
+      # machine), sans repasser par le compose.
       SSH_PUBLIC_KEY: ${SSH_PUBLIC_KEY:-}
       PGHOST: codelab-postgres
       PGPORT: "5432"
