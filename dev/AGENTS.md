@@ -1,5 +1,9 @@
 # CodeLab -- regles de developpement
 
+> Manuel de l'environnement, livre par l'image `codelab-dev` et recopie dans
+> chaque projet par `codelab agents`. Il decrit la stack dans laquelle tournent
+> les projets, jamais le depot CodeLab lui-meme.
+
 Tu travailles dans le conteneur `codelab-dev` de la stack CodeLab. Ce document
 decrit l'environnement et les conventions qui s'y appliquent. Il est fourni par
 l'environnement, pas par le projet : les specificites du projet courant sont
@@ -51,7 +55,7 @@ dedans. Il n'y a pas de base fourre-tout, et la base `postgres` n'existe pas.
 ```bash
 psql                  # se connecte sans argument (PGHOST/PGUSER/PGPASSWORD deja poses)
 psql -d mon-projet    # la base d'un autre projet
-codelab-project mon-projet   # cree la base et son schema (idempotent)
+codelab db mon-projet        # cree la base et son schema (idempotent)
 ```
 
 Le `search_path` pointe deja sur le schema `dagster` de la base : un

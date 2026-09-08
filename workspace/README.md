@@ -198,7 +198,7 @@ positionne dessus par base, donc un `CREATE TABLE ma_table` dans un asset y atte
 La base d'un projet ajoute apres l'installation se cree depuis une session SSH :
 
 ```bash
-codelab-project mon-projet
+codelab db mon-projet
 ```
 
 Elle est aussi creee automatiquement a la premiere connexion : `checks.connect_pg()`, copie du

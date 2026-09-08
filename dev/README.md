@@ -17,7 +17,7 @@ avec un acces Postgres deja configure dans l'environnement de session.
   1. Pose le socle de permissions sur `/workspace` (groupe partage, setgid, `umask 002`) pour que les
      fichiers restent modifiables depuis SSH comme depuis Dagster.
   2. Pose `CODEX_HOME=/workspace/.codex` et cree ce dossier, pour que l'authentification de `codex`
-     survive a une recreation du conteneur, et y recopie le manuel `agents-codelab.md` comme
+     survive a une recreation du conteneur, et y recopie le manuel `AGENTS.md` comme
      instructions globales de l'agent (recopie a chaque demarrage : il decrit la stack, une version
      perimee donnerait des consignes fausses).
   3. Genere les cles hote SSH si elles n'existent pas encore dans le volume persistant, sinon reutilise celles
@@ -39,11 +39,10 @@ qu'on lit *pourquoi* un `Permission denied (publickey)` se produit), et il recoi
 |---|---|
 | `Dockerfile` | Construction de l'image (paquets, utilisateur, dependances Python) |
 | `entrypoint.sh` | Toute la logique de demarrage |
-| `agents-codelab.md` | Manuel de l'environnement lu par les agents (perimetre, base, Dagster, app-manager) |
-| `codelab-agents.sh` | Installe ce manuel dans le `AGENTS.md` d'un projet |
-| `codelab-project.sh` | Cree la base d'un projet et son schema `dagster` |
+| `AGENTS.md` | Manuel de l'environnement lu par les agents (perimetre, base, Dagster, app-manager) |
+| `codelab` | Outil de projet installe dans le PATH : `codelab db`, `codelab agents` |
 
-Le `Dockerfile` et l'`entrypoint.sh` portent l'essentiel. Les dependances Python sont declarees directement dans le `Dockerfile`
+Le `Dockerfile` et l'`entrypoint.sh` portent l'essentiel. `AGENTS.md` est une **ressource livree par l'image**, pas les instructions du depot CodeLab : il decrit l'environnement des projets, et l'image le recopie dans `$CODEX_HOME/AGENTS.md` puis, via `codelab agents`, dans les projets. `codelab` est sans extension parce que c'est un executable du PATH, pas un fichier a sourcer : l'`entrypoint.sh` reste le seul `.sh` du service, comme dans les trois autres. Les dependances Python sont declarees directement dans le `Dockerfile`
 plutot que dans un `requirements.txt` separe : trois paquets ne justifient pas un fichier de plus, et
 la liste se lit a l'endroit ou elle est installee.
 
@@ -138,7 +137,7 @@ Chaque projet du workspace a sa propre base, nommee comme son dossier, avec un s
 demarrage ; pour un projet ajoute ensuite, sans redemarrer la stack :
 
 ```bash
-codelab-project mon-projet
+codelab db mon-projet
 ```
 
 La commande est idempotente : relancee sur un projet existant, elle ne detruit rien et se contente de

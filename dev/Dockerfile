@@ -66,18 +66,16 @@ RUN chmod +x /opt/codelab/dev/entrypoint.sh
 # acces a la base, conventions Dagster et app-manager. Depose dans l'image
 # plutot que dans /workspace : c'est de la documentation de l'ENVIRONNEMENT,
 # elle doit suivre la version des images, pas rester figee dans le volume.
-# L'entrypoint le recopie en AGENTS.md global au demarrage, et la commande
-# ci-dessous l'installe dans un projet.
-COPY dev/agents-codelab.md /usr/local/share/codelab/agents-codelab.md
+# L'entrypoint le recopie en AGENTS.md global au demarrage, et
+# "codelab agents" l'installe dans un projet.
+COPY dev/AGENTS.md /usr/local/share/codelab/AGENTS.md
 
-COPY dev/codelab-agents.sh /usr/local/bin/codelab-agents
-RUN chmod +x /usr/local/bin/codelab-agents
-
-# Creation de la base d'un projet (base + schema "dagster" + search_path),
-# pour les projets ajoutes apres l'installation de la stack. Dans le PATH de
-# toutes les sessions SSH, d'ou /usr/local/bin.
-COPY dev/codelab-project.sh /usr/local/bin/codelab-project
-RUN chmod +x /usr/local/bin/codelab-project
+# Outil de projet : "codelab db" (base + schema "dagster" + search_path, pour
+# les projets ajoutes apres l'installation de la stack) et "codelab agents".
+# Dans le PATH de toutes les sessions SSH, d'ou /usr/local/bin. Sans
+# extension : c'est un executable, pas un fichier a sourcer.
+COPY dev/codelab /usr/local/bin/codelab
+RUN chmod +x /usr/local/bin/codelab
 
 RUN mkdir -p /run/sshd \
     && sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config \

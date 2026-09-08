@@ -54,7 +54,7 @@ python3 -c "import psycopg; print(psycopg.connect().execute('SELECT version();')
 evenements, planifications) ; chaque projet du workspace a la sienne, nommee comme son dossier
 (`diagnostic` pour celui livre en modele), avec un schema `dagster` dedans qui recoit les tables des
 assets. Une session SSH arrive directement dans `diagnostic` ; la base d'un projet cree apres coup
-s'ajoute avec `codelab-project mon-projet`. La base `postgres` livree par Postgres est supprimee au
+s'ajoute avec `codelab db mon-projet`. La base `postgres` livree par Postgres est supprimee au
 demarrage : elle ne servait a rien ici, mais un outil qui s'y connectait par defaut doit maintenant
 nommer une base (`psql -d dagster`). Details dans `workspace/README.md`.
 
@@ -65,7 +65,7 @@ recuperer). Le parcours complet, du dossier vide a l'application en ligne, est d
 
 **Dagster** : `http://<IP-du-serveur>:3000/` — charge `/workspace/definitions.py` comme code Dagster.
 
-**Agents** : `codelab-agents` dans un projet y ecrit le mode d'emploi de la stack (perimetre d'ecriture,
+**Agents** : `codelab agents` dans un projet y ecrit le mode d'emploi de la stack (perimetre d'ecriture,
 acces a la base, conventions Dagster et app-manager) sous forme d'un `AGENTS.md`, lu par `codex` avant
 chaque tache. Voir [`DEVELOPPER.md`](DEVELOPPER.md).
 

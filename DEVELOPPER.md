@@ -42,7 +42,7 @@ durer va dans `/workspace`, ou dans le `Dockerfile` du service.
 ```bash
 ssh vscode@<IP-du-serveur> -p 2222     # 1. entrer dans le conteneur
 cd /workspace/mon-projet               # 2. jamais depuis l'ordinateur local
-codelab-agents                         # 3. donner le mode d'emploi a l'agent
+codelab agents                         # 3. donner le mode d'emploi a l'agent
 codex                                  # 4. developper (voir section 4)
 npm run build                          # 5. verifier que le build passe
 ```
@@ -59,6 +59,46 @@ la tuile — build puis remise en ligne en une action.
 Aucune installation prealable : node, npm, `codex`, `git` et le client Postgres
 sont dans l'image `codelab-dev` ; node, npm et `git` sont aussi dans l'image
 `codelab-app-manager`, qui est celle qui execute les builds.
+
+### Creer un nouveau projet
+
+Un projet **est un dossier** sous `/workspace/`. Il n'y a aucun registre a tenir
+a jour, aucun fichier central a editer : ni `/workspace/definitions.py`, ni le
+`docker-compose.yml`, ni `apps.json` a la main.
+
+```bash
+cd /workspace
+mkdir mon-projet && cd mon-projet       # ou : npm create vite@latest mon-projet
+git init                                # optionnel, mais debloque "Git pull"
+codelab agents                          # le AGENTS.md du projet
+```
+
+Puis, **selon ce que le projet fait** — les trois cas sont independants et se
+cumulent :
+
+| Le projet... | Ce qu'il faut en plus |
+|---|---|
+| a besoin d'une base | `codelab db mon-projet`, puis `CODELAB_DB=mon-projet` dans son `.env` |
+| a des jobs Dagster | un `definitions.py` exposant `defs` ; il est decouvert seul, *Reload* dans Dagster pour le voir |
+| est une application web | le declarer dans l'app-manager (section 3) |
+
+Enfin, completer la section « Projet » du `AGENTS.md` — ce que fait le projet,
+ses commandes — puis lancer `codex`.
+
+Trois choses a ne pas oublier, dans l'ordre ou elles se retournent contre toi :
+
+1. **`base` / `basePath`** si c'est un front, sinon page blanche derriere le
+   sous-chemin `/mon-projet/` (section 3).
+2. **`.env` dans le `.gitignore`** : `/workspace` n'est pas chiffre.
+3. **Un nom de module unique** si le projet a du Dagster : tous les projets
+   sont charges dans le meme processus, deux `utils.py` se marchent dessus.
+
+Le plus rapide reste de copier le projet `diagnostic`, qui montre un asset
+Dagster, une application web et un module partage entre les deux :
+
+```bash
+cp -r /workspace/diagnostic /workspace/mon-projet
+```
 
 ---
 
@@ -147,11 +187,11 @@ et se pose dans un projet en une commande :
 
 ```bash
 cd /workspace/mon-projet
-codelab-agents
+codelab agents
 ```
 
 Le fichier obtenu a deux parties. Le **bloc CodeLab**, entre marqueurs, est
-gere par la commande : relancer `codelab-agents` apres une mise a jour de la
+gere par la commande : relancer `codelab agents` apres une mise a jour de la
 stack le rafraichit. Tout ce qui est ecrit **hors** de ce bloc t'appartient et
 n'est jamais touche — c'est la que vont les specificites du projet, et le
 squelette cree a la premiere execution attend exactement ca :
@@ -172,7 +212,7 @@ Ce que le manuel dit deja a l'agent, sans que tu aies a le repeter :
 - **Verifier avant de conclure** — `npm test` / `npm run build` executes, pas
   supposes.
 - **La base** : une base par projet nommee comme le dossier, `psql` sans
-  argument, `psycopg.connect()` sans argument, `codelab-project` pour la creer.
+  argument, `psycopg.connect()` sans argument, `codelab db` pour la creer.
 - **Dagster** : deposer un `definitions.py` exposant `defs`, le fichier racine
   le decouvre seul ; `group_name` par projet ; les collisions de noms de
   modules entre projets.

@@ -53,7 +53,7 @@ Il n'y a **pas de base fourre-tout**. Le decoupage :
 |---|---|---|
 | `dagster` | Tables d'instance de Dagster : runs, evenements, planifications | `POSTGRES_DB`, a l'initialisation du cluster |
 | `diagnostic` | Le projet livre en modele, tables dans son schema `dagster` | L'entrypoint, a chaque demarrage |
-| `<projet>` | Une base par projet, meme structure | L'entrypoint (`CODELAB_PROJECT_DBS`) ou `codelab-project` |
+| `<projet>` | Une base par projet, meme structure | L'entrypoint (`CODELAB_PROJECT_DBS`) ou `codelab db` |
 | ~~`postgres`~~ | Base de maintenance livree par `initdb` — **supprimee au demarrage** | — |
 
 Chaque base de projet recoit un schema `dagster` et un `search_path` par defaut
@@ -62,7 +62,7 @@ asset y atterrit sans prefixe dans le code.
 
 La base `postgres` que cree `initdb` est supprimee : CodeLab ne s'en sert pas. Son role de point d'entree —
 il faut etre connecte a une base pour en creer une autre — est tenu par la base d'instance `dagster`, qui
-existe toujours ; c'est elle que visent le healthcheck, le provisionnement et `codelab-project`.
+existe toujours ; c'est elle que visent le healthcheck, le provisionnement et `codelab db`.
 
 Deux garde-fous, parce qu'une base supprimee ne revient pas : elle est **conservee** si elle contient le
 moindre objet utilisateur (quelqu'un a pu y ranger des donnees avant cette version), et l'echec de la
@@ -81,7 +81,7 @@ tourne a chaque demarrage et ne fait rien quand tout est deja en place (`CREATE 
 Pour un projet cree apres coup, sans redemarrer la stack, depuis une session SSH :
 
 ```bash
-codelab-project mon-projet
+codelab db mon-projet
 ```
 
 ### Migration depuis la base unique `codelab`

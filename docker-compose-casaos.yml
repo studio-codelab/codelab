@@ -133,7 +133,7 @@ services:
       # Bases de projet creees (ou completees) a chaque demarrage par
       # l'entrypoint, avec leur schema "dagster" et le search_path qui va
       # avec. Liste separee par des espaces. Un projet ajoute plus tard se
-      # provisionne sans redemarrage avec "codelab-project <nom>" depuis une
+      # provisionne sans redemarrage avec "codelab db <nom>" depuis une
       # session SSH.
       CODELAB_PROJECT_DBS: diagnostic
       # Pas de POSTGRES_PASSWORD/_FILE ici : l'entrypoint ci-dessus lit la
