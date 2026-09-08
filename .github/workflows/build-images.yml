@@ -21,6 +21,7 @@ on:
       - "workspace/**"
       - "app-manager/**"
       - "docker-compose.yml"
+      - "docker-compose-casaos.yml"
       - ".github/workflows/build-images.yml"
     tags:
       - "v*.*.*"

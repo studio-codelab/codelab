@@ -6,7 +6,7 @@ applications est gere directement par ce service.
 
 ## Ce que fait le service
 
-- Sert un dashboard (`http://<IP-ZimaOS>:9001/`) organise autour d'un **bandeau fixe pleine largeur en haut** :
+- Sert un dashboard (`http://<IP-du-serveur>:9001/`) organise autour d'un **bandeau fixe pleine largeur en haut** :
   a gauche, un bouton dedie pour reduire/etendre la barre laterale (transition douce — cubic-bezier, texte en
   fondu plutot qu'un `display:none` brutal), puis le logo CodeLab (fige, toujours visible que la barre soit
   repliee ou non — cliquer dessus ramene a la Vue d'ensemble depuis n'importe quelle page) ; a droite, le
@@ -31,11 +31,11 @@ applications est gere directement par ce service.
     page.
   - **Compte, 2e niveau** — clic sur **Parametres** dans le mini-menu : page dediee complete (preference
     d'apparence Auto / Clair / Sombre, deconnexion). Pas de commande de copie des identifiants dans
-    l'interface — `credentials.env` est deja directement lisible depuis le disque du ZimaOS.
+    l'interface — `credentials.env` est deja directement lisible depuis le disque de l'hote.
 - Pour chaque application activee, lance sa commande de demarrage comme sous-processus, sur un port interne
   attribue automatiquement (plage `9101`–`9140`).
-- Fait office de **reverse-proxy interne** : `http://<IP-ZimaOS>:9001/<nom-app>/` route vers le port interne de
-  l'application correspondante — un seul port a exposer sur ZimaOS, quel que soit le nombre d'applications
+- Fait office de **reverse-proxy interne** : `http://<IP-du-serveur>:9001/<nom-app>/` route vers le port interne de
+  l'application correspondante — un seul port a exposer sur l'hote, quel que soit le nombre d'applications
   gerees.
 - Protege l'ensemble du panneau et de son API par une **authentification par mot de passe**, generee
   automatiquement au premier demarrage (meme principe que le mot de passe Postgres de `codelab-postgres`).
@@ -66,7 +66,7 @@ applications est gere directement par ce service.
   `git pull --ff-only` (delai max 2 min), le resultat est affiche directement.
 - **Limite memoire optionnelle** — champ "Limite memoire en Mo" dans le formulaire d'ajout/edition ; applique
   une limite dure via `RLIMIT_AS` (herite par le process et ses enfants) au demarrage. Le process est arrete
-  par le noyau s'il tente de la depasser — protege contre une fuite memoire qui saturerait le ZimaOS entier.
+  par le noyau s'il tente de la depasser — protege contre une fuite memoire qui saturerait le serveur entier.
   Pas de limite CPU equivalente : `RLIMIT_CPU` tue un process une fois un total de secondes CPU cumule atteint,
   ce qui n'a pas de sens pour un serveur cense tourner indefiniment.
 
@@ -95,7 +95,7 @@ applications est gere directement par ce service.
 Au tout premier demarrage, un mot de passe admin est genere aleatoirement et ecrit dans
 `credentials.env` (permissions `600`), sous `APP_MANAGER_ADMIN_PASSWORD` — jamais defini par toi, jamais dans le
 compose. C'est le seul endroit ou il est stocke, lisible directement
-depuis le disque du ZimaOS sans `docker exec` :
+depuis le disque de l'hote sans `docker exec` :
 
 ```bash
 cat /DATA/AppData/codelab/config/credentials.env

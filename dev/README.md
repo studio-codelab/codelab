@@ -43,7 +43,7 @@ la liste se lit a l'endroit ou elle est installee.
 
 | Variable | Origine | Usage |
 |---|---|---|
-| `SSH_PUBLIC_KEY` | Saisie a l'installation ZimaOS, **facultative** | Enregistree dans `authorized_keys.d/compose.pub` si absente — sert a amorcer une installation neuve, plus necessaire ensuite |
+| `SSH_PUBLIC_KEY` | Passee au premier demarrage, **facultative** | Enregistree dans `authorized_keys.d/compose.pub` si absente — sert a amorcer une installation neuve, plus necessaire ensuite |
 | `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` | Fixees dans `docker-compose.yml` | Connexion a `codelab-postgres`. `PGDATABASE=diagnostic` : une session SSH atterrit dans la base du projet modele, pas dans la base d'instance de Dagster |
 | `CODELAB_ENV_FILE` | Fixee dans `docker-compose.yml` | `credentials.env` : `POSTGRES_PASSWORD` y est lu pour construire `PGPASSWORD` |
 | `CODELAB_SSH_DIR` | Fixee dans `docker-compose.yml` | Dossier unique des cles : `authorized_keys.d/`, `authorized_keys` (derive) + `host_keys/` |
@@ -93,8 +93,8 @@ Si l'empreinte a change malgre tout (premiere migration vers cette version, ou d
 la machine cliente :
 
 ```bash
-ssh-keygen -R "[<IP-ZimaOS>]:2222"
-ssh vscode@<IP-ZimaOS> -p 2222   # accepter yes a la nouvelle empreinte
+ssh-keygen -R "[<IP-du-serveur>]:2222"
+ssh vscode@<IP-du-serveur> -p 2222   # accepter yes a la nouvelle empreinte
 ```
 
 ## Variables Postgres dans une session SSH

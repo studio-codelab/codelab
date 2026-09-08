@@ -18,8 +18,8 @@ sur les points de montage declares dans docker-compose.yml :
 Le code est en lecture seule ; apps.json et les journaux vivent dans
 STATE_DIR. Aucun secret n'y est stocke : le mot de passe admin et la cle
 de session sont lus et ecrits dans credentials.env, le fichier unique
-d'identifiants CodeLab, consultable directement depuis le disque du
-ZimaOS. Les anciens fichiers admin_password / flask_secret_key sont
+d'identifiants CodeLab, consultable directement depuis le disque de
+l'hote. Les anciens fichiers admin_password / flask_secret_key sont
 repris puis supprimes au premier demarrage.
 
 Fonctionnalites de fiabilite/observabilite/deploiement ajoutees :
@@ -66,8 +66,8 @@ HOP = {"connection", "keep-alive", "transfer-encoding", "upgrade",
 
 SHARED_CONFIG_DIR = os.environ.get("APP_MANAGER_SHARED_CONFIG", "/var/lib/codelab/config")
 # Source de verite unique pour tous les secrets CodeLab. Pas de nom en "."
-# (fichier cache sous Unix) : le navigateur de fichiers ZimaOS n'offre pas
-# d'option pour les afficher.
+# (fichier cache sous Unix) : les navigateurs de fichiers web n'offrent pas
+# tous une option pour les afficher.
 SHARED_ENV_FILE = os.path.join(SHARED_CONFIG_DIR, "credentials.env")
 
 # Anciens fichiers dedies, un par secret. Conserves uniquement pour la
@@ -137,9 +137,9 @@ def read_legacy_file(path):
 def upsert_shared_block(name, comment_lines, pairs):
     """Ecrit/met a jour un BLOC entier (commentaires + cles) dans
     credentials.env, partage avec codelab-postgres
-    (/DATA/AppData/codelab/config/credentials.env sur le disque du ZimaOS --
-    pas de "." en tete de nom, le navigateur de fichiers ZimaOS ne propose
-    pas d'afficher les fichiers caches). Le bloc est delimite par des
+    (/DATA/AppData/codelab/config/credentials.env sur le disque de l'hote --
+    pas de "." en tete de nom, un navigateur de fichiers web ne propose pas
+    toujours d'afficher les fichiers caches). Le bloc est delimite par des
     marqueurs "# ===== <name> =====" / "# ===== /<name> =====" et remplace
     entierement a chaque appel -- pas juste les lignes CLE=valeur, sinon
     les commentaires documentant ce bloc s'accumuleraient en double a
@@ -212,7 +212,7 @@ def bootstrap_secrets():
             "#   changer deconnecte tout le monde ; ne jamais la partager.",
         ],
         {
-            "APP_MANAGER_URL": "http://<IP-ZimaOS>:9001",
+            "APP_MANAGER_URL": "http://<IP-du-serveur>:9001",
             "APP_MANAGER_ADMIN_PASSWORD": pw,
             "APP_MANAGER_SESSION_SECRET": key,
         },

@@ -9,7 +9,7 @@ ce qu'on y depose est visible immediatement par les autres, sans redeployer quoi
 | `codelab-dagster` | charge `definitions.py` et execute les jobs qu'il y trouve |
 | `codelab-app-manager` | lance les applications web que tu declares dans le panneau |
 
-Il survit aux mises a jour d'image et aux reinstallations : il vit sur le disque du ZimaOS, dans
+Il survit aux mises a jour d'image et aux reinstallations : il vit sur le disque de l'hote, dans
 `/DATA/AppData/codelab/workspace`.
 
 ## Anatomie d'un projet
@@ -85,7 +85,7 @@ un sous-dossier.
 
 ### Application web
 
-Depose un `app.py`, puis dans le panneau `http://<IP-ZimaOS>:9001/` → **Ajouter un projet** :
+Depose un `app.py`, puis dans le panneau `http://<IP-du-serveur>:9001/` → **Ajouter un projet** :
 
 | Champ | Valeur |
 |---|---|
