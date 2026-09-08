@@ -222,10 +222,24 @@ Sans cette etape, tout fonctionne quand meme : de nouvelles cles hote sont gener
 re-autorisee automatiquement — mais l'empreinte du serveur change (`ssh-keygen -R "[<IP-du-serveur>]:2222"` cote
 client) et les cles ajoutees a la main sont perdues.
 
+## Tests
+
+```bash
+pip install flask psutil requests pytest
+python -m pytest tests/ -q
+```
+
+Portee volontairement etroite : ce qui se verifie sans conteneur, sans Postgres et sans reseau — detection
+de stack a l'ajout d'un projet, bornage des chemins a `/workspace`, attribution des ports,
+authentification du panneau et sa limite de tentatives. Le cycle de vie des process et le reverse proxy
+demandent une stack en marche et se verifient a la main.
+
 ## Publication des images (CI)
 
-`.github/workflows/build-images.yml` build et pousse automatiquement les images vers `ghcr.io/lucasrtn/...` a
-chaque push sur `main`. **Etape unique a faire a la main** apres le premier run : les packages GitHub sont crees
+`.github/workflows/build-images.yml` lance les tests, puis build et pousse les images vers
+`ghcr.io/lucasrtn/...` a chaque push sur `main`. Sur une **pull request**, les tests tournent et les quatre
+images sont construites en `amd64` seul, sans rien publier : un Dockerfile casse se voit avant la fusion,
+pas apres. **Etape unique a faire a la main** apres le premier run : les packages GitHub sont crees
 prives par defaut, donc un `docker pull` anonyme echoue tant qu'ils ne sont pas passes en **Public**
 (`github.com/lucasrtn?tab=packages` → package → Package settings → Danger Zone → Change visibility).
 

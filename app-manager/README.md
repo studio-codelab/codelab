@@ -42,6 +42,18 @@ applications est gere directement par ce service.
 
 ## Fiabilite, observabilite, deploiement
 
+- **Le panneau est le point d'entree de toute la stack** — il execute des commandes arbitraires (lancement,
+  build) sous l'identite du service. Quatre garde-fous, dans cet esprit :
+  - cookie de session en `SameSite=Lax` et `HttpOnly`. Les actions du panneau sont des `POST` sans corps :
+    sans `SameSite`, n'importe quelle page ouverte dans le meme navigateur pouvait poster un formulaire vers
+    `/api/toggle/<app>` et piloter la stack a l'insu de l'utilisateur, commande de build comprise ;
+  - `X-Forwarded-For` n'est cru que si `APP_MANAGER_TRUST_PROXY=1`. Le service etant publie directement sur
+    le port 9001, l'en-tete est pose par le client : le faire varier a chaque essai donnait un compteur neuf
+    et annulait la limite de 5 tentatives par 5 minutes ;
+  - comparaison du mot de passe en temps constant (`secrets.compare_digest`) ;
+  - chemin d'une application borne a `APP_MANAGER_ROOT` a l'ajout **et** a la modification, comme le
+    navigateur de dossiers l'etait deja.
+
 - **Deployer en une action** — « Déployer » dans le menu « ... » enchaine build et redemarrage, et ne
   redemarre que si le build a reussi. L'ancienne version reste servie pendant le build. C'etait
   auparavant deux entrees de menu distinctes, dont la seconde s'oubliait : on lancait le build, la page

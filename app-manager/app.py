@@ -36,6 +36,7 @@ Le panneau n'ecrit jamais dans /workspace : il n'y cree aucun projet et
 n'y depose aucun fichier. Les dossiers sont crees par l'utilisateur (SSH,
 VS Code, git clone) puis simplement declares ici.
 """
+import datetime
 import json
 import os
 import re
@@ -54,7 +55,6 @@ from collections import deque
 import psutil
 from flask import (Flask, Response, jsonify, redirect, request, session, send_file,
                    stream_with_context)
-from werkzeug.security import check_password_hash
 
 CONFIG_DIR = os.environ.get("APP_MANAGER_DIR", "/opt/codelab/app-manager")
 STATE_DIR = os.environ.get("APP_MANAGER_STATE", "/var/lib/codelab/app-manager")
@@ -80,6 +80,26 @@ LEGACY_SECRET_KEY_FILE = os.path.join(STATE_DIR, "flask_secret_key")
 _admin_password = None  # valeur courante, chargee par bootstrap_secrets()
 
 flask_app = Flask(__name__)
+
+# Le panneau s'authentifie par cookie de session, et toutes ses actions
+# (demarrer, arreter, builder, deployer) sont des POST sans corps. Sans
+# SameSite, n'importe quelle page visitee dans le meme navigateur pouvait donc
+# poster un formulaire vers /api/toggle/<app> et piloter la stack a l'insu de
+# l'utilisateur -- une CSRF classique, et ici avec execution de la commande de
+# build a la cle. "Lax" n'envoie plus le cookie que sur une navigation de
+# premier niveau en GET : les GET de l'API sont en lecture seule, les
+# ecritures deviennent inatteignables depuis un autre site.
+flask_app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    # Le panneau est servi en clair sur le reseau local : exiger un cookie
+    # "Secure" empecherait purement et simplement de se connecter. C'est le
+    # compromis assume d'un service LAN sans TLS.
+    SESSION_COOKIE_SECURE=False,
+    # Duree explicite : session.permanent sans cette valeur laisse le defaut
+    # de Flask, 31 jours.
+    PERMANENT_SESSION_LIFETIME=datetime.timedelta(days=7),
+)
 procs = {}          # nom -> subprocess.Popen
 lock = threading.Lock()
 _proc_cache = {}     # pid -> psutil.Process (prime pour cpu_percent delta)
@@ -254,8 +274,21 @@ RATE_LIMIT_WINDOW = 300  # 5 min
 RATE_LIMIT_MAX = 5
 
 
+# X-Forwarded-For n'est croyable que derriere un proxy de confiance qui le
+# reecrit. Le panneau est publie directement sur le port 9001 : n'importe quel
+# client peut donc poser l'en-tete qu'il veut, et le faire varier a chaque
+# essai -- ce qui donnait a chaque tentative de connexion un compteur neuf et
+# annulait purement et simplement la limite de 5 essais par 5 minutes.
+# Derriere un vrai reverse proxy, poser APP_MANAGER_TRUST_PROXY=1.
+TRUST_PROXY = os.environ.get("APP_MANAGER_TRUST_PROXY", "").lower() in ("1", "true", "yes")
+
+
 def _client_ip():
-    return request.headers.get("X-Forwarded-For", request.remote_addr or "unknown").split(",")[0].strip()
+    if TRUST_PROXY:
+        forwarded = request.headers.get("X-Forwarded-For", "")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+    return request.remote_addr or "unknown"
 
 
 def rate_limited():
@@ -719,6 +752,19 @@ def valid_name(raw):
     return re.sub(r"[^a-z0-9_-]", "-", (raw or "").strip().lower()).strip("-")
 
 
+def under_root(path):
+    """Le chemin est-il dans APP_MANAGER_ROOT (/workspace) ?
+
+    Le navigateur de dossiers et la detection etaient bornes a cette racine,
+    mais l'enregistrement et la modification ne l'etaient pas : on pouvait
+    declarer une application sur n'importe quel dossier du conteneur, que le
+    navigateur du panneau ne sait ensuite plus atteindre. Meme borne partout,
+    donc, plutot qu'une regle appliquee une fois sur deux.
+    """
+    p = os.path.abspath(path)
+    return p == ROOT or p.startswith(ROOT + os.sep)
+
+
 # ------------------------------ auth --------------------------------
 
 @flask_app.post("/login")
@@ -728,7 +774,10 @@ def login_submit():
     d = request.get_json(force=True, silent=True) or request.form
     pw = (d.get("password") or "").strip()
     real = admin_password()
-    if real is not None and pw and pw == real:
+    # compare_digest plutot que "==" : la comparaison de chaines s'arrete au
+    # premier caractere different, et la duree de la reponse renseigne alors
+    # sur la longueur du prefixe correct.
+    if real and pw and secrets.compare_digest(pw, real):
         session.permanent = True
         session["authed"] = True
         return jsonify({"ok": True})
@@ -782,7 +831,7 @@ def api_apps():
 @require_auth
 def api_browse():
     path = os.path.abspath(request.args.get("path", ROOT))
-    if not (path == ROOT or path.startswith(ROOT + "/")):
+    if not under_root(path):
         path = ROOT
     try:
         entries = os.listdir(path)
@@ -802,7 +851,7 @@ def api_browse():
 @require_auth
 def api_detect():
     path = os.path.abspath(request.args.get("path", ""))
-    if not (path == ROOT or path.startswith(ROOT + "/")) or not os.path.isdir(path):
+    if not under_root(path) or not os.path.isdir(path):
         return jsonify({"command": "", "build_command": ""})
     command, build_command = detect_project(path)
     return jsonify({"command": command, "build_command": build_command})
@@ -827,6 +876,8 @@ def api_add():
         return jsonify({"error": "Une application porte deja ce nom."}), 400
     if not os.path.isdir(path):
         return jsonify({"error": "Dossier introuvable : " + path}), 400
+    if not under_root(path):
+        return jsonify({"error": "Le dossier doit se trouver dans " + ROOT + "."}), 400
     if not command:
         return jsonify({"error": "La commande de lancement est obligatoire."}), 400
     port = next_port(apps)
@@ -854,6 +905,8 @@ def api_edit(n):
     command = (d.get("command") or "").strip()
     if not os.path.isdir(path):
         return jsonify({"error": "Dossier introuvable : " + path}), 400
+    if not under_root(path):
+        return jsonify({"error": "Le dossier doit se trouver dans " + ROOT + "."}), 400
     if not command:
         return jsonify({"error": "La commande de lancement est obligatoire."}), 400
     apps[n]["path"] = path
