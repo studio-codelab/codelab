@@ -51,6 +51,23 @@ fichier `.htpasswd` est reconstruit a chaque demarrage a partir de cette valeur.
 Les deux fichiers de configuration atterrissent dans `conf.d/`, donc dans le contexte `http` de nginx :
 c'est le seul endroit ou une directive `map` est acceptee.
 
+## Le nom d'hote amont passe par une variable
+
+`proxy_pass http://$amont:3000;` plutot que `proxy_pass http://codelab-dagster:3000;`, avec un
+`resolver 127.0.0.11` (le DNS interne de Docker). Ce n'est pas un detail de style :
+
+- avec un nom ecrit en clair, nginx resout l'adresse **au chargement de la configuration**, puis la **fige**
+  pour la duree de vie du processus. Un `docker restart codelab-dagster` — le geste meme que la
+  documentation recommande pour recharger le code — change son adresse, et le proxy continuerait de parler
+  dans le vide jusqu'a ce qu'on le redemarre lui aussi ;
+- accessoirement, c'est aussi ce qui permet a `nginx -t` de passer au build, la ou `codelab-dagster`
+  n'existe pas.
+
+**Contrepartie** : la resolution ne consulte plus `/etc/hosts`, uniquement le `resolver`. Ce service doit
+donc tourner sur un reseau Docker **defini par l'utilisateur** — celui du compose en est un — car c'est ce
+qui active le DNS interne sur `127.0.0.11`. Sur le reseau `bridge` par defaut, toutes les requetes
+ressortiraient en `502`.
+
 ## Limite connue
 
 L'authentification est en **HTTP Basic, sur une connexion en clair** : le mot de passe circule en clair sur

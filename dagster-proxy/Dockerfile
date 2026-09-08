@@ -13,8 +13,12 @@ RUN chmod +x /opt/codelab/dagster-proxy/entrypoint.sh
 
 # Validation de la configuration au BUILD : une accolade oubliee ou une
 # directive mal placee echoue ici, en CI, plutot qu'au demarrage du conteneur
-# sur le serveur. nginx ne resout pas les noms d'hote amont a ce stade,
-# l'absence de codelab-dagster ne gene donc pas.
+# sur le serveur.
+#
+# Ce test ne passe que parce que l'adresse amont est donnee par une variable
+# (voir nginx.conf) : ecrite en clair dans proxy_pass, nginx tenterait de la
+# resoudre des le chargement de la configuration et echouerait ici sur
+# "host not found in upstream".
 RUN nginx -t
 
 EXPOSE 3000
