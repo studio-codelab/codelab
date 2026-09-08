@@ -23,6 +23,7 @@ central a tenir a jour.
 ├── definitions.py       <- point d'entree Dagster, tu n'as pas a le modifier
 └── mon-projet/
     ├── README.md        <- a quoi sert ce projet, comment le lancer
+    ├── .env             <- OPTIONNEL : la configuration propre au projet
     ├── definitions.py   <- OPTIONNEL : tout le cote Dagster (assets, jobs, capteurs)
     └── app.py           <- OPTIONNEL : une application web
 ```
@@ -112,11 +113,48 @@ Cote Dagster, les paquets disponibles sont ceux de l'image (`dagster`, `dagster-
 `psycopg2`). Un projet qui a besoin d'autre chose doit pour l'instant l'installer lui-meme au
 demarrage — l'isolation des dependances par projet est prevue mais pas encore en place.
 
-## Secrets et configuration
+## Configuration et secrets
 
-**Aucun mot de passe dans le code, ni dans un `.env` a toi.** Tout va dans le fichier unique
-`/DATA/AppData/codelab/config/credentials.env`, visible depuis les conteneurs sous
-`/var/lib/codelab/config/credentials.env`.
+**Aucun mot de passe dans le code.** La configuration se lit en trois couches, de la plus faible a
+la plus forte :
+
+| Couche | Contenu | Portee |
+|---|---|---|
+| Environnement du conteneur | pose par le `docker-compose.yml` | toute la stack |
+| `credentials.env` | ce qui fait tourner les services : Postgres, SMTP | toute la stack |
+| `<projet>/.env` | ce qui ne concerne que ce projet | ce projet seul |
+
+Le `.env` d'un projet **s'ajoute et remplace** : une cle qu'il redefinit gagne toujours.
+
+```
+/workspace/mon-projet/.env
+
+    API_TOKEN=xxxxxxxx
+    SEUIL_ALERTE=42
+    # pointe ce projet sur une autre base, sans toucher au fichier commun
+    POSTGRES_DB=bac-a-sable
+```
+
+La lecture se fait avec `read_env()`, defini dans `checks.py` :
+
+```python
+import checks
+token = checks.read_env("API_TOKEN")
+```
+
+Chaque projet emporte sa propre copie de `checks.py` — c'est ce que tu obtiens en copiant
+`diagnostic/`. Il lit le `.env` situe **a cote de lui**, donc un projet ne peut pas lire par erreur
+la configuration d'un autre. C'est aussi ce qui evite la collision qui existerait avec
+`os.environ` : `codelab-dagster` charge tous les projets dans un seul processus, et deux projets
+definissant la meme cle s'y ecraseraient mutuellement.
+
+Ne versionne pas ton `.env` : il vit dans `/workspace`, qui n'est pas chiffre. Un `.gitignore`
+contenant `.env` est le minimum si tu pousses le projet sur git.
+
+### `credentials.env`
+
+Le fichier commun se trouve dans `/DATA/AppData/codelab/config/credentials.env`, visible depuis les
+conteneurs sous `/var/lib/codelab/config/credentials.env`.
 
 Ce fichier est gere **par bloc** : chaque service ne reecrit que le sien. Un bloc ajoute a la main
 sous un nom qu'aucun service ne connait survit donc a tous les redemarrages et a une
@@ -131,27 +169,46 @@ API_TOKEN=xxxxxxxx
 EOF
 ```
 
-Pour le lire, `diagnostic/checks.py` fournit une fonction reutilisable :
+Les blocs y sont reecrits en fin de fichier au demarrage des services : c'est la **derniere**
+occurrence d'une cle qui fait foi, une valeur laissee plus haut est perimee. Le module `codelab`
+s'en charge.
 
-```python
-import sys; sys.path.insert(0, "/workspace/diagnostic")
-import checks
-token = checks.read_env("API_TOKEN")
+## Base de donnees — un schema par projet
+
+Une seule base (`codelab`), mais **un schema Postgres par projet**, nomme comme le dossier :
+
+| Schema | Contenu |
+|---|---|
+| `dagster` | tables internes de Dagster : runs, journal d'evenements, planifications |
+| `diagnostic` | les tables du projet `diagnostic` |
+| `mon-projet` | les tables de ton projet |
+| `public` | volontairement vide |
+
+Deux projets peuvent donc avoir une table `clients` sans se marcher dessus, et supprimer un projet
+se fait proprement :
+
+```sql
+DROP SCHEMA "mon-projet" CASCADE;
 ```
 
-Elle prend la **derniere** occurrence de la cle, parce que les blocs sont reecrits en fin de
-fichier : une valeur laissee plus haut est perimee.
+Pour t'y connecter, copie `checks.connect_pg()` du projet `diagnostic` — il cree le schema s'il
+n'existe pas et positionne le `search_path` dessus, donc tu n'as aucune preparation manuelle a
+faire. Change simplement la constante en tete de fichier :
 
-## Base de donnees
+```python
+SCHEMA = os.environ.get("CODELAB_SCHEMA", "mon-projet")
+```
 
-Postgres est deja la, partage par tous les projets. En SSH, `psql` fonctionne sans argument :
-l'entrypoint de `codelab-dev` pre-remplit `PGHOST`, `PGUSER`, `PGPASSWORD` dans tes shells.
+Qualifie tes tables dans les requetes (`mon-projet.clients`) meme si le `search_path` est
+positionne : c'est ce qui evite qu'une table homonyme d'un autre schema soit atteinte par erreur.
 
-Depuis un projet, passe par `checks.connect_pg()` plutot que de recopier les identifiants — ils
-seront toujours lus au bon endroit.
+En SSH, `psql` fonctionne sans argument (l'entrypoint de `codelab-dev` pre-remplit `PGHOST`,
+`PGUSER`, `PGPASSWORD`). Pour travailler dans un schema :
 
-Ta table t'appartient : prefixe-la du nom du projet (`facturation_lignes`) pour eviter les
-collisions entre projets.
+```sql
+SET search_path TO "mon-projet", public;
+\dt
+```
 
 ## Permissions
 
