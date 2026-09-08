@@ -3,7 +3,7 @@
 > **Ce service n'est plus publie sur le reseau.** Dagster n'a aucune authentification, et son interface
 > permet de lancer un job -- donc d'executer du code. Le port `3000` de l'hote arrive desormais sur
 > `codelab-dagster-proxy`, qui demande un mot de passe et relaie ici. Voir
-> [`../dagster-proxy/README.md`](../dagster-proxy/README.md).
+> [`proxy/README.md`](proxy/README.md).
 
 Image partagee par les deux services Dagster du compose : `codelab-dagster` (interface web, `dagster-webserver`)
 et `codelab-dagster-daemon` (`dagster-daemon run`, execute les schedules et sensors). Meme image, deux commandes

@@ -18,7 +18,6 @@ on:
       - "postgres/**"
       - "dev/**"
       - "dagster/**"
-      - "dagster-proxy/**"
       - "workspace/**"
       - "app-manager/**"
       - "docker-compose.yml"
@@ -34,10 +33,8 @@ on:
       - "postgres/**"
       - "dev/**"
       - "dagster/**"
-      - "dagster-proxy/**"
       - "workspace/**"
       - "app-manager/**"
-      - "tests/**"
       - "docker-compose.yml"
       - "docker-compose-casaos.yml"
       - ".github/workflows/build-images.yml"
@@ -70,7 +67,7 @@ jobs:
         run: pip install flask psutil requests pytest
 
       - name: pytest
-        run: python -m pytest tests/ -q
+        run: python -m pytest app-manager/tests -q
 
   build:
     needs: tests
@@ -86,7 +83,7 @@ jobs:
           - name: codelab-dagster
             dockerfile: dagster/Dockerfile
           - name: codelab-dagster-proxy
-            dockerfile: dagster-proxy/Dockerfile
+            dockerfile: dagster/proxy/Dockerfile
           - name: codelab-app-manager
             dockerfile: app-manager/Dockerfile
 

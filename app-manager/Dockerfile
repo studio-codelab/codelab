@@ -42,15 +42,14 @@ RUN useradd -u 1001 -g 2000 -M -s /usr/sbin/nologin codelab-app
 
 RUN pip install --no-cache-dir flask psutil requests
 
-# Les deux pages de l'interface sont des fichiers .html a part entiere, pas
-# des chaines dans app.py : elles doivent suivre dans l'image.
-COPY app-manager/app.py /opt/codelab/app-manager/app.py
-COPY app-manager/dashboard.html /opt/codelab/app-manager/dashboard.html
-COPY app-manager/login.html /opt/codelab/app-manager/login.html
+# L'application entiere -- app.py et les deux pages HTML qu'il sert -- vit
+# dans son propre dossier. Une seule ligne a maintenir ici, et le service
+# reste lisible a la racine : Dockerfile, entrypoint, README, tests.
+COPY app-manager/app /opt/codelab/app-manager/app
 COPY app-manager/entrypoint.sh /opt/codelab/app-manager/entrypoint.sh
 RUN chmod +x /opt/codelab/app-manager/entrypoint.sh
 
 EXPOSE 9001
 
 ENTRYPOINT ["/opt/codelab/app-manager/entrypoint.sh"]
-CMD ["python", "/opt/codelab/app-manager/app.py"]
+CMD ["python", "/opt/codelab/app-manager/app/app.py"]

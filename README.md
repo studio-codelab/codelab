@@ -74,7 +74,7 @@ recuperer). Le parcours complet, du dossier vide a l'application en ligne, est d
 Protege par mot de passe : Dagster n'a aucune authentification a lui, et son interface permet de lancer un
 job, donc d'executer du code. Un reverse proxy (`codelab-dagster-proxy`) en ajoute une devant, et le port de
 Dagster lui-meme n'est plus publie. Identifiants dans `credentials.env` (`DAGSTER_USER`,
-`DAGSTER_PASSWORD`), voir [`dagster-proxy/README.md`](dagster-proxy/README.md).
+`DAGSTER_PASSWORD`), voir [`dagster/proxy/README.md`](dagster/proxy/README.md).
 
 **Agents** : `codelab agents` dans un projet y ecrit le mode d'emploi de la stack (perimetre d'ecriture,
 acces a la base, conventions Dagster et app-manager) sous forme d'un `AGENTS.md`, lu par `codex` avant
@@ -235,7 +235,7 @@ redeposer un `.pub` dans `authorized_keys.d/` pour retrouver l'acces SSH.
 
 ```bash
 pip install flask psutil requests pytest
-python -m pytest tests/ -q
+python -m pytest app-manager/tests -q
 ```
 
 Portee volontairement etroite : ce qui se verifie sans conteneur, sans Postgres et sans reseau — detection
@@ -309,15 +309,21 @@ python3 -c "import base64; print('data:image/png;base64,' + base64.b64encode(ope
 codelab/
 ├── docker-compose.yml
 ├── DEVELOPPER.md  # developper un projet et le deployer -- a lire en premier
-├── tests/         # regressions gardees : detection, chemins, auth, privileges
 ├── icon.svg / icon.png
 ├── .github/workflows/build-images.yml
 ├── workspace/     # squelette depose dans /workspace au premier demarrage
+├── postgres/      # serveur de bases — voir postgres/README.md
 ├── dev/           # SSH + VS Code Remote-SSH — voir dev/README.md
 ├── dagster/       # orchestration de jobs — voir dagster/README.md
-├── dagster-proxy/ # authentification devant Dagster — voir dagster-proxy/README.md
+│   └── proxy/     # authentification devant Dagster (image a part)
 └── app-manager/   # deploiement d'applications — voir app-manager/README.md
+    ├── app/       # le service : app.py et les deux pages qu'il sert
+    └── tests/     # regressions gardees : detection, chemins, auth, privileges
 ```
+
+**Un dossier par service**, et tout ce qui concerne un service vit dedans : son image, son code, sa
+documentation, ses tests. Le proxy de Dagster est une image distincte -- deux processus, deux conteneurs --
+mais il n'a rien a faire a la racine : il n'existe que pour Dagster.
 
 Ce README couvre l'installation et l'usage global ; `DEVELOPPER.md` couvre le travail quotidien
 (developper dans le conteneur, deployer sur l'app-manager). Le fonctionnement interne de chaque service (scripts de

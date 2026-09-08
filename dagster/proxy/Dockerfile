@@ -6,9 +6,9 @@ RUN apk add --no-cache apache2-utils openssl
 
 # Les deux fichiers atterrissent dans conf.d, donc dans le contexte "http"
 # de nginx : c'est le seul endroit ou une directive "map" est acceptee.
-COPY dagster-proxy/map-upgrade.conf /etc/nginx/conf.d/00-map-upgrade.conf
-COPY dagster-proxy/nginx.conf /etc/nginx/conf.d/default.conf
-COPY dagster-proxy/entrypoint.sh /opt/codelab/dagster-proxy/entrypoint.sh
+COPY dagster/proxy/map-upgrade.conf /etc/nginx/conf.d/00-map-upgrade.conf
+COPY dagster/proxy/nginx.conf /etc/nginx/conf.d/default.conf
+COPY dagster/proxy/entrypoint.sh /opt/codelab/dagster-proxy/entrypoint.sh
 RUN chmod +x /opt/codelab/dagster-proxy/entrypoint.sh
 
 # Validation de la configuration au BUILD : une accolade oubliee ou une

@@ -138,12 +138,16 @@ applications est gere directement par ce service.
 | Fichier | Role |
 |---|---|
 | `Dockerfile` | Construction de l'image (Flask, psutil, requests, Node.js, git) |
-| `app.py` | Le service : authentification, API, cycle de vie des process, reverse proxy |
-| `dashboard.html` | L'interface du panneau |
-| `login.html` | La page de connexion |
 | `entrypoint.sh` | Permissions partagees sur `/workspace`, puis demarrage |
+| `app/app.py` | Le service : authentification, API, cycle de vie des process, reverse proxy |
+| `app/dashboard.html` | L'interface du panneau |
+| `app/login.html` | La page de connexion |
+| `tests/` | Les regressions gardees (`python -m pytest app-manager/tests -q`) |
 
-Les deux pages etaient des chaines Python dans `app.py` — 67 Ko sur une seule ligne pour le tableau de
+L'application vit dans `app/` : une seule ligne de `COPY` dans le `Dockerfile`, et la racine du service
+reste lisible — l'image, le demarrage, la documentation, les tests.
+
+Les deux pages etaient des chaines Python dans `app/app.py` — 67 Ko sur une seule ligne pour le tableau de
 bord. Elles sont lues une fois au demarrage, et `__ROOT__` y est remplace par la racine du workspace au
 moment de servir la page. Un fichier `.html` se relit, se diffe et se colore ; une chaine echappee, non.
 

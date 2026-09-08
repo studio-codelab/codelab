@@ -16,7 +16,7 @@ cycle de vie des process et le reverse proxy demandent une stack en marche et
 se verifient a la main. Le module s'importe sans effet de bord, tout le
 demarrage vivant derriere if __name__ == "__main__".
 
-    python -m pytest tests/ -q
+    python -m pytest app-manager/tests -q
 """
 import importlib.util
 import json
@@ -25,11 +25,13 @@ import sys
 
 import pytest
 
-RACINE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# tests/ vit dans le service qu'il couvre : le module teste est le voisin
+# d'a cote, app-manager/app/app.py.
+SERVICE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def _charger_app():
-    chemin = os.path.join(RACINE, "app-manager", "app.py")
+    chemin = os.path.join(SERVICE, "app", "app.py")
     spec = importlib.util.spec_from_file_location("codelab_app_manager", chemin)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
