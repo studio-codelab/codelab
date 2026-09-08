@@ -43,7 +43,9 @@ python3 -c "import psycopg; print(psycopg.connect().execute('SELECT version();')
 evenements, planifications) ; chaque projet du workspace a la sienne, nommee comme son dossier
 (`diagnostic` pour celui livre en modele), avec un schema `dagster` dedans qui recoit les tables des
 assets. Une session SSH arrive directement dans `diagnostic` ; la base d'un projet cree apres coup
-s'ajoute avec `codelab-project mon-projet`. Details dans `workspace/README.md`.
+s'ajoute avec `codelab-project mon-projet`. La base `postgres` livree par Postgres est supprimee au
+demarrage : elle ne servait a rien ici, mais un outil qui s'y connectait par defaut doit maintenant
+nommer une base (`psql -d dagster`). Details dans `workspace/README.md`.
 
 **App-manager** : `http://<IP-ZimaOS>:9001/` — demarrer/arreter tes apps deployees depuis `/workspace`, consulter
 leurs logs. Protege par mot de passe, genere automatiquement au premier demarrage (voir ci-dessous pour le
@@ -122,8 +124,9 @@ logs, sans rendre les autres invisibles.
 web, un module partage entre les deux, la lecture de `credentials.env` et l'ecriture en base. Le
 copier est le moyen le plus rapide de demarrer (`cp -r /workspace/diagnostic /workspace/mon-projet`).
 
-**Rien n'est jamais ecrase.** Un fichier deja present sous le meme nom est copie a cote en
-`.exemple`, a fusionner a la main. La copie n'a lieu qu'une fois, tracee par
+**Rien n'est jamais ecrase, et rien n'est depose a cote.** Un fichier deja present sous le meme nom
+est laisse tel quel ; la version de reference reste dans l'image, sous
+`/opt/dagster/workspace.default`. La copie n'a lieu qu'une fois, tracee par
 `/workspace/.codelab/workspace-v1` : un projet supprime ne reapparait pas au redemarrage.
 
 ## Workspace partage entre les services

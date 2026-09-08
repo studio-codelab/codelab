@@ -32,8 +32,9 @@ SSH_UID = int(os.environ.get("CODELAB_SSH_UID", "1000"))
 # tout nettoyer sans risquer d'emporter les donnees du voisin.
 #
 # Il n'y a pas de base fourre-tout : la base "dagster" ne contient que les
-# tables d'instance de Dagster (runs, evenements, planifications), et la base
-# "postgres" est la base de maintenance du serveur, qui reste vide.
+# tables d'instance de Dagster (runs, evenements, planifications). La base
+# "postgres" livree par initdb, elle, est supprimee au demarrage du serveur --
+# aucun service CodeLab ne s'y connecte.
 TABLE = "codelab_diagnostic"
 # PROJET, DB, SCHEMA et TABLE_QUALIFIEE sont definis plus bas, apres read_env :
 # leurs valeurs se lisent dans le .env du projet.

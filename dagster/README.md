@@ -31,8 +31,10 @@ Execute avant toute commande (`dagster-webserver` ou `dagster-daemon run`), dans
    Attend le fichier jusqu'a 30 s, au cas ou le conteneur soit lance seul, hors de la stack.
 2. **Deploie `dagster.yaml` dans `DAGSTER_HOME`** s'il n'y est pas deja (premier demarrage uniquement — ne
    jamais ecraser une configuration existante).
-3. **Deploie un `definitions.py` d'exemple dans `/workspace`** s'il est absent, pour eviter un crash au boot sur
-   une installation neuve avant que tu aies ajoute ton propre code.
+3. **Amorce `/workspace`** depuis le squelette de l'image (`README`, `definitions.py` agregateur, projet
+   `diagnostic`) au premier demarrage, pour eviter un crash au boot sur une installation neuve avant que tu
+   aies ajoute ton propre code. Une entree deja presente est laissee telle quelle, sans copie `.exemple` a
+   cote.
 4. Passe la main a la commande reelle (`exec "$@"`).
 
 ## dagster.yaml : stockage dans Postgres
