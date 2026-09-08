@@ -148,6 +148,22 @@ printf '%s\n' '# Genere par codelab-dev -- authentification Codex persistante.' 
     "export CODEX_HOME=$CODEX_HOME_DIR" > "$CODEX_PROFILE"
 chmod 644 "$CODEX_PROFILE"
 
+# Manuel de l'environnement, lu par Codex comme instructions globales. Recopie
+# a CHAQUE demarrage, contrairement au config.toml : ce fichier decrit la
+# stack, pas les preferences de l'utilisateur, et une version perimee
+# donnerait a l'agent des consignes fausses. Les consignes personnelles vont
+# dans le AGENTS.md du projet, jamais ici.
+#
+# Toutes les versions de la CLI n'honorent pas ce niveau global : la commande
+# "codelab-agents" recopie le meme manuel dans le AGENTS.md d'un projet, ou il
+# est lu a coup sur.
+AGENTS_SOURCE=/usr/local/share/codelab/agents-codelab.md
+if [ -r "$AGENTS_SOURCE" ]; then
+    cp -f "$AGENTS_SOURCE" "$CODEX_HOME_DIR/AGENTS.md"
+    chown "$SSH_USER" "$CODEX_HOME_DIR/AGENTS.md" 2>/dev/null || true
+    chmod 664 "$CODEX_HOME_DIR/AGENTS.md" 2>/dev/null || true
+fi
+
 # ------------------------------ cles SSH ------------------------------
 
 mkdir -p "$HOST_KEYS_DIR"

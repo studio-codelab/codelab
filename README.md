@@ -65,6 +65,10 @@ recuperer). Le parcours complet, du dossier vide a l'application en ligne, est d
 
 **Dagster** : `http://<IP-du-serveur>:3000/` — charge `/workspace/definitions.py` comme code Dagster.
 
+**Agents** : `codelab-agents` dans un projet y ecrit le mode d'emploi de la stack (perimetre d'ecriture,
+acces a la base, conventions Dagster et app-manager) sous forme d'un `AGENTS.md`, lu par `codex` avant
+chaque tache. Voir [`DEVELOPPER.md`](DEVELOPPER.md).
+
 ## Un seul fichier de secrets
 
 Mot de passe Postgres, mot de passe admin app-manager, cle de session : **tout est dans `credentials.env`, et

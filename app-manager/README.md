@@ -42,6 +42,16 @@ applications est gere directement par ce service.
 
 ## Fiabilite, observabilite, deploiement
 
+- **Deployer en une action** — « Déployer » dans le menu « ... » enchaine build et redemarrage, et ne
+  redemarre que si le build a reussi. L'ancienne version reste servie pendant le build. C'etait
+  auparavant deux entrees de menu distinctes, dont la seconde s'oubliait : on lancait le build, la page
+  ne changeait pas, et le process servait toujours l'ancien `dist/`.
+- **Sonde d'ecoute** — « le process est vivant » et « l'application est joignable » sont deux choses
+  differentes : un serveur qui plante dans son thread d'ecoute, ou qui n'a jamais pris son port, laisse
+  un process bien vivant derriere lui, et la pastille restait verte devant une page blanche. Toutes les
+  10 s, une connexion TCP sur `127.0.0.1:<port interne>` — exactement la cible du reverse proxy — donne
+  l'etat reel : pastille orange et « Ne repond pas » quand rien n'ecoute. Pas de requete HTTP : le port
+  ouvert est le signal cherche, et un 404 applicatif ne veut pas dire que l'application est en panne.
 - **Node et git sont dans l'image** — ce service build les applications qu'il deploie : sans `npm`, tout projet
   front echouait en `npm: command not found` alors que la meme commande marchait en SSH, et la parade etait
   d'ecrire un `PATH` avec un numero de version de node fige dans la commande de build. Une commande de build
@@ -174,6 +184,7 @@ silencieusement sans bloquer le demarrage du service — c'est une commodite, pa
 | `/api/toggle/<nom>` | POST | oui | Demarre ou arrete une application |
 | `/api/restart/<nom>` | POST | oui | Arrete puis relance immediatement une application |
 | `/api/build/<nom>` | POST | oui | Execute la commande de build (si definie), sortie dans le journal |
+| `/api/deploy/<nom>` | POST | oui | Build **puis** mise en ligne ; un build en echec ne touche pas l'application qui tourne |
 | `/api/git-pull/<nom>` | POST | oui | `git pull --ff-only` dans le dossier du projet (si c'est un depot Git) |
 | `/api/metrics/<nom>` | GET | oui | Historique CPU/memoire en memoire (~30 derniers points) |
 | `/api/app/<nom>` | DELETE | oui | Retire une application du registre (le dossier n'est jamais touche) |

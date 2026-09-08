@@ -42,15 +42,19 @@ durer va dans `/workspace`, ou dans le `Dockerfile` du service.
 ```bash
 ssh vscode@<IP-du-serveur> -p 2222     # 1. entrer dans le conteneur
 cd /workspace/mon-projet               # 2. jamais depuis l'ordinateur local
-codex                                  # 3. developper (voir section 4)
-npm run build                          # 4. verifier que le build passe
+codelab-agents                         # 3. donner le mode d'emploi a l'agent
+codex                                  # 4. developper (voir section 4)
+npm run build                          # 5. verifier que le build passe
 ```
 
-5. Ouvrir `http://<IP-du-serveur>:9001/`, **Ajouter un projet**, choisir le
+6. Ouvrir `http://<IP-du-serveur>:9001/`, **Ajouter un projet**, choisir le
    dossier : les commandes de lancement et de build sont proposees
    automatiquement (section 3).
-6. Activer l'application. Elle est servie sur
+7. Activer l'application. Elle est servie sur
    `http://<IP-du-serveur>:9001/mon-projet/`.
+
+Ensuite, a chaque modification du code : **Déployer** dans le menu « ... » de
+la tuile — build puis remise en ligne en une action.
 
 Aucune installation prealable : node, npm, `codex`, `git` et le client Postgres
 sont dans l'image `codelab-dev` ; node, npm et `git` sont aussi dans l'image
@@ -84,8 +88,15 @@ Trois regles derriere ce tableau :
 - **`npm ci` quand il y a un lockfile**, `npm install` sinon : installation
   reproductible, et plus rapide.
 
-Apres chaque modification du code : **Lancer le build**, puis **Redemarrer**,
-tous deux dans le menu « ... » de la tuile.
+### Mettre a jour une application en ligne
+
+**Déployer**, dans le menu « ... » de la tuile : build, puis redemarrage
+seulement si le build a reussi. L'ancienne version continue d'etre servie
+pendant le build, et un build casse ne met rien hors ligne — on ne remplace une
+version qui marche que par une version qui compile.
+
+« Lancer le build » et « Redemarrer » restent disponibles separement, pour
+construire sans mettre en ligne ou relancer sans reconstruire.
 
 ### Application servie sous un sous-chemin
 
@@ -127,9 +138,55 @@ codex exec "..."      # commande unique, sans memoire entre deux appels
 codex resume          # reprendre une session
 ```
 
-Un `AGENTS.md` a la racine du projet est lu automatiquement : y mettre la stack,
-les commandes (test, build, demarrage), le fait qu'on est dans un conteneur, et
-les conventions du projet.
+### Donner le mode d'emploi a l'agent
+
+Codex lit un `AGENTS.md` avant chaque tache. CodeLab en fournit le contenu : le
+manuel de l'environnement — perimetre d'ecriture, acces a la base, conventions
+Dagster, regles d'une application servie par l'app-manager — vit dans l'image,
+et se pose dans un projet en une commande :
+
+```bash
+cd /workspace/mon-projet
+codelab-agents
+```
+
+Le fichier obtenu a deux parties. Le **bloc CodeLab**, entre marqueurs, est
+gere par la commande : relancer `codelab-agents` apres une mise a jour de la
+stack le rafraichit. Tout ce qui est ecrit **hors** de ce bloc t'appartient et
+n'est jamais touche — c'est la que vont les specificites du projet, et le
+squelette cree a la premiere execution attend exactement ca :
+
+```markdown
+# Projet mon-projet
+
+## Ce que fait ce projet
+## Commandes
+| But | Commande |
+## Conventions propres a ce projet
+```
+
+Ce que le manuel dit deja a l'agent, sans que tu aies a le repeter :
+
+- **Ne modifier que le projet courant** — jamais `/workspace/definitions.py`,
+  jamais un autre projet, rien hors de `/workspace`, pas de `sudo apt`.
+- **Verifier avant de conclure** — `npm test` / `npm run build` executes, pas
+  supposes.
+- **La base** : une base par projet nommee comme le dossier, `psql` sans
+  argument, `psycopg.connect()` sans argument, `codelab-project` pour la creer.
+- **Dagster** : deposer un `definitions.py` exposant `defs`, le fichier racine
+  le decouvre seul ; `group_name` par projet ; les collisions de noms de
+  modules entre projets.
+- **App-manager** : ecouter sur `$PORT` et `0.0.0.0`, le sous-chemin
+  `/<projet>/`, build puis service statique, jamais un serveur de
+  developpement, et les dependances Python dans `vendor/`.
+- **Secrets** : rien en clair dans le code, `.env` a cote du projet, jamais
+  dans `credentials.env`.
+- **Chemins relatifs**, jamais de `/workspace/...` en dur.
+
+Le meme manuel est aussi ecrit dans `/workspace/.codex/AGENTS.md` au demarrage
+du conteneur, ou Codex le lit comme instructions globales. Les deux existent a
+dessein : ce niveau global n'est pas honore par toutes les versions de la CLI,
+le fichier du projet l'est toujours.
 
 **L'extension VS Code `openai.chatgpt` ne fonctionne pas ici** : elle est
 declaree « UI-only », donc executee sur l'ordinateur local, ou il n'y a ni le
@@ -161,4 +218,5 @@ services : les joindre par leur nom de conteneur (`codelab-app-manager`,
 | `Permission denied` sur un script | preferer `bash script.sh` a `./script.sh` |
 | Build en echec | le journal complet est dans « Voir les logs » |
 | Pastille rouge clignotante | boucle de crash : 5 echecs de suite, redemarrage automatique suspendu |
+| Pastille orange, « Ne repond pas » | le process vit, mais rien n'ecoute sur son port : port en dur au lieu de `$PORT`, ecoute sur `127.0.0.1`, ou plantage du serveur apres le demarrage — les logs disent lequel |
 | Un fichier n'est plus modifiable | supprimer `/workspace/.codelab/permissions-v1` et redemarrer la stack |

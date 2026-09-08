@@ -62,6 +62,17 @@ RUN npm install -g @openai/codex \
 COPY dev/entrypoint.sh /opt/codelab/dev/entrypoint.sh
 RUN chmod +x /opt/codelab/dev/entrypoint.sh
 
+# Manuel CodeLab lu par les agents (Codex et compagnie) : regles de perimetre,
+# acces a la base, conventions Dagster et app-manager. Depose dans l'image
+# plutot que dans /workspace : c'est de la documentation de l'ENVIRONNEMENT,
+# elle doit suivre la version des images, pas rester figee dans le volume.
+# L'entrypoint le recopie en AGENTS.md global au demarrage, et la commande
+# ci-dessous l'installe dans un projet.
+COPY dev/agents-codelab.md /usr/local/share/codelab/agents-codelab.md
+
+COPY dev/codelab-agents.sh /usr/local/bin/codelab-agents
+RUN chmod +x /usr/local/bin/codelab-agents
+
 # Creation de la base d'un projet (base + schema "dagster" + search_path),
 # pour les projets ajoutes apres l'installation de la stack. Dans le PATH de
 # toutes les sessions SSH, d'ou /usr/local/bin.
