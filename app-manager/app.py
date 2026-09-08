@@ -344,6 +344,84 @@ def next_port(apps):
     return None
 
 
+# ------------------------- abandon des privileges ----------------------------
+#
+# Le service tourne en root : il en a besoin au demarrage pour poser le groupe
+# et le setgid sur /workspace. Mais tout ce qu'il LANCE -- application
+# deployee comme commande de build -- n'en a aucun besoin, et l'heritait
+# pourtant.
+#
+# Ce que cela ouvrait : credentials.env est monte dans ce conteneur en
+# 0600 root. Un processus enfant lance en root pouvait donc lire le mot de
+# passe Postgres, le mot de passe du panneau et la cle de signature des
+# sessions. Le vecteur realiste n'est pas l'application elle-meme mais son
+# build : "npm ci" execute les scripts postinstall de toutes les dependances
+# transitives, et une seule compromise dans la chaine suffit.
+#
+# Apres bascule sur l'uid 1001, ce fichier redevient illisible pour eux.
+RUN_AS_UID = int(os.environ.get("APP_MANAGER_RUN_AS_UID", "1001"))
+RUN_AS_GID = int(os.environ.get("APP_MANAGER_RUN_AS_GID", "2000"))
+
+
+# Dossier personnel des processus enfants. Sans lui, ils heritent de
+# HOME=/root -- illisible et surtout non ecrivable une fois l'uid abandonne,
+# et "npm ci" echoue alors sur son cache (~/.npm) avant meme d'installer quoi
+# que ce soit. Range dans le volume d'etat plutot que dans /tmp : le cache npm
+# survit ainsi d'un build a l'autre.
+CHILD_HOME = os.path.join(STATE_DIR, "home")
+
+
+def ensure_child_home():
+    os.makedirs(CHILD_HOME, exist_ok=True)
+    if os.geteuid() == 0:
+        try:
+            os.chown(CHILD_HOME, RUN_AS_UID, RUN_AS_GID)
+            os.chmod(CHILD_HOME, 0o2770)
+        except OSError as e:
+            print(f"[app-manager] {CHILD_HOME} : droits non poses ({e}).", flush=True)
+    return CHILD_HOME
+
+
+def drop_privileges():
+    """Bascule le processus courant sur l'utilisateur non privilegie.
+
+    Appelee dans le preexec_fn, donc APRES le fork et AVANT l'exec : elle ne
+    touche jamais au service lui-meme. Sans effet si l'on n'est pas root, ce
+    qui est le cas quand app.py tourne hors conteneur (tests, mise au point).
+    """
+    if os.geteuid() != 0:
+        return
+    # setgroups avant setuid : une fois l'uid abandonne, le processus n'a plus
+    # le droit de modifier ses groupes secondaires, et garderait ceux de root.
+    os.setgroups([RUN_AS_GID])
+    os.setgid(RUN_AS_GID)
+    os.setuid(RUN_AS_UID)
+    # Reposé ici : le umask n'est pas herite du service de maniere fiable a
+    # travers toute la chaine, et sans 002 les fichiers produits par un build
+    # (dist/, node_modules/) ressortent en lecture seule pour le groupe --
+    # donc non modifiables depuis une session SSH.
+    os.umask(0o002)
+
+
+def child_setup(max_memory_mb=None):
+    """preexec_fn commun aux applications et aux builds."""
+    def _setup():
+        if max_memory_mb:
+            # Limite "douce" de memoire virtuelle pour ce process et ses
+            # enfants (herite a travers fork/exec). Ne limite pas le CPU :
+            # RLIMIT_CPU tue le process une fois un total de secondes CPU
+            # cumule atteint, ce qui n'a pas de sens pour un serveur cense
+            # tourner indefiniment -- seulement pour un script qui boucle.
+            #
+            # Pose avant l'abandon des privileges : une limite abaissee ne se
+            # releve plus ensuite, l'ordre inverse marcherait aussi mais
+            # celui-ci reste vrai si la limite devenait "dure".
+            mem = int(max_memory_mb) * 1024 * 1024
+            resource.setrlimit(resource.RLIMIT_AS, (mem, mem))
+        drop_privileges()
+    return _setup
+
+
 # ------------------------- cycle de vie ----------------------------
 
 def is_running(name):
@@ -372,28 +450,15 @@ def start(name):
     os.makedirs(LOG_DIR, exist_ok=True)
     rotate_log_if_needed(name)
     out = open(os.path.join(LOG_DIR, name + ".log"), "ab", buffering=0)
-    env = dict(os.environ, PORT=str(a["port"]), PYTHONUNBUFFERED="1")
-
-    max_mem = a.get("max_memory_mb")
-    preexec = None
-    if max_mem:
-        mem_bytes = int(max_mem) * 1024 * 1024
-
-        def _limit_resources():
-            # Limite "douce" de memoire virtuelle pour ce process et ses
-            # enfants (herite a travers fork/exec). Ne limite pas le CPU :
-            # RLIMIT_CPU tue le process une fois un total de secondes CPU
-            # cumule atteint, ce qui n'a pas de sens pour un serveur cense
-            # tourner indefiniment -- seulement pour un script qui boucle.
-            resource.setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))
-
-        preexec = _limit_resources
+    env = dict(os.environ, PORT=str(a["port"]), PYTHONUNBUFFERED="1",
+               HOME=ensure_child_home())
 
     with lock:
         procs[name] = subprocess.Popen(
             ["bash", "-lc", a["command"]],
             cwd=a["path"], env=env, stdout=out, stderr=out,
-            start_new_session=True, preexec_fn=preexec)
+            start_new_session=True,
+            preexec_fn=child_setup(a.get("max_memory_mb")))
     apps[name]["enabled"] = True
     save(apps)
 
@@ -539,12 +604,16 @@ def run_build(name):
     if not cmd:
         return False, "Aucune commande de build definie pour cette application."
     os.makedirs(LOG_DIR, exist_ok=True)
+    env = dict(os.environ, HOME=ensure_child_home())
     logf = os.path.join(LOG_DIR, name + ".log")
     with open(logf, "ab") as out:
         out.write(f"\n$ {cmd}\n".encode())
         try:
-            r = subprocess.run(["bash", "-lc", cmd], cwd=a["path"],
-                                stdout=out, stderr=out, timeout=600)
+            # Meme abandon de privileges que pour l'application : c'est le
+            # build qui execute le plus de code tiers (scripts postinstall).
+            r = subprocess.run(["bash", "-lc", cmd], cwd=a["path"], env=env,
+                                stdout=out, stderr=out, timeout=600,
+                                preexec_fn=child_setup())
             ok = r.returncode == 0
             msg = None if ok else f"Le build a echoue (code {r.returncode}) -- voir le journal."
         except subprocess.TimeoutExpired:
@@ -565,7 +634,11 @@ def git_pull(name):
     if not is_git_repo(a["path"]):
         return False, "Ce dossier n'est pas un depot Git (pas de .git)."
     try:
+        # git execute les hooks du depot (post-merge notamment) : le pull
+        # abandonne donc les privileges comme le build.
         r = subprocess.run(["git", "pull", "--ff-only"], cwd=a["path"],
+                           preexec_fn=child_setup(),
+                           env=dict(os.environ, HOME=ensure_child_home()),
                             capture_output=True, text=True, timeout=120)
         output = ((r.stdout or "") + (r.stderr or "")).strip()
         return r.returncode == 0, output
@@ -1076,6 +1149,14 @@ def index():
 
 # ------------------------------ proxy --------------------------------
 
+def strip_session_cookie(raw):
+    """Retire le cookie de session du panneau d'un en-tete Cookie."""
+    nom = flask_app.config.get("SESSION_COOKIE_NAME") or "session"
+    gardes = [c.strip() for c in raw.split(";")
+              if c.strip() and c.split("=", 1)[0].strip() != nom]
+    return "; ".join(gardes)
+
+
 def _proxy(name, sub):
     a = load().get(name)
     if not a:
@@ -1092,8 +1173,25 @@ def _proxy(name, sub):
     body = request.get_data() if request.method in ("POST", "PUT", "PATCH") else None
     req = urllib.request.Request(url, data=body, method=request.method)
     for k, v in request.headers:
-        if k.lower() not in HOP and k.lower() != "host":
-            req.add_header(k, v)
+        if k.lower() in HOP or k.lower() == "host":
+            continue
+        if k.lower() == "cookie":
+            # Les applications sont servies sur la MEME origine que le
+            # panneau (:9001/<app>/) : le navigateur leur envoie donc le
+            # cookie de session admin, et le proxy le transmettait tel quel.
+            # Une application deployee pouvait ainsi lire cette session et
+            # piloter le panneau -- c'est-a-dire faire executer n'importe
+            # quelle commande. On retire ce seul cookie et on laisse passer
+            # les autres, qui appartiennent a l'application.
+            #
+            # Cela ne supprime pas la meme origine elle-meme : une XSS dans
+            # une application reste une XSS dans l'origine du panneau. Y
+            # remedier demanderait un port ou un sous-domaine par
+            # application, ce que ce proxy a justement pour but d'eviter.
+            v = strip_session_cookie(v)
+            if not v:
+                continue
+        req.add_header(k, v)
     try:
         r = urllib.request.urlopen(req, timeout=30)
         data, status, headers = r.read(), r.status, r.headers

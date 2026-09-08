@@ -194,3 +194,78 @@ def test_le_cookie_de_session_est_samesite_lax(client):
 
 def test_health_reste_public(client):
     assert client.get("/health").status_code == 200
+
+
+# ------------------------- cookie transmis au proxy -------------------------
+#
+# Les applications sont servies sur la meme origine que le panneau
+# (:9001/<app>/) : le navigateur leur envoie donc le cookie de session admin.
+# Le proxy le transmettait tel quel, ce qui donnait a n'importe quelle
+# application deployee la session de l'administrateur.
+
+def test_le_cookie_du_panneau_ne_part_pas_dans_l_application():
+    nom = app.flask_app.config.get("SESSION_COOKIE_NAME") or "session"
+    reste = app.strip_session_cookie(f"theme=dark; {nom}=SECRET-DE-SESSION; lang=fr")
+    assert "SECRET-DE-SESSION" not in reste
+    assert nom + "=" not in reste
+    # Les cookies de l'application, eux, doivent continuer a passer.
+    assert "theme=dark" in reste and "lang=fr" in reste
+
+
+def test_un_cookie_qui_commence_pareil_nest_pas_confondu():
+    nom = app.flask_app.config.get("SESSION_COOKIE_NAME") or "session"
+    reste = app.strip_session_cookie(f"{nom}_id=garde-moi; {nom}=retire-moi")
+    assert f"{nom}_id=garde-moi" in reste
+    assert "retire-moi" not in reste
+
+
+def test_en_tete_cookie_reduit_a_rien_est_bien_vide():
+    nom = app.flask_app.config.get("SESSION_COOKIE_NAME") or "session"
+    assert app.strip_session_cookie(f"{nom}=x") == ""
+
+
+# --------------------------- abandon des privileges ---------------------------
+
+def test_drop_privileges_ne_fait_rien_hors_root(monkeypatch):
+    """Les tests ne tournent pas en root : la fonction doit etre inoffensive."""
+    appels = []
+    monkeypatch.setattr(app.os, "setuid", lambda *a: appels.append("setuid"))
+    monkeypatch.setattr(app.os, "setgid", lambda *a: appels.append("setgid"))
+    monkeypatch.setattr(app.os, "geteuid", lambda: 1000)
+    app.drop_privileges()
+    assert appels == []
+
+
+def test_drop_privileges_bascule_dans_le_bon_ordre(monkeypatch):
+    """setgroups et setgid AVANT setuid : apres, le processus n'a plus le
+    droit de changer ses groupes et garderait ceux de root."""
+    ordre = []
+    monkeypatch.setattr(app.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(app.os, "setgroups", lambda g: ordre.append(("setgroups", tuple(g))))
+    monkeypatch.setattr(app.os, "setgid", lambda g: ordre.append(("setgid", g)))
+    monkeypatch.setattr(app.os, "setuid", lambda u: ordre.append(("setuid", u)))
+    monkeypatch.setattr(app.os, "umask", lambda m: ordre.append(("umask", m)))
+    app.drop_privileges()
+    assert ordre == [
+        ("setgroups", (app.RUN_AS_GID,)),
+        ("setgid", app.RUN_AS_GID),
+        ("setuid", app.RUN_AS_UID),
+        ("umask", 0o002),
+    ]
+    assert app.RUN_AS_UID != 0 and app.RUN_AS_GID != 0
+
+
+def test_la_limite_memoire_est_posee_avant_la_bascule(monkeypatch):
+    ordre = []
+    monkeypatch.setattr(app.resource, "setrlimit", lambda *a: ordre.append("rlimit"))
+    monkeypatch.setattr(app, "drop_privileges", lambda: ordre.append("drop"))
+    app.child_setup(64)()
+    assert ordre == ["rlimit", "drop"]
+
+
+def test_child_setup_sans_limite_bascule_quand_meme(monkeypatch):
+    ordre = []
+    monkeypatch.setattr(app.resource, "setrlimit", lambda *a: ordre.append("rlimit"))
+    monkeypatch.setattr(app, "drop_privileges", lambda: ordre.append("drop"))
+    app.child_setup()()
+    assert ordre == ["drop"]

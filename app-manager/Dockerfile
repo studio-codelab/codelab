@@ -23,6 +23,23 @@ RUN apt-get update \
 # numero, pas le nom, qui donne les droits communs sur le bind mount.
 RUN groupadd -g 2000 codelab
 
+# Utilisateur sous lequel tournent les applications deployees ET leurs
+# commandes de build. Le service lui-meme reste root (il doit poser les
+# permissions du workspace au demarrage), mais tout ce qu'il LANCE abandonne
+# ce privilege -- voir drop_privileges() dans app.py.
+#
+# Pourquoi : credentials.env est monte dans ce conteneur en 0600 root. Un
+# processus lance en root pouvait donc lire le mot de passe Postgres, celui du
+# panneau et la cle de session. Ce n'est pas un risque theorique : "npm ci"
+# execute les scripts postinstall de toutes les dependances transitives, et il
+# suffit d'une seule compromise dans la chaine.
+#
+# uid 1001 : distinct du 1000 de "vscode" cote codelab-dev, les deux ecrivant
+# dans le meme /workspace. Groupe PRIMAIRE codelab (2000), pour que les
+# fichiers crees tombent dans le groupe partage et restent modifiables depuis
+# une session SSH.
+RUN useradd -u 1001 -g 2000 -M -s /usr/sbin/nologin codelab-app
+
 RUN pip install --no-cache-dir flask psutil requests
 
 COPY app-manager/app.py /opt/codelab/app-manager/app.py

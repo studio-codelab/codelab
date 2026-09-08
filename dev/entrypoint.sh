@@ -78,12 +78,12 @@ BASHRC=/home/vscode/.bashrc
 #      mais en lecture seule.
 #
 # La passe recursive sur les fichiers deja presents ne tourne qu'une fois,
-# tracee par un marqueur. Supprimer /workspace/.codelab/permissions-v1 force
+# tracee par un marqueur. Supprimer /workspace/.codelab/permissions-v2 force
 # une reapplication complete au prochain demarrage : c'est la reparation a
 # tenter en premier si un fichier resiste.
 CODELAB_GROUP="${CODELAB_GROUP:-codelab}"
 WORKSPACE_DIR="${WORKSPACE:-/workspace}"
-PERM_MARKER="$WORKSPACE_DIR/.codelab/permissions-v1"
+PERM_MARKER="$WORKSPACE_DIR/.codelab/permissions-v2"
 
 mkdir -p "$WORKSPACE_DIR"
 chgrp "$CODELAB_GROUP" "$WORKSPACE_DIR" 2>/dev/null || true

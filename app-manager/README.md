@@ -42,6 +42,22 @@ applications est gere directement par ce service.
 
 ## Fiabilite, observabilite, deploiement
 
+- **Les applications et leurs builds ne tournent pas en root** — le service, lui, en a besoin au demarrage
+  (groupe et setgid sur `/workspace`), mais tout ce qu'il lance bascule sur l'utilisateur `codelab-app`
+  (uid 1001, groupe `codelab`). Ce que cela fermait : `credentials.env` est monte ici en `0600 root`, donc
+  un processus enfant lance en root pouvait lire le mot de passe Postgres, celui du panneau et la cle de
+  session. Le vecteur realiste n'est pas l'application mais son build — `npm ci` execute les scripts
+  `postinstall` de toutes les dependances transitives, et une seule compromise suffit. `git pull` est
+  concerne aussi : un depot peut porter des hooks.
+  Les enfants recoivent un `HOME` dedie dans le volume d'etat (`home/`) : sans lui `npm` echoue sur son
+  cache, `/root` n'etant plus accessible. Le marqueur de permissions passe a `permissions-v2` pour rejouer
+  une fois la passe sur un workspace existant, dont les fichiers ont pu etre produits en root.
+- **Le cookie de session du panneau n'est pas transmis aux applications** — elles sont servies sur la meme
+  origine (`:9001/<app>/`), le navigateur le leur envoie donc, et le proxy le relayait tel quel : une
+  application deployee pouvait lire la session admin et piloter le panneau. Seul ce cookie est retire, ceux
+  de l'application passent. La meme origine reste : une XSS dans une application reste une XSS dans
+  l'origine du panneau, et y remedier demanderait un port ou un sous-domaine par application — ce que ce
+  proxy a justement pour but d'eviter.
 - **Le panneau est le point d'entree de toute la stack** — il execute des commandes arbitraires (lancement,
   build) sous l'identite du service. Quatre garde-fous, dans cet esprit :
   - cookie de session en `SameSite=Lax` et `HttpOnly`. Les actions du panneau sont des `POST` sans corps :
