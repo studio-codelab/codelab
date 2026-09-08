@@ -14,6 +14,10 @@ import urllib.error
 import urllib.request
 
 ENV_FILE = os.environ.get("CODELAB_ENV_FILE", "/var/lib/codelab/config/credentials.env")
+# Configuration propre au projet : elle s'ajoute a credentials.env et le
+# remplace en cas de doublon. Un projet copie emporte donc sa configuration
+# avec lui, sans rien devoir ajouter au fichier commun.
+PROJET_ENV = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
 WORKSPACE = os.environ.get("APP_MANAGER_ROOT", "/workspace")
 # Dans app-manager comme dans dagster, le volume config est monte au meme
 # endroit : les cles SSH sont donc visibles a cote de credentials.env.
@@ -21,24 +25,83 @@ SSH_DIR = os.environ.get("CODELAB_SSH_DIR") or os.path.join(os.path.dirname(ENV_
 # uid de l'utilisateur SSH du conteneur dev, tel que vu depuis les autres
 # conteneurs (le volume est partage, les uid sont les memes).
 SSH_UID = int(os.environ.get("CODELAB_SSH_UID", "1000"))
+
+# Un schema Postgres par projet, nomme comme le dossier du projet. Les tables
+# d'un projet ne peuvent donc pas entrer en collision avec celles d'un autre,
+# et "DROP SCHEMA diagnostic CASCADE" suffit a tout nettoyer sans risquer
+# d'emporter les donnees du voisin. Le schema "dagster" est reserve aux tables
+# internes de Dagster (runs, evenements, planifications) ; "public" reste vide.
 TABLE = "codelab_diagnostic"
+# SCHEMA et TABLE_QUALIFIEE sont definis plus bas, apres read_env : le nom du
+# schema se lit dans le .env du projet.
 
 
 # ------------------------------ credentials.env ------------------------------
 
-def read_env(key, env_file=None):
-    """Lit une cle dans credentials.env. Derniere occurrence : chaque bloc est
-    reecrit en fin de fichier, donc une valeur laissee plus haut est perimee."""
-    valeur = None
+def _lire_fichier(chemin):
+    """Lit un fichier KEY=VALUE. Dict vide si absent ou illisible.
+
+    Volontairement tolerant : un fichier manquant ou une ligne malformee ne
+    doit pas empecher le projet de demarrer. Les guillemets entourant une
+    valeur sont retires -- on les ecrit par reflexe, et les garder donnerait un
+    mot de passe faux, avec une erreur trompeuse a l'autre bout.
+    """
+    valeurs = {}
     try:
-        with open(env_file or ENV_FILE) as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith(key + "="):
-                    valeur = line[len(key) + 1:].strip() or None
+        with open(chemin) as f:
+            for ligne in f:
+                ligne = ligne.strip()
+                if not ligne or ligne.startswith("#") or "=" not in ligne:
+                    continue
+                cle, _, valeur = ligne.partition("=")
+                valeur = valeur.strip()
+                if len(valeur) >= 2 and valeur[0] == valeur[-1] and valeur[0] in "\"'":
+                    valeur = valeur[1:-1]
+                # Derniere occurrence gagnante : dans credentials.env, chaque
+                # service reecrit son bloc en fin de fichier, donc une valeur
+                # laissee plus haut est forcement perimee.
+                valeurs[cle.strip()] = valeur
     except OSError:
-        return None
-    return valeur
+        pass
+    return valeurs
+
+
+def read_env(key, env_file=None):
+    """Lit une cle de configuration, en trois couches.
+
+    De la plus faible a la plus forte :
+
+      1. l'environnement du conteneur, pose par le docker-compose ;
+      2. credentials.env, commun a toute la stack ;
+      3. PROJET/.env, propre a ce projet -- il gagne toujours.
+
+    C'est la troisieme couche qui permet de pointer ce projet-ci sur une autre
+    base, ou de lui donner son propre jeton d'API, sans toucher au fichier
+    partage par tous les services.
+
+    Une valeur vide ("CLE=" dans le fichier) est traitee comme absente : c'est
+    la forme que prend un placeholder qu'on a oublie de remplir, et la
+    confondre avec une valeur valide donne des erreurs bien plus obscures en
+    aval.
+    """
+    if env_file:
+        # Chemin explicite : les tests veulent lire un fichier precis sans que
+        # le .env du projet vienne s'y superposer.
+        return _lire_fichier(env_file).get(key) or None
+
+    valeur = os.environ.get(key)
+    for fichier in (ENV_FILE, PROJET_ENV):
+        trouvee = _lire_fichier(fichier).get(key)
+        if trouvee:
+            valeur = trouvee
+    return valeur or None
+
+
+# Nom du schema, lu dans le .env du projet. Le qualifier explicitement dans
+# les requetes -- plutot que de se reposer sur le search_path -- evite qu'une
+# table homonyme d'un autre schema soit atteinte par erreur.
+SCHEMA = read_env("CODELAB_SCHEMA") or "diagnostic"
+TABLE_QUALIFIEE = f"{SCHEMA}.{TABLE}"
 
 
 def pg_settings(env_file=None):
@@ -75,15 +138,35 @@ def pilote_pg():
         "pip install --target vendor \"psycopg[binary]\"), puis redemarrer l'app.")
 
 
-def connect_pg(env_file=None):
+def connect_pg(env_file=None, schema=None):
+    """Ouvre une connexion positionnee sur le schema du projet.
+
+    Le schema est cree s'il n'existe pas : un projet fraichement copie
+    fonctionne sans preparation manuelle de la base. C'est fait a chaque
+    connexion parce que l'operation est instantanee quand le schema est deja
+    la, et que l'alternative -- un script d'initialisation a penser a lancer --
+    est exactement le genre d'etape qu'on oublie.
+    """
     mod, _ = pilote_pg()
-    return mod.connect(**pg_settings(env_file))
+    conn = mod.connect(**pg_settings(env_file))
+    sch = schema or SCHEMA
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f'CREATE SCHEMA IF NOT EXISTS "{sch}"')
+            # search_path pour que les requetes non qualifiees (psql
+            # interactif, \dt, outils tiers) voient les tables du projet.
+            cur.execute(f'SET search_path TO "{sch}", public')
+        conn.commit()
+    except Exception:
+        conn.close()
+        raise
+    return conn
 
 
 def ensure_table(conn):
     with conn.cursor() as cur:
         cur.execute(
-            "CREATE TABLE IF NOT EXISTS " + TABLE + " ("
+            "CREATE TABLE IF NOT EXISTS " + TABLE_QUALIFIEE + " ("
             "  id     BIGSERIAL PRIMARY KEY,"
             "  source TEXT        NOT NULL,"
             "  detail TEXT,"
@@ -94,7 +177,7 @@ def ensure_table(conn):
 def write_heartbeat(conn, source, detail=""):
     ensure_table(conn)
     with conn.cursor() as cur:
-        cur.execute("INSERT INTO " + TABLE + " (source, detail) VALUES (%s, %s) RETURNING id",
+        cur.execute("INSERT INTO " + TABLE_QUALIFIEE + " (source, detail) VALUES (%s, %s) RETURNING id",
                     (source, detail))
         new_id = cur.fetchone()[0]
     conn.commit()
@@ -104,10 +187,10 @@ def write_heartbeat(conn, source, detail=""):
 def read_heartbeats(conn, limit=10):
     ensure_table(conn)
     with conn.cursor() as cur:
-        cur.execute("SELECT source, count(*), max(vu_le) FROM " + TABLE
+        cur.execute("SELECT source, count(*), max(vu_le) FROM " + TABLE_QUALIFIEE
                     + " GROUP BY source ORDER BY source")
         par_source = cur.fetchall()
-        cur.execute("SELECT id, source, detail, vu_le FROM " + TABLE
+        cur.execute("SELECT id, source, detail, vu_le FROM " + TABLE_QUALIFIEE
                     + " ORDER BY id DESC LIMIT %s", (limit,))
         recentes = cur.fetchall()
     return par_source, recentes
@@ -183,7 +266,8 @@ def check_postgres(env_file=None):
         with conn.cursor() as cur:
             cur.execute("SELECT version()")
             v = cur.fetchone()[0].split(" on ")[0]
-        return True, "Postgres", f"{cfg['host']}:{cfg['port']}/{cfg['dbname']} -- {v}"
+        return True, "Postgres", (f"{cfg['host']}:{cfg['port']}/{cfg['dbname']} "
+                                  f"schema {SCHEMA} -- {v}")
     except Exception as e:
         return False, "Postgres", f"connecte mais requete refusee -- {e}"
     finally:
