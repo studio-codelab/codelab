@@ -37,7 +37,6 @@ CodeLab.
 Sans ce bloc, le capteur ne fait rien et le dit dans ses logs : il ne fait
 jamais echouer un run.
 """
-import os
 import smtplib
 import ssl
 from email.message import EmailMessage
@@ -84,7 +83,7 @@ def diagnostic_codelab(context: AssetExecutionContext):
     try:
         detail = "toutes les sondes passent" if not echecs else f"echecs : {', '.join(echecs)}"
         ligne = checks.write_heartbeat(conn, SOURCE, detail)
-        context.log.info(f"Ligne #{ligne} ecrite dans {checks.TABLE} (source={SOURCE}).")
+        context.log.info(f"Ligne #{ligne} ecrite dans {checks.TABLE_QUALIFIEE} (source={SOURCE}).")
     finally:
         conn.close()
 
@@ -117,7 +116,7 @@ DESTINATAIRES = [
 
 # Adresse publique de l'interface Dagster, pour que le mail contienne un lien
 # cliquable vers le run. A ajuster si tu accedes au ZimaOS autrement.
-DAGSTER_URL = os.environ.get("CODELAB_DAGSTER_URL", "http://<IP-ZimaOS>:3000")
+DAGSTER_URL = checks.read_env("CODELAB_DAGSTER_URL") or "http://<IP-ZimaOS>:3000"
 
 
 def config_smtp():
