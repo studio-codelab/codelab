@@ -1,0 +1,48 @@
+{
+  // Taches CodeLab -- « Terminal > Executer la tache... », ou Ctrl+Maj+P puis
+  // « Executer la tache ». Elles evitent d'avoir a taper les commandes : VS
+  // Code demande le nom du projet dans une boite de dialogue, la tache fait le
+  // reste et affiche son resultat.
+  //
+  // Chaque tache appelle l'outil « codelab » du conteneur, jamais une suite
+  // d'instructions recopiee ici : la logique reste dans l'image, versionnee
+  // et testee, et ce fichier ne devient pas un troisieme endroit ou la meme
+  // chose est ecrite differemment.
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "CodeLab : nouveau projet",
+      "detail": "Cree le dossier, le depot Git, le .gitignore et le AGENTS.md lu par l'agent",
+      "type": "shell",
+      "command": "mkdir -p '${input:projet}' && cd '${input:projet}' && git init -q 2>/dev/null; printf '.env\\nnode_modules/\\nvendor/\\ndist/\\n__pycache__/\\n' >> .gitignore && codelab agents && echo && echo 'Projet pret. Complete la section \"Projet\" du AGENTS.md, puis lance Codex.'",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+    },
+    {
+      "label": "CodeLab : creer la base du projet",
+      "detail": "Base <nom> + schema dagster + search_path (sans effet si elle existe deja)",
+      "type": "shell",
+      "command": "codelab db '${input:projet}' && echo && echo 'Ajoute CODELAB_DB=${input:projet} dans le .env du projet.'",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+    },
+    {
+      "label": "CodeLab : mettre a jour le manuel de l'agent",
+      "detail": "Rafraichit le bloc CodeLab du AGENTS.md ; ce qui est ecrit autour est conserve",
+      "type": "shell",
+      "command": "codelab agents '${input:projet}'",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "projet",
+      "type": "promptString",
+      "description": "Nom du projet (lettres, chiffres, tirets -- il sert aussi de nom de base)"
+    }
+  ]
+}

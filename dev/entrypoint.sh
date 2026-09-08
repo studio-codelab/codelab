@@ -1,5 +1,5 @@
 #!/bin/bash
-# Entrypoint de codelab-dev. Cinq roles :
+# Entrypoint de codelab-dev. Six roles :
 #
 #   1. Cles hote SSH persistantes. Elles sont regenerees par apt au moment du
 #      build : sans les persister, elles changent a chaque recreation du
@@ -21,11 +21,16 @@
 #      login) et on source ce fichier depuis ~/.bashrc (shells interactifs
 #      non-login, dont Remote-SSH de VS Code).
 #
-#   4. Permissions du workspace. /workspace est partage avec Dagster et
+#   4. Environnement Codex. CODEX_HOME pointe sur /workspace/.codex, cree ici
+#      (Codex ne cree pas ce dossier et refuse de demarrer s'il manque) :
+#      l'authentification et le config.toml survivent ainsi a une recreation
+#      du conteneur, alors qu'ils seraient perdus sous /home/vscode.
+#
+#   5. Permissions du workspace. /workspace est partage avec Dagster et
 #      app-manager, qui y ecrivent en root. Le socle (groupe commun, setgid,
 #      umask 002) est pose plus bas.
 #
-#   5. Ne jamais bloquer le demarrage. Ce service n'a volontairement pas de
+#   6. Ne jamais bloquer le demarrage. Ce service n'a volontairement pas de
 #      "depends_on: service_healthy" (certains orchestrateurs laissent le
 #      conteneur en "Created" si Postgres tarde a l'installation), donc
 #      credentials.env peut ne pas
@@ -54,6 +59,7 @@ DERIVED_SNAPSHOT="$SSH_DIR/.derived-keys"
 ENV_FILE="${CODELAB_ENV_FILE:-/var/lib/codelab/config/credentials.env}"
 PROFILE=/etc/profile.d/codelab-pg.sh
 UMASK_PROFILE=/etc/profile.d/codelab-umask.sh
+CODEX_PROFILE=/etc/profile.d/codelab-codex.sh
 BASHRC=/home/vscode/.bashrc
 
 # --------------------- permissions partagees sur /workspace ---------------------
@@ -107,6 +113,56 @@ fi
 # utilisateur reimpose un umask plus restrictif apres coup.
 printf '%s\n' '# Genere par codelab-dev -- ecriture partagee du workspace.' 'umask 002' > "$UMASK_PROFILE"
 chmod 644 "$UMASK_PROFILE"
+
+# ------------------------------ Codex ------------------------------
+#
+# CODEX_HOME dans /workspace, seul dossier qui survit a une recreation du
+# conteneur : sans lui, Codex range son auth.json sous /home/vscode et il
+# faut refaire "codex login" apres chaque mise a jour d'image. Le dossier est
+# cree ici parce que Codex ne le cree pas lui-meme et refuse de demarrer si
+# le chemin n'existe pas.
+CODEX_HOME_DIR="${CODEX_HOME:-$WORKSPACE_DIR/.codex}"
+mkdir -p "$CODEX_HOME_DIR"
+chown "$SSH_USER" "$CODEX_HOME_DIR" 2>/dev/null || true
+chgrp "$CODELAB_GROUP" "$CODEX_HOME_DIR" 2>/dev/null || true
+chmod 2770 "$CODEX_HOME_DIR" 2>/dev/null || true
+
+# config.toml par defaut, ecrit une seule fois : jamais reecrit ensuite, les
+# reglages faits a la main depuis une session survivent aux redemarrages.
+#
+# "danger-full-access" est un choix, pas une negligence : sans lui Codex
+# tente de s'isoler avec bubblewrap, qui exige des user namespaces
+# indisponibles dans un conteneur non privilegie ("bwrap: No permissions to
+# create a new namespace") et aucune commande ne s'execute. L'isolation est
+# deja celle du conteneur ; en empiler une seconde ne fait que tout bloquer.
+if [ ! -f "$CODEX_HOME_DIR/config.toml" ]; then
+    {
+        echo '# Ecrit une seule fois par codelab-dev -- modifiable librement.'
+        echo 'sandbox_mode = "danger-full-access"'
+        echo 'approval_policy = "on-request"'
+    } > "$CODEX_HOME_DIR/config.toml"
+    chown "$SSH_USER" "$CODEX_HOME_DIR/config.toml" 2>/dev/null || true
+fi
+
+printf '%s\n' '# Genere par codelab-dev -- authentification Codex persistante.' \
+    "export CODEX_HOME=$CODEX_HOME_DIR" > "$CODEX_PROFILE"
+chmod 644 "$CODEX_PROFILE"
+
+# Manuel de l'environnement, lu par Codex comme instructions globales. Recopie
+# a CHAQUE demarrage, contrairement au config.toml : ce fichier decrit la
+# stack, pas les preferences de l'utilisateur, et une version perimee
+# donnerait a l'agent des consignes fausses. Les consignes personnelles vont
+# dans le AGENTS.md du projet, jamais ici.
+#
+# Toutes les versions de la CLI n'honorent pas ce niveau global : la commande
+# "codelab agents" recopie le meme manuel dans le AGENTS.md d'un projet, ou il
+# est lu a coup sur.
+AGENTS_SOURCE=/usr/local/share/codelab/AGENTS.md
+if [ -r "$AGENTS_SOURCE" ]; then
+    cp -f "$AGENTS_SOURCE" "$CODEX_HOME_DIR/AGENTS.md"
+    chown "$SSH_USER" "$CODEX_HOME_DIR/AGENTS.md" 2>/dev/null || true
+    chmod 664 "$CODEX_HOME_DIR/AGENTS.md" 2>/dev/null || true
+fi
 
 # ------------------------------ cles SSH ------------------------------
 
@@ -306,7 +362,7 @@ chmod 644 "$PROFILE"
 # le contenu du profil dans .bashrc a chaque demarrage : le fichier grossissait
 # d'un jeu d'exports a chaque "docker restart".
 touch "$BASHRC"
-for f in "$UMASK_PROFILE" "$PROFILE"; do
+for f in "$UMASK_PROFILE" "$CODEX_PROFILE" "$PROFILE"; do
     if ! grep -qxF ". $f" "$BASHRC"; then
         printf '\n. %s\n' "$f" >> "$BASHRC"
     fi

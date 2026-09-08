@@ -62,11 +62,20 @@ RUN npm install -g @openai/codex \
 COPY dev/entrypoint.sh /opt/codelab/dev/entrypoint.sh
 RUN chmod +x /opt/codelab/dev/entrypoint.sh
 
-# Creation de la base d'un projet (base + schema "dagster" + search_path),
-# pour les projets ajoutes apres l'installation de la stack. Dans le PATH de
-# toutes les sessions SSH, d'ou /usr/local/bin.
-COPY dev/codelab-project.sh /usr/local/bin/codelab-project
-RUN chmod +x /usr/local/bin/codelab-project
+# Manuel CodeLab lu par les agents (Codex et compagnie) : regles de perimetre,
+# acces a la base, conventions Dagster et app-manager. Depose dans l'image
+# plutot que dans /workspace : c'est de la documentation de l'ENVIRONNEMENT,
+# elle doit suivre la version des images, pas rester figee dans le volume.
+# L'entrypoint le recopie en AGENTS.md global au demarrage, et
+# "codelab agents" l'installe dans un projet.
+COPY dev/AGENTS.md /usr/local/share/codelab/AGENTS.md
+
+# Outil de projet : "codelab db" (base + schema "dagster" + search_path, pour
+# les projets ajoutes apres l'installation de la stack) et "codelab agents".
+# Dans le PATH de toutes les sessions SSH, d'ou /usr/local/bin. Sans
+# extension : c'est un executable, pas un fichier a sourcer.
+COPY dev/codelab /usr/local/bin/codelab
+RUN chmod +x /usr/local/bin/codelab
 
 RUN mkdir -p /run/sshd \
     && sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config \

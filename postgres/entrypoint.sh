@@ -76,7 +76,7 @@ fi
 CODELAB_INSTANCE_DB="${POSTGRES_DB:-dagster}"
 # Bases de projet creees d'office. Liste separee par des espaces : un projet
 # ajoute ici est provisionne au prochain redemarrage de la stack. Les projets
-# crees en cours de route passent plutot par "codelab-project <nom>" depuis
+# crees en cours de route passent plutot par "codelab db <nom>" depuis
 # une session SSH, qui fait exactement la meme chose sans redemarrage.
 CODELAB_PROJECT_DBS="${CODELAB_PROJECT_DBS:-diagnostic}"
 # Schema qui recoit les tables des assets, dans CHAQUE base de projet. Meme
@@ -164,7 +164,7 @@ create_db_if_missing() {
 
 # Supprime la base "postgres" livree par initdb. CodeLab ne s'en sert pas : la
 # base d'instance sert de point d'entree pour creer les autres, le healthcheck
-# et "codelab-project" la visent aussi.
+# et "codelab db" la visent aussi.
 #
 # Deux garde-fous, parce qu'une base supprimee ne revient pas :
 #   - on ne touche a rien si elle contient le moindre objet utilisateur
@@ -211,7 +211,7 @@ drop_maintenance_db() {
 # Provisionnement en tache de fond : le serveur doit d'abord ecouter, et
 # c'est "exec docker-entrypoint.sh" plus bas qui le demarre. Toute erreur
 # ici est non fatale -- une base de projet manquante se rattrape avec
-# "codelab-project", alors qu'un Postgres qui ne demarre pas ne se rattrape
+# "codelab db", alors qu'un Postgres qui ne demarre pas ne se rattrape
 # pas du tout.
 provision_databases() {
   # Attente sur TCP, pas sur la socket Unix : a la toute premiere

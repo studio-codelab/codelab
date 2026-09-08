@@ -114,7 +114,14 @@ SEED_MARKER=/workspace/.codelab/workspace-v1
 
 if [ ! -f "$SEED_MARKER" ] && [ -d "$WORKSPACE_SEED" ]; then
   echo "[codelab] amorcage de /workspace depuis le squelette de l'image..."
-  for entree in "$WORKSPACE_SEED"/*; do
+  # Les trois motifs couvrent aussi les entrees cachees : le squelette livre
+  # un dossier .vscode (taches CodeLab), et un simple "*" ne l'aurait jamais
+  # copie -- le glob du shell ignore les noms commencant par un point. Le
+  # motif ".[!.]*" prend tout ce qui commence par un point sans etre "." ni
+  # "..", et "..?*" rattrape le cas rare d'un nom commencant par deux points.
+  # Pas de recouvrement entre les deux, donc pas d'entree traitee deux fois.
+  # Les motifs sans correspondance sont ecartes par le test d'existence.
+  for entree in "$WORKSPACE_SEED"/* "$WORKSPACE_SEED"/.[!.]* "$WORKSPACE_SEED"/..?*; do
     [ -e "$entree" ] || continue
     nom="$(basename "$entree")"
     cible="/workspace/$nom"

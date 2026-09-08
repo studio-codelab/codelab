@@ -54,15 +54,20 @@ python3 -c "import psycopg; print(psycopg.connect().execute('SELECT version();')
 evenements, planifications) ; chaque projet du workspace a la sienne, nommee comme son dossier
 (`diagnostic` pour celui livre en modele), avec un schema `dagster` dedans qui recoit les tables des
 assets. Une session SSH arrive directement dans `diagnostic` ; la base d'un projet cree apres coup
-s'ajoute avec `codelab-project mon-projet`. La base `postgres` livree par Postgres est supprimee au
+s'ajoute avec `codelab db mon-projet`. La base `postgres` livree par Postgres est supprimee au
 demarrage : elle ne servait a rien ici, mais un outil qui s'y connectait par defaut doit maintenant
 nommer une base (`psql -d dagster`). Details dans `workspace/README.md`.
 
 **App-manager** : `http://<IP-du-serveur>:9001/` — demarrer/arreter tes apps deployees depuis `/workspace`, consulter
 leurs logs. Protege par mot de passe, genere automatiquement au premier demarrage (voir ci-dessous pour le
-recuperer).
+recuperer). Le parcours complet, du dossier vide a l'application en ligne, est decrit dans
+[`DEVELOPPER.md`](DEVELOPPER.md).
 
 **Dagster** : `http://<IP-du-serveur>:3000/` — charge `/workspace/definitions.py` comme code Dagster.
+
+**Agents** : `codelab agents` dans un projet y ecrit le mode d'emploi de la stack (perimetre d'ecriture,
+acces a la base, conventions Dagster et app-manager) sous forme d'un `AGENTS.md`, lu par `codex` avant
+chaque tache. Voir [`DEVELOPPER.md`](DEVELOPPER.md).
 
 ## Un seul fichier de secrets
 
@@ -217,10 +222,24 @@ Sans cette etape, tout fonctionne quand meme : de nouvelles cles hote sont gener
 re-autorisee automatiquement — mais l'empreinte du serveur change (`ssh-keygen -R "[<IP-du-serveur>]:2222"` cote
 client) et les cles ajoutees a la main sont perdues.
 
+## Tests
+
+```bash
+pip install flask psutil requests pytest
+python -m pytest tests/ -q
+```
+
+Portee volontairement etroite : ce qui se verifie sans conteneur, sans Postgres et sans reseau — detection
+de stack a l'ajout d'un projet, bornage des chemins a `/workspace`, attribution des ports,
+authentification du panneau et sa limite de tentatives. Le cycle de vie des process et le reverse proxy
+demandent une stack en marche et se verifient a la main.
+
 ## Publication des images (CI)
 
-`.github/workflows/build-images.yml` build et pousse automatiquement les images vers `ghcr.io/lucasrtn/...` a
-chaque push sur `main`. **Etape unique a faire a la main** apres le premier run : les packages GitHub sont crees
+`.github/workflows/build-images.yml` lance les tests, puis build et pousse les images vers
+`ghcr.io/lucasrtn/...` a chaque push sur `main`. Sur une **pull request**, les tests tournent et les quatre
+images sont construites en `amd64` seul, sans rien publier : un Dockerfile casse se voit avant la fusion,
+pas apres. **Etape unique a faire a la main** apres le premier run : les packages GitHub sont crees
 prives par defaut, donc un `docker pull` anonyme echoue tant qu'ils ne sont pas passes en **Public**
 (`github.com/lucasrtn?tab=packages` → package → Package settings → Danger Zone → Change visibility).
 
@@ -280,6 +299,7 @@ python3 -c "import base64; print('data:image/png;base64,' + base64.b64encode(ope
 ```text
 codelab/
 ├── docker-compose.yml
+├── DEVELOPPER.md  # developper un projet et le deployer -- a lire en premier
 ├── icon.svg / icon.png
 ├── .github/workflows/build-images.yml
 ├── workspace/     # squelette depose dans /workspace au premier demarrage
@@ -288,5 +308,6 @@ codelab/
 └── app-manager/   # deploiement d'applications — voir app-manager/README.md
 ```
 
-Ce README couvre l'installation et l'usage global. Le fonctionnement interne de chaque service (scripts de
+Ce README couvre l'installation et l'usage global ; `DEVELOPPER.md` couvre le travail quotidien
+(developper dans le conteneur, deployer sur l'app-manager). Le fonctionnement interne de chaque service (scripts de
 demarrage, variables d'environnement, pieges connus) est documente dans son propre `README.md`.

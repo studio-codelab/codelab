@@ -21,6 +21,7 @@ central a tenir a jour.
 /workspace/
 ├── README.md            <- ce fichier
 ├── definitions.py       <- point d'entree Dagster, tu n'as pas a le modifier
+├── .vscode/tasks.json   <- taches VS Code (nouveau projet, base, AGENTS.md)
 └── mon-projet/
     ├── README.md        <- a quoi sert ce projet, comment le lancer
     ├── .env             <- OPTIONNEL : la configuration propre au projet
@@ -92,6 +93,16 @@ Depose un `app.py`, puis dans le panneau `http://<IP-du-serveur>:9001/` → **Aj
 | Dossier | `/workspace/mon-projet` |
 | Commande de lancement | `python3 app.py` |
 | Commande de build | *(optionnelle, voir ci-dessous)* |
+
+## Sans terminal : les taches VS Code
+
+`.vscode/tasks.json` expose les gestes courants dans **Terminal > Executer la tache...** : creer un
+projet (dossier, `git init`, `.gitignore`, `AGENTS.md`), creer sa base, rafraichir le manuel de
+l'agent. VS Code demande le nom dans une boite de dialogue, il n'y a rien a taper.
+
+Ces taches appellent l'outil `codelab` du conteneur au lieu de recopier ses commandes : la logique
+reste dans l'image, et ce fichier ne devient pas un deuxieme endroit ou la meme chose est ecrite
+autrement. Elles ne sont proposees que si le dossier ouvert dans VS Code est `/workspace`.
 
 ## Dependances
 
@@ -198,7 +209,7 @@ positionne dessus par base, donc un `CREATE TABLE ma_table` dans un asset y atte
 La base d'un projet ajoute apres l'installation se cree depuis une session SSH :
 
 ```bash
-codelab-project mon-projet
+codelab db mon-projet
 ```
 
 Elle est aussi creee automatiquement a la premiere connexion : `checks.connect_pg()`, copie du

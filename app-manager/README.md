@@ -42,6 +42,40 @@ applications est gere directement par ce service.
 
 ## Fiabilite, observabilite, deploiement
 
+- **Le panneau est le point d'entree de toute la stack** — il execute des commandes arbitraires (lancement,
+  build) sous l'identite du service. Quatre garde-fous, dans cet esprit :
+  - cookie de session en `SameSite=Lax` et `HttpOnly`. Les actions du panneau sont des `POST` sans corps :
+    sans `SameSite`, n'importe quelle page ouverte dans le meme navigateur pouvait poster un formulaire vers
+    `/api/toggle/<app>` et piloter la stack a l'insu de l'utilisateur, commande de build comprise ;
+  - `X-Forwarded-For` n'est cru que si `APP_MANAGER_TRUST_PROXY=1`. Le service etant publie directement sur
+    le port 9001, l'en-tete est pose par le client : le faire varier a chaque essai donnait un compteur neuf
+    et annulait la limite de 5 tentatives par 5 minutes ;
+  - comparaison du mot de passe en temps constant (`secrets.compare_digest`) ;
+  - chemin d'une application borne a `APP_MANAGER_ROOT` a l'ajout **et** a la modification, comme le
+    navigateur de dossiers l'etait deja.
+
+- **Deployer en une action** — « Déployer » dans le menu « ... » enchaine build et redemarrage, et ne
+  redemarre que si le build a reussi. L'ancienne version reste servie pendant le build. C'etait
+  auparavant deux entrees de menu distinctes, dont la seconde s'oubliait : on lancait le build, la page
+  ne changeait pas, et le process servait toujours l'ancien `dist/`.
+- **Sonde d'ecoute** — « le process est vivant » et « l'application est joignable » sont deux choses
+  differentes : un serveur qui plante dans son thread d'ecoute, ou qui n'a jamais pris son port, laisse
+  un process bien vivant derriere lui, et la pastille restait verte devant une page blanche. Toutes les
+  10 s, une connexion TCP sur `127.0.0.1:<port interne>` — exactement la cible du reverse proxy — donne
+  l'etat reel : pastille orange et « Ne repond pas » quand rien n'ecoute. Pas de requete HTTP : le port
+  ouvert est le signal cherche, et un 404 applicatif ne veut pas dire que l'application est en panne.
+- **Node et git sont dans l'image** — ce service build les applications qu'il deploie : sans `npm`, tout projet
+  front echouait en `npm: command not found` alors que la meme commande marchait en SSH, et la parade etait
+  d'ecrire un `PATH` avec un numero de version de node fige dans la commande de build. Une commande de build
+  s'ecrit donc simplement `npm ci && npm run build`. `git` est la pour le bouton « Git pull ».
+- **Detection du couple build + lancement** — a l'ajout d'un projet, le dossier est inspecte et les deux
+  commandes sont proposees d'un coup (Vite, Astro, Parcel, CRA, Angular, Next.js, Django, Flask, statique).
+  Pour un front, la suggestion sert le dossier produit par le build avec le `http.server` de Python plutot
+  que le serveur de developpement du framework. Le tableau complet est dans
+  [`../DEVELOPPER.md`](../DEVELOPPER.md).
+- **`$PORT` dans l'environnement de l'application** — le port interne attribue est injecte dans le processus
+  lance : la commande peut s'ecrire `--port $PORT` au lieu d'un numero en dur a resynchroniser.
+
 - **Redemarrage automatique en cas de crash** — un thread de fond (`monitor_tick`, toutes les 10s) redemarre
   automatiquement toute application marquee active dont le process est mort de maniere inattendue (crash, pas
   un arret volontaire via le menu). Plafonne a 5 tentatives par tranche de 10 minutes : au-dela, l'application
@@ -156,12 +190,13 @@ silencieusement sans bloquer le demarrage du service — c'est une commodite, pa
 | `/logout` | POST | oui | Termine la session |
 | `/api/apps` | GET | oui | Liste des applications, avec statut, metriques en direct, `crash_looping`, `is_git`, `has_build` |
 | `/api/browse?path=...` | GET | oui | Navigateur de dossiers, borne a `APP_MANAGER_ROOT` |
-| `/api/detect?path=...` | GET | oui | Suggere une commande de lancement a partir du contenu du dossier |
+| `/api/detect?path=...` | GET | oui | Suggere une commande de lancement **et** une commande de build a partir du contenu du dossier |
 | `/api/add` | POST | oui | Enregistre une application existante (nom, chemin, commande, build, limite memoire) |
 | `/api/app/<nom>` | PUT | oui | Modifie le chemin/la commande/le build/la limite memoire d'une application **arretee** |
 | `/api/toggle/<nom>` | POST | oui | Demarre ou arrete une application |
 | `/api/restart/<nom>` | POST | oui | Arrete puis relance immediatement une application |
 | `/api/build/<nom>` | POST | oui | Execute la commande de build (si definie), sortie dans le journal |
+| `/api/deploy/<nom>` | POST | oui | Build **puis** mise en ligne ; un build en echec ne touche pas l'application qui tourne |
 | `/api/git-pull/<nom>` | POST | oui | `git pull --ff-only` dans le dossier du projet (si c'est un depot Git) |
 | `/api/metrics/<nom>` | GET | oui | Historique CPU/memoire en memoire (~30 derniers points) |
 | `/api/app/<nom>` | DELETE | oui | Retire une application du registre (le dossier n'est jamais touche) |
