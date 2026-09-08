@@ -26,8 +26,9 @@
 #      umask 002) est pose plus bas.
 #
 #   5. Ne jamais bloquer le demarrage. Ce service n'a volontairement pas de
-#      "depends_on: service_healthy" (ZimaOS laisse le conteneur en "Created"
-#      si Postgres tarde a l'installation), donc credentials.env peut ne pas
+#      "depends_on: service_healthy" (certains orchestrateurs laissent le
+#      conteneur en "Created" si Postgres tarde a l'installation), donc
+#      credentials.env peut ne pas
 #      encore exister au premier boot : on l'attend brievement, puis on
 #      demarre quand meme. SSH reste utilisable sans la base.
 set -e
@@ -161,8 +162,8 @@ chmod 644 /etc/ssh/ssh_host_*_key.pub
 # l'union de ce dossier. Ajouter une machine, c'est deposer un fichier ; en
 # retirer une, c'est en supprimer un. Rien n'est jamais perdu implicitement.
 #
-# Une cle ecrite directement dans authorized_keys (a la main depuis le
-# ZimaOS, ou par une version anterieure de cette image) n'est pas ignoree :
+# Une cle ecrite directement dans authorized_keys (a la main depuis l'hote,
+# ou par une version anterieure de cette image) n'est pas ignoree :
 # elle est recuperee dans authorized_keys.d/manuel.pub avant reconstruction.
 # Le vieux geste continue donc de fonctionner.
 
@@ -198,8 +199,8 @@ sync_authorized_keys() {
         fi
     fi
 
-    # 2. SSH_PUBLIC_KEY : variable d'installation ZimaOS, facultative une
-    #    fois la cle enregistree dans le dossier.
+    # 2. SSH_PUBLIC_KEY : variable passee au premier demarrage, facultative
+    #    une fois la cle enregistree dans le dossier.
     if [ -n "${SSH_PUBLIC_KEY:-}" ]; then
         id="$(printf '%s\n' "$SSH_PUBLIC_KEY" | key_ids)"
         if [ -n "$id" ] && ! printf '%s\n' "$known" | grep -qxF "$id"; then

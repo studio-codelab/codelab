@@ -115,8 +115,8 @@ DESTINATAIRES = [
 # --------------------------------------------------------------------------
 
 # Adresse publique de l'interface Dagster, pour que le mail contienne un lien
-# cliquable vers le run. A ajuster si tu accedes au ZimaOS autrement.
-DAGSTER_URL = checks.read_env("CODELAB_DAGSTER_URL") or "http://<IP-ZimaOS>:3000"
+# cliquable vers le run. A ajuster si tu accedes au serveur autrement.
+DAGSTER_URL = checks.read_env("CODELAB_DAGSTER_URL") or "http://<IP-du-serveur>:3000"
 
 
 def config_smtp():

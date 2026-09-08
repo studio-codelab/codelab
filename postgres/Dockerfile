@@ -1,10 +1,10 @@
 # Image Postgres de CodeLab : l'officielle, plus un entrypoint versionne.
 #
-# Elle n'existe que pour sortir le shell du docker-compose.yml. ZimaOS
-# reecrit le compose a l'import et desechappe les "$$" en "$" ; Docker
-# Compose interpole alors ces variables avant le shell, et le script recoit
-# des chaines vides. Un fichier copie dans l'image ne traverse jamais cette
-# reecriture.
+# Elle n'existe que pour sortir le shell du docker-compose.yml. Compose
+# interpole les "$$VAR" d'un script inline avant que le shell ne les voie, et
+# les interfaces qui reecrivent le compose a l'import annulent l'echappement
+# cense y remedier : le script recoit alors des chaines vides. Un fichier
+# copie dans l'image ne traverse jamais ces reecritures.
 #
 # Montee de version Postgres : changer le tag ci-dessous, puis pousser un
 # tag Git -- les quatre images sortent ensemble, comme toujours. Attention,

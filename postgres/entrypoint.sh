@@ -6,11 +6,12 @@
 # puis rend la main a l'entrypoint officiel de l'image.
 #
 # Pourquoi un fichier dans une image plutot qu'un script inline dans le
-# docker-compose : ZimaOS reecrit le compose a l'import et desechappe les
-# "$$" en "$". Docker Compose interpole alors ces "$VAR" avant que le shell
-# ne les voie, et le script recoit des chaines vides ("mkdir: cannot create
-# directory ''"). Un script versionne dans l'image ne traverse jamais cette
-# reecriture -- c'est la seule facon fiable d'avoir du shell ici.
+# docker-compose : Compose interpole les "$VAR" d'un script inline avant que
+# le shell ne les voie, et une interface qui reecrit le compose a l'import
+# annule l'echappement cense y remedier ("$$" redevenu "$"). Le script
+# recoit alors des chaines vides ("mkdir: cannot create directory ''"). Un
+# script versionne dans l'image ne traverse jamais ces reecritures -- c'est
+# la seule facon fiable d'avoir du shell ici.
 set -e
 
 CONFIG_DIR="${CODELAB_CONFIG_DIR:-/var/lib/codelab/config}"
@@ -88,7 +89,7 @@ upsert_block "codelab-header" "# credentials.env -- TOUS les identifiants CodeLa
 # fichier de secrets : rien n'est stocke ailleurs. Ne pas editer a la
 # main, chaque bloc est entierement reecrit au redemarrage du service
 # concerne. Permissions 600 -- lisible uniquement par root sur le
-# disque du ZimaOS."
+# disque de l'hote."
 
 upsert_block "codelab-postgres" "# Serveur Postgres partage par tous les services CodeLab.
 # Utilise par : codelab-dev, codelab-dagster, codelab-dagster-daemon,

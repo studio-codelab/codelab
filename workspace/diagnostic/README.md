@@ -16,7 +16,7 @@ meme table Postgres — voir les deux sources cote a cote est la preuve que tout
 stack. Il est deja charge par Dagster et n'attend qu'une chose de toi, cote application web (une
 seule fois) :
 
-Panneau `http://<IP-ZimaOS>:9001/` -> **Ajouter un projet**
+Panneau `http://<IP-du-serveur>:9001/` -> **Ajouter un projet**
 
 | Champ | Valeur |
 |---|---|
@@ -49,9 +49,9 @@ decouvre tout seul. Il n'y a **pas** de fichier central a editer pour declarer u
 
 ## Utilisation
 
-1. Ouvre `http://<IP-ZimaOS>:9001/diagnostic/`. Huit verifications s'affichent, et la page ecrit une ligne
+1. Ouvre `http://<IP-du-serveur>:9001/diagnostic/`. Huit verifications s'affichent, et la page ecrit une ligne
    `app-manager` en base a chaque rechargement.
-2. Le bandeau reste rouge tant que Dagster n'a rien ecrit. Va sur `http://<IP-ZimaOS>:3000/`, materialise
+2. Le bandeau reste rouge tant que Dagster n'a rien ecrit. Va sur `http://<IP-du-serveur>:3000/`, materialise
    l'asset **`diagnostic_codelab`**, puis recharge la page.
 3. Bandeau vert = chaine complete.
 
@@ -140,7 +140,7 @@ docker restart codelab-dagster-daemon
 | `SMTP_USER`, `SMTP_PASSWORD` | Optionnels : un relais interne peut ne pas demander d'authentification |
 | `ALERTE_FROM` | Rarement utile. L'expediteur suit `SMTP_USER`, que Gmail impose de toute facon |
 
-Le lien vers le run dans le mail utilise `CODELAB_DAGSTER_URL`, `http://<IP-ZimaOS>:3000` par defaut. Pour
+Le lien vers le run dans le mail utilise `CODELAB_DAGSTER_URL`, `http://<IP-du-serveur>:3000` par defaut. Pour
 un lien cliquable, mets ton IP reelle dans l'`environment:` du service `codelab-dagster-daemon`.
 
 **Gmail** : il faut la validation en deux etapes activee, puis un *mot de passe d'application* de 16

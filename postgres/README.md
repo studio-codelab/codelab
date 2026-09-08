@@ -14,8 +14,8 @@ problemes se sont succede :
 1. Docker Compose interpole les `$VAR` d'un script inline **avant** que le shell ne les voie. `$ENV_FILE`,
    `$name`, `$content` arrivaient vides, le script echouait des `touch ""`, et `set -e` le faisait sortir
    avant de lancer Postgres. Corrige en doublant les `$`.
-2. Sauf que ZimaOS **reecrit le compose a l'import** et annule cet echappement. Les `$$` redevenaient `$`,
-   Compose les vidait a nouveau, et Postgres repartait en boucle de redemarrage
+2. Sauf qu'une interface d'installation qui **reecrit le compose a l'import** annule cet echappement. Les
+   `$$` redevenaient `$`, Compose les vidait a nouveau, et Postgres repartait en boucle de redemarrage
    (`mkdir: cannot create directory ''`).
 
 Un fichier copie dans une image ne traverse aucune de ces deux reecritures. D'ou la regle du projet :

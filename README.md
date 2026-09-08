@@ -1,9 +1,8 @@
 # CodeLab
 
-Environnement de developpement personnel, auto-heberge sur [ZimaOS](https://www.zimaspace.com/zimaos) (compatible CasaOS).
-Une seule installation fournit une base de donnees partagee, un acces SSH/VS Code, un orchestrateur de jobs et un
-gestionnaire d'applications — installable en un import de `docker-compose.yml` depuis l'interface ZimaOS, sans
-commande a executer sur le serveur.
+Environnement de developpement personnel, auto-heberge sur ton propre serveur. Une seule installation fournit
+une base de donnees partagee, un acces SSH/VS Code, un orchestrateur de jobs et un gestionnaire d'applications
+— un `docker-compose.yml`, rien d'autre a installer sur l'hote que Docker.
 
 ## Services
 
@@ -19,20 +18,32 @@ SSH generees et persistees, et connexion a Postgres deja prete dans l'environnem
 
 ## Installation
 
-1. Dans ZimaOS : **App Store → Install via docker-compose**, coller le contenu de `docker-compose.yml`.
-2. ZimaOS demande une valeur pour **`SSH_PUBLIC_KEY`** : ta cle publique SSH (contenu de
-   `~/.ssh/id_ed25519.pub` ou equivalent).
-3. Le meme ecran liste les volumes avec leurs chemins par defaut
-   (`/DATA/AppData/codelab/workspace` et `/DATA/AppData/codelab/postgres`) — modifiables directement la si tu
-   veux un autre emplacement.
-4. Installer. Mot de passe Postgres, etat interne des services et cles hote SSH sont generes automatiquement au
-   premier demarrage.
+```bash
+git clone https://github.com/lucasrtn/codelab.git && cd codelab
+SSH_PUBLIC_KEY="$(cat ~/.ssh/id_ed25519.pub)" docker compose up -d
+```
+
+1. **`SSH_PUBLIC_KEY`** est la seule valeur a fournir : ta cle publique SSH, celle avec laquelle tu te
+   connecteras en tant qu'utilisateur `vscode`. Elle n'est necessaire qu'au premier demarrage — une fois
+   enregistree, la stack redemarre sans elle. Pour autoriser une autre machine ensuite, deposer sa cle
+   publique dans `/DATA/AppData/codelab/config/ssh/authorized_keys.d/<nom>.pub`, puis redemarrer le
+   conteneur `codelab-dev`.
+2. Les donnees vivent sous `/DATA/AppData/codelab/` (voir [Persistance des donnees](#persistance-des-donnees)).
+   Pour les ranger ailleurs, changer les chemins hote des volumes dans `docker-compose.yml` — ce sont des
+   chemins litteraux, pas des variables.
+3. Mot de passe Postgres, etat interne des services et cles hote SSH sont generes automatiquement au premier
+   demarrage. Rien d'autre a configurer.
+
+Si ton serveur expose une interface d'installation par collage de compose (les app stores de type CasaOS,
+par exemple), utilise plutot `docker-compose-casaos.yml` : c'est le meme fichier, plus les metadonnees
+d'affichage que ces interfaces savent lire — icone, titre, description du champ `SSH_PUBLIC_KEY`, et une
+note recapitulant cle SSH, ports et emplacement des donnees, affichee avant l'installation.
 
 ## Utilisation
 
 **SSH / VS Code**
 ```bash
-ssh vscode@<IP-ZimaOS> -p 2222
+ssh vscode@<IP-du-serveur> -p 2222
 ```
 Ton code vit dans `/workspace`. La connexion Postgres ne demande aucune configuration :
 ```bash
@@ -47,11 +58,11 @@ s'ajoute avec `codelab-project mon-projet`. La base `postgres` livree par Postgr
 demarrage : elle ne servait a rien ici, mais un outil qui s'y connectait par defaut doit maintenant
 nommer une base (`psql -d dagster`). Details dans `workspace/README.md`.
 
-**App-manager** : `http://<IP-ZimaOS>:9001/` — demarrer/arreter tes apps deployees depuis `/workspace`, consulter
+**App-manager** : `http://<IP-du-serveur>:9001/` — demarrer/arreter tes apps deployees depuis `/workspace`, consulter
 leurs logs. Protege par mot de passe, genere automatiquement au premier demarrage (voir ci-dessous pour le
 recuperer).
 
-**Dagster** : `http://<IP-ZimaOS>:3000/` — charge `/workspace/definitions.py` comme code Dagster.
+**Dagster** : `http://<IP-du-serveur>:3000/` — charge `/workspace/definitions.py` comme code Dagster.
 
 ## Un seul fichier de secrets
 
@@ -156,7 +167,7 @@ prochain redemarrage, ce qui est la reparation a tenter en premier si un fichier
 
 ## Persistance des donnees
 
-Tout vit sous `/DATA/AppData/codelab/` sur le disque du ZimaOS (aucun volume Docker nomme) : ca survit a un
+Tout vit sous `/DATA/AppData/codelab/` sur le disque de l'hote (aucun volume Docker nomme) : ca survit a un
 redemarrage, une recreation de conteneur et une reinstallation.
 
 ```
@@ -172,8 +183,9 @@ redemarrage, une recreation de conteneur et une reinstallation.
 └── app-manager/               apps.json + logs des applications
 ```
 
-Seule exception a connaitre : si l'ecran de desinstallation ZimaOS propose de supprimer les donnees de
-l'application, il faut decocher cette case pour les conserver.
+Seule exception a connaitre : si ton interface de gestion propose, a la desinstallation, de supprimer aussi
+les donnees de l'application, il faut refuser pour les conserver. En ligne de commande, `docker compose down`
+n'y touche pas (ce sont des bind mounts, pas des volumes geres par Docker).
 
 ## Migration depuis une version anterieure
 
@@ -182,7 +194,7 @@ Les secrets se migrent **tout seuls** au premier demarrage : `config/postgres_pa
 supprimes. La base de donnees et le mot de passe du panneau continuent de fonctionner, rien a faire.
 
 Les cles SSH demandent **une commande**, parce que leurs anciens dossiers ne sont plus montes par le compose et
-qu'un conteneur ne peut donc plus les lire. A executer sur le ZimaOS avant de reimporter le compose, pour
+qu'un conteneur ne peut donc plus les lire. A executer sur l'hote avant de redemarrer la stack, pour
 conserver l'empreinte du serveur et les cles deja autorisees :
 
 ```bash
@@ -202,14 +214,14 @@ sudo mv /DATA/AppData/codelab/dagster-home /DATA/AppData/codelab/dagster
 ```
 
 Sans cette etape, tout fonctionne quand meme : de nouvelles cles hote sont generees et `SSH_PUBLIC_KEY` est
-re-autorisee automatiquement — mais l'empreinte du serveur change (`ssh-keygen -R "[<IP-ZimaOS>]:2222"` cote
+re-autorisee automatiquement — mais l'empreinte du serveur change (`ssh-keygen -R "[<IP-du-serveur>]:2222"` cote
 client) et les cles ajoutees a la main sont perdues.
 
 ## Publication des images (CI)
 
 `.github/workflows/build-images.yml` build et pousse automatiquement les images vers `ghcr.io/lucasrtn/...` a
 chaque push sur `main`. **Etape unique a faire a la main** apres le premier run : les packages GitHub sont crees
-prives par defaut, donc ZimaOS ne peut pas les tirer tant qu'ils ne sont pas passes en **Public**
+prives par defaut, donc un `docker pull` anonyme echoue tant qu'ils ne sont pas passes en **Public**
 (`github.com/lucasrtn?tab=packages` → package → Package settings → Danger Zone → Change visibility).
 
 ## Versionner CodeLab (figer une release)
@@ -241,7 +253,7 @@ Publish release. Gabarit a reprendre :
   ```
 
 **Revenir a cette version precise** : dans `docker-compose.yml`, remplacer le tag `:latest` par `:1.0.0` sur les
-**3 services** (`codelab-dev`, `codelab-dagster`, `codelab-app-manager`), puis reimporter le compose sur ZimaOS.
+**3 services** (`codelab-dev`, `codelab-dagster`, `codelab-app-manager`), puis `docker compose up -d`.
 
 **Lister les versions disponibles** :
 ```bash
@@ -252,10 +264,12 @@ chaque image individuellement.
 
 ## Icone de l'application
 
-Le depot etant prive, `raw.githubusercontent.com/.../icon.png` n'est pas accessible sans authentification —
-ZimaOS n'en a pas. L'icone est donc encodee directement dans `docker-compose.yml`
-(`x-casaos.icon: "data:image/png;base64,..."`), aucune requete externe n'est necessaire pour l'afficher. Le
-fichier source reste `icon.svg`/`icon.png` a la racine du depot, a re-encoder si tu la changes :
+L'icone ne sert qu'aux interfaces d'installation qui affichent une vignette, et elle vit dans
+`docker-compose-casaos.yml` uniquement. Elle y est **encodee en base64 directement dans le fichier** plutot
+que referencee par URL : le depot etant prive, un lien `raw.githubusercontent.com/.../icon.png` demanderait
+une authentification que ces interfaces n'ont pas. Aucune requete externe n'est donc necessaire pour
+l'afficher. Le fichier source reste `icon.svg`/`icon.png` a la racine du depot, a re-encoder si tu la
+changes :
 
 ```bash
 python3 -c "import base64; print('data:image/png;base64,' + base64.b64encode(open('icon.png','rb').read()).decode())"
