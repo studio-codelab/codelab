@@ -48,6 +48,44 @@ def _projet(tmp_path, fichiers):
     return str(tmp_path)
 
 
+# ------------------ 0. cache du registre d'applications ------------------
+#
+# load() est mis en cache pour eviter une lecture disque par requete
+# proxifiee. Le risque du cache est de servir un registre perime : ces deux
+# tests tiennent la seule propriete qui compte, "une modification est vue".
+
+def test_le_registre_est_relu_quand_le_fichier_change(tmp_path, monkeypatch):
+    fichier = tmp_path / "apps.json"
+    monkeypatch.setattr(app, "APPS_FILE", str(fichier))
+    app._apps_cache["signature"] = None
+
+    app.save({"un": {"port": 9101}})
+    assert list(app.load()) == ["un"]
+
+    # Ecriture exterieure, sans passer par save() : le panneau documente
+    # d'editer apps.json a la main, et un job Dagster pourrait le faire.
+    fichier.write_text(json.dumps({"deux": {"port": 9102}}))
+    assert list(app.load()) == ["deux"]
+
+
+def test_modifier_le_registre_recu_ne_corrompt_pas_le_cache(tmp_path, monkeypatch):
+    """Les appelants modifient ce que load() renvoie avant de le repasser a
+    save() : sans copie, ces modifications apparaitraient dans le cache avant
+    l'ecriture -- et y resteraient meme si elle echouait."""
+    fichier = tmp_path / "apps.json"
+    monkeypatch.setattr(app, "APPS_FILE", str(fichier))
+    app._apps_cache["signature"] = None
+    app.save({"un": {"port": 9101, "enabled": True}})
+
+    registre = app.load()
+    registre["un"]["enabled"] = False
+    registre["intrus"] = {"port": 9999}
+
+    relu = app.load()
+    assert relu["un"]["enabled"] is True
+    assert "intrus" not in relu
+
+
 # ----------------------------- 1. detection -----------------------------
 
 def test_un_projet_vite_est_construit_puis_servi_en_statique(tmp_path):

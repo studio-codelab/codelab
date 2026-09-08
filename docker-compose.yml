@@ -212,7 +212,6 @@ services:
       - /DATA/AppData/codelab/config:/var/lib/codelab/config
 
     environment:
-      APP_MANAGER_DIR: /opt/codelab/app-manager
       APP_MANAGER_STATE: /var/lib/codelab/app-manager
       APP_MANAGER_ROOT: /workspace
       MANAGER_PORT: "9001"

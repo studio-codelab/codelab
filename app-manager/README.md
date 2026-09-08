@@ -137,8 +137,15 @@ applications est gere directement par ce service.
 
 | Fichier | Role |
 |---|---|
-| `Dockerfile` | Construction de l'image (Flask, psutil, requests, Node.js) |
-| `app.py` | Le service complet : auth, API, proxy, dashboard |
+| `Dockerfile` | Construction de l'image (Flask, psutil, requests, Node.js, git) |
+| `app.py` | Le service : authentification, API, cycle de vie des process, reverse proxy |
+| `dashboard.html` | L'interface du panneau |
+| `login.html` | La page de connexion |
+| `entrypoint.sh` | Permissions partagees sur `/workspace`, puis demarrage |
+
+Les deux pages etaient des chaines Python dans `app.py` — 67 Ko sur une seule ligne pour le tableau de
+bord. Elles sont lues une fois au demarrage, et `__ROOT__` y est remplace par la racine du workspace au
+moment de servir la page. Un fichier `.html` se relit, se diffe et se colore ; une chaine echappee, non.
 
 ## Authentification
 
@@ -184,7 +191,6 @@ silencieusement sans bloquer le demarrage du service — c'est une commodite, pa
 
 | Variable | Role |
 |---|---|
-| `APP_MANAGER_DIR` | Ou vit `app.py` dans l'image (`/opt/codelab/app-manager`) — lecture seule |
 | `APP_MANAGER_STATE` | Ou vivent `apps.json`, les logs, le mot de passe admin et la cle de session — le seul dossier que le service ecrit |
 | `APP_MANAGER_ROOT` | Racine du navigateur de dossiers et des chemins d'applications (`/workspace`) |
 | `APP_MANAGER_SHARED_CONFIG` | Dossier de `credentials.env`, le fichier unique de secrets (`/var/lib/codelab/config`) |
