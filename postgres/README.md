@@ -54,14 +54,23 @@ Il n'y a **pas de base fourre-tout**. Le decoupage :
 | `dagster` | Tables d'instance de Dagster : runs, evenements, planifications | `POSTGRES_DB`, a l'initialisation du cluster |
 | `diagnostic` | Le projet livre en modele, tables dans son schema `dagster` | L'entrypoint, a chaque demarrage |
 | `<projet>` | Une base par projet, meme structure | L'entrypoint (`CODELAB_PROJECT_DBS`) ou `codelab-project` |
-| `postgres` | Base de maintenance creee par `initdb` — reste vide | Postgres lui-meme |
+| ~~`postgres`~~ | Base de maintenance livree par `initdb` — **supprimee au demarrage** | — |
 
 Chaque base de projet recoit un schema `dagster` et un `search_path` par defaut
 (`ALTER ROLE ... IN DATABASE ... SET search_path TO dagster, public`) : un `CREATE TABLE ma_table` dans un
 asset y atterrit sans prefixe dans le code.
 
-La base `postgres` ne peut pas etre supprimee sans casser les outils qui s'y connectent pour en creer une
-autre (`createdb`, `pg_isready`, l'entrypoint lui-meme). Elle reste donc la, vide.
+La base `postgres` que cree `initdb` est supprimee : CodeLab ne s'en sert pas. Son role de point d'entree —
+il faut etre connecte a une base pour en creer une autre — est tenu par la base d'instance `dagster`, qui
+existe toujours ; c'est elle que visent le healthcheck, le provisionnement et `codelab-project`.
+
+Deux garde-fous, parce qu'une base supprimee ne revient pas : elle est **conservee** si elle contient le
+moindre objet utilisateur (quelqu'un a pu y ranger des donnees avant cette version), et l'echec de la
+suppression n'est jamais fatal — une session encore connectee dessus, par exemple, la fait simplement
+reessayer au demarrage suivant. Les deux cas sont tracés dans `docker logs codelab-postgres`.
+
+**A savoir** : un outil qui se connecte a `postgres` par defaut (`psql` sans `-d` depuis un autre
+conteneur, `createdb`, pgAdmin) doit desormais nommer une base explicitement, par exemple `-d dagster`.
 
 **Pourquoi pas `/docker-entrypoint-initdb.d`** : ce dossier n'est joue qu'a la toute premiere
 initialisation du cluster. Les donnees survivent aux reinstallations, donc une stack existante ne le

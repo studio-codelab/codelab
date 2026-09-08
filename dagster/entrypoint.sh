@@ -105,8 +105,10 @@ fi
 #
 # Regle absolue : on ne remplace JAMAIS un fichier existant. Le workspace
 # contient le travail de l'utilisateur ; une copie qui ecrase est une perte de
-# donnees silencieuse. Un fichier deja present sous le meme nom est copie a
-# cote avec le suffixe .exemple, et l'utilisateur decide.
+# donnees silencieuse. Un fichier deja present sous le meme nom est donc
+# simplement laisse tel quel -- aucune copie ".exemple" n'est deposee a cote :
+# ces fichiers n'etaient jamais relus et polluaient le workspace. La version de
+# reference reste dans l'image, sous /opt/dagster/workspace.default.
 WORKSPACE_SEED=/opt/dagster/workspace.default
 SEED_MARKER=/workspace/.codelab/workspace-v1
 
@@ -119,14 +121,10 @@ if [ ! -f "$SEED_MARKER" ] && [ -d "$WORKSPACE_SEED" ]; then
     if [ ! -e "$cible" ]; then
       cp -r "$entree" "$cible"
       echo "[codelab]   $nom copie."
-    elif [ -f "$entree" ]; then
-      # Cas typique : un definitions.py ecrit avant cette version. On depose
-      # la nouvelle version a cote plutot que de l'ecraser -- il contient
-      # peut-etre des assets qui n'existent que la.
-      cp -f "$entree" "$cible.exemple"
-      echo "[codelab]   $nom existe deja : nouvelle version deposee dans $nom.exemple," \
-           "a fusionner a la main."
     else
+      # Ni ecrasement ni copie a cote : la version de l'image reste dans
+      # /opt/dagster/workspace.default, a comparer a la main en cas de besoin
+      # (docker exec codelab-dagster diff ...).
       echo "[codelab]   $nom existe deja : laisse tel quel."
     fi
   done

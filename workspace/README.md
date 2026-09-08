@@ -183,7 +183,6 @@ schema `dagster` dedans :
 | `dagster` | tables d'instance de Dagster : runs, journal d'evenements, planifications |
 | `diagnostic` | le projet `diagnostic` — ses tables dans le schema `dagster` |
 | `mon-projet` | ton projet — ses tables dans le schema `dagster` |
-| `postgres` | base de maintenance du serveur, volontairement vide |
 
 Deux projets peuvent donc avoir une table `clients` sans se marcher dessus, et supprimer un projet
 se fait proprement, sans risquer d'emporter les donnees du voisin :
@@ -215,7 +214,8 @@ Sans `CODELAB_DB`, c'est le nom du dossier qui sert — un projet copie sous un 
 propre base sans edition.
 
 En SSH, `psql` fonctionne sans argument (l'entrypoint de `codelab-dev` pre-remplit `PGHOST`,
-`PGUSER`, `PGPASSWORD`, et `PGDATABASE=diagnostic`). Pour aller dans une autre base :
+`PGUSER`, `PGPASSWORD`, et `PGDATABASE=diagnostic` — la base `postgres`, a laquelle `psql` se
+rabattrait sinon, n'existe plus). Pour aller dans une autre base :
 
 ```bash
 psql -d mon-projet

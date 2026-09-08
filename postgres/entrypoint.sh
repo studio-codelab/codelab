@@ -137,9 +137,10 @@ export POSTGRES_PASSWORD
 #                     atterrissent sans que les pipelines aient a prefixer
 #                     quoi que ce soit.
 #
-# La base "postgres" reste presente : c'est la base de maintenance creee par
-# initdb, celle a laquelle on se connecte pour en creer une autre. Aucun
-# service CodeLab n'y ecrit -- elle doit rester vide.
+# La base "postgres", creee par initdb, est SUPPRIMEE : aucun service CodeLab
+# n'y ecrit, et le role de base de maintenance -- celle a laquelle on se
+# connecte pour en creer une autre -- est tenu par la base d'instance, qui
+# existe toujours. Voir drop_maintenance_db plus bas pour les garde-fous.
 #
 # Pourquoi pas /docker-entrypoint-initdb.d : ce dossier n'est joue qu'a la
 # toute premiere initialisation du cluster. Les donnees survivent aux
@@ -160,22 +161,78 @@ create_db_if_missing() {
   echo "[codelab-postgres] base \"$db\" creee."
 }
 
+# Supprime la base "postgres" livree par initdb. CodeLab ne s'en sert pas : la
+# base d'instance sert de point d'entree pour creer les autres, le healthcheck
+# et "codelab-project" la visent aussi.
+#
+# Deux garde-fous, parce qu'une base supprimee ne revient pas :
+#   - on ne touche a rien si elle contient le moindre objet utilisateur
+#     (quelqu'un a pu y ranger des donnees avant cette version) ;
+#   - un echec est non fatal, notamment si une session y est encore connectee.
+#     Le prochain demarrage reessaiera.
+#
+# Consequence a connaitre : les outils qui se connectent a "postgres" par
+# defaut (psql sans -d depuis un autre conteneur, pgAdmin, createdb) doivent
+# desormais nommer une base explicitement.
+drop_maintenance_db() {
+  if [ "$(psql -U "$POSTGRES_USER" -d "$CODELAB_INSTANCE_DB" -tAc \
+          "SELECT 1 FROM pg_database WHERE datname='postgres'")" != "1" ]; then
+    return 0
+  fi
+
+  # Tables, vues, sequences... hors catalogues systeme. Zero = base laissee
+  # telle que initdb l'a creee, donc supprimable sans rien perdre.
+  objets="$(psql -U "$POSTGRES_USER" -d postgres -tAc \
+    "SELECT count(*) FROM pg_class c
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+        AND n.nspname NOT LIKE 'pg_toast%'
+        AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')" 2>/dev/null)"
+  if [ -z "$objets" ]; then
+    echo "[codelab-postgres] base \"postgres\" illisible : conservee." >&2
+    return 0
+  fi
+  if [ "$objets" != "0" ]; then
+    echo "[codelab-postgres] base \"postgres\" non vide ($objets objet(s)) :" \
+         "conservee. La vider ou la supprimer a la main si elle ne sert plus." >&2
+    return 0
+  fi
+
+  if psql -U "$POSTGRES_USER" -d "$CODELAB_INSTANCE_DB" \
+       -c "DROP DATABASE postgres" >/dev/null 2>&1; then
+    echo "[codelab-postgres] base de maintenance \"postgres\" supprimee."
+  else
+    echo "[codelab-postgres] suppression de la base \"postgres\" impossible" \
+         "(session encore connectee ?) : nouvelle tentative au prochain demarrage." >&2
+  fi
+}
+
 # Provisionnement en tache de fond : le serveur doit d'abord ecouter, et
 # c'est "exec docker-entrypoint.sh" plus bas qui le demarre. Toute erreur
 # ici est non fatale -- une base de projet manquante se rattrape avec
 # "codelab-project", alors qu'un Postgres qui ne demarre pas ne se rattrape
 # pas du tout.
 provision_databases() {
+  # Attente sur TCP, pas sur la socket Unix : a la toute premiere
+  # initialisation, l'entrypoint officiel demarre un serveur TEMPORAIRE en
+  # "listen_addresses = ''" pour creer le role et la base, puis l'arrete. Ce
+  # serveur-la repond deja sur la socket ; provisionner (et surtout supprimer
+  # une base) pendant qu'il tourne s'inserait au milieu de son initialisation.
+  # Le port TCP n'ouvre qu'avec le vrai serveur.
+  attente_hote=127.0.0.1
+  attente_port="${PGPORT:-5432}"
   i=0
-  while [ "$i" -lt 60 ]; do
-    if pg_isready -U "$POSTGRES_USER" -d "$CODELAB_INSTANCE_DB" -q; then
+  while [ "$i" -lt 120 ]; do
+    if pg_isready -h "$attente_hote" -p "$attente_port" \
+                  -U "$POSTGRES_USER" -d "$CODELAB_INSTANCE_DB" -q; then
       break
     fi
     i=$((i + 1))
     sleep 1
   done
-  if ! pg_isready -U "$POSTGRES_USER" -d "$CODELAB_INSTANCE_DB" -q; then
-    echo "[codelab-postgres] serveur injoignable apres 60 s : bases de projet" \
+  if ! pg_isready -h "$attente_hote" -p "$attente_port" \
+                  -U "$POSTGRES_USER" -d "$CODELAB_INSTANCE_DB" -q; then
+    echo "[codelab-postgres] serveur injoignable apres 120 s : bases de projet" \
          "non provisionnees." >&2
     return 1
   fi
@@ -191,6 +248,10 @@ ALTER ROLE "$POSTGRES_USER" IN DATABASE "$db"
   SET search_path TO "$CODELAB_PROJECT_SCHEMA", public;
 SQL
   done
+
+  # En dernier : les bases de la stack existent, plus rien n'a besoin de la
+  # base livree par initdb.
+  drop_maintenance_db
 }
 
 provision_databases &
