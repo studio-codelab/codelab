@@ -132,7 +132,7 @@ Le `.env` d'un projet **s'ajoute et remplace** : une cle qu'il redefinit gagne t
     API_TOKEN=xxxxxxxx
     SEUIL_ALERTE=42
     # pointe ce projet sur une autre base, sans toucher au fichier commun
-    POSTGRES_DB=bac-a-sable
+    CODELAB_DB=bac-a-sable
 ```
 
 La lecture se fait avec `read_env()`, defini dans `checks.py` :
@@ -173,41 +173,56 @@ Les blocs y sont reecrits en fin de fichier au demarrage des services : c'est la
 occurrence d'une cle qui fait foi, une valeur laissee plus haut est perimee. Le module `codelab`
 s'en charge.
 
-## Base de donnees — un schema par projet
+## Base de donnees — une base par projet
 
-Une seule base (`codelab`), mais **un schema Postgres par projet**, nomme comme le dossier :
+Il n'y a **pas de base fourre-tout**. Chaque projet a la sienne, nommee comme son dossier, avec un
+schema `dagster` dedans :
 
-| Schema | Contenu |
+| Base | Contenu |
 |---|---|
-| `dagster` | tables internes de Dagster : runs, journal d'evenements, planifications |
-| `diagnostic` | les tables du projet `diagnostic` |
-| `mon-projet` | les tables de ton projet |
-| `public` | volontairement vide |
+| `dagster` | tables d'instance de Dagster : runs, journal d'evenements, planifications |
+| `diagnostic` | le projet `diagnostic` — ses tables dans le schema `dagster` |
+| `mon-projet` | ton projet — ses tables dans le schema `dagster` |
+| `postgres` | base de maintenance du serveur, volontairement vide |
 
 Deux projets peuvent donc avoir une table `clients` sans se marcher dessus, et supprimer un projet
-se fait proprement :
+se fait proprement, sans risquer d'emporter les donnees du voisin :
 
 ```sql
-DROP SCHEMA "mon-projet" CASCADE;
+DROP DATABASE "mon-projet";
 ```
 
-Pour t'y connecter, copie `checks.connect_pg()` du projet `diagnostic` — il cree le schema s'il
-n'existe pas et positionne le `search_path` dessus, donc tu n'as aucune preparation manuelle a
-faire. Change simplement la constante en tete de fichier :
+Le schema porte le meme nom (`dagster`) dans **toutes** les bases de projet : c'est ce qui permet de
+copier un projet d'une base a l'autre sans toucher a une seule requete. Le `search_path` du role est
+positionne dessus par base, donc un `CREATE TABLE ma_table` dans un asset y atterrit sans prefixe.
 
-```python
-SCHEMA = os.environ.get("CODELAB_SCHEMA", "mon-projet")
+La base d'un projet ajoute apres l'installation se cree depuis une session SSH :
+
+```bash
+codelab-project mon-projet
 ```
 
-Qualifie tes tables dans les requetes (`mon-projet.clients`) meme si le `search_path` est
-positionne : c'est ce qui evite qu'une table homonyme d'un autre schema soit atteinte par erreur.
+Elle est aussi creee automatiquement a la premiere connexion : `checks.connect_pg()`, copie du
+projet `diagnostic`, cree la base puis le schema s'ils manquent. Le projet lit son nom de base dans
+son `.env` :
+
+```
+CODELAB_DB=mon-projet
+CODELAB_SCHEMA=dagster
+```
+
+Sans `CODELAB_DB`, c'est le nom du dossier qui sert — un projet copie sous un autre nom vise donc sa
+propre base sans edition.
 
 En SSH, `psql` fonctionne sans argument (l'entrypoint de `codelab-dev` pre-remplit `PGHOST`,
-`PGUSER`, `PGPASSWORD`). Pour travailler dans un schema :
+`PGUSER`, `PGPASSWORD`, et `PGDATABASE=diagnostic`). Pour aller dans une autre base :
+
+```bash
+psql -d mon-projet
+```
 
 ```sql
-SET search_path TO "mon-projet", public;
-\dt
+\dt          -- le search_path pointe deja sur le schema dagster de cette base
 ```
 
 ## Permissions

@@ -44,7 +44,7 @@ la liste se lit a l'endroit ou elle est installee.
 | Variable | Origine | Usage |
 |---|---|---|
 | `SSH_PUBLIC_KEY` | Saisie a l'installation ZimaOS, **facultative** | Enregistree dans `authorized_keys.d/compose.pub` si absente — sert a amorcer une installation neuve, plus necessaire ensuite |
-| `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` | Fixees dans `docker-compose.yml` | Connexion a `codelab-postgres` |
+| `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` | Fixees dans `docker-compose.yml` | Connexion a `codelab-postgres`. `PGDATABASE=diagnostic` : une session SSH atterrit dans la base du projet modele, pas dans la base d'instance de Dagster |
 | `CODELAB_ENV_FILE` | Fixee dans `docker-compose.yml` | `credentials.env` : `POSTGRES_PASSWORD` y est lu pour construire `PGPASSWORD` |
 | `CODELAB_SSH_DIR` | Fixee dans `docker-compose.yml` | Dossier unique des cles : `authorized_keys.d/`, `authorized_keys` (derive) + `host_keys/` |
 
@@ -115,7 +115,22 @@ env | grep ^PG
 python3 -c "import psycopg; print(psycopg.connect().execute('SELECT version();').fetchone()[0])"
 ```
 
-`psycopg.connect()` sans argument lit ces variables automatiquement.
+`psycopg.connect()` sans argument lit ces variables automatiquement — donc la base `diagnostic`, pas la base
+d'instance de Dagster. Pour viser une autre base : `psql -d mon-projet`, ou
+`psycopg.connect(dbname="mon-projet")`.
+
+## Creer la base d'un projet
+
+Chaque projet du workspace a sa propre base, nommee comme son dossier, avec un schema `dagster` dedans (voir
+`workspace/README.md`). Celles listees dans `CODELAB_PROJECT_DBS` sont creees par `codelab-postgres` au
+demarrage ; pour un projet ajoute ensuite, sans redemarrer la stack :
+
+```bash
+codelab-project mon-projet
+```
+
+La commande est idempotente : relancee sur un projet existant, elle ne detruit rien et se contente de
+reposer le schema et le `search_path`. Puis, dans le `.env` du projet : `CODELAB_DB=mon-projet`.
 
 ## Developper / tester localement
 

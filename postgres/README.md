@@ -1,8 +1,8 @@
 # codelab-postgres
 
-L'image officielle `postgres:18`, plus un entrypoint versionne. La base de donnees partagee par tous les
+L'image officielle `postgres:18`, plus un entrypoint versionne. Le serveur Postgres partage par tous les
 services CodeLab : `codelab-dev`, `codelab-dagster`, `codelab-dagster-daemon` s'y connectent, et le panneau
-`codelab-app-manager` cohabite avec elle dans le meme `credentials.env`.
+`codelab-app-manager` cohabite avec lui dans le meme `credentials.env`.
 
 Pas de port publie : la base n'est joignable que depuis le reseau `codelab`.
 
@@ -40,15 +40,79 @@ Avant de rendre la main a `docker-entrypoint.sh` de l'image officielle :
 3. **Exporte `POSTGRES_PASSWORD`** et retire `POSTGRES_PASSWORD_FILE` — l'image officielle refuse les deux
    en meme temps.
 
+4. **Provisionne les bases de projet** en tache de fond, une fois le serveur a l'ecoute (voir plus bas).
+
 Le fichier est relu a chaque demarrage, et l'operation est idempotente : redemarrer le conteneur ne duplique
 aucun bloc et ne change aucune valeur.
+
+## Les bases
+
+Il n'y a **pas de base fourre-tout**. Le decoupage :
+
+| Base | Contenu | Creee par |
+|---|---|---|
+| `dagster` | Tables d'instance de Dagster : runs, evenements, planifications | `POSTGRES_DB`, a l'initialisation du cluster |
+| `diagnostic` | Le projet livre en modele, tables dans son schema `dagster` | L'entrypoint, a chaque demarrage |
+| `<projet>` | Une base par projet, meme structure | L'entrypoint (`CODELAB_PROJECT_DBS`) ou `codelab-project` |
+| `postgres` | Base de maintenance creee par `initdb` — reste vide | Postgres lui-meme |
+
+Chaque base de projet recoit un schema `dagster` et un `search_path` par defaut
+(`ALTER ROLE ... IN DATABASE ... SET search_path TO dagster, public`) : un `CREATE TABLE ma_table` dans un
+asset y atterrit sans prefixe dans le code.
+
+La base `postgres` ne peut pas etre supprimee sans casser les outils qui s'y connectent pour en creer une
+autre (`createdb`, `pg_isready`, l'entrypoint lui-meme). Elle reste donc la, vide.
+
+**Pourquoi pas `/docker-entrypoint-initdb.d`** : ce dossier n'est joue qu'a la toute premiere
+initialisation du cluster. Les donnees survivent aux reinstallations, donc une stack existante ne le
+rejouerait jamais et un projet ajoute plus tard n'aurait pas sa base. Le provisionnement de l'entrypoint
+tourne a chaque demarrage et ne fait rien quand tout est deja en place (`CREATE DATABASE` n'acceptant pas
+`IF NOT EXISTS`, il est precede d'un test sur `pg_database`).
+
+Pour un projet cree apres coup, sans redemarrer la stack, depuis une session SSH :
+
+```bash
+codelab-project mon-projet
+```
+
+### Migration depuis la base unique `codelab`
+
+Les versions anterieures rangeaient tout dans une base unique `codelab` : les tables d'instance de Dagster
+dans son schema `dagster`, chaque projet dans un schema a son nom. Sur une installation existante, ce
+decoupage-ci repart de bases neuves — **l'historique des runs et l'etat des schedules ne suivent pas**, et
+les tables d'un projet restent dans l'ancienne base. Rien n'est supprime : la base `codelab` est laissee
+telle quelle.
+
+Si l'historique compte, sauvegarder avant de redemarrer la stack :
+
+```bash
+docker exec codelab-postgres pg_dump -U codelab codelab > codelab-avant-migration.sql
+```
+
+Puis, pour recuperer les tables d'un projet dans sa nouvelle base :
+
+```bash
+docker exec codelab-postgres pg_dump -U codelab -n diagnostic codelab \
+  | docker exec -i codelab-postgres psql -U codelab -d diagnostic
+```
+
+Le schema garde son nom d'origine a l'arrivee (`diagnostic`), alors que le projet cherche maintenant ses
+tables dans `dagster`. Le schema `dagster` cree par le provisionnement etant vide a ce stade, on le retire
+avant de renommer l'autre a sa place :
+
+```sql
+DROP SCHEMA dagster;                        -- vide : echoue s'il ne l'est pas, c'est voulu
+ALTER SCHEMA diagnostic RENAME TO dagster;
+```
 
 ## Variables d'environnement
 
 | Variable | Role |
 |---|---|
 | `CODELAB_CONFIG_DIR` | Dossier de `credentials.env` (defaut `/var/lib/codelab/config`) |
-| `POSTGRES_DB`, `POSTGRES_USER` | Lues par l'image officielle, fixees dans le compose |
+| `POSTGRES_DB`, `POSTGRES_USER` | Lues par l'image officielle, fixees dans le compose. `POSTGRES_DB` est la base d'instance de Dagster (`dagster`) |
+| `CODELAB_PROJECT_DBS` | Bases de projet a creer au demarrage, separees par des espaces (defaut `diagnostic`) |
+| `CODELAB_PROJECT_SCHEMA` | Schema pose dans chaque base de projet (defaut `dagster`) |
 
 Pas de `POSTGRES_PASSWORD` ni `POSTGRES_PASSWORD_FILE` dans le compose : l'entrypoint s'en charge.
 
@@ -70,7 +134,7 @@ d'une version anterieure echoue avec un message explicite dans les logs.
 
 ```bash
 docker build -f postgres/Dockerfile -t codelab-postgres-test .
-docker run --rm -e POSTGRES_DB=codelab -e POSTGRES_USER=codelab \
+docker run --rm -e POSTGRES_DB=dagster -e POSTGRES_USER=codelab \
   -v /tmp/codelab-config:/var/lib/codelab/config codelab-postgres-test
 cat /tmp/codelab-config/credentials.env
 ```

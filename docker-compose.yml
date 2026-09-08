@@ -34,8 +34,17 @@ services:
     restart: unless-stopped
 
     environment:
-      POSTGRES_DB: codelab
+      # Base d'INSTANCE de Dagster (runs, evenements, planifications), creee
+      # par l'image officielle a l'initialisation du cluster. Ce n'est pas une
+      # base fourre-tout : les donnees d'un projet vont dans la base du projet.
+      POSTGRES_DB: dagster
       POSTGRES_USER: codelab
+      # Bases de projet creees (ou completees) a chaque demarrage par
+      # l'entrypoint, avec leur schema "dagster" et le search_path qui va
+      # avec. Liste separee par des espaces. Un projet ajoute plus tard se
+      # provisionne sans redemarrage avec "codelab-project <nom>" depuis une
+      # session SSH.
+      CODELAB_PROJECT_DBS: diagnostic
       # Pas de POSTGRES_PASSWORD/_FILE ici : l'entrypoint ci-dessus lit la
       # valeur dans credentials.env et l'exporte lui-meme.
 
@@ -51,7 +60,7 @@ services:
       - /DATA/AppData/codelab/config:/var/lib/codelab/config
 
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U codelab -d codelab"]
+      test: ["CMD-SHELL", "pg_isready -U codelab -d dagster"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -78,7 +87,11 @@ services:
       SSH_PUBLIC_KEY: ${SSH_PUBLIC_KEY:-}
       PGHOST: codelab-postgres
       PGPORT: "5432"
-      PGDATABASE: codelab
+      # Une session SSH atterrit dans la base du projet modele, pas dans la
+      # base d'instance de Dagster ni dans la base de maintenance "postgres" :
+      # c'est la ou se trouvent les tables qu'on vient regarder. Pour en
+      # changer le temps d'une commande : psql -d autre-projet.
+      PGDATABASE: diagnostic
       PGUSER: codelab
       # Le mot de passe est lu dans credentials.env, comme partout ailleurs.
       CODELAB_ENV_FILE: /var/lib/codelab/config/credentials.env
@@ -137,7 +150,7 @@ services:
       PYTHONPATH: /workspace
       DAGSTER_PG_HOST: codelab-postgres
       DAGSTER_PG_PORT: "5432"
-      DAGSTER_PG_DB: codelab
+      DAGSTER_PG_DB: dagster
       DAGSTER_PG_USER: codelab
       # Mot de passe lu dans credentials.env par l'entrypoint, qui l'exporte
       # en DAGSTER_PG_PASSWORD (dagster.yaml ne sait lire qu'une env var).
@@ -180,7 +193,7 @@ services:
       PYTHONPATH: /workspace
       DAGSTER_PG_HOST: codelab-postgres
       DAGSTER_PG_PORT: "5432"
-      DAGSTER_PG_DB: codelab
+      DAGSTER_PG_DB: dagster
       DAGSTER_PG_USER: codelab
       # Mot de passe lu dans credentials.env par l'entrypoint, qui l'exporte
       # en DAGSTER_PG_PASSWORD (dagster.yaml ne sait lire qu'une env var).
