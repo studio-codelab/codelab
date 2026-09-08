@@ -9,7 +9,7 @@ commande a executer sur le serveur.
 
 | Service | Role | Port |
 |---|---|---|
-| **Postgres** | Base de donnees partagee par tous les autres services | interne uniquement |
+| **Postgres** | Serveur de bases partage : une base par projet, plus la base `dagster` | interne uniquement |
 | **Dev** | Acces SSH + VS Code Remote-SSH, avec un utilisateur dedie | `2222` |
 | **Dagster** | Orchestration et planification de jobs (interface web + daemon) | `3000` |
 | **App-manager** | Deploiement et supervision des applications que tu developpes | `9001` |
@@ -38,6 +38,12 @@ Ton code vit dans `/workspace`. La connexion Postgres ne demande aucune configur
 ```bash
 python3 -c "import psycopg; print(psycopg.connect().execute('SELECT version();').fetchone()[0])"
 ```
+
+**Les bases** : pas de base fourre-tout. `dagster` contient les tables d'instance de Dagster (runs,
+evenements, planifications) ; chaque projet du workspace a la sienne, nommee comme son dossier
+(`diagnostic` pour celui livre en modele), avec un schema `dagster` dedans qui recoit les tables des
+assets. Une session SSH arrive directement dans `diagnostic` ; la base d'un projet cree apres coup
+s'ajoute avec `codelab-project mon-projet`. Details dans `workspace/README.md`.
 
 **App-manager** : `http://<IP-ZimaOS>:9001/` — demarrer/arreter tes apps deployees depuis `/workspace`, consulter
 leurs logs. Protege par mot de passe, genere automatiquement au premier demarrage (voir ci-dessous pour le

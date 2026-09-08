@@ -40,7 +40,8 @@ Execute avant toute commande (`dagster-webserver` ou `dagster-daemon run`), dans
 Sans ce fichier, Dagster utilise du SQLite local (comportement par defaut), ce qui isole ses metadonnees
 (runs, event logs, schedules) du reste de l'application et les rend vulnerables a la perte de volume. Ce
 `dagster.yaml` configure les trois stockages (`run_storage`, `event_log_storage`, `schedule_storage`) sur la
-meme base Postgres partagee que le reste de CodeLab, avec les identifiants lus depuis l'environnement :
+base **`dagster`** du serveur Postgres partage (`DAGSTER_PG_DB`), avec les identifiants lus depuis
+l'environnement :
 
 ```yaml
 postgres_db:
@@ -50,6 +51,10 @@ postgres_db:
   db_name:  {env: DAGSTER_PG_DB}
   port:     {env: DAGSTER_PG_PORT}
 ```
+
+Cette base ne contient **que** les tables d'instance de Dagster. Les tables produites par les assets d'un
+projet vont dans la base de ce projet (schema `dagster`), qui est une autre base — voir
+`postgres/README.md` et `workspace/README.md`.
 
 ## Chargement de `/workspace/definitions.py`
 

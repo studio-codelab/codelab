@@ -26,14 +26,18 @@ SSH_DIR = os.environ.get("CODELAB_SSH_DIR") or os.path.join(os.path.dirname(ENV_
 # conteneurs (le volume est partage, les uid sont les memes).
 SSH_UID = int(os.environ.get("CODELAB_SSH_UID", "1000"))
 
-# Un schema Postgres par projet, nomme comme le dossier du projet. Les tables
-# d'un projet ne peuvent donc pas entrer en collision avec celles d'un autre,
-# et "DROP SCHEMA diagnostic CASCADE" suffit a tout nettoyer sans risquer
-# d'emporter les donnees du voisin. Le schema "dagster" est reserve aux tables
-# internes de Dagster (runs, evenements, planifications) ; "public" reste vide.
+# Une base Postgres par projet, nommee comme le dossier du projet, avec un
+# schema "dagster" dedans. Les tables d'un projet ne peuvent donc pas entrer
+# en collision avec celles d'un autre, et "DROP DATABASE diagnostic" suffit a
+# tout nettoyer sans risquer d'emporter les donnees du voisin.
+#
+# Il n'y a pas de base fourre-tout : la base "dagster" ne contient que les
+# tables d'instance de Dagster (runs, evenements, planifications), et la base
+# "postgres" est la base de maintenance du serveur, qui reste vide.
 TABLE = "codelab_diagnostic"
-# SCHEMA et TABLE_QUALIFIEE sont definis plus bas, apres read_env : le nom du
-# schema se lit dans le .env du projet.
+# PROJET, DB, SCHEMA et TABLE_QUALIFIEE sont definis plus bas, apres read_env :
+# leurs valeurs se lisent dans le .env du projet.
+PROJET = os.path.basename(os.path.dirname(os.path.abspath(__file__)))
 
 
 # ------------------------------ credentials.env ------------------------------
@@ -97,18 +101,31 @@ def read_env(key, env_file=None):
     return valeur or None
 
 
-# Nom du schema, lu dans le .env du projet. Le qualifier explicitement dans
-# les requetes -- plutot que de se reposer sur le search_path -- evite qu'une
-# table homonyme d'un autre schema soit atteinte par erreur.
-SCHEMA = read_env("CODELAB_SCHEMA") or "diagnostic"
+# Base du projet. CODELAB_DB (dans le .env du projet) l'emporte ; a defaut,
+# c'est le nom du dossier -- un projet copie sous un autre nom vise donc sa
+# propre base sans qu'on ait rien a editer.
+#
+# Surtout PAS POSTGRES_DB : cette cle, publiee dans credentials.env, designe
+# la base d'instance de Dagster. Un projet qui ecrirait dedans melangerait ses
+# tables avec les runs et les evenements.
+DB = read_env("CODELAB_DB") or PROJET
+# Base d'instance de Dagster. Elle existe toujours, donc elle sert de point
+# d'entree pour creer la base du projet : on ne peut pas creer une base
+# depuis elle-meme.
+DB_INSTANCE = read_env("POSTGRES_DB") or "dagster"
+# Nom du schema, identique dans toutes les bases de projet. Le qualifier
+# explicitement dans les requetes -- plutot que de se reposer sur le
+# search_path -- evite qu'une table homonyme d'un autre schema soit atteinte
+# par erreur.
+SCHEMA = read_env("CODELAB_SCHEMA") or "dagster"
 TABLE_QUALIFIEE = f"{SCHEMA}.{TABLE}"
 
 
-def pg_settings(env_file=None):
+def pg_settings(env_file=None, dbname=None):
     return {
         "host": read_env("POSTGRES_HOST", env_file) or "codelab-postgres",
         "port": int(read_env("POSTGRES_PORT", env_file) or 5432),
-        "dbname": read_env("POSTGRES_DB", env_file) or "codelab",
+        "dbname": dbname or read_env("CODELAB_DB", env_file) or DB,
         "user": read_env("POSTGRES_USER", env_file) or "codelab",
         "password": read_env("POSTGRES_PASSWORD", env_file),
     }
@@ -138,18 +155,67 @@ def pilote_pg():
         "pip install --target vendor \"psycopg[binary]\"), puis redemarrer l'app.")
 
 
-def connect_pg(env_file=None, schema=None):
-    """Ouvre une connexion positionnee sur le schema du projet.
+def _identifiant(nom):
+    """Valide un nom de base ou de schema destine a etre interpole en SQL.
 
-    Le schema est cree s'il n'existe pas : un projet fraichement copie
-    fonctionne sans preparation manuelle de la base. C'est fait a chaque
-    connexion parce que l'operation est instantanee quand le schema est deja
-    la, et que l'alternative -- un script d'initialisation a penser a lancer --
-    est exactement le genre d'etape qu'on oublie.
+    Les identifiants Postgres ne peuvent pas etre passes en parametre lie :
+    ils sont forcement concatenes dans la requete. Ici ils viennent d'un .env
+    ou d'un nom de dossier, donc de l'utilisateur -- on refuse tout ce qui
+    n'est pas un nom simple plutot que de concatener a l'aveugle.
+    """
+    if not nom or not all(c.isalnum() or c in "_-" for c in nom):
+        raise ValueError(
+            f"nom Postgres invalide : {nom!r} -- lettres, chiffres, tirets et "
+            f"soulignes uniquement (CODELAB_DB / CODELAB_SCHEMA dans le .env).")
+    return nom
+
+
+def ensure_database(env_file=None, dbname=None):
+    """Cree la base du projet si elle n'existe pas. Renvoie True si creee.
+
+    On se connecte a la base d'instance de Dagster pour cela : CREATE DATABASE
+    ne peut pas s'executer depuis la base qu'on cree, et celle-la existe
+    toujours. autocommit est obligatoire, Postgres refusant CREATE DATABASE
+    dans une transaction.
     """
     mod, _ = pilote_pg()
-    conn = mod.connect(**pg_settings(env_file))
-    sch = schema or SCHEMA
+    cible = _identifiant(dbname or pg_settings(env_file)["dbname"])
+    admin = mod.connect(**pg_settings(env_file, dbname=DB_INSTANCE))
+    try:
+        admin.autocommit = True
+        with admin.cursor() as cur:
+            cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (cible,))
+            if cur.fetchone():
+                return False
+            cur.execute(f'CREATE DATABASE "{cible}"')
+    finally:
+        admin.close()
+    return True
+
+
+def connect_pg(env_file=None, schema=None):
+    """Ouvre une connexion sur la base du projet, positionnee sur son schema.
+
+    La base et le schema sont crees s'ils n'existent pas : un projet
+    fraichement copie fonctionne sans preparation manuelle. Le schema est
+    verifie a chaque connexion parce que l'operation est instantanee quand il
+    est deja la, et que l'alternative -- un script d'initialisation a penser a
+    lancer -- est exactement le genre d'etape qu'on oublie. La base, elle,
+    n'est creee qu'apres un echec de connexion : le cas normal ne paie donc
+    aucune connexion supplementaire.
+    """
+    mod, _ = pilote_pg()
+    reglages = pg_settings(env_file)
+    try:
+        conn = mod.connect(**reglages)
+    except Exception:
+        # Base absente (projet neuf ou copie) : on la cree puis on reessaie
+        # une fois. Si l'echec venait d'autre chose -- reseau, mot de passe --
+        # ensure_database echoue de la meme facon et l'erreur remonte telle
+        # quelle, sans etre masquee par une seconde tentative.
+        ensure_database(env_file)
+        conn = mod.connect(**reglages)
+    sch = _identifiant(schema or SCHEMA)
     try:
         with conn.cursor() as cur:
             cur.execute(f'CREATE SCHEMA IF NOT EXISTS "{sch}"')

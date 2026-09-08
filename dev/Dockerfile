@@ -14,6 +14,7 @@ RUN apt-get update \
         ca-certificates \
         sudo \
         acl \
+        postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Groupe partage entre les trois services qui ecrivent dans /workspace
@@ -44,6 +45,12 @@ RUN pip install --no-cache-dir \
 
 COPY dev/entrypoint.sh /opt/codelab/dev/entrypoint.sh
 RUN chmod +x /opt/codelab/dev/entrypoint.sh
+
+# Creation de la base d'un projet (base + schema "dagster" + search_path),
+# pour les projets ajoutes apres l'installation de la stack. Dans le PATH de
+# toutes les sessions SSH, d'ou /usr/local/bin.
+COPY dev/codelab-project.sh /usr/local/bin/codelab-project
+RUN chmod +x /usr/local/bin/codelab-project
 
 RUN mkdir -p /run/sshd \
     && sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config \
