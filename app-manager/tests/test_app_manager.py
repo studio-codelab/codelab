@@ -805,3 +805,83 @@ def test_l_administrateur_garde_le_choix_de_son_second_facteur(deux_espaces):
     c = deux_espaces
     assert not app.totp_actif()
     assert c.post("/login", json={"password": "secret-de-test"}).status_code == 200
+
+
+# ------------------- 10. presentation des projets -------------------
+
+def test_une_description_collee_depuis_un_readme_est_ramenee_a_une_ligne():
+    """Retours a la ligne, espaces multiples, et plus long que ce que la carte
+    peut afficher : la liste doit rester une liste."""
+    propre = app.description_propre("  Premiere ligne\n\n  et   la suite  " + "z" * 200)
+    assert propre.startswith("Premiere ligne et la suite z")
+    assert "\n" not in propre and len(propre) == app.DESCRIPTION_MAX
+    assert app.description_propre(None) == ""
+
+
+def test_la_description_est_nettoyee_a_la_declaration(deux_espaces, tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "ROOT", str(tmp_path))
+    dossier = tmp_path / "nouveau"
+    dossier.mkdir()
+    c = deux_espaces
+    c.post("/login", json={"password": "secret-de-test"})
+    r = c.post("/api/add", json={"name": "nouveau", "path": str(dossier),
+                                 "command": "python3 app.py",
+                                 "description": "Deux\nlignes"})
+    assert r.status_code == 200, r.data
+    assert app.load()["nouveau"]["description"] == "Deux lignes"
+
+
+def test_la_description_suit_le_projet_jusqu_a_l_espace_utilisateur(deux_espaces):
+    apps = app.load()
+    apps["prive-autorise"]["description"] = "Le tableau de bord des ventes"
+    app.save(apps)
+
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    app_vue = c.get("/api/mes-apps").get_json()["apps"][0]
+    assert app_vue["description"] == "Le tableau de bord des ventes"
+    # Et rien de plus : l'espace utilisateur n'a pas a connaitre le chemin ni
+    # la commande de lancement.
+    assert "path" not in app_vue and "command" not in app_vue
+
+
+# ------------------- 11. plafond des flux de journal -------------------
+#
+# Un flux de journal occupe un thread du serveur tant qu'il est ouvert.
+# Mesure faite sur une instance reelle : avec 16 threads, 20 flux simultanes
+# rendaient le panneau entierement muet -- healthcheck compris, donc le
+# conteneur passait "unhealthy". Le plafond transforme cette panne totale en
+# un refus lisible sur le seul flux de trop.
+
+def test_le_plafond_de_flux_protege_le_panneau(monkeypatch):
+    monkeypatch.setattr(app, "SSE_MAX_FLUX", 2)
+    monkeypatch.setattr(app, "_flux_ouverts", 0)
+    assert app._prendre_place_flux() is True
+    assert app._prendre_place_flux() is True
+    assert app._prendre_place_flux() is False   # le flux de trop est refuse
+    app._rendre_place_flux()
+    assert app._prendre_place_flux() is True    # une place rendue est reutilisable
+
+
+def test_une_place_rendue_deux_fois_n_en_cree_pas_une_troisieme(monkeypatch):
+    """call_on_close et le generateur peuvent tous deux liberer : le compteur
+    ne doit pas passer sous zero, sinon le plafond monterait a chaque
+    deconnexion."""
+    monkeypatch.setattr(app, "SSE_MAX_FLUX", 1)
+    monkeypatch.setattr(app, "_flux_ouverts", 0)
+    app._prendre_place_flux()
+    app._rendre_place_flux()
+    app._rendre_place_flux()
+    assert app._prendre_place_flux() is True
+    assert app._prendre_place_flux() is False
+
+
+def test_le_flux_refuse_le_dit_avec_un_code_utilisable(deux_espaces, monkeypatch):
+    """503 et un message qui nomme la cause : l'interface s'en sert pour
+    expliquer, au lieu de rester sur « Connexion... »."""
+    monkeypatch.setattr(app, "SSE_MAX_FLUX", 0)
+    c = deux_espaces
+    c.post("/login", json={"password": "secret-de-test"})
+    r = c.get("/api/logs/public/stream")
+    assert r.status_code == 503
+    assert "journaux" in r.get_json()["error"]

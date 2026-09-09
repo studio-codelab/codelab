@@ -721,6 +721,9 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:var(--bg
     <div class="field"><label>Nom du projet</label>
       <input id="f-name" placeholder="portfolio" autocomplete="off">
       <div class="hint">Accessible sur <code id="f-url">/nom/</code></div></div>
+    <div class="field"><label>Description <span class="opt">facultatif</span></label>
+      <input id="f-desc" placeholder="Mon site personnel" autocomplete="off" maxlength="140">
+      <div class="hint">Une ligne, affichee aux comptes utilisateurs sous le nom du projet.</div></div>
 
     <div class="field"><label>Dossier</label>
       <div class="fb"><div class="fb-cur" id="fb-c">/</div><div class="fb-l" id="fb-l"></div></div>
@@ -763,6 +766,13 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:var(--bg
       <div><b>Application en cours d'execution.</b> Les modifications ne peuvent pas etre
         enregistrees tant qu'elle tourne.</div>
       <button class="btn btn-default btn-sm" onclick="stopThenEdit()">Arreter</button>
+    </div>
+
+    <div class="fset">
+      <div class="fset-title">Presentation</div>
+      <div class="field"><label>Description <span class="opt">facultatif</span></label>
+        <input id="e-desc" autocomplete="off" maxlength="140" placeholder="Mon site personnel">
+        <div class="hint">Une ligne, affichee aux comptes utilisateurs sous le nom du projet.</div></div>
     </div>
 
     <div class="fset">
@@ -1397,6 +1407,7 @@ function openEdit(name){
   $('e-pill').className='pill '+st.cls; $('e-pill-txt').textContent=st.txt;
   $('e-err').style.display='none';
   $('e-cmd').value=a.command;
+  $('e-desc').value=a.description||'';
   $('e-build').value=a.build_command||'';
   $('e-mem').value=a.max_memory_mb||'';
   setVisEdit(a.visibility==='privee'?'privee':'publique');
@@ -1437,7 +1448,8 @@ async function submitEdit(){
   const e=$('e-err');
   if(!c){ e.textContent='Indique la commande de lancement.'; e.style.display='block'; return; }
   e.style.display='none';
-  const body={path:editCur, command:c, build_command:$('e-build').value.trim(),
+  const body={path:editCur, command:c, description:$('e-desc').value.trim(),
+    build_command:$('e-build').value.trim(),
     max_memory_mb:$('e-mem').value ? parseInt($('e-mem').value,10) : null,
     visibility:visEdit};
   const r=await fetch('/api/app/'+editingName,{method:'PUT',
@@ -1478,13 +1490,15 @@ function err(m){ const e=$('a-e'); e.textContent=m; e.style.display='block'; }
 async function submitAdd(){
   const name=$('f-name').value.trim(), c=$('f-cmd').value.trim();
   const build_command=$('f-build').value.trim();
+  const description=$('f-desc').value.trim();
   const max_memory_mb=$('f-mem').value ? parseInt($('f-mem').value, 10) : null;
   if(!name) return err('Donne un nom au projet.');
   if(!c) return err('Indique la commande de lancement.');
   $('a-e').style.display='none';
 
   const r=await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},
-   body:JSON.stringify({name,path:cur,command:c,build_command,max_memory_mb,visibility:visAdd})});
+   body:JSON.stringify({name,path:cur,command:c,description,build_command,
+     max_memory_mb,visibility:visAdd})});
   const d=await r.json();
   if(!r.ok) return err(d.error);
   hide('ov-add'); refresh();
@@ -1505,6 +1519,17 @@ function openLogsModal(name){
     if(first){ $('lg-body').textContent=''; first=false; }
     logLines.push(e.data);
     renderLogFilter();
+  };
+  /* Sans ce gestionnaire, un flux refuse laissait la fenetre sur
+     « Connexion... » indefiniment, sans rien dire. Le refus le plus probable
+     est le plafond de flux simultanes : le message le nomme, parce que
+     « erreur » tout court n'aide personne a le resoudre. */
+  logEs.onerror=()=>{
+    if(!first) return;   // deja des lignes affichees : simple reconnexion
+    $('lg-body').textContent =
+      "Le journal n'a pas pu etre suivi.\n\n"
+      + "Cause la plus frequente : trop de fenetres de journal ouvertes en "
+      + "meme temps. Ferme-en une et rouvre celle-ci.";
   };
 }
 function renderLogFilter(){

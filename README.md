@@ -80,7 +80,8 @@ Deux choses s'y reglent quand la stack sert a plusieurs, ou quand on ne veut plu
   « Mes projets » (`/espace`) au lieu du tableau de bord. L'autorisation ne concerne que les projets
   **prives** : un projet public reste ouvert a tous. Le **second facteur y est obligatoire** : la
   personne enregistre elle-meme une cle a sa premiere connexion, et tu peux la remettre a zero si
-  elle change de telephone.
+  elle change de telephone. Chaque projet peut porter une **description** d'une ligne, affichee sous
+  son nom dans leur espace : la liste se lit alors comme un lanceur d'applications.
 
 Details dans [`app-manager/README.md`](app-manager/README.md).
 

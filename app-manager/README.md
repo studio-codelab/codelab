@@ -314,6 +314,8 @@ silencieusement sans bloquer le demarrage du service — c'est une commodite, pa
 | `APP_MANAGER_ROOT` | Racine du navigateur de dossiers et des chemins d'applications (`/workspace`) |
 | `APP_MANAGER_SHARED_CONFIG` | Dossier de `credentials.env`, le fichier unique de secrets (`/var/lib/codelab/config`) |
 | `MANAGER_PORT` | Port d'ecoute du panneau lui-meme (`9001`) |
+| `APP_MANAGER_THREADS` | Threads du serveur HTTP (`16`). Le panneau relaie le trafic des applications : une application lente retient un thread pendant toute sa reponse |
+| `APP_MANAGER_TIMEOUT` | Silence tolere sur une connexion avant fermeture, en secondes (`600`). Genereux, pour ne pas couper une application qui fait du long-polling |
 
 ## Volumes attendus
 
@@ -510,6 +512,34 @@ d'ou constater ce qui se passe. Un build en echec n'empeche pas le demarrage : l
    au demarrage suivant.
 
 Supprimer le marqueur autorise une nouvelle inscription, a condition que le panneau soit vide.
+
+## Serveur HTTP
+
+Le panneau tourne derriere **waitress**, un serveur WSGI de production en Python pur. Ce n'est pas
+un detail cosmetique : le panneau ne sert pas que ses propres pages, il **relaie tout le trafic de
+toutes les applications deployees**, ce pour quoi le serveur de developpement de Flask n'est pas
+dimensionne — il le dit lui-meme au demarrage.
+
+Si `waitress` n'est pas installe, le service retombe sur le serveur de Flask avec un message
+explicite : un depot fraichement clone reste lancable sans rien installer de plus.
+
+### Le plafond de flux de journal
+
+Le suivi d'un journal en direct est un flux SSE, et **un flux occupe un thread tant qu'il est
+ouvert**. Mesure faite sur une instance reelle : avec 16 threads, 20 flux simultanes rendaient le
+panneau entierement muet — `/health` compris, donc le conteneur passait `unhealthy`.
+
+Le panneau plafonne donc les flux simultanes a **la moitie du pool** (8 par defaut). Au-dela, le
+flux de trop recoit un `503` qui nomme la cause, et la fenetre de journal l'affiche au lieu de
+rester sur « Connexion... ». Verifie : avec 8 flux ouverts, le panneau repond toujours en 5 ms.
+
+Deux details qui rendent le mecanisme fiable :
+
+- **un battement toutes les 10 secondes** (un commentaire SSE, ignore par le navigateur). Il tient
+  la connexion ouverte quand le journal est silencieux, et c'est aussi lui qui fait decouvrir au
+  serveur qu'un onglet a ete ferme — donc qui libere la place, dans ce delai au pire ;
+- **une duree de vie de 10 minutes**, apres quoi le flux se termine et `EventSource` se reconnecte
+  tout seul. Un onglet oublie ne monopolise pas une place indefiniment.
 
 ## Developper / tester localement
 

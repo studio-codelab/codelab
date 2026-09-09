@@ -916,6 +916,58 @@ def monitor_tick():
 # mal.
 PROBE_TIMEOUT = 1.5
 
+# Flux de journal en direct (Server-Sent Events). Un battement regulier tient
+# la connexion ouverte quand le journal est silencieux ; une duree de vie
+# bornee rend le thread au serveur, le navigateur se reconnectant tout seul.
+# Un flux silencieux n'ecrit rien, et c'est en ecrivant que le serveur
+# s'apercoit qu'un client est parti : le battement sert donc aussi a liberer
+# la place d'un onglet ferme, dans ce delai au pire.
+SSE_BATTEMENT = 10      # secondes de silence avant un commentaire de maintien
+SSE_DUREE_MAX = 600     # 10 minutes, puis reconnexion transparente
+
+# Nombre de threads du serveur HTTP. Le panneau relaie le trafic des
+# applications : une application lente retient un thread pendant toute sa
+# reponse, et le defaut de waitress (4) suffirait a bloquer le panneau entier
+# derriere quelques requetes trainantes.
+WSGI_THREADS = int(os.environ.get("APP_MANAGER_THREADS", "16"))
+
+# Silence tolere sur une connexion avant fermeture. Genereux, parce que le
+# panneau relaie aussi les applications : une application qui fait du
+# long-polling ou son propre flux d'evenements ne doit pas etre coupee par le
+# proxy.
+WSGI_TIMEOUT = int(os.environ.get("APP_MANAGER_TIMEOUT", "600"))
+
+# Un flux de journal occupe un thread tant qu'il est ouvert. Sans plafond,
+# assez d'onglets ouverts sur des journaux consomment tout le pool et le
+# panneau ne repond plus du tout -- mesure : avec 16 threads, 20 flux
+# simultanes le rendaient muet, healthcheck compris.
+#
+# La moitie du pool : mesure faite, 8 flux ouverts en meme temps laissent le
+# panneau repondre en 5 ms, et laisser l'autre moitie pour les pages et le
+# relai des applications suffit largement. Plus bas, on risquerait un refus
+# la ou personne n'a rien fait de deraisonnable -- l'interface n'ouvre qu'un
+# flux a la fois par onglet.
+SSE_MAX_FLUX = max(1, WSGI_THREADS // 2)
+
+_flux_verrou = threading.Lock()
+_flux_ouverts = 0
+
+
+def _prendre_place_flux():
+    """Reserve une place de flux, ou None s'il n'y en a plus."""
+    global _flux_ouverts
+    with _flux_verrou:
+        if _flux_ouverts >= SSE_MAX_FLUX:
+            return False
+        _flux_ouverts += 1
+        return True
+
+
+def _rendre_place_flux():
+    global _flux_ouverts
+    with _flux_verrou:
+        _flux_ouverts = max(0, _flux_ouverts - 1)
+
 # nom -> True (port ouvert) / False (rien n'ecoute). Une app arretee n'y
 # figure pas : l'absence de cle veut dire "non concernee", pas "en panne".
 _listening = {}
@@ -1415,6 +1467,22 @@ def default_icon_svg(name):
 
 def valid_name(raw):
     return re.sub(r"[^a-z0-9_-]", "-", (raw or "").strip().lower()).strip("-")
+
+
+# Longueur d'une description de projet. Assez pour une phrase qui dit a quoi
+# sert l'application, trop court pour une documentation -- l'espace
+# utilisateur doit rester une liste qu'on parcourt d'un coup d'oeil.
+DESCRIPTION_MAX = 140
+
+
+def description_propre(brute):
+    """Une ligne, sans retour a la ligne ni balise possible.
+
+    Le texte est rendu echappe cote page, mais le nettoyer ici evite qu'une
+    description sur trois lignes deforme la liste.
+    """
+    texte = re.sub(r"\s+", " ", str(brute or "")).strip()
+    return texte[:DESCRIPTION_MAX]
 
 
 # ------------------------- visibilite d'une application -------------------------
@@ -1924,6 +1992,7 @@ def api_apps():
             "has_build": bool((a.get("build_command") or "").strip()),
             "build_command": a.get("build_command") or "",
             "max_memory_mb": a.get("max_memory_mb"),
+            "description": a.get("description") or "",
             **stats,
         })
     return jsonify({"apps": out})
@@ -1991,6 +2060,7 @@ def api_add():
         "path": path, "command": command, "port": port, "enabled": False,
         "build_command": build_command, "max_memory_mb": max_memory_mb,
         "visibility": vis,
+        "description": description_propre(d.get("description")),
     }
     save(apps)
     return jsonify({"ok": True, "name": name, "port": port})
@@ -2017,6 +2087,7 @@ def api_edit(n):
     apps[n]["command"] = command
     apps[n]["build_command"] = (d.get("build_command") or "").strip()
     apps[n]["max_memory_mb"] = d.get("max_memory_mb") or None
+    apps[n]["description"] = description_propre(d.get("description"))
     if d.get("visibility") in VISIBILITES:
         apps[n]["visibility"] = d["visibility"]
     save(apps)
@@ -2140,10 +2211,17 @@ def api_logs(n):
 def api_logs_stream(n):
     f = os.path.join(LOG_DIR, n + ".log")
 
+    if not _prendre_place_flux():
+        return jsonify({"error": f"Trop de journaux suivis en meme temps "
+                                 f"({SSE_MAX_FLUX} au maximum). Ferme une "
+                                 f"fenetre de journal et reessaie."}), 503
+
     def gen():
         pos = max(0, os.path.getsize(f) - 4000) if os.path.exists(f) else 0
+        debut = derniere_emission = time.time()
         yield "retry: 2000\n\n"
         while True:
+            envoye = False
             if os.path.exists(f):
                 with open(f, errors="replace") as fh:
                     fh.seek(pos)
@@ -2151,9 +2229,32 @@ def api_logs_stream(n):
                     pos = fh.tell()
                 for line in chunk.splitlines():
                     yield f"data: {line}\n\n"
+                    envoye = True
+            maintenant = time.time()
+            if envoye:
+                derniere_emission = maintenant
+            elif maintenant - derniere_emission > SSE_BATTEMENT:
+                # Commentaire SSE : ignore par le navigateur, mais il traverse
+                # la connexion. Sans lui, un journal silencieux fait passer le
+                # flux pour mort aux yeux du serveur (et de tout proxy pose
+                # devant), qui finit par le fermer.
+                yield ": battement\n\n"
+                derniere_emission = maintenant
+            if maintenant - debut > SSE_DUREE_MAX:
+                # Un flux ouvert occupe un thread du serveur pour toujours :
+                # quelques onglets oublies suffiraient a saturer le panneau.
+                # On rend la main, et EventSource se reconnecte tout seul
+                # (c'est a quoi sert le "retry" envoye en tete).
+                return
             time.sleep(0.5)
 
-    return Response(stream_with_context(gen()), mimetype="text/event-stream")
+    reponse = Response(stream_with_context(gen()), mimetype="text/event-stream")
+    # call_on_close plutot qu'un "finally" dans le generateur : celui-ci ne
+    # s'execute que si le generateur a demarre. Un client qui se deconnecte
+    # avant laisserait sinon une place reservee pour toujours, et le plafond
+    # se refermerait tout seul sur le panneau.
+    reponse.call_on_close(_rendre_place_flux)
+    return reponse
 
 
 @flask_app.get("/api/icon/<n>")
@@ -2226,6 +2327,7 @@ def api_mes_apps():
             continue
         liste.append({
             "name": nom,
+            "description": a.get("description") or "",
             "running": is_running(nom),
             "listening": _listening.get(nom),
             "visibility": visibilite(a),
@@ -2459,6 +2561,34 @@ def _preparer_diagnostic(name):
         print(f"[app-manager] {name} : echec du demarrage initial ({e}).", flush=True)
 
 
+# ------------------------------ serveur HTTP ------------------------------
+#
+# Le serveur de developpement de Flask affiche lui-meme un avertissement, et
+# il est merite : ce panneau ne sert pas que ses propres pages, il relaie TOUT
+# le trafic de toutes les applications deployees. waitress est un serveur WSGI
+# de production, en Python pur, sans configuration -- le remplacement le moins
+# couteux possible, et le comportement est identique cote application.
+#
+# Repli sur le serveur de Flask si waitress n'est pas installe : le service
+# doit rester lancable depuis un depot fraichement clone, sans rien installer
+# de plus que Flask.
+
+def servir(port):
+    try:
+        from waitress import serve
+    except ImportError:
+        print("[app-manager] waitress absent : repli sur le serveur de "
+              "developpement de Flask (a eviter en service).", flush=True)
+        flask_app.run(host="0.0.0.0", port=port, threaded=True)
+        return
+    print(f"[app-manager] waitress sur 0.0.0.0:{port} "
+          f"({WSGI_THREADS} threads).", flush=True)
+    # ident : l'en-tete Server annonce "CodeLab" plutot que la version exacte
+    # de waitress, qui ne renseigne que celui qui cherche une faille connue.
+    serve(flask_app, host="0.0.0.0", port=port, threads=WSGI_THREADS,
+          channel_timeout=WSGI_TIMEOUT, ident="CodeLab")
+
+
 # -------------------------------- main --------------------------------
 
 if __name__ == "__main__":
@@ -2472,6 +2602,4 @@ if __name__ == "__main__":
         threading.Thread(target=_preparer_diagnostic, args=(inscrit,),
                          daemon=True).start()
     start_monitor_thread()
-    flask_app.run(host="0.0.0.0",
-                  port=int(os.environ.get("MANAGER_PORT", "9001")),
-                  threaded=True)
+    servir(int(os.environ.get("MANAGER_PORT", "9001")))

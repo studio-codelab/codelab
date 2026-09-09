@@ -50,12 +50,15 @@ main{max-width:880px;margin:0 auto;padding:28px 20px}
 h1{font-size:19px;font-weight:650;margin-bottom:4px}
 .sous{color:var(--dim);font-size:13px;margin-bottom:22px}
 .liste{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
-.projet{display:flex;align-items:center;gap:12px;padding:14px 16px;background:var(--surface);
+.projet{display:flex;align-items:flex-start;gap:12px;padding:14px 16px;background:var(--surface);
  border:1px solid var(--line);border-radius:12px;text-decoration:none;color:inherit;
  transition:border-color .12s,box-shadow .12s}
 .projet:hover{border-color:var(--accent);box-shadow:0 2px 12px var(--shadow)}
 .projet img{width:34px;height:34px;border-radius:9px;flex:none}
+.projet .txt{min-width:0}
 .projet .nom{font-weight:600;font-size:14px}
+.projet .desc{font-size:12.5px;color:var(--dim);margin-top:2px;line-height:1.4;
+ display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .projet .etat{font-size:12px;color:var(--dim);display:flex;align-items:center;gap:6px;margin-top:2px}
 .projet .etat i{width:7px;height:7px;border-radius:50%;background:var(--dim2);display:inline-block}
 .projet .etat.on i{background:var(--ok)}
@@ -102,9 +105,14 @@ async function charger(){
   $('liste').className='liste';
   $('liste').innerHTML = apps.map(a=>{
     const [cl,txt]=etat(a);
+    /* La description passe devant l'etat : elle dit a quoi sert
+       l'application, ce qu'on cherche en arrivant sur un lanceur. L'etat
+       reste visible, en dessous et en plus discret. */
+    const desc = a.description
+      ? `<div class="desc">${esc(a.description)}</div>` : '';
     return `<a class="projet ${a.running?'':'arretee'}" href="/${encodeURIComponent(a.name)}/">
       <img src="/api/icon/${encodeURIComponent(a.name)}" alt="">
-      <div><div class="nom">${esc(a.name)}</div>
+      <div class="txt"><div class="nom">${esc(a.name)}</div>${desc}
       <div class="etat ${cl}"><i></i>${txt}</div></div></a>`;
   }).join('');
 }
