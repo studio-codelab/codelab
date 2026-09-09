@@ -1,7 +1,7 @@
 """Tests de l'app-manager -- uniquement ce qui protege une regression grave.
 
 Chacun de ces tests correspond a un bug ou une faille reellement rencontres :
-ils ne decrivent pas le comportement de l'application, ils empechent quatre
+ils ne decrivent pas le comportement de l'application, ils empechent cinq
 problemes precis de revenir sans qu'on s'en apercoive. Un test qui ne
 repondrait pas a cette definition n'a pas sa place ici.
 
@@ -9,7 +9,9 @@ repondrait pas a cette definition n'a pas sa place ici.
   2. le bornage des chemins a /workspace ;
   3. l'authentification du panneau et sa limite de tentatives ;
   4. l'isolation de ce que le panneau lance : privileges abandonnes, cookie
-     de session non transmis.
+     de session non transmis ;
+  5. l'inscription automatique du projet de diagnostic, qui ne doit jamais
+     rejouer -- un projet supprime qui revient au redemarrage suivant.
 
 Portee : ce qui se verifie sans conteneur, sans Postgres et sans reseau. Le
 cycle de vie des process et le reverse proxy demandent une stack en marche et
@@ -298,3 +300,77 @@ def test_une_application_sans_limite_memoire_abandonne_quand_meme_ses_privileges
     ordre.clear()
     app.child_setup(64)()
     assert ordre == ["rlimit", "drop"]   # la limite avant la bascule
+
+
+# ------------------- 5. inscription du projet de diagnostic -------------------
+#
+# Le projet de diagnostic s'inscrit tout seul au premier demarrage. La
+# propriete a tenir n'est pas "il s'inscrit" (visible du premier coup d'oeil)
+# mais "il ne se reinscrit jamais" : un projet supprime qui revient au
+# redemarrage suivant est exactement le defaut qui rend une installation
+# penible, et il ne se voit qu'apres coup.
+
+def _amorcage(tmp_path, monkeypatch, avec_projet=True):
+    etat = tmp_path / "etat"
+    etat.mkdir()
+    racine = tmp_path / "workspace"
+    racine.mkdir()
+    if avec_projet:
+        (racine / "diagnostic").mkdir()
+        (racine / "diagnostic" / "app.py").write_text("")
+    monkeypatch.setattr(app, "APPS_FILE", str(etat / "apps.json"))
+    monkeypatch.setattr(app, "DIAGNOSTIC_MARQUEUR", str(etat / "diagnostic-inscrit"))
+    monkeypatch.setattr(app, "ROOT", str(racine))
+    app._apps_cache["signature"] = None
+    return racine
+
+
+def test_le_diagnostic_est_inscrit_au_premier_demarrage(tmp_path, monkeypatch):
+    racine = _amorcage(tmp_path, monkeypatch)
+    assert app.amorcer_diagnostic() == "diagnostic"
+    inscrit = app.load()["diagnostic"]
+    assert inscrit["path"] == str(racine / "diagnostic")
+    assert inscrit["command"] == app.DIAGNOSTIC_COMMANDE
+    assert inscrit["build_command"] == app.DIAGNOSTIC_BUILD
+    # Pas demarree ici : c'est le thread d'amorcage qui la lance, apres le
+    # build qui installe son pilote Postgres.
+    assert inscrit["enabled"] is False
+    assert inscrit["visibility"] == app.VISIBILITE_PRIVEE
+    assert app.PORT_MIN <= inscrit["port"] <= app.PORT_MAX
+
+
+def test_un_diagnostic_supprime_ne_revient_pas_au_redemarrage(tmp_path, monkeypatch):
+    """Le defaut a empecher : supprimer le projet depuis le panneau, puis le
+    retrouver au demarrage suivant."""
+    _amorcage(tmp_path, monkeypatch)
+    app.amorcer_diagnostic()
+    app.save({})                       # suppression depuis le panneau
+    assert app.amorcer_diagnostic() is None
+    assert app.load() == {}
+
+
+def test_un_panneau_deja_utilise_n_est_pas_touche(tmp_path, monkeypatch):
+    """Mise a jour d'une installation existante : le registre a deja des
+    applications, on n'y ajoute rien -- l'utilisateur a peut-etre inscrit ce
+    projet lui-meme, ou l'a supprime volontairement."""
+    _amorcage(tmp_path, monkeypatch)
+    app.save({"mon-site": {"port": 9101}})
+    assert app.amorcer_diagnostic() is None
+    assert list(app.load()) == ["mon-site"]
+    # Et la question est tranchee pour de bon, meme si le panneau se vide.
+    app.save({})
+    assert app.amorcer_diagnostic() is None
+
+
+def test_un_projet_pas_encore_amorce_est_retente_au_demarrage_suivant(tmp_path, monkeypatch):
+    """app-manager et dagster demarrent en parallele, et c'est dagster qui
+    depose le projet dans /workspace : au premier demarrage le dossier peut
+    ne pas encore exister. Renoncer definitivement ici priverait l'utilisateur
+    du projet pour une simple question d'ordre de demarrage."""
+    racine = _amorcage(tmp_path, monkeypatch, avec_projet=False)
+    assert app.amorcer_diagnostic() is None
+    assert not os.path.exists(app.DIAGNOSTIC_MARQUEUR)
+
+    (racine / "diagnostic").mkdir()
+    (racine / "diagnostic" / "app.py").write_text("")
+    assert app.amorcer_diagnostic() == "diagnostic"

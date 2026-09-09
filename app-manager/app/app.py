@@ -1509,6 +1509,118 @@ def _page(title, msg, extra=""):
             "text-decoration:none;font-size:14px\">Retour au panneau</a></div></div>")
 
 
+# --------------------- inscription du projet de diagnostic ---------------------
+#
+# Le conteneur dagster depose le projet "diagnostic" dans /workspace au premier
+# demarrage de la stack ; il fallait ensuite l'ajouter a la main dans le
+# panneau, en recopiant deux commandes depuis son README. C'est la seule etape
+# manuelle qui separait une stack fraiche d'une stack verifiee -- et c'est
+# precisement celle qu'on saute quand on est presse, donc celle qui manque le
+# jour ou quelque chose ne marche pas.
+#
+# Le projet est donc inscrit tout seul, une fois, au premier demarrage.
+#
+# "Une fois" est la partie delicate. Trois garde-fous, dans cet ordre :
+#
+#   1. Un marqueur dans STATE_DIR. Pose des que la question est tranchee, il
+#      garantit qu'un projet supprime depuis le panneau ne reapparait pas au
+#      redemarrage suivant -- meme raison d'etre que le marqueur de squelette
+#      cote dagster (voir dagster/entrypoint.sh).
+#   2. Un registre non vide veut dire "installation deja en service" : on ne
+#      touche pas a un panneau existant, on pose seulement le marqueur.
+#   3. Le dossier peut ne pas encore exister : app-manager et dagster demarrent
+#      en parallele, et c'est dagster qui amorce /workspace. Dans ce cas on ne
+#      pose PAS le marqueur et on reessaiera au prochain demarrage.
+DIAGNOSTIC_NOM = "diagnostic"
+DIAGNOSTIC_MARQUEUR = os.path.join(STATE_DIR, "diagnostic-inscrit")
+
+# Les deux commandes du README du projet, pas une detection automatique :
+# detect_project() proposerait bien "python3 app.py", mais rendrait une
+# commande de build vide (il cherche un requirements.txt, que ce projet n'a
+# pas), et l'application demarrerait sans pilote Postgres.
+DIAGNOSTIC_COMMANDE = "python3 app.py"
+DIAGNOSTIC_BUILD = 'pip install --target vendor "psycopg[binary]"'
+
+
+def amorcer_diagnostic():
+    """Inscrit le projet de diagnostic au premier demarrage, et le lance.
+
+    Ne fait rien du tout sur une installation deja en service. Renvoie le nom
+    inscrit, ou None.
+    """
+    if os.path.exists(DIAGNOSTIC_MARQUEUR):
+        return None
+
+    apps = load()
+    if apps:
+        # Panneau deja utilise : l'utilisateur a peut-etre inscrit ce projet
+        # lui-meme, ou l'a supprime volontairement. On s'efface, definitivement.
+        _poser_marqueur_diagnostic()
+        return None
+
+    chemin = os.path.join(ROOT, DIAGNOSTIC_NOM)
+    if not os.path.isfile(os.path.join(chemin, "app.py")):
+        # Pas encore amorce par dagster : on retentera au prochain demarrage.
+        return None
+
+    apps[DIAGNOSTIC_NOM] = {
+        "path": chemin,
+        "command": DIAGNOSTIC_COMMANDE,
+        "port": next_port(apps),
+        # Demarree par le thread d'amorcage, apres le build : la mettre a True
+        # ici la ferait lancer par resume() sans son pilote Postgres.
+        "enabled": False,
+        "build_command": DIAGNOSTIC_BUILD,
+        "max_memory_mb": None,
+        # Privee : la page nomme les conteneurs, l'utilisateur SSH et l'etat de
+        # la base. Rien de secret, mais rien non plus a offrir a un visiteur
+        # anonyme le jour ou le port 9001 est publie. L'utilisateur peut la
+        # rendre publique en un clic depuis le panneau.
+        "visibility": VISIBILITE_PRIVEE,
+    }
+    save(apps)
+    _poser_marqueur_diagnostic()
+    return DIAGNOSTIC_NOM
+
+
+def _poser_marqueur_diagnostic():
+    try:
+        with open(DIAGNOSTIC_MARQUEUR, "w") as f:
+            f.write("Le projet de diagnostic a ete inscrit une fois au premier "
+                    "demarrage. Supprimer ce fichier le fera reinscrire, s'il "
+                    "n'est plus dans le panneau et qu'aucune autre application "
+                    "n'y figure.\n")
+    except OSError as e:
+        # Sans marqueur l'inscription se rejouerait, mais seulement tant que le
+        # registre est vide : le pire cas reste borne, et il ne justifie pas
+        # d'empecher le panneau de demarrer.
+        print(f"[app-manager] marqueur de diagnostic non ecrit ({e}).", flush=True)
+
+
+def _preparer_diagnostic(name):
+    """Build puis demarrage, en tache de fond.
+
+    Le build installe le pilote Postgres (quelques secondes a quelques
+    dizaines, et un acces reseau) : le faire dans le thread principal
+    retarderait d'autant l'ouverture du panneau, c'est-a-dire la seule
+    interface depuis laquelle on peut constater ce qui se passe.
+
+    Un build en echec (pas de reseau, miroir pip injoignable) n'empeche pas le
+    demarrage : l'application affiche alors "aucun pilote Postgres" sur la
+    ligne concernee et toutes les autres sondes repondent normalement. Une
+    page qui explique ce qui manque vaut mieux qu'une application absente.
+    """
+    ok, msg = run_build(name)
+    if not ok:
+        print(f"[app-manager] {name} : build initial en echec ({msg}) -- "
+              f"l'application demarre quand meme, la sonde Postgres le dira.",
+              flush=True)
+    try:
+        start(name)
+    except Exception as e:
+        print(f"[app-manager] {name} : echec du demarrage initial ({e}).", flush=True)
+
+
 # -------------------------------- main --------------------------------
 
 if __name__ == "__main__":
@@ -1516,7 +1628,11 @@ if __name__ == "__main__":
     os.makedirs(LOG_DIR, exist_ok=True)
     if not os.path.exists(APPS_FILE):
         save({})
+    inscrit = amorcer_diagnostic()
     resume()
+    if inscrit:
+        threading.Thread(target=_preparer_diagnostic, args=(inscrit,),
+                         daemon=True).start()
     start_monitor_thread()
     flask_app.run(host="0.0.0.0",
                   port=int(os.environ.get("MANAGER_PORT", "9001")),

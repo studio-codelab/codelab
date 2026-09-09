@@ -154,6 +154,12 @@ est laisse tel quel ; la version de reference reste dans l'image, sous
 `/opt/dagster/workspace.default`. La copie n'a lieu qu'une fois, tracee par
 `/workspace/.codelab/workspace-v1` : un projet supprime ne reapparait pas au redemarrage.
 
+`diagnostic/` est aussi **inscrit tout seul dans le panneau** au premier demarrage, en visibilite
+privee, avec sa commande de build lancee une fois — une stack fraiche est donc verifiable sans
+aucune saisie. Comme la copie, l'inscription n'a lieu qu'une fois (marqueur
+`/var/lib/codelab/app-manager/diagnostic-inscrit`), et jamais sur un panneau qui contient deja des
+applications.
+
 ## Workspace partage entre les services
 
 [#workspace-partage](#workspace-partage)

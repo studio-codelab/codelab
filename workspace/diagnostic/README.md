@@ -12,11 +12,24 @@ meme table Postgres — voir les deux sources cote a cote est la preuve que tout
 
 ## Installation
 
-**Rien a faire : ce projet est installe par defaut** dans `/workspace` au premier demarrage de la
-stack. Il est deja charge par Dagster et n'attend qu'une chose de toi, cote application web (une
-seule fois) :
+**Rien a faire.** Le projet est copie dans `/workspace` au premier demarrage de la stack, charge
+par Dagster, **et inscrit tout seul dans le panneau** : il y apparait sous le nom `diagnostic`,
+demarre, en visibilite *privee*. Ouvre `http://<IP-du-serveur>:9001/diagnostic/` et c'est tout.
 
-Panneau `http://<IP-du-serveur>:9001/` -> **Ajouter un projet**
+L'image `app-manager` ne contient pas de pilote Postgres : la commande de build
+(`pip install --target vendor "psycopg[binary]"`) l'installe dans `vendor/`, a cote du code, sans
+modifier le conteneur. Elle est lancee automatiquement, une fois, juste avant le premier demarrage
+de l'application — quelques dizaines de secondes pendant lesquelles la page n'est pas encore servie.
+Si elle echoue (pas de reseau, miroir pip injoignable), l'application demarre quand meme et la ligne
+`Postgres (pilote)` affiche `aucun pilote Postgres` : relance le build depuis le menu « ... » du
+projet. Cote Dagster il n'y a rien a installer, `psycopg2` est deja la, tire par `dagster-postgres`.
+
+L'inscription n'a lieu **qu'une fois**, et seulement sur un panneau encore vide : un projet supprime
+depuis le panneau ne revient pas au redemarrage suivant, et une installation qui a deja des
+applications n'est jamais modifiee. Le marqueur est
+`/var/lib/codelab/app-manager/diagnostic-inscrit` ; le supprimer autorise une nouvelle inscription.
+
+Si tu preferes l'inscrire a la main (panneau -> **Ajouter un projet**) :
 
 | Champ | Valeur |
 |---|---|
@@ -24,11 +37,6 @@ Panneau `http://<IP-du-serveur>:9001/` -> **Ajouter un projet**
 | Dossier | `/workspace/diagnostic` |
 | Commande de lancement | `python3 app.py` |
 | Commande de build | `pip install --target vendor "psycopg[binary]"` |
-
-L'image `app-manager` ne contient pas de pilote Postgres : la commande de build l'installe dans
-`vendor/`, a cote du code, sans modifier le conteneur. **Lance le build une fois** (menu « … » du
-projet -> *Lancer le build*), puis demarre l'application. Cote Dagster il n'y a rien a installer,
-`psycopg2` est deja la, tire par `dagster-postgres`.
 
 ## Structure
 
@@ -168,8 +176,10 @@ docker logs --tail 30 codelab-dagster-daemon | grep -i alerte
 
 ## Nettoyage
 
-Rien ne depend de ce projet : tu peux le supprimer. Il ne sera pas reinstalle au redemarrage, sauf
-si tu supprimes aussi le marqueur `/workspace/.codelab/workspace-v1`.
+Rien ne depend de ce projet : tu peux le supprimer. Ni le dossier ni l'inscription dans le panneau
+ne reviennent au redemarrage — chacun a son marqueur, et il faut supprimer les deux pour les
+retrouver : `/workspace/.codelab/workspace-v1` (le dossier) et
+`/var/lib/codelab/app-manager/diagnostic-inscrit` (l'inscription).
 
 ```bash
 # supprimer le projet dans le panneau, puis depuis codelab-dev :

@@ -212,7 +212,7 @@ silencieusement sans bloquer le demarrage du service — c'est une commodite, pa
 
 | Point de montage | Contenu |
 |---|---|
-| `/var/lib/codelab/app-manager` | `apps.json` et `logs/` — l'etat des applications. Aucun secret : ils sont tous dans `credentials.env` |
+| `/var/lib/codelab/app-manager` | `apps.json`, `logs/` et `diagnostic-inscrit` — l'etat des applications. Aucun secret : ils sont tous dans `credentials.env` |
 | `/workspace` | Racine dans laquelle chercher/lancer les applications |
 
 ## Double authentification et exposition
@@ -339,6 +339,44 @@ de le lancer et de le superviser. `POST /api/add` refuse d'ailleurs un chemin qu
 5. **Reprise au redemarrage du conteneur** (`resume()`) : toute application marquee `enabled: true` dans
    `apps.json` est relancee automatiquement au demarrage du service — l'etat "actif" survit donc a un
    redemarrage du conteneur `codelab-app-manager` lui-meme.
+
+## Inscription automatique du projet de diagnostic
+
+Au tout premier demarrage, le panneau inscrit lui-meme le projet `diagnostic` — celui que le
+conteneur `codelab-dagster` depose dans `/workspace` — puis lance sa commande de build et le
+demarre. Une stack fraiche est donc verifiable sans aucune saisie : l'etape « Ajouter un projet »
+etait la seule chose qui separait une installation neuve d'une installation constatee saine, et
+c'est precisement celle qu'on saute quand on est presse.
+
+| Champ | Valeur inscrite |
+|---|---|
+| Nom | `diagnostic` |
+| Dossier | `/workspace/diagnostic` |
+| Commande de lancement | `python3 app.py` |
+| Commande de build | `pip install --target vendor "psycopg[binary]"` |
+| Visibilite | **privee** — la page nomme les conteneurs, l'utilisateur SSH et l'etat de la base |
+
+Les deux commandes sont ecrites en dur plutot que deduites par `detect_project()` : celle-ci
+proposerait bien `python3 app.py`, mais rendrait une commande de build vide (elle cherche un
+`requirements.txt`, que ce projet n'a pas) et l'application demarrerait sans pilote Postgres.
+
+Le build tourne dans un thread, pas dans le demarrage : il demande un acces reseau et quelques
+dizaines de secondes, pendant lesquelles le panneau doit rester ouvrable — c'est la seule interface
+d'ou constater ce qui se passe. Un build en echec n'empeche pas le demarrage : la sonde
+`Postgres (pilote)` affiche alors ce qui manque, ce qui vaut mieux qu'une application absente.
+
+**L'inscription ne se rejoue jamais.** Trois garde-fous, dans cet ordre :
+
+1. un marqueur `diagnostic-inscrit` dans le dossier d'etat, pose des que la question est tranchee —
+   un projet supprime depuis le panneau ne reapparait pas au redemarrage suivant, meme raison
+   d'etre que le marqueur de squelette cote `dagster/entrypoint.sh` ;
+2. un `apps.json` non vide vaut « installation deja en service » : rien n'est ajoute, seul le
+   marqueur est pose. Une mise a jour ne touche donc pas a un panneau existant ;
+3. si le dossier n'est pas encore la — `app-manager` et `dagster` demarrent en parallele, et c'est
+   `dagster` qui amorce `/workspace` — le marqueur n'est **pas** pose et l'inscription est retentee
+   au demarrage suivant.
+
+Supprimer le marqueur autorise une nouvelle inscription, a condition que le panneau soit vide.
 
 ## Developper / tester localement
 
