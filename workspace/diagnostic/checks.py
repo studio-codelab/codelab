@@ -288,14 +288,31 @@ def _mode(chemin):
 # doit afficher pourquoi, pas faire tomber la page.
 
 def check_config(env_file=None):
-    """Volume config monte + secret partage lisible."""
+    """Volume config monte + secret partage disponible.
+
+    "Disponible" et non "lisible" : dans le conteneur app-manager, les
+    applications tournent sous l'uid 1001 alors que credentials.env est en
+    0600 root. Le panneau, qui tourne en root, leur transmet donc les valeurs
+    par l'environnement. Cote Dagster le fichier est lu directement. Les deux
+    cas sont sains, mais ils ne se depannent pas de la meme facon -- la sonde
+    dit donc d'ou vient la valeur, pas seulement qu'elle est la.
+    """
     path = env_file or ENV_FILE
     if not os.path.exists(path):
         return False, "credentials.env", f"introuvable : {path} (volume config non monte ?)"
+    # os.access ne ment pas ici : le seul cas ou ce code tourne en root est
+    # celui ou root peut effectivement lire le fichier.
+    lisible = os.access(path, os.R_OK)
     pw = read_env("POSTGRES_PASSWORD", env_file)
     if not pw:
+        if not lisible:
+            return (False, "credentials.env",
+                    f"{path} illisible sous l'uid {os.geteuid()}, et POSTGRES_PASSWORD "
+                    f"n'a pas ete transmis par le panneau")
         return False, "credentials.env", "lisible, mais POSTGRES_PASSWORD absent"
-    return True, "credentials.env", f"{path} -- POSTGRES_PASSWORD lu ({len(pw)} caracteres)"
+    origine = path if lisible else (f"transmis par le panneau ({path} est "
+                                    f"illisible sous l'uid {os.geteuid()})")
+    return True, "credentials.env", f"{origine} -- POSTGRES_PASSWORD lu ({len(pw)} caracteres)"
 
 
 def check_workspace(workspace=None):

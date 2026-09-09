@@ -68,7 +68,7 @@ decouvre tout seul. Il n'y a **pas** de fichier central a editer pour declarer u
 
 | Verification | Ce qui est teste |
 |---|---|
-| `credentials.env` | Volume `config` monte, secret partage lisible — le fichier unique fonctionne |
+| `credentials.env` | Volume `config` monte, et `POSTGRES_PASSWORD` disponible — lu dans le fichier cote Dagster, transmis par le panneau cote app-manager (la sonde dit lequel) |
 | `/workspace` | Volume partage entre `dev`, `dagster` et `app-manager` |
 | `Postgres (pilote)` | `psycopg` ou `psycopg2` disponible dans ce conteneur |
 | `Postgres` | Reseau + mot de passe du fichier partage + base accessible |
@@ -93,6 +93,7 @@ l'asset echoue explicitement avec la liste des sondes en defaut, detail dans les
 | `aucun pilote Postgres` | La commande de build n'a pas ete lancee (dossier `vendor/` absent) |
 | `nom introuvable` | Conteneur arrete : le DNS Docker n'inscrit que les conteneurs demarres |
 | `password authentication failed` | Le mot de passe en base ne correspond plus a `credentials.env` |
+| `no password supplied` | Le panneau n'a pas transmis `POSTGRES_PASSWORD` : `credentials.env` est en `0600 root` et l'application tourne sous l'uid 1001. Redemarre `codelab-app-manager`, puis l'application |
 | `credentials.env introuvable` | Volume `config` non monte sur le service |
 | `ne peut pas le traverser` | `chmod 755` sur `config/ssh` |
 | `illisible par l'uid 1000` | `chown 1000:1000` sur `authorized_keys` |

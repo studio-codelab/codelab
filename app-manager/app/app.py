@@ -525,6 +525,67 @@ RUN_AS_GID = int(os.environ.get("APP_MANAGER_RUN_AS_GID", "2000"))
 CHILD_HOME = os.path.join(STATE_DIR, "home")
 
 
+# --------------------- secrets transmis aux applications ---------------------
+#
+# credentials.env est en 0600 root : c'est ce qu'on veut, il contient le mot de
+# passe du panneau et le secret de double authentification. Mais les
+# applications lancees par le panneau tournent sous l'uid 1001 (voir
+# drop_privileges) et ne peuvent donc pas le lire -- alors que la lecture de ce
+# fichier est precisement ce que la documentation leur demande de faire pour
+# obtenir le mot de passe Postgres. Resultat concret : "fe_sendauth: no
+# password supplied", une erreur qui ne dit rien de sa cause.
+#
+# Le panneau, lui, le lit (il tourne en root) : il transmet donc les valeurs a
+# ses enfants par l'environnement, ce que read_env() consulte de toute facon
+# comme couche la plus faible. Le .env du projet continue de gagner, et rien
+# n'est transmis a Dagster, qui lit le fichier directement.
+#
+# Ce qui n'est PAS transmis : le bloc du panneau. Une application est du code
+# arbitraire tournant sous un autre uid -- lui donner le mot de passe admin
+# reviendrait a annuler cette separation pour lui offrir l'acces au panneau.
+PREFIXE_PRIVE = "APP_MANAGER_"
+
+# Cles qui changent la maniere dont le process enfant s'execute, plutot que ce
+# qu'il fait. Une ligne "PATH=..." ajoutee a la main dans credentials.env
+# casserait sinon toutes les applications d'un coup, sans rien pour l'expliquer.
+CLES_RESERVEES = {"PATH", "HOME", "PORT", "PYTHONPATH", "PYTHONHOME",
+                  "LD_PRELOAD", "LD_LIBRARY_PATH"}
+
+
+def secrets_partages():
+    """Les valeurs de credentials.env destinees aux applications.
+
+    Meme tolerance de lecture que cote projet (checks.py) : commentaires,
+    lignes vides et lignes malformees ignorees, guillemets retires, derniere
+    occurrence gagnante -- chaque service reecrit son bloc en fin de fichier,
+    donc une valeur laissee plus haut est perimee.
+
+    Relu a chaque demarrage plutot que mis en cache : un mot de passe change
+    est ainsi pris en compte en redemarrant l'application, sans redemarrer le
+    panneau.
+    """
+    valeurs = {}
+    try:
+        with open(SHARED_ENV_FILE) as f:
+            for ligne in f:
+                ligne = ligne.strip()
+                if not ligne or ligne.startswith("#") or "=" not in ligne:
+                    continue
+                cle, _, valeur = ligne.partition("=")
+                cle, valeur = cle.strip(), valeur.strip()
+                if (not cle or cle.startswith(PREFIXE_PRIVE)
+                        or cle in CLES_RESERVEES):
+                    continue
+                if len(valeur) >= 2 and valeur[0] == valeur[-1] and valeur[0] in "\"'":
+                    valeur = valeur[1:-1]
+                valeurs[cle] = valeur
+    except OSError:
+        # Volume config non monte, ou fichier pas encore ecrit : les
+        # applications se debrouillent avec leur propre .env, comme avant.
+        pass
+    return valeurs
+
+
 def ensure_child_home():
     os.makedirs(CHILD_HOME, exist_ok=True)
     if os.geteuid() == 0:
@@ -604,7 +665,8 @@ def start(name):
     os.makedirs(LOG_DIR, exist_ok=True)
     rotate_log_if_needed(name)
     out = open(os.path.join(LOG_DIR, name + ".log"), "ab", buffering=0)
-    env = dict(os.environ, PORT=str(a["port"]), PYTHONUNBUFFERED="1",
+    env = dict(os.environ, **secrets_partages())
+    env.update(PORT=str(a["port"]), PYTHONUNBUFFERED="1",
                HOME=ensure_child_home())
 
     with lock:
@@ -758,7 +820,7 @@ def run_build(name):
     if not cmd:
         return False, "Aucune commande de build definie pour cette application."
     os.makedirs(LOG_DIR, exist_ok=True)
-    env = dict(os.environ, HOME=ensure_child_home())
+    env = dict(os.environ, **secrets_partages(), HOME=ensure_child_home())
     logf = os.path.join(LOG_DIR, name + ".log")
     with open(logf, "ab") as out:
         out.write(f"\n$ {cmd}\n".encode())
