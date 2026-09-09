@@ -145,12 +145,13 @@ applications est gere directement par ce service.
 
 | Fichier | Role |
 |---|---|
-| `Dockerfile` | Construction de l'image (Flask, psutil, requests, Node.js, git) |
+| `Dockerfile` | Construction de l'image (Flask, waitress, psutil, requests, qrcode, webauthn, Node.js, git) |
 | `entrypoint.sh` | Permissions partagees sur `/workspace`, puis demarrage |
 | `app/app.py` | Le service : authentification, API, cycle de vie des process, reverse proxy |
 | `app/dashboard.html` | L'interface du panneau |
 | `app/login.html` | La page de connexion |
 | `tests/` | Les regressions gardees (`python -m pytest app-manager/tests -q`) |
+| `vps/` | Tunnel WireGuard + nginx pour exposer ce panneau en HTTPS — voir [`vps/README.md`](vps/README.md). **Ne fait pas partie de l'image** : ces fichiers s'installent sur un VPS et sur l'hote, pas dans le conteneur |
 
 L'application vit dans `app/` : une seule ligne de `COPY` dans le `Dockerfile`, et la racine du service
 reste lisible — l'image, le demarrage, la documentation, les tests.
@@ -184,40 +185,41 @@ minutes, par adresse IP.
 > **Le proxy `/<nom-app>/...` n'est volontairement pas protege par cette authentification** — seuls le dashboard
 > et son API le sont. Une application **publique** que tu deploies reste directement joignable (utile pour tester un
 > webhook, par exemple), independamment du mot de passe du panneau. Une application **privee**, elle,
-> exige une session : voir [Une seule application, deux modes](#une-seule-application-deux-modes).
+> exige une session : voir [Une seule application, deux roles](#une-seule-application-deux-roles).
 
-## Une seule application, deux modes
+## Une seule application, deux roles
 
 | | Administrateur | Utilisateur |
 |---|---|---|
 | Connexion | nom vide (ou `admin`) + mot de passe de `credentials.env` | son nom + son mot de passe |
 | Second facteur | optionnel, a activer depuis Parametres | **obligatoire** |
-| Page d'accueil | le hub ou l'outil de developpement, au choix | le hub |
+| Page d'accueil | le hub | le hub |
 | Declarer, editer, supprimer un projet | oui | non |
 | Demarrer, arreter, deployer, build | oui | non |
 | Visibilite, alertes, comptes, journaux | oui | non |
 | Dagster (`/api/auth-check`) | oui | **non** |
 | Ouvrir un projet | tous | ceux qu'on lui a autorises |
 
-**Le hub et l'outil de developpement sont deux modes de la meme page**, servie a la meme adresse
-(`/`) a tout le monde. L'administrateur bascule de l'un a l'autre par les deux boutons de la barre
-du haut, sans changer d'adresse ni se reconnecter, et le mode choisi est retenu d'une visite a
-l'autre :
+**L'application s'appelle CodeLab, et il n'y en a qu'une** : une seule page, servie a la meme
+adresse (`/`) a tout le monde, avec le hub pour accueil. Il n'y a pas de bascule de mode a
+comprendre — c'est le role qui decide de ce que le menu propose en plus :
 
-- **Hub** — la liste des projets ouvrables, telle que la voient les comptes utilisateurs (a ceci
-  pres que l'administrateur y voit tous les projets). Le menu lateral disparait : la page redevient
-  un lanceur.
-- **Developpeur** — la vue d'ensemble, les projets, les journaux, les parametres, les comptes.
+- **Le hub** — la liste des projets ouvrables, l'accueil de tous les comptes (a ceci pres que
+  l'administrateur y voit tous les projets, l'utilisateur seulement les siens).
+- **Le menu lateral**, administrateur seulement — la vue d'ensemble, les applications (et la fiche
+  d'un projet avec ses journaux), et les **utilisateurs**.
+- **Le menu du compte**, en haut a droite — **Parametres** (l'affichage, le second facteur, la
+  session) pour tout le monde ; **Configuration** (exposition, comptes, alertes) pour
+  l'administrateur seul.
 
-Un compte utilisateur n'a pas de bascule : il n'a que le hub, sans menu lateral et sans entree
-« Parametres ». Le role est injecte dans la page pour qu'elle sache quoi afficher, mais **ce n'est
-qu'un confort d'affichage** : chaque route d'administration verifie le role de son cote
-(`require_admin`), et une page bricolee dans le navigateur ne donne aucun droit supplementaire.
+Le role est injecte dans la page pour qu'elle sache quoi afficher, mais **ce n'est qu'un confort
+d'affichage** : chaque route d'administration verifie le role de son cote (`require_admin`), et une
+page bricolee dans le navigateur ne donne aucun droit supplementaire.
 
 `/espace`, l'ancienne adresse de l'espace utilisateur, redirige vers `/` : elle a pu etre mise en
 favori.
 
-Les comptes se creent depuis **Parametres > Comptes**. Chacun porte la liste des projets qu'il peut
+Les comptes se creent depuis **Utilisateurs**, dans le menu lateral. Chacun porte la liste des projets qu'il peut
 ouvrir ; la retirer prend effet immediatement, sans deconnexion — chaque controle relit le registre.
 
 Trois points meritent d'etre explicites :
@@ -248,11 +250,11 @@ Le parcours, en trois etats :
 
 1. **Compte cree** — le panneau affiche « 2FA en attente ». Rien a transmettre a la personne en
    dehors de son nom et de son mot de passe.
-2. **Premiere connexion** — apres le mot de passe, la page affiche une cle a enregistrer dans une
-   application d'authentification, puis demande le code qu'elle produit. Entre les deux, **la
-   session ne vaut rien** : elle ne porte pas `authed`, donc elle n'ouvre ni page ni application.
-   Rien n'est enregistre tant que le code n'est pas valide — une cle mal recopiee ne peut pas
-   enfermer dehors.
+2. **Premiere connexion** — apres le mot de passe, la page affiche un **QR code** a scanner avec
+   une application d'authentification (la cle reste affichee dessous, pour qui prefere la saisir),
+   puis demande le code produit. Entre les deux, **la session ne vaut rien** : elle ne porte pas
+   `authed`, donc elle n'ouvre ni page ni application. Rien n'est enregistre tant que le code n'est
+   pas valide — une cle mal recopiee ne peut pas enfermer dehors.
 3. **Ensuite** — le code est exige a chaque connexion, et le panneau affiche « 2FA enregistree ».
 
 L'administrateur ne connait a aucun moment la cle de quelqu'un d'autre : elle est tiree au premier
@@ -267,6 +269,142 @@ Les mots de passe des comptes sont derives (PBKDF2-HMAC-SHA256, 200 000 iteratio
 compte) et stockes dans `utilisateurs.json` en `0600`. Une copie de sauvegarde du dossier d'etat
 n'est donc pas une liste de mots de passe. Le compte d'administration, lui, n'est pas dans ce
 fichier : son mot de passe vit dans `credentials.env`, et le nom `admin` est reserve.
+
+## Adresse mail des comptes, et inscription libre
+
+Chaque compte utilisateur porte une **adresse mail**, posee a la creation (par l'administrateur) ou
+choisie par la personne dans ses *Parametres*. L'adresse relie le compte a quelqu'un de joignable.
+
+**Verifier une adresse** consiste a y envoyer un code a six chiffres et a attendre qu'il revienne :
+c'est le seul controle qui vaille, une expression reguliere stricte refusant des adresses valides
+sans arreter personne. Volontairement le meme geste que le second facteur, que la personne connait
+deja. Cette verification **ne remplace pas le second facteur et n'ouvre aucune session** : elle
+atteste seulement que l'adresse existe et qu'elle est bien relevee par qui la declare.
+
+- Le code est range **sous forme d'empreinte** dans `utilisateurs.json` : il n'a pas a y rester
+  lisible a cote du nom du compte.
+- Il vaut 15 minutes, tolere 5 essais, et un nouvel envoi est refuse pendant 60 secondes — un bouton
+  « renvoyer » sans limite est un moyen d'inonder une boite mail qu'on ne possede pas.
+- **Changer d'adresse annule la verification**, cote personne comme cote administrateur : sinon il
+  suffirait de remplacer une adresse verifiee par une autre pour heriter de son statut.
+
+**L'inscription libre** (« Creer un compte » sur la page de connexion) n'est ouverte que si un
+serveur d'envoi est configure : sans mail, une adresse declaree ne peut pas etre verifiee, et la
+creation de comptes devient un formulaire a remplir en boucle. Le parcours :
+
+1. nom, adresse, mot de passe ; un code part vers l'adresse ;
+2. tant que ce code n'est pas revenu, **le compte ne se connecte pas** — mot de passe juste compris ;
+3. une fois confirme, il se connecte comme tout compte utilisateur, en enregistrant son second
+   facteur a la premiere connexion.
+
+**Un compte cree ainsi n'ouvre aucun projet** tant que l'administrateur ne lui en autorise pas :
+c'est ce qui rend l'inscription libre sans consequence — au pire, des comptes vides. La creation est
+comptee dans la limite de tentatives (5 par fenetre et par adresse IP), pour qu'un robot ne fasse pas
+partir des mails en boucle. Un mail qui ne part pas retire le compte : sinon le nom resterait pris
+par quelqu'un qui ne pourra jamais s'en servir.
+
+## Cles d'acces (passkeys)
+
+Une cle d'acces remplace le mot de passe **et** le code a six chiffres : l'appareil prouve la
+possession, et l'empreinte (ou le code de l'appareil) prouve la personne. Rien a retenir, rien a
+recopier — et **rien a hameconner**, puisque la cle ne signe que pour le domaine qui l'a
+enregistree.
+
+Elle s'ajoute depuis *Parametres > Cles d'acces*, une fois connecte : on enregistre une cle sur le
+compte qu'on occupe deja. Plusieurs cles par compte (telephone, ordinateur), retirables une par une.
+
+**L'enregistrement exige la verification d'utilisateur** (`user_verification: required`) : sans
+empreinte ni code d'appareil, une cle ne serait qu'un facteur de possession, et ouvrir une session
+sur cette moitie serait un recul par rapport au mot de passe + TOTP. La connexion l'exige aussi.
+
+### Trois conditions que le navigateur impose
+
+Elles sont **annoncees** dans la page plutot que subies — un bouton qui echoue toujours est pire
+qu'un bouton absent :
+
+1. **HTTPS.** Le navigateur refuse WebAuthn hors contexte securise (sauf sur `localhost`). Sur
+   `http://192.168.1.20:9001`, les cles d'acces sont donc impossibles.
+2. **Un nom de domaine, pas une adresse IP.** Le `rp_id` ne peut pas etre une IP.
+3. **Toujours le meme nom.** Une cle enregistree sur `codelab.exemple.fr` ne fonctionne pas sur
+   `192.168.1.20`, et c'est voulu : c'est ce qui la rend inhameconnable.
+
+Un cas merite son message a lui : quand un proxy annonce `X-Forwarded-Proto: https` mais que
+`APP_MANAGER_TRUST_PROXY` n'est pas pose, le panneau ne le croit pas (n'importe quel client peut
+poser cet en-tete) et le dit — « declare ton proxy », pas « mets du TLS ».
+
+Les cles vivent dans `passkeys.json` (`0600`), une entree par compte, avec le compteur de signature
+que la norme demande de faire avancer : **il ne doit jamais reculer**, c'est la qu'une cle clonee se
+trahit. La bibliotheque `webauthn` fait la cryptographie — ecrire soi-meme la verification d'une
+signature ECDSA et le decodage CBOR d'une attestation, c'est le genre de code ou une erreur discrete
+ne se voit que de celui qui la cherche. Import optionnel : sans elle, les cles d'acces sont
+indisponibles et le reste ne bouge pas.
+
+## Adresse publique, et ce que « publique » veut dire
+
+Une application **publique** est servie **sans authentification** : c'est ce qui permet de partager
+un projet par un simple lien. Tant que ce serveur n'est joignable que depuis ton reseau, le mot
+promet une ouverture qui n'existe pas — il ne retire que l'authentification, sans rien partager.
+
+Le panneau **ne propose donc pas de rendre une application publique tant qu'aucune adresse publique
+n'est declaree** (*Configuration > Serveur > Adresse publique*), et la route refuse aussi le
+changement. Trois consequences, voulues :
+
+- une application **deja publique** n'est pas touchee, et peut toujours etre **refermee** — on ne
+  bloque jamais le chemin qui referme ;
+- une application **neuve nait privee** sur un serveur prive, meme si le formulaire demande autre
+  chose : elle s'ouvre en une bascule, alors qu'une application ouverte par megarde ne se referme
+  qu'apres coup ;
+- des que l'adresse est declaree, tout redevient possible, sans redemarrage.
+
+**Elle se declare a la main**, et c'est deliberé : le panneau ne peut pas savoir si le port 443 de
+la box est ouvert, si le tunnel tourne, ni quel nom de domaine y mene. La renseigner, c'est dire
+« j'ai fait le necessaire ». `APP_MANAGER_PUBLIC_URL` dans le compose l'emporte sur la page, et la
+page le dit plutot que de laisser modifier ce qu'un redemarrage remettrait.
+
+## Journal des acces
+
+Qui s'est connecte, quand, depuis quelle adresse, et quelle application il a ouverte. Deux usages, et
+deux seulement : **reconnaitre une tentative d'intrusion** (des echecs de connexion en rafale, une
+connexion a une heure inhabituelle) et **savoir si un projet sert encore a quelqu'un** avant de
+l'arreter. Il se lit dans **Utilisateurs** (connexions recentes, et la derniere connexion sous chaque
+compte) et dans la fiche d'une application, onglet **Activite**.
+
+Trois decisions qui comptent :
+
+- **Une ouverture est notee apres les controles d'acces.** Un refus n'est pas une visite : les
+  compter donnerait a une application fermee l'air d'etre tres frequentee.
+- **Une ouverture par personne et par application, au plus une fois par quart d'heure.** Une page
+  web, c'est des dizaines de requetes ; les compter toutes ne dirait plus rien de la frequentation
+  et remplirait le disque.
+- **Journaliser n'echoue jamais.** Disque plein, montage en lecture seule : l'evenement est perdu,
+  le service continue. Refuser une connexion pour proteger son journal reviendrait a eteindre le
+  service au moment ou on veut justement l'observer.
+
+Le fichier est `acces.jsonl` (dans `STATE_DIR`), une ligne JSON par evenement, plafonne a 1 Mo avec
+un `.1` conserve — la meme rotation que les journaux d'application. Un fichier texte se relit depuis
+une session SSH le jour ou le panneau ne repond plus, ce qu'une base ne permettrait pas.
+
+`GET /api/activite` est **reserve a l'administrateur** : il contient des adresses IP et le detail de
+qui ouvre quoi.
+
+## Categories
+
+Une categorie est un intitule libre — « Outils », « Sites », « Donnees » — qui **regroupe les projets
+dans le hub**, et rien d'autre : elle ne donne aucun droit, ne change rien au deploiement et
+n'apparait pas dans le proxy. C'est du rangement.
+
+- La liste se tient dans **Configuration > Categories**. Son ordre est l'ordre d'affichage des
+  groupes : on la range, on n'impose pas un tri alphabetique.
+- La categorie d'un projet se choisit dans sa fiche, onglet **Configuration**, parmi cette liste.
+- Un projet sans categorie apparait a la fin, sous **Autres**. Tant qu'aucune categorie n'existe, le
+  hub reste une seule liste — un titre « Autres » tout seul ne rangerait rien.
+
+**Supprimer une categorie ne casse rien mais deplace des projets** : ceux qui la portaient
+redeviennent non ranges, tout de suite, et la page dit combien. Un projet ne garde jamais une
+categorie disparue — il serait range dans un tiroir que le hub n'affiche plus, donc invisible.
+
+La liste vit dans `categories.json` (dans `STATE_DIR`), a cote de `apps.json` : une categorie existe
+avant qu'un projet la porte, et survit a la suppression du dernier projet qui l'utilisait.
 
 ## Alertes par mail
 
@@ -333,13 +471,14 @@ silencieusement sans bloquer le demarrage du service — c'est une commodite, pa
 | `APP_MANAGER_SHARED_CONFIG` | Dossier de `credentials.env`, le fichier unique de secrets (`/var/lib/codelab/config`) |
 | `MANAGER_PORT` | Port d'ecoute du panneau lui-meme (`9001`) |
 | `APP_MANAGER_THREADS` | Threads du serveur HTTP (`16`). Le panneau relaie le trafic des applications : une application lente retient un thread pendant toute sa reponse |
+| `APP_MANAGER_PUBLIC_URL` | Adresse publique du serveur (`https://codelab.mondomaine.fr`). Vide = serveur prive : le panneau ne propose alors pas de rendre une application publique |
 | `APP_MANAGER_TIMEOUT` | Silence tolere sur une connexion avant fermeture, en secondes (`600`). Genereux, pour ne pas couper une application qui fait du long-polling |
 
 ## Volumes attendus
 
 | Point de montage | Contenu |
 |---|---|
-| `/var/lib/codelab/app-manager` | `apps.json`, `logs/`, `alertes.json`, `utilisateurs.json` et `diagnostic-inscrit` — l'etat du panneau. Aucun secret en clair : les mots de passe des comptes sont derives, ceux des services sont dans `credentials.env` |
+| `/var/lib/codelab/app-manager` | `apps.json`, `logs/`, `alertes.json`, `utilisateurs.json`, `categories.json`, `acces.jsonl`, `exposition.json`, `passkeys.json` et `diagnostic-inscrit` — l'etat du panneau. Aucun secret en clair : les mots de passe des comptes sont derives, ceux des services sont dans `credentials.env` |
 | `/workspace` | Racine dans laquelle chercher/lancer les applications |
 
 ## Double authentification et exposition
@@ -349,10 +488,19 @@ Trois reglages n'ont d'interet que le jour ou ce panneau devient joignable au-de
 
 ### Le second facteur (TOTP)
 
-*Parametres > Securite > Double authentification.* Le panneau tire un secret, l'affiche en clair a saisir dans
-une application d'authentification, et **n'enregistre rien tant qu'un code valide n'a pas ete fourni** — une
-cle mal recopiee ne peut donc pas enfermer dehors. La desactivation exige elle aussi un code valide : une
-session volee ne doit pas pouvoir retirer le second facteur.
+*Parametres > Securite > Double authentification.* Le panneau tire un secret, l'affiche en **QR code** (et en
+clair dessous), et **n'enregistre rien tant qu'un code valide n'a pas ete fourni** — une cle mal recopiee ne
+peut donc pas enfermer dehors. La desactivation exige elle aussi un code valide : une session volee ne doit
+pas pouvoir retirer le second facteur.
+
+**Le QR code ne voyage jamais par l'adresse.** `GET /qr/totp.svg` lit l'inscription en attente dans la session
+signee : un secret place dans une URL se retrouverait dans l'historique du navigateur, dans les journaux
+d'acces et dans le `Referer` de la page suivante. La route repond 404 des que l'inscription est terminee.
+
+La bibliotheque `qrcode` (Python pur, aucune dependance sous Linux) est installee dans l'image, mais le code
+ne la suppose pas : sans elle, `qr_svg()` renvoie une chaine vide, la route repond 404, l'image se masque
+d'elle-meme et la cle a recopier suffit. Le panneau reste lancable depuis un depot fraichement clone avec
+Flask pour seule dependance.
 
 L'algorithme (RFC 6238, SHA1, 6 chiffres, 30 s, tolerance d'un intervalle) est ecrit directement dans `app.py`
 plutot qu'importe : il tient en vingt lignes de bibliotheque standard, et ce service n'a que trois
@@ -398,6 +546,24 @@ qui n'est pas implemente ici.
 | `/api/build/<nom>` | POST | oui | Execute la commande de build (si definie), sortie dans le journal |
 | `/api/deploy/<nom>` | POST | oui | Build **puis** mise en ligne ; un build en echec ne touche pas l'application qui tourne |
 | `/api/visibility/<nom>` | POST | oui | Bascule publique / privee (ou impose la valeur donnee) |
+| `/api/categories` | GET | oui | La liste des categories, dans l'ordre d'affichage (tous les roles) |
+| `/api/categories` | PUT | oui | Remplace la liste (**administrateur**) ; renvoie le nombre de projets declasses |
+| `/api/passkeys/etat` | GET | **non** | Les cles d'acces sont-elles utilisables ici (et sinon, pourquoi) |
+| `/api/mon-compte/passkeys` | GET / POST | oui | Les cles du compte connecte ; en enregistre une nouvelle |
+| `/api/mon-compte/passkeys/options` | POST | oui | Prepare l'enregistrement (defi range dans la session) |
+| `/api/mon-compte/passkeys/<id>` | DELETE | oui | Retire une cle du compte connecte |
+| `/login/passkey/options` | POST | **non** | Prepare une connexion par cle d'acces |
+| `/login/passkey` | POST | **non** | Ouvre la session si la signature est bonne |
+| `/api/securite/exposition` | PUT | oui | Declare (ou retire) l'adresse publique du serveur |
+| `/api/activite` | GET | oui | Journal des acces et son resume (**administrateur**) |
+| `/api/mon-compte` | GET | oui | Ce que la session dit d'elle-meme : nom, role, adresse et son etat |
+| `/api/mon-compte/email` | POST | oui | Declare ou change sa propre adresse, et envoie un code |
+| `/api/mon-compte/email/code` | POST | oui | Renvoie un code (une fois par minute au plus) |
+| `/api/mon-compte/email/confirmer` | POST | oui | Confirme l'adresse avec le code recu |
+| `/api/inscription` | GET | **non** | L'inscription libre est-elle ouverte (serveur d'envoi configure) |
+| `/inscription` | POST | **non** | Cree un compte sans aucun projet, et envoie un code a l'adresse |
+| `/inscription/confirmer` | POST | **non** | Confirme l'adresse et rend le compte utilisable |
+| `/qr/totp.svg` | GET | **non** | Le QR code de l'inscription au second facteur en attente dans la session |
 | `/api/securite` | GET | oui | Etat des reglages de securite (TOTP, HTTPS, cookie, proxy de confiance) |
 | `/api/securite/totp/preparer` | POST | oui | Tire un secret candidat, sans rien enregistrer |
 | `/api/securite/totp/activer` | POST | oui | Enregistre le secret candidat, apres verification d'un code |

@@ -386,6 +386,51 @@ def totp_uri(secret, compte=None):
             f"&issuer=CodeLab&algorithm=SHA1&digits={TOTP_CHIFFRES}&period={TOTP_PAS}")
 
 
+def qr_svg(donnee):
+    """L'adresse otpauth en QR code, en SVG. "" si la bibliotheque manque.
+
+    Recopier une cle de 32 caracteres a la main sur un telephone est le
+    moment ou l'inscription echoue : une lettre pour une autre, et le code
+    genere ne tombera jamais juste. Le QR code supprime cette etape.
+
+    Facultatif volontairement : le panneau doit rester lancable depuis un
+    depot fraichement clone avec Flask pour seule dependance. Sans la
+    bibliotheque, la page retombe sur la cle a saisir -- ce qui marchait
+    hier marche encore.
+
+    Le SVG est peint en noir sur blanc, quel que soit le theme : un lecteur
+    de QR code a besoin de ce contraste, et un code clair sur fond sombre
+    n'est pas lu par tous les telephones.
+    """
+    try:
+        import qrcode
+    except ImportError:
+        return ""
+    code = qrcode.QRCode(border=2)
+    code.add_data(donnee)
+    code.make(fit=True)
+    grille = code.get_matrix()
+    cote = len(grille)
+
+    # Un rectangle par suite horizontale de modules noirs, pas un par module :
+    # le SVG passe de plusieurs milliers de balises a quelques centaines.
+    rects = []
+    for y, ligne in enumerate(grille):
+        x = 0
+        while x < cote:
+            if not ligne[x]:
+                x += 1
+                continue
+            debut = x
+            while x < cote and ligne[x]:
+                x += 1
+            rects.append(f'<rect x="{debut}" y="{y}" width="{x - debut}" height="1"/>')
+    return ('<svg xmlns="http://www.w3.org/2000/svg" '
+            f'viewBox="0 0 {cote} {cote}" shape-rendering="crispEdges">'
+            f'<rect width="{cote}" height="{cote}" fill="#ffffff"/>'
+            f'<g fill="#000000">{"".join(rects)}</g></svg>')
+
+
 # --------------------------- auth ---------------------------
 
 RATE_LIMIT_WINDOW = 300  # 5 min
@@ -532,6 +577,320 @@ def verifie_mot_de_passe(compte, mot_de_passe):
     except (KeyError, TypeError, ValueError):
         return False
     return secrets.compare_digest(calcule, attendu)
+
+
+# ---------------------- adresse mail d'un compte ----------------------
+#
+# L'adresse relie un compte a quelqu'un de joignable : c'est par elle qu'un
+# mot de passe se recupere, et c'est elle qui rend une inscription libre
+# defendable -- sans verification, n'importe qui creerait n'importe quoi.
+#
+# La verification est un code a six chiffres envoye a l'adresse. Volontairement
+# le meme geste que le second facteur : la personne connait deja ce parcours.
+# Il ne remplace pas le second facteur et n'ouvre aucune session -- il atteste
+# seulement que l'adresse existe et qu'elle appartient bien a qui la declare.
+EMAIL_MAX = 254                 # la limite de la RFC 5321
+CODE_EMAIL_VALIDITE = 900       # 15 minutes : le temps d'aller lire son mail
+CODE_EMAIL_ESSAIS = 5           # au-dela, il faut en redemander un autre
+CODE_EMAIL_DELAI = 60           # pas plus d'un envoi par minute et par compte
+
+
+def email_valide(brut):
+    """Une adresse plausible, ou "".
+
+    Volontairement permissif : la seule verification qui vaille est d'y
+    envoyer un code et d'attendre qu'il revienne. Une expression reguliere
+    stricte refuse des adresses parfaitement valides et n'arrete personne.
+    """
+    adresse = re.sub(r"\s+", "", str(brut or ""))[:EMAIL_MAX]
+    return adresse if re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", adresse) else ""
+
+
+def _empreinte_code(code):
+    return hashlib.sha256(str(code).encode()).hexdigest()
+
+
+def poser_code_email(compte):
+    """Tire un code a six chiffres, le range, et le renvoie en clair.
+
+    Range sous forme d'empreinte : le code n'a pas a etre lisible dans
+    utilisateurs.json, ou il resterait apres coup a cote du nom du compte.
+    """
+    code = f"{secrets.randbelow(1000000):06d}"
+    compte["email_code"] = {"empreinte": _empreinte_code(code),
+                            "expire": int(time.time()) + CODE_EMAIL_VALIDITE,
+                            "essais": 0,
+                            "envoye": int(time.time())}
+    return code
+
+
+def verifier_code_email(compte, code):
+    """(ok, message). Consomme un essai, et le code au premier succes."""
+    en_cours = compte.get("email_code") or {}
+    if not en_cours:
+        return False, "Aucun code en attente. Demandes-en un nouveau."
+    if int(time.time()) > en_cours.get("expire", 0):
+        compte.pop("email_code", None)
+        return False, "Ce code a expire. Demandes-en un nouveau."
+    if en_cours.get("essais", 0) >= CODE_EMAIL_ESSAIS:
+        compte.pop("email_code", None)
+        return False, "Trop d'essais. Demandes-en un nouveau."
+    en_cours["essais"] = en_cours.get("essais", 0) + 1
+    propose = re.sub(r"\D", "", str(code or ""))
+    if not (propose and secrets.compare_digest(_empreinte_code(propose),
+                                               en_cours.get("empreinte", ""))):
+        return False, "Code incorrect."
+    compte.pop("email_code", None)
+    compte["email_verifie"] = True
+    return True, ""
+
+
+def envoyer_code_email(adresse, nom, code):
+    """Envoie le code, ou leve. L'appelant traduit l'echec."""
+    cfg, ok = smtp_utilisable()
+    if not ok:
+        raise RuntimeError("Aucun serveur d'envoi configure.")
+    envoyer_mail(cfg, "[CodeLab] verification de ton adresse",
+                 f"Code de verification pour le compte « {nom} » : {code}\n\n"
+                 f"Il est valable {CODE_EMAIL_VALIDITE // 60} minutes.\n\n"
+                 "Si tu n'es pas a l'origine de cette demande, ignore ce "
+                 "message : sans ce code, rien ne change.\n\n"
+                 "-- CodeLab, panneau de gestion des applications",
+                 destinataires=[adresse])
+
+
+# --------------------------- cles d'acces (passkeys) ---------------------------
+#
+# Une cle d'acces remplace le mot de passe ET le code a six chiffres : le
+# telephone (ou l'ordinateur) prouve la possession, et l'empreinte ou le code
+# de l'appareil prouve la personne. Rien a retenir, rien a recopier, et rien
+# a hameconner -- la cle ne signe que pour le domaine qui l'a enregistree,
+# donc un faux site n'en tire rien.
+#
+# TROIS CONTRAINTES QUE LE NAVIGATEUR IMPOSE, et qu'il faut annoncer plutot
+# que subir :
+#
+#   1. contexte securise. Le navigateur refuse WebAuthn hors HTTPS (sauf sur
+#      localhost). Sur http://192.168.1.x:9001, le bouton ne peut pas
+#      marcher : le panneau le dit au lieu de l'afficher pour rien ;
+#   2. un vrai nom de domaine. Le "rp_id" ne peut pas etre une adresse IP.
+#      Il faut donc un nom -- celui par lequel on ouvrira toujours le
+#      panneau, puisque les cles sont liees a lui ;
+#   3. le meme nom a chaque fois. Une cle enregistree sur codelab.exemple.fr
+#      ne fonctionne pas sur 192.168.1.20, et c'est voulu.
+#
+# La bibliotheque webauthn fait la cryptographie. Ecrire soi-meme la
+# verification d'une signature ECDSA et le decodage CBOR d'une attestation,
+# c'est exactement le genre de code ou une erreur discrete ne se voit jamais
+# -- sauf de celui qui la cherche. Import optionnel, comme le QR code : sans
+# elle, les cles d'acces sont simplement indisponibles.
+PASSKEYS_FILE = os.path.join(STATE_DIR, "passkeys.json")
+PASSKEY_NOM_MAX = 40
+
+
+def passkeys_disponibles():
+    try:
+        import webauthn  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def _hote_et_schema():
+    """(hote sans port, schema, https_annonce_sans_confiance).
+
+    X-Forwarded-Proto n'est croyable que derriere un proxy declare de
+    confiance : n'importe quel client peut le poser. On ne s'en sert donc
+    que si TRUST_PROXY est actif -- mais on retient qu'il annoncait HTTPS,
+    parce que c'est exactement le cas ou la marche a suivre n'est pas
+    « mets du TLS » mais « declare ton proxy ».
+    """
+    hote = (request.host or "").split(":")[0]
+    annonce = (request.headers.get("X-Forwarded-Proto") or "").lower()
+    if TRUST_PROXY and annonce:
+        return hote, annonce, False
+    return hote, request.scheme, (annonce == "https" and request.scheme != "https")
+
+
+def passkey_contexte():
+    """(rp_id, origine, empechement).
+
+    empechement vaut "" quand tout est reuni. Sinon c'est la phrase a
+    afficher : le navigateur, lui, se contenterait d'une erreur illisible.
+    """
+    hote, schema, https_non_cru = _hote_et_schema()
+    origine = f"{schema}://{request.host}"
+    if not hote:
+        return "", "", "Hote inconnu."
+    local = hote in ("localhost", "127.0.0.1", "::1")
+    if schema != "https" and not local:
+        if https_non_cru:
+            return "", "", ("Un proxy annonce HTTPS, mais ce panneau ne le croit pas : "
+                            "pose APP_MANAGER_TRUST_PROXY=1 dans le compose, puis "
+                            "redemarre le service.")
+        return "", "", ("Les cles d'acces exigent une connexion HTTPS : le navigateur "
+                        "refuse de les creer en clair. Mets le TLS en place, puis "
+                        "reviens ici.")
+    # Une adresse IP ne peut pas servir de "relying party id" : la norme
+    # exige un nom de domaine. C'est la meme exigence que le certificat.
+    if re.fullmatch(r"[0-9.]+|\[[0-9a-fA-F:]+\]", hote) and not local:
+        return "", "", ("Les cles d'acces exigent un nom de domaine, pas une adresse IP. "
+                        "Ouvre le panneau par son nom (celui du certificat).")
+    return hote, origine, ""
+
+
+def lire_passkeys():
+    try:
+        with open(PASSKEYS_FILE) as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return d if isinstance(d, dict) else {}
+
+
+def ecrire_passkeys(tout):
+    tmp = PASSKEYS_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(tout, f, indent=2)
+    os.replace(tmp, PASSKEYS_FILE)
+    try:
+        os.chmod(PASSKEYS_FILE, 0o600)
+    except OSError:
+        pass
+
+
+def passkeys_du_compte(nom):
+    return lire_passkeys().get(nom, [])
+
+
+def _descripteurs(nom):
+    from webauthn.helpers import base64url_to_bytes
+    from webauthn.helpers.structs import PublicKeyCredentialDescriptor
+    return [PublicKeyCredentialDescriptor(id=base64url_to_bytes(k["id"]))
+            for k in passkeys_du_compte(nom)]
+
+
+# ------------------------- journal des acces -------------------------
+#
+# Qui s'est connecte, quand, et quelle application il a ouverte. Deux usages,
+# et deux seulement : reconnaitre une tentative d'intrusion (des echecs de
+# connexion en rafale, une connexion a 4 h du matin), et savoir si un projet
+# sert encore a quelqu'un avant de l'arreter.
+#
+# Un fichier de lignes JSON, ajoutees a la fin. Pas de base : ce sont des
+# evenements, jamais modifies, et un fichier texte se lit depuis une session
+# SSH le jour ou le panneau ne repond plus. Il est plafonne et tourne comme
+# les journaux d'application -- un journal qui remplit le disque transforme
+# une curiosite en panne.
+ACCES_FILE = os.path.join(STATE_DIR, "acces.jsonl")
+ACCES_MAX_OCTETS = 1024 * 1024      # 1 Mo, soit ~8 000 evenements
+ACCES_LIGNES_LUES = 400             # ce que l'interface affiche au plus
+# Une page web, c'est des dizaines de requetes. Une ouverture par personne et
+# par application n'est donc notee qu'une fois par quart d'heure : au-dela on
+# ne journalise plus une visite, on journalise le HTML.
+ACCES_REGROUPEMENT = 900
+
+_dernier_acces = {}
+_acces_verrou = threading.Lock()
+
+
+def _adresse_client():
+    """L'adresse du visiteur, selon qu'on est derriere un proxy de confiance."""
+    if TRUST_PROXY:
+        avant = (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
+        if avant:
+            return avant
+    return request.remote_addr or ""
+
+
+def journaliser(genre, **details):
+    """Ajoute un evenement. N'echoue jamais : journaliser n'est pas le travail.
+
+    Une ecriture impossible (disque plein, montage en lecture seule) ne doit
+    ni refuser une connexion ni casser le proxy -- ce serait faire tomber le
+    service pour proteger son journal.
+    """
+    evenement = {"ts": int(time.time()), "genre": genre}
+    evenement.update(details)
+    try:
+        with _acces_verrou:
+            if (os.path.exists(ACCES_FILE)
+                    and os.path.getsize(ACCES_FILE) > ACCES_MAX_OCTETS):
+                os.replace(ACCES_FILE, ACCES_FILE + ".1")
+            with open(ACCES_FILE, "a") as f:
+                f.write(json.dumps(evenement, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def journaliser_ouverture(name):
+    """Note qu'une application vient d'etre ouverte, sans noter chaque requete."""
+    qui = utilisateur_courant() if is_authed() else ""
+    cle = (qui, name)
+    maintenant = time.time()
+    with _acces_verrou:
+        if maintenant - _dernier_acces.get(cle, 0) < ACCES_REGROUPEMENT:
+            return
+        _dernier_acces[cle] = maintenant
+    journaliser("ouverture", qui=qui, app=name, ip=_adresse_client())
+
+
+def lire_acces(limite=ACCES_LIGNES_LUES, app=None, qui=None):
+    """Les evenements les plus recents d'abord.
+
+    Lit le fichier en entier : a 1 Mo plafonne, c'est un coup de disque
+    negligeable, et cela evite un index a tenir a jour pour une page qu'on
+    ouvre trois fois par mois.
+    """
+    lignes = []
+    for chemin in (ACCES_FILE, ACCES_FILE + ".1"):
+        try:
+            with open(chemin) as f:
+                lignes.extend(f.readlines())
+        except OSError:
+            continue
+    evenements = []
+    for ligne in reversed(lignes):
+        try:
+            e = json.loads(ligne)
+        except ValueError:
+            continue
+        if not isinstance(e, dict):
+            continue
+        if app is not None and e.get("app") != app:
+            continue
+        if qui is not None and (e.get("qui") or "") != qui:
+            continue
+        evenements.append(e)
+        if len(evenements) >= limite:
+            break
+    return evenements
+
+
+def resume_acces():
+    """Par compte et par application : derniere fois, et combien de fois.
+
+    C'est ce qu'on veut savoir en une ligne -- « personne n'a ouvert ce
+    projet depuis trois semaines » -- sans derouler le journal entier.
+    """
+    comptes, apps_, echecs = {}, {}, 0
+    for e in lire_acces(limite=100000):
+        qui = e.get("qui") or ""
+        genre = e.get("genre")
+        if genre == "connexion":
+            c = comptes.setdefault(qui, {"connexions": 0, "derniere": 0, "ouvertures": 0})
+            c["connexions"] += 1
+            c["derniere"] = max(c["derniere"], e.get("ts", 0))
+        elif genre == "echec":
+            echecs += 1
+        elif genre == "ouverture":
+            c = comptes.setdefault(qui, {"connexions": 0, "derniere": 0, "ouvertures": 0})
+            c["ouvertures"] += 1
+            a = apps_.setdefault(e.get("app") or "", {"ouvertures": 0, "derniere": 0, "qui": {}})
+            a["ouvertures"] += 1
+            a["derniere"] = max(a["derniere"], e.get("ts", 0))
+            a["qui"][qui] = a["qui"].get(qui, 0) + 1
+    return {"comptes": comptes, "apps": apps_, "echecs": echecs}
 
 
 def nom_utilisateur_valide(brut):
@@ -1122,12 +1481,25 @@ def config_smtp():
     return cfg, manquants
 
 
-def envoyer_mail(cfg, sujet, corps):
+def smtp_utilisable():
+    """(cfg, ok) pour un envoi a une adresse choisie.
+
+    Distinct de config_smtp() : les alertes exigent en plus une liste de
+    destinataires, alors qu'un code de verification part vers une adresse
+    donnee. Sans cette distinction, un serveur d'envoi parfaitement
+    configure passerait pour incomplet tant qu'aucune alerte n'est reglee.
+    """
+    cfg, manquants = config_smtp()
+    return cfg, not [m for m in manquants if m != "destinataires"]
+
+
+def envoyer_mail(cfg, sujet, corps, destinataires=None):
     """Envoie, ou leve. Les trois modes de chiffrement du SMTP."""
     msg = EmailMessage()
     msg["Subject"] = sujet
     msg["From"] = cfg["expediteur"]
-    msg["To"] = ", ".join(cfg["destinataires"])
+    msg["To"] = ", ".join(destinataires if destinataires is not None
+                          else cfg["destinataires"])
     msg.set_content(corps)
 
     def _login(s):
@@ -1484,6 +1856,105 @@ def description_propre(brute):
     return texte[:DESCRIPTION_MAX]
 
 
+# ------------------------------ categories ------------------------------
+#
+# Une categorie est un simple intitule libre ("Outils", "Sites", "Donnees")
+# qui regroupe les projets dans le hub. Elle ne donne aucun droit et ne
+# change rien au deploiement : c'est du rangement, et rien d'autre.
+#
+# La liste vit dans un fichier a part plutot que dans apps.json : une
+# categorie existe avant qu'un projet la porte (on la cree pour ranger
+# ensuite), et elle survit a la suppression du dernier projet qui l'utilisait.
+# Un champ libre par projet aurait produit "Outils", "outils" et "Outil ".
+CATEGORIES_FILE = os.path.join(STATE_DIR, "categories.json")
+CATEGORIE_MAX = 30      # un intitule, pas une phrase
+CATEGORIES_MAX = 20     # au-dela, ce n'est plus un rangement mais une liste
+
+
+def categorie_propre(brute):
+    """Un intitule sur une ligne, borne en longueur."""
+    return re.sub(r"\s+", " ", str(brute or "")).strip()[:CATEGORIE_MAX]
+
+
+def lire_categories():
+    """La liste des categories, dans l'ordre voulu par l'administrateur.
+
+    L'ordre est celui de l'affichage dans le hub : il se regle en rangeant
+    la liste, pas par un tri alphabetique impose.
+    """
+    try:
+        with open(CATEGORIES_FILE) as f:
+            brut = json.load(f)
+    except (OSError, ValueError):
+        return []
+    if not isinstance(brut, list):
+        return []
+    return [c for c in (categorie_propre(x) for x in brut) if c][:CATEGORIES_MAX]
+
+
+def ecrire_categories(liste):
+    tmp = CATEGORIES_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(liste, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, CATEGORIES_FILE)
+
+
+def categorie_valide(brute, connues=None):
+    """La categorie d'un projet, ou "" si elle n'existe pas (ou plus).
+
+    Un projet ne porte jamais une categorie inconnue : sinon supprimer une
+    categorie laisserait des projets ranges dans un tiroir invisible.
+    """
+    voulue = categorie_propre(brute)
+    if not voulue:
+        return ""
+    return voulue if voulue in (lire_categories() if connues is None else connues) else ""
+
+
+# ------------------------- adresse publique du serveur -------------------------
+#
+# « Publique » veut dire : accessible sans compte. Tant que ce serveur n'est
+# joignable que depuis le salon, cela ne partage rien -- le mot promet une
+# ouverture qui n'existe pas. Tant qu'aucune adresse publique n'est declaree,
+# le panneau ne propose donc pas de rendre une application publique.
+#
+# L'adresse est declaree a la main plutot que devinee : le panneau ne peut pas
+# savoir si le port 443 de la box est ouvert, si le tunnel tourne, ni quel nom
+# de domaine y mene. La declarer, c'est dire « j'ai fait le necessaire ».
+EXPOSITION_FILE = os.path.join(STATE_DIR, "exposition.json")
+
+
+def adresse_publique():
+    """L'adresse publique du serveur, ou "".
+
+    La variable d'environnement l'emporte : dans une stack ou le nom de
+    domaine est deja connu du compose, on ne veut pas le ressaisir dans une
+    page.
+    """
+    depuis_env = (os.environ.get("APP_MANAGER_PUBLIC_URL") or "").strip()
+    if depuis_env:
+        return depuis_env.rstrip("/")
+    try:
+        with open(EXPOSITION_FILE) as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return ""
+    return str((d or {}).get("adresse_publique") or "").strip().rstrip("/")
+
+
+def adresse_publique_valide(brute):
+    """Une adresse http(s) plausible, ou ""."""
+    adresse = re.sub(r"\s+", "", str(brute or ""))[:200].rstrip("/")
+    return adresse if re.fullmatch(r"https?://[^/\s]+(/[^\s]*)?", adresse) else ""
+
+
+def ecrire_adresse_publique(adresse):
+    tmp = EXPOSITION_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump({"adresse_publique": adresse}, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, EXPOSITION_FILE)
+
+
 # ------------------------- visibilite d'une application -------------------------
 #
 # Le reverse proxy sert les applications SANS authentification : c'est ce qui
@@ -1538,6 +2009,7 @@ def login_submit():
         # alors sur la longueur du prefixe correct.
         if not (real and pw and secrets.compare_digest(pw, real)):
             register_failed_attempt()
+            journaliser("echec", qui=NOM_ADMIN, motif="mot de passe", ip=_adresse_client())
             return jsonify({"error": "Identifiants incorrects."}), 401
 
         # Le code a six chiffres, quand la double authentification est active.
@@ -1546,6 +2018,7 @@ def login_submit():
         # de passe connu, ce qui le viderait de son sens.
         if totp_actif() and not totp_verifie(_totp_secret, d.get("code")):
             register_failed_attempt()
+            journaliser("echec", qui=NOM_ADMIN, motif="second facteur", ip=_adresse_client())
             return jsonify({"error": "Code de verification incorrect.",
                             "totp": True}), 401
 
@@ -1553,6 +2026,7 @@ def login_submit():
         session["authed"] = True
         session["role"] = ROLE_ADMIN
         session["utilisateur"] = NOM_ADMIN
+        journaliser("connexion", qui=NOM_ADMIN, role=ROLE_ADMIN, ip=_adresse_client())
         return jsonify({"ok": True, "role": ROLE_ADMIN})
 
     compte = lire_utilisateurs().get(nom)
@@ -1561,6 +2035,9 @@ def login_submit():
     # comptes valides a qui essaie.
     if not (compte and pw and verifie_mot_de_passe(compte, pw)):
         register_failed_attempt()
+        # Le nom tel qu'il a ete tape, meme s'il ne correspond a aucun
+        # compte : c'est ce qui distingue une faute de frappe d'un balayage.
+        journaliser("echec", qui=nom, motif="mot de passe", ip=_adresse_client())
         return jsonify({"error": "Identifiants incorrects."}), 401
 
     # Le second facteur n'est pas optionnel pour un compte utilisateur. Ces
@@ -1569,6 +2046,14 @@ def login_submit():
     # sera reutilise ailleurs. C'est exactement le cas ou un seul secret ne
     # suffit pas. L'administrateur, lui, garde le choix : lui imposer le
     # second facteur d'office pourrait l'enfermer hors de son propre panneau.
+    # Compte cree librement dont l'adresse n'a jamais ete confirmee. Le
+    # message est explicite : ici, il ne revele rien qu'on ne sache deja --
+    # le mot de passe vient d'etre reconnu.
+    if compte.get("attente_email"):
+        return jsonify({"error": "Confirme d'abord ton adresse mail : un code "
+                                 "t'a ete envoye a l'inscription.",
+                        "attente_email": True}), 403
+
     secret = compte.get("totp") or ""
     if not secret:
         # Premier acces : inscription obligatoire avant toute session. Le
@@ -1579,20 +2064,25 @@ def login_submit():
         candidat = totp_nouveau_secret()
         session["totp_candidat"] = candidat
         session["totp_inscription"] = nom
+        session["totp_uri"] = totp_uri(candidat, nom)
         return jsonify({"inscription": True, "secret": candidat,
-                        "uri": totp_uri(candidat, nom), "compte": nom})
+                        "uri": session["totp_uri"], "compte": nom,
+                        "qr": "/qr/totp.svg"})
 
     if not totp_verifie(secret, d.get("code")):
         register_failed_attempt()
+        journaliser("echec", qui=nom, motif="second facteur", ip=_adresse_client())
         return jsonify({"error": "Code de verification incorrect.",
                         "totp": True}), 401
 
     session.pop("totp_candidat", None)
     session.pop("totp_inscription", None)
+    session.pop("totp_uri", None)
     session.permanent = True
     session["authed"] = True
     session["role"] = ROLE_UTILISATEUR
     session["utilisateur"] = nom
+    journaliser("connexion", qui=nom, role=ROLE_UTILISATEUR, ip=_adresse_client())
     return jsonify({"ok": True, "role": ROLE_UTILISATEUR})
 
 
@@ -1634,11 +2124,585 @@ def login_second_facteur():
 
     session.pop("totp_candidat", None)
     session.pop("totp_inscription", None)
+    session.pop("totp_uri", None)
     session.permanent = True
     session["authed"] = True
     session["role"] = ROLE_UTILISATEUR
     session["utilisateur"] = nom
+    journaliser("connexion", qui=nom, role=ROLE_UTILISATEUR, ip=_adresse_client())
     return jsonify({"ok": True, "role": ROLE_UTILISATEUR})
+
+
+def _mon_compte():
+    """Le compte de la session, ou None pour l'administrateur.
+
+    Le compte d'administration ne vit pas dans utilisateurs.json : son mot
+    de passe est dans credentials.env, et il n'a pas d'adresse mail a lui.
+    """
+    if est_admin():
+        return None
+    return lire_utilisateurs().get(utilisateur_courant())
+
+
+# ------------------------- routes des cles d'acces -------------------------
+
+@flask_app.get("/api/passkeys/etat")
+def api_passkeys_etat():
+    """Ce que la page de connexion et les parametres ont besoin de savoir.
+
+    Publique : la page de connexion doit pouvoir demander si le bouton a un
+    sens avant que quiconque soit authentifie. Elle ne revele ni compte ni
+    cle -- seulement si le serveur est en etat d'en utiliser.
+    """
+    if not passkeys_disponibles():
+        return jsonify({"possible": False,
+                        "empechement": "La bibliotheque webauthn n'est pas installee "
+                                       "sur ce serveur."})
+    _, _, empechement = passkey_contexte()
+    return jsonify({"possible": not empechement, "empechement": empechement})
+
+
+def _refus_passkey():
+    """(reponse, code) si les cles d'acces ne sont pas utilisables ici."""
+    if not passkeys_disponibles():
+        return jsonify({"error": "La bibliotheque webauthn n'est pas installee."}), 501
+    _, _, empechement = passkey_contexte()
+    if empechement:
+        return jsonify({"error": empechement}), 400
+    return None
+
+
+@flask_app.post("/api/mon-compte/passkeys/options")
+@require_auth
+def api_passkey_options():
+    """Prepare l'enregistrement d'une cle pour le compte connecte."""
+    refus = _refus_passkey()
+    if refus:
+        return refus
+    from webauthn import generate_registration_options, options_to_json
+    from webauthn.helpers.structs import (AuthenticatorSelectionCriteria,
+                                          ResidentKeyRequirement,
+                                          UserVerificationRequirement)
+    rp_id, _, _ = passkey_contexte()
+    nom = utilisateur_courant()
+    options = generate_registration_options(
+        rp_id=rp_id,
+        rp_name="CodeLab",
+        user_name=nom,
+        # L'identifiant d'utilisateur est le nom du compte : il ne quitte
+        # jamais ce serveur, et deux comptes ne portent jamais le meme nom.
+        user_id=nom.encode(),
+        user_display_name=nom,
+        # Deja enregistrees : le navigateur propose alors d'en ajouter une
+        # autre plutot que de remplacer celle qu'on a sous la main.
+        exclude_credentials=_descripteurs(nom),
+        authenticator_selection=AuthenticatorSelectionCriteria(
+            # Decouvrable : c'est ce qui permet de se connecter sans taper
+            # son nom -- le navigateur sait deja de qui il s'agit.
+            resident_key=ResidentKeyRequirement.PREFERRED,
+            # Exigee : une cle qui ne verifie pas la personne (ni empreinte,
+            # ni code d'appareil) ne serait qu'un facteur de possession, et
+            # ne pourrait pas remplacer mot de passe ET second facteur.
+            user_verification=UserVerificationRequirement.REQUIRED,
+        ),
+    )
+    session["passkey_defi"] = base64.b64encode(options.challenge).decode()
+    return Response(options_to_json(options), mimetype="application/json")
+
+
+@flask_app.post("/api/mon-compte/passkeys")
+@require_auth
+def api_passkey_enregistrer():
+    """Verifie la reponse du navigateur et range la cle."""
+    refus = _refus_passkey()
+    if refus:
+        return refus
+    from webauthn import verify_registration_response
+    from webauthn.helpers import bytes_to_base64url
+    defi = session.get("passkey_defi")
+    if not defi:
+        return jsonify({"error": "Recommence : aucun enregistrement en attente."}), 400
+    d = request.get_json(force=True, silent=True) or {}
+    rp_id, origine, _ = passkey_contexte()
+    try:
+        verifiee = verify_registration_response(
+            credential=d.get("credential"),
+            expected_challenge=base64.b64decode(defi),
+            expected_rp_id=rp_id,
+            expected_origin=origine,
+            require_user_verification=True,
+        )
+    except Exception as e:
+        return jsonify({"error": f"Cle refusee : {type(e).__name__}: {e}"}), 400
+
+    nom = utilisateur_courant()
+    tout = lire_passkeys()
+    liste = tout.setdefault(nom, [])
+    identifiant = bytes_to_base64url(verifiee.credential_id)
+    if any(k["id"] == identifiant for k in liste):
+        return jsonify({"error": "Cette cle est deja enregistree."}), 400
+    liste.append({
+        "id": identifiant,
+        "cle_publique": bytes_to_base64url(verifiee.credential_public_key),
+        "compteur": verifiee.sign_count,
+        "nom": description_propre(d.get("nom"))[:PASSKEY_NOM_MAX] or "Cle d'acces",
+        "cree": int(time.time()),
+        "dernier": 0,
+    })
+    try:
+        ecrire_passkeys(tout)
+    except OSError as e:
+        return jsonify({"error": f"Cle non enregistree : {e}"}), 500
+    session.pop("passkey_defi", None)
+    journaliser("passkey", qui=nom, action="ajout", ip=_adresse_client())
+    return jsonify({"ok": True})
+
+
+@flask_app.get("/api/mon-compte/passkeys")
+@require_auth
+def api_passkey_liste():
+    """Les cles du compte connecte, sans leur cle publique.
+
+    Elle n'apprend rien a l'interface et n'a pas a trainer dans
+    l'historique du navigateur.
+    """
+    return jsonify({"passkeys": [
+        {"id": k["id"], "nom": k.get("nom") or "Cle d'acces",
+         "cree": k.get("cree"), "dernier": k.get("dernier")}
+        for k in passkeys_du_compte(utilisateur_courant())]})
+
+
+@flask_app.delete("/api/mon-compte/passkeys/<path:identifiant>")
+@require_auth
+def api_passkey_supprimer(identifiant):
+    nom = utilisateur_courant()
+    tout = lire_passkeys()
+    liste = tout.get(nom, [])
+    restantes = [k for k in liste if k["id"] != identifiant]
+    if len(restantes) == len(liste):
+        return jsonify({"error": "Cle inconnue."}), 404
+    tout[nom] = restantes
+    try:
+        ecrire_passkeys(tout)
+    except OSError as e:
+        return jsonify({"error": f"Cle non supprimee : {e}"}), 500
+    journaliser("passkey", qui=nom, action="retrait", ip=_adresse_client())
+    return jsonify({"ok": True})
+
+
+@flask_app.post("/login/passkey/options")
+def login_passkey_options():
+    """Prepare une connexion par cle d'acces.
+
+    Sans nom de compte, la demande porte sur les cles decouvrables : c'est
+    le navigateur qui sait de qui il s'agit, et le serveur ne revele donc
+    aucune liste de comptes.
+    """
+    if rate_limited():
+        return jsonify({"error": "Trop de tentatives. Reessaie dans quelques minutes."}), 429
+    refus = _refus_passkey()
+    if refus:
+        return refus
+    from webauthn import generate_authentication_options, options_to_json
+    from webauthn.helpers.structs import UserVerificationRequirement
+    rp_id, _, _ = passkey_contexte()
+    nom = (request.get_json(force=True, silent=True) or {}).get("nom") or ""
+    nom = (nom or "").strip().lower()
+    options = generate_authentication_options(
+        rp_id=rp_id,
+        allow_credentials=_descripteurs(nom) if nom else None,
+        user_verification=UserVerificationRequirement.REQUIRED,
+    )
+    session["passkey_defi"] = base64.b64encode(options.challenge).decode()
+    return Response(options_to_json(options), mimetype="application/json")
+
+
+@flask_app.post("/login/passkey")
+def login_passkey():
+    """Ouvre la session si la signature est bonne.
+
+    Une cle d'acces vaut le mot de passe ET le second facteur : la personne
+    a prouve la possession de l'appareil, et l'appareil a verifie que c'est
+    bien elle (empreinte ou code). C'est pour cela que l'enregistrement
+    exige la verification d'utilisateur -- sans elle, ce ne serait qu'une
+    moitie, et ouvrir une session sur cette moitie serait un recul.
+    """
+    if rate_limited():
+        return jsonify({"error": "Trop de tentatives. Reessaie dans quelques minutes."}), 429
+    refus = _refus_passkey()
+    if refus:
+        return refus
+    from webauthn import verify_authentication_response
+    from webauthn.helpers import base64url_to_bytes
+    defi = session.get("passkey_defi")
+    if not defi:
+        return jsonify({"error": "Recommence : aucune demande en attente."}), 400
+    d = request.get_json(force=True, silent=True) or {}
+    credential = d.get("credential") or {}
+    identifiant = credential.get("id") or ""
+
+    # A qui appartient cette cle ? On cherche par identifiant, jamais par le
+    # nom annonce par le client : c'est la signature qui fait foi.
+    proprietaire, enregistree = None, None
+    for compte, cles in lire_passkeys().items():
+        for k in cles:
+            if k["id"] == identifiant:
+                proprietaire, enregistree = compte, k
+                break
+        if proprietaire:
+            break
+    if not enregistree:
+        register_failed_attempt()
+        journaliser("echec", qui="", motif="cle d'acces inconnue", ip=_adresse_client())
+        return jsonify({"error": "Cle d'acces inconnue."}), 401
+
+    rp_id, origine, _ = passkey_contexte()
+    try:
+        verifiee = verify_authentication_response(
+            credential=credential,
+            expected_challenge=base64.b64decode(defi),
+            expected_rp_id=rp_id,
+            expected_origin=origine,
+            credential_public_key=base64url_to_bytes(enregistree["cle_publique"]),
+            credential_current_sign_count=enregistree.get("compteur", 0),
+            require_user_verification=True,
+        )
+    except Exception as e:
+        register_failed_attempt()
+        journaliser("echec", qui=proprietaire, motif="cle d'acces", ip=_adresse_client())
+        return jsonify({"error": f"Cle refusee : {type(e).__name__}: {e}"}), 401
+
+    # Le compteur ne doit jamais reculer : une cle clonee se trahit la.
+    tout = lire_passkeys()
+    for k in tout.get(proprietaire, []):
+        if k["id"] == identifiant:
+            k["compteur"] = verifiee.new_sign_count
+            k["dernier"] = int(time.time())
+    try:
+        ecrire_passkeys(tout)
+    except OSError:
+        pass
+
+    est_administrateur = proprietaire == NOM_ADMIN
+    if not est_administrateur:
+        compte = lire_utilisateurs().get(proprietaire)
+        if not compte:
+            return jsonify({"error": "Compte inconnu."}), 401
+        if compte.get("attente_email"):
+            return jsonify({"error": "Confirme d'abord ton adresse mail."}), 403
+
+    session.pop("passkey_defi", None)
+    session.permanent = True
+    session["authed"] = True
+    session["role"] = ROLE_ADMIN if est_administrateur else ROLE_UTILISATEUR
+    session["utilisateur"] = proprietaire
+    journaliser("connexion", qui=proprietaire, role=session["role"],
+                moyen="cle d'acces", ip=_adresse_client())
+    return jsonify({"ok": True, "role": session["role"]})
+
+
+@flask_app.get("/api/activite")
+@require_admin
+def api_activite():
+    """Le journal des acces, et son resume.
+
+    Reserve a l'administrateur : c'est le seul role a qui la question « qui a
+    ouvert quoi » se pose, et la reponse contient des adresses IP.
+    """
+    app_ = request.args.get("app") or None
+    qui = request.args.get("qui")
+    return jsonify({"evenements": lire_acces(app=app_, qui=qui),
+                    "resume": resume_acces()})
+
+
+@flask_app.get("/api/mon-compte")
+@require_auth
+def api_mon_compte():
+    """Ce que la session peut dire d'elle-meme, et rien de plus."""
+    compte = _mon_compte()
+    _, smtp_ok = smtp_utilisable()
+    return jsonify({
+        "nom": utilisateur_courant(),
+        "role": role_courant(),
+        "email": (compte or {}).get("email") or "",
+        "email_verifie": bool((compte or {}).get("email_verifie")),
+        # Sans serveur d'envoi, la page n'affiche pas un bouton qui echouera.
+        "smtp": smtp_ok,
+    })
+
+
+@flask_app.post("/api/mon-compte/email")
+@require_auth
+def api_mon_email():
+    """Declare ou change sa propre adresse, et envoie le code de suite.
+
+    Reserve aux comptes utilisateurs : l'administrateur n'en a pas -- son
+    compte n'est pas dans le registre, et les alertes ont deja leur
+    destinataire.
+    """
+    compte = _mon_compte()
+    if compte is None:
+        return jsonify({"error": "Le compte d'administration n'a pas d'adresse "
+                                 "propre : regle les destinataires des alertes."}), 400
+    adresse = email_valide((request.get_json(force=True, silent=True) or {}).get("email"))
+    if not adresse:
+        return jsonify({"error": "Adresse mail invalide."}), 400
+
+    comptes = lire_utilisateurs()
+    nom = utilisateur_courant()
+    if nom not in comptes:
+        return jsonify({"error": "Compte inconnu."}), 404
+    comptes[nom]["email"] = adresse
+    comptes[nom]["email_verifie"] = False
+    code = poser_code_email(comptes[nom])
+    try:
+        ecrire_utilisateurs(comptes)
+    except OSError as e:
+        return jsonify({"error": f"Adresse non enregistree : {e}"}), 500
+    try:
+        envoyer_code_email(adresse, nom, code)
+    except Exception as e:
+        # L'adresse est enregistree, le mail n'est pas parti : le dire tel
+        # quel, plutot que de laisser attendre un code qui ne viendra pas.
+        return jsonify({"error": f"Adresse enregistree, mais le mail n'est pas "
+                                 f"parti : {type(e).__name__}: {e}"}), 502
+    return jsonify({"ok": True, "envoye": True})
+
+
+@flask_app.post("/api/mon-compte/email/code")
+@require_auth
+def api_mon_email_code():
+    """Renvoie un code a l'adresse deja declaree."""
+    compte = _mon_compte()
+    if compte is None or not compte.get("email"):
+        return jsonify({"error": "Declare d'abord une adresse."}), 400
+    en_cours = compte.get("email_code") or {}
+    attente = CODE_EMAIL_DELAI - (int(time.time()) - en_cours.get("envoye", 0))
+    if attente > 0:
+        # Un bouton qui renvoie sans limite est un moyen d'inonder une boite
+        # mail que la personne ne possede peut-etre pas.
+        return jsonify({"error": f"Un code vient d'etre envoye. Attends "
+                                 f"{attente} seconde{'s' if attente > 1 else ''}."}), 429
+
+    comptes = lire_utilisateurs()
+    nom = utilisateur_courant()
+    code = poser_code_email(comptes[nom])
+    try:
+        ecrire_utilisateurs(comptes)
+    except OSError as e:
+        return jsonify({"error": f"Code non enregistre : {e}"}), 500
+    try:
+        envoyer_code_email(comptes[nom]["email"], nom, code)
+    except Exception as e:
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 502
+    return jsonify({"ok": True})
+
+
+@flask_app.post("/api/mon-compte/email/confirmer")
+@require_auth
+def api_mon_email_confirmer():
+    """Confirme l'adresse avec le code recu."""
+    compte = _mon_compte()
+    if compte is None:
+        return jsonify({"error": "Rien a confirmer."}), 400
+    comptes = lire_utilisateurs()
+    nom = utilisateur_courant()
+    code = (request.get_json(force=True, silent=True) or {}).get("code")
+    ok, message = verifier_code_email(comptes[nom], code)
+    try:
+        # Ecrit dans les deux cas : le compteur d'essais et l'expiration
+        # consommee doivent survivre a la requete, sinon la limite ne limite
+        # rien.
+        ecrire_utilisateurs(comptes)
+    except OSError as e:
+        return jsonify({"error": f"Etat non enregistre : {e}"}), 500
+    if not ok:
+        return jsonify({"error": message}), 400
+    return jsonify({"ok": True})
+
+
+# --------------------- inscription libre ---------------------
+#
+# Ouverte seulement si un serveur d'envoi est configure : sans mail, aucun
+# moyen de verifier que l'adresse declaree existe, et la creation de comptes
+# devient un formulaire a remplir en boucle.
+#
+# Un compte cree ainsi n'ouvre AUCUN projet : il attend que l'administrateur
+# lui en autorise. C'est ce qui rend l'inscription libre sans consequence --
+# au pire, des comptes vides.
+
+@flask_app.get("/api/inscription")
+def api_inscription_etat():
+    _, ok = smtp_utilisable()
+    return jsonify({"ouverte": ok})
+
+
+@flask_app.post("/inscription")
+def inscription_creer():
+    if rate_limited():
+        return jsonify({"error": "Trop de tentatives. Reessaie dans quelques minutes."}), 429
+    _, smtp_ok = smtp_utilisable()
+    if not smtp_ok:
+        return jsonify({"error": "La creation de compte n'est pas ouverte sur "
+                                 "ce serveur."}), 403
+
+    d = request.get_json(force=True, silent=True) or {}
+    nom = nom_utilisateur_valide(d.get("nom"))
+    mdp = (d.get("mot_de_passe") or "").strip()
+    adresse = email_valide(d.get("email"))
+    if not nom:
+        return jsonify({"error": "Nom invalide : 2 a 32 caracteres, "
+                                 "minuscules, chiffres, tiret ou souligne."}), 400
+    if nom == NOM_ADMIN:
+        return jsonify({"error": "Ce nom est reserve."}), 400
+    if not adresse:
+        return jsonify({"error": "Adresse mail invalide."}), 400
+    if len(mdp) < 8:
+        return jsonify({"error": "Mot de passe : 8 caracteres au minimum."}), 400
+
+    comptes = lire_utilisateurs()
+    if nom in comptes:
+        # Un nom deja pris se dit : il faudra bien en choisir un autre, et
+        # l'inscription ne revele rien de plus que la page de connexion.
+        return jsonify({"error": "Ce nom est deja pris."}), 400
+
+    sel = secrets.token_hex(16)
+    comptes[nom] = {
+        "sel": sel,
+        "hash": derive_mot_de_passe(mdp, sel),
+        "projets": [],
+        "email": adresse,
+        "email_verifie": False,
+        # Tant que ce drapeau est la, le compte ne se connecte pas : c'est
+        # ce qui distingue une adresse declaree d'une adresse relevee.
+        "attente_email": True,
+        "cree": int(time.time()),
+    }
+    code = poser_code_email(comptes[nom])
+    try:
+        ecrire_utilisateurs(comptes)
+    except OSError as e:
+        return jsonify({"error": f"Compte non enregistre : {e}"}), 500
+    try:
+        envoyer_code_email(adresse, nom, code)
+    except Exception as e:
+        # Compte cree mais injoignable : on le retire plutot que de laisser
+        # un nom pris par quelqu'un qui ne pourra jamais s'en servir.
+        comptes.pop(nom, None)
+        try:
+            ecrire_utilisateurs(comptes)
+        except OSError:
+            pass
+        return jsonify({"error": f"Le mail n'est pas parti : {type(e).__name__}: {e}"}), 502
+
+    # Compte dans le compteur de tentatives : sans cela, un robot creerait
+    # des comptes en boucle depuis la meme adresse, et chacun ferait partir
+    # un mail. Cinq par fenetre, comme les connexions.
+    register_failed_attempt()
+    session["inscription_email"] = nom
+    return jsonify({"ok": True, "nom": nom, "confirmation": True})
+
+
+@flask_app.post("/inscription/confirmer")
+def inscription_confirmer():
+    """Confirme l'adresse, et rend le compte utilisable.
+
+    N'ouvre pas de session : la personne se connecte ensuite normalement, et
+    enregistre a ce moment-la son second facteur. Le mail prouve l'adresse,
+    pas l'identite.
+    """
+    if rate_limited():
+        return jsonify({"error": "Trop de tentatives. Reessaie dans quelques minutes."}), 429
+    nom = session.get("inscription_email")
+    comptes = lire_utilisateurs()
+    if not nom or nom not in comptes:
+        return jsonify({"error": "Recommence l'inscription : rien en attente."}), 400
+
+    code = (request.get_json(force=True, silent=True) or {}).get("code")
+    ok, message = verifier_code_email(comptes[nom], code)
+    if ok:
+        comptes[nom].pop("attente_email", None)
+    try:
+        ecrire_utilisateurs(comptes)
+    except OSError as e:
+        return jsonify({"error": f"Etat non enregistre : {e}"}), 500
+    if not ok:
+        register_failed_attempt()
+        return jsonify({"error": message}), 400
+    session.pop("inscription_email", None)
+    return jsonify({"ok": True})
+
+
+@flask_app.get("/qr/totp.svg")
+def qr_totp():
+    """Le QR code de l'inscription en cours, et de rien d'autre.
+
+    L'adresse otpauth vient de la session signee, jamais de l'URL : un
+    secret dans une adresse se retrouve dans l'historique du navigateur,
+    dans les journaux d'acces et dans le referer de la page suivante.
+
+    Pas d'authentification a exiger ici -- une session qui porte une
+    inscription en attente n'est pas encore authentifiee, c'est justement
+    l'etape ou on se trouve. Ce que la route revele, c'est le secret que le
+    serveur vient de tirer pour CETTE session.
+    """
+    uri = session.get("totp_uri") or ""
+    svg = qr_svg(uri) if uri else ""
+    if not svg:
+        # 404 et non 500 : sans bibliotheque QR, la page affiche la cle a
+        # saisir a la main et l'image manquante se masque d'elle-meme.
+        return Response("", status=404)
+    return Response(svg, mimetype="image/svg+xml",
+                    headers={"Cache-Control": "no-store"})
+
+
+@flask_app.get("/api/categories")
+@require_auth
+def api_categories():
+    """Lisible par tous les comptes : le hub s'en sert pour se ranger."""
+    return jsonify({"categories": lire_categories()})
+
+
+@flask_app.put("/api/categories")
+@require_admin
+def api_categories_enregistrer():
+    """Remplace la liste entiere, dans l'ordre recu.
+
+    Renvoie le nombre de projets qui perdent leur rangement, pour que la page
+    puisse le dire : supprimer une categorie ne casse rien, mais cela deplace
+    des projets, et cela doit se voir.
+    """
+    brut = (request.get_json(force=True, silent=True) or {}).get("categories")
+    if not isinstance(brut, list):
+        return jsonify({"error": "Liste de categories attendue."}), 400
+
+    propres, vues = [], set()
+    for x in brut:
+        c = categorie_propre(x)
+        # Insensible a la casse pour les doublons : "Outils" et "outils"
+        # seraient deux tiroirs pour la meme chose.
+        if c and c.lower() not in vues:
+            propres.append(c)
+            vues.add(c.lower())
+    if len(propres) > CATEGORIES_MAX:
+        return jsonify({"error": f"{CATEGORIES_MAX} categories au maximum."}), 400
+
+    apps = load()
+    orphelins = [n for n, a in apps.items()
+                 if (a.get("categorie") or "") and a["categorie"] not in propres]
+    try:
+        ecrire_categories(propres)
+    except OSError as e:
+        return jsonify({"error": f"Categories non enregistrees : {e}"}), 500
+
+    # Les projets d'une categorie disparue redeviennent non ranges, tout de
+    # suite : un champ qui pointe vers un tiroir inexistant se rappellerait a
+    # nous plus tard, au pire moment.
+    if orphelins:
+        for n in orphelins:
+            apps[n]["categorie"] = ""
+        save(apps)
+    return jsonify({"ok": True, "categories": propres, "declasses": len(orphelins)})
 
 
 @flask_app.get("/api/securite")
@@ -1653,7 +2717,30 @@ def api_securite():
                  or request.scheme == "https",
         "trust_proxy": TRUST_PROXY,
         "cookie_secure": bool(flask_app.config.get("SESSION_COOKIE_SECURE")),
+        "adresse_publique": adresse_publique(),
+        # Fige par l'environnement : la page n'offre pas de modifier ce
+        # qu'un redemarrage remettrait comme avant.
+        "adresse_figee": bool((os.environ.get("APP_MANAGER_PUBLIC_URL") or "").strip()),
     })
+
+
+@flask_app.put("/api/securite/exposition")
+@require_admin
+def api_exposition():
+    """Declare (ou retire) l'adresse publique du serveur."""
+    if (os.environ.get("APP_MANAGER_PUBLIC_URL") or "").strip():
+        return jsonify({"error": "L'adresse est fixee par APP_MANAGER_PUBLIC_URL "
+                                 "dans le compose : modifie-la la-bas."}), 400
+    brute = (request.get_json(force=True, silent=True) or {}).get("adresse_publique")
+    adresse = adresse_publique_valide(brute)
+    if brute and not adresse:
+        return jsonify({"error": "Adresse invalide : elle doit commencer par "
+                                 "http:// ou https://."}), 400
+    try:
+        ecrire_adresse_publique(adresse)
+    except OSError as e:
+        return jsonify({"error": f"Adresse non enregistree : {e}"}), 500
+    return jsonify({"ok": True, "adresse_publique": adresse})
 
 
 @flask_app.post("/api/securite/totp/preparer")
@@ -1669,7 +2756,9 @@ def api_totp_preparer():
         return jsonify({"error": "La double authentification est deja active."}), 400
     candidat = totp_nouveau_secret()
     session["totp_candidat"] = candidat
-    return jsonify({"secret": candidat, "uri": totp_uri(candidat), "compte": TOTP_COMPTE})
+    session["totp_uri"] = totp_uri(candidat)
+    return jsonify({"secret": candidat, "uri": session["totp_uri"],
+                    "compte": TOTP_COMPTE, "qr": "/qr/totp.svg"})
 
 
 @flask_app.post("/api/securite/totp/activer")
@@ -1686,6 +2775,7 @@ def api_totp_activer():
         return jsonify({"error": "credentials.env n'a pas pu etre ecrit : rien n'a ete active."}), 500
     _totp_secret = candidat
     session.pop("totp_candidat", None)
+    session.pop("totp_uri", None)
     return jsonify({"ok": True})
 
 
@@ -1833,6 +2923,11 @@ def api_utilisateurs():
          # signale un compte cree mais jamais utilise, ce qui se voit d'un
          # coup d'oeil et se corrige en relancant la personne.
          "totp": bool(c.get("totp")),
+         "email": c.get("email") or "",
+         "email_verifie": bool(c.get("email_verifie")),
+         # Un compte cree librement qui n'a pas encore confirme son adresse
+         # n'ouvre aucune session : le dire evite de chercher pourquoi.
+         "attente_email": bool(c.get("attente_email")),
          "cree": c.get("cree")}
         for nom, c in sorted(comptes.items())]})
 
@@ -1852,7 +2947,10 @@ def api_utilisateur_creer():
     d = request.get_json(force=True, silent=True) or {}
     nom = nom_utilisateur_valide(d.get("nom"))
     mdp = (d.get("mot_de_passe") or "").strip()
+    email = email_valide(d.get("email"))
 
+    if d.get("email") and not email:
+        return jsonify({"error": "Adresse mail invalide."}), 400
     if not nom:
         return jsonify({"error": "Nom invalide : 2 a 32 caracteres, "
                                  "minuscules, chiffres, tiret ou souligne."}), 400
@@ -1870,6 +2968,11 @@ def api_utilisateur_creer():
         "sel": sel,
         "hash": derive_mot_de_passe(mdp, sel),
         "projets": _projets_valides(d.get("projets"), load()),
+        "email": email,
+        # Une adresse posee par l'administrateur n'est pas verifiee pour
+        # autant : c'est la personne, a sa premiere visite, qui confirme
+        # qu'elle la releve vraiment.
+        "email_verifie": False,
         "cree": int(time.time()),
     }
     try:
@@ -1905,6 +3008,18 @@ def api_utilisateur_modifier(nom):
     # rendre l'acces sans jamais transmettre un secret par un canal tiers --
     # l'administrateur ne connait a aucun moment le facteur de quelqu'un
     # d'autre.
+    if "email" in d:
+        adresse = email_valide(d.get("email"))
+        if d.get("email") and not adresse:
+            return jsonify({"error": "Adresse mail invalide."}), 400
+        if adresse != (compte.get("email") or ""):
+            compte["email"] = adresse
+            # Changer l'adresse annule la verification : sinon il suffirait
+            # de remplacer une adresse verifiee par une autre pour heriter
+            # de son statut.
+            compte["email_verifie"] = False
+            compte.pop("email_code", None)
+
     if d.get("reinitialiser_totp"):
         compte.pop("totp", None)
 
@@ -1992,6 +3107,7 @@ def api_apps():
             "build_command": a.get("build_command") or "",
             "max_memory_mb": a.get("max_memory_mb"),
             "description": a.get("description") or "",
+            "categorie": a.get("categorie") or "",
             **stats,
         })
     return jsonify({"apps": out})
@@ -2037,6 +3153,12 @@ def api_add():
     build_command = (d.get("build_command") or "").strip()
     max_memory_mb = d.get("max_memory_mb") or None
     vis = d.get("visibility") if d.get("visibility") in VISIBILITES else VISIBILITE_PUBLIQUE
+    # Sans adresse publique declaree, une application neuve nait privee --
+    # y compris si le formulaire demande autre chose. C'est le defaut sur
+    # lequel on ne peut pas se tromper : elle s'ouvre en une bascule, alors
+    # qu'une application ouverte par megarde ne se referme qu'apres coup.
+    if not adresse_publique():
+        vis = VISIBILITE_PRIVEE
     apps = load()
 
     if not name:
@@ -2060,6 +3182,7 @@ def api_add():
         "build_command": build_command, "max_memory_mb": max_memory_mb,
         "visibility": vis,
         "description": description_propre(d.get("description")),
+        "categorie": categorie_valide(d.get("categorie")),
     }
     save(apps)
     return jsonify({"ok": True, "name": name, "port": port})
@@ -2087,6 +3210,7 @@ def api_edit(n):
     apps[n]["build_command"] = (d.get("build_command") or "").strip()
     apps[n]["max_memory_mb"] = d.get("max_memory_mb") or None
     apps[n]["description"] = description_propre(d.get("description"))
+    apps[n]["categorie"] = categorie_valide(d.get("categorie"))
     if d.get("visibility") in VISIBILITES:
         apps[n]["visibility"] = d["visibility"]
     save(apps)
@@ -2123,6 +3247,15 @@ def api_visibility(n):
         # Sans valeur explicite, on bascule d'un etat a l'autre.
         vis = (VISIBILITE_PRIVEE if visibilite(apps[n]) == VISIBILITE_PUBLIQUE
                else VISIBILITE_PUBLIQUE)
+    # Rendre publique une application sur un serveur que personne ne peut
+    # joindre ne partage rien : cela retire seulement l'authentification.
+    # Une application DEJA publique reste modifiable dans l'autre sens --
+    # on ne bloque jamais le chemin qui referme.
+    if vis == VISIBILITE_PUBLIQUE and not adresse_publique():
+        return jsonify({"error": "Aucune adresse publique n'est declaree pour ce "
+                                 "serveur : rendre une application publique ne "
+                                 "ferait que retirer l'authentification. "
+                                 "Declare-la dans Configuration > Serveur."}), 400
     apps[n]["visibility"] = vis
     save(apps)
     return jsonify({"ok": True, "visibility": vis})
@@ -2290,12 +3423,13 @@ def login_page():
 @flask_app.get("/")
 @require_auth
 def index():
-    """Une seule application, deux visages.
+    """Une seule application, un seul accueil.
 
-    Le hub (la liste des projets qu'on peut ouvrir) et l'outil de
-    developpement (declarer, deployer, configurer, gerer les comptes) sont
-    deux modes de la MEME page, pas deux applications : l'administrateur
-    bascule de l'un a l'autre sans changer d'adresse ni se reconnecter.
+    CodeLab est une page unique, servie a la meme adresse a tout le monde,
+    et le hub (la liste des projets qu'on peut ouvrir) en est l'accueil,
+    administrateur compris. Le role ne change pas de page : il ouvre en plus
+    le menu lateral (vue d'ensemble, applications, journaux) et l'entree
+    « Configuration » du menu du compte.
 
     Le role est injecte dans la page pour qu'elle sache quoi afficher --
     mais ce n'est qu'un confort d'affichage : chaque route d'administration
@@ -2330,6 +3464,7 @@ def api_mes_apps():
     publique que la page qui l'appelle.
     """
     autorises = projets_autorises()
+    connues = lire_categories()
     liste = []
     for nom, a in sorted(load().items()):
         if autorises is not None and nom not in autorises:
@@ -2337,11 +3472,15 @@ def api_mes_apps():
         liste.append({
             "name": nom,
             "description": a.get("description") or "",
+            "categorie": categorie_valide(a.get("categorie"), connues),
             "running": is_running(nom),
             "listening": _listening.get(nom),
             "visibility": visibilite(a),
         })
+    # Les categories accompagnent la liste : le hub les affiche dans l'ordre
+    # voulu, sans avoir a deviner cet ordre a partir des projets.
     return jsonify({"apps": liste,
+                    "categories": connues,
                     "utilisateur": utilisateur_courant(),
                     "role": role_courant()})
 
@@ -2374,6 +3513,9 @@ def _proxy(name, sub):
                                   "Ton compte n'a pas acces a \u00ab " + name + " \u00bb.",
                                   "Demande l'acces a l'administrateur."),
                             403, mimetype="text/html")
+    # Note l'ouverture APRES les controles d'acces : un refus n'est pas une
+    # visite, et le journal servirait mal s'il melangeait les deux.
+    journaliser_ouverture(name)
     if not is_running(name):
         return Response(_page("Application arretee",
                               "\u00ab " + name + " \u00bb n'est pas demarree.",

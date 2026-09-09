@@ -75,18 +75,39 @@ Deux choses s'y reglent quand la stack sert a plusieurs, ou quand on ne veut plu
 - **Alertes par mail** (*Parametres > Alertes*) : un mail quand une application a epuise ses tentatives de
   redemarrage, un autre quand elle revient. Le serveur d'envoi est celui du bloc `codelab-alertes` de
   `credentials.env`, partage avec les alertes de Dagster.
-- **Comptes utilisateurs** (*Parametres > Comptes*) : des comptes nommes qui n'ouvrent que les projets
+- **Comptes utilisateurs** (*Utilisateurs*, dans le menu lateral) : des comptes nommes qui n'ouvrent que les projets
   qu'on leur autorise, sans rien pouvoir administrer ni atteindre Dagster. L'autorisation ne concerne
   que les projets **prives** : un projet public reste ouvert a tous. Le **second facteur y est
   obligatoire** : la personne enregistre elle-meme une cle a sa premiere connexion, et tu peux la
   remettre a zero si elle change de telephone.
 
-Le panneau est **une seule application avec deux modes**, a la meme adresse. Un compte utilisateur
-n'a que le **hub** : la liste des projets qu'il peut ouvrir, chacun avec sa description d'une ligne.
-Toi, tu bascules entre ce hub et le mode **developpeur** (projets, journaux, comptes, configuration)
-par deux boutons dans la barre du haut.
+Le panneau est **une seule application**, a la meme adresse, avec le **hub** pour accueil de tout le
+monde : la liste des projets ouvrables, chacun avec sa description d'une ligne. Toi seul y gagnes le
+menu lateral (vue d'ensemble, applications, journaux) et l'entree **Configuration** du menu du
+compte ; **Parametres**, lui, est personnel et existe pour chaque compte.
+
+- **Adresse mail et inscription libre** : chaque compte porte une adresse, verifiee par un code a six
+  chiffres envoye dessus. Si un serveur d'envoi est configure, la page de connexion propose
+  **« Creer un compte »** — le compte cree n'ouvre **aucun projet** tant que tu ne lui en autorises pas.
+
+- **Cles d'acces (passkeys)** (*Parametres > Cles d'acces*) : se connecter avec l'empreinte ou le
+  code de son appareil, sans mot de passe ni code a six chiffres. **Exige HTTPS et un nom de
+  domaine** — le navigateur refuse WebAuthn en clair ; le panneau le dit au lieu d'afficher un
+  bouton qui echouerait.
+
+- **Journal des acces** (*Utilisateurs*, et l'onglet *Activite* d'une application) : qui s'est
+  connecte, quand, et quelle application il a ouverte. De quoi reperer des echecs de connexion en
+  rafale, et savoir si un projet sert encore avant de l'arreter.
+
+- **Categories** (*Configuration > Categories*) : des tiroirs pour ranger les projets dans le hub —
+  « Outils », « Sites », « Donnees ». Purement visuel : aucune categorie ne donne de droit. Un projet
+  non range apparait sous « Autres ».
 
 Details dans [`app-manager/README.md`](app-manager/README.md).
+
+**Pour sortir de chez toi** : [`HTTPS.md`](HTTPS.md) explique comment mettre du TLS devant CodeLab
+(Cloudflare Tunnel, Caddy, ou un VPS), et quelles variables poser ensuite — c'est aussi ce qui
+debloque les cles d'acces et le partage d'une application.
 
 **Dagster** : `http://<IP-du-serveur>:3000/` — charge `/workspace/definitions.py` comme code Dagster.
 Protege par mot de passe : Dagster n'a aucune authentification a lui, et son interface permet de lancer un
@@ -332,22 +353,28 @@ python3 -c "import base64; print('data:image/png;base64,' + base64.b64encode(ope
 ```text
 codelab/
 ├── docker-compose.yml
-├── DEVELOPPER.md  # developper un projet et le deployer -- a lire en premier
+├── DEVELOPPER.md   # developper un projet et le deployer -- a lire en premier
+├── HTTPS.md        # sortir de chez soi : mettre du TLS devant CodeLab
 ├── icon.svg / icon.png
 ├── .github/workflows/build-images.yml
-├── workspace/     # squelette depose dans /workspace au premier demarrage
-├── postgres/      # serveur de bases — voir postgres/README.md
-├── dev/           # SSH + VS Code Remote-SSH — voir dev/README.md
-├── dagster/       # orchestration de jobs — voir dagster/README.md
-│   └── proxy/     # authentification devant Dagster (image a part)
-└── app-manager/   # deploiement d'applications — voir app-manager/README.md
-    ├── app/       # le service : app.py et les deux pages qu'il sert
-    └── tests/     # regressions gardees : detection, chemins, auth, privileges
+├── workspace/      # squelette depose dans /workspace au premier demarrage
+├── postgres/       # serveur de bases — voir postgres/README.md
+├── dev/            # SSH + VS Code Remote-SSH — voir dev/README.md
+├── dagster/        # orchestration de jobs — voir dagster/README.md
+│   └── proxy/      # authentification devant Dagster (image a part)
+└── app-manager/    # deploiement d'applications — voir app-manager/README.md
+    ├── app/        # le service : app.py et les deux pages qu'il sert
+    ├── tests/      # regressions gardees : detection, chemins, auth, privileges
+    └── vps/        # tunnel WireGuard + nginx pour l'exposer — voir son README
 ```
 
 **Un dossier par service**, et tout ce qui concerne un service vit dedans : son image, son code, sa
 documentation, ses tests. Le proxy de Dagster est une image distincte -- deux processus, deux conteneurs --
 mais il n'a rien a faire a la racine : il n'existe que pour Dagster.
+
+`app-manager/vps/` suit la meme regle, jusqu'au bout : ces fichiers s'installent sur une autre
+machine, mais ils n'existent que pour exposer le panneau. Les ranger a la racine aurait fait croire
+a un sixieme service ; les ranger ici dit de quoi ils dependent.
 
 Ce README couvre l'installation et l'usage global ; `DEVELOPPER.md` couvre le travail quotidien
 (developper dans le conteneur, deployer sur l'app-manager). Le fonctionnement interne de chaque service (scripts de

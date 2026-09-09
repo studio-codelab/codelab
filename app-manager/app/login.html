@@ -18,7 +18,7 @@
       ou selectionne. Les etats (en ligne, erreur, prive, public) ont leurs
       propres couleurs, jamais l'accent -- sinon plus rien ne ressort.
    3. DE L'AIR. Les cartes respirent, les tableaux sont denses. C'est la
-      difference entre le hub (visuel, aere) et le mode developpeur
+      difference entre le hub (visuel, aere) et la console d'administration
       (technique, compact) : la meme identite, deux densites.
 
    La barre reste en bleu nuit dans les deux themes : c'est l'element
@@ -206,6 +206,30 @@ button.principal:disabled{opacity:.6;cursor:default}
  background:var(--surface2);font-family:ui-monospace,Menlo,monospace;font-size:13.5px;
  letter-spacing:.08em;word-break:break-all;cursor:pointer;text-align:center;color:var(--txt)}
 .secret:hover{border-color:var(--accent);color:var(--accent)}
+/* QR code du second facteur. Fond blanc impose : le SVG est noir sur blanc
+   dans les deux themes, parce qu'un lecteur de QR code a besoin de ce
+   contraste-la. L'encadrer d'un blanc plus large lui donne sa marge. */
+.qr{display:none;margin:12px auto 0;width:190px;height:190px;padding:8px;
+ background:#fff;border-radius:var(--r-s);border:1px solid var(--line2)}
+.qr.on{display:block}
+
+/* Lien de creation de compte, sous le bouton. Discret : la page sert
+   d'abord a se connecter. */
+.bascule{margin-top:14px;text-align:center;font-size:12.5px;color:var(--dim)}
+.bascule a{color:var(--accent);cursor:pointer;font-weight:600}
+.bascule a:hover{text-decoration:underline}
+
+/* Bouton « cle d'acces », sous le bouton principal. Un separateur « ou »
+   pour dire que ce sont deux chemins vers la meme porte, pas une etape de
+   plus. */
+.ou{display:flex;align-items:center;gap:10px;margin:14px 0;color:var(--dim2);font-size:12px}
+.ou::before,.ou::after{content:"";flex:1;height:1px;background:var(--line)}
+.secondaire{width:100%;display:flex;align-items:center;justify-content:center;gap:8px;
+ padding:11px 14px;border:1px solid var(--line2);border-radius:var(--r-s);background:var(--surface);
+ color:var(--txt);font:inherit;font-size:14px;font-weight:600;cursor:pointer}
+.secondaire:hover{border-color:var(--accent);color:var(--accent)}
+.secondaire svg{width:17px;height:17px}
+.secondaire:disabled{opacity:.55;cursor:default}
 </style></head><body>
 
 <div class="presentation">
@@ -245,6 +269,12 @@ button.principal:disabled{opacity:.6;cursor:default}
 
       <div class="field"><label>Nom</label>
         <input type="text" id="nom" autofocus autocomplete="username" placeholder="admin"></div>
+      <div id="creation" style="display:none">
+        <div class="field"><label>Adresse mail</label>
+          <input type="email" id="c-mail" autocomplete="email" placeholder="moi@example.com"></div>
+        <div class="etape-num">Un code y sera envoye pour verifier qu'elle est bien a toi.</div>
+      </div>
+
       <div class="field"><label>Mot de passe</label>
         <input type="password" id="pw" autocomplete="current-password"></div>
 
@@ -256,8 +286,12 @@ button.principal:disabled{opacity:.6;cursor:default}
 
       <div id="inscription" style="display:none">
         <div class="etape">Premiere connexion : enregistre ton second facteur.</div>
-        <div class="etape-num">1. Ajoute cette cle dans ton application d'authentification
+        <div class="etape-num">1. Scanne ce code avec ton application d'authentification
           (Google Authenticator, Authy, le gestionnaire de mots de passe de ton telephone...).</div>
+        <!-- Si le QR code ne peut pas etre produit, l'image se masque et la cle
+             a recopier reste : l'inscription ne depend pas de lui. -->
+        <img class="qr" id="qr" alt="QR code du second facteur">
+        <div class="etape-num" id="secret-intro">Ou saisis cette cle a la main :</div>
         <div class="secret" id="secret" onclick="copierSecret()" title="Cliquer pour copier"></div>
         <div class="etape-num">2. Saisis le code a six chiffres qu'elle affiche.</div>
         <input type="text" id="code-inscription" inputmode="numeric" autocomplete="one-time-code"
@@ -266,9 +300,37 @@ button.principal:disabled{opacity:.6;cursor:default}
           telephone, ton administrateur peut remettre cette etape a zero.</div>
       </div>
 
+      <div id="creation-code" style="display:none">
+        <div class="etape">Verifie ton adresse.</div>
+        <div class="etape-num">Saisis le code a six chiffres que tu viens de recevoir par mail.
+          Ton compte sera utilisable ensuite ; il n'ouvrira aucune application tant que
+          l'administrateur ne t'en aura pas autorise.</div>
+        <input type="text" id="c-code" inputmode="numeric" autocomplete="one-time-code"
+               maxlength="6" placeholder="123456" style="margin-top:9px">
+      </div>
+
       <button class="principal" id="go" onclick="submit()">Se connecter</button>
       <div class="err" id="err"></div>
       <div class="ok" id="copie">Cle copiee.</div>
+
+      <!-- Chemin par cle d'acces. Masque tant que le serveur n'a pas dit
+           qu'il est en etat d'en utiliser (HTTPS, nom de domaine, et la
+           bibliotheque installee) : un bouton qui echoue toujours est pire
+           qu'un bouton absent. -->
+      <div id="pk-zone" style="display:none">
+        <div class="ou">ou</div>
+        <button class="secondaire" id="pk-go" onclick="connexionPasskey()">
+          <svg viewBox="0 0 24 24"><circle cx="8" cy="12" r="4"/><path d="M12 12h9"/>
+          <path d="M17 12v3"/><path d="M20.5 12v2"/></svg>
+          Utiliser une cle d'acces</button>
+      </div>
+
+      <!-- Affiche seulement si un serveur d'envoi est configure : sans mail,
+           aucune adresse ne peut etre verifiee, donc pas de compte libre. -->
+      <div class="bascule" id="bascule" style="display:none">
+        <span id="bascule-txt">Pas encore de compte ?</span>
+        <a id="bascule-lien" onclick="basculer()">Creer un compte</a>
+      </div>
 
       <div class="securise">
         <svg viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.4-3 7.7-7 9-4-1.3-7-4.6-7-9V6z"/>
@@ -277,7 +339,7 @@ button.principal:disabled{opacity:.6;cursor:default}
       </div>
     </div>
 
-    <div class="pied">Laisse le nom vide pour te connecter en administrateur.<br>
+    <div class="pied" id="pied">Laisse le nom vide pour te connecter en administrateur.<br>
       Son mot de passe est genere au premier demarrage, avec tous les identifiants CodeLab :
       <br><code>cat /DATA/AppData/codelab/config/credentials.env</code></div>
   </div>
@@ -293,6 +355,7 @@ const codeInscription=document.getElementById('code-inscription');
    normal, lui, apparait quand le serveur repond qu'il en attend un -- la
    page ne peut pas le savoir avant d'avoir essaye. */
 let etape='mot-de-passe';
+const $$=i=>document.getElementById(i);
 /* __TOTP__ est remplace par "1" ou "0" au moment de servir la page : le champ
    du code n'apparait que si la double authentification est active. */
 const avecCode = '__TOTP__' === '1';
@@ -303,14 +366,116 @@ function majChamps(){
     (avecCode && estAdmin()) ? 'block' : 'none';
 }
 
+/* La creation de compte suit le serveur d'envoi : la page demande au
+   serveur si elle est ouverte, plutot que de le deviner. */
+(async()=>{
+  try{
+    const d=await (await fetch('/api/inscription')).json();
+    if(d.ouverte) $$('bascule').style.display='block';
+  }catch(e){}
+})();
+
+function basculer(){
+  etape = (etape==='creation') ? 'mot-de-passe' : 'creation';
+  const creation = etape==='creation';
+  $$('creation').style.display = creation ? 'block' : 'none';
+  $$('totp-bloc').style.display='none';
+  $$('bascule-txt').textContent = creation ? 'Tu as deja un compte ?' : 'Pas encore de compte ?';
+  $$('bascule-lien').textContent = creation ? 'Se connecter' : 'Creer un compte';
+  document.querySelector('.boite h2').textContent = creation ? 'Creer un compte' : 'Connexion';
+  document.querySelector('.boite .st').textContent = creation
+    ? 'Choisis un nom, une adresse mail et un mot de passe.'
+    : 'Accede a tes applications en toute securite.';
+  go.textContent = creation ? 'Creer le compte' : 'Se connecter';
+  /* « admin » en exemple n'a de sens que pour se connecter, et le rappel du
+     nom vide encore moins : les deux disparaissent le temps de l'inscription. */
+  nom.placeholder = creation ? 'marie' : 'admin';
+  $$('pied').style.display = creation ? 'none' : '';
+  err.style.display='none';
+  nom.focus();
+  if(!creation) majChamps();
+}
+
+function afficherConfirmationMail(){
+  etape='creation-code';
+  $$('creation').style.display='none';
+  $$('creation-code').style.display='block';
+  $$('bascule').style.display='none';
+  nom.disabled=true; pw.disabled=true; $$('c-mail').disabled=true;
+  go.textContent='Confirmer';
+  $$('c-code').focus();
+}
+
 function afficherInscription(d){
   etape='inscription';
   document.getElementById('secret').textContent=d.secret;
+  montrerQr(d.qr);
   document.getElementById('inscription').style.display='block';
   document.getElementById('totp-bloc').style.display='none';
   nom.disabled=true; pw.disabled=true;
   go.textContent='Confirmer';
   codeInscription.focus();
+}
+
+/* Le QR code est servi par le serveur a partir de la session : le secret
+   ne passe jamais par l'adresse. Si la route ne repond pas (bibliotheque
+   absente), l'image se retire et seule la cle reste. */
+function montrerQr(adresse){
+  const img=document.getElementById('qr');
+  if(!adresse){ img.classList.remove('on'); return; }
+  img.onload=()=>img.classList.add('on');
+  img.onerror=()=>img.classList.remove('on');
+  img.src=adresse+'?t='+Date.now();
+}
+
+/* ---------------- cles d'acces ---------------- */
+const b64urlVersOctets = t => Uint8Array.from(
+  atob(t.replace(/-/g,'+').replace(/_/g,'/')), c=>c.charCodeAt(0));
+const octetsVersB64url = b => btoa(String.fromCharCode(...new Uint8Array(b)))
+  .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+
+(async()=>{
+  if(!window.PublicKeyCredential) return;
+  try{
+    const d=await (await fetch('/api/passkeys/etat')).json();
+    if(d.possible) $$('pk-zone').style.display='block';
+  }catch(e){}
+})();
+
+async function connexionPasskey(){
+  err.style.display='none';
+  const bouton=$$('pk-go'); bouton.disabled=true;
+  try{
+    /* Le nom est envoye s'il est deja tape : cela restreint la demande aux
+       cles de ce compte. Vide, le navigateur propose celles qu'il connait
+       pour ce site -- et le serveur ne revele aucune liste de comptes. */
+    const r=await fetch('/login/passkey/options',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({nom:(nom.value||'').trim()})});
+    const o=await r.json();
+    if(!r.ok){ err.textContent=o.error||'Impossible.'; err.style.display='block'; return; }
+    o.challenge=b64urlVersOctets(o.challenge);
+    (o.allowCredentials||[]).forEach(c=>{ c.id=b64urlVersOctets(c.id); });
+    const cred=await navigator.credentials.get({publicKey:o});
+    const envoi={
+      id:cred.id, rawId:octetsVersB64url(cred.rawId), type:cred.type,
+      response:{
+        clientDataJSON:octetsVersB64url(cred.response.clientDataJSON),
+        authenticatorData:octetsVersB64url(cred.response.authenticatorData),
+        signature:octetsVersB64url(cred.response.signature),
+        userHandle:cred.response.userHandle ? octetsVersB64url(cred.response.userHandle) : null,
+      },
+    };
+    const r2=await fetch('/login/passkey',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({credential:envoi})});
+    const d2=await r2.json();
+    if(r2.ok){ location.href='/'; return; }
+    err.textContent=d2.error||'Cle refusee.'; err.style.display='block';
+  }catch(e){
+    err.textContent = (e && e.name==='NotAllowedError')
+      ? 'Connexion annulee.' : ('Cle d\'acces indisponible : ' + (e&&e.message||e));
+    err.style.display='block';
+  }finally{ bouton.disabled=false; }
 }
 
 function copierSecret(){
@@ -324,12 +489,37 @@ function copierSecret(){
 async function submit(){
   err.style.display='none'; go.disabled=true; go.textContent='Connexion...';
   try{
+    if(etape==='creation'){
+      const r=await fetch('/inscription',{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({nom:nom.value, email:$$('c-mail').value, mot_de_passe:pw.value})});
+      const d=await r.json();
+      if(r.ok){ afficherConfirmationMail(); go.disabled=false; return; }
+      err.textContent=d.error||'Creation impossible.'; err.style.display='block';
+      go.disabled=false; go.textContent='Creer le compte';
+      return;
+    }
+    if(etape==='creation-code'){
+      const r=await fetch('/inscription/confirmer',{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({code:$$('c-code').value})});
+      const d=await r.json();
+      if(r.ok){
+        /* Compte utilisable : on rend la main a la connexion, ou la personne
+           enregistrera son second facteur. */
+        location.reload();
+        return;
+      }
+      err.textContent=d.error||'Confirmation impossible.'; err.style.display='block';
+      go.disabled=false; go.textContent='Confirmer';
+      return;
+    }
     if(etape==='inscription'){
       const r=await fetch('/login/second-facteur',{method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({code:codeInscription.value})});
       const d=await r.json();
-      if(r.ok){ location.href = d.role==='utilisateur' ? '/espace' : '/'; return; }
+      if(r.ok){ location.href='/'; return; }
       err.textContent=d.error||'Erreur.'; err.style.display='block';
       go.disabled=false; go.textContent='Confirmer';
       return;
@@ -345,7 +535,7 @@ async function submit(){
       body:JSON.stringify(corps)});
     const d=await r.json();
     if(r.ok && d.inscription){ afficherInscription(d); go.disabled=false; return; }
-    if(r.ok){ location.href = d.role==='utilisateur' ? '/espace' : '/'; return; }
+    if(r.ok){ location.href='/'; return; }
     err.textContent=d.error||'Erreur.'; err.style.display='block';
     if(d.totp && code){ document.getElementById('totp-bloc').style.display='block'; code.focus(); }
   }catch(e){ err.textContent='Erreur reseau.'; err.style.display='block'; }
@@ -357,6 +547,8 @@ nom.addEventListener('input', majChamps);
 pw.addEventListener('keydown', valider);
 if(code) code.addEventListener('keydown', valider);
 codeInscription.addEventListener('keydown', valider);
+$$('c-mail').addEventListener('keydown', valider);
+$$('c-code').addEventListener('keydown', valider);
 majChamps();
 </script>
 </body></html>

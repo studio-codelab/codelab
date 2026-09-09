@@ -1,0 +1,21 @@
+# WireGuard, cote ZimaBlade. A poser dans /etc/wireguard/wg0.conf, puis :
+#   systemctl enable --now wg-quick@wg0
+#
+# A installer sur l'HOTE, pas dans un conteneur : le tunnel doit exister
+# avant Docker, et les ports 9001 et 3000 sont publies par l'hote.
+
+[Interface]
+Address = 10.8.0.2/24
+# Genere par : wg genkey | tee zima.cle | wg pubkey > zima.pub
+PrivateKey = CLE-PRIVEE-DE-LA-ZIMABLADE
+
+[Peer]
+PublicKey = CLE-PUBLIQUE-DU-VPS
+Endpoint = 203.0.113.10:51820          # l'adresse publique du VPS
+# Seulement le tunnel : surtout PAS 0.0.0.0/0, qui ferait passer tout le
+# trafic de la machine par le VPS.
+AllowedIPs = 10.8.0.1/32
+# La box a un NAT : sans battement, elle oublie la connexion au bout de
+# quelques minutes et le VPS ne peut plus joindre la ZimaBlade -- le site
+# tombe alors tout seul apres une periode de calme.
+PersistentKeepalive = 25

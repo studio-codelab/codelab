@@ -24,6 +24,7 @@ import base64
 import importlib.util
 import json
 import os
+import re
 import sys
 import time
 
@@ -145,8 +146,14 @@ def test_un_nom_de_projet_ne_peut_pas_porter_de_separateur():
 # --------------------------- 3. authentification ---------------------------
 
 @pytest.fixture
-def client(monkeypatch):
+def client(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    # Un test qui active le second facteur ecrit dans credentials.env et pose
+    # un secret global : sans ces deux lignes il ecrirait le VRAI fichier de
+    # la machine, et laisserait la 2FA active pour les tests suivants.
+    monkeypatch.setattr(app, "SHARED_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(app, "SHARED_ENV_FILE", str(tmp_path / "credentials.env"))
+    monkeypatch.setattr(app, "_totp_secret", "")
     app.flask_app.secret_key = "cle-de-test"
     app.flask_app.config["TESTING"] = True
     app._login_attempts.clear()
@@ -448,6 +455,7 @@ def alertes(tmp_path, monkeypatch):
     """Un panneau avec une application declaree et les alertes actives."""
     monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
     monkeypatch.setattr(app, "ALERTES_FILE", str(tmp_path / "alertes.json"))
+    monkeypatch.setattr(app, "SHARED_CONFIG_DIR", str(tmp_path))
     monkeypatch.setattr(app, "SHARED_ENV_FILE", str(tmp_path / "credentials.env"))
     app._apps_cache["signature"] = None
     app._alertes_en_cours.clear()
@@ -519,6 +527,7 @@ def test_la_configuration_incomplete_est_dite_champ_par_champ(tmp_path, monkeypa
     """"Ca ne marche pas" est inutilisable ; le nom de la cle manquante se
     corrige en dix secondes."""
     monkeypatch.setattr(app, "ALERTES_FILE", str(tmp_path / "alertes.json"))
+    monkeypatch.setattr(app, "SHARED_CONFIG_DIR", str(tmp_path))
     monkeypatch.setattr(app, "SHARED_ENV_FILE", str(tmp_path / "credentials.env"))
     (tmp_path / "credentials.env").write_text("")
     app.ecrire_alertes(True, [])
@@ -887,12 +896,12 @@ def test_le_flux_refuse_le_dit_avec_un_code_utilisable(deux_espaces, monkeypatch
     assert "journaux" in r.get_json()["error"]
 
 
-# ---------- 12. une seule application, deux modes ----------
+# ---------- 12. une seule application, un seul hub ----------
 #
-# Le hub et l'outil de developpement sont deux modes de la meme page. Ce qui
-# doit rester vrai : la page est la meme pour tout le monde, mais elle sait
-# qui la regarde, et surtout les ROUTES continuent de decider -- une page
-# bricolee ne donne aucun droit.
+# CodeLab est une seule page. Le hub est l'accueil de tout le monde ; ce que
+# le menu propose en plus depend du role. Ce qui doit rester vrai : la page
+# est la meme pour tout le monde, mais elle sait qui la regarde, et surtout
+# les ROUTES continuent de decider -- une page bricolee ne donne aucun droit.
 
 def test_la_meme_page_est_servie_aux_deux_roles(deux_espaces):
     c = deux_espaces
@@ -905,9 +914,61 @@ def test_la_meme_page_est_servie_aux_deux_roles(deux_espaces):
     c.post("/login", json={"password": "secret-de-test"})
     page_admin = c.get("/").get_data(as_text=True)
     assert '"admin"' in page_admin
-    # Meme page : ce sont les memes sections, c'est le mode qui change.
-    assert "sec-hub" in page_admin and "mode-toggle" in page_admin
-    assert "sec-settings" in page_admin
+    # Memes sections servies aux deux : c'est le role injecte qui decide de
+    # ce qui s'affiche, pas une page differente.
+    assert "sec-hub" in page_admin and "sec-settings" in page_admin
+    # Les memes sections sont servies aux deux roles : seul le role injecte
+    # change. C'est lui, et les routes, qui decident de ce qui est utilisable.
+    for section in ("sec-hub", "sec-overview", "sec-apps", "sec-profil", "sec-settings"):
+        assert f'id="{section}"' in page_admin
+        assert f'id="{section}"' in page_utilisateur
+
+
+def test_le_hub_est_l_accueil_des_deux_roles(deux_espaces):
+    """L'administrateur atterrit sur le hub, comme tout le monde.
+
+    Il n'y a plus de bascule « Hub / Developpeur » : la page s'ouvre sur le
+    lanceur, et la console d'administration s'atteint par le menu.
+    """
+    c = deux_espaces
+    c.post("/login", json={"password": "secret-de-test"})
+    page = c.get("/").get_data(as_text=True)
+    # En debut de ligne : l'appel du demarrage, pas un onclick de menu.
+    assert "\nshowSection('hub');\n" in page
+    assert "mode-toggle" not in page and "setMode" not in page
+    # Le pied du menu lateral annoncait une evidence : il n'est plus la.
+    assert "Serveur en service" not in page
+
+
+def test_les_comptes_ont_leur_propre_entree_de_menu(deux_espaces):
+    """Gerer qui entre n'est pas un reglage du serveur.
+
+    Les comptes vivaient dans Configuration, entre les categories et les
+    alertes. Ils ont leur section, et le menu lateral y mene.
+    """
+    c = deux_espaces
+    c.post("/login", json={"password": "secret-de-test"})
+    page = c.get("/").get_data(as_text=True)
+    assert 'id="sec-users"' in page
+    assert 'data-sec="users"' in page
+    # La liste des comptes se dessine dans la section Utilisateurs, plus
+    # dans Configuration : une seule place, pour ne pas la dedoubler.
+    avant, apres = page.split('id="sec-settings"', 1)
+    assert 'id="us-liste"' in avant and 'id="us-liste"' not in apres
+
+
+def test_les_parametres_personnels_existent_pour_les_deux_roles(deux_espaces):
+    """« Parametres » est personnel, « Configuration » est au serveur.
+
+    Un compte utilisateur doit pouvoir regler son affichage et fermer sa
+    session ; il n'a rien a faire dans la configuration du serveur.
+    """
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    page = c.get("/").get_data(as_text=True)
+    assert 'id="sec-profil"' in page          # ses parametres a elle
+    assert "acct-configuration" in page       # present, mais masque cote client
+    assert "$('acct-configuration').style.display='none'" in page
 
 
 def test_l_ancienne_adresse_de_l_espace_ramene_a_la_page_unique(deux_espaces):
@@ -929,3 +990,585 @@ def test_le_mode_affiche_ne_donne_aucun_droit(deux_espaces):
     assert c.get("/api/utilisateurs").status_code == 403
     # Et le hub, lui, reste servi aux deux roles.
     assert c.get("/api/mes-apps").status_code == 200
+
+
+# ---------- 13. categories du hub ----------
+#
+# Une categorie ne donne aucun droit : c'est du rangement. Ce qui doit rester
+# vrai, c'est qu'un projet ne porte jamais une categorie qui n'existe pas --
+# sinon supprimer une categorie le rendrait invisible dans le hub, range dans
+# un tiroir que plus rien n'affiche.
+
+@pytest.fixture
+def categorise(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    monkeypatch.setattr(app, "CATEGORIES_FILE", str(tmp_path / "categories.json"))
+    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
+    monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
+    # Arretee : la fiche refuse de modifier une application en marche, et ce
+    # n'est pas ce que ces tests-la verifient.
+    monkeypatch.setattr(app, "is_running", lambda n: False)
+    monkeypatch.setattr(app, "under_root", lambda p: True)
+    monkeypatch.setattr(os.path, "isdir", lambda p: True)
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    app._apps_cache["signature"] = None
+    app.save({"site": {"path": "/w/a", "command": "x", "port": 9101,
+                       "enabled": True, "categorie": "Outils"}})
+    app.ecrire_categories(["Outils", "Donnees"])
+    c = app.flask_app.test_client()
+    c.post("/login", json={"password": "secret-de-test"})
+    return c
+
+
+def test_une_categorie_supprimee_ne_reste_pas_collee_a_un_projet(categorise):
+    """Le cas qui rendrait un projet invisible dans le hub.
+
+    Le hub n'affiche que les groupes qu'il connait : un projet qui garderait
+    « Outils » apres la disparition d'« Outils » ne serait dans aucun groupe.
+    """
+    r = categorise.put("/api/categories", json={"categories": ["Donnees"]})
+    assert r.status_code == 200, r.data
+    assert r.get_json()["declasses"] == 1
+    assert app.load()["site"]["categorie"] == ""
+    hub = categorise.get("/api/mes-apps").get_json()
+    assert hub["apps"][0]["categorie"] == ""
+    assert hub["categories"] == ["Donnees"]
+
+
+def test_un_projet_ne_prend_pas_une_categorie_inventee(categorise):
+    """Une categorie arrive par le reseau : elle se verifie comme le reste."""
+    r = categorise.post("/api/add", json={
+        "name": "neuf", "path": "/w/neuf", "command": "python3 app.py",
+        "categorie": "Inventee"})
+    assert r.status_code == 200, r.data
+    assert app.load()["neuf"]["categorie"] == ""
+
+    # A l'edition aussi : une categorie connue passe, une inconnue est videe.
+    assert categorise.put("/api/app/site", json={
+        "path": "/w/a", "command": "x", "categorie": "Donnees"}).status_code == 200
+    assert app.load()["site"]["categorie"] == "Donnees"
+    assert categorise.put("/api/app/site", json={
+        "path": "/w/a", "command": "x", "categorie": "Fantome"}).status_code == 200
+    assert app.load()["site"]["categorie"] == ""
+
+
+def test_deux_tiroirs_pour_la_meme_chose_sont_refuses(categorise):
+    """« Outils » et « outils » rangeraient les projets a deux endroits."""
+    r = categorise.put("/api/categories", json={"categories": ["Outils", "outils", " Outils "]})
+    assert r.status_code == 200, r.data
+    assert r.get_json()["categories"] == ["Outils"]
+
+
+def test_un_utilisateur_lit_les_categories_mais_n_en_cree_pas(categorise):
+    """Le hub d'un compte utilisateur en a besoin pour se ranger ; le
+    rangement lui-meme reste une decision d'administration."""
+    sel = "bb" * 16
+    app.ecrire_utilisateurs({"marie": {
+        "sel": sel, "hash": app.derive_mot_de_passe("mot-de-passe-long", sel),
+        "projets": ["site"], "cree": 0}})
+    categorise.post("/logout")
+    _connecte(categorise, "marie", "mot-de-passe-long")
+    assert categorise.get("/api/categories").status_code == 200
+    assert categorise.put("/api/categories", json={"categories": ["A moi"]}).status_code == 403
+    assert app.lire_categories() == ["Outils", "Donnees"]
+
+
+# ---------- 14. QR code du second facteur ----------
+#
+# Recopier une cle de 32 caracteres a la main est le moment ou l'inscription
+# echoue. Le QR code supprime cette etape -- mais il porte le secret, donc il
+# ne doit jamais voyager par l'adresse, et son absence ne doit rien casser.
+
+def test_le_qr_code_ne_sort_pas_de_la_session(client):
+    """Aucun secret dans l'URL : une adresse finit dans l'historique du
+    navigateur, dans les journaux d'acces et dans le referer de la page
+    suivante. La route ne lit QUE la session signee."""
+    pytest.importorskip("qrcode")
+    # Sans inscription en attente, rien a montrer.
+    assert client.get("/qr/totp.svg").status_code == 404
+
+    client.post("/login", json={"password": "secret-de-test"})
+    d = client.post("/api/securite/totp/preparer").get_json()
+    assert d["qr"] == "/qr/totp.svg", "aucun secret ne doit apparaitre dans l'adresse"
+
+    r = client.get("/qr/totp.svg")
+    assert r.status_code == 200
+    assert r.mimetype == "image/svg+xml"
+    corps = r.get_data(as_text=True)
+    assert corps.startswith("<svg") and "<rect" in corps
+    # Le secret est encode dans les modules du QR, pas ecrit dans le SVG.
+    assert d["secret"] not in corps
+
+
+def test_le_qr_code_disparait_avec_l_inscription(client):
+    """Une fois le facteur enregistre, la route ne doit plus rien servir."""
+    pytest.importorskip("qrcode")
+    client.post("/login", json={"password": "secret-de-test"})
+    d = client.post("/api/securite/totp/preparer").get_json()
+    assert client.get("/qr/totp.svg").status_code == 200
+    code = app.totp_code(d["secret"], int(time.time()) // app.TOTP_PAS)
+    r = client.post("/api/securite/totp/activer", json={"code": code})
+    assert r.status_code == 200, r.data
+    assert client.get("/qr/totp.svg").status_code == 404
+
+
+def test_sans_la_bibliotheque_qr_l_inscription_marche_encore(client, monkeypatch):
+    """Le panneau doit rester lancable avec Flask pour seule dependance.
+
+    Sans qrcode, la page retombe sur la cle a saisir : la route repond 404,
+    l'image se masque, et l'inscription se termine normalement.
+    """
+    # La bibliotheque rendue introuvable, pour de vrai : un sys.modules a None
+    # fait lever ImportError a l'import, exactement comme si elle manquait.
+    monkeypatch.setitem(sys.modules, "qrcode", None)
+    assert app.qr_svg("otpauth://totp/CodeLab:admin?secret=AAAA") == ""
+
+    client.post("/login", json={"password": "secret-de-test"})
+    d = client.post("/api/securite/totp/preparer").get_json()
+    assert d["secret"], "la cle a recopier reste fournie"
+    assert client.get("/qr/totp.svg").status_code == 404
+    code = app.totp_code(d["secret"], int(time.time()) // app.TOTP_PAS)
+    assert client.post("/api/securite/totp/activer", json={"code": code}).status_code == 200
+
+
+# ---------- 15. adresse mail des comptes et inscription libre ----------
+#
+# L'adresse relie un compte a quelqu'un de joignable, et c'est elle qui rend
+# l'inscription libre defendable. Ce qui doit rester vrai : une adresse n'est
+# "verifiee" que si un code envoye dessus est revenu, un compte inscrit
+# librement n'ouvre aucun projet et ne se connecte pas avant d'avoir confirme,
+# et l'inscription reste fermee sans serveur d'envoi.
+
+@pytest.fixture
+def comptes_mail(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
+    monkeypatch.setattr(app, "ALERTES_FILE", str(tmp_path / "alertes.json"))
+    monkeypatch.setattr(app, "SHARED_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(app, "SHARED_ENV_FILE", str(tmp_path / "credentials.env"))
+    monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    app._apps_cache["signature"] = None
+    app.save({})
+    app.ecrire_utilisateurs({})
+    (tmp_path / "credentials.env").write_text(
+        "SMTP_HOST=smtp.example.com\nSMTP_USER=panneau@example.com\n")
+    partis = []
+    monkeypatch.setattr(app, "envoyer_mail",
+                        lambda cfg, sujet, corps, destinataires=None:
+                        partis.append((destinataires, corps)))
+    return app.flask_app.test_client(), partis
+
+
+def _code_du_dernier_mail(partis):
+    """Le code tel que la personne le lit dans son mail."""
+    return re.search(r": (\d{6})", partis[-1][1]).group(1)
+
+
+def test_le_code_de_verification_ne_dort_pas_en_clair(comptes_mail):
+    """utilisateurs.json ne doit pas contenir le code qu'on vient d'envoyer.
+
+    Il y resterait a cote du nom du compte, lisible par qui lit le fichier --
+    exactement ce que la derivation des mots de passe evite par ailleurs.
+    """
+    c, partis = comptes_mail
+    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/api/utilisateurs", json={"nom": "marie", "mot_de_passe": "mot-de-passe-long"})
+    c.post("/logout")
+    _connecte(c, "marie", "mot-de-passe-long")
+    r = c.post("/api/mon-compte/email", json={"email": "marie@example.com"})
+    assert r.status_code == 200, r.data
+    code = _code_du_dernier_mail(partis)
+    assert partis[-1][0] == ["marie@example.com"], "le code part a l'adresse declaree"
+
+    brut = open(app.UTILISATEURS_FILE).read()
+    assert code not in brut, "le code ne doit etre range que sous forme d'empreinte"
+
+    assert c.post("/api/mon-compte/email/confirmer",
+                  json={"code": "000000" if code != "000000" else "111111"}).status_code == 400
+    assert app.lire_utilisateurs()["marie"]["email_verifie"] is False
+    assert c.post("/api/mon-compte/email/confirmer", json={"code": code}).status_code == 200
+    assert app.lire_utilisateurs()["marie"]["email_verifie"] is True
+
+
+def test_un_code_ne_se_devine_pas_par_essais_successifs(comptes_mail):
+    """Six chiffres se devinent en un million d'essais : il en faut une borne."""
+    c, partis = comptes_mail
+    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/api/utilisateurs", json={"nom": "marie", "mot_de_passe": "mot-de-passe-long"})
+    c.post("/logout")
+    _connecte(c, "marie", "mot-de-passe-long")
+    c.post("/api/mon-compte/email", json={"email": "marie@example.com"})
+    juste = _code_du_dernier_mail(partis)
+    faux = "000000" if juste != "000000" else "111111"
+
+    for _ in range(app.CODE_EMAIL_ESSAIS):
+        assert c.post("/api/mon-compte/email/confirmer", json={"code": faux}).status_code == 400
+    # Le bon code ne passe plus : le code en cours a ete jete.
+    r = c.post("/api/mon-compte/email/confirmer", json={"code": juste})
+    assert r.status_code == 400
+    assert app.lire_utilisateurs()["marie"]["email_verifie"] is False
+
+
+def test_changer_d_adresse_annule_la_verification(comptes_mail):
+    """Sinon il suffirait de remplacer une adresse verifiee par une autre
+    pour heriter de son statut sans jamais rien recevoir."""
+    c, partis = comptes_mail
+    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/api/utilisateurs", json={"nom": "marie", "mot_de_passe": "mot-de-passe-long"})
+    c.post("/logout")
+    _connecte(c, "marie", "mot-de-passe-long")
+    c.post("/api/mon-compte/email", json={"email": "marie@example.com"})
+    c.post("/api/mon-compte/email/confirmer", json={"code": _code_du_dernier_mail(partis)})
+    assert app.lire_utilisateurs()["marie"]["email_verifie"] is True
+
+    c.post("/api/mon-compte/email", json={"email": "autre@example.com"})
+    assert app.lire_utilisateurs()["marie"]["email_verifie"] is False
+    # Cote administrateur aussi : changer l'adresse de quelqu'un ne lui
+    # transmet pas le statut de l'ancienne. On repart d'un etat verifie pour
+    # que ce soit bien ce chemin-la qui soit mis a l'epreuve.
+    comptes = app.lire_utilisateurs()
+    comptes["marie"]["email_verifie"] = True
+    app.ecrire_utilisateurs(comptes)
+    c.post("/logout")
+    c.post("/login", json={"password": "secret-de-test"})
+    c.put("/api/utilisateurs/marie", json={"email": "encore@example.com"})
+    assert app.lire_utilisateurs()["marie"]["email_verifie"] is False
+
+
+def test_un_compte_inscrit_librement_n_ouvre_rien_et_attend_son_code(comptes_mail):
+    """Le compte existe, mais il ne se connecte pas et n'autorise aucun projet."""
+    c, partis = comptes_mail
+    app.save({"prive": {"path": "/w/a", "command": "x", "port": 9101,
+                        "enabled": True, "visibility": "privee"}})
+    r = c.post("/inscription", json={"nom": "paul", "email": "paul@example.com",
+                                     "mot_de_passe": "mot-de-passe-long"})
+    assert r.status_code == 200, r.data
+    assert app.lire_utilisateurs()["paul"]["projets"] == []
+
+    # Mot de passe juste, et pourtant pas de session : l'adresse n'a pas
+    # encore repondu.
+    r = c.post("/login", json={"nom": "paul", "password": "mot-de-passe-long"})
+    assert r.status_code == 403
+    assert r.get_json().get("attente_email") is True
+    assert c.get("/api/mes-apps").status_code == 401
+
+    app._login_attempts.clear()
+    assert c.post("/inscription/confirmer",
+                  json={"code": _code_du_dernier_mail(partis)}).status_code == 200
+    # Le compte devient utilisable : la connexion demande maintenant le
+    # second facteur, comme pour tout compte utilisateur.
+    r = c.post("/login", json={"nom": "paul", "password": "mot-de-passe-long"})
+    assert r.status_code == 200 and r.get_json().get("inscription") is True
+
+
+def test_sans_serveur_d_envoi_l_inscription_est_fermee(comptes_mail, tmp_path):
+    """Sans mail, une adresse declaree ne peut pas etre verifiee : ouvrir la
+    creation de comptes reviendrait a offrir un formulaire a remplir en
+    boucle."""
+    c, _ = comptes_mail
+    (tmp_path / "credentials.env").write_text("")
+    assert c.get("/api/inscription").get_json()["ouverte"] is False
+    r = c.post("/inscription", json={"nom": "paul", "email": "paul@example.com",
+                                     "mot_de_passe": "mot-de-passe-long"})
+    assert r.status_code == 403
+    assert "paul" not in app.lire_utilisateurs()
+
+
+def test_un_mail_qui_ne_part_pas_ne_laisse_pas_un_nom_pris(comptes_mail, monkeypatch):
+    """Sinon le nom serait pris par quelqu'un qui ne pourra jamais s'en servir."""
+    c, _ = comptes_mail
+    def refuse(*a, **k):
+        raise OSError("relais injoignable")
+    monkeypatch.setattr(app, "envoyer_mail", refuse)
+    r = c.post("/inscription", json={"nom": "paul", "email": "paul@example.com",
+                                     "mot_de_passe": "mot-de-passe-long"})
+    assert r.status_code == 502
+    assert "paul" not in app.lire_utilisateurs()
+
+
+# ---------- 16. journal des acces ----------
+#
+# Deux usages, deux seulement : reconnaitre une intrusion, et savoir si un
+# projet sert encore. Ce qui doit rester vrai : une ouverture n'est notee
+# qu'apres les controles d'acces (un refus n'est pas une visite), le journal
+# ne grossit pas indefiniment, et une ecriture impossible ne casse rien.
+
+@pytest.fixture
+def journal(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
+    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
+    monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
+    monkeypatch.setattr(app, "is_running", lambda n: False)
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    app._apps_cache["signature"] = None
+    app._dernier_acces.clear()
+    app.save({"prive": {"path": "/w/a", "command": "x", "port": 9101,
+                        "enabled": True, "visibility": "privee"},
+              "public": {"path": "/w/b", "command": "x", "port": 9102,
+                         "enabled": True, "visibility": "publique"}})
+    sel = "cc" * 16
+    app.ecrire_utilisateurs({"marie": {
+        "sel": sel, "hash": app.derive_mot_de_passe("mot-de-passe-long", sel),
+        "projets": [], "cree": 0, "totp": app.totp_nouveau_secret()}})
+    return app.flask_app.test_client()
+
+
+def test_un_acces_refuse_n_est_pas_une_visite(journal):
+    """Le journal sert a savoir si un projet sert encore.
+
+    Compter les refus dedans donnerait a une application fermee l'air d'etre
+    tres frequentee, ce qui est exactement l'inverse de ce qu'on demande.
+    """
+    c = journal
+    # Sans session, un projet prive redirige vers la connexion.
+    assert c.get("/prive/", follow_redirects=False).status_code == 302
+    assert [e for e in app.lire_acces() if e.get("genre") == "ouverture"] == []
+
+    # Un projet public, lui, est une vraie visite -- meme sans compte.
+    c.get("/public/")
+    ouvertures = [e for e in app.lire_acces() if e.get("genre") == "ouverture"]
+    assert len(ouvertures) == 1
+    assert ouvertures[0]["app"] == "public" and ouvertures[0]["qui"] == ""
+
+
+def test_une_page_web_ne_fait_pas_cinquante_lignes_de_journal(journal):
+    """Une page, c'est des dizaines de requetes. Les compter toutes ne dirait
+    plus rien de la frequentation, et remplirait le disque."""
+    c = journal
+    for _ in range(30):
+        c.get("/public/")
+    assert len([e for e in app.lire_acces() if e.get("genre") == "ouverture"]) == 1
+
+    # Le regroupement passe : la visite suivante compte pour une nouvelle.
+    app._dernier_acces.clear()
+    c.get("/public/")
+    assert len([e for e in app.lire_acces() if e.get("genre") == "ouverture"]) == 2
+
+
+def test_les_connexions_et_les_echecs_sont_notes(journal):
+    c = journal
+    c.post("/login", json={"password": "faux"})
+    c.post("/login", json={"password": "secret-de-test"})
+    genres = [e["genre"] for e in app.lire_acces()]
+    assert genres[:2] == ["connexion", "echec"], genres   # plus recent d'abord
+    resume = app.resume_acces()
+    assert resume["echecs"] == 1
+    assert resume["comptes"]["admin"]["connexions"] == 1
+
+
+def test_le_journal_tourne_au_lieu_de_remplir_le_disque(journal, monkeypatch):
+    """Un journal sans plafond transforme une curiosite en panne."""
+    monkeypatch.setattr(app, "ACCES_MAX_OCTETS", 400)
+    for i in range(60):
+        app.journaliser("ouverture", qui=f"compte{i}", app="public", ip="10.0.0.1")
+    assert os.path.getsize(app.ACCES_FILE) <= 400 + 200   # la ligne en cours
+    assert os.path.exists(app.ACCES_FILE + ".1")
+    # Rien n'est perdu tant que la rotation n'a pas tourne deux fois : les
+    # deux fichiers sont relus ensemble.
+    assert len(app.lire_acces(limite=1000)) > 1
+
+
+def test_journaliser_ne_fait_jamais_tomber_le_service(journal, monkeypatch):
+    """Disque plein ou montage en lecture seule : le proxy doit continuer.
+
+    Faire echouer une connexion pour proteger son journal reviendrait a
+    eteindre le service au moment ou on veut justement l'observer.
+    """
+    monkeypatch.setattr(app, "ACCES_FILE", "/proc/interdit/acces.jsonl")
+    app.journaliser("connexion", qui="marie")          # ne leve pas
+    assert journal.get("/public/").status_code in (200, 502, 503)
+    assert journal.post("/login", json={"password": "secret-de-test"}).status_code == 200
+
+
+def test_le_journal_est_reserve_a_l_administrateur(journal):
+    """Il contient des adresses IP et le detail de qui ouvre quoi."""
+    c = journal
+    assert c.get("/api/activite").status_code == 401
+    _connecte(c, "marie", "mot-de-passe-long")
+    assert c.get("/api/activite").status_code == 403
+
+
+# ---------- 17. adresse publique du serveur ----------
+#
+# « Publique » veut dire : accessible sans compte. Sur un serveur que
+# personne d'autre ne peut joindre, le mot promet une ouverture qui n'existe
+# pas -- il ne retire que l'authentification. Tant qu'aucune adresse publique
+# n'est declaree, le panneau ne le propose pas, et le serveur le refuse.
+
+@pytest.fixture
+def exposition(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    monkeypatch.setattr(app, "EXPOSITION_FILE", str(tmp_path / "exposition.json"))
+    monkeypatch.delenv("APP_MANAGER_PUBLIC_URL", raising=False)
+    monkeypatch.setattr(app, "is_running", lambda n: False)
+    monkeypatch.setattr(app, "under_root", lambda p: True)
+    monkeypatch.setattr(os.path, "isdir", lambda p: True)
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    app._apps_cache["signature"] = None
+    app.save({"deja-public": {"path": "/w/a", "command": "x", "port": 9101,
+                              "enabled": True, "visibility": "publique"},
+              "prive": {"path": "/w/b", "command": "x", "port": 9102,
+                        "enabled": True, "visibility": "privee"}})
+    c = app.flask_app.test_client()
+    c.post("/login", json={"password": "secret-de-test"})
+    return c
+
+
+def test_sans_adresse_publique_on_ne_peut_pas_ouvrir_une_application(exposition):
+    c = exposition
+    r = c.post("/api/visibility/prive", json={"visibility": "publique"})
+    assert r.status_code == 400
+    assert "adresse publique" in r.get_json()["error"]
+    assert app.load()["prive"]["visibility"] == "privee"
+
+    # Le chemin qui REFERME n'est jamais bloque : une application deja
+    # publique doit toujours pouvoir redevenir privee.
+    assert c.post("/api/visibility/deja-public",
+                  json={"visibility": "privee"}).status_code == 200
+    assert app.load()["deja-public"]["visibility"] == "privee"
+
+
+def test_une_application_neuve_nait_privee_sur_un_serveur_prive(exposition):
+    """Le defaut sur lequel on ne peut pas se tromper : elle s'ouvre en une
+    bascule, alors qu'une application ouverte par megarde ne se referme
+    qu'apres coup."""
+    c = exposition
+    r = c.post("/api/add", json={"name": "neuf", "path": "/w/neuf",
+                                 "command": "x", "visibility": "publique"})
+    assert r.status_code == 200, r.data
+    assert app.load()["neuf"]["visibility"] == "privee"
+
+
+def test_une_fois_l_adresse_declaree_le_partage_redevient_possible(exposition):
+    c = exposition
+    assert c.put("/api/securite/exposition",
+                 json={"adresse_publique": "pas une adresse"}).status_code == 400
+    r = c.put("/api/securite/exposition",
+              json={"adresse_publique": "https://codelab.example.com/"})
+    assert r.status_code == 200, r.data
+    # L'adresse est rangee sans sa barre finale : elle sert de prefixe.
+    assert app.adresse_publique() == "https://codelab.example.com"
+    assert c.get("/api/securite").get_json()["adresse_publique"] == "https://codelab.example.com"
+    assert c.post("/api/visibility/prive", json={"visibility": "publique"}).status_code == 200
+
+
+def test_l_adresse_du_compose_l_emporte_sur_celle_de_la_page(exposition, monkeypatch):
+    """Sinon la page laisserait modifier ce qu'un redemarrage remettrait."""
+    c = exposition
+    monkeypatch.setenv("APP_MANAGER_PUBLIC_URL", "https://depuis-le-compose.example/")
+    assert app.adresse_publique() == "https://depuis-le-compose.example"
+    etat = c.get("/api/securite").get_json()
+    assert etat["adresse_figee"] is True
+    assert c.put("/api/securite/exposition",
+                 json={"adresse_publique": "https://autre.example"}).status_code == 400
+
+
+# ---------- 18. cles d'acces (passkeys) ----------
+#
+# Le navigateur impose ses conditions : HTTPS, un nom de domaine, pas une
+# adresse IP. Ce qui doit rester vrai cote serveur : on ANNONCE ces
+# conditions au lieu de laisser le bouton echouer, on ne croit pas un proxy
+# qu'on n'a pas declare, et une cle inconnue n'ouvre rien.
+#
+# La ceremonie WebAuthn elle-meme (signature, attestation) se verifie au
+# navigateur, avec un authentificateur virtuel : elle ne tient pas dans un
+# test sans navigateur.
+
+@pytest.fixture
+def cles(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "PASSKEYS_FILE", str(tmp_path / "passkeys.json"))
+    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
+    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
+    monkeypatch.setattr(app, "TRUST_PROXY", False)
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    return app.flask_app.test_client()
+
+
+def _etat_passkeys(client, **entetes):
+    return client.get("/api/passkeys/etat", headers=entetes).get_json()
+
+
+def test_les_conditions_du_navigateur_sont_annoncees(cles, monkeypatch):
+    """Un bouton qui echoue toujours est pire qu'un bouton absent."""
+    pytest.importorskip("webauthn")
+    # En clair, sur autre chose que localhost : impossible, et on dit pourquoi.
+    d = _etat_passkeys(cles, Host="codelab.example.com")
+    assert d["possible"] is False and "HTTPS" in d["empechement"]
+
+    # Une adresse IP ne peut pas servir de relying party id -- meme en HTTPS,
+    # et c'est bien la regle de l'IP qui doit refuser, pas celle du TLS.
+    monkeypatch.setattr(app, "TRUST_PROXY", True)
+    d = _etat_passkeys(cles, Host="192.168.1.20:9001", **{"X-Forwarded-Proto": "https"})
+    assert d["possible"] is False
+    assert "nom de domaine" in d["empechement"]
+    monkeypatch.setattr(app, "TRUST_PROXY", False)
+
+    # localhost est un contexte securise pour le navigateur : ca marche.
+    assert _etat_passkeys(cles, Host="localhost:9001")["possible"] is True
+
+
+def test_un_proxy_non_declare_n_est_pas_cru_sur_parole(cles, monkeypatch):
+    """X-Forwarded-Proto se pose par n'importe quel client.
+
+    Le message change alors de nature : ce n'est pas « mets du TLS », c'est
+    « declare ton proxy » -- et c'est la difference entre chercher une heure
+    et poser une variable.
+    """
+    pytest.importorskip("webauthn")
+    entetes = {"Host": "codelab.example.com", "X-Forwarded-Proto": "https"}
+    d = _etat_passkeys(cles, **entetes)
+    assert d["possible"] is False
+    assert "APP_MANAGER_TRUST_PROXY" in d["empechement"]
+
+    monkeypatch.setattr(app, "TRUST_PROXY", True)
+    assert _etat_passkeys(cles, **entetes)["possible"] is True
+
+
+def test_une_cle_inconnue_n_ouvre_aucune_session(cles):
+    """C'est la signature qui fait foi, jamais le nom annonce par le client."""
+    pytest.importorskip("webauthn")
+    entetes = {"Host": "localhost:9001"}
+    with cles.session_transaction() as s:
+        s["passkey_defi"] = base64.b64encode(b"defi").decode()
+    r = cles.post("/login/passkey", headers=entetes, json={
+        "credential": {"id": "cle-qui-n-existe-pas", "response": {}}})
+    assert r.status_code == 401
+    with cles.session_transaction() as s:
+        assert s.get("authed") is not True
+    assert [e["motif"] for e in app.lire_acces() if e["genre"] == "echec"] == \
+        ["cle d'acces inconnue"]
+
+
+def test_les_cles_sont_celles_du_compte_connecte(cles):
+    """La liste et la suppression ne parlent jamais d'un autre compte."""
+    pytest.importorskip("webauthn")
+    app.ecrire_passkeys({
+        "admin": [{"id": "AAA", "cle_publique": "x", "compteur": 0, "nom": "Telephone"}],
+        "marie": [{"id": "BBB", "cle_publique": "y", "compteur": 0, "nom": "Portable"}],
+    })
+    assert cles.get("/api/mon-compte/passkeys").status_code == 401
+    cles.post("/login", json={"password": "secret-de-test"})
+    liste = cles.get("/api/mon-compte/passkeys").get_json()["passkeys"]
+    assert [k["id"] for k in liste] == ["AAA"]
+    # La cle publique ne sort pas : elle n'apprend rien a l'interface.
+    assert "cle_publique" not in liste[0]
+    # Celle de quelqu'un d'autre ne se supprime pas depuis ce compte.
+    assert cles.delete("/api/mon-compte/passkeys/BBB").status_code == 404
+    assert len(app.lire_passkeys()["marie"]) == 1
