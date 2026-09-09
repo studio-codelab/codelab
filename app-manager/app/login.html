@@ -206,6 +206,12 @@ button.principal:disabled{opacity:.6;cursor:default}
  background:var(--surface2);font-family:ui-monospace,Menlo,monospace;font-size:13.5px;
  letter-spacing:.08em;word-break:break-all;cursor:pointer;text-align:center;color:var(--txt)}
 .secret:hover{border-color:var(--accent);color:var(--accent)}
+/* QR code du second facteur. Fond blanc impose : le SVG est noir sur blanc
+   dans les deux themes, parce qu'un lecteur de QR code a besoin de ce
+   contraste-la. L'encadrer d'un blanc plus large lui donne sa marge. */
+.qr{display:none;margin:12px auto 0;width:190px;height:190px;padding:8px;
+ background:#fff;border-radius:var(--r-s);border:1px solid var(--line2)}
+.qr.on{display:block}
 </style></head><body>
 
 <div class="presentation">
@@ -256,8 +262,12 @@ button.principal:disabled{opacity:.6;cursor:default}
 
       <div id="inscription" style="display:none">
         <div class="etape">Premiere connexion : enregistre ton second facteur.</div>
-        <div class="etape-num">1. Ajoute cette cle dans ton application d'authentification
+        <div class="etape-num">1. Scanne ce code avec ton application d'authentification
           (Google Authenticator, Authy, le gestionnaire de mots de passe de ton telephone...).</div>
+        <!-- Si le QR code ne peut pas etre produit, l'image se masque et la cle
+             a recopier reste : l'inscription ne depend pas de lui. -->
+        <img class="qr" id="qr" alt="QR code du second facteur">
+        <div class="etape-num" id="secret-intro">Ou saisis cette cle a la main :</div>
         <div class="secret" id="secret" onclick="copierSecret()" title="Cliquer pour copier"></div>
         <div class="etape-num">2. Saisis le code a six chiffres qu'elle affiche.</div>
         <input type="text" id="code-inscription" inputmode="numeric" autocomplete="one-time-code"
@@ -306,11 +316,23 @@ function majChamps(){
 function afficherInscription(d){
   etape='inscription';
   document.getElementById('secret').textContent=d.secret;
+  montrerQr(d.qr);
   document.getElementById('inscription').style.display='block';
   document.getElementById('totp-bloc').style.display='none';
   nom.disabled=true; pw.disabled=true;
   go.textContent='Confirmer';
   codeInscription.focus();
+}
+
+/* Le QR code est servi par le serveur a partir de la session : le secret
+   ne passe jamais par l'adresse. Si la route ne repond pas (bibliotheque
+   absente), l'image se retire et seule la cle reste. */
+function montrerQr(adresse){
+  const img=document.getElementById('qr');
+  if(!adresse){ img.classList.remove('on'); return; }
+  img.onload=()=>img.classList.add('on');
+  img.onerror=()=>img.classList.remove('on');
+  img.src=adresse+'?t='+Date.now();
 }
 
 function copierSecret(){

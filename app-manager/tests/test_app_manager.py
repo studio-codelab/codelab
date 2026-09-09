@@ -145,8 +145,14 @@ def test_un_nom_de_projet_ne_peut_pas_porter_de_separateur():
 # --------------------------- 3. authentification ---------------------------
 
 @pytest.fixture
-def client(monkeypatch):
+def client(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    # Un test qui active le second facteur ecrit dans credentials.env et pose
+    # un secret global : sans ces deux lignes il ecrirait le VRAI fichier de
+    # la machine, et laisserait la 2FA active pour les tests suivants.
+    monkeypatch.setattr(app, "SHARED_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(app, "SHARED_ENV_FILE", str(tmp_path / "credentials.env"))
+    monkeypatch.setattr(app, "_totp_secret", "")
     app.flask_app.secret_key = "cle-de-test"
     app.flask_app.config["TESTING"] = True
     app._login_attempts.clear()
@@ -448,6 +454,7 @@ def alertes(tmp_path, monkeypatch):
     """Un panneau avec une application declaree et les alertes actives."""
     monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
     monkeypatch.setattr(app, "ALERTES_FILE", str(tmp_path / "alertes.json"))
+    monkeypatch.setattr(app, "SHARED_CONFIG_DIR", str(tmp_path))
     monkeypatch.setattr(app, "SHARED_ENV_FILE", str(tmp_path / "credentials.env"))
     app._apps_cache["signature"] = None
     app._alertes_en_cours.clear()
@@ -519,6 +526,7 @@ def test_la_configuration_incomplete_est_dite_champ_par_champ(tmp_path, monkeypa
     """"Ca ne marche pas" est inutilisable ; le nom de la cle manquante se
     corrige en dix secondes."""
     monkeypatch.setattr(app, "ALERTES_FILE", str(tmp_path / "alertes.json"))
+    monkeypatch.setattr(app, "SHARED_CONFIG_DIR", str(tmp_path))
     monkeypatch.setattr(app, "SHARED_ENV_FILE", str(tmp_path / "credentials.env"))
     (tmp_path / "credentials.env").write_text("")
     app.ecrire_alertes(True, [])
@@ -1048,3 +1056,61 @@ def test_un_utilisateur_lit_les_categories_mais_n_en_cree_pas(categorise):
     assert categorise.get("/api/categories").status_code == 200
     assert categorise.put("/api/categories", json={"categories": ["A moi"]}).status_code == 403
     assert app.lire_categories() == ["Outils", "Donnees"]
+
+
+# ---------- 14. QR code du second facteur ----------
+#
+# Recopier une cle de 32 caracteres a la main est le moment ou l'inscription
+# echoue. Le QR code supprime cette etape -- mais il porte le secret, donc il
+# ne doit jamais voyager par l'adresse, et son absence ne doit rien casser.
+
+def test_le_qr_code_ne_sort_pas_de_la_session(client):
+    """Aucun secret dans l'URL : une adresse finit dans l'historique du
+    navigateur, dans les journaux d'acces et dans le referer de la page
+    suivante. La route ne lit QUE la session signee."""
+    pytest.importorskip("qrcode")
+    # Sans inscription en attente, rien a montrer.
+    assert client.get("/qr/totp.svg").status_code == 404
+
+    client.post("/login", json={"password": "secret-de-test"})
+    d = client.post("/api/securite/totp/preparer").get_json()
+    assert d["qr"] == "/qr/totp.svg", "aucun secret ne doit apparaitre dans l'adresse"
+
+    r = client.get("/qr/totp.svg")
+    assert r.status_code == 200
+    assert r.mimetype == "image/svg+xml"
+    corps = r.get_data(as_text=True)
+    assert corps.startswith("<svg") and "<rect" in corps
+    # Le secret est encode dans les modules du QR, pas ecrit dans le SVG.
+    assert d["secret"] not in corps
+
+
+def test_le_qr_code_disparait_avec_l_inscription(client):
+    """Une fois le facteur enregistre, la route ne doit plus rien servir."""
+    pytest.importorskip("qrcode")
+    client.post("/login", json={"password": "secret-de-test"})
+    d = client.post("/api/securite/totp/preparer").get_json()
+    assert client.get("/qr/totp.svg").status_code == 200
+    code = app.totp_code(d["secret"], int(time.time()) // app.TOTP_PAS)
+    r = client.post("/api/securite/totp/activer", json={"code": code})
+    assert r.status_code == 200, r.data
+    assert client.get("/qr/totp.svg").status_code == 404
+
+
+def test_sans_la_bibliotheque_qr_l_inscription_marche_encore(client, monkeypatch):
+    """Le panneau doit rester lancable avec Flask pour seule dependance.
+
+    Sans qrcode, la page retombe sur la cle a saisir : la route repond 404,
+    l'image se masque, et l'inscription se termine normalement.
+    """
+    # La bibliotheque rendue introuvable, pour de vrai : un sys.modules a None
+    # fait lever ImportError a l'import, exactement comme si elle manquait.
+    monkeypatch.setitem(sys.modules, "qrcode", None)
+    assert app.qr_svg("otpauth://totp/CodeLab:admin?secret=AAAA") == ""
+
+    client.post("/login", json={"password": "secret-de-test"})
+    d = client.post("/api/securite/totp/preparer").get_json()
+    assert d["secret"], "la cle a recopier reste fournie"
+    assert client.get("/qr/totp.svg").status_code == 404
+    code = app.totp_code(d["secret"], int(time.time()) // app.TOTP_PAS)
+    assert client.post("/api/securite/totp/activer", json={"code": code}).status_code == 200

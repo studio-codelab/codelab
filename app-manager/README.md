@@ -249,11 +249,11 @@ Le parcours, en trois etats :
 
 1. **Compte cree** — le panneau affiche « 2FA en attente ». Rien a transmettre a la personne en
    dehors de son nom et de son mot de passe.
-2. **Premiere connexion** — apres le mot de passe, la page affiche une cle a enregistrer dans une
-   application d'authentification, puis demande le code qu'elle produit. Entre les deux, **la
-   session ne vaut rien** : elle ne porte pas `authed`, donc elle n'ouvre ni page ni application.
-   Rien n'est enregistre tant que le code n'est pas valide — une cle mal recopiee ne peut pas
-   enfermer dehors.
+2. **Premiere connexion** — apres le mot de passe, la page affiche un **QR code** a scanner avec
+   une application d'authentification (la cle reste affichee dessous, pour qui prefere la saisir),
+   puis demande le code produit. Entre les deux, **la session ne vaut rien** : elle ne porte pas
+   `authed`, donc elle n'ouvre ni page ni application. Rien n'est enregistre tant que le code n'est
+   pas valide — une cle mal recopiee ne peut pas enfermer dehors.
 3. **Ensuite** — le code est exige a chaque connexion, et le panneau affiche « 2FA enregistree ».
 
 L'administrateur ne connait a aucun moment la cle de quelqu'un d'autre : elle est tiree au premier
@@ -369,10 +369,19 @@ Trois reglages n'ont d'interet que le jour ou ce panneau devient joignable au-de
 
 ### Le second facteur (TOTP)
 
-*Parametres > Securite > Double authentification.* Le panneau tire un secret, l'affiche en clair a saisir dans
-une application d'authentification, et **n'enregistre rien tant qu'un code valide n'a pas ete fourni** — une
-cle mal recopiee ne peut donc pas enfermer dehors. La desactivation exige elle aussi un code valide : une
-session volee ne doit pas pouvoir retirer le second facteur.
+*Parametres > Securite > Double authentification.* Le panneau tire un secret, l'affiche en **QR code** (et en
+clair dessous), et **n'enregistre rien tant qu'un code valide n'a pas ete fourni** — une cle mal recopiee ne
+peut donc pas enfermer dehors. La desactivation exige elle aussi un code valide : une session volee ne doit
+pas pouvoir retirer le second facteur.
+
+**Le QR code ne voyage jamais par l'adresse.** `GET /qr/totp.svg` lit l'inscription en attente dans la session
+signee : un secret place dans une URL se retrouverait dans l'historique du navigateur, dans les journaux
+d'acces et dans le `Referer` de la page suivante. La route repond 404 des que l'inscription est terminee.
+
+La bibliotheque `qrcode` (Python pur, aucune dependance sous Linux) est installee dans l'image, mais le code
+ne la suppose pas : sans elle, `qr_svg()` renvoie une chaine vide, la route repond 404, l'image se masque
+d'elle-meme et la cle a recopier suffit. Le panneau reste lancable depuis un depot fraichement clone avec
+Flask pour seule dependance.
 
 L'algorithme (RFC 6238, SHA1, 6 chiffres, 30 s, tolerance d'un intervalle) est ecrit directement dans `app.py`
 plutot qu'importe : il tient en vingt lignes de bibliotheque standard, et ce service n'a que trois

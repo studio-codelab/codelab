@@ -386,6 +386,51 @@ def totp_uri(secret, compte=None):
             f"&issuer=CodeLab&algorithm=SHA1&digits={TOTP_CHIFFRES}&period={TOTP_PAS}")
 
 
+def qr_svg(donnee):
+    """L'adresse otpauth en QR code, en SVG. "" si la bibliotheque manque.
+
+    Recopier une cle de 32 caracteres a la main sur un telephone est le
+    moment ou l'inscription echoue : une lettre pour une autre, et le code
+    genere ne tombera jamais juste. Le QR code supprime cette etape.
+
+    Facultatif volontairement : le panneau doit rester lancable depuis un
+    depot fraichement clone avec Flask pour seule dependance. Sans la
+    bibliotheque, la page retombe sur la cle a saisir -- ce qui marchait
+    hier marche encore.
+
+    Le SVG est peint en noir sur blanc, quel que soit le theme : un lecteur
+    de QR code a besoin de ce contraste, et un code clair sur fond sombre
+    n'est pas lu par tous les telephones.
+    """
+    try:
+        import qrcode
+    except ImportError:
+        return ""
+    code = qrcode.QRCode(border=2)
+    code.add_data(donnee)
+    code.make(fit=True)
+    grille = code.get_matrix()
+    cote = len(grille)
+
+    # Un rectangle par suite horizontale de modules noirs, pas un par module :
+    # le SVG passe de plusieurs milliers de balises a quelques centaines.
+    rects = []
+    for y, ligne in enumerate(grille):
+        x = 0
+        while x < cote:
+            if not ligne[x]:
+                x += 1
+                continue
+            debut = x
+            while x < cote and ligne[x]:
+                x += 1
+            rects.append(f'<rect x="{debut}" y="{y}" width="{x - debut}" height="1"/>')
+    return ('<svg xmlns="http://www.w3.org/2000/svg" '
+            f'viewBox="0 0 {cote} {cote}" shape-rendering="crispEdges">'
+            f'<rect width="{cote}" height="{cote}" fill="#ffffff"/>'
+            f'<g fill="#000000">{"".join(rects)}</g></svg>')
+
+
 # --------------------------- auth ---------------------------
 
 RATE_LIMIT_WINDOW = 300  # 5 min
@@ -1634,8 +1679,10 @@ def login_submit():
         candidat = totp_nouveau_secret()
         session["totp_candidat"] = candidat
         session["totp_inscription"] = nom
+        session["totp_uri"] = totp_uri(candidat, nom)
         return jsonify({"inscription": True, "secret": candidat,
-                        "uri": totp_uri(candidat, nom), "compte": nom})
+                        "uri": session["totp_uri"], "compte": nom,
+                        "qr": "/qr/totp.svg"})
 
     if not totp_verifie(secret, d.get("code")):
         register_failed_attempt()
@@ -1644,6 +1691,7 @@ def login_submit():
 
     session.pop("totp_candidat", None)
     session.pop("totp_inscription", None)
+    session.pop("totp_uri", None)
     session.permanent = True
     session["authed"] = True
     session["role"] = ROLE_UTILISATEUR
@@ -1689,11 +1737,35 @@ def login_second_facteur():
 
     session.pop("totp_candidat", None)
     session.pop("totp_inscription", None)
+    session.pop("totp_uri", None)
     session.permanent = True
     session["authed"] = True
     session["role"] = ROLE_UTILISATEUR
     session["utilisateur"] = nom
     return jsonify({"ok": True, "role": ROLE_UTILISATEUR})
+
+
+@flask_app.get("/qr/totp.svg")
+def qr_totp():
+    """Le QR code de l'inscription en cours, et de rien d'autre.
+
+    L'adresse otpauth vient de la session signee, jamais de l'URL : un
+    secret dans une adresse se retrouve dans l'historique du navigateur,
+    dans les journaux d'acces et dans le referer de la page suivante.
+
+    Pas d'authentification a exiger ici -- une session qui porte une
+    inscription en attente n'est pas encore authentifiee, c'est justement
+    l'etape ou on se trouve. Ce que la route revele, c'est le secret que le
+    serveur vient de tirer pour CETTE session.
+    """
+    uri = session.get("totp_uri") or ""
+    svg = qr_svg(uri) if uri else ""
+    if not svg:
+        # 404 et non 500 : sans bibliotheque QR, la page affiche la cle a
+        # saisir a la main et l'image manquante se masque d'elle-meme.
+        return Response("", status=404)
+    return Response(svg, mimetype="image/svg+xml",
+                    headers={"Cache-Control": "no-store"})
 
 
 @flask_app.get("/api/categories")
@@ -1773,7 +1845,9 @@ def api_totp_preparer():
         return jsonify({"error": "La double authentification est deja active."}), 400
     candidat = totp_nouveau_secret()
     session["totp_candidat"] = candidat
-    return jsonify({"secret": candidat, "uri": totp_uri(candidat), "compte": TOTP_COMPTE})
+    session["totp_uri"] = totp_uri(candidat)
+    return jsonify({"secret": candidat, "uri": session["totp_uri"],
+                    "compte": TOTP_COMPTE, "qr": "/qr/totp.svg"})
 
 
 @flask_app.post("/api/securite/totp/activer")
@@ -1790,6 +1864,7 @@ def api_totp_activer():
         return jsonify({"error": "credentials.env n'a pas pu etre ecrit : rien n'a ete active."}), 500
     _totp_secret = candidat
     session.pop("totp_candidat", None)
+    session.pop("totp_uri", None)
     return jsonify({"ok": True})
 
 

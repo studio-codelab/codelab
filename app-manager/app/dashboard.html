@@ -412,6 +412,12 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
 .cat-ligne input{flex:1}
 .cat-ligne .icon-btn{flex:none}
 .cat-vide{color:var(--dim);font-size:13px;padding:6px 0 2px}
+
+/* QR code du second facteur. Noir sur blanc dans les deux themes : un
+   lecteur de QR code a besoin de ce contraste-la. */
+.qr{display:none;width:190px;height:190px;padding:8px;margin:10px 0;
+ background:#fff;border-radius:var(--r-s);border:1px solid var(--line2)}
+.qr.on{display:block}
 /* Titre d'un groupe dans le hub. Discret : ce sont les projets qu'on vient
    chercher, le rangement ne doit pas leur voler la vedette. */
 .hub-groupe{margin-bottom:26px}
@@ -742,8 +748,11 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
       </div>
 
       <div id="totp-etape-2" style="display:none">
-        <div class="hint">1. Ajoute ce compte dans ton application d'authentification, en saisissant
-          la cle a la main :</div>
+        <div class="hint">1. Scanne ce code avec ton application d'authentification.</div>
+        <!-- Si le QR code ne peut pas etre produit, l'image se masque et la cle
+             a recopier reste : l'inscription ne depend pas de lui. -->
+        <img class="qr" id="totp-qr" alt="QR code du second facteur">
+        <div class="hint">Ou saisis la cle a la main :</div>
         <div class="field"><input id="totp-secret" readonly onclick="this.select()"></div>
         <div class="hint">2. Saisis le code affiche par l'application pour confirmer. Rien n'est
           enregistre tant que ce code n'est pas valide — une cle mal recopiee ne peut donc pas
@@ -1786,11 +1795,24 @@ async function totpPreparer(){
   const d=await r.json();
   if(!r.ok){ alert(d.error||'Preparation impossible.'); return; }
   $('totp-secret').value=d.secret;
+  montrerQr(d.qr);
   $('totp-etape-1').style.display='none';
   $('totp-etape-2').style.display='block';
   $('totp-code').value=''; $('totp-code').focus();
 }
 function totpAnnuler(){ $('totp-etape-2').style.display='none'; chargerSecurite(); }
+
+/* Le QR code est servi par le serveur a partir de la session : le secret ne
+   passe jamais par l'adresse, donc ni par l'historique du navigateur ni par
+   les journaux d'acces. Si la route ne repond pas (bibliotheque absente),
+   l'image se retire et seule la cle a recopier reste. */
+function montrerQr(adresse){
+  const img=$('totp-qr');
+  if(!adresse){ img.classList.remove('on'); return; }
+  img.onload=()=>img.classList.add('on');
+  img.onerror=()=>img.classList.remove('on');
+  img.src=adresse+'?t='+Date.now();
+}
 
 async function totpActiver(){
   const e=$('totp-err'); e.style.display='none';

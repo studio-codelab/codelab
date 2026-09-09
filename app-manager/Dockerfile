@@ -46,7 +46,12 @@ RUN useradd -u 1001 -g 2000 -M -s /usr/sbin/nologin codelab-app
 # waitress : serveur WSGI de production, en Python pur. Le panneau relaie le
 # trafic de toutes les applications deployees -- le serveur de developpement
 # de Flask n'est pas dimensionne pour ca, et le dit lui-meme au demarrage.
-RUN pip install --no-cache-dir flask waitress psutil requests
+#
+# qrcode : le QR code de l'inscription au second facteur. Python pur lui
+# aussi, sans dependance sous Linux (colorama est reserve a win32, pillow et
+# pypng sont des extras qu'on n'installe pas). Facultatif cote code : sans
+# lui, la page retombe sur la cle a recopier a la main.
+RUN pip install --no-cache-dir flask waitress psutil requests qrcode
 
 # L'application entiere -- app.py et les deux pages HTML qu'il sert -- vit
 # dans son propre dossier. Une seule ligne a maintenir ici, et le service
