@@ -987,7 +987,10 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
       </div></div>
       <div id="expo-liste"></div>
       <div class="hint">Ces trois reglages se posent au demarrage du service, pas ici : les activer
-        depuis cette page pendant que tu es connecte en clair te deconnecterait sur-le-champ.</div>
+        depuis cette page pendant que tu es connecte en clair te deconnecterait sur-le-champ.
+        Ils se resolvent <b>dans l'ordre</b> — le premier fait le travail, les deux autres sont une
+        variable chacun. Les cles d'acces dependent aussi du premier : le navigateur refuse
+        WebAuthn en clair.</div>
     </div>
 
     <div class="card settings-card">
@@ -2214,10 +2217,23 @@ async function chargerSecurite(){
   $('totp-etape-3').style.display = d.totp ? 'block' : 'none';
   $('totp-etape-2').style.display = 'none';
 
+  /* Les trois lignes se resolvent DANS CET ORDRE, et le dire evite de poser
+     les variables trop tot : un cookie Secure sur une connexion en clair
+     n'est plus envoye, donc la session tombe au rechargement suivant. */
   const lignes=[
-    ['Connexion chiffree (HTTPS)', d.https, 'Sans TLS, ton mot de passe traverse le reseau en clair.'],
-    ['Cookie de session en Secure', d.cookie_secure, 'Variable APP_MANAGER_HTTPS=1, une fois le TLS en place.'],
-    ['Adresse reelle des visiteurs', d.trust_proxy, 'Variable APP_MANAGER_TRUST_PROXY=1, derriere un reverse proxy.'],
+    ['1. Connexion chiffree (HTTPS)', d.https,
+     "Sans TLS, ton mot de passe, ton code a six chiffres et ton cookie de session traversent "
+     + "le reseau lisibles. C'est la seule etape qui demande du travail : un tunnel Cloudflare, "
+     + "un Caddy, ou un VPS devant. Marche a suivre dans HTTPS.md, a la racine du depot."],
+    ['2. Cookie de session en Secure', d.cookie_secure,
+     "APP_MANAGER_HTTPS=1 dans le compose, puis « docker compose up -d codelab-app-manager ». "
+     + "A poser UNE FOIS le TLS en place : avant, le navigateur cesse d'envoyer le cookie et ta "
+     + "session tombe au premier rechargement."],
+    ['3. Adresse reelle des visiteurs', d.trust_proxy,
+     "APP_MANAGER_TRUST_PROXY=1, et seulement derriere un proxy qui reecrit vraiment "
+     + "X-Forwarded-For. Sans lui, la limite de tentatives compte tout le monde comme un seul "
+     + "visiteur et le journal des acces note une seule adresse ; avec lui alors que le panneau "
+     + "est publie en direct, n'importe quel client peut annoncer l'adresse qu'il veut."],
   ];
   $('expo-liste').innerHTML = lignes.map(([nom,ok,aide])=>
     `<div class="kv"><span class="k">${esc(nom)}</span>
@@ -2319,8 +2335,8 @@ const estAdmin = ROLE==='admin';
 $('qui-nom').textContent = UTILISATEUR || '';
 $('qui-role').textContent = estAdmin ? 'Administrateur' : 'Utilisateur';
 $('profil-sous').textContent = estAdmin
-  ? 'Ton affichage, ton second facteur et ta session.'
-  : 'Ton affichage et ta session.';
+  ? 'Ton affichage, tes moyens de connexion et ta session.'
+  : 'Ton affichage, ton adresse mail, tes cles d\'acces et ta session.';
 
 const visible = id => $(id).style.display!=='none';
 

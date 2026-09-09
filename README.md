@@ -105,6 +105,10 @@ compte ; **Parametres**, lui, est personnel et existe pour chaque compte.
 
 Details dans [`app-manager/README.md`](app-manager/README.md).
 
+**Pour sortir de chez toi** : [`HTTPS.md`](HTTPS.md) explique comment mettre du TLS devant CodeLab
+(Cloudflare Tunnel, Caddy, ou un VPS), et quelles variables poser ensuite — c'est aussi ce qui
+debloque les cles d'acces et le partage d'une application.
+
 **Dagster** : `http://<IP-du-serveur>:3000/` — charge `/workspace/definitions.py` comme code Dagster.
 Protege par mot de passe : Dagster n'a aucune authentification a lui, et son interface permet de lancer un
 job, donc d'executer du code. Un reverse proxy (`codelab-dagster-proxy`) en ajoute une devant, et le port de
