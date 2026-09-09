@@ -887,12 +887,12 @@ def test_le_flux_refuse_le_dit_avec_un_code_utilisable(deux_espaces, monkeypatch
     assert "journaux" in r.get_json()["error"]
 
 
-# ---------- 12. une seule application, deux modes ----------
+# ---------- 12. une seule application, un seul hub ----------
 #
-# Le hub et l'outil de developpement sont deux modes de la meme page. Ce qui
-# doit rester vrai : la page est la meme pour tout le monde, mais elle sait
-# qui la regarde, et surtout les ROUTES continuent de decider -- une page
-# bricolee ne donne aucun droit.
+# CodeLab est une seule page. Le hub est l'accueil de tout le monde ; ce que
+# le menu propose en plus depend du role. Ce qui doit rester vrai : la page
+# est la meme pour tout le monde, mais elle sait qui la regarde, et surtout
+# les ROUTES continuent de decider -- une page bricolee ne donne aucun droit.
 
 def test_la_meme_page_est_servie_aux_deux_roles(deux_espaces):
     c = deux_espaces
@@ -905,9 +905,44 @@ def test_la_meme_page_est_servie_aux_deux_roles(deux_espaces):
     c.post("/login", json={"password": "secret-de-test"})
     page_admin = c.get("/").get_data(as_text=True)
     assert '"admin"' in page_admin
-    # Meme page : ce sont les memes sections, c'est le mode qui change.
-    assert "sec-hub" in page_admin and "mode-toggle" in page_admin
-    assert "sec-settings" in page_admin
+    # Memes sections servies aux deux : c'est le role injecte qui decide de
+    # ce qui s'affiche, pas une page differente.
+    assert "sec-hub" in page_admin and "sec-settings" in page_admin
+    # Les memes sections sont servies aux deux roles : seul le role injecte
+    # change. C'est lui, et les routes, qui decident de ce qui est utilisable.
+    for section in ("sec-hub", "sec-overview", "sec-apps", "sec-profil", "sec-settings"):
+        assert f'id="{section}"' in page_admin
+        assert f'id="{section}"' in page_utilisateur
+
+
+def test_le_hub_est_l_accueil_des_deux_roles(deux_espaces):
+    """L'administrateur atterrit sur le hub, comme tout le monde.
+
+    Il n'y a plus de bascule « Hub / Developpeur » : la page s'ouvre sur le
+    lanceur, et la console d'administration s'atteint par le menu.
+    """
+    c = deux_espaces
+    c.post("/login", json={"password": "secret-de-test"})
+    page = c.get("/").get_data(as_text=True)
+    # En debut de ligne : l'appel du demarrage, pas un onclick de menu.
+    assert "\nshowSection('hub');\n" in page
+    assert "mode-toggle" not in page and "setMode" not in page
+    # Le pied du menu lateral annoncait une evidence : il n'est plus la.
+    assert "Serveur en service" not in page
+
+
+def test_les_parametres_personnels_existent_pour_les_deux_roles(deux_espaces):
+    """« Parametres » est personnel, « Configuration » est au serveur.
+
+    Un compte utilisateur doit pouvoir regler son affichage et fermer sa
+    session ; il n'a rien a faire dans la configuration du serveur.
+    """
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    page = c.get("/").get_data(as_text=True)
+    assert 'id="sec-profil"' in page          # ses parametres a elle
+    assert "acct-configuration" in page       # present, mais masque cote client
+    assert "$('acct-configuration').style.display='none'" in page
 
 
 def test_l_ancienne_adresse_de_l_espace_ramene_a_la_page_unique(deux_espaces):

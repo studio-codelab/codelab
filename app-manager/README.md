@@ -184,35 +184,36 @@ minutes, par adresse IP.
 > **Le proxy `/<nom-app>/...` n'est volontairement pas protege par cette authentification** — seuls le dashboard
 > et son API le sont. Une application **publique** que tu deploies reste directement joignable (utile pour tester un
 > webhook, par exemple), independamment du mot de passe du panneau. Une application **privee**, elle,
-> exige une session : voir [Une seule application, deux modes](#une-seule-application-deux-modes).
+> exige une session : voir [Une seule application, deux roles](#une-seule-application-deux-roles).
 
-## Une seule application, deux modes
+## Une seule application, deux roles
 
 | | Administrateur | Utilisateur |
 |---|---|---|
 | Connexion | nom vide (ou `admin`) + mot de passe de `credentials.env` | son nom + son mot de passe |
 | Second facteur | optionnel, a activer depuis Parametres | **obligatoire** |
-| Page d'accueil | le hub ou l'outil de developpement, au choix | le hub |
+| Page d'accueil | le hub | le hub |
 | Declarer, editer, supprimer un projet | oui | non |
 | Demarrer, arreter, deployer, build | oui | non |
 | Visibilite, alertes, comptes, journaux | oui | non |
 | Dagster (`/api/auth-check`) | oui | **non** |
 | Ouvrir un projet | tous | ceux qu'on lui a autorises |
 
-**Le hub et l'outil de developpement sont deux modes de la meme page**, servie a la meme adresse
-(`/`) a tout le monde. L'administrateur bascule de l'un a l'autre par les deux boutons de la barre
-du haut, sans changer d'adresse ni se reconnecter, et le mode choisi est retenu d'une visite a
-l'autre :
+**L'application s'appelle CodeLab, et il n'y en a qu'une** : une seule page, servie a la meme
+adresse (`/`) a tout le monde, avec le hub pour accueil. Il n'y a pas de bascule de mode a
+comprendre — c'est le role qui decide de ce que le menu propose en plus :
 
-- **Hub** — la liste des projets ouvrables, telle que la voient les comptes utilisateurs (a ceci
-  pres que l'administrateur y voit tous les projets). Le menu lateral disparait : la page redevient
-  un lanceur.
-- **Developpeur** — la vue d'ensemble, les projets, les journaux, les parametres, les comptes.
+- **Le hub** — la liste des projets ouvrables, l'accueil de tous les comptes (a ceci pres que
+  l'administrateur y voit tous les projets, l'utilisateur seulement les siens).
+- **Le menu lateral**, administrateur seulement — la vue d'ensemble, les applications, et la fiche
+  d'un projet avec ses journaux.
+- **Le menu du compte**, en haut a droite — **Parametres** (l'affichage, le second facteur, la
+  session) pour tout le monde ; **Configuration** (exposition, comptes, alertes) pour
+  l'administrateur seul.
 
-Un compte utilisateur n'a pas de bascule : il n'a que le hub, sans menu lateral et sans entree
-« Parametres ». Le role est injecte dans la page pour qu'elle sache quoi afficher, mais **ce n'est
-qu'un confort d'affichage** : chaque route d'administration verifie le role de son cote
-(`require_admin`), et une page bricolee dans le navigateur ne donne aucun droit supplementaire.
+Le role est injecte dans la page pour qu'elle sache quoi afficher, mais **ce n'est qu'un confort
+d'affichage** : chaque route d'administration verifie le role de son cote (`require_admin`), et une
+page bricolee dans le navigateur ne donne aucun droit supplementaire.
 
 `/espace`, l'ancienne adresse de l'espace utilisateur, redirige vers `/` : elle a pu etre mise en
 favori.

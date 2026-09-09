@@ -81,10 +81,10 @@ Deux choses s'y reglent quand la stack sert a plusieurs, ou quand on ne veut plu
   obligatoire** : la personne enregistre elle-meme une cle a sa premiere connexion, et tu peux la
   remettre a zero si elle change de telephone.
 
-Le panneau est **une seule application avec deux modes**, a la meme adresse. Un compte utilisateur
-n'a que le **hub** : la liste des projets qu'il peut ouvrir, chacun avec sa description d'une ligne.
-Toi, tu bascules entre ce hub et le mode **developpeur** (projets, journaux, comptes, configuration)
-par deux boutons dans la barre du haut.
+Le panneau est **une seule application**, a la meme adresse, avec le **hub** pour accueil de tout le
+monde : la liste des projets ouvrables, chacun avec sa description d'une ligne. Toi seul y gagnes le
+menu lateral (vue d'ensemble, applications, journaux) et l'entree **Configuration** du menu du
+compte ; **Parametres**, lui, est personnel et existe pour chaque compte.
 
 Details dans [`app-manager/README.md`](app-manager/README.md).
 

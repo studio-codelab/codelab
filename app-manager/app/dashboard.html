@@ -8,7 +8,7 @@
    CodeLab -- systeme visuel
    ---------------------------------------------------------------------------
    Une seule identite pour les quatre ecrans : connexion, second facteur, hub
-   et outil de developpement. Trois decisions structurantes :
+   et console d'administration. Trois decisions structurantes :
 
    1. FOND CLAIR, BARRE SOMBRE. Le contenu vit sur un gris tres clair, les
       cartes sont blanches, et la barre de navigation est en bleu nuit. Le
@@ -18,7 +18,7 @@
       ou selectionne. Les etats (en ligne, erreur, prive, public) ont leurs
       propres couleurs, jamais l'accent -- sinon plus rien ne ressort.
    3. DE L'AIR. Les cartes respirent, les tableaux sont denses. C'est la
-      difference entre le hub (visuel, aere) et le mode developpeur
+      difference entre le hub (visuel, aere) et la console d'administration
       (technique, compact) : la meme identite, deux densites.
 
    La barre reste en bleu nuit dans les deux themes : c'est l'element
@@ -117,18 +117,6 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 .qui span{font-size:11px;color:var(--nav-dim)}
 @media (max-width:640px){.qui{display:none}}
 
-/* Bascule Hub / Developpeur. Deux boutons plutot qu'un interrupteur : on voit
-   d'un coup d'oeil dans quel mode on est, et ou l'autre mene. */
-.mode-toggle{display:flex;border:1px solid rgba(255,255,255,.14);border-radius:9px;overflow:hidden}
-.mode-toggle button{display:flex;align-items:center;gap:6px;padding:6px 12px;border:none;
- background:transparent;color:var(--nav-dim);font:inherit;font-size:12.5px;font-weight:550;
- cursor:pointer}
-.mode-toggle button+button{border-left:1px solid rgba(255,255,255,.14)}
-.mode-toggle button svg{width:14px;height:14px}
-.mode-toggle button.active{background:var(--accent);color:#fff}
-.mode-toggle button:not(.active):hover{color:var(--nav-txt);background:rgba(255,255,255,.07)}
-@media (max-width:560px){.mode-toggle button span{display:none}}
-
 .acct-wrap{position:relative}
 .acct-btn{width:34px;height:34px;border-radius:50%;border:none;cursor:pointer;
  background:var(--accent);color:#fff;display:grid;place-items:center}
@@ -142,6 +130,7 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
  cursor:pointer;font-size:13px;color:var(--txt)}
 .acct-item:hover{background:var(--surface2);color:var(--accent)}
 .acct-item svg{width:15px;height:15px}
+.acct-sep{height:1px;background:var(--line);margin:5px 4px}
 
 /* ------------------------------ colonne de gauche ------------------------------ */
 .page-body{display:flex;min-height:calc(100vh - 56px)}
@@ -150,9 +139,10 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
  transition:width .14s ease}
 .sidebar.collapsed{width:62px}
 .sidebar.collapsed .side-label,.sidebar.collapsed .side-item span,
-.sidebar.collapsed .side-count,.sidebar.collapsed .side-foot-txt{display:none}
+.sidebar.collapsed .side-count{display:none}
 .sidebar.collapsed .side-item{justify-content:center;padding:9px 0}
 .side-nav{flex:1}
+.side-sep{height:1px;background:var(--nav-line);margin:10px 6px}
 .side-label{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
  color:#66748f;padding:6px 10px 8px}
 .side-item{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:9px;
@@ -164,10 +154,6 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 .side-count{margin-left:auto;font-size:11px;font-weight:600;padding:1px 7px;border-radius:20px;
  background:rgba(255,255,255,.14)}
 .side-item.active .side-count{background:rgba(255,255,255,.24)}
-.side-foot{display:flex;align-items:center;gap:8px;padding:10px;border-top:1px solid var(--nav-line);
- font-size:11.5px;color:var(--nav-dim)}
-.side-foot-dot{width:7px;height:7px;border-radius:50%;background:#3fce8f;flex:none}
-
 .main-area{flex:1;min-width:0;overflow-x:hidden}
 .wrap{max-width:1240px;margin:0 auto;padding:26px 26px 60px}
 @media (max-width:640px){.wrap{padding:18px 14px 40px}}
@@ -323,7 +309,7 @@ input::placeholder{color:var(--dim2)}
 .empty p{font-size:13px;margin-bottom:16px}
 
 /* ------------------------------ tableau des projets ------------------------------ */
-/* Le mode developpeur est dense : un tableau, pas des tuiles. Toute
+/* La console d'administration est dense : un tableau, pas des tuiles. Toute
    l'information utile d'un projet tient sur une ligne, et la comparaison
    entre projets se fait a la verticale. */
 .tbl-wrap{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
@@ -425,7 +411,7 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
   <button class="side-toggle-btn" id="btn-menu" onclick="toggleSidebar()" title="Reduire / etendre le menu">
     <svg viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></svg>
   </button>
-  <div class="topbar-brand" onclick="showSection(mode==='dev'?'overview':'hub')" title="Accueil">
+  <div class="topbar-brand" onclick="showSection('hub')" title="Accueil">
     <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAYAAADDPmHLAAAABmJLR0QA/wD/AP+gvaeTAAAOlklEQVR4nO2de5RV9XXHP/vcuQwgyjM2mQwzc2fugIq1tVhNgjFEZZmkrGiyDMTWkFgJq5AMd0hbTdLYzkqTlZfIPIQuqVmQ1xJFW21NmpClaEzzArWrQgTmdWdE4it2oFVg5t7f7h8w48wwA79zzzn3nsOcz19w796/vWF/73n+fvsHMTExExcpdQKDpBsOVuLk313qPIqCSfyyo63yYKnTACgrdQJDOPl3gz5Q6jSKgpNfBmwvdRoATqkTiCktsQAmOLEAJjixACY4sQAmOLEAJjixACY4oRFAUvTnwKulzqMIvHry3xoKQiOA55trfifCLYCWOpcAURFueb655nelTmSQ0DwKHiSd6dkA2ujS7QmQTUHkMx6CrlW40qVXc0dL9bpgMiqM8DwKHsT0fx4n+T7gUhde7xHRNe3NNc8HldZw0ut6FqjhCpduz2L6Px9IQh4IzSlgkI62+uMJzE3AGy7cJqmyPqicRiNGW4CkC5c3EpibOtrqjweVU6GETgAA+1tq94tqg0u3D9Y1Zq8OJKFhpDPd1ylc48ZHVBv2t9TuDyonL4RSAADtraktAtvc+Ijy5aDyGRalyZU1bGtvTW0JKBnPhFYAAAOiqwE3780X1We6rgoqn5NHmHe5cOnNT87/VVD5+EGoBZBtTvWB8xl3Xo7bOwhrRHF1BW+U1V3fqDscVD5+ELrbwLGoz2R/qPAhS/Oc4yRqDmyY+6KfOaQ+01WdKHO6sP7R6L91tKSu9zOHIAj1EWAQo87tgLE0LzMm9wm/cyhLOCuw///Ki0jobvnGIhIC6Gyt2oPogy5c/tzvHFRcjXl/sZ5JeCUSAgAwmrjT3lr+sPZznfP8ip1u6LkIuMDaweAi19ISGQF0tVTtAnbb2jsmsdSv2Cpqe/0B8KuOtppn/YodNJERAICqfNfemGv9iiuOLLG2Vf2OX3GLQaQEkM+Z7dhfDC7iY5rwGnNxk5ahusjSPK+ae8hrzGISKQFkN6VeEvRpS/Pz0pW99uftcXixL3sxcI6l+a6OtvpIzWmIlAAAFB63N9Y/9iGk9RiiPOZDvKISOQGg/NLWVAwXeg1nVC6ytc3DL7zGKzaRE0A+r/9la6siaa/xHLAeI2kc69zCQuQE0L0x1Qu8aWet1d4jaqWl4ZH9d1cd8h6vuEROACAK9Foan+81miLvsDS1zSlURFAAAPKKpeFMH4JZjaHKSz7EKjoRFYAesTS0vX07HVNtjEQI9Wvf8YimAJRjlpZu5u2dyokHSVavzAUGPMUqEdEUgFjPZs57irMdg+U6BdUQzrC2IKICEKvDMlgfKcYLpNZjiC+nm6ITSQGIGrsLM/hfH8LZXW+ozPYhVtGJpAAMYnVvLuhrPoSzG0O0wodYRSdyAph/275zBd5uZ+14fjCjiu06voqKVYdsT02hIXICyPdPvhjryaza5TWeQNbS1Jl8Ts76vUFYiJwAxMjl1rYq3lfjOFjP7XOMsc4tLEROACr6Xltbg/6313ii8pwL68AWpQRFpASwcNXuJPbr8ozogO3kkXFJ5BLPYN2zQK9d3KSReh4QKQEcnjL7amCGja3Ano62ettHxuOyb2Pl74F9luazX+jridRRIFICEHFusrU1ojt9DG0900cM1jmGgcgIoKaxe4aqfszWXpT/8Cu2CD+2N2Z5uqH9PL9iB01kBJAwshLLN3NAX/nMN307Agz06WPA/1man4tTdqtfsYMmEgKoXPfCFITP2dqLyCN7mxb0+xU/uzV1DOURew/565pPdU/2K36QREIAk41ZK2A7M4e84Xt+56Do912Yv7NshqzxO4cgCL0AatZ0vx30Cy5cOrtmVfl5AXhi0Fk1O9T+qSAoX0o3tL/N7zz8JvQCKEtKKzDd3kM30iS2q4fsaRKDstGFx0yc5F2+5+EzoRZAXaZ7OWB95Q+8nig/fm9Q+YgObAb6XLjcXN+Y/WhQ+fhBaAVQu7azXpB73PgIbNj/zQv8mAMwJh1t9UcQbXHjo8q98z+bTQWVk1dCKYDa2zunO5L4V1wd+nl50sDU5qByGiKfuwvbOQInmGkSPDz/tn3nBpWSF0IngHRDe7lzLPEvwAI3forcsXfT+bb36gVz8vHyP7jxUbgkf7z8oQVNeycFlFbBhEoAC1ftTpKYdD/gruGjym86Z1Z9O5isTqXjUPU9wDPuvGTJ8b5pD5x8oRUaQiOAhat2Jw9PmfMAqm47a/WbhLMykCv/8dgueYRP43YquOr1h6fMCZUIQiGAoeLDDW59Vfhy14a5Lt7Z+0NHc80zqHy1ANcbwiSCkgvAS/GBnZ0vVn/d75xsqZxV9VVVfaoA19CIoKQC8Fj8g3nMTWwXb4s/PPBEk+QmObIcKGTyaShEULJOoR6LD3AY2APsQ3SPMc5zxjFPn2gvW1zmreu63BhnJ/ZvK4fz8PSjry17evNlJVlaVhIB+FD88VCUdkR/hchTxsn/rOuuugM+xxiT9Nru6xF5CCikMVXJRFB0AQRY/HGQF0B3iPCjSf1TdwT5rKAu07NC0C0UdmotiQiKKoDiF/8UjqH6UxXnQTH9D/sxZ3A09Wu7b1GRe4mICIomgBAUfzRHBR4xwnc7X6ze4efFZJREUBQBhLD4o+lVYTNluX/uvDNt233ktERFBIELIALFH85xRe5DZX1na9Uer4NFQQSBCiBixR+Oovqok9CvHNhQ+xsvA4VdBIEJIMLFH4X8BGO+1tGWerLQEcIsgkAEcPYU/y0E3aUiLeUz3theyIzjsIrAdwF4LL4R1ZXts2q+U/Vy7/TklIFp5CZNF83PJiGVolSoUo1IGnQeUE3xH2e/oqJbEzm2HLg7ZbtkDAinCHwVgC/Fd7HH3iV/89I5RweOXqzIQhG5XNW8B6S+gNiF8mtEt5FPPtjRVmm1vV3YROCbAIpd/PG4sDH7jgG4WpAlqvpBfOgWaoEKuhuVf8+L8+OumXOfPt38hDCJwBcBhKX4p9CkTrqv5wpVPiLCMhQfegdb8TrwM4SnFPn10TeTzx7aXDGiv3FYROBZAKEt/imo1GZ6Fzmqn0RYDhRzkmYO2C/wHMpvDdqeSGiXMc61QCGTSsAnEXgSQHSKP5IFa16Z1l/2xs0q8llcTj4NGZ5FULAAolr8kajUZ3qvBb3d7Y7gIcKTCAoSwNlR/JHUZ7qvMMgdAn9W6lwKoGARuBbA2Vj84aQbspeKw20KN0Kk+v8WJAJXAjjbiz+c2kxnlYOzBuRWYE6p87HEtQisBTCRij+cdEN7OYnkjSh/CSwmBDOpz4ArEVgJYKIWfzS1mc6qhJZ9XEWXA39S6nxOg7UIziiAuPhjM29dT61RvQFlKXAlXjen8B8rEZxWAHHx7Viw5pVpx8uPvl/VXCMqVwGXUNjsYL85owjGFUBc/MKZf9u+c/P95QvVyGUiXMoJQcwDSrE6+LQiGFMAcfH9Z3GTlvW+3pUSnDpxSGGcueJQoarnCzpHkVnAeZw4lVh1Q3XBuCI4RQAei6+Crm5vSbnq7BFjR31j96dU5dsUcCci8CM1Ax/taKs/Purzt4iLH378FsGQAOLiRwc/RTA0wJEpcz5M4ef8W+PiF4/25tRWUV0JuG6KofAhcZJLB//uvPWFFPKESwVdE1/wFZ/21tQWEb2VAkQwHC+PNeNffonxciQY5K0jgGrOhV98qxcS2ltTW9yKYHithwTgiLhYNq3fiosfHtpbU1sU1tvaG5yhWr91BBD9vd+JxRQPcXE6V8m/OvjnIadcv9r3uRHnAmvbmKKgYF2TZNnkoVoPCSC7qeZlbHfFUL3MTXIxQaMiYFuTvgPrK4Za3Q47bIii8lvLQd45P9M13z7BmCBJN/ReCPyBpfmIGo88b4ha77NnNOG2o2dMQIij1i3pRRhR4xECEPi57UAq+klb25ggUVHlE9bWRkbUeIQAcpjHsL+fvKg+07PENnBMMNQ19nwAYZ6led5JJh8f/sEIAXS31L4MWHfEMGrusLWNCQIVUf7e3l7+c/gFIIxx7ygq26yHE3lv3drsR+wTiPGTdKb3RuBd9h56/+hPThVAMvkD4Pjoz8dDRFqitFPm2ULV6p6ZoG52SDna3y/3jf7wFAEcWF/xmoj9UQB0Lk5Zm4tEYnygfJJuAiqsHZT7ev+p+n9Gfzzm40Nj5E5cvWGSFenG7Ep7+xgvpDPZNQofd+GSd4x+a6wvxhTAiR55st1VVsrG+kxXpLZOjyK1a3uuAdxujnXfeP2Mxn+BYOTvcHEtAExSnEfmNXT9kcvkYixJN2QvdUQfwt0ilGP5nPnSeF+OK4COtqpOUe50kyAwwzjOjvS6nig3XQglqUzXJTj8BHdb6YHoN7o31vaM9/VpXyEOHNGvAK5aoQHnY3RnujEb5rVzkaI20/unCZzHAbd7Ee8ln/va6QxOK4Ds1tQxg7MCt7tjwdtQdsZPCr2TznRf52AeB2a7dO1HWDF6HcBozjiJoKulapcqX3QZHOA8RX9Yl+n5dAG+MUC6sXs1yKPANLe+gvxtR3PNGfc2tOwPoJJuzG5DZZnbRAAUuUfgsUJ8Jy66BCjsx6P8oKO15mYbU+sGERWrDk2dOnlgJ6KXF5RUTLH4Re6wXpPdmjpmY2w9j+zQ5oo30f6lKEXZhCmmIPaV5co+bFt8KKBJVG2ms0pIPClQ49Y3JlC6MWVX2fYsHsT1wpCulrrepOj7gW63vjGB0WnIL3ZbfPDQKDLdcLASJ7cDuLDQMWL8QJ9L5BMf2H93VSG7lxa+NKyjrfJguZO40s00shifEZ7s73feV2jxwWPLs70b5r4+cFiXKJzynjkmYITvkR+4bqxXvO6G8QWVdKbnC8A/Ev4+elEnLypfbG+t/qYfg/m6Y0g6030dyPeJTmfNqPGqIH/R3lL9U78G9H3PoJMXh9uARX6PPZERdFdCWLavOZX1d9wAWNykZS/0ZZeKOmFrnhhJVMzA3Bk1jz7RJG6W8MfExMScgf8HJ4TwVTw8N00AAAAASUVORK5CYII=" alt=""><b>CodeLab</b>
   </div>
 
@@ -436,29 +422,22 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
 
   <div class="spacer"></div>
 
-  <!-- Bascule de mode, visible pour l'administrateur seulement. Le hub est ce
-       que voient tous les comptes ; le mode developpeur ajoute la gestion des
-       projets, des comptes et de la configuration. -->
-  <div class="mode-toggle" id="mode-toggle" style="display:none">
-    <button data-m="hub" onclick="setMode('hub')" title="Le hub, comme le voient les utilisateurs">
-      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/>
-      <rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/>
-      <rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
-      <span>Hub</span></button>
-    <button data-m="dev" onclick="setMode('dev')" title="Gestion des projets, des comptes et de la configuration">
-      <svg viewBox="0 0 24 24"><path d="M8 6l-5 6 5 6"/><path d="M16 6l5 6-5 6"/></svg>
-      <span>Developpeur</span></button>
-  </div>
-
   <div class="qui"><b id="qui-nom"></b><span id="qui-role"></span></div>
   <div class="acct-wrap">
     <button class="acct-btn" id="acct-btn" onclick="toggleAcctMenu()" title="Compte">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20.5c0-4.1 3.4-7.5 7.5-7.5s7.5 3.4 7.5 7.5"/></svg></button>
     <div class="acct-menu" id="acct-menu">
-      <div class="acct-item" id="acct-parametres" onclick="goToSettings()">
+      <!-- « Parametres » est personnel (affichage, second facteur, session) ;
+           « Configuration » est le reglage du serveur, reserve a l'administrateur. -->
+      <div class="acct-item" id="acct-parametres" onclick="allerA('profil')">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.6"/>
+        <path d="M4.5 20.5c0-4.1 3.4-7.5 7.5-7.5s7.5 3.4 7.5 7.5"/></svg>
+        <span>Parametres</span></div>
+      <div class="acct-item" id="acct-configuration" onclick="allerA('settings')">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/>
         <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-        <span>Parametres</span></div>
+        <span>Configuration</span></div>
+      <div class="acct-sep"></div>
       <div class="acct-item" onclick="doLogout()">
         <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
         <path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
@@ -472,7 +451,13 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
 <nav class="sidebar" id="sidebar">
   <div class="side-nav">
     <div class="side-label">Navigation</div>
-    <div class="side-item active" data-sec="overview" onclick="showSection('overview')">
+    <div class="side-item active" data-sec="hub" onclick="showSection('hub')">
+      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/>
+      <rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/>
+      <rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+      <span>Hub</span></div>
+    <div class="side-sep"></div>
+    <div class="side-item" data-sec="overview" onclick="showSection('overview')">
       <svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="10" rx="1.5"/>
       <rect x="13" y="3" width="8" height="6" rx="1.5"/><rect x="13" y="11" width="8" height="10" rx="1.5"/>
       <rect x="3" y="15" width="8" height="6" rx="1.5"/></svg>
@@ -483,13 +468,6 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
       <rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
       <span>Applications</span>
       <span class="side-count" id="side-count">0</span></div>
-    <div class="side-item" data-sec="settings" onclick="showSection('settings')">
-      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/>
-      <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-      <span>Parametres</span></div>
-  </div>
-  <div class="side-foot">
-    <span class="side-foot-dot"></span><span class="side-foot-txt">Serveur en service</span>
   </div>
 </nav>
 
@@ -704,8 +682,13 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
   </div>
 </div>
 
-<div id="sec-settings" class="section" style="display:none">
-  <div class="toolbar"><h2>Parametres du compte</h2></div>
+<!-- ==================== PARAMETRES (personnel) ==================== -->
+<!-- Tout ce qui n'appartient qu'a la personne connectee : son affichage, son
+     second facteur, sa session. Chaque compte y a droit, administrateur ou
+     non -- la configuration du serveur, elle, vit dans « Configuration ». -->
+<div id="sec-profil" class="section" style="display:none">
+  <div class="toolbar"><h2>Parametres</h2></div>
+  <div class="sous" id="profil-sous"></div>
 
   <div class="zone">
     <div class="zone-title">Preferences</div>
@@ -724,7 +707,7 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
     </div>
   </div>
 
-  <div class="zone">
+  <div class="zone" id="profil-securite">
     <div class="zone-title">Securite</div>
 
     <div class="card settings-card">
@@ -765,7 +748,29 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
         <div class="err" id="totp-err-off" style="display:none"></div>
       </div>
     </div>
+  </div>
 
+  <div class="zone">
+    <div class="zone-title">Session</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Session</b>
+        <div class="path">Deconnecte cette session du panneau CodeLab.</div>
+      </div></div>
+      <button class="btn btn-default" onclick="doLogout()">
+        <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+        <path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>Deconnexion</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== CONFIGURATION (administrateur) ==================== -->
+<div id="sec-settings" class="section" style="display:none">
+  <div class="toolbar"><h2>Configuration</h2></div>
+  <div class="sous">Ce qui vaut pour tout le serveur : exposition, comptes et alertes.</div>
+
+  <div class="zone">
+    <div class="zone-title">Serveur</div>
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
         <b>Exposition</b>
@@ -870,19 +875,6 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
         Dagster lit le meme serveur d'envoi. Une seule configuration pour toute la stack.</div>
     </div>
   </div>
-
-  <div class="zone">
-    <div class="zone-title">Session</div>
-    <div class="card settings-card">
-      <div class="card-top"><div class="card-name">
-        <b>Session</b>
-        <div class="path">Deconnecte cette session du panneau CodeLab.</div>
-      </div></div>
-      <button class="btn btn-default" onclick="doLogout()">
-        <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-        <path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>Deconnexion</button>
-    </div>
-  </div>
 </div>
 
   </div>
@@ -951,31 +943,37 @@ applySidebar(localStorage.getItem('codelab-sidebar')||'expanded');
 
 /* ---------------- menu du compte ---------------- */
 function toggleAcctMenu(){ $('acct-menu').classList.toggle('show'); }
-function goToSettings(){ $('acct-menu').classList.remove('show'); showSection('settings'); }
+function allerA(section){ $('acct-menu').classList.remove('show'); showSection(section); }
 document.addEventListener('click', e=>{
   const wrap=document.querySelector('.acct-wrap');
   if(wrap && !wrap.contains(e.target)) $('acct-menu').classList.remove('show');
 });
 
 /* ---------------- navigation ---------------- */
+/* Le hub est l'accueil de tout le monde, administrateur compris : c'est la
+   page qui lance les applications. Le reste -- vue d'ensemble, applications,
+   configuration -- s'ouvre depuis le menu lateral ou le menu du compte. */
 function showSection(name){
-  /* Un compte utilisateur n'a qu'une section. Ce garde-fou n'est pas une
-     protection -- les routes verifient le role de leur cote -- c'est ce qui
-     evite qu'un clic egare mene a une page vide et a des appels refuses. */
-  if(!estAdmin) name='hub';
+  /* Un compte utilisateur n'a que le hub et ses parametres personnels. Ce
+     garde-fou n'est pas une protection -- les routes verifient le role de leur
+     cote -- c'est ce qui evite qu'un clic egare mene a une page vide et a des
+     appels refuses. */
+  if(!estAdmin && name!=='hub' && name!=='profil') name='hub';
   document.querySelectorAll('.section').forEach(s=>{ s.style.display = (s.id==='sec-'+name) ? '' : 'none'; });
   /* La fiche d'une application appartient a "Applications" : l'entree du menu
      doit rester allumee quand on y descend. */
   const surligne = (name==='app') ? 'apps' : name;
   document.querySelectorAll('.side-item').forEach(t=>t.classList.toggle('active', t.dataset.sec===surligne));
-  $('acct-btn').classList.toggle('active', name==='settings');
+  $('acct-btn').classList.toggle('active', name==='settings' || name==='profil');
 
   /* Un flux de journal occupe une place cote serveur : on le ferme des qu'on
      quitte la fiche, sans attendre que le navigateur s'en apercoive. */
   if(name!=='app') fermerLog();
   if(name==='hub') chargerHub();
+  if(name==='overview' || name==='apps') refresh();
   /* L'etat de securite est relu a chaque ouverture : il peut avoir change
      depuis un autre onglet, ou au redemarrage du service. */
+  if(name==='profil' && estAdmin) chargerSecurite();
   if(name==='settings'){ chargerSecurite(); chargerAlertes(); chargerUtilisateurs(); }
 }
 
@@ -999,7 +997,8 @@ function badgeVis(a){
 let filtre='';
 function onRecherche(){
   filtre=($('q').value||'').toLowerCase();
-  if(mode==='hub' || !estAdmin) chargerHub(); else render();
+  /* La recherche filtre ce qu'on regarde, sans rien redemander au serveur. */
+  if($('sec-hub').style.display!=='none') peindreHub(); else render();
 }
 function correspond(a){
   if(!filtre) return true;
@@ -1024,7 +1023,7 @@ function peindreHub(){
     $('hub-liste').innerHTML = filtre
       ? '<div class="hub-vide"><b>Aucun resultat</b>Aucune application ne correspond a « '+esc(filtre)+' ».</div>'
       : (estAdmin
-        ? '<div class="hub-vide"><b>Aucune application declaree</b>Passe en mode developpeur pour en ajouter une.</div>'
+        ? '<div class="hub-vide"><b>Aucune application declaree</b>Ouvre « Applications » dans le menu de gauche pour en ajouter une.</div>'
         : '<div class="hub-vide"><b>Aucune application pour le moment</b>'
           + 'Ton administrateur ne t\'a pas encore donne acces a une application.</div>');
     return;
@@ -1037,22 +1036,6 @@ function peindreHub(){
       <div class="txt"><div class="nom">${esc(a.name)}</div>${desc}
       <div class="bas">${badgeEtat(a)}${badgeVis(a)}</div></div></a>`;
   }).join('');
-}
-
-/* ---------------- bascule Hub / Developpeur ---------------- */
-function setMode(m){
-  if(!estAdmin) m='hub';
-  mode = m;
-  try{ localStorage.setItem('codelab-mode', m); }catch(e){}
-  document.querySelectorAll('#mode-toggle button')
-    .forEach(b=>b.classList.toggle('active', b.dataset.m===m));
-  /* En mode hub, le menu lateral et son bouton disparaissent : il ne mene
-     qu'a des sections de developpement. La page redevient un lanceur. */
-  const dev = (m==='dev');
-  $('sidebar').style.display = dev ? '' : 'none';
-  $('btn-menu').style.display = dev ? '' : 'none';
-  showSection(dev ? 'overview' : 'hub');
-  if(dev) refresh();
 }
 
 /* ---------------- vue d'ensemble ---------------- */
@@ -1700,38 +1683,39 @@ ROOT=__ROOT__;
    uniquement : chaque route verifie le role de son cote. */
 const ROLE=__ROLE__, UTILISATEUR=__UTILISATEUR__;
 const estAdmin = ROLE==='admin';
-let mode='hub';
 
 $('qui-nom').textContent = UTILISATEUR || '';
 $('qui-role').textContent = estAdmin ? 'Administrateur' : 'Utilisateur';
+$('profil-sous').textContent = estAdmin
+  ? 'Ton affichage, ton second facteur et ta session.'
+  : 'Ton affichage et ta session.';
+
+const visible = id => $(id).style.display!=='none';
 
 if(estAdmin){
-  $('mode-toggle').style.display='flex';
   /* « Hub » cote administrateur : il y voit TOUTES les applications, pas
      seulement les siennes -- le titre « Mes applications » serait faux. */
   $('hub-titre').textContent='Hub';
-  /* On revient la ou on etait : un administrateur qui vit en mode
-     developpeur ne veut pas repasser par le hub a chaque ouverture. */
-  let voulu='dev';
-  try{ voulu = localStorage.getItem('codelab-mode') || 'dev'; }catch(e){}
-  setMode(voulu==='hub' ? 'hub' : 'dev');
-  setInterval(()=>{ if(mode==='dev') refresh(); }, 5000);
-  /* Le hub reste juste, meme laisse ouvert : les etats changent tout seuls
-     quand une application tombe ou repart. */
-  setInterval(()=>{ if(mode==='hub') chargerHub(); }, 10000);
+  /* Le compteur du menu lateral doit etre juste des la premiere seconde,
+     avant meme qu'on ouvre « Applications ». */
+  refresh();
+  setInterval(()=>{ if(visible('sec-overview')||visible('sec-apps')||visible('sec-app')) refresh(); }, 5000);
   /* Les metriques de la fiche ne se rafraichissent que lorsqu'on les regarde. */
   setInterval(()=>{
-    if(ficheNom && ficheOngletActif==='metriques'
-       && $('sec-app').style.display!=='none') chargerMetriques(ficheNom);
+    if(ficheNom && ficheOngletActif==='metriques' && visible('sec-app')) chargerMetriques(ficheNom);
   }, 5000);
 }else{
-  /* Compte utilisateur : ni bascule, ni menu, ni parametres. */
+  /* Compte utilisateur : pas de menu lateral, pas de configuration. Il garde
+     ses parametres personnels, eux, dans le menu du compte. */
   $('sidebar').style.display='none';
   $('btn-menu').style.display='none';
-  $('acct-parametres').style.display='none';
-  showSection('hub');
-  setInterval(chargerHub, 10000);
+  $('acct-configuration').style.display='none';
+  $('profil-securite').style.display='none';
 }
+/* Le hub est l'accueil de tout le monde. Laisse ouvert il reste juste : les
+   etats changent tout seuls quand une application tombe ou repart. */
+showSection('hub');
+setInterval(()=>{ if(visible('sec-hub')) chargerHub(); }, 10000);
 
 </script>
 </body></html>

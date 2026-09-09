@@ -2290,12 +2290,13 @@ def login_page():
 @flask_app.get("/")
 @require_auth
 def index():
-    """Une seule application, deux visages.
+    """Une seule application, un seul accueil.
 
-    Le hub (la liste des projets qu'on peut ouvrir) et l'outil de
-    developpement (declarer, deployer, configurer, gerer les comptes) sont
-    deux modes de la MEME page, pas deux applications : l'administrateur
-    bascule de l'un a l'autre sans changer d'adresse ni se reconnecter.
+    CodeLab est une page unique, servie a la meme adresse a tout le monde,
+    et le hub (la liste des projets qu'on peut ouvrir) en est l'accueil,
+    administrateur compris. Le role ne change pas de page : il ouvre en plus
+    le menu lateral (vue d'ensemble, applications, journaux) et l'entree
+    « Configuration » du menu du compte.
 
     Le role est injecte dans la page pour qu'elle sache quoi afficher --
     mais ce n'est qu'un confort d'affichage : chaque route d'administration
