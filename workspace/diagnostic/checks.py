@@ -11,6 +11,7 @@ import os
 import socket
 import stat
 import urllib.error
+import urllib.parse
 import urllib.request
 
 ENV_FILE = os.environ.get("CODELAB_ENV_FILE", "/var/lib/codelab/config/credentials.env")
@@ -283,6 +284,18 @@ def _mode(chemin):
     return stat.filemode(os.stat(chemin).st_mode)
 
 
+def _taille(chemin):
+    """Taille en octets, -1 si meme la metadonnee est hors de portee.
+
+    Lire la taille ne demande que de traverser le dossier, pas d'ouvrir le
+    fichier : c'est ce qui reste possible quand on tourne sous un autre uid
+    que son proprietaire."""
+    try:
+        return os.stat(chemin).st_size
+    except OSError:
+        return -1
+
+
 # ---------------------------------- sondes ----------------------------------
 # Chacune renvoie (ok, titre, detail). Aucune ne leve : une sonde qui echoue
 # doit afficher pourquoi, pas faire tomber la page.
@@ -364,6 +377,24 @@ def check_http(nom, url, timeout=4):
             return True, nom, f"{url} -- HTTP {r.status}"
     except urllib.error.HTTPError as e:
         return True, nom, f"{url} -- HTTP {e.code} (service joignable)"
+    except urllib.error.URLError as e:
+        # Nom resolu mais rien en ecoute : le conteneur tourne, le service
+        # qu'il heberge non -- il demarre encore, ou il est tombe. C'est une
+        # panne tres differente d'un nom introuvable (conteneur arrete), et
+        # les deux se lisent pareil sans cette distinction.
+        hote = urllib.parse.urlsplit(url).hostname or nom
+        if isinstance(e.reason, ConnectionRefusedError):
+            return False, nom, (
+                f"{url} -- connexion refusee : le conteneur repond mais rien "
+                f"n'ecoute sur ce port. Le service demarre encore, ou il est "
+                f"tombe : docker logs --tail 50 {hote}")
+        if isinstance(e.reason, socket.gaierror):
+            # Meme lecture que dans check_tcp : le DNS de Docker n'inscrit que
+            # les conteneurs demarres.
+            return False, nom, (
+                f"{url} -- nom introuvable ({e.reason}). Conteneur arrete, ou "
+                f"hors du reseau codelab : docker ps -a --filter name={hote}")
+        return False, nom, f"{url} -- {type(e).__name__}: {e}"
     except Exception as e:
         return False, nom, f"{url} -- {type(e).__name__}: {e}"
 
@@ -417,15 +448,33 @@ def check_cles_ssh(ssh_dir=None, uid=None):
             cles = [l for l in f.read().splitlines()
                     if l.strip() and not l.strip().startswith("#")]
     except OSError as e:
-        return False, "Cles SSH (droits)", f"{ak} -- {e}"
+        # Ne pas pouvoir ouvrir le fichier SOI-MEME n'est pas un defaut : ce
+        # code ne tourne pas forcement sous l'uid de sshd. Dans le conteneur
+        # app-manager il tourne sous l'uid 1001, et authorized_keys appartient
+        # a l'uid 1000 en 0600 -- exactement ce qu'on veut. Les droits ont
+        # deja ete verifies au-dessus, depuis les metadonnees, et ils disent
+        # que sshd y arrivera. Seul le comptage des cles est perdu ; le cas
+        # qui compte vraiment, un fichier vide, se lit encore dans la taille.
+        if _taille(ak) == 0:
+            return False, "Cles SSH (droits)", (
+                f"{ak} est vide -- aucune connexion SSH ne passera")
+        return True, "Cles SSH (droits)", (
+            f"droits corrects pour l'uid {u} ; contenu non verifiable depuis "
+            f"ce conteneur, qui tourne sous l'uid {os.geteuid()} ({e.strerror}) "
+            f"-- {_taille(ak)} octets")
     if not cles:
         return False, "Cles SSH (droits)", f"{ak} est vide -- aucune connexion SSH ne passera"
 
-    n_hotes = len([x for x in os.listdir(hk)
-                   if x.endswith("_key")]) if os.path.isdir(hk) else 0
+    try:
+        n_hotes = len([x for x in os.listdir(hk)
+                       if x.endswith("_key")]) if os.path.isdir(hk) else 0
+        detail_hotes = f"{n_hotes} cle(s) hote persistee(s)"
+    except OSError:
+        # Meme raison : le dossier des cles hote appartient a sshd, pas a nous.
+        detail_hotes = "cles hote non listables depuis ce conteneur"
     return True, "Cles SSH (droits)", (
         f"{len(cles)} cle(s) autorisee(s), lisible(s) par l'uid {u} ; "
-        f"{n_hotes} cle(s) hote persistee(s)")
+        f"{detail_hotes}")
 
 
 def run_all(env_file=None, workspace=None, ssh_dir=None):
