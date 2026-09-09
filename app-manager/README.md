@@ -712,6 +712,20 @@ d'ou constater ce qui se passe. Un build en echec n'empeche pas le demarrage : l
 
 Supprimer le marqueur autorise une nouvelle inscription, a condition que le panneau soit vide.
 
+## Ce que l'interface ne fait pas
+
+Trois habitudes tenues, parce qu'elles se perdent vite :
+
+- **Aucune boite du systeme.** `alert()`, `confirm()` et `prompt()` sortent de l'interface, bloquent
+  la page et proposent un bouton « OK » qui ne dit pas ce qu'il fait. Les questions passent par une
+  confirmation dont le bouton porte le verbe (« Supprimer », « Retirer »), les echecs par une
+  notification en bas a droite.
+- **Aucun intitule qui repete son voisin.** Un titre de groupe « PREFERENCES » au-dessus d'une carte
+  « Apparence » n'apprend rien : dans les onglets des parametres, l'onglet nomme la famille et la
+  carte nomme le reglage.
+- **Un bouton desactive se voit desactive**, et l'anneau de focus ne suit que la navigation au
+  clavier (`:focus-visible`) — un contour apres chaque clic de souris passe pour un defaut.
+
 ## Identite visuelle
 
 Les quatre ecrans -- connexion, second facteur, hub et outil de developpement -- partagent une

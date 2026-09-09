@@ -178,6 +178,8 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 .card-name b{font-size:14.5px;font-weight:620;display:block}
 .card-name .path{font-size:12.5px;color:var(--dim);margin-top:2px}
 .card-top .pill{margin-left:auto}
+.card-top .spacer{flex:1}
+.card-top .btn{margin-top:-2px}
 
 /* Chiffres de la vue d'ensemble */
 .ov-nums{display:flex;gap:26px}
@@ -224,10 +226,20 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 /* ------------------------------ boutons ------------------------------ */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;
  padding:8px 14px;border-radius:var(--r-s);border:1px solid transparent;font:inherit;
- font-size:13px;font-weight:560;cursor:pointer;white-space:nowrap}
+ font-size:13px;font-weight:560;cursor:pointer;white-space:nowrap;
+ transition:background .12s,border-color .12s,color .12s}
 .btn svg{width:15px;height:15px}
+/* Un bouton desactive doit se voir desactive : sans cela on clique, rien ne
+   se passe, et on croit l'interface cassee. */
+.btn:disabled{opacity:.5;cursor:default}
+.btn:disabled:hover{border-color:var(--line2);color:inherit;background:var(--surface)}
+/* L'anneau ne suit que la navigation au clavier (:focus-visible), pas le
+   clic a la souris -- un contour apres chaque clic passe pour un defaut. */
+.btn:focus-visible,.icon-btn:focus-visible,.side-item:focus-visible,
+.fiche-onglets button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .btn-primary{background:var(--accent);color:#fff}
 .btn-primary:hover{background:var(--accent-h)}
+.btn-primary:disabled:hover{background:var(--accent)}
 .btn-default{background:var(--surface);color:var(--txt);border-color:var(--line2)}
 .btn-default:hover{border-color:var(--accent);color:var(--accent)}
 .btn-quiet{background:transparent;color:var(--dim)}
@@ -397,10 +409,27 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
 .mf .spacer{flex:1}
 
 /* ------------------------------ parametres ------------------------------ */
-.settings-card{max-width:620px;margin-bottom:14px}
+/* 760 px : au-dela, un champ de formulaire devient une ligne trop longue a
+   parcourir des yeux ; en deca, la carte flottait dans le vide sur un ecran
+   large. Les listes (comptes, journal) prennent toute la largeur, elles. */
+.settings-card{max-width:760px;margin-bottom:14px}
 .settings-card .field{margin-bottom:0}
 .settings-card .field+.field{margin-top:14px}
 .settings-card .grid2+.field{margin-top:14px}
+/* Dans une paire cote a cote, la seconde colonne est aussi un « champ qui
+   suit un champ » : elle heritait de la marge du dessus et descendait de
+   14 px, si bien que « Port » ne s'alignait pas sur « Hote SMTP ». */
+.settings-card .grid2>.field+.field{margin-top:0}
+.card-large{max-width:none}
+/* Une rangee de boutons sous un formulaire. Avant, on reutilisait .mf --
+   le pied d'une pop-up -- en annulant son fond, ses bordures et son
+   alignement a chaque fois. */
+.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+/* Dans les parametres, les intitules de groupe faisaient doublon : l'onglet
+   nomme la famille, le titre de la carte nomme le reglage. « PREFERENCES »
+   au-dessus d'une carte « Apparence » n'apprenait rien. */
+.onglet-p .zone-title{display:none}
+.onglet-p .zone{margin-bottom:14px}
 .us-compte{border:1px solid var(--line);border-radius:10px;padding:13px 15px;margin-bottom:10px}
 .us-tete{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
 .us-tete .spacer{flex:1}
@@ -436,6 +465,9 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
 .act-ligne .act-ip{margin-left:auto;color:var(--dim2);font-size:11.5px;
  font-family:ui-monospace,Menlo,monospace}
 .act-vide{color:var(--dim);font-size:13px;padding:8px 0}
+/* Un vide explique vaut mieux qu'un vide : il dit ce qui le remplira. */
+.vide{text-align:center;padding:26px 18px;color:var(--dim)}
+.vide b{display:block;color:var(--txt);font-size:14px;font-weight:620;margin-bottom:4px}
 .us-activite{font-size:12px;color:var(--dim2);margin-top:6px}
 
 /* Une ligne par compte : l'initiale, le nom, ce qu'il faut savoir d'un coup
@@ -863,7 +895,7 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
         <label>Adresse</label>
         <input id="mail-adresse" type="email" placeholder="moi@example.com" autocomplete="email">
       </div>
-      <div class="mf" style="justify-content:flex-start;gap:8px;margin-top:0">
+      <div class="actions">
         <button class="btn btn-primary" id="mail-save" onclick="mailEnregistrer()">Enregistrer et verifier</button>
         <button class="btn btn-default" id="mail-renvoyer" onclick="mailRenvoyer()"
           style="display:none">Renvoyer le code</button>
@@ -927,7 +959,7 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
           enregistre tant que ce code n'est pas valide — une cle mal recopiee ne peut donc pas
           t'enfermer dehors.</div>
         <div class="field"><input id="totp-code" inputmode="numeric" maxlength="6" placeholder="123456"></div>
-        <div class="mf" style="justify-content:flex-start;gap:8px">
+        <div class="actions">
           <button class="btn btn-primary" onclick="totpActiver()">Confirmer</button>
           <button class="btn btn-default" onclick="totpAnnuler()">Annuler</button>
         </div>
@@ -1042,7 +1074,7 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
         <button class="btn btn-default" onclick="catAjouter()">Ajouter</button>
       </div>
 
-      <div class="mf" style="justify-content:flex-start;gap:8px;margin-top:4px">
+      <div class="actions">
         <button class="btn btn-primary" id="cat-save" onclick="catEnregistrer()">Enregistrer</button>
       </div>
       <div class="err" id="cat-err" style="display:none"></div>
@@ -1099,7 +1131,7 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
           <em>mot de passe d'application</em>, pas ton mot de passe habituel.</div>
       </div>
 
-      <div class="mf" style="justify-content:flex-start;gap:8px;margin-top:4px">
+      <div class="actions">
         <button class="btn btn-primary" id="al-save" onclick="alEnregistrer()">Enregistrer</button>
         <button class="btn btn-default" id="al-test" onclick="alTester()">Envoyer un mail de test</button>
         <button class="btn btn-default" id="al-toggle" onclick="alBasculer()">Activer</button>
@@ -1126,56 +1158,54 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
   <div class="sous">Les comptes qui ouvrent ce serveur, et ce que chacun peut voir.</div>
 
   <div class="zone">
-    <div class="zone-title">Connexions</div>
-    <div class="card settings-card" style="max-width:none">
+    <div class="card settings-card card-large">
       <div class="card-top"><div class="card-name">
-        <b>Connexions et acces recents</b>
-        <div class="path">Qui est entre, quand, et quelle application a ete ouverte.</div>
-      </div></div>
-      <div class="hint">Deux usages, et deux seulement : reconnaitre une tentative d'intrusion
-        (des echecs en rafale, une connexion a une heure inhabituelle), et savoir si un projet
-        sert encore a quelqu'un avant de l'arreter.</div>
-      <div class="act-liste" id="ac-connexions" style="margin-top:12px"></div>
+        <b>Comptes</b>
+        <div class="path">Chacun n'ouvre que les projets prives que tu lui autorises.</div>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn btn-primary btn-sm" onclick="usFormulaire(true)">Nouveau compte</button></div>
+
+      <div class="hint" id="us-inscription-libre" style="display:none"></div>
+
+      <div id="us-liste" style="margin-top:14px"></div>
+
+      <!-- Le formulaire de creation est replie : on ouvre cette page dix fois
+           pour regarder ou modifier, une fois pour ajouter quelqu'un. -->
+      <div id="us-nouveau" style="display:none;margin-top:18px;border-top:1px solid var(--line);padding-top:16px">
+        <div class="mb-titre">Nouveau compte</div>
+        <div class="grid2">
+          <div class="field"><label>Nom</label>
+            <input id="us-nom" placeholder="marie" autocomplete="off">
+            <div class="hint">Minuscules, chiffres, tiret ou souligne.</div>
+          </div>
+          <div class="field"><label>Adresse mail <span class="opt">facultatif</span></label>
+            <input id="us-mail" type="email" placeholder="marie@example.com" autocomplete="off">
+            <div class="hint">La personne la confirmera elle-meme, par un code recu dessus.</div>
+          </div>
+        </div>
+        <div class="field" style="margin-top:14px"><label>Mot de passe</label>
+          <input id="us-mdp" type="password" autocomplete="new-password" placeholder="8 caracteres au minimum">
+          <div class="hint">Le second facteur, lui, s'enregistre a la premiere connexion : tu ne
+            connais jamais la cle de quelqu'un d'autre.</div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-primary" id="us-creer" onclick="usCreer()">Creer le compte</button>
+          <button class="btn btn-default" onclick="usFormulaire(false)">Annuler</button>
+        </div>
+        <div class="err" id="us-err" style="display:none"></div>
+      </div>
     </div>
   </div>
 
   <div class="zone">
-    <div class="zone-title">Comptes</div>
-    <div class="card settings-card" style="max-width:none">
+    <div class="zone-title">Connexions recentes</div>
+    <div class="card settings-card card-large">
       <div class="card-top"><div class="card-name">
-        <b>Espaces utilisateurs</b>
-        <div class="path">Des comptes qui n'ouvrent que les projets que tu leur autorises.</div>
+        <b>Journal des acces</b>
+        <div class="path">Qui est entre, quand, et quelle application a ete ouverte.</div>
       </div></div>
-
-      <div class="hint">Un compte utilisateur voit une page « Mes projets » et rien d'autre :
-        pas de deploiement, pas de configuration, pas de Dagster. L'autorisation ne compte que pour
-        les projets <b>prives</b> — un projet public reste ouvert a tout le monde, y compris sans
-        connexion.</div>
-      <div class="hint" id="us-inscription-libre" style="margin-top:8px;display:none"></div>
-      <div class="hint" style="margin-top:8px"><b>Le second facteur est obligatoire</b> pour ces
-        comptes : a sa premiere connexion, la personne enregistre une cle dans son application
-        d'authentification, et un code lui sera demande ensuite a chaque fois. Tu ne connais jamais
-        sa cle — en cas de telephone perdu, remets l'etape a zero et elle en enregistrera une
-        nouvelle.</div>
-
-      <div id="us-liste" style="margin-top:14px"></div>
-
-      <div class="field" style="margin-top:14px">
-        <label>Nouveau compte</label>
-        <input id="us-nom" placeholder="marie" autocomplete="off">
-        <div class="hint">Minuscules, chiffres, tiret ou souligne.</div>
-      </div>
-      <div class="field"><label>Adresse mail <span class="opt">facultatif</span></label>
-        <input id="us-mail" type="email" placeholder="marie@example.com" autocomplete="off">
-        <div class="hint">Elle relie le compte a quelqu'un de joignable. La personne la confirmera
-          elle-meme, par un code recu dessus, depuis ses parametres.</div>
-      </div>
-      <div class="field"><label>Mot de passe</label>
-        <input id="us-mdp" type="password" autocomplete="new-password" placeholder="8 caracteres au minimum">
-      </div>
-      <button class="btn btn-primary" id="us-creer" onclick="usCreer()"
-        style="margin-top:14px">Creer le compte</button>
-      <div class="err" id="us-err" style="display:none"></div>
+      <div class="act-liste" id="ac-connexions" style="margin-top:6px"></div>
     </div>
   </div>
 </div>
@@ -1240,7 +1270,7 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
     <div class="mb-groupe">
       <div class="mb-titre">Moyens de connexion</div>
       <div class="hint" id="us-f-facteurs"></div>
-      <div class="mf" style="justify-content:flex-start;gap:8px;padding:0;margin-top:12px;background:none;border:none">
+      <div class="actions">
         <button class="btn btn-default btn-sm" id="us-f-totp" onclick="usReinitTotp()">Reinitialiser le second facteur</button>
         <button class="btn btn-default btn-sm" id="us-f-cles" onclick="usRetirerCles()">Retirer les cles d'acces</button>
       </div>
@@ -2047,9 +2077,18 @@ async function chargerActivite(){
 function ligneActivite(e){
   const qui = e.qui ? esc(e.qui) : 'visiteur anonyme';
   let quoi;
-  if(e.genre==='connexion') quoi = 's\'est connecte' + (e.role==='admin' ? ' (administrateur)' : '');
+  if(e.genre==='connexion'){
+    quoi = 's\'est connecte' + (e.role==='admin' ? ' (administrateur)' : '');
+    /* Par quel moyen : un mot de passe vole ne produit pas la meme ligne
+       qu'une cle d'acces, et c'est ce qu'on regarde en cas de doute. */
+    if(e.moyen) quoi += ' par ' + esc(e.moyen);
+  }
   else if(e.genre==='echec') quoi = '<b style="color:var(--err)">connexion refusee</b> — ' + esc(e.motif||'');
-  else quoi = 'a ouvert <b>' + esc(e.app||'') + '</b>';
+  else if(e.genre==='ouverture') quoi = 'a ouvert <b>' + esc(e.app||'') + '</b>';
+  /* Les cles d'acces ajoutees ou retirees passaient par la branche des
+     ouvertures : le journal affichait « a ouvert » suivi de rien. */
+  else if(e.genre==='passkey') quoi = "cle d'acces — " + esc(e.action||'');
+  else quoi = esc(e.genre||'');
   return `<div class="act-ligne">
     <span class="act-quand" title="${esc(quandPrecis(e.ts))}">${esc(ilYA(e.ts))}</span>
     <span class="act-qui">${qui}</span><span class="act-quoi">${quoi}</span>
@@ -2106,8 +2145,9 @@ async function chargerUtilisateurs(){
   const comptes=d.utilisateurs||[];
   $('side-count-users').textContent=comptes.length;
   if(!comptes.length){
-    $('us-liste').innerHTML='<div class="hint">Aucun compte utilisateur. '
-      +'Toi seul peux ouvrir les projets prives.</div>';
+    $('us-liste').innerHTML='<div class="vide"><b>Aucun compte</b>'
+      +'Toi seul peux ouvrir les projets prives. Cree un compte pour partager '
+      +'un projet avec quelqu\'un sans lui donner l\'administration.</div>';
     return;
   }
   /* La liste dit l'essentiel ; le detail vit dans la fiche du compte. Une
@@ -2170,6 +2210,13 @@ function notifier(texte, genre){
   n.innerHTML = icone + '<div>' + esc(texte) + '</div>';
   $('toasts').appendChild(n);
   setTimeout(()=>n.remove(), genre==='err' ? 7000 : 4000);
+}
+
+/* ---------------- creation d'un compte ---------------- */
+function usFormulaire(ouvert){
+  $('us-nouveau').style.display = ouvert ? 'block' : 'none';
+  usErreur('');
+  if(ouvert) setTimeout(()=>$('us-nom').focus(), 40);
 }
 
 /* ---------------- fiche d'un compte ---------------- */
@@ -2263,6 +2310,7 @@ async function usCreer(){
   const d=await r.json();
   if(!r.ok){ usErreur(d.error||'Creation impossible.'); return; }
   $('us-nom').value=''; $('us-mdp').value=''; $('us-mail').value='';
+  usFormulaire(false);
   await chargerUtilisateurs();
   notifier('Compte « ' + d.nom + ' » cree. Ouvre-le pour lui autoriser des projets.');
 }
@@ -2275,11 +2323,10 @@ async function chargerInscriptionLibre(){
   const z=$('us-inscription-libre');
   z.style.display='block';
   z.innerHTML = d.ouverte
-    ? '<b>La creation de compte est ouverte</b> depuis la page de connexion : le serveur d\'envoi '
-      + 'est configure, donc une adresse peut etre verifiee. Un compte cree ainsi n\'ouvre '
-      + '<b>aucun projet</b> tant que tu ne lui en autorises pas.'
-    : '<b>La creation de compte est fermee.</b> Configure un serveur d\'envoi (Parametres &gt; '
-      + 'Alertes) pour l\'ouvrir : sans mail, une adresse declaree ne peut pas etre verifiee.';
+    ? '<b>L\'inscription libre est ouverte</b> sur la page de connexion. Un compte cree ainsi '
+      + 'n\'ouvre <b>aucun projet</b> tant que tu ne lui en autorises pas.'
+    : '<b>L\'inscription libre est fermee</b> : sans serveur d\'envoi (Parametres &gt; Alertes), '
+      + 'une adresse declaree ne peut pas etre verifiee.';
 }
 
 /* ---------------- mon adresse mail ---------------- */
