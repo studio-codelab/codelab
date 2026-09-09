@@ -775,6 +775,44 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
     </div>
   </div>
 
+  <!-- Masquee jusqu'a ce qu'on sache qui regarde : le compte
+       d'administration n'a pas d'adresse propre. -->
+  <div class="zone" id="profil-mail" style="display:none">
+    <div class="zone-title">Adresse mail</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Adresse mail</b>
+        <div class="path">L'adresse rattachee a ton compte.</div>
+      </div>
+      <span class="pill" id="mail-etat"><i></i>&nbsp;</span></div>
+
+      <div class="hint">Un code a six chiffres est envoye a cette adresse pour verifier que tu la
+        releves vraiment. Cette verification ne remplace pas le second facteur et n'ouvre aucune
+        session : elle atteste seulement que l'adresse est la tienne.</div>
+
+      <div class="field" style="margin-top:14px">
+        <label>Adresse</label>
+        <input id="mail-adresse" type="email" placeholder="moi@example.com" autocomplete="email">
+      </div>
+      <div class="mf" style="justify-content:flex-start;gap:8px;margin-top:0">
+        <button class="btn btn-primary" id="mail-save" onclick="mailEnregistrer()">Enregistrer et verifier</button>
+        <button class="btn btn-default" id="mail-renvoyer" onclick="mailRenvoyer()"
+          style="display:none">Renvoyer le code</button>
+      </div>
+
+      <div id="mail-confirmation" style="display:none">
+        <div class="field" style="margin-top:14px"><label>Code recu par mail</label>
+          <input id="mail-code" inputmode="numeric" maxlength="6" placeholder="123456"></div>
+        <button class="btn btn-primary" onclick="mailConfirmer()">Confirmer</button>
+      </div>
+
+      <div class="err" id="mail-err" style="display:none"></div>
+      <div class="hint" id="mail-msg" style="display:none"></div>
+      <div class="hint" id="mail-sans-smtp" style="display:none">Aucun serveur d'envoi n'est
+        configure sur ce serveur : la verification par mail est indisponible pour le moment.</div>
+    </div>
+  </div>
+
   <div class="zone">
     <div class="zone-title">Session</div>
     <div class="card settings-card">
@@ -848,6 +886,7 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
         pas de deploiement, pas de configuration, pas de Dagster. L'autorisation ne compte que pour
         les projets <b>prives</b> — un projet public reste ouvert a tout le monde, y compris sans
         connexion.</div>
+      <div class="hint" id="us-inscription-libre" style="margin-top:8px;display:none"></div>
       <div class="hint" style="margin-top:8px"><b>Le second facteur est obligatoire</b> pour ces
         comptes : a sa premiere connexion, la personne enregistre une cle dans son application
         d'authentification, et un code lui sera demande ensuite a chaque fois. Tu ne connais jamais
@@ -860,6 +899,11 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
         <label>Nouveau compte</label>
         <input id="us-nom" placeholder="marie" autocomplete="off">
         <div class="hint">Minuscules, chiffres, tiret ou souligne.</div>
+      </div>
+      <div class="field"><label>Adresse mail <span class="opt">facultatif</span></label>
+        <input id="us-mail" type="email" placeholder="marie@example.com" autocomplete="off">
+        <div class="hint">Elle relie le compte a quelqu'un de joignable. La personne la confirmera
+          elle-meme, par un code recu dessus, depuis ses parametres.</div>
       </div>
       <div class="field"><label>Mot de passe</label>
         <input id="us-mdp" type="password" autocomplete="new-password" placeholder="8 caracteres au minimum">
@@ -1030,8 +1074,9 @@ function showSection(name){
   if(name==='overview' || name==='apps') refresh();
   /* L'etat de securite est relu a chaque ouverture : il peut avoir change
      depuis un autre onglet, ou au redemarrage du service. */
-  if(name==='profil' && estAdmin) chargerSecurite();
-  if(name==='settings'){ chargerSecurite(); chargerAlertes(); chargerUtilisateurs(); chargerCategories(); }
+  if(name==='profil'){ chargerMonCompte(); if(estAdmin) chargerSecurite(); }
+  if(name==='settings'){ chargerSecurite(); chargerAlertes(); chargerUtilisateurs();
+                         chargerCategories(); chargerInscriptionLibre(); }
 }
 
 /* ---------------- etats ---------------- */
@@ -1605,8 +1650,16 @@ async function chargerUtilisateurs(){
     const f = c.totp
       ? '<span class="pill on"><i></i>2FA enregistree</span>'
       : '<span class="pill off"><i></i>2FA en attente</span>';
+    /* L'adresse et son etat : un compte cree librement qui n'a pas confirme
+       la sienne ne peut pas se connecter, et cela doit se voir ici. */
+    const m = !c.email
+      ? '<span class="pill off"><i></i>Sans adresse</span>'
+      : (c.email_verifie
+        ? `<span class="pill on"><i></i>${esc(c.email)}</span>`
+        : `<span class="pill ${c.attente_email?'err':'off'}"><i></i>${esc(c.email)} `
+          + (c.attente_email ? '(inscription a confirmer)' : '(non verifiee)') + '</span>');
     return `<div class="us-compte">
-      <div class="us-tete"><b>${esc(c.nom)}</b>${f}
+      <div class="us-tete"><b>${esc(c.nom)}</b>${f}${m}
         <div class="spacer"></div>
         <button class="btn btn-default btn-sm" onclick="usMotDePasse('${esc(c.nom)}')">Mot de passe</button>
         ${c.totp ? `<button class="btn btn-default btn-sm"
@@ -1628,14 +1681,83 @@ async function usProjets(nom){
 
 async function usCreer(){
   usErreur('');
-  const nom=$('us-nom').value, mdp=$('us-mdp').value;
+  const nom=$('us-nom').value, mdp=$('us-mdp').value, email=$('us-mail').value.trim();
   const r=await fetch('/api/utilisateurs',{method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({nom, mot_de_passe:mdp, projets:[]})});
+    body:JSON.stringify({nom, mot_de_passe:mdp, email, projets:[]})});
   const d=await r.json();
   if(!r.ok){ usErreur(d.error||'Creation impossible.'); return; }
-  $('us-nom').value=''; $('us-mdp').value='';
+  $('us-nom').value=''; $('us-mdp').value=''; $('us-mail').value='';
   chargerUtilisateurs();
+}
+
+/* L'inscription libre suit le serveur d'envoi : sans mail, aucun moyen de
+   verifier une adresse, donc pas de creation de compte ouverte. */
+async function chargerInscriptionLibre(){
+  let d;
+  try{ d=await (await fetch('/api/inscription')).json(); }catch(e){ return; }
+  const z=$('us-inscription-libre');
+  z.style.display='block';
+  z.innerHTML = d.ouverte
+    ? '<b>La creation de compte est ouverte</b> depuis la page de connexion : le serveur d\'envoi '
+      + 'est configure, donc une adresse peut etre verifiee. Un compte cree ainsi n\'ouvre '
+      + '<b>aucun projet</b> tant que tu ne lui en autorises pas.'
+    : '<b>La creation de compte est fermee.</b> Configure un serveur d\'envoi (Configuration &gt; '
+      + 'Alertes) pour l\'ouvrir : sans mail, une adresse declaree ne peut pas etre verifiee.';
+}
+
+/* ---------------- mon adresse mail ---------------- */
+let monCompte={};
+async function chargerMonCompte(){
+  try{ monCompte=await (await fetch('/api/mon-compte')).json(); }catch(e){ return; }
+  /* Le compte d'administration n'a pas d'adresse propre : son mot de passe
+     vit dans credentials.env, et les alertes ont deja leur destinataire. */
+  if(monCompte.role==='admin'){ $('profil-mail').style.display='none'; return; }
+  $('profil-mail').style.display='';
+  $('mail-adresse').value = monCompte.email || '';
+  const p=$('mail-etat');
+  p.className = 'pill ' + (monCompte.email_verifie ? 'on' : 'off');
+  p.innerHTML = '<i></i>' + (monCompte.email_verifie ? 'Verifiee'
+    : (monCompte.email ? 'Non verifiee' : 'Aucune adresse'));
+  $('mail-sans-smtp').style.display = monCompte.smtp ? 'none' : 'block';
+  $('mail-save').disabled = !monCompte.smtp;
+  $('mail-renvoyer').style.display =
+    (monCompte.smtp && monCompte.email && !monCompte.email_verifie) ? '' : 'none';
+  $('mail-confirmation').style.display =
+    (monCompte.email && !monCompte.email_verifie) ? 'block' : 'none';
+}
+function mailMessage(texte, erreur){
+  $('mail-err').style.display = erreur ? 'block' : 'none';
+  $('mail-msg').style.display = (!erreur && texte) ? 'block' : 'none';
+  (erreur ? $('mail-err') : $('mail-msg')).textContent = texte;
+}
+async function mailEnregistrer(){
+  mailMessage('', false);
+  const r=await fetch('/api/mon-compte/email',{method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({email:$('mail-adresse').value.trim()})});
+  const d=await r.json();
+  if(!r.ok){ mailMessage(d.error||'Enregistrement impossible.', true); chargerMonCompte(); return; }
+  await chargerMonCompte();
+  mailMessage('Un code vient de partir. Saisis-le ci-dessous.', false);
+  $('mail-code').focus();
+}
+async function mailRenvoyer(){
+  mailMessage('', false);
+  const r=await fetch('/api/mon-compte/email/code',{method:'POST'});
+  const d=await r.json();
+  mailMessage(r.ok ? 'Un nouveau code vient de partir.' : (d.error||'Envoi impossible.'), !r.ok);
+}
+async function mailConfirmer(){
+  mailMessage('', false);
+  const r=await fetch('/api/mon-compte/email/confirmer',{method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({code:$('mail-code').value})});
+  const d=await r.json();
+  if(!r.ok){ mailMessage(d.error||'Confirmation impossible.', true); return; }
+  $('mail-code').value='';
+  await chargerMonCompte();
+  mailMessage('Adresse verifiee.', false);
 }
 
 async function usMotDePasse(nom){

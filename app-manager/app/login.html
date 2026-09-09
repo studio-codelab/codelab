@@ -212,6 +212,12 @@ button.principal:disabled{opacity:.6;cursor:default}
 .qr{display:none;margin:12px auto 0;width:190px;height:190px;padding:8px;
  background:#fff;border-radius:var(--r-s);border:1px solid var(--line2)}
 .qr.on{display:block}
+
+/* Lien de creation de compte, sous le bouton. Discret : la page sert
+   d'abord a se connecter. */
+.bascule{margin-top:14px;text-align:center;font-size:12.5px;color:var(--dim)}
+.bascule a{color:var(--accent);cursor:pointer;font-weight:600}
+.bascule a:hover{text-decoration:underline}
 </style></head><body>
 
 <div class="presentation">
@@ -251,6 +257,12 @@ button.principal:disabled{opacity:.6;cursor:default}
 
       <div class="field"><label>Nom</label>
         <input type="text" id="nom" autofocus autocomplete="username" placeholder="admin"></div>
+      <div id="creation" style="display:none">
+        <div class="field"><label>Adresse mail</label>
+          <input type="email" id="c-mail" autocomplete="email" placeholder="moi@example.com"></div>
+        <div class="etape-num">Un code y sera envoye pour verifier qu'elle est bien a toi.</div>
+      </div>
+
       <div class="field"><label>Mot de passe</label>
         <input type="password" id="pw" autocomplete="current-password"></div>
 
@@ -276,9 +288,25 @@ button.principal:disabled{opacity:.6;cursor:default}
           telephone, ton administrateur peut remettre cette etape a zero.</div>
       </div>
 
+      <div id="creation-code" style="display:none">
+        <div class="etape">Verifie ton adresse.</div>
+        <div class="etape-num">Saisis le code a six chiffres que tu viens de recevoir par mail.
+          Ton compte sera utilisable ensuite ; il n'ouvrira aucune application tant que
+          l'administrateur ne t'en aura pas autorise.</div>
+        <input type="text" id="c-code" inputmode="numeric" autocomplete="one-time-code"
+               maxlength="6" placeholder="123456" style="margin-top:9px">
+      </div>
+
       <button class="principal" id="go" onclick="submit()">Se connecter</button>
       <div class="err" id="err"></div>
       <div class="ok" id="copie">Cle copiee.</div>
+
+      <!-- Affiche seulement si un serveur d'envoi est configure : sans mail,
+           aucune adresse ne peut etre verifiee, donc pas de compte libre. -->
+      <div class="bascule" id="bascule" style="display:none">
+        <span id="bascule-txt">Pas encore de compte ?</span>
+        <a id="bascule-lien" onclick="basculer()">Creer un compte</a>
+      </div>
 
       <div class="securise">
         <svg viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.4-3 7.7-7 9-4-1.3-7-4.6-7-9V6z"/>
@@ -287,7 +315,7 @@ button.principal:disabled{opacity:.6;cursor:default}
       </div>
     </div>
 
-    <div class="pied">Laisse le nom vide pour te connecter en administrateur.<br>
+    <div class="pied" id="pied">Laisse le nom vide pour te connecter en administrateur.<br>
       Son mot de passe est genere au premier demarrage, avec tous les identifiants CodeLab :
       <br><code>cat /DATA/AppData/codelab/config/credentials.env</code></div>
   </div>
@@ -303,6 +331,7 @@ const codeInscription=document.getElementById('code-inscription');
    normal, lui, apparait quand le serveur repond qu'il en attend un -- la
    page ne peut pas le savoir avant d'avoir essaye. */
 let etape='mot-de-passe';
+const $$=i=>document.getElementById(i);
 /* __TOTP__ est remplace par "1" ou "0" au moment de servir la page : le champ
    du code n'apparait que si la double authentification est active. */
 const avecCode = '__TOTP__' === '1';
@@ -311,6 +340,46 @@ function majChamps(){
   if(etape!=='mot-de-passe') return;
   document.getElementById('totp-bloc').style.display =
     (avecCode && estAdmin()) ? 'block' : 'none';
+}
+
+/* La creation de compte suit le serveur d'envoi : la page demande au
+   serveur si elle est ouverte, plutot que de le deviner. */
+(async()=>{
+  try{
+    const d=await (await fetch('/api/inscription')).json();
+    if(d.ouverte) $$('bascule').style.display='block';
+  }catch(e){}
+})();
+
+function basculer(){
+  etape = (etape==='creation') ? 'mot-de-passe' : 'creation';
+  const creation = etape==='creation';
+  $$('creation').style.display = creation ? 'block' : 'none';
+  $$('totp-bloc').style.display='none';
+  $$('bascule-txt').textContent = creation ? 'Tu as deja un compte ?' : 'Pas encore de compte ?';
+  $$('bascule-lien').textContent = creation ? 'Se connecter' : 'Creer un compte';
+  document.querySelector('.boite h2').textContent = creation ? 'Creer un compte' : 'Connexion';
+  document.querySelector('.boite .st').textContent = creation
+    ? 'Choisis un nom, une adresse mail et un mot de passe.'
+    : 'Accede a tes applications en toute securite.';
+  go.textContent = creation ? 'Creer le compte' : 'Se connecter';
+  /* « admin » en exemple n'a de sens que pour se connecter, et le rappel du
+     nom vide encore moins : les deux disparaissent le temps de l'inscription. */
+  nom.placeholder = creation ? 'marie' : 'admin';
+  $$('pied').style.display = creation ? 'none' : '';
+  err.style.display='none';
+  nom.focus();
+  if(!creation) majChamps();
+}
+
+function afficherConfirmationMail(){
+  etape='creation-code';
+  $$('creation').style.display='none';
+  $$('creation-code').style.display='block';
+  $$('bascule').style.display='none';
+  nom.disabled=true; pw.disabled=true; $$('c-mail').disabled=true;
+  go.textContent='Confirmer';
+  $$('c-code').focus();
 }
 
 function afficherInscription(d){
@@ -346,12 +415,37 @@ function copierSecret(){
 async function submit(){
   err.style.display='none'; go.disabled=true; go.textContent='Connexion...';
   try{
+    if(etape==='creation'){
+      const r=await fetch('/inscription',{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({nom:nom.value, email:$$('c-mail').value, mot_de_passe:pw.value})});
+      const d=await r.json();
+      if(r.ok){ afficherConfirmationMail(); go.disabled=false; return; }
+      err.textContent=d.error||'Creation impossible.'; err.style.display='block';
+      go.disabled=false; go.textContent='Creer le compte';
+      return;
+    }
+    if(etape==='creation-code'){
+      const r=await fetch('/inscription/confirmer',{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({code:$$('c-code').value})});
+      const d=await r.json();
+      if(r.ok){
+        /* Compte utilisable : on rend la main a la connexion, ou la personne
+           enregistrera son second facteur. */
+        location.reload();
+        return;
+      }
+      err.textContent=d.error||'Confirmation impossible.'; err.style.display='block';
+      go.disabled=false; go.textContent='Confirmer';
+      return;
+    }
     if(etape==='inscription'){
       const r=await fetch('/login/second-facteur',{method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({code:codeInscription.value})});
       const d=await r.json();
-      if(r.ok){ location.href = d.role==='utilisateur' ? '/espace' : '/'; return; }
+      if(r.ok){ location.href='/'; return; }
       err.textContent=d.error||'Erreur.'; err.style.display='block';
       go.disabled=false; go.textContent='Confirmer';
       return;
@@ -367,7 +461,7 @@ async function submit(){
       body:JSON.stringify(corps)});
     const d=await r.json();
     if(r.ok && d.inscription){ afficherInscription(d); go.disabled=false; return; }
-    if(r.ok){ location.href = d.role==='utilisateur' ? '/espace' : '/'; return; }
+    if(r.ok){ location.href='/'; return; }
     err.textContent=d.error||'Erreur.'; err.style.display='block';
     if(d.totp && code){ document.getElementById('totp-bloc').style.display='block'; code.focus(); }
   }catch(e){ err.textContent='Erreur reseau.'; err.style.display='block'; }
@@ -379,6 +473,8 @@ nom.addEventListener('input', majChamps);
 pw.addEventListener('keydown', valider);
 if(code) code.addEventListener('keydown', valider);
 codeInscription.addEventListener('keydown', valider);
+$$('c-mail').addEventListener('keydown', valider);
+$$('c-code').addEventListener('keydown', valider);
 majChamps();
 </script>
 </body></html>

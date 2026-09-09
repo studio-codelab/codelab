@@ -24,6 +24,7 @@ import base64
 import importlib.util
 import json
 import os
+import re
 import sys
 import time
 
@@ -1114,3 +1115,162 @@ def test_sans_la_bibliotheque_qr_l_inscription_marche_encore(client, monkeypatch
     assert client.get("/qr/totp.svg").status_code == 404
     code = app.totp_code(d["secret"], int(time.time()) // app.TOTP_PAS)
     assert client.post("/api/securite/totp/activer", json={"code": code}).status_code == 200
+
+
+# ---------- 15. adresse mail des comptes et inscription libre ----------
+#
+# L'adresse relie un compte a quelqu'un de joignable, et c'est elle qui rend
+# l'inscription libre defendable. Ce qui doit rester vrai : une adresse n'est
+# "verifiee" que si un code envoye dessus est revenu, un compte inscrit
+# librement n'ouvre aucun projet et ne se connecte pas avant d'avoir confirme,
+# et l'inscription reste fermee sans serveur d'envoi.
+
+@pytest.fixture
+def comptes_mail(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
+    monkeypatch.setattr(app, "ALERTES_FILE", str(tmp_path / "alertes.json"))
+    monkeypatch.setattr(app, "SHARED_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(app, "SHARED_ENV_FILE", str(tmp_path / "credentials.env"))
+    monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    app._apps_cache["signature"] = None
+    app.save({})
+    app.ecrire_utilisateurs({})
+    (tmp_path / "credentials.env").write_text(
+        "SMTP_HOST=smtp.example.com\nSMTP_USER=panneau@example.com\n")
+    partis = []
+    monkeypatch.setattr(app, "envoyer_mail",
+                        lambda cfg, sujet, corps, destinataires=None:
+                        partis.append((destinataires, corps)))
+    return app.flask_app.test_client(), partis
+
+
+def _code_du_dernier_mail(partis):
+    """Le code tel que la personne le lit dans son mail."""
+    return re.search(r": (\d{6})", partis[-1][1]).group(1)
+
+
+def test_le_code_de_verification_ne_dort_pas_en_clair(comptes_mail):
+    """utilisateurs.json ne doit pas contenir le code qu'on vient d'envoyer.
+
+    Il y resterait a cote du nom du compte, lisible par qui lit le fichier --
+    exactement ce que la derivation des mots de passe evite par ailleurs.
+    """
+    c, partis = comptes_mail
+    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/api/utilisateurs", json={"nom": "marie", "mot_de_passe": "mot-de-passe-long"})
+    c.post("/logout")
+    _connecte(c, "marie", "mot-de-passe-long")
+    r = c.post("/api/mon-compte/email", json={"email": "marie@example.com"})
+    assert r.status_code == 200, r.data
+    code = _code_du_dernier_mail(partis)
+    assert partis[-1][0] == ["marie@example.com"], "le code part a l'adresse declaree"
+
+    brut = open(app.UTILISATEURS_FILE).read()
+    assert code not in brut, "le code ne doit etre range que sous forme d'empreinte"
+
+    assert c.post("/api/mon-compte/email/confirmer",
+                  json={"code": "000000" if code != "000000" else "111111"}).status_code == 400
+    assert app.lire_utilisateurs()["marie"]["email_verifie"] is False
+    assert c.post("/api/mon-compte/email/confirmer", json={"code": code}).status_code == 200
+    assert app.lire_utilisateurs()["marie"]["email_verifie"] is True
+
+
+def test_un_code_ne_se_devine_pas_par_essais_successifs(comptes_mail):
+    """Six chiffres se devinent en un million d'essais : il en faut une borne."""
+    c, partis = comptes_mail
+    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/api/utilisateurs", json={"nom": "marie", "mot_de_passe": "mot-de-passe-long"})
+    c.post("/logout")
+    _connecte(c, "marie", "mot-de-passe-long")
+    c.post("/api/mon-compte/email", json={"email": "marie@example.com"})
+    juste = _code_du_dernier_mail(partis)
+    faux = "000000" if juste != "000000" else "111111"
+
+    for _ in range(app.CODE_EMAIL_ESSAIS):
+        assert c.post("/api/mon-compte/email/confirmer", json={"code": faux}).status_code == 400
+    # Le bon code ne passe plus : le code en cours a ete jete.
+    r = c.post("/api/mon-compte/email/confirmer", json={"code": juste})
+    assert r.status_code == 400
+    assert app.lire_utilisateurs()["marie"]["email_verifie"] is False
+
+
+def test_changer_d_adresse_annule_la_verification(comptes_mail):
+    """Sinon il suffirait de remplacer une adresse verifiee par une autre
+    pour heriter de son statut sans jamais rien recevoir."""
+    c, partis = comptes_mail
+    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/api/utilisateurs", json={"nom": "marie", "mot_de_passe": "mot-de-passe-long"})
+    c.post("/logout")
+    _connecte(c, "marie", "mot-de-passe-long")
+    c.post("/api/mon-compte/email", json={"email": "marie@example.com"})
+    c.post("/api/mon-compte/email/confirmer", json={"code": _code_du_dernier_mail(partis)})
+    assert app.lire_utilisateurs()["marie"]["email_verifie"] is True
+
+    c.post("/api/mon-compte/email", json={"email": "autre@example.com"})
+    assert app.lire_utilisateurs()["marie"]["email_verifie"] is False
+    # Cote administrateur aussi : changer l'adresse de quelqu'un ne lui
+    # transmet pas le statut de l'ancienne. On repart d'un etat verifie pour
+    # que ce soit bien ce chemin-la qui soit mis a l'epreuve.
+    comptes = app.lire_utilisateurs()
+    comptes["marie"]["email_verifie"] = True
+    app.ecrire_utilisateurs(comptes)
+    c.post("/logout")
+    c.post("/login", json={"password": "secret-de-test"})
+    c.put("/api/utilisateurs/marie", json={"email": "encore@example.com"})
+    assert app.lire_utilisateurs()["marie"]["email_verifie"] is False
+
+
+def test_un_compte_inscrit_librement_n_ouvre_rien_et_attend_son_code(comptes_mail):
+    """Le compte existe, mais il ne se connecte pas et n'autorise aucun projet."""
+    c, partis = comptes_mail
+    app.save({"prive": {"path": "/w/a", "command": "x", "port": 9101,
+                        "enabled": True, "visibility": "privee"}})
+    r = c.post("/inscription", json={"nom": "paul", "email": "paul@example.com",
+                                     "mot_de_passe": "mot-de-passe-long"})
+    assert r.status_code == 200, r.data
+    assert app.lire_utilisateurs()["paul"]["projets"] == []
+
+    # Mot de passe juste, et pourtant pas de session : l'adresse n'a pas
+    # encore repondu.
+    r = c.post("/login", json={"nom": "paul", "password": "mot-de-passe-long"})
+    assert r.status_code == 403
+    assert r.get_json().get("attente_email") is True
+    assert c.get("/api/mes-apps").status_code == 401
+
+    app._login_attempts.clear()
+    assert c.post("/inscription/confirmer",
+                  json={"code": _code_du_dernier_mail(partis)}).status_code == 200
+    # Le compte devient utilisable : la connexion demande maintenant le
+    # second facteur, comme pour tout compte utilisateur.
+    r = c.post("/login", json={"nom": "paul", "password": "mot-de-passe-long"})
+    assert r.status_code == 200 and r.get_json().get("inscription") is True
+
+
+def test_sans_serveur_d_envoi_l_inscription_est_fermee(comptes_mail, tmp_path):
+    """Sans mail, une adresse declaree ne peut pas etre verifiee : ouvrir la
+    creation de comptes reviendrait a offrir un formulaire a remplir en
+    boucle."""
+    c, _ = comptes_mail
+    (tmp_path / "credentials.env").write_text("")
+    assert c.get("/api/inscription").get_json()["ouverte"] is False
+    r = c.post("/inscription", json={"nom": "paul", "email": "paul@example.com",
+                                     "mot_de_passe": "mot-de-passe-long"})
+    assert r.status_code == 403
+    assert "paul" not in app.lire_utilisateurs()
+
+
+def test_un_mail_qui_ne_part_pas_ne_laisse_pas_un_nom_pris(comptes_mail, monkeypatch):
+    """Sinon le nom serait pris par quelqu'un qui ne pourra jamais s'en servir."""
+    c, _ = comptes_mail
+    def refuse(*a, **k):
+        raise OSError("relais injoignable")
+    monkeypatch.setattr(app, "envoyer_mail", refuse)
+    r = c.post("/inscription", json={"nom": "paul", "email": "paul@example.com",
+                                     "mot_de_passe": "mot-de-passe-long"})
+    assert r.status_code == 502
+    assert "paul" not in app.lire_utilisateurs()

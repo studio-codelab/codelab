@@ -269,6 +269,39 @@ compte) et stockes dans `utilisateurs.json` en `0600`. Une copie de sauvegarde d
 n'est donc pas une liste de mots de passe. Le compte d'administration, lui, n'est pas dans ce
 fichier : son mot de passe vit dans `credentials.env`, et le nom `admin` est reserve.
 
+## Adresse mail des comptes, et inscription libre
+
+Chaque compte utilisateur porte une **adresse mail**, posee a la creation (par l'administrateur) ou
+choisie par la personne dans ses *Parametres*. L'adresse relie le compte a quelqu'un de joignable.
+
+**Verifier une adresse** consiste a y envoyer un code a six chiffres et a attendre qu'il revienne :
+c'est le seul controle qui vaille, une expression reguliere stricte refusant des adresses valides
+sans arreter personne. Volontairement le meme geste que le second facteur, que la personne connait
+deja. Cette verification **ne remplace pas le second facteur et n'ouvre aucune session** : elle
+atteste seulement que l'adresse existe et qu'elle est bien relevee par qui la declare.
+
+- Le code est range **sous forme d'empreinte** dans `utilisateurs.json` : il n'a pas a y rester
+  lisible a cote du nom du compte.
+- Il vaut 15 minutes, tolere 5 essais, et un nouvel envoi est refuse pendant 60 secondes — un bouton
+  « renvoyer » sans limite est un moyen d'inonder une boite mail qu'on ne possede pas.
+- **Changer d'adresse annule la verification**, cote personne comme cote administrateur : sinon il
+  suffirait de remplacer une adresse verifiee par une autre pour heriter de son statut.
+
+**L'inscription libre** (« Creer un compte » sur la page de connexion) n'est ouverte que si un
+serveur d'envoi est configure : sans mail, une adresse declaree ne peut pas etre verifiee, et la
+creation de comptes devient un formulaire a remplir en boucle. Le parcours :
+
+1. nom, adresse, mot de passe ; un code part vers l'adresse ;
+2. tant que ce code n'est pas revenu, **le compte ne se connecte pas** — mot de passe juste compris ;
+3. une fois confirme, il se connecte comme tout compte utilisateur, en enregistrant son second
+   facteur a la premiere connexion.
+
+**Un compte cree ainsi n'ouvre aucun projet** tant que l'administrateur ne lui en autorise pas :
+c'est ce qui rend l'inscription libre sans consequence — au pire, des comptes vides. La creation est
+comptee dans la limite de tentatives (5 par fenetre et par adresse IP), pour qu'un robot ne fasse pas
+partir des mails en boucle. Un mail qui ne part pas retire le compte : sinon le nom resterait pris
+par quelqu'un qui ne pourra jamais s'en servir.
+
 ## Categories
 
 Une categorie est un intitule libre — « Outils », « Sites », « Donnees » — qui **regroupe les projets
@@ -429,6 +462,14 @@ qui n'est pas implemente ici.
 | `/api/visibility/<nom>` | POST | oui | Bascule publique / privee (ou impose la valeur donnee) |
 | `/api/categories` | GET | oui | La liste des categories, dans l'ordre d'affichage (tous les roles) |
 | `/api/categories` | PUT | oui | Remplace la liste (**administrateur**) ; renvoie le nombre de projets declasses |
+| `/api/mon-compte` | GET | oui | Ce que la session dit d'elle-meme : nom, role, adresse et son etat |
+| `/api/mon-compte/email` | POST | oui | Declare ou change sa propre adresse, et envoie un code |
+| `/api/mon-compte/email/code` | POST | oui | Renvoie un code (une fois par minute au plus) |
+| `/api/mon-compte/email/confirmer` | POST | oui | Confirme l'adresse avec le code recu |
+| `/api/inscription` | GET | **non** | L'inscription libre est-elle ouverte (serveur d'envoi configure) |
+| `/inscription` | POST | **non** | Cree un compte sans aucun projet, et envoie un code a l'adresse |
+| `/inscription/confirmer` | POST | **non** | Confirme l'adresse et rend le compte utilisable |
+| `/qr/totp.svg` | GET | **non** | Le QR code de l'inscription au second facteur en attente dans la session |
 | `/api/securite` | GET | oui | Etat des reglages de securite (TOTP, HTTPS, cookie, proxy de confiance) |
 | `/api/securite/totp/preparer` | POST | oui | Tire un secret candidat, sans rien enregistrer |
 | `/api/securite/totp/activer` | POST | oui | Enregistre le secret candidat, apres verification d'un code |

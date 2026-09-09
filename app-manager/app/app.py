@@ -579,6 +579,86 @@ def verifie_mot_de_passe(compte, mot_de_passe):
     return secrets.compare_digest(calcule, attendu)
 
 
+# ---------------------- adresse mail d'un compte ----------------------
+#
+# L'adresse relie un compte a quelqu'un de joignable : c'est par elle qu'un
+# mot de passe se recupere, et c'est elle qui rend une inscription libre
+# defendable -- sans verification, n'importe qui creerait n'importe quoi.
+#
+# La verification est un code a six chiffres envoye a l'adresse. Volontairement
+# le meme geste que le second facteur : la personne connait deja ce parcours.
+# Il ne remplace pas le second facteur et n'ouvre aucune session -- il atteste
+# seulement que l'adresse existe et qu'elle appartient bien a qui la declare.
+EMAIL_MAX = 254                 # la limite de la RFC 5321
+CODE_EMAIL_VALIDITE = 900       # 15 minutes : le temps d'aller lire son mail
+CODE_EMAIL_ESSAIS = 5           # au-dela, il faut en redemander un autre
+CODE_EMAIL_DELAI = 60           # pas plus d'un envoi par minute et par compte
+
+
+def email_valide(brut):
+    """Une adresse plausible, ou "".
+
+    Volontairement permissif : la seule verification qui vaille est d'y
+    envoyer un code et d'attendre qu'il revienne. Une expression reguliere
+    stricte refuse des adresses parfaitement valides et n'arrete personne.
+    """
+    adresse = re.sub(r"\s+", "", str(brut or ""))[:EMAIL_MAX]
+    return adresse if re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", adresse) else ""
+
+
+def _empreinte_code(code):
+    return hashlib.sha256(str(code).encode()).hexdigest()
+
+
+def poser_code_email(compte):
+    """Tire un code a six chiffres, le range, et le renvoie en clair.
+
+    Range sous forme d'empreinte : le code n'a pas a etre lisible dans
+    utilisateurs.json, ou il resterait apres coup a cote du nom du compte.
+    """
+    code = f"{secrets.randbelow(1000000):06d}"
+    compte["email_code"] = {"empreinte": _empreinte_code(code),
+                            "expire": int(time.time()) + CODE_EMAIL_VALIDITE,
+                            "essais": 0,
+                            "envoye": int(time.time())}
+    return code
+
+
+def verifier_code_email(compte, code):
+    """(ok, message). Consomme un essai, et le code au premier succes."""
+    en_cours = compte.get("email_code") or {}
+    if not en_cours:
+        return False, "Aucun code en attente. Demandes-en un nouveau."
+    if int(time.time()) > en_cours.get("expire", 0):
+        compte.pop("email_code", None)
+        return False, "Ce code a expire. Demandes-en un nouveau."
+    if en_cours.get("essais", 0) >= CODE_EMAIL_ESSAIS:
+        compte.pop("email_code", None)
+        return False, "Trop d'essais. Demandes-en un nouveau."
+    en_cours["essais"] = en_cours.get("essais", 0) + 1
+    propose = re.sub(r"\D", "", str(code or ""))
+    if not (propose and secrets.compare_digest(_empreinte_code(propose),
+                                               en_cours.get("empreinte", ""))):
+        return False, "Code incorrect."
+    compte.pop("email_code", None)
+    compte["email_verifie"] = True
+    return True, ""
+
+
+def envoyer_code_email(adresse, nom, code):
+    """Envoie le code, ou leve. L'appelant traduit l'echec."""
+    cfg, ok = smtp_utilisable()
+    if not ok:
+        raise RuntimeError("Aucun serveur d'envoi configure.")
+    envoyer_mail(cfg, "[CodeLab] verification de ton adresse",
+                 f"Code de verification pour le compte « {nom} » : {code}\n\n"
+                 f"Il est valable {CODE_EMAIL_VALIDITE // 60} minutes.\n\n"
+                 "Si tu n'es pas a l'origine de cette demande, ignore ce "
+                 "message : sans ce code, rien ne change.\n\n"
+                 "-- CodeLab, panneau de gestion des applications",
+                 destinataires=[adresse])
+
+
 def nom_utilisateur_valide(brut):
     """Minuscules, chiffres, tiret et souligne. Le nom sert d'identifiant de
     fichier JSON et s'affiche partout : autant le contraindre a l'entree
@@ -1167,12 +1247,25 @@ def config_smtp():
     return cfg, manquants
 
 
-def envoyer_mail(cfg, sujet, corps):
+def smtp_utilisable():
+    """(cfg, ok) pour un envoi a une adresse choisie.
+
+    Distinct de config_smtp() : les alertes exigent en plus une liste de
+    destinataires, alors qu'un code de verification part vers une adresse
+    donnee. Sans cette distinction, un serveur d'envoi parfaitement
+    configure passerait pour incomplet tant qu'aucune alerte n'est reglee.
+    """
+    cfg, manquants = config_smtp()
+    return cfg, not [m for m in manquants if m != "destinataires"]
+
+
+def envoyer_mail(cfg, sujet, corps, destinataires=None):
     """Envoie, ou leve. Les trois modes de chiffrement du SMTP."""
     msg = EmailMessage()
     msg["Subject"] = sujet
     msg["From"] = cfg["expediteur"]
-    msg["To"] = ", ".join(cfg["destinataires"])
+    msg["To"] = ", ".join(destinataires if destinataires is not None
+                          else cfg["destinataires"])
     msg.set_content(corps)
 
     def _login(s):
@@ -1669,6 +1762,14 @@ def login_submit():
     # sera reutilise ailleurs. C'est exactement le cas ou un seul secret ne
     # suffit pas. L'administrateur, lui, garde le choix : lui imposer le
     # second facteur d'office pourrait l'enfermer hors de son propre panneau.
+    # Compte cree librement dont l'adresse n'a jamais ete confirmee. Le
+    # message est explicite : ici, il ne revele rien qu'on ne sache deja --
+    # le mot de passe vient d'etre reconnu.
+    if compte.get("attente_email"):
+        return jsonify({"error": "Confirme d'abord ton adresse mail : un code "
+                                 "t'a ete envoye a l'inscription.",
+                        "attente_email": True}), 403
+
     secret = compte.get("totp") or ""
     if not secret:
         # Premier acces : inscription obligatoire avant toute session. Le
@@ -1743,6 +1844,235 @@ def login_second_facteur():
     session["role"] = ROLE_UTILISATEUR
     session["utilisateur"] = nom
     return jsonify({"ok": True, "role": ROLE_UTILISATEUR})
+
+
+def _mon_compte():
+    """Le compte de la session, ou None pour l'administrateur.
+
+    Le compte d'administration ne vit pas dans utilisateurs.json : son mot
+    de passe est dans credentials.env, et il n'a pas d'adresse mail a lui.
+    """
+    if est_admin():
+        return None
+    return lire_utilisateurs().get(utilisateur_courant())
+
+
+@flask_app.get("/api/mon-compte")
+@require_auth
+def api_mon_compte():
+    """Ce que la session peut dire d'elle-meme, et rien de plus."""
+    compte = _mon_compte()
+    _, smtp_ok = smtp_utilisable()
+    return jsonify({
+        "nom": utilisateur_courant(),
+        "role": role_courant(),
+        "email": (compte or {}).get("email") or "",
+        "email_verifie": bool((compte or {}).get("email_verifie")),
+        # Sans serveur d'envoi, la page n'affiche pas un bouton qui echouera.
+        "smtp": smtp_ok,
+    })
+
+
+@flask_app.post("/api/mon-compte/email")
+@require_auth
+def api_mon_email():
+    """Declare ou change sa propre adresse, et envoie le code de suite.
+
+    Reserve aux comptes utilisateurs : l'administrateur n'en a pas -- son
+    compte n'est pas dans le registre, et les alertes ont deja leur
+    destinataire.
+    """
+    compte = _mon_compte()
+    if compte is None:
+        return jsonify({"error": "Le compte d'administration n'a pas d'adresse "
+                                 "propre : regle les destinataires des alertes."}), 400
+    adresse = email_valide((request.get_json(force=True, silent=True) or {}).get("email"))
+    if not adresse:
+        return jsonify({"error": "Adresse mail invalide."}), 400
+
+    comptes = lire_utilisateurs()
+    nom = utilisateur_courant()
+    if nom not in comptes:
+        return jsonify({"error": "Compte inconnu."}), 404
+    comptes[nom]["email"] = adresse
+    comptes[nom]["email_verifie"] = False
+    code = poser_code_email(comptes[nom])
+    try:
+        ecrire_utilisateurs(comptes)
+    except OSError as e:
+        return jsonify({"error": f"Adresse non enregistree : {e}"}), 500
+    try:
+        envoyer_code_email(adresse, nom, code)
+    except Exception as e:
+        # L'adresse est enregistree, le mail n'est pas parti : le dire tel
+        # quel, plutot que de laisser attendre un code qui ne viendra pas.
+        return jsonify({"error": f"Adresse enregistree, mais le mail n'est pas "
+                                 f"parti : {type(e).__name__}: {e}"}), 502
+    return jsonify({"ok": True, "envoye": True})
+
+
+@flask_app.post("/api/mon-compte/email/code")
+@require_auth
+def api_mon_email_code():
+    """Renvoie un code a l'adresse deja declaree."""
+    compte = _mon_compte()
+    if compte is None or not compte.get("email"):
+        return jsonify({"error": "Declare d'abord une adresse."}), 400
+    en_cours = compte.get("email_code") or {}
+    attente = CODE_EMAIL_DELAI - (int(time.time()) - en_cours.get("envoye", 0))
+    if attente > 0:
+        # Un bouton qui renvoie sans limite est un moyen d'inonder une boite
+        # mail que la personne ne possede peut-etre pas.
+        return jsonify({"error": f"Un code vient d'etre envoye. Attends "
+                                 f"{attente} seconde{'s' if attente > 1 else ''}."}), 429
+
+    comptes = lire_utilisateurs()
+    nom = utilisateur_courant()
+    code = poser_code_email(comptes[nom])
+    try:
+        ecrire_utilisateurs(comptes)
+    except OSError as e:
+        return jsonify({"error": f"Code non enregistre : {e}"}), 500
+    try:
+        envoyer_code_email(comptes[nom]["email"], nom, code)
+    except Exception as e:
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 502
+    return jsonify({"ok": True})
+
+
+@flask_app.post("/api/mon-compte/email/confirmer")
+@require_auth
+def api_mon_email_confirmer():
+    """Confirme l'adresse avec le code recu."""
+    compte = _mon_compte()
+    if compte is None:
+        return jsonify({"error": "Rien a confirmer."}), 400
+    comptes = lire_utilisateurs()
+    nom = utilisateur_courant()
+    code = (request.get_json(force=True, silent=True) or {}).get("code")
+    ok, message = verifier_code_email(comptes[nom], code)
+    try:
+        # Ecrit dans les deux cas : le compteur d'essais et l'expiration
+        # consommee doivent survivre a la requete, sinon la limite ne limite
+        # rien.
+        ecrire_utilisateurs(comptes)
+    except OSError as e:
+        return jsonify({"error": f"Etat non enregistre : {e}"}), 500
+    if not ok:
+        return jsonify({"error": message}), 400
+    return jsonify({"ok": True})
+
+
+# --------------------- inscription libre ---------------------
+#
+# Ouverte seulement si un serveur d'envoi est configure : sans mail, aucun
+# moyen de verifier que l'adresse declaree existe, et la creation de comptes
+# devient un formulaire a remplir en boucle.
+#
+# Un compte cree ainsi n'ouvre AUCUN projet : il attend que l'administrateur
+# lui en autorise. C'est ce qui rend l'inscription libre sans consequence --
+# au pire, des comptes vides.
+
+@flask_app.get("/api/inscription")
+def api_inscription_etat():
+    _, ok = smtp_utilisable()
+    return jsonify({"ouverte": ok})
+
+
+@flask_app.post("/inscription")
+def inscription_creer():
+    if rate_limited():
+        return jsonify({"error": "Trop de tentatives. Reessaie dans quelques minutes."}), 429
+    _, smtp_ok = smtp_utilisable()
+    if not smtp_ok:
+        return jsonify({"error": "La creation de compte n'est pas ouverte sur "
+                                 "ce serveur."}), 403
+
+    d = request.get_json(force=True, silent=True) or {}
+    nom = nom_utilisateur_valide(d.get("nom"))
+    mdp = (d.get("mot_de_passe") or "").strip()
+    adresse = email_valide(d.get("email"))
+    if not nom:
+        return jsonify({"error": "Nom invalide : 2 a 32 caracteres, "
+                                 "minuscules, chiffres, tiret ou souligne."}), 400
+    if nom == NOM_ADMIN:
+        return jsonify({"error": "Ce nom est reserve."}), 400
+    if not adresse:
+        return jsonify({"error": "Adresse mail invalide."}), 400
+    if len(mdp) < 8:
+        return jsonify({"error": "Mot de passe : 8 caracteres au minimum."}), 400
+
+    comptes = lire_utilisateurs()
+    if nom in comptes:
+        # Un nom deja pris se dit : il faudra bien en choisir un autre, et
+        # l'inscription ne revele rien de plus que la page de connexion.
+        return jsonify({"error": "Ce nom est deja pris."}), 400
+
+    sel = secrets.token_hex(16)
+    comptes[nom] = {
+        "sel": sel,
+        "hash": derive_mot_de_passe(mdp, sel),
+        "projets": [],
+        "email": adresse,
+        "email_verifie": False,
+        # Tant que ce drapeau est la, le compte ne se connecte pas : c'est
+        # ce qui distingue une adresse declaree d'une adresse relevee.
+        "attente_email": True,
+        "cree": int(time.time()),
+    }
+    code = poser_code_email(comptes[nom])
+    try:
+        ecrire_utilisateurs(comptes)
+    except OSError as e:
+        return jsonify({"error": f"Compte non enregistre : {e}"}), 500
+    try:
+        envoyer_code_email(adresse, nom, code)
+    except Exception as e:
+        # Compte cree mais injoignable : on le retire plutot que de laisser
+        # un nom pris par quelqu'un qui ne pourra jamais s'en servir.
+        comptes.pop(nom, None)
+        try:
+            ecrire_utilisateurs(comptes)
+        except OSError:
+            pass
+        return jsonify({"error": f"Le mail n'est pas parti : {type(e).__name__}: {e}"}), 502
+
+    # Compte dans le compteur de tentatives : sans cela, un robot creerait
+    # des comptes en boucle depuis la meme adresse, et chacun ferait partir
+    # un mail. Cinq par fenetre, comme les connexions.
+    register_failed_attempt()
+    session["inscription_email"] = nom
+    return jsonify({"ok": True, "nom": nom, "confirmation": True})
+
+
+@flask_app.post("/inscription/confirmer")
+def inscription_confirmer():
+    """Confirme l'adresse, et rend le compte utilisable.
+
+    N'ouvre pas de session : la personne se connecte ensuite normalement, et
+    enregistre a ce moment-la son second facteur. Le mail prouve l'adresse,
+    pas l'identite.
+    """
+    if rate_limited():
+        return jsonify({"error": "Trop de tentatives. Reessaie dans quelques minutes."}), 429
+    nom = session.get("inscription_email")
+    comptes = lire_utilisateurs()
+    if not nom or nom not in comptes:
+        return jsonify({"error": "Recommence l'inscription : rien en attente."}), 400
+
+    code = (request.get_json(force=True, silent=True) or {}).get("code")
+    ok, message = verifier_code_email(comptes[nom], code)
+    if ok:
+        comptes[nom].pop("attente_email", None)
+    try:
+        ecrire_utilisateurs(comptes)
+    except OSError as e:
+        return jsonify({"error": f"Etat non enregistre : {e}"}), 500
+    if not ok:
+        register_failed_attempt()
+        return jsonify({"error": message}), 400
+    session.pop("inscription_email", None)
+    return jsonify({"ok": True})
 
 
 @flask_app.get("/qr/totp.svg")
@@ -2012,6 +2342,11 @@ def api_utilisateurs():
          # signale un compte cree mais jamais utilise, ce qui se voit d'un
          # coup d'oeil et se corrige en relancant la personne.
          "totp": bool(c.get("totp")),
+         "email": c.get("email") or "",
+         "email_verifie": bool(c.get("email_verifie")),
+         # Un compte cree librement qui n'a pas encore confirme son adresse
+         # n'ouvre aucune session : le dire evite de chercher pourquoi.
+         "attente_email": bool(c.get("attente_email")),
          "cree": c.get("cree")}
         for nom, c in sorted(comptes.items())]})
 
@@ -2031,7 +2366,10 @@ def api_utilisateur_creer():
     d = request.get_json(force=True, silent=True) or {}
     nom = nom_utilisateur_valide(d.get("nom"))
     mdp = (d.get("mot_de_passe") or "").strip()
+    email = email_valide(d.get("email"))
 
+    if d.get("email") and not email:
+        return jsonify({"error": "Adresse mail invalide."}), 400
     if not nom:
         return jsonify({"error": "Nom invalide : 2 a 32 caracteres, "
                                  "minuscules, chiffres, tiret ou souligne."}), 400
@@ -2049,6 +2387,11 @@ def api_utilisateur_creer():
         "sel": sel,
         "hash": derive_mot_de_passe(mdp, sel),
         "projets": _projets_valides(d.get("projets"), load()),
+        "email": email,
+        # Une adresse posee par l'administrateur n'est pas verifiee pour
+        # autant : c'est la personne, a sa premiere visite, qui confirme
+        # qu'elle la releve vraiment.
+        "email_verifie": False,
         "cree": int(time.time()),
     }
     try:
@@ -2084,6 +2427,18 @@ def api_utilisateur_modifier(nom):
     # rendre l'acces sans jamais transmettre un secret par un canal tiers --
     # l'administrateur ne connait a aucun moment le facteur de quelqu'un
     # d'autre.
+    if "email" in d:
+        adresse = email_valide(d.get("email"))
+        if d.get("email") and not adresse:
+            return jsonify({"error": "Adresse mail invalide."}), 400
+        if adresse != (compte.get("email") or ""):
+            compte["email"] = adresse
+            # Changer l'adresse annule la verification : sinon il suffirait
+            # de remplacer une adresse verifiee par une autre pour heriter
+            # de son statut.
+            compte["email_verifie"] = False
+            compte.pop("email_code", None)
+
     if d.get("reinitialiser_totp"):
         compte.pop("totp", None)
 
