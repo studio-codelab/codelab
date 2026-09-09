@@ -96,9 +96,9 @@ Depose un `app.py`, puis dans le panneau `http://<IP-du-serveur>:9001/` → **Aj
 
 ## Sans terminal : les taches VS Code
 
-`.vscode/tasks.json` expose les gestes courants dans **Terminal > Executer la tache...** : creer un
-projet (dossier, `git init`, `.gitignore`, `AGENTS.md`), creer sa base, rafraichir le manuel de
-l'agent. VS Code demande le nom dans une boite de dialogue, il n'y a rien a taper.
+**Ctrl+Maj+B** cree un projet : la tache « CodeLab : nouveau projet » est declaree tache de build par
+defaut, et VS Code lui reserve ce raccourci. Les autres (`--db`, base d'un projet existant, manuel de
+l'agent) passent par **Terminal > Executer la tache...**. Une boite de dialogue demande le nom.
 
 Ces taches appellent l'outil `codelab` du conteneur au lieu de recopier ses commandes : la logique
 reste dans l'image, et ce fichier ne devient pas un deuxieme endroit ou la meme chose est ecrite

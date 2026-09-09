@@ -1,6 +1,7 @@
 #!/bin/sh
 # codelab -- outil de projet du conteneur codelab-dev.
 #
+#   codelab new <nom>         cree un projet pret a travailler
 #   codelab db <nom>          cree la base du projet et son schema "dagster"
 #   codelab agents [dossier]  ecrit le manuel CodeLab dans le AGENTS.md du projet
 #
@@ -17,11 +18,88 @@ usage() {
   cat >&2 <<'AIDE'
 usage: codelab <commande> [argument]
 
+  new <nom> [--db]    cree le projet : dossier, git, .gitignore, AGENTS.md
+                      (--db cree aussi sa base de donnees)
   db <nom>            cree la base "<nom>" et son schema "dagster" (idempotent)
   agents [dossier]    ecrit le manuel CodeLab dans le AGENTS.md du projet
                       (defaut : le dossier courant)
 AIDE
 }
+
+# --------------------------------- new ---------------------------------
+#
+# Tout ce qui est propre a CodeLab dans la creation d'un projet, en une
+# commande : le dossier, le depot git, le .gitignore, et le AGENTS.md que
+# l'agent lira. Volontairement PAS d'echafaudage de framework -- "npm create
+# vite" telecharge, pose des questions et evolue a son rythme ; le reproduire
+# ici vieillirait mal. La commande l'affiche en piste suivante, c'est tout.
+
+cmd_new() {
+  projet=""
+  avec_db=0
+  for arg in "$@"; do
+    case "$arg" in
+      --db) avec_db=1 ;;
+      -*)   echo "codelab new: option inconnue \"$arg\"." >&2; exit 2 ;;
+      *)    [ -z "$projet" ] || { usage; exit 2; }; projet="$arg" ;;
+    esac
+  done
+  [ -n "$projet" ] || { usage; exit 2; }
+
+  # Meme regle de nommage que pour la base : le nom sert de dossier, d'adresse
+  # web sous le panneau, et eventuellement d'identifiant SQL.
+  case "$projet" in
+    *[!a-zA-Z0-9_-]* | "" | [!a-zA-Z]*)
+      echo "codelab new: nom invalide \"$projet\" -- lettres, chiffres," \
+           "tirets et soulignes, en commencant par une lettre." >&2
+      exit 2 ;;
+  esac
+
+  RACINE="${CODELAB_WORKSPACE:-/workspace}"
+  DOSSIER="$RACINE/$projet"
+  # Jamais par-dessus un dossier existant : la commande doit rester sans
+  # danger a lancer deux fois par erreur.
+  [ ! -e "$DOSSIER" ] || {
+    echo "codelab new: $DOSSIER existe deja." >&2
+    exit 1
+  }
+
+  mkdir -p "$DOSSIER"
+  cd "$DOSSIER"
+
+  git init -q 2>/dev/null || echo "[codelab] git indisponible : depot non initialise."
+
+  # .env en tete : /workspace n'est pas chiffre, et un secret pousse sur un
+  # depot distant ne se rattrape pas.
+  cat > .gitignore <<'IGNORE'
+.env
+node_modules/
+vendor/
+dist/
+build/
+__pycache__/
+IGNORE
+
+  cat > README.md <<README
+# $projet
+
+*A completer : ce que fait ce projet, et comment le lancer.*
+README
+
+  cmd_agents "$DOSSIER" >/dev/null
+  # Un "[ ... ] && cmd" ici sortirait du script sous "set -e" quand le test
+  # echoue : la forme longue evite ce piege classique.
+  if [ "$avec_db" -eq 1 ]; then
+    cmd_db "$projet"
+  fi
+
+  echo "[codelab] projet cree : $DOSSIER"
+  echo "[codelab]   AGENTS.md pose -- complete la section \"Projet $projet\""
+  [ "$avec_db" -eq 1 ] || echo "[codelab]   base de donnees : codelab db $projet"
+  echo "[codelab]   projet web    : cd $DOSSIER && npm create vite@latest ."
+  echo "[codelab]   puis declare-le dans le panneau (port 9001)."
+}
+
 
 # --------------------------------- db ---------------------------------
 
@@ -162,6 +240,7 @@ SQUELETTE
 # ------------------------------ dispatch ------------------------------
 
 case "${1:-}" in
+  new)         shift; cmd_new "$@" ;;
   db)          shift; cmd_db "$@" ;;
   agents)      shift; cmd_agents "$@" ;;
   -h|--help|help|"") usage; [ "${1:-}" = "" ] && exit 2 || exit 0 ;;

@@ -40,7 +40,7 @@ qu'on lit *pourquoi* un `Permission denied (publickey)` se produit), et il recoi
 | `Dockerfile` | Construction de l'image (paquets, utilisateur, dependances Python) |
 | `entrypoint.sh` | Toute la logique de demarrage |
 | `AGENTS.md` | Manuel de l'environnement lu par les agents (perimetre, base, Dagster, app-manager) |
-| `codelab` | Outil de projet installe dans le PATH : `codelab db`, `codelab agents` |
+| `codelab` | Outil de projet installe dans le PATH : `codelab new`, `codelab db`, `codelab agents` |
 
 Le `Dockerfile` et l'`entrypoint.sh` portent l'essentiel. `AGENTS.md` est une **ressource livree par l'image**, pas les instructions du depot CodeLab : il decrit l'environnement des projets, et l'image le recopie dans `$CODEX_HOME/AGENTS.md` puis, via `codelab agents`, dans les projets. `codelab` est sans extension parce que c'est un executable du PATH, pas un fichier a sourcer : l'`entrypoint.sh` reste le seul `.sh` du service, comme dans les trois autres. Les dependances Python sont declarees directement dans le `Dockerfile`
 plutot que dans un `requirements.txt` separe : trois paquets ne justifient pas un fichier de plus, et
