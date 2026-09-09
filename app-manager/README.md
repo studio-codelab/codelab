@@ -302,6 +302,28 @@ comptee dans la limite de tentatives (5 par fenetre et par adresse IP), pour qu'
 partir des mails en boucle. Un mail qui ne part pas retire le compte : sinon le nom resterait pris
 par quelqu'un qui ne pourra jamais s'en servir.
 
+## Adresse publique, et ce que « publique » veut dire
+
+Une application **publique** est servie **sans authentification** : c'est ce qui permet de partager
+un projet par un simple lien. Tant que ce serveur n'est joignable que depuis ton reseau, le mot
+promet une ouverture qui n'existe pas — il ne retire que l'authentification, sans rien partager.
+
+Le panneau **ne propose donc pas de rendre une application publique tant qu'aucune adresse publique
+n'est declaree** (*Configuration > Serveur > Adresse publique*), et la route refuse aussi le
+changement. Trois consequences, voulues :
+
+- une application **deja publique** n'est pas touchee, et peut toujours etre **refermee** — on ne
+  bloque jamais le chemin qui referme ;
+- une application **neuve nait privee** sur un serveur prive, meme si le formulaire demande autre
+  chose : elle s'ouvre en une bascule, alors qu'une application ouverte par megarde ne se referme
+  qu'apres coup ;
+- des que l'adresse est declaree, tout redevient possible, sans redemarrage.
+
+**Elle se declare a la main**, et c'est deliberé : le panneau ne peut pas savoir si le port 443 de
+la box est ouvert, si le tunnel tourne, ni quel nom de domaine y mene. La renseigner, c'est dire
+« j'ai fait le necessaire ». `APP_MANAGER_PUBLIC_URL` dans le compose l'emporte sur la page, et la
+page le dit plutot que de laisser modifier ce qu'un redemarrage remettrait.
+
 ## Journal des acces
 
 Qui s'est connecte, quand, depuis quelle adresse, et quelle application il a ouverte. Deux usages, et
@@ -412,13 +434,14 @@ silencieusement sans bloquer le demarrage du service — c'est une commodite, pa
 | `APP_MANAGER_SHARED_CONFIG` | Dossier de `credentials.env`, le fichier unique de secrets (`/var/lib/codelab/config`) |
 | `MANAGER_PORT` | Port d'ecoute du panneau lui-meme (`9001`) |
 | `APP_MANAGER_THREADS` | Threads du serveur HTTP (`16`). Le panneau relaie le trafic des applications : une application lente retient un thread pendant toute sa reponse |
+| `APP_MANAGER_PUBLIC_URL` | Adresse publique du serveur (`https://codelab.mondomaine.fr`). Vide = serveur prive : le panneau ne propose alors pas de rendre une application publique |
 | `APP_MANAGER_TIMEOUT` | Silence tolere sur une connexion avant fermeture, en secondes (`600`). Genereux, pour ne pas couper une application qui fait du long-polling |
 
 ## Volumes attendus
 
 | Point de montage | Contenu |
 |---|---|
-| `/var/lib/codelab/app-manager` | `apps.json`, `logs/`, `alertes.json`, `utilisateurs.json`, `categories.json`, `acces.jsonl` et `diagnostic-inscrit` — l'etat du panneau. Aucun secret en clair : les mots de passe des comptes sont derives, ceux des services sont dans `credentials.env` |
+| `/var/lib/codelab/app-manager` | `apps.json`, `logs/`, `alertes.json`, `utilisateurs.json`, `categories.json`, `acces.jsonl`, `exposition.json` et `diagnostic-inscrit` — l'etat du panneau. Aucun secret en clair : les mots de passe des comptes sont derives, ceux des services sont dans `credentials.env` |
 | `/workspace` | Racine dans laquelle chercher/lancer les applications |
 
 ## Double authentification et exposition
@@ -488,6 +511,7 @@ qui n'est pas implemente ici.
 | `/api/visibility/<nom>` | POST | oui | Bascule publique / privee (ou impose la valeur donnee) |
 | `/api/categories` | GET | oui | La liste des categories, dans l'ordre d'affichage (tous les roles) |
 | `/api/categories` | PUT | oui | Remplace la liste (**administrateur**) ; renvoie le nombre de projets declasses |
+| `/api/securite/exposition` | PUT | oui | Declare (ou retire) l'adresse publique du serveur |
 | `/api/activite` | GET | oui | Journal des acces et son resume (**administrateur**) |
 | `/api/mon-compte` | GET | oui | Ce que la session dit d'elle-meme : nom, role, adresse et son etat |
 | `/api/mon-compte/email` | POST | oui | Declare ou change sa propre adresse, et envoie un code |

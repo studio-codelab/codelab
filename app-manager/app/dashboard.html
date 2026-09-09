@@ -718,7 +718,7 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
           <div class="hint">Le process est arrete automatiquement s'il tente de la depasser.</div></div>
       </div>
 
-      <div class="fset">
+      <div class="fset" id="e-vis-zone">
         <div class="fset-title">Visibilite</div>
         <div class="field">
           <div class="seg-toggle" id="e-vis-toggle">
@@ -952,6 +952,32 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
       <div class="hint">Ces trois reglages se posent au demarrage du service, pas ici : les activer
         depuis cette page pendant que tu es connecte en clair te deconnecterait sur-le-champ.</div>
     </div>
+
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Adresse publique</b>
+        <div class="path">L'adresse par laquelle ce serveur est joignable depuis internet.</div>
+      </div>
+      <span class="pill" id="pub-etat"><i></i>&nbsp;</span></div>
+
+      <div class="hint">Tant qu'elle n'est pas declaree, le panneau <b>ne propose pas de rendre une
+        application publique</b> : sur un serveur que personne d'autre ne peut joindre, « publique »
+        ne partagerait rien — cela retirerait seulement l'authentification. Une application deja
+        publique n'est pas touchee, et peut toujours etre refermee.</div>
+      <div class="hint" style="margin-top:8px">Elle se declare a la main : le panneau ne peut pas
+        savoir si le port 443 de ta box est ouvert, si ton tunnel tourne, ni quel nom de domaine y
+        mene. La renseigner, c'est dire « j'ai fait le necessaire ».</div>
+
+      <div class="field" style="margin-top:14px">
+        <label>Adresse</label>
+        <input id="pub-adresse" placeholder="https://codelab.mondomaine.fr" autocomplete="off">
+        <div class="hint">Vide = serveur prive, joignable seulement depuis ton reseau.</div>
+      </div>
+      <button class="btn btn-primary" id="pub-save" onclick="pubEnregistrer()">Enregistrer</button>
+      <div class="err" id="pub-err" style="display:none"></div>
+      <div class="hint" id="pub-fige" style="display:none">Cette adresse est fixee par
+        <code>APP_MANAGER_PUBLIC_URL</code> dans le compose : elle se modifie la-bas.</div>
+    </div>
   </div>
 
   <div class="zone">
@@ -1078,7 +1104,7 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
     <div class="field"><label>Categorie <span class="opt">facultatif</span></label>
       <select id="f-cat"></select>
       <div class="hint">Les categories se creent dans Configuration.</div></div>
-    <div class="field"><label>Visibilite</label>
+    <div class="field" id="f-vis-zone"><label>Visibilite</label>
       <div class="seg-toggle" id="f-vis-toggle">
         <button data-v="publique" onclick="setVisAdd('publique')">Publique</button>
         <button data-v="privee" onclick="setVisAdd('privee')">Privee</button>
@@ -1499,8 +1525,17 @@ function peindreFiche(){
     ${svgRe}Redemarrer</button>`);
   if(a.has_build) b.push(`<button class="btn btn-default" onclick="buildApp('${esc(a.name)}')">${svgBuild}Build</button>`);
   b.push(`<button class="btn btn-default" onclick="deployApp('${esc(a.name)}')">${svgUp}Deployer</button>`);
-  b.push(`<button class="btn btn-quiet" onclick="basculerVisibilite('${esc(a.name)}')">
-    ${prive?'Rendre publique':'Rendre privee'}</button>`);
+  /* « Rendre publique » n'est propose que si le serveur a une adresse
+     publique declaree. Sinon le mot promet un partage qui n'existe pas :
+     cela ne ferait que retirer l'authentification. Le chemin qui REFERME,
+     lui, reste toujours ouvert. */
+  if(!prive || adressePublique){
+    b.push(`<button class="btn btn-quiet" onclick="basculerVisibilite('${esc(a.name)}')">
+      ${prive?'Rendre publique':'Rendre privee'}</button>`);
+  }else{
+    b.push(`<span class="hint" style="align-self:center;max-width:320px">Declare l'adresse
+      publique du serveur (Configuration &gt; Serveur) pour pouvoir partager une application.</span>`);
+  }
   if(a.running) b.push(`<a class="btn btn-quiet" href="/${encodeURIComponent(a.name)}/" target="_blank">${svgOuvrir}Ouvrir</a>`);
   $('fa-actions').innerHTML=b.join('');
 }
@@ -1518,6 +1553,11 @@ function chargerConfigFiche(){
   $('e-mem').value=a.max_memory_mb||'';
   $('e-path').textContent=a.path;
   setVisEdit(a.visibility||'publique');
+  /* Meme regle que le bouton du haut : on n'offre pas d'ouvrir ce qu'on ne
+     peut pas partager. Une application deja publique garde son choix, pour
+     pouvoir la refermer. */
+  $('e-vis-zone').style.display =
+    (adressePublique || (a.visibility||'publique')==='publique') ? '' : 'none';
   $('e-err').style.display='none';
   $('e-browse').style.display='none';
   $('e-running').style.display = a.running ? 'flex' : 'none';
@@ -1632,7 +1672,10 @@ function openAdd(){
   ['f-name','f-cmd','f-build','f-mem','f-desc'].forEach(i=>$(i).value='');
   $('a-s').textContent=ROOT;
   optionsCategorie('f-cat', '');
-  setVisAdd('publique');
+  /* Sans adresse publique declaree, une application neuve nait privee, et le
+     choix ne s'affiche pas : le serveur refuserait de toute facon. */
+  $('f-vis-zone').style.display = adressePublique ? '' : 'none';
+  setVisAdd(adressePublique ? 'publique' : 'privee');
   $('ov-add').classList.add('show');
   browse(ROOT);
   $('f-name').oninput=()=>{ $('f-url').textContent='/'+(slug($('f-name').value)||'nom')+'/'; };
@@ -2056,6 +2099,37 @@ async function chargerSecurite(){
     `<div class="kv"><span class="k">${esc(nom)}</span>
      <span class="v"><span class="pill ${ok?'on':'off'}"><i></i>${ok?'en place':'non'}</span></span></div>
      <div class="hint" style="margin:-2px 0 10px">${esc(aide)}</div>`).join('');
+
+  adressePublique = d.adresse_publique || '';
+  $('pub-adresse').value = adressePublique;
+  $('pub-adresse').disabled = !!d.adresse_figee;
+  $('pub-save').disabled = !!d.adresse_figee;
+  $('pub-fige').style.display = d.adresse_figee ? 'block' : 'none';
+  const pp=$('pub-etat');
+  pp.className='pill ' + (adressePublique ? 'on' : 'off');
+  pp.innerHTML='<i></i>' + (adressePublique ? 'Declaree' : 'Serveur prive');
+  /* La fiche ouverte et le formulaire d'ajout suivent : ce qu'ils proposent
+     depend de cette reponse. */
+  if(ficheNom) peindreFiche();
+}
+
+/* L'adresse publique du serveur. "" = ce serveur n'est joignable que depuis
+   le reseau local, et « publique » n'y voudrait rien dire. */
+let adressePublique='';
+async function chargerAdressePublique(){
+  try{
+    const d=await (await fetch('/api/securite')).json();
+    adressePublique = d.adresse_publique || '';
+  }catch(e){}
+}
+async function pubEnregistrer(){
+  const e=$('pub-err'); e.style.display='none';
+  const r=await fetch('/api/securite/exposition',{method:'PUT',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({adresse_publique:$('pub-adresse').value.trim()})});
+  const d=await r.json();
+  if(!r.ok){ e.textContent=d.error||'Enregistrement impossible.'; e.style.display='block'; return; }
+  chargerSecurite();
 }
 
 async function totpPreparer(){
@@ -2134,6 +2208,7 @@ if(estAdmin){
      seconde, avant meme qu'on ouvre « Applications » ou « Utilisateurs ». */
   refresh();
   chargerUtilisateurs();
+  chargerAdressePublique();
   setInterval(()=>{ if(visible('sec-overview')||visible('sec-apps')||visible('sec-app')) refresh(); }, 5000);
   /* Les metriques de la fiche ne se rafraichissent que lorsqu'on les regarde. */
   setInterval(()=>{

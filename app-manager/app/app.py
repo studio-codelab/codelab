@@ -1800,6 +1800,50 @@ def categorie_valide(brute, connues=None):
     return voulue if voulue in (lire_categories() if connues is None else connues) else ""
 
 
+# ------------------------- adresse publique du serveur -------------------------
+#
+# « Publique » veut dire : accessible sans compte. Tant que ce serveur n'est
+# joignable que depuis le salon, cela ne partage rien -- le mot promet une
+# ouverture qui n'existe pas. Tant qu'aucune adresse publique n'est declaree,
+# le panneau ne propose donc pas de rendre une application publique.
+#
+# L'adresse est declaree a la main plutot que devinee : le panneau ne peut pas
+# savoir si le port 443 de la box est ouvert, si le tunnel tourne, ni quel nom
+# de domaine y mene. La declarer, c'est dire « j'ai fait le necessaire ».
+EXPOSITION_FILE = os.path.join(STATE_DIR, "exposition.json")
+
+
+def adresse_publique():
+    """L'adresse publique du serveur, ou "".
+
+    La variable d'environnement l'emporte : dans une stack ou le nom de
+    domaine est deja connu du compose, on ne veut pas le ressaisir dans une
+    page.
+    """
+    depuis_env = (os.environ.get("APP_MANAGER_PUBLIC_URL") or "").strip()
+    if depuis_env:
+        return depuis_env.rstrip("/")
+    try:
+        with open(EXPOSITION_FILE) as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return ""
+    return str((d or {}).get("adresse_publique") or "").strip().rstrip("/")
+
+
+def adresse_publique_valide(brute):
+    """Une adresse http(s) plausible, ou ""."""
+    adresse = re.sub(r"\s+", "", str(brute or ""))[:200].rstrip("/")
+    return adresse if re.fullmatch(r"https?://[^/\s]+(/[^\s]*)?", adresse) else ""
+
+
+def ecrire_adresse_publique(adresse):
+    tmp = EXPOSITION_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump({"adresse_publique": adresse}, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, EXPOSITION_FILE)
+
+
 # ------------------------- visibilite d'une application -------------------------
 #
 # Le reverse proxy sert les applications SANS authentification : c'est ce qui
@@ -2305,7 +2349,30 @@ def api_securite():
                  or request.scheme == "https",
         "trust_proxy": TRUST_PROXY,
         "cookie_secure": bool(flask_app.config.get("SESSION_COOKIE_SECURE")),
+        "adresse_publique": adresse_publique(),
+        # Fige par l'environnement : la page n'offre pas de modifier ce
+        # qu'un redemarrage remettrait comme avant.
+        "adresse_figee": bool((os.environ.get("APP_MANAGER_PUBLIC_URL") or "").strip()),
     })
+
+
+@flask_app.put("/api/securite/exposition")
+@require_admin
+def api_exposition():
+    """Declare (ou retire) l'adresse publique du serveur."""
+    if (os.environ.get("APP_MANAGER_PUBLIC_URL") or "").strip():
+        return jsonify({"error": "L'adresse est fixee par APP_MANAGER_PUBLIC_URL "
+                                 "dans le compose : modifie-la la-bas."}), 400
+    brute = (request.get_json(force=True, silent=True) or {}).get("adresse_publique")
+    adresse = adresse_publique_valide(brute)
+    if brute and not adresse:
+        return jsonify({"error": "Adresse invalide : elle doit commencer par "
+                                 "http:// ou https://."}), 400
+    try:
+        ecrire_adresse_publique(adresse)
+    except OSError as e:
+        return jsonify({"error": f"Adresse non enregistree : {e}"}), 500
+    return jsonify({"ok": True, "adresse_publique": adresse})
 
 
 @flask_app.post("/api/securite/totp/preparer")
@@ -2718,6 +2785,12 @@ def api_add():
     build_command = (d.get("build_command") or "").strip()
     max_memory_mb = d.get("max_memory_mb") or None
     vis = d.get("visibility") if d.get("visibility") in VISIBILITES else VISIBILITE_PUBLIQUE
+    # Sans adresse publique declaree, une application neuve nait privee --
+    # y compris si le formulaire demande autre chose. C'est le defaut sur
+    # lequel on ne peut pas se tromper : elle s'ouvre en une bascule, alors
+    # qu'une application ouverte par megarde ne se referme qu'apres coup.
+    if not adresse_publique():
+        vis = VISIBILITE_PRIVEE
     apps = load()
 
     if not name:
@@ -2806,6 +2879,15 @@ def api_visibility(n):
         # Sans valeur explicite, on bascule d'un etat a l'autre.
         vis = (VISIBILITE_PRIVEE if visibilite(apps[n]) == VISIBILITE_PUBLIQUE
                else VISIBILITE_PUBLIQUE)
+    # Rendre publique une application sur un serveur que personne ne peut
+    # joindre ne partage rien : cela retire seulement l'authentification.
+    # Une application DEJA publique reste modifiable dans l'autre sens --
+    # on ne bloque jamais le chemin qui referme.
+    if vis == VISIBILITE_PUBLIQUE and not adresse_publique():
+        return jsonify({"error": "Aucune adresse publique n'est declaree pour ce "
+                                 "serveur : rendre une application publique ne "
+                                 "ferait que retirer l'authentification. "
+                                 "Declare-la dans Configuration > Serveur."}), 400
     apps[n]["visibility"] = vis
     save(apps)
     return jsonify({"ok": True, "visibility": vis})

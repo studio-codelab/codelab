@@ -1397,3 +1397,81 @@ def test_le_journal_est_reserve_a_l_administrateur(journal):
     assert c.get("/api/activite").status_code == 401
     _connecte(c, "marie", "mot-de-passe-long")
     assert c.get("/api/activite").status_code == 403
+
+
+# ---------- 17. adresse publique du serveur ----------
+#
+# « Publique » veut dire : accessible sans compte. Sur un serveur que
+# personne d'autre ne peut joindre, le mot promet une ouverture qui n'existe
+# pas -- il ne retire que l'authentification. Tant qu'aucune adresse publique
+# n'est declaree, le panneau ne le propose pas, et le serveur le refuse.
+
+@pytest.fixture
+def exposition(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    monkeypatch.setattr(app, "EXPOSITION_FILE", str(tmp_path / "exposition.json"))
+    monkeypatch.delenv("APP_MANAGER_PUBLIC_URL", raising=False)
+    monkeypatch.setattr(app, "is_running", lambda n: False)
+    monkeypatch.setattr(app, "under_root", lambda p: True)
+    monkeypatch.setattr(os.path, "isdir", lambda p: True)
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    app._apps_cache["signature"] = None
+    app.save({"deja-public": {"path": "/w/a", "command": "x", "port": 9101,
+                              "enabled": True, "visibility": "publique"},
+              "prive": {"path": "/w/b", "command": "x", "port": 9102,
+                        "enabled": True, "visibility": "privee"}})
+    c = app.flask_app.test_client()
+    c.post("/login", json={"password": "secret-de-test"})
+    return c
+
+
+def test_sans_adresse_publique_on_ne_peut_pas_ouvrir_une_application(exposition):
+    c = exposition
+    r = c.post("/api/visibility/prive", json={"visibility": "publique"})
+    assert r.status_code == 400
+    assert "adresse publique" in r.get_json()["error"]
+    assert app.load()["prive"]["visibility"] == "privee"
+
+    # Le chemin qui REFERME n'est jamais bloque : une application deja
+    # publique doit toujours pouvoir redevenir privee.
+    assert c.post("/api/visibility/deja-public",
+                  json={"visibility": "privee"}).status_code == 200
+    assert app.load()["deja-public"]["visibility"] == "privee"
+
+
+def test_une_application_neuve_nait_privee_sur_un_serveur_prive(exposition):
+    """Le defaut sur lequel on ne peut pas se tromper : elle s'ouvre en une
+    bascule, alors qu'une application ouverte par megarde ne se referme
+    qu'apres coup."""
+    c = exposition
+    r = c.post("/api/add", json={"name": "neuf", "path": "/w/neuf",
+                                 "command": "x", "visibility": "publique"})
+    assert r.status_code == 200, r.data
+    assert app.load()["neuf"]["visibility"] == "privee"
+
+
+def test_une_fois_l_adresse_declaree_le_partage_redevient_possible(exposition):
+    c = exposition
+    assert c.put("/api/securite/exposition",
+                 json={"adresse_publique": "pas une adresse"}).status_code == 400
+    r = c.put("/api/securite/exposition",
+              json={"adresse_publique": "https://codelab.example.com/"})
+    assert r.status_code == 200, r.data
+    # L'adresse est rangee sans sa barre finale : elle sert de prefixe.
+    assert app.adresse_publique() == "https://codelab.example.com"
+    assert c.get("/api/securite").get_json()["adresse_publique"] == "https://codelab.example.com"
+    assert c.post("/api/visibility/prive", json={"visibility": "publique"}).status_code == 200
+
+
+def test_l_adresse_du_compose_l_emporte_sur_celle_de_la_page(exposition, monkeypatch):
+    """Sinon la page laisserait modifier ce qu'un redemarrage remettrait."""
+    c = exposition
+    monkeypatch.setenv("APP_MANAGER_PUBLIC_URL", "https://depuis-le-compose.example/")
+    assert app.adresse_publique() == "https://depuis-le-compose.example"
+    etat = c.get("/api/securite").get_json()
+    assert etat["adresse_figee"] is True
+    assert c.put("/api/securite/exposition",
+                 json={"adresse_publique": "https://autre.example"}).status_code == 400
