@@ -438,6 +438,53 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
 .act-vide{color:var(--dim);font-size:13px;padding:8px 0}
 .us-activite{font-size:12px;color:var(--dim2);margin-top:6px}
 
+/* Une ligne par compte : l'initiale, le nom, ce qu'il faut savoir d'un coup
+   d'oeil, et un seul bouton. Les reglages vivent dans la fiche du compte --
+   quatre boutons par ligne transformaient la liste en tableau de bord. */
+.us-ligne{display:flex;align-items:center;gap:13px;padding:13px 15px;border:1px solid var(--line);
+ border-radius:10px;margin-bottom:8px;background:var(--surface)}
+.us-ligne:hover{border-color:var(--line2)}
+.us-rond{width:36px;height:36px;border-radius:50%;flex:none;display:grid;place-items:center;
+ background:var(--accent-soft);color:var(--accent);font-weight:650;font-size:14px;
+ text-transform:uppercase}
+.us-corps{min-width:0;flex:1}
+.us-nom{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.us-nom b{font-size:14px;font-weight:620}
+.us-meta{font-size:12px;color:var(--dim2);margin-top:3px;
+ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:640px){.us-ligne{flex-wrap:wrap}}
+
+/* Blocs d'une fiche de compte : chaque groupe de reglages est separe, avec
+   son intitule. Le dernier est celui qui detruit -- en bas, et signale. */
+.mb-groupe{border-top:1px solid var(--line);margin-top:18px;padding-top:16px}
+.mb-groupe:first-child{border-top:none;margin-top:0;padding-top:0}
+.mb-titre{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+ color:var(--dim2);margin-bottom:10px}
+.danger{color:var(--err);border-color:var(--err-border)}
+.danger:hover{background:var(--err-bg);border-color:var(--err);color:var(--err-txt)}
+
+/* La confirmation passe AU-DESSUS des autres pop-up : elle est souvent
+   demandee depuis l'une d'elles (la fiche d'un compte, par exemple), et a
+   z-index egal c'est la derniere du document qui gagne -- la question
+   s'affichait alors sous le voile de la fenetre qui l'avait posee, visible
+   mais impossible a cliquer. */
+#ov-confirm{z-index:140}
+
+/* ------------------------------ notifications ------------------------------ */
+/* Les echecs passaient par alert() : une boite grise du systeme, hors de
+   l'interface, qui bloque la page tant qu'on n'a pas clique. Un bandeau
+   discret dit la meme chose sans arreter le travail. */
+.toasts{position:fixed;right:18px;bottom:18px;z-index:150;display:flex;flex-direction:column;
+ gap:8px;max-width:min(380px,calc(100vw - 36px))}
+.toast{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-radius:10px;
+ background:var(--surface);border:1px solid var(--line);box-shadow:0 10px 30px var(--shadow-2);
+ font-size:13px;line-height:1.5;animation:toast-in .16s ease}
+.toast svg{width:16px;height:16px;flex:none;margin-top:1px}
+.toast.err{border-color:var(--err-border);color:var(--err-txt)}
+.toast.err svg{color:var(--err)}
+.toast.ok svg{color:var(--ok)}
+@keyframes toast-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
 /* ------------------------------ cles d'acces ------------------------------ */
 .pk-ligne{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
 .pk-liste .pk-ligne:first-child{border-top:none}
@@ -1144,6 +1191,76 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
 </main>
 </div>
 
+<!-- ==================== POP-UP : CONFIRMATION ==================== -->
+<!-- Remplace confirm() : la meme question, dans la meme interface, avec un
+     bouton qui dit ce qu'il fait plutot que « OK ». -->
+<div class="ov" id="ov-confirm"><div class="modal" style="max-width:440px">
+  <div class="mh"><h3 id="cf-titre"></h3><p id="cf-texte"></p></div>
+  <div class="mf">
+    <button class="btn btn-default" onclick="confirmerReponse(false)">Annuler</button>
+    <button class="btn btn-primary" id="cf-ok" onclick="confirmerReponse(true)">Confirmer</button>
+  </div>
+</div></div>
+
+<div class="toasts" id="toasts"></div>
+
+<!-- ==================== POP-UP : FICHE D'UN COMPTE ==================== -->
+<!-- Tout ce qui se regle sur un compte, au meme endroit. Avant, c'etait
+     quatre boutons dans la liste et une invite du navigateur pour le mot de
+     passe -- on ne pouvait meme pas corriger une adresse mail. -->
+<div class="ov" id="ov-user"><div class="modal">
+  <div class="mh"><h3 id="us-f-titre">Compte</h3>
+    <p id="us-f-sous"></p></div>
+  <div class="mb">
+    <div class="alert" id="us-f-err" style="display:none"></div>
+
+    <div class="mb-groupe">
+      <div class="mb-titre">Identite</div>
+      <div class="field"><label>Adresse mail <span class="opt">facultatif</span></label>
+        <input id="us-f-mail" type="email" placeholder="marie@example.com" autocomplete="off">
+        <div class="hint" id="us-f-mail-etat"></div>
+      </div>
+      <div class="field"><label>Nouveau mot de passe <span class="opt">facultatif</span></label>
+        <input id="us-f-mdp" type="password" autocomplete="new-password" placeholder="laisser vide pour ne pas changer">
+        <div class="hint">8 caracteres au minimum. La personne n'est pas deconnectee : sa session
+          en cours reste valable jusqu'a ce qu'elle la ferme.</div>
+      </div>
+      <div class="hint">Le nom du compte ne se change pas : il identifie la personne partout —
+        dans ses cles d'acces, dans le journal des acces, dans la liste des projets autorises.
+        Pour renommer quelqu'un, cree un compte et supprime l'ancien.</div>
+    </div>
+
+    <div class="mb-groupe">
+      <div class="mb-titre">Projets autorises</div>
+      <div class="hint">L'autorisation ne compte que pour les projets <b>prives</b> : un projet
+        public reste ouvert a tout le monde, y compris sans connexion.</div>
+      <div class="us-cases" id="us-f-projets" style="margin-top:10px"></div>
+    </div>
+
+    <div class="mb-groupe">
+      <div class="mb-titre">Moyens de connexion</div>
+      <div class="hint" id="us-f-facteurs"></div>
+      <div class="mf" style="justify-content:flex-start;gap:8px;padding:0;margin-top:12px;background:none;border:none">
+        <button class="btn btn-default btn-sm" id="us-f-totp" onclick="usReinitTotp()">Reinitialiser le second facteur</button>
+        <button class="btn btn-default btn-sm" id="us-f-cles" onclick="usRetirerCles()">Retirer les cles d'acces</button>
+      </div>
+    </div>
+
+    <div class="mb-groupe">
+      <div class="mb-titre">Supprimer</div>
+      <div class="hint">Le compte disparait, avec ses cles d'acces. Ses sessions ouvertes cessent
+        d'autoriser quoi que ce soit — chaque controle relit le registre. Le journal des acces,
+        lui, garde la trace de ce qu'il a fait.</div>
+      <button class="btn btn-default danger btn-sm" style="margin-top:10px"
+        onclick="usSupprimer()">Supprimer ce compte</button>
+    </div>
+  </div>
+  <div class="mf">
+    <button class="btn btn-default" onclick="hide('ov-user')">Annuler</button>
+    <button class="btn btn-primary" id="us-f-save" onclick="usEnregistrer()">Enregistrer</button>
+  </div>
+</div></div>
+
 <!-- ==================== POP-UP : NOUVELLE APPLICATION ==================== -->
 <div class="ov" id="ov-add"><div class="modal">
   <div class="mh"><h3>Nouvelle application</h3>
@@ -1521,24 +1638,26 @@ async function restartApp(n){ await fetch('/api/restart/'+n,{method:'POST'}); se
 async function deployApp(n){
   const r=await fetch('/api/deploy/'+n,{method:'POST'});
   const d=await r.json();
-  if(!r.ok){ alert(d.error||'Le deploiement a echoue.'); }
+  if(!r.ok) notifier(d.error||'Le deploiement a echoue.', 'err');
   ouvrirFiche(n); ficheOnglet('journal');
   setTimeout(refresh,600);
 }
 async function buildApp(n){
   const r=await fetch('/api/build/'+n,{method:'POST'});
   const d=await r.json();
-  if(!r.ok){ alert(d.error||'Le build a echoue.'); }
+  if(!r.ok) notifier(d.error||'Le build a echoue.', 'err');
   ouvrirFiche(n); ficheOnglet('journal');
 }
 async function basculerVisibilite(n){
   const r=await fetch('/api/visibility/'+n,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
   const d=await r.json();
-  if(!r.ok){ alert(d.error||'Changement impossible.'); return; }
+  if(!r.ok){ notifier(d.error||'Changement impossible.', 'err'); return; }
   refresh();
 }
 async function rm(n){
-  if(!confirm('Supprimer « '+n+' » ? Le dossier du projet n\'est pas touche.')) return;
+  if(!await demander('Supprimer « ' + n + ' » ?',
+    "L'application disparait du panneau. Le dossier du projet dans /workspace n'est pas touche.",
+    'Supprimer', true)) return;
   await fetch('/api/app/'+n,{method:'DELETE'});
   ficheNom=null; showSection('apps'); refresh();
 }
@@ -1895,7 +2014,9 @@ async function pkAjouter(){
 }
 
 async function pkSupprimer(id){
-  if(!confirm('Retirer cette cle d\'acces ?')) return;
+  if(!await demander("Retirer cette cle d'acces ?",
+    "L'appareil qui la porte n'ouvrira plus ce compte. Tu peux en enregistrer une autre a tout moment.",
+    'Retirer')) return;
   const r=await fetch('/api/mon-compte/passkeys/'+encodeURIComponent(id),{method:'DELETE'});
   const d=await r.json();
   if(!r.ok){ pkMessage(d.error||'Suppression impossible.', true); return; }
@@ -1946,10 +2067,9 @@ function peindreComptesActivite(){
   const r=(activite.resume||{}).comptes||{};
   document.querySelectorAll('#us-liste [data-activite]').forEach(n=>{
     const c=r[n.dataset.activite];
-    n.textContent = c
-      ? `Derniere connexion ${ilYA(c.derniere)} — ${c.connexions} connexion${c.connexions>1?'s':''}, `
-        + `${c.ouvertures} ouverture${c.ouvertures>1?'s':''}`
-      : 'Jamais connecte.';
+    n.textContent = c && c.derniere
+      ? ` — derniere connexion ${ilYA(c.derniere)}`
+      : ' — jamais connecte';
   });
 }
 
@@ -1990,53 +2110,148 @@ async function chargerUtilisateurs(){
       +'Toi seul peux ouvrir les projets prives.</div>';
     return;
   }
-  /* Une case a cocher par projet declare : c'est la liste complete qui rend
-     lisible ce qui est autorise ET ce qui ne l'est pas. */
+  /* La liste dit l'essentiel ; le detail vit dans la fiche du compte. Une
+     ligne par personne, un bouton par ligne. */
+  usComptes = comptes;
   $('us-liste').innerHTML = comptes.map(c=>{
-    const cases = apps.map(a=>{
-      const coche = c.projets.includes(a.name) ? ' checked' : '';
-      const prive = a.visibility==='privee';
-      return `<label class="us-case${prive?'':' us-public'}">
-        <input type="checkbox" data-compte="${esc(c.nom)}" value="${esc(a.name)}"${coche}
-          onchange="usProjets('${esc(c.nom)}')">
-        ${esc(a.name)}${prive?'':' <span>(public)</span>'}</label>`;
-    }).join('') || '<div class="hint">Aucun projet declare.</div>';
-    /* L'etat du second facteur en premier : "en attente" designe un compte
-       cree mais jamais utilise, ce qui se voit d'un coup d'oeil. */
-    const f = c.totp
-      ? '<span class="pill on"><i></i>2FA enregistree</span>'
-      : '<span class="pill off"><i></i>2FA en attente</span>';
-    /* L'adresse et son etat : un compte cree librement qui n'a pas confirme
-       la sienne ne peut pas se connecter, et cela doit se voir ici. */
-    const m = !c.email
-      ? '<span class="pill off"><i></i>Sans adresse</span>'
-      : (c.email_verifie
-        ? `<span class="pill on"><i></i>${esc(c.email)}</span>`
-        : `<span class="pill ${c.attente_email?'err':'off'}"><i></i>${esc(c.email)} `
-          + (c.attente_email ? '(inscription a confirmer)' : '(non verifiee)') + '</span>');
-    return `<div class="us-compte">
-      <div class="us-tete"><b>${esc(c.nom)}</b>${f}${m}
-        <div class="spacer"></div>
-        <button class="btn btn-default btn-sm" onclick="usMotDePasse('${esc(c.nom)}')">Mot de passe</button>
-        ${c.totp ? `<button class="btn btn-default btn-sm"
-          onclick="usReinitTotp('${esc(c.nom)}')">Reinitialiser la 2FA</button>` : ''}
-        <button class="btn btn-default btn-sm" onclick="usSupprimer('${esc(c.nom)}')">Supprimer</button>
+    /* Ce qui empeche quelqu'un d'entrer passe en premier, et en rouge : un
+       compte qui n'a jamais confirme son adresse ne se connecte pas. */
+    const badges=[];
+    if(c.attente_email) badges.push('<span class="pill err"><i></i>Inscription a confirmer</span>');
+    if(!c.totp) badges.push('<span class="pill off"><i></i>2FA en attente</span>');
+    if(c.passkeys) badges.push(`<span class="pill on"><i></i>${c.passkeys} cle${c.passkeys>1?'s':''}</span>`);
+    const projets = c.projets.length
+      ? c.projets.length + ' projet' + (c.projets.length>1?'s':'')
+      : 'aucun projet';
+    const adresse = c.email
+      ? esc(c.email) + (c.email_verifie ? ' (verifiee)' : ' (non verifiee)')
+      : 'sans adresse';
+    return `<div class="us-ligne">
+      <div class="us-rond">${esc((c.nom||'?').slice(0,1))}</div>
+      <div class="us-corps">
+        <div class="us-nom"><b>${esc(c.nom)}</b>${badges.join('')}</div>
+        <div class="us-meta">${adresse} — ${projets}<span data-activite="${esc(c.nom)}"></span></div>
       </div>
-      <div class="us-cases">${cases}</div>
-      <!-- Rempli par peindreComptesActivite() : la liste des comptes et le
-           journal se chargent separement, chacun a son rythme. -->
-      <div class="us-activite" data-activite="${esc(c.nom)}"></div></div>`;
+      <button class="btn btn-default btn-sm" onclick="usOuvrir('${esc(c.nom)}')">Modifier</button>
+    </div>`;
   }).join('');
   peindreComptesActivite();
+  /* La fiche ouverte suit : les projets ont pu changer pendant qu'elle
+     l'etait, et les cases a cocher doivent rester justes. */
+  if(usCourant && $('ov-user').classList.contains('show')) usPeindreFiche();
 }
 
-async function usProjets(nom){
-  const projets=[...document.querySelectorAll(`#us-liste input[data-compte="${nom}"]:checked`)]
-    .map(i=>i.value);
-  const r=await fetch('/api/utilisateurs/'+encodeURIComponent(nom),{method:'PUT',
-    headers:{'Content-Type':'application/json'},body:JSON.stringify({projets})});
-  if(!r.ok){ const d=await r.json(); usErreur(d.error||'Modification impossible.'); }
-  else usErreur('');
+/* ---------------- confirmation et notifications ---------------- */
+let confirmerResoudre=null;
+/* Une promesse plutot qu'un rappel : le code appelant se lit comme avec
+   confirm(), en une ligne, sans imbriquer une fonction. */
+function demander(titre, texte, libelle, danger){
+  $('cf-titre').textContent=titre;
+  $('cf-texte').textContent=texte;
+  const ok=$('cf-ok');
+  ok.textContent=libelle||'Confirmer';
+  ok.className='btn ' + (danger ? 'btn-default danger' : 'btn-primary');
+  $('ov-confirm').classList.add('show');
+  setTimeout(()=>ok.focus(), 40);
+  return new Promise(r=>{ confirmerResoudre=r; });
+}
+function confirmerReponse(reponse){
+  hide('ov-confirm');
+  const r=confirmerResoudre; confirmerResoudre=null;
+  if(r) r(reponse);
+}
+
+function notifier(texte, genre){
+  const n=document.createElement('div');
+  n.className='toast ' + (genre||'ok');
+  const icone = genre==='err'
+    ? '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/></svg>'
+    : '<svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>';
+  n.innerHTML = icone + '<div>' + esc(texte) + '</div>';
+  $('toasts').appendChild(n);
+  setTimeout(()=>n.remove(), genre==='err' ? 7000 : 4000);
+}
+
+/* ---------------- fiche d'un compte ---------------- */
+let usComptes=[], usCourant='';
+
+function usOuvrir(nom){
+  usCourant=nom;
+  usPeindreFiche();
+  $('ov-user').classList.add('show');
+}
+
+function usCompte(){ return usComptes.find(c=>c.nom===usCourant); }
+
+function usPeindreFiche(){
+  const c=usCompte();
+  if(!c){ hide('ov-user'); return; }
+  $('us-f-titre').textContent=c.nom;
+  $('us-f-sous').textContent = c.cree
+    ? 'Compte cree ' + ilYA(c.cree) + '.'
+    : 'Compte utilisateur.';
+  $('us-f-err').style.display='none';
+  $('us-f-mail').value=c.email||'';
+  $('us-f-mdp').value='';
+  $('us-f-mail-etat').textContent = !c.email
+    ? "Aucune adresse. La personne peut en declarer une elle-meme depuis ses parametres."
+    : (c.attente_email
+      ? "Adresse jamais confirmee : ce compte ne peut pas se connecter tant qu'un code envoye dessus n'est pas revenu."
+      : (c.email_verifie
+        ? "Adresse verifiee par un code recu dessus."
+        : "Adresse non verifiee : la personne la confirmera depuis ses parametres."));
+
+  /* Une case par projet declare : la liste complete rend lisible ce qui est
+     autorise ET ce qui ne l'est pas. */
+  $('us-f-projets').innerHTML = apps.length ? apps.map(a=>{
+    const coche = c.projets.includes(a.name) ? ' checked' : '';
+    const prive = a.visibility==='privee';
+    return `<label class="us-case${prive?'':' us-public'}">
+      <input type="checkbox" value="${esc(a.name)}"${coche}>
+      ${esc(a.name)}${prive?'':' <span>(public)</span>'}</label>`;
+  }).join('') : '<div class="hint">Aucun projet declare.</div>';
+
+  const morceaux=[];
+  morceaux.push(c.totp
+    ? 'Second facteur enregistre.'
+    : "Second facteur en attente : il sera enregistre a la premiere connexion.");
+  morceaux.push(c.passkeys
+    ? `${c.passkeys} cle${c.passkeys>1?'s':''} d'acces enregistree${c.passkeys>1?'s':''}.`
+    : "Aucune cle d'acces.");
+  morceaux.push("Tu ne connais jamais ces secrets : en cas d'appareil perdu, remets-les a zero "
+    + "et la personne en enregistrera de nouveaux.");
+  $('us-f-facteurs').textContent = morceaux.join(' ');
+  $('us-f-totp').disabled = !c.totp;
+  $('us-f-cles').disabled = !c.passkeys;
+}
+
+function usFicheErreur(texte){
+  const e=$('us-f-err');
+  e.textContent=texte||'';
+  e.style.display = texte ? 'block' : 'none';
+}
+
+async function usEcrire(corps, message){
+  usFicheErreur('');
+  const r=await fetch('/api/utilisateurs/'+encodeURIComponent(usCourant),{method:'PUT',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(corps)});
+  const d=await r.json();
+  if(!r.ok){ usFicheErreur(d.error||'Modification impossible.'); return false; }
+  await chargerUtilisateurs();
+  if(message) usFicheErreur('');
+  return true;
+}
+
+async function usEnregistrer(){
+  const mdp=$('us-f-mdp').value;
+  if(mdp && mdp.length<8) return usFicheErreur('Mot de passe : 8 caracteres au minimum.');
+  const projets=[...document.querySelectorAll('#us-f-projets input:checked')].map(i=>i.value);
+  const corps={email:$('us-f-mail').value.trim(), projets};
+  if(mdp) corps.mot_de_passe=mdp;
+  $('us-f-save').disabled=true;
+  try{
+    if(await usEcrire(corps)) hide('ov-user');
+  } finally { $('us-f-save').disabled=false; }
 }
 
 async function usCreer(){
@@ -2048,7 +2263,8 @@ async function usCreer(){
   const d=await r.json();
   if(!r.ok){ usErreur(d.error||'Creation impossible.'); return; }
   $('us-nom').value=''; $('us-mdp').value=''; $('us-mail').value='';
-  chargerUtilisateurs();
+  await chargerUtilisateurs();
+  notifier('Compte « ' + d.nom + ' » cree. Ouvre-le pour lui autoriser des projets.');
 }
 
 /* L'inscription libre suit le serveur d'envoi : sans mail, aucun moyen de
@@ -2120,29 +2336,33 @@ async function mailConfirmer(){
   mailMessage('Adresse verifiee.', false);
 }
 
-async function usMotDePasse(nom){
-  const mdp=prompt('Nouveau mot de passe pour « '+nom+' » (8 caracteres au minimum) :');
-  if(!mdp) return;
-  const r=await fetch('/api/utilisateurs/'+encodeURIComponent(nom),{method:'PUT',
-    headers:{'Content-Type':'application/json'},body:JSON.stringify({mot_de_passe:mdp})});
-  const d=await r.json();
-  usErreur(r.ok ? '' : (d.error||'Modification impossible.'));
+async function usReinitTotp(){
+  const nom=usCourant;
+  if(!await demander('Reinitialiser le second facteur ?',
+    `« ${nom} » enregistrera une nouvelle cle a sa prochaine connexion. A faire quand la personne `
+    + `a change ou perdu son telephone.`, 'Reinitialiser')) return;
+  if(await usEcrire({reinitialiser_totp:true}))
+    notifier('Second facteur remis a zero pour « ' + nom + ' ».');
 }
 
-async function usReinitTotp(nom){
-  if(!confirm('Remettre a zero le second facteur de « '+nom+' » ?\n\n'
-    +'Il devra enregistrer une nouvelle cle a sa prochaine connexion. '
-    +'A faire quand il a change ou perdu son telephone.')) return;
-  const r=await fetch('/api/utilisateurs/'+encodeURIComponent(nom),{method:'PUT',
-    headers:{'Content-Type':'application/json'},body:JSON.stringify({reinitialiser_totp:true})});
-  if(!r.ok){ const d=await r.json(); usErreur(d.error||'Modification impossible.'); return; }
-  usErreur(''); chargerUtilisateurs();
+async function usRetirerCles(){
+  const nom=usCourant;
+  if(!await demander("Retirer les cles d'acces ?",
+    `Les appareils de « ${nom} » ne l'ouvriront plus. Elle pourra en enregistrer de nouveaux apres `
+    + `s'etre connectee avec son mot de passe.`, 'Retirer')) return;
+  if(await usEcrire({retirer_passkeys:true}))
+    notifier("Cles d'acces retirees pour « " + nom + " ».");
 }
 
-async function usSupprimer(nom){
-  if(!confirm('Supprimer le compte « '+nom+' » ?')) return;
+async function usSupprimer(){
+  const nom=usCourant;
+  if(!await demander('Supprimer le compte « ' + nom + ' » ?',
+    "Le compte et ses cles d'acces disparaissent. Ses sessions ouvertes n'autoriseront plus rien.",
+    'Supprimer', true)) return;
   const r=await fetch('/api/utilisateurs/'+encodeURIComponent(nom),{method:'DELETE'});
-  if(!r.ok){ const d=await r.json(); usErreur(d.error||'Suppression impossible.'); return; }
+  if(!r.ok){ const d=await r.json(); usFicheErreur(d.error||'Suppression impossible.'); return; }
+  hide('ov-user');
+  notifier('Compte « ' + nom + ' » supprime.');
   chargerUtilisateurs();
 }
 
@@ -2319,7 +2539,7 @@ async function pubEnregistrer(){
 async function totpPreparer(){
   const r=await fetch('/api/securite/totp/preparer',{method:'POST'});
   const d=await r.json();
-  if(!r.ok){ alert(d.error||'Preparation impossible.'); return; }
+  if(!r.ok){ notifier(d.error||'Preparation impossible.', 'err'); return; }
   $('totp-secret').value=d.secret;
   montrerQr(d.qr);
   $('totp-etape-1').style.display='none';
@@ -2365,7 +2585,11 @@ async function doLogout(){ await fetch('/logout',{method:'POST'}); location.href
 
 
 document.addEventListener('keydown',e=>{
-  if(e.key==='Escape'){ hide('ov-add'); $('acct-menu').classList.remove('show'); }
+  if(e.key==='Escape'){
+    hide('ov-add'); hide('ov-user');
+    if(confirmerResoudre) confirmerReponse(false);
+    $('acct-menu').classList.remove('show');
+  }
 });
 document.querySelectorAll('.ov').forEach(o=>o.addEventListener('click',
  e=>{ if(e.target===o) o.classList.remove('show'); }));

@@ -219,7 +219,20 @@ page bricolee dans le navigateur ne donne aucun droit supplementaire.
 `/espace`, l'ancienne adresse de l'espace utilisateur, redirige vers `/` : elle a pu etre mise en
 favori.
 
-Les comptes se creent depuis **Utilisateurs**, dans le menu lateral. Chacun porte la liste des projets qu'il peut
+Les comptes se creent depuis **Utilisateurs**, dans le menu lateral. La liste donne l'essentiel d'un
+coup d'oeil — ce qui empeche quelqu'un d'entrer en premier, et en rouge — et **« Modifier » ouvre la
+fiche du compte** : adresse mail, nouveau mot de passe, projets autorises, remise a zero du second
+facteur, retrait des cles d'acces, suppression.
+
+**Le nom, lui, ne se change pas** : il identifie la personne partout — dans ses cles d'acces, dans le
+journal des acces, dans la liste des projets autorises. Pour renommer quelqu'un, on cree un compte
+et on supprime l'ancien.
+
+**Supprimer un compte emporte ses cles d'acces.** Les laisser serait pire qu'un oubli de menage :
+recreer un compte du meme nom lui rendrait les cles de l'ancien, et l'appareil de la personne partie
+rouvrirait la porte.
+
+Chaque compte porte la liste des projets qu'il peut
 ouvrir ; la retirer prend effet immediatement, sans deconnexion — chaque controle relit le registre.
 
 Trois points meritent d'etre explicites :
@@ -555,6 +568,8 @@ qui n'est pas implemente ici.
 | `/login/passkey/options` | POST | **non** | Prepare une connexion par cle d'acces |
 | `/login/passkey` | POST | **non** | Ouvre la session si la signature est bonne |
 | `/api/securite/exposition` | PUT | oui | Declare (ou retire) l'adresse publique du serveur |
+| `/api/utilisateurs` | GET / POST | oui | Les comptes (sans rien qui ressemble a un mot de passe) ; en cree un |
+| `/api/utilisateurs/<nom>` | PUT / DELETE | oui | Modifie un compte (projets, adresse, mot de passe, remise a zero du second facteur, retrait des cles) ; le supprime, avec ses cles |
 | `/api/activite` | GET | oui | Journal des acces et son resume (**administrateur**) |
 | `/api/mon-compte` | GET | oui | Ce que la session dit d'elle-meme : nom, role, adresse et son etat |
 | `/api/mon-compte/email` | POST | oui | Declare ou change sa propre adresse, et envoie un code |

@@ -2923,6 +2923,10 @@ def api_utilisateurs():
          # signale un compte cree mais jamais utilise, ce qui se voit d'un
          # coup d'oeil et se corrige en relancant la personne.
          "totp": bool(c.get("totp")),
+         # Le nombre de cles, pas les cles : l'administrateur doit pouvoir
+         # constater qu'un compte en a (et les retirer si l'appareil est
+         # perdu), pas les lire.
+         "passkeys": len(lire_passkeys().get(nom, [])),
          "email": c.get("email") or "",
          "email_verifie": bool(c.get("email_verifie")),
          # Un compte cree librement qui n'a pas encore confirme son adresse
@@ -3023,6 +3027,19 @@ def api_utilisateur_modifier(nom):
     if d.get("reinitialiser_totp"):
         compte.pop("totp", None)
 
+    # Appareil perdu : l'administrateur pouvait deja remettre le second
+    # facteur a zero, mais pas retirer les cles d'acces -- le compte restait
+    # ouvrable par un telephone egare. Meme geste, meme raison.
+    if d.get("retirer_passkeys"):
+        tout = lire_passkeys()
+        if tout.pop(nom, None) is not None:
+            try:
+                ecrire_passkeys(tout)
+            except OSError as e:
+                return jsonify({"error": f"Cles non retirees : {e}"}), 500
+            journaliser("passkey", qui=nom, action="retrait par l'administrateur",
+                        ip=_adresse_client())
+
     try:
         ecrire_utilisateurs(comptes)
     except OSError as e:
@@ -3041,6 +3058,17 @@ def api_utilisateur_supprimer(nom):
         ecrire_utilisateurs(comptes)
     except OSError as e:
         return jsonify({"error": f"Compte non supprime : {e}"}), 500
+
+    # Les cles d'acces partent avec le compte. Les laisser serait pire qu'un
+    # oubli de menage : recreer un compte du meme nom lui rendrait les cles
+    # de l'ancien, et l'appareil de la personne partie rouvrirait la porte.
+    cles = lire_passkeys()
+    if cles.pop(nom, None) is not None:
+        try:
+            ecrire_passkeys(cles)
+        except OSError as e:
+            return jsonify({"error": f"Compte supprime, mais ses cles d'acces "
+                                     f"n'ont pas pu etre retirees : {e}"}), 500
     # La session de ce compte, si elle existe, tombera d'elle-meme : chaque
     # controle relit le registre, et un compte absent n'autorise plus rien.
     return jsonify({"ok": True})

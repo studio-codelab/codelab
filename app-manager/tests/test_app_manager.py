@@ -1578,3 +1578,58 @@ def test_les_cles_sont_celles_du_compte_connecte(cles):
     # Celle de quelqu'un d'autre ne se supprime pas depuis ce compte.
     assert cles.delete("/api/mon-compte/passkeys/BBB").status_code == 404
     assert len(app.lire_passkeys()["marie"]) == 1
+
+
+# ---------- 19. modifier un compte ----------
+#
+# L'administrateur pouvait remettre un second facteur a zero, mais pas
+# retirer les cles d'acces : un compte restait ouvrable par un telephone
+# perdu. Et surtout, supprimer un compte laissait ses cles derriere lui.
+
+def test_supprimer_un_compte_emporte_ses_cles_d_acces(cles):
+    """Le cas qui rouvrirait la porte.
+
+    Recreer un compte du meme nom lui rendrait les cles de l'ancien --
+    l'appareil de la personne partie ouvrirait de nouveau la session.
+    """
+    sel = "dd" * 16
+    app.ecrire_utilisateurs({"marie": {
+        "sel": sel, "hash": app.derive_mot_de_passe("mot-de-passe-long", sel),
+        "projets": [], "cree": 0}})
+    app.ecrire_passkeys({"marie": [{"id": "AAA", "cle_publique": "x", "compteur": 0}]})
+
+    cles.post("/login", json={"password": "secret-de-test"})
+    assert cles.delete("/api/utilisateurs/marie").status_code == 200
+    assert "marie" not in app.lire_passkeys()
+
+    # Le nom redevient libre, et le compte recree part de zero.
+    r = cles.post("/api/utilisateurs", json={"nom": "marie",
+                                             "mot_de_passe": "mot-de-passe-long"})
+    assert r.status_code == 200, r.data
+    assert app.lire_passkeys().get("marie", []) == []
+
+
+def test_l_administrateur_peut_retirer_les_cles_d_un_compte(cles):
+    """Appareil perdu : meme geste que la remise a zero du second facteur."""
+    sel = "ee" * 16
+    app.ecrire_utilisateurs({"marie": {
+        "sel": sel, "hash": app.derive_mot_de_passe("mot-de-passe-long", sel),
+        "projets": [], "cree": 0, "totp": app.totp_nouveau_secret()}})
+    app.ecrire_passkeys({"marie": [{"id": "AAA", "cle_publique": "x", "compteur": 0}],
+                         "admin": [{"id": "BBB", "cle_publique": "y", "compteur": 0}]})
+    cles.post("/login", json={"password": "secret-de-test"})
+
+    # Le compte annonce ce qu'il a, sans le livrer.
+    comptes = cles.get("/api/utilisateurs").get_json()["utilisateurs"]
+    marie = [c for c in comptes if c["nom"] == "marie"][0]
+    assert marie["passkeys"] == 1
+    assert "cle_publique" not in json.dumps(comptes)
+
+    assert cles.put("/api/utilisateurs/marie",
+                    json={"retirer_passkeys": True}).status_code == 200
+    assert "marie" not in app.lire_passkeys()
+    # Celles des autres comptes ne bougent pas.
+    assert len(app.lire_passkeys()["admin"]) == 1
+    # Et le compte, lui, existe toujours : on retire un moyen d'entrer, pas
+    # la personne.
+    assert "marie" in app.lire_utilisateurs()
