@@ -41,8 +41,8 @@ durer va dans `/workspace`, ou dans le `Dockerfile` du service.
 
 ```bash
 ssh vscode@<IP-du-serveur> -p 2222     # 1. entrer dans le conteneur
-cd /workspace/mon-projet               # 2. jamais depuis l'ordinateur local
-codelab agents                         # 3. donner le mode d'emploi a l'agent
+codelab new mon-projet                 # 2. dossier, git, .gitignore, AGENTS.md
+cd /workspace/mon-projet               # 3. jamais depuis l'ordinateur local
 codex                                  # 4. developper (voir section 4)
 npm run build                          # 5. verifier que le build passe
 ```
@@ -67,11 +67,14 @@ a jour, aucun fichier central a editer : ni `/workspace/definitions.py`, ni le
 `docker-compose.yml`, ni `apps.json` a la main.
 
 ```bash
-cd /workspace
-mkdir mon-projet && cd mon-projet       # ou : npm create vite@latest mon-projet
-git init                                # optionnel, mais debloque "Git pull"
-codelab agents                          # le AGENTS.md du projet
+codelab new mon-projet          # dossier, depot git, .gitignore, AGENTS.md
+codelab new mon-projet --db     # ... et sa base de donnees
 ```
+
+La commande refuse un dossier existant et un nom invalide : elle est sans danger a relancer.
+Elle ne fait **pas** l'echafaudage du framework — `npm create vite@latest .` telecharge, pose des
+questions et evolue a son rythme ; le reproduire ici vieillirait mal. La commande l'affiche en
+piste suivante, c'est tout.
 
 Puis, **selon ce que le projet fait** — les trois cas sont independants et se
 cumulent :
@@ -102,20 +105,35 @@ cp -r /workspace/diagnostic /workspace/mon-projet
 
 ### Sans passer par le terminal
 
-Les memes gestes existent en **taches VS Code**, livrees dans
-`/workspace/.vscode/tasks.json`. Menu **Terminal > Executer la tache...** (ou
-Ctrl+Maj+P, « Executer la tache ») :
+**Ctrl+Maj+B** (Cmd+Maj+B sur Mac) cree un projet, depuis n'importe ou dans VS Code. Pas de menu :
+la tache « CodeLab : nouveau projet » est declaree tache de *build* par defaut, et c'est le raccourci
+que VS Code reserve a celle-ci. Une boite de dialogue demande le nom, le resultat s'affiche.
+
+Les autres passent par **Terminal > Executer la tache...** :
 
 | Tache | Ce qu'elle fait |
 |---|---|
-| **CodeLab : nouveau projet** | dossier, `git init`, `.gitignore`, `AGENTS.md` |
-| **CodeLab : creer la base du projet** | `codelab db`, schema et `search_path` |
-| **CodeLab : mettre a jour le manuel de l'agent** | rafraichit le bloc CodeLab du `AGENTS.md` |
+| **CodeLab : nouveau projet** | `codelab new` — **Ctrl+Maj+B** |
+| **CodeLab : nouveau projet + base de donnees** | idem, avec `--db` |
+| **CodeLab : creer la base d'un projet existant** | `codelab db` |
+| **CodeLab : mettre a jour le manuel de l'agent** | `codelab agents` |
 
-VS Code demande le nom du projet dans une boite de dialogue et affiche le
-resultat ; il n'y a rien a taper. Les taches appellent l'outil `codelab` du
-conteneur plutot que de recopier ses commandes : la logique reste a un seul
-endroit.
+Les taches appellent l'outil `codelab` du conteneur plutot que de recopier ses commandes : la logique
+reste a un seul endroit.
+
+#### Un raccourci dedie a une autre tache
+
+Un dossier de travail ne peut reserver qu'un seul raccourci — celui de la tache de build. Pour en
+dedier un autre, il faut passer par **tes** raccourcis (Ctrl+Maj+P, « Preferences: Open Keyboard
+Shortcuts (JSON) ») ; ce fichier est personnel a ton VS Code, il ne peut pas etre livre par le depot :
+
+```json
+{
+  "key": "ctrl+alt+n",
+  "command": "workbench.action.tasks.runTask",
+  "args": "CodeLab : nouveau projet + base de donnees"
+}
+```
 
 Ouvre `/workspace` comme dossier dans VS Code, sinon les taches ne sont pas
 proposees (elles vivent dans le `.vscode` de ce dossier).

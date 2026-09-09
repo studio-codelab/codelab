@@ -28,14 +28,16 @@ Fonctionnalites de fiabilite/observabilite/deploiement ajoutees :
   - historique de metriques en memoire (~2.5 min) + mini-graphiques SVG
   - recherche dans les logs en direct (filtre cote client)
   - "Lancer le build" (commande optionnelle, separee du lancement)
-  - "Git pull" (visible seulement si le dossier contient .git)
   - limite memoire optionnelle par app (RLIMIT_AS via preexec_fn)
 
 Le panneau n'ecrit jamais dans /workspace : il n'y cree aucun projet et
 n'y depose aucun fichier. Les dossiers sont crees par l'utilisateur (SSH,
 VS Code, git clone) puis simplement declares ici.
 """
+import base64
 import datetime
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -43,6 +45,7 @@ import resource
 import secrets
 import signal
 import socket
+import struct
 import subprocess
 import threading
 import time
@@ -75,7 +78,9 @@ SHARED_ENV_FILE = os.path.join(SHARED_CONFIG_DIR, "credentials.env")
 LEGACY_ADMIN_PASSWORD_FILE = os.path.join(STATE_DIR, "admin_password")
 LEGACY_SECRET_KEY_FILE = os.path.join(STATE_DIR, "flask_secret_key")
 
-_admin_password = None  # valeur courante, chargee par bootstrap_secrets()
+_admin_password = None   # valeur courante, chargee par bootstrap_secrets()
+_totp_secret = ""        # vide = double authentification desactivee
+TOTP_COMPTE = "admin"    # le nom affiche dans l'application d'authentification
 
 # ------------------------------ pages servies ------------------------------
 #
@@ -112,10 +117,16 @@ flask_app = Flask(__name__)
 flask_app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
-    # Le panneau est servi en clair sur le reseau local : exiger un cookie
-    # "Secure" empecherait purement et simplement de se connecter. C'est le
-    # compromis assume d'un service LAN sans TLS.
-    SESSION_COOKIE_SECURE=False,
+    # "Secure" interdit au navigateur d'envoyer le cookie sur une connexion en
+    # clair. Indispensable des qu'un reverse proxy termine du TLS devant --
+    # mais actif seulement sur demande : le poser alors que le panneau est
+    # servi en http empecherait purement et simplement de se connecter.
+    #
+    # Regle au demarrage plutot que depuis l'interface, et c'est deliberé :
+    # l'activer depuis une page servie en clair deconnecterait sur-le-champ la
+    # session qui vient de l'activer, sans moyen de revenir en arriere.
+    SESSION_COOKIE_SECURE=os.environ.get("APP_MANAGER_HTTPS", "").lower()
+                          in ("1", "true", "yes"),
     # Duree explicite : session.permanent sans cette valeur laisse le defaut
     # de Flask, 31 jours.
     PERMANENT_SESSION_LIFETIME=datetime.timedelta(days=7),
@@ -218,6 +229,35 @@ def upsert_shared_block(name, comment_lines, pairs):
         return False
 
 
+def ecrire_bloc_panneau(pw, key, totp):
+    """Reecrit le bloc du panneau dans credentials.env.
+
+    Un seul endroit ecrit ce bloc : ajouter une cle sans passer par ici la
+    ferait disparaitre au redemarrage suivant, quand bootstrap_secrets()
+    reecrirait le bloc sans elle.
+    """
+    commentaires = [
+        "# Panneau web de gestion des applications deployees (http://<IP>:9001/).",
+        "# APP_MANAGER_ADMIN_PASSWORD : mot de passe de connexion au panneau.",
+        "# APP_MANAGER_SESSION_SECRET : cle de signature des sessions -- la",
+        "#   changer deconnecte tout le monde ; ne jamais la partager.",
+    ]
+    valeurs = {
+        "APP_MANAGER_URL": "http://<IP-du-serveur>:9001",
+        "APP_MANAGER_ADMIN_PASSWORD": pw,
+        "APP_MANAGER_SESSION_SECRET": key,
+    }
+    if totp:
+        commentaires.append(
+            "# APP_MANAGER_TOTP_SECRET : double authentification activee. Vider")
+        commentaires.append(
+            "#   cette valeur et redemarrer suffit a la desactiver si l'appareil")
+        commentaires.append(
+            "#   qui porte les codes a ete perdu.")
+        valeurs["APP_MANAGER_TOTP_SECRET"] = totp
+    return upsert_shared_block("codelab-app-manager", commentaires, valeurs)
+
+
 def bootstrap_secrets():
     """Charge les secrets du panneau. credentials.env fait autorite ; a
     defaut on reprend les anciens fichiers dedies (migration) ; a defaut on
@@ -244,20 +284,12 @@ def bootstrap_secrets():
     _admin_password = pw
     flask_app.secret_key = key
 
-    written = upsert_shared_block(
-        "codelab-app-manager",
-        [
-            "# Panneau web de gestion des applications deployees (http://<IP>:9001/).",
-            "# APP_MANAGER_ADMIN_PASSWORD : mot de passe de connexion au panneau.",
-            "# APP_MANAGER_SESSION_SECRET : cle de signature des sessions -- la",
-            "#   changer deconnecte tout le monde ; ne jamais la partager.",
-        ],
-        {
-            "APP_MANAGER_URL": "http://<IP-du-serveur>:9001",
-            "APP_MANAGER_ADMIN_PASSWORD": pw,
-            "APP_MANAGER_SESSION_SECRET": key,
-        },
-    )
+    # Le secret de double authentification, s'il a ete active un jour. Absent =
+    # desactivee, et la connexion se fait au seul mot de passe.
+    global _totp_secret
+    _totp_secret = read_shared_value("APP_MANAGER_TOTP_SECRET") or ""
+
+    written = ecrire_bloc_panneau(pw, key, _totp_secret)
 
     if written:
         # Les valeurs sont desormais dans credentials.env : les anciens
@@ -286,6 +318,63 @@ def bootstrap_secrets():
 
 def admin_password():
     return _admin_password
+
+
+# ------------------------- double authentification -------------------------
+#
+# TOTP (RFC 6238) : le code a six chiffres d'une application d'authentification.
+# Ecrit ici plutot qu'importe : l'algorithme tient en vingt lignes avec la
+# bibliotheque standard, et ce service n'a que trois dependances -- en ajouter
+# une pour cela serait disproportionne.
+#
+# A quoi cela sert : le mot de passe du panneau est un secret unique. S'il
+# fuit -- capture sur un reseau, note quelque part, reutilise -- il donne
+# l'execution de commandes sur la machine. Le second facteur exige en plus un
+# appareil physique, et une fuite du seul mot de passe ne suffit plus.
+#
+# Desactive par defaut : sans secret enregistre, la connexion se fait comme
+# avant. C'est un reglage a activer depuis le panneau le jour ou il est
+# expose au-dela du reseau local.
+TOTP_PAS = 30          # secondes par code, valeur universelle
+TOTP_CHIFFRES = 6
+TOTP_TOLERANCE = 1     # +/- un intervalle, pour une horloge legerement decalee
+
+
+def totp_nouveau_secret():
+    """20 octets aleatoires en base32, le format que lisent les applications."""
+    return base64.b32encode(secrets.token_bytes(20)).decode().rstrip("=")
+
+
+def totp_code(secret, compteur):
+    # Le "=" de remplissage est retire du secret affiche (les applications ne
+    # l'aiment pas) : il faut donc le remettre avant de decoder.
+    cle = base64.b32decode(secret + "=" * (-len(secret) % 8), casefold=True)
+    empreinte = hmac.new(cle, struct.pack(">Q", compteur), hashlib.sha1).digest()
+    debut = empreinte[-1] & 0x0F
+    tronque = struct.unpack(">I", empreinte[debut:debut + 4])[0] & 0x7FFFFFFF
+    return str(tronque % (10 ** TOTP_CHIFFRES)).zfill(TOTP_CHIFFRES)
+
+
+def totp_verifie(secret, code):
+    code = (code or "").strip().replace(" ", "")
+    if not secret or not code.isdigit() or len(code) != TOTP_CHIFFRES:
+        return False
+    compteur = int(time.time()) // TOTP_PAS
+    for ecart in range(-TOTP_TOLERANCE, TOTP_TOLERANCE + 1):
+        # compare_digest plutot que "==" : meme raison que pour le mot de passe.
+        if secrets.compare_digest(code, totp_code(secret, compteur + ecart)):
+            return True
+    return False
+
+
+def totp_actif():
+    return bool(_totp_secret)
+
+
+def totp_uri(secret):
+    """L'adresse otpauth:// que lisent les applications d'authentification."""
+    return (f"otpauth://totp/CodeLab:{TOTP_COMPTE}?secret={secret}"
+            f"&issuer=CodeLab&algorithm=SHA1&digits={TOTP_CHIFFRES}&period={TOTP_PAS}")
 
 
 # --------------------------- auth ---------------------------
@@ -658,7 +747,7 @@ def start_monitor_thread():
     t.start()
 
 
-# ------------------------- build / git pull ----------------------------
+# ------------------------------- build ---------------------------------
 
 def run_build(name):
     apps = load()
@@ -685,32 +774,6 @@ def run_build(name):
             out.write(b"\n[build] delai depasse (10 min), arrete.\n")
             ok, msg = False, "Le build a depasse le delai de 10 minutes."
     return ok, msg
-
-
-def is_git_repo(path):
-    return os.path.isdir(os.path.join(path, ".git"))
-
-
-def git_pull(name):
-    apps = load()
-    a = apps.get(name)
-    if not a:
-        return False, "Application inconnue."
-    if not is_git_repo(a["path"]):
-        return False, "Ce dossier n'est pas un depot Git (pas de .git)."
-    try:
-        # git execute les hooks du depot (post-merge notamment) : le pull
-        # abandonne donc les privileges comme le build.
-        r = subprocess.run(["git", "pull", "--ff-only"], cwd=a["path"],
-                           preexec_fn=child_setup(),
-                           env=dict(os.environ, HOME=ensure_child_home()),
-                            capture_output=True, text=True, timeout=120)
-        output = ((r.stdout or "") + (r.stderr or "")).strip()
-        return r.returncode == 0, output
-    except subprocess.TimeoutExpired:
-        return False, "Delai depasse (2 min)."
-    except FileNotFoundError:
-        return False, "La commande git n'est pas installee dans cette image."
 
 
 # ------------------------- historique de metriques ----------------------------
@@ -890,6 +953,27 @@ def valid_name(raw):
     return re.sub(r"[^a-z0-9_-]", "-", (raw or "").strip().lower()).strip("-")
 
 
+# ------------------------- visibilite d'une application -------------------------
+#
+# Le reverse proxy sert les applications SANS authentification : c'est ce qui
+# permet de partager un projet par un simple lien. Tant que le panneau vit sur
+# un reseau de confiance, cela va de soi ; le jour ou le port est publie, cela
+# revient a offrir chaque projet a tout internet.
+#
+# Deux etats, pas trois : "publique" (le comportement historique, et le defaut
+# pour une application deja declaree qui n'a pas le champ) et "privee", qui
+# exige la meme session que le panneau. Arreter une application reste le
+# moyen de la retirer completement -- inutile d'un troisieme etat pour cela.
+VISIBILITE_PUBLIQUE = "publique"
+VISIBILITE_PRIVEE = "privee"
+VISIBILITES = (VISIBILITE_PUBLIQUE, VISIBILITE_PRIVEE)
+
+
+def visibilite(a):
+    v = (a or {}).get("visibility")
+    return v if v in VISIBILITES else VISIBILITE_PUBLIQUE
+
+
 def under_root(path):
     """Le chemin est-il dans APP_MANAGER_ROOT (/workspace) ?
 
@@ -915,18 +999,115 @@ def login_submit():
     # compare_digest plutot que "==" : la comparaison de chaines s'arrete au
     # premier caractere different, et la duree de la reponse renseigne alors
     # sur la longueur du prefixe correct.
-    if real and pw and secrets.compare_digest(pw, real):
-        session.permanent = True
-        session["authed"] = True
+    if not (real and pw and secrets.compare_digest(pw, real)):
+        register_failed_attempt()
+        return jsonify({"error": "Mot de passe incorrect."}), 401
+
+    # Le code a six chiffres, quand la double authentification est active. Une
+    # tentative ratee ici compte comme une tentative ratee tout court : sinon
+    # le second facteur serait forcable sans limite une fois le mot de passe
+    # connu, ce qui le viderait de son sens.
+    if totp_actif() and not totp_verifie(_totp_secret, d.get("code")):
+        register_failed_attempt()
+        return jsonify({"error": "Code de verification incorrect.",
+                        "totp": True}), 401
+
+    session.permanent = True
+    session["authed"] = True
+    return jsonify({"ok": True})
+
+
+@flask_app.get("/api/securite")
+@require_auth
+def api_securite():
+    """L'etat des reglages de securite, pour la page Parametres."""
+    return jsonify({
+        "totp": totp_actif(),
+        # Le panneau ne peut pas deviner s'il est derriere du TLS : il regarde
+        # l'en-tete que pose un reverse proxy correctement configure.
+        "https": request.headers.get("X-Forwarded-Proto", "").lower() == "https"
+                 or request.scheme == "https",
+        "trust_proxy": TRUST_PROXY,
+        "cookie_secure": bool(flask_app.config.get("SESSION_COOKIE_SECURE")),
+    })
+
+
+@flask_app.post("/api/securite/totp/preparer")
+@require_auth
+def api_totp_preparer():
+    """Tire un secret candidat, sans rien enregistrer.
+
+    Rien n'est persiste tant qu'un code valide n'a pas ete fourni : un secret
+    mal recopie dans l'application d'authentification enfermerait dehors des
+    le prochain retour sur la page de connexion.
+    """
+    if totp_actif():
+        return jsonify({"error": "La double authentification est deja active."}), 400
+    candidat = totp_nouveau_secret()
+    session["totp_candidat"] = candidat
+    return jsonify({"secret": candidat, "uri": totp_uri(candidat), "compte": TOTP_COMPTE})
+
+
+@flask_app.post("/api/securite/totp/activer")
+@require_auth
+def api_totp_activer():
+    global _totp_secret
+    candidat = session.get("totp_candidat")
+    if not candidat:
+        return jsonify({"error": "Recommence la preparation : aucun secret en attente."}), 400
+    code = (request.get_json(force=True, silent=True) or {}).get("code")
+    if not totp_verifie(candidat, code):
+        return jsonify({"error": "Code incorrect. Verifie l'heure de ton telephone."}), 400
+    if not ecrire_bloc_panneau(admin_password(), flask_app.secret_key, candidat):
+        return jsonify({"error": "credentials.env n'a pas pu etre ecrit : rien n'a ete active."}), 500
+    _totp_secret = candidat
+    session.pop("totp_candidat", None)
+    return jsonify({"ok": True})
+
+
+@flask_app.post("/api/securite/totp/desactiver")
+@require_auth
+def api_totp_desactiver():
+    """Desactivation protegee par un code valide.
+
+    La session admin seule ne suffit pas : une session volee pourrait sinon
+    retirer le second facteur, ce qui reviendrait a ne pas en avoir.
+    """
+    global _totp_secret
+    if not totp_actif():
         return jsonify({"ok": True})
-    register_failed_attempt()
-    return jsonify({"error": "Mot de passe incorrect."}), 401
+    code = (request.get_json(force=True, silent=True) or {}).get("code")
+    if not totp_verifie(_totp_secret, code):
+        register_failed_attempt()
+        return jsonify({"error": "Code incorrect."}), 400
+    if not ecrire_bloc_panneau(admin_password(), flask_app.secret_key, ""):
+        return jsonify({"error": "credentials.env n'a pas pu etre ecrit."}), 500
+    _totp_secret = ""
+    return jsonify({"ok": True})
 
 
 @flask_app.post("/logout")
 def logout():
     session.clear()
     return jsonify({"ok": True})
+
+
+@flask_app.get("/api/auth-check")
+def api_auth_check():
+    """Repond 200 si la session est valide, 401 sinon. Rien d'autre.
+
+    C'est le point d'appui du proxy de Dagster : nginx interroge cette route
+    avant chaque requete (directive auth_request) et laisse passer ou renvoie
+    vers la page de connexion du panneau. Dagster hérite ainsi de la session
+    du panneau -- meme mot de passe, meme second facteur, meme deconnexion --
+    au lieu d'avoir sa propre authentification HTTP Basic, qui n'a ni session,
+    ni expiration, ni deconnexion possible.
+    """
+    # Sans redirection, contrairement a require_auth : nginx a besoin d'un
+    # code, pas d'une page. C'est lui qui decide ou envoyer le visiteur.
+    if not is_authed():
+        return Response("", 401)
+    return Response("", 204)
 
 
 @flask_app.get("/health")
@@ -956,7 +1137,7 @@ def api_apps():
             # demarree) : l'interface ne signale "ne repond pas" que sur un
             # False franc, jamais sur une absence de mesure.
             "listening": _listening.get(name) if run else None,
-            "is_git": is_git_repo(a["path"]),
+            "visibility": visibilite(a),
             "has_build": bool((a.get("build_command") or "").strip()),
             "build_command": a.get("build_command") or "",
             "max_memory_mb": a.get("max_memory_mb"),
@@ -1004,6 +1185,7 @@ def api_add():
     command = (d.get("command") or "").strip()
     build_command = (d.get("build_command") or "").strip()
     max_memory_mb = d.get("max_memory_mb") or None
+    vis = d.get("visibility") if d.get("visibility") in VISIBILITES else VISIBILITE_PUBLIQUE
     apps = load()
 
     if not name:
@@ -1025,6 +1207,7 @@ def api_add():
     apps[name] = {
         "path": path, "command": command, "port": port, "enabled": False,
         "build_command": build_command, "max_memory_mb": max_memory_mb,
+        "visibility": vis,
     }
     save(apps)
     return jsonify({"ok": True, "name": name, "port": port})
@@ -1051,6 +1234,8 @@ def api_edit(n):
     apps[n]["command"] = command
     apps[n]["build_command"] = (d.get("build_command") or "").strip()
     apps[n]["max_memory_mb"] = d.get("max_memory_mb") or None
+    if d.get("visibility") in VISIBILITES:
+        apps[n]["visibility"] = d["visibility"]
     save(apps)
     return jsonify({"ok": True})
 
@@ -1071,6 +1256,23 @@ def restart_app(n):
             break
         time.sleep(0.1)
     start(n)
+
+
+@flask_app.post("/api/visibility/<n>")
+@require_auth
+def api_visibility(n):
+    apps = load()
+    if n not in apps:
+        return jsonify({"error": "Application inconnue."}), 404
+    d = request.get_json(force=True, silent=True) or {}
+    vis = d.get("visibility")
+    if vis not in VISIBILITES:
+        # Sans valeur explicite, on bascule d'un etat a l'autre.
+        vis = (VISIBILITE_PRIVEE if visibilite(apps[n]) == VISIBILITE_PUBLIQUE
+               else VISIBILITE_PUBLIQUE)
+    apps[n]["visibility"] = vis
+    save(apps)
+    return jsonify({"ok": True, "visibility": vis})
 
 
 @flask_app.post("/api/restart/<n>")
@@ -1116,17 +1318,6 @@ def api_build(n):
     if not ok:
         return jsonify({"error": msg}), 400
     return jsonify({"ok": True})
-
-
-@flask_app.post("/api/git-pull/<n>")
-@require_auth
-def api_git_pull(n):
-    if n not in load():
-        return jsonify({"error": "Application inconnue."}), 404
-    ok, output = git_pull(n)
-    if not ok:
-        return jsonify({"error": output}), 400
-    return jsonify({"ok": True, "output": output})
 
 
 @flask_app.get("/api/metrics/<n>")
@@ -1201,7 +1392,11 @@ def api_icon(n):
 def login_page():
     if is_authed():
         return redirect("/")
-    return Response(LOGIN_PAGE, mimetype="text/html")
+    # __TOTP__ vaut "1" quand la double authentification est active : la page
+    # affiche alors le champ du code. Substitue au moment de servir, comme
+    # __ROOT__ dans le tableau de bord.
+    page = LOGIN_PAGE.replace("__TOTP__", "1" if totp_actif() else "0")
+    return Response(page, mimetype="text/html")
 
 
 @flask_app.get("/")
@@ -1225,6 +1420,11 @@ def _proxy(name, sub):
     if not a:
         return Response(_page("Introuvable", "Aucune application \u00ab " + name + " \u00bb."),
                         404, mimetype="text/html")
+    # Application privee : meme session que le panneau. Le controle est ici,
+    # dans le proxy, et pas dans l'interface -- une application dont le lien
+    # circule doit rester fermee quel que soit le chemin emprunte.
+    if visibilite(a) == VISIBILITE_PRIVEE and not is_authed():
+        return redirect("/login")
     if not is_running(name):
         return Response(_page("Application arretee",
                               "\u00ab " + name + " \u00bb n'est pas demarree.",

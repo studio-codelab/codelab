@@ -73,8 +73,9 @@ recuperer). Le parcours complet, du dossier vide a l'application en ligne, est d
 **Dagster** : `http://<IP-du-serveur>:3000/` — charge `/workspace/definitions.py` comme code Dagster.
 Protege par mot de passe : Dagster n'a aucune authentification a lui, et son interface permet de lancer un
 job, donc d'executer du code. Un reverse proxy (`codelab-dagster-proxy`) en ajoute une devant, et le port de
-Dagster lui-meme n'est plus publie. Identifiants dans `credentials.env` (`DAGSTER_USER`,
-`DAGSTER_PASSWORD`), voir [`dagster/proxy/README.md`](dagster/proxy/README.md).
+Dagster lui-meme n'est plus publie. **Pas d'identifiants a lui** : il utilise la session du panneau, donc le
+meme mot de passe, la meme double authentification si elle est activee, et la meme deconnexion. Voir
+[`dagster/proxy/README.md`](dagster/proxy/README.md).
 
 **Agents** : `codelab agents` dans un projet y ecrit le mode d'emploi de la stack (perimetre d'ecriture,
 acces a la base, conventions Dagster et app-manager) sous forme d'un `AGENTS.md`, lu par `codex` avant
@@ -82,8 +83,7 @@ chaque tache. Voir [`DEVELOPPER.md`](DEVELOPPER.md).
 
 ## Un seul fichier de secrets
 
-Mot de passe Postgres, mot de passe admin app-manager, mot de passe Dagster, cle de session : **tout est
-dans `credentials.env`, et nulle part ailleurs.** Aucun fichier mono-secret a cote, rien a aller chercher dans un conteneur :
+Mot de passe Postgres, mot de passe admin app-manager, cle de session, secret de double authentification : **tout est dans `credentials.env`, et nulle part ailleurs.** Aucun fichier mono-secret a cote, rien a aller chercher dans un conteneur :
 ```bash
 cat /DATA/AppData/codelab/config/credentials.env
 ```

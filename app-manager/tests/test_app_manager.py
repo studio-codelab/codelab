@@ -18,10 +18,12 @@ demarrage vivant derriere if __name__ == "__main__".
 
     python -m pytest app-manager/tests -q
 """
+import base64
 import importlib.util
 import json
 import os
 import sys
+import time
 
 import pytest
 
@@ -168,6 +170,19 @@ def test_la_limite_de_tentatives_ne_se_contourne_pas_par_en_tete(client):
                        headers={"X-Forwarded-For": "10.0.0.99"}).status_code == 429
 
 
+def test_le_point_d_appui_de_dagster_repond_par_un_code_sans_page(client):
+    """nginx interroge cette route avant chaque requete vers Dagster : il lui
+    faut un code, pas une redirection. Si elle se mettait a repondre 302
+    comme les autres routes protegees, nginx la lirait comme un refus et
+    Dagster deviendrait inaccessible meme connecte."""
+    r = client.get("/api/auth-check")
+    assert r.status_code == 401 and not r.data
+
+    client.post("/login", json={"password": "secret-de-test"})
+    r = client.get("/api/auth-check")
+    assert r.status_code == 204 and not r.data
+
+
 def test_le_cookie_de_session_est_samesite_lax(client):
     """Les actions du panneau sont des POST sans corps : sans SameSite, un
     formulaire pose sur un autre site peut les declencher avec le cookie de
@@ -175,6 +190,69 @@ def test_le_cookie_de_session_est_samesite_lax(client):
     r = client.post("/login", json={"password": "secret-de-test"})
     cookie = r.headers.get("Set-Cookie", "")
     assert "SameSite=Lax" in cookie and "HttpOnly" in cookie
+
+
+# ------------------- 3 bis. visibilite et second facteur -------------------
+#
+# Deux reglages destines a une exposition hors du reseau local. Ils sont
+# inactifs par defaut : ces tests tiennent surtout le fait qu'ils ne changent
+# rien tant qu'on ne les active pas, et qu'ils ferment bien une fois actifs.
+
+def test_une_application_privee_exige_la_session(client, monkeypatch, tmp_path):
+    """Le controle vit dans le proxy, pas dans l'interface : un lien qui
+    circule ne doit pas suffire a ouvrir une application privee."""
+    fichier = tmp_path / "apps.json"
+    monkeypatch.setattr(app, "APPS_FILE", str(fichier))
+    app._apps_cache["signature"] = None
+    app.save({"prive": {"path": str(tmp_path), "command": "x", "port": 9101,
+                        "enabled": True, "visibility": "privee"}})
+    monkeypatch.setattr(app, "is_running", lambda n: True)
+
+    r = client.get("/prive/", follow_redirects=False)
+    assert r.status_code == 302 and "/login" in r.headers["Location"]
+
+    client.post("/login", json={"password": "secret-de-test"})
+    # Connecte, la requete traverse le controle et va jusqu'au proxy ; le
+    # port 9101 n'ecoute pas ici, donc 502 -- mais plus de redirection.
+    assert client.get("/prive/", follow_redirects=False).status_code != 302
+
+
+def test_une_application_sans_champ_reste_publique(tmp_path):
+    """Les applications declarees avant ce reglage ne doivent pas se fermer
+    toutes seules a la mise a jour."""
+    assert app.visibilite({"port": 9101}) == app.VISIBILITE_PUBLIQUE
+    assert app.visibilite({"visibility": "n'importe quoi"}) == app.VISIBILITE_PUBLIQUE
+
+
+def test_le_code_a_six_chiffres_suit_la_norme():
+    """Vecteur de la RFC 6238 : le secret "12345678901234567890" en base32,
+    a l'instant 59, donne 287082. S'il change, aucune application
+    d'authentification du marche ne saura plus se synchroniser."""
+    secret = base64.b32encode(b"12345678901234567890").decode()
+    assert app.totp_code(secret, 59 // app.TOTP_PAS) == "287082"
+
+
+def test_le_code_tolere_un_intervalle_mais_pas_deux(monkeypatch):
+    secret = app.totp_nouveau_secret()
+    maintenant = int(time.time()) // app.TOTP_PAS
+    assert app.totp_verifie(secret, app.totp_code(secret, maintenant))
+    assert app.totp_verifie(secret, app.totp_code(secret, maintenant - 1))
+    assert not app.totp_verifie(secret, app.totp_code(secret, maintenant - 4))
+    assert not app.totp_verifie(secret, "000000")
+    assert not app.totp_verifie(secret, "")
+    assert not app.totp_verifie("", "123456")     # secret vide = desactive
+
+
+def test_sans_secret_la_connexion_se_fait_au_seul_mot_de_passe(client):
+    assert not app.totp_actif()
+    assert client.post("/login", json={"password": "secret-de-test"}).status_code == 200
+
+
+def test_avec_un_secret_le_mot_de_passe_seul_ne_suffit_plus(client, monkeypatch):
+    monkeypatch.setattr(app, "_totp_secret", app.totp_nouveau_secret())
+    assert client.post("/login", json={"password": "secret-de-test"}).status_code == 401
+    bon = app.totp_code(app._totp_secret, int(time.time()) // app.TOTP_PAS)
+    assert client.post("/login", json={"password": "secret-de-test", "code": bon}).status_code == 200
 
 
 # --------------------- 4. isolation de ce qui est lance ---------------------

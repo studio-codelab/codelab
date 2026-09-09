@@ -1,29 +1,42 @@
 {
-  // Taches CodeLab -- « Terminal > Executer la tache... », ou Ctrl+Maj+P puis
-  // « Executer la tache ». Elles evitent d'avoir a taper les commandes : VS
-  // Code demande le nom du projet dans une boite de dialogue, la tache fait le
-  // reste et affiche son resultat.
+  // Taches CodeLab.
   //
-  // Chaque tache appelle l'outil « codelab » du conteneur, jamais une suite
+  // La premiere est declaree comme tache de BUILD PAR DEFAUT : elle se lance
+  // avec Ctrl+Maj+B (Cmd+Maj+B sur Mac), sans passer par aucun menu. C'est le
+  // seul raccourci clavier qu'un dossier de travail peut reserver -- VS Code
+  // ne lit les raccourcis personnalises que dans le fichier de l'utilisateur,
+  // jamais dans un .vscode partage. Pour en dedier un autre, voir DEVELOPPER.md.
+  //
+  // Chaque tache appelle l'outil "codelab" du conteneur, jamais une suite
   // d'instructions recopiee ici : la logique reste dans l'image, versionnee
-  // et testee, et ce fichier ne devient pas un troisieme endroit ou la meme
+  // et testee, et ce fichier ne devient pas un second endroit ou la meme
   // chose est ecrite differemment.
   "version": "2.0.0",
   "tasks": [
     {
       "label": "CodeLab : nouveau projet",
-      "detail": "Cree le dossier, le depot Git, le .gitignore et le AGENTS.md lu par l'agent",
+      "detail": "Dossier, depot git, .gitignore et AGENTS.md — Ctrl+Maj+B",
       "type": "shell",
-      "command": "mkdir -p '${input:projet}' && cd '${input:projet}' && git init -q 2>/dev/null; printf '.env\\nnode_modules/\\nvendor/\\ndist/\\n__pycache__/\\n' >> .gitignore && codelab agents && echo && echo 'Projet pret. Complete la section \"Projet\" du AGENTS.md, puis lance Codex.'",
+      "command": "codelab new '${input:projet}'",
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+    },
+    {
+      "label": "CodeLab : nouveau projet + base de donnees",
+      "detail": "Comme ci-dessus, avec la base du projet et son schema dagster",
+      "type": "shell",
+      "command": "codelab new '${input:projet}' --db",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": [],
       "presentation": { "reveal": "always", "panel": "shared", "clear": true }
     },
     {
-      "label": "CodeLab : creer la base du projet",
-      "detail": "Base <nom> + schema dagster + search_path (sans effet si elle existe deja)",
+      "label": "CodeLab : creer la base d'un projet existant",
+      "detail": "codelab db — base, schema et search_path (sans effet si elle existe deja)",
       "type": "shell",
-      "command": "codelab db '${input:projet}' && echo && echo 'Ajoute CODELAB_DB=${input:projet} dans le .env du projet.'",
+      "command": "codelab db '${input:projet}'",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": [],
       "presentation": { "reveal": "always", "panel": "shared", "clear": true }
@@ -42,7 +55,7 @@
     {
       "id": "projet",
       "type": "promptString",
-      "description": "Nom du projet (lettres, chiffres, tirets -- il sert aussi de nom de base)"
+      "description": "Nom du projet (lettres, chiffres, tirets — il sert aussi de nom de base)"
     }
   ]
 }

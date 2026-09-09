@@ -344,6 +344,10 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:var(--bg
 .pill.off{color:var(--dim);background:var(--surface2);border-color:var(--line2)}
 .pill.err,.pill.looping{color:var(--err);background:var(--err-bg);border-color:var(--err-border)}
 .pill.mute{color:var(--warn);background:var(--warn-bg);border-color:var(--warn-border)}
+.tag.tag-privee{color:var(--accent);border-color:var(--accent-ring)}
+.kv{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:7px 0}
+.kv .k{font-size:13.5px}
+.kv .v{flex:none}
 .pill.looping i{animation:proj-pulse 1.4s ease-in-out infinite}
 .tag{font-size:10px;font-weight:600;color:var(--dim);background:var(--surface2);
  border:1px solid var(--line);border-radius:5px;padding:0 5px;letter-spacing:.02em;flex:none}
@@ -527,6 +531,59 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:var(--bg
   </div>
 
   <div class="zone">
+    <div class="zone-title">Securite</div>
+
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Double authentification</b>
+        <div class="path">Un code a six chiffres, en plus du mot de passe, a chaque connexion.</div>
+      </div>
+      <span class="pill" id="totp-etat"><i></i>&nbsp;</span></div>
+
+      <div class="hint" id="totp-pourquoi">Le mot de passe est un secret unique : s'il fuit, il donne
+        l'execution de commandes sur cette machine. Le second facteur exige en plus ton telephone.
+        A activer avant d'exposer ce panneau au-dela de ton reseau.</div>
+
+      <div id="totp-etape-1" style="display:none">
+        <button class="btn btn-primary" onclick="totpPreparer()">Activer</button>
+      </div>
+
+      <div id="totp-etape-2" style="display:none">
+        <div class="hint">1. Ajoute ce compte dans ton application d'authentification, en saisissant
+          la cle a la main :</div>
+        <div class="field"><input id="totp-secret" readonly onclick="this.select()"></div>
+        <div class="hint">2. Saisis le code affiche par l'application pour confirmer. Rien n'est
+          enregistre tant que ce code n'est pas valide — une cle mal recopiee ne peut donc pas
+          t'enfermer dehors.</div>
+        <div class="field"><input id="totp-code" inputmode="numeric" maxlength="6" placeholder="123456"></div>
+        <div class="mf" style="justify-content:flex-start;gap:8px">
+          <button class="btn btn-primary" onclick="totpActiver()">Confirmer</button>
+          <button class="btn btn-default" onclick="totpAnnuler()">Annuler</button>
+        </div>
+        <div class="err" id="totp-err" style="display:none"></div>
+      </div>
+
+      <div id="totp-etape-3" style="display:none">
+        <div class="hint">Pour desactiver, saisis un code valide : une session volee ne doit pas
+          pouvoir retirer le second facteur.</div>
+        <div class="field"><input id="totp-code-off" inputmode="numeric" maxlength="6" placeholder="123456"></div>
+        <button class="btn btn-default" onclick="totpDesactiver()">Desactiver</button>
+        <div class="err" id="totp-err-off" style="display:none"></div>
+      </div>
+    </div>
+
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Exposition</b>
+        <div class="path">L'etat des reglages qui comptent si ce panneau devient accessible depuis internet.</div>
+      </div></div>
+      <div id="expo-liste"></div>
+      <div class="hint">Ces trois reglages se posent au demarrage du service, pas ici : les activer
+        depuis cette page pendant que tu es connecte en clair te deconnecterait sur-le-champ.</div>
+    </div>
+  </div>
+
+  <div class="zone">
     <div class="zone-title">Session</div>
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
@@ -569,6 +626,13 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:var(--bg
     <div class="field"><label>Limite memoire en Mo (optionnelle)</label>
       <input id="f-mem" type="number" min="16" placeholder="256">
       <div class="hint">Le process est arrete automatiquement s'il tente de la depasser.</div></div>
+
+    <div class="field"><label>Visibilite</label>
+      <div class="seg-toggle" id="f-vis-toggle">
+        <button type="button" data-v="publique" class="on" onclick="setVisAdd('publique')">Publique</button>
+        <button type="button" data-v="privee" onclick="setVisAdd('privee')">Privee</button>
+      </div>
+      <div class="hint">Publique : accessible a qui a le lien. Privee : il faut etre connecte au panneau.</div></div>
   </div>
   <div class="mf"><button class="btn btn-default" onclick="hide('ov-add')">Annuler</button>
     <button class="btn btn-primary" id="a-b" onclick="submitAdd()">Ajouter</button></div>
@@ -604,6 +668,16 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:var(--bg
       <div class="field"><label>Limite memoire <span class="opt">optionnelle</span></label>
         <div class="input-suffix"><input id="e-mem" type="number" min="16" placeholder="256"><span>Mo</span></div>
         <div class="hint">Le process est arrete automatiquement s'il tente de la depasser.</div></div>
+    </div>
+
+    <div class="fset">
+      <div class="fset-title">Visibilite</div>
+      <div class="field">
+        <div class="seg-toggle" id="e-vis-toggle">
+          <button type="button" data-v="publique" onclick="setVisEdit('publique')">Publique</button>
+          <button type="button" data-v="privee" onclick="setVisEdit('privee')">Privee</button>
+        </div>
+        <div class="hint">Une application privee exige la session du panneau, quel que soit le lien emprunte.</div></div>
     </div>
 
     <div class="fset">
@@ -689,6 +763,9 @@ function showSection(name){
   document.querySelectorAll('.section').forEach(s=>{ s.style.display = (s.id==='sec-'+name) ? '' : 'none'; });
   document.querySelectorAll('.side-item').forEach(t=>t.classList.toggle('active', t.dataset.sec===name));
   $('acct-btn').classList.toggle('active', name==='settings');
+  /* L'etat de securite est relu a chaque ouverture : il peut avoir change
+     depuis un autre onglet, ou au redemarrage du service. */
+  if(name==='settings') chargerSecurite();
 }
 
 function barChart(list, key, unit, maxHint){
@@ -784,10 +861,12 @@ function menuItems(a){
    <svg viewBox="0 0 24 24"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 11-12.8 0"/></svg>${a.running?'Desactiver':'Activer'}</div>`);
   if(a.has_build) items.push(`<div class="acct-item" onclick="closeCardMenus();deployApp('${a.name}')">
    <svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>Deployer</div>`);
+  items.push(`<div class="acct-item" onclick="closeCardMenus();basculerVisibilite('${a.name}')">
+   ${a.visibility === 'privee'
+     ? '<svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>Rendre publique'
+     : '<svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 019.9-1"/></svg>Rendre privee'}</div>`);
   if(a.has_build) items.push(`<div class="acct-item" onclick="closeCardMenus();buildApp('${a.name}')">
    <svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>Lancer le build</div>`);
-  if(a.is_git) items.push(`<div class="acct-item" onclick="closeCardMenus();gitPullApp('${a.name}')">
-   <svg viewBox="0 0 24 24"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 012 2v7"/><path d="M6 9v12"/></svg>Git pull</div>`);
   items.push(`<div class="acct-item" onclick="closeCardMenus();openMetricsModal('${a.name}')">
    <svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-3"/></svg>Metriques</div>`);
   items.push(`<div class="acct-item" onclick="closeCardMenus();openLogsModal('${a.name}')">
@@ -849,8 +928,8 @@ function listHeader(){
 function cardList(a){
   const st=statusLabel(a);
   const tags=[];
-  if(a.is_git) tags.push('<span class="tag" title="Depot Git">git</span>');
   if(a.has_build) tags.push('<span class="tag" title="Commande de build definie">build</span>');
+  if(a.visibility === 'privee') tags.push('<span class="tag tag-privee" title="Connexion au panneau requise pour ouvrir cette application">privee</span>');
   if(a.max_memory_mb) tags.push(`<span class="tag" title="Limite memoire">${a.max_memory_mb} Mo max</span>`);
   return `<div class="proj-row">
    <a class="proj-row-link proj-row-main" href="/${a.name}/" target="_blank" rel="noopener">
@@ -905,20 +984,74 @@ async function deployApp(n){
   if(!r.ok){ alert(d.error||'Le build a echoue -- l\'application en ligne n\'a pas ete touchee.'); openLogsModal(n); return; }
   setTimeout(refresh,500);
 }
+async function basculerVisibilite(n){
+  const r=await fetch('/api/visibility/'+n,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+  const d=await r.json();
+  if(!r.ok){ alert(d.error||'Changement impossible.'); return; }
+  refresh();
+}
 async function buildApp(n){
   const r=await fetch('/api/build/'+n,{method:'POST'});
   const d=await r.json();
   if(!r.ok){ alert(d.error||'Le build a echoue.'); return; }
   openLogsModal(n);
 }
-async function gitPullApp(n){
-  const r=await fetch('/api/git-pull/'+n,{method:'POST'});
-  const d=await r.json();
-  if(!r.ok){ alert(d.error||'git pull a echoue.'); return; }
-  alert(d.output||'git pull termine.');
-}
 async function rm(n){ if(!confirm('Supprimer "'+n+'" ? Le dossier du projet n\'est pas touche.'))return;
  await fetch('/api/app/'+n,{method:'DELETE'}); refresh(); }
+/* ---------------- securite : double authentification ---------------- */
+async function chargerSecurite(){
+  let d;
+  try{ d=await (await fetch('/api/securite')).json(); }catch(e){ return; }
+  const pill=$('totp-etat');
+  pill.className = 'pill ' + (d.totp ? 'on' : 'off');
+  pill.innerHTML = '<i></i>' + (d.totp ? 'Active' : 'Desactivee');
+  $('totp-etape-1').style.display = d.totp ? 'none' : 'block';
+  $('totp-etape-3').style.display = d.totp ? 'block' : 'none';
+  $('totp-etape-2').style.display = 'none';
+
+  const lignes=[
+    ['Connexion chiffree (HTTPS)', d.https, 'Sans TLS, ton mot de passe traverse le reseau en clair.'],
+    ['Cookie de session en Secure', d.cookie_secure, 'Variable APP_MANAGER_HTTPS=1, une fois le TLS en place.'],
+    ['Adresse reelle des visiteurs', d.trust_proxy, 'Variable APP_MANAGER_TRUST_PROXY=1, derriere un reverse proxy.'],
+  ];
+  $('expo-liste').innerHTML = lignes.map(([nom,ok,aide])=>
+    `<div class="kv"><span class="k">${esc(nom)}</span>
+     <span class="v"><span class="pill ${ok?'on':'off'}"><i></i>${ok?'en place':'non'}</span></span></div>
+     <div class="hint" style="margin:-2px 0 10px">${esc(aide)}</div>`).join('');
+}
+
+async function totpPreparer(){
+  const r=await fetch('/api/securite/totp/preparer',{method:'POST'});
+  const d=await r.json();
+  if(!r.ok){ alert(d.error||'Preparation impossible.'); return; }
+  $('totp-secret').value=d.secret;
+  $('totp-etape-1').style.display='none';
+  $('totp-etape-2').style.display='block';
+  $('totp-code').value=''; $('totp-code').focus();
+}
+function totpAnnuler(){ $('totp-etape-2').style.display='none'; chargerSecurite(); }
+
+async function totpActiver(){
+  const e=$('totp-err'); e.style.display='none';
+  const r=await fetch('/api/securite/totp/activer',{method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({code:$('totp-code').value})});
+  const d=await r.json();
+  if(!r.ok){ e.textContent=d.error||'Echec.'; e.style.display='block'; return; }
+  chargerSecurite();
+}
+
+async function totpDesactiver(){
+  const e=$('totp-err-off'); e.style.display='none';
+  const r=await fetch('/api/securite/totp/desactiver',{method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({code:$('totp-code-off').value})});
+  const d=await r.json();
+  if(!r.ok){ e.textContent=d.error||'Echec.'; e.style.display='block'; return; }
+  $('totp-code-off').value='';
+  chargerSecurite();
+}
+
 async function doLogout(){ await fetch('/logout',{method:'POST'}); location.href='/login'; }
 
 /* ---------------- modal ajout / edition ---------------- */
@@ -932,6 +1065,7 @@ function openAdd(){
   $('a-s').textContent='Choisis un dossier existant de /workspace et sa commande de lancement.';
   $('a-b').textContent='Ajouter'; $('a-e').style.display='none';
   $('f-name').value=''; $('f-cmd').value=''; $('f-build').value=''; $('f-mem').value='';
+  setVisAdd('publique');
   $('suggest').style.display='none';
   $('f-name').oninput=()=>$('f-url').textContent='/'+(slug($('f-name').value)||'nom')+'/';
   browse(ROOT);
@@ -951,6 +1085,7 @@ function openEdit(name){
   $('e-cmd').value=a.command;
   $('e-build').value=a.build_command||'';
   $('e-mem').value=a.max_memory_mb||'';
+  setVisEdit(a.visibility==='privee'?'privee':'publique');
   $('e-path').textContent=a.path;
   $('e-browse').style.display='none'; $('e-browse-btn').textContent='Changer';
   $('e-running').style.display = a.running ? '' : 'none';
@@ -989,7 +1124,8 @@ async function submitEdit(){
   if(!c){ e.textContent='Indique la commande de lancement.'; e.style.display='block'; return; }
   e.style.display='none';
   const body={path:editCur, command:c, build_command:$('e-build').value.trim(),
-    max_memory_mb:$('e-mem').value ? parseInt($('e-mem').value,10) : null};
+    max_memory_mb:$('e-mem').value ? parseInt($('e-mem').value,10) : null,
+    visibility:visEdit};
   const r=await fetch('/api/app/'+editingName,{method:'PUT',
     headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
   const d=await r.json();
@@ -1015,6 +1151,13 @@ async function browse(p){
     } else { $('suggest').style.display='none'; }
   }
 }
+let visAdd='publique', visEdit='publique';
+function peindreVis(id, valeur){
+  document.querySelectorAll('#'+id+' button').forEach(b=>b.classList.toggle('on', b.dataset.v===valeur));
+}
+function setVisAdd(v){ visAdd=v; peindreVis('f-vis-toggle', v); }
+function setVisEdit(v){ visEdit=v; peindreVis('e-vis-toggle', v); }
+
 function applySuggestion(){ $('f-cmd').value=$('suggest').dataset.cmd||''; $('f-build').value=$('suggest').dataset.build||''; }
 function err(m){ const e=$('a-e'); e.textContent=m; e.style.display='block'; }
 
@@ -1027,7 +1170,7 @@ async function submitAdd(){
   $('a-e').style.display='none';
 
   const r=await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},
-   body:JSON.stringify({name,path:cur,command:c,build_command,max_memory_mb})});
+   body:JSON.stringify({name,path:cur,command:c,build_command,max_memory_mb,visibility:visAdd})});
   const d=await r.json();
   if(!r.ok) return err(d.error);
   hide('ov-add'); refresh();

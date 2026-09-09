@@ -58,6 +58,11 @@ code{font-family:ui-monospace,Menlo,monospace;background:var(--bg-input);padding
   <div class="brand"><div class="dot"></div><span>CodeLab</span></div>
   <label>Mot de passe</label>
   <input type="password" id="pw" autofocus autocomplete="current-password">
+  <div id="totp-bloc" style="display:none">
+    <label style="margin-top:14px">Code de verification</label>
+    <input type="text" id="code" inputmode="numeric" autocomplete="one-time-code"
+           maxlength="6" placeholder="123456">
+  </div>
   <button id="go" onclick="submit()">Se connecter</button>
   <div class="err" id="err"></div>
   <div class="hint">Mot de passe genere automatiquement au premier demarrage. Tous les identifiants CodeLab sont regroupes dans un seul fichier :
@@ -65,17 +70,28 @@ code{font-family:ui-monospace,Menlo,monospace;background:var(--bg-input);padding
 </div>
 <script>
 const pw=document.getElementById('pw'), err=document.getElementById('err'), go=document.getElementById('go');
+const code=document.getElementById('code');
+/* __TOTP__ est remplace par "1" ou "0" au moment de servir la page : le champ
+   du code n'apparait que si la double authentification est active. */
+const avecCode = '__TOTP__' === '1';
+if(avecCode) document.getElementById('totp-bloc').style.display='block';
+
 async function submit(){
   err.style.display='none'; go.disabled=true; go.textContent='Connexion...';
   try{
+    const corps={password:pw.value};
+    if(avecCode) corps.code=code.value;
     const r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({password:pw.value})});
+      body:JSON.stringify(corps)});
     const d=await r.json();
     if(r.ok){ location.href='/'; return; }
     err.textContent=d.error||'Erreur.'; err.style.display='block';
+    if(d.totp && code) code.focus();
   }catch(e){ err.textContent='Erreur reseau.'; err.style.display='block'; }
   go.disabled=false; go.textContent='Se connecter';
 }
-pw.addEventListener('keydown',e=>{if(e.key==='Enter')submit();});
+const valider=e=>{ if(e.key==='Enter') submit(); };
+pw.addEventListener('keydown', valider);
+if(code) code.addEventListener('keydown', valider);
 </script>
 </body></html>

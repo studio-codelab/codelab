@@ -19,8 +19,7 @@ applications est gere directement par ce service.
     en dessous en petit texte centré, sans bordure ni fond autour (juste l'icône elle-même, deja arrondie).
     Cliquer sur une tuile ouvre le site dans un nouvel onglet. Un menu **"..."** discret (visible en permanence
     mais peu contrasté) donne acces a Modifier (masque tant que l'app tourne), Redemarrer (si en ligne),
-    Activer/Desactiver, Lancer le build (si une commande de build est definie), Git pull (si le dossier est un
-    depot Git), Metriques, Voir les logs et Supprimer. Une pastille sur l'icone indique le statut : verte (en
+    Activer/Desactiver, Rendre publique/privee, Lancer le build (si une commande de build est definie), Metriques, Voir les logs et Supprimer. Une pastille sur l'icone indique le statut : verte (en
     ligne), grise (arretee), rouge (erreur), rouge clignotante (boucle de crash — redemarrage automatique
     interrompu apres 5 echecs). Le bouton "Ajouter un projet" vit dans la barre d'outils. **Bascule grille/liste** dans la barre d'outils (preference retenue) : la vue liste garde le meme
     menu "..." mais affiche icone + nom sur une ligne, plus dense. Pas de bandeau de stats ici (deja dans Vue
@@ -83,7 +82,9 @@ applications est gere directement par ce service.
 - **Node et git sont dans l'image** — ce service build les applications qu'il deploie : sans `npm`, tout projet
   front echouait en `npm: command not found` alors que la meme commande marchait en SSH, et la parade etait
   d'ecrire un `PATH` avec un numero de version de node fige dans la commande de build. Une commande de build
-  s'ecrit donc simplement `npm ci && npm run build`. `git` est la pour le bouton « Git pull ».
+  s'ecrit donc simplement `npm ci && npm run build`. `git` reste installe non pour le panneau, qui ne
+  l'appelle plus, mais parce que `npm ci` en a besoin des qu'une dependance transitive est declaree par une
+  adresse git.
 - **Detection du couple build + lancement** — a l'ajout d'un projet, le dossier est inspecte et les deux
   commandes sont proposees d'un coup (Vite, Astro, Parcel, CRA, Angular, Next.js, Django, Flask, statique).
   Pour un front, la suggestion sert le dossier produit par le build avec le `http.server` de Python plutot
@@ -112,8 +113,13 @@ applications est gere directement par ce service.
   configurable par application dans le formulaire d'ajout/edition, executee separement du lancement via
   "Lancer le build" dans le menu "..." (delai max 10 min). La sortie est ecrite dans le meme journal que
   l'application, consultable normalement.
-- **Git pull** — visible dans le menu "..." uniquement si le dossier du projet contient un `.git`. Execute
-  `git pull --ff-only` (delai max 2 min), le resultat est affiche directement.
+- **Visibilite par application** — *publique* (accessible a qui a le lien, le comportement historique) ou
+  *privee* (la meme session que le panneau est exigee). Le controle est applique dans le reverse proxy et non
+  dans l'interface : une application privee reste fermee quel que soit le chemin emprunte pour l'atteindre.
+  Une application declaree avant ce reglage, sans le champ, est traitee comme publique — une mise a jour ne
+  ferme rien toute seule.
+- **Double authentification (TOTP)** — desactivee par defaut, activable depuis *Parametres > Securite*. Voir
+  plus bas.
 - **Limite memoire optionnelle** — champ "Limite memoire en Mo" dans le formulaire d'ajout/edition ; applique
   une limite dure via `RLIMIT_AS` (herite par le process et ses enfants) au demarrage. Le process est arrete
   par le noyau s'il tente de la depasser — protege contre une fuite memoire qui saturerait le serveur entier.
@@ -124,9 +130,11 @@ applications est gere directement par ce service.
 > deja fourni par `codelab-dev` ; un vrai terminal interactif necessiterait un PTY + des websockets, une
 > surface de securite supplementaire pour un gain marginal) ; des domaines personnalises (necessiterait de
 > controler du DNS externe, impossible a automatiser depuis l'interieur d'un conteneur — le routage `/nom/`
-> actuel fonctionne sans dependance externe) ; un auto-deploiement par webhook GitHub (necessiterait un
-> endpoint public joignable + verification de signature — le bouton "Git pull" manuel couvre le besoin reel
-> pour un usage personnel sur reseau local).
+> actuel fonctionne sans dependance externe) ; toute interaction avec git (le
+> bouton « Git pull » a ete retire : le depot d'un projet se met a jour depuis une session SSH, la ou l'on a
+> deja l'authentification, l'historique et de quoi resoudre un conflit — un bouton qui lance un `git pull`
+> sans pouvoir rien resoudre rendait surtout des echecs) ; un auto-deploiement par webhook GitHub
+> (necessiterait un endpoint public joignable et une verification de signature).
 
 > **Structuration visuelle** : chaque page regroupe son contenu dans des "zones" (fond legerement different du
 > fond de page, titre de section en majuscules) plutot que de laisser les cartes flotter librement — Vue
@@ -207,6 +215,45 @@ silencieusement sans bloquer le demarrage du service — c'est une commodite, pa
 | `/var/lib/codelab/app-manager` | `apps.json` et `logs/` — l'etat des applications. Aucun secret : ils sont tous dans `credentials.env` |
 | `/workspace` | Racine dans laquelle chercher/lancer les applications |
 
+## Double authentification et exposition
+
+Trois reglages n'ont d'interet que le jour ou ce panneau devient joignable au-dela du reseau local. Ils sont
+**tous inactifs par defaut** : rien ne change tant qu'ils ne sont pas actives.
+
+### Le second facteur (TOTP)
+
+*Parametres > Securite > Double authentification.* Le panneau tire un secret, l'affiche en clair a saisir dans
+une application d'authentification, et **n'enregistre rien tant qu'un code valide n'a pas ete fourni** — une
+cle mal recopiee ne peut donc pas enfermer dehors. La desactivation exige elle aussi un code valide : une
+session volee ne doit pas pouvoir retirer le second facteur.
+
+L'algorithme (RFC 6238, SHA1, 6 chiffres, 30 s, tolerance d'un intervalle) est ecrit directement dans `app.py`
+plutot qu'importe : il tient en vingt lignes de bibliotheque standard, et ce service n'a que trois
+dependances. Un test verifie le vecteur officiel de la RFC — si ce test tombe, aucune application
+d'authentification du marche ne saura plus se synchroniser.
+
+Le secret vit dans `credentials.env`, sous `APP_MANAGER_TOTP_SECRET`. **En cas de perte du telephone** : vider
+cette valeur dans le fichier et redemarrer le service suffit a revenir au seul mot de passe.
+
+### Les deux variables d'environnement
+
+Elles se posent au demarrage du service, pas depuis l'interface — et c'est deliberé : les activer depuis une
+page servie en clair deconnecterait sur-le-champ la session qui vient de les activer.
+
+| Variable | Quand | Pourquoi |
+|---|---|---|
+| `APP_MANAGER_HTTPS=1` | des qu'un reverse proxy termine le TLS devant | Pose le cookie de session en `Secure` : il cesse de circuler sur une connexion en clair |
+| `APP_MANAGER_TRUST_PROXY=1` | derriere un reverse proxy **de confiance** uniquement | Fait lire l'adresse reelle du visiteur dans `X-Forwarded-For`. Sans reverse proxy, l'activer permettrait a n'importe qui de contourner la limite de tentatives en variant l'en-tete |
+
+La page *Parametres > Securite* affiche l'etat des trois, pour verifier d'un coup d'oeil ce qui est en place.
+
+### Ce que ces reglages ne couvrent pas
+
+Les applications deployees sont servies sur **la meme origine** que le panneau (`:9001/<app>/`). Une faille
+d'injection dans l'une d'elles reste une faille dans l'origine du panneau, second facteur ou non. Y remedier
+demande de servir chaque application sur son propre nom d'hote — un routage par `Host` plutot que par chemin,
+qui n'est pas implemente ici.
+
 ## API
 
 | Route | Methode | Auth | Role |
@@ -214,7 +261,7 @@ silencieusement sans bloquer le demarrage du service — c'est une commodite, pa
 | `/health` | GET | non | Sonde du `HEALTHCHECK` Docker |
 | `/login` | GET / POST | non | Page de connexion / verification du mot de passe |
 | `/logout` | POST | oui | Termine la session |
-| `/api/apps` | GET | oui | Liste des applications, avec statut, metriques en direct, `crash_looping`, `is_git`, `has_build` |
+| `/api/apps` | GET | oui | Liste des applications, avec statut, metriques en direct, `crash_looping`, `visibility`, `has_build` |
 | `/api/browse?path=...` | GET | oui | Navigateur de dossiers, borne a `APP_MANAGER_ROOT` |
 | `/api/detect?path=...` | GET | oui | Suggere une commande de lancement **et** une commande de build a partir du contenu du dossier |
 | `/api/add` | POST | oui | Enregistre une application existante (nom, chemin, commande, build, limite memoire) |
@@ -223,7 +270,11 @@ silencieusement sans bloquer le demarrage du service — c'est une commodite, pa
 | `/api/restart/<nom>` | POST | oui | Arrete puis relance immediatement une application |
 | `/api/build/<nom>` | POST | oui | Execute la commande de build (si definie), sortie dans le journal |
 | `/api/deploy/<nom>` | POST | oui | Build **puis** mise en ligne ; un build en echec ne touche pas l'application qui tourne |
-| `/api/git-pull/<nom>` | POST | oui | `git pull --ff-only` dans le dossier du projet (si c'est un depot Git) |
+| `/api/visibility/<nom>` | POST | oui | Bascule publique / privee (ou impose la valeur donnee) |
+| `/api/securite` | GET | oui | Etat des reglages de securite (TOTP, HTTPS, cookie, proxy de confiance) |
+| `/api/securite/totp/preparer` | POST | oui | Tire un secret candidat, sans rien enregistrer |
+| `/api/securite/totp/activer` | POST | oui | Enregistre le secret candidat, apres verification d'un code |
+| `/api/securite/totp/desactiver` | POST | oui | Retire le secret, apres verification d'un code |
 | `/api/metrics/<nom>` | GET | oui | Historique CPU/memoire en memoire (~30 derniers points) |
 | `/api/app/<nom>` | DELETE | oui | Retire une application du registre (le dossier n'est jamais touche) |
 | `/api/logs/<nom>` | GET | oui | 120 dernieres lignes du journal |
