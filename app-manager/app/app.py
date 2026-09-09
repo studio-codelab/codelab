@@ -1484,6 +1484,61 @@ def description_propre(brute):
     return texte[:DESCRIPTION_MAX]
 
 
+# ------------------------------ categories ------------------------------
+#
+# Une categorie est un simple intitule libre ("Outils", "Sites", "Donnees")
+# qui regroupe les projets dans le hub. Elle ne donne aucun droit et ne
+# change rien au deploiement : c'est du rangement, et rien d'autre.
+#
+# La liste vit dans un fichier a part plutot que dans apps.json : une
+# categorie existe avant qu'un projet la porte (on la cree pour ranger
+# ensuite), et elle survit a la suppression du dernier projet qui l'utilisait.
+# Un champ libre par projet aurait produit "Outils", "outils" et "Outil ".
+CATEGORIES_FILE = os.path.join(STATE_DIR, "categories.json")
+CATEGORIE_MAX = 30      # un intitule, pas une phrase
+CATEGORIES_MAX = 20     # au-dela, ce n'est plus un rangement mais une liste
+
+
+def categorie_propre(brute):
+    """Un intitule sur une ligne, borne en longueur."""
+    return re.sub(r"\s+", " ", str(brute or "")).strip()[:CATEGORIE_MAX]
+
+
+def lire_categories():
+    """La liste des categories, dans l'ordre voulu par l'administrateur.
+
+    L'ordre est celui de l'affichage dans le hub : il se regle en rangeant
+    la liste, pas par un tri alphabetique impose.
+    """
+    try:
+        with open(CATEGORIES_FILE) as f:
+            brut = json.load(f)
+    except (OSError, ValueError):
+        return []
+    if not isinstance(brut, list):
+        return []
+    return [c for c in (categorie_propre(x) for x in brut) if c][:CATEGORIES_MAX]
+
+
+def ecrire_categories(liste):
+    tmp = CATEGORIES_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(liste, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, CATEGORIES_FILE)
+
+
+def categorie_valide(brute, connues=None):
+    """La categorie d'un projet, ou "" si elle n'existe pas (ou plus).
+
+    Un projet ne porte jamais une categorie inconnue : sinon supprimer une
+    categorie laisserait des projets ranges dans un tiroir invisible.
+    """
+    voulue = categorie_propre(brute)
+    if not voulue:
+        return ""
+    return voulue if voulue in (lire_categories() if connues is None else connues) else ""
+
+
 # ------------------------- visibilite d'une application -------------------------
 #
 # Le reverse proxy sert les applications SANS authentification : c'est ce qui
@@ -1639,6 +1694,55 @@ def login_second_facteur():
     session["role"] = ROLE_UTILISATEUR
     session["utilisateur"] = nom
     return jsonify({"ok": True, "role": ROLE_UTILISATEUR})
+
+
+@flask_app.get("/api/categories")
+@require_auth
+def api_categories():
+    """Lisible par tous les comptes : le hub s'en sert pour se ranger."""
+    return jsonify({"categories": lire_categories()})
+
+
+@flask_app.put("/api/categories")
+@require_admin
+def api_categories_enregistrer():
+    """Remplace la liste entiere, dans l'ordre recu.
+
+    Renvoie le nombre de projets qui perdent leur rangement, pour que la page
+    puisse le dire : supprimer une categorie ne casse rien, mais cela deplace
+    des projets, et cela doit se voir.
+    """
+    brut = (request.get_json(force=True, silent=True) or {}).get("categories")
+    if not isinstance(brut, list):
+        return jsonify({"error": "Liste de categories attendue."}), 400
+
+    propres, vues = [], set()
+    for x in brut:
+        c = categorie_propre(x)
+        # Insensible a la casse pour les doublons : "Outils" et "outils"
+        # seraient deux tiroirs pour la meme chose.
+        if c and c.lower() not in vues:
+            propres.append(c)
+            vues.add(c.lower())
+    if len(propres) > CATEGORIES_MAX:
+        return jsonify({"error": f"{CATEGORIES_MAX} categories au maximum."}), 400
+
+    apps = load()
+    orphelins = [n for n, a in apps.items()
+                 if (a.get("categorie") or "") and a["categorie"] not in propres]
+    try:
+        ecrire_categories(propres)
+    except OSError as e:
+        return jsonify({"error": f"Categories non enregistrees : {e}"}), 500
+
+    # Les projets d'une categorie disparue redeviennent non ranges, tout de
+    # suite : un champ qui pointe vers un tiroir inexistant se rappellerait a
+    # nous plus tard, au pire moment.
+    if orphelins:
+        for n in orphelins:
+            apps[n]["categorie"] = ""
+        save(apps)
+    return jsonify({"ok": True, "categories": propres, "declasses": len(orphelins)})
 
 
 @flask_app.get("/api/securite")
@@ -1992,6 +2096,7 @@ def api_apps():
             "build_command": a.get("build_command") or "",
             "max_memory_mb": a.get("max_memory_mb"),
             "description": a.get("description") or "",
+            "categorie": a.get("categorie") or "",
             **stats,
         })
     return jsonify({"apps": out})
@@ -2060,6 +2165,7 @@ def api_add():
         "build_command": build_command, "max_memory_mb": max_memory_mb,
         "visibility": vis,
         "description": description_propre(d.get("description")),
+        "categorie": categorie_valide(d.get("categorie")),
     }
     save(apps)
     return jsonify({"ok": True, "name": name, "port": port})
@@ -2087,6 +2193,7 @@ def api_edit(n):
     apps[n]["build_command"] = (d.get("build_command") or "").strip()
     apps[n]["max_memory_mb"] = d.get("max_memory_mb") or None
     apps[n]["description"] = description_propre(d.get("description"))
+    apps[n]["categorie"] = categorie_valide(d.get("categorie"))
     if d.get("visibility") in VISIBILITES:
         apps[n]["visibility"] = d["visibility"]
     save(apps)
@@ -2331,6 +2438,7 @@ def api_mes_apps():
     publique que la page qui l'appelle.
     """
     autorises = projets_autorises()
+    connues = lire_categories()
     liste = []
     for nom, a in sorted(load().items()):
         if autorises is not None and nom not in autorises:
@@ -2338,11 +2446,15 @@ def api_mes_apps():
         liste.append({
             "name": nom,
             "description": a.get("description") or "",
+            "categorie": categorie_valide(a.get("categorie"), connues),
             "running": is_running(nom),
             "listening": _listening.get(nom),
             "visibility": visibilite(a),
         })
+    # Les categories accompagnent la liste : le hub les affiche dans l'ordre
+    # voulu, sans avoir a deviner cet ordre a partir des projets.
     return jsonify({"apps": liste,
+                    "categories": connues,
                     "utilisateur": utilisateur_courant(),
                     "role": role_courant()})
 

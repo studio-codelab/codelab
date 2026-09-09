@@ -964,3 +964,87 @@ def test_le_mode_affiche_ne_donne_aucun_droit(deux_espaces):
     assert c.get("/api/utilisateurs").status_code == 403
     # Et le hub, lui, reste servi aux deux roles.
     assert c.get("/api/mes-apps").status_code == 200
+
+
+# ---------- 13. categories du hub ----------
+#
+# Une categorie ne donne aucun droit : c'est du rangement. Ce qui doit rester
+# vrai, c'est qu'un projet ne porte jamais une categorie qui n'existe pas --
+# sinon supprimer une categorie le rendrait invisible dans le hub, range dans
+# un tiroir que plus rien n'affiche.
+
+@pytest.fixture
+def categorise(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    monkeypatch.setattr(app, "CATEGORIES_FILE", str(tmp_path / "categories.json"))
+    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
+    monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
+    # Arretee : la fiche refuse de modifier une application en marche, et ce
+    # n'est pas ce que ces tests-la verifient.
+    monkeypatch.setattr(app, "is_running", lambda n: False)
+    monkeypatch.setattr(app, "under_root", lambda p: True)
+    monkeypatch.setattr(os.path, "isdir", lambda p: True)
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    app._apps_cache["signature"] = None
+    app.save({"site": {"path": "/w/a", "command": "x", "port": 9101,
+                       "enabled": True, "categorie": "Outils"}})
+    app.ecrire_categories(["Outils", "Donnees"])
+    c = app.flask_app.test_client()
+    c.post("/login", json={"password": "secret-de-test"})
+    return c
+
+
+def test_une_categorie_supprimee_ne_reste_pas_collee_a_un_projet(categorise):
+    """Le cas qui rendrait un projet invisible dans le hub.
+
+    Le hub n'affiche que les groupes qu'il connait : un projet qui garderait
+    « Outils » apres la disparition d'« Outils » ne serait dans aucun groupe.
+    """
+    r = categorise.put("/api/categories", json={"categories": ["Donnees"]})
+    assert r.status_code == 200, r.data
+    assert r.get_json()["declasses"] == 1
+    assert app.load()["site"]["categorie"] == ""
+    hub = categorise.get("/api/mes-apps").get_json()
+    assert hub["apps"][0]["categorie"] == ""
+    assert hub["categories"] == ["Donnees"]
+
+
+def test_un_projet_ne_prend_pas_une_categorie_inventee(categorise):
+    """Une categorie arrive par le reseau : elle se verifie comme le reste."""
+    r = categorise.post("/api/add", json={
+        "name": "neuf", "path": "/w/neuf", "command": "python3 app.py",
+        "categorie": "Inventee"})
+    assert r.status_code == 200, r.data
+    assert app.load()["neuf"]["categorie"] == ""
+
+    # A l'edition aussi : une categorie connue passe, une inconnue est videe.
+    assert categorise.put("/api/app/site", json={
+        "path": "/w/a", "command": "x", "categorie": "Donnees"}).status_code == 200
+    assert app.load()["site"]["categorie"] == "Donnees"
+    assert categorise.put("/api/app/site", json={
+        "path": "/w/a", "command": "x", "categorie": "Fantome"}).status_code == 200
+    assert app.load()["site"]["categorie"] == ""
+
+
+def test_deux_tiroirs_pour_la_meme_chose_sont_refuses(categorise):
+    """« Outils » et « outils » rangeraient les projets a deux endroits."""
+    r = categorise.put("/api/categories", json={"categories": ["Outils", "outils", " Outils "]})
+    assert r.status_code == 200, r.data
+    assert r.get_json()["categories"] == ["Outils"]
+
+
+def test_un_utilisateur_lit_les_categories_mais_n_en_cree_pas(categorise):
+    """Le hub d'un compte utilisateur en a besoin pour se ranger ; le
+    rangement lui-meme reste une decision d'administration."""
+    sel = "bb" * 16
+    app.ecrire_utilisateurs({"marie": {
+        "sel": sel, "hash": app.derive_mot_de_passe("mot-de-passe-long", sel),
+        "projets": ["site"], "cree": 0}})
+    categorise.post("/logout")
+    _connecte(categorise, "marie", "mot-de-passe-long")
+    assert categorise.get("/api/categories").status_code == 200
+    assert categorise.put("/api/categories", json={"categories": ["A moi"]}).status_code == 403
+    assert app.lire_categories() == ["Outils", "Donnees"]

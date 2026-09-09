@@ -406,6 +406,19 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
    le dire evite de croire qu'on vient de le proteger. */
 .us-case.us-public{color:var(--dim2)}
 .us-case span{color:var(--dim2);font-size:11.5px}
+
+/* ------------------------------ categories ------------------------------ */
+.cat-ligne{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.cat-ligne input{flex:1}
+.cat-ligne .icon-btn{flex:none}
+.cat-vide{color:var(--dim);font-size:13px;padding:6px 0 2px}
+/* Titre d'un groupe dans le hub. Discret : ce sont les projets qu'on vient
+   chercher, le rangement ne doit pas leur voler la vedette. */
+.hub-groupe{margin-bottom:26px}
+.hub-groupe-titre{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+ color:var(--dim2);margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.hub-groupe-titre span{font-size:11px;font-weight:600;padding:1px 7px;border-radius:20px;
+ background:var(--surface);border:1px solid var(--line);color:var(--dim);letter-spacing:0}
 </style></head><body>
 <div class="topbar">
   <button class="side-toggle-btn" id="btn-menu" onclick="toggleSidebar()" title="Reduire / etendre le menu">
@@ -631,6 +644,9 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
         <div class="field"><label>Description <span class="opt">facultatif</span></label>
           <input id="e-desc" autocomplete="off" maxlength="140" placeholder="Mon site personnel">
           <div class="hint">Une ligne, affichee sous le nom du projet dans le hub.</div></div>
+        <div class="field"><label>Categorie <span class="opt">facultatif</span></label>
+          <select id="e-cat"></select>
+          <div class="hint">Le groupe sous lequel le projet apparait dans le hub.</div></div>
       </div>
 
       <div class="fset">
@@ -783,6 +799,35 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
   </div>
 
   <div class="zone">
+    <div class="zone-title">Categories</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Categories du hub</b>
+        <div class="path">Des tiroirs pour ranger les projets sur la page d'accueil.</div>
+      </div></div>
+
+      <div class="hint">Une categorie ne donne aucun droit et ne change rien au deploiement :
+        elle regroupe les projets dans le hub, dans l'ordre de cette liste. Un projet sans
+        categorie apparait a la fin, sous « Autres ». Choisis la categorie d'un projet dans sa
+        fiche, onglet <b>Configuration</b>.</div>
+
+      <div id="cat-liste" style="margin-top:14px"></div>
+
+      <div class="cat-ligne">
+        <input id="cat-neuve" placeholder="Outils" autocomplete="off" maxlength="30"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();catAjouter()}">
+        <button class="btn btn-default" onclick="catAjouter()">Ajouter</button>
+      </div>
+
+      <div class="mf" style="justify-content:flex-start;gap:8px;margin-top:4px">
+        <button class="btn btn-primary" id="cat-save" onclick="catEnregistrer()">Enregistrer</button>
+      </div>
+      <div class="err" id="cat-err" style="display:none"></div>
+      <div class="hint" id="cat-msg" style="display:none"></div>
+    </div>
+  </div>
+
+  <div class="zone">
     <div class="zone-title">Comptes</div>
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
@@ -908,6 +953,9 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
       <input id="f-build" placeholder="npm ci &amp;&amp; npm run build" autocomplete="off"></div>
     <div class="field"><label>Limite memoire <span class="opt">facultatif</span></label>
       <div class="input-suffix"><input id="f-mem" type="number" min="16" placeholder="256"><span>Mo</span></div></div>
+    <div class="field"><label>Categorie <span class="opt">facultatif</span></label>
+      <select id="f-cat"></select>
+      <div class="hint">Les categories se creent dans Configuration.</div></div>
     <div class="field"><label>Visibilite</label>
       <div class="seg-toggle" id="f-vis-toggle">
         <button data-v="publique" onclick="setVisAdd('publique')">Publique</button>
@@ -974,7 +1022,7 @@ function showSection(name){
   /* L'etat de securite est relu a chaque ouverture : il peut avoir change
      depuis un autre onglet, ou au redemarrage du service. */
   if(name==='profil' && estAdmin) chargerSecurite();
-  if(name==='settings'){ chargerSecurite(); chargerAlertes(); chargerUtilisateurs(); }
+  if(name==='settings'){ chargerSecurite(); chargerAlertes(); chargerUtilisateurs(); chargerCategories(); }
 }
 
 /* ---------------- etats ---------------- */
@@ -1005,11 +1053,84 @@ function correspond(a){
   return (a.name+' '+(a.description||'')).toLowerCase().includes(filtre);
 }
 
+/* ---------------- categories ---------------- */
+/* Un rangement, rien de plus : aucune categorie ne donne de droit. La liste
+   est gardee en memoire pour peupler les deux menus deroulants (ajout et
+   fiche) sans un aller-retour reseau a chaque ouverture. */
+let categories=[];
+
+async function chargerCategories(){
+  try{ categories=(await (await fetch('/api/categories')).json()).categories||[]; }
+  catch(e){ return; }
+  peindreCategories();
+}
+
+/* Les deux menus deroulants d'un projet. La categorie enregistree est
+   proposee meme si elle vient de disparaitre de la liste : on ne veut pas
+   qu'un simple passage sur la fiche la remplace en douce. */
+function optionsCategorie(id, valeur){
+  const liste = valeur && !categories.includes(valeur) ? categories.concat([valeur]) : categories;
+  $(id).innerHTML = '<option value="">Sans categorie</option>'
+    + liste.map(c=>`<option value="${esc(c)}"${c===valeur?' selected':''}>${esc(c)}</option>`).join('');
+}
+
+/* La liste editable de Configuration. Elle vit dans le DOM : ce qu'on lit au
+   moment d'enregistrer est exactement ce qui est affiche, ordre compris. */
+function peindreCategories(){
+  $('cat-liste').innerHTML = categories.length
+    ? categories.map((c,i)=>`<div class="cat-ligne">
+        <input value="${esc(c)}" maxlength="30" aria-label="Categorie ${i+1}">
+        <button class="icon-btn" title="Retirer" onclick="catRetirer(${i})">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg></button>
+      </div>`).join('')
+    : '<div class="cat-vide">Aucune categorie. Le hub affiche alors une seule liste.</div>';
+}
+function catLues(){
+  return Array.from(document.querySelectorAll('#cat-liste input'))
+    .map(i=>i.value.trim()).filter(Boolean);
+}
+function catAjouter(){
+  const v=$('cat-neuve').value.trim();
+  if(!v) return;
+  categories = catLues().concat([v]);
+  $('cat-neuve').value='';
+  peindreCategories();
+}
+function catRetirer(i){
+  const l=catLues(); l.splice(i,1); categories=l; peindreCategories();
+}
+async function catEnregistrer(){
+  const e=$('cat-err'), m=$('cat-msg');
+  e.style.display='none'; m.style.display='none';
+  $('cat-save').disabled=true;
+  try{
+    const r=await fetch('/api/categories',{method:'PUT',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({categories:catLues()})});
+    const d=await r.json();
+    if(!r.ok){ e.textContent=d.error||'Enregistrement impossible.'; e.style.display='block'; return; }
+    categories=d.categories||[];
+    peindreCategories();
+    /* Supprimer une categorie deplace des projets : le dire, plutot que de
+       laisser decouvrir le changement au prochain passage sur le hub. */
+    m.textContent = d.declasses
+      ? `Enregistre. ${d.declasses} projet${d.declasses>1?'s':''} ${d.declasses>1?'passent':'passe'} sous « Autres ».`
+      : 'Enregistre.';
+    m.style.display='block';
+    if(estAdmin) refresh();
+  } finally { $('cat-save').disabled=false; }
+}
+
 /* ---------------- hub ---------------- */
 let hubApps=[];
 async function chargerHub(){
-  try{ hubApps=(await (await fetch('/api/mes-apps')).json()).apps||[]; }
-  catch(e){ return; }
+  try{
+    const d=await (await fetch('/api/mes-apps')).json();
+    hubApps=d.apps||[];
+    /* Les categories arrivent avec les projets : une seule requete, et le
+       hub ne peut pas afficher un rangement decale d'un tour. */
+    if(Array.isArray(d.categories)) categories=d.categories;
+  }catch(e){ return; }
   peindreHub();
 }
 function peindreHub(){
@@ -1028,14 +1149,34 @@ function peindreHub(){
           + 'Ton administrateur ne t\'a pas encore donne acces a une application.</div>');
     return;
   }
-  $('hub-liste').className='hub-liste';
-  $('hub-liste').innerHTML = liste.map(a=>{
+  const tuile = a => {
     const desc = a.description ? `<div class="desc">${esc(a.description)}</div>` : '';
     return `<a class="hub-projet ${a.running?'':'arretee'}" href="/${encodeURIComponent(a.name)}/">
       <img src="${icone(a.name)}" alt="">
       <div class="txt"><div class="nom">${esc(a.name)}</div>${desc}
       <div class="bas">${badgeEtat(a)}${badgeVis(a)}</div></div></a>`;
-  }).join('');
+  };
+
+  /* Sans categorie declaree, le hub reste ce qu'il etait : une seule liste.
+     Un unique titre « Autres » au-dessus de tout serait du bruit. */
+  const utiles = categories.filter(c=>liste.some(a=>a.categorie===c));
+  if(!utiles.length){
+    $('hub-liste').className='hub-liste';
+    $('hub-liste').innerHTML = liste.map(tuile).join('');
+    return;
+  }
+
+  /* Les projets non ranges ferment la marche : ce sont ceux qu'on n'a pas
+     encore classes, pas une categorie a part entiere. */
+  const groupes = utiles.map(c=>[c, liste.filter(a=>a.categorie===c)]);
+  const restants = liste.filter(a=>!utiles.includes(a.categorie));
+  if(restants.length) groupes.push(['Autres', restants]);
+
+  $('hub-liste').className='';
+  $('hub-liste').innerHTML = groupes.map(([nom, apps])=>`<div class="hub-groupe">
+    <div class="hub-groupe-titre">${esc(nom)}<span>${apps.length}</span></div>
+    <div class="hub-liste">${apps.map(tuile).join('')}</div>
+  </div>`).join('');
 }
 
 /* ---------------- vue d'ensemble ---------------- */
@@ -1247,6 +1388,7 @@ function chargerConfigFiche(){
   if(!a) return;
   editCur=a.path;
   $('e-desc').value=a.description||'';
+  optionsCategorie('e-cat', a.categorie||'');
   $('e-cmd').value=a.command||'';
   $('e-build').value=a.build_command||'';
   $('e-mem').value=a.max_memory_mb||'';
@@ -1278,6 +1420,7 @@ async function submitEdit(){
   const e=$('e-err');
   if(!c){ e.textContent='La commande de lancement est obligatoire.'; e.style.display='block'; return; }
   const body={path:editCur, command:c, description:$('e-desc').value.trim(),
+    categorie:$('e-cat').value,
     build_command:$('e-build').value.trim(),
     max_memory_mb:$('e-mem').value ? parseInt($('e-mem').value,10) : null,
     visibility:visEdit};
@@ -1364,6 +1507,7 @@ function openAdd(){
   $('a-e').style.display='none';
   ['f-name','f-cmd','f-build','f-mem','f-desc'].forEach(i=>$(i).value='');
   $('a-s').textContent=ROOT;
+  optionsCategorie('f-cat', '');
   setVisAdd('publique');
   $('ov-add').classList.add('show');
   browse(ROOT);
@@ -1413,7 +1557,7 @@ async function submitAdd(){
 
   const r=await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},
    body:JSON.stringify({name,path:cur,command:c,description,build_command,
-     max_memory_mb,visibility:visAdd})});
+     categorie:$('f-cat').value, max_memory_mb,visibility:visAdd})});
   const d=await r.json();
   if(!r.ok) return err(d.error);
   hide('ov-add'); refresh();

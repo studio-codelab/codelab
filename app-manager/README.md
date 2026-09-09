@@ -269,6 +269,25 @@ compte) et stockes dans `utilisateurs.json` en `0600`. Une copie de sauvegarde d
 n'est donc pas une liste de mots de passe. Le compte d'administration, lui, n'est pas dans ce
 fichier : son mot de passe vit dans `credentials.env`, et le nom `admin` est reserve.
 
+## Categories
+
+Une categorie est un intitule libre — « Outils », « Sites », « Donnees » — qui **regroupe les projets
+dans le hub**, et rien d'autre : elle ne donne aucun droit, ne change rien au deploiement et
+n'apparait pas dans le proxy. C'est du rangement.
+
+- La liste se tient dans **Configuration > Categories**. Son ordre est l'ordre d'affichage des
+  groupes : on la range, on n'impose pas un tri alphabetique.
+- La categorie d'un projet se choisit dans sa fiche, onglet **Configuration**, parmi cette liste.
+- Un projet sans categorie apparait a la fin, sous **Autres**. Tant qu'aucune categorie n'existe, le
+  hub reste une seule liste — un titre « Autres » tout seul ne rangerait rien.
+
+**Supprimer une categorie ne casse rien mais deplace des projets** : ceux qui la portaient
+redeviennent non ranges, tout de suite, et la page dit combien. Un projet ne garde jamais une
+categorie disparue — il serait range dans un tiroir que le hub n'affiche plus, donc invisible.
+
+La liste vit dans `categories.json` (dans `STATE_DIR`), a cote de `apps.json` : une categorie existe
+avant qu'un projet la porte, et survit a la suppression du dernier projet qui l'utilisait.
+
 ## Alertes par mail
 
 Le panneau redemarre deja tout seul une application qui plante — mais il fallait avoir le panneau
@@ -340,7 +359,7 @@ silencieusement sans bloquer le demarrage du service — c'est une commodite, pa
 
 | Point de montage | Contenu |
 |---|---|
-| `/var/lib/codelab/app-manager` | `apps.json`, `logs/`, `alertes.json`, `utilisateurs.json` et `diagnostic-inscrit` — l'etat du panneau. Aucun secret en clair : les mots de passe des comptes sont derives, ceux des services sont dans `credentials.env` |
+| `/var/lib/codelab/app-manager` | `apps.json`, `logs/`, `alertes.json`, `utilisateurs.json`, `categories.json` et `diagnostic-inscrit` — l'etat du panneau. Aucun secret en clair : les mots de passe des comptes sont derives, ceux des services sont dans `credentials.env` |
 | `/workspace` | Racine dans laquelle chercher/lancer les applications |
 
 ## Double authentification et exposition
@@ -399,6 +418,8 @@ qui n'est pas implemente ici.
 | `/api/build/<nom>` | POST | oui | Execute la commande de build (si definie), sortie dans le journal |
 | `/api/deploy/<nom>` | POST | oui | Build **puis** mise en ligne ; un build en echec ne touche pas l'application qui tourne |
 | `/api/visibility/<nom>` | POST | oui | Bascule publique / privee (ou impose la valeur donnee) |
+| `/api/categories` | GET | oui | La liste des categories, dans l'ordre d'affichage (tous les roles) |
+| `/api/categories` | PUT | oui | Remplace la liste (**administrateur**) ; renvoie le nombre de projets declasses |
 | `/api/securite` | GET | oui | Etat des reglages de securite (TOTP, HTTPS, cookie, proxy de confiance) |
 | `/api/securite/totp/preparer` | POST | oui | Tire un secret candidat, sans rien enregistrer |
 | `/api/securite/totp/activer` | POST | oui | Enregistre le secret candidat, apres verification d'un code |

@@ -86,6 +86,10 @@ monde : la liste des projets ouvrables, chacun avec sa description d'une ligne. 
 menu lateral (vue d'ensemble, applications, journaux) et l'entree **Configuration** du menu du
 compte ; **Parametres**, lui, est personnel et existe pour chaque compte.
 
+- **Categories** (*Configuration > Categories*) : des tiroirs pour ranger les projets dans le hub —
+  « Outils », « Sites », « Donnees ». Purement visuel : aucune categorie ne donne de droit. Un projet
+  non range apparait sous « Autres ».
+
 Details dans [`app-manager/README.md`](app-manager/README.md).
 
 **Dagster** : `http://<IP-du-serveur>:3000/` — charge `/workspace/definitions.py` comme code Dagster.
