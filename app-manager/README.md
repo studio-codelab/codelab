@@ -182,8 +182,115 @@ du conteneur. Une bascule anti-bruteforce limite les tentatives de connexion ech
 minutes, par adresse IP.
 
 > **Le proxy `/<nom-app>/...` n'est volontairement pas protege par cette authentification** — seuls le dashboard
-> et son API le sont. Une application que tu deploies reste directement joignable (utile pour tester un
-> webhook, par exemple), independamment du mot de passe du panneau.
+> et son API le sont. Une application **publique** que tu deploies reste directement joignable (utile pour tester un
+> webhook, par exemple), independamment du mot de passe du panneau. Une application **privee**, elle,
+> exige une session : voir [Deux espaces](#deux-espaces--administrateur-et-utilisateurs).
+
+## Deux espaces : administrateur et utilisateurs
+
+| | Administrateur | Utilisateur |
+|---|---|---|
+| Connexion | nom vide (ou `admin`) + mot de passe de `credentials.env` | son nom + son mot de passe |
+| Second facteur | optionnel, a activer depuis Parametres | **obligatoire** |
+| Page d'accueil | le tableau de bord (`/`) | son espace (`/espace`) |
+| Declarer, editer, supprimer un projet | oui | non |
+| Demarrer, arreter, deployer, build | oui | non |
+| Visibilite, alertes, comptes, journaux | oui | non |
+| Dagster (`/api/auth-check`) | oui | **non** |
+| Ouvrir un projet | tous | ceux qu'on lui a autorises |
+
+Les comptes se creent depuis **Parametres > Comptes**. Chacun porte la liste des projets qu'il peut
+ouvrir ; la retirer prend effet immediatement, sans deconnexion — chaque controle relit le registre.
+
+Trois points meritent d'etre explicites :
+
+- **L'autorisation ne concerne que les projets prives.** Un projet public est ouvert a tout le monde,
+  y compris a un visiteur non connecte : c'est le sens de « publique », et c'est ce qui permet de
+  partager un projet par un lien. Pour restreindre un projet a certains comptes, il faut donc
+  d'abord le passer en prive.
+- **Dagster reste reserve a l'administrateur.** Son interface lance des jobs, donc execute du code
+  sur la machine : y donner acces serait donner l'administration par la bande, quels que soient les
+  projets autorises.
+- **Le controle est dans les routes, pas dans l'interface.** Masquer un bouton ne protege rien : une
+  route reste appelable a la main. `require_admin` garde les routes d'administration, et le proxy
+  verifie l'autorisation projet par projet — connaitre l'adresse d'un projet prive ne suffit pas.
+
+### Le second facteur, obligatoire pour les comptes utilisateurs
+
+Ces comptes existent pour etre distribues — a un collegue, a un client. Leur mot de passe circule
+donc par un canal qu'on ne maitrise pas, et sera reutilise ailleurs : c'est exactement le cas ou un
+seul secret ne suffit pas. Un compte utilisateur n'ouvre **jamais** de session sur le seul mot de
+passe.
+
+L'administrateur, lui, garde le choix (Parametres > Securite) : le lui imposer d'office pourrait
+l'enfermer hors de son propre panneau. Il est vivement conseille de l'activer avant toute
+exposition.
+
+Le parcours, en trois etats :
+
+1. **Compte cree** — le panneau affiche « 2FA en attente ». Rien a transmettre a la personne en
+   dehors de son nom et de son mot de passe.
+2. **Premiere connexion** — apres le mot de passe, la page affiche une cle a enregistrer dans une
+   application d'authentification, puis demande le code qu'elle produit. Entre les deux, **la
+   session ne vaut rien** : elle ne porte pas `authed`, donc elle n'ouvre ni page ni application.
+   Rien n'est enregistre tant que le code n'est pas valide — une cle mal recopiee ne peut pas
+   enfermer dehors.
+3. **Ensuite** — le code est exige a chaque connexion, et le panneau affiche « 2FA enregistree ».
+
+L'administrateur ne connait a aucun moment la cle de quelqu'un d'autre : elle est tiree au premier
+acces et n'apparait que sur l'ecran de la personne concernee. **Telephone perdu ou remplace** :
+*Reinitialiser la 2FA* efface le secret, et la personne en enregistre un nouveau a sa prochaine
+connexion. Les sessions deja ouvertes ne sont pas coupees par cette remise a zero.
+
+Une inscription ne remplace jamais un facteur deja en service (409) : deux connexions en parallele
+ne peuvent pas invalider le telephone que l'une des deux vient de configurer.
+
+Les mots de passe des comptes sont derives (PBKDF2-HMAC-SHA256, 200 000 iterations, un sel par
+compte) et stockes dans `utilisateurs.json` en `0600`. Une copie de sauvegarde du dossier d'etat
+n'est donc pas une liste de mots de passe. Le compte d'administration, lui, n'est pas dans ce
+fichier : son mot de passe vit dans `credentials.env`, et le nom `admin` est reserve.
+
+## Alertes par mail
+
+Le panneau redemarre deja tout seul une application qui plante — mais il fallait avoir le panneau
+sous les yeux pour le savoir. Une application qui tombe la nuit reste tombee jusqu'a ce qu'on pense
+a regarder.
+
+**Parametres > Alertes** : destinataires, serveur d'envoi, mail de test, interrupteur.
+
+Ce qui declenche un mail, et ce qui n'en declenche pas :
+
+| Evenement | Mail |
+|---|---|
+| L'application plante et redemarre toute seule | non — c'est le filet de securite qui fonctionne |
+| Elle a epuise ses 5 tentatives en 10 minutes | **oui**, une fois |
+| Elle reste a terre, tour de moniteur apres tour | non — un incident, un mail |
+| Elle repond de nouveau | **oui**, un mail de retour |
+| Tu l'arretes toi-meme depuis le panneau | non — personne n'a besoin d'un mail pour son propre geste |
+
+Le mail de chute contient le dossier, la commande, le port et les 25 dernieres lignes du journal —
+de quoi reconnaitre une trace d'exception sans se connecter au serveur.
+
+La configuration SMTP vit dans le bloc `codelab-alertes` de `credentials.env`, **le meme** que lit le
+capteur d'alerte de Dagster : une seule configuration d'envoi pour toute la stack. Le formulaire du
+panneau reecrit ce bloc ; laisser le champ mot de passe vide conserve celui deja enregistre.
+
+| Cle | Role |
+|---|---|
+| `SMTP_HOST`, `SMTP_PORT` | Serveur d'envoi. 587 avec STARTTLS, 465 avec `SMTP_TLS=ssl` |
+| `SMTP_TLS` | `starttls` (defaut), `ssl`, ou `none` pour un relais interne non chiffre |
+| `SMTP_USER`, `SMTP_PASSWORD` | Optionnels : un relais interne peut ne pas demander d'authentification |
+| `ALERTE_FROM` | Rarement utile : l'expediteur suit `SMTP_USER`, que Gmail impose de toute facon |
+
+Les destinataires et l'interrupteur vivent dans `alertes.json`, dans le dossier d'etat : une adresse
+de destination n'est pas un secret, et la garder hors du fichier de secrets evite de le reecrire pour
+un changement anodin.
+
+**Gmail** : validation en deux etapes activee, puis un *mot de passe d'application* de 16
+caracteres. Le mot de passe habituel du compte sera refuse.
+
+Un envoi qui echoue (serveur injoignable, authentification refusee) est journalise et rien de plus :
+une alerte qui ne part pas ne doit pas ajouter une panne a celle qu'elle signale.
 
 ## Fichier `credentials.env`
 
@@ -207,12 +314,14 @@ silencieusement sans bloquer le demarrage du service — c'est une commodite, pa
 | `APP_MANAGER_ROOT` | Racine du navigateur de dossiers et des chemins d'applications (`/workspace`) |
 | `APP_MANAGER_SHARED_CONFIG` | Dossier de `credentials.env`, le fichier unique de secrets (`/var/lib/codelab/config`) |
 | `MANAGER_PORT` | Port d'ecoute du panneau lui-meme (`9001`) |
+| `APP_MANAGER_THREADS` | Threads du serveur HTTP (`16`). Le panneau relaie le trafic des applications : une application lente retient un thread pendant toute sa reponse |
+| `APP_MANAGER_TIMEOUT` | Silence tolere sur une connexion avant fermeture, en secondes (`600`). Genereux, pour ne pas couper une application qui fait du long-polling |
 
 ## Volumes attendus
 
 | Point de montage | Contenu |
 |---|---|
-| `/var/lib/codelab/app-manager` | `apps.json`, `logs/` et `diagnostic-inscrit` — l'etat des applications. Aucun secret : ils sont tous dans `credentials.env` |
+| `/var/lib/codelab/app-manager` | `apps.json`, `logs/`, `alertes.json`, `utilisateurs.json` et `diagnostic-inscrit` — l'etat du panneau. Aucun secret en clair : les mots de passe des comptes sont derives, ceux des services sont dans `credentials.env` |
 | `/workspace` | Racine dans laquelle chercher/lancer les applications |
 
 ## Double authentification et exposition
@@ -403,6 +512,34 @@ d'ou constater ce qui se passe. Un build en echec n'empeche pas le demarrage : l
    au demarrage suivant.
 
 Supprimer le marqueur autorise une nouvelle inscription, a condition que le panneau soit vide.
+
+## Serveur HTTP
+
+Le panneau tourne derriere **waitress**, un serveur WSGI de production en Python pur. Ce n'est pas
+un detail cosmetique : le panneau ne sert pas que ses propres pages, il **relaie tout le trafic de
+toutes les applications deployees**, ce pour quoi le serveur de developpement de Flask n'est pas
+dimensionne — il le dit lui-meme au demarrage.
+
+Si `waitress` n'est pas installe, le service retombe sur le serveur de Flask avec un message
+explicite : un depot fraichement clone reste lancable sans rien installer de plus.
+
+### Le plafond de flux de journal
+
+Le suivi d'un journal en direct est un flux SSE, et **un flux occupe un thread tant qu'il est
+ouvert**. Mesure faite sur une instance reelle : avec 16 threads, 20 flux simultanes rendaient le
+panneau entierement muet — `/health` compris, donc le conteneur passait `unhealthy`.
+
+Le panneau plafonne donc les flux simultanes a **la moitie du pool** (8 par defaut). Au-dela, le
+flux de trop recoit un `503` qui nomme la cause, et la fenetre de journal l'affiche au lieu de
+rester sur « Connexion... ». Verifie : avec 8 flux ouverts, le panneau repond toujours en 5 ms.
+
+Deux details qui rendent le mecanisme fiable :
+
+- **un battement toutes les 10 secondes** (un commentaire SSE, ignore par le navigateur). Il tient
+  la connexion ouverte quand le journal est silencieux, et c'est aussi lui qui fait decouvrir au
+  serveur qu'un onglet a ete ferme — donc qui libere la place, dans ce delai au pire ;
+- **une duree de vie de 10 minutes**, apres quoi le flux se termine et `EventSource` se reconnecte
+  tout seul. Un onglet oublie ne monopolise pas une place indefiniment.
 
 ## Developper / tester localement
 

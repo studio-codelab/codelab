@@ -215,6 +215,24 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:var(--bg
  min-height:320px;max-height:62vh;overflow:auto}
 .settings-card{max-width:560px;margin-bottom:14px}
 .settings-card .field{margin-bottom:0}
+/* Deux champs cote a cote (hote/port, chiffrement/identifiant), qui repassent
+   en colonne unique sur telephone -- un port de 4 caracteres dans une demi
+   largeur de 300px reste lisible, un hote SMTP non. */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px 12px;margin-top:14px}
+@media (max-width:640px){.grid2{grid-template-columns:1fr}}
+.settings-card .field+.field{margin-top:14px}
+.settings-card .grid2+.field{margin-top:14px}
+.us-compte{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:10px}
+.us-tete{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.us-tete .spacer{flex:1}
+.us-cases{display:flex;flex-wrap:wrap;gap:8px 14px}
+.us-case{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--txt);
+ margin:0;font-weight:400;cursor:pointer}
+.us-case input{width:auto;margin:0}
+/* Un projet public est accessible sans compte : le cocher ne change rien, et
+   le dire evite de croire qu'on vient de le proteger. */
+.us-case.us-public{color:var(--dim2)}
+.us-case span{color:var(--dim2);font-size:11.5px}
 .seg-toggle{display:flex;border:1px solid var(--line2);border-radius:8px;overflow:hidden;max-width:320px}
 .seg-toggle button{flex:1;padding:8px 4px;border:none;background:var(--surface2);color:var(--dim);
  font:inherit;font-size:12.5px;font-weight:500;cursor:pointer;border-right:1px solid var(--line2)}
@@ -584,6 +602,100 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:var(--bg
   </div>
 
   <div class="zone">
+    <div class="zone-title">Comptes</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Espaces utilisateurs</b>
+        <div class="path">Des comptes qui n'ouvrent que les projets que tu leur autorises.</div>
+      </div></div>
+
+      <div class="hint">Un compte utilisateur voit une page « Mes projets » et rien d'autre :
+        pas de deploiement, pas de configuration, pas de Dagster. L'autorisation ne compte que pour
+        les projets <b>prives</b> — un projet public reste ouvert a tout le monde, y compris sans
+        connexion.</div>
+      <div class="hint" style="margin-top:8px"><b>Le second facteur est obligatoire</b> pour ces
+        comptes : a sa premiere connexion, la personne enregistre une cle dans son application
+        d'authentification, et un code lui sera demande ensuite a chaque fois. Tu ne connais jamais
+        sa cle — en cas de telephone perdu, remets l'etape a zero et elle en enregistrera une
+        nouvelle.</div>
+
+      <div id="us-liste" style="margin-top:14px"></div>
+
+      <div class="field" style="margin-top:14px">
+        <label>Nouveau compte</label>
+        <input id="us-nom" placeholder="marie" autocomplete="off">
+        <div class="hint">Minuscules, chiffres, tiret ou souligne.</div>
+      </div>
+      <div class="field"><label>Mot de passe</label>
+        <input id="us-mdp" type="password" autocomplete="new-password" placeholder="8 caracteres au minimum">
+      </div>
+      <button class="btn btn-primary" id="us-creer" onclick="usCreer()"
+        style="margin-top:14px">Creer le compte</button>
+      <div class="err" id="us-err" style="display:none"></div>
+    </div>
+  </div>
+
+  <div class="zone">
+    <div class="zone-title">Alertes</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Alerte par mail</b>
+        <div class="path">Un mail quand une application tombe, un autre quand elle revient.</div>
+      </div>
+      <span class="pill" id="al-etat"><i></i>&nbsp;</span></div>
+
+      <div class="hint">Le panneau redemarre tout seul une application qui plante. Il abandonne au
+        bout de 5 tentatives en 10 minutes — c'est a ce moment-la que le mail part, pas au premier
+        soubresaut. Un second mail signale le retour a la normale.</div>
+
+      <div class="field" style="margin-top:14px">
+        <label>Destinataires</label>
+        <input id="al-dest" placeholder="moi@example.com, autre@example.com" autocomplete="off">
+        <div class="hint">Separes par des virgules.</div>
+      </div>
+
+      <div class="field">
+        <label>Serveur d'envoi</label>
+        <div class="hint" id="al-smtp-source"></div>
+      </div>
+
+      <div class="grid2">
+        <div class="field"><label>Hote SMTP</label>
+          <input id="al-host" placeholder="smtp.gmail.com" autocomplete="off"></div>
+        <div class="field"><label>Port</label>
+          <input id="al-port" type="number" placeholder="587"></div>
+      </div>
+      <div class="grid2">
+        <div class="field"><label>Chiffrement</label>
+          <div class="seg-toggle" id="al-tls-toggle">
+            <button data-t="starttls" onclick="alSetTls('starttls')">STARTTLS</button>
+            <button data-t="ssl" onclick="alSetTls('ssl')">SSL</button>
+            <button data-t="none" onclick="alSetTls('none')">Aucun</button>
+          </div></div>
+        <div class="field"><label>Identifiant</label>
+          <input id="al-user" placeholder="moi@gmail.com" autocomplete="off"></div>
+      </div>
+      <div class="field"><label>Mot de passe</label>
+        <input id="al-pass" type="password" autocomplete="new-password" placeholder="inchange">
+        <div class="hint">Laisse vide pour conserver celui deja enregistre. Gmail exige un
+          <em>mot de passe d'application</em>, pas ton mot de passe habituel.</div>
+      </div>
+
+      <div class="mf" style="justify-content:flex-start;gap:8px;margin-top:4px">
+        <button class="btn btn-primary" id="al-save" onclick="alEnregistrer()">Enregistrer</button>
+        <button class="btn btn-default" id="al-test" onclick="alTester()">Envoyer un mail de test</button>
+        <button class="btn btn-default" id="al-toggle" onclick="alBasculer()">Activer</button>
+      </div>
+      <div class="err" id="al-err" style="display:none"></div>
+      <div class="hint" id="al-msg" style="display:none"></div>
+
+      <div class="hint" style="margin-top:12px">Ces reglages vivent dans le bloc
+        <code>codelab-alertes</code> de <code>credentials.env</code> : le capteur d'alerte de
+        Dagster lit le meme serveur d'envoi. Une seule configuration pour toute la stack.</div>
+    </div>
+  </div>
+
+  <div class="zone">
     <div class="zone-title">Session</div>
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
@@ -609,6 +721,9 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:var(--bg
     <div class="field"><label>Nom du projet</label>
       <input id="f-name" placeholder="portfolio" autocomplete="off">
       <div class="hint">Accessible sur <code id="f-url">/nom/</code></div></div>
+    <div class="field"><label>Description <span class="opt">facultatif</span></label>
+      <input id="f-desc" placeholder="Mon site personnel" autocomplete="off" maxlength="140">
+      <div class="hint">Une ligne, affichee aux comptes utilisateurs sous le nom du projet.</div></div>
 
     <div class="field"><label>Dossier</label>
       <div class="fb"><div class="fb-cur" id="fb-c">/</div><div class="fb-l" id="fb-l"></div></div>
@@ -651,6 +766,13 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:var(--bg
       <div><b>Application en cours d'execution.</b> Les modifications ne peuvent pas etre
         enregistrees tant qu'elle tourne.</div>
       <button class="btn btn-default btn-sm" onclick="stopThenEdit()">Arreter</button>
+    </div>
+
+    <div class="fset">
+      <div class="fset-title">Presentation</div>
+      <div class="field"><label>Description <span class="opt">facultatif</span></label>
+        <input id="e-desc" autocomplete="off" maxlength="140" placeholder="Mon site personnel">
+        <div class="hint">Une ligne, affichee aux comptes utilisateurs sous le nom du projet.</div></div>
     </div>
 
     <div class="fset">
@@ -765,7 +887,7 @@ function showSection(name){
   $('acct-btn').classList.toggle('active', name==='settings');
   /* L'etat de securite est relu a chaque ouverture : il peut avoir change
      depuis un autre onglet, ou au redemarrage du service. */
-  if(name==='settings') chargerSecurite();
+  if(name==='settings'){ chargerSecurite(); chargerAlertes(); chargerUtilisateurs(); }
 }
 
 function barChart(list, key, unit, maxHint){
@@ -808,8 +930,15 @@ let apps=[];
 async function refresh(){
   const r=await fetch('/api/apps');
   if(r.status===401){ location.href='/login'; return; }
+  const avant=apps.map(a=>a.name).join('|');
   apps=(await r.json()).apps;
   render();
+  /* Les cases a cocher des comptes listent les projets : un projet ajoute ou
+     supprime pendant que la page Parametres est ouverte doit s'y refleter.
+     Redessine seulement quand la liste des noms a change -- sinon on effacerait
+     une case qu'on vient de cocher, toutes les 5 secondes. */
+  if(apps.map(a=>a.name).join('|') !== avant
+     && $('sec-settings').style.display !== 'none') chargerUtilisateurs();
 }
 let viewMode=localStorage.getItem('codelab-view')||'grid';
 
@@ -998,6 +1127,201 @@ async function buildApp(n){
 }
 async function rm(n){ if(!confirm('Supprimer "'+n+'" ? Le dossier du projet n\'est pas touche.'))return;
  await fetch('/api/app/'+n,{method:'DELETE'}); refresh(); }
+/* ---------------- comptes utilisateurs ---------------- */
+function usErreur(texte){
+  const e=$('us-err');
+  if(!texte){ e.style.display='none'; return; }
+  e.textContent=texte; e.style.display='block';
+}
+
+async function chargerUtilisateurs(){
+  let d;
+  try{ d=await (await fetch('/api/utilisateurs')).json(); }catch(e){ return; }
+  const comptes=d.utilisateurs||[];
+  if(!comptes.length){
+    $('us-liste').innerHTML='<div class="hint">Aucun compte utilisateur. '
+      +'Toi seul peux ouvrir les projets prives.</div>';
+    return;
+  }
+  /* Une case a cocher par projet declare : c'est la liste complete qui rend
+     lisible ce qui est autorise ET ce qui ne l'est pas. */
+  $('us-liste').innerHTML = comptes.map(c=>{
+    const cases = apps.map(a=>{
+      const coche = c.projets.includes(a.name) ? ' checked' : '';
+      const prive = a.visibility==='privee';
+      return `<label class="us-case${prive?'':' us-public'}">
+        <input type="checkbox" data-compte="${esc(c.nom)}" value="${esc(a.name)}"${coche}
+          onchange="usProjets('${esc(c.nom)}')">
+        ${esc(a.name)}${prive?'':' <span>(public)</span>'}</label>`;
+    }).join('') || '<div class="hint">Aucun projet declare.</div>';
+    /* L'etat du second facteur en premier : "en attente" designe un compte
+       cree mais jamais utilise, ce qui se voit d'un coup d'oeil. */
+    const f = c.totp
+      ? '<span class="pill on"><i></i>2FA enregistree</span>'
+      : '<span class="pill off"><i></i>2FA en attente</span>';
+    return `<div class="us-compte">
+      <div class="us-tete"><b>${esc(c.nom)}</b>${f}
+        <div class="spacer"></div>
+        <button class="btn btn-default btn-sm" onclick="usMotDePasse('${esc(c.nom)}')">Mot de passe</button>
+        ${c.totp ? `<button class="btn btn-default btn-sm"
+          onclick="usReinitTotp('${esc(c.nom)}')">Reinitialiser la 2FA</button>` : ''}
+        <button class="btn btn-default btn-sm" onclick="usSupprimer('${esc(c.nom)}')">Supprimer</button>
+      </div>
+      <div class="us-cases">${cases}</div></div>`;
+  }).join('');
+}
+
+async function usProjets(nom){
+  const projets=[...document.querySelectorAll(`#us-liste input[data-compte="${nom}"]:checked`)]
+    .map(i=>i.value);
+  const r=await fetch('/api/utilisateurs/'+encodeURIComponent(nom),{method:'PUT',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({projets})});
+  if(!r.ok){ const d=await r.json(); usErreur(d.error||'Modification impossible.'); }
+  else usErreur('');
+}
+
+async function usCreer(){
+  usErreur('');
+  const nom=$('us-nom').value, mdp=$('us-mdp').value;
+  const r=await fetch('/api/utilisateurs',{method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({nom, mot_de_passe:mdp, projets:[]})});
+  const d=await r.json();
+  if(!r.ok){ usErreur(d.error||'Creation impossible.'); return; }
+  $('us-nom').value=''; $('us-mdp').value='';
+  chargerUtilisateurs();
+}
+
+async function usMotDePasse(nom){
+  const mdp=prompt('Nouveau mot de passe pour « '+nom+' » (8 caracteres au minimum) :');
+  if(!mdp) return;
+  const r=await fetch('/api/utilisateurs/'+encodeURIComponent(nom),{method:'PUT',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({mot_de_passe:mdp})});
+  const d=await r.json();
+  usErreur(r.ok ? '' : (d.error||'Modification impossible.'));
+}
+
+async function usReinitTotp(nom){
+  if(!confirm('Remettre a zero le second facteur de « '+nom+' » ?\n\n'
+    +'Il devra enregistrer une nouvelle cle a sa prochaine connexion. '
+    +'A faire quand il a change ou perdu son telephone.')) return;
+  const r=await fetch('/api/utilisateurs/'+encodeURIComponent(nom),{method:'PUT',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({reinitialiser_totp:true})});
+  if(!r.ok){ const d=await r.json(); usErreur(d.error||'Modification impossible.'); return; }
+  usErreur(''); chargerUtilisateurs();
+}
+
+async function usSupprimer(nom){
+  if(!confirm('Supprimer le compte « '+nom+' » ?')) return;
+  const r=await fetch('/api/utilisateurs/'+encodeURIComponent(nom),{method:'DELETE'});
+  if(!r.ok){ const d=await r.json(); usErreur(d.error||'Suppression impossible.'); return; }
+  chargerUtilisateurs();
+}
+
+/* ---------------- alertes par mail ---------------- */
+let alTls='starttls';
+
+function alSetTls(t){
+  alTls=t;
+  document.querySelectorAll('#al-tls-toggle button')
+    .forEach(b=>b.classList.toggle('active', b.dataset.t===t));
+}
+
+function alMessage(texte, erreur){
+  const e=$('al-err'), m=$('al-msg');
+  e.style.display='none'; m.style.display='none';
+  if(!texte) return;
+  const cible = erreur ? e : m;
+  cible.textContent=texte; cible.style.display='block';
+}
+
+async function chargerAlertes(){
+  let d;
+  try{ d=await (await fetch('/api/alertes')).json(); }catch(e){ return; }
+  const pill=$('al-etat');
+  pill.className='pill '+(d.actif?'on':'off');
+  pill.innerHTML='<i></i>'+(d.actif?'Actives':'Desactivees');
+  $('al-toggle').textContent = d.actif ? 'Desactiver' : 'Activer';
+
+  $('al-dest').value = (d.destinataires||[]).join(', ');
+  $('al-host').value = d.smtp.host||'';
+  $('al-port').value = d.smtp.port||'';
+  $('al-user').value = d.smtp.user||'';
+  $('al-pass').value = '';
+  $('al-pass').placeholder = d.smtp.mot_de_passe_defini ? 'inchange' : 'aucun';
+  alSetTls(d.smtp.tls||'starttls');
+
+  /* Dire d'ou viennent les valeurs affichees, et ce qui manque encore : sans
+     ca, un formulaire pre-rempli laisse croire que tout est pret. */
+  const src = d.smtp.host
+    ? 'Lu dans le bloc <code>codelab-alertes</code> de <code>credentials.env</code>.'
+    : 'Aucun serveur configure pour l\'instant.';
+  const manque = (d.manquants||[]).length
+    ? ' Il manque : <b>'+d.manquants.map(esc).join(', ')+'</b>.' : '';
+  $('al-smtp-source').innerHTML = src + manque;
+
+  const incidents=(d.incidents||[]);
+  alMessage(incidents.length
+    ? 'Incident en cours sur : '+incidents.join(', ')+'.' : '', false);
+}
+
+function alCorps(){
+  return {
+    actif: $('al-etat').classList.contains('on'),
+    destinataires: $('al-dest').value,
+    smtp: {
+      host: $('al-host').value.trim(), port: $('al-port').value.trim(),
+      tls: alTls, user: $('al-user').value.trim(),
+      expediteur: $('al-user').value.trim(), password: $('al-pass').value,
+    },
+  };
+}
+
+async function alPoster(corps, bouton){
+  const b=$(bouton); b.disabled=true;
+  try{
+    const r=await fetch('/api/alertes',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(corps)});
+    const d=await r.json();
+    if(!r.ok){ alMessage(d.error||'Enregistrement impossible.', true); return false; }
+    return true;
+  }catch(e){ alMessage('Erreur reseau.', true); return false; }
+  finally{ b.disabled=false; }
+}
+
+async function alEnregistrer(){
+  alMessage('', false);
+  if(await alPoster(alCorps(), 'al-save')){
+    await chargerAlertes();
+    alMessage('Reglages enregistres.', false);
+  }
+}
+
+async function alBasculer(){
+  alMessage('', false);
+  const corps=alCorps();
+  corps.actif = !corps.actif;
+  if(await alPoster(corps, 'al-toggle')) await chargerAlertes();
+}
+
+async function alTester(){
+  alMessage('', false);
+  const b=$('al-test'); b.disabled=true; b.textContent='Envoi...';
+  try{
+    /* Enregistrer d'abord : tester ce qui est affiche a l'ecran plutot que
+       ce qui est enregistre donnerait un test qui passe et des alertes qui
+       ne partent pas. */
+    if(await alPoster(alCorps(), 'al-test')){
+      const r=await fetch('/api/alertes/test',{method:'POST'});
+      const d=await r.json();
+      alMessage(r.ok ? 'Mail envoye a '+(d.destinataires||[]).join(', ')+'.'
+                     : (d.error||'Envoi impossible.'), !r.ok);
+      await chargerAlertes();
+    }
+  }catch(e){ alMessage('Erreur reseau.', true); }
+  b.disabled=false; b.textContent='Envoyer un mail de test';
+}
+
 /* ---------------- securite : double authentification ---------------- */
 async function chargerSecurite(){
   let d;
@@ -1083,6 +1407,7 @@ function openEdit(name){
   $('e-pill').className='pill '+st.cls; $('e-pill-txt').textContent=st.txt;
   $('e-err').style.display='none';
   $('e-cmd').value=a.command;
+  $('e-desc').value=a.description||'';
   $('e-build').value=a.build_command||'';
   $('e-mem').value=a.max_memory_mb||'';
   setVisEdit(a.visibility==='privee'?'privee':'publique');
@@ -1123,7 +1448,8 @@ async function submitEdit(){
   const e=$('e-err');
   if(!c){ e.textContent='Indique la commande de lancement.'; e.style.display='block'; return; }
   e.style.display='none';
-  const body={path:editCur, command:c, build_command:$('e-build').value.trim(),
+  const body={path:editCur, command:c, description:$('e-desc').value.trim(),
+    build_command:$('e-build').value.trim(),
     max_memory_mb:$('e-mem').value ? parseInt($('e-mem').value,10) : null,
     visibility:visEdit};
   const r=await fetch('/api/app/'+editingName,{method:'PUT',
@@ -1164,13 +1490,15 @@ function err(m){ const e=$('a-e'); e.textContent=m; e.style.display='block'; }
 async function submitAdd(){
   const name=$('f-name').value.trim(), c=$('f-cmd').value.trim();
   const build_command=$('f-build').value.trim();
+  const description=$('f-desc').value.trim();
   const max_memory_mb=$('f-mem').value ? parseInt($('f-mem').value, 10) : null;
   if(!name) return err('Donne un nom au projet.');
   if(!c) return err('Indique la commande de lancement.');
   $('a-e').style.display='none';
 
   const r=await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},
-   body:JSON.stringify({name,path:cur,command:c,build_command,max_memory_mb,visibility:visAdd})});
+   body:JSON.stringify({name,path:cur,command:c,description,build_command,
+     max_memory_mb,visibility:visAdd})});
   const d=await r.json();
   if(!r.ok) return err(d.error);
   hide('ov-add'); refresh();
@@ -1191,6 +1519,17 @@ function openLogsModal(name){
     if(first){ $('lg-body').textContent=''; first=false; }
     logLines.push(e.data);
     renderLogFilter();
+  };
+  /* Sans ce gestionnaire, un flux refuse laissait la fenetre sur
+     « Connexion... » indefiniment, sans rien dire. Le refus le plus probable
+     est le plafond de flux simultanes : le message le nomme, parce que
+     « erreur » tout court n'aide personne a le resoudre. */
+  logEs.onerror=()=>{
+    if(!first) return;   // deja des lignes affichees : simple reconnexion
+    $('lg-body').textContent =
+      "Le journal n'a pas pu etre suivi.\n\n"
+      + "Cause la plus frequente : trop de fenetres de journal ouvertes en "
+      + "meme temps. Ferme-en une et rouvre celle-ci.";
   };
 }
 function renderLogFilter(){

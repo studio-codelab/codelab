@@ -435,3 +435,453 @@ def test_un_fichier_illisible_ne_empeche_pas_de_lancer(tmp_path, monkeypatch):
     propre .env, comme avant -- le panneau ne doit pas refuser de lancer."""
     monkeypatch.setattr(app, "SHARED_ENV_FILE", str(tmp_path / "absent.env"))
     assert app.secrets_partages() == {}
+
+
+# ------------------- 7. alertes par mail -------------------
+#
+# Une alerte qui part en boucle est pire que pas d'alerte : la boite se
+# remplit, et on prend l'habitude de ne plus la lire. Ces tests tiennent la
+# seule propriete qui compte vraiment -- un incident, un mail.
+
+@pytest.fixture
+def alertes(tmp_path, monkeypatch):
+    """Un panneau avec une application declaree et les alertes actives."""
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    monkeypatch.setattr(app, "ALERTES_FILE", str(tmp_path / "alertes.json"))
+    monkeypatch.setattr(app, "SHARED_ENV_FILE", str(tmp_path / "credentials.env"))
+    app._apps_cache["signature"] = None
+    app._alertes_en_cours.clear()
+    (tmp_path / "credentials.env").write_text(
+        "SMTP_HOST=smtp.example.com\nSMTP_USER=panneau@example.com\n")
+    app.ecrire_alertes(True, ["moi@example.com"])
+    app.save({"site": {"path": "/workspace/site", "command": "python3 app.py",
+                       "port": 9101, "enabled": True}})
+    envoyes = []
+    monkeypatch.setattr(app, "envoyer_mail",
+                        lambda cfg, sujet, corps: envoyes.append(sujet))
+    return envoyes
+
+
+def _etat(monkeypatch, tourne, en_boucle):
+    monkeypatch.setattr(app, "is_running", lambda n: tourne)
+    monkeypatch.setattr(app, "is_crash_looping", lambda n: en_boucle)
+
+
+def test_une_application_tombee_alerte_une_seule_fois(alertes, monkeypatch):
+    _etat(monkeypatch, tourne=False, en_boucle=True)
+    app.alerte_tick()
+    assert alertes == ["[CodeLab] site est tombee"]
+    # Le moniteur repasse toutes les 10 secondes : sans memoire de l'incident,
+    # c'est un mail toutes les 10 secondes tant que l'application est a terre.
+    app.alerte_tick()
+    app.alerte_tick()
+    assert len(alertes) == 1
+
+
+def test_le_retour_a_la_normale_est_signale_puis_oublie(alertes, monkeypatch):
+    _etat(monkeypatch, tourne=False, en_boucle=True)
+    app.alerte_tick()
+    _etat(monkeypatch, tourne=True, en_boucle=False)
+    app.alerte_tick()
+    assert alertes == ["[CodeLab] site est tombee", "[CodeLab] site est revenue"]
+    app.alerte_tick()
+    assert len(alertes) == 2   # l'incident est clos, plus rien a dire
+
+
+def test_un_plantage_rattrape_par_un_redemarrage_n_alerte_pas(alertes, monkeypatch):
+    """Le filet de securite qui fonctionne n'est pas un incident : une
+    application relancee avec succes ne doit reveiller personne."""
+    _etat(monkeypatch, tourne=False, en_boucle=False)
+    app.alerte_tick()
+    assert alertes == []
+
+
+def test_un_arret_volontaire_n_alerte_pas(alertes, monkeypatch):
+    """Personne n'a besoin d'un mail pour une action qu'il vient de faire."""
+    _etat(monkeypatch, tourne=False, en_boucle=True)
+    app.alerte_tick()
+    apps = app.load()
+    apps["site"]["enabled"] = False       # arret depuis le panneau
+    app.save(apps)
+    app.alerte_tick()
+    assert len(alertes) == 1              # ni deuxieme alerte, ni mail de retour
+    assert app._alertes_en_cours == set()
+
+
+def test_l_interrupteur_coupe_vraiment_les_alertes(alertes, monkeypatch):
+    app.ecrire_alertes(False, ["moi@example.com"])
+    _etat(monkeypatch, tourne=False, en_boucle=True)
+    app.alerte_tick()
+    assert alertes == []
+
+
+def test_la_configuration_incomplete_est_dite_champ_par_champ(tmp_path, monkeypatch):
+    """"Ca ne marche pas" est inutilisable ; le nom de la cle manquante se
+    corrige en dix secondes."""
+    monkeypatch.setattr(app, "ALERTES_FILE", str(tmp_path / "alertes.json"))
+    monkeypatch.setattr(app, "SHARED_ENV_FILE", str(tmp_path / "credentials.env"))
+    (tmp_path / "credentials.env").write_text("")
+    app.ecrire_alertes(True, [])
+    _, manquants = app.config_smtp()
+    assert manquants == ["SMTP_HOST", "SMTP_USER (ou ALERTE_FROM)", "destinataires"]
+
+
+def test_les_adresses_saisies_sont_nettoyees():
+    """Saisie humaine : virgules, espaces, doublons, ligne vide."""
+    assert app._adresses("moi@example.com, autre@example.com ,moi@example.com,") == [
+        "moi@example.com", "autre@example.com"]
+    assert app._adresses(["pas-une-adresse", " ok@example.com "]) == ["ok@example.com"]
+
+
+# ------------------- 8. deux espaces : admin et utilisateur -------------------
+#
+# Le controle des droits est fait dans les routes, jamais dans l'interface :
+# masquer un bouton ne protege rien, la route reste appelable a la main. Ces
+# tests appellent donc les routes directement, comme le ferait quelqu'un qui
+# a lu le code de la page.
+
+@pytest.fixture
+def deux_espaces(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
+    monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)   # 200 000 par test, c'est long
+    monkeypatch.setattr(app, "is_running", lambda n: True)
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    app._apps_cache["signature"] = None
+    app.save({
+        "prive-autorise": {"path": "/w/a", "command": "x", "port": 9101,
+                           "enabled": True, "visibility": "privee"},
+        "prive-refuse": {"path": "/w/b", "command": "x", "port": 9102,
+                         "enabled": True, "visibility": "privee"},
+        "public": {"path": "/w/c", "command": "x", "port": 9103,
+                   "enabled": True, "visibility": "publique"},
+    })
+    sel = "aa" * 16
+    app.ecrire_utilisateurs({"marie": {
+        "sel": sel, "hash": app.derive_mot_de_passe("mot-de-passe-long", sel),
+        "projets": ["prive-autorise"], "cree": 0}})
+    return app.flask_app.test_client()
+
+
+def _connecte(client, nom, mdp):
+    """Connexion complete d'un compte utilisateur, second facteur compris.
+
+    Ces comptes n'ouvrent jamais de session sur le seul mot de passe : au
+    premier acces le serveur renvoie une cle a enregistrer, ensuite il exige
+    un code. Les deux cas sont traites ici pour que les tests de droits
+    parlent de droits et pas d'authentification.
+    """
+    r = client.post("/login", json={"nom": nom, "password": mdp})
+    assert r.status_code in (200, 401), r.data
+    d = r.get_json()
+
+    if d.get("inscription"):
+        secret = d["secret"]
+        r = client.post("/login/second-facteur",
+                        json={"code": app.totp_code(secret, int(time.time()) // app.TOTP_PAS)})
+        assert r.status_code == 200, r.data
+        return r.get_json()
+
+    if d.get("totp"):
+        secret = app.lire_utilisateurs()[nom]["totp"]
+        r = client.post("/login", json={"nom": nom, "password": mdp,
+                                        "code": app.totp_code(secret, int(time.time()) // app.TOTP_PAS)})
+        assert r.status_code == 200, r.data
+        return r.get_json()
+
+    assert r.status_code == 200, r.data
+    return d
+
+
+def test_un_utilisateur_ne_peut_rien_administrer(deux_espaces):
+    """Le coeur du sujet : un compte utilisateur ne deploie pas, ne configure
+    pas, ne cree pas de compte -- meme en appelant les routes a la main."""
+    c = deux_espaces
+    assert _connecte(c, "marie", "mot-de-passe-long")["role"] == "utilisateur"
+    for methode, route in [("get", "/api/apps"), ("post", "/api/add"),
+                           ("post", "/api/toggle/public"), ("post", "/api/deploy/public"),
+                           ("delete", "/api/app/public"), ("get", "/api/utilisateurs"),
+                           ("post", "/api/utilisateurs"), ("get", "/api/alertes"),
+                           ("post", "/api/alertes/test"), ("get", "/api/logs/public"),
+                           ("get", "/api/browse")]:
+        r = getattr(c, methode)(route, json={})
+        assert r.status_code == 403, f"{methode.upper()} {route} a repondu {r.status_code}"
+
+
+def test_un_utilisateur_ne_voit_que_ses_projets(deux_espaces):
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    noms = [a["name"] for a in c.get("/api/mes-apps").get_json()["apps"]]
+    assert noms == ["prive-autorise"]
+
+    c.post("/logout")
+    c.post("/login", json={"password": "secret-de-test"})
+    noms = [a["name"] for a in c.get("/api/mes-apps").get_json()["apps"]]
+    assert noms == ["prive-autorise", "prive-refuse", "public"]
+
+
+def test_un_projet_prive_non_autorise_reste_ferme(deux_espaces, monkeypatch):
+    """Connaitre l'adresse ne suffit pas : le refus est dans le proxy, pas
+    dans la liste affichee."""
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    assert c.get("/prive-refuse/").status_code == 403
+    # Et l'application autorisee, elle, est bien servie : on s'arrete juste
+    # avant la connexion reelle au port de l'application.
+    monkeypatch.setattr(app, "is_running", lambda n: False)
+    assert c.get("/prive-autorise/").status_code == 503   # "arretee", pas "refuse"
+
+
+def test_un_projet_public_reste_ouvert_sans_compte(deux_espaces, monkeypatch):
+    """La visibilite publique est ce qui permet de partager un lien : les
+    comptes ne doivent pas l'avoir refermee au passage."""
+    monkeypatch.setattr(app, "is_running", lambda n: False)
+    assert deux_espaces.get("/public/").status_code == 503   # servie, mais arretee
+
+
+def test_dagster_reste_reserve_a_l_administrateur(deux_espaces):
+    """L'interface de Dagster lance des jobs, donc execute du code : y donner
+    acces a un compte utilisateur serait lui donner l'administration."""
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    assert c.get("/api/auth-check").status_code == 401
+    c.post("/logout")
+    c.post("/login", json={"password": "secret-de-test"})
+    assert c.get("/api/auth-check").status_code == 204
+
+
+def test_une_session_ouverte_avant_les_comptes_reste_administratrice(deux_espaces):
+    """Mise a jour d'une installation en service : les seules sessions qui
+    existaient venaient du panneau d'administration. Les degrader
+    deconnecterait l'administrateur de son propre panneau."""
+    c = deux_espaces
+    with c.session_transaction() as s:
+        s["authed"] = True          # session d'avant, sans role enregistre
+    assert c.get("/api/apps").status_code == 200
+
+
+def test_le_nom_du_compte_d_administration_ne_peut_pas_etre_repris(deux_espaces):
+    c = deux_espaces
+    c.post("/login", json={"password": "secret-de-test"})
+    r = c.post("/api/utilisateurs", json={"nom": "admin", "mot_de_passe": "mot-de-passe-long"})
+    assert r.status_code == 400
+    assert "administration" in r.get_json()["error"]
+
+
+def test_les_mots_de_passe_sont_derives_et_sales(deux_espaces):
+    """Deux comptes avec le meme mot de passe ne doivent pas donner la meme
+    empreinte : sinon le fichier revele qui partage un mot de passe."""
+    c = deux_espaces
+    c.post("/login", json={"password": "secret-de-test"})
+    for nom in ("paul", "jean"):
+        assert c.post("/api/utilisateurs",
+                      json={"nom": nom, "mot_de_passe": "le-meme-mot-de-passe"}).status_code == 200
+    comptes = app.lire_utilisateurs()
+    assert comptes["paul"]["hash"] != comptes["jean"]["hash"]
+    assert "le-meme-mot-de-passe" not in json.dumps(comptes)
+    assert app.verifie_mot_de_passe(comptes["paul"], "le-meme-mot-de-passe")
+    assert not app.verifie_mot_de_passe(comptes["paul"], "presque-le-meme")
+
+
+def test_un_droit_sur_un_projet_inexistant_n_est_pas_enregistre(deux_espaces):
+    """Un projet supprime puis recree sous le meme nom rendrait sinon un
+    droit qu'on croyait perdu."""
+    c = deux_espaces
+    c.post("/login", json={"password": "secret-de-test"})
+    r = c.put("/api/utilisateurs/marie", json={"projets": ["public", "jamais-declare"]})
+    assert r.status_code == 200
+    assert app.lire_utilisateurs()["marie"]["projets"] == ["public"]
+
+
+# ---------- 9. second facteur obligatoire pour les comptes utilisateurs ----------
+#
+# Ces comptes existent pour etre distribues : leur mot de passe circule par un
+# canal qu'on ne maitrise pas, et sera reutilise ailleurs. Le point a tenir
+# est qu'un mot de passe seul n'ouvre JAMAIS de session -- ni avant
+# l'inscription du facteur, ni apres.
+
+def _code_valide(secret):
+    return app.totp_code(secret, int(time.time()) // app.TOTP_PAS)
+
+
+def test_le_mot_de_passe_seul_n_ouvre_aucune_session(deux_espaces):
+    """Le premier acces renvoie une cle a enregistrer, pas une session : entre
+    les deux, le cookie ne vaut rien."""
+    c = deux_espaces
+    r = c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long"})
+    assert r.status_code == 200 and r.get_json()["inscription"] is True
+
+    # La session intermediaire n'ouvre rien du tout.
+    assert c.get("/api/mes-apps").status_code == 401
+    assert c.get("/prive-autorise/").status_code == 302   # renvoye vers /login
+    assert c.get("/", follow_redirects=False).status_code == 302
+
+
+def test_l_inscription_ouvre_la_session_et_persiste_la_cle(deux_espaces):
+    c = deux_espaces
+    secret = c.post("/login", json={"nom": "marie",
+                                    "password": "mot-de-passe-long"}).get_json()["secret"]
+    # Rien n'est enregistre tant que le code n'est pas confirme : une cle mal
+    # recopiee ne doit pas enfermer dehors.
+    assert not app.lire_utilisateurs()["marie"].get("totp")
+
+    assert c.post("/login/second-facteur",
+                  json={"code": _code_valide(secret)}).status_code == 200
+    assert app.lire_utilisateurs()["marie"]["totp"] == secret
+    assert c.get("/api/mes-apps").status_code == 200
+
+
+def test_un_code_faux_n_enregistre_rien(deux_espaces):
+    c = deux_espaces
+    c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long"})
+    r = c.post("/login/second-facteur", json={"code": "000000"})
+    assert r.status_code == 400
+    assert not app.lire_utilisateurs()["marie"].get("totp")
+    assert c.get("/api/mes-apps").status_code == 401
+
+
+def test_une_fois_inscrit_le_code_est_exige_a_chaque_connexion(deux_espaces):
+    c = deux_espaces
+    secret = c.post("/login", json={"nom": "marie",
+                                    "password": "mot-de-passe-long"}).get_json()["secret"]
+    c.post("/login/second-facteur", json={"code": _code_valide(secret)})
+    c.post("/logout")
+
+    r = c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long"})
+    assert r.status_code == 401 and r.get_json()["totp"] is True
+    assert c.get("/api/mes-apps").status_code == 401
+
+    r = c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long",
+                               "code": _code_valide(secret)})
+    assert r.status_code == 200
+    assert c.get("/api/mes-apps").status_code == 200
+
+
+def test_la_reinitialisation_par_l_admin_refait_passer_par_l_inscription(deux_espaces):
+    """Telephone perdu : l'administrateur remet l'etape a zero, sans jamais
+    connaitre ni transmettre la cle de quelqu'un d'autre."""
+    c = deux_espaces
+    secret = c.post("/login", json={"nom": "marie",
+                                    "password": "mot-de-passe-long"}).get_json()["secret"]
+    c.post("/login/second-facteur", json={"code": _code_valide(secret)})
+    c.post("/logout")
+
+    c.post("/login", json={"password": "secret-de-test"})
+    assert c.get("/api/utilisateurs").get_json()["utilisateurs"][0]["totp"] is True
+    assert c.put("/api/utilisateurs/marie",
+                 json={"reinitialiser_totp": True}).status_code == 200
+    assert c.get("/api/utilisateurs").get_json()["utilisateurs"][0]["totp"] is False
+    c.post("/logout")
+
+    # Et l'ancienne cle ne vaut plus rien : c'est une NOUVELLE inscription.
+    r = c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long",
+                               "code": _code_valide(secret)})
+    assert r.get_json()["inscription"] is True
+    assert r.get_json()["secret"] != secret
+
+
+def test_l_inscription_ne_remplace_pas_un_facteur_deja_en_service(deux_espaces):
+    """Deux sessions ouvertes en parallele : la seconde ne doit pas ecraser la
+    cle que la premiere vient d'enregistrer, sinon le telephone deja
+    configure cesse de fonctionner."""
+    c = deux_espaces
+    secret = c.post("/login", json={"nom": "marie",
+                                    "password": "mot-de-passe-long"}).get_json()["secret"]
+    comptes = app.lire_utilisateurs()          # une autre session a fini avant
+    comptes["marie"]["totp"] = "AUTRECLEDEJAENREGISTREE"
+    app.ecrire_utilisateurs(comptes)
+
+    r = c.post("/login/second-facteur", json={"code": _code_valide(secret)})
+    assert r.status_code == 409
+    assert app.lire_utilisateurs()["marie"]["totp"] == "AUTRECLEDEJAENREGISTREE"
+
+
+def test_l_administrateur_garde_le_choix_de_son_second_facteur(deux_espaces):
+    """Le rendre obligatoire pour lui aussi pourrait l'enfermer hors de son
+    propre panneau : c'est un reglage, pas une regle."""
+    c = deux_espaces
+    assert not app.totp_actif()
+    assert c.post("/login", json={"password": "secret-de-test"}).status_code == 200
+
+
+# ------------------- 10. presentation des projets -------------------
+
+def test_une_description_collee_depuis_un_readme_est_ramenee_a_une_ligne():
+    """Retours a la ligne, espaces multiples, et plus long que ce que la carte
+    peut afficher : la liste doit rester une liste."""
+    propre = app.description_propre("  Premiere ligne\n\n  et   la suite  " + "z" * 200)
+    assert propre.startswith("Premiere ligne et la suite z")
+    assert "\n" not in propre and len(propre) == app.DESCRIPTION_MAX
+    assert app.description_propre(None) == ""
+
+
+def test_la_description_est_nettoyee_a_la_declaration(deux_espaces, tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "ROOT", str(tmp_path))
+    dossier = tmp_path / "nouveau"
+    dossier.mkdir()
+    c = deux_espaces
+    c.post("/login", json={"password": "secret-de-test"})
+    r = c.post("/api/add", json={"name": "nouveau", "path": str(dossier),
+                                 "command": "python3 app.py",
+                                 "description": "Deux\nlignes"})
+    assert r.status_code == 200, r.data
+    assert app.load()["nouveau"]["description"] == "Deux lignes"
+
+
+def test_la_description_suit_le_projet_jusqu_a_l_espace_utilisateur(deux_espaces):
+    apps = app.load()
+    apps["prive-autorise"]["description"] = "Le tableau de bord des ventes"
+    app.save(apps)
+
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    app_vue = c.get("/api/mes-apps").get_json()["apps"][0]
+    assert app_vue["description"] == "Le tableau de bord des ventes"
+    # Et rien de plus : l'espace utilisateur n'a pas a connaitre le chemin ni
+    # la commande de lancement.
+    assert "path" not in app_vue and "command" not in app_vue
+
+
+# ------------------- 11. plafond des flux de journal -------------------
+#
+# Un flux de journal occupe un thread du serveur tant qu'il est ouvert.
+# Mesure faite sur une instance reelle : avec 16 threads, 20 flux simultanes
+# rendaient le panneau entierement muet -- healthcheck compris, donc le
+# conteneur passait "unhealthy". Le plafond transforme cette panne totale en
+# un refus lisible sur le seul flux de trop.
+
+def test_le_plafond_de_flux_protege_le_panneau(monkeypatch):
+    monkeypatch.setattr(app, "SSE_MAX_FLUX", 2)
+    monkeypatch.setattr(app, "_flux_ouverts", 0)
+    assert app._prendre_place_flux() is True
+    assert app._prendre_place_flux() is True
+    assert app._prendre_place_flux() is False   # le flux de trop est refuse
+    app._rendre_place_flux()
+    assert app._prendre_place_flux() is True    # une place rendue est reutilisable
+
+
+def test_une_place_rendue_deux_fois_n_en_cree_pas_une_troisieme(monkeypatch):
+    """call_on_close et le generateur peuvent tous deux liberer : le compteur
+    ne doit pas passer sous zero, sinon le plafond monterait a chaque
+    deconnexion."""
+    monkeypatch.setattr(app, "SSE_MAX_FLUX", 1)
+    monkeypatch.setattr(app, "_flux_ouverts", 0)
+    app._prendre_place_flux()
+    app._rendre_place_flux()
+    app._rendre_place_flux()
+    assert app._prendre_place_flux() is True
+    assert app._prendre_place_flux() is False
+
+
+def test_le_flux_refuse_le_dit_avec_un_code_utilisable(deux_espaces, monkeypatch):
+    """503 et un message qui nomme la cause : l'interface s'en sert pour
+    expliquer, au lieu de rester sur « Connexion... »."""
+    monkeypatch.setattr(app, "SSE_MAX_FLUX", 0)
+    c = deux_espaces
+    c.post("/login", json={"password": "secret-de-test"})
+    r = c.get("/api/logs/public/stream")
+    assert r.status_code == 503
+    assert "journaux" in r.get_json()["error"]

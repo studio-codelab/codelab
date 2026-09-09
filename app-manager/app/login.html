@@ -52,46 +52,120 @@ button:disabled{opacity:.6;cursor:default}
 .err{margin-top:12px;padding:9px 12px;border-radius:8px;font-size:12.5px;
  background:var(--err-bg);color:var(--err-txt);border:1px solid var(--err-border);display:none}
 .hint{margin-top:18px;font-size:11.5px;color:var(--dim2);line-height:1.5}
+.etape{margin-top:18px;font-size:12.5px;font-weight:600;color:var(--txt)}
+.etape-num{margin-top:10px;font-size:11.5px;color:var(--dim);line-height:1.5}
+.secret{margin-top:8px;padding:10px 12px;border-radius:8px;border:1px dashed var(--line2);
+ background:var(--bg-input);font-family:ui-monospace,Menlo,monospace;font-size:13px;
+ letter-spacing:.06em;word-break:break-all;cursor:pointer;text-align:center}
+.secret:hover{border-color:var(--accent)}
+.ok{margin-top:12px;padding:9px 12px;border-radius:8px;font-size:12.5px;
+ background:var(--ok-bg);color:var(--ok);border:1px solid var(--ok-border);display:none}
 code{font-family:ui-monospace,Menlo,monospace;background:var(--bg-input);padding:1px 5px;border-radius:4px}
 </style></head><body>
 <div class="card">
   <div class="brand"><div class="dot"></div><span>CodeLab</span></div>
-  <label>Mot de passe</label>
-  <input type="password" id="pw" autofocus autocomplete="current-password">
+  <label>Nom</label>
+  <input type="text" id="nom" autofocus autocomplete="username" placeholder="admin">
+  <label style="margin-top:14px">Mot de passe</label>
+  <input type="password" id="pw" autocomplete="current-password">
   <div id="totp-bloc" style="display:none">
     <label style="margin-top:14px">Code de verification</label>
     <input type="text" id="code" inputmode="numeric" autocomplete="one-time-code"
            maxlength="6" placeholder="123456">
   </div>
+
+  <div id="inscription" style="display:none">
+    <div class="etape">Premiere connexion : enregistre ton second facteur.</div>
+    <div class="etape-num">1. Ajoute cette cle dans ton application d'authentification
+      (Google Authenticator, Authy, le gestionnaire de mots de passe de ton telephone...).</div>
+    <div class="secret" id="secret" onclick="copierSecret()" title="Cliquer pour copier"></div>
+    <div class="etape-num">2. Saisis le code a six chiffres qu'elle affiche.</div>
+    <input type="text" id="code-inscription" inputmode="numeric" autocomplete="one-time-code"
+           maxlength="6" placeholder="123456">
+    <div class="etape-num" style="margin-top:10px">Ce code te sera demande a chaque connexion.
+      Si tu changes de telephone, ton administrateur peut remettre cette etape a zero.</div>
+  </div>
+
   <button id="go" onclick="submit()">Se connecter</button>
   <div class="err" id="err"></div>
-  <div class="hint">Mot de passe genere automatiquement au premier demarrage. Tous les identifiants CodeLab sont regroupes dans un seul fichier :
+  <div class="ok" id="copie">Cle copiee.</div>
+  <div class="hint">Laisse le nom vide pour te connecter en administrateur. Son mot de passe est genere
+  au premier demarrage, avec tous les identifiants CodeLab, dans un seul fichier :
   <br><code>cat /DATA/AppData/codelab/config/credentials.env</code></div>
 </div>
 <script>
 const pw=document.getElementById('pw'), err=document.getElementById('err'), go=document.getElementById('go');
-const code=document.getElementById('code');
+const code=document.getElementById('code'), nom=document.getElementById('nom');
+const codeInscription=document.getElementById('code-inscription');
+/* Etat de la connexion : "mot-de-passe" au depart, puis "inscription" quand
+   le serveur demande d'enregistrer un second facteur. Le champ du code
+   normal, lui, apparait quand le serveur repond qu'il en attend un -- la
+   page ne peut pas le savoir avant d'avoir essaye. */
+let etape='mot-de-passe';
 /* __TOTP__ est remplace par "1" ou "0" au moment de servir la page : le champ
    du code n'apparait que si la double authentification est active. */
 const avecCode = '__TOTP__' === '1';
-if(avecCode) document.getElementById('totp-bloc').style.display='block';
+const estAdmin = () => { const n=(nom.value||'').trim().toLowerCase(); return n==='' || n==='admin'; };
+function majChamps(){
+  if(etape!=='mot-de-passe') return;
+  document.getElementById('totp-bloc').style.display =
+    (avecCode && estAdmin()) ? 'block' : 'none';
+}
+
+function afficherInscription(d){
+  etape='inscription';
+  document.getElementById('secret').textContent=d.secret;
+  document.getElementById('inscription').style.display='block';
+  document.getElementById('totp-bloc').style.display='none';
+  nom.disabled=true; pw.disabled=true;
+  go.textContent='Confirmer';
+  codeInscription.focus();
+}
+
+function copierSecret(){
+  const t=document.getElementById('secret').textContent;
+  navigator.clipboard?.writeText(t).then(()=>{
+    const o=document.getElementById('copie');
+    o.style.display='block'; setTimeout(()=>{o.style.display='none';}, 1800);
+  }).catch(()=>{});
+}
 
 async function submit(){
   err.style.display='none'; go.disabled=true; go.textContent='Connexion...';
   try{
-    const corps={password:pw.value};
-    if(avecCode) corps.code=code.value;
+    if(etape==='inscription'){
+      const r=await fetch('/login/second-facteur',{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({code:codeInscription.value})});
+      const d=await r.json();
+      if(r.ok){ location.href = d.role==='utilisateur' ? '/espace' : '/'; return; }
+      err.textContent=d.error||'Erreur.'; err.style.display='block';
+      go.disabled=false; go.textContent='Confirmer';
+      return;
+    }
+    const corps={nom:nom.value, password:pw.value};
+    /* Le champ du code est envoye des qu'il est visible : pour
+       l'administrateur il l'est d'entree (la page sait si le facteur est
+       actif), pour un compte utilisateur il apparait apres un premier refus
+       -- le serveur seul sait quels comptes existent. */
+    const codeVisible=document.getElementById('totp-bloc').style.display!=='none';
+    if(codeVisible) corps.code=code.value;
     const r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(corps)});
     const d=await r.json();
-    if(r.ok){ location.href='/'; return; }
+    if(r.ok && d.inscription){ afficherInscription(d); go.disabled=false; return; }
+    if(r.ok){ location.href = d.role==='utilisateur' ? '/espace' : '/'; return; }
     err.textContent=d.error||'Erreur.'; err.style.display='block';
-    if(d.totp && code) code.focus();
+    if(d.totp && code){ document.getElementById('totp-bloc').style.display='block'; code.focus(); }
   }catch(e){ err.textContent='Erreur reseau.'; err.style.display='block'; }
   go.disabled=false; go.textContent='Se connecter';
 }
 const valider=e=>{ if(e.key==='Enter') submit(); };
+nom.addEventListener('keydown', valider);
+nom.addEventListener('input', majChamps);
 pw.addEventListener('keydown', valider);
 if(code) code.addEventListener('keydown', valider);
+codeInscription.addEventListener('keydown', valider);
+majChamps();
 </script>
 </body></html>
