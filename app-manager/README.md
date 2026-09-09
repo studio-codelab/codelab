@@ -208,9 +208,9 @@ comprendre — c'est le role qui decide de ce que le menu propose en plus :
   l'administrateur y voit tous les projets, l'utilisateur seulement les siens).
 - **Le menu lateral**, administrateur seulement — la vue d'ensemble, les applications (et la fiche
   d'un projet avec ses journaux), et les **utilisateurs**.
-- **Le menu du compte**, en haut a droite — **Parametres** (l'affichage, le second facteur, la
-  session) pour tout le monde ; **Configuration** (exposition, comptes, alertes) pour
-  l'administrateur seul.
+- **Le menu du compte**, en haut a droite — **Parametres**, une seule entree pour tout le monde.
+  Derriere, des onglets : *Compte* (affichage, adresse mail, session) et *Securite* (second facteur,
+  cles d'acces) pour chacun ; *Serveur*, *Categories* et *Alertes* pour l'administrateur seul.
 
 Le role est injecte dans la page pour qu'elle sache quoi afficher, mais **ce n'est qu'un confort
 d'affichage** : chaque route d'administration verifie le role de son cote (`require_admin`), et une
@@ -310,7 +310,7 @@ possession, et l'empreinte (ou le code de l'appareil) prouve la personne. Rien a
 recopier — et **rien a hameconner**, puisque la cle ne signe que pour le domaine qui l'a
 enregistree.
 
-Elle s'ajoute depuis *Parametres > Cles d'acces*, une fois connecte : on enregistre une cle sur le
+Elle s'ajoute depuis *Parametres > Securite*, une fois connecte : on enregistre une cle sur le
 compte qu'on occupe deja. Plusieurs cles par compte (telephone, ordinateur), retirables une par une.
 
 **L'enregistrement exige la verification d'utilisateur** (`user_verification: required`) : sans
@@ -346,7 +346,7 @@ un projet par un simple lien. Tant que ce serveur n'est joignable que depuis ton
 promet une ouverture qui n'existe pas — il ne retire que l'authentification, sans rien partager.
 
 Le panneau **ne propose donc pas de rendre une application publique tant qu'aucune adresse publique
-n'est declaree** (*Configuration > Serveur > Adresse publique*), et la route refuse aussi le
+n'est declaree** (*Parametres > Serveur > Adresse publique*), et la route refuse aussi le
 changement. Trois consequences, voulues :
 
 - une application **deja publique** n'est pas touchee, et peut toujours etre **refermee** — on ne
@@ -393,7 +393,7 @@ Une categorie est un intitule libre — « Outils », « Sites », « Donnees »
 dans le hub**, et rien d'autre : elle ne donne aucun droit, ne change rien au deploiement et
 n'apparait pas dans le proxy. C'est du rangement.
 
-- La liste se tient dans **Configuration > Categories**. Son ordre est l'ordre d'affichage des
+- La liste se tient dans **Parametres > Categories**. Son ordre est l'ordre d'affichage des
   groupes : on la range, on n'impose pas un tri alphabetique.
 - La categorie d'un projet se choisit dans sa fiche, onglet **Configuration**, parmi cette liste.
 - Un projet sans categorie apparait a la fin, sous **Autres**. Tant qu'aucune categorie n'existe, le

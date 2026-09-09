@@ -66,10 +66,10 @@ rechargement.
 ## Verifier
 
 1. `https://codelab.tondomaine.fr` : cadenas, pas d'avertissement.
-2. *Configuration > Serveur* : les trois lignes en vert, et l'adresse publique declaree.
+2. *Parametres > Serveur* : les trois lignes en vert, et l'adresse publique declaree.
 3. *Utilisateurs* : ton adresse IP reelle dans les connexions recentes — pas `10.8.0.1`. Si tu vois
    l'adresse du tunnel, `X-Forwarded-For` ne remonte pas ou `APP_MANAGER_TRUST_PROXY` manque.
-4. *Parametres > Cles d'acces* : « Ajouter une cle » est actif. S'il ne l'est pas, la page dit
+4. *Parametres > Securite* : « Ajouter une cle » est actif. S'il ne l'est pas, la page dit
    pourquoi — et le message distingue « il manque du TLS » de « declare ton proxy ».
 5. Une fiche d'application : « Rendre publique » est revenu.
 

@@ -1,6 +1,6 @@
 # Exposer CodeLab en HTTPS
 
-Le panneau affiche trois lignes rouges dans *Configuration > Serveur* tant que la connexion n'est pas
+Le panneau affiche trois lignes rouges dans *Parametres > Serveur* tant que la connexion n'est pas
 chiffree :
 
 | Ligne | Ce qu'elle dit |
@@ -144,15 +144,15 @@ Puis :
 docker compose up -d codelab-app-manager
 ```
 
-Les trois lignes de *Configuration > Serveur* passent au vert, et le bouton « Rendre publique »
+Les trois lignes de *Parametres > Serveur* passent au vert, et le bouton « Rendre publique »
 reapparait sur les fiches d'application.
 
 ## Etape 3 — verifier
 
 1. Ouvre `https://codelab.tondomaine.fr` : cadenas, pas d'avertissement.
-2. *Configuration > Serveur* : les trois lignes en vert, l'adresse publique declaree.
+2. *Parametres > Serveur* : les trois lignes en vert, l'adresse publique declaree.
 3. *Utilisateurs* : ton adresse IP reelle apparait dans les connexions recentes (pas celle du proxy).
-4. *Parametres > Cles d'acces* : le bouton « Ajouter une cle » est actif — enregistres-en une.
+4. *Parametres > Securite* : le bouton « Ajouter une cle » est actif — enregistres-en une.
 5. Deconnecte-toi, puis reconnecte-toi avec la cle.
 
 ## Ce que ca ne couvre pas

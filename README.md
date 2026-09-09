@@ -83,14 +83,14 @@ Deux choses s'y reglent quand la stack sert a plusieurs, ou quand on ne veut plu
 
 Le panneau est **une seule application**, a la meme adresse, avec le **hub** pour accueil de tout le
 monde : la liste des projets ouvrables, chacun avec sa description d'une ligne. Toi seul y gagnes le
-menu lateral (vue d'ensemble, applications, journaux) et l'entree **Configuration** du menu du
-compte ; **Parametres**, lui, est personnel et existe pour chaque compte.
+menu lateral (vue d'ensemble, applications, journaux, utilisateurs) et les onglets d'administration
+de **Parametres** ; les deux premiers onglets, eux, existent pour chaque compte.
 
 - **Adresse mail et inscription libre** : chaque compte porte une adresse, verifiee par un code a six
   chiffres envoye dessus. Si un serveur d'envoi est configure, la page de connexion propose
   **« Creer un compte »** — le compte cree n'ouvre **aucun projet** tant que tu ne lui en autorises pas.
 
-- **Cles d'acces (passkeys)** (*Parametres > Cles d'acces*) : se connecter avec l'empreinte ou le
+- **Cles d'acces (passkeys)** (*Parametres > Securite*) : se connecter avec l'empreinte ou le
   code de son appareil, sans mot de passe ni code a six chiffres. **Exige HTTPS et un nom de
   domaine** — le navigateur refuse WebAuthn en clair ; le panneau le dit au lieu d'afficher un
   bouton qui echouerait.
@@ -99,7 +99,7 @@ compte ; **Parametres**, lui, est personnel et existe pour chaque compte.
   connecte, quand, et quelle application il a ouverte. De quoi reperer des echecs de connexion en
   rafale, et savoir si un projet sert encore avant de l'arreter.
 
-- **Categories** (*Configuration > Categories*) : des tiroirs pour ranger les projets dans le hub —
+- **Categories** (*Parametres > Categories*) : des tiroirs pour ranger les projets dans le hub —
   « Outils », « Sites », « Donnees ». Purement visuel : aucune categorie ne donne de droit. Un projet
   non range apparait sous « Autres ».
 

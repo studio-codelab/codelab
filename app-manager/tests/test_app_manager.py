@@ -914,12 +914,9 @@ def test_la_meme_page_est_servie_aux_deux_roles(deux_espaces):
     c.post("/login", json={"password": "secret-de-test"})
     page_admin = c.get("/").get_data(as_text=True)
     assert '"admin"' in page_admin
-    # Memes sections servies aux deux : c'est le role injecte qui decide de
-    # ce qui s'affiche, pas une page differente.
-    assert "sec-hub" in page_admin and "sec-settings" in page_admin
     # Les memes sections sont servies aux deux roles : seul le role injecte
     # change. C'est lui, et les routes, qui decident de ce qui est utilisable.
-    for section in ("sec-hub", "sec-overview", "sec-apps", "sec-profil", "sec-settings"):
+    for section in ("sec-hub", "sec-overview", "sec-apps", "sec-parametres", "sec-users"):
         assert f'id="{section}"' in page_admin
         assert f'id="{section}"' in page_utilisateur
 
@@ -951,24 +948,33 @@ def test_les_comptes_ont_leur_propre_entree_de_menu(deux_espaces):
     page = c.get("/").get_data(as_text=True)
     assert 'id="sec-users"' in page
     assert 'data-sec="users"' in page
-    # La liste des comptes se dessine dans la section Utilisateurs, plus
-    # dans Configuration : une seule place, pour ne pas la dedoubler.
-    avant, apres = page.split('id="sec-settings"', 1)
-    assert 'id="us-liste"' in avant and 'id="us-liste"' not in apres
+    # La liste des comptes se dessine dans la section Utilisateurs, et nulle
+    # part ailleurs : la dedoubler ferait diverger deux formulaires qui
+    # ecrivent le meme fichier.
+    assert page.count('id="us-liste"') == 1
+    avant, apres = page.split('id="sec-users"', 1)
+    assert 'id="us-liste"' in apres and 'id="us-liste"' not in avant
 
 
-def test_les_parametres_personnels_existent_pour_les_deux_roles(deux_espaces):
-    """« Parametres » est personnel, « Configuration » est au serveur.
+def test_les_parametres_tiennent_en_un_seul_endroit(deux_espaces):
+    """Une seule entree de menu, et des onglets derriere.
 
-    Un compte utilisateur doit pouvoir regler son affichage et fermer sa
-    session ; il n'a rien a faire dans la configuration du serveur.
+    « Parametres » et « Configuration » etaient deux portes pour la meme
+    piece : il fallait se demander dans laquelle chercher. Les reglages du
+    serveur sont maintenant des onglets, montres au seul administrateur.
     """
     c = deux_espaces
     _connecte(c, "marie", "mot-de-passe-long")
     page = c.get("/").get_data(as_text=True)
-    assert 'id="sec-profil"' in page          # ses parametres a elle
-    assert "acct-configuration" in page       # present, mais masque cote client
-    assert "$('acct-configuration').style.display='none'" in page
+    assert 'id="sec-parametres"' in page
+    assert "acct-configuration" not in page   # l'entree en double a disparu
+    # Les onglets d'administration sont dans la page, mais masques par
+    # defaut (CSS) et n'apparaissent que si le role injecte est admin.
+    assert '.fiche-onglets button[data-admin]{display:none}' in page
+    assert "if(estAdmin) document.querySelectorAll('#param-onglets button[data-admin]')" in page
+    for onglet in ("param-compte", "param-securite", "param-serveur",
+                   "param-categories", "param-alertes"):
+        assert f'id="{onglet}"' in page
 
 
 def test_l_ancienne_adresse_de_l_espace_ramene_a_la_page_unique(deux_espaces):

@@ -348,6 +348,12 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
 .fiche-onglets button.active{color:var(--accent);border-bottom-color:var(--accent)}
 .onglet{display:none}
 .onglet.actif{display:block}
+/* Memes onglets pour les parametres. Ils separent ce qui n'a rien a voir --
+   son propre compte, sa securite, les reglages du serveur -- au lieu
+   d'empiler sept cartes qu'il faut faire defiler pour trouver la bonne. */
+.onglet-p{display:none}
+.onglet-p.actif{display:block}
+.fiche-onglets button[data-admin]{display:none}
 .metrique b{font-size:22px;font-weight:650;letter-spacing:-.02em;display:block;line-height:1.15}
 .metrique span{font-size:11.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.05em;
  font-weight:600}
@@ -467,16 +473,13 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
     <button class="acct-btn" id="acct-btn" onclick="toggleAcctMenu()" title="Compte">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20.5c0-4.1 3.4-7.5 7.5-7.5s7.5 3.4 7.5 7.5"/></svg></button>
     <div class="acct-menu" id="acct-menu">
-      <!-- « Parametres » est personnel (affichage, second facteur, session) ;
-           « Configuration » est le reglage du serveur, reserve a l'administrateur. -->
-      <div class="acct-item" id="acct-parametres" onclick="allerA('profil')">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.6"/>
-        <path d="M4.5 20.5c0-4.1 3.4-7.5 7.5-7.5s7.5 3.4 7.5 7.5"/></svg>
-        <span>Parametres</span></div>
-      <div class="acct-item" id="acct-configuration" onclick="allerA('settings')">
+      <!-- Une seule entree : tout ce qui se regle est derriere, range par
+           onglets. Deux entrees pour la meme piece obligeaient a se demander
+           dans laquelle chercher. -->
+      <div class="acct-item" id="acct-parametres" onclick="allerA('parametres')">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/>
         <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-        <span>Configuration</span></div>
+        <span>Parametres</span></div>
       <div class="acct-sep"></div>
       <div class="acct-item" onclick="doLogout()">
         <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
@@ -758,14 +761,25 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
   </div>
 </div>
 
-<!-- ==================== PARAMETRES (personnel) ==================== -->
-<!-- Tout ce qui n'appartient qu'a la personne connectee : son affichage, son
-     second facteur, sa session. Chaque compte y a droit, administrateur ou
-     non -- la configuration du serveur, elle, vit dans « Configuration ». -->
-<div id="sec-profil" class="section" style="display:none">
+<!-- ==================== PARAMETRES ==================== -->
+<!-- Un seul endroit pour tout ce qui se regle, personnel comme serveur, et
+     des onglets pour ne pas tout empiler : « Compte » et « Securite » pour
+     tout le monde, les trois suivants pour l'administrateur seul. Avant, la
+     configuration du serveur vivait dans une entree de menu a part -- deux
+     portes pour la meme piece. -->
+<div id="sec-parametres" class="section" style="display:none">
   <div class="toolbar"><h2>Parametres</h2></div>
-  <div class="sous" id="profil-sous"></div>
+  <div class="sous" id="param-sous"></div>
 
+  <div class="fiche-onglets" id="param-onglets">
+    <button data-p="compte" onclick="paramOnglet('compte')" class="active">Compte</button>
+    <button data-p="securite" onclick="paramOnglet('securite')">Securite</button>
+    <button data-p="serveur" onclick="paramOnglet('serveur')" data-admin="1">Serveur</button>
+    <button data-p="categories" onclick="paramOnglet('categories')" data-admin="1">Categories</button>
+    <button data-p="alertes" onclick="paramOnglet('alertes')" data-admin="1">Alertes</button>
+  </div>
+
+  <div class="onglet-p" id="param-compte">
   <div class="zone">
     <div class="zone-title">Preferences</div>
     <div class="card settings-card">
@@ -783,6 +797,60 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
     </div>
   </div>
 
+  <!-- Masquee jusqu'a ce qu'on sache qui regarde : le compte
+       d'administration n'a pas d'adresse propre. -->
+  <div class="zone" id="profil-mail" style="display:none">
+    <div class="zone-title">Adresse mail</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Adresse mail</b>
+        <div class="path">L'adresse rattachee a ton compte.</div>
+      </div>
+      <span class="pill" id="mail-etat"><i></i>&nbsp;</span></div>
+
+      <div class="hint">Un code a six chiffres est envoye a cette adresse pour verifier que tu la
+        releves vraiment. Cette verification ne remplace pas le second facteur et n'ouvre aucune
+        session : elle atteste seulement que l'adresse est la tienne.</div>
+
+      <div class="field" style="margin-top:14px">
+        <label>Adresse</label>
+        <input id="mail-adresse" type="email" placeholder="moi@example.com" autocomplete="email">
+      </div>
+      <div class="mf" style="justify-content:flex-start;gap:8px;margin-top:0">
+        <button class="btn btn-primary" id="mail-save" onclick="mailEnregistrer()">Enregistrer et verifier</button>
+        <button class="btn btn-default" id="mail-renvoyer" onclick="mailRenvoyer()"
+          style="display:none">Renvoyer le code</button>
+      </div>
+
+      <div id="mail-confirmation" style="display:none">
+        <div class="field" style="margin-top:14px"><label>Code recu par mail</label>
+          <input id="mail-code" inputmode="numeric" maxlength="6" placeholder="123456"></div>
+        <button class="btn btn-primary" onclick="mailConfirmer()">Confirmer</button>
+      </div>
+
+      <div class="err" id="mail-err" style="display:none"></div>
+      <div class="hint" id="mail-msg" style="display:none"></div>
+      <div class="hint" id="mail-sans-smtp" style="display:none">Aucun serveur d'envoi n'est
+        configure sur ce serveur : la verification par mail est indisponible pour le moment.</div>
+    </div>
+  </div>
+
+  <div class="zone">
+    <div class="zone-title">Session</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Session</b>
+        <div class="path">Deconnecte cette session du panneau CodeLab.</div>
+      </div></div>
+      <button class="btn btn-default" onclick="doLogout()">
+        <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+        <path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>Deconnexion</button>
+    </div>
+  </div>
+
+  </div>
+
+  <div class="onglet-p" id="param-securite">
   <div class="zone" id="profil-securite">
     <div class="zone-title">Securite</div>
 
@@ -829,44 +897,6 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
     </div>
   </div>
 
-  <!-- Masquee jusqu'a ce qu'on sache qui regarde : le compte
-       d'administration n'a pas d'adresse propre. -->
-  <div class="zone" id="profil-mail" style="display:none">
-    <div class="zone-title">Adresse mail</div>
-    <div class="card settings-card">
-      <div class="card-top"><div class="card-name">
-        <b>Adresse mail</b>
-        <div class="path">L'adresse rattachee a ton compte.</div>
-      </div>
-      <span class="pill" id="mail-etat"><i></i>&nbsp;</span></div>
-
-      <div class="hint">Un code a six chiffres est envoye a cette adresse pour verifier que tu la
-        releves vraiment. Cette verification ne remplace pas le second facteur et n'ouvre aucune
-        session : elle atteste seulement que l'adresse est la tienne.</div>
-
-      <div class="field" style="margin-top:14px">
-        <label>Adresse</label>
-        <input id="mail-adresse" type="email" placeholder="moi@example.com" autocomplete="email">
-      </div>
-      <div class="mf" style="justify-content:flex-start;gap:8px;margin-top:0">
-        <button class="btn btn-primary" id="mail-save" onclick="mailEnregistrer()">Enregistrer et verifier</button>
-        <button class="btn btn-default" id="mail-renvoyer" onclick="mailRenvoyer()"
-          style="display:none">Renvoyer le code</button>
-      </div>
-
-      <div id="mail-confirmation" style="display:none">
-        <div class="field" style="margin-top:14px"><label>Code recu par mail</label>
-          <input id="mail-code" inputmode="numeric" maxlength="6" placeholder="123456"></div>
-        <button class="btn btn-primary" onclick="mailConfirmer()">Confirmer</button>
-      </div>
-
-      <div class="err" id="mail-err" style="display:none"></div>
-      <div class="hint" id="mail-msg" style="display:none"></div>
-      <div class="hint" id="mail-sans-smtp" style="display:none">Aucun serveur d'envoi n'est
-        configure sur ce serveur : la verification par mail est indisponible pour le moment.</div>
-    </div>
-  </div>
-
   <div class="zone">
     <div class="zone-title">Cles d'acces</div>
     <div class="card settings-card">
@@ -896,18 +926,148 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
     </div>
   </div>
 
+  </div>
+
+  <div class="onglet-p" id="param-serveur">
   <div class="zone">
-    <div class="zone-title">Session</div>
+    <div class="zone-title">Serveur</div>
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
-        <b>Session</b>
-        <div class="path">Deconnecte cette session du panneau CodeLab.</div>
+        <b>Exposition</b>
+        <div class="path">L'etat des reglages qui comptent si ce panneau devient accessible depuis internet.</div>
       </div></div>
-      <button class="btn btn-default" onclick="doLogout()">
-        <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-        <path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>Deconnexion</button>
+      <div id="expo-liste"></div>
+      <div class="hint">Ces trois reglages se posent au demarrage du service, pas ici : les activer
+        depuis cette page pendant que tu es connecte en clair te deconnecterait sur-le-champ.
+        Ils se resolvent <b>dans l'ordre</b> — le premier fait le travail, les deux autres sont une
+        variable chacun. Les cles d'acces dependent aussi du premier : le navigateur refuse
+        WebAuthn en clair.</div>
+    </div>
+
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Adresse publique</b>
+        <div class="path">L'adresse par laquelle ce serveur est joignable depuis internet.</div>
+      </div>
+      <span class="pill" id="pub-etat"><i></i>&nbsp;</span></div>
+
+      <div class="hint">Tant qu'elle n'est pas declaree, le panneau <b>ne propose pas de rendre une
+        application publique</b> : sur un serveur que personne d'autre ne peut joindre, « publique »
+        ne partagerait rien — cela retirerait seulement l'authentification. Une application deja
+        publique n'est pas touchee, et peut toujours etre refermee.</div>
+      <div class="hint" style="margin-top:8px">Elle se declare a la main : le panneau ne peut pas
+        savoir si le port 443 de ta box est ouvert, si ton tunnel tourne, ni quel nom de domaine y
+        mene. La renseigner, c'est dire « j'ai fait le necessaire ».</div>
+
+      <div class="field" style="margin-top:14px">
+        <label>Adresse</label>
+        <input id="pub-adresse" placeholder="https://codelab.mondomaine.fr" autocomplete="off">
+        <div class="hint">Vide = serveur prive, joignable seulement depuis ton reseau.</div>
+      </div>
+      <button class="btn btn-primary" id="pub-save" onclick="pubEnregistrer()">Enregistrer</button>
+      <div class="err" id="pub-err" style="display:none"></div>
+      <div class="hint" id="pub-fige" style="display:none">Cette adresse est fixee par
+        <code>APP_MANAGER_PUBLIC_URL</code> dans le compose : elle se modifie la-bas.</div>
     </div>
   </div>
+
+  </div>
+
+  <div class="onglet-p" id="param-categories">
+  <div class="zone">
+    <div class="zone-title">Categories</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Categories du hub</b>
+        <div class="path">Des tiroirs pour ranger les projets sur la page d'accueil.</div>
+      </div></div>
+
+      <div class="hint">Une categorie ne donne aucun droit et ne change rien au deploiement :
+        elle regroupe les projets dans le hub, dans l'ordre de cette liste. Un projet sans
+        categorie apparait a la fin, sous « Autres ». Choisis la categorie d'un projet dans sa
+        fiche, onglet <b>Configuration</b>.</div>
+
+      <div id="cat-liste" style="margin-top:14px"></div>
+
+      <div class="cat-ligne">
+        <input id="cat-neuve" placeholder="Outils" autocomplete="off" maxlength="30"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();catAjouter()}">
+        <button class="btn btn-default" onclick="catAjouter()">Ajouter</button>
+      </div>
+
+      <div class="mf" style="justify-content:flex-start;gap:8px;margin-top:4px">
+        <button class="btn btn-primary" id="cat-save" onclick="catEnregistrer()">Enregistrer</button>
+      </div>
+      <div class="err" id="cat-err" style="display:none"></div>
+      <div class="hint" id="cat-msg" style="display:none"></div>
+    </div>
+  </div>
+
+  </div>
+
+  <div class="onglet-p" id="param-alertes">
+  <div class="zone">
+    <div class="zone-title">Alertes</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Alerte par mail</b>
+        <div class="path">Un mail quand une application tombe, un autre quand elle revient.</div>
+      </div>
+      <span class="pill" id="al-etat"><i></i>&nbsp;</span></div>
+
+      <div class="hint">Le panneau redemarre tout seul une application qui plante. Il abandonne au
+        bout de 5 tentatives en 10 minutes — c'est a ce moment-la que le mail part, pas au premier
+        soubresaut. Un second mail signale le retour a la normale.</div>
+
+      <div class="field" style="margin-top:14px">
+        <label>Destinataires</label>
+        <input id="al-dest" placeholder="moi@example.com, autre@example.com" autocomplete="off">
+        <div class="hint">Separes par des virgules.</div>
+      </div>
+
+      <div class="field">
+        <label>Serveur d'envoi</label>
+        <div class="hint" id="al-smtp-source"></div>
+      </div>
+
+      <div class="grid2">
+        <div class="field"><label>Hote SMTP</label>
+          <input id="al-host" placeholder="smtp.gmail.com" autocomplete="off"></div>
+        <div class="field"><label>Port</label>
+          <input id="al-port" type="number" placeholder="587"></div>
+      </div>
+      <div class="grid2">
+        <div class="field"><label>Chiffrement</label>
+          <div class="seg-toggle" id="al-tls-toggle">
+            <button data-t="starttls" onclick="alSetTls('starttls')">STARTTLS</button>
+            <button data-t="ssl" onclick="alSetTls('ssl')">SSL</button>
+            <button data-t="none" onclick="alSetTls('none')">Aucun</button>
+          </div></div>
+        <div class="field"><label>Identifiant</label>
+          <input id="al-user" placeholder="moi@gmail.com" autocomplete="off"></div>
+      </div>
+      <div class="field"><label>Mot de passe</label>
+        <input id="al-pass" type="password" autocomplete="new-password" placeholder="inchange">
+        <div class="hint">Laisse vide pour conserver celui deja enregistre. Gmail exige un
+          <em>mot de passe d'application</em>, pas ton mot de passe habituel.</div>
+      </div>
+
+      <div class="mf" style="justify-content:flex-start;gap:8px;margin-top:4px">
+        <button class="btn btn-primary" id="al-save" onclick="alEnregistrer()">Enregistrer</button>
+        <button class="btn btn-default" id="al-test" onclick="alTester()">Envoyer un mail de test</button>
+        <button class="btn btn-default" id="al-toggle" onclick="alBasculer()">Activer</button>
+      </div>
+      <div class="err" id="al-err" style="display:none"></div>
+      <div class="hint" id="al-msg" style="display:none"></div>
+
+      <div class="hint" style="margin-top:12px">Ces reglages vivent dans le bloc
+        <code>codelab-alertes</code> de <code>credentials.env</code> : le capteur d'alerte de
+        Dagster lit le meme serveur d'envoi. Une seule configuration pour toute la stack.</div>
+    </div>
+  </div>
+
+  </div>
+
 </div>
 
 <!-- ==================== UTILISATEURS ==================== -->
@@ -973,142 +1133,6 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
   </div>
 </div>
 
-<!-- ==================== CONFIGURATION (administrateur) ==================== -->
-<div id="sec-settings" class="section" style="display:none">
-  <div class="toolbar"><h2>Configuration</h2></div>
-  <div class="sous">Ce qui vaut pour tout le serveur : exposition, categories et alertes.</div>
-
-  <div class="zone">
-    <div class="zone-title">Serveur</div>
-    <div class="card settings-card">
-      <div class="card-top"><div class="card-name">
-        <b>Exposition</b>
-        <div class="path">L'etat des reglages qui comptent si ce panneau devient accessible depuis internet.</div>
-      </div></div>
-      <div id="expo-liste"></div>
-      <div class="hint">Ces trois reglages se posent au demarrage du service, pas ici : les activer
-        depuis cette page pendant que tu es connecte en clair te deconnecterait sur-le-champ.
-        Ils se resolvent <b>dans l'ordre</b> — le premier fait le travail, les deux autres sont une
-        variable chacun. Les cles d'acces dependent aussi du premier : le navigateur refuse
-        WebAuthn en clair.</div>
-    </div>
-
-    <div class="card settings-card">
-      <div class="card-top"><div class="card-name">
-        <b>Adresse publique</b>
-        <div class="path">L'adresse par laquelle ce serveur est joignable depuis internet.</div>
-      </div>
-      <span class="pill" id="pub-etat"><i></i>&nbsp;</span></div>
-
-      <div class="hint">Tant qu'elle n'est pas declaree, le panneau <b>ne propose pas de rendre une
-        application publique</b> : sur un serveur que personne d'autre ne peut joindre, « publique »
-        ne partagerait rien — cela retirerait seulement l'authentification. Une application deja
-        publique n'est pas touchee, et peut toujours etre refermee.</div>
-      <div class="hint" style="margin-top:8px">Elle se declare a la main : le panneau ne peut pas
-        savoir si le port 443 de ta box est ouvert, si ton tunnel tourne, ni quel nom de domaine y
-        mene. La renseigner, c'est dire « j'ai fait le necessaire ».</div>
-
-      <div class="field" style="margin-top:14px">
-        <label>Adresse</label>
-        <input id="pub-adresse" placeholder="https://codelab.mondomaine.fr" autocomplete="off">
-        <div class="hint">Vide = serveur prive, joignable seulement depuis ton reseau.</div>
-      </div>
-      <button class="btn btn-primary" id="pub-save" onclick="pubEnregistrer()">Enregistrer</button>
-      <div class="err" id="pub-err" style="display:none"></div>
-      <div class="hint" id="pub-fige" style="display:none">Cette adresse est fixee par
-        <code>APP_MANAGER_PUBLIC_URL</code> dans le compose : elle se modifie la-bas.</div>
-    </div>
-  </div>
-
-  <div class="zone">
-    <div class="zone-title">Categories</div>
-    <div class="card settings-card">
-      <div class="card-top"><div class="card-name">
-        <b>Categories du hub</b>
-        <div class="path">Des tiroirs pour ranger les projets sur la page d'accueil.</div>
-      </div></div>
-
-      <div class="hint">Une categorie ne donne aucun droit et ne change rien au deploiement :
-        elle regroupe les projets dans le hub, dans l'ordre de cette liste. Un projet sans
-        categorie apparait a la fin, sous « Autres ». Choisis la categorie d'un projet dans sa
-        fiche, onglet <b>Configuration</b>.</div>
-
-      <div id="cat-liste" style="margin-top:14px"></div>
-
-      <div class="cat-ligne">
-        <input id="cat-neuve" placeholder="Outils" autocomplete="off" maxlength="30"
-          onkeydown="if(event.key==='Enter'){event.preventDefault();catAjouter()}">
-        <button class="btn btn-default" onclick="catAjouter()">Ajouter</button>
-      </div>
-
-      <div class="mf" style="justify-content:flex-start;gap:8px;margin-top:4px">
-        <button class="btn btn-primary" id="cat-save" onclick="catEnregistrer()">Enregistrer</button>
-      </div>
-      <div class="err" id="cat-err" style="display:none"></div>
-      <div class="hint" id="cat-msg" style="display:none"></div>
-    </div>
-  </div>
-
-  <div class="zone">
-    <div class="zone-title">Alertes</div>
-    <div class="card settings-card">
-      <div class="card-top"><div class="card-name">
-        <b>Alerte par mail</b>
-        <div class="path">Un mail quand une application tombe, un autre quand elle revient.</div>
-      </div>
-      <span class="pill" id="al-etat"><i></i>&nbsp;</span></div>
-
-      <div class="hint">Le panneau redemarre tout seul une application qui plante. Il abandonne au
-        bout de 5 tentatives en 10 minutes — c'est a ce moment-la que le mail part, pas au premier
-        soubresaut. Un second mail signale le retour a la normale.</div>
-
-      <div class="field" style="margin-top:14px">
-        <label>Destinataires</label>
-        <input id="al-dest" placeholder="moi@example.com, autre@example.com" autocomplete="off">
-        <div class="hint">Separes par des virgules.</div>
-      </div>
-
-      <div class="field">
-        <label>Serveur d'envoi</label>
-        <div class="hint" id="al-smtp-source"></div>
-      </div>
-
-      <div class="grid2">
-        <div class="field"><label>Hote SMTP</label>
-          <input id="al-host" placeholder="smtp.gmail.com" autocomplete="off"></div>
-        <div class="field"><label>Port</label>
-          <input id="al-port" type="number" placeholder="587"></div>
-      </div>
-      <div class="grid2">
-        <div class="field"><label>Chiffrement</label>
-          <div class="seg-toggle" id="al-tls-toggle">
-            <button data-t="starttls" onclick="alSetTls('starttls')">STARTTLS</button>
-            <button data-t="ssl" onclick="alSetTls('ssl')">SSL</button>
-            <button data-t="none" onclick="alSetTls('none')">Aucun</button>
-          </div></div>
-        <div class="field"><label>Identifiant</label>
-          <input id="al-user" placeholder="moi@gmail.com" autocomplete="off"></div>
-      </div>
-      <div class="field"><label>Mot de passe</label>
-        <input id="al-pass" type="password" autocomplete="new-password" placeholder="inchange">
-        <div class="hint">Laisse vide pour conserver celui deja enregistre. Gmail exige un
-          <em>mot de passe d'application</em>, pas ton mot de passe habituel.</div>
-      </div>
-
-      <div class="mf" style="justify-content:flex-start;gap:8px;margin-top:4px">
-        <button class="btn btn-primary" id="al-save" onclick="alEnregistrer()">Enregistrer</button>
-        <button class="btn btn-default" id="al-test" onclick="alTester()">Envoyer un mail de test</button>
-        <button class="btn btn-default" id="al-toggle" onclick="alBasculer()">Activer</button>
-      </div>
-      <div class="err" id="al-err" style="display:none"></div>
-      <div class="hint" id="al-msg" style="display:none"></div>
-
-      <div class="hint" style="margin-top:12px">Ces reglages vivent dans le bloc
-        <code>codelab-alertes</code> de <code>credentials.env</code> : le capteur d'alerte de
-        Dagster lit le meme serveur d'envoi. Une seule configuration pour toute la stack.</div>
-    </div>
-  </div>
-</div>
 
   </div>
 </main>
@@ -1194,13 +1218,13 @@ function showSection(name){
      garde-fou n'est pas une protection -- les routes verifient le role de leur
      cote -- c'est ce qui evite qu'un clic egare mene a une page vide et a des
      appels refuses. */
-  if(!estAdmin && name!=='hub' && name!=='profil') name='hub';
+  if(!estAdmin && name!=='hub' && name!=='parametres') name='hub';
   document.querySelectorAll('.section').forEach(s=>{ s.style.display = (s.id==='sec-'+name) ? '' : 'none'; });
   /* La fiche d'une application appartient a "Applications" : l'entree du menu
      doit rester allumee quand on y descend. */
   const surligne = (name==='app') ? 'apps' : name;
   document.querySelectorAll('.side-item').forEach(t=>t.classList.toggle('active', t.dataset.sec===surligne));
-  $('acct-btn').classList.toggle('active', name==='settings' || name==='profil');
+  $('acct-btn').classList.toggle('active', name==='parametres');
 
   /* Un flux de journal occupe une place cote serveur : on le ferme des qu'on
      quitte la fiche, sans attendre que le navigateur s'en apercoive. */
@@ -1209,9 +1233,29 @@ function showSection(name){
   if(name==='overview' || name==='apps') refresh();
   /* L'etat de securite est relu a chaque ouverture : il peut avoir change
      depuis un autre onglet, ou au redemarrage du service. */
-  if(name==='profil'){ chargerMonCompte(); chargerPasskeys(); if(estAdmin) chargerSecurite(); }
   if(name==='users'){ chargerUtilisateurs(); chargerInscriptionLibre(); chargerActivite(); }
-  if(name==='settings'){ chargerSecurite(); chargerAlertes(); chargerCategories(); }
+  /* Chaque onglet des parametres relit ce qu'il affiche a son ouverture : ces
+     etats changent depuis un autre onglet du navigateur, ou au redemarrage du
+     service. On ne recharge que l'onglet regarde. */
+  if(name==='parametres') paramOnglet(paramOngletActif);
+}
+
+/* ---------------- onglets des parametres ---------------- */
+let paramOngletActif='compte';
+function paramOnglet(o){
+  /* Un compte utilisateur n'a que les deux premiers. Ce garde-fou est un
+     confort d'affichage : chaque route verifie le role de son cote. */
+  if(!estAdmin && o!=='compte' && o!=='securite') o='compte';
+  paramOngletActif=o;
+  document.querySelectorAll('#param-onglets button')
+    .forEach(b=>b.classList.toggle('active', b.dataset.p===o));
+  document.querySelectorAll('.onglet-p')
+    .forEach(n=>n.classList.toggle('actif', n.id==='param-'+o));
+  if(o==='compte') chargerMonCompte();
+  if(o==='securite'){ chargerPasskeys(); if(estAdmin) chargerSecurite(); }
+  if(o==='serveur') chargerSecurite();
+  if(o==='categories') chargerCategories();
+  if(o==='alertes') chargerAlertes();
 }
 
 /* ---------------- etats ---------------- */
@@ -1574,7 +1618,7 @@ function peindreFiche(){
       ${prive?'Rendre publique':'Rendre privee'}</button>`);
   }else{
     b.push(`<span class="hint" style="align-self:center;max-width:320px">Declare l'adresse
-      publique du serveur (Configuration &gt; Serveur) pour pouvoir partager une application.</span>`);
+      publique du serveur (Parametres &gt; Serveur) pour pouvoir partager une application.</span>`);
   }
   if(a.running) b.push(`<a class="btn btn-quiet" href="/${encodeURIComponent(a.name)}/" target="_blank">${svgOuvrir}Ouvrir</a>`);
   $('fa-actions').innerHTML=b.join('');
@@ -2018,7 +2062,7 @@ async function chargerInscriptionLibre(){
     ? '<b>La creation de compte est ouverte</b> depuis la page de connexion : le serveur d\'envoi '
       + 'est configure, donc une adresse peut etre verifiee. Un compte cree ainsi n\'ouvre '
       + '<b>aucun projet</b> tant que tu ne lui en autorises pas.'
-    : '<b>La creation de compte est fermee.</b> Configure un serveur d\'envoi (Configuration &gt; '
+    : '<b>La creation de compte est fermee.</b> Configure un serveur d\'envoi (Parametres &gt; '
       + 'Alertes) pour l\'ouvrir : sans mail, une adresse declaree ne peut pas etre verifiee.';
 }
 
@@ -2334,9 +2378,12 @@ const estAdmin = ROLE==='admin';
 
 $('qui-nom').textContent = UTILISATEUR || '';
 $('qui-role').textContent = estAdmin ? 'Administrateur' : 'Utilisateur';
-$('profil-sous').textContent = estAdmin
-  ? 'Ton affichage, tes moyens de connexion et ta session.'
-  : 'Ton affichage, ton adresse mail, tes cles d\'acces et ta session.';
+$('param-sous').textContent = estAdmin
+  ? 'Ton compte, tes moyens de connexion, et les reglages du serveur.'
+  : 'Ton compte, ton adresse mail et tes cles d\'acces.';
+/* Les trois onglets d'administration n'apparaissent que pour l'administrateur. */
+if(estAdmin) document.querySelectorAll('#param-onglets button[data-admin]')
+  .forEach(b=>{ b.style.display='block'; });
 
 const visible = id => $(id).style.display!=='none';
 
@@ -2359,7 +2406,6 @@ if(estAdmin){
      ses parametres personnels, eux, dans le menu du compte. */
   $('sidebar').style.display='none';
   $('btn-menu').style.display='none';
-  $('acct-configuration').style.display='none';
   $('profil-securite').style.display='none';
 }
 /* Le hub est l'accueil de tout le monde. Laisse ouvert il reste juste : les
