@@ -340,6 +340,32 @@ de le lancer et de le superviser. `POST /api/add` refuse d'ailleurs un chemin qu
    `apps.json` est relancee automatiquement au demarrage du service — l'etat "actif" survit donc a un
    redemarrage du conteneur `codelab-app-manager` lui-meme.
 
+## Secrets transmis aux applications
+
+`credentials.env` est en `0600 root` — il contient le mot de passe du panneau et le secret de
+double authentification. Les applications lancees par le panneau, elles, tournent sous l'uid 1001
+(voir `drop_privileges`) et ne peuvent donc pas le lire, alors que c'est precisement la que la
+documentation leur dit de prendre le mot de passe Postgres. Le symptome etait un
+`fe_sendauth: no password supplied`, une erreur qui ne dit rien de sa cause.
+
+Le panneau, qui tourne en root, lit le fichier pour elles et leur transmet les valeurs **par
+l'environnement**, au lancement (`start()`) comme au build (`run_build()`). C'est la couche la plus
+faible du modele de configuration decrit dans `/workspace/README.md` : le `.env` du projet continue
+de gagner.
+
+Deux exclusions :
+
+- **le bloc du panneau** (`APP_MANAGER_*`) n'est jamais transmis. Une application est du code
+  arbitraire tournant sous un autre uid ; lui donner le mot de passe admin annulerait cette
+  separation pour lui offrir l'acces au panneau ;
+- **les cles reservees** (`PATH`, `HOME`, `PORT`, `PYTHONPATH`, `PYTHONHOME`, `LD_PRELOAD`,
+  `LD_LIBRARY_PATH`) : elles changent la maniere dont le process s'execute plutot que ce qu'il
+  fait, et une ligne `PATH=` ajoutee a la main dans `credentials.env` casserait sinon toutes les
+  applications d'un coup, sans rien pour l'expliquer.
+
+Le fichier est relu a chaque lancement, pas mis en cache : un mot de passe change est pris en
+compte en redemarrant l'application, sans redemarrer le panneau.
+
 ## Inscription automatique du projet de diagnostic
 
 Au tout premier demarrage, le panneau inscrit lui-meme le projet `diagnostic` — celui que le

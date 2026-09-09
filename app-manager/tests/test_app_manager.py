@@ -374,3 +374,64 @@ def test_un_projet_pas_encore_amorce_est_retente_au_demarrage_suivant(tmp_path, 
     (racine / "diagnostic").mkdir()
     (racine / "diagnostic" / "app.py").write_text("")
     assert app.amorcer_diagnostic() == "diagnostic"
+
+
+# ---------------- 6. secrets transmis aux applications ----------------
+#
+# credentials.env est en 0600 root ; les applications tournent sous l'uid
+# 1001 et ne peuvent donc pas le lire, alors que c'est la que la
+# documentation leur dit de prendre le mot de passe Postgres. Le panneau le
+# lit pour elles et le transmet par l'environnement -- sans son propre bloc.
+
+def _credentials(tmp_path, monkeypatch, contenu):
+    fichier = tmp_path / "credentials.env"
+    fichier.write_text(contenu)
+    monkeypatch.setattr(app, "SHARED_ENV_FILE", str(fichier))
+    return fichier
+
+
+def test_le_mot_de_passe_du_panneau_n_est_pas_transmis_aux_applications(tmp_path, monkeypatch):
+    """Le defaut a empecher : une application est du code arbitraire tournant
+    sous un autre uid. Lui donner le mot de passe admin annulerait la
+    separation pour lui offrir l'acces au panneau."""
+    _credentials(tmp_path, monkeypatch, "\n".join([
+        "# ===== codelab-postgres =====",
+        "POSTGRES_PASSWORD=mdp-postgres",
+        "# ===== /codelab-postgres =====",
+        "APP_MANAGER_ADMIN_PASSWORD=mdp-panneau",
+        "APP_MANAGER_SESSION_SECRET=cle-de-session",
+        "APP_MANAGER_TOTP_SECRET=second-facteur",
+    ]))
+    partages = app.secrets_partages()
+    assert partages["POSTGRES_PASSWORD"] == "mdp-postgres"
+    assert not [c for c in partages if c.startswith("APP_MANAGER_")]
+
+
+def test_une_cle_reservee_ne_peut_pas_casser_le_lancement(tmp_path, monkeypatch):
+    """Une ligne PATH= ajoutee a la main casserait sinon toutes les
+    applications d'un coup, sans rien pour l'expliquer."""
+    _credentials(tmp_path, monkeypatch,
+                 "PATH=/casse-tout\nHOME=/nulle-part\nPORT=1\nAPI_TOKEN=jeton\n")
+    partages = app.secrets_partages()
+    assert partages == {"API_TOKEN": "jeton"}
+
+
+def test_la_derniere_occurrence_gagne_et_les_guillemets_sautent(tmp_path, monkeypatch):
+    """Chaque service reecrit son bloc en fin de fichier : une valeur laissee
+    plus haut est perimee. Et les guillemets, qu'on met par reflexe, donnent
+    un mot de passe faux s'ils sont conserves."""
+    _credentials(tmp_path, monkeypatch, "\n".join([
+        "# commentaire",
+        "",
+        "ligne malformee sans egal",
+        'POSTGRES_PASSWORD="perime"',
+        "POSTGRES_PASSWORD='a-jour'",
+    ]))
+    assert app.secrets_partages() == {"POSTGRES_PASSWORD": "a-jour"}
+
+
+def test_un_fichier_illisible_ne_empeche_pas_de_lancer(tmp_path, monkeypatch):
+    """Volume config non monte : les applications se debrouillent avec leur
+    propre .env, comme avant -- le panneau ne doit pas refuser de lancer."""
+    monkeypatch.setattr(app, "SHARED_ENV_FILE", str(tmp_path / "absent.env"))
+    assert app.secrets_partages() == {}

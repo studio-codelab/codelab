@@ -131,7 +131,7 @@ la plus forte :
 
 | Couche | Contenu | Portee |
 |---|---|---|
-| Environnement du conteneur | pose par le `docker-compose.yml` | toute la stack |
+| Environnement du conteneur | pose par le `docker-compose.yml`, **et par le panneau pour les applications qu'il lance** | toute la stack |
 | `credentials.env` | ce qui fait tourner les services : Postgres, SMTP | toute la stack |
 | `<projet>/.env` | ce qui ne concerne que ce projet | ce projet seul |
 
@@ -183,6 +183,18 @@ EOF
 Les blocs y sont reecrits en fin de fichier au demarrage des services : c'est la **derniere**
 occurrence d'une cle qui fait foi, une valeur laissee plus haut est perimee. Le module `codelab`
 s'en charge.
+
+Le fichier est en `0600 root`. Cote Dagster, qui tourne en root, `read_env()` le lit directement.
+Cote **app-manager** c'est impossible : les applications y tournent sous l'uid 1001, precisement
+pour qu'un projet ne puisse pas toucher au conteneur. Le panneau lit donc le fichier pour elles et
+leur passe les valeurs **par l'environnement**, au lancement comme au build — `read_env()` les y
+trouve sans que rien change dans ton code. Une seule exception : le bloc du panneau
+(`APP_MANAGER_*`, dont son mot de passe et son secret de double authentification) n'est jamais
+transmis. Les cles qui changeraient la maniere dont ton programme s'execute (`PATH`, `HOME`,
+`PORT`, `PYTHONPATH`, `PYTHONHOME`, `LD_PRELOAD`, `LD_LIBRARY_PATH`) sont ignorees elles aussi.
+
+Consequence pratique : **un mot de passe change est pris en compte en redemarrant l'application**,
+sans redemarrer le panneau.
 
 ## Base de donnees — une base par projet
 
