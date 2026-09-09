@@ -145,12 +145,13 @@ applications est gere directement par ce service.
 
 | Fichier | Role |
 |---|---|
-| `Dockerfile` | Construction de l'image (Flask, psutil, requests, Node.js, git) |
+| `Dockerfile` | Construction de l'image (Flask, waitress, psutil, requests, qrcode, webauthn, Node.js, git) |
 | `entrypoint.sh` | Permissions partagees sur `/workspace`, puis demarrage |
 | `app/app.py` | Le service : authentification, API, cycle de vie des process, reverse proxy |
 | `app/dashboard.html` | L'interface du panneau |
 | `app/login.html` | La page de connexion |
 | `tests/` | Les regressions gardees (`python -m pytest app-manager/tests -q`) |
+| `vps/` | Tunnel WireGuard + nginx pour exposer ce panneau en HTTPS — voir [`vps/README.md`](vps/README.md). **Ne fait pas partie de l'image** : ces fichiers s'installent sur un VPS et sur l'hote, pas dans le conteneur |
 
 L'application vit dans `app/` : une seule ligne de `COPY` dans le `Dockerfile`, et la racine du service
 reste lisible — l'image, le demarrage, la documentation, les tests.

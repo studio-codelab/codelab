@@ -87,9 +87,9 @@ Le VPS porte le nom de domaine et le certificat, et relaie vers la maison par un
 Utile quand la box ne peut pas ouvrir de ports, ou quand tu veux que l'adresse publique soit celle du
 VPS.
 
-**Les fichiers sont prets dans [`deploiement/vps/`](deploiement/vps/)** : les deux configurations
+**Les fichiers sont prets dans [`app-manager/vps/`](app-manager/vps/)** : les deux configurations
 WireGuard, la configuration nginx du site, et la marche a suivre dans l'ordre. Extrait de
-`deploiement/vps/nginx/codelab.conf` :
+`app-manager/vps/nginx/codelab.conf` :
 
 ```nginx
 server {
