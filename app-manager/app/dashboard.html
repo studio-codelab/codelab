@@ -418,6 +418,19 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
 .qr{display:none;width:190px;height:190px;padding:8px;margin:10px 0;
  background:#fff;border-radius:var(--r-s);border:1px solid var(--line2)}
 .qr.on{display:block}
+
+/* ------------------------------ journal des acces ------------------------------ */
+.act-liste{display:flex;flex-direction:column}
+.act-ligne{display:flex;align-items:center;gap:10px;padding:8px 0;font-size:13px;
+ border-top:1px solid var(--line)}
+.act-liste .act-ligne:first-child{border-top:none}
+.act-ligne .act-quand{color:var(--dim2);font-size:12px;white-space:nowrap;min-width:120px}
+.act-ligne .act-qui{font-weight:600}
+.act-ligne .act-quoi{color:var(--dim)}
+.act-ligne .act-ip{margin-left:auto;color:var(--dim2);font-size:11.5px;
+ font-family:ui-monospace,Menlo,monospace}
+.act-vide{color:var(--dim);font-size:13px;padding:8px 0}
+.us-activite{font-size:12px;color:var(--dim2);margin-top:6px}
 /* Titre d'un groupe dans le hub. Discret : ce sont les projets qu'on vient
    chercher, le rangement ne doit pas leur voler la vedette. */
 .hub-groupe{margin-bottom:26px}
@@ -592,6 +605,7 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
     <button data-o="general" onclick="ficheOnglet('general')" class="active">General</button>
     <button data-o="metriques" onclick="ficheOnglet('metriques')">Metriques</button>
     <button data-o="journal" onclick="ficheOnglet('journal')">Journal</button>
+    <button data-o="activite" onclick="ficheOnglet('activite')">Activite</button>
     <button data-o="config" onclick="ficheOnglet('config')">Configuration</button>
   </div>
 
@@ -639,6 +653,32 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
     </div>
     <div class="logbox" id="lg-body">En attente du flux...</div>
     <div class="hint">Flux en direct. Le filtre ne masque que l'affichage, il ne touche pas au fichier.</div>
+  </div>
+
+  <div class="onglet" id="onglet-activite">
+    <div class="cartes c2 zone">
+      <div class="card">
+        <div class="card-top"><div class="card-name"><b>Ouvertures</b>
+          <div class="path">Depuis que le journal existe</div></div></div>
+        <div class="ov-nums">
+          <div><b id="ac-total">0</b><span>Ouvertures</span></div>
+          <div><b id="ac-gens">0</b><span>Comptes</span></div>
+        </div>
+        <div class="hint" id="ac-derniere" style="margin-top:10px"></div>
+      </div>
+      <div class="card">
+        <div class="card-top"><div class="card-name"><b>Qui l'ouvre</b>
+          <div class="path">Les comptes qui s'en servent</div></div></div>
+        <div id="ac-repartition"></div>
+      </div>
+    </div>
+    <div class="zone">
+      <div class="zone-title">Dernieres ouvertures</div>
+      <div class="card"><div class="act-liste" id="ac-liste"></div></div>
+    </div>
+    <div class="hint">Une ouverture est notee au plus une fois par quart d'heure et par compte :
+      une page web, c'est des dizaines de requetes, et les compter toutes ne dirait plus rien
+      de la frequentation.</div>
   </div>
 
   <div class="onglet" id="onglet-config">
@@ -840,6 +880,20 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
 <div id="sec-users" class="section" style="display:none">
   <div class="toolbar"><h2>Utilisateurs</h2></div>
   <div class="sous">Les comptes qui ouvrent ce serveur, et ce que chacun peut voir.</div>
+
+  <div class="zone">
+    <div class="zone-title">Connexions</div>
+    <div class="card settings-card" style="max-width:none">
+      <div class="card-top"><div class="card-name">
+        <b>Connexions et acces recents</b>
+        <div class="path">Qui est entre, quand, et quelle application a ete ouverte.</div>
+      </div></div>
+      <div class="hint">Deux usages, et deux seulement : reconnaitre une tentative d'intrusion
+        (des echecs en rafale, une connexion a une heure inhabituelle), et savoir si un projet
+        sert encore a quelqu'un avant de l'arreter.</div>
+      <div class="act-liste" id="ac-connexions" style="margin-top:12px"></div>
+    </div>
+  </div>
 
   <div class="zone">
     <div class="zone-title">Comptes</div>
@@ -1090,7 +1144,7 @@ function showSection(name){
   /* L'etat de securite est relu a chaque ouverture : il peut avoir change
      depuis un autre onglet, ou au redemarrage du service. */
   if(name==='profil'){ chargerMonCompte(); if(estAdmin) chargerSecurite(); }
-  if(name==='users'){ chargerUtilisateurs(); chargerInscriptionLibre(); }
+  if(name==='users'){ chargerUtilisateurs(); chargerInscriptionLibre(); chargerActivite(); }
   if(name==='settings'){ chargerSecurite(); chargerAlertes(); chargerCategories(); }
 }
 
@@ -1402,6 +1456,7 @@ function ficheOnglet(o){
   document.querySelectorAll('.onglet').forEach(n=>n.classList.toggle('actif', n.id==='onglet-'+o));
   if(o==='journal') ouvrirLog(ficheNom); else fermerLog();
   if(o==='metriques') chargerMetriques(ficheNom);
+  if(o==='activite') chargerActivite().then(peindreActiviteFiche);
 }
 
 function peindreFiche(){
@@ -1633,6 +1688,77 @@ async function submitAdd(){
 }
 
 
+/* ---------------- journal des acces ---------------- */
+let activite={evenements:[], resume:{comptes:{}, apps:{}, echecs:0}};
+
+/* Une date lisible sans reflechir : « il y a 3 min », « hier a 14 h ». Un
+   horodatage complet demande a etre compare mentalement a l'heure qu'il est. */
+function ilYA(ts){
+  if(!ts) return 'jamais';
+  const s=Math.max(0, Math.floor(Date.now()/1000)-ts);
+  if(s<60) return "a l'instant";
+  if(s<3600) return 'il y a '+Math.floor(s/60)+' min';
+  if(s<86400) return 'il y a '+Math.floor(s/3600)+' h';
+  if(s<2592000) return 'il y a '+Math.floor(s/86400)+' j';
+  return new Date(ts*1000).toLocaleDateString();
+}
+function quandPrecis(ts){ return new Date(ts*1000).toLocaleString(); }
+
+async function chargerActivite(){
+  try{ activite=await (await fetch('/api/activite')).json(); }catch(e){ return; }
+  peindreConnexions();
+  peindreComptesActivite();
+}
+function ligneActivite(e){
+  const qui = e.qui ? esc(e.qui) : 'visiteur anonyme';
+  let quoi;
+  if(e.genre==='connexion') quoi = 's\'est connecte' + (e.role==='admin' ? ' (administrateur)' : '');
+  else if(e.genre==='echec') quoi = '<b style="color:var(--err)">connexion refusee</b> — ' + esc(e.motif||'');
+  else quoi = 'a ouvert <b>' + esc(e.app||'') + '</b>';
+  return `<div class="act-ligne">
+    <span class="act-quand" title="${esc(quandPrecis(e.ts))}">${esc(ilYA(e.ts))}</span>
+    <span class="act-qui">${qui}</span><span class="act-quoi">${quoi}</span>
+    <span class="act-ip">${esc(e.ip||'')}</span></div>`;
+}
+function peindreConnexions(){
+  const liste=(activite.evenements||[]).slice(0,40);
+  $('ac-connexions').innerHTML = liste.length
+    ? liste.map(ligneActivite).join('')
+    : '<div class="act-vide">Rien encore. Le journal se remplit a la premiere connexion.</div>';
+}
+/* La derniere connexion de chaque compte, sous son nom : c'est ce qu'on
+   cherche en ouvrant cette page, avant meme le journal complet. */
+function peindreComptesActivite(){
+  const r=(activite.resume||{}).comptes||{};
+  document.querySelectorAll('#us-liste [data-activite]').forEach(n=>{
+    const c=r[n.dataset.activite];
+    n.textContent = c
+      ? `Derniere connexion ${ilYA(c.derniere)} — ${c.connexions} connexion${c.connexions>1?'s':''}, `
+        + `${c.ouvertures} ouverture${c.ouvertures>1?'s':''}`
+      : 'Jamais connecte.';
+  });
+}
+
+/* L'activite d'une application, dans sa fiche. */
+function peindreActiviteFiche(){
+  const a=((activite.resume||{}).apps||{})[ficheNom] || {ouvertures:0, derniere:0, qui:{}};
+  $('ac-total').textContent=a.ouvertures;
+  const gens=Object.keys(a.qui||{});
+  $('ac-gens').textContent=gens.length;
+  $('ac-derniere').textContent = a.derniere
+    ? 'Derniere ouverture ' + ilYA(a.derniere) + '.'
+    : 'Jamais ouverte depuis que le journal existe.';
+  const paires=gens.map(q=>[q, a.qui[q]]).sort((x,y)=>y[1]-x[1]);
+  $('ac-repartition').innerHTML = paires.length
+    ? paires.map(([q,n])=>`<div class="kv"><span class="k">${q?esc(q):'Visiteurs anonymes'}</span>
+        <span class="v">${n}</span></div>`).join('')
+    : '<div class="act-vide">Personne pour l\'instant.</div>';
+  const propres=(activite.evenements||[]).filter(e=>e.genre==='ouverture' && e.app===ficheNom).slice(0,20);
+  $('ac-liste').innerHTML = propres.length
+    ? propres.map(ligneActivite).join('')
+    : '<div class="act-vide">Aucune ouverture enregistree.</div>';
+}
+
 /* ---------------- comptes utilisateurs ---------------- */
 function usErreur(texte){
   const e=$('us-err');
@@ -1682,8 +1808,12 @@ async function chargerUtilisateurs(){
           onclick="usReinitTotp('${esc(c.nom)}')">Reinitialiser la 2FA</button>` : ''}
         <button class="btn btn-default btn-sm" onclick="usSupprimer('${esc(c.nom)}')">Supprimer</button>
       </div>
-      <div class="us-cases">${cases}</div></div>`;
+      <div class="us-cases">${cases}</div>
+      <!-- Rempli par peindreComptesActivite() : la liste des comptes et le
+           journal se chargent separement, chacun a son rythme. -->
+      <div class="us-activite" data-activite="${esc(c.nom)}"></div></div>`;
   }).join('');
+  peindreComptesActivite();
 }
 
 async function usProjets(nom){

@@ -659,6 +659,129 @@ def envoyer_code_email(adresse, nom, code):
                  destinataires=[adresse])
 
 
+# ------------------------- journal des acces -------------------------
+#
+# Qui s'est connecte, quand, et quelle application il a ouverte. Deux usages,
+# et deux seulement : reconnaitre une tentative d'intrusion (des echecs de
+# connexion en rafale, une connexion a 4 h du matin), et savoir si un projet
+# sert encore a quelqu'un avant de l'arreter.
+#
+# Un fichier de lignes JSON, ajoutees a la fin. Pas de base : ce sont des
+# evenements, jamais modifies, et un fichier texte se lit depuis une session
+# SSH le jour ou le panneau ne repond plus. Il est plafonne et tourne comme
+# les journaux d'application -- un journal qui remplit le disque transforme
+# une curiosite en panne.
+ACCES_FILE = os.path.join(STATE_DIR, "acces.jsonl")
+ACCES_MAX_OCTETS = 1024 * 1024      # 1 Mo, soit ~8 000 evenements
+ACCES_LIGNES_LUES = 400             # ce que l'interface affiche au plus
+# Une page web, c'est des dizaines de requetes. Une ouverture par personne et
+# par application n'est donc notee qu'une fois par quart d'heure : au-dela on
+# ne journalise plus une visite, on journalise le HTML.
+ACCES_REGROUPEMENT = 900
+
+_dernier_acces = {}
+_acces_verrou = threading.Lock()
+
+
+def _adresse_client():
+    """L'adresse du visiteur, selon qu'on est derriere un proxy de confiance."""
+    if TRUST_PROXY:
+        avant = (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
+        if avant:
+            return avant
+    return request.remote_addr or ""
+
+
+def journaliser(genre, **details):
+    """Ajoute un evenement. N'echoue jamais : journaliser n'est pas le travail.
+
+    Une ecriture impossible (disque plein, montage en lecture seule) ne doit
+    ni refuser une connexion ni casser le proxy -- ce serait faire tomber le
+    service pour proteger son journal.
+    """
+    evenement = {"ts": int(time.time()), "genre": genre}
+    evenement.update(details)
+    try:
+        with _acces_verrou:
+            if (os.path.exists(ACCES_FILE)
+                    and os.path.getsize(ACCES_FILE) > ACCES_MAX_OCTETS):
+                os.replace(ACCES_FILE, ACCES_FILE + ".1")
+            with open(ACCES_FILE, "a") as f:
+                f.write(json.dumps(evenement, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def journaliser_ouverture(name):
+    """Note qu'une application vient d'etre ouverte, sans noter chaque requete."""
+    qui = utilisateur_courant() if is_authed() else ""
+    cle = (qui, name)
+    maintenant = time.time()
+    with _acces_verrou:
+        if maintenant - _dernier_acces.get(cle, 0) < ACCES_REGROUPEMENT:
+            return
+        _dernier_acces[cle] = maintenant
+    journaliser("ouverture", qui=qui, app=name, ip=_adresse_client())
+
+
+def lire_acces(limite=ACCES_LIGNES_LUES, app=None, qui=None):
+    """Les evenements les plus recents d'abord.
+
+    Lit le fichier en entier : a 1 Mo plafonne, c'est un coup de disque
+    negligeable, et cela evite un index a tenir a jour pour une page qu'on
+    ouvre trois fois par mois.
+    """
+    lignes = []
+    for chemin in (ACCES_FILE, ACCES_FILE + ".1"):
+        try:
+            with open(chemin) as f:
+                lignes.extend(f.readlines())
+        except OSError:
+            continue
+    evenements = []
+    for ligne in reversed(lignes):
+        try:
+            e = json.loads(ligne)
+        except ValueError:
+            continue
+        if not isinstance(e, dict):
+            continue
+        if app is not None and e.get("app") != app:
+            continue
+        if qui is not None and (e.get("qui") or "") != qui:
+            continue
+        evenements.append(e)
+        if len(evenements) >= limite:
+            break
+    return evenements
+
+
+def resume_acces():
+    """Par compte et par application : derniere fois, et combien de fois.
+
+    C'est ce qu'on veut savoir en une ligne -- « personne n'a ouvert ce
+    projet depuis trois semaines » -- sans derouler le journal entier.
+    """
+    comptes, apps_, echecs = {}, {}, 0
+    for e in lire_acces(limite=100000):
+        qui = e.get("qui") or ""
+        genre = e.get("genre")
+        if genre == "connexion":
+            c = comptes.setdefault(qui, {"connexions": 0, "derniere": 0, "ouvertures": 0})
+            c["connexions"] += 1
+            c["derniere"] = max(c["derniere"], e.get("ts", 0))
+        elif genre == "echec":
+            echecs += 1
+        elif genre == "ouverture":
+            c = comptes.setdefault(qui, {"connexions": 0, "derniere": 0, "ouvertures": 0})
+            c["ouvertures"] += 1
+            a = apps_.setdefault(e.get("app") or "", {"ouvertures": 0, "derniere": 0, "qui": {}})
+            a["ouvertures"] += 1
+            a["derniere"] = max(a["derniere"], e.get("ts", 0))
+            a["qui"][qui] = a["qui"].get(qui, 0) + 1
+    return {"comptes": comptes, "apps": apps_, "echecs": echecs}
+
+
 def nom_utilisateur_valide(brut):
     """Minuscules, chiffres, tiret et souligne. Le nom sert d'identifiant de
     fichier JSON et s'affiche partout : autant le contraindre a l'entree
@@ -1731,6 +1854,7 @@ def login_submit():
         # alors sur la longueur du prefixe correct.
         if not (real and pw and secrets.compare_digest(pw, real)):
             register_failed_attempt()
+            journaliser("echec", qui=NOM_ADMIN, motif="mot de passe", ip=_adresse_client())
             return jsonify({"error": "Identifiants incorrects."}), 401
 
         # Le code a six chiffres, quand la double authentification est active.
@@ -1739,6 +1863,7 @@ def login_submit():
         # de passe connu, ce qui le viderait de son sens.
         if totp_actif() and not totp_verifie(_totp_secret, d.get("code")):
             register_failed_attempt()
+            journaliser("echec", qui=NOM_ADMIN, motif="second facteur", ip=_adresse_client())
             return jsonify({"error": "Code de verification incorrect.",
                             "totp": True}), 401
 
@@ -1746,6 +1871,7 @@ def login_submit():
         session["authed"] = True
         session["role"] = ROLE_ADMIN
         session["utilisateur"] = NOM_ADMIN
+        journaliser("connexion", qui=NOM_ADMIN, role=ROLE_ADMIN, ip=_adresse_client())
         return jsonify({"ok": True, "role": ROLE_ADMIN})
 
     compte = lire_utilisateurs().get(nom)
@@ -1754,6 +1880,9 @@ def login_submit():
     # comptes valides a qui essaie.
     if not (compte and pw and verifie_mot_de_passe(compte, pw)):
         register_failed_attempt()
+        # Le nom tel qu'il a ete tape, meme s'il ne correspond a aucun
+        # compte : c'est ce qui distingue une faute de frappe d'un balayage.
+        journaliser("echec", qui=nom, motif="mot de passe", ip=_adresse_client())
         return jsonify({"error": "Identifiants incorrects."}), 401
 
     # Le second facteur n'est pas optionnel pour un compte utilisateur. Ces
@@ -1787,6 +1916,7 @@ def login_submit():
 
     if not totp_verifie(secret, d.get("code")):
         register_failed_attempt()
+        journaliser("echec", qui=nom, motif="second facteur", ip=_adresse_client())
         return jsonify({"error": "Code de verification incorrect.",
                         "totp": True}), 401
 
@@ -1797,6 +1927,7 @@ def login_submit():
     session["authed"] = True
     session["role"] = ROLE_UTILISATEUR
     session["utilisateur"] = nom
+    journaliser("connexion", qui=nom, role=ROLE_UTILISATEUR, ip=_adresse_client())
     return jsonify({"ok": True, "role": ROLE_UTILISATEUR})
 
 
@@ -1843,6 +1974,7 @@ def login_second_facteur():
     session["authed"] = True
     session["role"] = ROLE_UTILISATEUR
     session["utilisateur"] = nom
+    journaliser("connexion", qui=nom, role=ROLE_UTILISATEUR, ip=_adresse_client())
     return jsonify({"ok": True, "role": ROLE_UTILISATEUR})
 
 
@@ -1855,6 +1987,20 @@ def _mon_compte():
     if est_admin():
         return None
     return lire_utilisateurs().get(utilisateur_courant())
+
+
+@flask_app.get("/api/activite")
+@require_admin
+def api_activite():
+    """Le journal des acces, et son resume.
+
+    Reserve a l'administrateur : c'est le seul role a qui la question « qui a
+    ouvert quoi » se pose, et la reponse contient des adresses IP.
+    """
+    app_ = request.args.get("app") or None
+    qui = request.args.get("qui")
+    return jsonify({"evenements": lire_acces(app=app_, qui=qui),
+                    "resume": resume_acces()})
 
 
 @flask_app.get("/api/mon-compte")
@@ -2917,6 +3063,9 @@ def _proxy(name, sub):
                                   "Ton compte n'a pas acces a \u00ab " + name + " \u00bb.",
                                   "Demande l'acces a l'administrateur."),
                             403, mimetype="text/html")
+    # Note l'ouverture APRES les controles d'acces : un refus n'est pas une
+    # visite, et le journal servirait mal s'il melangeait les deux.
+    journaliser_ouverture(name)
     if not is_running(name):
         return Response(_page("Application arretee",
                               "\u00ab " + name + " \u00bb n'est pas demarree.",

@@ -302,6 +302,32 @@ comptee dans la limite de tentatives (5 par fenetre et par adresse IP), pour qu'
 partir des mails en boucle. Un mail qui ne part pas retire le compte : sinon le nom resterait pris
 par quelqu'un qui ne pourra jamais s'en servir.
 
+## Journal des acces
+
+Qui s'est connecte, quand, depuis quelle adresse, et quelle application il a ouverte. Deux usages, et
+deux seulement : **reconnaitre une tentative d'intrusion** (des echecs de connexion en rafale, une
+connexion a une heure inhabituelle) et **savoir si un projet sert encore a quelqu'un** avant de
+l'arreter. Il se lit dans **Utilisateurs** (connexions recentes, et la derniere connexion sous chaque
+compte) et dans la fiche d'une application, onglet **Activite**.
+
+Trois decisions qui comptent :
+
+- **Une ouverture est notee apres les controles d'acces.** Un refus n'est pas une visite : les
+  compter donnerait a une application fermee l'air d'etre tres frequentee.
+- **Une ouverture par personne et par application, au plus une fois par quart d'heure.** Une page
+  web, c'est des dizaines de requetes ; les compter toutes ne dirait plus rien de la frequentation
+  et remplirait le disque.
+- **Journaliser n'echoue jamais.** Disque plein, montage en lecture seule : l'evenement est perdu,
+  le service continue. Refuser une connexion pour proteger son journal reviendrait a eteindre le
+  service au moment ou on veut justement l'observer.
+
+Le fichier est `acces.jsonl` (dans `STATE_DIR`), une ligne JSON par evenement, plafonne a 1 Mo avec
+un `.1` conserve — la meme rotation que les journaux d'application. Un fichier texte se relit depuis
+une session SSH le jour ou le panneau ne repond plus, ce qu'une base ne permettrait pas.
+
+`GET /api/activite` est **reserve a l'administrateur** : il contient des adresses IP et le detail de
+qui ouvre quoi.
+
 ## Categories
 
 Une categorie est un intitule libre — « Outils », « Sites », « Donnees » — qui **regroupe les projets
@@ -392,7 +418,7 @@ silencieusement sans bloquer le demarrage du service — c'est une commodite, pa
 
 | Point de montage | Contenu |
 |---|---|
-| `/var/lib/codelab/app-manager` | `apps.json`, `logs/`, `alertes.json`, `utilisateurs.json`, `categories.json` et `diagnostic-inscrit` — l'etat du panneau. Aucun secret en clair : les mots de passe des comptes sont derives, ceux des services sont dans `credentials.env` |
+| `/var/lib/codelab/app-manager` | `apps.json`, `logs/`, `alertes.json`, `utilisateurs.json`, `categories.json`, `acces.jsonl` et `diagnostic-inscrit` — l'etat du panneau. Aucun secret en clair : les mots de passe des comptes sont derives, ceux des services sont dans `credentials.env` |
 | `/workspace` | Racine dans laquelle chercher/lancer les applications |
 
 ## Double authentification et exposition
@@ -462,6 +488,7 @@ qui n'est pas implemente ici.
 | `/api/visibility/<nom>` | POST | oui | Bascule publique / privee (ou impose la valeur donnee) |
 | `/api/categories` | GET | oui | La liste des categories, dans l'ordre d'affichage (tous les roles) |
 | `/api/categories` | PUT | oui | Remplace la liste (**administrateur**) ; renvoie le nombre de projets declasses |
+| `/api/activite` | GET | oui | Journal des acces et son resume (**administrateur**) |
 | `/api/mon-compte` | GET | oui | Ce que la session dit d'elle-meme : nom, role, adresse et son etat |
 | `/api/mon-compte/email` | POST | oui | Declare ou change sa propre adresse, et envoie un code |
 | `/api/mon-compte/email/code` | POST | oui | Renvoie un code (une fois par minute au plus) |

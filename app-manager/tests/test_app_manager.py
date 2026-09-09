@@ -1291,3 +1291,109 @@ def test_un_mail_qui_ne_part_pas_ne_laisse_pas_un_nom_pris(comptes_mail, monkeyp
                                      "mot_de_passe": "mot-de-passe-long"})
     assert r.status_code == 502
     assert "paul" not in app.lire_utilisateurs()
+
+
+# ---------- 16. journal des acces ----------
+#
+# Deux usages, deux seulement : reconnaitre une intrusion, et savoir si un
+# projet sert encore. Ce qui doit rester vrai : une ouverture n'est notee
+# qu'apres les controles d'acces (un refus n'est pas une visite), le journal
+# ne grossit pas indefiniment, et une ecriture impossible ne casse rien.
+
+@pytest.fixture
+def journal(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
+    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
+    monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
+    monkeypatch.setattr(app, "is_running", lambda n: False)
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    app._apps_cache["signature"] = None
+    app._dernier_acces.clear()
+    app.save({"prive": {"path": "/w/a", "command": "x", "port": 9101,
+                        "enabled": True, "visibility": "privee"},
+              "public": {"path": "/w/b", "command": "x", "port": 9102,
+                         "enabled": True, "visibility": "publique"}})
+    sel = "cc" * 16
+    app.ecrire_utilisateurs({"marie": {
+        "sel": sel, "hash": app.derive_mot_de_passe("mot-de-passe-long", sel),
+        "projets": [], "cree": 0, "totp": app.totp_nouveau_secret()}})
+    return app.flask_app.test_client()
+
+
+def test_un_acces_refuse_n_est_pas_une_visite(journal):
+    """Le journal sert a savoir si un projet sert encore.
+
+    Compter les refus dedans donnerait a une application fermee l'air d'etre
+    tres frequentee, ce qui est exactement l'inverse de ce qu'on demande.
+    """
+    c = journal
+    # Sans session, un projet prive redirige vers la connexion.
+    assert c.get("/prive/", follow_redirects=False).status_code == 302
+    assert [e for e in app.lire_acces() if e.get("genre") == "ouverture"] == []
+
+    # Un projet public, lui, est une vraie visite -- meme sans compte.
+    c.get("/public/")
+    ouvertures = [e for e in app.lire_acces() if e.get("genre") == "ouverture"]
+    assert len(ouvertures) == 1
+    assert ouvertures[0]["app"] == "public" and ouvertures[0]["qui"] == ""
+
+
+def test_une_page_web_ne_fait_pas_cinquante_lignes_de_journal(journal):
+    """Une page, c'est des dizaines de requetes. Les compter toutes ne dirait
+    plus rien de la frequentation, et remplirait le disque."""
+    c = journal
+    for _ in range(30):
+        c.get("/public/")
+    assert len([e for e in app.lire_acces() if e.get("genre") == "ouverture"]) == 1
+
+    # Le regroupement passe : la visite suivante compte pour une nouvelle.
+    app._dernier_acces.clear()
+    c.get("/public/")
+    assert len([e for e in app.lire_acces() if e.get("genre") == "ouverture"]) == 2
+
+
+def test_les_connexions_et_les_echecs_sont_notes(journal):
+    c = journal
+    c.post("/login", json={"password": "faux"})
+    c.post("/login", json={"password": "secret-de-test"})
+    genres = [e["genre"] for e in app.lire_acces()]
+    assert genres[:2] == ["connexion", "echec"], genres   # plus recent d'abord
+    resume = app.resume_acces()
+    assert resume["echecs"] == 1
+    assert resume["comptes"]["admin"]["connexions"] == 1
+
+
+def test_le_journal_tourne_au_lieu_de_remplir_le_disque(journal, monkeypatch):
+    """Un journal sans plafond transforme une curiosite en panne."""
+    monkeypatch.setattr(app, "ACCES_MAX_OCTETS", 400)
+    for i in range(60):
+        app.journaliser("ouverture", qui=f"compte{i}", app="public", ip="10.0.0.1")
+    assert os.path.getsize(app.ACCES_FILE) <= 400 + 200   # la ligne en cours
+    assert os.path.exists(app.ACCES_FILE + ".1")
+    # Rien n'est perdu tant que la rotation n'a pas tourne deux fois : les
+    # deux fichiers sont relus ensemble.
+    assert len(app.lire_acces(limite=1000)) > 1
+
+
+def test_journaliser_ne_fait_jamais_tomber_le_service(journal, monkeypatch):
+    """Disque plein ou montage en lecture seule : le proxy doit continuer.
+
+    Faire echouer une connexion pour proteger son journal reviendrait a
+    eteindre le service au moment ou on veut justement l'observer.
+    """
+    monkeypatch.setattr(app, "ACCES_FILE", "/proc/interdit/acces.jsonl")
+    app.journaliser("connexion", qui="marie")          # ne leve pas
+    assert journal.get("/public/").status_code in (200, 502, 503)
+    assert journal.post("/login", json={"password": "secret-de-test"}).status_code == 200
+
+
+def test_le_journal_est_reserve_a_l_administrateur(journal):
+    """Il contient des adresses IP et le detail de qui ouvre quoi."""
+    c = journal
+    assert c.get("/api/activite").status_code == 401
+    _connecte(c, "marie", "mot-de-passe-long")
+    assert c.get("/api/activite").status_code == 403

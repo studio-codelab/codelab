@@ -90,6 +90,10 @@ compte ; **Parametres**, lui, est personnel et existe pour chaque compte.
   chiffres envoye dessus. Si un serveur d'envoi est configure, la page de connexion propose
   **« Creer un compte »** — le compte cree n'ouvre **aucun projet** tant que tu ne lui en autorises pas.
 
+- **Journal des acces** (*Utilisateurs*, et l'onglet *Activite* d'une application) : qui s'est
+  connecte, quand, et quelle application il a ouverte. De quoi reperer des echecs de connexion en
+  rafale, et savoir si un projet sert encore avant de l'arreter.
+
 - **Categories** (*Configuration > Categories*) : des tiroirs pour ranger les projets dans le hub —
   « Outils », « Sites », « Donnees ». Purement visuel : aucune categorie ne donne de droit. Un projet
   non range apparait sous « Autres ».
