@@ -8,8 +8,9 @@ Le VPS porte le nom de domaine et le certificat ; la ZimaBlade ne publie rien su
 joignable seulement par le tunnel. Aucun port a ouvrir sur la box : c'est la ZimaBlade qui compose
 vers le VPS.
 
-Ce dossier contient les fichiers a recopier. **Le VPS n'a pas besoin d'exister pour que CodeLab
-fonctionne** : tant qu'aucune adresse publique n'est declaree, le panneau vit tres bien en local — il
+Ce dossier contient les fichiers a recopier — **rien ici ne tourne dans la stack** : tout s'installe
+sur le VPS, sauf un bout de tunnel pose sur l'hote de la ZimaBlade. **Le VPS n'a pas besoin d'exister
+pour que CodeLab fonctionne** : tant qu'aucune adresse publique n'est declaree, le panneau vit tres bien en local — il
 ne propose simplement pas de rendre une application publique, et les cles d'acces restent
 indisponibles.
 

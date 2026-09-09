@@ -353,22 +353,29 @@ python3 -c "import base64; print('data:image/png;base64,' + base64.b64encode(ope
 ```text
 codelab/
 ├── docker-compose.yml
-├── DEVELOPPER.md  # developper un projet et le deployer -- a lire en premier
+├── DEVELOPPER.md   # developper un projet et le deployer -- a lire en premier
+├── HTTPS.md        # sortir de chez soi : mettre du TLS devant CodeLab
 ├── icon.svg / icon.png
 ├── .github/workflows/build-images.yml
-├── workspace/     # squelette depose dans /workspace au premier demarrage
-├── postgres/      # serveur de bases — voir postgres/README.md
-├── dev/           # SSH + VS Code Remote-SSH — voir dev/README.md
-├── dagster/       # orchestration de jobs — voir dagster/README.md
-│   └── proxy/     # authentification devant Dagster (image a part)
-└── app-manager/   # deploiement d'applications — voir app-manager/README.md
-    ├── app/       # le service : app.py et les deux pages qu'il sert
-    └── tests/     # regressions gardees : detection, chemins, auth, privileges
+├── workspace/      # squelette depose dans /workspace au premier demarrage
+├── postgres/       # serveur de bases — voir postgres/README.md
+├── dev/            # SSH + VS Code Remote-SSH — voir dev/README.md
+├── dagster/        # orchestration de jobs — voir dagster/README.md
+│   └── proxy/      # authentification devant Dagster (image a part)
+├── app-manager/    # deploiement d'applications — voir app-manager/README.md
+│   ├── app/        # le service : app.py et les deux pages qu'il sert
+│   └── tests/      # regressions gardees : detection, chemins, auth, privileges
+└── deploiement/    # ce qui tourne AILLEURS que dans le compose
+    └── vps/        # tunnel WireGuard + nginx du VPS — voir deploiement/vps/README.md
 ```
 
 **Un dossier par service**, et tout ce qui concerne un service vit dedans : son image, son code, sa
 documentation, ses tests. Le proxy de Dagster est une image distincte -- deux processus, deux conteneurs --
 mais il n'a rien a faire a la racine : il n'existe que pour Dagster.
+
+`deploiement/` est la seule exception, et elle confirme la regle : ce qu'il contient ne tourne dans
+aucun conteneur de la stack. La configuration du VPS s'installe sur une autre machine — la laisser a
+la racine aurait fait croire a un sixieme service.
 
 Ce README couvre l'installation et l'usage global ; `DEVELOPPER.md` couvre le travail quotidien
 (developper dans le conteneur, deployer sur l'app-manager). Le fonctionnement interne de chaque service (scripts de
