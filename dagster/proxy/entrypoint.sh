@@ -1,32 +1,24 @@
 #!/bin/sh
 # Entrypoint de codelab-dagster-proxy.
 #
-# Un seul role : garantir qu'un fichier d'authentification existe avant que
-# nginx ne demarre. Le mot de passe suit exactement la convention des autres
-# services -- genere une fois, ecrit dans credentials.env par bloc delimite,
-# jamais regenere par-dessus une valeur existante (sinon il changerait a
-# chaque redemarrage, et l'utilisateur devrait le relire a chaque fois).
+# Ce service n'a plus de mot de passe a lui : Dagster herite de la session du
+# panneau (voir nginx.conf). L'entrypoint ne sert donc qu'a une chose --
+# retirer l'ancien bloc d'identifiants de credentials.env, pour qu'une
+# installation mise a jour ne conserve pas un mot de passe qui ne sert plus a
+# rien et laisserait croire qu'il protege encore quelque chose.
 set -eu
 
 CONFIG_DIR="${CODELAB_CONFIG_DIR:-/var/lib/codelab/config}"
 ENV_FILE="$CONFIG_DIR/credentials.env"
-HTPASSWD=/etc/nginx/.htpasswd
-USER_NAME="${DAGSTER_USER:-codelab}"
 
 mkdir -p "$CONFIG_DIR"
 [ -f "$ENV_FILE" ] || : > "$ENV_FILE"
 chmod 600 "$ENV_FILE" 2>/dev/null || true
 
-# Derniere occurrence : upsert_block reecrit toujours son bloc en fin de
-# fichier, donc une valeur laissee plus haut est forcement la perimee.
-get_value() {
-  sed -n "s/^$1=//p" "$ENV_FILE" | tail -n 1
-}
-
-# Remplacement par BLOC entier (commentaires inclus), delimite par des
-# marqueurs -- meme mecanique que codelab-postgres et codelab-app-manager :
-# chaque service ne touche qu'a son propre bloc, les autres restent intacts
-# quel que soit l'ordre de demarrage.
+# Remplacement par BLOC entier, delimite par des marqueurs -- meme mecanique
+# que codelab-postgres et codelab-app-manager : chaque service ne touche qu'a
+# son propre bloc, les autres restent intacts quel que soit l'ordre de
+# demarrage.
 upsert_block() {
   name="$1"; content="$2"
   awk -v s="# ===== $name =====" -v e="# ===== /$name =====" \
@@ -41,26 +33,18 @@ upsert_block() {
   rm -f "$ENV_FILE.tmp"
 }
 
-PASSWORD="$(get_value DAGSTER_PASSWORD)"
-if [ -z "$PASSWORD" ]; then
-  PASSWORD="$(openssl rand -base64 18 | tr -d '\n/+=' | cut -c1-20)"
-  echo "[codelab-dagster-proxy] mot de passe genere."
-fi
-
-upsert_block "codelab-dagster-proxy" "# Acces a Dagster (http://<IP>:3000/), protege par mot de passe.
-# Dagster n'a aucune authentification a lui : ce proxy en ajoute une devant.
-# DAGSTER_USER / DAGSTER_PASSWORD : identifiants demandes par le navigateur.
-DAGSTER_USER=$USER_NAME
-DAGSTER_PASSWORD=$PASSWORD"
+# Le bloc n'est pas supprime mais remplace par une explication : quelqu'un qui
+# cherchera DAGSTER_PASSWORD dans ce fichier doit comprendre ou il est passe,
+# plutot que de trouver un vide.
+upsert_block "codelab-dagster-proxy" "# Dagster (http://<IP>:3000/) utilise desormais la SESSION DU PANNEAU.
+# Il n'y a plus ni DAGSTER_USER ni DAGSTER_PASSWORD : le mot de passe est
+# celui du panneau (APP_MANAGER_ADMIN_PASSWORD), avec son second facteur s'il
+# est active, et la deconnexion du panneau ferme aussi l'acces a Dagster.
+# L'authentification HTTP Basic precedente n'avait ni session, ni expiration,
+# ni deconnexion possible."
 chmod 600 "$ENV_FILE" 2>/dev/null || true
 
-# -b : mot de passe en argument, -c : cree le fichier. Reecrit a chaque
-# demarrage, ce qui reapplique une valeur changee a la main dans
-# credentials.env sans autre manipulation que le redemarrage du conteneur.
-htpasswd -bc "$HTPASSWD" "$USER_NAME" "$PASSWORD" >/dev/null 2>&1
-chmod 644 "$HTPASSWD"
-
-echo "[codelab-dagster-proxy] pret -- Dagster sur le port 3000, utilisateur \"$USER_NAME\"."
-echo "[codelab-dagster-proxy] mot de passe dans $ENV_FILE (cle DAGSTER_PASSWORD)."
+echo "[codelab-dagster-proxy] pret -- Dagster sur le port 3000."
+echo "[codelab-dagster-proxy] acces via la session du panneau (port 9001)."
 
 exec "$@"

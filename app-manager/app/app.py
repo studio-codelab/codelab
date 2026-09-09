@@ -1092,6 +1092,24 @@ def logout():
     return jsonify({"ok": True})
 
 
+@flask_app.get("/api/auth-check")
+def api_auth_check():
+    """Repond 200 si la session est valide, 401 sinon. Rien d'autre.
+
+    C'est le point d'appui du proxy de Dagster : nginx interroge cette route
+    avant chaque requete (directive auth_request) et laisse passer ou renvoie
+    vers la page de connexion du panneau. Dagster hérite ainsi de la session
+    du panneau -- meme mot de passe, meme second facteur, meme deconnexion --
+    au lieu d'avoir sa propre authentification HTTP Basic, qui n'a ni session,
+    ni expiration, ni deconnexion possible.
+    """
+    # Sans redirection, contrairement a require_auth : nginx a besoin d'un
+    # code, pas d'une page. C'est lui qui decide ou envoyer le visiteur.
+    if not is_authed():
+        return Response("", 401)
+    return Response("", 204)
+
+
 @flask_app.get("/health")
 def health():
     return Response("ok\n", mimetype="text/plain")

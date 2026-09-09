@@ -14,37 +14,44 @@ il n'est joignable que depuis le reseau interne de la stack, donc uniquement a t
 
 ## Ce que fait l'image
 
-- `nginx` alpine, avec `apache2-utils` (`htpasswd`) et `openssl`.
-- Authentification HTTP Basic : un utilisateur (`codelab` par defaut), un mot de passe genere au premier
-  demarrage et ecrit dans `credentials.env`.
+- `nginx` alpine, sans paquet supplementaire.
+- **Authentification par la session du panneau** : avant chaque requete, nginx interroge
+  `codelab-app-manager` (directive `auth_request`). Session valide, la requete passe ; sinon, le visiteur
+  est redirige vers la page de connexion du panneau.
 - Relais des **websockets** : l'interface de Dagster suit les runs par souscription GraphQL. Sans cela, la
   page s'affiche mais les journaux d'execution restent figes — une panne d'autant plus deroutante que tout
   le reste fonctionne.
 - Delais longs (1 h) et `proxy_buffering off` : un run peut rester silencieux longtemps, et ses journaux
   doivent arriver au fil de l'eau.
 
-## Identifiants
+## Pourquoi la session du panneau, et pas un mot de passe a lui
 
-Comme partout dans CodeLab, ils vivent dans `credentials.env`, dans un bloc delimite que ce service est
-seul a reecrire :
+L'authentification precedente etait en HTTP Basic. Elle fonctionnait, mais :
 
-```
-# ===== codelab-dagster-proxy =====
-DAGSTER_USER=codelab
-DAGSTER_PASSWORD=<genere au premier demarrage>
-# ===== /codelab-dagster-proxy =====
-```
+- **elle n'avait aucune session** — ni expiration, ni deconnexion, et le navigateur renvoyait les
+  identifiants a chaque requete jusqu'a sa fermeture complete ;
+- **sa fenetre etait celle du navigateur** — impossible a habiller, et l'interface deja chargee restait
+  visible derriere pendant qu'elle s'affichait ;
+- **elle faisait un deuxieme mot de passe** a retenir pour la meme personne, sans second facteur.
 
-Le mot de passe **n'est jamais regenere** par-dessus une valeur existante : il ne changerait sinon a chaque
-redemarrage. Pour le changer, editer la valeur dans `credentials.env` puis redemarrer le conteneur — le
-fichier `.htpasswd` est reconstruit a chaque demarrage a partir de cette valeur.
+Desormais Dagster herite de la session du panneau : meme mot de passe, meme double authentification si elle
+est activee, meme deconnexion. `DAGSTER_USER` et `DAGSTER_PASSWORD` n'existent plus — l'entrypoint remplace
+l'ancien bloc de `credentials.env` par une note expliquant ou ils sont passes, plutot que de laisser un vide.
+
+**Le cookie traverse les deux ports** parce que la portee d'un cookie ignore le numero de port : celui pose
+sur `:9001` est envoye a `:3000`. Et `SameSite=Lax` laisse passer une navigation de premier niveau, ce
+qu'est cette redirection.
+
+**En cas de panne du panneau**, la requete d'autorisation echoue et nginx rend une erreur : l'acces reste
+ferme. C'est le bon sens de defaillance — mieux vaut Dagster injoignable qu'ouvert a tous.
+
 
 ## Fichiers
 
 | Fichier | Role |
 |---|---|
-| `Dockerfile` | Image (nginx + htpasswd + openssl) |
-| `entrypoint.sh` | Genere le mot de passe si besoin, ecrit le bloc, fabrique `.htpasswd` |
+| `Dockerfile` | Image (nginx seul) |
+| `entrypoint.sh` | Remplace l'ancien bloc d'identifiants de `credentials.env` par une note |
 | `nginx.conf` | Le proxy lui-meme : authentification, websockets, delais |
 | `map-upgrade.conf` | `Connection: upgrade` seulement quand le client le demande |
 
@@ -70,17 +77,19 @@ ressortiraient en `502`.
 
 ## Limite connue
 
-L'authentification est en **HTTP Basic, sur une connexion en clair** : le mot de passe circule en clair sur
-le reseau local. C'est le compromis assume d'un service LAN sans TLS — le meme que pour le panneau
-(port `9001`). Cela ferme l'acces a qui passe par la, pas a qui ecoute le trafic.
+La session circule **sur une connexion en clair** tant qu'aucun TLS n'est en place : le cookie est
+interceptable sur le reseau local. C'est le compromis assume d'un service LAN sans TLS — le meme que pour le
+panneau (port `9001`), et la meme reponse : `APP_MANAGER_HTTPS=1` cote panneau des qu'un reverse proxy
+termine du TLS devant.
 
 ## Diagnostic
 
 ```bash
-curl -I http://<IP-du-serveur>:3000/            # 401 attendu : l'authentification est en place
-curl -I -u codelab:<mot-de-passe> http://<IP-du-serveur>:3000/   # 200
+curl -I http://<IP-du-serveur>:3000/          # 302 vers /login : l'authentification est en place
+curl -I http://<IP-du-serveur>:3000/_sante    # 200 : nginx est debout (sonde du healthcheck)
 docker logs codelab-dagster-proxy
 ```
 
-Un `200` sans identifiants signifierait que l'authentification est tombee. C'est exactement ce que verifie
-le `healthcheck` du service, qui attend un `401`.
+Un `200` sur `/` sans session signifierait que l'authentification est tombee. Le `healthcheck`, lui, sonde
+`/_sante` : une requete sur `/` redirige desormais, et le client du healthcheck suivrait cette redirection
+vers un hote qui n'existe pas dans ce conteneur.

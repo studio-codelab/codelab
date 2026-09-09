@@ -253,10 +253,10 @@ services:
       # 401 attendu sans identifiants : c'est la preuve que nginx repond ET
       # que l'authentification est bien en place. Un 200 ici signifierait
       # qu'elle est tombee.
-      # Pas de "-q" : c'est justement le message d'erreur de wget qui porte le
-      # code. Un 401 prouve que nginx repond ET que l'authentification tient ;
-      # serveur injoignable, le message est tout autre et le test echoue.
-      test: ["CMD-SHELL", "wget -O /dev/null http://127.0.0.1:3000/ 2>&1 | grep -q 401"]
+      # Sonde dediee, hors du chemin authentifie : une requete sur "/" sans
+      # session redirige maintenant vers le panneau, et wget suivrait cette
+      # redirection vers un hote absent de ce conteneur.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/_sante"]
       interval: 10s
       timeout: 5s
       retries: 5

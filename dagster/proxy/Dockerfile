@@ -1,8 +1,8 @@
 FROM nginx:1.27-alpine
 
-# htpasswd (apache2-utils) pour fabriquer le fichier d'authentification, et
-# openssl pour tirer un mot de passe au hasard au premier demarrage.
-RUN apk add --no-cache apache2-utils openssl
+# Aucun paquet supplementaire : l'authentification passe par le panneau
+# (directive auth_request de nginx, compilee dans l'image officielle), il n'y
+# a plus de fichier .htpasswd a fabriquer ni de mot de passe a tirer.
 
 # Les deux fichiers atterrissent dans conf.d, donc dans le contexte "http"
 # de nginx : c'est le seul endroit ou une directive "map" est acceptee.

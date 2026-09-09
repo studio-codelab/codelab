@@ -170,6 +170,19 @@ def test_la_limite_de_tentatives_ne_se_contourne_pas_par_en_tete(client):
                        headers={"X-Forwarded-For": "10.0.0.99"}).status_code == 429
 
 
+def test_le_point_d_appui_de_dagster_repond_par_un_code_sans_page(client):
+    """nginx interroge cette route avant chaque requete vers Dagster : il lui
+    faut un code, pas une redirection. Si elle se mettait a repondre 302
+    comme les autres routes protegees, nginx la lirait comme un refus et
+    Dagster deviendrait inaccessible meme connecte."""
+    r = client.get("/api/auth-check")
+    assert r.status_code == 401 and not r.data
+
+    client.post("/login", json={"password": "secret-de-test"})
+    r = client.get("/api/auth-check")
+    assert r.status_code == 204 and not r.data
+
+
 def test_le_cookie_de_session_est_samesite_lax(client):
     """Les actions du panneau sont des POST sans corps : sans SameSite, un
     formulaire pose sur un autre site peut les declencher avec le cookie de
