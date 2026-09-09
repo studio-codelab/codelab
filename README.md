@@ -76,12 +76,15 @@ Deux choses s'y reglent quand la stack sert a plusieurs, ou quand on ne veut plu
   redemarrage, un autre quand elle revient. Le serveur d'envoi est celui du bloc `codelab-alertes` de
   `credentials.env`, partage avec les alertes de Dagster.
 - **Comptes utilisateurs** (*Parametres > Comptes*) : des comptes nommes qui n'ouvrent que les projets
-  qu'on leur autorise, sans rien pouvoir administrer ni atteindre Dagster. Ils arrivent sur une page
-  « Mes projets » (`/espace`) au lieu du tableau de bord. L'autorisation ne concerne que les projets
-  **prives** : un projet public reste ouvert a tous. Le **second facteur y est obligatoire** : la
-  personne enregistre elle-meme une cle a sa premiere connexion, et tu peux la remettre a zero si
-  elle change de telephone. Chaque projet peut porter une **description** d'une ligne, affichee sous
-  son nom dans leur espace : la liste se lit alors comme un lanceur d'applications.
+  qu'on leur autorise, sans rien pouvoir administrer ni atteindre Dagster. L'autorisation ne concerne
+  que les projets **prives** : un projet public reste ouvert a tous. Le **second facteur y est
+  obligatoire** : la personne enregistre elle-meme une cle a sa premiere connexion, et tu peux la
+  remettre a zero si elle change de telephone.
+
+Le panneau est **une seule application avec deux modes**, a la meme adresse. Un compte utilisateur
+n'a que le **hub** : la liste des projets qu'il peut ouvrir, chacun avec sa description d'une ligne.
+Toi, tu bascules entre ce hub et le mode **developpeur** (projets, journaux, comptes, configuration)
+par deux boutons dans la barre du haut.
 
 Details dans [`app-manager/README.md`](app-manager/README.md).
 

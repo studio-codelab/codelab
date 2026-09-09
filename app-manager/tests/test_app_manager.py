@@ -885,3 +885,47 @@ def test_le_flux_refuse_le_dit_avec_un_code_utilisable(deux_espaces, monkeypatch
     r = c.get("/api/logs/public/stream")
     assert r.status_code == 503
     assert "journaux" in r.get_json()["error"]
+
+
+# ---------- 12. une seule application, deux modes ----------
+#
+# Le hub et l'outil de developpement sont deux modes de la meme page. Ce qui
+# doit rester vrai : la page est la meme pour tout le monde, mais elle sait
+# qui la regarde, et surtout les ROUTES continuent de decider -- une page
+# bricolee ne donne aucun droit.
+
+def test_la_meme_page_est_servie_aux_deux_roles(deux_espaces):
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    page_utilisateur = c.get("/").get_data(as_text=True)
+    assert '"utilisateur"' in page_utilisateur     # role injecte
+    assert "sec-hub" in page_utilisateur
+
+    c.post("/logout")
+    c.post("/login", json={"password": "secret-de-test"})
+    page_admin = c.get("/").get_data(as_text=True)
+    assert '"admin"' in page_admin
+    # Meme page : ce sont les memes sections, c'est le mode qui change.
+    assert "sec-hub" in page_admin and "mode-toggle" in page_admin
+    assert "sec-settings" in page_admin
+
+
+def test_l_ancienne_adresse_de_l_espace_ramene_a_la_page_unique(deux_espaces):
+    """Elle a pu etre mise en favori : elle ne doit pas tomber en 404."""
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    r = c.get("/espace")
+    assert r.status_code == 302 and r.headers["Location"].endswith("/")
+
+
+def test_le_mode_affiche_ne_donne_aucun_droit(deux_espaces):
+    """Le coeur du sujet : la page connait le role pour savoir quoi afficher,
+    mais un compte utilisateur qui appellerait les routes d'administration a
+    la main -- ou qui modifierait la page -- reste refuse."""
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    assert c.get("/").status_code == 200          # la page, oui
+    assert c.get("/api/apps").status_code == 403  # les droits, non
+    assert c.get("/api/utilisateurs").status_code == 403
+    # Et le hub, lui, reste servi aux deux roles.
+    assert c.get("/api/mes-apps").status_code == 200

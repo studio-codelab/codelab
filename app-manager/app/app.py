@@ -105,7 +105,6 @@ def _lire_ressource(nom):
 
 DASHBOARD_PAGE = _lire_ressource("dashboard.html")
 LOGIN_PAGE = _lire_ressource("login.html")
-ESPACE_PAGE = _lire_ressource("espace.html")
 
 
 flask_app = Flask(__name__)
@@ -2291,24 +2290,34 @@ def login_page():
 @flask_app.get("/")
 @require_auth
 def index():
-    # Le tableau de bord est l'outil d'administration : un compte utilisateur
-    # est envoye vers son espace, qui ne contient que ce qu'il peut ouvrir.
-    if not est_admin():
-        return redirect("/espace")
-    return Response(DASHBOARD_PAGE.replace("__ROOT__", json.dumps(ROOT)), mimetype="text/html")
+    """Une seule application, deux visages.
+
+    Le hub (la liste des projets qu'on peut ouvrir) et l'outil de
+    developpement (declarer, deployer, configurer, gerer les comptes) sont
+    deux modes de la MEME page, pas deux applications : l'administrateur
+    bascule de l'un a l'autre sans changer d'adresse ni se reconnecter.
+
+    Le role est injecte dans la page pour qu'elle sache quoi afficher --
+    mais ce n'est qu'un confort d'affichage : chaque route d'administration
+    verifie le role de son cote (require_admin), et une page bricolee ne
+    donne donc aucun droit supplementaire.
+    """
+    page = (DASHBOARD_PAGE
+            .replace("__ROOT__", json.dumps(ROOT))
+            .replace("__ROLE__", json.dumps(role_courant() or ""))
+            .replace("__UTILISATEUR__", json.dumps(utilisateur_courant())))
+    return Response(page, mimetype="text/html")
 
 
 @flask_app.get("/espace")
 @require_auth
 def espace():
-    """L'espace utilisateur : la liste de ses projets, et rien d'autre.
+    """Ancienne adresse de l'espace utilisateur.
 
-    Une page separee plutot qu'un tableau de bord ampute : masquer des
-    boutons laisse une interface pleine de creux, et surtout laisse croire
-    que la protection est dans l'affichage. Ici il n'y a simplement rien
-    d'autre a montrer.
+    Conservee parce qu'elle a pu etre mise en favori : le hub vit maintenant
+    dans la page principale, en tant que mode.
     """
-    return Response(ESPACE_PAGE, mimetype="text/html")
+    return redirect("/")
 
 
 @flask_app.get("/api/mes-apps")

@@ -184,20 +184,38 @@ minutes, par adresse IP.
 > **Le proxy `/<nom-app>/...` n'est volontairement pas protege par cette authentification** — seuls le dashboard
 > et son API le sont. Une application **publique** que tu deploies reste directement joignable (utile pour tester un
 > webhook, par exemple), independamment du mot de passe du panneau. Une application **privee**, elle,
-> exige une session : voir [Deux espaces](#deux-espaces--administrateur-et-utilisateurs).
+> exige une session : voir [Une seule application, deux modes](#une-seule-application-deux-modes).
 
-## Deux espaces : administrateur et utilisateurs
+## Une seule application, deux modes
 
 | | Administrateur | Utilisateur |
 |---|---|---|
 | Connexion | nom vide (ou `admin`) + mot de passe de `credentials.env` | son nom + son mot de passe |
 | Second facteur | optionnel, a activer depuis Parametres | **obligatoire** |
-| Page d'accueil | le tableau de bord (`/`) | son espace (`/espace`) |
+| Page d'accueil | le hub ou l'outil de developpement, au choix | le hub |
 | Declarer, editer, supprimer un projet | oui | non |
 | Demarrer, arreter, deployer, build | oui | non |
 | Visibilite, alertes, comptes, journaux | oui | non |
 | Dagster (`/api/auth-check`) | oui | **non** |
 | Ouvrir un projet | tous | ceux qu'on lui a autorises |
+
+**Le hub et l'outil de developpement sont deux modes de la meme page**, servie a la meme adresse
+(`/`) a tout le monde. L'administrateur bascule de l'un a l'autre par les deux boutons de la barre
+du haut, sans changer d'adresse ni se reconnecter, et le mode choisi est retenu d'une visite a
+l'autre :
+
+- **Hub** — la liste des projets ouvrables, telle que la voient les comptes utilisateurs (a ceci
+  pres que l'administrateur y voit tous les projets). Le menu lateral disparait : la page redevient
+  un lanceur.
+- **Developpeur** — la vue d'ensemble, les projets, les journaux, les parametres, les comptes.
+
+Un compte utilisateur n'a pas de bascule : il n'a que le hub, sans menu lateral et sans entree
+« Parametres ». Le role est injecte dans la page pour qu'elle sache quoi afficher, mais **ce n'est
+qu'un confort d'affichage** : chaque route d'administration verifie le role de son cote
+(`require_admin`), et une page bricolee dans le navigateur ne donne aucun droit supplementaire.
+
+`/espace`, l'ancienne adresse de l'espace utilisateur, redirige vers `/` : elle a pu etre mise en
+favori.
 
 Les comptes se creent depuis **Parametres > Comptes**. Chacun porte la liste des projets qu'il peut
 ouvrir ; la retirer prend effet immediatement, sans deconnexion — chaque controle relit le registre.
