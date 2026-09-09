@@ -531,6 +531,49 @@ d'ou constater ce qui se passe. Un build en echec n'empeche pas le demarrage : l
 
 Supprimer le marqueur autorise une nouvelle inscription, a condition que le panneau soit vide.
 
+## Identite visuelle
+
+Les quatre ecrans -- connexion, second facteur, hub et outil de developpement -- partagent une
+seule identite : **fond clair, barre de navigation en bleu nuit, accent indigo, cartes blanches**.
+
+Trois decisions structurantes, et leurs raisons :
+
+- **Fond clair, barre sombre.** Le contenu vit sur un gris tres clair, les cartes sont blanches, la
+  navigation est en bleu nuit. Le contraste entre les deux donne la hierarchie sans avoir besoin de
+  bordures partout. La barre reste sombre dans les deux themes : c'est l'element d'identite, il ne
+  doit pas changer de nature selon l'heure de la journee.
+- **Un seul accent.** L'indigo est reserve a ce qui est actionnable ou selectionne. Les etats
+  (En ligne, Arretee, Ne repond pas, En erreur, Public, Prive) ont leurs propres couleurs, jamais
+  l'accent -- sinon plus rien ne ressort.
+- **Deux densites, une identite.** Le hub respire (cartes, icones, peu de texte) ; le mode
+  developpeur est dense (tableau, chiffres alignes, actions compactes). C'est la meme interface,
+  reglee pour deux usages.
+
+La typographie est la pile systeme. Un panneau auto-heberge ne doit pas dependre d'un serveur de
+polices tiers pour s'afficher correctement -- et la police de l'appareil est deja chargee, deja
+lisible.
+
+## La fiche d'une application
+
+Chaque application a **une page**, ouverte en cliquant sa ligne dans le tableau. Avant, son etat,
+ses metriques, son journal et sa configuration vivaient dans trois pop-up differentes qu'il fallait
+ouvrir une par une pour se faire une idee.
+
+En-tete : l'icone, le nom, la description, les pastilles d'etat et de visibilite, et les actions --
+**Demarrer / Arreter**, **Redemarrer**, **Build** (si une commande de build existe), **Deployer**,
+la bascule de visibilite, et **Ouvrir**. Puis quatre onglets :
+
+| Onglet | Contenu |
+|---|---|
+| General | Adresse, port interne, reponse du port, visibilite, dossier, commandes, limite memoire, CPU et memoire du moment |
+| Metriques | Courbes CPU et memoire sur les deux dernieres minutes |
+| Journal | Le flux en direct, avec filtre |
+| Configuration | Description, commandes, limite memoire, visibilite, emplacement, et la suppression |
+
+Le flux de journal n'est ouvert **que** lorsque l'onglet Journal est affiche, et il est ferme des
+qu'on quitte la fiche : une place de flux est une ressource cote serveur (voir le plafond plus bas),
+la garder ouverte derriere un onglet qu'on ne regarde pas serait du gaspillage.
+
 ## Serveur HTTP
 
 Le panneau tourne derriere **waitress**, un serveur WSGI de production en Python pur. Ce n'est pas
