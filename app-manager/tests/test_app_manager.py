@@ -567,9 +567,33 @@ def deux_espaces(tmp_path, monkeypatch):
 
 
 def _connecte(client, nom, mdp):
+    """Connexion complete d'un compte utilisateur, second facteur compris.
+
+    Ces comptes n'ouvrent jamais de session sur le seul mot de passe : au
+    premier acces le serveur renvoie une cle a enregistrer, ensuite il exige
+    un code. Les deux cas sont traites ici pour que les tests de droits
+    parlent de droits et pas d'authentification.
+    """
     r = client.post("/login", json={"nom": nom, "password": mdp})
+    assert r.status_code in (200, 401), r.data
+    d = r.get_json()
+
+    if d.get("inscription"):
+        secret = d["secret"]
+        r = client.post("/login/second-facteur",
+                        json={"code": app.totp_code(secret, int(time.time()) // app.TOTP_PAS)})
+        assert r.status_code == 200, r.data
+        return r.get_json()
+
+    if d.get("totp"):
+        secret = app.lire_utilisateurs()[nom]["totp"]
+        r = client.post("/login", json={"nom": nom, "password": mdp,
+                                        "code": app.totp_code(secret, int(time.time()) // app.TOTP_PAS)})
+        assert r.status_code == 200, r.data
+        return r.get_json()
+
     assert r.status_code == 200, r.data
-    return r.get_json()
+    return d
 
 
 def test_un_utilisateur_ne_peut_rien_administrer(deux_espaces):
@@ -670,3 +694,114 @@ def test_un_droit_sur_un_projet_inexistant_n_est_pas_enregistre(deux_espaces):
     r = c.put("/api/utilisateurs/marie", json={"projets": ["public", "jamais-declare"]})
     assert r.status_code == 200
     assert app.lire_utilisateurs()["marie"]["projets"] == ["public"]
+
+
+# ---------- 9. second facteur obligatoire pour les comptes utilisateurs ----------
+#
+# Ces comptes existent pour etre distribues : leur mot de passe circule par un
+# canal qu'on ne maitrise pas, et sera reutilise ailleurs. Le point a tenir
+# est qu'un mot de passe seul n'ouvre JAMAIS de session -- ni avant
+# l'inscription du facteur, ni apres.
+
+def _code_valide(secret):
+    return app.totp_code(secret, int(time.time()) // app.TOTP_PAS)
+
+
+def test_le_mot_de_passe_seul_n_ouvre_aucune_session(deux_espaces):
+    """Le premier acces renvoie une cle a enregistrer, pas une session : entre
+    les deux, le cookie ne vaut rien."""
+    c = deux_espaces
+    r = c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long"})
+    assert r.status_code == 200 and r.get_json()["inscription"] is True
+
+    # La session intermediaire n'ouvre rien du tout.
+    assert c.get("/api/mes-apps").status_code == 401
+    assert c.get("/prive-autorise/").status_code == 302   # renvoye vers /login
+    assert c.get("/", follow_redirects=False).status_code == 302
+
+
+def test_l_inscription_ouvre_la_session_et_persiste_la_cle(deux_espaces):
+    c = deux_espaces
+    secret = c.post("/login", json={"nom": "marie",
+                                    "password": "mot-de-passe-long"}).get_json()["secret"]
+    # Rien n'est enregistre tant que le code n'est pas confirme : une cle mal
+    # recopiee ne doit pas enfermer dehors.
+    assert not app.lire_utilisateurs()["marie"].get("totp")
+
+    assert c.post("/login/second-facteur",
+                  json={"code": _code_valide(secret)}).status_code == 200
+    assert app.lire_utilisateurs()["marie"]["totp"] == secret
+    assert c.get("/api/mes-apps").status_code == 200
+
+
+def test_un_code_faux_n_enregistre_rien(deux_espaces):
+    c = deux_espaces
+    c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long"})
+    r = c.post("/login/second-facteur", json={"code": "000000"})
+    assert r.status_code == 400
+    assert not app.lire_utilisateurs()["marie"].get("totp")
+    assert c.get("/api/mes-apps").status_code == 401
+
+
+def test_une_fois_inscrit_le_code_est_exige_a_chaque_connexion(deux_espaces):
+    c = deux_espaces
+    secret = c.post("/login", json={"nom": "marie",
+                                    "password": "mot-de-passe-long"}).get_json()["secret"]
+    c.post("/login/second-facteur", json={"code": _code_valide(secret)})
+    c.post("/logout")
+
+    r = c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long"})
+    assert r.status_code == 401 and r.get_json()["totp"] is True
+    assert c.get("/api/mes-apps").status_code == 401
+
+    r = c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long",
+                               "code": _code_valide(secret)})
+    assert r.status_code == 200
+    assert c.get("/api/mes-apps").status_code == 200
+
+
+def test_la_reinitialisation_par_l_admin_refait_passer_par_l_inscription(deux_espaces):
+    """Telephone perdu : l'administrateur remet l'etape a zero, sans jamais
+    connaitre ni transmettre la cle de quelqu'un d'autre."""
+    c = deux_espaces
+    secret = c.post("/login", json={"nom": "marie",
+                                    "password": "mot-de-passe-long"}).get_json()["secret"]
+    c.post("/login/second-facteur", json={"code": _code_valide(secret)})
+    c.post("/logout")
+
+    c.post("/login", json={"password": "secret-de-test"})
+    assert c.get("/api/utilisateurs").get_json()["utilisateurs"][0]["totp"] is True
+    assert c.put("/api/utilisateurs/marie",
+                 json={"reinitialiser_totp": True}).status_code == 200
+    assert c.get("/api/utilisateurs").get_json()["utilisateurs"][0]["totp"] is False
+    c.post("/logout")
+
+    # Et l'ancienne cle ne vaut plus rien : c'est une NOUVELLE inscription.
+    r = c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long",
+                               "code": _code_valide(secret)})
+    assert r.get_json()["inscription"] is True
+    assert r.get_json()["secret"] != secret
+
+
+def test_l_inscription_ne_remplace_pas_un_facteur_deja_en_service(deux_espaces):
+    """Deux sessions ouvertes en parallele : la seconde ne doit pas ecraser la
+    cle que la premiere vient d'enregistrer, sinon le telephone deja
+    configure cesse de fonctionner."""
+    c = deux_espaces
+    secret = c.post("/login", json={"nom": "marie",
+                                    "password": "mot-de-passe-long"}).get_json()["secret"]
+    comptes = app.lire_utilisateurs()          # une autre session a fini avant
+    comptes["marie"]["totp"] = "AUTRECLEDEJAENREGISTREE"
+    app.ecrire_utilisateurs(comptes)
+
+    r = c.post("/login/second-facteur", json={"code": _code_valide(secret)})
+    assert r.status_code == 409
+    assert app.lire_utilisateurs()["marie"]["totp"] == "AUTRECLEDEJAENREGISTREE"
+
+
+def test_l_administrateur_garde_le_choix_de_son_second_facteur(deux_espaces):
+    """Le rendre obligatoire pour lui aussi pourrait l'enfermer hors de son
+    propre panneau : c'est un reglage, pas une regle."""
+    c = deux_espaces
+    assert not app.totp_actif()
+    assert c.post("/login", json={"password": "secret-de-test"}).status_code == 200

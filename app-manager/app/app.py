@@ -375,9 +375,15 @@ def totp_actif():
     return bool(_totp_secret)
 
 
-def totp_uri(secret):
-    """L'adresse otpauth:// que lisent les applications d'authentification."""
-    return (f"otpauth://totp/CodeLab:{TOTP_COMPTE}?secret={secret}"
+def totp_uri(secret, compte=None):
+    """L'adresse otpauth:// que lisent les applications d'authentification.
+
+    Le nom du compte apparait dans l'application du telephone : avec plusieurs
+    comptes CodeLab sur le meme appareil, "CodeLab:admin" et "CodeLab:marie"
+    se distinguent, la ou deux entrees "CodeLab" seraient indiscernables.
+    """
+    compte = compte or TOTP_COMPTE
+    return (f"otpauth://totp/CodeLab:{compte}?secret={secret}"
             f"&issuer=CodeLab&algorithm=SHA1&digits={TOTP_CHIFFRES}&period={TOTP_PAS}")
 
 
@@ -1490,6 +1496,77 @@ def login_submit():
         register_failed_attempt()
         return jsonify({"error": "Identifiants incorrects."}), 401
 
+    # Le second facteur n'est pas optionnel pour un compte utilisateur. Ces
+    # comptes existent pour etre distribues -- a un collegue, a un client --
+    # donc leur mot de passe circule par un canal qu'on ne maitrise pas, et
+    # sera reutilise ailleurs. C'est exactement le cas ou un seul secret ne
+    # suffit pas. L'administrateur, lui, garde le choix : lui imposer le
+    # second facteur d'office pourrait l'enfermer hors de son propre panneau.
+    secret = compte.get("totp") or ""
+    if not secret:
+        # Premier acces : inscription obligatoire avant toute session. Le
+        # secret candidat vit dans le cookie signe -- rien n'est enregistre
+        # tant qu'un code valide n'a pas ete fourni, donc une cle mal
+        # recopiee ne peut pas enfermer dehors, et deux personnes peuvent
+        # s'inscrire en meme temps sans se marcher dessus.
+        candidat = totp_nouveau_secret()
+        session["totp_candidat"] = candidat
+        session["totp_inscription"] = nom
+        return jsonify({"inscription": True, "secret": candidat,
+                        "uri": totp_uri(candidat, nom), "compte": nom})
+
+    if not totp_verifie(secret, d.get("code")):
+        register_failed_attempt()
+        return jsonify({"error": "Code de verification incorrect.",
+                        "totp": True}), 401
+
+    session.pop("totp_candidat", None)
+    session.pop("totp_inscription", None)
+    session.permanent = True
+    session["authed"] = True
+    session["role"] = ROLE_UTILISATEUR
+    session["utilisateur"] = nom
+    return jsonify({"ok": True, "role": ROLE_UTILISATEUR})
+
+
+@flask_app.post("/login/second-facteur")
+def login_second_facteur():
+    """Confirme l'inscription au second facteur, et ouvre la session.
+
+    Etape distincte de /login : entre les deux, la session ne vaut rien --
+    elle ne porte pas "authed", donc elle n'ouvre aucune page ni aucune
+    application. Le mot de passe seul ne suffit jamais a entrer.
+    """
+    if rate_limited():
+        return jsonify({"error": "Trop de tentatives. Reessaie dans quelques minutes."}), 429
+    nom = session.get("totp_inscription")
+    candidat = session.get("totp_candidat")
+    if not (nom and candidat):
+        return jsonify({"error": "Recommence la connexion : aucune inscription en attente."}), 400
+
+    code = (request.get_json(force=True, silent=True) or {}).get("code")
+    if not totp_verifie(candidat, code):
+        register_failed_attempt()
+        return jsonify({"error": "Code incorrect. Verifie l'heure de ton telephone."}), 400
+
+    comptes = lire_utilisateurs()
+    compte = comptes.get(nom)
+    if not compte:
+        return jsonify({"error": "Compte inconnu."}), 404
+    # Course possible : l'administrateur a pu inscrire un secret entre-temps
+    # (une autre session du meme compte). Le premier enregistre gagne, plutot
+    # que d'ecraser un facteur deja en service sur un autre telephone.
+    if compte.get("totp"):
+        return jsonify({"error": "Un second facteur a deja ete enregistre. "
+                                 "Recommence la connexion."}), 409
+    compte["totp"] = candidat
+    try:
+        ecrire_utilisateurs(comptes)
+    except OSError as e:
+        return jsonify({"error": f"Second facteur non enregistre : {e}"}), 500
+
+    session.pop("totp_candidat", None)
+    session.pop("totp_inscription", None)
     session.permanent = True
     session["authed"] = True
     session["role"] = ROLE_UTILISATEUR
@@ -1685,6 +1762,10 @@ def api_utilisateurs():
     return jsonify({"utilisateurs": [
         {"nom": nom,
          "projets": sorted(c.get("projets", [])),
+         # Pas le secret, seulement le fait qu'il existe : "en attente"
+         # signale un compte cree mais jamais utilise, ce qui se voit d'un
+         # coup d'oeil et se corrige en relancant la personne.
+         "totp": bool(c.get("totp")),
          "cree": c.get("cree")}
         for nom, c in sorted(comptes.items())]})
 
@@ -1751,6 +1832,14 @@ def api_utilisateur_modifier(nom):
             return jsonify({"error": "Mot de passe : 8 caracteres au minimum."}), 400
         compte["sel"] = secrets.token_hex(16)
         compte["hash"] = derive_mot_de_passe(mdp, compte["sel"])
+
+    # Telephone perdu ou remplace : on efface le secret, et la personne
+    # s'inscrit de nouveau a sa prochaine connexion. C'est le seul moyen de
+    # rendre l'acces sans jamais transmettre un secret par un canal tiers --
+    # l'administrateur ne connait a aucun moment le facteur de quelqu'un
+    # d'autre.
+    if d.get("reinitialiser_totp"):
+        compte.pop("totp", None)
 
     try:
         ecrire_utilisateurs(comptes)

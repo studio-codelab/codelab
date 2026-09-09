@@ -78,7 +78,9 @@ Deux choses s'y reglent quand la stack sert a plusieurs, ou quand on ne veut plu
 - **Comptes utilisateurs** (*Parametres > Comptes*) : des comptes nommes qui n'ouvrent que les projets
   qu'on leur autorise, sans rien pouvoir administrer ni atteindre Dagster. Ils arrivent sur une page
   « Mes projets » (`/espace`) au lieu du tableau de bord. L'autorisation ne concerne que les projets
-  **prives** : un projet public reste ouvert a tous.
+  **prives** : un projet public reste ouvert a tous. Le **second facteur y est obligatoire** : la
+  personne enregistre elle-meme une cle a sa premiere connexion, et tu peux la remettre a zero si
+  elle change de telephone.
 
 Details dans [`app-manager/README.md`](app-manager/README.md).
 

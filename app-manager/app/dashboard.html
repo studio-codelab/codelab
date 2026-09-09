@@ -223,7 +223,7 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:var(--bg
 .settings-card .field+.field{margin-top:14px}
 .settings-card .grid2+.field{margin-top:14px}
 .us-compte{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:10px}
-.us-tete{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.us-tete{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
 .us-tete .spacer{flex:1}
 .us-cases{display:flex;flex-wrap:wrap;gap:8px 14px}
 .us-case{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--txt);
@@ -613,6 +613,11 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:var(--bg
         pas de deploiement, pas de configuration, pas de Dagster. L'autorisation ne compte que pour
         les projets <b>prives</b> — un projet public reste ouvert a tout le monde, y compris sans
         connexion.</div>
+      <div class="hint" style="margin-top:8px"><b>Le second facteur est obligatoire</b> pour ces
+        comptes : a sa premiere connexion, la personne enregistre une cle dans son application
+        d'authentification, et un code lui sera demande ensuite a chaque fois. Tu ne connais jamais
+        sa cle — en cas de telephone perdu, remets l'etape a zero et elle en enregistrera une
+        nouvelle.</div>
 
       <div id="us-liste" style="margin-top:14px"></div>
 
@@ -1139,10 +1144,17 @@ async function chargerUtilisateurs(){
           onchange="usProjets('${esc(c.nom)}')">
         ${esc(a.name)}${prive?'':' <span>(public)</span>'}</label>`;
     }).join('') || '<div class="hint">Aucun projet declare.</div>';
+    /* L'etat du second facteur en premier : "en attente" designe un compte
+       cree mais jamais utilise, ce qui se voit d'un coup d'oeil. */
+    const f = c.totp
+      ? '<span class="pill on"><i></i>2FA enregistree</span>'
+      : '<span class="pill off"><i></i>2FA en attente</span>';
     return `<div class="us-compte">
-      <div class="us-tete"><b>${esc(c.nom)}</b>
+      <div class="us-tete"><b>${esc(c.nom)}</b>${f}
         <div class="spacer"></div>
         <button class="btn btn-default btn-sm" onclick="usMotDePasse('${esc(c.nom)}')">Mot de passe</button>
+        ${c.totp ? `<button class="btn btn-default btn-sm"
+          onclick="usReinitTotp('${esc(c.nom)}')">Reinitialiser la 2FA</button>` : ''}
         <button class="btn btn-default btn-sm" onclick="usSupprimer('${esc(c.nom)}')">Supprimer</button>
       </div>
       <div class="us-cases">${cases}</div></div>`;
@@ -1177,6 +1189,16 @@ async function usMotDePasse(nom){
     headers:{'Content-Type':'application/json'},body:JSON.stringify({mot_de_passe:mdp})});
   const d=await r.json();
   usErreur(r.ok ? '' : (d.error||'Modification impossible.'));
+}
+
+async function usReinitTotp(nom){
+  if(!confirm('Remettre a zero le second facteur de « '+nom+' » ?\n\n'
+    +'Il devra enregistrer une nouvelle cle a sa prochaine connexion. '
+    +'A faire quand il a change ou perdu son telephone.')) return;
+  const r=await fetch('/api/utilisateurs/'+encodeURIComponent(nom),{method:'PUT',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({reinitialiser_totp:true})});
+  if(!r.ok){ const d=await r.json(); usErreur(d.error||'Modification impossible.'); return; }
+  usErreur(''); chargerUtilisateurs();
 }
 
 async function usSupprimer(nom){

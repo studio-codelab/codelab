@@ -191,7 +191,7 @@ minutes, par adresse IP.
 | | Administrateur | Utilisateur |
 |---|---|---|
 | Connexion | nom vide (ou `admin`) + mot de passe de `credentials.env` | son nom + son mot de passe |
-| Second facteur | oui, s'il est active | non |
+| Second facteur | optionnel, a activer depuis Parametres | **obligatoire** |
 | Page d'accueil | le tableau de bord (`/`) | son espace (`/espace`) |
 | Declarer, editer, supprimer un projet | oui | non |
 | Demarrer, arreter, deployer, build | oui | non |
@@ -214,6 +214,36 @@ Trois points meritent d'etre explicites :
 - **Le controle est dans les routes, pas dans l'interface.** Masquer un bouton ne protege rien : une
   route reste appelable a la main. `require_admin` garde les routes d'administration, et le proxy
   verifie l'autorisation projet par projet — connaitre l'adresse d'un projet prive ne suffit pas.
+
+### Le second facteur, obligatoire pour les comptes utilisateurs
+
+Ces comptes existent pour etre distribues — a un collegue, a un client. Leur mot de passe circule
+donc par un canal qu'on ne maitrise pas, et sera reutilise ailleurs : c'est exactement le cas ou un
+seul secret ne suffit pas. Un compte utilisateur n'ouvre **jamais** de session sur le seul mot de
+passe.
+
+L'administrateur, lui, garde le choix (Parametres > Securite) : le lui imposer d'office pourrait
+l'enfermer hors de son propre panneau. Il est vivement conseille de l'activer avant toute
+exposition.
+
+Le parcours, en trois etats :
+
+1. **Compte cree** — le panneau affiche « 2FA en attente ». Rien a transmettre a la personne en
+   dehors de son nom et de son mot de passe.
+2. **Premiere connexion** — apres le mot de passe, la page affiche une cle a enregistrer dans une
+   application d'authentification, puis demande le code qu'elle produit. Entre les deux, **la
+   session ne vaut rien** : elle ne porte pas `authed`, donc elle n'ouvre ni page ni application.
+   Rien n'est enregistre tant que le code n'est pas valide — une cle mal recopiee ne peut pas
+   enfermer dehors.
+3. **Ensuite** — le code est exige a chaque connexion, et le panneau affiche « 2FA enregistree ».
+
+L'administrateur ne connait a aucun moment la cle de quelqu'un d'autre : elle est tiree au premier
+acces et n'apparait que sur l'ecran de la personne concernee. **Telephone perdu ou remplace** :
+*Reinitialiser la 2FA* efface le secret, et la personne en enregistre un nouveau a sa prochaine
+connexion. Les sessions deja ouvertes ne sont pas coupees par cette remise a zero.
+
+Une inscription ne remplace jamais un facteur deja en service (409) : deux connexions en parallele
+ne peuvent pas invalider le telephone que l'une des deux vient de configurer.
 
 Les mots de passe des comptes sont derives (PBKDF2-HMAC-SHA256, 200 000 iterations, un sel par
 compte) et stockes dans `utilisateurs.json` en `0600`. Une copie de sauvegarde du dossier d'etat
