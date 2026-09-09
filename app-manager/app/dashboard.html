@@ -487,6 +487,12 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
       <rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
       <span>Applications</span>
       <span class="side-count" id="side-count">0</span></div>
+    <div class="side-item" data-sec="users" onclick="showSection('users')">
+      <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.4"/>
+      <path d="M2.5 20c0-3.6 2.9-6.5 6.5-6.5s6.5 2.9 6.5 6.5"/>
+      <path d="M16.5 5.2a3.4 3.4 0 010 6.1"/><path d="M18 13.9c2.1.7 3.5 2.6 3.5 4.9"/></svg>
+      <span>Utilisateurs</span>
+      <span class="side-count" id="side-count-users">0</span></div>
   </div>
 </nav>
 
@@ -827,10 +833,59 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
   </div>
 </div>
 
+<!-- ==================== UTILISATEURS ==================== -->
+<!-- Les comptes vivaient dans Configuration, entre les categories et les
+     alertes. Ils meritent leur propre entree : gerer qui entre n'est pas un
+     reglage du serveur, c'est une activite a part entiere. -->
+<div id="sec-users" class="section" style="display:none">
+  <div class="toolbar"><h2>Utilisateurs</h2></div>
+  <div class="sous">Les comptes qui ouvrent ce serveur, et ce que chacun peut voir.</div>
+
+  <div class="zone">
+    <div class="zone-title">Comptes</div>
+    <div class="card settings-card" style="max-width:none">
+      <div class="card-top"><div class="card-name">
+        <b>Espaces utilisateurs</b>
+        <div class="path">Des comptes qui n'ouvrent que les projets que tu leur autorises.</div>
+      </div></div>
+
+      <div class="hint">Un compte utilisateur voit une page « Mes projets » et rien d'autre :
+        pas de deploiement, pas de configuration, pas de Dagster. L'autorisation ne compte que pour
+        les projets <b>prives</b> — un projet public reste ouvert a tout le monde, y compris sans
+        connexion.</div>
+      <div class="hint" id="us-inscription-libre" style="margin-top:8px;display:none"></div>
+      <div class="hint" style="margin-top:8px"><b>Le second facteur est obligatoire</b> pour ces
+        comptes : a sa premiere connexion, la personne enregistre une cle dans son application
+        d'authentification, et un code lui sera demande ensuite a chaque fois. Tu ne connais jamais
+        sa cle — en cas de telephone perdu, remets l'etape a zero et elle en enregistrera une
+        nouvelle.</div>
+
+      <div id="us-liste" style="margin-top:14px"></div>
+
+      <div class="field" style="margin-top:14px">
+        <label>Nouveau compte</label>
+        <input id="us-nom" placeholder="marie" autocomplete="off">
+        <div class="hint">Minuscules, chiffres, tiret ou souligne.</div>
+      </div>
+      <div class="field"><label>Adresse mail <span class="opt">facultatif</span></label>
+        <input id="us-mail" type="email" placeholder="marie@example.com" autocomplete="off">
+        <div class="hint">Elle relie le compte a quelqu'un de joignable. La personne la confirmera
+          elle-meme, par un code recu dessus, depuis ses parametres.</div>
+      </div>
+      <div class="field"><label>Mot de passe</label>
+        <input id="us-mdp" type="password" autocomplete="new-password" placeholder="8 caracteres au minimum">
+      </div>
+      <button class="btn btn-primary" id="us-creer" onclick="usCreer()"
+        style="margin-top:14px">Creer le compte</button>
+      <div class="err" id="us-err" style="display:none"></div>
+    </div>
+  </div>
+</div>
+
 <!-- ==================== CONFIGURATION (administrateur) ==================== -->
 <div id="sec-settings" class="section" style="display:none">
   <div class="toolbar"><h2>Configuration</h2></div>
-  <div class="sous">Ce qui vaut pour tout le serveur : exposition, comptes et alertes.</div>
+  <div class="sous">Ce qui vaut pour tout le serveur : exposition, categories et alertes.</div>
 
   <div class="zone">
     <div class="zone-title">Serveur</div>
@@ -871,46 +926,6 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
       </div>
       <div class="err" id="cat-err" style="display:none"></div>
       <div class="hint" id="cat-msg" style="display:none"></div>
-    </div>
-  </div>
-
-  <div class="zone">
-    <div class="zone-title">Comptes</div>
-    <div class="card settings-card">
-      <div class="card-top"><div class="card-name">
-        <b>Espaces utilisateurs</b>
-        <div class="path">Des comptes qui n'ouvrent que les projets que tu leur autorises.</div>
-      </div></div>
-
-      <div class="hint">Un compte utilisateur voit une page « Mes projets » et rien d'autre :
-        pas de deploiement, pas de configuration, pas de Dagster. L'autorisation ne compte que pour
-        les projets <b>prives</b> — un projet public reste ouvert a tout le monde, y compris sans
-        connexion.</div>
-      <div class="hint" id="us-inscription-libre" style="margin-top:8px;display:none"></div>
-      <div class="hint" style="margin-top:8px"><b>Le second facteur est obligatoire</b> pour ces
-        comptes : a sa premiere connexion, la personne enregistre une cle dans son application
-        d'authentification, et un code lui sera demande ensuite a chaque fois. Tu ne connais jamais
-        sa cle — en cas de telephone perdu, remets l'etape a zero et elle en enregistrera une
-        nouvelle.</div>
-
-      <div id="us-liste" style="margin-top:14px"></div>
-
-      <div class="field" style="margin-top:14px">
-        <label>Nouveau compte</label>
-        <input id="us-nom" placeholder="marie" autocomplete="off">
-        <div class="hint">Minuscules, chiffres, tiret ou souligne.</div>
-      </div>
-      <div class="field"><label>Adresse mail <span class="opt">facultatif</span></label>
-        <input id="us-mail" type="email" placeholder="marie@example.com" autocomplete="off">
-        <div class="hint">Elle relie le compte a quelqu'un de joignable. La personne la confirmera
-          elle-meme, par un code recu dessus, depuis ses parametres.</div>
-      </div>
-      <div class="field"><label>Mot de passe</label>
-        <input id="us-mdp" type="password" autocomplete="new-password" placeholder="8 caracteres au minimum">
-      </div>
-      <button class="btn btn-primary" id="us-creer" onclick="usCreer()"
-        style="margin-top:14px">Creer le compte</button>
-      <div class="err" id="us-err" style="display:none"></div>
     </div>
   </div>
 
@@ -1075,8 +1090,8 @@ function showSection(name){
   /* L'etat de securite est relu a chaque ouverture : il peut avoir change
      depuis un autre onglet, ou au redemarrage du service. */
   if(name==='profil'){ chargerMonCompte(); if(estAdmin) chargerSecurite(); }
-  if(name==='settings'){ chargerSecurite(); chargerAlertes(); chargerUtilisateurs();
-                         chargerCategories(); chargerInscriptionLibre(); }
+  if(name==='users'){ chargerUtilisateurs(); chargerInscriptionLibre(); }
+  if(name==='settings'){ chargerSecurite(); chargerAlertes(); chargerCategories(); }
 }
 
 /* ---------------- etats ---------------- */
@@ -1288,7 +1303,7 @@ async function refresh(){
      refleter. Redessine seulement quand la liste des noms a change -- sinon on
      effacerait une case qu'on vient de cocher, toutes les 5 secondes. */
   const noms=apps.map(a=>a.name).join('|');
-  if(noms!==dernierNoms && $('sec-settings').style.display!=='none') chargerUtilisateurs();
+  if(noms!==dernierNoms && $('sec-users').style.display!=='none') chargerUtilisateurs();
   dernierNoms=noms;
 }
 let dernierNoms='';
@@ -1629,6 +1644,7 @@ async function chargerUtilisateurs(){
   let d;
   try{ d=await (await fetch('/api/utilisateurs')).json(); }catch(e){ return; }
   const comptes=d.utilisateurs||[];
+  $('side-count-users').textContent=comptes.length;
   if(!comptes.length){
     $('us-liste').innerHTML='<div class="hint">Aucun compte utilisateur. '
       +'Toi seul peux ouvrir les projets prives.</div>';
@@ -1984,9 +2000,10 @@ if(estAdmin){
   /* « Hub » cote administrateur : il y voit TOUTES les applications, pas
      seulement les siennes -- le titre « Mes applications » serait faux. */
   $('hub-titre').textContent='Hub';
-  /* Le compteur du menu lateral doit etre juste des la premiere seconde,
-     avant meme qu'on ouvre « Applications ». */
+  /* Les compteurs du menu lateral doivent etre justes des la premiere
+     seconde, avant meme qu'on ouvre « Applications » ou « Utilisateurs ». */
   refresh();
+  chargerUtilisateurs();
   setInterval(()=>{ if(visible('sec-overview')||visible('sec-apps')||visible('sec-app')) refresh(); }, 5000);
   /* Les metriques de la fiche ne se rafraichissent que lorsqu'on les regarde. */
   setInterval(()=>{

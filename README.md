@@ -75,7 +75,7 @@ Deux choses s'y reglent quand la stack sert a plusieurs, ou quand on ne veut plu
 - **Alertes par mail** (*Parametres > Alertes*) : un mail quand une application a epuise ses tentatives de
   redemarrage, un autre quand elle revient. Le serveur d'envoi est celui du bloc `codelab-alertes` de
   `credentials.env`, partage avec les alertes de Dagster.
-- **Comptes utilisateurs** (*Parametres > Comptes*) : des comptes nommes qui n'ouvrent que les projets
+- **Comptes utilisateurs** (*Utilisateurs*, dans le menu lateral) : des comptes nommes qui n'ouvrent que les projets
   qu'on leur autorise, sans rien pouvoir administrer ni atteindre Dagster. L'autorisation ne concerne
   que les projets **prives** : un projet public reste ouvert a tous. Le **second facteur y est
   obligatoire** : la personne enregistre elle-meme une cle a sa premiere connexion, et tu peux la

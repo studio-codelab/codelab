@@ -940,6 +940,23 @@ def test_le_hub_est_l_accueil_des_deux_roles(deux_espaces):
     assert "Serveur en service" not in page
 
 
+def test_les_comptes_ont_leur_propre_entree_de_menu(deux_espaces):
+    """Gerer qui entre n'est pas un reglage du serveur.
+
+    Les comptes vivaient dans Configuration, entre les categories et les
+    alertes. Ils ont leur section, et le menu lateral y mene.
+    """
+    c = deux_espaces
+    c.post("/login", json={"password": "secret-de-test"})
+    page = c.get("/").get_data(as_text=True)
+    assert 'id="sec-users"' in page
+    assert 'data-sec="users"' in page
+    # La liste des comptes se dessine dans la section Utilisateurs, plus
+    # dans Configuration : une seule place, pour ne pas la dedoubler.
+    avant, apres = page.split('id="sec-settings"', 1)
+    assert 'id="us-liste"' in avant and 'id="us-liste"' not in apres
+
+
 def test_les_parametres_personnels_existent_pour_les_deux_roles(deux_espaces):
     """« Parametres » est personnel, « Configuration » est au serveur.
 

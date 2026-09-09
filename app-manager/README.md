@@ -205,8 +205,8 @@ comprendre — c'est le role qui decide de ce que le menu propose en plus :
 
 - **Le hub** — la liste des projets ouvrables, l'accueil de tous les comptes (a ceci pres que
   l'administrateur y voit tous les projets, l'utilisateur seulement les siens).
-- **Le menu lateral**, administrateur seulement — la vue d'ensemble, les applications, et la fiche
-  d'un projet avec ses journaux.
+- **Le menu lateral**, administrateur seulement — la vue d'ensemble, les applications (et la fiche
+  d'un projet avec ses journaux), et les **utilisateurs**.
 - **Le menu du compte**, en haut a droite — **Parametres** (l'affichage, le second facteur, la
   session) pour tout le monde ; **Configuration** (exposition, comptes, alertes) pour
   l'administrateur seul.
@@ -218,7 +218,7 @@ page bricolee dans le navigateur ne donne aucun droit supplementaire.
 `/espace`, l'ancienne adresse de l'espace utilisateur, redirige vers `/` : elle a pu etre mise en
 favori.
 
-Les comptes se creent depuis **Parametres > Comptes**. Chacun porte la liste des projets qu'il peut
+Les comptes se creent depuis **Utilisateurs**, dans le menu lateral. Chacun porte la liste des projets qu'il peut
 ouvrir ; la retirer prend effet immediatement, sans deconnexion — chaque controle relit le registre.
 
 Trois points meritent d'etre explicites :
