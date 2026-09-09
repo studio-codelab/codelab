@@ -69,7 +69,7 @@ a jour, aucun fichier central a editer : ni `/workspace/definitions.py`, ni le
 ```bash
 cd /workspace
 mkdir mon-projet && cd mon-projet       # ou : npm create vite@latest mon-projet
-git init                                # optionnel, mais debloque "Git pull"
+git init                                # optionnel : le panneau ne touche plus a git
 codelab agents                          # le AGENTS.md du projet
 ```
 

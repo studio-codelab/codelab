@@ -82,8 +82,8 @@ chaque tache. Voir [`DEVELOPPER.md`](DEVELOPPER.md).
 
 ## Un seul fichier de secrets
 
-Mot de passe Postgres, mot de passe admin app-manager, mot de passe Dagster, cle de session : **tout est
-dans `credentials.env`, et nulle part ailleurs.** Aucun fichier mono-secret a cote, rien a aller chercher dans un conteneur :
+Mot de passe Postgres, mot de passe admin app-manager, mot de passe Dagster, cle de session, secret de
+double authentification : **tout est dans `credentials.env`, et nulle part ailleurs.** Aucun fichier mono-secret a cote, rien a aller chercher dans un conteneur :
 ```bash
 cat /DATA/AppData/codelab/config/credentials.env
 ```

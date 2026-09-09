@@ -10,7 +10,10 @@ ENV PYTHONDONTWRITEBYTECODE=1
 # alors que la meme commande marchait en SSH -- et la seule parade etait de
 # rajouter a la main un PATH vers le node installe dans /workspace, avec un
 # numero de version fige dans la commande de build.
-# git : le bouton "Git pull" du panneau appelle la commande directement.
+# git : plus aucun bouton du panneau ne l'appelle -- il reste parce que "npm ci"
+# en a besoin des qu'une dependance est declaree par une adresse git, ce qui
+# arrive sans prevenir dans un arbre de dependances. Le retirer ferait echouer
+# ces builds avec un message peu parlant.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         acl \
