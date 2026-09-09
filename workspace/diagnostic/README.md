@@ -83,6 +83,11 @@ pris l'uid de l'utilisateur cible. Un dossier non traversable ou un fichier appa
 reseau ne voit cette panne — celle-ci calcule les droits depuis les metadonnees (et non avec `os.access()`,
 qui mentirait puisque le code tourne en `root`) et affiche la commande exacte a lancer.
 
+C'est aussi pour cela qu'elle ne se fie jamais a sa propre capacite a ouvrir le fichier : cote
+app-manager elle tourne sous l'uid 1001, et `authorized_keys` appartient a l'uid 1000 en `0600` —
+exactement ce qu'on veut. Elle perd alors le comptage des cles, qu'elle remplace par la taille du
+fichier (une metadonnee, donc encore lisible) : un fichier vide reste detecte.
+
 ## En cas d'echec
 
 Rien ne plante : chaque sonde affiche l'exception ou la cause dans la colonne de droite. Cote Dagster,
@@ -92,11 +97,13 @@ l'asset echoue explicitement avec la liste des sondes en defaut, detail dans les
 |---|---|
 | `aucun pilote Postgres` | La commande de build n'a pas ete lancee (dossier `vendor/` absent) |
 | `nom introuvable` | Conteneur arrete : le DNS Docker n'inscrit que les conteneurs demarres |
+| `connexion refusee` | Le conteneur tourne, mais le service qu'il heberge non : il demarre encore (Dagster met une dizaine de secondes a charger le code) ou il est tombe. `docker logs --tail 50 <conteneur>` |
 | `password authentication failed` | Le mot de passe en base ne correspond plus a `credentials.env` |
 | `no password supplied` | Le panneau n'a pas transmis `POSTGRES_PASSWORD` : `credentials.env` est en `0600 root` et l'application tourne sous l'uid 1001. Redemarre `codelab-app-manager`, puis l'application |
 | `credentials.env introuvable` | Volume `config` non monte sur le service |
 | `ne peut pas le traverser` | `chmod 755` sur `config/ssh` |
 | `illisible par l'uid 1000` | `chown 1000:1000` sur `authorized_keys` |
+| `contenu non verifiable depuis ce conteneur` | Pas une panne : la sonde tourne sous l'uid 1001 et le fichier appartient a l'uid 1000. Les droits, eux, ont bien ete verifies |
 | `definitions.py absent` | L'agregateur n'est pas a la racine de `/workspace` |
 
 Comparer les deux cotes est souvent plus parlant que chaque sonde prise isolement : une verification qui
