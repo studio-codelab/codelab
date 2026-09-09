@@ -131,15 +131,18 @@ DESTINATAIRES = [
 ]
 ```
 
-**Les identifiants SMTP, dans `credentials.env`.** Le fichier est gere **par bloc** — chaque service ne
-reecrit que le sien — donc un bloc sous un nom qu'aucun service ne connait survit a tous les redemarrages
-et a une reinstallation.
+**Les identifiants SMTP, dans `credentials.env`.** Le plus simple est de les saisir depuis le panneau
+(`http://<IP-du-serveur>:9001/` -> **Parametres > Alertes**) : il ecrit le bloc `codelab-alertes`, celui-la meme
+que lit ce capteur. Une seule configuration d'envoi pour toute la stack, et un bouton « mail de test »
+pour la verifier avant de compter dessus.
+
+A la main, si tu preferes. Le fichier est gere **par bloc** — chaque service ne reecrit que le sien :
 
 ```bash
 sudo tee -a /DATA/AppData/codelab/config/credentials.env > /dev/null <<'EOF'
 # ===== codelab-alertes =====
-# Identifiants SMTP pour les alertes Dagster. Bloc ajoute a la main :
-# aucun service ne le reecrit.
+# Identifiants SMTP, partages par ce capteur et par les alertes du panneau.
+# Le panneau reecrit ce bloc quand on l'enregistre depuis Parametres > Alertes.
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_TLS=starttls

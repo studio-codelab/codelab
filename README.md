@@ -70,6 +70,18 @@ leurs logs. Protege par mot de passe, genere automatiquement au premier demarrag
 recuperer). Le parcours complet, du dossier vide a l'application en ligne, est decrit dans
 [`DEVELOPPER.md`](DEVELOPPER.md).
 
+Deux choses s'y reglent quand la stack sert a plusieurs, ou quand on ne veut plus la surveiller a l'oeil :
+
+- **Alertes par mail** (*Parametres > Alertes*) : un mail quand une application a epuise ses tentatives de
+  redemarrage, un autre quand elle revient. Le serveur d'envoi est celui du bloc `codelab-alertes` de
+  `credentials.env`, partage avec les alertes de Dagster.
+- **Comptes utilisateurs** (*Parametres > Comptes*) : des comptes nommes qui n'ouvrent que les projets
+  qu'on leur autorise, sans rien pouvoir administrer ni atteindre Dagster. Ils arrivent sur une page
+  « Mes projets » (`/espace`) au lieu du tableau de bord. L'autorisation ne concerne que les projets
+  **prives** : un projet public reste ouvert a tous.
+
+Details dans [`app-manager/README.md`](app-manager/README.md).
+
 **Dagster** : `http://<IP-du-serveur>:3000/` — charge `/workspace/definitions.py` comme code Dagster.
 Protege par mot de passe : Dagster n'a aucune authentification a lui, et son interface permet de lancer un
 job, donc d'executer du code. Un reverse proxy (`codelab-dagster-proxy`) en ajoute une devant, et le port de

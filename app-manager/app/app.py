@@ -44,7 +44,9 @@ import re
 import resource
 import secrets
 import signal
+import smtplib
 import socket
+import ssl
 import struct
 import subprocess
 import threading
@@ -53,6 +55,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections import deque
+from email.message import EmailMessage
 
 import psutil
 from flask import (Flask, Response, jsonify, redirect, request, session, send_file,
@@ -102,6 +105,7 @@ def _lire_ressource(nom):
 
 DASHBOARD_PAGE = _lire_ressource("dashboard.html")
 LOGIN_PAGE = _lire_ressource("login.html")
+ESPACE_PAGE = _lire_ressource("espace.html")
 
 
 flask_app = Flask(__name__)
@@ -417,15 +421,161 @@ def is_authed():
     return session.get("authed") is True
 
 
+def _refus(message, code):
+    """Refus coherent entre l'API et les pages : un appel fetch() veut un
+    code et un message, un clic dans le navigateur veut la page de
+    connexion."""
+    if request.path.startswith("/api/"):
+        return jsonify({"error": message}), code
+    return redirect("/login")
+
+
 def require_auth(view):
+    """Une session, quel que soit son role. Pour ce qu'un utilisateur voit."""
     def wrapped(*a, **kw):
         if not is_authed():
-            if request.path.startswith("/api/"):
-                return jsonify({"error": "Non authentifie."}), 401
-            return redirect("/login")
+            return _refus("Non authentifie.", 401)
         return view(*a, **kw)
     wrapped.__name__ = view.__name__
     return wrapped
+
+
+def require_admin(view):
+    """Reserve a l'administrateur : declarer, deployer, configurer, gerer les
+    comptes. Tout ce qui n'est pas "ouvrir un projet autorise" passe par ici.
+
+    Le controle est fait ICI et non dans l'interface : masquer un bouton ne
+    protege rien, la route reste appelable a la main.
+    """
+    def wrapped(*a, **kw):
+        if not is_authed():
+            return _refus("Non authentifie.", 401)
+        if not est_admin():
+            return _refus("Reserve a l'administrateur.", 403)
+        return view(*a, **kw)
+    wrapped.__name__ = view.__name__
+    return wrapped
+
+
+# ------------------------------ utilisateurs ------------------------------
+#
+# Deux espaces, pas deux mots de passe pour la meme personne :
+#
+#   ADMINISTRATEUR -- le compte du panneau, celui dont le mot de passe est
+#     genere au premier demarrage. Il voit tout et peut tout : declarer un
+#     projet, le deployer, changer sa visibilite, gerer les comptes,
+#     configurer les alertes, ouvrir Dagster.
+#   UTILISATEUR -- un compte nomme, cree depuis le panneau, qui n'a acces
+#     qu'aux projets qu'on lui a explicitement autorises, et seulement pour
+#     les OUVRIR. Ni demarrage, ni arret, ni configuration, ni Dagster --
+#     Dagster permet d'executer du code arbitraire, ce qui en fait un droit
+#     d'administrateur deguise.
+#
+# Les mots de passe sont derives, jamais stockes : le fichier vit dans le
+# dossier d'etat, a cote de apps.json, et une copie de sauvegarde ne doit pas
+# etre une liste de mots de passe.
+UTILISATEURS_FILE = os.path.join(STATE_DIR, "utilisateurs.json")
+
+# Nom reserve : le compte d'administration n'est pas dans ce fichier, son mot
+# de passe vit dans credentials.env. Laisser creer un utilisateur "admin"
+# donnerait deux comptes pour un seul nom, et l'un masquerait l'autre.
+NOM_ADMIN = "admin"
+
+ROLE_ADMIN = "admin"
+ROLE_UTILISATEUR = "utilisateur"
+
+# PBKDF2-HMAC-SHA256. Pas de dependance a ajouter (hashlib est dans la
+# bibliotheque standard), et un cout de calcul qui rend une liste de mots de
+# passe voles inexploitable en pratique. 200 000 iterations : quelques
+# dizaines de millisecondes ici, des annees pour qui essaie un dictionnaire.
+PBKDF2_ITERATIONS = 200_000
+
+
+def lire_utilisateurs():
+    """Le registre des comptes. Jamais d'exception : un fichier illisible ne
+    doit pas empecher l'administrateur de se connecter pour le reparer."""
+    try:
+        with open(UTILISATEURS_FILE) as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return d if isinstance(d, dict) else {}
+
+
+def ecrire_utilisateurs(comptes):
+    tmp = UTILISATEURS_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(comptes, f, indent=2)
+    os.replace(tmp, UTILISATEURS_FILE)
+    try:
+        # Meme si le contenu est derive, ce fichier dit qui existe : il n'a
+        # aucune raison d'etre lisible par les applications lancees.
+        os.chmod(UTILISATEURS_FILE, 0o600)
+    except OSError:
+        pass
+
+
+def derive_mot_de_passe(mot_de_passe, sel):
+    return hashlib.pbkdf2_hmac("sha256", mot_de_passe.encode(),
+                               bytes.fromhex(sel), PBKDF2_ITERATIONS).hex()
+
+
+def verifie_mot_de_passe(compte, mot_de_passe):
+    try:
+        attendu = compte["hash"]
+        calcule = derive_mot_de_passe(mot_de_passe, compte["sel"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return secrets.compare_digest(calcule, attendu)
+
+
+def nom_utilisateur_valide(brut):
+    """Minuscules, chiffres, tiret et souligne. Le nom sert d'identifiant de
+    fichier JSON et s'affiche partout : autant le contraindre a l'entree
+    plutot que d'echapper a chaque affichage."""
+    nom = (brut or "").strip().lower()
+    return nom if re.fullmatch(r"[a-z0-9][a-z0-9_-]{1,31}", nom or "") else ""
+
+
+def role_courant():
+    """Le role de la session, ou None si elle n'est pas authentifiee.
+
+    Une session ouverte AVANT l'arrivee des comptes utilisateurs n'a pas de
+    role enregistre : elle ne peut venir que du panneau d'administration,
+    seule facon de se connecter a l'epoque. On la traite donc comme telle,
+    plutot que de deconnecter tout le monde a la mise a jour.
+    """
+    if session.get("authed") is not True:
+        return None
+    return session.get("role") or ROLE_ADMIN
+
+
+def est_admin():
+    return role_courant() == ROLE_ADMIN
+
+
+def utilisateur_courant():
+    return session.get("utilisateur") or ""
+
+
+def projets_autorises():
+    """Les projets que la session peut ouvrir. None = tous (administrateur)."""
+    if est_admin():
+        return None
+    compte = lire_utilisateurs().get(utilisateur_courant())
+    return set(compte.get("projets", [])) if compte else set()
+
+
+def peut_voir(name):
+    """La session a-t-elle le droit d'ouvrir cette application ?
+
+    Une application publique est ouverte a tous, y compris a un visiteur non
+    connecte -- c'est le sens de "publique", et c'est ce qui permet de
+    partager un projet par un simple lien. Le controle par compte ne concerne
+    donc que les applications privees.
+    """
+    autorises = projets_autorises()
+    return autorises is None or name in autorises
 
 
 # --------------------------- persistance ---------------------------
@@ -805,8 +955,254 @@ def start_monitor_thread():
                 probe_tick()
             except Exception as e:
                 print(f"[app-manager] erreur dans la sonde d'ecoute : {e}", flush=True)
+            # Les alertes en dernier, et dans le meme thread : un envoi SMTP
+            # peut prendre jusqu'a 20 secondes, mais il n'a lieu qu'une fois
+            # l'incident deja constate -- le redemarrage automatique a donc
+            # deja eu lieu, et rien d'urgent n'attend derriere.
+            try:
+                alerte_tick()
+            except Exception as e:
+                print(f"[app-manager] erreur dans les alertes : {e}", flush=True)
     t = threading.Thread(target=_loop, daemon=True)
     t.start()
+
+
+# ------------------------------ alertes mail ------------------------------
+#
+# Le panneau surveille deja les applications et les redemarre quand elles
+# tombent (voir monitor_tick). Mais il fallait avoir le panneau sous les yeux
+# pour le savoir : une application qui s'arrete la nuit reste arretee jusqu'a
+# ce qu'on pense a regarder. Un mail transforme cette surveillance passive en
+# alerte.
+#
+# Deux fichiers, pour une seule raison : les secrets ne vont pas au meme
+# endroit que le reste.
+#
+#   credentials.env, bloc "codelab-alertes" : le serveur SMTP et son mot de
+#     passe. C'est le fichier en 0600, et c'est DEJA le bloc que lit le
+#     capteur d'alerte de Dagster -- une seule configuration SMTP pour toute
+#     la stack, pas deux a tenir a jour.
+#   alertes.json, dans le dossier d'etat : l'interrupteur et les
+#     destinataires. Une adresse de destination n'est pas un secret, et la
+#     garder hors du fichier de secrets evite de le reecrire pour un
+#     changement anodin.
+ALERTES_FILE = os.path.join(STATE_DIR, "alertes.json")
+BLOC_ALERTES = "codelab-alertes"
+
+# Nombre de lignes de journal jointes au mail. Assez pour reconnaitre une
+# trace d'exception, pas assez pour rendre le mail illisible sur telephone.
+ALERTE_LOG_LIGNES = 25
+
+
+def lire_alertes():
+    """Reglages non secrets. Jamais d'exception : une configuration illisible
+    ne doit pas empecher le panneau de demarrer ni le moniteur de tourner."""
+    try:
+        with open(ALERTES_FILE) as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        d = {}
+    return {
+        "actif": bool(d.get("actif")),
+        "destinataires": [a for a in d.get("destinataires", []) if isinstance(a, str) and a.strip()],
+    }
+
+
+def ecrire_alertes(actif, destinataires):
+    tmp = ALERTES_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump({"actif": bool(actif), "destinataires": list(destinataires)}, f, indent=2)
+    os.replace(tmp, ALERTES_FILE)
+
+
+def ecrire_bloc_alertes(valeurs):
+    """Reecrit le bloc SMTP de credentials.env.
+
+    Meme bloc que celui documente pour le capteur Dagster : configurer les
+    alertes depuis le panneau configure donc aussi celles de Dagster.
+    """
+    commentaires = [
+        "# Serveur d'envoi des alertes CodeLab, partage par le panneau",
+        "# (application tombee) et par le capteur Dagster (run en echec).",
+        "# Modifiable depuis le panneau : Parametres > Alertes.",
+        "# SMTP_TLS : starttls (defaut, port 587) | ssl (port 465) | none.",
+        "# SMTP_USER et SMTP_PASSWORD sont optionnels : un relais interne peut",
+        "#   ne pas demander d'authentification.",
+    ]
+    return upsert_shared_block(BLOC_ALERTES, commentaires, valeurs)
+
+
+def config_smtp():
+    """La configuration d'envoi, telle qu'elle sera utilisee.
+
+    Renvoie (cfg, manquants) : cfg est utilisable si manquants est vide.
+    """
+    reglages = lire_alertes()
+    port = read_shared_value("SMTP_PORT") or "587"
+    try:
+        port = int(port)
+    except ValueError:
+        port = 587
+    cfg = {
+        "host": read_shared_value("SMTP_HOST") or "",
+        "port": port,
+        "tls": (read_shared_value("SMTP_TLS") or "starttls").lower(),
+        "user": read_shared_value("SMTP_USER") or "",
+        "password": read_shared_value("SMTP_PASSWORD") or "",
+        # Gmail et la plupart des fournisseurs refusent d'expedier au nom
+        # d'une autre adresse que celle du compte : l'expediteur suit donc
+        # SMTP_USER, sauf ALERTE_FROM explicite.
+        "expediteur": read_shared_value("ALERTE_FROM") or read_shared_value("SMTP_USER") or "",
+        "destinataires": reglages["destinataires"],
+    }
+    manquants = []
+    if not cfg["host"]:
+        manquants.append("SMTP_HOST")
+    if not cfg["expediteur"]:
+        manquants.append("SMTP_USER (ou ALERTE_FROM)")
+    if not cfg["destinataires"]:
+        manquants.append("destinataires")
+    return cfg, manquants
+
+
+def envoyer_mail(cfg, sujet, corps):
+    """Envoie, ou leve. Les trois modes de chiffrement du SMTP."""
+    msg = EmailMessage()
+    msg["Subject"] = sujet
+    msg["From"] = cfg["expediteur"]
+    msg["To"] = ", ".join(cfg["destinataires"])
+    msg.set_content(corps)
+
+    def _login(s):
+        if cfg["user"] and cfg["password"]:
+            s.login(cfg["user"], cfg["password"])
+
+    if cfg["tls"] == "ssl":
+        with smtplib.SMTP_SSL(cfg["host"], cfg["port"],
+                              context=ssl.create_default_context(), timeout=20) as s:
+            _login(s)
+            s.send_message(msg)
+    elif cfg["tls"] == "none":
+        # Relais interne sans chiffrement : les identifiants passeraient en
+        # clair, a ne faire que sur un reseau de confiance.
+        with smtplib.SMTP(cfg["host"], cfg["port"], timeout=20) as s:
+            _login(s)
+            s.send_message(msg)
+    else:
+        # STARTTLS : on ouvre en clair puis on chiffre AVANT de s'authentifier.
+        with smtplib.SMTP(cfg["host"], cfg["port"], timeout=20) as s:
+            s.ehlo()
+            s.starttls(context=ssl.create_default_context())
+            s.ehlo()
+            _login(s)
+            s.send_message(msg)
+
+
+def alerter(sujet, corps):
+    """Envoi best-effort depuis le moniteur.
+
+    Ne leve jamais et ne bloque jamais le moniteur : une alerte qui ne part
+    pas ne doit pas ajouter une panne a celle qu'elle signale. Renvoie True
+    si le mail est parti.
+    """
+    if not lire_alertes()["actif"]:
+        return False
+    cfg, manquants = config_smtp()
+    if manquants:
+        print(f"[app-manager] alerte non envoyee, configuration incomplete : "
+              f"{', '.join(manquants)}", flush=True)
+        return False
+    try:
+        envoyer_mail(cfg, sujet, corps)
+        print(f"[app-manager] alerte envoyee a {len(cfg['destinataires'])} "
+              f"destinataire(s) : {sujet}", flush=True)
+        return True
+    except Exception as e:
+        print(f"[app-manager] alerte non envoyee ({type(e).__name__}: {e})", flush=True)
+        return False
+
+
+def fin_du_journal(name, lignes=ALERTE_LOG_LIGNES):
+    """Les dernieres lignes du journal d'une application.
+
+    Lues depuis la fin : un journal de 2 Mo ne doit pas etre charge en
+    memoire pour en extraire vingt lignes.
+    """
+    chemin = os.path.join(LOG_DIR, name + ".log")
+    try:
+        taille = os.path.getsize(chemin)
+        with open(chemin, "rb") as f:
+            f.seek(max(0, taille - 8192))
+            texte = f.read().decode("utf-8", "replace")
+    except OSError:
+        return "(journal illisible)"
+    fin = texte.splitlines()[-lignes:]
+    return "\n".join(fin) or "(journal vide)"
+
+
+def corps_alerte_chute(name, a):
+    return "\n".join([
+        f"L'application « {name} » ne repond plus.",
+        "",
+        f"Dossier   : {a.get('path', '?')}",
+        f"Commande  : {a.get('command', '?')}",
+        f"Port      : {a.get('port', '?')}",
+        f"Etat      : arretee apres {RESTART_MAX_ATTEMPTS} tentatives de "
+        f"redemarrage en {RESTART_WINDOW // 60} minutes",
+        "",
+        f"Panneau   : {read_shared_value('APP_MANAGER_URL') or 'http://<IP-du-serveur>:9001'}/",
+        "",
+        f"Fin du journal ({ALERTE_LOG_LIGNES} dernieres lignes)",
+        "-" * 46,
+        fin_du_journal(name),
+        "",
+        "-- CodeLab, panneau de gestion des applications",
+    ])
+
+
+def corps_alerte_retour(name):
+    return "\n".join([
+        f"L'application « {name} » repond de nouveau.",
+        "",
+        f"Panneau : {read_shared_value('APP_MANAGER_URL') or 'http://<IP-du-serveur>:9001'}/",
+        "",
+        "-- CodeLab, panneau de gestion des applications",
+    ])
+
+
+# Applications pour lesquelles une alerte de chute a deja ete envoyee. Sans
+# cette memoire, le moniteur reexpedierait le meme mail toutes les dix
+# secondes tant que l'application reste a terre -- une boite pleine, et une
+# alerte qu'on finit par ignorer. Une entree disparait quand l'application
+# repart (mail de retour) ou quand elle est arretee volontairement.
+_alertes_en_cours = set()
+
+
+def alerte_tick():
+    """Compare l'etat des applications a celui du tour precedent, et envoie
+    un mail sur les deux transitions qui comptent : tombee, puis revenue.
+
+    Volontairement fonde sur is_crash_looping() et non sur "le process est
+    mort" : une application qui plante et redemarre toute seule dans la
+    seconde n'est pas un incident, c'est le filet de securite qui fonctionne.
+    L'incident commence quand le panneau a epuise ses tentatives.
+    """
+    apps = load()
+    for name in list(_alertes_en_cours):
+        if name not in apps or not apps[name].get("enabled"):
+            # Supprimee ou arretee a la main : l'incident est clos, sans mail
+            # de retour -- personne n'a besoin d'etre prevenu d'une action
+            # qu'il vient de faire lui-meme.
+            _alertes_en_cours.discard(name)
+        elif is_running(name) and not is_crash_looping(name):
+            _alertes_en_cours.discard(name)
+            alerter(f"[CodeLab] {name} est revenue", corps_alerte_retour(name))
+
+    for name, a in apps.items():
+        if (a.get("enabled") and not is_running(name) and is_crash_looping(name)
+                and name not in _alertes_en_cours):
+            _alertes_en_cours.add(name)
+            alerter(f"[CodeLab] {name} est tombee", corps_alerte_chute(name, a))
 
 
 # ------------------------------- build ---------------------------------
@@ -1057,30 +1453,52 @@ def login_submit():
         return jsonify({"error": "Trop de tentatives. Reessaie dans quelques minutes."}), 429
     d = request.get_json(force=True, silent=True) or request.form
     pw = (d.get("password") or "").strip()
-    real = admin_password()
-    # compare_digest plutot que "==" : la comparaison de chaines s'arrete au
-    # premier caractere different, et la duree de la reponse renseigne alors
-    # sur la longueur du prefixe correct.
-    if not (real and pw and secrets.compare_digest(pw, real)):
-        register_failed_attempt()
-        return jsonify({"error": "Mot de passe incorrect."}), 401
+    nom = (d.get("nom") or "").strip().lower()
 
-    # Le code a six chiffres, quand la double authentification est active. Une
-    # tentative ratee ici compte comme une tentative ratee tout court : sinon
-    # le second facteur serait forcable sans limite une fois le mot de passe
-    # connu, ce qui le viderait de son sens.
-    if totp_actif() and not totp_verifie(_totp_secret, d.get("code")):
+    # Nom vide = administrateur. Le champ est arrive avec les comptes
+    # utilisateurs : exiger d'un coup que l'administrateur tape "admin"
+    # casserait l'habitude de tout le monde pour ne rien apporter.
+    if nom in ("", NOM_ADMIN):
+        real = admin_password()
+        # compare_digest plutot que "==" : la comparaison de chaines s'arrete
+        # au premier caractere different, et la duree de la reponse renseigne
+        # alors sur la longueur du prefixe correct.
+        if not (real and pw and secrets.compare_digest(pw, real)):
+            register_failed_attempt()
+            return jsonify({"error": "Identifiants incorrects."}), 401
+
+        # Le code a six chiffres, quand la double authentification est active.
+        # Une tentative ratee ici compte comme une tentative ratee tout court :
+        # sinon le second facteur serait forcable sans limite une fois le mot
+        # de passe connu, ce qui le viderait de son sens.
+        if totp_actif() and not totp_verifie(_totp_secret, d.get("code")):
+            register_failed_attempt()
+            return jsonify({"error": "Code de verification incorrect.",
+                            "totp": True}), 401
+
+        session.permanent = True
+        session["authed"] = True
+        session["role"] = ROLE_ADMIN
+        session["utilisateur"] = NOM_ADMIN
+        return jsonify({"ok": True, "role": ROLE_ADMIN})
+
+    compte = lire_utilisateurs().get(nom)
+    # Meme message et meme chemin qu'un mot de passe faux : distinguer
+    # "ce compte n'existe pas" de "mauvais mot de passe" donne la liste des
+    # comptes valides a qui essaie.
+    if not (compte and pw and verifie_mot_de_passe(compte, pw)):
         register_failed_attempt()
-        return jsonify({"error": "Code de verification incorrect.",
-                        "totp": True}), 401
+        return jsonify({"error": "Identifiants incorrects."}), 401
 
     session.permanent = True
     session["authed"] = True
-    return jsonify({"ok": True})
+    session["role"] = ROLE_UTILISATEUR
+    session["utilisateur"] = nom
+    return jsonify({"ok": True, "role": ROLE_UTILISATEUR})
 
 
 @flask_app.get("/api/securite")
-@require_auth
+@require_admin
 def api_securite():
     """L'etat des reglages de securite, pour la page Parametres."""
     return jsonify({
@@ -1095,7 +1513,7 @@ def api_securite():
 
 
 @flask_app.post("/api/securite/totp/preparer")
-@require_auth
+@require_admin
 def api_totp_preparer():
     """Tire un secret candidat, sans rien enregistrer.
 
@@ -1111,7 +1529,7 @@ def api_totp_preparer():
 
 
 @flask_app.post("/api/securite/totp/activer")
-@require_auth
+@require_admin
 def api_totp_activer():
     global _totp_secret
     candidat = session.get("totp_candidat")
@@ -1128,7 +1546,7 @@ def api_totp_activer():
 
 
 @flask_app.post("/api/securite/totp/desactiver")
-@require_auth
+@require_admin
 def api_totp_desactiver():
     """Desactivation protegee par un code valide.
 
@@ -1145,6 +1563,215 @@ def api_totp_desactiver():
     if not ecrire_bloc_panneau(admin_password(), flask_app.secret_key, ""):
         return jsonify({"error": "credentials.env n'a pas pu etre ecrit."}), 500
     _totp_secret = ""
+    return jsonify({"ok": True})
+
+
+@flask_app.get("/api/alertes")
+@require_admin
+def api_alertes():
+    """L'etat des alertes, pour la page Parametres.
+
+    Le mot de passe SMTP n'est jamais renvoye -- seulement le fait qu'il
+    existe. Un champ de mot de passe pre-rempli est une valeur qu'on renvoie
+    sans le vouloir a chaque enregistrement, et un secret qui traine dans une
+    page ouverte.
+    """
+    reglages = lire_alertes()
+    cfg, manquants = config_smtp()
+    return jsonify({
+        "actif": reglages["actif"],
+        "destinataires": reglages["destinataires"],
+        "smtp": {
+            "host": cfg["host"], "port": cfg["port"], "tls": cfg["tls"],
+            "user": cfg["user"], "expediteur": cfg["expediteur"],
+            "mot_de_passe_defini": bool(cfg["password"]),
+        },
+        "manquants": manquants,
+        "incidents": sorted(_alertes_en_cours),
+    })
+
+
+def _adresses(brutes):
+    """Nettoie une liste d'adresses saisies. Pas de validation stricte : un
+    format d'adresse valide n'est pas une adresse qui existe, et c'est le
+    mail de test qui tranche vraiment."""
+    if isinstance(brutes, str):
+        brutes = re.split(r"[,;\s]+", brutes)
+    vues, propres = set(), []
+    for a in brutes or []:
+        a = (a or "").strip()
+        if a and "@" in a and a not in vues:
+            vues.add(a)
+            propres.append(a)
+    return propres
+
+
+@flask_app.post("/api/alertes")
+@require_admin
+def api_alertes_enregistrer():
+    d = request.get_json(force=True, silent=True) or {}
+    smtp = d.get("smtp") or {}
+
+    destinataires = _adresses(d.get("destinataires"))
+    actif = bool(d.get("actif"))
+    if actif and not destinataires:
+        return jsonify({"error": "Au moins un destinataire est necessaire "
+                                 "pour activer les alertes."}), 400
+
+    # Le bloc SMTP n'est reecrit que si le formulaire apporte quelque chose :
+    # activer les alertes avec un bloc deja rempli a la main ne doit pas
+    # l'ecraser avec des champs vides.
+    champs = {"host": "SMTP_HOST", "port": "SMTP_PORT", "tls": "SMTP_TLS",
+              "user": "SMTP_USER", "expediteur": "ALERTE_FROM"}
+    if any(str(smtp.get(k, "")).strip() for k in champs):
+        valeurs = {}
+        for cle, env in champs.items():
+            valeur = str(smtp.get(cle, "")).strip()
+            if valeur:
+                valeurs[env] = valeur
+        # Mot de passe vide = inchange. Le formulaire ne le pre-remplit pas :
+        # sans cette regle, tout enregistrement l'effacerait.
+        mdp = str(smtp.get("password", "")).strip()
+        valeurs["SMTP_PASSWORD"] = mdp or (read_shared_value("SMTP_PASSWORD") or "")
+        if not valeurs["SMTP_PASSWORD"]:
+            valeurs.pop("SMTP_PASSWORD")
+        if not ecrire_bloc_alertes(valeurs):
+            return jsonify({"error": "credentials.env n'a pas pu etre ecrit."}), 500
+
+    try:
+        ecrire_alertes(actif, destinataires)
+    except OSError as e:
+        return jsonify({"error": f"Reglages non enregistres : {e}"}), 500
+
+    cfg, manquants = config_smtp()
+    return jsonify({"ok": True, "manquants": manquants})
+
+
+@flask_app.post("/api/alertes/test")
+@require_admin
+def api_alertes_test():
+    """Envoie un mail tout de suite, en ignorant l'interrupteur.
+
+    Deliberement : on teste sa configuration AVANT d'activer les alertes, et
+    exiger l'inverse ferait activer une configuration jamais essayee.
+    """
+    cfg, manquants = config_smtp()
+    if manquants:
+        return jsonify({"error": "Configuration incomplete : " + ", ".join(manquants)}), 400
+    try:
+        envoyer_mail(cfg, "[CodeLab] mail de test",
+                     "Si tu lis ce message, les alertes du panneau CodeLab "
+                     "savent sortir.\n\nTu recevras un mail de cette adresse "
+                     "quand une application tombera, et un autre quand elle "
+                     "reviendra.\n\n-- CodeLab, panneau de gestion des "
+                     "applications")
+    except Exception as e:
+        # Le message du serveur SMTP est la seule chose qui aide vraiment ici
+        # ("authentification refusee", "relais interdit") : on le remonte tel
+        # quel plutot que de le resumer.
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 502
+    return jsonify({"ok": True, "destinataires": cfg["destinataires"]})
+
+
+@flask_app.get("/api/utilisateurs")
+@require_admin
+def api_utilisateurs():
+    """Les comptes, sans rien qui ressemble a un mot de passe.
+
+    Ni le hash ni le sel ne sortent d'ici : les afficher n'aide personne et
+    les met dans l'historique du navigateur.
+    """
+    comptes = lire_utilisateurs()
+    return jsonify({"utilisateurs": [
+        {"nom": nom,
+         "projets": sorted(c.get("projets", [])),
+         "cree": c.get("cree")}
+        for nom, c in sorted(comptes.items())]})
+
+
+def _projets_valides(brut, apps):
+    """Ne garde que des projets qui existent vraiment.
+
+    Un projet supprime puis recree sous le meme nom rendrait sinon un droit
+    qu'on croyait perdu -- et la liste se remplirait de noms morts.
+    """
+    return sorted({p for p in (brut or []) if isinstance(p, str) and p in apps})
+
+
+@flask_app.post("/api/utilisateurs")
+@require_admin
+def api_utilisateur_creer():
+    d = request.get_json(force=True, silent=True) or {}
+    nom = nom_utilisateur_valide(d.get("nom"))
+    mdp = (d.get("mot_de_passe") or "").strip()
+
+    if not nom:
+        return jsonify({"error": "Nom invalide : 2 a 32 caracteres, "
+                                 "minuscules, chiffres, tiret ou souligne."}), 400
+    if nom == NOM_ADMIN:
+        return jsonify({"error": "Ce nom est celui du compte d'administration."}), 400
+    if len(mdp) < 8:
+        return jsonify({"error": "Mot de passe : 8 caracteres au minimum."}), 400
+
+    comptes = lire_utilisateurs()
+    if nom in comptes:
+        return jsonify({"error": "Ce compte existe deja."}), 400
+
+    sel = secrets.token_hex(16)
+    comptes[nom] = {
+        "sel": sel,
+        "hash": derive_mot_de_passe(mdp, sel),
+        "projets": _projets_valides(d.get("projets"), load()),
+        "cree": int(time.time()),
+    }
+    try:
+        ecrire_utilisateurs(comptes)
+    except OSError as e:
+        return jsonify({"error": f"Compte non enregistre : {e}"}), 500
+    return jsonify({"ok": True, "nom": nom})
+
+
+@flask_app.put("/api/utilisateurs/<nom>")
+@require_admin
+def api_utilisateur_modifier(nom):
+    d = request.get_json(force=True, silent=True) or {}
+    comptes = lire_utilisateurs()
+    compte = comptes.get(nom)
+    if not compte:
+        return jsonify({"error": "Compte inconnu."}), 404
+
+    # Champs absents = inchanges. Le formulaire des projets et celui du mot
+    # de passe sont separes : envoyer l'un ne doit pas remettre l'autre a
+    # zero.
+    if "projets" in d:
+        compte["projets"] = _projets_valides(d.get("projets"), load())
+    mdp = (d.get("mot_de_passe") or "").strip()
+    if mdp:
+        if len(mdp) < 8:
+            return jsonify({"error": "Mot de passe : 8 caracteres au minimum."}), 400
+        compte["sel"] = secrets.token_hex(16)
+        compte["hash"] = derive_mot_de_passe(mdp, compte["sel"])
+
+    try:
+        ecrire_utilisateurs(comptes)
+    except OSError as e:
+        return jsonify({"error": f"Compte non enregistre : {e}"}), 500
+    return jsonify({"ok": True})
+
+
+@flask_app.delete("/api/utilisateurs/<nom>")
+@require_admin
+def api_utilisateur_supprimer(nom):
+    comptes = lire_utilisateurs()
+    if nom not in comptes:
+        return jsonify({"error": "Compte inconnu."}), 404
+    comptes.pop(nom)
+    try:
+        ecrire_utilisateurs(comptes)
+    except OSError as e:
+        return jsonify({"error": f"Compte non supprime : {e}"}), 500
+    # La session de ce compte, si elle existe, tombera d'elle-meme : chaque
+    # controle relit le registre, et un compte absent n'autorise plus rien.
     return jsonify({"ok": True})
 
 
@@ -1167,7 +1794,12 @@ def api_auth_check():
     """
     # Sans redirection, contrairement a require_auth : nginx a besoin d'un
     # code, pas d'une page. C'est lui qui decide ou envoyer le visiteur.
-    if not is_authed():
+    #
+    # Reserve a l'administrateur : l'interface de Dagster permet de lancer des
+    # jobs, donc d'executer du code sur cette machine. Y donner acces a un
+    # compte utilisateur reviendrait a lui donner l'administration par la
+    # bande, quels que soient les projets qu'on lui a autorises.
+    if not est_admin():
         return Response("", 401)
     return Response("", 204)
 
@@ -1180,7 +1812,7 @@ def health():
 # ------------------------------ API --------------------------------
 
 @flask_app.get("/api/apps")
-@require_auth
+@require_admin
 def api_apps():
     apps = load()
     out = []
@@ -1209,7 +1841,7 @@ def api_apps():
 
 
 @flask_app.get("/api/browse")
-@require_auth
+@require_admin
 def api_browse():
     path = os.path.abspath(request.args.get("path", ROOT))
     if not under_root(path):
@@ -1229,7 +1861,7 @@ def api_browse():
 
 
 @flask_app.get("/api/detect")
-@require_auth
+@require_admin
 def api_detect():
     path = os.path.abspath(request.args.get("path", ""))
     if not under_root(path) or not os.path.isdir(path):
@@ -1239,7 +1871,7 @@ def api_detect():
 
 
 @flask_app.post("/api/add")
-@require_auth
+@require_admin
 def api_add():
     d = request.get_json(force=True)
     name = valid_name(d.get("name"))
@@ -1276,7 +1908,7 @@ def api_add():
 
 
 @flask_app.put("/api/app/<n>")
-@require_auth
+@require_admin
 def api_edit(n):
     apps = load()
     if n not in apps:
@@ -1303,7 +1935,7 @@ def api_edit(n):
 
 
 @flask_app.post("/api/toggle/<n>")
-@require_auth
+@require_admin
 def api_toggle(n):
     if n not in load():
         return jsonify({"error": "Application inconnue."}), 404
@@ -1321,7 +1953,7 @@ def restart_app(n):
 
 
 @flask_app.post("/api/visibility/<n>")
-@require_auth
+@require_admin
 def api_visibility(n):
     apps = load()
     if n not in apps:
@@ -1338,7 +1970,7 @@ def api_visibility(n):
 
 
 @flask_app.post("/api/restart/<n>")
-@require_auth
+@require_admin
 def api_restart(n):
     if n not in load():
         return jsonify({"error": "Application inconnue."}), 404
@@ -1347,7 +1979,7 @@ def api_restart(n):
 
 
 @flask_app.post("/api/deploy/<n>")
-@require_auth
+@require_admin
 def api_deploy(n):
     """Build puis mise en ligne, en une action.
 
@@ -1372,7 +2004,7 @@ def api_deploy(n):
 
 
 @flask_app.post("/api/build/<n>")
-@require_auth
+@require_admin
 def api_build(n):
     if n not in load():
         return jsonify({"error": "Application inconnue."}), 404
@@ -1383,7 +2015,7 @@ def api_build(n):
 
 
 @flask_app.get("/api/metrics/<n>")
-@require_auth
+@require_admin
 def api_metrics(n):
     if n not in load():
         return jsonify({"error": "Application inconnue."}), 404
@@ -1394,7 +2026,7 @@ def api_metrics(n):
 
 
 @flask_app.delete("/api/app/<n>")
-@require_auth
+@require_admin
 def api_delete(n):
     stop(n)
     apps = load()
@@ -1404,7 +2036,7 @@ def api_delete(n):
 
 
 @flask_app.get("/api/logs/<n>")
-@require_auth
+@require_admin
 def api_logs(n):
     f = os.path.join(LOG_DIR, n + ".log")
     if not os.path.exists(f):
@@ -1415,7 +2047,7 @@ def api_logs(n):
 
 
 @flask_app.get("/api/logs/<n>/stream")
-@require_auth
+@require_admin
 def api_logs_stream(n):
     f = os.path.join(LOG_DIR, n + ".log")
 
@@ -1438,6 +2070,11 @@ def api_logs_stream(n):
 @flask_app.get("/api/icon/<n>")
 @require_auth
 def api_icon(n):
+    # Accessible a un compte utilisateur, pour que son espace affiche les
+    # icones -- mais seulement des projets qu'il peut ouvrir : la liste des
+    # icones est une liste des projets existants.
+    if not peut_voir(n):
+        return Response(default_icon_svg(n), mimetype="image/svg+xml")
     apps = load()
     a = apps.get(n)
     icon_path = find_icon(a["path"]) if a else None
@@ -1464,7 +2101,49 @@ def login_page():
 @flask_app.get("/")
 @require_auth
 def index():
+    # Le tableau de bord est l'outil d'administration : un compte utilisateur
+    # est envoye vers son espace, qui ne contient que ce qu'il peut ouvrir.
+    if not est_admin():
+        return redirect("/espace")
     return Response(DASHBOARD_PAGE.replace("__ROOT__", json.dumps(ROOT)), mimetype="text/html")
+
+
+@flask_app.get("/espace")
+@require_auth
+def espace():
+    """L'espace utilisateur : la liste de ses projets, et rien d'autre.
+
+    Une page separee plutot qu'un tableau de bord ampute : masquer des
+    boutons laisse une interface pleine de creux, et surtout laisse croire
+    que la protection est dans l'affichage. Ici il n'y a simplement rien
+    d'autre a montrer.
+    """
+    return Response(ESPACE_PAGE, mimetype="text/html")
+
+
+@flask_app.get("/api/mes-apps")
+@require_auth
+def api_mes_apps():
+    """Les projets ouvrables par la session, sans rien de plus.
+
+    Ni chemin, ni commande, ni metriques : l'espace utilisateur n'a pas a
+    connaitre l'organisation du serveur, et une reponse d'API est aussi
+    publique que la page qui l'appelle.
+    """
+    autorises = projets_autorises()
+    liste = []
+    for nom, a in sorted(load().items()):
+        if autorises is not None and nom not in autorises:
+            continue
+        liste.append({
+            "name": nom,
+            "running": is_running(nom),
+            "listening": _listening.get(nom),
+            "visibility": visibilite(a),
+        })
+    return jsonify({"apps": liste,
+                    "utilisateur": utilisateur_courant(),
+                    "role": role_courant()})
 
 
 # ------------------------------ proxy --------------------------------
@@ -1482,11 +2161,19 @@ def _proxy(name, sub):
     if not a:
         return Response(_page("Introuvable", "Aucune application \u00ab " + name + " \u00bb."),
                         404, mimetype="text/html")
-    # Application privee : meme session que le panneau. Le controle est ici,
-    # dans le proxy, et pas dans l'interface -- une application dont le lien
-    # circule doit rester fermee quel que soit le chemin emprunte.
-    if visibilite(a) == VISIBILITE_PRIVEE and not is_authed():
-        return redirect("/login")
+    # Application privee : il faut une session, ET le droit sur ce projet
+    # precis. Le controle est ici, dans le proxy, et pas dans l'interface --
+    # une application dont le lien circule doit rester fermee quel que soit le
+    # chemin emprunte, y compris par un compte utilisateur qui connaitrait
+    # l'adresse d'un projet qu'on ne lui a pas autorise.
+    if visibilite(a) == VISIBILITE_PRIVEE:
+        if not is_authed():
+            return redirect("/login")
+        if not peut_voir(name):
+            return Response(_page("Acces refuse",
+                                  "Ton compte n'a pas acces a \u00ab " + name + " \u00bb.",
+                                  "Demande l'acces a l'administrateur."),
+                            403, mimetype="text/html")
     if not is_running(name):
         return Response(_page("Application arretee",
                               "\u00ab " + name + " \u00bb n'est pas demarree.",
