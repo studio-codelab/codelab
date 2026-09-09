@@ -431,6 +431,14 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
  font-family:ui-monospace,Menlo,monospace}
 .act-vide{color:var(--dim);font-size:13px;padding:8px 0}
 .us-activite{font-size:12px;color:var(--dim2);margin-top:6px}
+
+/* ------------------------------ cles d'acces ------------------------------ */
+.pk-ligne{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.pk-liste .pk-ligne:first-child{border-top:none}
+.pk-ligne svg{width:17px;height:17px;color:var(--dim);flex:none}
+.pk-ligne b{font-size:13.5px;font-weight:600}
+.pk-ligne .pk-quand{font-size:12px;color:var(--dim2)}
+.pk-ligne .spacer{flex:1}
 /* Titre d'un groupe dans le hub. Discret : ce sont les projets qu'on vient
    chercher, le rangement ne doit pas leur voler la vedette. */
 .hub-groupe{margin-bottom:26px}
@@ -860,6 +868,35 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
   </div>
 
   <div class="zone">
+    <div class="zone-title">Cles d'acces</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Cles d'acces (passkeys)</b>
+        <div class="path">Se connecter avec l'empreinte ou le code de son appareil.</div>
+      </div>
+      <span class="pill" id="pk-etat"><i></i>&nbsp;</span></div>
+
+      <div class="hint">Une cle d'acces remplace le mot de passe <b>et</b> le code a six chiffres :
+        l'appareil prouve la possession, et l'empreinte (ou le code de l'appareil) prouve que c'est
+        bien toi. Rien a retenir, rien a recopier — et rien a hameconner, puisque la cle ne signe
+        que pour le domaine qui l'a enregistree.</div>
+
+      <div class="hint" id="pk-empechement" style="display:none;margin-top:8px"></div>
+
+      <div class="pk-liste" id="pk-liste" style="margin-top:12px"></div>
+
+      <div class="field" style="margin-top:14px">
+        <label>Nom de la cle <span class="opt">facultatif</span></label>
+        <input id="pk-nom" placeholder="Telephone" autocomplete="off" maxlength="40">
+        <div class="hint">Pour la reconnaitre dans la liste, le jour ou tu en auras plusieurs.</div>
+      </div>
+      <button class="btn btn-primary" id="pk-ajouter" onclick="pkAjouter()">Ajouter une cle</button>
+      <div class="err" id="pk-err" style="display:none"></div>
+      <div class="hint" id="pk-msg" style="display:none"></div>
+    </div>
+  </div>
+
+  <div class="zone">
     <div class="zone-title">Session</div>
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
@@ -1169,7 +1206,7 @@ function showSection(name){
   if(name==='overview' || name==='apps') refresh();
   /* L'etat de securite est relu a chaque ouverture : il peut avoir change
      depuis un autre onglet, ou au redemarrage du service. */
-  if(name==='profil'){ chargerMonCompte(); if(estAdmin) chargerSecurite(); }
+  if(name==='profil'){ chargerMonCompte(); chargerPasskeys(); if(estAdmin) chargerSecurite(); }
   if(name==='users'){ chargerUtilisateurs(); chargerInscriptionLibre(); chargerActivite(); }
   if(name==='settings'){ chargerSecurite(); chargerAlertes(); chargerCategories(); }
 }
@@ -1730,6 +1767,93 @@ async function submitAdd(){
   hide('ov-add'); refresh();
 }
 
+
+/* ---------------- cles d'acces ---------------- */
+/* Le navigateur echange des ArrayBuffer, le serveur du base64url : ces deux
+   fonctions sont toute la traduction. */
+const b64urlVersOctets = s => Uint8Array.from(
+  atob(s.replace(/-/g,'+').replace(/_/g,'/')), c=>c.charCodeAt(0));
+const octetsVersB64url = b => btoa(String.fromCharCode(...new Uint8Array(b)))
+  .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+
+async function chargerPasskeys(){
+  let etat={}, liste={};
+  try{
+    etat=await (await fetch('/api/passkeys/etat')).json();
+    liste=await (await fetch('/api/mon-compte/passkeys')).json();
+  }catch(e){ return; }
+  /* Le navigateur a aussi son mot a dire : sans PublicKeyCredential, meme
+     un serveur pret ne peut rien faire. */
+  const possible = etat.possible && !!window.PublicKeyCredential;
+  const p=$('pk-etat');
+  const cles=liste.passkeys||[];
+  p.className='pill ' + (cles.length ? 'on' : 'off');
+  p.innerHTML='<i></i>' + (cles.length
+    ? cles.length + ' cle' + (cles.length>1?'s':'')
+    : 'Aucune cle');
+  $('pk-ajouter').disabled = !possible;
+  $('pk-empechement').style.display = possible ? 'none' : 'block';
+  $('pk-empechement').innerHTML = possible ? '' :
+    ('<b>Indisponible ici.</b> ' + esc(etat.empechement
+      || 'Ce navigateur ne connait pas les cles d\'acces.'));
+
+  $('pk-liste').innerHTML = cles.length ? cles.map(k=>`<div class="pk-ligne">
+    <svg viewBox="0 0 24 24"><circle cx="8" cy="12" r="4"/><path d="M12 12h9"/>
+    <path d="M17 12v3"/><path d="M20.5 12v2"/></svg>
+    <div><b>${esc(k.nom)}</b>
+      <div class="pk-quand">Ajoutee ${esc(ilYA(k.cree))}${
+        k.dernier ? ' — derniere utilisation ' + esc(ilYA(k.dernier)) : ' — jamais utilisee'}</div></div>
+    <div class="spacer"></div>
+    <button class="btn btn-default btn-sm" onclick="pkSupprimer('${esc(k.id)}')">Retirer</button>
+  </div>`).join('') : '';
+}
+
+function pkMessage(texte, erreur){
+  $('pk-err').style.display = erreur ? 'block' : 'none';
+  $('pk-msg').style.display = (!erreur && texte) ? 'block' : 'none';
+  (erreur ? $('pk-err') : $('pk-msg')).textContent = texte;
+}
+
+async function pkAjouter(){
+  pkMessage('', false);
+  try{
+    const r=await fetch('/api/mon-compte/passkeys/options',{method:'POST'});
+    const o=await r.json();
+    if(!r.ok){ pkMessage(o.error||'Preparation impossible.', true); return; }
+    /* Le serveur envoie du base64url ; l'API du navigateur veut des octets. */
+    o.challenge=b64urlVersOctets(o.challenge);
+    o.user.id=b64urlVersOctets(o.user.id);
+    (o.excludeCredentials||[]).forEach(c=>{ c.id=b64urlVersOctets(c.id); });
+    const cred=await navigator.credentials.create({publicKey:o});
+    const envoi={
+      id:cred.id, rawId:octetsVersB64url(cred.rawId), type:cred.type,
+      response:{
+        clientDataJSON:octetsVersB64url(cred.response.clientDataJSON),
+        attestationObject:octetsVersB64url(cred.response.attestationObject),
+      },
+    };
+    const r2=await fetch('/api/mon-compte/passkeys',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({credential:envoi, nom:$('pk-nom').value.trim()})});
+    const d2=await r2.json();
+    if(!r2.ok){ pkMessage(d2.error||'Enregistrement impossible.', true); return; }
+    $('pk-nom').value='';
+    await chargerPasskeys();
+    pkMessage('Cle enregistree. Tu peux desormais te connecter avec.', false);
+  }catch(e){
+    /* Annulation de l'utilisateur comprise : ce n'est pas une panne. */
+    pkMessage(e && e.name==='NotAllowedError'
+      ? 'Enregistrement annule.' : ('Enregistrement impossible : ' + (e&&e.message||e)), true);
+  }
+}
+
+async function pkSupprimer(id){
+  if(!confirm('Retirer cette cle d\'acces ?')) return;
+  const r=await fetch('/api/mon-compte/passkeys/'+encodeURIComponent(id),{method:'DELETE'});
+  const d=await r.json();
+  if(!r.ok){ pkMessage(d.error||'Suppression impossible.', true); return; }
+  chargerPasskeys();
+}
 
 /* ---------------- journal des acces ---------------- */
 let activite={evenements:[], resume:{comptes:{}, apps:{}, echecs:0}};

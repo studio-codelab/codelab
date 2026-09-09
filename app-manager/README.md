@@ -302,6 +302,42 @@ comptee dans la limite de tentatives (5 par fenetre et par adresse IP), pour qu'
 partir des mails en boucle. Un mail qui ne part pas retire le compte : sinon le nom resterait pris
 par quelqu'un qui ne pourra jamais s'en servir.
 
+## Cles d'acces (passkeys)
+
+Une cle d'acces remplace le mot de passe **et** le code a six chiffres : l'appareil prouve la
+possession, et l'empreinte (ou le code de l'appareil) prouve la personne. Rien a retenir, rien a
+recopier — et **rien a hameconner**, puisque la cle ne signe que pour le domaine qui l'a
+enregistree.
+
+Elle s'ajoute depuis *Parametres > Cles d'acces*, une fois connecte : on enregistre une cle sur le
+compte qu'on occupe deja. Plusieurs cles par compte (telephone, ordinateur), retirables une par une.
+
+**L'enregistrement exige la verification d'utilisateur** (`user_verification: required`) : sans
+empreinte ni code d'appareil, une cle ne serait qu'un facteur de possession, et ouvrir une session
+sur cette moitie serait un recul par rapport au mot de passe + TOTP. La connexion l'exige aussi.
+
+### Trois conditions que le navigateur impose
+
+Elles sont **annoncees** dans la page plutot que subies — un bouton qui echoue toujours est pire
+qu'un bouton absent :
+
+1. **HTTPS.** Le navigateur refuse WebAuthn hors contexte securise (sauf sur `localhost`). Sur
+   `http://192.168.1.20:9001`, les cles d'acces sont donc impossibles.
+2. **Un nom de domaine, pas une adresse IP.** Le `rp_id` ne peut pas etre une IP.
+3. **Toujours le meme nom.** Une cle enregistree sur `codelab.exemple.fr` ne fonctionne pas sur
+   `192.168.1.20`, et c'est voulu : c'est ce qui la rend inhameconnable.
+
+Un cas merite son message a lui : quand un proxy annonce `X-Forwarded-Proto: https` mais que
+`APP_MANAGER_TRUST_PROXY` n'est pas pose, le panneau ne le croit pas (n'importe quel client peut
+poser cet en-tete) et le dit — « declare ton proxy », pas « mets du TLS ».
+
+Les cles vivent dans `passkeys.json` (`0600`), une entree par compte, avec le compteur de signature
+que la norme demande de faire avancer : **il ne doit jamais reculer**, c'est la qu'une cle clonee se
+trahit. La bibliotheque `webauthn` fait la cryptographie — ecrire soi-meme la verification d'une
+signature ECDSA et le decodage CBOR d'une attestation, c'est le genre de code ou une erreur discrete
+ne se voit que de celui qui la cherche. Import optionnel : sans elle, les cles d'acces sont
+indisponibles et le reste ne bouge pas.
+
 ## Adresse publique, et ce que « publique » veut dire
 
 Une application **publique** est servie **sans authentification** : c'est ce qui permet de partager
@@ -441,7 +477,7 @@ silencieusement sans bloquer le demarrage du service — c'est une commodite, pa
 
 | Point de montage | Contenu |
 |---|---|
-| `/var/lib/codelab/app-manager` | `apps.json`, `logs/`, `alertes.json`, `utilisateurs.json`, `categories.json`, `acces.jsonl`, `exposition.json` et `diagnostic-inscrit` — l'etat du panneau. Aucun secret en clair : les mots de passe des comptes sont derives, ceux des services sont dans `credentials.env` |
+| `/var/lib/codelab/app-manager` | `apps.json`, `logs/`, `alertes.json`, `utilisateurs.json`, `categories.json`, `acces.jsonl`, `exposition.json`, `passkeys.json` et `diagnostic-inscrit` — l'etat du panneau. Aucun secret en clair : les mots de passe des comptes sont derives, ceux des services sont dans `credentials.env` |
 | `/workspace` | Racine dans laquelle chercher/lancer les applications |
 
 ## Double authentification et exposition
@@ -511,6 +547,12 @@ qui n'est pas implemente ici.
 | `/api/visibility/<nom>` | POST | oui | Bascule publique / privee (ou impose la valeur donnee) |
 | `/api/categories` | GET | oui | La liste des categories, dans l'ordre d'affichage (tous les roles) |
 | `/api/categories` | PUT | oui | Remplace la liste (**administrateur**) ; renvoie le nombre de projets declasses |
+| `/api/passkeys/etat` | GET | **non** | Les cles d'acces sont-elles utilisables ici (et sinon, pourquoi) |
+| `/api/mon-compte/passkeys` | GET / POST | oui | Les cles du compte connecte ; en enregistre une nouvelle |
+| `/api/mon-compte/passkeys/options` | POST | oui | Prepare l'enregistrement (defi range dans la session) |
+| `/api/mon-compte/passkeys/<id>` | DELETE | oui | Retire une cle du compte connecte |
+| `/login/passkey/options` | POST | **non** | Prepare une connexion par cle d'acces |
+| `/login/passkey` | POST | **non** | Ouvre la session si la signature est bonne |
 | `/api/securite/exposition` | PUT | oui | Declare (ou retire) l'adresse publique du serveur |
 | `/api/activite` | GET | oui | Journal des acces et son resume (**administrateur**) |
 | `/api/mon-compte` | GET | oui | Ce que la session dit d'elle-meme : nom, role, adresse et son etat |

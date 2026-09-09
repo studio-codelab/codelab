@@ -218,6 +218,18 @@ button.principal:disabled{opacity:.6;cursor:default}
 .bascule{margin-top:14px;text-align:center;font-size:12.5px;color:var(--dim)}
 .bascule a{color:var(--accent);cursor:pointer;font-weight:600}
 .bascule a:hover{text-decoration:underline}
+
+/* Bouton « cle d'acces », sous le bouton principal. Un separateur « ou »
+   pour dire que ce sont deux chemins vers la meme porte, pas une etape de
+   plus. */
+.ou{display:flex;align-items:center;gap:10px;margin:14px 0;color:var(--dim2);font-size:12px}
+.ou::before,.ou::after{content:"";flex:1;height:1px;background:var(--line)}
+.secondaire{width:100%;display:flex;align-items:center;justify-content:center;gap:8px;
+ padding:11px 14px;border:1px solid var(--line2);border-radius:var(--r-s);background:var(--surface);
+ color:var(--txt);font:inherit;font-size:14px;font-weight:600;cursor:pointer}
+.secondaire:hover{border-color:var(--accent);color:var(--accent)}
+.secondaire svg{width:17px;height:17px}
+.secondaire:disabled{opacity:.55;cursor:default}
 </style></head><body>
 
 <div class="presentation">
@@ -300,6 +312,18 @@ button.principal:disabled{opacity:.6;cursor:default}
       <button class="principal" id="go" onclick="submit()">Se connecter</button>
       <div class="err" id="err"></div>
       <div class="ok" id="copie">Cle copiee.</div>
+
+      <!-- Chemin par cle d'acces. Masque tant que le serveur n'a pas dit
+           qu'il est en etat d'en utiliser (HTTPS, nom de domaine, et la
+           bibliotheque installee) : un bouton qui echoue toujours est pire
+           qu'un bouton absent. -->
+      <div id="pk-zone" style="display:none">
+        <div class="ou">ou</div>
+        <button class="secondaire" id="pk-go" onclick="connexionPasskey()">
+          <svg viewBox="0 0 24 24"><circle cx="8" cy="12" r="4"/><path d="M12 12h9"/>
+          <path d="M17 12v3"/><path d="M20.5 12v2"/></svg>
+          Utiliser une cle d'acces</button>
+      </div>
 
       <!-- Affiche seulement si un serveur d'envoi est configure : sans mail,
            aucune adresse ne peut etre verifiee, donc pas de compte libre. -->
@@ -402,6 +426,56 @@ function montrerQr(adresse){
   img.onload=()=>img.classList.add('on');
   img.onerror=()=>img.classList.remove('on');
   img.src=adresse+'?t='+Date.now();
+}
+
+/* ---------------- cles d'acces ---------------- */
+const b64urlVersOctets = t => Uint8Array.from(
+  atob(t.replace(/-/g,'+').replace(/_/g,'/')), c=>c.charCodeAt(0));
+const octetsVersB64url = b => btoa(String.fromCharCode(...new Uint8Array(b)))
+  .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+
+(async()=>{
+  if(!window.PublicKeyCredential) return;
+  try{
+    const d=await (await fetch('/api/passkeys/etat')).json();
+    if(d.possible) $$('pk-zone').style.display='block';
+  }catch(e){}
+})();
+
+async function connexionPasskey(){
+  err.style.display='none';
+  const bouton=$$('pk-go'); bouton.disabled=true;
+  try{
+    /* Le nom est envoye s'il est deja tape : cela restreint la demande aux
+       cles de ce compte. Vide, le navigateur propose celles qu'il connait
+       pour ce site -- et le serveur ne revele aucune liste de comptes. */
+    const r=await fetch('/login/passkey/options',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({nom:(nom.value||'').trim()})});
+    const o=await r.json();
+    if(!r.ok){ err.textContent=o.error||'Impossible.'; err.style.display='block'; return; }
+    o.challenge=b64urlVersOctets(o.challenge);
+    (o.allowCredentials||[]).forEach(c=>{ c.id=b64urlVersOctets(c.id); });
+    const cred=await navigator.credentials.get({publicKey:o});
+    const envoi={
+      id:cred.id, rawId:octetsVersB64url(cred.rawId), type:cred.type,
+      response:{
+        clientDataJSON:octetsVersB64url(cred.response.clientDataJSON),
+        authenticatorData:octetsVersB64url(cred.response.authenticatorData),
+        signature:octetsVersB64url(cred.response.signature),
+        userHandle:cred.response.userHandle ? octetsVersB64url(cred.response.userHandle) : null,
+      },
+    };
+    const r2=await fetch('/login/passkey',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({credential:envoi})});
+    const d2=await r2.json();
+    if(r2.ok){ location.href='/'; return; }
+    err.textContent=d2.error||'Cle refusee.'; err.style.display='block';
+  }catch(e){
+    err.textContent = (e && e.name==='NotAllowedError')
+      ? 'Connexion annulee.' : ('Cle d\'acces indisponible : ' + (e&&e.message||e));
+    err.style.display='block';
+  }finally{ bouton.disabled=false; }
 }
 
 function copierSecret(){

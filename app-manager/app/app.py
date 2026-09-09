@@ -659,6 +659,117 @@ def envoyer_code_email(adresse, nom, code):
                  destinataires=[adresse])
 
 
+# --------------------------- cles d'acces (passkeys) ---------------------------
+#
+# Une cle d'acces remplace le mot de passe ET le code a six chiffres : le
+# telephone (ou l'ordinateur) prouve la possession, et l'empreinte ou le code
+# de l'appareil prouve la personne. Rien a retenir, rien a recopier, et rien
+# a hameconner -- la cle ne signe que pour le domaine qui l'a enregistree,
+# donc un faux site n'en tire rien.
+#
+# TROIS CONTRAINTES QUE LE NAVIGATEUR IMPOSE, et qu'il faut annoncer plutot
+# que subir :
+#
+#   1. contexte securise. Le navigateur refuse WebAuthn hors HTTPS (sauf sur
+#      localhost). Sur http://192.168.1.x:9001, le bouton ne peut pas
+#      marcher : le panneau le dit au lieu de l'afficher pour rien ;
+#   2. un vrai nom de domaine. Le "rp_id" ne peut pas etre une adresse IP.
+#      Il faut donc un nom -- celui par lequel on ouvrira toujours le
+#      panneau, puisque les cles sont liees a lui ;
+#   3. le meme nom a chaque fois. Une cle enregistree sur codelab.exemple.fr
+#      ne fonctionne pas sur 192.168.1.20, et c'est voulu.
+#
+# La bibliotheque webauthn fait la cryptographie. Ecrire soi-meme la
+# verification d'une signature ECDSA et le decodage CBOR d'une attestation,
+# c'est exactement le genre de code ou une erreur discrete ne se voit jamais
+# -- sauf de celui qui la cherche. Import optionnel, comme le QR code : sans
+# elle, les cles d'acces sont simplement indisponibles.
+PASSKEYS_FILE = os.path.join(STATE_DIR, "passkeys.json")
+PASSKEY_NOM_MAX = 40
+
+
+def passkeys_disponibles():
+    try:
+        import webauthn  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def _hote_et_schema():
+    """(hote sans port, schema, https_annonce_sans_confiance).
+
+    X-Forwarded-Proto n'est croyable que derriere un proxy declare de
+    confiance : n'importe quel client peut le poser. On ne s'en sert donc
+    que si TRUST_PROXY est actif -- mais on retient qu'il annoncait HTTPS,
+    parce que c'est exactement le cas ou la marche a suivre n'est pas
+    « mets du TLS » mais « declare ton proxy ».
+    """
+    hote = (request.host or "").split(":")[0]
+    annonce = (request.headers.get("X-Forwarded-Proto") or "").lower()
+    if TRUST_PROXY and annonce:
+        return hote, annonce, False
+    return hote, request.scheme, (annonce == "https" and request.scheme != "https")
+
+
+def passkey_contexte():
+    """(rp_id, origine, empechement).
+
+    empechement vaut "" quand tout est reuni. Sinon c'est la phrase a
+    afficher : le navigateur, lui, se contenterait d'une erreur illisible.
+    """
+    hote, schema, https_non_cru = _hote_et_schema()
+    origine = f"{schema}://{request.host}"
+    if not hote:
+        return "", "", "Hote inconnu."
+    local = hote in ("localhost", "127.0.0.1", "::1")
+    if schema != "https" and not local:
+        if https_non_cru:
+            return "", "", ("Un proxy annonce HTTPS, mais ce panneau ne le croit pas : "
+                            "pose APP_MANAGER_TRUST_PROXY=1 dans le compose, puis "
+                            "redemarre le service.")
+        return "", "", ("Les cles d'acces exigent une connexion HTTPS : le navigateur "
+                        "refuse de les creer en clair. Mets le TLS en place, puis "
+                        "reviens ici.")
+    # Une adresse IP ne peut pas servir de "relying party id" : la norme
+    # exige un nom de domaine. C'est la meme exigence que le certificat.
+    if re.fullmatch(r"[0-9.]+|\[[0-9a-fA-F:]+\]", hote) and not local:
+        return "", "", ("Les cles d'acces exigent un nom de domaine, pas une adresse IP. "
+                        "Ouvre le panneau par son nom (celui du certificat).")
+    return hote, origine, ""
+
+
+def lire_passkeys():
+    try:
+        with open(PASSKEYS_FILE) as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return d if isinstance(d, dict) else {}
+
+
+def ecrire_passkeys(tout):
+    tmp = PASSKEYS_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(tout, f, indent=2)
+    os.replace(tmp, PASSKEYS_FILE)
+    try:
+        os.chmod(PASSKEYS_FILE, 0o600)
+    except OSError:
+        pass
+
+
+def passkeys_du_compte(nom):
+    return lire_passkeys().get(nom, [])
+
+
+def _descripteurs(nom):
+    from webauthn.helpers import base64url_to_bytes
+    from webauthn.helpers.structs import PublicKeyCredentialDescriptor
+    return [PublicKeyCredentialDescriptor(id=base64url_to_bytes(k["id"]))
+            for k in passkeys_du_compte(nom)]
+
+
 # ------------------------- journal des acces -------------------------
 #
 # Qui s'est connecte, quand, et quelle application il a ouverte. Deux usages,
@@ -2031,6 +2142,263 @@ def _mon_compte():
     if est_admin():
         return None
     return lire_utilisateurs().get(utilisateur_courant())
+
+
+# ------------------------- routes des cles d'acces -------------------------
+
+@flask_app.get("/api/passkeys/etat")
+def api_passkeys_etat():
+    """Ce que la page de connexion et les parametres ont besoin de savoir.
+
+    Publique : la page de connexion doit pouvoir demander si le bouton a un
+    sens avant que quiconque soit authentifie. Elle ne revele ni compte ni
+    cle -- seulement si le serveur est en etat d'en utiliser.
+    """
+    if not passkeys_disponibles():
+        return jsonify({"possible": False,
+                        "empechement": "La bibliotheque webauthn n'est pas installee "
+                                       "sur ce serveur."})
+    _, _, empechement = passkey_contexte()
+    return jsonify({"possible": not empechement, "empechement": empechement})
+
+
+def _refus_passkey():
+    """(reponse, code) si les cles d'acces ne sont pas utilisables ici."""
+    if not passkeys_disponibles():
+        return jsonify({"error": "La bibliotheque webauthn n'est pas installee."}), 501
+    _, _, empechement = passkey_contexte()
+    if empechement:
+        return jsonify({"error": empechement}), 400
+    return None
+
+
+@flask_app.post("/api/mon-compte/passkeys/options")
+@require_auth
+def api_passkey_options():
+    """Prepare l'enregistrement d'une cle pour le compte connecte."""
+    refus = _refus_passkey()
+    if refus:
+        return refus
+    from webauthn import generate_registration_options, options_to_json
+    from webauthn.helpers.structs import (AuthenticatorSelectionCriteria,
+                                          ResidentKeyRequirement,
+                                          UserVerificationRequirement)
+    rp_id, _, _ = passkey_contexte()
+    nom = utilisateur_courant()
+    options = generate_registration_options(
+        rp_id=rp_id,
+        rp_name="CodeLab",
+        user_name=nom,
+        # L'identifiant d'utilisateur est le nom du compte : il ne quitte
+        # jamais ce serveur, et deux comptes ne portent jamais le meme nom.
+        user_id=nom.encode(),
+        user_display_name=nom,
+        # Deja enregistrees : le navigateur propose alors d'en ajouter une
+        # autre plutot que de remplacer celle qu'on a sous la main.
+        exclude_credentials=_descripteurs(nom),
+        authenticator_selection=AuthenticatorSelectionCriteria(
+            # Decouvrable : c'est ce qui permet de se connecter sans taper
+            # son nom -- le navigateur sait deja de qui il s'agit.
+            resident_key=ResidentKeyRequirement.PREFERRED,
+            # Exigee : une cle qui ne verifie pas la personne (ni empreinte,
+            # ni code d'appareil) ne serait qu'un facteur de possession, et
+            # ne pourrait pas remplacer mot de passe ET second facteur.
+            user_verification=UserVerificationRequirement.REQUIRED,
+        ),
+    )
+    session["passkey_defi"] = base64.b64encode(options.challenge).decode()
+    return Response(options_to_json(options), mimetype="application/json")
+
+
+@flask_app.post("/api/mon-compte/passkeys")
+@require_auth
+def api_passkey_enregistrer():
+    """Verifie la reponse du navigateur et range la cle."""
+    refus = _refus_passkey()
+    if refus:
+        return refus
+    from webauthn import verify_registration_response
+    from webauthn.helpers import bytes_to_base64url
+    defi = session.get("passkey_defi")
+    if not defi:
+        return jsonify({"error": "Recommence : aucun enregistrement en attente."}), 400
+    d = request.get_json(force=True, silent=True) or {}
+    rp_id, origine, _ = passkey_contexte()
+    try:
+        verifiee = verify_registration_response(
+            credential=d.get("credential"),
+            expected_challenge=base64.b64decode(defi),
+            expected_rp_id=rp_id,
+            expected_origin=origine,
+            require_user_verification=True,
+        )
+    except Exception as e:
+        return jsonify({"error": f"Cle refusee : {type(e).__name__}: {e}"}), 400
+
+    nom = utilisateur_courant()
+    tout = lire_passkeys()
+    liste = tout.setdefault(nom, [])
+    identifiant = bytes_to_base64url(verifiee.credential_id)
+    if any(k["id"] == identifiant for k in liste):
+        return jsonify({"error": "Cette cle est deja enregistree."}), 400
+    liste.append({
+        "id": identifiant,
+        "cle_publique": bytes_to_base64url(verifiee.credential_public_key),
+        "compteur": verifiee.sign_count,
+        "nom": description_propre(d.get("nom"))[:PASSKEY_NOM_MAX] or "Cle d'acces",
+        "cree": int(time.time()),
+        "dernier": 0,
+    })
+    try:
+        ecrire_passkeys(tout)
+    except OSError as e:
+        return jsonify({"error": f"Cle non enregistree : {e}"}), 500
+    session.pop("passkey_defi", None)
+    journaliser("passkey", qui=nom, action="ajout", ip=_adresse_client())
+    return jsonify({"ok": True})
+
+
+@flask_app.get("/api/mon-compte/passkeys")
+@require_auth
+def api_passkey_liste():
+    """Les cles du compte connecte, sans leur cle publique.
+
+    Elle n'apprend rien a l'interface et n'a pas a trainer dans
+    l'historique du navigateur.
+    """
+    return jsonify({"passkeys": [
+        {"id": k["id"], "nom": k.get("nom") or "Cle d'acces",
+         "cree": k.get("cree"), "dernier": k.get("dernier")}
+        for k in passkeys_du_compte(utilisateur_courant())]})
+
+
+@flask_app.delete("/api/mon-compte/passkeys/<path:identifiant>")
+@require_auth
+def api_passkey_supprimer(identifiant):
+    nom = utilisateur_courant()
+    tout = lire_passkeys()
+    liste = tout.get(nom, [])
+    restantes = [k for k in liste if k["id"] != identifiant]
+    if len(restantes) == len(liste):
+        return jsonify({"error": "Cle inconnue."}), 404
+    tout[nom] = restantes
+    try:
+        ecrire_passkeys(tout)
+    except OSError as e:
+        return jsonify({"error": f"Cle non supprimee : {e}"}), 500
+    journaliser("passkey", qui=nom, action="retrait", ip=_adresse_client())
+    return jsonify({"ok": True})
+
+
+@flask_app.post("/login/passkey/options")
+def login_passkey_options():
+    """Prepare une connexion par cle d'acces.
+
+    Sans nom de compte, la demande porte sur les cles decouvrables : c'est
+    le navigateur qui sait de qui il s'agit, et le serveur ne revele donc
+    aucune liste de comptes.
+    """
+    if rate_limited():
+        return jsonify({"error": "Trop de tentatives. Reessaie dans quelques minutes."}), 429
+    refus = _refus_passkey()
+    if refus:
+        return refus
+    from webauthn import generate_authentication_options, options_to_json
+    from webauthn.helpers.structs import UserVerificationRequirement
+    rp_id, _, _ = passkey_contexte()
+    nom = (request.get_json(force=True, silent=True) or {}).get("nom") or ""
+    nom = (nom or "").strip().lower()
+    options = generate_authentication_options(
+        rp_id=rp_id,
+        allow_credentials=_descripteurs(nom) if nom else None,
+        user_verification=UserVerificationRequirement.REQUIRED,
+    )
+    session["passkey_defi"] = base64.b64encode(options.challenge).decode()
+    return Response(options_to_json(options), mimetype="application/json")
+
+
+@flask_app.post("/login/passkey")
+def login_passkey():
+    """Ouvre la session si la signature est bonne.
+
+    Une cle d'acces vaut le mot de passe ET le second facteur : la personne
+    a prouve la possession de l'appareil, et l'appareil a verifie que c'est
+    bien elle (empreinte ou code). C'est pour cela que l'enregistrement
+    exige la verification d'utilisateur -- sans elle, ce ne serait qu'une
+    moitie, et ouvrir une session sur cette moitie serait un recul.
+    """
+    if rate_limited():
+        return jsonify({"error": "Trop de tentatives. Reessaie dans quelques minutes."}), 429
+    refus = _refus_passkey()
+    if refus:
+        return refus
+    from webauthn import verify_authentication_response
+    from webauthn.helpers import base64url_to_bytes
+    defi = session.get("passkey_defi")
+    if not defi:
+        return jsonify({"error": "Recommence : aucune demande en attente."}), 400
+    d = request.get_json(force=True, silent=True) or {}
+    credential = d.get("credential") or {}
+    identifiant = credential.get("id") or ""
+
+    # A qui appartient cette cle ? On cherche par identifiant, jamais par le
+    # nom annonce par le client : c'est la signature qui fait foi.
+    proprietaire, enregistree = None, None
+    for compte, cles in lire_passkeys().items():
+        for k in cles:
+            if k["id"] == identifiant:
+                proprietaire, enregistree = compte, k
+                break
+        if proprietaire:
+            break
+    if not enregistree:
+        register_failed_attempt()
+        journaliser("echec", qui="", motif="cle d'acces inconnue", ip=_adresse_client())
+        return jsonify({"error": "Cle d'acces inconnue."}), 401
+
+    rp_id, origine, _ = passkey_contexte()
+    try:
+        verifiee = verify_authentication_response(
+            credential=credential,
+            expected_challenge=base64.b64decode(defi),
+            expected_rp_id=rp_id,
+            expected_origin=origine,
+            credential_public_key=base64url_to_bytes(enregistree["cle_publique"]),
+            credential_current_sign_count=enregistree.get("compteur", 0),
+            require_user_verification=True,
+        )
+    except Exception as e:
+        register_failed_attempt()
+        journaliser("echec", qui=proprietaire, motif="cle d'acces", ip=_adresse_client())
+        return jsonify({"error": f"Cle refusee : {type(e).__name__}: {e}"}), 401
+
+    # Le compteur ne doit jamais reculer : une cle clonee se trahit la.
+    tout = lire_passkeys()
+    for k in tout.get(proprietaire, []):
+        if k["id"] == identifiant:
+            k["compteur"] = verifiee.new_sign_count
+            k["dernier"] = int(time.time())
+    try:
+        ecrire_passkeys(tout)
+    except OSError:
+        pass
+
+    est_administrateur = proprietaire == NOM_ADMIN
+    if not est_administrateur:
+        compte = lire_utilisateurs().get(proprietaire)
+        if not compte:
+            return jsonify({"error": "Compte inconnu."}), 401
+        if compte.get("attente_email"):
+            return jsonify({"error": "Confirme d'abord ton adresse mail."}), 403
+
+    session.pop("passkey_defi", None)
+    session.permanent = True
+    session["authed"] = True
+    session["role"] = ROLE_ADMIN if est_administrateur else ROLE_UTILISATEUR
+    session["utilisateur"] = proprietaire
+    journaliser("connexion", qui=proprietaire, role=session["role"],
+                moyen="cle d'acces", ip=_adresse_client())
+    return jsonify({"ok": True, "role": session["role"]})
 
 
 @flask_app.get("/api/activite")

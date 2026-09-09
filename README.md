@@ -90,6 +90,11 @@ compte ; **Parametres**, lui, est personnel et existe pour chaque compte.
   chiffres envoye dessus. Si un serveur d'envoi est configure, la page de connexion propose
   **« Creer un compte »** — le compte cree n'ouvre **aucun projet** tant que tu ne lui en autorises pas.
 
+- **Cles d'acces (passkeys)** (*Parametres > Cles d'acces*) : se connecter avec l'empreinte ou le
+  code de son appareil, sans mot de passe ni code a six chiffres. **Exige HTTPS et un nom de
+  domaine** — le navigateur refuse WebAuthn en clair ; le panneau le dit au lieu d'afficher un
+  bouton qui echouerait.
+
 - **Journal des acces** (*Utilisateurs*, et l'onglet *Activite* d'une application) : qui s'est
   connecte, quand, et quelle application il a ouverte. De quoi reperer des echecs de connexion en
   rafale, et savoir si un projet sert encore avant de l'arreter.

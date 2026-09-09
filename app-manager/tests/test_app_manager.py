@@ -1475,3 +1475,100 @@ def test_l_adresse_du_compose_l_emporte_sur_celle_de_la_page(exposition, monkeyp
     assert etat["adresse_figee"] is True
     assert c.put("/api/securite/exposition",
                  json={"adresse_publique": "https://autre.example"}).status_code == 400
+
+
+# ---------- 18. cles d'acces (passkeys) ----------
+#
+# Le navigateur impose ses conditions : HTTPS, un nom de domaine, pas une
+# adresse IP. Ce qui doit rester vrai cote serveur : on ANNONCE ces
+# conditions au lieu de laisser le bouton echouer, on ne croit pas un proxy
+# qu'on n'a pas declare, et une cle inconnue n'ouvre rien.
+#
+# La ceremonie WebAuthn elle-meme (signature, attestation) se verifie au
+# navigateur, avec un authentificateur virtuel : elle ne tient pas dans un
+# test sans navigateur.
+
+@pytest.fixture
+def cles(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "PASSKEYS_FILE", str(tmp_path / "passkeys.json"))
+    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
+    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
+    monkeypatch.setattr(app, "TRUST_PROXY", False)
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    return app.flask_app.test_client()
+
+
+def _etat_passkeys(client, **entetes):
+    return client.get("/api/passkeys/etat", headers=entetes).get_json()
+
+
+def test_les_conditions_du_navigateur_sont_annoncees(cles, monkeypatch):
+    """Un bouton qui echoue toujours est pire qu'un bouton absent."""
+    pytest.importorskip("webauthn")
+    # En clair, sur autre chose que localhost : impossible, et on dit pourquoi.
+    d = _etat_passkeys(cles, Host="codelab.example.com")
+    assert d["possible"] is False and "HTTPS" in d["empechement"]
+
+    # Une adresse IP ne peut pas servir de relying party id -- meme en HTTPS,
+    # et c'est bien la regle de l'IP qui doit refuser, pas celle du TLS.
+    monkeypatch.setattr(app, "TRUST_PROXY", True)
+    d = _etat_passkeys(cles, Host="192.168.1.20:9001", **{"X-Forwarded-Proto": "https"})
+    assert d["possible"] is False
+    assert "nom de domaine" in d["empechement"]
+    monkeypatch.setattr(app, "TRUST_PROXY", False)
+
+    # localhost est un contexte securise pour le navigateur : ca marche.
+    assert _etat_passkeys(cles, Host="localhost:9001")["possible"] is True
+
+
+def test_un_proxy_non_declare_n_est_pas_cru_sur_parole(cles, monkeypatch):
+    """X-Forwarded-Proto se pose par n'importe quel client.
+
+    Le message change alors de nature : ce n'est pas « mets du TLS », c'est
+    « declare ton proxy » -- et c'est la difference entre chercher une heure
+    et poser une variable.
+    """
+    pytest.importorskip("webauthn")
+    entetes = {"Host": "codelab.example.com", "X-Forwarded-Proto": "https"}
+    d = _etat_passkeys(cles, **entetes)
+    assert d["possible"] is False
+    assert "APP_MANAGER_TRUST_PROXY" in d["empechement"]
+
+    monkeypatch.setattr(app, "TRUST_PROXY", True)
+    assert _etat_passkeys(cles, **entetes)["possible"] is True
+
+
+def test_une_cle_inconnue_n_ouvre_aucune_session(cles):
+    """C'est la signature qui fait foi, jamais le nom annonce par le client."""
+    pytest.importorskip("webauthn")
+    entetes = {"Host": "localhost:9001"}
+    with cles.session_transaction() as s:
+        s["passkey_defi"] = base64.b64encode(b"defi").decode()
+    r = cles.post("/login/passkey", headers=entetes, json={
+        "credential": {"id": "cle-qui-n-existe-pas", "response": {}}})
+    assert r.status_code == 401
+    with cles.session_transaction() as s:
+        assert s.get("authed") is not True
+    assert [e["motif"] for e in app.lire_acces() if e["genre"] == "echec"] == \
+        ["cle d'acces inconnue"]
+
+
+def test_les_cles_sont_celles_du_compte_connecte(cles):
+    """La liste et la suppression ne parlent jamais d'un autre compte."""
+    pytest.importorskip("webauthn")
+    app.ecrire_passkeys({
+        "admin": [{"id": "AAA", "cle_publique": "x", "compteur": 0, "nom": "Telephone"}],
+        "marie": [{"id": "BBB", "cle_publique": "y", "compteur": 0, "nom": "Portable"}],
+    })
+    assert cles.get("/api/mon-compte/passkeys").status_code == 401
+    cles.post("/login", json={"password": "secret-de-test"})
+    liste = cles.get("/api/mon-compte/passkeys").get_json()["passkeys"]
+    assert [k["id"] for k in liste] == ["AAA"]
+    # La cle publique ne sort pas : elle n'apprend rien a l'interface.
+    assert "cle_publique" not in liste[0]
+    # Celle de quelqu'un d'autre ne se supprime pas depuis ce compte.
+    assert cles.delete("/api/mon-compte/passkeys/BBB").status_code == 404
+    assert len(app.lire_passkeys()["marie"]) == 1
