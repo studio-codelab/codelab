@@ -217,6 +217,22 @@ services:
       MANAGER_PORT: "9001"
       APP_MANAGER_SHARED_CONFIG: /var/lib/codelab/config
 
+      # --- Le jour ou ce panneau sort de ton reseau ---------------------
+      # Les trois lignes ci-dessous se decommentent ENSEMBLE, et seulement
+      # une fois que https://... repond vraiment. Marche a suivre complete
+      # dans HTTPS.md (et vps/ pour la variante avec un VPS devant).
+      #
+      # Pourquoi pas avant : APP_MANAGER_HTTPS marque le cookie de session
+      # "Secure", et le navigateur cesse alors de l'envoyer en clair -- la
+      # session tombe au premier rechargement. Et APP_MANAGER_TRUST_PROXY
+      # fait croire l'en-tete X-Forwarded-For : pose sur un panneau publie
+      # en direct, n'importe quel client peut annoncer l'adresse qu'il veut
+      # et contourner la limite de tentatives.
+      #
+      # APP_MANAGER_HTTPS: "1"
+      # APP_MANAGER_TRUST_PROXY: "1"
+      # APP_MANAGER_PUBLIC_URL: "https://codelab.tondomaine.fr"
+
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:9001/health')\" || exit 1"]
       interval: 10s

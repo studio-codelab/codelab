@@ -83,11 +83,12 @@ codelab.tondomaine.fr {
 
 ### Route C — un VPS devant, la ZimaBlade derriere
 
-Si tu as deja un VPS : il porte le nom de domaine et le certificat, et relaie vers la maison par un
-tunnel WireGuard. Utile quand la box ne peut pas ouvrir de ports, ou quand tu veux que l'adresse
-publique soit celle du VPS.
+Le VPS porte le nom de domaine et le certificat, et relaie vers la maison par un tunnel WireGuard.
+Utile quand la box ne peut pas ouvrir de ports, ou quand tu veux que l'adresse publique soit celle du
+VPS.
 
-Sur le VPS, `nginx` :
+**Les fichiers sont prets dans [`vps/`](vps/)** : les deux configurations WireGuard, la configuration
+nginx du site, et la marche a suivre dans l'ordre. Extrait de `vps/nginx/codelab.conf` :
 
 ```nginx
 server {
@@ -118,8 +119,8 @@ d'acces se lient au mauvais domaine), `X-Forwarded-Proto` (sinon le panneau se c
 
 ## Etape 2 — le dire au panneau
 
-Une fois le TLS en place et verifie dans un navigateur, ajoute dans `docker-compose.yml`, sous
-`codelab-app-manager` → `environment` :
+Une fois le TLS en place et verifie dans un navigateur, **decommente** les trois lignes deja
+preparees dans `docker-compose.yml`, sous `codelab-app-manager` → `environment` :
 
 ```yaml
       # Marque le cookie de session "Secure" : le navigateur ne l'enverra plus

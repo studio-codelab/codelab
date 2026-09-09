@@ -1,0 +1,22 @@
+# WireGuard, cote VPS. A poser dans /etc/wireguard/wg0.conf, puis :
+#   systemctl enable --now wg-quick@wg0
+#
+# Le VPS est le "serveur" du tunnel : il a une adresse publique fixe, la
+# ZimaBlade non. C'est donc la ZimaBlade qui compose, et le VPS qui attend.
+
+[Interface]
+# Adresse du VPS DANS le tunnel. 10.8.0.0/24 est un reseau prive quelconque :
+# n'importe quel /24 non utilise chez toi convient.
+Address = 10.8.0.1/24
+ListenPort = 51820
+# Genere par : wg genkey | tee vps.cle | wg pubkey > vps.pub
+PrivateKey = CLE-PRIVEE-DU-VPS
+
+# Pas d'IP forwarding a activer : nginx parle au tunnel depuis le VPS
+# lui-meme, il ne route pas de trafic pour d'autres machines.
+
+[Peer]
+# La ZimaBlade.
+PublicKey = CLE-PUBLIQUE-DE-LA-ZIMABLADE
+# Seule adresse que ce pair a le droit d'utiliser dans le tunnel.
+AllowedIPs = 10.8.0.2/32
