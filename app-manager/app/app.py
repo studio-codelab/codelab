@@ -2821,6 +2821,12 @@ def api_alertes():
             "mot_de_passe_defini": bool(cfg["password"]),
         },
         "manquants": manquants,
+        # Le serveur d'envoi et les alertes sont deux choses : un serveur
+        # parfaitement configure passait pour incomplet tant qu'aucun
+        # destinataire d'alerte n'etait saisi, alors qu'il sert aussi les
+        # codes de verification et l'inscription libre.
+        "smtp_ok": smtp_utilisable()[1],
+        "manquants_smtp": [m for m in manquants if m != "destinataires"],
         "incidents": sorted(_alertes_en_cours),
     })
 
@@ -2888,23 +2894,32 @@ def api_alertes_test():
 
     Deliberement : on teste sa configuration AVANT d'activer les alertes, et
     exiger l'inverse ferait activer une configuration jamais essayee.
+
+    Une adresse peut etre donnee : on teste alors le SERVEUR D'ENVOI, sans
+    exiger qu'une alerte soit deja reglee. Sans adresse, le test s'adresse
+    aux destinataires des alertes, comme avant.
     """
+    cible = email_valide((request.get_json(force=True, silent=True) or {}).get("destinataire"))
     cfg, manquants = config_smtp()
+    if cible:
+        manquants = [m for m in manquants if m != "destinataires"]
     if manquants:
         return jsonify({"error": "Configuration incomplete : " + ", ".join(manquants)}), 400
+    destinataires = [cible] if cible else cfg["destinataires"]
     try:
         envoyer_mail(cfg, "[CodeLab] mail de test",
                      "Si tu lis ce message, les alertes du panneau CodeLab "
                      "savent sortir.\n\nTu recevras un mail de cette adresse "
                      "quand une application tombera, et un autre quand elle "
                      "reviendra.\n\n-- CodeLab, panneau de gestion des "
-                     "applications")
+                     "applications",
+                     destinataires=destinataires)
     except Exception as e:
         # Le message du serveur SMTP est la seule chose qui aide vraiment ici
         # ("authentification refusee", "relais interdit") : on le remonte tel
         # quel plutot que de le resumer.
         return jsonify({"error": f"{type(e).__name__}: {e}"}), 502
-    return jsonify({"ok": True, "destinataires": cfg["destinataires"]})
+    return jsonify({"ok": True, "destinataires": destinataires})
 
 
 @flask_app.get("/api/utilisateurs")

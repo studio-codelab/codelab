@@ -209,8 +209,9 @@ comprendre — c'est le role qui decide de ce que le menu propose en plus :
 - **Le menu lateral**, administrateur seulement — la vue d'ensemble, les applications (et la fiche
   d'un projet avec ses journaux), et les **utilisateurs**.
 - **Le menu du compte**, en haut a droite — **Parametres**, une seule entree pour tout le monde.
-  Derriere, des onglets : *Compte* (affichage, adresse mail, session) et *Securite* (second facteur,
-  cles d'acces) pour chacun ; *Serveur*, *Categories* et *Alertes* pour l'administrateur seul.
+  Derriere, des onglets, en haut de la page : *Compte* (affichage, adresse mail, session) et
+  *Securite* (second facteur, cles d'acces) pour chacun ; *Serveur*, *Categories*, *E-mail* et
+  *Alertes* pour l'administrateur seul.
 
 Le role est injecte dans la page pour qu'elle sache quoi afficher, mais **ce n'est qu'un confort
 d'affichage** : chaque route d'administration verifie le role de son cote (`require_admin`), et une
@@ -419,13 +420,35 @@ categorie disparue — il serait range dans un tiroir que le hub n'affiche plus,
 La liste vit dans `categories.json` (dans `STATE_DIR`), a cote de `apps.json` : une categorie existe
 avant qu'un projet la porte, et survit a la suppression du dernier projet qui l'utilisait.
 
+## Le serveur d'envoi, et les alertes
+
+Ce sont **deux choses**, et elles ont chacune leur onglet.
+
+Le **serveur d'envoi** (*Parametres > E-mail*) est une fourniture partagee : hote, port,
+chiffrement, identifiant. Trois usages en dependent — les **alertes**, les **codes de verification**
+des adresses des comptes, et l'**inscription libre**, qui reste fermee tant qu'aucun serveur n'est
+configure faute de pouvoir verifier une adresse.
+
+Les **alertes** (*Parametres > Alertes*) n'en sont qu'un usage : qui prevenir, et l'interrupteur.
+
+Melangees dans une seule carte, elles donnaient un etat faux : un serveur parfaitement configure
+s'affichait « incomplet — il manque : destinataires » tant qu'aucune alerte n'etait reglee, alors
+qu'il envoyait tres bien les codes de verification. Chaque onglet ne signale desormais que ce qui
+lui manque a lui.
+
+Le **mail de test** vit avec le serveur, et accepte une adresse : on verifie l'envoi sans avoir a
+regler une alerte d'abord. Laisse le champ vide et il part aux destinataires des alertes, comme
+avant. Les deux onglets ecrivent le meme bloc de `credentials.env` — enregistrer depuis l'un
+n'efface pas ce qui est regle dans l'autre.
+
 ## Alertes par mail
 
 Le panneau redemarre deja tout seul une application qui plante — mais il fallait avoir le panneau
 sous les yeux pour le savoir. Une application qui tombe la nuit reste tombee jusqu'a ce qu'on pense
 a regarder.
 
-**Parametres > Alertes** : destinataires, serveur d'envoi, mail de test, interrupteur.
+**Parametres > Alertes** : destinataires et interrupteur. Le serveur d'envoi et le mail de test
+vivent dans l'onglet **E-mail**, juste a cote.
 
 Ce qui declenche un mail, et ce qui n'en declenche pas :
 

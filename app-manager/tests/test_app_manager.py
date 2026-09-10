@@ -1633,3 +1633,48 @@ def test_l_administrateur_peut_retirer_les_cles_d_un_compte(cles):
     # Et le compte, lui, existe toujours : on retire un moyen d'entrer, pas
     # la personne.
     assert "marie" in app.lire_utilisateurs()
+
+
+# ---------- 20. le serveur d'envoi n'est pas les alertes ----------
+#
+# Un serveur SMTP parfaitement configure passait pour incomplet tant qu'aucun
+# destinataire d'alerte n'etait saisi -- alors qu'il sert aussi les codes de
+# verification d'adresse et l'inscription libre, qui n'ont rien a voir avec
+# les alertes. Les deux ont chacun leur onglet, et le test d'envoi doit
+# pouvoir viser une adresse sans qu'aucune alerte soit reglee.
+
+def test_le_serveur_d_envoi_se_teste_sans_alerte_reglee(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "ALERTES_FILE", str(tmp_path / "alertes.json"))
+    monkeypatch.setattr(app, "SHARED_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(app, "SHARED_ENV_FILE", str(tmp_path / "credentials.env"))
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    (tmp_path / "credentials.env").write_text(
+        "SMTP_HOST=smtp.example.com\nSMTP_USER=panneau@example.com\n")
+    app.ecrire_alertes(False, [])          # serveur pret, aucune alerte reglee
+    partis = []
+    monkeypatch.setattr(app, "envoyer_mail",
+                        lambda cfg, sujet, corps, destinataires=None:
+                        partis.append(destinataires))
+
+    c = app.flask_app.test_client()
+    c.post("/login", json={"password": "secret-de-test"})
+
+    # Le serveur se declare pret, meme sans destinataire d'alerte.
+    etat = c.get("/api/alertes").get_json()
+    assert etat["smtp_ok"] is True
+    assert etat["manquants_smtp"] == []
+    assert "destinataires" in etat["manquants"]   # ca, c'est l'affaire des alertes
+
+    # Un test vers une adresse choisie part quand meme.
+    r = c.post("/api/alertes/test", json={"destinataire": "moi@example.com"})
+    assert r.status_code == 200, r.data
+    assert partis == [["moi@example.com"]]
+
+    # Sans adresse, en revanche, il n'y a personne a qui ecrire.
+    r = c.post("/api/alertes/test", json={})
+    assert r.status_code == 400
+    assert "destinataires" in r.get_json()["error"]
+    assert len(partis) == 1

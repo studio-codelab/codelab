@@ -848,13 +848,16 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
      portes pour la meme piece. -->
 <div id="sec-parametres" class="section" style="display:none">
   <div class="toolbar"><h2>Parametres</h2></div>
-  <div class="sous" id="param-sous"></div>
 
+  <!-- Les onglets viennent tout de suite apres le titre : c'est la premiere
+       chose a choisir en arrivant, et la phrase de sous-titre qui trainait
+       ici ne faisait que reciter leurs noms. -->
   <div class="fiche-onglets" id="param-onglets">
     <button data-p="compte" onclick="paramOnglet('compte')" class="active">Compte</button>
     <button data-p="securite" onclick="paramOnglet('securite')">Securite</button>
     <button data-p="serveur" onclick="paramOnglet('serveur')" data-admin="1">Serveur</button>
     <button data-p="categories" onclick="paramOnglet('categories')" data-admin="1">Categories</button>
+    <button data-p="email" onclick="paramOnglet('email')" data-admin="1">E-mail</button>
     <button data-p="alertes" onclick="paramOnglet('alertes')" data-admin="1">Alertes</button>
   </div>
 
@@ -1084,32 +1087,28 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
 
   </div>
 
-  <div class="onglet-p" id="param-alertes">
+  <!-- LE SERVEUR D'ENVOI ET LES ALERTES SONT DEUX CHOSES. Le premier est une
+       fourniture partagee : il porte les alertes, mais aussi les codes de
+       verification d'adresse et l'inscription libre. Les secondes n'en sont
+       qu'un usage. Les melanger dans une seule carte faisait passer un
+       serveur parfaitement configure pour incomplet tant qu'aucune alerte
+       n'etait reglee. -->
+  <div class="onglet-p" id="param-email">
   <div class="zone">
-    <div class="zone-title">Alertes</div>
+    <div class="zone-title">E-mail</div>
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
-        <b>Alerte par mail</b>
-        <div class="path">Un mail quand une application tombe, un autre quand elle revient.</div>
+        <b>Serveur d'envoi (SMTP)</b>
+        <div class="path">Par ou sortent les mails de CodeLab.</div>
       </div>
-      <span class="pill" id="al-etat"><i></i>&nbsp;</span></div>
+      <span class="pill" id="sm-etat"><i></i>&nbsp;</span></div>
 
-      <div class="hint">Le panneau redemarre tout seul une application qui plante. Il abandonne au
-        bout de 5 tentatives en 10 minutes — c'est a ce moment-la que le mail part, pas au premier
-        soubresaut. Un second mail signale le retour a la normale.</div>
+      <div class="hint">Trois choses en dependent : les <b>alertes</b> quand une application tombe,
+        les <b>codes de verification</b> des adresses mail des comptes, et l'<b>inscription
+        libre</b> — qui reste fermee tant qu'aucun serveur n'est configure, faute de pouvoir
+        verifier une adresse.</div>
 
-      <div class="field" style="margin-top:14px">
-        <label>Destinataires</label>
-        <input id="al-dest" placeholder="moi@example.com, autre@example.com" autocomplete="off">
-        <div class="hint">Separes par des virgules.</div>
-      </div>
-
-      <div class="field">
-        <label>Serveur d'envoi</label>
-        <div class="hint" id="al-smtp-source"></div>
-      </div>
-
-      <div class="grid2">
+      <div class="grid2" style="margin-top:14px">
         <div class="field"><label>Hote SMTP</label>
           <input id="al-host" placeholder="smtp.gmail.com" autocomplete="off"></div>
         <div class="field"><label>Port</label>
@@ -1130,18 +1129,55 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
         <div class="hint">Laisse vide pour conserver celui deja enregistre. Gmail exige un
           <em>mot de passe d'application</em>, pas ton mot de passe habituel.</div>
       </div>
+      <div class="field"><label>Envoyer un test a</label>
+        <input id="sm-test-dest" placeholder="moi@example.com" autocomplete="off">
+        <div class="hint">Le seul controle qui vaille : un serveur qui accepte la connexion peut
+          encore refuser d'expedier. Vide, le test part aux destinataires des alertes.</div>
+      </div>
 
       <div class="actions">
-        <button class="btn btn-primary" id="al-save" onclick="alEnregistrer()">Enregistrer</button>
+        <button class="btn btn-primary" id="sm-save" onclick="alEnregistrer('sm')">Enregistrer</button>
         <button class="btn btn-default" id="al-test" onclick="alTester()">Envoyer un mail de test</button>
-        <button class="btn btn-default" id="al-toggle" onclick="alBasculer()">Activer</button>
       </div>
-      <div class="err" id="al-err" style="display:none"></div>
-      <div class="hint" id="al-msg" style="display:none"></div>
+      <div class="err" id="sm-err" style="display:none"></div>
+      <div class="hint" id="sm-msg" style="display:none"></div>
 
       <div class="hint" style="margin-top:12px">Ces reglages vivent dans le bloc
         <code>codelab-alertes</code> de <code>credentials.env</code> : le capteur d'alerte de
         Dagster lit le meme serveur d'envoi. Une seule configuration pour toute la stack.</div>
+    </div>
+  </div>
+
+  </div>
+
+  <div class="onglet-p" id="param-alertes">
+  <div class="zone">
+    <div class="zone-title">Alertes</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Alerte par mail</b>
+        <div class="path">Un mail quand une application tombe, un autre quand elle revient.</div>
+      </div>
+      <span class="pill" id="al-etat"><i></i>&nbsp;</span></div>
+
+      <div class="hint">Le panneau redemarre tout seul une application qui plante. Il abandonne au
+        bout de 5 tentatives en 10 minutes — c'est a ce moment-la que le mail part, pas au premier
+        soubresaut. Un second mail signale le retour a la normale.</div>
+
+      <div class="field" style="margin-top:14px">
+        <label>Destinataires</label>
+        <input id="al-dest" placeholder="moi@example.com, autre@example.com" autocomplete="off">
+        <div class="hint">Separes par des virgules.</div>
+      </div>
+
+      <div class="hint" id="al-smtp-source"></div>
+
+      <div class="actions">
+        <button class="btn btn-primary" id="al-save" onclick="alEnregistrer('al')">Enregistrer</button>
+        <button class="btn btn-default" id="al-toggle" onclick="alBasculer()">Activer</button>
+      </div>
+      <div class="err" id="al-err" style="display:none"></div>
+      <div class="hint" id="al-msg" style="display:none"></div>
     </div>
   </div>
 
@@ -1402,7 +1438,9 @@ function paramOnglet(o){
   if(o==='securite'){ chargerPasskeys(); if(estAdmin) chargerSecurite(); }
   if(o==='serveur') chargerSecurite();
   if(o==='categories') chargerCategories();
-  if(o==='alertes') chargerAlertes();
+  /* Les deux onglets lisent la meme reponse : le serveur d'envoi et les
+     alertes vivent dans le meme bloc de credentials.env. */
+  if(o==='email' || o==='alertes') chargerAlertes();
 }
 
 /* ---------------- etats ---------------- */
@@ -2325,7 +2363,7 @@ async function chargerInscriptionLibre(){
   z.innerHTML = d.ouverte
     ? '<b>L\'inscription libre est ouverte</b> sur la page de connexion. Un compte cree ainsi '
       + 'n\'ouvre <b>aucun projet</b> tant que tu ne lui en autorises pas.'
-    : '<b>L\'inscription libre est fermee</b> : sans serveur d\'envoi (Parametres &gt; Alertes), '
+    : '<b>L\'inscription libre est fermee</b> : sans serveur d\'envoi (Parametres &gt; E-mail), '
       + 'une adresse declaree ne peut pas etre verifiee.';
 }
 
@@ -2422,8 +2460,11 @@ function alSetTls(t){
     .forEach(b=>b.classList.toggle('active', b.dataset.t===t));
 }
 
-function alMessage(texte, erreur){
-  const e=$('al-err'), m=$('al-msg');
+/* Un message affiche dans l'onglet qu'on ne regarde pas est un message
+   perdu : chaque onglet a le sien, et l'appelant dit lequel. */
+function alMessage(texte, erreur, ou){
+  const prefixe = ou || 'al';
+  const e=$(prefixe+'-err'), m=$(prefixe+'-msg');
   e.style.display='none'; m.style.display='none';
   if(!texte) return;
   const cible = erreur ? e : m;
@@ -2438,6 +2479,12 @@ async function chargerAlertes(){
   pill.innerHTML='<i></i>'+(d.actif?'Actives':'Desactivees');
   $('al-toggle').textContent = d.actif ? 'Desactiver' : 'Activer';
 
+  /* L'etat du SERVEUR ne depend pas des alertes : un serveur pret l'est
+     meme si personne n'est encore prevenu quand une application tombe. */
+  const ps=$('sm-etat');
+  ps.className='pill '+(d.smtp_ok?'on':'off');
+  ps.innerHTML='<i></i>'+(d.smtp_ok?'Pret':'Non configure');
+
   $('al-dest').value = (d.destinataires||[]).join(', ');
   $('al-host').value = d.smtp.host||'';
   $('al-port').value = d.smtp.port||'';
@@ -2446,14 +2493,23 @@ async function chargerAlertes(){
   $('al-pass').placeholder = d.smtp.mot_de_passe_defini ? 'inchange' : 'aucun';
   alSetTls(d.smtp.tls||'starttls');
 
-  /* Dire d'ou viennent les valeurs affichees, et ce qui manque encore : sans
-     ca, un formulaire pre-rempli laisse croire que tout est pret. */
-  const src = d.smtp.host
-    ? 'Lu dans le bloc <code>codelab-alertes</code> de <code>credentials.env</code>.'
-    : 'Aucun serveur configure pour l\'instant.';
-  const manque = (d.manquants||[]).length
-    ? ' Il manque : <b>'+d.manquants.map(esc).join(', ')+'</b>.' : '';
-  $('al-smtp-source').innerHTML = src + manque;
+  /* Le test part par defaut a la premiere adresse d'alerte : c'est celle
+     qu'on veut verifier neuf fois sur dix. */
+  $('sm-test-dest').placeholder = (d.destinataires||[])[0] || 'moi@example.com';
+
+  /* Ce qui manque au SERVEUR, dans l'onglet du serveur ; ce qui manque aux
+     ALERTES, dans celui des alertes. Un « il manque : destinataires »
+     affiche sous un formulaire SMTP complet donnait l'impression que le
+     serveur etait en cause. */
+  const manqueSmtp = (d.manquants_smtp||[]).length
+    ? 'Il manque : <b>'+d.manquants_smtp.map(esc).join(', ')+'</b>.' : '';
+  alMessage('', false, 'sm');
+  if(manqueSmtp) { $('sm-msg').innerHTML=manqueSmtp; $('sm-msg').style.display='block'; }
+
+  $('al-smtp-source').innerHTML = d.smtp_ok
+    ? 'Serveur d\'envoi pret (onglet <b>E-mail</b>).'
+    : 'Aucun serveur d\'envoi configure : les alertes ne partiront pas. '
+      + 'Regle-le dans l\'onglet <b>E-mail</b>.';
 
   const incidents=(d.incidents||[]);
   alMessage(incidents.length
@@ -2484,11 +2540,15 @@ async function alPoster(corps, bouton){
   finally{ b.disabled=false; }
 }
 
-async function alEnregistrer(){
-  alMessage('', false);
-  if(await alPoster(alCorps(), 'al-save')){
+/* Les deux onglets ecrivent le meme bloc : alCorps() lit les champs des
+   deux, qui sont dans le document meme quand l'onglet est masque. Enregistrer
+   depuis l'un n'efface donc pas ce qui est regle dans l'autre. */
+async function alEnregistrer(ou){
+  const prefixe = ou || 'al';
+  alMessage('', false, prefixe);
+  if(await alPoster(alCorps(), prefixe+'-save')){
     await chargerAlertes();
-    alMessage('Reglages enregistres.', false);
+    alMessage('Reglages enregistres.', false, prefixe);
   }
 }
 
@@ -2500,20 +2560,22 @@ async function alBasculer(){
 }
 
 async function alTester(){
-  alMessage('', false);
+  alMessage('', false, 'sm');
   const b=$('al-test'); b.disabled=true; b.textContent='Envoi...';
   try{
     /* Enregistrer d'abord : tester ce qui est affiche a l'ecran plutot que
-       ce qui est enregistre donnerait un test qui passe et des alertes qui
-       ne partent pas. */
+       ce qui est enregistre donnerait un test qui passe et des mails qui ne
+       partent pas. */
     if(await alPoster(alCorps(), 'al-test')){
-      const r=await fetch('/api/alertes/test',{method:'POST'});
+      const r=await fetch('/api/alertes/test',{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({destinataire:$('sm-test-dest').value.trim()})});
       const d=await r.json();
       alMessage(r.ok ? 'Mail envoye a '+(d.destinataires||[]).join(', ')+'.'
-                     : (d.error||'Envoi impossible.'), !r.ok);
+                     : (d.error||'Envoi impossible.'), !r.ok, 'sm');
       await chargerAlertes();
     }
-  }catch(e){ alMessage('Erreur reseau.', true); }
+  }catch(e){ alMessage('Erreur reseau.', true, 'sm'); }
   b.disabled=false; b.textContent='Envoyer un mail de test';
 }
 
@@ -2649,10 +2711,7 @@ const estAdmin = ROLE==='admin';
 
 $('qui-nom').textContent = UTILISATEUR || '';
 $('qui-role').textContent = estAdmin ? 'Administrateur' : 'Utilisateur';
-$('param-sous').textContent = estAdmin
-  ? 'Ton compte, tes moyens de connexion, et les reglages du serveur.'
-  : 'Ton compte, ton adresse mail et tes cles d\'acces.';
-/* Les trois onglets d'administration n'apparaissent que pour l'administrateur. */
+/* Les onglets d'administration n'apparaissent que pour l'administrateur. */
 if(estAdmin) document.querySelectorAll('#param-onglets button[data-admin]')
   .forEach(b=>{ b.style.display='block'; });
 
