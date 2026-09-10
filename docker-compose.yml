@@ -287,6 +287,13 @@ services:
 
     ports:
       - "9001:9001"
+      # Les applications deployees sont servies ICI, sur un port a part -- donc
+      # dans une origine differente de celle du panneau. C'est ce qui empeche
+      # une faille dans une application d'atteindre le panneau : le navigateur
+      # traite deux ports comme deux sites, et refuse a l'un de lire l'autre.
+      # Sans ce port publie, le panneau s'en apercoit, le dit dans
+      # Parametres > Serveur, et continue de servir les applications lui-meme.
+      - "9002:9002"
 
     volumes:
       - /DATA/AppData/codelab/app-manager:/var/lib/codelab/app-manager

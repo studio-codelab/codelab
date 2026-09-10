@@ -2163,3 +2163,81 @@ def test_l_application_travaille_quand_meme_chez_elle(tmp_path, monkeypatch):
         "le groupe ne peut plus traverser CHILD_HOME"
     # Et deux appels de suite ne se marchent pas dessus.
     assert app.ensure_child_home("alpha") == maison
+
+
+# ---------- 25. une origine a part pour les applications ----------
+#
+# Tant que les applications etaient servies sous le port du panneau, elles
+# vivaient dans SON origine : une XSS dans une application quelconque lisait
+# la page du panneau, donc le jeton, donc pilotait la stack. Aucun jeton n'y
+# pouvait rien -- le script hostile etait du bon cote de la barriere.
+#
+# Ce qui doit rester vrai : chaque port ne sert que ce qui lui appartient.
+
+@pytest.fixture
+def deux_origines(deux_espaces, monkeypatch):
+    monkeypatch.setattr(app, "APPS_PORT", 9302)
+    monkeypatch.setattr(app, "APPS_URL", "")
+    monkeypatch.setitem(app._origines_separees, "actif", True)
+    return deux_espaces
+
+
+def _sur_port(port):
+    """L'adresse de base qui fait arriver la requete sur ce port.
+
+    base_url et pas environ_base : Werkzeug reconstruit SERVER_PORT et
+    HTTP_HOST a partir de l'URL, et ecrase ce qu'on aurait pose a la main --
+    les premiers tests ecrits ainsi mesuraient le port par defaut sans le
+    dire.
+    """
+    return {"base_url": "http://serveur:%d" % port}
+
+
+def test_le_panneau_ne_repond_pas_sur_le_port_des_applications(deux_origines):
+    """Le coeur de la separation : si le panneau repondait sur les deux
+    ports, les deux origines se vaudraient et rien ne serait separe."""
+    c = deux_origines
+    for chemin in ("/", "/login", "/api/apps", "/api/utilisateurs"):
+        r = c.get(chemin, **_sur_port(9302))
+        assert r.status_code == 404, f"{chemin} repond sur le port des applications"
+
+
+def test_les_applications_repondent_sur_leur_port(deux_origines):
+    c = deux_origines
+    r = c.get("/public/", **_sur_port(9302))
+    # Pas 404 : la route du proxy est bien atteinte (l'application n'ecoute
+    # pas dans un test, d'ou l'erreur de passerelle).
+    assert r.status_code != 404
+    # La sonde de sante reste joignable : c'est le HEALTHCHECK du conteneur.
+    assert c.get("/health", **_sur_port(9302)).status_code == 200
+
+
+def test_une_application_demandee_au_panneau_est_renvoyee_chez_elle(deux_origines):
+    """Les favoris et les liens deja partages doivent continuer de marcher."""
+    c = deux_origines
+    r = c.get("/public/", **_sur_port(9301))
+    assert r.status_code == 302
+    assert r.headers["Location"] == "http://serveur:9302/public/"
+    # Le sous-chemin et la requete suivent, sinon un lien profond casse.
+    r = c.get("/public/a/b?x=1", **_sur_port(9301))
+    assert r.headers["Location"] == "http://serveur:9302/public/a/b?x=1"
+
+
+def test_sans_separation_rien_ne_change(deux_espaces, monkeypatch):
+    """Le second port peut ne pas s'ouvrir -- non publie par le compose, deja
+    pris. Dans ce cas les applications restent servies par le panneau : une
+    stack qui protege moins vaut mieux qu'une stack morte."""
+    monkeypatch.setitem(app._origines_separees, "actif", False)
+    c = deux_espaces
+    r = c.get("/public/")
+    assert r.status_code != 302 or "9302" not in r.headers.get("Location", "")
+    assert c.get("/login").status_code == 200
+
+
+def test_l_adresse_declaree_prend_le_pas_sur_le_port(deux_origines, monkeypatch):
+    """Derriere un reverse proxy, un second PORT n'est pas joignable de
+    l'exterieur : on declare alors un sous-domaine."""
+    monkeypatch.setattr(app, "APPS_URL", "https://apps.exemple.fr")
+    c = deux_origines
+    r = c.get("/public/", **_sur_port(9301))
+    assert r.headers["Location"] == "https://apps.exemple.fr/public/"

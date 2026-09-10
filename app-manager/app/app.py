@@ -492,6 +492,93 @@ def require_auth(view):
     return wrapped
 
 
+# --------------------- une origine a part pour les applications ---------------
+#
+# Le probleme, tant qu'il n'etait pas resolu : les applications etaient servies
+# sous :9001/<nom>/, c'est-a-dire dans l'ORIGINE du panneau. Une faille XSS
+# dans une application quelconque -- du code que tu ecris vite, pas du code
+# durci -- donnait acces au panneau : lire son DOM, lire le jeton CSRF dans sa
+# page, piloter la stack. Aucun jeton ne protege de cela, puisque le script
+# hostile est dans la meme origine que ce qu'il attaque.
+#
+# Les applications ont donc leur propre port, donc leur propre ORIGINE :
+# une origine, c'est un schema, un hote ET un port. Ce que cela change :
+#
+#   - un script d'une application ne lit plus le DOM du panneau ni sa page,
+#     donc plus le jeton ;
+#   - il peut encore ENVOYER une requete au panneau avec le cookie -- le
+#     cookie est porte par l'hote, pas par le port, et SameSite raisonne en
+#     "site", ou le port ne compte pas non plus. Mais sans le jeton, cette
+#     requete est refusee. C'est ici que le jeton CSRF prend tout son sens :
+#     seul, il ne servait a rien contre une application ; avec la separation
+#     des origines, il devient ce qui la rend efficace.
+#
+# Le cookie de session continue par ailleurs d'etre retire avant d'atteindre
+# l'application elle-meme (voir strip_session_cookie).
+#
+# 0 desactive la separation : les applications repassent sous le port du
+# panneau, comme avant. C'est aussi ce qui se produit tout seul si le second
+# port ne peut pas s'ouvrir -- mieux vaut des applications joignables et un
+# avertissement qu'une stack a moitie morte apres une mise a jour.
+APPS_PORT = int(os.environ.get("APP_MANAGER_APPS_PORT", "9002") or 0)
+
+# Derriere un reverse proxy, un second PORT n'est pas forcement joignable de
+# l'exterieur : on declare alors l'adresse complete (un sous-domaine, par
+# exemple https://apps.tondomaine.fr). Elle prend le pas sur le port.
+APPS_URL = (os.environ.get("APP_MANAGER_APPS_URL") or "").rstrip("/")
+
+# Pose par servir() une fois le second ecouteur reellement ouvert. Tant qu'il
+# est faux, rien ne change : ni redirection, ni restriction.
+_origines_separees = {"actif": False}
+
+
+def origines_separees():
+    return _origines_separees["actif"]
+
+
+def origine_applications():
+    """L'adresse ou vivent les applications, vue depuis le navigateur."""
+    if APPS_URL:
+        return APPS_URL
+    hote = (request.host or "").split(":")[0] if request else ""
+    return f"{request.scheme}://{hote}:{APPS_PORT}"
+
+
+ROUTES_APPLICATIONS = {"proxy", "proxy_noslash", "health"}
+
+
+@flask_app.before_request
+def separer_les_origines():
+    """Chaque port ne sert que ce qui lui appartient.
+
+    Sans cette garde, ouvrir le second port ne separerait rien : le panneau
+    repondrait sur les deux, et les deux origines se vaudraient.
+    """
+    if not origines_separees():
+        return None
+    sur_le_port_des_apps = str(request.environ.get("SERVER_PORT", "")) == str(APPS_PORT)
+    if sur_le_port_des_apps:
+        if request.endpoint in ROUTES_APPLICATIONS or request.endpoint is None:
+            return None
+        # Le panneau ne s'affiche pas ici, et ses API n'y repondent pas : ce
+        # port n'est pas de confiance, c'est tout l'interet.
+        return Response(_page("Ce n'est pas le panneau",
+                              "Cette adresse ne sert que les applications."),
+                        404, mimetype="text/html")
+    # Sur le port du panneau : une application demandee ici est renvoyee chez
+    # elle. Les favoris et les liens deja partages continuent de marcher.
+    if request.endpoint in ("proxy", "proxy_noslash"):
+        nom = request.view_args.get("n", "") if request.view_args else ""
+        sous = request.view_args.get("sub", "") if request.view_args else ""
+        cible = origine_applications() + "/" + urllib.parse.quote(nom) + "/"
+        if sous:
+            cible += sous
+        if request.query_string:
+            cible += "?" + request.query_string.decode("latin-1")
+        return redirect(cible, 302)
+    return None
+
+
 # ------------------------------- jeton CSRF --------------------------------
 #
 # SameSite=Lax bloque deja l'essentiel : un autre SITE ne peut plus faire
@@ -3187,6 +3274,12 @@ def api_securite():
         # Fige par l'environnement : la page n'offre pas de modifier ce
         # qu'un redemarrage remettrait comme avant.
         "adresse_figee": bool((os.environ.get("APP_MANAGER_PUBLIC_URL") or "").strip()),
+        # Les applications sont-elles servies dans une autre origine que le
+        # panneau ? C'est ce qui empeche une XSS dans l'une d'elles d'atteindre
+        # le panneau, et c'est invisible sans le dire.
+        "origines_separees": origines_separees(),
+        "origine_applications": origine_applications() if origines_separees() else "",
+        "port_applications": APPS_PORT,
     })
 
 
@@ -3947,6 +4040,8 @@ def index():
     """
     page = (DASHBOARD_PAGE
             .replace("__JETON__", json.dumps(jeton_session()))
+            .replace("__APPS_BASE__", json.dumps(
+                origine_applications() if origines_separees() else ""))
             .replace("__ROOT__", json.dumps(ROOT))
             .replace("__ROLE__", json.dumps(role_courant() or ""))
             .replace("__UTILISATEUR__", json.dumps(utilisateur_courant())))
@@ -4234,20 +4329,74 @@ def _preparer_diagnostic(name):
 # doit rester lancable depuis un depot fraichement clone, sans rien installer
 # de plus que Flask.
 
+def _ouvrir_port_des_applications(servir_sur):
+    """Le second ecouteur, celui des applications.
+
+    Ouvert AVANT le port du panneau et de maniere synchrone jusqu'a ce qu'on
+    sache s'il tient : c'est ce resultat qui decide si la separation des
+    origines est active, et le panneau doit le savoir des sa premiere reponse.
+
+    S'il ne s'ouvre pas -- port deja pris, non publie par le compose -- on ne
+    separe rien et les applications restent servies par le panneau, comme
+    avant. Une stack qui marche moins bien vaut mieux qu'une stack morte, et
+    le panneau le dit dans Parametres > Serveur.
+    """
+    if not APPS_PORT:
+        print("[app-manager] APP_MANAGER_APPS_PORT=0 : les applications "
+              "restent servies sur le port du panneau.", flush=True)
+        return
+    pret = threading.Event()
+    souci = {}
+
+    def _servir():
+        try:
+            import socket as _s
+            sonde = _s.socket(_s.AF_INET, _s.SOCK_STREAM)
+            sonde.setsockopt(_s.SOL_SOCKET, _s.SO_REUSEADDR, 1)
+            sonde.bind(("0.0.0.0", APPS_PORT))
+            sonde.close()
+        except OSError as e:
+            souci["erreur"] = e
+            pret.set()
+            return
+        pret.set()
+        servir_sur(APPS_PORT)
+
+    threading.Thread(target=_servir, daemon=True).start()
+    pret.wait(timeout=10)
+    if souci:
+        print(f"[app-manager] port {APPS_PORT} indisponible ({souci['erreur']}) : "
+              f"les applications restent servies sur le port du panneau. "
+              f"Publie ce port dans docker-compose.yml pour les isoler.", flush=True)
+        return
+    _origines_separees["actif"] = True
+    print(f"[app-manager] applications isolees sur 0.0.0.0:{APPS_PORT} "
+          f"-- origine distincte de celle du panneau.", flush=True)
+
+
 def servir(port):
     try:
         from waitress import serve
+        def _sur(p):
+            # ident : l'en-tete Server annonce "CodeLab" plutot que la version
+            # exacte de waitress, qui ne renseigne que celui qui cherche une
+            # faille connue.
+            serve(flask_app, host="0.0.0.0", port=p, threads=WSGI_THREADS,
+                  channel_timeout=WSGI_TIMEOUT, ident="CodeLab")
     except ImportError:
         print("[app-manager] waitress absent : repli sur le serveur de "
               "developpement de Flask (a eviter en service).", flush=True)
-        flask_app.run(host="0.0.0.0", port=port, threaded=True)
-        return
-    print(f"[app-manager] waitress sur 0.0.0.0:{port} "
-          f"({WSGI_THREADS} threads).", flush=True)
-    # ident : l'en-tete Server annonce "CodeLab" plutot que la version exacte
-    # de waitress, qui ne renseigne que celui qui cherche une faille connue.
-    serve(flask_app, host="0.0.0.0", port=port, threads=WSGI_THREADS,
-          channel_timeout=WSGI_TIMEOUT, ident="CodeLab")
+        def _sur(p):
+            flask_app.run(host="0.0.0.0", port=p, threaded=True)
+
+    # Dans les DEUX cas : le repli sans waitress doit separer les origines
+    # comme le service normal. Le premier jet ne le faisait pas -- il rendait
+    # la main avant -- et une installation sans waitress se serait retrouvee
+    # avec des applications dans l'origine du panneau, sans que rien ne le
+    # dise.
+    _ouvrir_port_des_applications(_sur)
+    print(f"[app-manager] panneau sur 0.0.0.0:{port}.", flush=True)
+    _sur(port)
 
 
 # -------------------------------- main --------------------------------

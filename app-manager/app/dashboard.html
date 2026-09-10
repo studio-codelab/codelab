@@ -1401,6 +1401,13 @@ table.tbl-journal{min-width:560px}
    Les GET n'en ont pas besoin : ils ne changent rien, et c'est exactement
    la ligne que trace le serveur. */
 const JETON=__JETON__;
+
+/* Ou vivent les applications. Vide = elles sont servies par le panneau
+   lui-meme (separation des origines inactive), et un chemin relatif suffit.
+   Sinon c'est une autre origine, et il faut l'adresse complete : c'est tout
+   l'interet, le navigateur doit les traiter comme un site different. */
+const APPS_BASE=__APPS_BASE__;
+const urlApplication = nom => APPS_BASE + '/' + encodeURIComponent(nom) + '/';
 const fetchNu = window.fetch.bind(window);
 
 /* Le jeton ne part QUE vers ce panneau. Aujourd'hui tous les appels de cette
@@ -1640,7 +1647,7 @@ function peindreHub(){
   }
   const tuile = a => {
     const desc = a.description ? `<div class="desc">${esc(a.description)}</div>` : '';
-    return `<a class="hub-projet ${a.running?'':'arretee'}" href="/${encodeURIComponent(a.name)}/">
+    return `<a class="hub-projet ${a.running?'':'arretee'}" href="${urlApplication(a.name)}">
       <img src="${icone(a.name)}" alt="">
       <div class="txt"><div class="nom">${esc(a.name)}</div>${desc}
       <div class="bas">${badgeEtat(a)}${badgeVis(a)}</div></div></a>`;
@@ -1840,7 +1847,7 @@ function peindreFiche(){
   $('fa-vis').innerHTML='<i></i>'+(prive?'Prive':'Public');
 
   $('fa-url').textContent='/'+a.name+'/';
-  $('fa-url').href='/'+encodeURIComponent(a.name)+'/';
+  $('fa-url').href=urlApplication(a.name);
   $('fa-port').textContent=a.port;
   $('fa-ecoute').textContent = !a.running ? 'Arretee'
     : (a.listening===false ? 'Le port ne repond pas' : 'Le port repond');
@@ -1880,7 +1887,7 @@ function peindreFiche(){
     b.push(`<span class="hint" style="align-self:center;max-width:320px">Declare l'adresse
       publique du serveur (Parametres &gt; Serveur) pour pouvoir partager une application.</span>`);
   }
-  if(a.running) b.push(`<a class="btn btn-ouvrir" href="/${encodeURIComponent(a.name)}/" target="_blank">${svgOuvrir}Ouvrir</a>`);
+  if(a.running) b.push(`<a class="btn btn-ouvrir" href="${urlApplication(a.name)}" target="_blank">${svgOuvrir}Ouvrir</a>`);
   $('fa-actions').innerHTML=b.join('');
 }
 
@@ -2687,6 +2694,15 @@ async function chargerSecurite(){
      + "X-Forwarded-For. Sans lui, la limite de tentatives compte tout le monde comme un seul "
      + "visiteur et le journal des acces note une seule adresse ; avec lui alors que le panneau "
      + "est publie en direct, n'importe quel client peut annoncer l'adresse qu'il veut."],
+    ['4. Applications sur une origine a part', d.origines_separees,
+     d.origines_separees
+       ? ("Tes applications sont servies depuis " + (d.origine_applications||'')
+          + ", une origine distincte de celle du panneau. Une faille dans l'une "
+          + "d'elles ne donne donc pas acces au panneau.")
+       : ("Les applications sont servies par le panneau lui-meme, donc dans la MEME origine : "
+          + "une faille XSS dans une application quelconque peut lire cette page et piloter la "
+          + "stack. Publie le port " + (d.port_applications||9002) + " dans docker-compose.yml "
+          + "(ou pose APP_MANAGER_APPS_URL derriere un proxy) pour les separer.")],
   ];
   $('expo-liste').innerHTML = lignes.map(([nom,ok,aide])=>
     `<div class="kv"><span class="k">${esc(nom)}</span>
