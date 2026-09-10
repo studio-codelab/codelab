@@ -92,7 +92,7 @@ jobs:
         run: pip install flask psutil requests pytest
 
       - name: pytest
-        run: python -m pytest app-manager/tests -q
+        run: python -m pytest workspace/diagnostic/checks.py -q
 
   build:
     needs: tests

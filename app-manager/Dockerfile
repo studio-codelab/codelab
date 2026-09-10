@@ -62,6 +62,11 @@ RUN useradd -u 1001 -g 2000 -M -s /usr/sbin/nologin codelab-app
 # de compilation. Facultative cote code : sans elle, le journal reste dans
 # son fichier et le panneau ne s'en apercoit pas.
 #
+# pytest : la suite de regressions du panneau vit desormais dans le projet
+# diagnostic, et la page /tests permet de la lancer depuis l'installation qui
+# tourne -- c'est ce qui la rend utile a l'usage, et pas seulement a la
+# construction de l'image. Elle ne s'execute jamais toute seule.
+#
 # Versions EXACTES, et pas "la derniere du jour". Ce service detient le mot de
 # passe du panneau, la cle de signature des sessions et le secret de double
 # authentification : c'est celui ou une dependance remplacee entre deux
@@ -79,7 +84,8 @@ RUN pip install --no-cache-dir \
         requests==2.34.2 \
         qrcode==8.2 \
         webauthn==3.0.0 \
-        "psycopg[binary]==3.3.5"
+        "psycopg[binary]==3.3.5" \
+        pytest==9.1.1
 
 
 # L'application entiere -- app.py et les deux pages HTML qu'il sert -- vit

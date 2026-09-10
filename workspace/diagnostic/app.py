@@ -49,7 +49,7 @@ from datetime import datetime, timezone
 # dans ./vendor, a cote du code, sans toucher au conteneur.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor"))
 
-from flask import Flask  # noqa: E402  (present dans l'image app-manager)
+from flask import Flask, request  # noqa: E402  (present dans l'image app-manager)
 
 import checks  # noqa: E402
 
@@ -115,6 +115,10 @@ def tests():
     """
     debut = time.time()
     resultats = checks.run_tests()
+    # La suite de regressions du panneau, en dernier : c'est la plus longue,
+    # et on veut voir les tests d'installation d'abord.
+    if request.args.get("suite") != "0":
+        resultats.append(checks.lancer_suite_du_panneau())
     duree = int((time.time() - debut) * 1000)
     lignes = "".join(
         f'<tr><td class="st {"ok" if ok else "ko"}">{"OK" if ok else "ECHEC"}</td>'

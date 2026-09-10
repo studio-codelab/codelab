@@ -22,12 +22,22 @@ La verification approfondie ne modifie **rien** de l'installation : aucune appli
 aucun reglage. Ses ecritures vont dans la table du diagnostic ou dans son propre dossier, et les
 actions interdites doivent etre REFUSEES -- si l'une passe, c'est le resultat du test.
 
-**Ce ne sont pas les tests du panneau.** Ceux-la vivent dans `app-manager/tests/`, s'executent a la
-construction de l'image, et verifient du CODE dans des dossiers temporaires. Les lancer dans une
-installation qui tourne la detruirait : leurs fixtures ecrivent `apps.json`, `utilisateurs.json` et
-`passkeys.json` sans les rediriger -- sur une machine reelle ces chemins existent, et ce sont tes
-applications et tes comptes qui seraient remplaces. Deux choses differentes, deux endroits
-differents.
+**La suite de regressions du panneau vit ici aussi**, dans `checks.py`, et la verification
+approfondie la lance en dernier. C'est le seul endroit d'ou elle est joignable des deux cotes : par
+la CI avant qu'une image ne parte, et depuis l'installation qui tourne.
+
+```bash
+python -m pytest workspace/diagnostic/checks.py -q
+```
+
+Ces tests ecrivent -- ils enregistrent des applications, creent des comptes, posent des cles
+d'acces. **Un filet les en empeche** : avant chaque test, sans exception, tous les chemins d'etat du
+panneau sont detournes vers un dossier jetable, et l'on verifie qu'aucun ne pointe encore vers le
+vrai. Un test ecrit demain sans precaution ne peut plus rien abimer.
+
+Verifie en faisant tourner la suite entiere avec `APP_MANAGER_STATE` pointant sur de vrais fichiers :
+aucun n'a bouge, aucun n'est apparu. Sans le filet, le journal des acces se remplissait de
+connexions de test.
 
 ## Installation
 

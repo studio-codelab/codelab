@@ -150,7 +150,6 @@ applications est gere directement par ce service.
 | `app/app.py` | Le service : authentification, API, cycle de vie des process, reverse proxy |
 | `app/dashboard.html` | L'interface du panneau |
 | `app/login.html` | La page de connexion |
-| `tests/` | Les regressions gardees (`python -m pytest app-manager/tests -q`) |
 | `vps/` | Tunnel WireGuard + nginx pour exposer ce panneau en HTTPS — voir [`vps/README.md`](vps/README.md). **Ne fait pas partie de l'image** : ces fichiers s'installent sur un VPS et sur l'hote, pas dans le conteneur |
 
 L'application vit dans `app/` : une seule ligne de `COPY` dans le `Dockerfile`, et la racine du service
