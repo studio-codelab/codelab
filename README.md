@@ -97,7 +97,9 @@ de **Parametres** ; les deux premiers onglets, eux, existent pour chaque compte.
 
 - **Journal des acces** (*Utilisateurs*, et l'onglet *Activite* d'une application) : qui s'est
   connecte, quand, et quelle application il a ouverte. De quoi reperer des echecs de connexion en
-  rafale, et savoir si un projet sert encore avant de l'arreter.
+  rafale, et savoir si un projet sert encore avant de l'arreter. Le journal et la liste des comptes
+  sont **recopies dans Postgres** (base `codelab`) pour l'historique long — en plus du fichier local,
+  jamais a la place : une base eteinte ne ralentit ni une connexion ni l'ouverture d'un projet.
 
 - **Categories** (*Parametres > Categories*) : des tiroirs pour ranger les projets dans le hub —
   « Outils », « Sites », « Donnees ». Purement visuel : aucune categorie ne donne de droit. Un projet

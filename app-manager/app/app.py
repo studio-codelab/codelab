@@ -36,6 +36,7 @@ VS Code, git clone) puis simplement declares ici.
 """
 import base64
 import datetime
+import queue
 import hashlib
 import hmac
 import json
@@ -563,6 +564,9 @@ def ecrire_utilisateurs(comptes):
         os.chmod(UTILISATEURS_FILE, 0o600)
     except OSError:
         pass
+    # APRES l'ecriture, jamais avant : le miroir relit le fichier pour le
+    # recopier, et prendrait sinon l'etat d'avant la modification.
+    _pg_deposer(("utilisateurs", None))
 
 
 def derive_mot_de_passe(mot_de_passe, sel):
@@ -757,6 +761,9 @@ def ecrire_passkeys(tout):
         os.chmod(PASSKEYS_FILE, 0o600)
     except OSError:
         pass
+    # Le nombre de cles d'un compte fait partie de ce que le miroir recopie.
+    # Depose apres l'ecriture, pour la meme raison qu'au-dessus.
+    _pg_deposer(("utilisateurs", None))
 
 
 def passkeys_du_compte(nom):
@@ -810,8 +817,12 @@ def journaliser(genre, **details):
     ni refuser une connexion ni casser le proxy -- ce serait faire tomber le
     service pour proteger son journal.
     """
-    evenement = {"ts": int(time.time()), "genre": genre}
+    # Un identifiant par evenement : c'est lui qui rend la copie vers
+    # Postgres rejouable. Sans lui, un rattrapage apres une coupure de la
+    # base insererait deux fois les memes lignes.
+    evenement = {"id": secrets.token_hex(12), "ts": int(time.time()), "genre": genre}
     evenement.update(details)
+    _pg_deposer(("acces", evenement))
     try:
         with _acces_verrou:
             if (os.path.exists(ACCES_FILE)
@@ -833,6 +844,242 @@ def journaliser_ouverture(name):
             return
         _dernier_acces[cle] = maintenant
     journaliser("ouverture", qui=qui, app=name, ip=_adresse_client())
+
+
+# ------------------------- miroir Postgres -------------------------
+#
+# Le fichier reste la source de verite : il tient sans base, se lit depuis
+# une session SSH, et ne fait tomber personne quand le disque se remplit. Il
+# est PLAFONNE, donc il oublie -- 1 Mo, environ 8 000 evenements.
+#
+# Postgres est la memoire longue : la meme chose, sans plafond, interrogeable
+# en SQL. Le panneau y ECRIT EN PLUS, jamais A LA PLACE, et jamais sur le
+# chemin d'une requete : une base lente ou eteinte ne doit ralentir ni une
+# connexion, ni l'ouverture d'une application.
+#
+# D'ou une file en memoire et un fil dedie. Si la base est absente, la file
+# se vide dans le vide et le panneau ne s'en apercoit pas ; quand la base
+# revient, le fil rejoue le fichier -- les identifiants d'evenement rendent
+# l'operation idempotente.
+PG_BASE = os.environ.get("APP_MANAGER_PG_BASE", "codelab")
+PG_ACTIF = (os.environ.get("APP_MANAGER_PG", "1") or "").lower() not in ("0", "false", "no")
+PG_FILE_MAX = 5000          # au-dela, on jette : la memoire n'est pas un journal
+PG_ATTENTE_MIN, PG_ATTENTE_MAX = 5, 300   # secondes entre deux tentatives
+
+_pg_file = queue.Queue(maxsize=PG_FILE_MAX)
+_pg_etat = {"pret": False, "erreur": "", "ecrits": 0, "perdus": 0}
+
+
+def pg_disponible():
+    try:
+        import psycopg  # noqa: F401
+    except ImportError:
+        return False
+    return PG_ACTIF and bool(read_shared_value("POSTGRES_PASSWORD"))
+
+
+def _pg_reglages():
+    return {
+        "host": read_shared_value("POSTGRES_HOST") or "codelab-postgres",
+        "port": read_shared_value("POSTGRES_PORT") or "5432",
+        "user": read_shared_value("POSTGRES_USER") or "codelab",
+        "password": read_shared_value("POSTGRES_PASSWORD") or "",
+        # Base d'INSTANCE de Dagster : elle sert de point d'entree pour creer
+        # la notre. La base "postgres" est supprimee par codelab-postgres.
+        "instance": read_shared_value("POSTGRES_DB") or "dagster",
+    }
+
+
+def _pg_connexion(base):
+    import psycopg
+    r = _pg_reglages()
+    return psycopg.connect(host=r["host"], port=r["port"], user=r["user"],
+                           password=r["password"], dbname=base,
+                           connect_timeout=5, autocommit=True)
+
+
+def _pg_preparer():
+    """Cree la base et les tables si besoin. Leve si la base est injoignable."""
+    import psycopg
+    r = _pg_reglages()
+    # CREATE DATABASE n'accepte pas IF NOT EXISTS : on regarde d'abord.
+    with _pg_connexion(r["instance"]) as cx:
+        existe = cx.execute("SELECT 1 FROM pg_database WHERE datname = %s",
+                            (PG_BASE,)).fetchone()
+        if not existe:
+            cx.execute(psycopg.sql.SQL("CREATE DATABASE {}").format(
+                psycopg.sql.Identifier(PG_BASE)))
+    with _pg_connexion(PG_BASE) as cx:
+        cx.execute("""
+            CREATE TABLE IF NOT EXISTS acces (
+              id          TEXT PRIMARY KEY,
+              ts          TIMESTAMPTZ NOT NULL,
+              genre       TEXT NOT NULL,
+              qui         TEXT NOT NULL DEFAULT '',
+              application TEXT,
+              ip          TEXT,
+              role        TEXT,
+              moyen       TEXT,
+              motif       TEXT,
+              action      TEXT
+            )""")
+        cx.execute("CREATE INDEX IF NOT EXISTS acces_ts ON acces (ts DESC)")
+        cx.execute("CREATE INDEX IF NOT EXISTS acces_qui ON acces (qui, ts DESC)")
+        cx.execute("CREATE INDEX IF NOT EXISTS acces_app ON acces (application, ts DESC)")
+        # Aucun secret ici : ni empreinte de mot de passe, ni sel, ni cle du
+        # second facteur, ni cle d'acces. Cette base est joignable par les
+        # projets deployes -- elle ne porte que ce qui se lit deja dans le
+        # panneau.
+        cx.execute("""
+            CREATE TABLE IF NOT EXISTS utilisateurs (
+              nom            TEXT PRIMARY KEY,
+              email          TEXT NOT NULL DEFAULT '',
+              email_verifie  BOOLEAN NOT NULL DEFAULT FALSE,
+              attente_email  BOOLEAN NOT NULL DEFAULT FALSE,
+              second_facteur BOOLEAN NOT NULL DEFAULT FALSE,
+              cles_acces     INTEGER NOT NULL DEFAULT 0,
+              projets        TEXT[]  NOT NULL DEFAULT '{}',
+              cree           TIMESTAMPTZ,
+              supprime       TIMESTAMPTZ,
+              maj            TIMESTAMPTZ NOT NULL DEFAULT now()
+            )""")
+
+
+def _pg_deposer(tache):
+    """Met une tache dans la file, sans jamais attendre.
+
+    Une file pleine veut dire que la base ne suit pas : on jette, et on le
+    compte. Bloquer ici arreterait une connexion pour un journal.
+    """
+    if not PG_ACTIF:
+        return
+    try:
+        _pg_file.put_nowait(tache)
+    except queue.Full:
+        _pg_etat["perdus"] += 1
+
+
+def _pg_ecrire_acces(cx, evenements):
+    lignes = [(
+        e.get("id") or hashlib.sha256(
+            json.dumps(e, sort_keys=True).encode()).hexdigest()[:24],
+        datetime.datetime.fromtimestamp(e.get("ts") or 0, datetime.timezone.utc),
+        e.get("genre") or "", e.get("qui") or "", e.get("app"), e.get("ip"),
+        e.get("role"), e.get("moyen"), e.get("motif"), e.get("action"),
+    ) for e in evenements]
+    if not lignes:
+        return
+    with cx.cursor() as cur:
+        cur.executemany(
+            """INSERT INTO acces (id, ts, genre, qui, application, ip, role,
+                                  moyen, motif, action)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+               ON CONFLICT (id) DO NOTHING""", lignes)
+    _pg_etat["ecrits"] += len(lignes)
+
+
+def _pg_ecrire_utilisateurs(cx):
+    """Recopie le registre des comptes, et marque les disparus.
+
+    Une ligne n'est jamais supprimee : le journal des acces la designe par
+    son nom, et un historique qui perd ses acteurs ne s'interprete plus.
+    """
+    comptes = lire_utilisateurs()
+    cles = lire_passkeys()
+    with cx.cursor() as cur:
+        for nom, c in comptes.items():
+            cur.execute("""
+                INSERT INTO utilisateurs (nom, email, email_verifie, attente_email,
+                                          second_facteur, cles_acces, projets, cree,
+                                          supprime, maj)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NULL,now())
+                ON CONFLICT (nom) DO UPDATE SET
+                  email=EXCLUDED.email, email_verifie=EXCLUDED.email_verifie,
+                  attente_email=EXCLUDED.attente_email,
+                  second_facteur=EXCLUDED.second_facteur,
+                  cles_acces=EXCLUDED.cles_acces, projets=EXCLUDED.projets,
+                  cree=EXCLUDED.cree, supprime=NULL, maj=now()
+            """, (nom, c.get("email") or "", bool(c.get("email_verifie")),
+                  bool(c.get("attente_email")), bool(c.get("totp")),
+                  len(cles.get(nom, [])), sorted(c.get("projets", [])),
+                  datetime.datetime.fromtimestamp(c.get("cree") or 0,
+                                                  datetime.timezone.utc)))
+        cur.execute("""UPDATE utilisateurs SET supprime = now(), maj = now()
+                        WHERE supprime IS NULL AND NOT (nom = ANY(%s))""",
+                    (list(comptes),))
+
+
+def _pg_rattraper(cx):
+    """Rejoue le fichier en entier : ce qui manque entre, le reste glisse.
+
+    Appele au demarrage et apres chaque reconnexion. Le fichier est plafonne
+    a 1 Mo, donc c'est quelques milliers de lignes -- et ON CONFLICT DO
+    NOTHING rend l'operation sans consequence quand tout est deja la.
+    """
+    _pg_ecrire_acces(cx, lire_acces(limite=100000))
+    _pg_ecrire_utilisateurs(cx)
+
+
+def _pg_boucle():
+    """Le fil qui ecrit. Il ne remonte jamais une erreur a l'appelant."""
+    attente = PG_ATTENTE_MIN
+    while True:
+        if not pg_disponible():
+            time.sleep(PG_ATTENTE_MIN)
+            continue
+        try:
+            _pg_preparer()
+            with _pg_connexion(PG_BASE) as cx:
+                _pg_rattraper(cx)
+                _pg_etat["pret"] = True
+                _pg_etat["erreur"] = ""
+                attente = PG_ATTENTE_MIN
+                while True:
+                    genre, charge = _pg_file.get()
+                    if genre == "acces":
+                        _pg_ecrire_acces(cx, [charge])
+                    elif genre == "utilisateurs":
+                        _pg_ecrire_utilisateurs(cx)
+        except Exception as e:
+            # Base eteinte, mot de passe change, disque plein cote serveur :
+            # on note, on attend, on recommence. Le panneau, lui, continue.
+            _pg_etat["pret"] = False
+            _pg_etat["erreur"] = f"{type(e).__name__}: {e}"
+            time.sleep(attente)
+            attente = min(attente * 2, PG_ATTENTE_MAX)
+
+
+def demarrer_miroir_pg():
+    if not PG_ACTIF:
+        return
+    threading.Thread(target=_pg_boucle, daemon=True).start()
+
+
+def pg_lire_acces(limite=ACCES_LIGNES_LUES, app=None, qui=None):
+    """L'historique long, lu dans Postgres. Leve si la base ne repond pas."""
+    conditions, valeurs = [], []
+    if app is not None:
+        conditions.append("application = %s")
+        valeurs.append(app)
+    if qui is not None:
+        conditions.append("qui = %s")
+        valeurs.append(qui)
+    ou = (" WHERE " + " AND ".join(conditions)) if conditions else ""
+    valeurs.append(int(limite))
+    with _pg_connexion(PG_BASE) as cx:
+        lignes = cx.execute(
+            "SELECT id, ts, genre, qui, application, ip, role, moyen, motif, action"
+            " FROM acces" + ou + " ORDER BY ts DESC, id DESC LIMIT %s",
+            valeurs).fetchall()
+    evenements = []
+    for (id_, ts, genre, qui_, app_, ip, role, moyen, motif, action) in lignes:
+        e = {"id": id_, "ts": int(ts.timestamp()), "genre": genre, "qui": qui_ or ""}
+        for cle, valeur in (("app", app_), ("ip", ip), ("role", role),
+                            ("moyen", moyen), ("motif", motif), ("action", action)):
+            if valeur is not None:
+                e[cle] = valeur
+        evenements.append(e)
+    return evenements
 
 
 def lire_acces(limite=ACCES_LIGNES_LUES, app=None, qui=None):
@@ -2408,11 +2655,24 @@ def api_activite():
 
     Reserve a l'administrateur : c'est le seul role a qui la question « qui a
     ouvert quoi » se pose, et la reponse contient des adresses IP.
+
+    Postgres d'abord quand il repond : il garde tout, la ou le fichier est
+    plafonne a 1 Mo et oublie le plus ancien. Il ne remplace jamais le
+    fichier -- une base eteinte rend simplement la vue plus courte, et la
+    reponse dit d'ou viennent les lignes.
     """
     app_ = request.args.get("app") or None
     qui = request.args.get("qui")
+    if pg_disponible():
+        try:
+            return jsonify({"evenements": pg_lire_acces(app=app_, qui=qui),
+                            "resume": resume_acces(), "source": "postgres",
+                            "pg": _pg_etat["pret"]})
+        except Exception as e:
+            _pg_etat["erreur"] = f"{type(e).__name__}: {e}"
     return jsonify({"evenements": lire_acces(app=app_, qui=qui),
-                    "resume": resume_acces()})
+                    "resume": resume_acces(), "source": "fichier",
+                    "pg": False, "pg_erreur": _pg_etat["erreur"]})
 
 
 @flask_app.get("/api/mon-compte")
@@ -3796,4 +4056,5 @@ if __name__ == "__main__":
         threading.Thread(target=_preparer_diagnostic, args=(inscrit,),
                          daemon=True).start()
     start_monitor_thread()
+    demarrer_miroir_pg()
     servir(int(os.environ.get("MANAGER_PORT", "9001")))
