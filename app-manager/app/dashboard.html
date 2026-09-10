@@ -481,16 +481,25 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
 .qr.on{display:block}
 
 /* ------------------------------ journal des acces ------------------------------ */
-.act-liste{display:flex;flex-direction:column}
-.act-ligne{display:flex;align-items:center;gap:10px;padding:8px 0;font-size:13px;
- border-top:1px solid var(--line)}
-.act-liste .act-ligne:first-child{border-top:none}
-.act-ligne .act-quand{color:var(--dim2);font-size:12px;white-space:nowrap;min-width:120px}
-.act-ligne .act-qui{font-weight:600}
-.act-ligne .act-quoi{color:var(--dim)}
-.act-ligne .act-ip{margin-left:auto;color:var(--dim2);font-size:11.5px;
+/* Un journal se lit en colonnes. Empile en lignes libres, l'oeil devait
+   retrouver ou commencait l'heure a chaque ligne, et les adresses IP,
+   poussees a droite par la longueur du texte, ne s'alignaient jamais.
+   C'est le meme tableau que les projets -- memes en-tetes, meme densite --
+   avec deux differences : une ligne de journal ne s'ouvre pas (pas de
+   curseur main), et quatre colonnes tiennent dans moins de place que huit. */
+table.tbl-journal{min-width:560px}
+.tbl-journal tbody tr{cursor:default}
+.tbl-journal td{padding:10px 16px}
+.tbl-journal .act-quand{color:var(--dim2);font-size:12px;white-space:nowrap;
+ font-variant-numeric:tabular-nums}
+.tbl-journal .act-qui{font-weight:600;white-space:nowrap}
+.tbl-journal .act-quoi{color:var(--dim)}
+.tbl-journal .act-ip{color:var(--dim2);font-size:11.5px;white-space:nowrap;
  font-family:ui-monospace,Menlo,monospace}
 .act-vide{color:var(--dim);font-size:13px;padding:8px 0}
+/* Le vide, lui, reste une phrase : un tableau a une seule case vide est
+   plus bruyant que la phrase qu'il encadre. */
+.tbl-journal td.act-vide{padding:16px}
 /* Un vide explique vaut mieux qu'un vide : il dit ce qui le remplira. */
 .vide{text-align:center;padding:26px 18px;color:var(--dim)}
 .vide b{display:block;color:var(--txt);font-size:14px;font-weight:620;margin-bottom:4px}
@@ -790,7 +799,7 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
     </div>
     <div class="zone">
       <div class="zone-title">Dernieres ouvertures</div>
-      <div class="card"><div class="act-liste" id="ac-liste"></div></div>
+      <div id="ac-liste"></div>
     </div>
     <div class="hint">Une ouverture est notee au plus une fois par quart d'heure et par compte :
       une page web, c'est des dizaines de requetes, et les compter toutes ne dirait plus rien
@@ -1262,13 +1271,9 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
 
   <div class="zone">
     <div class="zone-title">Connexions recentes</div>
-    <div class="card settings-card card-large">
-      <div class="card-top"><div class="card-name">
-        <b>Journal des acces</b>
-        <div class="path">Qui est entre, quand, et quelle application a ete ouverte.</div>
-      </div></div>
-      <div class="act-liste" id="ac-connexions" style="margin-top:6px"></div>
-    </div>
+    <div class="hint" style="margin:-6px 0 12px">Qui est entre, quand, et quelle
+      application a ete ouverte.</div>
+    <div id="ac-connexions"></div>
   </div>
 </div>
 
@@ -2155,16 +2160,24 @@ function ligneActivite(e){
      ouvertures : le journal affichait « a ouvert » suivi de rien. */
   else if(e.genre==='passkey') quoi = "cle d'acces — " + esc(e.action||'');
   else quoi = esc(e.genre||'');
-  return `<div class="act-ligne">
-    <span class="act-quand" title="${esc(quandPrecis(e.ts))}">${esc(ilYA(e.ts))}</span>
-    <span class="act-qui">${qui}</span><span class="act-quoi">${quoi}</span>
-    <span class="act-ip">${esc(e.ip||'')}</span></div>`;
+  return `<tr>
+    <td class="act-quand" title="${esc(quandPrecis(e.ts))}">${esc(ilYA(e.ts))}</td>
+    <td class="act-qui">${qui}</td>
+    <td class="act-quoi">${quoi}</td>
+    <td class="act-ip">${esc(e.ip||'—')}</td></tr>`;
+}
+/* Le journal, en tableau. Vide, il rend la phrase qui dit ce qui le
+   remplira -- pas un tableau a une seule case. */
+function tableauActivite(evenements, vide){
+  if(!evenements.length) return `<div class="act-vide">${vide}</div>`;
+  return `<div class="tbl-wrap"><div class="tbl-scroll"><table class="tbl tbl-journal">
+    <thead><tr><th>Quand</th><th>Qui</th><th>Evenement</th><th>Adresse</th></tr></thead>
+    <tbody>${evenements.map(ligneActivite).join('')}</tbody></table></div></div>`;
 }
 function peindreConnexions(){
   const liste=(activite.evenements||[]).slice(0,40);
-  $('ac-connexions').innerHTML = liste.length
-    ? liste.map(ligneActivite).join('')
-    : '<div class="act-vide">Rien encore. Le journal se remplit a la premiere connexion.</div>';
+  $('ac-connexions').innerHTML = tableauActivite(liste,
+    'Rien encore. Le journal se remplit a la premiere connexion.');
 }
 /* La derniere connexion de chaque compte, sous son nom : c'est ce qu'on
    cherche en ouvrant cette page, avant meme le journal complet. */
@@ -2193,9 +2206,7 @@ function peindreActiviteFiche(){
         <span class="v">${n}</span></div>`).join('')
     : '<div class="act-vide">Personne pour l\'instant.</div>';
   const propres=(activite.evenements||[]).filter(e=>e.genre==='ouverture' && e.app===ficheNom).slice(0,20);
-  $('ac-liste').innerHTML = propres.length
-    ? propres.map(ligneActivite).join('')
-    : '<div class="act-vide">Aucune ouverture enregistree.</div>';
+  $('ac-liste').innerHTML = tableauActivite(propres, 'Aucune ouverture enregistree.');
 }
 
 /* ---------------- comptes utilisateurs ---------------- */
