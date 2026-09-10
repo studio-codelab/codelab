@@ -6,8 +6,7 @@ avec un acces Postgres deja configure dans l'environnement de session.
 Ce fichier couvre deux choses : **le travail quotidien** -- creer un projet, le mettre en ligne, le
 depanner -- puis **le conteneur lui-meme**, pour qui veut comprendre ou modifier l'image.
 
-Pour ce que CodeLab fait dans son ensemble, voir le [README](../README.md) ; pour l'exposer,
-le sauvegarder et le durcir, [`TECHNIQUE.md`](../TECHNIQUE.md).
+Pour ce que CodeLab fait dans son ensemble, voir le [README](../README.md).
 
 ---
 
