@@ -398,6 +398,34 @@ Le fichier est `acces.jsonl` (dans `STATE_DIR`), une ligne JSON par evenement, p
 un `.1` conserve — la meme rotation que les journaux d'application. Un fichier texte se relit depuis
 une session SSH le jour ou le panneau ne repond plus, ce qu'une base ne permettrait pas.
 
+### La memoire longue : Postgres
+
+Le fichier oublie — 1 Mo, environ 8 000 evenements. Le panneau recopie donc **en plus** le journal
+et le registre des comptes dans Postgres, dans une base `codelab` qu'il cree lui-meme au premier
+demarrage (deux tables, `acces` et `utilisateurs`). C'est la que vit l'historique long, interrogeable
+en SQL depuis un projet ou une session `psql`.
+
+**En plus, jamais a la place, et jamais sur le chemin d'une requete.** Une file en memoire et un fil
+dedie : si la base est eteinte, lente, ou si le mot de passe a change, la file se vide dans le vide
+et **la connexion comme l'ouverture d'une application passent quand meme**. Le fichier reste la
+source de verite ; la base est un miroir.
+
+- **Chaque evenement porte un identifiant.** C'est lui qui rend le rattrapage rejouable : au
+  demarrage et apres chaque reconnexion, le fil rejoue le fichier en entier, et `ON CONFLICT DO
+  NOTHING` fait le tri. Rien n'est compte deux fois, et ce qui s'est produit pendant une panne de la
+  base est rattrape tout seul, tant que la ligne est encore dans le fichier.
+- **Aucun secret ne traverse.** La table `utilisateurs` porte le nom, l'adresse, les etats (adresse
+  verifiee, second facteur enregistre, nombre de cles d'acces) et les projets autorises — ni
+  empreinte de mot de passe, ni sel, ni cle du second facteur, ni cle d'acces. Cette base est
+  joignable par les projets deployes : elle ne contient que ce qui se lit deja dans le panneau.
+- **Un compte supprime laisse sa ligne**, marquee `supprime`. Le journal le designe par son nom, et
+  un historique qui perd ses acteurs ne s'interprete plus.
+- `APP_MANAGER_PG=0` coupe le miroir. Sans `psycopg` dans l'image, il est simplement inactif.
+
+La page *Utilisateurs* lit Postgres quand il repond, et retombe sur le fichier sinon — une base
+eteinte rend seulement la vue plus courte, et la reponse de `/api/activite` dit d'ou viennent les
+lignes.
+
 `GET /api/activite` est **reserve a l'administrateur** : il contient des adresses IP et le detail de
 qui ouvre quoi.
 
@@ -507,6 +535,8 @@ silencieusement sans bloquer le demarrage du service — c'est une commodite, pa
 | `APP_MANAGER_SHARED_CONFIG` | Dossier de `credentials.env`, le fichier unique de secrets (`/var/lib/codelab/config`) |
 | `MANAGER_PORT` | Port d'ecoute du panneau lui-meme (`9001`) |
 | `APP_MANAGER_THREADS` | Threads du serveur HTTP (`16`). Le panneau relaie le trafic des applications : une application lente retient un thread pendant toute sa reponse |
+| `APP_MANAGER_PG` | `0` coupe la recopie du journal et des comptes dans Postgres (active par defaut si `psycopg` est installe et le mot de passe present dans `credentials.env`) |
+| `APP_MANAGER_PG_BASE` | Nom de la base du miroir (`codelab`) |
 | `APP_MANAGER_PUBLIC_URL` | Adresse publique du serveur (`https://codelab.mondomaine.fr`). Vide = serveur prive : le panneau ne propose alors pas de rendre une application publique |
 | `APP_MANAGER_TIMEOUT` | Silence tolere sur une connexion avant fermeture, en secondes (`600`). Genereux, pour ne pas couper une application qui fait du long-polling |
 

@@ -57,7 +57,13 @@ RUN useradd -u 1001 -g 2000 -M -s /usr/sbin/nologin codelab-app
 # de code ou une erreur discrete ne se voit que de celui qui la cherche.
 # Facultative cote code : sans elle, les cles d'acces sont indisponibles et
 # le reste ne bouge pas.
-RUN pip install --no-cache-dir flask waitress psutil requests qrcode webauthn
+# psycopg : le miroir du journal des acces et des comptes dans Postgres. La
+# variante [binary] embarque libpq -- pas de paquet systeme a installer, pas
+# de compilation. Facultative cote code : sans elle, le journal reste dans
+# son fichier et le panneau ne s'en apercoit pas.
+RUN pip install --no-cache-dir flask waitress psutil requests qrcode webauthn \
+    "psycopg[binary]"
+
 
 # L'application entiere -- app.py et les deux pages HTML qu'il sert -- vit
 # dans son propre dossier. Une seule ligne a maintenir ici, et le service

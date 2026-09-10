@@ -24,7 +24,9 @@ import base64
 import importlib.util
 import json
 import os
+import queue
 import re
+import secrets
 import sys
 import time
 
@@ -1678,3 +1680,110 @@ def test_le_serveur_d_envoi_se_teste_sans_alerte_reglee(tmp_path, monkeypatch):
     assert r.status_code == 400
     assert "destinataires" in r.get_json()["error"]
     assert len(partis) == 1
+
+
+# ---------- 21. miroir Postgres ----------
+#
+# Le fichier reste la source de verite : il tient sans base et se lit depuis
+# une session SSH. Postgres est la memoire longue -- le fichier est plafonne
+# a 1 Mo et oublie. Ce qui doit rester vrai : ecrire dans la base n'est
+# JAMAIS sur le chemin d'une requete, et le rejeu ne double aucune ligne.
+
+def test_journaliser_ne_depend_jamais_de_la_base(tmp_path, monkeypatch):
+    """Une base eteinte, lente, ou une file pleine : la connexion passe quand
+    meme. C'est la seule propriete qui compte -- le reste n'est que du
+    journal."""
+    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
+    monkeypatch.setattr(app, "PG_ACTIF", True)
+    # File pleine : chaque depot est perdu, sans exception ni attente.
+    pleine = queue.Queue(maxsize=1)
+    pleine.put(("acces", {}))
+    monkeypatch.setattr(app, "_pg_file", pleine)
+    perdus = app._pg_etat["perdus"]
+
+    debut = time.time()
+    for _ in range(50):
+        app.journaliser("connexion", qui="marie", ip="10.0.0.1")
+    assert time.time() - debut < 1.0, "journaliser doit rendre la main tout de suite"
+    assert app._pg_etat["perdus"] == perdus + 50
+    # Et malgre tout, les 50 evenements sont dans le fichier.
+    assert len(app.lire_acces(limite=1000)) == 50
+
+
+def test_chaque_evenement_porte_un_identifiant(tmp_path, monkeypatch):
+    """C'est lui qui rend le rattrapage rejouable.
+
+    Sans identifiant, un rejeu apres une coupure de la base reinsererait les
+    memes lignes -- et l'historique compterait double.
+    """
+    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
+    monkeypatch.setattr(app, "PG_ACTIF", False)
+    app.journaliser("connexion", qui="marie")
+    app.journaliser("connexion", qui="marie")
+    ids = [e["id"] for e in app.lire_acces()]
+    assert len(ids) == 2 and len(set(ids)) == 2, "deux evenements, deux identifiants"
+
+
+def test_le_miroir_se_tait_quand_il_est_debranche(monkeypatch):
+    """APP_MANAGER_PG=0, ou psycopg absent : rien ne part, rien ne casse."""
+    monkeypatch.setattr(app, "PG_ACTIF", False)
+    avant = app._pg_file.qsize()
+    app._pg_deposer(("acces", {"id": "x"}))
+    assert app._pg_file.qsize() == avant
+    assert app.pg_disponible() is False
+
+
+def test_le_miroir_ecrit_vraiment_dans_postgres(tmp_path, monkeypatch):
+    """Contre un vrai serveur, quand il y en a un.
+
+    Ignore sans base joignable : ce test verifie la creation des tables, le
+    rejeu idempotent et la trace d'un compte supprime -- des choses qu'un
+    faux curseur ne prouverait pas.
+    """
+    pytest.importorskip("psycopg")
+    import psycopg
+    dsn = os.environ.get("CODELAB_TEST_PG")
+    if not dsn:
+        pytest.skip("CODELAB_TEST_PG non defini : pas de serveur de test")
+    try:
+        psycopg.connect(dsn, connect_timeout=3).close()
+    except Exception as e:
+        pytest.skip(f"serveur de test injoignable : {e}")
+
+    reglages = psycopg.conninfo.conninfo_to_dict(dsn)
+    monkeypatch.setattr(app, "PG_BASE", "codelab_test_" + secrets.token_hex(4))
+    monkeypatch.setattr(app, "PG_ACTIF", True)
+    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
+    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
+    monkeypatch.setattr(app, "PASSKEYS_FILE", str(tmp_path / "passkeys.json"))
+    monkeypatch.setattr(app, "_pg_reglages", lambda: {
+        "host": reglages.get("host", "127.0.0.1"), "port": reglages.get("port", "5432"),
+        "user": reglages.get("user", "codelab"), "password": reglages.get("password", ""),
+        "instance": reglages.get("dbname", "dagster")})
+
+    app.journaliser("connexion", qui="marie", ip="10.0.0.1", role="utilisateur")
+    app.journaliser("ouverture", qui="marie", app="site", ip="10.0.0.1")
+    app.ecrire_utilisateurs({"marie": {"sel": "aa", "hash": "bb", "projets": ["site"],
+                                       "cree": 0, "email": "marie@example.com"}})
+    try:
+        app._pg_preparer()
+        with app._pg_connexion(app.PG_BASE) as cx:
+            app._pg_rattraper(cx)
+            assert cx.execute("SELECT count(*) FROM acces").fetchone()[0] == 2
+            # Rejoue : les memes lignes ne rentrent pas deux fois.
+            app._pg_rattraper(cx)
+            assert cx.execute("SELECT count(*) FROM acces").fetchone()[0] == 2
+            # Aucun secret n'a traverse.
+            colonnes = [c[0] for c in cx.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'utilisateurs'").fetchall()]
+            assert not ({"hash", "sel", "totp", "cle_publique"} & set(colonnes))
+            # Un compte supprime laisse sa trace : le journal le nomme encore.
+            app.ecrire_utilisateurs({})
+            app._pg_ecrire_utilisateurs(cx)
+            reste = cx.execute("SELECT nom, supprime IS NOT NULL FROM utilisateurs").fetchall()
+            assert reste == [("marie", True)]
+    finally:
+        with app._pg_connexion(app._pg_reglages()["instance"]) as cx:
+            cx.execute(psycopg.sql.SQL("DROP DATABASE IF EXISTS {}").format(
+                psycopg.sql.Identifier(app.PG_BASE)))
