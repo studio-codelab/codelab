@@ -10,7 +10,7 @@ avec un acces Postgres deja configure dans l'environnement de session.
   disponible dans le PATH de toute session SSH. `CODEX_HOME` est pose sur `/workspace/.codex` par
   l'entrypoint, avec un `config.toml` par defaut ecrit une seule fois : l'authentification et les reglages
   survivent a une recreation du conteneur, `codex login` n'est a faire qu'une fois. Usage quotidien dans
-  [`../DEVELOPPER.md`](../DEVELOPPER.md).
+  la section « Developper et deployer » du [README](../README.md#developper-et-deployer).
 - Un utilisateur `vscode` (UID 1000), sans mot de passe, authentification **uniquement par cle publique**
   (`PasswordAuthentication no`, `PermitRootLogin no`).
 - Un script de demarrage (`ENTRYPOINT` du `Dockerfile`) qui, a chaque lancement du conteneur :

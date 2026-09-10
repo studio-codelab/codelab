@@ -89,7 +89,7 @@ applications est gere directement par ce service.
   commandes sont proposees d'un coup (Vite, Astro, Parcel, CRA, Angular, Next.js, Django, Flask, statique).
   Pour un front, la suggestion sert le dossier produit par le build avec le `http.server` de Python plutot
   que le serveur de developpement du framework. Le tableau complet est dans
-  [`../DEVELOPPER.md`](../DEVELOPPER.md).
+  la section « Developper et deployer » du [README](../README.md#developper-et-deployer).
 - **`$PORT` dans l'environnement de l'application** — le port interne attribue est injecte dans le processus
   lance : la commande peut s'ecrire `--port $PORT` au lieu d'un numero en dur a resynchroniser.
 

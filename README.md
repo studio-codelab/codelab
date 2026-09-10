@@ -67,8 +67,8 @@ nommer une base (`psql -d dagster`). Details dans `workspace/README.md`.
 
 **App-manager** : `http://<IP-du-serveur>:9001/` — demarrer/arreter tes apps deployees depuis `/workspace`, consulter
 leurs logs. Protege par mot de passe, genere automatiquement au premier demarrage (voir ci-dessous pour le
-recuperer). Le parcours complet, du dossier vide a l'application en ligne, est decrit dans
-[`DEVELOPPER.md`](DEVELOPPER.md).
+recuperer). Le parcours complet, du dossier vide a l'application en ligne, est decrit plus bas dans
+[Developper et deployer](#developper-et-deployer).
 
 Deux choses s'y reglent quand la stack sert a plusieurs, ou quand on ne veut plus la surveiller a l'oeil :
 
@@ -107,7 +107,7 @@ de **Parametres** ; les deux premiers onglets, eux, existent pour chaque compte.
 
 Details dans [`app-manager/README.md`](app-manager/README.md).
 
-**Pour sortir de chez toi** : [`HTTPS.md`](HTTPS.md) explique comment mettre du TLS devant CodeLab
+**Pour sortir de chez toi** : [Sortir de chez toi](#sortir-de-chez-toi--mettre-du-tls-devant-codelab) explique comment mettre du TLS devant CodeLab
 (Cloudflare Tunnel, Caddy, ou un VPS), et quelles variables poser ensuite — c'est aussi ce qui
 debloque les cles d'acces et le partage d'une application.
 
@@ -120,7 +120,321 @@ meme mot de passe, la meme double authentification si elle est activee, et la me
 
 **Agents** : `codelab agents` dans un projet y ecrit le mode d'emploi de la stack (perimetre d'ecriture,
 acces a la base, conventions Dagster et app-manager) sous forme d'un `AGENTS.md`, lu par `codex` avant
-chaque tache. Voir [`DEVELOPPER.md`](DEVELOPPER.md).
+chaque tache. Voir [Codex](#codex).
+
+## Developper et deployer
+
+De la page blanche a l'application en ligne. Cette partie decrit le travail
+quotidien : ou lancer ses commandes, comment creer un projet, comment le
+mettre en ligne, et quoi regarder quand ca ne marche pas.
+
+---
+
+### Ou suis-je ?
+
+La moitie des problemes vient d'une commande lancee dans le mauvais
+environnement. Il y en a trois.
+
+| Environnement | Comment y aller | Ce qu'on y trouve |
+|---|---|---|
+| Ordinateur local | terminal habituel | VS Code et ses extensions « UI », rien du projet |
+| Conteneur `codelab-dev` | `ssh vscode@<IP-du-serveur> -p 2222` | le code, node, npm, codex, `/workspace` |
+| Hote (le serveur) | `ssh <user>@<IP-du-serveur>` (port 22) | Docker, les volumes de la stack |
+
+Pour trancher, une commande :
+
+```bash
+hostname && whoami && ls -d /workspace
+```
+
+Dans `codelab-dev` : un hostname hexadecimal, l'utilisateur `vscode`, et
+`/workspace` existe. Sinon, on est ailleurs.
+
+**`/workspace` est le seul dossier partage** entre les services et le seul qui
+survive a une mise a jour d'image. `/home/vscode` et `/usr/local` sont
+reconstruits a partir de l'image a chaque recreation du conteneur : ce qui doit
+durer va dans `/workspace`, ou dans le `Dockerfile` du service.
+
+> Ne jamais donner un chemin absolu a un agent lance depuis l'ordinateur local :
+> il chercherait un `/workspace/...` qui n'existe que sur le serveur. Dire
+> « dans le projet courant ».
+
+
+### Le cycle complet
+
+```bash
+ssh vscode@<IP-du-serveur> -p 2222     # 1. entrer dans le conteneur
+codelab new mon-projet                 # 2. dossier, git, .gitignore, AGENTS.md
+cd /workspace/mon-projet               # 3. jamais depuis l'ordinateur local
+codex                                  # 4. developper (voir « Codex », plus bas)
+npm run build                          # 5. verifier que le build passe
+```
+
+6. Ouvrir `http://<IP-du-serveur>:9001/`, **Ajouter un projet**, choisir le
+   dossier : les commandes de lancement et de build sont proposees
+   automatiquement (« Deployer », plus bas).
+7. Activer l'application. Elle est servie sur
+   `http://<IP-du-serveur>:9001/mon-projet/`.
+
+Ensuite, a chaque modification du code : **Déployer** dans le menu « ... » de
+la tuile — build puis remise en ligne en une action.
+
+Aucune installation prealable : node, npm, `codex`, `git` et le client Postgres
+sont dans l'image `codelab-dev` ; node, npm et `git` sont aussi dans l'image
+`codelab-app-manager`, qui est celle qui execute les builds.
+
+#### Creer un nouveau projet
+
+Un projet **est un dossier** sous `/workspace/`. Il n'y a aucun registre a tenir
+a jour, aucun fichier central a editer : ni `/workspace/definitions.py`, ni le
+`docker-compose.yml`, ni `apps.json` a la main.
+
+```bash
+codelab new mon-projet          # dossier, depot git, .gitignore, AGENTS.md
+codelab new mon-projet --db     # ... et sa base de donnees
+```
+
+La commande refuse un dossier existant et un nom invalide : elle est sans danger a relancer.
+Elle ne fait **pas** l'echafaudage du framework — `npm create vite@latest .` telecharge, pose des
+questions et evolue a son rythme ; le reproduire ici vieillirait mal. La commande l'affiche en
+piste suivante, c'est tout.
+
+Puis, **selon ce que le projet fait** — les trois cas sont independants et se
+cumulent :
+
+| Le projet... | Ce qu'il faut en plus |
+|---|---|
+| a besoin d'une base | `codelab db mon-projet`, puis `CODELAB_DB=mon-projet` dans son `.env` |
+| a des jobs Dagster | un `definitions.py` exposant `defs` ; il est decouvert seul, *Reload* dans Dagster pour le voir |
+| est une application web | le declarer dans l'app-manager (« Deployer », plus bas) |
+
+Enfin, completer la section « Projet » du `AGENTS.md` — ce que fait le projet,
+ses commandes — puis lancer `codex`.
+
+Trois choses a ne pas oublier, dans l'ordre ou elles se retournent contre toi :
+
+1. **`base` / `basePath`** si c'est un front, sinon page blanche derriere le
+   sous-chemin `/mon-projet/` (« Deployer », plus bas).
+2. **`.env` dans le `.gitignore`** : `/workspace` n'est pas chiffre.
+3. **Un nom de module unique** si le projet a du Dagster : tous les projets
+   sont charges dans le meme processus, deux `utils.py` se marchent dessus.
+
+Le plus rapide reste de copier le projet `diagnostic`, qui montre un asset
+Dagster, une application web et un module partage entre les deux :
+
+```bash
+cp -r /workspace/diagnostic /workspace/mon-projet
+```
+
+#### Sans passer par le terminal
+
+**Ctrl+Maj+B** (Cmd+Maj+B sur Mac) cree un projet, depuis n'importe ou dans VS Code. Pas de menu :
+la tache « CodeLab : nouveau projet » est declaree tache de *build* par defaut, et c'est le raccourci
+que VS Code reserve a celle-ci. Une boite de dialogue demande le nom, le resultat s'affiche.
+
+Les autres passent par **Terminal > Executer la tache...** :
+
+| Tache | Ce qu'elle fait |
+|---|---|
+| **CodeLab : nouveau projet** | `codelab new` — **Ctrl+Maj+B** |
+| **CodeLab : nouveau projet + base de donnees** | idem, avec `--db` |
+| **CodeLab : creer la base d'un projet existant** | `codelab db` |
+| **CodeLab : mettre a jour le manuel de l'agent** | `codelab agents` |
+
+Les taches appellent l'outil `codelab` du conteneur plutot que de recopier ses commandes : la logique
+reste a un seul endroit.
+
+##### Un raccourci dedie a une autre tache
+
+Un dossier de travail ne peut reserver qu'un seul raccourci — celui de la tache de build. Pour en
+dedier un autre, il faut passer par **tes** raccourcis (Ctrl+Maj+P, « Preferences: Open Keyboard
+Shortcuts (JSON) ») ; ce fichier est personnel a ton VS Code, il ne peut pas etre livre par le depot :
+
+```json
+{
+  "key": "ctrl+alt+n",
+  "command": "workbench.action.tasks.runTask",
+  "args": "CodeLab : nouveau projet + base de donnees"
+}
+```
+
+Ouvre `/workspace` comme dossier dans VS Code, sinon les taches ne sont pas
+proposees (elles vivent dans le `.vscode` de ce dossier).
+
+Le reste du parcours est deja sans terminal : le panneau de l'app-manager fait
+l'ajout, le build, le deploiement et les logs, et l'explorateur de VS Code cree
+fichiers et dossiers au clic droit.
+
+Ce qui echappe encore aux taches : l'echafaudage d'un projet front
+(`npm create vite`), qui reste une commande a lancer. C'est la place naturelle
+d'un `codelab new --stack`, pas d'une ligne de shell recopiee dans un fichier
+de configuration.
+
+> **Installation deja en place :** le squelette n'est copie qu'une fois, au
+> premier demarrage. Pour recuperer `.vscode/` sur un workspace existant, une
+> commande sur l'hote suffit :
+>
+> ```bash
+> docker cp codelab-dagster:/opt/dagster/workspace.default/.vscode /DATA/AppData/codelab/workspace/
+> ```
+
+
+### Deployer
+
+Le formulaire d'ajout inspecte le dossier et propose **deux** commandes : une de
+build, une de lancement. Cliquer sur la suggestion remplit les deux champs.
+
+| Le dossier contient | Build propose | Lancement propose |
+|---|---|---|
+| Vite, Astro, Parcel, CRA, Angular (avec un script `build`) | `npm ci && npm run build` | `python3 -m http.server $PORT --directory dist` |
+| Next.js | `npm ci && npm run build` | `npx next start --port $PORT` |
+| un `package.json` avec un script `start` | `npm ci` (+ `&& npm run build` si le script existe) | `npm start` |
+| `manage.py` (Django) | `pip install -r requirements.txt` | `python3 manage.py runserver 0.0.0.0:$PORT` |
+| `app.py` / `main.py` | `pip install -r requirements.txt` | `python3 app.py` |
+| `index.html` seul | — | `python3 -m http.server $PORT` |
+
+Trois regles derriere ce tableau :
+
+- **`$PORT` est fourni par l'app-manager.** La variable est injectee dans
+  l'environnement du processus lance : ecrire `$PORT` plutot qu'un numero en dur
+  evite d'avoir a resynchroniser la commande quand le port change.
+- **Le build a besoin de node, le service non.** Pour un front, ce qui part en
+  ligne est le dossier produit par le build, servi par le `http.server` de
+  Python. Rien a redemarrer si node change de version, et pas de serveur de
+  developpement (`vite dev`) expose en continu.
+- **`npm ci` quand il y a un lockfile**, `npm install` sinon : installation
+  reproductible, et plus rapide.
+
+#### Mettre a jour une application en ligne
+
+**Déployer**, dans le menu « ... » de la tuile : build, puis redemarrage
+seulement si le build a reussi. L'ancienne version continue d'etre servie
+pendant le build, et un build casse ne met rien hors ligne — on ne remplace une
+version qui marche que par une version qui compile.
+
+« Lancer le build » et « Redemarrer » restent disponibles separement, pour
+construire sans mettre en ligne ou relancer sans reconstruire.
+
+#### Application servie sous un sous-chemin
+
+L'app-manager sert chaque application sous `/<nom>/`. Un front construit pour la
+racine y affiche une page blanche et des 404 sur ses assets. Pour Vite :
+
+```js
+// vite.config.js
+export default defineConfig({ base: '/mon-projet/' })
+```
+
+L'equivalent existe partout : `basePath` pour Next.js, `--base-href` pour
+Angular, `homepage` dans le `package.json` pour Create React App.
+
+
+### Codex
+
+`codex` est installe dans l'image et `CODEX_HOME` pointe sur
+`/workspace/.codex`, cree au demarrage du conteneur avec un `config.toml` par
+defaut. L'authentification et les reglages survivent donc aux mises a jour
+d'image : `codex login` n'est a refaire que la premiere fois.
+
+Le flux OAuth ouvre un serveur sur le port 1455 **dans le conteneur**. Depuis
+l'ordinateur local, dans un second terminal :
+
+```bash
+ssh -p 2222 -L 1455:127.0.0.1:1455 vscode@<IP-du-serveur>
+```
+
+puis, cote conteneur, `codex login` et ouvrir l'URL affichee. Sans tunnel :
+`codex login --device-auth`. C'est fait quand `/workspace/.codex/auth.json`
+existe.
+
+```bash
+cd /workspace/mon-projet
+codex                 # session interactive (/model, /approvals, /new)
+codex exec "..."      # commande unique, sans memoire entre deux appels
+codex resume          # reprendre une session
+```
+
+#### Donner le mode d'emploi a l'agent
+
+Codex lit un `AGENTS.md` avant chaque tache. CodeLab en fournit le contenu : le
+manuel de l'environnement — perimetre d'ecriture, acces a la base, conventions
+Dagster, regles d'une application servie par l'app-manager — vit dans l'image,
+et se pose dans un projet en une commande :
+
+```bash
+cd /workspace/mon-projet
+codelab agents
+```
+
+Le fichier obtenu a deux parties. Le **bloc CodeLab**, entre marqueurs, est
+gere par la commande : relancer `codelab agents` apres une mise a jour de la
+stack le rafraichit. Tout ce qui est ecrit **hors** de ce bloc t'appartient et
+n'est jamais touche — c'est la que vont les specificites du projet, et le
+squelette cree a la premiere execution attend exactement ca :
+
+```markdown
+# Projet mon-projet
+
+## Ce que fait ce projet
+## Commandes
+| But | Commande |
+## Conventions propres a ce projet
+```
+
+Ce que le manuel dit deja a l'agent, sans que tu aies a le repeter :
+
+- **Ne modifier que le projet courant** — jamais `/workspace/definitions.py`,
+  jamais un autre projet, rien hors de `/workspace`, pas de `sudo apt`.
+- **Verifier avant de conclure** — `npm test` / `npm run build` executes, pas
+  supposes.
+- **La base** : une base par projet nommee comme le dossier, `psql` sans
+  argument, `psycopg.connect()` sans argument, `codelab db` pour la creer.
+- **Dagster** : deposer un `definitions.py` exposant `defs`, le fichier racine
+  le decouvre seul ; `group_name` par projet ; les collisions de noms de
+  modules entre projets.
+- **App-manager** : ecouter sur `$PORT` et `0.0.0.0`, le sous-chemin
+  `/<projet>/`, build puis service statique, jamais un serveur de
+  developpement, et les dependances Python dans `vendor/`.
+- **Secrets** : rien en clair dans le code, `.env` a cote du projet, jamais
+  dans `credentials.env`.
+- **Chemins relatifs**, jamais de `/workspace/...` en dur.
+
+Le meme manuel est aussi ecrit dans `/workspace/.codex/AGENTS.md` au demarrage
+du conteneur, ou Codex le lit comme instructions globales. Les deux existent a
+dessein : ce niveau global n'est pas honore par toutes les versions de la CLI,
+le fichier du projet l'est toujours.
+
+**L'extension VS Code `openai.chatgpt` ne fonctionne pas ici** : elle est
+declaree « UI-only », donc executee sur l'ordinateur local, ou il n'y a ni le
+projet ni node (`Failed to create unified exec process`). Le reglage
+`"remote.extensionKind": { "openai.chatgpt": ["ui"] }` reflete cette contrainte,
+il est correct. Utiliser la CLI dans le terminal integre — glisser l'onglet du
+terminal vers le bord droit donne une disposition editeur + agent equivalente a
+un panneau.
+
+
+### Quand ca ne marche pas
+
+```bash
+# l'application repond-elle ?
+curl -I http://codelab-app-manager:9001/mon-projet/
+
+# l'app-manager est-il debout ? (302 vers /login = oui)
+curl -I http://<IP-du-serveur>:9001/
+```
+
+Depuis `codelab-dev`, `127.0.0.1` designe **codelab-dev**, pas les autres
+services : les joindre par leur nom de conteneur (`codelab-app-manager`,
+`codelab-postgres`).
+
+| Symptome | Cause habituelle |
+|---|---|
+| Page blanche, 404 sur les assets | `base` non configure — voir « Deployer » |
+| `Permission denied` sur un script | preferer `bash script.sh` a `./script.sh` |
+| Build en echec | le journal complet est dans « Voir les logs » |
+| Pastille rouge clignotante | boucle de crash : 5 echecs de suite, redemarrage automatique suspendu |
+| Pastille orange, « Ne repond pas » | le process vit, mais rien n'ecoute sur son port : port en dur au lieu de `$PORT`, ecoute sur `127.0.0.1`, ou plantage du serveur apres le demarrage — les logs disent lequel |
+| Un fichier n'est plus modifiable | supprimer `/workspace/.codelab/permissions-v1` et redemarrer la stack |
 
 ## Un seul fichier de secrets
 
@@ -137,7 +451,7 @@ Sauvegarder ce fichier (et `config/ssh/`) suffit a sauvegarder tous les acces.
 
 ## Acces SSH depuis plusieurs ordinateurs
 
-[#acces-ssh-plusieurs-ordinateurs](#acces-ssh-plusieurs-ordinateurs)
+[Acces SSH depuis plusieurs ordinateurs](#acces-ssh-depuis-plusieurs-ordinateurs)
 
 Chaque machine autorisee a son propre fichier dans `config/ssh/authorized_keys.d/`.
 `authorized_keys` n'est plus edite a la main : c'est un fichier **derive**, reconstruit au demarrage
@@ -167,6 +481,176 @@ L'empreinte du serveur, elle, ne change pas : les cles hote sont generees une se
 `config/ssh/host_keys/`. Elles ne sont regenerees que si une cle est **illisible**, pas seulement
 absente -- un fichier tronque par un arret brutal ferait echouer `sshd` et repartir sur une nouvelle
 identite, donc sur le `REMOTE HOST IDENTIFICATION HAS CHANGED` cote client.
+
+## Sortir de chez toi : mettre du TLS devant CodeLab
+
+Tant que CodeLab reste sur ton reseau, le HTTP en clair passe. Des qu'il en
+sort, il faut du TLS -- et c'est aussi ce qui debloque les cles d'acces et le
+partage d'une application.
+
+Le panneau affiche trois lignes rouges dans *Parametres > Serveur* tant que la connexion n'est pas
+chiffree :
+
+| Ligne | Ce qu'elle dit |
+|---|---|
+| **Connexion chiffree (HTTPS)** | Le panneau est servi en clair. Ton mot de passe, ton code a six chiffres et ton cookie de session traversent le reseau lisibles par qui les intercepte. |
+| **Cookie de session en Secure** | Le cookie n'est pas marque `Secure`, donc le navigateur accepterait de l'envoyer en clair. |
+| **Adresse reelle des visiteurs** | Derriere un proxy, toutes les requetes semblent venir du proxy : la limite de tentatives compte alors pour un seul visiteur, et le journal des acces note une seule adresse. |
+
+**Elles se resolvent dans cet ordre, et le premier point fait le gros du travail** : les deux autres
+sont une variable chacun, a poser une fois le TLS en place. Les poser avant couperait la connexion
+en cours — un cookie `Secure` n'est plus envoye en clair, donc la session tombe au rechargement.
+
+> Les **cles d'acces (passkeys)** dependent aussi de cette etape : le navigateur refuse WebAuthn hors
+> HTTPS, et exige un **nom de domaine** (pas une adresse IP). Le TLS les debloque.
+
+
+### Etape 1 — mettre du TLS devant le panneau
+
+Trois routes. Elles se valent techniquement ; ce qui les separe, c'est ce que tu possedes deja.
+
+#### Route A — Cloudflare Tunnel (aucun port a ouvrir)
+
+La plus simple pour une machine a la maison, et **la seule qui marche derriere un CGNAT** (quand ton
+operateur ne te donne pas d'adresse publique a toi). Un conteneur ouvre une connexion **sortante**
+vers Cloudflare ; le trafic revient par la. Rien a ouvrir sur la box, TLS et nom de domaine fournis.
+
+1. Un compte Cloudflare, un domaine delegue chez eux (les leurs sont gratuits sur `.workers.dev`,
+   mais pour un nom a toi il faut un domaine que tu possedes).
+2. Zero Trust → Networks → Tunnels → *Create a tunnel* → note le jeton.
+3. Ajoute le service au `docker-compose.yml` :
+
+```yaml
+  codelab-tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: codelab-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: colle-ici-le-jeton
+    networks:
+      - codelab
+```
+
+4. Dans la console Cloudflare, route le nom de domaine vers `http://codelab-app-manager:9001`
+   (le nom du conteneur, puisque le tunnel est sur le meme reseau).
+
+Ce que ca donne : `https://codelab.tondomaine.fr` en TLS valide, sans ouvrir un seul port.
+
+**Attention** : le tunnel expose le panneau a tout internet. Active la double authentification (ou une
+cle d'acces) **avant**, et pense a l'acces Zero Trust de Cloudflare si tu veux une porte de plus.
+
+#### Route B — Caddy sur la ZimaBlade + ton domaine
+
+Si tu peux ouvrir les ports 80 et 443 de ta box vers la ZimaBlade, et que ton domaine pointe vers ton
+adresse publique (avec un DNS dynamique si elle change).
+
+```yaml
+  codelab-tls:
+    image: caddy:2-alpine
+    container_name: codelab-tls
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /DATA/AppData/codelab/caddy:/data
+      - /DATA/AppData/codelab/Caddyfile:/etc/caddy/Caddyfile:ro
+    networks:
+      - codelab
+```
+
+`Caddyfile` (deux lignes, le certificat Let's Encrypt est obtenu et renouvele tout seul) :
+
+```
+codelab.tondomaine.fr {
+    reverse_proxy codelab-app-manager:9001
+}
+```
+
+#### Route C — un VPS devant, la ZimaBlade derriere
+
+Le VPS porte le nom de domaine et le certificat, et relaie vers la maison par un tunnel WireGuard.
+Utile quand la box ne peut pas ouvrir de ports, ou quand tu veux que l'adresse publique soit celle du
+VPS.
+
+**Les fichiers sont prets dans [`app-manager/vps/`](app-manager/vps/)** : les deux configurations
+WireGuard, la configuration nginx du site, et la marche a suivre dans l'ordre. Extrait de
+`app-manager/vps/nginx/codelab.conf` :
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name codelab.tondomaine.fr;
+    # certificat obtenu par certbot
+    ssl_certificate     /etc/letsencrypt/live/codelab.tondomaine.fr/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/codelab.tondomaine.fr/privkey.pem;
+
+    location / {
+        proxy_pass http://10.8.0.2:9001;   # la ZimaBlade, au bout du WireGuard
+        proxy_set_header Host              $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For   $remote_addr;
+        # Les journaux en direct sont du Server-Sent Events : sans ces deux
+        # lignes, nginx tamponne et le journal n'avance qu'a la fermeture.
+        proxy_buffering off;
+        proxy_read_timeout 600s;
+    }
+}
+```
+
+**Les trois en-tetes comptent** : `Host` (sinon le panneau ne connait pas son propre nom, et les cles
+d'acces se lient au mauvais domaine), `X-Forwarded-Proto` (sinon le panneau se croit en clair) et
+`X-Forwarded-For` (sinon tous les visiteurs partagent une adresse).
+
+
+### Etape 2 — le dire au panneau
+
+Une fois le TLS en place et verifie dans un navigateur, **decommente** les trois lignes deja
+preparees dans `docker-compose.yml`, sous `codelab-app-manager` → `environment` :
+
+```yaml
+      # Marque le cookie de session "Secure" : le navigateur ne l'enverra plus
+      # jamais en clair. A ne poser QU'UNE FOIS le TLS en place, sinon la
+      # session tombe au premier rechargement.
+      APP_MANAGER_HTTPS: "1"
+      # Croit X-Forwarded-For : la limite de tentatives et le journal des acces
+      # retrouvent l'adresse reelle des visiteurs. A ne poser QUE derriere un
+      # proxy qui reecrit vraiment cet en-tete -- publie en direct, n'importe
+      # quel client peut le poser et contourner la limite.
+      APP_MANAGER_TRUST_PROXY: "1"
+      # L'adresse publique du serveur. Sans elle, le panneau ne propose pas de
+      # rendre une application publique.
+      APP_MANAGER_PUBLIC_URL: "https://codelab.tondomaine.fr"
+```
+
+Puis :
+
+```bash
+docker compose up -d codelab-app-manager
+```
+
+Les trois lignes de *Parametres > Serveur* passent au vert, et le bouton « Rendre publique »
+reapparait sur les fiches d'application.
+
+### Etape 3 — verifier
+
+1. Ouvre `https://codelab.tondomaine.fr` : cadenas, pas d'avertissement.
+2. *Parametres > Serveur* : les trois lignes en vert, l'adresse publique declaree.
+3. *Utilisateurs* : ton adresse IP reelle apparait dans les connexions recentes (pas celle du proxy).
+4. *Parametres > Securite* : le bouton « Ajouter une cle » est actif — enregistres-en une.
+5. Deconnecte-toi, puis reconnecte-toi avec la cle.
+
+### Ce que ca ne couvre pas
+
+- **Les applications deployees** sont servies par le meme proxy, donc elles heritent du TLS. Une
+  application **publique** devient alors accessible a tout internet : c'est le but, mais c'est aussi
+  la raison pour laquelle CodeLab ne le propose pas tant que l'adresse publique n'est pas declaree.
+- **Dagster** (port 3000) n'est pas derriere ce proxy. Si tu l'exposes aussi, ajoute-lui une entree
+  dans la meme configuration, en gardant `codelab-dagster-proxy` devant lui.
+- **La meme origine.** Toutes les applications sont servies sous `https://codelab.tondomaine.fr/<nom>/`.
+  Une faille XSS dans une application reste une faille dans l'origine du panneau. Un sous-domaine par
+  application y remedierait, au prix d'un certificat generique et d'une entree DNS par projet.
 
 ## Contenu par defaut du workspace
 
@@ -203,7 +687,7 @@ applications.
 
 ## Workspace partage entre les services
 
-[#workspace-partage](#workspace-partage)
+[Workspace partage entre les services](#workspace-partage-entre-les-services)
 
 `/workspace` est ecrit par trois services aux identites differentes : les sessions SSH en `vscode`
 (uid 1000), Dagster et app-manager en `root`. Sans precaution, un fichier produit par un job Dagster
@@ -355,8 +839,6 @@ python3 -c "import base64; print('data:image/png;base64,' + base64.b64encode(ope
 ```text
 codelab/
 ├── docker-compose.yml
-├── DEVELOPPER.md   # developper un projet et le deployer -- a lire en premier
-├── HTTPS.md        # sortir de chez soi : mettre du TLS devant CodeLab
 ├── icon.svg / icon.png
 ├── .github/workflows/build-images.yml
 ├── workspace/      # squelette depose dans /workspace au premier demarrage
@@ -378,6 +860,7 @@ mais il n'a rien a faire a la racine : il n'existe que pour Dagster.
 machine, mais ils n'existent que pour exposer le panneau. Les ranger a la racine aurait fait croire
 a un sixieme service ; les ranger ici dit de quoi ils dependent.
 
-Ce README couvre l'installation et l'usage global ; `DEVELOPPER.md` couvre le travail quotidien
+Ce README couvre CodeLab dans son ensemble : installation, usage, developpement d'un projet
+et exposition en HTTPS
 (developper dans le conteneur, deployer sur l'app-manager). Le fonctionnement interne de chaque service (scripts de
 demarrage, variables d'environnement, pieges connus) est documente dans son propre `README.md`.

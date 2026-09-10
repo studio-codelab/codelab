@@ -304,7 +304,8 @@ services:
       # --- Le jour ou ce panneau sort de ton reseau ---------------------
       # Les trois lignes ci-dessous se decommentent ENSEMBLE, et seulement
       # une fois que https://... repond vraiment. Marche a suivre complete
-      # dans HTTPS.md (et app-manager/vps/ pour la variante avec un VPS devant).
+      # dans le README, section « Sortir de chez toi » (et app-manager/vps/
+      # pour la variante avec un VPS devant).
       #
       # Pourquoi pas avant : APP_MANAGER_HTTPS marque le cookie de session
       # "Secure", et le navigateur cesse alors de l'envoyer en clair -- la
