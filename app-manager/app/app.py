@@ -48,6 +48,7 @@ import signal
 import smtplib
 import socket
 import ssl
+import stat as stat_mod
 import struct
 import subprocess
 import threading
@@ -1481,19 +1482,66 @@ def ensure_child_home(nom=None):
     main.
     """
     uid = uid_application(nom) if nom else RUN_AS_UID
-    chemin = os.path.join(CHILD_HOME, str(uid))
-    os.makedirs(chemin, exist_ok=True)
+    dossier = str(uid)
+    chemin = os.path.join(CHILD_HOME, dossier)
+    os.makedirs(CHILD_HOME, exist_ok=True)
+
+    # Le PARENT n'est pas ecrivable par les applications. C'est la ligne qui
+    # compte, et elle a manque : quand il l'etait (2770, groupe codelab), une
+    # application pouvait effacer son propre dossier, le remplacer par un lien
+    # symbolique vers n'importe quel dossier de la machine, et attendre. Au
+    # redemarrage suivant, le chown pose ici par root suivait le lien et
+    # donnait la cible a l'application -- le dossier des secrets, par exemple,
+    # dont il suffit alors de remplacer le fichier. Elle pouvait aussi ecraser
+    # le dossier personnel d'une AUTRE application et y deposer un .profile,
+    # que "bash -lc" execute sous l'uid de la voisine.
+    #
+    # 0751 : root cree et modifie, le groupe traverse seulement. Traverser
+    # suffit, puisque chaque application est proprietaire de son propre
+    # dossier a l'interieur.
     if os.geteuid() == 0:
         try:
-            os.chown(CHILD_HOME, RUN_AS_UID, RUN_AS_GID)
-            os.chmod(CHILD_HOME, 0o2770)
-            os.chown(chemin, uid, RUN_AS_GID)
-            # 2700 et pas 2770 : c'est precisement ce que le groupe partage ne
-            # doit PAS ouvrir. Le setgid reste, pour que ce qui y nait garde
-            # le groupe codelab.
-            os.chmod(chemin, 0o2700)
+            os.chown(CHILD_HOME, 0, RUN_AS_GID)
+            os.chmod(CHILD_HOME, 0o0751)
         except OSError as e:
-            print(f"[app-manager] {chemin} : droits non poses ({e}).", flush=True)
+            print(f"[app-manager] {CHILD_HOME} : droits non poses ({e}).", flush=True)
+
+    # Tout se fait relativement a un descripteur du parent, et le dossier est
+    # ouvert en O_NOFOLLOW : meme si une entree hostile subsistait d'une
+    # version precedente, elle n'est pas suivie mais retiree.
+    try:
+        parent = os.open(CHILD_HOME, os.O_RDONLY | os.O_DIRECTORY)
+    except OSError as e:
+        print(f"[app-manager] {CHILD_HOME} illisible ({e}).", flush=True)
+        return chemin
+    try:
+        try:
+            infos = os.lstat(dossier, dir_fd=parent)
+        except FileNotFoundError:
+            infos = None
+        if infos is not None and not stat_mod.S_ISDIR(infos.st_mode):
+            # Un lien, un fichier : pas un dossier personnel. On ne le suit
+            # pas, on l'enleve.
+            print(f"[app-manager] {chemin} n'etait pas un dossier -- retire.", flush=True)
+            os.unlink(dossier, dir_fd=parent)
+            infos = None
+        if infos is None:
+            os.mkdir(dossier, 0o700, dir_fd=parent)
+        if os.geteuid() == 0:
+            fd = os.open(dossier, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                         dir_fd=parent)
+            try:
+                # 2700 et pas 2770 : c'est precisement ce que le groupe
+                # partage ne doit PAS ouvrir. Le setgid reste, pour que ce qui
+                # y nait garde le groupe codelab.
+                os.fchown(fd, uid, RUN_AS_GID)
+                os.fchmod(fd, 0o2700)
+            finally:
+                os.close(fd)
+    except OSError as e:
+        print(f"[app-manager] {chemin} : droits non poses ({e}).", flush=True)
+    finally:
+        os.close(parent)
     return chemin
 
 

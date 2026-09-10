@@ -2068,3 +2068,98 @@ def test_l_enveloppe_de_fetch_regarde_l_origine():
     verif = page[page.index("function memeOrigine"):page.index("window.fetch = function")]
     assert "new URL(url, location.href).origin === location.origin" in verif
     assert "return false" in verif, "une cible illisible doit priver du jeton, pas l'accorder"
+
+
+# ---------- 24. le dossier personnel ne se detourne pas ----------
+#
+# Trouve par l'audit de la branche, et c'etait une escalade de privileges
+# introduite par la separation des uid elle-meme. CHILD_HOME etait ecrivable
+# par le groupe partage : une application pouvait effacer son propre dossier,
+# le remplacer par un lien symbolique vers n'importe quel dossier de la
+# machine, et attendre. Au redemarrage, le chown pose par root suivait le
+# lien -- le dossier des secrets devenait sa propriete, et il ne restait
+# qu'a remplacer credentials.env.
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="demande root pour changer d'uid")
+def test_une_application_ne_detourne_pas_le_chown_de_root(tmp_path, monkeypatch):
+    """Le scenario complet, joue tel quel : lien pose par l'application,
+    ensure_child_home rappele par root, et la cible qui ne doit PAS changer
+    de proprietaire."""
+    import subprocess as sp
+    for parent in list(tmp_path.parents)[:3] + [tmp_path]:
+        try:
+            os.chmod(parent, os.stat(parent).st_mode | 0o011)
+        except OSError:
+            pass
+    monkeypatch.setattr(app, "CHILD_HOME", str(tmp_path / "home"))
+    convoite = tmp_path / "secrets"
+    convoite.mkdir(mode=0o700)
+    (convoite / "credentials.env").write_text("POSTGRES_PASSWORD=secret\n")
+    avant = os.stat(convoite).st_uid
+
+    maison = app.ensure_child_home("alpha")
+    # Le parent n'est pas ecrivable par le groupe : c'est ce qui bloque tout.
+    assert os.stat(app.CHILD_HOME).st_mode & 0o020 == 0, \
+        "CHILD_HOME est ecrivable par le groupe : une application peut y " \
+        "remplacer un dossier par un lien"
+
+    sp.run(["sh", "-c", f"rmdir '{maison}'; ln -s '{convoite}' '{maison}'"],
+           capture_output=True, preexec_fn=app.child_setup(nom="alpha"))
+    app.ensure_child_home("alpha")
+    assert os.stat(convoite).st_uid == avant, \
+        "root a suivi un lien pose par l'application et lui a donne la cible"
+
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="demande root pour changer d'uid")
+def test_une_application_n_ecrase_pas_le_dossier_d_une_autre(tmp_path, monkeypatch):
+    """Meme cause, autre effet : deposer un .profile chez la voisine, que
+    "bash -lc" execute sous SON uid -- l'isolation par uid annulee par le
+    dossier personnel."""
+    import subprocess as sp
+    for parent in list(tmp_path.parents)[:3] + [tmp_path]:
+        try:
+            os.chmod(parent, os.stat(parent).st_mode | 0o011)
+        except OSError:
+            pass
+    monkeypatch.setattr(app, "CHILD_HOME", str(tmp_path / "home"))
+    app.ensure_child_home("alpha")
+    chez_beta = app.ensure_child_home("beta")
+
+    sp.run(["sh", "-c",
+            f"rm -rf '{chez_beta}' && mkdir -m 0777 '{chez_beta}' && "
+            f"echo charge > '{chez_beta}/.profile'"],
+           capture_output=True, preexec_fn=app.child_setup(nom="alpha"))
+    assert not os.path.exists(os.path.join(chez_beta, ".profile"))
+    assert os.stat(chez_beta).st_uid == app.uid_application("beta")
+
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="demande root pour changer d'uid")
+def test_une_entree_hostile_deja_en_place_est_retiree(tmp_path, monkeypatch):
+    """Une installation mise a jour peut deja porter un lien pose du temps ou
+    c'etait possible. Il ne doit pas etre suivi, mais enleve."""
+    monkeypatch.setattr(app, "CHILD_HOME", str(tmp_path / "home"))
+    os.makedirs(app.CHILD_HOME, exist_ok=True)
+    convoite = tmp_path / "secrets"
+    convoite.mkdir()
+    avant = os.stat(convoite).st_uid
+    os.symlink(str(convoite),
+               os.path.join(app.CHILD_HOME, str(app.uid_application("alpha"))))
+
+    maison = app.ensure_child_home("alpha")
+    assert not os.path.islink(maison), "le lien est toujours la"
+    assert os.path.isdir(maison)
+    assert os.stat(convoite).st_uid == avant, "la cible du lien a ete chownee"
+
+
+def test_l_application_travaille_quand_meme_chez_elle(tmp_path, monkeypatch):
+    """Une correction qui rend le dossier personnel inutilisable ne vaut
+    rien : c'est la que vit le cache npm, d'un build a l'autre."""
+    monkeypatch.setattr(app, "CHILD_HOME", str(tmp_path / "home"))
+    maison = app.ensure_child_home("alpha")
+    assert os.path.isdir(maison)
+    # Le groupe traverse le parent, sinon l'application n'atteint pas son
+    # propre dossier.
+    assert os.stat(app.CHILD_HOME).st_mode & 0o010, \
+        "le groupe ne peut plus traverser CHILD_HOME"
+    # Et deux appels de suite ne se marchent pas dessus.
+    assert app.ensure_child_home("alpha") == maison
