@@ -1,9 +1,9 @@
 #!/bin/sh
-# codelab-sauvegarde -- sauvegarde chiffree de CodeLab, a lancer SUR L'HOTE.
+# sauvegarde -- sauvegarde chiffree de CodeLab, a lancer SUR L'HOTE.
 #
-#   codelab-sauvegarde creer [dossier]     ecrit une archive chiffree
-#   codelab-sauvegarde verifier <archive>  restaure a blanc et controle
-#   codelab-sauvegarde restaurer <archive> remet en place (demande confirmation)
+#   sauvegarde creer [dossier]     ecrit une archive chiffree
+#   sauvegarde verifier <archive>  restaure a blanc et controle
+#   sauvegarde restaurer <archive> remet en place (demande confirmation)
 #
 # POURQUOI CHIFFREE, ET PAS SEULEMENT COPIEE.
 #
@@ -51,7 +51,7 @@ lire_phrase() {
   read -r phrase
   stty echo 2>/dev/null || true
   printf '\n' >&2
-  [ -n "$phrase" ] || { echo "codelab-sauvegarde: phrase vide." >&2; exit 2; }
+  [ -n "$phrase" ] || { echo "sauvegarde: phrase vide." >&2; exit 2; }
   printf '%s' "$phrase"
 }
 
@@ -67,8 +67,8 @@ dechiffrer() {
 
 cmd_creer() {
   dest="${1:-$PWD}"
-  [ -d "$dest" ] || { echo "codelab-sauvegarde: $dest n'existe pas." >&2; exit 2; }
-  [ -d "$DONNEES" ] || { echo "codelab-sauvegarde: $DONNEES introuvable (CODELAB_DATA ?)." >&2; exit 2; }
+  [ -d "$dest" ] || { echo "sauvegarde: $dest n'existe pas." >&2; exit 2; }
+  [ -d "$DONNEES" ] || { echo "sauvegarde: $DONNEES introuvable (CODELAB_DATA ?)." >&2; exit 2; }
 
   horodatage=$(date -u +%Y%m%d-%H%M%S)
   archive="$dest/codelab-$horodatage.tar.gz.enc"
@@ -81,7 +81,7 @@ cmd_creer() {
 
   echo "[1/3] bases de donnees..." >&2
   if ! $PGDUMP > "$travail/bases.sql" 2>"$travail/pg.err"; then
-    echo "codelab-sauvegarde: le dump a echoue :" >&2
+    echo "sauvegarde: le dump a echoue :" >&2
     sed 's/^/  /' "$travail/pg.err" >&2
     exit 1
   fi
@@ -94,7 +94,7 @@ cmd_creer() {
   for d in config app-manager dagster workspace; do
     [ -e "$DONNEES/$d" ] && presents="$presents $d"
   done
-  [ -n "$presents" ] || { echo "codelab-sauvegarde: rien a sauvegarder dans $DONNEES." >&2; exit 1; }
+  [ -n "$presents" ] || { echo "sauvegarde: rien a sauvegarder dans $DONNEES." >&2; exit 1; }
 
   echo "[3/3] chiffrement..." >&2
   phrase=$(lire_phrase)
@@ -110,12 +110,12 @@ EOF2
   echo "taille  : $(wc -c < "$archive") octets" >&2
   echo "" >&2
   echo "Verifie-la MAINTENANT, pas le jour ou tu en auras besoin :" >&2
-  echo "  codelab-sauvegarde verifier $archive" >&2
+  echo "  sauvegarde verifier $archive" >&2
 }
 
 cmd_verifier() {
-  archive="${1:?usage: codelab-sauvegarde verifier <archive>}"
-  [ -r "$archive" ] || { echo "codelab-sauvegarde: $archive illisible." >&2; exit 2; }
+  archive="${1:?usage: sauvegarde verifier <archive>}"
+  [ -r "$archive" ] || { echo "sauvegarde: $archive illisible." >&2; exit 2; }
   travail=$(mktemp -d); chmod 700 "$travail"
   trap 'rm -rf "$travail"' EXIT INT TERM
   # Le contenu est extrait dans un sous-dossier : les fichiers de travail
@@ -161,8 +161,8 @@ EOF2
 }
 
 cmd_restaurer() {
-  archive="${1:?usage: codelab-sauvegarde restaurer <archive>}"
-  [ -r "$archive" ] || { echo "codelab-sauvegarde: $archive illisible." >&2; exit 2; }
+  archive="${1:?usage: sauvegarde restaurer <archive>}"
+  [ -r "$archive" ] || { echo "sauvegarde: $archive illisible." >&2; exit 2; }
   echo "Cette commande ECRASE $DONNEES avec le contenu de l'archive." >&2
   echo "Arrete la stack d'abord :  docker compose down" >&2
   printf 'Taper « restaurer » pour confirmer : ' >&2
@@ -198,5 +198,5 @@ case "${1:-}" in
   verifier)  shift; cmd_verifier "$@" ;;
   restaurer) shift; cmd_restaurer "$@" ;;
   -h|--help|help|"") usage; [ "${1:-}" = "" ] && exit 2 || exit 0 ;;
-  *) echo "codelab-sauvegarde: commande inconnue \"$1\"." >&2; usage; exit 2 ;;
+  *) echo "sauvegarde: commande inconnue \"$1\"." >&2; usage; exit 2 ;;
 esac

@@ -151,10 +151,17 @@ applications est gere directement par ce service.
 | `app/dashboard.html` | L'interface du panneau |
 | `app/login.html` | La page de connexion |
 | `tests/` | Les regressions gardees (`python -m pytest app-manager/tests -q`) |
+| `audit-dynamique` | Sonde une instance en marche : API fermees sans session, cookie, jeton sur les ecritures, bornage des chemins, origine des applications, limite de tentatives. **Ne fait pas partie de l'image** : il se lance depuis l'hote ou un poste, contre un panneau qui tourne |
+| `pare-feu` | Borne au reseau local les ports publies par la stack. **Ne fait pas partie de l'image** : il se lance sur l'hote, en root |
 | `vps/` | Tunnel WireGuard + nginx pour exposer ce panneau en HTTPS — voir [`vps/README.md`](vps/README.md). **Ne fait pas partie de l'image** : ces fichiers s'installent sur un VPS et sur l'hote, pas dans le conteneur |
 
 L'application vit dans `app/` : une seule ligne de `COPY` dans le `Dockerfile`, et la racine du service
 reste lisible — l'image, le demarrage, la documentation, les tests.
+
+`audit-dynamique` et `pare-feu` vivent ici parce que c'est ce panneau qu'ils regardent : l'un sonde ses
+routes et sa session, l'autre borne les ports par lesquels on l'atteint. Ni l'un ni l'autre n'entre dans
+l'image -- comme `vps/`, ce sont des outils d'exploitation, ranges aupres de ce sur quoi ils agissent.
+Leur mode d'emploi est en tete de chaque fichier (`--help`).
 
 Les deux pages etaient des chaines Python dans `app/app.py` — 67 Ko sur une seule ligne pour le tableau de
 bord. Elles sont lues une fois au demarrage, et `__ROOT__` y est remplace par la racine du workspace au

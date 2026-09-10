@@ -1,9 +1,9 @@
 #!/bin/sh
-# codelab-pare-feu -- limite les ports de CodeLab au reseau local. SUR L'HOTE.
+# pare-feu -- limite les ports de CodeLab au reseau local. SUR L'HOTE.
 #
-#   codelab-pare-feu poser 192.168.1.0/24
-#   codelab-pare-feu verifier
-#   codelab-pare-feu retirer
+#   pare-feu poser 192.168.1.0/24
+#   pare-feu verifier
+#   pare-feu retirer
 #
 # LE PIEGE QU'IL FAUT CONNAITRE AVANT DE LIRE LA SUITE.
 #
@@ -31,12 +31,12 @@ MARQUE="codelab"
 usage() { sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//' >&2; }
 
 exige_root() {
-  [ "$(id -u)" -eq 0 ] || { echo "codelab-pare-feu: a lancer en root." >&2; exit 2; }
+  [ "$(id -u)" -eq 0 ] || { echo "pare-feu: a lancer en root." >&2; exit 2; }
 }
 
 exige_docker_user() {
   if ! iptables -S DOCKER-USER >/dev/null 2>&1; then
-    echo "codelab-pare-feu: la chaine DOCKER-USER n'existe pas." >&2
+    echo "pare-feu: la chaine DOCKER-USER n'existe pas." >&2
     echo "  Docker n'est pas demarre, ou il ne gere pas iptables" >&2
     echo "  (option \"iptables\": false dans /etc/docker/daemon.json)." >&2
     echo "  Sans elle, ce script ne peut rien filtrer -- et une regle INPUT" >&2
@@ -67,11 +67,11 @@ retirer_les_notres() {
 }
 
 cmd_poser() {
-  reseau="${1:?usage: codelab-pare-feu poser <reseau>, ex 192.168.1.0/24}"
+  reseau="${1:?usage: pare-feu poser <reseau>, ex 192.168.1.0/24}"
   exige_root; exige_docker_user
   case "$reseau" in
     */*) : ;;
-    *) echo "codelab-pare-feu: donne un reseau avec son masque, ex 192.168.1.0/24" >&2; exit 2 ;;
+    *) echo "pare-feu: donne un reseau avec son masque, ex 192.168.1.0/24" >&2; exit 2 ;;
   esac
 
   retirer_les_notres
@@ -90,7 +90,7 @@ cmd_poser() {
   echo "Ces regles ne survivent PAS a un redemarrage de l'hote." >&2
   echo "Pour les rendre permanentes, selon ta distribution :" >&2
   echo "  apt install iptables-persistent   # puis  netfilter-persistent save" >&2
-  echo "  ou une unite systemd qui rejoue :  codelab-pare-feu poser $reseau" >&2
+  echo "  ou une unite systemd qui rejoue :  pare-feu poser $reseau" >&2
   echo "" >&2
   echo "Verifie DEPUIS UNE AUTRE MACHINE que le panneau repond encore." >&2
 }
@@ -121,5 +121,5 @@ case "${1:-}" in
   verifier) shift; cmd_verifier "$@" ;;
   retirer)  shift; cmd_retirer "$@" ;;
   -h|--help|help|"") usage; [ "${1:-}" = "" ] && exit 2 || exit 0 ;;
-  *) echo "codelab-pare-feu: commande inconnue \"$1\"." >&2; usage; exit 2 ;;
+  *) echo "pare-feu: commande inconnue \"$1\"." >&2; usage; exit 2 ;;
 esac
