@@ -44,6 +44,7 @@ import os
 import re
 import resource
 import secrets
+import shutil
 import signal
 import smtplib
 import socket
@@ -1660,6 +1661,105 @@ def drop_privileges(nom=None):
     os.umask(0o002)
 
 
+# ------------------- isolation du systeme de fichiers -------------------
+#
+# L'uid par application separait les process et leur environnement. Il ne
+# separait PAS les fichiers : /workspace est partage par le groupe codelab --
+# il le faut, sinon ton code n'est plus modifiable depuis une session SSH --
+# donc une application pouvait lire le .env de sa voisine.
+#
+# Chaque application recoit maintenant sa propre vue du systeme de fichiers,
+# dans laquelle /workspace ne contient QU'ELLE.
+#
+# COMMENT, ET POURQUOI CE CHEMIN-LA. Creer un namespace de montage demande
+# CAP_SYS_ADMIN -- que le compose retire justement a tous les conteneurs. Mais
+# un namespace UTILISATEUR s'ouvre sans aucune capability, meme sous
+# no-new-privileges (mesure), et depuis l'interieur on peut alors monter. On
+# obtient donc l'isolation sans rendre au conteneur la capability qu'on vient
+# de lui retirer -- les deux durcissements ne se contredisent pas.
+#
+# CE QU'ON Y GAGNE : les projets voisins deviennent invisibles, et /tmp
+# n'est plus partage entre applications.
+#
+# CE QU'ON Y PERD, et il faut le savoir : dans son namespace, l'application se
+# voit uid 0. Elle ne gagne aucun pouvoir dehors -- les fichiers des autres
+# lui apparaissent comme appartenant a "nobody" -- mais les namespaces
+# utilisateur ont un historique de failles d'evasion du noyau. On echange
+# "une application lit les fichiers d'une autre" contre "une application
+# touche une surface noyau plus large". Sur un serveur ou les projets ne
+# communiquent pas entre eux, l'echange est bon.
+#
+# CE QUE CELA NE FAIT PAS : les process des autres restent visibles dans
+# /proc (leur environnement, lui, reste illisible : uid different). Un
+# namespace PID le corrigerait, mais il exige de remonter /proc, ce que
+# Docker interdit par ses montages masques -- mesure, pas suppose.
+ISOLER_APPS = (os.environ.get("APP_MANAGER_ISOLER", "1").lower()
+               not in ("0", "false", "no"))
+
+# Le script qui tourne DANS le namespace, avant la commande de l'application.
+# Le chemin et la commande arrivent par l'environnement, jamais par
+# interpolation : un nom de projet avec une apostrophe casserait le script,
+# et un chemin choisi ailleurs deviendrait une injection.
+SCRIPT_ISOLEMENT = r"""
+set -e
+# Un point d'appui a nous. On ne peut pas simplement ecrire dans /mnt : dans
+# le namespace utilisateur, tout ce qui appartient au vrai root apparait
+# comme appartenant a "nobody", donc en lecture seule. Monter, en revanche,
+# ne demande pas d'ecrire dans le dossier -- seulement qu'il existe.
+mount -t tmpfs none /mnt
+mkdir /mnt/projet
+# Le projet est mis de cote AVANT que la tmpfs ne masque la racine du
+# workspace : apres, son emplacement d'origine n'existe plus.
+mount --bind "$CODELAB_PROJET" /mnt/projet
+# La racine du workspace devient vide, puis ne recoit que ce projet, A SON
+# CHEMIN D'ORIGINE : les chemins absolus qu'une application garde dans sa
+# configuration continuent de fonctionner.
+mount -t tmpfs none "$CODELAB_RACINE"
+mkdir -p "$CODELAB_PROJET"
+mount --bind /mnt/projet "$CODELAB_PROJET"
+umount /mnt/projet
+# /tmp prive : deux applications ne se marchent plus dessus, et aucune ne
+# lit le fichier temporaire d'une autre.
+#
+# Sauf si le workspace vit SOUS /tmp -- une installation de mise au point, ou
+# APP_MANAGER_ROOT pointe ailleurs. La tmpfs masquerait alors le projet qu'on
+# vient de monter, et l'application ne demarrerait plus : "cd: can't cd to
+# ...". On prefere un /tmp partage a une application qui ne tourne pas.
+case "$CODELAB_PROJET" in
+  /tmp|/tmp/*) : ;;
+  *) mount -t tmpfs none /tmp ;;
+esac
+cd "$CODELAB_PROJET"
+exec bash -lc "$CODELAB_COMMANDE"
+"""
+
+
+def isolement_disponible():
+    """unshare(1) est-il la ? Present dans util-linux, donc dans l'image --
+    mais on ne le suppose pas : une image reconstruite ailleurs, un systeme
+    ou les namespaces utilisateur sont desactives par le noyau, et
+    l'application doit demarrer quand meme."""
+    return shutil.which("unshare") is not None
+
+
+def commande_isolee(nom, chemin, commande, apps=None):
+    """La commande a passer a Popen, isolee si c'est possible et voulu.
+
+    Retourne aussi l'environnement a ajouter : le script lit ses deux
+    parametres dedans.
+    """
+    infos = (apps or {}).get(nom) or {}
+    # Un reglage par application : le jour ou l'une d'elles a besoin de voir
+    # autre chose, la reponse n'est pas "desactive l'isolement partout".
+    voulu = ISOLER_APPS and infos.get("isolation", True) is not False
+    if not voulu or not isolement_disponible():
+        return ["bash", "-lc", commande], {}
+    return (["unshare", "--user", "--map-root-user", "--mount",
+             "sh", "-c", SCRIPT_ISOLEMENT],
+            {"CODELAB_PROJET": chemin, "CODELAB_COMMANDE": commande,
+             "CODELAB_RACINE": ROOT})
+
+
 def child_setup(max_memory_mb=None, nom=None):
     """preexec_fn commun aux applications et aux builds."""
     def _setup():
@@ -1710,10 +1810,12 @@ def start(name):
     env = dict(os.environ, **secrets_partages())
     env.update(PORT=str(a["port"]), PYTHONUNBUFFERED="1",
                HOME=ensure_child_home(name))
+    argv, env_isolement = commande_isolee(name, a["path"], a["command"], apps)
+    env.update(env_isolement)
 
     with lock:
         procs[name] = subprocess.Popen(
-            ["bash", "-lc", a["command"]],
+            argv,
             cwd=a["path"], env=env, stdout=out, stderr=out,
             start_new_session=True,
             preexec_fn=child_setup(a.get("max_memory_mb"), name))
@@ -2180,7 +2282,12 @@ def run_build(name):
         try:
             # Meme abandon de privileges que pour l'application : c'est le
             # build qui execute le plus de code tiers (scripts postinstall).
-            r = subprocess.run(["bash", "-lc", cmd], cwd=a["path"], env=env,
+            argv, env_isolement = commande_isolee(name, a["path"], cmd, apps)
+            env.update(env_isolement)
+            # Le build est le moment ou le plus de code tiers s'execute
+            # (scripts postinstall des dependances) : c'est celui qui a le
+            # plus besoin d'etre enferme.
+            r = subprocess.run(argv, cwd=a["path"], env=env,
                                 stdout=out, stderr=out, timeout=600,
                                 preexec_fn=child_setup(nom=name))
             ok = r.returncode == 0

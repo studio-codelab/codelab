@@ -2241,3 +2241,122 @@ def test_l_adresse_declaree_prend_le_pas_sur_le_port(deux_origines, monkeypatch)
     c = deux_origines
     r = c.get("/public/", **_sur_port(9301))
     assert r.headers["Location"] == "https://apps.exemple.fr/public/"
+
+
+# ---------- 26. isolation du systeme de fichiers ----------
+#
+# L'uid par application separait les process. Il ne separait pas les
+# fichiers : /workspace est partage par le groupe codelab -- il le faut,
+# sinon le code n'est plus modifiable en SSH -- donc une application lisait
+# le .env de sa voisine. Chaque application recoit maintenant sa propre vue,
+# dans laquelle /workspace ne contient qu'elle.
+
+def test_la_commande_est_enveloppee_par_defaut(monkeypatch):
+    monkeypatch.setattr(app, "ISOLER_APPS", True)
+    monkeypatch.setattr(app.shutil, "which", lambda n: "/usr/bin/" + n)
+    argv, env = app.commande_isolee("facturier", "/workspace/facturier", "npm start", {})
+    assert argv[0] == "unshare"
+    # --user : c'est ce qui evite d'avoir besoin de CAP_SYS_ADMIN, donc de
+    # defaire le cap_drop du compose.
+    assert "--user" in argv and "--mount" in argv
+    # Le chemin et la commande passent par l'environnement : interpoles dans
+    # le script, un nom avec une apostrophe le casserait, et un chemin venu
+    # d'ailleurs deviendrait une injection.
+    assert env["CODELAB_PROJET"] == "/workspace/facturier"
+    assert env["CODELAB_COMMANDE"] == "npm start"
+    assert "npm start" not in " ".join(argv)
+
+
+def test_sans_unshare_l_application_demarre_quand_meme(monkeypatch):
+    """Une image reconstruite ailleurs, un noyau ou les namespaces
+    utilisateur sont coupes : mieux vaut une application qui tourne sans
+    isolation qu'une application qui ne tourne pas."""
+    monkeypatch.setattr(app, "ISOLER_APPS", True)
+    monkeypatch.setattr(app.shutil, "which", lambda n: None)
+    argv, env = app.commande_isolee("facturier", "/workspace/facturier", "npm start", {})
+    assert argv == ["bash", "-lc", "npm start"]
+    assert env == {}
+
+
+def test_l_isolation_se_coupe_par_application_et_globalement(monkeypatch):
+    monkeypatch.setattr(app.shutil, "which", lambda n: "/usr/bin/" + n)
+    monkeypatch.setattr(app, "ISOLER_APPS", True)
+    apps = {"facturier": {"path": "/w/f", "isolation": False}}
+    argv, _ = app.commande_isolee("facturier", "/w/f", "x", apps)
+    assert argv[0] == "bash", "le reglage par application n'est pas lu"
+    monkeypatch.setattr(app, "ISOLER_APPS", False)
+    argv, _ = app.commande_isolee("facturier", "/w/f", "x", {})
+    assert argv[0] == "bash", "le reglage global n'est pas lu"
+
+
+def _ouvrir_traversee(chemins):
+    for c in chemins:
+        try:
+            os.chmod(c, os.stat(c).st_mode | 0o011)
+        except OSError:
+            pass
+
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="demande root pour changer d'uid")
+def test_une_application_isolee_ne_voit_plus_sa_voisine(tmp_path, monkeypatch):
+    """Le test qui compte : on lance vraiment la commande et on regarde ce
+    qu'elle voit. Verifier la ligne de commande ne prouverait que la ligne
+    de commande."""
+    import subprocess as sp
+    if not app.isolement_disponible():
+        pytest.skip("unshare absent")
+    racine = tmp_path / "ws"
+    (racine / "facturier").mkdir(parents=True)
+    (racine / "cahier").mkdir()
+    (racine / "cahier" / ".env").write_text("SECRET=xyz\n")
+    _ouvrir_traversee(list(tmp_path.parents)[:3] + [tmp_path, racine])
+    monkeypatch.setattr(app, "ROOT", str(racine))
+    monkeypatch.setattr(app, "ISOLER_APPS", True)
+
+    def voit(apps):
+        cmd = ("ls %s; [ -r %s/cahier/.env ] && echo VOISINE_LISIBLE || echo VOISINE_INVISIBLE"
+               % (racine, racine))
+        argv, env_iso = app.commande_isolee("facturier", str(racine / "facturier"), cmd, apps)
+        r = sp.run(argv, cwd=str(racine / "facturier"),
+                   env=dict(os.environ, HOME="/tmp", **env_iso),
+                   capture_output=True, text=True,
+                   preexec_fn=app.child_setup(nom="facturier"))
+        return r.stdout + r.stderr
+
+    # Temoin : sans isolation la voisine est visible -- sinon ce test
+    # passerait au vert pour la mauvaise raison.
+    sortie = voit({"facturier": {"path": str(racine / "facturier"), "isolation": False}})
+    assert "cahier" in sortie and "VOISINE_LISIBLE" in sortie, sortie
+
+    sortie = voit({"facturier": {"path": str(racine / "facturier")}})
+    assert "VOISINE_INVISIBLE" in sortie, sortie
+    assert "cahier" not in sortie, "le projet voisin est encore visible : " + sortie
+    assert "facturier" in sortie, "l'application ne voit plus son propre projet : " + sortie
+
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="demande root pour changer d'uid")
+def test_ce_qu_une_application_isolee_ecrit_arrive_sur_le_disque(tmp_path, monkeypatch):
+    """Une tmpfs posee au mauvais endroit ferait disparaitre le resultat de
+    chaque build, en silence -- le pire defaut possible ici."""
+    import subprocess as sp
+    if not app.isolement_disponible():
+        pytest.skip("unshare absent")
+    racine = tmp_path / "ws"
+    (racine / "facturier").mkdir(parents=True)
+    _ouvrir_traversee(list(tmp_path.parents)[:3] + [tmp_path, racine])
+    os.chown(racine / "facturier", app.uid_application("facturier"), app.RUN_AS_GID)
+    monkeypatch.setattr(app, "ROOT", str(racine))
+    monkeypatch.setattr(app, "ISOLER_APPS", True)
+    argv, env_iso = app.commande_isolee(
+        "facturier", str(racine / "facturier"),
+        "mkdir -p dist && echo resultat > dist/index.html", {})
+    sp.run(argv, cwd=str(racine / "facturier"),
+           env=dict(os.environ, HOME="/tmp", **env_iso),
+           capture_output=True, text=True,
+           preexec_fn=app.child_setup(nom="facturier"))
+    produit = racine / "facturier" / "dist" / "index.html"
+    assert produit.exists(), "le resultat du build a disparu avec le namespace"
+    assert produit.read_text().strip() == "resultat"
+    # Et il reste modifiable depuis une session SSH : c'est la raison d'etre
+    # du groupe partage, l'isolation ne doit pas la casser.
+    assert produit.stat().st_mode & 0o020, oct(produit.stat().st_mode)

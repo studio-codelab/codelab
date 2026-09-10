@@ -710,6 +710,46 @@ La passe recursive sur les fichiers deja presents n'est faite qu'une fois, trace
 `/workspace/.codelab/permissions-v1` -- **supprimer ce marqueur force une reapplication complete** au
 prochain redemarrage, ce qui est la reparation a tenter en premier si un fichier resiste.
 
+## Ce qu'une application peut voir des autres
+
+Chaque application deployee tourne **sous son propre utilisateur** et dans **sa propre vue du
+systeme de fichiers**. Concretement, une application qui demarre voit ceci :
+
+| | Sans isolation | Avec (defaut) |
+|---|---|---|
+| `/workspace` | tous les projets | **le sien seulement** |
+| le `.env` d'un projet voisin | lisible | **illisible** |
+| `/tmp` | partage | **prive** |
+| les process d'une autre application | visibles, non tuables | visibles, non tuables |
+| l'environnement d'une autre application | illisible | illisible |
+
+L'isolation ne coute **aucune capability** : elle passe par un namespace utilisateur, qui s'ouvre
+sans privilege, et non par un namespace de montage direct qui exigerait `CAP_SYS_ADMIN` -- celle-la
+meme que le compose retire. Les deux durcissements ne se contredisent pas.
+
+**Ce qu'elle coute, en revanche** : dans son namespace, l'application se voit `uid 0`. Elle ne gagne
+aucun pouvoir dehors -- les fichiers des autres lui apparaissent comme appartenant a `nobody` -- mais
+les namespaces utilisateur ont un historique de failles d'evasion du noyau. On echange « une
+application lit les fichiers d'une autre » contre « une application touche une surface noyau plus
+large ». Sur un serveur ou les projets ne communiquent pas entre eux, l'echange est bon.
+
+Ce qui **ne change pas** : ce qu'un build ecrit arrive bien sur le disque, et reste modifiable depuis
+une session SSH -- c'est le point qu'il ne fallait surtout pas casser.
+
+Pour couper l'isolation, si une application a besoin de voir autre chose :
+
+```bash
+# globalement, dans docker-compose.yml
+APP_MANAGER_ISOLER: "0"
+
+# ou pour une seule application, dans apps.json
+"mon-projet": { "isolation": false, ... }
+```
+
+Sans `unshare` -- une image reconstruite ailleurs, un noyau ou les namespaces utilisateur sont
+desactives -- l'application demarre quand meme, sans isolation. Une application qui tourne moins
+protegee vaut mieux qu'une application qui ne tourne pas.
+
 ## Limiter les ports au reseau local
 
 Les ports `9001`, `9002`, `3000` et `2222` sont publies sur l'hote : c'est ce qui permet d'ouvrir le
