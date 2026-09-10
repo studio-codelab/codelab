@@ -23,11 +23,32 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends acl \
     && rm -rf /var/lib/apt/lists/*
 
-# Meme groupe, meme GID que dans codelab-dev et codelab-app-manager. Ce
-# service tourne en root : le groupe ne lui sert pas a obtenir des droits,
-# il sert a ce que les fichiers qu'il CREE dans /workspace tombent dans un
-# groupe que l'utilisateur SSH possede aussi.
+# Meme groupe, meme GID que dans codelab-dev et codelab-app-manager. Le
+# noyau ne connait que des numeros : c'est le GID identique dans les trois
+# images qui rend /workspace reellement partage entre les services.
 RUN groupadd -g 2000 codelab
+
+# Dagster ne tourne plus en root.
+#
+# C'est le service qui execute du code arbitraire -- lancer un job, c'est
+# executer ce que le job contient. Tant qu'il tournait en root, une
+# dependance compromise dans un job disposait de tout le conteneur, y compris
+# des capabilities que l'entrypoint utilise pour poser les permissions.
+#
+# uid 1002 : distinct de "vscode" (1000) et de l'uid par defaut des
+# applications du panneau (1001), pour qu'un fichier ecrit dans /workspace
+# reste attribuable a son auteur. Le groupe reste codelab, c'est lui qui
+# donne l'acces partage.
+#
+# gosu plutot que su : su passe par PAM, alloue un terminal et ne remplace
+# pas le processus -- les signaux de Docker n'atteindraient plus Dagster, et
+# "docker stop" attendrait dix secondes avant de tuer. gosu fait un exec, le
+# PID 1 reste Dagster.
+RUN useradd -u 1002 -g 2000 -M -s /usr/sbin/nologin dagster \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends gosu \
+    && rm -rf /var/lib/apt/lists/* \
+    && gosu dagster true
 
 # Copies "par defaut", jamais utilisees directement : entrypoint.sh ne les
 # deploie que si /workspace (volume utilisateur) ou DAGSTER_HOME (volume

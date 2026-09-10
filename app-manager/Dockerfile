@@ -61,8 +61,25 @@ RUN useradd -u 1001 -g 2000 -M -s /usr/sbin/nologin codelab-app
 # variante [binary] embarque libpq -- pas de paquet systeme a installer, pas
 # de compilation. Facultative cote code : sans elle, le journal reste dans
 # son fichier et le panneau ne s'en apercoit pas.
-RUN pip install --no-cache-dir flask waitress psutil requests qrcode webauthn \
-    "psycopg[binary]"
+#
+# Versions EXACTES, et pas "la derniere du jour". Ce service detient le mot de
+# passe du panneau, la cle de signature des sessions et le secret de double
+# authentification : c'est celui ou une dependance remplacee entre deux
+# reconstructions coute le plus cher. Une reconstruction ne doit rien changer
+# que personne n'a demande.
+#
+# La montee de version est une decision, prise en editant cette ligne. Le
+# scan hebdomadaire (.github/workflows/securite.yml) dit quand elle s'impose.
+# Les tests de la CI, eux, installent volontairement les versions du jour :
+# c'est ce qui fait remonter une incompatibilite AVANT qu'on epingle dessus.
+RUN pip install --no-cache-dir \
+        flask==3.1.3 \
+        waitress==3.0.2 \
+        psutil==7.2.2 \
+        requests==2.34.2 \
+        qrcode==8.2 \
+        webauthn==3.0.0 \
+        "psycopg[binary]==3.3.5"
 
 
 # L'application entiere -- app.py et les deux pages HTML qu'il sert -- vit
