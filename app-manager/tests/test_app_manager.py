@@ -49,6 +49,34 @@ def _charger_app():
 app = _charger_app()
 
 
+# ------------------------- le client de test et le jeton -------------------
+#
+# Le panneau exige un jeton CSRF sur toute ecriture d'une session ouverte.
+# Dans un navigateur, c'est l'enveloppe posee autour de fetch qui l'ajoute --
+# une fois, pour tous les appels. Ici, c'est ce client : sans lui, chacun des
+# ~120 appels d'ecriture des tests devrait poser l'en-tete a la main, et le
+# jour ou l'un serait oublie on croirait a une regression du panneau.
+#
+# Il lit le jeton dans la session, exactement comme la page le lit dans le
+# HTML servi. Ce qui n'est PAS teste par ce client -- l'absence de jeton, un
+# jeton faux -- l'est explicitement, plus bas, section 22.
+class ClientAvecJeton(app.flask_app.test_client_class or __import__(
+        "flask.testing", fromlist=["FlaskClient"]).FlaskClient):
+    def open(self, *a, **kw):
+        methode = (kw.get("method") or (a[1] if len(a) > 1 else "GET") or "GET").upper()
+        if methode not in ("GET", "HEAD"):
+            with self.session_transaction() as sess:
+                jeton = sess.get("jeton")
+            if jeton:
+                entetes = dict(kw.get("headers") or {})
+                entetes.setdefault(app.JETON_ENTETE, jeton)
+                kw["headers"] = entetes
+        return super().open(*a, **kw)
+
+
+app.flask_app.test_client_class = ClientAvecJeton
+
+
 def _projet(tmp_path, fichiers):
     for nom, contenu in fichiers.items():
         cible = tmp_path / nom
@@ -303,7 +331,7 @@ def test_une_application_sans_limite_memoire_abandonne_quand_meme_ses_privileges
     pas : les deux passaient autrefois par le meme preexec_fn conditionnel."""
     ordre = []
     monkeypatch.setattr(app.resource, "setrlimit", lambda *a: ordre.append("rlimit"))
-    monkeypatch.setattr(app, "drop_privileges", lambda: ordre.append("drop"))
+    monkeypatch.setattr(app, "drop_privileges", lambda nom=None: ordre.append("drop"))
     app.child_setup()()
     assert ordre == ["drop"]
     ordre.clear()
@@ -1787,3 +1815,231 @@ def test_le_miroir_ecrit_vraiment_dans_postgres(tmp_path, monkeypatch):
         with app._pg_connexion(app._pg_reglages()["instance"]) as cx:
             cx.execute(psycopg.sql.SQL("DROP DATABASE IF EXISTS {}").format(
                 psycopg.sql.Identifier(app.PG_BASE)))
+
+
+# ---------- 22. jeton CSRF ----------
+#
+# SameSite=Lax bloque deja un autre SITE. Ce jeton couvre ce qu'il ne couvre
+# pas : une requete lancee depuis une AUTRE ORIGINE qui porterait quand meme
+# le cookie. Ce qui doit rester vrai :
+#
+#   - une ecriture sans jeton, sur une session ouverte, est refusee ;
+#   - un jeton d'une autre session ne vaut rien ;
+#   - les routes de connexion restent atteignables sans jeton (on ne peut pas
+#     exiger un jeton d'une session qui n'existe pas encore) ;
+#   - le proxy des applications n'est pas concerne ;
+#   - une session ouverte porte TOUJOURS un jeton, sinon la garde se
+#     contournerait en n'en ayant pas.
+
+def test_une_ecriture_sans_jeton_est_refusee(deux_espaces):
+    c = deux_espaces
+    r = c.post("/login", json={"password": "secret-de-test"})
+    assert r.status_code == 200, r.get_json()
+
+    with c.session_transaction() as sess:
+        assert sess.get("jeton"), "une session ouverte doit porter un jeton"
+
+    # Avec le jeton (le client de test le pose, comme fetch dans la page) :
+    # l'action passe. C'est le temoin -- sans lui, un 403 ne prouverait que
+    # l'existence d'un bug quelconque.
+    assert c.post("/api/toggle/public").status_code == 200
+
+    # Le meme cookie de session, jeton vide : c'est exactement la requete
+    # qu'une autre origine peut declencher, elle a le cookie mais pas le
+    # jeton. Elle doit etre refusee.
+    r = c.post("/api/toggle/public", headers={app.JETON_ENTETE: ""})
+    assert r.status_code == 403
+    assert "jeton" in r.get_json()["error"].lower()
+
+
+def test_le_jeton_d_une_autre_session_ne_vaut_rien(deux_espaces):
+    c = deux_espaces
+    c.post("/login", json={"password": "secret-de-test"})
+    r = c.post("/api/toggle/public",
+               headers={app.JETON_ENTETE: secrets.token_urlsafe(32)})
+    assert r.status_code == 403
+
+
+def test_les_routes_de_connexion_restent_ouvertes_sans_jeton(deux_espaces):
+    """Sinon plus personne ne peut se connecter : le jeton vit dans la
+    session, et la session n'existe pas encore."""
+    c = deux_espaces
+    r = c.post("/login", json={"password": "mauvais"})
+    assert r.status_code == 401           # refuse par le mot de passe...
+    assert "jeton" not in r.get_json()["error"].lower()   # ...pas par le jeton
+    r = c.post("/login", json={"password": "secret-de-test"})
+    assert r.status_code == 200
+
+
+def test_toutes_les_routes_d_ecriture_sont_couvertes(deux_espaces):
+    """La garde est un before_request, pas un decorateur pose route par
+    route : ce test le constate sur la table de routage plutot que sur une
+    liste ecrite a la main, qui vieillirait mal.
+
+    Une route d'ecriture ajoutee demain sans etre exemptee est protegee
+    d'office. Le test echoue seulement si quelqu'un l'AJOUTE aux exemptions.
+    """
+    ecritures = set()
+    for regle in app.flask_app.url_map.iter_rules():
+        if app.JETON_METHODES & set(regle.methods or ()):
+            ecritures.add(regle.endpoint)
+    non_couvertes = ecritures - app.JETON_EXEMPTS
+    assert non_couvertes, "aucune route d'ecriture : la table est vide ?"
+    # Les exemptions sont celles qu'on a decidees, pas plus.
+    assert app.JETON_EXEMPTS == {
+        "login_submit", "login_second_facteur",
+        "login_passkey_options", "login_passkey",
+        "inscription_creer", "inscription_confirmer",
+        "proxy", "proxy_noslash",
+    }
+
+
+def test_le_get_n_est_jamais_concerne(deux_espaces):
+    """Un GET ne change rien. L'exiger la n'apporterait aucune protection et
+    casserait la moitie de la page."""
+    c = deux_espaces
+    c.post("/login", json={"password": "secret-de-test"})
+    r = c.get("/api/apps", headers={app.JETON_ENTETE: "n'importe quoi"})
+    assert r.status_code == 200
+
+
+# ---------- 23. un uid par application ----------
+#
+# L'uid partage protegeait les applications DU panneau, pas les unes DES
+# autres : meme uid, donc /proc/<pid>/environ d'une application etait lisible
+# par sa voisine -- c'est-a-dire le mot de passe Postgres qu'on lui transmet.
+
+def test_l_uid_ne_depend_que_du_nom(monkeypatch):
+    """Derive, pas attribue : rien a migrer, et une application qui redemarre
+    retrouve ses fichiers. Doit tenir d'un processus a l'autre, donc pas de
+    hash() (randomise par PYTHONHASHSEED)."""
+    a = app.uid_application("facturier")
+    assert a == app.uid_application("facturier")
+    assert a != app.uid_application("cahier")
+    assert app.UID_APP_BASE <= a < app.UID_APP_BASE + app.UID_APP_PLAGE
+    # Jamais root, jamais l'uid du service, jamais l'uid de la session SSH.
+    for nom in ("a", "site", "notes", "x" * 32, "projet-2"):
+        assert app.uid_application(nom) not in (0, 1000, 1001)
+
+
+def test_l_uid_survit_a_un_redemarrage_du_panneau():
+    """Le vrai risque : un uid different a chaque demarrage rendrait les
+    fichiers de l'application illisibles par elle-meme. On relance un
+    interpreteur neuf, avec un PYTHONHASHSEED different."""
+    import subprocess as sp
+    chemin = os.path.join(SERVICE, "app", "app.py")
+    code = ("import importlib.util,sys;"
+            "spec=importlib.util.spec_from_file_location('m', %r);"
+            "m=importlib.util.module_from_spec(spec);sys.modules['m']=m;"
+            "spec.loader.exec_module(m);print(m.uid_application('facturier'))" % chemin)
+    vus = set()
+    for graine in ("0", "1", "12345"):
+        env = dict(os.environ, PYTHONHASHSEED=graine)
+        vus.add(sp.run([sys.executable, "-c", code], env=env,
+                       capture_output=True, text=True).stdout.strip())
+    assert len(vus) == 1, f"uid instable entre processus : {vus}"
+
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="demande root pour changer d'uid")
+def test_deux_applications_ne_tournent_pas_sous_le_meme_uid(tmp_path):
+    """Le test qui compte : on lance vraiment deux process et on regarde sous
+    quel uid ils tournent. Verifier uid_application() ne prouverait que
+    l'arithmetique -- pas que preexec_fn s'en sert."""
+    import subprocess as sp
+
+    def uid_reel(nom):
+        r = sp.run(["python3", "-c", "import os;print(os.getuid(), os.getgid())"],
+                   capture_output=True, text=True,
+                   preexec_fn=app.child_setup(nom=nom))
+        return r.stdout.strip()
+
+    a, b = uid_reel("facturier"), uid_reel("cahier")
+    assert a != b, f"les deux applications tournent sous le meme uid : {a}"
+    # Le groupe, lui, reste commun : c'est lui qui garde /workspace editable
+    # depuis une session SSH.
+    assert a.split()[1] == b.split()[1] == str(app.RUN_AS_GID)
+    # Et aucune ne tourne en root.
+    assert a.split()[0] != "0" and b.split()[0] != "0"
+
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="demande root pour changer d'uid")
+def test_une_application_ne_lit_pas_le_dossier_personnel_d_une_autre(tmp_path, monkeypatch):
+    """~/.npmrc et les jetons qu'un outil y depose appartiennent a une
+    application, pas au voisinage."""
+    import subprocess as sp
+    # Les dossiers temporaires de pytest sont en 0700 root : un uid non
+    # privilegie ne peut meme pas les traverser, et TOUT lui serait refuse --
+    # le test passerait sans rien prouver. On ouvre la traversee (x) sans
+    # ouvrir la lecture du contenu.
+    for parent in list(tmp_path.parents)[:3] + [tmp_path]:
+        try:
+            os.chmod(parent, os.stat(parent).st_mode | 0o011)
+        except OSError:
+            pass
+    monkeypatch.setattr(app, "CHILD_HOME", str(tmp_path / "home"))
+    maison_a = app.ensure_child_home("facturier")
+    with open(os.path.join(maison_a, "secret"), "w") as f:
+        f.write("jeton-de-facturier")
+    os.chown(os.path.join(maison_a, "secret"),
+             app.uid_application("facturier"), app.RUN_AS_GID)
+
+    # PermissionError precisement, pas "une exception quelconque" : un chemin
+    # absent ou un interpreteur qui plante donnerait le meme "refuse" et le
+    # test passerait pour la mauvaise raison.
+    lecteur = ("import sys\n"
+               "try:\n"
+               "    open(sys.argv[1]).read()\n"
+               "    print('LU')\n"
+               "except PermissionError:\n"
+               "    print('REFUSE')\n"
+               "except Exception as e:\n"
+               "    print('AUTRE:' + type(e).__name__)\n")
+    cible = os.path.join(maison_a, "secret")
+
+    # Temoin : l'application a qui ce dossier appartient, elle, le lit.
+    sien = sp.run(["python3", "-c", lecteur, cible], capture_output=True,
+                  text=True, preexec_fn=app.child_setup(nom="facturier"))
+    assert sien.stdout.strip() == "LU", sien.stdout + sien.stderr
+
+    autre = sp.run(["python3", "-c", lecteur, cible], capture_output=True,
+                   text=True, preexec_fn=app.child_setup(nom="cahier"))
+    assert autre.stdout.strip() == "REFUSE", autre.stdout + autre.stderr
+
+
+def test_le_nom_arrive_bien_jusqu_au_preexec(tmp_path, monkeypatch):
+    """uid_application() peut etre parfait et ne servir a rien si start() et
+    build() oublient de passer le nom. C'est la jointure qui casse en
+    silence : sans ce test, les deux applications repartent sous l'uid
+    partage et tous les autres tests restent verts."""
+    recu = {}
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    monkeypatch.setattr(app, "LOG_DIR", str(tmp_path / "logs"))
+    monkeypatch.setattr(app, "CHILD_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(app, "STATE_DIR", str(tmp_path))
+    app._apps_cache["signature"] = None
+    projet = tmp_path / "facturier"
+    projet.mkdir()
+    app.save({"facturier": {"path": str(projet), "command": "true",
+                            "port": 9199, "enabled": False,
+                            "build_command": "true"}})
+
+    monkeypatch.setattr(app, "child_setup",
+                        lambda max_memory_mb=None, nom=None: recu.setdefault("demarrage", nom))
+    def _popen(*a, **kw):
+        recu["home"] = (kw.get("env") or {}).get("HOME")
+        return type("P", (), {"pid": 1, "poll": lambda s: None})()
+    monkeypatch.setattr(app.subprocess, "Popen", _popen)
+    app.start("facturier")
+    assert recu.get("demarrage") == "facturier"
+    # HOME suit l'uid : sinon ~/.npmrc et le cache npm restent en commun, et
+    # la separation s'arrete a la porte du dossier personnel.
+    assert recu["home"] == app.ensure_child_home("facturier")
+    assert recu["home"] != app.ensure_child_home("cahier")
+
+    recu.clear()
+    monkeypatch.setattr(app, "child_setup",
+                        lambda max_memory_mb=None, nom=None: recu.setdefault("build", nom))
+    monkeypatch.setattr(app.subprocess, "run",
+                        lambda *a, **kw: type("R", (), {"returncode": 0})())
+    app.run_build("facturier")
+    assert recu.get("build") == "facturier"

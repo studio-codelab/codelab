@@ -1393,6 +1393,27 @@ table.tbl-journal{min-width:560px}
 </div></div>
 
 <script>
+/* ------------------------------ jeton CSRF ------------------------------
+   Injecte par le serveur au moment de servir la page, et rattache ICI a
+   fetch une fois pour toutes plutot qu'a la trentaine d'appels qui ecrivent.
+   Un appel ajoute demain porte le jeton sans que personne y pense -- c'est
+   la seule facon de ne pas en oublier un.
+   Les GET n'en ont pas besoin : ils ne changent rien, et c'est exactement
+   la ligne que trace le serveur. */
+const JETON=__JETON__;
+const fetchNu = window.fetch.bind(window);
+window.fetch = function(cible, options){
+  options = options || {};
+  const m = (options.method || 'GET').toUpperCase();
+  if(m==='GET' || m==='HEAD') return fetchNu(cible, options);
+  /* Headers peut arriver en objet simple, en tableau de paires ou en
+     Headers : on normalise avant d'ajouter, sinon on ecrase le
+     Content-Type que l'appelant vient de poser. */
+  const h = new Headers(options.headers || {});
+  h.set('X-CodeLab-Jeton', JETON);
+  return fetchNu(cible, Object.assign({}, options, {headers: h}));
+};
+
 const $=i=>document.getElementById(i), hide=i=>$(i).classList.remove("show");
 const esc=s=>(s||"").replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const icone=n=>'/api/icon/'+encodeURIComponent(n);
