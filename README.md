@@ -710,6 +710,63 @@ La passe recursive sur les fichiers deja presents n'est faite qu'une fois, trace
 `/workspace/.codelab/permissions-v1` -- **supprimer ce marqueur force une reapplication complete** au
 prochain redemarrage, ce qui est la reparation a tenter en premier si un fichier resiste.
 
+## Sauvegarder, et verifier la sauvegarde
+
+Une sauvegarde de CodeLab contient `credentials.env` : le mot de passe Postgres, celui du panneau,
+la cle de signature des sessions et le secret du second facteur. Plus les cles hote SSH et le fichier
+des comptes. **En clair sur un disque externe ou chez un hebergeur, elle vaut la machine entiere** --
+et elle est plus facile a voler que la machine. Elle est donc chiffree.
+
+L'outil vit dans `outils/` et se lance **sur l'hote**, pas dans un conteneur : il a besoin des
+volumes et de Docker.
+
+```bash
+# creer une archive chiffree (demande une phrase de passe)
+outils/codelab-sauvegarde creer /mnt/disque-externe
+
+# la verifier -- restauration a blanc dans un dossier jetable
+outils/codelab-sauvegarde verifier /mnt/disque-externe/codelab-20260910-121015.tar.gz.enc
+
+# la remettre en place (demande confirmation, ecrase les donnees)
+outils/codelab-sauvegarde restaurer /mnt/disque-externe/codelab-...enc
+```
+
+Ce qui est sauvegarde : `config/` (les secrets, irremplacables), `app-manager/` (comptes, cles
+d'acces, registre, journal), `dagster/`, `workspace/` (ton code) et **toutes les bases** dans un seul
+dump SQL. Ce qui ne l'est pas : les images Docker et les `node_modules`, qui se retelechargent -- une
+sauvegarde trop grosse est une sauvegarde qu'on ne lance plus.
+
+**`verifier` n'est pas optionnel.** Une sauvegarde jamais restauree n'est pas une sauvegarde : la
+commande dechiffre pour de vrai, extrait dans un dossier jetable et controle que le dump et les
+secrets sont bien la. A lancer le jour ou tu crees l'archive, pas le jour ou tu en as besoin.
+
+La phrase de passe ne passe jamais par la ligne de commande -- elle serait lisible dans `ps` et
+resterait dans l'historique du shell. Saisie interactive, ou variable `CODELAB_PASSPHRASE` pour une
+tache planifiee.
+
+## Auditer une instance en marche
+
+Un audit qui lit le code ne voit pas la configuration reelle : une variable oubliee, un port publie
+par erreur, une garde active en developpement et pas en service. Celui-ci parle a la machine.
+
+```bash
+outils/codelab-audit-dynamique https://codelab.tondomaine.fr --mot-de-passe "$(cat mdp)"
+```
+
+Il verifie que les API refusent les visiteurs, que le cookie porte bien `HttpOnly`, `Secure` et
+`SameSite`, qu'une ecriture sans jeton est refusee, que l'explorateur ne sort pas de `/workspace`,
+que le panneau ne repond pas sur l'origine des applications, et que le mot de passe n'est pas
+essayable a l'infini. Il sort en erreur s'il reste un point rouge, donc il se met dans une tache
+planifiee.
+
+Deux choses a savoir : la derniere sonde **epuise volontairement le compteur d'essais**, donc les
+connexions sont refusees quelques minutes ensuite ; et pour auditer une instance en `http`, il faut
+lui retirer `APP_MANAGER_HTTPS` -- sinon le cookie `Secure` n'est pas renvoye, la session n'est pas
+portee, et l'outil le dit au lieu de conclure a tort.
+
+**Il ne remplace pas un pentest par un humain** : il verifie ce qu'on sait deja devoir verifier, pas
+ce a quoi personne n'a pense.
+
 ## Persistance des donnees
 
 Tout vit sous `/DATA/AppData/codelab/` sur le disque de l'hote (aucun volume Docker nomme) : ca survit a un
@@ -838,6 +895,7 @@ python3 -c "import base64; print('data:image/png;base64,' + base64.b64encode(ope
 
 ```text
 codelab/
+├── outils/         # sauvegarde chiffree et audit dynamique (a lancer sur l'hote)
 ├── docker-compose.yml
 ├── icon.svg / icon.png
 ├── .github/workflows/build-images.yml
