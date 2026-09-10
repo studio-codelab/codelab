@@ -710,6 +710,33 @@ La passe recursive sur les fichiers deja presents n'est faite qu'une fois, trace
 `/workspace/.codelab/permissions-v1` -- **supprimer ce marqueur force une reapplication complete** au
 prochain redemarrage, ce qui est la reparation a tenter en premier si un fichier resiste.
 
+## Limiter les ports au reseau local
+
+Les ports `9001`, `9002`, `3000` et `2222` sont publies sur l'hote : c'est ce qui permet d'ouvrir le
+panneau depuis un autre poste, et c'est voulu. Le risque n'est pas la : c'est le jour ou la machine
+gagne une interface a laquelle personne ne pense -- un VPN, un Wi-Fi invite, une regle uPnP posee par
+la box. Le port suit, sans que rien ne le dise.
+
+```bash
+sudo outils/codelab-pare-feu poser 192.168.1.0/24   # ton reseau local
+outils/codelab-pare-feu verifier
+sudo outils/codelab-pare-feu retirer                # revenir en arriere
+```
+
+**Le piege qu'il faut connaitre** : les ports publies par Docker **ne passent pas par la chaine
+INPUT**. Docker installe ses propres regles de redirection, et le trafic traverse `FORWARD`. Un
+pare-feu ecrit comme d'habitude -- `ufw`, une regle `INPUT`, `nft` sur le hook input -- ne filtre donc
+**rien** de CodeLab, tout en donnant l'impression du contraire. C'est une protection qui rassure sans
+proteger. Le bon endroit est la chaine `DOCKER-USER`, que Docker traverse avant ses propres regles et
+n'ecrase jamais : c'est la que cet outil ecrit.
+
+**Ce qu'il ne touche pas** : le port 22 de l'hote. Il ne passe pas par Docker, et une erreur dessus
+t'enfermerait dehors. Si tu veux le restreindre aussi, fais-le a la main, avec une session ouverte a
+cote.
+
+Les regles ne survivent pas a un redemarrage de l'hote -- `iptables-persistent`, ou une unite systemd
+qui rejoue la commande. L'outil le rappelle a chaque pose.
+
 ## Sauvegarder, et verifier la sauvegarde
 
 Une sauvegarde de CodeLab contient `credentials.env` : le mot de passe Postgres, celui du panneau,

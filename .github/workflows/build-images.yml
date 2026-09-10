@@ -38,6 +38,20 @@ on:
       - "docker-compose.yml"
       - "docker-compose-casaos.yml"
       - ".github/workflows/build-images.yml"
+  # Reconstruction hebdomadaire, meme sans commit.
+  #
+  # Les images de base restent volontairement referencees par tag
+  # (python:3.13-slim, postgres:18) : un digest fige bloquerait les correctifs
+  # de securite au lieu de les recevoir. Mais un tag ne sert a rien si l'image
+  # n'est jamais RECONSTRUITE -- sans commit pendant deux mois, "latest" est
+  # figee sur les paquets d'il y a deux mois, digest ou pas. C'est le vrai
+  # trou que l'audit visait sans le nommer.
+  #
+  # Lundi 5 h UTC, une heure avant le scan de securite : les images sont
+  # fraiches quand Trivy les regarde, et ce qu'il signale est ce qui reste
+  # ouvert APRES reconstruction -- donc ce sur quoi il faut vraiment agir.
+  schedule:
+    - cron: "0 5 * * 1"
   workflow_dispatch: {}
 
 # Les actions sont epinglees par SHA de commit, pas par tag. Un tag se
