@@ -156,9 +156,8 @@ applications est gere directement par ce service.
 L'application vit dans `app/` : une seule ligne de `COPY` dans le `Dockerfile`, et la racine du service
 reste lisible — l'image, le demarrage, la documentation, les tests.
 
-Ce que ce panneau expose est controle ailleurs, aupres de ce que cela concerne : les sondes de securite
-vivent dans le projet `diagnostic` du workspace (elles font partie de l'etat des lieux), et le pare-feu
-qui borne les ports est a la racine du depot, avec les fichiers d'installation.
+Ce que ce panneau expose est controle ailleurs : les sondes de securite vivent dans le projet
+`diagnostic` du workspace, ou elles font partie de l'etat des lieux de l'installation.
 
 Les deux pages etaient des chaines Python dans `app/app.py` — 67 Ko sur une seule ligne pour le tableau de
 bord. Elles sont lues une fois au demarrage, et `__ROOT__` y est remplace par la racine du workspace au

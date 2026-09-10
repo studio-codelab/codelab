@@ -114,29 +114,6 @@ DROP SCHEMA dagster;                        -- vide : echoue s'il ne l'est pas, 
 ALTER SCHEMA diagnostic RENAME TO dagster;
 ```
 
-## Sauvegarder
-
-`sauvegarde` produit une archive **chiffree** de toute l'installation : le dump de toutes les bases,
-plus les dossiers qui ne se reconstruisent pas. A lancer sur l'hote, pas dans un conteneur -- il a
-besoin des volumes et de Docker.
-
-```bash
-postgres/sauvegarde creer /mnt/disque-externe
-postgres/sauvegarde verifier /mnt/disque-externe/codelab-....tar.gz.enc
-```
-
-Chiffree, parce qu'une sauvegarde de CodeLab contient les identifiants de toute la stack : en clair
-sur un disque externe, elle vaut la machine entiere, et elle est plus facile a voler que la machine.
-
-**`verifier` fait partie du travail, pas des bonnes intentions** : une sauvegarde jamais restauree
-n'est pas une sauvegarde. La commande dechiffre pour de vrai, extrait dans un dossier jetable et
-controle que le contenu est complet. A lancer le jour ou l'on cree l'archive, pas le jour ou l'on en
-a besoin.
-
-L'outil vit ici parce que c'est ce service qui detient les donnees : le dump vient de lui, et le
-fichier d'identifiants qu'il archive, c'est lui qui le cree. Mode d'emploi complet en tete du
-fichier (`--help`).
-
 ## Variables d'environnement
 
 | Variable | Role |

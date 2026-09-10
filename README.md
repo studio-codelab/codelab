@@ -38,14 +38,6 @@ panneau et Dagster, eux, restent joignables sans SSH.
 Les données vivent en dehors des conteneurs et survivent donc aux mises à jour d'image. Pour les
 ranger ailleurs, il suffit de changer les chemins hôte des volumes dans `docker-compose.yml`.
 
-Une fois la stack en place, `pare-feu` borne au réseau local les ports qu'elle publie — utile le jour
-où la machine gagne une interface à laquelle personne ne pense :
-
-```bash
-sudo ./pare-feu poser 192.168.1.0/24
-./pare-feu verifier
-```
-
 Si le serveur expose une interface d'installation par collage de compose (les app stores de type
 CasaOS, par exemple), `docker-compose-casaos.yml` est le même fichier avec les métadonnées
 d'affichage que ces interfaces savent lire.
