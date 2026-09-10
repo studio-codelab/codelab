@@ -2043,3 +2043,28 @@ def test_le_nom_arrive_bien_jusqu_au_preexec(tmp_path, monkeypatch):
                         lambda *a, **kw: type("R", (), {"returncode": 0})())
     app.run_build("facturier")
     assert recu.get("build") == "facturier"
+
+
+def test_l_enveloppe_de_fetch_regarde_l_origine():
+    """Trouve par l'audit de la branche : l'enveloppe posait le jeton sur
+    TOUTE ecriture, sans regarder la cible. Aucun appel de la page n'est
+    absolu aujourd'hui, donc rien ne fuyait -- mais la protection ne tenait
+    que par accident. Un fetch('https://...', {method:'POST'}) ajoute demain
+    aurait envoye le jeton de session a un tiers (un en-tete non standard
+    declenche un pre-vol CORS, qu'un serveur hostile autorise volontiers).
+
+    Test structurel, et il faut le dire : il constate que la garde est encore
+    la, pas qu'elle est correcte. Ce qui prouve qu'elle marche, c'est la
+    verification au navigateur contre un vrai serveur tiers -- elle ne tient
+    pas dans pytest.
+    """
+    page = open(os.path.join(SERVICE, "app", "dashboard.html"), encoding="utf-8").read()
+    debut = page.index("window.fetch = function")
+    enveloppe = page[debut:debut + 600]
+    assert "memeOrigine(cible)" in enveloppe, (
+        "l'enveloppe de fetch n'appelle plus memeOrigine : le jeton peut "
+        "partir vers une autre origine")
+    # Et la garde compare bien des origines, pas des prefixes de chaine.
+    verif = page[page.index("function memeOrigine"):page.index("window.fetch = function")]
+    assert "new URL(url, location.href).origin === location.origin" in verif
+    assert "return false" in verif, "une cible illisible doit priver du jeton, pas l'accorder"

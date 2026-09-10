@@ -1402,10 +1402,29 @@ table.tbl-journal{min-width:560px}
    la ligne que trace le serveur. */
 const JETON=__JETON__;
 const fetchNu = window.fetch.bind(window);
+
+/* Le jeton ne part QUE vers ce panneau. Aujourd'hui tous les appels de cette
+   page sont relatifs, donc la question ne se pose pas -- mais une enveloppe
+   qui ajoute l'en-tete sans regarder la cible n'est juste que par accident :
+   le jour ou quelqu'un ecrit fetch('https://...', {method:'POST'}), le jeton
+   de session part chez un tiers. Un en-tete non standard declenche certes un
+   pre-vol CORS, mais un serveur hostile n'a qu'a l'autoriser. */
+function memeOrigine(cible){
+  try{
+    const url = (typeof Request !== 'undefined' && cible instanceof Request)
+      ? cible.url : String(cible);
+    return new URL(url, location.href).origin === location.origin;
+  }catch(e){
+    /* Cible illisible : on n'ajoute rien. Ne pas envoyer le jeton fait au
+       pire echouer un appel, l'envoyer au mauvais endroit le divulgue. */
+    return false;
+  }
+}
+
 window.fetch = function(cible, options){
   options = options || {};
   const m = (options.method || 'GET').toUpperCase();
-  if(m==='GET' || m==='HEAD') return fetchNu(cible, options);
+  if(m==='GET' || m==='HEAD' || !memeOrigine(cible)) return fetchNu(cible, options);
   /* Headers peut arriver en objet simple, en tableau de paires ou en
      Headers : on normalise avant d'ajouter, sinon on ecrase le
      Content-Type que l'appelant vient de poser. */
