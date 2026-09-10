@@ -41,6 +41,7 @@ n'importe ni flask ni dagster.
 """
 import os
 import sys
+import time
 import traceback
 from datetime import datetime, timezone
 
@@ -101,6 +102,46 @@ def esc(v):
 @app.get("/health")
 def health():
     return {"ok": True}
+
+
+@app.get("/tests")
+def tests():
+    """La verification approfondie, a la demande.
+
+    Separee de la page d'accueil et pas jouee automatiquement : ces tests
+    AGISSENT -- ils ecrivent en base, traversent le proxy, laissent des
+    traces dans les journaux. Les sondes de l'accueil, elles, ne font que
+    regarder, et doivent rester instantanees.
+    """
+    debut = time.time()
+    resultats = checks.run_tests()
+    duree = int((time.time() - debut) * 1000)
+    lignes = "".join(
+        f'<tr><td class="st {"ok" if ok else "ko"}">{"OK" if ok else "ECHEC"}</td>'
+        f'<td class="nom">{esc(nom)}</td><td class="det">{esc(det)}</td></tr>'
+        for ok, nom, det in resultats)
+    reussis = sum(1 for ok, _, _ in resultats if ok)
+    tous = len(resultats)
+    verdict = (f'<div class="verdict {"ok" if reussis == tous else "ko"}">'
+               f'{reussis} test{"s" if reussis > 1 else ""} sur {tous} '
+               f'{"passent" if reussis == tous else "passent"} &mdash; {duree} ms.'
+               + ('' if reussis == tous else
+                  ' Le detail est dans la colonne de droite.') + '</div>')
+    quand = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+    return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CodeLab &middot; verification approfondie</title><style>{CSS}</style></head>
+<body><div class="wrap">
+<h1>Verification approfondie</h1>
+<div class="sub">Ces tests AGISSENT : ils ecrivent en base, traversent le reverse proxy et
+laissent une trace dans les journaux. Ils ne modifient rien d'autre &mdash; aucune application,
+aucun compte, aucun reglage. &mdash; {esc(quand)}</div>
+{verdict}
+<table><tr><th>Etat</th><th>Test</th><th>Detail</th></tr>{lignes}</table>
+<div class="note">Ce ne sont pas les tests du panneau : ceux-la verifient du CODE avant qu'il
+ne parte en image, dans des dossiers temporaires. Ceux-ci verifient une INSTALLATION qui
+tourne. <a href="./">Retour au diagnostic</a></div>
+</div></body></html>"""
 
 
 @app.get("/")
@@ -173,6 +214,9 @@ def index():
 {verdict}
 <h2>Verifications</h2>
 <table><tr><th>Etat</th><th>Cible</th><th>Detail</th></tr>{lignes}</table>
+<div class="note">Ces sondes ne font que regarder, et tournent a chaque affichage.
+Pour aller plus loin &mdash; ecrire en base, traverser le proxy, verifier que le journal
+enregistre &mdash; lance la <a href="tests">verification approfondie</a>.</div>
 <h2>Table {checks.TABLE} &mdash; qui a ecrit</h2>
 {bloc_db}
 <h2>Dernieres ecritures</h2>

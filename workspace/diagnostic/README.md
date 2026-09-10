@@ -11,6 +11,24 @@ n'a plus aucun moyen de se controler elle-meme. Il verifie que les cinq services
 application web lancee par **app-manager**, et un asset execute par **Dagster**. Les deux ecrivent dans la
 meme table Postgres — voir les deux sources cote a cote est la preuve que tout est relie.
 
+## Deux niveaux de verification
+
+| | Quand | Ce que ca fait |
+|---|---|---|
+| **Sondes** (page d'accueil) | a chaque affichage | elles REGARDENT : un fichier, une connexion, une variable. Instantanees, sans effet |
+| **Verification approfondie** (`/tests`) | a la demande | elles AGISSENT : ecrire en base et relire, traverser le reverse proxy, verifier que le journal enregistre |
+
+La verification approfondie ne modifie **rien** de l'installation : aucune application, aucun compte,
+aucun reglage. Ses ecritures vont dans la table du diagnostic ou dans son propre dossier, et les
+actions interdites doivent etre REFUSEES -- si l'une passe, c'est le resultat du test.
+
+**Ce ne sont pas les tests du panneau.** Ceux-la vivent dans `app-manager/tests/`, s'executent a la
+construction de l'image, et verifient du CODE dans des dossiers temporaires. Les lancer dans une
+installation qui tourne la detruirait : leurs fixtures ecrivent `apps.json`, `utilisateurs.json` et
+`passkeys.json` sans les rediriger -- sur une machine reelle ces chemins existent, et ce sont tes
+applications et tes comptes qui seraient remplaces. Deux choses differentes, deux endroits
+differents.
+
 ## Installation
 
 **Rien a faire.** Le projet est copie dans `/workspace` au premier demarrage de la stack, charge

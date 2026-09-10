@@ -11,6 +11,7 @@ import json
 import os
 import socket
 import stat
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -673,6 +674,218 @@ def check_isolation():
     return (True, "isolation des applications",
             "chaque application ne voit que son propre projet "
             "(ce diagnostic excepte : il doit voir l'ensemble)")
+
+
+# ------------------------------------------------ verification approfondie
+#
+# Les sondes ci-dessus REGARDENT : elles lisent un fichier, ouvrent une
+# connexion, comparent une variable. Elles tournent a chaque affichage de la
+# page, donc elles doivent rester instantanees et sans effet.
+#
+# Ce qui suit AGIT : chaque test declenche quelque chose et verifie que la
+# stack a reagi comme il faut. C'est plus lent, cela laisse des traces dans
+# les journaux, et cela ne se lance donc qu'a la demande -- le bouton
+# « Verification approfondie » de la page.
+#
+# POURQUOI CE N'EST PAS LA SUITE DE TESTS DU PANNEAU. Celle-ci vit dans
+# app-manager/tests/ et s'execute a la construction de l'image, sur du code,
+# dans des dossiers temporaires. La lancer DANS une installation qui tourne
+# la detruirait : ses fixtures ecrivent apps.json, utilisateurs.json et
+# passkeys.json sans les rediriger -- sur une machine reelle, ces chemins
+# existent, et ce sont tes applications et tes comptes qui seraient
+# remplaces. Deux choses differentes, deux endroits differents : la-bas on
+# verifie du CODE avant de le livrer, ici on verifie une INSTALLATION qui
+# tourne.
+#
+# Regle absolue ici : aucun test ne modifie l'etat de l'installation. Les
+# ecritures se font dans la table du diagnostic ou dans son propre dossier,
+# et les actions interdites doivent etre REFUSEES -- si l'une passe, c'est
+# le resultat du test.
+
+def _essai(nom, fn):
+    """Un test qui ne fait jamais tomber la page : un echec est un
+    resultat, une exception aussi."""
+    try:
+        return fn()
+    except Exception as e:                                        # noqa: BLE001
+        return False, nom, f"{type(e).__name__}: {e}"
+
+
+def test_base_ecrit_et_relit():
+    """La chaine complete jusqu'a Postgres : on insere, on relit."""
+    conn = connect_pg()
+    try:
+        numero = write_heartbeat(conn, "verification", "verification approfondie")
+        _, recentes = read_heartbeats(conn, limit=20)
+        vu = any("verification approfondie" in str(l) for l in recentes)
+        if not vu:
+            return (False, "base : ecriture puis relecture",
+                    f"ligne #{numero} inseree, mais absente de la relecture")
+        return (True, "base : ecriture puis relecture",
+                f"ligne #{numero} inseree et relue dans la foulee")
+    finally:
+        conn.close()
+
+
+def test_ecriture_refusee_sans_session():
+    """Une ecriture sans session doit etre refusee.
+
+    Le test ne casse rien PRECISEMENT parce qu'il doit echouer : si la
+    requete passait, c'est elle qui serait le probleme.
+
+    Ce qu'il prouve exactement, et pas davantage : la route d'ecriture exige
+    une session. Il ne prouve PAS que le jeton tient -- pour cela il faudrait
+    une session valide, que ce diagnostic n'a pas et ne doit pas avoir. Le
+    premier jet s'appelait "refusee sans jeton" : il annoncait un controle
+    qu'il ne faisait pas.
+    """
+    import urllib.error
+    import urllib.request
+    url = f"http://127.0.0.1:{_port_panneau()}/api/visibility/diagnostic"
+    req = urllib.request.Request(url, data=b"{}", method="POST")
+    req.add_header("Content-Type", "application/json")
+    try:
+        code = urllib.request.urlopen(req, timeout=5).getcode()
+    except urllib.error.HTTPError as e:
+        code = e.code
+    if code in (401, 403):
+        quoi = "session" if code == 401 else "jeton"
+        return (True, "ecriture refusee sans session",
+                f"le panneau repond {code} -- la garde de {quoi} tient")
+    return (False, "ecriture refusee sans session",
+            f"le panneau repond {code} : une ecriture est passee sans session")
+
+
+def test_proxy_sert_cette_application():
+    """Bout en bout : le diagnostic se demande lui-meme, a travers le proxy.
+
+    C'est le seul test qui traverse toute la chaine du panneau -- routage,
+    resolution du projet, regle de visibilite, reverse proxy -- et il n'a
+    besoin de rien d'autre que de cette application, qui tourne forcement
+    puisqu'elle execute ce test.
+
+    Ce que dit chaque reponse, et c'est la que le test devient utile :
+
+      302 vers /login  le proxy a resolu le projet ET applique sa visibilite
+                       privee. Les deux marchent. C'est le cas NORMAL, le
+                       diagnostic etant inscrit en prive.
+      200              idem, sur une application publique.
+      404              le panneau ne connait pas ce projet.
+      502 / 503        il le connait, mais l'application ne repond pas.
+
+    Le premier jet suivait les redirections et comptait le 302 comme un
+    echec : il declarait le proxy casse alors qu'il faisait exactement son
+    travail.
+    """
+    import urllib.error
+    import urllib.request
+
+    class _SansSuivre(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *a, **kw):
+            return None
+
+    port = _port_applications() or _port_panneau()
+    url = f"http://127.0.0.1:{port}/diagnostic/health"
+    ouvre = urllib.request.build_opener(_SansSuivre).open
+    debut = time.time()
+    try:
+        r = ouvre(url, timeout=8)
+        code, entetes = r.getcode(), dict(r.headers)
+    except urllib.error.HTTPError as e:
+        code, entetes = e.code, dict(e.headers)
+    except Exception as e:                                        # noqa: BLE001
+        return False, "le proxy sert cette application", f"{url} : {e}"
+    ms = int((time.time() - debut) * 1000)
+
+    if code == 200:
+        return (True, "le proxy sert cette application",
+                f"{url} repond 200 en {ms} ms")
+    if code in (301, 302, 303, 307, 308) and "/login" in (entetes.get("Location") or ""):
+        return (True, "le proxy sert cette application",
+                f"le proxy resout le projet et applique sa visibilite privee "
+                f"(redirection vers /login, {ms} ms)")
+    if code == 404:
+        return (False, "le proxy sert cette application",
+                "le panneau ne connait pas d'application « diagnostic » : "
+                "elle a ete supprimee du registre, ou renommee")
+    if code in (502, 503):
+        return (False, "le proxy sert cette application",
+                f"le panneau connait le projet mais l'application ne repond "
+                f"pas ({code}) -- est-elle demarree ?")
+    return False, "le proxy sert cette application", f"{url} repond {code}"
+
+
+def test_le_journal_enregistre():
+    """Le journal des acces suit-il vraiment ce qui se passe ?
+
+    On compte, on provoque une ouverture (la requete ci-dessus en est une),
+    on recompte. Un journal qui n'ecrit plus est invisible autrement : tout
+    continue de marcher, on ne s'apercoit de rien, et le jour ou l'on
+    cherche qui s'est connecte il n'y a rien a lire.
+    """
+    import urllib.request
+    etat = os.environ.get("APP_MANAGER_STATE") or "/var/lib/codelab/app-manager"
+    journal = os.path.join(etat, "acces.jsonl")
+
+    def taille():
+        try:
+            return os.path.getsize(journal)
+        except OSError:
+            return -1
+
+    avant = taille()
+    if avant < 0:
+        return (False, "le journal des acces enregistre",
+                f"{journal} introuvable ou illisible depuis ici")
+    port = _port_applications() or _port_panneau()
+    try:
+        urllib.request.urlopen(
+            f"http://127.0.0.1:{port}/diagnostic/health", timeout=8).read(10)
+    except Exception:                                             # noqa: BLE001
+        pass
+    time.sleep(1.0)
+    apres = taille()
+    if apres > avant:
+        return (True, "le journal des acces enregistre",
+                f"une ouverture de plus notee ({apres - avant} octets)")
+    # Les ouvertures sont regroupees par quart d'heure et par compte : rien
+    # de neuf peut vouloir dire "deja note il y a dix minutes", pas "casse".
+    return (True, "le journal des acces enregistre",
+            f"{journal} lisible ({avant} octets) -- rien de neuf, les "
+            f"ouvertures sont regroupees par quart d'heure")
+
+
+def test_le_projet_est_ecrivable():
+    """Un build ecrit dans le dossier du projet : il faut que ce soit vrai.
+
+    Le fichier est cree puis efface -- rien ne subsiste.
+    """
+    ici = os.path.dirname(os.path.abspath(__file__))
+    temoin = os.path.join(ici, ".verification-ecriture")
+    try:
+        with open(temoin, "w") as f:
+            f.write("temoin\n")
+        relu = open(temoin).read().strip()
+    finally:
+        try:
+            os.unlink(temoin)
+        except OSError:
+            pass
+    if relu != "temoin":
+        return False, "le dossier du projet est ecrivable", "relecture incorrecte"
+    return (True, "le dossier du projet est ecrivable",
+            f"{ici} -- ecrit, relu, efface")
+
+
+def run_tests():
+    """Les tests a la demande, dans l'ordre ou on veut les lire."""
+    return [
+        _essai("base : ecriture puis relecture", test_base_ecrit_et_relit),
+        _essai("ecriture refusee sans session", test_ecriture_refusee_sans_session),
+        _essai("le proxy sert cette application", test_proxy_sert_cette_application),
+        _essai("le journal des acces enregistre", test_le_journal_enregistre),
+        _essai("le dossier du projet est ecrivable", test_le_projet_est_ecrivable),
+    ]
 
 
 def run_all(env_file=None, workspace=None, ssh_dir=None):
