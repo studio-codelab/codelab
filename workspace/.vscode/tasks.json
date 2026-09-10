@@ -5,7 +5,8 @@
   // avec Ctrl+Maj+B (Cmd+Maj+B sur Mac), sans passer par aucun menu. C'est le
   // seul raccourci clavier qu'un dossier de travail peut reserver -- VS Code
   // ne lit les raccourcis personnalises que dans le fichier de l'utilisateur,
-  // jamais dans un .vscode partage. Pour en dedier un autre, voir DEVELOPPER.md.
+  // jamais dans un .vscode partage. Pour en dedier un autre, voir le README,
+  // section « Developper et deployer ».
   //
   // Chaque tache appelle l'outil "codelab" du conteneur, jamais une suite
   // d'instructions recopiee ici : la logique reste dans l'image, versionnee

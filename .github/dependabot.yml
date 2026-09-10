@@ -1,0 +1,50 @@
+# Epingler les actions par SHA (voir workflows/build-images.yml) les fige :
+# sans quelqu'un pour proposer la montee de version, on garderait
+# indefiniment une version vulnerable. C'est ce fichier, ce quelqu'un.
+#
+# Dependabot lit le commentaire " # v4" qui suit chaque SHA, ouvre une PR
+# quand une nouvelle version sort, et met a jour le SHA ET le commentaire.
+# La PR passe par la CI comme une autre : les tests d'abord, puis la
+# construction des cinq images sans publication.
+#
+# Deux ecosystemes seulement, et c'est deliberé :
+#
+#   github-actions  ce qui s'execute dans la CI avec un jeton d'ecriture sur
+#                   le registre. C'est le seul endroit ou du code tiers
+#                   touche a la publication des images.
+#   docker          les images de base des cinq Dockerfiles. Elles restent
+#                   volontairement referencees par tag (postgres:18,
+#                   python:3.13-slim) pour continuer de recevoir les
+#                   correctifs a chaque reconstruction ; Dependabot signale
+#                   ici les montees de version majeures, celles qu'un tag ne
+#                   donne pas.
+#
+# Pas d'ecosysteme "pip" : les dependances pip vivent dans les Dockerfiles,
+# en versions exactes. Dependabot ne sait pas les y lire -- c'est une revue
+# a la main, au moment de monter une version.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "CI"
+    labels:
+      - dependances
+
+  - package-ecosystem: docker
+    directories:
+      - /postgres
+      - /dev
+      - /dagster
+      - /dagster/proxy
+      - /app-manager
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "Images"
+    labels:
+      - dependances

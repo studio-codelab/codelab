@@ -867,7 +867,7 @@ table.tbl-journal{min-width:560px}
       </div>
 
       <div class="mf" style="margin:18px -18px -16px;border-radius:0 0 var(--r) var(--r)">
-        <button class="btn btn-danger-quiet" onclick="rm(ficheNom)">Supprimer</button>
+        <button class="btn btn-danger-quiet" id="e-supprimer" onclick="rm(ficheNom)">Supprimer</button>
         <div class="spacer"></div>
         <button class="btn btn-primary" id="e-save" onclick="submitEdit()">Enregistrer</button>
       </div>
@@ -1393,6 +1393,53 @@ table.tbl-journal{min-width:560px}
 </div></div>
 
 <script>
+/* ------------------------------ jeton CSRF ------------------------------
+   Injecte par le serveur au moment de servir la page, et rattache ICI a
+   fetch une fois pour toutes plutot qu'a la trentaine d'appels qui ecrivent.
+   Un appel ajoute demain porte le jeton sans que personne y pense -- c'est
+   la seule facon de ne pas en oublier un.
+   Les GET n'en ont pas besoin : ils ne changent rien, et c'est exactement
+   la ligne que trace le serveur. */
+const JETON=__JETON__;
+
+/* Ou vivent les applications. Vide = elles sont servies par le panneau
+   lui-meme (separation des origines inactive), et un chemin relatif suffit.
+   Sinon c'est une autre origine, et il faut l'adresse complete : c'est tout
+   l'interet, le navigateur doit les traiter comme un site different. */
+const APPS_BASE=__APPS_BASE__;
+const urlApplication = nom => APPS_BASE + '/' + encodeURIComponent(nom) + '/';
+const fetchNu = window.fetch.bind(window);
+
+/* Le jeton ne part QUE vers ce panneau. Aujourd'hui tous les appels de cette
+   page sont relatifs, donc la question ne se pose pas -- mais une enveloppe
+   qui ajoute l'en-tete sans regarder la cible n'est juste que par accident :
+   le jour ou quelqu'un ecrit fetch('https://...', {method:'POST'}), le jeton
+   de session part chez un tiers. Un en-tete non standard declenche certes un
+   pre-vol CORS, mais un serveur hostile n'a qu'a l'autoriser. */
+function memeOrigine(cible){
+  try{
+    const url = (typeof Request !== 'undefined' && cible instanceof Request)
+      ? cible.url : String(cible);
+    return new URL(url, location.href).origin === location.origin;
+  }catch(e){
+    /* Cible illisible : on n'ajoute rien. Ne pas envoyer le jeton fait au
+       pire echouer un appel, l'envoyer au mauvais endroit le divulgue. */
+    return false;
+  }
+}
+
+window.fetch = function(cible, options){
+  options = options || {};
+  const m = (options.method || 'GET').toUpperCase();
+  if(m==='GET' || m==='HEAD' || !memeOrigine(cible)) return fetchNu(cible, options);
+  /* Headers peut arriver en objet simple, en tableau de paires ou en
+     Headers : on normalise avant d'ajouter, sinon on ecrase le
+     Content-Type que l'appelant vient de poser. */
+  const h = new Headers(options.headers || {});
+  h.set('X-CodeLab-Jeton', JETON);
+  return fetchNu(cible, Object.assign({}, options, {headers: h}));
+};
+
 const $=i=>document.getElementById(i), hide=i=>$(i).classList.remove("show");
 const esc=s=>(s||"").replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const icone=n=>'/api/icon/'+encodeURIComponent(n);
@@ -1600,7 +1647,7 @@ function peindreHub(){
   }
   const tuile = a => {
     const desc = a.description ? `<div class="desc">${esc(a.description)}</div>` : '';
-    return `<a class="hub-projet ${a.running?'':'arretee'}" href="/${encodeURIComponent(a.name)}/">
+    return `<a class="hub-projet ${a.running?'':'arretee'}" href="${urlApplication(a.name)}">
       <img src="${icone(a.name)}" alt="">
       <div class="txt"><div class="nom">${esc(a.name)}</div>${desc}
       <div class="bas">${badgeEtat(a)}${badgeVis(a)}</div></div></a>`;
@@ -1757,7 +1804,15 @@ async function rm(n){
   if(!await demander('Supprimer « ' + n + ' » ?',
     "L'application disparait du panneau. Le dossier du projet dans /workspace n'est pas touche.",
     'Supprimer', true)) return;
-  await fetch('/api/app/'+n,{method:'DELETE'});
+  const r=await fetch('/api/app/'+n,{method:'DELETE'});
+  if(!r.ok){
+    /* Le serveur peut refuser -- le projet de diagnostic, par exemple. Sans
+       ce test, le panneau se contentait de refermer la fiche comme si la
+       suppression avait eu lieu. */
+    let d={}; try{ d=await r.json(); }catch(e){}
+    notifier(d.error || 'Suppression impossible.', 'err');
+    return;
+  }
   ficheNom=null; showSection('apps'); refresh();
 }
 
@@ -1800,7 +1855,7 @@ function peindreFiche(){
   $('fa-vis').innerHTML='<i></i>'+(prive?'Prive':'Public');
 
   $('fa-url').textContent='/'+a.name+'/';
-  $('fa-url').href='/'+encodeURIComponent(a.name)+'/';
+  $('fa-url').href=urlApplication(a.name);
   $('fa-port').textContent=a.port;
   $('fa-ecoute').textContent = !a.running ? 'Arretee'
     : (a.listening===false ? 'Le port ne repond pas' : 'Le port repond');
@@ -1840,7 +1895,7 @@ function peindreFiche(){
     b.push(`<span class="hint" style="align-self:center;max-width:320px">Declare l'adresse
       publique du serveur (Parametres &gt; Serveur) pour pouvoir partager une application.</span>`);
   }
-  if(a.running) b.push(`<a class="btn btn-ouvrir" href="/${encodeURIComponent(a.name)}/" target="_blank">${svgOuvrir}Ouvrir</a>`);
+  if(a.running) b.push(`<a class="btn btn-ouvrir" href="${urlApplication(a.name)}" target="_blank">${svgOuvrir}Ouvrir</a>`);
   $('fa-actions').innerHTML=b.join('');
 }
 
@@ -1866,6 +1921,11 @@ function chargerConfigFiche(){
   $('e-browse').style.display='none';
   $('e-running').style.display = a.running ? 'flex' : 'none';
   $('e-save').disabled = !!a.running;
+  /* Le projet de diagnostic ne se supprime pas : c'est lui qui dit si cette
+     installation va bien. Le bouton disparait plutot que d'echouer -- mais
+     c'est le serveur qui refuse vraiment, la route reste appelable a la
+     main. */
+  $('e-supprimer').style.display = (a.name === 'diagnostic') ? 'none' : '';
 }
 async function stopThenEdit(){
   await fetch('/api/toggle/'+ficheNom,{method:'POST'});
@@ -2636,7 +2696,8 @@ async function chargerSecurite(){
     ['1. Connexion chiffree (HTTPS)', d.https,
      "Sans TLS, ton mot de passe, ton code a six chiffres et ton cookie de session traversent "
      + "le reseau lisibles. C'est la seule etape qui demande du travail : un tunnel Cloudflare, "
-     + "un Caddy, ou un VPS devant. Marche a suivre dans HTTPS.md, a la racine du depot."],
+     + "un Caddy, ou un VPS devant. Marche a suivre dans le README, section "
+     + "« Sortir de chez toi »."],
     ['2. Cookie de session en Secure', d.cookie_secure,
      "APP_MANAGER_HTTPS=1 dans le compose, puis « docker compose up -d codelab-app-manager ». "
      + "A poser UNE FOIS le TLS en place : avant, le navigateur cesse d'envoyer le cookie et ta "
@@ -2646,6 +2707,15 @@ async function chargerSecurite(){
      + "X-Forwarded-For. Sans lui, la limite de tentatives compte tout le monde comme un seul "
      + "visiteur et le journal des acces note une seule adresse ; avec lui alors que le panneau "
      + "est publie en direct, n'importe quel client peut annoncer l'adresse qu'il veut."],
+    ['4. Applications sur une origine a part', d.origines_separees,
+     d.origines_separees
+       ? ("Tes applications sont servies depuis " + (d.origine_applications||'')
+          + ", une origine distincte de celle du panneau. Une faille dans l'une "
+          + "d'elles ne donne donc pas acces au panneau.")
+       : ("Les applications sont servies par le panneau lui-meme, donc dans la MEME origine : "
+          + "une faille XSS dans une application quelconque peut lire cette page et piloter la "
+          + "stack. Publie le port " + (d.port_applications||9002) + " dans docker-compose.yml "
+          + "(ou pose APP_MANAGER_APPS_URL derriere un proxy) pour les separer.")],
   ];
   $('expo-liste').innerHTML = lignes.map(([nom,ok,aide])=>
     `<div class="kv"><span class="k">${esc(nom)}</span>

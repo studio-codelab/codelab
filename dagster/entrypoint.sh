@@ -11,12 +11,15 @@
 #   3. Poser le socle de permissions sur /workspace (groupe commun, setgid),
 #      pour que les fichiers ecrits par les jobs restent modifiables depuis
 #      une session SSH.
+#   4. Abandonner root avant de lancer Dagster : les trois premiers roles en
+#      ont besoin, l'execution des jobs non.
 set -e
 
-# Ce service tourne en root. Sans cet umask, tout ce qu'un job ecrit dans
-# /workspace sort en 0644 : le bit setgid donne le bon groupe, mais ce
-# groupe n'a que la lecture, et l'utilisateur SSH ne peut pas reprendre le
-# fichier. C'est LA ligne qui rend le workspace reellement partage.
+# Ce script demarre en root (voir le role 4 plus bas). Sans cet umask, tout ce
+# qu'un job ecrit dans /workspace sort en 0644 : le bit setgid donne le bon
+# groupe, mais ce groupe n'a que la lecture, et l'utilisateur SSH ne peut pas
+# reprendre le fichier. C'est LA ligne qui rend le workspace reellement
+# partage -- et elle est heritee par le processus lance apres la bascule.
 umask 002
 
 ENV_FILE="${CODELAB_ENV_FILE:-/var/lib/codelab/config/credentials.env}"
@@ -45,10 +48,12 @@ fi
 
 # --------------------- permissions partagees sur /workspace ---------------------
 #
-# /workspace est ecrit par trois services aux identites differentes : les
-# sessions SSH en "vscode" (uid 1000), Dagster et app-manager en root. Sans
-# precaution, un fichier produit par un job Dagster sort en "root:root 0644"
-# et n'est plus modifiable depuis VS Code -- et l'inverse est vrai aussi.
+# /workspace est ecrit par des identites differentes : les sessions SSH en
+# "vscode" (uid 1000), Dagster en "dagster" (uid 1002), les applications du
+# panneau chacune sous le sien, et app-manager en root. Sans precaution, un
+# fichier produit par un job Dagster n'est plus modifiable depuis VS Code --
+# et l'inverse est vrai aussi. C'est le GROUPE, commun a tous, qui recolle
+# tout cela.
 #
 # Trois mecanismes, tous les trois necessaires :
 #   1. le groupe "codelab" (gid 2000), present dans les trois images sous le
@@ -145,6 +150,41 @@ if [ ! -f "$SEED_MARKER" ] && [ -d "$WORKSPACE_SEED" ]; then
   mkdir -p "$(dirname "$SEED_MARKER")"
   echo "Supprimer ce fichier fait recopier le squelette de l'image au prochain demarrage." > "$SEED_MARKER"
   chgrp "$CODELAB_GROUP" "$SEED_MARKER" 2>/dev/null || true
+fi
+
+# ----------------------- abandon des privileges -----------------------
+#
+# Tout ce qui precede demande root : poser le groupe et le setgid sur
+# /workspace, lire credentials.env (0600 root), amorcer le squelette. Rien de
+# ce qui SUIT n'en a besoin -- et ce qui suit, c'est justement l'execution du
+# code des jobs.
+#
+# En repli plutot qu'en echec, comme le reste de CodeLab : si l'utilisateur
+# dagster ou gosu manquent (image construite ailleurs, image plus ancienne),
+# on continue en root en le disant clairement. Un orchestrateur qui refuse de
+# demarrer est un plus gros probleme que celui qu'on essaie de resoudre.
+CODELAB_USER="${CODELAB_RUN_AS:-dagster}"
+
+if [ "$(id -u)" -eq 0 ] && id "$CODELAB_USER" >/dev/null 2>&1 \
+   && command -v gosu >/dev/null 2>&1; then
+
+  # DAGSTER_HOME est un volume : son contenu appartient a root sur une
+  # installation existante, et Dagster doit pouvoir y ecrire (dagster.yaml,
+  # les journaux de runs). Idempotent, quelques millisecondes.
+  chown -R "$CODELAB_USER":"$CODELAB_GROUP" "${DAGSTER_HOME}" 2>/dev/null || true
+
+  # Verification avant de sauter : si gosu ne peut pas basculer (capability
+  # SETUID retiree, par exemple), mieux vaut le savoir ici que de perdre le
+  # service. Voir cap_add dans docker-compose.yml.
+  if gosu "$CODELAB_USER" true 2>/dev/null; then
+    echo "[codelab-dagster] execution en $CODELAB_USER (uid $(id -u "$CODELAB_USER"))."
+    exec gosu "$CODELAB_USER" "$@"
+  fi
+  echo "[codelab-dagster] bascule vers $CODELAB_USER impossible (capability" \
+       "SETUID retiree ?) -- poursuite en root." >&2
+elif [ "$(id -u)" -eq 0 ]; then
+  echo "[codelab-dagster] utilisateur $CODELAB_USER ou gosu absent --" \
+       "poursuite en root." >&2
 fi
 
 exec "$@"

@@ -2,7 +2,21 @@
 CodeLab -- application de diagnostic.
 
 Tourne dans le conteneur codelab-app-manager, lancee par le panneau, et
-verifie depuis la que les cinq services se parlent :
+fait l'etat des lieux de l'installation. Deux questions, pas une :
+
+  EST-CE QUE CA MARCHE ?   les cinq services se parlent-ils ?
+  EST-CE QUE C'EST FERME ? le panneau exige-t-il une session, les
+                           applications vivent-elles dans une autre origine,
+                           sont-elles isolees les unes des autres, et ce qui
+                           doit etre pose quand la stack sort du reseau local
+                           l'est-il ?
+
+La seconde question ne se repond pas en lisant le code : elle depend de la
+configuration REELLE -- une variable oubliee, un port non publie, une garde
+active en developpement et pas en service. C'est pour cela qu'elle se pose
+ici, depuis l'interieur d'une installation qui tourne.
+
+Les sondes du premier groupe :
 
   config      credentials.env lisible -> volume config monte
   workspace   /workspace/definitions.py visible -> volume partage
@@ -27,6 +41,7 @@ n'importe ni flask ni dagster.
 """
 import os
 import sys
+import time
 import traceback
 from datetime import datetime, timezone
 
@@ -34,7 +49,7 @@ from datetime import datetime, timezone
 # dans ./vendor, a cote du code, sans toucher au conteneur.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor"))
 
-from flask import Flask  # noqa: E402  (present dans l'image app-manager)
+from flask import Flask, request  # noqa: E402  (present dans l'image app-manager)
 
 import checks  # noqa: E402
 
@@ -89,6 +104,50 @@ def health():
     return {"ok": True}
 
 
+@app.get("/tests")
+def tests():
+    """La verification approfondie, a la demande.
+
+    Separee de la page d'accueil et pas jouee automatiquement : ces tests
+    AGISSENT -- ils ecrivent en base, traversent le proxy, laissent des
+    traces dans les journaux. Les sondes de l'accueil, elles, ne font que
+    regarder, et doivent rester instantanees.
+    """
+    debut = time.time()
+    resultats = checks.run_tests()
+    # La suite de regressions du panneau, en dernier : c'est la plus longue,
+    # et on veut voir les tests d'installation d'abord.
+    if request.args.get("suite") != "0":
+        resultats.append(checks.lancer_suite_du_panneau())
+    duree = int((time.time() - debut) * 1000)
+    lignes = "".join(
+        f'<tr><td class="st {"ok" if ok else "ko"}">{"OK" if ok else "ECHEC"}</td>'
+        f'<td class="nom">{esc(nom)}</td><td class="det">{esc(det)}</td></tr>'
+        for ok, nom, det in resultats)
+    reussis = sum(1 for ok, _, _ in resultats if ok)
+    tous = len(resultats)
+    verdict = (f'<div class="verdict {"ok" if reussis == tous else "ko"}">'
+               f'{reussis} test{"s" if reussis > 1 else ""} sur {tous} '
+               f'{"passent" if reussis == tous else "passent"} &mdash; {duree} ms.'
+               + ('' if reussis == tous else
+                  ' Le detail est dans la colonne de droite.') + '</div>')
+    quand = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+    return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CodeLab &middot; verification approfondie</title><style>{CSS}</style></head>
+<body><div class="wrap">
+<h1>Verification approfondie</h1>
+<div class="sub">Ces tests AGISSENT : ils ecrivent en base, traversent le reverse proxy et
+laissent une trace dans les journaux. Ils ne modifient rien d'autre &mdash; aucune application,
+aucun compte, aucun reglage. &mdash; {esc(quand)}</div>
+{verdict}
+<table><tr><th>Etat</th><th>Test</th><th>Detail</th></tr>{lignes}</table>
+<div class="note">Ce ne sont pas les tests du panneau : ceux-la verifient du CODE avant qu'il
+ne parte en image, dans des dossiers temporaires. Ceux-ci verifient une INSTALLATION qui
+tourne. <a href="./">Retour au diagnostic</a></div>
+</div></body></html>"""
+
+
 @app.get("/")
 def index():
     resultats = checks.run_all()
@@ -122,7 +181,7 @@ def index():
                    'communiquent, et Postgres contient des ecritures de l\'application '
                    '<em>et</em> de Dagster.</div>')
     elif sondes_ok and erreur_db is None:
-        verdict = ('<div class="verdict ko">Les huit sondes passent, mais aucune ligne ecrite par '
+        verdict = ('<div class="verdict ko">Toutes les sondes passent, mais aucune ligne ecrite par '
                    'Dagster. Materialise l\'asset <code>diagnostic_codelab</code> depuis '
                    'http://&lt;IP&gt;:3000, puis recharge cette page.</div>')
     else:
@@ -159,6 +218,9 @@ def index():
 {verdict}
 <h2>Verifications</h2>
 <table><tr><th>Etat</th><th>Cible</th><th>Detail</th></tr>{lignes}</table>
+<div class="note">Ces sondes ne font que regarder, et tournent a chaque affichage.
+Pour aller plus loin &mdash; ecrire en base, traverser le proxy, verifier que le journal
+enregistre &mdash; lance la <a href="tests">verification approfondie</a>.</div>
 <h2>Table {checks.TABLE} &mdash; qui a ecrit</h2>
 {bloc_db}
 <h2>Dernieres ecritures</h2>

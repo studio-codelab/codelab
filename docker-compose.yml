@@ -10,6 +10,20 @@
 # CasaOS (icone, titre, note affichee avant
 # installation). Le reste est
 # identique : toute modification faite ici doit y etre reportee.
+#
+# DURCISSEMENT DES CONTENEURS
+#
+# Cinq des six services tournent avec cap_drop: ALL et no-new-privileges : ils
+# n'ont plus que les quelques capabilities dont ils se servent reellement,
+# listees et justifiees service par service ci-dessous. codelab-dev en est
+# exclu volontairement -- c'est le shell, et le durcir casserait sudo et la
+# separation de privileges de sshd.
+#
+# Si un service refuse de demarrer apres une mise a jour : commente ses lignes
+# security_opt / cap_drop / cap_add, relance, et signale-le. Une capability
+# manquante se voit dans "docker logs <service>" sous la forme d'un
+# "Operation not permitted" -- c'est elle qu'il faut rendre, pas tout le
+# bloc.
 
 services:
 
@@ -25,6 +39,21 @@ services:
     image: ghcr.io/lucasrtn/codelab-postgres:latest
     container_name: codelab-postgres
     restart: unless-stopped
+
+    # Durcissement : tout retirer, puis rendre le strict necessaire.
+    # L'image officielle demarre en root, prepare le cluster et bascule sur
+    # l'utilisateur postgres -- d'ou SETUID/SETGID -- apres avoir pose les
+    # droits du repertoire de donnees -- d'ou CHOWN, FOWNER, DAC_OVERRIDE.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
 
     environment:
       # Base d'INSTANCE de Dagster (runs, evenements, planifications), creee
@@ -68,6 +97,19 @@ services:
     image: ghcr.io/lucasrtn/codelab-dev:latest
     container_name: codelab-dev
     restart: unless-stopped
+
+    # PAS de durcissement ici, et c'est un choix.
+    #
+    # Ce conteneur EST le shell : sshd ouvre une session, et "sudo" y est
+    # installe parce qu'un environnement de developpement en a besoin. Or
+    # no-new-privileges casse sudo -- silencieusement, avec un message qui
+    # n'explique rien -- et cap_drop: ALL empeche sshd de faire sa separation
+    # de privileges. On durcirait exactement ce pour quoi ce service existe.
+    #
+    # Ce qui le protege est ailleurs, et c'est deja en place : aucun mot de
+    # passe (cle publique uniquement), pas de connexion root, et une seule
+    # facon d'autoriser une machine -- deposer sa cle dans
+    # config/ssh/authorized_keys.d/.
 
     ports:
       - "2222:22"
@@ -120,6 +162,21 @@ services:
     container_name: codelab-dagster
     restart: unless-stopped
 
+    # Durcissement. Ce service execute du code arbitraire (c'est sa raison
+    # d'etre) : c'est celui ou une capability inutile coute le plus cher.
+    # Il lui reste de quoi poser les droits de /workspace au demarrage et
+    # basculer sur l'utilisateur dagster.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+
     # Pas de "ports" ici, volontairement : Dagster n'a aucune
     # authentification, et son interface permet de lancer des jobs -- donc
     # d'executer du code. Il n'est accessible qu'a travers
@@ -165,6 +222,18 @@ services:
     container_name: codelab-dagster-daemon
     restart: unless-stopped
 
+    # Meme image, meme code arbitraire, meme durcissement.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+
     command:
       - dagster-daemon
       - run
@@ -201,8 +270,30 @@ services:
     container_name: codelab-app-manager
     restart: unless-stopped
 
+    # Durcissement. SETUID/SETGID sont indispensables ici : c'est ce qui
+    # permet a drop_privileges() de faire tomber chaque application sur son
+    # propre uid. Les retirer ne durcirait rien, cela DESACTIVERAIT
+    # l'isolation des applications.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+
     ports:
       - "9001:9001"
+      # Les applications deployees sont servies ICI, sur un port a part -- donc
+      # dans une origine differente de celle du panneau. C'est ce qui empeche
+      # une faille dans une application d'atteindre le panneau : le navigateur
+      # traite deux ports comme deux sites, et refuse a l'un de lire l'autre.
+      # Sans ce port publie, le panneau s'en apercoit, le dit dans
+      # Parametres > Serveur, et continue de servir les applications lui-meme.
+      - "9002:9002"
 
     volumes:
       - /DATA/AppData/codelab/app-manager:/var/lib/codelab/app-manager
@@ -220,7 +311,8 @@ services:
       # --- Le jour ou ce panneau sort de ton reseau ---------------------
       # Les trois lignes ci-dessous se decommentent ENSEMBLE, et seulement
       # une fois que https://... repond vraiment. Marche a suivre complete
-      # dans HTTPS.md (et app-manager/vps/ pour la variante avec un VPS devant).
+      # dans le README, section « Sortir de chez toi » (et app-manager/vps/
+      # pour la variante avec un VPS devant).
       #
       # Pourquoi pas avant : APP_MANAGER_HTTPS marque le cookie de session
       # "Secure", et le navigateur cesse alors de l'envoyer en clair -- la
@@ -253,6 +345,18 @@ services:
     image: ghcr.io/lucasrtn/codelab-dagster-proxy:latest
     container_name: codelab-dagster-proxy
     restart: unless-stopped
+
+    # nginx : le maitre demarre en root pour lire sa configuration et ouvrir
+    # son port, puis les workers tournent en "nginx". Rien d'autre.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
 
     ports:
       - "3000:3000"

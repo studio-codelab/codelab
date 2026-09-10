@@ -44,10 +44,12 @@ import os
 import re
 import resource
 import secrets
+import shutil
 import signal
 import smtplib
 import socket
 import ssl
+import stat as stat_mod
 import struct
 import subprocess
 import threading
@@ -489,6 +491,177 @@ def require_auth(view):
         return view(*a, **kw)
     wrapped.__name__ = view.__name__
     return wrapped
+
+
+# --------------------- une origine a part pour les applications ---------------
+#
+# Le probleme, tant qu'il n'etait pas resolu : les applications etaient servies
+# sous :9001/<nom>/, c'est-a-dire dans l'ORIGINE du panneau. Une faille XSS
+# dans une application quelconque -- du code que tu ecris vite, pas du code
+# durci -- donnait acces au panneau : lire son DOM, lire le jeton CSRF dans sa
+# page, piloter la stack. Aucun jeton ne protege de cela, puisque le script
+# hostile est dans la meme origine que ce qu'il attaque.
+#
+# Les applications ont donc leur propre port, donc leur propre ORIGINE :
+# une origine, c'est un schema, un hote ET un port. Ce que cela change :
+#
+#   - un script d'une application ne lit plus le DOM du panneau ni sa page,
+#     donc plus le jeton ;
+#   - il peut encore ENVOYER une requete au panneau avec le cookie -- le
+#     cookie est porte par l'hote, pas par le port, et SameSite raisonne en
+#     "site", ou le port ne compte pas non plus. Mais sans le jeton, cette
+#     requete est refusee. C'est ici que le jeton CSRF prend tout son sens :
+#     seul, il ne servait a rien contre une application ; avec la separation
+#     des origines, il devient ce qui la rend efficace.
+#
+# Le cookie de session continue par ailleurs d'etre retire avant d'atteindre
+# l'application elle-meme (voir strip_session_cookie).
+#
+# 0 desactive la separation : les applications repassent sous le port du
+# panneau, comme avant. C'est aussi ce qui se produit tout seul si le second
+# port ne peut pas s'ouvrir -- mieux vaut des applications joignables et un
+# avertissement qu'une stack a moitie morte apres une mise a jour.
+APPS_PORT = int(os.environ.get("APP_MANAGER_APPS_PORT", "9002") or 0)
+
+# Derriere un reverse proxy, un second PORT n'est pas forcement joignable de
+# l'exterieur : on declare alors l'adresse complete (un sous-domaine, par
+# exemple https://apps.tondomaine.fr). Elle prend le pas sur le port.
+APPS_URL = (os.environ.get("APP_MANAGER_APPS_URL") or "").rstrip("/")
+
+# Pose par servir() une fois le second ecouteur reellement ouvert. Tant qu'il
+# est faux, rien ne change : ni redirection, ni restriction.
+_origines_separees = {"actif": False}
+
+
+def origines_separees():
+    return _origines_separees["actif"]
+
+
+def origine_applications():
+    """L'adresse ou vivent les applications, vue depuis le navigateur."""
+    if APPS_URL:
+        return APPS_URL
+    hote = (request.host or "").split(":")[0] if request else ""
+    return f"{request.scheme}://{hote}:{APPS_PORT}"
+
+
+ROUTES_APPLICATIONS = {"proxy", "proxy_noslash", "health"}
+
+
+@flask_app.before_request
+def separer_les_origines():
+    """Chaque port ne sert que ce qui lui appartient.
+
+    Sans cette garde, ouvrir le second port ne separerait rien : le panneau
+    repondrait sur les deux, et les deux origines se vaudraient.
+    """
+    if not origines_separees():
+        return None
+    sur_le_port_des_apps = str(request.environ.get("SERVER_PORT", "")) == str(APPS_PORT)
+    if sur_le_port_des_apps:
+        if request.endpoint in ROUTES_APPLICATIONS or request.endpoint is None:
+            return None
+        # Le panneau ne s'affiche pas ici, et ses API n'y repondent pas : ce
+        # port n'est pas de confiance, c'est tout l'interet.
+        return Response(_page("Ce n'est pas le panneau",
+                              "Cette adresse ne sert que les applications."),
+                        404, mimetype="text/html")
+    # Sur le port du panneau : une application demandee ici est renvoyee chez
+    # elle. Les favoris et les liens deja partages continuent de marcher.
+    if request.endpoint in ("proxy", "proxy_noslash"):
+        nom = request.view_args.get("n", "") if request.view_args else ""
+        sous = request.view_args.get("sub", "") if request.view_args else ""
+        cible = origine_applications() + "/" + urllib.parse.quote(nom) + "/"
+        if sous:
+            cible += sous
+        if request.query_string:
+            cible += "?" + request.query_string.decode("latin-1")
+        return redirect(cible, 302)
+    return None
+
+
+# ------------------------------- jeton CSRF --------------------------------
+#
+# SameSite=Lax bloque deja l'essentiel : un autre SITE ne peut plus faire
+# poster le navigateur vers /api/toggle/<app> avec le cookie de session.
+# Ce jeton couvre ce que SameSite ne couvre pas.
+#
+# Ce qu'il apporte VRAIMENT, et ce qu'il n'apporte pas -- parce que la
+# nuance decide de la suite :
+#
+#   Il protege d'une AUTRE ORIGINE. Un script servi ailleurs (un autre port
+#   de cette machine, par exemple) peut declencher une requete vers le
+#   panneau avec le cookie, mais la politique d'origine l'empeche de LIRE la
+#   reponse d'un GET -- donc d'apprendre le jeton. Sans le jeton, sa requete
+#   est refusee.
+#
+#   Il ne protege PAS d'un script servi sous la MEME origine. Les
+#   applications sont servies sous :9001/<nom>/, donc un script hostile qui
+#   y tourne lit le jeton comme le panneau le lit. La reponse a ce
+#   probleme-la n'est pas un jeton, c'est une origine separee -- un port ou
+#   un nom d'hote distinct pour les applications. Le jeton est ce qui rendra
+#   cette separation efficace le jour ou elle sera faite : sans lui, changer
+#   d'origine n'empecherait pas la requete, seulement sa lecture.
+#
+# Verifie ici, dans un before_request, et pas route par route : une route
+# d'ecriture ajoutee demain est protegee sans que personne y pense. C'est
+# l'inverse d'un decorateur qu'on oublie.
+JETON_ENTETE = "X-CodeLab-Jeton"
+
+# Les seules routes d'ecriture atteignables SANS session : on ne peut pas
+# exiger d'un visiteur un jeton qui vit dans une session qu'il n'a pas
+# encore. Elles ont leur propre garde -- mot de passe, code a six chiffres,
+# limite de tentatives.
+JETON_EXEMPTS = {
+    "login_submit", "login_second_facteur",
+    "login_passkey_options", "login_passkey",
+    "inscription_creer", "inscription_confirmer",
+    # Le proxy transporte les requetes des applications hebergees : leurs
+    # formulaires ne connaissent pas le jeton du panneau, et n'ont aucune
+    # raison de le connaitre.
+    "proxy", "proxy_noslash",
+}
+
+JETON_METHODES = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def jeton_session():
+    """Le jeton de la session courante, cree a la demande.
+
+    Vit dans le cookie de session, donc signe : un client ne peut pas s'en
+    fabriquer un, et il disparait avec la session.
+    """
+    j = session.get("jeton")
+    if not j:
+        j = secrets.token_urlsafe(32)
+        session["jeton"] = j
+    return j
+
+
+@flask_app.before_request
+def verifier_jeton():
+    if request.method not in JETON_METHODES:
+        return None
+    if request.endpoint in JETON_EXEMPTS:
+        return None
+    # Pas de session ouverte : rien a proteger ici, et la route dira
+    # elle-meme qu'il faut s'authentifier -- repondre 403 masquerait le vrai
+    # motif. Une session ouverte, elle, porte TOUJOURS un jeton : il est pose
+    # au moment ou elle s'ouvre (voir ouvrir_session), jamais plus tard. Sans
+    # cette garantie, "pas de jeton donc on laisse passer" serait un
+    # contournement au lieu d'une exemption.
+    if not is_authed():
+        return None
+    # session.get et pas session["jeton"] : l'invariant "une session ouverte
+    # porte un jeton" est vrai, mais s'il cassait un jour, une KeyError
+    # rendrait un 500 la ou un 403 est la bonne reponse -- et un 500 sur une
+    # ecriture se lit comme une panne du panneau, pas comme un refus.
+    attendu = session.get("jeton") or ""
+    fourni = request.headers.get(JETON_ENTETE, "")
+    if not attendu or not secrets.compare_digest(fourni, attendu):
+        return jsonify({"error": "Jeton de securite absent ou invalide. "
+                                 "Recharge la page."}), 403
+    return None
 
 
 def require_admin(view):
@@ -1277,6 +1450,42 @@ def next_port(apps):
 RUN_AS_UID = int(os.environ.get("APP_MANAGER_RUN_AS_UID", "1001"))
 RUN_AS_GID = int(os.environ.get("APP_MANAGER_RUN_AS_GID", "2000"))
 
+# --- un uid par application -------------------------------------------------
+#
+# L'uid 1001 partage protegeait les applications DU PANNEAU (credentials.env
+# redevient illisible), mais pas les unes DES AUTRES : meme uid, donc chacune
+# pouvait tuer les process d'une autre, et surtout lire son
+# /proc/<pid>/environ -- c'est-a-dire les variables qu'on lui transmet, mot de
+# passe Postgres compris.
+#
+# Chaque application tourne donc sous son propre uid, derive de son nom.
+# Derive et non attribue : aucun etat a tenir a jour, rien a migrer, et le
+# meme nom redonne toujours le meme uid -- une application qui redemarre
+# retrouve ses fichiers. Deux noms peuvent tomber sur le meme uid ; c'est
+# alors exactement la situation d'avant, jamais pire.
+#
+# CE QUE CELA NE FAIT PAS, et il faut le savoir : /workspace reste partage par
+# le groupe codelab, parce que ton code doit rester modifiable depuis une
+# session SSH. Une application peut donc toujours LIRE et ECRIRE les fichiers
+# d'une autre a travers le groupe. Ce qui change, c'est ce qui n'appartient a
+# personne d'autre : les process, leur environnement, et les fichiers qu'une
+# application cree en 0600 pour elle-meme.
+UID_APP_BASE = int(os.environ.get("APP_MANAGER_UID_BASE", "10000"))
+UID_APP_PLAGE = int(os.environ.get("APP_MANAGER_UID_PLAGE", "5000"))
+
+
+def uid_application(nom):
+    """L'uid d'une application, derive de son nom.
+
+    sha256 et pas hash() : hash() est randomise a chaque demarrage du
+    processus (PYTHONHASHSEED), donc l'uid changerait a chaque redemarrage du
+    panneau et l'application ne retrouverait plus ses fichiers.
+    """
+    if not nom:
+        return RUN_AS_UID
+    empreinte = hashlib.sha256(nom.encode("utf-8")).digest()
+    return UID_APP_BASE + int.from_bytes(empreinte[:4], "big") % UID_APP_PLAGE
+
 
 # Dossier personnel des processus enfants. Sans lui, ils heritent de
 # HOME=/root -- illisible et surtout non ecrivable une fois l'uid abandonne,
@@ -1347,31 +1556,104 @@ def secrets_partages():
     return valeurs
 
 
-def ensure_child_home():
+def ensure_child_home(nom=None):
+    """Le dossier personnel des process d'une application.
+
+    Un par uid, pas un pour tout le monde : ~/.npmrc, les jetons qu'un outil y
+    depose et le cache npm appartiennent a une application, pas au voisinage.
+    Le cache continue de survivre d'un build a l'autre -- c'est la raison
+    d'etre de ce dossier -- simplement il ne survit plus d'une application a
+    l'autre, ce qui n'a jamais ete voulu.
+
+    Nomme par l'uid et non par le nom de l'application : un uid est un entier,
+    donc jamais un chemin qui s'echappe, meme si apps.json a ete edite a la
+    main.
+    """
+    uid = uid_application(nom) if nom else RUN_AS_UID
+    dossier = str(uid)
+    chemin = os.path.join(CHILD_HOME, dossier)
     os.makedirs(CHILD_HOME, exist_ok=True)
+
+    # Le PARENT n'est pas ecrivable par les applications. C'est la ligne qui
+    # compte, et elle a manque : quand il l'etait (2770, groupe codelab), une
+    # application pouvait effacer son propre dossier, le remplacer par un lien
+    # symbolique vers n'importe quel dossier de la machine, et attendre. Au
+    # redemarrage suivant, le chown pose ici par root suivait le lien et
+    # donnait la cible a l'application -- le dossier des secrets, par exemple,
+    # dont il suffit alors de remplacer le fichier. Elle pouvait aussi ecraser
+    # le dossier personnel d'une AUTRE application et y deposer un .profile,
+    # que "bash -lc" execute sous l'uid de la voisine.
+    #
+    # 0751 : root cree et modifie, le groupe traverse seulement. Traverser
+    # suffit, puisque chaque application est proprietaire de son propre
+    # dossier a l'interieur.
     if os.geteuid() == 0:
         try:
-            os.chown(CHILD_HOME, RUN_AS_UID, RUN_AS_GID)
-            os.chmod(CHILD_HOME, 0o2770)
+            os.chown(CHILD_HOME, 0, RUN_AS_GID)
+            os.chmod(CHILD_HOME, 0o0751)
         except OSError as e:
             print(f"[app-manager] {CHILD_HOME} : droits non poses ({e}).", flush=True)
-    return CHILD_HOME
+
+    # Tout se fait relativement a un descripteur du parent, et le dossier est
+    # ouvert en O_NOFOLLOW : meme si une entree hostile subsistait d'une
+    # version precedente, elle n'est pas suivie mais retiree.
+    try:
+        parent = os.open(CHILD_HOME, os.O_RDONLY | os.O_DIRECTORY)
+    except OSError as e:
+        print(f"[app-manager] {CHILD_HOME} illisible ({e}).", flush=True)
+        return chemin
+    try:
+        try:
+            infos = os.lstat(dossier, dir_fd=parent)
+        except FileNotFoundError:
+            infos = None
+        if infos is not None and not stat_mod.S_ISDIR(infos.st_mode):
+            # Un lien, un fichier : pas un dossier personnel. On ne le suit
+            # pas, on l'enleve.
+            print(f"[app-manager] {chemin} n'etait pas un dossier -- retire.", flush=True)
+            os.unlink(dossier, dir_fd=parent)
+            infos = None
+        if infos is None:
+            os.mkdir(dossier, 0o700, dir_fd=parent)
+        if os.geteuid() == 0:
+            fd = os.open(dossier, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                         dir_fd=parent)
+            try:
+                # 2700 et pas 2770 : c'est precisement ce que le groupe
+                # partage ne doit PAS ouvrir. Le setgid reste, pour que ce qui
+                # y nait garde le groupe codelab.
+                os.fchown(fd, uid, RUN_AS_GID)
+                os.fchmod(fd, 0o2700)
+            finally:
+                os.close(fd)
+    except OSError as e:
+        print(f"[app-manager] {chemin} : droits non poses ({e}).", flush=True)
+    finally:
+        os.close(parent)
+    return chemin
 
 
-def drop_privileges():
+def drop_privileges(nom=None):
     """Bascule le processus courant sur l'utilisateur non privilegie.
 
     Appelee dans le preexec_fn, donc APRES le fork et AVANT l'exec : elle ne
     touche jamais au service lui-meme. Sans effet si l'on n'est pas root, ce
     qui est le cas quand app.py tourne hors conteneur (tests, mise au point).
+
+    nom : l'application concernee, qui donne son uid. Sans nom, l'uid partage
+    d'avant -- c'est le cas des travaux qui n'appartiennent a aucune
+    application en particulier.
     """
     if os.geteuid() != 0:
         return
+    uid = uid_application(nom) if nom else RUN_AS_UID
     # setgroups avant setuid : une fois l'uid abandonne, le processus n'a plus
     # le droit de modifier ses groupes secondaires, et garderait ceux de root.
+    # Le groupe reste commun : c'est lui qui donne l'acces a /workspace, et
+    # donc la possibilite de continuer a editer son code en SSH.
     os.setgroups([RUN_AS_GID])
     os.setgid(RUN_AS_GID)
-    os.setuid(RUN_AS_UID)
+    os.setuid(uid)
     # Reposé ici : le umask n'est pas herite du service de maniere fiable a
     # travers toute la chaine, et sans 002 les fichiers produits par un build
     # (dist/, node_modules/) ressortent en lecture seule pour le groupe --
@@ -1379,7 +1661,117 @@ def drop_privileges():
     os.umask(0o002)
 
 
-def child_setup(max_memory_mb=None):
+# ------------------- isolation du systeme de fichiers -------------------
+#
+# L'uid par application separait les process et leur environnement. Il ne
+# separait PAS les fichiers : /workspace est partage par le groupe codelab --
+# il le faut, sinon ton code n'est plus modifiable depuis une session SSH --
+# donc une application pouvait lire le .env de sa voisine.
+#
+# Chaque application recoit maintenant sa propre vue du systeme de fichiers,
+# dans laquelle /workspace ne contient QU'ELLE.
+#
+# COMMENT, ET POURQUOI CE CHEMIN-LA. Creer un namespace de montage demande
+# CAP_SYS_ADMIN -- que le compose retire justement a tous les conteneurs. Mais
+# un namespace UTILISATEUR s'ouvre sans aucune capability, meme sous
+# no-new-privileges (mesure), et depuis l'interieur on peut alors monter. On
+# obtient donc l'isolation sans rendre au conteneur la capability qu'on vient
+# de lui retirer -- les deux durcissements ne se contredisent pas.
+#
+# CE QU'ON Y GAGNE : les projets voisins deviennent invisibles, et /tmp
+# n'est plus partage entre applications.
+#
+# CE QU'ON Y PERD, et il faut le savoir : dans son namespace, l'application se
+# voit uid 0. Elle ne gagne aucun pouvoir dehors -- les fichiers des autres
+# lui apparaissent comme appartenant a "nobody" -- mais les namespaces
+# utilisateur ont un historique de failles d'evasion du noyau. On echange
+# "une application lit les fichiers d'une autre" contre "une application
+# touche une surface noyau plus large". Sur un serveur ou les projets ne
+# communiquent pas entre eux, l'echange est bon.
+#
+# CE QUE CELA NE FAIT PAS : les process des autres restent visibles dans
+# /proc (leur environnement, lui, reste illisible : uid different). Un
+# namespace PID le corrigerait, mais il exige de remonter /proc, ce que
+# Docker interdit par ses montages masques -- mesure, pas suppose.
+ISOLER_APPS = (os.environ.get("APP_MANAGER_ISOLER", "1").lower()
+               not in ("0", "false", "no"))
+
+# Le script qui tourne DANS le namespace, avant la commande de l'application.
+# Le chemin et la commande arrivent par l'environnement, jamais par
+# interpolation : un nom de projet avec une apostrophe casserait le script,
+# et un chemin choisi ailleurs deviendrait une injection.
+SCRIPT_ISOLEMENT = r"""
+set -e
+# Un point d'appui a nous. On ne peut pas simplement ecrire dans /mnt : dans
+# le namespace utilisateur, tout ce qui appartient au vrai root apparait
+# comme appartenant a "nobody", donc en lecture seule. Monter, en revanche,
+# ne demande pas d'ecrire dans le dossier -- seulement qu'il existe.
+mount -t tmpfs none /mnt
+mkdir /mnt/projet
+# Le projet est mis de cote AVANT que la tmpfs ne masque la racine du
+# workspace : apres, son emplacement d'origine n'existe plus.
+mount --bind "$CODELAB_PROJET" /mnt/projet
+# La racine du workspace devient vide, puis ne recoit que ce projet, A SON
+# CHEMIN D'ORIGINE : les chemins absolus qu'une application garde dans sa
+# configuration continuent de fonctionner.
+mount -t tmpfs none "$CODELAB_RACINE"
+mkdir -p "$CODELAB_PROJET"
+mount --bind /mnt/projet "$CODELAB_PROJET"
+umount /mnt/projet
+# /tmp prive : deux applications ne se marchent plus dessus, et aucune ne
+# lit le fichier temporaire d'une autre.
+#
+# Sauf si le workspace vit SOUS /tmp -- une installation de mise au point, ou
+# APP_MANAGER_ROOT pointe ailleurs. La tmpfs masquerait alors le projet qu'on
+# vient de monter, et l'application ne demarrerait plus : "cd: can't cd to
+# ...". On prefere un /tmp partage a une application qui ne tourne pas.
+case "$CODELAB_PROJET" in
+  /tmp|/tmp/*) : ;;
+  *) mount -t tmpfs none /tmp ;;
+esac
+cd "$CODELAB_PROJET"
+exec bash -lc "$CODELAB_COMMANDE"
+"""
+
+
+def isolement_disponible():
+    """unshare(1) est-il la ? Present dans util-linux, donc dans l'image --
+    mais on ne le suppose pas : une image reconstruite ailleurs, un systeme
+    ou les namespaces utilisateur sont desactives par le noyau, et
+    l'application doit demarrer quand meme."""
+    return shutil.which("unshare") is not None
+
+
+def commande_isolee(nom, chemin, commande, apps=None):
+    """La commande a passer a Popen, isolee si c'est possible et voulu.
+
+    Retourne aussi l'environnement a ajouter : le script lit ses deux
+    parametres dedans.
+    """
+    infos = (apps or {}).get(nom) or {}
+    # Un reglage par application : le jour ou l'une d'elles a besoin de voir
+    # autre chose, la reponse n'est pas "desactive l'isolement partout".
+    voulu = ISOLER_APPS and infos.get("isolation", True) is not False
+    # Le projet de diagnostic est l'exception, et c'est sa raison d'etre : il
+    # fait l'etat des lieux de l'installation. Isole, il ne verrait que
+    # lui-meme -- ni /workspace/definitions.py, ni les autres projets -- et il
+    # rapporterait une stack en panne alors que tout va bien. L'observateur a
+    # besoin de voir.
+    #
+    # Ecrit ici et pas seulement dans apps.json : une installation deja en
+    # place n'a pas le reglage, et se mettrait a jour vers un diagnostic
+    # aveugle.
+    if nom == DIAGNOSTIC_NOM:
+        voulu = False
+    if not voulu or not isolement_disponible():
+        return ["bash", "-lc", commande], {}
+    return (["unshare", "--user", "--map-root-user", "--mount",
+             "sh", "-c", SCRIPT_ISOLEMENT],
+            {"CODELAB_PROJET": chemin, "CODELAB_COMMANDE": commande,
+             "CODELAB_RACINE": ROOT})
+
+
+def child_setup(max_memory_mb=None, nom=None):
     """preexec_fn commun aux applications et aux builds."""
     def _setup():
         if max_memory_mb:
@@ -1394,7 +1786,7 @@ def child_setup(max_memory_mb=None):
             # celui-ci reste vrai si la limite devenait "dure".
             mem = int(max_memory_mb) * 1024 * 1024
             resource.setrlimit(resource.RLIMIT_AS, (mem, mem))
-        drop_privileges()
+        drop_privileges(nom)
     return _setup
 
 
@@ -1428,14 +1820,16 @@ def start(name):
     out = open(os.path.join(LOG_DIR, name + ".log"), "ab", buffering=0)
     env = dict(os.environ, **secrets_partages())
     env.update(PORT=str(a["port"]), PYTHONUNBUFFERED="1",
-               HOME=ensure_child_home())
+               HOME=ensure_child_home(name))
+    argv, env_isolement = commande_isolee(name, a["path"], a["command"], apps)
+    env.update(env_isolement)
 
     with lock:
         procs[name] = subprocess.Popen(
-            ["bash", "-lc", a["command"]],
+            argv,
             cwd=a["path"], env=env, stdout=out, stderr=out,
             start_new_session=True,
-            preexec_fn=child_setup(a.get("max_memory_mb")))
+            preexec_fn=child_setup(a.get("max_memory_mb"), name))
     apps[name]["enabled"] = True
     save(apps)
 
@@ -1892,16 +2286,21 @@ def run_build(name):
     if not cmd:
         return False, "Aucune commande de build definie pour cette application."
     os.makedirs(LOG_DIR, exist_ok=True)
-    env = dict(os.environ, **secrets_partages(), HOME=ensure_child_home())
+    env = dict(os.environ, **secrets_partages(), HOME=ensure_child_home(name))
     logf = os.path.join(LOG_DIR, name + ".log")
     with open(logf, "ab") as out:
         out.write(f"\n$ {cmd}\n".encode())
         try:
             # Meme abandon de privileges que pour l'application : c'est le
             # build qui execute le plus de code tiers (scripts postinstall).
-            r = subprocess.run(["bash", "-lc", cmd], cwd=a["path"], env=env,
+            argv, env_isolement = commande_isolee(name, a["path"], cmd, apps)
+            env.update(env_isolement)
+            # Le build est le moment ou le plus de code tiers s'execute
+            # (scripts postinstall des dependances) : c'est celui qui a le
+            # plus besoin d'etre enferme.
+            r = subprocess.run(argv, cwd=a["path"], env=env,
                                 stdout=out, stderr=out, timeout=600,
-                                preexec_fn=child_setup())
+                                preexec_fn=child_setup(nom=name))
             ok = r.returncode == 0
             msg = None if ok else f"Le build a echoue (code {r.returncode}) -- voir le journal."
         except subprocess.TimeoutExpired:
@@ -2271,6 +2670,9 @@ def login_submit():
 
         session.permanent = True
         session["authed"] = True
+        # Le jeton nait avec la session, jamais apres : une session
+        # authentifiee sans jeton ferait de verifier_jeton une passoire.
+        jeton_session()
         session["role"] = ROLE_ADMIN
         session["utilisateur"] = NOM_ADMIN
         journaliser("connexion", qui=NOM_ADMIN, role=ROLE_ADMIN, ip=_adresse_client())
@@ -2327,6 +2729,9 @@ def login_submit():
     session.pop("totp_uri", None)
     session.permanent = True
     session["authed"] = True
+    # Le jeton nait avec la session, jamais apres : une session
+    # authentifiee sans jeton ferait de verifier_jeton une passoire.
+    jeton_session()
     session["role"] = ROLE_UTILISATEUR
     session["utilisateur"] = nom
     journaliser("connexion", qui=nom, role=ROLE_UTILISATEUR, ip=_adresse_client())
@@ -2374,6 +2779,9 @@ def login_second_facteur():
     session.pop("totp_uri", None)
     session.permanent = True
     session["authed"] = True
+    # Le jeton nait avec la session, jamais apres : une session
+    # authentifiee sans jeton ferait de verifier_jeton une passoire.
+    jeton_session()
     session["role"] = ROLE_UTILISATEUR
     session["utilisateur"] = nom
     journaliser("connexion", qui=nom, role=ROLE_UTILISATEUR, ip=_adresse_client())
@@ -2641,6 +3049,9 @@ def login_passkey():
     session.pop("passkey_defi", None)
     session.permanent = True
     session["authed"] = True
+    # Le jeton nait avec la session, jamais apres : une session
+    # authentifiee sans jeton ferait de verifier_jeton une passoire.
+    jeton_session()
     session["role"] = ROLE_ADMIN if est_administrateur else ROLE_UTILISATEUR
     session["utilisateur"] = proprietaire
     journaliser("connexion", qui=proprietaire, role=session["role"],
@@ -2981,6 +3392,12 @@ def api_securite():
         # Fige par l'environnement : la page n'offre pas de modifier ce
         # qu'un redemarrage remettrait comme avant.
         "adresse_figee": bool((os.environ.get("APP_MANAGER_PUBLIC_URL") or "").strip()),
+        # Les applications sont-elles servies dans une autre origine que le
+        # panneau ? C'est ce qui empeche une XSS dans l'une d'elles d'atteindre
+        # le panneau, et c'est invisible sans le dire.
+        "origines_separees": origines_separees(),
+        "origine_applications": origine_applications() if origines_separees() else "",
+        "port_applications": APPS_PORT,
     })
 
 
@@ -3623,6 +4040,21 @@ def api_metrics(n):
 @flask_app.delete("/api/app/<n>")
 @require_admin
 def api_delete(n):
+    # Le projet de diagnostic ne se supprime pas.
+    #
+    # C'est l'etat des lieux de l'installation : il dit si les services se
+    # parlent, si la base repond, si le panneau est correctement expose. Une
+    # stack sans lui n'a plus aucun moyen de se controler elle-meme -- et
+    # comme l'inscription n'a lieu qu'UNE fois (marqueur), le supprimer le
+    # ferait disparaitre pour de bon, pas jusqu'au prochain redemarrage.
+    #
+    # Refuse ici et pas seulement dans la page : masquer un bouton ne protege
+    # rien, la route reste appelable a la main.
+    if n == DIAGNOSTIC_NOM:
+        return jsonify({"error": "Le projet de diagnostic ne se supprime pas : "
+                                 "c'est lui qui dit si cette installation va "
+                                 "bien. Tu peux l'arreter si tu ne veux pas "
+                                 "qu'il tourne."}), 403
     stop(n)
     apps = load()
     apps.pop(n, None)
@@ -3740,6 +4172,9 @@ def index():
     donne donc aucun droit supplementaire.
     """
     page = (DASHBOARD_PAGE
+            .replace("__JETON__", json.dumps(jeton_session()))
+            .replace("__APPS_BASE__", json.dumps(
+                origine_applications() if origines_separees() else ""))
             .replace("__ROOT__", json.dumps(ROOT))
             .replace("__ROLE__", json.dumps(role_courant() or ""))
             .replace("__UTILISATEUR__", json.dumps(utilisateur_courant())))
@@ -4027,20 +4462,74 @@ def _preparer_diagnostic(name):
 # doit rester lancable depuis un depot fraichement clone, sans rien installer
 # de plus que Flask.
 
+def _ouvrir_port_des_applications(servir_sur):
+    """Le second ecouteur, celui des applications.
+
+    Ouvert AVANT le port du panneau et de maniere synchrone jusqu'a ce qu'on
+    sache s'il tient : c'est ce resultat qui decide si la separation des
+    origines est active, et le panneau doit le savoir des sa premiere reponse.
+
+    S'il ne s'ouvre pas -- port deja pris, non publie par le compose -- on ne
+    separe rien et les applications restent servies par le panneau, comme
+    avant. Une stack qui marche moins bien vaut mieux qu'une stack morte, et
+    le panneau le dit dans Parametres > Serveur.
+    """
+    if not APPS_PORT:
+        print("[app-manager] APP_MANAGER_APPS_PORT=0 : les applications "
+              "restent servies sur le port du panneau.", flush=True)
+        return
+    pret = threading.Event()
+    souci = {}
+
+    def _servir():
+        try:
+            import socket as _s
+            sonde = _s.socket(_s.AF_INET, _s.SOCK_STREAM)
+            sonde.setsockopt(_s.SOL_SOCKET, _s.SO_REUSEADDR, 1)
+            sonde.bind(("0.0.0.0", APPS_PORT))
+            sonde.close()
+        except OSError as e:
+            souci["erreur"] = e
+            pret.set()
+            return
+        pret.set()
+        servir_sur(APPS_PORT)
+
+    threading.Thread(target=_servir, daemon=True).start()
+    pret.wait(timeout=10)
+    if souci:
+        print(f"[app-manager] port {APPS_PORT} indisponible ({souci['erreur']}) : "
+              f"les applications restent servies sur le port du panneau. "
+              f"Publie ce port dans docker-compose.yml pour les isoler.", flush=True)
+        return
+    _origines_separees["actif"] = True
+    print(f"[app-manager] applications isolees sur 0.0.0.0:{APPS_PORT} "
+          f"-- origine distincte de celle du panneau.", flush=True)
+
+
 def servir(port):
     try:
         from waitress import serve
+        def _sur(p):
+            # ident : l'en-tete Server annonce "CodeLab" plutot que la version
+            # exacte de waitress, qui ne renseigne que celui qui cherche une
+            # faille connue.
+            serve(flask_app, host="0.0.0.0", port=p, threads=WSGI_THREADS,
+                  channel_timeout=WSGI_TIMEOUT, ident="CodeLab")
     except ImportError:
         print("[app-manager] waitress absent : repli sur le serveur de "
               "developpement de Flask (a eviter en service).", flush=True)
-        flask_app.run(host="0.0.0.0", port=port, threaded=True)
-        return
-    print(f"[app-manager] waitress sur 0.0.0.0:{port} "
-          f"({WSGI_THREADS} threads).", flush=True)
-    # ident : l'en-tete Server annonce "CodeLab" plutot que la version exacte
-    # de waitress, qui ne renseigne que celui qui cherche une faille connue.
-    serve(flask_app, host="0.0.0.0", port=port, threads=WSGI_THREADS,
-          channel_timeout=WSGI_TIMEOUT, ident="CodeLab")
+        def _sur(p):
+            flask_app.run(host="0.0.0.0", port=p, threaded=True)
+
+    # Dans les DEUX cas : le repli sans waitress doit separer les origines
+    # comme le service normal. Le premier jet ne le faisait pas -- il rendait
+    # la main avant -- et une installation sans waitress se serait retrouvee
+    # avec des applications dans l'origine du panneau, sans que rien ne le
+    # dise.
+    _ouvrir_port_des_applications(_sur)
+    print(f"[app-manager] panneau sur 0.0.0.0:{port}.", flush=True)
+    _sur(port)
 
 
 # -------------------------------- main --------------------------------

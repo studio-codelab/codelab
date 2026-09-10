@@ -89,7 +89,7 @@ applications est gere directement par ce service.
   commandes sont proposees d'un coup (Vite, Astro, Parcel, CRA, Angular, Next.js, Django, Flask, statique).
   Pour un front, la suggestion sert le dossier produit par le build avec le `http.server` de Python plutot
   que le serveur de developpement du framework. Le tableau complet est dans
-  [`../DEVELOPPER.md`](../DEVELOPPER.md).
+  [`dev/README.md`](../dev/README.md).
 - **`$PORT` dans l'environnement de l'application** — le port interne attribue est injecte dans le processus
   lance : la commande peut s'ecrire `--port $PORT` au lieu d'un numero en dur a resynchroniser.
 
@@ -150,11 +150,13 @@ applications est gere directement par ce service.
 | `app/app.py` | Le service : authentification, API, cycle de vie des process, reverse proxy |
 | `app/dashboard.html` | L'interface du panneau |
 | `app/login.html` | La page de connexion |
-| `tests/` | Les regressions gardees (`python -m pytest app-manager/tests -q`) |
 | `vps/` | Tunnel WireGuard + nginx pour exposer ce panneau en HTTPS — voir [`vps/README.md`](vps/README.md). **Ne fait pas partie de l'image** : ces fichiers s'installent sur un VPS et sur l'hote, pas dans le conteneur |
 
 L'application vit dans `app/` : une seule ligne de `COPY` dans le `Dockerfile`, et la racine du service
 reste lisible — l'image, le demarrage, la documentation, les tests.
+
+Ce que ce panneau expose est controle ailleurs : les sondes de securite vivent dans le projet
+`diagnostic` du workspace, ou elles font partie de l'etat des lieux de l'installation.
 
 Les deux pages etaient des chaines Python dans `app/app.py` — 67 Ko sur une seule ligne pour le tableau de
 bord. Elles sont lues une fois au demarrage, et `__ROOT__` y est remplace par la racine du workspace au

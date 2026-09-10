@@ -1,0 +1,91 @@
+name: Analyse de securite
+
+# Deliberement SOBRE, et separe de la construction des images.
+#
+# Ces scans ne gardent pas la porte : ils rapportent. Les mettre sur chaque
+# pull request allongerait le cycle de plusieurs minutes pour un resultat
+# qu'on ne lit pas a ce moment-la -- et un scan qu'on n'attend plus est un
+# scan qu'on desactive. Ils tournent donc sur main, quand le code est
+# reellement celui qui part sur le serveur, et une fois par semaine pour que
+# les vulnerabilites publiees APRES un push finissent par se voir : une CVE
+# ne previent pas au moment ou l'on ecrit le code concerne.
+#
+# Les resultats arrivent dans l'onglet Security du depot, pas dans un journal
+# de build qu'il faut penser a ouvrir.
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Lundi 6 h UTC. Un jour fixe : une alerte qu'on decouvre le lundi matin
+    # se traite dans la semaine.
+    - cron: "0 6 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  # Le seul droit ajoute : deposer les resultats dans l'onglet Security.
+  security-events: write
+
+concurrency:
+  group: securite-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ----------------------------- le code -----------------------------
+  codeql:
+    name: CodeQL (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Initialisation
+        uses: github/codeql-action/init@faaca9a8f6edddba5725ffe5adefdab6669a2eca # v3
+        with:
+          languages: python
+          # security-and-quality ajoute des regles de style qui noieraient les
+          # vraies alertes. Ici on ne veut que ce qui se corrige.
+          queries: security-extended
+
+      - name: Analyse
+        uses: github/codeql-action/analyze@faaca9a8f6edddba5725ffe5adefdab6669a2eca # v3
+        with:
+          category: python
+
+  # --------------------------- les images ---------------------------
+  # Le systeme de fichiers plutot que les images publiees : le scan tourne sur
+  # ce que le depot decrit, sans avoir a construire cinq images
+  # multi-architecture d'abord. Les images de base restent volontairement
+  # referencees par tag pour recevoir les correctifs a chaque reconstruction
+  # (voir dependabot.yml) ; ce scan dit ce qui reste ouvert malgre cela.
+  trivy:
+    name: Trivy (dependances et configuration)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Scan
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        with:
+          scan-type: fs
+          scanners: vuln,secret,misconfig
+          format: sarif
+          output: trivy.sarif
+          # HIGH et CRITICAL seulement. En dessous, le rapport est surtout
+          # compose de paquets systeme de l'image de base que personne ne
+          # peut corriger ici, et il devient illisible.
+          severity: HIGH,CRITICAL
+          # Le scan RAPPORTE, il ne bloque pas : une CVE publiee dans une
+          # dependance transitive ne doit pas rendre le depot rouge un lundi
+          # matin sans que rien n'ait change dans le code.
+          exit-code: "0"
+
+      - name: Depot des resultats
+        uses: github/codeql-action/upload-sarif@faaca9a8f6edddba5725ffe5adefdab6669a2eca # v3
+        # Meme si le scan precedent a echoue : un rapport partiel vaut mieux
+        # qu'aucun rapport.
+        if: always()
+        with:
+          sarif_file: trivy.sarif
+          category: trivy
