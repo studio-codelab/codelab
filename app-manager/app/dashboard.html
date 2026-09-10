@@ -867,7 +867,7 @@ table.tbl-journal{min-width:560px}
       </div>
 
       <div class="mf" style="margin:18px -18px -16px;border-radius:0 0 var(--r) var(--r)">
-        <button class="btn btn-danger-quiet" onclick="rm(ficheNom)">Supprimer</button>
+        <button class="btn btn-danger-quiet" id="e-supprimer" onclick="rm(ficheNom)">Supprimer</button>
         <div class="spacer"></div>
         <button class="btn btn-primary" id="e-save" onclick="submitEdit()">Enregistrer</button>
       </div>
@@ -1804,7 +1804,15 @@ async function rm(n){
   if(!await demander('Supprimer « ' + n + ' » ?',
     "L'application disparait du panneau. Le dossier du projet dans /workspace n'est pas touche.",
     'Supprimer', true)) return;
-  await fetch('/api/app/'+n,{method:'DELETE'});
+  const r=await fetch('/api/app/'+n,{method:'DELETE'});
+  if(!r.ok){
+    /* Le serveur peut refuser -- le projet de diagnostic, par exemple. Sans
+       ce test, le panneau se contentait de refermer la fiche comme si la
+       suppression avait eu lieu. */
+    let d={}; try{ d=await r.json(); }catch(e){}
+    notifier(d.error || 'Suppression impossible.', 'err');
+    return;
+  }
   ficheNom=null; showSection('apps'); refresh();
 }
 
@@ -1913,6 +1921,11 @@ function chargerConfigFiche(){
   $('e-browse').style.display='none';
   $('e-running').style.display = a.running ? 'flex' : 'none';
   $('e-save').disabled = !!a.running;
+  /* Le projet de diagnostic ne se supprime pas : c'est lui qui dit si cette
+     installation va bien. Le bouton disparait plutot que d'echouer -- mais
+     c'est le serveur qui refuse vraiment, la route reste appelable a la
+     main. */
+  $('e-supprimer').style.display = (a.name === 'diagnostic') ? 'none' : '';
 }
 async function stopThenEdit(){
   await fetch('/api/toggle/'+ficheNom,{method:'POST'});

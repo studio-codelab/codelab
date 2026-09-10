@@ -1752,6 +1752,17 @@ def commande_isolee(nom, chemin, commande, apps=None):
     # Un reglage par application : le jour ou l'une d'elles a besoin de voir
     # autre chose, la reponse n'est pas "desactive l'isolement partout".
     voulu = ISOLER_APPS and infos.get("isolation", True) is not False
+    # Le projet de diagnostic est l'exception, et c'est sa raison d'etre : il
+    # fait l'etat des lieux de l'installation. Isole, il ne verrait que
+    # lui-meme -- ni /workspace/definitions.py, ni les autres projets -- et il
+    # rapporterait une stack en panne alors que tout va bien. L'observateur a
+    # besoin de voir.
+    #
+    # Ecrit ici et pas seulement dans apps.json : une installation deja en
+    # place n'a pas le reglage, et se mettrait a jour vers un diagnostic
+    # aveugle.
+    if nom == DIAGNOSTIC_NOM:
+        voulu = False
     if not voulu or not isolement_disponible():
         return ["bash", "-lc", commande], {}
     return (["unshare", "--user", "--map-root-user", "--mount",
@@ -4029,6 +4040,21 @@ def api_metrics(n):
 @flask_app.delete("/api/app/<n>")
 @require_admin
 def api_delete(n):
+    # Le projet de diagnostic ne se supprime pas.
+    #
+    # C'est l'etat des lieux de l'installation : il dit si les services se
+    # parlent, si la base repond, si le panneau est correctement expose. Une
+    # stack sans lui n'a plus aucun moyen de se controler elle-meme -- et
+    # comme l'inscription n'a lieu qu'UNE fois (marqueur), le supprimer le
+    # ferait disparaitre pour de bon, pas jusqu'au prochain redemarrage.
+    #
+    # Refuse ici et pas seulement dans la page : masquer un bouton ne protege
+    # rien, la route reste appelable a la main.
+    if n == DIAGNOSTIC_NOM:
+        return jsonify({"error": "Le projet de diagnostic ne se supprime pas : "
+                                 "c'est lui qui dit si cette installation va "
+                                 "bien. Tu peux l'arreter si tu ne veux pas "
+                                 "qu'il tourne."}), 403
     stop(n)
     apps = load()
     apps.pop(n, None)

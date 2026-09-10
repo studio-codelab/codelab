@@ -2360,3 +2360,40 @@ def test_ce_qu_une_application_isolee_ecrit_arrive_sur_le_disque(tmp_path, monke
     # Et il reste modifiable depuis une session SSH : c'est la raison d'etre
     # du groupe partage, l'isolation ne doit pas la casser.
     assert produit.stat().st_mode & 0o020, oct(produit.stat().st_mode)
+
+
+# ---------- 27. le projet de diagnostic ne se supprime pas ----------
+#
+# C'est l'etat des lieux de l'installation : il dit si les services se
+# parlent, si le panneau est ferme, si les applications sont isolees. Une
+# stack sans lui n'a plus aucun moyen de se controler elle-meme -- et comme
+# son inscription n'a lieu qu'UNE fois (marqueur), le supprimer le ferait
+# disparaitre pour de bon, pas jusqu'au prochain redemarrage.
+
+def test_le_diagnostic_ne_se_supprime_pas(deux_espaces):
+    c = deux_espaces
+    c.post("/login", json={"password": "secret-de-test"})
+    app.save({app.DIAGNOSTIC_NOM: {"path": "/w/d", "command": "x", "port": 9100},
+              "autre": {"path": "/w/a", "command": "x", "port": 9101}})
+
+    r = c.delete("/api/app/" + app.DIAGNOSTIC_NOM)
+    assert r.status_code == 403
+    assert app.DIAGNOSTIC_NOM in app.load(), "le diagnostic a ete supprime"
+
+    # Temoin : une autre application se supprime normalement -- sinon ce test
+    # passerait au vert parce que la suppression est cassee pour tout le monde.
+    assert c.delete("/api/app/autre").status_code == 200
+    assert "autre" not in app.load()
+
+
+def test_le_diagnostic_voit_l_ensemble_du_workspace(monkeypatch):
+    """L'observateur est la seule application non isolee, et c'est sa raison
+    d'etre : isole, il ne verrait ni /workspace/definitions.py ni les autres
+    projets, et rapporterait une stack en panne alors que tout va bien."""
+    monkeypatch.setattr(app.shutil, "which", lambda n: "/usr/bin/" + n)
+    monkeypatch.setattr(app, "ISOLER_APPS", True)
+    argv, _ = app.commande_isolee(app.DIAGNOSTIC_NOM, "/workspace/diagnostic", "x", {})
+    assert argv[0] == "bash", "le diagnostic est isole : il deviendrait aveugle"
+    # Temoin : n'importe quelle autre application, elle, est bien isolee.
+    argv, _ = app.commande_isolee("autre", "/workspace/autre", "x", {})
+    assert argv[0] == "unshare"

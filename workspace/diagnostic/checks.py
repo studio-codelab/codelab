@@ -477,8 +477,143 @@ def check_cles_ssh(ssh_dir=None, uid=None):
         f"{detail_hotes}")
 
 
+# ---------------------------------------------------------------- securite
+#
+# Les sondes ci-dessus disent si la stack MARCHE. Celles-ci disent si elle est
+# correctement FERMEE -- ce qu'un controle du code ne peut pas dire, parce que
+# cela depend de la configuration reelle : une variable oubliee, un port non
+# publie, une garde active en developpement et pas en service.
+#
+# Elles tournent depuis l'interieur du conteneur du panneau, donc sans jamais
+# avoir besoin d'un mot de passe : elles verifient precisement que ce qui
+# DEVRAIT demander une session en demande bien une.
+#
+# Aucune n'ecrit ni ne casse quoi que ce soit : ce sont des lectures, et des
+# ecritures qui doivent etre REFUSEES. Si l'une d'elles passe, c'est le
+# probleme.
+
+def _port_panneau():
+    return int(os.environ.get("MANAGER_PORT") or 9001)
+
+
+def _port_applications():
+    return int(os.environ.get("APP_MANAGER_APPS_PORT") or 0)
+
+
+def check_panneau_ferme():
+    """Les routes d'administration exigent-elles une session ?
+
+    On les appelle sans rien : la bonne reponse est un refus. Un 200 ici
+    voudrait dire que n'importe qui sur le reseau lit la liste des comptes.
+    """
+    import urllib.error
+    import urllib.request
+    base = f"http://127.0.0.1:{_port_panneau()}"
+    ouvertes = []
+    for chemin in ("/api/apps", "/api/utilisateurs", "/api/activite", "/api/securite"):
+        try:
+            code = urllib.request.urlopen(base + chemin, timeout=4).getcode()
+        except urllib.error.HTTPError as e:
+            code = e.code
+        except Exception as e:                                    # noqa: BLE001
+            return False, "panneau ferme", f"{chemin} injoignable : {e}"
+        if code == 200:
+            ouvertes.append(chemin)
+    if ouvertes:
+        return (False, "panneau ferme",
+                "repond 200 sans session : " + ", ".join(ouvertes))
+    return True, "panneau ferme", "les routes d'administration exigent une session"
+
+
+def check_origine_applications():
+    """Les applications sont-elles servies dans une autre origine ?
+
+    Tant qu'elles vivent sous le port du panneau, une faille dans l'une
+    d'elles donne acces au panneau : meme origine, donc meme page, meme
+    jeton. Un port distinct fait du navigateur l'arbitre.
+    """
+    import urllib.error
+    import urllib.request
+    port = _port_applications()
+    if not port:
+        return (False, "origine des applications",
+                "APP_MANAGER_APPS_PORT absent : les applications sont servies "
+                "par le panneau, donc dans SON origine")
+    base = f"http://127.0.0.1:{port}"
+    try:
+        urllib.request.urlopen(base + "/health", timeout=4).getcode()
+    except Exception as e:                                        # noqa: BLE001
+        return (False, "origine des applications",
+                f"port {port} ferme ({e}) -- publie-le dans docker-compose.yml")
+    fuites = []
+    for chemin in ("/", "/login", "/api/apps"):
+        try:
+            code = urllib.request.urlopen(base + chemin, timeout=4).getcode()
+        except urllib.error.HTTPError as e:
+            code = e.code
+        except Exception:                                         # noqa: BLE001
+            continue
+        if code == 200:
+            fuites.append(chemin)
+    if fuites:
+        return (False, "origine des applications",
+                f"le panneau repond sur le port {port} : " + ", ".join(fuites))
+    return (True, "origine des applications",
+            f"port {port} -- le panneau n'y repond pas, les origines sont bien separees")
+
+
+def check_exposition():
+    """Ce qui doit etre pose quand le panneau sort du reseau local.
+
+    Ces variables ne se devinent pas depuis le code : elles dependent de ce
+    qu'on a mis devant. Tant que la stack reste chez soi, leur absence est
+    normale -- la sonde le dit plutot que de crier au feu.
+    """
+    https = (os.environ.get("APP_MANAGER_HTTPS", "").lower() in ("1", "true", "yes"))
+    proxy = (os.environ.get("APP_MANAGER_TRUST_PROXY", "").lower() in ("1", "true", "yes"))
+    publique = (os.environ.get("APP_MANAGER_PUBLIC_URL") or "").strip()
+    if not (https or proxy or publique):
+        return (True, "exposition",
+                "reseau local : aucune adresse publique declaree, cookie non "
+                "marque Secure -- coherent tant que rien n'est devant")
+    manques = []
+    if not https:
+        manques.append("APP_MANAGER_HTTPS (cookie de session non marque Secure)")
+    if not proxy:
+        manques.append("APP_MANAGER_TRUST_PROXY (tous les visiteurs partagent une adresse)")
+    if not publique:
+        manques.append("APP_MANAGER_PUBLIC_URL (aucun partage possible)")
+    if manques:
+        return False, "exposition", "expose, mais il manque : " + " ; ".join(manques)
+    return True, "exposition", f"publie sur {publique}, cookie Secure, adresse reelle des visiteurs"
+
+
+def check_isolation():
+    """Une application peut-elle voir les fichiers d'une autre ?
+
+    Cette sonde tourne dans le projet de diagnostic, qui est justement le
+    SEUL a ne pas etre isole : c'est l'observateur, il a besoin de voir. Elle
+    controle donc les conditions de l'isolement, pas son propre bac.
+    """
+    import shutil
+    actif = os.environ.get("APP_MANAGER_ISOLER", "1").lower() not in ("0", "false", "no")
+    outil = shutil.which("unshare")
+    if not actif:
+        return (False, "isolation des applications",
+                "APP_MANAGER_ISOLER coupe : chaque application voit les "
+                "fichiers de toutes les autres")
+    if not outil:
+        return (False, "isolation des applications",
+                "unshare absent de l'image : les applications demarrent, mais "
+                "sans etre isolees les unes des autres")
+    return (True, "isolation des applications",
+            "chaque application ne voit que son propre projet "
+            "(ce diagnostic excepte : il doit voir l'ensemble)")
+
+
 def run_all(env_file=None, workspace=None, ssh_dir=None):
-    """Les huit sondes, dans l'ordre ou on veut les lire."""
+    """Toutes les sondes, dans l'ordre ou on veut les lire :
+    d'abord ce qui doit MARCHER, ensuite ce qui doit etre FERME."""
     host = read_env("POSTGRES_HOST", env_file) or "codelab-postgres"
     port = int(read_env("POSTGRES_PORT", env_file) or 5432)
     return [
@@ -490,4 +625,10 @@ def run_all(env_file=None, workspace=None, ssh_dir=None):
         check_http("codelab-dagster", "http://codelab-dagster:3000/"),
         check_tcp("codelab-dev (SSH)", "codelab-dev", 22, lire_banniere=True),
         check_cles_ssh(ssh_dir),
+        # L'etat des lieux ne s'arrete pas a "ca marche" : il dit aussi si
+        # c'est correctement ferme.
+        check_panneau_ferme(),
+        check_origine_applications(),
+        check_exposition(),
+        check_isolation(),
     ]

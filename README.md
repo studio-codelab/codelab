@@ -38,6 +38,14 @@ panneau et Dagster, eux, restent joignables sans SSH.
 Les données vivent en dehors des conteneurs et survivent donc aux mises à jour d'image. Pour les
 ranger ailleurs, il suffit de changer les chemins hôte des volumes dans `docker-compose.yml`.
 
+Une fois la stack en place, `pare-feu` borne au réseau local les ports qu'elle publie — utile le jour
+où la machine gagne une interface à laquelle personne ne pense :
+
+```bash
+sudo ./pare-feu poser 192.168.1.0/24
+./pare-feu verifier
+```
+
 Si le serveur expose une interface d'installation par collage de compose (les app stores de type
 CasaOS, par exemple), `docker-compose-casaos.yml` est le même fichier avec les métadonnées
 d'affichage que ces interfaces savent lire.
@@ -121,6 +129,9 @@ vérifiable sans aucune saisie.
 ## Pour aller plus loin
 
 - **Développer un projet, le déployer, le dépanner** : [`dev/README.md`](dev/README.md).
+- **L'état de l'installation** : le projet `diagnostic`, inscrit tout seul dans le panneau. Il dit si
+  les services se parlent et si l'ensemble est correctement fermé. Il ne se supprime pas — sans lui,
+  une installation n'a plus aucun moyen de se contrôler elle-même.
 - **Le fonctionnement interne d'un service** : le `README.md` de son dossier —
   [`postgres/`](postgres/README.md), [`dev/`](dev/README.md), [`dagster/`](dagster/README.md),
   [`app-manager/`](app-manager/README.md).

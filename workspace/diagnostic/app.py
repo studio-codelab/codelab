@@ -2,7 +2,21 @@
 CodeLab -- application de diagnostic.
 
 Tourne dans le conteneur codelab-app-manager, lancee par le panneau, et
-verifie depuis la que les cinq services se parlent :
+fait l'etat des lieux de l'installation. Deux questions, pas une :
+
+  EST-CE QUE CA MARCHE ?   les cinq services se parlent-ils ?
+  EST-CE QUE C'EST FERME ? le panneau exige-t-il une session, les
+                           applications vivent-elles dans une autre origine,
+                           sont-elles isolees les unes des autres, et ce qui
+                           doit etre pose quand la stack sort du reseau local
+                           l'est-il ?
+
+La seconde question ne se repond pas en lisant le code : elle depend de la
+configuration REELLE -- une variable oubliee, un port non publie, une garde
+active en developpement et pas en service. C'est pour cela qu'elle se pose
+ici, depuis l'interieur d'une installation qui tourne.
+
+Les sondes du premier groupe :
 
   config      credentials.env lisible -> volume config monte
   workspace   /workspace/definitions.py visible -> volume partage
@@ -122,7 +136,7 @@ def index():
                    'communiquent, et Postgres contient des ecritures de l\'application '
                    '<em>et</em> de Dagster.</div>')
     elif sondes_ok and erreur_db is None:
-        verdict = ('<div class="verdict ko">Les huit sondes passent, mais aucune ligne ecrite par '
+        verdict = ('<div class="verdict ko">Toutes les sondes passent, mais aucune ligne ecrite par '
                    'Dagster. Materialise l\'asset <code>diagnostic_codelab</code> depuis '
                    'http://&lt;IP&gt;:3000, puis recharge cette page.</div>')
     else:
