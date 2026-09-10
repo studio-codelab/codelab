@@ -14,7 +14,46 @@ import re
 import secrets
 import sys
 
-import pytest
+# --------------------------------------------------------------------------
+# pytest, quand il est la.
+#
+# Ce fichier est importe par DEUX mondes qui n'ont pas les memes paquets :
+#
+#   - pytest, qui collecte la suite de regression du panneau, plus bas ;
+#   - Dagster, qui ne vient chercher ici que les SONDES -- et dont l'image ne
+#     contient pas pytest, puisqu'elle n'a aucune raison d'embarquer un
+#     lanceur de tests pour faire tourner des jobs.
+#
+# Sans ce repli, "import pytest" en tete de fichier faisait disparaitre le
+# projet diagnostic de Dagster : definitions.py ignore un projet qui ne se
+# charge pas, et le disait dans ses journaux -- l'asset de diagnostic n'etait
+# simplement plus la. Le remplacant ne sert qu'a laisser les decorateurs
+# s'evaluer a l'import ; il ne sait pas lancer un test, et le dit s'il est
+# sollicite.
+try:
+    import pytest
+except ModuleNotFoundError:  # image Dagster, image dev
+    class _MarqueursAbsents:
+        def skipif(self, *_args, **_kwargs):
+            return lambda fonction: fonction
+
+    class _PytestAbsent:
+        mark = _MarqueursAbsents()
+
+        def fixture(self, *args, **kwargs):
+            # Accepte les deux ecritures : @fixture et @fixture(autouse=True).
+            if len(args) == 1 and callable(args[0]) and not kwargs:
+                return args[0]
+            return lambda fonction: fonction
+
+        def __getattr__(self, nom):
+            raise RuntimeError(
+                "pytest n'est pas installe dans cette image. Les sondes de "
+                "checks.py fonctionnent sans lui ; sa suite de tests, non "
+                "(pytest.%s). Elle se lance depuis le panneau ou en CI."
+                % nom)
+
+    pytest = _PytestAbsent()
 
 import json
 import os
@@ -1109,21 +1148,84 @@ def test_le_filet_detourne_bien_tous_les_chemins():
 # Il lit le jeton dans la session, exactement comme la page le lit dans le
 # HTML servi. Ce qui n'est PAS teste par ce client -- l'absence de jeton, un
 # jeton faux -- l'est explicitement, plus bas, section 22.
-class ClientAvecJeton(app.flask_app.test_client_class or __import__(
-        "flask.testing", fromlist=["FlaskClient"]).FlaskClient):
-    def open(self, *a, **kw):
-        methode = (kw.get("method") or (a[1] if len(a) > 1 else "GET") or "GET").upper()
-        if methode not in ("GET", "HEAD"):
-            with self.session_transaction() as sess:
-                jeton = sess.get("jeton")
-            if jeton:
-                entetes = dict(kw.get("headers") or {})
-                entetes.setdefault(app.JETON_ENTETE, jeton)
-                kw["headers"] = entetes
-        return super().open(*a, **kw)
+# ------------- ce fichier doit rester importable sans pytest --------------
+#
+# Regression vecue : "import pytest" en tete de fichier, puis une classe
+# definie a partir du module du panneau, ont fait disparaitre le projet
+# diagnostic de Dagster. L'image Dagster n'a ni pytest ni flask ni le
+# panneau ; definitions.py ignore silencieusement un projet qui ne se charge
+# pas, donc l'asset n'etait plus la et rien ne criait.
+#
+# Le test rejoue exactement cette situation dans un interpreteur neuf : les
+# paquets absents de l'image Dagster y sont rendus introuvables, et le
+# panneau aussi. Ce qui doit survivre, ce sont les SONDES -- run_all() --,
+# c'est-a-dire tout ce que Dagster vient chercher ici.
+
+def test_checks_reste_importable_sans_pytest_ni_panneau():
+    import subprocess
+
+    script = """
+import importlib.util, os, sys
+
+ABSENTS = {"pytest", "flask", "psutil", "waitress", "webauthn", "qrcode"}
 
 
-app.flask_app.test_client_class = ClientAvecJeton
+class Bloqueur:
+    def find_spec(self, nom, chemin=None, cible=None):
+        if nom.split(".")[0] in ABSENTS:
+            raise ModuleNotFoundError("No module named " + repr(nom), name=nom)
+        return None
+
+
+sys.meta_path.insert(0, Bloqueur())
+
+# Le panneau n'est pas dans l'image Dagster : aucun des chemins cherches par
+# _charger_panneau() ne doit repondre.
+_existe = os.path.exists
+os.path.exists = lambda c: (
+    False if str(c).endswith(os.path.join("app-manager", "app", "app.py"))
+    else _existe(c))
+
+spec = importlib.util.spec_from_file_location("checks_sans_pytest", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+os.path.exists = _existe
+
+assert module.app is None, "le panneau aurait du rester introuvable"
+assert callable(module.run_all), "les sondes doivent survivre a l'absence de pytest"
+print("IMPORT OK")
+"""
+
+    r = subprocess.run(
+        [sys.executable, "-c", script, os.path.abspath(__file__)],
+        capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, (
+        "checks.py ne s'importe plus sans pytest ni panneau -- c'est la "
+        "situation de l'image Dagster, ou le projet diagnostic disparaitrait "
+        "sans bruit :\n" + r.stdout + r.stderr)
+    assert "IMPORT OK" in r.stdout
+
+
+# Tout ce bloc suppose que le module du panneau a ete trouve. Dans les
+# images Dagster et dev il ne l'est pas -- elles n'embarquent ni le
+# panneau ni flask -- et seules les sondes du haut de ce fichier y servent.
+if app is not None:
+    class ClientAvecJeton(app.flask_app.test_client_class or __import__(
+            "flask.testing", fromlist=["FlaskClient"]).FlaskClient):
+        def open(self, *a, **kw):
+            methode = (kw.get("method") or (a[1] if len(a) > 1 else "GET") or "GET").upper()
+            if methode not in ("GET", "HEAD"):
+                with self.session_transaction() as sess:
+                    jeton = sess.get("jeton")
+                if jeton:
+                    entetes = dict(kw.get("headers") or {})
+                    entetes.setdefault(app.JETON_ENTETE, jeton)
+                    kw["headers"] = entetes
+            return super().open(*a, **kw)
+
+
+    app.flask_app.test_client_class = ClientAvecJeton
 
 
 def _projet(tmp_path, fichiers):
