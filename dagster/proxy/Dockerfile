@@ -1,4 +1,4 @@
-FROM nginx:1.27-alpine
+FROM nginx:1.31-alpine
 
 # Aucun paquet supplementaire : l'authentification passe par le panneau
 # (directive auth_request de nginx, compilee dans l'image officielle), il n'y
