@@ -178,6 +178,8 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 .card-name b{font-size:14.5px;font-weight:620;display:block}
 .card-name .path{font-size:12.5px;color:var(--dim);margin-top:2px}
 .card-top .pill{margin-left:auto}
+.card-top .spacer{flex:1}
+.card-top .btn{margin-top:-2px}
 
 /* Chiffres de la vue d'ensemble */
 .ov-nums{display:flex;gap:26px}
@@ -224,10 +226,20 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 /* ------------------------------ boutons ------------------------------ */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;
  padding:8px 14px;border-radius:var(--r-s);border:1px solid transparent;font:inherit;
- font-size:13px;font-weight:560;cursor:pointer;white-space:nowrap}
+ font-size:13px;font-weight:560;cursor:pointer;white-space:nowrap;
+ transition:background .12s,border-color .12s,color .12s}
 .btn svg{width:15px;height:15px}
+/* Un bouton desactive doit se voir desactive : sans cela on clique, rien ne
+   se passe, et on croit l'interface cassee. */
+.btn:disabled{opacity:.5;cursor:default}
+.btn:disabled:hover{border-color:var(--line2);color:inherit;background:var(--surface)}
+/* L'anneau ne suit que la navigation au clavier (:focus-visible), pas le
+   clic a la souris -- un contour apres chaque clic passe pour un defaut. */
+.btn:focus-visible,.icon-btn:focus-visible,.side-item:focus-visible,
+.fiche-onglets button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .btn-primary{background:var(--accent);color:#fff}
 .btn-primary:hover{background:var(--accent-h)}
+.btn-primary:disabled:hover{background:var(--accent)}
 .btn-default{background:var(--surface);color:var(--txt);border-color:var(--line2)}
 .btn-default:hover{border-color:var(--accent);color:var(--accent)}
 .btn-quiet{background:transparent;color:var(--dim)}
@@ -348,6 +360,12 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
 .fiche-onglets button.active{color:var(--accent);border-bottom-color:var(--accent)}
 .onglet{display:none}
 .onglet.actif{display:block}
+/* Memes onglets pour les parametres. Ils separent ce qui n'a rien a voir --
+   son propre compte, sa securite, les reglages du serveur -- au lieu
+   d'empiler sept cartes qu'il faut faire defiler pour trouver la bonne. */
+.onglet-p{display:none}
+.onglet-p.actif{display:block}
+.fiche-onglets button[data-admin]{display:none}
 .metrique b{font-size:22px;font-weight:650;letter-spacing:-.02em;display:block;line-height:1.15}
 .metrique span{font-size:11.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.05em;
  font-weight:600}
@@ -391,10 +409,27 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
 .mf .spacer{flex:1}
 
 /* ------------------------------ parametres ------------------------------ */
-.settings-card{max-width:620px;margin-bottom:14px}
+/* 760 px : au-dela, un champ de formulaire devient une ligne trop longue a
+   parcourir des yeux ; en deca, la carte flottait dans le vide sur un ecran
+   large. Les listes (comptes, journal) prennent toute la largeur, elles. */
+.settings-card{max-width:760px;margin-bottom:14px}
 .settings-card .field{margin-bottom:0}
 .settings-card .field+.field{margin-top:14px}
 .settings-card .grid2+.field{margin-top:14px}
+/* Dans une paire cote a cote, la seconde colonne est aussi un « champ qui
+   suit un champ » : elle heritait de la marge du dessus et descendait de
+   14 px, si bien que « Port » ne s'alignait pas sur « Hote SMTP ». */
+.settings-card .grid2>.field+.field{margin-top:0}
+.card-large{max-width:none}
+/* Une rangee de boutons sous un formulaire. Avant, on reutilisait .mf --
+   le pied d'une pop-up -- en annulant son fond, ses bordures et son
+   alignement a chaque fois. */
+.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+/* Dans les parametres, les intitules de groupe faisaient doublon : l'onglet
+   nomme la famille, le titre de la carte nomme le reglage. « PREFERENCES »
+   au-dessus d'une carte « Apparence » n'apprenait rien. */
+.onglet-p .zone-title{display:none}
+.onglet-p .zone{margin-bottom:14px}
 .us-compte{border:1px solid var(--line);border-radius:10px;padding:13px 15px;margin-bottom:10px}
 .us-tete{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
 .us-tete .spacer{flex:1}
@@ -430,7 +465,57 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
 .act-ligne .act-ip{margin-left:auto;color:var(--dim2);font-size:11.5px;
  font-family:ui-monospace,Menlo,monospace}
 .act-vide{color:var(--dim);font-size:13px;padding:8px 0}
+/* Un vide explique vaut mieux qu'un vide : il dit ce qui le remplira. */
+.vide{text-align:center;padding:26px 18px;color:var(--dim)}
+.vide b{display:block;color:var(--txt);font-size:14px;font-weight:620;margin-bottom:4px}
 .us-activite{font-size:12px;color:var(--dim2);margin-top:6px}
+
+/* Une ligne par compte : l'initiale, le nom, ce qu'il faut savoir d'un coup
+   d'oeil, et un seul bouton. Les reglages vivent dans la fiche du compte --
+   quatre boutons par ligne transformaient la liste en tableau de bord. */
+.us-ligne{display:flex;align-items:center;gap:13px;padding:13px 15px;border:1px solid var(--line);
+ border-radius:10px;margin-bottom:8px;background:var(--surface)}
+.us-ligne:hover{border-color:var(--line2)}
+.us-rond{width:36px;height:36px;border-radius:50%;flex:none;display:grid;place-items:center;
+ background:var(--accent-soft);color:var(--accent);font-weight:650;font-size:14px;
+ text-transform:uppercase}
+.us-corps{min-width:0;flex:1}
+.us-nom{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.us-nom b{font-size:14px;font-weight:620}
+.us-meta{font-size:12px;color:var(--dim2);margin-top:3px;
+ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:640px){.us-ligne{flex-wrap:wrap}}
+
+/* Blocs d'une fiche de compte : chaque groupe de reglages est separe, avec
+   son intitule. Le dernier est celui qui detruit -- en bas, et signale. */
+.mb-groupe{border-top:1px solid var(--line);margin-top:18px;padding-top:16px}
+.mb-groupe:first-child{border-top:none;margin-top:0;padding-top:0}
+.mb-titre{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+ color:var(--dim2);margin-bottom:10px}
+.danger{color:var(--err);border-color:var(--err-border)}
+.danger:hover{background:var(--err-bg);border-color:var(--err);color:var(--err-txt)}
+
+/* La confirmation passe AU-DESSUS des autres pop-up : elle est souvent
+   demandee depuis l'une d'elles (la fiche d'un compte, par exemple), et a
+   z-index egal c'est la derniere du document qui gagne -- la question
+   s'affichait alors sous le voile de la fenetre qui l'avait posee, visible
+   mais impossible a cliquer. */
+#ov-confirm{z-index:140}
+
+/* ------------------------------ notifications ------------------------------ */
+/* Les echecs passaient par alert() : une boite grise du systeme, hors de
+   l'interface, qui bloque la page tant qu'on n'a pas clique. Un bandeau
+   discret dit la meme chose sans arreter le travail. */
+.toasts{position:fixed;right:18px;bottom:18px;z-index:150;display:flex;flex-direction:column;
+ gap:8px;max-width:min(380px,calc(100vw - 36px))}
+.toast{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-radius:10px;
+ background:var(--surface);border:1px solid var(--line);box-shadow:0 10px 30px var(--shadow-2);
+ font-size:13px;line-height:1.5;animation:toast-in .16s ease}
+.toast svg{width:16px;height:16px;flex:none;margin-top:1px}
+.toast.err{border-color:var(--err-border);color:var(--err-txt)}
+.toast.err svg{color:var(--err)}
+.toast.ok svg{color:var(--ok)}
+@keyframes toast-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
 /* ------------------------------ cles d'acces ------------------------------ */
 .pk-ligne{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
@@ -467,16 +552,13 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
     <button class="acct-btn" id="acct-btn" onclick="toggleAcctMenu()" title="Compte">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20.5c0-4.1 3.4-7.5 7.5-7.5s7.5 3.4 7.5 7.5"/></svg></button>
     <div class="acct-menu" id="acct-menu">
-      <!-- « Parametres » est personnel (affichage, second facteur, session) ;
-           « Configuration » est le reglage du serveur, reserve a l'administrateur. -->
-      <div class="acct-item" id="acct-parametres" onclick="allerA('profil')">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.6"/>
-        <path d="M4.5 20.5c0-4.1 3.4-7.5 7.5-7.5s7.5 3.4 7.5 7.5"/></svg>
-        <span>Parametres</span></div>
-      <div class="acct-item" id="acct-configuration" onclick="allerA('settings')">
+      <!-- Une seule entree : tout ce qui se regle est derriere, range par
+           onglets. Deux entrees pour la meme piece obligeaient a se demander
+           dans laquelle chercher. -->
+      <div class="acct-item" id="acct-parametres" onclick="allerA('parametres')">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/>
         <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-        <span>Configuration</span></div>
+        <span>Parametres</span></div>
       <div class="acct-sep"></div>
       <div class="acct-item" onclick="doLogout()">
         <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
@@ -758,14 +840,28 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
   </div>
 </div>
 
-<!-- ==================== PARAMETRES (personnel) ==================== -->
-<!-- Tout ce qui n'appartient qu'a la personne connectee : son affichage, son
-     second facteur, sa session. Chaque compte y a droit, administrateur ou
-     non -- la configuration du serveur, elle, vit dans « Configuration ». -->
-<div id="sec-profil" class="section" style="display:none">
+<!-- ==================== PARAMETRES ==================== -->
+<!-- Un seul endroit pour tout ce qui se regle, personnel comme serveur, et
+     des onglets pour ne pas tout empiler : « Compte » et « Securite » pour
+     tout le monde, les trois suivants pour l'administrateur seul. Avant, la
+     configuration du serveur vivait dans une entree de menu a part -- deux
+     portes pour la meme piece. -->
+<div id="sec-parametres" class="section" style="display:none">
   <div class="toolbar"><h2>Parametres</h2></div>
-  <div class="sous" id="profil-sous"></div>
 
+  <!-- Les onglets viennent tout de suite apres le titre : c'est la premiere
+       chose a choisir en arrivant, et la phrase de sous-titre qui trainait
+       ici ne faisait que reciter leurs noms. -->
+  <div class="fiche-onglets" id="param-onglets">
+    <button data-p="compte" onclick="paramOnglet('compte')" class="active">Compte</button>
+    <button data-p="securite" onclick="paramOnglet('securite')">Securite</button>
+    <button data-p="serveur" onclick="paramOnglet('serveur')" data-admin="1">Serveur</button>
+    <button data-p="categories" onclick="paramOnglet('categories')" data-admin="1">Categories</button>
+    <button data-p="email" onclick="paramOnglet('email')" data-admin="1">E-mail</button>
+    <button data-p="alertes" onclick="paramOnglet('alertes')" data-admin="1">Alertes</button>
+  </div>
+
+  <div class="onglet-p" id="param-compte">
   <div class="zone">
     <div class="zone-title">Preferences</div>
     <div class="card settings-card">
@@ -783,6 +879,60 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
     </div>
   </div>
 
+  <!-- Masquee jusqu'a ce qu'on sache qui regarde : le compte
+       d'administration n'a pas d'adresse propre. -->
+  <div class="zone" id="profil-mail" style="display:none">
+    <div class="zone-title">Adresse mail</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Adresse mail</b>
+        <div class="path">L'adresse rattachee a ton compte.</div>
+      </div>
+      <span class="pill" id="mail-etat"><i></i>&nbsp;</span></div>
+
+      <div class="hint">Un code a six chiffres est envoye a cette adresse pour verifier que tu la
+        releves vraiment. Cette verification ne remplace pas le second facteur et n'ouvre aucune
+        session : elle atteste seulement que l'adresse est la tienne.</div>
+
+      <div class="field" style="margin-top:14px">
+        <label>Adresse</label>
+        <input id="mail-adresse" type="email" placeholder="moi@example.com" autocomplete="email">
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" id="mail-save" onclick="mailEnregistrer()">Enregistrer et verifier</button>
+        <button class="btn btn-default" id="mail-renvoyer" onclick="mailRenvoyer()"
+          style="display:none">Renvoyer le code</button>
+      </div>
+
+      <div id="mail-confirmation" style="display:none">
+        <div class="field" style="margin-top:14px"><label>Code recu par mail</label>
+          <input id="mail-code" inputmode="numeric" maxlength="6" placeholder="123456"></div>
+        <button class="btn btn-primary" onclick="mailConfirmer()">Confirmer</button>
+      </div>
+
+      <div class="err" id="mail-err" style="display:none"></div>
+      <div class="hint" id="mail-msg" style="display:none"></div>
+      <div class="hint" id="mail-sans-smtp" style="display:none">Aucun serveur d'envoi n'est
+        configure sur ce serveur : la verification par mail est indisponible pour le moment.</div>
+    </div>
+  </div>
+
+  <div class="zone">
+    <div class="zone-title">Session</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Session</b>
+        <div class="path">Deconnecte cette session du panneau CodeLab.</div>
+      </div></div>
+      <button class="btn btn-default" onclick="doLogout()">
+        <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+        <path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>Deconnexion</button>
+    </div>
+  </div>
+
+  </div>
+
+  <div class="onglet-p" id="param-securite">
   <div class="zone" id="profil-securite">
     <div class="zone-title">Securite</div>
 
@@ -812,7 +962,7 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
           enregistre tant que ce code n'est pas valide — une cle mal recopiee ne peut donc pas
           t'enfermer dehors.</div>
         <div class="field"><input id="totp-code" inputmode="numeric" maxlength="6" placeholder="123456"></div>
-        <div class="mf" style="justify-content:flex-start;gap:8px">
+        <div class="actions">
           <button class="btn btn-primary" onclick="totpActiver()">Confirmer</button>
           <button class="btn btn-default" onclick="totpAnnuler()">Annuler</button>
         </div>
@@ -826,44 +976,6 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
         <button class="btn btn-default" onclick="totpDesactiver()">Desactiver</button>
         <div class="err" id="totp-err-off" style="display:none"></div>
       </div>
-    </div>
-  </div>
-
-  <!-- Masquee jusqu'a ce qu'on sache qui regarde : le compte
-       d'administration n'a pas d'adresse propre. -->
-  <div class="zone" id="profil-mail" style="display:none">
-    <div class="zone-title">Adresse mail</div>
-    <div class="card settings-card">
-      <div class="card-top"><div class="card-name">
-        <b>Adresse mail</b>
-        <div class="path">L'adresse rattachee a ton compte.</div>
-      </div>
-      <span class="pill" id="mail-etat"><i></i>&nbsp;</span></div>
-
-      <div class="hint">Un code a six chiffres est envoye a cette adresse pour verifier que tu la
-        releves vraiment. Cette verification ne remplace pas le second facteur et n'ouvre aucune
-        session : elle atteste seulement que l'adresse est la tienne.</div>
-
-      <div class="field" style="margin-top:14px">
-        <label>Adresse</label>
-        <input id="mail-adresse" type="email" placeholder="moi@example.com" autocomplete="email">
-      </div>
-      <div class="mf" style="justify-content:flex-start;gap:8px;margin-top:0">
-        <button class="btn btn-primary" id="mail-save" onclick="mailEnregistrer()">Enregistrer et verifier</button>
-        <button class="btn btn-default" id="mail-renvoyer" onclick="mailRenvoyer()"
-          style="display:none">Renvoyer le code</button>
-      </div>
-
-      <div id="mail-confirmation" style="display:none">
-        <div class="field" style="margin-top:14px"><label>Code recu par mail</label>
-          <input id="mail-code" inputmode="numeric" maxlength="6" placeholder="123456"></div>
-        <button class="btn btn-primary" onclick="mailConfirmer()">Confirmer</button>
-      </div>
-
-      <div class="err" id="mail-err" style="display:none"></div>
-      <div class="hint" id="mail-msg" style="display:none"></div>
-      <div class="hint" id="mail-sans-smtp" style="display:none">Aucun serveur d'envoi n'est
-        configure sur ce serveur : la verification par mail est indisponible pour le moment.</div>
     </div>
   </div>
 
@@ -896,88 +1008,9 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
     </div>
   </div>
 
-  <div class="zone">
-    <div class="zone-title">Session</div>
-    <div class="card settings-card">
-      <div class="card-top"><div class="card-name">
-        <b>Session</b>
-        <div class="path">Deconnecte cette session du panneau CodeLab.</div>
-      </div></div>
-      <button class="btn btn-default" onclick="doLogout()">
-        <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-        <path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>Deconnexion</button>
-    </div>
-  </div>
-</div>
-
-<!-- ==================== UTILISATEURS ==================== -->
-<!-- Les comptes vivaient dans Configuration, entre les categories et les
-     alertes. Ils meritent leur propre entree : gerer qui entre n'est pas un
-     reglage du serveur, c'est une activite a part entiere. -->
-<div id="sec-users" class="section" style="display:none">
-  <div class="toolbar"><h2>Utilisateurs</h2></div>
-  <div class="sous">Les comptes qui ouvrent ce serveur, et ce que chacun peut voir.</div>
-
-  <div class="zone">
-    <div class="zone-title">Connexions</div>
-    <div class="card settings-card" style="max-width:none">
-      <div class="card-top"><div class="card-name">
-        <b>Connexions et acces recents</b>
-        <div class="path">Qui est entre, quand, et quelle application a ete ouverte.</div>
-      </div></div>
-      <div class="hint">Deux usages, et deux seulement : reconnaitre une tentative d'intrusion
-        (des echecs en rafale, une connexion a une heure inhabituelle), et savoir si un projet
-        sert encore a quelqu'un avant de l'arreter.</div>
-      <div class="act-liste" id="ac-connexions" style="margin-top:12px"></div>
-    </div>
   </div>
 
-  <div class="zone">
-    <div class="zone-title">Comptes</div>
-    <div class="card settings-card" style="max-width:none">
-      <div class="card-top"><div class="card-name">
-        <b>Espaces utilisateurs</b>
-        <div class="path">Des comptes qui n'ouvrent que les projets que tu leur autorises.</div>
-      </div></div>
-
-      <div class="hint">Un compte utilisateur voit une page « Mes projets » et rien d'autre :
-        pas de deploiement, pas de configuration, pas de Dagster. L'autorisation ne compte que pour
-        les projets <b>prives</b> — un projet public reste ouvert a tout le monde, y compris sans
-        connexion.</div>
-      <div class="hint" id="us-inscription-libre" style="margin-top:8px;display:none"></div>
-      <div class="hint" style="margin-top:8px"><b>Le second facteur est obligatoire</b> pour ces
-        comptes : a sa premiere connexion, la personne enregistre une cle dans son application
-        d'authentification, et un code lui sera demande ensuite a chaque fois. Tu ne connais jamais
-        sa cle — en cas de telephone perdu, remets l'etape a zero et elle en enregistrera une
-        nouvelle.</div>
-
-      <div id="us-liste" style="margin-top:14px"></div>
-
-      <div class="field" style="margin-top:14px">
-        <label>Nouveau compte</label>
-        <input id="us-nom" placeholder="marie" autocomplete="off">
-        <div class="hint">Minuscules, chiffres, tiret ou souligne.</div>
-      </div>
-      <div class="field"><label>Adresse mail <span class="opt">facultatif</span></label>
-        <input id="us-mail" type="email" placeholder="marie@example.com" autocomplete="off">
-        <div class="hint">Elle relie le compte a quelqu'un de joignable. La personne la confirmera
-          elle-meme, par un code recu dessus, depuis ses parametres.</div>
-      </div>
-      <div class="field"><label>Mot de passe</label>
-        <input id="us-mdp" type="password" autocomplete="new-password" placeholder="8 caracteres au minimum">
-      </div>
-      <button class="btn btn-primary" id="us-creer" onclick="usCreer()"
-        style="margin-top:14px">Creer le compte</button>
-      <div class="err" id="us-err" style="display:none"></div>
-    </div>
-  </div>
-</div>
-
-<!-- ==================== CONFIGURATION (administrateur) ==================== -->
-<div id="sec-settings" class="section" style="display:none">
-  <div class="toolbar"><h2>Configuration</h2></div>
-  <div class="sous">Ce qui vaut pour tout le serveur : exposition, categories et alertes.</div>
-
+  <div class="onglet-p" id="param-serveur">
   <div class="zone">
     <div class="zone-title">Serveur</div>
     <div class="card settings-card">
@@ -1020,6 +1053,9 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
     </div>
   </div>
 
+  </div>
+
+  <div class="onglet-p" id="param-categories">
   <div class="zone">
     <div class="zone-title">Categories</div>
     <div class="card settings-card">
@@ -1041,7 +1077,7 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
         <button class="btn btn-default" onclick="catAjouter()">Ajouter</button>
       </div>
 
-      <div class="mf" style="justify-content:flex-start;gap:8px;margin-top:4px">
+      <div class="actions">
         <button class="btn btn-primary" id="cat-save" onclick="catEnregistrer()">Enregistrer</button>
       </div>
       <div class="err" id="cat-err" style="display:none"></div>
@@ -1049,31 +1085,30 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
     </div>
   </div>
 
+  </div>
+
+  <!-- LE SERVEUR D'ENVOI ET LES ALERTES SONT DEUX CHOSES. Le premier est une
+       fourniture partagee : il porte les alertes, mais aussi les codes de
+       verification d'adresse et l'inscription libre. Les secondes n'en sont
+       qu'un usage. Les melanger dans une seule carte faisait passer un
+       serveur parfaitement configure pour incomplet tant qu'aucune alerte
+       n'etait reglee. -->
+  <div class="onglet-p" id="param-email">
   <div class="zone">
-    <div class="zone-title">Alertes</div>
+    <div class="zone-title">E-mail</div>
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
-        <b>Alerte par mail</b>
-        <div class="path">Un mail quand une application tombe, un autre quand elle revient.</div>
+        <b>Serveur d'envoi (SMTP)</b>
+        <div class="path">Par ou sortent les mails de CodeLab.</div>
       </div>
-      <span class="pill" id="al-etat"><i></i>&nbsp;</span></div>
+      <span class="pill" id="sm-etat"><i></i>&nbsp;</span></div>
 
-      <div class="hint">Le panneau redemarre tout seul une application qui plante. Il abandonne au
-        bout de 5 tentatives en 10 minutes — c'est a ce moment-la que le mail part, pas au premier
-        soubresaut. Un second mail signale le retour a la normale.</div>
+      <div class="hint">Trois choses en dependent : les <b>alertes</b> quand une application tombe,
+        les <b>codes de verification</b> des adresses mail des comptes, et l'<b>inscription
+        libre</b> — qui reste fermee tant qu'aucun serveur n'est configure, faute de pouvoir
+        verifier une adresse.</div>
 
-      <div class="field" style="margin-top:14px">
-        <label>Destinataires</label>
-        <input id="al-dest" placeholder="moi@example.com, autre@example.com" autocomplete="off">
-        <div class="hint">Separes par des virgules.</div>
-      </div>
-
-      <div class="field">
-        <label>Serveur d'envoi</label>
-        <div class="hint" id="al-smtp-source"></div>
-      </div>
-
-      <div class="grid2">
+      <div class="grid2" style="margin-top:14px">
         <div class="field"><label>Hote SMTP</label>
           <input id="al-host" placeholder="smtp.gmail.com" autocomplete="off"></div>
         <div class="field"><label>Port</label>
@@ -1094,21 +1129,123 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
         <div class="hint">Laisse vide pour conserver celui deja enregistre. Gmail exige un
           <em>mot de passe d'application</em>, pas ton mot de passe habituel.</div>
       </div>
-
-      <div class="mf" style="justify-content:flex-start;gap:8px;margin-top:4px">
-        <button class="btn btn-primary" id="al-save" onclick="alEnregistrer()">Enregistrer</button>
-        <button class="btn btn-default" id="al-test" onclick="alTester()">Envoyer un mail de test</button>
-        <button class="btn btn-default" id="al-toggle" onclick="alBasculer()">Activer</button>
+      <div class="field"><label>Envoyer un test a</label>
+        <input id="sm-test-dest" placeholder="moi@example.com" autocomplete="off">
+        <div class="hint">Le seul controle qui vaille : un serveur qui accepte la connexion peut
+          encore refuser d'expedier. Vide, le test part aux destinataires des alertes.</div>
       </div>
-      <div class="err" id="al-err" style="display:none"></div>
-      <div class="hint" id="al-msg" style="display:none"></div>
+
+      <div class="actions">
+        <button class="btn btn-primary" id="sm-save" onclick="alEnregistrer('sm')">Enregistrer</button>
+        <button class="btn btn-default" id="al-test" onclick="alTester()">Envoyer un mail de test</button>
+      </div>
+      <div class="err" id="sm-err" style="display:none"></div>
+      <div class="hint" id="sm-msg" style="display:none"></div>
 
       <div class="hint" style="margin-top:12px">Ces reglages vivent dans le bloc
         <code>codelab-alertes</code> de <code>credentials.env</code> : le capteur d'alerte de
         Dagster lit le meme serveur d'envoi. Une seule configuration pour toute la stack.</div>
     </div>
   </div>
+
+  </div>
+
+  <div class="onglet-p" id="param-alertes">
+  <div class="zone">
+    <div class="zone-title">Alertes</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Alerte par mail</b>
+        <div class="path">Un mail quand une application tombe, un autre quand elle revient.</div>
+      </div>
+      <span class="pill" id="al-etat"><i></i>&nbsp;</span></div>
+
+      <div class="hint">Le panneau redemarre tout seul une application qui plante. Il abandonne au
+        bout de 5 tentatives en 10 minutes — c'est a ce moment-la que le mail part, pas au premier
+        soubresaut. Un second mail signale le retour a la normale.</div>
+
+      <div class="field" style="margin-top:14px">
+        <label>Destinataires</label>
+        <input id="al-dest" placeholder="moi@example.com, autre@example.com" autocomplete="off">
+        <div class="hint">Separes par des virgules.</div>
+      </div>
+
+      <div class="hint" id="al-smtp-source"></div>
+
+      <div class="actions">
+        <button class="btn btn-primary" id="al-save" onclick="alEnregistrer('al')">Enregistrer</button>
+        <button class="btn btn-default" id="al-toggle" onclick="alBasculer()">Activer</button>
+      </div>
+      <div class="err" id="al-err" style="display:none"></div>
+      <div class="hint" id="al-msg" style="display:none"></div>
+    </div>
+  </div>
+
+  </div>
+
 </div>
+
+<!-- ==================== UTILISATEURS ==================== -->
+<!-- Les comptes vivaient dans Configuration, entre les categories et les
+     alertes. Ils meritent leur propre entree : gerer qui entre n'est pas un
+     reglage du serveur, c'est une activite a part entiere. -->
+<div id="sec-users" class="section" style="display:none">
+  <div class="toolbar"><h2>Utilisateurs</h2></div>
+  <div class="sous">Les comptes qui ouvrent ce serveur, et ce que chacun peut voir.</div>
+
+  <div class="zone">
+    <div class="card settings-card card-large">
+      <div class="card-top"><div class="card-name">
+        <b>Comptes</b>
+        <div class="path">Chacun n'ouvre que les projets prives que tu lui autorises.</div>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn btn-primary btn-sm" onclick="usFormulaire(true)">Nouveau compte</button></div>
+
+      <div class="hint" id="us-inscription-libre" style="display:none"></div>
+
+      <div id="us-liste" style="margin-top:14px"></div>
+
+      <!-- Le formulaire de creation est replie : on ouvre cette page dix fois
+           pour regarder ou modifier, une fois pour ajouter quelqu'un. -->
+      <div id="us-nouveau" style="display:none;margin-top:18px;border-top:1px solid var(--line);padding-top:16px">
+        <div class="mb-titre">Nouveau compte</div>
+        <div class="grid2">
+          <div class="field"><label>Nom</label>
+            <input id="us-nom" placeholder="marie" autocomplete="off">
+            <div class="hint">Minuscules, chiffres, tiret ou souligne.</div>
+          </div>
+          <div class="field"><label>Adresse mail <span class="opt">facultatif</span></label>
+            <input id="us-mail" type="email" placeholder="marie@example.com" autocomplete="off">
+            <div class="hint">La personne la confirmera elle-meme, par un code recu dessus.</div>
+          </div>
+        </div>
+        <div class="field" style="margin-top:14px"><label>Mot de passe</label>
+          <input id="us-mdp" type="password" autocomplete="new-password" placeholder="8 caracteres au minimum">
+          <div class="hint">Le second facteur, lui, s'enregistre a la premiere connexion : tu ne
+            connais jamais la cle de quelqu'un d'autre.</div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-primary" id="us-creer" onclick="usCreer()">Creer le compte</button>
+          <button class="btn btn-default" onclick="usFormulaire(false)">Annuler</button>
+        </div>
+        <div class="err" id="us-err" style="display:none"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="zone">
+    <div class="zone-title">Connexions recentes</div>
+    <div class="card settings-card card-large">
+      <div class="card-top"><div class="card-name">
+        <b>Journal des acces</b>
+        <div class="path">Qui est entre, quand, et quelle application a ete ouverte.</div>
+      </div></div>
+      <div class="act-liste" id="ac-connexions" style="margin-top:6px"></div>
+    </div>
+  </div>
+</div>
+
 
   </div>
 </main>
@@ -1119,6 +1256,76 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
   </div>
 </main>
 </div>
+
+<!-- ==================== POP-UP : CONFIRMATION ==================== -->
+<!-- Remplace confirm() : la meme question, dans la meme interface, avec un
+     bouton qui dit ce qu'il fait plutot que « OK ». -->
+<div class="ov" id="ov-confirm"><div class="modal" style="max-width:440px">
+  <div class="mh"><h3 id="cf-titre"></h3><p id="cf-texte"></p></div>
+  <div class="mf">
+    <button class="btn btn-default" onclick="confirmerReponse(false)">Annuler</button>
+    <button class="btn btn-primary" id="cf-ok" onclick="confirmerReponse(true)">Confirmer</button>
+  </div>
+</div></div>
+
+<div class="toasts" id="toasts"></div>
+
+<!-- ==================== POP-UP : FICHE D'UN COMPTE ==================== -->
+<!-- Tout ce qui se regle sur un compte, au meme endroit. Avant, c'etait
+     quatre boutons dans la liste et une invite du navigateur pour le mot de
+     passe -- on ne pouvait meme pas corriger une adresse mail. -->
+<div class="ov" id="ov-user"><div class="modal">
+  <div class="mh"><h3 id="us-f-titre">Compte</h3>
+    <p id="us-f-sous"></p></div>
+  <div class="mb">
+    <div class="alert" id="us-f-err" style="display:none"></div>
+
+    <div class="mb-groupe">
+      <div class="mb-titre">Identite</div>
+      <div class="field"><label>Adresse mail <span class="opt">facultatif</span></label>
+        <input id="us-f-mail" type="email" placeholder="marie@example.com" autocomplete="off">
+        <div class="hint" id="us-f-mail-etat"></div>
+      </div>
+      <div class="field"><label>Nouveau mot de passe <span class="opt">facultatif</span></label>
+        <input id="us-f-mdp" type="password" autocomplete="new-password" placeholder="laisser vide pour ne pas changer">
+        <div class="hint">8 caracteres au minimum. La personne n'est pas deconnectee : sa session
+          en cours reste valable jusqu'a ce qu'elle la ferme.</div>
+      </div>
+      <div class="hint">Le nom du compte ne se change pas : il identifie la personne partout —
+        dans ses cles d'acces, dans le journal des acces, dans la liste des projets autorises.
+        Pour renommer quelqu'un, cree un compte et supprime l'ancien.</div>
+    </div>
+
+    <div class="mb-groupe">
+      <div class="mb-titre">Projets autorises</div>
+      <div class="hint">L'autorisation ne compte que pour les projets <b>prives</b> : un projet
+        public reste ouvert a tout le monde, y compris sans connexion.</div>
+      <div class="us-cases" id="us-f-projets" style="margin-top:10px"></div>
+    </div>
+
+    <div class="mb-groupe">
+      <div class="mb-titre">Moyens de connexion</div>
+      <div class="hint" id="us-f-facteurs"></div>
+      <div class="actions">
+        <button class="btn btn-default btn-sm" id="us-f-totp" onclick="usReinitTotp()">Reinitialiser le second facteur</button>
+        <button class="btn btn-default btn-sm" id="us-f-cles" onclick="usRetirerCles()">Retirer les cles d'acces</button>
+      </div>
+    </div>
+
+    <div class="mb-groupe">
+      <div class="mb-titre">Supprimer</div>
+      <div class="hint">Le compte disparait, avec ses cles d'acces. Ses sessions ouvertes cessent
+        d'autoriser quoi que ce soit — chaque controle relit le registre. Le journal des acces,
+        lui, garde la trace de ce qu'il a fait.</div>
+      <button class="btn btn-default danger btn-sm" style="margin-top:10px"
+        onclick="usSupprimer()">Supprimer ce compte</button>
+    </div>
+  </div>
+  <div class="mf">
+    <button class="btn btn-default" onclick="hide('ov-user')">Annuler</button>
+    <button class="btn btn-primary" id="us-f-save" onclick="usEnregistrer()">Enregistrer</button>
+  </div>
+</div></div>
 
 <!-- ==================== POP-UP : NOUVELLE APPLICATION ==================== -->
 <div class="ov" id="ov-add"><div class="modal">
@@ -1194,13 +1401,13 @@ function showSection(name){
      garde-fou n'est pas une protection -- les routes verifient le role de leur
      cote -- c'est ce qui evite qu'un clic egare mene a une page vide et a des
      appels refuses. */
-  if(!estAdmin && name!=='hub' && name!=='profil') name='hub';
+  if(!estAdmin && name!=='hub' && name!=='parametres') name='hub';
   document.querySelectorAll('.section').forEach(s=>{ s.style.display = (s.id==='sec-'+name) ? '' : 'none'; });
   /* La fiche d'une application appartient a "Applications" : l'entree du menu
      doit rester allumee quand on y descend. */
   const surligne = (name==='app') ? 'apps' : name;
   document.querySelectorAll('.side-item').forEach(t=>t.classList.toggle('active', t.dataset.sec===surligne));
-  $('acct-btn').classList.toggle('active', name==='settings' || name==='profil');
+  $('acct-btn').classList.toggle('active', name==='parametres');
 
   /* Un flux de journal occupe une place cote serveur : on le ferme des qu'on
      quitte la fiche, sans attendre que le navigateur s'en apercoive. */
@@ -1209,9 +1416,31 @@ function showSection(name){
   if(name==='overview' || name==='apps') refresh();
   /* L'etat de securite est relu a chaque ouverture : il peut avoir change
      depuis un autre onglet, ou au redemarrage du service. */
-  if(name==='profil'){ chargerMonCompte(); chargerPasskeys(); if(estAdmin) chargerSecurite(); }
   if(name==='users'){ chargerUtilisateurs(); chargerInscriptionLibre(); chargerActivite(); }
-  if(name==='settings'){ chargerSecurite(); chargerAlertes(); chargerCategories(); }
+  /* Chaque onglet des parametres relit ce qu'il affiche a son ouverture : ces
+     etats changent depuis un autre onglet du navigateur, ou au redemarrage du
+     service. On ne recharge que l'onglet regarde. */
+  if(name==='parametres') paramOnglet(paramOngletActif);
+}
+
+/* ---------------- onglets des parametres ---------------- */
+let paramOngletActif='compte';
+function paramOnglet(o){
+  /* Un compte utilisateur n'a que les deux premiers. Ce garde-fou est un
+     confort d'affichage : chaque route verifie le role de son cote. */
+  if(!estAdmin && o!=='compte' && o!=='securite') o='compte';
+  paramOngletActif=o;
+  document.querySelectorAll('#param-onglets button')
+    .forEach(b=>b.classList.toggle('active', b.dataset.p===o));
+  document.querySelectorAll('.onglet-p')
+    .forEach(n=>n.classList.toggle('actif', n.id==='param-'+o));
+  if(o==='compte') chargerMonCompte();
+  if(o==='securite'){ chargerPasskeys(); if(estAdmin) chargerSecurite(); }
+  if(o==='serveur') chargerSecurite();
+  if(o==='categories') chargerCategories();
+  /* Les deux onglets lisent la meme reponse : le serveur d'envoi et les
+     alertes vivent dans le meme bloc de credentials.env. */
+  if(o==='email' || o==='alertes') chargerAlertes();
 }
 
 /* ---------------- etats ---------------- */
@@ -1477,24 +1706,26 @@ async function restartApp(n){ await fetch('/api/restart/'+n,{method:'POST'}); se
 async function deployApp(n){
   const r=await fetch('/api/deploy/'+n,{method:'POST'});
   const d=await r.json();
-  if(!r.ok){ alert(d.error||'Le deploiement a echoue.'); }
+  if(!r.ok) notifier(d.error||'Le deploiement a echoue.', 'err');
   ouvrirFiche(n); ficheOnglet('journal');
   setTimeout(refresh,600);
 }
 async function buildApp(n){
   const r=await fetch('/api/build/'+n,{method:'POST'});
   const d=await r.json();
-  if(!r.ok){ alert(d.error||'Le build a echoue.'); }
+  if(!r.ok) notifier(d.error||'Le build a echoue.', 'err');
   ouvrirFiche(n); ficheOnglet('journal');
 }
 async function basculerVisibilite(n){
   const r=await fetch('/api/visibility/'+n,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
   const d=await r.json();
-  if(!r.ok){ alert(d.error||'Changement impossible.'); return; }
+  if(!r.ok){ notifier(d.error||'Changement impossible.', 'err'); return; }
   refresh();
 }
 async function rm(n){
-  if(!confirm('Supprimer « '+n+' » ? Le dossier du projet n\'est pas touche.')) return;
+  if(!await demander('Supprimer « ' + n + ' » ?',
+    "L'application disparait du panneau. Le dossier du projet dans /workspace n'est pas touche.",
+    'Supprimer', true)) return;
   await fetch('/api/app/'+n,{method:'DELETE'});
   ficheNom=null; showSection('apps'); refresh();
 }
@@ -1574,7 +1805,7 @@ function peindreFiche(){
       ${prive?'Rendre publique':'Rendre privee'}</button>`);
   }else{
     b.push(`<span class="hint" style="align-self:center;max-width:320px">Declare l'adresse
-      publique du serveur (Configuration &gt; Serveur) pour pouvoir partager une application.</span>`);
+      publique du serveur (Parametres &gt; Serveur) pour pouvoir partager une application.</span>`);
   }
   if(a.running) b.push(`<a class="btn btn-quiet" href="/${encodeURIComponent(a.name)}/" target="_blank">${svgOuvrir}Ouvrir</a>`);
   $('fa-actions').innerHTML=b.join('');
@@ -1851,7 +2082,9 @@ async function pkAjouter(){
 }
 
 async function pkSupprimer(id){
-  if(!confirm('Retirer cette cle d\'acces ?')) return;
+  if(!await demander("Retirer cette cle d'acces ?",
+    "L'appareil qui la porte n'ouvrira plus ce compte. Tu peux en enregistrer une autre a tout moment.",
+    'Retirer')) return;
   const r=await fetch('/api/mon-compte/passkeys/'+encodeURIComponent(id),{method:'DELETE'});
   const d=await r.json();
   if(!r.ok){ pkMessage(d.error||'Suppression impossible.', true); return; }
@@ -1882,9 +2115,18 @@ async function chargerActivite(){
 function ligneActivite(e){
   const qui = e.qui ? esc(e.qui) : 'visiteur anonyme';
   let quoi;
-  if(e.genre==='connexion') quoi = 's\'est connecte' + (e.role==='admin' ? ' (administrateur)' : '');
+  if(e.genre==='connexion'){
+    quoi = 's\'est connecte' + (e.role==='admin' ? ' (administrateur)' : '');
+    /* Par quel moyen : un mot de passe vole ne produit pas la meme ligne
+       qu'une cle d'acces, et c'est ce qu'on regarde en cas de doute. */
+    if(e.moyen) quoi += ' par ' + esc(e.moyen);
+  }
   else if(e.genre==='echec') quoi = '<b style="color:var(--err)">connexion refusee</b> — ' + esc(e.motif||'');
-  else quoi = 'a ouvert <b>' + esc(e.app||'') + '</b>';
+  else if(e.genre==='ouverture') quoi = 'a ouvert <b>' + esc(e.app||'') + '</b>';
+  /* Les cles d'acces ajoutees ou retirees passaient par la branche des
+     ouvertures : le journal affichait « a ouvert » suivi de rien. */
+  else if(e.genre==='passkey') quoi = "cle d'acces — " + esc(e.action||'');
+  else quoi = esc(e.genre||'');
   return `<div class="act-ligne">
     <span class="act-quand" title="${esc(quandPrecis(e.ts))}">${esc(ilYA(e.ts))}</span>
     <span class="act-qui">${qui}</span><span class="act-quoi">${quoi}</span>
@@ -1902,10 +2144,9 @@ function peindreComptesActivite(){
   const r=(activite.resume||{}).comptes||{};
   document.querySelectorAll('#us-liste [data-activite]').forEach(n=>{
     const c=r[n.dataset.activite];
-    n.textContent = c
-      ? `Derniere connexion ${ilYA(c.derniere)} — ${c.connexions} connexion${c.connexions>1?'s':''}, `
-        + `${c.ouvertures} ouverture${c.ouvertures>1?'s':''}`
-      : 'Jamais connecte.';
+    n.textContent = c && c.derniere
+      ? ` — derniere connexion ${ilYA(c.derniere)}`
+      : ' — jamais connecte';
   });
 }
 
@@ -1942,57 +2183,160 @@ async function chargerUtilisateurs(){
   const comptes=d.utilisateurs||[];
   $('side-count-users').textContent=comptes.length;
   if(!comptes.length){
-    $('us-liste').innerHTML='<div class="hint">Aucun compte utilisateur. '
-      +'Toi seul peux ouvrir les projets prives.</div>';
+    $('us-liste').innerHTML='<div class="vide"><b>Aucun compte</b>'
+      +'Toi seul peux ouvrir les projets prives. Cree un compte pour partager '
+      +'un projet avec quelqu\'un sans lui donner l\'administration.</div>';
     return;
   }
-  /* Une case a cocher par projet declare : c'est la liste complete qui rend
-     lisible ce qui est autorise ET ce qui ne l'est pas. */
+  /* La liste dit l'essentiel ; le detail vit dans la fiche du compte. Une
+     ligne par personne, un bouton par ligne. */
+  usComptes = comptes;
   $('us-liste').innerHTML = comptes.map(c=>{
-    const cases = apps.map(a=>{
-      const coche = c.projets.includes(a.name) ? ' checked' : '';
-      const prive = a.visibility==='privee';
-      return `<label class="us-case${prive?'':' us-public'}">
-        <input type="checkbox" data-compte="${esc(c.nom)}" value="${esc(a.name)}"${coche}
-          onchange="usProjets('${esc(c.nom)}')">
-        ${esc(a.name)}${prive?'':' <span>(public)</span>'}</label>`;
-    }).join('') || '<div class="hint">Aucun projet declare.</div>';
-    /* L'etat du second facteur en premier : "en attente" designe un compte
-       cree mais jamais utilise, ce qui se voit d'un coup d'oeil. */
-    const f = c.totp
-      ? '<span class="pill on"><i></i>2FA enregistree</span>'
-      : '<span class="pill off"><i></i>2FA en attente</span>';
-    /* L'adresse et son etat : un compte cree librement qui n'a pas confirme
-       la sienne ne peut pas se connecter, et cela doit se voir ici. */
-    const m = !c.email
-      ? '<span class="pill off"><i></i>Sans adresse</span>'
-      : (c.email_verifie
-        ? `<span class="pill on"><i></i>${esc(c.email)}</span>`
-        : `<span class="pill ${c.attente_email?'err':'off'}"><i></i>${esc(c.email)} `
-          + (c.attente_email ? '(inscription a confirmer)' : '(non verifiee)') + '</span>');
-    return `<div class="us-compte">
-      <div class="us-tete"><b>${esc(c.nom)}</b>${f}${m}
-        <div class="spacer"></div>
-        <button class="btn btn-default btn-sm" onclick="usMotDePasse('${esc(c.nom)}')">Mot de passe</button>
-        ${c.totp ? `<button class="btn btn-default btn-sm"
-          onclick="usReinitTotp('${esc(c.nom)}')">Reinitialiser la 2FA</button>` : ''}
-        <button class="btn btn-default btn-sm" onclick="usSupprimer('${esc(c.nom)}')">Supprimer</button>
+    /* Ce qui empeche quelqu'un d'entrer passe en premier, et en rouge : un
+       compte qui n'a jamais confirme son adresse ne se connecte pas. */
+    const badges=[];
+    if(c.attente_email) badges.push('<span class="pill err"><i></i>Inscription a confirmer</span>');
+    if(!c.totp) badges.push('<span class="pill off"><i></i>2FA en attente</span>');
+    if(c.passkeys) badges.push(`<span class="pill on"><i></i>${c.passkeys} cle${c.passkeys>1?'s':''}</span>`);
+    const projets = c.projets.length
+      ? c.projets.length + ' projet' + (c.projets.length>1?'s':'')
+      : 'aucun projet';
+    const adresse = c.email
+      ? esc(c.email) + (c.email_verifie ? ' (verifiee)' : ' (non verifiee)')
+      : 'sans adresse';
+    return `<div class="us-ligne">
+      <div class="us-rond">${esc((c.nom||'?').slice(0,1))}</div>
+      <div class="us-corps">
+        <div class="us-nom"><b>${esc(c.nom)}</b>${badges.join('')}</div>
+        <div class="us-meta">${adresse} — ${projets}<span data-activite="${esc(c.nom)}"></span></div>
       </div>
-      <div class="us-cases">${cases}</div>
-      <!-- Rempli par peindreComptesActivite() : la liste des comptes et le
-           journal se chargent separement, chacun a son rythme. -->
-      <div class="us-activite" data-activite="${esc(c.nom)}"></div></div>`;
+      <button class="btn btn-default btn-sm" onclick="usOuvrir('${esc(c.nom)}')">Modifier</button>
+    </div>`;
   }).join('');
   peindreComptesActivite();
+  /* La fiche ouverte suit : les projets ont pu changer pendant qu'elle
+     l'etait, et les cases a cocher doivent rester justes. */
+  if(usCourant && $('ov-user').classList.contains('show')) usPeindreFiche();
 }
 
-async function usProjets(nom){
-  const projets=[...document.querySelectorAll(`#us-liste input[data-compte="${nom}"]:checked`)]
-    .map(i=>i.value);
-  const r=await fetch('/api/utilisateurs/'+encodeURIComponent(nom),{method:'PUT',
-    headers:{'Content-Type':'application/json'},body:JSON.stringify({projets})});
-  if(!r.ok){ const d=await r.json(); usErreur(d.error||'Modification impossible.'); }
-  else usErreur('');
+/* ---------------- confirmation et notifications ---------------- */
+let confirmerResoudre=null;
+/* Une promesse plutot qu'un rappel : le code appelant se lit comme avec
+   confirm(), en une ligne, sans imbriquer une fonction. */
+function demander(titre, texte, libelle, danger){
+  $('cf-titre').textContent=titre;
+  $('cf-texte').textContent=texte;
+  const ok=$('cf-ok');
+  ok.textContent=libelle||'Confirmer';
+  ok.className='btn ' + (danger ? 'btn-default danger' : 'btn-primary');
+  $('ov-confirm').classList.add('show');
+  setTimeout(()=>ok.focus(), 40);
+  return new Promise(r=>{ confirmerResoudre=r; });
+}
+function confirmerReponse(reponse){
+  hide('ov-confirm');
+  const r=confirmerResoudre; confirmerResoudre=null;
+  if(r) r(reponse);
+}
+
+function notifier(texte, genre){
+  const n=document.createElement('div');
+  n.className='toast ' + (genre||'ok');
+  const icone = genre==='err'
+    ? '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/></svg>'
+    : '<svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>';
+  n.innerHTML = icone + '<div>' + esc(texte) + '</div>';
+  $('toasts').appendChild(n);
+  setTimeout(()=>n.remove(), genre==='err' ? 7000 : 4000);
+}
+
+/* ---------------- creation d'un compte ---------------- */
+function usFormulaire(ouvert){
+  $('us-nouveau').style.display = ouvert ? 'block' : 'none';
+  usErreur('');
+  if(ouvert) setTimeout(()=>$('us-nom').focus(), 40);
+}
+
+/* ---------------- fiche d'un compte ---------------- */
+let usComptes=[], usCourant='';
+
+function usOuvrir(nom){
+  usCourant=nom;
+  usPeindreFiche();
+  $('ov-user').classList.add('show');
+}
+
+function usCompte(){ return usComptes.find(c=>c.nom===usCourant); }
+
+function usPeindreFiche(){
+  const c=usCompte();
+  if(!c){ hide('ov-user'); return; }
+  $('us-f-titre').textContent=c.nom;
+  $('us-f-sous').textContent = c.cree
+    ? 'Compte cree ' + ilYA(c.cree) + '.'
+    : 'Compte utilisateur.';
+  $('us-f-err').style.display='none';
+  $('us-f-mail').value=c.email||'';
+  $('us-f-mdp').value='';
+  $('us-f-mail-etat').textContent = !c.email
+    ? "Aucune adresse. La personne peut en declarer une elle-meme depuis ses parametres."
+    : (c.attente_email
+      ? "Adresse jamais confirmee : ce compte ne peut pas se connecter tant qu'un code envoye dessus n'est pas revenu."
+      : (c.email_verifie
+        ? "Adresse verifiee par un code recu dessus."
+        : "Adresse non verifiee : la personne la confirmera depuis ses parametres."));
+
+  /* Une case par projet declare : la liste complete rend lisible ce qui est
+     autorise ET ce qui ne l'est pas. */
+  $('us-f-projets').innerHTML = apps.length ? apps.map(a=>{
+    const coche = c.projets.includes(a.name) ? ' checked' : '';
+    const prive = a.visibility==='privee';
+    return `<label class="us-case${prive?'':' us-public'}">
+      <input type="checkbox" value="${esc(a.name)}"${coche}>
+      ${esc(a.name)}${prive?'':' <span>(public)</span>'}</label>`;
+  }).join('') : '<div class="hint">Aucun projet declare.</div>';
+
+  const morceaux=[];
+  morceaux.push(c.totp
+    ? 'Second facteur enregistre.'
+    : "Second facteur en attente : il sera enregistre a la premiere connexion.");
+  morceaux.push(c.passkeys
+    ? `${c.passkeys} cle${c.passkeys>1?'s':''} d'acces enregistree${c.passkeys>1?'s':''}.`
+    : "Aucune cle d'acces.");
+  morceaux.push("Tu ne connais jamais ces secrets : en cas d'appareil perdu, remets-les a zero "
+    + "et la personne en enregistrera de nouveaux.");
+  $('us-f-facteurs').textContent = morceaux.join(' ');
+  $('us-f-totp').disabled = !c.totp;
+  $('us-f-cles').disabled = !c.passkeys;
+}
+
+function usFicheErreur(texte){
+  const e=$('us-f-err');
+  e.textContent=texte||'';
+  e.style.display = texte ? 'block' : 'none';
+}
+
+async function usEcrire(corps, message){
+  usFicheErreur('');
+  const r=await fetch('/api/utilisateurs/'+encodeURIComponent(usCourant),{method:'PUT',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(corps)});
+  const d=await r.json();
+  if(!r.ok){ usFicheErreur(d.error||'Modification impossible.'); return false; }
+  await chargerUtilisateurs();
+  if(message) usFicheErreur('');
+  return true;
+}
+
+async function usEnregistrer(){
+  const mdp=$('us-f-mdp').value;
+  if(mdp && mdp.length<8) return usFicheErreur('Mot de passe : 8 caracteres au minimum.');
+  const projets=[...document.querySelectorAll('#us-f-projets input:checked')].map(i=>i.value);
+  const corps={email:$('us-f-mail').value.trim(), projets};
+  if(mdp) corps.mot_de_passe=mdp;
+  $('us-f-save').disabled=true;
+  try{
+    if(await usEcrire(corps)) hide('ov-user');
+  } finally { $('us-f-save').disabled=false; }
 }
 
 async function usCreer(){
@@ -2004,7 +2348,9 @@ async function usCreer(){
   const d=await r.json();
   if(!r.ok){ usErreur(d.error||'Creation impossible.'); return; }
   $('us-nom').value=''; $('us-mdp').value=''; $('us-mail').value='';
-  chargerUtilisateurs();
+  usFormulaire(false);
+  await chargerUtilisateurs();
+  notifier('Compte « ' + d.nom + ' » cree. Ouvre-le pour lui autoriser des projets.');
 }
 
 /* L'inscription libre suit le serveur d'envoi : sans mail, aucun moyen de
@@ -2015,11 +2361,10 @@ async function chargerInscriptionLibre(){
   const z=$('us-inscription-libre');
   z.style.display='block';
   z.innerHTML = d.ouverte
-    ? '<b>La creation de compte est ouverte</b> depuis la page de connexion : le serveur d\'envoi '
-      + 'est configure, donc une adresse peut etre verifiee. Un compte cree ainsi n\'ouvre '
-      + '<b>aucun projet</b> tant que tu ne lui en autorises pas.'
-    : '<b>La creation de compte est fermee.</b> Configure un serveur d\'envoi (Configuration &gt; '
-      + 'Alertes) pour l\'ouvrir : sans mail, une adresse declaree ne peut pas etre verifiee.';
+    ? '<b>L\'inscription libre est ouverte</b> sur la page de connexion. Un compte cree ainsi '
+      + 'n\'ouvre <b>aucun projet</b> tant que tu ne lui en autorises pas.'
+    : '<b>L\'inscription libre est fermee</b> : sans serveur d\'envoi (Parametres &gt; E-mail), '
+      + 'une adresse declaree ne peut pas etre verifiee.';
 }
 
 /* ---------------- mon adresse mail ---------------- */
@@ -2076,29 +2421,33 @@ async function mailConfirmer(){
   mailMessage('Adresse verifiee.', false);
 }
 
-async function usMotDePasse(nom){
-  const mdp=prompt('Nouveau mot de passe pour « '+nom+' » (8 caracteres au minimum) :');
-  if(!mdp) return;
-  const r=await fetch('/api/utilisateurs/'+encodeURIComponent(nom),{method:'PUT',
-    headers:{'Content-Type':'application/json'},body:JSON.stringify({mot_de_passe:mdp})});
-  const d=await r.json();
-  usErreur(r.ok ? '' : (d.error||'Modification impossible.'));
+async function usReinitTotp(){
+  const nom=usCourant;
+  if(!await demander('Reinitialiser le second facteur ?',
+    `« ${nom} » enregistrera une nouvelle cle a sa prochaine connexion. A faire quand la personne `
+    + `a change ou perdu son telephone.`, 'Reinitialiser')) return;
+  if(await usEcrire({reinitialiser_totp:true}))
+    notifier('Second facteur remis a zero pour « ' + nom + ' ».');
 }
 
-async function usReinitTotp(nom){
-  if(!confirm('Remettre a zero le second facteur de « '+nom+' » ?\n\n'
-    +'Il devra enregistrer une nouvelle cle a sa prochaine connexion. '
-    +'A faire quand il a change ou perdu son telephone.')) return;
-  const r=await fetch('/api/utilisateurs/'+encodeURIComponent(nom),{method:'PUT',
-    headers:{'Content-Type':'application/json'},body:JSON.stringify({reinitialiser_totp:true})});
-  if(!r.ok){ const d=await r.json(); usErreur(d.error||'Modification impossible.'); return; }
-  usErreur(''); chargerUtilisateurs();
+async function usRetirerCles(){
+  const nom=usCourant;
+  if(!await demander("Retirer les cles d'acces ?",
+    `Les appareils de « ${nom} » ne l'ouvriront plus. Elle pourra en enregistrer de nouveaux apres `
+    + `s'etre connectee avec son mot de passe.`, 'Retirer')) return;
+  if(await usEcrire({retirer_passkeys:true}))
+    notifier("Cles d'acces retirees pour « " + nom + " ».");
 }
 
-async function usSupprimer(nom){
-  if(!confirm('Supprimer le compte « '+nom+' » ?')) return;
+async function usSupprimer(){
+  const nom=usCourant;
+  if(!await demander('Supprimer le compte « ' + nom + ' » ?',
+    "Le compte et ses cles d'acces disparaissent. Ses sessions ouvertes n'autoriseront plus rien.",
+    'Supprimer', true)) return;
   const r=await fetch('/api/utilisateurs/'+encodeURIComponent(nom),{method:'DELETE'});
-  if(!r.ok){ const d=await r.json(); usErreur(d.error||'Suppression impossible.'); return; }
+  if(!r.ok){ const d=await r.json(); usFicheErreur(d.error||'Suppression impossible.'); return; }
+  hide('ov-user');
+  notifier('Compte « ' + nom + ' » supprime.');
   chargerUtilisateurs();
 }
 
@@ -2111,8 +2460,11 @@ function alSetTls(t){
     .forEach(b=>b.classList.toggle('active', b.dataset.t===t));
 }
 
-function alMessage(texte, erreur){
-  const e=$('al-err'), m=$('al-msg');
+/* Un message affiche dans l'onglet qu'on ne regarde pas est un message
+   perdu : chaque onglet a le sien, et l'appelant dit lequel. */
+function alMessage(texte, erreur, ou){
+  const prefixe = ou || 'al';
+  const e=$(prefixe+'-err'), m=$(prefixe+'-msg');
   e.style.display='none'; m.style.display='none';
   if(!texte) return;
   const cible = erreur ? e : m;
@@ -2127,6 +2479,12 @@ async function chargerAlertes(){
   pill.innerHTML='<i></i>'+(d.actif?'Actives':'Desactivees');
   $('al-toggle').textContent = d.actif ? 'Desactiver' : 'Activer';
 
+  /* L'etat du SERVEUR ne depend pas des alertes : un serveur pret l'est
+     meme si personne n'est encore prevenu quand une application tombe. */
+  const ps=$('sm-etat');
+  ps.className='pill '+(d.smtp_ok?'on':'off');
+  ps.innerHTML='<i></i>'+(d.smtp_ok?'Pret':'Non configure');
+
   $('al-dest').value = (d.destinataires||[]).join(', ');
   $('al-host').value = d.smtp.host||'';
   $('al-port').value = d.smtp.port||'';
@@ -2135,14 +2493,23 @@ async function chargerAlertes(){
   $('al-pass').placeholder = d.smtp.mot_de_passe_defini ? 'inchange' : 'aucun';
   alSetTls(d.smtp.tls||'starttls');
 
-  /* Dire d'ou viennent les valeurs affichees, et ce qui manque encore : sans
-     ca, un formulaire pre-rempli laisse croire que tout est pret. */
-  const src = d.smtp.host
-    ? 'Lu dans le bloc <code>codelab-alertes</code> de <code>credentials.env</code>.'
-    : 'Aucun serveur configure pour l\'instant.';
-  const manque = (d.manquants||[]).length
-    ? ' Il manque : <b>'+d.manquants.map(esc).join(', ')+'</b>.' : '';
-  $('al-smtp-source').innerHTML = src + manque;
+  /* Le test part par defaut a la premiere adresse d'alerte : c'est celle
+     qu'on veut verifier neuf fois sur dix. */
+  $('sm-test-dest').placeholder = (d.destinataires||[])[0] || 'moi@example.com';
+
+  /* Ce qui manque au SERVEUR, dans l'onglet du serveur ; ce qui manque aux
+     ALERTES, dans celui des alertes. Un « il manque : destinataires »
+     affiche sous un formulaire SMTP complet donnait l'impression que le
+     serveur etait en cause. */
+  const manqueSmtp = (d.manquants_smtp||[]).length
+    ? 'Il manque : <b>'+d.manquants_smtp.map(esc).join(', ')+'</b>.' : '';
+  alMessage('', false, 'sm');
+  if(manqueSmtp) { $('sm-msg').innerHTML=manqueSmtp; $('sm-msg').style.display='block'; }
+
+  $('al-smtp-source').innerHTML = d.smtp_ok
+    ? 'Serveur d\'envoi pret (onglet <b>E-mail</b>).'
+    : 'Aucun serveur d\'envoi configure : les alertes ne partiront pas. '
+      + 'Regle-le dans l\'onglet <b>E-mail</b>.';
 
   const incidents=(d.incidents||[]);
   alMessage(incidents.length
@@ -2173,11 +2540,15 @@ async function alPoster(corps, bouton){
   finally{ b.disabled=false; }
 }
 
-async function alEnregistrer(){
-  alMessage('', false);
-  if(await alPoster(alCorps(), 'al-save')){
+/* Les deux onglets ecrivent le meme bloc : alCorps() lit les champs des
+   deux, qui sont dans le document meme quand l'onglet est masque. Enregistrer
+   depuis l'un n'efface donc pas ce qui est regle dans l'autre. */
+async function alEnregistrer(ou){
+  const prefixe = ou || 'al';
+  alMessage('', false, prefixe);
+  if(await alPoster(alCorps(), prefixe+'-save')){
     await chargerAlertes();
-    alMessage('Reglages enregistres.', false);
+    alMessage('Reglages enregistres.', false, prefixe);
   }
 }
 
@@ -2189,20 +2560,22 @@ async function alBasculer(){
 }
 
 async function alTester(){
-  alMessage('', false);
+  alMessage('', false, 'sm');
   const b=$('al-test'); b.disabled=true; b.textContent='Envoi...';
   try{
     /* Enregistrer d'abord : tester ce qui est affiche a l'ecran plutot que
-       ce qui est enregistre donnerait un test qui passe et des alertes qui
-       ne partent pas. */
+       ce qui est enregistre donnerait un test qui passe et des mails qui ne
+       partent pas. */
     if(await alPoster(alCorps(), 'al-test')){
-      const r=await fetch('/api/alertes/test',{method:'POST'});
+      const r=await fetch('/api/alertes/test',{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({destinataire:$('sm-test-dest').value.trim()})});
       const d=await r.json();
       alMessage(r.ok ? 'Mail envoye a '+(d.destinataires||[]).join(', ')+'.'
-                     : (d.error||'Envoi impossible.'), !r.ok);
+                     : (d.error||'Envoi impossible.'), !r.ok, 'sm');
       await chargerAlertes();
     }
-  }catch(e){ alMessage('Erreur reseau.', true); }
+  }catch(e){ alMessage('Erreur reseau.', true, 'sm'); }
   b.disabled=false; b.textContent='Envoyer un mail de test';
 }
 
@@ -2275,7 +2648,7 @@ async function pubEnregistrer(){
 async function totpPreparer(){
   const r=await fetch('/api/securite/totp/preparer',{method:'POST'});
   const d=await r.json();
-  if(!r.ok){ alert(d.error||'Preparation impossible.'); return; }
+  if(!r.ok){ notifier(d.error||'Preparation impossible.', 'err'); return; }
   $('totp-secret').value=d.secret;
   montrerQr(d.qr);
   $('totp-etape-1').style.display='none';
@@ -2321,7 +2694,11 @@ async function doLogout(){ await fetch('/logout',{method:'POST'}); location.href
 
 
 document.addEventListener('keydown',e=>{
-  if(e.key==='Escape'){ hide('ov-add'); $('acct-menu').classList.remove('show'); }
+  if(e.key==='Escape'){
+    hide('ov-add'); hide('ov-user');
+    if(confirmerResoudre) confirmerReponse(false);
+    $('acct-menu').classList.remove('show');
+  }
 });
 document.querySelectorAll('.ov').forEach(o=>o.addEventListener('click',
  e=>{ if(e.target===o) o.classList.remove('show'); }));
@@ -2334,9 +2711,9 @@ const estAdmin = ROLE==='admin';
 
 $('qui-nom').textContent = UTILISATEUR || '';
 $('qui-role').textContent = estAdmin ? 'Administrateur' : 'Utilisateur';
-$('profil-sous').textContent = estAdmin
-  ? 'Ton affichage, tes moyens de connexion et ta session.'
-  : 'Ton affichage, ton adresse mail, tes cles d\'acces et ta session.';
+/* Les onglets d'administration n'apparaissent que pour l'administrateur. */
+if(estAdmin) document.querySelectorAll('#param-onglets button[data-admin]')
+  .forEach(b=>{ b.style.display='block'; });
 
 const visible = id => $(id).style.display!=='none';
 
@@ -2359,7 +2736,6 @@ if(estAdmin){
      ses parametres personnels, eux, dans le menu du compte. */
   $('sidebar').style.display='none';
   $('btn-menu').style.display='none';
-  $('acct-configuration').style.display='none';
   $('profil-securite').style.display='none';
 }
 /* Le hub est l'accueil de tout le monde. Laisse ouvert il reste juste : les

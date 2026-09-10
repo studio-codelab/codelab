@@ -2821,6 +2821,12 @@ def api_alertes():
             "mot_de_passe_defini": bool(cfg["password"]),
         },
         "manquants": manquants,
+        # Le serveur d'envoi et les alertes sont deux choses : un serveur
+        # parfaitement configure passait pour incomplet tant qu'aucun
+        # destinataire d'alerte n'etait saisi, alors qu'il sert aussi les
+        # codes de verification et l'inscription libre.
+        "smtp_ok": smtp_utilisable()[1],
+        "manquants_smtp": [m for m in manquants if m != "destinataires"],
         "incidents": sorted(_alertes_en_cours),
     })
 
@@ -2888,23 +2894,32 @@ def api_alertes_test():
 
     Deliberement : on teste sa configuration AVANT d'activer les alertes, et
     exiger l'inverse ferait activer une configuration jamais essayee.
+
+    Une adresse peut etre donnee : on teste alors le SERVEUR D'ENVOI, sans
+    exiger qu'une alerte soit deja reglee. Sans adresse, le test s'adresse
+    aux destinataires des alertes, comme avant.
     """
+    cible = email_valide((request.get_json(force=True, silent=True) or {}).get("destinataire"))
     cfg, manquants = config_smtp()
+    if cible:
+        manquants = [m for m in manquants if m != "destinataires"]
     if manquants:
         return jsonify({"error": "Configuration incomplete : " + ", ".join(manquants)}), 400
+    destinataires = [cible] if cible else cfg["destinataires"]
     try:
         envoyer_mail(cfg, "[CodeLab] mail de test",
                      "Si tu lis ce message, les alertes du panneau CodeLab "
                      "savent sortir.\n\nTu recevras un mail de cette adresse "
                      "quand une application tombera, et un autre quand elle "
                      "reviendra.\n\n-- CodeLab, panneau de gestion des "
-                     "applications")
+                     "applications",
+                     destinataires=destinataires)
     except Exception as e:
         # Le message du serveur SMTP est la seule chose qui aide vraiment ici
         # ("authentification refusee", "relais interdit") : on le remonte tel
         # quel plutot que de le resumer.
         return jsonify({"error": f"{type(e).__name__}: {e}"}), 502
-    return jsonify({"ok": True, "destinataires": cfg["destinataires"]})
+    return jsonify({"ok": True, "destinataires": destinataires})
 
 
 @flask_app.get("/api/utilisateurs")
@@ -2923,6 +2938,10 @@ def api_utilisateurs():
          # signale un compte cree mais jamais utilise, ce qui se voit d'un
          # coup d'oeil et se corrige en relancant la personne.
          "totp": bool(c.get("totp")),
+         # Le nombre de cles, pas les cles : l'administrateur doit pouvoir
+         # constater qu'un compte en a (et les retirer si l'appareil est
+         # perdu), pas les lire.
+         "passkeys": len(lire_passkeys().get(nom, [])),
          "email": c.get("email") or "",
          "email_verifie": bool(c.get("email_verifie")),
          # Un compte cree librement qui n'a pas encore confirme son adresse
@@ -3023,6 +3042,19 @@ def api_utilisateur_modifier(nom):
     if d.get("reinitialiser_totp"):
         compte.pop("totp", None)
 
+    # Appareil perdu : l'administrateur pouvait deja remettre le second
+    # facteur a zero, mais pas retirer les cles d'acces -- le compte restait
+    # ouvrable par un telephone egare. Meme geste, meme raison.
+    if d.get("retirer_passkeys"):
+        tout = lire_passkeys()
+        if tout.pop(nom, None) is not None:
+            try:
+                ecrire_passkeys(tout)
+            except OSError as e:
+                return jsonify({"error": f"Cles non retirees : {e}"}), 500
+            journaliser("passkey", qui=nom, action="retrait par l'administrateur",
+                        ip=_adresse_client())
+
     try:
         ecrire_utilisateurs(comptes)
     except OSError as e:
@@ -3041,6 +3073,17 @@ def api_utilisateur_supprimer(nom):
         ecrire_utilisateurs(comptes)
     except OSError as e:
         return jsonify({"error": f"Compte non supprime : {e}"}), 500
+
+    # Les cles d'acces partent avec le compte. Les laisser serait pire qu'un
+    # oubli de menage : recreer un compte du meme nom lui rendrait les cles
+    # de l'ancien, et l'appareil de la personne partie rouvrirait la porte.
+    cles = lire_passkeys()
+    if cles.pop(nom, None) is not None:
+        try:
+            ecrire_passkeys(cles)
+        except OSError as e:
+            return jsonify({"error": f"Compte supprime, mais ses cles d'acces "
+                                     f"n'ont pas pu etre retirees : {e}"}), 500
     # La session de ce compte, si elle existe, tombera d'elle-meme : chaque
     # controle relit le registre, et un compte absent n'autorise plus rien.
     return jsonify({"ok": True})

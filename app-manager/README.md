@@ -208,9 +208,10 @@ comprendre — c'est le role qui decide de ce que le menu propose en plus :
   l'administrateur y voit tous les projets, l'utilisateur seulement les siens).
 - **Le menu lateral**, administrateur seulement — la vue d'ensemble, les applications (et la fiche
   d'un projet avec ses journaux), et les **utilisateurs**.
-- **Le menu du compte**, en haut a droite — **Parametres** (l'affichage, le second facteur, la
-  session) pour tout le monde ; **Configuration** (exposition, comptes, alertes) pour
-  l'administrateur seul.
+- **Le menu du compte**, en haut a droite — **Parametres**, une seule entree pour tout le monde.
+  Derriere, des onglets, en haut de la page : *Compte* (affichage, adresse mail, session) et
+  *Securite* (second facteur, cles d'acces) pour chacun ; *Serveur*, *Categories*, *E-mail* et
+  *Alertes* pour l'administrateur seul.
 
 Le role est injecte dans la page pour qu'elle sache quoi afficher, mais **ce n'est qu'un confort
 d'affichage** : chaque route d'administration verifie le role de son cote (`require_admin`), et une
@@ -219,7 +220,20 @@ page bricolee dans le navigateur ne donne aucun droit supplementaire.
 `/espace`, l'ancienne adresse de l'espace utilisateur, redirige vers `/` : elle a pu etre mise en
 favori.
 
-Les comptes se creent depuis **Utilisateurs**, dans le menu lateral. Chacun porte la liste des projets qu'il peut
+Les comptes se creent depuis **Utilisateurs**, dans le menu lateral. La liste donne l'essentiel d'un
+coup d'oeil — ce qui empeche quelqu'un d'entrer en premier, et en rouge — et **« Modifier » ouvre la
+fiche du compte** : adresse mail, nouveau mot de passe, projets autorises, remise a zero du second
+facteur, retrait des cles d'acces, suppression.
+
+**Le nom, lui, ne se change pas** : il identifie la personne partout — dans ses cles d'acces, dans le
+journal des acces, dans la liste des projets autorises. Pour renommer quelqu'un, on cree un compte
+et on supprime l'ancien.
+
+**Supprimer un compte emporte ses cles d'acces.** Les laisser serait pire qu'un oubli de menage :
+recreer un compte du meme nom lui rendrait les cles de l'ancien, et l'appareil de la personne partie
+rouvrirait la porte.
+
+Chaque compte porte la liste des projets qu'il peut
 ouvrir ; la retirer prend effet immediatement, sans deconnexion — chaque controle relit le registre.
 
 Trois points meritent d'etre explicites :
@@ -310,7 +324,7 @@ possession, et l'empreinte (ou le code de l'appareil) prouve la personne. Rien a
 recopier — et **rien a hameconner**, puisque la cle ne signe que pour le domaine qui l'a
 enregistree.
 
-Elle s'ajoute depuis *Parametres > Cles d'acces*, une fois connecte : on enregistre une cle sur le
+Elle s'ajoute depuis *Parametres > Securite*, une fois connecte : on enregistre une cle sur le
 compte qu'on occupe deja. Plusieurs cles par compte (telephone, ordinateur), retirables une par une.
 
 **L'enregistrement exige la verification d'utilisateur** (`user_verification: required`) : sans
@@ -346,7 +360,7 @@ un projet par un simple lien. Tant que ce serveur n'est joignable que depuis ton
 promet une ouverture qui n'existe pas — il ne retire que l'authentification, sans rien partager.
 
 Le panneau **ne propose donc pas de rendre une application publique tant qu'aucune adresse publique
-n'est declaree** (*Configuration > Serveur > Adresse publique*), et la route refuse aussi le
+n'est declaree** (*Parametres > Serveur > Adresse publique*), et la route refuse aussi le
 changement. Trois consequences, voulues :
 
 - une application **deja publique** n'est pas touchee, et peut toujours etre **refermee** — on ne
@@ -393,7 +407,7 @@ Une categorie est un intitule libre — « Outils », « Sites », « Donnees »
 dans le hub**, et rien d'autre : elle ne donne aucun droit, ne change rien au deploiement et
 n'apparait pas dans le proxy. C'est du rangement.
 
-- La liste se tient dans **Configuration > Categories**. Son ordre est l'ordre d'affichage des
+- La liste se tient dans **Parametres > Categories**. Son ordre est l'ordre d'affichage des
   groupes : on la range, on n'impose pas un tri alphabetique.
 - La categorie d'un projet se choisit dans sa fiche, onglet **Configuration**, parmi cette liste.
 - Un projet sans categorie apparait a la fin, sous **Autres**. Tant qu'aucune categorie n'existe, le
@@ -406,13 +420,35 @@ categorie disparue — il serait range dans un tiroir que le hub n'affiche plus,
 La liste vit dans `categories.json` (dans `STATE_DIR`), a cote de `apps.json` : une categorie existe
 avant qu'un projet la porte, et survit a la suppression du dernier projet qui l'utilisait.
 
+## Le serveur d'envoi, et les alertes
+
+Ce sont **deux choses**, et elles ont chacune leur onglet.
+
+Le **serveur d'envoi** (*Parametres > E-mail*) est une fourniture partagee : hote, port,
+chiffrement, identifiant. Trois usages en dependent — les **alertes**, les **codes de verification**
+des adresses des comptes, et l'**inscription libre**, qui reste fermee tant qu'aucun serveur n'est
+configure faute de pouvoir verifier une adresse.
+
+Les **alertes** (*Parametres > Alertes*) n'en sont qu'un usage : qui prevenir, et l'interrupteur.
+
+Melangees dans une seule carte, elles donnaient un etat faux : un serveur parfaitement configure
+s'affichait « incomplet — il manque : destinataires » tant qu'aucune alerte n'etait reglee, alors
+qu'il envoyait tres bien les codes de verification. Chaque onglet ne signale desormais que ce qui
+lui manque a lui.
+
+Le **mail de test** vit avec le serveur, et accepte une adresse : on verifie l'envoi sans avoir a
+regler une alerte d'abord. Laisse le champ vide et il part aux destinataires des alertes, comme
+avant. Les deux onglets ecrivent le meme bloc de `credentials.env` — enregistrer depuis l'un
+n'efface pas ce qui est regle dans l'autre.
+
 ## Alertes par mail
 
 Le panneau redemarre deja tout seul une application qui plante — mais il fallait avoir le panneau
 sous les yeux pour le savoir. Une application qui tombe la nuit reste tombee jusqu'a ce qu'on pense
 a regarder.
 
-**Parametres > Alertes** : destinataires, serveur d'envoi, mail de test, interrupteur.
+**Parametres > Alertes** : destinataires et interrupteur. Le serveur d'envoi et le mail de test
+vivent dans l'onglet **E-mail**, juste a cote.
 
 Ce qui declenche un mail, et ce qui n'en declenche pas :
 
@@ -555,6 +591,8 @@ qui n'est pas implemente ici.
 | `/login/passkey/options` | POST | **non** | Prepare une connexion par cle d'acces |
 | `/login/passkey` | POST | **non** | Ouvre la session si la signature est bonne |
 | `/api/securite/exposition` | PUT | oui | Declare (ou retire) l'adresse publique du serveur |
+| `/api/utilisateurs` | GET / POST | oui | Les comptes (sans rien qui ressemble a un mot de passe) ; en cree un |
+| `/api/utilisateurs/<nom>` | PUT / DELETE | oui | Modifie un compte (projets, adresse, mot de passe, remise a zero du second facteur, retrait des cles) ; le supprime, avec ses cles |
 | `/api/activite` | GET | oui | Journal des acces et son resume (**administrateur**) |
 | `/api/mon-compte` | GET | oui | Ce que la session dit d'elle-meme : nom, role, adresse et son etat |
 | `/api/mon-compte/email` | POST | oui | Declare ou change sa propre adresse, et envoie un code |
@@ -696,6 +734,20 @@ d'ou constater ce qui se passe. Un build en echec n'empeche pas le demarrage : l
    au demarrage suivant.
 
 Supprimer le marqueur autorise une nouvelle inscription, a condition que le panneau soit vide.
+
+## Ce que l'interface ne fait pas
+
+Trois habitudes tenues, parce qu'elles se perdent vite :
+
+- **Aucune boite du systeme.** `alert()`, `confirm()` et `prompt()` sortent de l'interface, bloquent
+  la page et proposent un bouton « OK » qui ne dit pas ce qu'il fait. Les questions passent par une
+  confirmation dont le bouton porte le verbe (« Supprimer », « Retirer »), les echecs par une
+  notification en bas a droite.
+- **Aucun intitule qui repete son voisin.** Un titre de groupe « PREFERENCES » au-dessus d'une carte
+  « Apparence » n'apprend rien : dans les onglets des parametres, l'onglet nomme la famille et la
+  carte nomme le reglage.
+- **Un bouton desactive se voit desactive**, et l'anneau de focus ne suit que la navigation au
+  clavier (`:focus-visible`) — un contour apres chaque clic de souris passe pour un defaut.
 
 ## Identite visuelle
 
