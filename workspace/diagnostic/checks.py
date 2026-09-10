@@ -7,6 +7,7 @@ connect_pg(), qui accepte psycopg (v3, installe par la commande de build de
 l'application) ou psycopg2 (deja present dans l'image Dagster via
 dagster-postgres).
 """
+import json
 import os
 import socket
 import stat
@@ -588,6 +589,69 @@ def check_exposition():
     return True, "exposition", f"publie sur {publique}, cookie Secure, adresse reelle des visiteurs"
 
 
+def check_provenance():
+    """D'ou t'a-t-on reellement atteint ?
+
+    C'est la question a laquelle un pare-feu repond en la fermant. Ici on ne
+    la ferme pas -- un conteneur ne peut pas poser de regles sur l'hote sans
+    qu'on lui donne le reseau de l'hote et CAP_NET_ADMIN, c'est-a-dire sans
+    defaire tout le durcissement -- mais on la POSE, ce qui est deja ce qui
+    manquait : personne ne regarde les adresses du journal, et une machine
+    qui gagne une interface a laquelle personne ne pense ne previent pas.
+
+    La regle est celle du bon sens : des adresses publiques sont normales sur
+    une stack declaree publique, et anormales sur une stack censee rester a
+    la maison.
+    """
+    import ipaddress
+    etat = os.environ.get("APP_MANAGER_STATE") or "/var/lib/codelab/app-manager"
+    journal = os.path.join(etat, "acces.jsonl")
+    if not os.path.exists(journal):
+        return True, "provenance des connexions", "aucune connexion enregistree pour l'instant"
+    try:
+        with open(journal, errors="replace") as f:
+            lignes = f.readlines()[-2000:]
+    except OSError as e:
+        return True, "provenance des connexions", f"journal illisible ici ({e})"
+
+    dehors, dedans = {}, 0
+    for ligne in lignes:
+        try:
+            ip = json.loads(ligne).get("ip") or ""
+        except ValueError:
+            continue
+        if not ip:
+            continue
+        try:
+            adr = ipaddress.ip_address(ip)
+        except ValueError:
+            continue
+        # is_global et non is_private : "prive" englobe aussi les plages de
+        # documentation (203.0.113.0/24, 198.51.100.0/24), qui ne sont pas
+        # celles d'un reseau domestique. La question posee ici est "cette
+        # adresse est-elle routable depuis Internet ?", et c'est exactement
+        # ce que is_global repond.
+        if adr.is_global:
+            dehors[ip] = dehors.get(ip, 0) + 1
+        else:
+            dedans += 1
+
+    publique = (os.environ.get("APP_MANAGER_PUBLIC_URL") or "").strip()
+    if not dehors:
+        return (True, "provenance des connexions",
+                f"{dedans} connexions, toutes depuis le reseau local")
+    resume = ", ".join(f"{ip} ({n}x)" for ip, n in
+                       sorted(dehors.items(), key=lambda x: -x[1])[:3])
+    if publique:
+        return (True, "provenance des connexions",
+                f"{dedans} depuis le reseau local, {sum(dehors.values())} depuis "
+                f"l'exterieur -- attendu, la stack est publiee sur {publique}")
+    return (False, "provenance des connexions",
+            f"des connexions viennent de l'EXTERIEUR alors qu'aucune adresse "
+            f"publique n'est declaree : {resume}. Verifie ce que ta box "
+            f"redirige, et borne les ports au reseau local.")
+
+
 def check_isolation():
     """Une application peut-elle voir les fichiers d'une autre ?
 
@@ -631,4 +695,5 @@ def run_all(env_file=None, workspace=None, ssh_dir=None):
         check_origine_applications(),
         check_exposition(),
         check_isolation(),
+        check_provenance(),
     ]
