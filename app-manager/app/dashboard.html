@@ -244,6 +244,32 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 .btn-default:hover{border-color:var(--accent);color:var(--accent)}
 .btn-quiet{background:transparent;color:var(--dim)}
 .btn-quiet:hover{color:var(--accent);background:var(--accent-soft)}
+
+/* ------------------ boutons d'action d'une application ------------------
+   Les actions d'un projet ne se valent pas : demarrer et arreter changent
+   son etat, deployer met du code en ligne, build et redemarrer ne font que
+   rejouer quelque chose. Elles portaient toutes le meme gris, et il fallait
+   lire chaque libelle pour distinguer celle qu'on cherchait.
+   Chacune prend donc la couleur de ce qu'elle FAIT -- les memes couleurs
+   d'etat que les pastilles, pour qu'un vert veuille dire la meme chose
+   partout dans l'interface. L'accent, lui, reste a l'action principale.
+   Fond plein pour ce qui change l'etat, contour pour ce qui le repete :
+   trois blocs de couleur cote a cote ne hierarchisent plus rien. */
+.btn-demarrer{background:var(--ok);color:#fff}
+.btn-demarrer:hover{filter:brightness(1.08)}
+.btn-arreter{background:var(--surface);color:var(--err);border-color:var(--err-border)}
+.btn-arreter:hover{background:var(--err-bg);border-color:var(--err);color:var(--err-txt)}
+.btn-refaire{background:var(--surface);color:var(--txt);border-color:var(--line2)}
+.btn-refaire:hover{border-color:var(--warn);color:var(--warn);background:var(--warn-bg)}
+.btn-refaire svg{color:var(--warn)}
+.btn-ouvrir{background:var(--surface);color:var(--accent);border-color:var(--accent-ring)}
+.btn-ouvrir:hover{background:var(--accent-soft);border-color:var(--accent)}
+/* Les memes couleurs dans le tableau, sur les boutons a icone : c'est la
+   meme action, elle ne doit pas changer de sens en changeant de page. */
+.icon-btn.ok{color:var(--ok);border-color:var(--ok-border)}
+.icon-btn.ok:hover{background:var(--ok-bg);border-color:var(--ok);color:var(--ok)}
+.icon-btn.stop{color:var(--err);border-color:var(--err-border)}
+.icon-btn.stop:hover{background:var(--err-bg);border-color:var(--err);color:var(--err-txt)}
 .btn-danger-quiet{background:transparent;color:var(--err);border-color:var(--err-border)}
 .btn-danger-quiet:hover{background:var(--err-bg)}
 .btn-sm{padding:5px 10px;font-size:12px}
@@ -1687,7 +1713,7 @@ function render(){
       <td class="tbl-num">${(a.cpu_percent||0).toFixed(1)}%</td>
       <td class="tbl-num">${Math.round(a.memory_mb||0)} Mo</td>
       <td class="tbl-act"><div>
-        <button class="icon-btn" title="${a.running?'Arreter':'Demarrer'}"
+        <button class="icon-btn ${a.running?'stop':'ok'}" title="${a.running?'Arreter':'Demarrer'}"
           onclick="event.stopPropagation();tg('${esc(a.name)}')">
           ${a.running
             ? '<svg viewBox="0 0 24 24"><rect x="7" y="6" width="3.5" height="12" rx="1"/><rect x="13.5" y="6" width="3.5" height="12" rx="1"/></svg>'
@@ -1790,12 +1816,14 @@ function peindreFiche(){
   const svgOuvrir='<svg viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 13v6a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h6"/></svg>';
 
   const b=[];
-  b.push(`<button class="btn ${a.running?'btn-default':'btn-primary'}" onclick="tg('${esc(a.name)}')">
+  b.push(`<button class="btn ${a.running?'btn-arreter':'btn-demarrer'}" onclick="tg('${esc(a.name)}')">
     ${a.running?svgStop+'Arreter':svgPlay+'Demarrer'}</button>`);
-  b.push(`<button class="btn btn-default" onclick="restartApp('${esc(a.name)}')" ${a.running?'':'disabled'}>
+  b.push(`<button class="btn btn-refaire" onclick="restartApp('${esc(a.name)}')" ${a.running?'':'disabled'}>
     ${svgRe}Redemarrer</button>`);
-  if(a.has_build) b.push(`<button class="btn btn-default" onclick="buildApp('${esc(a.name)}')">${svgBuild}Build</button>`);
-  b.push(`<button class="btn btn-default" onclick="deployApp('${esc(a.name)}')">${svgUp}Deployer</button>`);
+  if(a.has_build) b.push(`<button class="btn btn-refaire" onclick="buildApp('${esc(a.name)}')">${svgBuild}Build</button>`);
+  /* Deployer met du code en ligne : c'est l'action principale de cette
+     barre, et la seule qui garde l'accent. */
+  b.push(`<button class="btn btn-primary" onclick="deployApp('${esc(a.name)}')">${svgUp}Deployer</button>`);
   /* « Rendre publique » n'est propose que si le serveur a une adresse
      publique declaree. Sinon le mot promet un partage qui n'existe pas :
      cela ne ferait que retirer l'authentification. Le chemin qui REFERME,
@@ -1807,7 +1835,7 @@ function peindreFiche(){
     b.push(`<span class="hint" style="align-self:center;max-width:320px">Declare l'adresse
       publique du serveur (Parametres &gt; Serveur) pour pouvoir partager une application.</span>`);
   }
-  if(a.running) b.push(`<a class="btn btn-quiet" href="/${encodeURIComponent(a.name)}/" target="_blank">${svgOuvrir}Ouvrir</a>`);
+  if(a.running) b.push(`<a class="btn btn-ouvrir" href="/${encodeURIComponent(a.name)}/" target="_blank">${svgOuvrir}Ouvrir</a>`);
   $('fa-actions').innerHTML=b.join('');
 }
 
