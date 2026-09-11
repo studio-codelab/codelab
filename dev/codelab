@@ -2,6 +2,7 @@
 # codelab -- outil de projet du conteneur codelab-dev.
 #
 #   codelab new <nom>         cree un projet pret a travailler
+#     ... --ouvrir             et rouvre la fenetre VS Code dessus
 #   codelab db <nom>          cree la base du projet et son schema "dagster"
 #   codelab agents [dossier]  ecrit le manuel CodeLab dans le AGENTS.md du projet
 #
@@ -19,7 +20,8 @@ usage() {
 usage: codelab <commande> [argument]
 
   new <nom> [--db]    cree le projet : dossier, git, .gitignore, AGENTS.md
-                      (--db cree aussi sa base de donnees)
+       [--ouvrir]     (--db cree aussi sa base de donnees ; --ouvrir rouvre la
+                      fenetre VS Code sur le nouveau projet)
   db <nom>            cree la base "<nom>" et son schema "dagster" (idempotent)
   agents [dossier]    ecrit le manuel CodeLab dans le AGENTS.md du projet
                       (defaut : le dossier courant)
@@ -34,12 +36,63 @@ AIDE
 # vite" telecharge, pose des questions et evolue a son rythme ; le reproduire
 # ici vieillirait mal. La commande l'affiche en piste suivante, c'est tout.
 
+# Rouvre la fenetre VS Code sur un dossier -- quand il y en a une.
+#
+# COMMENT CELA MARCHE. La fenetre VS Code qui tourne sur le poste de travail
+# expose une socket a l'interieur du conteneur ; son chemin arrive dans
+# VSCODE_IPC_HOOK_CLI. Le petit executable "code" pose par le serveur
+# distant (son "remote-cli") parle a la fenetre a travers cette socket.
+#
+# Deux conditions, donc, et aucune n'est garantie : la variable, qui manque
+# des qu'on est dans une session SSH ordinaire, et l'executable, dont le
+# chemin contient l'empreinte de la version du serveur.
+#
+# RIEN ICI NE DOIT FAIRE ECHOUER LA COMMANDE. Le projet est deja cree quand
+# on arrive : ouvrir la fenetre est un confort. Un echec se raconte, il ne
+# se propage pas -- sinon "codelab new" sortirait en erreur sur un projet
+# parfaitement valide, et la prochaine fois on ne saurait plus si le projet
+# a ete cree ou non.
+ouvrir_dans_vscode() {
+  dossier="$1"
+
+  if [ -z "${VSCODE_IPC_HOOK_CLI:-}" ]; then
+    echo "[codelab]   aucune fenetre VS Code a rouvrir (session SSH simple)."
+    return 0
+  fi
+
+  outil="$(command -v code 2>/dev/null || true)"
+  if [ -z "$outil" ] || [ ! -x "$outil" ]; then
+    # Le serveur distant s'installe sous un dossier portant l'empreinte de
+    # sa version. On prend le plus recent plutot que d'en figer une : elle
+    # change a chaque mise a jour de VS Code.
+    outil=""
+    for candidat in $(ls -1dt "$HOME"/.vscode-server/bin/*/bin/remote-cli/code 2>/dev/null); do
+      if [ -x "$candidat" ]; then outil="$candidat"; break; fi
+    done
+  fi
+
+  if [ -z "$outil" ]; then
+    echo "[codelab]   VS Code est la, mais son outil \"code\" reste introuvable :"
+    echo "[codelab]   ouvre le dossier a la main ($dossier)."
+    return 0
+  fi
+
+  echo "[codelab]   ouverture de la fenetre sur $dossier"
+  "$outil" --reuse-window "$dossier" || {
+    echo "[codelab]   VS Code n'a pas repondu : ouvre le dossier a la main."
+    return 0
+  }
+}
+
+
 cmd_new() {
   projet=""
   avec_db=0
+  ouvrir=0
   for arg in "$@"; do
     case "$arg" in
       --db) avec_db=1 ;;
+      --ouvrir) ouvrir=1 ;;
       -*)   echo "codelab new: option inconnue \"$arg\"." >&2; exit 2 ;;
       *)    [ -z "$projet" ] || { usage; exit 2; }; projet="$arg" ;;
     esac
@@ -98,6 +151,12 @@ README
   [ "$avec_db" -eq 1 ] || echo "[codelab]   base de donnees : codelab db $projet"
   echo "[codelab]   projet web    : cd $DOSSIER && npm create vite@latest ."
   echo "[codelab]   puis declare-le dans le panneau (port 9001)."
+
+  # En dernier, volontairement : rouvrir la fenetre remplace la vue courante,
+  # et les lignes ci-dessus doivent avoir ete ecrites avant.
+  if [ "$ouvrir" -eq 1 ]; then
+    ouvrir_dans_vscode "$DOSSIER"
+  fi
 }
 
 

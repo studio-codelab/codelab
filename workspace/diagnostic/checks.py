@@ -709,16 +709,39 @@ def check_isolation():
     controle donc les conditions de l'isolement, pas son propre bac.
     """
     import shutil
+    import subprocess
     actif = os.environ.get("APP_MANAGER_ISOLER", "1").lower() not in ("0", "false", "no")
-    outil = shutil.which("unshare")
     if not actif:
         return (False, "isolation des applications",
                 "APP_MANAGER_ISOLER coupe : chaque application voit les "
                 "fichiers de toutes les autres")
-    if not outil:
+    if shutil.which("unshare") is None:
         return (False, "isolation des applications",
                 "unshare absent de l'image : les applications demarrent, mais "
                 "sans etre isolees les unes des autres")
+
+    # On EXECUTE, on ne se contente pas de trouver le binaire. unshare vient
+    # de util-linux : il est toujours la. Ce qui manque, sur les machines ou
+    # l'isolement echoue, c'est l'autorisation du noyau -- et elle ne se lit
+    # pas dans un chemin d'acces.
+    try:
+        essai = subprocess.run(
+            ["unshare", "--user", "--map-root-user", "--mount", "true"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=10)
+        refus = (essai.stderr or b"").decode("utf-8", "replace").strip()
+        ok = essai.returncode == 0
+    except (OSError, subprocess.SubprocessError) as e:
+        ok, refus = False, str(e)
+
+    if not ok:
+        return (False, "isolation des applications",
+                "le noyau refuse de creer un namespace utilisateur (%s). Les "
+                "applications demarrent, mais sans etre isolees. Sur l'hote : "
+                "sysctl -w kernel.unprivileged_userns_clone=1 et "
+                "user.max_user_namespaces=15000. Pour assumer le choix et "
+                "faire taire cette sonde : APP_MANAGER_ISOLER=0"
+                % (refus or "raison inconnue"))
+
     return (True, "isolation des applications",
             "chaque application ne voit que son propre projet "
             "(ce diagnostic excepte : il doit voir l'ensemble)")
@@ -1119,6 +1142,15 @@ def _bac_a_sable(tmp_path, monkeypatch):
         assert str(tmp_path) in valeur, f"{nom} pointe encore vers {valeur}"
     # Le cache du registre garde les valeurs de l'ancien chemin.
     app._apps_cache["signature"] = None
+    # isolement_disponible() garde son verdict, et il LANCE UN PROCESS
+    # pour le calculer. Deux raisons de le fixer ici : un test qui
+    # simule un noyau qui refuse ne doit pas contaminer les suivants,
+    # et aucun test ne doit lancer unshare sans le vouloir -- ceux qui
+    # remplacent Popen s'y casseraient. Repli par defaut, donc : la
+    # valeur sure. Les trois tests qui portent sur la detection
+    # elle-meme remettent None, ceux qui veulent la branche isolee
+    # posent True.
+    app._isolement.update(verdict=False, raison="fixe par le filet")
     yield
 
 
@@ -1148,6 +1180,251 @@ def test_le_filet_detourne_bien_tous_les_chemins():
 # Il lit le jeton dans la session, exactement comme la page le lit dans le
 # HTML servi. Ce qui n'est PAS teste par ce client -- l'absence de jeton, un
 # jeton faux -- l'est explicitement, plus bas, section 22.
+# ---------- l'isolement se detecte en l'essayant, pas en le cherchant -----
+#
+# Vecu sur une vraie machine : "unshare -Ur true" repondait "Operation not
+# permitted", et le panneau lancait quand meme les applications derriere
+# unshare -- donc aucune ne demarrait. La detection cherchait le BINAIRE.
+# unshare vient de util-linux : il est toujours present. Ce qui manquait,
+# c'etait l'autorisation du noyau, et elle ne se lit pas dans un PATH.
+#
+# Les deux tests posent un faux unshare en tete de PATH : l'un refuse comme
+# le noyau refusait, l'autre accepte. La detection doit les distinguer.
+
+def _faux_unshare(tmp_path, code, message=""):
+    dossier = tmp_path / "_faux-bin"
+    dossier.mkdir(exist_ok=True)
+    outil = dossier / "unshare"
+    outil.write_text("#!/bin/sh\n"
+                     + (("echo '%s' >&2\n" % message) if message else "")
+                     + "exit %d\n" % code)
+    outil.chmod(0o755)
+    return str(dossier)
+
+
+def test_un_noyau_qui_refuse_fait_tomber_l_isolement(tmp_path, monkeypatch):
+    monkeypatch.setenv("PATH", _faux_unshare(
+        tmp_path, 1, "unshare: unshare failed: Operation not permitted")
+        + os.pathsep + os.environ["PATH"])
+    app._isolement.update(verdict=None, raison="")
+
+    assert app.isolement_disponible() is False
+    assert "Operation not permitted" in app._isolement["raison"]
+
+    # Et surtout : la commande construite doit etre la commande ORDINAIRE.
+    # C'est ce qui fait la difference entre une application qui demarre sans
+    # isolement et une application qui ne demarre pas du tout.
+    argv, env = app.commande_isolee("mon-projet", "/workspace/mon-projet",
+                                    "python app.py")
+    assert argv[0] != "unshare", argv
+    assert argv == ["bash", "-lc", "python app.py"]
+    assert env == {}
+
+
+def test_un_noyau_qui_accepte_garde_l_isolement(tmp_path, monkeypatch):
+    monkeypatch.setenv("PATH", _faux_unshare(tmp_path, 0)
+                       + os.pathsep + os.environ["PATH"])
+    app._isolement.update(verdict=None, raison="")
+
+    assert app.isolement_disponible() is True
+
+    argv, env = app.commande_isolee("mon-projet", "/workspace/mon-projet",
+                                    "python app.py")
+    assert argv[0] == "unshare", argv
+    assert env["CODELAB_COMMANDE"] == "python app.py"
+
+
+def test_la_sonde_du_diagnostic_voit_le_refus_du_noyau(tmp_path, monkeypatch):
+    """La sonde se trompait de la meme facon : elle affichait vert sur une
+    machine ou aucune application ne pouvait demarrer."""
+    monkeypatch.setenv("PATH", _faux_unshare(
+        tmp_path, 1, "unshare: unshare failed: Operation not permitted")
+        + os.pathsep + os.environ["PATH"])
+    monkeypatch.delenv("APP_MANAGER_ISOLER", raising=False)
+
+    ok, _nom, detail = check_isolation()
+    assert ok is False
+    assert "namespace utilisateur" in detail
+    assert "kernel.unprivileged_userns_clone" in detail
+
+
+# ------------- "codelab new --ouvrir" rouvre la fenetre VS Code -----------
+#
+# La tache VS Code « CodeLab : nouveau projet » cree le projet PUIS demande a
+# la fenetre de se rouvrir dessus. Ce qui se teste ici, c'est la partie
+# fragile : la fenetre ne repond pas toujours, et surtout elle n'existe pas
+# toujours -- une session SSH ordinaire n'en a aucune. Dans tous ces cas le
+# projet doit rester cree et la commande sortir sans erreur : ouvrir est un
+# confort, pas une etape du travail.
+#
+# Le vrai "code" du serveur VS Code ne peut pas tourner ici. On le remplace
+# par un script qui note ce qu'on lui a demande : ce qu'on verifie, c'est
+# l'appel emis, la ou le reste (la socket, la fenetre) appartient a VS Code.
+
+CHEMINS_OUTIL_CODELAB = [
+    "/usr/local/bin/codelab",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__)))), "dev", "codelab"),
+]
+
+
+def _outil_codelab():
+    for chemin in CHEMINS_OUTIL_CODELAB:
+        if os.path.exists(chemin):
+            return chemin
+    return None
+
+
+def _lancer_codelab(tmp_path, args, env_sup=None):
+    import subprocess
+    outil = _outil_codelab()
+    if outil is None:
+        pytest.skip("l'outil codelab n'est pas la (image sans le conteneur dev)")
+
+    espace = tmp_path / "ws"
+    espace.mkdir(exist_ok=True)
+    manuel = tmp_path / "AGENTS-source.md"
+    manuel.write_text("# Manuel CodeLab\n")
+
+    env = dict(os.environ)
+    env.update({"CODELAB_WORKSPACE": str(espace),
+                "CODELAB_AGENTS_SOURCE": str(manuel),
+                "HOME": str(tmp_path / "home")})
+    env.pop("VSCODE_IPC_HOOK_CLI", None)
+    env.update(env_sup or {})
+    (tmp_path / "home").mkdir(exist_ok=True)
+
+    r = subprocess.run(["sh", outil] + args, capture_output=True, text=True,
+                       env=env, timeout=120)
+    return r, espace
+
+
+def _faux_code(tmp_path, code=0):
+    """Un faux "code" qui ecrit ce qu'on lui demande dans un fichier."""
+    dossier = tmp_path / "_faux-vscode"
+    dossier.mkdir(exist_ok=True)
+    trace = tmp_path / "appel-code.txt"
+    outil = dossier / "code"
+    # Ecrit sans %-formatage : le script shell contient lui-meme des "%s"
+    # (ceux de printf), et les melanger donnait un TypeError obscur.
+    outil.write_text("#!/bin/sh\n"
+                     'printf "%s\\n" "$*" >> ' + '"' + str(trace) + '"\n'
+                     "exit " + str(code) + "\n")
+    outil.chmod(0o755)
+    return str(dossier), trace
+
+
+def test_nouveau_projet_avec_ouvrir_demande_la_reouverture(tmp_path):
+    chemin, trace = _faux_code(tmp_path)
+    r, espace = _lancer_codelab(
+        tmp_path, ["new", "facturier", "--ouvrir"],
+        {"PATH": chemin + os.pathsep + os.environ["PATH"],
+         "VSCODE_IPC_HOOK_CLI": "/tmp/une-socket-vscode.sock"})
+
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (espace / "facturier").is_dir(), "le projet doit exister"
+    assert trace.exists(), ("aucune demande d'ouverture : " + r.stdout + r.stderr)
+    demande = trace.read_text().strip()
+    assert "--reuse-window" in demande, demande
+    assert str(espace / "facturier") in demande, demande
+
+
+def test_sans_ouvrir_la_fenetre_ne_bouge_pas(tmp_path):
+    """Le drapeau doit etre la seule chose qui declenche l'ouverture : lancer
+    la commande a la main dans un terminal ne doit pas faire sauter la vue."""
+    chemin, trace = _faux_code(tmp_path)
+    r, espace = _lancer_codelab(
+        tmp_path, ["new", "facturier"],
+        {"PATH": chemin + os.pathsep + os.environ["PATH"],
+         "VSCODE_IPC_HOOK_CLI": "/tmp/une-socket-vscode.sock"})
+
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (espace / "facturier").is_dir()
+    assert not trace.exists(), "la fenetre a bouge alors qu'on ne l'a pas demande"
+
+
+def test_sans_fenetre_vscode_le_projet_est_quand_meme_cree(tmp_path):
+    """Session SSH ordinaire : il n'y a aucune fenetre a qui parler. Ce n'est
+    pas une erreur, et cela doit se dire."""
+    chemin, trace = _faux_code(tmp_path)
+    r, espace = _lancer_codelab(
+        tmp_path, ["new", "facturier", "--ouvrir"],
+        {"PATH": chemin + os.pathsep + os.environ["PATH"]})
+
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (espace / "facturier").is_dir()
+    assert not trace.exists(), "rien ne devait etre demande sans socket"
+    assert "session SSH simple" in r.stdout, r.stdout
+
+
+def test_une_fenetre_qui_ne_repond_pas_ne_casse_pas_la_creation(tmp_path):
+    """Le cas qui compte : le projet est deja sur le disque quand on tente
+    d'ouvrir. Une commande qui sortirait en erreur ici laisserait croire que
+    la creation a echoue."""
+    chemin, trace = _faux_code(tmp_path, code=1)
+    r, espace = _lancer_codelab(
+        tmp_path, ["new", "facturier", "--ouvrir"],
+        {"PATH": chemin + os.pathsep + os.environ["PATH"],
+         "VSCODE_IPC_HOOK_CLI": "/tmp/une-socket-vscode.sock"})
+
+    assert r.returncode == 0, (
+        "le projet est cree : un echec d'ouverture ne doit pas faire echouer "
+        "la commande\n" + r.stdout + r.stderr)
+    assert (espace / "facturier").is_dir()
+    assert trace.exists(), "l'ouverture devait avoir ete tentee"
+    assert "a la main" in r.stdout, r.stdout
+
+
+def test_code_est_retrouve_sous_vscode_server_hors_du_path(tmp_path):
+    """Selon comment la tache est lancee, "code" n'est pas toujours dans le
+    PATH. Le serveur VS Code le pose sous un dossier qui porte l'empreinte de
+    sa version -- elle change a chaque mise a jour, donc on cherche le plus
+    recent au lieu d'en figer un."""
+    maison = tmp_path / "home"
+    maison.mkdir(exist_ok=True)
+    trace = tmp_path / "appel-code.txt"
+    for empreinte, age in (("vieux0000", 100000), ("recent1111", 0)):
+        d = maison / ".vscode-server" / "bin" / empreinte / "bin" / "remote-cli"
+        d.mkdir(parents=True)
+        outil = d / "code"
+        outil.write_text("#!/bin/sh\n"
+                         'printf "%s %s\\n" ' + '"' + empreinte + '" "$*" >> '
+                         + '"' + str(trace) + '"\n' + "exit 0\n")
+        outil.chmod(0o755)
+        os.utime(outil, (time.time() - age, time.time() - age))
+
+    # PATH volontairement ampute de "code" : c'est tout l'objet du test.
+    vide = tmp_path / "_path-sans-code"
+    vide.mkdir(exist_ok=True)
+    r, espace = _lancer_codelab(
+        tmp_path, ["new", "facturier", "--ouvrir"],
+        {"PATH": str(vide) + os.pathsep + "/usr/bin" + os.pathsep + "/bin",
+         "VSCODE_IPC_HOOK_CLI": "/tmp/une-socket-vscode.sock"})
+
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (espace / "facturier").is_dir()
+    assert trace.exists(), ("le code de .vscode-server n'a pas ete trouve : "
+                            + r.stdout + r.stderr)
+    assert "recent1111" in trace.read_text(), (
+        "c'est le plus RECENT qu'il faut prendre : " + trace.read_text())
+
+
+def test_les_taches_vscode_passent_bien_le_drapeau():
+    """Le drapeau peut etre parfait et ne servir a rien si la tache ne le
+    passe pas. C'est la jointure qui casse en silence."""
+    taches = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          os.pardir, ".vscode", "tasks.json")
+    if not os.path.exists(taches):
+        pytest.skip("tasks.json absent de cette image")
+    contenu = open(taches, encoding="utf-8").read()
+    lignes = [l for l in contenu.splitlines() if '"command"' in l
+              and "codelab new" in l]
+    assert lignes, "aucune tache de creation de projet trouvee"
+    for ligne in lignes:
+        assert "--ouvrir" in ligne, (
+            "cette tache cree le projet sans rouvrir la fenetre : " + ligne)
+
+
 # ------------- ce fichier doit rester importable sans pytest --------------
 #
 # Regression vecue : "import pytest" en tete de fichier, puis une classe
@@ -3406,6 +3683,9 @@ def test_l_adresse_declaree_prend_le_pas_sur_le_port(deux_origines, monkeypatch)
 def test_la_commande_est_enveloppee_par_defaut(monkeypatch):
     monkeypatch.setattr(app, "ISOLER_APPS", True)
     monkeypatch.setattr(app.shutil, "which", lambda n: "/usr/bin/" + n)
+    # Verdict fixe : ce test porte sur le branchement, pas sur le
+    # noyau de la machine qui lance la suite.
+    app._isolement.update(verdict=True, raison="")
     argv, env = app.commande_isolee("facturier", "/workspace/facturier", "npm start", {})
     assert argv[0] == "unshare"
     # --user : c'est ce qui evite d'avoir besoin de CAP_SYS_ADMIN, donc de
@@ -3432,6 +3712,9 @@ def test_sans_unshare_l_application_demarre_quand_meme(monkeypatch):
 
 def test_l_isolation_se_coupe_par_application_et_globalement(monkeypatch):
     monkeypatch.setattr(app.shutil, "which", lambda n: "/usr/bin/" + n)
+    # Verdict fixe : ce test porte sur le branchement, pas sur le
+    # noyau de la machine qui lance la suite.
+    app._isolement.update(verdict=True, raison="")
     monkeypatch.setattr(app, "ISOLER_APPS", True)
     apps = {"facturier": {"path": "/w/f", "isolation": False}}
     argv, _ = app.commande_isolee("facturier", "/w/f", "x", apps)
@@ -3455,8 +3738,12 @@ def test_une_application_isolee_ne_voit_plus_sa_voisine(tmp_path, monkeypatch):
     qu'elle voit. Verifier la ligne de commande ne prouverait que la ligne
     de commande."""
     import subprocess as sp
+    # Ce test-ci VEUT la vraie mesure : le filet pose un verdict de repli
+    # pour que personne ne lance unshare par accident, on le leve ici.
+    app._isolement.update(verdict=None, raison="")
     if not app.isolement_disponible():
-        pytest.skip("unshare absent")
+        pytest.skip("l'isolement ne fonctionne pas sur cette machine : "
+                    + (app._isolement["raison"] or "raison inconnue"))
     racine = tmp_path / "ws"
     (racine / "facturier").mkdir(parents=True)
     (racine / "cahier").mkdir()
@@ -3491,8 +3778,12 @@ def test_ce_qu_une_application_isolee_ecrit_arrive_sur_le_disque(tmp_path, monke
     """Une tmpfs posee au mauvais endroit ferait disparaitre le resultat de
     chaque build, en silence -- le pire defaut possible ici."""
     import subprocess as sp
+    # Ce test-ci VEUT la vraie mesure : le filet pose un verdict de repli
+    # pour que personne ne lance unshare par accident, on le leve ici.
+    app._isolement.update(verdict=None, raison="")
     if not app.isolement_disponible():
-        pytest.skip("unshare absent")
+        pytest.skip("l'isolement ne fonctionne pas sur cette machine : "
+                    + (app._isolement["raison"] or "raison inconnue"))
     racine = tmp_path / "ws"
     (racine / "facturier").mkdir(parents=True)
     _ouvrir_traversee(list(tmp_path.parents)[:3] + [tmp_path, racine])
@@ -3543,6 +3834,9 @@ def test_le_diagnostic_voit_l_ensemble_du_workspace(monkeypatch):
     d'etre : isole, il ne verrait ni /workspace/definitions.py ni les autres
     projets, et rapporterait une stack en panne alors que tout va bien."""
     monkeypatch.setattr(app.shutil, "which", lambda n: "/usr/bin/" + n)
+    # Verdict fixe : ce test porte sur le branchement, pas sur le
+    # noyau de la machine qui lance la suite.
+    app._isolement.update(verdict=True, raison="")
     monkeypatch.setattr(app, "ISOLER_APPS", True)
     argv, _ = app.commande_isolee(app.DIAGNOSTIC_NOM, "/workspace/diagnostic", "x", {})
     assert argv[0] == "bash", "le diagnostic est isole : il deviendrait aveugle"

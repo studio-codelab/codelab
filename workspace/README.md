@@ -98,7 +98,8 @@ Depose un `app.py`, puis dans le panneau `http://<IP-du-serveur>:9001/` → **Aj
 
 **Ctrl+Maj+B** cree un projet : la tache « CodeLab : nouveau projet » est declaree tache de build par
 defaut, et VS Code lui reserve ce raccourci. Les autres (`--db`, base d'un projet existant, manuel de
-l'agent) passent par **Terminal > Executer la tache...**. Une boite de dialogue demande le nom.
+l'agent) passent par **Terminal > Executer la tache...**. Une boite de dialogue demande le nom,
+puis la fenetre se rouvre directement dans le nouveau projet.
 
 Ces taches appellent l'outil `codelab` du conteneur au lieu de recopier ses commandes : la logique
 reste dans l'image, et ce fichier ne devient pas un deuxieme endroit ou la meme chose est ecrite

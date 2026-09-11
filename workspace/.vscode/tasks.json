@@ -16,9 +16,9 @@
   "tasks": [
     {
       "label": "CodeLab : nouveau projet",
-      "detail": "Dossier, depot git, .gitignore et AGENTS.md — Ctrl+Maj+B",
+      "detail": "Dossier, depot git, .gitignore, AGENTS.md — puis la fenetre se rouvre sur le projet (Ctrl+Maj+B)",
       "type": "shell",
-      "command": "codelab new '${input:projet}'",
+      "command": "codelab new '${input:projet}' --ouvrir",
       "options": { "cwd": "${workspaceFolder}" },
       "group": { "kind": "build", "isDefault": true },
       "problemMatcher": [],
@@ -26,9 +26,9 @@
     },
     {
       "label": "CodeLab : nouveau projet + base de donnees",
-      "detail": "Comme ci-dessus, avec la base du projet et son schema dagster",
+      "detail": "Comme ci-dessus, avec la base du projet et son schema dagster ; la fenetre se rouvre sur le projet",
       "type": "shell",
-      "command": "codelab new '${input:projet}' --db",
+      "command": "codelab new '${input:projet}' --db --ouvrir",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": [],
       "presentation": { "reveal": "always", "panel": "shared", "clear": true }
