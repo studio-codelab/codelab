@@ -1734,12 +1734,64 @@ exec bash -lc "$CODELAB_COMMANDE"
 """
 
 
+# Resultat du test reel, calcule une fois puis garde : lancer un process a
+# chaque demarrage d'application couterait une dizaine de millisecondes pour
+# une reponse qui ne change pas sans redemarrage du noyau.
+_isolement = {"verdict": None, "raison": ""}
+
+
 def isolement_disponible():
-    """unshare(1) est-il la ? Present dans util-linux, donc dans l'image --
-    mais on ne le suppose pas : une image reconstruite ailleurs, un systeme
-    ou les namespaces utilisateur sont desactives par le noyau, et
-    l'application doit demarrer quand meme."""
-    return shutil.which("unshare") is not None
+    """L'isolement par namespace utilisateur fonctionne-t-il VRAIMENT ici ?
+
+    La question n'est pas "unshare est-il installe" mais "le noyau
+    accepte-t-il". Les deux se separent, et c'est tout l'interet de cette
+    fonction : unshare vient de util-linux, donc il est TOUJOURS dans
+    l'image -- tandis que la creation d'un namespace utilisateur peut etre
+    refusee par la machine hote, sans que l'image n'y soit pour rien :
+
+      - kernel.unprivileged_userns_clone=0 (Debian et derives) ;
+      - user.max_user_namespaces=0 ;
+      - un profil seccomp ou AppArmor qui filtre l'appel ;
+      - un noyau compile sans CONFIG_USER_NS.
+
+    Se contenter de chercher le binaire, comme le faisait cette fonction,
+    repondait "disponible" sur ces machines : le panneau lancait alors
+    l'application derriere unshare, le noyau refusait, et RIEN NE DEMARRAIT.
+    Un repli qui ne se declenche jamais ne protege de rien.
+
+    On execute donc la vraie commande, une fois. C'est la seule reponse qui
+    ne se discute pas.
+    """
+    if _isolement["verdict"] is not None:
+        return _isolement["verdict"]
+
+    if shutil.which("unshare") is None:
+        _isolement.update(verdict=False, raison="unshare absent de l'image")
+        return False
+
+    try:
+        essai = subprocess.run(
+            ["unshare", "--user", "--map-root-user", "--mount", "true"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=10)
+        ok = essai.returncode == 0
+        raison = "" if ok else (essai.stderr or b"").decode(
+            "utf-8", "replace").strip()
+    except (OSError, subprocess.SubprocessError) as e:
+        ok, raison = False, str(e)
+
+    _isolement.update(verdict=ok, raison=raison)
+    if not ok:
+        # Bruyant, et c'est voulu : tourner sans isolement est une protection
+        # en moins. Cela doit se voir dans "docker logs", pas se deviner.
+        print("[codelab] ISOLEMENT INDISPONIBLE sur cette machine : %s.\n"
+              "[codelab] Les applications demarrent quand meme, mais SANS "
+              "etre isolees les unes des autres.\n"
+              "[codelab] Pour l'activer : autoriser les namespaces "
+              "utilisateur sur l'hote (sysctl kernel.unprivileged_userns_clone=1\n"
+              "[codelab] et user.max_user_namespaces>0). Pour ne plus voir ce "
+              "message : APP_MANAGER_ISOLER=0." % (raison or "raison inconnue"),
+              flush=True)
+    return ok
 
 
 def commande_isolee(nom, chemin, commande, apps=None):
