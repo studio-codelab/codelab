@@ -10,8 +10,31 @@ name: Analyse de securite
 # les vulnerabilites publiees APRES un push finissent par se voir : une CVE
 # ne previent pas au moment ou l'on ecrit le code concerne.
 #
-# Les resultats arrivent dans l'onglet Security du depot, pas dans un journal
-# de build qu'il faut penser a ouvrir.
+# ----------------------------------------------------------------------
+# POURQUOI CODEQL N'EST PLUS LA, ET POURQUOI LES RESULTATS NE VONT PLUS
+# DANS L'ONGLET SECURITY.
+#
+# Le depot est passe en PRIVE. Sur un depot prive, l'analyse de code et le
+# depot de resultats SARIF demandent GitHub Advanced Security ; sans lui, le
+# jeton n'a pas le droit d'ecrire les alertes, quoi qu'on declare dans
+# "permissions". Cela se voyait de deux facons, qui disent la meme chose :
+#
+#   CodeQL job status was configuration error.
+#   Resource not accessible by integration
+#
+# Le workflow echouait donc a CHAQUE push sur main et tous les lundis. Un
+# rouge permanent ne signale plus rien -- il apprend a ne plus regarder.
+#
+# Ce qui reste est ce qui fonctionne sans ce droit : Trivy, dont le rapport
+# est ecrit dans le RESUME du job. On perd le suivi dans l'onglet Security
+# (une alerte connue reste affichee jusqu'a correction) ; on garde ce qui
+# compte ici, savoir ce qui est ouvert.
+#
+# Si le depot redevient public, ou si Advanced Security est active :
+# remettre le job codeql, repasser Trivy en "format: sarif" et rendre
+# l'etape de depot (github/codeql-action/upload-sarif). L'historique de ce
+# fichier en garde la forme exacte.
+# ----------------------------------------------------------------------
 on:
   push:
     branches: [main]
@@ -21,37 +44,17 @@ on:
     - cron: "0 6 * * 1"
   workflow_dispatch: {}
 
+# Plus besoin de "security-events: write" : rien n'est depose. Le jeton se
+# reduit donc a la lecture du depot -- c'est de toute facon le bon reflexe,
+# on ne demande pas un droit dont on ne se sert plus.
 permissions:
   contents: read
-  # Le seul droit ajoute : deposer les resultats dans l'onglet Security.
-  security-events: write
 
 concurrency:
   group: securite-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # ----------------------------- le code -----------------------------
-  codeql:
-    name: CodeQL (Python)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Initialisation
-        uses: github/codeql-action/init@faaca9a8f6edddba5725ffe5adefdab6669a2eca # v3
-        with:
-          languages: python
-          # security-and-quality ajoute des regles de style qui noieraient les
-          # vraies alertes. Ici on ne veut que ce qui se corrige.
-          queries: security-extended
-
-      - name: Analyse
-        uses: github/codeql-action/analyze@faaca9a8f6edddba5725ffe5adefdab6669a2eca # v3
-        with:
-          category: python
-
   # --------------------------- les images ---------------------------
   # Le systeme de fichiers plutot que les images publiees : le scan tourne sur
   # ce que le depot decrit, sans avoir a construire cinq images
@@ -70,8 +73,10 @@ jobs:
         with:
           scan-type: fs
           scanners: vuln,secret,misconfig
-          format: sarif
-          output: trivy.sarif
+          # Un tableau, pas du SARIF : il n'y a plus d'onglet Security ou le
+          # deposer, et un SARIF ne se lit pas a l'oeil dans un journal.
+          format: table
+          output: trivy.txt
           # HIGH et CRITICAL seulement. En dessous, le rapport est surtout
           # compose de paquets systeme de l'image de base que personne ne
           # peut corriger ici, et il devient illisible.
@@ -81,11 +86,36 @@ jobs:
           # matin sans que rien n'ait change dans le code.
           exit-code: "0"
 
-      - name: Depot des resultats
-        uses: github/codeql-action/upload-sarif@faaca9a8f6edddba5725ffe5adefdab6669a2eca # v3
-        # Meme si le scan precedent a echoue : un rapport partiel vaut mieux
-        # qu'aucun rapport.
+      # Dans le RESUME du run, pas dans le journal : le resume s'ouvre d'un
+      # clic depuis la liste des executions, la ou il faut derouler un
+      # journal pour y trouver la meme chose.
+      #
+      # "if: always()" : un rapport partiel vaut mieux qu'aucun rapport.
+      - name: Rapport
         if: always()
+        run: |
+          {
+            echo "## Trivy -- dependances, secrets et configuration"
+            echo
+            echo "Severite HIGH et CRITICAL. Ce scan rapporte, il ne bloque pas."
+            echo
+            if [ ! -s trivy.txt ]; then
+              echo "Trivy n'a rien ecrit : le scan ne s'est pas deroule."
+              echo "C'est un ECHEC DU SCAN, pas une absence de vulnerabilite."
+            else
+              echo '```'
+              cat trivy.txt
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Le rapport complet reste telechargeable pendant 90 jours : le resume
+      # est tronque par GitHub au-dela de 1 Mo, et un scan bavard le depasse.
+      - name: Rapport complet en piece jointe
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
-          sarif_file: trivy.sarif
-          category: trivy
+          name: trivy
+          path: trivy.txt
+          if-no-files-found: warn
+          retention-days: 90
