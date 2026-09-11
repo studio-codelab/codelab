@@ -1248,6 +1248,183 @@ def test_la_sonde_du_diagnostic_voit_le_refus_du_noyau(tmp_path, monkeypatch):
     assert "kernel.unprivileged_userns_clone" in detail
 
 
+# ------------- "codelab new --ouvrir" rouvre la fenetre VS Code -----------
+#
+# La tache VS Code « CodeLab : nouveau projet » cree le projet PUIS demande a
+# la fenetre de se rouvrir dessus. Ce qui se teste ici, c'est la partie
+# fragile : la fenetre ne repond pas toujours, et surtout elle n'existe pas
+# toujours -- une session SSH ordinaire n'en a aucune. Dans tous ces cas le
+# projet doit rester cree et la commande sortir sans erreur : ouvrir est un
+# confort, pas une etape du travail.
+#
+# Le vrai "code" du serveur VS Code ne peut pas tourner ici. On le remplace
+# par un script qui note ce qu'on lui a demande : ce qu'on verifie, c'est
+# l'appel emis, la ou le reste (la socket, la fenetre) appartient a VS Code.
+
+CHEMINS_OUTIL_CODELAB = [
+    "/usr/local/bin/codelab",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__)))), "dev", "codelab"),
+]
+
+
+def _outil_codelab():
+    for chemin in CHEMINS_OUTIL_CODELAB:
+        if os.path.exists(chemin):
+            return chemin
+    return None
+
+
+def _lancer_codelab(tmp_path, args, env_sup=None):
+    import subprocess
+    outil = _outil_codelab()
+    if outil is None:
+        pytest.skip("l'outil codelab n'est pas la (image sans le conteneur dev)")
+
+    espace = tmp_path / "ws"
+    espace.mkdir(exist_ok=True)
+    manuel = tmp_path / "AGENTS-source.md"
+    manuel.write_text("# Manuel CodeLab\n")
+
+    env = dict(os.environ)
+    env.update({"CODELAB_WORKSPACE": str(espace),
+                "CODELAB_AGENTS_SOURCE": str(manuel),
+                "HOME": str(tmp_path / "home")})
+    env.pop("VSCODE_IPC_HOOK_CLI", None)
+    env.update(env_sup or {})
+    (tmp_path / "home").mkdir(exist_ok=True)
+
+    r = subprocess.run(["sh", outil] + args, capture_output=True, text=True,
+                       env=env, timeout=120)
+    return r, espace
+
+
+def _faux_code(tmp_path, code=0):
+    """Un faux "code" qui ecrit ce qu'on lui demande dans un fichier."""
+    dossier = tmp_path / "_faux-vscode"
+    dossier.mkdir(exist_ok=True)
+    trace = tmp_path / "appel-code.txt"
+    outil = dossier / "code"
+    # Ecrit sans %-formatage : le script shell contient lui-meme des "%s"
+    # (ceux de printf), et les melanger donnait un TypeError obscur.
+    outil.write_text("#!/bin/sh\n"
+                     'printf "%s\\n" "$*" >> ' + '"' + str(trace) + '"\n'
+                     "exit " + str(code) + "\n")
+    outil.chmod(0o755)
+    return str(dossier), trace
+
+
+def test_nouveau_projet_avec_ouvrir_demande_la_reouverture(tmp_path):
+    chemin, trace = _faux_code(tmp_path)
+    r, espace = _lancer_codelab(
+        tmp_path, ["new", "facturier", "--ouvrir"],
+        {"PATH": chemin + os.pathsep + os.environ["PATH"],
+         "VSCODE_IPC_HOOK_CLI": "/tmp/une-socket-vscode.sock"})
+
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (espace / "facturier").is_dir(), "le projet doit exister"
+    assert trace.exists(), ("aucune demande d'ouverture : " + r.stdout + r.stderr)
+    demande = trace.read_text().strip()
+    assert "--reuse-window" in demande, demande
+    assert str(espace / "facturier") in demande, demande
+
+
+def test_sans_ouvrir_la_fenetre_ne_bouge_pas(tmp_path):
+    """Le drapeau doit etre la seule chose qui declenche l'ouverture : lancer
+    la commande a la main dans un terminal ne doit pas faire sauter la vue."""
+    chemin, trace = _faux_code(tmp_path)
+    r, espace = _lancer_codelab(
+        tmp_path, ["new", "facturier"],
+        {"PATH": chemin + os.pathsep + os.environ["PATH"],
+         "VSCODE_IPC_HOOK_CLI": "/tmp/une-socket-vscode.sock"})
+
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (espace / "facturier").is_dir()
+    assert not trace.exists(), "la fenetre a bouge alors qu'on ne l'a pas demande"
+
+
+def test_sans_fenetre_vscode_le_projet_est_quand_meme_cree(tmp_path):
+    """Session SSH ordinaire : il n'y a aucune fenetre a qui parler. Ce n'est
+    pas une erreur, et cela doit se dire."""
+    chemin, trace = _faux_code(tmp_path)
+    r, espace = _lancer_codelab(
+        tmp_path, ["new", "facturier", "--ouvrir"],
+        {"PATH": chemin + os.pathsep + os.environ["PATH"]})
+
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (espace / "facturier").is_dir()
+    assert not trace.exists(), "rien ne devait etre demande sans socket"
+    assert "session SSH simple" in r.stdout, r.stdout
+
+
+def test_une_fenetre_qui_ne_repond_pas_ne_casse_pas_la_creation(tmp_path):
+    """Le cas qui compte : le projet est deja sur le disque quand on tente
+    d'ouvrir. Une commande qui sortirait en erreur ici laisserait croire que
+    la creation a echoue."""
+    chemin, trace = _faux_code(tmp_path, code=1)
+    r, espace = _lancer_codelab(
+        tmp_path, ["new", "facturier", "--ouvrir"],
+        {"PATH": chemin + os.pathsep + os.environ["PATH"],
+         "VSCODE_IPC_HOOK_CLI": "/tmp/une-socket-vscode.sock"})
+
+    assert r.returncode == 0, (
+        "le projet est cree : un echec d'ouverture ne doit pas faire echouer "
+        "la commande\n" + r.stdout + r.stderr)
+    assert (espace / "facturier").is_dir()
+    assert trace.exists(), "l'ouverture devait avoir ete tentee"
+    assert "a la main" in r.stdout, r.stdout
+
+
+def test_code_est_retrouve_sous_vscode_server_hors_du_path(tmp_path):
+    """Selon comment la tache est lancee, "code" n'est pas toujours dans le
+    PATH. Le serveur VS Code le pose sous un dossier qui porte l'empreinte de
+    sa version -- elle change a chaque mise a jour, donc on cherche le plus
+    recent au lieu d'en figer un."""
+    maison = tmp_path / "home"
+    maison.mkdir(exist_ok=True)
+    trace = tmp_path / "appel-code.txt"
+    for empreinte, age in (("vieux0000", 100000), ("recent1111", 0)):
+        d = maison / ".vscode-server" / "bin" / empreinte / "bin" / "remote-cli"
+        d.mkdir(parents=True)
+        outil = d / "code"
+        outil.write_text("#!/bin/sh\n"
+                         'printf "%s %s\\n" ' + '"' + empreinte + '" "$*" >> '
+                         + '"' + str(trace) + '"\n' + "exit 0\n")
+        outil.chmod(0o755)
+        os.utime(outil, (time.time() - age, time.time() - age))
+
+    # PATH volontairement ampute de "code" : c'est tout l'objet du test.
+    vide = tmp_path / "_path-sans-code"
+    vide.mkdir(exist_ok=True)
+    r, espace = _lancer_codelab(
+        tmp_path, ["new", "facturier", "--ouvrir"],
+        {"PATH": str(vide) + os.pathsep + "/usr/bin" + os.pathsep + "/bin",
+         "VSCODE_IPC_HOOK_CLI": "/tmp/une-socket-vscode.sock"})
+
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (espace / "facturier").is_dir()
+    assert trace.exists(), ("le code de .vscode-server n'a pas ete trouve : "
+                            + r.stdout + r.stderr)
+    assert "recent1111" in trace.read_text(), (
+        "c'est le plus RECENT qu'il faut prendre : " + trace.read_text())
+
+
+def test_les_taches_vscode_passent_bien_le_drapeau():
+    """Le drapeau peut etre parfait et ne servir a rien si la tache ne le
+    passe pas. C'est la jointure qui casse en silence."""
+    taches = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          os.pardir, ".vscode", "tasks.json")
+    if not os.path.exists(taches):
+        pytest.skip("tasks.json absent de cette image")
+    contenu = open(taches, encoding="utf-8").read()
+    lignes = [l for l in contenu.splitlines() if '"command"' in l
+              and "codelab new" in l]
+    assert lignes, "aucune tache de creation de projet trouvee"
+    for ligne in lignes:
+        assert "--ouvrir" in ligne, (
+            "cette tache cree le projet sans rouvrir la fenetre : " + ligne)
+
+
 # ------------- ce fichier doit rester importable sans pytest --------------
 #
 # Regression vecue : "import pytest" en tete de fichier, puis une classe

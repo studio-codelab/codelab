@@ -83,6 +83,7 @@ a jour, aucun fichier central a editer : ni `/workspace/definitions.py`, ni le
 ```bash
 codelab new mon-projet          # dossier, depot git, .gitignore, AGENTS.md
 codelab new mon-projet --db     # ... et sa base de donnees
+codelab new mon-projet --ouvrir # ... et la fenetre VS Code se rouvre dessus
 ```
 
 La commande refuse un dossier existant et un nom invalide : elle est sans danger a relancer.
@@ -121,13 +122,18 @@ cp -r /workspace/diagnostic /workspace/mon-projet
 
 **Ctrl+Maj+B** (Cmd+Maj+B sur Mac) cree un projet, depuis n'importe ou dans VS Code. Pas de menu :
 la tache « CodeLab : nouveau projet » est declaree tache de *build* par defaut, et c'est le raccourci
-que VS Code reserve a celle-ci. Une boite de dialogue demande le nom, le resultat s'affiche.
+que VS Code reserve a celle-ci. Une boite de dialogue demande le nom, puis **la fenetre se rouvre
+directement dans le nouveau projet** : on tape un nom, on se retrouve dedans, pret a ecrire.
+
+La reouverture demande une fenetre VS Code : dans une session SSH ordinaire, `codelab new --ouvrir`
+cree le projet et le dit, sans rien tenter. Une ouverture qui echoue ne fait jamais echouer la
+creation -- le projet est deja sur le disque a ce moment-la.
 
 Les autres passent par **Terminal > Executer la tache...** :
 
 | Tache | Ce qu'elle fait |
 |---|---|
-| **CodeLab : nouveau projet** | `codelab new` — **Ctrl+Maj+B** |
+| **CodeLab : nouveau projet** | `codelab new --ouvrir` — **Ctrl+Maj+B**, puis la fenetre s'ouvre sur le projet |
 | **CodeLab : nouveau projet + base de donnees** | idem, avec `--db` |
 | **CodeLab : creer la base d'un projet existant** | `codelab db` |
 | **CodeLab : mettre a jour le manuel de l'agent** | `codelab agents` |
