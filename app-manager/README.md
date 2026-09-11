@@ -585,8 +585,8 @@ page servie en clair deconnecterait sur-le-champ la session qui vient de les act
 
 | Variable | Quand | Pourquoi |
 |---|---|---|
-| `APP_MANAGER_HTTPS=1` | des qu'un reverse proxy termine le TLS devant | Pose le cookie de session en `Secure` : il cesse de circuler sur une connexion en clair |
-| `APP_MANAGER_TRUST_PROXY=1` | derriere un reverse proxy **de confiance** uniquement | Fait lire l'adresse reelle du visiteur dans `X-Forwarded-For`. Sans reverse proxy, l'activer permettrait a n'importe qui de contourner la limite de tentatives en variant l'en-tete |
+| `APP_MANAGER_HTTPS=1` | des qu'un reverse proxy termine le TLS devant — **ou la case « Servi en HTTPS »**, *Parametres > Serveur* | Pose le cookie de session en `Secure` : il cesse de circuler sur une connexion en clair. Posee ici, la variable l'emporte sur la case et la grise |
+| `APP_MANAGER_TRUST_PROXY=1` | derriere un reverse proxy **de confiance** uniquement — **ou la case « Proxy de confiance »** | Fait lire l'adresse reelle du visiteur dans `X-Forwarded-For`. Sans reverse proxy, l'activer permettrait a n'importe qui de contourner la limite de tentatives en variant l'en-tete |
 
 La page *Parametres > Securite* affiche l'etat des trois, pour verifier d'un coup d'oeil ce qui est en place.
 

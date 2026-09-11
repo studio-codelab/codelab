@@ -1054,11 +1054,36 @@ table.tbl-journal{min-width:560px}
         <div class="path">L'etat des reglages qui comptent si ce panneau devient accessible depuis internet.</div>
       </div></div>
       <div id="expo-liste"></div>
-      <div class="hint">Ces trois reglages se posent au demarrage du service, pas ici : les activer
-        depuis cette page pendant que tu es connecte en clair te deconnecterait sur-le-champ.
-        Ils se resolvent <b>dans l'ordre</b> — le premier fait le travail, les deux autres sont une
-        variable chacun. Les cles d'acces dependent aussi du premier : le navigateur refuse
-        WebAuthn en clair.</div>
+      <div class="hint">Ils se resolvent <b>dans l'ordre</b> — le premier fait le travail, les
+        deux suivants se cochent ici meme. Les cles d'acces dependent aussi du premier : le
+        navigateur refuse WebAuthn en clair.</div>
+    </div>
+
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Derriere un proxy, en HTTPS</b>
+        <div class="path">Les deux reglages qui suivent le passage du panneau sur internet.</div>
+      </div></div>
+
+      <div class="hint">Une case ne s'active que si la situation la justifie — sinon elle reste
+        grisee et dit pourquoi. C'est deliberé : activer HTTPS depuis une page servie en clair
+        poserait un cookie « Secure » que ton navigateur cesserait d'envoyer, et te
+        deconnecterait <b>sans retour possible</b>. Les eteindre, en revanche, est toujours
+        permis.</div>
+
+      <div class="field" style="margin-top:14px">
+        <label><input type="checkbox" id="expo-proxy" onchange="expoBascule('trust_proxy', this)">
+          Proxy de confiance</label>
+        <div class="hint" id="expo-proxy-aide"></div>
+      </div>
+
+      <div class="field" style="margin-top:10px">
+        <label><input type="checkbox" id="expo-https" onchange="expoBascule('https', this)">
+          Servi en HTTPS</label>
+        <div class="hint" id="expo-https-aide"></div>
+      </div>
+
+      <div class="err" id="expo-err" style="display:none"></div>
     </div>
 
     <div class="card settings-card">
@@ -2699,14 +2724,14 @@ async function chargerSecurite(){
      + "un Caddy, ou un VPS devant. Marche a suivre dans le README, section "
      + "« Sortir de chez toi »."],
     ['2. Cookie de session en Secure', d.cookie_secure,
-     "APP_MANAGER_HTTPS=1 dans le compose, puis « docker compose up -d codelab-app-manager ». "
-     + "A poser UNE FOIS le TLS en place : avant, le navigateur cesse d'envoyer le cookie et ta "
-     + "session tombe au premier rechargement."],
+     "La case « Servi en HTTPS », plus bas. A poser UNE FOIS le TLS en place : avant, le "
+     + "navigateur cesse d'envoyer le cookie et ta session tombe au premier rechargement — "
+     + "c'est pourquoi la case reste grisee tant que cette page n'arrive pas en https."],
     ['3. Adresse reelle des visiteurs', d.trust_proxy,
-     "APP_MANAGER_TRUST_PROXY=1, et seulement derriere un proxy qui reecrit vraiment "
-     + "X-Forwarded-For. Sans lui, la limite de tentatives compte tout le monde comme un seul "
-     + "visiteur et le journal des acces note une seule adresse ; avec lui alors que le panneau "
-     + "est publie en direct, n'importe quel client peut annoncer l'adresse qu'il veut."],
+     "La case « Proxy de confiance », plus bas, et seulement derriere un proxy qui reecrit "
+     + "vraiment X-Forwarded-For. Sans lui, la limite de tentatives compte tout le monde comme "
+     + "un seul visiteur et le journal des acces note une seule adresse ; avec lui alors que le "
+     + "panneau est publie en direct, n'importe quel client peut annoncer l'adresse qu'il veut."],
     ['4. Applications sur une origine a part', d.origines_separees,
      d.origines_separees
        ? ("Tes applications sont servies depuis " + (d.origine_applications||'')
@@ -2721,6 +2746,28 @@ async function chargerSecurite(){
     `<div class="kv"><span class="k">${esc(nom)}</span>
      <span class="v"><span class="pill ${ok?'on':'off'}"><i></i>${ok?'en place':'non'}</span></span></div>
      <div class="hint" style="margin:-2px 0 10px">${esc(aide)}</div>`).join('');
+
+  /* Les deux interrupteurs. Une case grisee doit TOUJOURS dire pourquoi :
+     sans cela, on clique dans le vide sans savoir ce qui manque. */
+  const poser = (id, actif, fige, possible, aideOk, aideNon, aideFigee)=>{
+    const c=$(id); if(!c) return;
+    c.checked = !!actif;
+    /* Eteindre reste permis en toutes circonstances : on ne grise que
+       l'ALLUMAGE, et seulement quand il est refuse. */
+    c.disabled = !!fige || (!actif && !possible);
+    $(id+'-aide').innerHTML = fige ? aideFigee : (actif ? aideOk : (possible ? '' : aideNon));
+  };
+  poser('expo-proxy', d.trust_proxy, d.trust_proxy_fige, d.peut_activer_trust_proxy,
+        "Les adresses des visiteurs viennent de X-Forwarded-For.",
+        "Aucun en-tete <b>X-Forwarded-*</b> sur cette requete : rien ne prouve qu'un proxy est "
+        + "devant. L'activer laisserait n'importe quel client s'inventer une adresse.",
+        "Fixe par APP_MANAGER_TRUST_PROXY dans le compose.");
+  poser('expo-https', d.https, d.https_fige, d.peut_activer_https,
+        "Le cookie de session est marque Secure.",
+        "Cette page n'arrive pas en https" + (d.https_constate ? "" : " et rien ne l'annonce")
+        + ". Mets le TLS en place, reviens par https, et la case s'activera"
+        + (d.https_constate && !d.trust_proxy ? " — ou declare d'abord ton proxy ci-dessus." : "."),
+        "Fixe par APP_MANAGER_HTTPS dans le compose.");
 
   adressePublique = d.adresse_publique || '';
   $('pub-adresse').value = adressePublique;
@@ -2744,6 +2791,19 @@ async function chargerAdressePublique(){
     adressePublique = d.adresse_publique || '';
   }catch(e){}
 }
+/* Bascule un reglage d'exposition. En cas de refus, la case revient d'elle
+   meme a son etat reel : laisser une case cochee sur un refus ferait croire
+   que c'est pose. */
+async function expoBascule(cle, boite){
+  const e=$('expo-err'); e.style.display='none';
+  const corps={}; corps[cle]=boite.checked;
+  const r=await fetch('/api/securite/exposition',{method:'PUT',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify(corps)});
+  const d=await r.json();
+  if(!r.ok){ e.textContent=d.error||'Enregistrement impossible.'; e.style.display='block'; }
+  chargerSecurite();
+}
+
 async function pubEnregistrer(){
   const e=$('pub-err'); e.style.display='none';
   const r=await fetch('/api/securite/exposition',{method:'PUT',

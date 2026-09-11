@@ -619,22 +619,44 @@ def check_exposition():
     qu'on a mis devant. Tant que la stack reste chez soi, leur absence est
     normale -- la sonde le dit plutot que de crier au feu.
     """
-    https = (os.environ.get("APP_MANAGER_HTTPS", "").lower() in ("1", "true", "yes"))
-    proxy = (os.environ.get("APP_MANAGER_TRUST_PROXY", "").lower() in ("1", "true", "yes"))
-    publique = (os.environ.get("APP_MANAGER_PUBLIC_URL") or "").strip()
+    # DEUX SOURCES, ET IL FAUT LES DEUX. Ces reglages se posent desormais
+    # depuis la page Exposition du panneau, qui les ecrit dans
+    # exposition.json ; la variable d'environnement reste prioritaire quand
+    # le compose la fixe. Ne lire que l'environnement, comme le faisait cette
+    # sonde, annoncait "il manque APP_MANAGER_HTTPS" sur une installation ou
+    # HTTPS etait deja active depuis la page -- la sonde reclamait ce qui
+    # etait deja fait.
+    etat = os.environ.get("APP_MANAGER_STATE") or "/var/lib/codelab/app-manager"
+    try:
+        with open(os.path.join(etat, "exposition.json")) as f:
+            pose = json.load(f) or {}
+    except (OSError, ValueError):
+        pose = {}
+
+    def _actif(variable, cle):
+        depuis_env = (os.environ.get(variable) or "").strip()
+        if depuis_env:
+            return depuis_env.lower() in ("1", "true", "yes")
+        return bool(pose.get(cle))
+
+    https = _actif("APP_MANAGER_HTTPS", "https")
+    proxy = _actif("APP_MANAGER_TRUST_PROXY", "trust_proxy")
+    publique = ((os.environ.get("APP_MANAGER_PUBLIC_URL") or "").strip()
+                or str(pose.get("adresse_publique") or "").strip())
     if not (https or proxy or publique):
         return (True, "exposition",
                 "reseau local : aucune adresse publique declaree, cookie non "
                 "marque Secure -- coherent tant que rien n'est devant")
     manques = []
     if not https:
-        manques.append("APP_MANAGER_HTTPS (cookie de session non marque Secure)")
+        manques.append("HTTPS (cookie de session non marque Secure)")
     if not proxy:
-        manques.append("APP_MANAGER_TRUST_PROXY (tous les visiteurs partagent une adresse)")
+        manques.append("proxy de confiance (tous les visiteurs partagent une adresse)")
     if not publique:
-        manques.append("APP_MANAGER_PUBLIC_URL (aucun partage possible)")
+        manques.append("adresse publique (aucun partage possible)")
     if manques:
-        return False, "exposition", "expose, mais il manque : " + " ; ".join(manques)
+        return (False, "exposition", "expose, mais il manque : "
+                + " ; ".join(manques) + " -- a poser dans Parametres > Exposition")
     return True, "exposition", f"publie sur {publique}, cookie Secure, adresse reelle des visiteurs"
 
 
@@ -1629,7 +1651,7 @@ def test_la_limite_de_tentatives_ne_se_contourne_pas_par_en_tete(client):
     """X-Forwarded-For est pose par le client quand le service est publie
     directement : le faire varier donnait un compteur neuf a chaque essai, ce
     qui annulait la limite."""
-    assert not app.TRUST_PROXY, "APP_MANAGER_TRUST_PROXY ne doit pas etre actif par defaut"
+    assert not app.trust_proxy(), "le proxy de confiance ne doit pas etre actif par defaut"
     for i in range(app.RATE_LIMIT_MAX):
         assert client.post("/login", json={"password": "faux"},
                            headers={"X-Forwarded-For": f"10.0.0.{i}"}).status_code == 401
@@ -2930,6 +2952,124 @@ def test_une_fois_l_adresse_declaree_le_partage_redevient_possible(exposition):
     assert c.post("/api/visibility/prive", json={"visibility": "publique"}).status_code == 200
 
 
+# ---------- HTTPS et proxy de confiance, regles depuis la page ------------
+#
+# Ces deux reglages vivaient uniquement dans le compose, en commentaire. Le
+# code disait pourquoi : « l'activer depuis une page servie en clair
+# deconnecterait sur-le-champ la session qui vient de l'activer, sans moyen
+# de revenir en arriere. »
+#
+# L'objection etait juste. Ce qui la leve n'est pas de l'ignorer, c'est de
+# rendre le cas impossible : on n'allume que ce que la requete en cours
+# justifie. Ces tests tiennent exactement cette promesse -- et le contraire,
+# qui compte autant : ETEINDRE reste possible en toutes circonstances.
+
+
+def test_https_ne_s_active_pas_depuis_une_page_en_clair(exposition):
+    """Le verrou anti-enfermement. Sans lui, un clic depuis http posait un
+    cookie Secure que le navigateur cessait d'envoyer : plus de session, et
+    plus de page pour revenir en arriere."""
+    c = exposition
+    r = c.put("/api/securite/exposition", json={"https": True})
+    assert r.status_code == 400, r.data
+    assert "deconnecterait" in r.get_json()["error"]
+    assert app.https_actif() is False
+    assert app.flask_app.config["SESSION_COOKIE_SECURE"] is False
+
+
+def test_https_s_active_depuis_une_page_en_https(exposition):
+    c = exposition
+    r = c.put("/api/securite/exposition", json={"https": True},
+              base_url="https://localhost")
+    assert r.status_code == 200, r.data
+    assert app.https_actif() is True
+    # Le cookie suit tout de suite : c'est l'interet de ne plus figer au
+    # demarrage. Sans cette ligne, le reglage serait enregistre et sans effet
+    # jusqu'au prochain redemarrage -- une case qui ment.
+    assert app.flask_app.config["SESSION_COOKIE_SECURE"] is True
+
+
+def test_https_s_active_derriere_un_proxy_declare(exposition):
+    """Le cas courant : le TLS se termine au proxy, la requete arrive ici en
+    clair et n'annonce https que par un en-tete. Sans ce chemin, la case
+    serait inatteignable la ou elle sert le plus."""
+    c = exposition
+    assert c.put("/api/securite/exposition", json={"trust_proxy": True},
+                 headers={"X-Forwarded-Proto": "https"}).status_code == 200
+    r = c.put("/api/securite/exposition", json={"https": True},
+              headers={"X-Forwarded-Proto": "https"})
+    assert r.status_code == 200, r.data
+    assert app.https_actif() is True
+
+
+def test_eteindre_https_reste_possible_depuis_une_page_en_clair(exposition):
+    """La marche arriere ne doit dependre d'aucune condition : c'est elle
+    qu'on cherche quand tout va mal."""
+    c = exposition
+    c.put("/api/securite/exposition", json={"https": True},
+          base_url="https://localhost")
+    assert app.https_actif() is True
+    r = c.put("/api/securite/exposition", json={"https": False})
+    assert r.status_code == 200, r.data
+    assert app.https_actif() is False
+
+
+def test_le_proxy_ne_se_declare_pas_sans_proxy(exposition):
+    """Croire X-Forwarded-For sans proxy devant, c'est laisser n'importe quel
+    client s'inventer une adresse a chaque essai -- et annuler la limite de
+    tentatives de connexion. La page ne doit pas permettre cette regression."""
+    c = exposition
+    r = c.put("/api/securite/exposition", json={"trust_proxy": True})
+    assert r.status_code == 400, r.data
+    assert "X-Forwarded" in r.get_json()["error"]
+    assert app.trust_proxy() is False
+
+
+def test_le_proxy_se_declare_quand_il_est_la(exposition):
+    c = exposition
+    r = c.put("/api/securite/exposition", json={"trust_proxy": True},
+              headers={"X-Forwarded-For": "203.0.113.7"})
+    assert r.status_code == 200, r.data
+    # Lu a chaud, sans redemarrage : c'est tout l'objet du changement.
+    assert app.trust_proxy() is True
+
+
+def test_enregistrer_l_adresse_n_efface_pas_les_deux_autres_reglages(exposition):
+    """Le fichier portait un seul reglage et etait reecrit en entier. Avec
+    trois, enregistrer l'adresse effacait HTTPS et le proxy en silence."""
+    c = exposition
+    c.put("/api/securite/exposition", json={"https": True},
+          base_url="https://localhost")
+    c.put("/api/securite/exposition", json={"trust_proxy": True},
+          headers={"X-Forwarded-For": "203.0.113.7"})
+
+    r = c.put("/api/securite/exposition",
+              json={"adresse_publique": "https://codelab.example.com"})
+    assert r.status_code == 200, r.data
+    assert app.https_actif() is True, "HTTPS efface par l'enregistrement de l'adresse"
+    assert app.trust_proxy() is True, "le proxy efface par l'enregistrement de l'adresse"
+
+
+def test_le_compose_l_emporte_sur_la_page_pour_https_et_le_proxy(exposition, monkeypatch):
+    """Meme regle que pour l'adresse, et pour la meme raison : la page ne doit
+    pas laisser modifier ce qu'un redemarrage remettrait. C'est aussi la seule
+    marche arriere qui ne passe pas par le panneau."""
+    c = exposition
+    monkeypatch.setenv("APP_MANAGER_HTTPS", "1")
+    monkeypatch.setenv("APP_MANAGER_TRUST_PROXY", "1")
+    assert app.https_actif() is True
+    assert app.trust_proxy() is True
+
+    etat = c.get("/api/securite").get_json()
+    assert etat["https_fige"] is True and etat["trust_proxy_fige"] is True
+
+    assert c.put("/api/securite/exposition",
+                 json={"https": False}).status_code == 400
+    assert c.put("/api/securite/exposition",
+                 json={"trust_proxy": False}).status_code == 400
+    assert app.https_actif() is True
+
+
 def test_l_adresse_du_compose_l_emporte_sur_celle_de_la_page(exposition, monkeypatch):
     """Sinon la page laisserait modifier ce qu'un redemarrage remettrait."""
     c = exposition
@@ -2958,7 +3098,7 @@ def cles(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "PASSKEYS_FILE", str(tmp_path / "passkeys.json"))
     monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
     monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
-    monkeypatch.setattr(app, "TRUST_PROXY", False)
+    monkeypatch.setattr(app, "trust_proxy", lambda: False)
     app.flask_app.secret_key = "cle-de-test"
     app.flask_app.config["TESTING"] = True
     app._login_attempts.clear()
@@ -2978,11 +3118,11 @@ def test_les_conditions_du_navigateur_sont_annoncees(cles, monkeypatch):
 
     # Une adresse IP ne peut pas servir de relying party id -- meme en HTTPS,
     # et c'est bien la regle de l'IP qui doit refuser, pas celle du TLS.
-    monkeypatch.setattr(app, "TRUST_PROXY", True)
+    monkeypatch.setattr(app, "trust_proxy", lambda: True)
     d = _etat_passkeys(cles, Host="192.168.1.20:9001", **{"X-Forwarded-Proto": "https"})
     assert d["possible"] is False
     assert "nom de domaine" in d["empechement"]
-    monkeypatch.setattr(app, "TRUST_PROXY", False)
+    monkeypatch.setattr(app, "trust_proxy", lambda: False)
 
     # localhost est un contexte securise pour le navigateur : ca marche.
     assert _etat_passkeys(cles, Host="localhost:9001")["possible"] is True
@@ -2999,9 +3139,9 @@ def test_un_proxy_non_declare_n_est_pas_cru_sur_parole(cles, monkeypatch):
     entetes = {"Host": "codelab.example.com", "X-Forwarded-Proto": "https"}
     d = _etat_passkeys(cles, **entetes)
     assert d["possible"] is False
-    assert "APP_MANAGER_TRUST_PROXY" in d["empechement"]
+    assert "Proxy de confiance" in d["empechement"]
 
-    monkeypatch.setattr(app, "TRUST_PROXY", True)
+    monkeypatch.setattr(app, "trust_proxy", lambda: True)
     assert _etat_passkeys(cles, **entetes)["possible"] is True
 
 
