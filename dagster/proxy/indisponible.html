@@ -1,0 +1,65 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Dagster ne repond pas -- CodeLab</title>
+<!--
+  PAGE SERVIE A LA PLACE DU 502 DE NGINX.
+
+  Pourquoi elle existe : « 502 Bad Gateway » est la seule chose que voyait
+  l'utilisateur quand codelab-dagster etait tombe. Le message ne dit ni QUI
+  ne repond pas, ni quoi faire -- et il ressemble a une panne du proxy, alors
+  que le proxy va tres bien : c'est l'amont qui ne repond pas.
+
+  Pourquoi le style est ecrit ICI et non tire de /theme.css : cette page est
+  servie par nginx, qui ne sait pas ou joindre le panneau autrement qu'en
+  devinant son hote. Une feuille absente laisserait une page nue au pire
+  moment. Elle est donc volontairement autonome -- et volontairement courte.
+-->
+<style>
+  :root{color-scheme:light dark;--fond:#f6f7f8;--carte:#fff;--txt:#14181b;
+        --dim:#5b6670;--trait:#dfe3e6;--err:#c53030}
+  @media (prefers-color-scheme:dark){
+    :root{--fond:#101418;--carte:#171c21;--txt:#e7ebee;--dim:#98a4ae;--trait:#262d34}}
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+       background:var(--fond);color:var(--txt);
+       font:400 14px/1.55 "Manrope",system-ui,-apple-system,"Segoe UI",sans-serif}
+  .carte{max-width:560px;margin:24px;padding:26px 28px;background:var(--carte);
+         border:1px solid var(--trait);border-radius:10px}
+  h1{margin:0 0 6px;font-size:19px;font-weight:700;letter-spacing:-.01em}
+  .sous{color:var(--dim);margin:0 0 18px}
+  .bord{border-left:2px solid var(--err);padding-left:12px;margin:0 0 18px}
+  code{font:600 12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+       background:var(--fond);border:1px solid var(--trait);border-radius:6px;
+       padding:2px 6px}
+  pre{margin:8px 0 0;padding:10px 12px;background:var(--fond);border:1px solid var(--trait);
+      border-radius:8px;overflow-x:auto}
+  pre code{background:none;border:0;padding:0}
+  ol{margin:0;padding-left:20px}
+  li{margin-bottom:10px}
+  .pied{margin:18px 0 0;padding-top:14px;border-top:1px solid var(--trait);color:var(--dim);
+        font-size:13px}
+</style>
+<div class="carte">
+  <h1>Dagster ne répond pas</h1>
+  <p class="sous">Le proxy est debout — c'est le service <code>codelab-dagster</code>
+     qui ne répond pas encore sur son port.</p>
+
+  <div class="bord">
+    <strong>Au démarrage de la pile, c'est normal :</strong> Dagster met une
+    vingtaine de secondes à charger le code du workspace. Recharge cette page.
+  </div>
+
+  <p class="sous">Si cela dure, dans l'ordre :</p>
+  <ol>
+    <li>Regarde ce que dit le service :
+      <pre><code>docker logs --tail 50 codelab-dagster</code></pre></li>
+    <li>Une erreur dans un projet du workspace n'empêche pas Dagster de
+      démarrer — elle s'affiche dans son interface. Un redémarrage en boucle,
+      lui, vient presque toujours de la base :
+      <pre><code>docker compose restart codelab-postgres codelab-dagster</code></pre></li>
+    <li>La page <em>Diagnostic</em> du panneau teste la même liaison et dit ce
+      qu'elle constate, sans avoir à lire de journal.</li>
+  </ol>
+
+  <p class="pied">CodeLab — cette page remplace le « 502 Bad Gateway » de nginx,
+     qui ne disait ni qui ne répond pas, ni quoi en faire.</p>
+</div>

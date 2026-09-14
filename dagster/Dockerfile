@@ -59,6 +59,10 @@ COPY workspace /opt/dagster/workspace.default
 # anterieures a ce mecanisme, et n'a jamais a etre regeneree.
 COPY dagster/squelette.sums /opt/dagster/workspace.sums
 COPY dagster/dagster.yaml /opt/dagster/dagster.yaml.default
+# Empreintes des versions livrees autrefois : elles permettent de reconnaitre
+# un dagster.yaml intact sur une installation anterieure a la mise a jour
+# automatique. Liste figee, voir l'entrypoint.
+COPY dagster/dagster.yaml.sums /opt/dagster/dagster.yaml.sums
 COPY dagster/entrypoint.sh /opt/dagster/entrypoint.sh
 RUN chmod +x /opt/dagster/entrypoint.sh
 

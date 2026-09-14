@@ -547,8 +547,27 @@ def _port_panneau():
     return int(os.environ.get("MANAGER_PORT") or 9001)
 
 
+# Le port des applications quand rien ne le dit : c'est le defaut du panneau
+# (voir APPS_PORT dans app-manager/app/app.py), et c'est celui que publie
+# docker-compose.yml.
+PORT_APPS_DEFAUT = 9002
+
+
 def _port_applications():
-    return int(os.environ.get("APP_MANAGER_APPS_PORT") or 0)
+    """Le port ou les applications sont servies.
+
+    POURQUOI CE N'EST PLUS "la variable ou rien". Cette sonde lisait
+    APP_MANAGER_APPS_PORT et declarait l'installation en faute des qu'elle
+    etait absente -- alors que le panneau, lui, se rabat sur 9002 et que le
+    compose publie ce port. Elle annoncait donc "les applications sont
+    servies dans l'origine du panneau" sur une installation ou les deux
+    origines etaient parfaitement separees.
+
+    Une sonde ne doit dire que ce qu'elle CONSTATE. Elle prend donc le meme
+    defaut que le panneau, et va verifier sur le port ce qui s'y trouve
+    vraiment.
+    """
+    return int(os.environ.get("APP_MANAGER_APPS_PORT") or PORT_APPS_DEFAUT)
 
 
 def check_panneau_ferme():
@@ -586,16 +605,14 @@ def check_origine_applications():
     import urllib.error
     import urllib.request
     port = _port_applications()
-    if not port:
-        return (False, "origine des applications",
-                "APP_MANAGER_APPS_PORT absent : les applications sont servies "
-                "par le panneau, donc dans SON origine")
     base = f"http://127.0.0.1:{port}"
     try:
         urllib.request.urlopen(base + "/health", timeout=4).getcode()
     except Exception as e:                                        # noqa: BLE001
         return (False, "origine des applications",
-                f"port {port} ferme ({e}) -- publie-le dans docker-compose.yml")
+                f"rien ne repond sur le port {port} ({e}) -- publie-le dans "
+                f"docker-compose.yml, sinon les applications repartent dans "
+                f"l'origine du panneau")
     fuites = []
     for chemin in ("/", "/login", "/api/apps"):
         try:
@@ -907,6 +924,52 @@ def check_surface_exposee():
     return (not mauvais), "surface exposee", " | ".join(morceaux)
 
 
+# Les trois verrous du noyau qui peuvent interdire un namespace utilisateur,
+# avec la valeur qui BLOQUE et la commande qui l'ouvre. En constante, et non
+# dans le corps de la sonde : un test doit pouvoir les remplacer par des
+# fichiers a lui, sans quoi cette lecture ne serait verifiable que sur une
+# machine deja en panne.
+VERROUS_USERNS = [
+    ("/proc/sys/kernel/unprivileged_userns_clone", "0",
+     "sysctl -w kernel.unprivileged_userns_clone=1"),
+    ("/proc/sys/user/max_user_namespaces", "0",
+     "sysctl -w user.max_user_namespaces=15000"),
+    ("/proc/sys/kernel/apparmor_restrict_unprivileged_userns", "1",
+     "sysctl -w kernel.apparmor_restrict_unprivileged_userns=0"),
+]
+
+
+def _verrou_userns():
+    """Lequel des trois verrous du noyau interdit le namespace utilisateur.
+
+    POURQUOI ALLER LE LIRE. La sonde disait "pose ces deux sysctl" sans
+    regarder s'ils etaient en cause : sur une machine ou c'est AppArmor qui
+    refuse, les deux commandes conseillees ne changent rien, et l'on
+    recommence indefiniment. Trois verrous existent, ils ne vivent pas au
+    meme endroit, et un seul suffit a tout bloquer.
+
+    Ces fichiers sont lus sur l'HOTE a travers /proc, qui n'est pas
+    namespace : ce qu'on lit ici est bien le reglage de la machine.
+    """
+    coupables = []
+    for chemin, valeur_bloquante, remede in VERROUS_USERNS:
+        try:
+            with open(chemin) as f:
+                lu = f.read().strip()
+        except OSError:
+            # Absent : ce verrou-la n'existe pas sur ce noyau, il n'y est
+            # donc pour rien.
+            continue
+        if lu == valeur_bloquante:
+            coupables.append(f"{os.path.basename(chemin)}={lu}, a corriger par : {remede}")
+    if coupables:
+        return "Sur l'hote : " + " ; ".join(coupables) + "."
+    # Aucun des trois n'est ferme : c'est le bac a sable du conteneur
+    # (seccomp, AppArmor) qui refuse, et cela ne se corrige pas par sysctl.
+    return ("Aucun sysctl du noyau ne l'interdit : c'est le profil seccomp ou "
+            "AppArmor du conteneur qui refuse.")
+
+
 def check_isolation():
     """Une application peut-elle voir les fichiers d'une autre ?
 
@@ -941,12 +1004,12 @@ def check_isolation():
 
     if not ok:
         return (False, "isolation des applications",
-                "le noyau refuse de creer un namespace utilisateur (%s). Les "
-                "applications demarrent, mais sans etre isolees. Sur l'hote : "
-                "sysctl -w kernel.unprivileged_userns_clone=1 et "
-                "user.max_user_namespaces=15000. Pour assumer le choix et "
+                "le noyau refuse de creer un namespace utilisateur (%s). %s "
+                "Chaque application garde son propre uid -- elles ne peuvent "
+                "pas se relire l'environnement ni se tuer -- mais elles "
+                "partagent la vue de /workspace. Pour assumer le choix et "
                 "faire taire cette sonde : APP_MANAGER_ISOLER=0"
-                % (refus or "raison inconnue"))
+                % (refus or "raison inconnue", _verrou_userns()))
 
     return (True, "isolation des applications",
             "chaque application ne voit que son propre projet "
@@ -1458,7 +1521,56 @@ def test_la_sonde_du_diagnostic_voit_le_refus_du_noyau(tmp_path, monkeypatch):
     ok, _nom, detail = check_isolation()
     assert ok is False
     assert "namespace utilisateur" in detail
-    assert "kernel.unprivileged_userns_clone" in detail
+    # Ce qui reste vrai doit etre dit aussi : l'uid par application tient
+    # toujours. Annoncer "aucune isolation" ferait chercher une panne la ou
+    # il n'y en a pas.
+    assert "propre uid" in detail
+
+
+def test_le_refus_du_noyau_nomme_le_verrou_qui_bloque(tmp_path, monkeypatch):
+    """Conseiller deux sysctl sans regarder s'ils sont en cause envoyait
+    taper des commandes sans effet -- sur une machine ou c'est AppArmor qui
+    refuse, elles ne changent rien et l'on recommence indefiniment."""
+    monkeypatch.setenv("PATH", _faux_unshare(
+        tmp_path, 1, "unshare: unshare failed: Operation not permitted")
+        + os.pathsep + os.environ["PATH"])
+    monkeypatch.delenv("APP_MANAGER_ISOLER", raising=False)
+
+    ouvert = tmp_path / "max_user_namespaces"
+    ouvert.write_text("15000\n")
+    ferme = tmp_path / "apparmor_restrict_unprivileged_userns"
+    ferme.write_text("1\n")
+    monkeypatch.setattr(sys.modules[__name__], "VERROUS_USERNS", [
+        (str(tmp_path / "absent"), "0", "sysctl -w kernel.unprivileged_userns_clone=1"),
+        (str(ouvert), "0", "sysctl -w user.max_user_namespaces=15000"),
+        (str(ferme), "1", "sysctl -w kernel.apparmor_restrict_unprivileged_userns=0"),
+    ])
+
+    _ok, _nom, detail = check_isolation()
+    # Le verrou ferme est nomme, avec sa commande.
+    assert "apparmor_restrict_unprivileged_userns=1" in detail
+    assert "sysctl -w kernel.apparmor_restrict_unprivileged_userns=0" in detail
+    # Les deux autres ne sont pas en cause : les citer serait envoyer taper
+    # des commandes qui ne changent rien.
+    assert "max_user_namespaces=15000" not in detail
+    assert "unprivileged_userns_clone" not in detail
+
+
+def test_sans_verrou_ferme_la_sonde_ne_conseille_pas_de_sysctl(tmp_path, monkeypatch):
+    """Quand aucun sysctl n'interdit rien, c'est le bac a sable du conteneur
+    qui refuse -- et aucun sysctl n'y changera quoi que ce soit."""
+    monkeypatch.setenv("PATH", _faux_unshare(
+        tmp_path, 1, "unshare: unshare failed: Operation not permitted")
+        + os.pathsep + os.environ["PATH"])
+    monkeypatch.delenv("APP_MANAGER_ISOLER", raising=False)
+    ouvert = tmp_path / "max_user_namespaces"
+    ouvert.write_text("15000\n")
+    monkeypatch.setattr(sys.modules[__name__], "VERROUS_USERNS",
+                        [(str(ouvert), "0", "sysctl -w user.max_user_namespaces=15000")])
+
+    _ok, _nom, detail = check_isolation()
+    assert "seccomp" in detail and "AppArmor" in detail
+    assert "sysctl -w" not in detail
 
 
 # ------------- "codelab new --ouvrir" rouvre la fenetre VS Code -----------
@@ -5385,6 +5497,114 @@ def _sur_port(port):
     dire.
     """
     return {"base_url": "http://serveur:%d" % port}
+
+
+# ---------------- Dagster : ce qui l'empechait de rester debout ----------
+#
+# Vecu : « Dagster me met comme erreur 502 Bad Gateway ». Le proxy allait
+# bien ; c'est codelab-dagster qui ne repondait plus. Deux causes tenaient
+# ensemble, et les deux se verrouillent ici.
+
+def _fichier_du_depot(*morceaux):
+    """Un fichier du depot, ou None s'il n'est pas dans cette image.
+
+    Les sondes tournent aussi dans le conteneur du diagnostic, qui ne
+    contient pas le depot : un test qui suppose le contraire echouerait la
+    ou il n'a rien a dire.
+    """
+    racine = os.path.dirname(DOSSIER_PANNEAU or "")
+    chemin = os.path.join(racine, *morceaux)
+    return chemin if os.path.exists(chemin) else None
+
+
+def test_les_runs_planifies_passent_par_une_file_d_attente():
+    """Depuis qu'un planning declenche le diagnostic toutes les quinze
+    minutes, les runs arrivent tout seuls. Sans coordinateur, Dagster les
+    demarre TOUS a la fois, chacun dans son processus -- et sur une machine
+    de la taille d'une ZimaBlade, quelques runs qui se chevauchent suffisent
+    a emporter le webserver. Ce qu'on voit alors est un 502 qui ne dit rien.
+    """
+    chemin = _fichier_du_depot("dagster", "dagster.yaml")
+    if not chemin:
+        pytest.skip("depot absent de cette image")
+    texte = open(chemin, encoding="utf-8").read()
+    assert "QueuedRunCoordinator" in texte
+    assert "max_concurrent_runs: 1" in texte
+    # Un run dont le processus a disparu occupait la place de la file pour
+    # toujours, et plus rien ne partait.
+    assert "run_monitoring:" in texte and "enabled: true" in texte
+
+
+def test_dagster_yaml_se_met_a_jour_sur_les_installations_existantes():
+    """Le fichier n'etait ecrit qu'au premier demarrage : une correction
+    livree dans l'image n'atteignait aucune machine deja installee -- la
+    file d'attente ci-dessus ne serait arrivee nulle part."""
+    chemin = _fichier_du_depot("dagster", "entrypoint.sh")
+    if not chemin:
+        pytest.skip("depot absent de cette image")
+    texte = open(chemin, encoding="utf-8").read()
+    bloc = texte.split("--------------------------- dagster.yaml")[1]
+    # Remplace sur preuve de contenu, jamais sur une date, et jamais un
+    # fichier que l'utilisateur a modifie.
+    assert "sha256sum" in bloc
+    assert "dagster.yaml.sums" in bloc
+    assert "laisse tel quel" in bloc
+    # Renommage atomique : un arret au mauvais moment ne laisse pas une
+    # configuration a moitie ecrite.
+    assert 'mv "$tmp" "$DAGSTER_YAML"' in bloc
+
+
+def test_le_proxy_explique_l_absence_de_dagster_au_lieu_du_502_nu():
+    """« 502 Bad Gateway » est exact et inutilisable : il ne dit ni qui ne
+    repond pas -- le proxy va tres bien -- ni quoi faire."""
+    conf = _fichier_du_depot("dagster", "proxy", "nginx.conf")
+    page = _fichier_du_depot("dagster", "proxy", "indisponible.html")
+    if not conf or not page:
+        pytest.skip("depot absent de cette image")
+    texte = open(conf, encoding="utf-8").read()
+    assert "error_page 502 503 504 /_indisponible.html;" in texte
+    # Servie en interne seulement : sinon l'adresse serait atteignable
+    # directement et la page mise en cache par le navigateur.
+    bloc = texte.split("location = /_indisponible.html {")[1].split("}")[0]
+    assert "internal;" in bloc
+    assert "no-store" in bloc
+    # Et la page dit quoi taper, plutot que de plaindre l'utilisateur.
+    assert "docker logs --tail 50 codelab-dagster" in open(page, encoding="utf-8").read()
+
+
+def test_la_sonde_des_origines_prend_le_meme_defaut_que_le_panneau(monkeypatch):
+    """La sonde reclamait APP_MANAGER_APPS_PORT et declarait l'installation
+    en faute des que la variable manquait -- alors que le panneau se rabat
+    sur 9002 et que le compose publie ce port. Elle annoncait donc des
+    origines confondues sur une installation ou elles etaient separees.
+
+    Une sonde ne dit que ce qu'elle constate : meme defaut que le panneau,
+    puis verification sur le port.
+    """
+    monkeypatch.delenv("APP_MANAGER_APPS_PORT", raising=False)
+    assert _port_applications() == PORT_APPS_DEFAUT == 9002
+    monkeypatch.setenv("APP_MANAGER_APPS_PORT", "9500")
+    assert _port_applications() == 9500
+
+    _ok, _nom, detail = check_origine_applications()
+    assert "APP_MANAGER_APPS_PORT absent" not in detail
+    assert "9500" in detail
+
+
+def test_le_port_des_applications_est_ecrit_dans_les_deux_composes():
+    """Le panneau prend 9002 par defaut, mais une valeur devinee ne se relit
+    pas : les deux composes doivent la poser noir sur blanc, et la meme."""
+    racine = os.path.dirname(DOSSIER_PANNEAU or "")
+    fichiers = [os.path.join(racine, n)
+                for n in ("docker-compose.yml", "docker-compose-casaos.yml")]
+    presents = [f for f in fichiers if os.path.exists(f)]
+    if not presents:
+        pytest.skip("composes absents de cette image")
+    assert len(presents) == 2, "un des deux composes manque"
+    for chemin in presents:
+        texte = open(chemin, encoding="utf-8").read()
+        assert f'APP_MANAGER_APPS_PORT: "{PORT_APPS_DEFAUT}"' in texte, chemin
+        assert f'- "{PORT_APPS_DEFAUT}:{PORT_APPS_DEFAUT}"' in texte, chemin
 
 
 def test_le_panneau_ne_repond_pas_sur_le_port_des_applications(deux_origines):

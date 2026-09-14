@@ -414,6 +414,11 @@ services:
       APP_MANAGER_STATE: /var/lib/codelab/app-manager
       APP_MANAGER_ROOT: /workspace
       MANAGER_PORT: "9001"
+      # Ecrit noir sur blanc, alors que le panneau prend deja 9002 par
+      # defaut : une valeur devinee ne se relit pas. Le port publie
+      # ci-dessus et celui que sert le panneau doivent etre le meme, et
+      # c'est ici qu'on le voit d'un coup d'oeil.
+      APP_MANAGER_APPS_PORT: "9002"
       APP_MANAGER_SHARED_CONFIG: /var/lib/codelab/config
 
       # --- Le jour ou ce panneau sort de ton reseau ---------------------
