@@ -4950,6 +4950,85 @@ def _page_panneau(nom):
     return open(os.path.join(DOSSIER_PANNEAU, "app", nom), encoding="utf-8").read()
 
 
+# ---------------- les parametres : on replie, on ne deroule plus ----------
+#
+# Vecu : « Reduis toutes les zones des parametres, je dois pouvoir developper
+# pour parametrer, et reduire. » Un onglet deroulait jusqu'a six cartes
+# ouvertes -- pour changer une ligne, il fallait traverser tout le reste.
+
+def test_chaque_carte_de_reglages_se_replie():
+    """La transformation est faite une fois pour toutes les cartes, et non
+    ecrite a la main dans chacune : une carte ajoutee plus tard doit se
+    replier sans que personne n'ait a y penser."""
+    page = _page_panneau("dashboard.html")
+    assert "function plierLesCartes()" in page
+    assert ".onglet-p .settings-card:not(.pliable)" in page, (
+        "le pliage doit viser toutes les cartes de parametres")
+    # Repliee par defaut : c'est tout l'objet de la demande.
+    assert ".settings-card.pliable>.card-corps{display:none" in page
+    assert ".settings-card.pliable.ouverte>.card-corps{display:block}" in page
+    # La pastille d'etat reste lisible carte fermee : c'est ce qu'on vient
+    # verifier avant de decider d'ouvrir.
+    assert ".settings-card.pliable>.card-top>.pill" in page
+    # Et la poignee repond au clavier, pas seulement au pointeur.
+    assert "tete.addEventListener('keydown'" in page
+    assert "aria-expanded" in page
+
+
+def test_l_etat_d_une_carte_est_retenu_par_son_titre():
+    """Une cle fondee sur la position rouvrirait des cartes fermees des
+    qu'on en reordonne une."""
+    page = _page_panneau("dashboard.html")
+    bloc = page.split("function pliCle(")[1].split("}")[0]
+    assert "card-name b" in bloc and "textContent" in bloc
+    assert "indexOf" not in bloc and "index" not in bloc
+
+
+def test_la_deconnexion_est_rouge_aux_deux_endroits():
+    """Deux boutons pour la meme action : ils doivent se ressembler. Un
+    « Deconnexion » gris dans les parametres et rouge dans le menu se lit
+    comme deux choses differentes."""
+    page = _page_panneau("dashboard.html")
+    declencheurs = page.split('onclick="doLogout()"')[:-1]
+    assert len(declencheurs) == 2, "il y a deux boutons de deconnexion"
+    for avant in declencheurs:
+        balise = avant[avant.rindex("<"):]
+        assert "acct-sortir" in balise or "btn-danger-quiet" in balise, (
+            "un declencheur de deconnexion sans marque rouge : " + balise)
+    assert ".acct-item.acct-sortir{color:var(--err)}" in page
+
+
+def test_l_apparence_se_choisit_dans_une_liste_a_icones():
+    """Trois mots colles dans un interrupteur segmente se lisent comme un
+    reglage binaire mal compte. Une ligne par choix, avec son icone."""
+    page = _page_panneau("dashboard.html")
+    bloc = page.split('class="choix-liste" id="theme-toggle"')[1].split("</div>")[0]
+    for choix in ("auto", "light", "dark"):
+        assert f'data-t="{choix}"' in bloc
+    # Une icone et une coche par ligne : trois choix, six svg.
+    assert bloc.count("<svg") == 6, bloc.count("<svg")
+    # applyTheme continue de piloter la liste : sans cela le choix actif ne
+    # se verrait nulle part.
+    assert "#theme-toggle button" in page
+
+
+def test_une_case_a_cocher_n_est_pas_un_champ_de_saisie():
+    """La regle input{width:100%} s'appliquait aussi aux cases : elles
+    s'etiraient sur toute la largeur et leur intitule tombait a la ligne en
+    dessous, sans lien visible entre les deux."""
+    page = _page_panneau("dashboard.html")
+    assert "input[type=checkbox],input[type=radio]{width:auto" in page
+    assert "label:has(> input[type=checkbox])" in page
+
+
+def test_les_preferences_d_affichage_ne_sont_plus_une_carte():
+    """Le reglage 25/50 vit maintenant au-dessus du tableau qu'il concerne.
+    La carte qui restait dans le compte ne parlait plus que d'elle-meme."""
+    page = _page_panneau("dashboard.html")
+    for trace in ("pref-taille", "prefTaille", "pref-msg", "Préférences d'affichage"):
+        assert trace not in page, trace
+
+
 def test_les_deux_pages_lisent_le_meme_theme():
     """Un seul fichier de variables, lie par les deux pages."""
     theme = _page_panneau("theme.css")
