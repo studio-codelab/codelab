@@ -109,6 +109,10 @@ def _lire_ressource(nom):
 
 DASHBOARD_PAGE = _lire_ressource("dashboard.html")
 LOGIN_PAGE = _lire_ressource("login.html")
+# Le theme : un seul fichier de variables, partage par les deux pages. Servi
+# plutot que recopie dans chacune, pour qu'il n'existe qu'un endroit a changer
+# et qu'aucune des deux ne puisse deriver de l'autre.
+THEME_CSS = _lire_ressource("theme.css")
 
 
 flask_app = Flask(__name__)
@@ -5111,6 +5115,26 @@ def api_icon(n):
 
 
 # ------------------------------ pages --------------------------------
+
+@flask_app.get("/theme.css")
+def theme_css():
+    """Le theme, servi aux deux pages.
+
+    Public sans session : la page de CONNEXION en a besoin, et il n'y a la
+    que des couleurs. Le proteger n'aurait rien protege et aurait servi une
+    page de connexion sans style.
+
+    Werkzeug range les regles litterales avant les regles a variable : cette
+    route gagne sur "/<n>", qui sert les applications hebergees. Et un nom
+    d'application ne peut de toute facon pas contenir de point.
+
+    Un cache court plutot qu'aucun : le fichier ne change qu'au deploiement
+    d'une nouvelle image, mais une minute suffit a eviter de le redemander a
+    chaque page sans qu'une mise a jour tarde a se voir.
+    """
+    return Response(THEME_CSS, mimetype="text/css",
+                    headers={"Cache-Control": "public, max-age=60"})
+
 
 @flask_app.get("/login")
 def login_page():

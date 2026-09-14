@@ -905,25 +905,51 @@ Trois habitudes tenues, parce qu'elles se perdent vite :
 
 ## Identite visuelle
 
+> **Pour repeindre le panneau, un seul fichier : [`app/theme.css`](app/theme.css).** Il ne contient
+> que des variables -- aucune mise en page, aucun composant. Change `--accent` et tout ce qui se
+> clique change de couleur, dans les deux pages et dans les deux themes, d'un coup.
+
 Les quatre ecrans -- connexion, second facteur, hub et outil de developpement -- partagent une
-seule identite : **fond clair, barre de navigation en bleu nuit, accent indigo, cartes blanches**.
+seule identite : **cadre clair, accent turquoise, donnees en chasse fixe**.
 
-Trois decisions structurantes, et leurs raisons :
+Quatre decisions structurantes, et leurs raisons :
 
-- **Fond clair, barre sombre.** Le contenu vit sur un gris tres clair, les cartes sont blanches, la
-  navigation est en bleu nuit. Le contraste entre les deux donne la hierarchie sans avoir besoin de
-  bordures partout. La barre reste sombre dans les deux themes : c'est l'element d'identite, il ne
-  doit pas changer de nature selon l'heure de la journee.
-- **Un seul accent.** L'indigo est reserve a ce qui est actionnable ou selectionne. Les etats
-  (En ligne, Arretee, Ne repond pas, En erreur, Public, Prive) ont leurs propres couleurs, jamais
-  l'accent -- sinon plus rien ne ressort.
-- **Deux densites, une identite.** Le hub respire (cartes, icones, peu de texte) ; le mode
-  developpeur est dense (tableau, chiffres alignes, actions compactes). C'est la meme interface,
-  reglee pour deux usages.
+- **Le cadre est clair, le contenu est pose dessus.** Un bandeau sombre en haut et une colonne
+  sombre a gauche encadraient le contenu et pesaient plus que lui. La barre et la colonne sont
+  blanches, le contenu est sur un gris legerement plus soutenu, et ce sont les traits qui separent.
+  Le seul aplat franchement sombre qui reste est le panneau de presentation de la page de
+  connexion : il a son propre jeton (`--vitrine`) et ne suit pas le cadre.
+- **L'accent designe ce qui se clique, et rien d'autre.** Le turquoise est reserve a ce qui est
+  actionnable ou selectionne. Les etats (En ligne, Arretee, Ne repond pas, En erreur, Publique,
+  Privee) ont leurs propres couleurs -- vert, ambre, rouge -- et ne prennent **jamais** l'accent.
+  Sans cette separation, une ligne en panne se confond avec un bouton.
+- **La donnee est en chasse fixe.** Ports, pourcentages, quantites de memoire, compteurs et etats
+  passent par `--mono`. Un chiffre lu dans la meme chasse d'une ligne a l'autre se compare a
+  l'oeil ; en proportionnelle, les colonnes ne s'alignent qu'a peu pres.
+- **Chaque ligne porte sa severite sur son bord gauche.** Un bandeau de 3 px : vert en ligne,
+  rouge en panne, gris arrete. Il est **deduit** de la pastille deja presente dans la ligne
+  (selecteur `:has`), donc il n'y a aucune classe a tenir a jour cote JavaScript et l'etat ne peut
+  pas se contredire : il n'existe qu'une fois.
 
-La typographie est la pile systeme. Un panneau auto-heberge ne doit pas dependre d'un serveur de
-polices tiers pour s'afficher correctement -- et la police de l'appareil est deja chargee, deja
-lisible.
+Les gris tirent legerement au **vert**, pas au bleu. Le panneau vit a cote d'un terminal, et un
+gris vert s'accorde au turquoise d'action la ou un gris bleu lui disputait la teinte.
+
+La typographie est la pile systeme, en proportionnelle comme en chasse fixe. Un panneau
+auto-heberge ne doit pas dependre d'un serveur de polices tiers pour s'afficher correctement --
+et la police de l'appareil est deja chargee, deja lisible.
+
+### Ou vivent les styles
+
+| | |
+|---|---|
+| `app/theme.css` | **Les variables, et elles seules.** Couleurs, formes, tailles, les deux themes. Servi sur `/theme.css`, lie par les deux pages. |
+| `app/dashboard.html` | Les regles propres au panneau, ecrites en fonction des variables. |
+| `app/login.html` | Les regles propres a la page de connexion, idem. |
+
+Ces valeurs etaient auparavant recopiees **six fois** : trois blocs par page (clair, sombre
+automatique, sombre choisi), dans chacun des deux fichiers. Changer un gris demandait six retouches
+identiques, et il suffisait d'en oublier une pour que le theme sombre parte de travers sans que
+rien ne le signale.
 
 ## La fiche d'une application
 

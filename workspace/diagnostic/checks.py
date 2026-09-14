@@ -4602,6 +4602,55 @@ def test_l_enveloppe_de_fetch_regarde_l_origine():
     assert "return false" in verif, "une cible illisible doit priver du jeton, pas l'accorder"
 
 
+# ---------- 23 bis. le theme n'existe qu'a un seul endroit ----------
+#
+# La demande etait "que le style soit facilement modifiable". Ce qui l'en
+# empechait n'etait pas le CSS mais la RECOPIE : les memes variables vivaient
+# six fois -- trois blocs de theme (clair, sombre automatique, sombre choisi)
+# dans chacune des deux pages. Changer un gris demandait six retouches
+# identiques, et en oublier une laissait le theme sombre de travers sans que
+# rien ne le signale.
+#
+# Ces deux tests tiennent la propriete, pas la mise en forme : il y a un
+# fichier de theme, et les pages n'en redefinissent aucun.
+
+def _page_panneau(nom):
+    return open(os.path.join(DOSSIER_PANNEAU, "app", nom), encoding="utf-8").read()
+
+
+def test_les_deux_pages_lisent_le_meme_theme():
+    """Un seul fichier de variables, lie par les deux pages."""
+    theme = _page_panneau("theme.css")
+    # Les jetons structurants y sont, et dans les trois etats de theme.
+    for cle in ("--accent:", "--bg:", "--ok:", "--err:", "--warn:", "--mono:", "--r:"):
+        assert cle in theme, f"{cle} manque au theme"
+    assert theme.count("--accent:") == 3, (
+        "les trois etats de theme doivent etre tenus : clair, sombre du "
+        "systeme, sombre choisi explicitement")
+    assert '[data-theme="dark"]' in theme and "prefers-color-scheme" in theme
+
+    for nom in ("dashboard.html", "login.html"):
+        page = _page_panneau(nom)
+        assert '<link rel="stylesheet" href="/theme.css">' in page, (
+            f"{nom} ne lit pas le theme partage")
+
+
+def test_aucune_page_ne_redefinit_un_jeton_du_theme():
+    """La recopie ne doit pas pouvoir revenir en silence.
+
+    C'est ce test qui donne son sens au precedent : sans lui, on peut lier
+    theme.css ET reposer un bloc :root dans la page, qui gagnerait par
+    l'ordre de cascade. Le fichier partage serait alors mort sans que
+    personne le remarque.
+    """
+    for nom in ("dashboard.html", "login.html"):
+        css = _page_panneau(nom).split("</style>")[0]
+        for cle in ("--accent:", "--bg:", "--surface:", "--txt:", "--ok:", "--err:"):
+            assert cle not in css, (
+                f"{nom} redefinit {cle} : le theme partage ne sert plus a rien, "
+                "et les deux pages vont diverger")
+
+
 # ---------- 24. le dossier personnel ne se detourne pas ----------
 #
 # Trouve par l'audit de la branche, et c'etait une escalade de privileges
