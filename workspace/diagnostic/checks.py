@@ -3845,6 +3845,125 @@ def journal(tmp_path, monkeypatch):
     return app.flask_app.test_client()
 
 
+# ---------- la carte de chaleur, et les analyses ----------
+#
+# Vecu : « Ajoute une carte de chaleur pour l'utilisation des applications, et
+# la possibilite de filtrer sur un utilisateur. Toutes les statistiques
+# doivent etre historisees en base, et ces donnees alimentent les analyses. »
+#
+# Le point qui compte, et qui ne se voit pas a l'ecran : le fichier du
+# journal est PLAFONNE a 1 Mo, donc il oublie. Tant qu'il servait a afficher
+# quarante lignes, cela n'avait aucune importance. Des qu'on COMPTE, un total
+# calcule sur une fenetre glissante ne veut plus rien dire -- il diminue tout
+# seul a mesure que le journal tourne. Les analyses lisent donc la base, le
+# fichier restant le repli.
+
+def _semer_ouvertures(monkeypatch, tmp_path, evenements):
+    chemin = tmp_path / "carte.jsonl"
+    with open(chemin, "w") as f:
+        for e in evenements:
+            f.write(json.dumps(e) + "\n")
+    monkeypatch.setattr(app, "ACCES_FILE", str(chemin))
+
+
+def test_la_carte_compte_par_jour_et_pas_par_evenement(journal, tmp_path, monkeypatch):
+    """Une case par jour : trois ouvertures le meme jour font une case a
+    trois, pas trois cases."""
+    hier = time.time() - 86400
+    _semer_ouvertures(monkeypatch, tmp_path, [
+        {"id": "a", "ts": int(hier), "genre": "ouverture", "qui": "marie", "app": "prive"},
+        {"id": "b", "ts": int(hier) + 60, "genre": "ouverture", "qui": "marie", "app": "prive"},
+        {"id": "c", "ts": int(hier) + 120, "genre": "ouverture", "qui": "marie", "app": "public"},
+        # Une connexion n'est pas une ouverture : la carte parle d'usage des
+        # applications, pas de presence.
+        {"id": "d", "ts": int(hier) + 180, "genre": "connexion", "qui": "marie"},
+    ])
+    jours = app.carte_activite()
+    assert len(jours) == 1, jours
+    assert jours[0]["ouvertures"] == 3
+    # Et combien d'applications distinctes ce jour-la : c'est ce qui
+    # distingue « j'ai ouvert dix fois la meme » de « j'ai travaille partout ».
+    assert jours[0]["apps"] == 2
+
+
+def test_la_carte_se_filtre_par_personne_et_par_application(journal, tmp_path, monkeypatch):
+    hier = int(time.time() - 86400)
+    _semer_ouvertures(monkeypatch, tmp_path, [
+        {"id": "a", "ts": hier, "genre": "ouverture", "qui": "marie", "app": "prive"},
+        {"id": "b", "ts": hier, "genre": "ouverture", "qui": "jean", "app": "prive"},
+        {"id": "c", "ts": hier, "genre": "ouverture", "qui": "marie", "app": "public"},
+    ])
+    assert app.carte_activite(qui="marie")[0]["ouvertures"] == 2
+    assert app.carte_activite(app="prive")[0]["ouvertures"] == 2
+    assert app.carte_activite(qui="marie", app="prive")[0]["ouvertures"] == 1
+    # Un visiteur anonyme se filtre aussi : "" est une valeur, pas l'absence
+    # de filtre.
+    assert app.carte_activite(qui="") == []
+
+
+def test_la_carte_ne_remonte_pas_avant_sa_fenetre(journal, tmp_path, monkeypatch):
+    """Sinon la grille s'etirerait sur toute la duree du journal, et les
+    colonnes ne tomberaient plus en face des mois affiches."""
+    vieux = int(time.time() - 400 * 86400)
+    _semer_ouvertures(monkeypatch, tmp_path, [
+        {"id": "a", "ts": vieux, "genre": "ouverture", "qui": "marie", "app": "prive"},
+        {"id": "b", "ts": int(time.time()) - 3600, "genre": "ouverture",
+         "qui": "marie", "app": "prive"},
+    ])
+    assert len(app.carte_activite(jours=30)) == 1
+    assert len(app.carte_activite(jours=366)) == 1
+
+
+def test_la_carte_est_reservee_a_l_administrateur(journal):
+    """Elle dit qui a ouvert quoi et quand : c'est le meme secret que le
+    journal, elle se garde comme lui."""
+    c = journal
+    assert c.get("/api/activite/carte").status_code in (401, 403)
+    c.post("/login", json={"password": "secret-de-test"})
+    r = c.get("/api/activite/carte")
+    assert r.status_code == 200, r.data
+    d = r.get_json()
+    assert d["source"] in ("postgres", "fichier")
+    assert isinstance(d["jours"], list)
+
+
+def test_une_fenetre_farfelue_ne_fait_pas_tomber_la_carte(journal):
+    """Le parametre arrive par l'URL : il se borne, il ne se croit pas."""
+    c = journal
+    c.post("/login", json={"password": "secret-de-test"})
+    for valeur in ("0", "-5", "99999", "beaucoup"):
+        r = c.get("/api/activite/carte?jours=" + valeur)
+        assert r.status_code == 200, valeur
+        assert 1 <= r.get_json()["fenetre"] <= app.CARTE_JOURS_MAX
+
+
+def test_les_analyses_preferent_la_base_au_fichier_plafonne():
+    """Le resume etait calcule sur le fichier : le total d'ouvertures d'un
+    projet DIMINUAIT tout seul a mesure que le journal tournait."""
+    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    bloc = src.split("def api_activite(")[1].split("@flask_app")[0]
+    assert "pg_resume_acces()" in bloc, "le resume doit venir de la base quand elle repond"
+    assert "resume_acces()" in bloc, "et le fichier doit rester le repli"
+    # Le comptage par jour se fait DANS la base : ramener un an d'evenements
+    # pour les additionner en Python s'ecroulerait le jour ou l'historique
+    # compte pour de bon.
+    carte = src.split("def pg_carte_activite(")[1].split("\ndef ")[0]
+    assert "GROUP BY" in carte and "count(*)" in carte
+
+
+def test_les_paliers_de_la_carte_sont_relatifs_au_plus_charge():
+    """Un seuil absolu afficherait une carte toute pale sur une installation
+    calme, et toute sombre sur une installation chargee. Ce qu'on lit dans
+    une carte de chaleur, c'est le relief."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    bloc = page.split("function carteNiveau(")[1].split("\n}")[0]
+    assert "sommet" in bloc and "/ sommet" in bloc
+    # Cinq paliers, comme le calendrier de GitHub.
+    for niveau in range(5):
+        assert f".carte-case.n{niveau}" in page or niveau == 0
+
+
 def test_un_acces_refuse_n_est_pas_une_visite(journal):
     """Le journal sert a savoir si un projet sert encore.
 

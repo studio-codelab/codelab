@@ -1277,6 +1277,117 @@ def pg_lire_acces(limite=ACCES_LIGNES_LUES, app=None, qui=None):
     return evenements
 
 
+# ------------------------- les analyses -------------------------
+#
+# Le fichier plafonne a 1 Mo : il OUBLIE. Tant qu'il servait a afficher les
+# quarante dernieres lignes, cela n'avait aucune importance. Des qu'on compte
+# -- « combien de fois ce projet a-t-il ete ouvert cette annee », « quels
+# jours cette personne travaille » -- la question change : un total calcule
+# sur une fenetre glissante d'un megaoctet ne veut rien dire, et il diminue
+# tout seul a mesure que le journal tourne.
+#
+# Les analyses lisent donc Postgres, qui garde tout. Le fichier reste le
+# repli : base eteinte, on repond quand meme, sur ce qu'on a, et la reponse
+# dit d'ou elle vient.
+
+# Le fuseau dans lequel une journee commence. Une carte par jour calculee en
+# UTC coupe la soiree en deux pour qui vit a l'est de Greenwich : ce qui est
+# fait a 23 h a Paris compterait pour le lendemain.
+FUSEAU_JOURNAL = os.environ.get("TZ") or "UTC"
+
+
+def _fuseau():
+    try:
+        from zoneinfo import ZoneInfo
+        return ZoneInfo(FUSEAU_JOURNAL)
+    except Exception:                                             # noqa: BLE001
+        # Base de fuseaux absente de l'image, nom inconnu : UTC plutot que
+        # rien. Une carte decalee d'une heure reste lisible ; une page en
+        # erreur, non.
+        return datetime.timezone.utc
+
+
+def _jour(ts):
+    return datetime.datetime.fromtimestamp(ts or 0, _fuseau()).date().isoformat()
+
+
+CARTE_JOURS_MAX = 366
+
+
+def pg_carte_activite(jours=CARTE_JOURS_MAX, qui=None, app=None):
+    """Une ligne par jour : combien d'ouvertures, et combien d'applications.
+
+    Le comptage se fait DANS la base : ramener un an d'evenements pour les
+    additionner ici marcherait aujourd'hui et s'ecroulerait le jour ou
+    l'historique compte pour de bon.
+    """
+    conditions = ["genre = 'ouverture'", "ts >= now() - make_interval(days => %s)"]
+    valeurs = [int(jours)]
+    if qui is not None:
+        conditions.append("qui = %s")
+        valeurs.append(qui)
+    if app is not None:
+        conditions.append("application = %s")
+        valeurs.append(app)
+    valeurs.insert(0, FUSEAU_JOURNAL)
+    with _pg_connexion(PG_BASE) as cx:
+        lignes = cx.execute(
+            "SELECT (ts AT TIME ZONE %s)::date AS jour, count(*),"
+            "       count(DISTINCT application)"
+            "  FROM acces WHERE " + " AND ".join(conditions) +
+            " GROUP BY 1 ORDER BY 1", valeurs).fetchall()
+    return [{"jour": j.isoformat(), "ouvertures": int(n), "apps": int(a)}
+            for j, n, a in lignes]
+
+
+def carte_activite(jours=CARTE_JOURS_MAX, qui=None, app=None):
+    """Le meme comptage, sur le fichier. Repli quand la base ne repond pas."""
+    limite = time.time() - int(jours) * 86400
+    par_jour = {}
+    for e in lire_acces(limite=100000):
+        if e.get("genre") != "ouverture" or (e.get("ts") or 0) < limite:
+            continue
+        if qui is not None and (e.get("qui") or "") != qui:
+            continue
+        if app is not None and (e.get("app") or "") != app:
+            continue
+        j = par_jour.setdefault(_jour(e.get("ts")), {"ouvertures": 0, "apps": set()})
+        j["ouvertures"] += 1
+        j["apps"].add(e.get("app") or "")
+    return [{"jour": j, "ouvertures": v["ouvertures"], "apps": len(v["apps"])}
+            for j, v in sorted(par_jour.items())]
+
+
+def pg_resume_acces():
+    """Le meme resume que resume_acces(), calcule sur TOUT l'historique."""
+    comptes, apps_ = {}, {}
+    with _pg_connexion(PG_BASE) as cx:
+        for qui, connexions, ouvertures, derniere in cx.execute("""
+                SELECT qui,
+                       count(*) FILTER (WHERE genre = 'connexion'),
+                       count(*) FILTER (WHERE genre = 'ouverture'),
+                       max(ts)  FILTER (WHERE genre = 'connexion')
+                  FROM acces WHERE genre IN ('connexion','ouverture')
+                 GROUP BY qui""").fetchall():
+            comptes[qui or ""] = {
+                "connexions": int(connexions), "ouvertures": int(ouvertures),
+                "derniere": int(derniere.timestamp()) if derniere else 0}
+        for application, ouvertures, derniere in cx.execute("""
+                SELECT application, count(*), max(ts) FROM acces
+                 WHERE genre = 'ouverture' GROUP BY application""").fetchall():
+            apps_[application or ""] = {"ouvertures": int(ouvertures),
+                                        "derniere": int(derniere.timestamp()) if derniere else 0,
+                                        "qui": {}}
+        for application, qui, n in cx.execute("""
+                SELECT application, qui, count(*) FROM acces
+                 WHERE genre = 'ouverture' GROUP BY application, qui""").fetchall():
+            apps_.setdefault(application or "", {"ouvertures": 0, "derniere": 0,
+                                                 "qui": {}})["qui"][qui or ""] = int(n)
+        (echecs,) = cx.execute(
+            "SELECT count(*) FROM acces WHERE genre = 'echec'").fetchone()
+    return {"comptes": comptes, "apps": apps_, "echecs": int(echecs)}
+
+
 def lire_acces(limite=ACCES_LIGNES_LUES, app=None, qui=None):
     """Les evenements les plus recents d'abord.
 
@@ -3691,14 +3802,52 @@ def api_activite():
     qui = request.args.get("qui")
     if pg_disponible():
         try:
+            # Le resume vient de la base LUI AUSSI. Calcule sur le fichier, il
+            # comptait sur une fenetre glissante d'un megaoctet : le total
+            # d'ouvertures d'un projet diminuait tout seul a mesure que le
+            # journal tournait.
             return jsonify({"evenements": pg_lire_acces(app=app_, qui=qui),
-                            "resume": resume_acces(), "source": "postgres",
+                            "resume": pg_resume_acces(), "source": "postgres",
                             "pg": _pg_etat["pret"]})
         except Exception as e:
             _pg_etat["erreur"] = f"{type(e).__name__}: {e}"
     return jsonify({"evenements": lire_acces(app=app_, qui=qui),
                     "resume": resume_acces(), "source": "fichier",
                     "pg": False, "pg_erreur": _pg_etat["erreur"]})
+
+
+@flask_app.get("/api/activite/carte")
+@require_admin
+def api_activite_carte():
+    """La carte de chaleur : une case par jour, une annee en un coup d'oeil.
+
+    Meme role que le calendrier de contributions de GitHub, et pour la meme
+    raison : une liste d'evenements dit ce qui s'est passe, une carte dit
+    QUAND -- les periodes creuses, les week-ends, le projet qu'on n'a plus
+    ouvert depuis six semaines. Aucune liste ne montre cela.
+
+    Les filtres sont ceux qu'on se pose : une personne, une application, ou
+    les deux.
+    """
+    qui = request.args.get("qui")
+    app_ = request.args.get("app") or None
+    try:
+        jours = max(1, min(CARTE_JOURS_MAX, int(request.args.get("jours") or CARTE_JOURS_MAX)))
+    except ValueError:
+        jours = CARTE_JOURS_MAX
+    if pg_disponible():
+        try:
+            return jsonify({"jours": pg_carte_activite(jours, qui=qui, app=app_),
+                            "fenetre": jours, "fuseau": FUSEAU_JOURNAL,
+                            "source": "postgres"})
+        except Exception as e:                                    # noqa: BLE001
+            _pg_etat["erreur"] = f"{type(e).__name__}: {e}"
+    # Repli : le fichier oublie au-dela d'un megaoctet, donc la carte est plus
+    # courte. Le dire plutot que d'afficher des jours vides qui laisseraient
+    # croire a une inactivite.
+    return jsonify({"jours": carte_activite(jours, qui=qui, app=app_),
+                    "fenetre": jours, "fuseau": FUSEAU_JOURNAL,
+                    "source": "fichier", "pg_erreur": _pg_etat["erreur"]})
 
 
 @flask_app.get("/api/mon-compte")

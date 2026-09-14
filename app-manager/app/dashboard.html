@@ -176,6 +176,39 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 .zone-title{font-size:10px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;
  color:var(--dim2);margin-bottom:9px}
 
+/* ---------------------- carte de chaleur ----------------------
+   Les cases sont posees en grille, colonne par colonne : chaque colonne est
+   une semaine, chaque ligne un jour de la semaine -- lundi en haut. La
+   grille se remplit donc VERTICALEMENT (grid-auto-flow:column), ce qui evite
+   d'avoir a calculer une position pour chaque case. */
+.carte-zone{overflow-x:auto;padding:4px 0 2px}
+.carte-grille{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,11px);
+ gap:3px;width:max-content}
+.carte-case{width:11px;height:11px;border-radius:2px;background:var(--surface2);
+ border:1px solid var(--line)}
+/* Cinq paliers, comme le calendrier de GitHub : en dessous de cinq, les
+   journees chargees et les journees calmes se confondent ; au-dessus, l'oeil
+   ne distingue plus les nuances. */
+.carte-case.n1{background:var(--accent-soft);border-color:transparent}
+.carte-case.n2{background:color-mix(in srgb,var(--accent) 45%,transparent);border-color:transparent}
+.carte-case.n3{background:color-mix(in srgb,var(--accent) 72%,transparent);border-color:transparent}
+.carte-case.n4{background:var(--accent);border-color:transparent}
+/* Une case hors fenetre (avant le premier lundi affiche) garde la place sans
+   rien affirmer : la laisser vide decalerait toute la grille d'un jour. */
+.carte-case.vide{background:transparent;border-color:transparent}
+.carte-mois{display:grid;grid-auto-flow:column;gap:3px;width:max-content;
+ font-size:10px;color:var(--dim2);margin-bottom:4px;height:13px}
+.carte-filtres{display:flex;gap:8px;flex-wrap:wrap}
+.carte-filtres select{width:auto;min-width:150px;padding:5px 9px;font-size:12.5px}
+.carte-pied{display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap}
+.carte-legende{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--dim2)}
+.carte-legende i{width:11px;height:11px;border-radius:2px;display:inline-block}
+.carte-legende i.n0{background:var(--surface2);border:1px solid var(--line)}
+.carte-legende i.n1{background:var(--accent-soft)}
+.carte-legende i.n2{background:color-mix(in srgb,var(--accent) 45%,transparent)}
+.carte-legende i.n3{background:color-mix(in srgb,var(--accent) 72%,transparent)}
+.carte-legende i.n4{background:var(--accent)}
+
 /* ------------------------------ cartes ------------------------------ */
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
  padding:14px 16px;box-shadow:0 1px 2px var(--shadow)}
@@ -825,6 +858,39 @@ table.tbl-journal{min-width:560px}
         <div class="res-label"><span>Mémoire</span><span id="res-mem-val">0 Mo</span></div>
         <div class="res-bar"><span id="res-mem-bar" style="width:0%"></span></div>
       </div>
+    </div>
+  </div>
+
+  <!-- LA CARTE DE CHALEUR. Une liste d'evenements dit ce qui s'est passe ;
+       une carte dit QUAND -- les semaines creuses, les week-ends, le projet
+       qu'on n'a plus ouvert depuis six semaines. Aucune liste ne montre
+       cela, et c'est pourtant la question qu'on se pose avant d'arreter une
+       application. -->
+  <div class="zone">
+    <div class="zone-title">Utilisation</div>
+    <div class="card">
+      <div class="card-top">
+        <div class="card-name"><b>Ouvertures d'applications</b>
+          <div class="path" id="carte-sous">Une case par jour, sur l'année écoulée.</div></div>
+        <div class="spacer" style="flex:1"></div>
+        <div class="carte-filtres">
+          <select id="carte-qui" onchange="chargerCarte()" aria-label="Filtrer par personne">
+            <option value="">Tout le monde</option>
+          </select>
+          <select id="carte-app" onchange="chargerCarte()" aria-label="Filtrer par application">
+            <option value="">Toutes les applications</option>
+          </select>
+        </div>
+      </div>
+      <div id="carte-zone" class="carte-zone"></div>
+      <div class="carte-pied">
+        <span id="carte-total" class="hint"></span>
+        <span class="spacer" style="flex:1"></span>
+        <span class="carte-legende">Moins
+          <i class="n0"></i><i class="n1"></i><i class="n2"></i><i class="n3"></i><i class="n4"></i>
+          Plus</span>
+      </div>
+      <div class="hint" id="carte-source" style="display:none"></div>
     </div>
   </div>
 
@@ -1860,6 +1926,7 @@ function showSection(name){
   if(name!=='app') fermerLog();
   if(name==='hub') chargerHub();
   if(name==='overview' || name==='apps') refresh();
+  if(name==='overview') chargerCarte();
   /* L'etat de securite est relu a chaque ouverture : il peut avoir change
      depuis un autre onglet, ou au redemarrage du service. */
   if(name==='users'){ chargerUtilisateurs(); chargerInscriptionLibre(); chargerActivite(); }
@@ -2751,6 +2818,118 @@ function ilYA(ts){
   return new Date(ts*1000).toLocaleDateString();
 }
 function quandPrecis(ts){ return new Date(ts*1000).toLocaleString(); }
+
+/* ---------------- carte de chaleur ---------------- */
+/* Les paliers sont relatifs a la journee la plus chargee de la fenetre
+   regardee : un seuil absolu ("4 ouvertures = fonce") afficherait une carte
+   toute pale sur une installation calme et toute sombre sur une installation
+   chargee. Ce qu'on veut lire, c'est le RELIEF. */
+function carteNiveau(n, sommet){
+  if(!n) return 0;
+  if(sommet <= 1) return 4;
+  const part = n / sommet;
+  return part > .75 ? 4 : part > .5 ? 3 : part > .25 ? 2 : 1;
+}
+
+const CARTE_MOIS=['janv.','févr.','mars','avr.','mai','juin','juil.','août',
+                  'sept.','oct.','nov.','déc.'];
+
+function carteJourCle(d){
+  /* Date locale, et non toISOString() qui repasse en UTC : sur un fuseau a
+     l'est de Greenwich, le 1er janvier redeviendrait le 31 decembre. */
+  const m=String(d.getMonth()+1).padStart(2,'0'), j=String(d.getDate()).padStart(2,'0');
+  return d.getFullYear()+'-'+m+'-'+j;
+}
+
+function peindreCarte(d){
+  const parJour={}; let total=0, sommet=0;
+  for(const j of (d.jours||[])){
+    parJour[j.jour]=j; total+=j.ouvertures;
+    if(j.ouvertures>sommet) sommet=j.ouvertures;
+  }
+  /* On remonte jusqu'au lundi qui precede le debut de la fenetre : sans
+     cela, la premiere colonne serait tronquee et tous les jours de la
+     semaine se decaleraient d'une ligne. */
+  const fin=new Date(); fin.setHours(12,0,0,0);
+  const debut=new Date(fin); debut.setDate(debut.getDate()-((d.fenetre||366)-1));
+  const recul=(debut.getDay()+6)%7;        /* lundi = 0 */
+  debut.setDate(debut.getDate()-recul);
+
+  const cases=[]; const mois=[]; let colonne=[]; let dernierMois=-1;
+  for(let d0=new Date(debut); d0<=fin; d0.setDate(d0.getDate()+1)){
+    const cle=carteJourCle(d0);
+    const e=parJour[cle];
+    const n=e?e.ouvertures:0;
+    const titre = n
+      ? `${n} ouverture${n>1?'s':''} le ${d0.toLocaleDateString()}`
+        + (e.apps>1 ? ` — ${e.apps} applications` : '')
+      : `Aucune ouverture le ${d0.toLocaleDateString()}`;
+    colonne.push(`<div class="carte-case n${carteNiveau(n,sommet)}" title="${esc(titre)}"></div>`);
+    if(colonne.length===7){
+      cases.push(colonne.join('')); colonne=[];
+      /* L'etiquette de mois se pose sur la colonne ou le mois change, une
+         seule fois -- douze reperes valent mieux que cinquante-deux. */
+      const m=d0.getMonth();
+      mois.push(m!==dernierMois ? `<span>${CARTE_MOIS[m]}</span>` : '<span></span>');
+      dernierMois=m;
+    }
+  }
+  if(colonne.length){
+    while(colonne.length<7) colonne.push('<div class="carte-case vide"></div>');
+    cases.push(colonne.join('')); mois.push('<span></span>');
+  }
+  $('carte-zone').innerHTML =
+    `<div class="carte-mois">${mois.join('')}</div>`
+    + `<div class="carte-grille">${cases.join('')}</div>`;
+
+  const jours=Object.keys(parJour).length;
+  $('carte-total').textContent = total
+    ? `${total} ouverture${total>1?'s':''} sur ${jours} jour${jours>1?'s':''}`
+      + (sommet>1 ? ` — au plus ${sommet} dans une journée.` : '.')
+    : "Aucune ouverture d'application sur la période.";
+
+  /* D'ou viennent les chiffres. Le fichier oublie au-dela d'un megaoctet :
+     une carte batie sur lui montre des cases vides qui ne prouvent aucune
+     inactivite, et le taire serait mentir par omission. */
+  const src=$('carte-source');
+  if(d.source==='postgres'){ src.style.display='none'; }
+  else{
+    src.style.display='block';
+    src.innerHTML="Historique lu dans le <b>fichier</b> du panneau, qui ne garde "
+      + "que son dernier mégaoctet : les jours vides les plus anciens peuvent "
+      + "simplement avoir été oubliés. La base garde tout.";
+  }
+}
+
+async function chargerCarte(){
+  /* La liste des personnes vient du resume du journal. Il n'est charge qu'a
+     l'ouverture de la page Utilisateurs : sans cette ligne, le filtre
+     n'aurait aucun nom tant qu'on n'y serait pas passe. */
+  if(!Object.keys(activite.resume.comptes||{}).length) await chargerActivite();
+  /* Les deux listes deroulantes suivent ce qui existe, sans perdre le choix
+     en cours. */
+  const selQui=$('carte-qui'), selApp=$('carte-app');
+  const gardeQui=selQui.value, gardeApp=selApp.value;
+  const comptes=Object.keys((activite&&activite.resume&&activite.resume.comptes)||{})
+    .filter(n=>n).sort();
+  selQui.innerHTML='<option value="">Tout le monde</option>'
+    + comptes.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  selQui.value = comptes.includes(gardeQui) ? gardeQui : '';
+  const noms=(apps||[]).map(a=>a.name).sort();
+  selApp.innerHTML='<option value="">Toutes les applications</option>'
+    + noms.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  selApp.value = noms.includes(gardeApp) ? gardeApp : '';
+
+  const p=new URLSearchParams();
+  if(selQui.value) p.set('qui', selQui.value);
+  if(selApp.value) p.set('app', selApp.value);
+  try{
+    const d=await (await fetch('/api/activite/carte?'+p.toString())).json();
+    peindreCarte(d);
+  }catch(e){
+    $('carte-zone').innerHTML='<div class="hint">Carte indisponible.</div>';
+  }
+}
 
 async function chargerActivite(){
   try{ activite=await (await fetch('/api/activite')).json(); }catch(e){ return; }
