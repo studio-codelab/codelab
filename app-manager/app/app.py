@@ -5317,6 +5317,71 @@ def strip_session_cookie(raw):
     return "; ".join(gardes)
 
 
+# Le ruban de retour, glisse dans les pages HTML servies par le proxy.
+#
+# POURQUOI L'INJECTER PLUTOT QUE LE DEMANDER AUX APPLICATIONS : une
+# application deployee est du code quelconque, souvent ecrit avant d'arriver
+# ici, et parfois pas par nous. Lui demander d'ajouter un lien vers le hub,
+# c'est n'en avoir aucun dans la plupart des cas. Le proxy, lui, voit passer
+# toutes les pages.
+#
+# Styles en ligne et nom de classe improbable : la page d'accueil de
+# l'application a ses propres regles, et le ruban ne doit ni les subir ni les
+# changer. all:initial coupe l'heritage dans les deux sens.
+RUBAN_RETOUR = (
+    '<a href="/" id="codelab-retour-hub" title="Revenir au hub CodeLab" '
+    'style="all:initial;position:fixed;left:14px;bottom:14px;z-index:2147483647;'
+    'display:inline-flex;align-items:center;gap:7px;padding:8px 13px;'
+    'font:600 13px/1 -apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;'
+    'color:#fff;background:#141a21;border-radius:999px;cursor:pointer;'
+    'box-shadow:0 2px 10px rgba(0,0,0,.28);text-decoration:none">'
+    '<span style="all:initial;color:#fff;font:600 15px/1 sans-serif">&#8592;</span>'
+    '<span style="all:initial;color:#fff;font:600 13px/1 -apple-system,'
+    'BlinkMacSystemFont,sans-serif">CodeLab</span></a>'
+).encode()
+
+
+def _entete(entetes, nom):
+    for k, v in entetes:
+        if k.lower() == nom:
+            return v
+    return ""
+
+
+def injecter_ruban(data, status, entetes):
+    """Glisse le ruban de retour avant </body>, quand c'est sans risque.
+
+    Quatre refus, et chacun evite de casser une application :
+
+      - un code autre que 200 : une page d'erreur de l'application n'a pas a
+        etre retouchee ;
+      - autre chose que du HTML : une image ou du JSON ne se modifient pas ;
+      - un corps COMPRESSE : les octets ne contiennent alors pas "</body>",
+        et y ecrire ferait un flux illisible ;
+      - pas de </body> : fragment HTML renvoye a du JavaScript, reponse
+        partielle. On ne devine pas ou l'inserer.
+
+    Travaille sur les OCTETS et jamais sur du texte decode : une page dans un
+    encodage qu'on aurait mal devine reviendrait abimee, et une page n'a pas
+    a payer le passage par le proxy.
+    """
+    if status != 200:
+        return data, entetes
+    if "text/html" not in _entete(entetes, "content-type").lower():
+        return data, entetes
+    if _entete(entetes, "content-encoding"):
+        return data, entetes
+    i = data.lower().rfind(b"</body>")
+    if i < 0:
+        return data, entetes
+    data = data[:i] + RUBAN_RETOUR + data[i:]
+    # Content-Length devient faux si on ne le refait pas : le navigateur
+    # tronquerait la page a l'ancienne taille, juste avant le ruban.
+    entetes = [(k, v) for k, v in entetes if k.lower() != "content-length"]
+    entetes.append(("Content-Length", str(len(data))))
+    return data, entetes
+
+
 def _proxy(name, sub):
     a = load().get(name)
     if not a:
@@ -5377,8 +5442,14 @@ def _proxy(name, sub):
         return Response(_page("Demarrage en cours",
                               "\u00ab " + name + " \u00bb ne repond pas encore.",
                               "Reessaie dans quelques secondes."), 502, mimetype="text/html")
-    return Response(data, status, [(k, v) for k, v in headers.items()
-                                   if k.lower() not in HOP])
+    sortants = [(k, v) for k, v in headers.items() if k.lower() not in HOP]
+    # Le ruban n'est pose que pour quelqu'un de CONNECTE. Une application
+    # publique vue par un visiteur anonyme ne doit pas lui annoncer qu'un
+    # panneau existe derriere, ni lui offrir un lien qui le renverrait a une
+    # page de connexion dont il n'a que faire.
+    if is_authed():
+        data, sortants = injecter_ruban(data, status, sortants)
+    return Response(data, status, sortants)
 
 
 def _from_referer():

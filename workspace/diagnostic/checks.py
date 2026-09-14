@@ -58,6 +58,7 @@ except ModuleNotFoundError:  # image Dagster, image dev
 import json
 import os
 import socket
+import shutil
 import stat
 import time
 import urllib.error
@@ -732,6 +733,180 @@ def check_provenance():
             f"redirige, et borne les ports au reseau local.")
 
 
+def _etat_panneau():
+    """Le dossier d'etat du panneau, vu depuis ce projet."""
+    return os.environ.get("APP_MANAGER_STATE") or "/var/lib/codelab/app-manager"
+
+
+def _lire_json(chemin, defaut):
+    try:
+        with open(chemin) as f:
+            return json.load(f) or defaut
+    except (OSError, ValueError):
+        return defaut
+
+
+def check_applications():
+    """Chaque application declaree, de bout en bout.
+
+    Les autres sondes verifient la STACK -- Postgres repond, Dagster repond,
+    le proxy sert. Aucune ne regardait les applications elles-memes, alors
+    que c'est pour elles que la stack existe. Une application dont le dossier
+    a disparu, dont la commande n'existe plus ou qui n'ecoute pas son port
+    passait totalement inapercue jusqu'a ce qu'on essaie de l'ouvrir.
+
+    Trois questions par application, dans l'ordre ou elles cassent :
+
+      1. son dossier existe-t-il encore ? (renomme, supprime, volume absent)
+      2. le premier mot de sa commande se resout-il ? (python3, node, un
+         binaire installe par un build qui n'a pas ete rejoue)
+      3. si elle est censee tourner, quelque chose ecoute-t-il son port ?
+
+    Lecture seule : rien n'est demarre, rien n'est arrete.
+    """
+    apps = _lire_json(os.path.join(_etat_panneau(), "apps.json"), {})
+    if not apps:
+        return (True, "applications declarees",
+                "Aucune application declaree : rien a verifier.")
+
+    soucis, tournent = [], 0
+    for nom, a in sorted(apps.items()):
+        chemin = a.get("path") or ""
+        if not os.path.isdir(chemin):
+            soucis.append(f"{nom} : dossier introuvable ({chemin})")
+            continue
+        commande = (a.get("command") or "").strip()
+        premier = commande.split()[0] if commande else ""
+        if not premier:
+            soucis.append(f"{nom} : aucune commande de lancement")
+        elif not (shutil.which(premier) or os.path.isfile(os.path.join(chemin, premier))):
+            soucis.append(f"{nom} : commande introuvable ({premier})")
+        if a.get("enabled"):
+            port = a.get("port")
+            if _port_ouvert("127.0.0.1", port):
+                tournent += 1
+            else:
+                soucis.append(f"{nom} : marquee demarree, mais rien n'ecoute sur {port}")
+
+    total = len(apps)
+    if soucis:
+        return (False, "applications declarees",
+                f"{len(soucis)} probleme(s) sur {total} application(s) : "
+                + " ; ".join(soucis[:4])
+                + (" ..." if len(soucis) > 4 else ""))
+    return (True, "applications declarees",
+            f"{total} application(s), {tournent} en ligne : dossier present, "
+            f"commande resolvable, port a l'ecoute.")
+
+
+def _port_ouvert(hote, port):
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        return False
+    s = socket.socket()
+    s.settimeout(1.5)
+    try:
+        return s.connect_ex((hote, port)) == 0
+    finally:
+        s.close()
+
+
+# DEUX conditions, et il faut les deux. Un pourcentage seul se trompe dans
+# les deux sens : 89 % d'un disque de 250 Go laisse 28 Go, de quoi tenir des
+# mois, et la sonde crierait pour rien ; 70 % d'une carte SD de 16 Go laisse
+# 5 Go, et c'est deja court. On alerte quand le disque est a la fois BIEN
+# REMPLI et qu'il reste peu de chose en valeur absolue.
+SEUIL_DISQUE = 85
+SEUIL_LIBRE_GO = 5
+
+
+def check_espace_disque():
+    """Ce qui tue une machine auto-hebergee : pas une panne, un disque plein.
+
+    Et cela ne previent pas. Postgres refuse d'ecrire, les journaux
+    s'arretent, les builds echouent avec des messages qui ne parlent pas
+    d'espace. La sonde regarde les volumes qui comptent, plus le poids des
+    journaux du panneau -- ils grossissent tout seuls, a chaque ligne de
+    chaque application.
+    """
+    lignes, alerte = [], False
+    vus = set()
+    for chemin in ("/workspace", _etat_panneau(), "/var/lib/codelab/config", "/"):
+        if not os.path.isdir(chemin):
+            continue
+        try:
+            st = os.statvfs(chemin)
+        except OSError:
+            continue
+        cle = (st.f_blocks, st.f_bsize)
+        if cle in vus:          # meme systeme de fichiers, deja compte
+            continue
+        vus.add(cle)
+        total = st.f_blocks * st.f_frsize
+        libre = st.f_bavail * st.f_frsize
+        if not total:
+            continue
+        occupe = round(100 * (total - libre) / total)
+        lignes.append(f"{chemin} : {occupe} % occupe, "
+                      f"{libre / (1024 ** 3):.1f} Go libres")
+        if occupe >= SEUIL_DISQUE and libre < SEUIL_LIBRE_GO * 1024 ** 3:
+            alerte = True
+
+    journaux = os.path.join(_etat_panneau(), "logs")
+    poids = 0
+    if os.path.isdir(journaux):
+        for nom in os.listdir(journaux):
+            try:
+                poids += os.path.getsize(os.path.join(journaux, nom))
+            except OSError:
+                pass
+        lignes.append(f"journaux des applications : {poids / (1024 ** 2):.0f} Mo")
+
+    if not lignes:
+        return False, "espace disque", "Aucun volume lisible."
+    return (not alerte), "espace disque", " | ".join(lignes)
+
+
+def check_surface_exposee():
+    """Ce qui est REELLEMENT joignable, et par qui.
+
+    Constate plutot que de faire confiance a ce qui est declare : la liste
+    des applications publiques vient d'apps.json, la restriction
+    d'administration d'exposition.json, et les comptes sans second facteur
+    d'utilisateurs.json. Trois fichiers, trois verites qu'on ne rapproche
+    jamais a l'oeil.
+
+    Elle ne dit pas "c'est mal" : une application publique sur une machine
+    qui n'est pas publiee ne risque rien. Elle dit ce qui est ouvert, pour
+    que le choix soit fait en connaissance.
+    """
+    etat = _etat_panneau()
+    apps = _lire_json(os.path.join(etat, "apps.json"), {})
+    expo = _lire_json(os.path.join(etat, "exposition.json"), {})
+    comptes = _lire_json(os.path.join(etat, "utilisateurs.json"), {})
+
+    publiques = sorted(n for n, a in apps.items()
+                       if (a.get("visibility") or "privee") == "publique")
+    sans_2fa = sorted(n for n, c in comptes.items()
+                      if isinstance(c, dict) and not c.get("totp"))
+    admin_local = bool(expo.get("admin_reseau_local"))
+    adresse = (expo.get("adresse_publique") or "").strip()
+
+    morceaux = [
+        f"administration {'limitee au reseau local' if admin_local else 'joignable de partout'}",
+        f"adresse publique {'declaree : ' + adresse if adresse else 'non declaree'}",
+        f"{len(publiques)} application(s) publique(s)"
+        + (f" ({', '.join(publiques[:3])})" if publiques else ""),
+        f"{len(sans_2fa)} compte(s) sans second facteur"
+        + (f" ({', '.join(sans_2fa[:3])})" if sans_2fa else ""),
+    ]
+    # Le seul cas franchement mauvais : une machine publiee ET une
+    # administration joignable de partout. Le reste est un etat des lieux.
+    mauvais = bool(adresse) and not admin_local
+    return (not mauvais), "surface exposee", " | ".join(morceaux)
+
+
 def check_isolation():
     """Une application peut-elle voir les fichiers d'une autre ?
 
@@ -1058,6 +1233,12 @@ def run_all(env_file=None, workspace=None, ssh_dir=None):
         check_exposition(),
         check_isolation(),
         check_provenance(),
+        # Au-dela de "la stack repond" : ce qu'elle porte, ce qu'elle use, et
+        # ce qu'elle laisse ouvert. Les trois sont en LECTURE SEULE, donc a
+        # leur place ici et non dans la verification approfondie.
+        check_applications(),
+        check_espace_disque(),
+        check_surface_exposee(),
     ]
 
 
@@ -4931,6 +5112,100 @@ def test_le_bouton_lit_la_reponse():
     bloc = bloc[:bloc.index("async function", 10)]
     assert "r.ok" in bloc and "notifier(" in bloc, (
         "le bouton ignore la reponse : l'utilisateur clique dans le vide")
+
+
+# ---------- 23 nonies. revenir au hub, et voir plus loin ----------
+
+def test_le_ruban_de_retour_refuse_les_cas_risques():
+    """Injecter dans la page d'une application ne se fait pas a l'aveugle.
+
+    Quatre refus, et chacun evite de casser quelque chose : un code autre que
+    200, autre chose que du HTML, un corps COMPRESSE (les octets ne
+    contiennent alors pas "</body>"), et l'absence de </body>.
+    """
+    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    bloc = src[src.index("def injecter_ruban("):src.index("def _proxy(")]
+    for garde in ("status != 200", "text/html", "content-encoding", "rfind"):
+        assert garde in bloc, f"le refus sur {garde} a disparu"
+    # Content-Length doit suivre, sinon le navigateur tronque la page juste
+    # avant le ruban.
+    assert "Content-Length" in bloc
+
+    # Et il ne se pose que pour quelqu'un de connecte : une application
+    # publique vue par un visiteur anonyme n'a pas a lui annoncer qu'un
+    # panneau existe derriere.
+    pose = src[src.index("sortants = [(k, v) for k, v in headers.items()"):]
+    pose = pose[:pose.index("return Response")]
+    assert "if is_authed():" in pose
+
+
+def test_le_diagnostic_suit_le_theme_du_panneau():
+    """Il CHARGE le theme, il ne le recopie pas.
+
+    Une palette recopiee dans une deuxieme page est une palette qui
+    divergera, et le diagnostic finirait par annoncer une stack saine dans
+    des couleurs qui ne sont plus celles de la stack.
+    """
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py"),
+               encoding="utf-8").read()
+    assert 'href="/theme.css"' in src, "le diagnostic ne charge pas le theme partage"
+    assert "codelab-theme" in src, "le choix clair / sombre n'est pas repris"
+    # Aucune couleur en dur ne doit revenir dans sa feuille de style.
+    css = src[src.index("CSS = "):src.index('"""', src.index("CSS = ") + 10)]
+    assert "#" not in css.replace("#{", ""), (
+        "une couleur en dur est revenue dans le CSS du diagnostic")
+
+
+def test_les_sondes_regardent_au_dela_de_la_stack():
+    """Trois familles ajoutees, toutes en LECTURE SEULE.
+
+    Les sondes d'avant s'arretaient a "le service repond". Celles-ci
+    regardent ce que la stack porte (les applications une par une), ce
+    qu'elle use (le disque, les journaux) et ce qu'elle laisse ouvert.
+    """
+    assert callable(check_applications)
+    assert callable(check_espace_disque)
+    assert callable(check_surface_exposee)
+    for fn in (check_applications, check_espace_disque, check_surface_exposee):
+        ok, nom, detail = fn()
+        assert isinstance(ok, bool) and nom and detail
+
+
+def test_l_alerte_disque_demande_les_deux_conditions(tmp_path, monkeypatch):
+    """Un pourcentage seul se trompe dans les deux sens.
+
+    89 % d'un disque de 250 Go laisse 28 Go -- des mois de marge, et la sonde
+    crierait pour rien. C'est le defaut qu'avait la premiere version, vu sur
+    la machine de developpement.
+    """
+    assert SEUIL_DISQUE == 85 and SEUIL_LIBRE_GO == 5
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "checks.py"),
+               encoding="utf-8").read()
+    # On lit le CORPS de la sonde, pas le fichier : sinon l'assertion se
+    # trouve elle-meme -- sa propre chaine est dans le fichier -- et la
+    # verification passe quelle que soit la sonde. Defaut vu en mutant : la
+    # mutation survivait.
+    corps = src[src.index("def check_espace_disque("):]
+    corps = corps[:corps.index("\ndef ", 10)]
+    assert "libre < SEUIL_LIBRE_GO" in corps, (
+        "l'alerte disque ne demande plus les deux conditions")
+
+
+def test_la_sonde_des_applications_nomme_ce_qui_cloche(tmp_path, monkeypatch):
+    """Elle ne dit pas "il y a un probleme" : elle dit lequel, et ou."""
+    etat = tmp_path / "etat"
+    etat.mkdir()
+    (etat / "apps.json").write_text(json.dumps({
+        "disparue": {"path": "/n-existe-pas", "command": "python3 a.py",
+                     "port": 9201, "enabled": False},
+        "muette": {"path": str(tmp_path), "command": "python3 -V",
+                   "port": 9204, "enabled": True},
+    }))
+    monkeypatch.setenv("APP_MANAGER_STATE", str(etat))
+    ok, _, detail = check_applications()
+    assert ok is False
+    assert "disparue" in detail and "dossier introuvable" in detail
+    assert "muette" in detail and "9204" in detail
 
 
 # ---------- 24. le dossier personnel ne se detourne pas ----------

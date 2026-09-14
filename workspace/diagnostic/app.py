@@ -56,24 +56,43 @@ import checks  # noqa: E402
 app = Flask(__name__)
 SOURCE = "app-manager"
 
+# Le theme du panneau, servi par lui sur la MEME origine que les
+# applications : le diagnostic peut donc le charger, et il suit alors les
+# memes couleurs, les memes rayons, la meme police que le reste de CodeLab.
+#
+# Il ne les recopie surtout pas : une palette recopiee dans une deuxieme page
+# est une palette qui divergera, et le diagnostic finirait par annoncer une
+# stack saine dans des couleurs qui ne sont plus celles de la stack.
+THEME = '<link rel="stylesheet" href="/theme.css">'
+
+# Le choix clair / sombre fait dans le panneau vit dans le localStorage de
+# son origine. Les applications sont servies sur une AUTRE origine (le port
+# 9002), qui a son propre stockage : le choix n'y est pas lisible, et la page
+# suit alors le reglage du systeme. C'est le comportement correct, pas un
+# defaut -- la separation des origines est ce qui empeche une application de
+# lire ce que le panneau a en memoire.
+#
+# Le script reste utile : servi a travers le panneau lui-meme, il retrouve le
+# choix et l'applique avant le premier rendu, sans scintillement.
+SUIVRE_LE_THEME = """<script>
+try{var t=localStorage.getItem('codelab-theme');
+ if(t&&t!=='auto')document.documentElement.setAttribute('data-theme',t);}catch(e){}
+</script>"""
+
+# Ce qui reste ici : la mise en page propre a cette page. Aucune couleur en
+# dur -- tout passe par les jetons de theme.css.
 CSS = """
-:root{--bg:#f6f7f9;--surface:#fff;--surface2:#f0f1f3;--line:#e2e4e8;--txt:#1c2129;--dim:#5b6472;
- --dim2:#8891a0;--ok:#1a7f37;--ok-bg:rgba(26,127,55,.1);--ok-bd:rgba(26,127,55,.3);
- --err:#cf222e;--err-bg:rgba(207,34,46,.08);--err-bd:rgba(207,34,46,.28);--accent:#316dca}
-@media(prefers-color-scheme:dark){:root{--bg:#0d1117;--surface:#161b22;--surface2:#1c2129;
- --line:#262c36;--txt:#e6edf3;--dim:#8b949e;--dim2:#6e7681;--ok:#3fb950;--ok-bg:rgba(63,185,80,.12);
- --ok-bd:rgba(63,185,80,.35);--err:#f85149;--err-bg:rgba(248,81,73,.12);--err-bd:rgba(248,81,73,.35);
- --accent:#4c8eff}}
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--txt);font:14px/1.55 -apple-system,BlinkMacSystemFont,
- "Segoe UI",Roboto,sans-serif;padding:34px 20px;-webkit-font-smoothing:antialiased}
+body{background:var(--bg);color:var(--txt);font:var(--t-b,14px)/1.55 var(--sans,
+ -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif);
+ padding:34px 20px;-webkit-font-smoothing:antialiased}
 .wrap{max-width:880px;margin:0 auto}
 h1{font-size:19px;font-weight:650;margin-bottom:4px}
 .sub{color:var(--dim);font-size:13px;margin-bottom:24px}
 .verdict{padding:14px 17px;border-radius:12px;font-weight:600;margin-bottom:24px;
  border:1px solid transparent;line-height:1.5}
-.verdict.ok{background:var(--ok-bg);color:var(--ok);border-color:var(--ok-bd)}
-.verdict.ko{background:var(--err-bg);color:var(--err);border-color:var(--err-bd)}
+.verdict.ok{background:var(--ok-bg);color:var(--ok);border-color:var(--ok-border)}
+.verdict.ko{background:var(--err-bg);color:var(--err);border-color:var(--err-border)}
 h2{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--dim2);
  margin:28px 0 10px}
 table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--line);
@@ -90,7 +109,7 @@ tr:first-child td{border-top:none}
 code{font-family:ui-monospace,Menlo,monospace;background:var(--bg);border:1px solid var(--line);
  border-radius:5px;padding:1px 5px;font-size:12px}
 .note{color:var(--dim);font-size:12.5px;margin-top:12px;line-height:1.6}
-.err{background:var(--err-bg);border:1px solid var(--err-bd);color:var(--err);padding:12px 14px;
+.err{background:var(--err-bg);border:1px solid var(--err-border);color:var(--err);padding:12px 14px;
  border-radius:10px;font-family:ui-monospace,Menlo,monospace;font-size:12px;white-space:pre-wrap}
 """
 
@@ -140,7 +159,7 @@ def tests():
                + ('' if reussis == tous else
                   ' Le detail est dans la colonne de droite.') + '</div>')
     quand = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
-    return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
+    return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">{THEME}{SUIVRE_LE_THEME}
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>CodeLab &middot; verification approfondie</title><style>{CSS}</style></head>
 <body><div class="wrap">
@@ -217,7 +236,7 @@ def index():
         or '<tr><td colspan="4" class="det">aucune ligne</td></tr>')
 
     quand = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
-    return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
+    return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">{THEME}{SUIVRE_LE_THEME}
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>CodeLab &middot; diagnostic</title><style>{CSS}</style></head><body><div class="wrap">
 <h1>Diagnostic CodeLab</h1>
