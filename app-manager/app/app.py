@@ -1536,6 +1536,12 @@ PREFIXE_PRIVE = "APP_MANAGER_"
 CLES_RESERVEES = {"PATH", "HOME", "PORT", "PYTHONPATH", "PYTHONHOME",
                   "LD_PRELOAD", "LD_LIBRARY_PATH"}
 
+# Le bloc d'alertes du panneau (serveur d'envoi, identifiant, mot de passe,
+# adresse de l'administrateur). Defini plus bas, avec CHAMPS_SMTP dont il
+# derive : une seule liste de champs, pas deux a tenir d'accord. Python
+# resout ce nom a l'appel, pas a l'import -- et secrets_partages() n'est
+# appelee qu'au lancement d'une application.
+
 
 def secrets_partages():
     """Les valeurs de credentials.env destinees aux applications.
@@ -1548,6 +1554,11 @@ def secrets_partages():
     Relu a chaque demarrage plutot que mis en cache : un mot de passe change
     est ainsi pris en compte en redemarrant l'application, sans redemarrer le
     panneau.
+
+    Trois familles de cles ne sortent pas d'ici : celles prefixees
+    APP_MANAGER_ (les secrets du panneau), celles qui changeraient la maniere
+    dont le process s'execute (CLES_RESERVEES), et le bloc d'alertes du
+    panneau (CLES_PANNEAU).
     """
     valeurs = {}
     try:
@@ -1559,7 +1570,7 @@ def secrets_partages():
                 cle, _, valeur = ligne.partition("=")
                 cle, valeur = cle.strip(), valeur.strip()
                 if (not cle or cle.startswith(PREFIXE_PRIVE)
-                        or cle in CLES_RESERVEES):
+                        or cle in CLES_RESERVEES or cle in CLES_PANNEAU):
                     continue
                 if len(valeur) >= 2 and valeur[0] == valeur[-1] and valeur[0] in "\"'":
                     valeur = valeur[1:-1]
@@ -2213,6 +2224,22 @@ CHAMPS_SMTP = {
     "password": "SMTP_PASSWORD",
     "expediteur": "ALERTE_FROM",
 }
+
+# Les cles que le panneau ecrit POUR LUI-MEME dans credentials.env. Elles y
+# vivent parce que le capteur Dagster les lit dans ce fichier, pas parce
+# qu'une application aurait a les connaitre.
+#
+# Elles sont donc retirees de secrets_partages() : une application est du
+# code arbitraire tournant sous un autre uid, et lui remettre SMTP_PASSWORD
+# lui donnerait de quoi expedier du courrier au nom de CodeLab -- une adresse
+# de confiance, celle-la meme d'ou partent les alertes. ALERTE_ADMIN n'est
+# pas un secret, mais c'est l'adresse de l'administrateur : elle n'a rien a
+# faire dans l'environnement d'une application non plus.
+#
+# La regle existait deja pour le prefixe APP_MANAGER_ ; ce bloc lui avait
+# echappe, faute de porter ce prefixe. Le renommer n'etait pas possible : le
+# capteur Dagster et la documentation lisent ces noms-la.
+CLES_PANNEAU = set(CHAMPS_SMTP.values()) | {"ALERTE_ADMIN"}
 
 
 def _port_smtp(brut, defaut=587):

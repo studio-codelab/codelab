@@ -828,15 +828,25 @@ l'environnement**, au lancement (`start()`) comme au build (`run_build()`). C'es
 faible du modele de configuration decrit dans `/workspace/README.md` : le `.env` du projet continue
 de gagner.
 
-Deux exclusions :
+Trois exclusions :
 
 - **le bloc du panneau** (`APP_MANAGER_*`) n'est jamais transmis. Une application est du code
   arbitraire tournant sous un autre uid ; lui donner le mot de passe admin annulerait cette
   separation pour lui offrir l'acces au panneau ;
+- **le bloc d'alertes** (`SMTP_HOST`, `SMTP_PORT`, `SMTP_TLS`, `SMTP_USER`, `SMTP_PASSWORD`,
+  `ALERTE_FROM`, `ALERTE_ADMIN`) n'est pas transmis non plus. Ces cles vivent dans
+  `credentials.env` parce que le capteur Dagster les y lit, pas parce qu'une application aurait a
+  les connaitre : avec `SMTP_PASSWORD`, n'importe quelle application deployee pourrait expedier du
+  courrier **au nom de CodeLab**, depuis l'adresse meme d'ou partent les alertes. La regle
+  ci-dessus reposait sur le prefixe `APP_MANAGER_` ; ce bloc lui echappait faute de le porter, et
+  le renommer n'etait pas possible — le capteur Dagster lit ces noms-la ;
 - **les cles reservees** (`PATH`, `HOME`, `PORT`, `PYTHONPATH`, `PYTHONHOME`, `LD_PRELOAD`,
   `LD_LIBRARY_PATH`) : elles changent la maniere dont le process s'execute plutot que ce qu'il
   fait, et une ligne `PATH=` ajoutee a la main dans `credentials.env` casserait sinon toutes les
   applications d'un coup, sans rien pour l'expliquer.
+
+> Une application qui doit envoyer du courrier pour son propre compte met ses identifiants dans
+> **son** `.env`, qui gagne de toute facon sur cette couche.
 
 Le fichier est relu a chaque lancement, pas mis en cache : un mot de passe change est pris en
 compte en redemarrant l'application, sans redemarrer le panneau.

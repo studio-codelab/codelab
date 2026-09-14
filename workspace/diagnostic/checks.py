@@ -2169,6 +2169,66 @@ def test_le_mot_de_passe_du_panneau_n_est_pas_transmis_aux_applications(tmp_path
     assert not [c for c in partages if c.startswith("APP_MANAGER_")]
 
 
+def test_le_bloc_d_alertes_du_panneau_n_est_pas_transmis_aux_applications(tmp_path, monkeypatch):
+    """Le meme defaut que ci-dessus, par une autre porte.
+
+    La regle "le panneau ne transmet pas son propre bloc" reposait sur le
+    prefixe APP_MANAGER_. Le bloc d'alertes n'en porte pas -- il ne le peut
+    pas, le capteur Dagster lit ces noms-la dans ce fichier -- et passait
+    donc entier dans l'environnement de chaque application : serveur
+    d'envoi, identifiant, MOT DE PASSE, et l'adresse de l'administrateur.
+
+    Ce que ca donnait : n'importe quelle application deployee pouvait
+    expedier du courrier au nom de CodeLab, depuis l'adresse meme d'ou
+    partent les alertes.
+    """
+    _credentials(tmp_path, monkeypatch, "\n".join([
+        "POSTGRES_PASSWORD=mdp-postgres",
+        "SMTP_HOST=smtp.example.com",
+        "SMTP_PORT=587",
+        "SMTP_TLS=starttls",
+        "SMTP_USER=panneau@example.com",
+        "SMTP_PASSWORD=mot-de-passe-d-application",
+        "ALERTE_FROM=panneau@example.com",
+        "ALERTE_ADMIN=admin@example.com",
+        "API_TOKEN=jeton-metier",
+    ]))
+    partages = app.secrets_partages()
+    assert partages == {"POSTGRES_PASSWORD": "mdp-postgres",
+                        "API_TOKEN": "jeton-metier"}
+    # Nomme la cle la plus grave separement : si la liste d'exclusion venait a
+    # etre reduite un jour, l'echec doit designer ce qui a fuite.
+    assert "SMTP_PASSWORD" not in partages
+
+
+def test_le_panneau_lit_toujours_son_propre_bloc_d_alertes(tmp_path, monkeypatch):
+    """Le pendant du test precedent, et la raison d'etre de la separation.
+
+    Retirer ces cles de secrets_partages() ne doit rien retirer au panneau :
+    c'est sa configuration d'envoi de repli. Sans cette verification, le
+    correctif pourrait couper les alertes sans que rien ne le signale --
+    exactement la panne silencieuse qu'elles servent a eviter.
+    """
+    _credentials(tmp_path, monkeypatch, "\n".join([
+        "SMTP_HOST=smtp.example.com",
+        "SMTP_USER=panneau@example.com",
+        "SMTP_PASSWORD=mot-de-passe-d-application",
+    ]))
+    monkeypatch.setattr(app, "SHARED_CONFIG_DIR", str(tmp_path))
+    origine = app.smtp_origine()
+    assert origine["host"] == "smtp.example.com"
+    assert origine["password"] == "mot-de-passe-d-application"
+
+
+def test_la_liste_d_exclusion_suit_les_champs_smtp(tmp_path, monkeypatch):
+    """CLES_PANNEAU derive de CHAMPS_SMTP plutot que d'etre recopiee.
+
+    Ajouter un champ d'envoi sans penser a l'exclure rouvrirait la fuite en
+    silence. Ce test tient ce lien : c'est la propriete, pas la liste.
+    """
+    assert set(app.CHAMPS_SMTP.values()) <= app.CLES_PANNEAU
+
+
 def test_une_cle_reservee_ne_peut_pas_casser_le_lancement(tmp_path, monkeypatch):
     """Une ligne PATH= ajoutee a la main casserait sinon toutes les
     applications d'un coup, sans rien pour l'expliquer."""
