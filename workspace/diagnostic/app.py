@@ -108,10 +108,18 @@ def health():
 def tests():
     """La verification approfondie, a la demande.
 
-    Separee de la page d'accueil et pas jouee automatiquement : ces tests
-    AGISSENT -- ils ecrivent en base, traversent le proxy, laissent des
-    traces dans les journaux. Les sondes de l'accueil, elles, ne font que
-    regarder, et doivent rester instantanees.
+    Separee de la page d'accueil et pas jouee automatiquement -- ni par le
+    planning Dagster, qui ne prend que les sondes de l'asset : ces tests
+    AGISSENT franchement. Ils ecrivent en base, traversent le proxy, lancent
+    la suite de regressions du panneau, et laissent des traces dans les
+    journaux. Les jouer quatre fois par heure remplirait ces journaux de
+    traces que personne n'a demandees.
+
+    Les sondes de l'accueil, elles, se contentent de LIRE l'etat des
+    services -- a une exception pres, et elle est volontaire : l'accueil
+    ecrit son propre battement de coeur, parce que c'est precisement ce
+    qu'il verifie (la base repond, et l'ecriture aboutit). C'est une ligne,
+    pas un effet de bord sur le reste de la stack.
     """
     debut = time.time()
     resultats = checks.run_tests()

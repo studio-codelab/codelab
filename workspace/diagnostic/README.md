@@ -74,7 +74,7 @@ Si tu preferes l'inscrire a la main (panneau -> **Ajouter un projet**) :
 ├── definitions.py            <- agregateur : decouvre les projets, ne pas modifier
 ├── README.md                 <- conventions communes a tous les projets
 └── diagnostic/
-    ├── definitions.py        <- cote Dagster : l'asset + le capteur d'alerte mail
+    ├── definitions.py        <- cote Dagster : l'asset, son planning, le capteur d'alerte mail
     ├── app.py                <- cote web : l'application lancee par app-manager
     ├── checks.py             <- les sondes, partagees par les deux
     └── README.md
@@ -88,10 +88,26 @@ decouvre tout seul. Il n'y a **pas** de fichier central a editer pour declarer u
 
 1. Ouvre `http://<IP-du-serveur>:9001/diagnostic/`. Huit verifications s'affichent, et la page ecrit une ligne
    `app-manager` en base a chaque rechargement.
-2. Le bandeau reste rouge tant que Dagster n'a rien ecrit. Va sur `http://<IP-du-serveur>:3000/` (la session du panneau
-   suffit : si tu y es deja connecte, Dagster s'ouvre sans rien redemander), materialise
-   l'asset **`diagnostic_codelab`**, puis recharge la page.
+2. Le bandeau reste rouge tant que Dagster n'a rien ecrit. **Il passe au vert tout seul dans le
+   quart d'heure** : l'asset est planifie toutes les quinze minutes. Pour ne pas attendre, va sur
+   `http://<IP-du-serveur>:3000/` (la session du panneau suffit : si tu y es deja connecte, Dagster
+   s'ouvre sans rien redemander) et materialise l'asset **`diagnostic_codelab`** a la main.
 3. Bandeau vert = chaine complete.
+
+### Le planning
+
+L'asset tourne **toutes les quinze minutes**, sans intervention (`diagnostic_toutes_les_quinze_minutes`,
+actif des le chargement du code).
+
+Ce n'est pas un confort : le capteur d'alerte ci-dessous reagit a un run **en echec**. Sans planning,
+aucun run ne demarre tout seul, donc aucun ne peut echouer, donc **aucune alerte ne part** — un systeme
+d'alerte complet qui n'attend qu'un clic pour servir. Une surveillance qu'il faut declencher ne previent
+de rien : on ne la declenche que quand on soupconne deja quelque chose.
+
+Ce qui n'est **pas** planifie, et volontairement : la verification approfondie de `/tests`. Ces tests-la
+agissent — ils ecrivent, traversent le proxy, lancent la suite de regressions du panneau. Les jouer
+quatre fois par heure remplirait les journaux de traces que personne n'a demandees. Seules les sondes
+en lecture seule tournent en boucle.
 
 ## Ce que chaque verification prouve
 

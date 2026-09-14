@@ -4771,6 +4771,67 @@ def test_la_liste_des_comptes_ne_se_pagine_plus():
         assert cle not in page, f"{cle} est revenu sur la liste des comptes"
 
 
+# ---------- 23 sexies. la surveillance se declenche toute seule ----------
+#
+# Le diagnostic n'avait AUCUN planning : l'asset ne tournait que si quelqu'un
+# allait cliquer "Materialize" dans Dagster. Une surveillance qu'il faut
+# declencher ne previent de rien -- on ne la declenche que quand on soupconne
+# deja quelque chose.
+#
+# La consequence depassait le diagnostic : alerte_mail_echec est un
+# run_failure_sensor, il reagit a un run EN ECHEC. Aucun run ne demarrant
+# jamais tout seul, aucun ne pouvait echouer, donc aucune alerte ne partait.
+# Un systeme d'alerte complet, avec son SMTP et son repli, qui n'attendait
+# qu'un clic pour servir.
+#
+# Tests TEXTUELS, et il faut le dire : l'image du panneau ne contient pas
+# dagster, donc importer definitions.py ici echouerait. Ils constatent que le
+# planning est declare et branche, pas qu'il se declenche -- ce qui le prouve,
+# c'est la page des schedules de Dagster.
+
+def _definitions_diagnostic():
+    return open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "definitions.py"), encoding="utf-8").read()
+
+
+def test_le_diagnostic_a_un_planning_et_il_est_actif():
+    src = _definitions_diagnostic()
+    assert "ScheduleDefinition(" in src, (
+        "aucun planning : l'asset ne tournera que si on le declenche a la main, "
+        "et le capteur d'alerte n'aura jamais de run en echec a signaler")
+    assert 'cron_schedule="*/15 * * * *"' in src
+    assert "DefaultScheduleStatus.RUNNING" in src, (
+        "un planning qu'il faut activer a la main dans l'interface : on ne "
+        "s'apercoit de l'oubli qu'en ratant une alerte")
+
+
+def test_le_planning_est_branche_dans_les_definitions():
+    """Declare ne suffit pas : Dagster ne voit que ce qui est dans defs.
+
+    Sans cette verification, un planning parfaitement ecrit mais absent de
+    Definitions() passerait le test precedent tout en ne tournant jamais.
+    """
+    src = _definitions_diagnostic()
+    bloc = src[src.index("defs = Definitions("):]
+    assert "schedules=[" in bloc, "le planning n'est pas passe a Definitions()"
+    assert "jobs=[" in bloc, "le job du planning n'est pas passe a Definitions()"
+    assert "sensors=[" in bloc
+
+
+def test_la_verification_approfondie_reste_a_la_demande():
+    """Ce qui AGIT ne se planifie pas.
+
+    run_tests() et la suite du panneau ecrivent, traversent le proxy et
+    laissent des traces. Les jouer quatre fois par heure remplirait les
+    journaux de traces que personne n'a demandees. Seules les sondes en
+    lecture seule tournent toutes les quinze minutes.
+    """
+    src = _definitions_diagnostic()
+    assert "run_tests" not in src, (
+        "la verification approfondie est entree dans le code planifie")
+    assert "lancer_suite_du_panneau" not in src
+
+
 # ---------- 24. le dossier personnel ne se detourne pas ----------
 #
 # Trouve par l'audit de la branche, et c'etait une escalade de privileges
