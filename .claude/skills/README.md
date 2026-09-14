@@ -4,6 +4,11 @@ Ce dossier contient **du code tiers recopié** (« vendoré »), pas une dépend
 résolue automatiquement. Il est là pour que Claude Code dispose de ces skills
 dans **toutes** les sessions sur ce dépôt, y compris les sessions distantes.
 
+Deux origines, décrites chacune dans sa section : **ui-ux-pro-max** (7 skills) et
+**21st.dev** (7 skills, plus un serveur MCP).
+
+# ui-ux-pro-max
+
 ## Ce qui est installé
 
 | | |
@@ -103,3 +108,78 @@ entrypoints ou Postgres, et leur propre documentation le précise.
 `ui-styling` (5,8 Mo, soit plus de la moitié du poids) porte sur React et
 shadcn/ui, absents de CodeLab. Elle peut être supprimée sans conséquence pour
 les autres si l'on veut alléger le dépôt.
+
+# 21st.dev
+
+| | |
+|---|---|
+| Projet | [21st-dev/claude-code-plugin](https://github.com/21st-dev/claude-code-plugin) |
+| Commit repris | `f76b07a` (2026-09-09), version `0.4.1` |
+| Contenu | 7 skills : `21st-ai`, `21st-cli-use`, `21st-design-sync`, `21st-registry`, `21st-ui-build`, `21st-ui-explore`, `21st-ui-review` |
+| Poids | 108 Ko, 10 fichiers |
+| Serveur MCP | déclaré dans le `.mcp.json` à la racine du projet |
+
+Même raison qu'au-dessus : `/plugin` n'existe pas dans l'environnement distant.
+
+## Rien à corriger, cette fois
+
+Contrairement à ui-ux-pro-max, ces skills sont **du Markdown seul** : aucun
+script, aucun `${CLAUDE_PLUGIN_ROOT}`, aucun lien symbolique, aucun fichier
+exécutable. La recopie est à l'identique, octet pour octet.
+
+Le seul chemin en dur rencontré est `~/.config/21st/auth.json`, où la CLI range
+le jeton après `21st login` — une information, pas une invocation. **Attention
+dans `codelab-dev` : `/home/vscode` n'est pas sur un volume**, donc une
+authentification faite là est perdue à la recréation du conteneur. Passer par
+la variable `API_KEY_21ST` plutôt que par `21st login`.
+
+## Ce qui ne marchera pas, et pourquoi
+
+Il faut le dire avant de s'y fier :
+
+| Point mesuré | Résultat |
+|---|---|
+| `21st.dev:443` depuis l'environnement distant | **refusé par le proxy de sortie** |
+| `API_KEY_21ST` | non définie |
+| `npx @21st-dev/cli --help` | fonctionne (le registre npm, lui, est joignable) |
+| `npx @21st-dev/cli search button` | `Not signed in.` |
+
+Les 7 skills pilotent toutes la CLI `21st` ou le serveur MCP. **Depuis une
+session distante, aucune n'ira au bout** : la CLI s'installe, puis bute sur le
+réseau. Sur ton Mac, où 21st.dev est joignable, il suffit d'une clé prise sur
+<https://21st.dev/settings/api-keys> exportée en `API_KEY_21ST`.
+
+## Ce que ça vise, et ce que CodeLab a
+
+Ces skills parlent **React, Tailwind et shadcn/ui**. Vérifié dans le dépôt :
+
+| | |
+|---|---|
+| `package.json` | **aucun**, nulle part |
+| React / Tailwind / shadcn dans le panneau | **aucune occurrence** |
+| Le panneau | `dashboard.html` (180 Ko) et `login.html` (44 Ko), HTML et CSS écrits à la main |
+
+`21st-ai`, `21st-cli-use`, `21st-design-sync` et `21st-registry` supposent un
+projet React : elles n'ont rien à dire sur ce panneau. `21st-ui-review` est la
+seule dont la liste de priorités (noms accessibles, focus visible, cibles
+tactiles, débordement responsive, `prefers-reduced-motion`, valeurs visuelles en
+dur) s'applique telle quelle à du HTML écrit à la main — mais elle propose
+`21st review <chemin>`, qui ne connaît pas ce format.
+
+Autrement dit : **posées comme demandé, mais ce dépôt n'est pas leur terrain.**
+
+## Le `.mcp.json` à la racine
+
+```json
+{ "mcpServers": { "21st": { "type": "http", "url": "https://21st.dev/api/mcp",
+  "headers": { "x-api-key": "${API_KEY_21ST}" } } } }
+```
+
+C'est la moitié du plugin que la recopie des skills ne couvre pas. **Il ne
+contient aucun secret** : seulement le nom d'une variable d'environnement, lue
+au démarrage de la session. Claude Code demande l'autorisation avant de s'y
+connecter, à chaque projet.
+
+Sans `API_KEY_21ST`, le serveur ne se connecte simplement pas — pas d'erreur
+bloquante.
+
