@@ -165,20 +165,70 @@ fi
 #
 # Ce qui suit rattrape exactement ce cas, et rien d'autre. Trois interdits :
 #
-#   ne cree jamais un fichier absent -- un projet supprime exprès ne doit pas
+#   ne cree jamais un fichier absent -- un projet supprime expres ne doit pas
 #     reapparaitre, c'est la raison d'etre du marqueur ci-dessus ;
 #   ne supprime jamais rien ;
 #   ne remplace un fichier que s'il est prouve INTACT, c'est-a-dire si son
-#     empreinte figure parmi les versions que CodeLab a livrees (voir
-#     dagster/empreintes-squelette.sh). Un fichier modifie par l'utilisateur
-#     n'a aucune de ces empreintes : il est laisse tel quel, et on le dit.
+#     contenu est exactement celui que CodeLab y a ecrit la derniere fois.
 #
 # La preuve porte sur le CONTENU, jamais sur une date : une horloge de
 # conteneur, un bind mount et un "cp -r" donnent des dates qui ne veulent rien
 # dire.
+#
+# COMMENT ON SAIT CE QUE NOUS AVONS ECRIT
+#
+# Simplement en le notant. A chaque fois que CodeLab depose un fichier du
+# squelette, il inscrit son empreinte dans .codelab/empreintes. Au demarrage
+# suivant, un fichier dont l'empreinte n'a pas bouge n'a ete touche par
+# personne ; un fichier dont elle a bouge appartient desormais a
+# l'utilisateur. Aucun catalogue a tenir a jour, aucune etape a ne pas
+# oublier avant de committer : le mecanisme s'entretient tout seul.
+#
+# Reste le cas des installations anterieures a ce mecanisme, qui n'ont encore
+# rien de note -- et ce sont precisement celles qu'il faut rattraper.
+# workspace.sums porte, pour elles seules, la liste des versions livrees
+# avant. Cette liste est FIGEE : elle ne decrit que le passe, et n'a donc
+# jamais a etre regeneree.
 SEED_SUMS=/opt/dagster/workspace.sums
+EMPREINTES="$WORKSPACE_DIR/.codelab/empreintes"
 
-if [ -d "$WORKSPACE_SEED" ] && [ -f "$SEED_SUMS" ] && [ -f "$SEED_MARKER" ]; then
+# Format d'une ligne, dans les deux fichiers : "<sha256> <chemin relatif>".
+# Aucun chemin du squelette ne contient d'espace, et aucun n'a de raison d'en
+# contenir : le second champ est donc le chemin entier.
+#
+# Ce fichier de notes vit dans le workspace, donc dans un dossier inscriptible
+# par le groupe : une application compromise peut le modifier. Ce qu'elle y
+# gagnerait est borne -- faire remplacer un fichier d'exemple par la version
+# de l'image -- et jamais une elevation de privilege : le contenu ecrit vient
+# toujours de l'image, jamais du fichier de notes. Il est malgre tout ecrit en
+# 644 (personne d'autre que root n'a de raison d'y ecrire), et jamais suivi
+# s'il devient un lien.
+empreinte_notee() {
+  [ -f "$EMPREINTES" ] && [ ! -L "$EMPREINTES" ] || return 0
+  awk -v r="$1" '$2 == r { print $1; exit }' "$EMPREINTES" 2>/dev/null
+}
+
+noter_empreinte() {
+  # Pas de refus si le fichier de notes est un lien : le "mv" final remplace
+  # le LIEN, il n'ecrit jamais a travers. Refuser serait meme nuisible --
+  # le lien resterait, et la prise de notes s'arreterait pour toujours ;
+  # n'importe qui pouvant ecrire dans le workspace desactiverait le
+  # mecanisme avec un simple "ln -s". En le remplacant, on se repare.
+  mkdir -p "$(dirname "$EMPREINTES")" 2>/dev/null || return 0
+  # mktemp plutot qu'un nom previsible : ce code tourne en root dans un
+  # dossier inscriptible par le groupe, un temporaire devinable serait une
+  # ecriture root detournable par un lien pose d'avance.
+  n=$(mktemp "$(dirname "$EMPREINTES")/.empreintes-XXXXXX" 2>/dev/null) || return 0
+  if [ -f "$EMPREINTES" ]; then
+    awk -v r="$1" '$2 != r' "$EMPREINTES" > "$n" 2>/dev/null || true
+  fi
+  echo "$2 $1" >> "$n"
+  chgrp "$CODELAB_GROUP" "$n" 2>/dev/null || true
+  chmod 644 "$n" 2>/dev/null || true
+  mv "$n" "$EMPREINTES" 2>/dev/null || rm -f "$n"
+}
+
+if [ -d "$WORKSPACE_SEED" ] && [ -f "$SEED_MARKER" ]; then
   liste=$(mktemp)
   ( cd "$WORKSPACE_SEED" && find . -type f -printf '%P\n' ) > "$liste" 2>/dev/null || true
 
@@ -208,12 +258,29 @@ if [ -d "$WORKSPACE_SEED" ] && [ -f "$SEED_SUMS" ] && [ -f "$SEED_MARKER" ]; the
 
     somme_disque=$(sha256sum < "$cible" | cut -d' ' -f1)
     somme_image=$(sha256sum < "$source" | cut -d' ' -f1)
-    [ "$somme_disque" = "$somme_image" ] && continue
 
-    if grep -q "^$somme_disque $relatif\$" "$SEED_SUMS"; then
-      # Une de nos anciennes versions, jamais touchee : la remplacer ne perd
-      # rien. Ecriture par temporaire puis renommage, pour qu'un arret au
-      # mauvais moment ne laisse pas un fichier a moitie ecrit.
+    if [ "$somme_disque" = "$somme_image" ]; then
+      # Deja a jour. On note quand meme si ce n'etait pas encore fait : c'est
+      # ce qui fait entrer en douceur une installation existante dans le
+      # mecanisme, sans rien ecrire dans le workspace.
+      [ "$(empreinte_notee "$relatif")" = "$somme_disque" ] \
+        || noter_empreinte "$relatif" "$somme_disque"
+      continue
+    fi
+
+    # Intact ? Ce que nous avons note pour ce fichier fait foi. A defaut de
+    # note -- installation anterieure au mecanisme -- on se rabat sur la
+    # liste figee des versions livrees autrefois.
+    notee=$(empreinte_notee "$relatif")
+    if [ -n "$notee" ]; then
+      [ "$notee" = "$somme_disque" ] && intact=oui || intact=non
+    elif [ -f "$SEED_SUMS" ] && grep -q "^$somme_disque $relatif\$" "$SEED_SUMS"; then
+      intact=oui
+    else
+      intact=non
+    fi
+
+    if [ "$intact" = oui ]; then
       # mktemp, et non un nom de temporaire previsible : il cree le fichier
       # avec O_EXCL, donc sans jamais suivre un lien qu'un tiers aurait pose
       # d'avance a cet emplacement. Un "cp vers $cible.codelab-tmp" aurait
@@ -225,6 +292,7 @@ if [ -d "$WORKSPACE_SEED" ] && [ -f "$SEED_SUMS" ] && [ -f "$SEED_MARKER" ]; the
         # Renommage atomique : un arret au mauvais moment laisse l'ancienne
         # version entiere, jamais un fichier a moitie ecrit.
         mv "$tmp" "$cible"
+        noter_empreinte "$relatif" "$somme_image"
         echo "[codelab]   $relatif mis a jour (version d'origine, non modifiee)."
         majs=$((majs + 1))
       else
@@ -233,7 +301,9 @@ if [ -d "$WORKSPACE_SEED" ] && [ -f "$SEED_SUMS" ] && [ -f "$SEED_MARKER" ]; the
       fi
     else
       # Modifie sur place. C'est le cas normal des que l'utilisateur s'est
-      # approprie le projet d'exemple -- on le signale sans insister.
+      # approprie le projet d'exemple -- on le signale sans insister. On ne
+      # note SURTOUT pas son empreinte : le fichier est a lui desormais, et
+      # doit le rester meme s'il le remanie encore.
       gardes=$((gardes + 1))
     fi
   done < "$liste"

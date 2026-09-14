@@ -54,11 +54,9 @@ RUN useradd -u 1002 -g 2000 -M -s /usr/sbin/nologin dagster \
 # deploie que si /workspace (volume utilisateur) ou DAGSTER_HOME (volume
 # d'etat) sont vides, au tout premier demarrage.
 COPY workspace /opt/dagster/workspace.default
-# Les empreintes de toutes les versions livrees du squelette. Elles permettent
-# a l'entrypoint de mettre a jour un fichier d'exemple que personne n'a
-# modifie, sans jamais toucher au travail de l'utilisateur. Genere par
-# dagster/empreintes-squelette.sh, versionne : le contexte de build ne
-# contient pas .git, le calcul ne peut donc pas se faire ici.
+# Liste FIGEE des versions du squelette livrees avant que l'entrypoint ne note
+# lui-meme ce qu'il ecrit. Elle ne sert qu'a rattraper les installations
+# anterieures a ce mecanisme, et n'a jamais a etre regeneree.
 COPY dagster/squelette.sums /opt/dagster/workspace.sums
 COPY dagster/dagster.yaml /opt/dagster/dagster.yaml.default
 COPY dagster/entrypoint.sh /opt/dagster/entrypoint.sh

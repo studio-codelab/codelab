@@ -1456,11 +1456,11 @@ def test_les_taches_vscode_passent_bien_le_drapeau():
 # "diagnostic" corrige etait dans l'image, le disque gardait la version
 # cassee, et "docker compose pull" n'y changeait rien.
 #
-# L'entrypoint sait maintenant reconnaitre un fichier qui est l'une de nos
-# anciennes versions -- son empreinte figure dans dagster/squelette.sums --
-# et lui seul est remplace. Les tests ci-dessous font tourner LE VRAI BLOC,
-# extrait du vrai entrypoint : une reecriture du shell dans le test ne
-# prouverait que la justesse du test.
+# L'entrypoint note desormais l'empreinte de chaque fichier qu'il depose,
+# dans .codelab/empreintes. Un fichier dont l'empreinte n'a pas bouge n'a ete
+# touche par personne, et lui seul est remplace. Les tests ci-dessous font
+# tourner LE VRAI BLOC, extrait du vrai entrypoint : une reecriture du shell
+# dans le test ne prouverait que la justesse du test.
 
 _DEBUT_RECONCILIATION = "# ------------------- mise a jour des fichiers non modifies"
 _FIN_RECONCILIATION = "# ----------------------- abandon des privileges"
@@ -1492,80 +1492,187 @@ def _somme(chemin):
         return hashlib.sha256(f.read()).hexdigest()
 
 
-def _scene(tmp_path, sur_disque, livre, amorce=True, connues=()):
-    """Monte un faux workspace et joue le bloc dessus.
-
-    sur_disque : contenu de /workspace/diagnostic/checks.py, ou None pour
-                 simuler un fichier supprime par l'utilisateur.
-    livre      : contenu de la version portee par l'image.
-    connues    : contenus a declarer comme "versions deja livrees par
-                 CodeLab" -- c'est ce que fait dagster/squelette.sums.
-    """
+def _somme_texte(contenu):
     import hashlib
-    import subprocess
+    return hashlib.sha256(contenu.encode()).hexdigest()
 
-    seed = tmp_path / "seed" / "diagnostic"
-    ws = tmp_path / "ws" / "diagnostic"
-    seed.mkdir(parents=True)
-    ws.mkdir(parents=True)
-    (tmp_path / "ws" / ".codelab").mkdir()
-    (seed / "checks.py").write_text(livre, encoding="utf-8")
-    if sur_disque is not None:
-        (ws / "checks.py").write_text(sur_disque, encoding="utf-8")
-    if amorce:
-        (tmp_path / "ws" / ".codelab" / "workspace-v1").write_text("marqueur")
 
-    sommes = tmp_path / "squelette.sums"
-    sommes.write_text("".join(
-        hashlib.sha256(c.encode()).hexdigest() + " diagnostic/checks.py\n"
-        for c in connues), encoding="utf-8")
+class _Atelier:
+    """Un faux /workspace, son squelette d'image, et de quoi rejouer le bloc.
 
-    env = dict(os.environ,
-               WORKSPACE_SEED=str(tmp_path / "seed"),
-               WORKSPACE_DIR=str(tmp_path / "ws"),
-               SEED_MARKER=str(tmp_path / "ws" / ".codelab" / "workspace-v1"),
-               SUMS_TEST=str(sommes),
-               CODELAB_GROUP="root")
-    r = subprocess.run(["sh", "-c", _bloc_reconciliation()],
-                       capture_output=True, text=True, timeout=60, env=env)
-    assert r.returncode == 0, r.stderr
-    cible = ws / "checks.py"
-    return (cible.read_text(encoding="utf-8") if cible.exists() else None,
-            r.stdout + r.stderr)
+    Volontairement un objet et non une fonction : plusieurs tests ont besoin
+    de faire tourner DEUX demarrages de suite, ce qui est justement le coeur
+    du mecanisme -- ce que le premier note, le second s'en sert.
+    """
+
+    def __init__(self, tmp_path):
+        self.base = tmp_path
+        self.seed = tmp_path / "seed" / "diagnostic"
+        self.ws = tmp_path / "ws" / "diagnostic"
+        self.seed.mkdir(parents=True)
+        self.ws.mkdir(parents=True)
+        (tmp_path / "ws" / ".codelab").mkdir()
+        self.marqueur = tmp_path / "ws" / ".codelab" / "workspace-v1"
+        self.marqueur.write_text("marqueur")
+        self.empreintes = tmp_path / "ws" / ".codelab" / "empreintes"
+        self.sums = tmp_path / "figees.sums"
+        self.sums.write_text("", encoding="utf-8")
+        self.cible = self.ws / "checks.py"
+        self.livre = self.seed / "checks.py"
+
+    def figer(self, *contenus):
+        """Declare des contenus comme "versions livrees autrefois" -- la liste
+        d'amorcage des installations anterieures au mecanisme."""
+        self.sums.write_text("".join(
+            _somme_texte(c) + " diagnostic/checks.py\n" for c in contenus),
+            encoding="utf-8")
+
+    def demarrer(self):
+        import subprocess
+        env = dict(os.environ,
+                   WORKSPACE_SEED=str(self.base / "seed"),
+                   WORKSPACE_DIR=str(self.base / "ws"),
+                   SEED_MARKER=str(self.marqueur),
+                   SUMS_TEST=str(self.sums),
+                   CODELAB_GROUP="root")
+        r = subprocess.run(["sh", "-c", _bloc_reconciliation()],
+                           capture_output=True, text=True, timeout=60, env=env)
+        assert r.returncode == 0, r.stderr
+        return r.stdout + r.stderr
+
+    def sur_disque(self):
+        return (self.cible.read_text(encoding="utf-8")
+                if self.cible.exists() else None)
+
+    def note(self):
+        """L'empreinte notee pour checks.py, ou None."""
+        if not self.empreintes.exists():
+            return None
+        for ligne in self.empreintes.read_text(encoding="utf-8").splitlines():
+            if ligne.endswith(" diagnostic/checks.py"):
+                return ligne.split(" ")[0]
+        return None
 
 
 def test_une_ancienne_version_livree_est_remplacee(tmp_path):
-    """Le cas qui a motive tout ceci : le disque porte une version que NOUS
-    avons livree, elle est donc remplacable sans rien perdre."""
-    apres, journal = _scene(tmp_path, sur_disque="ancienne", livre="corrigee",
-                            connues=("ancienne", "corrigee"))
-    assert apres == "corrigee", "la correction de l'image n'a pas atteint le disque"
+    """Le cas qui a motive tout ceci, sur une installation anterieure au
+    mecanisme : rien n'est encore note, c'est la liste figee qui tranche."""
+    a = _Atelier(tmp_path)
+    a.livre.write_text("corrigee", encoding="utf-8")
+    a.cible.write_text("ancienne", encoding="utf-8")
+    a.figer("ancienne", "corrigee")
+    journal = a.demarrer()
+    assert a.sur_disque() == "corrigee", "la correction de l'image n'a pas atteint le disque"
     assert "mis a jour" in journal
 
 
 def test_un_fichier_modifie_par_l_utilisateur_n_est_jamais_ecrase(tmp_path):
-    """La regle qui protege le travail : si l'empreinte du disque n'est
-    aucune des notres, c'est du travail humain, on n'y touche pas."""
-    apres, journal = _scene(tmp_path, sur_disque="MON CODE", livre="corrigee",
-                            connues=("ancienne", "corrigee"))
-    assert apres == "MON CODE", "le travail de l'utilisateur a ete ecrase"
+    """La regle qui protege le travail : une empreinte qui n'est ni la notre
+    ni l'une des anciennes, c'est du travail humain."""
+    a = _Atelier(tmp_path)
+    a.livre.write_text("corrigee", encoding="utf-8")
+    a.cible.write_text("MON CODE", encoding="utf-8")
+    a.figer("ancienne", "corrigee")
+    journal = a.demarrer()
+    assert a.sur_disque() == "MON CODE", "le travail de l'utilisateur a ete ecrase"
     assert "modifies sur place" in journal
 
 
 def test_un_fichier_supprime_expres_ne_ressuscite_pas(tmp_path):
     """Supprimer le projet d'exemple doit tenir. Le voir revenir a chaque
     redemarrage serait insupportable, et c'est la raison d'etre du marqueur."""
-    apres, _ = _scene(tmp_path, sur_disque=None, livre="corrigee",
-                      connues=("ancienne", "corrigee"))
-    assert apres is None, "un fichier supprime a ete recree"
+    a = _Atelier(tmp_path)
+    a.livre.write_text("corrigee", encoding="utf-8")
+    a.figer("ancienne", "corrigee")
+    a.demarrer()
+    assert a.sur_disque() is None, "un fichier supprime a ete recree"
 
 
 def test_rien_ne_bouge_avant_le_premier_amorcage(tmp_path):
     """Sans marqueur, l'amorcage classique n'a pas encore eu lieu : cette
     passe n'a rien a faire et ne doit surtout pas prendre les devants."""
-    apres, _ = _scene(tmp_path, sur_disque="ancienne", livre="corrigee",
-                      amorce=False, connues=("ancienne", "corrigee"))
-    assert apres == "ancienne"
+    a = _Atelier(tmp_path)
+    a.livre.write_text("corrigee", encoding="utf-8")
+    a.cible.write_text("ancienne", encoding="utf-8")
+    a.figer("ancienne", "corrigee")
+    a.marqueur.unlink()
+    a.demarrer()
+    assert a.sur_disque() == "ancienne"
+
+
+def test_le_mecanisme_s_entretient_seul_sans_liste_figee(tmp_path):
+    """LE point de cette refonte.
+
+    Une fois qu'un fichier est passe par ici, son empreinte est notee, et la
+    livraison SUIVANTE n'a plus besoin d'aucun catalogue. C'est ce qui permet
+    de supprimer le generateur d'empreintes et la corvee de le relancer avant
+    chaque commit.
+    """
+    a = _Atelier(tmp_path)
+    a.livre.write_text("v1", encoding="utf-8")
+    a.cible.write_text("v1", encoding="utf-8")
+    a.demarrer()                                   # premier demarrage : on note
+    assert a.note() == _somme_texte("v1"), "l'empreinte n'a pas ete notee"
+
+    a.livre.write_text("v2", encoding="utf-8")     # nouvelle image
+    a.demarrer()
+    assert a.sur_disque() == "v2", (
+        "sans liste figee, la mise a jour n'a pas eu lieu : le mecanisme ne "
+        "s'entretient pas tout seul")
+    assert a.note() == _somme_texte("v2"), "l'empreinte n'a pas suivi la mise a jour"
+    # La liste figee n'a servi a rien ici, et c'est exactement l'objectif.
+    assert a.sums.read_text(encoding="utf-8") == ""
+
+
+def test_un_fichier_approprie_le_reste_aux_livraisons_suivantes(tmp_path):
+    """Une fois que l'utilisateur a pris un fichier a son compte, il le garde
+    -- y compris apres une nouvelle version de l'image. Le cas contraire
+    serait une perte de donnees differee, donc encore plus difficile a
+    relier a sa cause."""
+    a = _Atelier(tmp_path)
+    a.livre.write_text("v1", encoding="utf-8")
+    a.cible.write_text("MON CODE", encoding="utf-8")
+    a.demarrer()
+    assert a.note() is None, "le fichier de l'utilisateur a ete note comme etant le notre"
+
+    a.livre.write_text("v2", encoding="utf-8")
+    a.demarrer()
+    assert a.sur_disque() == "MON CODE"
+
+
+def test_une_installation_existante_entre_dans_le_mecanisme_sans_rien_ecraser(tmp_path):
+    """Un fichier deja identique a l'image n'a rien a recevoir, mais doit
+    quand meme etre note -- sinon il resterait dependant de la liste figee
+    pour toujours, et la liste, elle, ne grandit plus."""
+    a = _Atelier(tmp_path)
+    a.livre.write_text("v1", encoding="utf-8")
+    a.cible.write_text("v1", encoding="utf-8")
+    journal = a.demarrer()
+    assert a.note() == _somme_texte("v1")
+    assert "mis a jour" not in journal, "un fichier deja a jour a ete reecrit"
+
+
+def test_un_lien_a_la_place_du_fichier_de_notes_se_repare(tmp_path):
+    """Le fichier de notes vit dans le workspace, inscriptible par le groupe :
+    n'importe quelle application peut y poser un lien.
+
+    Deux choses doivent tenir, et la seconde a ete trouvee en mutant. Un :
+    ne jamais ecrire a travers le lien. Deux : ne pas se contenter de
+    REFUSER -- un refus laisserait le lien en place et arreterait la prise de
+    notes pour toujours, si bien qu'un "ln -s" suffirait a desactiver le
+    mecanisme. Le lien doit donc etre remplace par un vrai fichier."""
+    a = _Atelier(tmp_path)
+    victime = tmp_path / "victime"
+    victime.write_text("intact", encoding="utf-8")
+    a.livre.write_text("v1", encoding="utf-8")
+    a.cible.write_text("v1", encoding="utf-8")
+    os.symlink(str(victime), str(a.empreintes))
+    a.demarrer()
+    assert victime.read_text(encoding="utf-8") == "intact", (
+        "le lien a ete suivi : ecriture root hors du workspace")
+    assert not os.path.islink(str(a.empreintes)), (
+        "le lien est reste : la prise de notes est desactivee pour toujours")
+    assert a.note() == _somme_texte("v1"), "les notes n'ont pas repris"
 
 
 def test_un_lien_symbolique_a_la_place_du_fichier_est_refuse(tmp_path):
@@ -1573,36 +1680,16 @@ def test_un_lien_symbolique_a_la_place_du_fichier_est_refuse(tmp_path):
     applications. Un lien pose a la place d'un fichier du squelette ne doit
     jamais etre suivi : ce serait une ecriture root arbitraire offerte a
     n'importe quelle application du panneau."""
-    import subprocess
-
+    a = _Atelier(tmp_path)
     victime = tmp_path / "victime"
     victime.write_text("intact", encoding="utf-8")
-
-    seed = tmp_path / "seed" / "diagnostic"
-    ws = tmp_path / "ws" / "diagnostic"
-    seed.mkdir(parents=True)
-    ws.mkdir(parents=True)
-    (tmp_path / "ws" / ".codelab").mkdir()
-    (tmp_path / "ws" / ".codelab" / "workspace-v1").write_text("marqueur")
-    (seed / "checks.py").write_text("corrigee", encoding="utf-8")
-    os.symlink(str(victime), str(ws / "checks.py"))
-
-    sommes = tmp_path / "squelette.sums"
-    sommes.write_text(_somme(str(victime)) + " diagnostic/checks.py\n",
-                      encoding="utf-8")
-
-    env = dict(os.environ,
-               WORKSPACE_SEED=str(tmp_path / "seed"),
-               WORKSPACE_DIR=str(tmp_path / "ws"),
-               SEED_MARKER=str(tmp_path / "ws" / ".codelab" / "workspace-v1"),
-               SUMS_TEST=str(sommes), CODELAB_GROUP="root")
-    r = subprocess.run(["sh", "-c", _bloc_reconciliation()],
-                       capture_output=True, text=True, timeout=60, env=env)
-    assert r.returncode == 0, r.stderr
-
+    a.livre.write_text("corrigee", encoding="utf-8")
+    os.symlink(str(victime), str(a.cible))
+    a.figer("intact")
+    a.demarrer()
     assert victime.read_text(encoding="utf-8") == "intact", (
         "le lien a ete suivi : ecriture hors du workspace, en root")
-    assert os.path.islink(str(ws / "checks.py")), "le lien a ete remplace"
+    assert os.path.islink(str(a.cible)), "le lien a ete remplace"
 
 
 def test_un_temporaire_pose_d_avance_ne_detourne_pas_l_ecriture(tmp_path):
@@ -1610,77 +1697,19 @@ def test_un_temporaire_pose_d_avance_ne_detourne_pas_l_ecriture(tmp_path):
     previsible, une application pouvait poser d'avance un lien a ce nom et
     faire ecrire root dans la cible de son choix. Le nom est desormais tire
     par mktemp, qui cree le fichier sans jamais suivre un lien existant."""
-    import subprocess
-
+    a = _Atelier(tmp_path)
     victime = tmp_path / "victime"
     victime.write_text("intact", encoding="utf-8")
-
-    seed = tmp_path / "seed" / "diagnostic"
-    ws = tmp_path / "ws" / "diagnostic"
-    seed.mkdir(parents=True)
-    ws.mkdir(parents=True)
-    (tmp_path / "ws" / ".codelab").mkdir()
-    (tmp_path / "ws" / ".codelab" / "workspace-v1").write_text("marqueur")
-    (seed / "checks.py").write_text("corrigee", encoding="utf-8")
-    (ws / "checks.py").write_text("ancienne", encoding="utf-8")
+    a.livre.write_text("corrigee", encoding="utf-8")
+    a.cible.write_text("ancienne", encoding="utf-8")
+    a.figer("ancienne")
     # Le piege, au nom qu'utilisait l'ancienne version du code.
-    os.symlink(str(victime), str(ws / "checks.py.codelab-tmp"))
-
-    import hashlib
-    sommes = tmp_path / "squelette.sums"
-    sommes.write_text(
-        hashlib.sha256(b"ancienne").hexdigest() + " diagnostic/checks.py\n",
-        encoding="utf-8")
-
-    env = dict(os.environ,
-               WORKSPACE_SEED=str(tmp_path / "seed"),
-               WORKSPACE_DIR=str(tmp_path / "ws"),
-               SEED_MARKER=str(tmp_path / "ws" / ".codelab" / "workspace-v1"),
-               SUMS_TEST=str(sommes), CODELAB_GROUP="root")
-    r = subprocess.run(["sh", "-c", _bloc_reconciliation()],
-                       capture_output=True, text=True, timeout=60, env=env)
-    assert r.returncode == 0, r.stderr
-
+    os.symlink(str(victime), str(a.ws / "checks.py.codelab-tmp"))
+    a.demarrer()
     assert victime.read_text(encoding="utf-8") == "intact", (
         "le temporaire previsible a detourne l'ecriture, en root")
     # La mise a jour legitime doit quand meme avoir eu lieu.
-    assert (ws / "checks.py").read_text(encoding="utf-8") == "corrigee"
-
-
-def test_le_manifeste_des_empreintes_est_a_jour():
-    """Le filet du filet.
-
-    Si quelqu'un modifie un fichier du squelette sans relancer
-    dagster/empreintes-squelette.sh, la version courante n'est plus reconnue
-    comme etant la notre. Consequence silencieuse : la mise a jour cesse de
-    fonctionner pour ce fichier, sans que rien n'echoue. Ce test rend cet
-    oubli bruyant.
-    """
-    racine = _racine_depot()
-    manifeste = os.path.join(racine, "dagster", "squelette.sums")
-    squelette = os.path.join(racine, "workspace")
-    if not (os.path.exists(manifeste) and os.path.isdir(squelette)):
-        pytest.skip("depot complet absent de cette image")
-
-    connues = set()
-    for ligne in open(manifeste, encoding="utf-8"):
-        if ligne.startswith("#") or not ligne.strip():
-            continue
-        connues.add(ligne.strip())
-
-    manquants = []
-    for dossier, sous, fichiers in os.walk(squelette):
-        sous[:] = [d for d in sous if d != "__pycache__"]
-        for nom in fichiers:
-            chemin = os.path.join(dossier, nom)
-            relatif = os.path.relpath(chemin, squelette)
-            if _somme(chemin) + " " + relatif not in connues:
-                manquants.append(relatif)
-
-    assert not manquants, (
-        "version courante absente de dagster/squelette.sums pour : "
-        + ", ".join(sorted(manquants))
-        + " -- relancer ./dagster/empreintes-squelette.sh puis committer.")
+    assert a.sur_disque() == "corrigee"
 
 
 # ------------- ce fichier doit rester importable sans pytest --------------

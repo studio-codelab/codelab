@@ -47,13 +47,15 @@ Execute avant toute commande (`dagster-webserver` ou `dagster-daemon run`), dans
    installation existante : l'image portait le correctif, le disque gardait le defaut, et `docker compose
    pull` n'y changeait rien. Il fallait le savoir et recopier le fichier a la main.
 
-   La decision se prend sur le **contenu**, jamais sur une date. `dagster/squelette.sums` liste l'empreinte
-   SHA-256 de chaque version que CodeLab a livree ; si le fichier sur disque est l'une d'elles, personne n'y
-   a touche et il est remplace. Sinon c'est ton travail, et il est laisse tel quel (le demarrage te le dit).
-   Rien n'est jamais cree ni supprime a cette etape : un projet que tu as efface ne revient pas.
+   La decision se prend sur le **contenu**, jamais sur une date. CodeLab note l'empreinte SHA-256 de chaque
+   fichier qu'il depose, dans `.codelab/empreintes` ; si le fichier sur disque porte toujours cette
+   empreinte, personne n'y a touche et il est remplace. Sinon c'est ton travail, et il est laisse tel quel
+   (le demarrage te le dit). Rien n'est jamais cree ni supprime a cette etape : un projet que tu as efface
+   ne revient pas.
 
-   Apres toute modification d'un fichier de `workspace/`, relancer `./dagster/empreintes-squelette.sh` et
-   committer le resultat. Un test de la suite echoue si tu l'oublies.
+   Le mecanisme s'entretient seul — **rien a regenerer, aucune etape a ne pas oublier avant de committer**.
+   `dagster/squelette.sums` ne sert qu'a amorcer les installations mises en service avant lui, qui n'ont
+   encore rien de note ; cette liste est figee et ne decrit que le passe.
 5. Passe la main a la commande reelle (`exec "$@"`).
 
 ## dagster.yaml : stockage dans Postgres

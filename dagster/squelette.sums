@@ -1,8 +1,19 @@
-# Empreintes SHA-256 de toutes les versions livrees du squelette.
-# Genere par dagster/empreintes-squelette.sh -- ne pas editer a la main.
+# Empreintes SHA-256 des versions du squelette /workspace livrees AVANT que
+# l'entrypoint ne note lui-meme ce qu'il ecrit (.codelab/empreintes).
+#
+# Cette liste ne sert qu'a UNE chose : rattraper les installations mises en
+# service avant ce mecanisme, qui n'ont donc encore rien de note. Pour
+# celles-la, elle permet de reconnaitre un fichier d'exemple reste d'origine
+# et de lui livrer enfin les corrections.
+#
+# Elle est FIGEE. Elle ne decrit que le passe, et n'a jamais a etre
+# regeneree : toute installation touchee par l'entrypoint actuel note ses
+# propres empreintes et cesse de dependre de ce fichier.
+#
 # Format : <sha256> <chemin relatif dans le squelette>
 013dad06a9dd859843b8f31505cf6d1c5825dfea99697967c8d8aeabe1887b26 diagnostic/checks.py
 01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b definitions.py
+0370c438ccdcbb4bd2a862dbbbd85bd972f5071245310b32d999a06742975cd8 diagnostic/checks.py
 11f42415a4874c74783df0cc15e6874315509cfff2224db4c2ae1c768a25d615 diagnostic/README.md
 15b1b1899149e5c4cc2af09a8d6354e633156f579b825a8164920abdc6d1d5a8 diagnostic/.env
 1830e569e27ab79b86189aa3f2b93c5777a50cc04685912d5b7798226dd50448 diagnostic/checks.py
