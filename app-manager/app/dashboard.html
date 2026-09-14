@@ -134,8 +134,9 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 .side-item.active::before{content:"";position:absolute;left:0;top:7px;bottom:7px;width:2px;
  border-radius:2px;background:var(--accent)}
 .sidebar.collapsed .side-item.active::before{top:6px;bottom:6px}
-.side-count{margin-left:auto;font-family:var(--mono);font-size:11px;font-weight:500;
- padding:0 5px;border-radius:var(--r-xs);background:var(--nav-hover);color:var(--nav-dim)}
+.side-count{margin-left:auto;font-size:11px;font-weight:700;padding:1px 7px;
+ border-radius:999px;background:var(--nav-hover);color:var(--nav-dim);
+ font-variant-numeric:tabular-nums}
 .side-item.active .side-count{background:var(--accent);color:#fff}
 .main-area{flex:1;min-width:0;overflow-x:hidden}
 .wrap{max-width:1240px;margin:0 auto;padding:24px 24px 56px}
@@ -143,7 +144,7 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 
 /* ------------------------------ titres, zones ------------------------------ */
 .toolbar{display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap}
-.toolbar h2{font-size:var(--t-xl);font-weight:680;letter-spacing:-.025em;line-height:1.2}
+.toolbar h2{font-size:var(--t-xl);font-weight:800;letter-spacing:-.03em;line-height:1.2}
 .toolbar .spacer{flex:1}
 .sous{color:var(--dim);font-size:var(--t-m);margin-bottom:20px;max-width:76ch}
 .zone{margin-bottom:26px}
@@ -152,24 +153,39 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 
 /* ------------------------------ cartes ------------------------------ */
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
- padding:14px 16px}
+ padding:14px 16px;box-shadow:0 1px 2px var(--shadow)}
+/* La carte qui ne contient QUE des tuiles ne s'encadre pas elle-meme : deux
+   cadres emboites a 13 px d'ecart ne hierarchisent rien. */
+.card:has(> .ov-nums){background:transparent;border:none;padding:0;box-shadow:none}
 .cartes{display:grid;gap:14px}
 .c3{grid-template-columns:repeat(3,minmax(0,1fr))}
 .c2{grid-template-columns:repeat(2,minmax(0,1fr))}
 @media (max-width:900px){.c3,.c2{grid-template-columns:1fr}}
 .card-top{display:flex;align-items:flex-start;gap:10px;margin-bottom:12px}
-.card-name b{font-size:var(--t-b);font-weight:620;display:block;letter-spacing:-.012em}
+.card-name b{font-size:var(--t-b);font-weight:700;display:block;letter-spacing:-.015em}
 .card-name .path{font-size:12.5px;color:var(--dim);margin-top:2px}
 .card-top .pill{margin-left:auto}
 .card-top .spacer{flex:1}
 .card-top .btn{margin-top:-2px}
 
 /* Chiffres de la vue d'ensemble */
-.ov-nums{display:flex;gap:26px}
-.ov-nums div b{font-family:var(--mono);font-size:26px;font-weight:500;letter-spacing:-.03em;
- display:block;line-height:1.1;font-variant-numeric:tabular-nums}
-.ov-nums div span{font-size:11.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.05em;
- font-weight:600}
+/* Cockpit : la mesure passe devant la liste. Les chiffres de la vue
+   d'ensemble ne sont plus alignes dans une carte, ce sont des TUILES -- une
+   par mesure, cadrees et posees en grille. C'est ce qu'on regarde en
+   premier, donc cela doit se lire en premier.
+   PAS de courbe : CodeLab ne conserve aucun historique de charge. Une
+   courbe dessinee sur rien serait une decoration qui ment. */
+/* minmax(130px) laissait la troisieme tuile SEULE sur une deuxieme ligne :
+   la colonne fait ~390 px, deux tuiles de 130 y tenaient, trois non. Mesure
+   au navigateur. A 84 px les trois tiennent sur une ligne, et la grille
+   reste capable d'en accueillir plus si une mesure s'ajoute. */
+.ov-nums{display:grid;grid-template-columns:repeat(auto-fit,minmax(84px,1fr));gap:10px}
+.ov-nums div{background:var(--surface);border:1px solid var(--line);
+ border-radius:var(--r);padding:11px 13px}
+.ov-nums div b{font-size:28px;font-weight:800;letter-spacing:-.03em;display:block;
+ line-height:1.1;font-variant-numeric:tabular-nums}
+.ov-nums div span{font-size:10.5px;color:var(--dim2);text-transform:uppercase;
+ letter-spacing:.09em;font-weight:700;display:block;margin-bottom:3px}
 .healthbar{display:flex;height:7px;border-radius:20px;overflow:hidden;background:var(--line);
  margin:14px 0 10px}
 .healthbar span{display:block}
@@ -180,7 +196,9 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
  margin-bottom:5px}
 .res-label span:last-child{color:var(--txt);font-weight:600}
 .res-bar{height:7px;border-radius:20px;background:var(--line);overflow:hidden}
-.res-bar span{display:block;height:100%;background:var(--accent);border-radius:20px}
+/* Une jauge de ressource est un ETAT, pas une action : elle prend le vert
+   de "tout va bien", jamais l'accent. */
+.res-bar span{display:block;height:100%;background:var(--ok);border-radius:20px}
 
 .chart-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
  padding:14px 16px}
@@ -190,41 +208,32 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
  padding:5px 0;font-size:12.5px}
 .bar-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dim)}
 .bar-track{height:7px;border-radius:20px;background:var(--line);overflow:hidden}
-.bar-track span{display:block;height:100%;background:var(--accent);border-radius:20px}
-.bar-val{text-align:right;color:var(--txt);font-family:var(--mono);font-size:12px;
- font-weight:500;font-variant-numeric:tabular-nums}
+.bar-track span{display:block;height:100%;background:var(--ok);border-radius:20px}
+.bar-val{text-align:right;color:var(--txt);font-size:12.5px;font-weight:700;
+ font-variant-numeric:tabular-nums}
 
 /* ------------------------------ pastilles d'etat ------------------------------ */
 /* Quatre etats, quatre couleurs, jamais l'accent : l'accent designe ce sur
    quoi on peut cliquer, un etat ne se clique pas. */
 /* Rectangle arrondi plutot que gelule. Une gelule fait etiquette de
    marketing ; ici ce sont des etats techniques, lus en colonne. */
-/* L'etat s'ecrit en chasse fixe, sans fond ni cadre : c'est une VALEUR
-   lue en colonne, pas une etiquette a decorer. Le point colore porte
-   l'information, le mot la nomme. */
-.pill{display:inline-flex;align-items:center;gap:6px;padding:1px 0;border:none;
- background:transparent;color:var(--dim);white-space:nowrap;
- font-family:var(--mono);font-size:11.5px;font-weight:500;letter-spacing:.01em}
+/* Cockpit : une PUCE teintee, entierement arrondie. Elle se repere du coin
+   de l'oeil sans etre lue -- c'est tout l'interet sur une vue d'exploitation,
+   ou l'on cherche l'anomalie avant de chercher l'information. Le fond porte
+   la severite, le point la confirme, le mot la nomme. */
+.pill{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;
+ border:none;border-radius:999px;background:var(--surface2);color:var(--dim);
+ white-space:nowrap;font-size:var(--t-xs);font-weight:700;letter-spacing:-.005em}
 .pill i{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
-/* Les pastilles posees DANS une carte gardent un fond : la, elles ne sont
-   pas en colonne et il n'y a rien avec quoi les aligner. */
-.card-top .pill,.fiche-tete .pill,.hub-projet .pill{padding:2px 8px;border-radius:var(--r-xs);
- border:1px solid var(--line2);background:var(--surface2)}
-.card-top .pill.on,.fiche-tete .pill.on,.hub-projet .pill.on{border-color:var(--ok-border);
- background:var(--ok-bg)}
-.card-top .pill.err,.fiche-tete .pill.err,.hub-projet .pill.err{border-color:var(--err-border);
- background:var(--err-bg)}
-/* En colonne, seule la COULEUR DU TEXTE distingue les etats -- le fond et le
-   cadre sont repris par les regles de carte plus haut, la ou ils servent.
-   "Publique" ne prend PAS l'accent : la visibilite est un etat, et l'accent
-   est reserve a ce qui se clique. Elle prend l'ambre, comme tout ce qui
-   merite un regard sans etre une panne. */
-.pill.on{color:var(--ok)}
-.pill.off{color:var(--dim2)}
-.pill.err{color:var(--err)}
-.pill.warn{color:var(--warn)}
-.pill.pub{color:var(--warn)}
-.pill.priv{color:var(--dim2)}
+/* "Publique" ne prend PAS l'accent : la visibilite est un etat, et l'accent
+   est reserve a ce qui se clique. Elle prend l'ambre -- ce qui merite un
+   regard sans etre une panne. */
+.pill.on{color:var(--ok);background:var(--ok-bg)}
+.pill.off{color:var(--dim);background:var(--surface2)}
+.pill.err{color:var(--err);background:var(--err-bg)}
+.pill.warn{color:var(--warn);background:var(--warn-bg)}
+.pill.pub{color:var(--warn);background:var(--warn-bg)}
+.pill.priv{color:var(--dim);background:var(--surface2)}
 
 /* ------------------------------ boutons ------------------------------ */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;
@@ -359,7 +368,7 @@ input::placeholder{color:var(--dim2)}
    l'information utile d'un projet tient sur une ligne, et la comparaison
    entre projets se fait a la verticale. */
 .tbl-wrap{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
- overflow:hidden}
+ overflow:hidden;box-shadow:0 1px 2px var(--shadow)}
 /* Cockpit : un bandeau de SEVERITE sur le bord gauche de chaque ligne.
    Il est deduit de la pastille deja presente dans la ligne (:has), donc
    aucun balisage a changer et aucune classe a tenir a jour cote JavaScript :
@@ -393,14 +402,15 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
 .tbl tbody tr,.tbl tbody tr td{transition:background .1s}
 .tbl-nom{display:flex;align-items:center;gap:10px;min-width:0}
 .tbl-nom img{width:26px;height:26px;border-radius:var(--r-xs);flex:none}
-.tbl-nom .n{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tbl-nom .n{font-weight:700;letter-spacing:-.012em;overflow:hidden;
+ text-overflow:ellipsis;white-space:nowrap}
 .tbl-nom .d{font-size:11.5px;color:var(--dim2);overflow:hidden;text-overflow:ellipsis;
  white-space:nowrap;max-width:280px}
-/* Console : toute DONNEE en chasse fixe. Un port, un pourcentage ou une
-   quantite de memoire se comparent d'une ligne a l'autre ; en
-   proportionnelle, les colonnes ne s'alignent qu'a peu pres. */
-.tbl-num{font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums;
- color:var(--dim);white-space:nowrap}
+/* Les chiffres s'alignent par tabular-nums, pas par la chasse fixe : Manrope
+   a des chiffres de largeur egale, et une seule police tient alors toute
+   l'interface. La chasse fixe est gardee pour ce qui EST du code. */
+.tbl-num{font-variant-numeric:tabular-nums;font-weight:600;color:var(--dim);
+ white-space:nowrap}
 .tbl-act{white-space:nowrap}
 .tbl-act>div{display:flex;gap:6px;justify-content:flex-end}
 .tbl-act .icon-btn{width:28px;height:28px}
@@ -408,7 +418,7 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
 /* ------------------------------ fiche d'une application ------------------------------ */
 .fiche-tete{display:flex;align-items:center;gap:14px;margin-bottom:20px;flex-wrap:wrap}
 .fiche-tete img{width:42px;height:42px;border-radius:var(--r-s);flex:none}
-.fiche-tete h2{font-size:var(--t-xl);font-weight:680;letter-spacing:-.025em}
+.fiche-tete h2{font-size:var(--t-xl);font-weight:800;letter-spacing:-.03em}
 .fiche-tete .sous-titre{font-size:12.5px;color:var(--dim);margin-top:2px}
 .fiche-tete .spacer{flex:1}
 .fiche-actions{display:flex;gap:8px;flex-wrap:wrap}

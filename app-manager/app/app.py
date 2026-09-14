@@ -114,6 +114,9 @@ LOGIN_PAGE = _lire_ressource("login.html")
 # et qu'aucune des deux ne puisse deriver de l'autre.
 THEME_CSS = _lire_ressource("theme.css")
 
+# Les seuls fichiers que /polices/<nom> accepte de servir.
+POLICES_SERVIES = {"manrope-latin.woff2"}
+
 
 flask_app = Flask(__name__)
 
@@ -5115,6 +5118,28 @@ def api_icon(n):
 
 
 # ------------------------------ pages --------------------------------
+
+# La police du panneau, servie depuis l'image. 25 Ko, une seule fois, et le
+# panneau ne demande rien a personne : un serveur auto-heberge qui irait
+# chercher sa police chez Google ferait fuiter l'adresse IP de chaque visiteur
+# vers un tiers, et s'afficherait mal des que la machine est hors ligne.
+POLICES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "polices")
+
+
+@flask_app.get("/polices/<nom>")
+def police(nom):
+    """Un fichier de police, et rien d'autre.
+
+    La liste blanche est explicite : sans elle, ce chemin deviendrait une
+    lecture de fichier arbitraire des qu'un nom contient "..". Werkzeug
+    refuse deja les segments de ce genre, mais la garde ne doit pas dependre
+    d'un detail du routeur.
+    """
+    if nom not in POLICES_SERVIES:
+        return Response("Inconnu", status=404, mimetype="text/plain")
+    return send_file(os.path.join(POLICES_DIR, nom), mimetype="font/woff2",
+                     max_age=31536000)
+
 
 @flask_app.get("/theme.css")
 def theme_css():

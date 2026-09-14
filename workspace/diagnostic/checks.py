@@ -4651,6 +4651,48 @@ def test_aucune_page_ne_redefinit_un_jeton_du_theme():
                 "et les deux pages vont diverger")
 
 
+# ---------- 23 ter. la police ne vient de nulle part ailleurs ----------
+#
+# Un panneau auto-heberge qui irait chercher sa police chez Google ferait
+# fuiter l'adresse IP de chaque visiteur vers un tiers, et s'afficherait mal
+# des que la machine est hors ligne -- c'est-a-dire exactement quand on a
+# besoin de lui. La regle etait deja ecrite dans le depot ; elle n'etait
+# tenue par rien.
+
+def test_aucune_page_ne_va_chercher_une_police_ailleurs():
+    """Aucun appel a un hebergeur de polices, dans aucun fichier servi."""
+    for nom in ("theme.css", "dashboard.html", "login.html"):
+        texte = _page_panneau(nom)
+        for hote in ("fonts.googleapis.com", "fonts.gstatic.com", "use.typekit",
+                     "fonts.bunny.net", "cdn.jsdelivr.net"):
+            assert hote not in texte, (
+                f"{nom} va chercher une police sur {hote} : le panneau ne doit "
+                "dependre d'aucun tiers pour s'afficher")
+
+
+def test_la_police_est_livree_avec_l_image():
+    """Elle est declaree, elle est presente, et sa licence l'accompagne."""
+    theme = _page_panneau("theme.css")
+    assert "@font-face" in theme, "aucune police declaree"
+    # On lit le BLOC, pas le fichier : un commentaire qui parle de swap
+    # satisfaisait la verification alors que la declaration avait disparu.
+    # Trouve en mutant le fichier -- la mutation survivait.
+    debut = theme.index("@font-face")
+    bloc = theme[debut:theme.index("}", debut)]
+    assert 'src:url("/polices/manrope-latin.woff2")' in bloc, (
+        "la police n'est pas servie par le panneau lui-meme")
+    assert "font-display:swap" in bloc, (
+        "sans swap, le texte reste invisible tant que la police n'est pas la")
+
+    polices = os.path.join(DOSSIER_PANNEAU, "app", "polices")
+    fichier = os.path.join(polices, "manrope-latin.woff2")
+    assert os.path.isfile(fichier), "le fichier de police manque a l'image"
+    with open(fichier, "rb") as f:
+        assert f.read(4) == b"wOF2", "ce n'est pas un woff2"
+    assert os.path.isfile(os.path.join(polices, "LICENCE-manrope.txt")), (
+        "une police redistribuee sans sa licence, c'est une licence violee")
+
+
 # ---------- 24. le dossier personnel ne se detourne pas ----------
 #
 # Trouve par l'audit de la branche, et c'etait une escalade de privileges
