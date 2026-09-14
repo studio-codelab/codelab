@@ -42,10 +42,21 @@
   --line:#e6e8ec; --line2:#d4d8de;
   --txt:#101418; --dim:#5c636e; --dim2:#878e9a;
 
-  /* Barre de navigation : presque noire, plus neutre que le bleu nuit. Elle
-     encadre le contenu au lieu de lui disputer la couleur. */
-  --nav:#0e1116; --nav2:#151a21; --nav-line:#232932;
-  --nav-txt:#e8eaee; --nav-dim:#8b93a0;
+  /* Barre de navigation CLAIRE. Le bandeau sombre en haut et la colonne
+     sombre a gauche etaient la signature des gabarits d'administration des
+     annees 2010 : deux gros aplats fonces qui encadraient le contenu et
+     pesaient plus que lui. Ici le cadre est blanc, le contenu est pose sur
+     un gris legerement plus soutenu, et ce sont les traits qui separent. */
+  --nav:#ffffff; --nav2:#f9fafb; --nav-line:#e6e8ec;
+  --nav-txt:#101418; --nav-dim:#5c636e; --nav-hover:#f2f3f5;
+
+  /* Le panneau de presentation de la page de connexion. Il ne suit PAS la
+     barre : c'est la seule surface franchement sombre qui reste, et elle est
+     la pour ce qu'elle fait -- couper l'ecran en deux et donner son
+     caractere a la premiere page que l'on voit. Une page de connexion tout
+     en blanc ne ressemblerait plus a rien. Meme valeur dans les deux
+     themes. */
+  --vitrine:#0e1116; --vitrine-txt:#f2f4f7; --vitrine-dim:#98a0ac;
 
   /* Accent : un bleu franc plutot qu'un indigo electrique. Moins sature, il
      supporte d'etre pose sur de grandes surfaces sans fatiguer. */
@@ -74,6 +85,8 @@
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]):not([data-theme="dark"]){
     --bg:#0b0d10; --surface:#121519; --surface2:#171b20; --bg-input:#0e1114;
+    --nav:#0f1216; --nav2:#151920; --nav-line:#22272e;
+    --nav-txt:#e7e9ed; --nav-dim:#98a0ac; --nav-hover:#1a1f26;
     --line:#23282f; --line2:#2f353d;
     --txt:#e7e9ed; --dim:#98a0ac; --dim2:#6e7783;
     --accent:#5b8cff; --accent-h:#7ba3ff; --accent-soft:#16203a;
@@ -87,6 +100,8 @@
 }
 [data-theme="dark"]{
   --bg:#0b0d10; --surface:#121519; --surface2:#171b20; --bg-input:#0e1114;
+  --nav:#0f1216; --nav2:#151920; --nav-line:#22272e;
+  --nav-txt:#e7e9ed; --nav-dim:#98a0ac; --nav-hover:#1a1f26;
   --line:#23282f; --line2:#2f353d;
   --txt:#e7e9ed; --dim:#98a0ac; --dim2:#6e7783;
   --accent:#5b8cff; --accent-h:#7ba3ff; --accent-soft:#16203a;
@@ -182,7 +197,7 @@ input::placeholder{color:var(--dim2)}
    d'y etre entre.
    --------------------------------------------------------------------------- */
 body{min-height:100vh;display:flex}
-.presentation{width:44%;max-width:520px;background:var(--nav);color:var(--nav-txt);
+.presentation{width:44%;max-width:520px;background:var(--vitrine);color:var(--vitrine-txt);
  padding:54px 48px;display:flex;flex-direction:column;justify-content:center;flex:none}
 @media (max-width:900px){.presentation{display:none}}
 .presentation .marque{display:flex;align-items:center;gap:11px;margin-bottom:38px}
@@ -190,13 +205,13 @@ body{min-height:100vh;display:flex}
 .presentation .marque b{font-size:19px;font-weight:650;letter-spacing:-.02em}
 .presentation h1{font-size:29px;font-weight:640;line-height:1.25;letter-spacing:-.025em;
  margin-bottom:12px}
-.presentation .accroche{color:var(--nav-dim);font-size:14.5px;line-height:1.6;margin-bottom:38px}
+.presentation .accroche{color:var(--vitrine-dim);font-size:14.5px;line-height:1.6;margin-bottom:38px}
 .atout{display:flex;align-items:flex-start;gap:13px;padding:13px 0}
 .atout .ico{width:34px;height:34px;border-radius:9px;background:rgba(255,255,255,.08);
  display:grid;place-items:center;flex:none;color:#a9bcff}
 .atout .ico svg{width:17px;height:17px}
 .atout b{display:block;font-size:13.5px;font-weight:600}
-.atout span{display:block;font-size:12.5px;color:var(--nav-dim);margin-top:1px}
+.atout span{display:block;font-size:var(--t-s);color:var(--vitrine-dim);margin-top:1px}
 
 .cote{flex:1;display:flex;align-items:center;justify-content:center;padding:32px 20px}
 .carte{width:100%;max-width:392px}
