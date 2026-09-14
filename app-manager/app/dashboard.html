@@ -1076,7 +1076,7 @@ table.tbl-journal{min-width:560px}
         navigateur, et ne sont ni envoyés au serveur ni partages avec les autres comptes.</div>
 
       <div class="field" style="margin-top:14px">
-        <label for="pref-taille">Lignes par page dans la liste des comptes</label>
+        <label for="pref-taille">Lignes par page dans le journal des connexions</label>
         <select id="pref-taille" onchange="prefTaille()">
           <option value="25">25</option>
           <option value="50">50</option>
@@ -1508,20 +1508,15 @@ table.tbl-journal{min-width:560px}
           <select id="us-projet" onchange="usFiltrer()">
             <option value="">toutes les applications</option>
           </select></div>
-        <div class="field" style="flex:0 0 110px;margin:0">
-          <label for="us-taille">Par page</label>
-          <select id="us-taille" onchange="usTaille()">
-            <option value="25">25</option>
-            <option value="50">50</option>
-          </select></div>
       </div>
 
       <div id="us-liste" style="margin-top:14px"></div>
 
+      <!-- Pas de pagination ici : la liste des comptes est courte, et les
+           deux filtres au-dessus suffisent a s'y retrouver. Il reste le
+           compte, qui dit combien de comptes un filtre a ecartes. -->
       <div class="us-pages" id="us-pagination" style="display:none">
-        <button class="btn btn-default btn-sm" id="us-prec" onclick="usAllerA(usPage-1)">Précédent</button>
         <span class="hint" id="us-compte"></span>
-        <button class="btn btn-default btn-sm" id="us-suiv" onclick="usAllerA(usPage+1)">Suivant</button>
       </div>
 
       <!-- Le formulaire de creation est replie : on ouvre cette page dix fois
@@ -1553,10 +1548,23 @@ table.tbl-journal{min-width:560px}
   </div>
 
   <div class="zone">
-    <div class="zone-title">Connexions recentes</div>
-    <div class="hint" style="margin:-6px 0 12px">Qui est entre, quand, et quelle
-      application a été ouverte.</div>
+    <div class="zone-title">Connexions récentes</div>
+    <div class="us-filtres" style="margin:-2px 0 12px">
+      <div class="hint" style="flex:1 1 320px;margin:0">Qui est entré, quand, et quelle
+        application a été ouverte.</div>
+      <div class="field" style="flex:0 0 110px;margin:0">
+        <label for="ac-taille">Par page</label>
+        <select id="ac-taille" onchange="acTaille()">
+          <option value="25">25</option>
+          <option value="50">50</option>
+        </select></div>
+    </div>
     <div id="ac-connexions"></div>
+    <div class="us-pages" id="ac-pagination" style="display:none">
+      <button class="btn btn-default btn-sm" id="ac-prec" onclick="acAllerA(acPage-1)">Précédent</button>
+      <span class="hint" id="ac-compte"></span>
+      <button class="btn btn-default btn-sm" id="ac-suiv" onclick="acAllerA(acPage+1)">Suivant</button>
+    </div>
   </div>
 </div>
 
@@ -1799,7 +1807,7 @@ function paramOnglet(o){
     chargerMonCompte();
     /* La preference d'affichage vient du navigateur : elle doit etre juste
        des l'ouverture de l'onglet, pas seulement apres une modification. */
-    const t=$('pref-taille'); if(t) t.value=String(usParPage());
+    const t=$('pref-taille'); if(t) t.value=String(acParPage());
     $('pref-msg').style.display='none';
     $('mdp-err').style.display='none'; $('mdp-msg').style.display='none';
   }
@@ -2602,10 +2610,63 @@ function tableauActivite(evenements, vide){
     <thead><tr><th>Quand</th><th>Qui</th><th>Evenement</th><th>Adresse</th></tr></thead>
     <tbody>${evenements.map(ligneActivite).join('')}</tbody></table></div></div>`;
 }
+/* Le journal des connexions, page par page.
+
+   C'est LUI qui est long : il grandit a chaque visite, la ou une liste de
+   comptes tient a l'ecran. Le reglage 25/50 etait pose sur les comptes, ou
+   il ne servait a rien ; il est ici.
+
+   Avant, une coupe seche a 40 lignes -- ni reglable, ni annoncee, et les
+   lignes au-dela etaient simplement invisibles. */
+let acPage=1;
+
+/* Memorise par navigateur : c'est une preference d'affichage, pas un reglage
+   du serveur. Une valeur illisible ou un stockage refuse (navigation privee)
+   ne doit pas casser la page -- d'ou le try. L'ancienne cle est relue une
+   fois, pour ne pas perdre un reglage deja choisi. */
+function acParPage(){
+  try{
+    const v=parseInt(localStorage.getItem('codelab.journal.taille')
+                     || localStorage.getItem('codelab.us.taille'), 10);
+    if(v===25 || v===50) return v;
+  }catch(e){}
+  return 25;
+}
+
+function acTaille(){
+  const v=$('ac-taille').value;
+  try{ localStorage.setItem('codelab.journal.taille', v); }catch(e){}
+  acPage=1;
+  peindreConnexions();
+}
+
+function acAllerA(n){
+  acPage=n;
+  peindreConnexions();
+  $('ac-connexions').scrollIntoView({block:'nearest', behavior:'smooth'});
+}
+
 function peindreConnexions(){
-  const liste=(activite.evenements||[]).slice(0,40);
-  $('ac-connexions').innerHTML = tableauActivite(liste,
+  const tous=activite.evenements||[];
+  const taille=acParPage();
+  const pages=Math.max(1, Math.ceil(tous.length/taille));
+  /* Rester sur une page qui n'existe plus -- le journal a ete vide, ou la
+     taille a double -- donnerait un tableau vide et ferait croire a une
+     panne. */
+  if(acPage>pages) acPage=pages;
+  if(acPage<1) acPage=1;
+  const debut=(acPage-1)*taille;
+  const tranche=tous.slice(debut, debut+taille);
+  $('ac-connexions').innerHTML = tableauActivite(tranche,
     'Rien encore. Le journal se remplit à la première connexion.');
+
+  const sel=$('ac-taille'); if(sel) sel.value=String(taille);
+  const barre=$('ac-pagination'); if(!barre) return;
+  barre.style.display = pages>1 ? 'flex' : 'none';
+  $('ac-prec').disabled = acPage<=1;
+  $('ac-suiv').disabled = acPage>=pages;
+  $('ac-compte').textContent =
+    `${debut+1}\u2013${debut+tranche.length} de ${tous.length} — page ${acPage} sur ${pages}`;
 }
 /* La derniere connexion de chaque compte, sous son nom : c'est ce qu'on
    cherche en ouvrant cette page, avant meme le journal complet. */
@@ -2613,9 +2674,16 @@ function peindreComptesActivite(){
   const r=(activite.resume||{}).comptes||{};
   document.querySelectorAll('#us-liste [data-activite]').forEach(n=>{
     const c=r[n.dataset.activite];
+    /* c.derniere, SANS accent : c'est le nom du champ renvoye par
+       /api/activite. En accentuant les textes de l'interface, l'accent
+       avait ete pose ici aussi -- la lecture valait alors undefined,
+       ilYA(undefined) repond "jamais", et tout compte deja connecte
+       s'affichait comme ne s'etant jamais connecte. Un texte accentue se
+       lit mieux ; un identifiant accentue ne correspond plus a rien, et se
+       tait. Les noms de champs ne s'accentuent pas. */
     n.textContent = c && c.derniere
-      ? ` — dernière connexion ${ilYA(c.dernière)}`
-      : ' — jamais connecte';
+      ? ` — dernière connexion ${ilYA(c.derniere)}`
+      : ' — jamais connecté';
   });
 }
 
@@ -2644,44 +2712,17 @@ function usErreur(texte){
   e.textContent=texte; e.style.display='block';
 }
 
-/* La liste complete arrive du serveur, le filtrage et la pagination se font
-   ici. C'est le bon compromis a cette echelle -- quelques dizaines de comptes
-   sur une machine de salon -- et c'est deja ce que fait la recherche
-   d'applications. Au-dela de quelques milliers de comptes il faudrait
-   paginer cote serveur ; ce jour-la, la question ne se posera pas qu'ici. */
-let usTous=[], usPage=1;
+/* La liste complete arrive du serveur, le filtrage se fait ici. C'est le bon
+   compromis a cette echelle -- quelques dizaines de comptes sur une machine
+   de salon -- et c'est deja ce que fait la recherche d'applications.
 
-/* Memorise par navigateur : c'est une preference d'affichage, pas un reglage
-   du serveur. Une valeur illisible ou un stockage refuse (navigation privee)
-   ne doit pas casser la page -- d'ou le try. */
-function usParPage(){
-  try{
-    const v=parseInt(localStorage.getItem('codelab.us.taille'), 10);
-    if(v===25 || v===50) return v;
-  }catch(e){}
-  return 25;
-}
+   PAS de pagination : elle etait ici, elle n'y servait a rien. Une liste de
+   comptes tient a l'ecran, et les deux filtres au-dessus suffisent a s'y
+   retrouver. C'est le JOURNAL des connexions qui est long -- il grandit a
+   chaque visite -- et c'est lui qui a recu le reglage. */
+let usTous=[];
 
-function usTaille(){
-  const v=$('us-taille').value;
-  try{ localStorage.setItem('codelab.us.taille', v); }catch(e){}
-  usPage=1;
-  usPeindreListe();
-}
-
-function usFiltrer(){
-  /* Toute modification d'un filtre ramene en page 1 : rester en page 3 d'un
-     resultat qui n'en compte plus qu'une donne une liste vide, et l'on croit
-     que la recherche n'a rien trouve. */
-  usPage=1;
-  usPeindreListe();
-}
-
-function usAllerA(n){
-  usPage=n;
-  usPeindreListe();
-  $('us-liste').scrollIntoView({block:'nearest', behavior:'smooth'});
-}
+function usFiltrer(){ usPeindreListe(); }
 
 function usRetenus(){
   const q=($('us-q').value||'').trim().toLowerCase();
@@ -2710,7 +2751,7 @@ function usLigne(c){
     <div class="us-rond">${esc((c.nom||'?').slice(0,1))}</div>
     <div class="us-corps">
       <div class="us-nom"><b>${esc(c.nom)}</b>${badges.join('')}</div>
-      <div class="us-meta">${adresse} — ${projets}<span data-activité="${esc(c.nom)}"></span></div>
+      <div class="us-meta">${adresse} — ${projets}<span data-activite="${esc(c.nom)}"></span></div>
     </div>
     <button class="btn btn-default btn-sm" onclick="usOuvrir('${esc(c.nom)}')">Modifier</button>
   </div>`;
@@ -2735,26 +2776,15 @@ function usPeindreListe(){
     barre.style.display='none';
     return;
   }
-  const taille=usParPage();
-  const pages=Math.max(1, Math.ceil(retenus.length/taille));
-  if(usPage>pages) usPage=pages;
-  if(usPage<1) usPage=1;
-  const debut=(usPage-1)*taille;
-  const tranche=retenus.slice(debut, debut+taille);
-  zone.innerHTML=tranche.map(usLigne).join('');
+  zone.innerHTML=retenus.map(usLigne).join('');
   peindreComptesActivite();
 
-  /* La barre ne s'affiche que s'il y a plus d'une page : une pagination sous
-     six lignes est du bruit. Le compte, lui, reste utile des qu'un filtre
-     agit -- il dit combien de comptes ont ete ecartes. */
+  /* Le compte ne s'affiche que si un filtre agit : il dit alors combien de
+     comptes ont ete ecartes. Sans filtre, la liste se compte a l'oeil. */
   const filtre = retenus.length !== usTous.length;
-  barre.style.display = (pages>1 || filtre) ? 'flex' : 'none';
-  $('us-prec').disabled = usPage<=1;
-  $('us-suiv').disabled = usPage>=pages;
-  const surTotal = filtre ? ' sur '+usTous.length : '';
-  $('us-compte').textContent = pages>1
-    ? `${debut+1}\u2013${debut+tranche.length} de ${retenus.length}${surTotal} — page ${usPage} sur ${pages}`
-    : `${retenus.length} compte${retenus.length>1?'s':''}${surTotal}`;
+  barre.style.display = filtre ? 'flex' : 'none';
+  $('us-compte').textContent =
+    `${retenus.length} compte${retenus.length>1?'s':''} sur ${usTous.length}`;
 }
 
 async function chargerUtilisateurs(){
@@ -2777,8 +2807,6 @@ async function chargerUtilisateurs(){
       + noms.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
     select.value = noms.includes(choisi) ? choisi : '';
   }
-  $('us-taille').value = String(usParPage());
-
   usPeindreListe();
   /* La fiche ouverte suit : les projets ont pu changer pendant qu'elle
      l'etait, et les cases a cocher doivent rester justes. */
@@ -3504,13 +3532,15 @@ async function mdpChanger(){
 
 function prefTaille(){
   const v=$('pref-taille').value;
-  try{ localStorage.setItem('codelab.us.taille', v); }catch(e){}
-  /* La liste des comptes suit immediatement si elle est deja chargee : un
-     reglage qui demande un rechargement pour se voir laisse croire qu'il
-     n'a pas pris. */
-  const t=$('us-taille'); if(t){ t.value=v; if(typeof usPeindreListe==='function'){ usPage=1; usPeindreListe(); } }
+  try{ localStorage.setItem('codelab.journal.taille', v); }catch(e){}
+  /* Le journal suit immediatement s'il est deja charge : un reglage qui
+     demande un rechargement pour se voir laisse croire qu'il n'a pas pris. */
+  const t=$('ac-taille'); if(t){ t.value=v; }
+  if(typeof peindreConnexions==='function' && typeof activite!=='undefined'){
+    acPage=1; peindreConnexions();
+  }
   const m=$('pref-msg');
-  m.textContent=v+' lignes par page.';
+  m.textContent=v+' lignes par page dans le journal des connexions.';
   m.style.display='block';
 }
 

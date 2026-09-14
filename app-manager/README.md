@@ -232,15 +232,23 @@ deux facons : par la **personne** qu'on a en tete (nom ou adresse mail), ou par 
 dont on veut savoir qui y a acces. La seconde question n'avait aucune reponse avant — il fallait
 ouvrir les fiches une par une.
 
-La liste s'affiche par pages de **25 ou 50**. Le choix est retenu par navigateur : c'est une
-preference d'affichage, pas un reglage du serveur. Modifier un filtre ramene en page 1 — rester en
-page 3 d'un resultat qui n'en compte plus qu'une donne une liste vide, et l'on croit que la
-recherche n'a rien trouve.
+La liste **ne se pagine pas** : elle tient a l'ecran, et les deux filtres suffisent a s'y
+retrouver. Un compte sous la liste dit combien de comptes un filtre a ecartes. C'est le **journal
+des connexions**, plus bas sur la meme page, qui se pagine — voir ci-dessous.
 
-Le filtrage et la pagination se font **dans la page**, sur une liste recue en entier. C'est le bon
-compromis a cette echelle, et c'est deja ce que fait la recherche d'applications. Au-dela de
-quelques milliers de comptes il faudrait paginer cote serveur ; ce jour-la, la question ne se
-posera pas qu'ici.
+Le filtrage se fait **dans la page**, sur une liste recue en entier. C'est le bon compromis a
+cette echelle, et c'est deja ce que fait la recherche d'applications. Au-dela de quelques milliers
+de comptes il faudrait filtrer cote serveur ; ce jour-la, la question ne se posera pas qu'ici.
+
+### Le journal des connexions
+
+Sous la liste des comptes : qui est entre, quand, et quelle application a ete ouverte. Il s'affiche
+par pages de **25 ou 50**, reglable au-dessus du tableau ou dans *Parametres > Compte*. Le choix est
+retenu par navigateur : c'est une preference d'affichage, pas un reglage du serveur.
+
+C'est **lui** qui est long — il grandit a chaque visite, la ou une liste de comptes reste stable.
+Auparavant il etait coupe net a 40 lignes : ni reglable, ni annonce, et les lignes au-dela etaient
+simplement invisibles.
 
 **Le nom, lui, ne se change pas** : il identifie la personne partout — dans ses cles d'acces, dans le
 journal des acces, dans la liste des projets autorises. Pour renommer quelqu'un, on cree un compte
