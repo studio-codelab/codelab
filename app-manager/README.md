@@ -828,15 +828,25 @@ l'environnement**, au lancement (`start()`) comme au build (`run_build()`). C'es
 faible du modele de configuration decrit dans `/workspace/README.md` : le `.env` du projet continue
 de gagner.
 
-Deux exclusions :
+Trois exclusions :
 
 - **le bloc du panneau** (`APP_MANAGER_*`) n'est jamais transmis. Une application est du code
   arbitraire tournant sous un autre uid ; lui donner le mot de passe admin annulerait cette
   separation pour lui offrir l'acces au panneau ;
+- **le bloc d'alertes** (`SMTP_HOST`, `SMTP_PORT`, `SMTP_TLS`, `SMTP_USER`, `SMTP_PASSWORD`,
+  `ALERTE_FROM`, `ALERTE_ADMIN`) n'est pas transmis non plus. Ces cles vivent dans
+  `credentials.env` parce que le capteur Dagster les y lit, pas parce qu'une application aurait a
+  les connaitre : avec `SMTP_PASSWORD`, n'importe quelle application deployee pourrait expedier du
+  courrier **au nom de CodeLab**, depuis l'adresse meme d'ou partent les alertes. La regle
+  ci-dessus reposait sur le prefixe `APP_MANAGER_` ; ce bloc lui echappait faute de le porter, et
+  le renommer n'etait pas possible — le capteur Dagster lit ces noms-la ;
 - **les cles reservees** (`PATH`, `HOME`, `PORT`, `PYTHONPATH`, `PYTHONHOME`, `LD_PRELOAD`,
   `LD_LIBRARY_PATH`) : elles changent la maniere dont le process s'execute plutot que ce qu'il
   fait, et une ligne `PATH=` ajoutee a la main dans `credentials.env` casserait sinon toutes les
   applications d'un coup, sans rien pour l'expliquer.
+
+> Une application qui doit envoyer du courrier pour son propre compte met ses identifiants dans
+> **son** `.env`, qui gagne de toute facon sur cette couche.
 
 Le fichier est relu a chaque lancement, pas mis en cache : un mot de passe change est pris en
 compte en redemarrant l'application, sans redemarrer le panneau.
@@ -895,25 +905,71 @@ Trois habitudes tenues, parce qu'elles se perdent vite :
 
 ## Identite visuelle
 
+> **Pour repeindre le panneau, un seul fichier : [`app/theme.css`](app/theme.css).** Il ne contient
+> que des variables -- aucune mise en page, aucun composant. Change `--accent` et tout ce qui se
+> clique change de couleur, dans les deux pages et dans les deux themes, d'un coup.
+
 Les quatre ecrans -- connexion, second facteur, hub et outil de developpement -- partagent une
-seule identite : **fond clair, barre de navigation en bleu nuit, accent indigo, cartes blanches**.
+seule identite, appelee **Cockpit** : une vue d'exploitation, pas une liste. Elle repond d'abord a
+« est-ce que tout va bien ? », et seulement ensuite a « qu'est-ce que j'ai ? ».
 
-Trois decisions structurantes, et leurs raisons :
+Quatre decisions structurantes, et leurs raisons :
 
-- **Fond clair, barre sombre.** Le contenu vit sur un gris tres clair, les cartes sont blanches, la
-  navigation est en bleu nuit. Le contraste entre les deux donne la hierarchie sans avoir besoin de
-  bordures partout. La barre reste sombre dans les deux themes : c'est l'element d'identite, il ne
-  doit pas changer de nature selon l'heure de la journee.
-- **Un seul accent.** L'indigo est reserve a ce qui est actionnable ou selectionne. Les etats
-  (En ligne, Arretee, Ne repond pas, En erreur, Public, Prive) ont leurs propres couleurs, jamais
-  l'accent -- sinon plus rien ne ressort.
-- **Deux densites, une identite.** Le hub respire (cartes, icones, peu de texte) ; le mode
-  developpeur est dense (tableau, chiffres alignes, actions compactes). C'est la meme interface,
-  reglee pour deux usages.
+- **Le cadre est clair, le contenu est pose dessus.** Un bandeau sombre en haut et une colonne
+  sombre a gauche encadraient le contenu et pesaient plus que lui. La barre et la colonne sont
+  blanches, le contenu est sur un gris legerement plus soutenu, et ce sont les traits qui separent.
+  Le seul aplat franchement sombre qui reste est le panneau de presentation de la page de
+  connexion : il a son propre jeton (`--vitrine`) et ne suit pas le cadre.
+- **L'accent designe ce qui se clique, et rien d'autre.** Le turquoise est reserve a ce qui est
+  actionnable ou selectionne. Les etats (En ligne, Arretee, Ne repond pas, En erreur, Publique,
+  Privee) ont leurs propres couleurs -- vert, ambre, rouge -- et ne prennent **jamais** l'accent.
+  Sans cette separation, une ligne en panne se confond avec un bouton.
+- **La mesure passe devant la liste.** Les chiffres de la vue d'ensemble sont des **tuiles**
+  cadrees, en grille : c'est ce qu'on regarde en premier, cela doit donc se lire en premier.
+  Aucune courbe n'est dessinee : CodeLab ne conserve aucun historique de charge, et une courbe
+  tracee sur rien serait une decoration qui ment.
+- **Les chiffres s'alignent.** `font-variant-numeric: tabular-nums` partout. C'est la propriete,
+  pas la chasse fixe, qui aligne une colonne de ports ou de pourcentages -- Manrope a des chiffres
+  de largeur egale, et une seule police tient alors toute l'interface. `--mono` ne reste que pour
+  ce qui **est** du code : un extrait de configuration, un chemin.
+- **Chaque ligne porte sa severite sur son bord gauche.** Un bandeau de 3 px : vert en ligne,
+  rouge en panne, gris arrete. Il est **deduit** de la pastille deja presente dans la ligne
+  (selecteur `:has`), donc il n'y a aucune classe a tenir a jour cote JavaScript et l'etat ne peut
+  pas se contredire : il n'existe qu'une fois.
 
-La typographie est la pile systeme. Un panneau auto-heberge ne doit pas dependre d'un serveur de
-polices tiers pour s'afficher correctement -- et la police de l'appareil est deja chargee, deja
-lisible.
+Les surfaces sont des gris **ardoise**, froids, qui laissent le turquoise et les severites
+ressortir. Le contenu est pose sur le gris le plus soutenu et les cartes sont blanches : ce sont
+les cartes qui avancent, pas le fond qui recule.
+
+### La police, servie par le panneau lui-meme
+
+La typographie est **Manrope**, variable, sous-ensemble latin : **un fichier de 25 Ko**, dans
+l'image, servi sur `/polices/manrope-latin.woff2`.
+
+Elle n'est **jamais** demandee a Google. Un serveur auto-heberge qui irait chercher sa police chez
+un tiers ferait fuiter l'adresse IP de chaque visiteur vers ce tiers, et s'afficherait mal des que
+la machine est hors ligne -- c'est-a-dire exactement quand on a besoin du panneau.
+
+`font-display: swap` : le texte s'affiche tout de suite dans la pile systeme, puis bascule. Jamais
+de page blanche en attendant une police. La route ne sert que les fichiers d'une **liste blanche
+explicite** (`POLICES_SERVIES`) : sans elle, ce chemin deviendrait une lecture de fichier
+arbitraire des qu'un nom contient `..`.
+
+Licence SIL OFL 1.1, texte complet dans `app/polices/LICENCE-manrope.txt`.
+
+### Ou vivent les styles
+
+| | |
+|---|---|
+| `app/theme.css` | **La police et les variables, et rien d'autre.** Couleurs, formes, tailles, les trois etats de theme. Servi sur `/theme.css`, lie par les deux pages. |
+| `app/polices/` | Manrope (25 Ko) et sa licence. Servie sur `/polices/<nom>`, liste blanche explicite. |
+| `app/dashboard.html` | Les regles propres au panneau, ecrites en fonction des variables. |
+| `app/login.html` | Les regles propres a la page de connexion, idem. |
+
+Ces valeurs etaient auparavant recopiees **six fois** : trois blocs par page (clair, sombre
+automatique, sombre choisi), dans chacun des deux fichiers. Changer un gris demandait six retouches
+identiques, et il suffisait d'en oublier une pour que le theme sombre parte de travers sans que
+rien ne le signale.
 
 ## La fiche d'une application
 

@@ -109,6 +109,13 @@ def _lire_ressource(nom):
 
 DASHBOARD_PAGE = _lire_ressource("dashboard.html")
 LOGIN_PAGE = _lire_ressource("login.html")
+# Le theme : un seul fichier de variables, partage par les deux pages. Servi
+# plutot que recopie dans chacune, pour qu'il n'existe qu'un endroit a changer
+# et qu'aucune des deux ne puisse deriver de l'autre.
+THEME_CSS = _lire_ressource("theme.css")
+
+# Les seuls fichiers que /polices/<nom> accepte de servir.
+POLICES_SERVIES = {"manrope-latin.woff2"}
 
 
 flask_app = Flask(__name__)
@@ -1536,6 +1543,12 @@ PREFIXE_PRIVE = "APP_MANAGER_"
 CLES_RESERVEES = {"PATH", "HOME", "PORT", "PYTHONPATH", "PYTHONHOME",
                   "LD_PRELOAD", "LD_LIBRARY_PATH"}
 
+# Le bloc d'alertes du panneau (serveur d'envoi, identifiant, mot de passe,
+# adresse de l'administrateur). Defini plus bas, avec CHAMPS_SMTP dont il
+# derive : une seule liste de champs, pas deux a tenir d'accord. Python
+# resout ce nom a l'appel, pas a l'import -- et secrets_partages() n'est
+# appelee qu'au lancement d'une application.
+
 
 def secrets_partages():
     """Les valeurs de credentials.env destinees aux applications.
@@ -1548,6 +1561,11 @@ def secrets_partages():
     Relu a chaque demarrage plutot que mis en cache : un mot de passe change
     est ainsi pris en compte en redemarrant l'application, sans redemarrer le
     panneau.
+
+    Trois familles de cles ne sortent pas d'ici : celles prefixees
+    APP_MANAGER_ (les secrets du panneau), celles qui changeraient la maniere
+    dont le process s'execute (CLES_RESERVEES), et le bloc d'alertes du
+    panneau (CLES_PANNEAU).
     """
     valeurs = {}
     try:
@@ -1559,7 +1577,7 @@ def secrets_partages():
                 cle, _, valeur = ligne.partition("=")
                 cle, valeur = cle.strip(), valeur.strip()
                 if (not cle or cle.startswith(PREFIXE_PRIVE)
-                        or cle in CLES_RESERVEES):
+                        or cle in CLES_RESERVEES or cle in CLES_PANNEAU):
                     continue
                 if len(valeur) >= 2 and valeur[0] == valeur[-1] and valeur[0] in "\"'":
                     valeur = valeur[1:-1]
@@ -2213,6 +2231,22 @@ CHAMPS_SMTP = {
     "password": "SMTP_PASSWORD",
     "expediteur": "ALERTE_FROM",
 }
+
+# Les cles que le panneau ecrit POUR LUI-MEME dans credentials.env. Elles y
+# vivent parce que le capteur Dagster les lit dans ce fichier, pas parce
+# qu'une application aurait a les connaitre.
+#
+# Elles sont donc retirees de secrets_partages() : une application est du
+# code arbitraire tournant sous un autre uid, et lui remettre SMTP_PASSWORD
+# lui donnerait de quoi expedier du courrier au nom de CodeLab -- une adresse
+# de confiance, celle-la meme d'ou partent les alertes. ALERTE_ADMIN n'est
+# pas un secret, mais c'est l'adresse de l'administrateur : elle n'a rien a
+# faire dans l'environnement d'une application non plus.
+#
+# La regle existait deja pour le prefixe APP_MANAGER_ ; ce bloc lui avait
+# echappe, faute de porter ce prefixe. Le renommer n'etait pas possible : le
+# capteur Dagster et la documentation lisent ces noms-la.
+CLES_PANNEAU = set(CHAMPS_SMTP.values()) | {"ALERTE_ADMIN"}
 
 
 def _port_smtp(brut, defaut=587):
@@ -5084,6 +5118,48 @@ def api_icon(n):
 
 
 # ------------------------------ pages --------------------------------
+
+# La police du panneau, servie depuis l'image. 25 Ko, une seule fois, et le
+# panneau ne demande rien a personne : un serveur auto-heberge qui irait
+# chercher sa police chez Google ferait fuiter l'adresse IP de chaque visiteur
+# vers un tiers, et s'afficherait mal des que la machine est hors ligne.
+POLICES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "polices")
+
+
+@flask_app.get("/polices/<nom>")
+def police(nom):
+    """Un fichier de police, et rien d'autre.
+
+    La liste blanche est explicite : sans elle, ce chemin deviendrait une
+    lecture de fichier arbitraire des qu'un nom contient "..". Werkzeug
+    refuse deja les segments de ce genre, mais la garde ne doit pas dependre
+    d'un detail du routeur.
+    """
+    if nom not in POLICES_SERVIES:
+        return Response("Inconnu", status=404, mimetype="text/plain")
+    return send_file(os.path.join(POLICES_DIR, nom), mimetype="font/woff2",
+                     max_age=31536000)
+
+
+@flask_app.get("/theme.css")
+def theme_css():
+    """Le theme, servi aux deux pages.
+
+    Public sans session : la page de CONNEXION en a besoin, et il n'y a la
+    que des couleurs. Le proteger n'aurait rien protege et aurait servi une
+    page de connexion sans style.
+
+    Werkzeug range les regles litterales avant les regles a variable : cette
+    route gagne sur "/<n>", qui sert les applications hebergees. Et un nom
+    d'application ne peut de toute facon pas contenir de point.
+
+    Un cache court plutot qu'aucun : le fichier ne change qu'au deploiement
+    d'une nouvelle image, mais une minute suffit a eviter de le redemander a
+    chaque page sans qu'une mise a jour tarde a se voir.
+    """
+    return Response(THEME_CSS, mimetype="text/css",
+                    headers={"Cache-Control": "public, max-age=60"})
+
 
 @flask_app.get("/login")
 def login_page():

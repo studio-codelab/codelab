@@ -1,0 +1,161 @@
+/* ===========================================================================
+   CodeLab -- LE THEME, ET RIEN D'AUTRE
+   ---------------------------------------------------------------------------
+   TOUT LE STYLE DU PANNEAU SE REGLE ICI. Ce fichier ne contient que la police
+   et des variables : aucune mise en page, aucun composant. Changer une valeur
+   ci-dessous change la couleur, l'arrondi ou la taille correspondante dans les
+   deux pages -- connexion et panneau -- d'un coup.
+
+   Avant, ces memes valeurs etaient recopiees SIX fois : trois blocs par page
+   (clair, sombre automatique, sombre choisi), dans dashboard.html et dans
+   login.html. Changer un gris demandait six retouches identiques, et il
+   suffisait d'en oublier une pour que le theme sombre parte de travers sans
+   que rien ne le signale.
+
+   COMMENT REPEINDRE LE PANNEAU
+   ---------------------------
+   1. La couleur d'action  -> --accent (et --accent-h, --accent-soft).
+   2. Les fonds            -> --bg, --surface, --surface2.
+   3. Le cadre             -> --nav*, la barre du haut et la colonne de gauche.
+   4. Les etats            -> --ok, --warn, --err. Ne JAMAIS y mettre l'accent.
+   5. Les formes           -> --r, --r-s, --r-xs.
+   6. Les tailles de texte -> --t-xs a --t-xl.
+
+   Les trois etats de theme sont tenus separement, et c'est necessaire :
+     :root                          le theme clair complet ;
+     @media (prefers-color-scheme)  le sombre du systeme, quand l'utilisateur
+                                    n'a rien choisi dans le panneau ;
+     [data-theme="dark"]            le sombre choisi explicitement, qui doit
+                                    gagner meme sur un systeme en clair.
+
+   ---------------------------------------------------------------------------
+   DIRECTION : COCKPIT
+
+   Une vue d'exploitation, pas une liste. Elle repond d'abord a "est-ce que
+   tout va bien ?" et seulement ensuite a "qu'est-ce que j'ai ?". Quatre
+   regles la tiennent :
+
+   1. LA COULEUR SEMANTIQUE EST SEPAREE DE L'ACCENT. Le turquoise ne veut
+      dire qu'une chose : ceci se clique. Vert, ambre et rouge ne veulent
+      dire qu'une chose : voila l'etat. Sans cette separation, une ligne en
+      panne se confond avec un bouton, et c'est exactement dans ce cas qu'il
+      ne faut pas se tromper.
+   2. LA SEVERITE SE LIT AU BORD. Chaque ligne porte un bandeau de 3 px sur
+      son bord gauche. On repere une anomalie sans lire une seule ligne.
+   3. LES CHIFFRES SONT ALIGNES. font-variant-numeric: tabular-nums partout,
+      et Manrope pour tout : une colonne de ports ou de pourcentages se
+      compare a l'oeil.
+   4. LES SURFACES SONT FROIDES. Des gris ardoise, legerement bleutes, qui
+      laissent le turquoise et les severites ressortir. Le fond du contenu
+      est plus soutenu que les cartes posees dessus : ce sont les cartes qui
+      avancent, pas le fond qui recule.
+   =========================================================================== */
+
+/* Manrope, variable, sous-ensemble latin. 25 Ko, servie par le panneau
+   lui-meme (voir la route /polices dans app.py). Un serveur auto-heberge qui
+   irait chercher sa police chez Google ferait fuiter l'adresse IP de chaque
+   visiteur vers un tiers, et s'afficherait mal des que la machine est hors
+   ligne. Licence SIL OFL 1.1, texte complet dans polices/LICENCE-manrope.txt.
+   font-display:swap : le texte s'affiche tout de suite dans la pile systeme,
+   puis bascule. Jamais de page blanche en attendant une police. */
+@font-face{
+  font-family:"Manrope";
+  font-style:normal;
+  font-weight:400 700;
+  font-display:swap;
+  src:url("/polices/manrope-latin.woff2") format("woff2");
+}
+
+:root{
+  /* --------------------------------------------------------------- surfaces
+     Ardoise froide. Le contenu est pose sur le gris le plus soutenu, les
+     cartes sont blanches : ce sont elles qui avancent. */
+  --bg:#eef1f4; --surface:#ffffff; --surface2:#f5f7f9; --bg-input:#ffffff;
+  --line:#dde2e8; --line2:#c5ccd5;
+  --txt:#141a21; --dim:#5b6673; --dim2:#8a94a1;
+
+  /* ----------------------------------------------------------------- cadre
+     Barre du haut et colonne de gauche, blanches. Deux aplats sombres
+     encadrant le contenu pesaient plus que lui. */
+  --nav:#ffffff; --nav2:#f5f7f9; --nav-line:#dde2e8;
+  --nav-txt:#141a21; --nav-dim:#5b6673; --nav-hover:#eef1f4;
+
+  /* ---------------------------------------------------------------- action
+     Turquoise. Reserve a ce qui se clique ou se selectionne -- jamais a un
+     etat. C'est la regle qui tient tout le reste. */
+  --accent:#0e7c86; --accent-h:#0b646c; --accent-soft:#e2f2f3;
+  --accent-ring:rgba(14,124,134,.2);
+
+  /* -------------------------------------------------------------- severite
+     Trois niveaux, franchement distincts de l'accent : tout va bien, a
+     surveiller, en panne. */
+  --ok:#2f855a;   --ok-bg:#e7f4ed;   --ok-border:#bfe3ce;
+  --warn:#b7791f; --warn-bg:#fdf3e0; --warn-border:#eddcb2;
+  --err:#c53030;  --err-bg:#fdeaea;  --err-txt:#9b2626; --err-border:#f3c6c6;
+
+  /* ---------------------------------------------------------------- ombres
+     Une ombre d'un pixel sous les cartes, pas un halo. Le reste de la
+     hierarchie vient des traits et des fonds. */
+  --shadow:rgba(20,26,33,.06); --shadow-2:rgba(20,26,33,.16);
+
+  /* ---------------------------------------------------------------- formes */
+  --r:8px; --r-s:6px; --r-xs:4px;
+
+  /* ------------------------------------------------------------ typographie
+     Manrope pour tout, y compris les chiffres : geometrique, large, lisible
+     en petit corps, et ses chiffres tabulaires s'alignent. --mono ne reste
+     que pour ce qui EST du code -- un extrait de configuration, un chemin. */
+  --t-xs:11px; --t-s:12px; --t-m:13px; --t-b:14px; --t-l:16px; --t-xl:22px;
+  --sans:"Manrope",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+
+  /* --------------------------------------------------------------- vitrine
+     Le panneau de gauche de la page de connexion. Il ne suit PAS le cadre :
+     c'est la seule surface franchement sombre qui reste, et elle est la pour
+     couper l'ecran en deux. Meme valeur dans les deux themes. */
+  --vitrine:#101820; --vitrine-txt:#eef1f4; --vitrine-dim:#8a94a1;
+}
+
+/* Le sombre du systeme. Exclut [data-theme="light"] : un choix explicite de
+   clair doit gagner sur un systeme en sombre. */
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]):not([data-theme="dark"]){
+    --bg:#0d1218; --surface:#141b23; --surface2:#1a222b; --bg-input:#0f161d;
+    --line:#242e39; --line2:#323e4b;
+    --txt:#e7ecf1; --dim:#98a3b0; --dim2:#6d7986;
+
+    --nav:#101821; --nav2:#161f28; --nav-line:#242e39;
+    --nav-txt:#e7ecf1; --nav-dim:#98a3b0; --nav-hover:#1b242e;
+
+    --accent:#2ab5bf; --accent-h:#45cdd6; --accent-soft:#0d2a2d;
+    --accent-ring:rgba(42,181,191,.3);
+
+    --ok:#48bb78;   --ok-bg:rgba(72,187,120,.13);   --ok-border:rgba(72,187,120,.32);
+    --warn:#ecc94b; --warn-bg:rgba(236,201,75,.13); --warn-border:rgba(236,201,75,.3);
+    --err:#fc8181;  --err-bg:rgba(252,129,129,.13); --err-txt:#ffa8a8;
+    --err-border:rgba(252,129,129,.3);
+
+    --shadow:rgba(0,0,0,.4); --shadow-2:rgba(0,0,0,.58);
+  }
+}
+
+/* Le sombre choisi dans le panneau. Memes valeurs, et il gagne aussi sur un
+   systeme en clair. */
+:root[data-theme="dark"]{
+  --bg:#0d1218; --surface:#141b23; --surface2:#1a222b; --bg-input:#0f161d;
+  --line:#242e39; --line2:#323e4b;
+  --txt:#e7ecf1; --dim:#98a3b0; --dim2:#6d7986;
+
+  --nav:#101821; --nav2:#161f28; --nav-line:#242e39;
+  --nav-txt:#e7ecf1; --nav-dim:#98a3b0; --nav-hover:#1b242e;
+
+  --accent:#2ab5bf; --accent-h:#45cdd6; --accent-soft:#0d2a2d;
+  --accent-ring:rgba(42,181,191,.3);
+
+  --ok:#48bb78;   --ok-bg:rgba(72,187,120,.13);   --ok-border:rgba(72,187,120,.32);
+  --warn:#ecc94b; --warn-bg:rgba(236,201,75,.13); --warn-border:rgba(236,201,75,.3);
+  --err:#fc8181;  --err-bg:rgba(252,129,129,.13); --err-txt:#ffa8a8;
+  --err-border:rgba(252,129,129,.3);
+
+  --shadow:rgba(0,0,0,.4); --shadow-2:rgba(0,0,0,.58);
+}

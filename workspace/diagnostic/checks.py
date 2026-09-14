@@ -2169,6 +2169,66 @@ def test_le_mot_de_passe_du_panneau_n_est_pas_transmis_aux_applications(tmp_path
     assert not [c for c in partages if c.startswith("APP_MANAGER_")]
 
 
+def test_le_bloc_d_alertes_du_panneau_n_est_pas_transmis_aux_applications(tmp_path, monkeypatch):
+    """Le meme defaut que ci-dessus, par une autre porte.
+
+    La regle "le panneau ne transmet pas son propre bloc" reposait sur le
+    prefixe APP_MANAGER_. Le bloc d'alertes n'en porte pas -- il ne le peut
+    pas, le capteur Dagster lit ces noms-la dans ce fichier -- et passait
+    donc entier dans l'environnement de chaque application : serveur
+    d'envoi, identifiant, MOT DE PASSE, et l'adresse de l'administrateur.
+
+    Ce que ca donnait : n'importe quelle application deployee pouvait
+    expedier du courrier au nom de CodeLab, depuis l'adresse meme d'ou
+    partent les alertes.
+    """
+    _credentials(tmp_path, monkeypatch, "\n".join([
+        "POSTGRES_PASSWORD=mdp-postgres",
+        "SMTP_HOST=smtp.example.com",
+        "SMTP_PORT=587",
+        "SMTP_TLS=starttls",
+        "SMTP_USER=panneau@example.com",
+        "SMTP_PASSWORD=mot-de-passe-d-application",
+        "ALERTE_FROM=panneau@example.com",
+        "ALERTE_ADMIN=admin@example.com",
+        "API_TOKEN=jeton-metier",
+    ]))
+    partages = app.secrets_partages()
+    assert partages == {"POSTGRES_PASSWORD": "mdp-postgres",
+                        "API_TOKEN": "jeton-metier"}
+    # Nomme la cle la plus grave separement : si la liste d'exclusion venait a
+    # etre reduite un jour, l'echec doit designer ce qui a fuite.
+    assert "SMTP_PASSWORD" not in partages
+
+
+def test_le_panneau_lit_toujours_son_propre_bloc_d_alertes(tmp_path, monkeypatch):
+    """Le pendant du test precedent, et la raison d'etre de la separation.
+
+    Retirer ces cles de secrets_partages() ne doit rien retirer au panneau :
+    c'est sa configuration d'envoi de repli. Sans cette verification, le
+    correctif pourrait couper les alertes sans que rien ne le signale --
+    exactement la panne silencieuse qu'elles servent a eviter.
+    """
+    _credentials(tmp_path, monkeypatch, "\n".join([
+        "SMTP_HOST=smtp.example.com",
+        "SMTP_USER=panneau@example.com",
+        "SMTP_PASSWORD=mot-de-passe-d-application",
+    ]))
+    monkeypatch.setattr(app, "SHARED_CONFIG_DIR", str(tmp_path))
+    origine = app.smtp_origine()
+    assert origine["host"] == "smtp.example.com"
+    assert origine["password"] == "mot-de-passe-d-application"
+
+
+def test_la_liste_d_exclusion_suit_les_champs_smtp(tmp_path, monkeypatch):
+    """CLES_PANNEAU derive de CHAMPS_SMTP plutot que d'etre recopiee.
+
+    Ajouter un champ d'envoi sans penser a l'exclure rouvrirait la fuite en
+    silence. Ce test tient ce lien : c'est la propriete, pas la liste.
+    """
+    assert set(app.CHAMPS_SMTP.values()) <= app.CLES_PANNEAU
+
+
 def test_une_cle_reservee_ne_peut_pas_casser_le_lancement(tmp_path, monkeypatch):
     """Une ligne PATH= ajoutee a la main casserait sinon toutes les
     applications d'un coup, sans rien pour l'expliquer."""
@@ -4540,6 +4600,97 @@ def test_l_enveloppe_de_fetch_regarde_l_origine():
     verif = page[page.index("function memeOrigine"):page.index("window.fetch = function")]
     assert "new URL(url, location.href).origin === location.origin" in verif
     assert "return false" in verif, "une cible illisible doit priver du jeton, pas l'accorder"
+
+
+# ---------- 23 bis. le theme n'existe qu'a un seul endroit ----------
+#
+# La demande etait "que le style soit facilement modifiable". Ce qui l'en
+# empechait n'etait pas le CSS mais la RECOPIE : les memes variables vivaient
+# six fois -- trois blocs de theme (clair, sombre automatique, sombre choisi)
+# dans chacune des deux pages. Changer un gris demandait six retouches
+# identiques, et en oublier une laissait le theme sombre de travers sans que
+# rien ne le signale.
+#
+# Ces deux tests tiennent la propriete, pas la mise en forme : il y a un
+# fichier de theme, et les pages n'en redefinissent aucun.
+
+def _page_panneau(nom):
+    return open(os.path.join(DOSSIER_PANNEAU, "app", nom), encoding="utf-8").read()
+
+
+def test_les_deux_pages_lisent_le_meme_theme():
+    """Un seul fichier de variables, lie par les deux pages."""
+    theme = _page_panneau("theme.css")
+    # Les jetons structurants y sont, et dans les trois etats de theme.
+    for cle in ("--accent:", "--bg:", "--ok:", "--err:", "--warn:", "--mono:", "--r:"):
+        assert cle in theme, f"{cle} manque au theme"
+    assert theme.count("--accent:") == 3, (
+        "les trois etats de theme doivent etre tenus : clair, sombre du "
+        "systeme, sombre choisi explicitement")
+    assert '[data-theme="dark"]' in theme and "prefers-color-scheme" in theme
+
+    for nom in ("dashboard.html", "login.html"):
+        page = _page_panneau(nom)
+        assert '<link rel="stylesheet" href="/theme.css">' in page, (
+            f"{nom} ne lit pas le theme partage")
+
+
+def test_aucune_page_ne_redefinit_un_jeton_du_theme():
+    """La recopie ne doit pas pouvoir revenir en silence.
+
+    C'est ce test qui donne son sens au precedent : sans lui, on peut lier
+    theme.css ET reposer un bloc :root dans la page, qui gagnerait par
+    l'ordre de cascade. Le fichier partage serait alors mort sans que
+    personne le remarque.
+    """
+    for nom in ("dashboard.html", "login.html"):
+        css = _page_panneau(nom).split("</style>")[0]
+        for cle in ("--accent:", "--bg:", "--surface:", "--txt:", "--ok:", "--err:"):
+            assert cle not in css, (
+                f"{nom} redefinit {cle} : le theme partage ne sert plus a rien, "
+                "et les deux pages vont diverger")
+
+
+# ---------- 23 ter. la police ne vient de nulle part ailleurs ----------
+#
+# Un panneau auto-heberge qui irait chercher sa police chez Google ferait
+# fuiter l'adresse IP de chaque visiteur vers un tiers, et s'afficherait mal
+# des que la machine est hors ligne -- c'est-a-dire exactement quand on a
+# besoin de lui. La regle etait deja ecrite dans le depot ; elle n'etait
+# tenue par rien.
+
+def test_aucune_page_ne_va_chercher_une_police_ailleurs():
+    """Aucun appel a un hebergeur de polices, dans aucun fichier servi."""
+    for nom in ("theme.css", "dashboard.html", "login.html"):
+        texte = _page_panneau(nom)
+        for hote in ("fonts.googleapis.com", "fonts.gstatic.com", "use.typekit",
+                     "fonts.bunny.net", "cdn.jsdelivr.net"):
+            assert hote not in texte, (
+                f"{nom} va chercher une police sur {hote} : le panneau ne doit "
+                "dependre d'aucun tiers pour s'afficher")
+
+
+def test_la_police_est_livree_avec_l_image():
+    """Elle est declaree, elle est presente, et sa licence l'accompagne."""
+    theme = _page_panneau("theme.css")
+    assert "@font-face" in theme, "aucune police declaree"
+    # On lit le BLOC, pas le fichier : un commentaire qui parle de swap
+    # satisfaisait la verification alors que la declaration avait disparu.
+    # Trouve en mutant le fichier -- la mutation survivait.
+    debut = theme.index("@font-face")
+    bloc = theme[debut:theme.index("}", debut)]
+    assert 'src:url("/polices/manrope-latin.woff2")' in bloc, (
+        "la police n'est pas servie par le panneau lui-meme")
+    assert "font-display:swap" in bloc, (
+        "sans swap, le texte reste invisible tant que la police n'est pas la")
+
+    polices = os.path.join(DOSSIER_PANNEAU, "app", "polices")
+    fichier = os.path.join(polices, "manrope-latin.woff2")
+    assert os.path.isfile(fichier), "le fichier de police manque a l'image"
+    with open(fichier, "rb") as f:
+        assert f.read(4) == b"wOF2", "ce n'est pas un woff2"
+    assert os.path.isfile(os.path.join(polices, "LICENCE-manrope.txt")), (
+        "une police redistribuee sans sa licence, c'est une licence violee")
 
 
 # ---------- 24. le dossier personnel ne se detourne pas ----------

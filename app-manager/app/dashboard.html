@@ -3,86 +3,54 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>CodeLab &middot; App Manager</title>
 <link rel="icon" type="image/png" href="data:image/png;base64,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">
+<link rel="stylesheet" href="/theme.css">
 <style>
+/* Le THEME (couleurs, formes, tailles) vit dans theme.css, servi par le
+   panneau et partage avec l'autre page. Ici ne restent que les regles
+   propres a cet ecran. Pour repeindre le panneau : theme.css, pas ici. */
 /* ===========================================================================
    CodeLab -- systeme visuel
    ---------------------------------------------------------------------------
    Une seule identite pour les quatre ecrans : connexion, second facteur, hub
-   et console d'administration. Trois decisions structurantes :
+   et console d'administration. Quatre decisions structurantes :
 
-   1. FOND CLAIR, BARRE SOMBRE. Le contenu vit sur un gris tres clair, les
-      cartes sont blanches, et la barre de navigation est en bleu nuit. Le
-      contraste entre les deux donne la hierarchie sans avoir besoin de
-      bordures partout.
-   2. UN SEUL ACCENT. Un indigo electrique, reserve a ce qui est actionnable
-      ou selectionne. Les etats (en ligne, erreur, prive, public) ont leurs
-      propres couleurs, jamais l'accent -- sinon plus rien ne ressort.
-   3. DE L'AIR. Les cartes respirent, les tableaux sont denses. C'est la
-      difference entre le hub (visuel, aere) et la console d'administration
-      (technique, compact) : la meme identite, deux densites.
+   1. FOND CLAIR, BARRE PRESQUE NOIRE. Le contenu vit sur un gris NEUTRE, les
+      cartes sont blanches, et la navigation est dans un gris tres sombre.
+      Les gris bleutes d'avant teintaient toute la page en froid et
+      affaiblissaient l'accent : sur un fond deja bleu, un bleu ressort
+      moins.
+   2. UN SEUL ACCENT, MOINS SATURE. Un bleu franc plutot qu'un indigo
+      electrique : il supporte d'etre pose sur de grandes surfaces. Reserve a
+      ce qui est actionnable ou selectionne. Les etats (en ligne, erreur,
+      prive, public) ont leurs propres couleurs, jamais l'accent -- sinon
+      plus rien ne ressort.
+   3. LE TRAIT PLUTOT QUE L'OMBRE. La hierarchie vient des bordures et des
+      fonds. Les ombres ne restent que pour ce qui flotte reellement
+      au-dessus de la page : menus et dialogues. Rien ne se souleve au
+      survol -- une grille entiere qui vibre sous le curseur est une mode,
+      pas une information.
+   4. DEUX ECHELLES EXPLICITES. Une echelle de rayons (--r, --r-s, --r-xs)
+      pour distinguer une carte d'un bouton et d'une pastille ; une echelle
+      typographique (--t-xs a --t-xl) pour que les tailles se repondent au
+      lieu d'etre posees a la main, en demi-pixels, regle par regle.
 
-   La barre reste en bleu nuit dans les deux themes : c'est l'element
-   d'identite de l'interface, il ne doit pas changer de nature selon
-   l'heure de la journee.
+   La barre reste sombre dans les deux themes : c'est l'element d'identite de
+   l'interface, il ne doit pas changer de nature selon l'heure de la journee.
    =========================================================================== */
 
-:root{
-  /* Surfaces claires */
-  --bg:#f4f6fb; --surface:#ffffff; --surface2:#f7f9fc; --bg-input:#ffffff;
-  --line:#e5e9f2; --line2:#d8dfec;
-  --txt:#0f172a; --dim:#5b6580; --dim2:#8b94a9;
 
-  /* Bleu nuit de la navigation -- identique dans les deux themes */
-  --nav:#101a30; --nav2:#17233d; --nav-line:#1e2b48;
-  --nav-txt:#e8edf7; --nav-dim:#8f9dba;
-
-  /* Accent : indigo electrique */
-  --accent:#4361ee; --accent-h:#3550d8; --accent-soft:#eef1fe;
-  --accent-ring:rgba(67,97,238,.16);
-
-  /* Etats */
-  --ok:#12855a; --ok-bg:#e7f6ee; --ok-border:#bfe6d2;
-  --err:#c8342f; --err-bg:#fdecea; --err-txt:#a4211d; --err-border:#f4c4c1;
-  --warn:#9a6a00; --warn-bg:#fdf3e0; --warn-border:#f0dcb4;
-
-  --shadow:rgba(16,26,48,.07); --shadow-2:rgba(16,26,48,.12);
-  --r:12px; --r-s:8px;
-}
-
-@media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]):not([data-theme="dark"]){
-    --bg:#0b1220; --surface:#111a2b; --surface2:#162033; --bg-input:#0d1526;
-    --line:#1e2a41; --line2:#2a3852;
-    --txt:#e8edf7; --dim:#93a0b8; --dim2:#6b7691;
-    --accent:#6c86ff; --accent-h:#5a76f5; --accent-soft:#18243f;
-    --accent-ring:rgba(108,134,255,.22);
-    --ok:#43c08a; --ok-bg:rgba(67,192,138,.12); --ok-border:rgba(67,192,138,.32);
-    --err:#f2706b; --err-bg:rgba(242,112,107,.12); --err-txt:#ff9d99;
-    --err-border:rgba(242,112,107,.32);
-    --warn:#e0a640; --warn-bg:rgba(224,166,64,.12); --warn-border:rgba(224,166,64,.3);
-    --shadow:rgba(0,0,0,.4); --shadow-2:rgba(0,0,0,.55);
-  }
-}
-[data-theme="dark"]{
-  --bg:#0b1220; --surface:#111a2b; --surface2:#162033; --bg-input:#0d1526;
-  --line:#1e2a41; --line2:#2a3852;
-  --txt:#e8edf7; --dim:#93a0b8; --dim2:#6b7691;
-  --accent:#6c86ff; --accent-h:#5a76f5; --accent-soft:#18243f;
-  --accent-ring:rgba(108,134,255,.22);
-  --ok:#43c08a; --ok-bg:rgba(67,192,138,.12); --ok-border:rgba(67,192,138,.32);
-  --err:#f2706b; --err-bg:rgba(242,112,107,.12); --err-txt:#ff9d99;
-  --err-border:rgba(242,112,107,.32);
-  --warn:#e0a640; --warn-bg:rgba(224,166,64,.12); --warn-border:rgba(224,166,64,.3);
-  --shadow:rgba(0,0,0,.4); --shadow-2:rgba(0,0,0,.55);
-}
 
 *{box-sizing:border-box;margin:0;padding:0}
 /* Pile systeme : la police de l'appareil, deja chargee, deja lisible. Un
    panneau auto-heberge ne doit pas dependre d'un serveur de polices tiers
    pour s'afficher correctement. */
 body{background:var(--bg);color:var(--txt);
-  font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
-  -webkit-font-smoothing:antialiased;font-feature-settings:"cv02","cv03","ss01";
+  font:var(--t-b)/1.5 var(--sans);
+  -webkit-font-smoothing:antialiased;
+  /* tnum : les chiffres prennent tous la meme largeur. Sans cela, une
+     colonne de ports ou de pourcentages tremble d'une ligne a l'autre. */
+  font-feature-settings:"cv02","cv03","ss01","tnum";
+  letter-spacing:-.006em;
   transition:background .15s,color .15s}
 a{color:inherit;text-decoration:none}
 svg{fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
@@ -90,26 +58,29 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
  background:var(--surface2);border:1px solid var(--line);border-radius:5px;padding:1px 5px}
 
 /* ------------------------------ barre du haut ------------------------------ */
-.topbar{height:56px;display:flex;align-items:center;gap:12px;padding:0 16px 0 12px;
- background:var(--nav);color:var(--nav-txt);position:sticky;top:0;z-index:40}
+.topbar{height:52px;display:flex;align-items:center;gap:12px;padding:0 16px 0 12px;
+ background:var(--nav);color:var(--nav-txt);position:sticky;top:0;z-index:40;
+ border-bottom:1px solid var(--nav-line)}
 .topbar .spacer{flex:1}
 .topbar-brand{display:flex;align-items:center;gap:9px;cursor:pointer;padding:4px 6px;border-radius:8px}
-.topbar-brand:hover{background:rgba(255,255,255,.06)}
+.topbar-brand:hover{background:var(--nav-hover)}
 .topbar-brand img{width:26px;height:26px;border-radius:7px}
 .topbar-brand b{font-size:15px;font-weight:650;letter-spacing:-.01em}
 .side-toggle-btn{width:32px;height:32px;border:none;border-radius:8px;background:transparent;
  color:var(--nav-dim);cursor:pointer;display:grid;place-items:center}
-.side-toggle-btn:hover{background:rgba(255,255,255,.08);color:var(--nav-txt)}
+.side-toggle-btn:hover{background:var(--nav-hover);color:var(--nav-txt)}
 .side-toggle-btn svg{width:17px;height:17px}
 
 .rechercher{position:relative;width:min(340px,34vw)}
 .rechercher svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);
  width:15px;height:15px;color:var(--nav-dim)}
 .rechercher input{width:100%;padding:7px 12px 7px 32px;border-radius:8px;
- border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.07);
- color:var(--nav-txt);font:inherit;font-size:13px}
+ border:1px solid var(--line2);background:var(--nav2);
+ color:var(--nav-txt);font:inherit;font-size:var(--t-m);
+ transition:border-color .12s,box-shadow .12s,background .12s}
 .rechercher input::placeholder{color:var(--nav-dim)}
-.rechercher input:focus{outline:none;border-color:var(--accent);background:rgba(255,255,255,.11)}
+.rechercher input:focus{outline:none;border-color:var(--accent);background:var(--surface);
+ box-shadow:0 0 0 3px var(--accent-ring)}
 @media (max-width:820px){.rechercher{display:none}}
 
 .qui{display:flex;flex-direction:column;line-height:1.2;text-align:right;margin-right:2px}
@@ -118,13 +89,17 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 @media (max-width:640px){.qui{display:none}}
 
 .acct-wrap{position:relative}
-.acct-btn{width:34px;height:34px;border-radius:50%;border:none;cursor:pointer;
- background:var(--accent);color:#fff;display:grid;place-items:center}
+/* Un disque d'accent plein tirait l'oeil vers un coin ou il n'y a rien a
+   decider. Il devient neutre, et ne prend l'accent qu'au survol. */
+.acct-btn{width:32px;height:32px;border-radius:50%;border:1px solid var(--line2);
+ cursor:pointer;background:var(--nav2);color:var(--dim);display:grid;place-items:center;
+ transition:background .12s,color .12s,border-color .12s}
 .acct-btn svg{width:17px;height:17px}
-.acct-btn:hover{background:var(--accent-h)}
-.acct-menu{position:absolute;right:0;top:42px;min-width:190px;background:var(--surface);
- border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 30px var(--shadow-2);
- padding:6px;display:none;z-index:60}
+.acct-btn:hover{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+.acct-menu{position:absolute;right:0;top:40px;min-width:190px;background:var(--surface);
+ border:1px solid var(--line);border-radius:var(--r);
+ box-shadow:0 1px 2px var(--shadow),0 12px 28px var(--shadow-2);
+ padding:5px;display:none;z-index:60}
 .acct-menu.show{display:block}
 .acct-item{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:7px;
  cursor:pointer;font-size:13px;color:var(--txt)}
@@ -133,9 +108,10 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 .acct-sep{height:1px;background:var(--line);margin:5px 4px}
 
 /* ------------------------------ colonne de gauche ------------------------------ */
-.page-body{display:flex;min-height:calc(100vh - 56px)}
-.sidebar{width:224px;flex:none;background:var(--nav);color:var(--nav-dim);
- display:flex;flex-direction:column;padding:14px 10px 10px;
+.page-body{display:flex;min-height:calc(100vh - 52px)}
+.sidebar{width:212px;flex:none;background:var(--nav);color:var(--nav-dim);
+ display:flex;flex-direction:column;padding:12px 8px 10px;
+ border-right:1px solid var(--nav-line);
  transition:width .14s ease}
 .sidebar.collapsed{width:62px}
 .sidebar.collapsed .side-label,.sidebar.collapsed .side-item span,
@@ -143,49 +119,73 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 .sidebar.collapsed .side-item{justify-content:center;padding:9px 0}
 .side-nav{flex:1}
 .side-sep{height:1px;background:var(--nav-line);margin:10px 6px}
-.side-label{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
- color:#66748f;padding:6px 10px 8px}
-.side-item{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:9px;
- cursor:pointer;font-size:13.5px;font-weight:500;color:var(--nav-dim);margin-bottom:2px;
- position:relative}
+.side-label{font-size:10px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;
+ color:var(--dim2);padding:8px 10px 6px}
+.side-item{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:var(--r-s);
+ cursor:pointer;font-size:var(--t-m);font-weight:500;color:var(--nav-dim);margin-bottom:1px;
+ position:relative;transition:background .12s,color .12s}
 .side-item svg{width:17px;height:17px;flex:none}
-.side-item:hover{background:rgba(255,255,255,.06);color:var(--nav-txt)}
-.side-item.active{background:var(--accent);color:#fff}
-.side-count{margin-left:auto;font-size:11px;font-weight:600;padding:1px 7px;border-radius:20px;
- background:rgba(255,255,255,.14)}
-.side-item.active .side-count{background:rgba(255,255,255,.24)}
+.side-item:hover{background:var(--nav-hover);color:var(--nav-txt)}
+/* L'element actif ne prend plus un pave d'accent plein. Un fond leger et un
+   rail sur le bord suffisent a le designer, et l'accent reste disponible
+   pour ce qu'on peut vraiment actionner. C'etait l'element le plus date de
+   l'interface. */
+.side-item.active{background:var(--accent-soft);color:var(--accent);font-weight:580}
+.side-item.active::before{content:"";position:absolute;left:0;top:7px;bottom:7px;width:2px;
+ border-radius:2px;background:var(--accent)}
+.sidebar.collapsed .side-item.active::before{top:6px;bottom:6px}
+.side-count{margin-left:auto;font-size:11px;font-weight:700;padding:1px 7px;
+ border-radius:999px;background:var(--nav-hover);color:var(--nav-dim);
+ font-variant-numeric:tabular-nums}
+.side-item.active .side-count{background:var(--accent);color:#fff}
 .main-area{flex:1;min-width:0;overflow-x:hidden}
-.wrap{max-width:1240px;margin:0 auto;padding:26px 26px 60px}
+.wrap{max-width:1240px;margin:0 auto;padding:24px 24px 56px}
 @media (max-width:640px){.wrap{padding:18px 14px 40px}}
 
 /* ------------------------------ titres, zones ------------------------------ */
 .toolbar{display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap}
-.toolbar h2{font-size:20px;font-weight:650;letter-spacing:-.015em}
+.toolbar h2{font-size:var(--t-xl);font-weight:800;letter-spacing:-.03em;line-height:1.2}
 .toolbar .spacer{flex:1}
-.sous{color:var(--dim);font-size:13.5px;margin-bottom:22px}
+.sous{color:var(--dim);font-size:var(--t-m);margin-bottom:20px;max-width:76ch}
 .zone{margin-bottom:26px}
-.zone-title{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
- color:var(--dim2);margin-bottom:10px}
+.zone-title{font-size:10px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;
+ color:var(--dim2);margin-bottom:9px}
 
 /* ------------------------------ cartes ------------------------------ */
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
- padding:16px 18px}
+ padding:14px 16px;box-shadow:0 1px 2px var(--shadow)}
+/* La carte qui ne contient QUE des tuiles ne s'encadre pas elle-meme : deux
+   cadres emboites a 13 px d'ecart ne hierarchisent rien. */
+.card:has(> .ov-nums){background:transparent;border:none;padding:0;box-shadow:none}
 .cartes{display:grid;gap:14px}
 .c3{grid-template-columns:repeat(3,minmax(0,1fr))}
 .c2{grid-template-columns:repeat(2,minmax(0,1fr))}
 @media (max-width:900px){.c3,.c2{grid-template-columns:1fr}}
 .card-top{display:flex;align-items:flex-start;gap:10px;margin-bottom:12px}
-.card-name b{font-size:14.5px;font-weight:620;display:block}
+.card-name b{font-size:var(--t-b);font-weight:700;display:block;letter-spacing:-.015em}
 .card-name .path{font-size:12.5px;color:var(--dim);margin-top:2px}
 .card-top .pill{margin-left:auto}
 .card-top .spacer{flex:1}
 .card-top .btn{margin-top:-2px}
 
 /* Chiffres de la vue d'ensemble */
-.ov-nums{display:flex;gap:26px}
-.ov-nums div b{font-size:26px;font-weight:660;letter-spacing:-.02em;display:block;line-height:1.1}
-.ov-nums div span{font-size:11.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.05em;
- font-weight:600}
+/* Cockpit : la mesure passe devant la liste. Les chiffres de la vue
+   d'ensemble ne sont plus alignes dans une carte, ce sont des TUILES -- une
+   par mesure, cadrees et posees en grille. C'est ce qu'on regarde en
+   premier, donc cela doit se lire en premier.
+   PAS de courbe : CodeLab ne conserve aucun historique de charge. Une
+   courbe dessinee sur rien serait une decoration qui ment. */
+/* minmax(130px) laissait la troisieme tuile SEULE sur une deuxieme ligne :
+   la colonne fait ~390 px, deux tuiles de 130 y tenaient, trois non. Mesure
+   au navigateur. A 84 px les trois tiennent sur une ligne, et la grille
+   reste capable d'en accueillir plus si une mesure s'ajoute. */
+.ov-nums{display:grid;grid-template-columns:repeat(auto-fit,minmax(84px,1fr));gap:10px}
+.ov-nums div{background:var(--surface);border:1px solid var(--line);
+ border-radius:var(--r);padding:11px 13px}
+.ov-nums div b{font-size:28px;font-weight:800;letter-spacing:-.03em;display:block;
+ line-height:1.1;font-variant-numeric:tabular-nums}
+.ov-nums div span{font-size:10.5px;color:var(--dim2);text-transform:uppercase;
+ letter-spacing:.09em;font-weight:700;display:block;margin-bottom:3px}
 .healthbar{display:flex;height:7px;border-radius:20px;overflow:hidden;background:var(--line);
  margin:14px 0 10px}
 .healthbar span{display:block}
@@ -196,37 +196,50 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
  margin-bottom:5px}
 .res-label span:last-child{color:var(--txt);font-weight:600}
 .res-bar{height:7px;border-radius:20px;background:var(--line);overflow:hidden}
-.res-bar span{display:block;height:100%;background:var(--accent);border-radius:20px}
+/* Une jauge de ressource est un ETAT, pas une action : elle prend le vert
+   de "tout va bien", jamais l'accent. */
+.res-bar span{display:block;height:100%;background:var(--ok);border-radius:20px}
 
 .chart-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
- padding:16px 18px}
+ padding:14px 16px}
 .chart-card+.chart-card{margin-top:14px}
 .chart-empty{color:var(--dim);font-size:13px;padding:8px 0}
 .bar-row{display:grid;grid-template-columns:130px 1fr 68px;align-items:center;gap:12px;
  padding:5px 0;font-size:12.5px}
 .bar-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dim)}
 .bar-track{height:7px;border-radius:20px;background:var(--line);overflow:hidden}
-.bar-track span{display:block;height:100%;background:var(--accent);border-radius:20px}
-.bar-val{text-align:right;color:var(--txt);font-weight:600;font-variant-numeric:tabular-nums}
+.bar-track span{display:block;height:100%;background:var(--ok);border-radius:20px}
+.bar-val{text-align:right;color:var(--txt);font-size:12.5px;font-weight:700;
+ font-variant-numeric:tabular-nums}
 
 /* ------------------------------ pastilles d'etat ------------------------------ */
 /* Quatre etats, quatre couleurs, jamais l'accent : l'accent designe ce sur
    quoi on peut cliquer, un etat ne se clique pas. */
-.pill{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:20px;
- font-size:11.5px;font-weight:600;border:1px solid var(--line2);color:var(--dim);
- background:var(--surface2);white-space:nowrap}
+/* Rectangle arrondi plutot que gelule. Une gelule fait etiquette de
+   marketing ; ici ce sont des etats techniques, lus en colonne. */
+/* Cockpit : une PUCE teintee, entierement arrondie. Elle se repere du coin
+   de l'oeil sans etre lue -- c'est tout l'interet sur une vue d'exploitation,
+   ou l'on cherche l'anomalie avant de chercher l'information. Le fond porte
+   la severite, le point la confirme, le mot la nomme. */
+.pill{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;
+ border:none;border-radius:999px;background:var(--surface2);color:var(--dim);
+ white-space:nowrap;font-size:var(--t-xs);font-weight:700;letter-spacing:-.005em}
 .pill i{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
-.pill.on{color:var(--ok);background:var(--ok-bg);border-color:var(--ok-border)}
-.pill.off{color:var(--dim);background:var(--surface2);border-color:var(--line2)}
-.pill.err{color:var(--err);background:var(--err-bg);border-color:var(--err-border)}
-.pill.warn{color:var(--warn);background:var(--warn-bg);border-color:var(--warn-border)}
-.pill.pub{color:var(--accent);background:var(--accent-soft);border-color:transparent}
-.pill.priv{color:var(--dim);background:var(--surface2);border-color:var(--line2)}
+/* "Publique" ne prend PAS l'accent : la visibilite est un etat, et l'accent
+   est reserve a ce qui se clique. Elle prend l'ambre -- ce qui merite un
+   regard sans etre une panne. */
+.pill.on{color:var(--ok);background:var(--ok-bg)}
+.pill.off{color:var(--dim);background:var(--surface2)}
+.pill.err{color:var(--err);background:var(--err-bg)}
+.pill.warn{color:var(--warn);background:var(--warn-bg)}
+.pill.pub{color:var(--warn);background:var(--warn-bg)}
+.pill.priv{color:var(--dim);background:var(--surface2)}
 
 /* ------------------------------ boutons ------------------------------ */
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;
- padding:8px 14px;border-radius:var(--r-s);border:1px solid transparent;font:inherit;
- font-size:13px;font-weight:560;cursor:pointer;white-space:nowrap;
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;
+ padding:7px 13px;border-radius:var(--r-s);border:1px solid transparent;font:inherit;
+ font-size:var(--t-m);font-weight:560;cursor:pointer;white-space:nowrap;
+ letter-spacing:-.008em;
  transition:background .12s,border-color .12s,color .12s}
 .btn svg{width:15px;height:15px}
 /* Un bouton desactive doit se voir desactive : sans cela on clique, rien ne
@@ -236,7 +249,8 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 /* L'anneau ne suit que la navigation au clavier (:focus-visible), pas le
    clic a la souris -- un contour apres chaque clic passe pour un defaut. */
 .btn:focus-visible,.icon-btn:focus-visible,.side-item:focus-visible,
-.fiche-onglets button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.fiche-onglets button:focus-visible{outline:2px solid var(--accent);outline-offset:2px;
+ border-radius:var(--r-s)}
 .btn-primary{background:var(--accent);color:#fff}
 .btn-primary:hover{background:var(--accent-h)}
 .btn-primary:disabled:hover{background:var(--accent)}
@@ -281,11 +295,12 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 
 /* ------------------------------ champs ------------------------------ */
 .field{margin-bottom:15px}
-label{display:block;font-size:12px;font-weight:600;color:var(--dim);margin-bottom:6px}
+label{display:block;font-size:var(--t-s);font-weight:600;color:var(--dim);margin-bottom:5px;
+ letter-spacing:-.004em}
 label .opt{font-weight:500;color:var(--dim2);text-transform:none;letter-spacing:0}
-input,select,textarea{width:100%;padding:9px 12px;border-radius:var(--r-s);
+input,select,textarea{width:100%;padding:8px 11px;border-radius:var(--r-s);
  border:1px solid var(--line2);background:var(--bg-input);color:var(--txt);font:inherit;
- font-size:13.5px}
+ font-size:var(--t-m);transition:border-color .12s,box-shadow .12s}
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
  box-shadow:0 0 0 3px var(--accent-ring)}
 input::placeholder{color:var(--dim2)}
@@ -324,12 +339,14 @@ input::placeholder{color:var(--dim2)}
 
 /* ------------------------------ hub ------------------------------ */
 .hub-liste{display:grid;grid-template-columns:repeat(auto-fill,minmax(258px,1fr));gap:14px}
-.hub-projet{display:flex;align-items:flex-start;gap:13px;padding:16px;background:var(--surface);
+.hub-projet{display:flex;align-items:flex-start;gap:12px;padding:14px;background:var(--surface);
  border:1px solid var(--line);border-radius:var(--r);
- transition:border-color .12s,box-shadow .12s,transform .12s}
-.hub-projet:hover{border-color:var(--accent);box-shadow:0 6px 20px var(--shadow);
- transform:translateY(-1px)}
-.hub-projet img{width:40px;height:40px;border-radius:10px;flex:none}
+ transition:border-color .12s,background .12s}
+/* Ni ombre ni deplacement au survol : une carte qui bouge sous le curseur
+   est une mode, et elle fait vibrer une grille entiere. La bordure d'accent
+   et le fond leger disent la meme chose sans rien agiter. */
+.hub-projet:hover{border-color:var(--accent);background:var(--accent-soft)}
+.hub-projet img{width:36px;height:36px;border-radius:var(--r-s);flex:none}
 .hub-projet .txt{min-width:0;flex:1}
 .hub-projet .nom{font-weight:620;font-size:14.5px;letter-spacing:-.01em}
 .hub-projet .desc{font-size:12.5px;color:var(--dim);margin-top:3px;line-height:1.45;
@@ -351,37 +368,64 @@ input::placeholder{color:var(--dim2)}
    l'information utile d'un projet tient sur une ligne, et la comparaison
    entre projets se fait a la verticale. */
 .tbl-wrap{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
- overflow:hidden}
+ overflow:hidden;box-shadow:0 1px 2px var(--shadow)}
+/* Cockpit : un bandeau de SEVERITE sur le bord gauche de chaque ligne.
+   Il est deduit de la pastille deja presente dans la ligne (:has), donc
+   aucun balisage a changer et aucune classe a tenir a jour cote JavaScript :
+   l'etat ne peut pas mentir, il n'existe qu'une fois.
+   Vert en ligne, rouge en panne, gris arrete -- jamais l'accent, qui reste
+   la couleur de ce qui se clique. */
+.tbl tbody tr{position:relative}
+.tbl tbody tr td:first-child{box-shadow:inset 3px 0 0 var(--line2)}
+.tbl tbody tr:has(.pill.on) td:first-child{box-shadow:inset 3px 0 0 var(--ok)}
+.tbl tbody tr:has(.pill.err) td:first-child{box-shadow:inset 3px 0 0 var(--err)}
+.tbl tbody tr:has(.pill.warn) td:first-child{box-shadow:inset 3px 0 0 var(--warn)}
+.tbl td:first-child{padding-left:17px}
+.tbl th:first-child{padding-left:17px}
 .tbl-scroll{overflow-x:auto}
 table.tbl{width:100%;border-collapse:collapse;min-width:720px}
-.tbl th{text-align:left;font-size:10.5px;font-weight:700;letter-spacing:.07em;
- text-transform:uppercase;color:var(--dim2);padding:11px 16px;background:var(--surface2);
+/* En-tete sans fond gris : le trait suffit a le separer.
+   PAS de position:sticky ici, et c'est mesure : .tbl-wrap porte
+   overflow:hidden et .tbl-scroll overflow-x:auto, donc l'en-tete se colle
+   au conteneur de defilement de la table, pas a la page. Resultat teste au
+   navigateur : th a 210px, premiere ligne a 191px -- l'en-tete recouvrait la
+   premiere application. Le rendre collant demanderait de refaire la
+   structure du tableau, ce qui depasse une refonte visuelle. */
+.tbl th{text-align:left;font-size:10px;font-weight:650;letter-spacing:.08em;
+ text-transform:uppercase;color:var(--dim2);padding:9px 14px;background:var(--surface);
  border-bottom:1px solid var(--line);white-space:nowrap}
-.tbl td{padding:12px 16px;border-top:1px solid var(--line);font-size:13px;vertical-align:middle}
+.tbl td{padding:9px 14px;border-top:1px solid var(--line);font-size:var(--t-m);
+ vertical-align:middle}
 .tbl tbody tr:first-child td{border-top:none}
 .tbl tbody tr{cursor:pointer}
 .tbl tbody tr:hover{background:var(--surface2)}
+.tbl tbody tr,.tbl tbody tr td{transition:background .1s}
 .tbl-nom{display:flex;align-items:center;gap:10px;min-width:0}
-.tbl-nom img{width:28px;height:28px;border-radius:7px;flex:none}
-.tbl-nom .n{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tbl-nom img{width:26px;height:26px;border-radius:var(--r-xs);flex:none}
+.tbl-nom .n{font-weight:700;letter-spacing:-.012em;overflow:hidden;
+ text-overflow:ellipsis;white-space:nowrap}
 .tbl-nom .d{font-size:11.5px;color:var(--dim2);overflow:hidden;text-overflow:ellipsis;
  white-space:nowrap;max-width:280px}
-.tbl-num{font-variant-numeric:tabular-nums;color:var(--dim);white-space:nowrap}
+/* Les chiffres s'alignent par tabular-nums, pas par la chasse fixe : Manrope
+   a des chiffres de largeur egale, et une seule police tient alors toute
+   l'interface. La chasse fixe est gardee pour ce qui EST du code. */
+.tbl-num{font-variant-numeric:tabular-nums;font-weight:600;color:var(--dim);
+ white-space:nowrap}
 .tbl-act{white-space:nowrap}
 .tbl-act>div{display:flex;gap:6px;justify-content:flex-end}
 .tbl-act .icon-btn{width:28px;height:28px}
 
 /* ------------------------------ fiche d'une application ------------------------------ */
 .fiche-tete{display:flex;align-items:center;gap:14px;margin-bottom:20px;flex-wrap:wrap}
-.fiche-tete img{width:46px;height:46px;border-radius:11px;flex:none}
-.fiche-tete h2{font-size:21px;font-weight:660;letter-spacing:-.02em}
+.fiche-tete img{width:42px;height:42px;border-radius:var(--r-s);flex:none}
+.fiche-tete h2{font-size:var(--t-xl);font-weight:800;letter-spacing:-.03em}
 .fiche-tete .sous-titre{font-size:12.5px;color:var(--dim);margin-top:2px}
 .fiche-tete .spacer{flex:1}
 .fiche-actions{display:flex;gap:8px;flex-wrap:wrap}
 .fiche-onglets{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:20px}
-.fiche-onglets button{padding:9px 14px;border:none;background:transparent;color:var(--dim);
- font:inherit;font-size:13px;font-weight:560;cursor:pointer;border-bottom:2px solid transparent;
- margin-bottom:-1px}
+.fiche-onglets button{padding:8px 12px;border:none;background:transparent;color:var(--dim);
+ font:inherit;font-size:var(--t-m);font-weight:560;cursor:pointer;
+ border-bottom:2px solid transparent;margin-bottom:-1px;letter-spacing:-.008em}
 .fiche-onglets button:hover{color:var(--txt)}
 .fiche-onglets button.active{color:var(--accent);border-bottom-color:var(--accent)}
 .onglet{display:none}
@@ -468,7 +512,8 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
    au-dessus d'une carte « Apparence » n'apprenait rien. */
 .onglet-p .zone-title{display:none}
 .onglet-p .zone{margin-bottom:14px}
-.us-compte{border:1px solid var(--line);border-radius:10px;padding:13px 15px;margin-bottom:10px}
+.us-compte{border:1px solid var(--line);border-radius:var(--r-s);padding:12px 14px;
+ margin-bottom:8px}
 .us-tete{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
 .us-tete .spacer{flex:1}
 .us-cases{display:flex;flex-wrap:wrap;gap:8px 14px}
@@ -520,15 +565,20 @@ table.tbl-journal{min-width:560px}
 /* Une ligne par compte : l'initiale, le nom, ce qu'il faut savoir d'un coup
    d'oeil, et un seul bouton. Les reglages vivent dans la fiche du compte --
    quatre boutons par ligne transformaient la liste en tableau de bord. */
-.us-ligne{display:flex;align-items:center;gap:13px;padding:13px 15px;border:1px solid var(--line);
- border-radius:10px;margin-bottom:8px;background:var(--surface)}
-.us-ligne:hover{border-color:var(--line2)}
-.us-rond{width:36px;height:36px;border-radius:50%;flex:none;display:grid;place-items:center;
- background:var(--accent-soft);color:var(--accent);font-weight:650;font-size:14px;
- text-transform:uppercase}
+/* Plus de cadre par ligne. Un encadre pose DANS un encadre donne deux
+   bords paralleles a 12px d'ecart, et l'oeil ne sait plus lequel delimite
+   quoi. Les lignes se separent par un trait, comme dans un tableau. */
+.us-ligne{display:flex;align-items:center;gap:12px;padding:11px 2px;
+ border-top:1px solid var(--line);background:transparent;
+ transition:background .1s}
+.us-ligne:first-of-type{border-top:none}
+.us-ligne:hover{background:var(--surface2)}
+.us-rond{width:32px;height:32px;border-radius:50%;flex:none;display:grid;place-items:center;
+ background:var(--surface2);color:var(--dim);font-weight:650;font-size:var(--t-m);
+ border:1px solid var(--line);text-transform:uppercase}
 .us-corps{min-width:0;flex:1}
 .us-nom{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.us-nom b{font-size:14px;font-weight:620}
+.us-nom b{font-size:var(--t-b);font-weight:620;letter-spacing:-.012em}
 .us-meta{font-size:12px;color:var(--dim2);margin-top:3px;
  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @media (max-width:640px){.us-ligne{flex-wrap:wrap}}
