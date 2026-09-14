@@ -8,72 +8,94 @@
    CodeLab -- systeme visuel
    ---------------------------------------------------------------------------
    Une seule identite pour les quatre ecrans : connexion, second facteur, hub
-   et outil de developpement. Trois decisions structurantes :
+   et outil de developpement. Quatre decisions structurantes :
 
-   1. FOND CLAIR, BARRE SOMBRE. Le contenu vit sur un gris tres clair, les
-      cartes sont blanches, et la barre de navigation est en bleu nuit. Le
-      contraste entre les deux donne la hierarchie sans avoir besoin de
-      bordures partout.
-   2. UN SEUL ACCENT. Un indigo electrique, reserve a ce qui est actionnable
-      ou selectionne. Les etats (en ligne, erreur, prive, public) ont leurs
-      propres couleurs, jamais l'accent -- sinon plus rien ne ressort.
-   3. DE L'AIR. Les cartes respirent, les tableaux sont denses. C'est la
-      difference entre le hub (visuel, aere) et la console d'administration
-      (technique, compact) : la meme identite, deux densites.
+   1. FOND CLAIR, BARRE PRESQUE NOIRE. Le contenu vit sur un gris NEUTRE, les
+      cartes sont blanches, et la navigation est dans un gris tres sombre.
+      Les gris bleutes d'avant teintaient toute la page en froid et
+      affaiblissaient l'accent : sur un fond deja bleu, un bleu ressort
+      moins.
+   2. UN SEUL ACCENT, MOINS SATURE. Un bleu franc plutot qu'un indigo
+      electrique : il supporte d'etre pose sur de grandes surfaces. Reserve a
+      ce qui est actionnable ou selectionne. Les etats (en ligne, erreur,
+      prive, public) ont leurs propres couleurs, jamais l'accent -- sinon
+      plus rien ne ressort.
+   3. LE TRAIT PLUTOT QUE L'OMBRE. La hierarchie vient des bordures et des
+      fonds. Les ombres ne restent que pour ce qui flotte reellement
+      au-dessus de la page : menus et dialogues. Rien ne se souleve au
+      survol -- une grille entiere qui vibre sous le curseur est une mode,
+      pas une information.
+   4. DEUX ECHELLES EXPLICITES. Une echelle de rayons (--r, --r-s, --r-xs)
+      pour distinguer une carte d'un bouton et d'une pastille ; une echelle
+      typographique (--t-xs a --t-xl) pour que les tailles se repondent au
+      lieu d'etre posees a la main, en demi-pixels, regle par regle.
 
-   La barre reste en bleu nuit dans les deux themes : c'est l'element
-   d'identite de l'interface, il ne doit pas changer de nature selon
-   l'heure de la journee.
+   La barre reste sombre dans les deux themes : c'est l'element d'identite de
+   l'interface, il ne doit pas changer de nature selon l'heure de la journee.
    =========================================================================== */
 
 :root{
-  /* Surfaces claires */
-  --bg:#f4f6fb; --surface:#ffffff; --surface2:#f7f9fc; --bg-input:#ffffff;
-  --line:#e5e9f2; --line2:#d8dfec;
-  --txt:#0f172a; --dim:#5b6580; --dim2:#8b94a9;
+  /* Surfaces claires -- gris NEUTRES. Les gris bleutes de la version
+     precedente teintaient toute la page en froid et rendaient l'accent moins
+     lisible : sur un fond deja bleu, un bleu ressort moins. */
+  --bg:#f6f7f9; --surface:#ffffff; --surface2:#f9fafb; --bg-input:#ffffff;
+  --line:#e6e8ec; --line2:#d4d8de;
+  --txt:#101418; --dim:#5c636e; --dim2:#878e9a;
 
-  /* Bleu nuit de la navigation -- identique dans les deux themes */
-  --nav:#101a30; --nav2:#17233d; --nav-line:#1e2b48;
-  --nav-txt:#e8edf7; --nav-dim:#8f9dba;
+  /* Barre de navigation : presque noire, plus neutre que le bleu nuit. Elle
+     encadre le contenu au lieu de lui disputer la couleur. */
+  --nav:#0e1116; --nav2:#151a21; --nav-line:#232932;
+  --nav-txt:#e8eaee; --nav-dim:#8b93a0;
 
-  /* Accent : indigo electrique */
-  --accent:#4361ee; --accent-h:#3550d8; --accent-soft:#eef1fe;
-  --accent-ring:rgba(67,97,238,.16);
+  /* Accent : un bleu franc plutot qu'un indigo electrique. Moins sature, il
+     supporte d'etre pose sur de grandes surfaces sans fatiguer. */
+  --accent:#2563eb; --accent-h:#1d4ed8; --accent-soft:#eff4ff;
+  --accent-ring:rgba(37,99,235,.18);
 
   /* Etats */
-  --ok:#12855a; --ok-bg:#e7f6ee; --ok-border:#bfe6d2;
-  --err:#c8342f; --err-bg:#fdecea; --err-txt:#a4211d; --err-border:#f4c4c1;
-  --warn:#9a6a00; --warn-bg:#fdf3e0; --warn-border:#f0dcb4;
+  --ok:#10794f; --ok-bg:#e8f5ee; --ok-border:#bbe3cf;
+  --err:#c1332e; --err-bg:#fdecea; --err-txt:#9e1f1b; --err-border:#f3c3c0;
+  --warn:#8f6200; --warn-bg:#fdf3e0; --warn-border:#efdab0;
 
-  --shadow:rgba(16,26,48,.07); --shadow-2:rgba(16,26,48,.12);
-  --r:12px; --r-s:8px;
+  /* Ombres presque absentes : la hierarchie vient des bordures et des fonds,
+     pas d'un relief. Elles ne restent que pour ce qui flotte reellement
+     au-dessus de la page (menus, dialogues). */
+  --shadow:rgba(13,18,28,.05); --shadow-2:rgba(13,18,28,.13);
+
+  /* Rayons resserres. 12px arrondissait tout de la meme facon ; l'echelle
+     distingue maintenant une carte d'un bouton et d'une pastille. */
+  --r:10px; --r-s:7px; --r-xs:5px;
+
+  /* Echelle typographique explicite. Elle n'existait pas : chaque regle
+     posait sa taille a la main, en demi-pixels, et rien ne se repondait. */
+  --t-xs:11px; --t-s:12px; --t-m:13px; --t-b:14px; --t-l:16px; --t-xl:22px;
 }
 
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]):not([data-theme="dark"]){
-    --bg:#0b1220; --surface:#111a2b; --surface2:#162033; --bg-input:#0d1526;
-    --line:#1e2a41; --line2:#2a3852;
-    --txt:#e8edf7; --dim:#93a0b8; --dim2:#6b7691;
-    --accent:#6c86ff; --accent-h:#5a76f5; --accent-soft:#18243f;
-    --accent-ring:rgba(108,134,255,.22);
-    --ok:#43c08a; --ok-bg:rgba(67,192,138,.12); --ok-border:rgba(67,192,138,.32);
-    --err:#f2706b; --err-bg:rgba(242,112,107,.12); --err-txt:#ff9d99;
-    --err-border:rgba(242,112,107,.32);
-    --warn:#e0a640; --warn-bg:rgba(224,166,64,.12); --warn-border:rgba(224,166,64,.3);
-    --shadow:rgba(0,0,0,.4); --shadow-2:rgba(0,0,0,.55);
+    --bg:#0b0d10; --surface:#121519; --surface2:#171b20; --bg-input:#0e1114;
+    --line:#23282f; --line2:#2f353d;
+    --txt:#e7e9ed; --dim:#98a0ac; --dim2:#6e7783;
+    --accent:#5b8cff; --accent-h:#7ba3ff; --accent-soft:#16203a;
+    --accent-ring:rgba(91,140,255,.26);
+    --ok:#3fbf86; --ok-bg:rgba(63,191,134,.12); --ok-border:rgba(63,191,134,.3);
+    --err:#f0706b; --err-bg:rgba(240,112,107,.12); --err-txt:#ff9d99;
+    --err-border:rgba(240,112,107,.3);
+    --warn:#dda640; --warn-bg:rgba(221,166,64,.12); --warn-border:rgba(221,166,64,.28);
+    --shadow:rgba(0,0,0,.45); --shadow-2:rgba(0,0,0,.6);
   }
 }
 [data-theme="dark"]{
-  --bg:#0b1220; --surface:#111a2b; --surface2:#162033; --bg-input:#0d1526;
-  --line:#1e2a41; --line2:#2a3852;
-  --txt:#e8edf7; --dim:#93a0b8; --dim2:#6b7691;
-  --accent:#6c86ff; --accent-h:#5a76f5; --accent-soft:#18243f;
-  --accent-ring:rgba(108,134,255,.22);
-  --ok:#43c08a; --ok-bg:rgba(67,192,138,.12); --ok-border:rgba(67,192,138,.32);
-  --err:#f2706b; --err-bg:rgba(242,112,107,.12); --err-txt:#ff9d99;
-  --err-border:rgba(242,112,107,.32);
-  --warn:#e0a640; --warn-bg:rgba(224,166,64,.12); --warn-border:rgba(224,166,64,.3);
-  --shadow:rgba(0,0,0,.4); --shadow-2:rgba(0,0,0,.55);
+  --bg:#0b0d10; --surface:#121519; --surface2:#171b20; --bg-input:#0e1114;
+  --line:#23282f; --line2:#2f353d;
+  --txt:#e7e9ed; --dim:#98a0ac; --dim2:#6e7783;
+  --accent:#5b8cff; --accent-h:#7ba3ff; --accent-soft:#16203a;
+  --accent-ring:rgba(91,140,255,.26);
+  --ok:#3fbf86; --ok-bg:rgba(63,191,134,.12); --ok-border:rgba(63,191,134,.3);
+  --err:#f0706b; --err-bg:rgba(240,112,107,.12); --err-txt:#ff9d99;
+  --err-border:rgba(240,112,107,.3);
+  --warn:#dda640; --warn-bg:rgba(221,166,64,.12); --warn-border:rgba(221,166,64,.28);
+  --shadow:rgba(0,0,0,.45); --shadow-2:rgba(0,0,0,.6);
 }
 
 *{box-sizing:border-box;margin:0;padding:0}
@@ -81,8 +103,9 @@
    panneau auto-heberge ne doit pas dependre d'un serveur de polices tiers
    pour s'afficher correctement. */
 body{background:var(--bg);color:var(--txt);
-  font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
-  -webkit-font-smoothing:antialiased;font-feature-settings:"cv02","cv03","ss01";
+  font:var(--t-b)/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;
+  font-feature-settings:"cv02","cv03","ss01","tnum";letter-spacing:-.006em;
   transition:background .15s,color .15s}
 a{color:inherit;text-decoration:none}
 svg{fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
