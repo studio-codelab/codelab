@@ -654,10 +654,19 @@ def check_exposition():
         manques.append("proxy de confiance (tous les visiteurs partagent une adresse)")
     if not publique:
         manques.append("adresse publique (aucun partage possible)")
+    # Pas dans les "manques" : une stack exposee peut parfaitement vouloir
+    # que son administration reste joignable de l'exterieur, et la reclamer
+    # en rouge serait dicter un choix plutot que signaler un oubli. La sonde
+    # dit donc simplement lequel des deux est en vigueur.
+    admin_local = _actif("APP_MANAGER_ADMIN_LAN_ONLY", "admin_reseau_local")
+    portee = ("administration reservee au reseau local" if admin_local
+              else "administration joignable de l'exterieur")
     if manques:
         return (False, "exposition", "expose, mais il manque : "
-                + " ; ".join(manques) + " -- a poser dans Parametres > Exposition")
-    return True, "exposition", f"publie sur {publique}, cookie Secure, adresse reelle des visiteurs"
+                + " ; ".join(manques) + " -- a poser dans Parametres > Exposition"
+                + " (" + portee + ")")
+    return (True, "exposition",
+            f"publie sur {publique}, cookie Secure, adresse reelle des visiteurs, {portee}")
 
 
 def check_provenance():
@@ -1119,7 +1128,7 @@ app = _charger_panneau()
 # echoue au lieu de laisser passer une ecriture reelle.
 CHEMINS_ETAT = [
     "STATE_DIR", "APPS_FILE", "LOG_DIR", "UTILISATEURS_FILE", "PASSKEYS_FILE",
-    "ACCES_FILE", "CHILD_HOME", "ALERTES_FILE", "CATEGORIES_FILE",
+    "ACCES_FILE", "CHILD_HOME", "ALERTES_FILE", "SMTP_FILE", "CATEGORIES_FILE",
     "EXPOSITION_FILE", "DIAGNOSTIC_MARQUEUR", "SHARED_CONFIG_DIR",
     "SHARED_ENV_FILE", "LEGACY_ADMIN_PASSWORD_FILE", "LEGACY_SECRET_KEY_FILE",
 ]
@@ -1145,6 +1154,7 @@ def _bac_a_sable(tmp_path, monkeypatch):
         "ACCES_FILE": str(etat / "acces.jsonl"),
         "CHILD_HOME": str(etat / "home"),
         "ALERTES_FILE": str(etat / "alertes.json"),
+        "SMTP_FILE": str(etat / "smtp.json"),
         "CATEGORIES_FILE": str(etat / "categories.json"),
         "EXPOSITION_FILE": str(etat / "exposition.json"),
         "DIAGNOSTIC_MARQUEUR": str(etat / "diagnostic-inscrit"),
@@ -2211,7 +2221,8 @@ def alertes(tmp_path, monkeypatch):
                        "port": 9101, "enabled": True}})
     envoyes = []
     monkeypatch.setattr(app, "envoyer_mail",
-                        lambda cfg, sujet, corps: envoyes.append(sujet))
+                        lambda cfg, sujet, corps, destinataires=None:
+                        envoyes.append(sujet))
     return envoyes
 
 
@@ -2277,7 +2288,8 @@ def test_la_configuration_incomplete_est_dite_champ_par_champ(tmp_path, monkeypa
     (tmp_path / "credentials.env").write_text("")
     app.ecrire_alertes(True, [])
     _, manquants = app.config_smtp()
-    assert manquants == ["SMTP_HOST", "SMTP_USER (ou ALERTE_FROM)", "destinataires"]
+    assert manquants == ["serveur d'envoi", "adresse d'expedition",
+                         "adresse d'alerte de l'administrateur"]
 
 
 def test_les_adresses_saisies_sont_nettoyees():
@@ -2359,7 +2371,11 @@ def test_un_utilisateur_ne_peut_rien_administrer(deux_espaces):
                            ("post", "/api/toggle/public"), ("post", "/api/deploy/public"),
                            ("delete", "/api/app/public"), ("get", "/api/utilisateurs"),
                            ("post", "/api/utilisateurs"), ("get", "/api/alertes"),
-                           ("post", "/api/alertes/test"), ("get", "/api/logs/public"),
+                           ("get", "/api/logs/public"),
+                           ("get", "/api/apps/public/acces"),
+                           ("put", "/api/apps/public/acces"),
+                           ("put", "/api/alertes/application/public"),
+                           ("get", "/api/vps"), ("put", "/api/vps"),
                            ("get", "/api/browse")]:
         r = getattr(c, methode)(route, json={})
         assert r.status_code == 403, f"{methode.upper()} {route} a repondu {r.status_code}"
@@ -2448,6 +2464,264 @@ def test_un_droit_sur_un_projet_inexistant_n_est_pas_enregistre(deux_espaces):
     r = c.put("/api/utilisateurs/marie", json={"projets": ["public", "jamais-declare"]})
     assert r.status_code == 200
     assert app.lire_utilisateurs()["marie"]["projets"] == ["public"]
+
+
+# ---------- assistant de liaison avec un VPS ----------
+#
+# Il rend les fichiers de app-manager/vps/ avec les valeurs substituees, et
+# dit ce qu'il CONSTATE sur la requete en cours. Il ne se connecte jamais au
+# VPS : lui confier une cle SSH avec les droits qui vont avec ferait de ce
+# panneau la cible la plus interessante de l'installation.
+
+@pytest.fixture
+def vps(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "EXPOSITION_FILE", str(tmp_path / "exposition.json"))
+    monkeypatch.delenv("APP_MANAGER_PUBLIC_URL", raising=False)
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    c = app.flask_app.test_client()
+    c.post("/login", json={"password": "secret-de-test"})
+    return c
+
+
+def test_les_valeurs_sont_substituees_dans_les_vrais_modeles(vps):
+    """Substituer plutot que reecrire : les modeles sont la source de verite.
+    Un assistant qui regenere son propre texte finit par decrire autre chose
+    que ce que dit le README, et c'est toujours celui qu'on ne relit pas qui
+    se trompe."""
+    r = vps.put("/api/vps", json={"domaine": "codelab.chezmoi.fr",
+                                  "ip": "203.0.113.10", "reseau": "10.9.0"})
+    assert r.status_code == 200, r.data
+    d = vps.get("/api/vps").get_json()
+    if d["modeles_absents"]:
+        pytest.skip("modeles vps absents de cette image")
+    tout = "\n".join(f["contenu"] for f in d["fichiers"])
+    assert "codelab.chezmoi.fr" in tout
+    assert "codelab.exemple.fr" not in tout, "le domaine d'exemple traine encore"
+    assert "10.9.0.2" in tout and "10.8.0.2" not in tout
+    assert "203.0.113.10" in tout
+    # Et chaque fichier dit ou il va : un contenu sans destination oblige a
+    # retourner lire le README, ce que l'assistant est cense eviter.
+    assert all(f["destination"] for f in d["fichiers"])
+
+
+def test_une_adresse_privee_est_refusee(vps):
+    """Un VPS joignable depuis internet n'a pas une adresse privee. Saisir
+    celle de sa propre machine donnerait une configuration qui ne peut pas
+    marcher -- autant le dire tout de suite qu'apres trois copies."""
+    r = vps.put("/api/vps", json={"domaine": "x.fr", "ip": "192.168.1.50"})
+    assert r.status_code == 400, r.data
+    # Fragment sans accent : ce fichier est du code, et le code de ce depot
+    # s'ecrit sans accents. Le message, lui, en porte -- il est lu par un humain.
+    assert "adresse publique" in r.get_json()["error"]
+    assert app.lire_vps()["ip"] == ""
+
+
+def test_un_reseau_de_tunnel_mal_forme_est_refuse(vps):
+    r = vps.put("/api/vps", json={"reseau": "pas-un-reseau"})
+    assert r.status_code == 400, r.data
+
+
+def test_le_diagnostic_ne_dit_que_ce_qu_il_constate(vps):
+    """Sans proxy devant, rien n'est annonce : le panneau doit le dire au lieu
+    de supposer que le tunnel est en place."""
+    d = vps.get("/api/vps").get_json()
+    etapes = {e["etape"]: e["ok"] for e in d["diagnostic"]}
+    assert etapes["Un intermediaire relaie cette requete"] is False
+    assert etapes["La requete arrive en HTTPS"] is False
+    # Toute etape non faite doit porter la marche a suivre : un diagnostic qui
+    # dit "non" sans dire quoi faire ne sert qu'a inquieter.
+    assert all(e["aide"] for e in d["diagnostic"] if not e["ok"])
+
+
+def test_le_diagnostic_voit_le_proxy_quand_il_est_la(vps):
+    d = vps.get("/api/vps", headers={"X-Forwarded-For": "203.0.113.7",
+                                     "X-Forwarded-Proto": "https"}).get_json()
+    etapes = {e["etape"]: e["ok"] for e in d["diagnostic"]}
+    assert etapes["Un intermediaire relaie cette requete"] is True
+    assert etapes["La requete arrive en HTTPS"] is True
+    # Le proxy n'est pas declare pour autant : constater n'est pas croire.
+    assert etapes["Le proxy est declare de confiance"] is False
+
+
+def test_enregistrer_le_vps_n_efface_pas_les_autres_reglages(vps):
+    """exposition.json porte desormais quatre reglages ET le bloc VPS. Le
+    reecrire en entier a chaque enregistrement effacerait le reste."""
+    vps.put("/api/securite/exposition", json={"adresse_publique": "https://codelab.chezmoi.fr"})
+    vps.put("/api/vps", json={"domaine": "codelab.chezmoi.fr", "ip": "203.0.113.10"})
+    assert app.adresse_publique() == "https://codelab.chezmoi.fr", (
+        "l'adresse publique a ete effacee par l'enregistrement du VPS")
+    assert app.lire_vps()["domaine"] == "codelab.chezmoi.fr"
+
+
+# ---------- changer son propre mot de passe ----------
+#
+# Cela n'existait pas : le mot de passe d'administration ne se changeait
+# qu'en editant credentials.env sur le serveur, donc en s'y connectant en
+# SSH. Un secret qu'on ne peut pas changer facilement est un secret qu'on ne
+# change jamais -- et celui-la donne l'execution de commandes sur la machine.
+
+@pytest.fixture
+def compte_admin(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "_admin_password", "ancien-mot-de-passe")
+    monkeypatch.setattr(app, "_totp_secret", "")
+    monkeypatch.setattr(app, "SHARED_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(app, "SHARED_ENV_FILE", str(tmp_path / "credentials.env"))
+    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    app.ecrire_bloc_panneau("ancien-mot-de-passe", "cle-de-session-existante", "")
+    c = app.flask_app.test_client()
+    c.post("/login", json={"password": "ancien-mot-de-passe"})
+    return c
+
+
+def test_l_admin_change_son_mot_de_passe(compte_admin):
+    r = compte_admin.post("/api/compte/mot-de-passe",
+                          json={"ancien": "ancien-mot-de-passe",
+                                "nouveau": "un-nouveau-mot-de-passe"})
+    assert r.status_code == 200, r.data
+    assert app.admin_password() == "un-nouveau-mot-de-passe"
+    # Il survit au redemarrage : c'est credentials.env qui fait autorite.
+    assert app.read_shared_value("APP_MANAGER_ADMIN_PASSWORD") == "un-nouveau-mot-de-passe"
+
+
+def test_la_cle_de_session_n_est_pas_remplacee_au_passage(compte_admin):
+    """Ecrire une cle differente de celle en place deconnecterait tout le
+    monde au redemarrage suivant, sans rapport visible avec le changement de
+    mot de passe. Elle est donc relue a sa source, jamais reconstituee."""
+    compte_admin.post("/api/compte/mot-de-passe",
+                      json={"ancien": "ancien-mot-de-passe",
+                            "nouveau": "un-nouveau-mot-de-passe"})
+    assert app.read_shared_value("APP_MANAGER_SESSION_SECRET") == "cle-de-session-existante"
+
+
+def test_une_session_volee_ne_verrouille_pas_le_compte(compte_admin):
+    """L'ancien mot de passe est exige meme sur une session deja ouverte :
+    sans cela, un cookie capture suffirait a prendre la place de quelqu'un
+    definitivement."""
+    r = compte_admin.post("/api/compte/mot-de-passe",
+                          json={"ancien": "pas-le-bon",
+                                "nouveau": "un-nouveau-mot-de-passe"})
+    assert r.status_code == 403, r.data
+    assert app.admin_password() == "ancien-mot-de-passe"
+
+
+def test_un_mot_de_passe_trop_court_est_refuse(compte_admin):
+    r = compte_admin.post("/api/compte/mot-de-passe",
+                          json={"ancien": "ancien-mot-de-passe", "nouveau": "court"})
+    assert r.status_code == 400, r.data
+    assert app.admin_password() == "ancien-mot-de-passe"
+
+
+def test_un_compte_nomme_change_le_sien_et_pas_celui_de_l_admin(deux_espaces):
+    """Chacun le sien : la route ne prend aucun nom en parametre, elle agit
+    sur la session qui appelle."""
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    r = c.post("/api/compte/mot-de-passe",
+               json={"ancien": "mot-de-passe-long", "nouveau": "un-autre-mot-de-passe"})
+    assert r.status_code == 200, r.data
+    comptes = app.lire_utilisateurs()
+    assert app.verifie_mot_de_passe(comptes["marie"], "un-autre-mot-de-passe")
+    assert not app.verifie_mot_de_passe(comptes["marie"], "mot-de-passe-long")
+    # Le sel a change aussi : deux mots de passe identiques ne doivent pas
+    # produire la meme empreinte d'un compte a l'autre.
+    assert comptes["marie"]["sel"] != "aa" * 16
+
+
+def test_un_compte_nomme_doit_donner_son_ancien_mot_de_passe(deux_espaces):
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    r = c.post("/api/compte/mot-de-passe",
+               json={"ancien": "pas-le-bon", "nouveau": "un-autre-mot-de-passe"})
+    assert r.status_code == 403, r.data
+    assert app.verifie_mot_de_passe(app.lire_utilisateurs()["marie"], "mot-de-passe-long")
+
+
+# ---------- l'acces a une application, vu depuis l'application ----------
+#
+# La meme information que dans la fiche d'un compte, prise par l'autre bout.
+# Elle n'existait que dans un sens : pour savoir qui ouvrait une application
+# il fallait ouvrir les fiches une par une, et pour l'accorder a cinq
+# personnes, cinq allers-retours.
+
+@pytest.fixture
+def acces(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    app._apps_cache["signature"] = None
+    app.save({"facturation": {"path": "/w/f", "command": "x", "port": 9101,
+                              "enabled": True, "visibility": "privee"},
+              "vitrine": {"path": "/w/v", "command": "x", "port": 9102,
+                          "enabled": True, "visibility": "publique"}})
+    sel = "cc" * 16
+    app.ecrire_utilisateurs({
+        "marie": {"sel": sel, "hash": app.derive_mot_de_passe("mot-de-passe-long", sel),
+                  "projets": ["vitrine"], "cree": 0, "email": "marie@example.com"},
+        "paul": {"sel": sel, "hash": app.derive_mot_de_passe("mot-de-passe-long", sel),
+                 "projets": [], "cree": 0},
+    })
+    c = app.flask_app.test_client()
+    c.post("/login", json={"password": "secret-de-test"})
+    return c
+
+
+def test_l_application_dit_qui_l_ouvre(acces):
+    d = acces.get("/api/apps/facturation/acces").get_json()
+    assert [c["nom"] for c in d["comptes"]] == ["marie", "paul"]
+    assert all(c["acces"] is False for c in d["comptes"])
+    assert d["publique"] is False
+    # L'adresse aide a distinguer deux homonymes ; elle est deja visible
+    # ailleurs dans le panneau pour un administrateur.
+    assert d["comptes"][0]["email"] == "marie@example.com"
+
+
+def test_accorder_l_acces_depuis_l_application_n_efface_pas_les_autres_projets(acces):
+    """La propriete qui compte. Envoyer la liste complete des projets d'un
+    compte aurait efface en silence ce qu'un autre onglet venait d'accorder :
+    on n'ecrit donc QUE cette application dans chaque fiche."""
+    r = acces.put("/api/apps/facturation/acces", json={"utilisateurs": ["marie"]})
+    assert r.status_code == 200, r.data
+    comptes = app.lire_utilisateurs()
+    assert comptes["marie"]["projets"] == ["facturation", "vitrine"], (
+        "l'acces accorde ailleurs a ete efface")
+    assert comptes["paul"]["projets"] == []
+
+
+def test_retirer_l_acces_ne_retire_que_celui_la(acces):
+    acces.put("/api/apps/facturation/acces", json={"utilisateurs": ["marie"]})
+    r = acces.put("/api/apps/facturation/acces", json={"utilisateurs": []})
+    assert r.status_code == 200, r.data
+    assert app.lire_utilisateurs()["marie"]["projets"] == ["vitrine"]
+
+
+def test_une_application_publique_le_dit(acces):
+    """Elle s'ouvre sans compte : laisser croire que cocher quelqu'un y change
+    quelque chose serait pire que de ne rien afficher."""
+    assert acces.get("/api/apps/vitrine/acces").get_json()["publique"] is True
+
+
+def test_un_compte_inconnu_est_refuse_sans_rien_ecrire(acces):
+    r = acces.put("/api/apps/facturation/acces",
+                  json={"utilisateurs": ["marie", "fantome"]})
+    assert r.status_code == 400, r.data
+    assert "fantome" in r.get_json()["error"]
+    assert app.lire_utilisateurs()["marie"]["projets"] == ["vitrine"], (
+        "un refus a quand meme modifie les comptes")
+
+
+def test_une_application_inconnue_repond_404(acces):
+    assert acces.get("/api/apps/absente/acces").status_code == 404
+    assert acces.put("/api/apps/absente/acces",
+                     json={"utilisateurs": []}).status_code == 404
 
 
 # ---------- 9. second facteur obligatoire pour les comptes utilisateurs ----------
@@ -3335,6 +3609,249 @@ def test_le_compose_l_emporte_sur_la_page_pour_https_et_le_proxy(exposition, mon
     assert app.https_actif() is True
 
 
+# ---------- 12 bis. l'administration reste sur le reseau local ----------
+#
+# Le raisonnement : un compte nomme est fait pour etre distribue et n'ouvre
+# que les projets qu'on lui a autorises. Le compte d'administration, lui,
+# permet de declarer une application -- donc d'executer du code sur la
+# machine. Les deux n'ont aucune raison d'etre joignables de la meme facon.
+#
+# Ce que ces tests tiennent, dans l'ordre d'importance :
+#
+#   1. un compte nomme entre toujours de l'exterieur -- c'est la moitie de
+#      la demande, et celle qu'une implementation trop large casserait ;
+#   2. on ne peut pas activer ce reglage depuis l'exterieur, sous peine de
+#      se retirer l'administration dans la seconde ;
+#   3. derriere un proxy non declare, l'administration est REFUSEE et non
+#      accordee : toutes les requetes y paraissent locales, et une securite
+#      qui ment est pire que pas de securite.
+
+DEHORS = {"REMOTE_ADDR": "203.0.113.7"}      # bloc de documentation, jamais prive
+CHEZ_SOI = {"REMOTE_ADDR": "192.168.1.42"}
+
+
+def _active_le_verrou(client):
+    """Active le reglage depuis le reseau local, seule facon permise."""
+    r = client.put("/api/securite/exposition", json={"admin_reseau_local": True})
+    assert r.status_code == 200, r.data
+    assert app.admin_limite_au_reseau_local() is True
+    return r
+
+
+def test_une_adresse_illisible_n_ouvre_pas_l_administration():
+    """Le sens du doute. Une adresse qu'on ne sait pas lire ne doit jamais
+    valoir "locale" : c'est un controle d'acces, pas un affichage."""
+    assert app.adresse_est_locale("192.168.1.42") is True
+    assert app.adresse_est_locale("10.0.0.1") is True
+    assert app.adresse_est_locale("127.0.0.1") is True
+    assert app.adresse_est_locale("::1") is True
+    assert app.adresse_est_locale("fd00::1") is True
+    # 100.64/10, l'espace partage : un reseau prive type Tailscale est une
+    # extension de la maison, pas l'Internet. Python l'EXCLUT de is_private
+    # selon sa version -- raison pour laquelle la liste est ecrite a la main.
+    assert app.adresse_est_locale("100.100.1.2") is True
+    # Une pile double presente parfois une adresse v4 sous forme mappee.
+    assert app.adresse_est_locale("::ffff:192.168.1.42") is True
+    assert app.adresse_est_locale("8.8.8.8") is False
+    # Les plages de DOCUMENTATION : is_private les dit "privees", elles n'ont
+    # rien de local. C'est ce piege qui a fait ecrire la liste a la main.
+    assert app.adresse_est_locale("203.0.113.7") is False
+    assert app.adresse_est_locale("2001:db8::1") is False
+    assert app.adresse_est_locale("unknown") is False
+    assert app.adresse_est_locale("") is False
+    assert app.adresse_est_locale(None) is False
+
+
+def test_sans_le_reglage_l_admin_entre_de_partout(exposition):
+    """L'etat par defaut ne change pas : ce serait une rupture pour qui
+    administre deja depuis l'exterieur sans avoir rien demande."""
+    assert app.admin_limite_au_reseau_local() is False
+    c = app.flask_app.test_client()
+    r = c.post("/login", json={"password": "secret-de-test"}, environ_base=DEHORS)
+    assert r.status_code == 200, r.data
+
+
+def test_l_admin_ne_se_connecte_plus_depuis_l_exterieur(exposition):
+    _active_le_verrou(exposition)
+    c = app.flask_app.test_client()
+    r = c.post("/login", json={"password": "secret-de-test"}, environ_base=DEHORS)
+    assert r.status_code == 403, r.data
+    assert "reseau local" in r.get_json()["error"]
+    # Et le mot de passe n'a meme pas ete regarde : aucune session ouverte.
+    assert r.get_json().get("ok") is not True
+
+
+def test_l_admin_se_connecte_toujours_depuis_chez_lui(exposition):
+    _active_le_verrou(exposition)
+    c = app.flask_app.test_client()
+    r = c.post("/login", json={"password": "secret-de-test"}, environ_base=CHEZ_SOI)
+    assert r.status_code == 200, r.data
+
+
+def test_un_compte_nomme_entre_toujours_depuis_l_exterieur(exposition):
+    """LA moitie de la demande qu'une implementation trop large casserait :
+    le verrou ne vise que l'administration, jamais les comptes nommes."""
+    _active_le_verrou(exposition)
+    sel = "bb" * 16
+    app.ecrire_utilisateurs({"marie": {
+        "sel": sel, "hash": app.derive_mot_de_passe("mot-de-passe-long", sel),
+        "projets": ["prive"], "cree": 0}})
+
+    c = app.flask_app.test_client()
+    r = c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long"},
+               environ_base=DEHORS)
+    assert r.status_code == 200, r.data
+    d = r.get_json()
+    assert d.get("inscription") is True, "le compte nomme a ete refuse de l'exterieur"
+    r = c.post("/login/second-facteur",
+               json={"code": app.totp_code(d["secret"], int(time.time()) // app.TOTP_PAS)},
+               environ_base=DEHORS)
+    assert r.status_code == 200, r.data
+    assert r.get_json()["role"] == app.ROLE_UTILISATEUR
+
+
+def test_une_session_admin_qui_sort_cesse_d_administrer(exposition):
+    """Verifie a chaque requete, pas seulement a la connexion : un portable
+    ouvert dans le salon puis repris depuis un train -- ou un cookie vole --
+    ne doit plus administrer une fois dehors."""
+    c = exposition
+    _active_le_verrou(c)
+    # La meme session, le meme cookie, depuis l'exterieur.
+    r = c.get("/api/apps", environ_base=DEHORS)
+    assert r.status_code == 403, r.data
+    assert "reseau local" in r.get_json()["error"]
+    # Et elle fonctionne toujours depuis chez soi.
+    assert c.get("/api/apps", environ_base=CHEZ_SOI).status_code == 200
+
+
+def test_on_n_active_pas_ce_reglage_depuis_l_exterieur(exposition):
+    """Meme regle que pour HTTPS, et pour la meme raison : on n'allume pas un
+    interrupteur qui couperait la branche sur laquelle on est assis."""
+    c = exposition
+    r = c.put("/api/securite/exposition", json={"admin_reseau_local": True},
+              environ_base=DEHORS)
+    assert r.status_code == 400, r.data
+    assert "ne vient pas du" in r.get_json()["error"]
+    assert app.admin_limite_au_reseau_local() is False
+
+
+def test_eteindre_depuis_le_reseau_local_reste_toujours_permis(exposition):
+    c = exposition
+    _active_le_verrou(c)
+    r = c.put("/api/securite/exposition", json={"admin_reseau_local": False})
+    assert r.status_code == 200, r.data
+    assert app.admin_limite_au_reseau_local() is False
+
+
+def test_un_proxy_non_declare_interdit_d_activer(exposition):
+    """Le piege que ce reglage doit absolument eviter : derriere un proxy non
+    declare, remote_addr est l'adresse DU PROXY -- privee. Toute requete
+    paraitrait locale et le reglage serait affiche actif sans rien proteger."""
+    c = exposition
+    r = c.put("/api/securite/exposition", json={"admin_reseau_local": True},
+              headers={"X-Forwarded-For": "203.0.113.7"})
+    assert r.status_code == 400, r.data
+    assert "proxy" in r.get_json()["error"].lower()
+    assert app.admin_limite_au_reseau_local() is False
+
+
+def test_derriere_un_proxy_non_declare_l_administration_est_refusee(exposition):
+    """Le choix qui compte : ne pas savoir vaut REFUSER.
+
+    Si un proxy apparait apres coup sans etre declare, l'administration se
+    ferme -- elle ne s'ouvre pas a tout le monde. La marche arriere est le
+    compose, comme pour les autres reglages.
+    """
+    c = exposition
+    _active_le_verrou(c)
+    r = c.get("/api/apps", headers={"X-Forwarded-For": "192.168.1.42"})
+    assert r.status_code == 403, r.data
+    assert "proxy" in r.get_json()["error"].lower()
+
+
+def test_un_proxy_declare_rend_l_adresse_reelle_a_nouveau_lisible(exposition):
+    """Une fois le proxy declare, c'est X-Forwarded-For qui fait foi -- et le
+    verrou redevient utile au lieu d'etre bloquant."""
+    c = exposition
+    c.put("/api/securite/exposition", json={"trust_proxy": True},
+          headers={"X-Forwarded-For": "192.168.1.42"})
+    _active_le_verrou(c)
+    assert c.get("/api/apps",
+                 headers={"X-Forwarded-For": "192.168.1.42"}).status_code == 200
+    r = c.get("/api/apps", headers={"X-Forwarded-For": "203.0.113.7"})
+    assert r.status_code == 403, r.data
+
+
+def test_le_compose_peut_rouvrir_l_administration(exposition, monkeypatch):
+    """La seule marche arriere qui ne passe pas par le panneau, et celle qui
+    compte le jour ou l'on se retrouve enferme dehors."""
+    c = exposition
+    _active_le_verrou(c)
+    monkeypatch.setenv("APP_MANAGER_ADMIN_LAN_ONLY", "0")
+    assert app.admin_limite_au_reseau_local() is False
+    autre = app.flask_app.test_client()
+    assert autre.post("/login", json={"password": "secret-de-test"},
+                      environ_base=DEHORS).status_code == 200
+
+
+def test_le_compose_peut_aussi_l_imposer(exposition, monkeypatch):
+    c = exposition
+    monkeypatch.setenv("APP_MANAGER_ADMIN_LAN_ONLY", "1")
+    assert app.admin_limite_au_reseau_local() is True
+    r = c.put("/api/securite/exposition", json={"admin_reseau_local": False})
+    assert r.status_code == 400, r.data
+    assert "compose" in r.get_json()["error"]
+
+
+def test_une_cle_d_acces_ne_contourne_pas_le_verrou(exposition):
+    """Une cle d'acces vaut mot de passe ET second facteur, mais elle voyage
+    avec son porteur et ne dit rien d'ou l'on appelle. Sans verrou sur cette
+    route, il suffirait de passer par cette porte-ci."""
+    if not app.passkeys_disponibles():
+        pytest.skip("webauthn absent de cette image")
+    _active_le_verrou(exposition)
+    app.ecrire_passkeys({app.NOM_ADMIN: [
+        {"id": "cle-de-test", "cle": "", "compteur": 0, "cree": 0, "nom": "test"}]})
+
+    c = app.flask_app.test_client()
+    with c.session_transaction() as sess:
+        sess["passkey_defi"] = base64.b64encode(b"defi-de-test").decode()
+    r = c.post("/login/passkey", json={"credential": {"id": "cle-de-test"}},
+               environ_base=DEHORS)
+    assert r.status_code == 403, r.data
+    assert "reseau local" in r.get_json()["error"]
+
+
+def test_marteler_le_refus_finit_par_etre_limite(exposition):
+    """Un refus doit couter quelque chose a qui le provoque.
+
+    Sinon il est gratuit : on le martele sans jamais etre limite, et comme
+    chaque appel ecrit une ligne de journal, la rotation finit par chasser
+    l'historique reel -- une facon discrete d'effacer ses traces.
+    """
+    _active_le_verrou(exposition)
+    c = app.flask_app.test_client()
+    vus = set()
+    for _ in range(app.RATE_LIMIT_MAX + 2):
+        vus.add(c.post("/login", json={"password": "peu importe"},
+                       environ_base=DEHORS).status_code)
+    assert 403 in vus, "le verrou n'a jamais refuse"
+    assert 429 in vus, "le refus est gratuit : aucune limite ne s'applique"
+
+
+def test_la_page_recoit_de_quoi_griser_la_case_et_dire_pourquoi(exposition):
+    """Une case grisee sans raison fait cliquer dans le vide. La page a besoin
+    des trois : l'etat, si elle peut etre cochee, et d'ou l'on appelle."""
+    r = exposition.get("/api/securite", environ_base=DEHORS)
+    assert r.status_code == 200, r.data
+    d = r.get_json()
+    assert d["admin_reseau_local"] is False
+    assert d["peut_activer_admin_reseau_local"] is False
+    assert d["client_local"] is False
+    assert d["client_ip"] == "203.0.113.7"
+    assert d["admin_reseau_local_fige"] is False
+
+
 def test_l_adresse_du_compose_l_emporte_sur_celle_de_la_page(exposition, monkeypatch):
     """Sinon la page laisserait modifier ce qu'un redemarrage remettrait."""
     c = exposition
@@ -3506,41 +4023,162 @@ def test_l_administrateur_peut_retirer_les_cles_d_un_compte(cles):
 # les alertes. Les deux ont chacun leur onglet, et le test d'envoi doit
 # pouvoir viser une adresse sans qu'aucune alerte soit reglee.
 
-def test_le_serveur_d_envoi_se_teste_sans_alerte_reglee(tmp_path, monkeypatch):
+@pytest.fixture
+def envoi(tmp_path, monkeypatch):
+    """Un panneau connecte, avec une configuration d'envoi D'ORIGINE posee
+    dans credentials.env -- celle qui doit survivre a tout."""
     monkeypatch.setattr(app, "_admin_password", "secret-de-test")
     monkeypatch.setattr(app, "ALERTES_FILE", str(tmp_path / "alertes.json"))
+    monkeypatch.setattr(app, "SMTP_FILE", str(tmp_path / "smtp.json"))
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
     monkeypatch.setattr(app, "SHARED_CONFIG_DIR", str(tmp_path))
     monkeypatch.setattr(app, "SHARED_ENV_FILE", str(tmp_path / "credentials.env"))
     app.flask_app.secret_key = "cle-de-test"
     app.flask_app.config["TESTING"] = True
     app._login_attempts.clear()
-    (tmp_path / "credentials.env").write_text(
-        "SMTP_HOST=smtp.example.com\nSMTP_USER=panneau@example.com\n")
-    app.ecrire_alertes(False, [])          # serveur pret, aucune alerte reglee
-    partis = []
-    monkeypatch.setattr(app, "envoyer_mail",
-                        lambda cfg, sujet, corps, destinataires=None:
-                        partis.append(destinataires))
-
+    app._apps_cache["signature"] = None
+    app._alertes_en_cours.clear()
+    app.ecrire_bloc_alertes({"SMTP_HOST": "origine.example.com",
+                             "SMTP_USER": "origine@example.com",
+                             "SMTP_PASSWORD": "mot-de-passe-origine"})
+    app.ecrire_alertes(False, [])
+    app.save({"site": {"path": "/workspace/site", "command": "python3 app.py",
+                       "port": 9101, "enabled": True}})
     c = app.flask_app.test_client()
     c.post("/login", json={"password": "secret-de-test"})
+    return c
 
-    # Le serveur se declare pret, meme sans destinataire d'alerte.
-    etat = c.get("/api/alertes").get_json()
+
+def test_le_serveur_d_envoi_se_declare_pret_sans_alerte_reglee(envoi):
+    """Le serveur d'envoi et les alertes sont deux choses : un serveur
+    parfaitement configure passerait pour incomplet tant qu'aucune adresse
+    d'alerte n'est saisie, alors qu'il sert aussi les codes de verification."""
+    etat = envoi.get("/api/alertes").get_json()
     assert etat["smtp_ok"] is True
-    assert etat["manquants_smtp"] == []
-    assert "destinataires" in etat["manquants"]   # ca, c'est l'affaire des alertes
+    assert etat["source"] == "origine"
+    assert etat["origine_utilisable"] is True
+    assert etat["personnalisee"] is None
+    # Ca, en revanche, c'est l'affaire des alertes.
+    assert "adresse d'alerte de l'administrateur" in etat["manquants"]
 
-    # Un test vers une adresse choisie part quand meme.
-    r = c.post("/api/alertes/test", json={"destinataire": "moi@example.com"})
+
+def test_une_configuration_qui_ne_repond_pas_n_est_pas_enregistree(envoi, monkeypatch):
+    """Ce qui remplace l'ancien bouton "mail de test" : un test qu'il fallait
+    penser a lancer, et dont l'oubli ne se voyait pas. Ici une configuration
+    qui ne marche pas n'entre tout simplement pas."""
+    monkeypatch.setattr(app, "verifier_smtp",
+                        lambda cfg: (False, "SMTPAuthenticationError: 535 refuse"))
+    r = envoi.post("/api/alertes", json={
+        "actif": False, "admin": ["moi@example.com"],
+        "smtp": {"host": "faux.example.com", "user": "x@example.com",
+                 "password": "mauvais"}})
+    assert r.status_code == 400, r.data
+    assert "535 refuse" in r.get_json()["detail"]
+    assert app.lire_smtp_personnalise() is None, "une configuration refusee a ete ecrite"
+    # Et surtout : celle d'origine sert toujours.
+    assert app.smtp_origine()["host"] == "origine.example.com"
+
+
+def test_une_configuration_qui_repond_devient_la_source(envoi, monkeypatch):
+    monkeypatch.setattr(app, "verifier_smtp", lambda cfg: (True, ""))
+    r = envoi.post("/api/alertes", json={
+        "actif": False, "admin": ["moi@example.com"],
+        "smtp": {"host": "perso.example.com", "user": "perso@example.com",
+                 "password": "bon"}})
     assert r.status_code == 200, r.data
-    assert partis == [["moi@example.com"]]
+    assert r.get_json()["source"] == "personnalisee"
+    cfg, _ = app.config_smtp()
+    assert cfg["host"] == "perso.example.com"
+    # L'ORIGINE EST INTACTE. C'est tout l'objet de la separation : se tromper
+    # d'un caractere depuis une page ne doit pas supprimer le seul moyen de
+    # prevenir qu'une application est tombee.
+    assert app.smtp_origine()["host"] == "origine.example.com"
+    assert app.smtp_origine()["password"] == "mot-de-passe-origine"
 
-    # Sans adresse, en revanche, il n'y a personne a qui ecrire.
-    r = c.post("/api/alertes/test", json={})
-    assert r.status_code == 400
-    assert "destinataires" in r.get_json()["error"]
-    assert len(partis) == 1
+
+def test_enregistrer_l_adresse_admin_n_efface_pas_la_configuration_d_origine(envoi):
+    """Le bloc de credentials.env est REMPLACE en entier par upsert_shared_block.
+    Y ecrire la seule adresse d'administration effacerait le serveur d'envoi et
+    son mot de passe -- donc le repli que tout ceci construit."""
+    r = envoi.post("/api/alertes", json={"actif": True,
+                                         "admin": ["chef@example.com"]})
+    assert r.status_code == 200, r.data
+    origine = app.smtp_origine()
+    assert origine["host"] == "origine.example.com", "le serveur d'origine a ete efface"
+    assert origine["password"] == "mot-de-passe-origine", "le mot de passe a ete efface"
+    assert app.alertes_admin() == ["chef@example.com"]
+
+
+def test_revenir_a_l_origine_est_toujours_permis(envoi, monkeypatch):
+    monkeypatch.setattr(app, "verifier_smtp", lambda cfg: (True, ""))
+    envoi.post("/api/alertes", json={"actif": False, "admin": ["moi@example.com"],
+                                     "smtp": {"host": "perso.example.com",
+                                              "user": "p@example.com",
+                                              "password": "bon"}})
+    assert app.lire_smtp_personnalise() is not None
+    # Serveur vide = retour a l'origine. Sans condition : c'est la marche
+    # arriere, et on la cherche justement quand rien ne va.
+    r = envoi.post("/api/alertes", json={"actif": False, "admin": ["moi@example.com"],
+                                         "smtp": {"host": ""}})
+    assert r.status_code == 200, r.data
+    assert app.lire_smtp_personnalise() is None
+    assert app.config_smtp()[0]["host"] == "origine.example.com"
+
+
+def test_l_envoi_repli_sur_l_origine_quand_la_personnalisee_tombe(envoi, monkeypatch):
+    """Une configuration verifiee le jour de son enregistrement peut cesser de
+    marcher : mot de passe revoque, quota, serveur eteint. Ce jour-la, l'alerte
+    doit sortir quand meme."""
+    monkeypatch.setattr(app, "verifier_smtp", lambda cfg: (True, ""))
+    envoi.post("/api/alertes", json={"actif": True, "admin": ["moi@example.com"],
+                                     "smtp": {"host": "perso.example.com",
+                                              "user": "p@example.com",
+                                              "password": "bon"}})
+    essais = []
+
+    def _envoi(cfg, sujet, corps, destinataires=None):
+        essais.append(cfg["host"])
+        if cfg["host"] == "perso.example.com":
+            raise OSError("serveur injoignable")
+    monkeypatch.setattr(app, "envoyer_mail", _envoi)
+
+    envoye, detail = app.envoyer_avec_repli("sujet", "corps", ["moi@example.com"])
+    assert envoye is True, detail
+    assert essais == ["perso.example.com", "origine.example.com"], (
+        "le repli n'a pas eu lieu dans cet ordre")
+    assert detail == "d'origine"
+
+
+def test_chaque_application_a_ses_destinataires_et_l_admin_recoit_tout(envoi):
+    """Une application de facturation ne previent pas les memes personnes
+    qu'un site vitrine. Mais l'adresse d'administration s'ajoute TOUJOURS :
+    une application dont la liste est vide ne tombe pas en silence."""
+    envoi.post("/api/alertes", json={"actif": True, "admin": ["chef@example.com"]})
+    r = envoi.put("/api/alertes/application/site",
+                  json={"alertes": "equipe@example.com, autre@example.com"})
+    assert r.status_code == 200, r.data
+    assert r.get_json()["destinataires"] == ["chef@example.com",
+                                             "equipe@example.com",
+                                             "autre@example.com"]
+    # Une application sans liste propre : l'admin reste, et il est seul.
+    app.save(dict(app.load(), vitrine={"path": "/w/v", "command": "x",
+                                       "port": 9102, "enabled": True}))
+    assert app.destinataires_alerte("vitrine") == ["chef@example.com"]
+
+
+def test_l_adresse_d_alerte_d_une_installation_existante_est_reprise(envoi):
+    """Avant les alertes par application, tous les destinataires vivaient dans
+    alertes.json. Sans repli sur cette liste, une installation existante aurait
+    cesse d'etre prevenue a la mise a jour -- silencieusement."""
+    app.ecrire_bloc_alertes({"ALERTE_ADMIN": ""})
+    app.ecrire_alertes(True, ["ancien@example.com"])
+    assert app.alertes_admin() == ["ancien@example.com"]
+
+
+def test_activer_les_alertes_sans_adresse_d_administration_est_refuse(envoi):
+    r = envoi.post("/api/alertes", json={"actif": True, "admin": []})
+    assert r.status_code == 400, r.data
+    assert "administrateur" in r.get_json()["error"]
 
 
 # ---------- 21. miroir Postgres ----------

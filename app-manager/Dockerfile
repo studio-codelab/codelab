@@ -92,6 +92,13 @@ RUN pip install --no-cache-dir \
 # dans son propre dossier. Une seule ligne a maintenir ici, et le service
 # reste lisible a la racine : Dockerfile, entrypoint, README, tests.
 COPY app-manager/app /opt/codelab/app-manager/app
+# Les modeles de configuration du VPS. L'assistant de liaison y substitue le
+# domaine et les adresses plutot que de regenerer un texte de son cote :
+# une seule source de verite, celle que documente app-manager/vps/README.md.
+# Sans cette copie, l'assistant et la documentation divergeraient au premier
+# changement de l'un des deux, et c'est toujours celui qu'on ne relit pas qui
+# se trompe.
+COPY app-manager/vps /opt/codelab/app-manager/vps
 COPY app-manager/entrypoint.sh /opt/codelab/app-manager/entrypoint.sh
 RUN chmod +x /opt/codelab/app-manager/entrypoint.sh
 

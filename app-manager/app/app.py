@@ -39,6 +39,7 @@ import datetime
 import queue
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 import re
@@ -128,7 +129,7 @@ flask_app.config.update(
     # mais actif seulement sur demande : le poser alors que le panneau est
     # servi en http empecherait purement et simplement de se connecter.
     #
-    # Regle au demarrage plutot que depuis l'interface, et c'est deliberé :
+    # Regle au demarrage plutot que depuis l'interface, et c'est delibere :
     # l'activer depuis une page servie en clair deconnecterait sur-le-champ la
     # session qui vient de l'activer, sans moyen de revenir en arriere.
     # Valeur de depart seulement : appliquer_cookie_securise() la reprend
@@ -666,7 +667,7 @@ def verifier_jeton():
     attendu = session.get("jeton") or ""
     fourni = request.headers.get(JETON_ENTETE, "")
     if not attendu or not secrets.compare_digest(fourni, attendu):
-        return jsonify({"error": "Jeton de securite absent ou invalide. "
+        return jsonify({"error": "Jeton de sécurité absent ou invalide. "
                                  "Recharge la page."}), 403
     return None
 
@@ -683,6 +684,14 @@ def require_admin(view):
             return _refus("Non authentifie.", 401)
         if not est_admin():
             return _refus("Reserve a l'administrateur.", 403)
+        # Apres le controle de role, et non avant : le message ne doit rien
+        # apprendre a qui n'est deja administrateur. Verifie a CHAQUE
+        # requete, pas seulement a la connexion -- une session ouverte dans
+        # le salon puis reprise depuis l'exterieur (portable qui se deplace,
+        # cookie vole) doit cesser d'administrer en sortant.
+        hors = refus_admin_hors_reseau()
+        if hors:
+            return _refus(hors, 403)
         return view(*a, **kw)
     wrapped.__name__ = view.__name__
     return wrapped
@@ -1660,7 +1669,7 @@ def drop_privileges(nom=None):
     os.setgroups([RUN_AS_GID])
     os.setgid(RUN_AS_GID)
     os.setuid(uid)
-    # Reposé ici : le umask n'est pas herite du service de maniere fiable a
+    # Repose ici : le umask n'est pas herite du service de maniere fiable a
     # travers toute la chaine, et sans 002 les fichiers produits par un build
     # (dist/, node_modules/) ressortent en lecture seule pour le groupe --
     # donc non modifiables depuis une session SSH.
@@ -2131,7 +2140,13 @@ def ecrire_alertes(actif, destinataires):
 
 
 def ecrire_bloc_alertes(valeurs):
-    """Reecrit le bloc SMTP de credentials.env.
+    """Met a jour le bloc SMTP de credentials.env, SANS perdre le reste.
+
+    Le piege, et il est serieux : upsert_shared_block REMPLACE le bloc en
+    entier. Lui passer la seule cle qu'on veut changer effacerait toutes les
+    autres -- dont le serveur d'envoi et son mot de passe, c'est-a-dire la
+    configuration d'origine qui sert de repli. On relit donc les valeurs
+    presentes et l'on n'ecrase que celles fournies.
 
     Meme bloc que celui documente pour le capteur Dagster : configurer les
     alertes depuis le panneau configure donc aussi celles de Dagster.
@@ -2139,57 +2154,244 @@ def ecrire_bloc_alertes(valeurs):
     commentaires = [
         "# Serveur d'envoi des alertes CodeLab, partage par le panneau",
         "# (application tombee) et par le capteur Dagster (run en echec).",
-        "# Modifiable depuis le panneau : Parametres > Alertes.",
+        "# C'est la configuration D'ORIGINE : le panneau ne l'ecrase jamais,",
+        "#   il la garde en repli si celle saisie dans l'interface echoue.",
+        "# Modifiable depuis le panneau : Parametres > E-mail.",
         "# SMTP_TLS : starttls (defaut, port 587) | ssl (port 465) | none.",
         "# SMTP_USER et SMTP_PASSWORD sont optionnels : un relais interne peut",
         "#   ne pas demander d'authentification.",
+        "# ALERTE_ADMIN : l'adresse qui recoit TOUTES les alertes, en plus de",
+        "#   celles propres a chaque application.",
     ]
-    return upsert_shared_block(BLOC_ALERTES, commentaires, valeurs)
+    cles = list(CHAMPS_SMTP.values()) + ["ALERTE_ADMIN"]
+    fusion = {}
+    for cle in cles:
+        valeur = valeurs.get(cle) if cle in valeurs else read_shared_value(cle)
+        if str(valeur or "").strip():
+            fusion[cle] = valeur
+    return upsert_shared_block(BLOC_ALERTES, commentaires, fusion)
+
+
+# --------------------- deux configurations d'envoi ---------------------
+#
+# POURQUOI DEUX. credentials.env porte la configuration d'ORIGINE : celle
+# posee a l'installation, par le compose ou a la main. Elle a une qualite que
+# rien d'autre n'a -- elle a toujours marche, et personne ne l'a touchee
+# depuis une page web. C'est donc elle qu'on garde en repli.
+#
+# Une configuration saisie depuis le panneau vit a cote, dans smtp.json, et
+# n'ECRASE JAMAIS la premiere. Sans cette separation, se tromper d'un
+# caractere dans un nom de serveur depuis une page supprimait le seul moyen
+# de prevenir qu'une application est tombee -- et l'on ne s'en apercevait
+# qu'au premier incident, c'est-a-dire au pire moment.
+#
+# Ce qui en decoule :
+#
+#   a l'ENREGISTREMENT, une configuration personnalisee doit prouver qu'elle
+#     fonctionne : on se connecte reellement au serveur, on chiffre, on
+#     s'authentifie. Si cela echoue, rien n'est enregistre et le message du
+#     serveur est remonte tel quel. C'est ce qui remplace l'ancien bouton
+#     "envoyer un mail de test" -- un test qu'il fallait penser a lancer, et
+#     dont l'oubli ne se voyait pas ;
+#   a l'ENVOI, si la personnalisee echoue malgre tout (mot de passe revoque,
+#     serveur eteint, quota), on repart aussitot sur celle d'origine. Une
+#     alerte qui ne sort pas ajoute une panne a celle qu'elle signale.
+# Vingt secondes : au-dela, ce n'est plus une lenteur mais une panne, et ni
+# le moniteur ni une page ne doivent rester suspendus a un serveur muet.
+SMTP_DELAI = 20
+
+SMTP_FILE = os.path.join(STATE_DIR, "smtp.json")
+
+# Les champs d'une configuration d'envoi, et la variable de credentials.env
+# qui porte chacun. Une seule liste : ajouter un champ ici le fait exister
+# partout, plutot que dans trois fonctions a tenir d'accord.
+CHAMPS_SMTP = {
+    "host": "SMTP_HOST",
+    "port": "SMTP_PORT",
+    "tls": "SMTP_TLS",
+    "user": "SMTP_USER",
+    "password": "SMTP_PASSWORD",
+    "expediteur": "ALERTE_FROM",
+}
+
+
+def _port_smtp(brut, defaut=587):
+    try:
+        port = int(str(brut or "").strip())
+    except (TypeError, ValueError):
+        return defaut
+    return port if 1 <= port <= 65535 else defaut
+
+
+def _normalise_smtp(brut):
+    """Met une configuration en forme, quelle que soit sa provenance."""
+    brut = brut or {}
+    tls = str(brut.get("tls") or "starttls").strip().lower()
+    if tls not in ("starttls", "ssl", "none"):
+        tls = "starttls"
+    cfg = {
+        "host": str(brut.get("host") or "").strip(),
+        "port": _port_smtp(brut.get("port")),
+        "tls": tls,
+        "user": str(brut.get("user") or "").strip(),
+        "password": str(brut.get("password") or ""),
+        "expediteur": str(brut.get("expediteur") or "").strip(),
+    }
+    # Gmail et la plupart des fournisseurs refusent d'expedier au nom d'une
+    # autre adresse que celle du compte : l'expediteur suit donc l'identifiant,
+    # sauf mention explicite.
+    if not cfg["expediteur"]:
+        cfg["expediteur"] = cfg["user"]
+    return cfg
+
+
+def smtp_origine():
+    """La configuration de credentials.env. Celle qui sert de repli."""
+    return _normalise_smtp({
+        cle: read_shared_value(env) for cle, env in CHAMPS_SMTP.items()
+    })
+
+
+def lire_smtp_personnalise():
+    """La configuration saisie depuis le panneau, ou None.
+
+    Jamais d'exception : un fichier illisible doit faire retomber sur la
+    configuration d'origine, pas empecher le panneau de demarrer.
+    """
+    try:
+        with open(SMTP_FILE) as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(d, dict) or not str(d.get("host") or "").strip():
+        return None
+    return _normalise_smtp(d)
+
+
+def ecrire_smtp_personnalise(cfg):
+    tmp = SMTP_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(cfg, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, SMTP_FILE)
+    try:
+        # Il contient un mot de passe : meme regime que credentials.env.
+        os.chmod(SMTP_FILE, 0o600)
+    except OSError:
+        pass
+
+
+def effacer_smtp_personnalise():
+    """Revenir a la configuration d'origine. Toujours permis -- c'est la
+    marche arriere, et elle ne doit dependre d'aucune condition."""
+    try:
+        os.remove(SMTP_FILE)
+    except OSError:
+        pass
+
+
+def smtp_incomplet(cfg):
+    """Ce qui manque a cette configuration pour pouvoir envoyer."""
+    manques = []
+    if not cfg.get("host"):
+        manques.append("serveur d'envoi")
+    if not cfg.get("expediteur"):
+        manques.append("adresse d'expedition")
+    return manques
+
+
+def verifier_smtp(cfg):
+    """Se connecte VRAIMENT au serveur, et renvoie (ok, message).
+
+    Connexion, chiffrement, authentification -- tout sauf l'envoi. C'est
+    volontaire : une verification qui expedie un message oblige a choisir un
+    destinataire, donc a deranger quelqu'un a chaque enregistrement, et finit
+    par etre contournee. Tout ce qui peut echouer a l'envoi echoue deja ici,
+    a l'exception du refus d'un destinataire precis.
+    """
+    manques = smtp_incomplet(cfg)
+    if manques:
+        return False, "Configuration incomplete : " + ", ".join(manques) + "."
+    try:
+        if cfg["tls"] == "ssl":
+            with smtplib.SMTP_SSL(cfg["host"], cfg["port"],
+                                  context=ssl.create_default_context(),
+                                  timeout=SMTP_DELAI) as s:
+                if cfg["user"] and cfg["password"]:
+                    s.login(cfg["user"], cfg["password"])
+            return True, ""
+        with smtplib.SMTP(cfg["host"], cfg["port"], timeout=SMTP_DELAI) as s:
+            s.ehlo()
+            if cfg["tls"] != "none":
+                s.starttls(context=ssl.create_default_context())
+                s.ehlo()
+            if cfg["user"] and cfg["password"]:
+                s.login(cfg["user"], cfg["password"])
+        return True, ""
+    except Exception as e:
+        # Le message du serveur est la seule chose qui aide vraiment ici
+        # ("authentification refusee", "relais interdit", "nom inconnu") : on
+        # le remonte tel quel plutot que de le resumer en "echec".
+        return False, f"{type(e).__name__}: {e}"
+
+
+def _adresses(brutes):
+    """Nettoie une liste d'adresses saisies.
+
+    Pas de validation stricte : un format valide n'est pas une adresse qui
+    existe, et rien ici ne peut trancher cela. On retire les doublons et ce
+    qui n'a manifestement pas la forme d'une adresse.
+    """
+    if isinstance(brutes, str):
+        brutes = re.split(r"[,;\s]+", brutes)
+    vues, propres = set(), []
+    for a in brutes or []:
+        a = (a or "").strip()
+        if a and "@" in a and a not in vues:
+            vues.add(a)
+            propres.append(a)
+    return propres
+
+
+def alertes_admin():
+    """L'adresse qui recoit TOUTES les alertes, quelle que soit l'application.
+
+    Elle vit dans le bloc de credentials.env, a cote du serveur d'envoi : une
+    installation peut donc la poser des le depart, et c'est le seul
+    destinataire garanti le jour ou une application n'en declare aucun.
+
+    Repli sur l'ancienne liste globale de alertes.json : avant les alertes
+    par application, tous les destinataires etaient la. Sans ce repli, une
+    installation existante aurait cesse d'etre prevenue a la mise a jour --
+    silencieusement, et l'on ne s'en serait apercu qu'au premier incident.
+    """
+    depuis_bloc = _adresses(read_shared_value("ALERTE_ADMIN") or "")
+    return depuis_bloc or _adresses(lire_alertes()["destinataires"])
 
 
 def config_smtp():
-    """La configuration d'envoi, telle qu'elle sera utilisee.
+    """La configuration qui sera REELLEMENT utilisee, et ce qui lui manque.
 
-    Renvoie (cfg, manquants) : cfg est utilisable si manquants est vide.
+    La personnalisee quand il y en a une, celle d'origine sinon. Renvoie
+    (cfg, manquants) : cfg est utilisable si manquants est vide.
     """
-    reglages = lire_alertes()
-    port = read_shared_value("SMTP_PORT") or "587"
-    try:
-        port = int(port)
-    except ValueError:
-        port = 587
-    cfg = {
-        "host": read_shared_value("SMTP_HOST") or "",
-        "port": port,
-        "tls": (read_shared_value("SMTP_TLS") or "starttls").lower(),
-        "user": read_shared_value("SMTP_USER") or "",
-        "password": read_shared_value("SMTP_PASSWORD") or "",
-        # Gmail et la plupart des fournisseurs refusent d'expedier au nom
-        # d'une autre adresse que celle du compte : l'expediteur suit donc
-        # SMTP_USER, sauf ALERTE_FROM explicite.
-        "expediteur": read_shared_value("ALERTE_FROM") or read_shared_value("SMTP_USER") or "",
-        "destinataires": reglages["destinataires"],
-    }
-    manquants = []
-    if not cfg["host"]:
-        manquants.append("SMTP_HOST")
-    if not cfg["expediteur"]:
-        manquants.append("SMTP_USER (ou ALERTE_FROM)")
+    cfg = dict(lire_smtp_personnalise() or smtp_origine())
+    cfg["destinataires"] = alertes_admin()
+    manquants = smtp_incomplet(cfg)
     if not cfg["destinataires"]:
-        manquants.append("destinataires")
+        manquants.append("adresse d'alerte de l'administrateur")
     return cfg, manquants
 
 
 def smtp_utilisable():
     """(cfg, ok) pour un envoi a une adresse choisie.
 
-    Distinct de config_smtp() : les alertes exigent en plus une liste de
-    destinataires, alors qu'un code de verification part vers une adresse
-    donnee. Sans cette distinction, un serveur d'envoi parfaitement
-    configure passerait pour incomplet tant qu'aucune alerte n'est reglee.
+    Distinct de config_smtp() : les alertes veulent en plus savoir a qui
+    ecrire, alors qu'un code de verification part vers une adresse donnee.
+    Sans cette distinction, un serveur d'envoi parfaitement configure
+    passerait pour incomplet tant qu'aucune alerte n'est reglee.
     """
-    cfg, manquants = config_smtp()
-    return cfg, not [m for m in manquants if m != "destinataires"]
+    cfg, _ = config_smtp()
+    return cfg, not smtp_incomplet(cfg)
 
 
 def envoyer_mail(cfg, sujet, corps, destinataires=None):
@@ -2226,7 +2428,62 @@ def envoyer_mail(cfg, sujet, corps, destinataires=None):
             s.send_message(msg)
 
 
-def alerter(sujet, corps):
+def destinataires_alerte(name, apps=None):
+    """A qui adresser l'alerte de cette application.
+
+    Chaque application declare ses propres destinataires -- une application
+    de facturation ne previent pas les memes personnes qu'un site vitrine,
+    et une liste unique obligeait a prevenir tout le monde ou personne.
+    L'adresse d'administration s'y ajoute TOUJOURS : c'est le filet, celui
+    qui garantit qu'une application dont on a oublie de remplir la liste ne
+    tombe pas en silence.
+    """
+    apps = apps if apps is not None else load()
+    propres = _adresses((apps.get(name) or {}).get("alertes"))
+    vus, tout = set(), []
+    for adresse in alertes_admin() + propres:
+        if adresse not in vus:
+            vus.add(adresse)
+            tout.append(adresse)
+    return tout
+
+
+def envoyer_avec_repli(sujet, corps, destinataires):
+    """Envoie, en repassant sur la configuration d'origine si besoin.
+
+    La configuration personnalisee a ete verifiee le jour ou elle a ete
+    enregistree, mais un mot de passe se revoque, un quota se remplit, un
+    serveur s'eteint. Ce jour-la, celle de credentials.env -- qui n'a jamais
+    bouge -- reprend le relais plutot que de laisser l'alerte a terre.
+
+    Renvoie (envoye, detail).
+    """
+    personnalisee = lire_smtp_personnalise()
+    tentatives = []
+    if personnalisee:
+        tentatives.append(("personnalisee", personnalisee))
+    origine = smtp_origine()
+    if not smtp_incomplet(origine) and origine != personnalisee:
+        tentatives.append(("d'origine", origine))
+    if not tentatives:
+        return False, "aucune configuration d'envoi utilisable"
+
+    echecs = []
+    for nom, cfg in tentatives:
+        if smtp_incomplet(cfg):
+            continue
+        try:
+            envoyer_mail(cfg, sujet, corps, destinataires=destinataires)
+            if echecs:
+                print(f"[app-manager] envoi repli sur la configuration {nom} "
+                      f"apres : {' ; '.join(echecs)}", flush=True)
+            return True, nom
+        except Exception as e:
+            echecs.append(f"{nom} -> {type(e).__name__}: {e}")
+    return False, " ; ".join(echecs)
+
+
+def alerter(sujet, corps, name=None, apps=None):
     """Envoi best-effort depuis le moniteur.
 
     Ne leve jamais et ne bloque jamais le moniteur : une alerte qui ne part
@@ -2235,19 +2492,19 @@ def alerter(sujet, corps):
     """
     if not lire_alertes()["actif"]:
         return False
-    cfg, manquants = config_smtp()
-    if manquants:
-        print(f"[app-manager] alerte non envoyee, configuration incomplete : "
-              f"{', '.join(manquants)}", flush=True)
+    cibles = destinataires_alerte(name, apps) if name else alertes_admin()
+    if not cibles:
+        print("[app-manager] alerte non envoyee : aucun destinataire "
+              "(ni adresse d'administration, ni adresse propre a "
+              f"l'application {name or '?'})", flush=True)
         return False
-    try:
-        envoyer_mail(cfg, sujet, corps)
-        print(f"[app-manager] alerte envoyee a {len(cfg['destinataires'])} "
-              f"destinataire(s) : {sujet}", flush=True)
-        return True
-    except Exception as e:
-        print(f"[app-manager] alerte non envoyee ({type(e).__name__}: {e})", flush=True)
-        return False
+    envoye, detail = envoyer_avec_repli(sujet, corps, cibles)
+    if envoye:
+        print(f"[app-manager] alerte envoyee a {len(cibles)} destinataire(s) "
+              f"par la configuration {detail} : {sujet}", flush=True)
+    else:
+        print(f"[app-manager] alerte non envoyee ({detail})", flush=True)
+    return envoye
 
 
 def fin_du_journal(name, lignes=ALERTE_LOG_LIGNES):
@@ -2324,13 +2581,15 @@ def alerte_tick():
             _alertes_en_cours.discard(name)
         elif is_running(name) and not is_crash_looping(name):
             _alertes_en_cours.discard(name)
-            alerter(f"[CodeLab] {name} est revenue", corps_alerte_retour(name))
+            alerter(f"[CodeLab] {name} est revenue", corps_alerte_retour(name),
+                    name=name, apps=apps)
 
     for name, a in apps.items():
         if (a.get("enabled") and not is_running(name) and is_crash_looping(name)
                 and name not in _alertes_en_cours):
             _alertes_en_cours.add(name)
-            alerter(f"[CodeLab] {name} est tombee", corps_alerte_chute(name, a))
+            alerter(f"[CodeLab] {name} est tombee", corps_alerte_chute(name, a),
+                    name=name, apps=apps)
 
 
 # ------------------------------- build ---------------------------------
@@ -2639,6 +2898,7 @@ REGLAGES_EXPOSITION = {
     "adresse_publique": "APP_MANAGER_PUBLIC_URL",
     "https": "APP_MANAGER_HTTPS",
     "trust_proxy": "APP_MANAGER_TRUST_PROXY",
+    "admin_reseau_local": "APP_MANAGER_ADMIN_LAN_ONLY",
 }
 
 
@@ -2702,6 +2962,124 @@ def trust_proxy():
     return bool(lire_exposition().get("trust_proxy"))
 
 
+# ------------- l'administration reste sur le reseau local -------------
+#
+# Le raisonnement : un compte utilisateur est fait pour etre distribue et
+# n'ouvre que les projets qu'on lui a autorises. Le compte d'administration,
+# lui, permet de declarer une application, donc d'executer du code sur la
+# machine. Les deux n'ont aucune raison d'etre joignables de la meme facon.
+#
+# Ce reglage separe les deux : les comptes nommes continuent d'entrer de
+# n'importe ou, l'administration ne repond plus que depuis le reseau local.
+# Un mot de passe d'administration qui fuit ne suffit alors plus -- il faut
+# aussi etre dans la maison.
+#
+# CE QUE "LOCAL" VEUT DIRE ICI, et pourquoi la liste est ecrite a la main.
+#
+# Le reflexe est d'appeler ipaddress.ip_address(...).is_private. C'est FAUX
+# pour cet usage, et le test l'a montre avant que cela ne parte :
+#
+#   is_private repond "non joignable globalement", pas "reseau local". Les
+#     plages de DOCUMENTATION en font partie -- 203.0.113.0/24 et 2001:db8::/32
+#     sont "privees" pour Python. Elles n'ont rien de local ;
+#   et 100.64.0.0/10, l'espace partage ou vivent les adresses Tailscale, en
+#     est EXCLU selon la version de Python. Le sens de la fonction change donc
+#     d'un interpreteur a l'autre, ce qu'un controle d'acces ne peut pas se
+#     permettre.
+#
+# La liste ci-dessous dit donc exactement ce qu'on entend par "chez soi" :
+# les trois plages RFC 1918, la boucle locale, le lien-local, l'espace
+# partage (un reseau prive type Tailscale est une extension de la maison,
+# pas l'Internet), et leurs equivalents IPv6.
+RESEAUX_LOCAUX = tuple(ipaddress.ip_network(c) for c in (
+    "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",   # RFC 1918
+    "127.0.0.0/8",                                      # boucle locale
+    "169.254.0.0/16",                                   # lien-local
+    "100.64.0.0/10",                                    # espace partage / Tailscale
+    "::1/128",                                          # boucle locale IPv6
+    "fc00::/7",                                         # adresses uniques locales
+    "fe80::/10",                                        # lien-local IPv6
+))
+
+
+def adresse_est_locale(brute):
+    """Cette adresse appartient-elle au reseau local ?
+
+    Tout ce qui n'est pas analysable est traite comme NON local. C'est le
+    sens qu'il faut : ceci est un controle d'acces, et une adresse qu'on ne
+    sait pas lire ne doit jamais ouvrir l'administration.
+    """
+    try:
+        adresse = ipaddress.ip_address(str(brute or "").strip())
+    except ValueError:
+        return False
+    # ::ffff:192.168.1.10 -- une pile double presente parfois les adresses
+    # IPv4 sous cette forme. Sans ce repli, une machine du salon serait vue
+    # comme etrangere, et l'administration se fermerait sans raison visible.
+    mappee = getattr(adresse, "ipv4_mapped", None)
+    if mappee is not None:
+        adresse = mappee
+    return any(adresse in reseau for reseau in RESEAUX_LOCAUX
+               if reseau.version == adresse.version)
+
+
+def proxy_non_declare():
+    """Un intermediaire parle-t-il sans qu'on l'ait declare ?
+
+    Le piege que ce reglage doit absolument eviter : derriere un reverse
+    proxy non declare, request.remote_addr est l'adresse DU PROXY. Elle est
+    privee, donc toute requete -- y compris venue du bout du monde --
+    paraitrait locale, et la restriction serait affichee comme active tout
+    en ne protegeant rien. Une securite qui ment est pire que pas de
+    securite : on cesse de se mefier.
+    """
+    if trust_proxy():
+        return False
+    return bool(request.headers.get("X-Forwarded-For")
+                or request.headers.get("X-Forwarded-Proto"))
+
+
+def admin_limite_au_reseau_local():
+    """Le reglage est-il actif ? L'environnement l'emporte, comme les autres
+    -- c'est la seule marche arriere qui ne passe pas par le panneau, et
+    celle qui compte le jour ou l'on se retrouve enferme dehors."""
+    if fixe_par_environnement("admin_reseau_local"):
+        return _vrai(os.environ.get("APP_MANAGER_ADMIN_LAN_ONLY"))
+    return bool(lire_exposition().get("admin_reseau_local"))
+
+
+def client_est_local():
+    """La requete en cours vient-elle du reseau local ?
+
+    Repond NON si un proxy non declare s'interpose : on ne sait alors pas
+    qui appelle, et ne pas savoir vaut refuser.
+    """
+    if proxy_non_declare():
+        return False
+    return adresse_est_locale(_client_ip())
+
+
+def refus_admin_hors_reseau():
+    """Le message de refus, ou None si l'acces est permis.
+
+    Une seule fonction, appelee aux trois endroits ou une session
+    d'administration peut naitre ou servir : les deux routes de connexion et
+    require_admin. Les separer aurait fini par en laisser une derriere.
+    """
+    if not admin_limite_au_reseau_local() or client_est_local():
+        return None
+    if proxy_non_declare():
+        # Distinguer les deux causes : "je suis pourtant chez moi" est
+        # exactement le moment ou l'on a besoin de savoir que c'est le proxy
+        # qui brouille la piste, et non son adresse.
+        return ("L'administration est limitee au reseau local, et un proxy non "
+                "declare empeche d'etablir d'ou vient cette requete. Active "
+                "\"Proxy de confiance\" dans Parametres > Serveur, ou pose "
+                "APP_MANAGER_ADMIN_LAN_ONLY=0 dans le compose.")
+    return ("L'administration est limitee au reseau local. Cette requete vient "
+            "de " + _client_ip() + ".")
+
+
 def appliquer_cookie_securise():
     """Aligne le cookie de session sur le reglage HTTPS courant.
 
@@ -2757,7 +3135,7 @@ def under_root(path):
 @flask_app.post("/login")
 def login_submit():
     if rate_limited():
-        return jsonify({"error": "Trop de tentatives. Reessaie dans quelques minutes."}), 429
+        return jsonify({"error": "Trop de tentatives. Réessaie dans quelques minutes."}), 429
     d = request.get_json(force=True, silent=True) or request.form
     pw = (d.get("password") or "").strip()
     nom = (d.get("nom") or "").strip().lower()
@@ -2766,6 +3144,20 @@ def login_submit():
     # utilisateurs : exiger d'un coup que l'administrateur tape "admin"
     # casserait l'habitude de tout le monde pour ne rien apporter.
     if nom in ("", NOM_ADMIN):
+        # Avant meme de regarder le mot de passe : rien ne sert de laisser
+        # essayer -- et surtout, aucune session d'administration ne doit
+        # naitre hors du reseau local, pas meme une seconde.
+        hors = refus_admin_hors_reseau()
+        if hors:
+            # Compte comme une tentative ratee, au meme titre qu'un mot de
+            # passe faux. Sans cela le refus serait gratuit : on pourrait le
+            # marteler sans jamais etre limite, et chaque appel ecrivant une
+            # ligne de journal, la rotation finirait par chasser l'historique
+            # reel -- une facon discrete d'effacer ses traces.
+            register_failed_attempt()
+            journaliser("refus", qui=NOM_ADMIN, motif="hors reseau local",
+                        ip=_adresse_client())
+            return jsonify({"error": hors}), 403
         real = admin_password()
         # compare_digest plutot que "==" : la comparaison de chaines s'arrete
         # au premier caractere different, et la duree de la reponse renseigne
@@ -2782,7 +3174,7 @@ def login_submit():
         if totp_actif() and not totp_verifie(_totp_secret, d.get("code")):
             register_failed_attempt()
             journaliser("echec", qui=NOM_ADMIN, motif="second facteur", ip=_adresse_client())
-            return jsonify({"error": "Code de verification incorrect.",
+            return jsonify({"error": "Code de vérification incorrect.",
                             "totp": True}), 401
 
         session.permanent = True
@@ -2817,7 +3209,7 @@ def login_submit():
     # le mot de passe vient d'etre reconnu.
     if compte.get("attente_email"):
         return jsonify({"error": "Confirme d'abord ton adresse mail : un code "
-                                 "t'a ete envoye a l'inscription.",
+                                 "t'a été envoyé à l'inscription.",
                         "attente_email": True}), 403
 
     secret = compte.get("totp") or ""
@@ -2838,7 +3230,7 @@ def login_submit():
     if not totp_verifie(secret, d.get("code")):
         register_failed_attempt()
         journaliser("echec", qui=nom, motif="second facteur", ip=_adresse_client())
-        return jsonify({"error": "Code de verification incorrect.",
+        return jsonify({"error": "Code de vérification incorrect.",
                         "totp": True}), 401
 
     session.pop("totp_candidat", None)
@@ -2864,7 +3256,7 @@ def login_second_facteur():
     application. Le mot de passe seul ne suffit jamais a entrer.
     """
     if rate_limited():
-        return jsonify({"error": "Trop de tentatives. Reessaie dans quelques minutes."}), 429
+        return jsonify({"error": "Trop de tentatives. Réessaie dans quelques minutes."}), 429
     nom = session.get("totp_inscription")
     candidat = session.get("totp_candidat")
     if not (nom and candidat):
@@ -2873,7 +3265,7 @@ def login_second_facteur():
     code = (request.get_json(force=True, silent=True) or {}).get("code")
     if not totp_verifie(candidat, code):
         register_failed_attempt()
-        return jsonify({"error": "Code incorrect. Verifie l'heure de ton telephone."}), 400
+        return jsonify({"error": "Code incorrect. Vérifié l'heure de ton téléphone."}), 400
 
     comptes = lire_utilisateurs()
     compte = comptes.get(nom)
@@ -2883,13 +3275,13 @@ def login_second_facteur():
     # (une autre session du meme compte). Le premier enregistre gagne, plutot
     # que d'ecraser un facteur deja en service sur un autre telephone.
     if compte.get("totp"):
-        return jsonify({"error": "Un second facteur a deja ete enregistre. "
+        return jsonify({"error": "Un second facteur a déjà été enregistré. "
                                  "Recommence la connexion."}), 409
     compte["totp"] = candidat
     try:
         ecrire_utilisateurs(comptes)
     except OSError as e:
-        return jsonify({"error": f"Second facteur non enregistre : {e}"}), 500
+        return jsonify({"error": f"Second facteur non enregistré : {e}"}), 500
 
     session.pop("totp_candidat", None)
     session.pop("totp_inscription", None)
@@ -2937,7 +3329,7 @@ def api_passkeys_etat():
 def _refus_passkey():
     """(reponse, code) si les cles d'acces ne sont pas utilisables ici."""
     if not passkeys_disponibles():
-        return jsonify({"error": "La bibliotheque webauthn n'est pas installee."}), 501
+        return jsonify({"error": "La bibliothèque webauthn n'est pas installée."}), 501
     _, _, empechement = passkey_contexte()
     if empechement:
         return jsonify({"error": empechement}), 400
@@ -3005,14 +3397,14 @@ def api_passkey_enregistrer():
             require_user_verification=True,
         )
     except Exception as e:
-        return jsonify({"error": f"Cle refusee : {type(e).__name__}: {e}"}), 400
+        return jsonify({"error": f"Clé refusée : {type(e).__name__}: {e}"}), 400
 
     nom = utilisateur_courant()
     tout = lire_passkeys()
     liste = tout.setdefault(nom, [])
     identifiant = bytes_to_base64url(verifiee.credential_id)
     if any(k["id"] == identifiant for k in liste):
-        return jsonify({"error": "Cette cle est deja enregistree."}), 400
+        return jsonify({"error": "Cette clé est déjà enregistrée."}), 400
     liste.append({
         "id": identifiant,
         "cle_publique": bytes_to_base64url(verifiee.credential_public_key),
@@ -3024,7 +3416,7 @@ def api_passkey_enregistrer():
     try:
         ecrire_passkeys(tout)
     except OSError as e:
-        return jsonify({"error": f"Cle non enregistree : {e}"}), 500
+        return jsonify({"error": f"Clé non enregistrée : {e}"}), 500
     session.pop("passkey_defi", None)
     journaliser("passkey", qui=nom, action="ajout", ip=_adresse_client())
     return jsonify({"ok": True})
@@ -3052,12 +3444,12 @@ def api_passkey_supprimer(identifiant):
     liste = tout.get(nom, [])
     restantes = [k for k in liste if k["id"] != identifiant]
     if len(restantes) == len(liste):
-        return jsonify({"error": "Cle inconnue."}), 404
+        return jsonify({"error": "Clé inconnue."}), 404
     tout[nom] = restantes
     try:
         ecrire_passkeys(tout)
     except OSError as e:
-        return jsonify({"error": f"Cle non supprimee : {e}"}), 500
+        return jsonify({"error": f"Clé non supprimée : {e}"}), 500
     journaliser("passkey", qui=nom, action="retrait", ip=_adresse_client())
     return jsonify({"ok": True})
 
@@ -3071,7 +3463,7 @@ def login_passkey_options():
     aucune liste de comptes.
     """
     if rate_limited():
-        return jsonify({"error": "Trop de tentatives. Reessaie dans quelques minutes."}), 429
+        return jsonify({"error": "Trop de tentatives. Réessaie dans quelques minutes."}), 429
     refus = _refus_passkey()
     if refus:
         return refus
@@ -3100,7 +3492,7 @@ def login_passkey():
     moitie, et ouvrir une session sur cette moitie serait un recul.
     """
     if rate_limited():
-        return jsonify({"error": "Trop de tentatives. Reessaie dans quelques minutes."}), 429
+        return jsonify({"error": "Trop de tentatives. Réessaie dans quelques minutes."}), 429
     refus = _refus_passkey()
     if refus:
         return refus
@@ -3126,7 +3518,20 @@ def login_passkey():
     if not enregistree:
         register_failed_attempt()
         journaliser("echec", qui="", motif="cle d'acces inconnue", ip=_adresse_client())
-        return jsonify({"error": "Cle d'acces inconnue."}), 401
+        return jsonify({"error": "Clé d'accès inconnue."}), 401
+
+    # Des que l'on sait a qui est la cle, et avant toute cryptographie : une
+    # cle d'acces est un excellent second facteur, mais elle voyage avec son
+    # porteur et ne dit rien de l'endroit d'ou l'on appelle. Sans ce verrou
+    # ici, il suffirait de passer par cette porte-ci plutot que par le mot de
+    # passe.
+    if proprietaire == NOM_ADMIN:
+        hors = refus_admin_hors_reseau()
+        if hors:
+            register_failed_attempt()   # meme raison que ci-dessus
+            journaliser("refus", qui=NOM_ADMIN, motif="hors reseau local",
+                        moyen="cle d'acces", ip=_adresse_client())
+            return jsonify({"error": hors}), 403
 
     rp_id, origine, _ = passkey_contexte()
     try:
@@ -3142,7 +3547,7 @@ def login_passkey():
     except Exception as e:
         register_failed_attempt()
         journaliser("echec", qui=proprietaire, motif="cle d'acces", ip=_adresse_client())
-        return jsonify({"error": f"Cle refusee : {type(e).__name__}: {e}"}), 401
+        return jsonify({"error": f"Clé refusée : {type(e).__name__}: {e}"}), 401
 
     # Le compteur ne doit jamais reculer : une cle clonee se trahit la.
     tout = lire_passkeys()
@@ -3231,7 +3636,7 @@ def api_mon_email():
     compte = _mon_compte()
     if compte is None:
         return jsonify({"error": "Le compte d'administration n'a pas d'adresse "
-                                 "propre : regle les destinataires des alertes."}), 400
+                                 "propre : réglé les destinataires des alertes."}), 400
     adresse = email_valide((request.get_json(force=True, silent=True) or {}).get("email"))
     if not adresse:
         return jsonify({"error": "Adresse mail invalide."}), 400
@@ -3246,13 +3651,13 @@ def api_mon_email():
     try:
         ecrire_utilisateurs(comptes)
     except OSError as e:
-        return jsonify({"error": f"Adresse non enregistree : {e}"}), 500
+        return jsonify({"error": f"Adresse non enregistrée : {e}"}), 500
     try:
         envoyer_code_email(adresse, nom, code)
     except Exception as e:
         # L'adresse est enregistree, le mail n'est pas parti : le dire tel
         # quel, plutot que de laisser attendre un code qui ne viendra pas.
-        return jsonify({"error": f"Adresse enregistree, mais le mail n'est pas "
+        return jsonify({"error": f"Adresse enregistrée, mais le mail n'est pas "
                                  f"parti : {type(e).__name__}: {e}"}), 502
     return jsonify({"ok": True, "envoye": True})
 
@@ -3263,13 +3668,13 @@ def api_mon_email_code():
     """Renvoie un code a l'adresse deja declaree."""
     compte = _mon_compte()
     if compte is None or not compte.get("email"):
-        return jsonify({"error": "Declare d'abord une adresse."}), 400
+        return jsonify({"error": "Déclaré d'abord une adresse."}), 400
     en_cours = compte.get("email_code") or {}
     attente = CODE_EMAIL_DELAI - (int(time.time()) - en_cours.get("envoye", 0))
     if attente > 0:
         # Un bouton qui renvoie sans limite est un moyen d'inonder une boite
         # mail que la personne ne possede peut-etre pas.
-        return jsonify({"error": f"Un code vient d'etre envoye. Attends "
+        return jsonify({"error": f"Un code vient d'être envoyé. Attends "
                                  f"{attente} seconde{'s' if attente > 1 else ''}."}), 429
 
     comptes = lire_utilisateurs()
@@ -3278,7 +3683,7 @@ def api_mon_email_code():
     try:
         ecrire_utilisateurs(comptes)
     except OSError as e:
-        return jsonify({"error": f"Code non enregistre : {e}"}), 500
+        return jsonify({"error": f"Code non enregistré : {e}"}), 500
     try:
         envoyer_code_email(comptes[nom]["email"], nom, code)
     except Exception as e:
@@ -3292,7 +3697,7 @@ def api_mon_email_confirmer():
     """Confirme l'adresse avec le code recu."""
     compte = _mon_compte()
     if compte is None:
-        return jsonify({"error": "Rien a confirmer."}), 400
+        return jsonify({"error": "Rien à confirmer."}), 400
     comptes = lire_utilisateurs()
     nom = utilisateur_courant()
     code = (request.get_json(force=True, silent=True) or {}).get("code")
@@ -3303,7 +3708,7 @@ def api_mon_email_confirmer():
         # rien.
         ecrire_utilisateurs(comptes)
     except OSError as e:
-        return jsonify({"error": f"Etat non enregistre : {e}"}), 500
+        return jsonify({"error": f"État non enregistré : {e}"}), 500
     if not ok:
         return jsonify({"error": message}), 400
     return jsonify({"ok": True})
@@ -3328,10 +3733,10 @@ def api_inscription_etat():
 @flask_app.post("/inscription")
 def inscription_creer():
     if rate_limited():
-        return jsonify({"error": "Trop de tentatives. Reessaie dans quelques minutes."}), 429
+        return jsonify({"error": "Trop de tentatives. Réessaie dans quelques minutes."}), 429
     _, smtp_ok = smtp_utilisable()
     if not smtp_ok:
-        return jsonify({"error": "La creation de compte n'est pas ouverte sur "
+        return jsonify({"error": "La création de compte n'est pas ouverte sur "
                                  "ce serveur."}), 403
 
     d = request.get_json(force=True, silent=True) or {}
@@ -3339,20 +3744,20 @@ def inscription_creer():
     mdp = (d.get("mot_de_passe") or "").strip()
     adresse = email_valide(d.get("email"))
     if not nom:
-        return jsonify({"error": "Nom invalide : 2 a 32 caracteres, "
-                                 "minuscules, chiffres, tiret ou souligne."}), 400
+        return jsonify({"error": "Nom invalide : 2 a 32 caractères, "
+                                 "minuscules, chiffres, tiret ou souligné."}), 400
     if nom == NOM_ADMIN:
-        return jsonify({"error": "Ce nom est reserve."}), 400
+        return jsonify({"error": "Ce nom est réservé."}), 400
     if not adresse:
         return jsonify({"error": "Adresse mail invalide."}), 400
     if len(mdp) < 8:
-        return jsonify({"error": "Mot de passe : 8 caracteres au minimum."}), 400
+        return jsonify({"error": "Mot de passe : 8 caractères au minimum."}), 400
 
     comptes = lire_utilisateurs()
     if nom in comptes:
         # Un nom deja pris se dit : il faudra bien en choisir un autre, et
         # l'inscription ne revele rien de plus que la page de connexion.
-        return jsonify({"error": "Ce nom est deja pris."}), 400
+        return jsonify({"error": "Ce nom est déjà pris."}), 400
 
     sel = secrets.token_hex(16)
     comptes[nom] = {
@@ -3370,7 +3775,7 @@ def inscription_creer():
     try:
         ecrire_utilisateurs(comptes)
     except OSError as e:
-        return jsonify({"error": f"Compte non enregistre : {e}"}), 500
+        return jsonify({"error": f"Compte non enregistré : {e}"}), 500
     try:
         envoyer_code_email(adresse, nom, code)
     except Exception as e:
@@ -3400,7 +3805,7 @@ def inscription_confirmer():
     pas l'identite.
     """
     if rate_limited():
-        return jsonify({"error": "Trop de tentatives. Reessaie dans quelques minutes."}), 429
+        return jsonify({"error": "Trop de tentatives. Réessaie dans quelques minutes."}), 429
     nom = session.get("inscription_email")
     comptes = lire_utilisateurs()
     if not nom or nom not in comptes:
@@ -3413,7 +3818,7 @@ def inscription_confirmer():
     try:
         ecrire_utilisateurs(comptes)
     except OSError as e:
-        return jsonify({"error": f"Etat non enregistre : {e}"}), 500
+        return jsonify({"error": f"État non enregistré : {e}"}), 500
     if not ok:
         register_failed_attempt()
         return jsonify({"error": message}), 400
@@ -3462,7 +3867,7 @@ def api_categories_enregistrer():
     """
     brut = (request.get_json(force=True, silent=True) or {}).get("categories")
     if not isinstance(brut, list):
-        return jsonify({"error": "Liste de categories attendue."}), 400
+        return jsonify({"error": "Liste de catégories attendue."}), 400
 
     propres, vues = [], set()
     for x in brut:
@@ -3473,7 +3878,7 @@ def api_categories_enregistrer():
             propres.append(c)
             vues.add(c.lower())
     if len(propres) > CATEGORIES_MAX:
-        return jsonify({"error": f"{CATEGORIES_MAX} categories au maximum."}), 400
+        return jsonify({"error": f"{CATEGORIES_MAX} catégories au maximum."}), 400
 
     apps = load()
     orphelins = [n for n, a in apps.items()
@@ -3481,7 +3886,7 @@ def api_categories_enregistrer():
     try:
         ecrire_categories(propres)
     except OSError as e:
-        return jsonify({"error": f"Categories non enregistrees : {e}"}), 500
+        return jsonify({"error": f"Catégories non enregistrées : {e}"}), 500
 
     # Les projets d'une categorie disparue redeviennent non ranges, tout de
     # suite : un champ qui pointe vers un tiroir inexistant se rappellerait a
@@ -3517,6 +3922,14 @@ def api_securite():
         "adresse_figee": fixe_par_environnement("adresse_publique"),
         "https_fige": fixe_par_environnement("https"),
         "trust_proxy_fige": fixe_par_environnement("trust_proxy"),
+        # L'administration est-elle limitee au reseau local, et cette requete
+        # y est-elle ? La page a besoin des deux : l'une pour l'etat de la
+        # case, l'autre pour dire pourquoi elle est grisee.
+        "admin_reseau_local": admin_limite_au_reseau_local(),
+        "admin_reseau_local_fige": fixe_par_environnement("admin_reseau_local"),
+        "client_local": client_est_local(),
+        "client_ip": _client_ip(),
+        "proxy_non_declare": proxy_non_declare(),
         # De quoi griser la case plutot que de laisser cliquer sur un refus :
         # les memes conditions que celles appliquees par la route d'ecriture.
         "peut_activer_https": request.is_secure or (
@@ -3525,9 +3938,13 @@ def api_securite():
         "peut_activer_trust_proxy": bool(
             (request.headers.get("X-Forwarded-For")
              or request.headers.get("X-Forwarded-Proto") or "").strip()),
+        "peut_activer_admin_reseau_local": client_est_local(),
         # Les applications sont-elles servies dans une autre origine que le
         # panneau ? C'est ce qui empeche une XSS dans l'une d'elles d'atteindre
         # le panneau, et c'est invisible sans le dire.
+        # Le nombre de cles d'acces du compte connecte : le bilan de securite
+        # en a besoin, et un second appel pour un entier serait du gaspillage.
+        "passkeys": len(passkeys_du_compte(utilisateur_courant() or NOM_ADMIN)),
         "origines_separees": origines_separees(),
         "origine_applications": origine_applications() if origines_separees() else "",
         "port_applications": APPS_PORT,
@@ -3537,7 +3954,7 @@ def api_securite():
 @flask_app.put("/api/securite/exposition")
 @require_admin
 def api_exposition():
-    """Les trois reglages qui changent quand la stack sort du reseau local.
+    """Les quatre reglages qui changent quand la stack sort du reseau local.
 
     CE QUI A CHANGE, ET POURQUOI. HTTPS et le proxy de confiance se posaient
     uniquement dans le compose, a decommenter a la main. Le code disait
@@ -3554,8 +3971,12 @@ def api_exposition():
                      adresse neuve a chaque essai et annuler la limite de
                      tentatives de connexion.
 
+      admin local    ne s'active que depuis une requete qui vient elle-meme
+                     du reseau local -- sinon on se retirerait
+                     l'administration a l'instant meme.
+
     ETEINDRE est toujours permis : la marche arriere ne doit jamais dependre
-    d'une condition. Et le compose garde le dernier mot sur les trois.
+    d'une condition. Et le compose garde le dernier mot sur les quatre.
     """
     demande = request.get_json(force=True, silent=True) or {}
     reglages = lire_exposition()
@@ -3564,7 +3985,7 @@ def api_exposition():
     if "adresse_publique" in demande:
         if fixe_par_environnement("adresse_publique"):
             return jsonify({"error": "L'adresse est fixee par APP_MANAGER_PUBLIC_URL "
-                                     "dans le compose : modifie-la la-bas."}), 400
+                                     "dans le compose : modifié-la la-bas."}), 400
         brute = demande.get("adresse_publique")
         adresse = adresse_publique_valide(brute)
         if brute and not adresse:
@@ -3582,12 +4003,12 @@ def api_exposition():
         if fixe_par_environnement("trust_proxy"):
             return jsonify({"error": "Le proxy de confiance est fixe par "
                                      "APP_MANAGER_TRUST_PROXY dans le compose : "
-                                     "modifie-le la-bas."}), 400
+                                     "modifié-le la-bas."}), 400
         voulu = bool(demande.get("trust_proxy"))
         devant = (request.headers.get("X-Forwarded-For")
                   or request.headers.get("X-Forwarded-Proto") or "")
         if voulu and not devant.strip():
-            return jsonify({"error": "Aucun en-tete X-Forwarded-* sur cette requete : "
+            return jsonify({"error": "Aucun en-tete X-Forwarded-* sur cette requête : "
                                      "rien ne prouve qu'un proxy est devant. L'activer "
                                      "ici laisserait n'importe quel client s'inventer "
                                      "une adresse, et annulerait la limite de "
@@ -3598,10 +4019,10 @@ def api_exposition():
     if "https" in demande:
         if fixe_par_environnement("https"):
             return jsonify({"error": "HTTPS est fixe par APP_MANAGER_HTTPS dans le "
-                                     "compose : modifie-le la-bas."}), 400
+                                     "compose : modifié-le la-bas."}), 400
         voulu = bool(demande.get("https"))
         # "Deja en https" au sens de ce que le panneau croit : une connexion
-        # TLS directe, ou un proxy annonçant https ET declare de confiance.
+        # TLS directe, ou un proxy annoncant https ET declare de confiance.
         # Sans cette seconde moitie, la case resterait impossible a cocher
         # derriere un reverse proxy -- c'est-a-dire dans le cas courant.
         annonce = (request.headers.get("X-Forwarded-Proto") or "").lower()
@@ -3614,10 +4035,35 @@ def api_exposition():
                                      "https, et la case s'activera."}), 400
         reglages["https"] = voulu
 
+    # --------------------------------- administration sur le reseau local
+    if "admin_reseau_local" in demande:
+        if fixe_par_environnement("admin_reseau_local"):
+            return jsonify({"error": "Ce réglage est fixe par "
+                                     "APP_MANAGER_ADMIN_LAN_ONLY dans le compose : "
+                                     "modifié-le la-bas."}), 400
+        voulu = bool(demande.get("admin_reseau_local"))
+        # Meme regle que pour HTTPS, pour la meme raison : on n'allume pas un
+        # interrupteur qui couperait la branche sur laquelle on est assis.
+        # L'activer depuis l'exterieur reviendrait a se retirer
+        # l'administration dans la seconde, et la seule facon de revenir
+        # serait d'aller editer le compose.
+        if voulu and not client_est_local():
+            if proxy_non_declare():
+                return jsonify({"error": "Un proxy non déclaré empeche de savoir d'ou "
+                                         "viennent les requêtes : toutes paraitraient "
+                                         "locales, et ce réglage ne protegerait rien. "
+                                         "Activé d'abord \"Proxy de confiance\"."}), 400
+            return jsonify({"error": "Cette requête ne vient pas du réseau local. "
+                                     "L'activer maintenant te retirerait "
+                                     "l'administration à l'instant même, sans retour "
+                                     "possible depuis cette page. Reconnecte-toi "
+                                     "depuis chez toi, et la case s'activera."}), 400
+        reglages["admin_reseau_local"] = voulu
+
     try:
         ecrire_exposition(reglages)
     except OSError as e:
-        return jsonify({"error": f"Reglages non enregistres : {e}"}), 500
+        return jsonify({"error": f"Réglages non enregistrés : {e}"}), 500
 
     # Le cookie suit immediatement : c'est tout l'interet de ne plus figer ce
     # reglage au demarrage.
@@ -3626,7 +4072,228 @@ def api_exposition():
     return jsonify({"ok": True,
                     "adresse_publique": adresse_publique(),
                     "https": https_actif(),
-                    "trust_proxy": trust_proxy()})
+                    "trust_proxy": trust_proxy(),
+                    "admin_reseau_local": admin_limite_au_reseau_local()})
+
+
+# ------------------- assistant de liaison avec un VPS -------------------
+#
+# CE QU'IL FAIT, ET CE QU'IL NE FAIT PAS. Il prend un domaine et l'adresse
+# publique d'un VPS, et rend les fichiers de configuration prets a copier --
+# ceux-la memes que documente app-manager/vps/README.md, avec les valeurs
+# substituees. Puis il dit ou en est la liaison, d'apres ce qu'il constate
+# sur les requetes qui lui arrivent.
+#
+# Il ne se connecte PAS au VPS. Lui donner une cle SSH avec les droits qui
+# vont avec reviendrait a confier a ce panneau l'administration d'une machine
+# exposee sur internet -- c'est-a-dire a faire de lui la cible la plus
+# interessante de l'installation. Recopier trois fichiers a la main coute
+# quelques minutes, une fois.
+VPS_MODELES = os.environ.get(
+    "APP_MANAGER_VPS_DIR",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vps"))
+
+# Les valeurs des modeles livres, et ce par quoi les remplacer. Substituer
+# plutot que reecrire : les modeles sont la source de verite, et un assistant
+# qui regenere son propre texte finit toujours par decrire autre chose que ce
+# que dit le README.
+VPS_FICHIERS = {
+    "nginx": ("nginx/codelab.conf", "/etc/nginx/sites-available/codelab.conf"),
+    "nginx_upgrade": ("nginx/00-codelab-upgrade.conf", "/etc/nginx/conf.d/00-codelab-upgrade.conf"),
+    "wireguard_vps": ("wireguard/wg0-vps.conf.exemple", "/etc/wireguard/wg0.conf (sur le VPS)"),
+    "wireguard_local": ("wireguard/wg0-zimablade.conf.exemple",
+                        "/etc/wireguard/wg0.conf (sur l'hote de la ZimaBlade)"),
+}
+
+
+def lire_vps():
+    d = lire_exposition().get("vps") or {}
+    return {
+        "domaine": str(d.get("domaine") or "").strip(),
+        "ip": str(d.get("ip") or "").strip(),
+        "reseau": str(d.get("reseau") or "10.8.0").strip(),
+    }
+
+
+def _ip_publique_valide(brute):
+    """Une adresse IP qui a un sens comme point de rendez-vous du tunnel.
+
+    Refuse ce qui n'est pas une adresse, et refuse aussi une adresse LOCALE :
+    un VPS joignable de partout n'a pas une adresse privee, et saisir celle
+    de sa propre machine donnerait une configuration qui ne peut pas marcher
+    -- autant le dire tout de suite plutot qu'apres trois copies de fichiers.
+    """
+    texte = str(brute or "").strip()
+    try:
+        adresse = ipaddress.ip_address(texte)
+    except ValueError:
+        return ""
+    return "" if adresse_est_locale(texte) else texte
+
+
+def vps_configuration(reglages):
+    """Les fichiers a copier, valeurs substituees."""
+    domaine = reglages["domaine"] or "codelab.exemple.fr"
+    reseau = reglages["reseau"] or "10.8.0"
+    sorties = {}
+    for cle, (relatif, destination) in VPS_FICHIERS.items():
+        chemin = os.path.join(VPS_MODELES, relatif)
+        try:
+            with open(chemin, encoding="utf-8") as f:
+                texte = f.read()
+        except OSError:
+            # Modeles absents de l'image : on le dit plutot que de rendre un
+            # fichier invente qui n'aurait jamais ete relu par personne.
+            continue
+        texte = texte.replace("codelab.exemple.fr", domaine)
+        texte = texte.replace("10.8.0.1", reseau + ".1").replace("10.8.0.2", reseau + ".2")
+        texte = texte.replace("10.8.0.0/24", reseau + ".0/24")
+        if reglages["ip"]:
+            texte = texte.replace("203.0.113.10", reglages["ip"])
+        sorties[cle] = {"destination": destination, "contenu": texte}
+    return sorties
+
+
+def vps_diagnostic(reglages):
+    """Ou en est la liaison, d'apres ce qu'on CONSTATE sur cette requete.
+
+    Aucune de ces lignes n'est une supposition : le panneau regarde la
+    requete qu'il est en train de traiter. C'est la seule chose qu'il puisse
+    honnetement affirmer sans se connecter au VPS.
+    """
+    annonce = (request.headers.get("X-Forwarded-Proto") or "").lower()
+    devant = bool(request.headers.get("X-Forwarded-For") or annonce)
+    publique = adresse_publique()
+    etapes = [
+        ("Domaine et adresse du VPS declares",
+         bool(reglages["domaine"] and reglages["ip"]),
+         "Saisis-les ci-dessus : ils servent a produire les fichiers de configuration."),
+        ("Un intermediaire relaie cette requete", devant,
+         "Aucun en-tete X-Forwarded-* sur cette requete. Soit tu regardes cette page "
+         "directement depuis le reseau local -- c'est normal -- soit nginx n'est pas "
+         "encore en place sur le VPS."),
+        ("Le proxy est declare de confiance", trust_proxy(),
+         "Case « Proxy de confiance », plus haut. Sans elle le panneau ne croit pas "
+         "l'adresse annoncee, et tous les visiteurs comptent pour un seul."),
+        ("La requete arrive en HTTPS", annonce == "https" or request.is_secure,
+         "Le certificat se pose sur le VPS (certbot), pas ici. Voir l'etape 3 du README."),
+        ("Adresse publique declaree dans le panneau", bool(publique),
+         "Carte « Adresse publique », plus bas. Tant qu'elle manque, aucune application "
+         "ne peut etre rendue publique."),
+    ]
+    return [{"etape": nom, "ok": bool(ok), "aide": aide} for nom, ok, aide in etapes]
+
+
+@flask_app.get("/api/vps")
+@require_admin
+def api_vps():
+    reglages = lire_vps()
+    config = vps_configuration(reglages)
+    return jsonify({
+        "reglages": reglages,
+        "diagnostic": vps_diagnostic(reglages),
+        "fichiers": [{"cle": cle, "destination": v["destination"],
+                      "contenu": v["contenu"]}
+                     for cle, v in config.items()],
+        "modeles_absents": not config,
+    })
+
+
+@flask_app.put("/api/vps")
+@require_admin
+def api_vps_enregistrer():
+    d = request.get_json(force=True, silent=True) or {}
+    domaine = re.sub(r"[^a-zA-Z0-9.-]", "", str(d.get("domaine") or "").strip())[:200]
+    ip = str(d.get("ip") or "").strip()
+    reseau = str(d.get("reseau") or "").strip() or "10.8.0"
+
+    if ip and not _ip_publique_valide(ip):
+        return jsonify({"error": "Ce n'est pas une adresse publique. Un VPS joignable "
+                                 "depuis internet n'a pas une adresse privée -- vérifié "
+                                 "que tu n'as pas saisi celle de ta propre machine."}), 400
+    if not re.fullmatch(r"(\d{1,3}\.){2}\d{1,3}", reseau):
+        return jsonify({"error": "Réseau du tunnel : trois nombres, par exemple 10.8.0."}), 400
+
+    reglages = lire_exposition()
+    reglages["vps"] = {"domaine": domaine, "ip": ip, "reseau": reseau}
+    try:
+        ecrire_exposition(reglages)
+    except OSError as e:
+        return jsonify({"error": f"Réglages non enregistrés : {e}"}), 500
+    return jsonify({"ok": True, "reglages": lire_vps()})
+
+
+@flask_app.post("/api/compte/mot-de-passe")
+@require_auth
+def api_changer_mot_de_passe():
+    """Change le mot de passe du compte connecte, le sien seulement.
+
+    Pourquoi cela n'existait pas, et pourquoi c'est un manque : le mot de
+    passe d'administration ne se changeait qu'en editant credentials.env sur
+    le serveur, c'est-a-dire en s'y connectant en SSH. Un secret qu'on ne
+    peut pas changer facilement est un secret qu'on ne change jamais -- et
+    celui-la donne l'execution de commandes sur la machine.
+
+    L'ANCIEN MOT DE PASSE EST EXIGE, meme pour une session deja ouverte. Une
+    session volee ne doit pas pouvoir verrouiller le compte de son
+    proprietaire : sans cette verification, un cookie capture suffirait a
+    prendre la place de quelqu'un definitivement.
+    """
+    d = request.get_json(force=True, silent=True) or {}
+    ancien = (d.get("ancien") or "").strip()
+    nouveau = (d.get("nouveau") or "").strip()
+
+    if len(nouveau) < 12:
+        # Douze, et non huit comme pour les comptes crees par
+        # l'administrateur : celui-ci se choisit lui-meme, il n'a pas a etre
+        # transmis, et rien n'oblige a le raccourcir.
+        return jsonify({"error": "Mot de passe : 12 caractères au minimum."}), 400
+    if nouveau == ancien:
+        return jsonify({"error": "Le nouveau mot de passe est identique à l'ancien."}), 400
+
+    if est_admin():
+        reel = admin_password()
+        if not (reel and ancien and secrets.compare_digest(ancien, reel)):
+            register_failed_attempt()
+            journaliser("echec", qui=NOM_ADMIN, motif="changement de mot de passe",
+                        ip=_adresse_client())
+            return jsonify({"error": "Ancien mot de passe incorrect."}), 403
+        global _admin_password
+        # La cle de session est relue a sa source, jamais reconstituee depuis
+        # flask_app.secret_key : ecrire une cle differente de celle en place
+        # deconnecterait tout le monde au redemarrage suivant, sans rapport
+        # visible avec le changement de mot de passe.
+        cle = read_shared_value("APP_MANAGER_SESSION_SECRET") or ""
+        if not cle:
+            return jsonify({"error": "Clé de session introuvable dans "
+                                     "credentials.env : le mot de passe reste "
+                                     "inchangé plutot que de risquer de "
+                                     "deconnecter tout le monde."}), 500
+        if not ecrire_bloc_panneau(nouveau, cle, _totp_secret):
+            return jsonify({"error": "credentials.env n'a pas pu être écrit : "
+                                     "le mot de passe reste inchangé."}), 500
+        _admin_password = nouveau
+        journaliser("mot-de-passe", qui=NOM_ADMIN, ip=_adresse_client())
+        return jsonify({"ok": True})
+
+    nom = utilisateur_courant()
+    comptes = lire_utilisateurs()
+    compte = comptes.get(nom)
+    if not compte:
+        return jsonify({"error": "Compte introuvable."}), 404
+    if not verifie_mot_de_passe(compte, ancien):
+        register_failed_attempt()
+        journaliser("echec", qui=nom, motif="changement de mot de passe",
+                    ip=_adresse_client())
+        return jsonify({"error": "Ancien mot de passe incorrect."}), 403
+    compte["sel"] = secrets.token_hex(16)
+    compte["hash"] = derive_mot_de_passe(nouveau, compte["sel"])
+    try:
+        ecrire_utilisateurs(comptes)
+    except OSError as e:
+        return jsonify({"error": f"Non enregistré : {e}"}), 500
+    journaliser("mot-de-passe", qui=nom, ip=_adresse_client())
+    return jsonify({"ok": True})
 
 
 @flask_app.post("/api/securite/totp/preparer")
@@ -3639,7 +4306,7 @@ def api_totp_preparer():
     le prochain retour sur la page de connexion.
     """
     if totp_actif():
-        return jsonify({"error": "La double authentification est deja active."}), 400
+        return jsonify({"error": "La double authentification est déjà activé."}), 400
     candidat = totp_nouveau_secret()
     session["totp_candidat"] = candidat
     session["totp_uri"] = totp_uri(candidat)
@@ -3653,12 +4320,12 @@ def api_totp_activer():
     global _totp_secret
     candidat = session.get("totp_candidat")
     if not candidat:
-        return jsonify({"error": "Recommence la preparation : aucun secret en attente."}), 400
+        return jsonify({"error": "Recommence la préparation : aucun secret en attente."}), 400
     code = (request.get_json(force=True, silent=True) or {}).get("code")
     if not totp_verifie(candidat, code):
-        return jsonify({"error": "Code incorrect. Verifie l'heure de ton telephone."}), 400
+        return jsonify({"error": "Code incorrect. Vérifié l'heure de ton téléphone."}), 400
     if not ecrire_bloc_panneau(admin_password(), flask_app.secret_key, candidat):
-        return jsonify({"error": "credentials.env n'a pas pu etre ecrit : rien n'a ete active."}), 500
+        return jsonify({"error": "credentials.env n'a pas pu être écrit : rien n'a été activé."}), 500
     _totp_secret = candidat
     session.pop("totp_candidat", None)
     session.pop("totp_uri", None)
@@ -3681,7 +4348,7 @@ def api_totp_desactiver():
         register_failed_attempt()
         return jsonify({"error": "Code incorrect."}), 400
     if not ecrire_bloc_panneau(admin_password(), flask_app.secret_key, ""):
-        return jsonify({"error": "credentials.env n'a pas pu etre ecrit."}), 500
+        return jsonify({"error": "credentials.env n'a pas pu être écrit."}), 500
     _totp_secret = ""
     return jsonify({"ok": True})
 
@@ -3689,123 +4356,132 @@ def api_totp_desactiver():
 @flask_app.get("/api/alertes")
 @require_admin
 def api_alertes():
-    """L'etat des alertes, pour la page Parametres.
+    """L'etat des alertes et des deux configurations d'envoi.
 
-    Le mot de passe SMTP n'est jamais renvoye -- seulement le fait qu'il
-    existe. Un champ de mot de passe pre-rempli est une valeur qu'on renvoie
-    sans le vouloir a chaque enregistrement, et un secret qui traine dans une
-    page ouverte.
+    Aucun mot de passe n'est renvoye -- seulement le fait qu'il existe. Un
+    champ de mot de passe pre-rempli est une valeur qu'on renvoie sans le
+    vouloir a chaque enregistrement, et un secret qui traine dans une page
+    ouverte.
     """
     reglages = lire_alertes()
-    cfg, manquants = config_smtp()
+    origine = smtp_origine()
+    personnalisee = lire_smtp_personnalise()
+    effective, manquants = config_smtp()
+
+    def _vue(cfg):
+        if cfg is None:
+            return None
+        return {"host": cfg["host"], "port": cfg["port"], "tls": cfg["tls"],
+                "user": cfg["user"], "expediteur": cfg["expediteur"],
+                "mot_de_passe_defini": bool(cfg["password"])}
+
     return jsonify({
         "actif": reglages["actif"],
-        "destinataires": reglages["destinataires"],
-        "smtp": {
-            "host": cfg["host"], "port": cfg["port"], "tls": cfg["tls"],
-            "user": cfg["user"], "expediteur": cfg["expediteur"],
-            "mot_de_passe_defini": bool(cfg["password"]),
-        },
+        "admin": alertes_admin(),
+        # Les deux configurations, cote a cote : la page doit pouvoir dire
+        # laquelle sert et laquelle attend en repli.
+        "origine": _vue(origine),
+        "origine_utilisable": not smtp_incomplet(origine),
+        "personnalisee": _vue(personnalisee),
+        "source": "personnalisee" if personnalisee else "origine",
         "manquants": manquants,
-        # Le serveur d'envoi et les alertes sont deux choses : un serveur
-        # parfaitement configure passait pour incomplet tant qu'aucun
-        # destinataire d'alerte n'etait saisi, alors qu'il sert aussi les
-        # codes de verification et l'inscription libre.
-        "smtp_ok": smtp_utilisable()[1],
-        "manquants_smtp": [m for m in manquants if m != "destinataires"],
+        "smtp_ok": not smtp_incomplet(effective),
         "incidents": sorted(_alertes_en_cours),
+        # Les destinataires propres a chaque application, pour la page.
+        "par_application": {nom: _adresses(a.get("alertes"))
+                            for nom, a in sorted(load().items())},
     })
-
-
-def _adresses(brutes):
-    """Nettoie une liste d'adresses saisies. Pas de validation stricte : un
-    format d'adresse valide n'est pas une adresse qui existe, et c'est le
-    mail de test qui tranche vraiment."""
-    if isinstance(brutes, str):
-        brutes = re.split(r"[,;\s]+", brutes)
-    vues, propres = set(), []
-    for a in brutes or []:
-        a = (a or "").strip()
-        if a and "@" in a and a not in vues:
-            vues.add(a)
-            propres.append(a)
-    return propres
 
 
 @flask_app.post("/api/alertes")
 @require_admin
 def api_alertes_enregistrer():
-    d = request.get_json(force=True, silent=True) or {}
-    smtp = d.get("smtp") or {}
+    """Enregistre l'interrupteur, l'adresse d'administration, et -- si le
+    formulaire en apporte une -- une configuration d'envoi personnalisee.
 
-    destinataires = _adresses(d.get("destinataires"))
-    actif = bool(d.get("actif"))
-    if actif and not destinataires:
-        return jsonify({"error": "Au moins un destinataire est necessaire "
-                                 "pour activer les alertes."}), 400
+    CELLE-CI DOIT FAIRE SES PREUVES AVANT D'ETRE ECRITE. On se connecte
+    reellement au serveur, on chiffre, on s'authentifie. C'est ce qui
+    remplace l'ancien bouton "envoyer un mail de test" : un test qu'il
+    fallait penser a lancer, et dont l'oubli ne se voyait pas. Ici, une
+    configuration qui ne marche pas n'entre tout simplement pas.
 
-    # Le bloc SMTP n'est reecrit que si le formulaire apporte quelque chose :
-    # activer les alertes avec un bloc deja rempli a la main ne doit pas
-    # l'ecraser avec des champs vides.
-    champs = {"host": "SMTP_HOST", "port": "SMTP_PORT", "tls": "SMTP_TLS",
-              "user": "SMTP_USER", "expediteur": "ALERTE_FROM"}
-    if any(str(smtp.get(k, "")).strip() for k in champs):
-        valeurs = {}
-        for cle, env in champs.items():
-            valeur = str(smtp.get(cle, "")).strip()
-            if valeur:
-                valeurs[env] = valeur
-        # Mot de passe vide = inchange. Le formulaire ne le pre-remplit pas :
-        # sans cette regle, tout enregistrement l'effacerait.
-        mdp = str(smtp.get("password", "")).strip()
-        valeurs["SMTP_PASSWORD"] = mdp or (read_shared_value("SMTP_PASSWORD") or "")
-        if not valeurs["SMTP_PASSWORD"]:
-            valeurs.pop("SMTP_PASSWORD")
-        if not ecrire_bloc_alertes(valeurs):
-            return jsonify({"error": "credentials.env n'a pas pu etre ecrit."}), 500
-
-    try:
-        ecrire_alertes(actif, destinataires)
-    except OSError as e:
-        return jsonify({"error": f"Reglages non enregistres : {e}"}), 500
-
-    cfg, manquants = config_smtp()
-    return jsonify({"ok": True, "manquants": manquants})
-
-
-@flask_app.post("/api/alertes/test")
-@require_admin
-def api_alertes_test():
-    """Envoie un mail tout de suite, en ignorant l'interrupteur.
-
-    Deliberement : on teste sa configuration AVANT d'activer les alertes, et
-    exiger l'inverse ferait activer une configuration jamais essayee.
-
-    Une adresse peut etre donnee : on teste alors le SERVEUR D'ENVOI, sans
-    exiger qu'une alerte soit deja reglee. Sans adresse, le test s'adresse
-    aux destinataires des alertes, comme avant.
+    La configuration d'origine (credentials.env) n'est jamais touchee : elle
+    reste le repli.
     """
-    cible = email_valide((request.get_json(force=True, silent=True) or {}).get("destinataire"))
-    cfg, manquants = config_smtp()
-    if cible:
-        manquants = [m for m in manquants if m != "destinataires"]
-    if manquants:
-        return jsonify({"error": "Configuration incomplete : " + ", ".join(manquants)}), 400
-    destinataires = [cible] if cible else cfg["destinataires"]
+    d = request.get_json(force=True, silent=True) or {}
+
+    admin = _adresses(d.get("admin"))
+    actif = bool(d.get("actif"))
+    if actif and not admin:
+        return jsonify({"error": "Une adresse d'alerte de l'administrateur est "
+                                 "nécessaire pour activer les alertes : c'est "
+                                 "elle qui reçoit ce qu'aucune application "
+                                 "n'a pris en charge."}), 400
+
+    # --- la configuration personnalisee -----------------------------------
+    if "smtp" in d:
+        smtp = d.get("smtp")
+        if not smtp or not str((smtp or {}).get("host") or "").strip():
+            # Champ serveur vide = revenir a la configuration d'origine.
+            # Toujours permis : c'est la marche arriere.
+            effacer_smtp_personnalise()
+        else:
+            candidate = _normalise_smtp(smtp)
+            # Mot de passe vide = inchange. Le formulaire ne le pre-remplit
+            # pas : sans cette regle, tout enregistrement l'effacerait.
+            if not candidate["password"]:
+                ancienne = lire_smtp_personnalise()
+                if ancienne and ancienne["host"] == candidate["host"] \
+                        and ancienne["user"] == candidate["user"]:
+                    candidate["password"] = ancienne["password"]
+            ok, detail = verifier_smtp(candidate)
+            if not ok:
+                return jsonify({
+                    "error": "Ce serveur d'envoi n'a pas repondu comme attendu, "
+                             "rien n'a été enregistré. La configuration "
+                             "d'origine continue de servir.",
+                    "detail": detail}), 400
+            try:
+                ecrire_smtp_personnalise(candidate)
+            except OSError as e:
+                return jsonify({"error": f"Configuration non enregistrée : {e}"}), 500
+
+    # --- l'adresse d'administration, dans le bloc partage ------------------
+    if not ecrire_bloc_alertes({"ALERTE_ADMIN": ", ".join(admin)}):
+        return jsonify({"error": "credentials.env n'a pas pu être écrit."}), 500
+
     try:
-        envoyer_mail(cfg, "[CodeLab] mail de test",
-                     "Si tu lis ce message, les alertes du panneau CodeLab "
-                     "savent sortir.\n\nTu recevras un mail de cette adresse "
-                     "quand une application tombera, et un autre quand elle "
-                     "reviendra.\n\n-- CodeLab, panneau de gestion des "
-                     "applications",
-                     destinataires=destinataires)
-    except Exception as e:
-        # Le message du serveur SMTP est la seule chose qui aide vraiment ici
-        # ("authentification refusee", "relais interdit") : on le remonte tel
-        # quel plutot que de le resumer.
-        return jsonify({"error": f"{type(e).__name__}: {e}"}), 502
-    return jsonify({"ok": True, "destinataires": destinataires})
+        ecrire_alertes(actif, admin)
+    except OSError as e:
+        return jsonify({"error": f"Réglages non enregistrés : {e}"}), 500
+
+    _, manquants = config_smtp()
+    return jsonify({"ok": True, "manquants": manquants,
+                    "source": "personnalisee" if lire_smtp_personnalise() else "origine"})
+
+
+@flask_app.put("/api/alertes/application/<name>")
+@require_admin
+def api_alertes_application(name):
+    """Les destinataires propres a une application.
+
+    Une application de facturation ne previent pas les memes personnes qu'un
+    site vitrine. L'adresse d'administration s'ajoute toujours a celles-ci --
+    une application dont on a oublie de remplir la liste ne tombe donc jamais
+    en silence.
+    """
+    apps = load()
+    if name not in apps:
+        return jsonify({"error": "Application inconnue."}), 404
+    d = request.get_json(force=True, silent=True) or {}
+    adresses = _adresses(d.get("alertes"))
+    apps[name]["alertes"] = adresses
+    try:
+        save(apps)
+    except OSError as e:
+        return jsonify({"error": f"Non enregistré : {e}"}), 500
+    return jsonify({"ok": True, "alertes": adresses,
+                    "destinataires": destinataires_alerte(name, apps)})
 
 
 @flask_app.get("/api/utilisateurs")
@@ -3857,16 +4533,16 @@ def api_utilisateur_creer():
     if d.get("email") and not email:
         return jsonify({"error": "Adresse mail invalide."}), 400
     if not nom:
-        return jsonify({"error": "Nom invalide : 2 a 32 caracteres, "
-                                 "minuscules, chiffres, tiret ou souligne."}), 400
+        return jsonify({"error": "Nom invalide : 2 a 32 caractères, "
+                                 "minuscules, chiffres, tiret ou souligné."}), 400
     if nom == NOM_ADMIN:
         return jsonify({"error": "Ce nom est celui du compte d'administration."}), 400
     if len(mdp) < 8:
-        return jsonify({"error": "Mot de passe : 8 caracteres au minimum."}), 400
+        return jsonify({"error": "Mot de passe : 8 caractères au minimum."}), 400
 
     comptes = lire_utilisateurs()
     if nom in comptes:
-        return jsonify({"error": "Ce compte existe deja."}), 400
+        return jsonify({"error": "Ce compte existe déjà."}), 400
 
     sel = secrets.token_hex(16)
     comptes[nom] = {
@@ -3883,7 +4559,7 @@ def api_utilisateur_creer():
     try:
         ecrire_utilisateurs(comptes)
     except OSError as e:
-        return jsonify({"error": f"Compte non enregistre : {e}"}), 500
+        return jsonify({"error": f"Compte non enregistré : {e}"}), 500
     return jsonify({"ok": True, "nom": nom})
 
 
@@ -3904,7 +4580,7 @@ def api_utilisateur_modifier(nom):
     mdp = (d.get("mot_de_passe") or "").strip()
     if mdp:
         if len(mdp) < 8:
-            return jsonify({"error": "Mot de passe : 8 caracteres au minimum."}), 400
+            return jsonify({"error": "Mot de passe : 8 caractères au minimum."}), 400
         compte["sel"] = secrets.token_hex(16)
         compte["hash"] = derive_mot_de_passe(mdp, compte["sel"])
 
@@ -3937,15 +4613,71 @@ def api_utilisateur_modifier(nom):
             try:
                 ecrire_passkeys(tout)
             except OSError as e:
-                return jsonify({"error": f"Cles non retirees : {e}"}), 500
+                return jsonify({"error": f"Clés non retirées : {e}"}), 500
             journaliser("passkey", qui=nom, action="retrait par l'administrateur",
                         ip=_adresse_client())
 
     try:
         ecrire_utilisateurs(comptes)
     except OSError as e:
-        return jsonify({"error": f"Compte non enregistre : {e}"}), 500
+        return jsonify({"error": f"Compte non enregistré : {e}"}), 500
     return jsonify({"ok": True})
+
+
+@flask_app.get("/api/apps/<name>/acces")
+@require_admin
+def api_app_acces(name):
+    """Qui accede a cette application.
+
+    La meme information que dans la fiche d'un compte, prise par l'autre
+    bout. On l'avait dans un seul sens : pour savoir qui ouvrait une
+    application, il fallait ouvrir les fiches une par une -- et pour donner
+    l'acces a cinq personnes, cinq allers-retours.
+    """
+    apps = load()
+    if name not in apps:
+        return jsonify({"error": "Application inconnue."}), 404
+    comptes = lire_utilisateurs()
+    return jsonify({
+        "application": name,
+        "publique": (apps[name].get("visibility") or "privee") == "publique",
+        "comptes": [{"nom": nom,
+                     "acces": name in (c.get("projets") or []),
+                     "email": c.get("email") or ""}
+                    for nom, c in sorted(comptes.items())],
+    })
+
+
+@flask_app.put("/api/apps/<name>/acces")
+@require_admin
+def api_app_acces_modifier(name):
+    """Donne ou retire l'acces a cette application, compte par compte.
+
+    N'ecrit QUE cette application dans chaque fiche : les autres projets d'un
+    compte ne sont pas touches. Envoyer la liste complete des projets aurait
+    efface en silence ce qu'un autre onglet ouvert venait d'accorder.
+    """
+    apps = load()
+    if name not in apps:
+        return jsonify({"error": "Application inconnue."}), 404
+    d = request.get_json(force=True, silent=True) or {}
+    voulus = {str(n).strip() for n in (d.get("utilisateurs") or []) if str(n).strip()}
+
+    comptes = lire_utilisateurs()
+    inconnus = sorted(voulus - set(comptes))
+    if inconnus:
+        return jsonify({"error": "Compte inconnu : " + ", ".join(inconnus)}), 400
+
+    for nom, compte in comptes.items():
+        projets = [p for p in (compte.get("projets") or []) if p != name]
+        if nom in voulus:
+            projets.append(name)
+        compte["projets"] = sorted(set(projets))
+    try:
+        ecrire_utilisateurs(comptes)
+    except OSError as e:
+        return jsonify({"error": f"Non enregistré : {e}"}), 500
+    return jsonify({"ok": True, "utilisateurs": sorted(voulus)})
 
 
 @flask_app.delete("/api/utilisateurs/<nom>")
@@ -3958,7 +4690,7 @@ def api_utilisateur_supprimer(nom):
     try:
         ecrire_utilisateurs(comptes)
     except OSError as e:
-        return jsonify({"error": f"Compte non supprime : {e}"}), 500
+        return jsonify({"error": f"Compte non supprimé : {e}"}), 500
 
     # Les cles d'acces partent avec le compte. Les laisser serait pire qu'un
     # oubli de menage : recreer un compte du meme nom lui rendrait les cles
@@ -3968,8 +4700,8 @@ def api_utilisateur_supprimer(nom):
         try:
             ecrire_passkeys(cles)
         except OSError as e:
-            return jsonify({"error": f"Compte supprime, mais ses cles d'acces "
-                                     f"n'ont pas pu etre retirees : {e}"}), 500
+            return jsonify({"error": f"Compte supprimé, mais ses clés d'accès "
+                                     f"n'ont pas pu être retirées : {e}"}), 500
     # La session de ce compte, si elle existe, tombera d'elle-meme : chaque
     # controle relit le registre, et un compte absent n'autorise plus rien.
     return jsonify({"ok": True})
@@ -3987,7 +4719,7 @@ def api_auth_check():
 
     C'est le point d'appui du proxy de Dagster : nginx interroge cette route
     avant chaque requete (directive auth_request) et laisse passer ou renvoie
-    vers la page de connexion du panneau. Dagster hérite ainsi de la session
+    vers la page de connexion du panneau. Dagster herite ainsi de la session
     du panneau -- meme mot de passe, meme second facteur, meme deconnexion --
     au lieu d'avoir sa propre authentification HTTP Basic, qui n'a ni session,
     ni expiration, ni deconnexion possible.
@@ -4093,9 +4825,9 @@ def api_add():
     if not name:
         return jsonify({"error": "Le nom est obligatoire."}), 400
     if name in ("api", "static", "health", "login", "logout"):
-        return jsonify({"error": "Ce nom est reserve."}), 400
+        return jsonify({"error": "Ce nom est réservé."}), 400
     if name in apps:
-        return jsonify({"error": "Une application porte deja ce nom."}), 400
+        return jsonify({"error": "Une application porte déjà ce nom."}), 400
     if not os.path.isdir(path):
         return jsonify({"error": "Dossier introuvable : " + path}), 400
     if not under_root(path):
@@ -4124,7 +4856,7 @@ def api_edit(n):
     if n not in apps:
         return jsonify({"error": "Application inconnue."}), 404
     if is_running(n):
-        return jsonify({"error": "Arrete l'application avant de la modifier."}), 400
+        return jsonify({"error": "Arrêté l'application avant de la modifier."}), 400
     d = request.get_json(force=True)
     path = (d.get("path") or "").strip()
     command = (d.get("command") or "").strip()
@@ -4181,10 +4913,10 @@ def api_visibility(n):
     # Une application DEJA publique reste modifiable dans l'autre sens --
     # on ne bloque jamais le chemin qui referme.
     if vis == VISIBILITE_PUBLIQUE and not adresse_publique():
-        return jsonify({"error": "Aucune adresse publique n'est declaree pour ce "
+        return jsonify({"error": "Aucune adresse publique n'est déclarée pour ce "
                                  "serveur : rendre une application publique ne "
                                  "ferait que retirer l'authentification. "
-                                 "Declare-la dans Configuration > Serveur."}), 400
+                                 "Déclaré-la dans Configuration > Serveur."}), 400
     apps[n]["visibility"] = vis
     save(apps)
     return jsonify({"ok": True, "visibility": vis})
@@ -4260,9 +4992,9 @@ def api_delete(n):
     # Refuse ici et pas seulement dans la page : masquer un bouton ne protege
     # rien, la route reste appelable a la main.
     if n == DIAGNOSTIC_NOM:
-        return jsonify({"error": "Le projet de diagnostic ne se supprime pas : "
+        return jsonify({"error": "Le projet de diagnostic ne se supprimé pas : "
                                  "c'est lui qui dit si cette installation va "
-                                 "bien. Tu peux l'arreter si tu ne veux pas "
+                                 "bien. Tu peux l'arrêter si tu ne veux pas "
                                  "qu'il tourne."}), 403
     stop(n)
     apps = load()
@@ -4288,9 +5020,9 @@ def api_logs_stream(n):
     f = os.path.join(LOG_DIR, n + ".log")
 
     if not _prendre_place_flux():
-        return jsonify({"error": f"Trop de journaux suivis en meme temps "
+        return jsonify({"error": f"Trop de journaux suivis en même temps "
                                  f"({SSE_MAX_FLUX} au maximum). Ferme une "
-                                 f"fenetre de journal et reessaie."}), 503
+                                 f"fenêtre de journal et réessaie."}), 503
 
     def gen():
         pos = max(0, os.path.getsize(f) - 4000) if os.path.exists(f) else 0

@@ -160,10 +160,10 @@ DESTINATAIRES = [
 ]
 ```
 
-**Les identifiants SMTP, dans `credentials.env`.** Le plus simple est de les saisir depuis le panneau
-(`http://<IP-du-serveur>:9001/` -> **Parametres > Alertes**) : il ecrit le bloc `codelab-alertes`, celui-la meme
-que lit ce capteur. Une seule configuration d'envoi pour toute la stack, et un bouton « mail de test »
-pour la verifier avant de compter dessus.
+**Les identifiants SMTP, dans `credentials.env`.** Ce bloc `codelab-alertes` est la configuration
+**d'origine** : celle que lit ce capteur, et celle que le panneau garde en repli. Le panneau ne la
+reecrit pas — une configuration saisie dans *Parametres > E-mail* va dans un fichier a part, pour
+qu'une faute de frappe depuis une page web ne puisse pas supprimer ce qui fonctionne.
 
 A la main, si tu preferes. Le fichier est gere **par bloc** — chaque service ne reecrit que le sien :
 
@@ -171,7 +171,7 @@ A la main, si tu preferes. Le fichier est gere **par bloc** — chaque service n
 sudo tee -a /DATA/AppData/codelab/config/credentials.env > /dev/null <<'EOF'
 # ===== codelab-alertes =====
 # Identifiants SMTP, partages par ce capteur et par les alertes du panneau.
-# Le panneau reecrit ce bloc quand on l'enregistre depuis Parametres > Alertes.
+# Configuration D'ORIGINE : le panneau ne l'ecrase pas, il la garde en repli.
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_TLS=starttls

@@ -227,6 +227,21 @@ coup d'oeil — ce qui empeche quelqu'un d'entrer en premier, et en rouge — et
 fiche du compte** : adresse mail, nouveau mot de passe, projets autorises, remise a zero du second
 facteur, retrait des cles d'acces, suppression.
 
+**Retrouver quelqu'un.** Deux filtres se combinent au-dessus de la liste, parce qu'on cherche de
+deux facons : par la **personne** qu'on a en tete (nom ou adresse mail), ou par l'**application**
+dont on veut savoir qui y a acces. La seconde question n'avait aucune reponse avant — il fallait
+ouvrir les fiches une par une.
+
+La liste s'affiche par pages de **25 ou 50**. Le choix est retenu par navigateur : c'est une
+preference d'affichage, pas un reglage du serveur. Modifier un filtre ramene en page 1 — rester en
+page 3 d'un resultat qui n'en compte plus qu'une donne une liste vide, et l'on croit que la
+recherche n'a rien trouve.
+
+Le filtrage et la pagination se font **dans la page**, sur une liste recue en entier. C'est le bon
+compromis a cette echelle, et c'est deja ce que fait la recherche d'applications. Au-dela de
+quelques milliers de comptes il faudrait paginer cote serveur ; ce jour-la, la question ne se
+posera pas qu'ici.
+
 **Le nom, lui, ne se change pas** : il identifie la personne partout — dans ses cles d'acces, dans le
 journal des acces, dans la liste des projets autorises. Pour renommer quelqu'un, on cree un compte
 et on supprime l'ancien.
@@ -466,10 +481,29 @@ s'affichait « incomplet — il manque : destinataires » tant qu'aucune alerte 
 qu'il envoyait tres bien les codes de verification. Chaque onglet ne signale desormais que ce qui
 lui manque a lui.
 
-Le **mail de test** vit avec le serveur, et accepte une adresse : on verifie l'envoi sans avoir a
-regler une alerte d'abord. Laisse le champ vide et il part aux destinataires des alertes, comme
-avant. Les deux onglets ecrivent le meme bloc de `credentials.env` — enregistrer depuis l'un
-n'efface pas ce qui est regle dans l'autre.
+### Deux configurations d'envoi, et pourquoi
+
+| | D'ou elle vient | Ce qu'elle fait |
+|---|---|---|
+| **D'origine** | le bloc `codelab-alertes` de `credentials.env`, pose a l'installation | sert par defaut, et reste en **repli** ensuite |
+| **Personnalisee** | saisie dans *Parametres > E-mail*, rangee dans `smtp.json` | sert des qu'elle existe |
+
+La personnalisee **n'ecrase jamais** celle d'origine. Sans cette separation, une faute de frappe
+dans un nom de serveur depuis une page web supprimait le seul moyen d'etre prevenu qu'une
+application est tombee — et l'on ne s'en apercevait qu'au premier incident, c'est-a-dire au pire
+moment.
+
+Deux consequences :
+
+- **a l'enregistrement**, une configuration personnalisee doit faire ses preuves : le panneau se
+  connecte reellement au serveur, chiffre, s'authentifie. Si cela echoue, rien n'est enregistre et
+  le message du serveur t'est rendu tel quel. C'est ce qui remplace l'ancien bouton « envoyer un
+  mail de test » — un test qu'il fallait penser a lancer, et dont l'oubli ne se voyait pas ;
+- **a l'envoi**, si la personnalisee echoue malgre tout (mot de passe revoque, quota, serveur
+  eteint), les mails repartent aussitot par celle d'origine.
+
+Vider le champ « hote » revient a la configuration d'origine. Sans condition : c'est la marche
+arriere, et on la cherche justement quand rien ne va.
 
 ## Alertes par mail
 
@@ -477,8 +511,16 @@ Le panneau redemarre deja tout seul une application qui plante — mais il falla
 sous les yeux pour le savoir. Une application qui tombe la nuit reste tombee jusqu'a ce qu'on pense
 a regarder.
 
-**Parametres > Alertes** : destinataires et interrupteur. Le serveur d'envoi et le mail de test
-vivent dans l'onglet **E-mail**, juste a cote.
+**Parametres > Alertes** : l'interrupteur, et les destinataires **application par application**.
+Le serveur d'envoi vit dans l'onglet **E-mail**, juste a cote.
+
+### A qui part une alerte
+
+Une application de facturation ne previent pas les memes personnes qu'un site vitrine : chacune
+declare donc ses propres destinataires. L'**adresse d'alerte de l'administrateur**
+(*Parametres > E-mail*) s'y ajoute **toujours** — c'est le filet, celui qui garantit qu'une
+application dont on a oublie de remplir la liste ne tombe pas en silence. Laisser la liste d'une
+application vide est donc un choix valable : elle n'alerte que l'administrateur.
 
 Ce qui declenche un mail, et ce qui n'en declenche pas :
 
@@ -493,9 +535,10 @@ Ce qui declenche un mail, et ce qui n'en declenche pas :
 Le mail de chute contient le dossier, la commande, le port et les 25 dernieres lignes du journal —
 de quoi reconnaitre une trace d'exception sans se connecter au serveur.
 
-La configuration SMTP vit dans le bloc `codelab-alertes` de `credentials.env`, **le meme** que lit le
-capteur d'alerte de Dagster : une seule configuration d'envoi pour toute la stack. Le formulaire du
-panneau reecrit ce bloc ; laisser le champ mot de passe vide conserve celui deja enregistre.
+La configuration d'origine vit dans le bloc `codelab-alertes` de `credentials.env`, **le meme** que
+lit le capteur d'alerte de Dagster. Le panneau ne la reecrit jamais : une configuration saisie dans
+l'interface va dans `smtp.json`, a cote. Laisser le champ mot de passe vide conserve celui deja
+enregistre.
 
 | Cle | Role |
 |---|---|
@@ -503,10 +546,11 @@ panneau reecrit ce bloc ; laisser le champ mot de passe vide conserve celui deja
 | `SMTP_TLS` | `starttls` (defaut), `ssl`, ou `none` pour un relais interne non chiffre |
 | `SMTP_USER`, `SMTP_PASSWORD` | Optionnels : un relais interne peut ne pas demander d'authentification |
 | `ALERTE_FROM` | Rarement utile : l'expediteur suit `SMTP_USER`, que Gmail impose de toute facon |
+| `ALERTE_ADMIN` | L'adresse qui recoit **toutes** les alertes, en plus de celles propres a chaque application |
 
-Les destinataires et l'interrupteur vivent dans `alertes.json`, dans le dossier d'etat : une adresse
-de destination n'est pas un secret, et la garder hors du fichier de secrets evite de le reecrire pour
-un changement anodin.
+L'interrupteur vit dans `alertes.json`, et les destinataires propres a chaque application dans
+`apps.json`, a cote du reste de leur fiche. Une adresse de destination n'est pas un secret : la
+garder hors du fichier de secrets evite de le reecrire pour un changement anodin.
 
 **Gmail** : validation en deux etapes activee, puis un *mot de passe d'application* de 16
 caracteres. Le mot de passe habituel du compte sera refuse.
@@ -548,6 +592,74 @@ silencieusement sans bloquer le demarrage du service — c'est une commodite, pa
 |---|---|
 | `/var/lib/codelab/app-manager` | `apps.json`, `logs/`, `alertes.json`, `utilisateurs.json`, `categories.json`, `acces.jsonl`, `exposition.json`, `passkeys.json` et `diagnostic-inscrit` — l'etat du panneau. Aucun secret en clair : les mots de passe des comptes sont derives, ceux des services sont dans `credentials.env` |
 | `/workspace` | Racine dans laquelle chercher/lancer les applications |
+
+## Bilan de securite
+
+*Parametres > Securite* s'ouvre sur une **posture** : sept controles, leur etat, et pour chacun ce
+qu'il reste a faire. Avant, l'etat de l'exposition vivait dans l'onglet *Serveur* — c'est-a-dire
+pas la ou on le cherche — et se lisait comme une liste de taches numerotees plutot que comme un
+constat.
+
+**Trois etats, pas deux, et c'est ce qui change tout.** Un controle qui ne s'applique pas ici —
+HTTPS sur un panneau qui ne sort pas du salon — est marque *sans objet* et **ne compte pas dans la
+note**. Afficher du rouge pour ce qui n'a pas lieu d'etre apprend a ignorer la page entiere, et une
+page de securite qu'on n'ouvre plus ne protege rien.
+
+La note est donc lue dans un cadre, annonce en tete : ce panneau sort-il du reseau local, oui ou
+non. Les memes reglages n'ont pas la meme importance dans les deux cas.
+
+| Controle | Ou il se regle |
+|---|---|
+| Double authentification | *Securite* |
+| Cles d'acces | *Securite* |
+| Administration sur le reseau local | *Serveur* |
+| Connexion chiffree (HTTPS) | hors du panneau — un tunnel, un Caddy, un VPS |
+| Cookie de session en Secure | *Serveur* |
+| Adresse reelle des visiteurs | *Serveur* |
+| Applications sur une origine a part | `docker-compose.yml` |
+
+Chaque ligne non acquise porte la marche a suivre, et un lien qui mene directement a l'onglet
+concerne.
+
+## Changer son mot de passe
+
+*Parametres > Compte*. Cela n'existait pas : le mot de passe d'administration ne se changeait qu'en
+editant `credentials.env` sur le serveur, donc en s'y connectant en SSH. **Un secret qu'on ne peut
+pas changer facilement est un secret qu'on ne change jamais** — et celui-la donne l'execution de
+commandes sur la machine.
+
+L'ancien mot de passe est exige **meme sur une session deja ouverte** : sans cette verification, un
+cookie capture suffirait a prendre la place de quelqu'un definitivement. Douze caracteres au
+minimum — on se le choisit soi-meme, rien n'oblige a le raccourcir.
+
+Pour l'administrateur, le nouveau va dans `credentials.env` (il doit survivre au redemarrage). La
+cle de session y est **relue a sa source** et reecrite telle quelle : en ecrire une differente
+deconnecterait tout le monde au redemarrage suivant, sans rapport visible avec le changement de
+mot de passe.
+
+## Liaison avec un VPS
+
+*Parametres > Serveur*. Saisis le nom de domaine et l'adresse publique du VPS : le panneau rend les
+**quatre fichiers de configuration prets a copier** — ceux-la memes que documente
+[`vps/README.md`](vps/README.md), avec tes valeurs substituees.
+
+**Il ne se connecte pas au VPS**, et c'est deliberé. Lui donner une cle SSH avec les droits qu'il
+faudrait reviendrait a confier a ce panneau l'administration d'une machine exposee sur internet —
+c'est-a-dire a en faire la cible la plus interessante de l'installation. Recopier trois fichiers a
+la main coute quelques minutes, une fois.
+
+Les modeles sont **substitues, pas regeneres** : ce sont les fichiers du depot qui font foi. Un
+assistant qui reecrit son propre texte finit toujours par decrire autre chose que le README, et
+c'est celui qu'on ne relit pas qui se trompe.
+
+Une adresse **privee** est refusee a la saisie : un VPS joignable depuis internet n'en a pas une, et
+saisir celle de sa propre machine donnerait une configuration qui ne peut pas marcher — autant le
+dire tout de suite qu'apres trois copies de fichiers.
+
+Sous les champs, un diagnostic dit **ce que le panneau constate** sur la requete qu'il traite : un
+intermediaire relaie-t-il cette requete, est-il declare de confiance, arrive-t-elle en HTTPS,
+l'adresse publique est-elle declaree. Aucune de ces lignes n'est une supposition — c'est la seule
+chose qu'il puisse honnetement affirmer sans se connecter au VPS.
 
 ## Double authentification et exposition
 
@@ -811,14 +923,24 @@ ouvrir une par une pour se faire une idee.
 
 En-tete : l'icone, le nom, la description, les pastilles d'etat et de visibilite, et les actions --
 **Demarrer / Arreter**, **Redemarrer**, **Build** (si une commande de build existe), **Deployer**,
-la bascule de visibilite, et **Ouvrir**. Puis quatre onglets :
+la bascule de visibilite, et **Ouvrir**. Puis cinq onglets :
 
 | Onglet | Contenu |
 |---|---|
 | General | Adresse, port interne, reponse du port, visibilite, dossier, commandes, limite memoire, CPU et memoire du moment |
 | Metriques | Courbes CPU et memoire sur les deux dernieres minutes |
 | Journal | Le flux en direct, avec filtre |
+| **Acces** | **Qui ouvre cette application : une case a cocher par compte** |
 | Configuration | Description, commandes, limite memoire, visibilite, emplacement, et la suppression |
+
+L'onglet **Acces** donne la meme information que la fiche d'un compte, prise par l'autre bout.
+Cocher un compte n'ecrit **que cette application** dans sa fiche : ses autres projets ne sont pas
+touches. Envoyer la liste complete aurait efface en silence ce qu'un autre onglet ouvert venait
+d'accorder.
+
+Sur une application **publique**, l'onglet le dit : elle s'ouvre sans compte, et ces autorisations
+ne reprendront effet qu'en la repassant en privee. Laisser croire le contraire serait pire que de
+ne rien afficher.
 
 Le flux de journal n'est ouvert **que** lorsque l'onglet Journal est affiche, et il est ferme des
 qu'on quitte la fiche : une place de flux est une ressource cote serveur (voir le plafond plus bas),

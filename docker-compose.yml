@@ -309,19 +309,27 @@ services:
       APP_MANAGER_SHARED_CONFIG: /var/lib/codelab/config
 
       # --- Le jour ou ce panneau sort de ton reseau ---------------------
-      # RIEN A DECOMMENTER ICI dans le cas courant : ces trois reglages se
+      # RIEN A DECOMMENTER ICI dans le cas courant : ces quatre reglages se
       # posent depuis le panneau, Parametres > Serveur. Marche a suivre
       # complete dans le README, section « Sortir de chez toi » (et
       # app-manager/vps/ pour la variante avec un VPS devant).
       #
       # Les cases de la page refusent de s'activer tant que la situation ne
       # les justifie pas -- HTTPS seulement depuis une page deja en https,
-      # le proxy seulement si un en-tete X-Forwarded-* est reellement la.
-      # C'est ce qui evite les deux pieges d'autrefois : un cookie "Secure"
-      # pose trop tot, que le navigateur cesse d'envoyer en clair et qui
-      # faisait tomber la session sans retour ; et un X-Forwarded-For cru
-      # sur un panneau publie en direct, ou n'importe quel client annonce
-      # l'adresse qu'il veut et contourne la limite de tentatives.
+      # le proxy seulement si un en-tete X-Forwarded-* est reellement la,
+      # et l'administration-sur-le-reseau-local seulement depuis une requete
+      # qui vient elle-meme du reseau local. C'est ce qui evite les pieges
+      # d'autrefois : un cookie "Secure" pose trop tot, que le navigateur
+      # cesse d'envoyer en clair et qui faisait tomber la session sans
+      # retour ; un X-Forwarded-For cru sur un panneau publie en direct, ou
+      # n'importe quel client annonce l'adresse qu'il veut et contourne la
+      # limite de tentatives ; et un verrou d'administration active depuis
+      # l'exterieur, qui se refermerait sur son auteur dans la seconde.
+      #
+      # APP_MANAGER_ADMIN_LAN_ONLY reserve le compte d'administration aux
+      # adresses du reseau local -- les comptes nommes, eux, continuent
+      # d'entrer de n'importe ou. C'est la ligne a poser a "0" ici si ce
+      # verrou t'a enferme dehors : c'est sa seule marche arriere.
       #
       # Les lignes ci-dessous restent lues et PRIORITAIRES : posees ici,
       # elles grisent la case correspondante. C'est la marche arriere qui ne
@@ -330,6 +338,7 @@ services:
       # APP_MANAGER_HTTPS: "1"
       # APP_MANAGER_TRUST_PROXY: "1"
       # APP_MANAGER_PUBLIC_URL: "https://codelab.tondomaine.fr"
+      # APP_MANAGER_ADMIN_LAN_ONLY: "1"
 
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:9001/health')\" || exit 1"]
