@@ -109,22 +109,38 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 
 /* ------------------------------ colonne de gauche ------------------------------ */
 .page-body{display:flex;min-height:calc(100vh - 52px)}
+/* LA COLONNE SE REDUIT SANS RIEN FAIRE SAUTER.
+   Avant, replier la colonne posait display:none sur les libelles et
+   recentrait les items : le texte disparaissait d'un coup, et les icones
+   glissaient horizontalement pendant que la largeur, elle, s'animait. Deux
+   mouvements contradictoires sur 140 ms -- d'ou la sensation de saut.
+
+   Maintenant l'icone ne bouge JAMAIS : meme padding, meme alignement dans
+   les deux etats. Seul le texte est decoupe, en laissant le flex le reduire
+   (min-width:0) et la colonne le rogner (overflow:hidden). Le libelle
+   s'efface donc progressivement, a la vitesse de la largeur, au lieu de
+   disparaitre avant elle. */
 .sidebar{width:212px;flex:none;background:var(--nav);color:var(--nav-dim);
  display:flex;flex-direction:column;padding:12px 8px 10px;
- border-right:1px solid var(--nav-line);
+ border-right:1px solid var(--nav-line);overflow:hidden;
  transition:width .14s ease}
 .sidebar.collapsed{width:62px}
 .sidebar.collapsed .side-label,.sidebar.collapsed .side-item span,
-.sidebar.collapsed .side-count{display:none}
-.sidebar.collapsed .side-item{justify-content:center;padding:9px 0}
+.sidebar.collapsed .side-count{opacity:0}
 .side-nav{flex:1}
 .side-sep{height:1px;background:var(--nav-line);margin:10px 6px}
 .side-label{font-size:10px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;
  color:var(--dim2);padding:8px 10px 6px}
 .side-item{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:var(--r-s);
  cursor:pointer;font-size:var(--t-m);font-weight:500;color:var(--nav-dim);margin-bottom:1px;
- position:relative;transition:background .12s,color .12s}
+ position:relative;overflow:hidden;transition:background .12s,color .12s}
 .side-item svg{width:17px;height:17px;flex:none}
+/* min-width:0 : sans lui, un element flex refuse de descendre sous la
+   largeur de son contenu, et le texte pousserait la colonne au lieu d'etre
+   rogne par elle. */
+.side-item span{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:clip;
+ transition:opacity .1s ease}
+.side-label{overflow:hidden;white-space:nowrap;transition:opacity .1s ease}
 .side-item:hover{background:var(--nav-hover);color:var(--nav-txt)}
 /* L'element actif ne prend plus un pave d'accent plein. Un fond leger et un
    rail sur le bord suffisent a le designer, et l'accent reste disponible
@@ -134,9 +150,13 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 .side-item.active::before{content:"";position:absolute;left:0;top:7px;bottom:7px;width:2px;
  border-radius:2px;background:var(--accent)}
 .sidebar.collapsed .side-item.active::before{top:6px;bottom:6px}
-.side-count{margin-left:auto;font-size:11px;font-weight:700;padding:1px 7px;
+.side-count{margin-left:auto;flex:none;font-size:11px;font-weight:700;padding:1px 7px;
  border-radius:999px;background:var(--nav-hover);color:var(--nav-dim);
- font-variant-numeric:tabular-nums}
+ font-variant-numeric:tabular-nums;transition:opacity .1s ease;
+ /* Deux chiffres reserves : le compteur passe de 0 a 12 quand l'API repond,
+    et sans largeur minimale c'est toute la ligne qui se decale a ce
+    moment-la. */
+ min-width:24px;text-align:center}
 .side-item.active .side-count{background:var(--accent);color:#fff}
 .main-area{flex:1;min-width:0;overflow-x:hidden}
 .wrap{max-width:1240px;margin:0 auto;padding:24px 24px 56px}
@@ -1503,11 +1523,6 @@ table.tbl-journal{min-width:560px}
           <label for="us-q">Rechercher</label>
           <input id="us-q" placeholder="nom ou adresse mail" autocomplete="off"
             oninput="usFiltrer()"></div>
-        <div class="field" style="flex:1 1 180px;margin:0">
-          <label for="us-projet">Accès a</label>
-          <select id="us-projet" onchange="usFiltrer()">
-            <option value="">toutes les applications</option>
-          </select></div>
       </div>
 
       <div id="us-liste" style="margin-top:14px"></div>
@@ -2735,9 +2750,9 @@ function usFiltrer(){ usPeindreListe(); }
 
 function usRetenus(){
   const q=($('us-q').value||'').trim().toLowerCase();
-  const projet=$('us-projet').value||'';
+  /* Plus de filtre par application ici : il doublait l'onglet Acces de la
+     fiche d'application, ou la question se REGLE au lieu de se poser. */
   return usTous.filter(c=>{
-    if(projet && !(c.projets||[]).includes(projet)) return false;
     if(!q) return true;
     return (c.nom+' '+(c.email||'')).toLowerCase().includes(q);
   });
@@ -2804,18 +2819,6 @@ async function chargerUtilisateurs(){
   usTous=comptes;
   usComptes=comptes;
 
-  /* La liste deroulante des applications suit celles qui existent, et garde
-     la selection en cours si elle existe toujours. */
-  const select=$('us-projet');
-  if(select){
-    const choisi=select.value;
-    const noms=[...new Set(comptes.flatMap(c=>c.projets||[]))].sort();
-    for(const a of (apps||[])) if(!noms.includes(a.name)) noms.push(a.name);
-    noms.sort();
-    select.innerHTML='<option value="">toutes les applications</option>'
-      + noms.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
-    select.value = noms.includes(choisi) ? choisi : '';
-  }
   usPeindreListe();
   /* La fiche ouverte suit : les projets ont pu changer pendant qu'elle
      l'etait, et les cases a cocher doivent rester justes. */
@@ -3451,7 +3454,7 @@ async function chargerVps(){
   p.innerHTML='<i></i>'+faites+' sur '+etapes.length;
 
   $('vps-diagnostic').innerHTML = etapes.map(e=>
-    `<div class="kv"><span class="k">${esc(e.étape)}</span>
+    `<div class="kv"><span class="k">${esc(e.etape)}</span>
      <span class="v"><span class="pill ${e.ok?'on':'off'}"><i></i>${e.ok?'fait':'non'}</span></span></div>`
     + (e.ok ? '' : `<div class="hint" style="margin:-2px 0 10px">${esc(e.aide)}</div>`)).join('');
 
@@ -3461,16 +3464,27 @@ async function chargerVps(){
       + 'cette image. Ils vivent dans <code>app-manager/vps/</code> du depot.</div>';
     return;
   }
-  /* Replies par defaut : quatre fichiers deroules d'un coup noient la page,
+  /* GROUPES PAR MACHINE. La seule question qu'on se pose devant un fichier
+     de configuration est "je le colle ou ?" : la reponse passe donc avant le
+     fichier, et non dans une note a cote.
+
+     Replies par defaut : quatre fichiers deroules d'un coup noient la page,
      et on n'en copie qu'un a la fois. */
-  zone.innerHTML=(d.fichiers||[]).map((f,i)=>
-    `<détails style="margin-bottom:8px">
-       <summary style="cursor:pointer"><b>${esc(f.destination)}</b></summary>
+  const fichiers=d.fichiers||[];
+  const cotes=[...new Set(fichiers.map(f=>f.cote||''))];
+  zone.innerHTML = cotes.map(cote=>{
+    const siens=fichiers.map((f,i)=>[f,i]).filter(([f])=>(f.cote||'')===cote);
+    return `<div class="mb-titre" style="margin:14px 0 8px">${esc(cote)}</div>`
+      + siens.map(([f,i])=>
+    `<details style="margin-bottom:8px">
+       <summary style="cursor:pointer"><b>${esc(f.destination)}</b>${
+         f.role ? `<div class="hint" style="margin:2px 0 0 0">${esc(f.role)}</div>` : ''}</summary>
        <div class="actions" style="margin:8px 0">
          <button class="btn btn-default btn-sm" onclick="vpsCopier(${i})">Copier</button>
        </div>
        <pre class="pre-conf" id="vps-f${i}">${esc(f.contenu)}</pre>
-     </détails>`).join('');
+     </details>`).join('');
+  }).join('');
 }
 
 async function vpsCopier(i){

@@ -82,35 +82,76 @@ try{var t=localStorage.getItem('codelab-theme');
 # Ce qui reste ici : la mise en page propre a cette page. Aucune couleur en
 # dur -- tout passe par les jetons de theme.css.
 CSS = """
+/* Les memes composants que le panneau, ecrits avec ses jetons : carte,
+   pastille d'etat, bandeau de severite au bord de la ligne, chiffres
+   alignes. Le diagnostic est une PAGE DE PLUS de CodeLab, pas une
+   application invitee -- il doit se lire comme le reste. */
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--txt);font:var(--t-b,14px)/1.55 var(--sans,
- -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif);
- padding:34px 20px;-webkit-font-smoothing:antialiased}
-.wrap{max-width:880px;margin:0 auto}
-h1{font-size:19px;font-weight:650;margin-bottom:4px}
-.sub{color:var(--dim);font-size:13px;margin-bottom:24px}
-.verdict{padding:14px 17px;border-radius:12px;font-weight:600;margin-bottom:24px;
- border:1px solid transparent;line-height:1.5}
-.verdict.ok{background:var(--ok-bg);color:var(--ok);border-color:var(--ok-border)}
-.verdict.ko{background:var(--err-bg);color:var(--err);border-color:var(--err-border)}
-h2{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--dim2);
- margin:28px 0 10px}
-table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--line);
- border-radius:12px;overflow:hidden}
-th{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--dim2);
- text-align:left;padding:10px 14px;background:var(--surface2);border-bottom:1px solid var(--line)}
-td{padding:11px 14px;border-top:1px solid var(--line);vertical-align:top}
+body{background:var(--bg);color:var(--txt);
+ font:var(--t-b,14px)/1.5 var(--sans,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif);
+ padding:28px 20px 56px;-webkit-font-smoothing:antialiased;
+ font-feature-settings:"tnum";letter-spacing:-.006em}
+.wrap{max-width:960px;margin:0 auto}
+
+h1{font-size:var(--t-xl,22px);font-weight:800;letter-spacing:-.03em;line-height:1.2}
+.sub{color:var(--dim);font-size:var(--t-m,13px);margin:4px 0 20px;max-width:76ch}
+
+/* Le verdict est la premiere chose lue : c'est la tuile de tete du cockpit. */
+.verdict{display:flex;align-items:baseline;gap:10px;padding:13px 16px;
+ border-radius:var(--r,8px);font-weight:700;margin-bottom:18px;
+ border:1px solid var(--line);background:var(--surface);
+ box-shadow:0 1px 2px var(--shadow);line-height:1.45}
+.verdict::before{content:"";width:8px;height:8px;border-radius:50%;flex:none;
+ align-self:center}
+.verdict.ok::before{background:var(--ok)}
+.verdict.ko::before{background:var(--err)}
+.verdict.ok{color:var(--ok)}
+.verdict.ko{color:var(--err)}
+
+h2{font-size:10px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;
+ color:var(--dim2);margin:24px 0 9px}
+
+.tbl-wrap{background:var(--surface);border:1px solid var(--line);
+ border-radius:var(--r,8px);overflow:hidden;box-shadow:0 1px 2px var(--shadow)}
+table{width:100%;border-collapse:collapse}
+th{font-size:10px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;
+ color:var(--dim2);text-align:left;padding:9px 14px;background:var(--surface);
+ border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:9px 14px;border-top:1px solid var(--line);vertical-align:top;
+ font-size:var(--t-m,13px)}
 tr:first-child td{border-top:none}
-.st{font-weight:700;white-space:nowrap;width:1%}
-.st.ok{color:var(--ok)} .st.ko{color:var(--err)}
-.nom{font-weight:600;white-space:nowrap}
-.det{color:var(--dim);font-size:12.5px;font-family:ui-monospace,Menlo,monospace;word-break:break-word}
-.src{font-weight:600}
-code{font-family:ui-monospace,Menlo,monospace;background:var(--bg);border:1px solid var(--line);
- border-radius:5px;padding:1px 5px;font-size:12px}
-.note{color:var(--dim);font-size:12.5px;margin-top:12px;line-height:1.6}
-.err{background:var(--err-bg);border:1px solid var(--err-border);color:var(--err);padding:12px 14px;
- border-radius:10px;font-family:ui-monospace,Menlo,monospace;font-size:12px;white-space:pre-wrap}
+tbody tr:hover{background:var(--surface2)}
+
+/* Le bandeau de severite du panneau : on repere une sonde en echec sans
+   lire une seule ligne. */
+td:first-child{box-shadow:inset 3px 0 0 var(--line2);padding-left:17px}
+tr.ko td:first-child{box-shadow:inset 3px 0 0 var(--err)}
+tr.ok td:first-child{box-shadow:inset 3px 0 0 var(--ok)}
+
+/* La pastille d'etat, comme dans le panneau : fond teinte, coins pleins,
+   point devant. */
+.st{white-space:nowrap;width:1%}
+.st span{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;
+ border-radius:999px;font-size:var(--t-xs,11px);font-weight:700}
+.st span::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.st.ok span{color:var(--ok);background:var(--ok-bg)}
+.st.ko span{color:var(--err);background:var(--err-bg)}
+
+.nom{font-weight:700;white-space:nowrap;letter-spacing:-.012em}
+.det{color:var(--dim);font-size:var(--t-s,12px);
+ font-family:var(--mono,ui-monospace,Menlo,monospace);word-break:break-word}
+.src{font-weight:700}
+code{font-family:var(--mono,ui-monospace,Menlo,monospace);background:var(--surface2);
+ border:1px solid var(--line);border-radius:var(--r-xs,4px);padding:1px 5px;
+ font-size:var(--t-s,12px)}
+.note{color:var(--dim);font-size:var(--t-s,12px);margin-top:12px;line-height:1.6}
+.err{background:var(--err-bg);border:1px solid var(--err-border);color:var(--err-txt);
+ /* Pas de couleur de repli : une valeur ecrite ici est une valeur qui
+    divergera le jour ou le panneau changera la sienne. Les replis de
+    TAILLE, eux, restent -- ils ne peuvent pas mentir sur un etat. */
+ padding:12px 14px;border-radius:var(--r,8px);
+ font-family:var(--mono,ui-monospace,Menlo,monospace);font-size:var(--t-s,12px);
+ white-space:pre-wrap}
 """
 
 
@@ -148,7 +189,9 @@ def tests():
         resultats.append(checks.lancer_suite_du_panneau())
     duree = int((time.time() - debut) * 1000)
     lignes = "".join(
-        f'<tr><td class="st {"ok" if ok else "ko"}">{"OK" if ok else "ECHEC"}</td>'
+        f'<tr class="{"ok" if ok else "ko"}">'
+        f'<td class="st {"ok" if ok else "ko"}">'
+        f'<span>{"OK" if ok else "ECHEC"}</span></td>'
         f'<td class="nom">{esc(nom)}</td><td class="det">{esc(det)}</td></tr>'
         for ok, nom, det in resultats)
     reussis = sum(1 for ok, _, _ in resultats if ok)
@@ -195,7 +238,9 @@ def index():
         erreur_db = traceback.format_exc(limit=3)
 
     lignes = "".join(
-        f'<tr><td class="st {"ok" if ok else "ko"}">{"OK" if ok else "ECHEC"}</td>'
+        f'<tr class="{"ok" if ok else "ko"}">'
+        f'<td class="st {"ok" if ok else "ko"}">'
+        f'<span>{"OK" if ok else "ECHEC"}</span></td>'
         f'<td class="nom">{esc(nom)}</td><td class="det">{esc(det)}</td></tr>'
         for ok, nom, det in resultats)
 

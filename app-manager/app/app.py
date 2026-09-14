@@ -4190,12 +4190,29 @@ VPS_MODELES = os.environ.get(
 # plutot que reecrire : les modeles sont la source de verite, et un assistant
 # qui regenere son propre texte finit toujours par decrire autre chose que ce
 # que dit le README.
+# La seule question qu'on se pose devant un fichier de configuration est :
+# "je le colle OU ?". Le cote est donc porte par la donnee, et non devine
+# dans la page a partir du texte d'un chemin.
+#
+# L'ordre compte aussi : le tunnel d'abord (sans lui, nginx n'a personne a
+# joindre), nginx ensuite. C'est l'ordre dans lequel on fait les choses.
+COTE_VPS = "Sur le VPS"
+COTE_LOCAL = "Sur cette machine"
+
 VPS_FICHIERS = {
-    "nginx": ("nginx/codelab.conf", "/etc/nginx/sites-available/codelab.conf"),
-    "nginx_upgrade": ("nginx/00-codelab-upgrade.conf", "/etc/nginx/conf.d/00-codelab-upgrade.conf"),
-    "wireguard_vps": ("wireguard/wg0-vps.conf.exemple", "/etc/wireguard/wg0.conf (sur le VPS)"),
+    "wireguard_vps": ("wireguard/wg0-vps.conf.exemple",
+                      "/etc/wireguard/wg0.conf", COTE_VPS,
+                      "Le tunnel, cote VPS."),
     "wireguard_local": ("wireguard/wg0-zimablade.conf.exemple",
-                        "/etc/wireguard/wg0.conf (sur l'hote de la ZimaBlade)"),
+                        "/etc/wireguard/wg0.conf", COTE_LOCAL,
+                        "Le tunnel, cote ZimaBlade. A poser sur l'HOTE, pas dans un conteneur."),
+    "nginx": ("nginx/codelab.conf",
+              "/etc/nginx/sites-available/codelab.conf", COTE_VPS,
+              "Le domaine, le certificat, et le renvoi dans le tunnel."),
+    "nginx_upgrade": ("nginx/00-codelab-upgrade.conf",
+                      "/etc/nginx/conf.d/00-codelab-upgrade.conf", COTE_VPS,
+                      "Laisse passer les websockets. Une ligne, mais sans elle le terminal "
+                      "de Dagster reste muet."),
 }
 
 
@@ -4229,7 +4246,7 @@ def vps_configuration(reglages):
     domaine = reglages["domaine"] or "codelab.exemple.fr"
     reseau = reglages["reseau"] or "10.8.0"
     sorties = {}
-    for cle, (relatif, destination) in VPS_FICHIERS.items():
+    for cle, (relatif, destination, cote, role) in VPS_FICHIERS.items():
         chemin = os.path.join(VPS_MODELES, relatif)
         try:
             with open(chemin, encoding="utf-8") as f:
@@ -4243,7 +4260,8 @@ def vps_configuration(reglages):
         texte = texte.replace("10.8.0.0/24", reseau + ".0/24")
         if reglages["ip"]:
             texte = texte.replace("203.0.113.10", reglages["ip"])
-        sorties[cle] = {"destination": destination, "contenu": texte}
+        sorties[cle] = {"destination": destination, "contenu": texte,
+                        "cote": cote, "role": role}
     return sorties
 
 
@@ -4285,8 +4303,12 @@ def api_vps():
     return jsonify({
         "reglages": reglages,
         "diagnostic": vps_diagnostic(reglages),
+        # cote et role partent avec : c'est la page qui les affiche, mais
+        # c'est ici qu'ils sont connus. Les deviner cote navigateur a partir
+        # d'un chemin serait une regle de plus a tenir a jour ailleurs.
         "fichiers": [{"cle": cle, "destination": v["destination"],
-                      "contenu": v["contenu"]}
+                      "contenu": v["contenu"], "cote": v["cote"],
+                      "role": v["role"]}
                      for cle, v in config.items()],
         "modeles_absents": not config,
     })

@@ -2748,6 +2748,45 @@ def test_les_valeurs_sont_substituees_dans_les_vrais_modeles(vps):
     assert all(f["destination"] for f in d["fichiers"])
 
 
+def test_chaque_fichier_dit_sur_quelle_machine_il_va(vps):
+    """La seule question devant un fichier de configuration est "je le colle
+    OU ?". Le cote voyage donc avec la donnee. Le deviner dans la page a
+    partir du texte d'un chemin serait une regle de plus a tenir a jour
+    ailleurs -- et c'est toujours celle-la qu'on oublie."""
+    for cle, entree in app.VPS_FICHIERS.items():
+        relatif, destination, cote, role = entree
+        assert cote in (app.COTE_VPS, app.COTE_LOCAL), cle
+        assert role, cle
+    d = vps.get("/api/vps").get_json()
+    if d["modeles_absents"]:
+        pytest.skip("modeles vps absents de cette image")
+    assert all(f["cote"] and f["role"] for f in d["fichiers"])
+    # Les deux machines sont representees : un assistant qui n'en montrerait
+    # qu'une laisserait le tunnel a moitie pose.
+    assert {f["cote"] for f in d["fichiers"]} == {app.COTE_VPS, app.COTE_LOCAL}
+
+
+def test_le_tunnel_est_propose_avant_nginx(vps):
+    """Sans tunnel, nginx n'a personne a joindre. L'ordre des fichiers est
+    l'ordre dans lequel on les pose."""
+    cles = list(app.VPS_FICHIERS)
+    assert cles.index("wireguard_vps") < cles.index("nginx")
+    assert cles.index("wireguard_local") < cles.index("nginx")
+    d = vps.get("/api/vps").get_json()
+    if d["modeles_absents"]:
+        pytest.skip("modeles vps absents de cette image")
+    rendus = [f["cle"] for f in d["fichiers"]]
+    assert rendus.index("wireguard_vps") < rendus.index("nginx")
+
+
+def test_la_destination_ne_repete_pas_la_machine(vps):
+    """La destination est un chemin a coller dans un terminal. Y glisser
+    "(sur le VPS)" donnait une commande fausse des qu'on la copiait."""
+    for cle, (_, destination, _, _) in app.VPS_FICHIERS.items():
+        assert "(" not in destination, cle
+        assert destination.startswith("/"), cle
+
+
 def test_une_adresse_privee_est_refusee(vps):
     """Un VPS joignable depuis internet n'a pas une adresse privee. Saisir
     celle de sa propre machine donnerait une configuration qui ne peut pas
@@ -5050,6 +5089,22 @@ def test_aucune_classe_css_n_est_accentuee():
         assert not fautives, f"{nom} : classes accentuees {fautives}"
 
 
+def test_aucune_balise_html_n_est_accentuee():
+    """Un nom de BALISE accentue donne un element inconnu, silencieusement.
+
+    Trouve dans l'assistant VPS : <detabils> ecrit avec un accent n'etait
+    plus un <details>. Les quatre fichiers de configuration s'affichaient
+    donc deroules d'un coup, au lieu d'etre replies -- la page etait noyee,
+    et rien n'indiquait pourquoi.
+    """
+    for nom in ("dashboard.html", "login.html"):
+        page = _page_panneau(nom)
+        fautives = sorted(set(
+            m.group(1) for m in re.finditer(
+                r"</?([A-Za-z0-9]*[^\x00-\x7F\s/>][A-Za-z0-9]*)[\s/>]", page)))
+        assert not fautives, f"{nom} : balises accentuees {fautives}"
+
+
 def test_aucun_identifiant_javascript_n_est_accentue():
     """Ni une variable, ni un champ d'objet.
 
@@ -5059,12 +5114,13 @@ def test_aucun_identifiant_javascript_n_est_accentue():
     """
     _, script = _script_panneau_html()
     lus = set()
-    # Les expressions ${identifiant} des gabarits.
-    for m in re.finditer(r"\$\{\s*([A-Za-z_$][\w$]*[^\x00-\x7F][\w$\u00C0-\u024F]*)",
+    # Le premier caractere peut lui-meme porter l'accent (etape) : le motif
+    # ne doit donc PAS exiger un caractere ASCII devant. C'est ce que la
+    # premiere version supposait, et "etape" lui a echappe.
+    for m in re.finditer(r"\$\{\s*([\w$\u00C0-\u024F]*[^\x00-\x7F][\w$\u00C0-\u024F]*)",
                          script):
         lus.add(m.group(1))
-    # Les acces .champ sur un objet.
-    for m in re.finditer(r"\.([A-Za-z_$][\w$]*[^\x00-\x7F][\w$\u00C0-\u024F]*)\b",
+    for m in re.finditer(r"\.([\w$\u00C0-\u024F]*[^\x00-\x7F][\w$\u00C0-\u024F]*)\b",
                          script):
         lus.add(m.group(1))
     assert not lus, f"identifiants JavaScript accentues : {sorted(lus)}"
