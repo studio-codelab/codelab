@@ -389,6 +389,12 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
 /* Memes onglets pour les parametres. Ils separent ce qui n'a rien a voir --
    son propre compte, sa securite, les reglages du serveur -- au lieu
    d'empiler sept cartes qu'il faut faire defiler pour trouver la bonne. */
+/* Les filtres de la liste des comptes : une rangee qui se replie en colonne
+   sur un ecran etroit plutot que de deborder. */
+.us-filtres{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+.us-pages{display:flex;gap:12px;align-items:center;justify-content:center;
+  margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
+.us-pages .hint{margin:0}
 .onglet-p{display:none}
 .onglet-p.actif{display:block}
 .fiche-onglets button[data-admin]{display:none}
@@ -731,6 +737,7 @@ table.tbl-journal{min-width:560px}
     <button data-o="metriques" onclick="ficheOnglet('metriques')">Metriques</button>
     <button data-o="journal" onclick="ficheOnglet('journal')">Journal</button>
     <button data-o="activite" onclick="ficheOnglet('activite')">Activite</button>
+    <button data-o="acces" onclick="ficheOnglet('acces')">Acces</button>
     <button data-o="config" onclick="ficheOnglet('config')">Configuration</button>
   </div>
 
@@ -804,6 +811,27 @@ table.tbl-journal{min-width:560px}
     <div class="hint">Une ouverture est notee au plus une fois par quart d'heure et par compte :
       une page web, c'est des dizaines de requetes, et les compter toutes ne dirait plus rien
       de la frequentation.</div>
+  </div>
+
+  <div class="onglet" id="onglet-acces">
+    <div class="zone">
+      <div class="card settings-card">
+        <div class="card-top"><div class="card-name">
+          <b>Qui ouvre cette application</b>
+          <div class="path">Coche un compte pour lui donner l'acces, decoche pour le retirer.</div>
+        </div>
+        <span class="pill" id="ac-etat"><i></i>&nbsp;</span></div>
+
+        <div class="hint" id="ac-publique" style="display:none"></div>
+        <div class="hint">La meme information que dans la fiche d'un compte, prise par l'autre
+          bout. Pour savoir qui ouvre une application il fallait jusqu'ici ouvrir les fiches une
+          par une — et pour donner l'acces a cinq personnes, cinq allers-retours.</div>
+
+        <div id="ac-liste" style="margin-top:14px"></div>
+        <div class="err" id="ac-err" style="display:none"></div>
+        <div class="hint" id="ac-msg" style="display:none"></div>
+      </div>
+    </div>
   </div>
 
   <div class="onglet" id="onglet-config">
@@ -1317,7 +1345,36 @@ table.tbl-journal{min-width:560px}
 
       <div class="hint" id="us-inscription-libre" style="display:none"></div>
 
+      <!-- Retrouver quelqu'un. Deux filtres qui se combinent, parce qu'on
+           cherche de deux facons : par la personne qu'on a en tete, ou par
+           l'application dont on veut savoir qui y a acces. La seconde
+           question n'avait aucune reponse avant : il fallait ouvrir les
+           fiches une par une. -->
+      <div class="us-filtres" style="margin-top:16px">
+        <div class="field" style="flex:2 1 220px;margin:0">
+          <label for="us-q">Rechercher</label>
+          <input id="us-q" placeholder="nom ou adresse mail" autocomplete="off"
+            oninput="usFiltrer()"></div>
+        <div class="field" style="flex:1 1 180px;margin:0">
+          <label for="us-projet">Acces a</label>
+          <select id="us-projet" onchange="usFiltrer()">
+            <option value="">toutes les applications</option>
+          </select></div>
+        <div class="field" style="flex:0 0 110px;margin:0">
+          <label for="us-taille">Par page</label>
+          <select id="us-taille" onchange="usTaille()">
+            <option value="25">25</option>
+            <option value="50">50</option>
+          </select></div>
+      </div>
+
       <div id="us-liste" style="margin-top:14px"></div>
+
+      <div class="us-pages" id="us-pagination" style="display:none">
+        <button class="btn btn-default btn-sm" id="us-prec" onclick="usAllerA(usPage-1)">Precedent</button>
+        <span class="hint" id="us-compte"></span>
+        <button class="btn btn-default btn-sm" id="us-suiv" onclick="usAllerA(usPage+1)">Suivant</button>
+      </div>
 
       <!-- Le formulaire de creation est replie : on ouvre cette page dix fois
            pour regarder ou modifier, une fois pour ajouter quelqu'un. -->
@@ -1918,6 +1975,83 @@ function ficheOnglet(o){
   if(o==='journal') ouvrirLog(ficheNom); else fermerLog();
   if(o==='metriques') chargerMetriques(ficheNom);
   if(o==='activite') chargerActivite().then(peindreActiviteFiche);
+  if(o==='acces') chargerAcces(ficheNom);
+}
+
+/* ---------------- acces a une application ---------------- */
+/* L'etat vient du serveur a chaque ouverture de l'onglet, jamais d'un cache :
+   une autorisation accordee depuis la fiche d'un compte, dans un autre
+   onglet du navigateur, doit se voir ici. */
+let acCourant='';
+
+async function chargerAcces(nom){
+  acCourant=nom;
+  const zone=$('ac-liste'); zone.innerHTML='<div class="hint">Chargement...</div>';
+  $('ac-err').style.display='none'; $('ac-msg').style.display='none';
+  let d;
+  try{
+    const r=await fetch('/api/apps/'+encodeURIComponent(nom)+'/acces');
+    d=await r.json();
+    if(!r.ok) throw new Error(d.error||'');
+  }catch(e){
+    zone.innerHTML='';
+    $('ac-err').textContent='Liste des acces indisponible.';
+    $('ac-err').style.display='block';
+    return;
+  }
+  const comptes=d.comptes||[];
+  const nb=comptes.filter(c=>c.acces).length;
+  const p=$('ac-etat');
+  p.className='pill '+(nb?'on':'off');
+  p.innerHTML='<i></i>'+(nb ? nb+' compte'+(nb>1?'s':'') : 'aucun compte');
+
+  /* Une application publique s'ouvre sans compte : cocher quelqu'un ici n'y
+     changerait rien, et laisser croire le contraire serait pire que de ne
+     rien afficher. */
+  const pub=$('ac-publique');
+  pub.style.display = d.publique ? 'block' : 'none';
+  pub.innerHTML = d.publique
+    ? '<b>Cette application est publique</b> : elle s\'ouvre sans compte, y compris par '
+      + 'quelqu\'un qui n\'en a pas. Ces autorisations ne reprendront effet que si tu la '
+      + 'repasses en privee (onglet <b>Configuration</b>).'
+    : '';
+
+  if(!comptes.length){
+    zone.innerHTML='<div class="hint">Aucun compte nomme n\'existe. Toi seul ouvres les '
+      + 'projets prives — cree un compte depuis <b>Utilisateurs</b> pour en partager un.</div>';
+    return;
+  }
+  zone.innerHTML = comptes.map(c=>
+    `<div class="field" style="margin-bottom:8px">
+       <label><input type="checkbox" id="ac-${esc(c.nom)}" ${c.acces?'checked':''}
+         onchange="acBasculer()"> ${esc(c.nom)}</label>
+       ${c.email ? '<div class="hint" style="margin-top:2px">'+esc(c.email)+'</div>' : ''}
+     </div>`).join('');
+}
+
+async function acBasculer(){
+  const cases=[...document.querySelectorAll('#ac-liste input[type=checkbox]')];
+  const choisis=cases.filter(c=>c.checked).map(c=>c.id.slice(3));
+  cases.forEach(c=>c.disabled=true);
+  const m=$('ac-msg'), e=$('ac-err');
+  e.style.display='none';
+  try{
+    const r=await fetch('/api/apps/'+encodeURIComponent(acCourant)+'/acces',
+      {method:'PUT', headers:{'Content-Type':'application/json'},
+       body:JSON.stringify({utilisateurs: choisis})});
+    const d=await r.json();
+    if(!r.ok){ e.textContent=d.error||'Enregistrement impossible.'; e.style.display='block'; }
+    else{
+      m.textContent = choisis.length
+        ? choisis.join(', ')+' ouvre'+(choisis.length>1?'nt':'')+' cette application.'
+        : 'Plus aucun compte n\'ouvre cette application.';
+      m.style.display='block';
+    }
+  }catch(err){ e.textContent='Erreur reseau.'; e.style.display='block'; }
+  finally{ cases.forEach(c=>c.disabled=false); }
+  /* La liste des comptes affiche un compteur de projets : elle doit suivre. */
+  await chargerAcces(acCourant);
+  chargerUtilisateurs();
 }
 
 function peindreFiche(){
@@ -2354,43 +2488,142 @@ function usErreur(texte){
   e.textContent=texte; e.style.display='block';
 }
 
+/* La liste complete arrive du serveur, le filtrage et la pagination se font
+   ici. C'est le bon compromis a cette echelle -- quelques dizaines de comptes
+   sur une machine de salon -- et c'est deja ce que fait la recherche
+   d'applications. Au-dela de quelques milliers de comptes il faudrait
+   paginer cote serveur ; ce jour-la, la question ne se posera pas qu'ici. */
+let usTous=[], usPage=1;
+
+/* Memorise par navigateur : c'est une preference d'affichage, pas un reglage
+   du serveur. Une valeur illisible ou un stockage refuse (navigation privee)
+   ne doit pas casser la page -- d'ou le try. */
+function usParPage(){
+  try{
+    const v=parseInt(localStorage.getItem('codelab.us.taille'), 10);
+    if(v===25 || v===50) return v;
+  }catch(e){}
+  return 25;
+}
+
+function usTaille(){
+  const v=$('us-taille').value;
+  try{ localStorage.setItem('codelab.us.taille', v); }catch(e){}
+  usPage=1;
+  usPeindreListe();
+}
+
+function usFiltrer(){
+  /* Toute modification d'un filtre ramene en page 1 : rester en page 3 d'un
+     resultat qui n'en compte plus qu'une donne une liste vide, et l'on croit
+     que la recherche n'a rien trouve. */
+  usPage=1;
+  usPeindreListe();
+}
+
+function usAllerA(n){
+  usPage=n;
+  usPeindreListe();
+  $('us-liste').scrollIntoView({block:'nearest', behavior:'smooth'});
+}
+
+function usRetenus(){
+  const q=($('us-q').value||'').trim().toLowerCase();
+  const projet=$('us-projet').value||'';
+  return usTous.filter(c=>{
+    if(projet && !(c.projets||[]).includes(projet)) return false;
+    if(!q) return true;
+    return (c.nom+' '+(c.email||'')).toLowerCase().includes(q);
+  });
+}
+
+function usLigne(c){
+  /* Ce qui empeche quelqu'un d'entrer passe en premier, et en rouge : un
+     compte qui n'a jamais confirme son adresse ne se connecte pas. */
+  const badges=[];
+  if(c.attente_email) badges.push('<span class="pill err"><i></i>Inscription a confirmer</span>');
+  if(!c.totp) badges.push('<span class="pill off"><i></i>2FA en attente</span>');
+  if(c.passkeys) badges.push(`<span class="pill on"><i></i>${c.passkeys} cle${c.passkeys>1?'s':''}</span>`);
+  const projets = c.projets.length
+    ? c.projets.length + ' projet' + (c.projets.length>1?'s':'')
+    : 'aucun projet';
+  const adresse = c.email
+    ? esc(c.email) + (c.email_verifie ? ' (verifiee)' : ' (non verifiee)')
+    : 'sans adresse';
+  return `<div class="us-ligne">
+    <div class="us-rond">${esc((c.nom||'?').slice(0,1))}</div>
+    <div class="us-corps">
+      <div class="us-nom"><b>${esc(c.nom)}</b>${badges.join('')}</div>
+      <div class="us-meta">${adresse} — ${projets}<span data-activite="${esc(c.nom)}"></span></div>
+    </div>
+    <button class="btn btn-default btn-sm" onclick="usOuvrir('${esc(c.nom)}')">Modifier</button>
+  </div>`;
+}
+
+function usPeindreListe(){
+  const zone=$('us-liste'), barre=$('us-pagination');
+  if(!usTous.length){
+    zone.innerHTML='<div class="vide"><b>Aucun compte</b>'
+      +'Toi seul peux ouvrir les projets prives. Cree un compte pour partager '
+      +'un projet avec quelqu\'un sans lui donner l\'administration.</div>';
+    barre.style.display='none';
+    return;
+  }
+  const retenus=usRetenus();
+  if(!retenus.length){
+    /* Dire ce qui a ete cherche : "aucun resultat" tout court laisse penser
+       que la liste est vide, alors que c'est le filtre qui l'a videe. */
+    zone.innerHTML='<div class="vide"><b>Aucun compte ne correspond</b>'
+      +'Ni au texte saisi, ni a l\'application choisie. Efface les filtres '
+      +'pour retrouver les '+usTous.length+' comptes.</div>';
+    barre.style.display='none';
+    return;
+  }
+  const taille=usParPage();
+  const pages=Math.max(1, Math.ceil(retenus.length/taille));
+  if(usPage>pages) usPage=pages;
+  if(usPage<1) usPage=1;
+  const debut=(usPage-1)*taille;
+  const tranche=retenus.slice(debut, debut+taille);
+  zone.innerHTML=tranche.map(usLigne).join('');
+  peindreComptesActivite();
+
+  /* La barre ne s'affiche que s'il y a plus d'une page : une pagination sous
+     six lignes est du bruit. Le compte, lui, reste utile des qu'un filtre
+     agit -- il dit combien de comptes ont ete ecartes. */
+  const filtre = retenus.length !== usTous.length;
+  barre.style.display = (pages>1 || filtre) ? 'flex' : 'none';
+  $('us-prec').disabled = usPage<=1;
+  $('us-suiv').disabled = usPage>=pages;
+  const surTotal = filtre ? ' sur '+usTous.length : '';
+  $('us-compte').textContent = pages>1
+    ? `${debut+1}\u2013${debut+tranche.length} de ${retenus.length}${surTotal} — page ${usPage} sur ${pages}`
+    : `${retenus.length} compte${retenus.length>1?'s':''}${surTotal}`;
+}
+
 async function chargerUtilisateurs(){
   let d;
   try{ d=await (await fetch('/api/utilisateurs')).json(); }catch(e){ return; }
   const comptes=d.utilisateurs||[];
   $('side-count-users').textContent=comptes.length;
-  if(!comptes.length){
-    $('us-liste').innerHTML='<div class="vide"><b>Aucun compte</b>'
-      +'Toi seul peux ouvrir les projets prives. Cree un compte pour partager '
-      +'un projet avec quelqu\'un sans lui donner l\'administration.</div>';
-    return;
+  usTous=comptes;
+  usComptes=comptes;
+
+  /* La liste deroulante des applications suit celles qui existent, et garde
+     la selection en cours si elle existe toujours. */
+  const select=$('us-projet');
+  if(select){
+    const choisi=select.value;
+    const noms=[...new Set(comptes.flatMap(c=>c.projets||[]))].sort();
+    for(const a of (apps||[])) if(!noms.includes(a.name)) noms.push(a.name);
+    noms.sort();
+    select.innerHTML='<option value="">toutes les applications</option>'
+      + noms.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
+    select.value = noms.includes(choisi) ? choisi : '';
   }
-  /* La liste dit l'essentiel ; le detail vit dans la fiche du compte. Une
-     ligne par personne, un bouton par ligne. */
-  usComptes = comptes;
-  $('us-liste').innerHTML = comptes.map(c=>{
-    /* Ce qui empeche quelqu'un d'entrer passe en premier, et en rouge : un
-       compte qui n'a jamais confirme son adresse ne se connecte pas. */
-    const badges=[];
-    if(c.attente_email) badges.push('<span class="pill err"><i></i>Inscription a confirmer</span>');
-    if(!c.totp) badges.push('<span class="pill off"><i></i>2FA en attente</span>');
-    if(c.passkeys) badges.push(`<span class="pill on"><i></i>${c.passkeys} cle${c.passkeys>1?'s':''}</span>`);
-    const projets = c.projets.length
-      ? c.projets.length + ' projet' + (c.projets.length>1?'s':'')
-      : 'aucun projet';
-    const adresse = c.email
-      ? esc(c.email) + (c.email_verifie ? ' (verifiee)' : ' (non verifiee)')
-      : 'sans adresse';
-    return `<div class="us-ligne">
-      <div class="us-rond">${esc((c.nom||'?').slice(0,1))}</div>
-      <div class="us-corps">
-        <div class="us-nom"><b>${esc(c.nom)}</b>${badges.join('')}</div>
-        <div class="us-meta">${adresse} — ${projets}<span data-activite="${esc(c.nom)}"></span></div>
-      </div>
-      <button class="btn btn-default btn-sm" onclick="usOuvrir('${esc(c.nom)}')">Modifier</button>
-    </div>`;
-  }).join('');
-  peindreComptesActivite();
+  $('us-taille').value = String(usParPage());
+
+  usPeindreListe();
   /* La fiche ouverte suit : les projets ont pu changer pendant qu'elle
      l'etait, et les cases a cocher doivent rester justes. */
   if(usCourant && $('ov-user').classList.contains('show')) usPeindreFiche();

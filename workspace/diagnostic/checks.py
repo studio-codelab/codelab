@@ -2372,6 +2372,9 @@ def test_un_utilisateur_ne_peut_rien_administrer(deux_espaces):
                            ("delete", "/api/app/public"), ("get", "/api/utilisateurs"),
                            ("post", "/api/utilisateurs"), ("get", "/api/alertes"),
                            ("get", "/api/logs/public"),
+                           ("get", "/api/apps/public/acces"),
+                           ("put", "/api/apps/public/acces"),
+                           ("put", "/api/alertes/application/public"),
                            ("get", "/api/browse")]:
         r = getattr(c, methode)(route, json={})
         assert r.status_code == 403, f"{methode.upper()} {route} a repondu {r.status_code}"
@@ -2460,6 +2463,88 @@ def test_un_droit_sur_un_projet_inexistant_n_est_pas_enregistre(deux_espaces):
     r = c.put("/api/utilisateurs/marie", json={"projets": ["public", "jamais-declare"]})
     assert r.status_code == 200
     assert app.lire_utilisateurs()["marie"]["projets"] == ["public"]
+
+
+# ---------- l'acces a une application, vu depuis l'application ----------
+#
+# La meme information que dans la fiche d'un compte, prise par l'autre bout.
+# Elle n'existait que dans un sens : pour savoir qui ouvrait une application
+# il fallait ouvrir les fiches une par une, et pour l'accorder a cinq
+# personnes, cinq allers-retours.
+
+@pytest.fixture
+def acces(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    app._apps_cache["signature"] = None
+    app.save({"facturation": {"path": "/w/f", "command": "x", "port": 9101,
+                              "enabled": True, "visibility": "privee"},
+              "vitrine": {"path": "/w/v", "command": "x", "port": 9102,
+                          "enabled": True, "visibility": "publique"}})
+    sel = "cc" * 16
+    app.ecrire_utilisateurs({
+        "marie": {"sel": sel, "hash": app.derive_mot_de_passe("mot-de-passe-long", sel),
+                  "projets": ["vitrine"], "cree": 0, "email": "marie@example.com"},
+        "paul": {"sel": sel, "hash": app.derive_mot_de_passe("mot-de-passe-long", sel),
+                 "projets": [], "cree": 0},
+    })
+    c = app.flask_app.test_client()
+    c.post("/login", json={"password": "secret-de-test"})
+    return c
+
+
+def test_l_application_dit_qui_l_ouvre(acces):
+    d = acces.get("/api/apps/facturation/acces").get_json()
+    assert [c["nom"] for c in d["comptes"]] == ["marie", "paul"]
+    assert all(c["acces"] is False for c in d["comptes"])
+    assert d["publique"] is False
+    # L'adresse aide a distinguer deux homonymes ; elle est deja visible
+    # ailleurs dans le panneau pour un administrateur.
+    assert d["comptes"][0]["email"] == "marie@example.com"
+
+
+def test_accorder_l_acces_depuis_l_application_n_efface_pas_les_autres_projets(acces):
+    """La propriete qui compte. Envoyer la liste complete des projets d'un
+    compte aurait efface en silence ce qu'un autre onglet venait d'accorder :
+    on n'ecrit donc QUE cette application dans chaque fiche."""
+    r = acces.put("/api/apps/facturation/acces", json={"utilisateurs": ["marie"]})
+    assert r.status_code == 200, r.data
+    comptes = app.lire_utilisateurs()
+    assert comptes["marie"]["projets"] == ["facturation", "vitrine"], (
+        "l'acces accorde ailleurs a ete efface")
+    assert comptes["paul"]["projets"] == []
+
+
+def test_retirer_l_acces_ne_retire_que_celui_la(acces):
+    acces.put("/api/apps/facturation/acces", json={"utilisateurs": ["marie"]})
+    r = acces.put("/api/apps/facturation/acces", json={"utilisateurs": []})
+    assert r.status_code == 200, r.data
+    assert app.lire_utilisateurs()["marie"]["projets"] == ["vitrine"]
+
+
+def test_une_application_publique_le_dit(acces):
+    """Elle s'ouvre sans compte : laisser croire que cocher quelqu'un y change
+    quelque chose serait pire que de ne rien afficher."""
+    assert acces.get("/api/apps/vitrine/acces").get_json()["publique"] is True
+
+
+def test_un_compte_inconnu_est_refuse_sans_rien_ecrire(acces):
+    r = acces.put("/api/apps/facturation/acces",
+                  json={"utilisateurs": ["marie", "fantome"]})
+    assert r.status_code == 400, r.data
+    assert "fantome" in r.get_json()["error"]
+    assert app.lire_utilisateurs()["marie"]["projets"] == ["vitrine"], (
+        "un refus a quand meme modifie les comptes")
+
+
+def test_une_application_inconnue_repond_404(acces):
+    assert acces.get("/api/apps/absente/acces").status_code == 404
+    assert acces.put("/api/apps/absente/acces",
+                     json={"utilisateurs": []}).status_code == 404
 
 
 # ---------- 9. second facteur obligatoire pour les comptes utilisateurs ----------

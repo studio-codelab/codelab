@@ -4401,6 +4401,62 @@ def api_utilisateur_modifier(nom):
     return jsonify({"ok": True})
 
 
+@flask_app.get("/api/apps/<name>/acces")
+@require_admin
+def api_app_acces(name):
+    """Qui accede a cette application.
+
+    La meme information que dans la fiche d'un compte, prise par l'autre
+    bout. On l'avait dans un seul sens : pour savoir qui ouvrait une
+    application, il fallait ouvrir les fiches une par une -- et pour donner
+    l'acces a cinq personnes, cinq allers-retours.
+    """
+    apps = load()
+    if name not in apps:
+        return jsonify({"error": "Application inconnue."}), 404
+    comptes = lire_utilisateurs()
+    return jsonify({
+        "application": name,
+        "publique": (apps[name].get("visibility") or "privee") == "publique",
+        "comptes": [{"nom": nom,
+                     "acces": name in (c.get("projets") or []),
+                     "email": c.get("email") or ""}
+                    for nom, c in sorted(comptes.items())],
+    })
+
+
+@flask_app.put("/api/apps/<name>/acces")
+@require_admin
+def api_app_acces_modifier(name):
+    """Donne ou retire l'acces a cette application, compte par compte.
+
+    N'ecrit QUE cette application dans chaque fiche : les autres projets d'un
+    compte ne sont pas touches. Envoyer la liste complete des projets aurait
+    efface en silence ce qu'un autre onglet ouvert venait d'accorder.
+    """
+    apps = load()
+    if name not in apps:
+        return jsonify({"error": "Application inconnue."}), 404
+    d = request.get_json(force=True, silent=True) or {}
+    voulus = {str(n).strip() for n in (d.get("utilisateurs") or []) if str(n).strip()}
+
+    comptes = lire_utilisateurs()
+    inconnus = sorted(voulus - set(comptes))
+    if inconnus:
+        return jsonify({"error": "Compte inconnu : " + ", ".join(inconnus)}), 400
+
+    for nom, compte in comptes.items():
+        projets = [p for p in (compte.get("projets") or []) if p != name]
+        if nom in voulus:
+            projets.append(name)
+        compte["projets"] = sorted(set(projets))
+    try:
+        ecrire_utilisateurs(comptes)
+    except OSError as e:
+        return jsonify({"error": f"Non enregistre : {e}"}), 500
+    return jsonify({"ok": True, "utilisateurs": sorted(voulus)})
+
+
 @flask_app.delete("/api/utilisateurs/<nom>")
 @require_admin
 def api_utilisateur_supprimer(nom):

@@ -227,6 +227,21 @@ coup d'oeil — ce qui empeche quelqu'un d'entrer en premier, et en rouge — et
 fiche du compte** : adresse mail, nouveau mot de passe, projets autorises, remise a zero du second
 facteur, retrait des cles d'acces, suppression.
 
+**Retrouver quelqu'un.** Deux filtres se combinent au-dessus de la liste, parce qu'on cherche de
+deux facons : par la **personne** qu'on a en tete (nom ou adresse mail), ou par l'**application**
+dont on veut savoir qui y a acces. La seconde question n'avait aucune reponse avant — il fallait
+ouvrir les fiches une par une.
+
+La liste s'affiche par pages de **25 ou 50**. Le choix est retenu par navigateur : c'est une
+preference d'affichage, pas un reglage du serveur. Modifier un filtre ramene en page 1 — rester en
+page 3 d'un resultat qui n'en compte plus qu'une donne une liste vide, et l'on croit que la
+recherche n'a rien trouve.
+
+Le filtrage et la pagination se font **dans la page**, sur une liste recue en entier. C'est le bon
+compromis a cette echelle, et c'est deja ce que fait la recherche d'applications. Au-dela de
+quelques milliers de comptes il faudrait paginer cote serveur ; ce jour-la, la question ne se
+posera pas qu'ici.
+
 **Le nom, lui, ne se change pas** : il identifie la personne partout — dans ses cles d'acces, dans le
 journal des acces, dans la liste des projets autorises. Pour renommer quelqu'un, on cree un compte
 et on supprime l'ancien.
@@ -840,14 +855,24 @@ ouvrir une par une pour se faire une idee.
 
 En-tete : l'icone, le nom, la description, les pastilles d'etat et de visibilite, et les actions --
 **Demarrer / Arreter**, **Redemarrer**, **Build** (si une commande de build existe), **Deployer**,
-la bascule de visibilite, et **Ouvrir**. Puis quatre onglets :
+la bascule de visibilite, et **Ouvrir**. Puis cinq onglets :
 
 | Onglet | Contenu |
 |---|---|
 | General | Adresse, port interne, reponse du port, visibilite, dossier, commandes, limite memoire, CPU et memoire du moment |
 | Metriques | Courbes CPU et memoire sur les deux dernieres minutes |
 | Journal | Le flux en direct, avec filtre |
+| **Acces** | **Qui ouvre cette application : une case a cocher par compte** |
 | Configuration | Description, commandes, limite memoire, visibilite, emplacement, et la suppression |
+
+L'onglet **Acces** donne la meme information que la fiche d'un compte, prise par l'autre bout.
+Cocher un compte n'ecrit **que cette application** dans sa fiche : ses autres projets ne sont pas
+touches. Envoyer la liste complete aurait efface en silence ce qu'un autre onglet ouvert venait
+d'accorder.
+
+Sur une application **publique**, l'onglet le dit : elle s'ouvre sans compte, et ces autorisations
+ne reprendront effet qu'en la repassant en privee. Laisser croire le contraire serait pire que de
+ne rien afficher.
 
 Le flux de journal n'est ouvert **que** lorsque l'onglet Journal est affiche, et il est ferme des
 qu'on quitte la fiche : une place de flux est une ressource cote serveur (voir le plafond plus bas),
