@@ -1447,6 +1447,242 @@ def test_les_taches_vscode_passent_bien_le_drapeau():
             "cette tache cree le projet sans rouvrir la fenetre : " + ligne)
 
 
+# ---------- le squelette se met a jour sans ecraser le travail ----------
+#
+# Defaut vecu, et le plus vicieux rencontre jusqu'ici parce qu'il ne produit
+# AUCUN message : le squelette /workspace n'est copie qu'au premier
+# demarrage, et jamais remplace ensuite. Une correction livree dans l'image
+# ne pouvait donc atteindre aucune installation existante. Le projet
+# "diagnostic" corrige etait dans l'image, le disque gardait la version
+# cassee, et "docker compose pull" n'y changeait rien.
+#
+# L'entrypoint sait maintenant reconnaitre un fichier qui est l'une de nos
+# anciennes versions -- son empreinte figure dans dagster/squelette.sums --
+# et lui seul est remplace. Les tests ci-dessous font tourner LE VRAI BLOC,
+# extrait du vrai entrypoint : une reecriture du shell dans le test ne
+# prouverait que la justesse du test.
+
+_DEBUT_RECONCILIATION = "# ------------------- mise a jour des fichiers non modifies"
+_FIN_RECONCILIATION = "# ----------------------- abandon des privileges"
+
+
+def _racine_depot():
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        os.pardir, os.pardir)
+
+
+def _bloc_reconciliation():
+    """Le bloc de l'entrypoint, tel quel, avec le seul chemin d'image redirige."""
+    entree = os.path.join(_racine_depot(), "dagster", "entrypoint.sh")
+    if not os.path.exists(entree):
+        pytest.skip("depot complet absent de cette image")
+    texte = open(entree, encoding="utf-8").read()
+    # Un assert, pas un skip : si les reperes ont bouge, le test doit crier
+    # plutot que disparaitre en silence -- c'est exactement ainsi qu'une
+    # regression passe inapercue.
+    assert _DEBUT_RECONCILIATION in texte, "repere de debut introuvable dans entrypoint.sh"
+    assert _FIN_RECONCILIATION in texte, "repere de fin introuvable dans entrypoint.sh"
+    bloc = texte[texte.index(_DEBUT_RECONCILIATION):texte.index(_FIN_RECONCILIATION)]
+    return bloc.replace('SEED_SUMS=/opt/dagster/workspace.sums', 'SEED_SUMS="$SUMS_TEST"')
+
+
+def _somme(chemin):
+    import hashlib
+    with open(chemin, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+def _scene(tmp_path, sur_disque, livre, amorce=True, connues=()):
+    """Monte un faux workspace et joue le bloc dessus.
+
+    sur_disque : contenu de /workspace/diagnostic/checks.py, ou None pour
+                 simuler un fichier supprime par l'utilisateur.
+    livre      : contenu de la version portee par l'image.
+    connues    : contenus a declarer comme "versions deja livrees par
+                 CodeLab" -- c'est ce que fait dagster/squelette.sums.
+    """
+    import hashlib
+    import subprocess
+
+    seed = tmp_path / "seed" / "diagnostic"
+    ws = tmp_path / "ws" / "diagnostic"
+    seed.mkdir(parents=True)
+    ws.mkdir(parents=True)
+    (tmp_path / "ws" / ".codelab").mkdir()
+    (seed / "checks.py").write_text(livre, encoding="utf-8")
+    if sur_disque is not None:
+        (ws / "checks.py").write_text(sur_disque, encoding="utf-8")
+    if amorce:
+        (tmp_path / "ws" / ".codelab" / "workspace-v1").write_text("marqueur")
+
+    sommes = tmp_path / "squelette.sums"
+    sommes.write_text("".join(
+        hashlib.sha256(c.encode()).hexdigest() + " diagnostic/checks.py\n"
+        for c in connues), encoding="utf-8")
+
+    env = dict(os.environ,
+               WORKSPACE_SEED=str(tmp_path / "seed"),
+               WORKSPACE_DIR=str(tmp_path / "ws"),
+               SEED_MARKER=str(tmp_path / "ws" / ".codelab" / "workspace-v1"),
+               SUMS_TEST=str(sommes),
+               CODELAB_GROUP="root")
+    r = subprocess.run(["sh", "-c", _bloc_reconciliation()],
+                       capture_output=True, text=True, timeout=60, env=env)
+    assert r.returncode == 0, r.stderr
+    cible = ws / "checks.py"
+    return (cible.read_text(encoding="utf-8") if cible.exists() else None,
+            r.stdout + r.stderr)
+
+
+def test_une_ancienne_version_livree_est_remplacee(tmp_path):
+    """Le cas qui a motive tout ceci : le disque porte une version que NOUS
+    avons livree, elle est donc remplacable sans rien perdre."""
+    apres, journal = _scene(tmp_path, sur_disque="ancienne", livre="corrigee",
+                            connues=("ancienne", "corrigee"))
+    assert apres == "corrigee", "la correction de l'image n'a pas atteint le disque"
+    assert "mis a jour" in journal
+
+
+def test_un_fichier_modifie_par_l_utilisateur_n_est_jamais_ecrase(tmp_path):
+    """La regle qui protege le travail : si l'empreinte du disque n'est
+    aucune des notres, c'est du travail humain, on n'y touche pas."""
+    apres, journal = _scene(tmp_path, sur_disque="MON CODE", livre="corrigee",
+                            connues=("ancienne", "corrigee"))
+    assert apres == "MON CODE", "le travail de l'utilisateur a ete ecrase"
+    assert "modifies sur place" in journal
+
+
+def test_un_fichier_supprime_expres_ne_ressuscite_pas(tmp_path):
+    """Supprimer le projet d'exemple doit tenir. Le voir revenir a chaque
+    redemarrage serait insupportable, et c'est la raison d'etre du marqueur."""
+    apres, _ = _scene(tmp_path, sur_disque=None, livre="corrigee",
+                      connues=("ancienne", "corrigee"))
+    assert apres is None, "un fichier supprime a ete recree"
+
+
+def test_rien_ne_bouge_avant_le_premier_amorcage(tmp_path):
+    """Sans marqueur, l'amorcage classique n'a pas encore eu lieu : cette
+    passe n'a rien a faire et ne doit surtout pas prendre les devants."""
+    apres, _ = _scene(tmp_path, sur_disque="ancienne", livre="corrigee",
+                      amorce=False, connues=("ancienne", "corrigee"))
+    assert apres == "ancienne"
+
+
+def test_un_lien_symbolique_a_la_place_du_fichier_est_refuse(tmp_path):
+    """Ce bloc tourne en root et /workspace est inscriptible par les
+    applications. Un lien pose a la place d'un fichier du squelette ne doit
+    jamais etre suivi : ce serait une ecriture root arbitraire offerte a
+    n'importe quelle application du panneau."""
+    import subprocess
+
+    victime = tmp_path / "victime"
+    victime.write_text("intact", encoding="utf-8")
+
+    seed = tmp_path / "seed" / "diagnostic"
+    ws = tmp_path / "ws" / "diagnostic"
+    seed.mkdir(parents=True)
+    ws.mkdir(parents=True)
+    (tmp_path / "ws" / ".codelab").mkdir()
+    (tmp_path / "ws" / ".codelab" / "workspace-v1").write_text("marqueur")
+    (seed / "checks.py").write_text("corrigee", encoding="utf-8")
+    os.symlink(str(victime), str(ws / "checks.py"))
+
+    sommes = tmp_path / "squelette.sums"
+    sommes.write_text(_somme(str(victime)) + " diagnostic/checks.py\n",
+                      encoding="utf-8")
+
+    env = dict(os.environ,
+               WORKSPACE_SEED=str(tmp_path / "seed"),
+               WORKSPACE_DIR=str(tmp_path / "ws"),
+               SEED_MARKER=str(tmp_path / "ws" / ".codelab" / "workspace-v1"),
+               SUMS_TEST=str(sommes), CODELAB_GROUP="root")
+    r = subprocess.run(["sh", "-c", _bloc_reconciliation()],
+                       capture_output=True, text=True, timeout=60, env=env)
+    assert r.returncode == 0, r.stderr
+
+    assert victime.read_text(encoding="utf-8") == "intact", (
+        "le lien a ete suivi : ecriture hors du workspace, en root")
+    assert os.path.islink(str(ws / "checks.py")), "le lien a ete remplace"
+
+
+def test_un_temporaire_pose_d_avance_ne_detourne_pas_l_ecriture(tmp_path):
+    """Regression : tant que le fichier temporaire portait un nom
+    previsible, une application pouvait poser d'avance un lien a ce nom et
+    faire ecrire root dans la cible de son choix. Le nom est desormais tire
+    par mktemp, qui cree le fichier sans jamais suivre un lien existant."""
+    import subprocess
+
+    victime = tmp_path / "victime"
+    victime.write_text("intact", encoding="utf-8")
+
+    seed = tmp_path / "seed" / "diagnostic"
+    ws = tmp_path / "ws" / "diagnostic"
+    seed.mkdir(parents=True)
+    ws.mkdir(parents=True)
+    (tmp_path / "ws" / ".codelab").mkdir()
+    (tmp_path / "ws" / ".codelab" / "workspace-v1").write_text("marqueur")
+    (seed / "checks.py").write_text("corrigee", encoding="utf-8")
+    (ws / "checks.py").write_text("ancienne", encoding="utf-8")
+    # Le piege, au nom qu'utilisait l'ancienne version du code.
+    os.symlink(str(victime), str(ws / "checks.py.codelab-tmp"))
+
+    import hashlib
+    sommes = tmp_path / "squelette.sums"
+    sommes.write_text(
+        hashlib.sha256(b"ancienne").hexdigest() + " diagnostic/checks.py\n",
+        encoding="utf-8")
+
+    env = dict(os.environ,
+               WORKSPACE_SEED=str(tmp_path / "seed"),
+               WORKSPACE_DIR=str(tmp_path / "ws"),
+               SEED_MARKER=str(tmp_path / "ws" / ".codelab" / "workspace-v1"),
+               SUMS_TEST=str(sommes), CODELAB_GROUP="root")
+    r = subprocess.run(["sh", "-c", _bloc_reconciliation()],
+                       capture_output=True, text=True, timeout=60, env=env)
+    assert r.returncode == 0, r.stderr
+
+    assert victime.read_text(encoding="utf-8") == "intact", (
+        "le temporaire previsible a detourne l'ecriture, en root")
+    # La mise a jour legitime doit quand meme avoir eu lieu.
+    assert (ws / "checks.py").read_text(encoding="utf-8") == "corrigee"
+
+
+def test_le_manifeste_des_empreintes_est_a_jour():
+    """Le filet du filet.
+
+    Si quelqu'un modifie un fichier du squelette sans relancer
+    dagster/empreintes-squelette.sh, la version courante n'est plus reconnue
+    comme etant la notre. Consequence silencieuse : la mise a jour cesse de
+    fonctionner pour ce fichier, sans que rien n'echoue. Ce test rend cet
+    oubli bruyant.
+    """
+    racine = _racine_depot()
+    manifeste = os.path.join(racine, "dagster", "squelette.sums")
+    squelette = os.path.join(racine, "workspace")
+    if not (os.path.exists(manifeste) and os.path.isdir(squelette)):
+        pytest.skip("depot complet absent de cette image")
+
+    connues = set()
+    for ligne in open(manifeste, encoding="utf-8"):
+        if ligne.startswith("#") or not ligne.strip():
+            continue
+        connues.add(ligne.strip())
+
+    manquants = []
+    for dossier, sous, fichiers in os.walk(squelette):
+        sous[:] = [d for d in sous if d != "__pycache__"]
+        for nom in fichiers:
+            chemin = os.path.join(dossier, nom)
+            relatif = os.path.relpath(chemin, squelette)
+            if _somme(chemin) + " " + relatif not in connues:
+                manquants.append(relatif)
+
+    assert not manquants, (
+        "version courante absente de dagster/squelette.sums pour : "
+        + ", ".join(sorted(manquants))
+        + " -- relancer ./dagster/empreintes-squelette.sh puis committer.")
+
+
 # ------------- ce fichier doit rester importable sans pytest --------------
 #
 # Regression vecue : "import pytest" en tete de fichier, puis une classe
