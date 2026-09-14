@@ -975,11 +975,16 @@ table.tbl-journal{min-width:560px}
   <div class="onglet" id="onglet-config">
     <div class="card settings-card" style="max-width:680px">
       <div class="alert" id="e-err"></div>
-      <div class="notice" id="e-running">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/></svg>
-        <div><b>Application en cours d'exécution.</b> La configuration ne peut pas être enregistrée
-          tant qu'elle tourne.</div>
-        <button class="btn btn-default btn-sm" onclick="stopThenEdit()">Arrêter</button>
+      <!-- Apparait APRES un enregistrement, et seulement si ce qui a change
+           ne se voit qu'au prochain demarrage. Avant, un bandeau permanent
+           annoncait que rien ne pouvait etre enregistre tant que
+           l'application tournait : corriger une description demandait de
+           couper le service. -->
+      <div class="notice" id="e-redemarrage" style="display:none">
+        <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+        <div id="e-redemarrage-txt"></div>
+        <button class="btn btn-primary btn-sm" id="e-redemarrer"
+          onclick="redemarrerDepuisConfig()">Redémarrer</button>
       </div>
 
       <div class="fset">
@@ -2435,17 +2440,33 @@ function chargerConfigFiche(){
     (adressePublique || (a.visibility||'publique')==='publique') ? '' : 'none';
   $('e-err').style.display='none';
   $('e-browse').style.display='none';
-  $('e-running').style.display = a.running ? 'flex' : 'none';
-  $('e-save').disabled = !!a.running;
+  /* Le bandeau de redemarrage ne survit pas a un rechargement de la fiche :
+     il parle d'un enregistrement precis, pas d'un etat durable. */
+  $('e-redemarrage').style.display='none';
   /* Le projet de diagnostic ne se supprime pas : c'est lui qui dit si cette
      installation va bien. Le bouton disparait plutot que d'echouer -- mais
      c'est le serveur qui refuse vraiment, la route reste appelable a la
      main. */
   $('e-supprimer').style.display = (a.name === 'diagnostic') ? 'none' : '';
 }
-async function stopThenEdit(){
-  await fetch('/api/toggle/'+ficheNom,{method:'POST'});
-  setTimeout(async()=>{ await refresh(); chargerConfigFiche(); }, 700);
+async function redemarrerDepuisConfig(){
+  const b=$('e-redemarrer');
+  b.disabled=true; b.textContent='Redémarrage...';
+  try{
+    const r=await fetch('/api/restart/'+encodeURIComponent(ficheNom),{method:'POST'});
+    if(!r.ok){
+      const d=await r.json().catch(()=>({}));
+      $('e-err').textContent=d.error||'Redémarrage impossible.';
+      $('e-err').style.display='block';
+    }else{
+      $('e-redemarrage').style.display='none';
+    }
+  }catch(e){
+    $('e-err').textContent='Erreur réseau.'; $('e-err').style.display='block';
+  }finally{
+    b.disabled=false; b.textContent='Redémarrer';
+    await refresh(); peindreFiche();
+  }
 }
 function toggleEditBrowse(){
   const z=$('e-browse');
@@ -2475,6 +2496,21 @@ async function submitEdit(){
   e.style.display='none';
   await refresh();
   chargerConfigFiche();
+  /* C'est le serveur qui dit ce qui attend un redemarrage : lui seul sait ce
+     qu'il relit a chaque requete et ce qu'il lit une fois pour toutes. */
+  if(d.redemarrage_requis){
+    const noms={path:'le dossier', command:'la commande de lancement',
+                max_memory_mb:'la limite mémoire'};
+    const liste=(d.champs_en_attente||[]).map(c=>noms[c]||c);
+    $('e-redemarrage-txt').innerHTML='<b>Enregistré.</b> '
+      + (liste.length===1 ? 'Le changement sur ' : 'Les changements sur ')
+      + liste.join(' et ')
+      + (liste.length>1 ? ' ne prendront' : ' ne prendra')+' effet qu\'au redémarrage : '
+      + 'l\'application en cours tourne encore avec la configuration précédente.';
+    $('e-redemarrage').style.display='flex';
+  }else{
+    notifier('Configuration enregistrée.');
+  }
 }
 
 /* ---------------- fiche : metriques ---------------- */

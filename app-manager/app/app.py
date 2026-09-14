@@ -4964,14 +4964,40 @@ def api_add():
     return jsonify({"ok": True, "name": name, "port": port})
 
 
+# CE QUI NE SE VOIT QU'AU PROCHAIN DEMARRAGE.
+#
+# Ces trois-la sont lus au lancement du processus : le dossier de travail, la
+# ligne de commande, la limite de memoire posee dans le preexec_fn. Les
+# changer pendant qu'une application tourne ne touche pas le processus en
+# vie -- il faudra le relancer.
+#
+# Tout le reste s'applique sur-le-champ, parce que le panneau le relit a
+# chaque requete : la description et la categorie (affichees dans le hub), la
+# visibilite (le proxy la consulte pour chaque visiteur), la commande de
+# build (executee a la demande, jamais au lancement).
+#
+# La liste vit ICI plutot que dans la page : c'est le serveur qui sait ce
+# qu'il relit et quand. Une copie dans le navigateur aurait diverge a la
+# premiere evolution.
+CHAMPS_AU_DEMARRAGE = ("path", "command", "max_memory_mb")
+
+
 @flask_app.put("/api/app/<n>")
 @require_admin
 def api_edit(n):
+    """Enregistre la configuration, application en marche ou non.
+
+    CE QUI A CHANGE, ET POURQUOI. Cette route refusait tout net pendant
+    qu'une application tournait : « Arrete l'application avant de la
+    modifier. » Corriger une faute dans une description demandait donc de
+    couper le service. Le refus protegeait d'une illusion reelle -- croire
+    qu'une commande modifiee s'appliquait au processus deja lance -- mais il
+    la traitait en interdisant tout, alors qu'il suffit de DIRE lequel des
+    champs attend un redemarrage.
+    """
     apps = load()
     if n not in apps:
         return jsonify({"error": "Application inconnue."}), 404
-    if is_running(n):
-        return jsonify({"error": "Arrêté l'application avant de la modifier."}), 400
     d = request.get_json(force=True)
     path = (d.get("path") or "").strip()
     command = (d.get("command") or "").strip()
@@ -4981,6 +5007,7 @@ def api_edit(n):
         return jsonify({"error": "Le dossier doit se trouver dans " + ROOT + "."}), 400
     if not command:
         return jsonify({"error": "La commande de lancement est obligatoire."}), 400
+    avant = {c: apps[n].get(c) for c in CHAMPS_AU_DEMARRAGE}
     apps[n]["path"] = path
     apps[n]["command"] = command
     apps[n]["build_command"] = (d.get("build_command") or "").strip()
@@ -4990,7 +5017,22 @@ def api_edit(n):
     if d.get("visibility") in VISIBILITES:
         apps[n]["visibility"] = d["visibility"]
     save(apps)
-    return jsonify({"ok": True})
+
+    # Ce qui a reellement change parmi les champs lus au demarrage. On
+    # compare APRES nettoyage (chemin normalise, memoire en entier ou None) :
+    # comparer les valeurs brutes du formulaire annoncerait un redemarrage
+    # necessaire pour un espace en fin de ligne.
+    attendent = [c for c in CHAMPS_AU_DEMARRAGE if avant.get(c) != apps[n].get(c)]
+    en_marche = is_running(n)
+    return jsonify({
+        "ok": True,
+        "running": en_marche,
+        # Un redemarrage n'est "requis" que si quelque chose tourne : sur une
+        # application arretee, le prochain demarrage prendra la nouvelle
+        # configuration tout seul.
+        "redemarrage_requis": bool(en_marche and attendent),
+        "champs_en_attente": attendent,
+    })
 
 
 @flask_app.post("/api/toggle/<n>")

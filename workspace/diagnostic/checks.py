@@ -3409,6 +3409,110 @@ def test_le_mode_affiche_ne_donne_aucun_droit(deux_espaces):
     assert c.get("/api/mes-apps").status_code == 200
 
 
+# ---------- 12 bis. enregistrer la configuration d'une application ----------
+#
+# Vecu : « Rend possible la sauvegarde de la configuration d'une application.
+# Proposer un redemarrage. Les champs qui ne necessitent pas de redemarrage
+# peuvent etre appliques directement. »
+#
+# La route refusait tout net pendant qu'une application tournait : corriger
+# une faute dans une description demandait de couper le service. Le refus
+# protegeait d'une illusion reelle -- croire qu'une commande modifiee
+# s'applique au processus deja lance -- mais il la traitait en interdisant
+# tout, alors qu'il suffit de DIRE lequel des champs attend un redemarrage.
+
+@pytest.fixture
+def en_marche(tmp_path, monkeypatch):
+    """Une application qui tourne, et dont on peut editer la configuration."""
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    monkeypatch.setattr(app, "CATEGORIES_FILE", str(tmp_path / "categories.json"))
+    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
+    monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
+    monkeypatch.setattr(app, "is_running", lambda n: True)
+    monkeypatch.setattr(app, "under_root", lambda p: True)
+    monkeypatch.setattr(os.path, "isdir", lambda p: True)
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    app._apps_cache["signature"] = None
+    app.save({"site": {"path": "/w/a", "command": "python3 app.py", "port": 9101,
+                       "enabled": True, "description": "avant",
+                       "max_memory_mb": 256}})
+    c = app.flask_app.test_client()
+    c.post("/login", json={"password": "secret-de-test"})
+    return c
+
+
+def _editer(c, **champs):
+    """Le formulaire envoie TOUS ses champs, comme la page le fait : une
+    requete partielle viderait ce qu'elle omet, et le test mesurerait alors
+    cet effacement plutot que ce qu'il croit mesurer."""
+    corps = {"path": "/w/a", "command": "python3 app.py", "max_memory_mb": 256}
+    corps.update(champs)
+    return c.put("/api/app/site", json=corps)
+
+
+def test_une_application_en_marche_s_enregistre_desormais(en_marche):
+    """C'etait la demande : pouvoir enregistrer sans couper le service."""
+    r = _editer(en_marche, description="apres")
+    assert r.status_code == 200, r.data
+    assert app.load()["site"]["description"] == "apres"
+
+
+def test_ce_qui_se_relit_a_chaque_requete_s_applique_tout_de_suite(en_marche):
+    """Description, categorie, visibilite, commande de build : le panneau les
+    relit a chaque fois qu'il s'en sert. Rien a redemarrer."""
+    r = _editer(en_marche, description="apres", visibility="privee",
+                build_command="npm install")
+    d = r.get_json()
+    assert d["redemarrage_requis"] is False, d
+    assert d["champs_en_attente"] == []
+    assert app.load()["site"]["visibility"] == "privee"
+
+
+def test_ce_qui_est_lu_au_lancement_attend_le_redemarrage(en_marche):
+    """La commande, le dossier et la limite memoire sont lus quand le
+    processus demarre. Les changer ne touche pas celui qui tourne -- et le
+    taire laisserait croire le contraire."""
+    r = _editer(en_marche, command="python3 autre.py", max_memory_mb=128)
+    d = r.get_json()
+    assert d["redemarrage_requis"] is True, d
+    assert set(d["champs_en_attente"]) == {"command", "max_memory_mb"}
+    # Enregistre malgre tout : c'est le prochain demarrage qui la prendra.
+    assert app.load()["site"]["command"] == "python3 autre.py"
+
+
+def test_une_application_arretee_n_a_rien_a_redemarrer(en_marche, monkeypatch):
+    """Reclamer un redemarrage a qui ne tourne pas serait un faux message :
+    le prochain demarrage prendra la nouvelle configuration tout seul."""
+    monkeypatch.setattr(app, "is_running", lambda n: False)
+    d = _editer(en_marche, command="python3 autre.py").get_json()
+    assert d["redemarrage_requis"] is False
+    assert d["running"] is False
+
+
+def test_reenregistrer_a_l_identique_ne_reclame_pas_de_redemarrage(en_marche):
+    """La comparaison porte sur la valeur NETTOYEE : un espace en fin de
+    ligne ne doit pas annoncer un redemarrage necessaire."""
+    d = _editer(en_marche, command="python3 app.py", max_memory_mb=256).get_json()
+    assert d["redemarrage_requis"] is False, d
+
+
+def test_la_liste_des_champs_qui_attendent_vit_du_cote_serveur():
+    """Une copie dans le navigateur aurait diverge a la premiere evolution :
+    c'est le serveur qui sait ce qu'il relit, et quand."""
+    assert app.CHAMPS_AU_DEMARRAGE == ("path", "command", "max_memory_mb")
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    # La page lit la reponse du serveur, elle ne rejoue pas la regle.
+    assert "d.redemarrage_requis" in page
+    assert "champs_en_attente" in page
+    # Et l'ancien bandeau bloquant a bien disparu.
+    assert "stopThenEdit" not in page
+    assert "ne peut pas être enregistrée" not in page
+
+
 # ---------- 13. categories du hub ----------
 #
 # Une categorie ne donne aucun droit : c'est du rangement. Ce qui doit rester
@@ -3423,8 +3527,8 @@ def categorise(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "CATEGORIES_FILE", str(tmp_path / "categories.json"))
     monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
     monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
-    # Arretee : la fiche refuse de modifier une application en marche, et ce
-    # n'est pas ce que ces tests-la verifient.
+    # Arretee : ces tests-la ne parlent pas du redemarrage, et une
+    # application a l'arret repond sans bandeau.
     monkeypatch.setattr(app, "is_running", lambda n: False)
     monkeypatch.setattr(app, "under_root", lambda p: True)
     monkeypatch.setattr(os.path, "isdir", lambda p: True)
