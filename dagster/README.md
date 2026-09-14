@@ -41,7 +41,22 @@ Execute avant toute commande (`dagster-webserver` ou `dagster-daemon run`), dans
    `diagnostic`) au premier demarrage, pour eviter un crash au boot sur une installation neuve avant que tu
    aies ajoute ton propre code. Une entree deja presente est laissee telle quelle, sans copie `.exemple` a
    cote.
-4. Passe la main a la commande reelle (`exec "$@"`).
+4. **Met a jour les fichiers du squelette que personne n'a modifies**, a chaque demarrage cette fois.
+
+   Sans cette etape, une correction apportee au projet d'exemple `diagnostic` ne pouvait atteindre aucune
+   installation existante : l'image portait le correctif, le disque gardait le defaut, et `docker compose
+   pull` n'y changeait rien. Il fallait le savoir et recopier le fichier a la main.
+
+   La decision se prend sur le **contenu**, jamais sur une date. CodeLab note l'empreinte SHA-256 de chaque
+   fichier qu'il depose, dans `.codelab/empreintes` ; si le fichier sur disque porte toujours cette
+   empreinte, personne n'y a touche et il est remplace. Sinon c'est ton travail, et il est laisse tel quel
+   (le demarrage te le dit). Rien n'est jamais cree ni supprime a cette etape : un projet que tu as efface
+   ne revient pas.
+
+   Le mecanisme s'entretient seul — **rien a regenerer, aucune etape a ne pas oublier avant de committer**.
+   `dagster/squelette.sums` ne sert qu'a amorcer les installations mises en service avant lui, qui n'ont
+   encore rien de note ; cette liste est figee et ne decrit que le passe.
+5. Passe la main a la commande reelle (`exec "$@"`).
 
 ## dagster.yaml : stockage dans Postgres
 

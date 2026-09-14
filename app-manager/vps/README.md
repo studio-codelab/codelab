@@ -48,27 +48,35 @@ par l'adresse WireGuard de la ZimaBlade si tu as choisi un autre reseau. Puis
 > `nginx -t` est la seule etape ou une faute de frappe se voit tout de suite. Fais-la avant chaque
 > `reload`.
 
-**5. Le dire a CodeLab.** Dans `docker-compose.yml`, sous `codelab-app-manager` → `environment`,
-decommente les trois variables preparees pour ca, avec ton domaine dans `APP_MANAGER_PUBLIC_URL` :
+**5. Le dire a CodeLab.** Depuis le panneau, ouvert par ton nouveau domaine :
+*Parametres > Serveur*. Rien a editer, rien a redemarrer.
 
-```yaml
-      APP_MANAGER_HTTPS: "1"
-      APP_MANAGER_TRUST_PROXY: "1"
-      APP_MANAGER_PUBLIC_URL: "https://codelab.tondomaine.fr"
-```
+1. **Proxy de confiance** — a cocher en premier. La case ne s'active que si la requete porte
+   vraiment un en-tete `X-Forwarded-*`, donc seulement quand nginx est bien devant.
+2. **Servi en HTTPS** — ensuite. La case ne s'active que depuis une page qui arrive en https
+   (directement, ou annoncee par le proxy declare a l'etape 1).
+3. **Adresse publique** — `https://codelab.tondomaine.fr`.
 
-Puis `docker compose up -d codelab-app-manager`.
+**L'ordre n'est pas decoratif** : derriere nginx qui termine le TLS, la requete arrive au panneau
+en clair et n'annonce `https` que par un en-tete. Tant que le proxy n'est pas declare, le panneau
+ne croit pas cet en-tete — et la case HTTPS reste grisee.
 
-**Pas avant que le TLS reponde vraiment** : `APP_MANAGER_HTTPS=1` marque le cookie de session
-`Secure`, et le navigateur cesse alors de l'envoyer en clair — ta session tombe au premier
-rechargement.
+**Une case grisee dit toujours pourquoi.** C'est ce qui remplace l'ancienne marche a suivre, ou
+`APP_MANAGER_HTTPS=1` pose trop tot marquait le cookie `Secure`, le navigateur cessait de
+l'envoyer en clair, et la session tombait au premier rechargement — sans page pour revenir en
+arriere. Le panneau refuse desormais d'en arriver la.
+
+> **Le compose garde le dernier mot.** `APP_MANAGER_HTTPS`, `APP_MANAGER_TRUST_PROXY` et
+> `APP_MANAGER_PUBLIC_URL` restent lisibles et prioritaires : posees la, elles grisent les cases
+> correspondantes. C'est la marche arriere qui ne depend pas du panneau — utile le jour ou un
+> reglage le rend inatteignable.
 
 ## Verifier
 
 1. `https://codelab.tondomaine.fr` : cadenas, pas d'avertissement.
 2. *Parametres > Serveur* : les trois lignes en vert, et l'adresse publique declaree.
 3. *Utilisateurs* : ton adresse IP reelle dans les connexions recentes — pas `10.8.0.1`. Si tu vois
-   l'adresse du tunnel, `X-Forwarded-For` ne remonte pas ou `APP_MANAGER_TRUST_PROXY` manque.
+   l'adresse du tunnel, `X-Forwarded-For` ne remonte pas ou le proxy de confiance n'est pas coche.
 4. *Parametres > Securite* : « Ajouter une cle » est actif. S'il ne l'est pas, la page dit
    pourquoi — et le message distingue « il manque du TLS » de « declare ton proxy ».
 5. Une fiche d'application : « Rendre publique » est revenu.

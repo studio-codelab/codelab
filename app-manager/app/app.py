@@ -131,6 +131,8 @@ flask_app.config.update(
     # Regle au demarrage plutot que depuis l'interface, et c'est deliberé :
     # l'activer depuis une page servie en clair deconnecterait sur-le-champ la
     # session qui vient de l'activer, sans moyen de revenir en arriere.
+    # Valeur de depart seulement : appliquer_cookie_securise() la reprend
+    # des que l'etat d'exposition est lisible, et apres chaque changement.
     SESSION_COOKIE_SECURE=os.environ.get("APP_MANAGER_HTTPS", "").lower()
                           in ("1", "true", "yes"),
     # Duree explicite : session.permanent sans cette valeur laisse le defaut
@@ -445,12 +447,17 @@ RATE_LIMIT_MAX = 5
 # client peut donc poser l'en-tete qu'il veut, et le faire varier a chaque
 # essai -- ce qui donnait a chaque tentative de connexion un compteur neuf et
 # annulait purement et simplement la limite de 5 essais par 5 minutes.
-# Derriere un vrai reverse proxy, poser APP_MANAGER_TRUST_PROXY=1.
-TRUST_PROXY = os.environ.get("APP_MANAGER_TRUST_PROXY", "").lower() in ("1", "true", "yes")
+# Derriere un vrai reverse proxy, cocher la case dans Exposition -- ou poser
+# APP_MANAGER_TRUST_PROXY=1 dans le compose, qui l'emporte.
+#
+# Il n'y a PLUS de constante ici, volontairement : elle etait calculee a
+# l'import, donc un reglage change depuis la page n'aurait ete vu par
+# personne jusqu'au redemarrage. trust_proxy() est definie plus bas, avec
+# l'etat d'exposition qu'elle lit.
 
 
 def _client_ip():
-    if TRUST_PROXY:
+    if trust_proxy():
         forwarded = request.headers.get("X-Forwarded-For", "")
         if forwarded:
             return forwarded.split(",")[0].strip()
@@ -878,13 +885,13 @@ def _hote_et_schema():
 
     X-Forwarded-Proto n'est croyable que derriere un proxy declare de
     confiance : n'importe quel client peut le poser. On ne s'en sert donc
-    que si TRUST_PROXY est actif -- mais on retient qu'il annoncait HTTPS,
+    que si trust_proxy() est actif -- mais on retient qu'il annoncait HTTPS,
     parce que c'est exactement le cas ou la marche a suivre n'est pas
     « mets du TLS » mais « declare ton proxy ».
     """
     hote = (request.host or "").split(":")[0]
     annonce = (request.headers.get("X-Forwarded-Proto") or "").lower()
-    if TRUST_PROXY and annonce:
+    if trust_proxy() and annonce:
         return hote, annonce, False
     return hote, request.scheme, (annonce == "https" and request.scheme != "https")
 
@@ -903,8 +910,7 @@ def passkey_contexte():
     if schema != "https" and not local:
         if https_non_cru:
             return "", "", ("Un proxy annonce HTTPS, mais ce panneau ne le croit pas : "
-                            "pose APP_MANAGER_TRUST_PROXY=1 dans le compose, puis "
-                            "redemarre le service.")
+                            "coche \"Proxy de confiance\" dans Exposition.")
         return "", "", ("Les cles d'acces exigent une connexion HTTPS : le navigateur "
                         "refuse de les creer en clair. Mets le TLS en place, puis "
                         "reviens ici.")
@@ -976,7 +982,7 @@ _acces_verrou = threading.Lock()
 
 def _adresse_client():
     """L'adresse du visiteur, selon qu'on est derriere un proxy de confiance."""
-    if TRUST_PROXY:
+    if trust_proxy():
         avant = (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
         if avant:
             return avant
@@ -2621,6 +2627,44 @@ def categorie_valide(brute, connues=None):
 # de domaine y mene. La declarer, c'est dire « j'ai fait le necessaire ».
 EXPOSITION_FILE = os.path.join(STATE_DIR, "exposition.json")
 
+# Les trois reglages qui changent quand la stack sort du reseau local, et la
+# variable d'environnement qui l'emporte sur chacun.
+#
+# POURQUOI L'ENVIRONNEMENT GAGNE TOUJOURS. Une stack dont le compose fixe
+# deja le nom de domaine ne doit pas le voir change depuis une page ; et
+# surtout, c'est la seule marche arriere qui ne depend pas du panneau. Si un
+# reglage pose ici rendait le panneau inatteignable, il resterait le compose
+# pour reprendre la main.
+REGLAGES_EXPOSITION = {
+    "adresse_publique": "APP_MANAGER_PUBLIC_URL",
+    "https": "APP_MANAGER_HTTPS",
+    "trust_proxy": "APP_MANAGER_TRUST_PROXY",
+}
+
+
+def _vrai(valeur):
+    return str(valeur or "").strip().lower() in ("1", "true", "yes")
+
+
+def lire_exposition():
+    try:
+        with open(EXPOSITION_FILE) as f:
+            return json.load(f) or {}
+    except (OSError, ValueError):
+        return {}
+
+
+def ecrire_exposition(reglages):
+    tmp = EXPOSITION_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(reglages, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, EXPOSITION_FILE)
+
+
+def fixe_par_environnement(nom):
+    """Le compose impose-t-il ce reglage ?"""
+    return bool((os.environ.get(REGLAGES_EXPOSITION[nom]) or "").strip())
+
 
 def adresse_publique():
     """L'adresse publique du serveur, ou "".
@@ -2632,25 +2676,46 @@ def adresse_publique():
     depuis_env = (os.environ.get("APP_MANAGER_PUBLIC_URL") or "").strip()
     if depuis_env:
         return depuis_env.rstrip("/")
-    try:
-        with open(EXPOSITION_FILE) as f:
-            d = json.load(f)
-    except (OSError, ValueError):
-        return ""
-    return str((d or {}).get("adresse_publique") or "").strip().rstrip("/")
+    return str(lire_exposition().get("adresse_publique") or "").strip().rstrip("/")
+
+
+def https_actif():
+    """Le panneau se considere-t-il servi en HTTPS ?
+
+    Lu a chaque appel, et non fige au demarrage : c'est ce qui permet de le
+    regler depuis la page Exposition sans redemarrer le service.
+    """
+    if fixe_par_environnement("https"):
+        return _vrai(os.environ.get("APP_MANAGER_HTTPS"))
+    return bool(lire_exposition().get("https"))
+
+
+def trust_proxy():
+    """Croit-on les en-tetes X-Forwarded-* ?
+
+    Etait une constante calculee a l'import. Devenue une fonction pour la
+    meme raison que ci-dessus -- et toutes les lectures passent par elle,
+    sans quoi la moitie du panneau garderait l'ancienne valeur.
+    """
+    if fixe_par_environnement("trust_proxy"):
+        return _vrai(os.environ.get("APP_MANAGER_TRUST_PROXY"))
+    return bool(lire_exposition().get("trust_proxy"))
+
+
+def appliquer_cookie_securise():
+    """Aligne le cookie de session sur le reglage HTTPS courant.
+
+    Flask lit SESSION_COOKIE_SECURE dans app.config au moment de poser le
+    cookie : il suffit donc de tenir cette valeur a jour. Appele au
+    demarrage et apres chaque ecriture.
+    """
+    flask_app.config["SESSION_COOKIE_SECURE"] = https_actif()
 
 
 def adresse_publique_valide(brute):
     """Une adresse http(s) plausible, ou ""."""
     adresse = re.sub(r"\s+", "", str(brute or ""))[:200].rstrip("/")
     return adresse if re.fullmatch(r"https?://[^/\s]+(/[^\s]*)?", adresse) else ""
-
-
-def ecrire_adresse_publique(adresse):
-    tmp = EXPOSITION_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump({"adresse_publique": adresse}, f, indent=2, ensure_ascii=False)
-    os.replace(tmp, EXPOSITION_FILE)
 
 
 # ------------------------- visibilite d'une application -------------------------
@@ -3434,16 +3499,32 @@ def api_securite():
     """L'etat des reglages de securite, pour la page Parametres."""
     return jsonify({
         "totp": totp_actif(),
-        # Le panneau ne peut pas deviner s'il est derriere du TLS : il regarde
-        # l'en-tete que pose un reverse proxy correctement configure.
-        "https": request.headers.get("X-Forwarded-Proto", "").lower() == "https"
-                 or request.scheme == "https",
-        "trust_proxy": TRUST_PROXY,
+        # Deux choses distinctes, qu'il ne faut pas confondre dans la page :
+        #
+        #   https_constate : ce que la requete en cours montre reellement ;
+        #   https          : ce que le panneau a ete REGLE a croire.
+        #
+        # Les afficher separement, c'est repondre a la seule question utile
+        # quand rien ne marche : est-ce le TLS qui manque, ou le reglage ?
+        "https_constate": request.headers.get("X-Forwarded-Proto", "").lower() == "https"
+                          or request.scheme == "https",
+        "https": https_actif(),
+        "trust_proxy": trust_proxy(),
         "cookie_secure": bool(flask_app.config.get("SESSION_COOKIE_SECURE")),
         "adresse_publique": adresse_publique(),
         # Fige par l'environnement : la page n'offre pas de modifier ce
         # qu'un redemarrage remettrait comme avant.
-        "adresse_figee": bool((os.environ.get("APP_MANAGER_PUBLIC_URL") or "").strip()),
+        "adresse_figee": fixe_par_environnement("adresse_publique"),
+        "https_fige": fixe_par_environnement("https"),
+        "trust_proxy_fige": fixe_par_environnement("trust_proxy"),
+        # De quoi griser la case plutot que de laisser cliquer sur un refus :
+        # les memes conditions que celles appliquees par la route d'ecriture.
+        "peut_activer_https": request.is_secure or (
+            trust_proxy()
+            and request.headers.get("X-Forwarded-Proto", "").lower() == "https"),
+        "peut_activer_trust_proxy": bool(
+            (request.headers.get("X-Forwarded-For")
+             or request.headers.get("X-Forwarded-Proto") or "").strip()),
         # Les applications sont-elles servies dans une autre origine que le
         # panneau ? C'est ce qui empeche une XSS dans l'une d'elles d'atteindre
         # le panneau, et c'est invisible sans le dire.
@@ -3456,20 +3537,96 @@ def api_securite():
 @flask_app.put("/api/securite/exposition")
 @require_admin
 def api_exposition():
-    """Declare (ou retire) l'adresse publique du serveur."""
-    if (os.environ.get("APP_MANAGER_PUBLIC_URL") or "").strip():
-        return jsonify({"error": "L'adresse est fixee par APP_MANAGER_PUBLIC_URL "
-                                 "dans le compose : modifie-la la-bas."}), 400
-    brute = (request.get_json(force=True, silent=True) or {}).get("adresse_publique")
-    adresse = adresse_publique_valide(brute)
-    if brute and not adresse:
-        return jsonify({"error": "Adresse invalide : elle doit commencer par "
-                                 "http:// ou https://."}), 400
+    """Les trois reglages qui changent quand la stack sort du reseau local.
+
+    CE QUI A CHANGE, ET POURQUOI. HTTPS et le proxy de confiance se posaient
+    uniquement dans le compose, a decommenter a la main. Le code disait
+    pourquoi : « l'activer depuis une page servie en clair deconnecterait
+    sur-le-champ la session qui vient de l'activer, sans moyen de revenir en
+    arriere. » L'objection etait juste. Elle ne l'est plus, parce qu'on ne
+    permet plus d'allumer un interrupteur que la situation ne justifie pas :
+
+      HTTPS          ne s'active que depuis une requete DEJA en https --
+                     la session qui l'active garde donc son cookie ;
+      proxy          ne s'active que si un en-tete X-Forwarded-* est
+                     reellement present -- sinon c'est une regression pure,
+                     n'importe quel client pouvant alors se declarer une
+                     adresse neuve a chaque essai et annuler la limite de
+                     tentatives de connexion.
+
+    ETEINDRE est toujours permis : la marche arriere ne doit jamais dependre
+    d'une condition. Et le compose garde le dernier mot sur les trois.
+    """
+    demande = request.get_json(force=True, silent=True) or {}
+    reglages = lire_exposition()
+
+    # ------------------------------------------------ adresse publique
+    if "adresse_publique" in demande:
+        if fixe_par_environnement("adresse_publique"):
+            return jsonify({"error": "L'adresse est fixee par APP_MANAGER_PUBLIC_URL "
+                                     "dans le compose : modifie-la la-bas."}), 400
+        brute = demande.get("adresse_publique")
+        adresse = adresse_publique_valide(brute)
+        if brute and not adresse:
+            return jsonify({"error": "Adresse invalide : elle doit commencer par "
+                                     "http:// ou https://."}), 400
+        reglages["adresse_publique"] = adresse
+
+    # ------------------------------------------------ proxy de confiance
+    #
+    # Traite AVANT https : derriere un proxy qui termine le TLS, la requete
+    # arrive ici en clair et n'annonce https que par un en-tete. Declarer le
+    # proxy d'abord, puis https, se fait alors en deux enregistrements -- et
+    # dans cet ordre, ce qui est le bon.
+    if "trust_proxy" in demande:
+        if fixe_par_environnement("trust_proxy"):
+            return jsonify({"error": "Le proxy de confiance est fixe par "
+                                     "APP_MANAGER_TRUST_PROXY dans le compose : "
+                                     "modifie-le la-bas."}), 400
+        voulu = bool(demande.get("trust_proxy"))
+        devant = (request.headers.get("X-Forwarded-For")
+                  or request.headers.get("X-Forwarded-Proto") or "")
+        if voulu and not devant.strip():
+            return jsonify({"error": "Aucun en-tete X-Forwarded-* sur cette requete : "
+                                     "rien ne prouve qu'un proxy est devant. L'activer "
+                                     "ici laisserait n'importe quel client s'inventer "
+                                     "une adresse, et annulerait la limite de "
+                                     "tentatives de connexion."}), 400
+        reglages["trust_proxy"] = voulu
+
+    # ------------------------------------------------ https
+    if "https" in demande:
+        if fixe_par_environnement("https"):
+            return jsonify({"error": "HTTPS est fixe par APP_MANAGER_HTTPS dans le "
+                                     "compose : modifie-le la-bas."}), 400
+        voulu = bool(demande.get("https"))
+        # "Deja en https" au sens de ce que le panneau croit : une connexion
+        # TLS directe, ou un proxy annonçant https ET declare de confiance.
+        # Sans cette seconde moitie, la case resterait impossible a cocher
+        # derriere un reverse proxy -- c'est-a-dire dans le cas courant.
+        annonce = (request.headers.get("X-Forwarded-Proto") or "").lower()
+        deja = request.is_secure or (reglages.get("trust_proxy") and annonce == "https")
+        if voulu and not deja:
+            return jsonify({"error": "Cette page n'est pas servie en HTTPS. L'activer "
+                                     "maintenant rendrait le cookie de session "
+                                     "\"Secure\", et te deconnecterait sans retour "
+                                     "possible. Mets le TLS en place, reviens par "
+                                     "https, et la case s'activera."}), 400
+        reglages["https"] = voulu
+
     try:
-        ecrire_adresse_publique(adresse)
+        ecrire_exposition(reglages)
     except OSError as e:
-        return jsonify({"error": f"Adresse non enregistree : {e}"}), 500
-    return jsonify({"ok": True, "adresse_publique": adresse})
+        return jsonify({"error": f"Reglages non enregistres : {e}"}), 500
+
+    # Le cookie suit immediatement : c'est tout l'interet de ne plus figer ce
+    # reglage au demarrage.
+    appliquer_cookie_securise()
+
+    return jsonify({"ok": True,
+                    "adresse_publique": adresse_publique(),
+                    "https": https_actif(),
+                    "trust_proxy": trust_proxy()})
 
 
 @flask_app.post("/api/securite/totp/preparer")
@@ -4560,6 +4717,11 @@ def _ouvrir_port_des_applications(servir_sur):
 
 
 def servir(port):
+    # Le cookie de session suit le reglage d'exposition. Pose ici et non a
+    # l'import : STATE_DIR peut etre redirige (tests, autre installation),
+    # et lire le fichier trop tot donnerait la valeur du mauvais endroit.
+    appliquer_cookie_securise()
+
     try:
         from waitress import serve
         def _sur(p):

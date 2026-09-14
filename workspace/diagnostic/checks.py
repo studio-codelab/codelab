@@ -619,22 +619,44 @@ def check_exposition():
     qu'on a mis devant. Tant que la stack reste chez soi, leur absence est
     normale -- la sonde le dit plutot que de crier au feu.
     """
-    https = (os.environ.get("APP_MANAGER_HTTPS", "").lower() in ("1", "true", "yes"))
-    proxy = (os.environ.get("APP_MANAGER_TRUST_PROXY", "").lower() in ("1", "true", "yes"))
-    publique = (os.environ.get("APP_MANAGER_PUBLIC_URL") or "").strip()
+    # DEUX SOURCES, ET IL FAUT LES DEUX. Ces reglages se posent desormais
+    # depuis la page Exposition du panneau, qui les ecrit dans
+    # exposition.json ; la variable d'environnement reste prioritaire quand
+    # le compose la fixe. Ne lire que l'environnement, comme le faisait cette
+    # sonde, annoncait "il manque APP_MANAGER_HTTPS" sur une installation ou
+    # HTTPS etait deja active depuis la page -- la sonde reclamait ce qui
+    # etait deja fait.
+    etat = os.environ.get("APP_MANAGER_STATE") or "/var/lib/codelab/app-manager"
+    try:
+        with open(os.path.join(etat, "exposition.json")) as f:
+            pose = json.load(f) or {}
+    except (OSError, ValueError):
+        pose = {}
+
+    def _actif(variable, cle):
+        depuis_env = (os.environ.get(variable) or "").strip()
+        if depuis_env:
+            return depuis_env.lower() in ("1", "true", "yes")
+        return bool(pose.get(cle))
+
+    https = _actif("APP_MANAGER_HTTPS", "https")
+    proxy = _actif("APP_MANAGER_TRUST_PROXY", "trust_proxy")
+    publique = ((os.environ.get("APP_MANAGER_PUBLIC_URL") or "").strip()
+                or str(pose.get("adresse_publique") or "").strip())
     if not (https or proxy or publique):
         return (True, "exposition",
                 "reseau local : aucune adresse publique declaree, cookie non "
                 "marque Secure -- coherent tant que rien n'est devant")
     manques = []
     if not https:
-        manques.append("APP_MANAGER_HTTPS (cookie de session non marque Secure)")
+        manques.append("HTTPS (cookie de session non marque Secure)")
     if not proxy:
-        manques.append("APP_MANAGER_TRUST_PROXY (tous les visiteurs partagent une adresse)")
+        manques.append("proxy de confiance (tous les visiteurs partagent une adresse)")
     if not publique:
-        manques.append("APP_MANAGER_PUBLIC_URL (aucun partage possible)")
+        manques.append("adresse publique (aucun partage possible)")
     if manques:
-        return False, "exposition", "expose, mais il manque : " + " ; ".join(manques)
+        return (False, "exposition", "expose, mais il manque : "
+                + " ; ".join(manques) + " -- a poser dans Parametres > Exposition")
     return True, "exposition", f"publie sur {publique}, cookie Secure, adresse reelle des visiteurs"
 
 
@@ -1425,6 +1447,271 @@ def test_les_taches_vscode_passent_bien_le_drapeau():
             "cette tache cree le projet sans rouvrir la fenetre : " + ligne)
 
 
+# ---------- le squelette se met a jour sans ecraser le travail ----------
+#
+# Defaut vecu, et le plus vicieux rencontre jusqu'ici parce qu'il ne produit
+# AUCUN message : le squelette /workspace n'est copie qu'au premier
+# demarrage, et jamais remplace ensuite. Une correction livree dans l'image
+# ne pouvait donc atteindre aucune installation existante. Le projet
+# "diagnostic" corrige etait dans l'image, le disque gardait la version
+# cassee, et "docker compose pull" n'y changeait rien.
+#
+# L'entrypoint note desormais l'empreinte de chaque fichier qu'il depose,
+# dans .codelab/empreintes. Un fichier dont l'empreinte n'a pas bouge n'a ete
+# touche par personne, et lui seul est remplace. Les tests ci-dessous font
+# tourner LE VRAI BLOC, extrait du vrai entrypoint : une reecriture du shell
+# dans le test ne prouverait que la justesse du test.
+
+_DEBUT_RECONCILIATION = "# ------------------- mise a jour des fichiers non modifies"
+_FIN_RECONCILIATION = "# ----------------------- abandon des privileges"
+
+
+def _racine_depot():
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        os.pardir, os.pardir)
+
+
+def _bloc_reconciliation():
+    """Le bloc de l'entrypoint, tel quel, avec le seul chemin d'image redirige."""
+    entree = os.path.join(_racine_depot(), "dagster", "entrypoint.sh")
+    if not os.path.exists(entree):
+        pytest.skip("depot complet absent de cette image")
+    texte = open(entree, encoding="utf-8").read()
+    # Un assert, pas un skip : si les reperes ont bouge, le test doit crier
+    # plutot que disparaitre en silence -- c'est exactement ainsi qu'une
+    # regression passe inapercue.
+    assert _DEBUT_RECONCILIATION in texte, "repere de debut introuvable dans entrypoint.sh"
+    assert _FIN_RECONCILIATION in texte, "repere de fin introuvable dans entrypoint.sh"
+    bloc = texte[texte.index(_DEBUT_RECONCILIATION):texte.index(_FIN_RECONCILIATION)]
+    return bloc.replace('SEED_SUMS=/opt/dagster/workspace.sums', 'SEED_SUMS="$SUMS_TEST"')
+
+
+def _somme(chemin):
+    import hashlib
+    with open(chemin, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+def _somme_texte(contenu):
+    import hashlib
+    return hashlib.sha256(contenu.encode()).hexdigest()
+
+
+class _Atelier:
+    """Un faux /workspace, son squelette d'image, et de quoi rejouer le bloc.
+
+    Volontairement un objet et non une fonction : plusieurs tests ont besoin
+    de faire tourner DEUX demarrages de suite, ce qui est justement le coeur
+    du mecanisme -- ce que le premier note, le second s'en sert.
+    """
+
+    def __init__(self, tmp_path):
+        self.base = tmp_path
+        self.seed = tmp_path / "seed" / "diagnostic"
+        self.ws = tmp_path / "ws" / "diagnostic"
+        self.seed.mkdir(parents=True)
+        self.ws.mkdir(parents=True)
+        (tmp_path / "ws" / ".codelab").mkdir()
+        self.marqueur = tmp_path / "ws" / ".codelab" / "workspace-v1"
+        self.marqueur.write_text("marqueur")
+        self.empreintes = tmp_path / "ws" / ".codelab" / "empreintes"
+        self.sums = tmp_path / "figees.sums"
+        self.sums.write_text("", encoding="utf-8")
+        self.cible = self.ws / "checks.py"
+        self.livre = self.seed / "checks.py"
+
+    def figer(self, *contenus):
+        """Declare des contenus comme "versions livrees autrefois" -- la liste
+        d'amorcage des installations anterieures au mecanisme."""
+        self.sums.write_text("".join(
+            _somme_texte(c) + " diagnostic/checks.py\n" for c in contenus),
+            encoding="utf-8")
+
+    def demarrer(self):
+        import subprocess
+        env = dict(os.environ,
+                   WORKSPACE_SEED=str(self.base / "seed"),
+                   WORKSPACE_DIR=str(self.base / "ws"),
+                   SEED_MARKER=str(self.marqueur),
+                   SUMS_TEST=str(self.sums),
+                   CODELAB_GROUP="root")
+        r = subprocess.run(["sh", "-c", _bloc_reconciliation()],
+                           capture_output=True, text=True, timeout=60, env=env)
+        assert r.returncode == 0, r.stderr
+        return r.stdout + r.stderr
+
+    def sur_disque(self):
+        return (self.cible.read_text(encoding="utf-8")
+                if self.cible.exists() else None)
+
+    def note(self):
+        """L'empreinte notee pour checks.py, ou None."""
+        if not self.empreintes.exists():
+            return None
+        for ligne in self.empreintes.read_text(encoding="utf-8").splitlines():
+            if ligne.endswith(" diagnostic/checks.py"):
+                return ligne.split(" ")[0]
+        return None
+
+
+def test_une_ancienne_version_livree_est_remplacee(tmp_path):
+    """Le cas qui a motive tout ceci, sur une installation anterieure au
+    mecanisme : rien n'est encore note, c'est la liste figee qui tranche."""
+    a = _Atelier(tmp_path)
+    a.livre.write_text("corrigee", encoding="utf-8")
+    a.cible.write_text("ancienne", encoding="utf-8")
+    a.figer("ancienne", "corrigee")
+    journal = a.demarrer()
+    assert a.sur_disque() == "corrigee", "la correction de l'image n'a pas atteint le disque"
+    assert "mis a jour" in journal
+
+
+def test_un_fichier_modifie_par_l_utilisateur_n_est_jamais_ecrase(tmp_path):
+    """La regle qui protege le travail : une empreinte qui n'est ni la notre
+    ni l'une des anciennes, c'est du travail humain."""
+    a = _Atelier(tmp_path)
+    a.livre.write_text("corrigee", encoding="utf-8")
+    a.cible.write_text("MON CODE", encoding="utf-8")
+    a.figer("ancienne", "corrigee")
+    journal = a.demarrer()
+    assert a.sur_disque() == "MON CODE", "le travail de l'utilisateur a ete ecrase"
+    assert "modifies sur place" in journal
+
+
+def test_un_fichier_supprime_expres_ne_ressuscite_pas(tmp_path):
+    """Supprimer le projet d'exemple doit tenir. Le voir revenir a chaque
+    redemarrage serait insupportable, et c'est la raison d'etre du marqueur."""
+    a = _Atelier(tmp_path)
+    a.livre.write_text("corrigee", encoding="utf-8")
+    a.figer("ancienne", "corrigee")
+    a.demarrer()
+    assert a.sur_disque() is None, "un fichier supprime a ete recree"
+
+
+def test_rien_ne_bouge_avant_le_premier_amorcage(tmp_path):
+    """Sans marqueur, l'amorcage classique n'a pas encore eu lieu : cette
+    passe n'a rien a faire et ne doit surtout pas prendre les devants."""
+    a = _Atelier(tmp_path)
+    a.livre.write_text("corrigee", encoding="utf-8")
+    a.cible.write_text("ancienne", encoding="utf-8")
+    a.figer("ancienne", "corrigee")
+    a.marqueur.unlink()
+    a.demarrer()
+    assert a.sur_disque() == "ancienne"
+
+
+def test_le_mecanisme_s_entretient_seul_sans_liste_figee(tmp_path):
+    """LE point de cette refonte.
+
+    Une fois qu'un fichier est passe par ici, son empreinte est notee, et la
+    livraison SUIVANTE n'a plus besoin d'aucun catalogue. C'est ce qui permet
+    de supprimer le generateur d'empreintes et la corvee de le relancer avant
+    chaque commit.
+    """
+    a = _Atelier(tmp_path)
+    a.livre.write_text("v1", encoding="utf-8")
+    a.cible.write_text("v1", encoding="utf-8")
+    a.demarrer()                                   # premier demarrage : on note
+    assert a.note() == _somme_texte("v1"), "l'empreinte n'a pas ete notee"
+
+    a.livre.write_text("v2", encoding="utf-8")     # nouvelle image
+    a.demarrer()
+    assert a.sur_disque() == "v2", (
+        "sans liste figee, la mise a jour n'a pas eu lieu : le mecanisme ne "
+        "s'entretient pas tout seul")
+    assert a.note() == _somme_texte("v2"), "l'empreinte n'a pas suivi la mise a jour"
+    # La liste figee n'a servi a rien ici, et c'est exactement l'objectif.
+    assert a.sums.read_text(encoding="utf-8") == ""
+
+
+def test_un_fichier_approprie_le_reste_aux_livraisons_suivantes(tmp_path):
+    """Une fois que l'utilisateur a pris un fichier a son compte, il le garde
+    -- y compris apres une nouvelle version de l'image. Le cas contraire
+    serait une perte de donnees differee, donc encore plus difficile a
+    relier a sa cause."""
+    a = _Atelier(tmp_path)
+    a.livre.write_text("v1", encoding="utf-8")
+    a.cible.write_text("MON CODE", encoding="utf-8")
+    a.demarrer()
+    assert a.note() is None, "le fichier de l'utilisateur a ete note comme etant le notre"
+
+    a.livre.write_text("v2", encoding="utf-8")
+    a.demarrer()
+    assert a.sur_disque() == "MON CODE"
+
+
+def test_une_installation_existante_entre_dans_le_mecanisme_sans_rien_ecraser(tmp_path):
+    """Un fichier deja identique a l'image n'a rien a recevoir, mais doit
+    quand meme etre note -- sinon il resterait dependant de la liste figee
+    pour toujours, et la liste, elle, ne grandit plus."""
+    a = _Atelier(tmp_path)
+    a.livre.write_text("v1", encoding="utf-8")
+    a.cible.write_text("v1", encoding="utf-8")
+    journal = a.demarrer()
+    assert a.note() == _somme_texte("v1")
+    assert "mis a jour" not in journal, "un fichier deja a jour a ete reecrit"
+
+
+def test_un_lien_a_la_place_du_fichier_de_notes_se_repare(tmp_path):
+    """Le fichier de notes vit dans le workspace, inscriptible par le groupe :
+    n'importe quelle application peut y poser un lien.
+
+    Deux choses doivent tenir, et la seconde a ete trouvee en mutant. Un :
+    ne jamais ecrire a travers le lien. Deux : ne pas se contenter de
+    REFUSER -- un refus laisserait le lien en place et arreterait la prise de
+    notes pour toujours, si bien qu'un "ln -s" suffirait a desactiver le
+    mecanisme. Le lien doit donc etre remplace par un vrai fichier."""
+    a = _Atelier(tmp_path)
+    victime = tmp_path / "victime"
+    victime.write_text("intact", encoding="utf-8")
+    a.livre.write_text("v1", encoding="utf-8")
+    a.cible.write_text("v1", encoding="utf-8")
+    os.symlink(str(victime), str(a.empreintes))
+    a.demarrer()
+    assert victime.read_text(encoding="utf-8") == "intact", (
+        "le lien a ete suivi : ecriture root hors du workspace")
+    assert not os.path.islink(str(a.empreintes)), (
+        "le lien est reste : la prise de notes est desactivee pour toujours")
+    assert a.note() == _somme_texte("v1"), "les notes n'ont pas repris"
+
+
+def test_un_lien_symbolique_a_la_place_du_fichier_est_refuse(tmp_path):
+    """Ce bloc tourne en root et /workspace est inscriptible par les
+    applications. Un lien pose a la place d'un fichier du squelette ne doit
+    jamais etre suivi : ce serait une ecriture root arbitraire offerte a
+    n'importe quelle application du panneau."""
+    a = _Atelier(tmp_path)
+    victime = tmp_path / "victime"
+    victime.write_text("intact", encoding="utf-8")
+    a.livre.write_text("corrigee", encoding="utf-8")
+    os.symlink(str(victime), str(a.cible))
+    a.figer("intact")
+    a.demarrer()
+    assert victime.read_text(encoding="utf-8") == "intact", (
+        "le lien a ete suivi : ecriture hors du workspace, en root")
+    assert os.path.islink(str(a.cible)), "le lien a ete remplace"
+
+
+def test_un_temporaire_pose_d_avance_ne_detourne_pas_l_ecriture(tmp_path):
+    """Regression : tant que le fichier temporaire portait un nom
+    previsible, une application pouvait poser d'avance un lien a ce nom et
+    faire ecrire root dans la cible de son choix. Le nom est desormais tire
+    par mktemp, qui cree le fichier sans jamais suivre un lien existant."""
+    a = _Atelier(tmp_path)
+    victime = tmp_path / "victime"
+    victime.write_text("intact", encoding="utf-8")
+    a.livre.write_text("corrigee", encoding="utf-8")
+    a.cible.write_text("ancienne", encoding="utf-8")
+    a.figer("ancienne")
+    # Le piege, au nom qu'utilisait l'ancienne version du code.
+    os.symlink(str(victime), str(a.ws / "checks.py.codelab-tmp"))
+    a.demarrer()
+    assert victime.read_text(encoding="utf-8") == "intact", (
+        "le temporaire previsible a detourne l'ecriture, en root")
+    # La mise a jour legitime doit quand meme avoir eu lieu.
+    assert a.sur_disque() == "corrigee"
+
+
 # ------------- ce fichier doit rester importable sans pytest --------------
 #
 # Regression vecue : "import pytest" en tete de fichier, puis une classe
@@ -1629,7 +1916,7 @@ def test_la_limite_de_tentatives_ne_se_contourne_pas_par_en_tete(client):
     """X-Forwarded-For est pose par le client quand le service est publie
     directement : le faire varier donnait un compteur neuf a chaque essai, ce
     qui annulait la limite."""
-    assert not app.TRUST_PROXY, "APP_MANAGER_TRUST_PROXY ne doit pas etre actif par defaut"
+    assert not app.trust_proxy(), "le proxy de confiance ne doit pas etre actif par defaut"
     for i in range(app.RATE_LIMIT_MAX):
         assert client.post("/login", json={"password": "faux"},
                            headers={"X-Forwarded-For": f"10.0.0.{i}"}).status_code == 401
@@ -2930,6 +3217,124 @@ def test_une_fois_l_adresse_declaree_le_partage_redevient_possible(exposition):
     assert c.post("/api/visibility/prive", json={"visibility": "publique"}).status_code == 200
 
 
+# ---------- HTTPS et proxy de confiance, regles depuis la page ------------
+#
+# Ces deux reglages vivaient uniquement dans le compose, en commentaire. Le
+# code disait pourquoi : « l'activer depuis une page servie en clair
+# deconnecterait sur-le-champ la session qui vient de l'activer, sans moyen
+# de revenir en arriere. »
+#
+# L'objection etait juste. Ce qui la leve n'est pas de l'ignorer, c'est de
+# rendre le cas impossible : on n'allume que ce que la requete en cours
+# justifie. Ces tests tiennent exactement cette promesse -- et le contraire,
+# qui compte autant : ETEINDRE reste possible en toutes circonstances.
+
+
+def test_https_ne_s_active_pas_depuis_une_page_en_clair(exposition):
+    """Le verrou anti-enfermement. Sans lui, un clic depuis http posait un
+    cookie Secure que le navigateur cessait d'envoyer : plus de session, et
+    plus de page pour revenir en arriere."""
+    c = exposition
+    r = c.put("/api/securite/exposition", json={"https": True})
+    assert r.status_code == 400, r.data
+    assert "deconnecterait" in r.get_json()["error"]
+    assert app.https_actif() is False
+    assert app.flask_app.config["SESSION_COOKIE_SECURE"] is False
+
+
+def test_https_s_active_depuis_une_page_en_https(exposition):
+    c = exposition
+    r = c.put("/api/securite/exposition", json={"https": True},
+              base_url="https://localhost")
+    assert r.status_code == 200, r.data
+    assert app.https_actif() is True
+    # Le cookie suit tout de suite : c'est l'interet de ne plus figer au
+    # demarrage. Sans cette ligne, le reglage serait enregistre et sans effet
+    # jusqu'au prochain redemarrage -- une case qui ment.
+    assert app.flask_app.config["SESSION_COOKIE_SECURE"] is True
+
+
+def test_https_s_active_derriere_un_proxy_declare(exposition):
+    """Le cas courant : le TLS se termine au proxy, la requete arrive ici en
+    clair et n'annonce https que par un en-tete. Sans ce chemin, la case
+    serait inatteignable la ou elle sert le plus."""
+    c = exposition
+    assert c.put("/api/securite/exposition", json={"trust_proxy": True},
+                 headers={"X-Forwarded-Proto": "https"}).status_code == 200
+    r = c.put("/api/securite/exposition", json={"https": True},
+              headers={"X-Forwarded-Proto": "https"})
+    assert r.status_code == 200, r.data
+    assert app.https_actif() is True
+
+
+def test_eteindre_https_reste_possible_depuis_une_page_en_clair(exposition):
+    """La marche arriere ne doit dependre d'aucune condition : c'est elle
+    qu'on cherche quand tout va mal."""
+    c = exposition
+    c.put("/api/securite/exposition", json={"https": True},
+          base_url="https://localhost")
+    assert app.https_actif() is True
+    r = c.put("/api/securite/exposition", json={"https": False})
+    assert r.status_code == 200, r.data
+    assert app.https_actif() is False
+
+
+def test_le_proxy_ne_se_declare_pas_sans_proxy(exposition):
+    """Croire X-Forwarded-For sans proxy devant, c'est laisser n'importe quel
+    client s'inventer une adresse a chaque essai -- et annuler la limite de
+    tentatives de connexion. La page ne doit pas permettre cette regression."""
+    c = exposition
+    r = c.put("/api/securite/exposition", json={"trust_proxy": True})
+    assert r.status_code == 400, r.data
+    assert "X-Forwarded" in r.get_json()["error"]
+    assert app.trust_proxy() is False
+
+
+def test_le_proxy_se_declare_quand_il_est_la(exposition):
+    c = exposition
+    r = c.put("/api/securite/exposition", json={"trust_proxy": True},
+              headers={"X-Forwarded-For": "203.0.113.7"})
+    assert r.status_code == 200, r.data
+    # Lu a chaud, sans redemarrage : c'est tout l'objet du changement.
+    assert app.trust_proxy() is True
+
+
+def test_enregistrer_l_adresse_n_efface_pas_les_deux_autres_reglages(exposition):
+    """Le fichier portait un seul reglage et etait reecrit en entier. Avec
+    trois, enregistrer l'adresse effacait HTTPS et le proxy en silence."""
+    c = exposition
+    c.put("/api/securite/exposition", json={"https": True},
+          base_url="https://localhost")
+    c.put("/api/securite/exposition", json={"trust_proxy": True},
+          headers={"X-Forwarded-For": "203.0.113.7"})
+
+    r = c.put("/api/securite/exposition",
+              json={"adresse_publique": "https://codelab.example.com"})
+    assert r.status_code == 200, r.data
+    assert app.https_actif() is True, "HTTPS efface par l'enregistrement de l'adresse"
+    assert app.trust_proxy() is True, "le proxy efface par l'enregistrement de l'adresse"
+
+
+def test_le_compose_l_emporte_sur_la_page_pour_https_et_le_proxy(exposition, monkeypatch):
+    """Meme regle que pour l'adresse, et pour la meme raison : la page ne doit
+    pas laisser modifier ce qu'un redemarrage remettrait. C'est aussi la seule
+    marche arriere qui ne passe pas par le panneau."""
+    c = exposition
+    monkeypatch.setenv("APP_MANAGER_HTTPS", "1")
+    monkeypatch.setenv("APP_MANAGER_TRUST_PROXY", "1")
+    assert app.https_actif() is True
+    assert app.trust_proxy() is True
+
+    etat = c.get("/api/securite").get_json()
+    assert etat["https_fige"] is True and etat["trust_proxy_fige"] is True
+
+    assert c.put("/api/securite/exposition",
+                 json={"https": False}).status_code == 400
+    assert c.put("/api/securite/exposition",
+                 json={"trust_proxy": False}).status_code == 400
+    assert app.https_actif() is True
+
+
 def test_l_adresse_du_compose_l_emporte_sur_celle_de_la_page(exposition, monkeypatch):
     """Sinon la page laisserait modifier ce qu'un redemarrage remettrait."""
     c = exposition
@@ -2958,7 +3363,7 @@ def cles(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "PASSKEYS_FILE", str(tmp_path / "passkeys.json"))
     monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
     monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
-    monkeypatch.setattr(app, "TRUST_PROXY", False)
+    monkeypatch.setattr(app, "trust_proxy", lambda: False)
     app.flask_app.secret_key = "cle-de-test"
     app.flask_app.config["TESTING"] = True
     app._login_attempts.clear()
@@ -2978,11 +3383,11 @@ def test_les_conditions_du_navigateur_sont_annoncees(cles, monkeypatch):
 
     # Une adresse IP ne peut pas servir de relying party id -- meme en HTTPS,
     # et c'est bien la regle de l'IP qui doit refuser, pas celle du TLS.
-    monkeypatch.setattr(app, "TRUST_PROXY", True)
+    monkeypatch.setattr(app, "trust_proxy", lambda: True)
     d = _etat_passkeys(cles, Host="192.168.1.20:9001", **{"X-Forwarded-Proto": "https"})
     assert d["possible"] is False
     assert "nom de domaine" in d["empechement"]
-    monkeypatch.setattr(app, "TRUST_PROXY", False)
+    monkeypatch.setattr(app, "trust_proxy", lambda: False)
 
     # localhost est un contexte securise pour le navigateur : ca marche.
     assert _etat_passkeys(cles, Host="localhost:9001")["possible"] is True
@@ -2999,9 +3404,9 @@ def test_un_proxy_non_declare_n_est_pas_cru_sur_parole(cles, monkeypatch):
     entetes = {"Host": "codelab.example.com", "X-Forwarded-Proto": "https"}
     d = _etat_passkeys(cles, **entetes)
     assert d["possible"] is False
-    assert "APP_MANAGER_TRUST_PROXY" in d["empechement"]
+    assert "Proxy de confiance" in d["empechement"]
 
-    monkeypatch.setattr(app, "TRUST_PROXY", True)
+    monkeypatch.setattr(app, "trust_proxy", lambda: True)
     assert _etat_passkeys(cles, **entetes)["possible"] is True
 
 

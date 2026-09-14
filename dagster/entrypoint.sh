@@ -1,13 +1,16 @@
 #!/bin/sh
 # Entrypoint commun a codelab-dagster (webserver) et codelab-dagster-daemon.
-# Trois roles :
+# Quatre roles :
 #   1. Lire le mot de passe Postgres dans credentials.env -- le fichier unique
 #      de secrets CodeLab -- et l'exposer en DAGSTER_PG_PASSWORD, car
 #      dagster.yaml ne sait lire un secret que depuis une env var.
 #   2. Amorcer /opt/dagster/home et /workspace au tout premier demarrage,
 #      sans jamais ecraser ce que l'utilisateur a deja modifie. /workspace
 #      recoit un squelette complet : README des conventions, definitions.py
-#      agregateur, et le projet "diagnostic" qui sert de modele.
+#      agregateur, et le projet "diagnostic" qui sert de modele. Ensuite, a
+#      chaque demarrage, mettre a jour les seuls fichiers de ce squelette
+#      que personne n'a touches -- sans quoi une correction livree dans
+#      l'image n'atteint jamais une installation existante.
 #   3. Poser le socle de permissions sur /workspace (groupe commun, setgid),
 #      pour que les fichiers ecrits par les jobs restent modifiables depuis
 #      une session SSH.
@@ -150,6 +153,169 @@ if [ ! -f "$SEED_MARKER" ] && [ -d "$WORKSPACE_SEED" ]; then
   mkdir -p "$(dirname "$SEED_MARKER")"
   echo "Supprimer ce fichier fait recopier le squelette de l'image au prochain demarrage." > "$SEED_MARKER"
   chgrp "$CODELAB_GROUP" "$SEED_MARKER" 2>/dev/null || true
+fi
+
+# ------------------- mise a jour des fichiers non modifies -------------------
+#
+# Le bloc ci-dessus ne s'execute qu'une fois. Pris seul, il a un defaut qui est
+# reste invisible longtemps : une correction apportee au squelette ne pouvait
+# atteindre AUCUNE installation existante. L'image portait le correctif, le
+# disque gardait le defaut, et "docker compose pull" n'y changeait rien -- il
+# fallait le savoir et recopier le fichier a la main.
+#
+# Ce qui suit rattrape exactement ce cas, et rien d'autre. Trois interdits :
+#
+#   ne cree jamais un fichier absent -- un projet supprime expres ne doit pas
+#     reapparaitre, c'est la raison d'etre du marqueur ci-dessus ;
+#   ne supprime jamais rien ;
+#   ne remplace un fichier que s'il est prouve INTACT, c'est-a-dire si son
+#     contenu est exactement celui que CodeLab y a ecrit la derniere fois.
+#
+# La preuve porte sur le CONTENU, jamais sur une date : une horloge de
+# conteneur, un bind mount et un "cp -r" donnent des dates qui ne veulent rien
+# dire.
+#
+# COMMENT ON SAIT CE QUE NOUS AVONS ECRIT
+#
+# Simplement en le notant. A chaque fois que CodeLab depose un fichier du
+# squelette, il inscrit son empreinte dans .codelab/empreintes. Au demarrage
+# suivant, un fichier dont l'empreinte n'a pas bouge n'a ete touche par
+# personne ; un fichier dont elle a bouge appartient desormais a
+# l'utilisateur. Aucun catalogue a tenir a jour, aucune etape a ne pas
+# oublier avant de committer : le mecanisme s'entretient tout seul.
+#
+# Reste le cas des installations anterieures a ce mecanisme, qui n'ont encore
+# rien de note -- et ce sont precisement celles qu'il faut rattraper.
+# workspace.sums porte, pour elles seules, la liste des versions livrees
+# avant. Cette liste est FIGEE : elle ne decrit que le passe, et n'a donc
+# jamais a etre regeneree.
+SEED_SUMS=/opt/dagster/workspace.sums
+EMPREINTES="$WORKSPACE_DIR/.codelab/empreintes"
+
+# Format d'une ligne, dans les deux fichiers : "<sha256> <chemin relatif>".
+# Aucun chemin du squelette ne contient d'espace, et aucun n'a de raison d'en
+# contenir : le second champ est donc le chemin entier.
+#
+# Ce fichier de notes vit dans le workspace, donc dans un dossier inscriptible
+# par le groupe : une application compromise peut le modifier. Ce qu'elle y
+# gagnerait est borne -- faire remplacer un fichier d'exemple par la version
+# de l'image -- et jamais une elevation de privilege : le contenu ecrit vient
+# toujours de l'image, jamais du fichier de notes. Il est malgre tout ecrit en
+# 644 (personne d'autre que root n'a de raison d'y ecrire), et jamais suivi
+# s'il devient un lien.
+empreinte_notee() {
+  [ -f "$EMPREINTES" ] && [ ! -L "$EMPREINTES" ] || return 0
+  awk -v r="$1" '$2 == r { print $1; exit }' "$EMPREINTES" 2>/dev/null
+}
+
+noter_empreinte() {
+  # Pas de refus si le fichier de notes est un lien : le "mv" final remplace
+  # le LIEN, il n'ecrit jamais a travers. Refuser serait meme nuisible --
+  # le lien resterait, et la prise de notes s'arreterait pour toujours ;
+  # n'importe qui pouvant ecrire dans le workspace desactiverait le
+  # mecanisme avec un simple "ln -s". En le remplacant, on se repare.
+  mkdir -p "$(dirname "$EMPREINTES")" 2>/dev/null || return 0
+  # mktemp plutot qu'un nom previsible : ce code tourne en root dans un
+  # dossier inscriptible par le groupe, un temporaire devinable serait une
+  # ecriture root detournable par un lien pose d'avance.
+  n=$(mktemp "$(dirname "$EMPREINTES")/.empreintes-XXXXXX" 2>/dev/null) || return 0
+  if [ -f "$EMPREINTES" ]; then
+    awk -v r="$1" '$2 != r' "$EMPREINTES" > "$n" 2>/dev/null || true
+  fi
+  echo "$2 $1" >> "$n"
+  chgrp "$CODELAB_GROUP" "$n" 2>/dev/null || true
+  chmod 644 "$n" 2>/dev/null || true
+  mv "$n" "$EMPREINTES" 2>/dev/null || rm -f "$n"
+}
+
+if [ -d "$WORKSPACE_SEED" ] && [ -f "$SEED_MARKER" ]; then
+  liste=$(mktemp)
+  ( cd "$WORKSPACE_SEED" && find . -type f -printf '%P\n' ) > "$liste" 2>/dev/null || true
+
+  majs=0
+  gardes=0
+  while IFS= read -r relatif; do
+    [ -n "$relatif" ] || continue
+    source="$WORKSPACE_SEED/$relatif"
+    cible="$WORKSPACE_DIR/$relatif"
+
+    # Jamais a travers un lien symbolique. Ce bloc tourne EN ROOT, avant
+    # l'abandon des privileges, et /workspace est inscriptible par les
+    # sessions SSH comme par les applications du panneau. Suivre un lien
+    # reviendrait a offrir a n'importe laquelle d'entre elles une ecriture
+    # root n'importe ou sur le disque. Le squelette ne livre aucun lien : un
+    # lien a cet emplacement est soit un choix de l'utilisateur, soit une
+    # attaque -- dans les deux cas on passe son chemin.
+    if [ -L "$cible" ]; then
+      echo "[codelab]   $relatif est un lien symbolique : laisse tel quel." >&2
+      continue
+    fi
+
+    # Absent : c'est soit un ajout du squelette posterieur a l'amorcage, soit
+    # une suppression deliberee. On ne peut pas distinguer les deux, et se
+    # tromper dans un sens fait reapparaitre un projet supprime. On s'abstient.
+    [ -f "$cible" ] || continue
+
+    somme_disque=$(sha256sum < "$cible" | cut -d' ' -f1)
+    somme_image=$(sha256sum < "$source" | cut -d' ' -f1)
+
+    if [ "$somme_disque" = "$somme_image" ]; then
+      # Deja a jour. On note quand meme si ce n'etait pas encore fait : c'est
+      # ce qui fait entrer en douceur une installation existante dans le
+      # mecanisme, sans rien ecrire dans le workspace.
+      [ "$(empreinte_notee "$relatif")" = "$somme_disque" ] \
+        || noter_empreinte "$relatif" "$somme_disque"
+      continue
+    fi
+
+    # Intact ? Ce que nous avons note pour ce fichier fait foi. A defaut de
+    # note -- installation anterieure au mecanisme -- on se rabat sur la
+    # liste figee des versions livrees autrefois.
+    notee=$(empreinte_notee "$relatif")
+    if [ -n "$notee" ]; then
+      [ "$notee" = "$somme_disque" ] && intact=oui || intact=non
+    elif [ -f "$SEED_SUMS" ] && grep -q "^$somme_disque $relatif\$" "$SEED_SUMS"; then
+      intact=oui
+    else
+      intact=non
+    fi
+
+    if [ "$intact" = oui ]; then
+      # mktemp, et non un nom de temporaire previsible : il cree le fichier
+      # avec O_EXCL, donc sans jamais suivre un lien qu'un tiers aurait pose
+      # d'avance a cet emplacement. Un "cp vers $cible.codelab-tmp" aurait
+      # ete exactement cette faille, en root.
+      tmp=$(mktemp "$(dirname "$cible")/.codelab-maj-XXXXXX" 2>/dev/null) || tmp=""
+      if [ -n "$tmp" ] && cat "$source" > "$tmp" 2>/dev/null; then
+        chgrp "$CODELAB_GROUP" "$tmp" 2>/dev/null || true
+        chmod g+rw "$tmp" 2>/dev/null || true
+        # Renommage atomique : un arret au mauvais moment laisse l'ancienne
+        # version entiere, jamais un fichier a moitie ecrit.
+        mv "$tmp" "$cible"
+        noter_empreinte "$relatif" "$somme_image"
+        echo "[codelab]   $relatif mis a jour (version d'origine, non modifiee)."
+        majs=$((majs + 1))
+      else
+        [ -n "$tmp" ] && rm -f "$tmp"
+        echo "[codelab]   $relatif : mise a jour impossible (droits ?)." >&2
+      fi
+    else
+      # Modifie sur place. C'est le cas normal des que l'utilisateur s'est
+      # approprie le projet d'exemple -- on le signale sans insister. On ne
+      # note SURTOUT pas son empreinte : le fichier est a lui desormais, et
+      # doit le rester meme s'il le remanie encore.
+      gardes=$((gardes + 1))
+    fi
+  done < "$liste"
+  rm -f "$liste"
+
+  if [ "$majs" -gt 0 ]; then
+    echo "[codelab] squelette : $majs fichier(s) mis a jour depuis l'image."
+  fi
+  if [ "$gardes" -gt 0 ]; then
+    echo "[codelab] squelette : $gardes fichier(s) modifies sur place, laisses" \
+         "tels quels (reference dans $WORKSPACE_SEED)."
+  fi
 fi
 
 # ----------------------- abandon des privileges -----------------------
