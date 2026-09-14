@@ -1882,11 +1882,27 @@ def is_running(name):
     return p is not None and p.poll() is None
 
 
-def start(name):
+# Combien de temps on regarde l'application vivre avant de la declarer
+# demarree. Un processus qui meurt le fait presque toujours tout de suite --
+# commande introuvable, port deja pris, dependance absente, isolement refuse.
+# Une seconde suffit a les attraper, et n'est pas une attente perceptible
+# derriere un clic.
+DELAI_DEMARRAGE = 1.0
+
+
+def start(name, attendre=True):
+    """Demarre une application. Rend None si tout va bien, sinon POURQUOI.
+
+    Avant, cette fonction se taisait dans tous les cas d'echec : dossier
+    disparu, commande introuvable, port deja pris, isolement refuse. Le
+    panneau repondait "ok" et l'interface revenait a "Arretee" sans un mot.
+    On cliquait, rien ne se passait, et il fallait aller lire le journal de
+    l'application pour comprendre -- en supposant qu'on sache qu'il existe.
+    """
     apps = load()
     a = apps.get(name)
     if not a or is_running(name):
-        return
+        return None
 
     # Le dossier de l'app peut avoir disparu (supprime depuis /workspace,
     # volume non monte, renomme). Sans ce garde-fou, subprocess.Popen leve
@@ -1898,7 +1914,7 @@ def start(name):
               f"demarrage ignore.", flush=True)
         apps[name]["enabled"] = False
         save(apps)
-        return
+        return f"Dossier introuvable : {a['path']}"
 
     os.makedirs(LOG_DIR, exist_ok=True)
     rotate_log_if_needed(name)
@@ -1917,6 +1933,49 @@ def start(name):
             preexec_fn=child_setup(a.get("max_memory_mb"), name))
     apps[name]["enabled"] = True
     save(apps)
+
+    if not attendre:
+        return None
+
+    # On regarde l'application vivre un instant. Sans cela, "demarree" veut
+    # seulement dire "Popen n'a pas leve d'exception" -- ce qui reste vrai
+    # d'une commande qui meurt a la ligne suivante.
+    fin = time.time() + DELAI_DEMARRAGE
+    while time.time() < fin:
+        if procs[name].poll() is not None:
+            code = procs[name].returncode
+            procs.pop(name, None)
+            apps = load()
+            if name in apps:
+                apps[name]["enabled"] = False
+                save(apps)
+            return (f"L'application s'est arretee aussitot (code {code}). "
+                    + derniere_ligne_utile(name))
+        time.sleep(0.05)
+    return None
+
+
+def derniere_ligne_utile(nom):
+    """La derniere ligne non vide du journal, pour dire POURQUOI.
+
+    C'est ce qui transforme "ca ne marche pas" en "python3: can't open file"
+    ou "bind: address already in use". Sans elle, le message d'erreur
+    n'apprend rien que l'interface ne montrait deja.
+    """
+    chemin = os.path.join(LOG_DIR, nom + ".log")
+    try:
+        with open(chemin, "rb") as f:
+            # Les dernieres lignes suffisent, et un journal peut etre gros.
+            f.seek(0, os.SEEK_END)
+            debut = max(0, f.tell() - 4096)
+            f.seek(debut)
+            lignes = [l.strip() for l in f.read().decode("utf-8", "replace").splitlines()]
+    except OSError:
+        return "Le journal de l'application est illisible."
+    for ligne in reversed(lignes):
+        if ligne:
+            return ligne[:300]
+    return f"Le journal est vide : {chemin}"
 
 
 def stop(name):
@@ -1954,7 +2013,7 @@ def resume():
             # panneau de se lancer : c'est justement depuis le panneau qu'on
             # va la reparer ou la supprimer.
             try:
-                start(name)
+                start(name, attendre=False)
             except Exception as e:
                 print(f"[app-manager] {name} : echec du demarrage auto ({e}), "
                       f"ignoree.", flush=True)
@@ -1979,7 +2038,7 @@ def monitor_tick():
             _restart_history[name] = hist
             print(f"[app-manager] {name} arretee de maniere inattendue, "
                   f"redemarrage automatique ({len(hist)}/{RESTART_MAX_ATTEMPTS})", flush=True)
-            start(name)
+            start(name, attendre=False)
         else:
             _restart_history[name] = hist
 
@@ -4917,8 +4976,16 @@ def api_edit(n):
 def api_toggle(n):
     if n not in load():
         return jsonify({"error": "Application inconnue."}), 404
-    stop(n) if is_running(n) else start(n)
-    return jsonify({"ok": True})
+    if is_running(n):
+        stop(n)
+        return jsonify({"ok": True, "running": False})
+    erreur = start(n)
+    if erreur:
+        # 409 et non 500 : le panneau a fait son travail, c'est
+        # l'application qui refuse de demarrer. La nuance compte pour qui
+        # lit les journaux du panneau.
+        return jsonify({"error": erreur}), 409
+    return jsonify({"ok": True, "running": True})
 
 
 def restart_app(n):

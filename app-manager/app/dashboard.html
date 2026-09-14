@@ -1946,7 +1946,7 @@ function peindreHub(){
   }
   const tuile = a => {
     const desc = a.description ? `<div class="desc">${esc(a.description)}</div>` : '';
-    return `<a class="hub-projet ${a.running?'':'arrêtée'}" href="${urlApplication(a.name)}">
+    return `<a class="hub-projet ${a.running?'':'arretee'}" href="${urlApplication(a.name)}">
       <img src="${icone(a.name)}" alt="">
       <div class="txt"><div class="nom">${esc(a.name)}</div>${desc}
       <div class="bas">${badgeEtat(a)}${badgeVis(a)}</div></div></a>`;
@@ -2078,7 +2078,16 @@ function render(){
 }
 
 /* ---------------- actions ---------------- */
-async function tg(n){ await fetch('/api/toggle/'+n,{method:'POST'}); setTimeout(refresh,400); }
+/* Le bouton demarrer / arreter. Il LIT la reponse : le panneau sait
+   desormais dire pourquoi une application refuse de demarrer (dossier
+   disparu, commande introuvable, port pris, isolement refuse), et se taire
+   la-dessus revenait a cliquer dans le vide. */
+async function tg(n){
+  const r=await fetch('/api/toggle/'+n,{method:'POST'});
+  let d={}; try{ d=await r.json(); }catch(e){}
+  if(!r.ok) notifier(d.error || "L'application n'a pas demarre.", 'err');
+  setTimeout(refresh,400);
+}
 async function restartApp(n){ await fetch('/api/restart/'+n,{method:'POST'}); setTimeout(refresh,500); }
 async function deployApp(n){
   const r=await fetch('/api/deploy/'+n,{method:'POST'});
@@ -2187,7 +2196,7 @@ async function chargerAcces(nom){
   }
   zone.innerHTML = comptes.map(c=>
     `<div class="field" style="margin-bottom:8px">
-       <label><input type="checkbox" id="ac-${esc(c.nom)}" ${c.accès?'checked':''}
+       <label><input type="checkbox" id="ac-${esc(c.nom)}" ${c.acces?'checked':''}
          onchange="acBasculer()"> ${esc(c.nom)}</label>
        ${c.email ? '<div class="hint" style="margin-top:2px">'+esc(c.email)+'</div>' : ''}
      </div>`).join('');
@@ -2252,7 +2261,7 @@ function peindreFiche(){
   const svgOuvrir='<svg viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 13v6a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h6"/></svg>';
 
   const b=[];
-  b.push(`<button class="btn ${a.running?'btn-arrêter':'btn-démarrer'}" onclick="tg('${esc(a.name)}')">
+  b.push(`<button class="btn ${a.running?'btn-arreter':'btn-demarrer'}" onclick="tg('${esc(a.name)}')">
     ${a.running?svgStop+'Arrêter':svgPlay+'Démarrer'}</button>`);
   b.push(`<button class="btn btn-refaire" onclick="restartApp('${esc(a.name)}')" ${a.running?'':'disabled'}>
     ${svgRe}Redemarrer</button>`);
@@ -2266,7 +2275,7 @@ function peindreFiche(){
      lui, reste toujours ouvert. */
   if(!prive || adressePublique){
     b.push(`<button class="btn btn-quiet" onclick="basculerVisibilite('${esc(a.name)}')">
-      ${privé?'Rendre publique':'Rendre privée'}</button>`);
+      ${prive?'Rendre publique':'Rendre privée'}</button>`);
   }else{
     b.push(`<span class="hint" style="align-self:center;max-width:320px">Déclaré l'adresse
       publique du serveur (Paramètres &gt; Serveur) pour pouvoir partager une application.</span>`);
@@ -2504,7 +2513,7 @@ async function chargerPasskeys(){
     <svg viewBox="0 0 24 24"><circle cx="8" cy="12" r="4"/><path d="M12 12h9"/>
     <path d="M17 12v3"/><path d="M20.5 12v2"/></svg>
     <div><b>${esc(k.nom)}</b>
-      <div class="pk-quand">Ajoutée ${esc(ilYA(k.créé))}${
+      <div class="pk-quand">Ajoutée ${esc(ilYA(k.cree))}${
         k.dernier ? ' — dernière utilisation ' + esc(ilYA(k.dernier)) : ' — jamais utilisée'}</div></div>
     <div class="spacer"></div>
     <button class="btn btn-default btn-sm" onclick="pkSupprimer('${esc(k.id)}')">Retirer</button>
@@ -2885,9 +2894,9 @@ function usPeindreFiche(){
   $('us-f-projets').innerHTML = apps.length ? apps.map(a=>{
     const coche = c.projets.includes(a.name) ? ' checked' : '';
     const prive = a.visibility==='privee';
-    return `<label class="us-case${privé?'':' us-public'}">
+    return `<label class="us-case${prive?'':' us-public'}">
       <input type="checkbox" value="${esc(a.name)}"${coche}>
-      ${esc(a.name)}${privé?'':' <span>(public)</span>'}</label>`;
+      ${esc(a.name)}${prive?'':' <span>(public)</span>'}</label>`;
   }).join('') : '<div class="hint">Aucun projet déclaré.</div>';
 
   const morceaux=[];

@@ -4832,6 +4832,107 @@ def test_la_verification_approfondie_reste_a_la_demande():
     assert "lancer_suite_du_panneau" not in src
 
 
+# ---------- 23 septies. l'accent ne deborde sur AUCUN identifiant ----------
+#
+# La verification precedente ne couvrait que les attributs data-. Six autres
+# identifiants accentues dormaient dans la page, tous nes de la meme campagne
+# d'accentuation des textes visibles :
+#
+#   la classe qui grise une application arretee, accentuee dans le gabarit
+#     et sans accent dans le CSS : l'application n'etait plus grisee dans le
+#     hub, et restait CLIQUABLE -- le lien ne menant qu'a une page d'erreur ;
+#   les deux classes de couleur du bouton demarrer / arreter, accentuees de
+#     meme : le bouton de la fiche perdait sa couleur ;
+#   une variable declaree sans accent et relue avec, DEUX fois :
+#     ReferenceError a l'ouverture d'une fiche, le rendu s'arretait la ;
+#   deux champs d'objet accentues contre les noms renvoyes par l'API : les
+#     cases d'autorisation ne se cochaient plus, et chaque cle d'acces
+#     s'affichait "Ajoutee jamais".
+#
+# Un texte accentue se lit mieux. Un identifiant accentue ne correspond plus
+# a rien -- et selon l'endroit, il se tait ou il leve.
+
+def _script_panneau_html():
+    page = _page_panneau("dashboard.html")
+    return page, page[page.index("</style>"):]
+
+
+def test_aucune_classe_css_n_est_accentuee():
+    """Une classe accentuee ne correspond a aucune regle : le style saute."""
+    for nom in ("dashboard.html", "login.html"):
+        page = _page_panneau(nom)
+        classes = set()
+        for m in re.finditer(r'class="([^"]*)"', page):
+            classes.update(m.group(1).split())
+        fautives = sorted(c for c in classes
+                          if re.search(r"[^\x00-\x7F]", c))
+        assert not fautives, f"{nom} : classes accentuees {fautives}"
+
+
+def test_aucun_identifiant_javascript_n_est_accentue():
+    """Ni une variable, ni un champ d'objet.
+
+    Une variable accentuee lue sans etre declaree LEVE (ReferenceError) et
+    arrete le rendu en cours ; un champ accentue vaut undefined et se tait.
+    Les deux viennent de la meme erreur, et aucun des deux ne doit passer.
+    """
+    _, script = _script_panneau_html()
+    lus = set()
+    # Les expressions ${identifiant} des gabarits.
+    for m in re.finditer(r"\$\{\s*([A-Za-z_$][\w$]*[^\x00-\x7F][\w$\u00C0-\u024F]*)",
+                         script):
+        lus.add(m.group(1))
+    # Les acces .champ sur un objet.
+    for m in re.finditer(r"\.([A-Za-z_$][\w$]*[^\x00-\x7F][\w$\u00C0-\u024F]*)\b",
+                         script):
+        lus.add(m.group(1))
+    assert not lus, f"identifiants JavaScript accentues : {sorted(lus)}"
+
+
+# ---------- 23 octies. demarrer ne se tait plus quand ca echoue ----------
+#
+# Signale par Lucas : "arreter et pause ne fonctionne pas dans la page
+# applications". Mesure au navigateur : le clic partait bien, la requete
+# aboutissait, l'API repondait 200 OK -- et l'application restait arretee,
+# sans un mot.
+#
+# api_toggle repondait {"ok": True} sans rien verifier, et start() se taisait
+# dans tous ses cas d'echec : dossier disparu, commande introuvable, port
+# deja pris, isolement refuse. Il fallait aller lire le journal de
+# l'application, en supposant qu'on sache qu'il existe.
+
+def test_demarrer_verifie_que_l_application_vit_encore():
+    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    assert "def start(name, attendre=True):" in src, (
+        "start() ne prend plus le temps de regarder l'application vivre")
+    assert "DELAI_DEMARRAGE" in src
+    assert "def derniere_ligne_utile(" in src, (
+        "sans la derniere ligne du journal, le message n'apprend rien")
+    # L'echec remonte a l'appelant, il ne se contente pas d'un print.
+    bloc = src[src.index("def start(name, attendre=True):"):src.index("def stop(name):")]
+    assert "return f\"Dossier introuvable" in bloc
+    assert "s'est arretee aussitot" in bloc
+
+
+def test_l_api_toggle_rend_compte_de_l_echec():
+    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    bloc = src[src.index("def api_toggle("):]
+    bloc = bloc[:bloc.index("def ", 10)]
+    assert "erreur = start(n)" in bloc, "l'API ignore ce que start() lui rend"
+    assert "409" in bloc, (
+        "un echec de demarrage doit se voir dans le code de reponse")
+
+
+def test_le_bouton_lit_la_reponse():
+    """Deux silences valaient mieux qu'un : meme si l'API avait repondu une
+    erreur, tg() jetait la reponse sans la regarder."""
+    _, script = _script_panneau_html()
+    bloc = script[script.index("async function tg(n){"):]
+    bloc = bloc[:bloc.index("async function", 10)]
+    assert "r.ok" in bloc and "notifier(" in bloc, (
+        "le bouton ignore la reponse : l'utilisateur clique dans le vide")
+
+
 # ---------- 24. le dossier personnel ne se detourne pas ----------
 #
 # Trouve par l'audit de la branche, et c'etait une escalade de privileges
