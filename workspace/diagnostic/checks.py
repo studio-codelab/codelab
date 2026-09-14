@@ -4693,6 +4693,145 @@ def test_la_police_est_livree_avec_l_image():
         "une police redistribuee sans sa licence, c'est une licence violee")
 
 
+# ---------- 23 quater. les accents ne debordent pas sur les identifiants ----------
+#
+# Signale par Lucas, et la cause est une campagne precedente : en accentuant
+# les textes visibles de l'interface, trois IDENTIFIANTS ont ete accentues au
+# passage. Un texte accentue se lit mieux ; un identifiant accentue ne
+# correspond plus a rien, et se tait.
+#
+#   data-activité="..."  dans le balisage, contre [data-activite] dans le
+#                        selecteur : le noeud n'etait jamais trouve ;
+#   c.dernière           contre le champ derniere renvoye par /api/activite :
+#                        undefined, donc ilYA() repondait "jamais".
+#
+# Resultat : la ligne "derniere connexion" de chaque compte etait morte
+# depuis. Aucune erreur, aucune trace -- juste une information absente, ce
+# qui est exactement ce qu'aucune relecture ne remarque.
+
+def _script_panneau():
+    page = _page_panneau("dashboard.html")
+    return page[page.index("</style>"):]
+
+
+def test_aucun_attribut_data_n_est_accentue():
+    """Un nom d'attribut accentue ne correspond a aucun selecteur."""
+    page = _page_panneau("dashboard.html")
+    fautifs = re.findall(r'data-([A-Za-z0-9_-]*[^\x00-\x7F][A-Za-z0-9_-]*)\s*=', page)
+    assert not fautifs, f"attributs data- accentues : {sorted(set(fautifs))}"
+
+
+def test_chaque_selecteur_data_trouve_son_attribut():
+    """Le lien selecteur <-> balisage, tenu dans les deux sens.
+
+    C'est ce test qui aurait attrape le defaut : les deux formes existaient,
+    chacune correcte de son cote, mais elles ne se rencontraient jamais.
+    """
+    page = _page_panneau("dashboard.html")
+    cherches = set(re.findall(r'\[data-([A-Za-z0-9_-]+)\]', page))
+    poses = set(re.findall(r'data-([A-Za-z0-9_-]+)\s*=', page))
+    orphelins = cherches - poses
+    assert not orphelins, (
+        f"selecteurs sans attribut correspondant : {sorted(orphelins)} -- "
+        "le noeud ne sera jamais trouve")
+
+
+def test_la_derniere_connexion_lit_le_champ_de_l_api():
+    """Le champ s'appelle derniere, sans accent, et c'est /api/activite qui
+    le nomme. Le lire accentue donne undefined, et undefined affiche
+    "jamais" -- un compte qui vient de se connecter s'annonce alors comme
+    ne s'etant jamais connecte."""
+    script = _script_panneau()
+    assert "c.dernière" not in script, (
+        "le champ de l'API s'ecrit derniere, sans accent")
+    assert "ilYA(c.derniere)" in script
+
+
+# ---------- 23 quinquies. le reglage 25/50 est sur le journal ----------
+#
+# Signale par Lucas : il etait pose sur la liste des COMPTES, qui tient a
+# l'ecran, alors que le journal des connexions grandit a chaque visite et
+# etait coupe net a 40 lignes, sans que rien ne le dise.
+
+def test_le_journal_des_connexions_se_pagine():
+    page = _page_panneau("dashboard.html")
+    for cle in ('id="ac-taille"', 'id="ac-pagination"', 'id="ac-prec"',
+                'id="ac-suiv"', 'id="ac-compte"'):
+        assert cle in page, f"{cle} manque : le journal ne se pagine pas"
+    script = _script_panneau()
+    assert "function acParPage()" in script and "function acAllerA(" in script
+    assert "slice(0,40)" not in script, (
+        "la coupe seche a 40 lignes est revenue : ni reglable, ni annoncee")
+
+
+def test_la_liste_des_comptes_ne_se_pagine_plus():
+    """Deux paginations sur la meme page, dont une inutile, se confondent."""
+    page = _page_panneau("dashboard.html")
+    for cle in ('id="us-taille"', 'id="us-prec"', 'id="us-suiv"'):
+        assert cle not in page, f"{cle} est revenu sur la liste des comptes"
+
+
+# ---------- 23 sexies. la surveillance se declenche toute seule ----------
+#
+# Le diagnostic n'avait AUCUN planning : l'asset ne tournait que si quelqu'un
+# allait cliquer "Materialize" dans Dagster. Une surveillance qu'il faut
+# declencher ne previent de rien -- on ne la declenche que quand on soupconne
+# deja quelque chose.
+#
+# La consequence depassait le diagnostic : alerte_mail_echec est un
+# run_failure_sensor, il reagit a un run EN ECHEC. Aucun run ne demarrant
+# jamais tout seul, aucun ne pouvait echouer, donc aucune alerte ne partait.
+# Un systeme d'alerte complet, avec son SMTP et son repli, qui n'attendait
+# qu'un clic pour servir.
+#
+# Tests TEXTUELS, et il faut le dire : l'image du panneau ne contient pas
+# dagster, donc importer definitions.py ici echouerait. Ils constatent que le
+# planning est declare et branche, pas qu'il se declenche -- ce qui le prouve,
+# c'est la page des schedules de Dagster.
+
+def _definitions_diagnostic():
+    return open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "definitions.py"), encoding="utf-8").read()
+
+
+def test_le_diagnostic_a_un_planning_et_il_est_actif():
+    src = _definitions_diagnostic()
+    assert "ScheduleDefinition(" in src, (
+        "aucun planning : l'asset ne tournera que si on le declenche a la main, "
+        "et le capteur d'alerte n'aura jamais de run en echec a signaler")
+    assert 'cron_schedule="*/15 * * * *"' in src
+    assert "DefaultScheduleStatus.RUNNING" in src, (
+        "un planning qu'il faut activer a la main dans l'interface : on ne "
+        "s'apercoit de l'oubli qu'en ratant une alerte")
+
+
+def test_le_planning_est_branche_dans_les_definitions():
+    """Declare ne suffit pas : Dagster ne voit que ce qui est dans defs.
+
+    Sans cette verification, un planning parfaitement ecrit mais absent de
+    Definitions() passerait le test precedent tout en ne tournant jamais.
+    """
+    src = _definitions_diagnostic()
+    bloc = src[src.index("defs = Definitions("):]
+    assert "schedules=[" in bloc, "le planning n'est pas passe a Definitions()"
+    assert "jobs=[" in bloc, "le job du planning n'est pas passe a Definitions()"
+    assert "sensors=[" in bloc
+
+
+def test_la_verification_approfondie_reste_a_la_demande():
+    """Ce qui AGIT ne se planifie pas.
+
+    run_tests() et la suite du panneau ecrivent, traversent le proxy et
+    laissent des traces. Les jouer quatre fois par heure remplirait les
+    journaux de traces que personne n'a demandees. Seules les sondes en
+    lecture seule tournent toutes les quinze minutes.
+    """
+    src = _definitions_diagnostic()
+    assert "run_tests" not in src, (
+        "la verification approfondie est entree dans le code planifie")
+    assert "lancer_suite_du_panneau" not in src
+
+
 # ---------- 24. le dossier personnel ne se detourne pas ----------
 #
 # Trouve par l'audit de la branche, et c'etait une escalade de privileges

@@ -8,6 +8,7 @@ dans l'interface Dagster.
 Ce fichier contient tout le cote Dagster du projet :
 
   - l'asset diagnostic_codelab, qui execute les sondes et ecrit en base ;
+  - le planning qui le declenche toutes les quinze minutes ;
   - le capteur alerte_mail_echec, qui envoie un mail a chaque run en echec.
 
 Les sondes elles-memes vivent dans checks.py, a cote. Ce n'est pas un decoupage
@@ -41,8 +42,9 @@ import smtplib
 import ssl
 from email.message import EmailMessage
 
-from dagster import (AssetExecutionContext, Definitions, DefaultSensorStatus,
-                     RunFailureSensorContext, asset, run_failure_sensor)
+from dagster import (AssetExecutionContext, Definitions, DefaultScheduleStatus,
+                     DefaultSensorStatus, RunFailureSensorContext, ScheduleDefinition,
+                     asset, define_asset_job, run_failure_sensor)
 
 import checks
 
@@ -230,7 +232,55 @@ def alerte_mail_echec(context: RunFailureSensorContext):
                           f"Verifie le bloc codelab-alertes dans {checks.ENV_FILE}.")
 
 
+# ==========================================================================
+# Le planning : c'est lui qui rend la surveillance utile
+#
+# Sans planning, l'asset ne tournait que si quelqu'un allait cliquer
+# "Materialize" dans Dagster. Une surveillance qu'il faut declencher ne
+# previent de rien : on ne la declenche que quand on soupconne deja un
+# probleme, c'est-a-dire trop tard.
+#
+# Et la consequence etait plus large que le seul diagnostic : le capteur
+# ci-dessus est un run_failure_sensor, il reagit a un run EN ECHEC. Aucun run
+# ne demarrant jamais tout seul, aucun ne pouvait echouer, donc AUCUNE alerte
+# ne partait -- un systeme d'alerte complet, avec son SMTP et son repli, qui
+# n'attendait qu'un clic pour servir.
+#
+# QUINZE MINUTES. Assez court pour qu'une panne se voie dans l'heure, assez
+# long pour que le journal des runs reste lisible (96 runs par jour).
+#
+# Le cron n'a pas de fuseau ici : toutes les quinze minutes tombe au meme
+# moment partout.
+#
+# CE QUI N'EST PAS PLANIFIE, et volontairement : la verification approfondie
+# de /tests. Ces tests-la AGISSENT -- ils ecrivent, traversent le proxy,
+# laissent des traces. Les jouer quatre fois par heure remplirait les
+# journaux de traces qu'on n'a pas demandees. Les sondes de l'asset, elles,
+# ne font que lire.
+# ==========================================================================
+
+job_diagnostic = define_asset_job(
+    name="diagnostic_periodique",
+    selection=[diagnostic_codelab],
+    description="Execute les sondes de diagnostic et ecrit un battement de coeur.",
+)
+
+diagnostic_toutes_les_quinze_minutes = ScheduleDefinition(
+    name="diagnostic_toutes_les_quinze_minutes",
+    job=job_diagnostic,
+    cron_schedule="*/15 * * * *",
+    # Actif des le chargement du code, pour la meme raison que le capteur :
+    # sinon il faut penser a l'activer a la main, et l'on ne s'en apercoit
+    # qu'en ratant une alerte.
+    default_status=DefaultScheduleStatus.RUNNING,
+    description="Toutes les quinze minutes. C'est ce qui fait partir les "
+                "alertes : sans run, pas d'echec, donc pas de mail.",
+)
+
+
 defs = Definitions(
     assets=[diagnostic_codelab],
+    jobs=[job_diagnostic],
+    schedules=[diagnostic_toutes_les_quinze_minutes],
     sensors=[alerte_mail_echec],
 )
