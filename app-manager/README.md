@@ -466,10 +466,29 @@ s'affichait « incomplet — il manque : destinataires » tant qu'aucune alerte 
 qu'il envoyait tres bien les codes de verification. Chaque onglet ne signale desormais que ce qui
 lui manque a lui.
 
-Le **mail de test** vit avec le serveur, et accepte une adresse : on verifie l'envoi sans avoir a
-regler une alerte d'abord. Laisse le champ vide et il part aux destinataires des alertes, comme
-avant. Les deux onglets ecrivent le meme bloc de `credentials.env` — enregistrer depuis l'un
-n'efface pas ce qui est regle dans l'autre.
+### Deux configurations d'envoi, et pourquoi
+
+| | D'ou elle vient | Ce qu'elle fait |
+|---|---|---|
+| **D'origine** | le bloc `codelab-alertes` de `credentials.env`, pose a l'installation | sert par defaut, et reste en **repli** ensuite |
+| **Personnalisee** | saisie dans *Parametres > E-mail*, rangee dans `smtp.json` | sert des qu'elle existe |
+
+La personnalisee **n'ecrase jamais** celle d'origine. Sans cette separation, une faute de frappe
+dans un nom de serveur depuis une page web supprimait le seul moyen d'etre prevenu qu'une
+application est tombee — et l'on ne s'en apercevait qu'au premier incident, c'est-a-dire au pire
+moment.
+
+Deux consequences :
+
+- **a l'enregistrement**, une configuration personnalisee doit faire ses preuves : le panneau se
+  connecte reellement au serveur, chiffre, s'authentifie. Si cela echoue, rien n'est enregistre et
+  le message du serveur t'est rendu tel quel. C'est ce qui remplace l'ancien bouton « envoyer un
+  mail de test » — un test qu'il fallait penser a lancer, et dont l'oubli ne se voyait pas ;
+- **a l'envoi**, si la personnalisee echoue malgre tout (mot de passe revoque, quota, serveur
+  eteint), les mails repartent aussitot par celle d'origine.
+
+Vider le champ « hote » revient a la configuration d'origine. Sans condition : c'est la marche
+arriere, et on la cherche justement quand rien ne va.
 
 ## Alertes par mail
 
@@ -477,8 +496,16 @@ Le panneau redemarre deja tout seul une application qui plante — mais il falla
 sous les yeux pour le savoir. Une application qui tombe la nuit reste tombee jusqu'a ce qu'on pense
 a regarder.
 
-**Parametres > Alertes** : destinataires et interrupteur. Le serveur d'envoi et le mail de test
-vivent dans l'onglet **E-mail**, juste a cote.
+**Parametres > Alertes** : l'interrupteur, et les destinataires **application par application**.
+Le serveur d'envoi vit dans l'onglet **E-mail**, juste a cote.
+
+### A qui part une alerte
+
+Une application de facturation ne previent pas les memes personnes qu'un site vitrine : chacune
+declare donc ses propres destinataires. L'**adresse d'alerte de l'administrateur**
+(*Parametres > E-mail*) s'y ajoute **toujours** — c'est le filet, celui qui garantit qu'une
+application dont on a oublie de remplir la liste ne tombe pas en silence. Laisser la liste d'une
+application vide est donc un choix valable : elle n'alerte que l'administrateur.
 
 Ce qui declenche un mail, et ce qui n'en declenche pas :
 
@@ -493,9 +520,10 @@ Ce qui declenche un mail, et ce qui n'en declenche pas :
 Le mail de chute contient le dossier, la commande, le port et les 25 dernieres lignes du journal —
 de quoi reconnaitre une trace d'exception sans se connecter au serveur.
 
-La configuration SMTP vit dans le bloc `codelab-alertes` de `credentials.env`, **le meme** que lit le
-capteur d'alerte de Dagster : une seule configuration d'envoi pour toute la stack. Le formulaire du
-panneau reecrit ce bloc ; laisser le champ mot de passe vide conserve celui deja enregistre.
+La configuration d'origine vit dans le bloc `codelab-alertes` de `credentials.env`, **le meme** que
+lit le capteur d'alerte de Dagster. Le panneau ne la reecrit jamais : une configuration saisie dans
+l'interface va dans `smtp.json`, a cote. Laisser le champ mot de passe vide conserve celui deja
+enregistre.
 
 | Cle | Role |
 |---|---|
@@ -503,10 +531,11 @@ panneau reecrit ce bloc ; laisser le champ mot de passe vide conserve celui deja
 | `SMTP_TLS` | `starttls` (defaut), `ssl`, ou `none` pour un relais interne non chiffre |
 | `SMTP_USER`, `SMTP_PASSWORD` | Optionnels : un relais interne peut ne pas demander d'authentification |
 | `ALERTE_FROM` | Rarement utile : l'expediteur suit `SMTP_USER`, que Gmail impose de toute facon |
+| `ALERTE_ADMIN` | L'adresse qui recoit **toutes** les alertes, en plus de celles propres a chaque application |
 
-Les destinataires et l'interrupteur vivent dans `alertes.json`, dans le dossier d'etat : une adresse
-de destination n'est pas un secret, et la garder hors du fichier de secrets evite de le reecrire pour
-un changement anodin.
+L'interrupteur vit dans `alertes.json`, et les destinataires propres a chaque application dans
+`apps.json`, a cote du reste de leur fiche. Une adresse de destination n'est pas un secret : la
+garder hors du fichier de secrets evite de le reecrire pour un changement anodin.
 
 **Gmail** : validation en deux etapes activee, puis un *mot de passe d'application* de 16
 caracteres. Le mot de passe habituel du compte sera refuse.

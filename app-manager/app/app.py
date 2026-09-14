@@ -2140,7 +2140,13 @@ def ecrire_alertes(actif, destinataires):
 
 
 def ecrire_bloc_alertes(valeurs):
-    """Reecrit le bloc SMTP de credentials.env.
+    """Met a jour le bloc SMTP de credentials.env, SANS perdre le reste.
+
+    Le piege, et il est serieux : upsert_shared_block REMPLACE le bloc en
+    entier. Lui passer la seule cle qu'on veut changer effacerait toutes les
+    autres -- dont le serveur d'envoi et son mot de passe, c'est-a-dire la
+    configuration d'origine qui sert de repli. On relit donc les valeurs
+    presentes et l'on n'ecrase que celles fournies.
 
     Meme bloc que celui documente pour le capteur Dagster : configurer les
     alertes depuis le panneau configure donc aussi celles de Dagster.
@@ -2148,57 +2154,244 @@ def ecrire_bloc_alertes(valeurs):
     commentaires = [
         "# Serveur d'envoi des alertes CodeLab, partage par le panneau",
         "# (application tombee) et par le capteur Dagster (run en echec).",
-        "# Modifiable depuis le panneau : Parametres > Alertes.",
+        "# C'est la configuration D'ORIGINE : le panneau ne l'ecrase jamais,",
+        "#   il la garde en repli si celle saisie dans l'interface echoue.",
+        "# Modifiable depuis le panneau : Parametres > E-mail.",
         "# SMTP_TLS : starttls (defaut, port 587) | ssl (port 465) | none.",
         "# SMTP_USER et SMTP_PASSWORD sont optionnels : un relais interne peut",
         "#   ne pas demander d'authentification.",
+        "# ALERTE_ADMIN : l'adresse qui recoit TOUTES les alertes, en plus de",
+        "#   celles propres a chaque application.",
     ]
-    return upsert_shared_block(BLOC_ALERTES, commentaires, valeurs)
+    cles = list(CHAMPS_SMTP.values()) + ["ALERTE_ADMIN"]
+    fusion = {}
+    for cle in cles:
+        valeur = valeurs.get(cle) if cle in valeurs else read_shared_value(cle)
+        if str(valeur or "").strip():
+            fusion[cle] = valeur
+    return upsert_shared_block(BLOC_ALERTES, commentaires, fusion)
+
+
+# --------------------- deux configurations d'envoi ---------------------
+#
+# POURQUOI DEUX. credentials.env porte la configuration d'ORIGINE : celle
+# posee a l'installation, par le compose ou a la main. Elle a une qualite que
+# rien d'autre n'a -- elle a toujours marche, et personne ne l'a touchee
+# depuis une page web. C'est donc elle qu'on garde en repli.
+#
+# Une configuration saisie depuis le panneau vit a cote, dans smtp.json, et
+# n'ECRASE JAMAIS la premiere. Sans cette separation, se tromper d'un
+# caractere dans un nom de serveur depuis une page supprimait le seul moyen
+# de prevenir qu'une application est tombee -- et l'on ne s'en apercevait
+# qu'au premier incident, c'est-a-dire au pire moment.
+#
+# Ce qui en decoule :
+#
+#   a l'ENREGISTREMENT, une configuration personnalisee doit prouver qu'elle
+#     fonctionne : on se connecte reellement au serveur, on chiffre, on
+#     s'authentifie. Si cela echoue, rien n'est enregistre et le message du
+#     serveur est remonte tel quel. C'est ce qui remplace l'ancien bouton
+#     "envoyer un mail de test" -- un test qu'il fallait penser a lancer, et
+#     dont l'oubli ne se voyait pas ;
+#   a l'ENVOI, si la personnalisee echoue malgre tout (mot de passe revoque,
+#     serveur eteint, quota), on repart aussitot sur celle d'origine. Une
+#     alerte qui ne sort pas ajoute une panne a celle qu'elle signale.
+# Vingt secondes : au-dela, ce n'est plus une lenteur mais une panne, et ni
+# le moniteur ni une page ne doivent rester suspendus a un serveur muet.
+SMTP_DELAI = 20
+
+SMTP_FILE = os.path.join(STATE_DIR, "smtp.json")
+
+# Les champs d'une configuration d'envoi, et la variable de credentials.env
+# qui porte chacun. Une seule liste : ajouter un champ ici le fait exister
+# partout, plutot que dans trois fonctions a tenir d'accord.
+CHAMPS_SMTP = {
+    "host": "SMTP_HOST",
+    "port": "SMTP_PORT",
+    "tls": "SMTP_TLS",
+    "user": "SMTP_USER",
+    "password": "SMTP_PASSWORD",
+    "expediteur": "ALERTE_FROM",
+}
+
+
+def _port_smtp(brut, defaut=587):
+    try:
+        port = int(str(brut or "").strip())
+    except (TypeError, ValueError):
+        return defaut
+    return port if 1 <= port <= 65535 else defaut
+
+
+def _normalise_smtp(brut):
+    """Met une configuration en forme, quelle que soit sa provenance."""
+    brut = brut or {}
+    tls = str(brut.get("tls") or "starttls").strip().lower()
+    if tls not in ("starttls", "ssl", "none"):
+        tls = "starttls"
+    cfg = {
+        "host": str(brut.get("host") or "").strip(),
+        "port": _port_smtp(brut.get("port")),
+        "tls": tls,
+        "user": str(brut.get("user") or "").strip(),
+        "password": str(brut.get("password") or ""),
+        "expediteur": str(brut.get("expediteur") or "").strip(),
+    }
+    # Gmail et la plupart des fournisseurs refusent d'expedier au nom d'une
+    # autre adresse que celle du compte : l'expediteur suit donc l'identifiant,
+    # sauf mention explicite.
+    if not cfg["expediteur"]:
+        cfg["expediteur"] = cfg["user"]
+    return cfg
+
+
+def smtp_origine():
+    """La configuration de credentials.env. Celle qui sert de repli."""
+    return _normalise_smtp({
+        cle: read_shared_value(env) for cle, env in CHAMPS_SMTP.items()
+    })
+
+
+def lire_smtp_personnalise():
+    """La configuration saisie depuis le panneau, ou None.
+
+    Jamais d'exception : un fichier illisible doit faire retomber sur la
+    configuration d'origine, pas empecher le panneau de demarrer.
+    """
+    try:
+        with open(SMTP_FILE) as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(d, dict) or not str(d.get("host") or "").strip():
+        return None
+    return _normalise_smtp(d)
+
+
+def ecrire_smtp_personnalise(cfg):
+    tmp = SMTP_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(cfg, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, SMTP_FILE)
+    try:
+        # Il contient un mot de passe : meme regime que credentials.env.
+        os.chmod(SMTP_FILE, 0o600)
+    except OSError:
+        pass
+
+
+def effacer_smtp_personnalise():
+    """Revenir a la configuration d'origine. Toujours permis -- c'est la
+    marche arriere, et elle ne doit dependre d'aucune condition."""
+    try:
+        os.remove(SMTP_FILE)
+    except OSError:
+        pass
+
+
+def smtp_incomplet(cfg):
+    """Ce qui manque a cette configuration pour pouvoir envoyer."""
+    manques = []
+    if not cfg.get("host"):
+        manques.append("serveur d'envoi")
+    if not cfg.get("expediteur"):
+        manques.append("adresse d'expedition")
+    return manques
+
+
+def verifier_smtp(cfg):
+    """Se connecte VRAIMENT au serveur, et renvoie (ok, message).
+
+    Connexion, chiffrement, authentification -- tout sauf l'envoi. C'est
+    volontaire : une verification qui expedie un message oblige a choisir un
+    destinataire, donc a deranger quelqu'un a chaque enregistrement, et finit
+    par etre contournee. Tout ce qui peut echouer a l'envoi echoue deja ici,
+    a l'exception du refus d'un destinataire precis.
+    """
+    manques = smtp_incomplet(cfg)
+    if manques:
+        return False, "Configuration incomplete : " + ", ".join(manques) + "."
+    try:
+        if cfg["tls"] == "ssl":
+            with smtplib.SMTP_SSL(cfg["host"], cfg["port"],
+                                  context=ssl.create_default_context(),
+                                  timeout=SMTP_DELAI) as s:
+                if cfg["user"] and cfg["password"]:
+                    s.login(cfg["user"], cfg["password"])
+            return True, ""
+        with smtplib.SMTP(cfg["host"], cfg["port"], timeout=SMTP_DELAI) as s:
+            s.ehlo()
+            if cfg["tls"] != "none":
+                s.starttls(context=ssl.create_default_context())
+                s.ehlo()
+            if cfg["user"] and cfg["password"]:
+                s.login(cfg["user"], cfg["password"])
+        return True, ""
+    except Exception as e:
+        # Le message du serveur est la seule chose qui aide vraiment ici
+        # ("authentification refusee", "relais interdit", "nom inconnu") : on
+        # le remonte tel quel plutot que de le resumer en "echec".
+        return False, f"{type(e).__name__}: {e}"
+
+
+def _adresses(brutes):
+    """Nettoie une liste d'adresses saisies.
+
+    Pas de validation stricte : un format valide n'est pas une adresse qui
+    existe, et rien ici ne peut trancher cela. On retire les doublons et ce
+    qui n'a manifestement pas la forme d'une adresse.
+    """
+    if isinstance(brutes, str):
+        brutes = re.split(r"[,;\s]+", brutes)
+    vues, propres = set(), []
+    for a in brutes or []:
+        a = (a or "").strip()
+        if a and "@" in a and a not in vues:
+            vues.add(a)
+            propres.append(a)
+    return propres
+
+
+def alertes_admin():
+    """L'adresse qui recoit TOUTES les alertes, quelle que soit l'application.
+
+    Elle vit dans le bloc de credentials.env, a cote du serveur d'envoi : une
+    installation peut donc la poser des le depart, et c'est le seul
+    destinataire garanti le jour ou une application n'en declare aucun.
+
+    Repli sur l'ancienne liste globale de alertes.json : avant les alertes
+    par application, tous les destinataires etaient la. Sans ce repli, une
+    installation existante aurait cesse d'etre prevenue a la mise a jour --
+    silencieusement, et l'on ne s'en serait apercu qu'au premier incident.
+    """
+    depuis_bloc = _adresses(read_shared_value("ALERTE_ADMIN") or "")
+    return depuis_bloc or _adresses(lire_alertes()["destinataires"])
 
 
 def config_smtp():
-    """La configuration d'envoi, telle qu'elle sera utilisee.
+    """La configuration qui sera REELLEMENT utilisee, et ce qui lui manque.
 
-    Renvoie (cfg, manquants) : cfg est utilisable si manquants est vide.
+    La personnalisee quand il y en a une, celle d'origine sinon. Renvoie
+    (cfg, manquants) : cfg est utilisable si manquants est vide.
     """
-    reglages = lire_alertes()
-    port = read_shared_value("SMTP_PORT") or "587"
-    try:
-        port = int(port)
-    except ValueError:
-        port = 587
-    cfg = {
-        "host": read_shared_value("SMTP_HOST") or "",
-        "port": port,
-        "tls": (read_shared_value("SMTP_TLS") or "starttls").lower(),
-        "user": read_shared_value("SMTP_USER") or "",
-        "password": read_shared_value("SMTP_PASSWORD") or "",
-        # Gmail et la plupart des fournisseurs refusent d'expedier au nom
-        # d'une autre adresse que celle du compte : l'expediteur suit donc
-        # SMTP_USER, sauf ALERTE_FROM explicite.
-        "expediteur": read_shared_value("ALERTE_FROM") or read_shared_value("SMTP_USER") or "",
-        "destinataires": reglages["destinataires"],
-    }
-    manquants = []
-    if not cfg["host"]:
-        manquants.append("SMTP_HOST")
-    if not cfg["expediteur"]:
-        manquants.append("SMTP_USER (ou ALERTE_FROM)")
+    cfg = dict(lire_smtp_personnalise() or smtp_origine())
+    cfg["destinataires"] = alertes_admin()
+    manquants = smtp_incomplet(cfg)
     if not cfg["destinataires"]:
-        manquants.append("destinataires")
+        manquants.append("adresse d'alerte de l'administrateur")
     return cfg, manquants
 
 
 def smtp_utilisable():
     """(cfg, ok) pour un envoi a une adresse choisie.
 
-    Distinct de config_smtp() : les alertes exigent en plus une liste de
-    destinataires, alors qu'un code de verification part vers une adresse
-    donnee. Sans cette distinction, un serveur d'envoi parfaitement
-    configure passerait pour incomplet tant qu'aucune alerte n'est reglee.
+    Distinct de config_smtp() : les alertes veulent en plus savoir a qui
+    ecrire, alors qu'un code de verification part vers une adresse donnee.
+    Sans cette distinction, un serveur d'envoi parfaitement configure
+    passerait pour incomplet tant qu'aucune alerte n'est reglee.
     """
-    cfg, manquants = config_smtp()
-    return cfg, not [m for m in manquants if m != "destinataires"]
+    cfg, _ = config_smtp()
+    return cfg, not smtp_incomplet(cfg)
 
 
 def envoyer_mail(cfg, sujet, corps, destinataires=None):
@@ -2235,7 +2428,62 @@ def envoyer_mail(cfg, sujet, corps, destinataires=None):
             s.send_message(msg)
 
 
-def alerter(sujet, corps):
+def destinataires_alerte(name, apps=None):
+    """A qui adresser l'alerte de cette application.
+
+    Chaque application declare ses propres destinataires -- une application
+    de facturation ne previent pas les memes personnes qu'un site vitrine,
+    et une liste unique obligeait a prevenir tout le monde ou personne.
+    L'adresse d'administration s'y ajoute TOUJOURS : c'est le filet, celui
+    qui garantit qu'une application dont on a oublie de remplir la liste ne
+    tombe pas en silence.
+    """
+    apps = apps if apps is not None else load()
+    propres = _adresses((apps.get(name) or {}).get("alertes"))
+    vus, tout = set(), []
+    for adresse in alertes_admin() + propres:
+        if adresse not in vus:
+            vus.add(adresse)
+            tout.append(adresse)
+    return tout
+
+
+def envoyer_avec_repli(sujet, corps, destinataires):
+    """Envoie, en repassant sur la configuration d'origine si besoin.
+
+    La configuration personnalisee a ete verifiee le jour ou elle a ete
+    enregistree, mais un mot de passe se revoque, un quota se remplit, un
+    serveur s'eteint. Ce jour-la, celle de credentials.env -- qui n'a jamais
+    bouge -- reprend le relais plutot que de laisser l'alerte a terre.
+
+    Renvoie (envoye, detail).
+    """
+    personnalisee = lire_smtp_personnalise()
+    tentatives = []
+    if personnalisee:
+        tentatives.append(("personnalisee", personnalisee))
+    origine = smtp_origine()
+    if not smtp_incomplet(origine) and origine != personnalisee:
+        tentatives.append(("d'origine", origine))
+    if not tentatives:
+        return False, "aucune configuration d'envoi utilisable"
+
+    echecs = []
+    for nom, cfg in tentatives:
+        if smtp_incomplet(cfg):
+            continue
+        try:
+            envoyer_mail(cfg, sujet, corps, destinataires=destinataires)
+            if echecs:
+                print(f"[app-manager] envoi repli sur la configuration {nom} "
+                      f"apres : {' ; '.join(echecs)}", flush=True)
+            return True, nom
+        except Exception as e:
+            echecs.append(f"{nom} -> {type(e).__name__}: {e}")
+    return False, " ; ".join(echecs)
+
+
+def alerter(sujet, corps, name=None, apps=None):
     """Envoi best-effort depuis le moniteur.
 
     Ne leve jamais et ne bloque jamais le moniteur : une alerte qui ne part
@@ -2244,19 +2492,19 @@ def alerter(sujet, corps):
     """
     if not lire_alertes()["actif"]:
         return False
-    cfg, manquants = config_smtp()
-    if manquants:
-        print(f"[app-manager] alerte non envoyee, configuration incomplete : "
-              f"{', '.join(manquants)}", flush=True)
+    cibles = destinataires_alerte(name, apps) if name else alertes_admin()
+    if not cibles:
+        print("[app-manager] alerte non envoyee : aucun destinataire "
+              "(ni adresse d'administration, ni adresse propre a "
+              f"l'application {name or '?'})", flush=True)
         return False
-    try:
-        envoyer_mail(cfg, sujet, corps)
-        print(f"[app-manager] alerte envoyee a {len(cfg['destinataires'])} "
-              f"destinataire(s) : {sujet}", flush=True)
-        return True
-    except Exception as e:
-        print(f"[app-manager] alerte non envoyee ({type(e).__name__}: {e})", flush=True)
-        return False
+    envoye, detail = envoyer_avec_repli(sujet, corps, cibles)
+    if envoye:
+        print(f"[app-manager] alerte envoyee a {len(cibles)} destinataire(s) "
+              f"par la configuration {detail} : {sujet}", flush=True)
+    else:
+        print(f"[app-manager] alerte non envoyee ({detail})", flush=True)
+    return envoye
 
 
 def fin_du_journal(name, lignes=ALERTE_LOG_LIGNES):
@@ -2333,13 +2581,15 @@ def alerte_tick():
             _alertes_en_cours.discard(name)
         elif is_running(name) and not is_crash_looping(name):
             _alertes_en_cours.discard(name)
-            alerter(f"[CodeLab] {name} est revenue", corps_alerte_retour(name))
+            alerter(f"[CodeLab] {name} est revenue", corps_alerte_retour(name),
+                    name=name, apps=apps)
 
     for name, a in apps.items():
         if (a.get("enabled") and not is_running(name) and is_crash_looping(name)
                 and name not in _alertes_en_cours):
             _alertes_en_cours.add(name)
-            alerter(f"[CodeLab] {name} est tombee", corps_alerte_chute(name, a))
+            alerter(f"[CodeLab] {name} est tombee", corps_alerte_chute(name, a),
+                    name=name, apps=apps)
 
 
 # ------------------------------- build ---------------------------------
@@ -3883,123 +4133,132 @@ def api_totp_desactiver():
 @flask_app.get("/api/alertes")
 @require_admin
 def api_alertes():
-    """L'etat des alertes, pour la page Parametres.
+    """L'etat des alertes et des deux configurations d'envoi.
 
-    Le mot de passe SMTP n'est jamais renvoye -- seulement le fait qu'il
-    existe. Un champ de mot de passe pre-rempli est une valeur qu'on renvoie
-    sans le vouloir a chaque enregistrement, et un secret qui traine dans une
-    page ouverte.
+    Aucun mot de passe n'est renvoye -- seulement le fait qu'il existe. Un
+    champ de mot de passe pre-rempli est une valeur qu'on renvoie sans le
+    vouloir a chaque enregistrement, et un secret qui traine dans une page
+    ouverte.
     """
     reglages = lire_alertes()
-    cfg, manquants = config_smtp()
+    origine = smtp_origine()
+    personnalisee = lire_smtp_personnalise()
+    effective, manquants = config_smtp()
+
+    def _vue(cfg):
+        if cfg is None:
+            return None
+        return {"host": cfg["host"], "port": cfg["port"], "tls": cfg["tls"],
+                "user": cfg["user"], "expediteur": cfg["expediteur"],
+                "mot_de_passe_defini": bool(cfg["password"])}
+
     return jsonify({
         "actif": reglages["actif"],
-        "destinataires": reglages["destinataires"],
-        "smtp": {
-            "host": cfg["host"], "port": cfg["port"], "tls": cfg["tls"],
-            "user": cfg["user"], "expediteur": cfg["expediteur"],
-            "mot_de_passe_defini": bool(cfg["password"]),
-        },
+        "admin": alertes_admin(),
+        # Les deux configurations, cote a cote : la page doit pouvoir dire
+        # laquelle sert et laquelle attend en repli.
+        "origine": _vue(origine),
+        "origine_utilisable": not smtp_incomplet(origine),
+        "personnalisee": _vue(personnalisee),
+        "source": "personnalisee" if personnalisee else "origine",
         "manquants": manquants,
-        # Le serveur d'envoi et les alertes sont deux choses : un serveur
-        # parfaitement configure passait pour incomplet tant qu'aucun
-        # destinataire d'alerte n'etait saisi, alors qu'il sert aussi les
-        # codes de verification et l'inscription libre.
-        "smtp_ok": smtp_utilisable()[1],
-        "manquants_smtp": [m for m in manquants if m != "destinataires"],
+        "smtp_ok": not smtp_incomplet(effective),
         "incidents": sorted(_alertes_en_cours),
+        # Les destinataires propres a chaque application, pour la page.
+        "par_application": {nom: _adresses(a.get("alertes"))
+                            for nom, a in sorted(load().items())},
     })
-
-
-def _adresses(brutes):
-    """Nettoie une liste d'adresses saisies. Pas de validation stricte : un
-    format d'adresse valide n'est pas une adresse qui existe, et c'est le
-    mail de test qui tranche vraiment."""
-    if isinstance(brutes, str):
-        brutes = re.split(r"[,;\s]+", brutes)
-    vues, propres = set(), []
-    for a in brutes or []:
-        a = (a or "").strip()
-        if a and "@" in a and a not in vues:
-            vues.add(a)
-            propres.append(a)
-    return propres
 
 
 @flask_app.post("/api/alertes")
 @require_admin
 def api_alertes_enregistrer():
+    """Enregistre l'interrupteur, l'adresse d'administration, et -- si le
+    formulaire en apporte une -- une configuration d'envoi personnalisee.
+
+    CELLE-CI DOIT FAIRE SES PREUVES AVANT D'ETRE ECRITE. On se connecte
+    reellement au serveur, on chiffre, on s'authentifie. C'est ce qui
+    remplace l'ancien bouton "envoyer un mail de test" : un test qu'il
+    fallait penser a lancer, et dont l'oubli ne se voyait pas. Ici, une
+    configuration qui ne marche pas n'entre tout simplement pas.
+
+    La configuration d'origine (credentials.env) n'est jamais touchee : elle
+    reste le repli.
+    """
     d = request.get_json(force=True, silent=True) or {}
-    smtp = d.get("smtp") or {}
 
-    destinataires = _adresses(d.get("destinataires"))
+    admin = _adresses(d.get("admin"))
     actif = bool(d.get("actif"))
-    if actif and not destinataires:
-        return jsonify({"error": "Au moins un destinataire est necessaire "
-                                 "pour activer les alertes."}), 400
+    if actif and not admin:
+        return jsonify({"error": "Une adresse d'alerte de l'administrateur est "
+                                 "necessaire pour activer les alertes : c'est "
+                                 "elle qui recoit ce qu'aucune application "
+                                 "n'a pris en charge."}), 400
 
-    # Le bloc SMTP n'est reecrit que si le formulaire apporte quelque chose :
-    # activer les alertes avec un bloc deja rempli a la main ne doit pas
-    # l'ecraser avec des champs vides.
-    champs = {"host": "SMTP_HOST", "port": "SMTP_PORT", "tls": "SMTP_TLS",
-              "user": "SMTP_USER", "expediteur": "ALERTE_FROM"}
-    if any(str(smtp.get(k, "")).strip() for k in champs):
-        valeurs = {}
-        for cle, env in champs.items():
-            valeur = str(smtp.get(cle, "")).strip()
-            if valeur:
-                valeurs[env] = valeur
-        # Mot de passe vide = inchange. Le formulaire ne le pre-remplit pas :
-        # sans cette regle, tout enregistrement l'effacerait.
-        mdp = str(smtp.get("password", "")).strip()
-        valeurs["SMTP_PASSWORD"] = mdp or (read_shared_value("SMTP_PASSWORD") or "")
-        if not valeurs["SMTP_PASSWORD"]:
-            valeurs.pop("SMTP_PASSWORD")
-        if not ecrire_bloc_alertes(valeurs):
-            return jsonify({"error": "credentials.env n'a pas pu etre ecrit."}), 500
+    # --- la configuration personnalisee -----------------------------------
+    if "smtp" in d:
+        smtp = d.get("smtp")
+        if not smtp or not str((smtp or {}).get("host") or "").strip():
+            # Champ serveur vide = revenir a la configuration d'origine.
+            # Toujours permis : c'est la marche arriere.
+            effacer_smtp_personnalise()
+        else:
+            candidate = _normalise_smtp(smtp)
+            # Mot de passe vide = inchange. Le formulaire ne le pre-remplit
+            # pas : sans cette regle, tout enregistrement l'effacerait.
+            if not candidate["password"]:
+                ancienne = lire_smtp_personnalise()
+                if ancienne and ancienne["host"] == candidate["host"] \
+                        and ancienne["user"] == candidate["user"]:
+                    candidate["password"] = ancienne["password"]
+            ok, detail = verifier_smtp(candidate)
+            if not ok:
+                return jsonify({
+                    "error": "Ce serveur d'envoi n'a pas repondu comme attendu, "
+                             "rien n'a ete enregistre. La configuration "
+                             "d'origine continue de servir.",
+                    "detail": detail}), 400
+            try:
+                ecrire_smtp_personnalise(candidate)
+            except OSError as e:
+                return jsonify({"error": f"Configuration non enregistree : {e}"}), 500
+
+    # --- l'adresse d'administration, dans le bloc partage ------------------
+    if not ecrire_bloc_alertes({"ALERTE_ADMIN": ", ".join(admin)}):
+        return jsonify({"error": "credentials.env n'a pas pu etre ecrit."}), 500
 
     try:
-        ecrire_alertes(actif, destinataires)
+        ecrire_alertes(actif, admin)
     except OSError as e:
         return jsonify({"error": f"Reglages non enregistres : {e}"}), 500
 
-    cfg, manquants = config_smtp()
-    return jsonify({"ok": True, "manquants": manquants})
+    _, manquants = config_smtp()
+    return jsonify({"ok": True, "manquants": manquants,
+                    "source": "personnalisee" if lire_smtp_personnalise() else "origine"})
 
 
-@flask_app.post("/api/alertes/test")
+@flask_app.put("/api/alertes/application/<name>")
 @require_admin
-def api_alertes_test():
-    """Envoie un mail tout de suite, en ignorant l'interrupteur.
+def api_alertes_application(name):
+    """Les destinataires propres a une application.
 
-    Deliberement : on teste sa configuration AVANT d'activer les alertes, et
-    exiger l'inverse ferait activer une configuration jamais essayee.
-
-    Une adresse peut etre donnee : on teste alors le SERVEUR D'ENVOI, sans
-    exiger qu'une alerte soit deja reglee. Sans adresse, le test s'adresse
-    aux destinataires des alertes, comme avant.
+    Une application de facturation ne previent pas les memes personnes qu'un
+    site vitrine. L'adresse d'administration s'ajoute toujours a celles-ci --
+    une application dont on a oublie de remplir la liste ne tombe donc jamais
+    en silence.
     """
-    cible = email_valide((request.get_json(force=True, silent=True) or {}).get("destinataire"))
-    cfg, manquants = config_smtp()
-    if cible:
-        manquants = [m for m in manquants if m != "destinataires"]
-    if manquants:
-        return jsonify({"error": "Configuration incomplete : " + ", ".join(manquants)}), 400
-    destinataires = [cible] if cible else cfg["destinataires"]
+    apps = load()
+    if name not in apps:
+        return jsonify({"error": "Application inconnue."}), 404
+    d = request.get_json(force=True, silent=True) or {}
+    adresses = _adresses(d.get("alertes"))
+    apps[name]["alertes"] = adresses
     try:
-        envoyer_mail(cfg, "[CodeLab] mail de test",
-                     "Si tu lis ce message, les alertes du panneau CodeLab "
-                     "savent sortir.\n\nTu recevras un mail de cette adresse "
-                     "quand une application tombera, et un autre quand elle "
-                     "reviendra.\n\n-- CodeLab, panneau de gestion des "
-                     "applications",
-                     destinataires=destinataires)
-    except Exception as e:
-        # Le message du serveur SMTP est la seule chose qui aide vraiment ici
-        # ("authentification refusee", "relais interdit") : on le remonte tel
-        # quel plutot que de le resumer.
-        return jsonify({"error": f"{type(e).__name__}: {e}"}), 502
-    return jsonify({"ok": True, "destinataires": destinataires})
+        save(apps)
+    except OSError as e:
+        return jsonify({"error": f"Non enregistre : {e}"}), 500
+    return jsonify({"ok": True, "alertes": adresses,
+                    "destinataires": destinataires_alerte(name, apps)})
 
 
 @flask_app.get("/api/utilisateurs")

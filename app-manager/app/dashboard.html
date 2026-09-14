@@ -1196,22 +1196,61 @@ table.tbl-journal{min-width:560px}
         <div class="hint">Laisse vide pour conserver celui deja enregistre. Gmail exige un
           <em>mot de passe d'application</em>, pas ton mot de passe habituel.</div>
       </div>
-      <div class="field"><label>Envoyer un test a</label>
-        <input id="sm-test-dest" placeholder="moi@example.com" autocomplete="off">
-        <div class="hint">Le seul controle qui vaille : un serveur qui accepte la connexion peut
-          encore refuser d'expedier. Vide, le test part aux destinataires des alertes.</div>
-      </div>
+      <div class="hint">A l'enregistrement, CodeLab <b>se connecte reellement</b> a ce serveur :
+        chiffrement et authentification compris. Une configuration qui ne repond pas n'est pas
+        enregistree, et le message du serveur t'est rendu tel quel. Rien a lancer a la main,
+        rien a penser a verifier.</div>
 
       <div class="actions">
-        <button class="btn btn-primary" id="sm-save" onclick="alEnregistrer('sm')">Enregistrer</button>
-        <button class="btn btn-default" id="al-test" onclick="alTester()">Envoyer un mail de test</button>
+        <button class="btn btn-primary" id="sm-save" onclick="alEnregistrer('sm')">Verifier et enregistrer</button>
+        <button class="btn btn-default" id="sm-reset" onclick="alRevenirOrigine()">Revenir a la configuration d'origine</button>
       </div>
       <div class="err" id="sm-err" style="display:none"></div>
       <div class="hint" id="sm-msg" style="display:none"></div>
+    </div>
 
-      <div class="hint" style="margin-top:12px">Ces reglages vivent dans le bloc
-        <code>codelab-alertes</code> de <code>credentials.env</code> : le capteur d'alerte de
-        Dagster lit le meme serveur d'envoi. Une seule configuration pour toute la stack.</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Configuration d'origine</b>
+        <div class="path">Celle de <code>credentials.env</code>. Elle ne bouge jamais.</div>
+      </div>
+      <span class="pill" id="sm-origine-etat"><i></i>&nbsp;</span></div>
+
+      <div class="hint">Posee a l'installation, elle sert de <b>repli</b> : si la configuration
+        ci-dessus cesse de fonctionner — mot de passe revoque, quota atteint, serveur eteint —
+        les mails repartent automatiquement par celle-ci. Le panneau ne l'ecrase jamais, c'est
+        pour cela qu'on peut lui faire confiance.</div>
+
+      <div class="kv" style="margin-top:12px"><span class="k">Serveur</span>
+        <span class="v" id="sm-origine-host">&mdash;</span></div>
+      <div class="kv"><span class="k">Expediteur</span>
+        <span class="v" id="sm-origine-from">&mdash;</span></div>
+      <div class="hint" style="margin-top:10px">Elle se modifie dans le bloc
+        <code>codelab-alertes</code> de <code>credentials.env</code>, sur le serveur. Le capteur
+        d'alerte de Dagster lit le meme bloc.</div>
+    </div>
+
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Adresse d'alerte de l'administrateur</b>
+        <div class="path">Celle qui recoit tout, quelle que soit l'application.</div>
+      </div></div>
+
+      <div class="hint">C'est le filet. Chaque application peut avoir ses propres destinataires
+        (onglet <b>Alertes</b>), mais cette adresse-ci les recoit <b>toutes</b> — y compris celles
+        des applications dont la liste est restee vide. Sans elle, une application oubliee
+        tomberait en silence.</div>
+
+      <div class="field" style="margin-top:14px">
+        <label>Adresse</label>
+        <input id="al-admin" placeholder="moi@example.com" autocomplete="off">
+        <div class="hint">Plusieurs adresses possibles, separees par des virgules.</div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" id="adm-save" onclick="alEnregistrer('adm')">Enregistrer</button>
+      </div>
+      <div class="err" id="adm-err" style="display:none"></div>
+      <div class="hint" id="adm-msg" style="display:none"></div>
     </div>
   </div>
 
@@ -1231,20 +1270,27 @@ table.tbl-journal{min-width:560px}
         bout de 5 tentatives en 10 minutes — c'est a ce moment-la que le mail part, pas au premier
         soubresaut. Un second mail signale le retour a la normale.</div>
 
-      <div class="field" style="margin-top:14px">
-        <label>Destinataires</label>
-        <input id="al-dest" placeholder="moi@example.com, autre@example.com" autocomplete="off">
-        <div class="hint">Separes par des virgules.</div>
-      </div>
-
-      <div class="hint" id="al-smtp-source"></div>
+      <div class="hint" id="al-smtp-source" style="margin-top:12px"></div>
 
       <div class="actions">
-        <button class="btn btn-primary" id="al-save" onclick="alEnregistrer('al')">Enregistrer</button>
         <button class="btn btn-default" id="al-toggle" onclick="alBasculer()">Activer</button>
       </div>
       <div class="err" id="al-err" style="display:none"></div>
       <div class="hint" id="al-msg" style="display:none"></div>
+    </div>
+
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Destinataires par application</b>
+        <div class="path">Qui prevenir, application par application.</div>
+      </div></div>
+
+      <div class="hint">Une application de facturation ne previent pas les memes personnes qu'un
+        site vitrine. Laisse vide pour qu'une application n'alerte que l'administrateur — dont
+        l'adresse s'ajoute <b>toujours</b> a celles saisies ici.</div>
+
+      <div id="al-par-app" style="margin-top:14px"></div>
+      <div class="hint" id="al-app-msg" style="display:none"></div>
     </div>
   </div>
 
@@ -2584,6 +2630,7 @@ async function usSupprimer(){
 
 /* ---------------- alertes par mail ---------------- */
 let alTls='starttls';
+let alEtat={};
 
 function alSetTls(t){
   alTls=t;
@@ -2605,6 +2652,8 @@ function alMessage(texte, erreur, ou){
 async function chargerAlertes(){
   let d;
   try{ d=await (await fetch('/api/alertes')).json(); }catch(e){ return; }
+  alEtat = d;
+
   const pill=$('al-etat');
   pill.className='pill '+(d.actif?'on':'off');
   pill.innerHTML='<i></i>'+(d.actif?'Actives':'Desactivees');
@@ -2614,43 +2663,100 @@ async function chargerAlertes(){
      meme si personne n'est encore prevenu quand une application tombe. */
   const ps=$('sm-etat');
   ps.className='pill '+(d.smtp_ok?'on':'off');
-  ps.innerHTML='<i></i>'+(d.smtp_ok?'Pret':'Non configure');
+  ps.innerHTML='<i></i>'+(d.smtp_ok
+    ? (d.source==='personnalisee' ? 'Personnalisee' : 'Configuration d\'origine')
+    : 'Non configure');
 
-  $('al-dest').value = (d.destinataires||[]).join(', ');
-  $('al-host').value = d.smtp.host||'';
-  $('al-port').value = d.smtp.port||'';
-  $('al-user').value = d.smtp.user||'';
+  /* Le formulaire montre la configuration PERSONNALISEE, jamais celle
+     d'origine : sinon enregistrer la recopierait dans smtp.json, et l'on
+     perdrait la distinction qui fait tout l'interet du repli. */
+  const perso = d.personnalisee || {};
+  $('al-host').value = perso.host||'';
+  $('al-port').value = perso.port||'';
+  $('al-user').value = perso.user||'';
   $('al-pass').value = '';
-  $('al-pass').placeholder = d.smtp.mot_de_passe_defini ? 'inchange' : 'aucun';
-  alSetTls(d.smtp.tls||'starttls');
+  $('al-pass').placeholder = perso.mot_de_passe_defini ? 'inchange' : 'aucun';
+  alSetTls(perso.tls||'starttls');
+  $('sm-reset').disabled = !d.personnalisee;
 
-  /* Le test part par defaut a la premiere adresse d'alerte : c'est celle
-     qu'on veut verifier neuf fois sur dix. */
-  $('sm-test-dest').placeholder = (d.destinataires||[])[0] || 'moi@example.com';
+  const org = d.origine || {};
+  const po=$('sm-origine-etat');
+  po.className='pill '+(d.origine_utilisable?'on':'off');
+  po.innerHTML='<i></i>'+(d.origine_utilisable
+    ? (d.source==='personnalisee' ? 'En repli' : 'En service') : 'Absente');
+  $('sm-origine-host').textContent = org.host
+    ? org.host+':'+org.port+' ('+org.tls+')' : 'aucune';
+  $('sm-origine-from').textContent = org.expediteur || 'aucun';
 
-  /* Ce qui manque au SERVEUR, dans l'onglet du serveur ; ce qui manque aux
-     ALERTES, dans celui des alertes. Un « il manque : destinataires »
-     affiche sous un formulaire SMTP complet donnait l'impression que le
-     serveur etait en cause. */
-  const manqueSmtp = (d.manquants_smtp||[]).length
-    ? 'Il manque : <b>'+d.manquants_smtp.map(esc).join(', ')+'</b>.' : '';
-  alMessage('', false, 'sm');
-  if(manqueSmtp) { $('sm-msg').innerHTML=manqueSmtp; $('sm-msg').style.display='block'; }
+  $('al-admin').value = (d.admin||[]).join(', ');
+
+  const manque = (d.manquants||[]);
+  $('sm-msg').style.display='none';
+  if(!d.smtp_ok){
+    $('sm-msg').innerHTML='Il manque : <b>'+manque.map(esc).join(', ')+'</b>.';
+    $('sm-msg').style.display='block';
+  }
 
   $('al-smtp-source').innerHTML = d.smtp_ok
-    ? 'Serveur d\'envoi pret (onglet <b>E-mail</b>).'
-    : 'Aucun serveur d\'envoi configure : les alertes ne partiront pas. '
+    ? ('Les mails sortent par la configuration <b>'
+       + (d.source==='personnalisee' ? 'personnalisee' : 'd\'origine')
+       + '</b> (onglet <b>E-mail</b>)'
+       + (d.source==='personnalisee' && d.origine_utilisable
+          ? ', avec celle d\'origine en repli.' : '.'))
+    : 'Aucun serveur d\'envoi utilisable : les alertes ne partiront pas. '
       + 'Regle-le dans l\'onglet <b>E-mail</b>.';
+
+  peindreAlertesParApp(d);
 
   const incidents=(d.incidents||[]);
   alMessage(incidents.length
     ? 'Incident en cours sur : '+incidents.join(', ')+'.' : '', false);
 }
 
+/* La liste des applications avec leurs destinataires propres. Redessinee a
+   chaque chargement : c'est la reponse du serveur qui fait foi, jamais ce
+   qui reste a l'ecran. */
+function peindreAlertesParApp(d){
+  const zone=$('al-par-app'); if(!zone) return;
+  const apps = d.par_application || {};
+  const noms = Object.keys(apps);
+  if(!noms.length){
+    zone.innerHTML='<div class="hint">Aucune application declaree.</div>';
+    return;
+  }
+  const admin = (d.admin||[]).join(', ');
+  zone.innerHTML = noms.map(nom=>
+    `<div class="field" style="margin-bottom:12px">
+       <label>${esc(nom)}</label>
+       <input id="alapp-${esc(nom)}" value="${esc((apps[nom]||[]).join(', '))}"
+         placeholder="${admin ? esc(admin)+' seulement' : 'administrateur seulement'}"
+         autocomplete="off" onchange="alAppEnregistrer('${esc(nom)}')">
+     </div>`).join('');
+}
+
+async function alAppEnregistrer(nom){
+  const champ=$('alapp-'+nom); if(!champ) return;
+  const m=$('al-app-msg'); m.style.display='none';
+  try{
+    const r=await fetch('/api/alertes/application/'+encodeURIComponent(nom),
+      {method:'PUT', headers:{'Content-Type':'application/json'},
+       body:JSON.stringify({alertes: champ.value})});
+    const d=await r.json();
+    m.textContent = r.ok
+      ? nom+' : '+(d.destinataires||[]).join(', ')+' seront prevenus.'
+      : (d.error||'Enregistrement impossible.');
+    m.style.display='block';
+    if(r.ok) await chargerAlertes();
+  }catch(e){ m.textContent='Erreur reseau.'; m.style.display='block'; }
+}
+
+/* Ce que les deux onglets envoient. Les champs des deux sont dans le
+   document meme quand l'onglet est masque : enregistrer depuis l'un
+   n'efface donc pas ce qui est regle dans l'autre. */
 function alCorps(){
   return {
     actif: $('al-etat').classList.contains('on'),
-    destinataires: $('al-dest').value,
+    admin: $('al-admin').value,
     smtp: {
       host: $('al-host').value.trim(), port: $('al-port').value.trim(),
       tls: alTls, user: $('al-user').value.trim(),
@@ -2659,27 +2765,45 @@ function alCorps(){
   };
 }
 
-async function alPoster(corps, bouton){
-  const b=$(bouton); b.disabled=true;
+async function alPoster(corps, bouton, ou){
+  const b=$(bouton); const avant=b.textContent;
+  b.disabled=true;
+  if(corps.smtp && corps.smtp.host) b.textContent='Verification...';
   try{
     const r=await fetch('/api/alertes',{method:'POST',
       headers:{'Content-Type':'application/json'},body:JSON.stringify(corps)});
     const d=await r.json();
-    if(!r.ok){ alMessage(d.error||'Enregistrement impossible.', true); return false; }
+    if(!r.ok){
+      /* Le message du serveur SMTP est la seule chose qui aide vraiment ici
+         ("authentification refusee", "relais interdit") : on le montre. */
+      alMessage((d.error||'Enregistrement impossible.')
+                + (d.detail ? ' — '+d.detail : ''), true, ou);
+      return false;
+    }
     return true;
-  }catch(e){ alMessage('Erreur reseau.', true); return false; }
-  finally{ b.disabled=false; }
+  }catch(e){ alMessage('Erreur reseau.', true, ou); return false; }
+  finally{ b.disabled=false; b.textContent=avant; }
 }
 
-/* Les deux onglets ecrivent le meme bloc : alCorps() lit les champs des
-   deux, qui sont dans le document meme quand l'onglet est masque. Enregistrer
-   depuis l'un n'efface donc pas ce qui est regle dans l'autre. */
 async function alEnregistrer(ou){
   const prefixe = ou || 'al';
   alMessage('', false, prefixe);
-  if(await alPoster(alCorps(), prefixe+'-save')){
+  if(await alPoster(alCorps(), prefixe+'-save', prefixe)){
     await chargerAlertes();
-    alMessage('Reglages enregistres.', false, prefixe);
+    alMessage(prefixe==='sm' ? 'Serveur verifie et enregistre.'
+                             : 'Reglages enregistres.', false, prefixe);
+  }
+}
+
+/* Toujours permis, sans condition : c'est la marche arriere, et on la
+   cherche justement quand rien ne va. */
+async function alRevenirOrigine(){
+  alMessage('', false, 'sm');
+  const corps=alCorps();
+  corps.smtp={host:''};
+  if(await alPoster(corps, 'sm-reset', 'sm')){
+    await chargerAlertes();
+    alMessage('Retour a la configuration d\'origine.', false, 'sm');
   }
 }
 
@@ -2687,27 +2811,10 @@ async function alBasculer(){
   alMessage('', false);
   const corps=alCorps();
   corps.actif = !corps.actif;
-  if(await alPoster(corps, 'al-toggle')) await chargerAlertes();
-}
-
-async function alTester(){
-  alMessage('', false, 'sm');
-  const b=$('al-test'); b.disabled=true; b.textContent='Envoi...';
-  try{
-    /* Enregistrer d'abord : tester ce qui est affiche a l'ecran plutot que
-       ce qui est enregistre donnerait un test qui passe et des mails qui ne
-       partent pas. */
-    if(await alPoster(alCorps(), 'al-test')){
-      const r=await fetch('/api/alertes/test',{method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({destinataire:$('sm-test-dest').value.trim()})});
-      const d=await r.json();
-      alMessage(r.ok ? 'Mail envoye a '+(d.destinataires||[]).join(', ')+'.'
-                     : (d.error||'Envoi impossible.'), !r.ok, 'sm');
-      await chargerAlertes();
-    }
-  }catch(e){ alMessage('Erreur reseau.', true, 'sm'); }
-  b.disabled=false; b.textContent='Envoyer un mail de test';
+  /* Basculer l'interrupteur ne doit pas re-verifier le serveur : on
+     n'envoie donc pas le bloc SMTP. */
+  delete corps.smtp;
+  if(await alPoster(corps, 'al-toggle', 'al')) await chargerAlertes();
 }
 
 /* ---------------- securite : double authentification ---------------- */

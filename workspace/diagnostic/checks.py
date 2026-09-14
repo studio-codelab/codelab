@@ -1128,7 +1128,7 @@ app = _charger_panneau()
 # echoue au lieu de laisser passer une ecriture reelle.
 CHEMINS_ETAT = [
     "STATE_DIR", "APPS_FILE", "LOG_DIR", "UTILISATEURS_FILE", "PASSKEYS_FILE",
-    "ACCES_FILE", "CHILD_HOME", "ALERTES_FILE", "CATEGORIES_FILE",
+    "ACCES_FILE", "CHILD_HOME", "ALERTES_FILE", "SMTP_FILE", "CATEGORIES_FILE",
     "EXPOSITION_FILE", "DIAGNOSTIC_MARQUEUR", "SHARED_CONFIG_DIR",
     "SHARED_ENV_FILE", "LEGACY_ADMIN_PASSWORD_FILE", "LEGACY_SECRET_KEY_FILE",
 ]
@@ -1154,6 +1154,7 @@ def _bac_a_sable(tmp_path, monkeypatch):
         "ACCES_FILE": str(etat / "acces.jsonl"),
         "CHILD_HOME": str(etat / "home"),
         "ALERTES_FILE": str(etat / "alertes.json"),
+        "SMTP_FILE": str(etat / "smtp.json"),
         "CATEGORIES_FILE": str(etat / "categories.json"),
         "EXPOSITION_FILE": str(etat / "exposition.json"),
         "DIAGNOSTIC_MARQUEUR": str(etat / "diagnostic-inscrit"),
@@ -2220,7 +2221,8 @@ def alertes(tmp_path, monkeypatch):
                        "port": 9101, "enabled": True}})
     envoyes = []
     monkeypatch.setattr(app, "envoyer_mail",
-                        lambda cfg, sujet, corps: envoyes.append(sujet))
+                        lambda cfg, sujet, corps, destinataires=None:
+                        envoyes.append(sujet))
     return envoyes
 
 
@@ -2286,7 +2288,8 @@ def test_la_configuration_incomplete_est_dite_champ_par_champ(tmp_path, monkeypa
     (tmp_path / "credentials.env").write_text("")
     app.ecrire_alertes(True, [])
     _, manquants = app.config_smtp()
-    assert manquants == ["SMTP_HOST", "SMTP_USER (ou ALERTE_FROM)", "destinataires"]
+    assert manquants == ["serveur d'envoi", "adresse d'expedition",
+                         "adresse d'alerte de l'administrateur"]
 
 
 def test_les_adresses_saisies_sont_nettoyees():
@@ -2368,7 +2371,7 @@ def test_un_utilisateur_ne_peut_rien_administrer(deux_espaces):
                            ("post", "/api/toggle/public"), ("post", "/api/deploy/public"),
                            ("delete", "/api/app/public"), ("get", "/api/utilisateurs"),
                            ("post", "/api/utilisateurs"), ("get", "/api/alertes"),
-                           ("post", "/api/alertes/test"), ("get", "/api/logs/public"),
+                           ("get", "/api/logs/public"),
                            ("get", "/api/browse")]:
         r = getattr(c, methode)(route, json={})
         assert r.status_code == 403, f"{methode.upper()} {route} a repondu {r.status_code}"
@@ -3758,41 +3761,162 @@ def test_l_administrateur_peut_retirer_les_cles_d_un_compte(cles):
 # les alertes. Les deux ont chacun leur onglet, et le test d'envoi doit
 # pouvoir viser une adresse sans qu'aucune alerte soit reglee.
 
-def test_le_serveur_d_envoi_se_teste_sans_alerte_reglee(tmp_path, monkeypatch):
+@pytest.fixture
+def envoi(tmp_path, monkeypatch):
+    """Un panneau connecte, avec une configuration d'envoi D'ORIGINE posee
+    dans credentials.env -- celle qui doit survivre a tout."""
     monkeypatch.setattr(app, "_admin_password", "secret-de-test")
     monkeypatch.setattr(app, "ALERTES_FILE", str(tmp_path / "alertes.json"))
+    monkeypatch.setattr(app, "SMTP_FILE", str(tmp_path / "smtp.json"))
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
     monkeypatch.setattr(app, "SHARED_CONFIG_DIR", str(tmp_path))
     monkeypatch.setattr(app, "SHARED_ENV_FILE", str(tmp_path / "credentials.env"))
     app.flask_app.secret_key = "cle-de-test"
     app.flask_app.config["TESTING"] = True
     app._login_attempts.clear()
-    (tmp_path / "credentials.env").write_text(
-        "SMTP_HOST=smtp.example.com\nSMTP_USER=panneau@example.com\n")
-    app.ecrire_alertes(False, [])          # serveur pret, aucune alerte reglee
-    partis = []
-    monkeypatch.setattr(app, "envoyer_mail",
-                        lambda cfg, sujet, corps, destinataires=None:
-                        partis.append(destinataires))
-
+    app._apps_cache["signature"] = None
+    app._alertes_en_cours.clear()
+    app.ecrire_bloc_alertes({"SMTP_HOST": "origine.example.com",
+                             "SMTP_USER": "origine@example.com",
+                             "SMTP_PASSWORD": "mot-de-passe-origine"})
+    app.ecrire_alertes(False, [])
+    app.save({"site": {"path": "/workspace/site", "command": "python3 app.py",
+                       "port": 9101, "enabled": True}})
     c = app.flask_app.test_client()
     c.post("/login", json={"password": "secret-de-test"})
+    return c
 
-    # Le serveur se declare pret, meme sans destinataire d'alerte.
-    etat = c.get("/api/alertes").get_json()
+
+def test_le_serveur_d_envoi_se_declare_pret_sans_alerte_reglee(envoi):
+    """Le serveur d'envoi et les alertes sont deux choses : un serveur
+    parfaitement configure passerait pour incomplet tant qu'aucune adresse
+    d'alerte n'est saisie, alors qu'il sert aussi les codes de verification."""
+    etat = envoi.get("/api/alertes").get_json()
     assert etat["smtp_ok"] is True
-    assert etat["manquants_smtp"] == []
-    assert "destinataires" in etat["manquants"]   # ca, c'est l'affaire des alertes
+    assert etat["source"] == "origine"
+    assert etat["origine_utilisable"] is True
+    assert etat["personnalisee"] is None
+    # Ca, en revanche, c'est l'affaire des alertes.
+    assert "adresse d'alerte de l'administrateur" in etat["manquants"]
 
-    # Un test vers une adresse choisie part quand meme.
-    r = c.post("/api/alertes/test", json={"destinataire": "moi@example.com"})
+
+def test_une_configuration_qui_ne_repond_pas_n_est_pas_enregistree(envoi, monkeypatch):
+    """Ce qui remplace l'ancien bouton "mail de test" : un test qu'il fallait
+    penser a lancer, et dont l'oubli ne se voyait pas. Ici une configuration
+    qui ne marche pas n'entre tout simplement pas."""
+    monkeypatch.setattr(app, "verifier_smtp",
+                        lambda cfg: (False, "SMTPAuthenticationError: 535 refuse"))
+    r = envoi.post("/api/alertes", json={
+        "actif": False, "admin": ["moi@example.com"],
+        "smtp": {"host": "faux.example.com", "user": "x@example.com",
+                 "password": "mauvais"}})
+    assert r.status_code == 400, r.data
+    assert "535 refuse" in r.get_json()["detail"]
+    assert app.lire_smtp_personnalise() is None, "une configuration refusee a ete ecrite"
+    # Et surtout : celle d'origine sert toujours.
+    assert app.smtp_origine()["host"] == "origine.example.com"
+
+
+def test_une_configuration_qui_repond_devient_la_source(envoi, monkeypatch):
+    monkeypatch.setattr(app, "verifier_smtp", lambda cfg: (True, ""))
+    r = envoi.post("/api/alertes", json={
+        "actif": False, "admin": ["moi@example.com"],
+        "smtp": {"host": "perso.example.com", "user": "perso@example.com",
+                 "password": "bon"}})
     assert r.status_code == 200, r.data
-    assert partis == [["moi@example.com"]]
+    assert r.get_json()["source"] == "personnalisee"
+    cfg, _ = app.config_smtp()
+    assert cfg["host"] == "perso.example.com"
+    # L'ORIGINE EST INTACTE. C'est tout l'objet de la separation : se tromper
+    # d'un caractere depuis une page ne doit pas supprimer le seul moyen de
+    # prevenir qu'une application est tombee.
+    assert app.smtp_origine()["host"] == "origine.example.com"
+    assert app.smtp_origine()["password"] == "mot-de-passe-origine"
 
-    # Sans adresse, en revanche, il n'y a personne a qui ecrire.
-    r = c.post("/api/alertes/test", json={})
-    assert r.status_code == 400
-    assert "destinataires" in r.get_json()["error"]
-    assert len(partis) == 1
+
+def test_enregistrer_l_adresse_admin_n_efface_pas_la_configuration_d_origine(envoi):
+    """Le bloc de credentials.env est REMPLACE en entier par upsert_shared_block.
+    Y ecrire la seule adresse d'administration effacerait le serveur d'envoi et
+    son mot de passe -- donc le repli que tout ceci construit."""
+    r = envoi.post("/api/alertes", json={"actif": True,
+                                         "admin": ["chef@example.com"]})
+    assert r.status_code == 200, r.data
+    origine = app.smtp_origine()
+    assert origine["host"] == "origine.example.com", "le serveur d'origine a ete efface"
+    assert origine["password"] == "mot-de-passe-origine", "le mot de passe a ete efface"
+    assert app.alertes_admin() == ["chef@example.com"]
+
+
+def test_revenir_a_l_origine_est_toujours_permis(envoi, monkeypatch):
+    monkeypatch.setattr(app, "verifier_smtp", lambda cfg: (True, ""))
+    envoi.post("/api/alertes", json={"actif": False, "admin": ["moi@example.com"],
+                                     "smtp": {"host": "perso.example.com",
+                                              "user": "p@example.com",
+                                              "password": "bon"}})
+    assert app.lire_smtp_personnalise() is not None
+    # Serveur vide = retour a l'origine. Sans condition : c'est la marche
+    # arriere, et on la cherche justement quand rien ne va.
+    r = envoi.post("/api/alertes", json={"actif": False, "admin": ["moi@example.com"],
+                                         "smtp": {"host": ""}})
+    assert r.status_code == 200, r.data
+    assert app.lire_smtp_personnalise() is None
+    assert app.config_smtp()[0]["host"] == "origine.example.com"
+
+
+def test_l_envoi_repli_sur_l_origine_quand_la_personnalisee_tombe(envoi, monkeypatch):
+    """Une configuration verifiee le jour de son enregistrement peut cesser de
+    marcher : mot de passe revoque, quota, serveur eteint. Ce jour-la, l'alerte
+    doit sortir quand meme."""
+    monkeypatch.setattr(app, "verifier_smtp", lambda cfg: (True, ""))
+    envoi.post("/api/alertes", json={"actif": True, "admin": ["moi@example.com"],
+                                     "smtp": {"host": "perso.example.com",
+                                              "user": "p@example.com",
+                                              "password": "bon"}})
+    essais = []
+
+    def _envoi(cfg, sujet, corps, destinataires=None):
+        essais.append(cfg["host"])
+        if cfg["host"] == "perso.example.com":
+            raise OSError("serveur injoignable")
+    monkeypatch.setattr(app, "envoyer_mail", _envoi)
+
+    envoye, detail = app.envoyer_avec_repli("sujet", "corps", ["moi@example.com"])
+    assert envoye is True, detail
+    assert essais == ["perso.example.com", "origine.example.com"], (
+        "le repli n'a pas eu lieu dans cet ordre")
+    assert detail == "d'origine"
+
+
+def test_chaque_application_a_ses_destinataires_et_l_admin_recoit_tout(envoi):
+    """Une application de facturation ne previent pas les memes personnes
+    qu'un site vitrine. Mais l'adresse d'administration s'ajoute TOUJOURS :
+    une application dont la liste est vide ne tombe pas en silence."""
+    envoi.post("/api/alertes", json={"actif": True, "admin": ["chef@example.com"]})
+    r = envoi.put("/api/alertes/application/site",
+                  json={"alertes": "equipe@example.com, autre@example.com"})
+    assert r.status_code == 200, r.data
+    assert r.get_json()["destinataires"] == ["chef@example.com",
+                                             "equipe@example.com",
+                                             "autre@example.com"]
+    # Une application sans liste propre : l'admin reste, et il est seul.
+    app.save(dict(app.load(), vitrine={"path": "/w/v", "command": "x",
+                                       "port": 9102, "enabled": True}))
+    assert app.destinataires_alerte("vitrine") == ["chef@example.com"]
+
+
+def test_l_adresse_d_alerte_d_une_installation_existante_est_reprise(envoi):
+    """Avant les alertes par application, tous les destinataires vivaient dans
+    alertes.json. Sans repli sur cette liste, une installation existante aurait
+    cesse d'etre prevenue a la mise a jour -- silencieusement."""
+    app.ecrire_bloc_alertes({"ALERTE_ADMIN": ""})
+    app.ecrire_alertes(True, ["ancien@example.com"])
+    assert app.alertes_admin() == ["ancien@example.com"]
+
+
+def test_activer_les_alertes_sans_adresse_d_administration_est_refuse(envoi):
+    r = envoi.post("/api/alertes", json={"actif": True, "admin": []})
+    assert r.status_code == 400, r.data
+    assert "administrateur" in r.get_json()["error"]
 
 
 # ---------- 21. miroir Postgres ----------
