@@ -57,6 +57,29 @@ données, ni les scripts, ni le contenu des règles.
 - **Les trois points d'entrée répondent réellement** : `search.py`,
   `search-slides.py` et `logo/search.py` ont été exécutés après correction.
 
+## Leurs propres tests : 14 répondent, 4 sont inertes
+
+Les skills embarquent 18 fichiers de tests amont. Lancés ici :
+
+| | |
+|---|---|
+| Passent | 14 |
+| Ne démarrent même pas | 4, tous sur `StopIteration` à l'import |
+
+Les quatre cherchent la racine du **dépôt amont** en remontant les dossiers
+jusqu'à trouver un fichier qui n'est livré qu'avec lui
+(`scripts/generate-catalog-summary.py`, l'arborescence `cli/assets/skills/`).
+Ils ne la trouvent pas, et s'arrêtent avant la première assertion.
+
+Ce n'est pas une régression introduite par la recopie : ces tests portent sur le
+dépôt amont, pas sur la skill. En particulier `test_skill_script_paths.py`
+vérifie une convention de chemins **relatifs au dossier de la skill** ; c'est
+justement celle qui ne résout pas ici, où le répertoire courant est la racine du
+projet — la raison même des 62 corrections ci-dessus. S'il démarrait, il
+refuserait la forme qui, elle, fonctionne.
+
+À ne pas prendre pour une panne lors d'une mise à jour.
+
 ## Mettre à jour
 
 Il n'y a pas de mécanisme automatique : c'est une copie.
