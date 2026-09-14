@@ -654,10 +654,19 @@ def check_exposition():
         manques.append("proxy de confiance (tous les visiteurs partagent une adresse)")
     if not publique:
         manques.append("adresse publique (aucun partage possible)")
+    # Pas dans les "manques" : une stack exposee peut parfaitement vouloir
+    # que son administration reste joignable de l'exterieur, et la reclamer
+    # en rouge serait dicter un choix plutot que signaler un oubli. La sonde
+    # dit donc simplement lequel des deux est en vigueur.
+    admin_local = _actif("APP_MANAGER_ADMIN_LAN_ONLY", "admin_reseau_local")
+    portee = ("administration reservee au reseau local" if admin_local
+              else "administration joignable de l'exterieur")
     if manques:
         return (False, "exposition", "expose, mais il manque : "
-                + " ; ".join(manques) + " -- a poser dans Parametres > Exposition")
-    return True, "exposition", f"publie sur {publique}, cookie Secure, adresse reelle des visiteurs"
+                + " ; ".join(manques) + " -- a poser dans Parametres > Exposition"
+                + " (" + portee + ")")
+    return (True, "exposition",
+            f"publie sur {publique}, cookie Secure, adresse reelle des visiteurs, {portee}")
 
 
 def check_provenance():
@@ -3333,6 +3342,249 @@ def test_le_compose_l_emporte_sur_la_page_pour_https_et_le_proxy(exposition, mon
     assert c.put("/api/securite/exposition",
                  json={"trust_proxy": False}).status_code == 400
     assert app.https_actif() is True
+
+
+# ---------- 12 bis. l'administration reste sur le reseau local ----------
+#
+# Le raisonnement : un compte nomme est fait pour etre distribue et n'ouvre
+# que les projets qu'on lui a autorises. Le compte d'administration, lui,
+# permet de declarer une application -- donc d'executer du code sur la
+# machine. Les deux n'ont aucune raison d'etre joignables de la meme facon.
+#
+# Ce que ces tests tiennent, dans l'ordre d'importance :
+#
+#   1. un compte nomme entre toujours de l'exterieur -- c'est la moitie de
+#      la demande, et celle qu'une implementation trop large casserait ;
+#   2. on ne peut pas activer ce reglage depuis l'exterieur, sous peine de
+#      se retirer l'administration dans la seconde ;
+#   3. derriere un proxy non declare, l'administration est REFUSEE et non
+#      accordee : toutes les requetes y paraissent locales, et une securite
+#      qui ment est pire que pas de securite.
+
+DEHORS = {"REMOTE_ADDR": "203.0.113.7"}      # bloc de documentation, jamais prive
+CHEZ_SOI = {"REMOTE_ADDR": "192.168.1.42"}
+
+
+def _active_le_verrou(client):
+    """Active le reglage depuis le reseau local, seule facon permise."""
+    r = client.put("/api/securite/exposition", json={"admin_reseau_local": True})
+    assert r.status_code == 200, r.data
+    assert app.admin_limite_au_reseau_local() is True
+    return r
+
+
+def test_une_adresse_illisible_n_ouvre_pas_l_administration():
+    """Le sens du doute. Une adresse qu'on ne sait pas lire ne doit jamais
+    valoir "locale" : c'est un controle d'acces, pas un affichage."""
+    assert app.adresse_est_locale("192.168.1.42") is True
+    assert app.adresse_est_locale("10.0.0.1") is True
+    assert app.adresse_est_locale("127.0.0.1") is True
+    assert app.adresse_est_locale("::1") is True
+    assert app.adresse_est_locale("fd00::1") is True
+    # 100.64/10, l'espace partage : un reseau prive type Tailscale est une
+    # extension de la maison, pas l'Internet. Python l'EXCLUT de is_private
+    # selon sa version -- raison pour laquelle la liste est ecrite a la main.
+    assert app.adresse_est_locale("100.100.1.2") is True
+    # Une pile double presente parfois une adresse v4 sous forme mappee.
+    assert app.adresse_est_locale("::ffff:192.168.1.42") is True
+    assert app.adresse_est_locale("8.8.8.8") is False
+    # Les plages de DOCUMENTATION : is_private les dit "privees", elles n'ont
+    # rien de local. C'est ce piege qui a fait ecrire la liste a la main.
+    assert app.adresse_est_locale("203.0.113.7") is False
+    assert app.adresse_est_locale("2001:db8::1") is False
+    assert app.adresse_est_locale("unknown") is False
+    assert app.adresse_est_locale("") is False
+    assert app.adresse_est_locale(None) is False
+
+
+def test_sans_le_reglage_l_admin_entre_de_partout(exposition):
+    """L'etat par defaut ne change pas : ce serait une rupture pour qui
+    administre deja depuis l'exterieur sans avoir rien demande."""
+    assert app.admin_limite_au_reseau_local() is False
+    c = app.flask_app.test_client()
+    r = c.post("/login", json={"password": "secret-de-test"}, environ_base=DEHORS)
+    assert r.status_code == 200, r.data
+
+
+def test_l_admin_ne_se_connecte_plus_depuis_l_exterieur(exposition):
+    _active_le_verrou(exposition)
+    c = app.flask_app.test_client()
+    r = c.post("/login", json={"password": "secret-de-test"}, environ_base=DEHORS)
+    assert r.status_code == 403, r.data
+    assert "reseau local" in r.get_json()["error"]
+    # Et le mot de passe n'a meme pas ete regarde : aucune session ouverte.
+    assert r.get_json().get("ok") is not True
+
+
+def test_l_admin_se_connecte_toujours_depuis_chez_lui(exposition):
+    _active_le_verrou(exposition)
+    c = app.flask_app.test_client()
+    r = c.post("/login", json={"password": "secret-de-test"}, environ_base=CHEZ_SOI)
+    assert r.status_code == 200, r.data
+
+
+def test_un_compte_nomme_entre_toujours_depuis_l_exterieur(exposition):
+    """LA moitie de la demande qu'une implementation trop large casserait :
+    le verrou ne vise que l'administration, jamais les comptes nommes."""
+    _active_le_verrou(exposition)
+    sel = "bb" * 16
+    app.ecrire_utilisateurs({"marie": {
+        "sel": sel, "hash": app.derive_mot_de_passe("mot-de-passe-long", sel),
+        "projets": ["prive"], "cree": 0}})
+
+    c = app.flask_app.test_client()
+    r = c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long"},
+               environ_base=DEHORS)
+    assert r.status_code == 200, r.data
+    d = r.get_json()
+    assert d.get("inscription") is True, "le compte nomme a ete refuse de l'exterieur"
+    r = c.post("/login/second-facteur",
+               json={"code": app.totp_code(d["secret"], int(time.time()) // app.TOTP_PAS)},
+               environ_base=DEHORS)
+    assert r.status_code == 200, r.data
+    assert r.get_json()["role"] == app.ROLE_UTILISATEUR
+
+
+def test_une_session_admin_qui_sort_cesse_d_administrer(exposition):
+    """Verifie a chaque requete, pas seulement a la connexion : un portable
+    ouvert dans le salon puis repris depuis un train -- ou un cookie vole --
+    ne doit plus administrer une fois dehors."""
+    c = exposition
+    _active_le_verrou(c)
+    # La meme session, le meme cookie, depuis l'exterieur.
+    r = c.get("/api/apps", environ_base=DEHORS)
+    assert r.status_code == 403, r.data
+    assert "reseau local" in r.get_json()["error"]
+    # Et elle fonctionne toujours depuis chez soi.
+    assert c.get("/api/apps", environ_base=CHEZ_SOI).status_code == 200
+
+
+def test_on_n_active_pas_ce_reglage_depuis_l_exterieur(exposition):
+    """Meme regle que pour HTTPS, et pour la meme raison : on n'allume pas un
+    interrupteur qui couperait la branche sur laquelle on est assis."""
+    c = exposition
+    r = c.put("/api/securite/exposition", json={"admin_reseau_local": True},
+              environ_base=DEHORS)
+    assert r.status_code == 400, r.data
+    assert "reseau local" in r.get_json()["error"]
+    assert app.admin_limite_au_reseau_local() is False
+
+
+def test_eteindre_depuis_le_reseau_local_reste_toujours_permis(exposition):
+    c = exposition
+    _active_le_verrou(c)
+    r = c.put("/api/securite/exposition", json={"admin_reseau_local": False})
+    assert r.status_code == 200, r.data
+    assert app.admin_limite_au_reseau_local() is False
+
+
+def test_un_proxy_non_declare_interdit_d_activer(exposition):
+    """Le piege que ce reglage doit absolument eviter : derriere un proxy non
+    declare, remote_addr est l'adresse DU PROXY -- privee. Toute requete
+    paraitrait locale et le reglage serait affiche actif sans rien proteger."""
+    c = exposition
+    r = c.put("/api/securite/exposition", json={"admin_reseau_local": True},
+              headers={"X-Forwarded-For": "203.0.113.7"})
+    assert r.status_code == 400, r.data
+    assert "proxy" in r.get_json()["error"].lower()
+    assert app.admin_limite_au_reseau_local() is False
+
+
+def test_derriere_un_proxy_non_declare_l_administration_est_refusee(exposition):
+    """Le choix qui compte : ne pas savoir vaut REFUSER.
+
+    Si un proxy apparait apres coup sans etre declare, l'administration se
+    ferme -- elle ne s'ouvre pas a tout le monde. La marche arriere est le
+    compose, comme pour les autres reglages.
+    """
+    c = exposition
+    _active_le_verrou(c)
+    r = c.get("/api/apps", headers={"X-Forwarded-For": "192.168.1.42"})
+    assert r.status_code == 403, r.data
+    assert "proxy" in r.get_json()["error"].lower()
+
+
+def test_un_proxy_declare_rend_l_adresse_reelle_a_nouveau_lisible(exposition):
+    """Une fois le proxy declare, c'est X-Forwarded-For qui fait foi -- et le
+    verrou redevient utile au lieu d'etre bloquant."""
+    c = exposition
+    c.put("/api/securite/exposition", json={"trust_proxy": True},
+          headers={"X-Forwarded-For": "192.168.1.42"})
+    _active_le_verrou(c)
+    assert c.get("/api/apps",
+                 headers={"X-Forwarded-For": "192.168.1.42"}).status_code == 200
+    r = c.get("/api/apps", headers={"X-Forwarded-For": "203.0.113.7"})
+    assert r.status_code == 403, r.data
+
+
+def test_le_compose_peut_rouvrir_l_administration(exposition, monkeypatch):
+    """La seule marche arriere qui ne passe pas par le panneau, et celle qui
+    compte le jour ou l'on se retrouve enferme dehors."""
+    c = exposition
+    _active_le_verrou(c)
+    monkeypatch.setenv("APP_MANAGER_ADMIN_LAN_ONLY", "0")
+    assert app.admin_limite_au_reseau_local() is False
+    autre = app.flask_app.test_client()
+    assert autre.post("/login", json={"password": "secret-de-test"},
+                      environ_base=DEHORS).status_code == 200
+
+
+def test_le_compose_peut_aussi_l_imposer(exposition, monkeypatch):
+    c = exposition
+    monkeypatch.setenv("APP_MANAGER_ADMIN_LAN_ONLY", "1")
+    assert app.admin_limite_au_reseau_local() is True
+    r = c.put("/api/securite/exposition", json={"admin_reseau_local": False})
+    assert r.status_code == 400, r.data
+    assert "compose" in r.get_json()["error"]
+
+
+def test_une_cle_d_acces_ne_contourne_pas_le_verrou(exposition):
+    """Une cle d'acces vaut mot de passe ET second facteur, mais elle voyage
+    avec son porteur et ne dit rien d'ou l'on appelle. Sans verrou sur cette
+    route, il suffirait de passer par cette porte-ci."""
+    if not app.passkeys_disponibles():
+        pytest.skip("webauthn absent de cette image")
+    _active_le_verrou(exposition)
+    app.ecrire_passkeys({app.NOM_ADMIN: [
+        {"id": "cle-de-test", "cle": "", "compteur": 0, "cree": 0, "nom": "test"}]})
+
+    c = app.flask_app.test_client()
+    with c.session_transaction() as sess:
+        sess["passkey_defi"] = base64.b64encode(b"defi-de-test").decode()
+    r = c.post("/login/passkey", json={"credential": {"id": "cle-de-test"}},
+               environ_base=DEHORS)
+    assert r.status_code == 403, r.data
+    assert "reseau local" in r.get_json()["error"]
+
+
+def test_marteler_le_refus_finit_par_etre_limite(exposition):
+    """Un refus doit couter quelque chose a qui le provoque.
+
+    Sinon il est gratuit : on le martele sans jamais etre limite, et comme
+    chaque appel ecrit une ligne de journal, la rotation finit par chasser
+    l'historique reel -- une facon discrete d'effacer ses traces.
+    """
+    _active_le_verrou(exposition)
+    c = app.flask_app.test_client()
+    vus = set()
+    for _ in range(app.RATE_LIMIT_MAX + 2):
+        vus.add(c.post("/login", json={"password": "peu importe"},
+                       environ_base=DEHORS).status_code)
+    assert 403 in vus, "le verrou n'a jamais refuse"
+    assert 429 in vus, "le refus est gratuit : aucune limite ne s'applique"
+
+
+def test_la_page_recoit_de_quoi_griser_la_case_et_dire_pourquoi(exposition):
+    """Une case grisee sans raison fait cliquer dans le vide. La page a besoin
+    des trois : l'etat, si elle peut etre cochee, et d'ou l'on appelle."""
+    r = exposition.get("/api/securite", environ_base=DEHORS)
+    assert r.status_code == 200, r.data
+    d = r.get_json()
+    assert d["admin_reseau_local"] is False
+    assert d["peut_activer_admin_reseau_local"] is False
+    assert d["client_local"] is False
+    assert d["client_ip"] == "203.0.113.7"
+    assert d["admin_reseau_local_fige"] is False
 
 
 def test_l_adresse_du_compose_l_emporte_sur_celle_de_la_page(exposition, monkeypatch):

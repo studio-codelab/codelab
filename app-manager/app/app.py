@@ -39,6 +39,7 @@ import datetime
 import queue
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 import re
@@ -683,6 +684,14 @@ def require_admin(view):
             return _refus("Non authentifie.", 401)
         if not est_admin():
             return _refus("Reserve a l'administrateur.", 403)
+        # Apres le controle de role, et non avant : le message ne doit rien
+        # apprendre a qui n'est deja administrateur. Verifie a CHAQUE
+        # requete, pas seulement a la connexion -- une session ouverte dans
+        # le salon puis reprise depuis l'exterieur (portable qui se deplace,
+        # cookie vole) doit cesser d'administrer en sortant.
+        hors = refus_admin_hors_reseau()
+        if hors:
+            return _refus(hors, 403)
         return view(*a, **kw)
     wrapped.__name__ = view.__name__
     return wrapped
@@ -2639,6 +2648,7 @@ REGLAGES_EXPOSITION = {
     "adresse_publique": "APP_MANAGER_PUBLIC_URL",
     "https": "APP_MANAGER_HTTPS",
     "trust_proxy": "APP_MANAGER_TRUST_PROXY",
+    "admin_reseau_local": "APP_MANAGER_ADMIN_LAN_ONLY",
 }
 
 
@@ -2700,6 +2710,124 @@ def trust_proxy():
     if fixe_par_environnement("trust_proxy"):
         return _vrai(os.environ.get("APP_MANAGER_TRUST_PROXY"))
     return bool(lire_exposition().get("trust_proxy"))
+
+
+# ------------- l'administration reste sur le reseau local -------------
+#
+# Le raisonnement : un compte utilisateur est fait pour etre distribue et
+# n'ouvre que les projets qu'on lui a autorises. Le compte d'administration,
+# lui, permet de declarer une application, donc d'executer du code sur la
+# machine. Les deux n'ont aucune raison d'etre joignables de la meme facon.
+#
+# Ce reglage separe les deux : les comptes nommes continuent d'entrer de
+# n'importe ou, l'administration ne repond plus que depuis le reseau local.
+# Un mot de passe d'administration qui fuit ne suffit alors plus -- il faut
+# aussi etre dans la maison.
+#
+# CE QUE "LOCAL" VEUT DIRE ICI, et pourquoi la liste est ecrite a la main.
+#
+# Le reflexe est d'appeler ipaddress.ip_address(...).is_private. C'est FAUX
+# pour cet usage, et le test l'a montre avant que cela ne parte :
+#
+#   is_private repond "non joignable globalement", pas "reseau local". Les
+#     plages de DOCUMENTATION en font partie -- 203.0.113.0/24 et 2001:db8::/32
+#     sont "privees" pour Python. Elles n'ont rien de local ;
+#   et 100.64.0.0/10, l'espace partage ou vivent les adresses Tailscale, en
+#     est EXCLU selon la version de Python. Le sens de la fonction change donc
+#     d'un interpreteur a l'autre, ce qu'un controle d'acces ne peut pas se
+#     permettre.
+#
+# La liste ci-dessous dit donc exactement ce qu'on entend par "chez soi" :
+# les trois plages RFC 1918, la boucle locale, le lien-local, l'espace
+# partage (un reseau prive type Tailscale est une extension de la maison,
+# pas l'Internet), et leurs equivalents IPv6.
+RESEAUX_LOCAUX = tuple(ipaddress.ip_network(c) for c in (
+    "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",   # RFC 1918
+    "127.0.0.0/8",                                      # boucle locale
+    "169.254.0.0/16",                                   # lien-local
+    "100.64.0.0/10",                                    # espace partage / Tailscale
+    "::1/128",                                          # boucle locale IPv6
+    "fc00::/7",                                         # adresses uniques locales
+    "fe80::/10",                                        # lien-local IPv6
+))
+
+
+def adresse_est_locale(brute):
+    """Cette adresse appartient-elle au reseau local ?
+
+    Tout ce qui n'est pas analysable est traite comme NON local. C'est le
+    sens qu'il faut : ceci est un controle d'acces, et une adresse qu'on ne
+    sait pas lire ne doit jamais ouvrir l'administration.
+    """
+    try:
+        adresse = ipaddress.ip_address(str(brute or "").strip())
+    except ValueError:
+        return False
+    # ::ffff:192.168.1.10 -- une pile double presente parfois les adresses
+    # IPv4 sous cette forme. Sans ce repli, une machine du salon serait vue
+    # comme etrangere, et l'administration se fermerait sans raison visible.
+    mappee = getattr(adresse, "ipv4_mapped", None)
+    if mappee is not None:
+        adresse = mappee
+    return any(adresse in reseau for reseau in RESEAUX_LOCAUX
+               if reseau.version == adresse.version)
+
+
+def proxy_non_declare():
+    """Un intermediaire parle-t-il sans qu'on l'ait declare ?
+
+    Le piege que ce reglage doit absolument eviter : derriere un reverse
+    proxy non declare, request.remote_addr est l'adresse DU PROXY. Elle est
+    privee, donc toute requete -- y compris venue du bout du monde --
+    paraitrait locale, et la restriction serait affichee comme active tout
+    en ne protegeant rien. Une securite qui ment est pire que pas de
+    securite : on cesse de se mefier.
+    """
+    if trust_proxy():
+        return False
+    return bool(request.headers.get("X-Forwarded-For")
+                or request.headers.get("X-Forwarded-Proto"))
+
+
+def admin_limite_au_reseau_local():
+    """Le reglage est-il actif ? L'environnement l'emporte, comme les autres
+    -- c'est la seule marche arriere qui ne passe pas par le panneau, et
+    celle qui compte le jour ou l'on se retrouve enferme dehors."""
+    if fixe_par_environnement("admin_reseau_local"):
+        return _vrai(os.environ.get("APP_MANAGER_ADMIN_LAN_ONLY"))
+    return bool(lire_exposition().get("admin_reseau_local"))
+
+
+def client_est_local():
+    """La requete en cours vient-elle du reseau local ?
+
+    Repond NON si un proxy non declare s'interpose : on ne sait alors pas
+    qui appelle, et ne pas savoir vaut refuser.
+    """
+    if proxy_non_declare():
+        return False
+    return adresse_est_locale(_client_ip())
+
+
+def refus_admin_hors_reseau():
+    """Le message de refus, ou None si l'acces est permis.
+
+    Une seule fonction, appelee aux trois endroits ou une session
+    d'administration peut naitre ou servir : les deux routes de connexion et
+    require_admin. Les separer aurait fini par en laisser une derriere.
+    """
+    if not admin_limite_au_reseau_local() or client_est_local():
+        return None
+    if proxy_non_declare():
+        # Distinguer les deux causes : "je suis pourtant chez moi" est
+        # exactement le moment ou l'on a besoin de savoir que c'est le proxy
+        # qui brouille la piste, et non son adresse.
+        return ("L'administration est limitee au reseau local, et un proxy non "
+                "declare empeche d'etablir d'ou vient cette requete. Active "
+                "\"Proxy de confiance\" dans Parametres > Serveur, ou pose "
+                "APP_MANAGER_ADMIN_LAN_ONLY=0 dans le compose.")
+    return ("L'administration est limitee au reseau local. Cette requete vient "
+            "de " + _client_ip() + ".")
 
 
 def appliquer_cookie_securise():
@@ -2766,6 +2894,20 @@ def login_submit():
     # utilisateurs : exiger d'un coup que l'administrateur tape "admin"
     # casserait l'habitude de tout le monde pour ne rien apporter.
     if nom in ("", NOM_ADMIN):
+        # Avant meme de regarder le mot de passe : rien ne sert de laisser
+        # essayer -- et surtout, aucune session d'administration ne doit
+        # naitre hors du reseau local, pas meme une seconde.
+        hors = refus_admin_hors_reseau()
+        if hors:
+            # Compte comme une tentative ratee, au meme titre qu'un mot de
+            # passe faux. Sans cela le refus serait gratuit : on pourrait le
+            # marteler sans jamais etre limite, et chaque appel ecrivant une
+            # ligne de journal, la rotation finirait par chasser l'historique
+            # reel -- une facon discrete d'effacer ses traces.
+            register_failed_attempt()
+            journaliser("refus", qui=NOM_ADMIN, motif="hors reseau local",
+                        ip=_adresse_client())
+            return jsonify({"error": hors}), 403
         real = admin_password()
         # compare_digest plutot que "==" : la comparaison de chaines s'arrete
         # au premier caractere different, et la duree de la reponse renseigne
@@ -3127,6 +3269,19 @@ def login_passkey():
         register_failed_attempt()
         journaliser("echec", qui="", motif="cle d'acces inconnue", ip=_adresse_client())
         return jsonify({"error": "Cle d'acces inconnue."}), 401
+
+    # Des que l'on sait a qui est la cle, et avant toute cryptographie : une
+    # cle d'acces est un excellent second facteur, mais elle voyage avec son
+    # porteur et ne dit rien de l'endroit d'ou l'on appelle. Sans ce verrou
+    # ici, il suffirait de passer par cette porte-ci plutot que par le mot de
+    # passe.
+    if proprietaire == NOM_ADMIN:
+        hors = refus_admin_hors_reseau()
+        if hors:
+            register_failed_attempt()   # meme raison que ci-dessus
+            journaliser("refus", qui=NOM_ADMIN, motif="hors reseau local",
+                        moyen="cle d'acces", ip=_adresse_client())
+            return jsonify({"error": hors}), 403
 
     rp_id, origine, _ = passkey_contexte()
     try:
@@ -3517,6 +3672,14 @@ def api_securite():
         "adresse_figee": fixe_par_environnement("adresse_publique"),
         "https_fige": fixe_par_environnement("https"),
         "trust_proxy_fige": fixe_par_environnement("trust_proxy"),
+        # L'administration est-elle limitee au reseau local, et cette requete
+        # y est-elle ? La page a besoin des deux : l'une pour l'etat de la
+        # case, l'autre pour dire pourquoi elle est grisee.
+        "admin_reseau_local": admin_limite_au_reseau_local(),
+        "admin_reseau_local_fige": fixe_par_environnement("admin_reseau_local"),
+        "client_local": client_est_local(),
+        "client_ip": _client_ip(),
+        "proxy_non_declare": proxy_non_declare(),
         # De quoi griser la case plutot que de laisser cliquer sur un refus :
         # les memes conditions que celles appliquees par la route d'ecriture.
         "peut_activer_https": request.is_secure or (
@@ -3525,6 +3688,7 @@ def api_securite():
         "peut_activer_trust_proxy": bool(
             (request.headers.get("X-Forwarded-For")
              or request.headers.get("X-Forwarded-Proto") or "").strip()),
+        "peut_activer_admin_reseau_local": client_est_local(),
         # Les applications sont-elles servies dans une autre origine que le
         # panneau ? C'est ce qui empeche une XSS dans l'une d'elles d'atteindre
         # le panneau, et c'est invisible sans le dire.
@@ -3537,7 +3701,7 @@ def api_securite():
 @flask_app.put("/api/securite/exposition")
 @require_admin
 def api_exposition():
-    """Les trois reglages qui changent quand la stack sort du reseau local.
+    """Les quatre reglages qui changent quand la stack sort du reseau local.
 
     CE QUI A CHANGE, ET POURQUOI. HTTPS et le proxy de confiance se posaient
     uniquement dans le compose, a decommenter a la main. Le code disait
@@ -3554,8 +3718,12 @@ def api_exposition():
                      adresse neuve a chaque essai et annuler la limite de
                      tentatives de connexion.
 
+      admin local    ne s'active que depuis une requete qui vient elle-meme
+                     du reseau local -- sinon on se retirerait
+                     l'administration a l'instant meme.
+
     ETEINDRE est toujours permis : la marche arriere ne doit jamais dependre
-    d'une condition. Et le compose garde le dernier mot sur les trois.
+    d'une condition. Et le compose garde le dernier mot sur les quatre.
     """
     demande = request.get_json(force=True, silent=True) or {}
     reglages = lire_exposition()
@@ -3614,6 +3782,31 @@ def api_exposition():
                                      "https, et la case s'activera."}), 400
         reglages["https"] = voulu
 
+    # --------------------------------- administration sur le reseau local
+    if "admin_reseau_local" in demande:
+        if fixe_par_environnement("admin_reseau_local"):
+            return jsonify({"error": "Ce reglage est fixe par "
+                                     "APP_MANAGER_ADMIN_LAN_ONLY dans le compose : "
+                                     "modifie-le la-bas."}), 400
+        voulu = bool(demande.get("admin_reseau_local"))
+        # Meme regle que pour HTTPS, pour la meme raison : on n'allume pas un
+        # interrupteur qui couperait la branche sur laquelle on est assis.
+        # L'activer depuis l'exterieur reviendrait a se retirer
+        # l'administration dans la seconde, et la seule facon de revenir
+        # serait d'aller editer le compose.
+        if voulu and not client_est_local():
+            if proxy_non_declare():
+                return jsonify({"error": "Un proxy non declare empeche de savoir d'ou "
+                                         "viennent les requetes : toutes paraitraient "
+                                         "locales, et ce reglage ne protegerait rien. "
+                                         "Active d'abord \"Proxy de confiance\"."}), 400
+            return jsonify({"error": "Cette requete ne vient pas du reseau local. "
+                                     "L'activer maintenant te retirerait "
+                                     "l'administration a l'instant meme, sans retour "
+                                     "possible depuis cette page. Reconnecte-toi "
+                                     "depuis chez toi, et la case s'activera."}), 400
+        reglages["admin_reseau_local"] = voulu
+
     try:
         ecrire_exposition(reglages)
     except OSError as e:
@@ -3626,7 +3819,8 @@ def api_exposition():
     return jsonify({"ok": True,
                     "adresse_publique": adresse_publique(),
                     "https": https_actif(),
-                    "trust_proxy": trust_proxy()})
+                    "trust_proxy": trust_proxy(),
+                    "admin_reseau_local": admin_limite_au_reseau_local()})
 
 
 @flask_app.post("/api/securite/totp/preparer")

@@ -1083,6 +1083,13 @@ table.tbl-journal{min-width:560px}
         <div class="hint" id="expo-https-aide"></div>
       </div>
 
+      <div class="field" style="margin-top:10px">
+        <label><input type="checkbox" id="expo-admin-lan"
+          onchange="expoBascule('admin_reseau_local', this)">
+          Administration reservee au reseau local</label>
+        <div class="hint" id="expo-admin-lan-aide"></div>
+      </div>
+
       <div class="err" id="expo-err" style="display:none"></div>
     </div>
 
@@ -2747,7 +2754,7 @@ async function chargerSecurite(){
      <span class="v"><span class="pill ${ok?'on':'off'}"><i></i>${ok?'en place':'non'}</span></span></div>
      <div class="hint" style="margin:-2px 0 10px">${esc(aide)}</div>`).join('');
 
-  /* Les deux interrupteurs. Une case grisee doit TOUJOURS dire pourquoi :
+  /* Les trois interrupteurs. Une case grisee doit TOUJOURS dire pourquoi :
      sans cela, on clique dans le vide sans savoir ce qui manque. */
   const poser = (id, actif, fige, possible, aideOk, aideNon, aideFigee)=>{
     const c=$(id); if(!c) return;
@@ -2768,6 +2775,17 @@ async function chargerSecurite(){
         + ". Mets le TLS en place, reviens par https, et la case s'activera"
         + (d.https_constate && !d.trust_proxy ? " — ou declare d'abord ton proxy ci-dessus." : "."),
         "Fixe par APP_MANAGER_HTTPS dans le compose.");
+  poser('expo-admin-lan', d.admin_reseau_local, d.admin_reseau_local_fige,
+        d.peut_activer_admin_reseau_local,
+        "Le compte d'administration ne repond qu'aux adresses du reseau local. "
+        + "Les comptes nommes, eux, entrent toujours de n'importe ou.",
+        (d.proxy_non_declare
+          ? ("Un proxy non declare s'interpose : toutes les requetes paraitraient locales, "
+             + "et ce reglage ne protegerait rien. Declare-le ci-dessus d'abord.")
+          : ("Cette requete vient de <b>" + esc(d.client_ip||'?') + "</b>, hors du reseau local. "
+             + "L'activer maintenant te retirerait l'administration a l'instant meme. "
+             + "Reconnecte-toi depuis chez toi et la case s'activera.")),
+        "Fixe par APP_MANAGER_ADMIN_LAN_ONLY dans le compose.");
 
   adressePublique = d.adresse_publique || '';
   $('pub-adresse').value = adressePublique;
