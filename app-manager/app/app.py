@@ -129,7 +129,7 @@ flask_app.config.update(
     # mais actif seulement sur demande : le poser alors que le panneau est
     # servi en http empecherait purement et simplement de se connecter.
     #
-    # Regle au demarrage plutot que depuis l'interface, et c'est deliberé :
+    # Regle au demarrage plutot que depuis l'interface, et c'est delibere :
     # l'activer depuis une page servie en clair deconnecterait sur-le-champ la
     # session qui vient de l'activer, sans moyen de revenir en arriere.
     # Valeur de depart seulement : appliquer_cookie_securise() la reprend
@@ -667,7 +667,7 @@ def verifier_jeton():
     attendu = session.get("jeton") or ""
     fourni = request.headers.get(JETON_ENTETE, "")
     if not attendu or not secrets.compare_digest(fourni, attendu):
-        return jsonify({"error": "Jeton de securite absent ou invalide. "
+        return jsonify({"error": "Jeton de sécurité absent ou invalide. "
                                  "Recharge la page."}), 403
     return None
 
@@ -1669,7 +1669,7 @@ def drop_privileges(nom=None):
     os.setgroups([RUN_AS_GID])
     os.setgid(RUN_AS_GID)
     os.setuid(uid)
-    # Reposé ici : le umask n'est pas herite du service de maniere fiable a
+    # Repose ici : le umask n'est pas herite du service de maniere fiable a
     # travers toute la chaine, et sans 002 les fichiers produits par un build
     # (dist/, node_modules/) ressortent en lecture seule pour le groupe --
     # donc non modifiables depuis une session SSH.
@@ -3135,7 +3135,7 @@ def under_root(path):
 @flask_app.post("/login")
 def login_submit():
     if rate_limited():
-        return jsonify({"error": "Trop de tentatives. Reessaie dans quelques minutes."}), 429
+        return jsonify({"error": "Trop de tentatives. Réessaie dans quelques minutes."}), 429
     d = request.get_json(force=True, silent=True) or request.form
     pw = (d.get("password") or "").strip()
     nom = (d.get("nom") or "").strip().lower()
@@ -3174,7 +3174,7 @@ def login_submit():
         if totp_actif() and not totp_verifie(_totp_secret, d.get("code")):
             register_failed_attempt()
             journaliser("echec", qui=NOM_ADMIN, motif="second facteur", ip=_adresse_client())
-            return jsonify({"error": "Code de verification incorrect.",
+            return jsonify({"error": "Code de vérification incorrect.",
                             "totp": True}), 401
 
         session.permanent = True
@@ -3209,7 +3209,7 @@ def login_submit():
     # le mot de passe vient d'etre reconnu.
     if compte.get("attente_email"):
         return jsonify({"error": "Confirme d'abord ton adresse mail : un code "
-                                 "t'a ete envoye a l'inscription.",
+                                 "t'a été envoyé à l'inscription.",
                         "attente_email": True}), 403
 
     secret = compte.get("totp") or ""
@@ -3230,7 +3230,7 @@ def login_submit():
     if not totp_verifie(secret, d.get("code")):
         register_failed_attempt()
         journaliser("echec", qui=nom, motif="second facteur", ip=_adresse_client())
-        return jsonify({"error": "Code de verification incorrect.",
+        return jsonify({"error": "Code de vérification incorrect.",
                         "totp": True}), 401
 
     session.pop("totp_candidat", None)
@@ -3256,7 +3256,7 @@ def login_second_facteur():
     application. Le mot de passe seul ne suffit jamais a entrer.
     """
     if rate_limited():
-        return jsonify({"error": "Trop de tentatives. Reessaie dans quelques minutes."}), 429
+        return jsonify({"error": "Trop de tentatives. Réessaie dans quelques minutes."}), 429
     nom = session.get("totp_inscription")
     candidat = session.get("totp_candidat")
     if not (nom and candidat):
@@ -3265,7 +3265,7 @@ def login_second_facteur():
     code = (request.get_json(force=True, silent=True) or {}).get("code")
     if not totp_verifie(candidat, code):
         register_failed_attempt()
-        return jsonify({"error": "Code incorrect. Verifie l'heure de ton telephone."}), 400
+        return jsonify({"error": "Code incorrect. Vérifié l'heure de ton téléphone."}), 400
 
     comptes = lire_utilisateurs()
     compte = comptes.get(nom)
@@ -3275,13 +3275,13 @@ def login_second_facteur():
     # (une autre session du meme compte). Le premier enregistre gagne, plutot
     # que d'ecraser un facteur deja en service sur un autre telephone.
     if compte.get("totp"):
-        return jsonify({"error": "Un second facteur a deja ete enregistre. "
+        return jsonify({"error": "Un second facteur a déjà été enregistré. "
                                  "Recommence la connexion."}), 409
     compte["totp"] = candidat
     try:
         ecrire_utilisateurs(comptes)
     except OSError as e:
-        return jsonify({"error": f"Second facteur non enregistre : {e}"}), 500
+        return jsonify({"error": f"Second facteur non enregistré : {e}"}), 500
 
     session.pop("totp_candidat", None)
     session.pop("totp_inscription", None)
@@ -3329,7 +3329,7 @@ def api_passkeys_etat():
 def _refus_passkey():
     """(reponse, code) si les cles d'acces ne sont pas utilisables ici."""
     if not passkeys_disponibles():
-        return jsonify({"error": "La bibliotheque webauthn n'est pas installee."}), 501
+        return jsonify({"error": "La bibliothèque webauthn n'est pas installée."}), 501
     _, _, empechement = passkey_contexte()
     if empechement:
         return jsonify({"error": empechement}), 400
@@ -3397,14 +3397,14 @@ def api_passkey_enregistrer():
             require_user_verification=True,
         )
     except Exception as e:
-        return jsonify({"error": f"Cle refusee : {type(e).__name__}: {e}"}), 400
+        return jsonify({"error": f"Clé refusée : {type(e).__name__}: {e}"}), 400
 
     nom = utilisateur_courant()
     tout = lire_passkeys()
     liste = tout.setdefault(nom, [])
     identifiant = bytes_to_base64url(verifiee.credential_id)
     if any(k["id"] == identifiant for k in liste):
-        return jsonify({"error": "Cette cle est deja enregistree."}), 400
+        return jsonify({"error": "Cette clé est déjà enregistrée."}), 400
     liste.append({
         "id": identifiant,
         "cle_publique": bytes_to_base64url(verifiee.credential_public_key),
@@ -3416,7 +3416,7 @@ def api_passkey_enregistrer():
     try:
         ecrire_passkeys(tout)
     except OSError as e:
-        return jsonify({"error": f"Cle non enregistree : {e}"}), 500
+        return jsonify({"error": f"Clé non enregistrée : {e}"}), 500
     session.pop("passkey_defi", None)
     journaliser("passkey", qui=nom, action="ajout", ip=_adresse_client())
     return jsonify({"ok": True})
@@ -3444,12 +3444,12 @@ def api_passkey_supprimer(identifiant):
     liste = tout.get(nom, [])
     restantes = [k for k in liste if k["id"] != identifiant]
     if len(restantes) == len(liste):
-        return jsonify({"error": "Cle inconnue."}), 404
+        return jsonify({"error": "Clé inconnue."}), 404
     tout[nom] = restantes
     try:
         ecrire_passkeys(tout)
     except OSError as e:
-        return jsonify({"error": f"Cle non supprimee : {e}"}), 500
+        return jsonify({"error": f"Clé non supprimée : {e}"}), 500
     journaliser("passkey", qui=nom, action="retrait", ip=_adresse_client())
     return jsonify({"ok": True})
 
@@ -3463,7 +3463,7 @@ def login_passkey_options():
     aucune liste de comptes.
     """
     if rate_limited():
-        return jsonify({"error": "Trop de tentatives. Reessaie dans quelques minutes."}), 429
+        return jsonify({"error": "Trop de tentatives. Réessaie dans quelques minutes."}), 429
     refus = _refus_passkey()
     if refus:
         return refus
@@ -3492,7 +3492,7 @@ def login_passkey():
     moitie, et ouvrir une session sur cette moitie serait un recul.
     """
     if rate_limited():
-        return jsonify({"error": "Trop de tentatives. Reessaie dans quelques minutes."}), 429
+        return jsonify({"error": "Trop de tentatives. Réessaie dans quelques minutes."}), 429
     refus = _refus_passkey()
     if refus:
         return refus
@@ -3518,7 +3518,7 @@ def login_passkey():
     if not enregistree:
         register_failed_attempt()
         journaliser("echec", qui="", motif="cle d'acces inconnue", ip=_adresse_client())
-        return jsonify({"error": "Cle d'acces inconnue."}), 401
+        return jsonify({"error": "Clé d'accès inconnue."}), 401
 
     # Des que l'on sait a qui est la cle, et avant toute cryptographie : une
     # cle d'acces est un excellent second facteur, mais elle voyage avec son
@@ -3547,7 +3547,7 @@ def login_passkey():
     except Exception as e:
         register_failed_attempt()
         journaliser("echec", qui=proprietaire, motif="cle d'acces", ip=_adresse_client())
-        return jsonify({"error": f"Cle refusee : {type(e).__name__}: {e}"}), 401
+        return jsonify({"error": f"Clé refusée : {type(e).__name__}: {e}"}), 401
 
     # Le compteur ne doit jamais reculer : une cle clonee se trahit la.
     tout = lire_passkeys()
@@ -3636,7 +3636,7 @@ def api_mon_email():
     compte = _mon_compte()
     if compte is None:
         return jsonify({"error": "Le compte d'administration n'a pas d'adresse "
-                                 "propre : regle les destinataires des alertes."}), 400
+                                 "propre : réglé les destinataires des alertes."}), 400
     adresse = email_valide((request.get_json(force=True, silent=True) or {}).get("email"))
     if not adresse:
         return jsonify({"error": "Adresse mail invalide."}), 400
@@ -3651,13 +3651,13 @@ def api_mon_email():
     try:
         ecrire_utilisateurs(comptes)
     except OSError as e:
-        return jsonify({"error": f"Adresse non enregistree : {e}"}), 500
+        return jsonify({"error": f"Adresse non enregistrée : {e}"}), 500
     try:
         envoyer_code_email(adresse, nom, code)
     except Exception as e:
         # L'adresse est enregistree, le mail n'est pas parti : le dire tel
         # quel, plutot que de laisser attendre un code qui ne viendra pas.
-        return jsonify({"error": f"Adresse enregistree, mais le mail n'est pas "
+        return jsonify({"error": f"Adresse enregistrée, mais le mail n'est pas "
                                  f"parti : {type(e).__name__}: {e}"}), 502
     return jsonify({"ok": True, "envoye": True})
 
@@ -3668,13 +3668,13 @@ def api_mon_email_code():
     """Renvoie un code a l'adresse deja declaree."""
     compte = _mon_compte()
     if compte is None or not compte.get("email"):
-        return jsonify({"error": "Declare d'abord une adresse."}), 400
+        return jsonify({"error": "Déclaré d'abord une adresse."}), 400
     en_cours = compte.get("email_code") or {}
     attente = CODE_EMAIL_DELAI - (int(time.time()) - en_cours.get("envoye", 0))
     if attente > 0:
         # Un bouton qui renvoie sans limite est un moyen d'inonder une boite
         # mail que la personne ne possede peut-etre pas.
-        return jsonify({"error": f"Un code vient d'etre envoye. Attends "
+        return jsonify({"error": f"Un code vient d'être envoyé. Attends "
                                  f"{attente} seconde{'s' if attente > 1 else ''}."}), 429
 
     comptes = lire_utilisateurs()
@@ -3683,7 +3683,7 @@ def api_mon_email_code():
     try:
         ecrire_utilisateurs(comptes)
     except OSError as e:
-        return jsonify({"error": f"Code non enregistre : {e}"}), 500
+        return jsonify({"error": f"Code non enregistré : {e}"}), 500
     try:
         envoyer_code_email(comptes[nom]["email"], nom, code)
     except Exception as e:
@@ -3697,7 +3697,7 @@ def api_mon_email_confirmer():
     """Confirme l'adresse avec le code recu."""
     compte = _mon_compte()
     if compte is None:
-        return jsonify({"error": "Rien a confirmer."}), 400
+        return jsonify({"error": "Rien à confirmer."}), 400
     comptes = lire_utilisateurs()
     nom = utilisateur_courant()
     code = (request.get_json(force=True, silent=True) or {}).get("code")
@@ -3708,7 +3708,7 @@ def api_mon_email_confirmer():
         # rien.
         ecrire_utilisateurs(comptes)
     except OSError as e:
-        return jsonify({"error": f"Etat non enregistre : {e}"}), 500
+        return jsonify({"error": f"État non enregistré : {e}"}), 500
     if not ok:
         return jsonify({"error": message}), 400
     return jsonify({"ok": True})
@@ -3733,10 +3733,10 @@ def api_inscription_etat():
 @flask_app.post("/inscription")
 def inscription_creer():
     if rate_limited():
-        return jsonify({"error": "Trop de tentatives. Reessaie dans quelques minutes."}), 429
+        return jsonify({"error": "Trop de tentatives. Réessaie dans quelques minutes."}), 429
     _, smtp_ok = smtp_utilisable()
     if not smtp_ok:
-        return jsonify({"error": "La creation de compte n'est pas ouverte sur "
+        return jsonify({"error": "La création de compte n'est pas ouverte sur "
                                  "ce serveur."}), 403
 
     d = request.get_json(force=True, silent=True) or {}
@@ -3744,20 +3744,20 @@ def inscription_creer():
     mdp = (d.get("mot_de_passe") or "").strip()
     adresse = email_valide(d.get("email"))
     if not nom:
-        return jsonify({"error": "Nom invalide : 2 a 32 caracteres, "
-                                 "minuscules, chiffres, tiret ou souligne."}), 400
+        return jsonify({"error": "Nom invalide : 2 a 32 caractères, "
+                                 "minuscules, chiffres, tiret ou souligné."}), 400
     if nom == NOM_ADMIN:
-        return jsonify({"error": "Ce nom est reserve."}), 400
+        return jsonify({"error": "Ce nom est réservé."}), 400
     if not adresse:
         return jsonify({"error": "Adresse mail invalide."}), 400
     if len(mdp) < 8:
-        return jsonify({"error": "Mot de passe : 8 caracteres au minimum."}), 400
+        return jsonify({"error": "Mot de passe : 8 caractères au minimum."}), 400
 
     comptes = lire_utilisateurs()
     if nom in comptes:
         # Un nom deja pris se dit : il faudra bien en choisir un autre, et
         # l'inscription ne revele rien de plus que la page de connexion.
-        return jsonify({"error": "Ce nom est deja pris."}), 400
+        return jsonify({"error": "Ce nom est déjà pris."}), 400
 
     sel = secrets.token_hex(16)
     comptes[nom] = {
@@ -3775,7 +3775,7 @@ def inscription_creer():
     try:
         ecrire_utilisateurs(comptes)
     except OSError as e:
-        return jsonify({"error": f"Compte non enregistre : {e}"}), 500
+        return jsonify({"error": f"Compte non enregistré : {e}"}), 500
     try:
         envoyer_code_email(adresse, nom, code)
     except Exception as e:
@@ -3805,7 +3805,7 @@ def inscription_confirmer():
     pas l'identite.
     """
     if rate_limited():
-        return jsonify({"error": "Trop de tentatives. Reessaie dans quelques minutes."}), 429
+        return jsonify({"error": "Trop de tentatives. Réessaie dans quelques minutes."}), 429
     nom = session.get("inscription_email")
     comptes = lire_utilisateurs()
     if not nom or nom not in comptes:
@@ -3818,7 +3818,7 @@ def inscription_confirmer():
     try:
         ecrire_utilisateurs(comptes)
     except OSError as e:
-        return jsonify({"error": f"Etat non enregistre : {e}"}), 500
+        return jsonify({"error": f"État non enregistré : {e}"}), 500
     if not ok:
         register_failed_attempt()
         return jsonify({"error": message}), 400
@@ -3867,7 +3867,7 @@ def api_categories_enregistrer():
     """
     brut = (request.get_json(force=True, silent=True) or {}).get("categories")
     if not isinstance(brut, list):
-        return jsonify({"error": "Liste de categories attendue."}), 400
+        return jsonify({"error": "Liste de catégories attendue."}), 400
 
     propres, vues = [], set()
     for x in brut:
@@ -3878,7 +3878,7 @@ def api_categories_enregistrer():
             propres.append(c)
             vues.add(c.lower())
     if len(propres) > CATEGORIES_MAX:
-        return jsonify({"error": f"{CATEGORIES_MAX} categories au maximum."}), 400
+        return jsonify({"error": f"{CATEGORIES_MAX} catégories au maximum."}), 400
 
     apps = load()
     orphelins = [n for n, a in apps.items()
@@ -3886,7 +3886,7 @@ def api_categories_enregistrer():
     try:
         ecrire_categories(propres)
     except OSError as e:
-        return jsonify({"error": f"Categories non enregistrees : {e}"}), 500
+        return jsonify({"error": f"Catégories non enregistrées : {e}"}), 500
 
     # Les projets d'une categorie disparue redeviennent non ranges, tout de
     # suite : un champ qui pointe vers un tiroir inexistant se rappellerait a
@@ -3985,7 +3985,7 @@ def api_exposition():
     if "adresse_publique" in demande:
         if fixe_par_environnement("adresse_publique"):
             return jsonify({"error": "L'adresse est fixee par APP_MANAGER_PUBLIC_URL "
-                                     "dans le compose : modifie-la la-bas."}), 400
+                                     "dans le compose : modifié-la la-bas."}), 400
         brute = demande.get("adresse_publique")
         adresse = adresse_publique_valide(brute)
         if brute and not adresse:
@@ -4003,12 +4003,12 @@ def api_exposition():
         if fixe_par_environnement("trust_proxy"):
             return jsonify({"error": "Le proxy de confiance est fixe par "
                                      "APP_MANAGER_TRUST_PROXY dans le compose : "
-                                     "modifie-le la-bas."}), 400
+                                     "modifié-le la-bas."}), 400
         voulu = bool(demande.get("trust_proxy"))
         devant = (request.headers.get("X-Forwarded-For")
                   or request.headers.get("X-Forwarded-Proto") or "")
         if voulu and not devant.strip():
-            return jsonify({"error": "Aucun en-tete X-Forwarded-* sur cette requete : "
+            return jsonify({"error": "Aucun en-tete X-Forwarded-* sur cette requête : "
                                      "rien ne prouve qu'un proxy est devant. L'activer "
                                      "ici laisserait n'importe quel client s'inventer "
                                      "une adresse, et annulerait la limite de "
@@ -4019,10 +4019,10 @@ def api_exposition():
     if "https" in demande:
         if fixe_par_environnement("https"):
             return jsonify({"error": "HTTPS est fixe par APP_MANAGER_HTTPS dans le "
-                                     "compose : modifie-le la-bas."}), 400
+                                     "compose : modifié-le la-bas."}), 400
         voulu = bool(demande.get("https"))
         # "Deja en https" au sens de ce que le panneau croit : une connexion
-        # TLS directe, ou un proxy annonçant https ET declare de confiance.
+        # TLS directe, ou un proxy annoncant https ET declare de confiance.
         # Sans cette seconde moitie, la case resterait impossible a cocher
         # derriere un reverse proxy -- c'est-a-dire dans le cas courant.
         annonce = (request.headers.get("X-Forwarded-Proto") or "").lower()
@@ -4038,9 +4038,9 @@ def api_exposition():
     # --------------------------------- administration sur le reseau local
     if "admin_reseau_local" in demande:
         if fixe_par_environnement("admin_reseau_local"):
-            return jsonify({"error": "Ce reglage est fixe par "
+            return jsonify({"error": "Ce réglage est fixe par "
                                      "APP_MANAGER_ADMIN_LAN_ONLY dans le compose : "
-                                     "modifie-le la-bas."}), 400
+                                     "modifié-le la-bas."}), 400
         voulu = bool(demande.get("admin_reseau_local"))
         # Meme regle que pour HTTPS, pour la meme raison : on n'allume pas un
         # interrupteur qui couperait la branche sur laquelle on est assis.
@@ -4049,13 +4049,13 @@ def api_exposition():
         # serait d'aller editer le compose.
         if voulu and not client_est_local():
             if proxy_non_declare():
-                return jsonify({"error": "Un proxy non declare empeche de savoir d'ou "
-                                         "viennent les requetes : toutes paraitraient "
-                                         "locales, et ce reglage ne protegerait rien. "
-                                         "Active d'abord \"Proxy de confiance\"."}), 400
-            return jsonify({"error": "Cette requete ne vient pas du reseau local. "
+                return jsonify({"error": "Un proxy non déclaré empeche de savoir d'ou "
+                                         "viennent les requêtes : toutes paraitraient "
+                                         "locales, et ce réglage ne protegerait rien. "
+                                         "Activé d'abord \"Proxy de confiance\"."}), 400
+            return jsonify({"error": "Cette requête ne vient pas du réseau local. "
                                      "L'activer maintenant te retirerait "
-                                     "l'administration a l'instant meme, sans retour "
+                                     "l'administration à l'instant même, sans retour "
                                      "possible depuis cette page. Reconnecte-toi "
                                      "depuis chez toi, et la case s'activera."}), 400
         reglages["admin_reseau_local"] = voulu
@@ -4063,7 +4063,7 @@ def api_exposition():
     try:
         ecrire_exposition(reglages)
     except OSError as e:
-        return jsonify({"error": f"Reglages non enregistres : {e}"}), 500
+        return jsonify({"error": f"Réglages non enregistrés : {e}"}), 500
 
     # Le cookie suit immediatement : c'est tout l'interet de ne plus figer ce
     # reglage au demarrage.
@@ -4209,17 +4209,17 @@ def api_vps_enregistrer():
 
     if ip and not _ip_publique_valide(ip):
         return jsonify({"error": "Ce n'est pas une adresse publique. Un VPS joignable "
-                                 "depuis internet n'a pas une adresse privee -- verifie "
+                                 "depuis internet n'a pas une adresse privée -- vérifié "
                                  "que tu n'as pas saisi celle de ta propre machine."}), 400
     if not re.fullmatch(r"(\d{1,3}\.){2}\d{1,3}", reseau):
-        return jsonify({"error": "Reseau du tunnel : trois nombres, par exemple 10.8.0."}), 400
+        return jsonify({"error": "Réseau du tunnel : trois nombres, par exemple 10.8.0."}), 400
 
     reglages = lire_exposition()
     reglages["vps"] = {"domaine": domaine, "ip": ip, "reseau": reseau}
     try:
         ecrire_exposition(reglages)
     except OSError as e:
-        return jsonify({"error": f"Reglages non enregistres : {e}"}), 500
+        return jsonify({"error": f"Réglages non enregistrés : {e}"}), 500
     return jsonify({"ok": True, "reglages": lire_vps()})
 
 
@@ -4247,9 +4247,9 @@ def api_changer_mot_de_passe():
         # Douze, et non huit comme pour les comptes crees par
         # l'administrateur : celui-ci se choisit lui-meme, il n'a pas a etre
         # transmis, et rien n'oblige a le raccourcir.
-        return jsonify({"error": "Mot de passe : 12 caracteres au minimum."}), 400
+        return jsonify({"error": "Mot de passe : 12 caractères au minimum."}), 400
     if nouveau == ancien:
-        return jsonify({"error": "Le nouveau mot de passe est identique a l'ancien."}), 400
+        return jsonify({"error": "Le nouveau mot de passe est identique à l'ancien."}), 400
 
     if est_admin():
         reel = admin_password()
@@ -4265,13 +4265,13 @@ def api_changer_mot_de_passe():
         # visible avec le changement de mot de passe.
         cle = read_shared_value("APP_MANAGER_SESSION_SECRET") or ""
         if not cle:
-            return jsonify({"error": "Cle de session introuvable dans "
+            return jsonify({"error": "Clé de session introuvable dans "
                                      "credentials.env : le mot de passe reste "
-                                     "inchange plutot que de risquer de "
+                                     "inchangé plutot que de risquer de "
                                      "deconnecter tout le monde."}), 500
         if not ecrire_bloc_panneau(nouveau, cle, _totp_secret):
-            return jsonify({"error": "credentials.env n'a pas pu etre ecrit : "
-                                     "le mot de passe reste inchange."}), 500
+            return jsonify({"error": "credentials.env n'a pas pu être écrit : "
+                                     "le mot de passe reste inchangé."}), 500
         _admin_password = nouveau
         journaliser("mot-de-passe", qui=NOM_ADMIN, ip=_adresse_client())
         return jsonify({"ok": True})
@@ -4291,7 +4291,7 @@ def api_changer_mot_de_passe():
     try:
         ecrire_utilisateurs(comptes)
     except OSError as e:
-        return jsonify({"error": f"Non enregistre : {e}"}), 500
+        return jsonify({"error": f"Non enregistré : {e}"}), 500
     journaliser("mot-de-passe", qui=nom, ip=_adresse_client())
     return jsonify({"ok": True})
 
@@ -4306,7 +4306,7 @@ def api_totp_preparer():
     le prochain retour sur la page de connexion.
     """
     if totp_actif():
-        return jsonify({"error": "La double authentification est deja active."}), 400
+        return jsonify({"error": "La double authentification est déjà activé."}), 400
     candidat = totp_nouveau_secret()
     session["totp_candidat"] = candidat
     session["totp_uri"] = totp_uri(candidat)
@@ -4320,12 +4320,12 @@ def api_totp_activer():
     global _totp_secret
     candidat = session.get("totp_candidat")
     if not candidat:
-        return jsonify({"error": "Recommence la preparation : aucun secret en attente."}), 400
+        return jsonify({"error": "Recommence la préparation : aucun secret en attente."}), 400
     code = (request.get_json(force=True, silent=True) or {}).get("code")
     if not totp_verifie(candidat, code):
-        return jsonify({"error": "Code incorrect. Verifie l'heure de ton telephone."}), 400
+        return jsonify({"error": "Code incorrect. Vérifié l'heure de ton téléphone."}), 400
     if not ecrire_bloc_panneau(admin_password(), flask_app.secret_key, candidat):
-        return jsonify({"error": "credentials.env n'a pas pu etre ecrit : rien n'a ete active."}), 500
+        return jsonify({"error": "credentials.env n'a pas pu être écrit : rien n'a été activé."}), 500
     _totp_secret = candidat
     session.pop("totp_candidat", None)
     session.pop("totp_uri", None)
@@ -4348,7 +4348,7 @@ def api_totp_desactiver():
         register_failed_attempt()
         return jsonify({"error": "Code incorrect."}), 400
     if not ecrire_bloc_panneau(admin_password(), flask_app.secret_key, ""):
-        return jsonify({"error": "credentials.env n'a pas pu etre ecrit."}), 500
+        return jsonify({"error": "credentials.env n'a pas pu être écrit."}), 500
     _totp_secret = ""
     return jsonify({"ok": True})
 
@@ -4414,8 +4414,8 @@ def api_alertes_enregistrer():
     actif = bool(d.get("actif"))
     if actif and not admin:
         return jsonify({"error": "Une adresse d'alerte de l'administrateur est "
-                                 "necessaire pour activer les alertes : c'est "
-                                 "elle qui recoit ce qu'aucune application "
+                                 "nécessaire pour activer les alertes : c'est "
+                                 "elle qui reçoit ce qu'aucune application "
                                  "n'a pris en charge."}), 400
 
     # --- la configuration personnalisee -----------------------------------
@@ -4438,22 +4438,22 @@ def api_alertes_enregistrer():
             if not ok:
                 return jsonify({
                     "error": "Ce serveur d'envoi n'a pas repondu comme attendu, "
-                             "rien n'a ete enregistre. La configuration "
+                             "rien n'a été enregistré. La configuration "
                              "d'origine continue de servir.",
                     "detail": detail}), 400
             try:
                 ecrire_smtp_personnalise(candidate)
             except OSError as e:
-                return jsonify({"error": f"Configuration non enregistree : {e}"}), 500
+                return jsonify({"error": f"Configuration non enregistrée : {e}"}), 500
 
     # --- l'adresse d'administration, dans le bloc partage ------------------
     if not ecrire_bloc_alertes({"ALERTE_ADMIN": ", ".join(admin)}):
-        return jsonify({"error": "credentials.env n'a pas pu etre ecrit."}), 500
+        return jsonify({"error": "credentials.env n'a pas pu être écrit."}), 500
 
     try:
         ecrire_alertes(actif, admin)
     except OSError as e:
-        return jsonify({"error": f"Reglages non enregistres : {e}"}), 500
+        return jsonify({"error": f"Réglages non enregistrés : {e}"}), 500
 
     _, manquants = config_smtp()
     return jsonify({"ok": True, "manquants": manquants,
@@ -4479,7 +4479,7 @@ def api_alertes_application(name):
     try:
         save(apps)
     except OSError as e:
-        return jsonify({"error": f"Non enregistre : {e}"}), 500
+        return jsonify({"error": f"Non enregistré : {e}"}), 500
     return jsonify({"ok": True, "alertes": adresses,
                     "destinataires": destinataires_alerte(name, apps)})
 
@@ -4533,16 +4533,16 @@ def api_utilisateur_creer():
     if d.get("email") and not email:
         return jsonify({"error": "Adresse mail invalide."}), 400
     if not nom:
-        return jsonify({"error": "Nom invalide : 2 a 32 caracteres, "
-                                 "minuscules, chiffres, tiret ou souligne."}), 400
+        return jsonify({"error": "Nom invalide : 2 a 32 caractères, "
+                                 "minuscules, chiffres, tiret ou souligné."}), 400
     if nom == NOM_ADMIN:
         return jsonify({"error": "Ce nom est celui du compte d'administration."}), 400
     if len(mdp) < 8:
-        return jsonify({"error": "Mot de passe : 8 caracteres au minimum."}), 400
+        return jsonify({"error": "Mot de passe : 8 caractères au minimum."}), 400
 
     comptes = lire_utilisateurs()
     if nom in comptes:
-        return jsonify({"error": "Ce compte existe deja."}), 400
+        return jsonify({"error": "Ce compte existe déjà."}), 400
 
     sel = secrets.token_hex(16)
     comptes[nom] = {
@@ -4559,7 +4559,7 @@ def api_utilisateur_creer():
     try:
         ecrire_utilisateurs(comptes)
     except OSError as e:
-        return jsonify({"error": f"Compte non enregistre : {e}"}), 500
+        return jsonify({"error": f"Compte non enregistré : {e}"}), 500
     return jsonify({"ok": True, "nom": nom})
 
 
@@ -4580,7 +4580,7 @@ def api_utilisateur_modifier(nom):
     mdp = (d.get("mot_de_passe") or "").strip()
     if mdp:
         if len(mdp) < 8:
-            return jsonify({"error": "Mot de passe : 8 caracteres au minimum."}), 400
+            return jsonify({"error": "Mot de passe : 8 caractères au minimum."}), 400
         compte["sel"] = secrets.token_hex(16)
         compte["hash"] = derive_mot_de_passe(mdp, compte["sel"])
 
@@ -4613,14 +4613,14 @@ def api_utilisateur_modifier(nom):
             try:
                 ecrire_passkeys(tout)
             except OSError as e:
-                return jsonify({"error": f"Cles non retirees : {e}"}), 500
+                return jsonify({"error": f"Clés non retirées : {e}"}), 500
             journaliser("passkey", qui=nom, action="retrait par l'administrateur",
                         ip=_adresse_client())
 
     try:
         ecrire_utilisateurs(comptes)
     except OSError as e:
-        return jsonify({"error": f"Compte non enregistre : {e}"}), 500
+        return jsonify({"error": f"Compte non enregistré : {e}"}), 500
     return jsonify({"ok": True})
 
 
@@ -4676,7 +4676,7 @@ def api_app_acces_modifier(name):
     try:
         ecrire_utilisateurs(comptes)
     except OSError as e:
-        return jsonify({"error": f"Non enregistre : {e}"}), 500
+        return jsonify({"error": f"Non enregistré : {e}"}), 500
     return jsonify({"ok": True, "utilisateurs": sorted(voulus)})
 
 
@@ -4690,7 +4690,7 @@ def api_utilisateur_supprimer(nom):
     try:
         ecrire_utilisateurs(comptes)
     except OSError as e:
-        return jsonify({"error": f"Compte non supprime : {e}"}), 500
+        return jsonify({"error": f"Compte non supprimé : {e}"}), 500
 
     # Les cles d'acces partent avec le compte. Les laisser serait pire qu'un
     # oubli de menage : recreer un compte du meme nom lui rendrait les cles
@@ -4700,8 +4700,8 @@ def api_utilisateur_supprimer(nom):
         try:
             ecrire_passkeys(cles)
         except OSError as e:
-            return jsonify({"error": f"Compte supprime, mais ses cles d'acces "
-                                     f"n'ont pas pu etre retirees : {e}"}), 500
+            return jsonify({"error": f"Compte supprimé, mais ses clés d'accès "
+                                     f"n'ont pas pu être retirées : {e}"}), 500
     # La session de ce compte, si elle existe, tombera d'elle-meme : chaque
     # controle relit le registre, et un compte absent n'autorise plus rien.
     return jsonify({"ok": True})
@@ -4719,7 +4719,7 @@ def api_auth_check():
 
     C'est le point d'appui du proxy de Dagster : nginx interroge cette route
     avant chaque requete (directive auth_request) et laisse passer ou renvoie
-    vers la page de connexion du panneau. Dagster hérite ainsi de la session
+    vers la page de connexion du panneau. Dagster herite ainsi de la session
     du panneau -- meme mot de passe, meme second facteur, meme deconnexion --
     au lieu d'avoir sa propre authentification HTTP Basic, qui n'a ni session,
     ni expiration, ni deconnexion possible.
@@ -4825,9 +4825,9 @@ def api_add():
     if not name:
         return jsonify({"error": "Le nom est obligatoire."}), 400
     if name in ("api", "static", "health", "login", "logout"):
-        return jsonify({"error": "Ce nom est reserve."}), 400
+        return jsonify({"error": "Ce nom est réservé."}), 400
     if name in apps:
-        return jsonify({"error": "Une application porte deja ce nom."}), 400
+        return jsonify({"error": "Une application porte déjà ce nom."}), 400
     if not os.path.isdir(path):
         return jsonify({"error": "Dossier introuvable : " + path}), 400
     if not under_root(path):
@@ -4856,7 +4856,7 @@ def api_edit(n):
     if n not in apps:
         return jsonify({"error": "Application inconnue."}), 404
     if is_running(n):
-        return jsonify({"error": "Arrete l'application avant de la modifier."}), 400
+        return jsonify({"error": "Arrêté l'application avant de la modifier."}), 400
     d = request.get_json(force=True)
     path = (d.get("path") or "").strip()
     command = (d.get("command") or "").strip()
@@ -4913,10 +4913,10 @@ def api_visibility(n):
     # Une application DEJA publique reste modifiable dans l'autre sens --
     # on ne bloque jamais le chemin qui referme.
     if vis == VISIBILITE_PUBLIQUE and not adresse_publique():
-        return jsonify({"error": "Aucune adresse publique n'est declaree pour ce "
+        return jsonify({"error": "Aucune adresse publique n'est déclarée pour ce "
                                  "serveur : rendre une application publique ne "
                                  "ferait que retirer l'authentification. "
-                                 "Declare-la dans Configuration > Serveur."}), 400
+                                 "Déclaré-la dans Configuration > Serveur."}), 400
     apps[n]["visibility"] = vis
     save(apps)
     return jsonify({"ok": True, "visibility": vis})
@@ -4992,9 +4992,9 @@ def api_delete(n):
     # Refuse ici et pas seulement dans la page : masquer un bouton ne protege
     # rien, la route reste appelable a la main.
     if n == DIAGNOSTIC_NOM:
-        return jsonify({"error": "Le projet de diagnostic ne se supprime pas : "
+        return jsonify({"error": "Le projet de diagnostic ne se supprimé pas : "
                                  "c'est lui qui dit si cette installation va "
-                                 "bien. Tu peux l'arreter si tu ne veux pas "
+                                 "bien. Tu peux l'arrêter si tu ne veux pas "
                                  "qu'il tourne."}), 403
     stop(n)
     apps = load()
@@ -5020,9 +5020,9 @@ def api_logs_stream(n):
     f = os.path.join(LOG_DIR, n + ".log")
 
     if not _prendre_place_flux():
-        return jsonify({"error": f"Trop de journaux suivis en meme temps "
+        return jsonify({"error": f"Trop de journaux suivis en même temps "
                                  f"({SSE_MAX_FLUX} au maximum). Ferme une "
-                                 f"fenetre de journal et reessaie."}), 503
+                                 f"fenêtre de journal et réessaie."}), 503
 
     def gen():
         pos = max(0, os.path.getsize(f) - 4000) if os.path.exists(f) else 0

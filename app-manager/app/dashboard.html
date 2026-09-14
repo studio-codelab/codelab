@@ -605,12 +605,12 @@ table.tbl-journal{min-width:560px}
       <div class="acct-item" id="acct-parametres" onclick="allerA('parametres')">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/>
         <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-        <span>Parametres</span></div>
+        <span>Paramètres</span></div>
       <div class="acct-sep"></div>
       <div class="acct-item" onclick="doLogout()">
         <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
         <path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
-        <span>Deconnexion</span></div>
+        <span>Déconnexion</span></div>
     </div>
   </div>
 </div>
@@ -659,26 +659,26 @@ table.tbl-journal{min-width:560px}
 <!-- ==================== VUE D'ENSEMBLE ==================== -->
 <div id="sec-overview" class="section">
   <div class="toolbar"><h2>Vue d'ensemble</h2></div>
-  <div class="sous">L'etat du serveur et des applications deployees.</div>
+  <div class="sous">L'état du serveur et des applications déployées.</div>
 
   <div class="cartes c3 zone">
     <div class="card">
       <div class="card-top"><div class="card-name"><b>Applications</b>
-        <div class="path">Declarees sur ce serveur</div></div></div>
+        <div class="path">Déclarées sur ce serveur</div></div></div>
       <div class="ov-nums">
         <div><b id="ov-total">0</b><span>Total</span></div>
         <div><b id="ov-run">0</b><span>En ligne</span></div>
-        <div><b id="ov-off">0</b><span>Arretees</span></div>
+        <div><b id="ov-off">0</b><span>Arrêtées</span></div>
       </div>
     </div>
     <div class="card">
       <div class="card-top"><div class="card-name"><b>Sante</b>
-        <div class="path">Repartition des etats</div></div></div>
+        <div class="path">Répartition des états</div></div></div>
       <div class="healthbar"><span id="hb-on" style="background:var(--ok)"></span><span id="hb-off"
         style="background:var(--line2)"></span><span id="hb-err" style="background:var(--err)"></span></div>
       <div class="health-legend">
         <span><i style="background:var(--ok)"></i>En ligne</span>
-        <span><i style="background:var(--line2)"></i>Arretee</span>
+        <span><i style="background:var(--line2)"></i>Arrêtée</span>
         <span><i style="background:var(--err)"></i>En erreur</span>
       </div>
     </div>
@@ -690,20 +690,20 @@ table.tbl-journal{min-width:560px}
         <div class="res-bar"><span id="res-cpu-bar" style="width:0%"></span></div>
       </div>
       <div class="res-row">
-        <div class="res-label"><span>Memoire</span><span id="res-mem-val">0 Mo</span></div>
+        <div class="res-label"><span>Mémoire</span><span id="res-mem-val">0 Mo</span></div>
         <div class="res-bar"><span id="res-mem-bar" style="width:0%"></span></div>
       </div>
     </div>
   </div>
 
   <div class="zone">
-    <div class="zone-title">Activite</div>
+    <div class="zone-title">Activité</div>
     <div class="chart-card">
       <div class="card-top"><div class="card-name"><b>CPU par application</b></div></div>
       <div id="ov-chart-cpu"></div>
     </div>
     <div class="chart-card">
-      <div class="card-top"><div class="card-name"><b>Memoire par application</b></div></div>
+      <div class="card-top"><div class="card-name"><b>Mémoire par application</b></div></div>
       <div id="ov-chart-mem"></div>
     </div>
   </div>
@@ -739,34 +739,34 @@ table.tbl-journal{min-width:560px}
   </div>
 
   <div class="fiche-onglets">
-    <button data-o="general" onclick="ficheOnglet('general')" class="active">General</button>
-    <button data-o="metriques" onclick="ficheOnglet('metriques')">Metriques</button>
+    <button data-o="general" onclick="ficheOnglet('general')" class="active">Général</button>
+    <button data-o="metriques" onclick="ficheOnglet('metriques')">Métriques</button>
     <button data-o="journal" onclick="ficheOnglet('journal')">Journal</button>
-    <button data-o="activite" onclick="ficheOnglet('activite')">Activite</button>
-    <button data-o="acces" onclick="ficheOnglet('acces')">Acces</button>
+    <button data-o="activite" onclick="ficheOnglet('activite')">Activité</button>
+    <button data-o="acces" onclick="ficheOnglet('acces')">Accès</button>
     <button data-o="config" onclick="ficheOnglet('config')">Configuration</button>
   </div>
 
   <div class="onglet actif" id="onglet-general">
     <div class="cartes c2 zone">
       <div class="card">
-        <div class="card-top"><div class="card-name"><b>Etat</b></div></div>
+        <div class="card-top"><div class="card-name"><b>État</b></div></div>
         <div class="kv"><span class="k">Adresse</span><span class="v"><a id="fa-url" href="#" target="_blank"></a></span></div>
         <div class="kv"><span class="k">Port interne</span><span class="v" id="fa-port">—</span></div>
         <div class="kv"><span class="k">Reponse</span><span class="v" id="fa-ecoute">—</span></div>
         <div class="kv"><span class="k">Visibilite</span><span class="v" id="fa-vis-txt">—</span></div>
       </div>
       <div class="card">
-        <div class="card-top"><div class="card-name"><b>Execution</b></div></div>
+        <div class="card-top"><div class="card-name"><b>Exécution</b></div></div>
         <div class="kv"><span class="k">Dossier</span><span class="v"><code id="fa-path">—</code></span></div>
         <div class="kv"><span class="k">Commande</span><span class="v"><code id="fa-cmd">—</code></span></div>
         <div class="kv"><span class="k">Build</span><span class="v"><code id="fa-build">—</code></span></div>
-        <div class="kv"><span class="k">Limite memoire</span><span class="v" id="fa-mem">—</span></div>
+        <div class="kv"><span class="k">Limite mémoire</span><span class="v" id="fa-mem">—</span></div>
       </div>
     </div>
     <div class="cartes c2">
       <div class="card"><div class="metrique"><b id="fa-cpu">0%</b><span>CPU</span></div></div>
-      <div class="card"><div class="metrique"><b id="fa-ram">0 Mo</b><span>Memoire</span></div></div>
+      <div class="card"><div class="metrique"><b id="fa-ram">0 Mo</b><span>Mémoire</span></div></div>
     </div>
   </div>
 
@@ -777,11 +777,11 @@ table.tbl-journal{min-width:560px}
         <div class="spark-wrap" id="mt-cpu"></div>
       </div>
       <div class="card">
-        <div class="metrique"><b id="mt-mem-val">0 Mo</b><span>Memoire maintenant</span></div>
+        <div class="metrique"><b id="mt-mem-val">0 Mo</b><span>Mémoire maintenant</span></div>
         <div class="spark-wrap" id="mt-mem"></div>
       </div>
     </div>
-    <div class="hint" style="margin-top:12px">Sur les deux dernieres minutes environ, releve toutes les 5 secondes.</div>
+    <div class="hint" style="margin-top:12px">Sur les deux dernières minutes environ, releve toutes les 5 secondes.</div>
   </div>
 
   <div class="onglet" id="onglet-journal">
@@ -811,11 +811,11 @@ table.tbl-journal{min-width:560px}
       </div>
     </div>
     <div class="zone">
-      <div class="zone-title">Dernieres ouvertures</div>
+      <div class="zone-title">Dernières ouvertures</div>
       <div id="ac-liste"></div>
     </div>
     <div class="hint">Une ouverture est notee au plus une fois par quart d'heure et par compte :
-      une page web, c'est des dizaines de requetes, et les compter toutes ne dirait plus rien
+      une page web, c'est des dizaines de requêtes, et les compter toutes ne dirait plus rien
       de la frequentation.</div>
   </div>
 
@@ -824,14 +824,14 @@ table.tbl-journal{min-width:560px}
       <div class="card settings-card">
         <div class="card-top"><div class="card-name">
           <b>Qui ouvre cette application</b>
-          <div class="path">Coche un compte pour lui donner l'acces, decoche pour le retirer.</div>
+          <div class="path">Coche un compte pour lui donner l'accès, decoche pour le retirer.</div>
         </div>
         <span class="pill" id="ac-etat"><i></i>&nbsp;</span></div>
 
         <div class="hint" id="ac-publique" style="display:none"></div>
-        <div class="hint">La meme information que dans la fiche d'un compte, prise par l'autre
+        <div class="hint">La même information que dans la fiche d'un compte, prise par l'autre
           bout. Pour savoir qui ouvre une application il fallait jusqu'ici ouvrir les fiches une
-          par une — et pour donner l'acces a cinq personnes, cinq allers-retours.</div>
+          par une — et pour donner l'accès a cinq personnes, cinq allers-retours.</div>
 
         <div id="ac-liste" style="margin-top:14px"></div>
         <div class="err" id="ac-err" style="display:none"></div>
@@ -845,36 +845,36 @@ table.tbl-journal{min-width:560px}
       <div class="alert" id="e-err"></div>
       <div class="notice" id="e-running">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/></svg>
-        <div><b>Application en cours d'execution.</b> La configuration ne peut pas etre enregistree
+        <div><b>Application en cours d'exécution.</b> La configuration ne peut pas être enregistrée
           tant qu'elle tourne.</div>
-        <button class="btn btn-default btn-sm" onclick="stopThenEdit()">Arreter</button>
+        <button class="btn btn-default btn-sm" onclick="stopThenEdit()">Arrêter</button>
       </div>
 
       <div class="fset">
         <div class="fset-title">Presentation</div>
         <div class="field"><label>Description <span class="opt">facultatif</span></label>
           <input id="e-desc" autocomplete="off" maxlength="140" placeholder="Mon site personnel">
-          <div class="hint">Une ligne, affichee sous le nom du projet dans le hub.</div></div>
-        <div class="field"><label>Categorie <span class="opt">facultatif</span></label>
+          <div class="hint">Une ligne, affichée sous le nom du projet dans le hub.</div></div>
+        <div class="field"><label>Catégorie <span class="opt">facultatif</span></label>
           <select id="e-cat"></select>
-          <div class="hint">Le groupe sous lequel le projet apparait dans le hub.</div></div>
+          <div class="hint">Le groupe sous lequel le projet apparaît dans le hub.</div></div>
       </div>
 
       <div class="fset">
-        <div class="fset-title">Execution</div>
+        <div class="fset-title">Exécution</div>
         <div class="field"><label>Commande de lancement</label>
           <input id="e-cmd" autocomplete="off" spellcheck="false">
           <div class="hint">La variable <code>$PORT</code> est fournie : l'application doit ecouter dessus.</div></div>
         <div class="field"><label>Commande de build <span class="opt">facultatif</span></label>
           <input id="e-build" placeholder="npm install" autocomplete="off" spellcheck="false">
-          <div class="hint">Executee a la demande, jamais au lancement.</div></div>
+          <div class="hint">Executee à la demande, jamais au lancement.</div></div>
       </div>
 
       <div class="fset">
         <div class="fset-title">Ressources</div>
-        <div class="field"><label>Limite memoire <span class="opt">facultatif</span></label>
+        <div class="field"><label>Limite mémoire <span class="opt">facultatif</span></label>
           <div class="input-suffix"><input id="e-mem" type="number" min="16" placeholder="256"><span>Mo</span></div>
-          <div class="hint">Le process est arrete automatiquement s'il tente de la depasser.</div></div>
+          <div class="hint">Le process est arrêté automatiquement s'il tente de la depasser.</div></div>
       </div>
 
       <div class="fset" id="e-vis-zone">
@@ -882,10 +882,10 @@ table.tbl-journal{min-width:560px}
         <div class="field">
           <div class="seg-toggle" id="e-vis-toggle">
             <button data-v="publique" onclick="setVisEdit('publique')">Publique</button>
-            <button data-v="privee" onclick="setVisEdit('privee')">Privee</button>
+            <button data-v="privee" onclick="setVisEdit('privee')">Privée</button>
           </div>
-          <div class="hint">Publique : accessible a tous, meme sans connexion. Privee : reserve aux
-            comptes autorises.</div>
+          <div class="hint">Publique : accessible a tous, même sans connexion. Privée : réservé aux
+            comptes autorisés.</div>
         </div>
       </div>
 
@@ -916,27 +916,27 @@ table.tbl-journal{min-width:560px}
      configuration du serveur vivait dans une entree de menu a part -- deux
      portes pour la meme piece. -->
 <div id="sec-parametres" class="section" style="display:none">
-  <div class="toolbar"><h2>Parametres</h2></div>
+  <div class="toolbar"><h2>Paramètres</h2></div>
 
   <!-- Les onglets viennent tout de suite apres le titre : c'est la premiere
        chose a choisir en arrivant, et la phrase de sous-titre qui trainait
        ici ne faisait que reciter leurs noms. -->
   <div class="fiche-onglets" id="param-onglets">
     <button data-p="compte" onclick="paramOnglet('compte')" class="active">Compte</button>
-    <button data-p="securite" onclick="paramOnglet('securite')">Securite</button>
+    <button data-p="securite" onclick="paramOnglet('securite')">Sécurité</button>
     <button data-p="serveur" onclick="paramOnglet('serveur')" data-admin="1">Serveur</button>
-    <button data-p="categories" onclick="paramOnglet('categories')" data-admin="1">Categories</button>
+    <button data-p="categories" onclick="paramOnglet('categories')" data-admin="1">Catégories</button>
     <button data-p="email" onclick="paramOnglet('email')" data-admin="1">E-mail</button>
     <button data-p="alertes" onclick="paramOnglet('alertes')" data-admin="1">Alertes</button>
   </div>
 
   <div class="onglet-p" id="param-compte">
   <div class="zone">
-    <div class="zone-title">Preferences</div>
+    <div class="zone-title">Préférences</div>
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
         <b>Apparence</b>
-        <div class="path">Choisis comment l'interface s'affiche.</div>
+        <div class="path">Choisis comment l'interface s'affiché.</div>
       </div></div>
       <div class="field">
         <div class="seg-toggle" id="theme-toggle">
@@ -955,12 +955,12 @@ table.tbl-journal{min-width:560px}
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
         <b>Adresse mail</b>
-        <div class="path">L'adresse rattachee a ton compte.</div>
+        <div class="path">L'adresse rattachee à ton compte.</div>
       </div>
       <span class="pill" id="mail-etat"><i></i>&nbsp;</span></div>
 
-      <div class="hint">Un code a six chiffres est envoye a cette adresse pour verifier que tu la
-        releves vraiment. Cette verification ne remplace pas le second facteur et n'ouvre aucune
+      <div class="hint">Un code à six chiffres est envoyé à cette adresse pour vérifier que tu la
+        releves vraiment. Cette vérification ne remplace pas le second facteur et n'ouvre aucune
         session : elle atteste seulement que l'adresse est la tienne.</div>
 
       <div class="field" style="margin-top:14px">
@@ -968,13 +968,13 @@ table.tbl-journal{min-width:560px}
         <input id="mail-adresse" type="email" placeholder="moi@example.com" autocomplete="email">
       </div>
       <div class="actions">
-        <button class="btn btn-primary" id="mail-save" onclick="mailEnregistrer()">Enregistrer et verifier</button>
+        <button class="btn btn-primary" id="mail-save" onclick="mailEnregistrer()">Enregistrer et vérifier</button>
         <button class="btn btn-default" id="mail-renvoyer" onclick="mailRenvoyer()"
           style="display:none">Renvoyer le code</button>
       </div>
 
       <div id="mail-confirmation" style="display:none">
-        <div class="field" style="margin-top:14px"><label>Code recu par mail</label>
+        <div class="field" style="margin-top:14px"><label>Code reçu par mail</label>
           <input id="mail-code" inputmode="numeric" maxlength="6" placeholder="123456"></div>
         <button class="btn btn-primary" onclick="mailConfirmer()">Confirmer</button>
       </div>
@@ -982,7 +982,7 @@ table.tbl-journal{min-width:560px}
       <div class="err" id="mail-err" style="display:none"></div>
       <div class="hint" id="mail-msg" style="display:none"></div>
       <div class="hint" id="mail-sans-smtp" style="display:none">Aucun serveur d'envoi n'est
-        configure sur ce serveur : la verification par mail est indisponible pour le moment.</div>
+        configuré sur ce serveur : la vérification par mail est indisponible pour le moment.</div>
     </div>
   </div>
 
@@ -991,12 +991,12 @@ table.tbl-journal{min-width:560px}
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
         <b>Changer son mot de passe</b>
-        <div class="path">Celui avec lequel tu te connectes a ce panneau.</div>
+        <div class="path">Celui avec lequel tu te connectes à ce panneau.</div>
       </div></div>
 
-      <div class="hint">L'ancien est demande meme sur cette session : sans cela, un cookie
-        capture suffirait a prendre ta place definitivement. <b>12 caracteres au minimum</b> —
-        tu le choisis toi-meme, rien n'oblige a le raccourcir.</div>
+      <div class="hint">L'ancien est demande même sur cette session : sans cela, un cookie
+        capture suffirait a prendre ta place definitivement. <b>12 caractères au minimum</b> —
+        tu le choisis toi-même, rien n'oblige a le raccourcir.</div>
 
       <div class="field" style="margin-top:14px"><label>Mot de passe actuel</label>
         <input id="mdp-ancien" type="password" autocomplete="current-password"></div>
@@ -1018,12 +1018,12 @@ table.tbl-journal{min-width:560px}
     <div class="zone-title">Affichage</div>
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
-        <b>Preferences d'affichage</b>
+        <b>Préférences d'affichage</b>
         <div class="path">Retenues par navigateur, pas par le serveur.</div>
       </div></div>
 
       <div class="hint">Ces choix ne concernent que toi et cet appareil : ils vivent dans ce
-        navigateur, et ne sont ni envoyes au serveur ni partages avec les autres comptes.</div>
+        navigateur, et ne sont ni envoyés au serveur ni partages avec les autres comptes.</div>
 
       <div class="field" style="margin-top:14px">
         <label for="pref-taille">Lignes par page dans la liste des comptes</label>
@@ -1041,11 +1041,11 @@ table.tbl-journal{min-width:560px}
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
         <b>Session</b>
-        <div class="path">Deconnecte cette session du panneau CodeLab.</div>
+        <div class="path">Déconnecté cette session du panneau CodeLab.</div>
       </div></div>
       <button class="btn btn-default" onclick="doLogout()">
         <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-        <path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>Deconnexion</button>
+        <path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>Déconnexion</button>
     </div>
   </div>
 
@@ -1056,8 +1056,8 @@ table.tbl-journal{min-width:560px}
     <div class="zone-title">Bilan</div>
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
-        <b>Posture de securite</b>
-        <div class="path">Ou en est ce serveur, et ce qu'il reste a faire.</div>
+        <b>Posture de sécurité</b>
+        <div class="path">Ou en est ce serveur, et ce qu'il reste à faire.</div>
       </div>
       <span class="pill" id="sec-note"><i></i>&nbsp;</span></div>
 
@@ -1072,13 +1072,13 @@ table.tbl-journal{min-width:560px}
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
         <b>Double authentification</b>
-        <div class="path">Un code a six chiffres, en plus du mot de passe, a chaque connexion.</div>
+        <div class="path">Un code à six chiffres, en plus du mot de passe, à chaque connexion.</div>
       </div>
       <span class="pill" id="totp-etat"><i></i>&nbsp;</span></div>
 
       <div class="hint" id="totp-pourquoi">Le mot de passe est un secret unique : s'il fuit, il donne
-        l'execution de commandes sur cette machine. Le second facteur exige en plus ton telephone.
-        A activer avant d'exposer ce panneau au-dela de ton reseau.</div>
+        l'exécution de commandes sur cette machine. Le second facteur exige en plus ton téléphone.
+        A activer avant d'exposer ce panneau au-dela de ton réseau.</div>
 
       <div id="totp-etape-1" style="display:none">
         <button class="btn btn-primary" onclick="totpPreparer()">Activer</button>
@@ -1089,10 +1089,10 @@ table.tbl-journal{min-width:560px}
         <!-- Si le QR code ne peut pas etre produit, l'image se masque et la cle
              a recopier reste : l'inscription ne depend pas de lui. -->
         <img class="qr" id="totp-qr" alt="QR code du second facteur">
-        <div class="hint">Ou saisis la cle a la main :</div>
+        <div class="hint">Ou saisis la clé à la main :</div>
         <div class="field"><input id="totp-secret" readonly onclick="this.select()"></div>
-        <div class="hint">2. Saisis le code affiche par l'application pour confirmer. Rien n'est
-          enregistre tant que ce code n'est pas valide — une cle mal recopiee ne peut donc pas
+        <div class="hint">2. Saisis le code affiché par l'application pour confirmer. Rien n'est
+          enregistré tant que ce code n'est pas valide — une clé mal recopiee ne peut donc pas
           t'enfermer dehors.</div>
         <div class="field"><input id="totp-code" inputmode="numeric" maxlength="6" placeholder="123456"></div>
         <div class="actions">
@@ -1103,39 +1103,39 @@ table.tbl-journal{min-width:560px}
       </div>
 
       <div id="totp-etape-3" style="display:none">
-        <div class="hint">Pour desactiver, saisis un code valide : une session volee ne doit pas
+        <div class="hint">Pour désactiver, saisis un code valide : une session volee ne doit pas
           pouvoir retirer le second facteur.</div>
         <div class="field"><input id="totp-code-off" inputmode="numeric" maxlength="6" placeholder="123456"></div>
-        <button class="btn btn-default" onclick="totpDesactiver()">Desactiver</button>
+        <button class="btn btn-default" onclick="totpDesactiver()">Désactiver</button>
         <div class="err" id="totp-err-off" style="display:none"></div>
       </div>
     </div>
   </div>
 
   <div class="zone">
-    <div class="zone-title">Cles d'acces</div>
+    <div class="zone-title">Clés d'accès</div>
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
-        <b>Cles d'acces (passkeys)</b>
+        <b>Clés d'accès (passkeys)</b>
         <div class="path">Se connecter avec l'empreinte ou le code de son appareil.</div>
       </div>
       <span class="pill" id="pk-etat"><i></i>&nbsp;</span></div>
 
-      <div class="hint">Une cle d'acces remplace le mot de passe <b>et</b> le code a six chiffres :
+      <div class="hint">Une clé d'accès remplace le mot de passe <b>et</b> le code à six chiffres :
         l'appareil prouve la possession, et l'empreinte (ou le code de l'appareil) prouve que c'est
-        bien toi. Rien a retenir, rien a recopier — et rien a hameconner, puisque la cle ne signe
-        que pour le domaine qui l'a enregistree.</div>
+        bien toi. Rien a retenir, rien a recopier — et rien a hameconner, puisque la clé ne signe
+        que pour le domaine qui l'a enregistrée.</div>
 
       <div class="hint" id="pk-empechement" style="display:none;margin-top:8px"></div>
 
       <div class="pk-liste" id="pk-liste" style="margin-top:12px"></div>
 
       <div class="field" style="margin-top:14px">
-        <label>Nom de la cle <span class="opt">facultatif</span></label>
-        <input id="pk-nom" placeholder="Telephone" autocomplete="off" maxlength="40">
+        <label>Nom de la clé <span class="opt">facultatif</span></label>
+        <input id="pk-nom" placeholder="Téléphone" autocomplete="off" maxlength="40">
         <div class="hint">Pour la reconnaitre dans la liste, le jour ou tu en auras plusieurs.</div>
       </div>
-      <button class="btn btn-primary" id="pk-ajouter" onclick="pkAjouter()">Ajouter une cle</button>
+      <button class="btn btn-primary" id="pk-ajouter" onclick="pkAjouter()">Ajouter une clé</button>
       <div class="err" id="pk-err" style="display:none"></div>
       <div class="hint" id="pk-msg" style="display:none"></div>
     </div>
@@ -1149,10 +1149,10 @@ table.tbl-journal{min-width:560px}
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
         <b>Derriere un proxy, en HTTPS</b>
-        <div class="path">Les deux reglages qui suivent le passage du panneau sur internet.</div>
+        <div class="path">Les deux réglages qui suivent le passage du panneau sur internet.</div>
       </div></div>
 
-      <div class="hint">Une case ne s'active que si la situation la justifie — sinon elle reste
+      <div class="hint">Une case ne s'activé que si la situation la justifie — sinon elle reste
         grisee et dit pourquoi. C'est deliberé : activer HTTPS depuis une page servie en clair
         poserait un cookie « Secure » que ton navigateur cesserait d'envoyer, et te
         deconnecterait <b>sans retour possible</b>. Les eteindre, en revanche, est toujours
@@ -1173,7 +1173,7 @@ table.tbl-journal{min-width:560px}
       <div class="field" style="margin-top:10px">
         <label><input type="checkbox" id="expo-admin-lan"
           onchange="expoBascule('admin_reseau_local', this)">
-          Administration reservee au reseau local</label>
+          Administration réservée au réseau local</label>
         <div class="hint" id="expo-admin-lan-aide"></div>
       </div>
 
@@ -1187,10 +1187,10 @@ table.tbl-journal{min-width:560px}
       </div>
       <span class="pill" id="vps-etat"><i></i>&nbsp;</span></div>
 
-      <div class="hint">Le VPS porte le nom de domaine et le certificat ; cette machine ne publie
+      <div class="hint">Le VPS porte le nom de domaine et le certificat ; cette machine ne publié
         rien sur internet et reste joignable seulement par le tunnel. Saisis les deux valeurs
-        ci-dessous et le panneau produit les fichiers de configuration, prets a copier.
-        <b>Il ne se connecte pas au VPS</b> : lui donner une cle SSH avec les droits qui vont avec
+        ci-dessous et le panneau produit les fichiers de configuration, prêts à copier.
+        <b>Il ne se connecte pas au VPS</b> : lui donner une clé SSH avec les droits qui vont avec
         ferait de ce panneau la cible la plus interessante de l'installation.</div>
 
       <div class="grid2" style="margin-top:14px">
@@ -1199,9 +1199,9 @@ table.tbl-journal{min-width:560px}
         <div class="field"><label>Adresse publique du VPS</label>
           <input id="vps-ip" placeholder="203.0.113.10" autocomplete="off"></div>
       </div>
-      <div class="field"><label>Reseau du tunnel</label>
+      <div class="field"><label>Réseau du tunnel</label>
         <input id="vps-reseau" placeholder="10.8.0" autocomplete="off">
-        <div class="hint">Trois nombres. N'importe quel reseau prive inutilise chez toi convient ;
+        <div class="hint">Trois nombres. N'importe quel réseau privé inutilisé chez toi convient ;
           garde 10.8.0 si tu n'as pas de raison d'en changer.</div>
       </div>
       <div class="actions">
@@ -1211,11 +1211,11 @@ table.tbl-journal{min-width:560px}
       <div class="hint" id="vps-msg" style="display:none"></div>
 
       <div class="mb-titre" style="margin-top:18px">Ou en est la liaison</div>
-      <div class="hint">Ce que le panneau <b>constate</b> sur la requete qu'il traite en ce moment.
+      <div class="hint">Ce que le panneau <b>constate</b> sur la requête qu'il traite en ce moment.
         Aucune de ces lignes n'est une supposition.</div>
       <div id="vps-diagnostic" style="margin-top:10px"></div>
 
-      <div class="mb-titre" style="margin-top:18px">Fichiers a copier</div>
+      <div class="mb-titre" style="margin-top:18px">Fichiers à copier</div>
       <div id="vps-fichiers"></div>
     </div>
 
@@ -1226,23 +1226,23 @@ table.tbl-journal{min-width:560px}
       </div>
       <span class="pill" id="pub-etat"><i></i>&nbsp;</span></div>
 
-      <div class="hint">Tant qu'elle n'est pas declaree, le panneau <b>ne propose pas de rendre une
+      <div class="hint">Tant qu'elle n'est pas déclarée, le panneau <b>ne propose pas de rendre une
         application publique</b> : sur un serveur que personne d'autre ne peut joindre, « publique »
-        ne partagerait rien — cela retirerait seulement l'authentification. Une application deja
-        publique n'est pas touchee, et peut toujours etre refermee.</div>
-      <div class="hint" style="margin-top:8px">Elle se declare a la main : le panneau ne peut pas
+        ne partagerait rien — cela retirerait seulement l'authentification. Une application déjà
+        publique n'est pas touchee, et peut toujours être refermee.</div>
+      <div class="hint" style="margin-top:8px">Elle se déclaré à la main : le panneau ne peut pas
         savoir si le port 443 de ta box est ouvert, si ton tunnel tourne, ni quel nom de domaine y
-        mene. La renseigner, c'est dire « j'ai fait le necessaire ».</div>
+        mene. La renseigner, c'est dire « j'ai fait le nécessaire ».</div>
 
       <div class="field" style="margin-top:14px">
         <label>Adresse</label>
         <input id="pub-adresse" placeholder="https://codelab.mondomaine.fr" autocomplete="off">
-        <div class="hint">Vide = serveur prive, joignable seulement depuis ton reseau.</div>
+        <div class="hint">Vide = serveur privé, joignable seulement depuis ton réseau.</div>
       </div>
       <button class="btn btn-primary" id="pub-save" onclick="pubEnregistrer()">Enregistrer</button>
       <div class="err" id="pub-err" style="display:none"></div>
       <div class="hint" id="pub-fige" style="display:none">Cette adresse est fixee par
-        <code>APP_MANAGER_PUBLIC_URL</code> dans le compose : elle se modifie la-bas.</div>
+        <code>APP_MANAGER_PUBLIC_URL</code> dans le compose : elle se modifié la-bas.</div>
     </div>
   </div>
 
@@ -1250,16 +1250,16 @@ table.tbl-journal{min-width:560px}
 
   <div class="onglet-p" id="param-categories">
   <div class="zone">
-    <div class="zone-title">Categories</div>
+    <div class="zone-title">Catégories</div>
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
-        <b>Categories du hub</b>
+        <b>Catégories du hub</b>
         <div class="path">Des tiroirs pour ranger les projets sur la page d'accueil.</div>
       </div></div>
 
-      <div class="hint">Une categorie ne donne aucun droit et ne change rien au deploiement :
+      <div class="hint">Une catégorie ne donne aucun droit et ne change rien au déploiement :
         elle regroupe les projets dans le hub, dans l'ordre de cette liste. Un projet sans
-        categorie apparait a la fin, sous « Autres ». Choisis la categorie d'un projet dans sa
+        catégorie apparaît à la fin, sous « Autres ». Choisis la catégorie d'un projet dans sa
         fiche, onglet <b>Configuration</b>.</div>
 
       <div id="cat-liste" style="margin-top:14px"></div>
@@ -1297,12 +1297,12 @@ table.tbl-journal{min-width:560px}
       <span class="pill" id="sm-etat"><i></i>&nbsp;</span></div>
 
       <div class="hint">Trois choses en dependent : les <b>alertes</b> quand une application tombe,
-        les <b>codes de verification</b> des adresses mail des comptes, et l'<b>inscription
-        libre</b> — qui reste fermee tant qu'aucun serveur n'est configure, faute de pouvoir
-        verifier une adresse.</div>
+        les <b>codes de vérification</b> des adresses mail des comptes, et l'<b>inscription
+        libre</b> — qui reste fermee tant qu'aucun serveur n'est configuré, faute de pouvoir
+        vérifier une adresse.</div>
 
       <div class="grid2" style="margin-top:14px">
-        <div class="field"><label>Hote SMTP</label>
+        <div class="field"><label>Hôte SMTP</label>
           <input id="al-host" placeholder="smtp.gmail.com" autocomplete="off"></div>
         <div class="field"><label>Port</label>
           <input id="al-port" type="number" placeholder="587"></div>
@@ -1318,18 +1318,18 @@ table.tbl-journal{min-width:560px}
           <input id="al-user" placeholder="moi@gmail.com" autocomplete="off"></div>
       </div>
       <div class="field"><label>Mot de passe</label>
-        <input id="al-pass" type="password" autocomplete="new-password" placeholder="inchange">
-        <div class="hint">Laisse vide pour conserver celui deja enregistre. Gmail exige un
+        <input id="al-pass" type="password" autocomplete="new-password" placeholder="inchangé">
+        <div class="hint">Laisse vide pour conserver celui déjà enregistré. Gmail exige un
           <em>mot de passe d'application</em>, pas ton mot de passe habituel.</div>
       </div>
-      <div class="hint">A l'enregistrement, CodeLab <b>se connecte reellement</b> a ce serveur :
+      <div class="hint">A l'enregistrement, CodeLab <b>se connecte réellement</b> à ce serveur :
         chiffrement et authentification compris. Une configuration qui ne repond pas n'est pas
-        enregistree, et le message du serveur t'est rendu tel quel. Rien a lancer a la main,
-        rien a penser a verifier.</div>
+        enregistrée, et le message du serveur t'est rendu tel quel. Rien à lancer à la main,
+        rien a penser a vérifier.</div>
 
       <div class="actions">
-        <button class="btn btn-primary" id="sm-save" onclick="alEnregistrer('sm')">Verifier et enregistrer</button>
-        <button class="btn btn-default" id="sm-reset" onclick="alRevenirOrigine()">Revenir a la configuration d'origine</button>
+        <button class="btn btn-primary" id="sm-save" onclick="alEnregistrer('sm')">Vérifier et enregistrer</button>
+        <button class="btn btn-default" id="sm-reset" onclick="alRevenirOrigine()">Revenir à la configuration d'origine</button>
       </div>
       <div class="err" id="sm-err" style="display:none"></div>
       <div class="hint" id="sm-msg" style="display:none"></div>
@@ -1342,7 +1342,7 @@ table.tbl-journal{min-width:560px}
       </div>
       <span class="pill" id="sm-origine-etat"><i></i>&nbsp;</span></div>
 
-      <div class="hint">Posee a l'installation, elle sert de <b>repli</b> : si la configuration
+      <div class="hint">Posee à l'installation, elle sert de <b>repli</b> : si la configuration
         ci-dessus cesse de fonctionner — mot de passe revoque, quota atteint, serveur eteint —
         les mails repartent automatiquement par celle-ci. Le panneau ne l'ecrase jamais, c'est
         pour cela qu'on peut lui faire confiance.</div>
@@ -1351,26 +1351,26 @@ table.tbl-journal{min-width:560px}
         <span class="v" id="sm-origine-host">&mdash;</span></div>
       <div class="kv"><span class="k">Expediteur</span>
         <span class="v" id="sm-origine-from">&mdash;</span></div>
-      <div class="hint" style="margin-top:10px">Elle se modifie dans le bloc
+      <div class="hint" style="margin-top:10px">Elle se modifié dans le bloc
         <code>codelab-alertes</code> de <code>credentials.env</code>, sur le serveur. Le capteur
-        d'alerte de Dagster lit le meme bloc.</div>
+        d'alerte de Dagster lit le même bloc.</div>
     </div>
 
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
         <b>Adresse d'alerte de l'administrateur</b>
-        <div class="path">Celle qui recoit tout, quelle que soit l'application.</div>
+        <div class="path">Celle qui reçoit tout, quelle que soit l'application.</div>
       </div></div>
 
       <div class="hint">C'est le filet. Chaque application peut avoir ses propres destinataires
-        (onglet <b>Alertes</b>), mais cette adresse-ci les recoit <b>toutes</b> — y compris celles
+        (onglet <b>Alertes</b>), mais cette adresse-ci les reçoit <b>toutes</b> — y compris celles
         des applications dont la liste est restee vide. Sans elle, une application oubliee
         tomberait en silence.</div>
 
       <div class="field" style="margin-top:14px">
         <label>Adresse</label>
         <input id="al-admin" placeholder="moi@example.com" autocomplete="off">
-        <div class="hint">Plusieurs adresses possibles, separees par des virgules.</div>
+        <div class="hint">Plusieurs adresses possibles, séparées par des virgules.</div>
       </div>
       <div class="actions">
         <button class="btn btn-primary" id="adm-save" onclick="alEnregistrer('adm')">Enregistrer</button>
@@ -1393,8 +1393,8 @@ table.tbl-journal{min-width:560px}
       <span class="pill" id="al-etat"><i></i>&nbsp;</span></div>
 
       <div class="hint">Le panneau redemarre tout seul une application qui plante. Il abandonne au
-        bout de 5 tentatives en 10 minutes — c'est a ce moment-la que le mail part, pas au premier
-        soubresaut. Un second mail signale le retour a la normale.</div>
+        bout de 5 tentatives en 10 minutes — c'est à ce moment-la que le mail part, pas au premier
+        soubresaut. Un second mail signale le retour à la normale.</div>
 
       <div class="hint" id="al-smtp-source" style="margin-top:12px"></div>
 
@@ -1411,9 +1411,9 @@ table.tbl-journal{min-width:560px}
         <div class="path">Qui prevenir, application par application.</div>
       </div></div>
 
-      <div class="hint">Une application de facturation ne previent pas les memes personnes qu'un
+      <div class="hint">Une application de facturation ne previent pas les mêmes personnes qu'un
         site vitrine. Laisse vide pour qu'une application n'alerte que l'administrateur — dont
-        l'adresse s'ajoute <b>toujours</b> a celles saisies ici.</div>
+        l'adresse s'ajouté <b>toujours</b> a celles saisies ici.</div>
 
       <div id="al-par-app" style="margin-top:14px"></div>
       <div class="hint" id="al-app-msg" style="display:none"></div>
@@ -1436,7 +1436,7 @@ table.tbl-journal{min-width:560px}
     <div class="card settings-card card-large">
       <div class="card-top"><div class="card-name">
         <b>Comptes</b>
-        <div class="path">Chacun n'ouvre que les projets prives que tu lui autorises.</div>
+        <div class="path">Chacun n'ouvre que les projets privés que tu lui autorisés.</div>
       </div>
       <div class="spacer"></div>
       <button class="btn btn-primary btn-sm" onclick="usFormulaire(true)">Nouveau compte</button></div>
@@ -1454,7 +1454,7 @@ table.tbl-journal{min-width:560px}
           <input id="us-q" placeholder="nom ou adresse mail" autocomplete="off"
             oninput="usFiltrer()"></div>
         <div class="field" style="flex:1 1 180px;margin:0">
-          <label for="us-projet">Acces a</label>
+          <label for="us-projet">Accès a</label>
           <select id="us-projet" onchange="usFiltrer()">
             <option value="">toutes les applications</option>
           </select></div>
@@ -1469,7 +1469,7 @@ table.tbl-journal{min-width:560px}
       <div id="us-liste" style="margin-top:14px"></div>
 
       <div class="us-pages" id="us-pagination" style="display:none">
-        <button class="btn btn-default btn-sm" id="us-prec" onclick="usAllerA(usPage-1)">Precedent</button>
+        <button class="btn btn-default btn-sm" id="us-prec" onclick="usAllerA(usPage-1)">Précédent</button>
         <span class="hint" id="us-compte"></span>
         <button class="btn btn-default btn-sm" id="us-suiv" onclick="usAllerA(usPage+1)">Suivant</button>
       </div>
@@ -1481,20 +1481,20 @@ table.tbl-journal{min-width:560px}
         <div class="grid2">
           <div class="field"><label>Nom</label>
             <input id="us-nom" placeholder="marie" autocomplete="off">
-            <div class="hint">Minuscules, chiffres, tiret ou souligne.</div>
+            <div class="hint">Minuscules, chiffres, tiret ou souligné.</div>
           </div>
           <div class="field"><label>Adresse mail <span class="opt">facultatif</span></label>
             <input id="us-mail" type="email" placeholder="marie@example.com" autocomplete="off">
-            <div class="hint">La personne la confirmera elle-meme, par un code recu dessus.</div>
+            <div class="hint">La personne la confirmera elle-même, par un code reçu dessus.</div>
           </div>
         </div>
         <div class="field" style="margin-top:14px"><label>Mot de passe</label>
-          <input id="us-mdp" type="password" autocomplete="new-password" placeholder="8 caracteres au minimum">
-          <div class="hint">Le second facteur, lui, s'enregistre a la premiere connexion : tu ne
-            connais jamais la cle de quelqu'un d'autre.</div>
+          <input id="us-mdp" type="password" autocomplete="new-password" placeholder="8 caractères au minimum">
+          <div class="hint">Le second facteur, lui, s'enregistré à la première connexion : tu ne
+            connais jamais la clé de quelqu'un d'autre.</div>
         </div>
         <div class="actions">
-          <button class="btn btn-primary" id="us-creer" onclick="usCreer()">Creer le compte</button>
+          <button class="btn btn-primary" id="us-creer" onclick="usCreer()">Créer le compte</button>
           <button class="btn btn-default" onclick="usFormulaire(false)">Annuler</button>
         </div>
         <div class="err" id="us-err" style="display:none"></div>
@@ -1505,7 +1505,7 @@ table.tbl-journal{min-width:560px}
   <div class="zone">
     <div class="zone-title">Connexions recentes</div>
     <div class="hint" style="margin:-6px 0 12px">Qui est entre, quand, et quelle
-      application a ete ouverte.</div>
+      application a été ouverte.</div>
     <div id="ac-connexions"></div>
   </div>
 </div>
@@ -1552,17 +1552,17 @@ table.tbl-journal{min-width:560px}
       </div>
       <div class="field"><label>Nouveau mot de passe <span class="opt">facultatif</span></label>
         <input id="us-f-mdp" type="password" autocomplete="new-password" placeholder="laisser vide pour ne pas changer">
-        <div class="hint">8 caracteres au minimum. La personne n'est pas deconnectee : sa session
-          en cours reste valable jusqu'a ce qu'elle la ferme.</div>
+        <div class="hint">8 caractères au minimum. La personne n'est pas déconnectée : sa session
+          en cours reste valable jusqu'à ce qu'elle la ferme.</div>
       </div>
       <div class="hint">Le nom du compte ne se change pas : il identifie la personne partout —
-        dans ses cles d'acces, dans le journal des acces, dans la liste des projets autorises.
-        Pour renommer quelqu'un, cree un compte et supprime l'ancien.</div>
+        dans ses clés d'accès, dans le journal des accès, dans la liste des projets autorisés.
+        Pour renommer quelqu'un, créé un compte et supprimé l'ancien.</div>
     </div>
 
     <div class="mb-groupe">
-      <div class="mb-titre">Projets autorises</div>
-      <div class="hint">L'autorisation ne compte que pour les projets <b>prives</b> : un projet
+      <div class="mb-titre">Projets autorisés</div>
+      <div class="hint">L'autorisation ne compte que pour les projets <b>privés</b> : un projet
         public reste ouvert a tout le monde, y compris sans connexion.</div>
       <div class="us-cases" id="us-f-projets" style="margin-top:10px"></div>
     </div>
@@ -1572,14 +1572,14 @@ table.tbl-journal{min-width:560px}
       <div class="hint" id="us-f-facteurs"></div>
       <div class="actions">
         <button class="btn btn-default btn-sm" id="us-f-totp" onclick="usReinitTotp()">Reinitialiser le second facteur</button>
-        <button class="btn btn-default btn-sm" id="us-f-cles" onclick="usRetirerCles()">Retirer les cles d'acces</button>
+        <button class="btn btn-default btn-sm" id="us-f-cles" onclick="usRetirerCles()">Retirer les clés d'accès</button>
       </div>
     </div>
 
     <div class="mb-groupe">
       <div class="mb-titre">Supprimer</div>
-      <div class="hint">Le compte disparait, avec ses cles d'acces. Ses sessions ouvertes cessent
-        d'autoriser quoi que ce soit — chaque controle relit le registre. Le journal des acces,
+      <div class="hint">Le compte disparait, avec ses clés d'accès. Ses sessions ouvertes cessent
+        d'autoriser quoi que ce soit — chaque controle relit le registre. Le journal des accès,
         lui, garde la trace de ce qu'il a fait.</div>
       <button class="btn btn-default danger btn-sm" style="margin-top:10px"
         onclick="usSupprimer()">Supprimer ce compte</button>
@@ -1601,7 +1601,7 @@ table.tbl-journal{min-width:560px}
       <div class="hint">Accessible sur <code id="f-url">/nom/</code></div></div>
     <div class="field"><label>Description <span class="opt">facultatif</span></label>
       <input id="f-desc" placeholder="Mon site personnel" autocomplete="off" maxlength="140">
-      <div class="hint">Une ligne, affichee sous le nom du projet dans le hub.</div></div>
+      <div class="hint">Une ligne, affichée sous le nom du projet dans le hub.</div></div>
     <div class="field"><label>Dossier du projet</label>
       <div class="fb"><div class="fb-cur" id="fb-c">/</div><div class="fb-l" id="fb-l"></div></div>
       <div class="suggest" id="suggest" style="display:none" onclick="applySuggestion()"></div></div>
@@ -1610,15 +1610,15 @@ table.tbl-journal{min-width:560px}
       <div class="hint">La variable <code>$PORT</code> est fournie.</div></div>
     <div class="field"><label>Commande de build <span class="opt">facultatif</span></label>
       <input id="f-build" placeholder="npm ci &amp;&amp; npm run build" autocomplete="off"></div>
-    <div class="field"><label>Limite memoire <span class="opt">facultatif</span></label>
+    <div class="field"><label>Limite mémoire <span class="opt">facultatif</span></label>
       <div class="input-suffix"><input id="f-mem" type="number" min="16" placeholder="256"><span>Mo</span></div></div>
-    <div class="field"><label>Categorie <span class="opt">facultatif</span></label>
+    <div class="field"><label>Catégorie <span class="opt">facultatif</span></label>
       <select id="f-cat"></select>
-      <div class="hint">Les categories se creent dans Configuration.</div></div>
+      <div class="hint">Les catégories se creent dans Configuration.</div></div>
     <div class="field" id="f-vis-zone"><label>Visibilite</label>
       <div class="seg-toggle" id="f-vis-toggle">
         <button data-v="publique" onclick="setVisAdd('publique')">Publique</button>
-        <button data-v="privee" onclick="setVisAdd('privee')">Privee</button>
+        <button data-v="privee" onclick="setVisAdd('privee')">Privée</button>
       </div></div>
   </div>
   <div class="mf"><button class="btn btn-default" onclick="hide('ov-add')">Annuler</button>
@@ -1774,7 +1774,7 @@ function etatApp(a){
 function badgeEtat(a){ const [c,t]=etatApp(a); return `<span class="pill ${c}"><i></i>${t}</span>`; }
 function badgeVis(a){
   return a.visibility==='privee'
-    ? '<span class="pill priv"><i></i>Prive</span>'
+    ? '<span class="pill priv"><i></i>Privé</span>'
     : '<span class="pill pub"><i></i>Public</span>';
 }
 
@@ -1807,7 +1807,7 @@ async function chargerCategories(){
    qu'un simple passage sur la fiche la remplace en douce. */
 function optionsCategorie(id, valeur){
   const liste = valeur && !categories.includes(valeur) ? categories.concat([valeur]) : categories;
-  $(id).innerHTML = '<option value="">Sans categorie</option>'
+  $(id).innerHTML = '<option value="">Sans catégorie</option>'
     + liste.map(c=>`<option value="${esc(c)}"${c===valeur?' selected':''}>${esc(c)}</option>`).join('');
 }
 
@@ -1816,11 +1816,11 @@ function optionsCategorie(id, valeur){
 function peindreCategories(){
   $('cat-liste').innerHTML = categories.length
     ? categories.map((c,i)=>`<div class="cat-ligne">
-        <input value="${esc(c)}" maxlength="30" aria-label="Categorie ${i+1}">
+        <input value="${esc(c)}" maxlength="30" aria-label="Catégorie ${i+1}">
         <button class="icon-btn" title="Retirer" onclick="catRetirer(${i})">
           <svg viewBox="0 0 24 24"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg></button>
       </div>`).join('')
-    : '<div class="cat-vide">Aucune categorie. Le hub affiche alors une seule liste.</div>';
+    : '<div class="cat-vide">Aucune catégorie. Le hub affiché alors une seule liste.</div>';
 }
 function catLues(){
   return Array.from(document.querySelectorAll('#cat-liste input'))
@@ -1851,7 +1851,7 @@ async function catEnregistrer(){
     /* Supprimer une categorie deplace des projets : le dire, plutot que de
        laisser decouvrir le changement au prochain passage sur le hub. */
     m.textContent = d.declasses
-      ? `Enregistre. ${d.declasses} projet${d.declasses>1?'s':''} ${d.declasses>1?'passent':'passe'} sous « Autres ».`
+      ? `Enregistré. ${d.declasses} projet${d.declasses>1?'s':''} ${d.declasses>1?'passent':'passe'} sous « Autres ».`
       : 'Enregistre.';
     m.style.display='block';
     if(estAdmin) refresh();
@@ -1872,23 +1872,23 @@ async function chargerHub(){
 }
 function peindreHub(){
   $('hub-sous').textContent = estAdmin
-    ? 'Toutes les applications declarees. C\'est cette page que voient les comptes utilisateurs, limitee a ce que tu leur autorises.'
+    ? 'Toutes les applications déclarées. C\'est cette page que voient les comptes utilisateurs, limitee à ce que tu leur autorisés.'
     : 'Les applications que ton administrateur t\'a autorisees.';
 
   const liste=hubApps.filter(correspond);
   if(!liste.length){
     $('hub-liste').className='';
     $('hub-liste').innerHTML = filtre
-      ? '<div class="hub-vide"><b>Aucun resultat</b>Aucune application ne correspond a « '+esc(filtre)+' ».</div>'
+      ? '<div class="hub-vide"><b>Aucun résultat</b>Aucune application ne correspond a « '+esc(filtre)+' ».</div>'
       : (estAdmin
-        ? '<div class="hub-vide"><b>Aucune application declaree</b>Ouvre « Applications » dans le menu de gauche pour en ajouter une.</div>'
+        ? '<div class="hub-vide"><b>Aucune application déclarée</b>Ouvre « Applications » dans le menu de gauche pour en ajouter une.</div>'
         : '<div class="hub-vide"><b>Aucune application pour le moment</b>'
-          + 'Ton administrateur ne t\'a pas encore donne acces a une application.</div>');
+          + 'Ton administrateur ne t\'a pas encore donne accès à une application.</div>');
     return;
   }
   const tuile = a => {
     const desc = a.description ? `<div class="desc">${esc(a.description)}</div>` : '';
-    return `<a class="hub-projet ${a.running?'':'arretee'}" href="${urlApplication(a.name)}">
+    return `<a class="hub-projet ${a.running?'':'arrêtée'}" href="${urlApplication(a.name)}">
       <img src="${icone(a.name)}" alt="">
       <div class="txt"><div class="nom">${esc(a.name)}</div>${desc}
       <div class="bas">${badgeEtat(a)}${badgeVis(a)}</div></div></a>`;
@@ -1984,17 +1984,17 @@ function render(){
       <div class="empty-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/>
       <rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/>
       <rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></div>
-      <h3>${apps.length?'Aucun resultat':'Aucune application declaree'}</h3>
-      <p>${apps.length?'Aucune application ne correspond a cette recherche.'
-        :'Declare un dossier de /workspace et il sera en ligne en quelques secondes.'}</p>
+      <h3>${apps.length?'Aucun résultat':'Aucune application déclarée'}</h3>
+      <p>${apps.length?'Aucune application ne correspond à cette recherche.'
+        :'Déclaré un dossier de /workspace et il sera en ligne en quelques secondes.'}</p>
       ${apps.length?'':'<button class="btn btn-primary" onclick="openAdd()">Nouvelle application</button>'}
     </div>`;
     return;
   }
   $('tbl-projets').innerHTML=`<div class="tbl-wrap"><div class="tbl-scroll"><table class="tbl">
     <thead><tr>
-      <th>Application</th><th>Etat</th><th>Visibilite</th><th>Port</th>
-      <th>CPU</th><th>Memoire</th><th></th>
+      <th>Application</th><th>État</th><th>Visibilite</th><th>Port</th>
+      <th>CPU</th><th>Mémoire</th><th></th>
     </tr></thead><tbody>
     ${liste.map(a=>`<tr onclick="ouvrirFiche('${esc(a.name)}')">
       <td><div class="tbl-nom"><img src="${icone(a.name)}" alt="">
@@ -2025,7 +2025,7 @@ async function restartApp(n){ await fetch('/api/restart/'+n,{method:'POST'}); se
 async function deployApp(n){
   const r=await fetch('/api/deploy/'+n,{method:'POST'});
   const d=await r.json();
-  if(!r.ok) notifier(d.error||'Le deploiement a echoue.', 'err');
+  if(!r.ok) notifier(d.error||'Le déploiement a echoue.', 'err');
   ouvrirFiche(n); ficheOnglet('journal');
   setTimeout(refresh,600);
 }
@@ -2101,7 +2101,7 @@ async function chargerAcces(nom){
     if(!r.ok) throw new Error(d.error||'');
   }catch(e){
     zone.innerHTML='';
-    $('ac-err').textContent='Liste des acces indisponible.';
+    $('ac-err').textContent='Liste des accès indisponible.';
     $('ac-err').style.display='block';
     return;
   }
@@ -2119,17 +2119,17 @@ async function chargerAcces(nom){
   pub.innerHTML = d.publique
     ? '<b>Cette application est publique</b> : elle s\'ouvre sans compte, y compris par '
       + 'quelqu\'un qui n\'en a pas. Ces autorisations ne reprendront effet que si tu la '
-      + 'repasses en privee (onglet <b>Configuration</b>).'
+      + 'repasses en privée (onglet <b>Configuration</b>).'
     : '';
 
   if(!comptes.length){
     zone.innerHTML='<div class="hint">Aucun compte nomme n\'existe. Toi seul ouvres les '
-      + 'projets prives — cree un compte depuis <b>Utilisateurs</b> pour en partager un.</div>';
+      + 'projets privés — créé un compte depuis <b>Utilisateurs</b> pour en partager un.</div>';
     return;
   }
   zone.innerHTML = comptes.map(c=>
     `<div class="field" style="margin-bottom:8px">
-       <label><input type="checkbox" id="ac-${esc(c.nom)}" ${c.acces?'checked':''}
+       <label><input type="checkbox" id="ac-${esc(c.nom)}" ${c.accès?'checked':''}
          onchange="acBasculer()"> ${esc(c.nom)}</label>
        ${c.email ? '<div class="hint" style="margin-top:2px">'+esc(c.email)+'</div>' : ''}
      </div>`).join('');
@@ -2153,7 +2153,7 @@ async function acBasculer(){
         : 'Plus aucun compte n\'ouvre cette application.';
       m.style.display='block';
     }
-  }catch(err){ e.textContent='Erreur reseau.'; e.style.display='block'; }
+  }catch(err){ e.textContent='Erreur réseau.'; e.style.display='block'; }
   finally{ cases.forEach(c=>c.disabled=false); }
   /* La liste des comptes affiche un compteur de projets : elle doit suivre. */
   await chargerAcces(acCourant);
@@ -2178,7 +2178,7 @@ function peindreFiche(){
   $('fa-ecoute').textContent = !a.running ? 'Arretee'
     : (a.listening===false ? 'Le port ne repond pas' : 'Le port repond');
   $('fa-vis-txt').textContent = prive
-    ? 'Privee — session requise' : 'Publique — ouverte a tous';
+    ? 'Privée — session requise' : 'Publique — ouverte a tous';
   $('fa-path').textContent=a.path;
   $('fa-cmd').textContent=a.command;
   $('fa-build').textContent=a.build_command || '—';
@@ -2194,24 +2194,24 @@ function peindreFiche(){
   const svgOuvrir='<svg viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 13v6a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h6"/></svg>';
 
   const b=[];
-  b.push(`<button class="btn ${a.running?'btn-arreter':'btn-demarrer'}" onclick="tg('${esc(a.name)}')">
-    ${a.running?svgStop+'Arreter':svgPlay+'Demarrer'}</button>`);
+  b.push(`<button class="btn ${a.running?'btn-arrêter':'btn-démarrer'}" onclick="tg('${esc(a.name)}')">
+    ${a.running?svgStop+'Arrêter':svgPlay+'Démarrer'}</button>`);
   b.push(`<button class="btn btn-refaire" onclick="restartApp('${esc(a.name)}')" ${a.running?'':'disabled'}>
     ${svgRe}Redemarrer</button>`);
   if(a.has_build) b.push(`<button class="btn btn-refaire" onclick="buildApp('${esc(a.name)}')">${svgBuild}Build</button>`);
   /* Deployer met du code en ligne : c'est l'action principale de cette
      barre, et la seule qui garde l'accent. */
-  b.push(`<button class="btn btn-primary" onclick="deployApp('${esc(a.name)}')">${svgUp}Deployer</button>`);
+  b.push(`<button class="btn btn-primary" onclick="deployApp('${esc(a.name)}')">${svgUp}Déployer</button>`);
   /* « Rendre publique » n'est propose que si le serveur a une adresse
      publique declaree. Sinon le mot promet un partage qui n'existe pas :
      cela ne ferait que retirer l'authentification. Le chemin qui REFERME,
      lui, reste toujours ouvert. */
   if(!prive || adressePublique){
     b.push(`<button class="btn btn-quiet" onclick="basculerVisibilite('${esc(a.name)}')">
-      ${prive?'Rendre publique':'Rendre privee'}</button>`);
+      ${privé?'Rendre publique':'Rendre privée'}</button>`);
   }else{
-    b.push(`<span class="hint" style="align-self:center;max-width:320px">Declare l'adresse
-      publique du serveur (Parametres &gt; Serveur) pour pouvoir partager une application.</span>`);
+    b.push(`<span class="hint" style="align-self:center;max-width:320px">Déclaré l'adresse
+      publique du serveur (Paramètres &gt; Serveur) pour pouvoir partager une application.</span>`);
   }
   if(a.running) b.push(`<a class="btn btn-ouvrir" href="${urlApplication(a.name)}" target="_blank">${svgOuvrir}Ouvrir</a>`);
   $('fa-actions').innerHTML=b.join('');
@@ -2326,8 +2326,8 @@ function ouvrirLog(n){
   logEs.onerror=()=>{
     if(!premier) return;   /* deja des lignes affichees : simple reconnexion */
     $('lg-body').textContent =
-      "Le journal n'a pas pu etre suivi.\n\n"
-      + "Cause la plus frequente : trop de journaux suivis en meme temps, "
+      "Le journal n'a pas pu être suivi.\n\n"
+      + "Cause la plus frequente : trop de journaux suivis en même temps, "
       + "depuis un autre onglet ou une autre machine. Ferme-en un et reviens ici.";
   };
 }
@@ -2368,7 +2368,7 @@ function openAdd(){
 async function browse(p){
   const d=await (await fetch('/api/browse?path='+encodeURIComponent(p))).json();
   cur=d.path; $('fb-c').textContent=d.label;
-  let h=d.hasIndex?'<div style="color:var(--ok)">&check; index.html present dans ce dossier</div>':'';
+  let h=d.hasIndex?'<div style="color:var(--ok)">&check; index.html présent dans ce dossier</div>':'';
   if(d.parent) h+=`<div onclick="browse('${d.parent}')">&#8617; Dossier parent</div>`;
   h+=d.dirs.map(n=>`<div onclick="browse('${d.path}/${n}')">&#128193; ${esc(n)}</div>`).join('');
   $('fb-l').innerHTML=h||'<div style="color:var(--dim);cursor:default">Dossier vide</div>';
@@ -2376,7 +2376,7 @@ async function browse(p){
     const dd=await (await fetch('/api/detect?path='+encodeURIComponent(cur))).json();
     if(dd.command){
       $('suggest').style.display='block';
-      let h='Suggestion detectee &mdash; lancement : <b>'+esc(dd.command)+'</b>';
+      let h='Suggestion détectée &mdash; lancement : <b>'+esc(dd.command)+'</b>';
       if(dd.build_command) h+='<br>build : <b>'+esc(dd.build_command)+'</b>';
       $('suggest').innerHTML=h+' (cliquer pour appliquer)';
       $('suggest').dataset.cmd=dd.command;
@@ -2434,20 +2434,20 @@ async function chargerPasskeys(){
   const cles=liste.passkeys||[];
   p.className='pill ' + (cles.length ? 'on' : 'off');
   p.innerHTML='<i></i>' + (cles.length
-    ? cles.length + ' cle' + (cles.length>1?'s':'')
-    : 'Aucune cle');
+    ? cles.length + ' clé' + (cles.length>1?'s':'')
+    : 'Aucune clé');
   $('pk-ajouter').disabled = !possible;
   $('pk-empechement').style.display = possible ? 'none' : 'block';
   $('pk-empechement').innerHTML = possible ? '' :
     ('<b>Indisponible ici.</b> ' + esc(etat.empechement
-      || 'Ce navigateur ne connait pas les cles d\'acces.'));
+      || 'Ce navigateur ne connait pas les clés d\'accès.'));
 
   $('pk-liste').innerHTML = cles.length ? cles.map(k=>`<div class="pk-ligne">
     <svg viewBox="0 0 24 24"><circle cx="8" cy="12" r="4"/><path d="M12 12h9"/>
     <path d="M17 12v3"/><path d="M20.5 12v2"/></svg>
     <div><b>${esc(k.nom)}</b>
-      <div class="pk-quand">Ajoutee ${esc(ilYA(k.cree))}${
-        k.dernier ? ' — derniere utilisation ' + esc(ilYA(k.dernier)) : ' — jamais utilisee'}</div></div>
+      <div class="pk-quand">Ajoutée ${esc(ilYA(k.créé))}${
+        k.dernier ? ' — dernière utilisation ' + esc(ilYA(k.dernier)) : ' — jamais utilisée'}</div></div>
     <div class="spacer"></div>
     <button class="btn btn-default btn-sm" onclick="pkSupprimer('${esc(k.id)}')">Retirer</button>
   </div>`).join('') : '';
@@ -2464,7 +2464,7 @@ async function pkAjouter(){
   try{
     const r=await fetch('/api/mon-compte/passkeys/options',{method:'POST'});
     const o=await r.json();
-    if(!r.ok){ pkMessage(o.error||'Preparation impossible.', true); return; }
+    if(!r.ok){ pkMessage(o.error||'Préparation impossible.', true); return; }
     /* Le serveur envoie du base64url ; l'API du navigateur veut des octets. */
     o.challenge=b64urlVersOctets(o.challenge);
     o.user.id=b64urlVersOctets(o.user.id);
@@ -2484,7 +2484,7 @@ async function pkAjouter(){
     if(!r2.ok){ pkMessage(d2.error||'Enregistrement impossible.', true); return; }
     $('pk-nom').value='';
     await chargerPasskeys();
-    pkMessage('Cle enregistree. Tu peux desormais te connecter avec.', false);
+    pkMessage('Clé enregistrée. Tu peux desormais te connecter avec.', false);
   }catch(e){
     /* Annulation de l'utilisateur comprise : ce n'est pas une panne. */
     pkMessage(e && e.name==='NotAllowedError'
@@ -2493,7 +2493,7 @@ async function pkAjouter(){
 }
 
 async function pkSupprimer(id){
-  if(!await demander("Retirer cette cle d'acces ?",
+  if(!await demander("Retirer cette clé d'accès ?",
     "L'appareil qui la porte n'ouvrira plus ce compte. Tu peux en enregistrer une autre a tout moment.",
     'Retirer')) return;
   const r=await fetch('/api/mon-compte/passkeys/'+encodeURIComponent(id),{method:'DELETE'});
@@ -2532,11 +2532,11 @@ function ligneActivite(e){
        qu'une cle d'acces, et c'est ce qu'on regarde en cas de doute. */
     if(e.moyen) quoi += ' par ' + esc(e.moyen);
   }
-  else if(e.genre==='echec') quoi = '<b style="color:var(--err)">connexion refusee</b> — ' + esc(e.motif||'');
+  else if(e.genre==='echec') quoi = '<b style="color:var(--err)">connexion refusée</b> — ' + esc(e.motif||'');
   else if(e.genre==='ouverture') quoi = 'a ouvert <b>' + esc(e.app||'') + '</b>';
   /* Les cles d'acces ajoutees ou retirees passaient par la branche des
      ouvertures : le journal affichait « a ouvert » suivi de rien. */
-  else if(e.genre==='passkey') quoi = "cle d'acces — " + esc(e.action||'');
+  else if(e.genre==='passkey') quoi = "clé d'accès — " + esc(e.action||'');
   else quoi = esc(e.genre||'');
   return `<tr>
     <td class="act-quand" title="${esc(quandPrecis(e.ts))}">${esc(ilYA(e.ts))}</td>
@@ -2555,7 +2555,7 @@ function tableauActivite(evenements, vide){
 function peindreConnexions(){
   const liste=(activite.evenements||[]).slice(0,40);
   $('ac-connexions').innerHTML = tableauActivite(liste,
-    'Rien encore. Le journal se remplit a la premiere connexion.');
+    'Rien encore. Le journal se remplit à la première connexion.');
 }
 /* La derniere connexion de chaque compte, sous son nom : c'est ce qu'on
    cherche en ouvrant cette page, avant meme le journal complet. */
@@ -2564,7 +2564,7 @@ function peindreComptesActivite(){
   document.querySelectorAll('#us-liste [data-activite]').forEach(n=>{
     const c=r[n.dataset.activite];
     n.textContent = c && c.derniere
-      ? ` — derniere connexion ${ilYA(c.derniere)}`
+      ? ` — dernière connexion ${ilYA(c.dernière)}`
       : ' — jamais connecte';
   });
 }
@@ -2576,7 +2576,7 @@ function peindreActiviteFiche(){
   const gens=Object.keys(a.qui||{});
   $('ac-gens').textContent=gens.length;
   $('ac-derniere').textContent = a.derniere
-    ? 'Derniere ouverture ' + ilYA(a.derniere) + '.'
+    ? 'Dernière ouverture ' + ilYA(a.derniere) + '.'
     : 'Jamais ouverte depuis que le journal existe.';
   const paires=gens.map(q=>[q, a.qui[q]]).sort((x,y)=>y[1]-x[1]);
   $('ac-repartition').innerHTML = paires.length
@@ -2584,7 +2584,7 @@ function peindreActiviteFiche(){
         <span class="v">${n}</span></div>`).join('')
     : '<div class="act-vide">Personne pour l\'instant.</div>';
   const propres=(activite.evenements||[]).filter(e=>e.genre==='ouverture' && e.app===ficheNom).slice(0,20);
-  $('ac-liste').innerHTML = tableauActivite(propres, 'Aucune ouverture enregistree.');
+  $('ac-liste').innerHTML = tableauActivite(propres, 'Aucune ouverture enregistrée.');
 }
 
 /* ---------------- comptes utilisateurs ---------------- */
@@ -2649,18 +2649,18 @@ function usLigne(c){
   const badges=[];
   if(c.attente_email) badges.push('<span class="pill err"><i></i>Inscription a confirmer</span>');
   if(!c.totp) badges.push('<span class="pill off"><i></i>2FA en attente</span>');
-  if(c.passkeys) badges.push(`<span class="pill on"><i></i>${c.passkeys} cle${c.passkeys>1?'s':''}</span>`);
+  if(c.passkeys) badges.push(`<span class="pill on"><i></i>${c.passkeys} clé${c.passkeys>1?'s':''}</span>`);
   const projets = c.projets.length
     ? c.projets.length + ' projet' + (c.projets.length>1?'s':'')
     : 'aucun projet';
   const adresse = c.email
-    ? esc(c.email) + (c.email_verifie ? ' (verifiee)' : ' (non verifiee)')
+    ? esc(c.email) + (c.email_verifie ? ' (vérifiée)' : ' (non vérifiée)')
     : 'sans adresse';
   return `<div class="us-ligne">
     <div class="us-rond">${esc((c.nom||'?').slice(0,1))}</div>
     <div class="us-corps">
       <div class="us-nom"><b>${esc(c.nom)}</b>${badges.join('')}</div>
-      <div class="us-meta">${adresse} — ${projets}<span data-activite="${esc(c.nom)}"></span></div>
+      <div class="us-meta">${adresse} — ${projets}<span data-activité="${esc(c.nom)}"></span></div>
     </div>
     <button class="btn btn-default btn-sm" onclick="usOuvrir('${esc(c.nom)}')">Modifier</button>
   </div>`;
@@ -2670,7 +2670,7 @@ function usPeindreListe(){
   const zone=$('us-liste'), barre=$('us-pagination');
   if(!usTous.length){
     zone.innerHTML='<div class="vide"><b>Aucun compte</b>'
-      +'Toi seul peux ouvrir les projets prives. Cree un compte pour partager '
+      +'Toi seul peux ouvrir les projets privés. Créé un compte pour partager '
       +'un projet avec quelqu\'un sans lui donner l\'administration.</div>';
     barre.style.display='none';
     return;
@@ -2789,36 +2789,36 @@ function usPeindreFiche(){
   if(!c){ hide('ov-user'); return; }
   $('us-f-titre').textContent=c.nom;
   $('us-f-sous').textContent = c.cree
-    ? 'Compte cree ' + ilYA(c.cree) + '.'
+    ? 'Compte créé ' + ilYA(c.cree) + '.'
     : 'Compte utilisateur.';
   $('us-f-err').style.display='none';
   $('us-f-mail').value=c.email||'';
   $('us-f-mdp').value='';
   $('us-f-mail-etat').textContent = !c.email
-    ? "Aucune adresse. La personne peut en declarer une elle-meme depuis ses parametres."
+    ? "Aucune adresse. La personne peut en déclarer une elle-même depuis ses paramètres."
     : (c.attente_email
-      ? "Adresse jamais confirmee : ce compte ne peut pas se connecter tant qu'un code envoye dessus n'est pas revenu."
+      ? "Adresse jamais confirmee : ce compte ne peut pas se connecter tant qu'un code envoyé dessus n'est pas revenu."
       : (c.email_verifie
-        ? "Adresse verifiee par un code recu dessus."
-        : "Adresse non verifiee : la personne la confirmera depuis ses parametres."));
+        ? "Adresse vérifiée par un code reçu dessus."
+        : "Adresse non vérifiée : la personne la confirmera depuis ses paramètres."));
 
   /* Une case par projet declare : la liste complete rend lisible ce qui est
      autorise ET ce qui ne l'est pas. */
   $('us-f-projets').innerHTML = apps.length ? apps.map(a=>{
     const coche = c.projets.includes(a.name) ? ' checked' : '';
     const prive = a.visibility==='privee';
-    return `<label class="us-case${prive?'':' us-public'}">
+    return `<label class="us-case${privé?'':' us-public'}">
       <input type="checkbox" value="${esc(a.name)}"${coche}>
-      ${esc(a.name)}${prive?'':' <span>(public)</span>'}</label>`;
-  }).join('') : '<div class="hint">Aucun projet declare.</div>';
+      ${esc(a.name)}${privé?'':' <span>(public)</span>'}</label>`;
+  }).join('') : '<div class="hint">Aucun projet déclaré.</div>';
 
   const morceaux=[];
   morceaux.push(c.totp
-    ? 'Second facteur enregistre.'
-    : "Second facteur en attente : il sera enregistre a la premiere connexion.");
+    ? 'Second facteur enregistré.'
+    : "Second facteur en attente : il sera enregistré à la première connexion.");
   morceaux.push(c.passkeys
-    ? `${c.passkeys} cle${c.passkeys>1?'s':''} d'acces enregistree${c.passkeys>1?'s':''}.`
-    : "Aucune cle d'acces.");
+    ? `${c.passkeys} clé${c.passkeys>1?'s':''} d'accès enregistrée${c.passkeys>1?'s':''}.`
+    : "Aucune clé d'accès.");
   morceaux.push("Tu ne connais jamais ces secrets : en cas d'appareil perdu, remets-les a zero "
     + "et la personne en enregistrera de nouveaux.");
   $('us-f-facteurs').textContent = morceaux.join(' ');
@@ -2845,7 +2845,7 @@ async function usEcrire(corps, message){
 
 async function usEnregistrer(){
   const mdp=$('us-f-mdp').value;
-  if(mdp && mdp.length<8) return usFicheErreur('Mot de passe : 8 caracteres au minimum.');
+  if(mdp && mdp.length<8) return usFicheErreur('Mot de passe : 8 caractères au minimum.');
   const projets=[...document.querySelectorAll('#us-f-projets input:checked')].map(i=>i.value);
   const corps={email:$('us-f-mail').value.trim(), projets};
   if(mdp) corps.mot_de_passe=mdp;
@@ -2862,11 +2862,11 @@ async function usCreer(){
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({nom, mot_de_passe:mdp, email, projets:[]})});
   const d=await r.json();
-  if(!r.ok){ usErreur(d.error||'Creation impossible.'); return; }
+  if(!r.ok){ usErreur(d.error||'Création impossible.'); return; }
   $('us-nom').value=''; $('us-mdp').value=''; $('us-mail').value='';
   usFormulaire(false);
   await chargerUtilisateurs();
-  notifier('Compte « ' + d.nom + ' » cree. Ouvre-le pour lui autoriser des projets.');
+  notifier('Compte « ' + d.nom + ' » créé. Ouvre-le pour lui autoriser des projets.');
 }
 
 /* L'inscription libre suit le serveur d'envoi : sans mail, aucun moyen de
@@ -2877,10 +2877,10 @@ async function chargerInscriptionLibre(){
   const z=$('us-inscription-libre');
   z.style.display='block';
   z.innerHTML = d.ouverte
-    ? '<b>L\'inscription libre est ouverte</b> sur la page de connexion. Un compte cree ainsi '
-      + 'n\'ouvre <b>aucun projet</b> tant que tu ne lui en autorises pas.'
-    : '<b>L\'inscription libre est fermee</b> : sans serveur d\'envoi (Parametres &gt; E-mail), '
-      + 'une adresse declaree ne peut pas etre verifiee.';
+    ? '<b>L\'inscription libre est ouverte</b> sur la page de connexion. Un compte créé ainsi '
+      + 'n\'ouvre <b>aucun projet</b> tant que tu ne lui en autorisés pas.'
+    : '<b>L\'inscription libre est fermee</b> : sans serveur d\'envoi (Paramètres &gt; E-mail), '
+      + 'une adresse déclarée ne peut pas être vérifiée.';
 }
 
 /* ---------------- mon adresse mail ---------------- */
@@ -2895,7 +2895,7 @@ async function chargerMonCompte(){
   const p=$('mail-etat');
   p.className = 'pill ' + (monCompte.email_verifie ? 'on' : 'off');
   p.innerHTML = '<i></i>' + (monCompte.email_verifie ? 'Verifiee'
-    : (monCompte.email ? 'Non verifiee' : 'Aucune adresse'));
+    : (monCompte.email ? 'Non vérifiée' : 'Aucune adresse'));
   $('mail-sans-smtp').style.display = monCompte.smtp ? 'none' : 'block';
   $('mail-save').disabled = !monCompte.smtp;
   $('mail-renvoyer').style.display =
@@ -2934,36 +2934,36 @@ async function mailConfirmer(){
   if(!r.ok){ mailMessage(d.error||'Confirmation impossible.', true); return; }
   $('mail-code').value='';
   await chargerMonCompte();
-  mailMessage('Adresse verifiee.', false);
+  mailMessage('Adresse vérifiée.', false);
 }
 
 async function usReinitTotp(){
   const nom=usCourant;
   if(!await demander('Reinitialiser le second facteur ?',
-    `« ${nom} » enregistrera une nouvelle cle a sa prochaine connexion. A faire quand la personne `
-    + `a change ou perdu son telephone.`, 'Reinitialiser')) return;
+    `« ${nom} » enregistrera une nouvelle clé a sa prochaine connexion. A faire quand la personne `
+    + `a change ou perdu son téléphone.`, 'Reinitialiser')) return;
   if(await usEcrire({reinitialiser_totp:true}))
     notifier('Second facteur remis a zero pour « ' + nom + ' ».');
 }
 
 async function usRetirerCles(){
   const nom=usCourant;
-  if(!await demander("Retirer les cles d'acces ?",
-    `Les appareils de « ${nom} » ne l'ouvriront plus. Elle pourra en enregistrer de nouveaux apres `
-    + `s'etre connectee avec son mot de passe.`, 'Retirer')) return;
+  if(!await demander("Retirer les clés d'accès ?",
+    `Les appareils de « ${nom} » ne l'ouvriront plus. Elle pourra en enregistrer de nouveaux après `
+    + `s'être connectee avec son mot de passe.`, 'Retirer')) return;
   if(await usEcrire({retirer_passkeys:true}))
-    notifier("Cles d'acces retirees pour « " + nom + " ».");
+    notifier("Clés d'accès retirées pour « " + nom + " ».");
 }
 
 async function usSupprimer(){
   const nom=usCourant;
   if(!await demander('Supprimer le compte « ' + nom + ' » ?',
-    "Le compte et ses cles d'acces disparaissent. Ses sessions ouvertes n'autoriseront plus rien.",
+    "Le compte et ses clés d'accès disparaissent. Ses sessions ouvertes n'autoriseront plus rien.",
     'Supprimer', true)) return;
   const r=await fetch('/api/utilisateurs/'+encodeURIComponent(nom),{method:'DELETE'});
   if(!r.ok){ const d=await r.json(); usFicheErreur(d.error||'Suppression impossible.'); return; }
   hide('ov-user');
-  notifier('Compte « ' + nom + ' » supprime.');
+  notifier('Compte « ' + nom + ' » supprimé.');
   chargerUtilisateurs();
 }
 
@@ -3004,7 +3004,7 @@ async function chargerAlertes(){
   ps.className='pill '+(d.smtp_ok?'on':'off');
   ps.innerHTML='<i></i>'+(d.smtp_ok
     ? (d.source==='personnalisee' ? 'Personnalisee' : 'Configuration d\'origine')
-    : 'Non configure');
+    : 'Non configuré');
 
   /* Le formulaire montre la configuration PERSONNALISEE, jamais celle
      d'origine : sinon enregistrer la recopierait dans smtp.json, et l'on
@@ -3043,7 +3043,7 @@ async function chargerAlertes(){
        + (d.source==='personnalisee' && d.origine_utilisable
           ? ', avec celle d\'origine en repli.' : '.'))
     : 'Aucun serveur d\'envoi utilisable : les alertes ne partiront pas. '
-      + 'Regle-le dans l\'onglet <b>E-mail</b>.';
+      + 'Réglé-le dans l\'onglet <b>E-mail</b>.';
 
   peindreAlertesParApp(d);
 
@@ -3060,7 +3060,7 @@ function peindreAlertesParApp(d){
   const apps = d.par_application || {};
   const noms = Object.keys(apps);
   if(!noms.length){
-    zone.innerHTML='<div class="hint">Aucune application declaree.</div>';
+    zone.innerHTML='<div class="hint">Aucune application déclarée.</div>';
     return;
   }
   const admin = (d.admin||[]).join(', ');
@@ -3086,7 +3086,7 @@ async function alAppEnregistrer(nom){
       : (d.error||'Enregistrement impossible.');
     m.style.display='block';
     if(r.ok) await chargerAlertes();
-  }catch(e){ m.textContent='Erreur reseau.'; m.style.display='block'; }
+  }catch(e){ m.textContent='Erreur réseau.'; m.style.display='block'; }
 }
 
 /* Ce que les deux onglets envoient. Les champs des deux sont dans le
@@ -3120,7 +3120,7 @@ async function alPoster(corps, bouton, ou){
       return false;
     }
     return true;
-  }catch(e){ alMessage('Erreur reseau.', true, ou); return false; }
+  }catch(e){ alMessage('Erreur réseau.', true, ou); return false; }
   finally{ b.disabled=false; b.textContent=avant; }
 }
 
@@ -3129,8 +3129,8 @@ async function alEnregistrer(ou){
   alMessage('', false, prefixe);
   if(await alPoster(alCorps(), prefixe+'-save', prefixe)){
     await chargerAlertes();
-    alMessage(prefixe==='sm' ? 'Serveur verifie et enregistre.'
-                             : 'Reglages enregistres.', false, prefixe);
+    alMessage(prefixe==='sm' ? 'Serveur vérifié et enregistré.'
+                             : 'Réglages enregistrés.', false, prefixe);
   }
 }
 
@@ -3178,33 +3178,33 @@ async function chargerSecurite(){
     ['Double authentification', d.totp ? OK : ABSENT,
      d.totp
        ? "Un code a six chiffres est exige en plus du mot de passe."
-       : "Le mot de passe seul donne l'execution de commandes sur cette machine. "
+       : "Le mot de passe seul donne l'exécution de commandes sur cette machine. "
          + "A activer ci-dessous, surtout avant d'exposer ce panneau.",
      'securite'],
-    ['Cles d\'acces', d.passkeys ? OK : ABSENT,
+    ['Clés d\'accès', d.passkeys ? OK : ABSENT,
      d.passkeys
-       ? (d.passkeys + ' cle' + (d.passkeys>1?'s':'') + ' enregistree'
+       ? (d.passkeys + ' clé' + (d.passkeys>1?'s':'') + ' enregistrée'
           + (d.passkeys>1?'s':'') + ' : connexion par empreinte ou code de l\'appareil.')
        : "Optionnel, mais c'est le moyen de connexion le plus solide : rien a taper, "
-         + "rien qui puisse etre rejoue ailleurs.",
+         + "rien qui puisse être rejoue ailleurs.",
      'securite'],
-    ['Administration sur le reseau local', d.admin_reseau_local ? OK : (expose ? ABSENT : HORS),
+    ['Administration sur le réseau local', d.admin_reseau_local ? OK : (expose ? ABSENT : HORS),
      d.admin_reseau_local
        ? "Le compte d'administration ne repond qu'aux adresses de chez toi. Les comptes "
          + "nommes entrent toujours de n'importe ou."
        : (expose
           ? "Ce panneau est joignable de l'exterieur et l'administration y repond. Un mot de "
             + "passe qui fuit suffirait. A cocher dans l'onglet Serveur, depuis chez toi."
-          : "Sans objet tant que ce panneau ne sort pas du reseau local."),
+          : "Sans objet tant que ce panneau ne sort pas du réseau local."),
      'serveur'],
     ['Connexion chiffree (HTTPS)', d.https_constate ? OK : (expose ? REQUIS : HORS),
      d.https_constate
        ? "Cette page arrive en https : mot de passe, code et cookie sont chiffres en transit."
        : (expose
-          ? "Mot de passe, code a six chiffres et cookie de session traversent le reseau "
-            + "lisibles. C'est la seule etape qui demande du travail : un tunnel, un Caddy, ou "
+          ? "Mot de passe, code à six chiffres et cookie de session traversent le réseau "
+            + "lisibles. C'est la seule étape qui demande du travail : un tunnel, un Caddy, ou "
             + "un VPS devant. Voir le README, section « Sortir de chez toi »."
-          : "Sans objet sur un reseau local de confiance."),
+          : "Sans objet sur un réseau local de confiance."),
      null],
     ['Cookie de session en Secure', d.cookie_secure ? OK : (d.https_constate ? REQUIS : HORS),
      d.cookie_secure
@@ -3215,13 +3215,13 @@ async function chargerSecurite(){
           : "A poser une fois le TLS en place, pas avant : le navigateur cesserait d'envoyer "
             + "le cookie et ta session tomberait au rechargement."),
      'serveur'],
-    ['Adresse reelle des visiteurs', d.trust_proxy ? OK : (expose ? ABSENT : HORS),
+    ['Adresse réelle des visiteurs', d.trust_proxy ? OK : (expose ? ABSENT : HORS),
      d.trust_proxy
        ? "Les adresses viennent de X-Forwarded-For : la limite de tentatives et le journal "
          + "distinguent les visiteurs."
        : (expose
-          ? "Derriere un proxy non declare, tous les visiteurs comptent pour un seul : la "
-            + "limite de tentatives de connexion ne protege plus rien. A cocher dans l'onglet "
+          ? "Derriere un proxy non déclaré, tous les visiteurs comptent pour un seul : la "
+            + "limite de tentatives de connexion ne protégé plus rien. A cocher dans l'onglet "
             + "Serveur — et seulement s'il y a vraiment un proxy devant."
           : "Sans objet sans proxy devant."),
      'serveur'],
@@ -3229,9 +3229,9 @@ async function chargerSecurite(){
      d.origines_separees
        ? ("Servies depuis " + (d.origine_applications||'un autre port')
           + " : une faille dans l'une d'elles n'atteint pas le panneau.")
-       : ("Les applications sont servies par le panneau lui-meme, donc dans la MEME origine : "
+       : ("Les applications sont servies par le panneau lui-même, donc dans la MEME origine : "
           + "une faille dans une application quelconque peut lire cette page et piloter la "
-          + "stack. Publie le port " + (d.port_applications||9002) + " dans docker-compose.yml."),
+          + "stack. Publié le port " + (d.port_applications||9002) + " dans docker-compose.yml."),
      null],
   ];
 
@@ -3250,7 +3250,7 @@ async function chargerSecurite(){
     ? 'Ce panneau est <b>joignable depuis l\'exterieur</b>. Tout ce qui suit compte.'
       + (manque ? ' <b>' + manque + ' point' + (manque>1?'s':'')
                   + ' demande' + (manque>1?'nt':'') + ' ton attention.</b>' : '')
-    : 'Ce panneau <b>ne sort pas du reseau local</b> : aucune adresse publique declaree, '
+    : 'Ce panneau <b>ne sort pas du réseau local</b> : aucune adresse publique déclarée, '
       + 'aucun chiffrement constate. Les controles lies a internet sont marques '
       + '« sans objet » — ils le redeviendront le jour ou tu le publieras.';
 
@@ -3261,7 +3261,7 @@ async function chargerSecurite(){
   $('sec-liste').innerHTML = lignes.map(([nom, etat, aide, onglet])=>{
     const [cls, mot] = etiquette[etat];
     const lien = (onglet && etat!==OK && etat!==HORS)
-      ? ` <a href="#" onclick="paramOnglet('${onglet}');return false">aller au reglage</a>` : '';
+      ? ` <a href="#" onclick="paramOnglet('${onglet}');return false">aller au réglage</a>` : '';
     return `<div class="kv"><span class="k">${esc(nom)}</span>
       <span class="v"><span class="pill ${cls}"><i></i>${mot}</span></span></div>
       <div class="hint" style="margin:-2px 0 12px">${esc(aide)}${lien}</div>`;
@@ -3279,24 +3279,24 @@ async function chargerSecurite(){
   };
   poser('expo-proxy', d.trust_proxy, d.trust_proxy_fige, d.peut_activer_trust_proxy,
         "Les adresses des visiteurs viennent de X-Forwarded-For.",
-        "Aucun en-tete <b>X-Forwarded-*</b> sur cette requete : rien ne prouve qu'un proxy est "
+        "Aucun en-tete <b>X-Forwarded-*</b> sur cette requête : rien ne prouve qu'un proxy est "
         + "devant. L'activer laisserait n'importe quel client s'inventer une adresse.",
         "Fixe par APP_MANAGER_TRUST_PROXY dans le compose.");
   poser('expo-https', d.https, d.https_fige, d.peut_activer_https,
         "Le cookie de session est marque Secure.",
-        "Cette page n'arrive pas en https" + (d.https_constate ? "" : " et rien ne l'annonce")
+        "Cette page n'arrive pas en https" + (d.https_constate ? "" : " et rien ne l'annoncé")
         + ". Mets le TLS en place, reviens par https, et la case s'activera"
-        + (d.https_constate && !d.trust_proxy ? " — ou declare d'abord ton proxy ci-dessus." : "."),
+        + (d.https_constate && !d.trust_proxy ? " — ou déclaré d'abord ton proxy ci-dessus." : "."),
         "Fixe par APP_MANAGER_HTTPS dans le compose.");
   poser('expo-admin-lan', d.admin_reseau_local, d.admin_reseau_local_fige,
         d.peut_activer_admin_reseau_local,
-        "Le compte d'administration ne repond qu'aux adresses du reseau local. "
+        "Le compte d'administration ne repond qu'aux adresses du réseau local. "
         + "Les comptes nommes, eux, entrent toujours de n'importe ou.",
         (d.proxy_non_declare
-          ? ("Un proxy non declare s'interpose : toutes les requetes paraitraient locales, "
-             + "et ce reglage ne protegerait rien. Declare-le ci-dessus d'abord.")
-          : ("Cette requete vient de <b>" + esc(d.client_ip||'?') + "</b>, hors du reseau local. "
-             + "L'activer maintenant te retirerait l'administration a l'instant meme. "
+          ? ("Un proxy non déclaré s'interpose : toutes les requêtes paraitraient locales, "
+             + "et ce réglage ne protegerait rien. Déclaré-le ci-dessus d'abord.")
+          : ("Cette requête vient de <b>" + esc(d.client_ip||'?') + "</b>, hors du réseau local. "
+             + "L'activer maintenant te retirerait l'administration à l'instant même. "
              + "Reconnecte-toi depuis chez toi et la case s'activera.")),
         "Fixe par APP_MANAGER_ADMIN_LAN_ONLY dans le compose.");
 
@@ -3307,7 +3307,7 @@ async function chargerSecurite(){
   $('pub-fige').style.display = d.adresse_figee ? 'block' : 'none';
   const pp=$('pub-etat');
   pp.className='pill ' + (adressePublique ? 'on' : 'off');
-  pp.innerHTML='<i></i>' + (adressePublique ? 'Declaree' : 'Serveur prive');
+  pp.innerHTML='<i></i>' + (adressePublique ? 'Declaree' : 'Serveur privé');
   /* La fiche ouverte et le formulaire d'ajout suivent : ce qu'ils proposent
      depend de cette reponse. */
   if(ficheNom) peindreFiche();
@@ -3364,26 +3364,26 @@ async function chargerVps(){
   p.innerHTML='<i></i>'+faites+' sur '+etapes.length;
 
   $('vps-diagnostic').innerHTML = etapes.map(e=>
-    `<div class="kv"><span class="k">${esc(e.etape)}</span>
+    `<div class="kv"><span class="k">${esc(e.étape)}</span>
      <span class="v"><span class="pill ${e.ok?'on':'off'}"><i></i>${e.ok?'fait':'non'}</span></span></div>`
     + (e.ok ? '' : `<div class="hint" style="margin:-2px 0 10px">${esc(e.aide)}</div>`)).join('');
 
   const zone=$('vps-fichiers');
   if(d.modeles_absents){
-    zone.innerHTML='<div class="hint">Les modeles de configuration ne sont pas presents dans '
+    zone.innerHTML='<div class="hint">Les modèles de configuration ne sont pas présents dans '
       + 'cette image. Ils vivent dans <code>app-manager/vps/</code> du depot.</div>';
     return;
   }
-  /* Repliés par defaut : quatre fichiers deroules d'un coup noient la page,
+  /* Replies par defaut : quatre fichiers deroules d'un coup noient la page,
      et on n'en copie qu'un a la fois. */
   zone.innerHTML=(d.fichiers||[]).map((f,i)=>
-    `<details style="margin-bottom:8px">
+    `<détails style="margin-bottom:8px">
        <summary style="cursor:pointer"><b>${esc(f.destination)}</b></summary>
        <div class="actions" style="margin:8px 0">
          <button class="btn btn-default btn-sm" onclick="vpsCopier(${i})">Copier</button>
        </div>
        <pre class="pre-conf" id="vps-f${i}">${esc(f.contenu)}</pre>
-     </details>`).join('');
+     </détails>`).join('');
 }
 
 async function vpsCopier(i){
@@ -3397,7 +3397,7 @@ async function vpsCopier(i){
        rien proposer. */
     const sel=window.getSelection(); const r=document.createRange();
     r.selectNodeContents(bloc); sel.removeAllRanges(); sel.addRange(r);
-    notifier('Presse-papier indisponible : le texte est selectionne, fais Ctrl+C.', 'err');
+    notifier('Presse-papier indisponible : le texte est sélectionné, fais Ctrl+C.', 'err');
   }
 }
 
@@ -3414,11 +3414,11 @@ async function vpsEnregistrer(){
     const d=await r.json();
     if(!r.ok){ e.textContent=d.error||'Enregistrement impossible.'; e.style.display='block'; }
     else{
-      m.textContent='Enregistre. Les fichiers ci-dessous portent tes valeurs.';
+      m.textContent='Enregistré. Les fichiers ci-dessous portent tes valeurs.';
       m.style.display='block';
       await chargerVps();
     }
-  }catch(err){ e.textContent='Erreur reseau.'; e.style.display='block'; }
+  }catch(err){ e.textContent='Erreur réseau.'; e.style.display='block'; }
   finally{ b.disabled=false; }
 }
 
@@ -3431,7 +3431,7 @@ async function mdpChanger(){
      frappe, pas une regle de securite, et un aller-retour pour le dire
      serait du bruit. */
   if(nouveau !== $('mdp-repeter').value){
-    e.textContent='Les deux saisies different.'; e.style.display='block'; return;
+    e.textContent='Les deux saisies différent.'; e.style.display='block'; return;
   }
   const b=$('mdp-save'); b.disabled=true;
   try{
@@ -3448,7 +3448,7 @@ async function mdpChanger(){
         + 'la prochaine connexion demandera le nouveau.';
       m.style.display='block';
     }
-  }catch(err){ e.textContent='Erreur reseau.'; e.style.display='block'; }
+  }catch(err){ e.textContent='Erreur réseau.'; e.style.display='block'; }
   finally{ b.disabled=false; }
 }
 
@@ -3467,7 +3467,7 @@ function prefTaille(){
 async function totpPreparer(){
   const r=await fetch('/api/securite/totp/preparer',{method:'POST'});
   const d=await r.json();
-  if(!r.ok){ notifier(d.error||'Preparation impossible.', 'err'); return; }
+  if(!r.ok){ notifier(d.error||'Préparation impossible.', 'err'); return; }
   $('totp-secret').value=d.secret;
   montrerQr(d.qr);
   $('totp-etape-1').style.display='none';

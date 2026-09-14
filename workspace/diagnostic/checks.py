@@ -2513,7 +2513,9 @@ def test_une_adresse_privee_est_refusee(vps):
     marcher -- autant le dire tout de suite qu'apres trois copies."""
     r = vps.put("/api/vps", json={"domaine": "x.fr", "ip": "192.168.1.50"})
     assert r.status_code == 400, r.data
-    assert "privee" in r.get_json()["error"]
+    # Fragment sans accent : ce fichier est du code, et le code de ce depot
+    # s'ecrit sans accents. Le message, lui, en porte -- il est lu par un humain.
+    assert "adresse publique" in r.get_json()["error"]
     assert app.lire_vps()["ip"] == ""
 
 
@@ -3729,7 +3731,7 @@ def test_on_n_active_pas_ce_reglage_depuis_l_exterieur(exposition):
     r = c.put("/api/securite/exposition", json={"admin_reseau_local": True},
               environ_base=DEHORS)
     assert r.status_code == 400, r.data
-    assert "reseau local" in r.get_json()["error"]
+    assert "ne vient pas du" in r.get_json()["error"]
     assert app.admin_limite_au_reseau_local() is False
 
 
