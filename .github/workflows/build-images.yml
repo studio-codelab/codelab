@@ -91,8 +91,15 @@ jobs:
         with:
           python-version: "3.14"
 
+      # webauthn est la pour une raison precise : sans elle, les tests des
+      # cles d'acces s'IGNORENT au lieu d'echouer -- pytest.skip, vert au
+      # tableau de bord, et personne ne voit qu'un chemin
+      # d'authentification n'est plus couvert. C'est ainsi qu'un verrou
+      # d'administration verifie en local peut partir non verifie en CI.
+      # Version alignee sur celle de app-manager/Dockerfile : tester une
+      # autre version que celle qu'on livre ne prouve pas grand-chose.
       - name: Dependances
-        run: pip install flask psutil requests pytest
+        run: pip install flask psutil requests pytest webauthn==3.0.0
 
       - name: pytest
         run: python -m pytest workspace/diagnostic/checks.py -q
