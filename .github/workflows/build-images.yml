@@ -91,15 +91,21 @@ jobs:
         with:
           python-version: "3.14"
 
-      # webauthn est la pour une raison precise : sans elle, les tests des
-      # cles d'acces s'IGNORENT au lieu d'echouer -- pytest.skip, vert au
-      # tableau de bord, et personne ne voit qu'un chemin
-      # d'authentification n'est plus couvert. C'est ainsi qu'un verrou
-      # d'administration verifie en local peut partir non verifie en CI.
-      # Version alignee sur celle de app-manager/Dockerfile : tester une
-      # autre version que celle qu'on livre ne prouve pas grand-chose.
+      # webauthn et qrcode sont la pour une raison precise : sans elles, des
+      # tests s'IGNORENT au lieu d'echouer -- pytest.skip, vert au tableau de
+      # bord, et personne ne voit qu'un pan entier n'est plus couvert.
+      #
+      # Mesure du jour ou elles ont ete ajoutees : cinq tests ne tournaient
+      # pas faute de webauthn (toute la section des cles d'acces, muette
+      # depuis son introduction), et deux faute de qrcode -- dont celui qui
+      # verifie qu'aucun secret ne sort dans l'URL du QR code.
+      #
+      # REGLE : ce que l'image embarque, la CI l'installe. Les versions sont
+      # alignees sur app-manager/Dockerfile -- tester une autre version que
+      # celle qu'on livre ne prouve pas grand-chose. En ajouter une ici sans
+      # l'ajouter la-bas, ou l'inverse, remet des tests en sommeil.
       - name: Dependances
-        run: pip install flask psutil requests pytest webauthn==3.0.0
+        run: pip install flask psutil requests pytest webauthn==3.0.0 qrcode==8.2
 
       - name: pytest
         run: python -m pytest workspace/diagnostic/checks.py -q
