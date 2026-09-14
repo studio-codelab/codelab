@@ -395,6 +395,12 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
 .us-pages{display:flex;gap:12px;align-items:center;justify-content:center;
   margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
 .us-pages .hint{margin:0}
+/* Les fichiers de configuration du VPS : du texte a copier tel quel, donc
+   monospace et defilement horizontal plutot qu'un retour a la ligne qui
+   casserait une directive nginx. */
+.pre-conf{background:var(--surface);border:1px solid var(--line);border-radius:8px;
+  padding:12px;overflow-x:auto;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:12px;line-height:1.5;max-height:340px;overflow-y:auto;margin:0}
 .onglet-p{display:none}
 .onglet-p.actif{display:block}
 .fiche-onglets button[data-admin]{display:none}
@@ -981,6 +987,56 @@ table.tbl-journal{min-width:560px}
   </div>
 
   <div class="zone">
+    <div class="zone-title">Mot de passe</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Changer son mot de passe</b>
+        <div class="path">Celui avec lequel tu te connectes a ce panneau.</div>
+      </div></div>
+
+      <div class="hint">L'ancien est demande meme sur cette session : sans cela, un cookie
+        capture suffirait a prendre ta place definitivement. <b>12 caracteres au minimum</b> —
+        tu le choisis toi-meme, rien n'oblige a le raccourcir.</div>
+
+      <div class="field" style="margin-top:14px"><label>Mot de passe actuel</label>
+        <input id="mdp-ancien" type="password" autocomplete="current-password"></div>
+      <div class="grid2">
+        <div class="field"><label>Nouveau mot de passe</label>
+          <input id="mdp-nouveau" type="password" autocomplete="new-password"></div>
+        <div class="field"><label>Repeter</label>
+          <input id="mdp-repeter" type="password" autocomplete="new-password"></div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" id="mdp-save" onclick="mdpChanger()">Changer</button>
+      </div>
+      <div class="err" id="mdp-err" style="display:none"></div>
+      <div class="hint" id="mdp-msg" style="display:none"></div>
+    </div>
+  </div>
+
+  <div class="zone">
+    <div class="zone-title">Affichage</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Preferences d'affichage</b>
+        <div class="path">Retenues par navigateur, pas par le serveur.</div>
+      </div></div>
+
+      <div class="hint">Ces choix ne concernent que toi et cet appareil : ils vivent dans ce
+        navigateur, et ne sont ni envoyes au serveur ni partages avec les autres comptes.</div>
+
+      <div class="field" style="margin-top:14px">
+        <label for="pref-taille">Lignes par page dans la liste des comptes</label>
+        <select id="pref-taille" onchange="prefTaille()">
+          <option value="25">25</option>
+          <option value="50">50</option>
+        </select>
+      </div>
+      <div class="hint" id="pref-msg" style="display:none"></div>
+    </div>
+  </div>
+
+  <div class="zone">
     <div class="zone-title">Session</div>
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
@@ -996,8 +1052,22 @@ table.tbl-journal{min-width:560px}
   </div>
 
   <div class="onglet-p" id="param-securite">
+  <div class="zone">
+    <div class="zone-title">Bilan</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Posture de securite</b>
+        <div class="path">Ou en est ce serveur, et ce qu'il reste a faire.</div>
+      </div>
+      <span class="pill" id="sec-note"><i></i>&nbsp;</span></div>
+
+      <div class="hint" id="sec-cadre"></div>
+      <div id="sec-liste" style="margin-top:14px"></div>
+    </div>
+  </div>
+
   <div class="zone" id="profil-securite">
-    <div class="zone-title">Securite</div>
+    <div class="zone-title">Ton compte</div>
 
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
@@ -1078,17 +1148,6 @@ table.tbl-journal{min-width:560px}
     <div class="zone-title">Serveur</div>
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
-        <b>Exposition</b>
-        <div class="path">L'etat des reglages qui comptent si ce panneau devient accessible depuis internet.</div>
-      </div></div>
-      <div id="expo-liste"></div>
-      <div class="hint">Ils se resolvent <b>dans l'ordre</b> — le premier fait le travail, les
-        deux suivants se cochent ici meme. Les cles d'acces dependent aussi du premier : le
-        navigateur refuse WebAuthn en clair.</div>
-    </div>
-
-    <div class="card settings-card">
-      <div class="card-top"><div class="card-name">
         <b>Derriere un proxy, en HTTPS</b>
         <div class="path">Les deux reglages qui suivent le passage du panneau sur internet.</div>
       </div></div>
@@ -1119,6 +1178,45 @@ table.tbl-journal{min-width:560px}
       </div>
 
       <div class="err" id="expo-err" style="display:none"></div>
+    </div>
+
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Liaison avec un VPS</b>
+        <div class="path">Un VPS devant, un tunnel derriere, et rien d'ouvert sur ta box.</div>
+      </div>
+      <span class="pill" id="vps-etat"><i></i>&nbsp;</span></div>
+
+      <div class="hint">Le VPS porte le nom de domaine et le certificat ; cette machine ne publie
+        rien sur internet et reste joignable seulement par le tunnel. Saisis les deux valeurs
+        ci-dessous et le panneau produit les fichiers de configuration, prets a copier.
+        <b>Il ne se connecte pas au VPS</b> : lui donner une cle SSH avec les droits qui vont avec
+        ferait de ce panneau la cible la plus interessante de l'installation.</div>
+
+      <div class="grid2" style="margin-top:14px">
+        <div class="field"><label>Nom de domaine</label>
+          <input id="vps-domaine" placeholder="codelab.tondomaine.fr" autocomplete="off"></div>
+        <div class="field"><label>Adresse publique du VPS</label>
+          <input id="vps-ip" placeholder="203.0.113.10" autocomplete="off"></div>
+      </div>
+      <div class="field"><label>Reseau du tunnel</label>
+        <input id="vps-reseau" placeholder="10.8.0" autocomplete="off">
+        <div class="hint">Trois nombres. N'importe quel reseau prive inutilise chez toi convient ;
+          garde 10.8.0 si tu n'as pas de raison d'en changer.</div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" id="vps-save" onclick="vpsEnregistrer()">Enregistrer</button>
+      </div>
+      <div class="err" id="vps-err" style="display:none"></div>
+      <div class="hint" id="vps-msg" style="display:none"></div>
+
+      <div class="mb-titre" style="margin-top:18px">Ou en est la liaison</div>
+      <div class="hint">Ce que le panneau <b>constate</b> sur la requete qu'il traite en ce moment.
+        Aucune de ces lignes n'est une supposition.</div>
+      <div id="vps-diagnostic" style="margin-top:10px"></div>
+
+      <div class="mb-titre" style="margin-top:18px">Fichiers a copier</div>
+      <div id="vps-fichiers"></div>
     </div>
 
     <div class="card settings-card">
@@ -1647,8 +1745,16 @@ function paramOnglet(o){
     .forEach(b=>b.classList.toggle('active', b.dataset.p===o));
   document.querySelectorAll('.onglet-p')
     .forEach(n=>n.classList.toggle('actif', n.id==='param-'+o));
-  if(o==='compte') chargerMonCompte();
+  if(o==='compte'){
+    chargerMonCompte();
+    /* La preference d'affichage vient du navigateur : elle doit etre juste
+       des l'ouverture de l'onglet, pas seulement apres une modification. */
+    const t=$('pref-taille'); if(t) t.value=String(usParPage());
+    $('pref-msg').style.display='none';
+    $('mdp-err').style.display='none'; $('mdp-msg').style.display='none';
+  }
   if(o==='securite'){ chargerPasskeys(); if(estAdmin) chargerSecurite(); }
+  if(o==='serveur' && estAdmin){ chargerSecurite(); chargerVps(); }
   if(o==='serveur') chargerSecurite();
   if(o==='categories') chargerCategories();
   /* Les deux onglets lisent la meme reponse : le serveur d'envoi et les
@@ -3061,38 +3167,105 @@ async function chargerSecurite(){
   $('totp-etape-3').style.display = d.totp ? 'block' : 'none';
   $('totp-etape-2').style.display = 'none';
 
-  /* Les trois lignes se resolvent DANS CET ORDRE, et le dire evite de poser
-     les variables trop tot : un cookie Secure sur une connexion en clair
-     n'est plus envoye, donc la session tombe au rechargement suivant. */
-  const lignes=[
-    ['1. Connexion chiffree (HTTPS)', d.https,
-     "Sans TLS, ton mot de passe, ton code a six chiffres et ton cookie de session traversent "
-     + "le reseau lisibles. C'est la seule etape qui demande du travail : un tunnel Cloudflare, "
-     + "un Caddy, ou un VPS devant. Marche a suivre dans le README, section "
-     + "« Sortir de chez toi »."],
-    ['2. Cookie de session en Secure', d.cookie_secure,
-     "La case « Servi en HTTPS », plus bas. A poser UNE FOIS le TLS en place : avant, le "
-     + "navigateur cesse d'envoyer le cookie et ta session tombe au premier rechargement — "
-     + "c'est pourquoi la case reste grisee tant que cette page n'arrive pas en https."],
-    ['3. Adresse reelle des visiteurs', d.trust_proxy,
-     "La case « Proxy de confiance », plus bas, et seulement derriere un proxy qui reecrit "
-     + "vraiment X-Forwarded-For. Sans lui, la limite de tentatives compte tout le monde comme "
-     + "un seul visiteur et le journal des acces note une seule adresse ; avec lui alors que le "
-     + "panneau est publie en direct, n'importe quel client peut annoncer l'adresse qu'il veut."],
-    ['4. Applications sur une origine a part', d.origines_separees,
+  /* LE BILAN. Trois etats, pas deux -- et c'est ce qui change tout.
+     Afficher en rouge un controle qui ne s'applique pas ici (HTTPS sur un
+     panneau qui ne sort pas du salon) apprend a ignorer la page entiere.
+     Un controle « sans objet » le dit, et ne compte pas dans la note. */
+  const expose = !!(d.adresse_publique || d.https_constate || d.trust_proxy);
+  const REQUIS = 'requis', OK = 'ok', ABSENT = 'absent', HORS = 'hors';
+
+  const lignes = [
+    ['Double authentification', d.totp ? OK : ABSENT,
+     d.totp
+       ? "Un code a six chiffres est exige en plus du mot de passe."
+       : "Le mot de passe seul donne l'execution de commandes sur cette machine. "
+         + "A activer ci-dessous, surtout avant d'exposer ce panneau.",
+     'securite'],
+    ['Cles d\'acces', d.passkeys ? OK : ABSENT,
+     d.passkeys
+       ? (d.passkeys + ' cle' + (d.passkeys>1?'s':'') + ' enregistree'
+          + (d.passkeys>1?'s':'') + ' : connexion par empreinte ou code de l\'appareil.')
+       : "Optionnel, mais c'est le moyen de connexion le plus solide : rien a taper, "
+         + "rien qui puisse etre rejoue ailleurs.",
+     'securite'],
+    ['Administration sur le reseau local', d.admin_reseau_local ? OK : (expose ? ABSENT : HORS),
+     d.admin_reseau_local
+       ? "Le compte d'administration ne repond qu'aux adresses de chez toi. Les comptes "
+         + "nommes entrent toujours de n'importe ou."
+       : (expose
+          ? "Ce panneau est joignable de l'exterieur et l'administration y repond. Un mot de "
+            + "passe qui fuit suffirait. A cocher dans l'onglet Serveur, depuis chez toi."
+          : "Sans objet tant que ce panneau ne sort pas du reseau local."),
+     'serveur'],
+    ['Connexion chiffree (HTTPS)', d.https_constate ? OK : (expose ? REQUIS : HORS),
+     d.https_constate
+       ? "Cette page arrive en https : mot de passe, code et cookie sont chiffres en transit."
+       : (expose
+          ? "Mot de passe, code a six chiffres et cookie de session traversent le reseau "
+            + "lisibles. C'est la seule etape qui demande du travail : un tunnel, un Caddy, ou "
+            + "un VPS devant. Voir le README, section « Sortir de chez toi »."
+          : "Sans objet sur un reseau local de confiance."),
+     null],
+    ['Cookie de session en Secure', d.cookie_secure ? OK : (d.https_constate ? REQUIS : HORS),
+     d.cookie_secure
+       ? "Le navigateur ne renverra ce cookie que sur une connexion chiffree."
+       : (d.https_constate
+          ? "Cette page arrive en https mais le panneau ne le sait pas encore : coche "
+            + "« Servi en HTTPS » dans l'onglet Serveur."
+          : "A poser une fois le TLS en place, pas avant : le navigateur cesserait d'envoyer "
+            + "le cookie et ta session tomberait au rechargement."),
+     'serveur'],
+    ['Adresse reelle des visiteurs', d.trust_proxy ? OK : (expose ? ABSENT : HORS),
+     d.trust_proxy
+       ? "Les adresses viennent de X-Forwarded-For : la limite de tentatives et le journal "
+         + "distinguent les visiteurs."
+       : (expose
+          ? "Derriere un proxy non declare, tous les visiteurs comptent pour un seul : la "
+            + "limite de tentatives de connexion ne protege plus rien. A cocher dans l'onglet "
+            + "Serveur — et seulement s'il y a vraiment un proxy devant."
+          : "Sans objet sans proxy devant."),
+     'serveur'],
+    ['Applications sur une origine a part', d.origines_separees ? OK : REQUIS,
      d.origines_separees
-       ? ("Tes applications sont servies depuis " + (d.origine_applications||'')
-          + ", une origine distincte de celle du panneau. Une faille dans l'une "
-          + "d'elles ne donne donc pas acces au panneau.")
+       ? ("Servies depuis " + (d.origine_applications||'un autre port')
+          + " : une faille dans l'une d'elles n'atteint pas le panneau.")
        : ("Les applications sont servies par le panneau lui-meme, donc dans la MEME origine : "
-          + "une faille XSS dans une application quelconque peut lire cette page et piloter la "
-          + "stack. Publie le port " + (d.port_applications||9002) + " dans docker-compose.yml "
-          + "(ou pose APP_MANAGER_APPS_URL derriere un proxy) pour les separer.")],
+          + "une faille dans une application quelconque peut lire cette page et piloter la "
+          + "stack. Publie le port " + (d.port_applications||9002) + " dans docker-compose.yml."),
+     null],
   ];
-  $('expo-liste').innerHTML = lignes.map(([nom,ok,aide])=>
-    `<div class="kv"><span class="k">${esc(nom)}</span>
-     <span class="v"><span class="pill ${ok?'on':'off'}"><i></i>${ok?'en place':'non'}</span></span></div>
-     <div class="hint" style="margin:-2px 0 10px">${esc(aide)}</div>`).join('');
+
+  const compte = lignes.filter(l=>l[1]!==HORS).length;
+  const acquis = lignes.filter(l=>l[1]===OK).length;
+  const manque = lignes.filter(l=>l[1]===REQUIS).length;
+
+  const note=$('sec-note');
+  note.className = 'pill ' + (manque ? 'err' : (acquis===compte ? 'on' : 'off'));
+  note.innerHTML = '<i></i>' + acquis + ' sur ' + compte;
+
+  /* Le cadre dit d'abord DANS QUEL CONTEXTE on juge : les memes reglages
+     n'ont pas la meme importance sur un serveur de salon et sur un serveur
+     publie. Sans cette phrase, la note ne veut rien dire. */
+  $('sec-cadre').innerHTML = expose
+    ? 'Ce panneau est <b>joignable depuis l\'exterieur</b>. Tout ce qui suit compte.'
+      + (manque ? ' <b>' + manque + ' point' + (manque>1?'s':'')
+                  + ' demande' + (manque>1?'nt':'') + ' ton attention.</b>' : '')
+    : 'Ce panneau <b>ne sort pas du reseau local</b> : aucune adresse publique declaree, '
+      + 'aucun chiffrement constate. Les controles lies a internet sont marques '
+      + '« sans objet » — ils le redeviendront le jour ou tu le publieras.';
+
+  const etiquette = {
+    [OK]: ['on', 'en place'], [ABSENT]: ['off', 'non'],
+    [REQUIS]: ['err', 'a corriger'], [HORS]: ['off', 'sans objet'],
+  };
+  $('sec-liste').innerHTML = lignes.map(([nom, etat, aide, onglet])=>{
+    const [cls, mot] = etiquette[etat];
+    const lien = (onglet && etat!==OK && etat!==HORS)
+      ? ` <a href="#" onclick="paramOnglet('${onglet}');return false">aller au reglage</a>` : '';
+    return `<div class="kv"><span class="k">${esc(nom)}</span>
+      <span class="v"><span class="pill ${cls}"><i></i>${mot}</span></span></div>
+      <div class="hint" style="margin:-2px 0 12px">${esc(aide)}${lien}</div>`;
+  }).join('');
 
   /* Les trois interrupteurs. Une case grisee doit TOUJOURS dire pourquoi :
      sans cela, on clique dans le vide sans savoir ce qui manque. */
@@ -3170,6 +3343,125 @@ async function pubEnregistrer(){
   const d=await r.json();
   if(!r.ok){ e.textContent=d.error||'Enregistrement impossible.'; e.style.display='block'; return; }
   chargerSecurite();
+}
+
+/* ---------------- liaison avec un VPS ---------------- */
+async function chargerVps(){
+  let d;
+  try{
+    const r=await fetch('/api/vps'); d=await r.json();
+    if(!r.ok) return;
+  }catch(e){ return; }
+
+  $('vps-domaine').value=d.reglages.domaine||'';
+  $('vps-ip').value=d.reglages.ip||'';
+  $('vps-reseau').value=d.reglages.reseau||'10.8.0';
+
+  const etapes=d.diagnostic||[];
+  const faites=etapes.filter(e=>e.ok).length;
+  const p=$('vps-etat');
+  p.className='pill '+(faites===etapes.length ? 'on' : (faites ? 'off' : 'off'));
+  p.innerHTML='<i></i>'+faites+' sur '+etapes.length;
+
+  $('vps-diagnostic').innerHTML = etapes.map(e=>
+    `<div class="kv"><span class="k">${esc(e.etape)}</span>
+     <span class="v"><span class="pill ${e.ok?'on':'off'}"><i></i>${e.ok?'fait':'non'}</span></span></div>`
+    + (e.ok ? '' : `<div class="hint" style="margin:-2px 0 10px">${esc(e.aide)}</div>`)).join('');
+
+  const zone=$('vps-fichiers');
+  if(d.modeles_absents){
+    zone.innerHTML='<div class="hint">Les modeles de configuration ne sont pas presents dans '
+      + 'cette image. Ils vivent dans <code>app-manager/vps/</code> du depot.</div>';
+    return;
+  }
+  /* Repliés par defaut : quatre fichiers deroules d'un coup noient la page,
+     et on n'en copie qu'un a la fois. */
+  zone.innerHTML=(d.fichiers||[]).map((f,i)=>
+    `<details style="margin-bottom:8px">
+       <summary style="cursor:pointer"><b>${esc(f.destination)}</b></summary>
+       <div class="actions" style="margin:8px 0">
+         <button class="btn btn-default btn-sm" onclick="vpsCopier(${i})">Copier</button>
+       </div>
+       <pre class="pre-conf" id="vps-f${i}">${esc(f.contenu)}</pre>
+     </details>`).join('');
+}
+
+async function vpsCopier(i){
+  const bloc=$('vps-f'+i); if(!bloc) return;
+  try{
+    await navigator.clipboard.writeText(bloc.textContent);
+    notifier('Configuration copiee.');
+  }catch(e){
+    /* Le presse-papier est refuse hors contexte securise : on selectionne
+       le texte pour que Ctrl+C reste possible plutot que d'echouer sans
+       rien proposer. */
+    const sel=window.getSelection(); const r=document.createRange();
+    r.selectNodeContents(bloc); sel.removeAllRanges(); sel.addRange(r);
+    notifier('Presse-papier indisponible : le texte est selectionne, fais Ctrl+C.', 'err');
+  }
+}
+
+async function vpsEnregistrer(){
+  const e=$('vps-err'), m=$('vps-msg');
+  e.style.display='none'; m.style.display='none';
+  const b=$('vps-save'); b.disabled=true;
+  try{
+    const r=await fetch('/api/vps',{method:'PUT',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({domaine:$('vps-domaine').value.trim(),
+                           ip:$('vps-ip').value.trim(),
+                           reseau:$('vps-reseau').value.trim()})});
+    const d=await r.json();
+    if(!r.ok){ e.textContent=d.error||'Enregistrement impossible.'; e.style.display='block'; }
+    else{
+      m.textContent='Enregistre. Les fichiers ci-dessous portent tes valeurs.';
+      m.style.display='block';
+      await chargerVps();
+    }
+  }catch(err){ e.textContent='Erreur reseau.'; e.style.display='block'; }
+  finally{ b.disabled=false; }
+}
+
+/* ---------------- mot de passe et preferences ---------------- */
+async function mdpChanger(){
+  const e=$('mdp-err'), m=$('mdp-msg');
+  e.style.display='none'; m.style.display='none';
+  const ancien=$('mdp-ancien').value, nouveau=$('mdp-nouveau').value;
+  /* La repetition est verifiee ICI et pas au serveur : c'est une faute de
+     frappe, pas une regle de securite, et un aller-retour pour le dire
+     serait du bruit. */
+  if(nouveau !== $('mdp-repeter').value){
+    e.textContent='Les deux saisies different.'; e.style.display='block'; return;
+  }
+  const b=$('mdp-save'); b.disabled=true;
+  try{
+    const r=await fetch('/api/compte/mot-de-passe',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ancien, nouveau})});
+    const d=await r.json();
+    if(!r.ok){ e.textContent=d.error||'Changement impossible.'; e.style.display='block'; }
+    else{
+      /* Les champs sont vides tout de suite : un mot de passe qui reste
+         affiche derriere un onglet est un mot de passe qui traine. */
+      $('mdp-ancien').value=$('mdp-nouveau').value=$('mdp-repeter').value='';
+      m.textContent='Mot de passe change. Ta session reste ouverte ; '
+        + 'la prochaine connexion demandera le nouveau.';
+      m.style.display='block';
+    }
+  }catch(err){ e.textContent='Erreur reseau.'; e.style.display='block'; }
+  finally{ b.disabled=false; }
+}
+
+function prefTaille(){
+  const v=$('pref-taille').value;
+  try{ localStorage.setItem('codelab.us.taille', v); }catch(e){}
+  /* La liste des comptes suit immediatement si elle est deja chargee : un
+     reglage qui demande un rechargement pour se voir laisse croire qu'il
+     n'a pas pris. */
+  const t=$('us-taille'); if(t){ t.value=v; if(typeof usPeindreListe==='function'){ usPage=1; usPeindreListe(); } }
+  const m=$('pref-msg');
+  m.textContent=v+' lignes par page.';
+  m.style.display='block';
 }
 
 async function totpPreparer(){

@@ -593,6 +593,74 @@ silencieusement sans bloquer le demarrage du service — c'est une commodite, pa
 | `/var/lib/codelab/app-manager` | `apps.json`, `logs/`, `alertes.json`, `utilisateurs.json`, `categories.json`, `acces.jsonl`, `exposition.json`, `passkeys.json` et `diagnostic-inscrit` — l'etat du panneau. Aucun secret en clair : les mots de passe des comptes sont derives, ceux des services sont dans `credentials.env` |
 | `/workspace` | Racine dans laquelle chercher/lancer les applications |
 
+## Bilan de securite
+
+*Parametres > Securite* s'ouvre sur une **posture** : sept controles, leur etat, et pour chacun ce
+qu'il reste a faire. Avant, l'etat de l'exposition vivait dans l'onglet *Serveur* — c'est-a-dire
+pas la ou on le cherche — et se lisait comme une liste de taches numerotees plutot que comme un
+constat.
+
+**Trois etats, pas deux, et c'est ce qui change tout.** Un controle qui ne s'applique pas ici —
+HTTPS sur un panneau qui ne sort pas du salon — est marque *sans objet* et **ne compte pas dans la
+note**. Afficher du rouge pour ce qui n'a pas lieu d'etre apprend a ignorer la page entiere, et une
+page de securite qu'on n'ouvre plus ne protege rien.
+
+La note est donc lue dans un cadre, annonce en tete : ce panneau sort-il du reseau local, oui ou
+non. Les memes reglages n'ont pas la meme importance dans les deux cas.
+
+| Controle | Ou il se regle |
+|---|---|
+| Double authentification | *Securite* |
+| Cles d'acces | *Securite* |
+| Administration sur le reseau local | *Serveur* |
+| Connexion chiffree (HTTPS) | hors du panneau — un tunnel, un Caddy, un VPS |
+| Cookie de session en Secure | *Serveur* |
+| Adresse reelle des visiteurs | *Serveur* |
+| Applications sur une origine a part | `docker-compose.yml` |
+
+Chaque ligne non acquise porte la marche a suivre, et un lien qui mene directement a l'onglet
+concerne.
+
+## Changer son mot de passe
+
+*Parametres > Compte*. Cela n'existait pas : le mot de passe d'administration ne se changeait qu'en
+editant `credentials.env` sur le serveur, donc en s'y connectant en SSH. **Un secret qu'on ne peut
+pas changer facilement est un secret qu'on ne change jamais** — et celui-la donne l'execution de
+commandes sur la machine.
+
+L'ancien mot de passe est exige **meme sur une session deja ouverte** : sans cette verification, un
+cookie capture suffirait a prendre la place de quelqu'un definitivement. Douze caracteres au
+minimum — on se le choisit soi-meme, rien n'oblige a le raccourcir.
+
+Pour l'administrateur, le nouveau va dans `credentials.env` (il doit survivre au redemarrage). La
+cle de session y est **relue a sa source** et reecrite telle quelle : en ecrire une differente
+deconnecterait tout le monde au redemarrage suivant, sans rapport visible avec le changement de
+mot de passe.
+
+## Liaison avec un VPS
+
+*Parametres > Serveur*. Saisis le nom de domaine et l'adresse publique du VPS : le panneau rend les
+**quatre fichiers de configuration prets a copier** — ceux-la memes que documente
+[`vps/README.md`](vps/README.md), avec tes valeurs substituees.
+
+**Il ne se connecte pas au VPS**, et c'est deliberé. Lui donner une cle SSH avec les droits qu'il
+faudrait reviendrait a confier a ce panneau l'administration d'une machine exposee sur internet —
+c'est-a-dire a en faire la cible la plus interessante de l'installation. Recopier trois fichiers a
+la main coute quelques minutes, une fois.
+
+Les modeles sont **substitues, pas regeneres** : ce sont les fichiers du depot qui font foi. Un
+assistant qui reecrit son propre texte finit toujours par decrire autre chose que le README, et
+c'est celui qu'on ne relit pas qui se trompe.
+
+Une adresse **privee** est refusee a la saisie : un VPS joignable depuis internet n'en a pas une, et
+saisir celle de sa propre machine donnerait une configuration qui ne peut pas marcher — autant le
+dire tout de suite qu'apres trois copies de fichiers.
+
+Sous les champs, un diagnostic dit **ce que le panneau constate** sur la requete qu'il traite : un
+intermediaire relaie-t-il cette requete, est-il declare de confiance, arrive-t-elle en HTTPS,
+l'adresse publique est-elle declaree. Aucune de ces lignes n'est une supposition — c'est la seule
+chose qu'il puisse honnetement affirmer sans se connecter au VPS.
+
 ## Double authentification et exposition
 
 Trois reglages n'ont d'interet que le jour ou ce panneau devient joignable au-dela du reseau local. Ils sont

@@ -3942,6 +3942,9 @@ def api_securite():
         # Les applications sont-elles servies dans une autre origine que le
         # panneau ? C'est ce qui empeche une XSS dans l'une d'elles d'atteindre
         # le panneau, et c'est invisible sans le dire.
+        # Le nombre de cles d'acces du compte connecte : le bilan de securite
+        # en a besoin, et un second appel pour un entier serait du gaspillage.
+        "passkeys": len(passkeys_du_compte(utilisateur_courant() or NOM_ADMIN)),
         "origines_separees": origines_separees(),
         "origine_applications": origine_applications() if origines_separees() else "",
         "port_applications": APPS_PORT,
@@ -4071,6 +4074,226 @@ def api_exposition():
                     "https": https_actif(),
                     "trust_proxy": trust_proxy(),
                     "admin_reseau_local": admin_limite_au_reseau_local()})
+
+
+# ------------------- assistant de liaison avec un VPS -------------------
+#
+# CE QU'IL FAIT, ET CE QU'IL NE FAIT PAS. Il prend un domaine et l'adresse
+# publique d'un VPS, et rend les fichiers de configuration prets a copier --
+# ceux-la memes que documente app-manager/vps/README.md, avec les valeurs
+# substituees. Puis il dit ou en est la liaison, d'apres ce qu'il constate
+# sur les requetes qui lui arrivent.
+#
+# Il ne se connecte PAS au VPS. Lui donner une cle SSH avec les droits qui
+# vont avec reviendrait a confier a ce panneau l'administration d'une machine
+# exposee sur internet -- c'est-a-dire a faire de lui la cible la plus
+# interessante de l'installation. Recopier trois fichiers a la main coute
+# quelques minutes, une fois.
+VPS_MODELES = os.environ.get(
+    "APP_MANAGER_VPS_DIR",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vps"))
+
+# Les valeurs des modeles livres, et ce par quoi les remplacer. Substituer
+# plutot que reecrire : les modeles sont la source de verite, et un assistant
+# qui regenere son propre texte finit toujours par decrire autre chose que ce
+# que dit le README.
+VPS_FICHIERS = {
+    "nginx": ("nginx/codelab.conf", "/etc/nginx/sites-available/codelab.conf"),
+    "nginx_upgrade": ("nginx/00-codelab-upgrade.conf", "/etc/nginx/conf.d/00-codelab-upgrade.conf"),
+    "wireguard_vps": ("wireguard/wg0-vps.conf.exemple", "/etc/wireguard/wg0.conf (sur le VPS)"),
+    "wireguard_local": ("wireguard/wg0-zimablade.conf.exemple",
+                        "/etc/wireguard/wg0.conf (sur l'hote de la ZimaBlade)"),
+}
+
+
+def lire_vps():
+    d = lire_exposition().get("vps") or {}
+    return {
+        "domaine": str(d.get("domaine") or "").strip(),
+        "ip": str(d.get("ip") or "").strip(),
+        "reseau": str(d.get("reseau") or "10.8.0").strip(),
+    }
+
+
+def _ip_publique_valide(brute):
+    """Une adresse IP qui a un sens comme point de rendez-vous du tunnel.
+
+    Refuse ce qui n'est pas une adresse, et refuse aussi une adresse LOCALE :
+    un VPS joignable de partout n'a pas une adresse privee, et saisir celle
+    de sa propre machine donnerait une configuration qui ne peut pas marcher
+    -- autant le dire tout de suite plutot qu'apres trois copies de fichiers.
+    """
+    texte = str(brute or "").strip()
+    try:
+        adresse = ipaddress.ip_address(texte)
+    except ValueError:
+        return ""
+    return "" if adresse_est_locale(texte) else texte
+
+
+def vps_configuration(reglages):
+    """Les fichiers a copier, valeurs substituees."""
+    domaine = reglages["domaine"] or "codelab.exemple.fr"
+    reseau = reglages["reseau"] or "10.8.0"
+    sorties = {}
+    for cle, (relatif, destination) in VPS_FICHIERS.items():
+        chemin = os.path.join(VPS_MODELES, relatif)
+        try:
+            with open(chemin, encoding="utf-8") as f:
+                texte = f.read()
+        except OSError:
+            # Modeles absents de l'image : on le dit plutot que de rendre un
+            # fichier invente qui n'aurait jamais ete relu par personne.
+            continue
+        texte = texte.replace("codelab.exemple.fr", domaine)
+        texte = texte.replace("10.8.0.1", reseau + ".1").replace("10.8.0.2", reseau + ".2")
+        texte = texte.replace("10.8.0.0/24", reseau + ".0/24")
+        if reglages["ip"]:
+            texte = texte.replace("203.0.113.10", reglages["ip"])
+        sorties[cle] = {"destination": destination, "contenu": texte}
+    return sorties
+
+
+def vps_diagnostic(reglages):
+    """Ou en est la liaison, d'apres ce qu'on CONSTATE sur cette requete.
+
+    Aucune de ces lignes n'est une supposition : le panneau regarde la
+    requete qu'il est en train de traiter. C'est la seule chose qu'il puisse
+    honnetement affirmer sans se connecter au VPS.
+    """
+    annonce = (request.headers.get("X-Forwarded-Proto") or "").lower()
+    devant = bool(request.headers.get("X-Forwarded-For") or annonce)
+    publique = adresse_publique()
+    etapes = [
+        ("Domaine et adresse du VPS declares",
+         bool(reglages["domaine"] and reglages["ip"]),
+         "Saisis-les ci-dessus : ils servent a produire les fichiers de configuration."),
+        ("Un intermediaire relaie cette requete", devant,
+         "Aucun en-tete X-Forwarded-* sur cette requete. Soit tu regardes cette page "
+         "directement depuis le reseau local -- c'est normal -- soit nginx n'est pas "
+         "encore en place sur le VPS."),
+        ("Le proxy est declare de confiance", trust_proxy(),
+         "Case « Proxy de confiance », plus haut. Sans elle le panneau ne croit pas "
+         "l'adresse annoncee, et tous les visiteurs comptent pour un seul."),
+        ("La requete arrive en HTTPS", annonce == "https" or request.is_secure,
+         "Le certificat se pose sur le VPS (certbot), pas ici. Voir l'etape 3 du README."),
+        ("Adresse publique declaree dans le panneau", bool(publique),
+         "Carte « Adresse publique », plus bas. Tant qu'elle manque, aucune application "
+         "ne peut etre rendue publique."),
+    ]
+    return [{"etape": nom, "ok": bool(ok), "aide": aide} for nom, ok, aide in etapes]
+
+
+@flask_app.get("/api/vps")
+@require_admin
+def api_vps():
+    reglages = lire_vps()
+    config = vps_configuration(reglages)
+    return jsonify({
+        "reglages": reglages,
+        "diagnostic": vps_diagnostic(reglages),
+        "fichiers": [{"cle": cle, "destination": v["destination"],
+                      "contenu": v["contenu"]}
+                     for cle, v in config.items()],
+        "modeles_absents": not config,
+    })
+
+
+@flask_app.put("/api/vps")
+@require_admin
+def api_vps_enregistrer():
+    d = request.get_json(force=True, silent=True) or {}
+    domaine = re.sub(r"[^a-zA-Z0-9.-]", "", str(d.get("domaine") or "").strip())[:200]
+    ip = str(d.get("ip") or "").strip()
+    reseau = str(d.get("reseau") or "").strip() or "10.8.0"
+
+    if ip and not _ip_publique_valide(ip):
+        return jsonify({"error": "Ce n'est pas une adresse publique. Un VPS joignable "
+                                 "depuis internet n'a pas une adresse privee -- verifie "
+                                 "que tu n'as pas saisi celle de ta propre machine."}), 400
+    if not re.fullmatch(r"(\d{1,3}\.){2}\d{1,3}", reseau):
+        return jsonify({"error": "Reseau du tunnel : trois nombres, par exemple 10.8.0."}), 400
+
+    reglages = lire_exposition()
+    reglages["vps"] = {"domaine": domaine, "ip": ip, "reseau": reseau}
+    try:
+        ecrire_exposition(reglages)
+    except OSError as e:
+        return jsonify({"error": f"Reglages non enregistres : {e}"}), 500
+    return jsonify({"ok": True, "reglages": lire_vps()})
+
+
+@flask_app.post("/api/compte/mot-de-passe")
+@require_auth
+def api_changer_mot_de_passe():
+    """Change le mot de passe du compte connecte, le sien seulement.
+
+    Pourquoi cela n'existait pas, et pourquoi c'est un manque : le mot de
+    passe d'administration ne se changeait qu'en editant credentials.env sur
+    le serveur, c'est-a-dire en s'y connectant en SSH. Un secret qu'on ne
+    peut pas changer facilement est un secret qu'on ne change jamais -- et
+    celui-la donne l'execution de commandes sur la machine.
+
+    L'ANCIEN MOT DE PASSE EST EXIGE, meme pour une session deja ouverte. Une
+    session volee ne doit pas pouvoir verrouiller le compte de son
+    proprietaire : sans cette verification, un cookie capture suffirait a
+    prendre la place de quelqu'un definitivement.
+    """
+    d = request.get_json(force=True, silent=True) or {}
+    ancien = (d.get("ancien") or "").strip()
+    nouveau = (d.get("nouveau") or "").strip()
+
+    if len(nouveau) < 12:
+        # Douze, et non huit comme pour les comptes crees par
+        # l'administrateur : celui-ci se choisit lui-meme, il n'a pas a etre
+        # transmis, et rien n'oblige a le raccourcir.
+        return jsonify({"error": "Mot de passe : 12 caracteres au minimum."}), 400
+    if nouveau == ancien:
+        return jsonify({"error": "Le nouveau mot de passe est identique a l'ancien."}), 400
+
+    if est_admin():
+        reel = admin_password()
+        if not (reel and ancien and secrets.compare_digest(ancien, reel)):
+            register_failed_attempt()
+            journaliser("echec", qui=NOM_ADMIN, motif="changement de mot de passe",
+                        ip=_adresse_client())
+            return jsonify({"error": "Ancien mot de passe incorrect."}), 403
+        global _admin_password
+        # La cle de session est relue a sa source, jamais reconstituee depuis
+        # flask_app.secret_key : ecrire une cle differente de celle en place
+        # deconnecterait tout le monde au redemarrage suivant, sans rapport
+        # visible avec le changement de mot de passe.
+        cle = read_shared_value("APP_MANAGER_SESSION_SECRET") or ""
+        if not cle:
+            return jsonify({"error": "Cle de session introuvable dans "
+                                     "credentials.env : le mot de passe reste "
+                                     "inchange plutot que de risquer de "
+                                     "deconnecter tout le monde."}), 500
+        if not ecrire_bloc_panneau(nouveau, cle, _totp_secret):
+            return jsonify({"error": "credentials.env n'a pas pu etre ecrit : "
+                                     "le mot de passe reste inchange."}), 500
+        _admin_password = nouveau
+        journaliser("mot-de-passe", qui=NOM_ADMIN, ip=_adresse_client())
+        return jsonify({"ok": True})
+
+    nom = utilisateur_courant()
+    comptes = lire_utilisateurs()
+    compte = comptes.get(nom)
+    if not compte:
+        return jsonify({"error": "Compte introuvable."}), 404
+    if not verifie_mot_de_passe(compte, ancien):
+        register_failed_attempt()
+        journaliser("echec", qui=nom, motif="changement de mot de passe",
+                    ip=_adresse_client())
+        return jsonify({"error": "Ancien mot de passe incorrect."}), 403
+    compte["sel"] = secrets.token_hex(16)
+    compte["hash"] = derive_mot_de_passe(nouveau, compte["sel"])
+    try:
+        ecrire_utilisateurs(comptes)
+    except OSError as e:
+        return jsonify({"error": f"Non enregistre : {e}"}), 500
+    journaliser("mot-de-passe", qui=nom, ip=_adresse_client())
+    return jsonify({"ok": True})
 
 
 @flask_app.post("/api/securite/totp/preparer")

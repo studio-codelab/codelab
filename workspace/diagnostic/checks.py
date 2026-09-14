@@ -2375,6 +2375,7 @@ def test_un_utilisateur_ne_peut_rien_administrer(deux_espaces):
                            ("get", "/api/apps/public/acces"),
                            ("put", "/api/apps/public/acces"),
                            ("put", "/api/alertes/application/public"),
+                           ("get", "/api/vps"), ("put", "/api/vps"),
                            ("get", "/api/browse")]:
         r = getattr(c, methode)(route, json={})
         assert r.status_code == 403, f"{methode.upper()} {route} a repondu {r.status_code}"
@@ -2463,6 +2464,180 @@ def test_un_droit_sur_un_projet_inexistant_n_est_pas_enregistre(deux_espaces):
     r = c.put("/api/utilisateurs/marie", json={"projets": ["public", "jamais-declare"]})
     assert r.status_code == 200
     assert app.lire_utilisateurs()["marie"]["projets"] == ["public"]
+
+
+# ---------- assistant de liaison avec un VPS ----------
+#
+# Il rend les fichiers de app-manager/vps/ avec les valeurs substituees, et
+# dit ce qu'il CONSTATE sur la requete en cours. Il ne se connecte jamais au
+# VPS : lui confier une cle SSH avec les droits qui vont avec ferait de ce
+# panneau la cible la plus interessante de l'installation.
+
+@pytest.fixture
+def vps(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "EXPOSITION_FILE", str(tmp_path / "exposition.json"))
+    monkeypatch.delenv("APP_MANAGER_PUBLIC_URL", raising=False)
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    c = app.flask_app.test_client()
+    c.post("/login", json={"password": "secret-de-test"})
+    return c
+
+
+def test_les_valeurs_sont_substituees_dans_les_vrais_modeles(vps):
+    """Substituer plutot que reecrire : les modeles sont la source de verite.
+    Un assistant qui regenere son propre texte finit par decrire autre chose
+    que ce que dit le README, et c'est toujours celui qu'on ne relit pas qui
+    se trompe."""
+    r = vps.put("/api/vps", json={"domaine": "codelab.chezmoi.fr",
+                                  "ip": "203.0.113.10", "reseau": "10.9.0"})
+    assert r.status_code == 200, r.data
+    d = vps.get("/api/vps").get_json()
+    if d["modeles_absents"]:
+        pytest.skip("modeles vps absents de cette image")
+    tout = "\n".join(f["contenu"] for f in d["fichiers"])
+    assert "codelab.chezmoi.fr" in tout
+    assert "codelab.exemple.fr" not in tout, "le domaine d'exemple traine encore"
+    assert "10.9.0.2" in tout and "10.8.0.2" not in tout
+    assert "203.0.113.10" in tout
+    # Et chaque fichier dit ou il va : un contenu sans destination oblige a
+    # retourner lire le README, ce que l'assistant est cense eviter.
+    assert all(f["destination"] for f in d["fichiers"])
+
+
+def test_une_adresse_privee_est_refusee(vps):
+    """Un VPS joignable depuis internet n'a pas une adresse privee. Saisir
+    celle de sa propre machine donnerait une configuration qui ne peut pas
+    marcher -- autant le dire tout de suite qu'apres trois copies."""
+    r = vps.put("/api/vps", json={"domaine": "x.fr", "ip": "192.168.1.50"})
+    assert r.status_code == 400, r.data
+    assert "privee" in r.get_json()["error"]
+    assert app.lire_vps()["ip"] == ""
+
+
+def test_un_reseau_de_tunnel_mal_forme_est_refuse(vps):
+    r = vps.put("/api/vps", json={"reseau": "pas-un-reseau"})
+    assert r.status_code == 400, r.data
+
+
+def test_le_diagnostic_ne_dit_que_ce_qu_il_constate(vps):
+    """Sans proxy devant, rien n'est annonce : le panneau doit le dire au lieu
+    de supposer que le tunnel est en place."""
+    d = vps.get("/api/vps").get_json()
+    etapes = {e["etape"]: e["ok"] for e in d["diagnostic"]}
+    assert etapes["Un intermediaire relaie cette requete"] is False
+    assert etapes["La requete arrive en HTTPS"] is False
+    # Toute etape non faite doit porter la marche a suivre : un diagnostic qui
+    # dit "non" sans dire quoi faire ne sert qu'a inquieter.
+    assert all(e["aide"] for e in d["diagnostic"] if not e["ok"])
+
+
+def test_le_diagnostic_voit_le_proxy_quand_il_est_la(vps):
+    d = vps.get("/api/vps", headers={"X-Forwarded-For": "203.0.113.7",
+                                     "X-Forwarded-Proto": "https"}).get_json()
+    etapes = {e["etape"]: e["ok"] for e in d["diagnostic"]}
+    assert etapes["Un intermediaire relaie cette requete"] is True
+    assert etapes["La requete arrive en HTTPS"] is True
+    # Le proxy n'est pas declare pour autant : constater n'est pas croire.
+    assert etapes["Le proxy est declare de confiance"] is False
+
+
+def test_enregistrer_le_vps_n_efface_pas_les_autres_reglages(vps):
+    """exposition.json porte desormais quatre reglages ET le bloc VPS. Le
+    reecrire en entier a chaque enregistrement effacerait le reste."""
+    vps.put("/api/securite/exposition", json={"adresse_publique": "https://codelab.chezmoi.fr"})
+    vps.put("/api/vps", json={"domaine": "codelab.chezmoi.fr", "ip": "203.0.113.10"})
+    assert app.adresse_publique() == "https://codelab.chezmoi.fr", (
+        "l'adresse publique a ete effacee par l'enregistrement du VPS")
+    assert app.lire_vps()["domaine"] == "codelab.chezmoi.fr"
+
+
+# ---------- changer son propre mot de passe ----------
+#
+# Cela n'existait pas : le mot de passe d'administration ne se changeait
+# qu'en editant credentials.env sur le serveur, donc en s'y connectant en
+# SSH. Un secret qu'on ne peut pas changer facilement est un secret qu'on ne
+# change jamais -- et celui-la donne l'execution de commandes sur la machine.
+
+@pytest.fixture
+def compte_admin(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "_admin_password", "ancien-mot-de-passe")
+    monkeypatch.setattr(app, "_totp_secret", "")
+    monkeypatch.setattr(app, "SHARED_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(app, "SHARED_ENV_FILE", str(tmp_path / "credentials.env"))
+    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    app.ecrire_bloc_panneau("ancien-mot-de-passe", "cle-de-session-existante", "")
+    c = app.flask_app.test_client()
+    c.post("/login", json={"password": "ancien-mot-de-passe"})
+    return c
+
+
+def test_l_admin_change_son_mot_de_passe(compte_admin):
+    r = compte_admin.post("/api/compte/mot-de-passe",
+                          json={"ancien": "ancien-mot-de-passe",
+                                "nouveau": "un-nouveau-mot-de-passe"})
+    assert r.status_code == 200, r.data
+    assert app.admin_password() == "un-nouveau-mot-de-passe"
+    # Il survit au redemarrage : c'est credentials.env qui fait autorite.
+    assert app.read_shared_value("APP_MANAGER_ADMIN_PASSWORD") == "un-nouveau-mot-de-passe"
+
+
+def test_la_cle_de_session_n_est_pas_remplacee_au_passage(compte_admin):
+    """Ecrire une cle differente de celle en place deconnecterait tout le
+    monde au redemarrage suivant, sans rapport visible avec le changement de
+    mot de passe. Elle est donc relue a sa source, jamais reconstituee."""
+    compte_admin.post("/api/compte/mot-de-passe",
+                      json={"ancien": "ancien-mot-de-passe",
+                            "nouveau": "un-nouveau-mot-de-passe"})
+    assert app.read_shared_value("APP_MANAGER_SESSION_SECRET") == "cle-de-session-existante"
+
+
+def test_une_session_volee_ne_verrouille_pas_le_compte(compte_admin):
+    """L'ancien mot de passe est exige meme sur une session deja ouverte :
+    sans cela, un cookie capture suffirait a prendre la place de quelqu'un
+    definitivement."""
+    r = compte_admin.post("/api/compte/mot-de-passe",
+                          json={"ancien": "pas-le-bon",
+                                "nouveau": "un-nouveau-mot-de-passe"})
+    assert r.status_code == 403, r.data
+    assert app.admin_password() == "ancien-mot-de-passe"
+
+
+def test_un_mot_de_passe_trop_court_est_refuse(compte_admin):
+    r = compte_admin.post("/api/compte/mot-de-passe",
+                          json={"ancien": "ancien-mot-de-passe", "nouveau": "court"})
+    assert r.status_code == 400, r.data
+    assert app.admin_password() == "ancien-mot-de-passe"
+
+
+def test_un_compte_nomme_change_le_sien_et_pas_celui_de_l_admin(deux_espaces):
+    """Chacun le sien : la route ne prend aucun nom en parametre, elle agit
+    sur la session qui appelle."""
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    r = c.post("/api/compte/mot-de-passe",
+               json={"ancien": "mot-de-passe-long", "nouveau": "un-autre-mot-de-passe"})
+    assert r.status_code == 200, r.data
+    comptes = app.lire_utilisateurs()
+    assert app.verifie_mot_de_passe(comptes["marie"], "un-autre-mot-de-passe")
+    assert not app.verifie_mot_de_passe(comptes["marie"], "mot-de-passe-long")
+    # Le sel a change aussi : deux mots de passe identiques ne doivent pas
+    # produire la meme empreinte d'un compte a l'autre.
+    assert comptes["marie"]["sel"] != "aa" * 16
+
+
+def test_un_compte_nomme_doit_donner_son_ancien_mot_de_passe(deux_espaces):
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    r = c.post("/api/compte/mot-de-passe",
+               json={"ancien": "pas-le-bon", "nouveau": "un-autre-mot-de-passe"})
+    assert r.status_code == 403, r.data
+    assert app.verifie_mot_de_passe(app.lire_utilisateurs()["marie"], "mot-de-passe-long")
 
 
 # ---------- l'acces a une application, vu depuis l'application ----------
