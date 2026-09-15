@@ -55,6 +55,7 @@ except ModuleNotFoundError:  # image Dagster, image dev
 
     pytest = _PytestAbsent()
 
+import inspect
 import json
 import os
 import socket
@@ -1060,9 +1061,9 @@ def verif_base_ecrit_et_relit():
         vu = any("verification approfondie" in str(l) for l in recentes)
         if not vu:
             return (False, "base : ecriture puis relecture",
-                    f"ligne #{numero} inseree, mais absente de la relecture")
+                    f"ligne #{numero} insérée, mais absente de la relecture")
         return (True, "base : ecriture puis relecture",
-                f"ligne #{numero} inseree et relue dans la foulee")
+                f"ligne #{numero} insérée et relue dans la foulée")
     finally:
         conn.close()
 
@@ -1091,9 +1092,9 @@ def verif_ecriture_refusee_sans_session():
     if code in (401, 403):
         quoi = "session" if code == 401 else "jeton"
         return (True, "ecriture refusee sans session",
-                f"le panneau repond {code} -- la garde de {quoi} tient")
+                f"le panneau répond {code} — la garde de {quoi} tient")
     return (False, "ecriture refusee sans session",
-            f"le panneau repond {code} : une ecriture est passee sans session")
+            f"le panneau répond {code} : une écriture est passée sans session")
 
 
 def verif_proxy_sert_cette_application():
@@ -1139,10 +1140,10 @@ def verif_proxy_sert_cette_application():
 
     if code == 200:
         return (True, "le proxy sert cette application",
-                f"{url} repond 200 en {ms} ms")
+                f"{url} répond 200 en {ms} ms")
     if code in (301, 302, 303, 307, 308) and "/login" in (entetes.get("Location") or ""):
         return (True, "le proxy sert cette application",
-                f"le proxy resout le projet et applique sa visibilite privee "
+                f"le proxy résout le projet et applique sa visibilité privée "
                 f"(redirection vers /login, {ms} ms)")
     if code == 404:
         return (False, "le proxy sert cette application",
@@ -1150,9 +1151,9 @@ def verif_proxy_sert_cette_application():
                 "elle a ete supprimee du registre, ou renommee")
     if code in (502, 503):
         return (False, "le proxy sert cette application",
-                f"le panneau connait le projet mais l'application ne repond "
-                f"pas ({code}) -- est-elle demarree ?")
-    return False, "le proxy sert cette application", f"{url} repond {code}"
+                f"le panneau connaît le projet mais l'application ne répond "
+                f"pas ({code}) — est-elle démarrée ?")
+    return False, "le proxy sert cette application", f"{url} répond {code}"
 
 
 def verif_le_journal_enregistre():
@@ -1187,12 +1188,12 @@ def verif_le_journal_enregistre():
     apres = taille()
     if apres > avant:
         return (True, "le journal des acces enregistre",
-                f"une ouverture de plus notee ({apres - avant} octets)")
+                f"une ouverture de plus notée ({apres - avant} octets)")
     # Les ouvertures sont regroupees par quart d'heure et par compte : rien
     # de neuf peut vouloir dire "deja note il y a dix minutes", pas "casse".
     return (True, "le journal des acces enregistre",
-            f"{journal} lisible ({avant} octets) -- rien de neuf, les "
-            f"ouvertures sont regroupees par quart d'heure")
+            f"{journal} lisible ({avant} octets) — rien de neuf, les "
+            f"ouvertures sont regroupées par quart d'heure")
 
 
 def verif_le_projet_est_ecrivable():
@@ -1264,15 +1265,45 @@ def lancer_suite_du_panneau(timeout=180):
             resume + (" | " + " ; ".join(e[6:80] for e in echecs[:4]) if echecs else ""))
 
 
+# La liste, et non plus une suite d'appels enfouie dans une fonction : la
+# page de verification les annonce AVANT de les lancer, et en joue un a la
+# fois pour montrer ou elle en est. Un nom affiche puis un resultat au meme
+# indice, c'est ce qui permet de remplir le tableau ligne par ligne.
+#
+# Les intitules sont lus par quelqu'un : ils portent leurs accents.
+TESTS_APPROFONDIS = [
+    ("Base : écriture puis relecture", verif_base_ecrit_et_relit),
+    ("Écriture refusée sans session", verif_ecriture_refusee_sans_session),
+    ("Le proxy sert cette application", verif_proxy_sert_cette_application),
+    ("Le journal des accès enregistre", verif_le_journal_enregistre),
+    ("Le dossier du projet est écrivable", verif_le_projet_est_ecrivable),
+]
+
+# La suite de regressions du panneau vient toujours en dernier : c'est la
+# plus longue, et on veut voir les tests d'installation d'abord.
+NOM_SUITE_PANNEAU = "Suite de régressions du panneau"
+
+
+def noms_des_tests(avec_suite=True):
+    noms = [nom for nom, _ in TESTS_APPROFONDIS]
+    return noms + [NOM_SUITE_PANNEAU] if avec_suite else noms
+
+
+def run_test(indice, avec_suite=True):
+    """Un seul test, par son rang dans noms_des_tests()."""
+    if indice == len(TESTS_APPROFONDIS) and avec_suite:
+        return lancer_suite_du_panneau()
+    nom, fn = TESTS_APPROFONDIS[indice]
+    ok, _nom_interne, detail = _essai(nom, fn)
+    # Le nom affiche est celui de la LISTE, pas celui que la fonction se
+    # donne : la page annonce ses lignes avant de les remplir, et une ligne
+    # qui change d'intitule en cours de route n'est plus la meme ligne.
+    return ok, nom, detail
+
+
 def run_tests():
     """Les tests a la demande, dans l'ordre ou on veut les lire."""
-    return [
-        _essai("base : ecriture puis relecture", verif_base_ecrit_et_relit),
-        _essai("ecriture refusee sans session", verif_ecriture_refusee_sans_session),
-        _essai("le proxy sert cette application", verif_proxy_sert_cette_application),
-        _essai("le journal des acces enregistre", verif_le_journal_enregistre),
-        _essai("le dossier du projet est ecrivable", verif_le_projet_est_ecrivable),
-    ]
+    return [_essai(nom, fn) for nom, fn in TESTS_APPROFONDIS]
 
 
 def run_all(env_file=None, workspace=None, ssh_dir=None):
@@ -2923,8 +2954,8 @@ def test_le_diagnostic_ne_dit_que_ce_qu_il_constate(vps):
     de supposer que le tunnel est en place."""
     d = vps.get("/api/vps").get_json()
     etapes = {e["etape"]: e["ok"] for e in d["diagnostic"]}
-    assert etapes["Un intermediaire relaie cette requete"] is False
-    assert etapes["La requete arrive en HTTPS"] is False
+    assert etapes["Un interm\u00e9diaire relaie cette requ\u00eate"] is False
+    assert etapes["La requ\u00eate arrive en HTTPS"] is False
     # Toute etape non faite doit porter la marche a suivre : un diagnostic qui
     # dit "non" sans dire quoi faire ne sert qu'a inquieter.
     assert all(e["aide"] for e in d["diagnostic"] if not e["ok"])
@@ -2934,10 +2965,10 @@ def test_le_diagnostic_voit_le_proxy_quand_il_est_la(vps):
     d = vps.get("/api/vps", headers={"X-Forwarded-For": "203.0.113.7",
                                      "X-Forwarded-Proto": "https"}).get_json()
     etapes = {e["etape"]: e["ok"] for e in d["diagnostic"]}
-    assert etapes["Un intermediaire relaie cette requete"] is True
-    assert etapes["La requete arrive en HTTPS"] is True
+    assert etapes["Un interm\u00e9diaire relaie cette requ\u00eate"] is True
+    assert etapes["La requ\u00eate arrive en HTTPS"] is True
     # Le proxy n'est pas declare pour autant : constater n'est pas croire.
-    assert etapes["Le proxy est declare de confiance"] is False
+    assert etapes["Le proxy est d\u00e9clar\u00e9 de confiance"] is False
 
 
 def test_enregistrer_le_vps_n_efface_pas_les_autres_reglages(vps):
@@ -5668,7 +5699,9 @@ def test_demarrer_verifie_que_l_application_vit_encore():
     # L'echec remonte a l'appelant, il ne se contente pas d'un print.
     bloc = src[src.index("def start(name, attendre=True):"):src.index("def stop(name):")]
     assert "return f\"Dossier introuvable" in bloc
-    assert "s'est arretee aussitot" in bloc
+    # Le message est LU par quelqu'un : il porte ses accents, contrairement
+    # au code qui l'entoure.
+    assert "s'est arr\u00eat\u00e9e aussit\u00f4t" in bloc
 
 
 def test_l_api_toggle_rend_compte_de_l_echec():
@@ -5713,6 +5746,117 @@ def test_le_ruban_de_retour_refuse_les_cas_risques():
     pose = src[src.index("sortants = [(k, v) for k, v in headers.items()"):]
     pose = pose[:pose.index("return Response")]
     assert "if is_authed():" in pose
+
+
+def _textes_visibles(html):
+    """Les textes affiches d'une page : ni CSS, ni script, ni commentaire."""
+    import html as _html
+    corps = html
+    for balise in ("style", "script"):
+        corps = re.sub(r"<%s[^>]*>.*?</%s>" % (balise, balise), " ", corps, flags=re.S)
+    corps = re.sub(r"<!--.*?-->", " ", corps, flags=re.S)
+    return [_html.unescape(t).strip()
+            for t in re.split(r"<[^>]+>", corps) if t.strip()]
+
+
+# Les fautes qu'on retrouve toujours : un participe passe ou un verbe prive
+# de son accent. La liste est volontairement courte et SURE -- un mot qui
+# existe aussi sans accent (« ou », « a », « la ») n'y figure pas, sous peine
+# de faire echouer le test sur des phrases correctes -- « autorises » en est
+# un bon exemple : « les projets que tu lui autorises » est juste.
+MOTS_SANS_ACCENT = [
+    "verifie", "verifier", "verification", "verifications", "execute", "executee",
+    "executees", "reponse", "reponses", "detail", "details", "etat", "etats",
+    "deja", "apres", "etre", "meme", "memes", "tres", "ete", "creee", "creees",
+    "creer", "donnee", "donnees", "annee", "arretee", "arretees", "declaree",
+    "declarees", "repond", "deconnecte", "desactive", "recu", "securite",
+    "systeme", "numero", "acces", "reserve", "derniere", "dernieres",
+    "premiere", "supprimee", "enregistree", "demarree", "redemarre", "ajoutee",
+    "retiree", "activee", "refusee", "acceptee", "envoyee", "memoire",
+    "categorie", "categories", "duree", "presentation", "frequentation",
+    "notee", "inseree", "depasser", "ecouter", "repeter", "identite",
+    "expediteur", "interessante", "derriere", "dependent", "fermee", "revoque",
+    "eteint", "ecrase", "posee", "restee", "oubliee", "prevenir", "previent",
+    "reinitialiser", "disparait", "controle", "creent", "sante",
+    "gerez", "visibilite", "releve", "decoche", "redemarrer",
+]
+MOTIF_SANS_ACCENT = re.compile(
+    r"\b(" + "|".join(sorted(MOTS_SANS_ACCENT, key=len, reverse=True)) + r")\b", re.I)
+
+
+def test_aucun_texte_du_hub_n_a_perdu_ses_accents():
+    """Les textes AFFICHES portent leurs accents -- le code qui les entoure,
+    lui, n'en porte aucun. C'est la regle de ce depot, et elle se relachait a
+    chaque ajout : « Sante », « Visibilite », « Presentation », « Repeter »,
+    « Identite » sont tous arrives comme cela.
+    """
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    fautes = []
+    for texte in _textes_visibles(page):
+        for mot in MOTIF_SANS_ACCENT.findall(texte):
+            fautes.append(f"{mot} — dans « {texte[:70]} »")
+    assert not fautes, "textes visibles sans accents :\n" + "\n".join(fautes[:12])
+
+
+def test_aucun_texte_du_diagnostic_n_a_perdu_ses_accents():
+    """Meme regle pour l'application diagnostic : c'est une page de CodeLab,
+    pas une application invitee."""
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py"),
+               encoding="utf-8").read()
+    # Les gabarits de page sont les f-strings triple-guillemets qui
+    # commencent par <!doctype.
+    pages = re.findall(r'f"""(<!doctype.*?)"""', src, re.S)
+    assert len(pages) == 2, f"{len(pages)} gabarit(s) de page trouve(s), 2 attendus"
+    fautes = []
+    for page in pages:
+        for texte in _textes_visibles(page):
+            if texte.startswith("{") or "checks." in texte:
+                continue                      # une expression Python, pas un texte
+            for mot in MOTIF_SANS_ACCENT.findall(texte):
+                fautes.append(f"{mot} — dans « {texte[:70]} »")
+    assert not fautes, "textes visibles sans accents :\n" + "\n".join(fautes[:12])
+
+
+# ---------- la verification approfondie, en direct ----------
+
+def test_la_verification_annonce_ses_lignes_avant_de_les_jouer():
+    """Elle jouait tout avant de repondre : on cliquait, et le navigateur
+    restait blanc jusqu'a trois minutes -- le temps de la suite de
+    regressions -- sans dire ou il en etait, ni s'il avancait encore."""
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py"),
+               encoding="utf-8").read()
+    assert "/api/test/<int:indice>" in src, "un test a la fois, sinon rien n'avance"
+    # Les lignes sont posees dans le HTML rendu, avant tout resultat.
+    assert 'class="st attente"><span>en attente</span>' in src
+    # La barre d'avancement bouge quand un test FINIT : pas d'animation qui
+    # tourne dans le vide et laisse croire que ca progresse.
+    assert "jauge" in src and "(i + 1) / nb * 100" in src
+
+
+def test_un_indice_de_test_hors_liste_ne_casse_pas_la_page():
+    """Le rang vient de l'URL : il se borne, il ne se croit pas. Une
+    IndexError rendrait une page d'erreur au milieu d'une verification."""
+    import app as diag
+    client = diag.app.test_client()
+    for mauvais in ("99", "-1"):
+        r = client.get(f"/api/test/{mauvais}")
+        assert r.status_code in (404, 400), mauvais
+
+
+def test_les_noms_annonces_sont_ceux_des_resultats():
+    """La page annonce ses lignes puis les remplit : une ligne qui change
+    d'intitule en cours de route n'est plus la meme ligne."""
+    noms = checks_noms()
+    assert len(noms) == len(TESTS_APPROFONDIS) + 1
+    assert noms[-1] == NOM_SUITE_PANNEAU
+    # run_test rend le nom de la LISTE, pas celui que la fonction se donne.
+    src = inspect.getsource(run_test)
+    assert "return ok, nom, detail" in src
+
+
+def checks_noms():
+    return noms_des_tests()
 
 
 def test_le_diagnostic_suit_le_theme_du_panneau():

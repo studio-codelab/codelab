@@ -926,14 +926,14 @@ def passkey_contexte():
     if schema != "https" and not local:
         if https_non_cru:
             return "", "", ("Un proxy annonce HTTPS, mais ce panneau ne le croit pas : "
-                            "coche \"Proxy de confiance\" dans Exposition.")
-        return "", "", ("Les cles d'acces exigent une connexion HTTPS : le navigateur "
-                        "refuse de les creer en clair. Mets le TLS en place, puis "
+                            "coche « Proxy de confiance » dans Exposition.")
+        return "", "", ("Les clés d'accès exigent une connexion HTTPS : le navigateur "
+                        "refuse de les créer en clair. Mets le TLS en place, puis "
                         "reviens ici.")
     # Une adresse IP ne peut pas servir de "relying party id" : la norme
     # exige un nom de domaine. C'est la meme exigence que le certificat.
     if re.fullmatch(r"[0-9.]+|\[[0-9a-fA-F:]+\]", hote) and not local:
-        return "", "", ("Les cles d'acces exigent un nom de domaine, pas une adresse IP. "
+        return "", "", ("Les clés d'accès exigent un nom de domaine, pas une adresse IP. "
                         "Ouvre le panneau par son nom (celui du certificat).")
     return hote, origine, ""
 
@@ -2182,7 +2182,7 @@ def start(name, attendre=True):
             if name in apps:
                 apps[name]["enabled"] = False
                 save(apps)
-            return (f"L'application s'est arretee aussitot (code {code}). "
+            return (f"L'application s'est arrêtée aussitôt (code {code}). "
                     + derniere_ligne_utile(name))
         time.sleep(0.05)
     return None
@@ -2847,17 +2847,17 @@ def fin_du_journal(name, lignes=ALERTE_LOG_LIGNES):
 
 def corps_alerte_chute(name, a):
     return "\n".join([
-        f"L'application « {name} » ne repond plus.",
+        f"L'application « {name} » ne répond plus.",
         "",
         f"Dossier   : {a.get('path', '?')}",
         f"Commande  : {a.get('command', '?')}",
         f"Port      : {a.get('port', '?')}",
-        f"Etat      : arretee apres {RESTART_MAX_ATTEMPTS} tentatives de "
-        f"redemarrage en {RESTART_WINDOW // 60} minutes",
+        f"État      : arrêtée après {RESTART_MAX_ATTEMPTS} tentatives de "
+        f"redémarrage en {RESTART_WINDOW // 60} minutes",
         "",
         f"Panneau   : {read_shared_value('APP_MANAGER_URL') or 'http://<IP-du-serveur>:9001'}/",
         "",
-        f"Fin du journal ({ALERTE_LOG_LIGNES} dernieres lignes)",
+        f"Fin du journal ({ALERTE_LOG_LIGNES} dernières lignes)",
         "-" * 46,
         fin_du_journal(name),
         "",
@@ -2867,7 +2867,7 @@ def corps_alerte_chute(name, a):
 
 def corps_alerte_retour(name):
     return "\n".join([
-        f"L'application « {name} » repond de nouveau.",
+        f"L'application « {name} » répond de nouveau.",
         "",
         f"Panneau : {read_shared_value('APP_MANAGER_URL') or 'http://<IP-du-serveur>:9001'}/",
         "",
@@ -4102,7 +4102,7 @@ def inscription_creer():
     mdp = (d.get("mot_de_passe") or "").strip()
     adresse = email_valide(d.get("email"))
     if not nom:
-        return jsonify({"error": "Nom invalide : 2 a 32 caractères, "
+        return jsonify({"error": "Nom invalide : 2 à 32 caractères, "
                                  "minuscules, chiffres, tiret ou souligné."}), 400
     if nom == NOM_ADMIN:
         return jsonify({"error": "Ce nom est réservé."}), 400
@@ -4540,22 +4540,24 @@ def vps_diagnostic(reglages):
     annonce = (request.headers.get("X-Forwarded-Proto") or "").lower()
     devant = bool(request.headers.get("X-Forwarded-For") or annonce)
     publique = adresse_publique()
+    # Ces libelles et ces conseils sont LUS : ils portent leurs accents, a la
+    # difference du code qui les entoure.
     etapes = [
-        ("Domaine et adresse du VPS declares",
+        ("Domaine et adresse du VPS déclarés",
          bool(reglages["domaine"] and reglages["ip"]),
-         "Saisis-les ci-dessus : ils servent a produire les fichiers de configuration."),
-        ("Un intermediaire relaie cette requete", devant,
-         "Aucun en-tete X-Forwarded-* sur cette requete. Soit tu regardes cette page "
-         "directement depuis le reseau local -- c'est normal -- soit nginx n'est pas "
+         "Saisis-les ci-dessus : ils servent à produire les fichiers de configuration."),
+        ("Un intermédiaire relaie cette requête", devant,
+         "Aucun en-tête X-Forwarded-* sur cette requête. Soit tu regardes cette page "
+         "directement depuis le réseau local — c'est normal — soit nginx n'est pas "
          "encore en place sur le VPS."),
-        ("Le proxy est declare de confiance", trust_proxy(),
+        ("Le proxy est déclaré de confiance", trust_proxy(),
          "Case « Proxy de confiance », plus haut. Sans elle le panneau ne croit pas "
-         "l'adresse annoncee, et tous les visiteurs comptent pour un seul."),
-        ("La requete arrive en HTTPS", annonce == "https" or request.is_secure,
-         "Le certificat se pose sur le VPS (certbot), pas ici. Voir l'etape 3 du README."),
-        ("Adresse publique declaree dans le panneau", bool(publique),
+         "l'adresse annoncée, et tous les visiteurs comptent pour un seul."),
+        ("La requête arrive en HTTPS", annonce == "https" or request.is_secure,
+         "Le certificat se pose sur le VPS (certbot), pas ici. Voir l'étape 3 du README."),
+        ("Adresse publique déclarée dans le panneau", bool(publique),
          "Carte « Adresse publique », plus bas. Tant qu'elle manque, aucune application "
-         "ne peut etre rendue publique."),
+         "ne peut être rendue publique."),
     ]
     return [{"etape": nom, "ok": bool(ok), "aide": aide} for nom, ok, aide in etapes]
 
@@ -4913,7 +4915,7 @@ def api_utilisateur_creer():
     if d.get("email") and not email:
         return jsonify({"error": "Adresse mail invalide."}), 400
     if not nom:
-        return jsonify({"error": "Nom invalide : 2 a 32 caractères, "
+        return jsonify({"error": "Nom invalide : 2 à 32 caractères, "
                                  "minuscules, chiffres, tiret ou souligné."}), 400
     if nom == NOM_ADMIN:
         return jsonify({"error": "Ce nom est celui du compte d'administration."}), 400
@@ -5725,9 +5727,9 @@ def _proxy(name, sub):
         if not is_authed():
             return redirect("/login")
         if not peut_voir(name):
-            return Response(_page("Acces refuse",
-                                  "Ton compte n'a pas acces a \u00ab " + name + " \u00bb.",
-                                  "Demande l'acces a l'administrateur."),
+            return Response(_page("Accès refusé",
+                                  "Ton compte n'a pas accès à \u00ab " + name + " \u00bb.",
+                                  "Demande l'accès à l'administrateur."),
                             403, mimetype="text/html")
     # Note l'ouverture APRES les controles d'acces : un refus n'est pas une
     # visite, et le journal servirait mal s'il melangeait les deux.

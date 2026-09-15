@@ -162,7 +162,7 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
     et sans largeur minimale c'est toute la ligne qui se decale a ce
     moment-la. */
  min-width:24px;text-align:center}
-.side-item.active .side-count{background:var(--accent);color:#fff}
+.side-item.active .side-count{background:var(--accent);color:var(--sur-accent)}
 .main-area{flex:1;min-width:0;overflow-x:hidden}
 .wrap{max-width:1240px;margin:0 auto;padding:24px 24px 56px}
 @media (max-width:640px){.wrap{padding:18px 14px 40px}}
@@ -388,7 +388,7 @@ label:has(> input[type=checkbox]),label:has(> input[type=radio]){
 .seg-toggle button{flex:1;padding:8px 6px;border:none;background:var(--surface2);color:var(--dim);
  font:inherit;font-size:12.5px;font-weight:550;cursor:pointer}
 .seg-toggle button+button{border-left:1px solid var(--line2)}
-.seg-toggle button.active,.seg-toggle button.on{background:var(--accent);color:#fff}
+.seg-toggle button.active,.seg-toggle button.on{background:var(--accent);color:var(--sur-accent)}
 
 .err{margin-top:10px;padding:9px 12px;border-radius:var(--r-s);font-size:12.5px;
  background:var(--err-bg);color:var(--err-txt);border:1px solid var(--err-border)}
@@ -837,7 +837,7 @@ table.tbl-journal{min-width:560px}
       </div>
     </div>
     <div class="card">
-      <div class="card-top"><div class="card-name"><b>Sante</b>
+      <div class="card-top"><div class="card-name"><b>Santé</b>
         <div class="path">Répartition des états</div></div></div>
       <div class="healthbar"><span id="hb-on" style="background:var(--ok)"></span><span id="hb-off"
         style="background:var(--line2)"></span><span id="hb-err" style="background:var(--err)"></span></div>
@@ -915,7 +915,7 @@ table.tbl-journal{min-width:560px}
     <button class="btn btn-primary" onclick="openAdd()">
       <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Nouvelle application</button>
   </div>
-  <div class="sous">Gerez et surveillez toutes vos applications. Cliquez sur une ligne pour ouvrir sa fiche.</div>
+  <div class="sous">Gérez et surveillez toutes vos applications. Cliquez sur une ligne pour ouvrir sa fiche.</div>
   <div id="tbl-projets"></div>
 </div>
 
@@ -951,8 +951,8 @@ table.tbl-journal{min-width:560px}
         <div class="card-top"><div class="card-name"><b>État</b></div></div>
         <div class="kv"><span class="k">Adresse</span><span class="v"><a id="fa-url" href="#" target="_blank"></a></span></div>
         <div class="kv"><span class="k">Port interne</span><span class="v" id="fa-port">—</span></div>
-        <div class="kv"><span class="k">Reponse</span><span class="v" id="fa-ecoute">—</span></div>
-        <div class="kv"><span class="k">Visibilite</span><span class="v" id="fa-vis-txt">—</span></div>
+        <div class="kv"><span class="k">Réponse</span><span class="v" id="fa-ecoute">—</span></div>
+        <div class="kv"><span class="k">Visibilité</span><span class="v" id="fa-vis-txt">—</span></div>
       </div>
       <div class="card">
         <div class="card-top"><div class="card-name"><b>Exécution</b></div></div>
@@ -979,7 +979,7 @@ table.tbl-journal{min-width:560px}
         <div class="spark-wrap" id="mt-mem"></div>
       </div>
     </div>
-    <div class="hint" style="margin-top:12px">Sur les deux dernières minutes environ, releve toutes les 5 secondes.</div>
+    <div class="hint" style="margin-top:12px">Sur les deux dernières minutes environ, relevé toutes les 5 secondes.</div>
   </div>
 
   <div class="onglet" id="onglet-journal">
@@ -1012,9 +1012,9 @@ table.tbl-journal{min-width:560px}
       <div class="zone-title">Dernières ouvertures</div>
       <div id="ac-liste"></div>
     </div>
-    <div class="hint">Une ouverture est notee au plus une fois par quart d'heure et par compte :
+    <div class="hint">Une ouverture est notée au plus une fois par quart d'heure et par compte :
       une page web, c'est des dizaines de requêtes, et les compter toutes ne dirait plus rien
-      de la frequentation.</div>
+      de la fréquentation.</div>
   </div>
 
   <div class="onglet" id="onglet-acces">
@@ -1022,14 +1022,14 @@ table.tbl-journal{min-width:560px}
       <div class="card settings-card">
         <div class="card-top"><div class="card-name">
           <b>Qui ouvre cette application</b>
-          <div class="path">Coche un compte pour lui donner l'accès, decoche pour le retirer.</div>
+          <div class="path">Coche un compte pour lui donner l'accès, décoche pour le retirer.</div>
         </div>
         <span class="pill" id="ac-etat"><i></i>&nbsp;</span></div>
 
         <div class="hint" id="ac-publique" style="display:none"></div>
         <div class="hint">La même information que dans la fiche d'un compte, prise par l'autre
           bout. Pour savoir qui ouvre une application il fallait jusqu'ici ouvrir les fiches une
-          par une — et pour donner l'accès a cinq personnes, cinq allers-retours.</div>
+          par une — et pour donner l'accès à cinq personnes, cinq allers-retours.</div>
 
         <div id="ac-liste" style="margin-top:14px"></div>
         <div class="err" id="ac-err" style="display:none"></div>
@@ -1054,7 +1054,7 @@ table.tbl-journal{min-width:560px}
       </div>
 
       <div class="fset">
-        <div class="fset-title">Presentation</div>
+        <div class="fset-title">Présentation</div>
         <div class="field"><label>Description <span class="opt">facultatif</span></label>
           <input id="e-desc" autocomplete="off" maxlength="140" placeholder="Mon site personnel">
           <div class="hint">Une ligne, affichée sous le nom du projet dans le hub.</div></div>
@@ -1067,27 +1067,27 @@ table.tbl-journal{min-width:560px}
         <div class="fset-title">Exécution</div>
         <div class="field"><label>Commande de lancement</label>
           <input id="e-cmd" autocomplete="off" spellcheck="false">
-          <div class="hint">La variable <code>$PORT</code> est fournie : l'application doit ecouter dessus.</div></div>
+          <div class="hint">La variable <code>$PORT</code> est fournie : l'application doit écouter dessus.</div></div>
         <div class="field"><label>Commande de build <span class="opt">facultatif</span></label>
           <input id="e-build" placeholder="npm install" autocomplete="off" spellcheck="false">
-          <div class="hint">Executee à la demande, jamais au lancement.</div></div>
+          <div class="hint">Exécutée à la demande, jamais au lancement.</div></div>
       </div>
 
       <div class="fset">
         <div class="fset-title">Ressources</div>
         <div class="field"><label>Limite mémoire <span class="opt">facultatif</span></label>
           <div class="input-suffix"><input id="e-mem" type="number" min="16" placeholder="256"><span>Mo</span></div>
-          <div class="hint">Le process est arrêté automatiquement s'il tente de la depasser.</div></div>
+          <div class="hint">Le process est arrêté automatiquement s'il tente de la dépasser.</div></div>
       </div>
 
       <div class="fset" id="e-vis-zone">
-        <div class="fset-title">Visibilite</div>
+        <div class="fset-title">Visibilité</div>
         <div class="field">
           <div class="seg-toggle" id="e-vis-toggle">
             <button data-v="publique" onclick="setVisEdit('publique')">Publique</button>
             <button data-v="privee" onclick="setVisEdit('privee')">Privée</button>
           </div>
-          <div class="hint">Publique : accessible a tous, même sans connexion. Privée : réservé aux
+          <div class="hint">Publique : accessible à tous, même sans connexion. Privée : réservée aux
             comptes autorisés.</div>
         </div>
       </div>
@@ -1214,16 +1214,16 @@ table.tbl-journal{min-width:560px}
         <div class="path">Celui avec lequel tu te connectes à ce panneau.</div>
       </div></div>
 
-      <div class="hint">L'ancien est demande même sur cette session : sans cela, un cookie
+      <div class="hint">L'ancien est demandé même sur cette session : sans cela, un cookie
         capturé suffirait à prendre ta place définitivement. <b>12 caractères au minimum</b> —
-        tu le choisis toi-même, rien n'oblige a le raccourcir.</div>
+        tu le choisis toi-même, rien n'oblige à le raccourcir.</div>
 
       <div class="field" style="margin-top:14px"><label>Mot de passe actuel</label>
         <input id="mdp-ancien" type="password" autocomplete="current-password"></div>
       <div class="grid2">
         <div class="field"><label>Nouveau mot de passe</label>
           <input id="mdp-nouveau" type="password" autocomplete="new-password"></div>
-        <div class="field"><label>Repeter</label>
+        <div class="field"><label>Répéter</label>
           <input id="mdp-repeter" type="password" autocomplete="new-password"></div>
       </div>
       <div class="actions">
@@ -1255,7 +1255,7 @@ table.tbl-journal{min-width:560px}
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
         <b>Posture de sécurité</b>
-        <div class="path">Ou en est ce serveur, et ce qu'il reste à faire.</div>
+        <div class="path">Où en est ce serveur, et ce qu'il reste à faire.</div>
       </div>
       <span class="pill" id="sec-note"><i></i>&nbsp;</span></div>
 
@@ -1276,7 +1276,7 @@ table.tbl-journal{min-width:560px}
 
       <div class="hint" id="totp-pourquoi">Le mot de passe est un secret unique : s'il fuit, il donne
         l'exécution de commandes sur cette machine. Le second facteur exige en plus ton téléphone.
-        A activer avant d'exposer ce panneau au-dela de ton réseau.</div>
+        À activer avant d'exposer ce panneau au-delà de ton réseau.</div>
 
       <div id="totp-etape-1" style="display:none">
         <button class="btn btn-primary" onclick="totpPreparer()">Activer</button>
@@ -1290,7 +1290,7 @@ table.tbl-journal{min-width:560px}
         <div class="hint">Ou saisis la clé à la main :</div>
         <div class="field"><input id="totp-secret" readonly onclick="this.select()"></div>
         <div class="hint">2. Saisis le code affiché par l'application pour confirmer. Rien n'est
-          enregistré tant que ce code n'est pas valide — une clé mal recopiee ne peut donc pas
+          enregistré tant que ce code n'est pas valide — une clé mal recopiée ne peut donc pas
           t'enfermer dehors.</div>
         <div class="field"><input id="totp-code" inputmode="numeric" maxlength="6" placeholder="123456"></div>
         <div class="actions">
@@ -1301,7 +1301,7 @@ table.tbl-journal{min-width:560px}
       </div>
 
       <div id="totp-etape-3" style="display:none">
-        <div class="hint">Pour désactiver, saisis un code valide : une session volee ne doit pas
+        <div class="hint">Pour désactiver, saisis un code valide : une session volée ne doit pas
           pouvoir retirer le second facteur.</div>
         <div class="field"><input id="totp-code-off" inputmode="numeric" maxlength="6" placeholder="123456"></div>
         <button class="btn btn-default" onclick="totpDesactiver()">Désactiver</button>
@@ -1321,7 +1321,7 @@ table.tbl-journal{min-width:560px}
 
       <div class="hint">Une clé d'accès remplace le mot de passe <b>et</b> le code à six chiffres :
         l'appareil prouve la possession, et l'empreinte (ou le code de l'appareil) prouve que c'est
-        bien toi. Rien a retenir, rien a recopier — et rien a hameconner, puisque la clé ne signe
+        bien toi. Rien à retenir, rien à recopier — et rien à hameçonner, puisque la clé ne signe
         que pour le domaine qui l'a enregistrée.</div>
 
       <div class="hint" id="pk-empechement" style="display:none;margin-top:8px"></div>
@@ -1331,7 +1331,7 @@ table.tbl-journal{min-width:560px}
       <div class="field" style="margin-top:14px">
         <label>Nom de la clé <span class="opt">facultatif</span></label>
         <input id="pk-nom" placeholder="Téléphone" autocomplete="off" maxlength="40">
-        <div class="hint">Pour la reconnaitre dans la liste, le jour ou tu en auras plusieurs.</div>
+        <div class="hint">Pour la reconnaître dans la liste, le jour où tu en auras plusieurs.</div>
       </div>
       <button class="btn btn-primary" id="pk-ajouter" onclick="pkAjouter()">Ajouter une clé</button>
       <div class="err" id="pk-err" style="display:none"></div>
@@ -1346,14 +1346,14 @@ table.tbl-journal{min-width:560px}
     <div class="zone-title">Serveur</div>
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
-        <b>Derriere un proxy, en HTTPS</b>
+        <b>Derrière un proxy, en HTTPS</b>
         <div class="path">Les deux réglages qui suivent le passage du panneau sur internet.</div>
       </div></div>
 
       <div class="hint">Une case ne s'active que si la situation la justifie — sinon elle reste
         grisée et dit pourquoi. C'est délibéré : activer HTTPS depuis une page servie en clair
         poserait un cookie « Secure » que ton navigateur cesserait d'envoyer, et te
-        deconnecterait <b>sans retour possible</b>. Les eteindre, en revanche, est toujours
+        déconnecterait <b>sans retour possible</b>. Les éteindre, en revanche, est toujours
         permis.</div>
 
       <div class="field" style="margin-top:14px">
@@ -1381,15 +1381,15 @@ table.tbl-journal{min-width:560px}
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
         <b>Liaison avec un VPS</b>
-        <div class="path">Un VPS devant, un tunnel derriere, et rien d'ouvert sur ta box.</div>
+        <div class="path">Un VPS devant, un tunnel derrière, et rien d'ouvert sur ta box.</div>
       </div>
       <span class="pill" id="vps-etat"><i></i>&nbsp;</span></div>
 
-      <div class="hint">Le VPS porte le nom de domaine et le certificat ; cette machine ne publié
+      <div class="hint">Le VPS porte le nom de domaine et le certificat ; cette machine ne publie
         rien sur internet et reste joignable seulement par le tunnel. Saisis les deux valeurs
         ci-dessous et le panneau produit les fichiers de configuration, prêts à copier.
         <b>Il ne se connecte pas au VPS</b> : lui donner une clé SSH avec les droits qui vont avec
-        ferait de ce panneau la cible la plus interessante de l'installation.</div>
+        ferait de ce panneau la cible la plus intéressante de l'installation.</div>
 
       <div class="grid2" style="margin-top:14px">
         <div class="field"><label>Nom de domaine</label>
@@ -1408,7 +1408,7 @@ table.tbl-journal{min-width:560px}
       <div class="err" id="vps-err" style="display:none"></div>
       <div class="hint" id="vps-msg" style="display:none"></div>
 
-      <div class="mb-titre" style="margin-top:18px">Ou en est la liaison</div>
+      <div class="mb-titre" style="margin-top:18px">Où en est la liaison</div>
       <div class="hint">Ce que le panneau <b>constate</b> sur la requête qu'il traite en ce moment.
         Aucune de ces lignes n'est une supposition.</div>
       <div id="vps-diagnostic" style="margin-top:10px"></div>
@@ -1427,10 +1427,10 @@ table.tbl-journal{min-width:560px}
       <div class="hint">Tant qu'elle n'est pas déclarée, le panneau <b>ne propose pas de rendre une
         application publique</b> : sur un serveur que personne d'autre ne peut joindre, « publique »
         ne partagerait rien — cela retirerait seulement l'authentification. Une application déjà
-        publique n'est pas touchee, et peut toujours être refermee.</div>
-      <div class="hint" style="margin-top:8px">Elle se déclaré à la main : le panneau ne peut pas
+        publique n'est pas touchée, et peut toujours être refermée.</div>
+      <div class="hint" style="margin-top:8px">Elle se déclare à la main : le panneau ne peut pas
         savoir si le port 443 de ta box est ouvert, si ton tunnel tourne, ni quel nom de domaine y
-        mene. La renseigner, c'est dire « j'ai fait le nécessaire ».</div>
+        mène. La renseigner, c'est dire « j'ai fait le nécessaire ».</div>
 
       <div class="field" style="margin-top:14px">
         <label>Adresse</label>
@@ -1439,8 +1439,8 @@ table.tbl-journal{min-width:560px}
       </div>
       <button class="btn btn-primary" id="pub-save" onclick="pubEnregistrer()">Enregistrer</button>
       <div class="err" id="pub-err" style="display:none"></div>
-      <div class="hint" id="pub-fige" style="display:none">Cette adresse est fixee par
-        <code>APP_MANAGER_PUBLIC_URL</code> dans le compose : elle se modifié la-bas.</div>
+      <div class="hint" id="pub-fige" style="display:none">Cette adresse est fixée par
+        <code>APP_MANAGER_PUBLIC_URL</code> dans le compose : elle se modifie là-bas.</div>
     </div>
   </div>
 
@@ -1490,13 +1490,13 @@ table.tbl-journal{min-width:560px}
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
         <b>Serveur d'envoi (SMTP)</b>
-        <div class="path">Par ou sortent les mails de CodeLab.</div>
+        <div class="path">Par où sortent les mails de CodeLab.</div>
       </div>
       <span class="pill" id="sm-etat"><i></i>&nbsp;</span></div>
 
-      <div class="hint">Trois choses en dependent : les <b>alertes</b> quand une application tombe,
+      <div class="hint">Trois choses en dépendent : les <b>alertes</b> quand une application tombe,
         les <b>codes de vérification</b> des adresses mail des comptes, et l'<b>inscription
-        libre</b> — qui reste fermee tant qu'aucun serveur n'est configuré, faute de pouvoir
+        libre</b> — qui reste fermée tant qu'aucun serveur n'est configuré, faute de pouvoir
         vérifier une adresse.</div>
 
       <div class="grid2" style="margin-top:14px">
@@ -1521,9 +1521,9 @@ table.tbl-journal{min-width:560px}
           <em>mot de passe d'application</em>, pas ton mot de passe habituel.</div>
       </div>
       <div class="hint">A l'enregistrement, CodeLab <b>se connecte réellement</b> à ce serveur :
-        chiffrement et authentification compris. Une configuration qui ne repond pas n'est pas
+        chiffrement et authentification compris. Une configuration qui ne répond pas n'est pas
         enregistrée, et le message du serveur t'est rendu tel quel. Rien à lancer à la main,
-        rien a penser a vérifier.</div>
+        rien à penser à vérifier.</div>
 
       <div class="actions">
         <button class="btn btn-primary" id="sm-save" onclick="alEnregistrer('sm')">Vérifier et enregistrer</button>
@@ -1540,16 +1540,16 @@ table.tbl-journal{min-width:560px}
       </div>
       <span class="pill" id="sm-origine-etat"><i></i>&nbsp;</span></div>
 
-      <div class="hint">Posee à l'installation, elle sert de <b>repli</b> : si la configuration
-        ci-dessus cesse de fonctionner — mot de passe revoque, quota atteint, serveur eteint —
-        les mails repartent automatiquement par celle-ci. Le panneau ne l'ecrase jamais, c'est
+      <div class="hint">Posée à l'installation, elle sert de <b>repli</b> : si la configuration
+        ci-dessus cesse de fonctionner — mot de passe révoqué, quota atteint, serveur éteint —
+        les mails repartent automatiquement par celle-ci. Le panneau ne l'écrase jamais, c'est
         pour cela qu'on peut lui faire confiance.</div>
 
       <div class="kv" style="margin-top:12px"><span class="k">Serveur</span>
         <span class="v" id="sm-origine-host">&mdash;</span></div>
-      <div class="kv"><span class="k">Expediteur</span>
+      <div class="kv"><span class="k">Expéditeur</span>
         <span class="v" id="sm-origine-from">&mdash;</span></div>
-      <div class="hint" style="margin-top:10px">Elle se modifié dans le bloc
+      <div class="hint" style="margin-top:10px">Elle se modifie dans le bloc
         <code>codelab-alertes</code> de <code>credentials.env</code>, sur le serveur. Le capteur
         d'alerte de Dagster lit le même bloc.</div>
     </div>
@@ -1562,7 +1562,7 @@ table.tbl-journal{min-width:560px}
 
       <div class="hint">C'est le filet. Chaque application peut avoir ses propres destinataires
         (onglet <b>Alertes</b>), mais cette adresse-ci les reçoit <b>toutes</b> — y compris celles
-        des applications dont la liste est restee vide. Sans elle, une application oubliee
+        des applications dont la liste est restée vide. Sans elle, une application oubliée
         tomberait en silence.</div>
 
       <div class="field" style="margin-top:14px">
@@ -1590,8 +1590,8 @@ table.tbl-journal{min-width:560px}
       </div>
       <span class="pill" id="al-etat"><i></i>&nbsp;</span></div>
 
-      <div class="hint">Le panneau redemarre tout seul une application qui plante. Il abandonne au
-        bout de 5 tentatives en 10 minutes — c'est à ce moment-la que le mail part, pas au premier
+      <div class="hint">Le panneau redémarre tout seul une application qui plante. Il abandonne au
+        bout de 5 tentatives en 10 minutes — c'est à ce moment-là que le mail part, pas au premier
         soubresaut. Un second mail signale le retour à la normale.</div>
 
       <div class="hint" id="al-smtp-source" style="margin-top:12px"></div>
@@ -1606,12 +1606,12 @@ table.tbl-journal{min-width:560px}
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
         <b>Destinataires par application</b>
-        <div class="path">Qui prevenir, application par application.</div>
+        <div class="path">Qui prévenir, application par application.</div>
       </div></div>
 
-      <div class="hint">Une application de facturation ne previent pas les mêmes personnes qu'un
+      <div class="hint">Une application de facturation ne prévient pas les mêmes personnes qu'un
         site vitrine. Laisse vide pour qu'une application n'alerte que l'administrateur — dont
-        l'adresse s'ajouté <b>toujours</b> a celles saisies ici.</div>
+        l'adresse s'ajoute <b>toujours</b> à celles saisies ici.</div>
 
       <div id="al-par-app" style="margin-top:14px"></div>
       <div class="hint" id="al-app-msg" style="display:none"></div>
@@ -1634,7 +1634,7 @@ table.tbl-journal{min-width:560px}
     <div class="card settings-card card-large">
       <div class="card-top"><div class="card-name">
         <b>Comptes</b>
-        <div class="path">Chacun n'ouvre que les projets privés que tu lui autorisés.</div>
+        <div class="path">Chacun n'ouvre que les projets privés que tu lui autorises.</div>
       </div>
       <div class="spacer"></div>
       <button class="btn btn-primary btn-sm" onclick="usFormulaire(true)">Nouveau compte</button></div>
@@ -1678,7 +1678,7 @@ table.tbl-journal{min-width:560px}
         </div>
         <div class="field" style="margin-top:14px"><label>Mot de passe</label>
           <input id="us-mdp" type="password" autocomplete="new-password" placeholder="8 caractères au minimum">
-          <div class="hint">Le second facteur, lui, s'enregistré à la première connexion : tu ne
+          <div class="hint">Le second facteur, lui, s'enregistre à la première connexion : tu ne
             connais jamais la clé de quelqu'un d'autre.</div>
         </div>
         <div class="actions">
@@ -1746,7 +1746,7 @@ table.tbl-journal{min-width:560px}
     <div class="alert" id="us-f-err" style="display:none"></div>
 
     <div class="mb-groupe">
-      <div class="mb-titre">Identite</div>
+      <div class="mb-titre">Identité</div>
       <div class="field"><label>Adresse mail <span class="opt">facultatif</span></label>
         <input id="us-f-mail" type="email" placeholder="marie@example.com" autocomplete="off">
         <div class="hint" id="us-f-mail-etat"></div>
@@ -1758,13 +1758,13 @@ table.tbl-journal{min-width:560px}
       </div>
       <div class="hint">Le nom du compte ne se change pas : il identifie la personne partout —
         dans ses clés d'accès, dans le journal des accès, dans la liste des projets autorisés.
-        Pour renommer quelqu'un, créé un compte et supprimé l'ancien.</div>
+        Pour renommer quelqu'un, crée un compte et supprime l'ancien.</div>
     </div>
 
     <div class="mb-groupe">
       <div class="mb-titre">Projets autorisés</div>
       <div class="hint">L'autorisation ne compte que pour les projets <b>privés</b> : un projet
-        public reste ouvert a tout le monde, y compris sans connexion.</div>
+        public reste ouvert à tout le monde, y compris sans connexion.</div>
       <div class="us-cases" id="us-f-projets" style="margin-top:10px"></div>
     </div>
 
@@ -1772,15 +1772,15 @@ table.tbl-journal{min-width:560px}
       <div class="mb-titre">Moyens de connexion</div>
       <div class="hint" id="us-f-facteurs"></div>
       <div class="actions">
-        <button class="btn btn-default btn-sm" id="us-f-totp" onclick="usReinitTotp()">Reinitialiser le second facteur</button>
+        <button class="btn btn-default btn-sm" id="us-f-totp" onclick="usReinitTotp()">Réinitialiser le second facteur</button>
         <button class="btn btn-default btn-sm" id="us-f-cles" onclick="usRetirerCles()">Retirer les clés d'accès</button>
       </div>
     </div>
 
     <div class="mb-groupe">
       <div class="mb-titre">Supprimer</div>
-      <div class="hint">Le compte disparait, avec ses clés d'accès. Ses sessions ouvertes cessent
-        d'autoriser quoi que ce soit — chaque controle relit le registre. Le journal des accès,
+      <div class="hint">Le compte disparaît, avec ses clés d'accès. Ses sessions ouvertes cessent
+        d'autoriser quoi que ce soit — chaque contrôle relit le registre. Le journal des accès,
         lui, garde la trace de ce qu'il a fait.</div>
       <button class="btn btn-default danger btn-sm" style="margin-top:10px"
         onclick="usSupprimer()">Supprimer ce compte</button>
@@ -1815,8 +1815,8 @@ table.tbl-journal{min-width:560px}
       <div class="input-suffix"><input id="f-mem" type="number" min="16" placeholder="256"><span>Mo</span></div></div>
     <div class="field"><label>Catégorie <span class="opt">facultatif</span></label>
       <select id="f-cat"></select>
-      <div class="hint">Les catégories se creent dans Configuration.</div></div>
-    <div class="field" id="f-vis-zone"><label>Visibilite</label>
+      <div class="hint">Les catégories se créent dans Configuration.</div></div>
+    <div class="field" id="f-vis-zone"><label>Visibilité</label>
       <div class="seg-toggle" id="f-vis-toggle">
         <button data-v="publique" onclick="setVisAdd('publique')">Publique</button>
         <button data-v="privee" onclick="setVisAdd('privee')">Privée</button>
@@ -2029,7 +2029,7 @@ function paramOnglet(o){
 function etatApp(a){
   if(a.crash_looping) return ['err','En erreur'];
   if(!a.running) return ['off','Arretee'];
-  if(a.listening === false) return ['warn','Ne repond pas'];
+  if(a.listening === false) return ['warn','Ne répond pas'];
   return ['on','En ligne'];
 }
 function badgeEtat(a){ const [c,t]=etatApp(a); return `<span class="pill ${c}"><i></i>${t}</span>`; }
@@ -2254,7 +2254,7 @@ function render(){
   }
   $('tbl-projets').innerHTML=`<div class="tbl-wrap"><div class="tbl-scroll"><table class="tbl">
     <thead><tr>
-      <th>Application</th><th>État</th><th>Visibilite</th><th>Port</th>
+      <th>Application</th><th>État</th><th>Visibilité</th><th>Port</th>
       <th>CPU</th><th>Mémoire</th><th></th>
     </tr></thead><tbody>
     ${liste.map(a=>`<tr onclick="ouvrirFiche('${esc(a.name)}')">
@@ -2446,7 +2446,7 @@ function peindreFiche(){
   $('fa-url').href=urlApplication(a.name);
   $('fa-port').textContent=a.port;
   $('fa-ecoute').textContent = !a.running ? 'Arretee'
-    : (a.listening===false ? 'Le port ne repond pas' : 'Le port repond');
+    : (a.listening===false ? 'Le port ne répond pas' : 'Le port répond');
   $('fa-vis-txt').textContent = prive
     ? 'Privée — session requise' : 'Publique — ouverte a tous';
   $('fa-path').textContent=a.path;
@@ -2467,7 +2467,7 @@ function peindreFiche(){
   b.push(`<button class="btn ${a.running?'btn-arreter':'btn-demarrer'}" onclick="tg('${esc(a.name)}')">
     ${a.running?svgStop+'Arrêter':svgPlay+'Démarrer'}</button>`);
   b.push(`<button class="btn btn-refaire" onclick="restartApp('${esc(a.name)}')" ${a.running?'':'disabled'}>
-    ${svgRe}Redemarrer</button>`);
+    ${svgRe}Redémarrer</button>`);
   if(a.has_build) b.push(`<button class="btn btn-refaire" onclick="buildApp('${esc(a.name)}')">${svgBuild}Build</button>`);
   /* Deployer met du code en ligne : c'est l'action principale de cette
      barre, et la seule qui garde l'accent. */
@@ -3360,7 +3360,7 @@ async function mailConfirmer(){
 
 async function usReinitTotp(){
   const nom=usCourant;
-  if(!await demander('Reinitialiser le second facteur ?',
+  if(!await demander('Réinitialiser le second facteur ?',
     `« ${nom} » enregistrera une nouvelle clé a sa prochaine connexion. A faire quand la personne `
     + `a change ou perdu son téléphone.`, 'Reinitialiser')) return;
   if(await usEcrire({reinitialiser_totp:true}))
@@ -3535,7 +3535,7 @@ async function alPoster(corps, bouton, ou){
     const d=await r.json();
     if(!r.ok){
       /* Le message du serveur SMTP est la seule chose qui aide vraiment ici
-         ("authentification refusee", "relais interdit") : on le montre. */
+         ("authentification refusée", "relais interdit") : on le montre. */
       alMessage((d.error||'Enregistrement impossible.')
                 + (d.detail ? ' — '+d.detail : ''), true, ou);
       return false;
@@ -3611,10 +3611,10 @@ async function chargerSecurite(){
      'securite'],
     ['Administration sur le réseau local', d.admin_reseau_local ? OK : (expose ? ABSENT : HORS),
      d.admin_reseau_local
-       ? "Le compte d'administration ne repond qu'aux adresses de chez toi. Les comptes "
+       ? "Le compte d'administration ne répond qu'aux adresses de chez toi. Les comptes "
          + "nommes entrent toujours de n'importe ou."
        : (expose
-          ? "Ce panneau est joignable de l'exterieur et l'administration y repond. Un mot de "
+          ? "Ce panneau est joignable de l'extérieur et l'administration y répond. Un mot de "
             + "passe qui fuit suffirait. A cocher dans l'onglet Serveur, depuis chez toi."
           : "Sans objet tant que ce panneau ne sort pas du réseau local."),
      'serveur'],
@@ -3641,7 +3641,7 @@ async function chargerSecurite(){
        ? "Les adresses viennent de X-Forwarded-For : la limite de tentatives et le journal "
          + "distinguent les visiteurs."
        : (expose
-          ? "Derriere un proxy non déclaré, tous les visiteurs comptent pour un seul : la "
+          ? "Derrière un proxy non déclaré, tous les visiteurs comptent pour un seul : la "
             + "limite de tentatives de connexion ne protégé plus rien. A cocher dans l'onglet "
             + "Serveur — et seulement s'il y a vraiment un proxy devant."
           : "Sans objet sans proxy devant."),
@@ -3650,7 +3650,7 @@ async function chargerSecurite(){
      d.origines_separees
        ? ("Servies depuis " + (d.origine_applications||'un autre port')
           + " : une faille dans l'une d'elles n'atteint pas le panneau.")
-       : ("Les applications sont servies par le panneau lui-même, donc dans la MEME origine : "
+       : ("Les applications sont servies par le panneau lui-même, donc dans la MÊME origine : "
           + "une faille dans une application quelconque peut lire cette page et piloter la "
           + "stack. Publié le port " + (d.port_applications||9002) + " dans docker-compose.yml."),
      null],
@@ -3711,7 +3711,7 @@ async function chargerSecurite(){
         "Fixe par APP_MANAGER_HTTPS dans le compose.");
   poser('expo-admin-lan', d.admin_reseau_local, d.admin_reseau_local_fige,
         d.peut_activer_admin_reseau_local,
-        "Le compte d'administration ne repond qu'aux adresses du réseau local. "
+        "Le compte d'administration ne répond qu'aux adresses du réseau local. "
         + "Les comptes nommes, eux, entrent toujours de n'importe ou.",
         (d.proxy_non_declare
           ? ("Un proxy non déclaré s'interpose : toutes les requêtes paraitraient locales, "
