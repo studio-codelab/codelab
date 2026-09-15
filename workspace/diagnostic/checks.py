@@ -57,6 +57,7 @@ except ModuleNotFoundError:  # image Dagster, image dev
 
 import inspect
 import datetime
+import enum
 import json
 import os
 import socket
@@ -176,13 +177,54 @@ SCHEMA = read_env("CODELAB_SCHEMA") or "dagster"
 TABLE_QUALIFIEE = f"{SCHEMA}.{TABLE}"
 
 
+# LE MOT DE PASSE N'ARRIVE PAS PAR LE MEME CHEMIN DANS LES TROIS CONTENEURS,
+# et ce n'est pas un accident : credentials.env est en 0600 root, or aucun des
+# processus qui en ont besoin ne tourne en root. Chaque entrypoint lit donc le
+# fichier AVANT d'abandonner ses privileges, et passe la valeur par
+# l'environnement -- sous un nom different selon le service, parce que chacun
+# la destinait d'abord a sa propre configuration.
+#
+# Ne lire que POSTGRES_PASSWORD revenait a ignorer les deux autres chemins.
+# Cote Dagster, cela se payait comptant : le secret etait la, dans
+# l'environnement du processus, et la sonde repondait "fe_sendauth: no
+# password supplied" quatre fois par heure.
+CLES_MOT_DE_PASSE_PG = (
+    # Le fichier partage, ou l'environnement : le cas du panneau, qui lit
+    # credentials.env en root et transmet la valeur aux applications qu'il
+    # lance sous un uid sans droit dessus.
+    "POSTGRES_PASSWORD",
+    # codelab-dagster / codelab-dagster-daemon : l'entrypoint exporte la
+    # valeur sous ce nom (dagster.yaml ne sait lire qu'une variable
+    # d'environnement), puis bascule sur l'uid 1002.
+    "DAGSTER_PG_PASSWORD",
+    # Session SSH dans codelab-dev : l'entrypoint pre-remplit le profil, pour
+    # que "psql" fonctionne sans rien saisir. Meme mecanique, meme raison.
+    "PGPASSWORD",
+)
+
+
+def mot_de_passe_pg(env_file=None):
+    """(valeur, nom de la variable qui l'a fournie), ou (None, "") s'il manque.
+
+    L'origine n'est pas un detail d'affichage : "le fichier est illisible ici,
+    mais l'entrypoint a transmis le secret" et "personne n'a transmis le
+    secret" se depannent de deux facons opposees, et se lisaient exactement
+    pareil tant que la sonde ne disait que "absent".
+    """
+    for cle in CLES_MOT_DE_PASSE_PG:
+        valeur = read_env(cle, env_file)
+        if valeur:
+            return valeur, cle
+    return None, ""
+
+
 def pg_settings(env_file=None, dbname=None):
     return {
         "host": read_env("POSTGRES_HOST", env_file) or "codelab-postgres",
         "port": int(read_env("POSTGRES_PORT", env_file) or 5432),
         "dbname": dbname or read_env("CODELAB_DB", env_file) or DB,
         "user": read_env("POSTGRES_USER", env_file) or "codelab",
-        "password": read_env("POSTGRES_PASSWORD", env_file),
+        "password": mot_de_passe_pg(env_file)[0],
     }
 
 
@@ -349,56 +391,165 @@ def _taille(chemin):
         return -1
 
 
+# ------------------------------ rangs de gravite ------------------------------
+#
+# QUATRE RANGS, ET C'EST TOUTE LA HIERARCHIE. Avant, une sonde ne savait dire
+# que "oui" ou "non", et tout "non" faisait tomber le run Dagster, donc partir
+# un mail. Un disque a 87 %, un namespace utilisateur refuse par le noyau et
+# une base de donnees injoignable arrivaient au meme rang -- avec le meme
+# rouge, la meme alerte, la meme urgence. Trois alertes sur quatre ne
+# demandaient aucun geste immediat : c'est exactement comme cela qu'on cesse
+# de lire ses alertes, et qu'on rate la quatrieme.
+#
+#   ECHEC       la stack ne rend plus son service, ou elle est OUVERTE : le
+#               secret partage manque, Postgres ne repond pas, un conteneur
+#               est tombe, une route d'administration repond sans session, le
+#               disque va refuser la prochaine ecriture. Le run echoue, le
+#               capteur envoie le mail. On se leve la nuit pour ca.
+#
+#   ALERTE      degrade, mais ca tourne : l'isolement des applications n'est
+#               pas disponible, le disque se remplit, une application
+#               declaree ne repond plus, un reglage d'exposition manque. A
+#               regarder dans la journee. Le run reste vert -- une alerte
+#               n'est pas une panne, et un run rouge de plus est un mail de
+#               moins qu'on lira.
+#
+#   SANS_OBJET  la sonde ne peut pas repondre D'ICI. L'etat du panneau n'est
+#               monte que dans codelab-app-manager : depuis Dagster, les
+#               sondes qui le lisent voyaient un panneau vide -- zero
+#               application, zero compte, rien d'expose -- et affichaient un
+#               vert rassurant sur une question qu'elles n'avaient pas posee.
+#               Une absence de reponse n'est ni un succes ni un echec.
+#
+#   OK          verifie, ici, maintenant.
+#
+# Le rang de chaque sonde n'est pas fige : c'est ce qu'elle CONSTATE qui le
+# decide. "Le panneau est injoignable depuis ce conteneur" est une alerte
+# (absence de preuve) ; "le panneau repond 200 sans session" est un echec
+# (preuve). Le plafond declare dans SEVERITE_MAX, plus bas, garde la
+# hierarchie lisible en un seul endroit et empeche une sonde de confort de
+# faire tomber un run.
+
+class Etat(enum.IntEnum):
+    """Le rang d'un resultat de sonde, ordonne du PIRE au MEILLEUR.
+
+    Ordonne, donc comparable : le verdict d'une page, c'est le minimum de ses
+    lignes, et il s'ecrit min(...) plutot qu'en empilant des booleens.
+
+    ECHEC vaut 0, donc il est faux au sens de Python, et les trois autres sont
+    vrais. Ce n'est pas une astuce : c'est ce qui permet a tout le code qui
+    lisait "ok" de continuer a le lire comme avant, avec le bon sens --
+    "cette sonde n'est pas en echec".
+    """
+
+    ECHEC = 0
+    ALERTE = 1
+    SANS_OBJET = 2
+    OK = 3
+
+    @property
+    def libelle(self):
+        """Ce qui s'affiche dans la colonne "Etat" et se prefixe aux logs."""
+        return {0: "ECHEC", 1: "ALERTE", 2: "SANS OBJET", 3: "OK"}[int(self)]
+
+    @property
+    def classe(self):
+        """Le nom de classe CSS, cote page web."""
+        return {0: "ko", 1: "warn", 2: "neutre", 3: "ok"}[int(self)]
+
+    @classmethod
+    def depuis(cls, valeur):
+        """Normalise un booleen en Etat, un Etat restant lui-meme.
+
+        Les tests de la verification approfondie, eux, n'ont que deux
+        reponses a donner -- l'action attendue s'est produite, ou non.
+        """
+        return valeur if isinstance(valeur, cls) else (cls.OK if valeur else cls.ECHEC)
+
+
+def pire(resultats):
+    """Le rang le plus bas d'une liste de resultats : le verdict global."""
+    return min((Etat.depuis(e) for e, _, _ in resultats), default=Etat.OK)
+
+
+def noms_par_rang(resultats):
+    """{Etat: [noms de sondes]} -- de quoi ecrire un resume sans reboucler."""
+    groupes = {etat: [] for etat in Etat}
+    for etat, nom, _ in resultats:
+        groupes[Etat.depuis(etat)].append(nom)
+    return groupes
+
+
 # ---------------------------------- sondes ----------------------------------
-# Chacune renvoie (ok, titre, detail). Aucune ne leve : une sonde qui echoue
+# Chacune renvoie (etat, titre, detail). Aucune ne leve : une sonde qui echoue
 # doit afficher pourquoi, pas faire tomber la page.
 
 def check_config(env_file=None):
     """Volume config monte + secret partage disponible.
 
-    "Disponible" et non "lisible" : dans le conteneur app-manager, les
-    applications tournent sous l'uid 1001 alors que credentials.env est en
-    0600 root. Le panneau, qui tourne en root, leur transmet donc les valeurs
-    par l'environnement. Cote Dagster le fichier est lu directement. Les deux
-    cas sont sains, mais ils ne se depannent pas de la meme facon -- la sonde
-    dit donc d'ou vient la valeur, pas seulement qu'elle est la.
+    "Disponible" et non "lisible", et c'est tout le sujet de cette sonde :
+    credentials.env est en 0600 root, et aucun des processus qui s'en servent
+    ne tourne en root. Dans app-manager, les applications tournent sous l'uid
+    1001 et le panneau leur transmet les valeurs par l'environnement ; dans
+    Dagster, l'entrypoint lit le fichier en root puis bascule sur l'uid 1002
+    en exportant DAGSTER_PG_PASSWORD. Un fichier illisible EST donc l'etat
+    normal des deux cotes -- ce qui compte, c'est que le secret soit arrive.
+    La sonde dit par ou.
     """
     path = env_file or ENV_FILE
     if not os.path.exists(path):
-        return False, "credentials.env", f"introuvable : {path} (volume config non monte ?)"
+        return Etat.ECHEC, "credentials.env", f"introuvable : {path} (volume config non monte ?)"
     # os.access ne ment pas ici : le seul cas ou ce code tourne en root est
     # celui ou root peut effectivement lire le fichier.
     lisible = os.access(path, os.R_OK)
-    pw = read_env("POSTGRES_PASSWORD", env_file)
+    pw, origine = mot_de_passe_pg(env_file)
     if not pw:
-        if not lisible:
-            return (False, "credentials.env",
-                    f"{path} illisible sous l'uid {os.geteuid()}, et POSTGRES_PASSWORD "
-                    f"n'a pas ete transmis par le panneau")
-        return False, "credentials.env", "lisible, mais POSTGRES_PASSWORD absent"
-    origine = path if lisible else (f"transmis par le panneau ({path} est "
-                                    f"illisible sous l'uid {os.geteuid()})")
-    return True, "credentials.env", f"{origine} -- POSTGRES_PASSWORD lu ({len(pw)} caracteres)"
+        # UN SEUL message pour les deux cas, et il nomme les trois chemins
+        # possibles. "lisible, mais POSTGRES_PASSWORD absent" laissait croire
+        # que tout se jouait dans ce fichier, alors que deux conteneurs sur
+        # trois recoivent le secret par l'environnement.
+        etat_fichier = "lisible" if lisible else f"illisible sous l'uid {os.geteuid()}"
+        return (Etat.ECHEC, "credentials.env",
+                f"aucun mot de passe Postgres : {path} est {etat_fichier} et ne le "
+                f"porte pas, et aucune des variables "
+                f"{', '.join(CLES_MOT_DE_PASSE_PG)} n'a ete transmise par "
+                f"l'entrypoint de ce conteneur")
+    # L'origine se CONSTATE, elle ne se deduit pas des droits du fichier :
+    # dans app-manager le fichier est lisible (le panneau tourne en root) ET
+    # la valeur peut venir de l'environnement. Annoncer "lu dans
+    # credentials.env" sans regarder ce qu'il contient enverrait corriger un
+    # fichier qui n'est pour rien dans ce qui arrive.
+    if _lire_fichier(path).get("POSTGRES_PASSWORD") == pw:
+        d_ou = f"lu dans {path}"
+    elif lisible:
+        d_ou = (f"transmis par l'environnement ({origine}) ; {path} est lisible "
+                f"mais ne porte pas cette valeur")
+    else:
+        d_ou = (f"transmis par l'environnement ({origine}) -- normal : {path} est "
+                f"illisible sous l'uid {os.geteuid()}")
+    return (Etat.OK, "credentials.env",
+            f"{d_ou} -- mot de passe Postgres disponible ({len(pw)} caracteres)")
 
 
 def check_workspace(workspace=None):
     """Volume /workspace partage entre dev, dagster et app-manager."""
     root = workspace or WORKSPACE
     if not os.path.isdir(root):
-        return False, "/workspace", f"{root} n'est pas un dossier (volume non monte ?)"
+        return Etat.ECHEC, "/workspace", f"{root} n'est pas un dossier (volume non monte ?)"
     defs = os.path.join(root, "definitions.py")
     if not os.path.exists(defs):
-        return False, "/workspace", f"{root} monte, mais definitions.py absent -- Dagster n'a rien a charger"
+        return (Etat.ECHEC, "/workspace",
+                f"{root} monte, mais definitions.py absent -- Dagster n'a rien a charger")
     n = len([x for x in os.listdir(root) if not x.startswith(".")])
-    return True, "/workspace", f"{root} -- definitions.py present, {n} entrees visibles"
+    return Etat.OK, "/workspace", f"{root} -- definitions.py present, {n} entrees visibles"
 
 
 def check_pilote_pg():
     try:
         _, nom = pilote_pg()
-        return True, "Postgres (pilote)", f"{nom} disponible"
+        return Etat.OK, "Postgres (pilote)", f"{nom} disponible"
     except PiloteAbsent as e:
-        return False, "Postgres (pilote)", str(e)
+        return Etat.ECHEC, "Postgres (pilote)", str(e)
 
 
 def check_postgres(env_file=None):
@@ -407,29 +558,44 @@ def check_postgres(env_file=None):
     try:
         pilote_pg()
     except PiloteAbsent:
-        return False, "Postgres", "pilote absent -- voir la sonde precedente"
+        return Etat.ECHEC, "Postgres", "pilote absent -- voir la sonde precedente"
     try:
         conn = connect_pg(env_file)
     except Exception as e:
-        return False, "Postgres", f"{cfg['host']}:{cfg['port']} -- {type(e).__name__}: {e}"
+        # Sans mot de passe, Postgres repond "fe_sendauth: no password
+        # supplied" -- exact, et illisible pour qui ne sait pas d'ou le
+        # secret est cense venir. On renvoie donc vers la sonde qui le dit,
+        # plutot que de laisser chercher du cote du reseau.
+        indice = ("" if cfg["password"] else
+                  " -- aucun mot de passe disponible dans ce conteneur, "
+                  "voir la sonde credentials.env")
+        return (Etat.ECHEC, "Postgres",
+                f"{cfg['host']}:{cfg['port']} -- {type(e).__name__}: {e}{indice}")
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT version()")
             v = cur.fetchone()[0].split(" on ")[0]
-        return True, "Postgres", (f"{cfg['host']}:{cfg['port']}/{cfg['dbname']} "
-                                  f"schema {SCHEMA} -- {v}")
+        return Etat.OK, "Postgres", (f"{cfg['host']}:{cfg['port']}/{cfg['dbname']} "
+                                     f"schema {SCHEMA} -- {v}")
     except Exception as e:
-        return False, "Postgres", f"connecte mais requete refusee -- {e}"
+        return Etat.ECHEC, "Postgres", f"connecte mais requete refusee -- {e}"
     finally:
         conn.close()
 
 
-def check_http(nom, url, timeout=4):
+def check_http(nom, url, timeout=4, gravite=Etat.ECHEC):
+    """Un service HTTP repond-il ? gravite dit ce que coute son silence.
+
+    Un conteneur qui ne repond plus est une panne franche, pas un reglage a
+    revoir : le defaut est donc ECHEC. Le parametre existe pour les services
+    dont l'absence degrade sans casser, et il oblige l'appelant a le dire
+    explicitement -- ce qui se relit dans run_all().
+    """
     try:
         with urllib.request.urlopen(url, timeout=timeout) as r:
-            return True, nom, f"{url} -- HTTP {r.status}"
+            return Etat.OK, nom, f"{url} -- HTTP {r.status}"
     except urllib.error.HTTPError as e:
-        return True, nom, f"{url} -- HTTP {e.code} (service joignable)"
+        return Etat.OK, nom, f"{url} -- HTTP {e.code} (service joignable)"
     except urllib.error.URLError as e:
         # Nom resolu mais rien en ecoute : le conteneur tourne, le service
         # qu'il heberge non -- il demarre encore, ou il est tombe. C'est une
@@ -437,36 +603,36 @@ def check_http(nom, url, timeout=4):
         # les deux se lisent pareil sans cette distinction.
         hote = urllib.parse.urlsplit(url).hostname or nom
         if isinstance(e.reason, ConnectionRefusedError):
-            return False, nom, (
+            return gravite, nom, (
                 f"{url} -- connexion refusee : le conteneur repond mais rien "
                 f"n'ecoute sur ce port. Le service demarre encore, ou il est "
                 f"tombe : docker logs --tail 50 {hote}")
         if isinstance(e.reason, socket.gaierror):
             # Meme lecture que dans check_tcp : le DNS de Docker n'inscrit que
             # les conteneurs demarres.
-            return False, nom, (
+            return gravite, nom, (
                 f"{url} -- nom introuvable ({e.reason}). Conteneur arrete, ou "
                 f"hors du reseau codelab : docker ps -a --filter name={hote}")
-        return False, nom, f"{url} -- {type(e).__name__}: {e}"
+        return gravite, nom, f"{url} -- {type(e).__name__}: {e}"
     except Exception as e:
-        return False, nom, f"{url} -- {type(e).__name__}: {e}"
+        return gravite, nom, f"{url} -- {type(e).__name__}: {e}"
 
 
-def check_tcp(nom, host, port, timeout=4, lire_banniere=False):
+def check_tcp(nom, host, port, timeout=4, lire_banniere=False, gravite=Etat.ECHEC):
     try:
         with socket.create_connection((host, port), timeout=timeout) as s:
             if lire_banniere:
                 s.settimeout(timeout)
                 b = s.recv(128).decode("utf-8", "replace").strip()
-                return True, nom, f"{host}:{port} -- {b or 'connexion acceptee'}"
-            return True, nom, f"{host}:{port} -- connexion acceptee"
+                return Etat.OK, nom, f"{host}:{port} -- {b or 'connexion acceptee'}"
+            return Etat.OK, nom, f"{host}:{port} -- connexion acceptee"
     except socket.gaierror as e:
         # Le DNS de Docker ne connait que les conteneurs DEMARRES du reseau :
         # un nom qui ne resout pas designe presque toujours un conteneur arrete.
-        return False, nom, (f"{host}:{port} -- nom introuvable ({e}). Conteneur arrete, "
-                            f"ou hors du reseau codelab : docker ps -a --filter name={host}")
+        return gravite, nom, (f"{host}:{port} -- nom introuvable ({e}). Conteneur arrete, "
+                              f"ou hors du reseau codelab : docker ps -a --filter name={host}")
     except Exception as e:
-        return False, nom, f"{host}:{port} -- {type(e).__name__}: {e}"
+        return gravite, nom, f"{host}:{port} -- {type(e).__name__}: {e}"
 
 
 def check_cles_ssh(ssh_dir=None, uid=None):
@@ -476,23 +642,33 @@ def check_cles_ssh(ssh_dir=None, uid=None):
     pris l'uid de l'utilisateur cible. Un dossier non traversable ou un
     fichier non lisible par lui donne un "Permission denied (publickey)"
     cote client, strictement identique a celui d'une cle absente. C'est
-    exactement le genre de panne qu'aucune sonde reseau ne verra."""
+    exactement le genre de panne qu'aucune sonde reseau ne verra.
+
+    RANG 2, jamais plus : SSH est la porte d'entree de l'humain, pas le
+    chemin de donnees de la stack. Dagster, Postgres et le panneau
+    fonctionnent identiquement sans aucune cle deposee -- et une installation
+    fraiche n'en a justement aucune, c'est l'etat voulu tant qu'on n'a pas
+    autorise sa premiere machine. En faire un echec, c'etait teindre en rouge
+    une installation neuve et parfaitement saine."""
     d = ssh_dir or SSH_DIR
     u = SSH_UID if uid is None else uid
     ak = os.path.join(d, "authorized_keys")
     hk = os.path.join(d, "host_keys")
 
     if not os.path.isdir(d):
-        return False, "Cles SSH (droits)", f"{d} absent -- codelab-dev n'a jamais demarre ?"
+        return Etat.ALERTE, "Cles SSH (droits)", f"{d} absent -- codelab-dev n'a jamais demarre ?"
     if not _accessible_par(u, d, stat.S_IXUSR, stat.S_IXGRP, stat.S_IXOTH):
-        return False, "Cles SSH (droits)", (
+        return Etat.ALERTE, "Cles SSH (droits)", (
             f"{d} est en {_mode(d)} : l'uid {u} ne peut pas le traverser, donc sshd "
             f"n'atteindra jamais authorized_keys. Corriger : chmod 755 {d}")
     if not os.path.exists(ak):
-        return False, "Cles SSH (droits)", f"{ak} absent -- aucune cle autorisee"
+        return (Etat.ALERTE, "Cles SSH (droits)",
+                f"{ak} absent -- aucune machine autorisee. C'est l'etat d'une "
+                f"installation neuve : deposer une cle publique dans "
+                f"{os.path.join(d, 'authorized_keys.d')} ouvre l'acces SSH.")
     if not _accessible_par(u, ak, stat.S_IRUSR, stat.S_IRGRP, stat.S_IROTH):
         st = os.stat(ak)
-        return False, "Cles SSH (droits)", (
+        return Etat.ALERTE, "Cles SSH (droits)", (
             f"{ak} est en {_mode(ak)} et appartient a {st.st_uid}:{st.st_gid} : "
             f"illisible par l'uid {u}. Corriger : chown {u}:{u} {ak}")
 
@@ -509,14 +685,14 @@ def check_cles_ssh(ssh_dir=None, uid=None):
         # que sshd y arrivera. Seul le comptage des cles est perdu ; le cas
         # qui compte vraiment, un fichier vide, se lit encore dans la taille.
         if _taille(ak) == 0:
-            return False, "Cles SSH (droits)", (
+            return Etat.ALERTE, "Cles SSH (droits)", (
                 f"{ak} est vide -- aucune connexion SSH ne passera")
-        return True, "Cles SSH (droits)", (
+        return Etat.OK, "Cles SSH (droits)", (
             f"droits corrects pour l'uid {u} ; contenu non verifiable depuis "
             f"ce conteneur, qui tourne sous l'uid {os.geteuid()} ({e.strerror}) "
             f"-- {_taille(ak)} octets")
     if not cles:
-        return False, "Cles SSH (droits)", f"{ak} est vide -- aucune connexion SSH ne passera"
+        return Etat.ALERTE, "Cles SSH (droits)", f"{ak} est vide -- aucune connexion SSH ne passera"
 
     try:
         n_hotes = len([x for x in os.listdir(hk)
@@ -525,7 +701,7 @@ def check_cles_ssh(ssh_dir=None, uid=None):
     except OSError:
         # Meme raison : le dossier des cles hote appartient a sshd, pas a nous.
         detail_hotes = "cles hote non listables depuis ce conteneur"
-    return True, "Cles SSH (droits)", (
+    return Etat.OK, "Cles SSH (droits)", (
         f"{len(cles)} cle(s) autorisee(s), lisible(s) par l'uid {u} ; "
         f"{detail_hotes}")
 
@@ -537,16 +713,67 @@ def check_cles_ssh(ssh_dir=None, uid=None):
 # cela depend de la configuration reelle : une variable oubliee, un port non
 # publie, une garde active en developpement et pas en service.
 #
-# Elles tournent depuis l'interieur du conteneur du panneau, donc sans jamais
-# avoir besoin d'un mot de passe : elles verifient precisement que ce qui
-# DEVRAIT demander une session en demande bien une.
+# Elles interrogent le panneau sans jamais presenter d'identifiants : elles
+# verifient precisement que ce qui DEVRAIT demander une session en demande
+# bien une.
 #
 # Aucune n'ecrit ni ne casse quoi que ce soit : ce sont des lectures, et des
 # ecritures qui doivent etre REFUSEES. Si l'une d'elles passe, c'est le
 # probleme.
+#
+# PREUVE ET ABSENCE DE PREUVE, et c'est ce qui decide de leur rang. Une route
+# d'administration qui repond 200 sans session est une breche CONSTATEE :
+# echec, on le corrige tout de suite. Un panneau qu'on n'arrive pas a joindre
+# depuis ce conteneur-ci ne prouve rien du tout -- c'est une alerte, et la
+# sonde de service "codelab-app-manager" dit, elle, si le panneau tourne. Les
+# confondre, c'etait faire tomber le run de diagnostic quatre fois par heure
+# pour une question restee sans reponse.
 
 def _port_panneau():
     return int(os.environ.get("MANAGER_PORT") or 9001)
+
+
+# Le panneau n'est pas toujours dans le meme conteneur que ces sondes.
+#
+# POURQUOI CE N'EST PLUS "127.0.0.1 OU RIEN". Ce fichier est joue depuis DEUX
+# endroits : app.py, dans codelab-app-manager -- la, 127.0.0.1 est bien le
+# panneau -- et l'asset Dagster, dans codelab-dagster, ou 127.0.0.1 est le
+# conteneur Dagster. Personne n'y ecoute sur 9001 : les deux sondes de
+# fermeture annoncaient "panneau injoignable" et "rien ne repond sur le port
+# 9002" a chaque passage du planning, sur une stack ou les deux ports
+# repondaient parfaitement. Deux echecs par run, tous les quarts d'heure,
+# pour une adresse mal choisie.
+#
+# Le nom de service, lui, est resolu par le DNS du reseau codelab depuis
+# n'importe quel conteneur de la stack. On garde 127.0.0.1 en premier : quand
+# on EST dans le panneau, c'est la reponse la plus directe, et c'est aussi la
+# seule qui teste ce que le conteneur expose vraiment.
+HOTES_PANNEAU = ("127.0.0.1", "codelab-app-manager")
+
+
+def _hotes_panneau():
+    """Ou chercher le panneau, dans l'ordre. CODELAB_PANNEAU_HOTE tranche."""
+    force = (os.environ.get("CODELAB_PANNEAU_HOTE") or "").strip()
+    return (force,) if force else HOTES_PANNEAU
+
+
+def _joindre_panneau(port, chemin="/health", timeout=4):
+    """Trouve l'hote ou le panneau repond sur ce port.
+
+    Renvoie (hote, code HTTP) au premier qui repond -- y compris par une
+    erreur HTTP, qui prouve qu'un service est bien la -- ou (None, raisons)
+    si aucun ne repond, avec ce qu'on a essaye et pourquoi cela a echoue.
+    """
+    raisons = []
+    for hote in _hotes_panneau():
+        url = f"http://{hote}:{port}{chemin}"
+        try:
+            return hote, urllib.request.urlopen(url, timeout=timeout).getcode()
+        except urllib.error.HTTPError as e:
+            return hote, e.code
+        except Exception as e:                                    # noqa: BLE001
+            raisons.append(f"{hote}:{port} ({e})")
+    return None, " ; ".join(raisons)
 
 
 # Le port des applications quand rien ne le dit : c'est le defaut du panneau
@@ -578,9 +805,15 @@ def check_panneau_ferme():
     On les appelle sans rien : la bonne reponse est un refus. Un 200 ici
     voudrait dire que n'importe qui sur le reseau lit la liste des comptes.
     """
-    import urllib.error
-    import urllib.request
-    base = f"http://127.0.0.1:{_port_panneau()}"
+    port = _port_panneau()
+    hote, info = _joindre_panneau(port)
+    if hote is None:
+        return (Etat.ALERTE, "panneau ferme",
+                f"panneau injoignable depuis ce conteneur ({info}) : la sonde ne "
+                f"peut pas conclure. Ce n'est pas une breche constatee, c'est une "
+                f"absence de preuve -- la sonde codelab-app-manager dit, elle, si "
+                f"le service tourne.")
+    base = f"http://{hote}:{port}"
     ouvertes = []
     for chemin in ("/api/apps", "/api/utilisateurs", "/api/activite", "/api/securite"):
         try:
@@ -588,13 +821,14 @@ def check_panneau_ferme():
         except urllib.error.HTTPError as e:
             code = e.code
         except Exception as e:                                    # noqa: BLE001
-            return False, "panneau ferme", f"{chemin} injoignable : {e}"
+            return Etat.ALERTE, "panneau ferme", f"{base}{chemin} injoignable : {e}"
         if code == 200:
             ouvertes.append(chemin)
     if ouvertes:
-        return (False, "panneau ferme",
-                "repond 200 sans session : " + ", ".join(ouvertes))
-    return True, "panneau ferme", "les routes d'administration exigent une session"
+        return (Etat.ECHEC, "panneau ferme",
+                f"{base} repond 200 sans session : " + ", ".join(ouvertes))
+    return (Etat.OK, "panneau ferme",
+            f"{base} -- les routes d'administration exigent une session")
 
 
 def check_origine_applications():
@@ -604,17 +838,19 @@ def check_origine_applications():
     d'elles donne acces au panneau : meme origine, donc meme page, meme
     jeton. Un port distinct fait du navigateur l'arbitre.
     """
-    import urllib.error
-    import urllib.request
     port = _port_applications()
-    base = f"http://127.0.0.1:{port}"
-    try:
-        urllib.request.urlopen(base + "/health", timeout=4).getcode()
-    except Exception as e:                                        # noqa: BLE001
-        return (False, "origine des applications",
-                f"rien ne repond sur le port {port} ({e}) -- publie-le dans "
+    hote, info = _joindre_panneau(port)
+    if hote is None:
+        # Rang 2 : rien n'est CONSTATE ici. Ou le port n'est pas publie -- et
+        # le panneau sert alors les applications dans sa propre origine, ce
+        # qu'il dit lui-meme dans Parametres > Serveur -- ou l'on regarde
+        # depuis un conteneur qui n'a pas ce port. Dans les deux cas, il n'y
+        # a pas de faille prouvee, donc pas de quoi faire tomber un run.
+        return (Etat.ALERTE, "origine des applications",
+                f"rien ne repond sur le port {port} ({info}) -- publie-le dans "
                 f"docker-compose.yml, sinon les applications repartent dans "
                 f"l'origine du panneau")
+    base = f"http://{hote}:{port}"
     fuites = []
     for chemin in ("/", "/login", "/api/apps"):
         try:
@@ -626,10 +862,13 @@ def check_origine_applications():
         if code == 200:
             fuites.append(chemin)
     if fuites:
-        return (False, "origine des applications",
-                f"le panneau repond sur le port {port} : " + ", ".join(fuites))
-    return (True, "origine des applications",
-            f"port {port} -- le panneau n'y repond pas, les origines sont bien separees")
+        # La, c'est constate : le panneau repond sur l'origine des
+        # applications, donc une faille dans l'une d'elles atteint le
+        # panneau. Rang 1.
+        return (Etat.ECHEC, "origine des applications",
+                f"le panneau repond sur {base} : " + ", ".join(fuites))
+    return (Etat.OK, "origine des applications",
+            f"{base} -- le panneau n'y repond pas, les origines sont bien separees")
 
 
 def check_exposition():
@@ -646,12 +885,20 @@ def check_exposition():
     # sonde, annoncait "il manque APP_MANAGER_HTTPS" sur une installation ou
     # HTTPS etait deja active depuis la page -- la sonde reclamait ce qui
     # etait deja fait.
-    etat = os.environ.get("APP_MANAGER_STATE") or "/var/lib/codelab/app-manager"
+    etat = _etat_panneau()
     try:
         with open(os.path.join(etat, "exposition.json")) as f:
             pose = json.load(f) or {}
     except (OSError, ValueError):
         pose = {}
+
+    # Ni le fichier ni une variable : on ne regarde pas le bon conteneur.
+    # Repondre "reseau local, tout va bien" ici serait inventer une reponse a
+    # partir de fichiers qu'on n'a simplement pas sous les yeux.
+    if not pose and not _etat_panneau_visible() and not any(
+            (os.environ.get(v) or "").strip() for v in
+            ("APP_MANAGER_HTTPS", "APP_MANAGER_TRUST_PROXY", "APP_MANAGER_PUBLIC_URL")):
+        return Etat.SANS_OBJET, "exposition", _hors_de_portee()
 
     def _actif(variable, cle):
         depuis_env = (os.environ.get(variable) or "").strip()
@@ -664,7 +911,7 @@ def check_exposition():
     publique = ((os.environ.get("APP_MANAGER_PUBLIC_URL") or "").strip()
                 or str(pose.get("adresse_publique") or "").strip())
     if not (https or proxy or publique):
-        return (True, "exposition",
+        return (Etat.OK, "exposition",
                 "reseau local : aucune adresse publique declaree, cookie non "
                 "marque Secure -- coherent tant que rien n'est devant")
     manques = []
@@ -682,10 +929,13 @@ def check_exposition():
     portee = ("administration reservee au reseau local" if admin_local
               else "administration joignable de l'exterieur")
     if manques:
-        return (False, "exposition", "expose, mais il manque : "
+        # Rang 2 : la stack tourne, et ce qui manque est un REGLAGE a poser,
+        # pas un service tombe. Le dire en rouge sanglant a chaque quart
+        # d'heure n'accelere pas sa pose -- cela apprend a ne plus lire.
+        return (Etat.ALERTE, "exposition", "expose, mais il manque : "
                 + " ; ".join(manques) + " -- a poser dans Parametres > Exposition"
                 + " (" + portee + ")")
-    return (True, "exposition",
+    return (Etat.OK, "exposition",
             f"publie sur {publique}, cookie Secure, adresse reelle des visiteurs, {portee}")
 
 
@@ -704,15 +954,16 @@ def check_provenance():
     la maison.
     """
     import ipaddress
-    etat = os.environ.get("APP_MANAGER_STATE") or "/var/lib/codelab/app-manager"
-    journal = os.path.join(etat, "acces.jsonl")
+    if not _etat_panneau_visible():
+        return Etat.SANS_OBJET, "provenance des connexions", _hors_de_portee()
+    journal = os.path.join(_etat_panneau(), "acces.jsonl")
     if not os.path.exists(journal):
-        return True, "provenance des connexions", "aucune connexion enregistree pour l'instant"
+        return Etat.OK, "provenance des connexions", "aucune connexion enregistree pour l'instant"
     try:
         with open(journal, errors="replace") as f:
             lignes = f.readlines()[-2000:]
     except OSError as e:
-        return True, "provenance des connexions", f"journal illisible ici ({e})"
+        return Etat.SANS_OBJET, "provenance des connexions", f"journal illisible ici ({e})"
 
     dehors, dedans = {}, 0
     for ligne in lignes:
@@ -738,15 +989,18 @@ def check_provenance():
 
     publique = (os.environ.get("APP_MANAGER_PUBLIC_URL") or "").strip()
     if not dehors:
-        return (True, "provenance des connexions",
+        return (Etat.OK, "provenance des connexions",
                 f"{dedans} connexions, toutes depuis le reseau local")
     resume = ", ".join(f"{ip} ({n}x)" for ip, n in
                        sorted(dehors.items(), key=lambda x: -x[1])[:3])
     if publique:
-        return (True, "provenance des connexions",
+        return (Etat.OK, "provenance des connexions",
                 f"{dedans} depuis le reseau local, {sum(dehors.values())} depuis "
                 f"l'exterieur -- attendu, la stack est publiee sur {publique}")
-    return (False, "provenance des connexions",
+    # Rang 2, et le mot compte : ces adresses sont a EXPLIQUER, pas une
+    # intrusion prouvee. Un tunnel, un VPN de maison ou un proxy monte sans
+    # declarer APP_MANAGER_PUBLIC_URL donnent exactement cette trace.
+    return (Etat.ALERTE, "provenance des connexions",
             f"des connexions viennent de l'EXTERIEUR alors qu'aucune adresse "
             f"publique n'est declaree : {resume}. Verifie ce que ta box "
             f"redirige, et borne les ports au reseau local.")
@@ -755,6 +1009,26 @@ def check_provenance():
 def _etat_panneau():
     """Le dossier d'etat du panneau, vu depuis ce projet."""
     return os.environ.get("APP_MANAGER_STATE") or "/var/lib/codelab/app-manager"
+
+
+def _etat_panneau_visible():
+    """Le dossier d'etat du panneau est-il monte dans CE conteneur ?
+
+    Il ne l'est que dans codelab-app-manager -- c'est son volume, il contient
+    les comptes, les cles d'acces et le journal des acces, et rien ne
+    justifierait de l'ouvrir au conteneur qui execute le code des jobs.
+    Depuis Dagster, les sondes qui le lisent y trouvaient donc un panneau
+    vide : zero application, zero compte, rien d'expose -- et affichaient un
+    vert rassurant sur une question qu'elles n'avaient jamais pu poser. Un
+    faux OK est pire qu'une case vide : il fait cesser de chercher.
+    """
+    return os.path.isdir(_etat_panneau())
+
+
+def _hors_de_portee():
+    return (f"l'etat du panneau ({_etat_panneau()}) n'est pas monte dans ce "
+            f"conteneur : cette sonde ne conclut que depuis codelab-app-manager "
+            f"(page de diagnostic du panneau)")
 
 
 def _lire_json(chemin, defaut):
@@ -782,10 +1056,17 @@ def check_applications():
       3. si elle est censee tourner, quelque chose ecoute-t-il son port ?
 
     Lecture seule : rien n'est demarre, rien n'est arrete.
+
+    RANG 2 : une application tombee n'est pas la stack tombee. Le panneau a
+    deja son propre systeme d'alerte pour celles qui ne redemarrent plus, et
+    faire echouer le diagnostic de toute l'installation parce qu'un projet
+    personnel ne repond plus melange deux choses de portee tres differente.
     """
+    if not _etat_panneau_visible():
+        return Etat.SANS_OBJET, "applications declarees", _hors_de_portee()
     apps = _lire_json(os.path.join(_etat_panneau(), "apps.json"), {})
     if not apps:
-        return (True, "applications declarees",
+        return (Etat.OK, "applications declarees",
                 "Aucune application declaree : rien a verifier.")
 
     soucis, tournent = [], 0
@@ -809,11 +1090,11 @@ def check_applications():
 
     total = len(apps)
     if soucis:
-        return (False, "applications declarees",
+        return (Etat.ALERTE, "applications declarees",
                 f"{len(soucis)} probleme(s) sur {total} application(s) : "
                 + " ; ".join(soucis[:4])
                 + (" ..." if len(soucis) > 4 else ""))
-    return (True, "applications declarees",
+    return (Etat.OK, "applications declarees",
             f"{total} application(s), {tournent} en ligne : dossier present, "
             f"commande resolvable, port a l'ecoute.")
 
@@ -839,6 +1120,15 @@ def _port_ouvert(hote, port):
 SEUIL_DISQUE = 85
 SEUIL_LIBRE_GO = 5
 
+# ET DEUX PALIERS, parce qu'un disque ne tombe pas en panne : il se remplit.
+# "87 %, 2.1 Go libres" laisse des jours pour faire le menage -- c'est une
+# alerte, on la traite dans la journee. "96 %, 400 Mo" est autre chose : la
+# prochaine ecriture de Postgres echoue, les journaux s'arretent, et les
+# messages d'erreur ne parlent jamais d'espace disque. La, c'est un echec, et
+# le mail doit partir.
+SEUIL_DISQUE_CRITIQUE = 95
+SEUIL_LIBRE_CRITIQUE_GO = 1
+
 
 def check_espace_disque():
     """Ce qui tue une machine auto-hebergee : pas une panne, un disque plein.
@@ -849,7 +1139,7 @@ def check_espace_disque():
     journaux du panneau -- ils grossissent tout seuls, a chaque ligne de
     chaque application.
     """
-    lignes, alerte = [], False
+    lignes, alerte, critique = [], False, False
     vus = set()
     for chemin in ("/workspace", _etat_panneau(), "/var/lib/codelab/config", "/"):
         if not os.path.isdir(chemin):
@@ -871,6 +1161,9 @@ def check_espace_disque():
                       f"{libre / (1024 ** 3):.1f} Go libres")
         if occupe >= SEUIL_DISQUE and libre < SEUIL_LIBRE_GO * 1024 ** 3:
             alerte = True
+        if (occupe >= SEUIL_DISQUE_CRITIQUE
+                and libre < SEUIL_LIBRE_CRITIQUE_GO * 1024 ** 3):
+            critique = True
 
     journaux = os.path.join(_etat_panneau(), "logs")
     poids = 0
@@ -883,8 +1176,16 @@ def check_espace_disque():
         lignes.append(f"journaux des applications : {poids / (1024 ** 2):.0f} Mo")
 
     if not lignes:
-        return False, "espace disque", "Aucun volume lisible."
-    return (not alerte), "espace disque", " | ".join(lignes)
+        return Etat.SANS_OBJET, "espace disque", "Aucun volume lisible."
+    if critique:
+        return (Etat.ECHEC, "espace disque",
+                " | ".join(lignes) + " -- la prochaine ecriture peut echouer "
+                "(Postgres, journaux, builds), fais de la place maintenant")
+    if alerte:
+        return (Etat.ALERTE, "espace disque",
+                " | ".join(lignes) + f" -- sous {SEUIL_LIBRE_GO} Go libres, "
+                f"a traiter dans la journee")
+    return Etat.OK, "espace disque", " | ".join(lignes)
 
 
 def check_surface_exposee():
@@ -900,6 +1201,8 @@ def check_surface_exposee():
     qui n'est pas publiee ne risque rien. Elle dit ce qui est ouvert, pour
     que le choix soit fait en connaissance.
     """
+    if not _etat_panneau_visible():
+        return Etat.SANS_OBJET, "surface exposee", _hors_de_portee()
     etat = _etat_panneau()
     apps = _lire_json(os.path.join(etat, "apps.json"), {})
     expo = _lire_json(os.path.join(etat, "exposition.json"), {})
@@ -922,8 +1225,16 @@ def check_surface_exposee():
     ]
     # Le seul cas franchement mauvais : une machine publiee ET une
     # administration joignable de partout. Le reste est un etat des lieux.
+    #
+    # Rang 2 quand meme : c'est une CONFIGURATION, choisie, qu'un mail toutes
+    # les quinze minutes ne changera pas. La sonde la nomme et dit ou la
+    # revoir ; decider reste a l'administrateur.
     mauvais = bool(adresse) and not admin_local
-    return (not mauvais), "surface exposee", " | ".join(morceaux)
+    if mauvais:
+        return (Etat.ALERTE, "surface exposee", " | ".join(morceaux)
+                + " -- administration ouverte sur une machine publiee : "
+                "Parametres > Exposition, \"administration reservee au reseau local\"")
+    return Etat.OK, "surface exposee", " | ".join(morceaux)
 
 
 # Les trois verrous du noyau qui peuvent interdire un namespace utilisateur,
@@ -978,16 +1289,29 @@ def check_isolation():
     Cette sonde tourne dans le projet de diagnostic, qui est justement le
     SEUL a ne pas etre isole : c'est l'observateur, il a besoin de voir. Elle
     controle donc les conditions de l'isolement, pas son propre bac.
+
+    RANG 2, jamais plus. L'isolement par namespace est une DEUXIEME barriere :
+    la premiere, l'uid propre a chaque application, tient toujours quand le
+    noyau refuse la seconde. Deux applications ne peuvent alors ni se relire
+    l'environnement ni se tuer ; elles partagent la vue de /workspace, qu'un
+    utilisateur unique partage de toute facon avec sa session SSH. Faire
+    tomber le diagnostic entier la-dessus -- sur un refus qui vient de l'HOTE
+    et qu'aucune commande du conteneur ne corrige -- etait la plus bruyante
+    des alertes inactionnables.
     """
     import shutil
     import subprocess
     actif = os.environ.get("APP_MANAGER_ISOLER", "1").lower() not in ("0", "false", "no")
     if not actif:
-        return (False, "isolation des applications",
-                "APP_MANAGER_ISOLER coupe : chaque application voit les "
-                "fichiers de toutes les autres")
+        # Choix EXPLICITE de l'administrateur, et c'est la variable que la
+        # branche ci-dessous lui conseille de poser pour faire taire la
+        # sonde. Continuer a la marquer en faute apres qu'il l'a posee
+        # reviendrait a ne pas tenir parole.
+        return (Etat.OK, "isolation des applications",
+                "APP_MANAGER_ISOLER=0 : isolement coupe volontairement -- chaque "
+                "application garde son uid, mais voit les fichiers des autres")
     if shutil.which("unshare") is None:
-        return (False, "isolation des applications",
+        return (Etat.ALERTE, "isolation des applications",
                 "unshare absent de l'image : les applications demarrent, mais "
                 "sans etre isolees les unes des autres")
 
@@ -1005,15 +1329,22 @@ def check_isolation():
         ok, refus = False, str(e)
 
     if not ok:
-        return (False, "isolation des applications",
+        # Ou l'on regarde compte : chaque conteneur a son propre profil
+        # seccomp/AppArmor. Un refus constate depuis Dagster rend l'isolement
+        # DOUTEUX cote panneau, il ne le refute pas -- et le dire evite de
+        # partir corriger la mauvaise machine.
+        ou = ("" if _etat_panneau_visible() else
+              " Constate depuis ce conteneur-ci, qui n'est pas celui qui lance "
+              "les applications : la page de diagnostic du panneau tranche.")
+        return (Etat.ALERTE, "isolation des applications",
                 "le noyau refuse de creer un namespace utilisateur (%s). %s "
                 "Chaque application garde son propre uid -- elles ne peuvent "
                 "pas se relire l'environnement ni se tuer -- mais elles "
-                "partagent la vue de /workspace. Pour assumer le choix et "
+                "partagent la vue de /workspace.%s Pour assumer le choix et "
                 "faire taire cette sonde : APP_MANAGER_ISOLER=0"
-                % (refus or "raison inconnue", _verrou_userns()))
+                % (refus or "raison inconnue", _verrou_userns(), ou))
 
-    return (True, "isolation des applications",
+    return (Etat.OK, "isolation des applications",
             "chaque application ne voit que son propre projet "
             "(ce diagnostic excepte : il doit voir l'ensemble)")
 
@@ -1046,11 +1377,18 @@ def check_isolation():
 
 def _essai(nom, fn):
     """Un test qui ne fait jamais tomber la page : un echec est un
-    resultat, une exception aussi."""
+    resultat, une exception aussi.
+
+    Ces tests-la n'ont que deux reponses a donner -- l'action attendue s'est
+    produite, ou non -- et ils repondent donc en booleens. Etat.depuis() les
+    range au meme format que les sondes, pour que la page n'ait qu'une seule
+    facon d'afficher un resultat.
+    """
     try:
-        return fn()
+        etat, titre, detail = fn()
+        return Etat.depuis(etat), titre, detail
     except Exception as e:                                        # noqa: BLE001
-        return False, nom, f"{type(e).__name__}: {e}"
+        return Etat.ECHEC, nom, f"{type(e).__name__}: {e}"
 
 
 def verif_base_ecrit_et_relit():
@@ -1239,7 +1577,8 @@ def lancer_suite_du_panneau(timeout=180):
     """
     import subprocess
     if app is None:
-        return (False, "suite de regressions du panneau",
+        # Pas un echec : le panneau n'est simplement pas dans cette image.
+        return (Etat.SANS_OBJET, "suite de regressions du panneau",
                 "le module du panneau est introuvable depuis ici")
     debut = time.time()
     try:
@@ -1249,20 +1588,20 @@ def lancer_suite_du_panneau(timeout=180):
             capture_output=True, text=True, timeout=timeout,
             cwd=os.path.dirname(os.path.abspath(__file__)))
     except FileNotFoundError:
-        return (False, "suite de regressions du panneau",
+        return (Etat.SANS_OBJET, "suite de regressions du panneau",
                 "pytest n'est pas installe dans cette image")
     except subprocess.TimeoutExpired:
-        return (False, "suite de regressions du panneau",
+        return (Etat.ECHEC, "suite de regressions du panneau",
                 f"la suite n'a pas fini en {timeout} s")
     secondes = time.time() - debut
     # La derniere ligne non vide porte le compte : "123 passed, 1 skipped...".
     lignes = [l for l in (r.stdout or "").strip().split("\n") if l.strip()]
     resume = lignes[-1] if lignes else (r.stderr or "").strip()[-200:]
     if r.returncode == 0:
-        return (True, "suite de regressions du panneau",
+        return (Etat.OK, "suite de regressions du panneau",
                 f"{resume} -- en {secondes:.1f} s")
     echecs = [l for l in lignes if l.startswith("FAILED")]
-    return (False, "suite de regressions du panneau",
+    return (Etat.ECHEC, "suite de regressions du panneau",
             resume + (" | " + " ; ".join(e[6:80] for e in echecs[:4]) if echecs else ""))
 
 
@@ -1295,11 +1634,11 @@ def run_test(indice, avec_suite=True):
     if indice == len(TESTS_APPROFONDIS) and avec_suite:
         return lancer_suite_du_panneau()
     nom, fn = TESTS_APPROFONDIS[indice]
-    ok, _nom_interne, detail = _essai(nom, fn)
+    etat, _nom_interne, detail = _essai(nom, fn)
     # Le nom affiche est celui de la LISTE, pas celui que la fonction se
     # donne : la page annonce ses lignes avant de les remplir, et une ligne
     # qui change d'intitule en cours de route n'est plus la meme ligne.
-    return ok, nom, detail
+    return etat, nom, detail
 
 
 def run_tests():
@@ -1307,12 +1646,81 @@ def run_tests():
     return [_essai(nom, fn) for nom, fn in TESTS_APPROFONDIS]
 
 
+def check_panneau_joignable():
+    """Le panneau repond-il ? La question de disponibilite, et elle seule.
+
+    Elle etait posee NULLE PART, et c'est ce qui forcait les deux sondes de
+    fermeture a repondre a sa place -- donc a echouer pour une raison qui
+    n'etait pas la leur. Les autres services ont chacun la leur (Postgres,
+    Dagster, dev) ; le panneau n'y avait pas droit.
+    """
+    port = _port_panneau()
+    hote, info = _joindre_panneau(port)
+    if hote is None:
+        return (Etat.ECHEC, "codelab-app-manager",
+                f"aucune reponse ({info}) -- conteneur arrete ? "
+                f"docker logs --tail 50 codelab-app-manager")
+    return Etat.OK, "codelab-app-manager", f"http://{hote}:{port}/health -- HTTP {info}"
+
+
+# --------------------------- LA HIERARCHIE, EN UN SEUL ENDROIT ---------------
+#
+# Le pire rang que chaque sonde a le DROIT d'atteindre. Se lit de haut en bas
+# comme une liste de priorites : ce qui est a ECHEC reveille quelqu'un, ce qui
+# est a ALERTE attend demain matin.
+#
+# C'est une declaration ET un filet. Une sonde qui voudrait passer en echec
+# alors qu'elle est declaree de rang 2 est ramenee a l'alerte par
+# _hierarchiser() : la hierarchie ne depend donc pas de la vigilance de celui
+# qui ecrira la prochaine sonde, et elle se relit ici sans parcourir mille
+# lignes de code.
+SEVERITE_MAX = {
+    # ------------------------------------------------------------- rang 1 --
+    # Sans ca, la stack ne rend plus son service. Le run echoue, le capteur
+    # envoie le mail.
+    "credentials.env": Etat.ECHEC,            # pas de secret : rien ne se connecte
+    "/workspace": Etat.ECHEC,                 # Dagster n'a plus de code a charger
+    "Postgres (pilote)": Etat.ECHEC,
+    "Postgres": Etat.ECHEC,
+    "codelab-postgres (TCP)": Etat.ECHEC,
+    "codelab-dagster": Etat.ECHEC,            # un conteneur tombe est une panne,
+    "codelab-dev (SSH)": Etat.ECHEC,          # pas un reglage a revoir
+    "codelab-app-manager": Etat.ECHEC,
+    # Rang 1 pour une autre raison : une breche CONSTATEE. Ces deux sondes
+    # n'y montent que sur une preuve -- une route d'administration qui repond
+    # sans session, le panneau qui repond sur l'origine des applications. Un
+    # panneau injoignable, lui, ne prouve rien et reste une alerte.
+    "panneau ferme": Etat.ECHEC,
+    "origine des applications": Etat.ECHEC,
+    # Et la panne qui ne previent pas : un disque plein arrete Postgres avec
+    # des messages qui ne parlent jamais d'espace disque.
+    "espace disque": Etat.ECHEC,
+    # ------------------------------------------------------------- rang 2 --
+    # Degrade, mais ca tourne. A regarder dans la journee, sans mail de nuit.
+    "Cles SSH (droits)": Etat.ALERTE,         # aucune cle = installation neuve
+    "isolation des applications": Etat.ALERTE,  # 2e barriere ; l'uid tient
+    "exposition": Etat.ALERTE,                # reglages a poser
+    "provenance des connexions": Etat.ALERTE,  # a expliquer, pas une intrusion
+    "applications declarees": Etat.ALERTE,    # un projet tombe n'est pas la stack
+    "surface exposee": Etat.ALERTE,           # un choix, pas une panne
+}
+
+
+def _hierarchiser(resultat):
+    """Ramene un resultat au rang maximal declare pour sa sonde."""
+    etat, nom, detail = resultat
+    # Rappel de l'ordre : ECHEC(0) < ALERTE(1) < SANS_OBJET(2) < OK(3). Le
+    # plafond est donc un PLANCHER de valeur, d'ou le max().
+    return max(Etat.depuis(etat), SEVERITE_MAX.get(nom, Etat.ECHEC)), nom, detail
+
+
 def run_all(env_file=None, workspace=None, ssh_dir=None):
-    """Toutes les sondes, dans l'ordre ou on veut les lire :
-    d'abord ce qui doit MARCHER, ensuite ce qui doit etre FERME."""
+    """Toutes les sondes, dans l'ordre ou on veut les lire : d'abord ce qui
+    doit MARCHER, ensuite ce qui doit etre FERME, enfin l'etat des lieux."""
     host = read_env("POSTGRES_HOST", env_file) or "codelab-postgres"
     port = int(read_env("POSTGRES_PORT", env_file) or 5432)
-    return [
+    resultats = [
+        # --- ce qui doit marcher -----------------------------------------
         check_config(env_file),
         check_workspace(workspace),
         check_pilote_pg(),
@@ -1320,7 +1728,9 @@ def run_all(env_file=None, workspace=None, ssh_dir=None):
         check_tcp("codelab-postgres (TCP)", host, port),
         check_http("codelab-dagster", "http://codelab-dagster:3000/"),
         check_tcp("codelab-dev (SSH)", "codelab-dev", 22, lire_banniere=True),
+        check_panneau_joignable(),
         check_cles_ssh(ssh_dir),
+        # --- ce qui doit etre ferme ---------------------------------------
         # L'etat des lieux ne s'arrete pas a "ca marche" : il dit aussi si
         # c'est correctement ferme.
         check_panneau_ferme(),
@@ -1328,6 +1738,7 @@ def run_all(env_file=None, workspace=None, ssh_dir=None):
         check_exposition(),
         check_isolation(),
         check_provenance(),
+        # --- ce que la stack porte et ce qu'elle use -----------------------
         # Au-dela de "la stack repond" : ce qu'elle porte, ce qu'elle use, et
         # ce qu'elle laisse ouvert. Les trois sont en LECTURE SEULE, donc a
         # leur place ici et non dans la verification approfondie.
@@ -1335,6 +1746,7 @@ def run_all(env_file=None, workspace=None, ssh_dir=None):
         check_espace_disque(),
         check_surface_exposee(),
     ]
+    return [_hierarchiser(r) for r in resultats]
 
 
 # --------------------------------------------------------------------------
@@ -1555,7 +1967,11 @@ def test_la_sonde_du_diagnostic_voit_le_refus_du_noyau(tmp_path, monkeypatch):
     monkeypatch.delenv("APP_MANAGER_ISOLER", raising=False)
 
     ok, _nom, detail = check_isolation()
-    assert ok is False
+    # ALERTE et non ECHEC : l'uid par application tient toujours, et ce refus
+    # vient de l'hote -- aucune commande du conteneur ne le leve. Faire
+    # tomber le run de diagnostic la-dessus quatre fois par heure, c'etait
+    # apprendre a ne plus lire ses alertes.
+    assert ok is Etat.ALERTE
     assert "namespace utilisateur" in detail
     # Ce qui reste vrai doit etre dit aussi : l'uid par application tient
     # toujours. Annoncer "aucune isolation" ferait chercher une panne la ou
@@ -6575,10 +6991,17 @@ def test_demarrer_verifie_que_l_application_vit_encore():
 def test_l_api_toggle_rend_compte_de_l_echec():
     src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
     bloc = src[src.index("def api_toggle("):]
-    bloc = bloc[:bloc.index("def ", 10)]
-    assert "erreur = start(n)" in bloc, "l'API ignore ce que start() lui rend"
+    bloc = bloc[:bloc.index("\n@flask_app", 10)]
+    assert "stop(n) if action" in bloc and "else start(n)" in bloc, (
+        "l'API ignore ce que stop() ou start() lui rendent")
     assert "409" in bloc, (
         "un echec de demarrage doit se voir dans le code de reponse")
+    # Le SENS de l'action voyage avec la reponse : sans lui, la page ne peut
+    # que deviner, et son repli est ecrit pour le demarrage.
+    assert '"action": action' in bloc
+    # Et plus aucune exception ne sort d'ici en page HTML : la page n'y
+    # trouverait aucun JSON et retomberait sur ce meme repli.
+    assert "except Exception" in bloc and "500" in bloc
 
 
 def test_le_bouton_lit_la_reponse():
@@ -7012,7 +7435,7 @@ def test_les_noms_annonces_sont_ceux_des_resultats():
     assert noms[-1] == NOM_SUITE_PANNEAU
     # run_test rend le nom de la LISTE, pas celui que la fonction se donne.
     src = inspect.getsource(run_test)
-    assert "return ok, nom, detail" in src
+    assert "return etat, nom, detail" in src
 
 
 def checks_noms():
@@ -7048,7 +7471,7 @@ def test_les_sondes_regardent_au_dela_de_la_stack():
     assert callable(check_surface_exposee)
     for fn in (check_applications, check_espace_disque, check_surface_exposee):
         ok, nom, detail = fn()
-        assert isinstance(ok, bool) and nom and detail
+        assert isinstance(ok, Etat) and nom and detail
 
 
 def test_l_alerte_disque_demande_les_deux_conditions(tmp_path, monkeypatch):
@@ -7083,7 +7506,8 @@ def test_la_sonde_des_applications_nomme_ce_qui_cloche(tmp_path, monkeypatch):
     }))
     monkeypatch.setenv("APP_MANAGER_STATE", str(etat))
     ok, _, detail = check_applications()
-    assert ok is False
+    # Rang 2 : une application tombee n'est pas la stack tombee.
+    assert ok is Etat.ALERTE
     assert "disparue" in detail and "dossier introuvable" in detail
     assert "muette" in detail and "9204" in detail
 
@@ -7540,3 +7964,552 @@ def test_le_diagnostic_voit_l_ensemble_du_workspace(monkeypatch):
     # Temoin : n'importe quelle autre application, elle, est bien isolee.
     argv, _ = app.commande_isolee("autre", "/workspace/autre", "x", {})
     assert argv[0] == "unshare"
+
+
+# ---------- 28. la hierarchie des sondes de diagnostic ----------
+#
+# Releve dans les journaux Dagster du 15 septembre : six sondes en ECHEC sur
+# dix-sept, un run rouge, un mail -- et la lecture du detail donnait ceci.
+#
+#   credentials.env          le secret n'etait pas arrive dans le conteneur
+#   Postgres                 consequence directe du precedent
+#   panneau ferme            127.0.0.1:9001 depuis codelab-dagster : personne
+#   origine des applications 127.0.0.1:9002, meme erreur d'adresse
+#   isolation                refus du noyau de l'HOTE, rien a corriger ici
+#   espace disque            87 %, 2.1 Go libres -- des jours de marge
+#
+# Deux vrais problemes, deux mauvaises adresses et deux points a regarder
+# quand on passe : tous au meme rang, avec le meme rouge et le meme mail.
+# C'est ainsi qu'on cesse de lire ses alertes, et qu'on rate la prochaine
+# vraie panne.
+
+def test_chaque_sonde_declare_son_rang(monkeypatch):
+    """La table est la hierarchie : une sonde qui n'y figure pas peut faire
+    tomber un run sans que personne ne l'ait decide."""
+    # Les sondes reseau sont jouees pour de vrai, elles echouent ici, et
+    # c'est tres bien : ce qu'on verifie est le NOM de chaque ligne.
+    noms = [nom for _etat, nom, _detail in run_all()]
+    assert len(noms) == len(set(noms)), "deux sondes portent le meme nom"
+    manquantes = [n for n in noms if n not in SEVERITE_MAX]
+    assert not manquantes, (
+        f"sondes absentes de SEVERITE_MAX : {manquantes} -- ajoute-les, avec "
+        f"le rang que tu leur donnes")
+    en_trop = [n for n in SEVERITE_MAX if n not in noms]
+    assert not en_trop, f"SEVERITE_MAX parle de sondes disparues : {en_trop}"
+
+
+def test_une_sonde_de_confort_ne_peut_pas_faire_tomber_un_run():
+    """Le filet, teste tel quel : meme si une sonde de rang 2 renvoyait un
+    echec -- demain, par inadvertance -- elle ne reveille personne."""
+    etat, _, _ = _hierarchiser((Etat.ECHEC, "isolation des applications", "x"))
+    assert etat is Etat.ALERTE
+    # Et le filet ne relache rien de ce qui compte.
+    etat, _, _ = _hierarchiser((Etat.ECHEC, "Postgres", "x"))
+    assert etat is Etat.ECHEC
+    # Une sonde inconnue reste au rang le plus severe : on ne se tait pas sur
+    # ce qu'on n'a pas encore classe.
+    etat, _, _ = _hierarchiser((Etat.ECHEC, "sonde ajoutee demain", "x"))
+    assert etat is Etat.ECHEC
+
+
+def test_le_verdict_global_est_le_pire_des_rangs():
+    assert pire([(Etat.OK, "a", ""), (Etat.ALERTE, "b", "")]) is Etat.ALERTE
+    assert pire([(Etat.ALERTE, "a", ""), (Etat.ECHEC, "b", "")]) is Etat.ECHEC
+    assert pire([(Etat.OK, "a", ""), (Etat.SANS_OBJET, "b", "")]) is Etat.SANS_OBJET
+    assert pire([]) is Etat.OK
+    # ECHEC est faux, les trois autres sont vrais : tout le code qui lisait
+    # "ok" continue de le lire, avec le bon sens.
+    assert not Etat.ECHEC
+    assert Etat.ALERTE and Etat.SANS_OBJET and Etat.OK
+
+
+# ---------- 28 bis. le secret Postgres, la ou l'entrypoint l'a pose ----------
+#
+# LA panne de ces journaux, et la seule qui demandait un geste. Dans
+# codelab-dagster, credentials.env est en 0600 root et Dagster tourne sous
+# l'uid 1002 : le fichier est illisible, c'est prevu, et l'entrypoint exporte
+# la valeur en DAGSTER_PG_PASSWORD avant d'abandonner root. checks.py ne
+# lisait que POSTGRES_PASSWORD : le secret etait dans l'environnement du
+# processus, a portee de main, et la sonde repondait "fe_sendauth: no
+# password supplied" quatre fois par heure.
+
+@pytest.fixture
+def config_isolee(tmp_path, monkeypatch):
+    """Un credentials.env a nous, et aucune variable heritee de la machine."""
+    fichier = tmp_path / "credentials.env"
+    fichier.write_text("POSTGRES_USER=codelab\n")
+    monkeypatch.setattr(sys.modules[__name__], "ENV_FILE", str(fichier))
+    monkeypatch.setattr(sys.modules[__name__], "PROJET_ENV", str(tmp_path / ".env"))
+    for cle in CLES_MOT_DE_PASSE_PG:
+        monkeypatch.delenv(cle, raising=False)
+    return fichier
+
+
+def test_le_secret_est_lu_la_ou_l_entrypoint_l_a_pose(config_isolee, monkeypatch):
+    monkeypatch.setenv("DAGSTER_PG_PASSWORD", "mot-de-passe-dagster")
+    assert mot_de_passe_pg() == ("mot-de-passe-dagster", "DAGSTER_PG_PASSWORD")
+    assert pg_settings()["password"] == "mot-de-passe-dagster"
+
+    etat, _nom, detail = check_config()
+    assert etat is Etat.OK, detail
+    # Et la sonde dit PAR OU il est arrive : "illisible ici" et "personne ne
+    # l'a transmis" se depannent de deux facons opposees.
+    assert "DAGSTER_PG_PASSWORD" in detail
+
+
+def test_une_session_ssh_lit_le_secret_de_son_profil(config_isolee, monkeypatch):
+    """Meme mecanique dans codelab-dev : l'entrypoint pre-remplit PGPASSWORD
+    dans le profil, et le fichier reste illisible sous l'uid 1000."""
+    monkeypatch.setenv("PGPASSWORD", "mot-de-passe-ssh")
+    assert pg_settings()["password"] == "mot-de-passe-ssh"
+
+
+def test_le_fichier_reste_prioritaire(config_isolee, monkeypatch):
+    """Une valeur perimee dans l'environnement ne doit pas gagner contre le
+    fichier partage, qui est la source de verite."""
+    config_isolee.write_text("POSTGRES_PASSWORD=celui-du-fichier\n")
+    monkeypatch.setenv("DAGSTER_PG_PASSWORD", "un-autre")
+    assert pg_settings()["password"] == "celui-du-fichier"
+    _etat, _nom, detail = check_config()
+    assert "lu dans" in detail
+
+
+def test_sans_aucun_secret_la_sonde_nomme_les_trois_chemins(config_isolee):
+    etat, _nom, detail = check_config()
+    assert etat is Etat.ECHEC
+    for cle in CLES_MOT_DE_PASSE_PG:
+        assert cle in detail, "la sonde ne dit pas ou le secret aurait pu passer"
+
+
+# ---------- 28 ter. deux paliers pour le disque ----------
+
+def _faux_disque(monkeypatch, pourcent, libre_go):
+    total = 100 * 1024 ** 3
+    libre = int(libre_go * 1024 ** 3)
+    # Le pourcentage occupe se calcule sur (total - libre) : on choisit donc
+    # le total pour que les deux chiffres soient coherents entre eux.
+    total = int(libre / (1 - pourcent / 100))
+
+    class _St:
+        f_blocks = total // 4096
+        f_bsize = 4096
+        f_frsize = 4096
+        f_bavail = libre // 4096
+
+    monkeypatch.setattr(os, "statvfs", lambda _chemin: _St())
+
+
+def test_un_disque_qui_se_remplit_est_une_alerte(tmp_path, monkeypatch):
+    """87 %, 2.1 Go libres : exactement la ligne du journal du 15 septembre.
+    Il reste des jours -- cela se traite dans la journee, pas la nuit."""
+    monkeypatch.setenv("APP_MANAGER_STATE", str(tmp_path))
+    _faux_disque(monkeypatch, 87, 2.1)
+    etat, _nom, detail = check_espace_disque()
+    assert etat is Etat.ALERTE, detail
+    assert "87 %" in detail
+
+
+def test_un_disque_presque_plein_est_un_echec(tmp_path, monkeypatch):
+    """La prochaine ecriture de Postgres echoue, et son message ne parlera
+    jamais d'espace disque."""
+    monkeypatch.setenv("APP_MANAGER_STATE", str(tmp_path))
+    _faux_disque(monkeypatch, 97, 0.4)
+    etat, _nom, detail = check_espace_disque()
+    assert etat is Etat.ECHEC, detail
+    assert SEUIL_DISQUE_CRITIQUE == 95 and SEUIL_LIBRE_CRITIQUE_GO == 1
+
+
+def test_un_grand_disque_bien_rempli_ne_dit_rien(tmp_path, monkeypatch):
+    """89 % de 250 Go laisse 28 Go : des mois de marge, aucune alerte."""
+    monkeypatch.setenv("APP_MANAGER_STATE", str(tmp_path))
+    _faux_disque(monkeypatch, 89, 28)
+    etat, _nom, _detail = check_espace_disque()
+    assert etat is Etat.OK
+
+
+# ---------- 28 quater. ce qui ne se regarde pas d'ici ----------
+#
+# L'etat du panneau n'est monte que dans codelab-app-manager. Depuis Dagster,
+# quatre sondes y trouvaient un panneau vide -- zero application, zero compte,
+# rien d'expose -- et affichaient un vert rassurant sur une question qu'elles
+# n'avaient jamais pu poser. Un faux OK est pire qu'une case vide : il fait
+# cesser de chercher.
+
+def test_les_sondes_du_panneau_ne_repondent_pas_depuis_ailleurs(tmp_path, monkeypatch):
+    monkeypatch.setenv("APP_MANAGER_STATE", str(tmp_path / "jamais-monte"))
+    for fonction in (check_applications, check_surface_exposee,
+                     check_provenance, check_exposition):
+        etat, nom, detail = fonction()
+        assert etat is Etat.SANS_OBJET, f"{nom} conclut sans rien avoir lu"
+        assert "n'est pas monte dans ce conteneur" in detail
+
+
+def test_l_etat_du_panneau_monte_les_sondes_repondent(tmp_path, monkeypatch):
+    """Temoin : le meme code, avec le dossier sous les yeux, conclut bien --
+    sinon le test ci-dessus passerait au vert parce que tout est casse."""
+    etat_dir = tmp_path / "etat"
+    etat_dir.mkdir()
+    monkeypatch.setenv("APP_MANAGER_STATE", str(etat_dir))
+    for fonction in (check_applications, check_surface_exposee, check_provenance):
+        etat, nom, _detail = fonction()
+        assert etat is Etat.OK, nom
+
+
+# ---------- 28 quinquies. le panneau n'est pas toujours sur 127.0.0.1 ----------
+
+def test_la_sonde_cherche_le_panneau_par_son_nom_de_service(monkeypatch):
+    monkeypatch.delenv("CODELAB_PANNEAU_HOTE", raising=False)
+    assert _hotes_panneau() == ("127.0.0.1", "codelab-app-manager")
+    monkeypatch.setenv("CODELAB_PANNEAU_HOTE", "autre-hote")
+    assert _hotes_panneau() == ("autre-hote",)
+
+
+@pytest.fixture
+def faux_panneau(monkeypatch):
+    """Un panneau minuscule, sur un vrai port : la sonde fait de vraies
+    requetes, c'est tout son interet."""
+    import http.server
+    import threading
+
+    reponses = {"/health": 200}
+
+    class _Poignee(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):                                          # noqa: N802
+            code = reponses.get(self.path, 401)
+            self.send_response(code)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def log_message(self, *_args):
+            pass
+
+    serveur = http.server.HTTPServer(("127.0.0.1", 0), _Poignee)
+    fil = threading.Thread(target=serveur.serve_forever, daemon=True)
+    fil.start()
+    monkeypatch.setenv("CODELAB_PANNEAU_HOTE", "127.0.0.1")
+    monkeypatch.setenv("MANAGER_PORT", str(serveur.server_address[1]))
+    monkeypatch.setenv("APP_MANAGER_APPS_PORT", str(serveur.server_address[1]))
+    try:
+        yield reponses
+    finally:
+        serveur.shutdown()
+        serveur.server_close()
+
+
+def test_un_panneau_ferme_est_un_ok(faux_panneau):
+    etat, _nom, detail = check_panneau_ferme()
+    assert etat is Etat.OK, detail
+
+
+def test_une_route_d_administration_ouverte_est_un_echec(faux_panneau):
+    """La seule chose qui justifie un run rouge ici : une breche CONSTATEE."""
+    faux_panneau["/api/utilisateurs"] = 200
+    etat, _nom, detail = check_panneau_ferme()
+    assert etat is Etat.ECHEC
+    assert "/api/utilisateurs" in detail
+
+
+def test_un_panneau_injoignable_est_une_alerte(monkeypatch):
+    """Une absence de preuve n'est pas une preuve. C'est ce que les journaux
+    du 15 septembre montraient : deux ECHEC pour une adresse mal choisie."""
+    monkeypatch.setenv("CODELAB_PANNEAU_HOTE", "127.0.0.1")
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        libre = s.getsockname()[1]      # un port ou plus personne n'ecoute
+    monkeypatch.setenv("MANAGER_PORT", str(libre))
+    monkeypatch.setenv("APP_MANAGER_APPS_PORT", str(libre))
+    for fonction in (check_panneau_ferme, check_origine_applications):
+        etat, nom, _detail = fonction()
+        assert etat is Etat.ALERTE, nom
+    # Le panneau, lui, est bien declare injoignable : la panne est dite une
+    # fois, par la sonde dont c'est le travail.
+    etat, _nom, detail = check_panneau_joignable()
+    assert etat is Etat.ECHEC and "docker logs" in detail
+
+
+def test_le_panneau_joignable_par_son_nom_de_service(faux_panneau):
+    etat, _nom, detail = check_panneau_joignable()
+    assert etat is Etat.OK, detail
+
+
+# ---------- 28 sexies. l'isolement refuse n'est plus une panne ----------
+
+def test_isoler_a_zero_est_un_choix_assume(monkeypatch):
+    """La sonde promet « pour assumer le choix et faire taire cette sonde :
+    APP_MANAGER_ISOLER=0 ». Elle tenait si peu parole qu'elle continuait a
+    marquer l'installation en faute une fois la variable posee."""
+    monkeypatch.setenv("APP_MANAGER_ISOLER", "0")
+    etat, _nom, detail = check_isolation()
+    assert etat is Etat.OK
+    assert "volontairement" in detail
+
+
+# ---------- 28 septies. l'asset Dagster, et ce qui fait tomber un run ----------
+#
+# C'est la decision qui compte : le capteur alerte_mail_echec se declenche sur
+# un run EN ECHEC. Ce qui fait echouer le run fait donc partir le mail -- et
+# un mail toutes les quinze minutes pour un disque a 87 % est un mail qu'on
+# apprend a ne plus ouvrir.
+#
+# definitions.py importe dagster, absent de cette image (et de celle du
+# panneau). On le remplace par un module d'emprunt : l'asset n'utilise aucune
+# API de Dagster pour decider, seulement les rangs -- c'est precisement ce
+# qu'on veut verifier.
+
+class _JournalDeTest:
+    def __init__(self):
+        self.lignes = []
+
+    def info(self, message):
+        self.lignes.append(("info", message))
+
+    def warning(self, message):
+        self.lignes.append(("warning", message))
+
+    def error(self, message):
+        self.lignes.append(("error", message))
+
+
+class _ContexteDeTest:
+    def __init__(self):
+        self.log = _JournalDeTest()
+        self.metadonnees = {}
+
+    def add_output_metadata(self, valeurs):
+        self.metadonnees.update(valeurs)
+
+    def niveaux(self, mot):
+        return [n for n, m in self.log.lignes if mot in m]
+
+
+@pytest.fixture
+def asset_diagnostic(monkeypatch):
+    """definitions.py charge avec un faux dagster, et sa base remplacee."""
+    import types
+    faux = types.ModuleType("dagster")
+
+    def _decorateur(*_args, **_kwargs):
+        return lambda fonction: fonction
+
+    class _Statut:
+        RUNNING = "RUNNING"
+
+    class _Metadonnee:
+        @staticmethod
+        def md(texte):
+            return texte
+
+    faux.AssetExecutionContext = object
+    faux.RunFailureSensorContext = object
+    faux.Definitions = lambda **kw: kw
+    faux.ScheduleDefinition = lambda **kw: kw
+    faux.define_asset_job = lambda **kw: kw
+    faux.DefaultScheduleStatus = _Statut
+    faux.DefaultSensorStatus = _Statut
+    faux.MetadataValue = _Metadonnee
+    faux.asset = _decorateur
+    faux.run_failure_sensor = _decorateur
+    monkeypatch.setitem(sys.modules, "dagster", faux)
+
+    chemin = os.path.join(os.path.dirname(os.path.abspath(__file__)), "definitions.py")
+    spec = importlib.util.spec_from_file_location("codelab_definitions_test", chemin)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    # La base : ecrite pour de bon nulle part, mais la chaine complete est
+    # jouee -- connexion, ecriture, fermeture.
+    ecrit = {}
+
+    class _Connexion:
+        def close(self):
+            ecrit["fermee"] = True
+
+    monkeypatch.setattr(sys.modules[__name__], "connect_pg", lambda *a, **k: _Connexion())
+    monkeypatch.setattr(sys.modules[__name__], "write_heartbeat",
+                        lambda _conn, source, detail: ecrit.setdefault("detail", detail) and 0 or 7)
+    module.ecrit = ecrit
+    return module
+
+
+def _sondes(monkeypatch, resultats):
+    monkeypatch.setattr(sys.modules[__name__], "run_all", lambda *a, **k: resultats)
+
+
+def test_une_alerte_ne_fait_pas_echouer_le_run(asset_diagnostic, monkeypatch):
+    """LE reglage demande : le disque a 87 % et l'isolement refuse par l'hote
+    se journalisent en warning, et le run reste vert."""
+    _sondes(monkeypatch, [
+        (Etat.OK, "Postgres", "connecte"),
+        (Etat.ALERTE, "espace disque", "/workspace : 87 % occupe, 2.1 Go libres"),
+        (Etat.ALERTE, "isolation des applications", "le noyau refuse"),
+        (Etat.SANS_OBJET, "surface exposee", "pas monte ici"),
+    ])
+    contexte = _ContexteDeTest()
+
+    resultat = asset_diagnostic.diagnostic_codelab(contexte)
+
+    assert "alertes" in resultat
+    # Chaque rang dans le bon canal : c'est ce que lit la page des runs. On
+    # vise la ligne de la SONDE ("nom -- detail"), pas le resume final, qui
+    # les cite toutes.
+    assert contexte.niveaux("espace disque -- ") == ["warning"]
+    assert contexte.niveaux("Postgres -- ") == ["info"]
+    assert contexte.niveaux("surface exposee -- ") == ["info"]
+    assert contexte.metadonnees["critiques"] == 0
+    assert contexte.metadonnees["alertes"] == 2
+    assert contexte.metadonnees["sans objet"] == 1
+    # Et le battement de coeur porte les alertes : la page du panneau les
+    # relit sans avoir a rejouer les sondes.
+    assert "alertes :" in asset_diagnostic.ecrit["detail"]
+    assert asset_diagnostic.ecrit["fermee"] is True
+
+
+def test_une_sonde_critique_fait_bien_echouer_le_run(asset_diagnostic, monkeypatch):
+    """Temoin : sans lui, le test precedent passerait au vert parce que plus
+    rien ne fait jamais echouer quoi que ce soit."""
+    _sondes(monkeypatch, [
+        (Etat.ECHEC, "Postgres", "connexion refusee"),
+        (Etat.ALERTE, "espace disque", "87 %"),
+    ])
+    contexte = _ContexteDeTest()
+    with pytest.raises(RuntimeError) as leve:
+        asset_diagnostic.diagnostic_codelab(contexte)
+    assert "Postgres" in str(leve.value)
+    # L'alerte reste citee, mais apres : elle n'est pas la raison de l'echec.
+    assert "espace disque" in str(leve.value)
+    assert str(leve.value).index("Postgres") < str(leve.value).index("espace disque")
+    assert contexte.niveaux("Postgres -- ") == ["error"]
+
+
+def test_la_base_injoignable_ne_sort_plus_en_trace_nue(asset_diagnostic, monkeypatch):
+    """L'exception de psycopg2 remplacait tout : quarante lignes de pile, et
+    la cause -- dite deux lignes plus haut par la sonde credentials.env --
+    disparaissait dessous."""
+    _sondes(monkeypatch, [(Etat.OK, "Postgres", "connecte")])
+
+    class _Refus(Exception):
+        pass
+
+    def _refuse(*_a, **_k):
+        raise _Refus("no password supplied")
+
+    monkeypatch.setattr(sys.modules[__name__], "connect_pg", _refuse)
+    contexte = _ContexteDeTest()
+    with pytest.raises(RuntimeError) as leve:
+        asset_diagnostic.diagnostic_codelab(contexte)
+
+    assert "battement de coeur" in str(leve.value)
+    # Chainee, pas perdue : la trace d'origine reste consultable dessous.
+    assert isinstance(leve.value.__cause__, _Refus)
+    # Et les sondes ont ete journalisees AVANT : c'est la ou se lit la cause.
+    assert contexte.niveaux("Postgres -- ") == ["info"]
+
+
+# ---------- 29. arreter une application ----------
+#
+# Signale par Lucas : « je ne peux pas arreter les applications », avec le
+# message « L'application n'a pas demarre. (reponse 500) ».
+#
+# Deux defauts superposes, et le second cachait le premier. api_toggle ne
+# disait jamais QUELLE action il avait tentee, et la page retombait donc sur
+# un message de repli ecrit pour le demarrage : un arret rate s'annoncait
+# « n'a pas demarre », ce qui envoie chercher a l'oppose de la panne. Et
+# stop(), qui n'attrapait que ProcessLookupError, laissait filer toute autre
+# erreur jusqu'a une page HTTP 500 sans JSON -- le motif reel ne sortait que
+# dans les journaux du panneau, que l'interface ne montre pas.
+
+def test_un_arret_qui_echoue_ne_parle_pas_de_demarrage(en_marche, monkeypatch):
+    def _refuse(_nom):
+        raise PermissionError(13, "Operation not permitted")
+
+    monkeypatch.setattr(app, "stop", _refuse)
+    r = en_marche.post("/api/toggle/site")
+
+    assert r.status_code == 500
+    d = r.get_json()
+    assert d is not None, "une page HTML 500 : la page n'y lira aucun motif"
+    assert d["action"] == "arret"
+    assert "arrêter" in d["error"], d["error"]
+    assert "démarr" not in d["error"], "le message envoie chercher a l'oppose"
+    # Et le motif reel est dans la reponse, pas seulement dans les journaux.
+    assert "PermissionError" in d["error"]
+
+
+def test_un_arret_refuse_rend_409_et_son_motif(en_marche, monkeypatch):
+    monkeypatch.setattr(app, "stop", lambda _n: "Le processus ne s'arrete pas.")
+    r = en_marche.post("/api/toggle/site")
+    assert r.status_code == 409
+    assert r.get_json()["action"] == "arret"
+    assert "ne s'arrete pas" in r.get_json()["error"]
+
+
+def test_un_arret_qui_marche_le_dit_aussi(en_marche, monkeypatch):
+    vus = []
+    monkeypatch.setattr(app, "stop", lambda n: vus.append(n))
+    r = en_marche.post("/api/toggle/site")
+    assert r.status_code == 200 and vus == ["site"]
+    assert r.get_json() == {"ok": True, "action": "arret", "running": False}
+
+
+def test_un_processus_qui_survit_n_est_pas_declare_arrete(survivants, monkeypatch):
+    """Le cas le plus couteux : stop() repondait « tout va bien » sur un
+    processus toujours vivant, le panneau affichait « Arretee », et
+    l'application continuait de tenir son port."""
+    class _Increvable:
+        pid = 424242
+
+        def poll(self):
+            return None
+
+    app.save({"site": {"path": str(survivants / "projet"), "command": "sleep 120",
+                       "port": 9399, "enabled": True}})
+    app.procs["site"] = _Increvable()
+    monkeypatch.setattr(os, "getpgid", lambda pid: pid)
+    monkeypatch.setattr(os, "killpg", lambda *_a: None)     # signaux sans effet
+    monkeypatch.setattr(time, "sleep", lambda _s: None)
+
+    erreur = app.stop("site")
+
+    assert erreur and "424242" in erreur
+    assert app.load()["site"]["enabled"] is True, (
+        "le panneau a marque arretee une application toujours vivante")
+    assert "site" in app.procs, "la seule trace qui permettait de la retrouver"
+    app.procs.clear()
+
+
+def test_un_signal_refuse_est_dit_et_non_leve(survivants, monkeypatch):
+    class _Vivant:
+        pid = 4242
+
+        def poll(self):
+            return None
+
+    app.procs["site"] = _Vivant()
+
+    def _refuse(*_a):
+        raise PermissionError(13, "Operation not permitted")
+
+    monkeypatch.setattr(os, "getpgid", lambda pid: pid)
+    monkeypatch.setattr(os, "killpg", _refuse)
+    erreur = app.stop("site")
+    assert erreur and "Operation not permitted" in erreur
+    app.procs.clear()
+
+
+def test_un_arret_qui_marche_rend_none(survivants):
+    """Temoin du contrat : None veut bien dire « c'est fait »."""
+    assert app.start("site") is None
+    assert app.stop("site") is None
+    assert app.load()["site"]["enabled"] is False
+    assert "site" not in app.lire_processus()
+
+
+def test_le_bouton_ne_se_trompe_plus_de_sens():
+    """La page doit pouvoir dire le bon sens meme sur une reponse sans JSON :
+    elle connait l'etat qu'elle vient d'afficher."""
+    _, script = _script_panneau_html()
+    bloc = script[script.index("async function tg(n){"):]
+    bloc = bloc[:bloc.index("async function", 10)]
+    assert "d.action" in bloc, "la page ignore le sens que le panneau lui donne"
+    assert "arrêtée" in bloc, "aucun message pour un arret qui echoue"
+    assert "avant" in bloc, "aucun repli quand la reponse n'est pas du JSON"

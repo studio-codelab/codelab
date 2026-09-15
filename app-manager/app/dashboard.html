@@ -2713,11 +2713,23 @@ function render(){
 /* Le bouton demarrer / arreter. Il LIT la reponse : le panneau sait
    desormais dire pourquoi une application refuse de demarrer (dossier
    disparu, commande introuvable, port pris, isolement refuse), et se taire
-   la-dessus revenait a cliquer dans le vide. */
+   la-dessus revenait a cliquer dans le vide.
+
+   ET IL DIT LE BON SENS. Le repli etait ecrit pour le demarrage : un arret
+   qui echouait s'annoncait « L'application n'a pas demarre », ce qui envoie
+   chercher exactement a l'oppose de la panne. Le sens vient maintenant du
+   panneau (d.action), avec l'etat connu de la page en secours -- une
+   reponse 500 sans JSON n'apprend rien, et c'est justement la qu'il ne faut
+   pas se tromper de phrase. */
 async function tg(n){
+  const avant=(apps.find(a=>a.name===n)||{}).running;
   const r=await fetch('/api/toggle/'+n,{method:'POST'});
   let d={}; try{ d=await r.json(); }catch(e){}
-  if(!r.ok) notifier(d.error || "L'application n'a pas demarre.", 'err');
+  if(!r.ok){
+    const arret=(d.action ? d.action==='arret' : avant===true);
+    notifier(d.error || (arret ? "L'application n'a pas pu être arrêtée."
+                               : "L'application n'a pas démarré."), 'err');
+  }
   setTimeout(refresh,400);
 }
 async function restartApp(n){ await fetch('/api/restart/'+n,{method:'POST'}); setTimeout(refresh,500); }

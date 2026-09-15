@@ -55,6 +55,7 @@ import struct
 import subprocess
 import threading
 import time
+import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -2968,7 +2969,24 @@ def derniere_ligne_utile(nom):
 
 
 def stop(name):
+    """Arrete une application. Rend None si tout va bien, sinon POURQUOI.
+
+    MEME CONTRAT QUE start(), et il manquait. Cette fonction ne rendait rien
+    et n'attrapait que ProcessLookupError : un signal refuse (EPERM), un
+    disque plein au moment de reecrire processus.json ou apps.json, et
+    l'exception traversait la route jusqu'a une page d'erreur HTTP 500. La
+    page, qui n'y trouvait aucun JSON, affichait alors son message par
+    defaut -- ecrit pour le demarrage : un arret qui echoue s'annoncait
+    « L'application n'a pas demarre. »
+
+    Et le cas le plus couteux ne levait rien du tout : un processus qui
+    survit a SIGTERM comme a SIGKILL laissait tout de meme enabled=False et
+    une reponse « tout va bien ». Le panneau affichait « Arretee » d'une
+    application qui tournait toujours et tenait son port -- exactement le
+    defaut que l'adoption des processus avait corrige ailleurs.
+    """
     p = procs.get(name)
+    erreur = None
     if p and p.poll() is None:
         try:
             os.killpg(os.getpgid(p.pid), signal.SIGTERM)
@@ -2978,8 +2996,28 @@ def stop(name):
                 time.sleep(0.1)
             if p.poll() is None:
                 os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+                # Laisser au noyau le temps de faire le travail : sans cette
+                # seconde attente, on constatait la survie du processus a
+                # l'instant meme ou on venait de l'achever.
+                for _ in range(20):
+                    if p.poll() is not None:
+                        break
+                    time.sleep(0.05)
         except ProcessLookupError:
-            pass
+            pass        # deja parti entre le poll et le signal : c'est gagne
+        except OSError as e:
+            erreur = (f"Le panneau n'a pas pu signaler le processus "
+                      f"(pid {getattr(p, 'pid', '?')}) : {e}")
+        if erreur is None and p.poll() is None:
+            erreur = (f"Le processus (pid {p.pid}) ne s'arrete ni sur SIGTERM "
+                      f"ni sur SIGKILL.")
+    if erreur:
+        # On ne touche NI a procs NI a enabled : marquer "arretee" une
+        # application toujours vivante, c'est perdre la seule trace qui
+        # permet encore de la retrouver -- et promettre a l'interface un
+        # etat qui n'existe pas.
+        print(f"[app-manager] {name} : arret impossible -- {erreur}", flush=True)
+        return erreur
     procs.pop(name, None)
     _oublier_processus(name)
     _restart_history.pop(name, None)  # arret volontaire : on oublie l'historique de crash
@@ -2987,6 +3025,7 @@ def stop(name):
     if name in apps:
         apps[name]["enabled"] = False
         save(apps)
+    return None
 
 
 def resume():
@@ -6201,18 +6240,45 @@ def api_edit(n):
 @flask_app.post("/api/toggle/<n>")
 @require_admin
 def api_toggle(n):
+    """Demarrer / arreter, et DIRE CE QU'ON A ESSAYE DE FAIRE.
+
+    Signale par Lucas : « je ne peux pas arreter les applications », avec le
+    message « L'application n'a pas demarre. (reponse 500) ». Deux defauts se
+    superposaient, et le second cachait le premier :
+
+      - l'action tentee n'etait renvoyee nulle part. La page ne pouvait donc
+        que deviner, et son message de repli est ecrit pour le demarrage :
+        tout arret rate s'annoncait « n'a pas demarre », ce qui envoie
+        chercher exactement a l'oppose de la panne ;
+      - une exception dans stop() ou start() sortait en page d'erreur HTML,
+        sans JSON. Le motif reel restait dans les journaux du panneau, que
+        l'interface ne montre pas.
+
+    L'action se decide donc AVANT d'agir, elle accompagne toutes les
+    reponses, et plus aucune exception ne sort d'ici sans explication.
+    """
     if n not in load():
         return jsonify({"error": "Application inconnue."}), 404
-    if is_running(n):
-        stop(n)
-        return jsonify({"ok": True, "running": False})
-    erreur = start(n)
-    if erreur:
-        # 409 et non 500 : le panneau a fait son travail, c'est
-        # l'application qui refuse de demarrer. La nuance compte pour qui
-        # lit les journaux du panneau.
-        return jsonify({"error": erreur}), 409
-    return jsonify({"ok": True, "running": True})
+    action = "arret" if is_running(n) else "demarrage"
+    try:
+        erreur = stop(n) if action == "arret" else start(n)
+        if erreur:
+            # 409 et non 500 : le panneau a fait son travail, c'est
+            # l'application qui refuse de s'arreter ou de demarrer. La
+            # nuance compte pour qui lit les journaux du panneau.
+            return jsonify({"error": erreur, "action": action}), 409
+        return jsonify({"ok": True, "action": action,
+                        "running": action == "demarrage"})
+    except Exception as e:                                        # noqa: BLE001
+        traceback.print_exc()
+        verbe = "arrêter" if action == "arret" else "démarrer"
+        return jsonify({
+            "action": action,
+            "error": f"Impossible de {verbe} l'application "
+                     f"({type(e).__name__}: {e}). Le détail complet est dans "
+                     f"les journaux du panneau : docker logs --tail 50 "
+                     f"codelab-app-manager",
+        }), 500
 
 
 def restart_app(n):
