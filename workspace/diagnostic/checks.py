@@ -5921,6 +5921,26 @@ MOTIF_SANS_ACCENT = re.compile(
     r"\b(" + "|".join(sorted(MOTS_SANS_ACCENT, key=len, reverse=True)) + r")\b", re.I)
 
 
+def test_le_hub_offre_deux_tailles_de_tuile():
+    """Deux tailles, pas un reglage continu : la carte dit l'etat et la
+    visibilite, l'icone seule dit « c'est la ». Entre les deux il n'y a rien
+    a vouloir, et un curseur n'aurait ajoute qu'une decision a prendre."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    for t in ("carte", "icone"):
+        assert f"hubTaille('{t}')" in page
+    # En mode icone, l'etat et la visibilite ne sont pas seulement caches :
+    # c'est ce qu'on accepte de perdre pour voir trente projets d'un coup.
+    assert ".hub-liste.compacte .hub-projet .bas{display:none}" in page \
+        or ".hub-liste.compacte .hub-projet .desc,\n.hub-liste.compacte .hub-projet .bas{display:none}" in page
+    # Une application arretee reste grisee et non cliquable dans les deux
+    # tailles : sans cela on cliquerait dans le vide.
+    assert ".hub-projet.arretee{opacity:.6;pointer-events:none}" in page
+    # Le choix est retenu par navigateur, comme le theme : c'est un confort
+    # d'affichage, pas un reglage du serveur.
+    assert "localStorage.setItem('codelab.hub.taille'" in page
+
+
 def test_le_bandeau_ne_tasse_plus_trois_choses_a_gauche():
     """Le menu, la marque et un champ de 340 px se suivaient sans
     respiration : on ne savait plus ou commencait l'un et finissait
@@ -5943,16 +5963,46 @@ def test_le_bandeau_ne_tasse_plus_trois_choses_a_gauche():
     assert ".rechercher{position:relative;width:min(420px,38vw);flex:none}" in page
 
 
+def _phrases_du_script(page):
+    """Les chaines du JavaScript qui sont des PHRASES, donc des textes lus.
+
+    Un test qui ne regarde que le HTML rate tout ce que la page ecrit
+    elle-meme -- et c'est la que la moitie de l'interface est produite. Le
+    filtre est simple : au moins trois mots, et pas d'adresse ni de selecteur
+    (ils contiennent presque toujours une barre, un point ou un diese).
+    """
+    phrases = []
+    for js in re.findall(r"<script[^>]*>(.*?)</script>", page, re.S):
+        # Les COMMENTAIRES d'abord : ils sont ecrits sans accents, c'est la
+        # regle, et leurs apostrophes ressemblent a s'y meprendre a des
+        # chaines de caracteres.
+        js = re.sub(r"/\*.*?\*/", " ", js, flags=re.S)
+        js = re.sub(r"(?m)^\s*//.*$", " ", js)
+        for m in re.finditer(r"'((?:[^'\\\n]|\\.){12,200})'"
+                             r'|"((?:[^"\\\n]|\\.){12,200})"', js):
+            t = next(g for g in m.groups() if g is not None)
+            if len(t.split()) < 3:
+                continue
+            if re.search(r"[/<>{}#]|\bfunction\b|\bvar\b", t):
+                continue
+            phrases.append(t.replace("\\'", "'"))
+    return phrases
+
+
 def test_aucun_texte_du_hub_n_a_perdu_ses_accents():
     """Les textes AFFICHES portent leurs accents -- le code qui les entoure,
     lui, n'en porte aucun. C'est la regle de ce depot, et elle se relachait a
     chaque ajout : « Sante », « Visibilite », « Presentation », « Repeter »,
     « Identite » sont tous arrives comme cela.
+
+    Le HTML ET les phrases du script : la moitie de l'interface est ecrite
+    par la page elle-meme, et un test qui l'ignore laisse passer « limitee a
+    ce que tu leur autorisés » -- vu sur la page d'accueil.
     """
     page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
                 encoding="utf-8").read()
     fautes = []
-    for texte in _textes_visibles(page):
+    for texte in _textes_visibles(page) + _phrases_du_script(page):
         for mot in MOTIF_SANS_ACCENT.findall(texte):
             fautes.append(f"{mot} — dans « {texte[:70]} »")
     assert not fautes, "textes visibles sans accents :\n" + "\n".join(fautes[:12])
