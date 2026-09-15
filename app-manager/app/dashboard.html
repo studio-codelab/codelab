@@ -449,6 +449,35 @@ label:has(> input[type=checkbox]),label:has(> input[type=radio]){
 .seg-icones{width:auto;flex:none}
 .seg-icones button{flex:none;width:34px;padding:6px 0;display:grid;place-items:center}
 .seg-icones svg{width:15px;height:15px}
+/* Le bouton de masquage : invisible jusqu'au survol de la tuile. Une croix
+   permanente sur chaque tuile transformerait le hub en liste a trier. */
+.hub-projet{position:relative}
+.hub-masquer{position:absolute;top:6px;right:6px;width:26px;height:26px;padding:0;
+ border:1px solid var(--line2);border-radius:7px;background:var(--surface);
+ color:var(--dim2);cursor:pointer;display:grid;place-items:center;
+ opacity:0;transition:opacity .12s,color .12s,border-color .12s}
+.hub-masquer svg{width:14px;height:14px}
+.hub-projet:hover .hub-masquer{opacity:1}
+.hub-masquer:hover{color:var(--err);border-color:var(--err-border)}
+/* Au clavier, il n'y a pas de survol : la tabulation le fait apparaitre. */
+.hub-masquer:focus-visible{opacity:1;outline:2px solid var(--accent);outline-offset:1px}
+/* UNE TUILE ARRETEE IGNORE LE POINTEUR -- son lien ne menerait qu'a une page
+   d'erreur. Le bouton, lui, doit rester atteignable : sinon une application
+   arretee ne peut plus etre rangee, ce qui est justement le cas ou l'on en
+   a envie. Il reste donc visible, en retrait, au lieu d'attendre un survol
+   qui n'arrivera jamais. */
+.hub-projet.arretee .hub-masquer{pointer-events:auto;opacity:.55}
+.hub-projet.arretee .hub-masquer:hover{opacity:1}
+
+/* La liste des masquees, dans les reglages du compte. */
+.masquee-ligne{display:flex;align-items:center;gap:11px;padding:9px 0;
+ border-top:1px solid var(--line)}
+.masquee-ligne:first-child{border-top:none}
+.masquee-ligne img{width:30px;height:30px;border-radius:var(--r-s);flex:none}
+.masquee-txt{flex:1;min-width:0;display:flex;flex-direction:column}
+.masquee-txt b{font-size:var(--t-m);font-weight:620}
+.masquee-txt span{font-size:12px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;
+ white-space:nowrap}
 .hub-vide,.empty{padding:46px 20px;text-align:center;color:var(--dim);background:var(--surface);
  border:1px solid var(--line);border-radius:var(--r)}
 .hub-vide b,.empty h3{display:block;color:var(--txt);font-size:15px;font-weight:620;
@@ -885,6 +914,7 @@ table.tbl-journal{min-width:560px}
     </div>
   </div>
   <div class="sous" id="hub-sous"></div>
+  <div class="hint" id="hub-masquees" style="display:none;margin:-8px 0 14px"></div>
   <div id="hub-liste" class="hub-liste"></div>
 </div>
 
@@ -1329,6 +1359,20 @@ table.tbl-journal{min-width:560px}
       </div>
       <div class="err" id="mdp-err" style="display:none"></div>
       <div class="hint" id="mdp-msg" style="display:none"></div>
+    </div>
+  </div>
+
+  <div class="zone">
+    <div class="zone-title">Hub</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Applications masquées</b>
+        <div class="path">Celles que tu as retirées de ton hub.</div>
+      </div></div>
+      <div class="hint">Masquer n'est que du <b>rangement</b> : l'application continue de
+        tourner, les autres comptes la voient toujours, et son adresse reste ouverte à qui
+        la connaît. Ce n'est pas une façon de fermer un accès.</div>
+      <div id="masquees-liste" style="margin-top:14px"></div>
     </div>
   </div>
 
@@ -2110,6 +2154,10 @@ function paramOnglet(o){
   plierLesCartes();
   if(o==='compte'){
     chargerMonCompte();
+    /* La liste des masquees vient du hub : on la relit, sinon on affiche
+       celle d'un chargement precedent -- ou rien du tout si l'on arrive
+       directement sur les reglages. */
+    chargerHub();
     $('mdp-err').style.display='none'; $('mdp-msg').style.display='none';
   }
   if(o==='securite'){ chargerPasskeys(); if(estAdmin) chargerSecurite(); }
@@ -2232,10 +2280,50 @@ function hubTaille(t){
   peindreHub();
 }
 
+let hubMasquees=[];
+
+async function masquerApp(nom){
+  try{
+    const r=await fetch('/api/mes-apps/'+encodeURIComponent(nom)+'/masquer',{method:'POST'});
+    if(!r.ok) throw new Error();
+    await chargerHub();
+    notifier('« '+nom+' » masquée de ton hub.');
+  }catch(e){ notifier('Impossible de masquer cette application.','err'); }
+}
+
+async function afficherApp(nom){
+  try{
+    const r=await fetch('/api/mes-apps/'+encodeURIComponent(nom)+'/masquer',{method:'DELETE'});
+    if(!r.ok) throw new Error();
+    await chargerHub();
+    peindreMasquees();
+    notifier('« '+nom+' » est de retour dans ton hub.');
+  }catch(e){ notifier('Impossible de réafficher cette application.','err'); }
+}
+
+function peindreMasquees(){
+  const zone=$('masquees-liste');
+  if(!zone) return;
+  if(!hubMasquees.length){
+    zone.innerHTML='<div class="hint">Aucune application masquée. Tu peux en retirer une '
+      + 'de ton hub avec le bouton qui apparaît sur sa tuile.</div>';
+    return;
+  }
+  zone.innerHTML = hubMasquees.map(a=>`<div class="masquee-ligne">
+    <img src="${icone(a.name)}" alt="">
+    <div class="masquee-txt"><b>${esc(a.name)}</b>
+      ${a.description?`<span>${esc(a.description)}</span>`:''}</div>
+    <button class="btn btn-default btn-sm"
+      onclick="afficherApp('${esc(a.name)}')">Réafficher</button>
+  </div>`).join('');
+}
+
 async function chargerHub(){
   try{
     const d=await (await fetch('/api/mes-apps')).json();
     hubApps=d.apps||[];
+    hubMasquees=d.masquees||[];
+    peindreMasquees();
     /* Les categories arrivent avec les projets : une seule requete, et le
        hub ne peut pas afficher un rangement decale d'un tour. */
     if(Array.isArray(d.categories)) categories=d.categories;
@@ -2252,6 +2340,16 @@ function peindreHub(){
     : 'Les applications que ton administrateur t\'a autorisées.';
 
   const liste=hubApps.filter(correspond);
+  /* Une liste silencieusement plus courte inquiete plus qu'elle ne
+     simplifie : le hub dit ce qu'il cache, et ou le retrouver. */
+  const nbCaches = (hubMasquees||[]).length;
+  $('hub-masquees').style.display = nbCaches ? 'block' : 'none';
+  if(nbCaches){
+    $('hub-masquees').innerHTML = nbCaches + (nbCaches>1
+      ? ' applications masquées — ' : ' application masquée — ')
+      + '<a href="#" onclick="event.preventDefault();allerA(\'parametres\');'
+      + 'paramOnglet(\'compte\')">les revoir dans tes paramètres</a>.';
+  }
   if(!liste.length){
     $('hub-liste').className='';
     $('hub-liste').innerHTML = filtre
@@ -2265,10 +2363,20 @@ function peindreHub(){
   const tuile = a => {
     const desc = (taille==='icone' || !a.description) ? ''
       : `<div class="desc">${esc(a.description)}</div>`;
+    /* Le bouton vit DANS le lien : il doit donc arreter le clic avant qu'il
+       n'ouvre l'application. Il n'apparait qu'au survol -- une croix
+       permanente sur chaque tuile transformerait le hub en liste a trier. */
+    const masquer = `<button class="hub-masquer" title="Masquer du hub"
+      onclick="event.preventDefault();event.stopPropagation();masquerApp('${esc(a.name)}')"
+      aria-label="Masquer ${esc(a.name)} de mon hub">
+      <svg viewBox="0 0 24 24"><path d="M3 3l18 18"/>
+      <path d="M10.6 10.6a2 2 0 002.8 2.8"/>
+      <path d="M9.4 5.2A9.5 9.5 0 0112 5c5 0 9 4.5 9 7 0 .9-.6 2.1-1.6 3.2"/>
+      <path d="M6.2 6.7C3.9 8.1 3 10.2 3 12c0 2.5 4 7 9 7 1.5 0 2.9-.4 4.1-1"/></svg></button>`;
     return `<a class="hub-projet ${a.running?'':'arretee'}" href="${urlApplication(a.name)}">
       <img src="${icone(a.name)}" alt="">
       <div class="txt"><div class="nom">${esc(a.name)}</div>${desc}
-      <div class="bas">${badgeEtat(a)}${badgeVis(a)}</div></div></a>`;
+      <div class="bas">${badgeEtat(a)}${badgeVis(a)}</div></div>${masquer}</a>`;
   };
 
   /* Sans categorie declaree, le hub reste ce qu'il etait : une seule liste.

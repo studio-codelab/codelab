@@ -1403,7 +1403,7 @@ app = _charger_panneau()
 # echoue au lieu de laisser passer une ecriture reelle.
 CHEMINS_ETAT = [
     "STATE_DIR", "APPS_FILE", "LOG_DIR", "UTILISATEURS_FILE", "PASSKEYS_FILE",
-    "ACCES_FILE", "PROCESSUS_FILE", "CHILD_HOME", "ALERTES_FILE", "SMTP_FILE",
+    "ACCES_FILE", "PROCESSUS_FILE", "MASQUEES_FILE", "CHILD_HOME", "ALERTES_FILE", "SMTP_FILE",
     "CATEGORIES_FILE",
     "EXPOSITION_FILE", "DIAGNOSTIC_MARQUEUR", "SHARED_CONFIG_DIR",
     "SHARED_ENV_FILE", "LEGACY_ADMIN_PASSWORD_FILE", "LEGACY_SECRET_KEY_FILE",
@@ -1429,6 +1429,7 @@ def _bac_a_sable(tmp_path, monkeypatch):
         "PASSKEYS_FILE": str(etat / "passkeys.json"),
         "ACCES_FILE": str(etat / "acces.jsonl"),
         "PROCESSUS_FILE": str(etat / "processus.json"),
+        "MASQUEES_FILE": str(etat / "masquees.json"),
         "CHILD_HOME": str(etat / "home"),
         "ALERTES_FILE": str(etat / "alertes.json"),
         "SMTP_FILE": str(etat / "smtp.json"),
@@ -3440,6 +3441,120 @@ def test_le_mode_affiche_ne_donne_aucun_droit(deux_espaces):
     assert c.get("/api/utilisateurs").status_code == 403
     # Et le hub, lui, reste servi aux deux roles.
     assert c.get("/api/mes-apps").status_code == 200
+
+
+# ---------- 12 quater. masquer une application de SON hub ----------
+#
+# Ce n'est ni un droit retire, ni une application arretee : le projet
+# continue de tourner, les autres comptes le voient, et son adresse reste
+# ouverte a qui la connait. C'est du RANGEMENT -- et l'interface doit le dire,
+# pour que personne ne croie avoir ferme quelque chose.
+
+@pytest.fixture
+def hub(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
+    monkeypatch.setattr(app, "MASQUEES_FILE", str(tmp_path / "masquees.json"))
+    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
+    monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
+    monkeypatch.setattr(app, "is_running", lambda n: True)
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    app._apps_cache["signature"] = None
+    app.save({"compta": {"path": "/w/a", "command": "x", "port": 9101,
+                         "enabled": True, "visibility": "privee"},
+              "vitrine": {"path": "/w/b", "command": "x", "port": 9102,
+                          "enabled": True, "visibility": "publique"},
+              "secret": {"path": "/w/c", "command": "x", "port": 9103,
+                         "enabled": True, "visibility": "privee"}})
+    sel = "dd" * 16
+    app.ecrire_utilisateurs({"marie": {
+        "sel": sel, "hash": app.derive_mot_de_passe("mot-de-passe-long", sel),
+        "projets": ["compta"], "cree": 0}})
+    return app.flask_app.test_client()
+
+
+def _connexion_marie(c):
+    """Second facteur compris : ces comptes n'ouvrent jamais de session sur
+    le seul mot de passe."""
+    _connecte(c, "marie", "mot-de-passe-long")
+    return c
+
+
+def test_une_application_masquee_quitte_le_hub_de_ce_compte_seulement(hub):
+    c = _connexion_marie(hub)
+    assert c.post("/api/mes-apps/compta/masquer").status_code == 200
+    d = c.get("/api/mes-apps").get_json()
+    assert "compta" not in [a["name"] for a in d["apps"]]
+    assert [a["name"] for a in d["masquees"]] == ["compta"]
+
+    # L'administrateur, lui, la voit toujours : masquer n'est pas supprimer.
+    admin = app.flask_app.test_client()
+    admin.post("/login", json={"password": "secret-de-test"})
+    assert "compta" in [a["name"] for a in admin.get("/api/mes-apps").get_json()["apps"]]
+
+
+def test_masquer_ne_ferme_aucun_acces(hub):
+    """Le point a ne pas se tromper : l'application reste ouverte a qui
+    connait son adresse. Croire le contraire ferait prendre un rangement
+    pour une protection."""
+    c = _connexion_marie(hub)
+    c.post("/api/mes-apps/compta/masquer")
+    # Le proxy ne regarde pas la liste des masquees : il regarde les droits.
+    # 502 ici veut dire qu'il a cherche a joindre l'application (elle
+    # n'ecoute pas dans un test) -- donc qu'il a laisse passer.
+    r = c.get("/compta/", follow_redirects=False)
+    assert r.status_code != 403, "masquer ne doit pas fermer l'acces"
+    assert r.status_code != 404, "l'application doit rester joignable"
+
+
+def test_on_ne_masque_que_ce_qu_on_peut_deja_voir(hub):
+    """Sinon la liste des masquees revelerait l'existence de projets qu'on
+    n'a pas le droit de connaitre."""
+    c = _connexion_marie(hub)
+    assert c.post("/api/mes-apps/secret/masquer").status_code == 404
+    assert c.post("/api/mes-apps/fantome/masquer").status_code == 404
+    assert app.lire_masquees() == {}
+
+
+def test_le_masquage_est_journalise_pour_l_administrateur(hub):
+    """Une application qui disparait d'un hub sans que personne n'ait touche
+    aux droits doit rester explicable."""
+    c = _connexion_marie(hub)
+    c.post("/api/mes-apps/compta/masquer")
+    c.delete("/api/mes-apps/compta/masquer")
+    actions = [(e.get("qui"), e.get("app"), e.get("action"))
+               for e in app.lire_acces() if e.get("genre") == "masquage"]
+    assert ("marie", "compta", "masque") in actions
+    assert ("marie", "compta", "affiche") in actions
+
+
+def test_reafficher_rend_l_application_au_hub(hub):
+    c = _connexion_marie(hub)
+    c.post("/api/mes-apps/compta/masquer")
+    assert c.delete("/api/mes-apps/compta/masquer").status_code == 200
+    d = c.get("/api/mes-apps").get_json()
+    assert "compta" in [a["name"] for a in d["apps"]]
+    assert d["masquees"] == []
+    # Aucune entree vide ne traine derriere : le fichier reste lisible.
+    assert app.lire_masquees() == {}
+
+
+def test_l_administrateur_range_son_hub_comme_les_autres(hub):
+    """Il ne figure pas dans le registre des comptes -- d'ou un fichier a
+    part -- mais il a les memes yeux et le meme ecran que les autres."""
+    c = hub
+    c.post("/login", json={"password": "secret-de-test"})
+    assert c.post("/api/mes-apps/vitrine/masquer").status_code == 200
+    assert app.masquees_du_compte(app.NOM_ADMIN) == ["vitrine"]
+    assert "vitrine" not in [a["name"] for a in c.get("/api/mes-apps").get_json()["apps"]]
+
+
+def test_masquer_demande_une_session(hub):
+    anonyme = app.flask_app.test_client()
+    assert anonyme.post("/api/mes-apps/vitrine/masquer").status_code in (401, 403)
 
 
 # ---------- 12 ter. le logo d'une application ----------

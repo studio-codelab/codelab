@@ -972,6 +972,43 @@ def _descripteurs(nom):
             for k in passkeys_du_compte(nom)]
 
 
+# ------------------------- applications masquees -------------------------
+#
+# Un compte peut retirer une application de SON hub. Ce n'est ni un droit
+# retire, ni une application arretee : le projet continue de tourner, les
+# autres comptes le voient, et son adresse reste ouverte a qui la connait --
+# c'est du RANGEMENT, pas une protection. La page le dit, pour que personne
+# ne croie avoir ferme quelque chose.
+#
+# Un fichier a part plutot qu'un champ dans le registre des comptes : le
+# compte d'administration n'y figure pas, et il a le droit de ranger son hub
+# comme les autres.
+MASQUEES_FILE = os.path.join(STATE_DIR, "masquees.json")
+
+
+def lire_masquees():
+    try:
+        with open(MASQUEES_FILE) as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def ecrire_masquees(d):
+    os.makedirs(os.path.dirname(MASQUEES_FILE) or ".", exist_ok=True)
+    tmp = MASQUEES_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(d, f, indent=2)
+    os.replace(tmp, MASQUEES_FILE)
+
+
+def masquees_du_compte(qui=None):
+    qui = qui or utilisateur_courant() or NOM_ADMIN
+    valeurs = lire_masquees().get(qui) or []
+    return [str(v) for v in valeurs if isinstance(v, str)]
+
+
 # ------------------------- journal des acces -------------------------
 #
 # Qui s'est connecte, quand, et quelle application il a ouverte. Deux usages,
@@ -5746,9 +5783,18 @@ def api_mes_apps():
     """
     autorises = projets_autorises()
     connues = lire_categories()
-    liste = []
+    # Ce que CE compte a range hors de son hub. La liste part avec la
+    # reponse : la page des reglages doit pouvoir les rendre sans redemander,
+    # et le hub doit savoir qu'il en cache -- une liste silencieusement plus
+    # courte inquiete plus qu'elle ne simplifie.
+    cachees = set(masquees_du_compte())
+    liste, masquees = [], []
     for nom, a in sorted(load().items()):
         if autorises is not None and nom not in autorises:
+            continue
+        if nom in cachees:
+            masquees.append({"name": nom,
+                             "description": a.get("description") or ""})
             continue
         liste.append({
             "name": nom,
@@ -5761,9 +5807,58 @@ def api_mes_apps():
     # Les categories accompagnent la liste : le hub les affiche dans l'ordre
     # voulu, sans avoir a deviner cet ordre a partir des projets.
     return jsonify({"apps": liste,
+                    "masquees": masquees,
                     "categories": connues,
                     "utilisateur": utilisateur_courant(),
                     "role": role_courant()})
+
+
+@flask_app.post("/api/mes-apps/<n>/masquer")
+@require_auth
+def api_masquer(n):
+    """Retire une application du hub de CE compte.
+
+    Ce n'est pas un droit retire : le projet tourne toujours, les autres
+    comptes le voient, et son adresse reste ouverte a qui la connait. On ne
+    peut masquer que ce qu'on peut deja voir -- sinon la liste des masquees
+    dirait l'existence de projets qu'on n'a pas le droit de connaitre.
+    """
+    if n not in load() or not peut_voir(n):
+        return jsonify({"error": "Application inconnue."}), 404
+    qui = utilisateur_courant() or NOM_ADMIN
+    d = lire_masquees()
+    liste = [x for x in (d.get(qui) or []) if isinstance(x, str)]
+    if n not in liste:
+        liste.append(n)
+        d[qui] = sorted(liste)
+        ecrire_masquees(d)
+        # Journalise : l'administrateur doit pouvoir constater qu'un projet a
+        # disparu d'un hub sans que personne n'ait touche a ses droits.
+        journaliser("masquage", qui=qui, app=n, action="masque",
+                    ip=_adresse_client())
+    return jsonify({"ok": True, "masquees": sorted(liste)})
+
+
+@flask_app.delete("/api/mes-apps/<n>/masquer")
+@require_auth
+def api_afficher(n):
+    """Remet une application dans le hub de ce compte."""
+    qui = utilisateur_courant() or NOM_ADMIN
+    d = lire_masquees()
+    liste = [x for x in (d.get(qui) or []) if isinstance(x, str)]
+    if n in liste:
+        liste.remove(n)
+        # On retire la cle vide plutot que de laisser un tableau vide : le
+        # fichier reste lisible a l'oeil, et un compte supprime ne laisse pas
+        # d'entree derriere lui.
+        if liste:
+            d[qui] = sorted(liste)
+        else:
+            d.pop(qui, None)
+        ecrire_masquees(d)
+        journaliser("masquage", qui=qui, app=n, action="affiche",
+                    ip=_adresse_client())
+    return jsonify({"ok": True, "masquees": sorted(liste)})
 
 
 # ------------------------------ proxy --------------------------------
