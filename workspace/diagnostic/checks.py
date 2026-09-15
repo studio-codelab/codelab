@@ -3816,20 +3816,46 @@ def test_la_pile_se_devine_sur_les_fichiers_pas_sur_la_commande(conteneur):
                     ".dockerignore", "CONTENEUR.md"]
 
 
-def test_le_compose_produit_est_un_yaml_valide(conteneur):
+def test_le_compose_produit_tient_debout(conteneur):
     """Un fichier de configuration produit et jamais relu par une machine
-    finit par contenir une faute de frappe."""
-    import yaml
+    finit par contenir une faute de frappe.
+
+    PAS DE PyYAML ICI. La regle de ce depot est que la CI installe ce que
+    l'image embarque, et l'image du panneau n'a aucune raison d'embarquer un
+    analyseur YAML. La structure se verifie donc a la main -- c'est moins
+    complet qu'un analyseur, et c'est suffisant pour attraper ce qui casse
+    reellement : une cle au mauvais niveau, un volume declare nulle part.
+    """
     c, _ = conteneur
     d = c.get("/api/app/facturier/conteneur").get_json()
     compose = next(f for f in d["fichiers"] if f["nom"] == "docker-compose.yml")
-    charge = yaml.safe_load(compose["contenu"])
-    assert "facturier" in charge["services"]
-    # Le service voisin detecte est la, avec son volume.
-    assert "base" in charge["services"]
-    assert "base" in (charge.get("volumes") or {})
+    lignes = [l for l in compose["contenu"].splitlines()
+              if l.strip() and not l.lstrip().startswith("#")]
+
+    racines = [l.rstrip(":") for l in lignes if not l.startswith(" ")]
+    assert racines == ["services", "volumes"], racines
+    # Les services sont a deux espaces, leurs reglages plus loin.
+    services = [l.strip().rstrip(":") for l in lignes
+                if l.startswith("  ") and not l.startswith("   ") and l.rstrip().endswith(":")]
+    assert "facturier" in services and "base" in services, services
+    # Le volume monte par la base existe au niveau racine : un volume nomme
+    # nulle part fait echouer « up » avec un message peu parlant.
+    assert "      - base:/var/lib/postgresql/data" in lignes
+    assert "  base:" in lignes[lignes.index("volumes:"):]
+    # Aucune tabulation : YAML les refuse, et elles ne se voient pas.
+    assert "\t" not in compose["contenu"]
     # La limite de memoire suit celle de CodeLab : le conteneur doit se
     # comporter comme l'application se comporte ici.
+    assert "          memory: 256M" in lignes
+
+    # Et si un analyseur YAML est la -- il l'est en developpement, pas en CI --
+    # on ne s'en prive pas.
+    try:
+        import yaml
+    except ImportError:
+        return
+    charge = yaml.safe_load(compose["contenu"])
+    assert set(charge["services"]) == {"facturier", "base"}
     assert charge["services"]["facturier"]["deploy"]["resources"]["limits"]["memory"] \
         == "256M"
 
