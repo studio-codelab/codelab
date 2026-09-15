@@ -400,6 +400,16 @@ if [ "$(id -u)" -eq 0 ] && id "$CODELAB_USER" >/dev/null 2>&1 \
   # SETUID retiree, par exemple), mieux vaut le savoir ici que de perdre le
   # service. Voir cap_add dans docker-compose.yml.
   if gosu "$CODELAB_USER" true 2>/dev/null; then
+    # HOME pose explicitement, et non laisse a la bonne volonte de gosu : sans
+    # lui, le processus garde le /root herite, ou dagster ne peut rien ecrire.
+    # C'est exactement ce chemin-la qui a fait tomber le webserver au
+    # demarrage (telemetrie ecrivant dans ~/.dagster). Un HOME illisible ne
+    # vaut pas mieux que pas de HOME : on ne le pose que s'il existe.
+    maison="$(getent passwd "$CODELAB_USER" 2>/dev/null | cut -d: -f6)"
+    if [ -n "$maison" ] && [ -d "$maison" ]; then
+      HOME="$maison"
+      export HOME
+    fi
     echo "[codelab-dagster] execution en $CODELAB_USER (uid $(id -u "$CODELAB_USER"))."
     exec gosu "$CODELAB_USER" "$@"
   fi

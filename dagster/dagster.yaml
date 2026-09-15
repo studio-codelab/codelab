@@ -85,3 +85,28 @@ retention:
     purge_after_days: 7
   sensor:
     purge_after_days: 7
+
+# ==========================================================================
+# TELEMETRIE
+#
+# Coupee, et pour une raison plus terre a terre que la vie privee : elle
+# faisait tomber le webserver au demarrage.
+#
+# Depuis que Dagster ne tourne plus en root, il tourne sous un compte cree
+# sans dossier personnel (useradd -M). La telemetrie, elle, veut ecrire un
+# identifiant anonyme dans ~/.dagster -- donc /home/dagster, qui n'existe
+# pas et que le compte ne peut pas creer :
+#
+#     PermissionError: [Errno 13] Permission denied: '/home/dagster'
+#
+# La trace remonte de log_workspace_stats(), appele pendant la CONSTRUCTION
+# de l'application : l'exception ne se rattrape nulle part, le webserver
+# s'arrete avant d'ecouter, et le proxy repond « 502 ». Le conteneur
+# redemarre, rejoue exactement la meme chose, et la boucle recommence.
+#
+# Deux verrous plutot qu'un, parce qu'ils ne couvrent pas le meme cas :
+# celui-ci vaut pour une installation dont le dagster.yaml suit l'image, et
+# le dossier personnel pose dans l'image (voir dagster/Dockerfile) rattrape
+# les dagster.yaml modifies a la main, que CodeLab ne remplace jamais.
+telemetry:
+  enabled: false

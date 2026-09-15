@@ -62,8 +62,8 @@ from collections import deque
 from email.message import EmailMessage
 
 import psutil
-from flask import (Flask, Response, jsonify, redirect, request, session, send_file,
-                   stream_with_context)
+from flask import (Flask, Response, has_request_context, jsonify, redirect,
+                   request, session, send_file, stream_with_context)
 
 STATE_DIR = os.environ.get("APP_MANAGER_STATE", "/var/lib/codelab/app-manager")
 APPS_FILE = os.path.join(STATE_DIR, "apps.json")
@@ -554,6 +554,13 @@ APPS_PORT = int(os.environ.get("APP_MANAGER_APPS_PORT", "9002") or 0)
 # exemple https://apps.tondomaine.fr). Elle prend le pas sur le port.
 APPS_URL = (os.environ.get("APP_MANAGER_APPS_URL") or "").rstrip("/")
 
+# Le port du panneau, et son adresse complete quand un reverse proxy le publie
+# ailleurs (symetrique de APP_MANAGER_APPS_URL). Servent a une seule chose,
+# mais elle compte : ecrire, DANS une page servie sur le port des
+# applications, un lien qui ramene au hub.
+PANEL_PORT = int(os.environ.get("MANAGER_PORT", "9001") or 9001)
+PANEL_URL = (os.environ.get("APP_MANAGER_PANEL_URL") or "").rstrip("/")
+
 # Pose par servir() une fois le second ecouteur reellement ouvert. Tant qu'il
 # est faux, rien ne change : ni redirection, ni restriction.
 _origines_separees = {"actif": False}
@@ -563,12 +570,75 @@ def origines_separees():
     return _origines_separees["actif"]
 
 
+# Un nom d'hote ordinaire, et rien d'autre. Ce qui suit n'est pas de la
+# prudence gratuite : request.host vient de l'en-tete Host, donc du CLIENT.
+# Nous le recopions dans un attribut href (le ruban de retour, les pages
+# d'erreur du proxy) et dans un en-tete Location. Un guillemet bien place
+# dans un Host sortirait de l'attribut et deviendrait du script dans la page
+# d'une application. Un nom d'hote n'a aucune raison de contenir autre chose
+# que des lettres, des chiffres, un point ou un tiret : on refuse tout le
+# reste au lieu de l'echapper -- il n'existe aucun cas legitime a rattraper.
+_HOTE_ORDINAIRE = re.compile(r"^[A-Za-z0-9._-]{1,253}$")
+
+
+def hote_propre(brut):
+    """Le nom d'hote d'un en-tete Host, sans son port. Vide s'il est douteux.
+
+    Werkzeug ecarte deja les Host malformes avant nous -- request.host rend
+    alors une chaine vide. Ce filtre-ci ne fait donc pas double emploi par
+    hasard : il tient tout seul, sans dependre de la version d'une
+    bibliotheque ni de la porte d'entree utilisee, pour une regle dont le
+    cout est une expression reguliere.
+    """
+    hote = (brut or "").split(":")[0]
+    return hote if _HOTE_ORDINAIRE.match(hote) else ""
+
+
+def hote_demande():
+    """Le nom d'hote de la requete, s'il est propre. Sinon la chaine vide."""
+    if not has_request_context():
+        return ""
+    return hote_propre(request.host)
+
+
 def origine_applications():
-    """L'adresse ou vivent les applications, vue depuis le navigateur."""
+    """L'adresse ou vivent les applications, vue depuis le navigateur.
+
+    Chaine vide quand le nom d'hote n'est pas exploitable : l'appelant
+    renonce alors a separer plutot que d'ecrire une adresse douteuse.
+    """
     if APPS_URL:
         return APPS_URL
-    hote = (request.host or "").split(":")[0] if request else ""
+    hote = hote_demande()
+    if not hote:
+        return ""
     return f"{request.scheme}://{hote}:{APPS_PORT}"
+
+
+def lien_panneau():
+    """Le lien qui ramene au hub, ecrit pour l'origine qui sert la page.
+
+    Un simple "/" a suffi tant que tout vivait sur le meme port. Depuis que
+    les applications ont leur propre origine, "/" designe la racine du PORT
+    DES APPLICATIONS -- et cette racine ne sert rien : la garde des origines
+    y repond « Ce n'est pas le panneau ». Le ruban de retour, glisse dans
+    chaque page d'application, ramenait donc vers une page d'erreur au lieu
+    du hub.
+
+    Sur le port du panneau, ou quand la separation n'a pas pu s'activer, "/"
+    reste juste et reste relatif -- donc valable quel que soit le nom d'hote
+    par lequel on est arrive.
+    """
+    if not origines_separees() or not has_request_context():
+        return "/"
+    if str(request.environ.get("SERVER_PORT", "")) != str(APPS_PORT):
+        return "/"
+    if PANEL_URL:
+        return PANEL_URL + "/"
+    hote = hote_demande()
+    if not hote:
+        return "/"
+    return f"{request.scheme}://{hote}:{PANEL_PORT}/"
 
 
 @flask_app.before_request
@@ -626,9 +696,16 @@ def separer_les_origines():
     # Sur le port du panneau : une application demandee ici est renvoyee chez
     # elle. Les favoris et les liens deja partages continuent de marcher.
     if request.endpoint in ("proxy", "proxy_noslash"):
+        origine = origine_applications()
+        # Sans adresse utilisable, on ne redirige pas : une cible relative
+        # renverrait vers la page elle-meme, et le navigateur tournerait en
+        # rond. Le panneau sert alors l'application, comme avant la
+        # separation -- degrade, mais joignable.
+        if not origine:
+            return None
         nom = request.view_args.get("n", "") if request.view_args else ""
         sous = request.view_args.get("sub", "") if request.view_args else ""
-        cible = origine_applications() + "/" + urllib.parse.quote(nom) + "/"
+        cible = origine + "/" + urllib.parse.quote(nom) + "/"
         if sous:
             cible += sous
         if request.query_string:
@@ -1941,18 +2018,27 @@ def _jour(ts):
     return datetime.datetime.fromtimestamp(ts or 0, _fuseau()).date().isoformat()
 
 
-CARTE_JOURS_MAX = 366
+def annee_courante():
+    return datetime.datetime.now(_fuseau()).year
 
 
-def pg_carte_activite(jours=CARTE_JOURS_MAX, qui=None, app=None):
-    """Une ligne par jour : combien d'ouvertures, et combien d'applications.
+def pg_carte_activite(annee=None, qui=None, app=None):
+    """Une ligne par jour de l'annee : ouvertures, et nombre d'applications.
 
-    Le comptage se fait DANS la base : ramener un an d'evenements pour les
-    additionner ici marcherait aujourd'hui et s'ecroulerait le jour ou
+    Le comptage se fait DANS la base : ramener une annee d'evenements pour
+    les additionner ici marcherait aujourd'hui et s'ecroulerait le jour ou
     l'historique compte pour de bon.
+
+    UNE ANNEE CIVILE, ET PLUS UNE FENETRE GLISSANTE. La fenetre de 366 jours
+    repondait a « ces douze derniers mois » et a rien d'autre : impossible de
+    revenir sur l'annee passee, et les mois se decalaient d'un cran chaque
+    jour -- deux cartes prises a deux dates ne se comparaient pas. Une annee
+    de janvier a decembre est fixe, se compare, et se choisit.
     """
-    conditions = ["genre = 'ouverture'", "ts >= now() - make_interval(days => %s)"]
-    valeurs = [int(jours)]
+    annee = annee_courante() if annee is None else int(annee)
+    conditions = ["genre = 'ouverture'",
+                  "extract(year from ts AT TIME ZONE %s) = %s"]
+    valeurs = [FUSEAU_JOURNAL, annee]
     if qui is not None:
         conditions.append("qui = %s")
         valeurs.append(qui)
@@ -1970,12 +2056,15 @@ def pg_carte_activite(jours=CARTE_JOURS_MAX, qui=None, app=None):
             for j, n, a in lignes]
 
 
-def carte_activite(jours=CARTE_JOURS_MAX, qui=None, app=None):
+def carte_activite(annee=None, qui=None, app=None):
     """Le meme comptage, sur le fichier. Repli quand la base ne repond pas."""
-    limite = time.time() - int(jours) * 86400
+    annee = annee_courante() if annee is None else int(annee)
+    debut, fin = f"{annee}-01-01", f"{annee}-12-31"
     par_jour = {}
     for e in lire_acces(limite=100000):
-        if e.get("genre") != "ouverture" or (e.get("ts") or 0) < limite:
+        if e.get("genre") != "ouverture":
+            continue
+        if not debut <= _jour(e.get("ts")) <= fin:
             continue
         if qui is not None and (e.get("qui") or "") != qui:
             continue
@@ -1986,6 +2075,43 @@ def carte_activite(jours=CARTE_JOURS_MAX, qui=None, app=None):
         j["apps"].add(e.get("app") or "")
     return [{"jour": j, "ouvertures": v["ouvertures"], "apps": len(v["apps"])}
             for j, v in sorted(par_jour.items())]
+
+
+def pg_annees_activite():
+    """La premiere et la derniere annee ou quelque chose a ete ouvert."""
+    with _pg_connexion(PG_BASE) as cx:
+        borne = cx.execute(
+            "SELECT min(extract(year from ts AT TIME ZONE %s))::int,"
+            "       max(extract(year from ts AT TIME ZONE %s))::int"
+            "  FROM acces WHERE genre = 'ouverture'",
+            [FUSEAU_JOURNAL, FUSEAU_JOURNAL]).fetchone()
+    return (borne[0], borne[1]) if borne else (None, None)
+
+
+def annees_activite():
+    """Les memes bornes, sur le fichier."""
+    basse = haute = None
+    for e in lire_acces(limite=100000):
+        if e.get("genre") != "ouverture":
+            continue
+        a = int(_jour(e.get("ts"))[:4])
+        basse = a if basse is None or a < basse else basse
+        haute = a if haute is None or a > haute else haute
+    return basse, haute
+
+
+def annees_proposees(basse, haute):
+    """La liste offerte au choix : de la premiere utilisation a aujourd'hui.
+
+    L'annee en cours en fait TOUJOURS partie, meme sans une seule ouverture :
+    une installation neuve doit pouvoir regarder sa carte, et un selecteur
+    vide n'est pas une reponse. Sans bornes connues, il reste cette
+    seule annee.
+    """
+    courante = annee_courante()
+    basse = min(basse or courante, courante)
+    haute = max(haute or courante, courante)
+    return list(range(int(basse), int(haute) + 1))
 
 
 def pg_resume_acces():
@@ -4628,22 +4754,36 @@ def api_activite_carte():
     """
     qui = request.args.get("qui")
     app_ = request.args.get("app") or None
+    # L'annee demandee arrive par l'URL : elle se borne, elle ne se croit
+    # pas. Illisible ou farfelue, on retombe sur l'annee en cours plutot que
+    # de rendre une carte vide sans expliquer pourquoi.
+    courante = annee_courante()
+    brut = request.args.get("annee")
     try:
-        jours = max(1, min(CARTE_JOURS_MAX, int(request.args.get("jours") or CARTE_JOURS_MAX)))
+        annee = int(brut) if brut else courante
     except ValueError:
-        jours = CARTE_JOURS_MAX
+        annee = courante
+    if not 1970 <= annee <= courante + 1:
+        annee = courante
+
     if pg_disponible():
         try:
-            return jsonify({"jours": pg_carte_activite(jours, qui=qui, app=app_),
-                            "fenetre": jours, "fuseau": FUSEAU_JOURNAL,
+            basse, haute = pg_annees_activite()
+            return jsonify({"jours": pg_carte_activite(annee, qui=qui, app=app_),
+                            "annee": annee,
+                            "annees": annees_proposees(basse, haute),
+                            "fuseau": FUSEAU_JOURNAL,
                             "source": "postgres"})
         except Exception as e:                                    # noqa: BLE001
             _pg_etat["erreur"] = f"{type(e).__name__}: {e}"
     # Repli : le fichier oublie au-dela d'un megaoctet, donc la carte est plus
     # courte. Le dire plutot que d'afficher des jours vides qui laisseraient
     # croire a une inactivite.
-    return jsonify({"jours": carte_activite(jours, qui=qui, app=app_),
-                    "fenetre": jours, "fuseau": FUSEAU_JOURNAL,
+    basse, haute = annees_activite()
+    return jsonify({"jours": carte_activite(annee, qui=qui, app=app_),
+                    "annee": annee,
+                    "annees": annees_proposees(basse, haute),
+                    "fuseau": FUSEAU_JOURNAL,
                     "source": "fichier", "pg_erreur": _pg_etat["erreur"]})
 
 
@@ -6734,17 +6874,20 @@ def strip_session_cookie(raw):
 # Styles en ligne et nom de classe improbable : la page d'accueil de
 # l'application a ses propres regles, et le ruban ne doit ni les subir ni les
 # changer. all:initial coupe l'heritage dans les deux sens.
-RUBAN_RETOUR = (
-    '<a href="/" id="codelab-retour-hub" title="Revenir au hub CodeLab" '
-    'style="all:initial;position:fixed;left:14px;bottom:14px;z-index:2147483647;'
-    'display:inline-flex;align-items:center;gap:7px;padding:8px 13px;'
-    'font:600 13px/1 -apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;'
-    'color:#fff;background:#141a21;border-radius:999px;cursor:pointer;'
-    'box-shadow:0 2px 10px rgba(0,0,0,.28);text-decoration:none">'
-    '<span style="all:initial;color:#fff;font:600 15px/1 sans-serif">&#8592;</span>'
-    '<span style="all:initial;color:#fff;font:600 13px/1 -apple-system,'
-    'BlinkMacSystemFont,sans-serif">CodeLab</span></a>'
-).encode()
+def ruban_retour():
+    """Le ruban, construit a chaque page : son lien depend de l'origine."""
+    return (
+        '<a href="' + lien_panneau() + '" id="codelab-retour-hub" '
+        'title="Revenir au hub CodeLab" '
+        'style="all:initial;position:fixed;left:14px;bottom:14px;z-index:2147483647;'
+        'display:inline-flex;align-items:center;gap:7px;padding:8px 13px;'
+        'font:600 13px/1 -apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;'
+        'color:#fff;background:#141a21;border-radius:999px;cursor:pointer;'
+        'box-shadow:0 2px 10px rgba(0,0,0,.28);text-decoration:none">'
+        '<span style="all:initial;color:#fff;font:600 15px/1 sans-serif">&#8592;</span>'
+        '<span style="all:initial;color:#fff;font:600 13px/1 -apple-system,'
+        'BlinkMacSystemFont,sans-serif">CodeLab</span></a>'
+    ).encode()
 
 
 def _entete(entetes, nom):
@@ -6780,7 +6923,7 @@ def injecter_ruban(data, status, entetes):
     i = data.lower().rfind(b"</body>")
     if i < 0:
         return data, entetes
-    data = data[:i] + RUBAN_RETOUR + data[i:]
+    data = data[:i] + ruban_retour() + data[i:]
     # Content-Length devient faux si on ne le refait pas : le navigateur
     # tronquerait la page a l'ancienne taille, juste avant le ruban.
     entetes = [(k, v) for k, v in entetes if k.lower() != "content-length"]
@@ -6895,7 +7038,9 @@ def _page(title, msg, extra=""):
             "<div style=\"font-size:17px;font-weight:600;color:#e6edf3;margin-bottom:6px\">"
             + title + "</div><div style=\"color:#8b949e\">" + msg + "</div>"
             "<div style=\"color:#6e7681;font-size:13px;margin-top:6px\">" + extra + "</div>"
-            "<div style=\"margin-top:22px\"><a href=\"/\" style=\"color:#4c8eff;"
+            # Meme raison que pour le ruban : ces pages sortent aussi du
+            # port des applications, ou "/" ne mene pas au hub.
+            "<div style=\"margin-top:22px\"><a href=\"" + lien_panneau() + "\" style=\"color:#4c8eff;"
             "text-decoration:none;font-size:14px\">Retour au panneau</a></div></div>")
 
 

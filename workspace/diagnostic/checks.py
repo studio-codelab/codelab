@@ -4830,17 +4830,44 @@ def test_la_carte_se_filtre_par_personne_et_par_application(journal, tmp_path, m
     assert app.carte_activite(qui="") == []
 
 
-def test_la_carte_ne_remonte_pas_avant_sa_fenetre(journal, tmp_path, monkeypatch):
-    """Sinon la grille s'etirerait sur toute la duree du journal, et les
-    colonnes ne tomberaient plus en face des mois affiches."""
-    vieux = int(time.time() - 400 * 86400)
+def test_la_carte_ne_montre_que_l_annee_demandee(journal, tmp_path, monkeypatch):
+    """Une annee civile, de janvier a decembre : ce qui est arrive l'an
+    dernier n'a rien a faire sur la carte de cette annee, et inversement."""
+    import datetime as _dt
+    fuseau = app._fuseau()
+    cette_annee = app.annee_courante()
+    milieu = _dt.datetime(cette_annee, 6, 15, 12, 0, tzinfo=fuseau).timestamp()
+    an_dernier = _dt.datetime(cette_annee - 1, 6, 15, 12, 0, tzinfo=fuseau).timestamp()
     _semer_ouvertures(monkeypatch, tmp_path, [
-        {"id": "a", "ts": vieux, "genre": "ouverture", "qui": "marie", "app": "prive"},
-        {"id": "b", "ts": int(time.time()) - 3600, "genre": "ouverture",
-         "qui": "marie", "app": "prive"},
+        {"id": "a", "ts": int(an_dernier), "genre": "ouverture", "qui": "marie", "app": "prive"},
+        {"id": "b", "ts": int(milieu), "genre": "ouverture", "qui": "marie", "app": "prive"},
     ])
-    assert len(app.carte_activite(jours=30)) == 1
-    assert len(app.carte_activite(jours=366)) == 1
+    jours = app.carte_activite(cette_annee)
+    assert [j["jour"] for j in jours] == [f"{cette_annee}-06-15"]
+    jours = app.carte_activite(cette_annee - 1)
+    assert [j["jour"] for j in jours] == [f"{cette_annee - 1}-06-15"]
+    # Sans annee demandee, c'est l'annee en cours.
+    assert app.carte_activite() == app.carte_activite(cette_annee)
+
+
+def test_les_annees_proposees_vont_de_la_premiere_a_aujourd_hui(journal, tmp_path,
+                                                                monkeypatch):
+    """Le selecteur doit offrir chaque annee entre la premiere utilisation et
+    l'annee en cours -- y compris celles ou rien ne s'est passe, sans quoi la
+    liste aurait des trous et l'on croirait a une perte de donnees."""
+    import datetime as _dt
+    fuseau = app._fuseau()
+    cette_annee = app.annee_courante()
+    vieux = _dt.datetime(cette_annee - 2, 3, 2, 12, 0, tzinfo=fuseau).timestamp()
+    _semer_ouvertures(monkeypatch, tmp_path, [
+        {"id": "a", "ts": int(vieux), "genre": "ouverture", "qui": "marie", "app": "prive"},
+    ])
+    assert app.annees_activite() == (cette_annee - 2, cette_annee - 2)
+    assert app.annees_proposees(*app.annees_activite()) == [
+        cette_annee - 2, cette_annee - 1, cette_annee]
+    # Journal vide : l'annee en cours reste proposee, un selecteur vide
+    # n'etant pas une reponse.
+    assert app.annees_proposees(None, None) == [cette_annee]
 
 
 def test_la_carte_est_reservee_a_l_administrateur(journal):
@@ -4854,16 +4881,22 @@ def test_la_carte_est_reservee_a_l_administrateur(journal):
     d = r.get_json()
     assert d["source"] in ("postgres", "fichier")
     assert isinstance(d["jours"], list)
+    assert d["annee"] in d["annees"], (
+        "l'annee affichee doit figurer dans la liste proposee")
 
 
-def test_une_fenetre_farfelue_ne_fait_pas_tomber_la_carte(journal):
+def test_une_annee_farfelue_ne_fait_pas_tomber_la_carte(journal):
     """Le parametre arrive par l'URL : il se borne, il ne se croit pas."""
     c = journal
     c.post("/login", json={"password": "secret-de-test"})
-    for valeur in ("0", "-5", "99999", "beaucoup"):
-        r = c.get("/api/activite/carte?jours=" + valeur)
+    courante = app.annee_courante()
+    for valeur in ("0", "-5", "99999", "beaucoup", ""):
+        r = c.get("/api/activite/carte?annee=" + valeur)
         assert r.status_code == 200, valeur
-        assert 1 <= r.get_json()["fenetre"] <= app.CARTE_JOURS_MAX
+        assert r.get_json()["annee"] == courante, valeur
+    # Une annee plausible, elle, est respectee.
+    r = c.get("/api/activite/carte?annee=" + str(courante - 1))
+    assert r.get_json()["annee"] == courante - 1
 
 
 def test_les_analyses_preferent_la_base_au_fichier_plafonne():
@@ -4878,6 +4911,49 @@ def test_les_analyses_preferent_la_base_au_fichier_plafonne():
     # compte pour de bon.
     carte = src.split("def pg_carte_activite(")[1].split("\ndef ")[0]
     assert "GROUP BY" in carte and "count(*)" in carte
+
+
+def test_la_carte_couvre_l_annee_de_janvier_a_decembre():
+    """Une fenetre glissante commencait un jour quelconque : les mois se
+    decalaient d'un cran chaque jour, et deux cartes prises a deux dates ne
+    se comparaient pas."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    bloc = page.split("function peindreCarte(d){")[1].split("\nfunction ")[0]
+    assert "new Date(annee,0,1)" in bloc, "la carte doit commencer au 1er janvier"
+    assert "new Date(annee,11,31)" in bloc, "et finir au 31 decembre"
+    assert "d.fenetre" not in bloc, "la fenetre glissante n'a plus cours"
+    # Les jours a venir ne se peignent pas comme des jours a zero : ce serait
+    # affirmer une inactivite qui n'a pas encore eu lieu.
+    assert "carte-case avenir" in bloc and ".carte-case.avenir{" in page
+
+
+def test_la_ligne_des_mois_couvre_toute_la_largeur_de_la_carte():
+    """Une etiquette par colonne laissait onze mois muets et un mot de dix
+    pixels de large : on ne lisait rien."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    bloc = page.split("function peindreCarte(d){")[1].split("\nfunction ")[0]
+    assert "grid-column:span" in bloc, (
+        "chaque mois doit couvrir ses colonnes, pas une seule")
+    # Le meme gabarit pour les deux rangees : sans cela, les mois ne tombent
+    # pas en face de leurs semaines.
+    assert bloc.count("${gabarit}") == 2
+    assert "repeat(${colonnes},11px)" in bloc
+
+
+def test_l_annee_de_la_carte_se_choisit():
+    """« Et l'an dernier ? » n'avait aucune reponse : la carte ne montrait
+    que les douze derniers mois, sans moyen de remonter."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    assert 'id="carte-annee"' in page
+    bloc = page.split("async function chargerCarte(){")[1].split("\n}")[0]
+    assert "p.set('annee'" in bloc, "le choix doit partir au serveur"
+    # La liste des annees vient du serveur : la page ne connait pas
+    # l'historique, et une liste devinee proposerait des annees vides.
+    annees = page.split("function peindreAnnees(d){")[1].split("\n}")[0]
+    assert "d.annees" in annees and "d.annee" in annees
 
 
 def test_les_paliers_de_la_carte_sont_relatifs_au_plus_charge():
@@ -6540,6 +6616,105 @@ def test_le_ruban_de_retour_refuse_les_cas_risques():
     assert "if is_authed():" in pose
 
 
+def test_le_ruban_ramene_au_hub_et_pas_a_la_racine_des_applications(monkeypatch):
+    """Le lien du ruban etait « / », et « / » a change de sens.
+
+    Depuis que les applications ont leur propre port, la racine de CE port
+    n'est pas le hub : la garde des origines y repond « Ce n'est pas le
+    panneau ». Cliquer sur « CodeLab » depuis une application tombait donc
+    sur une page d'erreur. Le lien doit sortir de l'origine des applications.
+    """
+    monkeypatch.setitem(app._origines_separees, "actif", True)
+    monkeypatch.setattr(app, "APPS_PORT", 9002)
+    monkeypatch.setattr(app, "PANEL_PORT", 9001)
+    monkeypatch.setattr(app, "PANEL_URL", "")
+
+    with app.flask_app.test_request_context(
+            "/appli/", base_url="http://machine:9002"):
+        assert app.lien_panneau() == "http://machine:9001/"
+        assert b'href="http://machine:9001/"' in app.ruban_retour()
+        # La page d'erreur du proxy (application arretee, acces refuse) sort
+        # du meme port et souffrait du meme lien mort.
+        assert 'href="http://machine:9001/"' in app._page("T", "M")
+
+    # Sur le port du panneau, le lien relatif reste le bon : il suit le nom
+    # d'hote par lequel on est arrive, quel qu'il soit.
+    with app.flask_app.test_request_context(
+            "/", base_url="http://machine:9001"):
+        assert app.lien_panneau() == "/"
+
+
+def test_le_lien_du_hub_suit_l_adresse_declaree_derriere_un_reverse_proxy():
+    """Un second PORT n'est pas joignable de partout : quand le panneau est
+    publie sous une adresse a lui, c'est elle qu'il faut ecrire."""
+    with app.flask_app.test_request_context("/appli/", base_url="http://machine:9002"):
+        ancien_actif = app._origines_separees["actif"]
+        app._origines_separees["actif"] = True
+        ancien_url, ancien_apps = app.PANEL_URL, app.APPS_PORT
+        app.PANEL_URL, app.APPS_PORT = "https://codelab.exemple.fr", 9002
+        try:
+            assert app.lien_panneau() == "https://codelab.exemple.fr/"
+            # Separation inactive : rien ne change, le lien reste relatif.
+            app._origines_separees["actif"] = False
+            assert app.lien_panneau() == "/"
+        finally:
+            app._origines_separees["actif"] = ancien_actif
+            app.PANEL_URL, app.APPS_PORT = ancien_url, ancien_apps
+
+
+def test_un_nom_d_hote_hostile_ne_se_recopie_pas_dans_la_page():
+    """request.host vient de l'en-tete Host, donc du client. Il finit dans un
+    attribut href : un guillemet bien place en sortirait, et deviendrait du
+    script dans la page d'une application."""
+    for hostile in ('machine" onmouseover="alert(1)', "ma chine", "<script>",
+                    "machine/../x", "machine\r\nX: 1", ""):
+        assert app.hote_propre(hostile) == "", f"{hostile!r} est passe"
+    # Un nom d'hote ordinaire passe, lui : une garde qui refuse tout ne
+    # laisserait jamais le lien sortir de l'origine des applications.
+    assert app.hote_propre("codelab.local:9002") == "codelab.local"
+    assert app.hote_propre("192.168.1.42") == "192.168.1.42"
+
+    # Bout en bout : le lien retombe sur le relatif plutot que d'ecrire une
+    # adresse douteuse. (Werkzeug ecarte deja ces Host de son cote -- la
+    # garde ci-dessus ne depend pas de lui pour autant.)
+    ancien = app._origines_separees["actif"]
+    ancien_url, ancien_apps = app.PANEL_URL, app.APPS_PORT
+    app._origines_separees["actif"] = True
+    app.PANEL_URL, app.APPS_PORT = "", 9002
+    try:
+        with app.flask_app.test_request_context(
+                "/appli/", environ_overrides={"HTTP_HOST": 'x" onmouseover="1',
+                                              "SERVER_PORT": "9002"}):
+            assert app.lien_panneau() == "/"
+            assert b'href="/"' in app.ruban_retour()
+        with app.flask_app.test_request_context(
+                "/appli/", environ_overrides={"HTTP_HOST": "codelab.local:9002",
+                                              "SERVER_PORT": "9002"}):
+            assert app.lien_panneau() == f"http://codelab.local:{app.PANEL_PORT}/"
+    finally:
+        app._origines_separees["actif"] = ancien
+        app.PANEL_URL, app.APPS_PORT = ancien_url, ancien_apps
+
+
+def test_sans_adresse_utilisable_on_ne_redirige_pas_en_rond():
+    """Une cible relative renverrait la requete vers elle-meme, et le
+    navigateur tournerait en rond jusqu'a abandonner."""
+    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    bloc = src.split("def separer_les_origines():")[1].split("\n\n\n")[0]
+    assert "if not origine:" in bloc and "return None" in bloc
+
+
+def test_le_ruban_est_construit_a_chaque_page():
+    """Une constante d'octets ne peut pas porter un lien qui depend de
+    l'origine : le ruban doit etre fabrique au moment de l'injection."""
+    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    assert "RUBAN_RETOUR" not in src, (
+        "le ruban est redevenu une constante : son lien ne peut plus suivre "
+        "l'origine qui sert la page")
+    bloc = src[src.index("def injecter_ruban("):src.index("def _proxy(")]
+    assert "ruban_retour()" in bloc
+
+
 def _textes_visibles(html):
     """Les textes affiches d'une page : ni CSS, ni script, ni commentaire."""
     import html as _html
@@ -6629,6 +6804,92 @@ def test_le_hub_offre_deux_tailles_de_tuile():
     # Le choix est retenu par navigateur, comme le theme : c'est un confort
     # d'affichage, pas un reglage du serveur.
     assert "localStorage.setItem('codelab.hub.taille'" in page
+
+
+def test_la_tuile_en_mode_icone_n_a_ni_fond_ni_cadre():
+    """En mode icone, la carte devenait un carre gris autour d'une petite
+    image : trente carres gris alignes font une grille de cases, pas un
+    bureau. Ce qu'on vient voir, c'est l'icone."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    regle = page.split(".hub-liste.compacte .hub-projet{")[1].split("}")[0]
+    assert "background:none" in regle, "le fond de la tuile reste en mode icone"
+    assert "border-color:transparent" in regle, "le cadre reste en mode icone"
+    # Le survol aussi : sans cela, le fond revient des qu'on approche la
+    # souris, et c'est justement la qu'on le voit.
+    survol = page.split(".hub-liste.compacte .hub-projet:hover{")[1].split("}")[0]
+    assert "background:none" in survol and "border-color:transparent" in survol
+    # Il reste quelque chose a survoler : le nom prend l'accent.
+    assert ".hub-liste.compacte .hub-projet:hover .nom{color:var(--accent)}" in page
+
+
+def test_le_masquage_ne_se_regle_que_dans_les_parametres():
+    """La croix posee sur chaque tuile transformait le hub en liste a trier,
+    et se cliquait par accident. Le reglage vit la ou vivent les reglages."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    assert "hub-masquer" not in page, (
+        "le bouton de masquage est revenu sur la tuile du hub")
+    # La tuile n'est plus qu'un lien.
+    tuile = page.split("const tuile = a => {")[1].split("\n  };")[0]
+    assert "<button" not in tuile, "la tuile du hub porte de nouveau un bouton"
+    # Et le reglage est bien une case a cocher, dans les deux sens.
+    assert "function basculerMasquage(" in page
+    bascule = page.split("async function basculerMasquage(nom, masquer){")[1]
+    bascule = bascule.split("\n}")[0]
+    assert "masquer ? 'POST' : 'DELETE'" in bascule, (
+        "cocher doit masquer, decocher doit reafficher")
+
+
+def test_les_parametres_listent_toutes_les_applications_a_cocher():
+    """N'afficher que les masquees obligeait a en retirer une depuis le hub
+    avant de pouvoir la retrouver ici : la liste doit etre complete."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    bloc = page.split("function peindreMasquees(){")[1].split("\n}")[0]
+    assert "(hubApps||[]).concat(hubMasquees||[])" in bloc, (
+        "la liste des reglages doit reunir les affichees ET les masquees")
+    assert 'type="checkbox"' in bloc and "basculerMasquage(" in bloc
+    # Une case cochee doit se lire sans lire l'etiquette : la ligne se retire.
+    assert "cachee" in bloc
+
+
+def test_les_projets_autorises_forment_une_liste_lisible():
+    """Une rangee de cases nues ne disait ni de quelle application il
+    s'agissait, ni lesquelles etaient publiques -- donc lesquelles cocher ne
+    changeait rien."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    bloc = page.split("$('us-f-projets').innerHTML =")[1].split("</label>`;")[0]
+    assert "proj-ligne" in bloc
+    assert "icone(a.name)" in bloc, "une ligne sans icone ne se reconnait pas"
+    assert "badgeVis(a)" in bloc, "le badge public/prive doit rester visible"
+    assert 'type="checkbox"' in bloc
+    # Le style existe vraiment : une classe sans regle ne dessine rien.
+    assert ".proj-ligne{" in page
+
+
+def test_la_fiche_d_un_compte_attend_la_liste_des_applications():
+    """Ouverte avant que /api/apps ne reponde, la rubrique « Projets
+    autorises » restait vide sans rien dire."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    bloc = page.split("async function usOuvrir(nom){")[1].split("\n}")[0]
+    assert "if(!apps.length)" in bloc and "await refresh()" in bloc
+    assert "usPeindreFiche()" in bloc.split("await refresh()")[1], (
+        "il faut repeindre une fois la liste arrivee")
+
+
+def test_la_rubrique_message_ferme_la_marche():
+    """On ne vient pas dans les parametres pour ecrire, on y vient pour
+    regler : le mot a l'administrateur passe en dernier."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    onglets = page.split('<div class="fiche-onglets" id="param-onglets">')[1]
+    onglets = onglets.split("</div>")[0]
+    noms = re.findall(r'data-p="([a-z]+)"', onglets)
+    assert noms[-1] == "message", f"ordre des onglets : {noms}"
+    assert noms[0] == "compte", "le compte reste la premiere rubrique"
 
 
 def test_le_bandeau_ne_tasse_plus_trois_choses_a_gauche():

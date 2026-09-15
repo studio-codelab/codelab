@@ -190,8 +190,11 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
    grille se remplit donc VERTICALEMENT (grid-auto-flow:column), ce qui evite
    d'avoir a calculer une position pour chaque case. */
 .carte-zone{overflow-x:auto;padding:4px 0 2px}
-.carte-grille{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,11px);
- gap:3px;width:max-content}
+/* Le nombre de colonnes est pose en ligne par le script (une par semaine de
+   l'annee) : c'est lui qui permet a la ligne des mois d'etre EXACTEMENT
+   aussi large que la grille, et a chaque mois de couvrir ses semaines. */
+.carte-grille{display:grid;grid-template-rows:repeat(7,11px);
+ grid-auto-flow:column;gap:3px;width:max-content}
 .carte-case{width:11px;height:11px;border-radius:2px;background:var(--surface2);
  border:1px solid var(--line)}
 /* Cinq paliers, comme le calendrier de GitHub : en dessous de cinq, les
@@ -204,8 +207,15 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 /* Une case hors fenetre (avant le premier lundi affiche) garde la place sans
    rien affirmer : la laisser vide decalerait toute la grille d'un jour. */
 .carte-case.vide{background:transparent;border-color:transparent}
-.carte-mois{display:grid;grid-auto-flow:column;gap:3px;width:max-content;
+/* Un jour qui n'est pas encore arrive : ni vide ni a zero. Une case grise
+   dirait « aucune ouverture » d'une journee qui n'a pas eu lieu, et peindrait
+   la fin de l'annee en creux. */
+.carte-case.avenir{background:transparent;border-style:dashed;border-color:var(--line)}
+.carte-mois{display:grid;gap:3px;width:max-content;
  font-size:10px;color:var(--dim2);margin-bottom:4px;height:13px}
+/* Le nom deborde volontiers de la premiere colonne de son mois : on le laisse
+   commencer la, et on l'empeche de mordre sur le mois suivant. */
+.carte-mois span{overflow:hidden;white-space:nowrap}
 .carte-filtres{display:flex;gap:8px;flex-wrap:wrap}
 .carte-filtres select{width:auto;min-width:150px;padding:5px 9px;font-size:12.5px}
 .carte-pied{display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap}
@@ -434,10 +444,20 @@ label:has(> input[type=checkbox]),label:has(> input[type=radio]){
    Pas d'etat ni de visibilite ici : c'est precisement ce qu'on accepte de
    perdre en echange de voir trente projets d'un coup. Le lien reste le
    meme, et une application arretee reste grisee -- sans quoi on cliquerait
-   dans le vide. */
+   dans le vide.
+
+   NI FOND NI CADRE : en mode icone, la carte devenait un carre gris autour
+   d'une petite image, et trente carres gris alignes font une grille de
+   cases, pas un bureau. Ce qu'on veut voir, c'est l'icone -- elle porte
+   deja sa propre forme et ses propres couleurs. Le survol se dit alors
+   autrement : l'icone se leve d'un cheveu et le nom prend l'accent. */
 .hub-liste.compacte{grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:10px}
 .hub-liste.compacte .hub-projet{flex-direction:column;align-items:center;gap:8px;
- padding:14px 8px;text-align:center}
+ padding:12px 6px;text-align:center;background:none;border-color:transparent}
+.hub-liste.compacte .hub-projet:hover{background:none;border-color:transparent}
+.hub-liste.compacte .hub-projet:hover img{transform:translateY(-2px)}
+.hub-liste.compacte .hub-projet:hover .nom{color:var(--accent)}
+.hub-liste.compacte .hub-projet img{transition:transform .12s}
 .hub-liste.compacte .hub-projet img{width:44px;height:44px;border-radius:12px}
 .hub-liste.compacte .hub-projet .txt{width:100%}
 .hub-liste.compacte .hub-projet .nom{font-size:12.5px;font-weight:600;
@@ -460,35 +480,45 @@ label:has(> input[type=checkbox]),label:has(> input[type=radio]){
 .msg-vide{color:var(--dim);font-size:var(--t-m);padding:6px 0}
 textarea{resize:vertical;min-height:72px;line-height:1.5}
 
-/* Le bouton de masquage : invisible jusqu'au survol de la tuile. Une croix
-   permanente sur chaque tuile transformerait le hub en liste a trier. */
-.hub-projet{position:relative}
-.hub-masquer{position:absolute;top:6px;right:6px;width:26px;height:26px;padding:0;
- border:1px solid var(--line2);border-radius:7px;background:var(--surface);
- color:var(--dim2);cursor:pointer;display:grid;place-items:center;
- opacity:0;transition:opacity .12s,color .12s,border-color .12s}
-.hub-masquer svg{width:14px;height:14px}
-.hub-projet:hover .hub-masquer{opacity:1}
-.hub-masquer:hover{color:var(--err);border-color:var(--err-border)}
-/* Au clavier, il n'y a pas de survol : la tabulation le fait apparaitre. */
-.hub-masquer:focus-visible{opacity:1;outline:2px solid var(--accent);outline-offset:1px}
-/* UNE TUILE ARRETEE IGNORE LE POINTEUR -- son lien ne menerait qu'a une page
-   d'erreur. Le bouton, lui, doit rester atteignable : sinon une application
-   arretee ne peut plus etre rangee, ce qui est justement le cas ou l'on en
-   a envie. Il reste donc visible, en retrait, au lieu d'attendre un survol
-   qui n'arrivera jamais. */
-.hub-projet.arretee .hub-masquer{pointer-events:auto;opacity:.55}
-.hub-projet.arretee .hub-masquer:hover{opacity:1}
+/* LE MASQUAGE SE REGLE DANS LES PARAMETRES, PAS SUR LA TUILE.
+   Une croix posee sur chaque tuile -- meme apparue au survol -- transforme
+   le hub en liste a trier : on vient y ouvrir une application, pas ranger.
+   Et une croix au survol se clique par accident. Le reglage vit donc la ou
+   vivent les reglages, en une seule liste a cocher qui montre d'un coup ce
+   qui est affiche et ce qui ne l'est pas.
 
-/* La liste des masquees, dans les reglages du compte. */
+   La liste des applications du hub, dans les reglages du compte. */
 .masquee-ligne{display:flex;align-items:center;gap:11px;padding:9px 0;
- border-top:1px solid var(--line)}
+ border-top:1px solid var(--line);margin:0;font-weight:400;cursor:pointer}
 .masquee-ligne:first-child{border-top:none}
+.masquee-ligne input{width:auto;margin:0;flex:none}
 .masquee-ligne img{width:30px;height:30px;border-radius:var(--r-s);flex:none}
+/* Cochee, la ligne se retire visuellement comme l'application se retire du
+   hub : le reglage se relit d'un coup d'oeil, sans lire chaque etiquette. */
+.masquee-ligne.cachee img{opacity:.45}
+.masquee-ligne.cachee .masquee-txt b{color:var(--dim)}
+.masquee-etat{font-size:11.5px;color:var(--dim2);flex:none}
 .masquee-txt{flex:1;min-width:0;display:flex;flex-direction:column}
 .masquee-txt b{font-size:var(--t-m);font-weight:620}
 .masquee-txt span{font-size:12px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;
  white-space:nowrap}
+
+/* Les projets autorises d'un compte, dans sa fiche. Meme dessin que la liste
+   ci-dessus : une ligne par application, son icone, son nom, sa visibilite.
+   Une rangee de cases a cocher nues ne disait ni de quoi il s'agissait, ni
+   lesquelles etaient publiques -- donc lesquelles cocher ne changeait rien. */
+.proj-ligne{display:flex;align-items:center;gap:11px;padding:9px 0;
+ border-top:1px solid var(--line);margin:0;font-weight:400;cursor:pointer}
+.proj-ligne:first-child{border-top:none}
+.proj-ligne input{width:auto;margin:0;flex:none}
+.proj-ligne img{width:28px;height:28px;border-radius:var(--r-s);flex:none}
+.proj-txt{flex:1;min-width:0;display:flex;flex-direction:column}
+.proj-txt b{font-size:var(--t-m);font-weight:620}
+.proj-txt span{font-size:12px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;
+ white-space:nowrap}
+/* Un projet public s'ouvre sans compte : la ligne reste lisible mais en
+   retrait, et le badge dit pourquoi la cocher ne protege rien. */
+.proj-ligne.publique .proj-txt b{color:var(--dim)}
 .hub-vide,.empty{padding:46px 20px;text-align:center;color:var(--dim);background:var(--surface);
  border:1px solid var(--line);border-radius:var(--r)}
 .hub-vide b,.empty h3{display:block;color:var(--txt);font-size:15px;font-weight:620;
@@ -708,14 +738,6 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
  margin-bottom:8px}
 .us-tete{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
 .us-tete .spacer{flex:1}
-.us-cases{display:flex;flex-wrap:wrap;gap:8px 14px}
-.us-case{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--txt);margin:0;
- font-weight:400;cursor:pointer}
-.us-case input{width:auto;margin:0}
-/* Un projet public est accessible sans compte : le cocher ne change rien, et
-   le dire evite de croire qu'on vient de le proteger. */
-.us-case.us-public{color:var(--dim2)}
-.us-case span{color:var(--dim2);font-size:11.5px}
 
 /* ------------------------------ categories ------------------------------ */
 .cat-ligne{display:flex;align-items:center;gap:8px;margin-bottom:8px}
@@ -980,9 +1002,11 @@ table.tbl-journal{min-width:560px}
     <div class="card">
       <div class="card-top">
         <div class="card-name"><b>Ouvertures d'applications</b>
-          <div class="path" id="carte-sous">Une case par jour, sur l'année écoulée.</div></div>
+          <div class="path" id="carte-sous">Une case par jour, du 1<sup>er</sup> janvier au 31 décembre.</div></div>
         <div class="spacer" style="flex:1"></div>
         <div class="carte-filtres">
+          <select id="carte-annee" onchange="chargerCarte()" aria-label="Choisir l'année">
+          </select>
           <select id="carte-qui" onchange="chargerCarte()" aria-label="Filtrer par personne">
             <option value="">Tout le monde</option>
           </select>
@@ -1308,11 +1332,13 @@ table.tbl-journal{min-width:560px}
   <div class="fiche-onglets" id="param-onglets">
     <button data-p="compte" onclick="paramOnglet('compte')" class="active">Compte</button>
     <button data-p="securite" onclick="paramOnglet('securite')">Sécurité</button>
-    <button data-p="message" onclick="paramOnglet('message')">Message</button>
     <button data-p="serveur" onclick="paramOnglet('serveur')" data-admin="1">Serveur</button>
     <button data-p="categories" onclick="paramOnglet('categories')" data-admin="1">Catégories</button>
     <button data-p="email" onclick="paramOnglet('email')" data-admin="1">E-mail</button>
     <button data-p="alertes" onclick="paramOnglet('alertes')" data-admin="1">Alertes</button>
+    <!-- Le mot a l'administrateur ferme la marche : on ne vient pas dans les
+         parametres pour ecrire, on y vient pour regler. -->
+    <button data-p="message" onclick="paramOnglet('message')">Message</button>
   </div>
 
   <div class="onglet-p" id="param-compte">
@@ -1420,12 +1446,14 @@ table.tbl-journal{min-width:560px}
     <div class="zone-title">Hub</div>
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
-        <b>Applications masquées</b>
-        <div class="path">Celles que tu as retirées de ton hub.</div>
+        <b>Applications du hub</b>
+        <div class="path">Ce que ton hub affiche, et ce qu'il n'affiche pas.</div>
       </div></div>
-      <div class="hint">Masquer n'est que du <b>rangement</b> : l'application continue de
-        tourner, les autres comptes la voient toujours, et son adresse reste ouverte à qui
-        la connaît. Ce n'est pas une façon de fermer un accès.</div>
+      <div class="hint">Coche une application pour la retirer de ton hub, décoche-la pour
+        l'y remettre.</div>
+      <div class="hint" style="margin-top:8px">Masquer n'est que du <b>rangement</b> :
+        l'application continue de tourner, les autres comptes la voient toujours, et son
+        adresse reste ouverte à qui la connaît. Ce n'est pas une façon de fermer un accès.</div>
       <div id="masquees-liste" style="margin-top:14px"></div>
     </div>
   </div>
@@ -1535,48 +1563,6 @@ table.tbl-journal{min-width:560px}
     </div>
   </div>
 
-  </div>
-
-  <div class="onglet-p" id="param-message">
-  <!-- UN MOT A L'ADMINISTRATEUR, dans sa propre rubrique.
-       Il vivait au bas du hub, replie sous les applications : la ou tout le
-       monde passe, mais aussi la ou personne ne vient pour ecrire. Les
-       reglages sont l'endroit ou l'on va quand on veut AGIR sur son compte,
-       et un onglet se trouve par son nom -- ce qu'une carte au bas d'une
-       liste de tuiles ne permet pas. -->
-  <div class="zone">
-    <div class="zone-title">Message</div>
-    <div class="card settings-card" id="msg-carte">
-      <div class="card-top"><div class="card-name">
-        <b>Un mot à l'administrateur</b>
-        <div class="path">Une gêne, une idée, une application qui manque.</div>
-      </div></div>
-
-      <div class="hint">Ton message part par mail à l'administrateur du serveur et reste
-        dans le panneau. Il porte ton nom de compte : c'est ce qui lui permet de te
-        répondre.</div>
-
-      <div id="msg-form" style="margin-top:14px">
-        <div class="field"><label for="msg-cible">De quoi veux-tu parler ?</label>
-          <select id="msg-cible" onchange="msgCible()">
-            <option value="application">D'une application</option>
-            <option value="hub">Du hub lui-même</option>
-            <option value="idee">D'une application qui manque</option>
-          </select></div>
-        <div class="field" id="msg-app-zone"><label for="msg-app">Laquelle ?</label>
-          <select id="msg-app"></select></div>
-        <div class="field"><label for="msg-texte">Ton message</label>
-          <textarea id="msg-texte" rows="5" maxlength="2000"
-            placeholder="Ce qui te gêne, ce qui te manque, ce que tu voudrais."></textarea>
-          <div class="hint" id="msg-reste">2000 caractères au maximum.</div></div>
-        <div class="actions">
-          <button class="btn btn-primary" id="msg-envoyer" onclick="msgEnvoyer()">Envoyer</button>
-        </div>
-        <div class="err" id="msg-err" style="display:none"></div>
-        <div class="hint" id="msg-ok" style="display:none"></div>
-      </div>
-    </div>
-  </div>
   </div>
 
   <div class="onglet-p" id="param-serveur">
@@ -1858,6 +1844,48 @@ table.tbl-journal{min-width:560px}
 
   </div>
 
+  <div class="onglet-p" id="param-message">
+  <!-- UN MOT A L'ADMINISTRATEUR, dans sa propre rubrique.
+       Il vivait au bas du hub, replie sous les applications : la ou tout le
+       monde passe, mais aussi la ou personne ne vient pour ecrire. Les
+       reglages sont l'endroit ou l'on va quand on veut AGIR sur son compte,
+       et un onglet se trouve par son nom -- ce qu'une carte au bas d'une
+       liste de tuiles ne permet pas. -->
+  <div class="zone">
+    <div class="zone-title">Message</div>
+    <div class="card settings-card" id="msg-carte">
+      <div class="card-top"><div class="card-name">
+        <b>Un mot à l'administrateur</b>
+        <div class="path">Une gêne, une idée, une application qui manque.</div>
+      </div></div>
+
+      <div class="hint">Ton message part par mail à l'administrateur du serveur et reste
+        dans le panneau. Il porte ton nom de compte : c'est ce qui lui permet de te
+        répondre.</div>
+
+      <div id="msg-form" style="margin-top:14px">
+        <div class="field"><label for="msg-cible">De quoi veux-tu parler ?</label>
+          <select id="msg-cible" onchange="msgCible()">
+            <option value="application">D'une application</option>
+            <option value="hub">Du hub lui-même</option>
+            <option value="idee">D'une application qui manque</option>
+          </select></div>
+        <div class="field" id="msg-app-zone"><label for="msg-app">Laquelle ?</label>
+          <select id="msg-app"></select></div>
+        <div class="field"><label for="msg-texte">Ton message</label>
+          <textarea id="msg-texte" rows="5" maxlength="2000"
+            placeholder="Ce qui te gêne, ce qui te manque, ce que tu voudrais."></textarea>
+          <div class="hint" id="msg-reste">2000 caractères au maximum.</div></div>
+        <div class="actions">
+          <button class="btn btn-primary" id="msg-envoyer" onclick="msgEnvoyer()">Envoyer</button>
+        </div>
+        <div class="err" id="msg-err" style="display:none"></div>
+        <div class="hint" id="msg-ok" style="display:none"></div>
+      </div>
+    </div>
+  </div>
+  </div>
+
 </div>
 
 <!-- ==================== UTILISATEURS ==================== -->
@@ -2001,9 +2029,10 @@ table.tbl-journal{min-width:560px}
 
     <div class="mb-groupe">
       <div class="mb-titre">Projets autorisés</div>
-      <div class="hint">L'autorisation ne compte que pour les projets <b>privés</b> : un projet
-        public reste ouvert à tout le monde, y compris sans connexion.</div>
-      <div class="us-cases" id="us-f-projets" style="margin-top:10px"></div>
+      <div class="hint">Coche les projets que ce compte peut ouvrir. L'autorisation ne compte
+        que pour les projets <b>privés</b> : un projet public reste ouvert à tout le monde,
+        y compris sans connexion.</div>
+      <div id="us-f-projets" style="margin-top:10px"></div>
     </div>
 
     <div class="mb-groupe">
@@ -2385,7 +2414,7 @@ async function chargerMessages(){
                                       : 'aucun message');
   if(!liste.length){
     $('msg-liste').innerHTML='<div class="msg-vide">Personne n\'a encore écrit. Le '
-      + 'formulaire est en bas du hub, pour tous les comptes.</div>';
+      + 'formulaire est dans <b>Paramètres &gt; Message</b>, pour tous les comptes.</div>';
     return;
   }
   const sujet = m => m.cible==='application'
@@ -2455,40 +2484,49 @@ function hubTaille(t){
 
 let hubMasquees=[];
 
-async function masquerApp(nom){
+/* Une seule bascule pour les deux sens : cocher retire l'application du hub,
+   decocher l'y remet. Le serveur ne connait que deux verbes sur la meme
+   adresse, POST pour masquer et DELETE pour afficher. */
+async function basculerMasquage(nom, masquer){
   try{
-    const r=await fetch('/api/mes-apps/'+encodeURIComponent(nom)+'/masquer',{method:'POST'});
+    const r=await fetch('/api/mes-apps/'+encodeURIComponent(nom)+'/masquer',
+      {method: masquer ? 'POST' : 'DELETE'});
     if(!r.ok) throw new Error();
     await chargerHub();
-    notifier('« '+nom+' » masquée de ton hub.');
-  }catch(e){ notifier('Impossible de masquer cette application.','err'); }
+    notifier(masquer
+      ? '« '+nom+' » masquée de ton hub.'
+      : '« '+nom+' » est de retour dans ton hub.');
+  }catch(e){
+    notifier("Impossible de changer l'affichage de cette application.",'err');
+    /* La case a deja bouge sous le doigt : on redessine depuis le serveur
+       plutot que de laisser un reglage affiche qui n'existe pas. */
+    chargerHub();
+  }
 }
 
-async function afficherApp(nom){
-  try{
-    const r=await fetch('/api/mes-apps/'+encodeURIComponent(nom)+'/masquer',{method:'DELETE'});
-    if(!r.ok) throw new Error();
-    await chargerHub();
-    peindreMasquees();
-    notifier('« '+nom+' » est de retour dans ton hub.');
-  }catch(e){ notifier('Impossible de réafficher cette application.','err'); }
-}
-
+/* TOUTES les applications du compte, masquees comprises : c'est la liste
+   entiere qui se coche et se decoche. N'afficher que les masquees obligeait
+   a en retirer une depuis le hub avant de pouvoir la retrouver ici. */
 function peindreMasquees(){
   const zone=$('masquees-liste');
   if(!zone) return;
-  if(!hubMasquees.length){
-    zone.innerHTML='<div class="hint">Aucune application masquée. Tu peux en retirer une '
-      + 'de ton hub avec le bouton qui apparaît sur sa tuile.</div>';
+  const cachees = new Set((hubMasquees||[]).map(a=>a.name));
+  const toutes = (hubApps||[]).concat(hubMasquees||[])
+    .slice().sort((a,b)=>a.name.localeCompare(b.name,'fr'));
+  if(!toutes.length){
+    zone.innerHTML='<div class="hint">Aucune application à ranger pour le moment.</div>';
     return;
   }
-  zone.innerHTML = hubMasquees.map(a=>`<div class="masquee-ligne">
+  zone.innerHTML = toutes.map(a=>{
+    const cachee = cachees.has(a.name);
+    return `<label class="masquee-ligne${cachee?' cachee':''}">
+    <input type="checkbox"${cachee?' checked':''}
+      onchange="basculerMasquage('${esc(a.name)}', this.checked)">
     <img src="${icone(a.name)}" alt="">
     <div class="masquee-txt"><b>${esc(a.name)}</b>
       ${a.description?`<span>${esc(a.description)}</span>`:''}</div>
-    <button class="btn btn-default btn-sm"
-      onclick="afficherApp('${esc(a.name)}')">Réafficher</button>
-  </div>`).join('');
+    <span class="masquee-etat">${cachee?'Masquée':'Affichée'}</span>
+  </label>`;}).join('');
 }
 
 async function chargerHub(){
@@ -2522,7 +2560,8 @@ function peindreHub(){
     $('hub-masquees').innerHTML = nbCaches + (nbCaches>1
       ? ' applications masquées — ' : ' application masquée — ')
       + '<a href="#" onclick="event.preventDefault();allerA(\'parametres\');'
-      + 'paramOnglet(\'compte\')">les revoir dans tes paramètres</a>.';
+      + 'paramOnglet(\'compte\')">à décocher dans tes paramètres</a> pour '
+      + (nbCaches>1 ? 'les' : 'la') + ' revoir.';
   }
   if(!liste.length){
     $('hub-liste').className='';
@@ -2534,23 +2573,15 @@ function peindreHub(){
           + 'Ton administrateur ne t\'a pas encore donne accès à une application.</div>');
     return;
   }
+  /* Rien d'autre qu'un lien : une tuile du hub sert a ouvrir une
+     application. Ce qu'on affiche ou non se regle dans les parametres. */
   const tuile = a => {
     const desc = (taille==='icone' || !a.description) ? ''
       : `<div class="desc">${esc(a.description)}</div>`;
-    /* Le bouton vit DANS le lien : il doit donc arreter le clic avant qu'il
-       n'ouvre l'application. Il n'apparait qu'au survol -- une croix
-       permanente sur chaque tuile transformerait le hub en liste a trier. */
-    const masquer = `<button class="hub-masquer" title="Masquer du hub"
-      onclick="event.preventDefault();event.stopPropagation();masquerApp('${esc(a.name)}')"
-      aria-label="Masquer ${esc(a.name)} de mon hub">
-      <svg viewBox="0 0 24 24"><path d="M3 3l18 18"/>
-      <path d="M10.6 10.6a2 2 0 002.8 2.8"/>
-      <path d="M9.4 5.2A9.5 9.5 0 0112 5c5 0 9 4.5 9 7 0 .9-.6 2.1-1.6 3.2"/>
-      <path d="M6.2 6.7C3.9 8.1 3 10.2 3 12c0 2.5 4 7 9 7 1.5 0 2.9-.4 4.1-1"/></svg></button>`;
     return `<a class="hub-projet ${a.running?'':'arretee'}" href="${urlApplication(a.name)}">
       <img src="${icone(a.name)}" alt="">
       <div class="txt"><div class="nom">${esc(a.name)}</div>${desc}
-      <div class="bas">${badgeEtat(a)}${badgeVis(a)}</div></div>${masquer}</a>`;
+      <div class="bas">${badgeEtat(a)}${badgeVis(a)}</div></div></a>`;
   };
 
   /* Sans categorie declaree, le hub reste ce qu'il etait : une seule liste.
@@ -3361,6 +3392,22 @@ function carteNiveau(n, sommet){
 const CARTE_MOIS=['janv.','févr.','mars','avr.','mai','juin','juil.','août',
                   'sept.','oct.','nov.','déc.'];
 
+/* Les annees offertes viennent du serveur : de la premiere utilisation a
+   l'annee en cours. Les recalculer ici demanderait de connaitre tout
+   l'historique, que la page n'a pas -- et une liste devinee finirait par
+   proposer une annee vide ou en oublier une pleine. */
+function peindreAnnees(d){
+  const sel=$('carte-annee');
+  const annees=(d.annees||[]).slice().sort((a,b)=>b-a);
+  if(!annees.length) return;
+  const voulue=String(d.annee||annees[0]);
+  const deja=[...sel.options].map(o=>o.value).join('|');
+  if(deja!==annees.map(String).join('|')){
+    sel.innerHTML=annees.map(a=>`<option value="${a}">${a}</option>`).join('');
+  }
+  sel.value=voulue;
+}
+
 function carteJourCle(d){
   /* Date locale, et non toISOString() qui repasse en UTC : sur un fuseau a
      l'est de Greenwich, le 1er janvier redeviendrait le 31 decembre. */
@@ -3374,40 +3421,75 @@ function peindreCarte(d){
     parJour[j.jour]=j; total+=j.ouvertures;
     if(j.ouvertures>sommet) sommet=j.ouvertures;
   }
-  /* On remonte jusqu'au lundi qui precede le debut de la fenetre : sans
-     cela, la premiere colonne serait tronquee et tous les jours de la
-     semaine se decaleraient d'une ligne. */
-  const fin=new Date(); fin.setHours(12,0,0,0);
-  const debut=new Date(fin); debut.setDate(debut.getDate()-((d.fenetre||366)-1));
-  const recul=(debut.getDay()+6)%7;        /* lundi = 0 */
-  debut.setDate(debut.getDate()-recul);
+  /* UNE ANNEE CIVILE, du 1er janvier au 31 decembre. La fenetre glissante de
+     366 jours commencait un jour quelconque : les mois se decalaient d'un
+     cran chaque jour, et deux cartes prises a deux dates ne se comparaient
+     pas. Une annee est fixe -- et elle se choisit. */
+  const annee = d.annee || (new Date()).getFullYear();
+  const premierJanvier=new Date(annee,0,1); premierJanvier.setHours(12,0,0,0);
+  const trenteEtUnDecembre=new Date(annee,11,31); trenteEtUnDecembre.setHours(12,0,0,0);
+  const aujourdhui=new Date(); aujourdhui.setHours(12,0,0,0);
+  /* On remonte au lundi qui precede le 1er janvier : sans cela, la premiere
+     colonne serait tronquee et tous les jours de la semaine se decaleraient
+     d'une ligne. */
+  const depart=new Date(premierJanvier);
+  depart.setDate(depart.getDate()-((premierJanvier.getDay()+6)%7));
 
-  const cases=[]; const mois=[]; let colonne=[]; let dernierMois=-1;
-  for(let d0=new Date(debut); d0<=fin; d0.setDate(d0.getDate()+1)){
-    const cle=carteJourCle(d0);
-    const e=parJour[cle];
-    const n=e?e.ouvertures:0;
-    const titre = n
-      ? `${n} ouverture${n>1?'s':''} le ${d0.toLocaleDateString()}`
-        + (e.apps>1 ? ` — ${e.apps} applications` : '')
-      : `Aucune ouverture le ${d0.toLocaleDateString()}`;
-    colonne.push(`<div class="carte-case n${carteNiveau(n,sommet)}" title="${esc(titre)}"></div>`);
+  const cases=[]; const moisParColonne=[]; let colonne=[]; let moisCourant=null;
+  for(let d0=new Date(depart); d0<=trenteEtUnDecembre; d0.setDate(d0.getDate()+1)){
+    if(d0<premierJanvier){
+      /* Avant le 1er janvier : la case garde la place sans rien affirmer. */
+      colonne.push('<div class="carte-case vide"></div>');
+    }else{
+      if(moisCourant===null) moisCourant=d0.getMonth();
+      const cle=carteJourCle(d0);
+      const e=parJour[cle];
+      const n=e?e.ouvertures:0;
+      if(d0>aujourdhui){
+        /* A VENIR. Une case grise dirait « aucune ouverture » d'un jour qui
+           n'est pas arrive : c'est un mensonge, et il peint la fin de
+           l'annee en creux. */
+        colonne.push(`<div class="carte-case avenir" title="${esc(d0.toLocaleDateString())} — à venir"></div>`);
+      }else{
+        const titre = n
+          ? `${n} ouverture${n>1?'s':''} le ${d0.toLocaleDateString()}`
+            + (e.apps>1 ? ` — ${e.apps} applications` : '')
+          : `Aucune ouverture le ${d0.toLocaleDateString()}`;
+        colonne.push(`<div class="carte-case n${carteNiveau(n,sommet)}" title="${esc(titre)}"></div>`);
+      }
+    }
     if(colonne.length===7){
       cases.push(colonne.join('')); colonne=[];
-      /* L'etiquette de mois se pose sur la colonne ou le mois change, une
-         seule fois -- douze reperes valent mieux que cinquante-deux. */
-      const m=d0.getMonth();
-      mois.push(m!==dernierMois ? `<span>${CARTE_MOIS[m]}</span>` : '<span></span>');
-      dernierMois=m;
+      /* La colonne appartient au mois de son premier jour DANS l'annee :
+         c'est ce qui fait tomber « janv. » au-dessus de la colonne ou
+         l'annee commence. */
+      moisParColonne.push(moisCourant===null?0:moisCourant);
+      moisCourant=null;
     }
   }
   if(colonne.length){
+    const dernier=moisCourant===null?11:moisCourant;
     while(colonne.length<7) colonne.push('<div class="carte-case vide"></div>');
-    cases.push(colonne.join('')); mois.push('<span></span>');
+    cases.push(colonne.join('')); moisParColonne.push(dernier);
   }
+
+  /* LA LIGNE DES MOIS PREND TOUTE LA LARGEUR DE LA CARTE. Une etiquette par
+     colonne laissait onze mois muets et un mot de dix pixels de large : on
+     ne lisait rien. Chaque mois occupe donc exactement ses colonnes, et les
+     douze se partagent la grille. */
+  const mois=[];
+  for(let i=0;i<moisParColonne.length;i++){
+    const m=moisParColonne[i];
+    if(i && m===moisParColonne[i-1]){ mois[mois.length-1].n++; continue; }
+    mois.push({m:m, n:1});
+  }
+  const colonnes=cases.length;
+  const gabarit=`grid-template-columns:repeat(${colonnes},11px)`;
   $('carte-zone').innerHTML =
-    `<div class="carte-mois">${mois.join('')}</div>`
-    + `<div class="carte-grille">${cases.join('')}</div>`;
+    `<div class="carte-mois" style="${gabarit}">`
+    + mois.map(x=>`<span style="grid-column:span ${x.n}">${CARTE_MOIS[x.m]}</span>`).join('')
+    + `</div>`
+    + `<div class="carte-grille" style="${gabarit}">${cases.join('')}</div>`;
 
   const jours=Object.keys(parJour).length;
   $('carte-total').textContent = total
@@ -3450,8 +3532,12 @@ async function chargerCarte(){
   const p=new URLSearchParams();
   if(selQui.value) p.set('qui', selQui.value);
   if(selApp.value) p.set('app', selApp.value);
+  /* L'annee choisie tient dans la page : le serveur renvoie la liste des
+     annees proposees a chaque reponse, et c'est elle qui fait autorite. */
+  if($('carte-annee').value) p.set('annee', $('carte-annee').value);
   try{
     const d=await (await fetch('/api/activite/carte?'+p.toString())).json();
+    peindreAnnees(d);
     peindreCarte(d);
   }catch(e){
     $('carte-zone').innerHTML='<div class="hint">Carte indisponible.</div>';
@@ -3724,10 +3810,19 @@ function usFormulaire(ouvert){
 /* ---------------- fiche d'un compte ---------------- */
 let usComptes=[], usCourant='';
 
-function usOuvrir(nom){
+async function usOuvrir(nom){
   usCourant=nom;
   usPeindreFiche();
   $('ov-user').classList.add('show');
+  /* « Projets autorises » se peint a partir de la liste des applications.
+     Si elle n'est pas encore arrivee -- fiche ouverte dans la seconde qui
+     suit le chargement de la page, ou premier passage par Utilisateurs --
+     la rubrique restait vide, sans rien dire. On va la chercher, puis on
+     repeint. */
+  if(!apps.length){
+    await refresh();
+    if(usCourant===nom) usPeindreFiche();
+  }
 }
 
 function usCompte(){ return usComptes.find(c=>c.nom===usCourant); }
@@ -3750,14 +3845,21 @@ function usPeindreFiche(){
         ? "Adresse vérifiée par un code reçu dessus."
         : "Adresse non vérifiée : la personne la confirmera depuis ses paramètres."));
 
-  /* Une case par projet declare : la liste complete rend lisible ce qui est
-     autorise ET ce qui ne l'est pas. */
-  $('us-f-projets').innerHTML = apps.length ? apps.map(a=>{
+  /* Une LIGNE par projet declare, avec son icone, sa description et sa
+     visibilite : la liste complete rend lisible ce qui est autorise ET ce
+     qui ne l'est pas. Une rangee de cases nues ne disait ni de quelle
+     application il s'agissait, ni lesquelles etaient publiques -- donc
+     lesquelles cocher ne changeait rien. */
+  const declares = apps.slice().sort((a,b)=>a.name.localeCompare(b.name,'fr'));
+  $('us-f-projets').innerHTML = declares.length ? declares.map(a=>{
     const coche = c.projets.includes(a.name) ? ' checked' : '';
     const prive = a.visibility==='privee';
-    return `<label class="us-case${prive?'':' us-public'}">
+    return `<label class="proj-ligne${prive?'':' publique'}">
       <input type="checkbox" value="${esc(a.name)}"${coche}>
-      ${esc(a.name)}${prive?'':' <span>(public)</span>'}</label>`;
+      <img src="${icone(a.name)}" alt="">
+      <div class="proj-txt"><b>${esc(a.name)}</b>
+        ${a.description?`<span>${esc(a.description)}</span>`:''}</div>
+      ${badgeVis(a)}</label>`;
   }).join('') : '<div class="hint">Aucun projet déclaré.</div>';
 
   const morceaux=[];
