@@ -56,6 +56,7 @@ except ModuleNotFoundError:  # image Dagster, image dev
     pytest = _PytestAbsent()
 
 import inspect
+import datetime
 import json
 import os
 import socket
@@ -3441,6 +3442,77 @@ def test_le_mode_affiche_ne_donne_aucun_droit(deux_espaces):
     assert c.get("/api/utilisateurs").status_code == 403
     # Et le hub, lui, reste servi aux deux roles.
     assert c.get("/api/mes-apps").status_code == 200
+
+
+# ---------- 12 quinquies. la duree de vie d'une session ----------
+#
+# Deux limites, et il faut les deux. L'INACTIVITE ferme une session oubliee
+# -- un poste public, un portable perdu -- au bout de trois jours ; elle est
+# tenue par le cookie, dont Flask repousse la date a chaque requete. Elle ne
+# dit rien d'une session ENTRETENUE : un onglet laisse ouvert sur une page
+# qui interroge l'API la maintiendrait valable pour toujours. D'ou la limite
+# ABSOLUE de trente jours, comptee par le serveur depuis l'ouverture.
+
+def test_les_deux_limites_de_session_sont_posees():
+    assert app.SESSION_INACTIVITE == datetime.timedelta(days=3)
+    assert app.SESSION_ABSOLUE == datetime.timedelta(days=30)
+    # Le cookie porte la limite d'inactivite : c'est lui qui la fait
+    # respecter, y compris sur un navigateur qui ne revient jamais.
+    assert app.flask_app.config["PERMANENT_SESSION_LIFETIME"] == app.SESSION_INACTIVITE
+
+
+def test_une_session_ouverte_est_datee(journal):
+    """Sans date d'ouverture, la limite absolue n'a rien a compter."""
+    c = journal
+    c.post("/login", json={"password": "secret-de-test"})
+    with c.session_transaction() as sess:
+        assert isinstance(sess.get("ouverte"), (int, float))
+        assert abs(time.time() - sess["ouverte"]) < 30
+
+
+def test_une_session_de_plus_de_trente_jours_ne_vaut_plus_rien(journal):
+    """Meme entretenue : la date d'ouverture ne se repousse pas."""
+    c = journal
+    c.post("/login", json={"password": "secret-de-test"})
+    assert c.get("/api/apps").status_code == 200
+    with c.session_transaction() as sess:
+        sess["ouverte"] = time.time() - 31 * 86400
+    assert c.get("/api/apps").status_code in (401, 403)
+    # Et la session est bien VIDEE, pas seulement refusee une fois.
+    with c.session_transaction() as sess:
+        assert sess.get("authed") is not True
+
+
+def test_une_session_de_vingt_neuf_jours_tient_encore(journal):
+    """La limite est une limite, pas une approximation : on ne deconnecte
+    pas quelqu'un la veille."""
+    c = journal
+    c.post("/login", json={"password": "secret-de-test"})
+    with c.session_transaction() as sess:
+        sess["ouverte"] = time.time() - 29 * 86400
+    assert c.get("/api/apps").status_code == 200
+
+
+def test_une_session_d_avant_ce_mecanisme_n_est_pas_jetee(journal):
+    """Mettre a jour le panneau ne doit deconnecter personne : une session
+    sans date est datee de maintenant, pas refusee."""
+    c = journal
+    c.post("/login", json={"password": "secret-de-test"})
+    with c.session_transaction() as sess:
+        del sess["ouverte"]
+    assert c.get("/api/apps").status_code == 200
+    with c.session_transaction() as sess:
+        assert isinstance(sess.get("ouverte"), (int, float))
+
+
+def test_l_expiration_est_journalisee(journal):
+    c = journal
+    c.post("/login", json={"password": "secret-de-test"})
+    with c.session_transaction() as sess:
+        sess["ouverte"] = time.time() - 31 * 86400
+    c.get("/api/apps")
+    genres = [e.get("action") for e in app.lire_acces() if e.get("genre") == "session"]
+    assert any("30 jours" in (a or "") for a in genres), genres
 
 
 # ---------- 12 quater. masquer une application de SON hub ----------

@@ -143,10 +143,21 @@ flask_app.config.update(
     # des que l'etat d'exposition est lisible, et apres chaque changement.
     SESSION_COOKIE_SECURE=os.environ.get("APP_MANAGER_HTTPS", "").lower()
                           in ("1", "true", "yes"),
-    # Duree explicite : session.permanent sans cette valeur laisse le defaut
-    # de Flask, 31 jours.
-    PERMANENT_SESSION_LIFETIME=datetime.timedelta(days=7),
+    # DEUX LIMITES, ET IL FAUT LES DEUX.
+    #
+    # Celle-ci est la limite d'INACTIVITE : Flask repousse la date du cookie a
+    # chaque requete, donc une session en usage ne tombe jamais, et une
+    # session oubliee -- un poste public, un portable perdu -- se ferme d'elle
+    # meme au bout de trois jours.
+    #
+    # L'inactivite seule ne suffit pas : une session entretenue par un onglet
+    # laisse ouvert resterait valable indefiniment. La limite ABSOLUE ci-apres
+    # la coupe au bout de trente jours, quoi qu'il arrive.
+    PERMANENT_SESSION_LIFETIME=datetime.timedelta(days=3),
 )
+
+SESSION_INACTIVITE = flask_app.config["PERMANENT_SESSION_LIFETIME"]
+SESSION_ABSOLUE = datetime.timedelta(days=30)
 procs = {}          # nom -> subprocess.Popen
 lock = threading.Lock()
 _proc_cache = {}     # pid -> psutil.Process (prime pour cpu_percent delta)
@@ -558,6 +569,37 @@ def origine_applications():
         return APPS_URL
     hote = (request.host or "").split(":")[0] if request else ""
     return f"{request.scheme}://{hote}:{APPS_PORT}"
+
+
+@flask_app.before_request
+def expirer_les_sessions_trop_vieilles():
+    """La limite absolue : trente jours depuis l'ouverture, point.
+
+    L'inactivite est tenue par le cookie lui-meme (PERMANENT_SESSION_LIFETIME,
+    repoussee a chaque requete). Elle ne dit rien d'une session ENTRETENUE :
+    un onglet laisse ouvert sur une page qui interroge l'API la maintiendrait
+    valable pour toujours. Cette garde-ci coupe au bout de trente jours,
+    quoi qu'il arrive -- et c'est le SERVEUR qui compte, dans un cookie signe
+    que le navigateur ne peut pas retoucher.
+
+    On efface et on laisse passer, sans rediriger : la requete continue en
+    visiteur anonyme, et c'est la route qui dira ce qu'elle exige. Rediriger
+    ici renverrait aussi la page de connexion vers elle-meme.
+    """
+    if session.get("authed") is not True:
+        return None
+    ouverte = session.get("ouverte")
+    if not isinstance(ouverte, (int, float)):
+        # Session ouverte avant ce mecanisme : on la date maintenant plutot
+        # que de deconnecter tout le monde a la mise a jour.
+        session["ouverte"] = int(time.time())
+        return None
+    if time.time() - ouverte > SESSION_ABSOLUE.total_seconds():
+        qui = session.get("utilisateur") or ""
+        session.clear()
+        journaliser("session", qui=qui, action="expiree (30 jours)",
+                    ip=_adresse_client())
+    return None
 
 
 ROUTES_APPLICATIONS = {"proxy", "proxy_noslash", "health"}
@@ -3574,6 +3616,7 @@ def login_submit():
 
         session.permanent = True
         session["authed"] = True
+        session["ouverte"] = int(time.time())
         # Le jeton nait avec la session, jamais apres : une session
         # authentifiee sans jeton ferait de verifier_jeton une passoire.
         jeton_session()
@@ -3633,6 +3676,10 @@ def login_submit():
     session.pop("totp_uri", None)
     session.permanent = True
     session["authed"] = True
+    # La date d'OUVERTURE, posee ici et jamais repoussee : c'est elle qui
+    # fait la limite absolue des trente jours. Le cookie, lui, tient
+    # l'inactivite de son cote.
+    session["ouverte"] = int(time.time())
     # Le jeton nait avec la session, jamais apres : une session
     # authentifiee sans jeton ferait de verifier_jeton une passoire.
     jeton_session()
@@ -3683,6 +3730,10 @@ def login_second_facteur():
     session.pop("totp_uri", None)
     session.permanent = True
     session["authed"] = True
+    # La date d'OUVERTURE, posee ici et jamais repoussee : c'est elle qui
+    # fait la limite absolue des trente jours. Le cookie, lui, tient
+    # l'inactivite de son cote.
+    session["ouverte"] = int(time.time())
     # Le jeton nait avec la session, jamais apres : une session
     # authentifiee sans jeton ferait de verifier_jeton une passoire.
     jeton_session()
@@ -3966,6 +4017,10 @@ def login_passkey():
     session.pop("passkey_defi", None)
     session.permanent = True
     session["authed"] = True
+    # La date d'OUVERTURE, posee ici et jamais repoussee : c'est elle qui
+    # fait la limite absolue des trente jours. Le cookie, lui, tient
+    # l'inactivite de son cote.
+    session["ouverte"] = int(time.time())
     # Le jeton nait avec la session, jamais apres : une session
     # authentifiee sans jeton ferait de verifier_jeton une passoire.
     jeton_session()
