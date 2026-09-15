@@ -44,7 +44,21 @@ RUN groupadd -g 2000 codelab
 # pas le processus -- les signaux de Docker n'atteindraient plus Dagster, et
 # "docker stop" attendrait dix secondes avant de tuer. gosu fait un exec, le
 # PID 1 reste Dagster.
-RUN useradd -u 1002 -g 2000 -M -s /usr/sbin/nologin dagster \
+# -m plutot que -M : le compte a besoin d'un dossier personnel.
+#
+# Ce detail a coute le webserver. Sans dossier personnel, la telemetrie de
+# Dagster essaie d'ecrire son identifiant anonyme dans ~/.dagster, donc dans
+# un /home/dagster inexistant, et leve PermissionError pendant la
+# CONSTRUCTION de l'application -- avant qu'elle n'ecoute. Le service ne
+# demarrait plus du tout, et le proxy repondait « 502 » sans rien expliquer.
+#
+# La telemetrie est coupee dans dagster.yaml, ce qui suffit en temps normal ;
+# ce dossier est le second verrou, pour les installations dont le
+# dagster.yaml a ete modifie a la main -- CodeLab ne le remplace jamais, donc
+# le correctif de configuration ne les atteint pas. Et rien ne dit que la
+# telemetrie soit le seul code a vouloir un HOME.
+RUN useradd -u 1002 -g 2000 -m -d /home/dagster -s /usr/sbin/nologin dagster \
+    && chmod 750 /home/dagster \
     && apt-get update \
     && apt-get install -y --no-install-recommends gosu \
     && rm -rf /var/lib/apt/lists/* \
