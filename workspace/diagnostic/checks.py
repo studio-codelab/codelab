@@ -5784,6 +5784,28 @@ MOTIF_SANS_ACCENT = re.compile(
     r"\b(" + "|".join(sorted(MOTS_SANS_ACCENT, key=len, reverse=True)) + r")\b", re.I)
 
 
+def test_le_bandeau_ne_tasse_plus_trois_choses_a_gauche():
+    """Le menu, la marque et un champ de 340 px se suivaient sans
+    respiration : on ne savait plus ou commencait l'un et finissait
+    l'autre. Deux groupes a gauche, et la recherche au centre."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    barre = page.split('<div class="topbar">')[1].split("</div>\n</div>")[0]
+    # Le menu et la marque sont dans le MEME groupe.
+    groupe = barre.split('<div class="topbar-gauche">')[1]
+    assert "side-toggle-btn" in groupe.split("</div>")[0] or "side-toggle-btn" in groupe[:400]
+    assert "topbar-brand" in groupe[:2000]
+    # Un ressort AVANT la recherche : sans lui, elle reste collee a gauche.
+    avant = barre.split('class="rechercher"')[0]
+    assert avant.count('class="spacer"') == 1, (
+        "il faut un ressort avant la recherche, et un seul")
+    apres = barre.split('class="rechercher"')[1]
+    assert 'class="spacer"' in apres, "et un ressort apres, sinon rien n'est centre"
+    # Elle ne s'etire pas entre les deux : une barre de recherche pleine
+    # largeur n'est plus une barre de recherche.
+    assert ".rechercher{position:relative;width:min(420px,38vw);flex:none}" in page
+
+
 def test_aucun_texte_du_hub_n_a_perdu_ses_accents():
     """Les textes AFFICHES portent leurs accents -- le code qui les entoure,
     lui, n'en porte aucun. C'est la regle de ce depot, et elle se relachait a
