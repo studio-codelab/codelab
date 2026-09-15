@@ -928,41 +928,6 @@ table.tbl-journal{min-width:560px}
   <div class="hint" id="hub-masquees" style="display:none;margin:-8px 0 14px"></div>
   <div id="hub-liste" class="hub-liste"></div>
 
-  <!-- UN MOT A L'ADMINISTRATEUR. En bas du hub, replie : ce n'est pas ce
-       qu'on vient faire ici, mais c'est le seul endroit ou tout le monde
-       passe. Trois sujets et pas un de plus -- un champ libre aurait
-       demande a l'administrateur de deviner de quoi on parle. -->
-  <div class="zone" style="margin-top:28px">
-    <div class="card settings-card" id="msg-carte">
-      <div class="card-top"><div class="card-name">
-        <b>Un mot à l'administrateur</b>
-        <div class="path">Une gêne, une idée, une application qui manque.</div>
-      </div>
-      <button class="btn btn-default btn-sm" id="msg-ouvrir"
-        onclick="msgBasculer()">Écrire</button></div>
-
-      <div id="msg-form" style="display:none;margin-top:14px">
-        <div class="field"><label for="msg-cible">De quoi veux-tu parler ?</label>
-          <select id="msg-cible" onchange="msgCible()">
-            <option value="application">D'une application</option>
-            <option value="hub">Du hub lui-même</option>
-            <option value="idee">D'une application qui manque</option>
-          </select></div>
-        <div class="field" id="msg-app-zone"><label for="msg-app">Laquelle ?</label>
-          <select id="msg-app"></select></div>
-        <div class="field"><label for="msg-texte">Ton message</label>
-          <textarea id="msg-texte" rows="4" maxlength="2000"
-            placeholder="Ce qui te gêne, ce qui te manque, ce que tu voudrais."></textarea>
-          <div class="hint" id="msg-reste">2000 caractères au maximum.</div></div>
-        <div class="actions">
-          <button class="btn btn-primary" id="msg-envoyer" onclick="msgEnvoyer()">Envoyer</button>
-          <button class="btn btn-default" onclick="msgBasculer()">Annuler</button>
-        </div>
-        <div class="err" id="msg-err" style="display:none"></div>
-        <div class="hint" id="msg-ok" style="display:none"></div>
-      </div>
-    </div>
-  </div>
 </div>
 
 <!-- ==================== VUE D'ENSEMBLE ==================== -->
@@ -1343,6 +1308,7 @@ table.tbl-journal{min-width:560px}
   <div class="fiche-onglets" id="param-onglets">
     <button data-p="compte" onclick="paramOnglet('compte')" class="active">Compte</button>
     <button data-p="securite" onclick="paramOnglet('securite')">Sécurité</button>
+    <button data-p="message" onclick="paramOnglet('message')">Message</button>
     <button data-p="serveur" onclick="paramOnglet('serveur')" data-admin="1">Serveur</button>
     <button data-p="categories" onclick="paramOnglet('categories')" data-admin="1">Catégories</button>
     <button data-p="email" onclick="paramOnglet('email')" data-admin="1">E-mail</button>
@@ -1569,6 +1535,48 @@ table.tbl-journal{min-width:560px}
     </div>
   </div>
 
+  </div>
+
+  <div class="onglet-p" id="param-message">
+  <!-- UN MOT A L'ADMINISTRATEUR, dans sa propre rubrique.
+       Il vivait au bas du hub, replie sous les applications : la ou tout le
+       monde passe, mais aussi la ou personne ne vient pour ecrire. Les
+       reglages sont l'endroit ou l'on va quand on veut AGIR sur son compte,
+       et un onglet se trouve par son nom -- ce qu'une carte au bas d'une
+       liste de tuiles ne permet pas. -->
+  <div class="zone">
+    <div class="zone-title">Message</div>
+    <div class="card settings-card" id="msg-carte">
+      <div class="card-top"><div class="card-name">
+        <b>Un mot à l'administrateur</b>
+        <div class="path">Une gêne, une idée, une application qui manque.</div>
+      </div></div>
+
+      <div class="hint">Ton message part par mail à l'administrateur du serveur et reste
+        dans le panneau. Il porte ton nom de compte : c'est ce qui lui permet de te
+        répondre.</div>
+
+      <div id="msg-form" style="margin-top:14px">
+        <div class="field"><label for="msg-cible">De quoi veux-tu parler ?</label>
+          <select id="msg-cible" onchange="msgCible()">
+            <option value="application">D'une application</option>
+            <option value="hub">Du hub lui-même</option>
+            <option value="idee">D'une application qui manque</option>
+          </select></div>
+        <div class="field" id="msg-app-zone"><label for="msg-app">Laquelle ?</label>
+          <select id="msg-app"></select></div>
+        <div class="field"><label for="msg-texte">Ton message</label>
+          <textarea id="msg-texte" rows="5" maxlength="2000"
+            placeholder="Ce qui te gêne, ce qui te manque, ce que tu voudrais."></textarea>
+          <div class="hint" id="msg-reste">2000 caractères au maximum.</div></div>
+        <div class="actions">
+          <button class="btn btn-primary" id="msg-envoyer" onclick="msgEnvoyer()">Envoyer</button>
+        </div>
+        <div class="err" id="msg-err" style="display:none"></div>
+        <div class="hint" id="msg-ok" style="display:none"></div>
+      </div>
+    </div>
+  </div>
   </div>
 
   <div class="onglet-p" id="param-serveur">
@@ -2194,6 +2202,11 @@ function plierLesCartes(){
   document.querySelectorAll('.onglet-p .settings-card:not(.pliable)').forEach(carte=>{
     const tete=carte.querySelector('.card-top');
     if(!tete) return;
+    /* UNE CARTE SEULE DANS SON ONGLET NE SE REPLIE PAS. Le pli sert a passer
+       devant ce qu'on ne vient pas regler ; quand il n'y a rien d'autre, il
+       ne fait que cacher la seule chose de la page derriere un clic. */
+    const onglet=carte.closest('.onglet-p');
+    if(onglet && onglet.querySelectorAll('.settings-card').length < 2) return;
     /* Tout ce qui suit le titre devient le corps. On deplace les noeuds
        plutot que de recopier du HTML : les champs gardent leur valeur, et
        les gestionnaires poses dessus restent attaches. */
@@ -2249,6 +2262,10 @@ function paramOnglet(o){
     $('mdp-err').style.display='none'; $('mdp-msg').style.display='none';
   }
   if(o==='securite'){ chargerPasskeys(); if(estAdmin) chargerSecurite(); }
+  /* La liste des applications vient du hub : on la relit, sinon le choix
+     « D'une application » est vide pour qui arrive directement ici. */
+  if(o==='message'){ chargerHub(); $('msg-err').style.display='none';
+                     $('msg-ok').style.display='none'; }
   if(o==='serveur' && estAdmin){ chargerSecurite(); chargerVps(); }
   if(o==='serveur') chargerSecurite();
   if(o==='categories') chargerCategories();
@@ -2381,14 +2398,9 @@ async function chargerMessages(){
 }
 
 /* ---------------- un mot a l'administrateur ---------------- */
-function msgBasculer(){
-  const f=$('msg-form'), ouvert = f.style.display!=='none';
-  f.style.display = ouvert ? 'none' : 'block';
-  $('msg-ouvrir').textContent = ouvert ? 'Écrire' : 'Fermer';
-  $('msg-err').style.display='none'; $('msg-ok').style.display='none';
-  if(!ouvert){ msgCible(); setTimeout(()=>$('msg-texte').focus(), 40); }
-}
-
+/* Plus de bouton « Écrire » : la rubrique a un onglet a elle, et l'ouvrir
+   EST le geste. Un repli de plus sous un onglet deja choisi ne cachait plus
+   rien d'encombrant -- il ajoutait un clic. */
 function msgCible(){
   /* La liste ne propose que les applications du hub de CE compte : on ne
      peut parler que de ce qu'on peut ouvrir. */

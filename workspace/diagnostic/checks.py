@@ -6576,6 +6576,41 @@ MOTIF_SANS_ACCENT = re.compile(
     r"\b(" + "|".join(sorted(MOTS_SANS_ACCENT, key=len, reverse=True)) + r")\b", re.I)
 
 
+def test_le_mot_a_l_administrateur_a_sa_propre_rubrique():
+    """Il vivait au bas du hub, replie sous les applications : la ou tout le
+    monde passe, mais aussi la ou personne ne vient pour ecrire. Les
+    reglages sont l'endroit ou l'on va pour AGIR sur son compte, et un onglet
+    se trouve par son nom -- ce qu'une carte au bas d'une liste de tuiles ne
+    permet pas."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    # L'onglet existe, et pour TOUT LE MONDE : data-admin le reserverait a
+    # l'administrateur, qui est justement celui a qui l'on ecrit.
+    onglet = page.split('<button data-p="message"')[1].split(">")[0]
+    assert "data-admin" not in onglet, onglet
+    assert 'id="param-message"' in page
+
+    # Le formulaire est DANS cet onglet, et plus dans le hub.
+    hub = page.split('<div id="sec-hub"')[1].split('<!-- ==================== VUE')[0]
+    assert "msg-carte" not in hub, "le formulaire traine encore dans le hub"
+    message = page.split('<div class="onglet-p" id="param-message">')[1] \
+                  .split('<div class="onglet-p"')[0]
+    for champ in ('id="msg-cible"', 'id="msg-app"', 'id="msg-texte"', 'id="msg-envoyer"'):
+        assert champ in message, champ
+
+
+def test_une_carte_seule_dans_son_onglet_ne_se_replie_pas():
+    """Le pli sert a passer devant ce qu'on ne vient pas regler. Quand il n'y
+    a rien d'autre dans l'onglet, il ne fait que cacher la seule chose de la
+    page derriere un clic -- vu sur la rubrique Message, ou le formulaire
+    disparaissait entierement."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    bloc = page.split("function plierLesCartes(){")[1].split("\n}")[0]
+    assert "closest('.onglet-p')" in bloc
+    assert "querySelectorAll('.settings-card').length < 2" in bloc
+
+
 def test_le_hub_offre_deux_tailles_de_tuile():
     """Deux tailles, pas un reglage continu : la carte dit l'etat et la
     visibilite, l'icone seule dit « c'est la ». Entre les deux il n'y a rien
