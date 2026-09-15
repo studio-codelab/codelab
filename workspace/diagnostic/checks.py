@@ -1404,7 +1404,7 @@ app = _charger_panneau()
 # echoue au lieu de laisser passer une ecriture reelle.
 CHEMINS_ETAT = [
     "STATE_DIR", "APPS_FILE", "LOG_DIR", "UTILISATEURS_FILE", "PASSKEYS_FILE",
-    "ACCES_FILE", "PROCESSUS_FILE", "MASQUEES_FILE", "CHILD_HOME", "ALERTES_FILE", "SMTP_FILE",
+    "ACCES_FILE", "PROCESSUS_FILE", "MASQUEES_FILE", "MESSAGES_FILE", "CHILD_HOME", "ALERTES_FILE", "SMTP_FILE",
     "CATEGORIES_FILE",
     "EXPOSITION_FILE", "DIAGNOSTIC_MARQUEUR", "SHARED_CONFIG_DIR",
     "SHARED_ENV_FILE", "LEGACY_ADMIN_PASSWORD_FILE", "LEGACY_SECRET_KEY_FILE",
@@ -1431,6 +1431,7 @@ def _bac_a_sable(tmp_path, monkeypatch):
         "ACCES_FILE": str(etat / "acces.jsonl"),
         "PROCESSUS_FILE": str(etat / "processus.json"),
         "MASQUEES_FILE": str(etat / "masquees.json"),
+        "MESSAGES_FILE": str(etat / "messages.jsonl"),
         "CHILD_HOME": str(etat / "home"),
         "ALERTES_FILE": str(etat / "alertes.json"),
         "SMTP_FILE": str(etat / "smtp.json"),
@@ -3516,6 +3517,148 @@ def test_l_expiration_est_journalisee(journal):
     c.get("/api/apps")
     genres = [e.get("action") for e in app.lire_acces() if e.get("genre") == "session"]
     assert any("30 jours" in (a or "") for a in genres), genres
+
+
+# ---------- 12 sexies. un mot laisse depuis le hub ----------
+#
+# Trois sujets et pas un de plus : une application a laquelle on a acces, le
+# hub lui-meme, ou l'idee d'une application qui manque. Un champ libre aurait
+# demande a l'administrateur de deviner de quoi on parle -- ce qu'il ne peut
+# pas faire depuis un mail de trois lignes.
+
+@pytest.fixture
+def messagerie(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
+    monkeypatch.setattr(app, "MESSAGES_FILE", str(tmp_path / "messages.jsonl"))
+    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
+    monkeypatch.setattr(app, "SHARED_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(app, "SHARED_ENV_FILE", str(tmp_path / "credentials.env"))
+    monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    app._apps_cache["signature"] = None
+    app._dernier_message.clear()
+    (tmp_path / "credentials.env").write_text(
+        "SMTP_HOST=smtp.example.com\nSMTP_USER=panneau@example.com\n"
+        "ALERTE_ADMIN=chef@example.com\n")
+    app.save({"compta": {"path": "/w/a", "command": "x", "port": 9101,
+                         "enabled": True, "visibility": "privee"},
+              "secret": {"path": "/w/c", "command": "x", "port": 9103,
+                         "enabled": True, "visibility": "privee"}})
+    sel = "ff" * 16
+    app.ecrire_utilisateurs({"marie": {
+        "sel": sel, "hash": app.derive_mot_de_passe("mot-de-passe-long", sel),
+        "projets": ["compta"], "cree": 0}})
+    partis = []
+    monkeypatch.setattr(app, "envoyer_mail",
+                        lambda cfg, sujet, corps, destinataires=None:
+                        partis.append((destinataires, sujet, corps)))
+    c = app.flask_app.test_client()
+    _connecte(c, "marie", "mot-de-passe-long")
+    return c, partis
+
+
+def test_un_message_est_range_puis_envoye_a_l_administrateur(messagerie):
+    c, partis = messagerie
+    r = c.post("/api/messages", json={"cible": "application", "app": "compta",
+                                      "texte": "Le bouton demande deux clics."})
+    assert r.status_code == 200, r.data
+    assert r.get_json()["envoye"] is True
+
+    garde = app.lire_messages()
+    assert len(garde) == 1
+    assert garde[0]["qui"] == "marie" and garde[0]["app"] == "compta"
+    assert garde[0]["texte"] == "Le bouton demande deux clics."
+
+    destinataires, sujet, corps = partis[-1]
+    assert destinataires == ["chef@example.com"]
+    assert "marie" in sujet and "compta" in sujet
+    assert "Le bouton demande deux clics." in corps
+
+
+def test_un_message_survit_a_un_envoi_impossible(messagerie, monkeypatch):
+    """ENREGISTRE D'ABORD, ENVOYE ENSUITE. Un SMTP mal configure ne doit pas
+    faire perdre le message : personne ne saurait jamais qu'il a ete ecrit."""
+    c, _partis = messagerie
+    def refuse(*a, **kw):
+        raise RuntimeError("serveur injoignable")
+    monkeypatch.setattr(app, "envoyer_mail", refuse)
+    r = c.post("/api/messages", json={"cible": "hub", "texte": "Le hub est lent."})
+    assert r.status_code == 200, r.data
+    assert r.get_json()["envoye"] is False
+    assert len(app.lire_messages()) == 1
+
+
+def test_on_n_ecrit_que_sur_une_application_qu_on_peut_ouvrir(messagerie):
+    """Sinon ce formulaire dirait l'existence de projets qu'on n'a pas le
+    droit de connaitre -- exactement comme la liste des masquees."""
+    c, partis = messagerie
+    assert c.post("/api/messages", json={"cible": "application", "app": "secret",
+                                         "texte": "bonjour"}).status_code == 404
+    assert c.post("/api/messages", json={"cible": "application", "app": "fantome",
+                                         "texte": "bonjour"}).status_code == 404
+    assert app.lire_messages() == [] and partis == []
+
+
+def test_une_idee_d_application_ne_porte_aucun_projet(messagerie):
+    """« Une application qui manque » n'en designe aucune : garder un nom
+    envoye au passage ferait croire a un message sur un projet existant."""
+    c, _ = messagerie
+    r = c.post("/api/messages", json={"cible": "idee", "app": "compta",
+                                      "texte": "Il manque un suivi des congés."})
+    assert r.status_code == 200, r.data
+    assert app.lire_messages()[0]["app"] == ""
+
+
+def test_un_sujet_invente_est_refuse(messagerie):
+    c, _ = messagerie
+    assert c.post("/api/messages", json={"cible": "autre chose",
+                                         "texte": "bonjour"}).status_code == 400
+    assert app.lire_messages() == []
+
+
+def test_un_message_vide_ou_trop_long_est_refuse(messagerie):
+    c, _ = messagerie
+    assert c.post("/api/messages", json={"cible": "hub", "texte": "   "}).status_code == 400
+    trop = "a" * (app.MESSAGE_LONGUEUR_MAX + 1)
+    assert c.post("/api/messages", json={"cible": "hub", "texte": trop}).status_code == 400
+    assert app.lire_messages() == []
+
+
+def test_un_deuxieme_message_immediat_est_refuse(messagerie):
+    """De quoi corriger une faute de frappe, pas de quoi remplir la boite de
+    l'administrateur."""
+    c, partis = messagerie
+    assert c.post("/api/messages", json={"cible": "hub", "texte": "un"}).status_code == 200
+    r = c.post("/api/messages", json={"cible": "hub", "texte": "deux"})
+    assert r.status_code == 429, r.data
+    assert len(app.lire_messages()) == 1 and len(partis) == 1
+
+
+def test_seul_l_administrateur_lit_les_messages(messagerie):
+    """Ce sont des mots qui lui sont adresses, et ils portent le nom de qui
+    les a ecrits."""
+    c, _ = messagerie
+    c.post("/api/messages", json={"cible": "hub", "texte": "bonjour"})
+    assert c.get("/api/messages").status_code in (401, 403)
+    admin = app.flask_app.test_client()
+    admin.post("/login", json={"password": "secret-de-test"})
+    d = admin.get("/api/messages").get_json()
+    assert [m["texte"] for m in d["messages"]] == ["bonjour"]
+
+
+def test_les_messages_partent_aussi_vers_la_base():
+    """Le fichier tient sans base et se lit en SSH ; la base garde tout et
+    s'interroge en SQL. Le meme couple que pour le journal des acces."""
+    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    assert "CREATE TABLE IF NOT EXISTS messages" in src
+    assert "_pg_deposer((\"message\"" in src
+    # Et le rattrapage les rejoue apres une coupure de la base.
+    rattrapage = src.split("def _pg_rattraper(")[1].split("\ndef ")[0]
+    assert "_pg_ecrire_messages" in rattrapage
 
 
 # ---------- 12 quater. masquer une application de SON hub ----------

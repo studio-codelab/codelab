@@ -449,6 +449,17 @@ label:has(> input[type=checkbox]),label:has(> input[type=radio]){
 .seg-icones{width:auto;flex:none}
 .seg-icones button{flex:none;width:34px;padding:6px 0;display:grid;place-items:center}
 .seg-icones svg{width:15px;height:15px}
+/* Un message recu : qui, quand, sur quoi, puis le texte. Le texte garde ses
+   retours a la ligne -- quelqu'un qui saute une ligne l'a voulu. */
+.msg-ligne{border-top:1px solid var(--line);padding:12px 0}
+.msg-ligne:first-child{border-top:none;padding-top:0}
+.msg-tete{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px}
+.msg-tete b{font-size:var(--t-m);font-weight:650}
+.msg-tete .quand{color:var(--dim2);font-size:11.5px;margin-left:auto}
+.msg-texte{font-size:var(--t-m);color:var(--txt);white-space:pre-wrap;line-height:1.55}
+.msg-vide{color:var(--dim);font-size:var(--t-m);padding:6px 0}
+textarea{resize:vertical;min-height:72px;line-height:1.5}
+
 /* Le bouton de masquage : invisible jusqu'au survol de la tuile. Une croix
    permanente sur chaque tuile transformerait le hub en liste a trier. */
 .hub-projet{position:relative}
@@ -916,6 +927,42 @@ table.tbl-journal{min-width:560px}
   <div class="sous" id="hub-sous"></div>
   <div class="hint" id="hub-masquees" style="display:none;margin:-8px 0 14px"></div>
   <div id="hub-liste" class="hub-liste"></div>
+
+  <!-- UN MOT A L'ADMINISTRATEUR. En bas du hub, replie : ce n'est pas ce
+       qu'on vient faire ici, mais c'est le seul endroit ou tout le monde
+       passe. Trois sujets et pas un de plus -- un champ libre aurait
+       demande a l'administrateur de deviner de quoi on parle. -->
+  <div class="zone" style="margin-top:28px">
+    <div class="card settings-card" id="msg-carte">
+      <div class="card-top"><div class="card-name">
+        <b>Un mot à l'administrateur</b>
+        <div class="path">Une gêne, une idée, une application qui manque.</div>
+      </div>
+      <button class="btn btn-default btn-sm" id="msg-ouvrir"
+        onclick="msgBasculer()">Écrire</button></div>
+
+      <div id="msg-form" style="display:none;margin-top:14px">
+        <div class="field"><label for="msg-cible">De quoi veux-tu parler ?</label>
+          <select id="msg-cible" onchange="msgCible()">
+            <option value="application">D'une application</option>
+            <option value="hub">Du hub lui-même</option>
+            <option value="idee">D'une application qui manque</option>
+          </select></div>
+        <div class="field" id="msg-app-zone"><label for="msg-app">Laquelle ?</label>
+          <select id="msg-app"></select></div>
+        <div class="field"><label for="msg-texte">Ton message</label>
+          <textarea id="msg-texte" rows="4" maxlength="2000"
+            placeholder="Ce qui te gêne, ce qui te manque, ce que tu voudrais."></textarea>
+          <div class="hint" id="msg-reste">2000 caractères au maximum.</div></div>
+        <div class="actions">
+          <button class="btn btn-primary" id="msg-envoyer" onclick="msgEnvoyer()">Envoyer</button>
+          <button class="btn btn-default" onclick="msgBasculer()">Annuler</button>
+        </div>
+        <div class="err" id="msg-err" style="display:none"></div>
+        <div class="hint" id="msg-ok" style="display:none"></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- ==================== VUE D'ENSEMBLE ==================== -->
@@ -988,6 +1035,19 @@ table.tbl-journal{min-width:560px}
           Plus</span>
       </div>
       <div class="hint" id="carte-source" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- Les mots laisses depuis le hub. Ici, et pas dans une page a part :
+       c'est la page ou l'administrateur arrive, et un message qu'on ne voit
+       qu'en allant le chercher est un message qu'on ne lit pas. -->
+  <div class="zone" id="zone-messages" style="display:none">
+    <div class="zone-title">Messages</div>
+    <div class="card">
+      <div class="card-top"><div class="card-name"><b>Mots laissés depuis le hub</b>
+        <div class="path">Ce que les comptes ont écrit, du plus récent au plus ancien.</div></div>
+        <span class="pill" id="msg-compte"><i></i>&nbsp;</span></div>
+      <div id="msg-liste" style="margin-top:12px"></div>
     </div>
   </div>
 
@@ -2068,7 +2128,7 @@ function showSection(name){
   if(name!=='app') fermerLog();
   if(name==='hub') chargerHub();
   if(name==='overview' || name==='apps') refresh();
-  if(name==='overview') chargerCarte();
+  if(name==='overview'){ chargerCarte(); chargerMessages(); }
   /* L'etat de securite est relu a chaque ouverture : il peut avoir change
      depuis un autre onglet, ou au redemarrage du service. */
   if(name==='users'){ chargerUtilisateurs(); chargerInscriptionLibre(); chargerActivite(); }
@@ -2267,6 +2327,79 @@ async function catEnregistrer(){
 
 /* ---------------- hub ---------------- */
 let hubApps=[];
+/* ---------------- les messages recus (administrateur) ---------------- */
+async function chargerMessages(){
+  if(!estAdmin) return;
+  let d;
+  try{ d=await (await fetch('/api/messages')).json(); }catch(e){ return; }
+  const liste=d.messages||[];
+  $('zone-messages').style.display='block';
+  const p=$('msg-compte');
+  p.className='pill '+(liste.length?'on':'off');
+  p.innerHTML='<i></i>'+(liste.length ? liste.length+' message'+(liste.length>1?'s':'')
+                                      : 'aucun message');
+  if(!liste.length){
+    $('msg-liste').innerHTML='<div class="msg-vide">Personne n\'a encore écrit. Le '
+      + 'formulaire est en bas du hub, pour tous les comptes.</div>';
+    return;
+  }
+  const sujet = m => m.cible==='application'
+    ? 'à propos de <b>'+esc(m.app||'')+'</b>'
+    : (m.cible==='idee' ? 'une <b>idée d\'application</b>' : 'à propos du <b>hub</b>');
+  $('msg-liste').innerHTML = liste.map(m=>`<div class="msg-ligne">
+    <div class="msg-tete"><b>${esc(m.qui||'?')}</b><span class="hint">${sujet(m)}</span>
+      <span class="quand" title="${esc(quandPrecis(m.ts))}">${esc(ilYA(m.ts))}</span></div>
+    <div class="msg-texte">${esc(m.texte||'')}</div></div>`).join('');
+}
+
+/* ---------------- un mot a l'administrateur ---------------- */
+function msgBasculer(){
+  const f=$('msg-form'), ouvert = f.style.display!=='none';
+  f.style.display = ouvert ? 'none' : 'block';
+  $('msg-ouvrir').textContent = ouvert ? 'Écrire' : 'Fermer';
+  $('msg-err').style.display='none'; $('msg-ok').style.display='none';
+  if(!ouvert){ msgCible(); setTimeout(()=>$('msg-texte').focus(), 40); }
+}
+
+function msgCible(){
+  /* La liste ne propose que les applications du hub de CE compte : on ne
+     peut parler que de ce qu'on peut ouvrir. */
+  const zone=$('msg-app-zone');
+  if(!zone) return;
+  const app = $('msg-cible').value==='application';
+  zone.style.display = app ? '' : 'none';
+  const noms=(hubApps||[]).map(a=>a.name).sort();
+  $('msg-app').innerHTML = noms.length
+    ? noms.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')
+    : '<option value="">aucune application accessible</option>';
+}
+
+async function msgEnvoyer(){
+  const b=$('msg-envoyer'), e=$('msg-err'), ok=$('msg-ok');
+  e.style.display='none'; ok.style.display='none';
+  const corps={cible:$('msg-cible').value, texte:$('msg-texte').value.trim(),
+               app:$('msg-app').value||''};
+  if(!corps.texte){ e.textContent='Écris ton message.'; e.style.display='block'; return; }
+  b.disabled=true; b.textContent='Envoi...';
+  try{
+    const r=await fetch('/api/messages',{method:'POST',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify(corps)});
+    const d=await r.json();
+    if(!r.ok){ e.textContent=d.error||'Envoi impossible.'; e.style.display='block'; }
+    else{
+      $('msg-texte').value='';
+      /* On dit ce qui s'est REELLEMENT passe : le message est range dans
+         tous les cas, le mail depend d'un serveur d'envoi configure. */
+      ok.textContent = d.envoye
+        ? 'Message envoyé à ton administrateur. Merci.'
+        : "Message enregistré. Aucun serveur d'envoi n'est configuré : ton "
+          + 'administrateur le verra dans le panneau.';
+      ok.style.display='block';
+    }
+  }catch(err){ e.textContent='Erreur réseau.'; e.style.display='block'; }
+  finally{ b.disabled=false; b.textContent='Envoyer'; }
+}
+
 /* ---------------- taille des tuiles du hub ----------------
    Retenue par navigateur, comme le theme et la colonne de gauche : c'est un
    confort d'affichage, pas un reglage du serveur, et deux personnes qui
@@ -2324,6 +2457,7 @@ async function chargerHub(){
     hubApps=d.apps||[];
     hubMasquees=d.masquees||[];
     peindreMasquees();
+    msgCible();
     /* Les categories arrivent avec les projets : une seule requete, et le
        hub ne peut pas afficher un rangement decale d'un tour. */
     if(Array.isArray(d.categories)) categories=d.categories;

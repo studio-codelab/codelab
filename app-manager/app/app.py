@@ -1074,6 +1074,65 @@ def _descripteurs(nom):
             for k in passkeys_du_compte(nom)]
 
 
+# ------------------------- messages des utilisateurs -------------------------
+#
+# Un mot laisse depuis le hub : une remarque sur une application, une
+# remarque sur le hub lui-meme, ou l'idee d'une application qui manque.
+#
+# Deux ecritures, comme pour le journal des acces, et pour la meme raison :
+# le FICHIER d'abord, qui tient sans base et se lit depuis une session SSH,
+# puis la base, qui garde tout et s'interroge en SQL. Un message perdu parce
+# que Postgres redemarrait serait un message que personne ne saura jamais
+# avoir ete ecrit.
+MESSAGES_FILE = os.path.join(STATE_DIR, "messages.jsonl")
+MESSAGES_MAX_OCTETS = 1024 * 1024
+MESSAGE_LONGUEUR_MAX = 2000
+# Une minute entre deux messages du meme compte : de quoi corriger une faute
+# de frappe, pas de quoi remplir la boite de l'administrateur.
+MESSAGE_DELAI = 60
+MESSAGE_CIBLES = ("application", "hub", "idee")
+
+_dernier_message = {}
+
+
+def lire_messages(limite=200):
+    """Les plus recents d'abord."""
+    lignes = []
+    for chemin in (MESSAGES_FILE, MESSAGES_FILE + ".1"):
+        try:
+            with open(chemin, errors="replace") as f:
+                lignes.extend(f.readlines())
+        except OSError:
+            continue
+    messages = []
+    for ligne in lignes:
+        try:
+            messages.append(json.loads(ligne))
+        except ValueError:
+            continue
+    messages.sort(key=lambda m: m.get("ts") or 0, reverse=True)
+    return messages[:limite]
+
+
+def enregistrer_message(message):
+    """Ecrit le message, et n'echoue jamais bruyamment.
+
+    Le fichier tourne comme le journal des acces : un message qui remplit le
+    disque transformerait une remarque en panne.
+    """
+    with _acces_verrou:
+        try:
+            if (os.path.exists(MESSAGES_FILE)
+                    and os.path.getsize(MESSAGES_FILE) > MESSAGES_MAX_OCTETS):
+                os.replace(MESSAGES_FILE, MESSAGES_FILE + ".1")
+            with open(MESSAGES_FILE, "a") as f:
+                f.write(json.dumps(message, ensure_ascii=False) + "\n")
+        except OSError:
+            return False
+    _pg_deposer(("message", message))
+    return True
+
+
 # ------------------------- applications masquees -------------------------
 #
 # Un compte peut retirer une application de SON hub. Ce n'est ni un droit
@@ -1264,6 +1323,20 @@ def _pg_preparer():
         # second facteur, ni cle d'acces. Cette base est joignable par les
         # projets deployes -- elle ne porte que ce qui se lit deja dans le
         # panneau.
+        # Les mots laisses depuis le hub. Ils ne contiennent rien de secret --
+        # ce que quelqu'un a choisi d'ecrire a son administrateur -- mais ils
+        # sont horodates et signes du compte : c'est ce qui permet de
+        # repondre, et de voir qu'une meme gene revient.
+        cx.execute("""
+            CREATE TABLE IF NOT EXISTS messages (
+              id          TEXT PRIMARY KEY,
+              ts          TIMESTAMPTZ NOT NULL,
+              qui         TEXT NOT NULL DEFAULT '',
+              cible       TEXT NOT NULL,
+              application TEXT,
+              texte       TEXT NOT NULL
+            )""")
+        cx.execute("CREATE INDEX IF NOT EXISTS messages_ts ON messages (ts DESC)")
         cx.execute("""
             CREATE TABLE IF NOT EXISTS utilisateurs (
               nom            TEXT PRIMARY KEY,
@@ -1312,6 +1385,20 @@ def _pg_ecrire_acces(cx, evenements):
     _pg_etat["ecrits"] += len(lignes)
 
 
+def _pg_ecrire_messages(cx, messages):
+    lignes = [(m.get("id") or secrets.token_hex(12),
+               datetime.datetime.fromtimestamp(m.get("ts") or 0, datetime.timezone.utc),
+               m.get("qui") or "", m.get("cible") or "", m.get("app"),
+               m.get("texte") or "") for m in messages]
+    if not lignes:
+        return
+    with cx.cursor() as cur:
+        cur.executemany(
+            """INSERT INTO messages (id, ts, qui, cible, application, texte)
+               VALUES (%s,%s,%s,%s,%s,%s)
+               ON CONFLICT (id) DO NOTHING""", lignes)
+
+
 def _pg_ecrire_utilisateurs(cx):
     """Recopie le registre des comptes, et marque les disparus.
 
@@ -1351,6 +1438,7 @@ def _pg_rattraper(cx):
     NOTHING rend l'operation sans consequence quand tout est deja la.
     """
     _pg_ecrire_acces(cx, lire_acces(limite=100000))
+    _pg_ecrire_messages(cx, lire_messages(limite=100000))
     _pg_ecrire_utilisateurs(cx)
 
 
@@ -1372,6 +1460,8 @@ def _pg_boucle():
                     genre, charge = _pg_file.get()
                     if genre == "acces":
                         _pg_ecrire_acces(cx, [charge])
+                    elif genre == "message":
+                        _pg_ecrire_messages(cx, [charge])
                     elif genre == "utilisateurs":
                         _pg_ecrire_utilisateurs(cx)
         except Exception as e:
@@ -6001,6 +6091,102 @@ def api_mes_apps():
                     "categories": connues,
                     "utilisateur": utilisateur_courant(),
                     "role": role_courant()})
+
+
+@flask_app.post("/api/messages")
+@require_auth
+def api_message():
+    """Un mot laisse depuis le hub, range et envoye a l'administrateur.
+
+    Trois sujets possibles, et pas un de plus : une application a laquelle on
+    a acces, le hub lui-meme, ou l'idee d'une application qui manque. Un
+    champ libre aurait demande a l'administrateur de deviner de quoi on
+    parle -- ce qu'il ne peut pas faire depuis un mail de trois lignes.
+    """
+    d = request.get_json(force=True, silent=True) or {}
+    cible = (d.get("cible") or "").strip()
+    texte = (d.get("texte") or "").strip()
+    nom_app = (d.get("app") or "").strip()
+    qui = utilisateur_courant() or NOM_ADMIN
+
+    if cible not in MESSAGE_CIBLES:
+        return jsonify({"error": "Choisis de quoi tu veux parler."}), 400
+    if not texte:
+        return jsonify({"error": "Écris ton message."}), 400
+    if len(texte) > MESSAGE_LONGUEUR_MAX:
+        return jsonify({"error": "Message trop long : %d caractères pour %d au maximum."
+                                 % (len(texte), MESSAGE_LONGUEUR_MAX)}), 400
+    if cible == "application":
+        # On ne parle que d'une application qu'on peut ouvrir : sinon ce
+        # formulaire dirait l'existence de projets qu'on n'a pas le droit de
+        # connaitre, exactement comme la liste des masquees.
+        if nom_app not in load() or not peut_voir(nom_app):
+            return jsonify({"error": "Application inconnue."}), 404
+    else:
+        nom_app = ""
+
+    maintenant = time.time()
+    if maintenant - _dernier_message.get(qui, 0) < MESSAGE_DELAI:
+        return jsonify({"error": "Un message vient de partir. Laisse une minute "
+                                 "avant le suivant."}), 429
+    _dernier_message[qui] = maintenant
+
+    message = {"id": secrets.token_hex(12), "ts": int(maintenant), "qui": qui,
+               "cible": cible, "app": nom_app, "texte": texte}
+    if not enregistrer_message(message):
+        return jsonify({"error": "Message non enregistré : le disque n'a pas "
+                                 "accepté l'écriture."}), 500
+
+    # ENREGISTRE D'ABORD, ENVOYE ENSUITE. Un envoi qui echoue -- SMTP mal
+    # configure, serveur injoignable -- ne doit pas faire perdre le message :
+    # il est deja range, l'administrateur le verra dans le panneau.
+    envoye, souci = False, ""
+    cfg, ok = smtp_utilisable()
+    destinataires = alertes_admin()
+    if ok and destinataires:
+        try:
+            envoyer_mail(cfg, sujet_message(message), corps_message(message),
+                         destinataires=destinataires)
+            envoye = True
+        except Exception as e:                                    # noqa: BLE001
+            souci = f"{type(e).__name__}: {e}"
+    journaliser("message", qui=qui, app=nom_app or None,
+                action=("envoye" if envoye else "enregistre sans mail"),
+                ip=_adresse_client())
+    return jsonify({"ok": True, "envoye": envoye, "erreur_mail": souci})
+
+
+def sujet_message(message):
+    ou = {"application": f"l'application « {message.get('app')} »",
+          "hub": "le hub",
+          "idee": "une idée d'application"}.get(message.get("cible"), "CodeLab")
+    return f"[CodeLab] message de {message.get('qui')} sur {ou}"
+
+
+def corps_message(message):
+    quand = datetime.datetime.fromtimestamp(message.get("ts") or 0).strftime(
+        "%Y-%m-%d %H:%M")
+    sujet = {"application": f"Application : {message.get('app')}",
+             "hub": "Sujet      : le hub",
+             "idee": "Sujet      : une idee d'application"}.get(
+                 message.get("cible"), "Sujet      : ?")
+    return "\n".join([
+        f"De         : {message.get('qui')}",
+        sujet,
+        f"Le         : {quand}",
+        "",
+        (message.get("texte") or "").strip(),
+        "",
+        "-- CodeLab, message laisse depuis le hub",
+    ])
+
+
+@flask_app.get("/api/messages")
+@require_admin
+def api_messages_liste():
+    """Les messages recus. Reserve a l'administrateur : ce sont des mots qui
+    lui sont adresses, et ils portent le nom de qui les a ecrits."""
+    return jsonify({"messages": lire_messages(limite=100)})
 
 
 @flask_app.post("/api/mes-apps/<n>/masquer")
