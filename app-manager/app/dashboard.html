@@ -1100,6 +1100,7 @@ table.tbl-journal{min-width:560px}
     <button data-o="activite" onclick="ficheOnglet('activite')">Activité</button>
     <button data-o="acces" onclick="ficheOnglet('acces')">Accès</button>
     <button data-o="config" onclick="ficheOnglet('config')">Configuration</button>
+    <button data-o="conteneur" onclick="ficheOnglet('conteneur')">Conteneuriser</button>
   </div>
 
   <div class="onglet actif" id="onglet-general">
@@ -1192,6 +1193,33 @@ table.tbl-journal{min-width:560px}
         <div class="err" id="ac-err" style="display:none"></div>
         <div class="hint" id="ac-msg" style="display:none"></div>
       </div>
+    </div>
+  </div>
+
+  <div class="onglet" id="onglet-conteneur">
+    <div class="card settings-card card-large">
+      <div class="card-top"><div class="card-name">
+        <b>Sortir cette application de CodeLab</b>
+        <div class="path">Les fichiers pour la faire tourner ailleurs, en conteneur.</div>
+      </div>
+      <span class="pill" id="ct-pile"><i></i>&nbsp;</span></div>
+
+      <div class="hint">CodeLab <b>produit</b> ces fichiers — il ne construit aucune image
+        et ne lance rien : le panneau n'a pas de socket Docker, et lui en donner un
+        reviendrait à lui offrir la machine entière. Ce sont un point de départ sérieux,
+        pas une vérité : relis-les.</div>
+
+      <div id="ct-resume" class="hint" style="margin-top:10px"></div>
+      <div id="ct-fichiers" style="margin-top:14px"></div>
+
+      <div class="actions">
+        <button class="btn btn-primary" id="ct-poser" onclick="ctPoser(false)">
+          Déposer dans le projet</button>
+        <button class="btn btn-danger-quiet" id="ct-remplacer" onclick="ctPoser(true)"
+          style="display:none">Remplacer les fichiers existants</button>
+      </div>
+      <div class="err" id="ct-err" style="display:none"></div>
+      <div class="hint" id="ct-msg" style="display:none"></div>
     </div>
   </div>
 
@@ -2234,7 +2262,7 @@ function paramOnglet(o){
    arretee. Les confondre ferait cliquer sur un lien qui ne mene nulle part. */
 function etatApp(a){
   if(a.crash_looping) return ['err','En erreur'];
-  if(!a.running) return ['off','Arretee'];
+  if(!a.running) return ['off','Arrêtée'];
   if(a.listening === false) return ['warn','Ne répond pas'];
   return ['on','En ligne'];
 }
@@ -2710,6 +2738,7 @@ function ficheOnglet(o){
   if(o==='metriques') chargerMetriques(ficheNom);
   if(o==='activite') chargerActivite().then(peindreActiviteFiche);
   if(o==='acces') chargerAcces(ficheNom);
+  if(o==='conteneur') chargerConteneur();
 }
 
 /* ---------------- acces a une application ---------------- */
@@ -2798,12 +2827,12 @@ function peindreFiche(){
   $('fa-etat').className='pill '+cl; $('fa-etat').innerHTML='<i></i>'+txt;
   const prive=a.visibility==='privee';
   $('fa-vis').className='pill '+(prive?'priv':'pub');
-  $('fa-vis').innerHTML='<i></i>'+(prive?'Prive':'Public');
+  $('fa-vis').innerHTML='<i></i>'+(prive?'Privé':'Public');
 
   $('fa-url').textContent='/'+a.name+'/';
   $('fa-url').href=urlApplication(a.name);
   $('fa-port').textContent=a.port;
-  $('fa-ecoute').textContent = !a.running ? 'Arretee'
+  $('fa-ecoute').textContent = !a.running ? 'Arrêtée'
     : (a.listening===false ? 'Le port ne répond pas' : 'Le port répond');
   $('fa-vis-txt').textContent = prive
     ? 'Privée — session requise' : 'Publique — ouverte a tous';
@@ -2876,6 +2905,92 @@ function chargerConfigFiche(){
      main. */
   $('e-supprimer').style.display = (a.name === 'diagnostic') ? 'none' : '';
 }
+/* ---------------- conteneuriser une application ---------------- */
+let ctFichiers=[];
+
+async function chargerConteneur(){
+  const zone=$('ct-fichiers');
+  zone.innerHTML='<div class="hint">Lecture du projet...</div>';
+  $('ct-err').style.display='none'; $('ct-msg').style.display='none';
+  let d;
+  try{
+    const r=await fetch('/api/app/'+encodeURIComponent(ficheNom)+'/conteneur');
+    d=await r.json();
+    if(!r.ok) throw new Error(d.error||'');
+  }catch(e){
+    zone.innerHTML='';
+    $('ct-err').textContent=(e && e.message) || 'Lecture impossible.';
+    $('ct-err').style.display='block';
+    return;
+  }
+  ctFichiers=d.fichiers||[];
+  const p=$('ct-pile');
+  p.className='pill '+(d.pile && d.pile!=='inconnue' ? 'on':'off');
+  p.innerHTML='<i></i>'+esc(d.pile||'inconnue');
+
+  /* L'article vit avec le libelle : « besoin de une base » se corrige au
+     bon endroit, pas par une regle de grammaire dans le gabarit. */
+  const services={postgres:"d'une base Postgres", redis:"d'un Redis"};
+  $('ct-resume').innerHTML =
+    (d.indices && d.indices.length
+      ? 'Pile reconnue d\'après <code>'+d.indices.map(esc).join('</code>, <code>')+'</code>. '
+      : "Aucun indice de pile dans le dossier : le Dockerfile est générique, et c'est "
+        + 'à relire de près. ')
+    + ((d.services||[]).length
+      ? 'À côté, l\'application semble avoir besoin '
+        + d.services.map(x=>services[x]||x).join(' et ') + '.'
+      : 'Aucun service voisin détecté.');
+
+  /* Deroules ? Non : cinq fichiers ouverts d'un coup noient la page, et on
+     ne relit qu'un fichier a la fois. */
+  zone.innerHTML = ctFichiers.map((f,i)=>
+    `<details style="margin-bottom:8px">
+       <summary style="cursor:pointer"><b>${esc(f.nom)}</b>
+         <span class="hint" style="display:inline;margin-left:6px">${esc(f.role)}</span>
+         ${f.existe?'<span class="pill off" style="margin-left:8px"><i></i>existe déjà</span>':''}
+       </summary>
+       <div class="actions" style="margin:8px 0">
+         <button class="btn btn-default btn-sm" onclick="ctCopier(${i})">Copier</button>
+       </div>
+       <pre class="pre-conf" id="ct-f${i}">${esc(f.contenu)}</pre>
+     </details>`).join('');
+
+  const conflits=ctFichiers.filter(f=>f.existe).length;
+  $('ct-remplacer').style.display = conflits ? '' : 'none';
+}
+
+async function ctCopier(i){
+  try{ await navigator.clipboard.writeText(ctFichiers[i].contenu);
+       notifier(ctFichiers[i].nom+' copié.'); }
+  catch(e){ notifier('Copie impossible : sélectionne le texte à la main.','err'); }
+}
+
+async function ctPoser(remplacer){
+  const e=$('ct-err'), m=$('ct-msg');
+  e.style.display='none'; m.style.display='none';
+  const b = remplacer ? $('ct-remplacer') : $('ct-poser');
+  b.disabled=true;
+  try{
+    const r=await fetch('/api/app/'+encodeURIComponent(ficheNom)+'/conteneur',
+      {method:'POST', headers:{'Content-Type':'application/json'},
+       body:JSON.stringify({remplacer:!!remplacer})});
+    const d=await r.json();
+    if(!r.ok){ e.textContent=d.error||'Écriture impossible.'; e.style.display='block'; }
+    else{
+      const parts=[];
+      if((d.ecrits||[]).length) parts.push('Déposé : '+d.ecrits.join(', ')+'.');
+      /* On NOMME ce qui n'a pas ete touche : un fichier saute en silence,
+         c'est un fichier qu'on croit ecrit. */
+      if((d.sautes||[]).length) parts.push('Laissé tel quel : '+d.sautes.join(', ')
+        + ' — déjà présent dans le projet.');
+      m.textContent = parts.join(' ') || 'Rien à écrire.';
+      m.style.display='block';
+      chargerConteneur();
+    }
+  }catch(err){ e.textContent='Erreur réseau.'; e.style.display='block'; }
+  finally{ b.disabled=false; }
+}
+
 /* ---------------- le logo d'une application ---------------- */
 function logoChoisir(){ $('e-logo-fichier').click(); }
 

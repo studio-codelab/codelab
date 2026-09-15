@@ -3775,6 +3775,148 @@ def test_masquer_demande_une_session(hub):
     assert anonyme.post("/api/mes-apps/vitrine/masquer").status_code in (401, 403)
 
 
+# ---------- 12 octies. conteneuriser une application ----------
+#
+# Le panneau PRODUIT les fichiers ; il ne construit aucune image et ne lance
+# rien. Il n'a pas de socket Docker, et lui en donner un reviendrait a lui
+# offrir la machine entiere.
+
+@pytest.fixture
+def conteneur(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
+    monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
+    monkeypatch.setattr(app, "under_root", lambda p: True)
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    app._apps_cache["signature"] = None
+    projet = tmp_path / "facturier"
+    projet.mkdir()
+    (projet / "requirements.txt").write_text("flask\npsycopg[binary]\n")
+    (projet / "app.py").write_text("import psycopg, os\nPORT = os.environ['PORT']\n")
+    app.save({"facturier": {"path": str(projet), "command": "python3 app.py",
+                            "port": 9105, "enabled": False, "max_memory_mb": 256}})
+    c = app.flask_app.test_client()
+    c.post("/login", json={"password": "secret-de-test"})
+    return c, projet
+
+
+def test_la_pile_se_devine_sur_les_fichiers_pas_sur_la_commande(conteneur):
+    """« npm start » peut lancer autre chose que du Node, et un script shell
+    peut lancer n'importe quoi. Ce sont les fichiers qui parlent."""
+    c, projet = conteneur
+    d = c.get("/api/app/facturier/conteneur").get_json()
+    assert d["pile"] == "Python"
+    assert d["indices"] == ["requirements.txt"]
+    assert "postgres" in d["services"]
+    noms = [f["nom"] for f in d["fichiers"]]
+    assert noms == ["Dockerfile", "docker-compose.yml", ".env.exemple",
+                    ".dockerignore", "CONTENEUR.md"]
+
+
+def test_le_compose_produit_est_un_yaml_valide(conteneur):
+    """Un fichier de configuration produit et jamais relu par une machine
+    finit par contenir une faute de frappe."""
+    import yaml
+    c, _ = conteneur
+    d = c.get("/api/app/facturier/conteneur").get_json()
+    compose = next(f for f in d["fichiers"] if f["nom"] == "docker-compose.yml")
+    charge = yaml.safe_load(compose["contenu"])
+    assert "facturier" in charge["services"]
+    # Le service voisin detecte est la, avec son volume.
+    assert "base" in charge["services"]
+    assert "base" in (charge.get("volumes") or {})
+    # La limite de memoire suit celle de CodeLab : le conteneur doit se
+    # comporter comme l'application se comporte ici.
+    assert charge["services"]["facturier"]["deploy"]["resources"]["limits"]["memory"] \
+        == "256M"
+
+
+def test_l_image_produite_ne_tourne_pas_en_root(conteneur):
+    """Un conteneur en root donne root sur ses volumes montes, et rapproche
+    d'une evasion tout ce qui tourne dedans."""
+    c, _ = conteneur
+    d = c.get("/api/app/facturier/conteneur").get_json()
+    dockerfile = next(f for f in d["fichiers"] if f["nom"] == "Dockerfile")["contenu"]
+    # Une LIGNE « USER app », pas la chaine quelque part : commentee, elle
+    # ne bascule rien, et le test passerait quand meme.
+    lignes = [l.strip() for l in dockerfile.splitlines()]
+    assert "USER app" in lignes, dockerfile
+    assert any(l.startswith("RUN useradd") for l in lignes), dockerfile
+    # Le port de CodeLab est repris : c'est le contrat, et c'est ce qui casse
+    # en premier ailleurs.
+    assert "ENV PORT=9105" in dockerfile
+
+
+def test_le_modele_de_variables_n_emporte_aucun_secret(conteneur):
+    """Un modele, pas une copie de credentials.env : il part dans le depot
+    du projet, et il doit pouvoir y rester."""
+    c, _ = conteneur
+    d = c.get("/api/app/facturier/conteneur").get_json()
+    modele = next(f for f in d["fichiers"] if f["nom"] == ".env.exemple")["contenu"]
+    assert "PORT=9105" in modele
+    assert "POSTGRES_PASSWORD=a-changer" in modele
+    ignore = next(f for f in d["fichiers"] if f["nom"] == ".dockerignore")["contenu"]
+    # Le .env rempli, lui, n'entre ni dans l'image ni dans le depot.
+    assert ".env" in ignore and "!.env.exemple" in ignore
+
+
+def test_deposer_les_fichiers_n_ecrase_jamais_ce_qui_existe(conteneur):
+    """Le dossier d'un projet contient du travail : un bouton qui remplace un
+    Dockerfile ecrit a la main est une perte de donnees, meme quand le notre
+    est meilleur."""
+    c, projet = conteneur
+    (projet / "Dockerfile").write_text("FROM scratch  # le mien\n")
+    r = c.post("/api/app/facturier/conteneur", json={})
+    assert r.status_code == 200, r.data
+    d = r.get_json()
+    assert "Dockerfile" in d["sautes"]
+    assert "docker-compose.yml" in d["ecrits"]
+    assert (projet / "Dockerfile").read_text() == "FROM scratch  # le mien\n"
+
+
+def test_remplacer_se_demande_explicitement(conteneur):
+    c, projet = conteneur
+    (projet / "Dockerfile").write_text("FROM scratch\n")
+    c.post("/api/app/facturier/conteneur", json={"remplacer": True})
+    assert "USER app" in (projet / "Dockerfile").read_text()
+
+
+def test_le_depot_est_journalise(conteneur):
+    c, _ = conteneur
+    c.post("/api/app/facturier/conteneur", json={})
+    actions = [e.get("action") for e in app.lire_acces() if e.get("genre") == "conteneur"]
+    assert actions and "Dockerfile" in actions[0]
+
+
+def test_le_panneau_ne_construit_ni_ne_lance_aucune_image():
+    """La limite est nette et elle doit le rester : produire des fichiers ne
+    demande aucun acces a Docker, et un panneau qui aurait ce socket
+    donnerait la machine entiere a qui prend sa session."""
+    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    # Ce qu'on cherche, c'est une EXECUTION, pas le mot : le mode d'emploi
+    # produit contient « docker compose up », et c'est precisement son role.
+    for ligne in src.splitlines():
+        nue = ligne.strip()
+        if nue.startswith("#") or nue.startswith('"') or nue.startswith("'"):
+            continue
+        assert "docker.sock" not in nue, nue
+        if "docker" in nue:
+            assert not any(appel in nue for appel in
+                           ("subprocess.run", "subprocess.Popen", "os.system",
+                            "check_output")), nue
+
+
+def test_conteneuriser_est_reserve_a_l_administrateur(conteneur):
+    c, _ = conteneur
+    anonyme = app.flask_app.test_client()
+    assert anonyme.get("/api/app/facturier/conteneur").status_code in (401, 403)
+    assert anonyme.post("/api/app/facturier/conteneur",
+                        json={}).status_code in (401, 403)
+
+
 # ---------- 12 ter. le logo d'une application ----------
 #
 # Il vit dans le DOSSIER du projet : un projet emporte son logo quand on le

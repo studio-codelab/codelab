@@ -1074,6 +1074,407 @@ def _descripteurs(nom):
             for k in passkeys_du_compte(nom)]
 
 
+# ------------------------- conteneuriser une application -------------------------
+#
+# CE QUE CETTE FONCTION FAIT, ET CE QU'ELLE NE FAIT PAS.
+#
+# Elle ECRIT les fichiers qui manquent pour sortir une application de CodeLab
+# et la faire tourner ailleurs : Dockerfile, compose, modele de variables
+# d'environnement, .dockerignore et un mode d'emploi. Elle ne construit
+# aucune image et ne lance rien -- le panneau n'a pas de socket Docker, et
+# lui en donner un reviendrait a lui offrir la machine entiere.
+#
+# Elle DEVINE la pile a partir de ce qui est dans le dossier, puis le DIT :
+# un Dockerfile produit sans qu'on sache sur quoi il se fonde est un
+# Dockerfile qu'on relit entierement de toute facon.
+#
+# Les valeurs viennent de ce que le panneau sait deja de l'application -- sa
+# commande de lancement, sa commande de build, sa limite de memoire, son port
+# -- pour que le conteneur demarre comme elle demarre ici, et pas autrement.
+
+PILES = {
+    "python": {
+        "nom": "Python",
+        "indices": ("requirements.txt", "pyproject.toml", "Pipfile", "setup.py"),
+        "image": "python:3.12-slim",
+        "build": "pip install --no-cache-dir -r requirements.txt",
+        "conseil": "requirements.txt est copie avant le reste du code : "
+                   "l'etape d'installation n'est alors refaite que quand les "
+                   "dependances changent, pas a chaque modification du code.",
+    },
+    "node": {
+        "nom": "Node",
+        "indices": ("package.json", "package-lock.json", "pnpm-lock.yaml"),
+        "image": "node:22-slim",
+        "build": "npm ci --omit=dev || npm install --omit=dev",
+        "conseil": "package.json et son verrou sont copies avant le reste du "
+                   "code, pour la meme raison : l'installation ne se refait "
+                   "que quand les dependances changent.",
+    },
+    "go": {
+        "nom": "Go",
+        "indices": ("go.mod",),
+        "image": "golang:1.23",
+        "build": "go build -o ./app ./...",
+        "conseil": "Le binaire est construit dans l'image ; pour aller plus "
+                   "loin, une seconde etape « FROM debian:stable-slim » qui "
+                   "ne copie que le binaire divise la taille par dix.",
+    },
+    "php": {
+        "nom": "PHP",
+        "indices": ("composer.json", "index.php"),
+        "image": "php:8.3-cli",
+        "build": "",
+        "conseil": "",
+    },
+}
+
+
+def detecter_pile(chemin):
+    """(cle, infos) d'apres ce qui est REELLEMENT dans le dossier.
+
+    On regarde les fichiers, pas la commande de lancement : « npm start »
+    peut lancer autre chose que du Node, et un script shell peut lancer
+    n'importe quoi. Un dossier qu'on ne reconnait pas rend une pile
+    generique -- le mode d'emploi le dit alors franchement.
+    """
+    try:
+        presents = set(os.listdir(chemin))
+    except OSError:
+        presents = set()
+    for cle, infos in PILES.items():
+        if presents & set(infos["indices"]):
+            return cle, dict(infos, trouve=sorted(presents & set(infos["indices"])))
+    return "", {"nom": "inconnue", "image": "debian:stable-slim", "build": "",
+                "conseil": "", "trouve": []}
+
+
+def services_requis(chemin, a):
+    """Ce dont l'application a besoin a cote d'elle, d'apres son code.
+
+    Deviner un service a partir d'un import est grossier -- mais ne rien
+    proposer du tout oblige a tout ecrire a la main, et proposer un compose
+    avec une base dont personne n'a besoin est facile a supprimer. Le
+    deuxieme cas se corrige en trois secondes, pas le premier.
+    """
+    besoins = []
+    motifs = {
+        "postgres": ("psycopg", "asyncpg", "sqlalchemy", "pg8000", "postgres",
+                     "POSTGRES_", "DATABASE_URL"),
+        "redis": ("redis", "REDIS_URL"),
+    }
+    textes = []
+    for racine, dossiers, fichiers in os.walk(chemin):
+        # On ne descend pas dans les dependances : y chercher des indices
+        # trouverait tout et n'importe quoi.
+        dossiers[:] = [d for d in dossiers
+                       if d not in ("node_modules", ".git", "vendor", ".venv",
+                                    "__pycache__", "dist", "build")]
+        for f in fichiers:
+            if f.endswith((".py", ".js", ".ts", ".json", ".txt", ".toml", ".env",
+                           ".yml", ".yaml", ".go", ".php")):
+                try:
+                    with open(os.path.join(racine, f), errors="replace") as fh:
+                        textes.append(fh.read(200000))
+                except OSError:
+                    continue
+        if len(textes) > 200:
+            break
+    tout = "\n".join(textes)
+    for service, mots in motifs.items():
+        if any(m in tout for m in mots):
+            besoins.append(service)
+    return besoins
+
+
+def variables_du_modele(a, besoins):
+    """Le modele de variables d'environnement, commente ligne a ligne.
+
+    PORT y est toujours : c'est le contrat de CodeLab, et c'est la premiere
+    chose qu'on oublie en sortant une application de son panneau.
+    """
+    lignes = [
+        "# Modele de variables d'environnement. Copie-le en .env, remplis les",
+        "# valeurs, et NE LE COMMITTE PAS -- .dockerignore et .gitignore",
+        "# l'ecartent deja.",
+        "",
+        "# Le port sur lequel l'application doit ECOUTER. CodeLab le fournit ;",
+        "# ailleurs, c'est a toi de le poser.",
+        f"PORT={a.get('port') or 8000}",
+    ]
+    if "postgres" in besoins:
+        lignes += [
+            "",
+            "# Base de donnees. Dans le compose ci-joint, l'hote est le nom du",
+            "# service (« base »), pas localhost : chaque conteneur a son",
+            "# propre localhost.",
+            "POSTGRES_HOST=base",
+            "POSTGRES_PORT=5432",
+            "POSTGRES_DB=app",
+            "POSTGRES_USER=app",
+            "POSTGRES_PASSWORD=a-changer",
+        ]
+    if "redis" in besoins:
+        lignes += ["", "REDIS_URL=redis://cache:6379/0"]
+    return "\n".join(lignes) + "\n"
+
+
+def _dockerfile(a, cle, pile, besoins):
+    nom = a["name"]
+    build = (a.get("build_command") or "").strip() or pile.get("build") or ""
+    lancement = (a.get("command") or "").strip() or "echo 'aucune commande'"
+    port = a.get("port") or 8000
+    lignes = [
+        f"# Image de « {nom} », produite par CodeLab.",
+        "#",
+        f"# Pile detectee : {pile['nom']}"
+        + (f" (d'apres {', '.join(pile.get('trouve') or [])})" if pile.get("trouve")
+           else " -- aucun indice trouve dans le dossier, a relire de pres"),
+        "#",
+        "# Relis-la : elle est fondee sur ce que le panneau sait de",
+        "# l'application, pas sur une analyse de son code.",
+        "",
+        f"FROM {pile['image']}",
+        "",
+        "WORKDIR /app",
+        "",
+    ]
+    if cle == "python":
+        lignes += [
+            "# Les dependances avant le code : l'etape d'installation n'est",
+            "# alors refaite que quand requirements.txt change.",
+            "COPY requirements.txt ./",
+            f"RUN {build}" if build else "",
+            "",
+            "COPY . .",
+        ]
+    elif cle == "node":
+        lignes += [
+            "COPY package*.json ./",
+            f"RUN {build}" if build else "",
+            "",
+            "COPY . .",
+        ]
+    else:
+        lignes += ["COPY . ."]
+        if build:
+            lignes += [f"RUN {build}"]
+    lignes += [
+        "",
+        "# JAMAIS EN ROOT. Un conteneur qui tourne en root donne root sur ses",
+        "# volumes montes, et rapproche d'une evasion tout ce qui tourne",
+        "# dedans. L'utilisateur est cree ici, et le dossier lui appartient.",
+        "RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin app \\",
+        " && chown -R app:app /app",
+        "USER app",
+        "",
+        "# Le port n'est qu'une DOCUMENTATION : c'est le compose (ou -p) qui",
+        "# publie reellement.",
+        f"ENV PORT={port}",
+        f"EXPOSE {port}",
+        "",
+        "# Le shell est necessaire : la commande vient de CodeLab et peut",
+        "# contenir des variables, des pipes, un enchainement.",
+        f'CMD ["sh", "-c", "{lancement}"]',
+        "",
+    ]
+    return "\n".join(l for l in lignes if l is not None) + ""
+
+
+def _compose(a, besoins):
+    nom = a["name"]
+    port = a.get("port") or 8000
+    memoire = a.get("max_memory_mb")
+    lignes = [
+        f"# Pile de « {nom} », produite par CodeLab.",
+        "#",
+        "#   docker compose up -d --build",
+        "#",
+        "# Les valeurs sensibles vivent dans .env, a cote de ce fichier (voir",
+        "# .env.exemple). Compose le lit tout seul.",
+        "",
+        "services:",
+        "",
+        f"  {nom}:",
+        "    build: .",
+        f"    container_name: {nom}",
+        "    restart: unless-stopped",
+        "    env_file: [.env]",
+        "    ports:",
+        f'      - "{port}:{port}"',
+        "",
+        "    # Durcissement : tout retirer, ne rien rendre. Une application web",
+        "    # n'a besoin d'aucune capability -- si elle refuse de demarrer,",
+        "    # c'est le message d'erreur qui dira laquelle rendre, et il faudra",
+        "    # une bonne raison.",
+        "    security_opt:",
+        "      - no-new-privileges:true",
+        "    cap_drop:",
+        "      - ALL",
+        "    read_only: false",
+        "",
+        "    healthcheck:",
+        # Le healthcheck utilise python3 : present dans les images python,
+        # absent des images node ou go. Sur ces piles-la, remplace-le par
+        # un "wget -q -O /dev/null" ou supprime le bloc -- un healthcheck
+        # qui echoue toujours vaut moins que pas de healthcheck.
+        '      test: ["CMD-SHELL", "python3 -c \\"import urllib.request;'
+        'urllib.request.urlopen(%s)\\" || exit 1"]' % (            "'http://127.0.0.1:%d/'" % port),
+        "      interval: 30s",
+        "      timeout: 5s",
+        "      retries: 3",
+        "      start_period: 20s",
+    ]
+    if memoire:
+        lignes += [
+            "",
+            "    # La meme limite que dans CodeLab. Depassee, le noyau tue le",
+            "    # processus : c'est brutal, et c'est le but -- une fuite de",
+            "    # memoire ne doit pas emporter la machine avec elle.",
+            "    deploy:",
+            "      resources:",
+            "        limits:",
+            f"          memory: {int(memoire)}M",
+        ]
+    if besoins:
+        lignes += ["", "    depends_on:"]
+        for service in besoins:
+            nom_service = {"postgres": "base", "redis": "cache"}[service]
+            lignes += [f"      {nom_service}:",
+                       "        condition: service_healthy"]
+    if "postgres" in besoins:
+        lignes += [
+            "",
+            "  base:",
+            "    image: postgres:17-alpine",
+            "    restart: unless-stopped",
+            "    environment:",
+            "      POSTGRES_DB: ${POSTGRES_DB}",
+            "      POSTGRES_USER: ${POSTGRES_USER}",
+            "      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}",
+            "    volumes:",
+            "      - base:/var/lib/postgresql/data",
+            "    healthcheck:",
+            '      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]',
+            "      interval: 10s",
+            "      timeout: 5s",
+            "      retries: 5",
+        ]
+    if "redis" in besoins:
+        lignes += [
+            "",
+            "  cache:",
+            "    image: redis:7-alpine",
+            "    restart: unless-stopped",
+            "    healthcheck:",
+            '      test: ["CMD", "redis-cli", "ping"]',
+            "      interval: 10s",
+            "      timeout: 5s",
+            "      retries: 5",
+        ]
+    if "postgres" in besoins:
+        lignes += ["", "volumes:", "  base:"]
+    return "\n".join(lignes) + "\n"
+
+
+def _dockerignore():
+    return "\n".join([
+        "# Ce qui n'a rien a faire dans l'image : des secrets, des dependances",
+        "# qui seront reinstallees dedans, et l'historique du depot.",
+        ".env", ".env.*", "!.env.exemple",
+        ".git", ".gitignore",
+        "node_modules", "__pycache__", "*.pyc", ".venv", "venv",
+        "dist", "build", ".pytest_cache", ".mypy_cache",
+        "*.log", ".DS_Store",
+        "",
+    ])
+
+
+def _mode_d_emploi(a, cle, pile, besoins, fichiers):
+    nom = a["name"]
+    port = a.get("port") or 8000
+    services = {"postgres": "une base Postgres (service « base »)",
+                "redis": "un Redis (service « cache »)"}
+    lignes = [
+        f"# Conteneuriser « {nom} »",
+        "",
+        "Ces fichiers ont ete produits par CodeLab a partir de ce qu'il sait de",
+        "l'application. **Relis-les** : ils sont un point de depart serieux, pas",
+        "une verite.",
+        "",
+        "## Ce qui a ete detecte",
+        "",
+        f"- **Pile** : {pile['nom']}"
+        + (f", d'apres `{'`, `'.join(pile.get('trouve') or [])}`" if pile.get("trouve")
+           else " — aucun indice dans le dossier, le Dockerfile est generique"),
+        f"- **Commande de lancement** : `{(a.get('command') or '').strip()}`",
+        f"- **Commande de build** : "
+        + (f"`{(a.get('build_command') or '').strip()}`"
+           if (a.get("build_command") or "").strip()
+           else f"aucune dans CodeLab, `{pile.get('build') or '(rien)'}` proposee"),
+        f"- **Port** : {port}",
+        "- **Services voisins** : "
+        + (", ".join(services.get(b, b) for b in besoins) if besoins
+           else "aucun detecte"),
+        "",
+        "## Les fichiers",
+        "",
+    ]
+    for f in fichiers:
+        lignes.append(f"- `{f['nom']}` — {f['role']}")
+    lignes += [
+        "",
+        "## Demarrer",
+        "",
+        "```sh",
+        "cp .env.exemple .env      # puis remplis les valeurs",
+        "docker compose up -d --build",
+        f"docker compose logs -f {nom}",
+        "```",
+        "",
+        "## Ce qu'il reste a verifier, toujours",
+        "",
+        f"1. **L'application ecoute-t-elle sur `$PORT` ?** C'est le contrat de",
+        "   CodeLab, et la premiere chose qui casse ailleurs. Une application qui",
+        "   ecoute en dur sur 127.0.0.1 ne repondra pas depuis l'exterieur du",
+        "   conteneur : il lui faut `0.0.0.0`.",
+        "2. **Les fichiers ecrits a l'execution.** Tout ce qui n'est pas dans un",
+        "   volume disparait au prochain `up --build`. Si l'application ecrit des",
+        "   fichiers, ajoute un volume.",
+        "3. **Les secrets.** `.env` n'est ni dans l'image (.dockerignore) ni dans",
+        "   le depot : c'est voulu. Le jour ou tu deploies ailleurs, il faut donc",
+        "   le recreer la-bas.",
+    ]
+    if pile.get("conseil"):
+        lignes += ["", "## Pour aller plus loin", "", pile["conseil"]]
+    return "\n".join(lignes) + "\n"
+
+
+def fichiers_conteneur(a):
+    """Les fichiers a poser dans le projet, dans l'ordre ou on les lit."""
+    cle, pile = detecter_pile(a["path"])
+    besoins = services_requis(a["path"], a)
+    fichiers = [
+        {"nom": "Dockerfile", "role": "comment l'image se construit",
+         "contenu": _dockerfile(a, cle, pile, besoins)},
+        {"nom": "docker-compose.yml",
+         "role": "l'application et ce qui tourne à côté",
+         "contenu": _compose(a, besoins)},
+        {"nom": ".env.exemple",
+         "role": "les variables à remplir, commentées",
+         "contenu": variables_du_modele(a, besoins)},
+        {"nom": ".dockerignore",
+         "role": "ce qui n'entre pas dans l'image",
+         "contenu": _dockerignore()},
+    ]
+    fichiers.append({
+        "nom": "CONTENEUR.md",
+        "role": "le mode d'emploi, et ce qu'il reste à vérifier",
+        "contenu": _mode_d_emploi(a, cle, pile, besoins, fichiers)})
+    return {"pile": pile["nom"], "indices": pile.get("trouve") or [],
+            "services": besoins, "fichiers": fichiers}
+
+
 # ------------------------- messages des utilisateurs -------------------------
 #
 # Un mot laisse depuis le hub : une remarque sur une application, une
@@ -5850,6 +6251,81 @@ def api_logs_stream(n):
     # se refermerait tout seul sur le panneau.
     reponse.call_on_close(_rendre_place_flux)
     return reponse
+
+
+@flask_app.get("/api/app/<n>/conteneur")
+@require_admin
+def api_conteneur(n):
+    """Les fichiers de conteneurisation, sans rien ecrire.
+
+    On regarde avant de poser : ces fichiers vont dans le dossier du projet,
+    et personne ne doit decouvrir apres coup ce qu'un bouton y a depose.
+    """
+    a = load().get(n)
+    if not a:
+        return jsonify({"error": "Application inconnue."}), 404
+    if not os.path.isdir(a["path"]):
+        return jsonify({"error": "Dossier du projet introuvable : " + a["path"]}), 400
+    resultat = fichiers_conteneur(dict(a, name=n))
+    # Ce qui existe deja compte autant que ce qu'on propose : le bouton
+    # d'ecriture doit pouvoir dire « celui-la, je ne le touche pas ».
+    for f in resultat["fichiers"]:
+        f["existe"] = os.path.isfile(os.path.join(a["path"], f["nom"]))
+    return jsonify(resultat)
+
+
+@flask_app.post("/api/app/<n>/conteneur")
+@require_admin
+def api_conteneur_ecrire(n):
+    """Depose les fichiers dans le dossier du projet.
+
+    N'ECRASE RIEN SANS QU'ON LE DEMANDE. Le dossier d'un projet contient du
+    travail ; un bouton qui remplace un Dockerfile ecrit a la main est une
+    perte de donnees, meme quand le notre est meilleur. Les fichiers deja
+    presents sont donc sautes, et nommes dans la reponse -- on choisit alors
+    de recommencer en remplacant, en connaissance de cause.
+    """
+    a = load().get(n)
+    if not a:
+        return jsonify({"error": "Application inconnue."}), 404
+    if not os.path.isdir(a["path"]) or not under_root(a["path"]):
+        return jsonify({"error": "Dossier du projet introuvable."}), 400
+    d = request.get_json(force=True, silent=True) or {}
+    remplacer = bool(d.get("remplacer"))
+    voulus = d.get("fichiers")
+
+    resultat = fichiers_conteneur(dict(a, name=n))
+    ecrits, sautes = [], []
+    for f in resultat["fichiers"]:
+        if voulus and f["nom"] not in voulus:
+            continue
+        cible = os.path.join(a["path"], f["nom"])
+        if os.path.islink(cible):
+            # Jamais a travers un lien : le panneau ecrit en root.
+            sautes.append(f["nom"])
+            continue
+        if os.path.exists(cible) and not remplacer:
+            sautes.append(f["nom"])
+            continue
+        tmp = cible + ".codelab-tmp"
+        try:
+            with open(tmp, "w") as fh:
+                fh.write(f["contenu"])
+            os.replace(tmp, cible)
+            os.chmod(cible, 0o664)
+        except OSError as e:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            return jsonify({"error": f"Écriture impossible ({f['nom']}) : {e}",
+                            "ecrits": ecrits}), 500
+        ecrits.append(f["nom"])
+    if ecrits:
+        journaliser("conteneur", qui=utilisateur_courant() or NOM_ADMIN, app=n,
+                    action="fichiers deposes (%s)" % ", ".join(ecrits),
+                    ip=_adresse_client())
+    return jsonify({"ok": True, "ecrits": ecrits, "sautes": sautes})
 
 
 @flask_app.put("/api/app/<n>/logo")
