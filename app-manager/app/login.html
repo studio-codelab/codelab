@@ -276,6 +276,42 @@ button.principal:disabled{opacity:.6;cursor:default}
 
       <button class="principal" id="go" onclick="submit()">Se connecter</button>
       <div class="err" id="err"></div>
+
+      <!-- MOT DE PASSE OUBLIE. Deux chemins, parce qu'aucun des deux ne
+           suffit : par mail quand une adresse verifiee est rattachee au
+           compte, par l'administrateur sinon. Le lien reste discret -- on ne
+           l'ouvre qu'une fois tous les six mois. -->
+      <div class="bascule" id="oubli-lien-zone">
+        <a id="oubli-lien" onclick="ouvrirOubli()">Mot de passe oublié ?</a>
+      </div>
+
+      <div id="oubli" style="display:none">
+        <div class="etape">Mot de passe oublié</div>
+        <div class="etape-num">Saisis ton nom de compte : si une adresse mail vérifiée y est
+          rattachée, un code à six chiffres part dessus. Sinon, demande à ton administrateur
+          de t'en poser un nouveau — c'est l'autre chemin, et il ne dépend d'aucun mail.</div>
+        <div class="etape-num"><b>Le compte d'administration ne se réinitialise pas d'ici :</b>
+          son mot de passe est celui de <code>credentials.env</code>, sur le serveur.</div>
+        <div class="field" style="margin-top:12px"><label>Nom du compte</label>
+          <input type="text" id="oubli-nom" autocomplete="username"></div>
+        <button class="secondaire" id="oubli-envoyer" onclick="demanderCode()"
+          style="margin-top:10px">Envoyer le code</button>
+
+        <div id="oubli-suite" style="display:none">
+          <div class="field" style="margin-top:12px"><label>Code reçu par mail</label>
+            <input type="text" id="oubli-code" inputmode="numeric" maxlength="6"
+              autocomplete="one-time-code" placeholder="123456"></div>
+          <div class="field"><label>Nouveau mot de passe</label>
+            <input type="password" id="oubli-mdp" autocomplete="new-password"></div>
+          <div class="etape-num">8 caractères au minimum. Tu te reconnecteras ensuite
+            normalement, second facteur compris.</div>
+          <button class="principal" id="oubli-poser" onclick="poserMotDePasse()"
+            style="margin-top:10px">Changer le mot de passe</button>
+        </div>
+        <div class="err" id="oubli-err"></div>
+        <div class="ok" id="oubli-ok"></div>
+        <div class="bascule"><a onclick="fermerOubli()">Revenir à la connexion</a></div>
+      </div>
       <div class="ok" id="copie">Clé copiee.</div>
 
       <!-- Chemin par cle d'acces. Masque tant que le serveur n'a pas dit
@@ -339,6 +375,78 @@ function majChamps(){
     if(d.ouverte) $$('bascule').style.display='block';
   }catch(e){}
 })();
+
+/* ---------------- mot de passe oublie ---------------- */
+/* Le formulaire de connexion et celui de l'oubli ne cohabitent pas : deux
+   champs « nom » visibles en meme temps, c'est un remplissage automatique
+   qui se trompe de case. */
+const ZONES_CONNEXION = ['creation', 'totp-bloc', 'inscription', 'creation-code',
+                         'pk-zone', 'bascule', 'oubli-lien-zone'];
+
+function ouvrirOubli(){
+  ZONES_CONNEXION.forEach(i=>{ const n=$$(i); if(n) n.style.display='none'; });
+  document.querySelectorAll('.field').forEach(f=>{
+    if(f.querySelector('#nom') || f.querySelector('#pw')) f.style.display='none';
+  });
+  $$('go').style.display='none';
+  $$('err').textContent='';
+  $$('oubli').style.display='block';
+  $$('oubli-nom').value = $$('nom').value || '';
+  document.querySelector('.boite h2').textContent='Mot de passe oublié';
+  document.querySelector('.boite .st').textContent=
+    'Par mail si une adresse est rattachée à ton compte, par ton administrateur sinon.';
+  setTimeout(()=>$$('oubli-nom').focus(), 40);
+}
+
+function fermerOubli(){
+  /* Un rechargement remet la page dans son etat d'origine sans avoir a
+     defaire chaque masquage un par un -- et efface au passage ce qui a ete
+     tape, ce qui est exactement ce qu'on veut sur une page de connexion. */
+  location.reload();
+}
+
+async function demanderCode(){
+  const b=$$('oubli-envoyer'), e=$$('oubli-err'), ok=$$('oubli-ok');
+  e.textContent=''; ok.textContent='';
+  const nom=($$('oubli-nom').value||'').trim();
+  if(!nom){ e.textContent='Saisis ton nom de compte.'; return; }
+  b.disabled=true; b.textContent='Envoi...';
+  try{
+    const r=await fetch('/mot-de-passe/oubli',{method:'POST',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify({nom})});
+    if(r.status===429){ e.textContent='Trop de tentatives. Réessaie dans quelques minutes.'; }
+    else{
+      /* La reponse est la meme que le compte existe ou non : la page ne peut
+         donc pas en dire plus, et ne doit pas faire semblant de savoir. */
+      ok.textContent='Si une adresse vérifiée est rattachée à ce compte, le code vient '
+        + "de partir. Sinon, demande à ton administrateur de t'en poser un nouveau.";
+      $$('oubli-suite').style.display='block';
+    }
+  }catch(err){ e.textContent='Erreur réseau.'; }
+  finally{ b.disabled=false; b.textContent='Renvoyer le code'; }
+}
+
+async function poserMotDePasse(){
+  const b=$$('oubli-poser'), e=$$('oubli-err'), ok=$$('oubli-ok');
+  e.textContent=''; ok.textContent='';
+  const corps={nom:($$('oubli-nom').value||'').trim(),
+               code:($$('oubli-code').value||'').trim(),
+               nouveau:$$('oubli-mdp').value||''};
+  if(corps.nouveau.length<8){ e.textContent='Mot de passe : 8 caractères au minimum.'; return; }
+  b.disabled=true; b.textContent='Enregistrement...';
+  try{
+    const r=await fetch('/mot-de-passe/reinitialiser',{method:'POST',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify(corps)});
+    const d=await r.json();
+    if(!r.ok){ e.textContent=d.error||'Réinitialisation impossible.'; }
+    else{
+      ok.textContent='Mot de passe changé. Reconnecte-toi.';
+      $$('oubli-suite').style.display='none';
+      setTimeout(()=>location.reload(), 2500);
+    }
+  }catch(err){ e.textContent='Erreur réseau.'; }
+  finally{ b.disabled=false; b.textContent='Changer le mot de passe'; }
+}
 
 function basculer(){
   etape = (etape==='creation') ? 'mot-de-passe' : 'creation';

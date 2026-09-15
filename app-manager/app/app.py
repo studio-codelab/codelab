@@ -901,6 +901,66 @@ def envoyer_code_email(adresse, nom, code):
                  destinataires=[adresse])
 
 
+# ---------------------- mot de passe oublie ----------------------
+#
+# Par l'ADRESSE MAIL quand il y en a une de verifiee, et par
+# l'administrateur sinon. Les deux chemins existent parce qu'aucun des deux
+# ne suffit : sans adresse, personne ne peut prouver a distance qui il est ;
+# et si le seul recours etait l'administrateur, il faudrait le deranger pour
+# chaque oubli.
+#
+# UN CODE A PART, et non celui de la verification d'adresse : verifier une
+# adresse rend un compte utilisable, reinitialiser un mot de passe le rend
+# ACCESSIBLE. Le premier code, consomme, marque l'adresse comme verifiee --
+# ce qui n'a aucun sens ici, et surtout melangerait deux pouvoirs tres
+# differents dans un seul jeton.
+CODE_REINIT_VALIDITE = 900      # 15 minutes, comme la verification d'adresse
+CODE_REINIT_ESSAIS = 5
+
+
+def preparer_code_reinit(compte):
+    code = f"{secrets.randbelow(1000000):06d}"
+    compte["reinit_code"] = {"empreinte": _empreinte_code(code),
+                             "expire": int(time.time()) + CODE_REINIT_VALIDITE,
+                             "essais": 0,
+                             "envoye": int(time.time())}
+    return code
+
+
+def verifier_code_reinit(compte, code):
+    """(ok, message). Consomme un essai, et le code au premier succes."""
+    en_cours = compte.get("reinit_code") or {}
+    if not en_cours:
+        return False, "Aucune réinitialisation en cours. Recommence."
+    if int(time.time()) > en_cours.get("expire", 0):
+        compte.pop("reinit_code", None)
+        return False, "Ce code a expiré. Demandes-en un nouveau."
+    if en_cours.get("essais", 0) >= CODE_REINIT_ESSAIS:
+        compte.pop("reinit_code", None)
+        return False, "Trop d'essais. Demandes-en un nouveau."
+    en_cours["essais"] = en_cours.get("essais", 0) + 1
+    propose = re.sub(r"\D", "", str(code or ""))
+    if not (propose and secrets.compare_digest(_empreinte_code(propose),
+                                               en_cours.get("empreinte", ""))):
+        return False, "Code incorrect."
+    compte.pop("reinit_code", None)
+    return True, ""
+
+
+def envoyer_code_reinit(adresse, nom, code):
+    cfg, ok = smtp_utilisable()
+    if not ok:
+        raise RuntimeError("Aucun serveur d'envoi configure.")
+    envoyer_mail(cfg, "[CodeLab] reinitialisation de ton mot de passe",
+                 f"Code de reinitialisation pour le compte « {nom} » : {code}\n\n"
+                 f"Il est valable {CODE_REINIT_VALIDITE // 60} minutes, et ne sert "
+                 f"qu'une fois.\n\n"
+                 "Si tu n'es pas a l'origine de cette demande, ignore ce message : "
+                 "sans ce code, ton mot de passe ne change pas.\n\n"
+                 "-- CodeLab, panneau de gestion des applications",
+                 destinataires=[adresse])
+
+
 # --------------------------- cles d'acces (passkeys) ---------------------------
 #
 # Une cle d'acces remplace le mot de passe ET le code a six chiffres : le
@@ -4284,6 +4344,92 @@ def inscription_creer():
     return jsonify({"ok": True, "nom": nom, "confirmation": True})
 
 
+@flask_app.post("/mot-de-passe/oubli")
+def mot_de_passe_oubli():
+    """Envoie un code de reinitialisation, si tout s'y prete.
+
+    LA REPONSE EST TOUJOURS LA MEME, quoi qu'il arrive : compte inconnu,
+    adresse absente, adresse non verifiee, envoi impossible. Repondre
+    autrement transformerait ce formulaire en annuaire -- on y taperait des
+    noms jusqu'a trouver ceux qui existent.
+
+    Le compte d'administration n'a pas d'adresse : son mot de passe est celui
+    de credentials.env, et il ne se reinitialise pas d'ici. La page le dit,
+    et c'est une information publique -- elle ne revele l'existence de
+    personne.
+    """
+    if rate_limited():
+        return jsonify({"error": "Trop de tentatives. Réessaie dans quelques minutes."}), 429
+    nom = nom_utilisateur_valide((request.get_json(force=True, silent=True) or {}).get("nom"))
+    register_failed_attempt()   # compte dans la limite : un envoi de mail coute
+
+    comptes = lire_utilisateurs()
+    compte = comptes.get(nom) if nom else None
+    if compte and compte.get("email") and compte.get("email_verifie"):
+        en_cours = compte.get("reinit_code") or {}
+        # Pas plus d'un envoi par minute et par compte : sans cela, ce
+        # formulaire devient un robinet a mails vers l'adresse de quelqu'un
+        # d'autre.
+        if int(time.time()) - int(en_cours.get("envoye") or 0) >= CODE_EMAIL_DELAI:
+            code = preparer_code_reinit(compte)
+            try:
+                envoyer_code_reinit(compte["email"], nom, code)
+                ecrire_utilisateurs(comptes)
+                journaliser("mot-de-passe", qui=nom, action="code envoye",
+                            ip=_adresse_client())
+            except Exception as e:                                # noqa: BLE001
+                # On ne le dit pas au visiteur -- ce serait lui apprendre que
+                # le compte existe -- mais l'administrateur doit le voir.
+                journaliser("mot-de-passe", qui=nom,
+                            action=f"envoi impossible ({type(e).__name__})",
+                            ip=_adresse_client())
+    return jsonify({"ok": True})
+
+
+@flask_app.post("/mot-de-passe/reinitialiser")
+def mot_de_passe_reinitialiser():
+    """Pose le nouveau mot de passe, code en main.
+
+    N'ouvre pas de session : on se reconnecte ensuite, second facteur
+    compris. Un code recu par mail prouve qu'on releve l'adresse, pas qu'on
+    est la personne -- le second facteur, lui, reste exige.
+    """
+    if rate_limited():
+        return jsonify({"error": "Trop de tentatives. Réessaie dans quelques minutes."}), 429
+    d = request.get_json(force=True, silent=True) or {}
+    nom = nom_utilisateur_valide(d.get("nom"))
+    nouveau = (d.get("nouveau") or "").strip()
+    if len(nouveau) < 8:
+        return jsonify({"error": "Mot de passe : 8 caractères au minimum."}), 400
+
+    comptes = lire_utilisateurs()
+    compte = comptes.get(nom) if nom else None
+    if not compte:
+        register_failed_attempt()
+        # Message identique a celui d'un code faux : meme raison qu'au-dessus.
+        return jsonify({"error": "Code incorrect."}), 400
+
+    ok, message = verifier_code_reinit(compte, d.get("code"))
+    try:
+        ecrire_utilisateurs(comptes)
+    except OSError as e:
+        return jsonify({"error": f"État non enregistré : {e}"}), 500
+    if not ok:
+        register_failed_attempt()
+        return jsonify({"error": message}), 400
+
+    sel = secrets.token_hex(16)
+    compte["sel"] = sel
+    compte["hash"] = derive_mot_de_passe(nouveau, sel)
+    try:
+        ecrire_utilisateurs(comptes)
+    except OSError as e:
+        return jsonify({"error": f"Mot de passe non enregistré : {e}"}), 500
+    journaliser("mot-de-passe", qui=nom, action="reinitialise par mail",
+                ip=_adresse_client())
+    return jsonify({"ok": True})
+
+
 @flask_app.post("/inscription/confirmer")
 def inscription_confirmer():
     """Confirme l'adresse, et rend le compte utilisable.
@@ -4764,29 +4910,18 @@ def api_changer_mot_de_passe():
         return jsonify({"error": "Le nouveau mot de passe est identique à l'ancien."}), 400
 
     if est_admin():
-        reel = admin_password()
-        if not (reel and ancien and secrets.compare_digest(ancien, reel)):
-            register_failed_attempt()
-            journaliser("echec", qui=NOM_ADMIN, motif="changement de mot de passe",
-                        ip=_adresse_client())
-            return jsonify({"error": "Ancien mot de passe incorrect."}), 403
-        global _admin_password
-        # La cle de session est relue a sa source, jamais reconstituee depuis
-        # flask_app.secret_key : ecrire une cle differente de celle en place
-        # deconnecterait tout le monde au redemarrage suivant, sans rapport
-        # visible avec le changement de mot de passe.
-        cle = read_shared_value("APP_MANAGER_SESSION_SECRET") or ""
-        if not cle:
-            return jsonify({"error": "Clé de session introuvable dans "
-                                     "credentials.env : le mot de passe reste "
-                                     "inchangé plutot que de risquer de "
-                                     "deconnecter tout le monde."}), 500
-        if not ecrire_bloc_panneau(nouveau, cle, _totp_secret):
-            return jsonify({"error": "credentials.env n'a pas pu être écrit : "
-                                     "le mot de passe reste inchangé."}), 500
-        _admin_password = nouveau
-        journaliser("mot-de-passe", qui=NOM_ADMIN, ip=_adresse_client())
-        return jsonify({"ok": True})
+        # LE COMPTE D'ADMINISTRATION NE CHANGE PAS SON MOT DE PASSE ICI.
+        #
+        # Le sien est celui de credentials.env, et ce fichier est la source :
+        # c'est lui qu'on lit pour se depanner quand le panneau ne repond
+        # plus, lui qu'on copie en changeant de machine, lui que le
+        # diagnostic controle. Laisser le panneau le reecrire, c'etait
+        # accepter deux sources pour un meme secret -- et decouvrir laquelle
+        # fait foi le jour ou elles divergent, c'est-a-dire au pire moment.
+        return jsonify({
+            "error": "Le mot de passe d'administration se change dans "
+                     "credentials.env, sur le serveur — c'est lui qui fait "
+                     "foi. Le panneau ne le réécrit pas."}), 403
 
     nom = utilisateur_courant()
     comptes = lire_utilisateurs()

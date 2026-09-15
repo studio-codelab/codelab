@@ -3006,42 +3006,45 @@ def compte_admin(tmp_path, monkeypatch):
     return c
 
 
-def test_l_admin_change_son_mot_de_passe(compte_admin):
+def test_l_admin_ne_change_pas_son_mot_de_passe_depuis_le_panneau(compte_admin):
+    """CE QUI A CHANGE, ET POURQUOI. Le panneau reecrivait credentials.env.
+    Or ce fichier est LA source : c'est lui qu'on lit pour se depanner quand
+    le panneau ne repond plus, lui qu'on copie en changeant de machine, lui
+    que le diagnostic controle. Deux sources pour un meme secret, c'est
+    decouvrir laquelle fait foi le jour ou elles divergent -- au pire moment.
+    """
     r = compte_admin.post("/api/compte/mot-de-passe",
                           json={"ancien": "ancien-mot-de-passe",
                                 "nouveau": "un-nouveau-mot-de-passe"})
-    assert r.status_code == 200, r.data
-    assert app.admin_password() == "un-nouveau-mot-de-passe"
-    # Il survit au redemarrage : c'est credentials.env qui fait autorite.
-    assert app.read_shared_value("APP_MANAGER_ADMIN_PASSWORD") == "un-nouveau-mot-de-passe"
-
-
-def test_la_cle_de_session_n_est_pas_remplacee_au_passage(compte_admin):
-    """Ecrire une cle differente de celle en place deconnecterait tout le
-    monde au redemarrage suivant, sans rapport visible avec le changement de
-    mot de passe. Elle est donc relue a sa source, jamais reconstituee."""
-    compte_admin.post("/api/compte/mot-de-passe",
-                      json={"ancien": "ancien-mot-de-passe",
-                            "nouveau": "un-nouveau-mot-de-passe"})
+    assert r.status_code == 403, r.data
+    assert "credentials.env" in r.get_json()["error"]
+    # Rien n'a bouge, ni en memoire ni sur le disque.
+    assert app.admin_password() == "ancien-mot-de-passe"
+    assert app.read_shared_value("APP_MANAGER_ADMIN_PASSWORD") == "ancien-mot-de-passe"
     assert app.read_shared_value("APP_MANAGER_SESSION_SECRET") == "cle-de-session-existante"
 
 
-def test_une_session_volee_ne_verrouille_pas_le_compte(compte_admin):
+def test_une_session_volee_ne_verrouille_pas_le_compte(deux_espaces):
     """L'ancien mot de passe est exige meme sur une session deja ouverte :
     sans cela, un cookie capture suffirait a prendre la place de quelqu'un
     definitivement."""
-    r = compte_admin.post("/api/compte/mot-de-passe",
-                          json={"ancien": "pas-le-bon",
-                                "nouveau": "un-nouveau-mot-de-passe"})
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    r = c.post("/api/compte/mot-de-passe",
+               json={"ancien": "pas-le-bon", "nouveau": "un-nouveau-mot-de-passe"})
     assert r.status_code == 403, r.data
-    assert app.admin_password() == "ancien-mot-de-passe"
+    assert app.verifie_mot_de_passe(app.lire_utilisateurs()["marie"],
+                                    "mot-de-passe-long")
 
 
-def test_un_mot_de_passe_trop_court_est_refuse(compte_admin):
-    r = compte_admin.post("/api/compte/mot-de-passe",
-                          json={"ancien": "ancien-mot-de-passe", "nouveau": "court"})
+def test_un_mot_de_passe_trop_court_est_refuse(deux_espaces):
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    r = c.post("/api/compte/mot-de-passe",
+               json={"ancien": "mot-de-passe-long", "nouveau": "court"})
     assert r.status_code == 400, r.data
-    assert app.admin_password() == "ancien-mot-de-passe"
+    assert app.verifie_mot_de_passe(app.lire_utilisateurs()["marie"],
+                                    "mot-de-passe-long")
 
 
 def test_un_compte_nomme_change_le_sien_et_pas_celui_de_l_admin(deux_espaces):
@@ -4047,6 +4050,160 @@ def comptes_mail(tmp_path, monkeypatch):
 def _code_du_dernier_mail(partis):
     """Le code tel que la personne le lit dans son mail."""
     return re.search(r": (\d{6})", partis[-1][1]).group(1)
+
+
+# ---------- mot de passe oublie ----------
+#
+# Par l'adresse mail quand il y en a une de VERIFIEE, et par l'administrateur
+# sinon. Aucun des deux chemins ne suffit seul : sans adresse, personne ne
+# peut prouver a distance qui il est ; et si le seul recours etait
+# l'administrateur, il faudrait le deranger a chaque oubli.
+
+def _compte_avec_adresse(nom="marie", mdp="mot-de-passe-long", verifiee=True):
+    sel = "ee" * 16
+    app.ecrire_utilisateurs({nom: {
+        "sel": sel, "hash": app.derive_mot_de_passe(mdp, sel),
+        "projets": [], "cree": 0,
+        "email": f"{nom}@example.com", "email_verifie": verifiee}})
+
+
+def test_un_code_de_reinitialisation_part_a_l_adresse_verifiee(comptes_mail):
+    c, partis = comptes_mail
+    _compte_avec_adresse()
+    assert c.post("/mot-de-passe/oubli", json={"nom": "marie"}).status_code == 200
+    assert partis and partis[-1][0] == ["marie@example.com"]
+    assert "reinitialisation" in partis[-1][1] or "einitialisation" in partis[-1][1]
+
+    code = _code_du_dernier_mail(partis)
+    r = c.post("/mot-de-passe/reinitialiser",
+               json={"nom": "marie", "code": code, "nouveau": "nouveau-mot-de-passe"})
+    assert r.status_code == 200, r.data
+    compte = app.lire_utilisateurs()["marie"]
+    assert app.verifie_mot_de_passe(compte, "nouveau-mot-de-passe")
+    assert not app.verifie_mot_de_passe(compte, "mot-de-passe-long")
+
+
+def test_le_code_de_reinitialisation_ne_dort_pas_en_clair(comptes_mail):
+    """Comme celui de la verification d'adresse : le fichier ne garde qu'une
+    empreinte. Sinon le code attendrait, lisible, a cote du nom du compte."""
+    c, partis = comptes_mail
+    _compte_avec_adresse()
+    c.post("/mot-de-passe/oubli", json={"nom": "marie"})
+    code = _code_du_dernier_mail(partis)
+    assert code not in open(app.UTILISATEURS_FILE).read()
+
+
+def test_le_code_de_reinitialisation_ne_sert_qu_une_fois(comptes_mail):
+    c, partis = comptes_mail
+    _compte_avec_adresse()
+    c.post("/mot-de-passe/oubli", json={"nom": "marie"})
+    code = _code_du_dernier_mail(partis)
+    assert c.post("/mot-de-passe/reinitialiser",
+                  json={"nom": "marie", "code": code,
+                        "nouveau": "nouveau-mot-de-passe"}).status_code == 200
+    r = c.post("/mot-de-passe/reinitialiser",
+               json={"nom": "marie", "code": code, "nouveau": "encore-un-autre"})
+    assert r.status_code == 400, r.data
+    assert app.verifie_mot_de_passe(app.lire_utilisateurs()["marie"],
+                                    "nouveau-mot-de-passe")
+
+
+def test_un_code_de_verification_ne_vaut_pas_reinitialisation(comptes_mail):
+    """Deux pouvoirs tres differents : verifier une adresse rend un compte
+    utilisable, reinitialiser un mot de passe le rend ACCESSIBLE. Un seul
+    jeton pour les deux melangerait les deux."""
+    c, partis = comptes_mail
+    _compte_avec_adresse(verifiee=False)
+    comptes = app.lire_utilisateurs()
+    code_adresse = app.poser_code_email(comptes["marie"])
+    app.ecrire_utilisateurs(comptes)
+    r = c.post("/mot-de-passe/reinitialiser",
+               json={"nom": "marie", "code": code_adresse, "nouveau": "nouveau-mot-de-passe"})
+    assert r.status_code == 400, r.data
+
+
+def test_sans_adresse_verifiee_rien_ne_part(comptes_mail):
+    """Et l'utilisateur est renvoye vers l'administrateur : c'est l'autre
+    chemin, celui qui ne depend d'aucun mail."""
+    c, partis = comptes_mail
+    _compte_avec_adresse(verifiee=False)
+    assert c.post("/mot-de-passe/oubli", json={"nom": "marie"}).status_code == 200
+    assert partis == []
+
+
+def test_la_reponse_ne_dit_jamais_si_le_compte_existe(comptes_mail):
+    """Sinon ce formulaire devient un annuaire : on y tape des noms jusqu'a
+    trouver ceux qui existent."""
+    c, _partis = comptes_mail
+    _compte_avec_adresse()
+    connue = c.post("/mot-de-passe/oubli", json={"nom": "marie"})
+    inconnue = c.post("/mot-de-passe/oubli", json={"nom": "fantome"})
+    assert connue.status_code == inconnue.status_code == 200
+    assert connue.get_json() == inconnue.get_json()
+    # Et au moment de poser le mot de passe, un compte inconnu rend le meme
+    # message qu'un code faux.
+    faux = c.post("/mot-de-passe/reinitialiser",
+                  json={"nom": "fantome", "code": "123456", "nouveau": "mot-de-passe-long"})
+    mauvais = c.post("/mot-de-passe/reinitialiser",
+                     json={"nom": "marie", "code": "000000", "nouveau": "mot-de-passe-long"})
+    assert faux.get_json()["error"] == mauvais.get_json()["error"] == "Code incorrect."
+
+
+def test_un_second_envoi_immediat_ne_part_pas(comptes_mail):
+    """Sans cela, ce formulaire est un robinet a mails vers l'adresse de
+    quelqu'un d'autre."""
+    c, partis = comptes_mail
+    _compte_avec_adresse()
+    c.post("/mot-de-passe/oubli", json={"nom": "marie"})
+    c.post("/mot-de-passe/oubli", json={"nom": "marie"})
+    assert len(partis) == 1, partis
+
+
+def test_la_reinitialisation_est_journalisee(comptes_mail, tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
+    c, partis = comptes_mail
+    _compte_avec_adresse()
+    c.post("/mot-de-passe/oubli", json={"nom": "marie"})
+    c.post("/mot-de-passe/reinitialiser",
+           json={"nom": "marie", "code": _code_du_dernier_mail(partis),
+                 "nouveau": "nouveau-mot-de-passe"})
+    actions = [e.get("action") for e in app.lire_acces()
+               if e.get("genre") == "mot-de-passe"]
+    assert "code envoye" in actions
+    assert "reinitialise par mail" in actions
+
+
+def test_aucun_mot_de_passe_n_est_ecrit_en_clair(comptes_mail):
+    """La regle de fond : ce qui est persiste est une EMPREINTE, jamais le
+    mot de passe. Vrai a la creation, vrai au changement, et vrai a la
+    reinitialisation -- c'est le chemin le plus recent, donc le plus facile
+    a oublier."""
+    c, partis = comptes_mail
+    _compte_avec_adresse()
+    c.post("/mot-de-passe/oubli", json={"nom": "marie"})
+    c.post("/mot-de-passe/reinitialiser",
+           json={"nom": "marie", "code": _code_du_dernier_mail(partis),
+                 "nouveau": "nouveau-mot-de-passe"})
+    registre = open(app.UTILISATEURS_FILE).read()
+    assert "nouveau-mot-de-passe" not in registre
+    assert "mot-de-passe-long" not in registre
+    compte = app.lire_utilisateurs()["marie"]
+    # Empreinte derivee et sel propre a ce compte, refait a chaque changement.
+    assert len(compte["sel"]) >= 32 and len(compte["hash"]) >= 32
+    assert compte["hash"] == app.derive_mot_de_passe("nouveau-mot-de-passe", compte["sel"])
+
+
+def test_la_base_ne_recoit_aucune_empreinte_de_mot_de_passe():
+    """La base est joignable par les projets deployes. Y deposer des
+    empreintes leur offrirait une attaque hors ligne sur les mots de passe
+    du panneau : le miroir ne porte que ce qui se lit deja dans l'interface.
+    """
+    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    table = src.split("CREATE TABLE IF NOT EXISTS utilisateurs")[1].split(")\"\"\"")[0]
+    for interdit in ("hash", "sel", "mot_de_passe", "password", "totp"):
+        assert interdit not in table, f"{interdit} n'a rien a faire dans cette table"
+    ecriture = src.split("def _pg_ecrire_utilisateurs(")[1].split("\ndef ")[0]
+    assert '"hash"' not in ecriture and '"sel"' not in ecriture
 
 
 def test_le_code_de_verification_ne_dort_pas_en_clair(comptes_mail):
