@@ -577,6 +577,18 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
    suit un champ » : elle heritait de la marge du dessus et descendait de
    14 px, si bien que « Port » ne s'alignait pas sur « Hote SMTP ». */
 .settings-card .grid2>.field+.field{margin-top:0}
+/* Le logo, dans les reglages : l'image est le bouton. */
+.logo-zone{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+.logo-bouton{position:relative;width:72px;height:72px;flex:none;padding:0;
+ border:1px solid var(--line2);border-radius:14px;background:var(--surface2);
+ cursor:pointer;overflow:hidden;display:grid;place-items:center}
+.logo-bouton:hover{border-color:var(--accent)}
+.logo-bouton img{width:100%;height:100%;object-fit:cover;display:block}
+.logo-voile{position:absolute;left:0;right:0;bottom:0;padding:3px 0;
+ background:var(--nav);color:var(--nav-txt);font-size:10px;font-weight:650;
+ letter-spacing:.04em;text-transform:uppercase;opacity:0;transition:opacity .12s}
+.logo-bouton:hover .logo-voile{opacity:.92}
+.logo-texte{flex:1;min-width:220px}
 .card-large{max-width:none}
 /* Une rangee de boutons sous un formulaire. Avant, on reutilisait .mf --
    le pied d'une pop-up -- en annulant son fond, ses bordures et son
@@ -1072,6 +1084,37 @@ table.tbl-journal{min-width:560px}
         <div id="e-redemarrage-txt"></div>
         <button class="btn btn-primary btn-sm" id="e-redemarrer"
           onclick="redemarrerDepuisConfig()">Redémarrer</button>
+      </div>
+
+      <div class="fset">
+        <div class="fset-title">Logo</div>
+        <!-- On clique sur l'icone elle-meme : c'est l'objet dont on parle, et
+             un bouton « Parcourir » a cote aurait demande de comprendre a quoi
+             il se rapporte. Le champ de fichier reste dans la page, invisible
+             mais present -- un input recree a chaque clic perd son
+             gestionnaire sur certains navigateurs. -->
+        <div class="logo-zone">
+          <button type="button" class="logo-bouton" id="e-logo-btn"
+            onclick="logoChoisir()" title="Changer le logo">
+            <img id="e-logo-img" alt="">
+            <span class="logo-voile">Changer</span>
+          </button>
+          <div class="logo-texte">
+            <div class="hint">PNG, JPEG, GIF ou WebP, 512 Ko au maximum. Le fichier est
+              déposé dans le dossier du projet sous le nom <code>icon.png</code> — il
+              suit donc le projet si tu le copies ailleurs.</div>
+            <div class="hint">Le SVG est refusé : servi par le panneau, il pourrait y
+              exécuter du script.</div>
+            <div class="actions" style="margin-top:10px">
+              <button class="btn btn-default btn-sm" onclick="logoChoisir()">Choisir une image</button>
+              <button class="btn btn-danger-quiet btn-sm" id="e-logo-retirer"
+                onclick="logoRetirer()">Retirer</button>
+            </div>
+            <div class="err" id="e-logo-err" style="display:none"></div>
+          </div>
+        </div>
+        <input type="file" id="e-logo-fichier" accept="image/png,image/jpeg,image/gif,image/webp"
+          style="display:none" onchange="logoEnvoyer(this)">
       </div>
 
       <div class="fset">
@@ -2527,6 +2570,8 @@ function chargerConfigFiche(){
   $('e-vis-zone').style.display =
     (adressePublique || (a.visibility||'publique')==='publique') ? '' : 'none';
   $('e-err').style.display='none';
+  $('e-logo-err').style.display='none';
+  logoRafraichir();
   $('e-browse').style.display='none';
   /* Le bandeau de redemarrage ne survit pas a un rechargement de la fiche :
      il parle d'un enregistrement precis, pas d'un etat durable. */
@@ -2537,6 +2582,46 @@ function chargerConfigFiche(){
      main. */
   $('e-supprimer').style.display = (a.name === 'diagnostic') ? 'none' : '';
 }
+/* ---------------- le logo d'une application ---------------- */
+function logoChoisir(){ $('e-logo-fichier').click(); }
+
+function logoRafraichir(){
+  /* Le parametre d'horodatage force le navigateur a redemander l'image :
+     l'adresse ne change pas quand le fichier, lui, vient d'etre remplace. */
+  $('e-logo-img').src = icone(ficheNom) + '?v=' + Date.now();
+}
+
+async function logoEnvoyer(entree){
+  const f = entree.files && entree.files[0];
+  entree.value = '';                    /* pour pouvoir renvoyer le meme fichier */
+  if(!f) return;
+  const e = $('e-logo-err'); e.style.display = 'none';
+  if(f.size > 512 * 1024){
+    e.textContent = 'Image trop lourde : ' + Math.round(f.size / 1024)
+      + ' Ko pour 512 Ko au maximum.';
+    e.style.display = 'block'; return;
+  }
+  const btn = $('e-logo-btn'); btn.disabled = true;
+  try{
+    const r = await fetch('/api/app/' + encodeURIComponent(ficheNom) + '/logo',
+      {method:'PUT', headers:{'Content-Type': f.type || 'application/octet-stream'}, body:f});
+    const d = await r.json();
+    if(!r.ok){ e.textContent = d.error || 'Envoi impossible.'; e.style.display = 'block'; }
+    else{ logoRafraichir(); await refresh(); peindreFiche(); notifier('Logo mis à jour.'); }
+  }catch(err){ e.textContent = 'Erreur réseau.'; e.style.display = 'block'; }
+  finally{ btn.disabled = false; }
+}
+
+async function logoRetirer(){
+  const e = $('e-logo-err'); e.style.display = 'none';
+  const r = await fetch('/api/app/' + encodeURIComponent(ficheNom) + '/logo', {method:'DELETE'});
+  const d = await r.json().catch(()=>({}));
+  if(!r.ok){ e.textContent = d.error || 'Suppression impossible.'; e.style.display = 'block'; return; }
+  logoRafraichir(); await refresh(); peindreFiche();
+  notifier((d.retires && d.retires.length) ? 'Logo retiré.'
+    : "Aucun logo déposé par le panneau — l'icône vient du projet lui-même.");
+}
+
 async function redemarrerDepuisConfig(){
   const b=$('e-redemarrer');
   b.disabled=true; b.textContent='Redémarrage...';

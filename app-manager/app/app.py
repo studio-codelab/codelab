@@ -3106,6 +3106,44 @@ def find_icon(path):
     return None
 
 
+# ------------------------- le logo d'une application -------------------------
+#
+# Il vit dans le DOSSIER du projet, sous le nom icon.<ext>, et non dans un
+# coin d'etat du panneau : un projet emporte ainsi son logo quand on le copie
+# ailleurs, et celui qui a depose un icon.png a la main voit exactement le
+# meme resultat.
+#
+# PAS DE SVG A L'ENVOI, et c'est deliberé. Une image SVG est un document qui
+# peut porter du script ; servie par /api/icon, donc dans l'origine du
+# panneau, elle y executerait ce script. Les formats acceptes sont des
+# images matricielles, reconnues a leur signature -- pas a leur extension,
+# qu'on peut ecrire n'importe comment.
+LOGO_FORMATS = {
+    b"\x89PNG\r\n\x1a\n": ("png", "image/png"),
+    b"\xff\xd8\xff": ("jpg", "image/jpeg"),
+    b"GIF87a": ("gif", "image/gif"),
+    b"GIF89a": ("gif", "image/gif"),
+}
+LOGO_MAX_OCTETS = 512 * 1024      # 512 Ko : une icone, pas une photo
+# Les noms qu'on peut ECRIRE (et donc remplacer). Les autres candidats de
+# ICON_CANDIDATES restent lus, jamais ecrases : un favicon.ico depose a la
+# main appartient au projet.
+LOGO_NOMS_ECRITS = ("icon.png", "icon.jpg", "icon.gif", "icon.webp")
+
+
+def _format_du_logo(donnees):
+    """Le format REEL, lu dans les premiers octets. Rend (ext, type) ou None.
+
+    WebP demande douze octets : "RIFF", quatre octets de taille, puis "WEBP".
+    """
+    for signature, (ext, mime) in LOGO_FORMATS.items():
+        if donnees.startswith(signature):
+            return ext, mime
+    if donnees[:4] == b"RIFF" and donnees[8:12] == b"WEBP":
+        return "webp", "image/webp"
+    return None
+
+
 def default_icon_svg(name):
     color = PALETTE[sum(map(ord, name or "?")) % len(PALETTE)]
     letter = (name[:1] or "?").upper()
@@ -5497,6 +5535,87 @@ def api_logs_stream(n):
     return reponse
 
 
+@flask_app.put("/api/app/<n>/logo")
+@require_admin
+def api_logo(n):
+    """Depose le logo d'une application, envoye depuis sa page de reglages.
+
+    Le corps est l'image elle-meme, pas un formulaire : il n'y a qu'un seul
+    fichier, et un multipart n'apporterait qu'un analyseur de plus a nourrir.
+    """
+    apps = load()
+    a = apps.get(n)
+    if not a:
+        return jsonify({"error": "Application inconnue."}), 404
+    donnees = request.get_data(cache=False)
+    if not donnees:
+        return jsonify({"error": "Aucune image reçue."}), 400
+    if len(donnees) > LOGO_MAX_OCTETS:
+        return jsonify({"error": "Image trop lourde : %d Ko pour %d Ko au maximum."
+                                 % (len(donnees) // 1024, LOGO_MAX_OCTETS // 1024)}), 400
+    format_ = _format_du_logo(donnees)
+    if not format_:
+        # Le SVG tombe ici, et c'est voulu : servi dans l'origine du panneau,
+        # un SVG peut y executer du script.
+        return jsonify({"error": "Format non accepté. PNG, JPEG, GIF ou WebP — "
+                                 "le SVG est refusé : il peut porter du script."}), 400
+    ext, _mime = format_
+    dossier = a["path"]
+    if not os.path.isdir(dossier) or not under_root(dossier):
+        return jsonify({"error": "Dossier du projet introuvable."}), 400
+
+    # Un seul logo a la fois : les autres noms que NOUS ecrivons partent, sinon
+    # icon.png survivrait a l'envoi d'un icon.jpg et continuerait de s'afficher
+    # (find_icon prend le premier de la liste).
+    for nom in LOGO_NOMS_ECRITS:
+        chemin = os.path.join(dossier, nom)
+        if os.path.isfile(chemin) and not os.path.islink(chemin):
+            try:
+                os.remove(chemin)
+            except OSError:
+                pass
+    cible = os.path.join(dossier, "icon." + ext)
+    tmp = cible + ".tmp"
+    try:
+        with open(tmp, "wb") as f:
+            f.write(donnees)
+        os.replace(tmp, cible)
+        # Le fichier appartient au projet : il doit rester modifiable depuis
+        # une session SSH comme le reste de son dossier.
+        try:
+            os.chmod(cible, 0o664)
+        except OSError:
+            pass
+    except OSError as e:
+        return jsonify({"error": f"Écriture impossible : {e}"}), 500
+    journaliser("logo", qui=utilisateur_courant() or NOM_ADMIN, app=n,
+                action="depose", ip=_adresse_client())
+    return jsonify({"ok": True, "fichier": os.path.basename(cible)})
+
+
+@flask_app.delete("/api/app/<n>/logo")
+@require_admin
+def api_logo_retirer(n):
+    """Retire le logo depose. Ne touche qu'aux noms que le panneau ecrit :
+    un favicon.ico pose a la main dans le projet lui appartient."""
+    a = load().get(n)
+    if not a:
+        return jsonify({"error": "Application inconnue."}), 404
+    retires = []
+    for nom in LOGO_NOMS_ECRITS:
+        chemin = os.path.join(a["path"], nom)
+        if os.path.isfile(chemin) and not os.path.islink(chemin):
+            try:
+                os.remove(chemin)
+                retires.append(nom)
+            except OSError as e:
+                return jsonify({"error": f"Suppression impossible : {e}"}), 500
+    if retires:
+        journaliser("logo", qui=utilisateur_courant() or NOM_ADMIN, app=n,
+                    action="retire", ip=_adresse_client())
+    return jsonify({"ok": True, "retires": retires})
+
+
 @flask_app.get("/api/icon/<n>")
 @require_auth
 def api_icon(n):
@@ -5509,8 +5628,17 @@ def api_icon(n):
     a = apps.get(n)
     icon_path = find_icon(a["path"]) if a else None
     if icon_path:
-        return send_file(icon_path)
-    return Response(default_icon_svg(n), mimetype="image/svg+xml")
+        # UNE IMAGE, ET RIEN QUE CA. Ce chemin sert un fichier pris dans le
+        # dossier d'un projet, dans l'ORIGINE DU PANNEAU. Un SVG depose a la
+        # main y executerait son script : la politique ci-dessous le rend
+        # inerte, et nosniff empeche le navigateur de deviner un autre type
+        # que celui annonce.
+        reponse = send_file(icon_path)
+        reponse.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'"
+        reponse.headers["X-Content-Type-Options"] = "nosniff"
+        return reponse
+    return Response(default_icon_svg(n), mimetype="image/svg+xml",
+                    headers={"X-Content-Type-Options": "nosniff"})
 
 
 

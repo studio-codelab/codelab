@@ -3442,6 +3442,143 @@ def test_le_mode_affiche_ne_donne_aucun_droit(deux_espaces):
     assert c.get("/api/mes-apps").status_code == 200
 
 
+# ---------- 12 ter. le logo d'une application ----------
+#
+# Il vit dans le DOSSIER du projet : un projet emporte son logo quand on le
+# copie ailleurs. Et il est servi par /api/icon, donc DANS L'ORIGINE DU
+# PANNEAU -- ce qui decide de ce qu'on accepte.
+
+def _png(octets=64):
+    """Un vrai PNG minuscule : la sonde lit la signature, pas l'extension."""
+    import struct
+    import zlib
+
+    def bloc(t, d):
+        c = t + d
+        return struct.pack(">I", len(d)) + c + struct.pack(">I", zlib.crc32(c) & 0xffffffff)
+
+    brut = b"".join(b"\x00" + b"\x0e\x7c\x86" * 8 for _ in range(8))
+    return (b"\x89PNG\r\n\x1a\n"
+            + bloc(b"IHDR", struct.pack(">IIBBBBB", 8, 8, 8, 2, 0, 0, 0))
+            + bloc(b"IDAT", zlib.compress(brut)) + bloc(b"IEND", b""))
+
+
+@pytest.fixture
+def logo(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
+    monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
+    monkeypatch.setattr(app, "under_root", lambda p: True)
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    app._apps_cache["signature"] = None
+    projet = tmp_path / "site"
+    projet.mkdir()
+    app.save({"site": {"path": str(projet), "command": "x", "port": 9101,
+                       "enabled": False}})
+    c = app.flask_app.test_client()
+    c.post("/login", json={"password": "secret-de-test"})
+    return c, projet
+
+
+def test_un_logo_depose_vit_dans_le_dossier_du_projet(logo):
+    """Et non dans un coin d'etat du panneau : le projet emporte son logo
+    quand on le copie ailleurs, et un icon.png pose a la main donne
+    exactement le meme resultat."""
+    c, projet = logo
+    r = c.put("/api/app/site/logo", data=_png(), content_type="image/png")
+    assert r.status_code == 200, r.data
+    assert (projet / "icon.png").exists()
+    assert r.get_json()["fichier"] == "icon.png"
+
+
+def test_un_svg_est_refuse(logo):
+    """Une image SVG est un document qui peut porter du script. Servie par
+    /api/icon, donc dans l'origine du panneau, elle l'executerait la."""
+    c, projet = logo
+    svg = b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
+    r = c.put("/api/app/site/logo", data=svg, content_type="image/svg+xml")
+    assert r.status_code == 400, r.data
+    assert "SVG" in r.get_json()["error"]
+    assert not list(projet.glob("icon.*"))
+
+
+def test_le_format_est_lu_dans_les_octets_pas_dans_l_entete(logo):
+    """Un envoi annonce ce qu'il veut : c'est la signature du fichier qui
+    fait foi. Sans cela, il suffisait d'annoncer image/png."""
+    c, projet = logo
+    r = c.put("/api/app/site/logo",
+              data=b'<svg xmlns="http://www.w3.org/2000/svg"></svg>',
+              content_type="image/png")
+    assert r.status_code == 400, r.data
+    assert not list(projet.glob("icon.*"))
+
+
+def test_une_image_trop_lourde_est_refusee(logo):
+    c, projet = logo
+    r = c.put("/api/app/site/logo",
+              data=_png() + b"\x00" * (app.LOGO_MAX_OCTETS + 1),
+              content_type="image/png")
+    assert r.status_code == 400, r.data
+    assert "lourde" in r.get_json()["error"]
+    assert not list(projet.glob("icon.*"))
+
+
+def test_un_seul_logo_a_la_fois(logo):
+    """find_icon prend le premier nom de sa liste : un icon.png laisse en
+    place survivrait a l'envoi d'un icon.gif et continuerait de s'afficher."""
+    c, projet = logo
+    c.put("/api/app/site/logo", data=_png(), content_type="image/png")
+    r = c.put("/api/app/site/logo", data=b"GIF89a" + b"\x00" * 32,
+              content_type="image/gif")
+    assert r.status_code == 200, r.data
+    assert not (projet / "icon.png").exists()
+    assert (projet / "icon.gif").exists()
+
+
+def test_retirer_le_logo_ne_touche_pas_a_ce_que_le_projet_a_pose(logo):
+    """Un favicon.ico depose a la main dans le projet lui appartient : le
+    panneau n'efface que ce qu'il a lui-meme ecrit."""
+    c, projet = logo
+    (projet / "favicon.ico").write_bytes(b"\x00\x00\x01\x00")
+    c.put("/api/app/site/logo", data=_png(), content_type="image/png")
+    r = c.delete("/api/app/site/logo")
+    assert r.status_code == 200, r.data
+    assert not (projet / "icon.png").exists()
+    assert (projet / "favicon.ico").exists()
+
+
+def test_le_depot_d_un_logo_est_journalise(logo):
+    """Une image deposee dans le dossier d'un projet est une ecriture : elle
+    se retrouve dans le journal comme le reste."""
+    c, _ = logo
+    c.put("/api/app/site/logo", data=_png(), content_type="image/png")
+    evenements = [e for e in app.lire_acces() if e.get("genre") == "logo"]
+    assert evenements and evenements[0]["app"] == "site"
+    assert evenements[0]["action"] == "depose"
+
+
+def test_l_icone_servie_ne_peut_pas_executer_de_script(logo):
+    """Un SVG pose A LA MAIN dans le projet reste lu par find_icon -- c'est
+    voulu, le projet a le droit. La politique de securite le rend inerte."""
+    c, projet = logo
+    (projet / "icon.svg").write_bytes(
+        b'<svg xmlns="http://www.w3.org/2000/svg"><script>1</script></svg>')
+    r = c.get("/api/icon/site")
+    assert r.status_code == 200
+    assert "default-src 'none'" in r.headers.get("Content-Security-Policy", "")
+    assert r.headers.get("X-Content-Type-Options") == "nosniff"
+
+
+def test_seul_l_administrateur_depose_un_logo(logo, monkeypatch):
+    c, _ = logo
+    anonyme = app.flask_app.test_client()
+    assert anonyme.put("/api/app/site/logo", data=_png(),
+                       content_type="image/png").status_code in (401, 403)
+
+
 # ---------- 12 bis. enregistrer la configuration d'une application ----------
 #
 # Vecu : « Rend possible la sauvegarde de la configuration d'une application.
