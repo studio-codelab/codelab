@@ -4936,10 +4936,13 @@ def test_la_ligne_des_mois_couvre_toute_la_largeur_de_la_carte():
     bloc = page.split("function peindreCarte(d){")[1].split("\nfunction ")[0]
     assert "grid-column:span" in bloc, (
         "chaque mois doit couvrir ses colonnes, pas une seule")
-    # Le meme gabarit pour les deux rangees : sans cela, les mois ne tombent
-    # pas en face de leurs semaines.
-    assert bloc.count("${gabarit}") == 2
-    assert "repeat(${colonnes},11px)" in bloc
+    # Les MEMES colonnes et le meme ecart pour les deux rangees : sans cela,
+    # les mois ne tombent pas en face de leurs semaines. La ligne des mois
+    # n'a qu'une rangee, elle ne reprend donc pas les sept lignes.
+    assert "${gabarit}" in bloc and "${gabaritMois}" in bloc
+    mois = bloc.split("const gabaritMois=")[1].split("\n")[0]
+    assert "repeat(${colonnes},${cote}px)" in mois and "gap:${ecart}px" in mois
+    assert "grid-template-rows" not in mois
 
 
 def test_l_annee_de_la_carte_se_choisit():
@@ -6581,6 +6584,87 @@ def test_l_api_toggle_rend_compte_de_l_echec():
         "un echec de demarrage doit se voir dans le code de reponse")
 
 
+def test_le_port_deja_pris_se_dit_avant_de_lancer(tmp_path, monkeypatch):
+    """« Address already in use » au fond d'un journal, dans la langue d'un
+    autre programme, n'est pas une reponse. Le cas est frequent -- deux
+    applications sur le meme port, un survivant d'un arret brutal -- et il se
+    reconnait AVANT de lancer quoi que ce soit."""
+    import socket as _s
+    projet = tmp_path / "projet"
+    projet.mkdir()
+    prise = _s.socket()
+    prise.setsockopt(_s.SOL_SOCKET, _s.SO_REUSEADDR, 1)
+    prise.bind(("127.0.0.1", 0))
+    prise.listen(1)
+    port = prise.getsockname()[1]
+    try:
+        app.save({"bloquee": {"path": str(projet), "command": "sleep 60",
+                              "port": port, "visibility": "privee"}})
+        erreur = app.start("bloquee")
+        assert erreur and str(port) in erreur, erreur
+        assert "occup" in erreur, erreur
+        # Rien n'a ete lance : un port pris ne doit pas laisser un processus
+        # derriere lui.
+        assert not app.is_running("bloquee")
+    finally:
+        prise.close()
+        app.stop("bloquee")
+
+    # Et le port libre ne declenche rien : sinon on refuserait tout.
+    assert app.port_occupe_par(port) is None
+
+
+def test_un_port_libere_a_l_instant_ne_bloque_pas_le_redemarrage():
+    """Un port fraichement ferme reste en TIME_WAIT. Sans SO_REUSEADDR sur la
+    sonde, on refuserait de redemarrer ce qu'on vient d'arreter -- le geste
+    le plus courant du panneau."""
+    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    bloc = src.split("def port_occupe_par(")[1].split("\ndef ")[0]
+    assert "SO_REUSEADDR" in bloc
+    # Sur 127.0.0.1 : c'est l'adresse que le proxy contacte, et une sonde sur
+    # 0.0.0.0 refuserait un demarrage qu'un service sur une autre adresse
+    # n'aurait pas empeche.
+    assert '"127.0.0.1"' in bloc
+
+
+def test_un_lancement_impossible_ne_devient_pas_une_erreur_500():
+    """Popen leve pour tout ce qui empeche le lancement avant la commande.
+    L'exception remontait a Flask : 500, page HTML, aucun message pour
+    l'interface -- qui affichait alors son texte par defaut."""
+    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    bloc = src[src.index("def start(name, attendre=True):"):src.index("def port_occupe_par(")]
+    assert "except (OSError, ValueError)" in bloc
+    assert 'return f"Lancement impossible' in bloc
+
+
+def test_le_redemarrage_rend_compte_de_son_echec():
+    """restart_app() jetait l'erreur de start() : la route repondait « ok »,
+    et le bouton laissait une application arretee sans un mot."""
+    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    bloc = src.split("def restart_app(n):")[1].split("\n\n\n")[0]
+    assert "return start(n)" in bloc, "l'erreur de start() repart a la poubelle"
+    route = src.split("def api_restart(n):")[1].split("\n\n\n")[0]
+    assert "erreur = restart_app(n)" in route and "409" in route
+    # Le deploiement aussi : un build reussi suivi d'une mise en ligne ratee
+    # repondait « ok ».
+    deploiement = src.split("def api_deploy(n):")[1].split("\n\n\n")[0]
+    assert "erreur = restart_app(n) if is_running(n) else start(n)" in deploiement
+    assert "409" in deploiement
+
+
+def test_aucune_action_ne_se_rabat_sur_une_phrase_vide():
+    """« L'application n'a pas demarre » n'apprend rien. Quand le serveur ne
+    dit rien du tout, le code HTTP distingue au moins un refus d'une panne."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    aide = page.split("async function echec(r, defaut){")[1].split("\n}")[0]
+    assert "r.status" in aide and "401" in aide and "403" in aide
+    for action in ("async function tg(n){", "async function restartApp(n){",
+                   "async function deployApp(n){", "async function buildApp(n){"):
+        bloc = page.split(action)[1].split("\n}")[0]
+        assert "await echec(r," in bloc, f"{action} ne rend pas compte de l'echec"
+
+
 def test_le_bouton_lit_la_reponse():
     """Deux silences valaient mieux qu'un : meme si l'API avait repondu une
     erreur, tg() jetait la reponse sans la regarder."""
@@ -6746,6 +6830,29 @@ MOTS_SANS_ACCENT = [
     "eteint", "ecrase", "posee", "restee", "oubliee", "prevenir", "previent",
     "reinitialiser", "disparait", "controle", "creent", "sante",
     "gerez", "visibilite", "releve", "decoche", "redemarrer",
+    # Deuxieme passe, en relisant TOUS les textes visibles du panneau, de la
+    # page de connexion et du diagnostic. Chacun de ces mots a ete trouve en
+    # place : « Connexion chiffree », « Heberge chez toi », « Applications
+    # centralisees », « Adresse jamais confirmee », « Fixe par
+    # APP_MANAGER_HTTPS ».
+    #
+    # La liste ne retient que des mots dont AUCUNE forme francaise ne
+    # s'ecrit sans accent. « marque », « cote », « regle », « nommes »,
+    # « constate » en sont volontairement absents : ce sont aussi des mots
+    # ou des conjugaisons parfaitement corrects sans accent, et les y mettre
+    # ferait echouer le test sur des phrases justes.
+    "chiffree", "chiffrees", "confirmee", "confirmees", "frequente",
+    "frequentes", "centralisee", "centralisees", "copiee", "copiees",
+    "accede", "heberge", "protegerait", "paraitraient", "releves",
+    "severite", "deuxieme", "defaut", "reseau", "echec", "echecs",
+    "probleme", "problemes", "parametre", "parametres", "requete",
+    "requetes", "resultat", "resultats", "necessaire", "periode",
+    "integrite", "telecharger", "demarrer", "demarrage", "reussi",
+    "reussie", "echoue",
+    # « Desactivee », « Desactiver » : trouves sur les pastilles d'etat, que
+    # personne ne relit parce qu'elles font deux mots. « active », lui, n'y
+    # est pas -- une sonde active s'ecrit sans accent.
+    "desactive", "desactivee", "desactivees", "desactiver", "desactives",
 ]
 MOTIF_SANS_ACCENT = re.compile(
     r"\b(" + "|".join(sorted(MOTS_SANS_ACCENT, key=len, reverse=True)) + r")\b", re.I)
@@ -6821,6 +6928,115 @@ def test_la_tuile_en_mode_icone_n_a_ni_fond_ni_cadre():
     assert "background:none" in survol and "border-color:transparent" in survol
     # Il reste quelque chose a survoler : le nom prend l'accent.
     assert ".hub-liste.compacte .hub-projet:hover .nom{color:var(--accent)}" in page
+
+
+def test_la_carte_de_chaleur_ne_defile_pas():
+    """Une carte de chaleur se lit d'un coup d'oeil -- c'est sa seule raison
+    d'etre. La moitie cachee derriere un glissement horizontal ne se lit
+    jamais."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    zone = page.split(".carte-zone{")[1].split("}")[0]
+    assert "overflow" not in zone, "la barre de defilement est revenue"
+    # La taille d'une case se CALCULE depuis la place disponible : ni 11 px
+    # en dur (qui debordent d'une carte etroite), ni « 1fr » (dont la hauteur
+    # dependrait de la largeur, qui dependrait de la hauteur -- le navigateur
+    # tranchait ce cercle par des cases de 54 px).
+    bloc = page.split("function peindreCarte(d){")[1].split("\nfunction ")[0]
+    assert "$('carte-zone').clientWidth" in bloc, (
+        "la carte doit mesurer la place dont elle dispose")
+    assert "grid-template-rows:repeat(7,${cote}px)" in bloc, (
+        "les lignes suivent la meme taille, sinon les cases ne sont pas carrees")
+    # L'ecart entre les cases se resserre avant que la case ne rapetisse :
+    # 52 ecarts de 3 px font 156 px, qui debordent a eux seuls d'une carte
+    # etroite.
+    assert "for(const e of [3,2,1,0])" in bloc, (
+        "sans resserrer l'ecart, la grille deborde meme avec des cases minuscules")
+    assert "gap:${ecart}px" in bloc
+    # Et elle se repeint quand la fenetre change : une carte calculee pour
+    # 1400 px deborde a 900.
+    assert "addEventListener('resize'" in page and "peindreCarte(derniereCarte)" in page
+
+
+def test_les_tuiles_du_hub_sont_deux_fois_plus_grandes():
+    """A 44 px, on ne distinguait plus une application d'une autre. Une
+    grille d'icones sert justement a reconnaitre d'un coup d'oeil."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    icone = page.split(".hub-liste.compacte .hub-projet img{")[1].split("}")[0]
+    assert "width:88px" in icone and "height:88px" in icone
+    # La colonne suit : une icone de 88 px dans une case de 104 px n'aurait
+    # plus de place pour respirer, ni pour le nom.
+    grille = page.split(".hub-liste.compacte{")[1].split("}")[0]
+    assert "minmax(168px" in grille
+
+
+def test_les_controles_du_navigateur_suivent_le_theme():
+    """Une case cochee en bleu Windows et une fleche grise systeme suffisent
+    a faire passer la page pour un formulaire pose sur un theme soigne."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    assert "accent-color:var(--accent)" in page, (
+        "sans accent-color, les cases et les boutons radio gardent le bleu du "
+        "systeme")
+    assert "caret-color:var(--accent)" in page
+    bloc = page.split("select{appearance:none")[1].split("}")[0]
+    assert "background-image:url(\"data:image/svg+xml" in bloc, (
+        "la fleche du navigateur doit etre remplacee par la notre")
+    # Et en sombre aussi : une fleche claire sur fond sombre se voit.
+    assert ':root[data-theme="dark"] select{background-image' in page
+    assert "select option{background:var(--surface)" in page
+
+
+def test_les_zones_des_parametres_ne_sont_plus_des_boites():
+    """Six boites blanches empilees dans un onglet donnaient six rectangles
+    qui se disputaient l'attention -- alors qu'aucun n'est un objet."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    bloc = page.split(".settings-card{")[1].split("}")[0]
+    assert "background:transparent" in bloc and "border:0" in bloc
+    assert "box-shadow:none" in bloc
+    # Il reste de quoi separer deux reglages : sans filet, ils se collent.
+    assert "border-bottom:1px solid var(--line)" in bloc
+
+
+def test_le_reglage_d_affichage_se_deroule_quand_il_y_a_trop_d_applications():
+    """Quinze applications faisaient de ce reglage la moitie de la page, pour
+    une liste qu'on ouvre trois fois par an."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    assert "MASQUAGE_SEUIL_DEROULANT" in page
+    bloc = page.split("function peindreMasquees(){")[1].split("\n}")[0]
+    assert "<details" in bloc, "la liste longue doit se replier"
+    assert "if(toutes.length <= MASQUAGE_SEUIL_DEROULANT)" in bloc, (
+        "une liste courte ne gagne rien a etre repliee")
+    # Redessinee a chaque case cochee, elle se refermerait sous le doigt.
+    assert "ouverte" in bloc and "details" in bloc
+
+
+def test_les_destinataires_d_alerte_vivent_dans_la_fiche_de_l_application():
+    """Ils etaient dans les parametres globaux, en une liste de champs ou il
+    fallait retrouver la bonne ligne -- et rien, depuis la fiche d'une
+    application, ne disait qui serait prevenu si elle tombait."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    assert 'id="al-par-app"' not in page, (
+        "la liste globale des destinataires est revenue")
+    assert "peindreAlertesParApp" not in page
+    config = page.split('<div class="onglet" id="onglet-config">')[1]
+    config = config.split('id="sec-parametres"')[0]
+    assert 'id="e-alertes"' in config, (
+        "le champ doit etre dans l'onglet Configuration de l'application")
+    # Enregistre par le meme bouton que le reste de la configuration.
+    envoi = page.split("async function submitEdit(){")[1].split("\n}")[0]
+    assert "/api/alertes/application/" in envoi
+    # Et relu a l'ouverture de la fiche, sinon le champ parait toujours vide.
+    lecture = page.split("function chargerConfigFiche(){")[1].split("\n}")[0]
+    assert "$('e-alertes').value" in lecture
+    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    bloc = src.split("def api_apps():")[1].split("\n\n\n")[0]
+    assert '"alertes": _adresses(a.get("alertes"))' in bloc, (
+        "la liste doit arriver avec l'application")
 
 
 def test_le_masquage_ne_se_regle_que_dans_les_parametres():
@@ -6951,6 +7167,132 @@ def test_aucun_texte_du_hub_n_a_perdu_ses_accents():
     ce que tu leur autorisés » -- vu sur la page d'accueil.
     """
     page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    fautes = []
+    for texte in _textes_visibles(page) + _phrases_du_script(page):
+        for mot in MOTIF_SANS_ACCENT.findall(texte):
+            fautes.append(f"{mot} — dans « {texte[:70]} »")
+    assert not fautes, "textes visibles sans accents :\n" + "\n".join(fautes[:12])
+
+
+def test_aucun_imperatif_n_est_ecrit_au_participe_passe():
+    """« Déclaré-la », « Réglé-le », « modifié-le là-bas » : un participe
+    passe la ou le francais demande un imperatif. La faute vient d'une passe
+    d'accentuation trop zelee -- on accentue « declare » sans regarder si la
+    phrase donne un ordre.
+
+    La regle mecanique qui les attrape toutes : un verbe en -é suivi d'un
+    trait d'union et d'un pronom est TOUJOURS faux. « Déclare-la »,
+    « règle-le », « modifie-le » : l'imperatif ne prend pas d'accent final.
+    """
+    motif = re.compile(r"[A-Za-zÀ-ÿ]+é-(?:le|la|les|y|en|moi|toi)\b")
+    fautes = []
+    for chemin in (os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                   os.path.join(DOSSIER_PANNEAU, "app", "login.html"),
+                   os.path.join(DOSSIER_PANNEAU, "app", "app.py"),
+                   os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py")):
+        src = open(chemin, encoding="utf-8").read()
+        for faute in motif.findall(src):
+            fautes.append(f"{os.path.basename(chemin)} : {faute}")
+    assert not fautes, "imperatifs au participe passe :\n" + "\n".join(fautes)
+
+
+def test_les_phrases_qui_donnent_un_ordre_le_donnent_en_francais():
+    """Les memes fautes sans trait d'union, que la regle mecanique
+    ci-dessus ne peut pas attraper : « Déclaré un dossier », « Créé un
+    compte », « réglé les destinataires ». Une liste, donc -- courte, et
+    nourrie de ce qui a ete trouve en place."""
+    fautives = ["Déclaré un", "Déclaré l'", "Déclaré d'abord", "Créé un",
+                "créé un compte", "réglé les destinataires", "Réglé-le",
+                "Activé-la", "Ajouté un", "Supprimé le"]
+    fautes = []
+    for chemin in (os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                   os.path.join(DOSSIER_PANNEAU, "app", "login.html"),
+                   os.path.join(DOSSIER_PANNEAU, "app", "app.py")):
+        src = open(chemin, encoding="utf-8").read()
+        for faute in fautives:
+            if faute in src:
+                fautes.append(f"{os.path.basename(chemin)} : « {faute} »")
+    assert not fautes, "participe passe au lieu d'un imperatif :\n" + "\n".join(fautes)
+
+
+# Les verbes a l'infinitif derriere « a » : « rien a taper », « A activer
+# ci-dessous », « A poser une fois le TLS en place ». La preposition prend
+# l'accent, le verbe avoir non -- et « avoir » ne se suit jamais directement
+# d'un infinitif. Les infinitifs en -re sont listes : trop de mots courants
+# finissent par ces deux lettres (« encore », « autre », « contre ») pour
+# qu'une terminaison suffise.
+INFINITIFS_EN_RE = ("faire", "mettre", "prendre", "ecrire", "écrire", "lire",
+                    "dire", "suivre", "remettre", "reprendre", "comprendre",
+                    "permettre", "croire", "vivre", "rendre", "attendre",
+                    "repondre", "répondre", "perdre", "revivre")
+MOTIF_A_INFINITIF = re.compile(
+    r"(?<![\wÀ-ÿ'])[Aa]\s+(?:[a-zà-ÿ]+(?:er|ir)\b|(?:" +
+    "|".join(INFINITIFS_EN_RE) + r")\b)")
+
+# « ne protégé plus rien » : un participe passe la ou il faut un present.
+# Sans auxiliaire, « ne ... plus » demande un verbe conjugue.
+MOTIF_PARTICIPE_SANS_AUXILIAIRE = re.compile(
+    r"\bne\s+[a-zà-ÿ]+é\s+(?:plus|pas|rien|jamais|guere|guère)\b")
+
+
+def test_les_etiquettes_d_un_seul_mot_portent_leurs_accents():
+    """« Desactivee », « Actives » : les pastilles d'etat font UN mot, et le
+    controle des phrases ne les voyait pas -- il ne regarde que ce qui
+    compte trois mots ou plus. Ce sont pourtant les textes les plus lus de
+    la page : on les relit a chaque coup d'oeil.
+
+    On ne cherche que dans ce qui est manifestement une etiquette : entre
+    guillemets ou entre balises. Sans cela, totpDesactiver() -- un nom de
+    fonction, qui ne s'affiche nulle part -- serait signale.
+    """
+    motif = re.compile(r"""(?<=['">])(Desactivee?s?|Desactiver|Activee|Activees|"""
+                       r"""Arretee|Arretees|Demarree|Reussi|Echoue)(?=['"<])""")
+    fautes = []
+    for chemin in (os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                   os.path.join(DOSSIER_PANNEAU, "app", "login.html")):
+        page = open(chemin, encoding="utf-8").read()
+        for faute in motif.findall(page):
+            fautes.append(f"{os.path.basename(chemin)} : « {faute} »")
+    assert not fautes, "etiquettes sans accents :\n" + "\n".join(fautes)
+
+
+def test_la_preposition_a_garde_son_accent_devant_un_infinitif():
+    """« rien a taper », « A activer ci-dessous », « A poser une fois le TLS
+    en place » : c'est la preposition, pas le verbe avoir -- qui ne se suit
+    d'ailleurs jamais directement d'un infinitif."""
+    fautes = []
+    for chemin in (os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                   os.path.join(DOSSIER_PANNEAU, "app", "login.html")):
+        page = open(chemin, encoding="utf-8").read()
+        for texte in _textes_visibles(page) + _phrases_du_script(page):
+            texte = " ".join(texte.split())
+            for faute in MOTIF_A_INFINITIF.findall(texte):
+                fautes.append(f"{os.path.basename(chemin)} : « {faute} » "
+                              f"dans « {texte[:70]} »")
+    assert not fautes, "« a » au lieu de « à » :\n" + "\n".join(fautes[:12])
+
+
+def test_aucun_participe_passe_ne_tient_lieu_de_verbe_conjugue():
+    """« la limite de tentatives ne protégé plus rien » : l'accent de trop,
+    pose par une relecture qui accentue sans lire la phrase."""
+    fautes = []
+    for chemin in (os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                   os.path.join(DOSSIER_PANNEAU, "app", "login.html")):
+        page = open(chemin, encoding="utf-8").read()
+        for texte in _textes_visibles(page) + _phrases_du_script(page):
+            texte = " ".join(texte.split())
+            for faute in MOTIF_PARTICIPE_SANS_AUXILIAIRE.findall(texte):
+                fautes.append(f"{os.path.basename(chemin)} : « {faute} »")
+    assert not fautes, "participe passe sans auxiliaire :\n" + "\n".join(fautes)
+
+
+def test_aucun_texte_de_la_page_de_connexion_n_a_perdu_ses_accents():
+    """La page de connexion echappait au controle, et cela se voyait :
+    « Applications centralisees », « Heberge chez toi », « Accede a tes
+    applications », « Connexion chiffree cote serveur ». C'est pourtant la
+    PREMIERE page que voit quelqu'un a qui l'on partage une application."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "login.html"),
                 encoding="utf-8").read()
     fautes = []
     for texte in _textes_visibles(page) + _phrases_du_script(page):
