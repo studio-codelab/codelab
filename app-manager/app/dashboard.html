@@ -242,9 +242,19 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 /* ------------------------------ cartes ------------------------------ */
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
  padding:14px 16px;box-shadow:0 1px 2px var(--shadow)}
-/* La carte qui ne contient QUE des tuiles ne s'encadre pas elle-meme : deux
-   cadres emboites a 13 px d'ecart ne hierarchisent rien. */
-.card:has(> .ov-nums){background:transparent;border:none;padding:0;box-shadow:none}
+/* LES TROIS CARTES DE LA VUE D'ENSEMBLE FONT LA MEME HAUTEUR.
+   « Applications » etait un cadre transparent contenant trois tuiles
+   cadrees : elles commencaient plus bas et finissaient plus haut que
+   « Sante » et « Ressources », et les trois colonnes ne s'alignaient sur
+   rien. C'est donc le cadre interieur qui disparait -- deux cadres emboites
+   a 13 px d'ecart ne hierarchisaient rien de toute facon -- et la carte
+   redevient une carte comme les deux autres.
+
+   La grille etire deja ses trois colonnes a la meme hauteur ; ce qui
+   manquait, c'est que le CONTENU la remplisse. */
+.card{display:flex;flex-direction:column}
+.card>.ov-nums,.card>.healthbar,.card>.res-row:last-child{margin-bottom:0}
+.card>.ov-nums{flex:1;align-items:stretch}
 .cartes{display:grid;gap:14px}
 .c3{grid-template-columns:repeat(3,minmax(0,1fr))}
 .c2{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -268,17 +278,26 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
    au navigateur. A 84 px les trois tiennent sur une ligne, et la grille
    reste capable d'en accueillir plus si une mesure s'ajoute. */
 .ov-nums{display:grid;grid-template-columns:repeat(auto-fit,minmax(84px,1fr));gap:10px}
-.ov-nums div{background:var(--surface);border:1px solid var(--line);
- border-radius:var(--r);padding:11px 13px}
+/* Plus de cadre par tuile : c'est la carte qui encadre, comme pour les deux
+   voisines. Les chiffres restent ce qu'on lit en premier. */
+.ov-nums div{display:flex;flex-direction:column;justify-content:center}
 .ov-nums div b{font-size:28px;font-weight:800;letter-spacing:-.03em;display:block;
  line-height:1.1;font-variant-numeric:tabular-nums}
 .ov-nums div span{font-size:10.5px;color:var(--dim2);text-transform:uppercase;
  letter-spacing:.09em;font-weight:700;display:block;margin-bottom:3px}
+/* Le contenu de « Sante » et de « Ressources » se CENTRE dans la hauteur
+   restante : tasse en haut, il laissait un vide sous lui ; colle en bas, il
+   ne tombait en face de rien. Deux marges automatiques, et le bloc flotte
+   au milieu de ce que les voisines lui laissent. */
+.card>.healthbar{margin-top:auto}
+.card>.health-legend{margin-bottom:auto}
 .healthbar{display:flex;height:7px;border-radius:20px;overflow:hidden;background:var(--line);
  margin:14px 0 10px}
 .healthbar span{display:block}
 .health-legend{display:flex;gap:14px;font-size:11.5px;color:var(--dim)}
 .health-legend i{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:5px}
+.card>.res-row:first-of-type{margin-top:auto}
+.card>.res-row:last-of-type{margin-bottom:auto}
 .res-row+.res-row{margin-top:12px}
 .res-label{display:flex;justify-content:space-between;font-size:12.5px;color:var(--dim);
  margin-bottom:5px}
@@ -2231,8 +2250,32 @@ function applyTheme(t){
   else document.documentElement.setAttribute('data-theme', t);
   document.querySelectorAll('#theme-toggle button').forEach(b=>b.classList.toggle('active', b.dataset.t===t));
 }
-function setTheme(t){ localStorage.setItem('codelab-theme', t); applyTheme(t); }
-applyTheme(localStorage.getItem('codelab-theme')||'auto');
+/* LE CHOIX DOIT SORTIR DE CETTE ORIGINE. Les applications sont servies sur
+   un autre port, donc une autre origine, donc un autre localStorage : le
+   diagnostic -- qui est une page de CodeLab, pas une application invitee --
+   ne pouvait pas savoir si tu avais choisi le clair ou le sombre, et suivait
+   le reglage du systeme.
+
+   Un COOKIE, lui, appartient a l'HOTE et ignore le port : il traverse la
+   separation des origines sans rien lui retirer. Ce qu'il porte est une
+   preference d'affichage, pas un secret -- et c'est bien pour cela qu'on
+   peut le partager, la ou le cookie de session est justement retire avant
+   d'atteindre une application. */
+function noterThemePartage(t){
+  try{ document.cookie='codelab-theme='+encodeURIComponent(t)
+    + ';path=/;max-age=31536000;SameSite=Lax'; }catch(e){}
+}
+function setTheme(t){
+  localStorage.setItem('codelab-theme', t);
+  noterThemePartage(t);
+  applyTheme(t);
+}
+const themeChoisi = localStorage.getItem('codelab-theme')||'auto';
+applyTheme(themeChoisi);
+/* Pose aussi au chargement : une installation deja en place a son choix dans
+   le localStorage et n'a aucune raison de le refaire pour que les
+   applications le voient. */
+noterThemePartage(themeChoisi);
 
 /* ---------------- colonne de gauche ---------------- */
 function applySidebar(state){ $('sidebar').classList.toggle('collapsed', state==='collapsed'); }
