@@ -189,14 +189,26 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
    une semaine, chaque ligne un jour de la semaine -- lundi en haut. La
    grille se remplit donc VERTICALEMENT (grid-auto-flow:column), ce qui evite
    d'avoir a calculer une position pour chaque case. */
-.carte-zone{overflow-x:auto;padding:4px 0 2px}
+/* PLUS DE BARRE DE DEFILEMENT. Une carte de chaleur se lit d'un coup d'oeil
+   -- c'est sa seule raison d'etre ; la moitie cachee derriere un glissement
+   horizontal ne se lit jamais. Les cases s'etirent donc pour que l'annee
+   entiere tienne dans la largeur disponible, au lieu d'imposer 11 px par
+   semaine. */
+.carte-zone{padding:4px 0 2px}
 /* Le nombre de colonnes est pose en ligne par le script (une par semaine de
    l'annee) : c'est lui qui permet a la ligne des mois d'etre EXACTEMENT
    aussi large que la grille, et a chaque mois de couvrir ses semaines. */
-.carte-grille{display:grid;grid-template-rows:repeat(7,11px);
- grid-auto-flow:column;gap:3px;width:max-content}
-.carte-case{width:11px;height:11px;border-radius:2px;background:var(--surface2);
- border:1px solid var(--line)}
+/* Les colonnes en 1fr (gabarit pose en ligne par le script) : la grille
+   occupe toute la largeur, quelle qu'elle soit. Les LIGNES suivent, en
+   proportion de la largeur d'une case, pour que les cases restent carrees
+   sans que personne ait a calculer quoi que ce soit. */
+/* Le gabarit -- colonnes ET lignes -- est pose en ligne par le script, en
+   pixels calcules depuis la largeur disponible. width:max-content laisse la
+   grille faire exactement la taille de ses cases : ni plus, donc pas de
+   defilement, ni moins. */
+.carte-grille{display:grid;grid-auto-flow:column;gap:3px;width:max-content}
+.carte-case{border-radius:2px;background:var(--surface2);
+ border:1px solid var(--line);box-sizing:border-box}
 /* Cinq paliers, comme le calendrier de GitHub : en dessous de cinq, les
    journees chargees et les journees calmes se confondent ; au-dessus, l'oeil
    ne distingue plus les nuances. */
@@ -230,9 +242,19 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 /* ------------------------------ cartes ------------------------------ */
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
  padding:14px 16px;box-shadow:0 1px 2px var(--shadow)}
-/* La carte qui ne contient QUE des tuiles ne s'encadre pas elle-meme : deux
-   cadres emboites a 13 px d'ecart ne hierarchisent rien. */
-.card:has(> .ov-nums){background:transparent;border:none;padding:0;box-shadow:none}
+/* LES TROIS CARTES DE LA VUE D'ENSEMBLE FONT LA MEME HAUTEUR.
+   « Applications » etait un cadre transparent contenant trois tuiles
+   cadrees : elles commencaient plus bas et finissaient plus haut que
+   « Sante » et « Ressources », et les trois colonnes ne s'alignaient sur
+   rien. C'est donc le cadre interieur qui disparait -- deux cadres emboites
+   a 13 px d'ecart ne hierarchisaient rien de toute facon -- et la carte
+   redevient une carte comme les deux autres.
+
+   La grille etire deja ses trois colonnes a la meme hauteur ; ce qui
+   manquait, c'est que le CONTENU la remplisse. */
+.card{display:flex;flex-direction:column}
+.card>.ov-nums,.card>.healthbar,.card>.res-row:last-child{margin-bottom:0}
+.card>.ov-nums{flex:1;align-items:stretch}
 .cartes{display:grid;gap:14px}
 .c3{grid-template-columns:repeat(3,minmax(0,1fr))}
 .c2{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -256,17 +278,26 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
    au navigateur. A 84 px les trois tiennent sur une ligne, et la grille
    reste capable d'en accueillir plus si une mesure s'ajoute. */
 .ov-nums{display:grid;grid-template-columns:repeat(auto-fit,minmax(84px,1fr));gap:10px}
-.ov-nums div{background:var(--surface);border:1px solid var(--line);
- border-radius:var(--r);padding:11px 13px}
+/* Plus de cadre par tuile : c'est la carte qui encadre, comme pour les deux
+   voisines. Les chiffres restent ce qu'on lit en premier. */
+.ov-nums div{display:flex;flex-direction:column;justify-content:center}
 .ov-nums div b{font-size:28px;font-weight:800;letter-spacing:-.03em;display:block;
  line-height:1.1;font-variant-numeric:tabular-nums}
 .ov-nums div span{font-size:10.5px;color:var(--dim2);text-transform:uppercase;
  letter-spacing:.09em;font-weight:700;display:block;margin-bottom:3px}
+/* Le contenu de « Sante » et de « Ressources » se CENTRE dans la hauteur
+   restante : tasse en haut, il laissait un vide sous lui ; colle en bas, il
+   ne tombait en face de rien. Deux marges automatiques, et le bloc flotte
+   au milieu de ce que les voisines lui laissent. */
+.card>.healthbar{margin-top:auto}
+.card>.health-legend{margin-bottom:auto}
 .healthbar{display:flex;height:7px;border-radius:20px;overflow:hidden;background:var(--line);
  margin:14px 0 10px}
 .healthbar span{display:block}
 .health-legend{display:flex;gap:14px;font-size:11.5px;color:var(--dim)}
 .health-legend i{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:5px}
+.card>.res-row:first-of-type{margin-top:auto}
+.card>.res-row:last-of-type{margin-bottom:auto}
 .res-row+.res-row{margin-top:12px}
 .res-label{display:flex;justify-content:space-between;font-size:12.5px;color:var(--dim);
  margin-bottom:5px}
@@ -374,9 +405,41 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 label{display:block;font-size:var(--t-s);font-weight:600;color:var(--dim);margin-bottom:5px;
  letter-spacing:-.004em}
 label .opt{font-weight:500;color:var(--dim2);text-transform:none;letter-spacing:0}
+/* LES CONTROLES DU NAVIGATEUR SUIVENT LE THEME.
+   Une case cochee sortait en bleu Windows, une liste deroulante ouvrait un
+   menu gris systeme avec sa fleche a elle, et le curseur clignotait en bleu
+   par-dessus une interface turquoise. Trois details, mais ce sont ceux qu'on
+   touche du doigt : ils suffisaient a faire passer la page pour un
+   formulaire de 2005 pose sur un theme soigne.
+
+   accent-color est LA propriete qui habille les cases a cocher, les boutons
+   radio, les barres de progression et les curseurs sans avoir a les
+   redessiner -- donc sans perdre le comportement natif, le clavier ni les
+   lecteurs d'ecran. Le reste (la fleche des listes) se dessine a la main,
+   parce que rien ne permet de la styler autrement. */
+:root{accent-color:var(--accent);caret-color:var(--accent)}
 input,select,textarea{width:100%;padding:8px 11px;border-radius:var(--r-s);
  border:1px solid var(--line2);background:var(--bg-input);color:var(--txt);font:inherit;
  font-size:var(--t-m);transition:border-color .12s,box-shadow .12s}
+/* La fleche du navigateur est remplacee par la notre : la sienne ne suit ni
+   la couleur du texte ni le theme sombre. Le fond reste celui des champs,
+   sinon une liste deroulante ne ressemble plus a un champ. */
+select{appearance:none;-webkit-appearance:none;padding-right:30px;cursor:pointer;
+ background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a94a1' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+ background-repeat:no-repeat;background-position:right 9px center;background-size:15px}
+/* Le menu qui s'ouvre, lui, est dessine par le systeme : on ne peut lui
+   donner que ces deux couleurs, et c'est deja ce qui evite un rectangle
+   blanc en plein theme sombre. */
+select option{background:var(--surface);color:var(--txt)}
+/* La fleche en sombre : meme decoupe que dans theme.css -- le sombre du
+   systeme sauf choix explicite du clair, plus le sombre choisi. Une seule
+   des deux regles suffirait a laisser une fleche claire sur fond sombre
+   dans l'autre cas. */
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]):not([data-theme="dark"]) select{
+    background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236d7986' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")}
+}
+:root[data-theme="dark"] select{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236d7986' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")}
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
  box-shadow:0 0 0 3px var(--accent-ring)}
 input::placeholder{color:var(--dim2)}
@@ -385,7 +448,11 @@ input::placeholder{color:var(--dim2)}
    la largeur, et comme un label est un bloc, leur intitule tombait a la
    ligne en dessous. « Proxy de confiance » s'affichait ainsi sous une case
    centree, sans lien visible entre les deux. */
-input[type=checkbox],input[type=radio]{width:auto;margin:0;flex:none}
+input[type=checkbox],input[type=radio]{width:auto;margin:0;flex:none;
+ /* Un peu plus grandes que par defaut : a 13 px, une case se vise mal et se
+    lit mal -- et c'est desormais le geste principal du reglage d'affichage
+    du hub comme des projets autorises. */
+ width:15px;height:15px;cursor:pointer}
 label:has(> input[type=checkbox]),label:has(> input[type=radio]){
  display:flex;align-items:center;gap:8px;font-weight:500;color:var(--txt);
  font-size:var(--t-m);cursor:pointer}
@@ -451,16 +518,20 @@ label:has(> input[type=checkbox]),label:has(> input[type=radio]){
    cases, pas un bureau. Ce qu'on veut voir, c'est l'icone -- elle porte
    deja sa propre forme et ses propres couleurs. Le survol se dit alors
    autrement : l'icone se leve d'un cheveu et le nom prend l'accent. */
-.hub-liste.compacte{grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:10px}
-.hub-liste.compacte .hub-projet{flex-direction:column;align-items:center;gap:8px;
- padding:12px 6px;text-align:center;background:none;border-color:transparent}
+/* DEUX FOIS PLUS GRANDES. L'icone etait posee a 44 px : de loin, sur un
+   ecran de bureau, on ne distinguait plus une application d'une autre. Une
+   grille d'icones sert justement a reconnaitre d'un coup d'oeil -- c'est
+   l'icone qui porte ce travail, pas le nom en dessous. */
+.hub-liste.compacte{grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:16px}
+.hub-liste.compacte .hub-projet{flex-direction:column;align-items:center;gap:11px;
+ padding:16px 8px;text-align:center;background:none;border-color:transparent}
 .hub-liste.compacte .hub-projet:hover{background:none;border-color:transparent}
 .hub-liste.compacte .hub-projet:hover img{transform:translateY(-2px)}
 .hub-liste.compacte .hub-projet:hover .nom{color:var(--accent)}
-.hub-liste.compacte .hub-projet img{transition:transform .12s}
-.hub-liste.compacte .hub-projet img{width:44px;height:44px;border-radius:12px}
+.hub-liste.compacte .hub-projet img{width:88px;height:88px;border-radius:22px;
+ transition:transform .12s}
 .hub-liste.compacte .hub-projet .txt{width:100%}
-.hub-liste.compacte .hub-projet .nom{font-size:12.5px;font-weight:600;
+.hub-liste.compacte .hub-projet .nom{font-size:14px;font-weight:600;
  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .hub-liste.compacte .hub-projet .desc,
 .hub-liste.compacte .hub-projet .bas{display:none}
@@ -498,6 +569,20 @@ textarea{resize:vertical;min-height:72px;line-height:1.5}
 .masquee-ligne.cachee img{opacity:.45}
 .masquee-ligne.cachee .masquee-txt b{color:var(--dim)}
 .masquee-etat{font-size:11.5px;color:var(--dim2);flex:none}
+/* La liste repliee : une ligne qui dit combien sont masquees, et qui
+   s'ouvre. <details> plutot qu'un pliage a nous -- il s'ouvre au clavier,
+   s'annonce aux lecteurs d'ecran, et fonctionne meme si le script tombe. */
+.masquee-repli{border:1px solid var(--line2);border-radius:var(--r-s);
+ background:var(--bg-input)}
+.masquee-repli summary{display:flex;align-items:center;gap:8px;padding:9px 12px;
+ cursor:pointer;font-size:var(--t-m);color:var(--txt);list-style:none}
+.masquee-repli summary::-webkit-details-marker{display:none}
+.masquee-repli summary span{flex:1}
+.masquee-repli summary svg{width:16px;height:16px;flex:none;color:var(--dim2);
+ fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;
+ stroke-linejoin:round;transition:transform .12s}
+.masquee-repli[open] summary svg{transform:rotate(180deg)}
+.masquee-corps{padding:0 12px 6px;border-top:1px solid var(--line)}
 .masquee-txt{flex:1;min-width:0;display:flex;flex-direction:column}
 .masquee-txt b{font-size:var(--t-m);font-weight:620}
 .masquee-txt span{font-size:12px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;
@@ -658,7 +743,17 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
 /* 760 px : au-dela, un champ de formulaire devient une ligne trop longue a
    parcourir des yeux ; en deca, la carte flottait dans le vide sur un ecran
    large. Les listes (comptes, journal) prennent toute la largeur, elles. */
-.settings-card{max-width:760px;margin-bottom:14px}
+/* BEAUCOUP MOINS APPARENTES. Chaque reglage vivait dans une boite blanche,
+   encadree et ombree : six boites empilees dans un onglet donnaient six
+   rectangles qui se disputaient l'attention, alors qu'aucun d'eux n'est un
+   objet -- ce sont des rubriques d'une meme page. On garde ce qui separe
+   (un filet, de l'air) et on retire ce qui encadre (le fond, la bordure,
+   l'ombre, les coins). */
+.settings-card{max-width:760px;margin-bottom:0;background:transparent;border:0;
+ border-radius:0;box-shadow:none;padding:16px 0;
+ border-bottom:1px solid var(--line)}
+.zone:last-child .settings-card:last-child{border-bottom:0}
+.settings-card .card-name b{font-size:var(--t-m);font-weight:650}
 .settings-card .field{margin-bottom:0}
 .settings-card .field+.field{margin-top:14px}
 .settings-card .grid2+.field{margin-top:14px}
@@ -1278,6 +1373,23 @@ table.tbl-journal{min-width:560px}
           <div class="hint">Exécutée à la demande, jamais au lancement.</div></div>
       </div>
 
+      <!-- LES DESTINATAIRES D'ALERTE VIVENT ICI, avec l'application dont ils
+           parlent. Ils etaient dans les parametres globaux, en une liste de
+           champs -- un par application -- ou il fallait retrouver la bonne
+           ligne ; et rien, depuis la fiche d'une application, ne disait qui
+           serait prevenu si elle tombait. -->
+      <div class="fset">
+        <div class="fset-title">Alertes</div>
+        <div class="field"><label>Destinataires <span class="opt">facultatif</span></label>
+          <input id="e-alertes" placeholder="administrateur seulement" autocomplete="off">
+          <div class="hint">Qui prévenir quand <b>cette</b> application tombe, puis quand elle
+            revient. Plusieurs adresses possibles, séparées par des virgules.</div>
+          <div class="hint">Laisse vide pour ne prévenir que l'administrateur — dont l'adresse
+            s'ajoute <b>toujours</b> à celles saisies ici, réglée dans
+            <b>Paramètres &gt; E-mail</b>.</div>
+        </div>
+      </div>
+
       <div class="fset">
         <div class="fset-title">Ressources</div>
         <div class="field"><label>Limite mémoire <span class="opt">facultatif</span></label>
@@ -1388,7 +1500,7 @@ table.tbl-journal{min-width:560px}
       <span class="pill" id="mail-etat"><i></i>&nbsp;</span></div>
 
       <div class="hint">Un code à six chiffres est envoyé à cette adresse pour vérifier que tu la
-        releves vraiment. Cette vérification ne remplace pas le second facteur et n'ouvre aucune
+        relèves vraiment. Cette vérification ne remplace pas le second facteur et n'ouvre aucune
         session : elle atteste seulement que l'adresse est la tienne.</div>
 
       <div class="field" style="margin-top:14px">
@@ -1785,9 +1897,9 @@ table.tbl-journal{min-width:560px}
       </div></div>
 
       <div class="hint">C'est le filet. Chaque application peut avoir ses propres destinataires
-        (onglet <b>Alertes</b>), mais cette adresse-ci les reçoit <b>toutes</b> — y compris celles
-        des applications dont la liste est restée vide. Sans elle, une application oubliée
-        tomberait en silence.</div>
+        (dans sa fiche, onglet <b>Configuration</b>), mais cette adresse-ci les reçoit
+        <b>toutes</b> — y compris celles des applications dont la liste est restée vide. Sans
+        elle, une application oubliée tomberait en silence.</div>
 
       <div class="field" style="margin-top:14px">
         <label>Adresse</label>
@@ -1827,19 +1939,6 @@ table.tbl-journal{min-width:560px}
       <div class="hint" id="al-msg" style="display:none"></div>
     </div>
 
-    <div class="card settings-card">
-      <div class="card-top"><div class="card-name">
-        <b>Destinataires par application</b>
-        <div class="path">Qui prévenir, application par application.</div>
-      </div></div>
-
-      <div class="hint">Une application de facturation ne prévient pas les mêmes personnes qu'un
-        site vitrine. Laisse vide pour qu'une application n'alerte que l'administrateur — dont
-        l'adresse s'ajoute <b>toujours</b> à celles saisies ici.</div>
-
-      <div id="al-par-app" style="margin-top:14px"></div>
-      <div class="hint" id="al-app-msg" style="display:none"></div>
-    </div>
   </div>
 
   </div>
@@ -2151,8 +2250,32 @@ function applyTheme(t){
   else document.documentElement.setAttribute('data-theme', t);
   document.querySelectorAll('#theme-toggle button').forEach(b=>b.classList.toggle('active', b.dataset.t===t));
 }
-function setTheme(t){ localStorage.setItem('codelab-theme', t); applyTheme(t); }
-applyTheme(localStorage.getItem('codelab-theme')||'auto');
+/* LE CHOIX DOIT SORTIR DE CETTE ORIGINE. Les applications sont servies sur
+   un autre port, donc une autre origine, donc un autre localStorage : le
+   diagnostic -- qui est une page de CodeLab, pas une application invitee --
+   ne pouvait pas savoir si tu avais choisi le clair ou le sombre, et suivait
+   le reglage du systeme.
+
+   Un COOKIE, lui, appartient a l'HOTE et ignore le port : il traverse la
+   separation des origines sans rien lui retirer. Ce qu'il porte est une
+   preference d'affichage, pas un secret -- et c'est bien pour cela qu'on
+   peut le partager, la ou le cookie de session est justement retire avant
+   d'atteindre une application. */
+function noterThemePartage(t){
+  try{ document.cookie='codelab-theme='+encodeURIComponent(t)
+    + ';path=/;max-age=31536000;SameSite=Lax'; }catch(e){}
+}
+function setTheme(t){
+  localStorage.setItem('codelab-theme', t);
+  noterThemePartage(t);
+  applyTheme(t);
+}
+const themeChoisi = localStorage.getItem('codelab-theme')||'auto';
+applyTheme(themeChoisi);
+/* Pose aussi au chargement : une installation deja en place a son choix dans
+   le localStorage et n'a aucune raison de le refaire pour que les
+   applications le voient. */
+noterThemePartage(themeChoisi);
 
 /* ---------------- colonne de gauche ---------------- */
 function applySidebar(state){ $('sidebar').classList.toggle('collapsed', state==='collapsed'); }
@@ -2484,6 +2607,11 @@ function hubTaille(t){
 
 let hubMasquees=[];
 
+/* Au-dela de ce nombre d'applications, le reglage d'affichage se replie
+   derriere une ligne qu'on deroule. Huit : c'est a peu pres ce qui tient
+   sous les yeux sans faire defiler la page. */
+const MASQUAGE_SEUIL_DEROULANT = 8;
+
 /* Une seule bascule pour les deux sens : cocher retire l'application du hub,
    decocher l'y remet. Le serveur ne connait que deux verbes sur la meme
    adresse, POST pour masquer et DELETE pour afficher. */
@@ -2517,7 +2645,7 @@ function peindreMasquees(){
     zone.innerHTML='<div class="hint">Aucune application à ranger pour le moment.</div>';
     return;
   }
-  zone.innerHTML = toutes.map(a=>{
+  const lignes = toutes.map(a=>{
     const cachee = cachees.has(a.name);
     return `<label class="masquee-ligne${cachee?' cachee':''}">
     <input type="checkbox"${cachee?' checked':''}
@@ -2527,6 +2655,29 @@ function peindreMasquees(){
       ${a.description?`<span>${esc(a.description)}</span>`:''}</div>
     <span class="masquee-etat">${cachee?'Masquée':'Affichée'}</span>
   </label>`;}).join('');
+
+  /* AU-DELA DE HUIT, LA LISTE SE DEROULE. Quinze applications faisaient de
+     ce reglage la moitie de la page des parametres, et repoussaient tout le
+     reste hors de l'ecran -- pour une liste qu'on ouvre trois fois par an.
+     Repliee, elle tient en une ligne qui dit l'essentiel : combien sont
+     masquees. En dessous de huit, dérouler n'economise rien et ajoute un
+     clic. */
+  if(toutes.length <= MASQUAGE_SEUIL_DEROULANT){
+    zone.innerHTML = lignes;
+    return;
+  }
+  const nb = cachees.size;
+  const resume = nb
+    ? `${nb} masquée${nb>1?'s':''} sur ${toutes.length} applications`
+    : `${toutes.length} applications, aucune masquée`;
+  /* L'etat ouvert/ferme se garde d'un rafraichissement a l'autre : la liste
+     est redessinee a chaque changement de case, et elle se refermerait sous
+     le doigt a chaque clic. */
+  const ouverte = zone.querySelector('details') ? zone.querySelector('details').open : false;
+  zone.innerHTML = `<details class="masquee-repli"${ouverte?' open':''}>
+    <summary><span>${esc(resume)}</span>
+      <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></summary>
+    <div class="masquee-corps">${lignes}</div></details>`;
 }
 
 async function chargerHub(){
@@ -2676,7 +2827,7 @@ function render(){
       <rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></div>
       <h3>${apps.length?'Aucun résultat':'Aucune application déclarée'}</h3>
       <p>${apps.length?'Aucune application ne correspond à cette recherche.'
-        :'Déclaré un dossier de /workspace et il sera en ligne en quelques secondes.'}</p>
+        :'Déclare un dossier de /workspace et il sera en ligne en quelques secondes.'}</p>
       ${apps.length?'':'<button class="btn btn-primary" onclick="openAdd()">Nouvelle application</button>'}
     </div>`;
     return;
@@ -2710,28 +2861,44 @@ function render(){
 }
 
 /* ---------------- actions ---------------- */
-/* Le bouton demarrer / arreter. Il LIT la reponse : le panneau sait
-   desormais dire pourquoi une application refuse de demarrer (dossier
-   disparu, commande introuvable, port pris, isolement refuse), et se taire
-   la-dessus revenait a cliquer dans le vide. */
+/* TOUTES LES ACTIONS LISENT LEUR REPONSE, ET AUCUNE NE SE RABAT SUR UNE
+   PHRASE VIDE. « L'application n'a pas demarre » n'apprend rien : ce qu'on
+   veut savoir, c'est le port deja pris, la commande introuvable, ou la
+   session expiree. Le serveur le dit desormais dans tous les cas ; quand il
+   ne dit rien du tout -- panneau redemarre en plein clic, reponse qui n'est
+   pas du JSON -- on rend au moins le code HTTP, qui distingue un refus (403)
+   d'une panne (500) et vaut mieux qu'un haussement d'epaules. */
+async function echec(r, defaut){
+  let d={}; try{ d=await r.json(); }catch(e){}
+  if(d && d.error) return d.error;
+  if(r.status===401) return 'Session expirée : reconnecte-toi.';
+  if(r.status===403) return "Action refusée. Recharge la page, puis réessaie.";
+  return defaut + ' (réponse ' + r.status + ')';
+}
+
 async function tg(n){
   const r=await fetch('/api/toggle/'+n,{method:'POST'});
-  let d={}; try{ d=await r.json(); }catch(e){}
-  if(!r.ok) notifier(d.error || "L'application n'a pas demarre.", 'err');
+  if(!r.ok) notifier(await echec(r, "L'application n'a pas démarré."), 'err');
   setTimeout(refresh,400);
 }
-async function restartApp(n){ await fetch('/api/restart/'+n,{method:'POST'}); setTimeout(refresh,500); }
+/* Le redemarrage jetait sa reponse sans la regarder : une application qui ne
+   repartait pas laissait le bouton silencieux et la pastille sur
+   « Arretee », sans un mot pour dire pourquoi. */
+async function restartApp(n){
+  const r=await fetch('/api/restart/'+n,{method:'POST'});
+  if(!r.ok) notifier(await echec(r, "L'application n'a pas redémarré."), 'err');
+  else notifier('« '+n+' » a redémarré.');
+  setTimeout(refresh,500);
+}
 async function deployApp(n){
   const r=await fetch('/api/deploy/'+n,{method:'POST'});
-  const d=await r.json();
-  if(!r.ok) notifier(d.error||'Le déploiement a echoue.', 'err');
+  if(!r.ok) notifier(await echec(r, 'Le déploiement a échoué.'), 'err');
   ouvrirFiche(n); ficheOnglet('journal');
   setTimeout(refresh,600);
 }
 async function buildApp(n){
   const r=await fetch('/api/build/'+n,{method:'POST'});
-  const d=await r.json();
-  if(!r.ok) notifier(d.error||'Le build a echoue.', 'err');
+  if(!r.ok) notifier(await echec(r, 'Le build a échoué.'), 'err');
   ouvrirFiche(n); ficheOnglet('journal');
 }
 async function basculerVisibilite(n){
@@ -2824,7 +2991,7 @@ async function chargerAcces(nom){
 
   if(!comptes.length){
     zone.innerHTML='<div class="hint">Aucun compte nomme n\'existe. Toi seul ouvres les '
-      + 'projets privés — créé un compte depuis <b>Utilisateurs</b> pour en partager un.</div>';
+      + 'projets privés — crée un compte depuis <b>Utilisateurs</b> pour en partager un.</div>';
     return;
   }
   zone.innerHTML = comptes.map(c=>
@@ -2910,7 +3077,7 @@ function peindreFiche(){
     b.push(`<button class="btn btn-quiet" onclick="basculerVisibilite('${esc(a.name)}')">
       ${prive?'Rendre publique':'Rendre privée'}</button>`);
   }else{
-    b.push(`<span class="hint" style="align-self:center;max-width:320px">Déclaré l'adresse
+    b.push(`<span class="hint" style="align-self:center;max-width:320px">Déclare l'adresse
       publique du serveur (Paramètres &gt; Serveur) pour pouvoir partager une application.</span>`);
   }
   if(a.running) b.push(`<a class="btn btn-ouvrir" href="${urlApplication(a.name)}" target="_blank">${svgOuvrir}Ouvrir</a>`);
@@ -2927,6 +3094,7 @@ function chargerConfigFiche(){
   optionsCategorie('e-cat', a.categorie||'');
   $('e-cmd').value=a.command||'';
   $('e-build').value=a.build_command||'';
+  $('e-alertes').value=(a.alertes||[]).join(', ');
   $('e-mem').value=a.max_memory_mb||'';
   $('e-path').textContent=a.path;
   setVisEdit(a.visibility||'publique');
@@ -3118,6 +3286,18 @@ async function submitEdit(){
     headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const d=await r.json();
   if(!r.ok){ e.textContent=d.error||'Enregistrement impossible.'; e.style.display='block'; return; }
+  /* Les destinataires d'alerte ont leur propre route -- ils ne sont pas une
+     option d'execution, et une adresse mal ecrite ne doit pas faire echouer
+     l'enregistrement de la commande. Le meme bouton les enregistre malgre
+     tout : c'est le meme formulaire pour qui le remplit. */
+  const ra=await fetch('/api/alertes/application/'+encodeURIComponent(ficheNom),
+    {method:'PUT', headers:{'Content-Type':'application/json'},
+     body:JSON.stringify({alertes: $('e-alertes').value})});
+  if(!ra.ok){
+    e.textContent=await echec(ra, "Les destinataires d'alerte n'ont pas été enregistrés.");
+    e.style.display='block';
+    return;
+  }
   e.style.display='none';
   await refresh();
   chargerConfigFiche();
@@ -3186,7 +3366,7 @@ function ouvrirLog(n){
     if(!premier) return;   /* deja des lignes affichees : simple reconnexion */
     $('lg-body').textContent =
       "Le journal n'a pas pu être suivi.\n\n"
-      + "Cause la plus frequente : trop de journaux suivis en même temps, "
+      + "Cause la plus fréquente : trop de journaux suivis en même temps, "
       + "depuis un autre onglet ou une autre machine. Ferme-en un et reviens ici.";
   };
 }
@@ -3416,6 +3596,7 @@ function carteJourCle(d){
 }
 
 function peindreCarte(d){
+  derniereCarte=d;
   const parJour={}; let total=0, sommet=0;
   for(const j of (d.jours||[])){
     parJour[j.jour]=j; total+=j.ouvertures;
@@ -3484,9 +3665,42 @@ function peindreCarte(d){
     mois.push({m:m, n:1});
   }
   const colonnes=cases.length;
-  const gabarit=`grid-template-columns:repeat(${colonnes},11px)`;
+  /* LA TAILLE D'UNE CASE SE CALCULE, elle ne se declare pas.
+     Onze pixels par semaine debordaient d'une carte etroite, et la moitie de
+     l'annee partait derriere une barre de defilement -- qu'on ne fait jamais
+     glisser. Des colonnes en « 1fr » ne marchent pas davantage : la hauteur
+     d'une case viendrait alors de sa largeur (aspect-ratio), qui vient de la
+     largeur de la grille, qui vient de la hauteur... le navigateur tranche
+     ce cercle comme il peut, et rendait des cases de 54 px.
+     On mesure donc la place disponible et on en deduit un cote, en pixels,
+     pose sur les colonnes ET sur les lignes. */
+  const large = $('carte-zone').clientWidth
+    || $('carte-zone').getBoundingClientRect().width;
+  /* L'ECART COMPTE AUTANT QUE LA CASE. Cinquante-deux ecarts de 3 px font
+     156 px a eux seuls : sur une carte etroite, ils mangent toute la place
+     et la grille deborde meme avec des cases minuscules. On resserre donc
+     l'ecart avant de rapetisser la case, et on s'arrete au premier couple
+     qui tient -- en visant six pixels de cote, en dessous desquels une case
+     ne se distingue plus de son voisin. */
+  let cote = 11, ecart = 3;
+  if(large > 0){
+    let trouve = false;
+    for(const e of [3,2,1,0]){
+      const c = Math.floor((large - (colonnes-1)*e) / colonnes);
+      if(c >= 6){ cote = c; ecart = e; trouve = true; break; }
+    }
+    if(!trouve){
+      /* Vraiment trop etroit : on prend ce qui rentre, jusqu'a deux pixels.
+         Une carte reduite se lit encore ; une carte coupee, non. */
+      ecart = 0;
+      cote = Math.max(2, Math.floor(large / colonnes));
+    }
+  }
+  const gabarit=`gap:${ecart}px;grid-template-columns:repeat(${colonnes},${cote}px);`
+    + `grid-template-rows:repeat(7,${cote}px)`;
+  const gabaritMois=`gap:${ecart}px;grid-template-columns:repeat(${colonnes},${cote}px)`;
   $('carte-zone').innerHTML =
-    `<div class="carte-mois" style="${gabarit}">`
+    `<div class="carte-mois" style="${gabaritMois}">`
     + mois.map(x=>`<span style="grid-column:span ${x.n}">${CARTE_MOIS[x.m]}</span>`).join('')
     + `</div>`
     + `<div class="carte-grille" style="${gabarit}">${cases.join('')}</div>`;
@@ -3509,6 +3723,16 @@ function peindreCarte(d){
       + "simplement avoir été oubliés. La base garde tout.";
   }
 }
+
+/* La derniere reponse, gardee pour repeindre a l'identique : la taille des
+   cases depend de la largeur de la fenetre, et une carte calculee pour 1400
+   px deborde a 900. Repeindre ne redemande rien au serveur. */
+let derniereCarte=null, repeintureCarte=null;
+window.addEventListener('resize', ()=>{
+  if(!derniereCarte) return;
+  clearTimeout(repeintureCarte);
+  repeintureCarte=setTimeout(()=>peindreCarte(derniereCarte), 120);
+});
 
 async function chargerCarte(){
   /* La liste des personnes vient du resume du journal. Il n'est charge qu'a
@@ -3729,7 +3953,7 @@ function usPeindreListe(){
   const zone=$('us-liste'), barre=$('us-pagination');
   if(!usTous.length){
     zone.innerHTML='<div class="vide"><b>Aucun compte</b>'
-      +'Toi seul peux ouvrir les projets privés. Créé un compte pour partager '
+      +'Toi seul peux ouvrir les projets privés. Crée un compte pour partager '
       +'un projet avec quelqu\'un sans lui donner l\'administration.</div>';
     barre.style.display='none';
     return;
@@ -3840,7 +4064,7 @@ function usPeindreFiche(){
   $('us-f-mail-etat').textContent = !c.email
     ? "Aucune adresse. La personne peut en déclarer une elle-même depuis ses paramètres."
     : (c.attente_email
-      ? "Adresse jamais confirmee : ce compte ne peut pas se connecter tant qu'un code envoyé dessus n'est pas revenu."
+      ? "Adresse jamais confirmée : ce compte ne peut pas se connecter tant qu'un code envoyé dessus n'est pas revenu."
       : (c.email_verifie
         ? "Adresse vérifiée par un code reçu dessus."
         : "Adresse non vérifiée : la personne la confirmera depuis ses paramètres."));
@@ -4045,8 +4269,8 @@ async function chargerAlertes(){
 
   const pill=$('al-etat');
   pill.className='pill '+(d.actif?'on':'off');
-  pill.innerHTML='<i></i>'+(d.actif?'Actives':'Desactivees');
-  $('al-toggle').textContent = d.actif ? 'Desactiver' : 'Activer';
+  pill.innerHTML='<i></i>'+(d.actif?'Activées':'Désactivées');
+  $('al-toggle').textContent = d.actif ? 'Désactiver' : 'Activer';
 
   /* L'etat du SERVEUR ne depend pas des alertes : un serveur pret l'est
      meme si personne n'est encore prevenu quand une application tombe. */
@@ -4093,50 +4317,12 @@ async function chargerAlertes(){
        + (d.source==='personnalisee' && d.origine_utilisable
           ? ', avec celle d\'origine en repli.' : '.'))
     : 'Aucun serveur d\'envoi utilisable : les alertes ne partiront pas. '
-      + 'Réglé-le dans l\'onglet <b>E-mail</b>.';
+      + 'Règle-le dans l\'onglet <b>E-mail</b>.';
 
-  peindreAlertesParApp(d);
 
   const incidents=(d.incidents||[]);
   alMessage(incidents.length
     ? 'Incident en cours sur : '+incidents.join(', ')+'.' : '', false);
-}
-
-/* La liste des applications avec leurs destinataires propres. Redessinee a
-   chaque chargement : c'est la reponse du serveur qui fait foi, jamais ce
-   qui reste a l'ecran. */
-function peindreAlertesParApp(d){
-  const zone=$('al-par-app'); if(!zone) return;
-  const apps = d.par_application || {};
-  const noms = Object.keys(apps);
-  if(!noms.length){
-    zone.innerHTML='<div class="hint">Aucune application déclarée.</div>';
-    return;
-  }
-  const admin = (d.admin||[]).join(', ');
-  zone.innerHTML = noms.map(nom=>
-    `<div class="field" style="margin-bottom:12px">
-       <label>${esc(nom)}</label>
-       <input id="alapp-${esc(nom)}" value="${esc((apps[nom]||[]).join(', '))}"
-         placeholder="${admin ? esc(admin)+' seulement' : 'administrateur seulement'}"
-         autocomplete="off" onchange="alAppEnregistrer('${esc(nom)}')">
-     </div>`).join('');
-}
-
-async function alAppEnregistrer(nom){
-  const champ=$('alapp-'+nom); if(!champ) return;
-  const m=$('al-app-msg'); m.style.display='none';
-  try{
-    const r=await fetch('/api/alertes/application/'+encodeURIComponent(nom),
-      {method:'PUT', headers:{'Content-Type':'application/json'},
-       body:JSON.stringify({alertes: champ.value})});
-    const d=await r.json();
-    m.textContent = r.ok
-      ? nom+' : '+(d.destinataires||[]).join(', ')+' seront prevenus.'
-      : (d.error||'Enregistrement impossible.');
-    m.style.display='block';
-    if(r.ok) await chargerAlertes();
-  }catch(e){ m.textContent='Erreur réseau.'; m.style.display='block'; }
 }
 
 /* Ce que les deux onglets envoient. Les champs des deux sont dans le
@@ -4212,7 +4398,7 @@ async function chargerSecurite(){
   try{ d=await (await fetch('/api/securite')).json(); }catch(e){ return; }
   const pill=$('totp-etat');
   pill.className = 'pill ' + (d.totp ? 'on' : 'off');
-  pill.innerHTML = '<i></i>' + (d.totp ? 'Active' : 'Desactivee');
+  pill.innerHTML = '<i></i>' + (d.totp ? 'Activée' : 'Désactivée');
   $('totp-etape-1').style.display = d.totp ? 'none' : 'block';
   $('totp-etape-3').style.display = d.totp ? 'block' : 'none';
   $('totp-etape-2').style.display = 'none';
@@ -4229,25 +4415,25 @@ async function chargerSecurite(){
      d.totp
        ? "Un code a six chiffres est exige en plus du mot de passe."
        : "Le mot de passe seul donne l'exécution de commandes sur cette machine. "
-         + "A activer ci-dessous, surtout avant d'exposer ce panneau.",
+         + "À activer ci-dessous, surtout avant d'exposer ce panneau.",
      'securite'],
     ['Clés d\'accès', d.passkeys ? OK : ABSENT,
      d.passkeys
        ? (d.passkeys + ' clé' + (d.passkeys>1?'s':'') + ' enregistrée'
           + (d.passkeys>1?'s':'') + ' : connexion par empreinte ou code de l\'appareil.')
-       : "Optionnel, mais c'est le moyen de connexion le plus solide : rien a taper, "
-         + "rien qui puisse être rejoue ailleurs.",
+       : "Optionnel, mais c'est le moyen de connexion le plus solide : rien à taper, "
+         + "rien qui puisse être rejoué ailleurs.",
      'securite'],
     ['Administration sur le réseau local', d.admin_reseau_local ? OK : (expose ? ABSENT : HORS),
      d.admin_reseau_local
        ? "Le compte d'administration ne répond qu'aux adresses de chez toi. Les comptes "
-         + "nommes entrent toujours de n'importe ou."
+         + "nommés entrent toujours de n'importe où."
        : (expose
           ? "Ce panneau est joignable de l'extérieur et l'administration y répond. Un mot de "
-            + "passe qui fuit suffirait. A cocher dans l'onglet Serveur, depuis chez toi."
+            + "passe qui fuit suffirait. À cocher dans l'onglet Serveur, depuis chez toi."
           : "Sans objet tant que ce panneau ne sort pas du réseau local."),
      'serveur'],
-    ['Connexion chiffree (HTTPS)', d.https_constate ? OK : (expose ? REQUIS : HORS),
+    ['Connexion chiffrée (HTTPS)', d.https_constate ? OK : (expose ? REQUIS : HORS),
      d.https_constate
        ? "Cette page arrive en https : mot de passe, code et cookie sont chiffres en transit."
        : (expose
@@ -4258,11 +4444,11 @@ async function chargerSecurite(){
      null],
     ['Cookie de session en Secure', d.cookie_secure ? OK : (d.https_constate ? REQUIS : HORS),
      d.cookie_secure
-       ? "Le navigateur ne renverra ce cookie que sur une connexion chiffree."
+       ? "Le navigateur ne renverra ce cookie que sur une connexion chiffrée."
        : (d.https_constate
           ? "Cette page arrive en https mais le panneau ne le sait pas encore : coche "
             + "« Servi en HTTPS » dans l'onglet Serveur."
-          : "A poser une fois le TLS en place, pas avant : le navigateur cesserait d'envoyer "
+          : "À poser une fois le TLS en place, pas avant : le navigateur cesserait d'envoyer "
             + "le cookie et ta session tomberait au rechargement."),
      'serveur'],
     ['Adresse réelle des visiteurs', d.trust_proxy ? OK : (expose ? ABSENT : HORS),
@@ -4271,11 +4457,11 @@ async function chargerSecurite(){
          + "distinguent les visiteurs."
        : (expose
           ? "Derrière un proxy non déclaré, tous les visiteurs comptent pour un seul : la "
-            + "limite de tentatives de connexion ne protégé plus rien. A cocher dans l'onglet "
+            + "limite de tentatives de connexion ne protège plus rien. À cocher dans l'onglet "
             + "Serveur — et seulement s'il y a vraiment un proxy devant."
           : "Sans objet sans proxy devant."),
      'serveur'],
-    ['Applications sur une origine a part', d.origines_separees ? OK : REQUIS,
+    ['Applications sur une origine à part', d.origines_separees ? OK : REQUIS,
      d.origines_separees
        ? ("Servies depuis " + (d.origine_applications||'un autre port')
           + " : une faille dans l'une d'elles n'atteint pas le panneau.")
@@ -4301,12 +4487,12 @@ async function chargerSecurite(){
       + (manque ? ' <b>' + manque + ' point' + (manque>1?'s':'')
                   + ' demande' + (manque>1?'nt':'') + ' ton attention.</b>' : '')
     : 'Ce panneau <b>ne sort pas du réseau local</b> : aucune adresse publique déclarée, '
-      + 'aucun chiffrement constate. Les controles lies a internet sont marques '
-      + '« sans objet » — ils le redeviendront le jour ou tu le publieras.';
+      + 'aucun chiffrement constaté. Les contrôles liés à internet sont marqués '
+      + '« sans objet » — ils le redeviendront le jour où tu le publieras.';
 
   const etiquette = {
     [OK]: ['on', 'en place'], [ABSENT]: ['off', 'non'],
-    [REQUIS]: ['err', 'a corriger'], [HORS]: ['off', 'sans objet'],
+    [REQUIS]: ['err', 'à corriger'], [HORS]: ['off', 'sans objet'],
   };
   $('sec-liste').innerHTML = lignes.map(([nom, etat, aide, onglet])=>{
     const [cls, mot] = etiquette[etat];
@@ -4331,24 +4517,24 @@ async function chargerSecurite(){
         "Les adresses des visiteurs viennent de X-Forwarded-For.",
         "Aucun en-tete <b>X-Forwarded-*</b> sur cette requête : rien ne prouve qu'un proxy est "
         + "devant. L'activer laisserait n'importe quel client s'inventer une adresse.",
-        "Fixe par APP_MANAGER_TRUST_PROXY dans le compose.");
+        "Fixé par APP_MANAGER_TRUST_PROXY dans le compose.");
   poser('expo-https', d.https, d.https_fige, d.peut_activer_https,
-        "Le cookie de session est marque Secure.",
-        "Cette page n'arrive pas en https" + (d.https_constate ? "" : " et rien ne l'annoncé")
+        "Le cookie de session est marqué Secure.",
+        "Cette page n'arrive pas en https" + (d.https_constate ? "" : " et rien ne l'annonce")
         + ". Mets le TLS en place, reviens par https, et la case s'activera"
-        + (d.https_constate && !d.trust_proxy ? " — ou déclaré d'abord ton proxy ci-dessus." : "."),
-        "Fixe par APP_MANAGER_HTTPS dans le compose.");
+        + (d.https_constate && !d.trust_proxy ? " — ou déclare d'abord ton proxy ci-dessus." : "."),
+        "Fixé par APP_MANAGER_HTTPS dans le compose.");
   poser('expo-admin-lan', d.admin_reseau_local, d.admin_reseau_local_fige,
         d.peut_activer_admin_reseau_local,
         "Le compte d'administration ne répond qu'aux adresses du réseau local. "
-        + "Les comptes nommes, eux, entrent toujours de n'importe ou.",
+        + "Les comptes nommés, eux, entrent toujours de n'importe où.",
         (d.proxy_non_declare
-          ? ("Un proxy non déclaré s'interpose : toutes les requêtes paraitraient locales, "
-             + "et ce réglage ne protegerait rien. Déclaré-le ci-dessus d'abord.")
+          ? ("Un proxy non déclaré s'interpose : toutes les requêtes paraîtraient locales, "
+             + "et ce réglage ne protégerait rien. Déclare-le ci-dessus d'abord.")
           : ("Cette requête vient de <b>" + esc(d.client_ip||'?') + "</b>, hors du réseau local. "
              + "L'activer maintenant te retirerait l'administration à l'instant même. "
              + "Reconnecte-toi depuis chez toi et la case s'activera.")),
-        "Fixe par APP_MANAGER_ADMIN_LAN_ONLY dans le compose.");
+        "Fixé par APP_MANAGER_ADMIN_LAN_ONLY dans le compose.");
 
   adressePublique = d.adresse_publique || '';
   $('pub-adresse').value = adressePublique;
