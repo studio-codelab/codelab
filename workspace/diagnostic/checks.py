@@ -1372,7 +1372,8 @@ app = _charger_panneau()
 # echoue au lieu de laisser passer une ecriture reelle.
 CHEMINS_ETAT = [
     "STATE_DIR", "APPS_FILE", "LOG_DIR", "UTILISATEURS_FILE", "PASSKEYS_FILE",
-    "ACCES_FILE", "CHILD_HOME", "ALERTES_FILE", "SMTP_FILE", "CATEGORIES_FILE",
+    "ACCES_FILE", "PROCESSUS_FILE", "CHILD_HOME", "ALERTES_FILE", "SMTP_FILE",
+    "CATEGORIES_FILE",
     "EXPOSITION_FILE", "DIAGNOSTIC_MARQUEUR", "SHARED_CONFIG_DIR",
     "SHARED_ENV_FILE", "LEGACY_ADMIN_PASSWORD_FILE", "LEGACY_SECRET_KEY_FILE",
 ]
@@ -1396,6 +1397,7 @@ def _bac_a_sable(tmp_path, monkeypatch):
         "UTILISATEURS_FILE": str(etat / "utilisateurs.json"),
         "PASSKEYS_FILE": str(etat / "passkeys.json"),
         "ACCES_FILE": str(etat / "acces.jsonl"),
+        "PROCESSUS_FILE": str(etat / "processus.json"),
         "CHILD_HOME": str(etat / "home"),
         "ALERTES_FILE": str(etat / "alertes.json"),
         "SMTP_FILE": str(etat / "smtp.json"),
@@ -3843,6 +3845,110 @@ def journal(tmp_path, monkeypatch):
         "sel": sel, "hash": app.derive_mot_de_passe("mot-de-passe-long", sel),
         "projets": [], "cree": 0, "totp": app.totp_nouveau_secret()}})
     return app.flask_app.test_client()
+
+
+# ---------- les processus survivent au panneau ----------
+#
+# Vecu : « Le bouton arreter l'application ne fonctionne pas. »
+#
+# Les applications sont lancees avec start_new_session=True : elles ont leur
+# propre session, donc elles survivent a l'arret du panneau -- mise a jour de
+# l'image, "docker restart", plantage. Le dictionnaire procs, lui, vit en
+# memoire et ne survivait pas.
+#
+# Au redemarrage, le panneau ne connaissait donc plus les processus toujours
+# en vie : l'interface affichait « Arretee » d'une application qui tournait,
+# resume() en relancait une deuxieme qui mourait sur un port occupe, et
+# ARRETER NE FAISAIT RIEN -- stop() ne trouvait rien a tuer, notait
+# enabled=False et repondait que tout allait bien.
+
+@pytest.fixture
+def survivants(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    monkeypatch.setattr(app, "PROCESSUS_FILE", str(tmp_path / "processus.json"))
+    monkeypatch.setattr(app, "LOG_DIR", str(tmp_path / "logs"))
+    monkeypatch.setattr(app, "CHILD_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(app, "STATE_DIR", str(tmp_path))
+    monkeypatch.setattr(app, "ISOLER_APPS", False)
+    app._apps_cache["signature"] = None
+    projet = tmp_path / "projet"
+    projet.mkdir()
+    app.save({"site": {"path": str(projet), "command": "sleep 120",
+                       "port": 9399, "enabled": False}})
+    app.procs.clear()
+    yield tmp_path
+    for nom in list(app.procs):
+        try:
+            app.stop(nom)
+        except Exception:                                         # noqa: BLE001
+            pass
+    app.procs.clear()
+
+
+def test_un_processus_lance_est_note_sur_le_disque(survivants):
+    """Sans note, rien ne permet de le retrouver apres un redemarrage : le
+    panneau est son pere, et un pere mort ne laisse aucune trace."""
+    assert app.start("site") is None
+    note = app.lire_processus()["site"]
+    assert note["pid"] == app.procs["site"].pid
+    app.stop("site")
+    # Et la note disparait avec lui : une note qui traine ferait adopter un
+    # pid reutilise par n'importe quel autre programme.
+    assert "site" not in app.lire_processus()
+
+
+def test_le_panneau_reprend_la_main_sur_ce_qui_tourne_encore(survivants):
+    """LE test de cette correction : on simule le redemarrage du panneau en
+    vidant procs -- exactement ce que fait un "docker restart" -- et on
+    verifie qu'arreter tue reellement le processus."""
+    assert app.start("site") is None
+    pid = app.procs["site"].pid
+
+    app.procs.clear()                       # le panneau redemarre
+    assert app.is_running("site") is False  # etat d'avant la correction
+    repris = app.adopter_processus_survivants()
+    assert repris and "site" in repris[0]
+    assert app.is_running("site") is True
+
+    app.stop("site")
+    for _ in range(40):
+        if not app._processus_est_le_notre(pid, "site"):
+            break
+        time.sleep(0.1)
+    assert not app._processus_est_le_notre(pid, "site"), (
+        "le processus tourne toujours apres un arret demande")
+
+
+def test_un_pid_qui_n_est_plus_le_notre_n_est_pas_adopte(survivants):
+    """Un numero de processus est reutilise par le noyau. Adopter sur le seul
+    pid finirait par tuer un programme qui n'a rien demande -- pire que le
+    defaut qu'on corrige."""
+    app._ecrire_processus({"site": {"pid": os.getpid(), "depuis": 0}})
+    app.procs.clear()
+    assert app.adopter_processus_survivants() == []
+    assert app.is_running("site") is False
+    # La note fausse est nettoyee au passage.
+    assert app.lire_processus() == {}
+
+
+def test_la_marque_est_posee_dans_l_environnement_du_processus(survivants):
+    """Dans l'environnement, et non dans le titre du processus : le noyau le
+    fige a l'exec, l'application ne peut donc pas l'effacer."""
+    assert app.start("site") is None
+    pid = app.procs["site"].pid
+    environ = open(f"/proc/{pid}/environ", "rb").read()
+    assert b"CODELAB_APP=site\0" in environ
+
+
+def test_l_adoption_passe_avant_la_reprise_automatique():
+    """Ordre imperatif : resume() relancerait par-dessus une application deja
+    en vie, et la nouvelle mourrait sur un port occupe."""
+    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    demarrage = src.split('if __name__ == "__main__":')[1]
+    # Les commentaires citent les deux noms : on ne regarde que les appels.
+    lignes = [l.strip() for l in demarrage.splitlines()
+              if l.strip() and not l.strip().startswith("#")]
+    assert lignes.index("adopter_processus_survivants()") < lignes.index("resume()")
 
 
 # ---------- la carte de chaleur, et les analyses ----------

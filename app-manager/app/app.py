@@ -2001,6 +2001,122 @@ def is_running(name):
 DELAI_DEMARRAGE = 1.0
 
 
+# ------------------- les processus survivent au panneau -------------------
+#
+# LE DEFAUT, ET CE QU'IL DONNAIT A VOIR. Les applications sont lancees avec
+# start_new_session=True : elles ont leur propre session, donc elles SURVIVENT
+# a l'arret du panneau (mise a jour de l'image, "docker restart", plantage).
+# Le dictionnaire procs, lui, ne survivait pas : il vit en memoire.
+#
+# Au redemarrage, le panneau ne connaissait donc plus les processus toujours
+# en vie. Consequences en chaine, toutes constatees :
+#
+#   - l'interface affichait « Arretee » d'une application qui tournait ;
+#   - resume() la relancait, et la nouvelle mourait sur « address already in
+#     use » -- l'ancienne continuait de repondre ;
+#   - et surtout, ARRETER NE FAISAIT RIEN : stop() ne trouvait rien a tuer,
+#     mettait enabled=False, et repondait que tout allait bien. On cliquait,
+#     le service continuait de tourner.
+#
+# Le panneau note donc sur disque ce qu'il a lance, et RECONNAIT ses
+# processus au demarrage suivant. Le pid seul ne suffit pas : un numero est
+# reutilise par le noyau, et tuer le mauvais processus serait pire que le
+# defaut qu'on corrige. On verifie donc que le processus porte bien la
+# marque que le panneau lui a posee -- son environnement contient
+# CODELAB_APP=<nom>.
+PROCESSUS_FILE = os.path.join(STATE_DIR, "processus.json")
+
+
+def _ecrire_processus(d):
+    """Ecriture atomique : un panneau tue pendant l'ecriture laisse l'ancien
+    fichier entier, jamais un JSON tronque qu'on ne saurait plus relire -- et
+    ce fichier est justement celui qui sert a se remettre d'un arret brutal.
+    """
+    os.makedirs(os.path.dirname(PROCESSUS_FILE) or ".", exist_ok=True)
+    tmp = PROCESSUS_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(d, f, indent=2)
+    os.replace(tmp, PROCESSUS_FILE)
+
+
+def lire_processus():
+    try:
+        with open(PROCESSUS_FILE) as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _noter_processus(nom, pid):
+    d = lire_processus()
+    d[nom] = {"pid": int(pid), "depuis": int(time.time())}
+    _ecrire_processus(d)
+
+
+def _oublier_processus(nom):
+    d = lire_processus()
+    if d.pop(nom, None) is not None:
+        _ecrire_processus(d)
+
+
+def _processus_est_le_notre(pid, nom):
+    """Ce pid est-il bien l'application <nom> lancee par ce panneau ?
+
+    La marque est dans l'environnement du processus, que le noyau fige a
+    l'exec : elle ne peut pas etre reecrite apres coup par le programme
+    lui-meme, contrairement a son titre (argv[0]).
+    """
+    try:
+        with open(f"/proc/{int(pid)}/environ", "rb") as f:
+            environ = f.read()
+    except (OSError, ValueError):
+        return False
+    return b"CODELAB_APP=" + nom.encode() + b"\0" in environ + b"\0"
+
+
+class ProcessusAdopte:
+    """Un processus lance par un panneau precedent, repris en main.
+
+    Il expose juste ce que le reste du code attend d'un Popen : un pid et
+    poll(). Rien de plus -- on ne peut pas recuperer le code de sortie d'un
+    processus dont on n'est pas le pere, et personne ici n'en a besoin.
+    """
+
+    def __init__(self, pid, nom):
+        self.pid = int(pid)
+        self.nom = nom
+        self.returncode = None
+
+    def poll(self):
+        return None if _processus_est_le_notre(self.pid, self.nom) else 0
+
+    def wait(self, timeout=None):
+        return self.poll()
+
+
+def adopter_processus_survivants():
+    """Reprend la main sur ce qu'un panneau precedent a laisse tourner.
+
+    Appele AVANT resume() : sans cela, resume() relancerait par-dessus une
+    application deja en vie, et la nouvelle mourrait sur un port occupe.
+    """
+    repris, oublies = [], []
+    for nom, info in lire_processus().items():
+        pid = (info or {}).get("pid")
+        if pid and _processus_est_le_notre(pid, nom) and nom in load():
+            procs[nom] = ProcessusAdopte(pid, nom)
+            repris.append(f"{nom} (pid {pid})")
+        else:
+            oublies.append(nom)
+    for nom in oublies:
+        _oublier_processus(nom)
+    if repris:
+        print("[app-manager] processus repris apres redemarrage : "
+              + ", ".join(repris), flush=True)
+    return repris
+
+
 def start(name, attendre=True):
     """Demarre une application. Rend None si tout va bien, sinon POURQUOI.
 
@@ -2032,7 +2148,11 @@ def start(name, attendre=True):
     out = open(os.path.join(LOG_DIR, name + ".log"), "ab", buffering=0)
     env = dict(os.environ, **secrets_partages())
     env.update(PORT=str(a["port"]), PYTHONUNBUFFERED="1",
-               HOME=ensure_child_home(name))
+               HOME=ensure_child_home(name),
+               # La marque qui permettra de reconnaitre ce processus apres un
+               # redemarrage du panneau. Le noyau fige l'environnement a
+               # l'exec : l'application ne peut pas l'effacer.
+               CODELAB_APP=name)
     argv, env_isolement = commande_isolee(name, a["path"], a["command"], apps)
     env.update(env_isolement)
 
@@ -2042,6 +2162,7 @@ def start(name, attendre=True):
             cwd=a["path"], env=env, stdout=out, stderr=out,
             start_new_session=True,
             preexec_fn=child_setup(a.get("max_memory_mb"), name))
+    _noter_processus(name, procs[name].pid)
     apps[name]["enabled"] = True
     save(apps)
 
@@ -2056,6 +2177,7 @@ def start(name, attendre=True):
         if procs[name].poll() is not None:
             code = procs[name].returncode
             procs.pop(name, None)
+            _oublier_processus(name)
             apps = load()
             if name in apps:
                 apps[name]["enabled"] = False
@@ -2102,14 +2224,8 @@ def stop(name):
                 os.killpg(os.getpgid(p.pid), signal.SIGKILL)
         except ProcessLookupError:
             pass
-    if p:
-        for pid in list(_proc_cache):
-            try:
-                if _proc_cache[pid].pid == p.pid or True:
-                    pass
-            except Exception:
-                pass
     procs.pop(name, None)
+    _oublier_processus(name)
     _restart_history.pop(name, None)  # arret volontaire : on oublie l'historique de crash
     apps = load()
     if name in apps:
@@ -5913,6 +6029,10 @@ if __name__ == "__main__":
     if not os.path.exists(APPS_FILE):
         save({})
     inscrit = amorcer_diagnostic()
+    # AVANT resume() : les applications survivent a l'arret du panneau, et
+    # relancer par-dessus une application deja en vie ferait mourir la
+    # nouvelle sur un port occupe -- sans que personne ne comprenne pourquoi.
+    adopter_processus_survivants()
     resume()
     if inscrit:
         threading.Thread(target=_preparer_diagnostic, args=(inscrit,),
