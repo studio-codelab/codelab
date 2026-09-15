@@ -85,6 +85,11 @@
      etat. C'est la regle qui tient tout le reste. */
   --accent:#0e7c86; --accent-h:#0b646c; --accent-soft:#e2f2f3;
   --accent-ring:rgba(14,124,134,.2);
+  /* Ce qui s'ecrit PAR-DESSUS l'accent : un bouton plein, une pastille de
+     compteur. Un jeton plutot qu'un #fff recopie dans chaque page -- le
+     jour ou l'accent s'eclaircit, le texte doit foncer avec lui, et une
+     valeur en dur dans une deuxieme page ne suivrait pas. */
+  --sur-accent:#ffffff;
 
   /* -------------------------------------------------------------- severite
      Trois niveaux, franchement distincts de l'accent : tout va bien, a
@@ -129,6 +134,9 @@
 
     --accent:#2ab5bf; --accent-h:#45cdd6; --accent-soft:#0d2a2d;
     --accent-ring:rgba(42,181,191,.3);
+    /* Sur un accent clair, un texte sombre : du blanc sur ce turquoise-la
+       ne passe pas le contraste. */
+    --sur-accent:#08222a;
 
     --ok:#48bb78;   --ok-bg:rgba(72,187,120,.13);   --ok-border:rgba(72,187,120,.32);
     --warn:#ecc94b; --warn-bg:rgba(236,201,75,.13); --warn-border:rgba(236,201,75,.3);
@@ -151,6 +159,7 @@
 
   --accent:#2ab5bf; --accent-h:#45cdd6; --accent-soft:#0d2a2d;
   --accent-ring:rgba(42,181,191,.3);
+  --sur-accent:#08222a;
 
   --ok:#48bb78;   --ok-bg:rgba(72,187,120,.13);   --ok-border:rgba(72,187,120,.32);
   --warn:#ecc94b; --warn-bg:rgba(236,201,75,.13); --warn-border:rgba(236,201,75,.3);

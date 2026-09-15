@@ -143,10 +143,21 @@ flask_app.config.update(
     # des que l'etat d'exposition est lisible, et apres chaque changement.
     SESSION_COOKIE_SECURE=os.environ.get("APP_MANAGER_HTTPS", "").lower()
                           in ("1", "true", "yes"),
-    # Duree explicite : session.permanent sans cette valeur laisse le defaut
-    # de Flask, 31 jours.
-    PERMANENT_SESSION_LIFETIME=datetime.timedelta(days=7),
+    # DEUX LIMITES, ET IL FAUT LES DEUX.
+    #
+    # Celle-ci est la limite d'INACTIVITE : Flask repousse la date du cookie a
+    # chaque requete, donc une session en usage ne tombe jamais, et une
+    # session oubliee -- un poste public, un portable perdu -- se ferme d'elle
+    # meme au bout de trois jours.
+    #
+    # L'inactivite seule ne suffit pas : une session entretenue par un onglet
+    # laisse ouvert resterait valable indefiniment. La limite ABSOLUE ci-apres
+    # la coupe au bout de trente jours, quoi qu'il arrive.
+    PERMANENT_SESSION_LIFETIME=datetime.timedelta(days=3),
 )
+
+SESSION_INACTIVITE = flask_app.config["PERMANENT_SESSION_LIFETIME"]
+SESSION_ABSOLUE = datetime.timedelta(days=30)
 procs = {}          # nom -> subprocess.Popen
 lock = threading.Lock()
 _proc_cache = {}     # pid -> psutil.Process (prime pour cpu_percent delta)
@@ -560,6 +571,37 @@ def origine_applications():
     return f"{request.scheme}://{hote}:{APPS_PORT}"
 
 
+@flask_app.before_request
+def expirer_les_sessions_trop_vieilles():
+    """La limite absolue : trente jours depuis l'ouverture, point.
+
+    L'inactivite est tenue par le cookie lui-meme (PERMANENT_SESSION_LIFETIME,
+    repoussee a chaque requete). Elle ne dit rien d'une session ENTRETENUE :
+    un onglet laisse ouvert sur une page qui interroge l'API la maintiendrait
+    valable pour toujours. Cette garde-ci coupe au bout de trente jours,
+    quoi qu'il arrive -- et c'est le SERVEUR qui compte, dans un cookie signe
+    que le navigateur ne peut pas retoucher.
+
+    On efface et on laisse passer, sans rediriger : la requete continue en
+    visiteur anonyme, et c'est la route qui dira ce qu'elle exige. Rediriger
+    ici renverrait aussi la page de connexion vers elle-meme.
+    """
+    if session.get("authed") is not True:
+        return None
+    ouverte = session.get("ouverte")
+    if not isinstance(ouverte, (int, float)):
+        # Session ouverte avant ce mecanisme : on la date maintenant plutot
+        # que de deconnecter tout le monde a la mise a jour.
+        session["ouverte"] = int(time.time())
+        return None
+    if time.time() - ouverte > SESSION_ABSOLUE.total_seconds():
+        qui = session.get("utilisateur") or ""
+        session.clear()
+        journaliser("session", qui=qui, action="expiree (30 jours)",
+                    ip=_adresse_client())
+    return None
+
+
 ROUTES_APPLICATIONS = {"proxy", "proxy_noslash", "health"}
 
 
@@ -859,6 +901,66 @@ def envoyer_code_email(adresse, nom, code):
                  destinataires=[adresse])
 
 
+# ---------------------- mot de passe oublie ----------------------
+#
+# Par l'ADRESSE MAIL quand il y en a une de verifiee, et par
+# l'administrateur sinon. Les deux chemins existent parce qu'aucun des deux
+# ne suffit : sans adresse, personne ne peut prouver a distance qui il est ;
+# et si le seul recours etait l'administrateur, il faudrait le deranger pour
+# chaque oubli.
+#
+# UN CODE A PART, et non celui de la verification d'adresse : verifier une
+# adresse rend un compte utilisable, reinitialiser un mot de passe le rend
+# ACCESSIBLE. Le premier code, consomme, marque l'adresse comme verifiee --
+# ce qui n'a aucun sens ici, et surtout melangerait deux pouvoirs tres
+# differents dans un seul jeton.
+CODE_REINIT_VALIDITE = 900      # 15 minutes, comme la verification d'adresse
+CODE_REINIT_ESSAIS = 5
+
+
+def preparer_code_reinit(compte):
+    code = f"{secrets.randbelow(1000000):06d}"
+    compte["reinit_code"] = {"empreinte": _empreinte_code(code),
+                             "expire": int(time.time()) + CODE_REINIT_VALIDITE,
+                             "essais": 0,
+                             "envoye": int(time.time())}
+    return code
+
+
+def verifier_code_reinit(compte, code):
+    """(ok, message). Consomme un essai, et le code au premier succes."""
+    en_cours = compte.get("reinit_code") or {}
+    if not en_cours:
+        return False, "Aucune réinitialisation en cours. Recommence."
+    if int(time.time()) > en_cours.get("expire", 0):
+        compte.pop("reinit_code", None)
+        return False, "Ce code a expiré. Demandes-en un nouveau."
+    if en_cours.get("essais", 0) >= CODE_REINIT_ESSAIS:
+        compte.pop("reinit_code", None)
+        return False, "Trop d'essais. Demandes-en un nouveau."
+    en_cours["essais"] = en_cours.get("essais", 0) + 1
+    propose = re.sub(r"\D", "", str(code or ""))
+    if not (propose and secrets.compare_digest(_empreinte_code(propose),
+                                               en_cours.get("empreinte", ""))):
+        return False, "Code incorrect."
+    compte.pop("reinit_code", None)
+    return True, ""
+
+
+def envoyer_code_reinit(adresse, nom, code):
+    cfg, ok = smtp_utilisable()
+    if not ok:
+        raise RuntimeError("Aucun serveur d'envoi configure.")
+    envoyer_mail(cfg, "[CodeLab] reinitialisation de ton mot de passe",
+                 f"Code de reinitialisation pour le compte « {nom} » : {code}\n\n"
+                 f"Il est valable {CODE_REINIT_VALIDITE // 60} minutes, et ne sert "
+                 f"qu'une fois.\n\n"
+                 "Si tu n'es pas a l'origine de cette demande, ignore ce message : "
+                 "sans ce code, ton mot de passe ne change pas.\n\n"
+                 "-- CodeLab, panneau de gestion des applications",
+                 destinataires=[adresse])
+
+
 # --------------------------- cles d'acces (passkeys) ---------------------------
 #
 # Une cle d'acces remplace le mot de passe ET le code a six chiffres : le
@@ -926,14 +1028,14 @@ def passkey_contexte():
     if schema != "https" and not local:
         if https_non_cru:
             return "", "", ("Un proxy annonce HTTPS, mais ce panneau ne le croit pas : "
-                            "coche \"Proxy de confiance\" dans Exposition.")
-        return "", "", ("Les cles d'acces exigent une connexion HTTPS : le navigateur "
-                        "refuse de les creer en clair. Mets le TLS en place, puis "
+                            "coche « Proxy de confiance » dans Exposition.")
+        return "", "", ("Les clés d'accès exigent une connexion HTTPS : le navigateur "
+                        "refuse de les créer en clair. Mets le TLS en place, puis "
                         "reviens ici.")
     # Une adresse IP ne peut pas servir de "relying party id" : la norme
     # exige un nom de domaine. C'est la meme exigence que le certificat.
     if re.fullmatch(r"[0-9.]+|\[[0-9a-fA-F:]+\]", hote) and not local:
-        return "", "", ("Les cles d'acces exigent un nom de domaine, pas une adresse IP. "
+        return "", "", ("Les clés d'accès exigent un nom de domaine, pas une adresse IP. "
                         "Ouvre le panneau par son nom (celui du certificat).")
     return hote, origine, ""
 
@@ -970,6 +1072,503 @@ def _descripteurs(nom):
     from webauthn.helpers.structs import PublicKeyCredentialDescriptor
     return [PublicKeyCredentialDescriptor(id=base64url_to_bytes(k["id"]))
             for k in passkeys_du_compte(nom)]
+
+
+# ------------------------- conteneuriser une application -------------------------
+#
+# CE QUE CETTE FONCTION FAIT, ET CE QU'ELLE NE FAIT PAS.
+#
+# Elle ECRIT les fichiers qui manquent pour sortir une application de CodeLab
+# et la faire tourner ailleurs : Dockerfile, compose, modele de variables
+# d'environnement, .dockerignore et un mode d'emploi. Elle ne construit
+# aucune image et ne lance rien -- le panneau n'a pas de socket Docker, et
+# lui en donner un reviendrait a lui offrir la machine entiere.
+#
+# Elle DEVINE la pile a partir de ce qui est dans le dossier, puis le DIT :
+# un Dockerfile produit sans qu'on sache sur quoi il se fonde est un
+# Dockerfile qu'on relit entierement de toute facon.
+#
+# Les valeurs viennent de ce que le panneau sait deja de l'application -- sa
+# commande de lancement, sa commande de build, sa limite de memoire, son port
+# -- pour que le conteneur demarre comme elle demarre ici, et pas autrement.
+
+PILES = {
+    "python": {
+        "nom": "Python",
+        "indices": ("requirements.txt", "pyproject.toml", "Pipfile", "setup.py"),
+        "image": "python:3.12-slim",
+        "build": "pip install --no-cache-dir -r requirements.txt",
+        "conseil": "requirements.txt est copie avant le reste du code : "
+                   "l'etape d'installation n'est alors refaite que quand les "
+                   "dependances changent, pas a chaque modification du code.",
+    },
+    "node": {
+        "nom": "Node",
+        "indices": ("package.json", "package-lock.json", "pnpm-lock.yaml"),
+        "image": "node:22-slim",
+        "build": "npm ci --omit=dev || npm install --omit=dev",
+        "conseil": "package.json et son verrou sont copies avant le reste du "
+                   "code, pour la meme raison : l'installation ne se refait "
+                   "que quand les dependances changent.",
+    },
+    "go": {
+        "nom": "Go",
+        "indices": ("go.mod",),
+        "image": "golang:1.23",
+        "build": "go build -o ./app ./...",
+        "conseil": "Le binaire est construit dans l'image ; pour aller plus "
+                   "loin, une seconde etape « FROM debian:stable-slim » qui "
+                   "ne copie que le binaire divise la taille par dix.",
+    },
+    "php": {
+        "nom": "PHP",
+        "indices": ("composer.json", "index.php"),
+        "image": "php:8.3-cli",
+        "build": "",
+        "conseil": "",
+    },
+}
+
+
+def detecter_pile(chemin):
+    """(cle, infos) d'apres ce qui est REELLEMENT dans le dossier.
+
+    On regarde les fichiers, pas la commande de lancement : « npm start »
+    peut lancer autre chose que du Node, et un script shell peut lancer
+    n'importe quoi. Un dossier qu'on ne reconnait pas rend une pile
+    generique -- le mode d'emploi le dit alors franchement.
+    """
+    try:
+        presents = set(os.listdir(chemin))
+    except OSError:
+        presents = set()
+    for cle, infos in PILES.items():
+        if presents & set(infos["indices"]):
+            return cle, dict(infos, trouve=sorted(presents & set(infos["indices"])))
+    return "", {"nom": "inconnue", "image": "debian:stable-slim", "build": "",
+                "conseil": "", "trouve": []}
+
+
+def services_requis(chemin, a):
+    """Ce dont l'application a besoin a cote d'elle, d'apres son code.
+
+    Deviner un service a partir d'un import est grossier -- mais ne rien
+    proposer du tout oblige a tout ecrire a la main, et proposer un compose
+    avec une base dont personne n'a besoin est facile a supprimer. Le
+    deuxieme cas se corrige en trois secondes, pas le premier.
+    """
+    besoins = []
+    motifs = {
+        "postgres": ("psycopg", "asyncpg", "sqlalchemy", "pg8000", "postgres",
+                     "POSTGRES_", "DATABASE_URL"),
+        "redis": ("redis", "REDIS_URL"),
+    }
+    textes = []
+    for racine, dossiers, fichiers in os.walk(chemin):
+        # On ne descend pas dans les dependances : y chercher des indices
+        # trouverait tout et n'importe quoi.
+        dossiers[:] = [d for d in dossiers
+                       if d not in ("node_modules", ".git", "vendor", ".venv",
+                                    "__pycache__", "dist", "build")]
+        for f in fichiers:
+            if f.endswith((".py", ".js", ".ts", ".json", ".txt", ".toml", ".env",
+                           ".yml", ".yaml", ".go", ".php")):
+                try:
+                    with open(os.path.join(racine, f), errors="replace") as fh:
+                        textes.append(fh.read(200000))
+                except OSError:
+                    continue
+        if len(textes) > 200:
+            break
+    tout = "\n".join(textes)
+    for service, mots in motifs.items():
+        if any(m in tout for m in mots):
+            besoins.append(service)
+    return besoins
+
+
+def variables_du_modele(a, besoins):
+    """Le modele de variables d'environnement, commente ligne a ligne.
+
+    PORT y est toujours : c'est le contrat de CodeLab, et c'est la premiere
+    chose qu'on oublie en sortant une application de son panneau.
+    """
+    lignes = [
+        "# Modele de variables d'environnement. Copie-le en .env, remplis les",
+        "# valeurs, et NE LE COMMITTE PAS -- .dockerignore et .gitignore",
+        "# l'ecartent deja.",
+        "",
+        "# Le port sur lequel l'application doit ECOUTER. CodeLab le fournit ;",
+        "# ailleurs, c'est a toi de le poser.",
+        f"PORT={a.get('port') or 8000}",
+    ]
+    if "postgres" in besoins:
+        lignes += [
+            "",
+            "# Base de donnees. Dans le compose ci-joint, l'hote est le nom du",
+            "# service (« base »), pas localhost : chaque conteneur a son",
+            "# propre localhost.",
+            "POSTGRES_HOST=base",
+            "POSTGRES_PORT=5432",
+            "POSTGRES_DB=app",
+            "POSTGRES_USER=app",
+            "POSTGRES_PASSWORD=a-changer",
+        ]
+    if "redis" in besoins:
+        lignes += ["", "REDIS_URL=redis://cache:6379/0"]
+    return "\n".join(lignes) + "\n"
+
+
+def _dockerfile(a, cle, pile, besoins):
+    nom = a["name"]
+    build = (a.get("build_command") or "").strip() or pile.get("build") or ""
+    lancement = (a.get("command") or "").strip() or "echo 'aucune commande'"
+    port = a.get("port") or 8000
+    lignes = [
+        f"# Image de « {nom} », produite par CodeLab.",
+        "#",
+        f"# Pile detectee : {pile['nom']}"
+        + (f" (d'apres {', '.join(pile.get('trouve') or [])})" if pile.get("trouve")
+           else " -- aucun indice trouve dans le dossier, a relire de pres"),
+        "#",
+        "# Relis-la : elle est fondee sur ce que le panneau sait de",
+        "# l'application, pas sur une analyse de son code.",
+        "",
+        f"FROM {pile['image']}",
+        "",
+        "WORKDIR /app",
+        "",
+    ]
+    if cle == "python":
+        lignes += [
+            "# Les dependances avant le code : l'etape d'installation n'est",
+            "# alors refaite que quand requirements.txt change.",
+            "COPY requirements.txt ./",
+            f"RUN {build}" if build else "",
+            "",
+            "COPY . .",
+        ]
+    elif cle == "node":
+        lignes += [
+            "COPY package*.json ./",
+            f"RUN {build}" if build else "",
+            "",
+            "COPY . .",
+        ]
+    else:
+        lignes += ["COPY . ."]
+        if build:
+            lignes += [f"RUN {build}"]
+    lignes += [
+        "",
+        "# JAMAIS EN ROOT. Un conteneur qui tourne en root donne root sur ses",
+        "# volumes montes, et rapproche d'une evasion tout ce qui tourne",
+        "# dedans. L'utilisateur est cree ici, et le dossier lui appartient.",
+        "RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin app \\",
+        " && chown -R app:app /app",
+        "USER app",
+        "",
+        "# Le port n'est qu'une DOCUMENTATION : c'est le compose (ou -p) qui",
+        "# publie reellement.",
+        f"ENV PORT={port}",
+        f"EXPOSE {port}",
+        "",
+        "# Le shell est necessaire : la commande vient de CodeLab et peut",
+        "# contenir des variables, des pipes, un enchainement.",
+        f'CMD ["sh", "-c", "{lancement}"]',
+        "",
+    ]
+    return "\n".join(l for l in lignes if l is not None) + ""
+
+
+def _compose(a, besoins):
+    nom = a["name"]
+    port = a.get("port") or 8000
+    memoire = a.get("max_memory_mb")
+    lignes = [
+        f"# Pile de « {nom} », produite par CodeLab.",
+        "#",
+        "#   docker compose up -d --build",
+        "#",
+        "# Les valeurs sensibles vivent dans .env, a cote de ce fichier (voir",
+        "# .env.exemple). Compose le lit tout seul.",
+        "",
+        "services:",
+        "",
+        f"  {nom}:",
+        "    build: .",
+        f"    container_name: {nom}",
+        "    restart: unless-stopped",
+        "    env_file: [.env]",
+        "    ports:",
+        f'      - "{port}:{port}"',
+        "",
+        "    # Durcissement : tout retirer, ne rien rendre. Une application web",
+        "    # n'a besoin d'aucune capability -- si elle refuse de demarrer,",
+        "    # c'est le message d'erreur qui dira laquelle rendre, et il faudra",
+        "    # une bonne raison.",
+        "    security_opt:",
+        "      - no-new-privileges:true",
+        "    cap_drop:",
+        "      - ALL",
+        "    read_only: false",
+        "",
+        "    healthcheck:",
+        # Le healthcheck utilise python3 : present dans les images python,
+        # absent des images node ou go. Sur ces piles-la, remplace-le par
+        # un "wget -q -O /dev/null" ou supprime le bloc -- un healthcheck
+        # qui echoue toujours vaut moins que pas de healthcheck.
+        '      test: ["CMD-SHELL", "python3 -c \\"import urllib.request;'
+        'urllib.request.urlopen(%s)\\" || exit 1"]' % (            "'http://127.0.0.1:%d/'" % port),
+        "      interval: 30s",
+        "      timeout: 5s",
+        "      retries: 3",
+        "      start_period: 20s",
+    ]
+    if memoire:
+        lignes += [
+            "",
+            "    # La meme limite que dans CodeLab. Depassee, le noyau tue le",
+            "    # processus : c'est brutal, et c'est le but -- une fuite de",
+            "    # memoire ne doit pas emporter la machine avec elle.",
+            "    deploy:",
+            "      resources:",
+            "        limits:",
+            f"          memory: {int(memoire)}M",
+        ]
+    if besoins:
+        lignes += ["", "    depends_on:"]
+        for service in besoins:
+            nom_service = {"postgres": "base", "redis": "cache"}[service]
+            lignes += [f"      {nom_service}:",
+                       "        condition: service_healthy"]
+    if "postgres" in besoins:
+        lignes += [
+            "",
+            "  base:",
+            "    image: postgres:17-alpine",
+            "    restart: unless-stopped",
+            "    environment:",
+            "      POSTGRES_DB: ${POSTGRES_DB}",
+            "      POSTGRES_USER: ${POSTGRES_USER}",
+            "      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}",
+            "    volumes:",
+            "      - base:/var/lib/postgresql/data",
+            "    healthcheck:",
+            '      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]',
+            "      interval: 10s",
+            "      timeout: 5s",
+            "      retries: 5",
+        ]
+    if "redis" in besoins:
+        lignes += [
+            "",
+            "  cache:",
+            "    image: redis:7-alpine",
+            "    restart: unless-stopped",
+            "    healthcheck:",
+            '      test: ["CMD", "redis-cli", "ping"]',
+            "      interval: 10s",
+            "      timeout: 5s",
+            "      retries: 5",
+        ]
+    if "postgres" in besoins:
+        lignes += ["", "volumes:", "  base:"]
+    return "\n".join(lignes) + "\n"
+
+
+def _dockerignore():
+    return "\n".join([
+        "# Ce qui n'a rien a faire dans l'image : des secrets, des dependances",
+        "# qui seront reinstallees dedans, et l'historique du depot.",
+        ".env", ".env.*", "!.env.exemple",
+        ".git", ".gitignore",
+        "node_modules", "__pycache__", "*.pyc", ".venv", "venv",
+        "dist", "build", ".pytest_cache", ".mypy_cache",
+        "*.log", ".DS_Store",
+        "",
+    ])
+
+
+def _mode_d_emploi(a, cle, pile, besoins, fichiers):
+    nom = a["name"]
+    port = a.get("port") or 8000
+    services = {"postgres": "une base Postgres (service « base »)",
+                "redis": "un Redis (service « cache »)"}
+    lignes = [
+        f"# Conteneuriser « {nom} »",
+        "",
+        "Ces fichiers ont ete produits par CodeLab a partir de ce qu'il sait de",
+        "l'application. **Relis-les** : ils sont un point de depart serieux, pas",
+        "une verite.",
+        "",
+        "## Ce qui a ete detecte",
+        "",
+        f"- **Pile** : {pile['nom']}"
+        + (f", d'apres `{'`, `'.join(pile.get('trouve') or [])}`" if pile.get("trouve")
+           else " — aucun indice dans le dossier, le Dockerfile est generique"),
+        f"- **Commande de lancement** : `{(a.get('command') or '').strip()}`",
+        f"- **Commande de build** : "
+        + (f"`{(a.get('build_command') or '').strip()}`"
+           if (a.get("build_command") or "").strip()
+           else f"aucune dans CodeLab, `{pile.get('build') or '(rien)'}` proposee"),
+        f"- **Port** : {port}",
+        "- **Services voisins** : "
+        + (", ".join(services.get(b, b) for b in besoins) if besoins
+           else "aucun detecte"),
+        "",
+        "## Les fichiers",
+        "",
+    ]
+    for f in fichiers:
+        lignes.append(f"- `{f['nom']}` — {f['role']}")
+    lignes += [
+        "",
+        "## Demarrer",
+        "",
+        "```sh",
+        "cp .env.exemple .env      # puis remplis les valeurs",
+        "docker compose up -d --build",
+        f"docker compose logs -f {nom}",
+        "```",
+        "",
+        "## Ce qu'il reste a verifier, toujours",
+        "",
+        f"1. **L'application ecoute-t-elle sur `$PORT` ?** C'est le contrat de",
+        "   CodeLab, et la premiere chose qui casse ailleurs. Une application qui",
+        "   ecoute en dur sur 127.0.0.1 ne repondra pas depuis l'exterieur du",
+        "   conteneur : il lui faut `0.0.0.0`.",
+        "2. **Les fichiers ecrits a l'execution.** Tout ce qui n'est pas dans un",
+        "   volume disparait au prochain `up --build`. Si l'application ecrit des",
+        "   fichiers, ajoute un volume.",
+        "3. **Les secrets.** `.env` n'est ni dans l'image (.dockerignore) ni dans",
+        "   le depot : c'est voulu. Le jour ou tu deploies ailleurs, il faut donc",
+        "   le recreer la-bas.",
+    ]
+    if pile.get("conseil"):
+        lignes += ["", "## Pour aller plus loin", "", pile["conseil"]]
+    return "\n".join(lignes) + "\n"
+
+
+def fichiers_conteneur(a):
+    """Les fichiers a poser dans le projet, dans l'ordre ou on les lit."""
+    cle, pile = detecter_pile(a["path"])
+    besoins = services_requis(a["path"], a)
+    fichiers = [
+        {"nom": "Dockerfile", "role": "comment l'image se construit",
+         "contenu": _dockerfile(a, cle, pile, besoins)},
+        {"nom": "docker-compose.yml",
+         "role": "l'application et ce qui tourne à côté",
+         "contenu": _compose(a, besoins)},
+        {"nom": ".env.exemple",
+         "role": "les variables à remplir, commentées",
+         "contenu": variables_du_modele(a, besoins)},
+        {"nom": ".dockerignore",
+         "role": "ce qui n'entre pas dans l'image",
+         "contenu": _dockerignore()},
+    ]
+    fichiers.append({
+        "nom": "CONTENEUR.md",
+        "role": "le mode d'emploi, et ce qu'il reste à vérifier",
+        "contenu": _mode_d_emploi(a, cle, pile, besoins, fichiers)})
+    return {"pile": pile["nom"], "indices": pile.get("trouve") or [],
+            "services": besoins, "fichiers": fichiers}
+
+
+# ------------------------- messages des utilisateurs -------------------------
+#
+# Un mot laisse depuis le hub : une remarque sur une application, une
+# remarque sur le hub lui-meme, ou l'idee d'une application qui manque.
+#
+# Deux ecritures, comme pour le journal des acces, et pour la meme raison :
+# le FICHIER d'abord, qui tient sans base et se lit depuis une session SSH,
+# puis la base, qui garde tout et s'interroge en SQL. Un message perdu parce
+# que Postgres redemarrait serait un message que personne ne saura jamais
+# avoir ete ecrit.
+MESSAGES_FILE = os.path.join(STATE_DIR, "messages.jsonl")
+MESSAGES_MAX_OCTETS = 1024 * 1024
+MESSAGE_LONGUEUR_MAX = 2000
+# Une minute entre deux messages du meme compte : de quoi corriger une faute
+# de frappe, pas de quoi remplir la boite de l'administrateur.
+MESSAGE_DELAI = 60
+MESSAGE_CIBLES = ("application", "hub", "idee")
+
+_dernier_message = {}
+
+
+def lire_messages(limite=200):
+    """Les plus recents d'abord."""
+    lignes = []
+    for chemin in (MESSAGES_FILE, MESSAGES_FILE + ".1"):
+        try:
+            with open(chemin, errors="replace") as f:
+                lignes.extend(f.readlines())
+        except OSError:
+            continue
+    messages = []
+    for ligne in lignes:
+        try:
+            messages.append(json.loads(ligne))
+        except ValueError:
+            continue
+    messages.sort(key=lambda m: m.get("ts") or 0, reverse=True)
+    return messages[:limite]
+
+
+def enregistrer_message(message):
+    """Ecrit le message, et n'echoue jamais bruyamment.
+
+    Le fichier tourne comme le journal des acces : un message qui remplit le
+    disque transformerait une remarque en panne.
+    """
+    with _acces_verrou:
+        try:
+            if (os.path.exists(MESSAGES_FILE)
+                    and os.path.getsize(MESSAGES_FILE) > MESSAGES_MAX_OCTETS):
+                os.replace(MESSAGES_FILE, MESSAGES_FILE + ".1")
+            with open(MESSAGES_FILE, "a") as f:
+                f.write(json.dumps(message, ensure_ascii=False) + "\n")
+        except OSError:
+            return False
+    _pg_deposer(("message", message))
+    return True
+
+
+# ------------------------- applications masquees -------------------------
+#
+# Un compte peut retirer une application de SON hub. Ce n'est ni un droit
+# retire, ni une application arretee : le projet continue de tourner, les
+# autres comptes le voient, et son adresse reste ouverte a qui la connait --
+# c'est du RANGEMENT, pas une protection. La page le dit, pour que personne
+# ne croie avoir ferme quelque chose.
+#
+# Un fichier a part plutot qu'un champ dans le registre des comptes : le
+# compte d'administration n'y figure pas, et il a le droit de ranger son hub
+# comme les autres.
+MASQUEES_FILE = os.path.join(STATE_DIR, "masquees.json")
+
+
+def lire_masquees():
+    try:
+        with open(MASQUEES_FILE) as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def ecrire_masquees(d):
+    os.makedirs(os.path.dirname(MASQUEES_FILE) or ".", exist_ok=True)
+    tmp = MASQUEES_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(d, f, indent=2)
+    os.replace(tmp, MASQUEES_FILE)
+
+
+def masquees_du_compte(qui=None):
+    qui = qui or utilisateur_courant() or NOM_ADMIN
+    valeurs = lire_masquees().get(qui) or []
+    return [str(v) for v in valeurs if isinstance(v, str)]
 
 
 # ------------------------- journal des acces -------------------------
@@ -1125,6 +1724,20 @@ def _pg_preparer():
         # second facteur, ni cle d'acces. Cette base est joignable par les
         # projets deployes -- elle ne porte que ce qui se lit deja dans le
         # panneau.
+        # Les mots laisses depuis le hub. Ils ne contiennent rien de secret --
+        # ce que quelqu'un a choisi d'ecrire a son administrateur -- mais ils
+        # sont horodates et signes du compte : c'est ce qui permet de
+        # repondre, et de voir qu'une meme gene revient.
+        cx.execute("""
+            CREATE TABLE IF NOT EXISTS messages (
+              id          TEXT PRIMARY KEY,
+              ts          TIMESTAMPTZ NOT NULL,
+              qui         TEXT NOT NULL DEFAULT '',
+              cible       TEXT NOT NULL,
+              application TEXT,
+              texte       TEXT NOT NULL
+            )""")
+        cx.execute("CREATE INDEX IF NOT EXISTS messages_ts ON messages (ts DESC)")
         cx.execute("""
             CREATE TABLE IF NOT EXISTS utilisateurs (
               nom            TEXT PRIMARY KEY,
@@ -1173,6 +1786,20 @@ def _pg_ecrire_acces(cx, evenements):
     _pg_etat["ecrits"] += len(lignes)
 
 
+def _pg_ecrire_messages(cx, messages):
+    lignes = [(m.get("id") or secrets.token_hex(12),
+               datetime.datetime.fromtimestamp(m.get("ts") or 0, datetime.timezone.utc),
+               m.get("qui") or "", m.get("cible") or "", m.get("app"),
+               m.get("texte") or "") for m in messages]
+    if not lignes:
+        return
+    with cx.cursor() as cur:
+        cur.executemany(
+            """INSERT INTO messages (id, ts, qui, cible, application, texte)
+               VALUES (%s,%s,%s,%s,%s,%s)
+               ON CONFLICT (id) DO NOTHING""", lignes)
+
+
 def _pg_ecrire_utilisateurs(cx):
     """Recopie le registre des comptes, et marque les disparus.
 
@@ -1212,6 +1839,7 @@ def _pg_rattraper(cx):
     NOTHING rend l'operation sans consequence quand tout est deja la.
     """
     _pg_ecrire_acces(cx, lire_acces(limite=100000))
+    _pg_ecrire_messages(cx, lire_messages(limite=100000))
     _pg_ecrire_utilisateurs(cx)
 
 
@@ -1233,6 +1861,8 @@ def _pg_boucle():
                     genre, charge = _pg_file.get()
                     if genre == "acces":
                         _pg_ecrire_acces(cx, [charge])
+                    elif genre == "message":
+                        _pg_ecrire_messages(cx, [charge])
                     elif genre == "utilisateurs":
                         _pg_ecrire_utilisateurs(cx)
         except Exception as e:
@@ -1275,6 +1905,117 @@ def pg_lire_acces(limite=ACCES_LIGNES_LUES, app=None, qui=None):
                 e[cle] = valeur
         evenements.append(e)
     return evenements
+
+
+# ------------------------- les analyses -------------------------
+#
+# Le fichier plafonne a 1 Mo : il OUBLIE. Tant qu'il servait a afficher les
+# quarante dernieres lignes, cela n'avait aucune importance. Des qu'on compte
+# -- « combien de fois ce projet a-t-il ete ouvert cette annee », « quels
+# jours cette personne travaille » -- la question change : un total calcule
+# sur une fenetre glissante d'un megaoctet ne veut rien dire, et il diminue
+# tout seul a mesure que le journal tourne.
+#
+# Les analyses lisent donc Postgres, qui garde tout. Le fichier reste le
+# repli : base eteinte, on repond quand meme, sur ce qu'on a, et la reponse
+# dit d'ou elle vient.
+
+# Le fuseau dans lequel une journee commence. Une carte par jour calculee en
+# UTC coupe la soiree en deux pour qui vit a l'est de Greenwich : ce qui est
+# fait a 23 h a Paris compterait pour le lendemain.
+FUSEAU_JOURNAL = os.environ.get("TZ") or "UTC"
+
+
+def _fuseau():
+    try:
+        from zoneinfo import ZoneInfo
+        return ZoneInfo(FUSEAU_JOURNAL)
+    except Exception:                                             # noqa: BLE001
+        # Base de fuseaux absente de l'image, nom inconnu : UTC plutot que
+        # rien. Une carte decalee d'une heure reste lisible ; une page en
+        # erreur, non.
+        return datetime.timezone.utc
+
+
+def _jour(ts):
+    return datetime.datetime.fromtimestamp(ts or 0, _fuseau()).date().isoformat()
+
+
+CARTE_JOURS_MAX = 366
+
+
+def pg_carte_activite(jours=CARTE_JOURS_MAX, qui=None, app=None):
+    """Une ligne par jour : combien d'ouvertures, et combien d'applications.
+
+    Le comptage se fait DANS la base : ramener un an d'evenements pour les
+    additionner ici marcherait aujourd'hui et s'ecroulerait le jour ou
+    l'historique compte pour de bon.
+    """
+    conditions = ["genre = 'ouverture'", "ts >= now() - make_interval(days => %s)"]
+    valeurs = [int(jours)]
+    if qui is not None:
+        conditions.append("qui = %s")
+        valeurs.append(qui)
+    if app is not None:
+        conditions.append("application = %s")
+        valeurs.append(app)
+    valeurs.insert(0, FUSEAU_JOURNAL)
+    with _pg_connexion(PG_BASE) as cx:
+        lignes = cx.execute(
+            "SELECT (ts AT TIME ZONE %s)::date AS jour, count(*),"
+            "       count(DISTINCT application)"
+            "  FROM acces WHERE " + " AND ".join(conditions) +
+            " GROUP BY 1 ORDER BY 1", valeurs).fetchall()
+    return [{"jour": j.isoformat(), "ouvertures": int(n), "apps": int(a)}
+            for j, n, a in lignes]
+
+
+def carte_activite(jours=CARTE_JOURS_MAX, qui=None, app=None):
+    """Le meme comptage, sur le fichier. Repli quand la base ne repond pas."""
+    limite = time.time() - int(jours) * 86400
+    par_jour = {}
+    for e in lire_acces(limite=100000):
+        if e.get("genre") != "ouverture" or (e.get("ts") or 0) < limite:
+            continue
+        if qui is not None and (e.get("qui") or "") != qui:
+            continue
+        if app is not None and (e.get("app") or "") != app:
+            continue
+        j = par_jour.setdefault(_jour(e.get("ts")), {"ouvertures": 0, "apps": set()})
+        j["ouvertures"] += 1
+        j["apps"].add(e.get("app") or "")
+    return [{"jour": j, "ouvertures": v["ouvertures"], "apps": len(v["apps"])}
+            for j, v in sorted(par_jour.items())]
+
+
+def pg_resume_acces():
+    """Le meme resume que resume_acces(), calcule sur TOUT l'historique."""
+    comptes, apps_ = {}, {}
+    with _pg_connexion(PG_BASE) as cx:
+        for qui, connexions, ouvertures, derniere in cx.execute("""
+                SELECT qui,
+                       count(*) FILTER (WHERE genre = 'connexion'),
+                       count(*) FILTER (WHERE genre = 'ouverture'),
+                       max(ts)  FILTER (WHERE genre = 'connexion')
+                  FROM acces WHERE genre IN ('connexion','ouverture')
+                 GROUP BY qui""").fetchall():
+            comptes[qui or ""] = {
+                "connexions": int(connexions), "ouvertures": int(ouvertures),
+                "derniere": int(derniere.timestamp()) if derniere else 0}
+        for application, ouvertures, derniere in cx.execute("""
+                SELECT application, count(*), max(ts) FROM acces
+                 WHERE genre = 'ouverture' GROUP BY application""").fetchall():
+            apps_[application or ""] = {"ouvertures": int(ouvertures),
+                                        "derniere": int(derniere.timestamp()) if derniere else 0,
+                                        "qui": {}}
+        for application, qui, n in cx.execute("""
+                SELECT application, qui, count(*) FROM acces
+                 WHERE genre = 'ouverture' GROUP BY application, qui""").fetchall():
+            apps_.setdefault(application or "", {"ouvertures": 0, "derniere": 0,
+                                                 "qui": {}})["qui"][qui or ""] = int(n)
+        (echecs,) = cx.execute(
+            "SELECT count(*) FROM acces WHERE genre = 'echec'").fetchone()
+    return {"comptes": comptes, "apps": apps_, "echecs": int(echecs)}
 
 
 def lire_acces(limite=ACCES_LIGNES_LUES, app=None, qui=None):
@@ -1882,11 +2623,143 @@ def is_running(name):
     return p is not None and p.poll() is None
 
 
-def start(name):
+# Combien de temps on regarde l'application vivre avant de la declarer
+# demarree. Un processus qui meurt le fait presque toujours tout de suite --
+# commande introuvable, port deja pris, dependance absente, isolement refuse.
+# Une seconde suffit a les attraper, et n'est pas une attente perceptible
+# derriere un clic.
+DELAI_DEMARRAGE = 1.0
+
+
+# ------------------- les processus survivent au panneau -------------------
+#
+# LE DEFAUT, ET CE QU'IL DONNAIT A VOIR. Les applications sont lancees avec
+# start_new_session=True : elles ont leur propre session, donc elles SURVIVENT
+# a l'arret du panneau (mise a jour de l'image, "docker restart", plantage).
+# Le dictionnaire procs, lui, ne survivait pas : il vit en memoire.
+#
+# Au redemarrage, le panneau ne connaissait donc plus les processus toujours
+# en vie. Consequences en chaine, toutes constatees :
+#
+#   - l'interface affichait « Arretee » d'une application qui tournait ;
+#   - resume() la relancait, et la nouvelle mourait sur « address already in
+#     use » -- l'ancienne continuait de repondre ;
+#   - et surtout, ARRETER NE FAISAIT RIEN : stop() ne trouvait rien a tuer,
+#     mettait enabled=False, et repondait que tout allait bien. On cliquait,
+#     le service continuait de tourner.
+#
+# Le panneau note donc sur disque ce qu'il a lance, et RECONNAIT ses
+# processus au demarrage suivant. Le pid seul ne suffit pas : un numero est
+# reutilise par le noyau, et tuer le mauvais processus serait pire que le
+# defaut qu'on corrige. On verifie donc que le processus porte bien la
+# marque que le panneau lui a posee -- son environnement contient
+# CODELAB_APP=<nom>.
+PROCESSUS_FILE = os.path.join(STATE_DIR, "processus.json")
+
+
+def _ecrire_processus(d):
+    """Ecriture atomique : un panneau tue pendant l'ecriture laisse l'ancien
+    fichier entier, jamais un JSON tronque qu'on ne saurait plus relire -- et
+    ce fichier est justement celui qui sert a se remettre d'un arret brutal.
+    """
+    os.makedirs(os.path.dirname(PROCESSUS_FILE) or ".", exist_ok=True)
+    tmp = PROCESSUS_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(d, f, indent=2)
+    os.replace(tmp, PROCESSUS_FILE)
+
+
+def lire_processus():
+    try:
+        with open(PROCESSUS_FILE) as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _noter_processus(nom, pid):
+    d = lire_processus()
+    d[nom] = {"pid": int(pid), "depuis": int(time.time())}
+    _ecrire_processus(d)
+
+
+def _oublier_processus(nom):
+    d = lire_processus()
+    if d.pop(nom, None) is not None:
+        _ecrire_processus(d)
+
+
+def _processus_est_le_notre(pid, nom):
+    """Ce pid est-il bien l'application <nom> lancee par ce panneau ?
+
+    La marque est dans l'environnement du processus, que le noyau fige a
+    l'exec : elle ne peut pas etre reecrite apres coup par le programme
+    lui-meme, contrairement a son titre (argv[0]).
+    """
+    try:
+        with open(f"/proc/{int(pid)}/environ", "rb") as f:
+            environ = f.read()
+    except (OSError, ValueError):
+        return False
+    return b"CODELAB_APP=" + nom.encode() + b"\0" in environ + b"\0"
+
+
+class ProcessusAdopte:
+    """Un processus lance par un panneau precedent, repris en main.
+
+    Il expose juste ce que le reste du code attend d'un Popen : un pid et
+    poll(). Rien de plus -- on ne peut pas recuperer le code de sortie d'un
+    processus dont on n'est pas le pere, et personne ici n'en a besoin.
+    """
+
+    def __init__(self, pid, nom):
+        self.pid = int(pid)
+        self.nom = nom
+        self.returncode = None
+
+    def poll(self):
+        return None if _processus_est_le_notre(self.pid, self.nom) else 0
+
+    def wait(self, timeout=None):
+        return self.poll()
+
+
+def adopter_processus_survivants():
+    """Reprend la main sur ce qu'un panneau precedent a laisse tourner.
+
+    Appele AVANT resume() : sans cela, resume() relancerait par-dessus une
+    application deja en vie, et la nouvelle mourrait sur un port occupe.
+    """
+    repris, oublies = [], []
+    for nom, info in lire_processus().items():
+        pid = (info or {}).get("pid")
+        if pid and _processus_est_le_notre(pid, nom) and nom in load():
+            procs[nom] = ProcessusAdopte(pid, nom)
+            repris.append(f"{nom} (pid {pid})")
+        else:
+            oublies.append(nom)
+    for nom in oublies:
+        _oublier_processus(nom)
+    if repris:
+        print("[app-manager] processus repris apres redemarrage : "
+              + ", ".join(repris), flush=True)
+    return repris
+
+
+def start(name, attendre=True):
+    """Demarre une application. Rend None si tout va bien, sinon POURQUOI.
+
+    Avant, cette fonction se taisait dans tous les cas d'echec : dossier
+    disparu, commande introuvable, port deja pris, isolement refuse. Le
+    panneau repondait "ok" et l'interface revenait a "Arretee" sans un mot.
+    On cliquait, rien ne se passait, et il fallait aller lire le journal de
+    l'application pour comprendre -- en supposant qu'on sache qu'il existe.
+    """
     apps = load()
     a = apps.get(name)
     if not a or is_running(name):
-        return
+        return None
 
     # Le dossier de l'app peut avoir disparu (supprime depuis /workspace,
     # volume non monte, renomme). Sans ce garde-fou, subprocess.Popen leve
@@ -1898,14 +2771,18 @@ def start(name):
               f"demarrage ignore.", flush=True)
         apps[name]["enabled"] = False
         save(apps)
-        return
+        return f"Dossier introuvable : {a['path']}"
 
     os.makedirs(LOG_DIR, exist_ok=True)
     rotate_log_if_needed(name)
     out = open(os.path.join(LOG_DIR, name + ".log"), "ab", buffering=0)
     env = dict(os.environ, **secrets_partages())
     env.update(PORT=str(a["port"]), PYTHONUNBUFFERED="1",
-               HOME=ensure_child_home(name))
+               HOME=ensure_child_home(name),
+               # La marque qui permettra de reconnaitre ce processus apres un
+               # redemarrage du panneau. Le noyau fige l'environnement a
+               # l'exec : l'application ne peut pas l'effacer.
+               CODELAB_APP=name)
     argv, env_isolement = commande_isolee(name, a["path"], a["command"], apps)
     env.update(env_isolement)
 
@@ -1915,8 +2792,53 @@ def start(name):
             cwd=a["path"], env=env, stdout=out, stderr=out,
             start_new_session=True,
             preexec_fn=child_setup(a.get("max_memory_mb"), name))
+    _noter_processus(name, procs[name].pid)
     apps[name]["enabled"] = True
     save(apps)
+
+    if not attendre:
+        return None
+
+    # On regarde l'application vivre un instant. Sans cela, "demarree" veut
+    # seulement dire "Popen n'a pas leve d'exception" -- ce qui reste vrai
+    # d'une commande qui meurt a la ligne suivante.
+    fin = time.time() + DELAI_DEMARRAGE
+    while time.time() < fin:
+        if procs[name].poll() is not None:
+            code = procs[name].returncode
+            procs.pop(name, None)
+            _oublier_processus(name)
+            apps = load()
+            if name in apps:
+                apps[name]["enabled"] = False
+                save(apps)
+            return (f"L'application s'est arrêtée aussitôt (code {code}). "
+                    + derniere_ligne_utile(name))
+        time.sleep(0.05)
+    return None
+
+
+def derniere_ligne_utile(nom):
+    """La derniere ligne non vide du journal, pour dire POURQUOI.
+
+    C'est ce qui transforme "ca ne marche pas" en "python3: can't open file"
+    ou "bind: address already in use". Sans elle, le message d'erreur
+    n'apprend rien que l'interface ne montrait deja.
+    """
+    chemin = os.path.join(LOG_DIR, nom + ".log")
+    try:
+        with open(chemin, "rb") as f:
+            # Les dernieres lignes suffisent, et un journal peut etre gros.
+            f.seek(0, os.SEEK_END)
+            debut = max(0, f.tell() - 4096)
+            f.seek(debut)
+            lignes = [l.strip() for l in f.read().decode("utf-8", "replace").splitlines()]
+    except OSError:
+        return "Le journal de l'application est illisible."
+    for ligne in reversed(lignes):
+        if ligne:
+            return ligne[:300]
+    return f"Le journal est vide : {chemin}"
 
 
 def stop(name):
@@ -1932,14 +2854,8 @@ def stop(name):
                 os.killpg(os.getpgid(p.pid), signal.SIGKILL)
         except ProcessLookupError:
             pass
-    if p:
-        for pid in list(_proc_cache):
-            try:
-                if _proc_cache[pid].pid == p.pid or True:
-                    pass
-            except Exception:
-                pass
     procs.pop(name, None)
+    _oublier_processus(name)
     _restart_history.pop(name, None)  # arret volontaire : on oublie l'historique de crash
     apps = load()
     if name in apps:
@@ -1954,7 +2870,7 @@ def resume():
             # panneau de se lancer : c'est justement depuis le panneau qu'on
             # va la reparer ou la supprimer.
             try:
-                start(name)
+                start(name, attendre=False)
             except Exception as e:
                 print(f"[app-manager] {name} : echec du demarrage auto ({e}), "
                       f"ignoree.", flush=True)
@@ -1979,7 +2895,7 @@ def monitor_tick():
             _restart_history[name] = hist
             print(f"[app-manager] {name} arretee de maniere inattendue, "
                   f"redemarrage automatique ({len(hist)}/{RESTART_MAX_ATTEMPTS})", flush=True)
-            start(name)
+            start(name, attendre=False)
         else:
             _restart_history[name] = hist
 
@@ -2561,17 +3477,17 @@ def fin_du_journal(name, lignes=ALERTE_LOG_LIGNES):
 
 def corps_alerte_chute(name, a):
     return "\n".join([
-        f"L'application « {name} » ne repond plus.",
+        f"L'application « {name} » ne répond plus.",
         "",
         f"Dossier   : {a.get('path', '?')}",
         f"Commande  : {a.get('command', '?')}",
         f"Port      : {a.get('port', '?')}",
-        f"Etat      : arretee apres {RESTART_MAX_ATTEMPTS} tentatives de "
-        f"redemarrage en {RESTART_WINDOW // 60} minutes",
+        f"État      : arrêtée après {RESTART_MAX_ATTEMPTS} tentatives de "
+        f"redémarrage en {RESTART_WINDOW // 60} minutes",
         "",
         f"Panneau   : {read_shared_value('APP_MANAGER_URL') or 'http://<IP-du-serveur>:9001'}/",
         "",
-        f"Fin du journal ({ALERTE_LOG_LIGNES} dernieres lignes)",
+        f"Fin du journal ({ALERTE_LOG_LIGNES} dernières lignes)",
         "-" * 46,
         fin_du_journal(name),
         "",
@@ -2581,7 +3497,7 @@ def corps_alerte_chute(name, a):
 
 def corps_alerte_retour(name):
     return "\n".join([
-        f"L'application « {name} » repond de nouveau.",
+        f"L'application « {name} » répond de nouveau.",
         "",
         f"Panneau : {read_shared_value('APP_MANAGER_URL') or 'http://<IP-du-serveur>:9001'}/",
         "",
@@ -2817,6 +3733,44 @@ def find_icon(path):
         p = os.path.join(path, name)
         if os.path.isfile(p):
             return p
+    return None
+
+
+# ------------------------- le logo d'une application -------------------------
+#
+# Il vit dans le DOSSIER du projet, sous le nom icon.<ext>, et non dans un
+# coin d'etat du panneau : un projet emporte ainsi son logo quand on le copie
+# ailleurs, et celui qui a depose un icon.png a la main voit exactement le
+# meme resultat.
+#
+# PAS DE SVG A L'ENVOI, et c'est deliberé. Une image SVG est un document qui
+# peut porter du script ; servie par /api/icon, donc dans l'origine du
+# panneau, elle y executerait ce script. Les formats acceptes sont des
+# images matricielles, reconnues a leur signature -- pas a leur extension,
+# qu'on peut ecrire n'importe comment.
+LOGO_FORMATS = {
+    b"\x89PNG\r\n\x1a\n": ("png", "image/png"),
+    b"\xff\xd8\xff": ("jpg", "image/jpeg"),
+    b"GIF87a": ("gif", "image/gif"),
+    b"GIF89a": ("gif", "image/gif"),
+}
+LOGO_MAX_OCTETS = 512 * 1024      # 512 Ko : une icone, pas une photo
+# Les noms qu'on peut ECRIRE (et donc remplacer). Les autres candidats de
+# ICON_CANDIDATES restent lus, jamais ecrases : un favicon.ico depose a la
+# main appartient au projet.
+LOGO_NOMS_ECRITS = ("icon.png", "icon.jpg", "icon.gif", "icon.webp")
+
+
+def _format_du_logo(donnees):
+    """Le format REEL, lu dans les premiers octets. Rend (ext, type) ou None.
+
+    WebP demande douze octets : "RIFF", quatre octets de taille, puis "WEBP".
+    """
+    for signature, (ext, mime) in LOGO_FORMATS.items():
+        if donnees.startswith(signature):
+            return ext, mime
+    if donnees[:4] == b"RIFF" and donnees[8:12] == b"WEBP":
+        return "webp", "image/webp"
     return None
 
 
@@ -3213,6 +4167,7 @@ def login_submit():
 
         session.permanent = True
         session["authed"] = True
+        session["ouverte"] = int(time.time())
         # Le jeton nait avec la session, jamais apres : une session
         # authentifiee sans jeton ferait de verifier_jeton une passoire.
         jeton_session()
@@ -3272,6 +4227,10 @@ def login_submit():
     session.pop("totp_uri", None)
     session.permanent = True
     session["authed"] = True
+    # La date d'OUVERTURE, posee ici et jamais repoussee : c'est elle qui
+    # fait la limite absolue des trente jours. Le cookie, lui, tient
+    # l'inactivite de son cote.
+    session["ouverte"] = int(time.time())
     # Le jeton nait avec la session, jamais apres : une session
     # authentifiee sans jeton ferait de verifier_jeton une passoire.
     jeton_session()
@@ -3322,6 +4281,10 @@ def login_second_facteur():
     session.pop("totp_uri", None)
     session.permanent = True
     session["authed"] = True
+    # La date d'OUVERTURE, posee ici et jamais repoussee : c'est elle qui
+    # fait la limite absolue des trente jours. Le cookie, lui, tient
+    # l'inactivite de son cote.
+    session["ouverte"] = int(time.time())
     # Le jeton nait avec la session, jamais apres : une session
     # authentifiee sans jeton ferait de verifier_jeton une passoire.
     jeton_session()
@@ -3605,6 +4568,10 @@ def login_passkey():
     session.pop("passkey_defi", None)
     session.permanent = True
     session["authed"] = True
+    # La date d'OUVERTURE, posee ici et jamais repoussee : c'est elle qui
+    # fait la limite absolue des trente jours. Le cookie, lui, tient
+    # l'inactivite de son cote.
+    session["ouverte"] = int(time.time())
     # Le jeton nait avec la session, jamais apres : une session
     # authentifiee sans jeton ferait de verifier_jeton une passoire.
     jeton_session()
@@ -3632,14 +4599,52 @@ def api_activite():
     qui = request.args.get("qui")
     if pg_disponible():
         try:
+            # Le resume vient de la base LUI AUSSI. Calcule sur le fichier, il
+            # comptait sur une fenetre glissante d'un megaoctet : le total
+            # d'ouvertures d'un projet diminuait tout seul a mesure que le
+            # journal tournait.
             return jsonify({"evenements": pg_lire_acces(app=app_, qui=qui),
-                            "resume": resume_acces(), "source": "postgres",
+                            "resume": pg_resume_acces(), "source": "postgres",
                             "pg": _pg_etat["pret"]})
         except Exception as e:
             _pg_etat["erreur"] = f"{type(e).__name__}: {e}"
     return jsonify({"evenements": lire_acces(app=app_, qui=qui),
                     "resume": resume_acces(), "source": "fichier",
                     "pg": False, "pg_erreur": _pg_etat["erreur"]})
+
+
+@flask_app.get("/api/activite/carte")
+@require_admin
+def api_activite_carte():
+    """La carte de chaleur : une case par jour, une annee en un coup d'oeil.
+
+    Meme role que le calendrier de contributions de GitHub, et pour la meme
+    raison : une liste d'evenements dit ce qui s'est passe, une carte dit
+    QUAND -- les periodes creuses, les week-ends, le projet qu'on n'a plus
+    ouvert depuis six semaines. Aucune liste ne montre cela.
+
+    Les filtres sont ceux qu'on se pose : une personne, une application, ou
+    les deux.
+    """
+    qui = request.args.get("qui")
+    app_ = request.args.get("app") or None
+    try:
+        jours = max(1, min(CARTE_JOURS_MAX, int(request.args.get("jours") or CARTE_JOURS_MAX)))
+    except ValueError:
+        jours = CARTE_JOURS_MAX
+    if pg_disponible():
+        try:
+            return jsonify({"jours": pg_carte_activite(jours, qui=qui, app=app_),
+                            "fenetre": jours, "fuseau": FUSEAU_JOURNAL,
+                            "source": "postgres"})
+        except Exception as e:                                    # noqa: BLE001
+            _pg_etat["erreur"] = f"{type(e).__name__}: {e}"
+    # Repli : le fichier oublie au-dela d'un megaoctet, donc la carte est plus
+    # courte. Le dire plutot que d'afficher des jours vides qui laisseraient
+    # croire a une inactivite.
+    return jsonify({"jours": carte_activite(jours, qui=qui, app=app_),
+                    "fenetre": jours, "fuseau": FUSEAU_JOURNAL,
+                    "source": "fichier", "pg_erreur": _pg_etat["erreur"]})
 
 
 @flask_app.get("/api/mon-compte")
@@ -3778,7 +4783,7 @@ def inscription_creer():
     mdp = (d.get("mot_de_passe") or "").strip()
     adresse = email_valide(d.get("email"))
     if not nom:
-        return jsonify({"error": "Nom invalide : 2 a 32 caractères, "
+        return jsonify({"error": "Nom invalide : 2 à 32 caractères, "
                                  "minuscules, chiffres, tiret ou souligné."}), 400
     if nom == NOM_ADMIN:
         return jsonify({"error": "Ce nom est réservé."}), 400
@@ -3828,6 +4833,92 @@ def inscription_creer():
     register_failed_attempt()
     session["inscription_email"] = nom
     return jsonify({"ok": True, "nom": nom, "confirmation": True})
+
+
+@flask_app.post("/mot-de-passe/oubli")
+def mot_de_passe_oubli():
+    """Envoie un code de reinitialisation, si tout s'y prete.
+
+    LA REPONSE EST TOUJOURS LA MEME, quoi qu'il arrive : compte inconnu,
+    adresse absente, adresse non verifiee, envoi impossible. Repondre
+    autrement transformerait ce formulaire en annuaire -- on y taperait des
+    noms jusqu'a trouver ceux qui existent.
+
+    Le compte d'administration n'a pas d'adresse : son mot de passe est celui
+    de credentials.env, et il ne se reinitialise pas d'ici. La page le dit,
+    et c'est une information publique -- elle ne revele l'existence de
+    personne.
+    """
+    if rate_limited():
+        return jsonify({"error": "Trop de tentatives. Réessaie dans quelques minutes."}), 429
+    nom = nom_utilisateur_valide((request.get_json(force=True, silent=True) or {}).get("nom"))
+    register_failed_attempt()   # compte dans la limite : un envoi de mail coute
+
+    comptes = lire_utilisateurs()
+    compte = comptes.get(nom) if nom else None
+    if compte and compte.get("email") and compte.get("email_verifie"):
+        en_cours = compte.get("reinit_code") or {}
+        # Pas plus d'un envoi par minute et par compte : sans cela, ce
+        # formulaire devient un robinet a mails vers l'adresse de quelqu'un
+        # d'autre.
+        if int(time.time()) - int(en_cours.get("envoye") or 0) >= CODE_EMAIL_DELAI:
+            code = preparer_code_reinit(compte)
+            try:
+                envoyer_code_reinit(compte["email"], nom, code)
+                ecrire_utilisateurs(comptes)
+                journaliser("mot-de-passe", qui=nom, action="code envoye",
+                            ip=_adresse_client())
+            except Exception as e:                                # noqa: BLE001
+                # On ne le dit pas au visiteur -- ce serait lui apprendre que
+                # le compte existe -- mais l'administrateur doit le voir.
+                journaliser("mot-de-passe", qui=nom,
+                            action=f"envoi impossible ({type(e).__name__})",
+                            ip=_adresse_client())
+    return jsonify({"ok": True})
+
+
+@flask_app.post("/mot-de-passe/reinitialiser")
+def mot_de_passe_reinitialiser():
+    """Pose le nouveau mot de passe, code en main.
+
+    N'ouvre pas de session : on se reconnecte ensuite, second facteur
+    compris. Un code recu par mail prouve qu'on releve l'adresse, pas qu'on
+    est la personne -- le second facteur, lui, reste exige.
+    """
+    if rate_limited():
+        return jsonify({"error": "Trop de tentatives. Réessaie dans quelques minutes."}), 429
+    d = request.get_json(force=True, silent=True) or {}
+    nom = nom_utilisateur_valide(d.get("nom"))
+    nouveau = (d.get("nouveau") or "").strip()
+    if len(nouveau) < 8:
+        return jsonify({"error": "Mot de passe : 8 caractères au minimum."}), 400
+
+    comptes = lire_utilisateurs()
+    compte = comptes.get(nom) if nom else None
+    if not compte:
+        register_failed_attempt()
+        # Message identique a celui d'un code faux : meme raison qu'au-dessus.
+        return jsonify({"error": "Code incorrect."}), 400
+
+    ok, message = verifier_code_reinit(compte, d.get("code"))
+    try:
+        ecrire_utilisateurs(comptes)
+    except OSError as e:
+        return jsonify({"error": f"État non enregistré : {e}"}), 500
+    if not ok:
+        register_failed_attempt()
+        return jsonify({"error": message}), 400
+
+    sel = secrets.token_hex(16)
+    compte["sel"] = sel
+    compte["hash"] = derive_mot_de_passe(nouveau, sel)
+    try:
+        ecrire_utilisateurs(comptes)
+    except OSError as e:
+        return jsonify({"error": f"Mot de passe non enregistré : {e}"}), 500
+    journaliser("mot-de-passe", qui=nom, action="reinitialise par mail",
+                ip=_adresse_client())
+    return jsonify({"ok": True})
 
 
 @flask_app.post("/inscription/confirmer")
@@ -4131,12 +5222,29 @@ VPS_MODELES = os.environ.get(
 # plutot que reecrire : les modeles sont la source de verite, et un assistant
 # qui regenere son propre texte finit toujours par decrire autre chose que ce
 # que dit le README.
+# La seule question qu'on se pose devant un fichier de configuration est :
+# "je le colle OU ?". Le cote est donc porte par la donnee, et non devine
+# dans la page a partir du texte d'un chemin.
+#
+# L'ordre compte aussi : le tunnel d'abord (sans lui, nginx n'a personne a
+# joindre), nginx ensuite. C'est l'ordre dans lequel on fait les choses.
+COTE_VPS = "Sur le VPS"
+COTE_LOCAL = "Sur cette machine"
+
 VPS_FICHIERS = {
-    "nginx": ("nginx/codelab.conf", "/etc/nginx/sites-available/codelab.conf"),
-    "nginx_upgrade": ("nginx/00-codelab-upgrade.conf", "/etc/nginx/conf.d/00-codelab-upgrade.conf"),
-    "wireguard_vps": ("wireguard/wg0-vps.conf.exemple", "/etc/wireguard/wg0.conf (sur le VPS)"),
+    "wireguard_vps": ("wireguard/wg0-vps.conf.exemple",
+                      "/etc/wireguard/wg0.conf", COTE_VPS,
+                      "Le tunnel, cote VPS."),
     "wireguard_local": ("wireguard/wg0-zimablade.conf.exemple",
-                        "/etc/wireguard/wg0.conf (sur l'hote de la ZimaBlade)"),
+                        "/etc/wireguard/wg0.conf", COTE_LOCAL,
+                        "Le tunnel, cote ZimaBlade. A poser sur l'HOTE, pas dans un conteneur."),
+    "nginx": ("nginx/codelab.conf",
+              "/etc/nginx/sites-available/codelab.conf", COTE_VPS,
+              "Le domaine, le certificat, et le renvoi dans le tunnel."),
+    "nginx_upgrade": ("nginx/00-codelab-upgrade.conf",
+                      "/etc/nginx/conf.d/00-codelab-upgrade.conf", COTE_VPS,
+                      "Laisse passer les websockets. Une ligne, mais sans elle le terminal "
+                      "de Dagster reste muet."),
 }
 
 
@@ -4170,7 +5278,7 @@ def vps_configuration(reglages):
     domaine = reglages["domaine"] or "codelab.exemple.fr"
     reseau = reglages["reseau"] or "10.8.0"
     sorties = {}
-    for cle, (relatif, destination) in VPS_FICHIERS.items():
+    for cle, (relatif, destination, cote, role) in VPS_FICHIERS.items():
         chemin = os.path.join(VPS_MODELES, relatif)
         try:
             with open(chemin, encoding="utf-8") as f:
@@ -4184,7 +5292,8 @@ def vps_configuration(reglages):
         texte = texte.replace("10.8.0.0/24", reseau + ".0/24")
         if reglages["ip"]:
             texte = texte.replace("203.0.113.10", reglages["ip"])
-        sorties[cle] = {"destination": destination, "contenu": texte}
+        sorties[cle] = {"destination": destination, "contenu": texte,
+                        "cote": cote, "role": role}
     return sorties
 
 
@@ -4198,22 +5307,24 @@ def vps_diagnostic(reglages):
     annonce = (request.headers.get("X-Forwarded-Proto") or "").lower()
     devant = bool(request.headers.get("X-Forwarded-For") or annonce)
     publique = adresse_publique()
+    # Ces libelles et ces conseils sont LUS : ils portent leurs accents, a la
+    # difference du code qui les entoure.
     etapes = [
-        ("Domaine et adresse du VPS declares",
+        ("Domaine et adresse du VPS déclarés",
          bool(reglages["domaine"] and reglages["ip"]),
-         "Saisis-les ci-dessus : ils servent a produire les fichiers de configuration."),
-        ("Un intermediaire relaie cette requete", devant,
-         "Aucun en-tete X-Forwarded-* sur cette requete. Soit tu regardes cette page "
-         "directement depuis le reseau local -- c'est normal -- soit nginx n'est pas "
+         "Saisis-les ci-dessus : ils servent à produire les fichiers de configuration."),
+        ("Un intermédiaire relaie cette requête", devant,
+         "Aucun en-tête X-Forwarded-* sur cette requête. Soit tu regardes cette page "
+         "directement depuis le réseau local — c'est normal — soit nginx n'est pas "
          "encore en place sur le VPS."),
-        ("Le proxy est declare de confiance", trust_proxy(),
+        ("Le proxy est déclaré de confiance", trust_proxy(),
          "Case « Proxy de confiance », plus haut. Sans elle le panneau ne croit pas "
-         "l'adresse annoncee, et tous les visiteurs comptent pour un seul."),
-        ("La requete arrive en HTTPS", annonce == "https" or request.is_secure,
-         "Le certificat se pose sur le VPS (certbot), pas ici. Voir l'etape 3 du README."),
-        ("Adresse publique declaree dans le panneau", bool(publique),
+         "l'adresse annoncée, et tous les visiteurs comptent pour un seul."),
+        ("La requête arrive en HTTPS", annonce == "https" or request.is_secure,
+         "Le certificat se pose sur le VPS (certbot), pas ici. Voir l'étape 3 du README."),
+        ("Adresse publique déclarée dans le panneau", bool(publique),
          "Carte « Adresse publique », plus bas. Tant qu'elle manque, aucune application "
-         "ne peut etre rendue publique."),
+         "ne peut être rendue publique."),
     ]
     return [{"etape": nom, "ok": bool(ok), "aide": aide} for nom, ok, aide in etapes]
 
@@ -4226,8 +5337,12 @@ def api_vps():
     return jsonify({
         "reglages": reglages,
         "diagnostic": vps_diagnostic(reglages),
+        # cote et role partent avec : c'est la page qui les affiche, mais
+        # c'est ici qu'ils sont connus. Les deviner cote navigateur a partir
+        # d'un chemin serait une regle de plus a tenir a jour ailleurs.
         "fichiers": [{"cle": cle, "destination": v["destination"],
-                      "contenu": v["contenu"]}
+                      "contenu": v["contenu"], "cote": v["cote"],
+                      "role": v["role"]}
                      for cle, v in config.items()],
         "modeles_absents": not config,
     })
@@ -4286,29 +5401,18 @@ def api_changer_mot_de_passe():
         return jsonify({"error": "Le nouveau mot de passe est identique à l'ancien."}), 400
 
     if est_admin():
-        reel = admin_password()
-        if not (reel and ancien and secrets.compare_digest(ancien, reel)):
-            register_failed_attempt()
-            journaliser("echec", qui=NOM_ADMIN, motif="changement de mot de passe",
-                        ip=_adresse_client())
-            return jsonify({"error": "Ancien mot de passe incorrect."}), 403
-        global _admin_password
-        # La cle de session est relue a sa source, jamais reconstituee depuis
-        # flask_app.secret_key : ecrire une cle differente de celle en place
-        # deconnecterait tout le monde au redemarrage suivant, sans rapport
-        # visible avec le changement de mot de passe.
-        cle = read_shared_value("APP_MANAGER_SESSION_SECRET") or ""
-        if not cle:
-            return jsonify({"error": "Clé de session introuvable dans "
-                                     "credentials.env : le mot de passe reste "
-                                     "inchangé plutot que de risquer de "
-                                     "deconnecter tout le monde."}), 500
-        if not ecrire_bloc_panneau(nouveau, cle, _totp_secret):
-            return jsonify({"error": "credentials.env n'a pas pu être écrit : "
-                                     "le mot de passe reste inchangé."}), 500
-        _admin_password = nouveau
-        journaliser("mot-de-passe", qui=NOM_ADMIN, ip=_adresse_client())
-        return jsonify({"ok": True})
+        # LE COMPTE D'ADMINISTRATION NE CHANGE PAS SON MOT DE PASSE ICI.
+        #
+        # Le sien est celui de credentials.env, et ce fichier est la source :
+        # c'est lui qu'on lit pour se depanner quand le panneau ne repond
+        # plus, lui qu'on copie en changeant de machine, lui que le
+        # diagnostic controle. Laisser le panneau le reecrire, c'etait
+        # accepter deux sources pour un meme secret -- et decouvrir laquelle
+        # fait foi le jour ou elles divergent, c'est-a-dire au pire moment.
+        return jsonify({
+            "error": "Le mot de passe d'administration se change dans "
+                     "credentials.env, sur le serveur — c'est lui qui fait "
+                     "foi. Le panneau ne le réécrit pas."}), 403
 
     nom = utilisateur_courant()
     comptes = lire_utilisateurs()
@@ -4567,7 +5671,7 @@ def api_utilisateur_creer():
     if d.get("email") and not email:
         return jsonify({"error": "Adresse mail invalide."}), 400
     if not nom:
-        return jsonify({"error": "Nom invalide : 2 a 32 caractères, "
+        return jsonify({"error": "Nom invalide : 2 à 32 caractères, "
                                  "minuscules, chiffres, tiret ou souligné."}), 400
     if nom == NOM_ADMIN:
         return jsonify({"error": "Ce nom est celui du compte d'administration."}), 400
@@ -4883,14 +5987,40 @@ def api_add():
     return jsonify({"ok": True, "name": name, "port": port})
 
 
+# CE QUI NE SE VOIT QU'AU PROCHAIN DEMARRAGE.
+#
+# Ces trois-la sont lus au lancement du processus : le dossier de travail, la
+# ligne de commande, la limite de memoire posee dans le preexec_fn. Les
+# changer pendant qu'une application tourne ne touche pas le processus en
+# vie -- il faudra le relancer.
+#
+# Tout le reste s'applique sur-le-champ, parce que le panneau le relit a
+# chaque requete : la description et la categorie (affichees dans le hub), la
+# visibilite (le proxy la consulte pour chaque visiteur), la commande de
+# build (executee a la demande, jamais au lancement).
+#
+# La liste vit ICI plutot que dans la page : c'est le serveur qui sait ce
+# qu'il relit et quand. Une copie dans le navigateur aurait diverge a la
+# premiere evolution.
+CHAMPS_AU_DEMARRAGE = ("path", "command", "max_memory_mb")
+
+
 @flask_app.put("/api/app/<n>")
 @require_admin
 def api_edit(n):
+    """Enregistre la configuration, application en marche ou non.
+
+    CE QUI A CHANGE, ET POURQUOI. Cette route refusait tout net pendant
+    qu'une application tournait : « Arrete l'application avant de la
+    modifier. » Corriger une faute dans une description demandait donc de
+    couper le service. Le refus protegeait d'une illusion reelle -- croire
+    qu'une commande modifiee s'appliquait au processus deja lance -- mais il
+    la traitait en interdisant tout, alors qu'il suffit de DIRE lequel des
+    champs attend un redemarrage.
+    """
     apps = load()
     if n not in apps:
         return jsonify({"error": "Application inconnue."}), 404
-    if is_running(n):
-        return jsonify({"error": "Arrêté l'application avant de la modifier."}), 400
     d = request.get_json(force=True)
     path = (d.get("path") or "").strip()
     command = (d.get("command") or "").strip()
@@ -4900,6 +6030,7 @@ def api_edit(n):
         return jsonify({"error": "Le dossier doit se trouver dans " + ROOT + "."}), 400
     if not command:
         return jsonify({"error": "La commande de lancement est obligatoire."}), 400
+    avant = {c: apps[n].get(c) for c in CHAMPS_AU_DEMARRAGE}
     apps[n]["path"] = path
     apps[n]["command"] = command
     apps[n]["build_command"] = (d.get("build_command") or "").strip()
@@ -4909,7 +6040,22 @@ def api_edit(n):
     if d.get("visibility") in VISIBILITES:
         apps[n]["visibility"] = d["visibility"]
     save(apps)
-    return jsonify({"ok": True})
+
+    # Ce qui a reellement change parmi les champs lus au demarrage. On
+    # compare APRES nettoyage (chemin normalise, memoire en entier ou None) :
+    # comparer les valeurs brutes du formulaire annoncerait un redemarrage
+    # necessaire pour un espace en fin de ligne.
+    attendent = [c for c in CHAMPS_AU_DEMARRAGE if avant.get(c) != apps[n].get(c)]
+    en_marche = is_running(n)
+    return jsonify({
+        "ok": True,
+        "running": en_marche,
+        # Un redemarrage n'est "requis" que si quelque chose tourne : sur une
+        # application arretee, le prochain demarrage prendra la nouvelle
+        # configuration tout seul.
+        "redemarrage_requis": bool(en_marche and attendent),
+        "champs_en_attente": attendent,
+    })
 
 
 @flask_app.post("/api/toggle/<n>")
@@ -4917,8 +6063,16 @@ def api_edit(n):
 def api_toggle(n):
     if n not in load():
         return jsonify({"error": "Application inconnue."}), 404
-    stop(n) if is_running(n) else start(n)
-    return jsonify({"ok": True})
+    if is_running(n):
+        stop(n)
+        return jsonify({"ok": True, "running": False})
+    erreur = start(n)
+    if erreur:
+        # 409 et non 500 : le panneau a fait son travail, c'est
+        # l'application qui refuse de demarrer. La nuance compte pour qui
+        # lit les journaux du panneau.
+        return jsonify({"error": erreur}), 409
+    return jsonify({"ok": True, "running": True})
 
 
 def restart_app(n):
@@ -5099,6 +6253,162 @@ def api_logs_stream(n):
     return reponse
 
 
+@flask_app.get("/api/app/<n>/conteneur")
+@require_admin
+def api_conteneur(n):
+    """Les fichiers de conteneurisation, sans rien ecrire.
+
+    On regarde avant de poser : ces fichiers vont dans le dossier du projet,
+    et personne ne doit decouvrir apres coup ce qu'un bouton y a depose.
+    """
+    a = load().get(n)
+    if not a:
+        return jsonify({"error": "Application inconnue."}), 404
+    if not os.path.isdir(a["path"]):
+        return jsonify({"error": "Dossier du projet introuvable : " + a["path"]}), 400
+    resultat = fichiers_conteneur(dict(a, name=n))
+    # Ce qui existe deja compte autant que ce qu'on propose : le bouton
+    # d'ecriture doit pouvoir dire « celui-la, je ne le touche pas ».
+    for f in resultat["fichiers"]:
+        f["existe"] = os.path.isfile(os.path.join(a["path"], f["nom"]))
+    return jsonify(resultat)
+
+
+@flask_app.post("/api/app/<n>/conteneur")
+@require_admin
+def api_conteneur_ecrire(n):
+    """Depose les fichiers dans le dossier du projet.
+
+    N'ECRASE RIEN SANS QU'ON LE DEMANDE. Le dossier d'un projet contient du
+    travail ; un bouton qui remplace un Dockerfile ecrit a la main est une
+    perte de donnees, meme quand le notre est meilleur. Les fichiers deja
+    presents sont donc sautes, et nommes dans la reponse -- on choisit alors
+    de recommencer en remplacant, en connaissance de cause.
+    """
+    a = load().get(n)
+    if not a:
+        return jsonify({"error": "Application inconnue."}), 404
+    if not os.path.isdir(a["path"]) or not under_root(a["path"]):
+        return jsonify({"error": "Dossier du projet introuvable."}), 400
+    d = request.get_json(force=True, silent=True) or {}
+    remplacer = bool(d.get("remplacer"))
+    voulus = d.get("fichiers")
+
+    resultat = fichiers_conteneur(dict(a, name=n))
+    ecrits, sautes = [], []
+    for f in resultat["fichiers"]:
+        if voulus and f["nom"] not in voulus:
+            continue
+        cible = os.path.join(a["path"], f["nom"])
+        if os.path.islink(cible):
+            # Jamais a travers un lien : le panneau ecrit en root.
+            sautes.append(f["nom"])
+            continue
+        if os.path.exists(cible) and not remplacer:
+            sautes.append(f["nom"])
+            continue
+        tmp = cible + ".codelab-tmp"
+        try:
+            with open(tmp, "w") as fh:
+                fh.write(f["contenu"])
+            os.replace(tmp, cible)
+            os.chmod(cible, 0o664)
+        except OSError as e:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            return jsonify({"error": f"Écriture impossible ({f['nom']}) : {e}",
+                            "ecrits": ecrits}), 500
+        ecrits.append(f["nom"])
+    if ecrits:
+        journaliser("conteneur", qui=utilisateur_courant() or NOM_ADMIN, app=n,
+                    action="fichiers deposes (%s)" % ", ".join(ecrits),
+                    ip=_adresse_client())
+    return jsonify({"ok": True, "ecrits": ecrits, "sautes": sautes})
+
+
+@flask_app.put("/api/app/<n>/logo")
+@require_admin
+def api_logo(n):
+    """Depose le logo d'une application, envoye depuis sa page de reglages.
+
+    Le corps est l'image elle-meme, pas un formulaire : il n'y a qu'un seul
+    fichier, et un multipart n'apporterait qu'un analyseur de plus a nourrir.
+    """
+    apps = load()
+    a = apps.get(n)
+    if not a:
+        return jsonify({"error": "Application inconnue."}), 404
+    donnees = request.get_data(cache=False)
+    if not donnees:
+        return jsonify({"error": "Aucune image reçue."}), 400
+    if len(donnees) > LOGO_MAX_OCTETS:
+        return jsonify({"error": "Image trop lourde : %d Ko pour %d Ko au maximum."
+                                 % (len(donnees) // 1024, LOGO_MAX_OCTETS // 1024)}), 400
+    format_ = _format_du_logo(donnees)
+    if not format_:
+        # Le SVG tombe ici, et c'est voulu : servi dans l'origine du panneau,
+        # un SVG peut y executer du script.
+        return jsonify({"error": "Format non accepté. PNG, JPEG, GIF ou WebP — "
+                                 "le SVG est refusé : il peut porter du script."}), 400
+    ext, _mime = format_
+    dossier = a["path"]
+    if not os.path.isdir(dossier) or not under_root(dossier):
+        return jsonify({"error": "Dossier du projet introuvable."}), 400
+
+    # Un seul logo a la fois : les autres noms que NOUS ecrivons partent, sinon
+    # icon.png survivrait a l'envoi d'un icon.jpg et continuerait de s'afficher
+    # (find_icon prend le premier de la liste).
+    for nom in LOGO_NOMS_ECRITS:
+        chemin = os.path.join(dossier, nom)
+        if os.path.isfile(chemin) and not os.path.islink(chemin):
+            try:
+                os.remove(chemin)
+            except OSError:
+                pass
+    cible = os.path.join(dossier, "icon." + ext)
+    tmp = cible + ".tmp"
+    try:
+        with open(tmp, "wb") as f:
+            f.write(donnees)
+        os.replace(tmp, cible)
+        # Le fichier appartient au projet : il doit rester modifiable depuis
+        # une session SSH comme le reste de son dossier.
+        try:
+            os.chmod(cible, 0o664)
+        except OSError:
+            pass
+    except OSError as e:
+        return jsonify({"error": f"Écriture impossible : {e}"}), 500
+    journaliser("logo", qui=utilisateur_courant() or NOM_ADMIN, app=n,
+                action="depose", ip=_adresse_client())
+    return jsonify({"ok": True, "fichier": os.path.basename(cible)})
+
+
+@flask_app.delete("/api/app/<n>/logo")
+@require_admin
+def api_logo_retirer(n):
+    """Retire le logo depose. Ne touche qu'aux noms que le panneau ecrit :
+    un favicon.ico pose a la main dans le projet lui appartient."""
+    a = load().get(n)
+    if not a:
+        return jsonify({"error": "Application inconnue."}), 404
+    retires = []
+    for nom in LOGO_NOMS_ECRITS:
+        chemin = os.path.join(a["path"], nom)
+        if os.path.isfile(chemin) and not os.path.islink(chemin):
+            try:
+                os.remove(chemin)
+                retires.append(nom)
+            except OSError as e:
+                return jsonify({"error": f"Suppression impossible : {e}"}), 500
+    if retires:
+        journaliser("logo", qui=utilisateur_courant() or NOM_ADMIN, app=n,
+                    action="retire", ip=_adresse_client())
+    return jsonify({"ok": True, "retires": retires})
+
+
 @flask_app.get("/api/icon/<n>")
 @require_auth
 def api_icon(n):
@@ -5111,8 +6421,17 @@ def api_icon(n):
     a = apps.get(n)
     icon_path = find_icon(a["path"]) if a else None
     if icon_path:
-        return send_file(icon_path)
-    return Response(default_icon_svg(n), mimetype="image/svg+xml")
+        # UNE IMAGE, ET RIEN QUE CA. Ce chemin sert un fichier pris dans le
+        # dossier d'un projet, dans l'ORIGINE DU PANNEAU. Un SVG depose a la
+        # main y executerait son script : la politique ci-dessous le rend
+        # inerte, et nosniff empeche le navigateur de deviner un autre type
+        # que celui annonce.
+        reponse = send_file(icon_path)
+        reponse.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'"
+        reponse.headers["X-Content-Type-Options"] = "nosniff"
+        return reponse
+    return Response(default_icon_svg(n), mimetype="image/svg+xml",
+                    headers={"X-Content-Type-Options": "nosniff"})
 
 
 
@@ -5220,9 +6539,18 @@ def api_mes_apps():
     """
     autorises = projets_autorises()
     connues = lire_categories()
-    liste = []
+    # Ce que CE compte a range hors de son hub. La liste part avec la
+    # reponse : la page des reglages doit pouvoir les rendre sans redemander,
+    # et le hub doit savoir qu'il en cache -- une liste silencieusement plus
+    # courte inquiete plus qu'elle ne simplifie.
+    cachees = set(masquees_du_compte())
+    liste, masquees = [], []
     for nom, a in sorted(load().items()):
         if autorises is not None and nom not in autorises:
+            continue
+        if nom in cachees:
+            masquees.append({"name": nom,
+                             "description": a.get("description") or ""})
             continue
         liste.append({
             "name": nom,
@@ -5235,9 +6563,154 @@ def api_mes_apps():
     # Les categories accompagnent la liste : le hub les affiche dans l'ordre
     # voulu, sans avoir a deviner cet ordre a partir des projets.
     return jsonify({"apps": liste,
+                    "masquees": masquees,
                     "categories": connues,
                     "utilisateur": utilisateur_courant(),
                     "role": role_courant()})
+
+
+@flask_app.post("/api/messages")
+@require_auth
+def api_message():
+    """Un mot laisse depuis le hub, range et envoye a l'administrateur.
+
+    Trois sujets possibles, et pas un de plus : une application a laquelle on
+    a acces, le hub lui-meme, ou l'idee d'une application qui manque. Un
+    champ libre aurait demande a l'administrateur de deviner de quoi on
+    parle -- ce qu'il ne peut pas faire depuis un mail de trois lignes.
+    """
+    d = request.get_json(force=True, silent=True) or {}
+    cible = (d.get("cible") or "").strip()
+    texte = (d.get("texte") or "").strip()
+    nom_app = (d.get("app") or "").strip()
+    qui = utilisateur_courant() or NOM_ADMIN
+
+    if cible not in MESSAGE_CIBLES:
+        return jsonify({"error": "Choisis de quoi tu veux parler."}), 400
+    if not texte:
+        return jsonify({"error": "Écris ton message."}), 400
+    if len(texte) > MESSAGE_LONGUEUR_MAX:
+        return jsonify({"error": "Message trop long : %d caractères pour %d au maximum."
+                                 % (len(texte), MESSAGE_LONGUEUR_MAX)}), 400
+    if cible == "application":
+        # On ne parle que d'une application qu'on peut ouvrir : sinon ce
+        # formulaire dirait l'existence de projets qu'on n'a pas le droit de
+        # connaitre, exactement comme la liste des masquees.
+        if nom_app not in load() or not peut_voir(nom_app):
+            return jsonify({"error": "Application inconnue."}), 404
+    else:
+        nom_app = ""
+
+    maintenant = time.time()
+    if maintenant - _dernier_message.get(qui, 0) < MESSAGE_DELAI:
+        return jsonify({"error": "Un message vient de partir. Laisse une minute "
+                                 "avant le suivant."}), 429
+    _dernier_message[qui] = maintenant
+
+    message = {"id": secrets.token_hex(12), "ts": int(maintenant), "qui": qui,
+               "cible": cible, "app": nom_app, "texte": texte}
+    if not enregistrer_message(message):
+        return jsonify({"error": "Message non enregistré : le disque n'a pas "
+                                 "accepté l'écriture."}), 500
+
+    # ENREGISTRE D'ABORD, ENVOYE ENSUITE. Un envoi qui echoue -- SMTP mal
+    # configure, serveur injoignable -- ne doit pas faire perdre le message :
+    # il est deja range, l'administrateur le verra dans le panneau.
+    envoye, souci = False, ""
+    cfg, ok = smtp_utilisable()
+    destinataires = alertes_admin()
+    if ok and destinataires:
+        try:
+            envoyer_mail(cfg, sujet_message(message), corps_message(message),
+                         destinataires=destinataires)
+            envoye = True
+        except Exception as e:                                    # noqa: BLE001
+            souci = f"{type(e).__name__}: {e}"
+    journaliser("message", qui=qui, app=nom_app or None,
+                action=("envoye" if envoye else "enregistre sans mail"),
+                ip=_adresse_client())
+    return jsonify({"ok": True, "envoye": envoye, "erreur_mail": souci})
+
+
+def sujet_message(message):
+    ou = {"application": f"l'application « {message.get('app')} »",
+          "hub": "le hub",
+          "idee": "une idée d'application"}.get(message.get("cible"), "CodeLab")
+    return f"[CodeLab] message de {message.get('qui')} sur {ou}"
+
+
+def corps_message(message):
+    quand = datetime.datetime.fromtimestamp(message.get("ts") or 0).strftime(
+        "%Y-%m-%d %H:%M")
+    sujet = {"application": f"Application : {message.get('app')}",
+             "hub": "Sujet      : le hub",
+             "idee": "Sujet      : une idee d'application"}.get(
+                 message.get("cible"), "Sujet      : ?")
+    return "\n".join([
+        f"De         : {message.get('qui')}",
+        sujet,
+        f"Le         : {quand}",
+        "",
+        (message.get("texte") or "").strip(),
+        "",
+        "-- CodeLab, message laisse depuis le hub",
+    ])
+
+
+@flask_app.get("/api/messages")
+@require_admin
+def api_messages_liste():
+    """Les messages recus. Reserve a l'administrateur : ce sont des mots qui
+    lui sont adresses, et ils portent le nom de qui les a ecrits."""
+    return jsonify({"messages": lire_messages(limite=100)})
+
+
+@flask_app.post("/api/mes-apps/<n>/masquer")
+@require_auth
+def api_masquer(n):
+    """Retire une application du hub de CE compte.
+
+    Ce n'est pas un droit retire : le projet tourne toujours, les autres
+    comptes le voient, et son adresse reste ouverte a qui la connait. On ne
+    peut masquer que ce qu'on peut deja voir -- sinon la liste des masquees
+    dirait l'existence de projets qu'on n'a pas le droit de connaitre.
+    """
+    if n not in load() or not peut_voir(n):
+        return jsonify({"error": "Application inconnue."}), 404
+    qui = utilisateur_courant() or NOM_ADMIN
+    d = lire_masquees()
+    liste = [x for x in (d.get(qui) or []) if isinstance(x, str)]
+    if n not in liste:
+        liste.append(n)
+        d[qui] = sorted(liste)
+        ecrire_masquees(d)
+        # Journalise : l'administrateur doit pouvoir constater qu'un projet a
+        # disparu d'un hub sans que personne n'ait touche a ses droits.
+        journaliser("masquage", qui=qui, app=n, action="masque",
+                    ip=_adresse_client())
+    return jsonify({"ok": True, "masquees": sorted(liste)})
+
+
+@flask_app.delete("/api/mes-apps/<n>/masquer")
+@require_auth
+def api_afficher(n):
+    """Remet une application dans le hub de ce compte."""
+    qui = utilisateur_courant() or NOM_ADMIN
+    d = lire_masquees()
+    liste = [x for x in (d.get(qui) or []) if isinstance(x, str)]
+    if n in liste:
+        liste.remove(n)
+        # On retire la cle vide plutot que de laisser un tableau vide : le
+        # fichier reste lisible a l'oeil, et un compte supprime ne laisse pas
+        # d'entree derriere lui.
+        if liste:
+            d[qui] = sorted(liste)
+        else:
+            d.pop(qui, None)
+        ecrire_masquees(d)
+        journaliser("masquage", qui=qui, app=n, action="affiche",
+                    ip=_adresse_client())
+    return jsonify({"ok": True, "masquees": sorted(liste)})
 
 
 # ------------------------------ proxy --------------------------------
@@ -5248,6 +6721,71 @@ def strip_session_cookie(raw):
     gardes = [c.strip() for c in raw.split(";")
               if c.strip() and c.split("=", 1)[0].strip() != nom]
     return "; ".join(gardes)
+
+
+# Le ruban de retour, glisse dans les pages HTML servies par le proxy.
+#
+# POURQUOI L'INJECTER PLUTOT QUE LE DEMANDER AUX APPLICATIONS : une
+# application deployee est du code quelconque, souvent ecrit avant d'arriver
+# ici, et parfois pas par nous. Lui demander d'ajouter un lien vers le hub,
+# c'est n'en avoir aucun dans la plupart des cas. Le proxy, lui, voit passer
+# toutes les pages.
+#
+# Styles en ligne et nom de classe improbable : la page d'accueil de
+# l'application a ses propres regles, et le ruban ne doit ni les subir ni les
+# changer. all:initial coupe l'heritage dans les deux sens.
+RUBAN_RETOUR = (
+    '<a href="/" id="codelab-retour-hub" title="Revenir au hub CodeLab" '
+    'style="all:initial;position:fixed;left:14px;bottom:14px;z-index:2147483647;'
+    'display:inline-flex;align-items:center;gap:7px;padding:8px 13px;'
+    'font:600 13px/1 -apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;'
+    'color:#fff;background:#141a21;border-radius:999px;cursor:pointer;'
+    'box-shadow:0 2px 10px rgba(0,0,0,.28);text-decoration:none">'
+    '<span style="all:initial;color:#fff;font:600 15px/1 sans-serif">&#8592;</span>'
+    '<span style="all:initial;color:#fff;font:600 13px/1 -apple-system,'
+    'BlinkMacSystemFont,sans-serif">CodeLab</span></a>'
+).encode()
+
+
+def _entete(entetes, nom):
+    for k, v in entetes:
+        if k.lower() == nom:
+            return v
+    return ""
+
+
+def injecter_ruban(data, status, entetes):
+    """Glisse le ruban de retour avant </body>, quand c'est sans risque.
+
+    Quatre refus, et chacun evite de casser une application :
+
+      - un code autre que 200 : une page d'erreur de l'application n'a pas a
+        etre retouchee ;
+      - autre chose que du HTML : une image ou du JSON ne se modifient pas ;
+      - un corps COMPRESSE : les octets ne contiennent alors pas "</body>",
+        et y ecrire ferait un flux illisible ;
+      - pas de </body> : fragment HTML renvoye a du JavaScript, reponse
+        partielle. On ne devine pas ou l'inserer.
+
+    Travaille sur les OCTETS et jamais sur du texte decode : une page dans un
+    encodage qu'on aurait mal devine reviendrait abimee, et une page n'a pas
+    a payer le passage par le proxy.
+    """
+    if status != 200:
+        return data, entetes
+    if "text/html" not in _entete(entetes, "content-type").lower():
+        return data, entetes
+    if _entete(entetes, "content-encoding"):
+        return data, entetes
+    i = data.lower().rfind(b"</body>")
+    if i < 0:
+        return data, entetes
+    data = data[:i] + RUBAN_RETOUR + data[i:]
+    # Content-Length devient faux si on ne le refait pas : le navigateur
+    # tronquerait la page a l'ancienne taille, juste avant le ruban.
+    entetes = [(k, v) for k, v in entetes if k.lower() != "content-length"]
+    entetes.append(("Content-Length", str(len(data))))
+    return data, entetes
 
 
 def _proxy(name, sub):
@@ -5264,9 +6802,9 @@ def _proxy(name, sub):
         if not is_authed():
             return redirect("/login")
         if not peut_voir(name):
-            return Response(_page("Acces refuse",
-                                  "Ton compte n'a pas acces a \u00ab " + name + " \u00bb.",
-                                  "Demande l'acces a l'administrateur."),
+            return Response(_page("Accès refusé",
+                                  "Ton compte n'a pas accès à \u00ab " + name + " \u00bb.",
+                                  "Demande l'accès à l'administrateur."),
                             403, mimetype="text/html")
     # Note l'ouverture APRES les controles d'acces : un refus n'est pas une
     # visite, et le journal servirait mal s'il melangeait les deux.
@@ -5310,8 +6848,14 @@ def _proxy(name, sub):
         return Response(_page("Demarrage en cours",
                               "\u00ab " + name + " \u00bb ne repond pas encore.",
                               "Reessaie dans quelques secondes."), 502, mimetype="text/html")
-    return Response(data, status, [(k, v) for k, v in headers.items()
-                                   if k.lower() not in HOP])
+    sortants = [(k, v) for k, v in headers.items() if k.lower() not in HOP]
+    # Le ruban n'est pose que pour quelqu'un de CONNECTE. Une application
+    # publique vue par un visiteur anonyme ne doit pas lui annoncer qu'un
+    # panneau existe derriere, ni lui offrir un lien qui le renverrait a une
+    # page de connexion dont il n'a que faire.
+    if is_authed():
+        data, sortants = injecter_ruban(data, status, sortants)
+    return Response(data, status, sortants)
 
 
 def _from_referer():
@@ -5562,6 +7106,10 @@ if __name__ == "__main__":
     if not os.path.exists(APPS_FILE):
         save({})
     inscrit = amorcer_diagnostic()
+    # AVANT resume() : les applications survivent a l'arret du panneau, et
+    # relancer par-dessus une application deja en vie ferait mourir la
+    # nouvelle sur un port occupe -- sans que personne ne comprenne pourquoi.
+    adopter_processus_survivants()
     resume()
     if inscrit:
         threading.Thread(target=_preparer_diagnostic, args=(inscrit,),

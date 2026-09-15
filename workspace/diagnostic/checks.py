@@ -55,9 +55,12 @@ except ModuleNotFoundError:  # image Dagster, image dev
 
     pytest = _PytestAbsent()
 
+import inspect
+import datetime
 import json
 import os
 import socket
+import shutil
 import stat
 import time
 import urllib.error
@@ -546,8 +549,27 @@ def _port_panneau():
     return int(os.environ.get("MANAGER_PORT") or 9001)
 
 
+# Le port des applications quand rien ne le dit : c'est le defaut du panneau
+# (voir APPS_PORT dans app-manager/app/app.py), et c'est celui que publie
+# docker-compose.yml.
+PORT_APPS_DEFAUT = 9002
+
+
 def _port_applications():
-    return int(os.environ.get("APP_MANAGER_APPS_PORT") or 0)
+    """Le port ou les applications sont servies.
+
+    POURQUOI CE N'EST PLUS "la variable ou rien". Cette sonde lisait
+    APP_MANAGER_APPS_PORT et declarait l'installation en faute des qu'elle
+    etait absente -- alors que le panneau, lui, se rabat sur 9002 et que le
+    compose publie ce port. Elle annoncait donc "les applications sont
+    servies dans l'origine du panneau" sur une installation ou les deux
+    origines etaient parfaitement separees.
+
+    Une sonde ne doit dire que ce qu'elle CONSTATE. Elle prend donc le meme
+    defaut que le panneau, et va verifier sur le port ce qui s'y trouve
+    vraiment.
+    """
+    return int(os.environ.get("APP_MANAGER_APPS_PORT") or PORT_APPS_DEFAUT)
 
 
 def check_panneau_ferme():
@@ -585,16 +607,14 @@ def check_origine_applications():
     import urllib.error
     import urllib.request
     port = _port_applications()
-    if not port:
-        return (False, "origine des applications",
-                "APP_MANAGER_APPS_PORT absent : les applications sont servies "
-                "par le panneau, donc dans SON origine")
     base = f"http://127.0.0.1:{port}"
     try:
         urllib.request.urlopen(base + "/health", timeout=4).getcode()
     except Exception as e:                                        # noqa: BLE001
         return (False, "origine des applications",
-                f"port {port} ferme ({e}) -- publie-le dans docker-compose.yml")
+                f"rien ne repond sur le port {port} ({e}) -- publie-le dans "
+                f"docker-compose.yml, sinon les applications repartent dans "
+                f"l'origine du panneau")
     fuites = []
     for chemin in ("/", "/login", "/api/apps"):
         try:
@@ -732,6 +752,226 @@ def check_provenance():
             f"redirige, et borne les ports au reseau local.")
 
 
+def _etat_panneau():
+    """Le dossier d'etat du panneau, vu depuis ce projet."""
+    return os.environ.get("APP_MANAGER_STATE") or "/var/lib/codelab/app-manager"
+
+
+def _lire_json(chemin, defaut):
+    try:
+        with open(chemin) as f:
+            return json.load(f) or defaut
+    except (OSError, ValueError):
+        return defaut
+
+
+def check_applications():
+    """Chaque application declaree, de bout en bout.
+
+    Les autres sondes verifient la STACK -- Postgres repond, Dagster repond,
+    le proxy sert. Aucune ne regardait les applications elles-memes, alors
+    que c'est pour elles que la stack existe. Une application dont le dossier
+    a disparu, dont la commande n'existe plus ou qui n'ecoute pas son port
+    passait totalement inapercue jusqu'a ce qu'on essaie de l'ouvrir.
+
+    Trois questions par application, dans l'ordre ou elles cassent :
+
+      1. son dossier existe-t-il encore ? (renomme, supprime, volume absent)
+      2. le premier mot de sa commande se resout-il ? (python3, node, un
+         binaire installe par un build qui n'a pas ete rejoue)
+      3. si elle est censee tourner, quelque chose ecoute-t-il son port ?
+
+    Lecture seule : rien n'est demarre, rien n'est arrete.
+    """
+    apps = _lire_json(os.path.join(_etat_panneau(), "apps.json"), {})
+    if not apps:
+        return (True, "applications declarees",
+                "Aucune application declaree : rien a verifier.")
+
+    soucis, tournent = [], 0
+    for nom, a in sorted(apps.items()):
+        chemin = a.get("path") or ""
+        if not os.path.isdir(chemin):
+            soucis.append(f"{nom} : dossier introuvable ({chemin})")
+            continue
+        commande = (a.get("command") or "").strip()
+        premier = commande.split()[0] if commande else ""
+        if not premier:
+            soucis.append(f"{nom} : aucune commande de lancement")
+        elif not (shutil.which(premier) or os.path.isfile(os.path.join(chemin, premier))):
+            soucis.append(f"{nom} : commande introuvable ({premier})")
+        if a.get("enabled"):
+            port = a.get("port")
+            if _port_ouvert("127.0.0.1", port):
+                tournent += 1
+            else:
+                soucis.append(f"{nom} : marquee demarree, mais rien n'ecoute sur {port}")
+
+    total = len(apps)
+    if soucis:
+        return (False, "applications declarees",
+                f"{len(soucis)} probleme(s) sur {total} application(s) : "
+                + " ; ".join(soucis[:4])
+                + (" ..." if len(soucis) > 4 else ""))
+    return (True, "applications declarees",
+            f"{total} application(s), {tournent} en ligne : dossier present, "
+            f"commande resolvable, port a l'ecoute.")
+
+
+def _port_ouvert(hote, port):
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        return False
+    s = socket.socket()
+    s.settimeout(1.5)
+    try:
+        return s.connect_ex((hote, port)) == 0
+    finally:
+        s.close()
+
+
+# DEUX conditions, et il faut les deux. Un pourcentage seul se trompe dans
+# les deux sens : 89 % d'un disque de 250 Go laisse 28 Go, de quoi tenir des
+# mois, et la sonde crierait pour rien ; 70 % d'une carte SD de 16 Go laisse
+# 5 Go, et c'est deja court. On alerte quand le disque est a la fois BIEN
+# REMPLI et qu'il reste peu de chose en valeur absolue.
+SEUIL_DISQUE = 85
+SEUIL_LIBRE_GO = 5
+
+
+def check_espace_disque():
+    """Ce qui tue une machine auto-hebergee : pas une panne, un disque plein.
+
+    Et cela ne previent pas. Postgres refuse d'ecrire, les journaux
+    s'arretent, les builds echouent avec des messages qui ne parlent pas
+    d'espace. La sonde regarde les volumes qui comptent, plus le poids des
+    journaux du panneau -- ils grossissent tout seuls, a chaque ligne de
+    chaque application.
+    """
+    lignes, alerte = [], False
+    vus = set()
+    for chemin in ("/workspace", _etat_panneau(), "/var/lib/codelab/config", "/"):
+        if not os.path.isdir(chemin):
+            continue
+        try:
+            st = os.statvfs(chemin)
+        except OSError:
+            continue
+        cle = (st.f_blocks, st.f_bsize)
+        if cle in vus:          # meme systeme de fichiers, deja compte
+            continue
+        vus.add(cle)
+        total = st.f_blocks * st.f_frsize
+        libre = st.f_bavail * st.f_frsize
+        if not total:
+            continue
+        occupe = round(100 * (total - libre) / total)
+        lignes.append(f"{chemin} : {occupe} % occupe, "
+                      f"{libre / (1024 ** 3):.1f} Go libres")
+        if occupe >= SEUIL_DISQUE and libre < SEUIL_LIBRE_GO * 1024 ** 3:
+            alerte = True
+
+    journaux = os.path.join(_etat_panneau(), "logs")
+    poids = 0
+    if os.path.isdir(journaux):
+        for nom in os.listdir(journaux):
+            try:
+                poids += os.path.getsize(os.path.join(journaux, nom))
+            except OSError:
+                pass
+        lignes.append(f"journaux des applications : {poids / (1024 ** 2):.0f} Mo")
+
+    if not lignes:
+        return False, "espace disque", "Aucun volume lisible."
+    return (not alerte), "espace disque", " | ".join(lignes)
+
+
+def check_surface_exposee():
+    """Ce qui est REELLEMENT joignable, et par qui.
+
+    Constate plutot que de faire confiance a ce qui est declare : la liste
+    des applications publiques vient d'apps.json, la restriction
+    d'administration d'exposition.json, et les comptes sans second facteur
+    d'utilisateurs.json. Trois fichiers, trois verites qu'on ne rapproche
+    jamais a l'oeil.
+
+    Elle ne dit pas "c'est mal" : une application publique sur une machine
+    qui n'est pas publiee ne risque rien. Elle dit ce qui est ouvert, pour
+    que le choix soit fait en connaissance.
+    """
+    etat = _etat_panneau()
+    apps = _lire_json(os.path.join(etat, "apps.json"), {})
+    expo = _lire_json(os.path.join(etat, "exposition.json"), {})
+    comptes = _lire_json(os.path.join(etat, "utilisateurs.json"), {})
+
+    publiques = sorted(n for n, a in apps.items()
+                       if (a.get("visibility") or "privee") == "publique")
+    sans_2fa = sorted(n for n, c in comptes.items()
+                      if isinstance(c, dict) and not c.get("totp"))
+    admin_local = bool(expo.get("admin_reseau_local"))
+    adresse = (expo.get("adresse_publique") or "").strip()
+
+    morceaux = [
+        f"administration {'limitee au reseau local' if admin_local else 'joignable de partout'}",
+        f"adresse publique {'declaree : ' + adresse if adresse else 'non declaree'}",
+        f"{len(publiques)} application(s) publique(s)"
+        + (f" ({', '.join(publiques[:3])})" if publiques else ""),
+        f"{len(sans_2fa)} compte(s) sans second facteur"
+        + (f" ({', '.join(sans_2fa[:3])})" if sans_2fa else ""),
+    ]
+    # Le seul cas franchement mauvais : une machine publiee ET une
+    # administration joignable de partout. Le reste est un etat des lieux.
+    mauvais = bool(adresse) and not admin_local
+    return (not mauvais), "surface exposee", " | ".join(morceaux)
+
+
+# Les trois verrous du noyau qui peuvent interdire un namespace utilisateur,
+# avec la valeur qui BLOQUE et la commande qui l'ouvre. En constante, et non
+# dans le corps de la sonde : un test doit pouvoir les remplacer par des
+# fichiers a lui, sans quoi cette lecture ne serait verifiable que sur une
+# machine deja en panne.
+VERROUS_USERNS = [
+    ("/proc/sys/kernel/unprivileged_userns_clone", "0",
+     "sysctl -w kernel.unprivileged_userns_clone=1"),
+    ("/proc/sys/user/max_user_namespaces", "0",
+     "sysctl -w user.max_user_namespaces=15000"),
+    ("/proc/sys/kernel/apparmor_restrict_unprivileged_userns", "1",
+     "sysctl -w kernel.apparmor_restrict_unprivileged_userns=0"),
+]
+
+
+def _verrou_userns():
+    """Lequel des trois verrous du noyau interdit le namespace utilisateur.
+
+    POURQUOI ALLER LE LIRE. La sonde disait "pose ces deux sysctl" sans
+    regarder s'ils etaient en cause : sur une machine ou c'est AppArmor qui
+    refuse, les deux commandes conseillees ne changent rien, et l'on
+    recommence indefiniment. Trois verrous existent, ils ne vivent pas au
+    meme endroit, et un seul suffit a tout bloquer.
+
+    Ces fichiers sont lus sur l'HOTE a travers /proc, qui n'est pas
+    namespace : ce qu'on lit ici est bien le reglage de la machine.
+    """
+    coupables = []
+    for chemin, valeur_bloquante, remede in VERROUS_USERNS:
+        try:
+            with open(chemin) as f:
+                lu = f.read().strip()
+        except OSError:
+            # Absent : ce verrou-la n'existe pas sur ce noyau, il n'y est
+            # donc pour rien.
+            continue
+        if lu == valeur_bloquante:
+            coupables.append(f"{os.path.basename(chemin)}={lu}, a corriger par : {remede}")
+    if coupables:
+        return "Sur l'hote : " + " ; ".join(coupables) + "."
+    # Aucun des trois n'est ferme : c'est le bac a sable du conteneur
+    # (seccomp, AppArmor) qui refuse, et cela ne se corrige pas par sysctl.
+    return ("Aucun sysctl du noyau ne l'interdit : c'est le profil seccomp ou "
+            "AppArmor du conteneur qui refuse.")
+
+
 def check_isolation():
     """Une application peut-elle voir les fichiers d'une autre ?
 
@@ -766,12 +1006,12 @@ def check_isolation():
 
     if not ok:
         return (False, "isolation des applications",
-                "le noyau refuse de creer un namespace utilisateur (%s). Les "
-                "applications demarrent, mais sans etre isolees. Sur l'hote : "
-                "sysctl -w kernel.unprivileged_userns_clone=1 et "
-                "user.max_user_namespaces=15000. Pour assumer le choix et "
+                "le noyau refuse de creer un namespace utilisateur (%s). %s "
+                "Chaque application garde son propre uid -- elles ne peuvent "
+                "pas se relire l'environnement ni se tuer -- mais elles "
+                "partagent la vue de /workspace. Pour assumer le choix et "
                 "faire taire cette sonde : APP_MANAGER_ISOLER=0"
-                % (refus or "raison inconnue"))
+                % (refus or "raison inconnue", _verrou_userns()))
 
     return (True, "isolation des applications",
             "chaque application ne voit que son propre projet "
@@ -822,9 +1062,9 @@ def verif_base_ecrit_et_relit():
         vu = any("verification approfondie" in str(l) for l in recentes)
         if not vu:
             return (False, "base : ecriture puis relecture",
-                    f"ligne #{numero} inseree, mais absente de la relecture")
+                    f"ligne #{numero} insérée, mais absente de la relecture")
         return (True, "base : ecriture puis relecture",
-                f"ligne #{numero} inseree et relue dans la foulee")
+                f"ligne #{numero} insérée et relue dans la foulée")
     finally:
         conn.close()
 
@@ -853,9 +1093,9 @@ def verif_ecriture_refusee_sans_session():
     if code in (401, 403):
         quoi = "session" if code == 401 else "jeton"
         return (True, "ecriture refusee sans session",
-                f"le panneau repond {code} -- la garde de {quoi} tient")
+                f"le panneau répond {code} — la garde de {quoi} tient")
     return (False, "ecriture refusee sans session",
-            f"le panneau repond {code} : une ecriture est passee sans session")
+            f"le panneau répond {code} : une écriture est passée sans session")
 
 
 def verif_proxy_sert_cette_application():
@@ -901,10 +1141,10 @@ def verif_proxy_sert_cette_application():
 
     if code == 200:
         return (True, "le proxy sert cette application",
-                f"{url} repond 200 en {ms} ms")
+                f"{url} répond 200 en {ms} ms")
     if code in (301, 302, 303, 307, 308) and "/login" in (entetes.get("Location") or ""):
         return (True, "le proxy sert cette application",
-                f"le proxy resout le projet et applique sa visibilite privee "
+                f"le proxy résout le projet et applique sa visibilité privée "
                 f"(redirection vers /login, {ms} ms)")
     if code == 404:
         return (False, "le proxy sert cette application",
@@ -912,9 +1152,9 @@ def verif_proxy_sert_cette_application():
                 "elle a ete supprimee du registre, ou renommee")
     if code in (502, 503):
         return (False, "le proxy sert cette application",
-                f"le panneau connait le projet mais l'application ne repond "
-                f"pas ({code}) -- est-elle demarree ?")
-    return False, "le proxy sert cette application", f"{url} repond {code}"
+                f"le panneau connaît le projet mais l'application ne répond "
+                f"pas ({code}) — est-elle démarrée ?")
+    return False, "le proxy sert cette application", f"{url} répond {code}"
 
 
 def verif_le_journal_enregistre():
@@ -949,12 +1189,12 @@ def verif_le_journal_enregistre():
     apres = taille()
     if apres > avant:
         return (True, "le journal des acces enregistre",
-                f"une ouverture de plus notee ({apres - avant} octets)")
+                f"une ouverture de plus notée ({apres - avant} octets)")
     # Les ouvertures sont regroupees par quart d'heure et par compte : rien
     # de neuf peut vouloir dire "deja note il y a dix minutes", pas "casse".
     return (True, "le journal des acces enregistre",
-            f"{journal} lisible ({avant} octets) -- rien de neuf, les "
-            f"ouvertures sont regroupees par quart d'heure")
+            f"{journal} lisible ({avant} octets) — rien de neuf, les "
+            f"ouvertures sont regroupées par quart d'heure")
 
 
 def verif_le_projet_est_ecrivable():
@@ -1026,15 +1266,45 @@ def lancer_suite_du_panneau(timeout=180):
             resume + (" | " + " ; ".join(e[6:80] for e in echecs[:4]) if echecs else ""))
 
 
+# La liste, et non plus une suite d'appels enfouie dans une fonction : la
+# page de verification les annonce AVANT de les lancer, et en joue un a la
+# fois pour montrer ou elle en est. Un nom affiche puis un resultat au meme
+# indice, c'est ce qui permet de remplir le tableau ligne par ligne.
+#
+# Les intitules sont lus par quelqu'un : ils portent leurs accents.
+TESTS_APPROFONDIS = [
+    ("Base : écriture puis relecture", verif_base_ecrit_et_relit),
+    ("Écriture refusée sans session", verif_ecriture_refusee_sans_session),
+    ("Le proxy sert cette application", verif_proxy_sert_cette_application),
+    ("Le journal des accès enregistre", verif_le_journal_enregistre),
+    ("Le dossier du projet est écrivable", verif_le_projet_est_ecrivable),
+]
+
+# La suite de regressions du panneau vient toujours en dernier : c'est la
+# plus longue, et on veut voir les tests d'installation d'abord.
+NOM_SUITE_PANNEAU = "Suite de régressions du panneau"
+
+
+def noms_des_tests(avec_suite=True):
+    noms = [nom for nom, _ in TESTS_APPROFONDIS]
+    return noms + [NOM_SUITE_PANNEAU] if avec_suite else noms
+
+
+def run_test(indice, avec_suite=True):
+    """Un seul test, par son rang dans noms_des_tests()."""
+    if indice == len(TESTS_APPROFONDIS) and avec_suite:
+        return lancer_suite_du_panneau()
+    nom, fn = TESTS_APPROFONDIS[indice]
+    ok, _nom_interne, detail = _essai(nom, fn)
+    # Le nom affiche est celui de la LISTE, pas celui que la fonction se
+    # donne : la page annonce ses lignes avant de les remplir, et une ligne
+    # qui change d'intitule en cours de route n'est plus la meme ligne.
+    return ok, nom, detail
+
+
 def run_tests():
     """Les tests a la demande, dans l'ordre ou on veut les lire."""
-    return [
-        _essai("base : ecriture puis relecture", verif_base_ecrit_et_relit),
-        _essai("ecriture refusee sans session", verif_ecriture_refusee_sans_session),
-        _essai("le proxy sert cette application", verif_proxy_sert_cette_application),
-        _essai("le journal des acces enregistre", verif_le_journal_enregistre),
-        _essai("le dossier du projet est ecrivable", verif_le_projet_est_ecrivable),
-    ]
+    return [_essai(nom, fn) for nom, fn in TESTS_APPROFONDIS]
 
 
 def run_all(env_file=None, workspace=None, ssh_dir=None):
@@ -1058,6 +1328,12 @@ def run_all(env_file=None, workspace=None, ssh_dir=None):
         check_exposition(),
         check_isolation(),
         check_provenance(),
+        # Au-dela de "la stack repond" : ce qu'elle porte, ce qu'elle use, et
+        # ce qu'elle laisse ouvert. Les trois sont en LECTURE SEULE, donc a
+        # leur place ici et non dans la verification approfondie.
+        check_applications(),
+        check_espace_disque(),
+        check_surface_exposee(),
     ]
 
 
@@ -1128,7 +1404,8 @@ app = _charger_panneau()
 # echoue au lieu de laisser passer une ecriture reelle.
 CHEMINS_ETAT = [
     "STATE_DIR", "APPS_FILE", "LOG_DIR", "UTILISATEURS_FILE", "PASSKEYS_FILE",
-    "ACCES_FILE", "CHILD_HOME", "ALERTES_FILE", "SMTP_FILE", "CATEGORIES_FILE",
+    "ACCES_FILE", "PROCESSUS_FILE", "MASQUEES_FILE", "MESSAGES_FILE", "CHILD_HOME", "ALERTES_FILE", "SMTP_FILE",
+    "CATEGORIES_FILE",
     "EXPOSITION_FILE", "DIAGNOSTIC_MARQUEUR", "SHARED_CONFIG_DIR",
     "SHARED_ENV_FILE", "LEGACY_ADMIN_PASSWORD_FILE", "LEGACY_SECRET_KEY_FILE",
 ]
@@ -1152,6 +1429,9 @@ def _bac_a_sable(tmp_path, monkeypatch):
         "UTILISATEURS_FILE": str(etat / "utilisateurs.json"),
         "PASSKEYS_FILE": str(etat / "passkeys.json"),
         "ACCES_FILE": str(etat / "acces.jsonl"),
+        "PROCESSUS_FILE": str(etat / "processus.json"),
+        "MASQUEES_FILE": str(etat / "masquees.json"),
+        "MESSAGES_FILE": str(etat / "messages.jsonl"),
         "CHILD_HOME": str(etat / "home"),
         "ALERTES_FILE": str(etat / "alertes.json"),
         "SMTP_FILE": str(etat / "smtp.json"),
@@ -1277,7 +1557,56 @@ def test_la_sonde_du_diagnostic_voit_le_refus_du_noyau(tmp_path, monkeypatch):
     ok, _nom, detail = check_isolation()
     assert ok is False
     assert "namespace utilisateur" in detail
-    assert "kernel.unprivileged_userns_clone" in detail
+    # Ce qui reste vrai doit etre dit aussi : l'uid par application tient
+    # toujours. Annoncer "aucune isolation" ferait chercher une panne la ou
+    # il n'y en a pas.
+    assert "propre uid" in detail
+
+
+def test_le_refus_du_noyau_nomme_le_verrou_qui_bloque(tmp_path, monkeypatch):
+    """Conseiller deux sysctl sans regarder s'ils sont en cause envoyait
+    taper des commandes sans effet -- sur une machine ou c'est AppArmor qui
+    refuse, elles ne changent rien et l'on recommence indefiniment."""
+    monkeypatch.setenv("PATH", _faux_unshare(
+        tmp_path, 1, "unshare: unshare failed: Operation not permitted")
+        + os.pathsep + os.environ["PATH"])
+    monkeypatch.delenv("APP_MANAGER_ISOLER", raising=False)
+
+    ouvert = tmp_path / "max_user_namespaces"
+    ouvert.write_text("15000\n")
+    ferme = tmp_path / "apparmor_restrict_unprivileged_userns"
+    ferme.write_text("1\n")
+    monkeypatch.setattr(sys.modules[__name__], "VERROUS_USERNS", [
+        (str(tmp_path / "absent"), "0", "sysctl -w kernel.unprivileged_userns_clone=1"),
+        (str(ouvert), "0", "sysctl -w user.max_user_namespaces=15000"),
+        (str(ferme), "1", "sysctl -w kernel.apparmor_restrict_unprivileged_userns=0"),
+    ])
+
+    _ok, _nom, detail = check_isolation()
+    # Le verrou ferme est nomme, avec sa commande.
+    assert "apparmor_restrict_unprivileged_userns=1" in detail
+    assert "sysctl -w kernel.apparmor_restrict_unprivileged_userns=0" in detail
+    # Les deux autres ne sont pas en cause : les citer serait envoyer taper
+    # des commandes qui ne changent rien.
+    assert "max_user_namespaces=15000" not in detail
+    assert "unprivileged_userns_clone" not in detail
+
+
+def test_sans_verrou_ferme_la_sonde_ne_conseille_pas_de_sysctl(tmp_path, monkeypatch):
+    """Quand aucun sysctl n'interdit rien, c'est le bac a sable du conteneur
+    qui refuse -- et aucun sysctl n'y changera quoi que ce soit."""
+    monkeypatch.setenv("PATH", _faux_unshare(
+        tmp_path, 1, "unshare: unshare failed: Operation not permitted")
+        + os.pathsep + os.environ["PATH"])
+    monkeypatch.delenv("APP_MANAGER_ISOLER", raising=False)
+    ouvert = tmp_path / "max_user_namespaces"
+    ouvert.write_text("15000\n")
+    monkeypatch.setattr(sys.modules[__name__], "VERROUS_USERNS",
+                        [(str(ouvert), "0", "sysctl -w user.max_user_namespaces=15000")])
+
+    _ok, _nom, detail = check_isolation()
+    assert "seccomp" in detail and "AppArmor" in detail
+    assert "sysctl -w" not in detail
 
 
 # ------------- "codelab new --ouvrir" rouvre la fenetre VS Code -----------
@@ -2567,6 +2896,45 @@ def test_les_valeurs_sont_substituees_dans_les_vrais_modeles(vps):
     assert all(f["destination"] for f in d["fichiers"])
 
 
+def test_chaque_fichier_dit_sur_quelle_machine_il_va(vps):
+    """La seule question devant un fichier de configuration est "je le colle
+    OU ?". Le cote voyage donc avec la donnee. Le deviner dans la page a
+    partir du texte d'un chemin serait une regle de plus a tenir a jour
+    ailleurs -- et c'est toujours celle-la qu'on oublie."""
+    for cle, entree in app.VPS_FICHIERS.items():
+        relatif, destination, cote, role = entree
+        assert cote in (app.COTE_VPS, app.COTE_LOCAL), cle
+        assert role, cle
+    d = vps.get("/api/vps").get_json()
+    if d["modeles_absents"]:
+        pytest.skip("modeles vps absents de cette image")
+    assert all(f["cote"] and f["role"] for f in d["fichiers"])
+    # Les deux machines sont representees : un assistant qui n'en montrerait
+    # qu'une laisserait le tunnel a moitie pose.
+    assert {f["cote"] for f in d["fichiers"]} == {app.COTE_VPS, app.COTE_LOCAL}
+
+
+def test_le_tunnel_est_propose_avant_nginx(vps):
+    """Sans tunnel, nginx n'a personne a joindre. L'ordre des fichiers est
+    l'ordre dans lequel on les pose."""
+    cles = list(app.VPS_FICHIERS)
+    assert cles.index("wireguard_vps") < cles.index("nginx")
+    assert cles.index("wireguard_local") < cles.index("nginx")
+    d = vps.get("/api/vps").get_json()
+    if d["modeles_absents"]:
+        pytest.skip("modeles vps absents de cette image")
+    rendus = [f["cle"] for f in d["fichiers"]]
+    assert rendus.index("wireguard_vps") < rendus.index("nginx")
+
+
+def test_la_destination_ne_repete_pas_la_machine(vps):
+    """La destination est un chemin a coller dans un terminal. Y glisser
+    "(sur le VPS)" donnait une commande fausse des qu'on la copiait."""
+    for cle, (_, destination, _, _) in app.VPS_FICHIERS.items():
+        assert "(" not in destination, cle
+        assert destination.startswith("/"), cle
+
+
 def test_une_adresse_privee_est_refusee(vps):
     """Un VPS joignable depuis internet n'a pas une adresse privee. Saisir
     celle de sa propre machine donnerait une configuration qui ne peut pas
@@ -2589,8 +2957,8 @@ def test_le_diagnostic_ne_dit_que_ce_qu_il_constate(vps):
     de supposer que le tunnel est en place."""
     d = vps.get("/api/vps").get_json()
     etapes = {e["etape"]: e["ok"] for e in d["diagnostic"]}
-    assert etapes["Un intermediaire relaie cette requete"] is False
-    assert etapes["La requete arrive en HTTPS"] is False
+    assert etapes["Un interm\u00e9diaire relaie cette requ\u00eate"] is False
+    assert etapes["La requ\u00eate arrive en HTTPS"] is False
     # Toute etape non faite doit porter la marche a suivre : un diagnostic qui
     # dit "non" sans dire quoi faire ne sert qu'a inquieter.
     assert all(e["aide"] for e in d["diagnostic"] if not e["ok"])
@@ -2600,10 +2968,10 @@ def test_le_diagnostic_voit_le_proxy_quand_il_est_la(vps):
     d = vps.get("/api/vps", headers={"X-Forwarded-For": "203.0.113.7",
                                      "X-Forwarded-Proto": "https"}).get_json()
     etapes = {e["etape"]: e["ok"] for e in d["diagnostic"]}
-    assert etapes["Un intermediaire relaie cette requete"] is True
-    assert etapes["La requete arrive en HTTPS"] is True
+    assert etapes["Un interm\u00e9diaire relaie cette requ\u00eate"] is True
+    assert etapes["La requ\u00eate arrive en HTTPS"] is True
     # Le proxy n'est pas declare pour autant : constater n'est pas croire.
-    assert etapes["Le proxy est declare de confiance"] is False
+    assert etapes["Le proxy est d\u00e9clar\u00e9 de confiance"] is False
 
 
 def test_enregistrer_le_vps_n_efface_pas_les_autres_reglages(vps):
@@ -2639,42 +3007,45 @@ def compte_admin(tmp_path, monkeypatch):
     return c
 
 
-def test_l_admin_change_son_mot_de_passe(compte_admin):
+def test_l_admin_ne_change_pas_son_mot_de_passe_depuis_le_panneau(compte_admin):
+    """CE QUI A CHANGE, ET POURQUOI. Le panneau reecrivait credentials.env.
+    Or ce fichier est LA source : c'est lui qu'on lit pour se depanner quand
+    le panneau ne repond plus, lui qu'on copie en changeant de machine, lui
+    que le diagnostic controle. Deux sources pour un meme secret, c'est
+    decouvrir laquelle fait foi le jour ou elles divergent -- au pire moment.
+    """
     r = compte_admin.post("/api/compte/mot-de-passe",
                           json={"ancien": "ancien-mot-de-passe",
                                 "nouveau": "un-nouveau-mot-de-passe"})
-    assert r.status_code == 200, r.data
-    assert app.admin_password() == "un-nouveau-mot-de-passe"
-    # Il survit au redemarrage : c'est credentials.env qui fait autorite.
-    assert app.read_shared_value("APP_MANAGER_ADMIN_PASSWORD") == "un-nouveau-mot-de-passe"
-
-
-def test_la_cle_de_session_n_est_pas_remplacee_au_passage(compte_admin):
-    """Ecrire une cle differente de celle en place deconnecterait tout le
-    monde au redemarrage suivant, sans rapport visible avec le changement de
-    mot de passe. Elle est donc relue a sa source, jamais reconstituee."""
-    compte_admin.post("/api/compte/mot-de-passe",
-                      json={"ancien": "ancien-mot-de-passe",
-                            "nouveau": "un-nouveau-mot-de-passe"})
+    assert r.status_code == 403, r.data
+    assert "credentials.env" in r.get_json()["error"]
+    # Rien n'a bouge, ni en memoire ni sur le disque.
+    assert app.admin_password() == "ancien-mot-de-passe"
+    assert app.read_shared_value("APP_MANAGER_ADMIN_PASSWORD") == "ancien-mot-de-passe"
     assert app.read_shared_value("APP_MANAGER_SESSION_SECRET") == "cle-de-session-existante"
 
 
-def test_une_session_volee_ne_verrouille_pas_le_compte(compte_admin):
+def test_une_session_volee_ne_verrouille_pas_le_compte(deux_espaces):
     """L'ancien mot de passe est exige meme sur une session deja ouverte :
     sans cela, un cookie capture suffirait a prendre la place de quelqu'un
     definitivement."""
-    r = compte_admin.post("/api/compte/mot-de-passe",
-                          json={"ancien": "pas-le-bon",
-                                "nouveau": "un-nouveau-mot-de-passe"})
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    r = c.post("/api/compte/mot-de-passe",
+               json={"ancien": "pas-le-bon", "nouveau": "un-nouveau-mot-de-passe"})
     assert r.status_code == 403, r.data
-    assert app.admin_password() == "ancien-mot-de-passe"
+    assert app.verifie_mot_de_passe(app.lire_utilisateurs()["marie"],
+                                    "mot-de-passe-long")
 
 
-def test_un_mot_de_passe_trop_court_est_refuse(compte_admin):
-    r = compte_admin.post("/api/compte/mot-de-passe",
-                          json={"ancien": "ancien-mot-de-passe", "nouveau": "court"})
+def test_un_mot_de_passe_trop_court_est_refuse(deux_espaces):
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    r = c.post("/api/compte/mot-de-passe",
+               json={"ancien": "mot-de-passe-long", "nouveau": "court"})
     assert r.status_code == 400, r.data
-    assert app.admin_password() == "ancien-mot-de-passe"
+    assert app.verifie_mot_de_passe(app.lire_utilisateurs()["marie"],
+                                    "mot-de-passe-long")
 
 
 def test_un_compte_nomme_change_le_sien_et_pas_celui_de_l_admin(deux_espaces):
@@ -3077,6 +3448,742 @@ def test_le_mode_affiche_ne_donne_aucun_droit(deux_espaces):
     assert c.get("/api/mes-apps").status_code == 200
 
 
+# ---------- 12 quinquies. la duree de vie d'une session ----------
+#
+# Deux limites, et il faut les deux. L'INACTIVITE ferme une session oubliee
+# -- un poste public, un portable perdu -- au bout de trois jours ; elle est
+# tenue par le cookie, dont Flask repousse la date a chaque requete. Elle ne
+# dit rien d'une session ENTRETENUE : un onglet laisse ouvert sur une page
+# qui interroge l'API la maintiendrait valable pour toujours. D'ou la limite
+# ABSOLUE de trente jours, comptee par le serveur depuis l'ouverture.
+
+def test_les_deux_limites_de_session_sont_posees():
+    assert app.SESSION_INACTIVITE == datetime.timedelta(days=3)
+    assert app.SESSION_ABSOLUE == datetime.timedelta(days=30)
+    # Le cookie porte la limite d'inactivite : c'est lui qui la fait
+    # respecter, y compris sur un navigateur qui ne revient jamais.
+    assert app.flask_app.config["PERMANENT_SESSION_LIFETIME"] == app.SESSION_INACTIVITE
+
+
+def test_une_session_ouverte_est_datee(journal):
+    """Sans date d'ouverture, la limite absolue n'a rien a compter."""
+    c = journal
+    c.post("/login", json={"password": "secret-de-test"})
+    with c.session_transaction() as sess:
+        assert isinstance(sess.get("ouverte"), (int, float))
+        assert abs(time.time() - sess["ouverte"]) < 30
+
+
+def test_une_session_de_plus_de_trente_jours_ne_vaut_plus_rien(journal):
+    """Meme entretenue : la date d'ouverture ne se repousse pas."""
+    c = journal
+    c.post("/login", json={"password": "secret-de-test"})
+    assert c.get("/api/apps").status_code == 200
+    with c.session_transaction() as sess:
+        sess["ouverte"] = time.time() - 31 * 86400
+    assert c.get("/api/apps").status_code in (401, 403)
+    # Et la session est bien VIDEE, pas seulement refusee une fois.
+    with c.session_transaction() as sess:
+        assert sess.get("authed") is not True
+
+
+def test_une_session_de_vingt_neuf_jours_tient_encore(journal):
+    """La limite est une limite, pas une approximation : on ne deconnecte
+    pas quelqu'un la veille."""
+    c = journal
+    c.post("/login", json={"password": "secret-de-test"})
+    with c.session_transaction() as sess:
+        sess["ouverte"] = time.time() - 29 * 86400
+    assert c.get("/api/apps").status_code == 200
+
+
+def test_une_session_d_avant_ce_mecanisme_n_est_pas_jetee(journal):
+    """Mettre a jour le panneau ne doit deconnecter personne : une session
+    sans date est datee de maintenant, pas refusee."""
+    c = journal
+    c.post("/login", json={"password": "secret-de-test"})
+    with c.session_transaction() as sess:
+        del sess["ouverte"]
+    assert c.get("/api/apps").status_code == 200
+    with c.session_transaction() as sess:
+        assert isinstance(sess.get("ouverte"), (int, float))
+
+
+def test_l_expiration_est_journalisee(journal):
+    c = journal
+    c.post("/login", json={"password": "secret-de-test"})
+    with c.session_transaction() as sess:
+        sess["ouverte"] = time.time() - 31 * 86400
+    c.get("/api/apps")
+    genres = [e.get("action") for e in app.lire_acces() if e.get("genre") == "session"]
+    assert any("30 jours" in (a or "") for a in genres), genres
+
+
+# ---------- 12 sexies. un mot laisse depuis le hub ----------
+#
+# Trois sujets et pas un de plus : une application a laquelle on a acces, le
+# hub lui-meme, ou l'idee d'une application qui manque. Un champ libre aurait
+# demande a l'administrateur de deviner de quoi on parle -- ce qu'il ne peut
+# pas faire depuis un mail de trois lignes.
+
+@pytest.fixture
+def messagerie(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
+    monkeypatch.setattr(app, "MESSAGES_FILE", str(tmp_path / "messages.jsonl"))
+    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
+    monkeypatch.setattr(app, "SHARED_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(app, "SHARED_ENV_FILE", str(tmp_path / "credentials.env"))
+    monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    app._apps_cache["signature"] = None
+    app._dernier_message.clear()
+    (tmp_path / "credentials.env").write_text(
+        "SMTP_HOST=smtp.example.com\nSMTP_USER=panneau@example.com\n"
+        "ALERTE_ADMIN=chef@example.com\n")
+    app.save({"compta": {"path": "/w/a", "command": "x", "port": 9101,
+                         "enabled": True, "visibility": "privee"},
+              "secret": {"path": "/w/c", "command": "x", "port": 9103,
+                         "enabled": True, "visibility": "privee"}})
+    sel = "ff" * 16
+    app.ecrire_utilisateurs({"marie": {
+        "sel": sel, "hash": app.derive_mot_de_passe("mot-de-passe-long", sel),
+        "projets": ["compta"], "cree": 0}})
+    partis = []
+    monkeypatch.setattr(app, "envoyer_mail",
+                        lambda cfg, sujet, corps, destinataires=None:
+                        partis.append((destinataires, sujet, corps)))
+    c = app.flask_app.test_client()
+    _connecte(c, "marie", "mot-de-passe-long")
+    return c, partis
+
+
+def test_un_message_est_range_puis_envoye_a_l_administrateur(messagerie):
+    c, partis = messagerie
+    r = c.post("/api/messages", json={"cible": "application", "app": "compta",
+                                      "texte": "Le bouton demande deux clics."})
+    assert r.status_code == 200, r.data
+    assert r.get_json()["envoye"] is True
+
+    garde = app.lire_messages()
+    assert len(garde) == 1
+    assert garde[0]["qui"] == "marie" and garde[0]["app"] == "compta"
+    assert garde[0]["texte"] == "Le bouton demande deux clics."
+
+    destinataires, sujet, corps = partis[-1]
+    assert destinataires == ["chef@example.com"]
+    assert "marie" in sujet and "compta" in sujet
+    assert "Le bouton demande deux clics." in corps
+
+
+def test_un_message_survit_a_un_envoi_impossible(messagerie, monkeypatch):
+    """ENREGISTRE D'ABORD, ENVOYE ENSUITE. Un SMTP mal configure ne doit pas
+    faire perdre le message : personne ne saurait jamais qu'il a ete ecrit."""
+    c, _partis = messagerie
+    def refuse(*a, **kw):
+        raise RuntimeError("serveur injoignable")
+    monkeypatch.setattr(app, "envoyer_mail", refuse)
+    r = c.post("/api/messages", json={"cible": "hub", "texte": "Le hub est lent."})
+    assert r.status_code == 200, r.data
+    assert r.get_json()["envoye"] is False
+    assert len(app.lire_messages()) == 1
+
+
+def test_on_n_ecrit_que_sur_une_application_qu_on_peut_ouvrir(messagerie):
+    """Sinon ce formulaire dirait l'existence de projets qu'on n'a pas le
+    droit de connaitre -- exactement comme la liste des masquees."""
+    c, partis = messagerie
+    assert c.post("/api/messages", json={"cible": "application", "app": "secret",
+                                         "texte": "bonjour"}).status_code == 404
+    assert c.post("/api/messages", json={"cible": "application", "app": "fantome",
+                                         "texte": "bonjour"}).status_code == 404
+    assert app.lire_messages() == [] and partis == []
+
+
+def test_une_idee_d_application_ne_porte_aucun_projet(messagerie):
+    """« Une application qui manque » n'en designe aucune : garder un nom
+    envoye au passage ferait croire a un message sur un projet existant."""
+    c, _ = messagerie
+    r = c.post("/api/messages", json={"cible": "idee", "app": "compta",
+                                      "texte": "Il manque un suivi des congés."})
+    assert r.status_code == 200, r.data
+    assert app.lire_messages()[0]["app"] == ""
+
+
+def test_un_sujet_invente_est_refuse(messagerie):
+    c, _ = messagerie
+    assert c.post("/api/messages", json={"cible": "autre chose",
+                                         "texte": "bonjour"}).status_code == 400
+    assert app.lire_messages() == []
+
+
+def test_un_message_vide_ou_trop_long_est_refuse(messagerie):
+    c, _ = messagerie
+    assert c.post("/api/messages", json={"cible": "hub", "texte": "   "}).status_code == 400
+    trop = "a" * (app.MESSAGE_LONGUEUR_MAX + 1)
+    assert c.post("/api/messages", json={"cible": "hub", "texte": trop}).status_code == 400
+    assert app.lire_messages() == []
+
+
+def test_un_deuxieme_message_immediat_est_refuse(messagerie):
+    """De quoi corriger une faute de frappe, pas de quoi remplir la boite de
+    l'administrateur."""
+    c, partis = messagerie
+    assert c.post("/api/messages", json={"cible": "hub", "texte": "un"}).status_code == 200
+    r = c.post("/api/messages", json={"cible": "hub", "texte": "deux"})
+    assert r.status_code == 429, r.data
+    assert len(app.lire_messages()) == 1 and len(partis) == 1
+
+
+def test_seul_l_administrateur_lit_les_messages(messagerie):
+    """Ce sont des mots qui lui sont adresses, et ils portent le nom de qui
+    les a ecrits."""
+    c, _ = messagerie
+    c.post("/api/messages", json={"cible": "hub", "texte": "bonjour"})
+    assert c.get("/api/messages").status_code in (401, 403)
+    admin = app.flask_app.test_client()
+    admin.post("/login", json={"password": "secret-de-test"})
+    d = admin.get("/api/messages").get_json()
+    assert [m["texte"] for m in d["messages"]] == ["bonjour"]
+
+
+def test_les_messages_partent_aussi_vers_la_base():
+    """Le fichier tient sans base et se lit en SSH ; la base garde tout et
+    s'interroge en SQL. Le meme couple que pour le journal des acces."""
+    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    assert "CREATE TABLE IF NOT EXISTS messages" in src
+    assert "_pg_deposer((\"message\"" in src
+    # Et le rattrapage les rejoue apres une coupure de la base.
+    rattrapage = src.split("def _pg_rattraper(")[1].split("\ndef ")[0]
+    assert "_pg_ecrire_messages" in rattrapage
+
+
+# ---------- 12 quater. masquer une application de SON hub ----------
+#
+# Ce n'est ni un droit retire, ni une application arretee : le projet
+# continue de tourner, les autres comptes le voient, et son adresse reste
+# ouverte a qui la connait. C'est du RANGEMENT -- et l'interface doit le dire,
+# pour que personne ne croie avoir ferme quelque chose.
+
+@pytest.fixture
+def hub(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
+    monkeypatch.setattr(app, "MASQUEES_FILE", str(tmp_path / "masquees.json"))
+    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
+    monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
+    monkeypatch.setattr(app, "is_running", lambda n: True)
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    app._apps_cache["signature"] = None
+    app.save({"compta": {"path": "/w/a", "command": "x", "port": 9101,
+                         "enabled": True, "visibility": "privee"},
+              "vitrine": {"path": "/w/b", "command": "x", "port": 9102,
+                          "enabled": True, "visibility": "publique"},
+              "secret": {"path": "/w/c", "command": "x", "port": 9103,
+                         "enabled": True, "visibility": "privee"}})
+    sel = "dd" * 16
+    app.ecrire_utilisateurs({"marie": {
+        "sel": sel, "hash": app.derive_mot_de_passe("mot-de-passe-long", sel),
+        "projets": ["compta"], "cree": 0}})
+    return app.flask_app.test_client()
+
+
+def _connexion_marie(c):
+    """Second facteur compris : ces comptes n'ouvrent jamais de session sur
+    le seul mot de passe."""
+    _connecte(c, "marie", "mot-de-passe-long")
+    return c
+
+
+def test_une_application_masquee_quitte_le_hub_de_ce_compte_seulement(hub):
+    c = _connexion_marie(hub)
+    assert c.post("/api/mes-apps/compta/masquer").status_code == 200
+    d = c.get("/api/mes-apps").get_json()
+    assert "compta" not in [a["name"] for a in d["apps"]]
+    assert [a["name"] for a in d["masquees"]] == ["compta"]
+
+    # L'administrateur, lui, la voit toujours : masquer n'est pas supprimer.
+    admin = app.flask_app.test_client()
+    admin.post("/login", json={"password": "secret-de-test"})
+    assert "compta" in [a["name"] for a in admin.get("/api/mes-apps").get_json()["apps"]]
+
+
+def test_masquer_ne_ferme_aucun_acces(hub):
+    """Le point a ne pas se tromper : l'application reste ouverte a qui
+    connait son adresse. Croire le contraire ferait prendre un rangement
+    pour une protection."""
+    c = _connexion_marie(hub)
+    c.post("/api/mes-apps/compta/masquer")
+    # Le proxy ne regarde pas la liste des masquees : il regarde les droits.
+    # 502 ici veut dire qu'il a cherche a joindre l'application (elle
+    # n'ecoute pas dans un test) -- donc qu'il a laisse passer.
+    r = c.get("/compta/", follow_redirects=False)
+    assert r.status_code != 403, "masquer ne doit pas fermer l'acces"
+    assert r.status_code != 404, "l'application doit rester joignable"
+
+
+def test_on_ne_masque_que_ce_qu_on_peut_deja_voir(hub):
+    """Sinon la liste des masquees revelerait l'existence de projets qu'on
+    n'a pas le droit de connaitre."""
+    c = _connexion_marie(hub)
+    assert c.post("/api/mes-apps/secret/masquer").status_code == 404
+    assert c.post("/api/mes-apps/fantome/masquer").status_code == 404
+    assert app.lire_masquees() == {}
+
+
+def test_le_masquage_est_journalise_pour_l_administrateur(hub):
+    """Une application qui disparait d'un hub sans que personne n'ait touche
+    aux droits doit rester explicable."""
+    c = _connexion_marie(hub)
+    c.post("/api/mes-apps/compta/masquer")
+    c.delete("/api/mes-apps/compta/masquer")
+    actions = [(e.get("qui"), e.get("app"), e.get("action"))
+               for e in app.lire_acces() if e.get("genre") == "masquage"]
+    assert ("marie", "compta", "masque") in actions
+    assert ("marie", "compta", "affiche") in actions
+
+
+def test_reafficher_rend_l_application_au_hub(hub):
+    c = _connexion_marie(hub)
+    c.post("/api/mes-apps/compta/masquer")
+    assert c.delete("/api/mes-apps/compta/masquer").status_code == 200
+    d = c.get("/api/mes-apps").get_json()
+    assert "compta" in [a["name"] for a in d["apps"]]
+    assert d["masquees"] == []
+    # Aucune entree vide ne traine derriere : le fichier reste lisible.
+    assert app.lire_masquees() == {}
+
+
+def test_l_administrateur_range_son_hub_comme_les_autres(hub):
+    """Il ne figure pas dans le registre des comptes -- d'ou un fichier a
+    part -- mais il a les memes yeux et le meme ecran que les autres."""
+    c = hub
+    c.post("/login", json={"password": "secret-de-test"})
+    assert c.post("/api/mes-apps/vitrine/masquer").status_code == 200
+    assert app.masquees_du_compte(app.NOM_ADMIN) == ["vitrine"]
+    assert "vitrine" not in [a["name"] for a in c.get("/api/mes-apps").get_json()["apps"]]
+
+
+def test_masquer_demande_une_session(hub):
+    anonyme = app.flask_app.test_client()
+    assert anonyme.post("/api/mes-apps/vitrine/masquer").status_code in (401, 403)
+
+
+# ---------- 12 octies. conteneuriser une application ----------
+#
+# Le panneau PRODUIT les fichiers ; il ne construit aucune image et ne lance
+# rien. Il n'a pas de socket Docker, et lui en donner un reviendrait a lui
+# offrir la machine entiere.
+
+@pytest.fixture
+def conteneur(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
+    monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
+    monkeypatch.setattr(app, "under_root", lambda p: True)
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    app._apps_cache["signature"] = None
+    projet = tmp_path / "facturier"
+    projet.mkdir()
+    (projet / "requirements.txt").write_text("flask\npsycopg[binary]\n")
+    (projet / "app.py").write_text("import psycopg, os\nPORT = os.environ['PORT']\n")
+    app.save({"facturier": {"path": str(projet), "command": "python3 app.py",
+                            "port": 9105, "enabled": False, "max_memory_mb": 256}})
+    c = app.flask_app.test_client()
+    c.post("/login", json={"password": "secret-de-test"})
+    return c, projet
+
+
+def test_la_pile_se_devine_sur_les_fichiers_pas_sur_la_commande(conteneur):
+    """« npm start » peut lancer autre chose que du Node, et un script shell
+    peut lancer n'importe quoi. Ce sont les fichiers qui parlent."""
+    c, projet = conteneur
+    d = c.get("/api/app/facturier/conteneur").get_json()
+    assert d["pile"] == "Python"
+    assert d["indices"] == ["requirements.txt"]
+    assert "postgres" in d["services"]
+    noms = [f["nom"] for f in d["fichiers"]]
+    assert noms == ["Dockerfile", "docker-compose.yml", ".env.exemple",
+                    ".dockerignore", "CONTENEUR.md"]
+
+
+def test_le_compose_produit_tient_debout(conteneur):
+    """Un fichier de configuration produit et jamais relu par une machine
+    finit par contenir une faute de frappe.
+
+    PAS DE PyYAML ICI. La regle de ce depot est que la CI installe ce que
+    l'image embarque, et l'image du panneau n'a aucune raison d'embarquer un
+    analyseur YAML. La structure se verifie donc a la main -- c'est moins
+    complet qu'un analyseur, et c'est suffisant pour attraper ce qui casse
+    reellement : une cle au mauvais niveau, un volume declare nulle part.
+    """
+    c, _ = conteneur
+    d = c.get("/api/app/facturier/conteneur").get_json()
+    compose = next(f for f in d["fichiers"] if f["nom"] == "docker-compose.yml")
+    lignes = [l for l in compose["contenu"].splitlines()
+              if l.strip() and not l.lstrip().startswith("#")]
+
+    racines = [l.rstrip(":") for l in lignes if not l.startswith(" ")]
+    assert racines == ["services", "volumes"], racines
+    # Les services sont a deux espaces, leurs reglages plus loin.
+    services = [l.strip().rstrip(":") for l in lignes
+                if l.startswith("  ") and not l.startswith("   ") and l.rstrip().endswith(":")]
+    assert "facturier" in services and "base" in services, services
+    # Le volume monte par la base existe au niveau racine : un volume nomme
+    # nulle part fait echouer « up » avec un message peu parlant.
+    assert "      - base:/var/lib/postgresql/data" in lignes
+    assert "  base:" in lignes[lignes.index("volumes:"):]
+    # Aucune tabulation : YAML les refuse, et elles ne se voient pas.
+    assert "\t" not in compose["contenu"]
+    # La limite de memoire suit celle de CodeLab : le conteneur doit se
+    # comporter comme l'application se comporte ici.
+    assert "          memory: 256M" in lignes
+
+    # Et si un analyseur YAML est la -- il l'est en developpement, pas en CI --
+    # on ne s'en prive pas.
+    try:
+        import yaml
+    except ImportError:
+        return
+    charge = yaml.safe_load(compose["contenu"])
+    assert set(charge["services"]) == {"facturier", "base"}
+    assert charge["services"]["facturier"]["deploy"]["resources"]["limits"]["memory"] \
+        == "256M"
+
+
+def test_l_image_produite_ne_tourne_pas_en_root(conteneur):
+    """Un conteneur en root donne root sur ses volumes montes, et rapproche
+    d'une evasion tout ce qui tourne dedans."""
+    c, _ = conteneur
+    d = c.get("/api/app/facturier/conteneur").get_json()
+    dockerfile = next(f for f in d["fichiers"] if f["nom"] == "Dockerfile")["contenu"]
+    # Une LIGNE « USER app », pas la chaine quelque part : commentee, elle
+    # ne bascule rien, et le test passerait quand meme.
+    lignes = [l.strip() for l in dockerfile.splitlines()]
+    assert "USER app" in lignes, dockerfile
+    assert any(l.startswith("RUN useradd") for l in lignes), dockerfile
+    # Le port de CodeLab est repris : c'est le contrat, et c'est ce qui casse
+    # en premier ailleurs.
+    assert "ENV PORT=9105" in dockerfile
+
+
+def test_le_modele_de_variables_n_emporte_aucun_secret(conteneur):
+    """Un modele, pas une copie de credentials.env : il part dans le depot
+    du projet, et il doit pouvoir y rester."""
+    c, _ = conteneur
+    d = c.get("/api/app/facturier/conteneur").get_json()
+    modele = next(f for f in d["fichiers"] if f["nom"] == ".env.exemple")["contenu"]
+    assert "PORT=9105" in modele
+    assert "POSTGRES_PASSWORD=a-changer" in modele
+    ignore = next(f for f in d["fichiers"] if f["nom"] == ".dockerignore")["contenu"]
+    # Le .env rempli, lui, n'entre ni dans l'image ni dans le depot.
+    assert ".env" in ignore and "!.env.exemple" in ignore
+
+
+def test_deposer_les_fichiers_n_ecrase_jamais_ce_qui_existe(conteneur):
+    """Le dossier d'un projet contient du travail : un bouton qui remplace un
+    Dockerfile ecrit a la main est une perte de donnees, meme quand le notre
+    est meilleur."""
+    c, projet = conteneur
+    (projet / "Dockerfile").write_text("FROM scratch  # le mien\n")
+    r = c.post("/api/app/facturier/conteneur", json={})
+    assert r.status_code == 200, r.data
+    d = r.get_json()
+    assert "Dockerfile" in d["sautes"]
+    assert "docker-compose.yml" in d["ecrits"]
+    assert (projet / "Dockerfile").read_text() == "FROM scratch  # le mien\n"
+
+
+def test_remplacer_se_demande_explicitement(conteneur):
+    c, projet = conteneur
+    (projet / "Dockerfile").write_text("FROM scratch\n")
+    c.post("/api/app/facturier/conteneur", json={"remplacer": True})
+    assert "USER app" in (projet / "Dockerfile").read_text()
+
+
+def test_le_depot_est_journalise(conteneur):
+    c, _ = conteneur
+    c.post("/api/app/facturier/conteneur", json={})
+    actions = [e.get("action") for e in app.lire_acces() if e.get("genre") == "conteneur"]
+    assert actions and "Dockerfile" in actions[0]
+
+
+def test_le_panneau_ne_construit_ni_ne_lance_aucune_image():
+    """La limite est nette et elle doit le rester : produire des fichiers ne
+    demande aucun acces a Docker, et un panneau qui aurait ce socket
+    donnerait la machine entiere a qui prend sa session."""
+    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    # Ce qu'on cherche, c'est une EXECUTION, pas le mot : le mode d'emploi
+    # produit contient « docker compose up », et c'est precisement son role.
+    for ligne in src.splitlines():
+        nue = ligne.strip()
+        if nue.startswith("#") or nue.startswith('"') or nue.startswith("'"):
+            continue
+        assert "docker.sock" not in nue, nue
+        if "docker" in nue:
+            assert not any(appel in nue for appel in
+                           ("subprocess.run", "subprocess.Popen", "os.system",
+                            "check_output")), nue
+
+
+def test_conteneuriser_est_reserve_a_l_administrateur(conteneur):
+    c, _ = conteneur
+    anonyme = app.flask_app.test_client()
+    assert anonyme.get("/api/app/facturier/conteneur").status_code in (401, 403)
+    assert anonyme.post("/api/app/facturier/conteneur",
+                        json={}).status_code in (401, 403)
+
+
+# ---------- 12 ter. le logo d'une application ----------
+#
+# Il vit dans le DOSSIER du projet : un projet emporte son logo quand on le
+# copie ailleurs. Et il est servi par /api/icon, donc DANS L'ORIGINE DU
+# PANNEAU -- ce qui decide de ce qu'on accepte.
+
+def _png(octets=64):
+    """Un vrai PNG minuscule : la sonde lit la signature, pas l'extension."""
+    import struct
+    import zlib
+
+    def bloc(t, d):
+        c = t + d
+        return struct.pack(">I", len(d)) + c + struct.pack(">I", zlib.crc32(c) & 0xffffffff)
+
+    brut = b"".join(b"\x00" + b"\x0e\x7c\x86" * 8 for _ in range(8))
+    return (b"\x89PNG\r\n\x1a\n"
+            + bloc(b"IHDR", struct.pack(">IIBBBBB", 8, 8, 8, 2, 0, 0, 0))
+            + bloc(b"IDAT", zlib.compress(brut)) + bloc(b"IEND", b""))
+
+
+@pytest.fixture
+def logo(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
+    monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
+    monkeypatch.setattr(app, "under_root", lambda p: True)
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    app._apps_cache["signature"] = None
+    projet = tmp_path / "site"
+    projet.mkdir()
+    app.save({"site": {"path": str(projet), "command": "x", "port": 9101,
+                       "enabled": False}})
+    c = app.flask_app.test_client()
+    c.post("/login", json={"password": "secret-de-test"})
+    return c, projet
+
+
+def test_un_logo_depose_vit_dans_le_dossier_du_projet(logo):
+    """Et non dans un coin d'etat du panneau : le projet emporte son logo
+    quand on le copie ailleurs, et un icon.png pose a la main donne
+    exactement le meme resultat."""
+    c, projet = logo
+    r = c.put("/api/app/site/logo", data=_png(), content_type="image/png")
+    assert r.status_code == 200, r.data
+    assert (projet / "icon.png").exists()
+    assert r.get_json()["fichier"] == "icon.png"
+
+
+def test_un_svg_est_refuse(logo):
+    """Une image SVG est un document qui peut porter du script. Servie par
+    /api/icon, donc dans l'origine du panneau, elle l'executerait la."""
+    c, projet = logo
+    svg = b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
+    r = c.put("/api/app/site/logo", data=svg, content_type="image/svg+xml")
+    assert r.status_code == 400, r.data
+    assert "SVG" in r.get_json()["error"]
+    assert not list(projet.glob("icon.*"))
+
+
+def test_le_format_est_lu_dans_les_octets_pas_dans_l_entete(logo):
+    """Un envoi annonce ce qu'il veut : c'est la signature du fichier qui
+    fait foi. Sans cela, il suffisait d'annoncer image/png."""
+    c, projet = logo
+    r = c.put("/api/app/site/logo",
+              data=b'<svg xmlns="http://www.w3.org/2000/svg"></svg>',
+              content_type="image/png")
+    assert r.status_code == 400, r.data
+    assert not list(projet.glob("icon.*"))
+
+
+def test_une_image_trop_lourde_est_refusee(logo):
+    c, projet = logo
+    r = c.put("/api/app/site/logo",
+              data=_png() + b"\x00" * (app.LOGO_MAX_OCTETS + 1),
+              content_type="image/png")
+    assert r.status_code == 400, r.data
+    assert "lourde" in r.get_json()["error"]
+    assert not list(projet.glob("icon.*"))
+
+
+def test_un_seul_logo_a_la_fois(logo):
+    """find_icon prend le premier nom de sa liste : un icon.png laisse en
+    place survivrait a l'envoi d'un icon.gif et continuerait de s'afficher."""
+    c, projet = logo
+    c.put("/api/app/site/logo", data=_png(), content_type="image/png")
+    r = c.put("/api/app/site/logo", data=b"GIF89a" + b"\x00" * 32,
+              content_type="image/gif")
+    assert r.status_code == 200, r.data
+    assert not (projet / "icon.png").exists()
+    assert (projet / "icon.gif").exists()
+
+
+def test_retirer_le_logo_ne_touche_pas_a_ce_que_le_projet_a_pose(logo):
+    """Un favicon.ico depose a la main dans le projet lui appartient : le
+    panneau n'efface que ce qu'il a lui-meme ecrit."""
+    c, projet = logo
+    (projet / "favicon.ico").write_bytes(b"\x00\x00\x01\x00")
+    c.put("/api/app/site/logo", data=_png(), content_type="image/png")
+    r = c.delete("/api/app/site/logo")
+    assert r.status_code == 200, r.data
+    assert not (projet / "icon.png").exists()
+    assert (projet / "favicon.ico").exists()
+
+
+def test_le_depot_d_un_logo_est_journalise(logo):
+    """Une image deposee dans le dossier d'un projet est une ecriture : elle
+    se retrouve dans le journal comme le reste."""
+    c, _ = logo
+    c.put("/api/app/site/logo", data=_png(), content_type="image/png")
+    evenements = [e for e in app.lire_acces() if e.get("genre") == "logo"]
+    assert evenements and evenements[0]["app"] == "site"
+    assert evenements[0]["action"] == "depose"
+
+
+def test_l_icone_servie_ne_peut_pas_executer_de_script(logo):
+    """Un SVG pose A LA MAIN dans le projet reste lu par find_icon -- c'est
+    voulu, le projet a le droit. La politique de securite le rend inerte."""
+    c, projet = logo
+    (projet / "icon.svg").write_bytes(
+        b'<svg xmlns="http://www.w3.org/2000/svg"><script>1</script></svg>')
+    r = c.get("/api/icon/site")
+    assert r.status_code == 200
+    assert "default-src 'none'" in r.headers.get("Content-Security-Policy", "")
+    assert r.headers.get("X-Content-Type-Options") == "nosniff"
+
+
+def test_seul_l_administrateur_depose_un_logo(logo, monkeypatch):
+    c, _ = logo
+    anonyme = app.flask_app.test_client()
+    assert anonyme.put("/api/app/site/logo", data=_png(),
+                       content_type="image/png").status_code in (401, 403)
+
+
+# ---------- 12 bis. enregistrer la configuration d'une application ----------
+#
+# Vecu : « Rend possible la sauvegarde de la configuration d'une application.
+# Proposer un redemarrage. Les champs qui ne necessitent pas de redemarrage
+# peuvent etre appliques directement. »
+#
+# La route refusait tout net pendant qu'une application tournait : corriger
+# une faute dans une description demandait de couper le service. Le refus
+# protegeait d'une illusion reelle -- croire qu'une commande modifiee
+# s'applique au processus deja lance -- mais il la traitait en interdisant
+# tout, alors qu'il suffit de DIRE lequel des champs attend un redemarrage.
+
+@pytest.fixture
+def en_marche(tmp_path, monkeypatch):
+    """Une application qui tourne, et dont on peut editer la configuration."""
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    monkeypatch.setattr(app, "CATEGORIES_FILE", str(tmp_path / "categories.json"))
+    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
+    monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
+    monkeypatch.setattr(app, "is_running", lambda n: True)
+    monkeypatch.setattr(app, "under_root", lambda p: True)
+    monkeypatch.setattr(os.path, "isdir", lambda p: True)
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    app._apps_cache["signature"] = None
+    app.save({"site": {"path": "/w/a", "command": "python3 app.py", "port": 9101,
+                       "enabled": True, "description": "avant",
+                       "max_memory_mb": 256}})
+    c = app.flask_app.test_client()
+    c.post("/login", json={"password": "secret-de-test"})
+    return c
+
+
+def _editer(c, **champs):
+    """Le formulaire envoie TOUS ses champs, comme la page le fait : une
+    requete partielle viderait ce qu'elle omet, et le test mesurerait alors
+    cet effacement plutot que ce qu'il croit mesurer."""
+    corps = {"path": "/w/a", "command": "python3 app.py", "max_memory_mb": 256}
+    corps.update(champs)
+    return c.put("/api/app/site", json=corps)
+
+
+def test_une_application_en_marche_s_enregistre_desormais(en_marche):
+    """C'etait la demande : pouvoir enregistrer sans couper le service."""
+    r = _editer(en_marche, description="apres")
+    assert r.status_code == 200, r.data
+    assert app.load()["site"]["description"] == "apres"
+
+
+def test_ce_qui_se_relit_a_chaque_requete_s_applique_tout_de_suite(en_marche):
+    """Description, categorie, visibilite, commande de build : le panneau les
+    relit a chaque fois qu'il s'en sert. Rien a redemarrer."""
+    r = _editer(en_marche, description="apres", visibility="privee",
+                build_command="npm install")
+    d = r.get_json()
+    assert d["redemarrage_requis"] is False, d
+    assert d["champs_en_attente"] == []
+    assert app.load()["site"]["visibility"] == "privee"
+
+
+def test_ce_qui_est_lu_au_lancement_attend_le_redemarrage(en_marche):
+    """La commande, le dossier et la limite memoire sont lus quand le
+    processus demarre. Les changer ne touche pas celui qui tourne -- et le
+    taire laisserait croire le contraire."""
+    r = _editer(en_marche, command="python3 autre.py", max_memory_mb=128)
+    d = r.get_json()
+    assert d["redemarrage_requis"] is True, d
+    assert set(d["champs_en_attente"]) == {"command", "max_memory_mb"}
+    # Enregistre malgre tout : c'est le prochain demarrage qui la prendra.
+    assert app.load()["site"]["command"] == "python3 autre.py"
+
+
+def test_une_application_arretee_n_a_rien_a_redemarrer(en_marche, monkeypatch):
+    """Reclamer un redemarrage a qui ne tourne pas serait un faux message :
+    le prochain demarrage prendra la nouvelle configuration tout seul."""
+    monkeypatch.setattr(app, "is_running", lambda n: False)
+    d = _editer(en_marche, command="python3 autre.py").get_json()
+    assert d["redemarrage_requis"] is False
+    assert d["running"] is False
+
+
+def test_reenregistrer_a_l_identique_ne_reclame_pas_de_redemarrage(en_marche):
+    """La comparaison porte sur la valeur NETTOYEE : un espace en fin de
+    ligne ne doit pas annoncer un redemarrage necessaire."""
+    d = _editer(en_marche, command="python3 app.py", max_memory_mb=256).get_json()
+    assert d["redemarrage_requis"] is False, d
+
+
+def test_la_liste_des_champs_qui_attendent_vit_du_cote_serveur():
+    """Une copie dans le navigateur aurait diverge a la premiere evolution :
+    c'est le serveur qui sait ce qu'il relit, et quand."""
+    assert app.CHAMPS_AU_DEMARRAGE == ("path", "command", "max_memory_mb")
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    # La page lit la reponse du serveur, elle ne rejoue pas la regle.
+    assert "d.redemarrage_requis" in page
+    assert "champs_en_attente" in page
+    # Et l'ancien bandeau bloquant a bien disparu.
+    assert "stopThenEdit" not in page
+    assert "ne peut pas être enregistrée" not in page
+
+
 # ---------- 13. categories du hub ----------
 #
 # Une categorie ne donne aucun droit : c'est du rangement. Ce qui doit rester
@@ -3091,8 +4198,8 @@ def categorise(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "CATEGORIES_FILE", str(tmp_path / "categories.json"))
     monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
     monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
-    # Arretee : la fiche refuse de modifier une application en marche, et ce
-    # n'est pas ce que ces tests-la verifient.
+    # Arretee : ces tests-la ne parlent pas du redemarrage, et une
+    # application a l'arret repond sans bandeau.
     monkeypatch.setattr(app, "is_running", lambda n: False)
     monkeypatch.setattr(app, "under_root", lambda p: True)
     monkeypatch.setattr(os.path, "isdir", lambda p: True)
@@ -3256,6 +4363,160 @@ def _code_du_dernier_mail(partis):
     return re.search(r": (\d{6})", partis[-1][1]).group(1)
 
 
+# ---------- mot de passe oublie ----------
+#
+# Par l'adresse mail quand il y en a une de VERIFIEE, et par l'administrateur
+# sinon. Aucun des deux chemins ne suffit seul : sans adresse, personne ne
+# peut prouver a distance qui il est ; et si le seul recours etait
+# l'administrateur, il faudrait le deranger a chaque oubli.
+
+def _compte_avec_adresse(nom="marie", mdp="mot-de-passe-long", verifiee=True):
+    sel = "ee" * 16
+    app.ecrire_utilisateurs({nom: {
+        "sel": sel, "hash": app.derive_mot_de_passe(mdp, sel),
+        "projets": [], "cree": 0,
+        "email": f"{nom}@example.com", "email_verifie": verifiee}})
+
+
+def test_un_code_de_reinitialisation_part_a_l_adresse_verifiee(comptes_mail):
+    c, partis = comptes_mail
+    _compte_avec_adresse()
+    assert c.post("/mot-de-passe/oubli", json={"nom": "marie"}).status_code == 200
+    assert partis and partis[-1][0] == ["marie@example.com"]
+    assert "reinitialisation" in partis[-1][1] or "einitialisation" in partis[-1][1]
+
+    code = _code_du_dernier_mail(partis)
+    r = c.post("/mot-de-passe/reinitialiser",
+               json={"nom": "marie", "code": code, "nouveau": "nouveau-mot-de-passe"})
+    assert r.status_code == 200, r.data
+    compte = app.lire_utilisateurs()["marie"]
+    assert app.verifie_mot_de_passe(compte, "nouveau-mot-de-passe")
+    assert not app.verifie_mot_de_passe(compte, "mot-de-passe-long")
+
+
+def test_le_code_de_reinitialisation_ne_dort_pas_en_clair(comptes_mail):
+    """Comme celui de la verification d'adresse : le fichier ne garde qu'une
+    empreinte. Sinon le code attendrait, lisible, a cote du nom du compte."""
+    c, partis = comptes_mail
+    _compte_avec_adresse()
+    c.post("/mot-de-passe/oubli", json={"nom": "marie"})
+    code = _code_du_dernier_mail(partis)
+    assert code not in open(app.UTILISATEURS_FILE).read()
+
+
+def test_le_code_de_reinitialisation_ne_sert_qu_une_fois(comptes_mail):
+    c, partis = comptes_mail
+    _compte_avec_adresse()
+    c.post("/mot-de-passe/oubli", json={"nom": "marie"})
+    code = _code_du_dernier_mail(partis)
+    assert c.post("/mot-de-passe/reinitialiser",
+                  json={"nom": "marie", "code": code,
+                        "nouveau": "nouveau-mot-de-passe"}).status_code == 200
+    r = c.post("/mot-de-passe/reinitialiser",
+               json={"nom": "marie", "code": code, "nouveau": "encore-un-autre"})
+    assert r.status_code == 400, r.data
+    assert app.verifie_mot_de_passe(app.lire_utilisateurs()["marie"],
+                                    "nouveau-mot-de-passe")
+
+
+def test_un_code_de_verification_ne_vaut_pas_reinitialisation(comptes_mail):
+    """Deux pouvoirs tres differents : verifier une adresse rend un compte
+    utilisable, reinitialiser un mot de passe le rend ACCESSIBLE. Un seul
+    jeton pour les deux melangerait les deux."""
+    c, partis = comptes_mail
+    _compte_avec_adresse(verifiee=False)
+    comptes = app.lire_utilisateurs()
+    code_adresse = app.poser_code_email(comptes["marie"])
+    app.ecrire_utilisateurs(comptes)
+    r = c.post("/mot-de-passe/reinitialiser",
+               json={"nom": "marie", "code": code_adresse, "nouveau": "nouveau-mot-de-passe"})
+    assert r.status_code == 400, r.data
+
+
+def test_sans_adresse_verifiee_rien_ne_part(comptes_mail):
+    """Et l'utilisateur est renvoye vers l'administrateur : c'est l'autre
+    chemin, celui qui ne depend d'aucun mail."""
+    c, partis = comptes_mail
+    _compte_avec_adresse(verifiee=False)
+    assert c.post("/mot-de-passe/oubli", json={"nom": "marie"}).status_code == 200
+    assert partis == []
+
+
+def test_la_reponse_ne_dit_jamais_si_le_compte_existe(comptes_mail):
+    """Sinon ce formulaire devient un annuaire : on y tape des noms jusqu'a
+    trouver ceux qui existent."""
+    c, _partis = comptes_mail
+    _compte_avec_adresse()
+    connue = c.post("/mot-de-passe/oubli", json={"nom": "marie"})
+    inconnue = c.post("/mot-de-passe/oubli", json={"nom": "fantome"})
+    assert connue.status_code == inconnue.status_code == 200
+    assert connue.get_json() == inconnue.get_json()
+    # Et au moment de poser le mot de passe, un compte inconnu rend le meme
+    # message qu'un code faux.
+    faux = c.post("/mot-de-passe/reinitialiser",
+                  json={"nom": "fantome", "code": "123456", "nouveau": "mot-de-passe-long"})
+    mauvais = c.post("/mot-de-passe/reinitialiser",
+                     json={"nom": "marie", "code": "000000", "nouveau": "mot-de-passe-long"})
+    assert faux.get_json()["error"] == mauvais.get_json()["error"] == "Code incorrect."
+
+
+def test_un_second_envoi_immediat_ne_part_pas(comptes_mail):
+    """Sans cela, ce formulaire est un robinet a mails vers l'adresse de
+    quelqu'un d'autre."""
+    c, partis = comptes_mail
+    _compte_avec_adresse()
+    c.post("/mot-de-passe/oubli", json={"nom": "marie"})
+    c.post("/mot-de-passe/oubli", json={"nom": "marie"})
+    assert len(partis) == 1, partis
+
+
+def test_la_reinitialisation_est_journalisee(comptes_mail, tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
+    c, partis = comptes_mail
+    _compte_avec_adresse()
+    c.post("/mot-de-passe/oubli", json={"nom": "marie"})
+    c.post("/mot-de-passe/reinitialiser",
+           json={"nom": "marie", "code": _code_du_dernier_mail(partis),
+                 "nouveau": "nouveau-mot-de-passe"})
+    actions = [e.get("action") for e in app.lire_acces()
+               if e.get("genre") == "mot-de-passe"]
+    assert "code envoye" in actions
+    assert "reinitialise par mail" in actions
+
+
+def test_aucun_mot_de_passe_n_est_ecrit_en_clair(comptes_mail):
+    """La regle de fond : ce qui est persiste est une EMPREINTE, jamais le
+    mot de passe. Vrai a la creation, vrai au changement, et vrai a la
+    reinitialisation -- c'est le chemin le plus recent, donc le plus facile
+    a oublier."""
+    c, partis = comptes_mail
+    _compte_avec_adresse()
+    c.post("/mot-de-passe/oubli", json={"nom": "marie"})
+    c.post("/mot-de-passe/reinitialiser",
+           json={"nom": "marie", "code": _code_du_dernier_mail(partis),
+                 "nouveau": "nouveau-mot-de-passe"})
+    registre = open(app.UTILISATEURS_FILE).read()
+    assert "nouveau-mot-de-passe" not in registre
+    assert "mot-de-passe-long" not in registre
+    compte = app.lire_utilisateurs()["marie"]
+    # Empreinte derivee et sel propre a ce compte, refait a chaque changement.
+    assert len(compte["sel"]) >= 32 and len(compte["hash"]) >= 32
+    assert compte["hash"] == app.derive_mot_de_passe("nouveau-mot-de-passe", compte["sel"])
+
+
+def test_la_base_ne_recoit_aucune_empreinte_de_mot_de_passe():
+    """La base est joignable par les projets deployes. Y deposer des
+    empreintes leur offrirait une attaque hors ligne sur les mots de passe
+    du panneau : le miroir ne porte que ce qui se lit deja dans l'interface.
+    """
+    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    table = src.split("CREATE TABLE IF NOT EXISTS utilisateurs")[1].split(")\"\"\"")[0]
+    for interdit in ("hash", "sel", "mot_de_passe", "password", "totp"):
+        assert interdit not in table, f"{interdit} n'a rien a faire dans cette table"
+    ecriture = src.split("def _pg_ecrire_utilisateurs(")[1].split("\ndef ")[0]
+    assert '"hash"' not in ecriture and '"sel"' not in ecriture
+
+
 def test_le_code_de_verification_ne_dort_pas_en_clair(comptes_mail):
     """utilisateurs.json ne doit pas contenir le code qu'on vient d'envoyer.
 
@@ -3407,6 +4668,229 @@ def journal(tmp_path, monkeypatch):
         "sel": sel, "hash": app.derive_mot_de_passe("mot-de-passe-long", sel),
         "projets": [], "cree": 0, "totp": app.totp_nouveau_secret()}})
     return app.flask_app.test_client()
+
+
+# ---------- les processus survivent au panneau ----------
+#
+# Vecu : « Le bouton arreter l'application ne fonctionne pas. »
+#
+# Les applications sont lancees avec start_new_session=True : elles ont leur
+# propre session, donc elles survivent a l'arret du panneau -- mise a jour de
+# l'image, "docker restart", plantage. Le dictionnaire procs, lui, vit en
+# memoire et ne survivait pas.
+#
+# Au redemarrage, le panneau ne connaissait donc plus les processus toujours
+# en vie : l'interface affichait « Arretee » d'une application qui tournait,
+# resume() en relancait une deuxieme qui mourait sur un port occupe, et
+# ARRETER NE FAISAIT RIEN -- stop() ne trouvait rien a tuer, notait
+# enabled=False et repondait que tout allait bien.
+
+@pytest.fixture
+def survivants(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    monkeypatch.setattr(app, "PROCESSUS_FILE", str(tmp_path / "processus.json"))
+    monkeypatch.setattr(app, "LOG_DIR", str(tmp_path / "logs"))
+    monkeypatch.setattr(app, "CHILD_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(app, "STATE_DIR", str(tmp_path))
+    monkeypatch.setattr(app, "ISOLER_APPS", False)
+    app._apps_cache["signature"] = None
+    projet = tmp_path / "projet"
+    projet.mkdir()
+    app.save({"site": {"path": str(projet), "command": "sleep 120",
+                       "port": 9399, "enabled": False}})
+    app.procs.clear()
+    yield tmp_path
+    for nom in list(app.procs):
+        try:
+            app.stop(nom)
+        except Exception:                                         # noqa: BLE001
+            pass
+    app.procs.clear()
+
+
+def test_un_processus_lance_est_note_sur_le_disque(survivants):
+    """Sans note, rien ne permet de le retrouver apres un redemarrage : le
+    panneau est son pere, et un pere mort ne laisse aucune trace."""
+    assert app.start("site") is None
+    note = app.lire_processus()["site"]
+    assert note["pid"] == app.procs["site"].pid
+    app.stop("site")
+    # Et la note disparait avec lui : une note qui traine ferait adopter un
+    # pid reutilise par n'importe quel autre programme.
+    assert "site" not in app.lire_processus()
+
+
+def test_le_panneau_reprend_la_main_sur_ce_qui_tourne_encore(survivants):
+    """LE test de cette correction : on simule le redemarrage du panneau en
+    vidant procs -- exactement ce que fait un "docker restart" -- et on
+    verifie qu'arreter tue reellement le processus."""
+    assert app.start("site") is None
+    pid = app.procs["site"].pid
+
+    app.procs.clear()                       # le panneau redemarre
+    assert app.is_running("site") is False  # etat d'avant la correction
+    repris = app.adopter_processus_survivants()
+    assert repris and "site" in repris[0]
+    assert app.is_running("site") is True
+
+    app.stop("site")
+    for _ in range(40):
+        if not app._processus_est_le_notre(pid, "site"):
+            break
+        time.sleep(0.1)
+    assert not app._processus_est_le_notre(pid, "site"), (
+        "le processus tourne toujours apres un arret demande")
+
+
+def test_un_pid_qui_n_est_plus_le_notre_n_est_pas_adopte(survivants):
+    """Un numero de processus est reutilise par le noyau. Adopter sur le seul
+    pid finirait par tuer un programme qui n'a rien demande -- pire que le
+    defaut qu'on corrige."""
+    app._ecrire_processus({"site": {"pid": os.getpid(), "depuis": 0}})
+    app.procs.clear()
+    assert app.adopter_processus_survivants() == []
+    assert app.is_running("site") is False
+    # La note fausse est nettoyee au passage.
+    assert app.lire_processus() == {}
+
+
+def test_la_marque_est_posee_dans_l_environnement_du_processus(survivants):
+    """Dans l'environnement, et non dans le titre du processus : le noyau le
+    fige a l'exec, l'application ne peut donc pas l'effacer."""
+    assert app.start("site") is None
+    pid = app.procs["site"].pid
+    environ = open(f"/proc/{pid}/environ", "rb").read()
+    assert b"CODELAB_APP=site\0" in environ
+
+
+def test_l_adoption_passe_avant_la_reprise_automatique():
+    """Ordre imperatif : resume() relancerait par-dessus une application deja
+    en vie, et la nouvelle mourrait sur un port occupe."""
+    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    demarrage = src.split('if __name__ == "__main__":')[1]
+    # Les commentaires citent les deux noms : on ne regarde que les appels.
+    lignes = [l.strip() for l in demarrage.splitlines()
+              if l.strip() and not l.strip().startswith("#")]
+    assert lignes.index("adopter_processus_survivants()") < lignes.index("resume()")
+
+
+# ---------- la carte de chaleur, et les analyses ----------
+#
+# Vecu : « Ajoute une carte de chaleur pour l'utilisation des applications, et
+# la possibilite de filtrer sur un utilisateur. Toutes les statistiques
+# doivent etre historisees en base, et ces donnees alimentent les analyses. »
+#
+# Le point qui compte, et qui ne se voit pas a l'ecran : le fichier du
+# journal est PLAFONNE a 1 Mo, donc il oublie. Tant qu'il servait a afficher
+# quarante lignes, cela n'avait aucune importance. Des qu'on COMPTE, un total
+# calcule sur une fenetre glissante ne veut plus rien dire -- il diminue tout
+# seul a mesure que le journal tourne. Les analyses lisent donc la base, le
+# fichier restant le repli.
+
+def _semer_ouvertures(monkeypatch, tmp_path, evenements):
+    chemin = tmp_path / "carte.jsonl"
+    with open(chemin, "w") as f:
+        for e in evenements:
+            f.write(json.dumps(e) + "\n")
+    monkeypatch.setattr(app, "ACCES_FILE", str(chemin))
+
+
+def test_la_carte_compte_par_jour_et_pas_par_evenement(journal, tmp_path, monkeypatch):
+    """Une case par jour : trois ouvertures le meme jour font une case a
+    trois, pas trois cases."""
+    hier = time.time() - 86400
+    _semer_ouvertures(monkeypatch, tmp_path, [
+        {"id": "a", "ts": int(hier), "genre": "ouverture", "qui": "marie", "app": "prive"},
+        {"id": "b", "ts": int(hier) + 60, "genre": "ouverture", "qui": "marie", "app": "prive"},
+        {"id": "c", "ts": int(hier) + 120, "genre": "ouverture", "qui": "marie", "app": "public"},
+        # Une connexion n'est pas une ouverture : la carte parle d'usage des
+        # applications, pas de presence.
+        {"id": "d", "ts": int(hier) + 180, "genre": "connexion", "qui": "marie"},
+    ])
+    jours = app.carte_activite()
+    assert len(jours) == 1, jours
+    assert jours[0]["ouvertures"] == 3
+    # Et combien d'applications distinctes ce jour-la : c'est ce qui
+    # distingue « j'ai ouvert dix fois la meme » de « j'ai travaille partout ».
+    assert jours[0]["apps"] == 2
+
+
+def test_la_carte_se_filtre_par_personne_et_par_application(journal, tmp_path, monkeypatch):
+    hier = int(time.time() - 86400)
+    _semer_ouvertures(monkeypatch, tmp_path, [
+        {"id": "a", "ts": hier, "genre": "ouverture", "qui": "marie", "app": "prive"},
+        {"id": "b", "ts": hier, "genre": "ouverture", "qui": "jean", "app": "prive"},
+        {"id": "c", "ts": hier, "genre": "ouverture", "qui": "marie", "app": "public"},
+    ])
+    assert app.carte_activite(qui="marie")[0]["ouvertures"] == 2
+    assert app.carte_activite(app="prive")[0]["ouvertures"] == 2
+    assert app.carte_activite(qui="marie", app="prive")[0]["ouvertures"] == 1
+    # Un visiteur anonyme se filtre aussi : "" est une valeur, pas l'absence
+    # de filtre.
+    assert app.carte_activite(qui="") == []
+
+
+def test_la_carte_ne_remonte_pas_avant_sa_fenetre(journal, tmp_path, monkeypatch):
+    """Sinon la grille s'etirerait sur toute la duree du journal, et les
+    colonnes ne tomberaient plus en face des mois affiches."""
+    vieux = int(time.time() - 400 * 86400)
+    _semer_ouvertures(monkeypatch, tmp_path, [
+        {"id": "a", "ts": vieux, "genre": "ouverture", "qui": "marie", "app": "prive"},
+        {"id": "b", "ts": int(time.time()) - 3600, "genre": "ouverture",
+         "qui": "marie", "app": "prive"},
+    ])
+    assert len(app.carte_activite(jours=30)) == 1
+    assert len(app.carte_activite(jours=366)) == 1
+
+
+def test_la_carte_est_reservee_a_l_administrateur(journal):
+    """Elle dit qui a ouvert quoi et quand : c'est le meme secret que le
+    journal, elle se garde comme lui."""
+    c = journal
+    assert c.get("/api/activite/carte").status_code in (401, 403)
+    c.post("/login", json={"password": "secret-de-test"})
+    r = c.get("/api/activite/carte")
+    assert r.status_code == 200, r.data
+    d = r.get_json()
+    assert d["source"] in ("postgres", "fichier")
+    assert isinstance(d["jours"], list)
+
+
+def test_une_fenetre_farfelue_ne_fait_pas_tomber_la_carte(journal):
+    """Le parametre arrive par l'URL : il se borne, il ne se croit pas."""
+    c = journal
+    c.post("/login", json={"password": "secret-de-test"})
+    for valeur in ("0", "-5", "99999", "beaucoup"):
+        r = c.get("/api/activite/carte?jours=" + valeur)
+        assert r.status_code == 200, valeur
+        assert 1 <= r.get_json()["fenetre"] <= app.CARTE_JOURS_MAX
+
+
+def test_les_analyses_preferent_la_base_au_fichier_plafonne():
+    """Le resume etait calcule sur le fichier : le total d'ouvertures d'un
+    projet DIMINUAIT tout seul a mesure que le journal tournait."""
+    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    bloc = src.split("def api_activite(")[1].split("@flask_app")[0]
+    assert "pg_resume_acces()" in bloc, "le resume doit venir de la base quand elle repond"
+    assert "resume_acces()" in bloc, "et le fichier doit rester le repli"
+    # Le comptage par jour se fait DANS la base : ramener un an d'evenements
+    # pour les additionner en Python s'ecroulerait le jour ou l'historique
+    # compte pour de bon.
+    carte = src.split("def pg_carte_activite(")[1].split("\ndef ")[0]
+    assert "GROUP BY" in carte and "count(*)" in carte
+
+
+def test_les_paliers_de_la_carte_sont_relatifs_au_plus_charge():
+    """Un seuil absolu afficherait une carte toute pale sur une installation
+    calme, et toute sombre sur une installation chargee. Ce qu'on lit dans
+    une carte de chaleur, c'est le relief."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    bloc = page.split("function carteNiveau(")[1].split("\n}")[0]
+    assert "sommet" in bloc and "/ sommet" in bloc
+    # Cinq paliers, comme le calendrier de GitHub.
+    for niveau in range(5):
+        assert f".carte-case.n{niveau}" in page or niveau == 0
 
 
 def test_un_acces_refuse_n_est_pas_une_visite(journal):
@@ -4618,6 +6102,85 @@ def _page_panneau(nom):
     return open(os.path.join(DOSSIER_PANNEAU, "app", nom), encoding="utf-8").read()
 
 
+# ---------------- les parametres : on replie, on ne deroule plus ----------
+#
+# Vecu : « Reduis toutes les zones des parametres, je dois pouvoir developper
+# pour parametrer, et reduire. » Un onglet deroulait jusqu'a six cartes
+# ouvertes -- pour changer une ligne, il fallait traverser tout le reste.
+
+def test_chaque_carte_de_reglages_se_replie():
+    """La transformation est faite une fois pour toutes les cartes, et non
+    ecrite a la main dans chacune : une carte ajoutee plus tard doit se
+    replier sans que personne n'ait a y penser."""
+    page = _page_panneau("dashboard.html")
+    assert "function plierLesCartes()" in page
+    assert ".onglet-p .settings-card:not(.pliable)" in page, (
+        "le pliage doit viser toutes les cartes de parametres")
+    # Repliee par defaut : c'est tout l'objet de la demande.
+    assert ".settings-card.pliable>.card-corps{display:none" in page
+    assert ".settings-card.pliable.ouverte>.card-corps{display:block}" in page
+    # La pastille d'etat reste lisible carte fermee : c'est ce qu'on vient
+    # verifier avant de decider d'ouvrir.
+    assert ".settings-card.pliable>.card-top>.pill" in page
+    # Et la poignee repond au clavier, pas seulement au pointeur.
+    assert "tete.addEventListener('keydown'" in page
+    assert "aria-expanded" in page
+
+
+def test_l_etat_d_une_carte_est_retenu_par_son_titre():
+    """Une cle fondee sur la position rouvrirait des cartes fermees des
+    qu'on en reordonne une."""
+    page = _page_panneau("dashboard.html")
+    bloc = page.split("function pliCle(")[1].split("}")[0]
+    assert "card-name b" in bloc and "textContent" in bloc
+    assert "indexOf" not in bloc and "index" not in bloc
+
+
+def test_la_deconnexion_est_rouge_aux_deux_endroits():
+    """Deux boutons pour la meme action : ils doivent se ressembler. Un
+    « Deconnexion » gris dans les parametres et rouge dans le menu se lit
+    comme deux choses differentes."""
+    page = _page_panneau("dashboard.html")
+    declencheurs = page.split('onclick="doLogout()"')[:-1]
+    assert len(declencheurs) == 2, "il y a deux boutons de deconnexion"
+    for avant in declencheurs:
+        balise = avant[avant.rindex("<"):]
+        assert "acct-sortir" in balise or "btn-danger-quiet" in balise, (
+            "un declencheur de deconnexion sans marque rouge : " + balise)
+    assert ".acct-item.acct-sortir{color:var(--err)}" in page
+
+
+def test_l_apparence_se_choisit_dans_une_liste_a_icones():
+    """Trois mots colles dans un interrupteur segmente se lisent comme un
+    reglage binaire mal compte. Une ligne par choix, avec son icone."""
+    page = _page_panneau("dashboard.html")
+    bloc = page.split('class="choix-liste" id="theme-toggle"')[1].split("</div>")[0]
+    for choix in ("auto", "light", "dark"):
+        assert f'data-t="{choix}"' in bloc
+    # Une icone et une coche par ligne : trois choix, six svg.
+    assert bloc.count("<svg") == 6, bloc.count("<svg")
+    # applyTheme continue de piloter la liste : sans cela le choix actif ne
+    # se verrait nulle part.
+    assert "#theme-toggle button" in page
+
+
+def test_une_case_a_cocher_n_est_pas_un_champ_de_saisie():
+    """La regle input{width:100%} s'appliquait aussi aux cases : elles
+    s'etiraient sur toute la largeur et leur intitule tombait a la ligne en
+    dessous, sans lien visible entre les deux."""
+    page = _page_panneau("dashboard.html")
+    assert "input[type=checkbox],input[type=radio]{width:auto" in page
+    assert "label:has(> input[type=checkbox])" in page
+
+
+def test_les_preferences_d_affichage_ne_sont_plus_une_carte():
+    """Le reglage 25/50 vit maintenant au-dessus du tableau qu'il concerne.
+    La carte qui restait dans le compte ne parlait plus que d'elle-meme."""
+    page = _page_panneau("dashboard.html")
+    for trace in ("pref-taille", "prefTaille", "pref-msg", "Préférences d'affichage"):
+        assert trace not in page, trace
+
+
 def test_les_deux_pages_lisent_le_meme_theme():
     """Un seul fichier de variables, lie par les deux pages."""
     theme = _page_panneau("theme.css")
@@ -4832,6 +6395,403 @@ def test_la_verification_approfondie_reste_a_la_demande():
     assert "lancer_suite_du_panneau" not in src
 
 
+# ---------- 23 septies. l'accent ne deborde sur AUCUN identifiant ----------
+#
+# La verification precedente ne couvrait que les attributs data-. Six autres
+# identifiants accentues dormaient dans la page, tous nes de la meme campagne
+# d'accentuation des textes visibles :
+#
+#   la classe qui grise une application arretee, accentuee dans le gabarit
+#     et sans accent dans le CSS : l'application n'etait plus grisee dans le
+#     hub, et restait CLIQUABLE -- le lien ne menant qu'a une page d'erreur ;
+#   les deux classes de couleur du bouton demarrer / arreter, accentuees de
+#     meme : le bouton de la fiche perdait sa couleur ;
+#   une variable declaree sans accent et relue avec, DEUX fois :
+#     ReferenceError a l'ouverture d'une fiche, le rendu s'arretait la ;
+#   deux champs d'objet accentues contre les noms renvoyes par l'API : les
+#     cases d'autorisation ne se cochaient plus, et chaque cle d'acces
+#     s'affichait "Ajoutee jamais".
+#
+# Un texte accentue se lit mieux. Un identifiant accentue ne correspond plus
+# a rien -- et selon l'endroit, il se tait ou il leve.
+
+def _script_panneau_html():
+    page = _page_panneau("dashboard.html")
+    return page, page[page.index("</style>"):]
+
+
+def test_aucune_classe_css_n_est_accentuee():
+    """Une classe accentuee ne correspond a aucune regle : le style saute."""
+    for nom in ("dashboard.html", "login.html"):
+        page = _page_panneau(nom)
+        classes = set()
+        for m in re.finditer(r'class="([^"]*)"', page):
+            classes.update(m.group(1).split())
+        fautives = sorted(c for c in classes
+                          if re.search(r"[^\x00-\x7F]", c))
+        assert not fautives, f"{nom} : classes accentuees {fautives}"
+
+
+def test_aucune_balise_html_n_est_accentuee():
+    """Un nom de BALISE accentue donne un element inconnu, silencieusement.
+
+    Trouve dans l'assistant VPS : <detabils> ecrit avec un accent n'etait
+    plus un <details>. Les quatre fichiers de configuration s'affichaient
+    donc deroules d'un coup, au lieu d'etre replies -- la page etait noyee,
+    et rien n'indiquait pourquoi.
+    """
+    for nom in ("dashboard.html", "login.html"):
+        page = _page_panneau(nom)
+        fautives = sorted(set(
+            m.group(1) for m in re.finditer(
+                r"</?([A-Za-z0-9]*[^\x00-\x7F\s/>][A-Za-z0-9]*)[\s/>]", page)))
+        assert not fautives, f"{nom} : balises accentuees {fautives}"
+
+
+def test_aucun_identifiant_javascript_n_est_accentue():
+    """Ni une variable, ni un champ d'objet.
+
+    Une variable accentuee lue sans etre declaree LEVE (ReferenceError) et
+    arrete le rendu en cours ; un champ accentue vaut undefined et se tait.
+    Les deux viennent de la meme erreur, et aucun des deux ne doit passer.
+    """
+    _, script = _script_panneau_html()
+    lus = set()
+    # Le premier caractere peut lui-meme porter l'accent (etape) : le motif
+    # ne doit donc PAS exiger un caractere ASCII devant. C'est ce que la
+    # premiere version supposait, et "etape" lui a echappe.
+    for m in re.finditer(r"\$\{\s*([\w$\u00C0-\u024F]*[^\x00-\x7F][\w$\u00C0-\u024F]*)",
+                         script):
+        lus.add(m.group(1))
+    for m in re.finditer(r"\.([\w$\u00C0-\u024F]*[^\x00-\x7F][\w$\u00C0-\u024F]*)\b",
+                         script):
+        lus.add(m.group(1))
+    assert not lus, f"identifiants JavaScript accentues : {sorted(lus)}"
+
+
+# ---------- 23 octies. demarrer ne se tait plus quand ca echoue ----------
+#
+# Signale par Lucas : "arreter et pause ne fonctionne pas dans la page
+# applications". Mesure au navigateur : le clic partait bien, la requete
+# aboutissait, l'API repondait 200 OK -- et l'application restait arretee,
+# sans un mot.
+#
+# api_toggle repondait {"ok": True} sans rien verifier, et start() se taisait
+# dans tous ses cas d'echec : dossier disparu, commande introuvable, port
+# deja pris, isolement refuse. Il fallait aller lire le journal de
+# l'application, en supposant qu'on sache qu'il existe.
+
+def test_demarrer_verifie_que_l_application_vit_encore():
+    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    assert "def start(name, attendre=True):" in src, (
+        "start() ne prend plus le temps de regarder l'application vivre")
+    assert "DELAI_DEMARRAGE" in src
+    assert "def derniere_ligne_utile(" in src, (
+        "sans la derniere ligne du journal, le message n'apprend rien")
+    # L'echec remonte a l'appelant, il ne se contente pas d'un print.
+    bloc = src[src.index("def start(name, attendre=True):"):src.index("def stop(name):")]
+    assert "return f\"Dossier introuvable" in bloc
+    # Le message est LU par quelqu'un : il porte ses accents, contrairement
+    # au code qui l'entoure.
+    assert "s'est arr\u00eat\u00e9e aussit\u00f4t" in bloc
+
+
+def test_l_api_toggle_rend_compte_de_l_echec():
+    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    bloc = src[src.index("def api_toggle("):]
+    bloc = bloc[:bloc.index("def ", 10)]
+    assert "erreur = start(n)" in bloc, "l'API ignore ce que start() lui rend"
+    assert "409" in bloc, (
+        "un echec de demarrage doit se voir dans le code de reponse")
+
+
+def test_le_bouton_lit_la_reponse():
+    """Deux silences valaient mieux qu'un : meme si l'API avait repondu une
+    erreur, tg() jetait la reponse sans la regarder."""
+    _, script = _script_panneau_html()
+    bloc = script[script.index("async function tg(n){"):]
+    bloc = bloc[:bloc.index("async function", 10)]
+    assert "r.ok" in bloc and "notifier(" in bloc, (
+        "le bouton ignore la reponse : l'utilisateur clique dans le vide")
+
+
+# ---------- 23 nonies. revenir au hub, et voir plus loin ----------
+
+def test_le_ruban_de_retour_refuse_les_cas_risques():
+    """Injecter dans la page d'une application ne se fait pas a l'aveugle.
+
+    Quatre refus, et chacun evite de casser quelque chose : un code autre que
+    200, autre chose que du HTML, un corps COMPRESSE (les octets ne
+    contiennent alors pas "</body>"), et l'absence de </body>.
+    """
+    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    bloc = src[src.index("def injecter_ruban("):src.index("def _proxy(")]
+    for garde in ("status != 200", "text/html", "content-encoding", "rfind"):
+        assert garde in bloc, f"le refus sur {garde} a disparu"
+    # Content-Length doit suivre, sinon le navigateur tronque la page juste
+    # avant le ruban.
+    assert "Content-Length" in bloc
+
+    # Et il ne se pose que pour quelqu'un de connecte : une application
+    # publique vue par un visiteur anonyme n'a pas a lui annoncer qu'un
+    # panneau existe derriere.
+    pose = src[src.index("sortants = [(k, v) for k, v in headers.items()"):]
+    pose = pose[:pose.index("return Response")]
+    assert "if is_authed():" in pose
+
+
+def _textes_visibles(html):
+    """Les textes affiches d'une page : ni CSS, ni script, ni commentaire."""
+    import html as _html
+    corps = html
+    for balise in ("style", "script"):
+        corps = re.sub(r"<%s[^>]*>.*?</%s>" % (balise, balise), " ", corps, flags=re.S)
+    corps = re.sub(r"<!--.*?-->", " ", corps, flags=re.S)
+    return [_html.unescape(t).strip()
+            for t in re.split(r"<[^>]+>", corps) if t.strip()]
+
+
+# Les fautes qu'on retrouve toujours : un participe passe ou un verbe prive
+# de son accent. La liste est volontairement courte et SURE -- un mot qui
+# existe aussi sans accent (« ou », « a », « la ») n'y figure pas, sous peine
+# de faire echouer le test sur des phrases correctes -- « autorises » en est
+# un bon exemple : « les projets que tu lui autorises » est juste.
+MOTS_SANS_ACCENT = [
+    "verifie", "verifier", "verification", "verifications", "execute", "executee",
+    "executees", "reponse", "reponses", "detail", "details", "etat", "etats",
+    "deja", "apres", "etre", "meme", "memes", "tres", "ete", "creee", "creees",
+    "creer", "donnee", "donnees", "annee", "arretee", "arretees", "declaree",
+    "declarees", "repond", "deconnecte", "desactive", "recu", "securite",
+    "systeme", "numero", "acces", "reserve", "derniere", "dernieres",
+    "premiere", "supprimee", "enregistree", "demarree", "redemarre", "ajoutee",
+    "retiree", "activee", "refusee", "acceptee", "envoyee", "memoire",
+    "categorie", "categories", "duree", "presentation", "frequentation",
+    "notee", "inseree", "depasser", "ecouter", "repeter", "identite",
+    "expediteur", "interessante", "derriere", "dependent", "fermee", "revoque",
+    "eteint", "ecrase", "posee", "restee", "oubliee", "prevenir", "previent",
+    "reinitialiser", "disparait", "controle", "creent", "sante",
+    "gerez", "visibilite", "releve", "decoche", "redemarrer",
+]
+MOTIF_SANS_ACCENT = re.compile(
+    r"\b(" + "|".join(sorted(MOTS_SANS_ACCENT, key=len, reverse=True)) + r")\b", re.I)
+
+
+def test_le_hub_offre_deux_tailles_de_tuile():
+    """Deux tailles, pas un reglage continu : la carte dit l'etat et la
+    visibilite, l'icone seule dit « c'est la ». Entre les deux il n'y a rien
+    a vouloir, et un curseur n'aurait ajoute qu'une decision a prendre."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    for t in ("carte", "icone"):
+        assert f"hubTaille('{t}')" in page
+    # En mode icone, l'etat et la visibilite ne sont pas seulement caches :
+    # c'est ce qu'on accepte de perdre pour voir trente projets d'un coup.
+    assert ".hub-liste.compacte .hub-projet .bas{display:none}" in page \
+        or ".hub-liste.compacte .hub-projet .desc,\n.hub-liste.compacte .hub-projet .bas{display:none}" in page
+    # Une application arretee reste grisee et non cliquable dans les deux
+    # tailles : sans cela on cliquerait dans le vide.
+    assert ".hub-projet.arretee{opacity:.6;pointer-events:none}" in page
+    # Le choix est retenu par navigateur, comme le theme : c'est un confort
+    # d'affichage, pas un reglage du serveur.
+    assert "localStorage.setItem('codelab.hub.taille'" in page
+
+
+def test_le_bandeau_ne_tasse_plus_trois_choses_a_gauche():
+    """Le menu, la marque et un champ de 340 px se suivaient sans
+    respiration : on ne savait plus ou commencait l'un et finissait
+    l'autre. Deux groupes a gauche, et la recherche au centre."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    barre = page.split('<div class="topbar">')[1].split("</div>\n</div>")[0]
+    # Le menu et la marque sont dans le MEME groupe.
+    groupe = barre.split('<div class="topbar-gauche">')[1]
+    assert "side-toggle-btn" in groupe.split("</div>")[0] or "side-toggle-btn" in groupe[:400]
+    assert "topbar-brand" in groupe[:2000]
+    # Un ressort AVANT la recherche : sans lui, elle reste collee a gauche.
+    avant = barre.split('class="rechercher"')[0]
+    assert avant.count('class="spacer"') == 1, (
+        "il faut un ressort avant la recherche, et un seul")
+    apres = barre.split('class="rechercher"')[1]
+    assert 'class="spacer"' in apres, "et un ressort apres, sinon rien n'est centre"
+    # Elle ne s'etire pas entre les deux : une barre de recherche pleine
+    # largeur n'est plus une barre de recherche.
+    assert ".rechercher{position:relative;width:min(420px,38vw);flex:none}" in page
+
+
+def _phrases_du_script(page):
+    """Les chaines du JavaScript qui sont des PHRASES, donc des textes lus.
+
+    Un test qui ne regarde que le HTML rate tout ce que la page ecrit
+    elle-meme -- et c'est la que la moitie de l'interface est produite. Le
+    filtre est simple : au moins trois mots, et pas d'adresse ni de selecteur
+    (ils contiennent presque toujours une barre, un point ou un diese).
+    """
+    phrases = []
+    for js in re.findall(r"<script[^>]*>(.*?)</script>", page, re.S):
+        # Les COMMENTAIRES d'abord : ils sont ecrits sans accents, c'est la
+        # regle, et leurs apostrophes ressemblent a s'y meprendre a des
+        # chaines de caracteres.
+        js = re.sub(r"/\*.*?\*/", " ", js, flags=re.S)
+        js = re.sub(r"(?m)^\s*//.*$", " ", js)
+        for m in re.finditer(r"'((?:[^'\\\n]|\\.){12,200})'"
+                             r'|"((?:[^"\\\n]|\\.){12,200})"', js):
+            t = next(g for g in m.groups() if g is not None)
+            if len(t.split()) < 3:
+                continue
+            if re.search(r"[/<>{}#]|\bfunction\b|\bvar\b", t):
+                continue
+            phrases.append(t.replace("\\'", "'"))
+    return phrases
+
+
+def test_aucun_texte_du_hub_n_a_perdu_ses_accents():
+    """Les textes AFFICHES portent leurs accents -- le code qui les entoure,
+    lui, n'en porte aucun. C'est la regle de ce depot, et elle se relachait a
+    chaque ajout : « Sante », « Visibilite », « Presentation », « Repeter »,
+    « Identite » sont tous arrives comme cela.
+
+    Le HTML ET les phrases du script : la moitie de l'interface est ecrite
+    par la page elle-meme, et un test qui l'ignore laisse passer « limitee a
+    ce que tu leur autorisés » -- vu sur la page d'accueil.
+    """
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    fautes = []
+    for texte in _textes_visibles(page) + _phrases_du_script(page):
+        for mot in MOTIF_SANS_ACCENT.findall(texte):
+            fautes.append(f"{mot} — dans « {texte[:70]} »")
+    assert not fautes, "textes visibles sans accents :\n" + "\n".join(fautes[:12])
+
+
+def test_aucun_texte_du_diagnostic_n_a_perdu_ses_accents():
+    """Meme regle pour l'application diagnostic : c'est une page de CodeLab,
+    pas une application invitee."""
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py"),
+               encoding="utf-8").read()
+    # Les gabarits de page sont les f-strings triple-guillemets qui
+    # commencent par <!doctype.
+    pages = re.findall(r'f"""(<!doctype.*?)"""', src, re.S)
+    assert len(pages) == 2, f"{len(pages)} gabarit(s) de page trouve(s), 2 attendus"
+    fautes = []
+    for page in pages:
+        for texte in _textes_visibles(page):
+            if texte.startswith("{") or "checks." in texte:
+                continue                      # une expression Python, pas un texte
+            for mot in MOTIF_SANS_ACCENT.findall(texte):
+                fautes.append(f"{mot} — dans « {texte[:70]} »")
+    assert not fautes, "textes visibles sans accents :\n" + "\n".join(fautes[:12])
+
+
+# ---------- la verification approfondie, en direct ----------
+
+def test_la_verification_annonce_ses_lignes_avant_de_les_jouer():
+    """Elle jouait tout avant de repondre : on cliquait, et le navigateur
+    restait blanc jusqu'a trois minutes -- le temps de la suite de
+    regressions -- sans dire ou il en etait, ni s'il avancait encore."""
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py"),
+               encoding="utf-8").read()
+    assert "/api/test/<int:indice>" in src, "un test a la fois, sinon rien n'avance"
+    # Les lignes sont posees dans le HTML rendu, avant tout resultat.
+    assert 'class="st attente"><span>en attente</span>' in src
+    # La barre d'avancement bouge quand un test FINIT : pas d'animation qui
+    # tourne dans le vide et laisse croire que ca progresse.
+    assert "jauge" in src and "(i + 1) / nb * 100" in src
+
+
+def test_un_indice_de_test_hors_liste_ne_casse_pas_la_page():
+    """Le rang vient de l'URL : il se borne, il ne se croit pas. Une
+    IndexError rendrait une page d'erreur au milieu d'une verification."""
+    import app as diag
+    client = diag.app.test_client()
+    for mauvais in ("99", "-1"):
+        r = client.get(f"/api/test/{mauvais}")
+        assert r.status_code in (404, 400), mauvais
+
+
+def test_les_noms_annonces_sont_ceux_des_resultats():
+    """La page annonce ses lignes puis les remplit : une ligne qui change
+    d'intitule en cours de route n'est plus la meme ligne."""
+    noms = checks_noms()
+    assert len(noms) == len(TESTS_APPROFONDIS) + 1
+    assert noms[-1] == NOM_SUITE_PANNEAU
+    # run_test rend le nom de la LISTE, pas celui que la fonction se donne.
+    src = inspect.getsource(run_test)
+    assert "return ok, nom, detail" in src
+
+
+def checks_noms():
+    return noms_des_tests()
+
+
+def test_le_diagnostic_suit_le_theme_du_panneau():
+    """Il CHARGE le theme, il ne le recopie pas.
+
+    Une palette recopiee dans une deuxieme page est une palette qui
+    divergera, et le diagnostic finirait par annoncer une stack saine dans
+    des couleurs qui ne sont plus celles de la stack.
+    """
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py"),
+               encoding="utf-8").read()
+    assert 'href="/theme.css"' in src, "le diagnostic ne charge pas le theme partage"
+    assert "codelab-theme" in src, "le choix clair / sombre n'est pas repris"
+    # Aucune couleur en dur ne doit revenir dans sa feuille de style.
+    css = src[src.index("CSS = "):src.index('"""', src.index("CSS = ") + 10)]
+    assert "#" not in css.replace("#{", ""), (
+        "une couleur en dur est revenue dans le CSS du diagnostic")
+
+
+def test_les_sondes_regardent_au_dela_de_la_stack():
+    """Trois familles ajoutees, toutes en LECTURE SEULE.
+
+    Les sondes d'avant s'arretaient a "le service repond". Celles-ci
+    regardent ce que la stack porte (les applications une par une), ce
+    qu'elle use (le disque, les journaux) et ce qu'elle laisse ouvert.
+    """
+    assert callable(check_applications)
+    assert callable(check_espace_disque)
+    assert callable(check_surface_exposee)
+    for fn in (check_applications, check_espace_disque, check_surface_exposee):
+        ok, nom, detail = fn()
+        assert isinstance(ok, bool) and nom and detail
+
+
+def test_l_alerte_disque_demande_les_deux_conditions(tmp_path, monkeypatch):
+    """Un pourcentage seul se trompe dans les deux sens.
+
+    89 % d'un disque de 250 Go laisse 28 Go -- des mois de marge, et la sonde
+    crierait pour rien. C'est le defaut qu'avait la premiere version, vu sur
+    la machine de developpement.
+    """
+    assert SEUIL_DISQUE == 85 and SEUIL_LIBRE_GO == 5
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "checks.py"),
+               encoding="utf-8").read()
+    # On lit le CORPS de la sonde, pas le fichier : sinon l'assertion se
+    # trouve elle-meme -- sa propre chaine est dans le fichier -- et la
+    # verification passe quelle que soit la sonde. Defaut vu en mutant : la
+    # mutation survivait.
+    corps = src[src.index("def check_espace_disque("):]
+    corps = corps[:corps.index("\ndef ", 10)]
+    assert "libre < SEUIL_LIBRE_GO" in corps, (
+        "l'alerte disque ne demande plus les deux conditions")
+
+
+def test_la_sonde_des_applications_nomme_ce_qui_cloche(tmp_path, monkeypatch):
+    """Elle ne dit pas "il y a un probleme" : elle dit lequel, et ou."""
+    etat = tmp_path / "etat"
+    etat.mkdir()
+    (etat / "apps.json").write_text(json.dumps({
+        "disparue": {"path": "/n-existe-pas", "command": "python3 a.py",
+                     "port": 9201, "enabled": False},
+        "muette": {"path": str(tmp_path), "command": "python3 -V",
+                   "port": 9204, "enabled": True},
+    }))
+    monkeypatch.setenv("APP_MANAGER_STATE", str(etat))
+    ok, _, detail = check_applications()
+    assert ok is False
+    assert "disparue" in detail and "dossier introuvable" in detail
+    assert "muette" in detail and "9204" in detail
+
+
 # ---------- 24. le dossier personnel ne se detourne pas ----------
 #
 # Trouve par l'audit de la branche, et c'etait une escalade de privileges
@@ -4953,6 +6913,114 @@ def _sur_port(port):
     dire.
     """
     return {"base_url": "http://serveur:%d" % port}
+
+
+# ---------------- Dagster : ce qui l'empechait de rester debout ----------
+#
+# Vecu : « Dagster me met comme erreur 502 Bad Gateway ». Le proxy allait
+# bien ; c'est codelab-dagster qui ne repondait plus. Deux causes tenaient
+# ensemble, et les deux se verrouillent ici.
+
+def _fichier_du_depot(*morceaux):
+    """Un fichier du depot, ou None s'il n'est pas dans cette image.
+
+    Les sondes tournent aussi dans le conteneur du diagnostic, qui ne
+    contient pas le depot : un test qui suppose le contraire echouerait la
+    ou il n'a rien a dire.
+    """
+    racine = os.path.dirname(DOSSIER_PANNEAU or "")
+    chemin = os.path.join(racine, *morceaux)
+    return chemin if os.path.exists(chemin) else None
+
+
+def test_les_runs_planifies_passent_par_une_file_d_attente():
+    """Depuis qu'un planning declenche le diagnostic toutes les quinze
+    minutes, les runs arrivent tout seuls. Sans coordinateur, Dagster les
+    demarre TOUS a la fois, chacun dans son processus -- et sur une machine
+    de la taille d'une ZimaBlade, quelques runs qui se chevauchent suffisent
+    a emporter le webserver. Ce qu'on voit alors est un 502 qui ne dit rien.
+    """
+    chemin = _fichier_du_depot("dagster", "dagster.yaml")
+    if not chemin:
+        pytest.skip("depot absent de cette image")
+    texte = open(chemin, encoding="utf-8").read()
+    assert "QueuedRunCoordinator" in texte
+    assert "max_concurrent_runs: 1" in texte
+    # Un run dont le processus a disparu occupait la place de la file pour
+    # toujours, et plus rien ne partait.
+    assert "run_monitoring:" in texte and "enabled: true" in texte
+
+
+def test_dagster_yaml_se_met_a_jour_sur_les_installations_existantes():
+    """Le fichier n'etait ecrit qu'au premier demarrage : une correction
+    livree dans l'image n'atteignait aucune machine deja installee -- la
+    file d'attente ci-dessus ne serait arrivee nulle part."""
+    chemin = _fichier_du_depot("dagster", "entrypoint.sh")
+    if not chemin:
+        pytest.skip("depot absent de cette image")
+    texte = open(chemin, encoding="utf-8").read()
+    bloc = texte.split("--------------------------- dagster.yaml")[1]
+    # Remplace sur preuve de contenu, jamais sur une date, et jamais un
+    # fichier que l'utilisateur a modifie.
+    assert "sha256sum" in bloc
+    assert "dagster.yaml.sums" in bloc
+    assert "laisse tel quel" in bloc
+    # Renommage atomique : un arret au mauvais moment ne laisse pas une
+    # configuration a moitie ecrite.
+    assert 'mv "$tmp" "$DAGSTER_YAML"' in bloc
+
+
+def test_le_proxy_explique_l_absence_de_dagster_au_lieu_du_502_nu():
+    """« 502 Bad Gateway » est exact et inutilisable : il ne dit ni qui ne
+    repond pas -- le proxy va tres bien -- ni quoi faire."""
+    conf = _fichier_du_depot("dagster", "proxy", "nginx.conf")
+    page = _fichier_du_depot("dagster", "proxy", "indisponible.html")
+    if not conf or not page:
+        pytest.skip("depot absent de cette image")
+    texte = open(conf, encoding="utf-8").read()
+    assert "error_page 502 503 504 /_indisponible.html;" in texte
+    # Servie en interne seulement : sinon l'adresse serait atteignable
+    # directement et la page mise en cache par le navigateur.
+    bloc = texte.split("location = /_indisponible.html {")[1].split("}")[0]
+    assert "internal;" in bloc
+    assert "no-store" in bloc
+    # Et la page dit quoi taper, plutot que de plaindre l'utilisateur.
+    assert "docker logs --tail 50 codelab-dagster" in open(page, encoding="utf-8").read()
+
+
+def test_la_sonde_des_origines_prend_le_meme_defaut_que_le_panneau(monkeypatch):
+    """La sonde reclamait APP_MANAGER_APPS_PORT et declarait l'installation
+    en faute des que la variable manquait -- alors que le panneau se rabat
+    sur 9002 et que le compose publie ce port. Elle annoncait donc des
+    origines confondues sur une installation ou elles etaient separees.
+
+    Une sonde ne dit que ce qu'elle constate : meme defaut que le panneau,
+    puis verification sur le port.
+    """
+    monkeypatch.delenv("APP_MANAGER_APPS_PORT", raising=False)
+    assert _port_applications() == PORT_APPS_DEFAUT == 9002
+    monkeypatch.setenv("APP_MANAGER_APPS_PORT", "9500")
+    assert _port_applications() == 9500
+
+    _ok, _nom, detail = check_origine_applications()
+    assert "APP_MANAGER_APPS_PORT absent" not in detail
+    assert "9500" in detail
+
+
+def test_le_port_des_applications_est_ecrit_dans_les_deux_composes():
+    """Le panneau prend 9002 par defaut, mais une valeur devinee ne se relit
+    pas : les deux composes doivent la poser noir sur blanc, et la meme."""
+    racine = os.path.dirname(DOSSIER_PANNEAU or "")
+    fichiers = [os.path.join(racine, n)
+                for n in ("docker-compose.yml", "docker-compose-casaos.yml")]
+    presents = [f for f in fichiers if os.path.exists(f)]
+    if not presents:
+        pytest.skip("composes absents de cette image")
+    assert len(presents) == 2, "un des deux composes manque"
+    for chemin in presents:
+        texte = open(chemin, encoding="utf-8").read()
+        assert f'APP_MANAGER_APPS_PORT: "{PORT_APPS_DEFAUT}"' in texte, chemin
+        assert f'- "{PORT_APPS_DEFAUT}:{PORT_APPS_DEFAUT}"' in texte, chemin
 
 
 def test_le_panneau_ne_repond_pas_sur_le_port_des_applications(deux_origines):

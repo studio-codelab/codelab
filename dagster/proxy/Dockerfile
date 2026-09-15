@@ -8,6 +8,7 @@ FROM nginx:1.31-alpine
 # de nginx : c'est le seul endroit ou une directive "map" est acceptee.
 COPY dagster/proxy/map-upgrade.conf /etc/nginx/conf.d/00-map-upgrade.conf
 COPY dagster/proxy/nginx.conf /etc/nginx/conf.d/default.conf
+COPY dagster/proxy/indisponible.html /usr/share/nginx/codelab/_indisponible.html
 COPY dagster/proxy/entrypoint.sh /opt/codelab/dagster-proxy/entrypoint.sh
 RUN chmod +x /opt/codelab/dagster-proxy/entrypoint.sh
 

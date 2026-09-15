@@ -62,6 +62,11 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
  background:var(--nav);color:var(--nav-txt);position:sticky;top:0;z-index:40;
  border-bottom:1px solid var(--nav-line)}
 .topbar .spacer{flex:1}
+/* Le menu et la marque forment un seul groupe, separes d'un filet : deux
+   objets identifiables au lieu de trois choses a la suite. */
+.topbar-gauche{display:flex;align-items:center;gap:8px;flex:none}
+.topbar-gauche::after{content:"";width:1px;height:20px;background:var(--nav-line);
+ margin-left:4px}
 .topbar-brand{display:flex;align-items:center;gap:9px;cursor:pointer;padding:4px 6px;border-radius:8px}
 .topbar-brand:hover{background:var(--nav-hover)}
 .topbar-brand img{width:26px;height:26px;border-radius:7px}
@@ -71,7 +76,10 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 .side-toggle-btn:hover{background:var(--nav-hover);color:var(--nav-txt)}
 .side-toggle-btn svg{width:17px;height:17px}
 
-.rechercher{position:relative;width:min(340px,34vw)}
+/* Au centre, et un peu plus large : c'est le raccourci le plus utilise du
+   panneau, il ne doit pas etre tasse dans un coin. flex:none l'empeche de
+   s'etirer entre ses deux ressorts. */
+.rechercher{position:relative;width:min(420px,38vw);flex:none}
 .rechercher svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);
  width:15px;height:15px;color:var(--nav-dim)}
 .rechercher input{width:100%;padding:7px 12px 7px 32px;border-radius:8px;
@@ -106,25 +114,46 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 .acct-item:hover{background:var(--surface2);color:var(--accent)}
 .acct-item svg{width:15px;height:15px}
 .acct-sep{height:1px;background:var(--line);margin:5px 4px}
+/* La seule entree du menu qui DEFAIT quelque chose. Rouge au survol
+   seulement : rouge en permanence dans un menu de trois lignes, c'est un
+   avertissement qu'on finit par ne plus voir. */
+.acct-item.acct-sortir{color:var(--err)}
+.acct-item.acct-sortir:hover{background:var(--err-bg);color:var(--err)}
 
 /* ------------------------------ colonne de gauche ------------------------------ */
 .page-body{display:flex;min-height:calc(100vh - 52px)}
+/* LA COLONNE SE REDUIT SANS RIEN FAIRE SAUTER.
+   Avant, replier la colonne posait display:none sur les libelles et
+   recentrait les items : le texte disparaissait d'un coup, et les icones
+   glissaient horizontalement pendant que la largeur, elle, s'animait. Deux
+   mouvements contradictoires sur 140 ms -- d'ou la sensation de saut.
+
+   Maintenant l'icone ne bouge JAMAIS : meme padding, meme alignement dans
+   les deux etats. Seul le texte est decoupe, en laissant le flex le reduire
+   (min-width:0) et la colonne le rogner (overflow:hidden). Le libelle
+   s'efface donc progressivement, a la vitesse de la largeur, au lieu de
+   disparaitre avant elle. */
 .sidebar{width:212px;flex:none;background:var(--nav);color:var(--nav-dim);
  display:flex;flex-direction:column;padding:12px 8px 10px;
- border-right:1px solid var(--nav-line);
+ border-right:1px solid var(--nav-line);overflow:hidden;
  transition:width .14s ease}
 .sidebar.collapsed{width:62px}
 .sidebar.collapsed .side-label,.sidebar.collapsed .side-item span,
-.sidebar.collapsed .side-count{display:none}
-.sidebar.collapsed .side-item{justify-content:center;padding:9px 0}
+.sidebar.collapsed .side-count{opacity:0}
 .side-nav{flex:1}
 .side-sep{height:1px;background:var(--nav-line);margin:10px 6px}
 .side-label{font-size:10px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;
  color:var(--dim2);padding:8px 10px 6px}
 .side-item{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:var(--r-s);
  cursor:pointer;font-size:var(--t-m);font-weight:500;color:var(--nav-dim);margin-bottom:1px;
- position:relative;transition:background .12s,color .12s}
+ position:relative;overflow:hidden;transition:background .12s,color .12s}
 .side-item svg{width:17px;height:17px;flex:none}
+/* min-width:0 : sans lui, un element flex refuse de descendre sous la
+   largeur de son contenu, et le texte pousserait la colonne au lieu d'etre
+   rogne par elle. */
+.side-item span{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:clip;
+ transition:opacity .1s ease}
+.side-label{overflow:hidden;white-space:nowrap;transition:opacity .1s ease}
 .side-item:hover{background:var(--nav-hover);color:var(--nav-txt)}
 /* L'element actif ne prend plus un pave d'accent plein. Un fond leger et un
    rail sur le bord suffisent a le designer, et l'accent reste disponible
@@ -134,10 +163,14 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 .side-item.active::before{content:"";position:absolute;left:0;top:7px;bottom:7px;width:2px;
  border-radius:2px;background:var(--accent)}
 .sidebar.collapsed .side-item.active::before{top:6px;bottom:6px}
-.side-count{margin-left:auto;font-size:11px;font-weight:700;padding:1px 7px;
+.side-count{margin-left:auto;flex:none;font-size:11px;font-weight:700;padding:1px 7px;
  border-radius:999px;background:var(--nav-hover);color:var(--nav-dim);
- font-variant-numeric:tabular-nums}
-.side-item.active .side-count{background:var(--accent);color:#fff}
+ font-variant-numeric:tabular-nums;transition:opacity .1s ease;
+ /* Deux chiffres reserves : le compteur passe de 0 a 12 quand l'API repond,
+    et sans largeur minimale c'est toute la ligne qui se decale a ce
+    moment-la. */
+ min-width:24px;text-align:center}
+.side-item.active .side-count{background:var(--accent);color:var(--sur-accent)}
 .main-area{flex:1;min-width:0;overflow-x:hidden}
 .wrap{max-width:1240px;margin:0 auto;padding:24px 24px 56px}
 @media (max-width:640px){.wrap{padding:18px 14px 40px}}
@@ -150,6 +183,39 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 .zone{margin-bottom:26px}
 .zone-title{font-size:10px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;
  color:var(--dim2);margin-bottom:9px}
+
+/* ---------------------- carte de chaleur ----------------------
+   Les cases sont posees en grille, colonne par colonne : chaque colonne est
+   une semaine, chaque ligne un jour de la semaine -- lundi en haut. La
+   grille se remplit donc VERTICALEMENT (grid-auto-flow:column), ce qui evite
+   d'avoir a calculer une position pour chaque case. */
+.carte-zone{overflow-x:auto;padding:4px 0 2px}
+.carte-grille{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,11px);
+ gap:3px;width:max-content}
+.carte-case{width:11px;height:11px;border-radius:2px;background:var(--surface2);
+ border:1px solid var(--line)}
+/* Cinq paliers, comme le calendrier de GitHub : en dessous de cinq, les
+   journees chargees et les journees calmes se confondent ; au-dessus, l'oeil
+   ne distingue plus les nuances. */
+.carte-case.n1{background:var(--accent-soft);border-color:transparent}
+.carte-case.n2{background:color-mix(in srgb,var(--accent) 45%,transparent);border-color:transparent}
+.carte-case.n3{background:color-mix(in srgb,var(--accent) 72%,transparent);border-color:transparent}
+.carte-case.n4{background:var(--accent);border-color:transparent}
+/* Une case hors fenetre (avant le premier lundi affiche) garde la place sans
+   rien affirmer : la laisser vide decalerait toute la grille d'un jour. */
+.carte-case.vide{background:transparent;border-color:transparent}
+.carte-mois{display:grid;grid-auto-flow:column;gap:3px;width:max-content;
+ font-size:10px;color:var(--dim2);margin-bottom:4px;height:13px}
+.carte-filtres{display:flex;gap:8px;flex-wrap:wrap}
+.carte-filtres select{width:auto;min-width:150px;padding:5px 9px;font-size:12.5px}
+.carte-pied{display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap}
+.carte-legende{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--dim2)}
+.carte-legende i{width:11px;height:11px;border-radius:2px;display:inline-block}
+.carte-legende i.n0{background:var(--surface2);border:1px solid var(--line)}
+.carte-legende i.n1{background:var(--accent-soft)}
+.carte-legende i.n2{background:color-mix(in srgb,var(--accent) 45%,transparent)}
+.carte-legende i.n3{background:color-mix(in srgb,var(--accent) 72%,transparent)}
+.carte-legende i.n4{background:var(--accent)}
 
 /* ------------------------------ cartes ------------------------------ */
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
@@ -304,6 +370,15 @@ input,select,textarea{width:100%;padding:8px 11px;border-radius:var(--r-s);
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
  box-shadow:0 0 0 3px var(--accent-ring)}
 input::placeholder{color:var(--dim2)}
+/* UNE CASE A COCHER N'EST PAS UN CHAMP DE SAISIE. La regle "input{width:100%}"
+   juste au-dessus s'appliquait aussi aux cases : elles s'etiraient sur toute
+   la largeur, et comme un label est un bloc, leur intitule tombait a la
+   ligne en dessous. « Proxy de confiance » s'affichait ainsi sous une case
+   centree, sans lien visible entre les deux. */
+input[type=checkbox],input[type=radio]{width:auto;margin:0;flex:none}
+label:has(> input[type=checkbox]),label:has(> input[type=radio]){
+ display:flex;align-items:center;gap:8px;font-weight:500;color:var(--txt);
+ font-size:var(--t-m);cursor:pointer}
 .hint{font-size:11.5px;color:var(--dim2);line-height:1.5;margin-top:6px}
 .input-suffix{position:relative}
 .input-suffix span{position:absolute;right:12px;top:50%;transform:translateY(-50%);
@@ -321,7 +396,7 @@ input::placeholder{color:var(--dim2)}
 .seg-toggle button{flex:1;padding:8px 6px;border:none;background:var(--surface2);color:var(--dim);
  font:inherit;font-size:12.5px;font-weight:550;cursor:pointer}
 .seg-toggle button+button{border-left:1px solid var(--line2)}
-.seg-toggle button.active,.seg-toggle button.on{background:var(--accent);color:#fff}
+.seg-toggle button.active,.seg-toggle button.on{background:var(--accent);color:var(--sur-accent)}
 
 .err{margin-top:10px;padding:9px 12px;border-radius:var(--r-s);font-size:12.5px;
  background:var(--err-bg);color:var(--err-txt);border:1px solid var(--err-border)}
@@ -355,6 +430,65 @@ input::placeholder{color:var(--dim2)}
 /* Une application arretee n'est pas cliquable : le lien ne menerait qu'a une
    page d'erreur. */
 .hub-projet.arretee{opacity:.6;pointer-events:none}
+/* ---- la tuile reduite : l'icone, le nom, rien d'autre ----
+   Pas d'etat ni de visibilite ici : c'est precisement ce qu'on accepte de
+   perdre en echange de voir trente projets d'un coup. Le lien reste le
+   meme, et une application arretee reste grisee -- sans quoi on cliquerait
+   dans le vide. */
+.hub-liste.compacte{grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:10px}
+.hub-liste.compacte .hub-projet{flex-direction:column;align-items:center;gap:8px;
+ padding:14px 8px;text-align:center}
+.hub-liste.compacte .hub-projet img{width:44px;height:44px;border-radius:12px}
+.hub-liste.compacte .hub-projet .txt{width:100%}
+.hub-liste.compacte .hub-projet .nom{font-size:12.5px;font-weight:600;
+ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hub-liste.compacte .hub-projet .desc,
+.hub-liste.compacte .hub-projet .bas{display:none}
+/* Un interrupteur segmente qui ne porte que des icones : les boutons sont
+   carres, sinon deux pictogrammes flottent dans deux grands rectangles. */
+.seg-icones{width:auto;flex:none}
+.seg-icones button{flex:none;width:34px;padding:6px 0;display:grid;place-items:center}
+.seg-icones svg{width:15px;height:15px}
+/* Un message recu : qui, quand, sur quoi, puis le texte. Le texte garde ses
+   retours a la ligne -- quelqu'un qui saute une ligne l'a voulu. */
+.msg-ligne{border-top:1px solid var(--line);padding:12px 0}
+.msg-ligne:first-child{border-top:none;padding-top:0}
+.msg-tete{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px}
+.msg-tete b{font-size:var(--t-m);font-weight:650}
+.msg-tete .quand{color:var(--dim2);font-size:11.5px;margin-left:auto}
+.msg-texte{font-size:var(--t-m);color:var(--txt);white-space:pre-wrap;line-height:1.55}
+.msg-vide{color:var(--dim);font-size:var(--t-m);padding:6px 0}
+textarea{resize:vertical;min-height:72px;line-height:1.5}
+
+/* Le bouton de masquage : invisible jusqu'au survol de la tuile. Une croix
+   permanente sur chaque tuile transformerait le hub en liste a trier. */
+.hub-projet{position:relative}
+.hub-masquer{position:absolute;top:6px;right:6px;width:26px;height:26px;padding:0;
+ border:1px solid var(--line2);border-radius:7px;background:var(--surface);
+ color:var(--dim2);cursor:pointer;display:grid;place-items:center;
+ opacity:0;transition:opacity .12s,color .12s,border-color .12s}
+.hub-masquer svg{width:14px;height:14px}
+.hub-projet:hover .hub-masquer{opacity:1}
+.hub-masquer:hover{color:var(--err);border-color:var(--err-border)}
+/* Au clavier, il n'y a pas de survol : la tabulation le fait apparaitre. */
+.hub-masquer:focus-visible{opacity:1;outline:2px solid var(--accent);outline-offset:1px}
+/* UNE TUILE ARRETEE IGNORE LE POINTEUR -- son lien ne menerait qu'a une page
+   d'erreur. Le bouton, lui, doit rester atteignable : sinon une application
+   arretee ne peut plus etre rangee, ce qui est justement le cas ou l'on en
+   a envie. Il reste donc visible, en retrait, au lieu d'attendre un survol
+   qui n'arrivera jamais. */
+.hub-projet.arretee .hub-masquer{pointer-events:auto;opacity:.55}
+.hub-projet.arretee .hub-masquer:hover{opacity:1}
+
+/* La liste des masquees, dans les reglages du compte. */
+.masquee-ligne{display:flex;align-items:center;gap:11px;padding:9px 0;
+ border-top:1px solid var(--line)}
+.masquee-ligne:first-child{border-top:none}
+.masquee-ligne img{width:30px;height:30px;border-radius:var(--r-s);flex:none}
+.masquee-txt{flex:1;min-width:0;display:flex;flex-direction:column}
+.masquee-txt b{font-size:var(--t-m);font-weight:620}
+.masquee-txt span{font-size:12px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;
+ white-space:nowrap}
 .hub-vide,.empty{padding:46px 20px;text-align:center;color:var(--dim);background:var(--surface);
  border:1px solid var(--line);border-radius:var(--r)}
 .hub-vide b,.empty h3{display:block;color:var(--txt);font-size:15px;font-weight:620;
@@ -502,6 +636,18 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
    suit un champ » : elle heritait de la marge du dessus et descendait de
    14 px, si bien que « Port » ne s'alignait pas sur « Hote SMTP ». */
 .settings-card .grid2>.field+.field{margin-top:0}
+/* Le logo, dans les reglages : l'image est le bouton. */
+.logo-zone{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+.logo-bouton{position:relative;width:72px;height:72px;flex:none;padding:0;
+ border:1px solid var(--line2);border-radius:14px;background:var(--surface2);
+ cursor:pointer;overflow:hidden;display:grid;place-items:center}
+.logo-bouton:hover{border-color:var(--accent)}
+.logo-bouton img{width:100%;height:100%;object-fit:cover;display:block}
+.logo-voile{position:absolute;left:0;right:0;bottom:0;padding:3px 0;
+ background:var(--nav);color:var(--nav-txt);font-size:10px;font-weight:650;
+ letter-spacing:.04em;text-transform:uppercase;opacity:0;transition:opacity .12s}
+.logo-bouton:hover .logo-voile{opacity:.92}
+.logo-texte{flex:1;min-width:220px}
 .card-large{max-width:none}
 /* Une rangee de boutons sous un formulaire. Avant, on reutilisait .mf --
    le pied d'une pop-up -- en annulant son fond, ses bordures et son
@@ -512,6 +658,52 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
    au-dessus d'une carte « Apparence » n'apprenait rien. */
 .onglet-p .zone-title{display:none}
 .onglet-p .zone{margin-bottom:14px}
+
+/* ---------------------- le choix de l'apparence ----------------------
+   Une liste de lignes plutot qu'un interrupteur segmente : chaque choix
+   porte son icone, son nom et ce qu'il fait. */
+.choix-liste{display:flex;flex-direction:column;border:1px solid var(--line2);
+ border-radius:var(--r-s);overflow:hidden}
+.choix-liste button{display:flex;align-items:center;gap:11px;width:100%;
+ padding:10px 12px;border:0;background:var(--surface);color:var(--txt);
+ cursor:pointer;text-align:left;font:inherit}
+.choix-liste button+button{border-top:1px solid var(--line)}
+.choix-liste button:hover{background:var(--surface2)}
+.choix-liste button>svg{width:17px;height:17px;flex:none;color:var(--dim)}
+.choix-liste span{display:flex;flex-direction:column;min-width:0;flex:1}
+.choix-liste b{font-size:var(--t-m);font-weight:600}
+.choix-liste i{font-style:normal;font-size:12px;color:var(--dim)}
+/* La coche ne prend sa place que sur la ligne active : un emplacement
+   reserve sur les trois lignes ferait trois colonnes vides. */
+.choix-liste .coche{width:16px;height:16px;flex:none;color:var(--accent);opacity:0}
+.choix-liste button.active{background:var(--accent-soft)}
+.choix-liste button.active>svg:first-child{color:var(--accent)}
+.choix-liste button.active .coche{opacity:1}
+
+/* ---------------------- les cartes de reglages se plient ----------------------
+   POURQUOI. Un onglet de parametres deroulait jusqu'a six cartes ouvertes :
+   pour changer une ligne, il fallait traverser tout le reste. Chaque carte
+   se replie donc sur son titre, et ne s'ouvre que quand on vient y regler
+   quelque chose.
+
+   Repliees par defaut, et l'etat est retenu par navigateur : la carte qu'on
+   ouvre souvent reste ouverte, sans que ce choix suive le compte sur une
+   autre machine -- ce n'est pas un reglage du serveur.
+
+   La transformation est faite en JavaScript, sur toutes les cartes de
+   parametres a la fois (voir plierLesCartes). Ecrire la structure a la main
+   dans chacune aurait demande de ne jamais l'oublier dans la suivante. */
+.settings-card.pliable>.card-top{cursor:pointer;user-select:none;margin:0}
+.settings-card.pliable>.card-top:hover .card-name b{color:var(--accent)}
+.settings-card.pliable .chevron{margin-left:auto;flex:none;width:16px;height:16px;
+ color:var(--dim);transition:transform .14s ease}
+.settings-card.pliable .chevron svg{width:16px;height:16px;display:block}
+.settings-card.pliable.ouverte .chevron{transform:rotate(90deg)}
+/* La pastille d'etat reste visible carte fermee : c'est justement ce qu'on
+   vient verifier avant de decider d'ouvrir. */
+.settings-card.pliable>.card-top>.pill{margin-left:0}
+.settings-card.pliable>.card-corps{display:none;margin-top:14px}
+.settings-card.pliable.ouverte>.card-corps{display:block}
 .us-compte{border:1px solid var(--line);border-radius:var(--r-s);padding:12px 14px;
  margin-bottom:8px}
 .us-tete{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
@@ -630,12 +822,25 @@ table.tbl-journal{min-width:560px}
  background:var(--surface);border:1px solid var(--line);color:var(--dim);letter-spacing:0}
 </style></head><body>
 <div class="topbar">
-  <button class="side-toggle-btn" id="btn-menu" onclick="toggleSidebar()" title="Reduire / etendre le menu">
+  <!-- LA GAUCHE DU BANDEAU TENAIT TROIS CHOSES COLLEES : le bouton de menu,
+       le logo avec son nom, et un champ de recherche de 340 px. Trois objets
+       de natures differentes a la suite, sans respiration -- on ne savait
+       plus ou commencait l'un et finissait l'autre.
+
+       Maintenant : deux groupes seulement a gauche (le menu et la marque,
+       separes d'un filet), et la recherche au CENTRE, entre deux ressorts.
+       Elle a la place qu'elle merite -- c'est le raccourci le plus utilise --
+       sans ecraser le coin. -->
+  <div class="topbar-gauche">
+  <button class="side-toggle-btn" id="btn-menu" onclick="toggleSidebar()" title="Réduire / étendre le menu">
     <svg viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></svg>
   </button>
   <div class="topbar-brand" onclick="showSection('hub')" title="Accueil">
     <img src="data:image/png;base64,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" alt=""><b>CodeLab</b>
   </div>
+  </div>
+
+  <div class="spacer"></div>
 
   <div class="rechercher" id="zone-recherche">
     <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
@@ -657,7 +862,9 @@ table.tbl-journal{min-width:560px}
         <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
         <span>Paramètres</span></div>
       <div class="acct-sep"></div>
-      <div class="acct-item" onclick="doLogout()">
+      <!-- En rouge : c'est la seule action de ce menu qui defait quelque
+           chose. La couleur la separe du reste sans avoir a la relire. -->
+      <div class="acct-item acct-sortir" onclick="doLogout()">
         <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
         <path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
         <span>Déconnexion</span></div>
@@ -701,9 +908,61 @@ table.tbl-journal{min-width:560px}
 
 <!-- ========================= HUB ========================= -->
 <div id="sec-hub" class="section" style="display:none">
-  <div class="toolbar"><h2 id="hub-titre">Mes applications</h2></div>
+  <div class="toolbar"><h2 id="hub-titre">Mes applications</h2>
+    <div class="spacer"></div>
+    <!-- DEUX TAILLES, PAS UN REGLAGE CONTINU. La carte dit l'etat et la
+         visibilite ; l'icone seule ne dit que « c'est la ». Entre les deux il
+         n'y a rien a vouloir, et un curseur de taille n'aurait fait
+         qu'ajouter une decision a prendre. -->
+    <div class="seg-toggle seg-icones" id="hub-taille" title="Taille des tuiles">
+      <button data-t="carte" onclick="hubTaille('carte')" aria-label="Tuiles détaillées">
+        <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/>
+        <rect x="3" y="13" width="18" height="7" rx="2"/></svg></button>
+      <button data-t="icone" onclick="hubTaille('icone')" aria-label="Icônes seules">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/>
+        <rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/>
+        <rect x="14" y="14" width="7" height="7" rx="2"/></svg></button>
+    </div>
+  </div>
   <div class="sous" id="hub-sous"></div>
+  <div class="hint" id="hub-masquees" style="display:none;margin:-8px 0 14px"></div>
   <div id="hub-liste" class="hub-liste"></div>
+
+  <!-- UN MOT A L'ADMINISTRATEUR. En bas du hub, replie : ce n'est pas ce
+       qu'on vient faire ici, mais c'est le seul endroit ou tout le monde
+       passe. Trois sujets et pas un de plus -- un champ libre aurait
+       demande a l'administrateur de deviner de quoi on parle. -->
+  <div class="zone" style="margin-top:28px">
+    <div class="card settings-card" id="msg-carte">
+      <div class="card-top"><div class="card-name">
+        <b>Un mot à l'administrateur</b>
+        <div class="path">Une gêne, une idée, une application qui manque.</div>
+      </div>
+      <button class="btn btn-default btn-sm" id="msg-ouvrir"
+        onclick="msgBasculer()">Écrire</button></div>
+
+      <div id="msg-form" style="display:none;margin-top:14px">
+        <div class="field"><label for="msg-cible">De quoi veux-tu parler ?</label>
+          <select id="msg-cible" onchange="msgCible()">
+            <option value="application">D'une application</option>
+            <option value="hub">Du hub lui-même</option>
+            <option value="idee">D'une application qui manque</option>
+          </select></div>
+        <div class="field" id="msg-app-zone"><label for="msg-app">Laquelle ?</label>
+          <select id="msg-app"></select></div>
+        <div class="field"><label for="msg-texte">Ton message</label>
+          <textarea id="msg-texte" rows="4" maxlength="2000"
+            placeholder="Ce qui te gêne, ce qui te manque, ce que tu voudrais."></textarea>
+          <div class="hint" id="msg-reste">2000 caractères au maximum.</div></div>
+        <div class="actions">
+          <button class="btn btn-primary" id="msg-envoyer" onclick="msgEnvoyer()">Envoyer</button>
+          <button class="btn btn-default" onclick="msgBasculer()">Annuler</button>
+        </div>
+        <div class="err" id="msg-err" style="display:none"></div>
+        <div class="hint" id="msg-ok" style="display:none"></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- ==================== VUE D'ENSEMBLE ==================== -->
@@ -722,7 +981,7 @@ table.tbl-journal{min-width:560px}
       </div>
     </div>
     <div class="card">
-      <div class="card-top"><div class="card-name"><b>Sante</b>
+      <div class="card-top"><div class="card-name"><b>Santé</b>
         <div class="path">Répartition des états</div></div></div>
       <div class="healthbar"><span id="hb-on" style="background:var(--ok)"></span><span id="hb-off"
         style="background:var(--line2)"></span><span id="hb-err" style="background:var(--err)"></span></div>
@@ -743,6 +1002,52 @@ table.tbl-journal{min-width:560px}
         <div class="res-label"><span>Mémoire</span><span id="res-mem-val">0 Mo</span></div>
         <div class="res-bar"><span id="res-mem-bar" style="width:0%"></span></div>
       </div>
+    </div>
+  </div>
+
+  <!-- LA CARTE DE CHALEUR. Une liste d'evenements dit ce qui s'est passe ;
+       une carte dit QUAND -- les semaines creuses, les week-ends, le projet
+       qu'on n'a plus ouvert depuis six semaines. Aucune liste ne montre
+       cela, et c'est pourtant la question qu'on se pose avant d'arreter une
+       application. -->
+  <div class="zone">
+    <div class="zone-title">Utilisation</div>
+    <div class="card">
+      <div class="card-top">
+        <div class="card-name"><b>Ouvertures d'applications</b>
+          <div class="path" id="carte-sous">Une case par jour, sur l'année écoulée.</div></div>
+        <div class="spacer" style="flex:1"></div>
+        <div class="carte-filtres">
+          <select id="carte-qui" onchange="chargerCarte()" aria-label="Filtrer par personne">
+            <option value="">Tout le monde</option>
+          </select>
+          <select id="carte-app" onchange="chargerCarte()" aria-label="Filtrer par application">
+            <option value="">Toutes les applications</option>
+          </select>
+        </div>
+      </div>
+      <div id="carte-zone" class="carte-zone"></div>
+      <div class="carte-pied">
+        <span id="carte-total" class="hint"></span>
+        <span class="spacer" style="flex:1"></span>
+        <span class="carte-legende">Moins
+          <i class="n0"></i><i class="n1"></i><i class="n2"></i><i class="n3"></i><i class="n4"></i>
+          Plus</span>
+      </div>
+      <div class="hint" id="carte-source" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- Les mots laisses depuis le hub. Ici, et pas dans une page a part :
+       c'est la page ou l'administrateur arrive, et un message qu'on ne voit
+       qu'en allant le chercher est un message qu'on ne lit pas. -->
+  <div class="zone" id="zone-messages" style="display:none">
+    <div class="zone-title">Messages</div>
+    <div class="card">
+      <div class="card-top"><div class="card-name"><b>Mots laissés depuis le hub</b>
+        <div class="path">Ce que les comptes ont écrit, du plus récent au plus ancien.</div></div>
+        <span class="pill" id="msg-compte"><i></i>&nbsp;</span></div>
+      <div id="msg-liste" style="margin-top:12px"></div>
     </div>
   </div>
 
@@ -767,7 +1072,7 @@ table.tbl-journal{min-width:560px}
     <button class="btn btn-primary" onclick="openAdd()">
       <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Nouvelle application</button>
   </div>
-  <div class="sous">Gerez et surveillez toutes vos applications. Cliquez sur une ligne pour ouvrir sa fiche.</div>
+  <div class="sous">Gérez et surveillez toutes vos applications. Cliquez sur une ligne pour ouvrir sa fiche.</div>
   <div id="tbl-projets"></div>
 </div>
 
@@ -795,6 +1100,7 @@ table.tbl-journal{min-width:560px}
     <button data-o="activite" onclick="ficheOnglet('activite')">Activité</button>
     <button data-o="acces" onclick="ficheOnglet('acces')">Accès</button>
     <button data-o="config" onclick="ficheOnglet('config')">Configuration</button>
+    <button data-o="conteneur" onclick="ficheOnglet('conteneur')">Conteneuriser</button>
   </div>
 
   <div class="onglet actif" id="onglet-general">
@@ -803,8 +1109,8 @@ table.tbl-journal{min-width:560px}
         <div class="card-top"><div class="card-name"><b>État</b></div></div>
         <div class="kv"><span class="k">Adresse</span><span class="v"><a id="fa-url" href="#" target="_blank"></a></span></div>
         <div class="kv"><span class="k">Port interne</span><span class="v" id="fa-port">—</span></div>
-        <div class="kv"><span class="k">Reponse</span><span class="v" id="fa-ecoute">—</span></div>
-        <div class="kv"><span class="k">Visibilite</span><span class="v" id="fa-vis-txt">—</span></div>
+        <div class="kv"><span class="k">Réponse</span><span class="v" id="fa-ecoute">—</span></div>
+        <div class="kv"><span class="k">Visibilité</span><span class="v" id="fa-vis-txt">—</span></div>
       </div>
       <div class="card">
         <div class="card-top"><div class="card-name"><b>Exécution</b></div></div>
@@ -831,7 +1137,7 @@ table.tbl-journal{min-width:560px}
         <div class="spark-wrap" id="mt-mem"></div>
       </div>
     </div>
-    <div class="hint" style="margin-top:12px">Sur les deux dernières minutes environ, releve toutes les 5 secondes.</div>
+    <div class="hint" style="margin-top:12px">Sur les deux dernières minutes environ, relevé toutes les 5 secondes.</div>
   </div>
 
   <div class="onglet" id="onglet-journal">
@@ -864,9 +1170,9 @@ table.tbl-journal{min-width:560px}
       <div class="zone-title">Dernières ouvertures</div>
       <div id="ac-liste"></div>
     </div>
-    <div class="hint">Une ouverture est notee au plus une fois par quart d'heure et par compte :
+    <div class="hint">Une ouverture est notée au plus une fois par quart d'heure et par compte :
       une page web, c'est des dizaines de requêtes, et les compter toutes ne dirait plus rien
-      de la frequentation.</div>
+      de la fréquentation.</div>
   </div>
 
   <div class="onglet" id="onglet-acces">
@@ -874,14 +1180,14 @@ table.tbl-journal{min-width:560px}
       <div class="card settings-card">
         <div class="card-top"><div class="card-name">
           <b>Qui ouvre cette application</b>
-          <div class="path">Coche un compte pour lui donner l'accès, decoche pour le retirer.</div>
+          <div class="path">Coche un compte pour lui donner l'accès, décoche pour le retirer.</div>
         </div>
         <span class="pill" id="ac-etat"><i></i>&nbsp;</span></div>
 
         <div class="hint" id="ac-publique" style="display:none"></div>
         <div class="hint">La même information que dans la fiche d'un compte, prise par l'autre
           bout. Pour savoir qui ouvre une application il fallait jusqu'ici ouvrir les fiches une
-          par une — et pour donner l'accès a cinq personnes, cinq allers-retours.</div>
+          par une — et pour donner l'accès à cinq personnes, cinq allers-retours.</div>
 
         <div id="ac-liste" style="margin-top:14px"></div>
         <div class="err" id="ac-err" style="display:none"></div>
@@ -890,18 +1196,81 @@ table.tbl-journal{min-width:560px}
     </div>
   </div>
 
+  <div class="onglet" id="onglet-conteneur">
+    <div class="card settings-card card-large">
+      <div class="card-top"><div class="card-name">
+        <b>Sortir cette application de CodeLab</b>
+        <div class="path">Les fichiers pour la faire tourner ailleurs, en conteneur.</div>
+      </div>
+      <span class="pill" id="ct-pile"><i></i>&nbsp;</span></div>
+
+      <div class="hint">CodeLab <b>produit</b> ces fichiers — il ne construit aucune image
+        et ne lance rien : le panneau n'a pas de socket Docker, et lui en donner un
+        reviendrait à lui offrir la machine entière. Ce sont un point de départ sérieux,
+        pas une vérité : relis-les.</div>
+
+      <div id="ct-resume" class="hint" style="margin-top:10px"></div>
+      <div id="ct-fichiers" style="margin-top:14px"></div>
+
+      <div class="actions">
+        <button class="btn btn-primary" id="ct-poser" onclick="ctPoser(false)">
+          Déposer dans le projet</button>
+        <button class="btn btn-danger-quiet" id="ct-remplacer" onclick="ctPoser(true)"
+          style="display:none">Remplacer les fichiers existants</button>
+      </div>
+      <div class="err" id="ct-err" style="display:none"></div>
+      <div class="hint" id="ct-msg" style="display:none"></div>
+    </div>
+  </div>
+
   <div class="onglet" id="onglet-config">
     <div class="card settings-card" style="max-width:680px">
       <div class="alert" id="e-err"></div>
-      <div class="notice" id="e-running">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/></svg>
-        <div><b>Application en cours d'exécution.</b> La configuration ne peut pas être enregistrée
-          tant qu'elle tourne.</div>
-        <button class="btn btn-default btn-sm" onclick="stopThenEdit()">Arrêter</button>
+      <!-- Apparait APRES un enregistrement, et seulement si ce qui a change
+           ne se voit qu'au prochain demarrage. Avant, un bandeau permanent
+           annoncait que rien ne pouvait etre enregistre tant que
+           l'application tournait : corriger une description demandait de
+           couper le service. -->
+      <div class="notice" id="e-redemarrage" style="display:none">
+        <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+        <div id="e-redemarrage-txt"></div>
+        <button class="btn btn-primary btn-sm" id="e-redemarrer"
+          onclick="redemarrerDepuisConfig()">Redémarrer</button>
       </div>
 
       <div class="fset">
-        <div class="fset-title">Presentation</div>
+        <div class="fset-title">Logo</div>
+        <!-- On clique sur l'icone elle-meme : c'est l'objet dont on parle, et
+             un bouton « Parcourir » a cote aurait demande de comprendre a quoi
+             il se rapporte. Le champ de fichier reste dans la page, invisible
+             mais present -- un input recree a chaque clic perd son
+             gestionnaire sur certains navigateurs. -->
+        <div class="logo-zone">
+          <button type="button" class="logo-bouton" id="e-logo-btn"
+            onclick="logoChoisir()" title="Changer le logo">
+            <img id="e-logo-img" alt="">
+            <span class="logo-voile">Changer</span>
+          </button>
+          <div class="logo-texte">
+            <div class="hint">PNG, JPEG, GIF ou WebP, 512 Ko au maximum. Le fichier est
+              déposé dans le dossier du projet sous le nom <code>icon.png</code> — il
+              suit donc le projet si tu le copies ailleurs.</div>
+            <div class="hint">Le SVG est refusé : servi par le panneau, il pourrait y
+              exécuter du script.</div>
+            <div class="actions" style="margin-top:10px">
+              <button class="btn btn-default btn-sm" onclick="logoChoisir()">Choisir une image</button>
+              <button class="btn btn-danger-quiet btn-sm" id="e-logo-retirer"
+                onclick="logoRetirer()">Retirer</button>
+            </div>
+            <div class="err" id="e-logo-err" style="display:none"></div>
+          </div>
+        </div>
+        <input type="file" id="e-logo-fichier" accept="image/png,image/jpeg,image/gif,image/webp"
+          style="display:none" onchange="logoEnvoyer(this)">
+      </div>
+
+      <div class="fset">
+        <div class="fset-title">Présentation</div>
         <div class="field"><label>Description <span class="opt">facultatif</span></label>
           <input id="e-desc" autocomplete="off" maxlength="140" placeholder="Mon site personnel">
           <div class="hint">Une ligne, affichée sous le nom du projet dans le hub.</div></div>
@@ -914,27 +1283,27 @@ table.tbl-journal{min-width:560px}
         <div class="fset-title">Exécution</div>
         <div class="field"><label>Commande de lancement</label>
           <input id="e-cmd" autocomplete="off" spellcheck="false">
-          <div class="hint">La variable <code>$PORT</code> est fournie : l'application doit ecouter dessus.</div></div>
+          <div class="hint">La variable <code>$PORT</code> est fournie : l'application doit écouter dessus.</div></div>
         <div class="field"><label>Commande de build <span class="opt">facultatif</span></label>
           <input id="e-build" placeholder="npm install" autocomplete="off" spellcheck="false">
-          <div class="hint">Executee à la demande, jamais au lancement.</div></div>
+          <div class="hint">Exécutée à la demande, jamais au lancement.</div></div>
       </div>
 
       <div class="fset">
         <div class="fset-title">Ressources</div>
         <div class="field"><label>Limite mémoire <span class="opt">facultatif</span></label>
           <div class="input-suffix"><input id="e-mem" type="number" min="16" placeholder="256"><span>Mo</span></div>
-          <div class="hint">Le process est arrêté automatiquement s'il tente de la depasser.</div></div>
+          <div class="hint">Le process est arrêté automatiquement s'il tente de la dépasser.</div></div>
       </div>
 
       <div class="fset" id="e-vis-zone">
-        <div class="fset-title">Visibilite</div>
+        <div class="fset-title">Visibilité</div>
         <div class="field">
           <div class="seg-toggle" id="e-vis-toggle">
             <button data-v="publique" onclick="setVisEdit('publique')">Publique</button>
             <button data-v="privee" onclick="setVisEdit('privee')">Privée</button>
           </div>
-          <div class="hint">Publique : accessible a tous, même sans connexion. Privée : réservé aux
+          <div class="hint">Publique : accessible à tous, même sans connexion. Privée : réservée aux
             comptes autorisés.</div>
         </div>
       </div>
@@ -986,14 +1355,31 @@ table.tbl-journal{min-width:560px}
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
         <b>Apparence</b>
-        <div class="path">Choisis comment l'interface s'affiché.</div>
+        <div class="path">Choisis comment l'interface s'affiche.</div>
       </div></div>
-      <div class="field">
-        <div class="seg-toggle" id="theme-toggle">
-          <button data-t="auto" onclick="setTheme('auto')">Auto</button>
-          <button data-t="light" onclick="setTheme('light')">Clair</button>
-          <button data-t="dark" onclick="setTheme('dark')">Sombre</button>
-        </div>
+      <!-- UNE LISTE, PAS TROIS ONGLETS. Trois mots colles dans un
+           interrupteur segmente se lisent comme un reglage binaire mal
+           compte. Ici chaque choix a son icone, sa ligne et sa phrase : on
+           reconnait « sombre » a sa lune avant d'avoir lu le mot, et le
+           choix actif se voit d'un coup d'oeil. -->
+      <div class="choix-liste" id="theme-toggle">
+        <button data-t="auto" onclick="setTheme('auto')">
+          <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/>
+          <path d="M8 21h8M12 17v4"/></svg>
+          <span><b>Automatique</b><i>Suit le réglage de ton système.</i></span>
+          <svg class="coche" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+        </button>
+        <button data-t="light" onclick="setTheme('light')">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/>
+          <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></svg>
+          <span><b>Clair</b><i>Fond blanc, en toutes circonstances.</i></span>
+          <svg class="coche" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+        </button>
+        <button data-t="dark" onclick="setTheme('dark')">
+          <svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg>
+          <span><b>Sombre</b><i>Fond sombre, en toutes circonstances.</i></span>
+          <svg class="coche" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+        </button>
       </div>
     </div>
   </div>
@@ -1005,7 +1391,7 @@ table.tbl-journal{min-width:560px}
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
         <b>Adresse mail</b>
-        <div class="path">L'adresse rattachee à ton compte.</div>
+        <div class="path">L'adresse rattachée à ton compte.</div>
       </div>
       <span class="pill" id="mail-etat"><i></i>&nbsp;</span></div>
 
@@ -1044,16 +1430,16 @@ table.tbl-journal{min-width:560px}
         <div class="path">Celui avec lequel tu te connectes à ce panneau.</div>
       </div></div>
 
-      <div class="hint">L'ancien est demande même sur cette session : sans cela, un cookie
-        capture suffirait a prendre ta place definitivement. <b>12 caractères au minimum</b> —
-        tu le choisis toi-même, rien n'oblige a le raccourcir.</div>
+      <div class="hint">L'ancien est demandé même sur cette session : sans cela, un cookie
+        capturé suffirait à prendre ta place définitivement. <b>12 caractères au minimum</b> —
+        tu le choisis toi-même, rien n'oblige à le raccourcir.</div>
 
       <div class="field" style="margin-top:14px"><label>Mot de passe actuel</label>
         <input id="mdp-ancien" type="password" autocomplete="current-password"></div>
       <div class="grid2">
         <div class="field"><label>Nouveau mot de passe</label>
           <input id="mdp-nouveau" type="password" autocomplete="new-password"></div>
-        <div class="field"><label>Repeter</label>
+        <div class="field"><label>Répéter</label>
           <input id="mdp-repeter" type="password" autocomplete="new-password"></div>
       </div>
       <div class="actions">
@@ -1065,24 +1451,16 @@ table.tbl-journal{min-width:560px}
   </div>
 
   <div class="zone">
-    <div class="zone-title">Affichage</div>
+    <div class="zone-title">Hub</div>
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
-        <b>Préférences d'affichage</b>
-        <div class="path">Retenues par navigateur, pas par le serveur.</div>
+        <b>Applications masquées</b>
+        <div class="path">Celles que tu as retirées de ton hub.</div>
       </div></div>
-
-      <div class="hint">Ces choix ne concernent que toi et cet appareil : ils vivent dans ce
-        navigateur, et ne sont ni envoyés au serveur ni partages avec les autres comptes.</div>
-
-      <div class="field" style="margin-top:14px">
-        <label for="pref-taille">Lignes par page dans le journal des connexions</label>
-        <select id="pref-taille" onchange="prefTaille()">
-          <option value="25">25</option>
-          <option value="50">50</option>
-        </select>
-      </div>
-      <div class="hint" id="pref-msg" style="display:none"></div>
+      <div class="hint">Masquer n'est que du <b>rangement</b> : l'application continue de
+        tourner, les autres comptes la voient toujours, et son adresse reste ouverte à qui
+        la connaît. Ce n'est pas une façon de fermer un accès.</div>
+      <div id="masquees-liste" style="margin-top:14px"></div>
     </div>
   </div>
 
@@ -1091,9 +1469,9 @@ table.tbl-journal{min-width:560px}
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
         <b>Session</b>
-        <div class="path">Déconnecté cette session du panneau CodeLab.</div>
+        <div class="path">Déconnecte cette session du panneau CodeLab.</div>
       </div></div>
-      <button class="btn btn-default" onclick="doLogout()">
+      <button class="btn btn-danger-quiet" onclick="doLogout()">
         <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
         <path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>Déconnexion</button>
     </div>
@@ -1107,7 +1485,7 @@ table.tbl-journal{min-width:560px}
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
         <b>Posture de sécurité</b>
-        <div class="path">Ou en est ce serveur, et ce qu'il reste à faire.</div>
+        <div class="path">Où en est ce serveur, et ce qu'il reste à faire.</div>
       </div>
       <span class="pill" id="sec-note"><i></i>&nbsp;</span></div>
 
@@ -1128,7 +1506,7 @@ table.tbl-journal{min-width:560px}
 
       <div class="hint" id="totp-pourquoi">Le mot de passe est un secret unique : s'il fuit, il donne
         l'exécution de commandes sur cette machine. Le second facteur exige en plus ton téléphone.
-        A activer avant d'exposer ce panneau au-dela de ton réseau.</div>
+        À activer avant d'exposer ce panneau au-delà de ton réseau.</div>
 
       <div id="totp-etape-1" style="display:none">
         <button class="btn btn-primary" onclick="totpPreparer()">Activer</button>
@@ -1142,7 +1520,7 @@ table.tbl-journal{min-width:560px}
         <div class="hint">Ou saisis la clé à la main :</div>
         <div class="field"><input id="totp-secret" readonly onclick="this.select()"></div>
         <div class="hint">2. Saisis le code affiché par l'application pour confirmer. Rien n'est
-          enregistré tant que ce code n'est pas valide — une clé mal recopiee ne peut donc pas
+          enregistré tant que ce code n'est pas valide — une clé mal recopiée ne peut donc pas
           t'enfermer dehors.</div>
         <div class="field"><input id="totp-code" inputmode="numeric" maxlength="6" placeholder="123456"></div>
         <div class="actions">
@@ -1153,7 +1531,7 @@ table.tbl-journal{min-width:560px}
       </div>
 
       <div id="totp-etape-3" style="display:none">
-        <div class="hint">Pour désactiver, saisis un code valide : une session volee ne doit pas
+        <div class="hint">Pour désactiver, saisis un code valide : une session volée ne doit pas
           pouvoir retirer le second facteur.</div>
         <div class="field"><input id="totp-code-off" inputmode="numeric" maxlength="6" placeholder="123456"></div>
         <button class="btn btn-default" onclick="totpDesactiver()">Désactiver</button>
@@ -1173,7 +1551,7 @@ table.tbl-journal{min-width:560px}
 
       <div class="hint">Une clé d'accès remplace le mot de passe <b>et</b> le code à six chiffres :
         l'appareil prouve la possession, et l'empreinte (ou le code de l'appareil) prouve que c'est
-        bien toi. Rien a retenir, rien a recopier — et rien a hameconner, puisque la clé ne signe
+        bien toi. Rien à retenir, rien à recopier — et rien à hameçonner, puisque la clé ne signe
         que pour le domaine qui l'a enregistrée.</div>
 
       <div class="hint" id="pk-empechement" style="display:none;margin-top:8px"></div>
@@ -1183,7 +1561,7 @@ table.tbl-journal{min-width:560px}
       <div class="field" style="margin-top:14px">
         <label>Nom de la clé <span class="opt">facultatif</span></label>
         <input id="pk-nom" placeholder="Téléphone" autocomplete="off" maxlength="40">
-        <div class="hint">Pour la reconnaitre dans la liste, le jour ou tu en auras plusieurs.</div>
+        <div class="hint">Pour la reconnaître dans la liste, le jour où tu en auras plusieurs.</div>
       </div>
       <button class="btn btn-primary" id="pk-ajouter" onclick="pkAjouter()">Ajouter une clé</button>
       <div class="err" id="pk-err" style="display:none"></div>
@@ -1198,14 +1576,14 @@ table.tbl-journal{min-width:560px}
     <div class="zone-title">Serveur</div>
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
-        <b>Derriere un proxy, en HTTPS</b>
+        <b>Derrière un proxy, en HTTPS</b>
         <div class="path">Les deux réglages qui suivent le passage du panneau sur internet.</div>
       </div></div>
 
-      <div class="hint">Une case ne s'activé que si la situation la justifie — sinon elle reste
-        grisee et dit pourquoi. C'est deliberé : activer HTTPS depuis une page servie en clair
+      <div class="hint">Une case ne s'active que si la situation la justifie — sinon elle reste
+        grisée et dit pourquoi. C'est délibéré : activer HTTPS depuis une page servie en clair
         poserait un cookie « Secure » que ton navigateur cesserait d'envoyer, et te
-        deconnecterait <b>sans retour possible</b>. Les eteindre, en revanche, est toujours
+        déconnecterait <b>sans retour possible</b>. Les éteindre, en revanche, est toujours
         permis.</div>
 
       <div class="field" style="margin-top:14px">
@@ -1233,15 +1611,15 @@ table.tbl-journal{min-width:560px}
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
         <b>Liaison avec un VPS</b>
-        <div class="path">Un VPS devant, un tunnel derriere, et rien d'ouvert sur ta box.</div>
+        <div class="path">Un VPS devant, un tunnel derrière, et rien d'ouvert sur ta box.</div>
       </div>
       <span class="pill" id="vps-etat"><i></i>&nbsp;</span></div>
 
-      <div class="hint">Le VPS porte le nom de domaine et le certificat ; cette machine ne publié
+      <div class="hint">Le VPS porte le nom de domaine et le certificat ; cette machine ne publie
         rien sur internet et reste joignable seulement par le tunnel. Saisis les deux valeurs
         ci-dessous et le panneau produit les fichiers de configuration, prêts à copier.
         <b>Il ne se connecte pas au VPS</b> : lui donner une clé SSH avec les droits qui vont avec
-        ferait de ce panneau la cible la plus interessante de l'installation.</div>
+        ferait de ce panneau la cible la plus intéressante de l'installation.</div>
 
       <div class="grid2" style="margin-top:14px">
         <div class="field"><label>Nom de domaine</label>
@@ -1260,7 +1638,7 @@ table.tbl-journal{min-width:560px}
       <div class="err" id="vps-err" style="display:none"></div>
       <div class="hint" id="vps-msg" style="display:none"></div>
 
-      <div class="mb-titre" style="margin-top:18px">Ou en est la liaison</div>
+      <div class="mb-titre" style="margin-top:18px">Où en est la liaison</div>
       <div class="hint">Ce que le panneau <b>constate</b> sur la requête qu'il traite en ce moment.
         Aucune de ces lignes n'est une supposition.</div>
       <div id="vps-diagnostic" style="margin-top:10px"></div>
@@ -1279,10 +1657,10 @@ table.tbl-journal{min-width:560px}
       <div class="hint">Tant qu'elle n'est pas déclarée, le panneau <b>ne propose pas de rendre une
         application publique</b> : sur un serveur que personne d'autre ne peut joindre, « publique »
         ne partagerait rien — cela retirerait seulement l'authentification. Une application déjà
-        publique n'est pas touchee, et peut toujours être refermee.</div>
-      <div class="hint" style="margin-top:8px">Elle se déclaré à la main : le panneau ne peut pas
+        publique n'est pas touchée, et peut toujours être refermée.</div>
+      <div class="hint" style="margin-top:8px">Elle se déclare à la main : le panneau ne peut pas
         savoir si le port 443 de ta box est ouvert, si ton tunnel tourne, ni quel nom de domaine y
-        mene. La renseigner, c'est dire « j'ai fait le nécessaire ».</div>
+        mène. La renseigner, c'est dire « j'ai fait le nécessaire ».</div>
 
       <div class="field" style="margin-top:14px">
         <label>Adresse</label>
@@ -1291,8 +1669,8 @@ table.tbl-journal{min-width:560px}
       </div>
       <button class="btn btn-primary" id="pub-save" onclick="pubEnregistrer()">Enregistrer</button>
       <div class="err" id="pub-err" style="display:none"></div>
-      <div class="hint" id="pub-fige" style="display:none">Cette adresse est fixee par
-        <code>APP_MANAGER_PUBLIC_URL</code> dans le compose : elle se modifié la-bas.</div>
+      <div class="hint" id="pub-fige" style="display:none">Cette adresse est fixée par
+        <code>APP_MANAGER_PUBLIC_URL</code> dans le compose : elle se modifie là-bas.</div>
     </div>
   </div>
 
@@ -1342,13 +1720,13 @@ table.tbl-journal{min-width:560px}
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
         <b>Serveur d'envoi (SMTP)</b>
-        <div class="path">Par ou sortent les mails de CodeLab.</div>
+        <div class="path">Par où sortent les mails de CodeLab.</div>
       </div>
       <span class="pill" id="sm-etat"><i></i>&nbsp;</span></div>
 
-      <div class="hint">Trois choses en dependent : les <b>alertes</b> quand une application tombe,
+      <div class="hint">Trois choses en dépendent : les <b>alertes</b> quand une application tombe,
         les <b>codes de vérification</b> des adresses mail des comptes, et l'<b>inscription
-        libre</b> — qui reste fermee tant qu'aucun serveur n'est configuré, faute de pouvoir
+        libre</b> — qui reste fermée tant qu'aucun serveur n'est configuré, faute de pouvoir
         vérifier une adresse.</div>
 
       <div class="grid2" style="margin-top:14px">
@@ -1373,9 +1751,9 @@ table.tbl-journal{min-width:560px}
           <em>mot de passe d'application</em>, pas ton mot de passe habituel.</div>
       </div>
       <div class="hint">A l'enregistrement, CodeLab <b>se connecte réellement</b> à ce serveur :
-        chiffrement et authentification compris. Une configuration qui ne repond pas n'est pas
+        chiffrement et authentification compris. Une configuration qui ne répond pas n'est pas
         enregistrée, et le message du serveur t'est rendu tel quel. Rien à lancer à la main,
-        rien a penser a vérifier.</div>
+        rien à penser à vérifier.</div>
 
       <div class="actions">
         <button class="btn btn-primary" id="sm-save" onclick="alEnregistrer('sm')">Vérifier et enregistrer</button>
@@ -1392,16 +1770,16 @@ table.tbl-journal{min-width:560px}
       </div>
       <span class="pill" id="sm-origine-etat"><i></i>&nbsp;</span></div>
 
-      <div class="hint">Posee à l'installation, elle sert de <b>repli</b> : si la configuration
-        ci-dessus cesse de fonctionner — mot de passe revoque, quota atteint, serveur eteint —
-        les mails repartent automatiquement par celle-ci. Le panneau ne l'ecrase jamais, c'est
+      <div class="hint">Posée à l'installation, elle sert de <b>repli</b> : si la configuration
+        ci-dessus cesse de fonctionner — mot de passe révoqué, quota atteint, serveur éteint —
+        les mails repartent automatiquement par celle-ci. Le panneau ne l'écrase jamais, c'est
         pour cela qu'on peut lui faire confiance.</div>
 
       <div class="kv" style="margin-top:12px"><span class="k">Serveur</span>
         <span class="v" id="sm-origine-host">&mdash;</span></div>
-      <div class="kv"><span class="k">Expediteur</span>
+      <div class="kv"><span class="k">Expéditeur</span>
         <span class="v" id="sm-origine-from">&mdash;</span></div>
-      <div class="hint" style="margin-top:10px">Elle se modifié dans le bloc
+      <div class="hint" style="margin-top:10px">Elle se modifie dans le bloc
         <code>codelab-alertes</code> de <code>credentials.env</code>, sur le serveur. Le capteur
         d'alerte de Dagster lit le même bloc.</div>
     </div>
@@ -1414,7 +1792,7 @@ table.tbl-journal{min-width:560px}
 
       <div class="hint">C'est le filet. Chaque application peut avoir ses propres destinataires
         (onglet <b>Alertes</b>), mais cette adresse-ci les reçoit <b>toutes</b> — y compris celles
-        des applications dont la liste est restee vide. Sans elle, une application oubliee
+        des applications dont la liste est restée vide. Sans elle, une application oubliée
         tomberait en silence.</div>
 
       <div class="field" style="margin-top:14px">
@@ -1442,8 +1820,8 @@ table.tbl-journal{min-width:560px}
       </div>
       <span class="pill" id="al-etat"><i></i>&nbsp;</span></div>
 
-      <div class="hint">Le panneau redemarre tout seul une application qui plante. Il abandonne au
-        bout de 5 tentatives en 10 minutes — c'est à ce moment-la que le mail part, pas au premier
+      <div class="hint">Le panneau redémarre tout seul une application qui plante. Il abandonne au
+        bout de 5 tentatives en 10 minutes — c'est à ce moment-là que le mail part, pas au premier
         soubresaut. Un second mail signale le retour à la normale.</div>
 
       <div class="hint" id="al-smtp-source" style="margin-top:12px"></div>
@@ -1458,12 +1836,12 @@ table.tbl-journal{min-width:560px}
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
         <b>Destinataires par application</b>
-        <div class="path">Qui prevenir, application par application.</div>
+        <div class="path">Qui prévenir, application par application.</div>
       </div></div>
 
-      <div class="hint">Une application de facturation ne previent pas les mêmes personnes qu'un
+      <div class="hint">Une application de facturation ne prévient pas les mêmes personnes qu'un
         site vitrine. Laisse vide pour qu'une application n'alerte que l'administrateur — dont
-        l'adresse s'ajouté <b>toujours</b> a celles saisies ici.</div>
+        l'adresse s'ajoute <b>toujours</b> à celles saisies ici.</div>
 
       <div id="al-par-app" style="margin-top:14px"></div>
       <div class="hint" id="al-app-msg" style="display:none"></div>
@@ -1486,7 +1864,7 @@ table.tbl-journal{min-width:560px}
     <div class="card settings-card card-large">
       <div class="card-top"><div class="card-name">
         <b>Comptes</b>
-        <div class="path">Chacun n'ouvre que les projets privés que tu lui autorisés.</div>
+        <div class="path">Chacun n'ouvre que les projets privés que tu lui autorises.</div>
       </div>
       <div class="spacer"></div>
       <button class="btn btn-primary btn-sm" onclick="usFormulaire(true)">Nouveau compte</button></div>
@@ -1503,11 +1881,6 @@ table.tbl-journal{min-width:560px}
           <label for="us-q">Rechercher</label>
           <input id="us-q" placeholder="nom ou adresse mail" autocomplete="off"
             oninput="usFiltrer()"></div>
-        <div class="field" style="flex:1 1 180px;margin:0">
-          <label for="us-projet">Accès a</label>
-          <select id="us-projet" onchange="usFiltrer()">
-            <option value="">toutes les applications</option>
-          </select></div>
       </div>
 
       <div id="us-liste" style="margin-top:14px"></div>
@@ -1535,7 +1908,7 @@ table.tbl-journal{min-width:560px}
         </div>
         <div class="field" style="margin-top:14px"><label>Mot de passe</label>
           <input id="us-mdp" type="password" autocomplete="new-password" placeholder="8 caractères au minimum">
-          <div class="hint">Le second facteur, lui, s'enregistré à la première connexion : tu ne
+          <div class="hint">Le second facteur, lui, s'enregistre à la première connexion : tu ne
             connais jamais la clé de quelqu'un d'autre.</div>
         </div>
         <div class="actions">
@@ -1603,7 +1976,7 @@ table.tbl-journal{min-width:560px}
     <div class="alert" id="us-f-err" style="display:none"></div>
 
     <div class="mb-groupe">
-      <div class="mb-titre">Identite</div>
+      <div class="mb-titre">Identité</div>
       <div class="field"><label>Adresse mail <span class="opt">facultatif</span></label>
         <input id="us-f-mail" type="email" placeholder="marie@example.com" autocomplete="off">
         <div class="hint" id="us-f-mail-etat"></div>
@@ -1615,13 +1988,13 @@ table.tbl-journal{min-width:560px}
       </div>
       <div class="hint">Le nom du compte ne se change pas : il identifie la personne partout —
         dans ses clés d'accès, dans le journal des accès, dans la liste des projets autorisés.
-        Pour renommer quelqu'un, créé un compte et supprimé l'ancien.</div>
+        Pour renommer quelqu'un, crée un compte et supprime l'ancien.</div>
     </div>
 
     <div class="mb-groupe">
       <div class="mb-titre">Projets autorisés</div>
       <div class="hint">L'autorisation ne compte que pour les projets <b>privés</b> : un projet
-        public reste ouvert a tout le monde, y compris sans connexion.</div>
+        public reste ouvert à tout le monde, y compris sans connexion.</div>
       <div class="us-cases" id="us-f-projets" style="margin-top:10px"></div>
     </div>
 
@@ -1629,15 +2002,15 @@ table.tbl-journal{min-width:560px}
       <div class="mb-titre">Moyens de connexion</div>
       <div class="hint" id="us-f-facteurs"></div>
       <div class="actions">
-        <button class="btn btn-default btn-sm" id="us-f-totp" onclick="usReinitTotp()">Reinitialiser le second facteur</button>
+        <button class="btn btn-default btn-sm" id="us-f-totp" onclick="usReinitTotp()">Réinitialiser le second facteur</button>
         <button class="btn btn-default btn-sm" id="us-f-cles" onclick="usRetirerCles()">Retirer les clés d'accès</button>
       </div>
     </div>
 
     <div class="mb-groupe">
       <div class="mb-titre">Supprimer</div>
-      <div class="hint">Le compte disparait, avec ses clés d'accès. Ses sessions ouvertes cessent
-        d'autoriser quoi que ce soit — chaque controle relit le registre. Le journal des accès,
+      <div class="hint">Le compte disparaît, avec ses clés d'accès. Ses sessions ouvertes cessent
+        d'autoriser quoi que ce soit — chaque contrôle relit le registre. Le journal des accès,
         lui, garde la trace de ce qu'il a fait.</div>
       <button class="btn btn-default danger btn-sm" style="margin-top:10px"
         onclick="usSupprimer()">Supprimer ce compte</button>
@@ -1672,8 +2045,8 @@ table.tbl-journal{min-width:560px}
       <div class="input-suffix"><input id="f-mem" type="number" min="16" placeholder="256"><span>Mo</span></div></div>
     <div class="field"><label>Catégorie <span class="opt">facultatif</span></label>
       <select id="f-cat"></select>
-      <div class="hint">Les catégories se creent dans Configuration.</div></div>
-    <div class="field" id="f-vis-zone"><label>Visibilite</label>
+      <div class="hint">Les catégories se créent dans Configuration.</div></div>
+    <div class="field" id="f-vis-zone"><label>Visibilité</label>
       <div class="seg-toggle" id="f-vis-toggle">
         <button data-v="publique" onclick="setVisAdd('publique')">Publique</button>
         <button data-v="privee" onclick="setVisAdd('privee')">Privée</button>
@@ -1783,6 +2156,7 @@ function showSection(name){
   if(name!=='app') fermerLog();
   if(name==='hub') chargerHub();
   if(name==='overview' || name==='apps') refresh();
+  if(name==='overview'){ chargerCarte(); chargerMessages(); }
   /* L'etat de securite est relu a chaque ouverture : il peut avoir change
      depuis un autre onglet, ou au redemarrage du service. */
   if(name==='users'){ chargerUtilisateurs(); chargerInscriptionLibre(); chargerActivite(); }
@@ -1790,6 +2164,68 @@ function showSection(name){
      etats changent depuis un autre onglet du navigateur, ou au redemarrage du
      service. On ne recharge que l'onglet regarde. */
   if(name==='parametres') paramOnglet(paramOngletActif);
+}
+
+/* ---------------- les cartes de reglages se plient ----------------
+   Une seule fonction pour toutes les cartes de tous les onglets, present et
+   a venir : ecrire la structure repliable a la main dans chaque carte aurait
+   demande de ne jamais l'oublier dans la suivante.
+
+   Ce qu'elle fait d'une carte : le titre devient la poignee, tout ce qui le
+   suit part dans un corps qu'on montre ou qu'on cache. Repliee par defaut ;
+   l'etat est retenu par navigateur, comme le theme et la colonne de gauche.
+
+   La cle de memorisation est le TEXTE du titre, et non un numero de
+   position : reordonner les cartes ne doit pas rouvrir celles qu'on avait
+   fermees. */
+function pliCle(carte){
+  const b=carte.querySelector('.card-name b');
+  return 'codelab.pli.'+((b&&b.textContent)||'').trim().slice(0,60);
+}
+
+function pliBasculer(carte){
+  const ouverte=!carte.classList.contains('ouverte');
+  carte.classList.toggle('ouverte', ouverte);
+  carte.querySelector('.card-top').setAttribute('aria-expanded', ouverte?'true':'false');
+  try{ localStorage.setItem(pliCle(carte), ouverte?'1':'0'); }catch(e){}
+}
+
+function plierLesCartes(){
+  document.querySelectorAll('.onglet-p .settings-card:not(.pliable)').forEach(carte=>{
+    const tete=carte.querySelector('.card-top');
+    if(!tete) return;
+    /* Tout ce qui suit le titre devient le corps. On deplace les noeuds
+       plutot que de recopier du HTML : les champs gardent leur valeur, et
+       les gestionnaires poses dessus restent attaches. */
+    const corps=document.createElement('div');
+    corps.className='card-corps';
+    while(tete.nextSibling) corps.appendChild(tete.nextSibling);
+    carte.appendChild(corps);
+
+    /* La pastille d'etat remonte a cote du titre : c'est ce qu'on vient
+       verifier avant meme de decider d'ouvrir. */
+    const chev=document.createElement('span');
+    chev.className='chevron';
+    chev.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"'
+      +' stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+      +'<path d="M9 18l6-6-6-6"/></svg>';
+    tete.appendChild(chev);
+
+    carte.classList.add('pliable');
+    tete.setAttribute('role','button');
+    tete.setAttribute('tabindex','0');
+    tete.addEventListener('click', ()=>pliBasculer(carte));
+    /* Au clavier comme a la souris : une poignee qui ne repond qu'au pointeur
+       enferme dehors ceux qui naviguent en tabulation. */
+    tete.addEventListener('keydown', e=>{
+      if(e.key==='Enter' || e.key===' '){ e.preventDefault(); pliBasculer(carte); }
+    });
+
+    let ouverte=false;
+    try{ ouverte = localStorage.getItem(pliCle(carte))==='1'; }catch(e){}
+    carte.classList.toggle('ouverte', ouverte);
+    tete.setAttribute('aria-expanded', ouverte?'true':'false');
+  });
 }
 
 /* ---------------- onglets des parametres ---------------- */
@@ -1803,12 +2239,13 @@ function paramOnglet(o){
     .forEach(b=>b.classList.toggle('active', b.dataset.p===o));
   document.querySelectorAll('.onglet-p')
     .forEach(n=>n.classList.toggle('actif', n.id==='param-'+o));
+  plierLesCartes();
   if(o==='compte'){
     chargerMonCompte();
-    /* La preference d'affichage vient du navigateur : elle doit etre juste
-       des l'ouverture de l'onglet, pas seulement apres une modification. */
-    const t=$('pref-taille'); if(t) t.value=String(acParPage());
-    $('pref-msg').style.display='none';
+    /* La liste des masquees vient du hub : on la relit, sinon on affiche
+       celle d'un chargement precedent -- ou rien du tout si l'on arrive
+       directement sur les reglages. */
+    chargerHub();
     $('mdp-err').style.display='none'; $('mdp-msg').style.display='none';
   }
   if(o==='securite'){ chargerPasskeys(); if(estAdmin) chargerSecurite(); }
@@ -1825,8 +2262,8 @@ function paramOnglet(o){
    arretee. Les confondre ferait cliquer sur un lien qui ne mene nulle part. */
 function etatApp(a){
   if(a.crash_looping) return ['err','En erreur'];
-  if(!a.running) return ['off','Arretee'];
-  if(a.listening === false) return ['warn','Ne repond pas'];
+  if(!a.running) return ['off','Arrêtée'];
+  if(a.listening === false) return ['warn','Ne répond pas'];
   return ['on','En ligne'];
 }
 function badgeEtat(a){ const [c,t]=etatApp(a); return `<span class="pill ${c}"><i></i>${t}</span>`; }
@@ -1918,10 +2355,137 @@ async function catEnregistrer(){
 
 /* ---------------- hub ---------------- */
 let hubApps=[];
+/* ---------------- les messages recus (administrateur) ---------------- */
+async function chargerMessages(){
+  if(!estAdmin) return;
+  let d;
+  try{ d=await (await fetch('/api/messages')).json(); }catch(e){ return; }
+  const liste=d.messages||[];
+  $('zone-messages').style.display='block';
+  const p=$('msg-compte');
+  p.className='pill '+(liste.length?'on':'off');
+  p.innerHTML='<i></i>'+(liste.length ? liste.length+' message'+(liste.length>1?'s':'')
+                                      : 'aucun message');
+  if(!liste.length){
+    $('msg-liste').innerHTML='<div class="msg-vide">Personne n\'a encore écrit. Le '
+      + 'formulaire est en bas du hub, pour tous les comptes.</div>';
+    return;
+  }
+  const sujet = m => m.cible==='application'
+    ? 'à propos de <b>'+esc(m.app||'')+'</b>'
+    : (m.cible==='idee' ? 'une <b>idée d\'application</b>' : 'à propos du <b>hub</b>');
+  $('msg-liste').innerHTML = liste.map(m=>`<div class="msg-ligne">
+    <div class="msg-tete"><b>${esc(m.qui||'?')}</b><span class="hint">${sujet(m)}</span>
+      <span class="quand" title="${esc(quandPrecis(m.ts))}">${esc(ilYA(m.ts))}</span></div>
+    <div class="msg-texte">${esc(m.texte||'')}</div></div>`).join('');
+}
+
+/* ---------------- un mot a l'administrateur ---------------- */
+function msgBasculer(){
+  const f=$('msg-form'), ouvert = f.style.display!=='none';
+  f.style.display = ouvert ? 'none' : 'block';
+  $('msg-ouvrir').textContent = ouvert ? 'Écrire' : 'Fermer';
+  $('msg-err').style.display='none'; $('msg-ok').style.display='none';
+  if(!ouvert){ msgCible(); setTimeout(()=>$('msg-texte').focus(), 40); }
+}
+
+function msgCible(){
+  /* La liste ne propose que les applications du hub de CE compte : on ne
+     peut parler que de ce qu'on peut ouvrir. */
+  const zone=$('msg-app-zone');
+  if(!zone) return;
+  const app = $('msg-cible').value==='application';
+  zone.style.display = app ? '' : 'none';
+  const noms=(hubApps||[]).map(a=>a.name).sort();
+  $('msg-app').innerHTML = noms.length
+    ? noms.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')
+    : '<option value="">aucune application accessible</option>';
+}
+
+async function msgEnvoyer(){
+  const b=$('msg-envoyer'), e=$('msg-err'), ok=$('msg-ok');
+  e.style.display='none'; ok.style.display='none';
+  const corps={cible:$('msg-cible').value, texte:$('msg-texte').value.trim(),
+               app:$('msg-app').value||''};
+  if(!corps.texte){ e.textContent='Écris ton message.'; e.style.display='block'; return; }
+  b.disabled=true; b.textContent='Envoi...';
+  try{
+    const r=await fetch('/api/messages',{method:'POST',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify(corps)});
+    const d=await r.json();
+    if(!r.ok){ e.textContent=d.error||'Envoi impossible.'; e.style.display='block'; }
+    else{
+      $('msg-texte').value='';
+      /* On dit ce qui s'est REELLEMENT passe : le message est range dans
+         tous les cas, le mail depend d'un serveur d'envoi configure. */
+      ok.textContent = d.envoye
+        ? 'Message envoyé à ton administrateur. Merci.'
+        : "Message enregistré. Aucun serveur d'envoi n'est configuré : ton "
+          + 'administrateur le verra dans le panneau.';
+      ok.style.display='block';
+    }
+  }catch(err){ e.textContent='Erreur réseau.'; e.style.display='block'; }
+  finally{ b.disabled=false; b.textContent='Envoyer'; }
+}
+
+/* ---------------- taille des tuiles du hub ----------------
+   Retenue par navigateur, comme le theme et la colonne de gauche : c'est un
+   confort d'affichage, pas un reglage du serveur, et deux personnes qui
+   partagent un compte n'ont pas les memes yeux ni le meme ecran. */
+function hubTailleChoisie(){
+  try{ return localStorage.getItem('codelab.hub.taille')==='icone' ? 'icone' : 'carte'; }
+  catch(e){ return 'carte'; }
+}
+function hubTaille(t){
+  try{ localStorage.setItem('codelab.hub.taille', t); }catch(e){}
+  peindreHub();
+}
+
+let hubMasquees=[];
+
+async function masquerApp(nom){
+  try{
+    const r=await fetch('/api/mes-apps/'+encodeURIComponent(nom)+'/masquer',{method:'POST'});
+    if(!r.ok) throw new Error();
+    await chargerHub();
+    notifier('« '+nom+' » masquée de ton hub.');
+  }catch(e){ notifier('Impossible de masquer cette application.','err'); }
+}
+
+async function afficherApp(nom){
+  try{
+    const r=await fetch('/api/mes-apps/'+encodeURIComponent(nom)+'/masquer',{method:'DELETE'});
+    if(!r.ok) throw new Error();
+    await chargerHub();
+    peindreMasquees();
+    notifier('« '+nom+' » est de retour dans ton hub.');
+  }catch(e){ notifier('Impossible de réafficher cette application.','err'); }
+}
+
+function peindreMasquees(){
+  const zone=$('masquees-liste');
+  if(!zone) return;
+  if(!hubMasquees.length){
+    zone.innerHTML='<div class="hint">Aucune application masquée. Tu peux en retirer une '
+      + 'de ton hub avec le bouton qui apparaît sur sa tuile.</div>';
+    return;
+  }
+  zone.innerHTML = hubMasquees.map(a=>`<div class="masquee-ligne">
+    <img src="${icone(a.name)}" alt="">
+    <div class="masquee-txt"><b>${esc(a.name)}</b>
+      ${a.description?`<span>${esc(a.description)}</span>`:''}</div>
+    <button class="btn btn-default btn-sm"
+      onclick="afficherApp('${esc(a.name)}')">Réafficher</button>
+  </div>`).join('');
+}
+
 async function chargerHub(){
   try{
     const d=await (await fetch('/api/mes-apps')).json();
     hubApps=d.apps||[];
+    hubMasquees=d.masquees||[];
+    peindreMasquees();
+    msgCible();
     /* Les categories arrivent avec les projets : une seule requete, et le
        hub ne peut pas afficher un rangement decale d'un tour. */
     if(Array.isArray(d.categories)) categories=d.categories;
@@ -1929,11 +2493,25 @@ async function chargerHub(){
   peindreHub();
 }
 function peindreHub(){
+  const taille = hubTailleChoisie();
+  const classeListe = 'hub-liste' + (taille==='icone' ? ' compacte' : '');
+  document.querySelectorAll('#hub-taille button')
+    .forEach(b=>b.classList.toggle('active', b.dataset.t===taille));
   $('hub-sous').textContent = estAdmin
-    ? 'Toutes les applications déclarées. C\'est cette page que voient les comptes utilisateurs, limitee à ce que tu leur autorisés.'
-    : 'Les applications que ton administrateur t\'a autorisees.';
+    ? 'Toutes les applications déclarées. C\'est cette page que voient les comptes utilisateurs, limitée à ce que tu leur autorises.'
+    : 'Les applications que ton administrateur t\'a autorisées.';
 
   const liste=hubApps.filter(correspond);
+  /* Une liste silencieusement plus courte inquiete plus qu'elle ne
+     simplifie : le hub dit ce qu'il cache, et ou le retrouver. */
+  const nbCaches = (hubMasquees||[]).length;
+  $('hub-masquees').style.display = nbCaches ? 'block' : 'none';
+  if(nbCaches){
+    $('hub-masquees').innerHTML = nbCaches + (nbCaches>1
+      ? ' applications masquées — ' : ' application masquée — ')
+      + '<a href="#" onclick="event.preventDefault();allerA(\'parametres\');'
+      + 'paramOnglet(\'compte\')">les revoir dans tes paramètres</a>.';
+  }
   if(!liste.length){
     $('hub-liste').className='';
     $('hub-liste').innerHTML = filtre
@@ -1945,18 +2523,29 @@ function peindreHub(){
     return;
   }
   const tuile = a => {
-    const desc = a.description ? `<div class="desc">${esc(a.description)}</div>` : '';
-    return `<a class="hub-projet ${a.running?'':'arrêtée'}" href="${urlApplication(a.name)}">
+    const desc = (taille==='icone' || !a.description) ? ''
+      : `<div class="desc">${esc(a.description)}</div>`;
+    /* Le bouton vit DANS le lien : il doit donc arreter le clic avant qu'il
+       n'ouvre l'application. Il n'apparait qu'au survol -- une croix
+       permanente sur chaque tuile transformerait le hub en liste a trier. */
+    const masquer = `<button class="hub-masquer" title="Masquer du hub"
+      onclick="event.preventDefault();event.stopPropagation();masquerApp('${esc(a.name)}')"
+      aria-label="Masquer ${esc(a.name)} de mon hub">
+      <svg viewBox="0 0 24 24"><path d="M3 3l18 18"/>
+      <path d="M10.6 10.6a2 2 0 002.8 2.8"/>
+      <path d="M9.4 5.2A9.5 9.5 0 0112 5c5 0 9 4.5 9 7 0 .9-.6 2.1-1.6 3.2"/>
+      <path d="M6.2 6.7C3.9 8.1 3 10.2 3 12c0 2.5 4 7 9 7 1.5 0 2.9-.4 4.1-1"/></svg></button>`;
+    return `<a class="hub-projet ${a.running?'':'arretee'}" href="${urlApplication(a.name)}">
       <img src="${icone(a.name)}" alt="">
       <div class="txt"><div class="nom">${esc(a.name)}</div>${desc}
-      <div class="bas">${badgeEtat(a)}${badgeVis(a)}</div></div></a>`;
+      <div class="bas">${badgeEtat(a)}${badgeVis(a)}</div></div>${masquer}</a>`;
   };
 
   /* Sans categorie declaree, le hub reste ce qu'il etait : une seule liste.
      Un unique titre « Autres » au-dessus de tout serait du bruit. */
   const utiles = categories.filter(c=>liste.some(a=>a.categorie===c));
   if(!utiles.length){
-    $('hub-liste').className='hub-liste';
+    $('hub-liste').className=classeListe;
     $('hub-liste').innerHTML = liste.map(tuile).join('');
     return;
   }
@@ -1970,7 +2559,7 @@ function peindreHub(){
   $('hub-liste').className='';
   $('hub-liste').innerHTML = groupes.map(([nom, apps])=>`<div class="hub-groupe">
     <div class="hub-groupe-titre">${esc(nom)}<span>${apps.length}</span></div>
-    <div class="hub-liste">${apps.map(tuile).join('')}</div>
+    <div class="${classeListe}">${apps.map(tuile).join('')}</div>
   </div>`).join('');
 }
 
@@ -2051,7 +2640,7 @@ function render(){
   }
   $('tbl-projets').innerHTML=`<div class="tbl-wrap"><div class="tbl-scroll"><table class="tbl">
     <thead><tr>
-      <th>Application</th><th>État</th><th>Visibilite</th><th>Port</th>
+      <th>Application</th><th>État</th><th>Visibilité</th><th>Port</th>
       <th>CPU</th><th>Mémoire</th><th></th>
     </tr></thead><tbody>
     ${liste.map(a=>`<tr onclick="ouvrirFiche('${esc(a.name)}')">
@@ -2078,7 +2667,16 @@ function render(){
 }
 
 /* ---------------- actions ---------------- */
-async function tg(n){ await fetch('/api/toggle/'+n,{method:'POST'}); setTimeout(refresh,400); }
+/* Le bouton demarrer / arreter. Il LIT la reponse : le panneau sait
+   desormais dire pourquoi une application refuse de demarrer (dossier
+   disparu, commande introuvable, port pris, isolement refuse), et se taire
+   la-dessus revenait a cliquer dans le vide. */
+async function tg(n){
+  const r=await fetch('/api/toggle/'+n,{method:'POST'});
+  let d={}; try{ d=await r.json(); }catch(e){}
+  if(!r.ok) notifier(d.error || "L'application n'a pas demarre.", 'err');
+  setTimeout(refresh,400);
+}
 async function restartApp(n){ await fetch('/api/restart/'+n,{method:'POST'}); setTimeout(refresh,500); }
 async function deployApp(n){
   const r=await fetch('/api/deploy/'+n,{method:'POST'});
@@ -2140,6 +2738,7 @@ function ficheOnglet(o){
   if(o==='metriques') chargerMetriques(ficheNom);
   if(o==='activite') chargerActivite().then(peindreActiviteFiche);
   if(o==='acces') chargerAcces(ficheNom);
+  if(o==='conteneur') chargerConteneur();
 }
 
 /* ---------------- acces a une application ---------------- */
@@ -2187,7 +2786,7 @@ async function chargerAcces(nom){
   }
   zone.innerHTML = comptes.map(c=>
     `<div class="field" style="margin-bottom:8px">
-       <label><input type="checkbox" id="ac-${esc(c.nom)}" ${c.accès?'checked':''}
+       <label><input type="checkbox" id="ac-${esc(c.nom)}" ${c.acces?'checked':''}
          onchange="acBasculer()"> ${esc(c.nom)}</label>
        ${c.email ? '<div class="hint" style="margin-top:2px">'+esc(c.email)+'</div>' : ''}
      </div>`).join('');
@@ -2228,13 +2827,13 @@ function peindreFiche(){
   $('fa-etat').className='pill '+cl; $('fa-etat').innerHTML='<i></i>'+txt;
   const prive=a.visibility==='privee';
   $('fa-vis').className='pill '+(prive?'priv':'pub');
-  $('fa-vis').innerHTML='<i></i>'+(prive?'Prive':'Public');
+  $('fa-vis').innerHTML='<i></i>'+(prive?'Privé':'Public');
 
   $('fa-url').textContent='/'+a.name+'/';
   $('fa-url').href=urlApplication(a.name);
   $('fa-port').textContent=a.port;
-  $('fa-ecoute').textContent = !a.running ? 'Arretee'
-    : (a.listening===false ? 'Le port ne repond pas' : 'Le port repond');
+  $('fa-ecoute').textContent = !a.running ? 'Arrêtée'
+    : (a.listening===false ? 'Le port ne répond pas' : 'Le port répond');
   $('fa-vis-txt').textContent = prive
     ? 'Privée — session requise' : 'Publique — ouverte a tous';
   $('fa-path').textContent=a.path;
@@ -2252,10 +2851,10 @@ function peindreFiche(){
   const svgOuvrir='<svg viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 13v6a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h6"/></svg>';
 
   const b=[];
-  b.push(`<button class="btn ${a.running?'btn-arrêter':'btn-démarrer'}" onclick="tg('${esc(a.name)}')">
+  b.push(`<button class="btn ${a.running?'btn-arreter':'btn-demarrer'}" onclick="tg('${esc(a.name)}')">
     ${a.running?svgStop+'Arrêter':svgPlay+'Démarrer'}</button>`);
   b.push(`<button class="btn btn-refaire" onclick="restartApp('${esc(a.name)}')" ${a.running?'':'disabled'}>
-    ${svgRe}Redemarrer</button>`);
+    ${svgRe}Redémarrer</button>`);
   if(a.has_build) b.push(`<button class="btn btn-refaire" onclick="buildApp('${esc(a.name)}')">${svgBuild}Build</button>`);
   /* Deployer met du code en ligne : c'est l'action principale de cette
      barre, et la seule qui garde l'accent. */
@@ -2266,7 +2865,7 @@ function peindreFiche(){
      lui, reste toujours ouvert. */
   if(!prive || adressePublique){
     b.push(`<button class="btn btn-quiet" onclick="basculerVisibilite('${esc(a.name)}')">
-      ${privé?'Rendre publique':'Rendre privée'}</button>`);
+      ${prive?'Rendre publique':'Rendre privée'}</button>`);
   }else{
     b.push(`<span class="hint" style="align-self:center;max-width:320px">Déclaré l'adresse
       publique du serveur (Paramètres &gt; Serveur) pour pouvoir partager une application.</span>`);
@@ -2294,18 +2893,162 @@ function chargerConfigFiche(){
   $('e-vis-zone').style.display =
     (adressePublique || (a.visibility||'publique')==='publique') ? '' : 'none';
   $('e-err').style.display='none';
+  $('e-logo-err').style.display='none';
+  logoRafraichir();
   $('e-browse').style.display='none';
-  $('e-running').style.display = a.running ? 'flex' : 'none';
-  $('e-save').disabled = !!a.running;
+  /* Le bandeau de redemarrage ne survit pas a un rechargement de la fiche :
+     il parle d'un enregistrement precis, pas d'un etat durable. */
+  $('e-redemarrage').style.display='none';
   /* Le projet de diagnostic ne se supprime pas : c'est lui qui dit si cette
      installation va bien. Le bouton disparait plutot que d'echouer -- mais
      c'est le serveur qui refuse vraiment, la route reste appelable a la
      main. */
   $('e-supprimer').style.display = (a.name === 'diagnostic') ? 'none' : '';
 }
-async function stopThenEdit(){
-  await fetch('/api/toggle/'+ficheNom,{method:'POST'});
-  setTimeout(async()=>{ await refresh(); chargerConfigFiche(); }, 700);
+/* ---------------- conteneuriser une application ---------------- */
+let ctFichiers=[];
+
+async function chargerConteneur(){
+  const zone=$('ct-fichiers');
+  zone.innerHTML='<div class="hint">Lecture du projet...</div>';
+  $('ct-err').style.display='none'; $('ct-msg').style.display='none';
+  let d;
+  try{
+    const r=await fetch('/api/app/'+encodeURIComponent(ficheNom)+'/conteneur');
+    d=await r.json();
+    if(!r.ok) throw new Error(d.error||'');
+  }catch(e){
+    zone.innerHTML='';
+    $('ct-err').textContent=(e && e.message) || 'Lecture impossible.';
+    $('ct-err').style.display='block';
+    return;
+  }
+  ctFichiers=d.fichiers||[];
+  const p=$('ct-pile');
+  p.className='pill '+(d.pile && d.pile!=='inconnue' ? 'on':'off');
+  p.innerHTML='<i></i>'+esc(d.pile||'inconnue');
+
+  /* L'article vit avec le libelle : « besoin de une base » se corrige au
+     bon endroit, pas par une regle de grammaire dans le gabarit. */
+  const services={postgres:"d'une base Postgres", redis:"d'un Redis"};
+  $('ct-resume').innerHTML =
+    (d.indices && d.indices.length
+      ? 'Pile reconnue d\'après <code>'+d.indices.map(esc).join('</code>, <code>')+'</code>. '
+      : "Aucun indice de pile dans le dossier : le Dockerfile est générique, et c'est "
+        + 'à relire de près. ')
+    + ((d.services||[]).length
+      ? 'À côté, l\'application semble avoir besoin '
+        + d.services.map(x=>services[x]||x).join(' et ') + '.'
+      : 'Aucun service voisin détecté.');
+
+  /* Deroules ? Non : cinq fichiers ouverts d'un coup noient la page, et on
+     ne relit qu'un fichier a la fois. */
+  zone.innerHTML = ctFichiers.map((f,i)=>
+    `<details style="margin-bottom:8px">
+       <summary style="cursor:pointer"><b>${esc(f.nom)}</b>
+         <span class="hint" style="display:inline;margin-left:6px">${esc(f.role)}</span>
+         ${f.existe?'<span class="pill off" style="margin-left:8px"><i></i>existe déjà</span>':''}
+       </summary>
+       <div class="actions" style="margin:8px 0">
+         <button class="btn btn-default btn-sm" onclick="ctCopier(${i})">Copier</button>
+       </div>
+       <pre class="pre-conf" id="ct-f${i}">${esc(f.contenu)}</pre>
+     </details>`).join('');
+
+  const conflits=ctFichiers.filter(f=>f.existe).length;
+  $('ct-remplacer').style.display = conflits ? '' : 'none';
+}
+
+async function ctCopier(i){
+  try{ await navigator.clipboard.writeText(ctFichiers[i].contenu);
+       notifier(ctFichiers[i].nom+' copié.'); }
+  catch(e){ notifier('Copie impossible : sélectionne le texte à la main.','err'); }
+}
+
+async function ctPoser(remplacer){
+  const e=$('ct-err'), m=$('ct-msg');
+  e.style.display='none'; m.style.display='none';
+  const b = remplacer ? $('ct-remplacer') : $('ct-poser');
+  b.disabled=true;
+  try{
+    const r=await fetch('/api/app/'+encodeURIComponent(ficheNom)+'/conteneur',
+      {method:'POST', headers:{'Content-Type':'application/json'},
+       body:JSON.stringify({remplacer:!!remplacer})});
+    const d=await r.json();
+    if(!r.ok){ e.textContent=d.error||'Écriture impossible.'; e.style.display='block'; }
+    else{
+      const parts=[];
+      if((d.ecrits||[]).length) parts.push('Déposé : '+d.ecrits.join(', ')+'.');
+      /* On NOMME ce qui n'a pas ete touche : un fichier saute en silence,
+         c'est un fichier qu'on croit ecrit. */
+      if((d.sautes||[]).length) parts.push('Laissé tel quel : '+d.sautes.join(', ')
+        + ' — déjà présent dans le projet.');
+      m.textContent = parts.join(' ') || 'Rien à écrire.';
+      m.style.display='block';
+      chargerConteneur();
+    }
+  }catch(err){ e.textContent='Erreur réseau.'; e.style.display='block'; }
+  finally{ b.disabled=false; }
+}
+
+/* ---------------- le logo d'une application ---------------- */
+function logoChoisir(){ $('e-logo-fichier').click(); }
+
+function logoRafraichir(){
+  /* Le parametre d'horodatage force le navigateur a redemander l'image :
+     l'adresse ne change pas quand le fichier, lui, vient d'etre remplace. */
+  $('e-logo-img').src = icone(ficheNom) + '?v=' + Date.now();
+}
+
+async function logoEnvoyer(entree){
+  const f = entree.files && entree.files[0];
+  entree.value = '';                    /* pour pouvoir renvoyer le meme fichier */
+  if(!f) return;
+  const e = $('e-logo-err'); e.style.display = 'none';
+  if(f.size > 512 * 1024){
+    e.textContent = 'Image trop lourde : ' + Math.round(f.size / 1024)
+      + ' Ko pour 512 Ko au maximum.';
+    e.style.display = 'block'; return;
+  }
+  const btn = $('e-logo-btn'); btn.disabled = true;
+  try{
+    const r = await fetch('/api/app/' + encodeURIComponent(ficheNom) + '/logo',
+      {method:'PUT', headers:{'Content-Type': f.type || 'application/octet-stream'}, body:f});
+    const d = await r.json();
+    if(!r.ok){ e.textContent = d.error || 'Envoi impossible.'; e.style.display = 'block'; }
+    else{ logoRafraichir(); await refresh(); peindreFiche(); notifier('Logo mis à jour.'); }
+  }catch(err){ e.textContent = 'Erreur réseau.'; e.style.display = 'block'; }
+  finally{ btn.disabled = false; }
+}
+
+async function logoRetirer(){
+  const e = $('e-logo-err'); e.style.display = 'none';
+  const r = await fetch('/api/app/' + encodeURIComponent(ficheNom) + '/logo', {method:'DELETE'});
+  const d = await r.json().catch(()=>({}));
+  if(!r.ok){ e.textContent = d.error || 'Suppression impossible.'; e.style.display = 'block'; return; }
+  logoRafraichir(); await refresh(); peindreFiche();
+  notifier((d.retires && d.retires.length) ? 'Logo retiré.'
+    : "Aucun logo déposé par le panneau — l'icône vient du projet lui-même.");
+}
+
+async function redemarrerDepuisConfig(){
+  const b=$('e-redemarrer');
+  b.disabled=true; b.textContent='Redémarrage...';
+  try{
+    const r=await fetch('/api/restart/'+encodeURIComponent(ficheNom),{method:'POST'});
+    if(!r.ok){
+      const d=await r.json().catch(()=>({}));
+      $('e-err').textContent=d.error||'Redémarrage impossible.';
+      $('e-err').style.display='block';
+    }else{
+      $('e-redemarrage').style.display='none';
+    }
+  }catch(e){
+    $('e-err').textContent='Erreur réseau.'; $('e-err').style.display='block';
+  }finally{
+    b.disabled=false; b.textContent='Redémarrer';
+    await refresh(); peindreFiche();
+  }
 }
 function toggleEditBrowse(){
   const z=$('e-browse');
@@ -2335,6 +3078,21 @@ async function submitEdit(){
   e.style.display='none';
   await refresh();
   chargerConfigFiche();
+  /* C'est le serveur qui dit ce qui attend un redemarrage : lui seul sait ce
+     qu'il relit a chaque requete et ce qu'il lit une fois pour toutes. */
+  if(d.redemarrage_requis){
+    const noms={path:'le dossier', command:'la commande de lancement',
+                max_memory_mb:'la limite mémoire'};
+    const liste=(d.champs_en_attente||[]).map(c=>noms[c]||c);
+    $('e-redemarrage-txt').innerHTML='<b>Enregistré.</b> '
+      + (liste.length===1 ? 'Le changement sur ' : 'Les changements sur ')
+      + liste.join(' et ')
+      + (liste.length>1 ? ' ne prendront' : ' ne prendra')+' effet qu\'au redémarrage : '
+      + 'l\'application en cours tourne encore avec la configuration précédente.';
+    $('e-redemarrage').style.display='flex';
+  }else{
+    notifier('Configuration enregistrée.');
+  }
 }
 
 /* ---------------- fiche : metriques ---------------- */
@@ -2504,7 +3262,7 @@ async function chargerPasskeys(){
     <svg viewBox="0 0 24 24"><circle cx="8" cy="12" r="4"/><path d="M12 12h9"/>
     <path d="M17 12v3"/><path d="M20.5 12v2"/></svg>
     <div><b>${esc(k.nom)}</b>
-      <div class="pk-quand">Ajoutée ${esc(ilYA(k.créé))}${
+      <div class="pk-quand">Ajoutée ${esc(ilYA(k.cree))}${
         k.dernier ? ' — dernière utilisation ' + esc(ilYA(k.dernier)) : ' — jamais utilisée'}</div></div>
     <div class="spacer"></div>
     <button class="btn btn-default btn-sm" onclick="pkSupprimer('${esc(k.id)}')">Retirer</button>
@@ -2575,6 +3333,118 @@ function ilYA(ts){
   return new Date(ts*1000).toLocaleDateString();
 }
 function quandPrecis(ts){ return new Date(ts*1000).toLocaleString(); }
+
+/* ---------------- carte de chaleur ---------------- */
+/* Les paliers sont relatifs a la journee la plus chargee de la fenetre
+   regardee : un seuil absolu ("4 ouvertures = fonce") afficherait une carte
+   toute pale sur une installation calme et toute sombre sur une installation
+   chargee. Ce qu'on veut lire, c'est le RELIEF. */
+function carteNiveau(n, sommet){
+  if(!n) return 0;
+  if(sommet <= 1) return 4;
+  const part = n / sommet;
+  return part > .75 ? 4 : part > .5 ? 3 : part > .25 ? 2 : 1;
+}
+
+const CARTE_MOIS=['janv.','févr.','mars','avr.','mai','juin','juil.','août',
+                  'sept.','oct.','nov.','déc.'];
+
+function carteJourCle(d){
+  /* Date locale, et non toISOString() qui repasse en UTC : sur un fuseau a
+     l'est de Greenwich, le 1er janvier redeviendrait le 31 decembre. */
+  const m=String(d.getMonth()+1).padStart(2,'0'), j=String(d.getDate()).padStart(2,'0');
+  return d.getFullYear()+'-'+m+'-'+j;
+}
+
+function peindreCarte(d){
+  const parJour={}; let total=0, sommet=0;
+  for(const j of (d.jours||[])){
+    parJour[j.jour]=j; total+=j.ouvertures;
+    if(j.ouvertures>sommet) sommet=j.ouvertures;
+  }
+  /* On remonte jusqu'au lundi qui precede le debut de la fenetre : sans
+     cela, la premiere colonne serait tronquee et tous les jours de la
+     semaine se decaleraient d'une ligne. */
+  const fin=new Date(); fin.setHours(12,0,0,0);
+  const debut=new Date(fin); debut.setDate(debut.getDate()-((d.fenetre||366)-1));
+  const recul=(debut.getDay()+6)%7;        /* lundi = 0 */
+  debut.setDate(debut.getDate()-recul);
+
+  const cases=[]; const mois=[]; let colonne=[]; let dernierMois=-1;
+  for(let d0=new Date(debut); d0<=fin; d0.setDate(d0.getDate()+1)){
+    const cle=carteJourCle(d0);
+    const e=parJour[cle];
+    const n=e?e.ouvertures:0;
+    const titre = n
+      ? `${n} ouverture${n>1?'s':''} le ${d0.toLocaleDateString()}`
+        + (e.apps>1 ? ` — ${e.apps} applications` : '')
+      : `Aucune ouverture le ${d0.toLocaleDateString()}`;
+    colonne.push(`<div class="carte-case n${carteNiveau(n,sommet)}" title="${esc(titre)}"></div>`);
+    if(colonne.length===7){
+      cases.push(colonne.join('')); colonne=[];
+      /* L'etiquette de mois se pose sur la colonne ou le mois change, une
+         seule fois -- douze reperes valent mieux que cinquante-deux. */
+      const m=d0.getMonth();
+      mois.push(m!==dernierMois ? `<span>${CARTE_MOIS[m]}</span>` : '<span></span>');
+      dernierMois=m;
+    }
+  }
+  if(colonne.length){
+    while(colonne.length<7) colonne.push('<div class="carte-case vide"></div>');
+    cases.push(colonne.join('')); mois.push('<span></span>');
+  }
+  $('carte-zone').innerHTML =
+    `<div class="carte-mois">${mois.join('')}</div>`
+    + `<div class="carte-grille">${cases.join('')}</div>`;
+
+  const jours=Object.keys(parJour).length;
+  $('carte-total').textContent = total
+    ? `${total} ouverture${total>1?'s':''} sur ${jours} jour${jours>1?'s':''}`
+      + (sommet>1 ? ` — au plus ${sommet} dans une journée.` : '.')
+    : "Aucune ouverture d'application sur la période.";
+
+  /* D'ou viennent les chiffres. Le fichier oublie au-dela d'un megaoctet :
+     une carte batie sur lui montre des cases vides qui ne prouvent aucune
+     inactivite, et le taire serait mentir par omission. */
+  const src=$('carte-source');
+  if(d.source==='postgres'){ src.style.display='none'; }
+  else{
+    src.style.display='block';
+    src.innerHTML="Historique lu dans le <b>fichier</b> du panneau, qui ne garde "
+      + "que son dernier mégaoctet : les jours vides les plus anciens peuvent "
+      + "simplement avoir été oubliés. La base garde tout.";
+  }
+}
+
+async function chargerCarte(){
+  /* La liste des personnes vient du resume du journal. Il n'est charge qu'a
+     l'ouverture de la page Utilisateurs : sans cette ligne, le filtre
+     n'aurait aucun nom tant qu'on n'y serait pas passe. */
+  if(!Object.keys(activite.resume.comptes||{}).length) await chargerActivite();
+  /* Les deux listes deroulantes suivent ce qui existe, sans perdre le choix
+     en cours. */
+  const selQui=$('carte-qui'), selApp=$('carte-app');
+  const gardeQui=selQui.value, gardeApp=selApp.value;
+  const comptes=Object.keys((activite&&activite.resume&&activite.resume.comptes)||{})
+    .filter(n=>n).sort();
+  selQui.innerHTML='<option value="">Tout le monde</option>'
+    + comptes.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  selQui.value = comptes.includes(gardeQui) ? gardeQui : '';
+  const noms=(apps||[]).map(a=>a.name).sort();
+  selApp.innerHTML='<option value="">Toutes les applications</option>'
+    + noms.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  selApp.value = noms.includes(gardeApp) ? gardeApp : '';
+
+  const p=new URLSearchParams();
+  if(selQui.value) p.set('qui', selQui.value);
+  if(selApp.value) p.set('app', selApp.value);
+  try{
+    const d=await (await fetch('/api/activite/carte?'+p.toString())).json();
+    peindreCarte(d);
+  }catch(e){
+    $('carte-zone').innerHTML='<div class="hint">Carte indisponible.</div>';
+  }
+}
 
 async function chargerActivite(){
   try{ activite=await (await fetch('/api/activite')).json(); }catch(e){ return; }
@@ -2726,9 +3596,9 @@ function usFiltrer(){ usPeindreListe(); }
 
 function usRetenus(){
   const q=($('us-q').value||'').trim().toLowerCase();
-  const projet=$('us-projet').value||'';
+  /* Plus de filtre par application ici : il doublait l'onglet Acces de la
+     fiche d'application, ou la question se REGLE au lieu de se poser. */
   return usTous.filter(c=>{
-    if(projet && !(c.projets||[]).includes(projet)) return false;
     if(!q) return true;
     return (c.nom+' '+(c.email||'')).toLowerCase().includes(q);
   });
@@ -2795,18 +3665,6 @@ async function chargerUtilisateurs(){
   usTous=comptes;
   usComptes=comptes;
 
-  /* La liste deroulante des applications suit celles qui existent, et garde
-     la selection en cours si elle existe toujours. */
-  const select=$('us-projet');
-  if(select){
-    const choisi=select.value;
-    const noms=[...new Set(comptes.flatMap(c=>c.projets||[]))].sort();
-    for(const a of (apps||[])) if(!noms.includes(a.name)) noms.push(a.name);
-    noms.sort();
-    select.innerHTML='<option value="">toutes les applications</option>'
-      + noms.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
-    select.value = noms.includes(choisi) ? choisi : '';
-  }
   usPeindreListe();
   /* La fiche ouverte suit : les projets ont pu changer pendant qu'elle
      l'etait, et les cases a cocher doivent rester justes. */
@@ -2885,9 +3743,9 @@ function usPeindreFiche(){
   $('us-f-projets').innerHTML = apps.length ? apps.map(a=>{
     const coche = c.projets.includes(a.name) ? ' checked' : '';
     const prive = a.visibility==='privee';
-    return `<label class="us-case${privé?'':' us-public'}">
+    return `<label class="us-case${prive?'':' us-public'}">
       <input type="checkbox" value="${esc(a.name)}"${coche}>
-      ${esc(a.name)}${privé?'':' <span>(public)</span>'}</label>`;
+      ${esc(a.name)}${prive?'':' <span>(public)</span>'}</label>`;
   }).join('') : '<div class="hint">Aucun projet déclaré.</div>';
 
   const morceaux=[];
@@ -3017,7 +3875,7 @@ async function mailConfirmer(){
 
 async function usReinitTotp(){
   const nom=usCourant;
-  if(!await demander('Reinitialiser le second facteur ?',
+  if(!await demander('Réinitialiser le second facteur ?',
     `« ${nom} » enregistrera une nouvelle clé a sa prochaine connexion. A faire quand la personne `
     + `a change ou perdu son téléphone.`, 'Reinitialiser')) return;
   if(await usEcrire({reinitialiser_totp:true}))
@@ -3192,7 +4050,7 @@ async function alPoster(corps, bouton, ou){
     const d=await r.json();
     if(!r.ok){
       /* Le message du serveur SMTP est la seule chose qui aide vraiment ici
-         ("authentification refusee", "relais interdit") : on le montre. */
+         ("authentification refusée", "relais interdit") : on le montre. */
       alMessage((d.error||'Enregistrement impossible.')
                 + (d.detail ? ' — '+d.detail : ''), true, ou);
       return false;
@@ -3268,10 +4126,10 @@ async function chargerSecurite(){
      'securite'],
     ['Administration sur le réseau local', d.admin_reseau_local ? OK : (expose ? ABSENT : HORS),
      d.admin_reseau_local
-       ? "Le compte d'administration ne repond qu'aux adresses de chez toi. Les comptes "
+       ? "Le compte d'administration ne répond qu'aux adresses de chez toi. Les comptes "
          + "nommes entrent toujours de n'importe ou."
        : (expose
-          ? "Ce panneau est joignable de l'exterieur et l'administration y repond. Un mot de "
+          ? "Ce panneau est joignable de l'extérieur et l'administration y répond. Un mot de "
             + "passe qui fuit suffirait. A cocher dans l'onglet Serveur, depuis chez toi."
           : "Sans objet tant que ce panneau ne sort pas du réseau local."),
      'serveur'],
@@ -3298,7 +4156,7 @@ async function chargerSecurite(){
        ? "Les adresses viennent de X-Forwarded-For : la limite de tentatives et le journal "
          + "distinguent les visiteurs."
        : (expose
-          ? "Derriere un proxy non déclaré, tous les visiteurs comptent pour un seul : la "
+          ? "Derrière un proxy non déclaré, tous les visiteurs comptent pour un seul : la "
             + "limite de tentatives de connexion ne protégé plus rien. A cocher dans l'onglet "
             + "Serveur — et seulement s'il y a vraiment un proxy devant."
           : "Sans objet sans proxy devant."),
@@ -3307,7 +4165,7 @@ async function chargerSecurite(){
      d.origines_separees
        ? ("Servies depuis " + (d.origine_applications||'un autre port')
           + " : une faille dans l'une d'elles n'atteint pas le panneau.")
-       : ("Les applications sont servies par le panneau lui-même, donc dans la MEME origine : "
+       : ("Les applications sont servies par le panneau lui-même, donc dans la MÊME origine : "
           + "une faille dans une application quelconque peut lire cette page et piloter la "
           + "stack. Publié le port " + (d.port_applications||9002) + " dans docker-compose.yml."),
      null],
@@ -3368,7 +4226,7 @@ async function chargerSecurite(){
         "Fixe par APP_MANAGER_HTTPS dans le compose.");
   poser('expo-admin-lan', d.admin_reseau_local, d.admin_reseau_local_fige,
         d.peut_activer_admin_reseau_local,
-        "Le compte d'administration ne repond qu'aux adresses du réseau local. "
+        "Le compte d'administration ne répond qu'aux adresses du réseau local. "
         + "Les comptes nommes, eux, entrent toujours de n'importe ou.",
         (d.proxy_non_declare
           ? ("Un proxy non déclaré s'interpose : toutes les requêtes paraitraient locales, "
@@ -3442,7 +4300,7 @@ async function chargerVps(){
   p.innerHTML='<i></i>'+faites+' sur '+etapes.length;
 
   $('vps-diagnostic').innerHTML = etapes.map(e=>
-    `<div class="kv"><span class="k">${esc(e.étape)}</span>
+    `<div class="kv"><span class="k">${esc(e.etape)}</span>
      <span class="v"><span class="pill ${e.ok?'on':'off'}"><i></i>${e.ok?'fait':'non'}</span></span></div>`
     + (e.ok ? '' : `<div class="hint" style="margin:-2px 0 10px">${esc(e.aide)}</div>`)).join('');
 
@@ -3452,16 +4310,27 @@ async function chargerVps(){
       + 'cette image. Ils vivent dans <code>app-manager/vps/</code> du depot.</div>';
     return;
   }
-  /* Replies par defaut : quatre fichiers deroules d'un coup noient la page,
+  /* GROUPES PAR MACHINE. La seule question qu'on se pose devant un fichier
+     de configuration est "je le colle ou ?" : la reponse passe donc avant le
+     fichier, et non dans une note a cote.
+
+     Replies par defaut : quatre fichiers deroules d'un coup noient la page,
      et on n'en copie qu'un a la fois. */
-  zone.innerHTML=(d.fichiers||[]).map((f,i)=>
-    `<détails style="margin-bottom:8px">
-       <summary style="cursor:pointer"><b>${esc(f.destination)}</b></summary>
+  const fichiers=d.fichiers||[];
+  const cotes=[...new Set(fichiers.map(f=>f.cote||''))];
+  zone.innerHTML = cotes.map(cote=>{
+    const siens=fichiers.map((f,i)=>[f,i]).filter(([f])=>(f.cote||'')===cote);
+    return `<div class="mb-titre" style="margin:14px 0 8px">${esc(cote)}</div>`
+      + siens.map(([f,i])=>
+    `<details style="margin-bottom:8px">
+       <summary style="cursor:pointer"><b>${esc(f.destination)}</b>${
+         f.role ? `<div class="hint" style="margin:2px 0 0 0">${esc(f.role)}</div>` : ''}</summary>
        <div class="actions" style="margin:8px 0">
          <button class="btn btn-default btn-sm" onclick="vpsCopier(${i})">Copier</button>
        </div>
        <pre class="pre-conf" id="vps-f${i}">${esc(f.contenu)}</pre>
-     </détails>`).join('');
+     </details>`).join('');
+  }).join('');
 }
 
 async function vpsCopier(i){
@@ -3528,20 +4397,6 @@ async function mdpChanger(){
     }
   }catch(err){ e.textContent='Erreur réseau.'; e.style.display='block'; }
   finally{ b.disabled=false; }
-}
-
-function prefTaille(){
-  const v=$('pref-taille').value;
-  try{ localStorage.setItem('codelab.journal.taille', v); }catch(e){}
-  /* Le journal suit immediatement s'il est deja charge : un reglage qui
-     demande un rechargement pour se voir laisse croire qu'il n'a pas pris. */
-  const t=$('ac-taille'); if(t){ t.value=v; }
-  if(typeof peindreConnexions==='function' && typeof activite!=='undefined'){
-    acPage=1; peindreConnexions();
-  }
-  const m=$('pref-msg');
-  m.textContent=v+' lignes par page dans le journal des connexions.';
-  m.style.display='block';
 }
 
 async function totpPreparer(){

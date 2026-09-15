@@ -1,0 +1,5 @@
+# Empreintes des versions de dagster.yaml livrees par CodeLab avant que la
+# mise a jour automatique n'existe. Cette liste est FIGEE : elle ne decrit
+# que le passe, elle n'a jamais a etre regeneree. Meme role que
+# workspace.sums pour le squelette du workspace.
+664e439b8bc20a6e613bc681e6e88bb869c2153560ddfaef5662318d99669845

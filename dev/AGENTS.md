@@ -123,6 +123,74 @@ sur `http://<serveur>:9001/<nom-du-projet>/`. Cinq regles :
    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor"))
    ```
 
+## Le style de CodeLab
+
+Une application servie par le panneau est vue **dans** CodeLab : elle gagne a
+en porter les couleurs plutot qu'a en inventer d'autres. Le theme est servi par
+le panneau, sur la meme origine que ton application.
+
+```html
+<link rel="stylesheet" href="/theme.css">
+```
+
+Tu disposes alors de ces variables. **Ne recopie jamais leurs valeurs** : une
+palette recopiee est une palette qui divergera le jour ou le panneau changera
+la sienne.
+
+| Variable | Ce que c'est |
+|---|---|
+| `--bg` `--surface` `--surface2` | le fond de la page, les cartes, les fonds sourds |
+| `--line` `--line2` | les traits : separation, et bordure d'un champ |
+| `--txt` `--dim` `--dim2` | le texte, le texte secondaire, le texte tres discret |
+| `--accent` `--accent-h` `--accent-soft` | **ce qui se clique**, et rien d'autre |
+| `--ok` `--warn` `--err` (+ `-bg`, `-border`) | les etats : en ligne, a surveiller, en panne |
+| `--r` `--r-s` `--r-xs` | les rayons : carte, bouton, pastille |
+| `--t-xs` a `--t-xl` | l'echelle de tailles de texte |
+| `--sans` `--mono` | les polices : Manrope, et la chasse fixe pour le code |
+
+### Les cinq regles qui font qu'une page ressemble a CodeLab
+
+1. **L'accent ne designe que ce qui se clique.** Les etats ont leurs propres
+   couleurs. Un vert veut dire "en ligne" partout, un rouge "en panne"
+   partout, et le turquoise ne veut jamais dire autre chose que
+   "actionnable". Sans cette separation, une ligne en panne se confond avec
+   un bouton -- et c'est exactement le cas ou il ne faut pas se tromper.
+2. **La severite se lit au bord.** Une ligne de tableau porte un bandeau de
+   3 px sur son bord gauche : `box-shadow:inset 3px 0 0 var(--ok)`. On repere
+   une anomalie sans lire une seule ligne.
+3. **Le trait plutot que l'ombre.** La hierarchie vient des bordures et des
+   fonds. Une carte : `background:var(--surface)`, `border:1px solid
+   var(--line)`, `border-radius:var(--r)`, et une ombre d'un pixel au plus.
+   Rien ne se souleve au survol.
+4. **Les chiffres s'alignent.** `font-variant-numeric:tabular-nums` partout ou
+   des nombres se lisent en colonne. C'est cette propriete qui les aligne, pas
+   la chasse fixe -- `--mono` est reserve a ce qui EST du code.
+5. **Aucune police tierce.** `--sans` suffit. Un serveur auto-heberge qui irait
+   chercher sa police chez Google ferait fuiter l'adresse IP de chaque
+   visiteur, et s'afficherait mal des que la machine est hors ligne.
+
+### Le squelette d'une page
+
+```html
+<link rel="stylesheet" href="/theme.css">
+<style>
+  body{background:var(--bg);color:var(--txt);font:var(--t-b)/1.5 var(--sans)}
+  .carte{background:var(--surface);border:1px solid var(--line);
+         border-radius:var(--r);padding:14px 16px}
+  .etat{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;
+        border-radius:999px;font-size:var(--t-xs);font-weight:700;
+        color:var(--ok);background:var(--ok-bg)}
+</style>
+```
+
+`workspace/diagnostic/app.py` est l'exemple de reference : c'est une
+application comme les tiennes, et elle se lit comme une page du panneau.
+
+**Le theme clair / sombre suit le systeme.** Le choix manuel fait dans le
+panneau vit dans le stockage de SON origine, que ton application ne peut pas
+lire -- c'est cette separation qui l'empeche aussi de lire la session. Ne
+cherche pas a la contourner.
+
 ## Configuration et secrets
 
 - **Aucun mot de passe, jeton ou cle en clair dans le code**, jamais.

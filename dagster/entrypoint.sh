@@ -98,9 +98,66 @@ if [ ! -f "$PERM_MARKER" ]; then
 fi
 
 mkdir -p "${DAGSTER_HOME}"
-if [ ! -f "${DAGSTER_HOME}/dagster.yaml" ]; then
-  cp /opt/dagster/dagster.yaml.default "${DAGSTER_HOME}/dagster.yaml"
+
+# --------------------------- dagster.yaml ---------------------------
+#
+# Copie au premier demarrage, puis MIS A JOUR tant que personne n'y a touche.
+#
+# Sans cette mise a jour, ce fichier etait ecrit une fois pour toutes : une
+# correction livree dans l'image n'atteignait aucune installation existante.
+# Cela s'est paye -- la file d'attente des runs, ajoutee justement pour que
+# des runs planifies ne fassent plus tomber le webserver, ne serait arrivee
+# sur aucune machine deja installee.
+#
+# Meme discipline que pour le squelette du workspace, et pour les memes
+# raisons : la preuve porte sur le CONTENU (une date de conteneur ne veut
+# rien dire), on ne remplace QUE ce qui est intact, et ce que CodeLab ecrit
+# il le note pour le reconnaitre au demarrage suivant. Les installations
+# anterieures a ce mecanisme n'ont rien de note : la liste figee
+# dagster.yaml.sums les rattrape.
+DAGSTER_YAML="${DAGSTER_HOME}/dagster.yaml"
+DAGSTER_YAML_NOTE="${DAGSTER_HOME}/.codelab-dagster-yaml"
+DAGSTER_YAML_SUMS=/opt/dagster/dagster.yaml.sums
+
+if [ ! -f "$DAGSTER_YAML" ]; then
+  cp /opt/dagster/dagster.yaml.default "$DAGSTER_YAML"
+  sha256sum < "$DAGSTER_YAML" | cut -d' ' -f1 > "$DAGSTER_YAML_NOTE" 2>/dev/null || true
   echo "[codelab] dagster.yaml initialise dans ${DAGSTER_HOME} (stockage Postgres)."
+elif [ -L "$DAGSTER_YAML" ]; then
+  # Jamais a travers un lien : ce bloc tourne en root.
+  echo "[codelab] dagster.yaml est un lien symbolique : laisse tel quel." >&2
+else
+  somme_disque=$(sha256sum < "$DAGSTER_YAML" | cut -d' ' -f1)
+  somme_image=$(sha256sum < /opt/dagster/dagster.yaml.default | cut -d' ' -f1)
+  if [ "$somme_disque" = "$somme_image" ]; then
+    echo "$somme_disque" > "$DAGSTER_YAML_NOTE" 2>/dev/null || true
+  else
+    notee=""
+    [ -f "$DAGSTER_YAML_NOTE" ] && [ ! -L "$DAGSTER_YAML_NOTE" ] \
+      && notee=$(head -n 1 "$DAGSTER_YAML_NOTE" 2>/dev/null)
+    if [ -n "$notee" ]; then
+      [ "$notee" = "$somme_disque" ] && intact=oui || intact=non
+    elif [ -f "$DAGSTER_YAML_SUMS" ] && grep -q "^$somme_disque\$" "$DAGSTER_YAML_SUMS"; then
+      intact=oui
+    else
+      intact=non
+    fi
+    if [ "$intact" = oui ]; then
+      tmp=$(mktemp "${DAGSTER_HOME}/.dagster-yaml-XXXXXX" 2>/dev/null) || tmp=""
+      if [ -n "$tmp" ] && cat /opt/dagster/dagster.yaml.default > "$tmp" 2>/dev/null; then
+        # Renommage atomique : un arret au mauvais moment laisse l'ancien
+        # fichier entier, jamais une configuration a moitie ecrite.
+        mv "$tmp" "$DAGSTER_YAML"
+        echo "$somme_image" > "$DAGSTER_YAML_NOTE" 2>/dev/null || true
+        echo "[codelab] dagster.yaml mis a jour depuis l'image (il n'avait pas ete modifie)."
+      else
+        [ -n "$tmp" ] && rm -f "$tmp"
+      fi
+    else
+      echo "[codelab] dagster.yaml modifie sur place : laisse tel quel" \
+           "(reference dans /opt/dagster/dagster.yaml.default)."
+    fi
+  fi
 fi
 
 # --------------------------- amorcage du workspace ---------------------------

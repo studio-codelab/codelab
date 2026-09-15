@@ -45,3 +45,43 @@ schedule_storage:
         env: DAGSTER_PG_DB
       port:
         env: DAGSTER_PG_PORT
+
+# ==========================================================================
+# FILE D'ATTENTE DES RUNS
+#
+# Pourquoi ce bloc existe. Depuis qu'un planning declenche le diagnostic
+# toutes les quinze minutes, les runs ne sont plus lances a la main : ils
+# arrivent tout seuls, 96 fois par jour. Sans coordinateur, Dagster les
+# demarre TOUS immediatement, chacun dans son propre processus qui importe
+# dagster et le code du projet. Sur une machine de la taille d'une ZimaBlade,
+# quelques runs qui se chevauchent suffisent a faire tomber le webserver --
+# et ce qu'on voit alors, c'est un « 502 Bad Gateway » qui ne dit rien.
+#
+# Un seul run a la fois, donc. Un diagnostic dure quelques secondes ; la
+# limite ne freine rien et borne la memoire pour de bon.
+run_coordinator:
+  module: dagster.core.run_coordinator
+  class: QueuedRunCoordinator
+  config:
+    max_concurrent_runs: 1
+
+# Un run dont le processus a disparu -- tue par le noyau faute de memoire,
+# par exemple -- restait "en cours" pour toujours : il occupait la place de
+# la file ci-dessus, et plus rien ne partait. Le daemon le declare echoue au
+# bout du delai, ce qui libere la file ET fait partir l'alerte.
+#
+# Aucune reprise automatique : relancer tout seul un run tue pour cause de
+# memoire est le meilleur moyen de retuer la machine.
+run_monitoring:
+  enabled: true
+  max_resume_run_attempts: 0
+
+# Les ticks de planning et de capteur s'accumulent sinon indefiniment dans
+# Postgres : 96 ticks par jour pour le seul diagnostic, et le capteur en
+# ajoute un toutes les 30 secondes. Sept jours suffisent largement pour
+# comprendre ce qui s'est passe.
+retention:
+  schedule:
+    purge_after_days: 7
+  sensor:
+    purge_after_days: 7
