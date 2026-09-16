@@ -2009,7 +2009,8 @@ CHEMINS_ETAT = [
     "STATE_DIR", "APPS_FILE", "LOG_DIR", "UTILISATEURS_FILE", "PASSKEYS_FILE",
     "ACCES_FILE", "PROCESSUS_FILE", "MASQUEES_FILE", "MESSAGES_FILE", "CHILD_HOME", "ALERTES_FILE", "SMTP_FILE",
     "CATEGORIES_FILE",
-    "EXPOSITION_FILE", "DIAGNOSTIC_MARQUEUR", "SHARED_CONFIG_DIR",
+    "EXPOSITION_FILE", "DIAGNOSTIC_MARQUEUR", "ICONE_DAGSTER_CACHE",
+    "SHARED_CONFIG_DIR",
     "SHARED_ENV_FILE", "LEGACY_ADMIN_PASSWORD_FILE", "LEGACY_SECRET_KEY_FILE",
 ]
 
@@ -2041,6 +2042,7 @@ def _bac_a_sable(tmp_path, monkeypatch):
         "CATEGORIES_FILE": str(etat / "categories.json"),
         "EXPOSITION_FILE": str(etat / "exposition.json"),
         "DIAGNOSTIC_MARQUEUR": str(etat / "diagnostic-inscrit"),
+        "ICONE_DAGSTER_CACHE": str(etat / "dagster-icone"),
         "SHARED_CONFIG_DIR": str(partage),
         "SHARED_ENV_FILE": str(partage / "credentials.env"),
         "LEGACY_ADMIN_PASSWORD_FILE": str(etat / "admin_password"),
@@ -8932,7 +8934,12 @@ def test_une_application_par_defaut_est_reservee_a_l_administrateur(hub_dagster)
     _connecte(c, "marie", "un-mot-de-passe")
     for nom in app.APPS_PAR_DEFAUT:
         r = c.get(f"/{nom}/")
-        assert r.status_code in (403, 404), f"{nom} -> {r.status_code}"
+        # Refuse, quelle que soit la forme du refus : une page renvoie vers
+        # la connexion, une API rend 403. Ce qui compte est qu'aucune des
+        # deux ne mene a l'application.
+        assert r.status_code in (302, 403, 404), f"{nom} -> {r.status_code}"
+        if r.status_code == 302:
+            assert r.headers["Location"].endswith("/login"), r.headers["Location"]
     # Son propre projet, lui, s'ouvre toujours.
     assert c.get("/site/").status_code != 403
 
@@ -9068,6 +9075,221 @@ def test_le_diagnostic_porte_sa_marque_partout(hub_dagster):
     assert r.status_code == 200 and b"<text" not in r.data
     # Le meme geste : un trace ouvert, pas une lettre ni un cercle.
     assert b"<path" in r.data and b"stroke" in r.data
+
+
+# ---------- 32. Dagster se comporte comme les autres applications ----------
+#
+# Demande : « Ajoute les memes fonctionnalites dans dagster que dans
+# diagnostic : metriques, journal, activite. Le logo doit etre le logo
+# officiel. Le bouton de retour doit apparaitre. Dagster doit s'ouvrir a la
+# place de la page actuelle. »
+#
+# La difficulte tient en une phrase : DAGSTER TOURNE DANS UN AUTRE
+# CONTENEUR. Le panneau n'a pas son pid, donc ni son processeur ni sa
+# memoire -- et il ne les aura jamais, sauf a lui donner la socket Docker,
+# ce qui reviendrait a lui donner la machine. Ce qu'il mesure est donc ce
+# qu'un service d'en face laisse voir : repond-il, et en combien de temps.
+
+class _ReponseSimulee:
+    """Ce que urlopen rend, reduit a ce dont le panneau se sert."""
+
+    def __init__(self, octets=b"", type_mime="image/png", status=200):
+        self._octets, self.status = octets, status
+        self.headers = {"Content-Type": type_mime}
+
+    def read(self, *a):
+        return self._octets
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def test_dagster_porte_le_logo_que_dagster_sert(hub_dagster, monkeypatch):
+    """Un dessin fait a la main ne sera jamais le logo de Dagster.
+
+    L'application porte le sien, a la racine de son serveur, et le panneau
+    sait lui parler : il le lui demande. C'est LE logo, et il suivra ses
+    evolutions sans que personne ne le redessine.
+    """
+    png = b"\x89PNG\r\n\x1a\n" + b"x" * 40
+    demandes = []
+
+    def faux_urlopen(url, **kw):
+        demandes.append(url)
+        return _ReponseSimulee(png)
+
+    monkeypatch.setattr(app.urllib.request, "urlopen", faux_urlopen)
+    app._icone_dagster.update(quand=0.0, octets=b"", type="")
+    hub_dagster.post("/login", json={"password": "secret-de-test"})
+    r = hub_dagster.get("/api/icon/dagster")
+    assert r.status_code == 200 and r.data == png
+    # Demande a DAGSTER, pas a son proxy : le proxy exige une session pour
+    # tout, l'amont repond sans rien demander.
+    assert app.DAGSTER_AMONT in demandes[0], demandes
+
+    # Ce qui n'est pas une image est refuse, meme annonce comme telle : une
+    # tuile cassee est pire qu'un repli. Dagster rend d'ailleurs sa page
+    # d'accueil en 200 pour un chemin inconnu.
+    # Et une fois obtenu, il est GARDE sur le disque : un panneau qui
+    # redemarre pendant que Dagster n'est pas encore debout ne doit pas
+    # reafficher un repli.
+    assert os.path.exists(app.ICONE_DAGSTER_CACHE)
+
+    # Ce qui n'est pas une image est refuse, meme annonce comme telle : une
+    # tuile cassee est pire qu'un repli. Dagster rend d'ailleurs sa page
+    # d'accueil en 200 pour un chemin inconnu. (On efface le cache : sinon
+    # c'est le bon logo de tout a l'heure qui repond, ce qui est le
+    # comportement voulu mais pas ce qu'on verifie ici.)
+    monkeypatch.setattr(app.urllib.request, "urlopen",
+                        lambda url, **kw: _ReponseSimulee(b"<html>pas une image</html>"))
+    os.remove(app.ICONE_DAGSTER_CACHE)
+    app._icone_dagster.update(quand=0.0, octets=b"", type="")
+    r = hub_dagster.get("/api/icon/dagster")
+    assert b"<html>" not in r.data
+    assert r.mimetype == "image/svg+xml", "le repli dessine n'a pas pris la main"
+
+
+def test_le_panneau_mesure_ce_qu_il_peut_de_dagster(monkeypatch, tmp_path):
+    """Temps de reponse et disponibilite : ce qui compte pour un service
+    qu'on ne fait pas tourner soi-meme.
+
+    Le JOURNAL ne recoit que les CHANGEMENTS d'etat. Une ligne toutes les
+    dix secondes pour dire que tout va bien n'est pas un journal, c'est un
+    mur -- et le vrai incident s'y noie.
+    """
+    monkeypatch.setattr(app, "LOG_DIR", str(tmp_path / "logs"))
+    app._metrics_history.pop(app.DAGSTER_NOM, None)
+    app._dagster_suivi["debout"] = None
+
+    monkeypatch.setattr(app, "dagster_sonde", lambda: (True, 12.0))
+    app.dagster_tick()
+    app.dagster_tick()
+    points = app.get_metrics_history(app.DAGSTER_NOM)
+    assert len(points) == 2, "les mesures ne s'accumulent pas"
+    assert points[-1][1] == 12.0 and points[-1][2] == 100.0
+
+    journal = tmp_path / "logs" / "dagster.log"
+    assert journal.read_text().count("répond") == 1, (
+        "le journal repete un etat qui n'a pas change")
+
+    # Il tombe : une ligne, et une seule.
+    monkeypatch.setattr(app, "dagster_sonde", lambda: (False, 5000.0))
+    app.dagster_tick()
+    app.dagster_tick()
+    texte = journal.read_text()
+    assert texte.count("ne répond pas") == 1
+    assert app.get_metrics_history(app.DAGSTER_NOM)[-1][2] == 0.0
+
+    # Et la fiche lit ces mesures comme celles des autres applications.
+    assert app.DAGSTER_NOM not in app.load()
+
+
+def test_ouvrir_dagster_note_l_ouverture_et_redirige(hub_dagster, monkeypatch, tmp_path):
+    """Trois choses en une redirection : l'ouverture est notee -- c'est ce
+    qui donne a Dagster l'onglet « Activite » --, elle s'ouvre a la place de
+    la page, et l'adresse est construite par le serveur."""
+    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
+    # Le MEME hote pour la connexion et pour l'ouverture : le cookie de
+    # session appartient a l'hote, et se connecter ailleurs ne le porterait
+    # pas jusqu'ici.
+    hub_dagster.post("/login", json={"password": "secret-de-test"},
+                     base_url="http://machine:9001")
+    r = hub_dagster.get("/dagster/", base_url="http://machine:9001")
+    assert r.status_code == 302
+    assert r.headers["Location"] == f"http://machine:{app.DAGSTER_PORT}/"
+    lignes = [json.loads(l) for l in open(app.ACCES_FILE) if l.strip()]
+    ouvertures = [e for e in lignes if e.get("genre") == "ouverture"
+                  and e.get("app") == app.DAGSTER_NOM]
+    assert ouvertures, "l'ouverture n'est pas notee : pas d'onglet Activite"
+
+
+# ---------- 33. une application par defaut ne se lance pas a la main ----------
+#
+# Demande : « Diagnostic ne peut pas se relancer, arreter ou redemarrer ou
+# deployer. » CodeLab les tient debout lui-meme. Les laisser s'arreter a la
+# main creait un piege : n'etant pas configurables, rien n'aurait permis de
+# les rallumer ensuite.
+
+def test_une_application_par_defaut_ne_se_lance_pas_a_la_main(hub_dagster):
+    c = hub_dagster
+    c.post("/login", json={"password": "secret-de-test"})
+    apps = app.load()
+    apps[app.DIAGNOSTIC_NOM] = {"path": str(DOSSIER_PANNEAU), "command": "x",
+                                "port": 9109, "enabled": True,
+                                "build_command": "pip install .",
+                                "visibility": "privee"}
+    app.save(apps)
+    for route in (f"/api/toggle/{app.DIAGNOSTIC_NOM}",
+                  f"/api/restart/{app.DIAGNOSTIC_NOM}",
+                  f"/api/deploy/{app.DIAGNOSTIC_NOM}"):
+        r = c.post(route)
+        assert r.status_code == 403, f"{route} -> {r.status_code}"
+        assert "défaut" in (r.get_json() or {}).get("error", ""), route
+    # Le BUILD reste : la page du diagnostic demande elle-meme d'installer
+    # son pilote Postgres, et c'est le seul moyen de le faire.
+    assert c.post(f"/api/build/{app.DIAGNOSTIC_NOM}").status_code != 403
+    # Une application ordinaire se pilote toujours.
+    assert c.post("/api/toggle/site").status_code != 403
+
+
+def test_le_panneau_tient_ses_applications_par_defaut_debout(hub_dagster):
+    """Elles ne se demarrent plus a la main, donc quelqu'un doit s'en charger.
+
+    Sans ce rattrapage, une installation ou le diagnostic se trouvait arrete
+    au moment de la mise a jour restait bloquee : plus de bouton pour le
+    rallumer, et rien pour le faire a sa place.
+    """
+    apps = app.load()
+    apps[app.DIAGNOSTIC_NOM] = {"path": "/w/diag", "command": "x", "port": 9109,
+                                "enabled": False, "visibility": "privee"}
+    app.save(apps)
+    app.tenir_les_applications_par_defaut()
+    remis = app.load()[app.DIAGNOSTIC_NOM]
+    assert remis["enabled"] is True
+    # Et la description, qui ne s'ecrit pas a la main : la fiche d'une
+    # application par defaut n'a pas de formulaire.
+    assert remis["description"] == app.DIAGNOSTIC_DESCRIPTION
+
+    # Une description deja posee n'est jamais ecrasee.
+    apps = app.load()
+    apps[app.DIAGNOSTIC_NOM]["description"] = "la mienne"
+    app.save(apps)
+    app.tenir_les_applications_par_defaut()
+    assert app.load()[app.DIAGNOSTIC_NOM]["description"] == "la mienne"
+
+
+def test_les_applications_par_defaut_ne_s_autorisent_pas_dans_la_page():
+    """Une case a cocher qui ne coche rien est pire qu'une case absente : on
+    croit avoir donne un acces qui n'existe pas."""
+    page = _page_panneau("dashboard.html")
+    bloc = page.split("$('us-f-projets').innerHTML =")[0].split("const declares")[1]
+    assert "!a.par_defaut" in bloc
+
+
+def test_le_menu_ne_defile_pas_avec_la_page():
+    """Il partait avec elle : sur une longue liste, changer de rubrique
+    demandait de remonter d'abord."""
+    page = _page_panneau("dashboard.html")
+    bloc = page.split(".sidebar{")[1].split("}")[0]
+    assert "position:sticky" in bloc and "top:52px" in bloc
+    # Sans align-items:flex-start, le menu est etire a la hauteur du contenu
+    # et « sticky » n'a plus rien a coller.
+    corps = page.split(".page-body{")[1].split("}")[0]
+    assert "align-items:flex-start" in corps
+
+
+def test_le_hub_porte_le_nom_de_codelab_et_rien_de_plus():
+    """Le sous-titre expliquait la grille d'icones, et disait a
+    l'administrateur ce que voient les autres -- au-dessus de SES
+    applications."""
+    page = _page_panneau("dashboard.html")
+    assert "CodeLab Hub" in page
+    assert "Toutes les applications déclarées" not in page
+    assert "Les applications que ton administrateur" not in page
+    assert 'id="hub-sous"' not in page
 
 
 def test_les_sondes_regardent_au_dela_de_la_stack():
@@ -10688,16 +10910,30 @@ def test_dagster_ne_parait_pas_pour_un_compte_utilisateur(hub_dagster):
     assert d["services"] == []
 
 
-def test_la_tuile_de_dagster_s_ouvre_dans_un_autre_onglet():
-    """Il vit sur un autre port, sans le ruban qui ramene au panneau : y
-    aller dans l'onglet courant, c'est perdre le hub."""
+def test_la_tuile_de_dagster_s_ouvre_a_la_place_de_la_page():
+    """Elle s'ouvrait dans un nouvel onglet, faute de chemin de retour.
+
+    Le proxy de Dagster pose desormais le meme ruban « CodeLab » que les
+    applications hebergees : la raison d'ouvrir ailleurs a disparu, et une
+    tuile qui se comporte autrement que ses voisines se remarque.
+    """
     page = _page_panneau("dashboard.html")
     bloc = page.split("const tuile = a =>")[1].split("`;")[0]
-    assert "a.url || urlApplication(a.name)" in bloc, (
-        "la tuile ignore l'adresse propre d'un service")
-    assert 'target="_blank"' in bloc and "rel=\"noopener\"" in bloc
-    # Peints dans la MEME grille, ranges avec les applications.
-    assert "hubApps.concat(hubServices)" in page
+    assert "target=" not in bloc, "la tuile ouvre encore un autre onglet"
+    # L'adresse d'un service passe par le panneau, qui note l'ouverture puis
+    # redirige : c'est ce qui lui donne l'onglet « Activite » des autres.
+    assert "a.externe ? '/'+encodeURIComponent(a.name)+'/'" in bloc
+
+    # Et le ruban de retour est bien pose par le proxy de Dagster, qui est le
+    # seul a pouvoir le faire sans casser les websockets de son interface.
+    chemin = _fichier_du_depot("dagster", "proxy", "nginx.conf")
+    if chemin is None:
+        pytest.skip("proxy dagster absent de cette image")
+    conf = open(chemin, encoding="utf-8").read()
+    assert "sub_filter" in conf and "codelab-retour-hub" in conf
+    # Sans cette ligne, le filtre ne s'applique pas : nginx ne sait pas
+    # retoucher un corps compresse, et laisse passer sans rien dire.
+    assert 'proxy_set_header Accept-Encoding ""' in conf
 
 
 def test_les_applications_par_defaut_ont_leur_icone(hub_dagster, tmp_path):

@@ -119,7 +119,9 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 .acct-item.acct-sortir:hover{background:var(--err-bg);color:var(--err)}
 
 /* ------------------------------ colonne de gauche ------------------------------ */
-.page-body{display:flex;min-height:calc(100vh - 52px)}
+/* align-items:flex-start : sans lui, le menu est etire a la hauteur du
+   contenu et « position:sticky » n'a plus rien a coller. */
+.page-body{display:flex;min-height:calc(100vh - 52px);align-items:flex-start}
 /* LA COLONNE SE REDUIT SANS RIEN FAIRE SAUTER.
    Avant, replier la colonne posait display:none sur les libelles et
    recentrait les items : le texte disparaissait d'un coup, et les icones
@@ -131,9 +133,15 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
    (min-width:0) et la colonne le rogner (overflow:hidden). Le libelle
    s'efface donc progressivement, a la vitesse de la largeur, au lieu de
    disparaitre avant elle. */
+/* LE MENU RESTE EN PLACE PENDANT QUE LA PAGE DEFILE.
+   Il partait avec elle : sur la vue d'ensemble ou une longue liste
+   d'applications, changer de rubrique demandait de remonter d'abord. Il se
+   colle donc sous la barre du haut (52 px) et garde sa propre hauteur ; s'il
+   devenait lui-meme trop long, c'est LUI qui defile, pas la page. */
 .sidebar{width:212px;flex:none;background:var(--nav);color:var(--nav-dim);
  display:flex;flex-direction:column;padding:12px 8px 10px;
- border-right:1px solid var(--nav-line);overflow:hidden;
+ border-right:1px solid var(--nav-line);overflow-x:hidden;overflow-y:auto;
+ position:sticky;top:52px;height:calc(100vh - 52px);
  transition:width .14s ease}
 .sidebar.collapsed{width:62px}
 .sidebar.collapsed .side-label,.sidebar.collapsed .side-item span,
@@ -1108,7 +1116,7 @@ table.tbl-journal{min-width:560px}
       <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/>
       <rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/>
       <rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
-      <span>Hub</span></div>
+      <span>CodeLab Hub</span></div>
     <div class="side-sep"></div>
     <div class="side-item" data-sec="overview" onclick="showSection('overview')">
       <svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="10" rx="1.5"/>
@@ -1146,7 +1154,7 @@ table.tbl-journal{min-width:560px}
   <div class="toolbar"><h2 id="hub-titre">Mes applications</h2>
     <div class="spacer"></div>
   </div>
-  <div class="sous" id="hub-sous"></div>
+
   <div class="hint" id="hub-masquees" style="display:none;margin:-8px 0 14px"></div>
   <div id="hub-liste" class="hub-liste"></div>
 
@@ -1318,15 +1326,15 @@ table.tbl-journal{min-width:560px}
   <div class="onglet" id="onglet-metriques">
     <div class="cartes c2">
       <div class="card">
-        <div class="metrique"><b id="mt-cpu-val">0%</b><span>CPU maintenant</span></div>
+        <div class="metrique"><b id="mt-cpu-val">0%</b><span id="mt-cpu-titre">CPU maintenant</span></div>
         <div class="spark-wrap" id="mt-cpu"></div>
       </div>
       <div class="card">
-        <div class="metrique"><b id="mt-mem-val">0 Mo</b><span>Mémoire maintenant</span></div>
+        <div class="metrique"><b id="mt-mem-val">0 Mo</b><span id="mt-mem-titre">Mémoire maintenant</span></div>
         <div class="spark-wrap" id="mt-mem"></div>
       </div>
     </div>
-    <div class="hint" style="margin-top:12px">Sur les deux dernières minutes environ, relevé toutes les 5 secondes.</div>
+    <div class="hint" style="margin-top:12px" id="mt-note">Sur les deux dernières minutes environ, relevé toutes les 5 secondes.</div>
   </div>
 
   <div class="onglet" id="onglet-journal">
@@ -3173,9 +3181,9 @@ async function chargerHub(){
 }
 function peindreHub(){
   const classeListe = 'hub-liste compacte';
-  $('hub-sous').textContent = estAdmin
-    ? 'Toutes les applications déclarées. C\'est cette page que voient les comptes utilisateurs, limitée à ce que tu leur autorises.'
-    : 'Les applications que ton administrateur t\'a autorisées.';
+  /* Plus de sous-titre : la grille d'icones se passe d'etre expliquee, et la
+     phrase qui disait a l'administrateur ce que voient les autres n'avait
+     rien a faire au-dessus de SES applications. */
 
   /* Applications et services dans la meme grille, ranges ensemble par leur
      nom : on vient au hub pour OUVRIR quelque chose, et ce qui l'ouvre ne
@@ -3205,12 +3213,13 @@ function peindreHub(){
   }
   /* Rien d'autre qu'un lien : une tuile du hub sert a ouvrir une
      application. Ce qu'on affiche ou non se regle dans les parametres. */
-  /* Un service ouvre sa PROPRE adresse, et dans un nouvel onglet : il vit
-     sur un autre port, sans le ruban qui ramene au panneau -- y aller dans
-     l'onglet courant, c'est perdre le hub. */
+  /* TOUTES LES TUILES S'OUVRENT DE LA MEME FACON : a la place de la page.
+     Dagster s'ouvrait dans un nouvel onglet, faute de chemin de retour. Son
+     proxy pose desormais le meme ruban « CodeLab » que les applications
+     hebergees, et son adresse passe par le panneau -- qui note l'ouverture
+     au passage, puis redirige. */
   const tuile = a => `<a class="hub-projet ${a.running?'':'arretee'}"
-      href="${a.url || urlApplication(a.name)}"
-      ${a.externe ? 'target="_blank" rel="noopener"' : ''}
+      href="${a.externe ? '/'+encodeURIComponent(a.name)+'/' : urlApplication(a.name)}"
       title="${esc(a.description||a.name)}">
       <img src="${icone(a.name)}" alt="">
       <div class="txt"><div class="nom">${esc(a.name)}</div>
@@ -3544,16 +3553,20 @@ function peindreFiche(){
        page vide : on revient au premier. */
     if(cache && b.classList.contains('active')) ficheOnglet('general');
   });
-  /* Un service vit sur son propre port : ni journal, ni metriques, ni
-     activite a montrer -- le panneau ne le lance pas. */
-  ['metriques','journal','activite'].forEach(o=>{
-    const b=document.querySelector(`#fiche-onglets button[data-o="${o}"]`);
-    if(b){
-      b.style.display = externe ? 'none' : '';
-      if(externe && b.classList.contains('active')) ficheOnglet('general');
-    }
-  });
   $('fa-defaut').style.display = parDefaut ? '' : 'none';
+  /* CE QU'ON MESURE D'UN SERVICE QU'ON NE FAIT PAS TOURNER.
+     Dagster vit dans un autre conteneur : le panneau n'a pas son pid, donc
+     ni son processeur ni sa memoire. Ce qu'il mesure, c'est ce qui compte
+     pour un service d'en face -- repond-il, et en combien de temps. Les deux
+     courbes portent cela, et elles le DISENT : une courbe intitulee « CPU »
+     qui montrerait autre chose serait pire que pas de courbe. */
+  $('mt-cpu-titre').textContent = externe ? 'Temps de réponse' : 'CPU maintenant';
+  $('mt-mem-titre').textContent = externe ? 'Disponibilité' : 'Mémoire maintenant';
+  $('mt-note').textContent = externe
+    ? "Mesuré par le panneau, toutes les 10 secondes : une requête à Dagster "
+      + "et le temps qu'elle met à revenir. Le panneau ne voit ni le processeur "
+      + "ni la mémoire d'un autre conteneur."
+    : 'Sur les deux dernières minutes environ, relevé toutes les 5 secondes.';
   $('fa-icone').src=icone(a.name);
   $('fa-nom').textContent=a.name;
   $('fa-sous').textContent=a.description || 'Aucune description';
@@ -3594,10 +3607,16 @@ function peindreFiche(){
   const svgOuvrir='<svg viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 13v6a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h6"/></svg>';
 
   const b=[];
-  /* Un service externe : le panneau ne le demarre pas, ne l'arrete pas, ne
-     le deploie pas. Il ouvre, et c'est tout. */
-  if(externe){
-    b.push(`<a class="btn btn-primary" href="${a.url}" target="_blank" rel="noopener">${svgOuvrir}Ouvrir</a>`);
+  /* UNE APPLICATION PAR DEFAUT NE SE LANCE PAS A LA MAIN. CodeLab la tient
+     debout : remise en marche au demarrage du panneau, relancee par le
+     moniteur si elle tombe. Lui laisser un bouton « Arrêter » creait un
+     piege -- n'etant pas configurable, rien n'aurait permis de la rallumer
+     ensuite. Le build reste, lui : la page du diagnostic demande elle-meme
+     d'installer son pilote Postgres. */
+  if(parDefaut){
+    if(a.has_build)
+      b.push(`<button class="btn btn-refaire" data-agir="app-build" data-cible="${esc(a.name)}">${svgBuild}Build</button>`);
+    b.push(`<a class="btn btn-primary" href="${externe ? '/'+encodeURIComponent(a.name)+'/' : urlApplication(a.name)}">${svgOuvrir}Ouvrir</a>`);
     $('fa-actions').innerHTML=b.join('');
     return;
   }
@@ -3950,12 +3969,20 @@ function sparklineSvg(values){
 }
 async function chargerMetriques(n){
   if(!n) return;
+  const a=appParNom(n), externe=!!(a && a.externe);
   const d=await (await fetch('/api/metrics/'+n)).json();
   const cpu=d.points.map(p=>p.cpu), mem=d.points.map(p=>p.mem);
   $('mt-cpu').innerHTML=sparklineSvg(cpu);
   $('mt-mem').innerHTML=sparklineSvg(mem);
-  $('mt-cpu-val').textContent=(cpu.length?cpu[cpu.length-1]:0).toFixed(1)+'%';
-  $('mt-mem-val').textContent=Math.round(mem.length?mem[mem.length-1]:0)+' Mo';
+  const dernier=(l)=>l.length?l[l.length-1]:0;
+  /* Les memes chiffres, les memes courbes, deux unites : le serveur range le
+     temps de reponse la ou vit le processeur, et la disponibilite la ou vit
+     la memoire. Une seule reserve de mesures, donc une seule fiche. */
+  $('mt-cpu-val').textContent = externe
+    ? Math.round(dernier(cpu)) + ' ms' : dernier(cpu).toFixed(1) + '%';
+  $('mt-mem-val').textContent = externe
+    ? (dernier(mem) >= 100 ? 'En ligne' : 'Ne répond pas')
+    : Math.round(dernier(mem)) + ' Mo';
 }
 
 /* ---------------- fiche : journal en direct ---------------- */
@@ -4695,7 +4722,12 @@ function usPeindreFiche(){
      qui ne l'est pas. Une rangee de cases nues ne disait ni de quelle
      application il s'agissait, ni lesquelles etaient publiques -- donc
      lesquelles cocher ne changeait rien. */
-  const declares = apps.slice().sort((a,b)=>a.name.localeCompare(b.name,'fr'));
+  /* Les applications par defaut ne figurent pas ici : elles sont reservees a
+     l'administrateur, et le serveur refuse de les accorder. Une case a cocher
+     qui ne coche rien est pire qu'une case absente -- on croit avoir donne un
+     acces qui n'existe pas. */
+  const declares = apps.filter(a=>!a.par_defaut)
+    .sort((a,b)=>a.name.localeCompare(b.name,'fr'));
   $('us-f-projets').innerHTML = declares.length ? declares.map(a=>{
     const coche = c.projets.includes(a.name) ? ' checked' : '';
     const prive = a.visibility==='privee';
@@ -5463,7 +5495,7 @@ const visible = id => $(id).style.display!=='none';
 if(estAdmin){
   /* « Hub » cote administrateur : il y voit TOUTES les applications, pas
      seulement les siennes -- le titre « Mes applications » serait faux. */
-  $('hub-titre').textContent='Hub';
+  $('hub-titre').textContent='CodeLab Hub';
   /* Les compteurs du menu lateral doivent etre justes des la premiere
      seconde, avant meme qu'on ouvre « Applications » ou « Utilisateurs ». */
   refresh();

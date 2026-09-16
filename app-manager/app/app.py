@@ -659,6 +659,26 @@ def est_app_par_defaut(nom):
     return nom in APPS_PAR_DEFAUT
 
 
+def refus_cycle_de_vie(nom):
+    """Demarrer, arreter, redemarrer, deployer : pas sur une application par
+    defaut. Rend le message de refus, ou None.
+
+    CodeLab les tient debout lui-meme -- elles sont remises en marche au
+    demarrage du panneau et relancees par le moniteur si elles tombent. Les
+    laisser s'arreter a la main creait un piege : une application par defaut
+    n'etant pas configurable, rien n'aurait permis de la rallumer ensuite.
+
+    Le BUILD reste, lui : le diagnostic demande d'installer son pilote
+    Postgres, et c'est sa propre page qui le dit. Il s'applique au prochain
+    tour de moniteur, sans qu'on ait a redemarrer quoi que ce soit.
+    """
+    if not est_app_par_defaut(nom):
+        return None
+    return (f"« {nom} » est une application par défaut de CodeLab : "
+            f"elle est gérée par le panneau et ne se démarre, ne s'arrête "
+            f"ni ne se déploie à la main.")
+
+
 def refus_configuration(nom):
     """Le message de refus quand on tente de configurer une application par
     defaut, ou None si ce n'en est pas une.
@@ -677,6 +697,12 @@ DAGSTER_PORT = int(os.environ.get("APP_MANAGER_DAGSTER_PORT", "3000") or 3000)
 # interroge et non Dagster : c'est lui qui publie le port, et un Dagster
 # debout derriere un proxy tombe ne s'ouvre pas davantage.
 DAGSTER_HOTE_INTERNE = os.environ.get("APP_MANAGER_DAGSTER_HOTE") or "codelab-dagster-proxy"
+# Dagster LUI-MEME, derriere son proxy. Le proxy exige une session pour tout
+# sauf sa sonde de sante ; l'amont, lui, repond sans rien demander -- c'est
+# d'ailleurs la raison d'etre du proxy. Le panneau s'adresse donc a l'amont
+# pour ce qu'il veut MESURER (le temps de reponse de Dagster, pas celui de
+# nginx) et pour ce qu'il veut LIRE (son icone).
+DAGSTER_AMONT = os.environ.get("APP_MANAGER_DAGSTER_AMONT") or "codelab-dagster"
 
 
 def origine_dagster():
@@ -716,6 +742,79 @@ def dagster_repond():
         s.close()
     _dagster_sonde.update(quand=maintenant, ouvert=ouvert)
     return ouvert
+
+
+# ------------------- ce que le panneau sait de Dagster -------------------
+#
+# Dagster tourne dans un AUTRE conteneur : le panneau n'a pas son pid, donc
+# ni son processeur ni sa memoire -- et il n'aura jamais rien de plus, sauf a
+# lui donner la socket Docker, ce qui reviendrait a lui donner la machine.
+#
+# Ce qu'il peut mesurer, en revanche, est exactement ce qui compte pour un
+# service qu'on ne fait pas tourner soi-meme : REPOND-IL, ET EN COMBIEN DE
+# TEMPS. Les deux courbes de sa fiche portent donc cela, et la fiche le dit
+# -- une courbe intitulee « CPU » qui montrerait autre chose serait pire que
+# pas de courbe du tout.
+_dagster_suivi = {"debout": None}
+
+
+def dagster_sonde():
+    """(debout, millisecondes). Interroge l'AMONT, pas le proxy.
+
+    Mesurer le proxy dirait que nginx va bien, ce qu'on sait deja : ce qu'on
+    veut savoir, c'est si Dagster derriere lui repond.
+    """
+    debut = time.time()
+    try:
+        with urllib.request.urlopen(f"http://{DAGSTER_AMONT}:{DAGSTER_PORT}/",
+                                    timeout=5) as r:
+            debout = 200 <= r.status < 500
+    except Exception:
+        return False, (time.time() - debut) * 1000
+    return debout, (time.time() - debut) * 1000
+
+
+def dagster_tick():
+    """Un tour de surveillance, appele par le moniteur.
+
+    Les mesures alimentent la meme reserve que les applications du panneau,
+    donc la meme fiche et les memes courbes. Le JOURNAL, lui, ne recoit que
+    les CHANGEMENTS d'etat : une ligne toutes les dix secondes pour dire que
+    tout va bien n'est pas un journal, c'est un mur.
+    """
+    debout, ms = dagster_sonde()
+    record_metrics(DAGSTER_NOM, round(ms, 1), 100.0 if debout else 0.0)
+    if _dagster_suivi["debout"] is debout:
+        return
+    premier = _dagster_suivi["debout"] is None
+    _dagster_suivi["debout"] = debout
+    if debout:
+        journal_du_service(DAGSTER_NOM,
+                           f"Dagster répond ({ms:.0f} ms)."
+                           if premier else
+                           f"Dagster répond de nouveau ({ms:.0f} ms).")
+    else:
+        journal_du_service(
+            DAGSTER_NOM,
+            f"Dagster ne répond pas sur http://{DAGSTER_AMONT}:{DAGSTER_PORT}/ "
+            f"-- conteneur arrêté ? « docker compose up -d codelab-dagster ».")
+
+
+def journal_du_service(nom, ligne):
+    """Ecrit dans le journal d'une application que le panneau ne lance pas.
+
+    Le meme fichier que pour une application lancee par le panneau : la fiche
+    et son flux en direct n'ont donc rien a savoir de la difference, et le
+    journal d'un service se lit exactement comme les autres.
+    """
+    rotate_log_if_needed(nom)
+    quand = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        os.makedirs(LOG_DIR, exist_ok=True)
+        with open(os.path.join(LOG_DIR, nom + ".log"), "a") as f:
+            f.write(f"[{quand}] {ligne}\n")
+    except OSError:
+        pass        # journaliser n'est pas le travail : voir journaliser()
 
 
 def services_du_hub():
@@ -3531,7 +3630,45 @@ def stop(name):
     return None
 
 
+DIAGNOSTIC_DESCRIPTION = ("État de santé de l'installation : les services se "
+                          "parlent-ils, la base répond-elle, et qu'est-ce qui "
+                          "est ouvert ?")
+
+
+def tenir_les_applications_par_defaut():
+    """Elles ne se demarrent plus a la main, donc le panneau s'en charge.
+
+    Deux gestes, a chaque demarrage :
+
+      - REMETTRE « enabled ». Sans cela, une installation ou le diagnostic
+        se trouvait arrete au moment de la mise a jour restait bloquee :
+        plus de bouton pour le rallumer, et rien pour le faire a sa place ;
+      - POSER LA DESCRIPTION si elle manque. Une tuile sans description
+        n'apprend rien, et celle-ci ne s'ecrit pas a la main -- la fiche
+        d'une application par defaut n'a pas de formulaire.
+
+    Ni l'un ni l'autre n'ecrase un choix : la description deja presente est
+    laissee telle quelle, et « enabled » n'est pas un reglage que l'on
+    choisit pour ces deux-la.
+    """
+    apps = load()
+    change = False
+    for nom in APPS_PAR_DEFAUT:
+        a = apps.get(nom)
+        if a is None:
+            continue
+        if not a.get("enabled"):
+            a["enabled"] = True
+            change = True
+        if nom == DIAGNOSTIC_NOM and not (a.get("description") or "").strip():
+            a["description"] = DIAGNOSTIC_DESCRIPTION
+            change = True
+    if change:
+        save(apps)
+
+
 def resume():
+    tenir_les_applications_par_defaut()
     for name, a in load().items():
         if a.get("enabled"):
             # Une app qui refuse de demarrer ne doit jamais empecher le
@@ -3681,6 +3818,14 @@ def start_monitor_thread():
                 probe_tick()
             except Exception as e:
                 print(f"[app-manager] erreur dans la sonde d'ecoute : {e}", flush=True)
+            # Dagster : ni pid ni process ici, donc ni redemarrage ni
+            # sonde de port -- seulement ce qu'un service d'en face laisse
+            # voir, son temps de reponse et sa disponibilite.
+            try:
+                dagster_tick()
+            except Exception as e:
+                print(f"[app-manager] erreur dans la surveillance de Dagster : {e}",
+                      flush=True)
             # Les alertes en dernier, et dans le meme thread : un envoi SMTP
             # peut prendre jusqu'a 20 secondes, mais il n'a lieu qu'une fois
             # l'incident deja constate -- le redemarrage automatique a donc
@@ -6934,6 +7079,9 @@ def api_toggle(n):
     """
     if n not in load():
         return jsonify({"error": "Application inconnue."}), 404
+    refus = refus_cycle_de_vie(n)
+    if refus:
+        return jsonify({"error": refus}), 403
     action = "arret" if is_running(n) else "demarrage"
     try:
         erreur = stop(n) if action == "arret" else start(n)
@@ -7010,6 +7158,9 @@ def api_visibility(n):
 def api_restart(n):
     if n not in load():
         return jsonify({"error": "Application inconnue."}), 404
+    refus = refus_cycle_de_vie(n)
+    if refus:
+        return jsonify({"error": refus}), 403
     erreur = restart_app(n)
     if erreur:
         return jsonify({"error": erreur}), 409
@@ -7029,6 +7180,9 @@ def api_deploy(n):
     servie, et un build en echec n'arrete rien du tout : on ne remplace une
     version qui marche que par une version qui compile.
     """
+    refus = refus_cycle_de_vie(n)
+    if refus:
+        return jsonify({"error": refus}), 403
     if n not in load():
         return jsonify({"error": "Application inconnue."}), 404
     ok, msg = run_build(n)
@@ -7060,7 +7214,9 @@ def api_build(n):
 @flask_app.get("/api/metrics/<n>")
 @require_admin
 def api_metrics(n):
-    if n not in load():
+    # Dagster n'est pas dans apps.json et n'y sera jamais : le panneau ne la
+    # lance pas. Ses mesures existent pourtant, posees par le moniteur.
+    if n not in load() and not est_app_par_defaut(n):
         return jsonify({"error": "Application inconnue."}), 404
     hist = get_metrics_history(n)
     return jsonify({
@@ -7486,6 +7642,137 @@ ICONES_PAR_DEFAUT = {
 }
 
 
+# OUVRIR DAGSTER PASSE PAR ICI, et pas directement par le port 3000.
+#
+# Trois choses en une seule redirection :
+#
+#   1. l'ouverture est NOTEE. C'est ce qui donne a Dagster l'onglet
+#      « Activite » des autres applications -- qui l'a ouverte, quand,
+#      combien de fois. Sans ce passage, le panneau ne voyait rien : le lien
+#      partait droit sur un autre port.
+#   2. elle s'ouvre A LA PLACE de la page courante, comme une application.
+#      L'ancien lien s'ouvrait dans un nouvel onglet, parce qu'il n'y avait
+#      alors aucun moyen de revenir ; le ruban de retour pose par le proxy
+#      de Dagster a supprime cette raison.
+#   3. l'adresse est construite par le SERVEUR, a partir de l'hote demande :
+#      la page n'a plus a deviner sur quel nom de machine on est arrive.
+#
+# Une redirection, et non un proxy : l'interface de Dagster suit ses runs par
+# websocket, et le proxy du panneau ne sait pas relayer une connexion
+# montante. Le proxy de Dagster, lui, est fait pour cela.
+def ouvrir_dagster():
+    hors = refus_admin_hors_reseau()
+    if hors:
+        journaliser("refus", app=DAGSTER_NOM, motif="hors reseau local",
+                    ip=_adresse_client())
+        return Response(_page("Accès refusé", hors), 403, mimetype="text/html")
+    adresse = origine_dagster()
+    if not adresse:
+        return Response(_page("Adresse introuvable",
+                              "Le panneau n'a pas su construire l'adresse de "
+                              "Dagster depuis cette requête."),
+                        503, mimetype="text/html")
+    journaliser_ouverture(DAGSTER_NOM)
+    return redirect(adresse, 302)
+
+
+flask_app.add_url_rule("/" + DAGSTER_NOM + "/", "ouvrir_dagster",
+                       require_admin(ouvrir_dagster))
+flask_app.add_url_rule("/" + DAGSTER_NOM, "ouvrir_dagster_sans_barre",
+                       require_admin(ouvrir_dagster))
+
+
+# L'ICONE DE DAGSTER : CELLE QUE DAGSTER SERT LUI-MEME.
+#
+# Un dessin fait a la main ne sera jamais le logo de Dagster -- au mieux une
+# ressemblance, au pire une marque deformee. Or l'application porte le sien,
+# a la racine de son serveur, et le panneau sait lui parler. Il le lui
+# demande donc, et le garde : c'est LE logo, exactement celui qu'on voit dans
+# l'onglet quand on ouvre Dagster, et il suivra ses evolutions sans que
+# personne n'ait a redessiner quoi que ce soit.
+#
+# Le dessin d'origine reste, en repli : tant que Dagster n'a pas repondu une
+# premiere fois -- stack qui demarre, conteneur arrete -- la tuile doit
+# afficher quelque chose, et surtout pas la lettre « D » qu'elle partagerait
+# avec « demo » et « diagnostic ».
+ICONES_DAGSTER_CANDIDATES = ("/favicon.ico", "/favicon.png",
+                             "/favicon-32x32.png", "/static/favicon.ico")
+ICONE_DAGSTER_CACHE = os.path.join(STATE_DIR, "dagster-icone")
+ICONE_DAGSTER_DUREE = 24 * 3600
+_icone_dagster = {"quand": 0.0, "octets": b"", "type": ""}
+
+
+# Les entetes des formats qu'un navigateur sait afficher dans une balise
+# <img>. On lit les octets plutot que l'entete HTTP : c'est ce que le
+# navigateur fera, et lui ne se laisse pas convaincre par une etiquette.
+SIGNATURES_IMAGE = (b"\x89PNG\r\n\x1a\n", b"GIF87a", b"GIF89a",
+                    b"\xff\xd8\xff", b"\x00\x00\x01\x00", b"RIFF")
+
+
+def _est_une_image(octets):
+    if octets.lstrip()[:5].lower() in (b"<svg ", b"<svg>", b"<?xml"):
+        return True
+    return any(octets.startswith(debut) for debut in SIGNATURES_IMAGE)
+
+
+def _lire_icone_dagster_du_disque():
+    """Ce qui a ete rapporte lors d'un demarrage precedent.
+
+    Sans ce cache, chaque redemarrage du panneau reaffiche le dessin de repli
+    jusqu'a ce que Dagster reponde -- et sur une stack qui demarre, Dagster
+    est le dernier debout.
+    """
+    try:
+        with open(ICONE_DAGSTER_CACHE + ".type") as f:
+            type_mime = f.read().strip()
+        with open(ICONE_DAGSTER_CACHE, "rb") as f:
+            octets = f.read()
+    except OSError:
+        return
+    if octets and type_mime:
+        _icone_dagster.update(octets=octets, type=type_mime,
+                              quand=os.path.getmtime(ICONE_DAGSTER_CACHE))
+
+
+def icone_dagster():
+    """(octets, type MIME) -- vides tant que Dagster n'a rien donne."""
+    if not _icone_dagster["octets"]:
+        _lire_icone_dagster_du_disque()
+    if (_icone_dagster["octets"]
+            and time.time() - _icone_dagster["quand"] < ICONE_DAGSTER_DUREE):
+        return _icone_dagster["octets"], _icone_dagster["type"]
+    for chemin in ICONES_DAGSTER_CANDIDATES:
+        try:
+            with urllib.request.urlopen(
+                    f"http://{DAGSTER_AMONT}:{DAGSTER_PORT}{chemin}",
+                    timeout=3) as r:
+                type_mime = (r.headers.get("Content-Type") or "").split(";")[0].strip()
+                octets = r.read(256 * 1024)
+        except Exception:
+            continue
+        # Une image, et rien d'autre. Deux controles, et il faut les deux :
+        # Dagster rend sa page d'accueil en 200 pour un chemin inconnu (on
+        # afficherait du HTML comme une icone), et un fichier annonce
+        # « image/png » qui n'en est pas donne une tuile cassee -- vu en
+        # essai, et une tuile cassee est pire qu'un repli.
+        if not octets or not type_mime.startswith("image/"):
+            continue
+        if not _est_une_image(octets):
+            continue
+        _icone_dagster.update(octets=octets, type=type_mime, quand=time.time())
+        try:
+            with open(ICONE_DAGSTER_CACHE, "wb") as f:
+                f.write(octets)
+            with open(ICONE_DAGSTER_CACHE + ".type", "w") as f:
+                f.write(type_mime)
+        except OSError:
+            pass
+        return octets, type_mime
+    # Rien obtenu : on ne retente pas avant la prochaine expiration si l'on
+    # avait deja quelque chose, et tout de suite sinon.
+    return _icone_dagster["octets"], _icone_dagster["type"]
+
+
 @flask_app.get("/api/icon/<n>")
 @require_auth
 def api_icon(n):
@@ -7493,11 +7780,15 @@ def api_icon(n):
 
       1. le logo DEPOSE dans le projet -- il gagne toujours, c'est un choix
          explicite de celui qui l'a pose ;
-      2. l'icone livree avec CodeLab, pour les applications par defaut. C'est
-         un DEFAUT, pas une reservation : elle ne recouvre pas un logo pose ;
-      3. l'initiale coloree, pour tout le reste.
+      2. pour DAGSTER, le logo que Dagster sert lui-meme. C'est le vrai, pas
+         une ressemblance dessinee a la main, et il suivra ses evolutions
+         sans que personne ne le redessine ;
+      3. l'icone livree avec CodeLab, pour les applications par defaut.
+         C'est un DEFAUT, pas une reservation : elle ne recouvre pas un logo
+         pose, et elle sert de repli tant que Dagster n'a pas repondu ;
+      4. l'initiale coloree, pour tout le reste.
 
-    Sans le 2, « dagster », « diagnostic » et « demo » tombaient sur le meme
+    Sans le 3, « dagster », « diagnostic » et « demo » tombaient sur le meme
     « D » colore : trois carres a distinguer en lisant le nom dessous,
     c'est-a-dire en cessant de les reconnaitre d'un coup d'oeil.
     """
@@ -7509,6 +7800,12 @@ def api_icon(n):
     apps = load()
     a = apps.get(n)
     icon_path = find_icon(a["path"]) if a else None
+    if not icon_path and n == DAGSTER_NOM:
+        octets, type_mime = icone_dagster()
+        if octets:
+            return Response(octets, mimetype=type_mime,
+                            headers={"X-Content-Type-Options": "nosniff",
+                                     "Cache-Control": "public, max-age=3600"})
     if not icon_path and n in ICONES_PAR_DEFAUT:
         return Response(ICONES_PAR_DEFAUT[n], mimetype="image/svg+xml",
                         headers={"X-Content-Type-Options": "nosniff"})
@@ -8136,6 +8433,7 @@ def amorcer_diagnostic():
     apps[DIAGNOSTIC_NOM] = {
         "path": chemin,
         "command": DIAGNOSTIC_COMMANDE,
+        "description": DIAGNOSTIC_DESCRIPTION,
         "port": next_port(apps),
         # Demarree par le thread d'amorcage, apres le build : la mettre a True
         # ici la ferait lancer par resume() sans son pilote Postgres.
