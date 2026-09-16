@@ -8853,6 +8853,223 @@ def test_la_restauration_est_documentee():
     assert "/sauvegardes" in texte
 
 
+# ---------- 30. les applications par defaut ----------
+#
+# Demande : « Dagster doit se comporter comme les autres applications, meme si
+# rien n'est configurable pour elle. De la meme maniere, Diagnostic ne doit
+# pas etre configurable. »
+#
+# Deux applications que CodeLab apporte avec lui. Elles se lisent comme les
+# autres -- meme tuile, meme ligne, meme fiche -- et c'est le but : ce sont
+# des applications, pas des boutons a part. Ce qui change tient en une
+# phrase : il n'y a rien a y configurer.
+
+def test_les_applications_par_defaut_ne_se_configurent_pas(hub_dagster):
+    """Le refus vient du SERVEUR, pas de la page.
+
+    Masquer un onglet ne protege rien : la route reste appelable a la main,
+    et c'est exactement ce que fait qui cherche a contourner.
+    """
+    c = hub_dagster
+    c.post("/login", json={"password": "secret-de-test"})
+    apps = app.load()
+    # Le diagnostic est declare comme sur une vraie installation.
+    apps[app.DIAGNOSTIC_NOM] = {"path": "/w/diag", "command": "python3 app.py",
+                                "port": 9109, "visibility": "privee"}
+    app.save(apps)
+
+    for nom in app.APPS_PAR_DEFAUT:
+        refus = [
+            ("put", f"/api/app/{nom}", {"path": "/w/x", "command": "x"}),
+            ("delete", f"/api/app/{nom}", None),
+            ("post", f"/api/app/{nom}/renommer", {"nom": "autre"}),
+            ("post", f"/api/visibility/{nom}", {"visibility": "publique"}),
+            ("put", f"/api/apps/{nom}/acces", {"utilisateurs": ["marie"]}),
+            ("delete", f"/api/app/{nom}/logo", None),
+        ]
+        for methode, route, corps in refus:
+            r = getattr(c, methode)(route, json=corps or {})
+            assert r.status_code == 403, f"{methode.upper()} {route} -> {r.status_code}"
+            assert "par défaut" in (r.get_json() or {}).get("error", ""), route
+
+    # Et une application ordinaire, elle, se configure toujours.
+    r = c.post("/api/visibility/site", json={"visibility": "privee"})
+    assert r.status_code == 200, r.data
+
+
+def test_dagster_figure_parmi_les_applications(hub_dagster):
+    """Elle vivait sur le hub et nulle part ailleurs : on la cherchait dans
+    « Applications », elle n'y etait pas."""
+    c = hub_dagster
+    c.post("/login", json={"password": "secret-de-test"})
+    lignes = c.get("/api/apps").get_json()["apps"]
+    par_nom = {a["name"]: a for a in lignes}
+    assert app.DAGSTER_NOM in par_nom, "Dagster manque dans la liste"
+    d = par_nom[app.DAGSTER_NOM]
+    assert d["externe"] is True and d["par_defaut"] is True
+    # Les memes cles que les autres lignes : la page les lit sans se demander
+    # a chaque fois si elle a affaire a un service.
+    ordinaire = par_nom["site"]
+    assert set(ordinaire) - set(d) == set(), sorted(set(ordinaire) - set(d))
+    # Et la liste reste triee : une tuile qui change de place d'un
+    # rafraichissement a l'autre se cherche a chaque fois.
+    assert [a["name"] for a in lignes] == sorted(par_nom)
+
+
+def test_une_application_par_defaut_est_reservee_a_l_administrateur(hub_dagster):
+    """Pas « privee, donc autorisable a un compte » : reservee.
+
+    Dagster permet de lancer des jobs, donc d'executer du code sur cette
+    machine ; le diagnostic nomme les conteneurs, les comptes sans second
+    facteur et ce qui est expose. Ni un clic ni une faute de manipulation ne
+    doivent pouvoir les accorder.
+    """
+    apps = app.load()
+    apps[app.DIAGNOSTIC_NOM] = {"path": "/w/diag", "command": "x", "port": 9109,
+                                "visibility": "privee"}
+    app.save(apps)
+    c = hub_dagster
+    _connecte(c, "marie", "un-mot-de-passe")
+    for nom in app.APPS_PAR_DEFAUT:
+        r = c.get(f"/{nom}/")
+        assert r.status_code in (403, 404), f"{nom} -> {r.status_code}"
+    # Son propre projet, lui, s'ouvre toujours.
+    assert c.get("/site/").status_code != 403
+
+    # Et son hub ne lui montre pas de tuile qui ne s'ouvre pas : une porte
+    # fermee affichee comme une porte, c'est quelqu'un qui cherche ce qu'il a
+    # mal fait. Meme si l'administrateur la lui a accordee par megarde dans
+    # sa fiche -- ce que l'API refuse, mais qu'un fichier edite a la main
+    # pourrait contenir.
+    d = c.get("/api/mes-apps").get_json()
+    noms = {a["name"] for a in d["apps"]} | {a["name"] for a in d.get("masquees", [])}
+    assert not (noms & set(app.APPS_PAR_DEFAUT)), sorted(noms)
+    assert d.get("services") == []
+
+
+def test_les_applications_par_defaut_suivent_la_frontiere_de_l_administration(
+        hub_dagster, tmp_path, monkeypatch):
+    """« Fais la meme chose pour diagnostic. »
+
+    Le diagnostic dit ce qui tourne, ce qui est expose et quels comptes n'ont
+    pas de second facteur : c'est une page d'administration par ce qu'elle
+    montre. Elle s'arrete donc ou l'administration s'arrete -- meme reglage,
+    meme frontiere, y compris au milieu d'une session deja ouverte.
+    """
+    monkeypatch.setattr(app, "EXPOSITION_FILE", str(tmp_path / "exposition.json"))
+    monkeypatch.setattr(app, "admin_limite_au_reseau_local", lambda: True)
+    apps = app.load()
+    apps[app.DIAGNOSTIC_NOM] = {"path": "/w/diag", "command": "x", "port": 9109,
+                                "visibility": "privee"}
+    app.save(apps)
+    c = hub_dagster
+    c.post("/login", json={"password": "secret-de-test"},
+           environ_overrides={"REMOTE_ADDR": "192.168.1.10"})
+
+    # Depuis le reseau local : la requete atteint le proxy (l'application
+    # n'ecoute pas dans un test, d'ou l'erreur de passerelle).
+    r = c.get("/diagnostic/", environ_overrides={"REMOTE_ADDR": "192.168.1.10"})
+    assert r.status_code != 403, r.data[:160]
+
+    # La MEME session, vue d'ailleurs : refusee.
+    r = c.get("/diagnostic/", environ_overrides={"REMOTE_ADDR": "203.0.113.9"})
+    assert r.status_code == 403
+    assert b"reseau local" in r.data or b"r\xc3\xa9seau local" in r.data
+
+
+def test_l_administrateur_du_reseau_local_reste_connecte(client, tmp_path, monkeypatch):
+    """La question posee, verifiee plutot que lue.
+
+    Toutes les adresses privees ouvrent l'administration et la GARDENT :
+    le controle a lieu a chaque requete, il ne doit donc pas refuser une
+    session qui n'a pas bouge. Tailscale (100.64/10) compte comme local --
+    c'est ainsi qu'on administre depuis l'exterieur sans rien ouvrir.
+    """
+    monkeypatch.setattr(app, "EXPOSITION_FILE", str(tmp_path / "exposition.json"))
+    monkeypatch.setattr(app, "admin_limite_au_reseau_local", lambda: True)
+    locales = ("192.168.1.42", "10.8.0.5", "172.20.0.3", "127.0.0.1",
+               "100.101.102.103")
+    for ip in locales:
+        app._login_attempts.clear()
+        r = client.post("/login", json={"password": "secret-de-test"},
+                        environ_overrides={"REMOTE_ADDR": ip})
+        assert r.status_code == 200, f"{ip} : connexion refusee"
+        # Et la session TIENT : trois requetes de suite, comme un usage reel.
+        for _ in range(3):
+            assert client.get("/api/apps",
+                              environ_overrides={"REMOTE_ADDR": ip}).status_code == 200, ip
+    # De l'exterieur, rien ne s'ouvre.
+    for ip in ("2.15.44.7", "203.0.113.9"):
+        app._login_attempts.clear()
+        assert client.post("/login", json={"password": "secret-de-test"},
+                           environ_overrides={"REMOTE_ADDR": ip}).status_code == 403, ip
+
+
+# ---------- 31. une page d'erreur n'affiche pas ce qu'on lui envoie ----------
+
+def test_la_page_d_erreur_echappe_ce_qu_elle_affiche(client):
+    """Le nom vient de l'URL, et ressortait tel quel.
+
+    « /zz<script>alert(1)</script>/ » sur l'origine des applications rendait
+    une page portant la balise. Elle n'y porte pas la session du panneau --
+    c'est tout l'interet de la separation des origines -- mais elle permettait
+    de se faire passer pour n'importe quelle application hebergee, dans son
+    origine, devant l'utilisateur qui vient de cliquer.
+    """
+    r = client.get("/zz<script>alert(1)</script>/")
+    assert b"<script>alert" not in r.data
+    assert b"&lt;script&gt;" in r.data
+    # La page reste lisible : on echappe, on ne tronque pas.
+    assert b"Aucune application" in r.data
+
+
+def test_la_vue_d_ensemble_ne_double_plus_les_messages():
+    """Deux endroits ou lire la meme chose, c'est deux endroits ou croire les
+    avoir traites. Les messages ont leur rubrique, avec son compteur."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    ensemble = page.split('<div id="sec-overview"')[1].split('<div id="sec-apps"')[0]
+    assert "zone-messages" not in ensemble
+    assert "msg-liste" not in ensemble
+    # La rubrique, elle, est toujours la.
+    assert 'id="sec-messages"' in page and 'id="side-count-messages"' in page
+
+
+def test_l_onglet_messages_ferme_le_menu():
+    """On ne choisit pas d'aller lire ses messages en arrivant : on y va quand
+    le compteur le dit. La place suit l'usage."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    menu = page.split('<nav class="sidebar"')[1].split("</nav>")[0]
+    rubriques = re.findall(r'data-sec="([a-z]+)"', menu)
+    assert rubriques[-1] == "messages", rubriques
+    assert rubriques[0] == "hub", rubriques
+
+
+def test_le_diagnostic_porte_sa_marque_partout(hub_dagster):
+    """Le meme dessin dans les trois endroits ou on le voit.
+
+    La tuile du hub (servie par le panneau), la barre du haut de la page, et
+    l'icone de l'onglet. Les deux services ne peuvent pas partager de code --
+    le diagnostic tourne dans un autre processus, sans acces au panneau --
+    mais ils partagent la FORME, et c'est ce qui doit rester vrai.
+    """
+    import app as diag
+    # Un seul trace dans la page, utilise deux fois.
+    assert diag.MARQUE_TRACE in diag._barre(""), "la barre a perdu la marque"
+    assert diag.MARQUE_TRACE.replace(" ", "%20") in diag.FAVICON, (
+        "l'icone de l'onglet ne suit plus la marque")
+    page = diag.app.test_client().get("/").data.decode()
+    assert 'rel="icon"' in page
+
+    # Et le panneau sert bien une icone a la tuile, distincte de la lettre.
+    hub_dagster.post("/login", json={"password": "secret-de-test"})
+    r = hub_dagster.get("/api/icon/diagnostic")
+    assert r.status_code == 200 and b"<text" not in r.data
+    # Le meme geste : un trace ouvert, pas une lettre ni un cercle.
+    assert b"<path" in r.data and b"stroke" in r.data
+
+
 def test_les_sondes_regardent_au_dela_de_la_stack():
     """Trois familles ajoutees, toutes en LECTURE SEULE.
 
@@ -10483,20 +10700,36 @@ def test_la_tuile_de_dagster_s_ouvre_dans_un_autre_onglet():
     assert "hubApps.concat(hubServices)" in page
 
 
-def test_dagster_a_son_icone(hub_dagster):
-    """« dagster » et « demo » donneraient la meme lettre : une tuile qui ne
-    se distingue pas ne sert a rien dans une grille d'icones."""
+def test_les_applications_par_defaut_ont_leur_icone(hub_dagster, tmp_path):
+    """« dagster », « diagnostic » et « demo » donneraient le meme « D ».
+
+    Trois carres identiques dans la grille du hub, a distinguer en lisant le
+    nom dessous -- c'est-a-dire en cessant de les reconnaitre d'un coup
+    d'oeil.
+
+    C'est un DEFAUT et non une reservation : un logo depose dans le projet
+    reprend la main. L'ordre est celui-la et pas l'inverse, parce qu'un logo
+    pose est un choix explicite, et l'icone livree n'est qu'un repli.
+    """
     hub_dagster.post("/login", json={"password": "secret-de-test"})
-    r = hub_dagster.get("/api/icon/dagster")
-    assert r.status_code == 200
-    assert r.mimetype == "image/svg+xml"
-    assert b"circle" in r.data, "l'icone est retombee sur la lettre par defaut"
-    # Une application VRAIMENT declaree sous ce nom reprend la main : le
-    # service n'est qu'un repli.
+    for nom in app.APPS_PAR_DEFAUT:
+        r = hub_dagster.get("/api/icon/" + nom)
+        assert r.status_code == 200, nom
+        assert r.mimetype == "image/svg+xml", nom
+        assert b"<svg" in r.data and b"<text" not in r.data, (
+            f"l'icone de {nom} est retombee sur la lettre par defaut")
+    # Deux dessins distincts : une icone commune ne distinguerait rien.
+    dessins = {hub_dagster.get("/api/icon/" + n).data for n in app.APPS_PAR_DEFAUT}
+    assert len(dessins) == len(app.APPS_PAR_DEFAUT)
+
+    # Un logo depose gagne sur l'icone livree.
+    projet = tmp_path / "projet-dagster"
+    projet.mkdir()
+    (projet / "logo.svg").write_text("<svg><rect id='depose'/></svg>")
     apps = app.load()
-    apps["dagster"] = {"path": "/w/d", "command": "x", "port": 9702}
+    apps["dagster"] = {"path": str(projet), "command": "x", "port": 9702}
     app.save(apps)
-    assert b"circle" not in hub_dagster.get("/api/icon/dagster").data
+    assert b"depose" in hub_dagster.get("/api/icon/dagster").data
 
 
 # ---------- 35. les messages ont leur rubrique ----------

@@ -1121,19 +1121,20 @@ table.tbl-journal{min-width:560px}
       <rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
       <span>Applications</span>
       <span class="side-count" id="side-count">0</span></div>
-    <!-- LES MESSAGES ONT LEUR RUBRIQUE. Ils vivaient au bas de la vue
-         d'ensemble, sous les graphiques : on ne les trouvait qu'en
-         descendant, et rien ne disait qu'il y en avait de nouveaux. -->
-    <div class="side-item" data-sec="messages" onclick="showSection('messages')">
-      <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-      <span>Messages</span>
-      <span class="side-count" id="side-count-messages">0</span></div>
     <div class="side-item" data-sec="users" onclick="showSection('users')">
       <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.4"/>
       <path d="M2.5 20c0-3.6 2.9-6.5 6.5-6.5s6.5 2.9 6.5 6.5"/>
       <path d="M16.5 5.2a3.4 3.4 0 010 6.1"/><path d="M18 13.9c2.1.7 3.5 2.6 3.5 4.9"/></svg>
       <span>Utilisateurs</span>
       <span class="side-count" id="side-count-users">0</span></div>
+    <!-- LES MESSAGES FERMENT LA MARCHE. Ils avaient leur rubrique au milieu
+         du menu, entre deux entrees qu'on ouvre tous les jours : on ne
+         choisit pas d'aller lire ses messages en arrivant, on y va quand le
+         compteur le dit. Le compteur reste, la place change. -->
+    <div class="side-item" data-sec="messages" onclick="showSection('messages')">
+      <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <span>Messages</span>
+      <span class="side-count" id="side-count-messages">0</span></div>
   </div>
 </nav>
 
@@ -1226,19 +1227,10 @@ table.tbl-journal{min-width:560px}
     </div>
   </div>
 
-  <!-- Les mots laisses depuis le hub. Ici, et pas dans une page a part :
-       c'est la page ou l'administrateur arrive, et un message qu'on ne voit
-       qu'en allant le chercher est un message qu'on ne lit pas. -->
-  <div class="zone" id="zone-messages" style="display:none">
-    <div class="zone-title">Messages</div>
-    <div class="card">
-      <div class="card-top"><div class="card-name"><b>Mots laissés depuis le hub</b>
-        <div class="path">Les plus récents à propos du hub. Le reste est dans
-          <a href="#" onclick="event.preventDefault();showSection('messages')">Messages</a>.</div></div>
-        <span class="pill" id="msg-compte"><i></i>&nbsp;</span></div>
-      <div id="msg-liste" style="margin-top:12px"></div>
-    </div>
-  </div>
+  <!-- LES MESSAGES NE SONT PLUS ICI. Ils ont leur propre rubrique, avec son
+       compteur dans le menu : les afficher aussi en vue d'ensemble donnait
+       deux endroits ou lire la meme chose, et deux endroits ou croire les
+       avoir traites. -->
 
   <div class="zone">
     <div class="zone-title">Activité</div>
@@ -1282,7 +1274,15 @@ table.tbl-journal{min-width:560px}
     <div class="fiche-actions" id="fa-actions"></div>
   </div>
 
-  <div class="fiche-onglets">
+  <!-- Dire pourquoi les onglets de configuration ne sont pas la vaut mieux
+       que de laisser chercher : une absence sans explication passe pour une
+       panne. -->
+  <div class="hint" id="fa-defaut" style="display:none;margin:-4px 0 14px">
+    Application par défaut de CodeLab : elle n'est pas configurable, et reste
+    réservée à l'administrateur sur le réseau local.
+  </div>
+
+  <div class="fiche-onglets" id="fiche-onglets">
     <button data-o="general" onclick="ficheOnglet('general')" class="active">Général</button>
     <button data-o="metriques" onclick="ficheOnglet('metriques')">Métriques</button>
     <button data-o="journal" onclick="ficheOnglet('journal')">Journal</button>
@@ -1301,7 +1301,7 @@ table.tbl-journal{min-width:560px}
         <div class="kv"><span class="k">Réponse</span><span class="v" id="fa-ecoute">—</span></div>
         <div class="kv"><span class="k">Visibilité</span><span class="v" id="fa-vis-txt">—</span></div>
       </div>
-      <div class="card">
+      <div class="card" id="fa-carte-exec">
         <div class="card-top"><div class="card-name"><b>Exécution</b></div></div>
         <div class="kv"><span class="k">Dossier</span><span class="v"><code id="fa-path">—</code></span></div>
         <div class="kv"><span class="k">Commande</span><span class="v"><code id="fa-cmd">—</code></span></div>
@@ -1309,7 +1309,7 @@ table.tbl-journal{min-width:560px}
         <div class="kv"><span class="k">Limite mémoire</span><span class="v" id="fa-mem">—</span></div>
       </div>
     </div>
-    <div class="cartes c2">
+    <div class="cartes c2" id="fa-mesures">
       <div class="card"><div class="metrique"><b id="fa-cpu">0%</b><span>CPU</span></div></div>
       <div class="card"><div class="metrique"><b id="fa-ram">0 Mo</b><span>Mémoire</span></div></div>
     </div>
@@ -2982,20 +2982,6 @@ async function chargerMessages(){
   msgRemplirFiltre();
   peindreMessages();
 
-  /* La carte de la vue d'ensemble ne montre que le hub : le reste a sa
-     rubrique, et melanger les sujets sur la page d'accueil donne une liste
-     qu'on parcourt sans savoir ce qu'on y cherche. */
-  const duHub=msgTous.filter(m=>m.cible==='hub').slice(0,5);
-  $('zone-messages').style.display='block';
-  const p=$('msg-compte');
-  p.className='pill '+(duHub.length?'on':'off');
-  p.innerHTML='<i></i>'+(duHub.length ? duHub.length+' message'+(duHub.length>1?'s':'')
-                                      : 'aucun message');
-  $('msg-liste').innerHTML = duHub.length
-    ? duHub.map(msgLigne).join('')
-    : '<div class="msg-vide">Personne n\'a encore écrit à propos du hub. Le '
-      + 'formulaire est dans <b>Paramètres &gt; Message</b>, pour tous les comptes.</div>';
-
   msgDernierVu = Math.max(msgDernierVu, ...msgTous.map(m=>m.ts||0), 0);
   msgPremierChargement=false;
 }
@@ -3339,15 +3325,15 @@ function render(){
       <td>${badgeEtat(a)}</td>
       <td>${badgeVis(a)}</td>
       <td class="tbl-num">${a.port}</td>
-      <td class="tbl-num">${(a.cpu_percent||0).toFixed(1)}%</td>
-      <td class="tbl-num">${Math.round(a.memory_mb||0)} Mo</td>
+      <td class="tbl-num">${a.externe ? '—' : (a.cpu_percent||0).toFixed(1)+'%'}</td>
+      <td class="tbl-num">${a.externe ? '—' : Math.round(a.memory_mb||0)+' Mo'}</td>
       <td class="tbl-act"><div>
-        <button class="icon-btn ${a.running?'stop':'ok'}" title="${a.running?'Arreter':'Demarrer'}"
+        ${a.externe ? '' : `<button class="icon-btn ${a.running?'stop':'ok'}" title="${a.running?'Arreter':'Demarrer'}"
           data-agir="app-basculer" data-cible="${esc(a.name)}">
           ${a.running
             ? '<svg viewBox="0 0 24 24"><rect x="7" y="6" width="3.5" height="12" rx="1"/><rect x="13.5" y="6" width="3.5" height="12" rx="1"/></svg>'
             : '<svg viewBox="0 0 24 24"><path d="M8 5.5l10 6.5-10 6.5z"/></svg>'}
-        </button>
+        </button>`}
         <button class="icon-btn" title="Ouvrir la fiche"
           data-agir="app-ouvrir" data-cible="${esc(a.name)}">
           <svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
@@ -3533,9 +3519,41 @@ async function acBasculer(){
   chargerUtilisateurs();
 }
 
+/* LES APPLICATIONS PAR DEFAUT : celles que CodeLab apporte avec lui.
+
+   Elles se lisent comme les autres -- meme tuile, meme ligne, meme fiche --
+   et c'est voulu : ce sont des applications. Ce qui change tient en une
+   phrase : il n'y a rien a y configurer. On retire donc les onglets et les
+   boutons qui proposent de le faire, plutot que de les laisser mener a un
+   refus du serveur.
+
+   Le serveur refuse quand meme, et c'est la vraie garde : masquer un bouton
+   ne protege rien, la route reste appelable a la main. */
+const ONGLETS_CONFIG = ['acces', 'config', 'conteneur'];
+
 function peindreFiche(){
   const a=appParNom(ficheNom);
   if(!a) return;
+  const parDefaut = !!a.par_defaut, externe = !!a.externe;
+  /* #fiche-onglets et non « .fiche-onglets » : la barre des REGLAGES porte
+     la meme classe, et un selecteur global masquerait ses onglets a elle. */
+  document.querySelectorAll('#fiche-onglets button').forEach(b=>{
+    const cache = parDefaut && ONGLETS_CONFIG.includes(b.dataset.o);
+    b.style.display = cache ? 'none' : '';
+    /* Un onglet masque alors qu'il etait ouvert laisserait la fiche sur une
+       page vide : on revient au premier. */
+    if(cache && b.classList.contains('active')) ficheOnglet('general');
+  });
+  /* Un service vit sur son propre port : ni journal, ni metriques, ni
+     activite a montrer -- le panneau ne le lance pas. */
+  ['metriques','journal','activite'].forEach(o=>{
+    const b=document.querySelector(`#fiche-onglets button[data-o="${o}"]`);
+    if(b){
+      b.style.display = externe ? 'none' : '';
+      if(externe && b.classList.contains('active')) ficheOnglet('general');
+    }
+  });
+  $('fa-defaut').style.display = parDefaut ? '' : 'none';
   $('fa-icone').src=icone(a.name);
   $('fa-nom').textContent=a.name;
   $('fa-sous').textContent=a.description || 'Aucune description';
@@ -3545,17 +3563,26 @@ function peindreFiche(){
   $('fa-vis').className='pill '+(prive?'priv':'pub');
   $('fa-vis').innerHTML='<i></i>'+(prive?'Privé':'Public');
 
-  $('fa-url').textContent='/'+a.name+'/';
-  $('fa-url').href=urlApplication(a.name);
+  $('fa-url').textContent = externe ? a.url : '/'+a.name+'/';
+  $('fa-url').href = externe ? a.url : urlApplication(a.name);
   $('fa-port').textContent=a.port;
-  $('fa-ecoute').textContent = !a.running ? 'Arrêtée'
-    : (a.listening===false ? 'Le port ne répond pas' : 'Le port répond');
+  /* Un service externe n'est jamais « arrêtée » : le panneau ne l'arrete
+     pas, il constate seulement si le port repond. */
+  $('fa-ecoute').textContent = externe
+    ? (a.running ? 'Le port répond' : 'Le port ne répond pas')
+    : (!a.running ? 'Arrêtée'
+       : (a.listening===false ? 'Le port ne répond pas' : 'Le port répond'));
   $('fa-vis-txt').textContent = prive
     ? 'Privée — session requise' : 'Publique — ouverte a tous';
+  /* Un service externe n'a ni dossier ni commande : le panneau ne le lance
+     pas. Mettre « — » partout serait dire qu'on ne sait pas, alors qu'il n'y
+     a rien a savoir. */
+  $('fa-carte-exec').style.display = externe ? 'none' : '';
   $('fa-path').textContent=a.path;
   $('fa-cmd').textContent=a.command;
   $('fa-build').textContent=a.build_command || '—';
   $('fa-mem').textContent=a.max_memory_mb ? a.max_memory_mb+' Mo' : 'aucune';
+  $('fa-mesures').style.display = externe ? 'none' : '';
   $('fa-cpu').textContent=(a.cpu_percent||0).toFixed(1)+'%';
   $('fa-ram').textContent=Math.round(a.memory_mb||0)+' Mo';
 
@@ -3567,6 +3594,13 @@ function peindreFiche(){
   const svgOuvrir='<svg viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 13v6a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h6"/></svg>';
 
   const b=[];
+  /* Un service externe : le panneau ne le demarre pas, ne l'arrete pas, ne
+     le deploie pas. Il ouvre, et c'est tout. */
+  if(externe){
+    b.push(`<a class="btn btn-primary" href="${a.url}" target="_blank" rel="noopener">${svgOuvrir}Ouvrir</a>`);
+    $('fa-actions').innerHTML=b.join('');
+    return;
+  }
   b.push(`<button class="btn ${a.running?'btn-arreter':'btn-demarrer'}" data-agir="app-basculer" data-cible="${esc(a.name)}">
     ${a.running?svgStop+'Arrêter':svgPlay+'Démarrer'}</button>`);
   b.push(`<button class="btn btn-refaire" data-agir="app-redemarrer" data-cible="${esc(a.name)}" ${a.running?'':'disabled'}>
@@ -3579,7 +3613,11 @@ function peindreFiche(){
      publique declaree. Sinon le mot promet un partage qui n'existe pas :
      cela ne ferait que retirer l'authentification. Le chemin qui REFERME,
      lui, reste toujours ouvert. */
-  if(!prive || adressePublique){
+  if(parDefaut){
+    /* Rien : une application par defaut reste privee. Le diagnostic rendu
+       public offrirait a un visiteur anonyme l'etat des lieux complet de
+       l'installation. */
+  }else if(!prive || adressePublique){
     b.push(`<button class="btn btn-quiet" data-agir="app-visibilite" data-cible="${esc(a.name)}">
       ${prive?'Rendre publique':'Rendre privée'}</button>`);
   }else{

@@ -629,6 +629,49 @@ def origine_applications():
 # retapant une adresse et un numero de port de memoire. Une tuile l'y remet,
 # avec les autres, et elle mene au port 3000.
 DAGSTER_NOM = "dagster"
+DIAGNOSTIC_NOM = "diagnostic"
+
+# LES APPLICATIONS PAR DEFAUT : celles que CodeLab apporte avec lui.
+#
+# Elles se comportent comme les autres -- meme tuile dans le hub, meme ligne
+# dans la liste, meme fiche -- et c'est voulu : ce sont des applications, pas
+# des boutons a part. Ce qui les distingue tient en une phrase : IL N'Y A
+# RIEN A Y CONFIGURER.
+#
+# Rien a configurer, donc rien a casser : on ne renomme pas « diagnostic »,
+# on ne change pas sa commande de lancement, on ne le supprime pas par megarde
+# -- et il ne se rend pas publique, ce qui offrirait a un visiteur anonyme
+# l'etat des lieux complet de l'installation.
+#
+# Deux consequences, tenues cote SERVEUR et pas seulement dans la page :
+#
+#   1. reservees a l'administrateur. Pas « privees, donc autorisables a un
+#      compte » : reservees. Dagster permet de lancer des jobs, donc
+#      d'executer du code ici ; le diagnostic nomme les conteneurs, les
+#      comptes sans second facteur et ce qui est expose.
+#   2. soumises a la meme regle de reseau local que l'administration. Si
+#      l'administration est limitee au reseau local, ces deux-la le sont
+#      aussi -- meme session, meme frontiere.
+APPS_PAR_DEFAUT = (DAGSTER_NOM, DIAGNOSTIC_NOM)
+
+
+def est_app_par_defaut(nom):
+    return nom in APPS_PAR_DEFAUT
+
+
+def refus_configuration(nom):
+    """Le message de refus quand on tente de configurer une application par
+    defaut, ou None si ce n'en est pas une.
+
+    Le controle est ICI, pas seulement dans la page : masquer un bouton ne
+    protege rien, la route reste appelable a la main.
+    """
+    if not est_app_par_defaut(nom):
+        return None
+    return (f"« {nom} » est une application par défaut de CodeLab : "
+            f"elle n'est pas configurable.")
+
+
 DAGSTER_PORT = int(os.environ.get("APP_MANAGER_DAGSTER_PORT", "3000") or 3000)
 # Vu depuis ce conteneur, pour savoir s'il repond. C'est le PROXY qu'on
 # interroge et non Dagster : c'est lui qui publie le port, et un Dagster
@@ -700,7 +743,16 @@ def services_du_hub():
         # Ce qui la distingue d'une application : elle a sa propre adresse,
         # et le panneau ne la demarre ni ne l'arrete.
         "externe": True,
+        "par_defaut": True,
         "url": adresse,
+        # Les memes cles que les autres lignes, avec des valeurs vides : la
+        # page lit ces champs sans se demander a chaque fois si elle a
+        # affaire a un service. Un « undefined » dans une fiche est un defaut
+        # d'affichage de plus a prevoir, et il finit toujours par passer.
+        "path": "", "command": "", "port": DAGSTER_PORT,
+        "failed": False, "crash_looping": False, "has_build": False,
+        "build_command": "", "max_memory_mb": None, "alertes": [],
+        "cpu_percent": 0.0, "memory_mb": 0.0,
     }]
 
 
@@ -2564,7 +2616,14 @@ def peut_voir(name):
     connecte -- c'est le sens de "publique", et c'est ce qui permet de
     partager un projet par un simple lien. Le controle par compte ne concerne
     donc que les applications privees.
+
+    Sauf les applications par defaut : elles sont RESERVEES a
+    l'administrateur, et pas seulement « privees, donc autorisables ». Ni
+    l'interface ni une faute de manipulation ne peuvent les accorder a un
+    compte -- api_app_acces_modifier les refuse aussi.
     """
+    if est_app_par_defaut(name):
+        return est_admin()
     autorises = projets_autorises()
     return autorises is None or name in autorises
 
@@ -6568,6 +6627,11 @@ def api_app_acces_modifier(name):
     compte ne sont pas touches. Envoyer la liste complete des projets aurait
     efface en silence ce qu'un autre onglet ouvert venait d'accorder.
     """
+    # Une application par defaut ne s'accorde pas : elle est reservee a
+    # l'administrateur, et le proxy le tient de son cote.
+    refus = refus_configuration(name)
+    if refus:
+        return jsonify({"error": refus}), 403
     apps = load()
     if name not in apps:
         return jsonify({"error": "Application inconnue."}), 404
@@ -6685,8 +6749,17 @@ def api_apps():
             # secret ici -- une adresse de destination n'en est pas un, et
             # cette route est deja reservee a l'administrateur.
             "alertes": _adresses(a.get("alertes")),
+            # Ce qui n'est pas configurable, la page doit le savoir : c'est
+            # elle qui retire les onglets et les boutons correspondants.
+            "par_defaut": est_app_par_defaut(name),
             **stats,
         })
+    # Dagster figure ici comme les autres. Il n'est pas declare dans
+    # apps.json -- le panneau ne le lance ni ne l'arrete -- mais c'est une
+    # application du point de vue de qui s'en sert : elle doit se trouver la
+    # ou on cherche les applications, et pas seulement sur le hub.
+    out.extend(services_du_hub())
+    out.sort(key=lambda a: a["name"])
     return jsonify({"apps": out})
 
 
@@ -6796,6 +6869,9 @@ def api_edit(n):
     la traitait en interdisant tout, alors qu'il suffit de DIRE lequel des
     champs attend un redemarrage.
     """
+    refus = refus_configuration(n)
+    if refus:
+        return jsonify({"error": refus}), 403
     apps = load()
     if n not in apps:
         return jsonify({"error": "Application inconnue."}), 404
@@ -6899,6 +6975,13 @@ def restart_app(n):
 @flask_app.post("/api/visibility/<n>")
 @require_admin
 def api_visibility(n):
+    # Une application par defaut ne se rend pas publique : le diagnostic
+    # offrirait a un visiteur anonyme l'etat des lieux complet de
+    # l'installation -- les conteneurs, les comptes sans second facteur, ce
+    # qui est expose.
+    refus = refus_configuration(n)
+    if refus:
+        return jsonify({"error": refus}), 403
     apps = load()
     if n not in apps:
         return jsonify({"error": "Application inconnue."}), 404
@@ -6998,11 +7081,11 @@ def api_delete(n):
     #
     # Refuse ici et pas seulement dans la page : masquer un bouton ne protege
     # rien, la route reste appelable a la main.
-    if n == DIAGNOSTIC_NOM:
-        return jsonify({"error": "Le projet de diagnostic ne se supprimé pas : "
-                                 "c'est lui qui dit si cette installation va "
-                                 "bien. Tu peux l'arrêter si tu ne veux pas "
-                                 "qu'il tourne."}), 403
+    if est_app_par_defaut(n):
+        return jsonify({"error": f"« {n} » est une application par défaut de "
+                                 f"CodeLab : elle ne se supprime pas. Tu peux "
+                                 f"l'arrêter si tu ne veux pas qu'elle "
+                                 f"tourne."}), 403
     stop(n)
     apps = load()
     apps.pop(n, None)
@@ -7088,6 +7171,9 @@ def _reprendre_les_fichiers(dossier, ancien_uid, nouvel_uid):
 @require_admin
 def api_renommer(n):
     """Change le nom d'une application, et tout ce qui la designe par ce nom."""
+    refus = refus_configuration(n)
+    if refus:
+        return jsonify({"error": refus}), 403
     apps = load()
     if n not in apps:
         return jsonify({"error": "Application inconnue."}), 404
@@ -7277,6 +7363,9 @@ def api_logo(n):
     Le corps est l'image elle-meme, pas un formulaire : il n'y a qu'un seul
     fichier, et un multipart n'apporterait qu'un analyseur de plus a nourrir.
     """
+    refus = refus_configuration(n)
+    if refus:
+        return jsonify({"error": refus}), 403
     apps = load()
     a = apps.get(n)
     if not a:
@@ -7332,6 +7421,9 @@ def api_logo(n):
 def api_logo_retirer(n):
     """Retire le logo depose. Ne touche qu'aux noms que le panneau ecrit :
     un favicon.ico pose a la main dans le projet lui appartient."""
+    refus = refus_configuration(n)
+    if refus:
+        return jsonify({"error": refus}), 403
     a = load().get(n)
     if not a:
         return jsonify({"error": "Application inconnue."}), 404
@@ -7350,9 +7442,23 @@ def api_logo_retirer(n):
     return jsonify({"ok": True, "retires": retires})
 
 
-# L'icone de Dagster : trois noeuds relies, ce que fait un orchestrateur. Un
-# dessin a nous plutot qu'une lettre de plus dans la grille -- « dagster » et
-# « demo » donneraient le meme D.
+# LES ICONES DES APPLICATIONS PAR DEFAUT.
+#
+# Sans elles, ces deux-la tombaient sur l'initiale coloree servie a toute
+# application sans logo : un « D » pour dagster, un « D » pour diagnostic, et
+# un troisieme « D » pour demo. Trois carrees identiques dans la grille du
+# hub, a distinguer en lisant le nom dessous -- c'est-a-dire en cessant de
+# les reconnaitre d'un coup d'oeil.
+#
+# Dessinees ici plutot que posees en fichier : ces deux applications
+# appartiennent a CodeLab, leur icone doit arriver avec l'image et ne rien
+# demander a personne. Le format est le meme que celui des logos deposes, un
+# SVG carre de 64, pour que la grille ne fasse aucune difference entre elles
+# et les autres.
+
+# Dagster : le graphe oriente acyclique, ce que l'outil manipule. Dessin
+# original, dans le violet de la marque -- ce n'est pas le logo officiel, et
+# il ne pretend pas l'etre.
 ICONE_DAGSTER = (
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
     '<rect width="64" height="64" rx="16" fill="#4c4ce0"/>'
@@ -7364,13 +7470,37 @@ ICONE_DAGSTER = (
     '<circle cx="44" cy="42" r="5"/><circle cx="22" cy="40" r="5"/>'
     '</g></svg>')
 
+# Diagnostic : le trace d'un moniteur cardiaque, et un point qui bat. C'est
+# ce que la page montre -- l'etat de sante de l'installation -- et c'est deja
+# la marque que porte sa propre barre du haut : les deux se repondent.
+ICONE_DIAGNOSTIC = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+    '<rect width="64" height="64" rx="16" fill="#0e7c86"/>'
+    '<path d="M12 33h9l5-14 9 28 5-14h12" fill="none" stroke="#fff" '
+    'stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>'
+    '</svg>')
+
+ICONES_PAR_DEFAUT = {
+    DAGSTER_NOM: ICONE_DAGSTER,
+    DIAGNOSTIC_NOM: ICONE_DIAGNOSTIC,
+}
+
 
 @flask_app.get("/api/icon/<n>")
 @require_auth
 def api_icon(n):
-    if n == DAGSTER_NOM and est_admin() and DAGSTER_NOM not in load():
-        return Response(ICONE_DAGSTER, mimetype="image/svg+xml",
-                        headers={"X-Content-Type-Options": "nosniff"})
+    """L'icone d'une application. Trois sources, dans cet ordre.
+
+      1. le logo DEPOSE dans le projet -- il gagne toujours, c'est un choix
+         explicite de celui qui l'a pose ;
+      2. l'icone livree avec CodeLab, pour les applications par defaut. C'est
+         un DEFAUT, pas une reservation : elle ne recouvre pas un logo pose ;
+      3. l'initiale coloree, pour tout le reste.
+
+    Sans le 2, « dagster », « diagnostic » et « demo » tombaient sur le meme
+    « D » colore : trois carres a distinguer en lisant le nom dessous,
+    c'est-a-dire en cessant de les reconnaitre d'un coup d'oeil.
+    """
     # Accessible a un compte utilisateur, pour que son espace affiche les
     # icones -- mais seulement des projets qu'il peut ouvrir : la liste des
     # icones est une liste des projets existants.
@@ -7379,6 +7509,9 @@ def api_icon(n):
     apps = load()
     a = apps.get(n)
     icon_path = find_icon(a["path"]) if a else None
+    if not icon_path and n in ICONES_PAR_DEFAUT:
+        return Response(ICONES_PAR_DEFAUT[n], mimetype="image/svg+xml",
+                        headers={"X-Content-Type-Options": "nosniff"})
     if icon_path:
         # UNE IMAGE, ET RIEN QUE CA. Ce chemin sert un fichier pris dans le
         # dossier d'un projet, dans l'ORIGINE DU PANNEAU. Un SVG depose a la
@@ -7505,6 +7638,12 @@ def api_mes_apps():
     cachees = set(masquees_du_compte())
     liste, masquees = [], []
     for nom, a in sorted(load().items()):
+        # Une application par defaut ne figure pas dans le hub d'un compte
+        # utilisateur. Le proxy la lui refuse deja ; lui montrer une tuile qui
+        # ne s'ouvre pas, ce serait promettre une porte fermee -- et il
+        # chercherait ce qu'il a mal fait.
+        if not peut_voir(nom):
+            continue
         if autorises is not None and nom not in autorises:
             continue
         if nom in cachees:
@@ -7807,6 +7946,20 @@ def _proxy(name, sub):
     # une application dont le lien circule doit rester fermee quel que soit le
     # chemin emprunte, y compris par un compte utilisateur qui connaitrait
     # l'adresse d'un projet qu'on ne lui a pas autorise.
+    # Une application par defaut suit la MEME frontiere que l'administration.
+    # Le diagnostic dit ce qui tourne, ce qui est expose et quels comptes
+    # n'ont pas de second facteur : c'est une page d'administration par ce
+    # qu'elle montre, elle doit donc s'arreter ou l'administration s'arrete.
+    # Verifie a chaque requete, pas seulement a l'ouverture : une session
+    # commencee dans le salon puis reprise depuis l'exterieur n'emporte pas
+    # le droit avec elle.
+    if est_app_par_defaut(name):
+        hors = refus_admin_hors_reseau()
+        if hors:
+            journaliser("refus", app=name, motif="hors reseau local",
+                        ip=_adresse_client())
+            return Response(_page("Accès refusé", hors), 403,
+                            mimetype="text/html")
     if visibilite(a) == VISIBILITE_PRIVEE:
         if not is_authed():
             return redirect("/login")
@@ -7897,6 +8050,23 @@ def not_found(e):
 
 
 def _page(title, msg, extra=""):
+    """Une page d'erreur simple, servie par les DEUX origines.
+
+    Elle echappe ses trois textes, et c'est la seule facon tenable : elle est
+    appelee depuis le proxy avec un nom d'application qui vient de l'URL.
+    « /zz<script>alert(1)</script>/ » ressortait tel quel dans la page --
+    une XSS reflechie sur l'origine des applications. Elle n'y portait pas la
+    session du panneau (c'est tout l'interet de la separation), mais elle
+    permettait de se faire passer pour n'importe quelle application hebergee,
+    dans son origine, devant l'utilisateur qui vient de cliquer.
+
+    Echapper ICI plutot qu'a chaque appel : aucun appelant ne passe de balise
+    volontairement, et la regle qui tient est celle qu'on ne peut pas oublier
+    d'appliquer.
+    """
+    title, msg, extra = (str(x).replace("&", "&amp;").replace("<", "&lt;")
+                         .replace(">", "&gt;").replace('"', "&quot;")
+                         for x in (title, msg, extra))
     return ("<!doctype html><meta charset=utf-8><title>" + title + "</title>"
             "<body style=\"margin:0;background:#0d1117;color:#c9d1d9;display:flex;"
             "align-items:center;justify-content:center;height:100vh;font:15px/1.6 "
@@ -7932,7 +8102,6 @@ def _page(title, msg, extra=""):
 #   3. Le dossier peut ne pas encore exister : app-manager et dagster demarrent
 #      en parallele, et c'est dagster qui amorce /workspace. Dans ce cas on ne
 #      pose PAS le marqueur et on reessaiera au prochain demarrage.
-DIAGNOSTIC_NOM = "diagnostic"
 DIAGNOSTIC_MARQUEUR = os.path.join(STATE_DIR, "diagnostic-inscrit")
 
 # Les deux commandes du README du projet, pas une detection automatique :

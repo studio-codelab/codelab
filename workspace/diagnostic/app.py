@@ -82,6 +82,28 @@ SOURCE = "app-manager"
 THEME = ('<link rel="stylesheet" href="/theme.css">'
          '<link rel="stylesheet" href="theme.css">')
 
+# LA MARQUE : le trace d'un moniteur cardiaque. Ecrit UNE fois et utilise
+# deux fois -- la barre du haut de la page, et l'icone de l'onglet du
+# navigateur. Deux dessins recopies divergent au premier retouchage, et c'est
+# celui qu'on ne regarde pas qui reste en arriere.
+#
+# Le panneau porte le meme dessin pour la tuile du hub (ICONE_DIAGNOSTIC dans
+# app-manager/app/app.py) : les deux services ne peuvent pas partager de code,
+# mais ils partagent la forme, et un test verifie qu'aucun des deux ne l'a
+# perdue.
+MARQUE_TRACE = "M3 12h4l2.5-7 4 14 2.5-7h5"
+
+# L'icone de l'onglet, dessinee dans l'adresse elle-meme : pas de requete de
+# plus, et rien a servir. Le fond reprend le turquoise de CodeLab -- la page
+# n'a pas encore charge son theme quand le navigateur lit cette ligne.
+FAVICON = (
+    '<link rel="icon" href="data:image/svg+xml,'
+    "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E"
+    "%3Crect width='24' height='24' rx='6' fill='%230e7c86'/%3E"
+    "%3Cpath d='" + MARQUE_TRACE.replace(" ", "%20") + "' fill='none' "
+    "stroke='white' stroke-width='2' stroke-linecap='round' "
+    "stroke-linejoin='round'/%3E%3C/svg%3E\">")
+
 # Le choix clair / sombre fait dans le panneau vit dans le localStorage de
 # son origine. Les applications sont servies sur une AUTRE origine (le port
 # 9002), qui a son propre stockage : le choix n'y etait donc pas lisible, et
@@ -569,7 +591,7 @@ def _barre(quand):
     """
     return ('<div class="barre"><div class="wrap">'
             '<div class="marque"><span class="jeton">'
-            '<svg viewBox="0 0 24 24"><path d="M3 12h4l2.5-7 4 14 2.5-7h5"/></svg>'
+            f'<svg viewBox="0 0 24 24"><path d="{MARQUE_TRACE}"/></svg>'
             '</span>CodeLab <em>Diagnostic</em></div>'
             '<div class="spacer"></div>'
             f'<div class="quand">{esc(quand)}</div></div></div>')
@@ -583,7 +605,7 @@ def page(titre, corps, script_final="", quand=""):
     differentes selon la page ouverte.
     """
     return ("<!doctype html><html lang=\"fr\"><head><meta charset=\"utf-8\">"
-            + THEME + SUIVRE_LE_THEME
+            + THEME + FAVICON + SUIVRE_LE_THEME
             + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
             + f"<title>{esc(titre)}</title><style>{CSS}</style></head><body>"
             + _barre(quand) + f"<div class=\"wrap\">{corps}</div>{MODALE}"
