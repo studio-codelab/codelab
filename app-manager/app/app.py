@@ -55,6 +55,7 @@ import struct
 import subprocess
 import threading
 import time
+import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -639,6 +640,29 @@ def lien_panneau():
     if not hote:
         return "/"
     return f"{request.scheme}://{hote}:{PANEL_PORT}/"
+
+
+@flask_app.before_request
+def fermer_les_sessions_suspendues():
+    """Suspendre doit valoir TOUT DE SUITE, pas a la prochaine connexion.
+
+    Sans cette garde, un compte suspendu gardait sa session ouverte : celui
+    dont on vient de fermer l'acces continuait d'ouvrir ses projets tant
+    qu'il ne se deconnectait pas -- c'est-a-dire, en pratique, indefiniment.
+    Le registre est relu a chaque requete (il l'est deja pour les projets
+    autorises), et une session dont le compte a disparu ou a ete suspendu
+    est effacee sur place.
+
+    On efface et on laisse passer : la route dira elle-meme ce qu'elle exige,
+    et rediriger ici renverrait la page de connexion vers elle-meme.
+    """
+    if session.get("authed") is not True or est_admin():
+        return None
+    nom = utilisateur_courant()
+    compte = lire_utilisateurs().get(nom) if nom else None
+    if compte is None or compte_suspendu(compte):
+        session.clear()
+    return None
 
 
 @flask_app.before_request
@@ -2231,12 +2255,29 @@ def utilisateur_courant():
     return session.get("utilisateur") or ""
 
 
+def compte_suspendu(compte):
+    """Un compte suspendu existe encore, mais n'ouvre plus rien.
+
+    POURQUOI PAS « SUPPRIMER ». Un depart, un doute, un appareil perdu : on
+    veut fermer l'acces TOUT DE SUITE et decider plus tard. Supprimer efface
+    les projets autorises, l'adresse, les cles d'acces -- et il faut tout
+    ressaisir au retour. Suspendre ferme la porte en gardant la piece en
+    l'etat, et se defait d'un clic.
+    """
+    return bool((compte or {}).get("suspendu"))
+
+
 def projets_autorises():
     """Les projets que la session peut ouvrir. None = tous (administrateur)."""
     if est_admin():
         return None
     compte = lire_utilisateurs().get(utilisateur_courant())
-    return set(compte.get("projets", [])) if compte else set()
+    # Suspendu : plus aucun projet, meme ceux qui restent coches dans sa
+    # fiche. On ne retire pas ses droits, on ferme la porte -- les retrouver
+    # a la reactivation est tout l'interet.
+    if not compte or compte_suspendu(compte):
+        return set()
+    return set(compte.get("projets", []))
 
 
 def peut_voir(name):
@@ -3035,7 +3076,24 @@ def derniere_ligne_utile(nom):
 
 
 def stop(name):
+    """Arrete une application. Rend None si tout va bien, sinon POURQUOI.
+
+    MEME CONTRAT QUE start(), et il manquait. Cette fonction ne rendait rien
+    et n'attrapait que ProcessLookupError : un signal refuse (EPERM), un
+    disque plein au moment de reecrire processus.json ou apps.json, et
+    l'exception traversait la route jusqu'a une page d'erreur HTTP 500. La
+    page, qui n'y trouvait aucun JSON, affichait alors son message par
+    defaut -- ecrit pour le demarrage : un arret qui echoue s'annoncait
+    « L'application n'a pas demarre. »
+
+    Et le cas le plus couteux ne levait rien du tout : un processus qui
+    survit a SIGTERM comme a SIGKILL laissait tout de meme enabled=False et
+    une reponse « tout va bien ». Le panneau affichait « Arretee » d'une
+    application qui tournait toujours et tenait son port -- exactement le
+    defaut que l'adoption des processus avait corrige ailleurs.
+    """
     p = procs.get(name)
+    erreur = None
     if p and p.poll() is None:
         try:
             os.killpg(os.getpgid(p.pid), signal.SIGTERM)
@@ -3045,8 +3103,28 @@ def stop(name):
                 time.sleep(0.1)
             if p.poll() is None:
                 os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+                # Laisser au noyau le temps de faire le travail : sans cette
+                # seconde attente, on constatait la survie du processus a
+                # l'instant meme ou on venait de l'achever.
+                for _ in range(20):
+                    if p.poll() is not None:
+                        break
+                    time.sleep(0.05)
         except ProcessLookupError:
-            pass
+            pass        # deja parti entre le poll et le signal : c'est gagne
+        except OSError as e:
+            erreur = (f"Le panneau n'a pas pu signaler le processus "
+                      f"(pid {getattr(p, 'pid', '?')}) : {e}")
+        if erreur is None and p.poll() is None:
+            erreur = (f"Le processus (pid {p.pid}) ne s'arrete ni sur SIGTERM "
+                      f"ni sur SIGKILL.")
+    if erreur:
+        # On ne touche NI a procs NI a enabled : marquer "arretee" une
+        # application toujours vivante, c'est perdre la seule trace qui
+        # permet encore de la retrouver -- et promettre a l'interface un
+        # etat qui n'existe pas.
+        print(f"[app-manager] {name} : arret impossible -- {erreur}", flush=True)
+        return erreur
     procs.pop(name, None)
     _oublier_processus(name)
     _restart_history.pop(name, None)  # arret volontaire : on oublie l'historique de crash
@@ -3054,6 +3132,7 @@ def stop(name):
     if name in apps:
         apps[name]["enabled"] = False
         save(apps)
+    return None
 
 
 def resume():
@@ -4389,6 +4468,14 @@ def login_submit():
     # Compte cree librement dont l'adresse n'a jamais ete confirmee. Le
     # message est explicite : ici, il ne revele rien qu'on ne sache deja --
     # le mot de passe vient d'etre reconnu.
+    # Suspendu : le mot de passe vient d'etre reconnu, donc le dire ne
+    # revele rien -- et se taire enverrait chercher une panne la ou il y a
+    # une decision.
+    if compte_suspendu(compte):
+        journaliser("echec", qui=nom, motif="compte suspendu", ip=_adresse_client())
+        return jsonify({"error": "Ce compte est suspendu. Demande à "
+                                 "l'administrateur de le réactiver."}), 403
+
     if compte.get("attente_email"):
         return jsonify({"error": "Confirme d'abord ton adresse mail : un code "
                                  "t'a été envoyé à l'inscription.",
@@ -5854,6 +5941,8 @@ def api_utilisateurs():
          # Un compte cree librement qui n'a pas encore confirme son adresse
          # n'ouvre aucune session : le dire evite de chercher pourquoi.
          "attente_email": bool(c.get("attente_email")),
+         # Suspendu : le compte existe, garde tout, et n'ouvre plus rien.
+         "suspendu": compte_suspendu(c),
          "cree": c.get("cree")}
         for nom, c in sorted(comptes.items())]})
 
@@ -5922,6 +6011,17 @@ def api_utilisateur_modifier(nom):
     # zero.
     if "projets" in d:
         compte["projets"] = _projets_valides(d.get("projets"), load())
+    # Suspendre / reactiver. Un booleen, et rien d'autre : les projets
+    # autorises, l'adresse et les cles d'acces restent en place, c'est ce qui
+    # distingue une suspension d'une suppression.
+    if "suspendu" in d:
+        if d.get("suspendu"):
+            compte["suspendu"] = True
+        else:
+            compte.pop("suspendu", None)
+        journaliser("compte", qui=utilisateur_courant() or NOM_ADMIN, cible=nom,
+                    action="suspendu" if d.get("suspendu") else "réactivé",
+                    ip=_adresse_client())
     mdp = (d.get("mot_de_passe") or "").strip()
     if mdp:
         if len(mdp) < 8:
@@ -6273,18 +6373,45 @@ def api_edit(n):
 @flask_app.post("/api/toggle/<n>")
 @require_admin
 def api_toggle(n):
+    """Demarrer / arreter, et DIRE CE QU'ON A ESSAYE DE FAIRE.
+
+    Signale par Lucas : « je ne peux pas arreter les applications », avec le
+    message « L'application n'a pas demarre. (reponse 500) ». Deux defauts se
+    superposaient, et le second cachait le premier :
+
+      - l'action tentee n'etait renvoyee nulle part. La page ne pouvait donc
+        que deviner, et son message de repli est ecrit pour le demarrage :
+        tout arret rate s'annoncait « n'a pas demarre », ce qui envoie
+        chercher exactement a l'oppose de la panne ;
+      - une exception dans stop() ou start() sortait en page d'erreur HTML,
+        sans JSON. Le motif reel restait dans les journaux du panneau, que
+        l'interface ne montre pas.
+
+    L'action se decide donc AVANT d'agir, elle accompagne toutes les
+    reponses, et plus aucune exception ne sort d'ici sans explication.
+    """
     if n not in load():
         return jsonify({"error": "Application inconnue."}), 404
-    if is_running(n):
-        stop(n)
-        return jsonify({"ok": True, "running": False})
-    erreur = start(n)
-    if erreur:
-        # 409 et non 500 : le panneau a fait son travail, c'est
-        # l'application qui refuse de demarrer. La nuance compte pour qui
-        # lit les journaux du panneau.
-        return jsonify({"error": erreur}), 409
-    return jsonify({"ok": True, "running": True})
+    action = "arret" if is_running(n) else "demarrage"
+    try:
+        erreur = stop(n) if action == "arret" else start(n)
+        if erreur:
+            # 409 et non 500 : le panneau a fait son travail, c'est
+            # l'application qui refuse de s'arreter ou de demarrer. La
+            # nuance compte pour qui lit les journaux du panneau.
+            return jsonify({"error": erreur, "action": action}), 409
+        return jsonify({"ok": True, "action": action,
+                        "running": action == "demarrage"})
+    except Exception as e:                                        # noqa: BLE001
+        traceback.print_exc()
+        verbe = "arrêter" if action == "arret" else "démarrer"
+        return jsonify({
+            "action": action,
+            "error": f"Impossible de {verbe} l'application "
+                     f"({type(e).__name__}: {e}). Le détail complet est dans "
+                     f"les journaux du panneau : docker logs --tail 50 "
+                     f"codelab-app-manager",
+        }), 500
 
 
 def restart_app(n):
@@ -6417,6 +6544,136 @@ def api_delete(n):
     return jsonify({"ok": True})
 
 
+# ---------------------- renommer une application ----------------------
+#
+# LE NOM N'EST PAS UNE ETIQUETTE, C'EST LA CLE. Il designe l'application dans
+# apps.json, dans l'adresse qui l'ouvre, dans le journal qu'elle ecrit, dans
+# la liste des projets autorises de chaque compte, dans les applications que
+# chacun a masquees de son hub -- et il decide meme de l'uid sous lequel elle
+# tourne. Changer la cle sans changer ce qui la designe, c'est perdre
+# l'application de vue tout en la laissant tourner.
+#
+# D'ou une seule fonction qui fait le tour, plutot qu'un renommage dans la
+# page et des oublis qui se decouvrent trois semaines plus tard.
+
+def _renommer_references(ancien, nouveau):
+    """Tout ce qui designe une application par son nom, hors apps.json."""
+    # Les projets autorises de chaque compte.
+    comptes = lire_utilisateurs()
+    touche = False
+    for compte in comptes.values():
+        projets = compte.get("projets")
+        if isinstance(projets, list) and ancien in projets:
+            compte["projets"] = [nouveau if p == ancien else p for p in projets]
+            touche = True
+    if touche:
+        ecrire_utilisateurs(comptes)
+
+    # Les applications que chacun a retirees de son hub.
+    masquees = lire_masquees()
+    touche = False
+    for qui, liste in masquees.items():
+        if isinstance(liste, list) and ancien in liste:
+            masquees[qui] = [nouveau if v == ancien else v for v in liste]
+            touche = True
+    if touche:
+        ecrire_masquees(masquees)
+
+    # Le journal suit l'application : le perdre a chaque renommage effacerait
+    # justement ce qu'on relit pour comprendre ce qui vient de se passer.
+    for suffixe in (".log", ".log.1"):
+        avant = os.path.join(LOG_DIR, ancien + suffixe)
+        if os.path.exists(avant):
+            try:
+                os.replace(avant, os.path.join(LOG_DIR, nouveau + suffixe))
+            except OSError as e:
+                print(f"[app-manager] journal de {ancien} non renomme ({e}).", flush=True)
+
+
+def _reprendre_les_fichiers(dossier, ancien_uid, nouvel_uid):
+    """Redonne au nouvel uid les fichiers qui appartenaient a l'ancien.
+
+    L'uid d'une application est DERIVE de son nom (voir uid_application) :
+    la renommer lui en donne un autre, et tout ce qu'elle avait ecrit
+    devient illisible pour elle. Un projet qui ne peut plus relire sa propre
+    base SQLite apres un simple changement de nom serait un piege.
+
+    On ne touche QUE ce qui appartenait a l'ancien uid -- le code source
+    appartient a l'utilisateur SSH, et il doit le rester -- et jamais a
+    travers un lien symbolique : ce code tourne en root.
+    """
+    if os.geteuid() != 0 or ancien_uid == nouvel_uid or not os.path.isdir(dossier):
+        return 0
+    repris = 0
+    for racine, dossiers, fichiers in os.walk(dossier, followlinks=False):
+        for nom in dossiers + fichiers:
+            cible = os.path.join(racine, nom)
+            try:
+                st = os.lstat(cible)
+                if st.st_uid == ancien_uid:
+                    os.lchown(cible, nouvel_uid, st.st_gid)
+                    repris += 1
+            except OSError:
+                pass
+    return repris
+
+
+@flask_app.post("/api/app/<n>/renommer")
+@require_admin
+def api_renommer(n):
+    """Change le nom d'une application, et tout ce qui la designe par ce nom."""
+    apps = load()
+    if n not in apps:
+        return jsonify({"error": "Application inconnue."}), 404
+    # Meme raison que pour la suppression : l'etat des lieux de
+    # l'installation est inscrit sous ce nom-la, et le marqueur qui evite une
+    # seconde inscription porte dessus.
+    if n == DIAGNOSTIC_NOM:
+        return jsonify({"error": "Le projet de diagnostic ne se renomme pas : "
+                                 "c'est lui qui dit si cette installation va bien, "
+                                 "et le panneau le retrouve par son nom."}), 403
+    nouveau = valid_name((request.get_json(force=True, silent=True) or {}).get("nom"))
+    if not nouveau:
+        return jsonify({"error": "Le nouveau nom est obligatoire."}), 400
+    if nouveau == n:
+        return jsonify({"ok": True, "nom": n, "redemarree": False})
+    if nouveau in ("api", "static", "health", "login", "logout"):
+        return jsonify({"error": "Ce nom est réservé."}), 400
+    if nouveau in apps:
+        return jsonify({"error": "Une application porte déjà ce nom."}), 400
+
+    # L'application doit s'arreter le temps du renommage : son processus
+    # porte l'ancien nom dans son environnement (CODELAB_APP), c'est ce qui
+    # permet au panneau de le reconnaitre apres un redemarrage. Le laisser
+    # tourner reviendrait a le perdre.
+    tournait = is_running(n)
+    if tournait:
+        souci = stop(n)
+        if souci:
+            return jsonify({"error": "Arrêt impossible avant le renommage : " + souci}), 409
+
+    ancien_uid, nouvel_uid = uid_application(n), uid_application(nouveau)
+    dossier = apps[n].get("path") or ""
+
+    # La cle change de nom SANS changer de place : l'ordre d'apps.json est
+    # celui des listes de la page, et une application qui saute en fin de
+    # liste parce qu'on l'a renommee se cherche.
+    apps = {(nouveau if cle == n else cle): valeur for cle, valeur in apps.items()}
+    save(apps)
+    _renommer_references(n, nouveau)
+    repris = _reprendre_les_fichiers(dossier, ancien_uid, nouvel_uid)
+
+    journaliser("renommage", qui=utilisateur_courant() or NOM_ADMIN, app=nouveau,
+                action=f"{n} -> {nouveau}", ip=_adresse_client())
+
+    erreur = None
+    if tournait:
+        erreur = start(nouveau)
+    return jsonify({"ok": True, "nom": nouveau, "redemarree": tournait and not erreur,
+                    "fichiers_repris": repris,
+                    "erreur_demarrage": erreur or ""})
+
+
 @flask_app.get("/api/logs/<n>")
 @require_admin
 def api_logs(n):
@@ -6498,6 +6755,52 @@ def api_conteneur(n):
     for f in resultat["fichiers"]:
         f["existe"] = os.path.isfile(os.path.join(a["path"], f["nom"]))
     return jsonify(resultat)
+
+
+@flask_app.get("/api/app/<n>/conteneur.zip")
+@require_admin
+def api_conteneur_archive(n):
+    """Les memes fichiers, dans une archive a emporter.
+
+    POURQUOI UN TELECHARGEMENT. « Deposer dans le projet » suppose que la
+    suite se passe ici : on ouvre une session SSH, on lit, on construit
+    depuis /workspace. Or sortir une application de CodeLab, c'est justement
+    l'emmener AILLEURS -- sur un poste, sur un autre serveur, dans un depot
+    git qui n'a rien a voir avec cette machine. Il fallait alors recopier
+    quatre fichiers a la main depuis la page, un par un.
+
+    L'archive ne touche pas au dossier du projet : elle est construite en
+    memoire et part telle quelle. Ce qui est propose ici est donc exactement
+    ce que la page montre, meme si un fichier du meme nom existe deja a cote.
+    """
+    import io as _io
+    import zipfile
+
+    a = load().get(n)
+    if not a:
+        return jsonify({"error": "Application inconnue."}), 404
+    if not os.path.isdir(a["path"]):
+        return jsonify({"error": "Dossier du projet introuvable : " + a["path"]}), 400
+
+    resultat = fichiers_conteneur(dict(a, name=n))
+    memoire = _io.BytesIO()
+    # Un DOSSIER dans l'archive, pas quatre fichiers en vrac : ouverte sur un
+    # bureau, elle ne doit pas repandre un Dockerfile au milieu du reste.
+    with zipfile.ZipFile(memoire, "w", zipfile.ZIP_DEFLATED) as archive:
+        for f in resultat["fichiers"]:
+            archive.writestr(f"{n}/{f['nom']}", f["contenu"])
+    donnees = memoire.getvalue()
+
+    journaliser("conteneur", qui=utilisateur_courant() or NOM_ADMIN, app=n,
+                action="archive telechargee", ip=_adresse_client())
+    return Response(donnees, mimetype="application/zip", headers={
+        # Le nom du fichier vient d'un nom d'application deja valide
+        # (lettres, chiffres, tiret, souligne) : rien a echapper ici, mais on
+        # ne le prend pas pour autant tel quel dans l'en-tete.
+        "Content-Disposition": f'attachment; filename="{valid_name(n)}-conteneur.zip"',
+        "Content-Length": str(len(donnees)),
+        "Cache-Control": "no-store",
+    })
 
 
 @flask_app.post("/api/app/<n>/conteneur")

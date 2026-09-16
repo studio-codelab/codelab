@@ -18,6 +18,29 @@ meme table Postgres — voir les deux sources cote a cote est la preuve que tout
 | **Sondes** (page d'accueil) | a chaque affichage | elles REGARDENT : un fichier, une connexion, une variable. Instantanees, sans effet |
 | **Verification approfondie** (`/tests`) | a la demande | elles AGISSENT : ecrire en base et relire, traverser le reverse proxy, verifier que le journal enregistre |
 
+## Trois rangs, et un seul reveille quelqu'un
+
+Une sonde ne repond pas par oui ou par non : elle rend un **rang**. C'est ce qui decide si le run
+Dagster echoue -- donc si le mail part.
+
+| Rang | Ce que ca veut dire | Ce qui se passe |
+|---|---|---|
+| **ECHEC** | la stack ne rend plus son service, ou elle est ouverte : secret absent, Postgres muet, conteneur tombe, route d'administration qui repond sans session, disque qui va refuser la prochaine ecriture | le run echoue, le capteur envoie le mail |
+| **ALERTE** | degrade, mais ca tourne : isolement indisponible, disque qui se remplit, application declaree qui ne repond plus, reglage d'exposition a poser | journalise en `warning`, **le run reste vert** |
+| **SANS OBJET** | la sonde ne peut pas repondre *d'ici* : l'etat du panneau n'est monte que dans `codelab-app-manager` | ni bon ni mauvais, aucune consequence |
+| **OK** | verifie, ici, maintenant | |
+
+Le rang n'est pas attache a la sonde mais a ce qu'elle **constate** : « le panneau est injoignable
+depuis ce conteneur » est une alerte (absence de preuve), « le panneau repond 200 sans session » est
+un echec (preuve). Le plafond de chaque sonde se lit dans `SEVERITE_MAX`, en un seul endroit de
+`checks.py` -- et il est applique, pas seulement documente : une sonde de confort ne peut pas faire
+tomber un run, meme par inadvertance.
+
+Pourquoi ce reglage : avant, un disque a 87 %, un namespace utilisateur refuse par le noyau de
+l'hote et une base de donnees injoignable faisaient exactement la meme chose -- un run rouge et un
+mail. Trois alertes sur quatre ne demandaient aucun geste immediat. C'est ainsi qu'on cesse de lire
+ses alertes, puis qu'on rate la quatrieme.
+
 La verification approfondie ne modifie **rien** de l'installation : aucune application, aucun compte,
 aucun reglage. Ses ecritures vont dans la table du diagnostic ou dans son propre dossier, et les
 actions interdites doivent etre REFUSEES -- si l'une passe, c'est le resultat du test.
@@ -86,9 +109,9 @@ decouvre tout seul. Il n'y a **pas** de fichier central a editer pour declarer u
 
 ## Utilisation
 
-1. Ouvre `http://<IP-du-serveur>:9001/diagnostic/`. Huit verifications s'affichent, et la page ecrit une ligne
+1. Ouvre `http://<IP-du-serveur>:9001/diagnostic/`. Dix-sept verifications s'affichent, et la page ecrit une ligne
    `app-manager` en base a chaque rechargement.
-2. Le bandeau reste rouge tant que Dagster n'a rien ecrit. **Il passe au vert tout seul dans le
+2. Le bandeau reste orange tant que Dagster n'a rien ecrit. **Il passe au vert tout seul dans le
    quart d'heure** : l'asset est planifie toutes les quinze minutes. Pour ne pas attendre, va sur
    `http://<IP-du-serveur>:3000/` (la session du panneau suffit : si tu y es deja connecte, Dagster
    s'ouvre sans rien redemander) et materialise l'asset **`diagnostic_codelab`** a la main.
@@ -113,14 +136,32 @@ en lecture seule tournent en boucle.
 
 | Verification | Ce qui est teste |
 |---|---|
-| `credentials.env` | Volume `config` monte, et `POSTGRES_PASSWORD` disponible — lu dans le fichier cote Dagster, transmis par le panneau cote app-manager (la sonde dit lequel) |
+| `credentials.env` | Volume `config` monte, et mot de passe Postgres **disponible** — par le fichier, ou par l'environnement quand le fichier est illisible (la sonde dit par ou) |
 | `/workspace` | Volume partage entre `dev`, `dagster` et `app-manager` |
 | `Postgres (pilote)` | `psycopg` ou `psycopg2` disponible dans ce conteneur |
 | `Postgres` | Reseau + mot de passe du fichier partage + base accessible |
 | `codelab-postgres (TCP)` | Resolution DNS du nom de conteneur sur le reseau interne |
 | `codelab-dagster` | Le webserver Dagster repond en HTTP depuis un autre conteneur |
 | `codelab-dev (SSH)` | `sshd` accepte une connexion (sa banniere est affichee) |
-| `Cles SSH (droits)` | `authorized_keys` est **lisible par l'utilisateur SSH**, pas seulement present |
+| `codelab-app-manager` | Le panneau repond -- cherche sur `127.0.0.1` puis sur le nom de service, selon le conteneur d'ou l'on regarde |
+| `Cles SSH (droits)` | `authorized_keys` est **lisible par l'utilisateur SSH**, pas seulement present (rang 2 : une installation neuve n'a aucune cle, et c'est voulu) |
+
+Puis ce qui doit etre **ferme**, et l'etat des lieux :
+
+| Verification | Ce qui est teste |
+|---|---|
+| `panneau ferme` | Les routes d'administration exigent une session. Echec **seulement** sur un 200 constate ; injoignable = alerte |
+| `origine des applications` | Le panneau ne repond pas sur le port des applications. Meme regle : echec sur preuve, alerte sinon |
+| `exposition` | Ce qui doit etre pose quand la stack sort du reseau local (HTTPS, proxy de confiance, adresse publique) |
+| `isolation des applications` | Le noyau accepte-t-il de creer un namespace utilisateur ? Rang 2 : l'uid par application tient toujours |
+| `provenance des connexions` | Des adresses publiques dans le journal des acces alors que rien n'est publie |
+| `applications declarees` | Dossier present, commande resolvable, port a l'ecoute -- application par application |
+| `espace disque` | Deux paliers : alerte a 85 % et moins de 5 Go, echec a 95 % et moins de 1 Go |
+| `surface exposee` | Applications publiques, administration joignable, comptes sans second facteur |
+
+Les six dernieres lisent l'etat du panneau, qui n'est monte que dans `codelab-app-manager` : depuis
+Dagster, elles repondent **SANS OBJET** plutot que d'annoncer un panneau vide. Un faux vert est pire
+qu'une case vide -- il fait cesser de chercher.
 
 La derniere merite un mot. `sshd` lit les cles hote en `root`, mais ouvre `authorized_keys` **apres** avoir
 pris l'uid de l'utilisateur cible. Un dossier non traversable ou un fichier appartenant a `root` donne un
@@ -133,10 +174,26 @@ app-manager elle tourne sous l'uid 1001, et `authorized_keys` appartient a l'uid
 exactement ce qu'on veut. Elle perd alors le comptage des cles, qu'elle remplace par la taille du
 fichier (une metadonnee, donc encore lisible) : un fichier vide reste detecte.
 
+### Le secret Postgres n'arrive pas par le meme chemin partout
+
+`credentials.env` est en `0600 root`, et **aucun** des processus qui s'en servent ne tourne en root.
+Chaque entrypoint lit donc le fichier avant d'abandonner ses privileges, et passe la valeur par
+l'environnement -- sous un nom different selon le service :
+
+| Conteneur | Variable | Pose par |
+|---|---|---|
+| `codelab-app-manager` | `POSTGRES_PASSWORD` | le panneau, qui la transmet aux applications qu'il lance |
+| `codelab-dagster`, `codelab-dagster-daemon` | `DAGSTER_PG_PASSWORD` | l'entrypoint, avant de basculer sur l'uid 1002 |
+| `codelab-dev` (session SSH) | `PGPASSWORD` | l'entrypoint, dans le profil du shell |
+
+Un fichier illisible est donc l'etat **normal** de deux conteneurs sur trois. Ce qui compte est que
+le secret soit arrive, et la sonde dit par quelle variable.
+
 ## En cas d'echec
 
 Rien ne plante : chaque sonde affiche l'exception ou la cause dans la colonne de droite. Cote Dagster,
-l'asset echoue explicitement avec la liste des sondes en defaut, detail dans les logs du run.
+l'asset echoue explicitement avec la liste des sondes en defaut, detail dans les logs du run -- et
+seules les sondes de rang ECHEC le font echouer.
 
 | Symptome | Piste |
 |---|---|
@@ -144,7 +201,7 @@ l'asset echoue explicitement avec la liste des sondes en defaut, detail dans les
 | `nom introuvable` | Conteneur arrete : le DNS Docker n'inscrit que les conteneurs demarres |
 | `connexion refusee` | Le conteneur tourne, mais le service qu'il heberge non : il demarre encore (Dagster met une dizaine de secondes a charger le code) ou il est tombe. `docker logs --tail 50 <conteneur>` |
 | `password authentication failed` | Le mot de passe en base ne correspond plus a `credentials.env` |
-| `no password supplied` | Le panneau n'a pas transmis `POSTGRES_PASSWORD` : `credentials.env` est en `0600 root` et l'application tourne sous l'uid 1001. Redemarre `codelab-app-manager`, puis l'application |
+| `no password supplied` | Aucune des trois variables ci-dessus n'est arrivee dans le conteneur. Cote app-manager : redemarre `codelab-app-manager`, puis l'application. Cote Dagster : `docker logs codelab-dagster \| head -20` dira si l'entrypoint a trouve `POSTGRES_PASSWORD` dans `credentials.env` |
 | `credentials.env introuvable` | Volume `config` non monte sur le service |
 | `ne peut pas le traverser` | `chmod 755` sur `config/ssh` |
 | `illisible par l'uid 1000` | `chown 1000:1000` sur `authorized_keys` |

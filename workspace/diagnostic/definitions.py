@@ -11,6 +11,18 @@ Ce fichier contient tout le cote Dagster du projet :
   - le planning qui le declenche toutes les quinze minutes ;
   - le capteur alerte_mail_echec, qui envoie un mail a chaque run en echec.
 
+CE QUI FAIT ECHOUER UN RUN, ET CE QUI NE LE FAIT PAS. Les sondes ne rendent
+plus "oui / non" mais un RANG (checks.Etat) : ECHEC, ALERTE, SANS_OBJET, OK.
+Seul le rang ECHEC fait tomber le run -- donc partir le mail. Une alerte est
+journalisee en warning et le run reste vert.
+
+C'est le coeur du reglage. Avant, un disque a 87 %, un namespace utilisateur
+refuse par l'hote et une base de donnees injoignable faisaient exactement la
+meme chose : un run rouge et un mail. Trois alertes sur quatre ne demandaient
+aucun geste immediat, et c'est ainsi qu'on cesse de lire ses alertes -- puis
+qu'on rate la quatrieme. La hierarchie se lit dans SEVERITE_MAX, en un seul
+endroit, dans checks.py.
+
 Les sondes elles-memes vivent dans checks.py, a cote. Ce n'est pas un decoupage
 arbitraire : checks.py est aussi importe par app.py, qui tourne dans
 codelab-app-manager -- une image qui ne contient pas Dagster. Un module partage
@@ -43,8 +55,8 @@ import ssl
 from email.message import EmailMessage
 
 from dagster import (AssetExecutionContext, Definitions, DefaultScheduleStatus,
-                     DefaultSensorStatus, RunFailureSensorContext, ScheduleDefinition,
-                     asset, define_asset_job, run_failure_sensor)
+                     DefaultSensorStatus, MetadataValue, RunFailureSensorContext,
+                     ScheduleDefinition, asset, define_asset_job, run_failure_sensor)
 
 import checks
 
@@ -70,32 +82,101 @@ def diagnostic_codelab(context: AssetExecutionContext):
     un service hors du reseau, pas une panne du service teste. La comparaison
     des deux cotes localise la panne bien plus vite que chaque cote pris
     isolement.
+
+    Le run echoue sur les sondes de rang ECHEC, et sur elles seules : voir
+    l'en-tete de ce fichier.
     """
     resultats = checks.run_all()
-    for ok, nom, detail in resultats:
-        (context.log.info if ok else context.log.error)(
-            f"{'OK   ' if ok else 'ECHEC'} {nom} -- {detail}")
+    for etat, nom, detail in resultats:
+        journal = {checks.Etat.ECHEC: context.log.error,
+                   checks.Etat.ALERTE: context.log.warning}.get(etat, context.log.info)
+        journal(f"{etat.libelle:<10} {nom} -- {detail}")
 
-    echecs = [nom for ok, nom, _ in resultats if not ok]
+    rangs = checks.noms_par_rang(resultats)
+    critiques = list(rangs[checks.Etat.ECHEC])
+    alertes = list(rangs[checks.Etat.ALERTE])
+    sans_objet = list(rangs[checks.Etat.SANS_OBJET])
 
     # L'ecriture en base est tentee meme en cas d'echec des sondes : si c'est
     # Dagster qui n'arrive pas a joindre Postgres, l'exception ci-dessous le
     # dira plus precisement que la sonde elle-meme.
-    conn = checks.connect_pg()
+    #
+    # ATTRAPEE, et non laissee filer comme avant. Une connexion refusee
+    # sortait en trace de quarante lignes qui remplacait tout le reste : le
+    # resume des sondes n'etait jamais ecrit, et la cause reelle -- le mot de
+    # passe absent, dit deux lignes plus haut par la sonde credentials.env --
+    # disparaissait sous la pile d'appels de psycopg2. On lisait "OperationalError"
+    # la ou il fallait lire "le secret n'est pas arrive dans ce conteneur".
+    ligne, cause = None, None
     try:
-        detail = "toutes les sondes passent" if not echecs else f"echecs : {', '.join(echecs)}"
-        ligne = checks.write_heartbeat(conn, SOURCE, detail)
-        context.log.info(f"Ligne #{ligne} ecrite dans {checks.TABLE_QUALIFIEE} (source={SOURCE}).")
-    finally:
-        conn.close()
+        conn = checks.connect_pg()
+        try:
+            ligne = checks.write_heartbeat(conn, SOURCE, _resume(critiques, alertes))
+            context.log.info(
+                f"Ligne #{ligne} ecrite dans {checks.TABLE_QUALIFIEE} (source={SOURCE}).")
+        finally:
+            conn.close()
+    except Exception as e:                                        # noqa: BLE001
+        cause = e
+        critiques.append("ecriture du battement de coeur")
+        context.log.error(f"Battement de coeur non ecrit ({type(e).__name__}: {e}) -- "
+                          f"la chaine Dagster -> Postgres est coupee.")
 
-    if echecs:
+    context.add_output_metadata({
+        "sondes": len(resultats),
+        "critiques": len(critiques),
+        "alertes": len(alertes),
+        "sans objet": len(sans_objet),
+        "ligne ecrite": ligne if ligne is not None else "aucune",
+        # Le tableau complet dans l'interface : lire un etat des lieux ne
+        # doit pas demander d'ouvrir les journaux du run et de les derouler.
+        "etat des lieux": MetadataValue.md(_tableau(resultats)),
+    })
+
+    if critiques:
         # Echec explicite : c'est ce qui declenche le capteur d'alerte mail,
         # et c'est aussi la seule facon de rendre le probleme visible dans
         # l'interface sans avoir a lire les logs du run.
-        raise RuntimeError(f"{len(echecs)} sonde(s) en echec : {', '.join(echecs)}")
+        message = f"{len(critiques)} sonde(s) en echec : {', '.join(critiques)}"
+        if alertes:
+            message += f" (+ {len(alertes)} alerte(s) : {', '.join(alertes)})"
+        if cause is not None:
+            # Chainee, pas recopiee : la trace de psycopg2 reste consultable
+            # sous le message qui, lui, se lit.
+            raise RuntimeError(message) from cause
+        raise RuntimeError(message)
 
-    return f"{len(resultats)} sondes OK, ligne #{ligne} ecrite"
+    if alertes:
+        # Le run reste VERT. C'est tout le propos : une alerte se regarde
+        # dans la journee, elle ne reveille personne et n'use pas le credit
+        # d'attention du mail d'echec.
+        context.log.warning(
+            f"{len(alertes)} alerte(s), aucune sonde critique : {', '.join(alertes)}. "
+            f"Le run reste vert -- ces points se traitent quand tu passes, pas "
+            f"dans l'urgence.")
+
+    return _resume(critiques, alertes) + (f", ligne #{ligne} ecrite" if ligne else "")
+
+
+def _resume(critiques, alertes):
+    """La phrase que porte le battement de coeur, et le retour de l'asset."""
+    if not critiques and not alertes:
+        return "toutes les sondes passent"
+    morceaux = []
+    if critiques:
+        morceaux.append(f"echecs : {', '.join(critiques)}")
+    if alertes:
+        morceaux.append(f"alertes : {', '.join(alertes)}")
+    return " | ".join(morceaux)
+
+
+def _tableau(resultats):
+    """Les resultats en markdown, pour l'onglet des metadonnees de Dagster."""
+    lignes = ["| Etat | Sonde | Detail |", "|---|---|---|"]
+    for etat, nom, detail in resultats:
+        detail = str(detail).replace("|", "\\|").replace("\n", " ")
+        lignes.append(f"| {etat.libelle} | {nom} | {detail} |")
+    return "\n".join(lignes)
 
 
 # ==========================================================================

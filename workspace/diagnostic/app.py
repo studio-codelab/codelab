@@ -117,8 +117,10 @@ h1{font-size:var(--t-xl,22px);font-weight:800;letter-spacing:-.03em;line-height:
 .verdict::before{content:"";width:8px;height:8px;border-radius:50%;flex:none;
  align-self:center}
 .verdict.ok::before{background:var(--ok)}
+.verdict.warn::before{background:var(--warn)}
 .verdict.ko::before{background:var(--err)}
 .verdict.ok{color:var(--ok)}
+.verdict.warn{color:var(--warn)}
 .verdict.ko{color:var(--err)}
 
 h2{font-size:10px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;
@@ -159,6 +161,11 @@ tbody tr:hover{background:var(--surface2)}
    lire une seule ligne. */
 td:first-child{box-shadow:inset 3px 0 0 var(--line2);padding-left:17px}
 tr.ko td:first-child{box-shadow:inset 3px 0 0 var(--err)}
+/* Quatre rangs, quatre bandeaux : l'oeil trie la page avant de la lire, et
+   il ne doit pas lire "disque a 87 pour cent" du meme rouge que "Postgres
+   ne repond pas". */
+tr.warn td:first-child{box-shadow:inset 3px 0 0 var(--warn)}
+tr.neutre td:first-child{box-shadow:inset 3px 0 0 var(--line2)}
 tr.ok td:first-child{box-shadow:inset 3px 0 0 var(--ok)}
 
 /* La pastille d'etat, comme dans le panneau : fond teinte, coins pleins,
@@ -169,6 +176,8 @@ tr.ok td:first-child{box-shadow:inset 3px 0 0 var(--ok)}
 .st span::before,.pastille::before{content:"";width:6px;height:6px;border-radius:50%;
  background:currentColor}
 .st.ok span,.pastille.ok{color:var(--ok);background:var(--ok-bg)}
+.st.warn span,.pastille.warn{color:var(--warn);background:var(--warn-bg)}
+.st.neutre span,.pastille.neutre{color:var(--dim2);background:var(--surface2)}
 .st.ko span,.pastille.ko{color:var(--err);background:var(--err-bg)}
 
 .nom{font-weight:700;white-space:nowrap;letter-spacing:-.012em}
@@ -318,9 +327,13 @@ async function lancer(cle){
     }catch(e){
       d = {ok: false, detail: "La page n'a pas pu joindre le diagnostic : " + e};
     }
-    ligne.className = d.ok ? 'ok' : 'ko';
-    st.className = 'st ' + (d.ok ? 'ok' : 'ko');
-    st.firstElementChild.textContent = d.ok ? 'OK' : 'ÉCHEC';
+    /* Le rang vient du serveur quand il l'envoie : un test « sans objet »
+       -- la suite de regressions dans une image sans pytest -- n'est ni
+       vert ni rouge, et le peindre en rouge ferait chercher une panne. */
+    const classe = d.classe || (d.ok ? 'ok' : 'ko');
+    ligne.className = classe;
+    st.className = 'st ' + classe;
+    st.firstElementChild.textContent = d.etat || (d.ok ? 'OK' : 'ÉCHEC');
     $('d' + r).textContent = d.detail || '';
     $('ms' + r).textContent = (d.ms != null) ? d.ms + ' ms' : '';
     if(d.ok) reussis++;
@@ -437,26 +450,40 @@ def api_test(indice):
     if not 0 <= indice < len(noms):
         return {"ok": False, "nom": "", "detail": "Test inconnu."}, 404
     debut = time.time()
-    ok, nom, detail = checks.run_test(indice, avec_suite)
-    return {"ok": bool(ok), "nom": nom, "detail": detail,
+    etat, nom, detail = checks.run_test(indice, avec_suite)
+    # "ok" reste, et reste un booleen : c'est le contrat que la fenetre lit
+    # pour compter les reussites. Le rang s'ajoute a cote, pour la pastille --
+    # un test qui ne s'applique pas ici n'est ni vert ni rouge.
+    return {"ok": bool(etat), "etat": etat.libelle, "classe": etat.classe,
+            "nom": nom, "detail": detail,
             "ms": int((time.time() - debut) * 1000)}
 
 
 def _lignes_sondes(resultats):
+    """Une ligne par sonde, teintee par son RANG.
+
+    La classe CSS et le libelle viennent tous deux de checks.Etat : une
+    seule source de verite pour la couleur du bandeau et le mot affiche --
+    sans quoi les deux divergent au premier rang ajoute.
+    """
     return "".join(
-        f'<tr class="{"ok" if ok else "ko"}">'
-        f'<td class="st {"ok" if ok else "ko"}">'
-        f'<span>{"OK" if ok else "ÉCHEC"}</span></td>'
+        f'<tr class="{etat.classe}">'
+        f'<td class="st {etat.classe}"><span>{etat.libelle}</span></td>'
         f'<td class="nom">{esc(nom)}</td><td class="det">{esc(det)}</td></tr>'
-        for ok, nom, det in resultats)
+        for etat, nom, det in resultats)
 
 
 def _rubrique(cle, titre, description, resultats, extra=""):
-    """Une rubrique : son etat en pastille, ses sondes, son propre bouton."""
+    """Une rubrique : son etat en pastille, ses sondes, son propre bouton.
+
+    La pastille compte les sondes VERIFIEES et prend la couleur du pire rang
+    de la rubrique. Une rubrique qui ne porte qu'une alerte est orange, pas
+    rouge : c'est ce qui permet de voir d'un coup d'oeil laquelle demande un
+    geste maintenant, et laquelle attend qu'on passe.
+    """
     total = len(resultats)
-    passees = sum(1 for ok, _, _ in resultats if ok)
-    saine = passees == total
-    pastille = (f'<span class="pastille {"ok" if saine else "ko"}">'
+    passees = sum(1 for etat, _, _ in resultats if etat is checks.Etat.OK)
+    pastille = (f'<span class="pastille {checks.pire(resultats).classe}">'
                 f'{passees} sur {total}</span>')
     bouton = (f'<button class="btn btn-simple btn-sm" data-verifier="{esc(cle)}">'
               f'Vérifier cette rubrique</button>')
@@ -499,20 +526,31 @@ def index(ouvrir_verification=False):
     except Exception:
         erreur_db = traceback.format_exc(limit=3)
 
-    sondes_ok = all(ok for ok, _, _ in resultats)
+    # Le verdict suit la HIERARCHIE, il ne compte pas des booleens. Une page
+    # entierement rouge des qu'une ligne n'est pas verte n'apprend rien : ce
+    # qu'on veut savoir en arrivant, c'est s'il faut agir maintenant, plus
+    # tard, ou pas du tout.
+    rangs = checks.noms_par_rang(resultats)
+    critiques, alertes = rangs[checks.Etat.ECHEC], rangs[checks.Etat.ALERTE]
     dagster_a_ecrit = "dagster" in {s for s, _, _ in par_source}
-    complet = sondes_ok and erreur_db is None and dagster_a_ecrit
 
-    if complet:
+    if critiques or erreur_db:
+        combien = len(critiques) + (1 if erreur_db else 0)
+        verdict = (f'<div class="verdict ko">{combien} vérification'
+                   f'{"s" if combien > 1 else ""} en échec &mdash; à traiter maintenant. '
+                   f'La rubrique en cause porte sa pastille rouge ci-dessous.</div>')
+    elif alertes:
+        verdict = (f'<div class="verdict warn">Rien de critique. {len(alertes)} alerte'
+                   f'{"s" if len(alertes) > 1 else ""} &mdash; '
+                   f'<b>{esc(", ".join(alertes))}</b> : à regarder quand tu passes, '
+                   f'la stack rend son service.</div>')
+    elif not dagster_a_ecrit:
+        verdict = ('<div class="verdict warn">Toutes les sondes passent, mais aucune ligne écrite '
+                   'par Dagster &mdash; c\'est le seul maillon encore non vérifié.</div>')
+    else:
         verdict = ('<div class="verdict ok">Chaîne complète vérifiée &mdash; les cinq services '
                    'communiquent, et Postgres contient des écritures de l\'application '
                    '<em>et</em> de Dagster.</div>')
-    elif sondes_ok and erreur_db is None:
-        verdict = ('<div class="verdict ko">Toutes les sondes passent, mais aucune ligne écrite '
-                   'par Dagster &mdash; c\'est le seul maillon encore non vérifié.</div>')
-    else:
-        verdict = ('<div class="verdict ko">Au moins une vérification échoue &mdash; la rubrique '
-                   'en cause porte sa pastille rouge ci-dessous.</div>')
 
     if erreur_db:
         bloc_db = f'<div class="err">{esc(erreur_db)}</div>'
