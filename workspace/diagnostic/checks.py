@@ -8538,6 +8538,75 @@ def test_le_plafond_des_applications_est_plus_large_que_celui_du_panneau():
     assert "get_data" not in corps
 
 
+# ---------- 28. aucun service ne peut prendre toute la machine ----------
+#
+# Vecu a l'envers : rien ne bornait rien. Une application partie en boucle
+# emportait la machine entiere -- et le panneau avec, donc on ne pouvait meme
+# plus l'arreter depuis le panneau. Les journaux, eux, grossissaient jusqu'a
+# remplir le disque, et la sonde l'annoncait quand il l'etait deja.
+
+def _composes():
+    racine = os.path.dirname(DOSSIER_PANNEAU or "")
+    fichiers = [os.path.join(racine, n)
+                for n in ("docker-compose.yml", "docker-compose-casaos.yml")]
+    presents = [f for f in fichiers if os.path.exists(f)]
+    if not presents:
+        pytest.skip("composes absents de cette image")
+    assert len(presents) == 2, "un des deux composes manque"
+    return presents
+
+
+def _services_du_compose(chemin):
+    """Les services et leurs reglages, lus sans PyYAML.
+
+    L'image du diagnostic n'embarque pas PyYAML, et l'ajouter pour un test
+    ferait porter une dependance a la production. Le fichier est indente de
+    facon reguliere : deux espaces par service, quatre par reglage.
+    """
+    services, courant = {}, None
+    for ligne in open(chemin, encoding="utf-8"):
+        if ligne.startswith("  ") and not ligne.startswith("   ") and ligne.rstrip().endswith(":"):
+            courant = ligne.strip().rstrip(":")
+            services[courant] = {}
+        elif courant and ligne.startswith("    ") and not ligne.startswith("     "):
+            cle, _, valeur = ligne.strip().partition(":")
+            services[courant][cle] = valeur.strip()
+    return {n: r for n, r in services.items() if n.startswith("codelab-")}
+
+
+def test_chaque_service_est_borne_dans_les_deux_composes():
+    """Memoire, processeur, processus, journaux. Les quatre, partout.
+
+    Ce sont des PLAFONDS et non des reservations : ce qu'on empeche, c'est
+    qu'UN service prenne tout -- pas de repartir la memoire a l'avance.
+    """
+    for chemin in _composes():
+        services = _services_du_compose(chemin)
+        assert len(services) == 6, (chemin, sorted(services))
+        for nom, reglages in services.items():
+            for cle in ("mem_limit", "cpus", "pids_limit", "logging"):
+                assert cle in reglages, f"{nom} n'a pas de {cle} dans {os.path.basename(chemin)}"
+        texte = open(chemin, encoding="utf-8").read()
+        # La rotation est ce qui empeche un journal de remplir le disque :
+        # le driver seul ne borne rien.
+        assert texte.count('max-size: "10m"') == 6, chemin
+        assert texte.count('max-file: "3"') == 6, chemin
+
+
+def test_le_panneau_a_la_part_la_plus_large():
+    """Ce conteneur porte le panneau, les builds npm ET toutes les
+    applications deployees, qui sont ses processus fils. Le borner comme un
+    service ordinaire, c'est une application tuee au hasard en plein build."""
+    def en_mo(v):
+        return int(v[:-1]) * 1024 if v.endswith("g") else int(v.rstrip("m"))
+    for chemin in _composes():
+        services = _services_du_compose(chemin)
+        part = {n: en_mo(r["mem_limit"]) for n, r in services.items()}
+        assert part["codelab-app-manager"] == max(part.values()), chemin
+        # Et le relais nginx, qui ne fait que relayer, garde la plus petite.
+        assert part["codelab-dagster-proxy"] == min(part.values()), chemin
+
+
 def test_les_sondes_regardent_au_dela_de_la_stack():
     """Trois familles ajoutees, toutes en LECTURE SEULE.
 
