@@ -832,6 +832,124 @@ def separer_les_origines():
     return None
 
 
+# --------------------- ce que le navigateur a le droit de faire ---------------
+#
+# Le panneau n'a jamais pose un seul en-tete de securite sur ses pages. Rien
+# n'y obligeait tant qu'il n'y avait pas de faille -- mais c'est precisement
+# la qu'ils servent : ils ne reparent rien, ils reduisent ce qu'une faille
+# permet. La regle « une donnee ne devient jamais du programme » est la
+# premiere barriere ; celle-ci est la seconde, pour le jour ou la premiere
+# cede quand meme.
+#
+# Ce que chacun ferme :
+#
+#   frame-ancestors / X-Frame-Options   le panneau ne s'encadre plus. Sans
+#       eux, un site pouvait le poser dans une iframe invisible sous un
+#       bouton anodin et faire cliquer « Supprimer » a l'utilisateur. Le
+#       jeton CSRF n'y peut rien : c'est un VRAI clic, dans une VRAIE
+#       session.
+#   default-src / script-src            un script injecte ne peut plus
+#       charger de code depuis ailleurs, ni renvoyer ce qu'il a lu vers un
+#       serveur tiers. 'unsafe-inline' reste necessaire : les deux pages
+#       portent leur script et leur style en ligne, et les retirer est un
+#       autre chantier. Le reste de la regle garde sa valeur malgre lui.
+#   base-uri / form-action              une balise <base> injectee
+#       detournerait toutes les adresses relatives de la page ; un formulaire
+#       reecrit posterait le mot de passe ailleurs.
+#   Referrer-Policy                     l'adresse d'une page du panneau ne
+#       part plus chez un tiers.
+#   nosniff                             un fichier servi comme du texte ne
+#       peut plus etre relu comme du script.
+#
+# LES APPLICATIONS HEBERGEES SONT EXCLUES, sauf nosniff. Leur imposer la
+# politique du panneau casserait la premiere qui charge une police, une carte
+# ou un script depuis ailleurs -- et ce serait decider a leur place. Le
+# panneau protege le panneau.
+CSP_PANNEAU = ("default-src 'self'; base-uri 'none'; object-src 'none'; "
+               "frame-ancestors 'none'; form-action 'self'; "
+               "img-src 'self' data:; font-src 'self'; connect-src 'self'; "
+               "style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'")
+
+# Six mois, et sans includeSubDomains. HSTS est un ENGAGEMENT : une fois
+# l'en-tete recu, le navigateur refuse le http pendant toute cette duree, et
+# rien ne peut le lui faire oublier plus tot. Un an sur une machine
+# auto-hebergee ou l'on essaie des choses, c'est long ; les sous-domaines,
+# eux, ne nous appartiennent pas forcement. Pose seulement quand le panneau
+# SAIT qu'il est servi en TLS -- sinon il se rendrait lui-meme injoignable.
+HSTS = "max-age=15552000"
+
+
+@flask_app.after_request
+def poser_les_entetes(reponse):
+    reponse.headers.setdefault("X-Content-Type-Options", "nosniff")
+    if request.endpoint in ("proxy", "proxy_noslash"):
+        return reponse
+    reponse.headers.setdefault("Content-Security-Policy", CSP_PANNEAU)
+    reponse.headers.setdefault("X-Frame-Options", "DENY")
+    reponse.headers.setdefault("Referrer-Policy", "no-referrer")
+    reponse.headers.setdefault(
+        "Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    if https_actif():
+        reponse.headers.setdefault("Strict-Transport-Security", HSTS)
+    return reponse
+
+
+# ------------------------- la taille d'une requete --------------------------
+#
+# Il n'y en avait aucune. Un seul POST pouvait donc faire lire au serveur
+# autant d'octets qu'il en envoyait, et waitress tient seize fils : seize
+# corps sans fin, et le service tombe sans qu'aucun mot de passe ait ete
+# tente. Ce n'est pas une faille, c'est une porte laissee ouverte.
+#
+# DEUX plafonds, parce qu'il y a deux usages qui n'ont rien a voir :
+#
+#   le panneau       ses propres API. Le plus gros envoi legitime est un logo
+#                    de 512 Ko, qui voyage en base64 dans du JSON. 2 Mo
+#                    laissent large.
+#   les applications ce que le proxy transmet a une application hebergee. On
+#                    ne sait pas ce qu'elle recoit -- un fichier deposé, une
+#                    archive. Le plafond est donc genereux, et reglable : ce
+#                    qu'il borne, c'est la memoire du panneau, qui met le
+#                    corps entier en memoire avant de le transmettre.
+CORPS_MAX_PANNEAU = 2 * 1024 * 1024
+CORPS_MAX_APPLICATION = int(os.environ.get("APP_MANAGER_CORPS_MAX_MO", "32")) * 1024 * 1024
+
+# Le filet de Flask, pour un corps annonce sans taille (Transfer-Encoding:
+# chunked) : la lecture s'arrete d'elle-meme au plafond.
+flask_app.config["MAX_CONTENT_LENGTH"] = CORPS_MAX_APPLICATION
+
+
+@flask_app.before_request
+def borner_le_corps():
+    """Refuse AVANT de lire : le Content-Length suffit a decider."""
+    if request.endpoint in ("proxy", "proxy_noslash"):
+        return None
+    taille = request.content_length
+    if taille is not None and taille > CORPS_MAX_PANNEAU:
+        return _trop_gros(CORPS_MAX_PANNEAU)
+    return None
+
+
+def _trop_gros(limite):
+    message = ("Envoi trop volumineux : %d Mo au maximum."
+               % (limite // (1024 * 1024)))
+    if request.path.startswith("/api/"):
+        return jsonify({"error": message}), 413
+    return Response(_page("Envoi trop volumineux", message), 413,
+                    mimetype="text/html")
+
+
+@flask_app.errorhandler(413)
+def trop_gros(e):
+    """Le meme refus quand c'est Flask qui coupe, et non la garde ci-dessus.
+
+    Sans lui, un depot trop gros rendait la page d'erreur par defaut : du
+    HTML la ou la page attend du JSON, donc un message illisible."""
+    limite = (CORPS_MAX_APPLICATION if request.endpoint in ("proxy", "proxy_noslash")
+              else CORPS_MAX_PANNEAU)
+    return _trop_gros(limite)
+
+
 # ------------------------------- jeton CSRF --------------------------------
 #
 # SameSite=Lax bloque deja l'essentiel : un autre SITE ne peut plus faire

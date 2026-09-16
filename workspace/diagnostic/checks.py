@@ -8452,6 +8452,92 @@ def test_le_navigateur_de_dossiers_lit_ce_que_le_serveur_envoie(
         "une entree de dirs est traitee comme un objet")
 
 
+# ---------- 26. ce que le navigateur a le droit de faire ----------
+#
+# Le panneau ne posait aucun en-tete de securite. Ils ne reparent rien : ils
+# reduisent ce qu'une faille permet, et c'est exactement pour le jour ou la
+# premiere barriere cede qu'on les veut deja en place.
+
+def test_le_panneau_pose_ses_entetes_de_securite(client):
+    """Les quatre en-tetes, sur la page du panneau ET sur celle de connexion.
+
+    Celle de connexion surtout : c'est elle qui porte le mot de passe, et
+    c'est la seule que voit quelqu'un qui n'a pas encore de session.
+    """
+    for chemin in ("/login", "/"):
+        client.post("/login", json={"password": "secret-de-test"})
+        r = client.get(chemin)
+        for entete in ("Content-Security-Policy", "X-Frame-Options",
+                       "Referrer-Policy", "X-Content-Type-Options"):
+            assert entete in r.headers, f"{entete} manque sur {chemin}"
+    csp = r.headers["Content-Security-Policy"]
+    # Le clickjacking ne se rattrape pas au jeton CSRF : un clic dans une
+    # iframe invisible est un VRAI clic, dans une VRAIE session.
+    assert "frame-ancestors 'none'" in csp
+    assert r.headers["X-Frame-Options"] == "DENY"
+    # Un script injecte ne doit pouvoir ni charger du code ailleurs, ni
+    # renvoyer ce qu'il a lu.
+    assert "default-src 'self'" in csp and "connect-src 'self'" in csp
+    # Et la page doit continuer de s'afficher : sa police, son logo en
+    # data: et ses styles en ligne sont dans la regle.
+    for permis in ("img-src 'self' data:", "font-src 'self'",
+                   "style-src 'self' 'unsafe-inline'"):
+        assert permis in csp, permis
+
+
+def test_hsts_n_est_pose_que_derriere_du_tls(client, monkeypatch):
+    """HSTS est un ENGAGEMENT : le navigateur refuse ensuite le http pendant
+    toute sa duree. Le poser sur une installation servie en clair la rendrait
+    injoignable, sans moyen de revenir en arriere."""
+    monkeypatch.setattr(app, "https_actif", lambda: False)
+    assert "Strict-Transport-Security" not in client.get("/login").headers
+    monkeypatch.setattr(app, "https_actif", lambda: True)
+    assert "Strict-Transport-Security" in client.get("/login").headers
+    # Sans includeSubDomains : les sous-domaines ne nous appartiennent pas.
+    assert "includeSubDomains" not in app.HSTS
+
+
+def test_une_application_hebergee_garde_sa_propre_politique(deux_espaces):
+    """La politique du panneau casserait la premiere application qui charge
+    une police, une carte ou un script ailleurs -- et ce serait decider a sa
+    place. Seul nosniff reste, il ne coute rien a personne."""
+    r = deux_espaces.get("/public/")
+    assert "Content-Security-Policy" not in r.headers
+    assert "X-Frame-Options" not in r.headers
+    assert r.headers.get("X-Content-Type-Options") == "nosniff"
+
+
+# ---------- 27. la taille d'une requete ----------
+#
+# Il n'y en avait aucune. Seize fils, seize corps sans fin, et le service
+# tombe sans qu'un seul mot de passe ait ete tente.
+
+def test_un_corps_trop_gros_est_refuse(client):
+    client.post("/login", json={"password": "secret-de-test"})
+    trop = "x" * (app.CORPS_MAX_PANNEAU + 1)
+    r = client.put("/api/categories", data=trop, content_type="application/json")
+    assert r.status_code == 413
+    # Un message lisible, et en JSON : la page attend du JSON, et la page
+    # d'erreur par defaut de Flask lui aurait rendu du HTML.
+    assert "maximum" in (r.get_json() or {}).get("error", "")
+    # Ce qui passe, passe toujours.
+    r = client.put("/api/categories", json={"categories": ["essais"]})
+    assert r.status_code == 200
+
+
+def test_le_plafond_des_applications_est_plus_large_que_celui_du_panneau():
+    """Deux usages sans rapport : les API du panneau n'envoient qu'un logo,
+    une application hebergee peut recevoir un fichier."""
+    assert app.CORPS_MAX_APPLICATION > app.CORPS_MAX_PANNEAU
+    # Le filet de Flask vaut le plus large des deux : c'est lui qui coupe un
+    # corps annonce sans taille, et il ne doit pas bloquer les applications.
+    assert app.flask_app.config["MAX_CONTENT_LENGTH"] == app.CORPS_MAX_APPLICATION
+    # La garde decide sur le Content-Length : elle refuse AVANT de lire.
+    corps = inspect.getsource(app.borner_le_corps)
+    assert "request.content_length" in corps
+    assert "get_data" not in corps
+
+
 def test_les_sondes_regardent_au_dela_de_la_stack():
     """Trois familles ajoutees, toutes en LECTURE SEULE.
 
@@ -8745,12 +8831,22 @@ def test_le_panneau_ne_repond_pas_sur_le_port_des_applications(deux_origines):
         assert r.status_code == 404, f"{chemin} repond sur le port des applications"
 
 
-def test_les_applications_repondent_sur_leur_port(deux_origines):
+def test_les_applications_repondent_sur_leur_port(deux_origines, monkeypatch):
     c = deux_origines
+    # L'application ne repond pas : on le DECIDE ici, au lieu de parier sur
+    # le fait que rien n'ecoute sur le port 9103 de la machine qui lance les
+    # tests. Ce pari se perdait des qu'un panneau local tournait a cote --
+    # le proxy joignait la vraie application, rendait son 404 a elle, et le
+    # test accusait la separation des origines.
+    def ne_repond_pas(*a, **kw):
+        raise OSError("connexion refusee")
+    monkeypatch.setattr(app.urllib.request, "urlopen", ne_repond_pas)
+
     r = c.get("/public/", **_sur_port(9302))
-    # Pas 404 : la route du proxy est bien atteinte (l'application n'ecoute
-    # pas dans un test, d'ou l'erreur de passerelle).
-    assert r.status_code != 404
+    # 502 : la route du proxy est bien atteinte, et c'est la connexion a
+    # l'application qui manque. Un 404 voudrait dire que la garde d'origine
+    # a refuse la requete avant.
+    assert r.status_code == 502, r.data[:200]
     # La sonde de sante reste joignable : c'est le HEALTHCHECK du conteneur.
     assert c.get("/health", **_sur_port(9302)).status_code == 200
 
