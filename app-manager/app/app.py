@@ -48,6 +48,7 @@ import secrets
 import shutil
 import signal
 import smtplib
+import tarfile
 import socket
 import ssl
 import stat as stat_mod
@@ -3631,6 +3632,135 @@ def start_monitor_thread():
                 print(f"[app-manager] erreur dans les alertes : {e}", flush=True)
     t = threading.Thread(target=_loop, daemon=True)
     t.start()
+
+
+# --------------------------- sauvegarde de l'etat ---------------------------
+#
+# Il n'y en avait aucune. Rien ne copiait utilisateurs.json, apps.json ni le
+# journal des acces : un disque perdu, et il fallait tout redeclarer de
+# memoire -- les comptes, les droits par projet, les applications, les
+# categories, l'adresse publique. Postgres, lui, est sauvegarde par son
+# propre conteneur (voir postgres/entrypoint.sh) : pg_dump refuse de
+# sauvegarder un serveur plus recent que lui, et c'est le seul endroit ou il
+# a la bonne version. Chacun sauvegarde ce qu'il est SEUL a pouvoir
+# sauvegarder.
+#
+# Ce qui n'entre pas dans l'archive :
+#
+#   les journaux d'applications (logs/)  ils se regenerent, et ils pesent
+#   credentials.env                      il n'est pas dans ce dossier, et
+#                                        c'est voulu : l'archive se recopie,
+#                                        se transporte, se depose ailleurs.
+#                                        Y mettre le mot de passe du panneau
+#                                        et la cle de session reviendrait a
+#                                        les diffuser avec elle.
+SAUVEGARDES_DIR = os.environ.get("APP_MANAGER_SAUVEGARDES", "/sauvegardes")
+SAUVEGARDE_HEURES = int(os.environ.get("APP_MANAGER_SAUVEGARDE_HEURES", "24"))
+SAUVEGARDES_GARDEES = int(os.environ.get("APP_MANAGER_SAUVEGARDES_GARDEES", "7"))
+SAUVEGARDE_PREFIXE = "panneau-"
+
+
+def sauvegardes_actives():
+    """Le dossier n'existe que si le volume est monte.
+
+    Sans lui, l'archive irait dans la couche du conteneur et disparaitrait au
+    premier « docker compose down » -- une sauvegarde qui s'efface avec ce
+    qu'elle sauvegarde est pire que rien, parce qu'on croit en avoir une.
+    """
+    return SAUVEGARDE_HEURES > 0 and os.path.isdir(SAUVEGARDES_DIR)
+
+
+# Ce que l'archive laisse dehors, et pourquoi :
+#
+#   logs/   les journaux d'applications. Ils se regenerent, et ils sont de
+#           loin ce qui pese le plus.
+#   home/   le dossier personnel de chaque application. C'est un cache (npm,
+#           pip), pas de l'etat -- et il est ECRIVABLE PAR LES APPLICATIONS.
+#           L'y inclure laisserait n'importe laquelle d'entre elles decider
+#           du poids de la sauvegarde, et y deposer ce qu'elle veut.
+ARCHIVE_EXCLUS = ("logs", "home")
+
+
+def _filtre_de_l_archive(info):
+    """tarfile nomme les membres « ./quelque-chose » quand la racine est
+    ajoutee sous le nom « . » : le prefixe se retire ici, sinon la
+    comparaison porte sur le point et ne filtre rien."""
+    chemin = info.name[2:] if info.name.startswith("./") else info.name
+    if chemin.split("/")[0] in ARCHIVE_EXCLUS or chemin.endswith((".log", ".log.1")):
+        return None
+    return info
+
+
+def sauvegarder_l_etat():
+    """Une archive du dossier d'etat, verifiee, puis la rotation.
+
+    Ecrite a cote puis renommee : un « docker compose down » au milieu de
+    l'ecriture laisserait sinon une archive tronquee portant l'heure la plus
+    recente -- celle qu'on choisirait pour restaurer.
+
+    VERIFIEE, comme les dumps Postgres : l'archive est relue entierement
+    avant d'etre gardee. Une sauvegarde qu'on decouvre illisible le jour de
+    la restauration ne vaut pas mieux que pas de sauvegarde.
+    """
+    horodatage = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S")
+    nom = f"{SAUVEGARDE_PREFIXE}{horodatage}.tar.gz"
+    final = os.path.join(SAUVEGARDES_DIR, nom)
+    provisoire = final + ".partielle"
+    with tarfile.open(provisoire, "w:gz") as archive:
+        archive.add(STATE_DIR, arcname=".", filter=_filtre_de_l_archive)
+    with tarfile.open(provisoire) as archive:
+        if not archive.getmembers():
+            raise OSError("archive vide")
+    os.chmod(provisoire, 0o600)
+    os.replace(provisoire, final)
+    _rotation_sauvegardes()
+    return final
+
+
+def _rotation_sauvegardes():
+    """Les N plus recentes, et rien d'autre.
+
+    Le tri est sur le NOM : il porte la date en AAAAMMJJ-HHMMSS, donc
+    l'ordre alphabetique est l'ordre chronologique -- y compris au passage
+    d'une annee, la ou un tri sur la date de fichier suivrait une copie.
+    """
+    try:
+        archives = sorted(n for n in os.listdir(SAUVEGARDES_DIR)
+                          if n.startswith(SAUVEGARDE_PREFIXE) and n.endswith(".tar.gz"))
+    except OSError:
+        return
+    for vieille in archives[:-SAUVEGARDES_GARDEES] if SAUVEGARDES_GARDEES > 0 else []:
+        try:
+            os.remove(os.path.join(SAUVEGARDES_DIR, vieille))
+        except OSError:
+            pass
+
+
+def demarrer_les_sauvegardes():
+    if not sauvegardes_actives():
+        if SAUVEGARDE_HEURES <= 0:
+            print("[app-manager] sauvegardes desactivees "
+                  "(APP_MANAGER_SAUVEGARDE_HEURES=0).", flush=True)
+        else:
+            print(f"[app-manager] pas de volume de sauvegarde monte sur "
+                  f"{SAUVEGARDES_DIR} : l'etat du panneau ne sera pas "
+                  f"sauvegarde.", flush=True)
+        return
+
+    def _boucle():
+        while True:
+            try:
+                chemin = sauvegarder_l_etat()
+                journaliser("sauvegarde", fichier=os.path.basename(chemin),
+                            octets=os.path.getsize(chemin))
+            except Exception as e:
+                # Jamais d'exception qui remonte : le fil mourrait, et il n'y
+                # aurait plus de sauvegarde du tout -- silencieusement.
+                print(f"[app-manager] sauvegarde impossible : {e}", flush=True)
+                journaliser("sauvegarde", erreur=str(e))
+            time.sleep(SAUVEGARDE_HEURES * 3600)
+
+    threading.Thread(target=_boucle, daemon=True).start()
 
 
 # ------------------------------ alertes mail ------------------------------
@@ -7997,4 +8127,5 @@ if __name__ == "__main__":
                          daemon=True).start()
     start_monitor_thread()
     demarrer_miroir_pg()
+    demarrer_les_sauvegardes()
     servir(int(os.environ.get("MANAGER_PORT", "9001")))

@@ -206,6 +206,11 @@ services:
       # valeur dans credentials.env et l'exporte lui-meme.
 
     volumes:
+      # Les sauvegardes. C'est ce conteneur qui les ecrit : pg_dump
+      # refuse de sauvegarder un serveur plus recent que lui, et il
+      # est le seul de la stack a porter la version exacte du
+      # serveur. Restauration : postgres/README.md.
+      - /DATA/AppData/codelab/sauvegardes:/sauvegardes
       # Chemin hote par defaut : /DATA/AppData/codelab/postgres. Ecrit en
       # litteral, sans variable : les interfaces d'installation qui lisent ce
       # fichier pour proposer un champ modifiable ne savent pas resoudre une
@@ -484,6 +489,12 @@ services:
       # Lecture-ecriture (pas ":ro") : ce service ajoute sa propre ligne
       # dans le credentials.env consolide partage avec codelab-postgres.
       - /DATA/AppData/codelab/config:/var/lib/codelab/config
+      # Le MEME dossier que celui de codelab-postgres : les dumps
+      # des bases et l'archive de l'etat du panneau (comptes,
+      # applications declarees, journal) se retrouvent au meme
+      # endroit, et se copient ailleurs d'un seul geste. Chacun
+      # des deux services sauvegarde ce qu'il est SEUL a voir.
+      - /DATA/AppData/codelab/sauvegardes:/sauvegardes
 
     environment:
       APP_MANAGER_STATE: /var/lib/codelab/app-manager

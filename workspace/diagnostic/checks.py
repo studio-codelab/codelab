@@ -1200,6 +1200,72 @@ def check_espace_disque():
     return Etat.OK, "espace disque", " | ".join(lignes)
 
 
+# Une sauvegarde de plus de deux jours n'est pas une panne -- la stack rend
+# son service -- mais c'est ce qu'on veut savoir AVANT d'en avoir besoin. Le
+# jour ou on la cherche, il est trop tard pour decouvrir qu'elle date d'un
+# mois.
+SAUVEGARDE_FRAICHE_H = 26      # une par jour, plus une marge de decalage
+SAUVEGARDE_VIEILLE_H = 72      # au-dela, quelque chose ne tourne plus
+
+
+def check_sauvegardes(dossier=None):
+    """Y a-t-il une sauvegarde, et de quand date-t-elle ?
+
+    Elle ne verifie pas le CONTENU : les deux services qui les ecrivent le
+    font deja, chacun au moment ou il ecrit -- pg_restore --list pour les
+    bases, une relecture de l'archive pour l'etat du panneau. Un fichier
+    illisible est ecarte sur place et n'arrive jamais ici. Ce qui reste a
+    surveiller, c'est qu'elles continuent d'arriver.
+    """
+    dossier = dossier or os.environ.get("CODELAB_SAUVEGARDES_DIR", "/sauvegardes")
+    if not os.path.isdir(dossier):
+        # Pas de volume monte : sur une installation mise a jour depuis une
+        # version qui n'en avait pas, c'est un compose a completer -- pas une
+        # panne, et pas non plus quelque chose qu'on peut ignorer.
+        return (Etat.ALERTE, "sauvegardes",
+                f"{dossier} n'existe pas -- aucune sauvegarde n'est faite. "
+                f"Monte le volume /sauvegardes sur codelab-postgres et "
+                f"codelab-app-manager (voir docker-compose.yml).")
+
+    familles = {"bases": "base-", "panneau": "panneau-"}
+    maintenant = time.time()
+    ages, lignes, manquants = {}, [], []
+    for titre, prefixe in familles.items():
+        fichiers = [os.path.join(dossier, n) for n in os.listdir(dossier)
+                    if n.startswith(prefixe)]
+        recent = max((f for f in fichiers), key=_date_de_fichier, default="")
+        if not recent:
+            manquants.append(titre)
+            continue
+        age = (maintenant - _date_de_fichier(recent)) / 3600
+        ages[titre] = age
+        lignes.append(f"{titre} : {len(fichiers)} fichier(s), la plus récente "
+                      f"il y a {age:.0f} h")
+
+    if manquants:
+        return (Etat.ALERTE, "sauvegardes",
+                (" | ".join(lignes) + " | " if lignes else "")
+                + f"rien pour : {', '.join(manquants)} -- au premier "
+                  f"démarrage, la première sauvegarde arrive tout de suite ; "
+                  f"sinon, regarde les journaux du service concerné.")
+    vieille = max(ages.values())
+    if vieille >= SAUVEGARDE_VIEILLE_H:
+        return (Etat.ECHEC, "sauvegardes",
+                " | ".join(lignes) + f" -- plus rien depuis "
+                f"{vieille:.0f} h : la sauvegarde ne tourne plus.")
+    if vieille >= SAUVEGARDE_FRAICHE_H:
+        return (Etat.ALERTE, "sauvegardes",
+                " | ".join(lignes) + " -- un passage a été manqué.")
+    return Etat.OK, "sauvegardes", " | ".join(lignes)
+
+
+def _date_de_fichier(chemin):
+    try:
+        return os.path.getmtime(chemin)
+    except OSError:
+        return 0.0
+
+
 def check_surface_exposee():
     """Ce qui est REELLEMENT joignable, et par qui.
 
@@ -1663,6 +1729,7 @@ THEME_DES_SONDES = {
     "Clés SSH (droits)": "securite",
     "applications déclarées": "applications",
     "espace disque": "ressources",
+    "sauvegardes": "ressources",
 }
 
 
@@ -1814,6 +1881,10 @@ SEVERITE_MAX = {
     # Et la panne qui ne previent pas : un disque plein arrete Postgres avec
     # des messages qui ne parlent jamais d'espace disque.
     "espace disque": Etat.ECHEC,
+    # Rang 1 aussi, et c'est assume : une sauvegarde qui a cesse de tourner ne
+    # se voit jamais au moment ou elle cesse. Elle se voit le jour ou l'on en
+    # a besoin, et ce jour-la il n'y a plus rien a faire.
+    "sauvegardes": Etat.ECHEC,
     # ------------------------------------------------------------- rang 2 --
     # Degrade, mais ca tourne. A regarder dans la journee, sans mail de nuit.
     "Clés SSH (droits)": Etat.ALERTE,         # aucune cle = installation neuve
@@ -1863,6 +1934,7 @@ def run_all(env_file=None, workspace=None, ssh_dir=None):
         # leur place ici et non dans la verification approfondie.
         check_applications(),
         check_espace_disque(),
+        check_sauvegardes(),
         check_surface_exposee(),
     ]
     return [_hierarchiser(r) for r in resultats]
@@ -8605,6 +8677,180 @@ def test_le_panneau_a_la_part_la_plus_large():
         assert part["codelab-app-manager"] == max(part.values()), chemin
         # Et le relais nginx, qui ne fait que relayer, garde la plus petite.
         assert part["codelab-dagster-proxy"] == min(part.values()), chemin
+
+
+# ---------- 29. il n'y avait aucune sauvegarde ----------
+#
+# Rien ne copiait utilisateurs.json, apps.json, le journal des acces ni la
+# moindre base. Un disque perdu, et il fallait tout redeclarer de memoire :
+# les comptes, les droits par projet, les applications, les categories,
+# l'adresse publique -- et les donnees, elles, ne se redeclarent pas.
+#
+# Le partage des roles n'est pas un choix d'organisation : pg_dump REFUSE de
+# sauvegarder un serveur plus recent que lui. Le panneau tourne sur une image
+# dont le client Postgres a une version de retard ; codelab-postgres, lui,
+# porte le pg_dump de la version exacte du serveur. Chacun sauvegarde ce
+# qu'il est SEUL a pouvoir sauvegarder.
+
+@pytest.fixture
+def sauvegardes(tmp_path, monkeypatch):
+    """Un dossier d'etat a sauvegarder, et un dossier ou ecrire."""
+    etat = tmp_path / "etat"
+    (etat / "logs").mkdir(parents=True)
+    (etat / "utilisateurs.json").write_text('{"marie": {}}')
+    (etat / "apps.json").write_text('{"demo": {}}')
+    (etat / "acces.jsonl").write_text('{"genre": "connexion"}\n')
+    (etat / "logs" / "demo.log").write_text("x" * 5000)
+    (etat / "home" / "12302").mkdir(parents=True)
+    (etat / "home" / "12302" / "cache").write_text("x" * 5000)
+    cible = tmp_path / "sauvegardes"
+    cible.mkdir()
+    monkeypatch.setattr(app, "STATE_DIR", str(etat))
+    monkeypatch.setattr(app, "SAUVEGARDES_DIR", str(cible))
+    return etat, cible
+
+
+def test_l_archive_de_l_etat_porte_ce_qui_ne_se_redeclare_pas(sauvegardes):
+    """Les comptes, les applications, le journal. Pas les journaux
+    d'applications : ils se regenerent, et ils sont de loin ce qui pese."""
+    _, cible = sauvegardes
+    chemin = app.sauvegarder_l_etat()
+    import tarfile
+    with tarfile.open(chemin) as archive:
+        noms = {n.lstrip("./") for n in archive.getnames()}
+    assert {"utilisateurs.json", "apps.json", "acces.jsonl"} <= noms
+    # Les journaux d'applications pesent et se regenerent ; le dossier
+    # personnel des applications est un cache, ECRIVABLE PAR ELLES -- l'y
+    # inclure leur laisserait decider du poids de la sauvegarde.
+    for exclu in app.ARCHIVE_EXCLUS:
+        assert not [n for n in noms if n.startswith(exclu)], (exclu, sorted(noms))
+    # 0600 : l'archive porte les empreintes de mots de passe et le journal
+    # des acces. Les applications tournent sous un autre uid, et n'ont aucune
+    # raison de pouvoir la lire.
+    assert oct(os.stat(chemin).st_mode)[-3:] == "600"
+    # Et aucun secret : credentials.env ne vit pas dans le dossier d'etat, et
+    # c'est ce qui permet de recopier l'archive ailleurs sans la vider.
+    assert not [n for n in noms if "credentials" in n]
+
+
+def test_une_archive_a_moitie_ecrite_ne_prend_pas_la_place_de_la_bonne(sauvegardes):
+    """Un arret au milieu de l'ecriture laisserait sinon une archive tronquee
+    portant l'heure la plus recente -- celle qu'on choisirait pour
+    restaurer."""
+    source = inspect.getsource(app.sauvegarder_l_etat)
+    assert ".partielle" in source and "os.replace(" in source
+    # Elle est aussi RELUE avant d'etre gardee, comme les dumps Postgres.
+    assert "getmembers()" in source
+    _, cible = sauvegardes
+    app.sauvegarder_l_etat()
+    assert not [n for n in os.listdir(cible) if n.endswith(".partielle")]
+
+
+def test_la_rotation_garde_les_plus_recentes(sauvegardes, monkeypatch):
+    _, cible = sauvegardes
+    monkeypatch.setattr(app, "SAUVEGARDES_GARDEES", 3)
+    for jour in range(6):
+        (cible / f"{app.SAUVEGARDE_PREFIXE}2026010{jour}-000000.tar.gz").write_text("x")
+    app._rotation_sauvegardes()
+    restantes = sorted(os.listdir(cible))
+    assert len(restantes) == 3
+    # Les trois DERNIERES : le nom porte la date, donc l'ordre alphabetique
+    # est l'ordre chronologique -- y compris au passage d'une annee, la ou un
+    # tri sur la date de fichier suivrait une copie.
+    assert restantes[0].endswith("20260103-000000.tar.gz")
+
+
+def test_sans_volume_monte_le_panneau_ne_sauvegarde_pas(monkeypatch, tmp_path):
+    """Ecrire dans la couche du conteneur donnerait une sauvegarde qui
+    disparait au premier « docker compose down » : pire que rien, parce
+    qu'on croit en avoir une."""
+    monkeypatch.setattr(app, "SAUVEGARDES_DIR", str(tmp_path / "absent"))
+    assert not app.sauvegardes_actives()
+    monkeypatch.setattr(app, "SAUVEGARDES_DIR", str(tmp_path))
+    assert app.sauvegardes_actives()
+    monkeypatch.setattr(app, "SAUVEGARDE_HEURES", 0)
+    assert not app.sauvegardes_actives()
+
+
+def test_la_sonde_des_sauvegardes_distingue_les_trois_cas(tmp_path):
+    """Absente, en retard, morte : trois rangs, trois gestes differents."""
+    dossier = tmp_path / "sauvegardes"
+    dossier.mkdir()
+
+    # Rien encore : une alerte, pas une panne -- au premier demarrage, c'est
+    # l'etat normal pendant quelques secondes.
+    etat, _, detail = check_sauvegardes(str(dossier))
+    assert etat is Etat.ALERTE and "rien pour" in detail
+
+    def poser(nom, heures):
+        f = dossier / nom
+        f.write_text("x")
+        quand = time.time() - heures * 3600
+        os.utime(f, (quand, quand))
+
+    poser("base-codelab-20260101-000000.dump", 2)
+    poser("panneau-20260101-000000.tar.gz", 2)
+    assert check_sauvegardes(str(dossier))[0] is Etat.OK
+
+    # Un passage manque. C'est la PLUS RECENTE de chaque famille qui compte :
+    # en ajouter une vieille a cote d'une fraiche ne change rien, et c'est
+    # bien ce qu'on veut -- sinon la rotation elle-meme declencherait
+    # l'alerte.
+    poser("panneau-20260101-000000.tar.gz", SAUVEGARDE_FRAICHE_H + 1)
+    assert check_sauvegardes(str(dossier))[0] is Etat.ALERTE
+
+    # Plus rien depuis trois jours : ce n'est plus un retard, c'est arrete.
+    poser("panneau-20260101-000000.tar.gz", SAUVEGARDE_VIEILLE_H + 1)
+    etat, _, detail = check_sauvegardes(str(dossier))
+    assert etat is Etat.ECHEC and "ne tourne plus" in detail
+
+    # Volume absent : le compose est a completer.
+    etat, _, detail = check_sauvegardes(str(tmp_path / "jamais"))
+    assert etat is Etat.ALERTE and "docker-compose.yml" in detail
+
+
+def test_les_deux_services_ecrivent_dans_le_meme_dossier():
+    """Les dumps et l'archive de l'etat au meme endroit : on copie un seul
+    dossier pour tout emporter."""
+    for chemin in _composes():
+        services = _services_du_compose(chemin)
+        texte = open(chemin, encoding="utf-8").read()
+        assert texte.count("/sauvegardes:/sauvegardes") == 2, (
+            f"{os.path.basename(chemin)} : les deux services doivent monter "
+            f"le volume de sauvegarde")
+        assert set(services) >= {"codelab-postgres", "codelab-app-manager"}
+
+
+def test_la_sauvegarde_des_bases_est_verifiee_avant_d_etre_gardee():
+    """Une sauvegarde qu'on decouvre illisible le jour de la restauration ne
+    vaut pas mieux que pas de sauvegarde."""
+    racine = os.path.dirname(DOSSIER_PANNEAU or "")
+    chemin = os.path.join(racine, "postgres", "entrypoint.sh")
+    if not os.path.exists(chemin):
+        pytest.skip("entrypoint postgres absent de cette image")
+    script = open(chemin, encoding="utf-8").read()
+    assert "pg_dump" in script and "-Fc" in script
+    # La relecture complete du fichier, et le retrait s'il ne passe pas.
+    bloc = script.split("sauvegarder_une_base()")[1].split("\n}")[0]
+    assert "pg_restore --list" in bloc
+    assert bloc.count("rm -f \"$fichier\"") == 2, (
+        "un dump illisible ou rate doit etre ecarte, jamais garde")
+    # Et la rotation, par base.
+    assert "SAUVEGARDES_GARDEES" in bloc
+
+
+def test_la_restauration_est_documentee():
+    """Une sauvegarde dont personne ne sait se servir n'est pas une
+    sauvegarde. La procedure doit etre ecrite, avec les commandes exactes."""
+    racine = os.path.dirname(DOSSIER_PANNEAU or "")
+    chemin = os.path.join(racine, "postgres", "README.md")
+    if not os.path.exists(chemin):
+        pytest.skip("README absent de cette image")
+    texte = open(chemin, encoding="utf-8").read()
+    assert "pg_restore" in texte, "la restauration des bases n'est pas ecrite"
+    assert "panneau-" in texte and "tar" in texte, (
+        "la restauration de l'etat du panneau n'est pas ecrite")
+    assert "/sauvegardes" in texte
 
 
 def test_les_sondes_regardent_au_dela_de_la_stack():
