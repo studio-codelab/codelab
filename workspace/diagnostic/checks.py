@@ -4424,32 +4424,30 @@ def test_le_modele_de_variables_n_emporte_aucun_secret(conteneur):
     assert ".env" in ignore and "!.env.exemple" in ignore
 
 
-def test_deposer_les_fichiers_n_ecrase_jamais_ce_qui_existe(conteneur):
-    """Le dossier d'un projet contient du travail : un bouton qui remplace un
-    Dockerfile ecrit a la main est une perte de donnees, meme quand le notre
-    est meilleur."""
+def test_la_conteneurisation_n_ecrit_plus_dans_le_projet(conteneur):
+    """UNE SEULE SORTIE : l'archive.
+
+    « Deposer dans le projet » ecrivait dans /workspace -- donc dans le
+    travail de quelqu'un -- pour un geste dont le but est justement d'emmener
+    l'application AILLEURS. Il fallait en plus un second bouton pour les
+    fichiers deja presents, et le premier ne devait jamais ecraser. Tout cela
+    disparait avec la porte elle-meme.
+    """
     c, projet = conteneur
-    (projet / "Dockerfile").write_text("FROM scratch  # le mien\n")
-    r = c.post("/api/app/facturier/conteneur", json={})
-    assert r.status_code == 200, r.data
-    d = r.get_json()
-    assert "Dockerfile" in d["sautes"]
-    assert "docker-compose.yml" in d["ecrits"]
-    assert (projet / "Dockerfile").read_text() == "FROM scratch  # le mien\n"
+    avant = sorted(p.name for p in projet.iterdir())
 
+    # La route d'ecriture n'existe plus du tout : 405 si Flask reconnait le
+    # chemin sans la methode, 404 si le catch-all du panneau le prend avant.
+    assert c.post("/api/app/facturier/conteneur", json={}).status_code in (404, 405)
 
-def test_remplacer_se_demande_explicitement(conteneur):
-    c, projet = conteneur
-    (projet / "Dockerfile").write_text("FROM scratch\n")
-    c.post("/api/app/facturier/conteneur", json={"remplacer": True})
-    assert "USER app" in (projet / "Dockerfile").read_text()
+    # Et l'archive, elle, ne touche a rien.
+    r = c.get("/api/app/facturier/conteneur.zip")
+    assert r.status_code == 200 and r.mimetype == "application/zip"
+    assert sorted(p.name for p in projet.iterdir()) == avant
 
-
-def test_le_depot_est_journalise(conteneur):
-    c, _ = conteneur
-    c.post("/api/app/facturier/conteneur", json={})
-    actions = [e.get("action") for e in app.lire_acces() if e.get("genre") == "conteneur"]
-    assert actions and "Dockerfile" in actions[0]
+    page = _page_panneau("dashboard.html")
+    assert "ctPoser" not in page, "le bouton de depot est revenu"
+    assert 'id="ct-telecharger"' in page
 
 
 def test_le_panneau_ne_construit_ni_ne_lance_aucune_image():
@@ -4474,8 +4472,9 @@ def test_conteneuriser_est_reserve_a_l_administrateur(conteneur):
     c, _ = conteneur
     anonyme = app.flask_app.test_client()
     assert anonyme.get("/api/app/facturier/conteneur").status_code in (401, 403)
-    assert anonyme.post("/api/app/facturier/conteneur",
-                        json={}).status_code in (401, 403)
+    # L'archive aussi : elle porte le meme contenu, dont un modele de
+    # variables et le mode d'emploi de l'installation.
+    assert anonyme.get("/api/app/facturier/conteneur.zip").status_code in (401, 403)
 
 
 # ---------- 12 ter. le logo d'une application ----------
@@ -8234,6 +8233,122 @@ def test_le_diagnostic_suit_le_theme_du_panneau():
         "une couleur en dur est revenue dans le CSS du diagnostic")
 
 
+def test_le_theme_traverse_la_separation_des_origines():
+    """C'etait LA cause du « tres mauvais rendu » du diagnostic.
+
+    La garde qui separe les deux ports ne laissait passer que le proxy et la
+    sonde de sante. Une application hebergee qui demandait "/theme.css" --
+    le diagnostic le fait a chaque page -- recevait une page 404 a la place
+    de la feuille, et s'affichait alors SANS UN SEUL JETON : fond blanc,
+    texte brut, pastilles invisibles. Rien dans son propre CSS n'etait en
+    cause, et c'est bien pour cela que le defaut a tenu.
+
+    Les deux routes sont deja publiques sur le port du panneau -- la page de
+    connexion en a besoin avant toute session. Les ouvrir ici ne revele donc
+    rien de plus : des couleurs, et un fichier de police.
+    """
+    if app is None:
+        pytest.skip("panneau absent")
+    ancien = app._origines_separees["actif"]
+    ancien_apps = app.APPS_PORT
+    app._origines_separees["actif"] = True
+    app.APPS_PORT = 9002
+    try:
+        client = app.flask_app.test_client()
+        for chemin, type_attendu in (("/theme.css", "text/css"),
+                                     ("/polices/manrope-latin.woff2", "font/woff2")):
+            r = client.get(chemin, environ_overrides={"SERVER_PORT": "9002"})
+            assert r.status_code == 200, f"{chemin} ne passe pas la garde"
+            assert type_attendu in r.headers["Content-Type"], chemin
+        # Et le panneau, lui, ne s'affiche toujours pas sur ce port : c'est
+        # tout l'interet de la separation, et elle ne doit pas s'ouvrir avec.
+        for chemin in ("/", "/api/mes-apps", "/login"):
+            r = client.get(chemin, environ_overrides={"SERVER_PORT": "9002"})
+            assert r.status_code == 404, f"{chemin} repond sur le port des apps"
+    finally:
+        app._origines_separees["actif"] = ancien
+        app.APPS_PORT = ancien_apps
+
+
+def test_le_diagnostic_sert_son_theme_lui_meme():
+    """Le second chemin, celui qui ne depend d'aucune garde d'origine.
+
+    La page charge le theme par deux liens vers le MEME fichier : celui du
+    panneau, a la racine de l'origine des applications, et un lien RELATIF
+    servi par cette route-ci. Il faudrait que les deux tombent pour qu'une
+    page nue revienne.
+
+    Le fichier n'est pas recopie : il est lu la ou il est. Une palette
+    recopiee dans une deuxieme page est une palette qui divergera.
+    """
+    import app as diag
+    if not diag.fichier_du_theme():
+        pytest.skip("le theme du panneau n'est pas sur ce disque")
+    client = diag.app.test_client()
+    r = client.get("/theme.css")
+    assert r.status_code == 200
+    assert "text/css" in r.headers["Content-Type"]
+    # C'est bien la feuille du panneau, avec ses jetons.
+    for jeton in (b"--accent", b"--ok", b"--warn", b"--err", b"--surface"):
+        assert jeton in r.data, jeton
+    # La police que cette feuille reclame, prise a cote d'elle.
+    assert client.get("/polices/manrope-latin.woff2").status_code == 200
+    # Et rien d'autre : sans liste blanche, ce chemin deviendrait une lecture
+    # de fichier arbitraire.
+    for mauvais in ("theme.css", "LICENCE-manrope.txt", "manrope-latin.woff2.bak"):
+        assert client.get("/polices/" + mauvais).status_code == 404, mauvais
+
+
+def test_la_page_d_accueil_est_un_cockpit():
+    """Elle repond d'abord a « est-ce que tout va bien ? ».
+
+    Un anneau pour la part de sondes vertes, le mot d'etat, les quatre rangs
+    comptes, et le bouton qui lance tout. Une liste de seize lignes ne
+    repond a cette question qu'apres l'avoir entierement lue.
+    """
+    import app as diag
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py"),
+               encoding="utf-8").read()
+    # Le denominateur de l'anneau ecarte les sondes SANS OBJET : un anneau
+    # qui n'arrive jamais au bout parce que trois sondes ne s'appliquent pas
+    # ici fait chercher une panne qui n'existe pas.
+    bloc = src.split("def _anneau(")[1].split("\n\n\n")[0]
+    assert "verts / applicables" in bloc
+    assert "len(resultats) - len(sans_objet)" in src
+
+    html = diag.app.test_client().get("/").data.decode()
+    for morceau in ('class="cockpit', 'class="anneau', 'class="etat-mot',
+                    'class="compteur', 'data-verifier=""', 'class="grille"'):
+        assert morceau in html, morceau
+    # Les quatre rangs, nommes. Un rang a zero reste affiche : « aucune
+    # erreur » est une information.
+    for libelle in ("erreurs", "attention", "au vert", "sans objet"):
+        assert f"<span>{libelle}</span>" in html, libelle
+    # Le theme arrive par les deux chemins.
+    assert 'href="/theme.css"' in html and 'href="theme.css"' in html
+    # Et la barre du panneau coiffe la page, sans trait vertical a cote de
+    # la marque.
+    assert 'class="barre"' in html and "CodeLab" in html
+
+
+def test_le_detail_d_une_sonde_n_est_plus_en_chasse_fixe():
+    """Une phrase entiere en monospace se lit deux fois moins vite.
+
+    Et toutes les lignes de cette page en etaient : le detail d'une sonde
+    est une PHRASE, pas une valeur. La chasse fixe ne reste que pour ce qui
+    est vraiment du code -- un chemin, un port, un extrait de configuration,
+    dans une balise <code>.
+    """
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py"),
+               encoding="utf-8").read()
+    css = src[src.index("CSS = "):src.index('"""', src.index("CSS = ") + 10)]
+    detail = css.split(".det{")[1].split("}")[0]
+    assert "--mono" not in detail, (
+        "le detail des sondes est revenu en chasse fixe")
+    assert "--mono" in css.split("code{")[1].split("}")[0], (
+        "plus rien n'est en chasse fixe, pas meme un chemin")
+
+
 def test_les_sondes_regardent_au_dela_de_la_stack():
     """Trois familles ajoutees, toutes en LECTURE SEULE.
 
@@ -9669,3 +9784,360 @@ def test_toutes_les_coches_du_panneau_choisissent_une_ligne():
     # un reglage isole ne prend que la coche et l'accent sur son libelle.
     assert ".choix-ligne:has(>input:checked){background:var(--accent-soft)" in page
     assert ".field>.choix-ligne:has(>input:checked){background:none" in page
+
+
+# ---------- 33. arreter demande une capability ----------
+#
+# Signale par Lucas, apres la premiere correction : « Le panneau n'a pas pu
+# signaler le processus (pid 11) : [Errno 1] Operation not permitted ». Le
+# message etait enfin juste -- c'etait bien un refus du noyau -- mais le
+# bouton ne marchait toujours pas.
+#
+# LA CAUSE. Le panneau tourne en root, avec cap_drop: ALL et cinq capabilities
+# rendues. KILL n'y etait pas. Or le noyau n'autorise un signal que si
+# l'expediteur a CAP_KILL, ou si son uid est celui de la cible -- et depuis
+# que chaque application tourne sous son propre uid, root n'a jamais l'uid
+# d'aucune. Toutes les applications etaient donc inarretables, sur toute
+# installation durcie.
+
+def test_le_panneau_a_le_droit_d_arreter_ses_applications():
+    """La capability manquante, dans les DEUX composes.
+
+    C'est un test de configuration et pas de code, parce que le defaut etait
+    la : aucune ligne de Python n'aurait pu arreter quoi que ce soit sans
+    elle.
+    """
+    racine = os.path.dirname(DOSSIER_PANNEAU or "")
+    fichiers = [os.path.join(racine, n)
+                for n in ("docker-compose.yml", "docker-compose-casaos.yml")]
+    presents = [f for f in fichiers if os.path.exists(f)]
+    if not presents:
+        pytest.skip("composes absents de cette image")
+    assert len(presents) == 2, "un des deux composes manque"
+    for chemin in presents:
+        texte = open(chemin, encoding="utf-8").read()
+        # Le bloc du service, et lui seul : « codelab-app-manager » parait
+        # aussi dans le nom de l'image et dans container_name, et un split
+        # naif tomberait au milieu d'une ligne.
+        bloc = texte.split("\n  codelab-app-manager:\n")[1]
+        bloc = bloc.split("cap_add:")[1].split("\n\n")[0]
+        assert "- KILL" in bloc, (
+            f"{os.path.basename(chemin)} : sans CAP_KILL, le panneau ne peut "
+            f"arreter aucune application -- chacune tourne sous son propre uid")
+        # Temoin : les autres capabilities n'ont pas disparu au passage.
+        for indispensable in ("- SETUID", "- SETGID"):
+            assert indispensable in bloc, chemin
+
+
+def test_un_refus_du_noyau_repart_sous_l_uid_de_l_application(monkeypatch):
+    """Le repli, pour les installations qui tournent encore sur l'ancien
+    compose : le signal part d'un enfant qui a pris l'uid de la cible."""
+    essais = []
+
+    def _killpg(pgid, sig):
+        essais.append(("killpg", pgid, sig))
+        if len(essais) == 1:
+            raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(os, "killpg", _killpg)
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    # Le fork est simule : on execute le corps de l'enfant dans le test, et
+    # l'on verifie qu'il abandonne bien l'uid AVANT de signaler.
+    bascules = []
+    monkeypatch.setattr(os, "setgroups", lambda g: bascules.append(("groupes", tuple(g))))
+    monkeypatch.setattr(os, "setgid", lambda g: bascules.append(("gid", g)))
+    monkeypatch.setattr(os, "setuid", lambda u: bascules.append(("uid", u)))
+
+    sorties = []
+    def _fork():
+        return 0            # on joue l'enfant
+    def _exit(code):
+        sorties.append(code)
+        raise SystemExit(code)
+    monkeypatch.setattr(os, "fork", _fork)
+    monkeypatch.setattr(os, "_exit", _exit)
+
+    with pytest.raises(SystemExit):
+        app._signaler_groupe(4242, 15, 1234)
+
+    assert sorties == [0], "l'enfant n'a pas signale puis rendu la main"
+    assert bascules == [("groupes", (app.RUN_AS_GID,)), ("gid", app.RUN_AS_GID),
+                        ("uid", 1234)]
+    # Deux tentatives : la directe, refusee, puis celle de l'enfant.
+    assert [e[0] for e in essais] == ["killpg", "killpg"]
+
+
+def test_un_refus_qui_persiste_est_dit_avec_son_remede(survivants, monkeypatch):
+    """Quand meme le repli echoue, le message doit nommer la capability : sans
+    elle, on cherche du cote de l'application, ou rien n'y peut quoi que ce
+    soit."""
+    class _Vivant:
+        pid = 11
+
+        def poll(self):
+            return None
+
+    app.procs["site"] = _Vivant()
+    monkeypatch.setattr(os, "getpgid", lambda pid: pid)
+    monkeypatch.setattr(os, "geteuid", lambda: 1000)   # pas root : pas de repli
+    def _refus(*_a):
+        raise PermissionError(1, "Operation not permitted")
+    monkeypatch.setattr(os, "killpg", _refus)
+
+    erreur = app.stop("site")
+    assert erreur and "KILL" in erreur, erreur
+    assert "cap_add" in erreur
+    assert "11" in erreur
+    app.procs.clear()
+
+
+# ---------- 34. Dagster dans le hub ----------
+#
+# Demande : « Ajoute Dagster comme une application a part entiere disponible
+# sur le hub, qui redirige vers le port 3000. » Il manquait la ou on le
+# cherche : le hub est la page d'accueil de CodeLab, et Dagster s'ouvrait en
+# retapant une adresse et un numero de port de memoire.
+#
+# Ce n'est pas une application declaree pour autant -- personne ne le demarre
+# d'ici, il n'a ni dossier ni commande. Il vit donc dans une liste a part,
+# peinte dans la meme grille.
+
+@pytest.fixture
+def hub_dagster(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
+    monkeypatch.setattr(app, "MASQUEES_FILE", str(tmp_path / "masquees.json"))
+    monkeypatch.setattr(app, "CATEGORIES_FILE", str(tmp_path / "categories.json"))
+    monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
+    monkeypatch.setattr(app, "is_running", lambda n: False)
+    # Le port de Dagster est sonde pour de vrai : on repond a sa place.
+    monkeypatch.setattr(app, "dagster_repond", lambda: True)
+    app._apps_cache["signature"] = None
+    app.save({"site": {"path": "/w/s", "command": "x", "port": 9701,
+                       "visibility": "privee"}})
+    sel = "a1b2c3d4"      # le sel se lit en hexadecimal, pas en toutes lettres
+    app.ecrire_utilisateurs({"marie": {
+        "sel": sel, "hash": app.derive_mot_de_passe("un-mot-de-passe", sel),
+        "projets": ["site"], "totp": "JBSWY3DPEHPK3PXP"}})
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    return app.flask_app.test_client()
+
+
+def test_dagster_parait_dans_le_hub_et_mene_au_port_3000(hub_dagster):
+    hub_dagster.post("/login", json={"password": "secret-de-test"})
+    d = hub_dagster.get("/api/mes-apps").get_json()
+
+    services = d["services"]
+    assert [s["name"] for s in services] == ["dagster"]
+    dagster = services[0]
+    # L'adresse est celle du NAVIGATEUR : meme hote, autre port.
+    assert dagster["url"].endswith(":3000/"), dagster["url"]
+    assert dagster["externe"] is True
+    assert dagster["running"] is True
+    # Et il ne se melange pas aux applications declarees : ni dans la liste
+    # qu'on masque, ni dans le choix « de quelle application veux-tu parler ».
+    assert [a["name"] for a in d["apps"]] == ["site"]
+
+
+def test_dagster_ne_parait_pas_pour_un_compte_utilisateur(hub_dagster):
+    """Son interface lance des jobs, donc execute du code sur la machine : le
+    proxy le refuse deja a un compte utilisateur. Lui montrer une tuile qui
+    le renverrait a la page de connexion serait promettre une porte qui ne
+    s'ouvre pas."""
+    with hub_dagster.session_transaction() as sess:
+        sess["authed"] = True
+        sess["role"] = app.ROLE_UTILISATEUR
+        sess["utilisateur"] = "marie"
+        sess["ouverte"] = int(time.time())
+        sess["jeton"] = "j"
+    d = hub_dagster.get("/api/mes-apps").get_json()
+    assert d["services"] == []
+
+
+def test_la_tuile_de_dagster_s_ouvre_dans_un_autre_onglet():
+    """Il vit sur un autre port, sans le ruban qui ramene au panneau : y
+    aller dans l'onglet courant, c'est perdre le hub."""
+    page = _page_panneau("dashboard.html")
+    bloc = page.split("const tuile = a =>")[1].split("`;")[0]
+    assert "a.url || urlApplication(a.name)" in bloc, (
+        "la tuile ignore l'adresse propre d'un service")
+    assert 'target="_blank"' in bloc and "rel=\"noopener\"" in bloc
+    # Peints dans la MEME grille, ranges avec les applications.
+    assert "hubApps.concat(hubServices)" in page
+
+
+def test_dagster_a_son_icone(hub_dagster):
+    """« dagster » et « demo » donneraient la meme lettre : une tuile qui ne
+    se distingue pas ne sert a rien dans une grille d'icones."""
+    hub_dagster.post("/login", json={"password": "secret-de-test"})
+    r = hub_dagster.get("/api/icon/dagster")
+    assert r.status_code == 200
+    assert r.mimetype == "image/svg+xml"
+    assert b"circle" in r.data, "l'icone est retombee sur la lettre par defaut"
+    # Une application VRAIMENT declaree sous ce nom reprend la main : le
+    # service n'est qu'un repli.
+    apps = app.load()
+    apps["dagster"] = {"path": "/w/d", "command": "x", "port": 9702}
+    app.save(apps)
+    assert b"circle" not in hub_dagster.get("/api/icon/dagster").data
+
+
+# ---------- 35. les messages ont leur rubrique ----------
+#
+# Demande : « Ajoute une rubrique pour les messages. La vue d'ensemble doit
+# recenser les messages lies au hub par defaut, et je dois pouvoir filtrer sur
+# une autre application. Ajoute la possibilite de supprimer ou retenir les
+# messages, mettre un scroll lorsqu'il y en a trop. »
+#
+# Ils vivaient au bas de la vue d'ensemble, sous les graphiques : on ne les
+# trouvait qu'en descendant, tous sujets meles, et rien ne permettait ni d'en
+# ecarter un ni d'en garder un sous la main.
+
+@pytest.fixture
+def boite(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "MESSAGES_FILE", str(tmp_path / "messages.jsonl"))
+    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    app._apps_cache["signature"] = None
+    app.save({})
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    c = app.flask_app.test_client()
+    c.post("/login", json={"password": "secret-de-test"})
+    return c, tmp_path
+
+
+def _message(c, cible, texte, app_nom="", qui="marie", quand=None, retenu=False):
+    m = {"id": secrets.token_hex(12), "ts": quand or int(time.time()),
+         "qui": qui, "cible": cible, "app": app_nom, "texte": texte}
+    if retenu:
+        m["retenu"] = True
+    app.enregistrer_message(m)
+    return m["id"]
+
+
+def test_retenir_un_message_le_garde_en_tete(boite):
+    """On retient ce qu'on veut traiter : le laisser descendre avec le temps,
+    c'est le perdre."""
+    c, _ = boite
+    vieux = _message(c, "hub", "à traiter", quand=int(time.time()) - 3600)
+    _message(c, "hub", "tout frais")
+
+    assert c.put("/api/messages/" + vieux, json={"retenu": True}).status_code == 200
+    liste = c.get("/api/messages").get_json()["messages"]
+    assert liste[0]["id"] == vieux, "le message retenu n'est pas remonte"
+    assert liste[0]["retenu"] is True
+
+    # Et relacher le remet a sa place, par sa date.
+    assert c.put("/api/messages/" + vieux, json={"retenu": False}).status_code == 200
+    liste = c.get("/api/messages").get_json()["messages"]
+    assert liste[0]["id"] != vieux
+    assert "retenu" not in liste[0]
+
+
+def test_supprimer_un_message_le_retire_du_fichier(boite):
+    c, tmp_path = boite
+    garde = _message(c, "hub", "on garde")
+    parti = _message(c, "idee", "on jette")
+
+    assert c.delete("/api/messages/" + parti).status_code == 200
+    restants = [m["id"] for m in c.get("/api/messages").get_json()["messages"]]
+    assert restants == [garde]
+    # Dans le fichier aussi, pas seulement dans la reponse : un message qui
+    # revient au redemarrage n'a pas ete supprime.
+    contenu = (tmp_path / "messages.jsonl").read_text()
+    assert parti not in contenu and garde in contenu
+    # Et c'est journalise : supprimer un mot qui vous est adresse se trace.
+    genres = [e.get("genre") for e in app.lire_acces()]
+    assert "message" in genres
+
+
+def test_supprimer_emporte_aussi_ce_qui_dort_dans_la_rotation(boite):
+    """Le fichier tourne a 1 Mo : sans consolidation, un message supprime du
+    fichier courant reparaitrait depuis l'archive a la premiere relecture."""
+    c, tmp_path = boite
+    ancien = {"id": secrets.token_hex(12), "ts": int(time.time()) - 10000,
+              "qui": "marie", "cible": "hub", "app": "", "texte": "d'avant la rotation"}
+    (tmp_path / "messages.jsonl.1").write_text(
+        json.dumps(ancien, ensure_ascii=False) + "\n")
+    recent = _message(c, "hub", "récent")
+
+    assert c.delete("/api/messages/" + ancien["id"]).status_code == 200
+    restants = [m["id"] for m in c.get("/api/messages").get_json()["messages"]]
+    assert restants == [recent]
+    assert not (tmp_path / "messages.jsonl.1").exists()
+
+
+def test_le_guet_ne_redemande_que_ce_qui_est_arrive_depuis(boite):
+    """La page interroge toutes les vingt secondes : lui renvoyer trois cents
+    messages pour en decouvrir un serait payer cher une notification."""
+    c, _ = boite
+    repere = int(time.time()) - 100
+    _message(c, "hub", "avant", quand=repere - 10)
+    neuf = _message(c, "hub", "après", quand=repere + 10)
+
+    liste = c.get("/api/messages?apres=%d" % repere).get_json()["messages"]
+    assert [m["id"] for m in liste] == [neuf]
+    # Un « apres » illisible ne fait pas tomber la route : elle rend tout.
+    assert len(c.get("/api/messages?apres=demain").get_json()["messages"]) == 2
+
+
+def test_les_messages_restent_reserves_a_l_administrateur(boite):
+    c, _ = boite
+    identifiant = _message(c, "hub", "un mot")
+    anonyme = app.flask_app.test_client()
+    assert anonyme.get("/api/messages").status_code in (401, 403)
+    assert anonyme.delete("/api/messages/" + identifiant).status_code in (401, 403)
+    assert anonyme.put("/api/messages/" + identifiant,
+                       json={"retenu": True}).status_code in (401, 403)
+
+
+def test_un_message_inconnu_ne_fait_pas_semblant(boite):
+    c, _ = boite
+    assert c.delete("/api/messages/jamais-vu").status_code == 404
+    assert c.put("/api/messages/jamais-vu", json={"retenu": True}).status_code == 404
+
+
+def test_la_rubrique_des_messages_filtre_et_defile():
+    """La page : une rubrique a elle, le hub par defaut, un filtre par
+    application, deux gestes et un defilement dans la carte."""
+    page = _page_panneau("dashboard.html")
+    assert 'id="sec-messages"' in page, "la rubrique n'existe pas"
+    assert "showSection('messages')" in page, "rien n'y mene depuis le menu"
+
+    # Le filtre s'ouvre sur le hub, et se complete des applications dont on
+    # a effectivement parle.
+    bloc = page.split('<select id="msg-filtre"')[1].split("</select>")[0]
+    assert 'value="hub"' in bloc and "selected" not in bloc, bloc
+    assert "peindreMessages()" in bloc
+    remplir = page.split("function msgRemplirFiltre(){")[1].split("\n}")[0]
+    assert "optgroup" in remplir and "app:" in remplir
+
+    # Les deux gestes.
+    assert "async function msgRetenir(" in page
+    assert "async function msgSupprimer(" in page
+    assert "demander(" in page.split("async function msgSupprimer(")[1].split("\n}")[0], (
+        "supprimer sans confirmation se clique par accident")
+
+    # Le defilement est DANS la carte : la barre de filtres doit rester sous
+    # les yeux pendant qu'on descend la liste.
+    style = page.split(".msg-boite{")[1].split("}")[0]
+    assert "overflow:auto" in style and "max-height" in style
+
+
+def test_un_message_recu_se_signale_dans_le_coin():
+    """« Ajoute des notifications en bas a droite des qu'un message est
+    recu. » La page guette, et le dit la ou elle dit tout le reste."""
+    page = _page_panneau("dashboard.html")
+    bloc = page.split("async function guetterMessages(){")[1].split("\n}")[0]
+    assert "apres=" in bloc, "le guet retelecharge toute la boite"
+    assert "notifier(" in bloc
+    assert "setInterval(guetterMessages" in page
+    # Et les notifications paraissent bien en bas a droite.
+    style = page.split(".toasts{")[1].split("}")[0]
+    assert "bottom" in style and "right" in style, style

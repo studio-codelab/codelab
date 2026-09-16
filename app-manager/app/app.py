@@ -616,6 +616,93 @@ def origine_applications():
     return f"{request.scheme}://{hote}:{APPS_PORT}"
 
 
+# ------------------------- Dagster, dans le hub -------------------------
+#
+# Dagster n'est pas une application du panneau : personne ne le declare,
+# personne ne le demarre d'ici, il n'a ni dossier ni commande. C'est un
+# SERVICE de la stack, servi sur son propre port derriere le proxy qui exige
+# la session du panneau.
+#
+# Il manquait pourtant la ou on le cherche. Le hub est la page d'accueil de
+# CodeLab -- « la liste des projets ouvrables » -- et Dagster s'ouvrait en
+# retapant une adresse et un numero de port de memoire. Une tuile l'y remet,
+# avec les autres, et elle mene au port 3000.
+DAGSTER_NOM = "dagster"
+DAGSTER_PORT = int(os.environ.get("APP_MANAGER_DAGSTER_PORT", "3000") or 3000)
+# Vu depuis ce conteneur, pour savoir s'il repond. C'est le PROXY qu'on
+# interroge et non Dagster : c'est lui qui publie le port, et un Dagster
+# debout derriere un proxy tombe ne s'ouvre pas davantage.
+DAGSTER_HOTE_INTERNE = os.environ.get("APP_MANAGER_DAGSTER_HOTE") or "codelab-dagster-proxy"
+
+
+def origine_dagster():
+    """L'adresse de Dagster vue DU NAVIGATEUR, pas du conteneur.
+
+    Le meme hote que le panneau, un autre port : c'est ainsi que le compose
+    le publie, et le cookie de session traverse -- sa portee ignore le
+    numero de port.
+    """
+    hote = hote_demande()
+    if not hote:
+        return ""
+    return f"{request.scheme}://{hote}:{DAGSTER_PORT}/"
+
+
+_dagster_sonde = {"quand": 0.0, "ouvert": False}
+
+
+def dagster_repond():
+    """Le port de Dagster est-il ouvert ? Reponse mise en cache 10 s.
+
+    Le hub se rafraichit toutes les dix secondes : sans ce cache, chaque
+    passage ouvrirait une connexion de plus, pour une reponse qui ne change
+    pas d'une seconde a l'autre.
+    """
+    maintenant = time.time()
+    if maintenant - _dagster_sonde["quand"] < 10:
+        return _dagster_sonde["ouvert"]
+    ouvert = False
+    s = socket.socket()
+    s.settimeout(1.0)
+    try:
+        ouvert = s.connect_ex((DAGSTER_HOTE_INTERNE, DAGSTER_PORT)) == 0
+    except OSError:
+        ouvert = False
+    finally:
+        s.close()
+    _dagster_sonde.update(quand=maintenant, ouvert=ouvert)
+    return ouvert
+
+
+def services_du_hub():
+    """Les tuiles du hub qui ne sont pas des applications declarees.
+
+    RESERVEES A L'ADMINISTRATEUR, et ce n'est pas une politesse : l'interface
+    de Dagster permet de lancer des jobs, donc d'executer du code sur cette
+    machine. Le proxy le refuse deja a un compte utilisateur (voir
+    /api/auth-check) -- lui montrer une tuile qui le renverrait a la page de
+    connexion serait promettre une porte qui ne s'ouvre pas.
+    """
+    if not est_admin():
+        return []
+    adresse = origine_dagster()
+    if not adresse:
+        return []
+    return [{
+        "name": DAGSTER_NOM,
+        "description": "Orchestration des jobs : plannings, assets, "
+                       "exécutions et journaux.",
+        "categorie": "",
+        "running": dagster_repond(),
+        "listening": dagster_repond(),
+        "visibility": VISIBILITE_PRIVEE,
+        # Ce qui la distingue d'une application : elle a sa propre adresse,
+        # et le panneau ne la demarre ni ne l'arrete.
+        "externe": True,
+        "url": adresse,
+    }]
+
+
 def lien_panneau():
     """Le lien qui ramene au hub, ecrit pour l'origine qui sert la page.
 
@@ -696,7 +783,14 @@ def expirer_les_sessions_trop_vieilles():
     return None
 
 
-ROUTES_APPLICATIONS = {"proxy", "proxy_noslash", "health"}
+# Ce que le port des applications accepte de servir. Le proxy et la sonde de
+# sante, evidemment -- mais aussi le theme et les polices : une application
+# hebergee (le Diagnostic, par exemple) charge "/theme.css" pour heriter de
+# l'apparence choisie par l'utilisateur dans le hub. Sans ces deux entrees,
+# la feuille repondait 404 sur ce port et la page s'affichait sans un seul
+# jeton de couleur. Les deux routes sont deja publiques sur le panneau et ne
+# revelent rien : des couleurs et un fichier de police.
+ROUTES_APPLICATIONS = {"proxy", "proxy_noslash", "health", "theme_css", "police"}
 
 
 @flask_app.before_request
@@ -1593,6 +1687,10 @@ MESSAGE_LONGUEUR_MAX = 2000
 # de frappe, pas de quoi remplir la boite de l'administrateur.
 MESSAGE_DELAI = 60
 MESSAGE_CIBLES = ("application", "hub", "idee")
+# Ce que la page affiche au maximum. Trois cents : au-dela, on ne lit plus
+# une boite, on la trie -- et c'est le role de la suppression, pas du
+# defilement.
+MESSAGES_AFFICHES = 300
 
 _dernier_message = {}
 
@@ -1614,6 +1712,62 @@ def lire_messages(limite=200):
             continue
     messages.sort(key=lambda m: m.get("ts") or 0, reverse=True)
     return messages[:limite]
+
+
+def reecrire_messages(messages):
+    """Reecrit le fichier des messages en entier, et consolide sa rotation.
+
+    Un fichier de lignes ajoutees a la fin ne sait pas retirer une ligne :
+    supprimer ou retenir un message demande donc de le reecrire. C'est
+    supportable ici -- le fichier est plafonne a 1 Mo -- et cela fait
+    disparaitre du meme coup le .1 de rotation, dont le contenu revient dans
+    le fichier principal. Sans cela, un message supprime dans le fichier
+    courant reparaitrait a la premiere relecture depuis l'archive.
+
+    Ecriture atomique : un panneau tue en plein milieu laisse l'ancien
+    fichier entier, jamais une boite de messages a moitie ecrite.
+    """
+    os.makedirs(os.path.dirname(MESSAGES_FILE) or ".", exist_ok=True)
+    tmp = MESSAGES_FILE + ".tmp"
+    # Du plus ancien au plus recent : c'est l'ordre d'un fichier qui s'ecrit
+    # par la fin, et lire_messages retrie de toute facon.
+    ordonnes = sorted(messages, key=lambda m: m.get("ts") or 0)
+    with open(tmp, "w") as f:
+        for m in ordonnes:
+            f.write(json.dumps(m, ensure_ascii=False) + "\n")
+    os.replace(tmp, MESSAGES_FILE)
+    try:
+        os.remove(MESSAGES_FILE + ".1")
+    except OSError:
+        pass
+
+
+def modifier_message(identifiant, retenu=None, supprimer=False):
+    """Retient, relache ou supprime un message. Rend True s'il existait.
+
+    Un seul chemin pour les trois gestes : ils relisent tous le fichier,
+    le modifient et le reecrivent, et les faire en trois fonctions aurait
+    donne trois occasions d'oublier le verrou.
+    """
+    with _acces_verrou:
+        tous = lire_messages(limite=100000)
+        vise = next((m for m in tous if m.get("id") == identifiant), None)
+        if vise is None:
+            return False
+        if supprimer:
+            tous = [m for m in tous if m.get("id") != identifiant]
+        elif retenu is not None:
+            if retenu:
+                vise["retenu"] = True
+            else:
+                vise.pop("retenu", None)
+        reecrire_messages(tous)
+    if supprimer:
+        # La copie Postgres suit : un message efface du panneau mais toujours
+        # dans la base serait une suppression a moitie faite, et c'est le
+        # genre de moitie qu'on decouvre au pire moment.
+        _pg_deposer(("message_supprime", identifiant))
+    return True
 
 
 def enregistrer_message(message):
@@ -1964,6 +2118,10 @@ def _pg_boucle():
                         _pg_ecrire_acces(cx, [charge])
                     elif genre == "message":
                         _pg_ecrire_messages(cx, [charge])
+                    elif genre == "message_supprime":
+                        with cx.cursor() as cur:
+                            cur.execute("DELETE FROM messages WHERE id = %s",
+                                        (charge,))
                     elif genre == "utilisateurs":
                         _pg_ecrire_utilisateurs(cx)
         except Exception as e:
@@ -3075,6 +3233,56 @@ def derniere_ligne_utile(nom):
     return f"Le journal est vide : {chemin}"
 
 
+def _signaler_groupe(pgid, sig, uid):
+    """Envoie un signal au groupe de processus d'une application.
+
+    POURQUOI CE N'EST PAS UN SIMPLE os.killpg. Le panneau tourne en root,
+    mais avec cap_drop: ALL et une poignee de capabilities rendues -- et KILL
+    n'en faisait pas partie. Or le noyau n'autorise un signal que si
+    l'expediteur a CAP_KILL, ou si son uid est celui de la cible. Chaque
+    application tournant sous SON PROPRE uid (voir uid_application), root se
+    voyait refuser l'arret de toutes :
+
+        Le panneau n'a pas pu signaler le processus (pid 11) :
+        [Errno 1] Operation not permitted
+
+    La capability est rendue dans les deux composes. Ce repli sert les
+    installations qui tournent encore sur l'ancien : on abandonne l'uid dans
+    un ENFANT -- jamais dans le service lui-meme, qui en a besoin -- et le
+    signal part alors d'un processus qui a exactement l'uid de sa cible.
+    Le panneau garde SETUID, donc cette bascule-la reste permise.
+
+    Leve l'erreur d'origine si le repli echoue aussi : un arret qui ne
+    s'arrete pas doit se dire, pas se deviner.
+    """
+    try:
+        os.killpg(pgid, sig)
+        return
+    except PermissionError as refus:
+        if os.geteuid() != 0 or not uid:
+            raise
+        # fork plutot que seteuid : le service est multi-thread, et changer
+        # l'uid du processus entier -- meme une seconde -- ouvrirait une
+        # fenetre ou une autre requete s'executerait sous un uid qui n'est
+        # pas le sien.
+        enfant = os.fork()
+        if enfant == 0:                                   # pragma: no cover
+            # Ici, uniquement des appels systeme : ce code tourne apres un
+            # fork dans un processus multi-thread, ou tout le reste est
+            # hasardeux.
+            try:
+                os.setgroups([RUN_AS_GID])
+                os.setgid(RUN_AS_GID)
+                os.setuid(uid)
+                os.killpg(pgid, sig)
+                os._exit(0)
+            except OSError:
+                os._exit(1)
+        _, etat = os.waitpid(enfant, 0)
+        if etat != 0:
+            raise refus
+
+
 def stop(name):
     """Arrete une application. Rend None si tout va bien, sinon POURQUOI.
 
@@ -3095,14 +3303,15 @@ def stop(name):
     p = procs.get(name)
     erreur = None
     if p and p.poll() is None:
+        uid = uid_application(name)
         try:
-            os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+            _signaler_groupe(os.getpgid(p.pid), signal.SIGTERM, uid)
             for _ in range(30):
                 if p.poll() is not None:
                     break
                 time.sleep(0.1)
             if p.poll() is None:
-                os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+                _signaler_groupe(os.getpgid(p.pid), signal.SIGKILL, uid)
                 # Laisser au noyau le temps de faire le travail : sans cette
                 # seconde attente, on constatait la survie du processus a
                 # l'instant meme ou on venait de l'achever.
@@ -3112,6 +3321,15 @@ def stop(name):
                     time.sleep(0.05)
         except ProcessLookupError:
             pass        # deja parti entre le poll et le signal : c'est gagne
+        except PermissionError as e:
+            # Le message nomme la cause : sans elle, on cherche du cote de
+            # l'application alors que rien, dans l'application, n'y peut
+            # quoi que ce soit.
+            erreur = (f"Le panneau n'a pas le droit d'arrêter le processus "
+                      f"(pid {getattr(p, 'pid', '?')}) : {e}. Il lui manque la "
+                      f"capability KILL : ajoute « - KILL » sous cap_add du "
+                      f"service codelab-app-manager dans docker-compose.yml, "
+                      f"puis « docker compose up -d codelab-app-manager ».")
         except OSError as e:
             erreur = (f"Le panneau n'a pas pu signaler le processus "
                       f"(pid {getattr(p, 'pid', '?')}) : {e}")
@@ -6803,60 +7021,6 @@ def api_conteneur_archive(n):
     })
 
 
-@flask_app.post("/api/app/<n>/conteneur")
-@require_admin
-def api_conteneur_ecrire(n):
-    """Depose les fichiers dans le dossier du projet.
-
-    N'ECRASE RIEN SANS QU'ON LE DEMANDE. Le dossier d'un projet contient du
-    travail ; un bouton qui remplace un Dockerfile ecrit a la main est une
-    perte de donnees, meme quand le notre est meilleur. Les fichiers deja
-    presents sont donc sautes, et nommes dans la reponse -- on choisit alors
-    de recommencer en remplacant, en connaissance de cause.
-    """
-    a = load().get(n)
-    if not a:
-        return jsonify({"error": "Application inconnue."}), 404
-    if not os.path.isdir(a["path"]) or not under_root(a["path"]):
-        return jsonify({"error": "Dossier du projet introuvable."}), 400
-    d = request.get_json(force=True, silent=True) or {}
-    remplacer = bool(d.get("remplacer"))
-    voulus = d.get("fichiers")
-
-    resultat = fichiers_conteneur(dict(a, name=n))
-    ecrits, sautes = [], []
-    for f in resultat["fichiers"]:
-        if voulus and f["nom"] not in voulus:
-            continue
-        cible = os.path.join(a["path"], f["nom"])
-        if os.path.islink(cible):
-            # Jamais a travers un lien : le panneau ecrit en root.
-            sautes.append(f["nom"])
-            continue
-        if os.path.exists(cible) and not remplacer:
-            sautes.append(f["nom"])
-            continue
-        tmp = cible + ".codelab-tmp"
-        try:
-            with open(tmp, "w") as fh:
-                fh.write(f["contenu"])
-            os.replace(tmp, cible)
-            os.chmod(cible, 0o664)
-        except OSError as e:
-            try:
-                os.remove(tmp)
-            except OSError:
-                pass
-            return jsonify({"error": f"Écriture impossible ({f['nom']}) : {e}",
-                            "ecrits": ecrits}), 500
-        ecrits.append(f["nom"])
-    if ecrits:
-        journaliser("conteneur", qui=utilisateur_courant() or NOM_ADMIN, app=n,
-                    action="fichiers deposes (%s)" % ", ".join(ecrits),
-                    ip=_adresse_client())
-    return jsonify({"ok": True, "ecrits": ecrits, "sautes": sautes})
-
-
 @flask_app.put("/api/app/<n>/logo")
 @require_admin
 def api_logo(n):
@@ -6938,9 +7102,27 @@ def api_logo_retirer(n):
     return jsonify({"ok": True, "retires": retires})
 
 
+# L'icone de Dagster : trois noeuds relies, ce que fait un orchestrateur. Un
+# dessin a nous plutot qu'une lettre de plus dans la grille -- « dagster » et
+# « demo » donneraient le meme D.
+ICONE_DAGSTER = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+    '<rect width="64" height="64" rx="16" fill="#4c4ce0"/>'
+    '<g stroke="#fff" stroke-width="3.2" stroke-linecap="round" fill="none">'
+    '<path d="M22 24h12"/><path d="M30 40h12"/><path d="M22 27v10"/>'
+    '</g>'
+    '<g fill="#fff">'
+    '<circle cx="20" cy="22" r="5"/><circle cx="42" cy="22" r="5"/>'
+    '<circle cx="44" cy="42" r="5"/><circle cx="22" cy="40" r="5"/>'
+    '</g></svg>')
+
+
 @flask_app.get("/api/icon/<n>")
 @require_auth
 def api_icon(n):
+    if n == DAGSTER_NOM and est_admin() and DAGSTER_NOM not in load():
+        return Response(ICONE_DAGSTER, mimetype="image/svg+xml",
+                        headers={"X-Content-Type-Options": "nosniff"})
     # Accessible a un compte utilisateur, pour que son espace affiche les
     # icones -- mais seulement des projets qu'il peut ouvrir : la liste des
     # icones est une liste des projets existants.
@@ -7092,6 +7274,12 @@ def api_mes_apps():
     # Les categories accompagnent la liste : le hub les affiche dans l'ordre
     # voulu, sans avoir a deviner cet ordre a partir des projets.
     return jsonify({"apps": liste,
+                    # A part, et pas melees aux applications : ce sont des
+                    # services de la stack, que le panneau ne gere pas. La
+                    # page les peint dans la meme grille, mais la liste des
+                    # applications -- celle qu'on masque, celle qu'on cite
+                    # dans un message -- reste ce qu'elle est.
+                    "services": services_du_hub(),
                     "masquees": masquees,
                     "categories": connues,
                     "utilisateur": utilisateur_courant(),
@@ -7190,8 +7378,49 @@ def corps_message(message):
 @require_admin
 def api_messages_liste():
     """Les messages recus. Reserve a l'administrateur : ce sont des mots qui
-    lui sont adresses, et ils portent le nom de qui les a ecrits."""
-    return jsonify({"messages": lire_messages(limite=100)})
+    lui sont adresses, et ils portent le nom de qui les a ecrits.
+
+    « apres » rend ce qui est arrive DEPUIS une date : c'est ce que demande
+    la page toutes les vingt secondes pour annoncer un message nouveau. Sans
+    lui, elle retelechargerait trois cents messages pour en decouvrir un.
+    """
+    try:
+        apres = int(request.args.get("apres") or 0)
+    except ValueError:
+        apres = 0
+    messages = lire_messages(limite=MESSAGES_AFFICHES)
+    if apres:
+        messages = [m for m in messages if (m.get("ts") or 0) > apres]
+    # Les messages retenus d'abord : on les retient justement pour ne pas
+    # avoir a les rechercher.
+    messages.sort(key=lambda m: (not m.get("retenu"), -(m.get("ts") or 0)))
+    return jsonify({"messages": messages})
+
+
+@flask_app.put("/api/messages/<identifiant>")
+@require_admin
+def api_message_retenir(identifiant):
+    """Retient un message, ou le relache.
+
+    RETENIR PLUTOT QU'ARCHIVER : un mot qu'on veut traiter reste en tete de
+    liste et survit au menage. C'est le seul etat qu'un message ait besoin
+    de porter -- tout le reste se lit dans son texte.
+    """
+    d = request.get_json(force=True, silent=True) or {}
+    if not modifier_message(identifiant, retenu=bool(d.get("retenu"))):
+        return jsonify({"error": "Message introuvable."}), 404
+    return jsonify({"ok": True, "retenu": bool(d.get("retenu"))})
+
+
+@flask_app.delete("/api/messages/<identifiant>")
+@require_admin
+def api_message_supprimer(identifiant):
+    """Supprime un message, du fichier comme de la base."""
+    if not modifier_message(identifiant, supprimer=True):
+        return jsonify({"error": "Message introuvable."}), 404
+    journaliser("message", qui=utilisateur_courant() or NOM_ADMIN,
+                action="supprime", ip=_adresse_client())
+    return jsonify({"ok": True})
 
 
 @flask_app.post("/api/mes-apps/<n>/masquer")
