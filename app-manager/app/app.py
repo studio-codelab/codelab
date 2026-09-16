@@ -783,7 +783,14 @@ def expirer_les_sessions_trop_vieilles():
     return None
 
 
-ROUTES_APPLICATIONS = {"proxy", "proxy_noslash", "health"}
+# Ce que le port des applications accepte de servir. Le proxy et la sonde de
+# sante, evidemment -- mais aussi le theme et les polices : une application
+# hebergee (le Diagnostic, par exemple) charge "/theme.css" pour heriter de
+# l'apparence choisie par l'utilisateur dans le hub. Sans ces deux entrees,
+# la feuille repondait 404 sur ce port et la page s'affichait sans un seul
+# jeton de couleur. Les deux routes sont deja publiques sur le panneau et ne
+# revelent rien : des couleurs et un fichier de police.
+ROUTES_APPLICATIONS = {"proxy", "proxy_noslash", "health", "theme_css", "police"}
 
 
 @flask_app.before_request

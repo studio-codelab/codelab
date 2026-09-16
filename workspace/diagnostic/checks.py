@@ -8233,6 +8233,122 @@ def test_le_diagnostic_suit_le_theme_du_panneau():
         "une couleur en dur est revenue dans le CSS du diagnostic")
 
 
+def test_le_theme_traverse_la_separation_des_origines():
+    """C'etait LA cause du « tres mauvais rendu » du diagnostic.
+
+    La garde qui separe les deux ports ne laissait passer que le proxy et la
+    sonde de sante. Une application hebergee qui demandait "/theme.css" --
+    le diagnostic le fait a chaque page -- recevait une page 404 a la place
+    de la feuille, et s'affichait alors SANS UN SEUL JETON : fond blanc,
+    texte brut, pastilles invisibles. Rien dans son propre CSS n'etait en
+    cause, et c'est bien pour cela que le defaut a tenu.
+
+    Les deux routes sont deja publiques sur le port du panneau -- la page de
+    connexion en a besoin avant toute session. Les ouvrir ici ne revele donc
+    rien de plus : des couleurs, et un fichier de police.
+    """
+    if app is None:
+        pytest.skip("panneau absent")
+    ancien = app._origines_separees["actif"]
+    ancien_apps = app.APPS_PORT
+    app._origines_separees["actif"] = True
+    app.APPS_PORT = 9002
+    try:
+        client = app.flask_app.test_client()
+        for chemin, type_attendu in (("/theme.css", "text/css"),
+                                     ("/polices/manrope-latin.woff2", "font/woff2")):
+            r = client.get(chemin, environ_overrides={"SERVER_PORT": "9002"})
+            assert r.status_code == 200, f"{chemin} ne passe pas la garde"
+            assert type_attendu in r.headers["Content-Type"], chemin
+        # Et le panneau, lui, ne s'affiche toujours pas sur ce port : c'est
+        # tout l'interet de la separation, et elle ne doit pas s'ouvrir avec.
+        for chemin in ("/", "/api/mes-apps", "/login"):
+            r = client.get(chemin, environ_overrides={"SERVER_PORT": "9002"})
+            assert r.status_code == 404, f"{chemin} repond sur le port des apps"
+    finally:
+        app._origines_separees["actif"] = ancien
+        app.APPS_PORT = ancien_apps
+
+
+def test_le_diagnostic_sert_son_theme_lui_meme():
+    """Le second chemin, celui qui ne depend d'aucune garde d'origine.
+
+    La page charge le theme par deux liens vers le MEME fichier : celui du
+    panneau, a la racine de l'origine des applications, et un lien RELATIF
+    servi par cette route-ci. Il faudrait que les deux tombent pour qu'une
+    page nue revienne.
+
+    Le fichier n'est pas recopie : il est lu la ou il est. Une palette
+    recopiee dans une deuxieme page est une palette qui divergera.
+    """
+    import app as diag
+    if not diag.fichier_du_theme():
+        pytest.skip("le theme du panneau n'est pas sur ce disque")
+    client = diag.app.test_client()
+    r = client.get("/theme.css")
+    assert r.status_code == 200
+    assert "text/css" in r.headers["Content-Type"]
+    # C'est bien la feuille du panneau, avec ses jetons.
+    for jeton in (b"--accent", b"--ok", b"--warn", b"--err", b"--surface"):
+        assert jeton in r.data, jeton
+    # La police que cette feuille reclame, prise a cote d'elle.
+    assert client.get("/polices/manrope-latin.woff2").status_code == 200
+    # Et rien d'autre : sans liste blanche, ce chemin deviendrait une lecture
+    # de fichier arbitraire.
+    for mauvais in ("theme.css", "LICENCE-manrope.txt", "manrope-latin.woff2.bak"):
+        assert client.get("/polices/" + mauvais).status_code == 404, mauvais
+
+
+def test_la_page_d_accueil_est_un_cockpit():
+    """Elle repond d'abord a « est-ce que tout va bien ? ».
+
+    Un anneau pour la part de sondes vertes, le mot d'etat, les quatre rangs
+    comptes, et le bouton qui lance tout. Une liste de seize lignes ne
+    repond a cette question qu'apres l'avoir entierement lue.
+    """
+    import app as diag
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py"),
+               encoding="utf-8").read()
+    # Le denominateur de l'anneau ecarte les sondes SANS OBJET : un anneau
+    # qui n'arrive jamais au bout parce que trois sondes ne s'appliquent pas
+    # ici fait chercher une panne qui n'existe pas.
+    bloc = src.split("def _anneau(")[1].split("\n\n\n")[0]
+    assert "verts / applicables" in bloc
+    assert "len(resultats) - len(sans_objet)" in src
+
+    html = diag.app.test_client().get("/").data.decode()
+    for morceau in ('class="cockpit', 'class="anneau', 'class="etat-mot',
+                    'class="compteur', 'data-verifier=""', 'class="grille"'):
+        assert morceau in html, morceau
+    # Les quatre rangs, nommes. Un rang a zero reste affiche : « aucune
+    # erreur » est une information.
+    for libelle in ("erreurs", "attention", "au vert", "sans objet"):
+        assert f"<span>{libelle}</span>" in html, libelle
+    # Le theme arrive par les deux chemins.
+    assert 'href="/theme.css"' in html and 'href="theme.css"' in html
+    # Et la barre du panneau coiffe la page, sans trait vertical a cote de
+    # la marque.
+    assert 'class="barre"' in html and "CodeLab" in html
+
+
+def test_le_detail_d_une_sonde_n_est_plus_en_chasse_fixe():
+    """Une phrase entiere en monospace se lit deux fois moins vite.
+
+    Et toutes les lignes de cette page en etaient : le detail d'une sonde
+    est une PHRASE, pas une valeur. La chasse fixe ne reste que pour ce qui
+    est vraiment du code -- un chemin, un port, un extrait de configuration,
+    dans une balise <code>.
+    """
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py"),
+               encoding="utf-8").read()
+    css = src[src.index("CSS = "):src.index('"""', src.index("CSS = ") + 10)]
+    detail = css.split(".det{")[1].split("}")[0]
+    assert "--mono" not in detail, (
+        "le detail des sondes est revenu en chasse fixe")
+    assert "--mono" in css.split("code{")[1].split("}")[0], (
+        "plus rien n'est en chasse fixe, pas meme un chemin")
+
+
 def test_les_sondes_regardent_au_dela_de_la_stack():
     """Trois familles ajoutees, toutes en LECTURE SEULE.
 
