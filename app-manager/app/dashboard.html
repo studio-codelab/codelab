@@ -65,8 +65,6 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 /* Le menu et la marque forment un seul groupe, separes d'un filet : deux
    objets identifiables au lieu de trois choses a la suite. */
 .topbar-gauche{display:flex;align-items:center;gap:8px;flex:none}
-.topbar-gauche::after{content:"";width:1px;height:20px;background:var(--nav-line);
- margin-left:4px}
 .topbar-brand{display:flex;align-items:center;gap:9px;cursor:pointer;padding:4px 6px;border-radius:8px}
 .topbar-brand:hover{background:var(--nav-hover)}
 .topbar-brand img{width:26px;height:26px;border-radius:7px}
@@ -442,6 +440,49 @@ select option{background:var(--surface);color:var(--txt)}
 :root[data-theme="dark"] select{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236d7986' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")}
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
  box-shadow:0 0 0 3px var(--accent-ring)}
+
+/* ------------------------- LES LISTES DEROULANTES -------------------------
+   La fleche etait a nous, les options coloriees -- mais le MENU restait celui
+   du systeme : une liste blanche a coins carres en plein theme sombre, une
+   police qui n'est pas la notre, et sur macOS un panneau qui recouvre le
+   champ. Aucune propriete CSS ne le change : il faut le dessiner soi-meme.
+
+   Le <select> d'origine reste dans le document -- c'est lui qui porte la
+   valeur, c'est lui qu'interrogent les cent lignes de script deja ecrites,
+   et c'est lui qui part dans les formulaires. On le rend seulement
+   invisible, et l'on pose devant un bouton et une liste a nous. Rien d'autre
+   n'a eu a changer : le meme .value, le meme evenement « change ». */
+.dl{position:relative;width:100%}
+.dl>select{position:absolute;opacity:0;width:100%;height:100%;top:0;left:0;
+ pointer-events:none}
+.dl-btn{width:100%;display:flex;align-items:center;gap:8px;text-align:left;
+ padding:8px 11px;border-radius:var(--r-s);border:1px solid var(--line2);
+ background:var(--bg-input);color:var(--txt);font:inherit;font-size:var(--t-m);
+ cursor:pointer;transition:border-color .12s,box-shadow .12s}
+.dl-btn:hover{border-color:var(--accent)}
+.dl-btn:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-ring)}
+.dl-btn span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dl-btn svg{width:15px;height:15px;flex:none;color:var(--dim2);fill:none;
+ stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;
+ transition:transform .12s}
+.dl.ouvert .dl-btn svg{transform:rotate(180deg)}
+.dl.ouvert .dl-btn{border-color:var(--accent)}
+.dl[data-fige="1"] .dl-btn{opacity:.55;cursor:default}
+.dl-liste{position:absolute;z-index:60;left:0;right:0;top:calc(100% + 4px);
+ max-height:264px;overflow:auto;padding:4px;border-radius:var(--r-s);
+ background:var(--surface);border:1px solid var(--line2);
+ box-shadow:0 10px 28px var(--shadow);display:none}
+.dl.ouvert .dl-liste{display:block}
+/* Vers le haut quand il n'y a plus de place en dessous : une liste qui sort
+   de l'ecran ne se deroule pas, elle se devine. */
+.dl.vers-le-haut .dl-liste{top:auto;bottom:calc(100% + 4px)}
+.dl-opt{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:var(--r-xs);
+ cursor:pointer;font-size:var(--t-m);color:var(--txt);white-space:nowrap;
+ overflow:hidden;text-overflow:ellipsis}
+.dl-opt:hover,.dl-opt.vise{background:var(--surface2)}
+.dl-opt[aria-selected="true"]{color:var(--accent);font-weight:600;background:var(--accent-soft)}
+.dl-opt[aria-disabled="true"]{opacity:.45;cursor:default}
+.carte-filtres .dl{width:auto;min-width:150px}
 input::placeholder{color:var(--dim2)}
 /* UNE CASE A COCHER N'EST PAS UN CHAMP DE SAISIE. La regle "input{width:100%}"
    juste au-dessus s'appliquait aussi aux cases : elles s'etiraient sur toute
@@ -522,7 +563,7 @@ label:has(> input[type=checkbox]),label:has(> input[type=radio]){
    ecran de bureau, on ne distinguait plus une application d'une autre. Une
    grille d'icones sert justement a reconnaitre d'un coup d'oeil -- c'est
    l'icone qui porte ce travail, pas le nom en dessous. */
-.hub-liste.compacte{grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:16px}
+.hub-liste.compacte{grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:10px}
 .hub-liste.compacte .hub-projet{flex-direction:column;align-items:center;gap:11px;
  padding:16px 8px;text-align:center;background:none;border-color:transparent}
 .hub-liste.compacte .hub-projet:hover{background:none;border-color:transparent}
@@ -559,15 +600,41 @@ textarea{resize:vertical;min-height:72px;line-height:1.5}
    qui est affiche et ce qui ne l'est pas.
 
    La liste des applications du hub, dans les reglages du compte. */
-.masquee-ligne{display:flex;align-items:center;gap:11px;padding:9px 0;
- border-top:1px solid var(--line);margin:0;font-weight:400;cursor:pointer}
-.masquee-ligne:first-child{border-top:none}
-.masquee-ligne input{width:auto;margin:0;flex:none}
+/* ON CHOISIT UNE LIGNE, ON NE COCHE PLUS UNE CASE.
+   Une rangee de petits carres oblige a viser : la cible fait 13 px de cote,
+   et rien ne dit, en balayant la liste, lesquels sont coches -- il faut lire
+   chaque case une par une. La LIGNE ENTIERE devient la cible, et l'etat se
+   lit a la teinte : on voit d'un coup ce qui est retenu.
+
+   La case reste dans le document, simplement invisible : c'est elle qui
+   porte l'etat, qui recoit le clavier (espace, tabulation) et que le reste
+   du script interroge. Rien d'autre n'a eu a changer. */
+.choix-ligne{display:flex;align-items:center;gap:11px;padding:9px 11px;margin:0;
+ border:1px solid transparent;border-radius:var(--r-s);font-weight:400;
+ cursor:pointer;position:relative;transition:background .12s,border-color .12s}
+.choix-ligne+.choix-ligne{margin-top:3px}
+.choix-ligne:hover{background:var(--surface2)}
+.choix-ligne:focus-within{border-color:var(--accent)}
+/* La case elle-meme : hors de vue, jamais hors du document. */
+.choix-ligne>input[type=checkbox]{position:absolute;opacity:0;width:1px;height:1px;
+ margin:0;pointer-events:none}
+/* Retenue : fond teinte, filet d'accent, et une coche a droite -- la couleur
+   seule ne suffit pas a qui ne la distingue pas. */
+.choix-ligne:has(>input:checked){background:var(--accent-soft);border-color:var(--accent)}
+.choix-ligne:has(>input:checked)::after{content:"";flex:none;width:16px;height:16px;
+ border-radius:50%;background:var(--accent);
+ -webkit-mask:var(--coche) center/10px 10px no-repeat;mask:var(--coche) center/10px 10px no-repeat}
+.choix-ligne::after{content:"";flex:none;width:16px;height:16px;border-radius:50%;
+ border:1.5px solid var(--line2);box-sizing:border-box}
+.choix-ligne:has(>input:disabled){opacity:.5;cursor:default}
+/* Le dessin de la coche, en masque : il suit la couleur du theme. */
+:root{--coche:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 12l6 6L20 6" fill="none" stroke="black" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>')}
+
 .masquee-ligne img{width:30px;height:30px;border-radius:var(--r-s);flex:none}
-/* Cochee, la ligne se retire visuellement comme l'application se retire du
-   hub : le reglage se relit d'un coup d'oeil, sans lire chaque etiquette. */
-.masquee-ligne.cachee img{opacity:.45}
-.masquee-ligne.cachee .masquee-txt b{color:var(--dim)}
+/* Non retenue, l'application ne parait pas dans le hub : la ligne le dit en
+   retrait, exactement comme la tuile disparait de la page. */
+.masquee-ligne:not(:has(>input:checked)) img{opacity:.45}
+.masquee-ligne:not(:has(>input:checked)) .masquee-txt b{color:var(--dim)}
 .masquee-etat{font-size:11.5px;color:var(--dim2);flex:none}
 /* La liste repliee : une ligne qui dit combien sont masquees, et qui
    s'ouvre. <details> plutot qu'un pliage a nous -- il s'ouvre au clavier,
@@ -592,10 +659,6 @@ textarea{resize:vertical;min-height:72px;line-height:1.5}
    ci-dessus : une ligne par application, son icone, son nom, sa visibilite.
    Une rangee de cases a cocher nues ne disait ni de quoi il s'agissait, ni
    lesquelles etaient publiques -- donc lesquelles cocher ne changeait rien. */
-.proj-ligne{display:flex;align-items:center;gap:11px;padding:9px 0;
- border-top:1px solid var(--line);margin:0;font-weight:400;cursor:pointer}
-.proj-ligne:first-child{border-top:none}
-.proj-ligne input{width:auto;margin:0;flex:none}
 .proj-ligne img{width:28px;height:28px;border-radius:var(--r-s);flex:none}
 .proj-txt{flex:1;min-width:0;display:flex;flex-direction:column}
 .proj-txt b{font-size:var(--t-m);font-weight:620}
@@ -749,7 +812,7 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
    objet -- ce sont des rubriques d'une meme page. On garde ce qui separe
    (un filet, de l'air) et on retire ce qui encadre (le fond, la bordure,
    l'ombre, les coins). */
-.settings-card{max-width:760px;margin-bottom:0;background:transparent;border:0;
+.settings-card{max-width:none;margin-bottom:0;background:transparent;border:0;
  border-radius:0;box-shadow:none;padding:16px 0;
  border-bottom:1px solid var(--line)}
 .zone:last-child .settings-card:last-child{border-bottom:0}
@@ -1027,19 +1090,6 @@ table.tbl-journal{min-width:560px}
 <div id="sec-hub" class="section" style="display:none">
   <div class="toolbar"><h2 id="hub-titre">Mes applications</h2>
     <div class="spacer"></div>
-    <!-- DEUX TAILLES, PAS UN REGLAGE CONTINU. La carte dit l'etat et la
-         visibilite ; l'icone seule ne dit que « c'est la ». Entre les deux il
-         n'y a rien a vouloir, et un curseur de taille n'aurait fait
-         qu'ajouter une decision a prendre. -->
-    <div class="seg-toggle seg-icones" id="hub-taille" title="Taille des tuiles">
-      <button data-t="carte" onclick="hubTaille('carte')" aria-label="Tuiles détaillées">
-        <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/>
-        <rect x="3" y="13" width="18" height="7" rx="2"/></svg></button>
-      <button data-t="icone" onclick="hubTaille('icone')" aria-label="Icônes seules">
-        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/>
-        <rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/>
-        <rect x="14" y="14" width="7" height="7" rx="2"/></svg></button>
-    </div>
   </div>
   <div class="sous" id="hub-sous"></div>
   <div class="hint" id="hub-masquees" style="display:none;margin:-8px 0 14px"></div>
@@ -1591,7 +1641,7 @@ table.tbl-journal{min-width:560px}
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
         <b>Posture de sécurité</b>
-        <div class="path">Où en est ce serveur, et ce qu'il reste à faire.</div>
+        <div class="path" id="sec-soustitre">Où en est ce serveur, et ce qu'il reste à faire.</div>
       </div>
       <span class="pill" id="sec-note"><i></i>&nbsp;</span></div>
 
@@ -2393,12 +2443,137 @@ function plierLesCartes(){
   });
 }
 
+/* ==================== LES LISTES DEROULANTES ====================
+   Un habillage, pas un remplacement : chaque <select> garde sa valeur, ses
+   options et son evenement « change ». On lui pose devant un bouton et une
+   liste dessines avec les jetons du theme, et l'on retire le menu du
+   systeme -- le seul morceau d'interface que CSS ne sait pas atteindre.
+
+   La liste se RECONSTRUIT a chaque ouverture, depuis le <select> : les
+   options arrivent souvent apres coup (les applications, les comptes, les
+   annees du journal), et un habillage fige afficherait le contenu d'il y a
+   trois secondes. */
+const CHEVRON = '<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>';
+
+function dlEtiquette(select){
+  const o = select.options[select.selectedIndex];
+  return o ? o.textContent : '';
+}
+
+function dlFermerTout(sauf){
+  document.querySelectorAll('.dl.ouvert').forEach(d=>{ if(d!==sauf) d.classList.remove('ouvert'); });
+}
+
+function dlPeindre(enveloppe){
+  const select = enveloppe.querySelector('select');
+  const liste = enveloppe.querySelector('.dl-liste');
+  liste.innerHTML = [...select.options].map((o,i)=>
+    `<div class="dl-opt" role="option" data-i="${i}"
+      aria-selected="${i===select.selectedIndex}"
+      aria-disabled="${o.disabled}">${esc(o.textContent)}</div>`).join('');
+  enveloppe.querySelector('.dl-btn span').textContent = dlEtiquette(select);
+  enveloppe.dataset.fige = select.disabled ? '1' : '0';
+}
+
+function dlChoisir(enveloppe, i){
+  const select = enveloppe.querySelector('select');
+  if(select.options[i] && !select.options[i].disabled){
+    select.selectedIndex = i;
+    /* L'evenement doit venir du <select> lui-meme : tout le script ecoute
+       « change » sur lui, et les attributs onchange= deja poses dans la page
+       ne connaissent rien d'autre. */
+    select.dispatchEvent(new Event('change', {bubbles:true}));
+  }
+  enveloppe.classList.remove('ouvert');
+  dlPeindre(enveloppe);
+  enveloppe.querySelector('.dl-btn').focus();
+}
+
+function dlHabiller(select){
+  if(select.dataset.dl==='1' || select.multiple) return;
+  select.dataset.dl='1';
+  const enveloppe = document.createElement('div');
+  enveloppe.className = 'dl';
+  select.parentNode.insertBefore(enveloppe, select);
+  enveloppe.appendChild(select);
+  enveloppe.insertAdjacentHTML('beforeend',
+    '<button type="button" class="dl-btn" aria-haspopup="listbox" aria-expanded="false">'
+    + '<span></span>' + CHEVRON + '</button>'
+    + '<div class="dl-liste" role="listbox"></div>');
+
+  const bouton = enveloppe.querySelector('.dl-btn');
+  bouton.addEventListener('click', ()=>{
+    if(select.disabled) return;
+    const ouvrir = !enveloppe.classList.contains('ouvert');
+    dlFermerTout(enveloppe);
+    if(ouvrir) dlPeindre(enveloppe);           // toujours a jour a l'ouverture
+    enveloppe.classList.toggle('ouvert', ouvrir);
+    bouton.setAttribute('aria-expanded', ouvrir ? 'true' : 'false');
+    /* Assez de place en dessous ? Sinon la liste s'ouvre vers le haut. */
+    const bas = enveloppe.getBoundingClientRect().bottom;
+    enveloppe.classList.toggle('vers-le-haut',
+      ouvrir && window.innerHeight - bas < 200 && bas > 260);
+  });
+  enveloppe.querySelector('.dl-liste').addEventListener('click', e=>{
+    const opt = e.target.closest('.dl-opt');
+    if(opt && opt.getAttribute('aria-disabled')!=='true') dlChoisir(enveloppe, +opt.dataset.i);
+  });
+  /* Au clavier : les fleches parcourent, Entree choisit, Echap ferme. Sans
+     cela, un habillage rendrait une liste inutilisable sans souris. */
+  bouton.addEventListener('keydown', e=>{
+    const ouvert = enveloppe.classList.contains('ouvert');
+    if(e.key==='Escape'){ enveloppe.classList.remove('ouvert'); return; }
+    if(e.key==='ArrowDown' || e.key==='ArrowUp'){
+      e.preventDefault();
+      if(!ouvert){ bouton.click(); return; }
+      const opts=[...enveloppe.querySelectorAll('.dl-opt')];
+      let i = opts.findIndex(o=>o.classList.contains('vise'));
+      if(i<0) i = select.selectedIndex;
+      i = Math.max(0, Math.min(opts.length-1, i + (e.key==='ArrowDown'?1:-1)));
+      opts.forEach(o=>o.classList.remove('vise'));
+      opts[i].classList.add('vise');
+      opts[i].scrollIntoView({block:'nearest'});
+    }
+    if(e.key==='Enter' && ouvert){
+      e.preventDefault();
+      const vise = enveloppe.querySelector('.dl-opt.vise');
+      dlChoisir(enveloppe, vise ? +vise.dataset.i : select.selectedIndex);
+    }
+  });
+  /* Le script remplit souvent les options apres coup, ou pose .value a la
+     main : l'etiquette doit suivre sans que chaque appel ait a y penser. */
+  new MutationObserver(()=>dlPeindre(enveloppe)).observe(select, {childList:true});
+  select.addEventListener('change', ()=>dlPeindre(enveloppe));
+  dlPeindre(enveloppe);
+}
+
+function habillerLesListes(racine){
+  (racine||document).querySelectorAll('select:not([data-dl])').forEach(dlHabiller);
+}
+document.addEventListener('click', e=>{ if(!e.target.closest('.dl')) dlFermerTout(null); });
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') dlFermerTout(null); });
+/* Les listes nees d'un rendu ulterieur -- une fiche qu'on ouvre, un tableau
+   repeint -- sont habillees des qu'elles paraissent. */
+new MutationObserver(m=>{
+  for(const x of m){
+    for(const n of x.addedNodes){
+      if(n.nodeType!==1) continue;
+      if(n.tagName==='SELECT') dlHabiller(n);
+      else habillerLesListes(n);
+    }
+  }
+}).observe(document.body, {childList:true, subtree:true});
+habillerLesListes(document);
+
 /* ---------------- onglets des parametres ---------------- */
 let paramOngletActif='compte';
 function paramOnglet(o){
-  /* Un compte utilisateur n'a que les deux premiers. Ce garde-fou est un
-     confort d'affichage : chaque route verifie le role de son cote. */
-  if(!estAdmin && o!=='compte' && o!=='securite') o='compte';
+  /* Un compte utilisateur a Compte, Securite et Message -- les trois
+     onglets sans data-admin, ceux que le bandeau lui montre. Le garde-fou
+     n'en listait que deux : cliquer sur « Message » ramenait aux reglages du
+     compte, sans un mot, et l'onglet passait pour casse. Ce qu'il protege
+     est un confort d'affichage ; chaque route verifie le role de son cote. */
+  if(!estAdmin && o!=='compte' && o!=='securite' && o!=='message') o='compte';
   paramOngletActif=o;
   document.querySelectorAll('#param-onglets button')
     .forEach(b=>b.classList.toggle('active', b.dataset.p===o));
@@ -2413,7 +2588,10 @@ function paramOnglet(o){
     chargerHub();
     $('mdp-err').style.display='none'; $('mdp-msg').style.display='none';
   }
-  if(o==='securite'){ chargerPasskeys(); if(estAdmin) chargerSecurite(); }
+  if(o==='securite'){
+    chargerPasskeys();
+    estAdmin ? chargerSecurite() : chargerPostureDuCompte();
+  }
   /* La liste des applications vient du hub : on la relit, sinon le choix
      « D'une application » est vide pour qui arrive directement ici. */
   if(o==='message'){ chargerHub(); $('msg-err').style.display='none';
@@ -2592,18 +2770,11 @@ async function msgEnvoyer(){
   finally{ b.disabled=false; b.textContent='Envoyer'; }
 }
 
-/* ---------------- taille des tuiles du hub ----------------
-   Retenue par navigateur, comme le theme et la colonne de gauche : c'est un
-   confort d'affichage, pas un reglage du serveur, et deux personnes qui
-   partagent un compte n'ont pas les memes yeux ni le meme ecran. */
-function hubTailleChoisie(){
-  try{ return localStorage.getItem('codelab.hub.taille')==='icone' ? 'icone' : 'carte'; }
-  catch(e){ return 'carte'; }
-}
-function hubTaille(t){
-  try{ localStorage.setItem('codelab.hub.taille', t); }catch(e){}
-  peindreHub();
-}
+/* ---------------- le hub, en grille et seulement en grille ----------------
+   Il offrait deux tailles de tuile, retenues par navigateur. C'etait une
+   decision de plus a prendre pour une page ou l'on ne vient que pour ouvrir
+   une application : la grille d'icones montre d'un coup d'oeil ce qui est
+   la, et l'etat d'une application se lit dans « Applications », pas ici. */
 
 let hubMasquees=[];
 
@@ -2645,11 +2816,15 @@ function peindreMasquees(){
     zone.innerHTML='<div class="hint">Aucune application à ranger pour le moment.</div>';
     return;
   }
+  /* RETENUE VEUT DIRE AFFICHEE, et pas l'inverse. La case cochee signifiait
+     « masquee » : on selectionnait ce qu'on voulait faire disparaitre, et la
+     ligne retenue etait celle qu'on ne verrait plus. En choisissant ce qu'on
+     GARDE, la liste se lit comme le hub qu'elle decrit. */
   const lignes = toutes.map(a=>{
     const cachee = cachees.has(a.name);
-    return `<label class="masquee-ligne${cachee?' cachee':''}">
-    <input type="checkbox"${cachee?' checked':''}
-      onchange="basculerMasquage('${esc(a.name)}', this.checked)">
+    return `<label class="choix-ligne masquee-ligne">
+    <input type="checkbox"${cachee?'':' checked'}
+      onchange="basculerMasquage('${esc(a.name)}', !this.checked)">
     <img src="${icone(a.name)}" alt="">
     <div class="masquee-txt"><b>${esc(a.name)}</b>
       ${a.description?`<span>${esc(a.description)}</span>`:''}</div>
@@ -2694,10 +2869,7 @@ async function chargerHub(){
   peindreHub();
 }
 function peindreHub(){
-  const taille = hubTailleChoisie();
-  const classeListe = 'hub-liste' + (taille==='icone' ? ' compacte' : '');
-  document.querySelectorAll('#hub-taille button')
-    .forEach(b=>b.classList.toggle('active', b.dataset.t===taille));
+  const classeListe = 'hub-liste compacte';
   $('hub-sous').textContent = estAdmin
     ? 'Toutes les applications déclarées. C\'est cette page que voient les comptes utilisateurs, limitée à ce que tu leur autorises.'
     : 'Les applications que ton administrateur t\'a autorisées.';
@@ -2726,14 +2898,11 @@ function peindreHub(){
   }
   /* Rien d'autre qu'un lien : une tuile du hub sert a ouvrir une
      application. Ce qu'on affiche ou non se regle dans les parametres. */
-  const tuile = a => {
-    const desc = (taille==='icone' || !a.description) ? ''
-      : `<div class="desc">${esc(a.description)}</div>`;
-    return `<a class="hub-projet ${a.running?'':'arretee'}" href="${urlApplication(a.name)}">
+  const tuile = a => `<a class="hub-projet ${a.running?'':'arretee'}"
+      href="${urlApplication(a.name)}" title="${esc(a.description||a.name)}">
       <img src="${icone(a.name)}" alt="">
-      <div class="txt"><div class="nom">${esc(a.name)}</div>${desc}
+      <div class="txt"><div class="nom">${esc(a.name)}</div>
       <div class="bas">${badgeEtat(a)}${badgeVis(a)}</div></div></a>`;
-  };
 
   /* Sans categorie declaree, le hub reste ce qu'il etait : une seule liste.
      Un unique titre « Autres » au-dessus de tout serait du bruit. */
@@ -3002,12 +3171,15 @@ async function chargerAcces(nom){
       + 'projets privés — crée un compte depuis <b>Utilisateurs</b> pour en partager un.</div>';
     return;
   }
+  /* Une ligne par compte, choisie ou non : la meme facon de designer que
+     partout ailleurs dans le panneau. */
   zone.innerHTML = comptes.map(c=>
-    `<div class="field" style="margin-bottom:8px">
-       <label><input type="checkbox" id="ac-${esc(c.nom)}" ${c.acces?'checked':''}
-         onchange="acBasculer()"> ${esc(c.nom)}</label>
-       ${c.email ? '<div class="hint" style="margin-top:2px">'+esc(c.email)+'</div>' : ''}
-     </div>`).join('');
+    `<label class="choix-ligne">
+       <input type="checkbox" id="ac-${esc(c.nom)}" ${c.acces?'checked':''}
+         onchange="acBasculer()">
+       <div class="proj-txt"><b>${esc(c.nom)}</b>
+         ${c.email ? `<span>${esc(c.email)}</span>` : ''}</div>
+     </label>`).join('');
 }
 
 async function acBasculer(){
@@ -4086,7 +4258,7 @@ function usPeindreFiche(){
   $('us-f-projets').innerHTML = declares.length ? declares.map(a=>{
     const coche = c.projets.includes(a.name) ? ' checked' : '';
     const prive = a.visibility==='privee';
-    return `<label class="proj-ligne${prive?'':' publique'}">
+    return `<label class="choix-ligne proj-ligne${prive?'':' publique'}">
       <input type="checkbox" value="${esc(a.name)}"${coche}>
       <img src="${icone(a.name)}" alt="">
       <div class="proj-txt"><b>${esc(a.name)}</b>
@@ -4400,6 +4572,74 @@ async function alBasculer(){
   if(await alPoster(corps, 'al-toggle', 'al')) await chargerAlertes();
 }
 
+/* Les trois etats du bilan. Trois et pas deux : afficher en rouge un
+   controle qui ne s'applique pas ici apprend a ignorer la page entiere. */
+const POSTURE_REQUIS='requis', POSTURE_OK='ok', POSTURE_ABSENT='absent', POSTURE_HORS='hors';
+
+/* Le rendu, commun aux deux bilans -- celui du serveur et celui d'un
+   compte. Deux fonctions auraient diverge au premier etat ajoute. */
+function peindrePosture(lignes, cadre){
+  const compte = lignes.filter(l=>l[1]!==POSTURE_HORS).length;
+  const acquis = lignes.filter(l=>l[1]===POSTURE_OK).length;
+  const manque = lignes.filter(l=>l[1]===POSTURE_REQUIS).length;
+
+  const note=$('sec-note');
+  note.className = 'pill ' + (manque ? 'err' : (acquis===compte ? 'on' : 'off'));
+  note.innerHTML = '<i></i>' + acquis + ' sur ' + compte;
+  $('sec-cadre').innerHTML = cadre;
+
+  const etiquette = {
+    [POSTURE_OK]: ['on', 'en place'], [POSTURE_ABSENT]: ['off', 'non'],
+    [POSTURE_REQUIS]: ['err', 'à corriger'], [POSTURE_HORS]: ['off', 'sans objet'],
+  };
+  $('sec-liste').innerHTML = lignes.map(([nom, etat, aide, onglet])=>{
+    const [cls, mot] = etiquette[etat];
+    const lien = (onglet && etat!==POSTURE_OK && etat!==POSTURE_HORS)
+      ? ` <a href="#" onclick="paramOnglet('${onglet}');return false">aller au réglage</a>` : '';
+    return `<div class="kv"><span class="k">${esc(nom)}</span>
+      <span class="v"><span class="pill ${cls}"><i></i>${mot}</span></span></div>
+      <div class="hint" style="margin:-2px 0 12px">${esc(aide)}${lien}</div>`;
+  }).join('');
+}
+
+/* LE BILAN D'UN COMPTE UTILISATEUR. Il ne peut rien regler du serveur, et
+   /api/securite ne lui repond pas : lui montrer la note du serveur n'aurait
+   aucun sens. Ce qui depend de lui, en revanche, tient en deux lignes -- et
+   ces deux-la comptent, ce sont ses moyens de se reconnecter. */
+async function chargerPostureDuCompte(){
+  let compte={}, liste={};
+  try{
+    compte = await (await fetch('/api/mon-compte')).json();
+    liste  = await (await fetch('/api/mon-compte/passkeys')).json();
+  }catch(e){ return; }
+  const cles = (liste.passkeys||[]).length;
+  const lignes = [
+    ['Clés d\'accès', cles ? POSTURE_OK : POSTURE_ABSENT,
+     cles
+       ? (cles + ' clé' + (cles>1?'s':'') + ' enregistrée' + (cles>1?'s':'')
+          + ' : tu te connectes par empreinte ou par le code de ton appareil.')
+       : "Optionnel, mais c'est le moyen de connexion le plus solide : rien à taper, "
+         + "rien qui puisse être rejoué ailleurs. À ajouter ci-dessous.",
+     null],
+    ['Adresse mail vérifiée',
+     compte.email_verifie ? POSTURE_OK : (compte.smtp ? POSTURE_ABSENT : POSTURE_HORS),
+     compte.email_verifie
+       ? ('Les messages du serveur arrivent à ' + (compte.email||'ton adresse')
+          + ", et c'est par là que passe un mot de passe oublié.")
+       : (compte.smtp
+          ? "Sans adresse vérifiée, un mot de passe oublié ne peut se réinitialiser que "
+            + "par l'administrateur. À renseigner dans l'onglet Compte."
+          : "Sans objet : ce serveur n'a pas de serveur d'envoi configuré."),
+     'compte'],
+  ];
+  /* Le sous-titre suit : « Ou en est ce serveur » n'est pas la question
+     qu'un compte utilisateur se pose, et il n'a pas la main dessus. */
+  $('sec-soustitre').textContent = "Ce qui dépend de toi, sur ce compte.";
+  peindrePosture(lignes,
+    'Voici ce qui dépend de <b>toi</b>. Le reste du serveur — chiffrement, exposition, '
+    + "accès d'administration — est du ressort de l'administrateur.");
+}
+
 /* ---------------- securite : double authentification ---------------- */
 async function chargerSecurite(){
   let d;
@@ -4416,7 +4656,8 @@ async function chargerSecurite(){
      panneau qui ne sort pas du salon) apprend a ignorer la page entiere.
      Un controle « sans objet » le dit, et ne compte pas dans la note. */
   const expose = !!(d.adresse_publique || d.https_constate || d.trust_proxy);
-  const REQUIS = 'requis', OK = 'ok', ABSENT = 'absent', HORS = 'hors';
+  const REQUIS = POSTURE_REQUIS, OK = POSTURE_OK,
+        ABSENT = POSTURE_ABSENT, HORS = POSTURE_HORS;
 
   const lignes = [
     ['Double authentification', d.totp ? OK : ABSENT,
@@ -4479,37 +4720,17 @@ async function chargerSecurite(){
      null],
   ];
 
-  const compte = lignes.filter(l=>l[1]!==HORS).length;
-  const acquis = lignes.filter(l=>l[1]===OK).length;
   const manque = lignes.filter(l=>l[1]===REQUIS).length;
-
-  const note=$('sec-note');
-  note.className = 'pill ' + (manque ? 'err' : (acquis===compte ? 'on' : 'off'));
-  note.innerHTML = '<i></i>' + acquis + ' sur ' + compte;
-
   /* Le cadre dit d'abord DANS QUEL CONTEXTE on juge : les memes reglages
      n'ont pas la meme importance sur un serveur de salon et sur un serveur
      publie. Sans cette phrase, la note ne veut rien dire. */
-  $('sec-cadre').innerHTML = expose
-    ? 'Ce panneau est <b>joignable depuis l\'exterieur</b>. Tout ce qui suit compte.'
+  peindrePosture(lignes, expose
+    ? 'Ce panneau est <b>joignable depuis l\'extérieur</b>. Tout ce qui suit compte.'
       + (manque ? ' <b>' + manque + ' point' + (manque>1?'s':'')
                   + ' demande' + (manque>1?'nt':'') + ' ton attention.</b>' : '')
     : 'Ce panneau <b>ne sort pas du réseau local</b> : aucune adresse publique déclarée, '
       + 'aucun chiffrement constaté. Les contrôles liés à internet sont marqués '
-      + '« sans objet » — ils le redeviendront le jour où tu le publieras.';
-
-  const etiquette = {
-    [OK]: ['on', 'en place'], [ABSENT]: ['off', 'non'],
-    [REQUIS]: ['err', 'à corriger'], [HORS]: ['off', 'sans objet'],
-  };
-  $('sec-liste').innerHTML = lignes.map(([nom, etat, aide, onglet])=>{
-    const [cls, mot] = etiquette[etat];
-    const lien = (onglet && etat!==OK && etat!==HORS)
-      ? ` <a href="#" onclick="paramOnglet('${onglet}');return false">aller au réglage</a>` : '';
-    return `<div class="kv"><span class="k">${esc(nom)}</span>
-      <span class="v"><span class="pill ${cls}"><i></i>${mot}</span></span></div>
-      <div class="hint" style="margin:-2px 0 12px">${esc(aide)}${lien}</div>`;
-  }).join('');
+      + '« sans objet » — ils le redeviendront le jour où tu le publieras.');
 
   /* Les trois interrupteurs. Une case grisee doit TOUJOURS dire pourquoi :
      sans cela, on clique dans le vide sans savoir ce qui manque. */
@@ -4796,6 +5017,10 @@ if(estAdmin){
 }else{
   /* Compte utilisateur : pas de menu lateral, pas de configuration. Il garde
      ses parametres personnels, eux, dans le menu du compte. */
+  /* Le second facteur est celui du compte d'ADMINISTRATION (un seul secret,
+     cote serveur) : cette carte n'a rien a regler ici, et elle s'affichait
+     sans etat ni bouton -- une case vide de plus a se demander. */
+  $('profil-securite').style.display='none';
   $('sidebar').style.display='none';
   $('btn-menu').style.display='none';
   $('profil-securite').style.display='none';

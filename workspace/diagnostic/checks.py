@@ -7,6 +7,7 @@ connect_pg(), qui accepte psycopg (v3, installe par la commande de build de
 l'application) ou psycopg2 (deja present dans l'image Dagster via
 dagster-postgres).
 """
+import ast
 import base64
 import importlib.util
 import queue
@@ -55,6 +56,7 @@ except ModuleNotFoundError:  # image Dagster, image dev
 
     pytest = _PytestAbsent()
 
+import builtins
 import inspect
 import datetime
 import enum
@@ -6708,6 +6710,57 @@ def _page_panneau(nom):
     return open(os.path.join(DOSSIER_PANNEAU, "app", nom), encoding="utf-8").read()
 
 
+# ---------------- le script des pages doit s'ANALYSER ----------------
+#
+# Toute l'interface du panneau tient dans une balise <script> de plusieurs
+# milliers de lignes, servie telle quelle. Une parenthese en trop et la page
+# entiere ne fait plus rien : pas de liste d'applications, pas de bouton, pas
+# la moindre erreur visible ailleurs que dans la console du navigateur. Aucun
+# test ne le voyait -- ils lisent le fichier comme du TEXTE, et un texte est
+# toujours valide.
+#
+# node est present dans l'image app-manager (il construit les applications) et
+# sur les machines de CI. La ou il manque, le test le dit et s'arrete : mieux
+# vaut une ligne ignoree, visible, qu'une couverture qu'on croit avoir.
+
+def _scripts_de_la_page(nom):
+    """Le contenu de chaque <script> de la page, marqueurs remplaces.
+
+    Le serveur substitue __ROLE__ et compagnie avant d'envoyer : les laisser
+    tels quels donnerait une erreur de syntaxe qui n'existe pas en vrai.
+    """
+    page = _page_panneau(nom)
+    scripts = []
+    for bloc in re.findall(r"<script>(.*?)</script>", page, re.S):
+        bloc = (bloc.replace("__ROLE__", '"admin"')
+                    .replace("__UTILISATEUR__", '"moi"'))
+        scripts.append(re.sub(r"__[A-Z_]+__", '""', bloc))
+    return scripts
+
+
+@pytest.mark.skipif(shutil.which("node") is None,
+                    reason="node absent de cette image (present dans app-manager et en CI)")
+def test_le_script_des_pages_du_panneau_est_analysable():
+    import subprocess
+    import tempfile
+    for nom in ("dashboard.html", "login.html"):
+        scripts = _scripts_de_la_page(nom)
+        assert scripts, f"{nom} n'a plus de script : la page ne ferait plus rien"
+        for i, script in enumerate(scripts):
+            with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False,
+                                             encoding="utf-8") as f:
+                f.write(script)
+                chemin = f.name
+            try:
+                r = subprocess.run(["node", "--check", chemin],
+                                   capture_output=True, text=True, timeout=60)
+            finally:
+                os.unlink(chemin)
+            assert r.returncode == 0, (
+                f"{nom}, script #{i} : la page ne s'executerait pas du tout\n"
+                + (r.stderr or "")[:800])
+
+
 # ---------------- les parametres : on replie, on ne deroule plus ----------
 #
 # Vecu : « Reduis toutes les zones des parametres, je dois pouvoir developper
@@ -6899,6 +6952,11 @@ def test_chaque_selecteur_data_trouve_son_attribut():
     page = _page_panneau("dashboard.html")
     cherches = set(re.findall(r'\[data-([A-Za-z0-9_-]+)\]', page))
     poses = set(re.findall(r'data-([A-Za-z0-9_-]+)\s*=', page))
+    # dataset.machin pose exactement data-machin : le script y accede par la
+    # propriete, et ne pas le compter ferait echouer ce test sur un attribut
+    # qui existe bel et bien dans le document.
+    for nom in re.findall(r'\.dataset\.([A-Za-z0-9_]+)\s*=', page):
+        poses.add(re.sub(r'([A-Z])', lambda m: '-' + m.group(1).lower(), nom))
     orphelins = cherches - poses
     assert not orphelins, (
         f"selecteurs sans attribut correspondant : {sorted(orphelins)} -- "
@@ -7427,24 +7485,27 @@ def test_une_carte_seule_dans_son_onglet_ne_se_replie_pas():
     assert "querySelectorAll('.settings-card').length < 2" in bloc
 
 
-def test_le_hub_offre_deux_tailles_de_tuile():
-    """Deux tailles, pas un reglage continu : la carte dit l'etat et la
-    visibilite, l'icone seule dit « c'est la ». Entre les deux il n'y a rien
-    a vouloir, et un curseur n'aurait ajoute qu'une decision a prendre."""
+def test_le_hub_ne_garde_que_sa_grille():
+    """UNE SEULE VUE. Le hub offrait deux tailles de tuile, retenues par
+    navigateur : une decision de plus a prendre pour une page ou l'on ne
+    vient que pour ouvrir une application. L'etat d'une application se lit
+    dans « Applications » ; ici, la grille d'icones dit « c'est la », et
+    c'est tout ce qu'on lui demande."""
     page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
                 encoding="utf-8").read()
-    for t in ("carte", "icone"):
-        assert f"hubTaille('{t}')" in page
-    # En mode icone, l'etat et la visibilite ne sont pas seulement caches :
-    # c'est ce qu'on accepte de perdre pour voir trente projets d'un coup.
+    assert "hubTaille(" not in page, "la bascule de taille est revenue"
+    assert "codelab.hub.taille" not in page, (
+        "le reglage de taille est revenu dans le stockage du navigateur")
+    assert "id=\"hub-taille\"" not in page, "le selecteur de taille est revenu"
+    # La grille est posee sans condition : plus rien ne peut la faire varier.
+    assert "const classeListe = 'hub-liste compacte';" in page
+    # Ce qu'on accepte de perdre en grille : l'etat et la visibilite sous le
+    # nom. C'est le prix pour voir trente projets d'un coup.
     assert ".hub-liste.compacte .hub-projet .bas{display:none}" in page \
         or ".hub-liste.compacte .hub-projet .desc,\n.hub-liste.compacte .hub-projet .bas{display:none}" in page
-    # Une application arretee reste grisee et non cliquable dans les deux
-    # tailles : sans cela on cliquerait dans le vide.
+    # Une application arretee reste grisee et non cliquable : sans cela on
+    # cliquerait dans le vide.
     assert ".hub-projet.arretee{opacity:.6;pointer-events:none}" in page
-    # Le choix est retenu par navigateur, comme le theme : c'est un confort
-    # d'affichage, pas un reglage du serveur.
-    assert "localStorage.setItem('codelab.hub.taille'" in page
 
 
 def test_la_tuile_en_mode_icone_n_a_ni_fond_ni_cadre():
@@ -7519,10 +7580,11 @@ def test_les_tuiles_du_hub_sont_deux_fois_plus_grandes():
                 encoding="utf-8").read()
     icone = page.split(".hub-liste.compacte .hub-projet img{")[1].split("}")[0]
     assert "width:88px" in icone and "height:88px" in icone
-    # La colonne suit : une icone de 88 px dans une case de 104 px n'aurait
-    # plus de place pour respirer, ni pour le nom.
+    # La colonne laisse respirer l'icone et son nom, sans plus : 148 px pour
+    # 88 px d'icone, et 10 px entre deux tuiles. Resserrer davantage ferait
+    # se toucher les noms ; relacher rendrait la grille clairsemee.
     grille = page.split(".hub-liste.compacte{")[1].split("}")[0]
-    assert "minmax(168px" in grille
+    assert "minmax(148px" in grille and "gap:10px" in grille
 
 
 def test_les_controles_du_navigateur_suivent_le_theme():
@@ -7601,7 +7663,7 @@ def test_le_masquage_ne_se_regle_que_dans_les_parametres():
     assert "hub-masquer" not in page, (
         "le bouton de masquage est revenu sur la tuile du hub")
     # La tuile n'est plus qu'un lien.
-    tuile = page.split("const tuile = a => {")[1].split("\n  };")[0]
+    tuile = page.split("const tuile = a =>")[1].split("`;")[0]
     assert "<button" not in tuile, "la tuile du hub porte de nouveau un bouton"
     # Et le reglage est bien une case a cocher, dans les deux sens.
     assert "function basculerMasquage(" in page
@@ -7636,7 +7698,12 @@ def test_les_projets_autorises_forment_une_liste_lisible():
     assert "badgeVis(a)" in bloc, "le badge public/prive doit rester visible"
     assert 'type="checkbox"' in bloc
     # Le style existe vraiment : une classe sans regle ne dessine rien.
-    assert ".proj-ligne{" in page
+    assert ".proj-ligne img{" in page
+    # Et c'est la LIGNE qu'on choisit, pas la case : elle porte la classe
+    # commune a toutes les listes a choix du panneau.
+    assert "choix-ligne" in bloc
+    assert ".choix-ligne:has(>input:checked)" in page, (
+        "rien ne distingue plus une ligne retenue d'une ligne ordinaire")
 
 
 def test_la_fiche_d_un_compte_attend_la_liste_des_applications():
@@ -7945,6 +8012,62 @@ def test_aucun_texte_du_diagnostic_n_a_perdu_ses_accents():
         for mot in MOTIF_SANS_ACCENT.findall(texte):
             fautes.append(f"{mot} — dans « {texte[:70]} »")
     assert not fautes, "textes visibles sans accents :\n" + "\n".join(fautes[:12])
+
+
+# ---------- l'accent ne doit pas deborder sur un NOM DE VARIABLE ----------
+#
+# La relecture des messages a accentue quatre identifiants au passage :
+# len(clés), {détail_hotes}, {numéro} et {après - avant}. Chacun leve
+# NameError a l'execution, et aucun ne se voit a la lecture -- dans une
+# f-string, « clés » a exactement l'air d'un mot de la phrase.
+#
+# Deux d'entre eux vivaient sur le chemin NORMAL de check_cles_ssh : sur une
+# installation ou authorized_keys est lisible, la page entiere du diagnostic
+# tombait. Les deux autres faisaient echouer un test approfondi avec un
+# message qui parlait d'autre chose.
+#
+# Ce controle lit l'arbre syntaxique et cherche les noms CHARGES qui ne sont
+# definis nulle part. C'est exactement ce que fait un interpreteur au moment
+# d'evaluer la ligne -- sauf qu'ici on le sait avant de livrer.
+
+def _noms_jamais_definis(chemin):
+    arbre = ast.parse(open(chemin, encoding="utf-8").read())
+    definis = set()
+    for n in ast.walk(arbre):
+        if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
+            definis.add(n.id)
+        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            definis.add(n.name)
+        elif isinstance(n, ast.arg):
+            definis.add(n.arg)
+        elif isinstance(n, (ast.Import, ast.ImportFrom)):
+            for a in n.names:
+                definis.add((a.asname or a.name).split(".")[0])
+        elif isinstance(n, ast.ExceptHandler) and n.name:
+            definis.add(n.name)
+        elif isinstance(n, ast.Global):
+            definis.update(n.names)
+    # __file__ et compagnie sont poses par l'interpreteur, pas par le code.
+    definis.update(["__file__", "__name__", "__doc__"])
+    return sorted({n.id for n in ast.walk(arbre)
+                   if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
+                   and n.id not in definis and not hasattr(builtins, n.id)})
+
+
+def test_aucun_accent_n_a_deborde_sur_un_nom_de_variable():
+    """Le test qui aurait vu passer len(clés) et {numéro}."""
+    fichiers = [os.path.join(os.path.dirname(os.path.abspath(__file__)), nom)
+                for nom in ("checks.py", "app.py")]
+    if DOSSIER_PANNEAU:
+        fichiers.append(os.path.join(DOSSIER_PANNEAU, "app", "app.py"))
+    for chemin in fichiers:
+        if not os.path.exists(chemin):
+            continue
+        inconnus = _noms_jamais_definis(chemin)
+        assert not inconnus, (
+            f"{os.path.basename(chemin)} charge des noms qui n'existent pas : "
+            f"{inconnus} -- un accent a deborde sur une variable, et cela leve "
+            f"NameError a l'execution")
 
 
 # ---------- la verification approfondie, en direct ----------
