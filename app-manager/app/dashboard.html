@@ -627,6 +627,13 @@ textarea{resize:vertical;min-height:72px;line-height:1.5}
 .choix-ligne::after{content:"";flex:none;width:16px;height:16px;border-radius:50%;
  border:1.5px solid var(--line2);box-sizing:border-box}
 .choix-ligne:has(>input:disabled){opacity:.5;cursor:default}
+/* Un reglage seul, pas une ligne de liste : pas de fond teinte qui
+   laisserait croire a une selection dans un ensemble, juste la coche et
+   l'accent sur le libelle. */
+.field>.choix-ligne{padding-left:0}
+.field>.choix-ligne:hover{background:none}
+.field>.choix-ligne:has(>input:checked){background:none;border-color:transparent}
+.field>.choix-ligne:has(>input:checked) .proj-txt b{color:var(--accent)}
 /* Le dessin de la coche, en masque : il suit la couleur du theme. */
 :root{--coche:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 12l6 6L20 6" fill="none" stroke="black" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>')}
 
@@ -1791,21 +1798,24 @@ table.tbl-journal{min-width:560px}
         permis.</div>
 
       <div class="field" style="margin-top:14px">
-        <label><input type="checkbox" id="expo-proxy" onchange="expoBascule('trust_proxy', this)">
-          Proxy de confiance</label>
+        <label class="choix-ligne">
+          <input type="checkbox" id="expo-proxy" onchange="expoBascule('trust_proxy', this)">
+          <div class="proj-txt"><b>Proxy de confiance</b></div></label>
         <div class="hint" id="expo-proxy-aide"></div>
       </div>
 
       <div class="field" style="margin-top:10px">
-        <label><input type="checkbox" id="expo-https" onchange="expoBascule('https', this)">
-          Servi en HTTPS</label>
+        <label class="choix-ligne">
+          <input type="checkbox" id="expo-https" onchange="expoBascule('https', this)">
+          <div class="proj-txt"><b>Servi en HTTPS</b></div></label>
         <div class="hint" id="expo-https-aide"></div>
       </div>
 
       <div class="field" style="margin-top:10px">
-        <label><input type="checkbox" id="expo-admin-lan"
-          onchange="expoBascule('admin_reseau_local', this)">
-          Administration réservée au réseau local</label>
+        <label class="choix-ligne">
+          <input type="checkbox" id="expo-admin-lan"
+            onchange="expoBascule('admin_reseau_local', this)">
+          <div class="proj-txt"><b>Administration réservée au réseau local</b></div></label>
         <div class="hint" id="expo-admin-lan-aide"></div>
       </div>
 

@@ -9651,3 +9651,21 @@ def test_le_bouton_de_telechargement_existe():
     assert 'onclick="ctTelecharger()"' in page
     bloc = page.split("function ctTelecharger(){")[1].split("\n}")[0]
     assert "/conteneur.zip" in bloc
+
+
+def test_toutes_les_coches_du_panneau_choisissent_une_ligne():
+    """« Pour tout CodeLab » : plus une seule case nue a viser.
+
+    Les listes (applications du hub, comptes autorises, projets d'un compte)
+    comme les reglages isoles (proxy, HTTPS, administration sur le reseau
+    local) designent une LIGNE. La case reste dans le document -- elle porte
+    l'etat et recoit le clavier -- simplement on ne la vise plus.
+    """
+    page = _page_panneau("dashboard.html")
+    cases = re.findall(r'<label([^>]*)>\s*\n?\s*<input type="checkbox"', page)
+    nues = [c for c in cases if "choix-ligne" not in c]
+    assert not nues, f"cases a cocher hors d'une ligne a choisir : {nues}"
+    # Et le style existe, dans les deux formes : une ligne de liste se teinte,
+    # un reglage isole ne prend que la coche et l'accent sur son libelle.
+    assert ".choix-ligne:has(>input:checked){background:var(--accent-soft)" in page
+    assert ".field>.choix-ligne:has(>input:checked){background:none" in page
