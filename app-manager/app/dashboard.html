@@ -2422,8 +2422,64 @@ window.fetch = function(cible, options){
 };
 
 const $=i=>document.getElementById(i), hide=i=>$(i).classList.remove("show");
-const esc=s=>(s||"").replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+/* Echappe le TEXTE et les VALEURS D'ATTRIBUT, et rien d'autre.
+   L'apostrophe est ajoutee pour les attributs ecrits entre apostrophes.
+
+   Ce qu'elle ne fait PAS, et ne peut pas faire : proteger une chaine de
+   PROGRAMME construite dans un attribut, comme onclick="f('...')". Le
+   navigateur decode les entites AVANT de lire le JavaScript : &#39; y
+   redevient une apostrophe, qui referme la chaine. La seule parade est de
+   ne pas fabriquer de programme a partir d'une donnee -- voir ACTIONS plus
+   bas, et le navigateur de dossiers, qui construit du DOM. */
+const esc=s=>(s||"").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',
+                                             '"':'&quot;',"'":'&#39;'}[c]));
 const icone=n=>'/api/icon/'+encodeURIComponent(n);
+
+/* ---------------- les actions du HTML genere ----------------
+   UN seul ecouteur, et zero gestionnaire en ligne portant une donnee.
+
+   Avant, chaque bouton d'une liste s'ecrivait
+   un onclick appelant tg() avec le nom interpole entre apostrophes : la
+   donnee traversait deux analyseurs (le
+   HTML, puis le JavaScript), et il fallait que les deux echappements soient
+   justes. C'est ce qui a laisse passer une execution de code par un nom de
+   dossier -- avec une fonction esc() qui pourtant echappait bien ce qu'elle
+   annoncait.
+
+   Ici la donnee reste une DONNEE : elle voyage dans un attribut data-, que
+   le navigateur ne lit jamais comme du programme, et le nom de l'action est
+   choisi dans une table fermee. Un nom d'application avec une apostrophe, un
+   chevron ou une balise entiere ne peut plus rien declencher. */
+const ACTIONS = {
+  'app-basculer':    n => tg(n),
+  'app-ouvrir':      n => ouvrirFiche(n),
+  'app-redemarrer':  n => restartApp(n),
+  'app-build':       n => buildApp(n),
+  'app-deployer':    n => deployApp(n),
+  'app-visibilite':  n => basculerVisibilite(n),
+  'msg-retenir':     (id, d) => msgRetenir(id, d.valeur === '1'),
+  'msg-supprimer':   id => msgSupprimer(id),
+  'passkey-retirer': id => pkSupprimer(id),
+  'compte-ouvrir':   n => usOuvrir(n),
+  'param-onglet':    o => paramOnglet(o),
+};
+
+document.addEventListener('click', e => {
+  /* closest() trouve le noeud le PLUS PROCHE : un bouton pose dans une ligne
+     cliquable gagne sur la ligne, et l'ancien event.stopPropagation() de
+     chaque bouton disparait avec. */
+  const n = e.target.closest('[data-agir]');
+  const agir = n && ACTIONS[n.dataset.agir];
+  if(!agir) return;
+  e.preventDefault();
+  agir(n.dataset.cible || '', n.dataset);
+});
+
+document.addEventListener('change', e => {
+  const n = e.target.closest('[data-changer]');
+  if(n && n.dataset.changer === 'app-masquer')
+    basculerMasquage(n.dataset.cible, !e.target.checked);
+});
 
 /* ---------------- theme ---------------- */
 function applyTheme(t){
@@ -2859,9 +2915,10 @@ function msgLigne(m){
       <span class="quand" title="${esc(quandPrecis(m.ts))}">${esc(ilYA(m.ts))}</span>
       <div class="msg-actes">
         <button class="msg-acte${m.retenu?' actif':''}" title="${m.retenu?'Relâcher':'Retenir'}"
-          onclick="msgRetenir('${esc(m.id||'')}', ${m.retenu?'false':'true'})">${SVG_EPINGLE}</button>
+          data-agir="msg-retenir" data-cible="${esc(m.id||'')}"
+          data-valeur="${m.retenu?'0':'1'}">${SVG_EPINGLE}</button>
         <button class="msg-acte danger" title="Supprimer"
-          onclick="msgSupprimer('${esc(m.id||'')}')">${SVG_POUBELLE}</button>
+          data-agir="msg-supprimer" data-cible="${esc(m.id||'')}">${SVG_POUBELLE}</button>
       </div></div>
     <div class="msg-texte">${esc(m.texte||'')}</div></div>`;
 }
@@ -3078,7 +3135,7 @@ function peindreMasquees(){
     const cachee = cachees.has(a.name);
     return `<label class="choix-ligne masquee-ligne">
     <input type="checkbox"${cachee?'':' checked'}
-      onchange="basculerMasquage('${esc(a.name)}', !this.checked)">
+      data-changer="app-masquer" data-cible="${esc(a.name)}">
     <img src="${icone(a.name)}" alt="">
     <div class="masquee-txt"><b>${esc(a.name)}</b>
       ${a.description?`<span>${esc(a.description)}</span>`:''}</div>
@@ -3275,7 +3332,7 @@ function render(){
       <th>Application</th><th>État</th><th>Visibilité</th><th>Port</th>
       <th>CPU</th><th>Mémoire</th><th></th>
     </tr></thead><tbody>
-    ${liste.map(a=>`<tr onclick="ouvrirFiche('${esc(a.name)}')">
+    ${liste.map(a=>`<tr data-agir="app-ouvrir" data-cible="${esc(a.name)}">
       <td><div class="tbl-nom"><img src="${icone(a.name)}" alt="">
         <div style="min-width:0"><div class="n">${esc(a.name)}</div>
         ${a.description?`<div class="d">${esc(a.description)}</div>`:''}</div></div></td>
@@ -3286,13 +3343,13 @@ function render(){
       <td class="tbl-num">${Math.round(a.memory_mb||0)} Mo</td>
       <td class="tbl-act"><div>
         <button class="icon-btn ${a.running?'stop':'ok'}" title="${a.running?'Arreter':'Demarrer'}"
-          onclick="event.stopPropagation();tg('${esc(a.name)}')">
+          data-agir="app-basculer" data-cible="${esc(a.name)}">
           ${a.running
             ? '<svg viewBox="0 0 24 24"><rect x="7" y="6" width="3.5" height="12" rx="1"/><rect x="13.5" y="6" width="3.5" height="12" rx="1"/></svg>'
             : '<svg viewBox="0 0 24 24"><path d="M8 5.5l10 6.5-10 6.5z"/></svg>'}
         </button>
         <button class="icon-btn" title="Ouvrir la fiche"
-          onclick="event.stopPropagation();ouvrirFiche('${esc(a.name)}')">
+          data-agir="app-ouvrir" data-cible="${esc(a.name)}">
           <svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
       </div></td></tr>`).join('')}
     </tbody></table></div></div>`;
@@ -3510,20 +3567,20 @@ function peindreFiche(){
   const svgOuvrir='<svg viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 13v6a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h6"/></svg>';
 
   const b=[];
-  b.push(`<button class="btn ${a.running?'btn-arreter':'btn-demarrer'}" onclick="tg('${esc(a.name)}')">
+  b.push(`<button class="btn ${a.running?'btn-arreter':'btn-demarrer'}" data-agir="app-basculer" data-cible="${esc(a.name)}">
     ${a.running?svgStop+'Arrêter':svgPlay+'Démarrer'}</button>`);
-  b.push(`<button class="btn btn-refaire" onclick="restartApp('${esc(a.name)}')" ${a.running?'':'disabled'}>
+  b.push(`<button class="btn btn-refaire" data-agir="app-redemarrer" data-cible="${esc(a.name)}" ${a.running?'':'disabled'}>
     ${svgRe}Redémarrer</button>`);
-  if(a.has_build) b.push(`<button class="btn btn-refaire" onclick="buildApp('${esc(a.name)}')">${svgBuild}Build</button>`);
+  if(a.has_build) b.push(`<button class="btn btn-refaire" data-agir="app-build" data-cible="${esc(a.name)}">${svgBuild}Build</button>`);
   /* Deployer met du code en ligne : c'est l'action principale de cette
      barre, et la seule qui garde l'accent. */
-  b.push(`<button class="btn btn-primary" onclick="deployApp('${esc(a.name)}')">${svgUp}Déployer</button>`);
+  b.push(`<button class="btn btn-primary" data-agir="app-deployer" data-cible="${esc(a.name)}">${svgUp}Déployer</button>`);
   /* « Rendre publique » n'est propose que si le serveur a une adresse
      publique declaree. Sinon le mot promet un partage qui n'existe pas :
      cela ne ferait que retirer l'authentification. Le chemin qui REFERME,
      lui, reste toujours ouvert. */
   if(!prive || adressePublique){
-    b.push(`<button class="btn btn-quiet" onclick="basculerVisibilite('${esc(a.name)}')">
+    b.push(`<button class="btn btn-quiet" data-agir="app-visibilite" data-cible="${esc(a.name)}">
       ${prive?'Rendre publique':'Rendre privée'}</button>`);
   }else{
     b.push(`<span class="hint" style="align-self:center;max-width:320px">Déclare l'adresse
@@ -3747,11 +3804,51 @@ function toggleEditBrowse(){
   z.style.display = ouvert ? 'none' : 'block';
   if(!ouvert) browseEdit(editCur);
 }
+/* LES DEUX NAVIGATEURS DE DOSSIERS PASSENT PAR ICI, et ils construisent du
+   DOM -- jamais une chaine de HTML.
+
+   Ce qu'ils affichaient avant : un div dont le gestionnaire onclick
+   appelait browse() avec le chemin interpole dans une chaine JavaScript.
+   Le LIBELLE etait echappe, le GESTIONNAIRE ne l'etait pas. Un dossier nomme
+   `truc'+alert(1)+'` refermait la chaine JavaScript et executait la suite --
+   dans la page du panneau, celle qui detient le jeton CSRF et les boutons
+   demarrer, arreter, deployer. Or /workspace est inscriptible depuis une
+   session SSH ET par toute application deployee : n'importe laquelle pouvait
+   poser le dossier, attendre un clic, et sortir de son uid restreint.
+   Verifie : alert() s'executait au clic.
+
+   Ici le chemin ne devient jamais du texte de programme. Il est capture par
+   une fermeture, et le nom passe par textContent, qui n'interprete rien.
+   Aucune regle d'echappement a retenir, donc aucune a oublier. */
+function peuplerDossiers(zone, d, aller){
+  zone.textContent = '';
+  const ligne = (libelle, chemin) => {
+    const n = document.createElement('div');
+    n.textContent = libelle;
+    n.onclick = () => aller(chemin);
+    zone.appendChild(n);
+  };
+  if(d.parent) ligne('\u21a9 Dossier parent', d.parent);
+  (d.dirs || []).forEach(nom => ligne('\u{1f4c1} ' + nom, d.path + '/' + nom));
+  return zone.childElementCount;
+}
+
+function lignePlate(zone, texte, couleur){
+  const n = document.createElement('div');
+  n.textContent = texte;
+  n.style.cursor = 'default';
+  if(couleur) n.style.color = couleur;
+  zone.appendChild(n);
+}
+
 async function browseEdit(p){
   const d=await (await fetch('/api/browse?path='+encodeURIComponent(p))).json();
   editCur=d.path; $('e-fb-c').textContent=d.label; $('e-path').textContent=d.path;
-  $('e-fb-l').innerHTML=(d.parent?`<div onclick="browseEdit('${d.parent}')">.. dossier parent</div>`:'')
-    + d.dirs.map(x=>`<div onclick="browseEdit('${x.path}')">${esc(x.name)}</div>`).join('');
+  /* Cette liste-ci lisait x.path et x.name sur des CHAINES : /api/browse rend
+     des noms de dossiers, pas des objets. Elle affichait donc autant de
+     lignes vides que de dossiers, toutes vers « undefined ». */
+  if(!peuplerDossiers($('e-fb-l'), d, browseEdit))
+    lignePlate($('e-fb-l'), 'Dossier vide', 'var(--dim)');
 }
 async function submitEdit(){
   const c=$('e-cmd').value.trim();
@@ -3887,10 +3984,13 @@ function openAdd(){
 async function browse(p){
   const d=await (await fetch('/api/browse?path='+encodeURIComponent(p))).json();
   cur=d.path; $('fb-c').textContent=d.label;
-  let h=d.hasIndex?'<div style="color:var(--ok)">&check; index.html présent dans ce dossier</div>':'';
-  if(d.parent) h+=`<div onclick="browse('${d.parent}')">&#8617; Dossier parent</div>`;
-  h+=d.dirs.map(n=>`<div onclick="browse('${d.path}/${n}')">&#128193; ${esc(n)}</div>`).join('');
-  $('fb-l').innerHTML=h||'<div style="color:var(--dim);cursor:default">Dossier vide</div>';
+  const zone=$('fb-l');
+  if(!peuplerDossiers(zone, d, browse))
+    lignePlate(zone, 'Dossier vide', 'var(--dim)');
+  if(d.hasIndex)
+    zone.insertBefore(Object.assign(document.createElement('div'),
+      {textContent:'\u2713 index.html présent dans ce dossier',
+       style:'color:var(--ok);cursor:default'}), zone.firstChild);
   {
     const dd=await (await fetch('/api/detect?path='+encodeURIComponent(cur))).json();
     if(dd.command){
@@ -3968,7 +4068,7 @@ async function chargerPasskeys(){
       <div class="pk-quand">Ajoutée ${esc(ilYA(k.cree))}${
         k.dernier ? ' — dernière utilisation ' + esc(ilYA(k.dernier)) : ' — jamais utilisée'}</div></div>
     <div class="spacer"></div>
-    <button class="btn btn-default btn-sm" onclick="pkSupprimer('${esc(k.id)}')">Retirer</button>
+    <button class="btn btn-default btn-sm" data-agir="passkey-retirer" data-cible="${esc(k.id)}">Retirer</button>
   </div>`).join('') : '';
 }
 
@@ -4428,7 +4528,7 @@ function usLigne(c){
       <div class="us-nom"><b>${esc(c.nom)}</b>${badges.join('')}</div>
       <div class="us-meta">${adresse} — ${projets}<span data-activite="${esc(c.nom)}"></span></div>
     </div>
-    <button class="btn btn-default btn-sm" onclick="usOuvrir('${esc(c.nom)}')">Modifier</button>
+    <button class="btn btn-default btn-sm" data-agir="compte-ouvrir" data-cible="${esc(c.nom)}">Modifier</button>
   </div>`;
 }
 
@@ -4917,7 +5017,7 @@ function peindrePosture(lignes, cadre){
   $('sec-liste').innerHTML = lignes.map(([nom, etat, aide, onglet])=>{
     const [cls, mot] = etiquette[etat];
     const lien = (onglet && etat!==POSTURE_OK && etat!==POSTURE_HORS)
-      ? ` <a href="#" onclick="paramOnglet('${onglet}');return false">aller au réglage</a>` : '';
+      ? ` <a href="#" data-agir="param-onglet" data-cible="${esc(onglet)}">aller au réglage</a>` : '';
     return `<div class="kv"><span class="k">${esc(nom)}</span>
       <span class="v"><span class="pill ${cls}"><i></i>${mot}</span></span></div>
       <div class="hint" style="margin:-2px 0 12px">${esc(aide)}${lien}</div>`;

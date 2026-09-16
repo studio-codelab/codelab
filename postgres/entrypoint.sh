@@ -255,6 +255,93 @@ SQL
   drop_maintenance_db
 }
 
+# --------------------------- LES SAUVEGARDES ---------------------------
+#
+# Elles tournent ICI, et nulle part ailleurs, pour une raison qui n'est pas
+# un choix d'organisation : pg_dump refuse de sauvegarder un serveur PLUS
+# RECENT que lui. Le panneau tourne sur une image Debian dont le client
+# Postgres a une version de retard sur le serveur -- il ne pourrait pas. Ce
+# conteneur, lui, porte le pg_dump de la version exacte du serveur, et parle
+# a la base par la socket locale : pas de mot de passe a promener, pas de
+# depot apt tiers a ajouter dans l'image qui detient les secrets.
+#
+# CE QUI EST SAUVEGARDE : toutes les bases, une par une, au format custom
+# (-Fc) -- celui qui permet de restaurer une seule table si besoin. L'etat du
+# panneau (comptes, applications declarees, journal) est sauvegarde de son
+# cote, par codelab-app-manager, qui est le seul a voir ces fichiers.
+#
+# CHAQUE SAUVEGARDE EST VERIFIEE avant d'etre gardee : pg_restore --list la
+# relit entierement. Un fichier tronque par un disque plein est ecarte sur
+# place, et l'ancienne sauvegarde reste -- une sauvegarde qu'on decouvre
+# illisible le jour de la restauration ne vaut pas mieux que pas de
+# sauvegarde.
+#
+# RESTAURATION : voir postgres/README.md.
+SAUVEGARDES_DIR="${CODELAB_SAUVEGARDES_DIR:-/sauvegardes}"
+SAUVEGARDE_HEURES="${CODELAB_SAUVEGARDE_HEURES:-24}"
+SAUVEGARDES_GARDEES="${CODELAB_SAUVEGARDES_GARDEES:-7}"
+
+sauvegarder_une_base() {
+  db="$1"
+  horodatage=$(date -u +%Y%m%d-%H%M%S)
+  fichier="$SAUVEGARDES_DIR/base-$db-$horodatage.dump"
+  if ! pg_dump -U "$POSTGRES_USER" -d "$db" -Fc -f "$fichier" 2>/dev/null; then
+    echo "[codelab-postgres] sauvegarde de $db : echec du pg_dump" >&2
+    rm -f "$fichier"
+    return 1
+  fi
+  # La verification. Sans elle, on ne saurait qu'a la restauration.
+  if ! pg_restore --list "$fichier" >/dev/null 2>&1; then
+    echo "[codelab-postgres] sauvegarde de $db : fichier illisible, ecarte" >&2
+    rm -f "$fichier"
+    return 1
+  fi
+  chmod 600 "$fichier"
+  # Rotation : on ne garde que les N plus recentes DE CETTE BASE. Le tri est
+  # sur le nom, et le nom porte la date en AAAAMMJJ-HHMMSS -- donc l'ordre
+  # alphabetique est l'ordre chronologique, y compris apres un changement
+  # d'annee.
+  ls -1 "$SAUVEGARDES_DIR/base-$db-"*.dump 2>/dev/null \
+    | sort -r | tail -n +$((SAUVEGARDES_GARDEES + 1)) \
+    | while read -r vieux; do rm -f "$vieux"; done
+  return 0
+}
+
+sauvegardes_periodiques() {
+  if [ "$SAUVEGARDE_HEURES" = "0" ]; then
+    echo "[codelab-postgres] sauvegardes desactivees (CODELAB_SAUVEGARDE_HEURES=0)."
+    return 0
+  fi
+  # Le dossier n'existe que si le volume est monte. Sans lui, ecrire ici
+  # remplirait la couche du conteneur et tout disparaitrait au premier
+  # docker compose down -- une sauvegarde qui s'efface avec ce qu'elle
+  # sauvegarde est pire que rien, parce qu'on croit en avoir une.
+  if [ ! -d "$SAUVEGARDES_DIR" ]; then
+    echo "[codelab-postgres] pas de volume de sauvegarde monte sur" \
+         "$SAUVEGARDES_DIR : aucune sauvegarde ne sera faite." >&2
+    return 0
+  fi
+  chmod 700 "$SAUVEGARDES_DIR" 2>/dev/null || true
+
+  while :; do
+    # On attend que le serveur reponde avant le premier tour : au demarrage
+    # de la stack, il ne repond pas encore.
+    if pg_isready -q -U "$POSTGRES_USER" 2>/dev/null; then
+      bases=$(psql -U "$POSTGRES_USER" -d postgres -Atc \
+        "SELECT datname FROM pg_database
+          WHERE NOT datistemplate AND datallowconn ORDER BY datname" 2>/dev/null)
+      faites=0
+      for db in $bases; do
+        sauvegarder_une_base "$db" && faites=$((faites + 1))
+      done
+      echo "[codelab-postgres] sauvegarde : $faites base(s) ecrite(s) dans" \
+           "$SAUVEGARDES_DIR"
+    fi
+    sleep $((SAUVEGARDE_HEURES * 3600))
+  done
+}
+
 provision_databases &
+sauvegardes_periodiques &
 
 exec docker-entrypoint.sh "$@"

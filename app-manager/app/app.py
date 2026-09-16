@@ -48,6 +48,7 @@ import secrets
 import shutil
 import signal
 import smtplib
+import tarfile
 import socket
 import ssl
 import stat as stat_mod
@@ -830,6 +831,124 @@ def separer_les_origines():
             cible += "?" + request.query_string.decode("latin-1")
         return redirect(cible, 302)
     return None
+
+
+# --------------------- ce que le navigateur a le droit de faire ---------------
+#
+# Le panneau n'a jamais pose un seul en-tete de securite sur ses pages. Rien
+# n'y obligeait tant qu'il n'y avait pas de faille -- mais c'est precisement
+# la qu'ils servent : ils ne reparent rien, ils reduisent ce qu'une faille
+# permet. La regle « une donnee ne devient jamais du programme » est la
+# premiere barriere ; celle-ci est la seconde, pour le jour ou la premiere
+# cede quand meme.
+#
+# Ce que chacun ferme :
+#
+#   frame-ancestors / X-Frame-Options   le panneau ne s'encadre plus. Sans
+#       eux, un site pouvait le poser dans une iframe invisible sous un
+#       bouton anodin et faire cliquer « Supprimer » a l'utilisateur. Le
+#       jeton CSRF n'y peut rien : c'est un VRAI clic, dans une VRAIE
+#       session.
+#   default-src / script-src            un script injecte ne peut plus
+#       charger de code depuis ailleurs, ni renvoyer ce qu'il a lu vers un
+#       serveur tiers. 'unsafe-inline' reste necessaire : les deux pages
+#       portent leur script et leur style en ligne, et les retirer est un
+#       autre chantier. Le reste de la regle garde sa valeur malgre lui.
+#   base-uri / form-action              une balise <base> injectee
+#       detournerait toutes les adresses relatives de la page ; un formulaire
+#       reecrit posterait le mot de passe ailleurs.
+#   Referrer-Policy                     l'adresse d'une page du panneau ne
+#       part plus chez un tiers.
+#   nosniff                             un fichier servi comme du texte ne
+#       peut plus etre relu comme du script.
+#
+# LES APPLICATIONS HEBERGEES SONT EXCLUES, sauf nosniff. Leur imposer la
+# politique du panneau casserait la premiere qui charge une police, une carte
+# ou un script depuis ailleurs -- et ce serait decider a leur place. Le
+# panneau protege le panneau.
+CSP_PANNEAU = ("default-src 'self'; base-uri 'none'; object-src 'none'; "
+               "frame-ancestors 'none'; form-action 'self'; "
+               "img-src 'self' data:; font-src 'self'; connect-src 'self'; "
+               "style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'")
+
+# Six mois, et sans includeSubDomains. HSTS est un ENGAGEMENT : une fois
+# l'en-tete recu, le navigateur refuse le http pendant toute cette duree, et
+# rien ne peut le lui faire oublier plus tot. Un an sur une machine
+# auto-hebergee ou l'on essaie des choses, c'est long ; les sous-domaines,
+# eux, ne nous appartiennent pas forcement. Pose seulement quand le panneau
+# SAIT qu'il est servi en TLS -- sinon il se rendrait lui-meme injoignable.
+HSTS = "max-age=15552000"
+
+
+@flask_app.after_request
+def poser_les_entetes(reponse):
+    reponse.headers.setdefault("X-Content-Type-Options", "nosniff")
+    if request.endpoint in ("proxy", "proxy_noslash"):
+        return reponse
+    reponse.headers.setdefault("Content-Security-Policy", CSP_PANNEAU)
+    reponse.headers.setdefault("X-Frame-Options", "DENY")
+    reponse.headers.setdefault("Referrer-Policy", "no-referrer")
+    reponse.headers.setdefault(
+        "Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    if https_actif():
+        reponse.headers.setdefault("Strict-Transport-Security", HSTS)
+    return reponse
+
+
+# ------------------------- la taille d'une requete --------------------------
+#
+# Il n'y en avait aucune. Un seul POST pouvait donc faire lire au serveur
+# autant d'octets qu'il en envoyait, et waitress tient seize fils : seize
+# corps sans fin, et le service tombe sans qu'aucun mot de passe ait ete
+# tente. Ce n'est pas une faille, c'est une porte laissee ouverte.
+#
+# DEUX plafonds, parce qu'il y a deux usages qui n'ont rien a voir :
+#
+#   le panneau       ses propres API. Le plus gros envoi legitime est un logo
+#                    de 512 Ko, qui voyage en base64 dans du JSON. 2 Mo
+#                    laissent large.
+#   les applications ce que le proxy transmet a une application hebergee. On
+#                    ne sait pas ce qu'elle recoit -- un fichier deposé, une
+#                    archive. Le plafond est donc genereux, et reglable : ce
+#                    qu'il borne, c'est la memoire du panneau, qui met le
+#                    corps entier en memoire avant de le transmettre.
+CORPS_MAX_PANNEAU = 2 * 1024 * 1024
+CORPS_MAX_APPLICATION = int(os.environ.get("APP_MANAGER_CORPS_MAX_MO", "32")) * 1024 * 1024
+
+# Le filet de Flask, pour un corps annonce sans taille (Transfer-Encoding:
+# chunked) : la lecture s'arrete d'elle-meme au plafond.
+flask_app.config["MAX_CONTENT_LENGTH"] = CORPS_MAX_APPLICATION
+
+
+@flask_app.before_request
+def borner_le_corps():
+    """Refuse AVANT de lire : le Content-Length suffit a decider."""
+    if request.endpoint in ("proxy", "proxy_noslash"):
+        return None
+    taille = request.content_length
+    if taille is not None and taille > CORPS_MAX_PANNEAU:
+        return _trop_gros(CORPS_MAX_PANNEAU)
+    return None
+
+
+def _trop_gros(limite):
+    message = ("Envoi trop volumineux : %d Mo au maximum."
+               % (limite // (1024 * 1024)))
+    if request.path.startswith("/api/"):
+        return jsonify({"error": message}), 413
+    return Response(_page("Envoi trop volumineux", message), 413,
+                    mimetype="text/html")
+
+
+@flask_app.errorhandler(413)
+def trop_gros(e):
+    """Le meme refus quand c'est Flask qui coupe, et non la garde ci-dessus.
+
+    Sans lui, un depot trop gros rendait la page d'erreur par defaut : du
+    HTML la ou la page attend du JSON, donc un message illisible."""
+    limite = (CORPS_MAX_APPLICATION if request.endpoint in ("proxy", "proxy_noslash")
+              else CORPS_MAX_PANNEAU)
+    return _trop_gros(limite)
 
 
 # ------------------------------- jeton CSRF --------------------------------
@@ -3513,6 +3632,135 @@ def start_monitor_thread():
                 print(f"[app-manager] erreur dans les alertes : {e}", flush=True)
     t = threading.Thread(target=_loop, daemon=True)
     t.start()
+
+
+# --------------------------- sauvegarde de l'etat ---------------------------
+#
+# Il n'y en avait aucune. Rien ne copiait utilisateurs.json, apps.json ni le
+# journal des acces : un disque perdu, et il fallait tout redeclarer de
+# memoire -- les comptes, les droits par projet, les applications, les
+# categories, l'adresse publique. Postgres, lui, est sauvegarde par son
+# propre conteneur (voir postgres/entrypoint.sh) : pg_dump refuse de
+# sauvegarder un serveur plus recent que lui, et c'est le seul endroit ou il
+# a la bonne version. Chacun sauvegarde ce qu'il est SEUL a pouvoir
+# sauvegarder.
+#
+# Ce qui n'entre pas dans l'archive :
+#
+#   les journaux d'applications (logs/)  ils se regenerent, et ils pesent
+#   credentials.env                      il n'est pas dans ce dossier, et
+#                                        c'est voulu : l'archive se recopie,
+#                                        se transporte, se depose ailleurs.
+#                                        Y mettre le mot de passe du panneau
+#                                        et la cle de session reviendrait a
+#                                        les diffuser avec elle.
+SAUVEGARDES_DIR = os.environ.get("APP_MANAGER_SAUVEGARDES", "/sauvegardes")
+SAUVEGARDE_HEURES = int(os.environ.get("APP_MANAGER_SAUVEGARDE_HEURES", "24"))
+SAUVEGARDES_GARDEES = int(os.environ.get("APP_MANAGER_SAUVEGARDES_GARDEES", "7"))
+SAUVEGARDE_PREFIXE = "panneau-"
+
+
+def sauvegardes_actives():
+    """Le dossier n'existe que si le volume est monte.
+
+    Sans lui, l'archive irait dans la couche du conteneur et disparaitrait au
+    premier « docker compose down » -- une sauvegarde qui s'efface avec ce
+    qu'elle sauvegarde est pire que rien, parce qu'on croit en avoir une.
+    """
+    return SAUVEGARDE_HEURES > 0 and os.path.isdir(SAUVEGARDES_DIR)
+
+
+# Ce que l'archive laisse dehors, et pourquoi :
+#
+#   logs/   les journaux d'applications. Ils se regenerent, et ils sont de
+#           loin ce qui pese le plus.
+#   home/   le dossier personnel de chaque application. C'est un cache (npm,
+#           pip), pas de l'etat -- et il est ECRIVABLE PAR LES APPLICATIONS.
+#           L'y inclure laisserait n'importe laquelle d'entre elles decider
+#           du poids de la sauvegarde, et y deposer ce qu'elle veut.
+ARCHIVE_EXCLUS = ("logs", "home")
+
+
+def _filtre_de_l_archive(info):
+    """tarfile nomme les membres « ./quelque-chose » quand la racine est
+    ajoutee sous le nom « . » : le prefixe se retire ici, sinon la
+    comparaison porte sur le point et ne filtre rien."""
+    chemin = info.name[2:] if info.name.startswith("./") else info.name
+    if chemin.split("/")[0] in ARCHIVE_EXCLUS or chemin.endswith((".log", ".log.1")):
+        return None
+    return info
+
+
+def sauvegarder_l_etat():
+    """Une archive du dossier d'etat, verifiee, puis la rotation.
+
+    Ecrite a cote puis renommee : un « docker compose down » au milieu de
+    l'ecriture laisserait sinon une archive tronquee portant l'heure la plus
+    recente -- celle qu'on choisirait pour restaurer.
+
+    VERIFIEE, comme les dumps Postgres : l'archive est relue entierement
+    avant d'etre gardee. Une sauvegarde qu'on decouvre illisible le jour de
+    la restauration ne vaut pas mieux que pas de sauvegarde.
+    """
+    horodatage = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S")
+    nom = f"{SAUVEGARDE_PREFIXE}{horodatage}.tar.gz"
+    final = os.path.join(SAUVEGARDES_DIR, nom)
+    provisoire = final + ".partielle"
+    with tarfile.open(provisoire, "w:gz") as archive:
+        archive.add(STATE_DIR, arcname=".", filter=_filtre_de_l_archive)
+    with tarfile.open(provisoire) as archive:
+        if not archive.getmembers():
+            raise OSError("archive vide")
+    os.chmod(provisoire, 0o600)
+    os.replace(provisoire, final)
+    _rotation_sauvegardes()
+    return final
+
+
+def _rotation_sauvegardes():
+    """Les N plus recentes, et rien d'autre.
+
+    Le tri est sur le NOM : il porte la date en AAAAMMJJ-HHMMSS, donc
+    l'ordre alphabetique est l'ordre chronologique -- y compris au passage
+    d'une annee, la ou un tri sur la date de fichier suivrait une copie.
+    """
+    try:
+        archives = sorted(n for n in os.listdir(SAUVEGARDES_DIR)
+                          if n.startswith(SAUVEGARDE_PREFIXE) and n.endswith(".tar.gz"))
+    except OSError:
+        return
+    for vieille in archives[:-SAUVEGARDES_GARDEES] if SAUVEGARDES_GARDEES > 0 else []:
+        try:
+            os.remove(os.path.join(SAUVEGARDES_DIR, vieille))
+        except OSError:
+            pass
+
+
+def demarrer_les_sauvegardes():
+    if not sauvegardes_actives():
+        if SAUVEGARDE_HEURES <= 0:
+            print("[app-manager] sauvegardes desactivees "
+                  "(APP_MANAGER_SAUVEGARDE_HEURES=0).", flush=True)
+        else:
+            print(f"[app-manager] pas de volume de sauvegarde monte sur "
+                  f"{SAUVEGARDES_DIR} : l'etat du panneau ne sera pas "
+                  f"sauvegarde.", flush=True)
+        return
+
+    def _boucle():
+        while True:
+            try:
+                chemin = sauvegarder_l_etat()
+                journaliser("sauvegarde", fichier=os.path.basename(chemin),
+                            octets=os.path.getsize(chemin))
+            except Exception as e:
+                # Jamais d'exception qui remonte : le fil mourrait, et il n'y
+                # aurait plus de sauvegarde du tout -- silencieusement.
+                print(f"[app-manager] sauvegarde impossible : {e}", flush=True)
+                journaliser("sauvegarde", erreur=str(e))
+            time.sleep(SAUVEGARDE_HEURES * 3600)
+
+    threading.Thread(target=_boucle, daemon=True).start()
 
 
 # ------------------------------ alertes mail ------------------------------
@@ -7879,4 +8127,5 @@ if __name__ == "__main__":
                          daemon=True).start()
     start_monitor_thread()
     demarrer_miroir_pg()
+    demarrer_les_sauvegardes()
     servir(int(os.environ.get("MANAGER_PORT", "9001")))

@@ -132,6 +132,97 @@ Pas de `POSTGRES_PASSWORD` ni `POSTGRES_PASSWORD_FILE` dans le compose : l'entry
 | `/var/lib/postgresql` | Donnees de la base |
 | `/var/lib/codelab/config` | En lecture-ecriture : c'est ce service qui cree `credentials.env` |
 
+## Sauvegardes, et comment restaurer
+
+La stack se sauvegarde toute seule, une fois par jour, dans
+`/DATA/AppData/codelab/sauvegardes` sur l'hote. **Deux services y ecrivent, et chacun sauvegarde ce
+qu'il est seul a pouvoir sauvegarder :**
+
+| Fichier | Ecrit par | Contenu |
+|---|---|---|
+| `base-<nom>-<date>.dump` | `codelab-postgres` | une base, au format custom (`pg_dump -Fc`) |
+| `panneau-<date>.tar.gz` | `codelab-app-manager` | l'etat du panneau : comptes, applications declarees, categories, journal des acces |
+
+Pourquoi ce partage : **`pg_dump` refuse de sauvegarder un serveur plus recent que lui**, et le panneau
+tourne sur une image dont le client Postgres a une version de retard. Ce conteneur-ci porte le `pg_dump`
+de la version exacte du serveur et parle a la base par la socket locale — pas de mot de passe a promener,
+pas de depot apt tiers a ajouter dans l'image qui detient les secrets.
+
+Chaque fichier est **relu avant d'etre garde** (`pg_restore --list` pour les bases, une relecture complete
+de l'archive pour le panneau). Un fichier tronque — disque plein, arret au mauvais moment — est ecarte sur
+place et l'ancienne sauvegarde reste. Sept exemplaires sont conserves par base et pour le panneau.
+
+Reglages, dans `docker-compose.yml` : `CODELAB_SAUVEGARDE_HEURES` (24 par defaut, `0` desactive) et
+`CODELAB_SAUVEGARDES_GARDEES` (7). Cote panneau : `APP_MANAGER_SAUVEGARDE_HEURES` et
+`APP_MANAGER_SAUVEGARDES_GARDEES`. La sonde **sauvegardes** du diagnostic surveille leur fraicheur : elle
+passe en alerte a 26 h sans nouvelle sauvegarde, et en erreur a 72 h.
+
+### Restaurer une base
+
+```bash
+ls -lh /DATA/AppData/codelab/sauvegardes/          # choisir le fichier voulu
+
+# Dans une base VIDE, ou en ecrasant ce qui existe (--clean --if-exists).
+docker exec -i codelab-postgres pg_restore -U codelab -d diagnostic \
+  --clean --if-exists /sauvegardes/base-diagnostic-20260115-030000.dump
+```
+
+Pour restaurer a cote sans toucher a l'existante, creer d'abord la base cible :
+
+```bash
+docker exec codelab-postgres createdb -U codelab diagnostic_restaure
+docker exec codelab-postgres pg_restore -U codelab -d diagnostic_restaure \
+  /sauvegardes/base-diagnostic-20260115-030000.dump
+```
+
+Inspecter le contenu d'une sauvegarde sans rien ecrire — c'est exactement la verification que fait
+l'entrypoint apres chaque dump :
+
+```bash
+docker exec codelab-postgres pg_restore --list /sauvegardes/base-diagnostic-20260115-030000.dump
+```
+
+### Restaurer l'etat du panneau
+
+Le panneau doit etre **arrete** : il garde des fichiers ouverts, et les reecrit au fil de l'eau.
+
+```bash
+docker compose stop codelab-app-manager
+
+# Voir ce que l'archive contient avant de l'ouvrir.
+tar -tzf /DATA/AppData/codelab/sauvegardes/panneau-20260115-030000.tar.gz
+
+# Mettre l'existant de cote, puis restaurer.
+mv /DATA/AppData/codelab/app-manager /DATA/AppData/codelab/app-manager.avant-restauration
+mkdir -p /DATA/AppData/codelab/app-manager
+tar -xzf /DATA/AppData/codelab/sauvegardes/panneau-20260115-030000.tar.gz \
+  -C /DATA/AppData/codelab/app-manager
+
+docker compose start codelab-app-manager
+```
+
+**Ce que l'archive ne contient pas**, et c'est voulu : `credentials.env` (le mot de passe du panneau, celui
+de Postgres et la cle de session) vit dans `/DATA/AppData/codelab/config`, pas dans le dossier d'etat.
+L'archive se recopie donc ailleurs sans diffuser les secrets avec elle — mais il faut sauvegarder ce
+fichier **separement**, et le garder ailleurs que sur la machine :
+
+```bash
+cp /DATA/AppData/codelab/config/credentials.env ~/codelab-credentials.env
+chmod 600 ~/codelab-credentials.env
+```
+
+Sans lui, les bases restaurees restent lisibles (le mot de passe se regenere), mais les sessions ouvertes
+tombent et le mot de passe du panneau change.
+
+### Emporter les sauvegardes ailleurs
+
+Une sauvegarde sur le meme disque que la donnee ne protege que de l'erreur de manipulation, pas de la
+panne de disque. Le dossier entier se copie d'un seul geste :
+
+```bash
+rsync -a --delete /DATA/AppData/codelab/sauvegardes/ ailleurs:/sauvegardes-codelab/
+```
+
 ## Monter de version
 
 Changer le tag `FROM` dans `postgres/Dockerfile`, puis pousser un tag Git — les quatre images sortent
