@@ -382,6 +382,13 @@ services:
     # permet a drop_privileges() de faire tomber chaque application sur son
     # propre uid. Les retirer ne durcirait rien, cela DESACTIVERAIT
     # l'isolation des applications.
+    #
+    # KILL l'est tout autant, et son absence a coute cher : le panneau tourne
+    # en root, mais le noyau n'autorise un signal que si l'expediteur a
+    # CAP_KILL ou s'il a l'uid de sa cible. Chaque application tournant sous
+    # SON PROPRE uid, root se voyait refuser l'arret de toutes -- « Operation
+    # not permitted », bouton « Arreter » sans effet. Le panneau ne signale
+    # que les processus qu'il a lui-meme lances.
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -390,6 +397,7 @@ services:
       - CHOWN
       - DAC_OVERRIDE
       - FOWNER
+      - KILL
       - SETGID
       - SETUID
 

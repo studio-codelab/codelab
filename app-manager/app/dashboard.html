@@ -583,13 +583,34 @@ label:has(> input[type=checkbox]),label:has(> input[type=radio]){
 .seg-icones svg{width:15px;height:15px}
 /* Un message recu : qui, quand, sur quoi, puis le texte. Le texte garde ses
    retours a la ligne -- quelqu'un qui saute une ligne l'a voulu. */
-.msg-ligne{border-top:1px solid var(--line);padding:12px 0}
+.msg-ligne{border-top:1px solid var(--line);padding:12px 0;position:relative}
 .msg-ligne:first-child{border-top:none;padding-top:0}
 .msg-tete{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px}
 .msg-tete b{font-size:var(--t-m);font-weight:650}
 .msg-tete .quand{color:var(--dim2);font-size:11.5px;margin-left:auto}
 .msg-texte{font-size:var(--t-m);color:var(--txt);white-space:pre-wrap;line-height:1.55}
 .msg-vide{color:var(--dim);font-size:var(--t-m);padding:6px 0}
+/* Un message RETENU se voit sans etre lu : c'est tout l'interet de le
+   retenir. Filet d'accent au bord, comme les lignes du diagnostic. */
+.msg-ligne.retenu{box-shadow:inset 3px 0 0 var(--accent);padding-left:11px;
+ border-radius:0 var(--r-s) var(--r-s) 0}
+/* Les deux gestes, discrets tant qu'on ne survole pas la ligne : une boite
+   de messages se lit d'abord, se trie ensuite. */
+.msg-actes{display:flex;gap:4px;opacity:0;transition:opacity .12s}
+.msg-ligne:hover .msg-actes,.msg-ligne:focus-within .msg-actes{opacity:1}
+.msg-acte{border:1px solid var(--line2);background:var(--surface);color:var(--dim);
+ width:26px;height:26px;border-radius:var(--r-s);cursor:pointer;display:grid;
+ place-items:center;padding:0}
+.msg-acte svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;
+ stroke-linecap:round;stroke-linejoin:round}
+.msg-acte:hover{border-color:var(--accent);color:var(--accent)}
+.msg-acte.actif{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.msg-acte.danger:hover{border-color:var(--err);color:var(--err);background:var(--err-bg)}
+/* AU-DELA D'UN ECRAN, ON DEFILE DANS LA CARTE, pas dans la page : la barre
+   de filtres reste sous les yeux pendant qu'on descend la liste. */
+.msg-boite{max-height:56vh;overflow:auto;margin-top:12px;padding-right:4px}
+.msg-barre{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px}
+.msg-barre .dl{width:auto;min-width:210px}
 textarea{resize:vertical;min-height:72px;line-height:1.5}
 
 /* LE MASQUAGE SE REGLE DANS LES PARAMETRES, PAS SUR LA TUILE.
@@ -1100,6 +1121,13 @@ table.tbl-journal{min-width:560px}
       <rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
       <span>Applications</span>
       <span class="side-count" id="side-count">0</span></div>
+    <!-- LES MESSAGES ONT LEUR RUBRIQUE. Ils vivaient au bas de la vue
+         d'ensemble, sous les graphiques : on ne les trouvait qu'en
+         descendant, et rien ne disait qu'il y en avait de nouveaux. -->
+    <div class="side-item" data-sec="messages" onclick="showSection('messages')">
+      <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <span>Messages</span>
+      <span class="side-count" id="side-count-messages">0</span></div>
     <div class="side-item" data-sec="users" onclick="showSection('users')">
       <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.4"/>
       <path d="M2.5 20c0-3.6 2.9-6.5 6.5-6.5s6.5 2.9 6.5 6.5"/>
@@ -1205,7 +1233,8 @@ table.tbl-journal{min-width:560px}
     <div class="zone-title">Messages</div>
     <div class="card">
       <div class="card-top"><div class="card-name"><b>Mots laissés depuis le hub</b>
-        <div class="path">Ce que les comptes ont écrit, du plus récent au plus ancien.</div></div>
+        <div class="path">Les plus récents à propos du hub. Le reste est dans
+          <a href="#" onclick="event.preventDefault();showSection('messages')">Messages</a>.</div></div>
         <span class="pill" id="msg-compte"><i></i>&nbsp;</span></div>
       <div id="msg-liste" style="margin-top:12px"></div>
     </div>
@@ -1372,19 +1401,16 @@ table.tbl-journal{min-width:560px}
       <div id="ct-resume" class="hint" style="margin-top:10px"></div>
       <div id="ct-fichiers" style="margin-top:14px"></div>
 
+      <!-- UNE SEULE SORTIE : l'archive. « Déposer dans le projet » écrivait
+           dans /workspace -- donc dans le travail de quelqu'un -- pour un
+           geste dont le but est justement d'emmener l'application AILLEURS.
+           Deux boutons pour deux destinations, dont l'une n'était presque
+           jamais la bonne, et celle qui écrit demandait un second bouton
+           pour les fichiers déjà présents. -->
       <div class="actions">
-        <button class="btn btn-primary" id="ct-poser" onclick="ctPoser(false)">
-          Déposer dans le projet</button>
-        <!-- SORTIR L'APPLICATION, c'est justement l'emmener ailleurs : sur un
-             poste, sur un autre serveur, dans un dépôt qui n'a rien à voir
-             avec cette machine. « Déposer dans le projet » suppose que la
-             suite se passe ici ; il fallait sinon recopier les fichiers un
-             par un depuis la page. -->
-        <button class="btn btn-default" id="ct-telecharger" onclick="ctTelecharger()">
+        <button class="btn btn-primary" id="ct-telecharger" onclick="ctTelecharger()">
           <svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/>
           <path d="M5 21h14"/></svg>Télécharger le dossier (.zip)</button>
-        <button class="btn btn-danger-quiet" id="ct-remplacer" onclick="ctPoser(true)"
-          style="display:none">Remplacer les fichiers existants</button>
       </div>
       <div class="err" id="ct-err" style="display:none"></div>
       <div class="hint" id="ct-msg" style="display:none"></div>
@@ -2096,6 +2122,36 @@ table.tbl-journal{min-width:560px}
 </div>
 
 <!-- ==================== UTILISATEURS ==================== -->
+<!-- ========================= MESSAGES ========================= -->
+<div id="sec-messages" class="section" style="display:none">
+  <div class="toolbar"><h2>Messages</h2></div>
+  <div class="sous">Les mots laissés depuis le hub, du plus récent au plus ancien.
+    Ceux que tu retiens restent en tête et survivent au ménage.</div>
+
+  <div class="card">
+    <div class="card-top"><div class="card-name">
+      <b id="msg-titre">À propos du hub</b>
+      <div class="path" id="msg-soustitre">Ce qu'on te dit de CodeLab lui-même.</div>
+    </div>
+    <span class="pill" id="msg-compte-section"><i></i>&nbsp;</span></div>
+
+    <!-- LE FILTRE PAR DEFAUT EST « LE HUB » : c'est ce dont on parle quand on
+         parle du panneau, et une boite qui s'ouvre sur tout mélange une
+         remarque sur une application avec une idée de projet. -->
+    <div class="msg-barre">
+      <select id="msg-filtre" onchange="peindreMessages()" aria-label="Filtrer les messages">
+        <option value="hub">À propos du hub</option>
+        <option value="idee">Idées d'applications</option>
+        <option value="">Tous les messages</option>
+      </select>
+      <div class="spacer"></div>
+      <span class="hint" id="msg-retenus"></span>
+    </div>
+
+    <div class="msg-boite" id="msg-liste-section"></div>
+  </div>
+</div>
+
 <!-- Les comptes vivaient dans Configuration, entre les categories et les
      alertes. Ils meritent leur propre entree : gerer qui entre n'est pas un
      reglage du serveur, c'est une activite a part entiere. -->
@@ -2442,6 +2498,7 @@ function showSection(name){
   if(name==='hub') chargerHub();
   if(name==='overview' || name==='apps') refresh();
   if(name==='overview'){ chargerCarte(); chargerMessages(); }
+  if(name==='messages') chargerMessages();
   /* L'etat de securite est relu a chaque ouverture : il peut avoir change
      depuis un autre onglet, ou au redemarrage du service. */
   if(name==='users'){ chargerUtilisateurs(); chargerInscriptionLibre(); chargerActivite(); }
@@ -2684,7 +2741,9 @@ function paramOnglet(o){
    arretee. Les confondre ferait cliquer sur un lien qui ne mene nulle part. */
 function etatApp(a){
   if(a.crash_looping) return ['err','En erreur'];
-  if(!a.running) return ['off','Arrêtée'];
+  /* « Arretee » supposerait qu'on l'a arretee : un service de la stack ne se
+     demarre pas depuis ici, il repond ou il ne repond pas. */
+  if(!a.running) return ['off', a.externe ? 'Injoignable' : 'Arrêtée'];
   if(a.listening === false) return ['warn','Ne répond pas'];
   return ['on','En ligne'];
 }
@@ -2777,29 +2836,149 @@ async function catEnregistrer(){
 
 /* ---------------- hub ---------------- */
 let hubApps=[];
-/* ---------------- les messages recus (administrateur) ---------------- */
+/* ---------------- les messages recus (administrateur) ----------------
+   Ils vivaient au bas de la vue d'ensemble, sous les graphiques : on ne les
+   trouvait qu'en descendant, et rien ne disait qu'il en etait arrive un. Ils
+   ont maintenant leur rubrique, un filtre, et deux gestes -- retenir ce
+   qu'on veut traiter, supprimer ce qui est traite. */
+let msgTous=[], msgDernierVu=0, msgPremierChargement=true;
+
+const MSG_SUJET = m => m.cible==='application'
+  ? 'à propos de <b>'+esc(m.app||'')+'</b>'
+  : (m.cible==='idee' ? 'une <b>idée d\'application</b>' : 'à propos du <b>hub</b>');
+
+const SVG_EPINGLE = '<svg viewBox="0 0 24 24"><path d="M12 17v5"/>'
+  + '<path d="M9 3h6l-1 6 3 3v2H7v-2l3-3z"/></svg>';
+const SVG_POUBELLE = '<svg viewBox="0 0 24 24"><path d="M4 7h16"/>'
+  + '<path d="M10 11v6"/><path d="M14 11v6"/>'
+  + '<path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/></svg>';
+
+function msgLigne(m){
+  return `<div class="msg-ligne${m.retenu?' retenu':''}" data-msg="${esc(m.id||'')}">
+    <div class="msg-tete"><b>${esc(m.qui||'?')}</b><span class="hint">${MSG_SUJET(m)}</span>
+      <span class="quand" title="${esc(quandPrecis(m.ts))}">${esc(ilYA(m.ts))}</span>
+      <div class="msg-actes">
+        <button class="msg-acte${m.retenu?' actif':''}" title="${m.retenu?'Relâcher':'Retenir'}"
+          onclick="msgRetenir('${esc(m.id||'')}', ${m.retenu?'false':'true'})">${SVG_EPINGLE}</button>
+        <button class="msg-acte danger" title="Supprimer"
+          onclick="msgSupprimer('${esc(m.id||'')}')">${SVG_POUBELLE}</button>
+      </div></div>
+    <div class="msg-texte">${esc(m.texte||'')}</div></div>`;
+}
+
+/* Le filtre des applications s'ajoute a la liste fixe : une application par
+   ligne, pour aller voir ce qu'on dit d'ELLE. */
+function msgRemplirFiltre(){
+  const sel=$('msg-filtre'); if(!sel) return;
+  const choisi=sel.value;
+  const noms=[...new Set(msgTous.filter(m=>m.cible==='application' && m.app)
+                                .map(m=>m.app))].sort((a,b)=>a.localeCompare(b,'fr'));
+  sel.innerHTML = '<option value="hub">À propos du hub</option>'
+    + '<option value="idee">Idées d\'applications</option>'
+    + '<option value="">Tous les messages</option>'
+    + (noms.length ? '<optgroup label="Applications">'
+        + noms.map(n=>`<option value="app:${esc(n)}">${esc(n)}</option>`).join('')
+        + '</optgroup>' : '');
+  sel.value = [...sel.options].some(o=>o.value===choisi) ? choisi : 'hub';
+}
+
+function msgRetenus(cle){
+  if(cle==='') return msgTous;
+  if(cle==='hub') return msgTous.filter(m=>m.cible==='hub');
+  if(cle==='idee') return msgTous.filter(m=>m.cible==='idee');
+  const nom=cle.slice(4);
+  return msgTous.filter(m=>m.cible==='application' && m.app===nom);
+}
+
+function peindreMessages(){
+  const sel=$('msg-filtre'); if(!sel) return;
+  const cle=sel.value;
+  const liste=msgRetenus(cle);
+  const titres={'':['Tous les messages','Ce qu\'on t\'a écrit, tous sujets confondus.'],
+                'hub':['À propos du hub','Ce qu\'on te dit de CodeLab lui-même.'],
+                'idee':['Idées d\'applications','Les projets qu\'on aimerait voir ici.']};
+  const [titre, sous] = titres[cle]
+    || ['À propos de ' + cle.slice(4), 'Ce qu\'on te dit de cette application.'];
+  $('msg-titre').textContent=titre;
+  $('msg-soustitre').textContent=sous;
+
+  const p=$('msg-compte-section');
+  p.className='pill '+(liste.length?'on':'off');
+  p.innerHTML='<i></i>'+(liste.length ? liste.length+' message'+(liste.length>1?'s':'')
+                                      : 'aucun message');
+  const retenus=msgTous.filter(m=>m.retenu).length;
+  $('msg-retenus').textContent = retenus
+    ? retenus + ' retenu' + (retenus>1?'s':'') + ' au total' : '';
+
+  $('msg-liste-section').innerHTML = liste.length
+    ? liste.map(msgLigne).join('')
+    : '<div class="msg-vide">Rien sur ce sujet. Le formulaire est dans '
+      + '<b>Paramètres &gt; Message</b>, pour tous les comptes.</div>';
+}
+
 async function chargerMessages(){
   if(!estAdmin) return;
   let d;
   try{ d=await (await fetch('/api/messages')).json(); }catch(e){ return; }
-  const liste=d.messages||[];
+  msgTous=d.messages||[];
+  $('side-count-messages').textContent=msgTous.length;
+  msgRemplirFiltre();
+  peindreMessages();
+
+  /* La carte de la vue d'ensemble ne montre que le hub : le reste a sa
+     rubrique, et melanger les sujets sur la page d'accueil donne une liste
+     qu'on parcourt sans savoir ce qu'on y cherche. */
+  const duHub=msgTous.filter(m=>m.cible==='hub').slice(0,5);
   $('zone-messages').style.display='block';
   const p=$('msg-compte');
-  p.className='pill '+(liste.length?'on':'off');
-  p.innerHTML='<i></i>'+(liste.length ? liste.length+' message'+(liste.length>1?'s':'')
+  p.className='pill '+(duHub.length?'on':'off');
+  p.innerHTML='<i></i>'+(duHub.length ? duHub.length+' message'+(duHub.length>1?'s':'')
                                       : 'aucun message');
-  if(!liste.length){
-    $('msg-liste').innerHTML='<div class="msg-vide">Personne n\'a encore écrit. Le '
+  $('msg-liste').innerHTML = duHub.length
+    ? duHub.map(msgLigne).join('')
+    : '<div class="msg-vide">Personne n\'a encore écrit à propos du hub. Le '
       + 'formulaire est dans <b>Paramètres &gt; Message</b>, pour tous les comptes.</div>';
-    return;
-  }
-  const sujet = m => m.cible==='application'
-    ? 'à propos de <b>'+esc(m.app||'')+'</b>'
-    : (m.cible==='idee' ? 'une <b>idée d\'application</b>' : 'à propos du <b>hub</b>');
-  $('msg-liste').innerHTML = liste.map(m=>`<div class="msg-ligne">
-    <div class="msg-tete"><b>${esc(m.qui||'?')}</b><span class="hint">${sujet(m)}</span>
-      <span class="quand" title="${esc(quandPrecis(m.ts))}">${esc(ilYA(m.ts))}</span></div>
-    <div class="msg-texte">${esc(m.texte||'')}</div></div>`).join('');
+
+  msgDernierVu = Math.max(msgDernierVu, ...msgTous.map(m=>m.ts||0), 0);
+  msgPremierChargement=false;
+}
+
+async function msgRetenir(id, retenu){
+  const r=await fetch('/api/messages/'+encodeURIComponent(id),
+    {method:'PUT', headers:{'Content-Type':'application/json'},
+     body:JSON.stringify({retenu:!!retenu})});
+  if(!r.ok){ notifier(await echec(r, 'Impossible de retenir ce message.'), 'err'); return; }
+  await chargerMessages();
+}
+
+async function msgSupprimer(id){
+  if(!await demander('Supprimer ce message ?',
+    "Il disparaît du panneau et de la base. Le journal des accès, lui, garde la trace "
+    + "qu'un message a été écrit.", 'Supprimer', true)) return;
+  const r=await fetch('/api/messages/'+encodeURIComponent(id), {method:'DELETE'});
+  if(!r.ok){ notifier(await echec(r, 'Suppression impossible.'), 'err'); return; }
+  notifier('Message supprimé.');
+  await chargerMessages();
+}
+
+/* UN MESSAGE QUI ARRIVE SE VOIT, meme si l'on est ailleurs dans le panneau.
+   La page demande toutes les vingt secondes ce qui est arrive DEPUIS ce
+   qu'elle a deja vu -- pas la liste entiere -- et l'annonce dans le coin,
+   comme les autres notifications. */
+async function guetterMessages(){
+  if(!estAdmin || msgPremierChargement) return;
+  let d;
+  try{
+    d=await (await fetch('/api/messages?apres='+encodeURIComponent(msgDernierVu))).json();
+  }catch(e){ return; }
+  const neufs=d.messages||[];
+  if(!neufs.length) return;
+  msgDernierVu = Math.max(msgDernierVu, ...neufs.map(m=>m.ts||0));
+  const premier=neufs[0];
+  notifier(neufs.length===1
+    ? 'Message de « ' + (premier.qui||'?') + ' ».'
+    : neufs.length + ' nouveaux messages.');
+  await chargerMessages();
 }
 
 /* ---------------- un mot a l'administrateur ---------------- */
@@ -2851,7 +3030,7 @@ async function msgEnvoyer(){
    une application : la grille d'icones montre d'un coup d'oeil ce qui est
    la, et l'etat d'une application se lit dans « Applications », pas ici. */
 
-let hubMasquees=[];
+let hubMasquees=[], hubServices=[];
 
 /* Au-dela de ce nombre d'applications, le reglage d'affichage se replie
    derriere une ligne qu'on deroule. Huit : c'est a peu pres ce qui tient
@@ -2934,6 +3113,12 @@ async function chargerHub(){
   try{
     const d=await (await fetch('/api/mes-apps')).json();
     hubApps=d.apps||[];
+    /* Les services de la stack -- Dagster aujourd'hui -- vivent a part :
+       ils se peignent dans la meme grille, mais ils ne sont pas des
+       applications declarees. Les meler a hubApps les ferait entrer dans la
+       liste de ce qu'on masque et dans le choix « de quelle application
+       veux-tu parler », ou ils n'ont rien a faire. */
+    hubServices=d.services||[];
     hubMasquees=d.masquees||[];
     peindreMasquees();
     msgCible();
@@ -2949,7 +3134,11 @@ function peindreHub(){
     ? 'Toutes les applications déclarées. C\'est cette page que voient les comptes utilisateurs, limitée à ce que tu leur autorises.'
     : 'Les applications que ton administrateur t\'a autorisées.';
 
-  const liste=hubApps.filter(correspond);
+  /* Applications et services dans la meme grille, ranges ensemble par leur
+     nom : on vient au hub pour OUVRIR quelque chose, et ce qui l'ouvre ne
+     change rien a l'endroit ou l'oeil le cherche. */
+  const liste=hubApps.concat(hubServices).filter(correspond)
+    .sort((a,b)=>a.name.localeCompare(b.name,'fr'));
   /* Une liste silencieusement plus courte inquiete plus qu'elle ne
      simplifie : le hub dit ce qu'il cache, et ou le retrouver. */
   const nbCaches = (hubMasquees||[]).length;
@@ -2973,8 +3162,13 @@ function peindreHub(){
   }
   /* Rien d'autre qu'un lien : une tuile du hub sert a ouvrir une
      application. Ce qu'on affiche ou non se regle dans les parametres. */
+  /* Un service ouvre sa PROPRE adresse, et dans un nouvel onglet : il vit
+     sur un autre port, sans le ruban qui ramene au panneau -- y aller dans
+     l'onglet courant, c'est perdre le hub. */
   const tuile = a => `<a class="hub-projet ${a.running?'':'arretee'}"
-      href="${urlApplication(a.name)}" title="${esc(a.description||a.name)}">
+      href="${a.url || urlApplication(a.name)}"
+      ${a.externe ? 'target="_blank" rel="noopener"' : ''}
+      title="${esc(a.description||a.name)}">
       <img src="${icone(a.name)}" alt="">
       <div class="txt"><div class="nom">${esc(a.name)}</div>
       <div class="bas">${badgeEtat(a)}${badgeVis(a)}</div></div></a>`;
@@ -3473,48 +3667,19 @@ async function chargerConteneur(){
     `<details style="margin-bottom:8px">
        <summary style="cursor:pointer"><b>${esc(f.nom)}</b>
          <span class="hint" style="display:inline;margin-left:6px">${esc(f.role)}</span>
-         ${f.existe?'<span class="pill off" style="margin-left:8px"><i></i>existe déjà</span>':''}
+         ${f.existe?'<span class="pill off" style="margin-left:8px"><i></i>déjà dans le projet</span>':''}
        </summary>
        <div class="actions" style="margin:8px 0">
          <button class="btn btn-default btn-sm" onclick="ctCopier(${i})">Copier</button>
        </div>
        <pre class="pre-conf" id="ct-f${i}">${esc(f.contenu)}</pre>
      </details>`).join('');
-
-  const conflits=ctFichiers.filter(f=>f.existe).length;
-  $('ct-remplacer').style.display = conflits ? '' : 'none';
 }
 
 async function ctCopier(i){
   try{ await navigator.clipboard.writeText(ctFichiers[i].contenu);
        notifier(ctFichiers[i].nom+' copié.'); }
   catch(e){ notifier('Copie impossible : sélectionne le texte à la main.','err'); }
-}
-
-async function ctPoser(remplacer){
-  const e=$('ct-err'), m=$('ct-msg');
-  e.style.display='none'; m.style.display='none';
-  const b = remplacer ? $('ct-remplacer') : $('ct-poser');
-  b.disabled=true;
-  try{
-    const r=await fetch('/api/app/'+encodeURIComponent(ficheNom)+'/conteneur',
-      {method:'POST', headers:{'Content-Type':'application/json'},
-       body:JSON.stringify({remplacer:!!remplacer})});
-    const d=await r.json();
-    if(!r.ok){ e.textContent=d.error||'Écriture impossible.'; e.style.display='block'; }
-    else{
-      const parts=[];
-      if((d.ecrits||[]).length) parts.push('Déposé : '+d.ecrits.join(', ')+'.');
-      /* On NOMME ce qui n'a pas ete touche : un fichier saute en silence,
-         c'est un fichier qu'on croit ecrit. */
-      if((d.sautes||[]).length) parts.push('Laissé tel quel : '+d.sautes.join(', ')
-        + ' — déjà présent dans le projet.');
-      m.textContent = parts.join(' ') || 'Rien à écrire.';
-      m.style.display='block';
-      chargerConteneur();
-    }
-  }catch(err){ e.textContent='Erreur réseau.'; e.style.display='block'; }
-  finally{ b.disabled=false; }
 }
 
 /* ---------------- le logo d'une application ---------------- */
@@ -5167,6 +5332,10 @@ if(estAdmin){
   chargerUtilisateurs();
   chargerAdressePublique();
   setInterval(()=>{ if(visible('sec-overview')||visible('sec-apps')||visible('sec-app')) refresh(); }, 5000);
+  /* Les messages arrivent quand ils arrivent : on les guette depuis
+     n'importe quelle page du panneau, pas seulement depuis la leur. */
+  chargerMessages();
+  setInterval(guetterMessages, 20000);
   /* Les metriques de la fiche ne se rafraichissent que lorsqu'on les regarde. */
   setInterval(()=>{
     if(ficheNom && ficheOngletActif==='metriques' && visible('sec-app')) chargerMetriques(ficheNom);
