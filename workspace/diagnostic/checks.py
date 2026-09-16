@@ -451,8 +451,14 @@ class Etat(enum.IntEnum):
 
     @property
     def libelle(self):
-        """Ce qui s'affiche dans la colonne "Etat" et se prefixe aux logs."""
-        return {0: "ECHEC", 1: "ALERTE", 2: "SANS OBJET", 3: "OK"}[int(self)]
+        """Ce qui s'affiche dans la colonne « Etat » et se prefixe aux logs.
+
+        Les mots sont ceux qu'on emploie en parlant de la page -- OK,
+        ATTENTION, ERREUR -- et non les noms internes des rangs. Un tableau
+        de bord se lit a voix haute : « il y a deux attentions » se dit,
+        « il y a deux alertes de rang 1 » ne se dit pas.
+        """
+        return {0: "ERREUR", 1: "ATTENTION", 2: "SANS OBJET", 3: "OK"}[int(self)]
 
     @property
     def classe(self):
@@ -9290,3 +9296,358 @@ def test_le_bouton_ne_se_trompe_plus_de_sens():
     assert "arrêtée" in bloc, "aucun message pour un arret qui echoue"
     assert "echec(r," in bloc, (
         "le message du serveur ne gagne plus sur le repli de la page")
+
+
+# ---------- 30. renommer une application ----------
+#
+# Demande : « Il doit etre possible de changer de nom d'application en
+# admin. » Il fallait jusqu'ici supprimer l'application et la redeclarer --
+# donc perdre son journal, ses destinataires d'alerte et les comptes qu'on lui
+# avait autorises.
+#
+# Ce qui rend l'operation delicate : le nom n'est pas une etiquette, c'est une
+# CLE. Il designe l'application dans apps.json, dans son adresse, dans le nom
+# de son journal, dans les projets autorises de chaque compte, dans ce que
+# chacun a masque de son hub -- et il decide de l'uid sous lequel elle tourne.
+
+@pytest.fixture
+def a_renommer(tmp_path, monkeypatch):
+    """Un panneau avec une application, un compte qui y a droit, un journal."""
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
+    monkeypatch.setattr(app, "MASQUEES_FILE", str(tmp_path / "masquees.json"))
+    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
+    monkeypatch.setattr(app, "LOG_DIR", str(tmp_path / "logs"))
+    monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
+    monkeypatch.setattr(app, "is_running", lambda n: False)
+    monkeypatch.setattr(app, "under_root", lambda p: True)
+    os.makedirs(str(tmp_path / "logs"), exist_ok=True)
+    projet = tmp_path / "projet"
+    projet.mkdir()
+    app._apps_cache["signature"] = None
+    app.save({
+        "site": {"path": str(projet), "command": "python3 app.py", "port": 9401,
+                 "enabled": False, "description": "avant", "alertes": ["moi@example.com"]},
+        "autre": {"path": str(projet), "command": "python3 b.py", "port": 9402,
+                  "enabled": False},
+    })
+    app.ecrire_utilisateurs({"marie": {"sel": "x", "hash": "y", "projets": ["site", "autre"]}})
+    app.ecrire_masquees({"marie": ["site"]})
+    (tmp_path / "logs" / "site.log").write_text("une ligne de journal\n")
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    c = app.flask_app.test_client()
+    c.post("/login", json={"password": "secret-de-test"})
+    return c, tmp_path
+
+
+def test_renommer_emporte_tout_ce_qui_designe_l_application(a_renommer):
+    """La cle change, et avec elle tout ce qui la nommait."""
+    c, tmp_path = a_renommer
+    r = c.post("/api/app/site/renommer", json={"nom": "vitrine"})
+    assert r.status_code == 200, r.get_json()
+    assert r.get_json()["nom"] == "vitrine"
+
+    apps = app.load()
+    assert "vitrine" in apps and "site" not in apps
+    # Ce qui accompagnait l'application la suit : sa description, ses
+    # destinataires d'alerte, son port.
+    assert apps["vitrine"]["description"] == "avant"
+    assert apps["vitrine"]["alertes"] == ["moi@example.com"]
+    assert apps["vitrine"]["port"] == 9401
+    # Et sa place dans la liste : une application qui saute en fin de liste
+    # parce qu'on l'a renommee se cherche.
+    assert list(apps) == ["vitrine", "autre"]
+
+    # Les droits d'un compte suivent, sinon marie perd l'acces sans que
+    # personne ne le lui ait retire.
+    assert app.lire_utilisateurs()["marie"]["projets"] == ["vitrine", "autre"]
+    # Ce qu'elle avait masque de son hub aussi : sinon l'application
+    # reapparait chez elle au premier rechargement.
+    assert app.lire_masquees()["marie"] == ["vitrine"]
+    # Le journal suit : c'est ce qu'on relit pour comprendre ce qui vient de
+    # se passer.
+    assert (tmp_path / "logs" / "vitrine.log").exists()
+    assert not (tmp_path / "logs" / "site.log").exists()
+
+
+def test_renommer_refuse_un_nom_deja_pris(a_renommer):
+    c, _ = a_renommer
+    r = c.post("/api/app/site/renommer", json={"nom": "autre"})
+    assert r.status_code == 400
+    assert "déjà" in r.get_json()["error"]
+    assert "site" in app.load(), "l'application a disparu sur un refus"
+
+
+def test_renommer_refuse_un_nom_reserve(a_renommer):
+    c, _ = a_renommer
+    for reserve in ("api", "health", "login"):
+        r = c.post("/api/app/site/renommer", json={"nom": reserve})
+        assert r.status_code == 400, reserve
+
+
+def test_le_diagnostic_ne_se_renomme_pas(a_renommer):
+    """Meme raison que pour la suppression : le panneau le retrouve par son
+    nom, et le marqueur qui evite une seconde inscription porte dessus."""
+    c, _ = a_renommer
+    apps = app.load()
+    apps[app.DIAGNOSTIC_NOM] = dict(apps["site"])
+    app.save(apps)
+    r = c.post("/api/app/" + app.DIAGNOSTIC_NOM + "/renommer", json={"nom": "controle"})
+    assert r.status_code == 403
+    assert app.DIAGNOSTIC_NOM in app.load()
+
+
+def test_renommer_une_application_qui_tourne_l_arrete_et_la_relance(a_renommer, monkeypatch):
+    """Le processus porte l'ancien nom dans son environnement (CODELAB_APP) :
+    c'est ce qui permet de le reconnaitre apres un redemarrage du panneau. Le
+    laisser tourner sous l'ancien nom reviendrait a le perdre de vue."""
+    c, _ = a_renommer
+    faits = []
+    monkeypatch.setattr(app, "is_running", lambda n: n == "site")
+    monkeypatch.setattr(app, "stop", lambda n: faits.append(("stop", n)))
+    monkeypatch.setattr(app, "start", lambda n: faits.append(("start", n)))
+    r = c.post("/api/app/site/renommer", json={"nom": "vitrine"})
+    assert r.status_code == 200
+    assert faits == [("stop", "site"), ("start", "vitrine")]
+    assert r.get_json()["redemarree"] is True
+
+
+def test_un_arret_impossible_annule_le_renommage(a_renommer, monkeypatch):
+    """On ne renomme pas une application qu'on n'a pas su arreter : la cle
+    changerait pendant qu'un processus tourne toujours sous l'ancienne."""
+    c, _ = a_renommer
+    monkeypatch.setattr(app, "is_running", lambda n: n == "site")
+    monkeypatch.setattr(app, "stop", lambda n: "le processus ne s'arrête pas")
+    r = c.post("/api/app/site/renommer", json={"nom": "vitrine"})
+    assert r.status_code == 409
+    assert "site" in app.load() and "vitrine" not in app.load()
+
+
+def test_le_dossier_est_rendu_au_nouvel_identifiant(a_renommer, monkeypatch):
+    """L'uid d'une application est DERIVE de son nom : la renommer lui en
+    donne un autre, et tout ce qu'elle avait ecrit deviendrait illisible pour
+    elle. Un projet qui ne peut plus relire sa propre base apres un simple
+    changement de nom serait un piege."""
+    c, tmp_path = a_renommer
+    donnees = tmp_path / "projet" / "donnees.sqlite"
+    donnees.write_text("x")
+    ancien, nouveau = app.uid_application("site"), app.uid_application("vitrine")
+    assert ancien != nouveau, "les deux noms tombent sur le meme uid, test sans objet"
+
+    vus = []
+    monkeypatch.setattr(os, "lstat", lambda chemin: type(
+        "S", (), {"st_uid": ancien, "st_gid": 2000})())
+    monkeypatch.setattr(os, "lchown", lambda chemin, uid, gid: vus.append((chemin, uid)))
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+
+    r = c.post("/api/app/site/renommer", json={"nom": "vitrine"})
+    assert r.status_code == 200
+    assert r.get_json()["fichiers_repris"] >= 1
+    assert all(uid == nouveau for _chemin, uid in vus), vus
+    assert any(chemin.endswith("donnees.sqlite") for chemin, _uid in vus)
+
+
+def test_la_page_offre_le_renommage(a_renommer):
+    """Le champ existe vraiment, et il est fige pour le diagnostic."""
+    page = _page_panneau("dashboard.html")
+    assert 'id="e-nom"' in page and 'onclick="renommerApp()"' in page
+    bloc = page.split("async function renommerApp(){")[1].split("\n}")[0]
+    assert "/renommer" in bloc
+    # Apres coup, la fiche doit suivre le nouveau nom : sinon elle interroge
+    # une application qui n'existe plus.
+    assert "ficheNom = d.nom" in bloc
+    assert "await refresh()" in bloc
+
+
+# ---------- 31. suspendre un compte ----------
+#
+# Demande : « Ajoute la fonctionnalite suspendre l'utilisateur. » Il n'y avait
+# que supprimer -- et supprimer efface les projets autorises, l'adresse et les
+# cles d'acces, qu'il faut tout ressaisir au retour. Un depart, un doute, un
+# appareil perdu : on veut fermer l'acces TOUT DE SUITE et decider plus tard.
+#
+# Ce qui compte vraiment ici : la suspension doit valoir sur-le-champ. Une
+# suspension qui n'agit qu'a la prochaine connexion ne ferme rien -- celui
+# dont on vient de retirer l'acces garde sa session ouverte, c'est-a-dire en
+# pratique indefiniment.
+
+@pytest.fixture
+def deux_comptes(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
+    monkeypatch.setattr(app, "PASSKEYS_FILE", str(tmp_path / "passkeys.json"))
+    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
+    monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
+    monkeypatch.setattr(app, "under_root", lambda p: True)
+    app._apps_cache["signature"] = None
+    app.save({"prive": {"path": "/w/p", "command": "x", "port": 9501,
+                        "visibility": "privee"}})
+    sel = "abcdef"
+    app.ecrire_utilisateurs({"marie": {
+        "sel": sel, "hash": app.derive_mot_de_passe("un-mot-de-passe", sel),
+        "projets": ["prive"], "totp": "JBSWY3DPEHPK3PXP"}})
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    return app.flask_app.test_client()
+
+
+def _admin(client):
+    client.post("/login", json={"password": "secret-de-test"})
+    return client
+
+
+def test_suspendre_garde_le_compte_et_ses_droits(deux_comptes):
+    """C'est toute la difference avec supprimer : la porte se ferme, la piece
+    reste en l'etat."""
+    c = _admin(deux_comptes)
+    r = c.put("/api/utilisateurs/marie", json={"suspendu": True})
+    assert r.status_code == 200, r.get_json()
+    compte = app.lire_utilisateurs()["marie"]
+    assert compte.get("suspendu") is True
+    # Rien d'autre n'a bouge.
+    assert compte["projets"] == ["prive"]
+    assert compte.get("totp")
+    # Et la liste le dit, sans qu'il faille ouvrir la fiche.
+    vue = c.get("/api/utilisateurs").get_json()["utilisateurs"][0]
+    assert vue["suspendu"] is True and vue["projets"] == ["prive"]
+
+
+def test_reactiver_rend_l_acces_sans_rien_ressaisir(deux_comptes):
+    c = _admin(deux_comptes)
+    c.put("/api/utilisateurs/marie", json={"suspendu": True})
+    c.put("/api/utilisateurs/marie", json={"suspendu": False})
+    compte = app.lire_utilisateurs()["marie"]
+    assert "suspendu" not in compte
+    assert compte["projets"] == ["prive"], "les droits n'ont pas survecu"
+
+
+def test_un_compte_suspendu_ne_se_connecte_plus(deux_comptes):
+    """Le mot de passe est bon : le refus doit donc DIRE pourquoi, sinon on
+    cherche une panne la ou il y a une decision."""
+    c = _admin(deux_comptes)
+    c.put("/api/utilisateurs/marie", json={"suspendu": True})
+    c.post("/logout")
+    r = c.post("/login", json={"nom": "marie", "password": "un-mot-de-passe"})
+    assert r.status_code == 403
+    assert "suspendu" in r.get_json()["error"].lower()
+
+
+def test_la_session_ouverte_d_un_compte_suspendu_tombe(deux_comptes, monkeypatch):
+    """LE test de cette fonction. Suspendre pendant qu'une session tourne
+    doit la fermer a la requete suivante : sinon la suspension n'est qu'une
+    promesse pour la prochaine connexion."""
+    c = _admin(deux_comptes)
+    # On ouvre une session utilisateur a la main : le second facteur n'a pas
+    # sa place dans ce test-ci, il est verifie ailleurs.
+    with c.session_transaction() as sess:
+        sess["authed"] = True
+        sess["role"] = app.ROLE_UTILISATEUR
+        sess["utilisateur"] = "marie"
+        sess["ouverte"] = int(time.time())
+        sess["jeton"] = "j"
+    assert c.get("/api/mon-compte").status_code == 200
+
+    comptes = app.lire_utilisateurs()
+    comptes["marie"]["suspendu"] = True
+    app.ecrire_utilisateurs(comptes)
+
+    # La requete suivante ne doit plus rien autoriser.
+    assert c.get("/api/mon-compte").status_code == 401
+
+
+def test_un_compte_suspendu_n_ouvre_plus_ses_projets(deux_comptes):
+    """Les projets restent coches dans sa fiche -- c'est voulu -- mais ils ne
+    s'ouvrent plus tant que le compte est suspendu."""
+    c = _admin(deux_comptes)
+    with app.flask_app.test_request_context("/"):
+        from flask import session as s
+        s["authed"] = True
+        s["role"] = app.ROLE_UTILISATEUR
+        s["utilisateur"] = "marie"
+        assert app.projets_autorises() == {"prive"}
+        comptes = app.lire_utilisateurs()
+        comptes["marie"]["suspendu"] = True
+        app.ecrire_utilisateurs(comptes)
+        assert app.projets_autorises() == set()
+
+
+def test_la_fenetre_du_compte_offre_les_deux_gestes():
+    """Suspendre et supprimer cote a cote, et la difference expliquee : ce
+    sont deux gestes qu'on confond tant qu'on ne l'a pas lue."""
+    page = _page_panneau("dashboard.html")
+    assert 'id="us-f-suspendre"' in page and 'onclick="usSuspendre()"' in page
+    assert 'onclick="usSupprimer()"' in page
+    bloc = page.split("async function usSuspendre(){")[1].split("\n}")[0]
+    assert "suspendu: suspendre" in bloc, "le bouton n'envoie pas l'etat"
+    assert "demander(" in bloc, "suspendre sans confirmation se clique par accident"
+
+
+def test_la_fenetre_du_compte_ne_deroule_plus_tout():
+    """Quatre rubriques deroulees, chacune precedee de son paragraphe : la
+    fenetre depassait l'ecran et l'on faisait defiler pour trouver
+    « Enregistrer »."""
+    page = _page_panneau("dashboard.html")
+    fenetre = page.split('<div class="ov" id="ov-user">')[1].split("</div></div>")[0]
+    assert fenetre.count('class="repli"') >= 3, (
+        "les explications sont de nouveau deroulees d'office")
+    # Les deux champs d'identite tiennent sur une ligne.
+    assert 'class="grid2"' in fenetre
+
+
+# ---------- 32. emporter les fichiers de conteneurisation ----------
+#
+# « Sortir cette application de CodeLab » ne savait que DEPOSER les fichiers
+# dans le dossier du projet -- c'est-a-dire supposer que la suite se passe
+# ici. Or sortir une application, c'est l'emmener ailleurs : sur un poste,
+# sur un autre serveur, dans un depot qui n'a rien a voir avec cette machine.
+# Il fallait alors recopier quatre fichiers a la main depuis la page.
+
+def test_l_archive_de_conteneurisation_s_emporte(tmp_path, monkeypatch):
+    import io as flux
+    import zipfile
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
+    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
+    monkeypatch.setattr(app, "under_root", lambda p: True)
+    projet = tmp_path / "projet"
+    projet.mkdir()
+    (projet / "app.py").write_text("print('bonjour')\n")
+    app._apps_cache["signature"] = None
+    app.save({"site": {"path": str(projet), "command": "python3 app.py", "port": 9601}})
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    c = app.flask_app.test_client()
+    c.post("/login", json={"password": "secret-de-test"})
+
+    r = c.get("/api/app/site/conteneur.zip")
+    assert r.status_code == 200
+    assert r.mimetype == "application/zip"
+    assert "site-conteneur.zip" in r.headers["Content-Disposition"]
+
+    archive = zipfile.ZipFile(flux.BytesIO(r.data))
+    noms = archive.namelist()
+    # UN DOSSIER, pas quatre fichiers en vrac : ouverte sur un bureau, elle
+    # ne doit pas repandre un Dockerfile au milieu du reste.
+    assert noms and all(n.startswith("site/") for n in noms), noms
+    attendus = {f["nom"] for f in app.fichiers_conteneur(
+        dict(app.load()["site"], name="site"))["fichiers"]}
+    assert {n.split("/", 1)[1] for n in noms} == attendus
+    # Et le contenu est bien celui que la page montre.
+    for nom in noms:
+        assert archive.read(nom).decode("utf-8").strip(), nom
+
+    # Rien n'a ete ecrit dans le projet : telecharger n'est pas deposer.
+    assert sorted(p.name for p in projet.iterdir()) == ["app.py"]
+
+
+def test_le_bouton_de_telechargement_existe():
+    page = _page_panneau("dashboard.html")
+    assert 'onclick="ctTelecharger()"' in page
+    bloc = page.split("function ctTelecharger(){")[1].split("\n}")[0]
+    assert "/conteneur.zip" in bloc

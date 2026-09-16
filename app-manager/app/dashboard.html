@@ -824,6 +824,11 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
    suit un champ » : elle heritait de la marge du dessus et descendait de
    14 px, si bien que « Port » ne s'alignait pas sur « Hote SMTP ». */
 .settings-card .grid2>.field+.field{margin-top:0}
+/* Un champ et le bouton qui agit dessus, sur la meme ligne : pose en
+   dessous, le bouton se rattache visuellement au champ suivant. */
+.ligne-champ{display:flex;gap:8px;align-items:center}
+.ligne-champ input{flex:1;min-width:0}
+.ligne-champ .btn{flex:none}
 /* Le logo, dans les reglages : l'image est le bouton. */
 .logo-zone{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
 .logo-bouton{position:relative;width:72px;height:72px;flex:none;padding:0;
@@ -961,6 +966,20 @@ table.tbl-journal{min-width:560px}
 .mb-groupe:first-child{border-top:none;margin-top:0;padding-top:0}
 .mb-titre{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
  color:var(--dim2);margin-bottom:10px}
+/* Les explications d'une fenetre : lues une fois, relues jamais. Repliees,
+   elles rendent a la fenetre la hauteur qu'il faut pour voir le bouton
+   « Enregistrer » sans faire defiler. */
+.repli{margin-top:8px}
+.repli>summary{cursor:pointer;font-size:12px;color:var(--dim2);list-style:none;
+ display:inline-flex;align-items:center;gap:5px;padding:2px 0}
+.repli>summary::-webkit-details-marker{display:none}
+.repli>summary::before{content:"";width:0;height:0;border-left:4px solid currentColor;
+ border-top:3.5px solid transparent;border-bottom:3.5px solid transparent;transition:transform .12s}
+.repli[open]>summary::before{transform:rotate(90deg)}
+.repli>summary:hover{color:var(--accent)}
+.repli .hint{margin-top:6px}
+/* Un compte suspendu se voit dans la liste sans avoir a ouvrir sa fiche. */
+.us-suspendu{opacity:.6}
 .danger{color:var(--err);border-color:var(--err-border)}
 .danger:hover{background:var(--err-bg);border-color:var(--err);color:var(--err-txt)}
 
@@ -1349,6 +1368,14 @@ table.tbl-journal{min-width:560px}
       <div class="actions">
         <button class="btn btn-primary" id="ct-poser" onclick="ctPoser(false)">
           Déposer dans le projet</button>
+        <!-- SORTIR L'APPLICATION, c'est justement l'emmener ailleurs : sur un
+             poste, sur un autre serveur, dans un dépôt qui n'a rien à voir
+             avec cette machine. « Déposer dans le projet » suppose que la
+             suite se passe ici ; il fallait sinon recopier les fichiers un
+             par un depuis la page. -->
+        <button class="btn btn-default" id="ct-telecharger" onclick="ctTelecharger()">
+          <svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/>
+          <path d="M5 21h14"/></svg>Télécharger le dossier (.zip)</button>
         <button class="btn btn-danger-quiet" id="ct-remplacer" onclick="ctPoser(true)"
           style="display:none">Remplacer les fichiers existants</button>
       </div>
@@ -1401,6 +1428,27 @@ table.tbl-journal{min-width:560px}
         </div>
         <input type="file" id="e-logo-fichier" accept="image/png,image/jpeg,image/gif,image/webp"
           style="display:none" onchange="logoEnvoyer(this)">
+      </div>
+
+      <!-- LE NOM SE CHANGE ICI. Il ne se changeait nulle part : il fallait
+           supprimer l'application et la redeclarer, donc perdre son journal,
+           ses destinataires d'alerte, et les comptes qu'on lui avait
+           autorises. -->
+      <div class="fset">
+        <div class="fset-title">Nom</div>
+        <div class="field"><label for="e-nom">Nom de l'application</label>
+          <div class="ligne-champ">
+            <input id="e-nom" autocomplete="off" spellcheck="false" maxlength="40">
+            <button class="btn btn-default" id="e-renommer" onclick="renommerApp()">Renommer</button>
+          </div>
+          <div class="hint">C'est aussi son adresse : <code id="e-nom-url"></code>.
+            Les liens déjà partagés vers l'ancienne ne mèneront plus nulle part.</div>
+          <div class="hint">L'application s'arrête le temps du changement, puis repart si elle
+            tournait. Ce qu'elle a écrit dans son dossier lui est rendu — elle tourne sous un
+            identifiant dérivé de son nom.</div>
+          <div class="err" id="e-nom-err" style="display:none"></div>
+          <div class="hint" id="e-nom-ok" style="display:none"></div>
+        </div>
       </div>
 
       <div class="fset">
@@ -2162,26 +2210,31 @@ table.tbl-journal{min-width:560px}
 
     <div class="mb-groupe">
       <div class="mb-titre">Identité</div>
-      <div class="field"><label>Adresse mail <span class="opt">facultatif</span></label>
-        <input id="us-f-mail" type="email" placeholder="marie@example.com" autocomplete="off">
-        <div class="hint" id="us-f-mail-etat"></div>
+      <div class="grid2">
+        <div class="field"><label>Adresse mail <span class="opt">facultatif</span></label>
+          <input id="us-f-mail" type="email" placeholder="marie@example.com" autocomplete="off">
+        </div>
+        <div class="field"><label>Nouveau mot de passe <span class="opt">facultatif</span></label>
+          <input id="us-f-mdp" type="password" autocomplete="new-password" placeholder="inchangé">
+        </div>
       </div>
-      <div class="field"><label>Nouveau mot de passe <span class="opt">facultatif</span></label>
-        <input id="us-f-mdp" type="password" autocomplete="new-password" placeholder="laisser vide pour ne pas changer">
-        <div class="hint">8 caractères au minimum. La personne n'est pas déconnectée : sa session
-          en cours reste valable jusqu'à ce qu'elle la ferme.</div>
-      </div>
-      <div class="hint">Le nom du compte ne se change pas : il identifie la personne partout —
-        dans ses clés d'accès, dans le journal des accès, dans la liste des projets autorisés.
-        Pour renommer quelqu'un, crée un compte et supprime l'ancien.</div>
+      <div class="hint" id="us-f-mail-etat"></div>
+      <details class="repli"><summary>Ce qui ne se change pas</summary>
+        <div class="hint">8 caractères au minimum pour le mot de passe. La personne n'est pas
+          déconnectée : sa session en cours reste valable jusqu'à ce qu'elle la ferme.</div>
+        <div class="hint">Le nom du compte ne se change pas : il identifie la personne partout —
+          dans ses clés d'accès, dans le journal des accès, dans la liste des projets autorisés.
+          Pour renommer quelqu'un, crée un compte et supprime l'ancien.</div>
+      </details>
     </div>
 
     <div class="mb-groupe">
       <div class="mb-titre">Projets autorisés</div>
-      <div class="hint">Coche les projets que ce compte peut ouvrir. L'autorisation ne compte
-        que pour les projets <b>privés</b> : un projet public reste ouvert à tout le monde,
-        y compris sans connexion.</div>
-      <div id="us-f-projets" style="margin-top:10px"></div>
+      <div id="us-f-projets"></div>
+      <details class="repli"><summary>Ce que coche veut dire</summary>
+        <div class="hint">L'autorisation ne compte que pour les projets <b>privés</b> : un projet
+          public reste ouvert à tout le monde, y compris sans connexion.</div>
+      </details>
     </div>
 
     <div class="mb-groupe">
@@ -2193,13 +2246,25 @@ table.tbl-journal{min-width:560px}
       </div>
     </div>
 
+    <!-- SUSPENDRE PLUTOT QUE SUPPRIMER. Un depart, un doute, un appareil
+         perdu : on veut fermer l'acces tout de suite et decider plus tard.
+         Supprimer efface les projets autorises, l'adresse et les cles -- il
+         faut tout ressaisir au retour. -->
     <div class="mb-groupe">
-      <div class="mb-titre">Supprimer</div>
-      <div class="hint">Le compte disparaît, avec ses clés d'accès. Ses sessions ouvertes cessent
-        d'autoriser quoi que ce soit — chaque contrôle relit le registre. Le journal des accès,
-        lui, garde la trace de ce qu'il a fait.</div>
-      <button class="btn btn-default danger btn-sm" style="margin-top:10px"
-        onclick="usSupprimer()">Supprimer ce compte</button>
+      <div class="mb-titre">Accès</div>
+      <div class="ligne-champ">
+        <div class="hint" id="us-f-suspendu-etat" style="flex:1"></div>
+        <button class="btn btn-default btn-sm" id="us-f-suspendre"
+          onclick="usSuspendre()">Suspendre</button>
+        <button class="btn btn-default danger btn-sm" onclick="usSupprimer()">Supprimer</button>
+      </div>
+      <details class="repli"><summary>La différence entre les deux</summary>
+        <div class="hint"><b>Suspendre</b> ferme l'accès sur-le-champ — la session ouverte cesse
+          d'autoriser quoi que ce soit — et garde tout en l'état : projets autorisés, adresse,
+          clés d'accès. Un clic défait.</div>
+        <div class="hint"><b>Supprimer</b> efface le compte et ses clés d'accès. Le journal des
+          accès, lui, garde la trace de ce qu'il a fait.</div>
+      </details>
     </div>
   </div>
   <div class="mf">
@@ -3295,8 +3360,68 @@ function chargerConfigFiche(){
      c'est le serveur qui refuse vraiment, la route reste appelable a la
      main. */
   $('e-supprimer').style.display = (a.name === 'diagnostic') ? 'none' : '';
+  /* Le nom, et ce qu'il change : l'adresse de l'application en fait partie. */
+  $('e-nom').value = a.name;
+  $('e-nom-url').textContent = urlApplication(a.name);
+  $('e-nom-err').style.display='none';
+  $('e-nom-ok').style.display='none';
+  /* Le diagnostic ne se renomme pas plus qu'il ne se supprime : le panneau
+     le retrouve par son nom, et son marqueur d'inscription porte dessus. */
+  const fige = a.name === 'diagnostic';
+  $('e-nom').disabled = fige;
+  $('e-renommer').disabled = fige;
+}
+
+/* RENOMMER, c'est changer une CLE : le nom designe l'application dans
+   apps.json, dans son adresse, dans son journal, dans les projets autorises
+   de chaque compte et dans ce que chacun a masque de son hub. Le serveur fait
+   le tour ; la page se contente de rouvrir la fiche sous le nouveau nom --
+   sans quoi elle continuerait d'interroger une application qui n'existe
+   plus. */
+async function renommerApp(){
+  const ancien = ficheNom, nouveau = ($('e-nom').value||'').trim();
+  const err=$('e-nom-err'), ok=$('e-nom-ok'), bouton=$('e-renommer');
+  err.style.display='none'; ok.style.display='none';
+  if(!nouveau || nouveau===ancien) return;
+  bouton.disabled=true; bouton.textContent='Renommage...';
+  try{
+    const r = await fetch('/api/app/'+encodeURIComponent(ancien)+'/renommer',
+      {method:'POST', headers:{'Content-Type':'application/json'},
+       body: JSON.stringify({nom:nouveau})});
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok){
+      err.textContent = d.error || "Le renommage a échoué.";
+      err.style.display='block';
+      return;
+    }
+    await refresh();
+    ficheNom = d.nom;
+    peindreFiche();
+    chargerConfigFiche();
+    ok.style.display='block';
+    ok.innerHTML = 'Renommée en <b>'+esc(d.nom)+'</b>.'
+      + (d.redemarree ? ' Elle est repartie.' : '')
+      + (d.erreur_demarrage ? ' Elle n\'a pas redémarré : ' + esc(d.erreur_demarrage) : '')
+      + (d.fichiers_repris ? ' ' + d.fichiers_repris
+         + ' fichier' + (d.fichiers_repris>1?'s':'') + ' du dossier lui '
+         + (d.fichiers_repris>1?'ont':'a') + ' été rendu'
+         + (d.fichiers_repris>1?'s':'') + '.' : '');
+  }catch(e){
+    err.textContent = "Le panneau n'a pas répondu : " + e;
+    err.style.display='block';
+  }finally{
+    bouton.disabled=false; bouton.textContent='Renommer';
+  }
 }
 /* ---------------- conteneuriser une application ---------------- */
+/* L'archive part du serveur telle qu'il la construit : rien n'est ecrit dans
+   le dossier du projet, et ce qu'on emporte est exactement ce que la page
+   montre -- meme si un fichier du meme nom existe deja a cote. */
+function ctTelecharger(){
+  if(!ficheNom) return;
+  window.location = '/api/app/' + encodeURIComponent(ficheNom) + '/conteneur.zip';
+}
+
 let ctFichiers=[];
 
 async function chargerConteneur(){
@@ -4110,6 +4235,9 @@ function usLigne(c){
   /* Ce qui empeche quelqu'un d'entrer passe en premier, et en rouge : un
      compte qui n'a jamais confirme son adresse ne se connecte pas. */
   const badges=[];
+  /* Suspendu passe avant tout le reste : c'est la seule chose a savoir sur
+     ce compte tant qu'il l'est. */
+  if(c.suspendu) badges.push('<span class="pill err"><i></i>Suspendu</span>');
   if(c.attente_email) badges.push('<span class="pill err"><i></i>Inscription a confirmer</span>');
   if(!c.totp) badges.push('<span class="pill off"><i></i>2FA en attente</span>');
   if(c.passkeys) badges.push(`<span class="pill on"><i></i>${c.passkeys} clé${c.passkeys>1?'s':''}</span>`);
@@ -4119,7 +4247,7 @@ function usLigne(c){
   const adresse = c.email
     ? esc(c.email) + (c.email_verifie ? ' (vérifiée)' : ' (non vérifiée)')
     : 'sans adresse';
-  return `<div class="us-ligne">
+  return `<div class="us-ligne${c.suspendu?' us-suspendu':''}">
     <div class="us-rond">${esc((c.nom||'?').slice(0,1))}</div>
     <div class="us-corps">
       <div class="us-nom"><b>${esc(c.nom)}</b>${badges.join('')}</div>
@@ -4278,6 +4406,13 @@ function usPeindreFiche(){
   $('us-f-facteurs').textContent = morceaux.join(' ');
   $('us-f-totp').disabled = !c.totp;
   $('us-f-cles').disabled = !c.passkeys;
+
+  /* L'etat de l'acces, dit en une phrase, et le bouton qui le change. */
+  $('us-f-suspendu-etat').innerHTML = c.suspendu
+    ? "<b>Accès suspendu.</b> Ce compte n'ouvre plus rien et ne peut plus se connecter."
+    : "Accès ouvert : ce compte peut se connecter et ouvrir ses projets.";
+  $('us-f-suspendre').textContent = c.suspendu ? 'Réactiver' : 'Suspendre';
+  $('us-f-suspendre').classList.toggle('danger', !c.suspendu);
 }
 
 function usFicheErreur(texte){
@@ -4407,6 +4542,18 @@ async function usRetirerCles(){
     + `s'être connectee avec son mot de passe.`, 'Retirer')) return;
   if(await usEcrire({retirer_passkeys:true}))
     notifier("Clés d'accès retirées pour « " + nom + " ».");
+}
+
+async function usSuspendre(){
+  const c=usCompte(); if(!c) return;
+  const nom=c.nom, suspendre=!c.suspendu;
+  if(suspendre && !await demander('Suspendre le compte « ' + nom + ' » ?',
+      "Il ne pourra plus se connecter, et sa session ouverte cessera d'autoriser quoi que ce "
+      + "soit. Ses projets autorisés, son adresse et ses clés d'accès sont conservés.",
+      'Suspendre', true)) return;
+  if(await usEcrire({suspendu: suspendre}))
+    notifier(suspendre ? 'Compte « ' + nom + ' » suspendu.'
+                       : 'Compte « ' + nom + ' » réactivé.');
 }
 
 async function usSupprimer(){
