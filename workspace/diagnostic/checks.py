@@ -7686,7 +7686,15 @@ def test_les_parametres_listent_toutes_les_applications_a_cocher():
     bloc = page.split("function peindreMasquees(){")[1].split("\n}")[0]
     assert "(hubApps||[]).concat(hubMasquees||[])" in bloc, (
         "la liste des reglages doit reunir les affichees ET les masquees")
-    assert 'type="checkbox"' in bloc and "basculerMasquage(" in bloc
+    assert 'type="checkbox"' in bloc
+    # La case ne porte plus son appel en attribut : elle nomme son action, et
+    # l'ecouteur unique la route. Les deux moities sont verifiees, sinon le
+    # test passerait sur une case qui ne fait plus rien.
+    assert 'data-changer="app-masquer"' in bloc, (
+        "la case ne declare plus son action")
+    ecoute = page.split("document.addEventListener('change'")[1].split("\n}")[0]
+    assert "'app-masquer'" in ecoute and "basculerMasquage(" in ecoute, (
+        "personne n'ecoute la case : la cocher ne masquerait plus rien")
     # Une case cochee doit se lire sans lire l'etiquette : la ligne se retire.
     assert "cachee" in bloc
 
@@ -8347,6 +8355,101 @@ def test_le_detail_d_une_sonde_n_est_plus_en_chasse_fixe():
         "le detail des sondes est revenu en chasse fixe")
     assert "--mono" in css.split("code{")[1].split("}")[0], (
         "plus rien n'est en chasse fixe, pas meme un chemin")
+
+
+# ---------- 25. une donnee ne devient jamais du programme ----------
+#
+# Le defaut, trouve en auditant la branche et REPRODUIT dans un navigateur :
+# le navigateur de dossiers ecrivait
+#
+#     <div onclick="browse('<chemin>/<nom du dossier>')">
+#
+# Le libelle etait echappe, le gestionnaire ne l'etait pas. Un dossier nomme
+# avec une apostrophe refermait la chaine JavaScript, et la suite s'executait
+# dans la page du panneau -- celle qui detient le jeton CSRF et les boutons
+# demarrer, arreter, deployer, renommer.
+#
+# CE QUI REND LA CHOSE SERIEUSE : /workspace est inscriptible depuis une
+# session SSH, et par TOUTE application deployee. Chacune tourne sous son
+# propre uid, precisement pour ne pas pouvoir toucher au reste ; il lui
+# suffisait de creer un dossier et d'attendre un clic de l'administrateur
+# pour franchir cette frontiere.
+#
+# Echapper l'apostrophe n'y aurait rien change : le navigateur decode les
+# entites AVANT de lire le JavaScript, et &#39; y redevient une apostrophe.
+# La seule parade est de ne pas fabriquer de programme a partir d'une donnee.
+
+def test_aucun_gestionnaire_en_ligne_ne_porte_de_donnee():
+    """Un attribut onclick qui interpole une chaine, et le defaut revient.
+
+    La regle se verifie sur le caractere : une apostrophe suivie d'une
+    interpolation, c'est une chaine de programme fabriquee a partir d'une
+    donnee. Un argument numerique -- (i) sans apostrophes -- reste permis :
+    un entier ne peut pas refermer quoi que ce soit.
+    """
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    fautes = [l.strip() for l in page.split("\n") if "'${" in l]
+    assert not fautes, (
+        "une donnee est interpolee dans une chaine JavaScript ecrite en "
+        "attribut -- passe par data- et la table ACTIONS :\n"
+        + "\n".join(fautes[:5]))
+    # Et la table existe, avec son ecouteur unique.
+    assert "const ACTIONS = {" in page
+    assert "e.target.closest('[data-agir]')" in page, (
+        "l'ecouteur delegue a disparu : les boutons generes ne font plus rien")
+
+
+def test_le_navigateur_de_dossiers_construit_du_dom():
+    """Le chemin est capture par une fermeture, jamais ecrit comme du texte.
+
+    C'est ce qui rend la regle tenable : il n'y a plus d'echappement a poser
+    correctement, donc plus d'echappement a oublier.
+    """
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    bloc = page.split("function peuplerDossiers(")[1].split("\n}")[0]
+    assert "n.textContent = libelle" in bloc, (
+        "le nom du dossier repasse par du HTML : textContent n'interprete "
+        "rien, une chaine de HTML si")
+    assert "n.onclick = () => aller(chemin)" in bloc, (
+        "le chemin redevient du texte de programme")
+    # Les DEUX navigateurs passent par la : celui du formulaire d'ajout et
+    # celui du formulaire de modification. Un seul corrige, c'est l'autre qui
+    # porte le defaut.
+    for fonction in ("async function browse(p){", "async function browseEdit(p){"):
+        corps = page.split(fonction)[1].split("\n}")[0]
+        assert "peuplerDossiers(" in corps, fonction
+
+
+def test_le_navigateur_de_dossiers_lit_ce_que_le_serveur_envoie(
+        client, tmp_path, monkeypatch):
+    """Les deux cotes du meme contrat, verifies ensemble.
+
+    Le navigateur du formulaire de modification lisait x.path et x.name sur
+    les entrees de "dirs". Or /api/browse renvoie des NOMS -- des chaines.
+    Il affichait donc autant de lignes vides que de dossiers, toutes vers
+    « undefined ». Personne ne l'avait vu : aucun test ne regardait ce
+    rendu, et le navigateur du formulaire d'ajout, lui, marchait.
+    """
+    racine = tmp_path / "racine"
+    (racine / "un projet").mkdir(parents=True)
+    (racine / ".cache").mkdir()
+    monkeypatch.setattr(app, "ROOT", str(racine))
+    client.post("/login", json={"password": "secret-de-test"})
+    d = client.get("/api/browse", query_string={"path": str(racine)}).get_json()
+    # Des chaines, et les dossiers caches restent caches.
+    assert d["dirs"] == ["un projet"], d["dirs"]
+    assert all(isinstance(x, str) for x in d["dirs"])
+
+    # Et la page les consomme comme des chaines.
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    bloc = page.split("function peuplerDossiers(")[1].split("\n}")[0]
+    assert "(d.dirs || []).forEach(nom =>" in bloc, (
+        "la page relit un objet la ou le serveur envoie un nom")
+    assert ".path" not in bloc.split("d.path + '/' + nom")[0].split("forEach")[-1], (
+        "une entree de dirs est traitee comme un objet")
 
 
 def test_les_sondes_regardent_au_dela_de_la_stack():
