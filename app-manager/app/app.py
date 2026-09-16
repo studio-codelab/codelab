@@ -2900,9 +2900,23 @@ def start(name, attendre=True):
         save(apps)
         return f"Dossier introuvable : {a['path']}"
 
+    # LE PORT, AVANT DE LANCER QUOI QUE CE SOIT. Sans cette verification, une
+    # application dont le port est deja occupe demarre, meurt sur
+    # « Address already in use », et le panneau rend la derniere ligne du
+    # journal -- un message d'un autre langage, parfois noye dans une trace.
+    # Le cas n'a rien de rare : un processus survivant d'avant un redemarrage
+    # brutal, deux applications reglees sur le meme port, ou un service de la
+    # machine. Le dire en francais, et nommer le coupable quand on le connait.
+    occupe = port_occupe_par(a["port"], name)
+    if occupe:
+        return occupe
+
     os.makedirs(LOG_DIR, exist_ok=True)
     rotate_log_if_needed(name)
-    out = open(os.path.join(LOG_DIR, name + ".log"), "ab", buffering=0)
+    try:
+        out = open(os.path.join(LOG_DIR, name + ".log"), "ab", buffering=0)
+    except OSError as e:
+        return f"Journal impossible a ouvrir : {e}"
     env = dict(os.environ, **secrets_partages())
     env.update(PORT=str(a["port"]), PYTHONUNBUFFERED="1",
                HOME=ensure_child_home(name),
@@ -2913,12 +2927,27 @@ def start(name, attendre=True):
     argv, env_isolement = commande_isolee(name, a["path"], a["command"], apps)
     env.update(env_isolement)
 
-    with lock:
-        procs[name] = subprocess.Popen(
-            argv,
-            cwd=a["path"], env=env, stdout=out, stderr=out,
-            start_new_session=True,
-            preexec_fn=child_setup(a.get("max_memory_mb"), name))
+    # Popen leve pour tout ce qui empeche le lancement AVANT la commande :
+    # dossier devenu inaccessible, interpreteur absent, preexec_fn en echec
+    # (abandon des privileges impossible, limite memoire refusee). Sans ce
+    # filet, l'exception remontait jusqu'a Flask : la route repondait 500 et
+    # une page HTML, l'interface n'y trouvait aucun message, et affichait son
+    # texte par defaut -- « L'application n'a pas demarre », qui n'apprend
+    # rien a personne.
+    try:
+        with lock:
+            procs[name] = subprocess.Popen(
+                argv,
+                cwd=a["path"], env=env, stdout=out, stderr=out,
+                start_new_session=True,
+                preexec_fn=child_setup(a.get("max_memory_mb"), name))
+    except (OSError, ValueError) as e:
+        out.close()
+        apps = load()
+        if name in apps:
+            apps[name]["enabled"] = False
+            save(apps)
+        return f"Lancement impossible : {e}"
     _noter_processus(name, procs[name].pid)
     apps[name]["enabled"] = True
     save(apps)
@@ -2943,6 +2972,44 @@ def start(name, attendre=True):
                     + derniere_ligne_utile(name))
         time.sleep(0.05)
     return None
+
+
+def port_occupe_par(port, sauf=None):
+    """Le port est-il deja pris ? Rend le message a afficher, ou None.
+
+    On tente le meme bind que ferait l'application, avec SO_REUSEADDR --
+    comme n'importe quel serveur : un port en TIME_WAIT apres un arret
+    recent ne doit pas passer pour occupe, sinon on refuserait de redemarrer
+    ce qu'on vient d'arreter.
+    """
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        return None
+    # Sur 127.0.0.1 et non sur 0.0.0.0, volontairement. C'est l'adresse que
+    # le proxy contacte, donc la seule qui compte ; et une sonde sur 0.0.0.0
+    # echouerait aussi quand un service occupe le port sur une AUTRE adresse
+    # de la machine -- on refuserait alors un demarrage qui aurait marche.
+    # Mieux vaut manquer un cas rare que bloquer un cas legitime.
+    sonde = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sonde.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sonde.bind(("127.0.0.1", port))
+        return None
+    except OSError:
+        pass
+    finally:
+        sonde.close()
+    # Une autre application du panneau ? C'est le cas le plus frequent, et
+    # celui qu'on peut nommer : « deja pris » sans dire par qui envoie
+    # chercher dans les journaux de tout le monde.
+    for autre, infos in load().items():
+        if autre != sauf and str(infos.get("port")) == str(port) and is_running(autre):
+            return (f"Le port {port} est deja occupe par « {autre} ». "
+                    f"Change le port de l'une des deux dans sa configuration.")
+    return (f"Le port {port} est deja occupe sur la machine. Un processus "
+            f"survivant d'un demarrage precedent, ou un autre service : "
+            f"verifie avec « ss -ltnp | grep {port} ».")
 
 
 def derniere_ligne_utile(nom):
@@ -4854,7 +4921,7 @@ def api_mon_email():
     compte = _mon_compte()
     if compte is None:
         return jsonify({"error": "Le compte d'administration n'a pas d'adresse "
-                                 "propre : réglé les destinataires des alertes."}), 400
+                                 "propre : règle les destinataires des alertes."}), 400
     adresse = email_valide((request.get_json(force=True, silent=True) or {}).get("email"))
     if not adresse:
         return jsonify({"error": "Adresse mail invalide."}), 400
@@ -4886,7 +4953,7 @@ def api_mon_email_code():
     """Renvoie un code a l'adresse deja declaree."""
     compte = _mon_compte()
     if compte is None or not compte.get("email"):
-        return jsonify({"error": "Déclaré d'abord une adresse."}), 400
+        return jsonify({"error": "Déclare d'abord une adresse."}), 400
     en_cours = compte.get("email_code") or {}
     attente = CODE_EMAIL_DELAI - (int(time.time()) - en_cours.get("envoye", 0))
     if attente > 0:
@@ -5289,7 +5356,7 @@ def api_exposition():
     if "adresse_publique" in demande:
         if fixe_par_environnement("adresse_publique"):
             return jsonify({"error": "L'adresse est fixee par APP_MANAGER_PUBLIC_URL "
-                                     "dans le compose : modifié-la la-bas."}), 400
+                                     "dans le compose : modifie-la là-bas."}), 400
         brute = demande.get("adresse_publique")
         adresse = adresse_publique_valide(brute)
         if brute and not adresse:
@@ -5307,7 +5374,7 @@ def api_exposition():
         if fixe_par_environnement("trust_proxy"):
             return jsonify({"error": "Le proxy de confiance est fixe par "
                                      "APP_MANAGER_TRUST_PROXY dans le compose : "
-                                     "modifié-le la-bas."}), 400
+                                     "modifie-le là-bas."}), 400
         voulu = bool(demande.get("trust_proxy"))
         devant = (request.headers.get("X-Forwarded-For")
                   or request.headers.get("X-Forwarded-Proto") or "")
@@ -5323,7 +5390,7 @@ def api_exposition():
     if "https" in demande:
         if fixe_par_environnement("https"):
             return jsonify({"error": "HTTPS est fixe par APP_MANAGER_HTTPS dans le "
-                                     "compose : modifié-le la-bas."}), 400
+                                     "compose : modifie-le là-bas."}), 400
         voulu = bool(demande.get("https"))
         # "Deja en https" au sens de ce que le panneau croit : une connexion
         # TLS directe, ou un proxy annoncant https ET declare de confiance.
@@ -5344,7 +5411,7 @@ def api_exposition():
         if fixe_par_environnement("admin_reseau_local"):
             return jsonify({"error": "Ce réglage est fixe par "
                                      "APP_MANAGER_ADMIN_LAN_ONLY dans le compose : "
-                                     "modifié-le la-bas."}), 400
+                                     "modifie-le là-bas."}), 400
         voulu = bool(demande.get("admin_reseau_local"))
         # Meme regle que pour HTTPS, pour la meme raison : on n'allume pas un
         # interrupteur qui couperait la branche sur laquelle on est assis.
@@ -6086,6 +6153,11 @@ def api_apps():
             "max_memory_mb": a.get("max_memory_mb"),
             "description": a.get("description") or "",
             "categorie": a.get("categorie") or "",
+            # Les destinataires d'alerte se reglent dans la fiche de
+            # l'application : la liste doit donc arriver avec elle. Aucun
+            # secret ici -- une adresse de destination n'en est pas un, et
+            # cette route est deja reservee a l'administrateur.
+            "alertes": _adresses(a.get("alertes")),
             **stats,
         })
     return jsonify({"apps": out})
@@ -6282,12 +6354,19 @@ def api_toggle(n):
 
 
 def restart_app(n):
+    """Rend None si l'application est repartie, sinon POURQUOI.
+
+    Elle se taisait : l'erreur de start() partait a la poubelle, la route
+    repondait « ok », et le bouton « Redemarrer » laissait une application
+    arretee sans un mot. C'est le meme defaut que start() avait avant d'etre
+    corrige -- il restait ici, une ligne plus loin.
+    """
     stop(n)
     for _ in range(30):
         if not is_running(n):
             break
         time.sleep(0.1)
-    start(n)
+    return start(n)
 
 
 @flask_app.post("/api/visibility/<n>")
@@ -6310,7 +6389,7 @@ def api_visibility(n):
         return jsonify({"error": "Aucune adresse publique n'est déclarée pour ce "
                                  "serveur : rendre une application publique ne "
                                  "ferait que retirer l'authentification. "
-                                 "Déclaré-la dans Configuration > Serveur."}), 400
+                                 "Déclare-la dans Configuration > Serveur."}), 400
     apps[n]["visibility"] = vis
     save(apps)
     return jsonify({"ok": True, "visibility": vis})
@@ -6321,7 +6400,9 @@ def api_visibility(n):
 def api_restart(n):
     if n not in load():
         return jsonify({"error": "Application inconnue."}), 404
-    restart_app(n)
+    erreur = restart_app(n)
+    if erreur:
+        return jsonify({"error": erreur}), 409
     return jsonify({"ok": True})
 
 
@@ -6346,7 +6427,12 @@ def api_deploy(n):
     # "Deployer" sur une application arretee la met en ligne : c'est le sens
     # attendu du mot, et l'alternative (builder puis ne rien faire) est
     # exactement le geste oublie que cette route supprime.
-    restart_app(n) if is_running(n) else start(n)
+    erreur = restart_app(n) if is_running(n) else start(n)
+    if erreur:
+        # Le build a reussi, la mise en ligne non : la nuance compte, et elle
+        # se perdait entierement -- la route repondait « ok ».
+        return jsonify({"error": "Le build a reussi, mais la mise en ligne a "
+                                 "echoue : " + erreur}), 409
     return jsonify({"ok": True})
 
 

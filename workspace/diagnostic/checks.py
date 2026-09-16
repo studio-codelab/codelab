@@ -498,7 +498,8 @@ def check_config(env_file=None):
     """
     path = env_file or ENV_FILE
     if not os.path.exists(path):
-        return Etat.ECHEC, "credentials.env", f"introuvable : {path} (volume config non monte ?)"
+        return (Etat.ECHEC, "credentials.env",
+                f"introuvable : {path} (volume config non monté ?)")
     # os.access ne ment pas ici : le seul cas ou ce code tourne en root est
     # celui ou root peut effectivement lire le fichier.
     lisible = os.access(path, os.R_OK)
@@ -512,7 +513,7 @@ def check_config(env_file=None):
         return (Etat.ECHEC, "credentials.env",
                 f"aucun mot de passe Postgres : {path} est {etat_fichier} et ne le "
                 f"porte pas, et aucune des variables "
-                f"{', '.join(CLES_MOT_DE_PASSE_PG)} n'a ete transmise par "
+                f"{', '.join(CLES_MOT_DE_PASSE_PG)} n'a été transmise par "
                 f"l'entrypoint de ce conteneur")
     # L'origine se CONSTATE, elle ne se deduit pas des droits du fichier :
     # dans app-manager le fichier est lisible (le panneau tourne en root) ET
@@ -528,20 +529,20 @@ def check_config(env_file=None):
         d_ou = (f"transmis par l'environnement ({origine}) -- normal : {path} est "
                 f"illisible sous l'uid {os.geteuid()}")
     return (Etat.OK, "credentials.env",
-            f"{d_ou} -- mot de passe Postgres disponible ({len(pw)} caracteres)")
+            f"{d_ou} -- mot de passe Postgres disponible ({len(pw)} caractères)")
 
 
 def check_workspace(workspace=None):
     """Volume /workspace partage entre dev, dagster et app-manager."""
     root = workspace or WORKSPACE
     if not os.path.isdir(root):
-        return Etat.ECHEC, "/workspace", f"{root} n'est pas un dossier (volume non monte ?)"
+        return Etat.ECHEC, "/workspace", f"{root} n'est pas un dossier (volume non monté ?)"
     defs = os.path.join(root, "definitions.py")
     if not os.path.exists(defs):
         return (Etat.ECHEC, "/workspace",
-                f"{root} monte, mais definitions.py absent -- Dagster n'a rien a charger")
+                f"{root} monté, mais definitions.py absent -- Dagster n'a rien à charger")
     n = len([x for x in os.listdir(root) if not x.startswith(".")])
-    return Etat.OK, "/workspace", f"{root} -- definitions.py present, {n} entrees visibles"
+    return Etat.OK, "/workspace", f"{root} -- definitions.py présent, {n} entrées visibles"
 
 
 def check_pilote_pg():
@@ -558,7 +559,7 @@ def check_postgres(env_file=None):
     try:
         pilote_pg()
     except PiloteAbsent:
-        return Etat.ECHEC, "Postgres", "pilote absent -- voir la sonde precedente"
+        return Etat.ECHEC, "Postgres", "pilote absent -- voir la sonde précédente"
     try:
         conn = connect_pg(env_file)
     except Exception as e:
@@ -578,7 +579,7 @@ def check_postgres(env_file=None):
         return Etat.OK, "Postgres", (f"{cfg['host']}:{cfg['port']}/{cfg['dbname']} "
                                      f"schema {SCHEMA} -- {v}")
     except Exception as e:
-        return Etat.ECHEC, "Postgres", f"connecte mais requete refusee -- {e}"
+        return Etat.ECHEC, "Postgres", f"connecté mais requête refusée -- {e}"
     finally:
         conn.close()
 
@@ -604,15 +605,15 @@ def check_http(nom, url, timeout=4, gravite=Etat.ECHEC):
         hote = urllib.parse.urlsplit(url).hostname or nom
         if isinstance(e.reason, ConnectionRefusedError):
             return gravite, nom, (
-                f"{url} -- connexion refusee : le conteneur repond mais rien "
-                f"n'ecoute sur ce port. Le service demarre encore, ou il est "
+                f"{url} -- connexion refusée : le conteneur répond mais rien "
+                f"n'écoute sur ce port. Le service démarre encore, ou il est "
                 f"tombe : docker logs --tail 50 {hote}")
         if isinstance(e.reason, socket.gaierror):
             # Meme lecture que dans check_tcp : le DNS de Docker n'inscrit que
             # les conteneurs demarres.
             return gravite, nom, (
-                f"{url} -- nom introuvable ({e.reason}). Conteneur arrete, ou "
-                f"hors du reseau codelab : docker ps -a --filter name={hote}")
+                f"{url} -- nom introuvable ({e.reason}). Conteneur arrêté, ou "
+                f"hors du réseau codelab : docker ps -a --filter name={hote}")
         return gravite, nom, f"{url} -- {type(e).__name__}: {e}"
     except Exception as e:
         return gravite, nom, f"{url} -- {type(e).__name__}: {e}"
@@ -624,13 +625,13 @@ def check_tcp(nom, host, port, timeout=4, lire_banniere=False, gravite=Etat.ECHE
             if lire_banniere:
                 s.settimeout(timeout)
                 b = s.recv(128).decode("utf-8", "replace").strip()
-                return Etat.OK, nom, f"{host}:{port} -- {b or 'connexion acceptee'}"
-            return Etat.OK, nom, f"{host}:{port} -- connexion acceptee"
+                return Etat.OK, nom, f"{host}:{port} -- {b or 'connexion acceptée'}"
+            return Etat.OK, nom, f"{host}:{port} -- connexion acceptée"
     except socket.gaierror as e:
         # Le DNS de Docker ne connait que les conteneurs DEMARRES du reseau :
         # un nom qui ne resout pas designe presque toujours un conteneur arrete.
-        return gravite, nom, (f"{host}:{port} -- nom introuvable ({e}). Conteneur arrete, "
-                              f"ou hors du reseau codelab : docker ps -a --filter name={host}")
+        return gravite, nom, (f"{host}:{port} -- nom introuvable ({e}). Conteneur arrêté, "
+                              f"ou hors du réseau codelab : docker ps -a --filter name={host}")
     except Exception as e:
         return gravite, nom, f"{host}:{port} -- {type(e).__name__}: {e}"
 
@@ -656,19 +657,20 @@ def check_cles_ssh(ssh_dir=None, uid=None):
     hk = os.path.join(d, "host_keys")
 
     if not os.path.isdir(d):
-        return Etat.ALERTE, "Cles SSH (droits)", f"{d} absent -- codelab-dev n'a jamais demarre ?"
+        return (Etat.ALERTE, "Clés SSH (droits)",
+                f"{d} absent -- codelab-dev n'a jamais démarré ?")
     if not _accessible_par(u, d, stat.S_IXUSR, stat.S_IXGRP, stat.S_IXOTH):
-        return Etat.ALERTE, "Cles SSH (droits)", (
+        return Etat.ALERTE, "Clés SSH (droits)", (
             f"{d} est en {_mode(d)} : l'uid {u} ne peut pas le traverser, donc sshd "
             f"n'atteindra jamais authorized_keys. Corriger : chmod 755 {d}")
     if not os.path.exists(ak):
-        return (Etat.ALERTE, "Cles SSH (droits)",
-                f"{ak} absent -- aucune machine autorisee. C'est l'etat d'une "
-                f"installation neuve : deposer une cle publique dans "
-                f"{os.path.join(d, 'authorized_keys.d')} ouvre l'acces SSH.")
+        return (Etat.ALERTE, "Clés SSH (droits)",
+                f"{ak} absent -- aucune machine autorisée. C'est l'état d'une "
+                f"installation neuve : déposer une clé publique dans "
+                f"{os.path.join(d, 'authorized_keys.d')} ouvre l'accès SSH.")
     if not _accessible_par(u, ak, stat.S_IRUSR, stat.S_IRGRP, stat.S_IROTH):
         st = os.stat(ak)
-        return Etat.ALERTE, "Cles SSH (droits)", (
+        return Etat.ALERTE, "Clés SSH (droits)", (
             f"{ak} est en {_mode(ak)} et appartient a {st.st_uid}:{st.st_gid} : "
             f"illisible par l'uid {u}. Corriger : chown {u}:{u} {ak}")
 
@@ -685,14 +687,15 @@ def check_cles_ssh(ssh_dir=None, uid=None):
         # que sshd y arrivera. Seul le comptage des cles est perdu ; le cas
         # qui compte vraiment, un fichier vide, se lit encore dans la taille.
         if _taille(ak) == 0:
-            return Etat.ALERTE, "Cles SSH (droits)", (
+            return Etat.ALERTE, "Clés SSH (droits)", (
                 f"{ak} est vide -- aucune connexion SSH ne passera")
-        return Etat.OK, "Cles SSH (droits)", (
-            f"droits corrects pour l'uid {u} ; contenu non verifiable depuis "
+        return Etat.OK, "Clés SSH (droits)", (
+            f"droits corrects pour l'uid {u} ; contenu non vérifiable depuis "
             f"ce conteneur, qui tourne sous l'uid {os.geteuid()} ({e.strerror}) "
             f"-- {_taille(ak)} octets")
     if not cles:
-        return Etat.ALERTE, "Cles SSH (droits)", f"{ak} est vide -- aucune connexion SSH ne passera"
+        return (Etat.ALERTE, "Clés SSH (droits)",
+                f"{ak} est vide -- aucune connexion SSH ne passera")
 
     try:
         n_hotes = len([x for x in os.listdir(hk)
@@ -701,8 +704,8 @@ def check_cles_ssh(ssh_dir=None, uid=None):
     except OSError:
         # Meme raison : le dossier des cles hote appartient a sshd, pas a nous.
         detail_hotes = "cles hote non listables depuis ce conteneur"
-    return Etat.OK, "Cles SSH (droits)", (
-        f"{len(cles)} cle(s) autorisee(s), lisible(s) par l'uid {u} ; "
+    return Etat.OK, "Clés SSH (droits)", (
+        f"{len(cles)} clé(s) autorisée(s), lisible(s) par l'uid {u} ; "
         f"{detail_hotes}")
 
 
@@ -808,9 +811,9 @@ def check_panneau_ferme():
     port = _port_panneau()
     hote, info = _joindre_panneau(port)
     if hote is None:
-        return (Etat.ALERTE, "panneau ferme",
+        return (Etat.ALERTE, "panneau fermé",
                 f"panneau injoignable depuis ce conteneur ({info}) : la sonde ne "
-                f"peut pas conclure. Ce n'est pas une breche constatee, c'est une "
+                f"peut pas conclure. Ce n'est pas une brèche constatée, c'est une "
                 f"absence de preuve -- la sonde codelab-app-manager dit, elle, si "
                 f"le service tourne.")
     base = f"http://{hote}:{port}"
@@ -821,13 +824,13 @@ def check_panneau_ferme():
         except urllib.error.HTTPError as e:
             code = e.code
         except Exception as e:                                    # noqa: BLE001
-            return Etat.ALERTE, "panneau ferme", f"{base}{chemin} injoignable : {e}"
+            return Etat.ALERTE, "panneau fermé", f"{base}{chemin} injoignable : {e}"
         if code == 200:
             ouvertes.append(chemin)
     if ouvertes:
-        return (Etat.ECHEC, "panneau ferme",
-                f"{base} repond 200 sans session : " + ", ".join(ouvertes))
-    return (Etat.OK, "panneau ferme",
+        return (Etat.ECHEC, "panneau fermé",
+                f"{base} répond 200 sans session : " + ", ".join(ouvertes))
+    return (Etat.OK, "panneau fermé",
             f"{base} -- les routes d'administration exigent une session")
 
 
@@ -847,7 +850,7 @@ def check_origine_applications():
         # depuis un conteneur qui n'a pas ce port. Dans les deux cas, il n'y
         # a pas de faille prouvee, donc pas de quoi faire tomber un run.
         return (Etat.ALERTE, "origine des applications",
-                f"rien ne repond sur le port {port} ({info}) -- publie-le dans "
+                f"rien ne répond sur le port {port} ({info}) -- publie-le dans "
                 f"docker-compose.yml, sinon les applications repartent dans "
                 f"l'origine du panneau")
     base = f"http://{hote}:{port}"
@@ -866,9 +869,9 @@ def check_origine_applications():
         # applications, donc une faille dans l'une d'elles atteint le
         # panneau. Rang 1.
         return (Etat.ECHEC, "origine des applications",
-                f"le panneau repond sur {base} : " + ", ".join(fuites))
+                f"le panneau répond sur {base} : " + ", ".join(fuites))
     return (Etat.OK, "origine des applications",
-            f"{base} -- le panneau n'y repond pas, les origines sont bien separees")
+            f"{base} -- le panneau n'y répond pas, les origines sont bien séparées")
 
 
 def check_exposition():
@@ -912,8 +915,8 @@ def check_exposition():
                 or str(pose.get("adresse_publique") or "").strip())
     if not (https or proxy or publique):
         return (Etat.OK, "exposition",
-                "reseau local : aucune adresse publique declaree, cookie non "
-                "marque Secure -- coherent tant que rien n'est devant")
+                "réseau local : aucune adresse publique déclarée, cookie non "
+                "marqué Secure -- cohérent tant que rien n'est devant")
     manques = []
     if not https:
         manques.append("HTTPS (cookie de session non marque Secure)")
@@ -932,11 +935,11 @@ def check_exposition():
         # Rang 2 : la stack tourne, et ce qui manque est un REGLAGE a poser,
         # pas un service tombe. Le dire en rouge sanglant a chaque quart
         # d'heure n'accelere pas sa pose -- cela apprend a ne plus lire.
-        return (Etat.ALERTE, "exposition", "expose, mais il manque : "
-                + " ; ".join(manques) + " -- a poser dans Parametres > Exposition"
+        return (Etat.ALERTE, "exposition", "exposé, mais il manque : "
+                + " ; ".join(manques) + " -- à poser dans Paramètres > Exposition"
                 + " (" + portee + ")")
     return (Etat.OK, "exposition",
-            f"publie sur {publique}, cookie Secure, adresse reelle des visiteurs, {portee}")
+            f"publié sur {publique}, cookie Secure, adresse réelle des visiteurs, {portee}")
 
 
 def check_provenance():
@@ -958,7 +961,8 @@ def check_provenance():
         return Etat.SANS_OBJET, "provenance des connexions", _hors_de_portee()
     journal = os.path.join(_etat_panneau(), "acces.jsonl")
     if not os.path.exists(journal):
-        return Etat.OK, "provenance des connexions", "aucune connexion enregistree pour l'instant"
+        return (Etat.OK, "provenance des connexions",
+                "aucune connexion enregistrée pour l'instant")
     try:
         with open(journal, errors="replace") as f:
             lignes = f.readlines()[-2000:]
@@ -990,20 +994,20 @@ def check_provenance():
     publique = (os.environ.get("APP_MANAGER_PUBLIC_URL") or "").strip()
     if not dehors:
         return (Etat.OK, "provenance des connexions",
-                f"{dedans} connexions, toutes depuis le reseau local")
+                f"{dedans} connexions, toutes depuis le réseau local")
     resume = ", ".join(f"{ip} ({n}x)" for ip, n in
                        sorted(dehors.items(), key=lambda x: -x[1])[:3])
     if publique:
         return (Etat.OK, "provenance des connexions",
-                f"{dedans} depuis le reseau local, {sum(dehors.values())} depuis "
-                f"l'exterieur -- attendu, la stack est publiee sur {publique}")
+                f"{dedans} depuis le réseau local, {sum(dehors.values())} depuis "
+                f"l'extérieur -- attendu, la stack est publiée sur {publique}")
     # Rang 2, et le mot compte : ces adresses sont a EXPLIQUER, pas une
     # intrusion prouvee. Un tunnel, un VPN de maison ou un proxy monte sans
     # declarer APP_MANAGER_PUBLIC_URL donnent exactement cette trace.
     return (Etat.ALERTE, "provenance des connexions",
-            f"des connexions viennent de l'EXTERIEUR alors qu'aucune adresse "
-            f"publique n'est declaree : {resume}. Verifie ce que ta box "
-            f"redirige, et borne les ports au reseau local.")
+            f"des connexions viennent de l'EXTÉRIEUR alors qu'aucune adresse "
+            f"publique n'est déclarée : {resume}. Vérifie ce que ta box "
+            f"redirige, et borne les ports au réseau local.")
 
 
 def _etat_panneau():
@@ -1026,7 +1030,7 @@ def _etat_panneau_visible():
 
 
 def _hors_de_portee():
-    return (f"l'etat du panneau ({_etat_panneau()}) n'est pas monte dans ce "
+    return (f"l'état du panneau ({_etat_panneau()}) n'est pas monté dans ce "
             f"conteneur : cette sonde ne conclut que depuis codelab-app-manager "
             f"(page de diagnostic du panneau)")
 
@@ -1063,11 +1067,11 @@ def check_applications():
     personnel ne repond plus melange deux choses de portee tres differente.
     """
     if not _etat_panneau_visible():
-        return Etat.SANS_OBJET, "applications declarees", _hors_de_portee()
+        return Etat.SANS_OBJET, "applications déclarées", _hors_de_portee()
     apps = _lire_json(os.path.join(_etat_panneau(), "apps.json"), {})
     if not apps:
-        return (Etat.OK, "applications declarees",
-                "Aucune application declaree : rien a verifier.")
+        return (Etat.OK, "applications déclarées",
+                "Aucune application déclarée : rien à vérifier.")
 
     soucis, tournent = [], 0
     for nom, a in sorted(apps.items()):
@@ -1090,13 +1094,13 @@ def check_applications():
 
     total = len(apps)
     if soucis:
-        return (Etat.ALERTE, "applications declarees",
-                f"{len(soucis)} probleme(s) sur {total} application(s) : "
+        return (Etat.ALERTE, "applications déclarées",
+                f"{len(soucis)} problème(s) sur {total} application(s) : "
                 + " ; ".join(soucis[:4])
                 + (" ..." if len(soucis) > 4 else ""))
-    return (Etat.OK, "applications declarees",
-            f"{total} application(s), {tournent} en ligne : dossier present, "
-            f"commande resolvable, port a l'ecoute.")
+    return (Etat.OK, "applications déclarées",
+            f"{total} application(s), {tournent} en ligne : dossier présent, "
+            f"commande résolvable, port à l'écoute.")
 
 
 def _port_ouvert(hote, port):
@@ -1157,7 +1161,7 @@ def check_espace_disque():
         if not total:
             continue
         occupe = round(100 * (total - libre) / total)
-        lignes.append(f"{chemin} : {occupe} % occupe, "
+        lignes.append(f"{chemin} : {occupe} % occupé, "
                       f"{libre / (1024 ** 3):.1f} Go libres")
         if occupe >= SEUIL_DISQUE and libre < SEUIL_LIBRE_GO * 1024 ** 3:
             alerte = True
@@ -1179,12 +1183,12 @@ def check_espace_disque():
         return Etat.SANS_OBJET, "espace disque", "Aucun volume lisible."
     if critique:
         return (Etat.ECHEC, "espace disque",
-                " | ".join(lignes) + " -- la prochaine ecriture peut echouer "
+                " | ".join(lignes) + " -- la prochaine écriture peut échouer "
                 "(Postgres, journaux, builds), fais de la place maintenant")
     if alerte:
         return (Etat.ALERTE, "espace disque",
                 " | ".join(lignes) + f" -- sous {SEUIL_LIBRE_GO} Go libres, "
-                f"a traiter dans la journee")
+                f"à traiter dans la journée")
     return Etat.OK, "espace disque", " | ".join(lignes)
 
 
@@ -1202,7 +1206,7 @@ def check_surface_exposee():
     que le choix soit fait en connaissance.
     """
     if not _etat_panneau_visible():
-        return Etat.SANS_OBJET, "surface exposee", _hors_de_portee()
+        return Etat.SANS_OBJET, "surface exposée", _hors_de_portee()
     etat = _etat_panneau()
     apps = _lire_json(os.path.join(etat, "apps.json"), {})
     expo = _lire_json(os.path.join(etat, "exposition.json"), {})
@@ -1217,7 +1221,7 @@ def check_surface_exposee():
 
     morceaux = [
         f"administration {'limitee au reseau local' if admin_local else 'joignable de partout'}",
-        f"adresse publique {'declaree : ' + adresse if adresse else 'non declaree'}",
+        f"adresse publique {'déclarée : ' + adresse if adresse else 'non déclarée'}",
         f"{len(publiques)} application(s) publique(s)"
         + (f" ({', '.join(publiques[:3])})" if publiques else ""),
         f"{len(sans_2fa)} compte(s) sans second facteur"
@@ -1231,10 +1235,10 @@ def check_surface_exposee():
     # revoir ; decider reste a l'administrateur.
     mauvais = bool(adresse) and not admin_local
     if mauvais:
-        return (Etat.ALERTE, "surface exposee", " | ".join(morceaux)
-                + " -- administration ouverte sur une machine publiee : "
-                "Parametres > Exposition, \"administration reservee au reseau local\"")
-    return Etat.OK, "surface exposee", " | ".join(morceaux)
+        return (Etat.ALERTE, "surface exposée", " | ".join(morceaux)
+                + " -- administration ouverte sur une machine publiée : "
+                "Paramètres > Exposition, « administration réservée au réseau local »")
+    return Etat.OK, "surface exposée", " | ".join(morceaux)
 
 
 # Les trois verrous du noyau qui peuvent interdire un namespace utilisateur,
@@ -1308,12 +1312,12 @@ def check_isolation():
         # sonde. Continuer a la marquer en faute apres qu'il l'a posee
         # reviendrait a ne pas tenir parole.
         return (Etat.OK, "isolation des applications",
-                "APP_MANAGER_ISOLER=0 : isolement coupe volontairement -- chaque "
+                "APP_MANAGER_ISOLER=0 : isolement coupé volontairement -- chaque "
                 "application garde son uid, mais voit les fichiers des autres")
     if shutil.which("unshare") is None:
         return (Etat.ALERTE, "isolation des applications",
-                "unshare absent de l'image : les applications demarrent, mais "
-                "sans etre isolees les unes des autres")
+                "unshare absent de l'image : les applications démarrent, mais "
+                "sans être isolées les unes des autres")
 
     # On EXECUTE, on ne se contente pas de trouver le binaire. unshare vient
     # de util-linux : il est toujours la. Ce qui manque, sur les machines ou
@@ -1334,10 +1338,10 @@ def check_isolation():
         # DOUTEUX cote panneau, il ne le refute pas -- et le dire evite de
         # partir corriger la mauvaise machine.
         ou = ("" if _etat_panneau_visible() else
-              " Constate depuis ce conteneur-ci, qui n'est pas celui qui lance "
+              " Constaté depuis ce conteneur-ci, qui n'est pas celui qui lance "
               "les applications : la page de diagnostic du panneau tranche.")
         return (Etat.ALERTE, "isolation des applications",
-                "le noyau refuse de creer un namespace utilisateur (%s). %s "
+                "le noyau refuse de créer un namespace utilisateur (%s). %s "
                 "Chaque application garde son propre uid -- elles ne peuvent "
                 "pas se relire l'environnement ni se tuer -- mais elles "
                 "partagent la vue de /workspace.%s Pour assumer le choix et "
@@ -1346,7 +1350,7 @@ def check_isolation():
 
     return (Etat.OK, "isolation des applications",
             "chaque application ne voit que son propre projet "
-            "(ce diagnostic excepte : il doit voir l'ensemble)")
+            "(ce diagnostic excepté : il doit voir l'ensemble)")
 
 
 # ------------------------------------------------ verification approfondie
@@ -1399,9 +1403,9 @@ def verif_base_ecrit_et_relit():
         _, recentes = read_heartbeats(conn, limit=20)
         vu = any("verification approfondie" in str(l) for l in recentes)
         if not vu:
-            return (False, "base : ecriture puis relecture",
+            return (False, "base : écriture puis relecture",
                     f"ligne #{numero} insérée, mais absente de la relecture")
-        return (True, "base : ecriture puis relecture",
+        return (True, "base : écriture puis relecture",
                 f"ligne #{numero} insérée et relue dans la foulée")
     finally:
         conn.close()
@@ -1430,9 +1434,9 @@ def verif_ecriture_refusee_sans_session():
         code = e.code
     if code in (401, 403):
         quoi = "session" if code == 401 else "jeton"
-        return (True, "ecriture refusee sans session",
+        return (True, "écriture refusée sans session",
                 f"le panneau répond {code} — la garde de {quoi} tient")
-    return (False, "ecriture refusee sans session",
+    return (False, "écriture refusée sans session",
             f"le panneau répond {code} : une écriture est passée sans session")
 
 
@@ -1487,7 +1491,7 @@ def verif_proxy_sert_cette_application():
     if code == 404:
         return (False, "le proxy sert cette application",
                 "le panneau ne connait pas d'application « diagnostic » : "
-                "elle a ete supprimee du registre, ou renommee")
+                "elle a été supprimée du registre, ou renommée")
     if code in (502, 503):
         return (False, "le proxy sert cette application",
                 f"le panneau connaît le projet mais l'application ne répond "
@@ -1515,7 +1519,7 @@ def verif_le_journal_enregistre():
 
     avant = taille()
     if avant < 0:
-        return (False, "le journal des acces enregistre",
+        return (False, "le journal des accès enregistré",
                 f"{journal} introuvable ou illisible depuis ici")
     port = _port_applications() or _port_panneau()
     try:
@@ -1526,11 +1530,11 @@ def verif_le_journal_enregistre():
     time.sleep(1.0)
     apres = taille()
     if apres > avant:
-        return (True, "le journal des acces enregistre",
+        return (True, "le journal des accès enregistré",
                 f"une ouverture de plus notée ({apres - avant} octets)")
     # Les ouvertures sont regroupees par quart d'heure et par compte : rien
     # de neuf peut vouloir dire "deja note il y a dix minutes", pas "casse".
-    return (True, "le journal des acces enregistre",
+    return (True, "le journal des accès enregistré",
             f"{journal} lisible ({avant} octets) — rien de neuf, les "
             f"ouvertures sont regroupées par quart d'heure")
 
@@ -1552,9 +1556,9 @@ def verif_le_projet_est_ecrivable():
         except OSError:
             pass
     if relu != "temoin":
-        return False, "le dossier du projet est ecrivable", "relecture incorrecte"
-    return (True, "le dossier du projet est ecrivable",
-            f"{ici} -- ecrit, relu, efface")
+        return False, "le dossier du projet est écrivable", "relecture incorrecte"
+    return (True, "le dossier du projet est écrivable",
+            f"{ici} -- écrit, relu, effacé")
 
 
 # Prefixe "verif_" et non "test_" : ce fichier contient AUSSI la suite de
@@ -1578,7 +1582,7 @@ def lancer_suite_du_panneau(timeout=180):
     import subprocess
     if app is None:
         # Pas un echec : le panneau n'est simplement pas dans cette image.
-        return (Etat.SANS_OBJET, "suite de regressions du panneau",
+        return (Etat.SANS_OBJET, "suite de régressions du panneau",
                 "le module du panneau est introuvable depuis ici")
     debut = time.time()
     try:
@@ -1588,21 +1592,95 @@ def lancer_suite_du_panneau(timeout=180):
             capture_output=True, text=True, timeout=timeout,
             cwd=os.path.dirname(os.path.abspath(__file__)))
     except FileNotFoundError:
-        return (Etat.SANS_OBJET, "suite de regressions du panneau",
-                "pytest n'est pas installe dans cette image")
+        return (Etat.SANS_OBJET, "suite de régressions du panneau",
+                "pytest n'est pas installé dans cette image")
     except subprocess.TimeoutExpired:
-        return (Etat.ECHEC, "suite de regressions du panneau",
+        return (Etat.ECHEC, "suite de régressions du panneau",
                 f"la suite n'a pas fini en {timeout} s")
     secondes = time.time() - debut
     # La derniere ligne non vide porte le compte : "123 passed, 1 skipped...".
     lignes = [l for l in (r.stdout or "").strip().split("\n") if l.strip()]
     resume = lignes[-1] if lignes else (r.stderr or "").strip()[-200:]
     if r.returncode == 0:
-        return (Etat.OK, "suite de regressions du panneau",
+        return (Etat.OK, "suite de régressions du panneau",
                 f"{resume} -- en {secondes:.1f} s")
     echecs = [l for l in lignes if l.startswith("FAILED")]
-    return (Etat.ECHEC, "suite de regressions du panneau",
+    return (Etat.ECHEC, "suite de régressions du panneau",
             resume + (" | " + " ; ".join(e[6:80] for e in echecs[:4]) if echecs else ""))
+
+
+# --------------------------------------------------------------------------
+# LES THEMATIQUES
+#
+# Seize sondes a la file, c'est une liste qu'on parcourt sans savoir ce qu'on
+# cherche. Regroupees par sujet, ce sont cinq questions auxquelles on repond
+# separement : les services se parlent-ils, la base garde-t-elle ce qu'on lui
+# confie, ce qui doit etre ferme l'est-il, que porte le panneau, et reste-t-il
+# de la place.
+#
+# Le regroupement vit ICI et non dans la page : c'est la meme information que
+# les sondes elles-memes, et l'asset Dagster comme la page doivent en avoir la
+# meme lecture.
+THEMES = [
+    ("services", "Services",
+     "Les cinq conteneurs de la stack, et le chemin entre eux."),
+    ("donnees", "Données",
+     "Postgres : le pilote, la connexion, et ce qui y est écrit."),
+    ("securite", "Sécurité",
+     "Ce qui doit être fermé l'est-il, et depuis où peut-on entrer."),
+    ("applications", "Applications",
+     "Ce que le panneau porte, et dans quel état."),
+    ("ressources", "Ressources",
+     "Le disque, les journaux, et la place qui reste."),
+]
+
+# Quelle sonde appartient a quelle thematique, par le nom qu'elle se donne.
+# Une sonde absente de cette table n'est pas perdue : elle tombe dans
+# « Autres » (voir sondes_par_theme) et un test signale l'oubli.
+THEME_DES_SONDES = {
+    "credentials.env": "services",
+    "/workspace": "services",
+    "codelab-dagster": "services",
+    "codelab-dev (SSH)": "services",
+    "codelab-postgres (TCP)": "services",
+    "codelab-app-manager": "services",
+    "Postgres (pilote)": "donnees",
+    "Postgres": "donnees",
+    "panneau fermé": "securite",
+    "origine des applications": "securite",
+    "exposition": "securite",
+    "isolation des applications": "securite",
+    "provenance des connexions": "securite",
+    "surface exposée": "securite",
+    "Clés SSH (droits)": "securite",
+    "applications déclarées": "applications",
+    "espace disque": "ressources",
+}
+
+
+def theme_d_une_sonde(nom):
+    return THEME_DES_SONDES.get(nom, "autres")
+
+
+def sondes_par_theme(resultats=None):
+    """Les sondes rangees par thematique, dans l'ordre de THEMES.
+
+    Rend une liste de (cle, titre, description, [(ok, nom, detail)]). Les
+    thematiques sans aucune sonde sont ecartees -- une rubrique vide n'est
+    pas une rubrique -- et ce qui n'est range nulle part finit dans
+    « Autres » plutot que de disparaitre.
+    """
+    resultats = run_all() if resultats is None else resultats
+    par_cle = {}
+    for ok, nom, detail in resultats:
+        par_cle.setdefault(theme_d_une_sonde(nom), []).append((ok, nom, detail))
+    groupes = [(cle, titre, desc, par_cle.get(cle, []))
+               for cle, titre, desc in THEMES if par_cle.get(cle)]
+    if par_cle.get("autres"):
+        groupes.append(("autres", "Autres",
+                        "Sondes qui n'ont pas encore de rubrique.",
+                        par_cle["autres"]))
+    return groupes
 
 
 # La liste, et non plus une suite d'appels enfouie dans une fonction : la
@@ -1622,6 +1700,39 @@ TESTS_APPROFONDIS = [
 # La suite de regressions du panneau vient toujours en dernier : c'est la
 # plus longue, et on veut voir les tests d'installation d'abord.
 NOM_SUITE_PANNEAU = "Suite de régressions du panneau"
+
+# La thematique de chaque test approfondi, par son intitule. Elle sert a
+# lancer la verification SUR UN SUJET : celui qu'on vient de voir en echec,
+# sans rejouer les trois minutes des autres.
+#
+# La suite de regressions n'appartient a aucune des cinq : elle verifie du
+# code, pas cette installation. Elle a donc sa rubrique, et c'est aussi ce
+# qui la garde optionnelle.
+THEME_DES_TESTS = {
+    "Base : écriture puis relecture": "donnees",
+    "Écriture refusée sans session": "securite",
+    "Le proxy sert cette application": "services",
+    "Le journal des accès enregistre": "securite",
+    "Le dossier du projet est écrivable": "ressources",
+    NOM_SUITE_PANNEAU: "code",
+}
+
+
+def indices_par_rubrique(avec_suite=True):
+    """Le rang de chaque test approfondi, range par thematique.
+
+    Le nom ne commence pas par « tests » : pytest ramasse tout ce qui
+    commence ainsi, et cette fonction-ci se serait retrouvee jouee comme un
+    test -- elle rend un dictionnaire, pytest le signale, et le bruit finit
+    par cacher un vrai avertissement.
+
+    Le RANG et pas le nom : c'est lui que /api/test/<i> attend, et c'est ce
+    qui permet de ne jouer qu'un sujet.
+    """
+    par_cle = {}
+    for indice, nom in enumerate(noms_des_tests(avec_suite)):
+        par_cle.setdefault(THEME_DES_TESTS.get(nom, "autres"), []).append(indice)
+    return par_cle
 
 
 def noms_des_tests(avec_suite=True):
@@ -1658,7 +1769,7 @@ def check_panneau_joignable():
     hote, info = _joindre_panneau(port)
     if hote is None:
         return (Etat.ECHEC, "codelab-app-manager",
-                f"aucune reponse ({info}) -- conteneur arrete ? "
+                f"aucune réponse ({info}) -- conteneur arrêté ? "
                 f"docker logs --tail 50 codelab-app-manager")
     return Etat.OK, "codelab-app-manager", f"http://{hote}:{port}/health -- HTTP {info}"
 
@@ -1690,19 +1801,19 @@ SEVERITE_MAX = {
     # n'y montent que sur une preuve -- une route d'administration qui repond
     # sans session, le panneau qui repond sur l'origine des applications. Un
     # panneau injoignable, lui, ne prouve rien et reste une alerte.
-    "panneau ferme": Etat.ECHEC,
+    "panneau fermé": Etat.ECHEC,
     "origine des applications": Etat.ECHEC,
     # Et la panne qui ne previent pas : un disque plein arrete Postgres avec
     # des messages qui ne parlent jamais d'espace disque.
     "espace disque": Etat.ECHEC,
     # ------------------------------------------------------------- rang 2 --
     # Degrade, mais ca tourne. A regarder dans la journee, sans mail de nuit.
-    "Cles SSH (droits)": Etat.ALERTE,         # aucune cle = installation neuve
+    "Clés SSH (droits)": Etat.ALERTE,         # aucune cle = installation neuve
     "isolation des applications": Etat.ALERTE,  # 2e barriere ; l'uid tient
     "exposition": Etat.ALERTE,                # reglages a poser
     "provenance des connexions": Etat.ALERTE,  # a expliquer, pas une intrusion
-    "applications declarees": Etat.ALERTE,    # un projet tombe n'est pas la stack
-    "surface exposee": Etat.ALERTE,           # un choix, pas une panne
+    "applications déclarées": Etat.ALERTE,    # un projet tombe n'est pas la stack
+    "surface exposée": Etat.ALERTE,           # un choix, pas une panne
 }
 
 
@@ -5352,10 +5463,13 @@ def test_la_ligne_des_mois_couvre_toute_la_largeur_de_la_carte():
     bloc = page.split("function peindreCarte(d){")[1].split("\nfunction ")[0]
     assert "grid-column:span" in bloc, (
         "chaque mois doit couvrir ses colonnes, pas une seule")
-    # Le meme gabarit pour les deux rangees : sans cela, les mois ne tombent
-    # pas en face de leurs semaines.
-    assert bloc.count("${gabarit}") == 2
-    assert "repeat(${colonnes},11px)" in bloc
+    # Les MEMES colonnes et le meme ecart pour les deux rangees : sans cela,
+    # les mois ne tombent pas en face de leurs semaines. La ligne des mois
+    # n'a qu'une rangee, elle ne reprend donc pas les sept lignes.
+    assert "${gabarit}" in bloc and "${gabaritMois}" in bloc
+    mois = bloc.split("const gabaritMois=")[1].split("\n")[0]
+    assert "repeat(${colonnes},${cote}px)" in mois and "gap:${ecart}px" in mois
+    assert "grid-template-rows" not in mois
 
 
 def test_l_annee_de_la_carte_se_choisit():
@@ -7004,6 +7118,87 @@ def test_l_api_toggle_rend_compte_de_l_echec():
     assert "except Exception" in bloc and "500" in bloc
 
 
+def test_le_port_deja_pris_se_dit_avant_de_lancer(tmp_path, monkeypatch):
+    """« Address already in use » au fond d'un journal, dans la langue d'un
+    autre programme, n'est pas une reponse. Le cas est frequent -- deux
+    applications sur le meme port, un survivant d'un arret brutal -- et il se
+    reconnait AVANT de lancer quoi que ce soit."""
+    import socket as _s
+    projet = tmp_path / "projet"
+    projet.mkdir()
+    prise = _s.socket()
+    prise.setsockopt(_s.SOL_SOCKET, _s.SO_REUSEADDR, 1)
+    prise.bind(("127.0.0.1", 0))
+    prise.listen(1)
+    port = prise.getsockname()[1]
+    try:
+        app.save({"bloquee": {"path": str(projet), "command": "sleep 60",
+                              "port": port, "visibility": "privee"}})
+        erreur = app.start("bloquee")
+        assert erreur and str(port) in erreur, erreur
+        assert "occup" in erreur, erreur
+        # Rien n'a ete lance : un port pris ne doit pas laisser un processus
+        # derriere lui.
+        assert not app.is_running("bloquee")
+    finally:
+        prise.close()
+        app.stop("bloquee")
+
+    # Et le port libre ne declenche rien : sinon on refuserait tout.
+    assert app.port_occupe_par(port) is None
+
+
+def test_un_port_libere_a_l_instant_ne_bloque_pas_le_redemarrage():
+    """Un port fraichement ferme reste en TIME_WAIT. Sans SO_REUSEADDR sur la
+    sonde, on refuserait de redemarrer ce qu'on vient d'arreter -- le geste
+    le plus courant du panneau."""
+    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    bloc = src.split("def port_occupe_par(")[1].split("\ndef ")[0]
+    assert "SO_REUSEADDR" in bloc
+    # Sur 127.0.0.1 : c'est l'adresse que le proxy contacte, et une sonde sur
+    # 0.0.0.0 refuserait un demarrage qu'un service sur une autre adresse
+    # n'aurait pas empeche.
+    assert '"127.0.0.1"' in bloc
+
+
+def test_un_lancement_impossible_ne_devient_pas_une_erreur_500():
+    """Popen leve pour tout ce qui empeche le lancement avant la commande.
+    L'exception remontait a Flask : 500, page HTML, aucun message pour
+    l'interface -- qui affichait alors son texte par defaut."""
+    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    bloc = src[src.index("def start(name, attendre=True):"):src.index("def port_occupe_par(")]
+    assert "except (OSError, ValueError)" in bloc
+    assert 'return f"Lancement impossible' in bloc
+
+
+def test_le_redemarrage_rend_compte_de_son_echec():
+    """restart_app() jetait l'erreur de start() : la route repondait « ok »,
+    et le bouton laissait une application arretee sans un mot."""
+    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    bloc = src.split("def restart_app(n):")[1].split("\n\n\n")[0]
+    assert "return start(n)" in bloc, "l'erreur de start() repart a la poubelle"
+    route = src.split("def api_restart(n):")[1].split("\n\n\n")[0]
+    assert "erreur = restart_app(n)" in route and "409" in route
+    # Le deploiement aussi : un build reussi suivi d'une mise en ligne ratee
+    # repondait « ok ».
+    deploiement = src.split("def api_deploy(n):")[1].split("\n\n\n")[0]
+    assert "erreur = restart_app(n) if is_running(n) else start(n)" in deploiement
+    assert "409" in deploiement
+
+
+def test_aucune_action_ne_se_rabat_sur_une_phrase_vide():
+    """« L'application n'a pas demarre » n'apprend rien. Quand le serveur ne
+    dit rien du tout, le code HTTP distingue au moins un refus d'une panne."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    aide = page.split("async function echec(r, defaut){")[1].split("\n}")[0]
+    assert "r.status" in aide and "401" in aide and "403" in aide
+    for action in ("async function tg(n){", "async function restartApp(n){",
+                   "async function deployApp(n){", "async function buildApp(n){"):
+        bloc = page.split(action)[1].split("\n}")[0]
+        assert "await echec(r," in bloc, f"{action} ne rend pas compte de l'echec"
+
+
 def test_le_bouton_lit_la_reponse():
     """Deux silences valaient mieux qu'un : meme si l'API avait repondu une
     erreur, tg() jetait la reponse sans la regarder."""
@@ -7169,6 +7364,29 @@ MOTS_SANS_ACCENT = [
     "eteint", "ecrase", "posee", "restee", "oubliee", "prevenir", "previent",
     "reinitialiser", "disparait", "controle", "creent", "sante",
     "gerez", "visibilite", "releve", "decoche", "redemarrer",
+    # Deuxieme passe, en relisant TOUS les textes visibles du panneau, de la
+    # page de connexion et du diagnostic. Chacun de ces mots a ete trouve en
+    # place : « Connexion chiffree », « Heberge chez toi », « Applications
+    # centralisees », « Adresse jamais confirmee », « Fixe par
+    # APP_MANAGER_HTTPS ».
+    #
+    # La liste ne retient que des mots dont AUCUNE forme francaise ne
+    # s'ecrit sans accent. « marque », « cote », « regle », « nommes »,
+    # « constate » en sont volontairement absents : ce sont aussi des mots
+    # ou des conjugaisons parfaitement corrects sans accent, et les y mettre
+    # ferait echouer le test sur des phrases justes.
+    "chiffree", "chiffrees", "confirmee", "confirmees", "frequente",
+    "frequentes", "centralisee", "centralisees", "copiee", "copiees",
+    "accede", "heberge", "protegerait", "paraitraient", "releves",
+    "severite", "deuxieme", "defaut", "reseau", "echec", "echecs",
+    "probleme", "problemes", "parametre", "parametres", "requete",
+    "requetes", "resultat", "resultats", "necessaire", "periode",
+    "integrite", "telecharger", "demarrer", "demarrage", "reussi",
+    "reussie", "echoue",
+    # « Desactivee », « Desactiver » : trouves sur les pastilles d'etat, que
+    # personne ne relit parce qu'elles font deux mots. « active », lui, n'y
+    # est pas -- une sonde active s'ecrit sans accent.
+    "desactive", "desactivee", "desactivees", "desactiver", "desactives",
 ]
 MOTIF_SANS_ACCENT = re.compile(
     r"\b(" + "|".join(sorted(MOTS_SANS_ACCENT, key=len, reverse=True)) + r")\b", re.I)
@@ -7244,6 +7462,135 @@ def test_la_tuile_en_mode_icone_n_a_ni_fond_ni_cadre():
     assert "background:none" in survol and "border-color:transparent" in survol
     # Il reste quelque chose a survoler : le nom prend l'accent.
     assert ".hub-liste.compacte .hub-projet:hover .nom{color:var(--accent)}" in page
+
+
+def test_les_trois_cartes_de_la_vue_d_ensemble_font_la_meme_hauteur():
+    """« Applications » etait un cadre transparent contenant trois tuiles
+    cadrees : elles commencaient plus bas et finissaient plus haut que
+    « Sante » et « Ressources », et les trois colonnes ne s'alignaient sur
+    rien."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    assert ".card:has(> .ov-nums){background:transparent" not in page, (
+        "la carte des chiffres redevient un cadre transparent, et ses tuiles "
+        "ne s'alignent plus sur les deux voisines")
+    # La grille etire deja les colonnes ; ce qui manquait, c'est que le
+    # contenu remplisse la carte.
+    assert ".card{display:flex;flex-direction:column}" in page
+    assert ".card>.ov-nums{flex:1" in page
+    # Et que le contenu des deux autres se pose au milieu de ce qui reste.
+    assert ".card>.healthbar{margin-top:auto}" in page
+    assert ".card>.health-legend{margin-bottom:auto}" in page
+    assert ".card>.res-row:first-of-type{margin-top:auto}" in page
+
+
+def test_la_carte_de_chaleur_ne_defile_pas():
+    """Une carte de chaleur se lit d'un coup d'oeil -- c'est sa seule raison
+    d'etre. La moitie cachee derriere un glissement horizontal ne se lit
+    jamais."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    zone = page.split(".carte-zone{")[1].split("}")[0]
+    assert "overflow" not in zone, "la barre de defilement est revenue"
+    # La taille d'une case se CALCULE depuis la place disponible : ni 11 px
+    # en dur (qui debordent d'une carte etroite), ni « 1fr » (dont la hauteur
+    # dependrait de la largeur, qui dependrait de la hauteur -- le navigateur
+    # tranchait ce cercle par des cases de 54 px).
+    bloc = page.split("function peindreCarte(d){")[1].split("\nfunction ")[0]
+    assert "$('carte-zone').clientWidth" in bloc, (
+        "la carte doit mesurer la place dont elle dispose")
+    assert "grid-template-rows:repeat(7,${cote}px)" in bloc, (
+        "les lignes suivent la meme taille, sinon les cases ne sont pas carrees")
+    # L'ecart entre les cases se resserre avant que la case ne rapetisse :
+    # 52 ecarts de 3 px font 156 px, qui debordent a eux seuls d'une carte
+    # etroite.
+    assert "for(const e of [3,2,1,0])" in bloc, (
+        "sans resserrer l'ecart, la grille deborde meme avec des cases minuscules")
+    assert "gap:${ecart}px" in bloc
+    # Et elle se repeint quand la fenetre change : une carte calculee pour
+    # 1400 px deborde a 900.
+    assert "addEventListener('resize'" in page and "peindreCarte(derniereCarte)" in page
+
+
+def test_les_tuiles_du_hub_sont_deux_fois_plus_grandes():
+    """A 44 px, on ne distinguait plus une application d'une autre. Une
+    grille d'icones sert justement a reconnaitre d'un coup d'oeil."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    icone = page.split(".hub-liste.compacte .hub-projet img{")[1].split("}")[0]
+    assert "width:88px" in icone and "height:88px" in icone
+    # La colonne suit : une icone de 88 px dans une case de 104 px n'aurait
+    # plus de place pour respirer, ni pour le nom.
+    grille = page.split(".hub-liste.compacte{")[1].split("}")[0]
+    assert "minmax(168px" in grille
+
+
+def test_les_controles_du_navigateur_suivent_le_theme():
+    """Une case cochee en bleu Windows et une fleche grise systeme suffisent
+    a faire passer la page pour un formulaire pose sur un theme soigne."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    assert "accent-color:var(--accent)" in page, (
+        "sans accent-color, les cases et les boutons radio gardent le bleu du "
+        "systeme")
+    assert "caret-color:var(--accent)" in page
+    bloc = page.split("select{appearance:none")[1].split("}")[0]
+    assert "background-image:url(\"data:image/svg+xml" in bloc, (
+        "la fleche du navigateur doit etre remplacee par la notre")
+    # Et en sombre aussi : une fleche claire sur fond sombre se voit.
+    assert ':root[data-theme="dark"] select{background-image' in page
+    assert "select option{background:var(--surface)" in page
+
+
+def test_les_zones_des_parametres_ne_sont_plus_des_boites():
+    """Six boites blanches empilees dans un onglet donnaient six rectangles
+    qui se disputaient l'attention -- alors qu'aucun n'est un objet."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    bloc = page.split(".settings-card{")[1].split("}")[0]
+    assert "background:transparent" in bloc and "border:0" in bloc
+    assert "box-shadow:none" in bloc
+    # Il reste de quoi separer deux reglages : sans filet, ils se collent.
+    assert "border-bottom:1px solid var(--line)" in bloc
+
+
+def test_le_reglage_d_affichage_se_deroule_quand_il_y_a_trop_d_applications():
+    """Quinze applications faisaient de ce reglage la moitie de la page, pour
+    une liste qu'on ouvre trois fois par an."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    assert "MASQUAGE_SEUIL_DEROULANT" in page
+    bloc = page.split("function peindreMasquees(){")[1].split("\n}")[0]
+    assert "<details" in bloc, "la liste longue doit se replier"
+    assert "if(toutes.length <= MASQUAGE_SEUIL_DEROULANT)" in bloc, (
+        "une liste courte ne gagne rien a etre repliee")
+    # Redessinee a chaque case cochee, elle se refermerait sous le doigt.
+    assert "ouverte" in bloc and "details" in bloc
+
+
+def test_les_destinataires_d_alerte_vivent_dans_la_fiche_de_l_application():
+    """Ils etaient dans les parametres globaux, en une liste de champs ou il
+    fallait retrouver la bonne ligne -- et rien, depuis la fiche d'une
+    application, ne disait qui serait prevenu si elle tombait."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    assert 'id="al-par-app"' not in page, (
+        "la liste globale des destinataires est revenue")
+    assert "peindreAlertesParApp" not in page
+    config = page.split('<div class="onglet" id="onglet-config">')[1]
+    config = config.split('id="sec-parametres"')[0]
+    assert 'id="e-alertes"' in config, (
+        "le champ doit etre dans l'onglet Configuration de l'application")
+    # Enregistre par le meme bouton que le reste de la configuration.
+    envoi = page.split("async function submitEdit(){")[1].split("\n}")[0]
+    assert "/api/alertes/application/" in envoi
+    # Et relu a l'ouverture de la fiche, sinon le champ parait toujours vide.
+    lecture = page.split("function chargerConfigFiche(){")[1].split("\n}")[0]
+    assert "$('e-alertes').value" in lecture
+    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    bloc = src.split("def api_apps():")[1].split("\n\n\n")[0]
+    assert '"alertes": _adresses(a.get("alertes"))' in bloc, (
+        "la liste doit arriver avec l'application")
 
 
 def test_le_masquage_ne_se_regle_que_dans_les_parametres():
@@ -7343,7 +7690,12 @@ def _phrases_du_script(page):
     Un test qui ne regarde que le HTML rate tout ce que la page ecrit
     elle-meme -- et c'est la que la moitie de l'interface est produite. Le
     filtre est simple : au moins trois mots, et pas d'adresse ni de selecteur
-    (ils contiennent presque toujours une barre, un point ou un diese).
+    (ils contiennent presque toujours une barre, un diese ou un signe egal).
+
+    Le signe egal ecarte un artefact du decoupage : entre deux chaines
+    voisines d'une meme ligne de code, le texte qui les separe est du CODE,
+    et il etait pris pour une phrase -- « + r).textContent = d.detail || »
+    en est un.
     """
     phrases = []
     for js in re.findall(r"<script[^>]*>(.*?)</script>", page, re.S):
@@ -7357,7 +7709,7 @@ def _phrases_du_script(page):
             t = next(g for g in m.groups() if g is not None)
             if len(t.split()) < 3:
                 continue
-            if re.search(r"[/<>{}#]|\bfunction\b|\bvar\b", t):
+            if re.search(r"[/<>{}#=]|\bfunction\b|\bvar\b", t):
                 continue
             phrases.append(t.replace("\\'", "'"))
     return phrases
@@ -7382,22 +7734,216 @@ def test_aucun_texte_du_hub_n_a_perdu_ses_accents():
     assert not fautes, "textes visibles sans accents :\n" + "\n".join(fautes[:12])
 
 
+def test_aucun_imperatif_n_est_ecrit_au_participe_passe():
+    """« Déclaré-la », « Réglé-le », « modifié-le là-bas » : un participe
+    passe la ou le francais demande un imperatif. La faute vient d'une passe
+    d'accentuation trop zelee -- on accentue « declare » sans regarder si la
+    phrase donne un ordre.
+
+    La regle mecanique qui les attrape toutes : un verbe en -é suivi d'un
+    trait d'union et d'un pronom est TOUJOURS faux. « Déclare-la »,
+    « règle-le », « modifie-le » : l'imperatif ne prend pas d'accent final.
+    """
+    motif = re.compile(r"[A-Za-zÀ-ÿ]+é-(?:le|la|les|y|en|moi|toi)\b")
+    fautes = []
+    for chemin in (os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                   os.path.join(DOSSIER_PANNEAU, "app", "login.html"),
+                   os.path.join(DOSSIER_PANNEAU, "app", "app.py"),
+                   os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py")):
+        src = open(chemin, encoding="utf-8").read()
+        for faute in motif.findall(src):
+            fautes.append(f"{os.path.basename(chemin)} : {faute}")
+    assert not fautes, "imperatifs au participe passe :\n" + "\n".join(fautes)
+
+
+def test_les_phrases_qui_donnent_un_ordre_le_donnent_en_francais():
+    """Les memes fautes sans trait d'union, que la regle mecanique
+    ci-dessus ne peut pas attraper : « Déclaré un dossier », « Créé un
+    compte », « réglé les destinataires ». Une liste, donc -- courte, et
+    nourrie de ce qui a ete trouve en place."""
+    fautives = ["Déclaré un", "Déclaré l'", "Déclaré d'abord", "Créé un",
+                "créé un compte", "réglé les destinataires", "Réglé-le",
+                "Activé-la", "Ajouté un", "Supprimé le"]
+    fautes = []
+    for chemin in (os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                   os.path.join(DOSSIER_PANNEAU, "app", "login.html"),
+                   os.path.join(DOSSIER_PANNEAU, "app", "app.py")):
+        src = open(chemin, encoding="utf-8").read()
+        for faute in fautives:
+            if faute in src:
+                fautes.append(f"{os.path.basename(chemin)} : « {faute} »")
+    assert not fautes, "participe passe au lieu d'un imperatif :\n" + "\n".join(fautes)
+
+
+# Les verbes a l'infinitif derriere « a » : « rien a taper », « A activer
+# ci-dessous », « A poser une fois le TLS en place ». La preposition prend
+# l'accent, le verbe avoir non -- et « avoir » ne se suit jamais directement
+# d'un infinitif. Les infinitifs en -re sont listes : trop de mots courants
+# finissent par ces deux lettres (« encore », « autre », « contre ») pour
+# qu'une terminaison suffise.
+INFINITIFS_EN_RE = ("faire", "mettre", "prendre", "ecrire", "écrire", "lire",
+                    "dire", "suivre", "remettre", "reprendre", "comprendre",
+                    "permettre", "croire", "vivre", "rendre", "attendre",
+                    "repondre", "répondre", "perdre", "revivre")
+MOTIF_A_INFINITIF = re.compile(
+    r"(?<![\wÀ-ÿ'])[Aa]\s+(?:[a-zà-ÿ]+(?:er|ir)\b|(?:" +
+    "|".join(INFINITIFS_EN_RE) + r")\b)")
+
+# « ne protégé plus rien » : un participe passe la ou il faut un present.
+# Sans auxiliaire, « ne ... plus » demande un verbe conjugue.
+MOTIF_PARTICIPE_SANS_AUXILIAIRE = re.compile(
+    r"\bne\s+[a-zà-ÿ]+é\s+(?:plus|pas|rien|jamais|guere|guère)\b")
+
+
+def test_les_etiquettes_d_un_seul_mot_portent_leurs_accents():
+    """« Desactivee », « Actives » : les pastilles d'etat font UN mot, et le
+    controle des phrases ne les voyait pas -- il ne regarde que ce qui
+    compte trois mots ou plus. Ce sont pourtant les textes les plus lus de
+    la page : on les relit a chaque coup d'oeil.
+
+    On ne cherche que dans ce qui est manifestement une etiquette : entre
+    guillemets ou entre balises. Sans cela, totpDesactiver() -- un nom de
+    fonction, qui ne s'affiche nulle part -- serait signale.
+    """
+    motif = re.compile(r"""(?<=['">])(Desactivee?s?|Desactiver|Activee|Activees|"""
+                       r"""Arretee|Arretees|Demarree|Reussi|Echoue)(?=['"<])""")
+    fautes = []
+    for chemin in (os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                   os.path.join(DOSSIER_PANNEAU, "app", "login.html")):
+        page = open(chemin, encoding="utf-8").read()
+        for faute in motif.findall(page):
+            fautes.append(f"{os.path.basename(chemin)} : « {faute} »")
+    assert not fautes, "etiquettes sans accents :\n" + "\n".join(fautes)
+
+
+def test_la_preposition_a_garde_son_accent_devant_un_infinitif():
+    """« rien a taper », « A activer ci-dessous », « A poser une fois le TLS
+    en place » : c'est la preposition, pas le verbe avoir -- qui ne se suit
+    d'ailleurs jamais directement d'un infinitif."""
+    fautes = []
+    for chemin in (os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                   os.path.join(DOSSIER_PANNEAU, "app", "login.html")):
+        page = open(chemin, encoding="utf-8").read()
+        for texte in _textes_visibles(page) + _phrases_du_script(page):
+            texte = " ".join(texte.split())
+            for faute in MOTIF_A_INFINITIF.findall(texte):
+                fautes.append(f"{os.path.basename(chemin)} : « {faute} » "
+                              f"dans « {texte[:70]} »")
+    assert not fautes, "« a » au lieu de « à » :\n" + "\n".join(fautes[:12])
+
+
+def test_aucun_participe_passe_ne_tient_lieu_de_verbe_conjugue():
+    """« la limite de tentatives ne protégé plus rien » : l'accent de trop,
+    pose par une relecture qui accentue sans lire la phrase."""
+    fautes = []
+    for chemin in (os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                   os.path.join(DOSSIER_PANNEAU, "app", "login.html")):
+        page = open(chemin, encoding="utf-8").read()
+        for texte in _textes_visibles(page) + _phrases_du_script(page):
+            texte = " ".join(texte.split())
+            for faute in MOTIF_PARTICIPE_SANS_AUXILIAIRE.findall(texte):
+                fautes.append(f"{os.path.basename(chemin)} : « {faute} »")
+    assert not fautes, "participe passe sans auxiliaire :\n" + "\n".join(fautes)
+
+
+def test_aucun_texte_de_la_page_de_connexion_n_a_perdu_ses_accents():
+    """La page de connexion echappait au controle, et cela se voyait :
+    « Applications centralisees », « Heberge chez toi », « Accede a tes
+    applications », « Connexion chiffree cote serveur ». C'est pourtant la
+    PREMIERE page que voit quelqu'un a qui l'on partage une application."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "login.html"),
+                encoding="utf-8").read()
+    fautes = []
+    for texte in _textes_visibles(page) + _phrases_du_script(page):
+        for mot in MOTIF_SANS_ACCENT.findall(texte):
+            fautes.append(f"{mot} — dans « {texte[:70]} »")
+    assert not fautes, "textes visibles sans accents :\n" + "\n".join(fautes[:12])
+
+
+def _messages_des_sondes():
+    """Ce que les sondes AFFICHENT : leur nom et leur detail.
+
+    Pris dans l'arbre syntaxique plutot qu'en jouant les sondes : le
+    resultat ne doit pas dependre de la machine qui lance le test. Une sonde
+    qui echoue ici et passe en CI montrerait des textes differents, et le
+    controle des accents deviendrait une loterie.
+    """
+    import ast as _ast
+    src = open(os.path.abspath(__file__), encoding="utf-8").read()
+    messages = []
+    for f in _ast.walk(_ast.parse(src)):
+        if not isinstance(f, _ast.FunctionDef):
+            continue
+        if not (f.name.startswith("check_") or f.name.startswith("verif_")
+                or f.name == "lancer_suite_du_panneau"):
+            continue
+        for n in _ast.walk(f):
+            if (isinstance(n, _ast.Return) and isinstance(n.value, _ast.Tuple)
+                    and len(n.value.elts) == 3):
+                for e in n.value.elts[1:]:
+                    messages += [x.value for x in _ast.walk(e)
+                                 if isinstance(x, _ast.Constant)
+                                 and isinstance(x.value, str)]
+    return messages
+
+
+def _textes_du_diagnostic():
+    """Tout ce que la page du diagnostic affiche : ses fragments et son
+    script. Le CSS est ecarte -- c'est du style, pas du texte."""
+    import ast as _ast
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py"),
+               encoding="utf-8").read()
+    arbre = _ast.parse(src)
+    # Les DOCSTRINGS sont du commentaire : elles s'ecrivent sans accents,
+    # c'est la regle du depot, et les inclure ferait echouer le test sur
+    # chaque explication du fichier.
+    ecartes = set()
+    for n in _ast.walk(arbre):
+        corps = getattr(n, "body", None)
+        if (isinstance(corps, list) and corps
+                and isinstance(corps[0], _ast.Expr)
+                and isinstance(corps[0].value, _ast.Constant)
+                and isinstance(corps[0].value.value, str)):
+            ecartes.add(id(corps[0].value))
+    phrases = []
+    for n in arbre.body:
+        if (isinstance(n, _ast.Assign) and len(n.targets) == 1
+                and isinstance(n.targets[0], _ast.Name)
+                and isinstance(n.value, _ast.Constant)
+                and isinstance(n.value.value, str)):
+            nom = n.targets[0].id
+            if nom == "CSS":
+                ecartes.add(id(n.value))
+            elif nom == "SCRIPT":
+                ecartes.add(id(n.value))
+                # Le script : seules ses CHAINES sont du texte lu.
+                phrases += _phrases_du_script(
+                    "<script>" + n.value.value + "</script>")
+    morceaux = []
+    for n in _ast.walk(arbre):
+        if isinstance(n, _ast.Constant) and isinstance(n.value, str):
+            if id(n) not in ecartes:
+                morceaux.append(n.value)
+    textes = []
+    for m in morceaux:
+        # Un fragment coupe au milieu d'une balise -- « ... data-verifier=" »
+        # -- laisserait passer ses ATTRIBUTS pour du texte affiche.
+        m = re.sub(r"<[^>]*$", "", m)
+        if "<" not in m and len(m.split()) < 2:
+            continue      # un mot seul et sans balise : une cle, pas une phrase
+        textes += _textes_visibles(m)
+    return textes + phrases
+
+
 def test_aucun_texte_du_diagnostic_n_a_perdu_ses_accents():
     """Meme regle pour l'application diagnostic : c'est une page de CodeLab,
     pas une application invitee."""
-    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py"),
-               encoding="utf-8").read()
-    # Les gabarits de page sont les f-strings triple-guillemets qui
-    # commencent par <!doctype.
-    pages = re.findall(r'f"""(<!doctype.*?)"""', src, re.S)
-    assert len(pages) == 2, f"{len(pages)} gabarit(s) de page trouve(s), 2 attendus"
     fautes = []
-    for page in pages:
-        for texte in _textes_visibles(page):
-            if texte.startswith("{") or "checks." in texte:
-                continue                      # une expression Python, pas un texte
-            for mot in MOTIF_SANS_ACCENT.findall(texte):
-                fautes.append(f"{mot} — dans « {texte[:70]} »")
+    for texte in _textes_du_diagnostic() + _messages_des_sondes():
+        if texte.startswith("{") or "checks." in texte:
+            continue                          # une expression Python, pas un texte
+        for mot in MOTIF_SANS_ACCENT.findall(texte):
+            fautes.append(f"{mot} — dans « {texte[:70]} »")
     assert not fautes, "textes visibles sans accents :\n" + "\n".join(fautes[:12])
 
 
@@ -7410,11 +7956,66 @@ def test_la_verification_annonce_ses_lignes_avant_de_les_jouer():
     src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py"),
                encoding="utf-8").read()
     assert "/api/test/<int:indice>" in src, "un test a la fois, sinon rien n'avance"
-    # Les lignes sont posees dans le HTML rendu, avant tout resultat.
+    # Les lignes sont posees AVANT d'etre jouees, chacune « en attente ».
     assert 'class="st attente"><span>en attente</span>' in src
-    # La barre d'avancement bouge quand un test FINIT : pas d'animation qui
-    # tourne dans le vide et laisse croire que ca progresse.
-    assert "jauge" in src and "(i + 1) / nb * 100" in src
+    # La roue avance quand un test FINIT : pas d'animation qui tourne dans le
+    # vide et laisse croire que ca progresse.
+    assert "roue(r + 1, liste.length)" in src
+    roue = src.split("function roue(fait, total){")[1].split("\n}")[0]
+    assert "strokeDashoffset" in roue and "fait / total" in roue
+
+
+def test_la_verification_se_lance_sur_tout_ou_sur_une_rubrique():
+    """« Le proxy ne sert plus cette application » ne demande pas de rejouer
+    trois minutes de tests de base : on relance le SUJET qu'on vient de voir
+    en echec."""
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py"),
+               encoding="utf-8").read()
+    # Le bouton global n'a pas de sujet, celui d'une rubrique porte sa cle.
+    assert 'data-verifier=""' in src, "le bouton global a disparu"
+    assert 'data-verifier="{esc(cle)}"' in src, (
+        "chaque rubrique doit pouvoir se verifier seule")
+    choix = src.split("function choisis(cle, avecSuite){")[1].split("\n}")[0]
+    assert "cle === null || t.theme === cle" in choix
+    # La suite de regressions reste optionnelle, quelle que soit la rubrique.
+    assert "avecSuite || t.theme !== 'code'" in choix
+
+
+def test_la_verification_se_joue_dans_une_fenetre_posee_des_le_depart():
+    """Une fenetre construite en JavaScript au moment du clic n'existe pas
+    tant qu'on n'a pas clique : elle ne se teste pas, et elle ne se lit
+    pas."""
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py"),
+               encoding="utf-8").read()
+    assert 'id="voile"' in src and 'aria-modal="true"' in src
+    # Elle se ferme de trois facons : la croix, le voile, la touche Echap.
+    for geste in ("$('fermer').addEventListener('click', fermer)",
+                  "e.target === $('voile')", "e.key === 'Escape'"):
+        assert geste in src, geste
+    # Mais jamais pendant qu'une verification tourne : fermer ne l'arrete
+    # pas, et la rouvrir montrerait une fenetre qui avance toute seule.
+    fermer = src.split("function fermer(){")[1].split("\n}")[0]
+    assert "if(enCours) return;" in fermer
+
+
+def test_les_sondes_sont_rangees_par_thematique():
+    """Seize sondes a la file, c'est une liste qu'on parcourt sans savoir ce
+    qu'on cherche. Rangees, ce sont cinq questions distinctes."""
+    groupes = sondes_par_theme(run_all())
+    assert groupes, "aucune rubrique"
+    cles = [cle for cle, _, _, _ in groupes]
+    assert "autres" not in cles, (
+        "une sonde n'a pas de rubrique : ajoute-la a THEME_DES_SONDES")
+    # Chaque sonde apparait une fois et une seule.
+    rangees = [nom for _, _, _, sondes in groupes for _, nom, _ in sondes]
+    attendues = [nom for _, nom, _ in run_all()]
+    assert sorted(rangees) == sorted(attendues)
+    # Et chaque test approfondi aussi.
+    par_theme = indices_par_rubrique()
+    assert "autres" not in par_theme, (
+        "un test approfondi n'a pas de rubrique : ajoute-le a THEME_DES_TESTS")
+    rangs = sorted(i for indices in par_theme.values() for i in indices)
+    assert rangs == list(range(len(noms_des_tests())))
 
 
 def test_un_indice_de_test_hors_liste_ne_casse_pas_la_page():
@@ -7442,6 +8043,38 @@ def checks_noms():
     return noms_des_tests()
 
 
+def test_la_page_d_etat_range_ses_sondes_en_rubriques():
+    """Seize sondes a la file, c'est une liste qu'on parcourt sans savoir ce
+    qu'on cherche. Une carte par sujet, son etat en pastille, et son propre
+    bouton : on lit la rubrique qui cloche, et on approfondit celle-la."""
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py"),
+               encoding="utf-8").read()
+    assert "checks.sondes_par_theme(resultats)" in src, (
+        "la page doit prendre le regroupement du module, pas s'en inventer un")
+    bloc = src.split("def _rubrique(")[1].split("\n\n\n")[0]
+    # Chaque rubrique porte son compte : « 4 sur 7 » se lit sans compter les
+    # lignes, et la couleur dit tout de suite si l'on doit s'y arreter.
+    assert "passees} sur {total}" in bloc
+    assert "checks.pire(resultats).classe" in bloc, (
+        "la pastille doit prendre la couleur du pire rang de la rubrique : "
+        "une rubrique qui ne porte qu'une alerte est orange, pas rouge")
+    # Et son bouton, qui ne vaut que pour elle.
+    assert 'data-verifier="{esc(cle)}"' in bloc
+
+
+def test_la_page_d_etat_partage_un_seul_gabarit():
+    """Deux gabarits divergent au premier changement, et le diagnostic se
+    mettrait a ressembler a deux applications selon la page ouverte."""
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py"),
+               encoding="utf-8").read()
+    assert src.count("<!doctype") == 1, (
+        "un seul gabarit : les autres pages passent par page()")
+    # L'ancienne adresse /tests continue de mener a la verification : le lien
+    # a circule, il est dans les favoris et dans les journaux.
+    assert '@app.get("/tests")' in src
+    assert "ouvrir_verification=True" in src
+
+
 def test_le_diagnostic_suit_le_theme_du_panneau():
     """Il CHARGE le theme, il ne le recopie pas.
 
@@ -7453,6 +8086,19 @@ def test_le_diagnostic_suit_le_theme_du_panneau():
                encoding="utf-8").read()
     assert 'href="/theme.css"' in src, "le diagnostic ne charge pas le theme partage"
     assert "codelab-theme" in src, "le choix clair / sombre n'est pas repris"
+    # Il arrive par un COOKIE : le localStorage du panneau appartient a une
+    # autre origine, et n'est pas lisible d'ici -- il ne doit pas l'etre.
+    assert "document.cookie.match" in src, (
+        "sans le cookie, le diagnostic retombe sur le reglage du systeme")
+    panneau = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                   encoding="utf-8").read()
+    assert "function noterThemePartage(t){" in panneau, (
+        "le panneau ne partage pas son choix : personne ne pose le cookie")
+    bloc = panneau.split("function setTheme(t){")[1].split("\n}")[0]
+    assert "noterThemePartage(t)" in bloc
+    # Pose aussi au chargement : une installation en place ne doit pas avoir
+    # a refaire son choix pour que les applications le voient.
+    assert "noterThemePartage(themeChoisi)" in panneau
     # Aucune couleur en dur ne doit revenir dans sa feuille de style.
     css = src[src.index("CSS = "):src.index('"""', src.index("CSS = ") + 10)]
     assert "#" not in css.replace("#{", ""), (
@@ -8141,7 +8787,7 @@ def test_les_sondes_du_panneau_ne_repondent_pas_depuis_ailleurs(tmp_path, monkey
                      check_provenance, check_exposition):
         etat, nom, detail = fonction()
         assert etat is Etat.SANS_OBJET, f"{nom} conclut sans rien avoir lu"
-        assert "n'est pas monte dans ce conteneur" in detail
+        assert "n'est pas monté dans ce conteneur" in detail
 
 
 def test_l_etat_du_panneau_monte_les_sondes_repondent(tmp_path, monkeypatch):
@@ -8342,7 +8988,7 @@ def test_une_alerte_ne_fait_pas_echouer_le_run(asset_diagnostic, monkeypatch):
         (Etat.OK, "Postgres", "connecte"),
         (Etat.ALERTE, "espace disque", "/workspace : 87 % occupe, 2.1 Go libres"),
         (Etat.ALERTE, "isolation des applications", "le noyau refuse"),
-        (Etat.SANS_OBJET, "surface exposee", "pas monte ici"),
+        (Etat.SANS_OBJET, "surface exposée", "pas monté ici"),
     ])
     contexte = _ContexteDeTest()
 
@@ -8354,7 +9000,7 @@ def test_une_alerte_ne_fait_pas_echouer_le_run(asset_diagnostic, monkeypatch):
     # les cite toutes.
     assert contexte.niveaux("espace disque -- ") == ["warning"]
     assert contexte.niveaux("Postgres -- ") == ["info"]
-    assert contexte.niveaux("surface exposee -- ") == ["info"]
+    assert contexte.niveaux("surface exposée -- ") == ["info"]
     assert contexte.metadonnees["critiques"] == 0
     assert contexte.metadonnees["alertes"] == 2
     assert contexte.metadonnees["sans objet"] == 1
@@ -8505,11 +9151,19 @@ def test_un_arret_qui_marche_rend_none(survivants):
 
 
 def test_le_bouton_ne_se_trompe_plus_de_sens():
-    """La page doit pouvoir dire le bon sens meme sur une reponse sans JSON :
-    elle connait l'etat qu'elle vient d'afficher."""
+    """La page doit dire le bon sens meme sur une reponse sans JSON.
+
+    Le repli d'echec() est ecrit pour le demarrage : un arret rate
+    s'annoncait « L'application n'a pas demarre (reponse 500) », ce qui
+    envoie chercher exactement a l'oppose de la panne. La page connait
+    l'etat qu'elle vient d'afficher -- c'est lui qui choisit la phrase quand
+    le serveur ne dit rien du tout.
+    """
     _, script = _script_panneau_html()
     bloc = script[script.index("async function tg(n){"):]
     bloc = bloc[:bloc.index("async function", 10)]
-    assert "d.action" in bloc, "la page ignore le sens que le panneau lui donne"
+    assert "running===true" in bloc, (
+        "la page ne regarde pas l'etat qu'elle vient d'afficher")
     assert "arrêtée" in bloc, "aucun message pour un arret qui echoue"
-    assert "avant" in bloc, "aucun repli quand la reponse n'est pas du JSON"
+    assert "echec(r," in bloc, (
+        "le message du serveur ne gagne plus sur le repli de la page")
