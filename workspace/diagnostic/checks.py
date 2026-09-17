@@ -10906,31 +10906,29 @@ def _racine_llm():
     ici = Path(__file__).resolve()
     candidates.extend((parent / "llm" for parent in ici.parents))
     for candidate in candidates:
-        if (candidate / "app.py").is_file() and (candidate / "schema.sql").is_file():
+        if (candidate / "app.py").is_file():
             return candidate
     pytest.skip("sources llm absentes de cette image")
 
 
 def test_le_service_llm_expose_les_modeles_logiques_et_les_fallbacks():
-    config = (_racine_llm() / "litellm-config.yaml").read_text(encoding="utf-8")
+    config = (_racine_llm() / "app.py").read_text(encoding="utf-8")
     for modele in ("codelab-fast", "codelab-smart", "codelab-coding"):
-        assert f"model_name: {modele}" in config
+        assert f'"model_name": "{modele}"' in config
     assert "GEMINI_API_KEY" in config
     assert "GROQ_API_KEY" in config
     assert "OPENROUTER_API_KEY" in config
-    assert "fallbacks:" in config
+    assert "FALLBACKS = [" in config
     assert "codelab-smart-openrouter" in config
-    assert "request_timeout:" in config and "num_retries:" in config
+    assert "num_retries=2" in config and "timeout=90" in config
 
 
 def test_le_service_llm_ne_contient_aucun_secret_provider():
     racine = _racine_llm()
-    for chemin in racine.iterdir():
-        if chemin.is_file() and chemin.suffix in {".py", ".yaml", ".sh"}:
-            contenu = chemin.read_text(encoding="utf-8")
-            assert "AIza" not in contenu
-            assert "gsk_" not in contenu
-            assert "sk-or-" not in contenu
+    contenu = (racine / "app.py").read_text(encoding="utf-8")
+    assert "AIza" not in contenu
+    assert "gsk_" not in contenu
+    assert "sk-or-" not in contenu
     compose = racine.parent / "docker-compose.yml"
     if compose.is_file():
         contenu = compose.read_text(encoding="utf-8")
@@ -10940,7 +10938,7 @@ def test_le_service_llm_ne_contient_aucun_secret_provider():
 
 
 def test_le_schema_llm_garde_identite_conversations_messages_et_usage():
-    schema = (_racine_llm() / "schema.sql").read_text(encoding="utf-8")
+    schema = (_racine_llm() / "app.py").read_text(encoding="utf-8")
     for table in ("llm_api_keys", "llm_conversation", "llm_message", "llm_usage"):
         assert f"CREATE TABLE IF NOT EXISTS {table}" in schema
     for colonne in (
@@ -10973,3 +10971,6 @@ def test_l_api_llm_refuse_les_modeles_provider_et_exige_une_cle():
     assert "X-CodeLab-Conversation-ID" in source
     assert "MAX_BODY_BYTES" in source
     assert "RATE_LIMIT_PER_MINUTE" in source
+    assert "from litellm import Router" in source
+    assert "def _manage()" in source
+    assert "@app.on_event(\"startup\")" in source

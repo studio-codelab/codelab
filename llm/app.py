@@ -1,15 +1,15 @@
 """Thin CodeLab identity and persistence layer in front of LiteLLM."""
+import argparse
 import hashlib
 import json
 import os
+import secrets
 import time
 import uuid
 from collections import defaultdict, deque
 from contextlib import contextmanager
-from pathlib import Path
 
 import psycopg
-import yaml
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from litellm import Router
@@ -17,27 +17,69 @@ from litellm import Router
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 MAX_BODY_BYTES = 512 * 1024
 RATE_LIMIT_PER_MINUTE = 60
-ALLOWED_MODELS = {"codelab-fast", "codelab-smart", "codelab-coding", "codelab-reasoning"}
+ALLOWED_MODELS = {"codelab-fast", "codelab-smart", "codelab-coding"}
 _rate_history = defaultdict(deque)
+
+MODEL_LIST = [
+    {"model_name": "codelab-fast", "litellm_params": {
+        "model": "groq/llama-3.1-8b-instant", "api_key": "GROQ_API_KEY"}},
+    {"model_name": "codelab-fast-gemini", "litellm_params": {
+        "model": "gemini/gemini-2.0-flash", "api_key": "GEMINI_API_KEY"}},
+    {"model_name": "codelab-smart", "litellm_params": {
+        "model": "gemini/gemini-2.0-flash", "api_key": "GEMINI_API_KEY"}},
+    {"model_name": "codelab-smart-groq", "litellm_params": {
+        "model": "groq/llama-3.3-70b-versatile", "api_key": "GROQ_API_KEY"}},
+    {"model_name": "codelab-smart-openrouter", "litellm_params": {
+        "model": "openrouter/google/gemini-2.0-flash-001", "api_key": "OPENROUTER_API_KEY"}},
+    {"model_name": "codelab-coding", "litellm_params": {
+        "model": "groq/llama-3.3-70b-versatile", "api_key": "GROQ_API_KEY"}},
+    {"model_name": "codelab-coding-gemini", "litellm_params": {
+        "model": "gemini/gemini-2.0-flash", "api_key": "GEMINI_API_KEY"}},
+]
+FALLBACKS = [
+    {"codelab-fast": ["codelab-fast-gemini"]},
+    {"codelab-smart": ["codelab-smart-groq", "codelab-smart-openrouter"]},
+    {"codelab-coding": ["codelab-coding-gemini", "codelab-smart"]},
+]
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS llm_api_keys (
+    id BIGSERIAL PRIMARY KEY, key_hash TEXT NOT NULL UNIQUE, key_name TEXT NOT NULL,
+    user_id TEXT NOT NULL, app_id TEXT NOT NULL, revoked_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS llm_conversation (
+    id UUID PRIMARY KEY, app_id TEXT NOT NULL, user_id TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS llm_message (
+    id BIGSERIAL PRIMARY KEY, conversation_id UUID NOT NULL REFERENCES llm_conversation(id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool')),
+    content TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS llm_usage (
+    id BIGSERIAL PRIMARY KEY, timestamp TIMESTAMPTZ NOT NULL DEFAULT now(),
+    user_id TEXT NOT NULL, app_id TEXT NOT NULL, conversation_id UUID REFERENCES llm_conversation(id) ON DELETE SET NULL,
+    requested_model TEXT NOT NULL, actual_model TEXT, provider TEXT,
+    input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0,
+    total_tokens INTEGER NOT NULL DEFAULT 0, cost NUMERIC(18, 8) NOT NULL DEFAULT 0,
+    latency_ms INTEGER NOT NULL, cache_hit BOOLEAN NOT NULL DEFAULT FALSE, fallback BOOLEAN NOT NULL DEFAULT FALSE
+);
+CREATE INDEX IF NOT EXISTS llm_usage_dimensions_idx
+    ON llm_usage (user_id, app_id, requested_model, provider, timestamp);
+"""
 
 app = FastAPI(title="CodeLab LLM API", docs_url=None, redoc_url=None)
 
 
 def _litellm_router():
-    config_path = Path(__file__).with_name("litellm-config.yaml")
-    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    for entry in config["model_list"]:
-        params = entry["litellm_params"]
-        reference = params.get("api_key", "")
-        if reference.startswith("os.environ/"):
-            params["api_key"] = os.environ.get(reference.split("/", 1)[1], "")
-    settings = config["litellm_settings"]
+    model_list = [{**entry, "litellm_params": {**entry["litellm_params"]}}
+                  for entry in MODEL_LIST]
+    for entry in model_list:
+        name = entry["litellm_params"]["api_key"]
+        entry["litellm_params"]["api_key"] = os.environ.get(name, "")
     return Router(
-        model_list=config["model_list"],
-        fallbacks=settings["fallbacks"],
-        num_retries=settings["num_retries"],
-        retry_after=settings["retry_after"],
-        timeout=settings["request_timeout"],
+        model_list=model_list, fallbacks=FALLBACKS,
+        num_retries=2, retry_after=1, timeout=90,
     )
 
 
@@ -74,6 +116,16 @@ def _database_url():
 def db():
     with psycopg.connect(_database_url()) as connection:
         yield connection
+
+
+def _ensure_schema():
+    with db() as connection:
+        connection.execute(SCHEMA)
+
+
+@app.on_event("startup")
+def initialize():
+    _ensure_schema()
 
 
 def _identity(authorization):
@@ -212,4 +264,32 @@ def usage(authorization: str | None = Header(default=None)):
          "requests": row[6]}
         for row in rows
     ]}
+
+def _manage():
+    parser = argparse.ArgumentParser(description="Gérer les clés API CodeLab LLM")
+    commands = parser.add_subparsers(dest="command", required=True)
+    create = commands.add_parser("create-key")
+    create.add_argument("--name", required=True)
+    create.add_argument("--user", required=True)
+    create.add_argument("--app", required=True)
+    revoke = commands.add_parser("revoke-key")
+    revoke.add_argument("key")
+    args = parser.parse_args()
+    _ensure_schema()
+    with db() as connection:
+        if args.command == "create-key":
+            value = "cl_" + secrets.token_urlsafe(32)
+            connection.execute(
+                "INSERT INTO llm_api_keys (key_hash, key_name, user_id, app_id) VALUES (%s,%s,%s,%s)",
+                (_hash_key(value), args.name, args.user, args.app))
+            print(value)
+        else:
+            result = connection.execute(
+                "UPDATE llm_api_keys SET revoked_at=now() WHERE key_hash=%s",
+                (_hash_key(args.key),))
+            print("revoked" if result.rowcount else "not found")
+
+
+if __name__ == "__main__":
+    _manage()
 

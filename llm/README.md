@@ -20,7 +20,7 @@ Creer une cle CodeLab liee a une identite :
 
 ```bash
 docker compose exec codelab-llm \
-  python3 manage.py create-key --name vscode --user alice --app vscode
+  python3 app.py create-key --name vscode --user alice --app vscode
 ```
 
 La commande affiche la cle une seule fois. Pour la revoquer, fournir cette
