@@ -610,7 +610,7 @@ services:
   # arrive donc ici, et le port de codelab-dagster n'est plus publie -- il
   # n'est joignable que depuis le reseau interne de la stack.
   codelab-dagster-proxy:
-    image: ghcr.io/lucasrtn/codelab-dagster-proxy:latest
+    image: ghcr.io/studio-codelab/codelab-dagster-proxy:latest
     container_name: codelab-dagster-proxy
     restart: unless-stopped
 
