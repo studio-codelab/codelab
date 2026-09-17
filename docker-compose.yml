@@ -59,7 +59,7 @@ services:
 
     # La base. 1 Go suffit largement au volume d'un serveur personnel. Voir l'explication en tete de fichier.
     mem_limit: 1g
-    cpus: "2"
+    cpus: 2.0
     pids_limit: 512
     logging:
       driver: json-file
@@ -132,7 +132,7 @@ services:
 
     # Le shell : on y compile, d'ou une part plus large que les services. Voir l'explication en tete de fichier.
     mem_limit: 2g
-    cpus: "2"
+    cpus: 2.0
     pids_limit: 512
     logging:
       driver: json-file
@@ -206,7 +206,7 @@ services:
 
     # L'interface et le code serveur des assets. Voir l'explication en tete de fichier.
     mem_limit: 1g
-    cpus: "2"
+    cpus: 2.0
     pids_limit: 512
     logging:
       driver: json-file
@@ -276,7 +276,7 @@ services:
 
     # Il ne fait qu'ordonnancer : il lance les runs, il ne les execute pas. Voir l'explication en tete de fichier.
     mem_limit: 768m
-    cpus: "1"
+    cpus: 1.0
     pids_limit: 256
     logging:
       driver: json-file
@@ -334,7 +334,7 @@ services:
 
     # LA PART LA PLUS LARGE, et c'est normal : ce conteneur porte le panneau, les builds npm ET toutes les applications deployees, qui sont ses processus fils. Trop juste ici, c'est une application tuee au hasard par le noyau en plein build. Voir l'explication en tete de fichier.
     mem_limit: 4g
-    cpus: "2"
+    cpus: 2.0
     pids_limit: 1024
     logging:
       driver: json-file
@@ -450,7 +450,7 @@ services:
     restart: unless-stopped
 
     mem_limit: 768m
-    cpus: "1"
+    cpus: 1.0
     pids_limit: 256
     logging:
       driver: json-file
@@ -493,7 +493,7 @@ services:
 
     # Un nginx qui relaie : il n'a besoin de rien. Voir l'explication en tete de fichier.
     mem_limit: 128m
-    cpus: "0.5"
+    cpus: 0.5
     pids_limit: 128
     logging:
       driver: json-file
