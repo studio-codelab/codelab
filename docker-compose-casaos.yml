@@ -161,7 +161,7 @@ services:
     # l'import, ce qui annule l'echappement cense y remedier -- Postgres ne
     # demarrait plus ("mkdir: cannot create directory ''"). Dans une image,
     # le script ne traverse plus aucune de ces reecritures.
-    image: ghcr.io/lucasrtn/codelab-postgres:latest
+    image: ghcr.io/studio-codelab/codelab-postgres:latest
     container_name: codelab-postgres
     restart: unless-stopped
 
@@ -237,7 +237,7 @@ services:
 
 
   codelab-dev:
-    image: ghcr.io/lucasrtn/codelab-dev:latest
+    image: ghcr.io/studio-codelab/codelab-dev:latest
     container_name: codelab-dev
     restart: unless-stopped
 
@@ -314,7 +314,7 @@ services:
 
 
   codelab-dagster:
-    image: ghcr.io/lucasrtn/codelab-dagster:latest
+    image: ghcr.io/studio-codelab/codelab-dagster:latest
     container_name: codelab-dagster
     restart: unless-stopped
 
@@ -387,7 +387,7 @@ services:
 
 
   codelab-dagster-daemon:
-    image: ghcr.io/lucasrtn/codelab-dagster:latest
+    image: ghcr.io/studio-codelab/codelab-dagster:latest
     container_name: codelab-dagster-daemon
     restart: unless-stopped
 
@@ -448,7 +448,7 @@ services:
 
 
   codelab-app-manager:
-    image: ghcr.io/lucasrtn/codelab-app-manager:latest
+    image: ghcr.io/studio-codelab/codelab-app-manager:latest
     container_name: codelab-app-manager
     restart: unless-stopped
 
@@ -567,7 +567,7 @@ services:
 
   codelab-llm:
     build: ./llm
-    image: ghcr.io/lucasrtn/codelab-llm:latest
+    image: ghcr.io/studio-codelab/codelab-llm:latest
     container_name: codelab-llm
     restart: unless-stopped
     deploy:
