@@ -22,25 +22,13 @@ _rate_history = defaultdict(deque)
 
 MODEL_LIST = [
     {"model_name": "codelab-fast", "litellm_params": {
-        "model": "groq/llama-3.1-8b-instant", "api_key": "GROQ_API_KEY"}},
-    {"model_name": "codelab-fast-gemini", "litellm_params": {
-        "model": "gemini/gemini-2.0-flash", "api_key": "GEMINI_API_KEY"}},
+        "model": "openrouter/openrouter/free", "api_key": "OPENROUTER_API_KEY"}},
     {"model_name": "codelab-smart", "litellm_params": {
-        "model": "gemini/gemini-2.0-flash", "api_key": "GEMINI_API_KEY"}},
-    {"model_name": "codelab-smart-groq", "litellm_params": {
-        "model": "groq/llama-3.3-70b-versatile", "api_key": "GROQ_API_KEY"}},
-    {"model_name": "codelab-smart-openrouter", "litellm_params": {
-        "model": "openrouter/google/gemini-2.0-flash-001", "api_key": "OPENROUTER_API_KEY"}},
+        "model": "openrouter/openrouter/free", "api_key": "OPENROUTER_API_KEY"}},
     {"model_name": "codelab-coding", "litellm_params": {
-        "model": "groq/llama-3.3-70b-versatile", "api_key": "GROQ_API_KEY"}},
-    {"model_name": "codelab-coding-gemini", "litellm_params": {
-        "model": "gemini/gemini-2.0-flash", "api_key": "GEMINI_API_KEY"}},
+        "model": "openrouter/openrouter/free", "api_key": "OPENROUTER_API_KEY"}},
 ]
-FALLBACKS = [
-    {"codelab-fast": ["codelab-fast-gemini"]},
-    {"codelab-smart": ["codelab-smart-groq", "codelab-smart-openrouter"]},
-    {"codelab-coding": ["codelab-coding-gemini", "codelab-smart"]},
-]
+FALLBACKS = []
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS llm_api_keys (
     id BIGSERIAL PRIMARY KEY, key_hash TEXT NOT NULL UNIQUE, key_name TEXT NOT NULL,
@@ -71,25 +59,6 @@ CREATE INDEX IF NOT EXISTS llm_usage_dimensions_idx
 app = FastAPI(title="CodeLab LLM API", docs_url=None, redoc_url=None)
 
 
-def _litellm_router():
-    model_list = [{**entry, "litellm_params": {**entry["litellm_params"]}}
-                  for entry in MODEL_LIST]
-    for entry in model_list:
-        name = entry["litellm_params"]["api_key"]
-        entry["litellm_params"]["api_key"] = os.environ.get(name, "")
-    return Router(
-        model_list=model_list, fallbacks=FALLBACKS,
-        num_retries=2, retry_after=1, timeout=90,
-    )
-
-
-llm_router = _litellm_router()
-
-
-def _hash_key(value):
-    return hashlib.sha256(value.encode()).hexdigest()
-
-
 def _read_env_file(path):
     values = {}
     try:
@@ -102,6 +71,30 @@ def _read_env_file(path):
     except OSError:
         pass
     return values
+
+
+def _litellm_router():
+    env_values = _read_env_file(
+        os.environ.get("CODELAB_ENV_FILE", "/var/lib/codelab/config/credentials.env")
+    )
+    model_list = [{**entry, "litellm_params": {**entry["litellm_params"]}}
+                  for entry in MODEL_LIST]
+    for entry in model_list:
+        name = entry["litellm_params"]["api_key"]
+        entry["litellm_params"]["api_key"] = (
+            os.environ.get(name) or env_values.get(name, "")
+        )
+    return Router(
+        model_list=model_list, fallbacks=FALLBACKS,
+        num_retries=2, retry_after=1, timeout=90,
+    )
+
+
+llm_router = _litellm_router()
+
+
+def _hash_key(value):
+    return hashlib.sha256(value.encode()).hexdigest()
 
 
 def _database_url():
@@ -264,6 +257,7 @@ def usage(authorization: str | None = Header(default=None)):
          "requests": row[6]}
         for row in rows
     ]}
+
 
 def _manage():
     parser = argparse.ArgumentParser(description="Gérer les clés API CodeLab LLM")
