@@ -566,7 +566,6 @@ services:
 
 
   codelab-llm:
-    profiles: ["llm"]
     build: ./llm
     image: ghcr.io/lucasrtn/codelab-llm:latest
     container_name: codelab-llm
