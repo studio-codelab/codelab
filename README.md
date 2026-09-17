@@ -18,10 +18,16 @@ propos.
 | **Dagster-proxy** | Authentification devant Dagster | `3000` |
 | **App-manager** | Le panneau : déploiement et supervision des applications | `9001` |
 | **Applications** | Les projets déployés, servis sur leur propre adresse | `9002` |
+| **CodeLab LLM** | API compatible OpenAI et conversations | `8080` |
 
 Aucune configuration manuelle après l'installation : les identifiants de base de données et les clés
 SSH sont générés au premier démarrage, et la connexion à Postgres est déjà prête dans le conteneur
 `dev`.
+
+Le service LLM optionnel s'active avec les variables `GEMINI_API_KEY`, `GROQ_API_KEY` et
+`OPENROUTER_API_KEY` dans `.env`. Il expose une API CodeLab unique,
+avec les modèles logiques `codelab-fast`, `codelab-smart` et `codelab-coding` ; la configuration
+complète est dans [`llm/README.md`](llm/README.md).
 
 ## Installation
 
