@@ -8644,6 +8644,10 @@ def _services_du_compose(chemin):
         elif courant and ligne.startswith("    ") and not ligne.startswith("     "):
             cle, _, valeur = ligne.strip().partition(":")
             services[courant][cle] = valeur.strip()
+        elif courant and ligne.startswith("          ") and not ligne.startswith("           "):
+            cle, _, valeur = ligne.strip().partition(":")
+            if cle in ("memory", "cpus", "pids"):
+                services[courant][f"deploy_{cle}"] = valeur.strip()
     return {n: r for n, r in services.items() if n.startswith("codelab-")}
 
 
@@ -8657,8 +8661,11 @@ def test_chaque_service_est_borne_dans_les_deux_composes():
         services = _services_du_compose(chemin)
         assert len(services) == 7, (chemin, sorted(services))
         for nom, reglages in services.items():
-            for cle in ("mem_limit", "cpus", "pids_limit", "logging"):
-                assert cle in reglages, f"{nom} n'a pas de {cle} dans {os.path.basename(chemin)}"
+            assert "pids_limit" in reglages or "deploy_pids" in reglages, (
+                f"{nom} n'a pas de limite processus dans {os.path.basename(chemin)}")
+            assert "logging" in reglages, f"{nom} n'a pas de logging dans {os.path.basename(chemin)}"
+            assert ("cpus" in reglages and "mem_limit" in reglages) or "deploy" in reglages, (
+                f"{nom} n'a pas de limites de ressources dans {os.path.basename(chemin)}")
         texte = open(chemin, encoding="utf-8").read()
         # La rotation est ce qui empeche un journal de remplir le disque :
         # le driver seul ne borne rien.
@@ -8674,7 +8681,8 @@ def test_le_panneau_a_la_part_la_plus_large():
         return int(v[:-1]) * 1024 if v.endswith("g") else int(v.rstrip("m"))
     for chemin in _composes():
         services = _services_du_compose(chemin)
-        part = {n: en_mo(r["mem_limit"]) for n, r in services.items()}
+        part = {n: en_mo(r.get("mem_limit", r.get("deploy_memory")))
+            for n, r in services.items()}
         assert part["codelab-app-manager"] == max(part.values()), chemin
         # Et le relais nginx, qui ne fait que relayer, garde la plus petite.
         assert part["codelab-dagster-proxy"] == min(part.values()), chemin
