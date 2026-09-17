@@ -62,6 +62,7 @@ import datetime
 import enum
 import json
 import os
+from pathlib import Path
 import socket
 import shutil
 import stat
@@ -8654,15 +8655,15 @@ def test_chaque_service_est_borne_dans_les_deux_composes():
     """
     for chemin in _composes():
         services = _services_du_compose(chemin)
-        assert len(services) == 6, (chemin, sorted(services))
+        assert len(services) == 7, (chemin, sorted(services))
         for nom, reglages in services.items():
             for cle in ("mem_limit", "cpus", "pids_limit", "logging"):
                 assert cle in reglages, f"{nom} n'a pas de {cle} dans {os.path.basename(chemin)}"
         texte = open(chemin, encoding="utf-8").read()
         # La rotation est ce qui empeche un journal de remplir le disque :
         # le driver seul ne borne rien.
-        assert texte.count('max-size: "10m"') == 6, chemin
-        assert texte.count('max-file: "3"') == 6, chemin
+        assert texte.count('max-size: "10m"') == 7, chemin
+        assert texte.count('max-file: "3"') == 7, chemin
 
 
 def test_le_panneau_a_la_part_la_plus_large():
@@ -10888,3 +10889,87 @@ def test_un_message_recu_se_signale_dans_le_coin():
     # Et les notifications paraissent bien en bas a droite.
     style = page.split(".toasts{")[1].split("}")[0]
     assert "bottom" in style and "right" in style, style
+
+
+# ---------- 23. service LLM CodeLab ---------------------------------------
+#
+# Ces tests restent hermetiques : ils ne contactent ni provider ni Docker.
+# Dans une image installee, le depot source n'est pas monte a cote du projet
+# diagnostic ; les tests sont alors ignores plutot que de transformer une
+# absence de fichier de developpement en panne de production.
+
+def _racine_llm():
+    candidates = []
+    configured = os.environ.get("CODELAB_REPO_ROOT")
+    if configured:
+        candidates.append(Path(configured) / "llm")
+    ici = Path(__file__).resolve()
+    candidates.extend((parent / "llm" for parent in ici.parents))
+    for candidate in candidates:
+        if (candidate / "app.py").is_file() and (candidate / "schema.sql").is_file():
+            return candidate
+    pytest.skip("sources llm absentes de cette image")
+
+
+def test_le_service_llm_expose_les_modeles_logiques_et_les_fallbacks():
+    config = (_racine_llm() / "litellm-config.yaml").read_text(encoding="utf-8")
+    for modele in ("codelab-fast", "codelab-smart", "codelab-coding"):
+        assert f"model_name: {modele}" in config
+    assert "GEMINI_API_KEY" in config
+    assert "GROQ_API_KEY" in config
+    assert "OPENROUTER_API_KEY" in config
+    assert "fallbacks:" in config
+    assert "codelab-smart-openrouter" in config
+    assert "request_timeout:" in config and "num_retries:" in config
+
+
+def test_le_service_llm_ne_contient_aucun_secret_provider():
+    racine = _racine_llm()
+    for chemin in racine.iterdir():
+        if chemin.is_file() and chemin.suffix in {".py", ".yaml", ".sh"}:
+            contenu = chemin.read_text(encoding="utf-8")
+            assert "AIza" not in contenu
+            assert "gsk_" not in contenu
+            assert "sk-or-" not in contenu
+    compose = racine.parent / "docker-compose.yml"
+    if compose.is_file():
+        contenu = compose.read_text(encoding="utf-8")
+        assert "GEMINI_API_KEY: ${GEMINI_API_KEY:-}" in contenu
+        assert "GROQ_API_KEY: ${GROQ_API_KEY:-}" in contenu
+        assert "OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}" in contenu
+
+
+def test_le_schema_llm_garde_identite_conversations_messages_et_usage():
+    schema = (_racine_llm() / "schema.sql").read_text(encoding="utf-8")
+    for table in ("llm_api_keys", "llm_conversation", "llm_message", "llm_usage"):
+        assert f"CREATE TABLE IF NOT EXISTS {table}" in schema
+    for colonne in (
+        "user_id", "app_id", "requested_model", "actual_model", "provider",
+        "input_tokens", "output_tokens", "total_tokens", "latency_ms", "fallback",
+    ):
+        assert colonne in schema
+    assert "revoked_at" in schema
+    assert "ON DELETE CASCADE" in schema
+
+
+def test_le_compose_llm_est_opt_in_et_ne_remplace_pas_la_stack_existante():
+    racine = _racine_llm()
+    compose = racine.parent / "docker-compose.yml"
+    pytest.importorskip("yaml")
+    charge = __import__("yaml").safe_load(compose.read_text(encoding="utf-8"))
+    assert charge["services"]["codelab-llm"]["profiles"] == ["llm"]
+    assert charge["services"]["codelab-llm"]["depends_on"]["codelab-postgres"]
+    assert charge["services"]["codelab-llm"]["environment"]["CODELAB_LLM_DB"] == "codelab_llm"
+    assert "GEMINI_API_KEY" in charge["services"]["codelab-llm"]["environment"]
+    assert "codelab-litellm" not in charge["services"]
+
+
+def test_l_api_llm_refuse_les_modeles_provider_et_exige_une_cle():
+    source = (_racine_llm() / "app.py").read_text(encoding="utf-8")
+    assert "ALLOWED_MODELS" in source
+    assert "Bearer CodeLab key required" in source
+    assert "Unknown CodeLab model" in source
+    assert "revoked_at IS NULL" in source
+    assert "X-CodeLab-Conversation-ID" in source
+    assert "MAX_BODY_BYTES" in source
+    assert "RATE_LIMIT_PER_MINUTE" in source

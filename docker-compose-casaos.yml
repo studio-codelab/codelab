@@ -201,7 +201,7 @@ services:
       # avec. Liste separee par des espaces. Un projet ajoute plus tard se
       # provisionne sans redemarrage avec "codelab db <nom>" depuis une
       # session SSH.
-      CODELAB_PROJECT_DBS: diagnostic
+      CODELAB_PROJECT_DBS: "diagnostic codelab_llm"
       # Pas de POSTGRES_PASSWORD/_FILE ici : l'entrypoint ci-dessus lit la
       # valeur dans credentials.env et l'exporte lui-meme.
 
@@ -546,6 +546,43 @@ services:
       retries: 5
       start_period: 5s
 
+    networks:
+      - codelab
+
+
+  codelab-llm:
+    profiles: ["llm"]
+    build: ./llm
+    image: ghcr.io/lucasrtn/codelab-llm:latest
+    container_name: codelab-llm
+    restart: unless-stopped
+    mem_limit: 768m
+    cpus: "1"
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    ports:
+      - "8080:8080"
+    environment:
+      CODELAB_ENV_FILE: /var/lib/codelab/config/credentials.env
+      CODELAB_LLM_DB: codelab_llm
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    volumes:
+      - /DATA/AppData/codelab/config:/var/lib/codelab/config:ro
+    depends_on:
+      codelab-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     networks:
       - codelab
 
