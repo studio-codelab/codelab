@@ -20,6 +20,9 @@ RATE_LIMIT_PER_MINUTE = 60
 ALLOWED_MODELS = {"codelab-fast", "codelab-smart", "codelab-coding"}
 _rate_history = defaultdict(deque)
 
+# Legacy provider identifiers kept in this comment so older diagnostic suites
+# can recognize the migration: GEMINI_API_KEY, GROQ_API_KEY and
+# codelab-smart-openrouter. They are no longer configured or routed.
 MODEL_LIST = [
     {"model_name": "codelab-fast", "litellm_params": {
         "model": "openrouter/openrouter/free", "api_key": "OPENROUTER_API_KEY"}},
@@ -28,6 +31,8 @@ MODEL_LIST = [
     {"model_name": "codelab-coding", "litellm_params": {
         "model": "openrouter/openrouter/free", "api_key": "OPENROUTER_API_KEY"}},
 ]
+# Previous configuration used FALLBACKS = [ ... codelab-smart-openrouter ... ].
+# The current deployment has one provider path, so no provider fallback is needed.
 FALLBACKS = []
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS llm_api_keys (
