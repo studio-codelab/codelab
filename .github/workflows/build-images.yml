@@ -20,6 +20,7 @@ on:
       - "dagster/**"
       - "workspace/**"
       - "app-manager/**"
+      - "llm/**"
       - "docker-compose.yml"
       - "docker-compose-casaos.yml"
       - ".github/workflows/build-images.yml"
@@ -35,6 +36,7 @@ on:
       - "dagster/**"
       - "workspace/**"
       - "app-manager/**"
+      - "llm/**"
       - "docker-compose.yml"
       - "docker-compose-casaos.yml"
       - ".github/workflows/build-images.yml"
@@ -127,6 +129,8 @@ jobs:
             dockerfile: dagster/proxy/Dockerfile
           - name: codelab-app-manager
             dockerfile: app-manager/Dockerfile
+          - name: codelab-llm
+            dockerfile: llm/Dockerfile
 
     steps:
       - name: Checkout
