@@ -684,6 +684,7 @@ DAGSTER_PORT = int(os.environ.get("APP_MANAGER_DAGSTER_PORT", "3000") or 3000)
 # interroge et non Dagster : c'est lui qui publie le port, et un Dagster
 # debout derriere un proxy tombe ne s'ouvre pas davantage.
 DAGSTER_HOTE_INTERNE = os.environ.get("APP_MANAGER_DAGSTER_HOTE") or "codelab-dagster-proxy"
+DAGSTER_AMONT = os.environ.get("APP_MANAGER_DAGSTER_AMONT") or "codelab-dagster"
 
 
 def origine_dagster():
