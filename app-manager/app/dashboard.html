@@ -3601,6 +3601,12 @@ function peindreFiche(){
     $('fa-actions').innerHTML=b.join('');
     return;
   }
+  if(a.name === 'diagnostic'){
+    if(!a.running) b.push(`<button class="btn btn-demarrer" data-agir="app-basculer" data-cible="${esc(a.name)}">${svgPlay}Démarrer</button>`);
+    if(a.running) b.push(`<a class="btn btn-ouvrir" href="${urlApplication(a.name)}" target="_blank">${svgOuvrir}Ouvrir</a>`);
+    $('fa-actions').innerHTML=b.join('');
+    return;
+  }
   b.push(`<button class="btn ${a.running?'btn-arreter':'btn-demarrer'}" data-agir="app-basculer" data-cible="${esc(a.name)}">
     ${a.running?svgStop+'Arrêter':svgPlay+'Démarrer'}</button>`);
   b.push(`<button class="btn btn-refaire" data-agir="app-redemarrer" data-cible="${esc(a.name)}" ${a.running?'':'disabled'}>
