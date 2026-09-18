@@ -305,3 +305,13 @@ c.commit(); c.close(); print("table supprimee")
 EOF
 rm -rf /workspace/diagnostic
 ```
+
+
+## Supervision de codelab-llm / LiteLLM
+
+Diagnostic vérifie maintenant TCP, `/health`, `/v1/models`, l'authentification Bearer,
+puis, si une clé diagnostique est configurée, une vraie completion et `/v1/usage`.
+Une exception inattendue d'une sonde devient un résultat `ECHEC` au lieu de produire un HTTP 500.
+
+La completion est opt-in car elle consomme une requête OpenRouter. La clé dédiée doit rester dans
+`credentials.env` sur le serveur sous `CODELAB_LLM_DIAGNOSTIC_KEY` et ne doit jamais être committée.

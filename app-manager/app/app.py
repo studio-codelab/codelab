@@ -653,6 +653,13 @@ DIAGNOSTIC_NOM = "diagnostic"
 #      l'administration est limitee au reseau local, ces deux-la le sont
 #      aussi -- meme session, meme frontiere.
 APPS_PAR_DEFAUT = (DAGSTER_NOM, DIAGNOSTIC_NOM)
+APPLICATIONS_PROTEGEES = {DIAGNOSTIC_NOM}
+
+
+def refus_action_protegee(nom, action):
+    if nom in APPLICATIONS_PROTEGEES:
+        return f"« {nom} » est une application de supervision : l'action « {action} » est interdite."
+    return None
 
 
 def est_app_par_defaut(nom):
@@ -4585,7 +4592,10 @@ def default_icon_svg(name):
 
 
 def valid_name(raw):
-    return re.sub(r"[^a-z0-9_-]", "-", (raw or "").strip().lower()).strip("-")
+    value = str(raw or "").strip()
+    if value != value.lower():
+        return ""
+    return re.sub(r"[^a-z0-9_-]", "-", value).strip("-")
 
 
 # Longueur d'une description de projet. Assez pour une phrase qui dit a quoi
@@ -6915,6 +6925,9 @@ def api_edit(n):
 @flask_app.post("/api/toggle/<n>")
 @require_admin
 def api_toggle(n):
+    refus = refus_action_protegee(n, "arrêt/redémarrage")
+    if refus:
+        return jsonify({"error": refus}), 403
     """Demarrer / arreter, et DIRE CE QU'ON A ESSAYE DE FAIRE.
 
     Signale par Lucas : « je ne peux pas arreter les applications », avec le
@@ -7008,6 +7021,9 @@ def api_visibility(n):
 @flask_app.post("/api/restart/<n>")
 @require_admin
 def api_restart(n):
+    refus = refus_action_protegee(n, "redémarrage")
+    if refus:
+        return jsonify({"error": refus}), 403
     if n not in load():
         return jsonify({"error": "Application inconnue."}), 404
     erreur = restart_app(n)
@@ -7019,6 +7035,9 @@ def api_restart(n):
 @flask_app.post("/api/deploy/<n>")
 @require_admin
 def api_deploy(n):
+    refus = refus_action_protegee(n, "déploiement")
+    if refus:
+        return jsonify({"error": refus}), 403
     """Build puis mise en ligne, en une action.
 
     L'enchainement etait a faire a la main en deux entrees de menu, et rien
@@ -7049,6 +7068,9 @@ def api_deploy(n):
 @flask_app.post("/api/build/<n>")
 @require_admin
 def api_build(n):
+    refus = refus_action_protegee(n, "build")
+    if refus:
+        return jsonify({"error": refus}), 403
     if n not in load():
         return jsonify({"error": "Application inconnue."}), 404
     ok, msg = run_build(n)
@@ -8139,8 +8161,8 @@ def amorcer_diagnostic():
         "port": next_port(apps),
         # Demarree par le thread d'amorcage, apres le build : la mettre a True
         # ici la ferait lancer par resume() sans son pilote Postgres.
-        "enabled": False,
-        "build_command": DIAGNOSTIC_BUILD,
+        "enabled": True,
+        "build_command": "",
         "max_memory_mb": None,
         # Privee : la page nomme les conteneurs, l'utilisateur SSH et l'etat de
         # la base. Rien de secret, mais rien non plus a offrir a un visiteur
@@ -8180,11 +8202,6 @@ def _preparer_diagnostic(name):
     ligne concernee et toutes les autres sondes repondent normalement. Une
     page qui explique ce qui manque vaut mieux qu'une application absente.
     """
-    ok, msg = run_build(name)
-    if not ok:
-        print(f"[app-manager] {name} : build initial en echec ({msg}) -- "
-              f"l'application demarre quand meme, la sonde Postgres le dira.",
-              flush=True)
     try:
         start(name)
     except Exception as e:
