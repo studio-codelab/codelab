@@ -653,7 +653,7 @@ DIAGNOSTIC_NOM = "diagnostic"
 #      l'administration est limitee au reseau local, ces deux-la le sont
 #      aussi -- meme session, meme frontiere.
 APPS_PAR_DEFAUT = (DAGSTER_NOM, DIAGNOSTIC_NOM)
-APPLICATIONS_PROTEGEES = {DIAGNOSTIC_NOM}
+APPLICATIONS_PROTEGEES = {DAGSTER_NOM, DIAGNOSTIC_NOM}
 
 
 def refus_action_protegee(nom, action):
@@ -684,6 +684,7 @@ DAGSTER_PORT = int(os.environ.get("APP_MANAGER_DAGSTER_PORT", "3000") or 3000)
 # interroge et non Dagster : c'est lui qui publie le port, et un Dagster
 # debout derriere un proxy tombe ne s'ouvre pas davantage.
 DAGSTER_HOTE_INTERNE = os.environ.get("APP_MANAGER_DAGSTER_HOTE") or "codelab-dagster-proxy"
+DAGSTER_AMONT = os.environ.get("APP_MANAGER_DAGSTER_AMONT") or "codelab-dagster"
 
 
 def origine_dagster():
@@ -723,6 +724,79 @@ def dagster_repond():
         s.close()
     _dagster_sonde.update(quand=maintenant, ouvert=ouvert)
     return ouvert
+
+
+# ------------------- ce que le panneau sait de Dagster -------------------
+#
+# Dagster tourne dans un AUTRE conteneur : le panneau n'a pas son pid, donc
+# ni son processeur ni sa memoire -- et il n'aura jamais rien de plus, sauf a
+# lui donner la socket Docker, ce qui reviendrait a lui donner la machine.
+#
+# Ce qu'il peut mesurer, en revanche, est exactement ce qui compte pour un
+# service qu'on ne fait pas tourner soi-meme : REPOND-IL, ET EN COMBIEN DE
+# TEMPS. Les deux courbes de sa fiche portent donc cela, et la fiche le dit
+# -- une courbe intitulee « CPU » qui montrerait autre chose serait pire que
+# pas de courbe du tout.
+_dagster_suivi = {"debout": None}
+
+
+def dagster_sonde():
+    """(debout, millisecondes). Interroge l'AMONT, pas le proxy.
+
+    Mesurer le proxy dirait que nginx va bien, ce qu'on sait deja : ce qu'on
+    veut savoir, c'est si Dagster derriere lui repond.
+    """
+    debut = time.time()
+    try:
+        with urllib.request.urlopen(f"http://{DAGSTER_AMONT}:{DAGSTER_PORT}/",
+                                    timeout=5) as r:
+            debout = 200 <= r.status < 500
+    except Exception:
+        return False, (time.time() - debut) * 1000
+    return debout, (time.time() - debut) * 1000
+
+
+def dagster_tick():
+    """Un tour de surveillance, appele par le moniteur.
+
+    Les mesures alimentent la meme reserve que les applications du panneau,
+    donc la meme fiche et les memes courbes. Le JOURNAL, lui, ne recoit que
+    les CHANGEMENTS d'etat : une ligne toutes les dix secondes pour dire que
+    tout va bien n'est pas un journal, c'est un mur.
+    """
+    debout, ms = dagster_sonde()
+    record_metrics(DAGSTER_NOM, round(ms, 1), 100.0 if debout else 0.0)
+    if _dagster_suivi["debout"] is debout:
+        return
+    premier = _dagster_suivi["debout"] is None
+    _dagster_suivi["debout"] = debout
+    if debout:
+        journal_du_service(DAGSTER_NOM,
+                           f"Dagster répond ({ms:.0f} ms)."
+                           if premier else
+                           f"Dagster répond de nouveau ({ms:.0f} ms).")
+    else:
+        journal_du_service(
+            DAGSTER_NOM,
+            f"Dagster ne répond pas sur http://{DAGSTER_AMONT}:{DAGSTER_PORT}/ "
+            f"-- conteneur arrêté ? « docker compose up -d codelab-dagster ».")
+
+
+def journal_du_service(nom, ligne):
+    """Ecrit dans le journal d'une application que le panneau ne lance pas.
+
+    Le meme fichier que pour une application lancee par le panneau : la fiche
+    et son flux en direct n'ont donc rien a savoir de la difference, et le
+    journal d'un service se lit exactement comme les autres.
+    """
+    rotate_log_if_needed(nom)
+    quand = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        os.makedirs(LOG_DIR, exist_ok=True)
+        with open(os.path.join(LOG_DIR, nom + ".log"), "a") as f:
+            f.write(f"[{quand}] {ligne}\n")
+    except OSError:
+        pass        # journaliser n'est pas le travail : voir journaliser()
 
 
 def services_du_hub():
@@ -3696,6 +3770,11 @@ def start_monitor_thread():
                 probe_tick()
             except Exception as e:
                 print(f"[app-manager] erreur dans la sonde d'ecoute : {e}", flush=True)
+            # Dagster : service externe, suivi en lecture seule.
+            try:
+                dagster_tick()
+            except Exception as e:
+                print(f"[app-manager] erreur dans la surveillance de Dagster : {e}", flush=True)
             # Les alertes en dernier, et dans le meme thread : un envoi SMTP
             # peut prendre jusqu'a 20 secondes, mais il n'a lieu qu'une fois
             # l'incident deja constate -- le redemarrage automatique a donc
@@ -7090,7 +7169,7 @@ def api_build(n):
 @flask_app.get("/api/metrics/<n>")
 @require_admin
 def api_metrics(n):
-    if n not in load():
+    if n not in load() and not est_app_par_defaut(n):
         return jsonify({"error": "Application inconnue."}), 404
     hist = get_metrics_history(n)
     return jsonify({
@@ -7113,9 +7192,8 @@ def api_delete(n):
     # rien, la route reste appelable a la main.
     if est_app_par_defaut(n):
         return jsonify({"error": f"« {n} » est une application par défaut de "
-                                 f"CodeLab : elle ne se supprime pas. Tu peux "
-                                 f"l'arrêter si tu ne veux pas qu'elle "
-                                 f"tourne."}), 403
+                                 f"CodeLab : elle est gérée par CodeLab et ne "
+                                 f"se modifie ni ne se supprime à la main."}), 403
     stop(n)
     apps = load()
     apps.pop(n, None)
@@ -7516,6 +7594,137 @@ ICONES_PAR_DEFAUT = {
 }
 
 
+# OUVRIR DAGSTER PASSE PAR ICI, et pas directement par le port 3000.
+#
+# Trois choses en une seule redirection :
+#
+#   1. l'ouverture est NOTEE. C'est ce qui donne a Dagster l'onglet
+#      « Activite » des autres applications -- qui l'a ouverte, quand,
+#      combien de fois. Sans ce passage, le panneau ne voyait rien : le lien
+#      partait droit sur un autre port.
+#   2. elle s'ouvre A LA PLACE de la page courante, comme une application.
+#      L'ancien lien s'ouvrait dans un nouvel onglet, parce qu'il n'y avait
+#      alors aucun moyen de revenir ; le ruban de retour pose par le proxy
+#      de Dagster a supprime cette raison.
+#   3. l'adresse est construite par le SERVEUR, a partir de l'hote demande :
+#      la page n'a plus a deviner sur quel nom de machine on est arrive.
+#
+# Une redirection, et non un proxy : l'interface de Dagster suit ses runs par
+# websocket, et le proxy du panneau ne sait pas relayer une connexion
+# montante. Le proxy de Dagster, lui, est fait pour cela.
+def ouvrir_dagster():
+    hors = refus_admin_hors_reseau()
+    if hors:
+        journaliser("refus", app=DAGSTER_NOM, motif="hors reseau local",
+                    ip=_adresse_client())
+        return Response(_page("Accès refusé", hors), 403, mimetype="text/html")
+    adresse = origine_dagster()
+    if not adresse:
+        return Response(_page("Adresse introuvable",
+                              "Le panneau n'a pas su construire l'adresse de "
+                              "Dagster depuis cette requête."),
+                        503, mimetype="text/html")
+    journaliser_ouverture(DAGSTER_NOM)
+    return redirect(adresse, 302)
+
+
+flask_app.add_url_rule("/" + DAGSTER_NOM + "/", "ouvrir_dagster",
+                       require_admin(ouvrir_dagster))
+flask_app.add_url_rule("/" + DAGSTER_NOM, "ouvrir_dagster_sans_barre",
+                       require_admin(ouvrir_dagster))
+
+
+# L'ICONE DE DAGSTER : CELLE QUE DAGSTER SERT LUI-MEME.
+#
+# Un dessin fait a la main ne sera jamais le logo de Dagster -- au mieux une
+# ressemblance, au pire une marque deformee. Or l'application porte le sien,
+# a la racine de son serveur, et le panneau sait lui parler. Il le lui
+# demande donc, et le garde : c'est LE logo, exactement celui qu'on voit dans
+# l'onglet quand on ouvre Dagster, et il suivra ses evolutions sans que
+# personne n'ait a redessiner quoi que ce soit.
+#
+# Le dessin d'origine reste, en repli : tant que Dagster n'a pas repondu une
+# premiere fois -- stack qui demarre, conteneur arrete -- la tuile doit
+# afficher quelque chose, et surtout pas la lettre « D » qu'elle partagerait
+# avec « demo » et « diagnostic ».
+ICONES_DAGSTER_CANDIDATES = ("/favicon.ico", "/favicon.png",
+                             "/favicon-32x32.png", "/static/favicon.ico")
+ICONE_DAGSTER_CACHE = os.path.join(STATE_DIR, "dagster-icone")
+ICONE_DAGSTER_DUREE = 24 * 3600
+_icone_dagster = {"quand": 0.0, "octets": b"", "type": ""}
+
+
+# Les entetes des formats qu'un navigateur sait afficher dans une balise
+# <img>. On lit les octets plutot que l'entete HTTP : c'est ce que le
+# navigateur fera, et lui ne se laisse pas convaincre par une etiquette.
+SIGNATURES_IMAGE = (b"\x89PNG\r\n\x1a\n", b"GIF87a", b"GIF89a",
+                    b"\xff\xd8\xff", b"\x00\x00\x01\x00", b"RIFF")
+
+
+def _est_une_image(octets):
+    if octets.lstrip()[:5].lower() in (b"<svg ", b"<svg>", b"<?xml"):
+        return True
+    return any(octets.startswith(debut) for debut in SIGNATURES_IMAGE)
+
+
+def _lire_icone_dagster_du_disque():
+    """Ce qui a ete rapporte lors d'un demarrage precedent.
+
+    Sans ce cache, chaque redemarrage du panneau reaffiche le dessin de repli
+    jusqu'a ce que Dagster reponde -- et sur une stack qui demarre, Dagster
+    est le dernier debout.
+    """
+    try:
+        with open(ICONE_DAGSTER_CACHE + ".type") as f:
+            type_mime = f.read().strip()
+        with open(ICONE_DAGSTER_CACHE, "rb") as f:
+            octets = f.read()
+    except OSError:
+        return
+    if octets and type_mime:
+        _icone_dagster.update(octets=octets, type=type_mime,
+                              quand=os.path.getmtime(ICONE_DAGSTER_CACHE))
+
+
+def icone_dagster():
+    """(octets, type MIME) -- vides tant que Dagster n'a rien donne."""
+    if not _icone_dagster["octets"]:
+        _lire_icone_dagster_du_disque()
+    if (_icone_dagster["octets"]
+            and time.time() - _icone_dagster["quand"] < ICONE_DAGSTER_DUREE):
+        return _icone_dagster["octets"], _icone_dagster["type"]
+    for chemin in ICONES_DAGSTER_CANDIDATES:
+        try:
+            with urllib.request.urlopen(
+                    f"http://{DAGSTER_AMONT}:{DAGSTER_PORT}{chemin}",
+                    timeout=3) as r:
+                type_mime = (r.headers.get("Content-Type") or "").split(";")[0].strip()
+                octets = r.read(256 * 1024)
+        except Exception:
+            continue
+        # Une image, et rien d'autre. Deux controles, et il faut les deux :
+        # Dagster rend sa page d'accueil en 200 pour un chemin inconnu (on
+        # afficherait du HTML comme une icone), et un fichier annonce
+        # « image/png » qui n'en est pas donne une tuile cassee -- vu en
+        # essai, et une tuile cassee est pire qu'un repli.
+        if not octets or not type_mime.startswith("image/"):
+            continue
+        if not _est_une_image(octets):
+            continue
+        _icone_dagster.update(octets=octets, type=type_mime, quand=time.time())
+        try:
+            with open(ICONE_DAGSTER_CACHE, "wb") as f:
+                f.write(octets)
+            with open(ICONE_DAGSTER_CACHE + ".type", "w") as f:
+                f.write(type_mime)
+        except OSError:
+            pass
+        return octets, type_mime
+    # Rien obtenu : on ne retente pas avant la prochaine expiration si l'on
+    # avait deja quelque chose, et tout de suite sinon.
+    return _icone_dagster["octets"], _icone_dagster["type"]
+
+
 @flask_app.get("/api/icon/<n>")
 @require_auth
 def api_icon(n):
@@ -7531,6 +7740,14 @@ def api_icon(n):
     « D » colore : trois carres a distinguer en lisant le nom dessous,
     c'est-a-dire en cessant de les reconnaitre d'un coup d'oeil.
     """
+    # Dagster est un service de la stack, visible uniquement par l'administrateur.
+    # Son logo vient de Dagster lui-même ; le SVG CodeLab reste le repli.
+    if n == DAGSTER_NOM and est_admin():
+        octets, type_mime = icone_dagster()
+        if octets:
+            return Response(octets, mimetype=type_mime,
+                            headers={"X-Content-Type-Options": "nosniff"})
+
     # Accessible a un compte utilisateur, pour que son espace affiche les
     # icones -- mais seulement des projets qu'il peut ouvrir : la liste des
     # icones est une liste des projets existants.
