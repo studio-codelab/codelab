@@ -78,3 +78,17 @@ Configurer le fournisseur compatible OpenAI de l'extension utilisee avec :
 - cle : la cle CodeLab dediee a VS Code
 
 Le provider et le modele reel peuvent changer sans modifier cette configuration.
+
+
+## Observabilité LiteLLM
+
+`GET /v1/models` expose les trois alias logiques CodeLab sans secret. Diagnostic vérifie ensuite
+le fonctionnement réel. Avec une clé dédiée dans `credentials.env` :
+
+```dotenv
+CODELAB_LLM_DIAGNOSTIC_KEY=cl_...
+```
+
+les contrôles completion et usage deviennent actifs. Sans cette clé ils sont `SANS OBJET`.
+Le fournisseur reste `openrouter/openrouter/free` et le modèle réel retourné par OpenRouter est
+affiché par Diagnostic.
