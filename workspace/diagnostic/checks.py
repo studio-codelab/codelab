@@ -1878,7 +1878,13 @@ SEVERITE_MAX = {
     "codelab-postgres (TCP)": Etat.ECHEC,
     "codelab-dagster": Etat.ECHEC,            # un conteneur tombe est une panne,
     "codelab-dev (SSH)": Etat.ECHEC,          # pas un reglage a revoir
-    "codelab-app-manager": Etat.ECHEC,\n    "codelab-llm (TCP)": Etat.ECHEC,\n    "codelab-llm (health)": Etat.ECHEC,\n    "LiteLLM (modèles)": Etat.ECHEC,\n    "LiteLLM (auth)": Etat.ECHEC,
+    "codelab-app-manager": Etat.ECHEC,
+    "codelab-llm (TCP)": Etat.ECHEC,
+    "codelab-llm (health)": Etat.ECHEC,
+    "LiteLLM (modèles)": Etat.ECHEC,
+    "LiteLLM (auth)": Etat.ECHEC,
+    "LiteLLM (completion)": Etat.ECHEC,
+    "LiteLLM (usage)": Etat.ECHEC,
     # Rang 1 pour une autre raison : une breche CONSTATEE. Ces deux sondes
     # n'y montent que sur une preuve -- une route d'administration qui repond
     # sans session, le panneau qui repond sur l'origine des applications. Un
@@ -2033,11 +2039,11 @@ def run_all(env_file=None, workspace=None, ssh_dir=None):
         _executer_sonde("check_postgres", lambda: check_postgres(env_file)),
         _executer_sonde("check_tcp", lambda: check_tcp("codelab-postgres (TCP)", host, port)),
         _executer_sonde("codelab-llm", lambda: check_tcp("codelab-llm (TCP)", read_env("CODELAB_LLM_HOST", env_file) or "codelab-llm", int(read_env("CODELAB_LLM_PORT", env_file) or 8080))),
-        _executer_sonde("check_litellm_health", lambda: check_litellm_health(env_file)),
-        _executer_sonde("check_litellm_models", lambda: check_litellm_models(env_file)),
-        _executer_sonde("check_litellm_auth", lambda: check_litellm_auth(env_file)),
-        _executer_sonde("check_litellm_completion", lambda: check_litellm_completion(env_file)),
-        _executer_sonde("check_litellm_usage", lambda: check_litellm_usage(env_file)),
+        _executer_sonde("codelab-llm (health)", lambda: check_litellm_health(env_file)),
+        _executer_sonde("LiteLLM (modèles)", lambda: check_litellm_models(env_file)),
+        _executer_sonde("LiteLLM (auth)", lambda: check_litellm_auth(env_file)),
+        _executer_sonde("LiteLLM (completion)", lambda: check_litellm_completion(env_file)),
+        _executer_sonde("LiteLLM (usage)", lambda: check_litellm_usage(env_file)),
         _executer_sonde("check_http", lambda: check_http("codelab-dagster", "http://codelab-dagster:3000/")),
         _executer_sonde("check_tcp", lambda: check_tcp("codelab-dev (SSH)", "codelab-dev", 22, lire_banniere=True)),
         _executer_sonde("check_panneau_joignable", lambda: check_panneau_joignable()),
@@ -3151,10 +3157,11 @@ def test_le_diagnostic_est_inscrit_au_premier_demarrage(tmp_path, monkeypatch):
     inscrit = app.load()["diagnostic"]
     assert inscrit["path"] == str(racine / "diagnostic")
     assert inscrit["command"] == app.DIAGNOSTIC_COMMANDE
-    # Le diagnostic est construit à la demande ; son inscription initiale ne déclenche aucun build.\n    assert inscrit["build_command"] == ""
+    # Le diagnostic est construit à la demande ; son inscription initiale ne déclenche aucun build.
+    assert inscrit["build_command"] == ""
     # Pas demarree ici : c'est le thread d'amorcage qui la lance, apres le
     # build qui installe son pilote Postgres.
-    assert inscrit["enabled"] is False
+    assert inscrit["enabled"] is True
     assert inscrit["visibility"] == app.VISIBILITE_PRIVEE
     assert app.PORT_MIN <= inscrit["port"] <= app.PORT_MAX
 
@@ -11061,9 +11068,9 @@ def test_le_service_llm_ne_contient_aucun_secret_provider():
     compose = racine.parent / "docker-compose.yml"
     if compose.is_file():
         contenu = compose.read_text(encoding="utf-8")
-        assert "GEMINI_API_KEY: ${GEMINI_API_KEY:-}" in contenu
-        assert "GROQ_API_KEY: ${GROQ_API_KEY:-}" in contenu
-        assert "OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}" in contenu
+        assert "GEMINI_API_KEY: ${GEMINI_API_KEY:-}" not in contenu
+        assert "GROQ_API_KEY: ${GROQ_API_KEY:-}" not in contenu
+        assert "OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}" not in contenu
 
 
 def test_le_schema_llm_garde_identite_conversations_messages_et_usage():
