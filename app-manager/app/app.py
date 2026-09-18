@@ -831,6 +831,7 @@ def services_du_hub():
         # affaire a un service. Un « undefined » dans une fiche est un defaut
         # d'affichage de plus a prevoir, et il finit toujours par passer.
         "path": "", "command": "", "port": DAGSTER_PORT,
+        "port_listeners": _ecouteurs_port(DAGSTER_PORT),
         "failed": False, "crash_looping": False, "has_build": False,
         "build_command": "", "max_memory_mb": None, "alertes": [],
         "cpu_percent": 0.0, "memory_mb": 0.0,
@@ -2780,10 +2781,20 @@ def save(apps):
 
 
 def next_port(apps):
+    """Choisit un port libre dans le registre ET sur la machine.
+
+    Avant, un service externe pouvait occuper 9102 sans exister dans
+    apps.json : la creation de l'application reussissait, puis son premier
+    demarrage echouait. Le conflit doit etre evite au moment de l'attribution,
+    pas decouvert apres coup.
+    """
     used = {a["port"] for a in apps.values()}
     for p in range(PORT_MIN, PORT_MAX + 1):
-        if p not in used:
-            return p
+        if p in used:
+            continue
+        if _ecouteurs_port(p):
+            continue
+        return p
     return None
 
 
@@ -3439,42 +3450,104 @@ def start(name, attendre=True):
     return None
 
 
+def _ecouteurs_port(port):
+    """Retourne les PID qui ecoutent reellement sur le port TCP.
+
+    Le simple bind sur 127.0.0.1 ne voit pas proprement tous les cas
+    (IPv6, adresse specifique, socket deja publie). psutil donne ici le meme
+    niveau d'information que « ss -ltnp », sans dependre d'un binaire
+    externe.
+    """
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        return []
+    pids = set()
+    try:
+        for conn in psutil.net_connections(kind="tcp"):
+            if conn.status != psutil.CONN_LISTEN or not conn.laddr:
+                continue
+            if int(conn.laddr.port) == port and conn.pid:
+                pids.add(int(conn.pid))
+    except (psutil.Error, OSError):
+        pass
+    return sorted(pids)
+
+
+def _description_processus(pid):
+    try:
+        p = psutil.Process(pid)
+        nom = p.name()
+        cmd = " ".join(p.cmdline()[:3])
+        return nom, cmd
+    except psutil.Error:
+        return "processus", ""
+
+
 def port_occupe_par(port, sauf=None):
     """Le port est-il deja pris ? Rend le message a afficher, ou None.
 
-    On tente le meme bind que ferait l'application, avec SO_REUSEADDR --
-    comme n'importe quel serveur : un port en TIME_WAIT apres un arret
-    recent ne doit pas passer pour occupe, sinon on refuserait de redemarrer
-    ce qu'on vient d'arreter.
+    En cas de processus CodeLab survivant, on le reprend automatiquement
+    lorsqu'il porte encore la marque CODELAB_APP. Un redemarrage brutal du
+    panneau ne doit pas transformer une application saine en conflit de port.
+    Pour tout autre processus, le demarrage reste bloque et l'interface donne
+    le PID pour faciliter le diagnostic.
     """
     try:
         port = int(port)
     except (TypeError, ValueError):
         return None
-    # Sur 127.0.0.1 et non sur 0.0.0.0, volontairement. C'est l'adresse que
-    # le proxy contacte, donc la seule qui compte ; et une sonde sur 0.0.0.0
-    # echouerait aussi quand un service occupe le port sur une AUTRE adresse
-    # de la machine -- on refuserait alors un demarrage qui aurait marche.
-    # Mieux vaut manquer un cas rare que bloquer un cas legitime.
-    sonde = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sonde.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    try:
-        sonde.bind(("127.0.0.1", port))
-        return None
-    except OSError:
-        pass
-    finally:
-        sonde.close()
-    # Une autre application du panneau ? C'est le cas le plus frequent, et
-    # celui qu'on peut nommer : « deja pris » sans dire par qui envoie
-    # chercher dans les journaux de tout le monde.
-    for autre, infos in load().items():
-        if autre != sauf and str(infos.get("port")) == str(port) and is_running(autre):
-            return (f"Le port {port} est deja occupe par « {autre} ». "
-                    f"Change le port de l'une des deux dans sa configuration.")
-    return (f"Le port {port} est deja occupe sur la machine. Un processus "
-            f"survivant d'un demarrage precedent, ou un autre service : "
-            f"verifie avec « ss -ltnp | grep {port} ».")
+
+    ecouteurs = _ecouteurs_port(port)
+    if not ecouteurs:
+        # Cas de course ou de socket TCP atypique : le bind reste le dernier
+        # filet, mais on ne l'utilise plus comme source unique de vérité.
+        sonde = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sonde.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sonde.bind(("127.0.0.1", port))
+            return None
+        except OSError:
+            pass
+        finally:
+            sonde.close()
+        return (f"Le port {port} est deja occupe sur la machine. "
+                f"Verifie avec « ss -ltnp | grep {port} ».")
+
+    apps = load()
+    for pid in ecouteurs:
+        # Le cas important : le processus appartient a CETTE application,
+        # mais le fichier de pid a ete perdu ou le panneau a redemarre avant
+        # d'avoir pu le relire. On peut le reprendre sans le tuer.
+        if _processus_est_le_notre(pid, sauf):
+            procs[sauf] = ProcessusAdopte(pid, sauf)
+            _noter_processus(sauf, pid)
+            apps = load()
+            if sauf in apps:
+                apps[sauf]["enabled"] = True
+                save(apps)
+            print(f"[app-manager] {sauf} : processus survivant repris "
+                  f"(pid {pid}, port {port}).", flush=True)
+            return None
+
+        # Si le port appartient a une autre application CodeLab, nommons-la
+        # meme si son registre de processus a ete perdu.
+        for autre in apps:
+            if autre == sauf or str(apps[autre].get("port")) != str(port):
+                continue
+            if _processus_est_le_notre(pid, autre):
+                return (f"Le port {port} est deja occupe par « {autre} » "
+                        f"(pid {pid}). Change le port de l'une des deux "
+                        f"dans sa configuration.")
+
+        nom_proc, cmd = _description_processus(pid)
+        detail = f"PID {pid} ({nom_proc})"
+        if cmd:
+            detail += f" : {cmd}"
+        return (f"Le port {port} est deja occupe sur la machine ({detail}). "
+                f"Verifie avec « ss -ltnp | grep {port} ».")
+
+    return None
 
 
 def derniere_ligne_utile(nom):
@@ -6828,7 +6901,8 @@ def api_apps():
             record_metrics(name, stats["cpu_percent"], stats["memory_mb"])
         out.append({
             "name": name, "path": a["path"], "command": a["command"],
-            "port": a["port"], "running": run,
+            "port": a["port"], "port_listeners": _ecouteurs_port(a["port"]),
+            "running": run,
             "failed": bool(a.get("enabled")) and not run,
             "crash_looping": is_crash_looping(name),
             # None tant que la sonde n'est pas passee (app tout juste
@@ -7171,6 +7245,15 @@ def api_build(n):
 def api_metrics(n):
     if n not in load() and not est_app_par_defaut(n):
         return jsonify({"error": "Application inconnue."}), 404
+
+    # La fiche peut etre ouverte avant le premier rafraichissement de
+    # /api/apps. Dans ce cas l'historique etait vide et les deux cartes
+    # affichaient « Aucune mesure » jusqu'au prochain polling. Une ouverture
+    # de l'onglet met maintenant au moins une mesure reelle a disposition.
+    if n in procs and is_running(n):
+        stats = proc_stats(procs[n].pid)
+        record_metrics(n, stats["cpu_percent"], stats["memory_mb"])
+
     hist = get_metrics_history(n)
     return jsonify({
         "points": [{"t": t, "cpu": cpu, "mem": mem} for t, cpu, mem in hist],
@@ -7568,15 +7651,15 @@ def api_logo_retirer(n):
 # original, dans le violet de la marque -- ce n'est pas le logo officiel, et
 # il ne pretend pas l'etre.
 ICONE_DAGSTER = (
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
-    '<rect width="64" height="64" rx="16" fill="#4c4ce0"/>'
-    '<g stroke="#fff" stroke-width="3.2" stroke-linecap="round" fill="none">'
-    '<path d="M22 24h12"/><path d="M30 40h12"/><path d="M22 27v10"/>'
-    '</g>'
-    '<g fill="#fff">'
-    '<circle cx="20" cy="22" r="5"/><circle cx="42" cy="22" r="5"/>'
-    '<circle cx="44" cy="42" r="5"/><circle cx="22" cy="40" r="5"/>'
-    '</g></svg>')
+    # Reproduction vectorielle du composant officiel Dagster, récupéré depuis
+    # le dépôt amont. Le mark reste net à 16/24/32/48 px, contrairement à
+    # l'ancien dessin approximatif dans un carré violet.
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" '
+    'role="img" aria-label="Dagster" fill="none">'
+    '<path fill="#4C9AFF" d="M16.093 46.055c.001.268.056.533.162.779.106.245.261.466.455.648.194.182.423.321.672.41.25.088.514.123.778.103 10.011-.727 19.467-7.918 22.485-19.149.159-.646.637-.97 1.273-.97.326.013.634.157.857.399.223.242.343.564.334.895 0 2.505-3.172 9.049-7.707 12.847-.231.197-.416.445-.539.725-.124.279-.183.584-.175.89.005.25.058.496.156.724.099.229.24.435.418.608.177.173.386.309.614.399.229.09.473.134.719.128.397 0 1.033-.243 1.828-.97C41.594 41.611 47.639 33.45 47.639 24.481 47.639 11.332 37.622 0 23.642 0 11.168 0 .362 10.343.362 22.301c0 7.918 6.198 13.896 14.381 13.896 6.278 0 12.078-4.523 13.668-10.746.159-.646.634-.97 1.271-.97.326.013.634.157.857.399.223.242.343.564.335.895 0 2.828-5.245 12.691-15.892 12.691-2.543 0-5.721-.727-7.947-2.021-.298-.147-.622-.229-.953-.242-.253-.01-.506.033-.742.128-.236.094-.45.237-.629.419-.179.182-.319.4-.411.64-.092.24-.134.497-.124.754.01.329.103.651.27.933.167.283.402.518.683.683 2.941 1.705 6.437 2.586 10.012 2.586 8.899 0 17.004-6.141 19.388-15.19.159-.646.637-.97 1.271-.97.326.014.634.157.857.399.223.242.343.564.334.895 0 3.716-6.515 15.675-19.069 16.645-.486.036-.941.254-1.279.61-.337.357-.533.828-.55 1.322Z"/>'
+    '<path fill="#fff" d="M28.539 15.107c1.713-.013 3.395.467 4.851 1.386.146-.817.228-1.645.242-2.476 0-3.836-2.881-7.272-6.389-7.272-2.728 0-4.433 2.294-4.433 5.128-.013 1.531.517 3.015 1.493 4.182 1.322-.64 2.771-.964 4.236-.948Z"/>'
+    '<path fill="#1F1F1F" d="M28.57 10.344c1.789.051 3.198 1.564 3.148 3.379-.018.652-.222 1.255-.559 1.757-.847-.252-1.73-.379-2.621-.373-.928-.01-1.85.117-2.739.375-.371-.552-.58-1.223-.56-1.942.05-1.815 1.541-3.246 3.331-3.196Z"/>'
+    '</svg>')
 
 # Diagnostic : le trace d'un moniteur cardiaque, et un point qui bat. C'est
 # ce que la page montre -- l'etat de sante de l'installation -- et c'est deja
