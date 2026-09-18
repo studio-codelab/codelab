@@ -201,7 +201,18 @@ def _record_usage(identity, conversation_id, requested, actual_model, provider, 
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "service": "codelab-llm", "litellm": True}
+
+
+@app.get("/v1/models")
+def models():
+    return {
+        "object": "list",
+        "data": [
+            {"id": entry["model_name"], "object": "model", "owned_by": "codelab"}
+            for entry in MODEL_LIST
+        ],
+    }
 
 
 @app.post("/v1/chat/completions")
