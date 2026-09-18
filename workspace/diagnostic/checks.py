@@ -1910,33 +1910,32 @@ def run_all(env_file=None, workspace=None, ssh_dir=None):
     doit MARCHER, ensuite ce qui doit etre FERME, enfin l'etat des lieux."""
     host = read_env("POSTGRES_HOST", env_file) or "codelab-postgres"
     port = int(read_env("POSTGRES_PORT", env_file) or 5432)
-    resultats = [
-        # --- ce qui doit marcher -----------------------------------------
-        check_config(env_file),
-        check_workspace(workspace),
-        check_pilote_pg(),
-        check_postgres(env_file),
-        check_tcp("codelab-postgres (TCP)", host, port),
-        check_http("codelab-dagster", "http://codelab-dagster:3000/"),
-        check_tcp("codelab-dev (SSH)", "codelab-dev", 22, lire_banniere=True),
-        check_panneau_joignable(),
-        check_cles_ssh(ssh_dir),
+    resultats = [        # --- ce qui doit marcher -----------------------------------------
+        _executer_sonde("check_config", lambda: check_config(env_file)),
+        _executer_sonde("check_workspace", lambda: check_workspace(workspace)),
+        _executer_sonde("check_pilote_pg", lambda: check_pilote_pg()),
+        _executer_sonde("check_postgres", lambda: check_postgres(env_file)),
+        _executer_sonde("check_tcp", lambda: check_tcp("codelab-postgres (TCP)", host, port)),
+        _executer_sonde("check_http", lambda: check_http("codelab-dagster", "http://codelab-dagster:3000/")),
+        _executer_sonde("check_tcp", lambda: check_tcp("codelab-dev (SSH)", "codelab-dev", 22, lire_banniere=True)),
+        _executer_sonde("check_panneau_joignable", lambda: check_panneau_joignable()),
+        _executer_sonde("check_cles_ssh", lambda: check_cles_ssh(ssh_dir)),
         # --- ce qui doit etre ferme ---------------------------------------
         # L'etat des lieux ne s'arrete pas a "ca marche" : il dit aussi si
         # c'est correctement ferme.
-        check_panneau_ferme(),
-        check_origine_applications(),
-        check_exposition(),
-        check_isolation(),
-        check_provenance(),
+        _executer_sonde("check_panneau_ferme", lambda: check_panneau_ferme()),
+        _executer_sonde("check_origine_applications", lambda: check_origine_applications()),
+        _executer_sonde("check_exposition", lambda: check_exposition()),
+        _executer_sonde("check_isolation", lambda: check_isolation()),
+        _executer_sonde("check_provenance", lambda: check_provenance()),
         # --- ce que la stack porte et ce qu'elle use -----------------------
         # Au-dela de "la stack repond" : ce qu'elle porte, ce qu'elle use, et
         # ce qu'elle laisse ouvert. Les trois sont en LECTURE SEULE, donc a
         # leur place ici et non dans la verification approfondie.
-        check_applications(),
-        check_espace_disque(),
-        check_sauvegardes(),
-        check_surface_exposee(),
+        _executer_sonde("check_applications", lambda: check_applications()),
+        _executer_sonde("check_espace_disque", lambda: check_espace_disque()),
+        _executer_sonde("check_sauvegardes", lambda: check_sauvegardes()),
+        _executer_sonde("check_surface_exposee", lambda: check_surface_exposee()),
     ]
     return [_hierarchiser(r) for r in resultats]
 
