@@ -871,6 +871,14 @@ def separer_les_origines():
         return Response(_page("Ce n'est pas le panneau",
                               "Cette adresse ne sert que les applications."),
                         404, mimetype="text/html")
+    # Les routes /api/* appartiennent au panneau. Elles doivent rester sur
+    # son origine, meme si Flask les ferait tomber sur le catch-all des
+    # applications (endpoint "proxy"). Sans cette exception, une faute de
+    # route ou un appel API depuis le panneau est transforme en redirection
+    # vers 9002, ou "api" est ensuite interprete comme un nom d'application.
+    if request.path == "/api" or request.path.startswith("/api/"):
+        return None
+
     # Sur le port du panneau : une application demandee ici est renvoyee chez
     # elle. Les favoris et les liens deja partages continuent de marcher.
     if request.endpoint in ("proxy", "proxy_noslash"):
