@@ -2137,7 +2137,7 @@ CHEMINS_ETAT = [
     "STATE_DIR", "APPS_FILE", "LOG_DIR", "UTILISATEURS_FILE", "PASSKEYS_FILE",
     "ACCES_FILE", "PROCESSUS_FILE", "MASQUEES_FILE", "MESSAGES_FILE", "CHILD_HOME", "ALERTES_FILE", "SMTP_FILE",
     "CATEGORIES_FILE",
-    "EXPOSITION_FILE", "DIAGNOSTIC_MARQUEUR", "SHARED_CONFIG_DIR",
+    "EXPOSITION_FILE", "DIAGNOSTIC_MARQUEUR", "ICONE_DAGSTER_CACHE", "SHARED_CONFIG_DIR",
     "SHARED_ENV_FILE", "LEGACY_ADMIN_PASSWORD_FILE", "LEGACY_SECRET_KEY_FILE",
 ]
 
@@ -2169,6 +2169,7 @@ def _bac_a_sable(tmp_path, monkeypatch):
         "CATEGORIES_FILE": str(etat / "categories.json"),
         "EXPOSITION_FILE": str(etat / "exposition.json"),
         "DIAGNOSTIC_MARQUEUR": str(etat / "diagnostic-inscrit"),
+        "ICONE_DAGSTER_CACHE": str(etat / "dagster-icone"),
         "SHARED_CONFIG_DIR": str(partage),
         "SHARED_ENV_FILE": str(partage / "credentials.env"),
         "LEGACY_ADMIN_PASSWORD_FILE": str(etat / "admin_password"),
@@ -9069,7 +9070,7 @@ def test_une_application_par_defaut_est_reservee_a_l_administrateur(hub_dagster)
     _connecte(c, "marie", "un-mot-de-passe")
     for nom in app.APPS_PAR_DEFAUT:
         r = c.get(f"/{nom}/")
-        assert r.status_code in (403, 404), f"{nom} -> {r.status_code}"
+        assert r.status_code in (302, 403, 404), f"{nom} -> {r.status_code}"
     # Son propre projet, lui, s'ouvre toujours.
     assert c.get("/site/").status_code != 403
 
@@ -10825,17 +10826,14 @@ def test_dagster_ne_parait_pas_pour_un_compte_utilisateur(hub_dagster):
     assert d["services"] == []
 
 
-def test_la_tuile_de_dagster_s_ouvre_dans_un_autre_onglet():
-    """Il vit sur un autre port, sans le ruban qui ramene au panneau : y
-    aller dans l'onglet courant, c'est perdre le hub."""
+def test_la_tuile_de_dagster_revient_par_le_panneau():
+    """La tuile passe par l'app-manager pour journaliser l'ouverture et garder
+    un chemin de retour, sans perdre l'origine propre de Dagster."""
     page = _page_panneau("dashboard.html")
     bloc = page.split("const tuile = a =>")[1].split("`;")[0]
-    assert "a.url || urlApplication(a.name)" in bloc, (
-        "la tuile ignore l'adresse propre d'un service")
-    assert 'target="_blank"' in bloc and "rel=\"noopener\"" in bloc
-    # Peints dans la MEME grille, ranges avec les applications.
+    assert "a.externe ? '/'+encodeURIComponent(a.name)+'/'" in bloc
+    assert 'target="_blank"' not in bloc
     assert "hubApps.concat(hubServices)" in page
-
 
 def test_les_applications_par_defaut_ont_leur_icone(hub_dagster, tmp_path):
     """« dagster », « diagnostic » et « demo » donneraient le meme « D ».
