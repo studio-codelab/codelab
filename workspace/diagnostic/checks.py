@@ -1878,7 +1878,11 @@ SEVERITE_MAX = {
     "codelab-postgres (TCP)": Etat.ECHEC,
     "codelab-dagster": Etat.ECHEC,            # un conteneur tombe est une panne,
     "codelab-dev (SSH)": Etat.ECHEC,          # pas un reglage a revoir
-    "codelab-app-manager": Etat.ECHEC,\n    "codelab-llm (TCP)": Etat.ECHEC,\n    "codelab-llm (health)": Etat.ECHEC,\n    "LiteLLM (modèles)": Etat.ECHEC,\n    "LiteLLM (auth)": Etat.ECHEC,
+    "codelab-app-manager": Etat.ECHEC,
+    "codelab-llm (TCP)": Etat.ECHEC,
+    "codelab-llm (health)": Etat.ECHEC,
+    "LiteLLM (modèles)": Etat.ECHEC,
+    "LiteLLM (auth)": Etat.ECHEC,
     # Rang 1 pour une autre raison : une breche CONSTATEE. Ces deux sondes
     # n'y montent que sur une preuve -- une route d'administration qui repond
     # sans session, le panneau qui repond sur l'origine des applications. Un
