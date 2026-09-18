@@ -3469,9 +3469,6 @@ def _signaler_groupe(pgid, sig, uid):
 
 
 def stop(name):
-    refus = refus_action_protegee(name, "arrêt")
-    if refus:
-        return refus
     """Arrete une application. Rend None si tout va bien, sinon POURQUOI.
 
     MEME CONTRAT QUE start(), et il manquait. Cette fonction ne rendait rien
@@ -4352,9 +4349,6 @@ def alerte_tick():
 # ------------------------------- build ---------------------------------
 
 def run_build(name):
-    refus = refus_action_protegee(name, "build")
-    if refus:
-        return False, refus
     apps = load()
     a = apps.get(name)
     if not a:
@@ -6976,9 +6970,6 @@ def api_toggle(n):
 
 
 def restart_app(n):
-    refus = refus_action_protegee(n, "redémarrage")
-    if refus:
-        return refus
     """Rend None si l'application est repartie, sinon POURQUOI.
 
     Elle se taisait : l'erreur de start() partait a la poubelle, la route
