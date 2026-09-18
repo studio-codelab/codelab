@@ -831,6 +831,7 @@ def services_du_hub():
         # affaire a un service. Un « undefined » dans une fiche est un defaut
         # d'affichage de plus a prevoir, et il finit toujours par passer.
         "path": "", "command": "", "port": DAGSTER_PORT,
+        "port_listeners": _ecouteurs_port(DAGSTER_PORT),
         "failed": False, "crash_looping": False, "has_build": False,
         "build_command": "", "max_memory_mb": None, "alertes": [],
         "cpu_percent": 0.0, "memory_mb": 0.0,
