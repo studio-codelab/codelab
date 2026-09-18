@@ -1717,7 +1717,7 @@ THEME_DES_SONDES = {
     "/workspace": "services",
     "codelab-dagster": "services",
     "codelab-dev (SSH)": "services",
-    "codelab-postgres (TCP)": "services",
+    "codelab-postgres (TCP)": "services",\n    "codelab-llm (TCP)": "services",\n    "codelab-llm (health)": "services",\n    "LiteLLM (modèles)": "services",\n    "LiteLLM (auth)": "securite",\n    "LiteLLM (completion)": "services",\n    "LiteLLM (usage)": "services",
     "codelab-app-manager": "services",
     "Postgres (pilote)": "donnees",
     "Postgres": "donnees",
@@ -1872,7 +1872,7 @@ SEVERITE_MAX = {
     "codelab-postgres (TCP)": Etat.ECHEC,
     "codelab-dagster": Etat.ECHEC,            # un conteneur tombe est une panne,
     "codelab-dev (SSH)": Etat.ECHEC,          # pas un reglage a revoir
-    "codelab-app-manager": Etat.ECHEC,
+    "codelab-app-manager": Etat.ECHEC,\n    "codelab-llm (TCP)": Etat.ECHEC,\n    "codelab-llm (health)": Etat.ECHEC,\n    "LiteLLM (modèles)": Etat.ECHEC,\n    "LiteLLM (auth)": Etat.ECHEC,
     # Rang 1 pour une autre raison : une breche CONSTATEE. Ces deux sondes
     # n'y montent que sur une preuve -- une route d'administration qui repond
     # sans session, le panneau qui repond sur l'origine des applications. Un
@@ -3145,7 +3145,7 @@ def test_le_diagnostic_est_inscrit_au_premier_demarrage(tmp_path, monkeypatch):
     inscrit = app.load()["diagnostic"]
     assert inscrit["path"] == str(racine / "diagnostic")
     assert inscrit["command"] == app.DIAGNOSTIC_COMMANDE
-    assert inscrit["build_command"] == app.DIAGNOSTIC_BUILD
+    # Le diagnostic est construit à la demande ; son inscription initiale ne déclenche aucun build.\n    assert inscrit["build_command"] == ""
     # Pas demarree ici : c'est le thread d'amorcage qui la lance, apres le
     # build qui installe son pilote Postgres.
     assert inscrit["enabled"] is False
