@@ -3209,8 +3209,7 @@ function peindreHub(){
      sur un autre port, sans le ruban qui ramene au panneau -- y aller dans
      l'onglet courant, c'est perdre le hub. */
   const tuile = a => `<a class="hub-projet ${a.running?'':'arretee'}"
-      href="${a.url || urlApplication(a.name)}"
-      ${a.externe ? 'target="_blank" rel="noopener"' : ''}
+      href="${a.externe ? '/'+encodeURIComponent(a.name)+'/' : urlApplication(a.name)}"
       title="${esc(a.description||a.name)}">
       <img src="${icone(a.name)}" alt="">
       <div class="txt"><div class="nom">${esc(a.name)}</div>
@@ -3328,7 +3327,7 @@ function render(){
       <td class="tbl-num">${a.externe ? '—' : (a.cpu_percent||0).toFixed(1)+'%'}</td>
       <td class="tbl-num">${a.externe ? '—' : Math.round(a.memory_mb||0)+' Mo'}</td>
       <td class="tbl-act"><div>
-        ${a.externe ? '' : `<button class="icon-btn ${a.running?'stop':'ok'}" title="${a.running?'Arreter':'Demarrer'}"
+        ${(a.externe || a.name === 'diagnostic') ? '' : `<button class="icon-btn ${a.running?'stop':'ok'}" title="${a.running?'Arreter':'Demarrer'}"
           data-agir="app-basculer" data-cible="${esc(a.name)}">
           ${a.running
             ? '<svg viewBox="0 0 24 24"><rect x="7" y="6" width="3.5" height="12" rx="1"/><rect x="13.5" y="6" width="3.5" height="12" rx="1"/></svg>'
@@ -3544,16 +3543,14 @@ function peindreFiche(){
        page vide : on revient au premier. */
     if(cache && b.classList.contains('active')) ficheOnglet('general');
   });
-  /* Un service vit sur son propre port : ni journal, ni metriques, ni
-     activite a montrer -- le panneau ne le lance pas. */
-  ['metriques','journal','activite'].forEach(o=>{
-    const b=document.querySelector(`#fiche-onglets button[data-o="${o}"]`);
-    if(b){
-      b.style.display = externe ? 'none' : '';
-      if(externe && b.classList.contains('active')) ficheOnglet('general');
-    }
-  });
   $('fa-defaut').style.display = parDefaut ? '' : 'none';
+  $('mt-cpu-titre').textContent = externe ? 'Temps de réponse' : 'CPU maintenant';
+  $('mt-mem-titre').textContent = externe ? 'Disponibilité' : 'Mémoire maintenant';
+  $('mt-note').textContent = externe
+    ? "Mesuré par le panneau, toutes les 10 secondes : une requête à Dagster "
+      + "et le temps qu'elle met à revenir. Le panneau ne voit ni le processeur "
+      + "ni la mémoire d'un autre conteneur."
+    : 'Sur les deux dernières minutes environ, relevé toutes les 5 secondes.';
   $('fa-icone').src=icone(a.name);
   $('fa-nom').textContent=a.name;
   $('fa-sous').textContent=a.description || 'Aucune description';
@@ -3597,7 +3594,7 @@ function peindreFiche(){
   /* Un service externe : le panneau ne le demarre pas, ne l'arrete pas, ne
      le deploie pas. Il ouvre, et c'est tout. */
   if(externe){
-    b.push(`<a class="btn btn-primary" href="${a.url}" target="_blank" rel="noopener">${svgOuvrir}Ouvrir</a>`);
+    b.push(`<a class="btn btn-primary" href="/${encodeURIComponent(a.name)}/">${svgOuvrir}Ouvrir</a>`);
     $('fa-actions').innerHTML=b.join('');
     return;
   }
@@ -3956,12 +3953,17 @@ function sparklineSvg(values){
 }
 async function chargerMetriques(n){
   if(!n) return;
+  const a=appParNom(n), externe=!!(a && a.externe);
   const d=await (await fetch('/api/metrics/'+n)).json();
   const cpu=d.points.map(p=>p.cpu), mem=d.points.map(p=>p.mem);
   $('mt-cpu').innerHTML=sparklineSvg(cpu);
   $('mt-mem').innerHTML=sparklineSvg(mem);
-  $('mt-cpu-val').textContent=(cpu.length?cpu[cpu.length-1]:0).toFixed(1)+'%';
-  $('mt-mem-val').textContent=Math.round(mem.length?mem[mem.length-1]:0)+' Mo';
+  const dernier=(l)=>l.length?l[l.length-1]:0;
+  $('mt-cpu-val').textContent = externe
+    ? Math.round(dernier(cpu)) + ' ms' : dernier(cpu).toFixed(1) + '%';
+  $('mt-mem-val').textContent = externe
+    ? (dernier(mem) >= 100 ? 'En ligne' : 'Ne répond pas')
+    : Math.round(dernier(mem)) + ' Mo';
 }
 
 /* ---------------- fiche : journal en direct ---------------- */
