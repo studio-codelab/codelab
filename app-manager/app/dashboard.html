@@ -3954,16 +3954,25 @@ function sparklineSvg(values){
 async function chargerMetriques(n){
   if(!n) return;
   const a=appParNom(n), externe=!!(a && a.externe);
-  const d=await (await fetch('/api/metrics/'+n)).json();
-  const cpu=d.points.map(p=>p.cpu), mem=d.points.map(p=>p.mem);
-  $('mt-cpu').innerHTML=sparklineSvg(cpu);
-  $('mt-mem').innerHTML=sparklineSvg(mem);
-  const dernier=(l)=>l.length?l[l.length-1]:0;
-  $('mt-cpu-val').textContent = externe
-    ? Math.round(dernier(cpu)) + ' ms' : dernier(cpu).toFixed(1) + '%';
-  $('mt-mem-val').textContent = externe
-    ? (dernier(mem) >= 100 ? 'En ligne' : 'Ne répond pas')
-    : Math.round(dernier(mem)) + ' Mo';
+  try{
+    const r=await fetch('/api/metrics/'+encodeURIComponent(n));
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.error||'Mesures indisponibles.');
+    const cpu=d.points.map(p=>Number(p.cpu)||0), mem=d.points.map(p=>Number(p.mem)||0);
+    $('mt-cpu').innerHTML=sparklineSvg(cpu);
+    $('mt-mem').innerHTML=sparklineSvg(mem);
+    const dernier=(l)=>l.length?l[l.length-1]:0;
+    $('mt-cpu-val').textContent = externe
+      ? Math.round(dernier(cpu)) + ' ms' : dernier(cpu).toFixed(1) + '%';
+    $('mt-mem-val').textContent = externe
+      ? (dernier(mem) >= 100 ? 'En ligne' : 'Ne répond pas')
+      : Math.round(dernier(mem)) + ' Mo';
+  }catch(e){
+    $('mt-cpu').innerHTML='<div class="chart-empty" style="padding:16px">Mesures indisponibles.</div>';
+    $('mt-mem').innerHTML='<div class="chart-empty" style="padding:16px">Mesures indisponibles.</div>';
+    $('mt-cpu-val').textContent='—';
+    $('mt-mem-val').textContent='—';
+  }
 }
 
 /* ---------------- fiche : journal en direct ---------------- */
