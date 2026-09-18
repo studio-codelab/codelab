@@ -10040,8 +10040,21 @@ class _ContexteDeTest:
         return [n for n, m in self.log.lignes if mot in m]
 
 
+
 @pytest.fixture
-def asset_diagnostic(monkeypatch):        @staticmethod
+def asset_diagnostic(monkeypatch):
+    """definitions.py charge avec un faux dagster, et sa base remplacee."""
+    import types
+    faux = types.ModuleType("dagster")
+
+    def _decorateur(*_args, **_kwargs):
+        return lambda fonction: fonction
+
+    class _Statut:
+        RUNNING = "RUNNING"
+
+    class _Metadonnee:
+        @staticmethod
         def md(texte):
             return texte
 
@@ -10076,6 +10089,48 @@ def asset_diagnostic(monkeypatch):        @staticmethod
     module.ecrit = ecrit
     return module
 
+
+def _sondes(monkeypatch, resultats):
+    monkeypatch.setattr(sys.modules[__name__], "run_all", lambda *a, **k: resultats)
+
+
+def test_une_alerte_ne_fait_pas_echouer_le_run(asset_diagnostic, monkeypatch):
+    """LE reglage demande : le disque a 87 % et l'isolement refuse par l'hote
+    se journalisent en warning, et le run reste vert."""
+    _sondes(monkeypatch, [
+        (Etat.OK, "Postgres", "connecte"),
+        (Etat.ALERTE, "espace disque", "/workspace : 87 % occupe, 2.1 Go libres"),
+        (Etat.ALERTE, "isolation des applications", "le noyau refuse"),
+        (Etat.SANS_OBJET, "surface exposée", "pas monté ici"),
+    ])
+    contexte = _ContexteDeTest()
+
+    resultat = asset_diagnostic.diagnostic_codelab(contexte)
+
+    assert "alertes" in resultat
+    # Chaque rang dans le bon canal : c'est ce que lit la page des runs. On
+    # vise la ligne de la SONDE ("nom -- detail"), pas le resume final, qui
+    # les cite toutes.
+    assert contexte.niveaux("espace disque -- ") == ["warning"]
+    assert contexte.niveaux("Postgres -- ") == ["info"]
+    assert contexte.niveaux("surface exposée -- ") == ["info"]
+    assert contexte.metadonnees["critiques"] == 0
+    assert contexte.metadonnees["alertes"] == 2
+    assert contexte.metadonnees["sans objet"] == 1
+    # Et le battement de coeur porte les alertes : la page du panneau les
+    # relit sans avoir a rejouer les sondes.
+    assert "alertes :" in asset_diagnostic.ecrit["detail"]
+    assert asset_diagnostic.ecrit["fermee"] is True
+
+
+def test_une_sonde_critique_fait_bien_echouer_le_run(asset_diagnostic, monkeypatch):
+    """Temoin : sans lui, le test precedent passerait au vert parce que plus
+    rien ne fait jamais echouer quoi que ce soit."""
+    _sondes(monkeypatch, [
+        (Etat.ECHEC, "Postgres", "connexion refusee"),
+        (Etat.ALERTE, "espace disque", "87 %"),
+    ])
+    contexte = _ContexteDeTest()
 
 def _sondes(monkeypatch, resultats):
     monkeypatch.setattr(sys.modules[__name__], "run_all", lambda *a, **k: resultats)
