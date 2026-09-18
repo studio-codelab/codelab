@@ -463,9 +463,6 @@ services:
     environment:
       CODELAB_ENV_FILE: /var/lib/codelab/config/credentials.env
       CODELAB_LLM_DB: codelab_llm
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      GROQ_API_KEY: ${GROQ_API_KEY:-}
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
     volumes:
       - /DATA/AppData/codelab/config:/var/lib/codelab/config:ro
     depends_on:
