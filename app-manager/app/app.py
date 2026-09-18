@@ -2780,10 +2780,20 @@ def save(apps):
 
 
 def next_port(apps):
+    """Choisit un port libre dans le registre ET sur la machine.
+
+    Avant, un service externe pouvait occuper 9102 sans exister dans
+    apps.json : la creation de l'application reussissait, puis son premier
+    demarrage echouait. Le conflit doit etre evite au moment de l'attribution,
+    pas decouvert apres coup.
+    """
     used = {a["port"] for a in apps.values()}
     for p in range(PORT_MIN, PORT_MAX + 1):
-        if p not in used:
-            return p
+        if p in used:
+            continue
+        if _ecouteurs_port(p):
+            continue
+        return p
     return None
 
 
@@ -3439,42 +3449,104 @@ def start(name, attendre=True):
     return None
 
 
+def _ecouteurs_port(port):
+    """Retourne les PID qui ecoutent reellement sur le port TCP.
+
+    Le simple bind sur 127.0.0.1 ne voit pas proprement tous les cas
+    (IPv6, adresse specifique, socket deja publie). psutil donne ici le meme
+    niveau d'information que « ss -ltnp », sans dependre d'un binaire
+    externe.
+    """
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        return []
+    pids = set()
+    try:
+        for conn in psutil.net_connections(kind="tcp"):
+            if conn.status != psutil.CONN_LISTEN or not conn.laddr:
+                continue
+            if int(conn.laddr.port) == port and conn.pid:
+                pids.add(int(conn.pid))
+    except (psutil.Error, OSError):
+        pass
+    return sorted(pids)
+
+
+def _description_processus(pid):
+    try:
+        p = psutil.Process(pid)
+        nom = p.name()
+        cmd = " ".join(p.cmdline()[:3])
+        return nom, cmd
+    except psutil.Error:
+        return "processus", ""
+
+
 def port_occupe_par(port, sauf=None):
     """Le port est-il deja pris ? Rend le message a afficher, ou None.
 
-    On tente le meme bind que ferait l'application, avec SO_REUSEADDR --
-    comme n'importe quel serveur : un port en TIME_WAIT apres un arret
-    recent ne doit pas passer pour occupe, sinon on refuserait de redemarrer
-    ce qu'on vient d'arreter.
+    En cas de processus CodeLab survivant, on le reprend automatiquement
+    lorsqu'il porte encore la marque CODELAB_APP. Un redemarrage brutal du
+    panneau ne doit pas transformer une application saine en conflit de port.
+    Pour tout autre processus, le demarrage reste bloque et l'interface donne
+    le PID pour faciliter le diagnostic.
     """
     try:
         port = int(port)
     except (TypeError, ValueError):
         return None
-    # Sur 127.0.0.1 et non sur 0.0.0.0, volontairement. C'est l'adresse que
-    # le proxy contacte, donc la seule qui compte ; et une sonde sur 0.0.0.0
-    # echouerait aussi quand un service occupe le port sur une AUTRE adresse
-    # de la machine -- on refuserait alors un demarrage qui aurait marche.
-    # Mieux vaut manquer un cas rare que bloquer un cas legitime.
-    sonde = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sonde.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    try:
-        sonde.bind(("127.0.0.1", port))
-        return None
-    except OSError:
-        pass
-    finally:
-        sonde.close()
-    # Une autre application du panneau ? C'est le cas le plus frequent, et
-    # celui qu'on peut nommer : « deja pris » sans dire par qui envoie
-    # chercher dans les journaux de tout le monde.
-    for autre, infos in load().items():
-        if autre != sauf and str(infos.get("port")) == str(port) and is_running(autre):
-            return (f"Le port {port} est deja occupe par « {autre} ». "
-                    f"Change le port de l'une des deux dans sa configuration.")
-    return (f"Le port {port} est deja occupe sur la machine. Un processus "
-            f"survivant d'un demarrage precedent, ou un autre service : "
-            f"verifie avec « ss -ltnp | grep {port} ».")
+
+    ecouteurs = _ecouteurs_port(port)
+    if not ecouteurs:
+        # Cas de course ou de socket TCP atypique : le bind reste le dernier
+        # filet, mais on ne l'utilise plus comme source unique de vérité.
+        sonde = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sonde.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sonde.bind(("127.0.0.1", port))
+            return None
+        except OSError:
+            pass
+        finally:
+            sonde.close()
+        return (f"Le port {port} est deja occupe sur la machine. "
+                f"Verifie avec « ss -ltnp | grep {port} ».")
+
+    apps = load()
+    for pid in ecouteurs:
+        # Le cas important : le processus appartient a CETTE application,
+        # mais le fichier de pid a ete perdu ou le panneau a redemarre avant
+        # d'avoir pu le relire. On peut le reprendre sans le tuer.
+        if _processus_est_le_notre(pid, sauf):
+            procs[sauf] = ProcessusAdopte(pid, sauf)
+            _noter_processus(sauf, pid)
+            apps = load()
+            if sauf in apps:
+                apps[sauf]["enabled"] = True
+                save(apps)
+            print(f"[app-manager] {sauf} : processus survivant repris "
+                  f"(pid {pid}, port {port}).", flush=True)
+            return None
+
+        # Si le port appartient a une autre application CodeLab, nommons-la
+        # meme si son registre de processus a ete perdu.
+        for autre in apps:
+            if autre == sauf or str(apps[autre].get("port")) != str(port):
+                continue
+            if _processus_est_le_notre(pid, autre):
+                return (f"Le port {port} est deja occupe par « {autre} » "
+                        f"(pid {pid}). Change le port de l'une des deux "
+                        f"dans sa configuration.")
+
+        nom_proc, cmd = _description_processus(pid)
+        detail = f"PID {pid} ({nom_proc})"
+        if cmd:
+            detail += f" : {cmd}"
+        return (f"Le port {port} est deja occupe sur la machine ({detail}). "
+                f"Verifie avec « ss -ltnp | grep {port} ».")
+
+    return None
 
 
 def derniere_ligne_utile(nom):
@@ -6828,7 +6900,8 @@ def api_apps():
             record_metrics(name, stats["cpu_percent"], stats["memory_mb"])
         out.append({
             "name": name, "path": a["path"], "command": a["command"],
-            "port": a["port"], "running": run,
+            "port": a["port"], "port_listeners": _ecouteurs_port(a["port"]),
+            "running": run,
             "failed": bool(a.get("enabled")) and not run,
             "crash_looping": is_crash_looping(name),
             # None tant que la sonde n'est pas passee (app tout juste
@@ -7171,6 +7244,15 @@ def api_build(n):
 def api_metrics(n):
     if n not in load() and not est_app_par_defaut(n):
         return jsonify({"error": "Application inconnue."}), 404
+
+    # La fiche peut etre ouverte avant le premier rafraichissement de
+    # /api/apps. Dans ce cas l'historique etait vide et les deux cartes
+    # affichaient « Aucune mesure » jusqu'au prochain polling. Une ouverture
+    # de l'onglet met maintenant au moins une mesure reelle a disposition.
+    if n in procs and is_running(n):
+        stats = proc_stats(procs[n].pid)
+        record_metrics(n, stats["cpu_percent"], stats["memory_mb"])
+
     hist = get_metrics_history(n)
     return jsonify({
         "points": [{"t": t, "cpu": cpu, "mem": mem} for t, cpu, mem in hist],
