@@ -1326,7 +1326,7 @@ table.tbl-journal{min-width:560px}
         <div class="spark-wrap" id="mt-mem"></div>
       </div>
     </div>
-    <div class="hint" style="margin-top:12px">Sur les deux dernières minutes environ, relevé toutes les 5 secondes.</div>
+    <div class="hint" id="mt-note" style="margin-top:12px">Sur les deux dernières minutes environ, relevé toutes les 5 secondes.</div>
   </div>
 
   <div class="onglet" id="onglet-journal">
@@ -3280,10 +3280,21 @@ async function refresh(){
   /* Reservee a l'administrateur : /api/apps repond 403 a un compte
      utilisateur, et l'appeler en boucle ne produirait que des refus. */
   if(!estAdmin) return;
-  const r=await fetch('/api/apps');
-  if(r.status===401){ location.href='/login'; return; }
-  apps=(await r.json()).apps;
-  $('side-count').textContent=apps.length;
+  try{
+    const r=await fetch('/api/apps');
+    if(r.status===401){ location.href='/login'; return; }
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d=await r.json();
+    if(!Array.isArray(d.apps)) throw new Error('Réponse /api/apps invalide.');
+    apps=d.apps;
+    $('side-count').textContent=apps.length;
+  }catch(e){
+    /* Une coupure réseau ne doit pas casser la fiche ni produire une
+       promesse rejetée toutes les 5 secondes. On conserve la dernière liste
+       connue et le rendu courant. */
+    console.warn('[app-manager] Impossible de rafraîchir /api/apps:', e);
+    return;
+  }
   render();
   renderOverview();
   if(ficheNom) peindreFiche();
