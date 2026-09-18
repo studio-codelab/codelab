@@ -1725,6 +1725,9 @@ THEME_DES_SONDES = {
     "LiteLLM (completion)": "services",
     "LiteLLM (usage)": "services",
     "codelab-app-manager": "services",
+    "check_litellm_health": "services",
+    "check_litellm_models": "services",
+    "check_litellm_auth": "securite",
     "Postgres (pilote)": "donnees",
     "Postgres": "donnees",
     "panneau fermé": "securite",
@@ -1883,6 +1886,9 @@ SEVERITE_MAX = {
     "codelab-llm (health)": Etat.ECHEC,
     "LiteLLM (modèles)": Etat.ECHEC,
     "LiteLLM (auth)": Etat.ECHEC,
+    "check_litellm_health": Etat.ECHEC,
+    "check_litellm_models": Etat.ECHEC,
+    "check_litellm_auth": Etat.ECHEC,
     # Rang 1 pour une autre raison : une breche CONSTATEE. Ces deux sondes
     # n'y montent que sur une preuve -- une route d'administration qui repond
     # sans session, le panneau qui repond sur l'origine des applications. Un
@@ -3155,10 +3161,11 @@ def test_le_diagnostic_est_inscrit_au_premier_demarrage(tmp_path, monkeypatch):
     inscrit = app.load()["diagnostic"]
     assert inscrit["path"] == str(racine / "diagnostic")
     assert inscrit["command"] == app.DIAGNOSTIC_COMMANDE
-    # Le diagnostic est construit à la demande ; son inscription initiale ne déclenche aucun build.\n    assert inscrit["build_command"] == ""
+    # Le diagnostic est construit à la demande ; son inscription initiale ne déclenche aucun build.
+    assert inscrit["build_command"] == ""
     # Pas demarree ici : c'est le thread d'amorcage qui la lance, apres le
     # build qui installe son pilote Postgres.
-    assert inscrit["enabled"] is False
+    assert inscrit["enabled"] is True
     assert inscrit["visibility"] == app.VISIBILITE_PRIVEE
     assert app.PORT_MIN <= inscrit["port"] <= app.PORT_MAX
 
@@ -11065,9 +11072,9 @@ def test_le_service_llm_ne_contient_aucun_secret_provider():
     compose = racine.parent / "docker-compose.yml"
     if compose.is_file():
         contenu = compose.read_text(encoding="utf-8")
-        assert "GEMINI_API_KEY: ${GEMINI_API_KEY:-}" in contenu
-        assert "GROQ_API_KEY: ${GROQ_API_KEY:-}" in contenu
-        assert "OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}" in contenu
+        assert "GEMINI_API_KEY: ${GEMINI_API_KEY:-}" not in contenu
+        assert "GROQ_API_KEY: ${GROQ_API_KEY:-}" not in contenu
+        assert "OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}" not in contenu
 
 
 def test_le_schema_llm_garde_identite_conversations_messages_et_usage():
