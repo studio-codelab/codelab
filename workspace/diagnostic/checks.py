@@ -1905,6 +1905,116 @@ def _hierarchiser(resultat):
     return max(Etat.depuis(etat), SEVERITE_MAX.get(nom, Etat.ECHEC)), nom, detail
 
 
+def _executer_sonde(nom, fonction):
+    """Une exception de sonde devient un resultat lisible, jamais un HTTP 500."""
+    try:
+        return fonction()
+    except Exception as error:
+        return (Etat.ECHEC, nom, f"exception inattendue ({type(error).__name__}: {error})")
+
+
+def _llm_url(env_file=None):
+    host = read_env("CODELAB_LLM_HOST", env_file) or "codelab-llm"
+    port = int(read_env("CODELAB_LLM_PORT", env_file) or 8080)
+    return f"http://{host}:{port}"
+
+
+def _llm_get(path, env_file=None, headers=None):
+    request = urllib.request.Request(_llm_url(env_file) + path, headers=headers or {})
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return response.status, response.read()
+    except urllib.error.HTTPError as error:
+        return error.code, error.read()
+
+
+def _llm_post(path, payload, env_file=None, headers=None):
+    request = urllib.request.Request(_llm_url(env_file) + path, data=payload,
+                                     headers=headers or {}, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=90) as response:
+            return response.status, response.read()
+    except urllib.error.HTTPError as error:
+        return error.code, error.read()
+
+
+def check_litellm_health(env_file=None):
+    status, body = _llm_get("/health", env_file)
+    if status != 200:
+        return (Etat.ECHEC, "codelab-llm (health)", f"HTTP {status}")
+    try:
+        data = json.loads(body)
+    except (TypeError, ValueError):
+        return (Etat.ECHEC, "codelab-llm (health)", "JSON invalide")
+    if data.get("service") != "codelab-llm" or data.get("litellm") is not True:
+        return (Etat.ECHEC, "codelab-llm (health)", "identification LiteLLM invalide")
+    return (Etat.OK, "codelab-llm (health)", "API active")
+
+
+def check_litellm_models(env_file=None):
+    status, body = _llm_get("/v1/models", env_file)
+    if status != 200:
+        return (Etat.ECHEC, "LiteLLM (modèles)", f"HTTP {status}")
+    try:
+        ids = [item.get("id") for item in json.loads(body).get("data", [])]
+    except (TypeError, ValueError, AttributeError):
+        return (Etat.ECHEC, "LiteLLM (modèles)", "catalogue invalide")
+    expected = ["codelab-fast", "codelab-smart", "codelab-coding"]
+    if ids != expected:
+        return (Etat.ECHEC, "LiteLLM (modèles)", f"aliases reçus: {ids}")
+    return (Etat.OK, "LiteLLM (modèles)", "3 alias CodeLab exposes")
+
+
+def check_litellm_auth(env_file=None):
+    payload = b'{"model":"codelab-smart","messages":[{"role":"user","content":"auth probe"}]}'
+    status, _ = _llm_post("/v1/chat/completions", payload, env_file,
+                          {"Content-Type": "application/json"})
+    if status != 401:
+        return (Etat.ECHEC, "LiteLLM (auth)", f"HTTP {status} au lieu de 401")
+    return (Etat.OK, "LiteLLM (auth)", "Bearer CodeLab obligatoire")
+
+
+def check_litellm_completion(env_file=None):
+    key = read_env("CODELAB_LLM_DIAGNOSTIC_KEY", env_file) or os.environ.get(
+        "CODELAB_LLM_DIAGNOSTIC_KEY", "")
+    if not key:
+        return (Etat.SANS_OBJET, "LiteLLM (completion)", "clé diagnostique non configurée")
+    payload = json.dumps({
+        "model": "codelab-smart",
+        "messages": [{"role": "user", "content": "Réponds uniquement: OK"}],
+        "max_tokens": 8,
+    }).encode()
+    status, body = _llm_post("/v1/chat/completions", payload, env_file, {
+        "Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+    if status != 200:
+        return (Etat.ECHEC, "LiteLLM (completion)",
+                f"HTTP {status}: {body[:300].decode(errors='replace')}")
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return (Etat.ECHEC, "LiteLLM (completion)", "JSON invalide")
+    choice = (data.get("choices") or [{}])[0]
+    if not choice.get("message"):
+        return (Etat.ECHEC, "LiteLLM (completion)", "réponse sans message")
+    return (Etat.OK, "LiteLLM (completion)",
+            f"modèle réel: {data.get('model') or 'inconnu'}")
+
+
+def check_litellm_usage(env_file=None):
+    key = read_env("CODELAB_LLM_DIAGNOSTIC_KEY", env_file) or os.environ.get(
+        "CODELAB_LLM_DIAGNOSTIC_KEY", "")
+    if not key:
+        return (Etat.SANS_OBJET, "LiteLLM (usage)", "clé diagnostique non configurée")
+    status, body = _llm_get("/v1/usage", env_file, {"Authorization": f"Bearer {key}"})
+    if status != 200:
+        return (Etat.ECHEC, "LiteLLM (usage)", f"HTTP {status}")
+    try:
+        count = len(json.loads(body).get("items", []))
+    except (ValueError, AttributeError):
+        return (Etat.ECHEC, "LiteLLM (usage)", "réponse usage invalide")
+    return (Etat.OK, "LiteLLM (usage)", f"{count} agrégations")
+
+
 def run_all(env_file=None, workspace=None, ssh_dir=None):
     """Toutes les sondes, dans l'ordre ou on veut les lire : d'abord ce qui
     doit MARCHER, ensuite ce qui doit etre FERME, enfin l'etat des lieux."""
@@ -1916,6 +2026,12 @@ def run_all(env_file=None, workspace=None, ssh_dir=None):
         _executer_sonde("check_pilote_pg", lambda: check_pilote_pg()),
         _executer_sonde("check_postgres", lambda: check_postgres(env_file)),
         _executer_sonde("check_tcp", lambda: check_tcp("codelab-postgres (TCP)", host, port)),
+        _executer_sonde("codelab-llm", lambda: check_tcp("codelab-llm (TCP)", read_env("CODELAB_LLM_HOST", env_file) or "codelab-llm", int(read_env("CODELAB_LLM_PORT", env_file) or 8080))),
+        _executer_sonde("check_litellm_health", lambda: check_litellm_health(env_file)),
+        _executer_sonde("check_litellm_models", lambda: check_litellm_models(env_file)),
+        _executer_sonde("check_litellm_auth", lambda: check_litellm_auth(env_file)),
+        _executer_sonde("check_litellm_completion", lambda: check_litellm_completion(env_file)),
+        _executer_sonde("check_litellm_usage", lambda: check_litellm_usage(env_file)),
         _executer_sonde("check_http", lambda: check_http("codelab-dagster", "http://codelab-dagster:3000/")),
         _executer_sonde("check_tcp", lambda: check_tcp("codelab-dev (SSH)", "codelab-dev", 22, lire_banniere=True)),
         _executer_sonde("check_panneau_joignable", lambda: check_panneau_joignable()),
