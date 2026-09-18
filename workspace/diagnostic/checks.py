@@ -11025,6 +11025,137 @@ def test_un_message_recu_se_signale_dans_le_coin():
     assert "bottom" in style and "right" in style, style
 
 
+
+# ---------- 24. regressions app-manager : ports / metriques / logo --------
+#
+# Ces tests sont volontairement des tests de source et de comportement isole :
+# ils ne demarrent ni Docker ni une application utilisateur. Ils garantissent
+# que les trois regressions vues en production restent couvertes.
+
+def _racine_app_manager():
+    candidates = []
+    configured = os.environ.get("CODELAB_REPO_ROOT")
+    if configured:
+        candidates.append(Path(configured) / "app-manager")
+    ici = Path(__file__).resolve()
+    candidates.extend((parent / "app-manager" for parent in ici.parents))
+    for candidate in candidates:
+        if (candidate / "app.py").is_file():
+            return candidate
+    pytest.skip("sources app-manager absentes de cette image")
+
+
+def _charger_app_manager(monkeypatch, tmp_path):
+    racine = _racine_app_manager()
+    monkeypatch.setenv("APP_MANAGER_STATE", str(tmp_path / "state"))
+    monkeypatch.setenv("APP_MANAGER_ROOT", str(tmp_path / "workspace"))
+    monkeypatch.setenv("APP_MANAGER_SHARED_CONFIG", str(tmp_path / "config"))
+    monkeypatch.setenv("CODELAB_TESTS", "1")
+    spec = importlib.util.spec_from_file_location(
+        "codelab_app_manager_regression", racine / "app.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_un_port_externe_est_detecte_des_l_attribution(monkeypatch, tmp_path):
+    """Un port occupe par un autre service ne doit jamais etre propose."""
+    m = _charger_app_manager(monkeypatch, tmp_path)
+
+    class Conn:
+        status = m.psutil.CONN_LISTEN
+        pid = 4242
+        laddr = type("Addr", (), {"port": 9102})()
+
+    monkeypatch.setattr(m.psutil, "net_connections", lambda kind=None: [Conn()])
+    assert m.next_port({}) == 9101
+    assert m.next_port({"demo": {"port": 9101}}) == 9103
+
+
+def test_un_processus_codelab_survivant_est_repris(monkeypatch, tmp_path):
+    """Après redémarrage du panneau, un listener connu est adopté."""
+    m = _charger_app_manager(monkeypatch, tmp_path)
+
+    class Conn:
+        status = m.psutil.CONN_LISTEN
+        pid = 4242
+        laddr = type("Addr", (), {"port": 9102})()
+
+    monkeypatch.setattr(m.psutil, "net_connections", lambda kind=None: [Conn()])
+    monkeypatch.setattr(m, "load", lambda: {
+        "demo": {"port": 9102, "enabled": True}
+    })
+    monkeypatch.setattr(m, "_processus_est_le_notre", lambda pid, sauf=None: pid == 4242)
+    monkeypatch.setattr(m, "_noter_processus", lambda *args: None)
+    monkeypatch.setattr(m, "save", lambda apps: None)
+    monkeypatch.setattr(m, "ProcessusAdopte", lambda pid, name: ("adopte", pid, name))
+    monkeypatch.setattr(m, "is_running", lambda name: True)
+
+    m.procs.clear()
+    assert m.port_occupe_par(9102, sauf="demo") is None
+    assert m.procs["demo"] == ("adopte", 4242, "demo")
+
+
+def test_un_port_externe_explique_le_pid(monkeypatch, tmp_path):
+    """Le message de panne donne enfin le processus qui bloque le port."""
+    m = _charger_app_manager(monkeypatch, tmp_path)
+
+    class Conn:
+        status = m.psutil.CONN_LISTEN
+        pid = 9876
+        laddr = type("Addr", (), {"port": 9102})()
+
+    monkeypatch.setattr(m.psutil, "net_connections", lambda kind=None: [Conn()])
+    monkeypatch.setattr(m, "_description_processus",
+                        lambda pid: ("node", "node server.js"))
+    monkeypatch.setattr(m, "load", lambda: {})
+
+    erreur = m.port_occupe_par(9102)
+    assert "9102" in erreur
+    assert "9876" in erreur
+    assert "node server.js" in erreur
+
+
+def test_ouverture_des_stats_force_une_premiere_mesure(monkeypatch, tmp_path):
+    """La fiche métriques ne doit pas dépendre du polling précédent."""
+    m = _charger_app_manager(monkeypatch, tmp_path)
+    mesures = []
+
+    class Proc:
+        pid = 4242
+
+    monkeypatch.setattr(m, "procs", {"demo": Proc()})
+    monkeypatch.setattr(m, "is_running", lambda name: True)
+    monkeypatch.setattr(m, "proc_stats",
+                        lambda pid: {"cpu_percent": 12.5, "memory_mb": 64})
+    monkeypatch.setattr(m, "record_metrics",
+                        lambda name, cpu, mem: mesures.append((name, cpu, mem)))
+    monkeypatch.setattr(m, "get_metrics_history",
+                        lambda name: mesures)
+
+    client = m.flask_app.test_client()
+    with client.session_transaction() as sess:
+        sess["authenticated"] = True
+
+    # L'auth réelle du panneau peut varier selon la configuration de test :
+    # on teste aussi directement le contrat de calcul si la route est protégée.
+    monkeypatch.setattr(m, "is_authed", lambda: True)
+    monkeypatch.setattr(m, "require_admin",
+                        lambda f: f)
+    resultat = m.api_metrics("demo")
+    assert resultat[0].json["points"][-1] == {"t": mesures[-1][0], "cpu": 12.5, "mem": 64}
+
+
+def test_le_logo_dagster_est_vectoriel_et_net():
+    source = (_racine_app_manager() / "app.py").read_text(encoding="utf-8")
+    debut = source.index("ICONE_DAGSTER")
+    bloc = source[debut:debut + 5000]
+    assert '<svg' in bloc
+    assert 'viewBox="0 0 48 48"' in bloc
+    assert 'aria-label="Dagster"' in bloc
+    assert 'fill="#4C9AFF"' in bloc
+    assert '<path' in bloc
+
 # ---------- 23. service LLM CodeLab ---------------------------------------
 #
 # Ces tests restent hermetiques : ils ne contactent ni provider ni Docker.
