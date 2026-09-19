@@ -2891,6 +2891,7 @@ def test_assertion_sso_signee_et_limitee_a_l_application(monkeypatch):
     monkeypatch.setattr(app, "_sso_private_key", cle)
     monkeypatch.setattr(app, "_sso_public_key", app._public_sso_b64(cle))
 
+    app.flask_app.secret_key = "test-sso-secret"
     with app.flask_app.test_request_context("/"):
         app.session["authed"] = True
         app.session["role"] = app.ROLE_UTILISATEUR
