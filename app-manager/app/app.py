@@ -761,6 +761,7 @@ def origine_applications():
 # avec les autres, et elle mene au port 3000.
 DAGSTER_NOM = "dagster"
 DIAGNOSTIC_NOM = "diagnostic"
+AICHAT_NOM = "aichat"
 
 # LES APPLICATIONS PAR DEFAUT : celles que CodeLab apporte avec lui.
 #
@@ -2134,8 +2135,8 @@ def reecrire_messages(messages):
         pass
 
 
-def modifier_message(identifiant, retenu=None, supprimer=False):
-    """Retient, relache ou supprime un message. Rend True s'il existait.
+def modifier_message(identifiant, retenu=None, lu=None, supprimer=False):
+    """Retient, lit ou supprime un message. Rend True s'il existait.
 
     Un seul chemin pour les trois gestes : ils relisent tous le fichier,
     le modifient et le reecrivent, et les faire en trois fonctions aurait
@@ -2153,6 +2154,11 @@ def modifier_message(identifiant, retenu=None, supprimer=False):
                 vise["retenu"] = True
             else:
                 vise.pop("retenu", None)
+        if lu is not None:
+            if lu:
+                vise["lu"] = True
+            else:
+                vise.pop("lu", None)
         reecrire_messages(tous)
     if supprimer:
         # La copie Postgres suit : un message efface du panneau mais toujours
@@ -2160,6 +2166,21 @@ def modifier_message(identifiant, retenu=None, supprimer=False):
         # genre de moitie qu'on decouvre au pire moment.
         _pg_deposer(("message_supprime", identifiant))
     return True
+
+
+def marquer_messages_lus():
+    """Marque tous les messages comme lus après leur consultation dans le panneau."""
+    with _acces_verrou:
+        tous = lire_messages(limite=100000)
+        changes = 0
+        for message in tous:
+            if not message.get("lu"):
+                message["lu"] = True
+                changes += 1
+        if changes:
+            reecrire_messages(tous)
+            _pg_deposer(("messages_lus",))
+    return changes
 
 
 def enregistrer_message(message):
@@ -2382,8 +2403,10 @@ def _pg_preparer():
               qui         TEXT NOT NULL DEFAULT '',
               cible       TEXT NOT NULL,
               application TEXT,
-              texte       TEXT NOT NULL
+              texte       TEXT NOT NULL,
+              lu          BOOLEAN NOT NULL DEFAULT FALSE
             )""")
+        cx.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS lu BOOLEAN NOT NULL DEFAULT FALSE")
         cx.execute("CREATE INDEX IF NOT EXISTS messages_ts ON messages (ts DESC)")
         cx.execute("""
             CREATE TABLE IF NOT EXISTS utilisateurs (
@@ -2437,13 +2460,13 @@ def _pg_ecrire_messages(cx, messages):
     lignes = [(m.get("id") or secrets.token_hex(12),
                datetime.datetime.fromtimestamp(m.get("ts") or 0, datetime.timezone.utc),
                m.get("qui") or "", m.get("cible") or "", m.get("app"),
-               m.get("texte") or "") for m in messages]
+               m.get("texte") or "", bool(m.get("lu"))) for m in messages]
     if not lignes:
         return
     with cx.cursor() as cur:
         cur.executemany(
-            """INSERT INTO messages (id, ts, qui, cible, application, texte)
-               VALUES (%s,%s,%s,%s,%s,%s)
+            """INSERT INTO messages (id, ts, qui, cible, application, texte, lu)
+               VALUES (%s,%s,%s,%s,%s,%s,%s)
                ON CONFLICT (id) DO NOTHING""", lignes)
 
 
@@ -2514,6 +2537,9 @@ def _pg_boucle():
                         with cx.cursor() as cur:
                             cur.execute("DELETE FROM messages WHERE id = %s",
                                         (charge,))
+                    elif genre == "messages_lus":
+                        with cx.cursor() as cur:
+                            cur.execute("UPDATE messages SET lu = TRUE WHERE lu = FALSE")
                     elif genre == "utilisateurs":
                         _pg_ecrire_utilisateurs(cx)
         except Exception as e:
@@ -2845,6 +2871,8 @@ def peut_voir(name):
     """
     if est_app_par_defaut(name):
         return est_admin()
+    if name == AICHAT_NOM:
+        return is_authed()
     autorises = projets_autorises()
     return autorises is None or name in autorises
 
@@ -7810,9 +7838,17 @@ ICONE_DIAGNOSTIC = (
     'stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>'
     '</svg>')
 
+ICONE_AICHAT = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+    '<rect width="64" height="64" rx="16" fill="#0e7c86"/>'
+    '<path d="M16 18h32a6 6 0 0 1 6 6v17a6 6 0 0 1-6 6H30l-10 7v-7h-4a6 6 0 0 1-6-6V24a6 6 0 0 1 6-6Z" fill="none" stroke="#fff" stroke-width="4"/>'
+    '<circle cx="24" cy="32" r="2.5" fill="#fff"/><circle cx="32" cy="32" r="2.5" fill="#fff"/><circle cx="40" cy="32" r="2.5" fill="#fff"/>'
+    '</svg>')
+
 ICONES_PAR_DEFAUT = {
     DAGSTER_NOM: ICONE_DAGSTER,
     DIAGNOSTIC_NOM: ICONE_DIAGNOSTIC,
+    AICHAT_NOM: ICONE_AICHAT,
 }
 
 
@@ -8181,7 +8217,7 @@ def api_message():
     _dernier_message[qui] = maintenant
 
     message = {"id": secrets.token_hex(12), "ts": int(maintenant), "qui": qui,
-               "cible": cible, "app": nom_app, "texte": texte}
+               "cible": cible, "app": nom_app, "texte": texte, "lu": False}
     if not enregistrer_message(message):
         return jsonify({"error": "Message non enregistré : le disque n'a pas "
                                  "accepté l'écriture."}), 500
@@ -8250,7 +8286,15 @@ def api_messages_liste():
     # Les messages retenus d'abord : on les retient justement pour ne pas
     # avoir a les rechercher.
     messages.sort(key=lambda m: (not m.get("retenu"), -(m.get("ts") or 0)))
-    return jsonify({"messages": messages})
+    return jsonify({"messages": messages,
+                     "non_lus": sum(1 for m in messages if not m.get("lu"))})
+
+
+@flask_app.post("/api/messages/lus")
+@require_admin
+def api_messages_lus():
+    changes = marquer_messages_lus()
+    return jsonify({"ok": True, "lus": changes})
 
 
 @flask_app.put("/api/messages/<identifiant>")
@@ -8266,6 +8310,15 @@ def api_message_retenir(identifiant):
     if not modifier_message(identifiant, retenu=bool(d.get("retenu"))):
         return jsonify({"error": "Message introuvable."}), 404
     return jsonify({"ok": True, "retenu": bool(d.get("retenu"))})
+
+
+@flask_app.put("/api/messages/<identifiant>/lu")
+@require_admin
+def api_message_lu(identifiant):
+    if not modifier_message(identifiant, lu=True):
+        return jsonify({"error": "Message introuvable."}), 404
+    _pg_deposer(("messages_lus",))
+    return jsonify({"ok": True})
 
 
 @flask_app.delete("/api/messages/<identifiant>")
@@ -8601,6 +8654,38 @@ DIAGNOSTIC_MARQUEUR = os.path.join(STATE_DIR, "diagnostic-inscrit")
 # pas), et l'application demarrerait sans pilote Postgres.
 DIAGNOSTIC_COMMANDE = "python3 app.py"
 DIAGNOSTIC_BUILD = 'pip install --target vendor "psycopg[binary]"'
+AICHAT_MARQUEUR = os.path.join(STATE_DIR, "aichat-inscrit")
+AICHAT_COMMANDE = "python3 app.py"
+
+
+def _poser_marqueur_aichat():
+    try:
+        with open(AICHAT_MARQUEUR, "w") as f:
+            f.write("1\n")
+    except OSError:
+        pass
+
+
+def amorcer_aichat():
+    """Inscrit AIChat une fois, sans le recréer après une suppression volontaire."""
+    if os.path.exists(AICHAT_MARQUEUR):
+        return None
+    apps = load()
+    chemin = os.path.join(ROOT, AICHAT_NOM)
+    if not os.path.isfile(os.path.join(chemin, "app.py")):
+        return None
+    if AICHAT_NOM in apps:
+        _poser_marqueur_aichat()
+        return None
+    apps[AICHAT_NOM] = {
+        "path": chemin, "command": AICHAT_COMMANDE, "port": next_port(apps),
+        "enabled": True, "build_command": "", "max_memory_mb": 384,
+        "visibility": "privee", "description": "Chat CodeLab pour utiliser les modèles LiteLLM.",
+        "categorie": "Outils", "alertes": "",
+    }
+    save(apps)
+    _poser_marqueur_aichat()
+    return AICHAT_NOM
 
 
 def amorcer_diagnostic():
@@ -8778,6 +8863,8 @@ if __name__ == "__main__":
     # nouvelle sur un port occupe -- sans que personne ne comprenne pourquoi.
     adopter_processus_survivants()
     resume()
+    if amorcer_aichat():
+        print("[app-manager] AIChat inscrit.", flush=True)
     if inscrit:
         threading.Thread(target=_preparer_diagnostic, args=(inscrit,),
                          daemon=True).start()

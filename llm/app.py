@@ -1,5 +1,6 @@
 """Thin CodeLab identity and persistence layer in front of LiteLLM."""
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -18,6 +19,8 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "")
 MAX_BODY_BYTES = 512 * 1024
 RATE_LIMIT_PER_MINUTE = 60
 ALLOWED_MODELS = {"codelab-fast", "codelab-smart", "codelab-coding"}
+SSO_ISSUER = "codelab"
+SSO_AUDIENCE = "aichat"
 _rate_history = defaultdict(deque)
 
 # Legacy provider identifiers kept in this comment so older diagnostic suites
@@ -126,7 +129,41 @@ def initialize():
     _ensure_schema()
 
 
-def _identity(authorization):
+def _sso_identity(assertion):
+    """Vérifie l'identité signée par app-manager pour AIChat."""
+    if not assertion or not SSO_ISSUER:
+        return None
+    try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+        env_values = _read_env_file(os.environ.get("CODELAB_ENV_FILE", "/var/lib/codelab/config/credentials.env"))
+        public_b64 = os.environ.get("CODELAB_SSO_PUBLIC_KEY") or env_values.get("CODELAB_SSO_PUBLIC_KEY", "")
+        if not public_b64:
+            return None
+        parts = assertion.split(".")
+        if len(parts) != 3:
+            return None
+        pad = lambda value: value + "=" * (-len(value) % 4)
+        header = json.loads(base64.urlsafe_b64decode(pad(parts[0])).decode())
+        payload = json.loads(base64.urlsafe_b64decode(pad(parts[1])).decode())
+        signature = base64.urlsafe_b64decode(pad(parts[2]))
+        if header.get("alg") != "EdDSA" or header.get("typ") != "JWT":
+            return None
+        if payload.get("iss") != SSO_ISSUER or payload.get("aud") != SSO_AUDIENCE:
+            return None
+        if not payload.get("sub") or int(payload.get("exp", 0)) <= int(time.time()):
+            return None
+        public_key = base64.urlsafe_b64decode(pad(public_b64))
+        Ed25519PublicKey.from_public_bytes(public_key).verify(
+            signature, (parts[0] + "." + parts[1]).encode("ascii"))
+        return {"user_id": str(payload["sub"]), "app_id": SSO_AUDIENCE}
+    except (ImportError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+        return None
+
+
+def _identity(authorization, x_codelab_auth=None):
+    sso = _sso_identity(x_codelab_auth)
+    if sso:
+        return sso
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "Bearer CodeLab key required")
     value = authorization[7:].strip()
@@ -217,8 +254,9 @@ def models():
 
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request, authorization: str | None = Header(default=None),
+                           x_codelab_auth: str | None = Header(default=None),
                            x_codelab_conversation_id: str | None = Header(default=None)):
-    identity = _identity(authorization)
+    identity = _identity(authorization, x_codelab_auth)
     _check_rate_limit(identity)
     body = await request.body()
     if len(body) > MAX_BODY_BYTES:

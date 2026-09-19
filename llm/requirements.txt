@@ -3,3 +3,4 @@ litellm==1.75.3
 litellm==1.75.3
 psycopg[binary]==3.2.9
 uvicorn==0.35.0
+cryptography==50.0.1
