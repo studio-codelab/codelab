@@ -1038,6 +1038,80 @@ Deux details qui rendent le mecanisme fiable :
 - **une duree de vie de 10 minutes**, apres quoi le flux se termine et `EventSource` se reconnecte
   tout seul. Un onglet oublie ne monopolise pas une place indefiniment.
 
+## SSO des applications
+
+Les applications deployees heritent maintenant de l'identite de la session CodeLab sans recevoir le cookie Flask ni le secret de signature du panneau.
+
+### Contrat
+
+Quand une requete arrive par le proxy avec une session CodeLab valide, le proxy retire les en-tetes \`X-CodeLab-*\` fournis par le navigateur puis ajoute :
+
+- \`X-CodeLab-Auth\` : assertion courte au format JWT signee en **Ed25519 / EdDSA** ;
+- \`X-CodeLab-User\` : nom du compte ;
+- \`X-CodeLab-Role\` : \`admin\` ou \`utilisateur\` ;
+- \`X-CodeLab-Email\` : adresse du compte lorsqu'elle existe ;
+- \`X-CodeLab-Authenticated: true\`.
+
+Pour un visiteur anonyme, aucun de ces en-tetes d'identite n'est ajoute.
+
+L'assertion contient notamment \`iss=codelab\`, \`sub\`, \`preferred_username\`, \`role\`, \`aud=<nom-de-l-app>\`, \`iat\` et \`exp\`. Elle expire apres 60 secondes et est liee a l'application cible par \`aud\`.
+
+### Verification
+
+La cle publique est injectee dans chaque application sous :
+
+\`\`\`text
+CODELAB_SSO_PUBLIC_KEY
+CODELAB_SSO_ISSUER=codelab
+CODELAB_SSO_AUDIENCE=<nom-de-l-app>
+\`\`\`
+
+La cle privee reste uniquement dans \`credentials.env\` cote app-manager et n'est jamais transmise aux processus deployes.
+
+Une application Python peut verifier l'assertion ainsi :
+
+\`\`\`python
+import base64
+import json
+import os
+import time
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+def codelab_user(request):
+    token = request.headers.get("X-CodeLab-Auth", "")
+    public = os.environ.get("CODELAB_SSO_PUBLIC_KEY", "")
+    if not token or not public:
+        return None
+
+    try:
+        h, p, signature_b64 = token.split(".")
+        raw_public = base64.urlsafe_b64decode(public + "=" * (-len(public) % 4))
+        signature = base64.urlsafe_b64decode(
+            signature_b64 + "=" * (-len(signature_b64) % 4)
+        )
+        payload = json.loads(base64.urlsafe_b64decode(
+            p + "=" * (-len(p) % 4)
+        ))
+
+        if payload.get("iss") != os.environ.get("CODELAB_SSO_ISSUER", "codelab"):
+            return None
+        if payload.get("aud") != os.environ.get("CODELAB_SSO_AUDIENCE"):
+            return None
+        if int(payload.get("exp", 0)) < int(time.time()):
+            return None
+
+        Ed25519PublicKey.from_public_bytes(raw_public).verify(
+            signature, (h + "." + p).encode("ascii")
+        )
+        return payload
+    except (ValueError, TypeError, KeyError, json.JSONDecodeError):
+        return None
+\`\`\`
+
+**Important :** ne faites pas confiance a \`X-CodeLab-User\` ou \`X-CodeLab-Role\` seuls. Pour une application qui doit proteger des donnees, verifiez \`X-CodeLab-Auth\` avec la cle publique et controlez \`iss\`, \`aud\` et \`exp\`.
+
+Cette separation permet a une application compromise de connaitre l'identite de son visiteur sans lui donner le secret qui permettrait de fabriquer une session CodeLab ou une assertion pour une autre application.
+
 ## Developper / tester localement
 
 ```bash

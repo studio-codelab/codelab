@@ -86,6 +86,7 @@ SHARED_ENV_FILE = os.path.join(SHARED_CONFIG_DIR, "credentials.env")
 # repli si credentials.env n'est pas accessible en ecriture.
 LEGACY_ADMIN_PASSWORD_FILE = os.path.join(STATE_DIR, "admin_password")
 LEGACY_SECRET_KEY_FILE = os.path.join(STATE_DIR, "flask_secret_key")
+SSO_PRIVATE_FILE = os.path.join(STATE_DIR, "codelab_sso_private.key")
 
 _admin_password = None   # valeur courante, chargee par bootstrap_secrets()
 _totp_secret = ""        # vide = double authentification desactivee
@@ -343,6 +344,136 @@ def bootstrap_secrets():
                 os.chmod(path, 0o600)
             except OSError:
                 pass
+
+
+# --------------------------- SSO des applications ---------------------------
+#
+# Une application ne reçoit jamais le cookie Flask ni APP_MANAGER_SESSION_SECRET.
+# Le proxy lui transmet une assertion courte, signee avec une cle Ed25519 privee
+# qui reste dans le control-plane. La cle publique est injectee dans le
+# processus : l'application peut donc verifier elle-meme l'identite sans
+# recevoir un secret qui permettrait de forger une session CodeLab.
+SSO_ISSUER = "codelab"
+SSO_TOKEN_TTL = 60
+_sso_private_key = None
+_sso_public_key = ""
+
+
+def _b64url(data):
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _b64json(data):
+    return _b64url(json.dumps(data, separators=(",", ":"), sort_keys=True).encode())
+
+
+def _charger_cle_sso(raw):
+    try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        return Ed25519PrivateKey.from_private_bytes(raw)
+    except (ImportError, ValueError, TypeError):
+        return None
+
+
+def _generer_cle_sso():
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    return Ed25519PrivateKey.generate()
+
+
+def _public_sso_b64(cle):
+    from cryptography.hazmat.primitives import serialization
+    return _b64url(cle.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw))
+
+
+def bootstrap_sso():
+    """Charge ou cree la cle de signature SSO, sans jamais l'exposer aux apps."""
+    global _sso_private_key, _sso_public_key
+    from cryptography.hazmat.primitives import serialization
+
+    raw = None
+    encoded = read_shared_value("CODELAB_SSO_PRIVATE_KEY")
+    if encoded:
+        try:
+            raw = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
+        except (ValueError, TypeError):
+            raw = None
+
+    if raw:
+        _sso_private_key = _charger_cle_sso(raw)
+
+    if _sso_private_key is None:
+        try:
+            with open(SSO_PRIVATE_FILE, "rb") as f:
+                raw = f.read()
+            _sso_private_key = _charger_cle_sso(raw)
+        except (OSError, ValueError, TypeError):
+            _sso_private_key = None
+
+    if _sso_private_key is None:
+        try:
+            _sso_private_key = _generer_cle_sso()
+        except ImportError:
+            print("[app-manager] cryptography absente : SSO des applications indisponible.",
+                  flush=True)
+            return False
+
+    raw = _sso_private_key.private_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PrivateFormat.Raw,
+        encryption_algorithm=serialization.NoEncryption())
+    private_b64 = _b64url(raw)
+    _sso_public_key = _public_sso_b64(_sso_private_key)
+
+    written = upsert_shared_block(
+        "codelab-sso",
+        [
+            "# Identite signee transmise aux applications par le reverse proxy.",
+            "# CODELAB_SSO_PRIVATE_KEY : secret du control-plane, jamais transmis aux apps.",
+            "# CODELAB_SSO_PUBLIC_KEY : cle publique permettant aux apps de verifier les assertions.",
+        ],
+        {
+            "CODELAB_SSO_PRIVATE_KEY": private_b64,
+            "CODELAB_SSO_PUBLIC_KEY": _sso_public_key,
+        })
+    if not written:
+        try:
+            with open(SSO_PRIVATE_FILE, "wb") as f:
+                f.write(raw)
+            os.chmod(SSO_PRIVATE_FILE, 0o600)
+        except OSError as e:
+            print(f"[app-manager] cle SSO non persistante ({e}).", flush=True)
+    return True
+
+
+def jeton_sso(nom_app):
+    """Construit une assertion JWT-like EdDSA valable 60 secondes pour une app."""
+    if _sso_private_key is None or not is_authed():
+        return ""
+
+    maintenant = int(time.time())
+    utilisateur = utilisateur_courant()
+    role = role_courant() or ""
+    compte = None if est_admin() else lire_utilisateurs().get(utilisateur)
+    email = (compte or {}).get("email", "") if compte else ""
+
+    header = {"alg": "EdDSA", "typ": "JWT"}
+    payload = {
+        "iss": SSO_ISSUER,
+        "sub": utilisateur,
+        "preferred_username": utilisateur,
+        "role": role,
+        "aud": nom_app,
+        "iat": maintenant,
+        "exp": maintenant + SSO_TOKEN_TTL,
+    }
+    if email:
+        payload["email"] = email
+
+    message = _b64json(header) + "." + _b64json(payload)
+    signature = _b64url(_sso_private_key.sign(message.encode("ascii")))
+    return message + "." + signature
 
 
 def admin_password():
@@ -2886,6 +3017,10 @@ PREFIXE_PRIVE = "APP_MANAGER_"
 # casserait sinon toutes les applications d'un coup, sans rien pour l'expliquer.
 CLES_RESERVEES = {"PATH", "HOME", "PORT", "PYTHONPATH", "PYTHONHOME",
                   "LD_PRELOAD", "LD_LIBRARY_PATH"}
+# Les cles SSO sont gerees par app-manager lui-meme. La cle privee ne doit
+# jamais entrer dans l'environnement d'une application ; la publique est
+# injectee explicitement par start() pour rendre la verification portable.
+CLES_SSO = {"CODELAB_SSO_PRIVATE_KEY", "CODELAB_SSO_PUBLIC_KEY"}
 
 # Le bloc d'alertes du panneau (serveur d'envoi, identifiant, mot de passe,
 # adresse de l'administrateur). Defini plus bas, avec CHAMPS_SMTP dont il
@@ -2921,7 +3056,8 @@ def secrets_partages():
                 cle, _, valeur = ligne.partition("=")
                 cle, valeur = cle.strip(), valeur.strip()
                 if (not cle or cle.startswith(PREFIXE_PRIVE)
-                        or cle in CLES_RESERVEES or cle in CLES_PANNEAU):
+                        or cle in CLES_RESERVEES or cle in CLES_PANNEAU
+                        or cle in CLES_SSO):
                     continue
                 if len(valeur) >= 2 and valeur[0] == valeur[-1] and valeur[0] in "\"'":
                     valeur = valeur[1:-1]
@@ -3396,6 +3532,9 @@ def start(name, attendre=True):
     env = dict(os.environ, **secrets_partages())
     env.update(PORT=str(a["port"]), PYTHONUNBUFFERED="1",
                HOME=ensure_child_home(name),
+               CODELAB_SSO_PUBLIC_KEY=_sso_public_key,
+               CODELAB_SSO_ISSUER=SSO_ISSUER,
+               CODELAB_SSO_AUDIENCE=name,
                # La marque qui permettra de reconnaitre ce processus apres un
                # redemarrage du panneau. Le noyau fige l'environnement a
                # l'exec : l'application ne peut pas l'effacer.
@@ -8311,8 +8450,15 @@ def _proxy(name, sub):
         url += "?" + request.query_string.decode()
     body = request.get_data() if request.method in ("POST", "PUT", "PATCH") else None
     req = urllib.request.Request(url, data=body, method=request.method)
+    # Les en-tetes SSO sont controles par le proxy. Ceux fournis par le
+    # navigateur sont TOUJOURS supprimes avant injection : une application
+    # publique ne doit pas pouvoir s'attribuer une identite, et une application
+    # privee ne doit recevoir que l'identite de la session qui a franchi les
+    # controles de ce proxy.
+    sso_headers = {"x-codelab-auth", "x-codelab-user", "x-codelab-role",
+                   "x-codelab-email", "x-codelab-authenticated"}
     for k, v in request.headers:
-        if k.lower() in HOP or k.lower() == "host":
+        if k.lower() in HOP or k.lower() == "host" or k.lower() in sso_headers:
             continue
         if k.lower() == "cookie":
             # Les applications sont servies sur la MEME origine que le
@@ -8331,6 +8477,21 @@ def _proxy(name, sub):
             if not v:
                 continue
         req.add_header(k, v)
+
+    # Assertion signee courte : l'application ne connait ni le cookie Flask
+    # ni le secret de session. Pour un visiteur anonyme, aucune identite n'est
+    # injectee, meme si l'application est publique.
+    token = jeton_sso(name)
+    if token:
+        req.add_header("X-CodeLab-Auth", token)
+        req.add_header("X-CodeLab-User", utilisateur_courant())
+        req.add_header("X-CodeLab-Role", role_courant() or "")
+        req.add_header("X-CodeLab-Authenticated", "true")
+        compte = None if est_admin() else lire_utilisateurs().get(utilisateur_courant())
+        email = (compte or {}).get("email", "") if compte else ""
+        if email:
+            req.add_header("X-CodeLab-Email", email)
+
     try:
         r = urllib.request.urlopen(req, timeout=30)
         data, status, headers = r.read(), r.status, r.headers
@@ -8607,6 +8768,7 @@ def servir(port):
 
 if __name__ == "__main__":
     bootstrap_secrets()
+    bootstrap_sso()
     os.makedirs(LOG_DIR, exist_ok=True)
     if not os.path.exists(APPS_FILE):
         save({})
