@@ -2139,7 +2139,7 @@ CHEMINS_ETAT = [
     "CATEGORIES_FILE",
     "EXPOSITION_FILE", "DIAGNOSTIC_MARQUEUR", "ICONE_DAGSTER_CACHE", "SHARED_CONFIG_DIR",
     "SHARED_ENV_FILE", "LEGACY_ADMIN_PASSWORD_FILE", "LEGACY_SECRET_KEY_FILE",
-    "SSO_PRIVATE_FILE",
+    "SSO_PRIVATE_FILE", "AICHAT_MARQUEUR",
 ]
 
 
@@ -2176,6 +2176,7 @@ def _bac_a_sable(tmp_path, monkeypatch):
         "LEGACY_ADMIN_PASSWORD_FILE": str(etat / "admin_password"),
         "LEGACY_SECRET_KEY_FILE": str(etat / "flask_secret_key"),
         "SSO_PRIVATE_FILE": str(etat / "codelab_sso_private.key"),
+        "AICHAT_MARQUEUR": str(etat / "aichat-inscrit"),
     }
     for nom in CHEMINS_ETAT:
         assert hasattr(app, nom), (
