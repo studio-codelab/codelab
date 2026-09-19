@@ -590,8 +590,13 @@ label:has(> input[type=checkbox]),label:has(> input[type=radio]){
 .msg-tete .quand{color:var(--dim2);font-size:11.5px;margin-left:auto}
 .msg-texte{font-size:var(--t-m);color:var(--txt);white-space:pre-wrap;line-height:1.55}
 .msg-vide{color:var(--dim);font-size:var(--t-m);padding:6px 0}
-/* Un message RETENU se voit sans etre lu : c'est tout l'interet de le
-   retenir. Filet d'accent au bord, comme les lignes du diagnostic. */
+.msg-ligne.non-lu{border-left:3px solid var(--accent);padding-left:13px;background:var(--accent-soft)}
+.msg-nouveau{font-size:10px;font-weight:750;text-transform:uppercase;letter-spacing:.07em;color:var(--accent);padding:2px 7px;border-radius:999px;background:var(--accent-soft)}
+.toast-message{cursor:pointer;padding-right:10px}
+.toast-message button{margin-left:auto;border:1px solid var(--line2);background:var(--surface2);color:var(--txt);border-radius:6px;padding:5px 8px;font:inherit;font-size:12px;font-weight:650;cursor:pointer;white-space:nowrap}
+.toast-message button:hover{border-color:var(--accent);color:var(--accent)}
+/* Un message non lu se voit avant meme d'ouvrir sa fiche : il reste neutre
+   dans la liste, mais porte un filet d'accent et une pastille « nouveau ». */
 .msg-ligne.retenu{box-shadow:inset 3px 0 0 var(--accent);padding-left:11px;
  border-radius:0 var(--r-s) var(--r-s) 0}
 /* Les deux gestes, discrets tant qu'on ne survole pas la ligne : une boite
@@ -2125,8 +2130,7 @@ table.tbl-journal{min-width:560px}
 <!-- ========================= MESSAGES ========================= -->
 <div id="sec-messages" class="section" style="display:none">
   <div class="toolbar"><h2>Messages</h2></div>
-  <div class="sous">Les mots laissés depuis le hub, du plus récent au plus ancien.
-    Ceux que tu retiens restent en tête et survivent au ménage.</div>
+  <div class="sous">Tous les nouveaux messages apparaissent ici d'un coup d'œil. Utilise ensuite le filtre pour te concentrer sur un sujet ou une application.</div>
 
   <div class="card">
     <div class="card-top"><div class="card-name">
@@ -2140,9 +2144,9 @@ table.tbl-journal{min-width:560px}
          remarque sur une application avec une idée de projet. -->
     <div class="msg-barre">
       <select id="msg-filtre" onchange="peindreMessages()" aria-label="Filtrer les messages">
+        <option value="">Tous les messages</option>
         <option value="hub">À propos du hub</option>
         <option value="idee">Idées d'applications</option>
-        <option value="">Tous les messages</option>
       </select>
       <div class="spacer"></div>
       <span class="hint" id="msg-retenus"></span>
@@ -2554,7 +2558,9 @@ function showSection(name){
   if(name==='hub') chargerHub();
   if(name==='overview' || name==='apps') refresh();
   if(name==='overview'){ chargerCarte(); chargerMessages(); }
-  if(name==='messages') chargerMessages();
+  if(name==='messages') {
+    chargerMessages().then(()=>marquerMessagesLus());
+  }
   /* L'etat de securite est relu a chaque ouverture : il peut avoir change
      depuis un autre onglet, ou au redemarrage du service. */
   if(name==='users'){ chargerUtilisateurs(); chargerInscriptionLibre(); chargerActivite(); }
@@ -2910,8 +2916,8 @@ const SVG_POUBELLE = '<svg viewBox="0 0 24 24"><path d="M4 7h16"/>'
   + '<path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/></svg>';
 
 function msgLigne(m){
-  return `<div class="msg-ligne${m.retenu?' retenu':''}" data-msg="${esc(m.id||'')}">
-    <div class="msg-tete"><b>${esc(m.qui||'?')}</b><span class="hint">${MSG_SUJET(m)}</span>
+  return `<div class="msg-ligne${m.retenu?' retenu':''}${m.lu?'':' non-lu'}" data-msg="${esc(m.id||'')}">
+    <div class="msg-tete"><b>${esc(m.qui||'?')}</b>${m.lu?'':'<span class="msg-nouveau">nouveau</span>'}<span class="hint">${MSG_SUJET(m)}</span>
       <span class="quand" title="${esc(quandPrecis(m.ts))}">${esc(ilYA(m.ts))}</span>
       <div class="msg-actes">
         <button class="msg-acte${m.retenu?' actif':''}" title="${m.retenu?'Relâcher':'Retenir'}"
@@ -2936,7 +2942,7 @@ function msgRemplirFiltre(){
     + (noms.length ? '<optgroup label="Applications">'
         + noms.map(n=>`<option value="app:${esc(n)}">${esc(n)}</option>`).join('')
         + '</optgroup>' : '');
-  sel.value = [...sel.options].some(o=>o.value===choisi) ? choisi : 'hub';
+  sel.value = [...sel.options].some(o=>o.value===choisi) ? choisi : '';
 }
 
 function msgRetenus(cle){
@@ -2961,11 +2967,12 @@ function peindreMessages(){
 
   const p=$('msg-compte-section');
   p.className='pill '+(liste.length?'on':'off');
-  p.innerHTML='<i></i>'+(liste.length ? liste.length+' message'+(liste.length>1?'s':'')
-                                      : 'aucun message');
+  p.innerHTML='<i></i>'+(nonLus ? nonLus+' nouveau'+(nonLus>1?'x':'') : 'aucun nouveau message');
   const retenus=msgTous.filter(m=>m.retenu).length;
-  $('msg-retenus').textContent = retenus
-    ? retenus + ' retenu' + (retenus>1?'s':'') + ' au total' : '';
+  const nonLus=msgTous.filter(m=>!m.lu).length;
+  $('msg-retenus').textContent = (nonLus ? nonLus+' nouveau'+(nonLus>1?'x':'') : '')
+    + (nonLus && retenus ? ' · ' : '')
+    + (retenus ? retenus + ' retenu' + (retenus>1?'s':'') : '');
 
   $('msg-liste-section').innerHTML = liste.length
     ? liste.map(msgLigne).join('')
@@ -2978,7 +2985,7 @@ async function chargerMessages(){
   let d;
   try{ d=await (await fetch('/api/messages')).json(); }catch(e){ return; }
   msgTous=d.messages||[];
-  $('side-count-messages').textContent=msgTous.length;
+  $('side-count-messages').textContent=d.non_lus||0;
   msgRemplirFiltre();
   peindreMessages();
 
@@ -3018,8 +3025,8 @@ async function guetterMessages(){
   if(!neufs.length) return;
   msgDernierVu = Math.max(msgDernierVu, ...neufs.map(m=>m.ts||0));
   const premier=neufs[0];
-  notifier(neufs.length===1
-    ? 'Message de « ' + (premier.qui||'?') + ' ».'
+  notifierMessage(neufs.length===1
+    ? 'Nouveau message de « ' + (premier.qui||'?') + ' ».'
     : neufs.length + ' nouveaux messages.');
   await chargerMessages();
 }
@@ -4671,6 +4678,38 @@ function notifier(texte, genre){
   n.innerHTML = icone + '<div>' + esc(texte) + '</div>';
   $('toasts').appendChild(n);
   setTimeout(()=>n.remove(), genre==='err' ? 7000 : 4000);
+}
+
+
+function notifierMessage(texte){
+  const precedent=$('toast-messages');
+  if(precedent) precedent.remove();
+  const n=document.createElement('div');
+  n.id='toast-messages';
+  n.className='toast toast-message ok';
+  n.innerHTML='<svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>'
+    +'<div style="flex:1"><b>'+esc(texte)+'</b><div class="hint">Clique pour ouvrir Messages.</div></div>'
+    +'<button type="button">Voir</button>';
+  n.querySelector('button').onclick=async ev=>{ev.stopPropagation(); await voirMessagesDepuisNotification();};
+  n.onclick=voirMessagesDepuisNotification;
+  $('toasts').appendChild(n);
+}
+
+async function marquerMessagesLus(){
+  try{
+    const r=await fetch('/api/messages/lus',{method:'POST'});
+    if(!r.ok) return;
+    const n=$('toast-messages'); if(n) n.remove();
+    $('side-count-messages').textContent='0';
+    msgTous=msgTous.map(m=>({...m,lu:true}));
+    peindreMessages();
+  }catch(e){}
+}
+
+async function voirMessagesDepuisNotification(){
+  showSection('messages');
+  await chargerMessages();
+  await marquerMessagesLus();
 }
 
 /* ---------------- creation d'un compte ---------------- */
