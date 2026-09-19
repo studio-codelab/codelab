@@ -37,11 +37,12 @@ def _auth():
     identity=_identity(request.headers.get("X-CodeLab-Auth",""))
     return identity if identity else (jsonify({"error":"Session CodeLab absente ou invalide."}),401)
 
-def _llm(method,path,body=None,assertion=""):
+def _llm(method,path,body=None,assertion="",conversation_id=""):
     data=None; headers={"Accept":"application/json"}
     if body is not None:
         data=json.dumps(body,ensure_ascii=False).encode(); headers["Content-Type"]="application/json"
     if assertion: headers["X-CodeLab-Auth"]=assertion
+    if conversation_id: headers["X-CodeLab-Conversation-ID"]=conversation_id
     req=urllib.request.Request(LLM_URL.rstrip("/") + path,data=data,headers=headers,method=method)
     try:
         with urllib.request.urlopen(req,timeout=95) as r: return r.status,json.loads(r.read().decode()),dict(r.headers)
@@ -90,7 +91,7 @@ def chat():
     payload={"model":model,"messages":clean}
     if conversation_id: payload["conversation_id"]=conversation_id
     assertion=request.headers.get("X-CodeLab-Auth","")
-    status,result,response_headers=_llm("POST","/v1/chat/completions",payload,assertion)
+    status,result,response_headers=_llm("POST","/v1/chat/completions",payload,assertion,conversation_id)
     if isinstance(result,dict): result["conversation_id"]=response_headers.get("X-CodeLab-Conversation-ID",conversation_id)
     return jsonify(result),status
 
