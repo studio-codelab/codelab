@@ -390,6 +390,7 @@ def _public_sso_b64(cle):
 def bootstrap_sso():
     """Charge ou cree la cle de signature SSO, sans jamais l'exposer aux apps."""
     global _sso_private_key, _sso_public_key
+    from cryptography.hazmat.primitives import serialization
 
     raw = None
     encoded = read_shared_value("CODELAB_SSO_PRIVATE_KEY")
