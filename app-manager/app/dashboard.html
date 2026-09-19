@@ -3025,6 +3025,7 @@ async function guetterMessages(){
   if(!neufs.length) return;
   msgDernierVu = Math.max(msgDernierVu, ...neufs.map(m=>m.ts||0));
   const premier=neufs[0];
+  /* notifier() devient ici une notification persistante : elle reste jusqu'à la prise de connaissance. */
   notifierMessage(neufs.length===1
     ? 'Nouveau message de « ' + (premier.qui||'?') + ' ».'
     : neufs.length + ' nouveaux messages.');
