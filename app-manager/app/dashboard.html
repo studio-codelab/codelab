@@ -2966,10 +2966,10 @@ function peindreMessages(){
   $('msg-soustitre').textContent=sous;
 
   const p=$('msg-compte-section');
-  p.className='pill '+(liste.length?'on':'off');
-  p.innerHTML='<i></i>'+(nonLus ? nonLus+' nouveau'+(nonLus>1?'x':'') : 'aucun nouveau message');
   const retenus=msgTous.filter(m=>m.retenu).length;
   const nonLus=msgTous.filter(m=>!m.lu).length;
+  p.className='pill '+(liste.length?'on':'off');
+  p.innerHTML='<i></i>'+(nonLus ? nonLus+' nouveau'+(nonLus>1?'x':'') : 'aucun nouveau message');
   $('msg-retenus').textContent = (nonLus ? nonLus+' nouveau'+(nonLus>1?'x':'') : '')
     + (nonLus && retenus ? ' · ' : '')
     + (retenus ? retenus + ' retenu' + (retenus>1?'s':'') : '');
