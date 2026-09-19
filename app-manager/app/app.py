@@ -8863,7 +8863,7 @@ if __name__ == "__main__":
     # nouvelle sur un port occupe -- sans que personne ne comprenne pourquoi.
     adopter_processus_survivants()
     resume()
-    if inscrit_aichat:
+    if aichat_inscrit:
         print("[app-manager] AIChat inscrit.", flush=True)
     if inscrit:
         threading.Thread(target=_preparer_diagnostic, args=(inscrit,),
