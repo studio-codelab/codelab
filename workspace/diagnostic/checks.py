@@ -2139,6 +2139,7 @@ CHEMINS_ETAT = [
     "CATEGORIES_FILE",
     "EXPOSITION_FILE", "DIAGNOSTIC_MARQUEUR", "ICONE_DAGSTER_CACHE", "SHARED_CONFIG_DIR",
     "SHARED_ENV_FILE", "LEGACY_ADMIN_PASSWORD_FILE", "LEGACY_SECRET_KEY_FILE",
+    "SSO_PRIVATE_FILE",
 ]
 
 
@@ -2174,6 +2175,7 @@ def _bac_a_sable(tmp_path, monkeypatch):
         "SHARED_ENV_FILE": str(partage / "credentials.env"),
         "LEGACY_ADMIN_PASSWORD_FILE": str(etat / "admin_password"),
         "LEGACY_SECRET_KEY_FILE": str(etat / "flask_secret_key"),
+        "SSO_PRIVATE_FILE": str(etat / "codelab_sso_private.key"),
     }
     for nom in CHEMINS_ETAT:
         assert hasattr(app, nom), (
@@ -2873,6 +2875,53 @@ def _projet(tmp_path, fichiers):
         cible.parent.mkdir(parents=True, exist_ok=True)
         cible.write_text(contenu)
     return str(tmp_path)
+
+
+# ------------------ SSO des applications ------------------
+#
+# L'application ne doit recevoir ni le cookie de session ni la cle privee.
+# Le test verifie aussi que l'audience lie l'assertion au projet demande.
+
+def test_assertion_sso_signee_et_limitee_a_l_application(monkeypatch):
+    import base64
+    import json
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+    cle = app._generer_cle_sso()
+    monkeypatch.setattr(app, "_sso_private_key", cle)
+    monkeypatch.setattr(app, "_sso_public_key", app._public_sso_b64(cle))
+
+    with app.flask_app.test_request_context("/"):
+        app.session["authed"] = True
+        app.session["role"] = app.ROLE_UTILISATEUR
+        app.session["utilisateur"] = "alice"
+        token = app.jeton_sso("wine-manager")
+
+    h, p, sig = token.split(".")
+    payload = json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4)))
+    signature = base64.urlsafe_b64decode(sig + "=" * (-len(sig) % 4))
+    public = base64.urlsafe_b64decode(
+        app._sso_public_key + "=" * (-len(app._sso_public_key) % 4)
+    )
+    Ed25519PublicKey.from_public_bytes(public).verify(
+        signature, (h + "." + p).encode("ascii")
+    )
+
+    assert payload["sub"] == "alice"
+    assert payload["aud"] == "wine-manager"
+    assert payload["iss"] == app.SSO_ISSUER
+    assert payload["exp"] - payload["iat"] == app.SSO_TOKEN_TTL
+
+
+def test_secrets_partages_n_expose_pas_les_cles_sso(tmp_path, monkeypatch):
+    env = tmp_path / "credentials.env"
+    env.write_text(
+        "CODELAB_SSO_PRIVATE_KEY=secret\n"
+        "CODELAB_SSO_PUBLIC_KEY=public\n"
+        "CODELAB_TEST=value\n"
+    )
+    monkeypatch.setattr(app, "SHARED_ENV_FILE", str(env))
+    assert app.secrets_partages() == {"CODELAB_TEST": "value"}
 
 
 # ------------------ 0. cache du registre d'applications ------------------
