@@ -11612,3 +11612,126 @@ def test_le_panneau_cesse_de_sonder_quand_l_onglet_n_est_plus_regarde():
     assert page.count("surveiller(") >= 5, "une minuterie a echappe au garde"
     for sonde in ("refresh()", "guetterMessages", "chargerHub()"):
         assert sonde in page
+
+
+# ---------- 26. Postgres : la sauvegarde et le role du service IA ---------
+
+def _entrypoint_postgres():
+    racine = os.path.dirname(DOSSIER_PANNEAU or "")
+    chemin = os.path.join(racine, "postgres", "entrypoint.sh")
+    if not os.path.exists(chemin):
+        pytest.skip("entrypoint postgres absent de cette image")
+    return open(chemin, encoding="utf-8").read()
+
+
+def test_la_liste_des_bases_a_sauvegarder_ne_passe_pas_par_la_base_supprimee():
+    """La sauvegarde disait « 0 base(s) ecrite(s) » et personne ne le lisait.
+
+    La liste des bases etait demandee a « postgres », la base de maintenance
+    livree par initdb -- que drop_maintenance_db supprime justement a la fin
+    du provisionnement. La requete echouait, la liste revenait vide, la
+    boucle ne sauvegardait rien, et le script se terminait sans erreur.
+    """
+    script = _entrypoint_postgres()
+    bloc = script.split("bases=$(psql")[1].split(")\n")[0]
+    assert '-d "$CODELAB_INSTANCE_DB"' in bloc, (
+        "la liste des bases doit etre demandee a une base qui existe encore")
+    assert "-d postgres " not in bloc
+    # Et drop_maintenance_db existe bien : c'est ce qui rend l'erreur
+    # possible, donc ce qui rend ce test necessaire.
+    assert "drop_maintenance_db()" in script
+
+
+def test_le_service_ia_a_son_propre_role_et_sa_propre_base():
+    """Un superutilisateur partage donnait a la passerelle les droits sur
+    TOUTES les bases de l'installation, y compris celles des projets."""
+    script = _entrypoint_postgres()
+    assert 'CREATE ROLE \\"$CODELAB_LLM_USER\\" LOGIN' in script
+    assert "ALTER DATABASE \\\"$CODELAB_LLM_DB\\\" OWNER TO" in script
+    # Le role n'est pas superutilisateur, et n'herite d'aucun droit implicite.
+    assert "CREATE ROLE \\\"$CODELAB_LLM_USER\\\" SUPERUSER" not in script
+    # Ses identifiants sont ecrits dans un fichier a part, pas dans
+    # credentials.env : la passerelle ne doit pas lire les secrets du panneau.
+    assert "LLM_ENV_FILE" in script
+    assert "chmod 600" in script
+
+
+def test_le_fichier_du_service_ia_ne_porte_que_ce_qui_le_regarde():
+    """credentials.env porte le mot de passe administrateur, le secret de
+    session, le secret TOTP et la cle privee SSO. Le monter dans le conteneur
+    qui parle a l'exterieur revenait a tout lui confier."""
+    script = _entrypoint_postgres()
+    bloc = script[script.index("LLM_ENV_FILE"):]
+    for interdit in ("ADMIN_PASSWORD", "SESSION_SECRET", "TOTP", "CLES_SSO",
+                     "SMTP_PASSWORD"):
+        assert interdit not in bloc, f"{interdit} n'a rien a faire dans llm.env"
+    for chemin in _composes():
+        # Les montages seuls : un commentaire a le droit de nommer le fichier
+        # qu'on a cesse de monter, c'est meme la qu'il faut le dire.
+        montages = [l.strip() for l in _bloc_du_service(chemin, "codelab-llm").splitlines()
+                    if l.strip().startswith("- ") and ":" in l]
+        assert not any("credentials.env" in m for m in montages), (
+            f"{os.path.basename(chemin)} : codelab-llm ne doit pas monter "
+            f"credentials.env -- il porte le mot de passe administrateur, le "
+            f"secret de session et la cle privee SSO")
+        assert any("config/llm" in m or "/var/lib/codelab/llm" in m for m in montages), (
+            f"{os.path.basename(chemin)} : codelab-llm doit lire son propre "
+            f"dossier de secrets")
+
+
+# ---------- 27. la rubrique IA, et ce qui ne s'applique pas --------------
+#
+# Le profil « llm » est optionnel. Sur une installation qui ne l'a pas
+# demarre, les sondes IA ne doivent pas etre rouges : il n'y a rien a
+# reparer. « Sans objet » est un troisieme etat, et il doit se propager
+# jusqu'au compte affiche.
+
+def test_les_sondes_ia_ont_leur_rubrique():
+    """Une sonde sans rubrique tombe dans « Autres » -- lisible, mais c'est
+    un oubli deguise en fonctionnalite."""
+    cles = [cle for cle, _, _ in THEMES]
+    assert "ia" in cles
+    ia = [nom for nom, theme in THEME_DES_SONDES.items() if theme == "ia"]
+    assert len(ia) >= 4, ia
+    # Les deux verifications approfondies de l'IA visent la meme rubrique que
+    # ses sondes : le bouton « Vérifier » de la rubrique doit les lancer.
+    assert THEME_DES_TESTS["Le modèle répond"] == "ia"
+    assert THEME_DES_TESTS["La consommation est comptée"] == "ia"
+
+
+def test_sans_le_profil_llm_les_sondes_ia_sont_sans_objet(monkeypatch, tmp_path):
+    """Non installe n'est pas en panne.
+
+    Sans cette distinction, toute installation qui ne veut pas d'IA ouvrait
+    le diagnostic sur quatre lignes rouges -- et apprenait a ne plus les
+    regarder, ce qui est exactement ce qu'on ne veut pas d'un diagnostic.
+    """
+    monkeypatch.setattr(sys.modules[__name__], "llm_installe", lambda env=None: False)
+    for sonde in (verif_llm_repond, verif_llm_compte):
+        etat, _, detail = sonde(str(tmp_path / "absent.env"))
+        assert etat is Etat.SANS_OBJET, sonde.__name__
+        assert "non installé" in detail
+
+
+def test_une_sonde_sans_objet_ne_compte_ni_au_numerateur_ni_au_denominateur():
+    """« 5 sur 11 » sur une installation ou tout va bien inquiete pour rien.
+
+    L'anneau du cockpit et la pastille de chaque rubrique doivent raconter la
+    meme chose : six sondes qui ne s'appliquent pas ici ne sont pas six
+    sondes en attente.
+    """
+    import app as diag
+    resultats = [
+        (Etat.OK, "a", ""),
+        (Etat.OK, "b", ""),
+        (Etat.SANS_OBJET, "c", ""),
+        (Etat.SANS_OBJET, "d", ""),
+    ]
+    html = diag._rubrique("ia", "Intelligence artificielle", "", resultats)
+    assert "2 sur 2" in html, html
+    # Et une rubrique entierement sans objet le dit avec des mots plutot que
+    # d'afficher « 0 sur 0 ».
+    html = diag._rubrique("ia", "Intelligence artificielle", "",
+                          [(Etat.SANS_OBJET, "c", "")])
+    assert "sans objet" in html
+    assert "0 sur 0" not in html
