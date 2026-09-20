@@ -12,7 +12,7 @@ from contextlib import contextmanager
 
 import psycopg
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from litellm import Router
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
@@ -279,11 +279,53 @@ async def chat_completions(request: Request, authorization: str | None = Header(
     conversation_id = _conversation(x_codelab_conversation_id, identity)
     _save_messages(conversation_id, messages)
     started = time.monotonic()
+    options = {
+        key: value for key, value in payload.items()
+        if key not in {"model", "messages", "stream"}
+    }
+
+    if payload.get("stream") is True:
+        async def stream():
+            texte = []
+            usage = {}
+            actual_model = model
+            try:
+                completion = await llm_router.acompletion(
+                    model=model, messages=messages, stream=True, **options)
+                async for chunk in completion:
+                    data = chunk.model_dump() if hasattr(chunk, "model_dump") else dict(chunk)
+                    actual_model = data.get("model") or actual_model
+                    if data.get("usage"):
+                        usage = data["usage"]
+                    for choice in data.get("choices", []):
+                        delta = choice.get("delta") or {}
+                        content = delta.get("content")
+                        if isinstance(content, str):
+                            texte.append(content)
+                    yield "data: " + json.dumps(data, ensure_ascii=False) + "\n\n"
+                yield "data: [DONE]\n\n"
+            except Exception as error:
+                erreur = {"error": {"message": "LLM gateway unavailable",
+                                    "type": "upstream_error", "detail": str(error)}}
+                yield "data: " + json.dumps(erreur, ensure_ascii=False) + "\n\n"
+                return
+            latency = int((time.monotonic() - started) * 1000)
+            assistant = "".join(texte)
+            if assistant:
+                _save_messages(conversation_id, [{"role": "assistant", "content": assistant}])
+            response = {"usage": usage}
+            provider = actual_model.split("/", 1)[0] if "/" in actual_model else None
+            _record_usage(identity, conversation_id, model, actual_model, provider,
+                          response, latency, actual_model != model)
+
+        return StreamingResponse(
+            stream(), media_type="text/event-stream",
+            headers={"X-CodeLab-Conversation-ID": str(conversation_id),
+                     "Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
     try:
         completion = await llm_router.acompletion(
-            model=model, messages=messages,
-            **{key: value for key, value in payload.items()
-               if key not in {"model", "messages"}})
+            model=model, messages=messages, **options)
     except Exception as error:  # noqa: BLE001
         return JSONResponse(
             status_code=502,
