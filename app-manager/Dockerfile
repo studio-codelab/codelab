@@ -92,9 +92,6 @@ RUN pip install --no-cache-dir \
 # dans son propre dossier. Une seule ligne a maintenir ici, et le service
 # reste lisible a la racine : Dockerfile, entrypoint, README, tests.
 COPY app-manager/app /opt/codelab/app-manager/app
-# AIChat est une application fournie par CodeLab : elle doit être disponible
-# même quand /workspace existe déjà sur une installation ancienne.
-COPY workspace/aichat /opt/codelab/aichat.default
 # Les modeles de configuration du VPS. L'assistant de liaison y substitue le
 # domaine et les adresses plutot que de regenerer un texte de son cote :
 # une seule source de verite, celle que documente app-manager/vps/README.md.
