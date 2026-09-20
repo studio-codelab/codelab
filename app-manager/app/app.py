@@ -8674,13 +8674,31 @@ def _poser_marqueur_aichat():
 
 
 def amorcer_aichat():
-    """Inscrit AIChat une fois, sans le recréer après une suppression volontaire."""
+    """Inscrit AIChat une fois, y compris sur un workspace déjà initialisé."""
     if os.path.exists(AICHAT_MARQUEUR):
         return None
     apps = load()
     chemin = os.path.join(ROOT, AICHAT_NOM)
     if not os.path.isfile(os.path.join(chemin, "app.py")):
-        return None
+        source = os.path.join("/opt/codelab", "aichat.default")
+        if not os.path.isfile(os.path.join(source, "app.py")):
+            return None
+        try:
+            if os.path.exists(chemin):
+                return None
+            shutil.copytree(source, chemin)
+            try:
+                os.chown(chemin, 1001, 2000)
+                for racine, dossiers, fichiers in os.walk(chemin):
+                    for nom in dossiers + fichiers:
+                        try:
+                            os.chown(os.path.join(racine, nom), 1001, 2000)
+                        except OSError:
+                            pass
+            except OSError:
+                pass
+        except OSError:
+            return None
     if AICHAT_NOM in apps:
         _poser_marqueur_aichat()
         return None
