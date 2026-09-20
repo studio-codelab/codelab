@@ -637,6 +637,7 @@ services:
 
     networks:
       - codelab
+      - codelab-ia
 
 
   # L'interface de chat. Open WebUI plutot qu'une application maison : elle
@@ -696,7 +697,7 @@ services:
         condition: service_healthy
 
     networks:
-      - codelab
+      - codelab-ia
 
 
   # Le portier d'Open WebUI. Meme role et meme forme que celui de Dagster :
@@ -739,6 +740,7 @@ services:
 
     networks:
       - codelab
+      - codelab-ia
 
   codelab-dagster-proxy:
     image: ghcr.io/studio-codelab/codelab-dagster-proxy:latest
@@ -801,3 +803,19 @@ services:
 networks:
   codelab:
     name: codelab_codelab
+
+  # LE RESEAU DE L'IA, ferme sur lui-meme.
+  #
+  # Les applications declarees dans le panneau tournent DANS le conteneur
+  # app-manager : elles partagent donc son reseau, et pouvaient joindre
+  # http://codelab-open-webui:8080 en direct -- c'est-a-dire contourner le
+  # portier et poser elles-memes l'en-tete X-CodeLab-Email. Toute la
+  # separation d'identite tombait par ce chemin.
+  #
+  # Open WebUI n'est donc plus sur « codelab » du tout : seuls son portier et
+  # la passerelle la voient. « internal » lui coupe aussi l'acces a
+  # l'exterieur, dont elle n'a aucun besoin : ses appels de modele passent
+  # par codelab-llm.
+  codelab-ia:
+    name: codelab_ia
+    internal: true

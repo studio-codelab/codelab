@@ -43,9 +43,15 @@ en-têtes d'identité, en écrasant ce que le client aurait pu envoyer. Sans
 session CodeLab valide, la requête est renvoyée vers la page de connexion.
 
 L'interface prouve son identité à la passerelle par le secret partagé,
-comparé en temps constant. C'est ce qui empêche une autre application du
-réseau `codelab` de se faire passer pour elle : elles partagent toutes le
-même réseau, un en-tête d'identité n'y prouve rien.
+comparé en temps constant. C'est ce qui empêche une autre application de se
+faire passer pour elle : sur un réseau partagé, un en-tête d'identité ne
+prouve rien.
+
+Et le portier ne protégerait rien si l'on pouvait passer à côté : les
+applications déclarées dans le panneau tournent dans son conteneur et
+partagent donc son réseau. L'interface vit pour cette raison sur un réseau
+à part, fermé vers l'extérieur, que seuls son portier et la passerelle
+voient.
 
 ## Les modèles proposés
 

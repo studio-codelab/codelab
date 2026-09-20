@@ -8911,8 +8911,17 @@ def _services_du_compose(chemin):
     ferait porter une dependance a la production. Le fichier est indente de
     facon reguliere : deux espaces par service, quatre par reglage.
     """
-    services, courant = {}, None
+    services, courant, dans_services = {}, None, False
     for ligne in open(chemin, encoding="utf-8"):
+        # Les sections de premier niveau : seule « services: » nous
+        # interesse. Sans ce garde, « codelab-ia: » declare sous
+        # « networks: » passait pour un service de plus.
+        if ligne[:1] not in (" ", "\n", "#", ""):
+            dans_services = ligne.rstrip() == "services:"
+            courant = None
+            continue
+        if not dans_services:
+            continue
         if ligne.startswith("  ") and not ligne.startswith("   ") and ligne.rstrip().endswith(":"):
             courant = ligne.strip().rstrip(":")
             services[courant] = {}
@@ -8928,8 +8937,13 @@ def _services_du_compose(chemin):
 
 def _bloc_du_service(chemin, nom):
     """Les lignes brutes d'un service, listes imbriquees comprises."""
-    lignes, dedans = [], False
+    lignes, dedans, dans_services = [], False, False
     for ligne in open(chemin, encoding="utf-8"):
+        if ligne[:1] not in (" ", "\n", "#", ""):
+            dans_services, dedans = ligne.rstrip() == "services:", False
+            continue
+        if not dans_services:
+            continue
         if ligne.startswith("  ") and not ligne.startswith("   ") and ligne.rstrip().endswith(":"):
             dedans = ligne.strip().rstrip(":") == nom
             continue
@@ -11836,3 +11850,52 @@ def test_les_graphiques_ecartent_les_services_que_le_panneau_ne_mesure_pas():
     bloc = page.split("function barChart(")[1].split("\n}")[0]
     assert "!a.externe" in bloc, (
         "les graphiques CPU et mémoire doivent ecarter les services externes")
+
+
+def test_l_interface_de_chat_n_est_pas_joignable_par_les_applications():
+    """Le portier ne protege rien si l'on peut passer a cote.
+
+    Les applications declarees dans le panneau tournent DANS le conteneur
+    app-manager : elles partagent son reseau. Tant qu'Open WebUI etait sur
+    « codelab », n'importe laquelle joignait http://codelab-open-webui:8080
+    en direct et posait elle-meme X-CodeLab-Email -- toute la separation
+    d'identite tombait par ce chemin.
+    """
+    for chemin in _composes():
+        charge = _reseaux_du_compose(chemin)
+        nom = os.path.basename(chemin)
+        assert charge["codelab-open-webui"] == ["codelab-ia"], (nom, charge)
+        # Le portier, lui, a un pied de chaque cote : il doit joindre le
+        # panneau pour poser sa question.
+        assert charge["codelab-open-webui-proxy"] == ["codelab", "codelab-ia"], nom
+        # Et la passerelle aussi : Postgres est sur « codelab », et une
+        # application qui possede une cle CodeLab a le droit de l'appeler.
+        assert charge["codelab-llm"] == ["codelab", "codelab-ia"], nom
+        contenu = open(chemin, encoding="utf-8").read()
+        assert "internal: true" in contenu, (
+            f"{nom} : le reseau de l'IA doit etre ferme vers l'exterieur")
+
+
+def _reseaux_du_compose(chemin):
+    """Les reseaux de chaque service, lus sans PyYAML.
+
+    Deux espaces par service, quatre pour « networks: », six pour chaque
+    entree de la liste -- la meme indentation reguliere que partout ailleurs
+    dans ces deux fichiers.
+    """
+    par_service, courant, dans_reseaux, dans_services = {}, None, False, False
+    for ligne in open(chemin, encoding="utf-8"):
+        if ligne[:1] not in (" ", "\n", "#", ""):
+            dans_services = ligne.rstrip() == "services:"
+            courant = None
+            continue
+        if not dans_services:
+            continue
+        if ligne.startswith("  ") and not ligne.startswith("   ") and ligne.rstrip().endswith(":"):
+            courant, dans_reseaux = ligne.strip().rstrip(":"), False
+            par_service.setdefault(courant, [])
+        elif courant and ligne.startswith("    ") and not ligne.startswith("     "):
+            dans_reseaux = ligne.strip() == "networks:"
+        elif courant and dans_reseaux and ligne.strip().startswith("- "):
+            par_service[courant].append(ligne.strip()[2:].strip())
+    return par_service
