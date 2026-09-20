@@ -611,6 +611,14 @@ label:has(> input[type=checkbox]),label:has(> input[type=radio]){
 .msg-acte:hover{border-color:var(--accent);color:var(--accent)}
 .msg-acte.actif{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
 .msg-acte.danger:hover{border-color:var(--err);color:var(--err);background:var(--err-bg)}
+.msg-acte.accept:hover{border-color:var(--ok);color:var(--ok);background:var(--ok-bg)}
+.msg-acte.refuse:hover{border-color:var(--err);color:var(--err);background:var(--err-bg)}
+.msg-statut{font-size:10px;font-weight:750;text-transform:uppercase;letter-spacing:.06em;padding:2px 7px;border-radius:999px;background:var(--surface2);color:var(--dim)}
+.msg-statut.attente{color:var(--accent);background:var(--accent-soft)}
+.msg-statut.accepte{color:var(--ok);background:var(--ok-bg)}
+.msg-statut.refuse{color:var(--err);background:var(--err-bg)}
+.msg-statut.archive{color:var(--dim2);background:var(--surface2)}
+.side-count.messages-non-lus{background:var(--accent);color:var(--sur-accent);box-shadow:0 0 0 3px var(--accent-soft)}
 /* AU-DELA D'UN ECRAN, ON DEFILE DANS LA CARTE, pas dans la page : la barre
    de filtres reste sous les yeux pendant qu'on descend la liste. */
 .msg-boite{max-height:56vh;overflow:auto;margin-top:12px;padding-right:4px}
@@ -2134,17 +2142,22 @@ table.tbl-journal{min-width:560px}
 
   <div class="card">
     <div class="card-top"><div class="card-name">
-      <b id="msg-titre">À propos du hub</b>
-      <div class="path" id="msg-soustitre">Ce qu'on te dit de CodeLab lui-même.</div>
+      <b id="msg-titre">Tous les messages</b>
+      <div class="path" id="msg-soustitre">Toute la boîte, y compris les messages déjà traités ou archivés.</div>
     </div>
     <span class="pill" id="msg-compte-section"><i></i>&nbsp;</span></div>
 
-    <!-- LE FILTRE PAR DEFAUT EST « LE HUB » : c'est ce dont on parle quand on
-         parle du panneau, et une boite qui s'ouvre sur tout mélange une
-         remarque sur une application avec une idée de projet. -->
+    <!-- « Tous les messages » reste toujours en première position : c'est le
+         point d'entrée global. « Boîte de réception » isole ensuite ce qui
+         demande encore une action. -->
     <div class="msg-barre">
       <select id="msg-filtre" onchange="peindreMessages()" aria-label="Filtrer les messages">
         <option value="">Tous les messages</option>
+        <option value="inbox">Boîte de réception</option>
+        <option value="attente">À traiter</option>
+        <option value="accepte">Acceptés</option>
+        <option value="refuse">Refusés</option>
+        <option value="archive">Archivés</option>
         <option value="hub">À propos du hub</option>
         <option value="idee">Idées d'applications</option>
       </select>
@@ -2913,17 +2926,33 @@ const SVG_EPINGLE = '<svg viewBox="0 0 24 24"><path d="M12 17v5"/>'
   + '<path d="M9 3h6l-1 6 3 3v2H7v-2l3-3z"/></svg>';
 const SVG_POUBELLE = '<svg viewBox="0 0 24 24"><path d="M4 7h16"/>'
   + '<path d="M10 11v6"/><path d="M14 11v6"/>'
-  + '<path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/></svg>';
+  + '<path d="M6 7l1 13h10l-1-13"/><path d="M9 7V4h6v3"/></svg>';
+const SVG_OK = '<svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg>';
+const SVG_NON = '<svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>';
+const SVG_ARCHIVE = '<svg viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M5 7l1 13h12l1-13"/><path d="M9 11h6"/><path d="M3 4h18v3H3z"/></svg>';
+
+function msgStatut(m){
+  if(m.archive) return '<span class="msg-statut archive">archivé</span>';
+  const s=m.statut||'en_attente';
+  return s==='accepte' ? '<span class="msg-statut accepte">accepté</span>'
+    : s==='refuse' ? '<span class="msg-statut refuse">refusé</span>'
+    : '<span class="msg-statut attente">à traiter</span>';
+}
 
 function msgLigne(m){
+  const statut=m.statut||'en_attente';
   return `<div class="msg-ligne${m.retenu?' retenu':''}${m.lu?'':' non-lu'}" data-msg="${esc(m.id||'')}">
-    <div class="msg-tete"><b>${esc(m.qui||'?')}</b>${m.lu?'':'<span class="msg-nouveau">nouveau</span>'}<span class="hint">${MSG_SUJET(m)}</span>
+    <div class="msg-tete"><b>${esc(m.qui||'?')}</b>${m.lu?'':'<span class="msg-nouveau">nouveau</span>'}${msgStatut(m)}<span class="hint">${MSG_SUJET(m)}</span>
       <span class="quand" title="${esc(quandPrecis(m.ts))}">${esc(ilYA(m.ts))}</span>
       <div class="msg-actes">
-        <button class="msg-acte${m.retenu?' actif':''}" title="${m.retenu?'Relâcher':'Retenir'}"
+        ${statut!=='accepte'&&!m.archive ? `<button class="msg-acte accept" title="Accepter" data-agir="msg-statut" data-cible="${esc(m.id||'')}" data-valeur="accepte">${SVG_OK}</button>` : ''}
+        ${statut!=='refuse'&&!m.archive ? `<button class="msg-acte refuse" title="Refuser" data-agir="msg-statut" data-cible="${esc(m.id||'')}" data-valeur="refuse">${SVG_NON}</button>` : ''}
+        ${!m.archive ? `<button class="msg-acte" title="Archiver" data-agir="msg-archive" data-cible="${esc(m.id||'')}" data-valeur="1">${SVG_ARCHIVE}</button>`
+          : `<button class="msg-acte" title="Restaurer dans la boîte de réception" data-agir="msg-archive" data-cible="${esc(m.id||'')}" data-valeur="0">${SVG_ARCHIVE}</button>`}
+        <button class="msg-acte${m.retenu?' actif':''}" title="${m.retenu?'Relâcher':'Épingler'}"
           data-agir="msg-retenir" data-cible="${esc(m.id||'')}"
           data-valeur="${m.retenu?'0':'1'}">${SVG_EPINGLE}</button>
-        <button class="msg-acte danger" title="Supprimer"
+        <button class="msg-acte danger" title="Supprimer définitivement"
           data-agir="msg-supprimer" data-cible="${esc(m.id||'')}">${SVG_POUBELLE}</button>
       </div></div>
     <div class="msg-texte">${esc(m.texte||'')}</div></div>`;
@@ -2936,9 +2965,14 @@ function msgRemplirFiltre(){
   const choisi=sel.value;
   const noms=[...new Set(msgTous.filter(m=>m.cible==='application' && m.app)
                                 .map(m=>m.app))].sort((a,b)=>a.localeCompare(b,'fr'));
-  sel.innerHTML = '<option value="hub">À propos du hub</option>'
+  sel.innerHTML = '<option value="">Tous les messages</option>'
+    + '<option value="inbox">Boîte de réception</option>'
+    + '<option value="attente">À traiter</option>'
+    + '<option value="accepte">Acceptés</option>'
+    + '<option value="refuse">Refusés</option>'
+    + '<option value="archive">Archivés</option>'
+    + '<option value="hub">À propos du hub</option>'
     + '<option value="idee">Idées d\'applications</option>'
-    + '<option value="">Tous les messages</option>'
     + (noms.length ? '<optgroup label="Applications">'
         + noms.map(n=>`<option value="app:${esc(n)}">${esc(n)}</option>`).join('')
         + '</optgroup>' : '');
@@ -2947,6 +2981,11 @@ function msgRemplirFiltre(){
 
 function msgRetenus(cle){
   if(cle==='') return msgTous;
+  if(cle==='inbox') return msgTous.filter(m=>!m.archive);
+  if(cle==='attente') return msgTous.filter(m=>!m.archive && (m.statut||'en_attente')==='en_attente');
+  if(cle==='accepte') return msgTous.filter(m=>(m.statut||'en_attente')==='accepte');
+  if(cle==='refuse') return msgTous.filter(m=>(m.statut||'en_attente')==='refuse');
+  if(cle==='archive') return msgTous.filter(m=>m.archive);
   if(cle==='hub') return msgTous.filter(m=>m.cible==='hub');
   if(cle==='idee') return msgTous.filter(m=>m.cible==='idee');
   const nom=cle.slice(4);
@@ -2957,7 +2996,12 @@ function peindreMessages(){
   const sel=$('msg-filtre'); if(!sel) return;
   const cle=sel.value;
   const liste=msgRetenus(cle);
-  const titres={'':['Tous les messages','Ce qu\'on t\'a écrit, tous sujets confondus.'],
+  const titres={'':['Tous les messages','Toute la boîte, y compris les messages déjà traités ou archivés.'],
+                'inbox':['Boîte de réception','Les messages qui attendent encore ton traitement.'],
+                'attente':['À traiter','Les messages qui n\'ont pas encore été acceptés ou refusés.'],
+                'accepte':['Acceptés','Les messages auxquels tu as répondu favorablement.'],
+                'refuse':['Refusés','Les messages auxquels tu as répondu négativement.'],
+                'archive':['Archivés','Les messages rangés hors de la boîte de réception.'],
                 'hub':['À propos du hub','Ce qu\'on te dit de CodeLab lui-même.'],
                 'idee':['Idées d\'applications','Les projets qu\'on aimerait voir ici.']};
   const [titre, sous] = titres[cle]
@@ -2968,11 +3012,15 @@ function peindreMessages(){
   const p=$('msg-compte-section');
   const retenus=msgTous.filter(m=>m.retenu).length;
   const nonLus=msgTous.filter(m=>!m.lu).length;
-  p.className='pill '+(liste.length?'on':'off');
-  p.innerHTML='<i></i>'+(nonLus ? nonLus+' nouveau'+(nonLus>1?'x':'') : 'aucun nouveau message');
-  $('msg-retenus').textContent = (nonLus ? nonLus+' nouveau'+(nonLus>1?'x':'') : '')
-    + (nonLus && retenus ? ' · ' : '')
-    + (retenus ? retenus + ' retenu' + (retenus>1?'s':'') : '');
+  const inbox=msgTous.filter(m=>!m.archive);
+  const aTraiter=inbox.filter(m=>(m.statut||'en_attente')==='en_attente').length;
+  p.className='pill '+(inbox.length?'on':'off');
+  p.innerHTML='<i></i>'+(inbox.length
+    ? inbox.length+' message'+(inbox.length>1?'s':'')+' dans la boîte'
+    : 'boîte de réception vide');
+  $('msg-retenus').textContent = (nonLus ? nonLus+' nouveau'+(nonLus>1?'x':'') : 'aucun nouveau')
+    + ' · ' + aTraiter + ' à traiter'
+    + (retenus ? ' · ' + retenus + ' épinglé'+(retenus>1?'s':'') : '');
 
   $('msg-liste-section').innerHTML = liste.length
     ? liste.map(msgLigne).join('')
@@ -2991,6 +3039,22 @@ async function chargerMessages(){
 
   msgDernierVu = Math.max(msgDernierVu, ...msgTous.map(m=>m.ts||0), 0);
   msgPremierChargement=false;
+}
+
+async function msgStatut(id, statut){
+  const r=await fetch('/api/messages/'+encodeURIComponent(id),
+    {method:'PUT', headers:{'Content-Type':'application/json'},
+     body:JSON.stringify({statut})});
+  if(!r.ok){ notifier(await echec(r, 'Impossible de modifier le message.'), 'err'); return; }
+  await chargerMessages();
+}
+
+async function msgArchiver(id, archive){
+  const r=await fetch('/api/messages/'+encodeURIComponent(id),
+    {method:'PUT', headers:{'Content-Type':'application/json'},
+     body:JSON.stringify({archive:!!archive})});
+  if(!r.ok){ notifier(await echec(r, 'Impossible de modifier l’archive.'), 'err'); return; }
+  await chargerMessages();
 }
 
 async function msgRetenir(id, retenu){
