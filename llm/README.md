@@ -1,94 +1,84 @@
-# Service LLM CodeLab
+# Le profil IA de CodeLab
 
-Le service unique `codelab-llm` porte l'identite CodeLab, les conversations,
-les statistiques et le routage LiteLLM. Les applications utilisent uniquement
-les modeles logiques `codelab-fast`, `codelab-smart` et `codelab-coding`.
+Trois conteneurs, une seule porte. Le profil `llm` est optionnel : sans lui,
+rien de tout cela ne démarre.
 
-Par defaut, ces trois modeles utilisent `openrouter/openrouter/free`. Le routeur
-OpenRouter choisit dynamiquement un modele gratuit disponible ; le modele reel
-peut donc changer sans modifier la configuration CodeLab.
+| Conteneur | Rôle | Joignable depuis |
+|---|---|---|
+| `codelab-llm` | Passerelle compatible OpenAI : identité, quota, comptabilité | le réseau interne seulement |
+| `codelab-open-webui` | L'interface de conversation | le réseau interne seulement |
+| `codelab-open-webui-proxy` | Le portier : il vérifie la session CodeLab | port `3001` |
 
-## Installation
+La seule adresse publiée est celle du portier. `codelab-llm` ne publie aucun
+port : il détient la clé du fournisseur, et son unique client est l'interface.
 
-Le secret provider doit etre place dans le fichier hote
-`/DATA/AppData/codelab/config/credentials.env` :
+## Pourquoi Open WebUI et non une application maison
 
-```dotenv
-OPENROUTER_API_KEY=sk-or-...
-```
+L'ancienne application `aichat` réécrivait une interface de conversation —
+historique, pièces jointes, rendu Markdown, reprise de fil — que ce projet
+n'a pas vocation à maintenir. Open WebUI le fait déjà, se branche sur une API
+compatible OpenAI, et ne connaît aucune clé de fournisseur : elle parle à
+`codelab-llm`, et rien d'autre.
 
-Ne jamais committer ce fichier ni sa valeur reelle. Le conteneur monte ce
-fichier en lecture seule et `codelab-llm` le lit via `CODELAB_ENV_FILE`.
-Aucune cle provider n'est necessaire dans le shell qui lance Compose.
+## Démarrage
 
-Lancer :
+Deux valeurs à renseigner dans `.env`, décrites dans `.env.example` : la clé
+du fournisseur et le secret partagé entre l'interface et la passerelle.
 
 ```bash
-docker compose --profile llm up -d codelab-postgres codelab-llm
+docker compose --profile llm up -d
 ```
 
-La base `codelab_llm` est creee automatiquement par Postgres et son schema
-est initialise au demarrage de l'API.
+La base `codelab_llm` et son rôle dédié sont créés par Postgres au premier
+démarrage ; le schéma est initialisé par la passerelle. La clé du fournisseur
+n'est pas posée dans l'environnement du conteneur : le panneau l'écrit dans
+`config/llm/llm.env`, que `codelab-llm` lit au démarrage.
 
-Creer une cle CodeLab liee a une identite :
+L'interface s'ouvre ensuite depuis le hub CodeLab, sous « Chat ».
+
+## Qui est qui
+
+Le portier interroge le panneau à chaque requête et réécrit lui-même les
+en-têtes d'identité, en écrasant ce que le client aurait pu envoyer. Sans
+session CodeLab valide, la requête est renvoyée vers la page de connexion.
+
+L'interface prouve son identité à la passerelle par le secret partagé,
+comparé en temps constant. C'est ce qui empêche une autre application du
+réseau `codelab` de se faire passer pour elle : elles partagent toutes le
+même réseau, un en-tête d'identité n'y prouve rien.
+
+## Les modèles proposés
+
+Une entrée par défaut, `codelab-smart`, laisse le fournisseur choisir. Pour
+en ajouter ou en changer, poser une variable `CODELAB_LLM_MODELE_<NOM>` :
+le nom logique est celui de la variable, en minuscules, tirets à la place des
+soulignés. Un nom absent de cette table est refusé avant tout appel sortant.
+
+## Une clé pour une application
+
+Une application peut parler directement à la passerelle avec sa propre clé,
+liée à une identité et à un usage :
 
 ```bash
 docker compose exec codelab-llm \
   python3 app.py create-key --name vscode --user alice --app vscode
 ```
 
-La commande affiche la cle une seule fois. Pour la revoquer, fournir cette
-meme valeur a `revoke-key`.
+La clé est affichée une seule fois — la base n'en garde que l'empreinte, donc
+personne ne peut la relire ensuite. Pour la révoquer, fournir cette même
+valeur à `revoke-key`.
 
-## API
+## Ce qui est conservé
 
-```bash
-curl http://localhost:8080/v1/chat/completions \
-  -H "Authorization: Bearer cl_..." \
-  -H 'Content-Type: application/json' \
-  -d '{"model":"codelab-coding","messages":[{"role":"user","content":"Bonjour"}]}'
-```
+Les conversations vivent dans Open WebUI, et nulle part ailleurs. La
+passerelle ne garde que la comptabilité : qui, quelle application, quel
+modèle demandé, quel modèle réel, combien de jetons. Le contenu des échanges
+n'est ni stocké ni journalisé par elle.
 
-La reponse contient `X-CodeLab-Conversation-ID`. Renvoyer cette valeur dans
-les requetes suivantes pour continuer la conversation. Les messages et
-l'usage sont conserves dans Postgres ; le contenu des prompts n'est pas logge.
+## Diagnostic
 
-## Depannage rencontre
-
-- **Cle OpenRouter absente du conteneur** : le Compose injectait des variables
-  provider vides alors que la cle etait stockee dans `credentials.env`. Le
-  routeur lit maintenant le fichier monte et utilise la variable d'environnement
-  uniquement si elle est effectivement definie.
-- **`NameError: _read_env_file` au demarrage** : la fonction etait definie
-  apres la creation du routeur LiteLLM. Elle est maintenant declaree avant
-  `_litellm_router()`.
-- **`No endpoints found` avec un modele OpenRouter precis** : un modele gratuit
-  peut disparaitre ou changer de disponibilite. CodeLab utilise maintenant
-  `openrouter/openrouter/free`, qui laisse OpenRouter choisir un endpoint free.
-- **Fallbacks Gemini/Groq inutilisables** : ils faisaient echouer une
-  installation qui ne possede qu'une cle OpenRouter. Les trois modeles
-  publics CodeLab utilisent donc directement le routeur OpenRouter free.
-
-## VS Code
-
-Configurer le fournisseur compatible OpenAI de l'extension utilisee avec :
-
-- URL : `http://<serveur>:8080/v1`
-- modele : `codelab-coding`
-- cle : la cle CodeLab dediee a VS Code
-
-Le provider et le modele reel peuvent changer sans modifier cette configuration.
-
-
-## Observabilité LiteLLM
-
-`GET /v1/models` expose les trois alias logiques CodeLab sans secret. Diagnostic vérifie ensuite
-le fonctionnement réel. Avec une clé dédiée dans `credentials.env` :
-
-```dotenv
-CODELAB_LLM_DIAGNOSTIC_KEY=cl_...
-```
-
-les contrôles completion et usage deviennent actifs. Sans cette clé ils sont `SANS OBJET`.
-Le fournisseur reste `openrouter/openrouter/free` et le modèle réel retourné par OpenRouter est
-affiché par Diagnostic.
+Sans le profil démarré, les sondes IA sont classées « sans objet » plutôt que
+« en panne ». Les deux vérifications approfondies — le modèle répond, la
+consommation est comptée — demandent une clé CodeLab dédiée au diagnostic,
+déclarée dans `credentials.env` sous `CODELAB_LLM_DIAGNOSTIC_KEY` ; sans
+elle, elles restent « sans objet ».

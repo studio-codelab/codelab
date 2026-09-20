@@ -11511,3 +11511,104 @@ def test_l_api_llm_refuse_les_modeles_inconnus_et_exige_une_identite():
     assert "CODELAB_OPENWEBUI_KEY" in source
     # Une erreur du fournisseur ne repart pas telle quelle vers le client.
     assert "str(erreur)" not in source
+
+
+# ---------- 25. la migration vers Open WebUI ------------------------------
+#
+# L'interface de chat n'est plus une application inscrite dans le panneau,
+# mais un service de la stack derriere son propre portier. Trois choses
+# doivent rester vraies : le portier dit qui est qui sans jamais croire le
+# client, l'ancienne application disparait du registre sans perte de code, et
+# le panneau cesse de travailler quand l'onglet n'est pas regarde.
+
+def test_le_portier_du_chat_ouvre_a_tout_compte_connecte(monkeypatch, tmp_path):
+    """Un outil qu'on partage, pas une console d'administration.
+
+    Dagster execute du code sur la machine et reste donc a l'administrateur.
+    Reserver le chat au meme public reviendrait a ne jamais le partager.
+    """
+    m = _charger_app_manager(monkeypatch, tmp_path)
+    monkeypatch.setattr(m, "is_authed", lambda: True)
+    monkeypatch.setattr(m, "est_admin", lambda: False)
+    monkeypatch.setattr(m, "utilisateur_courant", lambda: "alice")
+    monkeypatch.setattr(m, "role_courant", lambda: "membre")
+    monkeypatch.setattr(m, "lire_utilisateurs", lambda: {"alice": {}})
+
+    with m.flask_app.test_request_context("/api/sso-check"):
+        reponse = m.api_sso_check()
+    assert reponse.status_code == 204
+    assert reponse.headers["X-CodeLab-User"] == "alice"
+    assert reponse.headers["X-CodeLab-Role"] == "membre"
+    # Sans adresse declaree, une adresse interne stable : elle ne sort jamais
+    # de la machine, elle sert de cle primaire a l'interface.
+    assert reponse.headers["X-CodeLab-Email"] == "alice@codelab.local"
+
+
+def test_le_portier_du_chat_refuse_un_visiteur(monkeypatch, tmp_path):
+    m = _charger_app_manager(monkeypatch, tmp_path)
+    monkeypatch.setattr(m, "is_authed", lambda: False)
+    with m.flask_app.test_request_context("/api/sso-check"):
+        assert m.api_sso_check().status_code == 401
+
+
+def test_le_chat_s_ouvre_a_tout_compte_connecte_mais_pas_a_un_visiteur(monkeypatch, tmp_path):
+    m = _charger_app_manager(monkeypatch, tmp_path)
+    monkeypatch.setattr(m, "est_app_par_defaut", lambda name: False)
+    monkeypatch.setattr(m, "projets_autorises", lambda: [])
+    monkeypatch.setattr(m, "est_admin", lambda: False)
+
+    monkeypatch.setattr(m, "is_authed", lambda: True)
+    assert m.peut_voir(m.OPENWEBUI_NOM) is True
+    monkeypatch.setattr(m, "is_authed", lambda: False)
+    assert m.peut_voir(m.OPENWEBUI_NOM) is False
+    # Le reste ne change pas : une application privee non autorisee reste
+    # fermee, connecte ou non.
+    assert m.peut_voir("facturier") is False
+
+
+def test_l_ancienne_application_aichat_quitte_le_registre(monkeypatch, tmp_path):
+    """Le registre est nettoye, le code de l'utilisateur ne l'est pas.
+
+    Supprimer /workspace/aichat serait une perte de donnees silencieuse : le
+    dossier appartient a l'utilisateur. Seule l'inscription disparait, parce
+    que la tuile pointait vers une application qui ne peut plus rien faire.
+    """
+    m = _charger_app_manager(monkeypatch, tmp_path)
+    arretees = []
+    enregistre = {}
+    monkeypatch.setattr(m, "load", lambda: dict(enregistre))
+    monkeypatch.setattr(m, "save", lambda apps: enregistre.clear() or enregistre.update(apps))
+    monkeypatch.setattr(m, "stop", lambda nom: arretees.append(nom))
+
+    enregistre.update({"aichat": {"port": 9100}, "facturier": {"port": 9101}})
+    assert m.retirer_aichat() == "aichat"
+    assert arretees == ["aichat"]
+    assert sorted(enregistre) == ["facturier"]
+
+    # Deuxieme passage : plus rien a faire, et rien d'arrete au passage.
+    assert m.retirer_aichat() is None
+    assert arretees == ["aichat"]
+
+    source = (_racine_app_manager() / "app.py").read_text(encoding="utf-8")
+    assert "shutil.rmtree" not in source.split("def retirer_aichat")[1].split("\ndef ")[0]
+
+
+def test_le_panneau_cesse_de_sonder_quand_l_onglet_n_est_plus_regarde():
+    """Quatre minuteries tournaient dans un onglet d'arriere-plan.
+
+    Rafraichissement des applications, messages, metriques, hub : le panneau
+    interrogeait la machine toutes les cinq secondes meme sans personne
+    devant. Sur une ZimaBlade, cela se voit.
+    """
+    page = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
+    assert "function surveiller(" in page
+    assert "visibilitychange" in page
+    assert "document.hidden" in page
+    # Plus aucun setInterval pose directement : tous passent par surveiller().
+    directs = [l for l in page.splitlines()
+               if "setInterval(" in l and "t.fn" not in l and "t.id" not in l]
+    assert directs == [], directs
+    # Les quatre sondes, plus la definition : cinq occurrences au moins.
+    assert page.count("surveiller(") >= 5, "une minuterie a echappe au garde"
+    for sonde in ("refresh()", "guetterMessages", "chargerHub()"):
+        assert sonde in page

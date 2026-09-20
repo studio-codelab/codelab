@@ -728,11 +728,19 @@ def _rubrique(cle, titre, description, resultats, extra=""):
     coup d'oeil laquelle demande un geste maintenant, et laquelle attend
     qu'on passe.
     """
-    total = len(resultats)
-    passees = sum(1 for etat, _, _ in resultats if etat is checks.Etat.OK)
+    # Le denominateur ecarte les sondes SANS OBJET, comme l'anneau du
+    # cockpit : « 5 sur 11 » sur une installation ou tout va bien, parce que
+    # six sondes ne s'appliquent pas ici, est un chiffre qui inquiete pour
+    # rien. Les deux comptes doivent raconter la meme chose.
+    applicables = [e for e, _, _ in resultats if e is not checks.Etat.SANS_OBJET]
+    total = len(applicables)
+    passees = sum(1 for etat in applicables if etat is checks.Etat.OK)
     rang = checks.pire(resultats).classe
+    # Une rubrique entierement sans objet ne montre pas « 0 sur 0 » : elle
+    # le dit avec des mots.
     pastille = (f'<span class="pastille {rang}">'
-                f'{passees} sur {total}</span>')
+                + (f'{passees} sur {total}' if total else 'sans objet')
+                + '</span>')
     bouton = (f'<button class="btn btn-simple btn-sm" data-verifier="{esc(cle)}">'
               f'Vérifier</button>')
     large = " large" if extra else ""
