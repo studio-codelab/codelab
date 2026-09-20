@@ -8839,7 +8839,7 @@ def test_chaque_service_est_borne_dans_les_deux_composes():
     """
     for chemin in _composes():
         services = _services_du_compose(chemin)
-        assert len(services) == 7, (chemin, sorted(services))
+        assert len(services) == 9, (chemin, sorted(services))
         for nom, reglages in services.items():
             assert "pids_limit" in reglages or "deploy_pids" in reglages, (
                 f"{nom} n'a pas de limite processus dans {os.path.basename(chemin)}")
@@ -8849,8 +8849,8 @@ def test_chaque_service_est_borne_dans_les_deux_composes():
         texte = open(chemin, encoding="utf-8").read()
         # La rotation est ce qui empeche un journal de remplir le disque :
         # le driver seul ne borne rien.
-        assert texte.count('max-size: "10m"') == 7, chemin
-        assert texte.count('max-file: "3"') == 7, chemin
+        assert texte.count('max-size: "10m"') == 9, chemin
+        assert texte.count('max-file: "3"') == 9, chemin
 
 
 def test_le_panneau_a_la_part_la_plus_large():
@@ -9120,6 +9120,8 @@ def test_une_application_par_defaut_est_reservee_a_l_administrateur(hub_dagster)
     c = hub_dagster
     _connecte(c, "marie", "un-mot-de-passe")
     for nom in app.APPS_PAR_DEFAUT:
+        if nom == app.OPENWEBUI_NOM:
+            continue
         r = c.get(f"/{nom}/")
         assert r.status_code in (302, 403, 404), f"{nom} -> {r.status_code}"
     # Son propre projet, lui, s'ouvre toujours.
@@ -9132,8 +9134,8 @@ def test_une_application_par_defaut_est_reservee_a_l_administrateur(hub_dagster)
     # pourrait contenir.
     d = c.get("/api/mes-apps").get_json()
     noms = {a["name"] for a in d["apps"]} | {a["name"] for a in d.get("masquees", [])}
-    assert not (noms & set(app.APPS_PAR_DEFAUT)), sorted(noms)
-    assert d.get("services") == []
+    assert not (noms & (set(app.APPS_PAR_DEFAUT) - {app.OPENWEBUI_NOM})), sorted(noms)
+    assert [s["name"] for s in d.get("services", [])] == [app.OPENWEBUI_NOM]
 
 
 def test_les_applications_par_defaut_suivent_la_frontiere_de_l_administration(
@@ -10851,8 +10853,8 @@ def test_dagster_parait_dans_le_hub_et_mene_au_port_3000(hub_dagster):
     d = hub_dagster.get("/api/mes-apps").get_json()
 
     services = d["services"]
-    assert [s["name"] for s in services] == ["dagster"]
-    dagster = services[0]
+    assert [s["name"] for s in services] == [app.OPENWEBUI_NOM, app.DAGSTER_NOM]
+    dagster = services[1]
     # L'adresse est celle du NAVIGATEUR : meme hote, autre port.
     assert dagster["url"].endswith(":3000/"), dagster["url"]
     assert dagster["externe"] is True
@@ -10874,7 +10876,7 @@ def test_dagster_ne_parait_pas_pour_un_compte_utilisateur(hub_dagster):
         sess["ouverte"] = int(time.time())
         sess["jeton"] = "j"
     d = hub_dagster.get("/api/mes-apps").get_json()
-    assert d["services"] == []
+    assert [s["name"] for s in d["services"]] == [app.OPENWEBUI_NOM]
 
 
 def test_la_tuile_de_dagster_revient_par_le_panneau():
@@ -10882,8 +10884,8 @@ def test_la_tuile_de_dagster_revient_par_le_panneau():
     un chemin de retour, sans perdre l'origine propre de Dagster."""
     page = _page_panneau("dashboard.html")
     bloc = page.split("const tuile = a =>")[1].split("`;")[0]
-    assert "a.externe ? '/'+encodeURIComponent(a.name)+'/'" in bloc
-    assert 'target="_blank"' not in bloc
+    assert "a.externe ? a.url : urlApplication(a.name)" in bloc
+    assert 'target="_blank"' in bloc
     assert "hubApps.concat(hubServices)" in page
 
 def test_les_applications_par_defaut_ont_leur_icone(hub_dagster, tmp_path):
