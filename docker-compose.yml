@@ -505,7 +505,6 @@ services:
       ENABLE_PASSWORD_AUTH: "false"
       ENABLE_SIGNUP: "false"
       ENABLE_FORWARD_USER_INFO_HEADERS: "true"
-      CORS_ALLOW_ORIGIN: "*"
 
     volumes:
       - /DATA/AppData/codelab/open-webui:/app/backend/data
