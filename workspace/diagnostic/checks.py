@@ -1636,6 +1636,53 @@ def verif_le_projet_est_ecrivable():
             f"{ici} -- écrit, relu, effacé")
 
 
+def verif_llm_repond(env_file=None):
+    if not llm_installe(env_file):
+        return (Etat.SANS_OBJET, "Le modèle répond",
+                "service IA non installé (profil « llm » non démarré)")
+    key = read_env("CODELAB_LLM_DIAGNOSTIC_KEY", env_file) or os.environ.get(
+        "CODELAB_LLM_DIAGNOSTIC_KEY", "")
+    if not key:
+        return (Etat.SANS_OBJET, "Le modèle répond", "clé diagnostique non configurée (CODELAB_LLM_DIAGNOSTIC_KEY)")
+    payload = json.dumps({
+        "model": "codelab-smart",
+        "messages": [{"role": "user", "content": "Réponds uniquement: OK"}],
+        "max_tokens": 8,
+    }).encode()
+    status, body = _llm_post("/v1/chat/completions", payload, env_file, {
+        "Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+    if status != 200:
+        return (Etat.ECHEC, "Le modèle répond",
+                f"HTTP {status}: {body[:300].decode(errors='replace')}")
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return (Etat.ECHEC, "Le modèle répond", "JSON invalide")
+    choice = (data.get("choices") or [{}])[0]
+    if not choice.get("message"):
+        return (Etat.ECHEC, "Le modèle répond", "réponse sans message")
+    return (Etat.OK, "Le modèle répond",
+            f"modèle réel: {data.get('model') or 'inconnu'}")
+
+
+def verif_llm_compte(env_file=None):
+    if not llm_installe(env_file):
+        return (Etat.SANS_OBJET, "La consommation est comptée",
+                "service IA non installé (profil « llm » non démarré)")
+    key = read_env("CODELAB_LLM_DIAGNOSTIC_KEY", env_file) or os.environ.get(
+        "CODELAB_LLM_DIAGNOSTIC_KEY", "")
+    if not key:
+        return (Etat.SANS_OBJET, "La consommation est comptée", "clé diagnostique non configurée")
+    status, body = _llm_get("/v1/usage", env_file, {"Authorization": f"Bearer {key}"})
+    if status != 200:
+        return (Etat.ECHEC, "La consommation est comptée", f"HTTP {status}")
+    try:
+        count = len(json.loads(body).get("items", []))
+    except (ValueError, AttributeError):
+        return (Etat.ECHEC, "La consommation est comptée", "réponse usage invalide")
+    return (Etat.OK, "La consommation est comptée", f"{count} agrégations")
+
+
 # Prefixe "verif_" et non "test_" : ce fichier contient AUSSI la suite de
 # tests du panneau, que pytest collecte. Nommees "test_...", ces cinq
 # verifications seraient ramassees par pytest et tourneraient a la
@@ -1698,13 +1745,15 @@ def lancer_suite_du_panneau(timeout=180):
 # meme lecture.
 THEMES = [
     ("services", "Services",
-     "Les cinq conteneurs de la stack, et le chemin entre eux."),
+     "Les conteneurs de la stack, et le chemin entre eux."),
     ("donnees", "Données",
      "Postgres : le pilote, la connexion, et ce qui y est écrit."),
     ("securite", "Sécurité",
      "Ce qui doit être fermé l'est-il, et depuis où peut-on entrer."),
     ("applications", "Applications",
      "Ce que le panneau porte, et dans quel état."),
+    ("ia", "Intelligence artificielle",
+     "La porte vers les modèles, et l'interface qui s'en sert."),
     ("ressources", "Ressources",
      "Le disque, les journaux, et la place qui reste."),
 ]
@@ -1718,12 +1767,10 @@ THEME_DES_SONDES = {
     "codelab-dagster": "services",
     "codelab-dev (SSH)": "services",
     "codelab-postgres (TCP)": "services",
-    "codelab-llm (TCP)": "services",
-    "codelab-llm (health)": "services",
-    "LiteLLM (modèles)": "services",
-    "LiteLLM (auth)": "securite",
-    "LiteLLM (completion)": "services",
-    "LiteLLM (usage)": "services",
+    "codelab-llm (TCP)": "ia",
+    "codelab-llm (santé)": "ia",
+    "modèles proposés": "ia",
+    "identité exigée par le service": "ia",
     "codelab-app-manager": "services",
     "Postgres (pilote)": "donnees",
     "Postgres": "donnees",
@@ -1777,6 +1824,10 @@ TESTS_APPROFONDIS = [
     ("Le proxy sert cette application", verif_proxy_sert_cette_application),
     ("Le journal des accès enregistre", verif_le_journal_enregistre),
     ("Le dossier du projet est écrivable", verif_le_projet_est_ecrivable),
+    # Les deux qui coutent : une vraie reponse du modele, et la ligne de
+    # comptabilite qu'elle laisse. A la demande, jamais en sonde.
+    ("Le modèle répond", verif_llm_repond),
+    ("La consommation est comptée", verif_llm_compte),
 ]
 
 # La suite de regressions du panneau vient toujours en dernier : c'est la
@@ -1796,6 +1847,8 @@ THEME_DES_TESTS = {
     "Le proxy sert cette application": "services",
     "Le journal des accès enregistre": "securite",
     "Le dossier du projet est écrivable": "ressources",
+    "Le modèle répond": "ia",
+    "La consommation est comptée": "ia",
     NOM_SUITE_PANNEAU: "code",
 }
 
@@ -1879,12 +1932,19 @@ SEVERITE_MAX = {
     "codelab-dagster": Etat.ECHEC,            # un conteneur tombe est une panne,
     "codelab-dev (SSH)": Etat.ECHEC,          # pas un reglage a revoir
     "codelab-app-manager": Etat.ECHEC,
-    "codelab-llm (TCP)": Etat.ECHEC,
-    "codelab-llm (health)": Etat.ECHEC,
-    "LiteLLM (modèles)": Etat.ECHEC,
-    "LiteLLM (auth)": Etat.ECHEC,
-    "LiteLLM (completion)": Etat.ECHEC,
-    "LiteLLM (usage)": Etat.ECHEC,
+    # L'IA est un profil OPTIONNEL (docker compose --profile llm). Elle n'a
+    # donc rien a faire au rang 1 : sur une installation qui ne l'a jamais
+    # demarree, le run du diagnostic echouerait toutes les quinze minutes et
+    # enverrait un mail pour un service que personne n'a installe. Une
+    # interface de chat qui ne repond pas se regarde le lendemain.
+    #
+    # Sauf UN cas, qui reste au rang 1 parce qu'il ne parle pas de
+    # disponibilite mais de fermeture : un service qui accepte une requete
+    # sans identite.
+    "codelab-llm (TCP)": Etat.ALERTE,
+    "codelab-llm (santé)": Etat.ALERTE,
+    "modèles proposés": Etat.ALERTE,
+    "identité exigée par le service": Etat.ECHEC,
     # Rang 1 pour une autre raison : une breche CONSTATEE. Ces deux sondes
     # n'y montent que sur une preuve -- une route d'administration qui repond
     # sans session, le panneau qui repond sur l'origine des applications. Un
@@ -1931,6 +1991,34 @@ def _llm_url(env_file=None):
     return f"http://{host}:{port}"
 
 
+def llm_installe(env_file=None):
+    """Le service IA est-il deploye ici ?
+
+    Le profil « llm » est optionnel : sur une installation qui ne l'a jamais
+    demarre, le nom codelab-llm ne resout pas du tout -- le DNS de Docker ne
+    connait que les conteneurs du reseau. Une sonde qui crie « injoignable »
+    pour un service que personne n'a installe use la seule chose qui compte
+    dans une alerte : qu'on la lise.
+    """
+    host = read_env("CODELAB_LLM_HOST", env_file) or "codelab-llm"
+    try:
+        socket.getaddrinfo(host, None)
+        return True
+    except socket.gaierror:
+        return False
+
+
+def check_llm_tcp(env_file=None):
+    """Le port du service IA, quand ce service existe."""
+    if not llm_installe(env_file):
+        return (Etat.SANS_OBJET, "codelab-llm (TCP)",
+                "service IA non installé (profil « llm » non démarré)")
+    return check_tcp("codelab-llm (TCP)",
+                     read_env("CODELAB_LLM_HOST", env_file) or "codelab-llm",
+                     int(read_env("CODELAB_LLM_PORT", env_file) or 8080),
+                     gravite=Etat.ALERTE)
+
+
 def _llm_get(path, env_file=None, headers=None):
     request = urllib.request.Request(_llm_url(env_file) + path, headers=headers or {})
     try:
@@ -1951,80 +2039,90 @@ def _llm_post(path, payload, env_file=None, headers=None):
 
 
 def check_litellm_health(env_file=None):
+    if not llm_installe(env_file):
+        return (Etat.SANS_OBJET, "codelab-llm (santé)",
+                "service IA non installé (profil « llm » non démarré)")
     status, body = _llm_get("/health", env_file)
     if status != 200:
-        return (Etat.ECHEC, "codelab-llm (health)", f"HTTP {status}")
+        return (Etat.ECHEC, "codelab-llm (santé)", f"HTTP {status}")
     try:
         data = json.loads(body)
     except (TypeError, ValueError):
-        return (Etat.ECHEC, "codelab-llm (health)", "JSON invalide")
-    if data.get("service") != "codelab-llm" or data.get("litellm") is not True:
-        return (Etat.ECHEC, "codelab-llm (health)", "identification LiteLLM invalide")
-    return (Etat.OK, "codelab-llm (health)", "API active")
+        return (Etat.ECHEC, "codelab-llm (santé)", "JSON invalide")
+    if data.get("service") != "codelab-llm":
+        return (Etat.ECHEC, "codelab-llm (santé)", "ce n'est pas le service attendu")
+    # Le service se dit « degrade » quand sa base ne repond pas : il tourne,
+    # mais il ne peut plus compter ce qu'il sert. C'est une ALERTE, pas un
+    # echec -- les reponses, elles, continuent d'arriver.
+    if data.get("status") != "ok":
+        return (Etat.ALERTE, "codelab-llm (santé)",
+                "service en marche mais dégradé : base injoignable")
+    if not data.get("cle_fournisseur"):
+        return (Etat.ALERTE, "codelab-llm (santé)",
+                "aucune clé de fournisseur configurée : aucun modèle ne répondra")
+    if not data.get("cle_interface"):
+        return (Etat.ALERTE, "codelab-llm (santé)",
+                "CODELAB_OPENWEBUI_KEY absente : l'interface de chat ne pourra pas parler au service")
+    return (Etat.OK, "codelab-llm (santé)", "service actif, clés en place")
 
 
 def check_litellm_models(env_file=None):
+    """Les modeles PROPOSES, quels qu'ils soient.
+
+    La version precedente exigeait exactement trois noms -- qui pointaient
+    tous sur la meme route. Ce qui compte n'est pas leur nombre : c'est
+    qu'il y en ait au moins un, et que la liste soit lisible.
+    """
+    if not llm_installe(env_file):
+        return (Etat.SANS_OBJET, "modèles proposés",
+                "service IA non installé (profil « llm » non démarré)")
     status, body = _llm_get("/v1/models", env_file)
     if status != 200:
-        return (Etat.ECHEC, "LiteLLM (modèles)", f"HTTP {status}")
+        return (Etat.ECHEC, "modèles proposés", f"HTTP {status}")
     try:
         ids = [item.get("id") for item in json.loads(body).get("data", [])]
     except (TypeError, ValueError, AttributeError):
-        return (Etat.ECHEC, "LiteLLM (modèles)", "catalogue invalide")
-    expected = ["codelab-fast", "codelab-smart", "codelab-coding"]
-    if ids != expected:
-        return (Etat.ECHEC, "LiteLLM (modèles)", f"aliases reçus: {ids}")
-    return (Etat.OK, "LiteLLM (modèles)", "3 alias CodeLab exposes")
+        return (Etat.ECHEC, "modèles proposés", "catalogue invalide")
+    if not ids:
+        return (Etat.ALERTE, "modèles proposés",
+                "aucun modèle configuré : rien à choisir dans l'interface")
+    return (Etat.OK, "modèles proposés", ", ".join(str(i) for i in ids))
 
 
 def check_litellm_auth(env_file=None):
-    payload = b'{"model":"codelab-smart","messages":[{"role":"user","content":"auth probe"}]}'
+    """Sans identite, la porte reste fermee.
+
+    Une requete sans en-tete d'autorisation : le service doit repondre 401.
+    C'est la sonde qui aurait attrape la version ou un simple en-tete
+    « X-OpenWebUI-User-Id » suffisait a se faire passer pour n'importe qui.
+    """
+    if not llm_installe(env_file):
+        return (Etat.SANS_OBJET, "identité exigée par le service",
+                "service IA non installé (profil « llm » non démarré)")
+    payload = b'{"model":"codelab-smart","messages":[{"role":"user","content":"sonde"}]}'
     status, _ = _llm_post("/v1/chat/completions", payload, env_file,
-                          {"Content-Type": "application/json"})
+                          {"Content-Type": "application/json",
+                           "X-OpenWebUI-User-Id": "sonde-sans-cle"})
     if status != 401:
-        return (Etat.ECHEC, "LiteLLM (auth)", f"HTTP {status} au lieu de 401")
-    return (Etat.OK, "LiteLLM (auth)", "Bearer CodeLab obligatoire")
+        return (Etat.ECHEC, "identité exigée par le service",
+                f"HTTP {status} au lieu de 401 : le service a accepté une "
+                f"requête sans clé ni assertion")
+    return (Etat.OK, "identité exigée par le service",
+            "une requête sans identité reçoit bien 401")
 
 
-def check_litellm_completion(env_file=None):
-    key = read_env("CODELAB_LLM_DIAGNOSTIC_KEY", env_file) or os.environ.get(
-        "CODELAB_LLM_DIAGNOSTIC_KEY", "")
-    if not key:
-        return (Etat.SANS_OBJET, "LiteLLM (completion)", "clé diagnostique non configurée")
-    payload = json.dumps({
-        "model": "codelab-smart",
-        "messages": [{"role": "user", "content": "Réponds uniquement: OK"}],
-        "max_tokens": 8,
-    }).encode()
-    status, body = _llm_post("/v1/chat/completions", payload, env_file, {
-        "Authorization": f"Bearer {key}", "Content-Type": "application/json"})
-    if status != 200:
-        return (Etat.ECHEC, "LiteLLM (completion)",
-                f"HTTP {status}: {body[:300].decode(errors='replace')}")
-    try:
-        data = json.loads(body)
-    except ValueError:
-        return (Etat.ECHEC, "LiteLLM (completion)", "JSON invalide")
-    choice = (data.get("choices") or [{}])[0]
-    if not choice.get("message"):
-        return (Etat.ECHEC, "LiteLLM (completion)", "réponse sans message")
-    return (Etat.OK, "LiteLLM (completion)",
-            f"modèle réel: {data.get('model') or 'inconnu'}")
-
-
-def check_litellm_usage(env_file=None):
-    key = read_env("CODELAB_LLM_DIAGNOSTIC_KEY", env_file) or os.environ.get(
-        "CODELAB_LLM_DIAGNOSTIC_KEY", "")
-    if not key:
-        return (Etat.SANS_OBJET, "LiteLLM (usage)", "clé diagnostique non configurée")
-    status, body = _llm_get("/v1/usage", env_file, {"Authorization": f"Bearer {key}"})
-    if status != 200:
-        return (Etat.ECHEC, "LiteLLM (usage)", f"HTTP {status}")
-    try:
-        count = len(json.loads(body).get("items", []))
-    except (ValueError, AttributeError):
-        return (Etat.ECHEC, "LiteLLM (usage)", "réponse usage invalide")
-    return (Etat.OK, "LiteLLM (usage)", f"{count} agrégations")
+# LA COMPLETION N'EST PAS UNE SONDE, et elle l'etait.
+#
+# Elle demandait une vraie reponse au modele -- donc des jetons consommes, une
+# ligne de comptabilite ecrite et jusqu'a quatre-vingt-dix secondes d'attente
+# -- a CHAQUE affichage de la page d'etat, et quatre-vingt-seize fois par jour
+# de plus par le planning Dagster. Or la page le dit elle-meme : « ces sondes
+# ne font que regarder ». Une sonde qui depense de l'argent et attend une
+# minute et demie n'est pas une sonde.
+#
+# Elle est donc passee dans la verification approfondie, avec les autres
+# tests qui AGISSENT (voir TESTS_APPROFONDIS plus bas) : on la lance quand on
+# veut savoir, pas quatre-vingt-seize fois par jour.
 
 
 def run_all(env_file=None, workspace=None, ssh_dir=None):
@@ -2038,12 +2136,10 @@ def run_all(env_file=None, workspace=None, ssh_dir=None):
         _executer_sonde("check_pilote_pg", lambda: check_pilote_pg()),
         _executer_sonde("check_postgres", lambda: check_postgres(env_file)),
         _executer_sonde("check_tcp", lambda: check_tcp("codelab-postgres (TCP)", host, port)),
-        _executer_sonde("codelab-llm", lambda: check_tcp("codelab-llm (TCP)", read_env("CODELAB_LLM_HOST", env_file) or "codelab-llm", int(read_env("CODELAB_LLM_PORT", env_file) or 8080))),
+        _executer_sonde("codelab-llm (TCP)", lambda: check_llm_tcp(env_file)),
         _executer_sonde("codelab-llm (health)", lambda: check_litellm_health(env_file)),
         _executer_sonde("LiteLLM (modèles)", lambda: check_litellm_models(env_file)),
         _executer_sonde("LiteLLM (auth)", lambda: check_litellm_auth(env_file)),
-        _executer_sonde("LiteLLM (completion)", lambda: check_litellm_completion(env_file)),
-        _executer_sonde("LiteLLM (usage)", lambda: check_litellm_usage(env_file)),
         _executer_sonde("check_http", lambda: check_http("codelab-dagster", "http://codelab-dagster:3000/")),
         _executer_sonde("check_tcp", lambda: check_tcp("codelab-dev (SSH)", "codelab-dev", 22, lire_banniere=True)),
         _executer_sonde("check_panneau_joignable", lambda: check_panneau_joignable()),
@@ -2139,7 +2235,7 @@ CHEMINS_ETAT = [
     "CATEGORIES_FILE",
     "EXPOSITION_FILE", "DIAGNOSTIC_MARQUEUR", "ICONE_DAGSTER_CACHE", "SHARED_CONFIG_DIR",
     "SHARED_ENV_FILE", "LEGACY_ADMIN_PASSWORD_FILE", "LEGACY_SECRET_KEY_FILE",
-    "SSO_PRIVATE_FILE", "AICHAT_MARQUEUR",
+    "SSO_PRIVATE_FILE",
 ]
 
 
@@ -2176,7 +2272,6 @@ def _bac_a_sable(tmp_path, monkeypatch):
         "LEGACY_ADMIN_PASSWORD_FILE": str(etat / "admin_password"),
         "LEGACY_SECRET_KEY_FILE": str(etat / "flask_secret_key"),
         "SSO_PRIVATE_FILE": str(etat / "codelab_sso_private.key"),
-        "AICHAT_MARQUEUR": str(etat / "aichat-inscrit"),
     }
     for nom in CHEMINS_ETAT:
         assert hasattr(app, nom), (
@@ -8831,6 +8926,18 @@ def _services_du_compose(chemin):
     return {n: r for n, r in services.items() if n.startswith("codelab-")}
 
 
+def _bloc_du_service(chemin, nom):
+    """Les lignes brutes d'un service, listes imbriquees comprises."""
+    lignes, dedans = [], False
+    for ligne in open(chemin, encoding="utf-8"):
+        if ligne.startswith("  ") and not ligne.startswith("   ") and ligne.rstrip().endswith(":"):
+            dedans = ligne.strip().rstrip(":") == nom
+            continue
+        if dedans:
+            lignes.append(ligne)
+    return "".join(lignes)
+
+
 def test_chaque_service_est_borne_dans_les_deux_composes():
     """Memoire, processeur, processus, journaux. Les quatre, partout.
 
@@ -8839,7 +8946,10 @@ def test_chaque_service_est_borne_dans_les_deux_composes():
     """
     for chemin in _composes():
         services = _services_du_compose(chemin)
-        assert len(services) == 7, (chemin, sorted(services))
+        # Les memes services des deux cotes : un compose qui en oublie un
+        # est une installation qui ne demarre pas pareil selon la porte
+        # d'entree.
+        assert len(services) == 9, (chemin, sorted(services))
         for nom, reglages in services.items():
             assert "pids_limit" in reglages or "deploy_pids" in reglages, (
                 f"{nom} n'a pas de limite processus dans {os.path.basename(chemin)}")
@@ -8849,8 +8959,11 @@ def test_chaque_service_est_borne_dans_les_deux_composes():
         texte = open(chemin, encoding="utf-8").read()
         # La rotation est ce qui empeche un journal de remplir le disque :
         # le driver seul ne borne rien.
-        assert texte.count('max-size: "10m"') == 7, chemin
-        assert texte.count('max-file: "3"') == 7, chemin
+        # Un compte par SERVICE, et non un nombre ecrit en dur : un service
+        # ajoute demain doit faire echouer ce test tant qu'il n'a pas sa
+        # rotation, sans qu'on ait a se souvenir de mettre un chiffre a jour.
+        assert texte.count('max-size: "10m"') == len(services), chemin
+        assert texte.count('max-file: "3"') == len(services), chemin
 
 
 def test_le_panneau_a_la_part_la_plus_large():
@@ -9133,7 +9246,12 @@ def test_une_application_par_defaut_est_reservee_a_l_administrateur(hub_dagster)
     d = c.get("/api/mes-apps").get_json()
     noms = {a["name"] for a in d["apps"]} | {a["name"] for a in d.get("masquees", [])}
     assert not (noms & set(app.APPS_PAR_DEFAUT)), sorted(noms)
-    assert d.get("services") == []
+    # Dagster n'apparait pas : son interface execute du code sur la machine.
+    # L'interface de chat, si -- c'est un outil qu'on partage, et son portier
+    # ouvre a tout compte connecte.
+    services = {x["name"] for x in d.get("services", [])}
+    assert app.DAGSTER_NOM not in services, sorted(services)
+    assert services <= {app.OPENWEBUI_NOM}, sorted(services)
 
 
 def test_les_applications_par_defaut_suivent_la_frontiere_de_l_administration(
@@ -10851,8 +10969,13 @@ def test_dagster_parait_dans_le_hub_et_mene_au_port_3000(hub_dagster):
     d = hub_dagster.get("/api/mes-apps").get_json()
 
     services = d["services"]
-    assert [s["name"] for s in services] == ["dagster"]
-    dagster = services[0]
+    # Deux services, et l'ordre compte : l'outil de tous les jours d'abord,
+    # l'orchestrateur ensuite.
+    assert [s["name"] for s in services] == ["open-webui", "dagster"]
+    chat, dagster = services
+    # L'interface de chat mene a SON portier, sur le port 3001.
+    assert chat["url"].endswith(":3001"), chat["url"]
+    assert chat["externe"] is True
     # L'adresse est celle du NAVIGATEUR : meme hote, autre port.
     assert dagster["url"].endswith(":3000/"), dagster["url"]
     assert dagster["externe"] is True
@@ -10874,7 +10997,9 @@ def test_dagster_ne_parait_pas_pour_un_compte_utilisateur(hub_dagster):
         sess["ouverte"] = int(time.time())
         sess["jeton"] = "j"
     d = hub_dagster.get("/api/mes-apps").get_json()
-    assert d["services"] == []
+    # Pas de Dagster pour un compte utilisateur. L'interface de chat, elle,
+    # reste : son portier l'ouvre a tout compte connecte.
+    assert app.DAGSTER_NOM not in {s["name"] for s in d["services"]}
 
 
 def test_la_tuile_de_dagster_revient_par_le_panneau():
@@ -11070,7 +11195,9 @@ def test_un_message_recu_se_signale_dans_le_coin():
     bloc = page.split("async function guetterMessages(){")[1].split("\n}")[0]
     assert "apres=" in bloc, "le guet retelecharge toute la boite"
     assert "notifier(" in bloc
-    assert "setInterval(guetterMessages" in page
+    # surveiller() et non setInterval() : les minuteries s'arretent quand
+    # l'onglet passe en arriere-plan.
+    assert "surveiller(guetterMessages" in page
     # Et les notifications paraissent bien en bas a droite.
     style = page.split(".toasts{")[1].split("}")[0]
     assert "bottom" in style and "right" in style, style
@@ -11084,15 +11211,25 @@ def test_un_message_recu_se_signale_dans_le_coin():
 # que les trois regressions vues en production restent couvertes.
 
 def _racine_app_manager():
-    candidates = []
+    """Le dossier qui contient app.py, quelle que soit la mise en page.
+
+    Vecu a l'envers : cette fonction ne cherchait que app-manager/app.py. Le
+    panneau vit dans app-manager/app/app.py depuis longtemps, donc aucun
+    candidat ne correspondait, tous ces tests s'ignoraient en silence -- et la
+    CI restait verte en ne verifiant plus rien. Les deux dispositions sont
+    desormais essayees, et une image sans les sources est le SEUL cas qui
+    justifie encore un saut.
+    """
+    bases = []
     configured = os.environ.get("CODELAB_REPO_ROOT")
     if configured:
-        candidates.append(Path(configured) / "app-manager")
+        bases.append(Path(configured) / "app-manager")
     ici = Path(__file__).resolve()
-    candidates.extend((parent / "app-manager" for parent in ici.parents))
-    for candidate in candidates:
-        if (candidate / "app.py").is_file():
-            return candidate
+    bases.extend((parent / "app-manager" for parent in ici.parents))
+    for base in bases:
+        for candidate in (base / "app", base):
+            if (candidate / "app.py").is_file():
+                return candidate
     pytest.skip("sources app-manager absentes de cette image")
 
 
@@ -11168,33 +11305,40 @@ def test_un_port_externe_explique_le_pid(monkeypatch, tmp_path):
 
 
 def test_ouverture_des_stats_force_une_premiere_mesure(monkeypatch, tmp_path):
-    """La fiche métriques ne doit pas dépendre du polling précédent."""
+    """La fiche metriques ne doit pas dependre du rafraichissement precedent.
+
+    Ce test s'ignorait en silence tant que la recherche des sources visait
+    app-manager/app.py. Il passe par un contexte de requete explicite plutot
+    que par une session de test : la route est appelee directement, elle n'a
+    pas besoin de cookie, et le panneau pose sa propre interface de session.
+    """
     m = _charger_app_manager(monkeypatch, tmp_path)
     mesures = []
 
     class Proc:
         pid = 4242
 
+    # La route est protegee par require_admin, applique a l'import : on ouvre
+    # la porte par les trois predicats qu'il interroge, pas en remplacant le
+    # decorateur -- trop tard, il a deja enveloppe la vue.
+    monkeypatch.setattr(m, "is_authed", lambda: True)
+    monkeypatch.setattr(m, "est_admin", lambda: True)
+    monkeypatch.setattr(m, "refus_admin_hors_reseau", lambda: None)
+    monkeypatch.setattr(m, "load", lambda: {"demo": {}})
     monkeypatch.setattr(m, "procs", {"demo": Proc()})
     monkeypatch.setattr(m, "is_running", lambda name: True)
     monkeypatch.setattr(m, "proc_stats",
                         lambda pid: {"cpu_percent": 12.5, "memory_mb": 64})
     monkeypatch.setattr(m, "record_metrics",
                         lambda name, cpu, mem: mesures.append((name, cpu, mem)))
-    monkeypatch.setattr(m, "get_metrics_history",
-                        lambda name: mesures)
+    monkeypatch.setattr(m, "get_metrics_history", lambda name: mesures)
 
-    client = m.flask_app.test_client()
-    with client.session_transaction() as sess:
-        sess["authenticated"] = True
-
-    # L'auth réelle du panneau peut varier selon la configuration de test :
-    # on teste aussi directement le contrat de calcul si la route est protégée.
-    monkeypatch.setattr(m, "is_authed", lambda: True)
-    monkeypatch.setattr(m, "require_admin",
-                        lambda f: f)
-    resultat = m.api_metrics("demo")
-    assert resultat[0].json["points"][-1] == {"t": mesures[-1][0], "cpu": 12.5, "mem": 64}
+    with m.flask_app.test_request_context("/api/metrics/demo"):
+        reponse = m.api_metrics("demo")
+    # L'ouverture a elle seule doit avoir produit une mesure : sans elle, les
+    # deux cartes affichaient « Aucune mesure » jusqu'au prochain sondage.
+    assert mesures == [("demo", 12.5, 64)]
+    assert reponse.json["points"][-1] == {"t": "demo", "cpu": 12.5, "mem": 64}
 
 
 def test_le_logo_dagster_est_vectoriel_et_net():
@@ -11227,16 +11371,26 @@ def _racine_llm():
     pytest.skip("sources llm absentes de cette image")
 
 
-def test_le_service_llm_expose_les_modeles_logiques_et_les_fallbacks():
-    config = (_racine_llm() / "app.py").read_text(encoding="utf-8")
-    for modele in ("codelab-fast", "codelab-smart", "codelab-coding"):
-        assert f'"model_name": "{modele}"' in config
-    assert "GEMINI_API_KEY" in config
-    assert "GROQ_API_KEY" in config
-    assert "OPENROUTER_API_KEY" in config
-    assert "FALLBACKS = [" in config
-    assert "codelab-smart-openrouter" in config
-    assert "num_retries=2" in config and "timeout=90" in config
+
+
+def test_le_service_llm_ne_propose_que_des_modeles_configures():
+    """Un nom de modele inconnu ne doit jamais atteindre le fournisseur.
+
+    Vecu a l'envers : la version precedente listait trois modeles logiques en
+    dur avec des chaines de repli. Renommer un modele chez le fournisseur
+    cassait le service sans qu'aucun reglage ne puisse le rattraper. La table
+    vient maintenant de l'environnement, et une seule entree par defaut suffit.
+    """
+    source = (_racine_llm() / "app.py").read_text(encoding="utf-8")
+    assert "MODELES_PAR_DEFAUT" in source
+    assert "PREFIXE_MODELE" in source
+    assert "codelab-smart" in source
+    # Les anciens noms figes ne doivent plus exister : ils rendaient le
+    # service incapable de suivre le catalogue du fournisseur.
+    assert "codelab-smart-openrouter" not in source
+    assert "FALLBACKS = [" not in source
+    # Un modele hors table est refuse avant tout appel sortant.
+    assert "modeles()" in source
 
 
 def test_le_service_llm_ne_contient_aucun_secret_provider():
@@ -11245,48 +11399,115 @@ def test_le_service_llm_ne_contient_aucun_secret_provider():
     assert "AIza" not in contenu
     assert "gsk_" not in contenu
     assert "sk-or-" not in contenu
-    compose = racine.parent / "docker-compose.yml"
-    if compose.is_file():
-        contenu = compose.read_text(encoding="utf-8")
-        assert "GEMINI_API_KEY: ${GEMINI_API_KEY:-}" not in contenu
-        assert "GROQ_API_KEY: ${GROQ_API_KEY:-}" not in contenu
-        assert "OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}" not in contenu
+    # La cle du fournisseur est lue dans llm.env, jamais posee par le compose :
+    # un conteneur compromis ne doit pas la trouver dans son environnement.
+    assert "CODELAB_LLM_ENV_FILE" in contenu
+    for chemin in _composes():
+        compose = open(chemin, encoding="utf-8").read()
+        assert "GEMINI_API_KEY" not in compose
+        assert "GROQ_API_KEY" not in compose
+        assert "OPENROUTER_API_KEY: ${OPENROUTER_API_KEY" not in compose
 
 
-def test_le_schema_llm_garde_identite_conversations_messages_et_usage():
+def test_le_service_llm_ne_garde_que_la_comptabilite():
+    """Les conversations vivent dans Open WebUI, pas ici.
+
+    Vecu a l'envers : le service stockait chaque message dans llm_message et
+    relisait tout l'historique a chaque tour. La table grossissait en carre du
+    nombre d'echanges, et deux copies des conversations existaient.
+    """
     schema = (_racine_llm() / "app.py").read_text(encoding="utf-8")
-    for table in ("llm_api_keys", "llm_conversation", "llm_message", "llm_usage"):
+    for table in ("llm_api_keys", "llm_usage"):
         assert f"CREATE TABLE IF NOT EXISTS {table}" in schema
-    for colonne in (
-        "user_id", "app_id", "requested_model", "actual_model", "provider",
-        "input_tokens", "output_tokens", "total_tokens", "latency_ms", "fallback",
-    ):
+    assert "llm_conversation" not in schema
+    assert "llm_message" not in schema
+    for colonne in ("user_id", "app_id", "requested_model", "actual_model",
+                    "input_tokens", "output_tokens", "total_tokens"):
         assert colonne in schema
     assert "revoked_at" in schema
-    assert "ON DELETE CASCADE" in schema
 
 
-def test_le_compose_llm_est_opt_in_et_ne_remplace_pas_la_stack_existante():
-    racine = _racine_llm()
-    compose = racine.parent / "docker-compose.yml"
-    pytest.importorskip("yaml")
-    charge = __import__("yaml").safe_load(compose.read_text(encoding="utf-8"))
-    assert charge["services"]["codelab-llm"]["profiles"] == ["llm"]
-    assert charge["services"]["codelab-llm"]["depends_on"]["codelab-postgres"]
-    assert charge["services"]["codelab-llm"]["environment"]["CODELAB_LLM_DB"] == "codelab_llm"
-    assert "GEMINI_API_KEY" in charge["services"]["codelab-llm"]["environment"]
-    assert "codelab-litellm" not in charge["services"]
-
-
-def test_l_api_llm_refuse_les_modeles_provider_et_exige_une_cle():
+def test_le_service_llm_tient_ses_connexions_ouvertes():
+    """Une connexion Postgres par requete coutait plus que l'appel lui-meme."""
     source = (_racine_llm() / "app.py").read_text(encoding="utf-8")
-    assert "ALLOWED_MODELS" in source
-    assert "Bearer CodeLab key required" in source
-    assert "Unknown CodeLab model" in source
+    assert "ConnectionPool" in source
+    assert "min_size=1" in source and "max_size=4" in source
+
+
+def test_le_service_llm_n_embarque_plus_litellm():
+    """Un seul fournisseur compatible OpenAI : httpx suffit."""
+    requirements = (_racine_llm() / "requirements.txt").read_text(encoding="utf-8")
+    assert "litellm" not in requirements
+    lignes = [l.strip() for l in requirements.splitlines() if l.strip()
+              and not l.strip().startswith("#")]
+    assert len(lignes) == len(set(n.split("==")[0] for n in lignes)), \
+        "une dependance est listee deux fois"
+    source = (_racine_llm() / "app.py").read_text(encoding="utf-8")
+    assert "from litellm" not in source
+    assert not re.search(r"^@app\.on_event", source, re.M), \
+        "on_event est deprecie : le contrat lifespan le remplace"
+    assert "lifespan=cycle_de_vie" in source
+
+
+def test_le_service_llm_tourne_sans_privileges():
+    dockerfile = (_racine_llm() / "Dockerfile").read_text(encoding="utf-8")
+    assert "USER codelab-llm" in dockerfile
+    for chemin in _composes():
+        services = _services_du_compose(chemin)
+        assert "security_opt" in services["codelab-llm"], chemin
+        assert "cap_drop" in services["codelab-llm"], chemin
+        # Le parseur sans PyYAML ne descend pas dans les listes : on relit le
+        # bloc brut pour verifier ce que ces deux reglages contiennent.
+        bloc = _bloc_du_service(chemin, "codelab-llm")
+        assert "no-new-privileges:true" in bloc, chemin
+        assert "- ALL" in bloc, chemin
+
+
+def test_le_compose_llm_est_opt_in_et_ne_publie_pas_le_port_du_modele():
+    """Le profil llm reste optionnel, et seul le proxy est joignable.
+
+    Vecu a l'envers : codelab-llm publiait 8080 sur la machine. N'importe qui
+    sur le reseau local parlait au fournisseur avec la cle de CodeLab.
+    """
+    for chemin in _composes():
+        contenu = open(chemin, encoding="utf-8").read()
+        services = _services_du_compose(chemin)
+        for nom in ("codelab-llm", "codelab-open-webui", "codelab-open-webui-proxy"):
+            assert nom in services, f"{nom} absent de {chemin}"
+            assert 'profiles: ["llm"]' in contenu
+        assert "8080:8080" not in contenu, chemin
+        assert "3001:3001" in contenu, chemin
+        # Le secret partage entre Open WebUI et codelab-llm vient de l'hote.
+        assert "CODELAB_OPENWEBUI_KEY" in contenu, chemin
+
+
+def test_l_interface_de_chat_ne_s_ouvre_qu_avec_une_session():
+    """Open WebUI ne decide pas qui est qui : le panneau le lui dit.
+
+    Vecu a l'envers : la proposition initiale faisait confiance a un en-tete
+    X-OpenWebUI-User-Id envoye par le client. Toutes les applications partagent
+    le reseau codelab : n'importe laquelle se serait fait passer pour un autre.
+    """
+    nginx = _racine_llm().parent / "open-webui" / "nginx.conf"
+    if not nginx.is_file():
+        pytest.skip("sources open-webui absentes de cette image")
+    contenu = nginx.read_text(encoding="utf-8")
+    assert "auth_request /_codelab_auth" in contenu
+    assert "/api/sso-check" in contenu
+    assert "error_page 401" in contenu
+    # Les en-tetes d'identite sont reecrits par le proxy, jamais relayes.
+    for entete in ("X-CodeLab-User", "X-CodeLab-Email", "X-CodeLab-Role"):
+        assert re.search(rf"proxy_set_header +{entete} +\$codelab_", contenu)
+
+
+def test_l_api_llm_refuse_les_modeles_inconnus_et_exige_une_identite():
+    source = (_racine_llm() / "app.py").read_text(encoding="utf-8")
     assert "revoked_at IS NULL" in source
-    assert "X-CodeLab-Conversation-ID" in source
-    assert "MAX_BODY_BYTES" in source
-    assert "RATE_LIMIT_PER_MINUTE" in source
-    assert "from litellm import Router" in source
-    assert "def _manage()" in source
-    assert "@app.on_event(\"startup\")" in source
+    assert "CORPS_MAX" in source
+    assert "APPELS_PAR_MINUTE" in source
+    assert "CLIENTS_SUIVIS_MAX" in source, "le suivi du debit doit etre borne"
+    # L'interface prouve son identite par un secret partage, pas par un en-tete.
+    assert "compare_digest" in source
+    assert "CODELAB_OPENWEBUI_KEY" in source
+    # Une erreur du fournisseur ne repart pas telle quelle vers le client.
+    assert "str(erreur)" not in source

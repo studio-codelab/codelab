@@ -107,10 +107,15 @@ jobs:
       # celle qu'on livre ne prouve pas grand-chose. En ajouter une ici sans
       # l'ajouter la-bas, ou l'inverse, remet des tests en sommeil.
       - name: Dependances
-        run: pip install flask psutil requests pytest webauthn==3.0.0 qrcode==8.2
+        run: pip install flask psutil requests pytest webauthn==3.0.0 qrcode==8.2 cryptography==50.0.1
 
+      # -rs liste les tests ignores dans le journal. Sans cette ligne, un saut
+      # ne laisse qu'un "s" au milieu des points : cinq tests de regression du
+      # panneau se sont ignores pendant des semaines parce que la recherche
+      # des sources visait app-manager/app.py alors que le panneau vit dans
+      # app-manager/app/app.py. Vert au tableau de bord, rien de verifie.
       - name: pytest
-        run: CODELAB_REPO_ROOT=$GITHUB_WORKSPACE python -m pytest workspace/diagnostic/checks.py -q
+        run: CODELAB_REPO_ROOT=$GITHUB_WORKSPACE python -m pytest workspace/diagnostic/checks.py -q -rs
 
   build:
     needs: tests
