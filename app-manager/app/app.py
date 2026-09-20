@@ -2135,13 +2135,8 @@ def reecrire_messages(messages):
         pass
 
 
-def modifier_message(identifiant, retenu=None, lu=None, supprimer=False):
-    """Retient, lit ou supprime un message. Rend True s'il existait.
-
-    Un seul chemin pour les trois gestes : ils relisent tous le fichier,
-    le modifient et le reecrivent, et les faire en trois fonctions aurait
-    donne trois occasions d'oublier le verrou.
-    """
+def modifier_message(identifiant, retenu=None, lu=None, statut=None, archive=None, supprimer=False):
+    """Met à jour l'état d'un message ou le supprime, sous un seul verrou."""
     with _acces_verrou:
         tous = lire_messages(limite=100000)
         vise = next((m for m in tous if m.get("id") == identifiant), None)
@@ -2149,22 +2144,30 @@ def modifier_message(identifiant, retenu=None, lu=None, supprimer=False):
             return False
         if supprimer:
             tous = [m for m in tous if m.get("id") != identifiant]
-        elif retenu is not None:
-            if retenu:
-                vise["retenu"] = True
-            else:
-                vise.pop("retenu", None)
-        if lu is not None:
-            if lu:
-                vise["lu"] = True
-            else:
-                vise.pop("lu", None)
+        else:
+            if retenu is not None:
+                if retenu:
+                    vise["retenu"] = True
+                else:
+                    vise.pop("retenu", None)
+            if lu is not None:
+                if lu:
+                    vise["lu"] = True
+                else:
+                    vise.pop("lu", None)
+            if statut is not None:
+                if statut in ("en_attente", "accepte", "refuse"):
+                    vise["statut"] = statut
+            if archive is not None:
+                if archive:
+                    vise["archive"] = True
+                else:
+                    vise.pop("archive", None)
         reecrire_messages(tous)
     if supprimer:
-        # La copie Postgres suit : un message efface du panneau mais toujours
-        # dans la base serait une suppression a moitie faite, et c'est le
-        # genre de moitie qu'on decouvre au pire moment.
         _pg_deposer(("message_supprime", identifiant))
+    else:
+        _pg_deposer(("message_modifie", identifiant))
     return True
 
 
@@ -2407,6 +2410,8 @@ def _pg_preparer():
               lu          BOOLEAN NOT NULL DEFAULT FALSE
             )""")
         cx.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS lu BOOLEAN NOT NULL DEFAULT FALSE")
+        cx.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS statut TEXT NOT NULL DEFAULT 'en_attente'")
+        cx.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS archive BOOLEAN NOT NULL DEFAULT FALSE")
         cx.execute("CREATE INDEX IF NOT EXISTS messages_ts ON messages (ts DESC)")
         cx.execute("""
             CREATE TABLE IF NOT EXISTS utilisateurs (
@@ -2460,13 +2465,14 @@ def _pg_ecrire_messages(cx, messages):
     lignes = [(m.get("id") or secrets.token_hex(12),
                datetime.datetime.fromtimestamp(m.get("ts") or 0, datetime.timezone.utc),
                m.get("qui") or "", m.get("cible") or "", m.get("app"),
-               m.get("texte") or "", bool(m.get("lu"))) for m in messages]
+               m.get("texte") or "", bool(m.get("lu")),
+               m.get("statut") or "en_attente", bool(m.get("archive"))) for m in messages]
     if not lignes:
         return
     with cx.cursor() as cur:
         cur.executemany(
-            """INSERT INTO messages (id, ts, qui, cible, application, texte, lu)
-               VALUES (%s,%s,%s,%s,%s,%s,%s)
+            """INSERT INTO messages (id, ts, qui, cible, application, texte, lu, statut, archive)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
                ON CONFLICT (id) DO NOTHING""", lignes)
 
 
@@ -8217,7 +8223,8 @@ def api_message():
     _dernier_message[qui] = maintenant
 
     message = {"id": secrets.token_hex(12), "ts": int(maintenant), "qui": qui,
-               "cible": cible, "app": nom_app, "texte": texte, "lu": False}
+               "cible": cible, "app": nom_app, "texte": texte, "lu": False,
+               "statut": "en_attente", "archive": False}
     if not enregistrer_message(message):
         return jsonify({"error": "Message non enregistré : le disque n'a pas "
                                  "accepté l'écriture."}), 500
