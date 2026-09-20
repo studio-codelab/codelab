@@ -761,7 +761,8 @@ def origine_applications():
 # avec les autres, et elle mene au port 3000.
 DAGSTER_NOM = "dagster"
 DIAGNOSTIC_NOM = "diagnostic"
-AICHAT_NOM = "aichat"
+OPENWEBUI_NOM = "open-webui"
+OPENWEBUI_PORT = int(os.environ.get("APP_MANAGER_OPENWEBUI_PORT", "3001") or 3001)
 
 # LES APPLICATIONS PAR DEFAUT : celles que CodeLab apporte avec lui.
 #
@@ -932,43 +933,38 @@ def journal_du_service(nom, ligne):
 
 
 def services_du_hub():
-    """Les tuiles du hub qui ne sont pas des applications declarees.
-
-    RESERVEES A L'ADMINISTRATEUR, et ce n'est pas une politesse : l'interface
-    de Dagster permet de lancer des jobs, donc d'executer du code sur cette
-    machine. Le proxy le refuse deja a un compte utilisateur (voir
-    /api/auth-check) -- lui montrer une tuile qui le renverrait a la page de
-    connexion serait promettre une porte qui ne s'ouvre pas.
-    """
-    if not est_admin():
-        return []
-    adresse = origine_dagster()
-    if not adresse:
-        return []
-    return [{
-        "name": DAGSTER_NOM,
-        "description": "Orchestration des jobs : plannings, assets, "
-                       "exécutions et journaux.",
-        "categorie": "",
-        "running": dagster_repond(),
-        "listening": dagster_repond(),
-        "visibility": VISIBILITE_PRIVEE,
-        # Ce qui la distingue d'une application : elle a sa propre adresse,
-        # et le panneau ne la demarre ni ne l'arrete.
-        "externe": True,
-        "par_defaut": True,
-        "url": adresse,
-        # Les memes cles que les autres lignes, avec des valeurs vides : la
-        # page lit ces champs sans se demander a chaque fois si elle a
-        # affaire a un service. Un « undefined » dans une fiche est un defaut
-        # d'affichage de plus a prevoir, et il finit toujours par passer.
-        "path": "", "command": "", "port": DAGSTER_PORT,
-        "port_listeners": _ecouteurs_port(DAGSTER_PORT),
-        "failed": False, "crash_looping": False, "has_build": False,
-        "build_command": "", "max_memory_mb": None, "alertes": [],
-        "cpu_percent": 0.0, "memory_mb": 0.0,
-    }]
-
+    """Les services de la stack qui ne sont pas des applications declarees."""
+    services = []
+    if is_authed():
+        hote = hote_demande()
+        if hote:
+            services.append({
+                "name": OPENWEBUI_NOM,
+                "description": "Interface de chat Open WebUI connectée à LiteLLM.",
+                "categorie": "Outils",
+                "running": True, "listening": True,
+                "visibility": VISIBILITE_PRIVEE,
+                "externe": True, "par_defaut": True,
+                "url": f"{request.scheme}://{hote}:{OPENWEBUI_PORT}/",
+                "path": "", "command": "", "port": OPENWEBUI_PORT,
+                "port_listeners": [], "failed": False, "crash_looping": False,
+                "has_build": False, "build_command": "", "max_memory_mb": None,
+                "alertes": [], "cpu_percent": 0.0, "memory_mb": 0.0,
+            })
+    if est_admin():
+        adresse = origine_dagster()
+        if adresse:
+            services.append({
+                "name": DAGSTER_NOM,
+                "description": "Orchestration des jobs : plannings, assets, exécutions et journaux.",
+                "categorie": "", "running": dagster_repond(), "listening": dagster_repond(),
+                "visibility": VISIBILITE_PRIVEE, "externe": True, "par_defaut": True,
+                "url": adresse, "path": "", "command": "", "port": DAGSTER_PORT,
+                "port_listeners": _ecouteurs_port(DAGSTER_PORT), "failed": False,
+                "crash_looping": False, "has_build": False, "max_memory_mb": None,
+                "build_command": "", "alertes": [], "cpu_percent": 0.0, "memory_mb": 0.0,
+            })
+    return services
 
 def lien_panneau():
     """Le lien qui ramene au hub, ecrit pour l'origine qui sert la page.
@@ -2882,7 +2878,7 @@ def peut_voir(name):
     """
     if est_app_par_defaut(name):
         return est_admin()
-    if name == AICHAT_NOM:
+    if name == OPENWEBUI_NOM:
         return is_authed()
     autorises = projets_autorises()
     return autorises is None or name in autorises
@@ -7038,25 +7034,25 @@ def logout():
 
 @flask_app.get("/api/auth-check")
 def api_auth_check():
-    """Repond 200 si la session est valide, 401 sinon. Rien d'autre.
-
-    C'est le point d'appui du proxy de Dagster : nginx interroge cette route
-    avant chaque requete (directive auth_request) et laisse passer ou renvoie
-    vers la page de connexion du panneau. Dagster herite ainsi de la session
-    du panneau -- meme mot de passe, meme second facteur, meme deconnexion --
-    au lieu d'avoir sa propre authentification HTTP Basic, qui n'a ni session,
-    ni expiration, ni deconnexion possible.
-    """
-    # Sans redirection, contrairement a require_auth : nginx a besoin d'un
-    # code, pas d'une page. C'est lui qui decide ou envoyer le visiteur.
-    #
-    # Reserve a l'administrateur : l'interface de Dagster permet de lancer des
-    # jobs, donc d'executer du code sur cette machine. Y donner acces a un
-    # compte utilisateur reviendrait a lui donner l'administration par la
-    # bande, quels que soient les projets qu'on lui a autorises.
+    """Point d’appui de nginx pour Dagster : administration seulement."""
     if not est_admin():
         return Response("", 401)
     return Response("", 204)
+
+
+@flask_app.get("/api/sso-check")
+def api_sso_check():
+    """Expose l’identité déjà authentifiée au proxy Open WebUI interne."""
+    if not is_authed():
+        return Response("", 401)
+    utilisateur = utilisateur_courant() or ""
+    compte = lire_utilisateurs().get(utilisateur) or {}
+    email = compte.get("email") or f"{utilisateur}@codelab.local"
+    response = Response("", 204)
+    response.headers["X-CodeLab-User"] = utilisateur
+    response.headers["X-CodeLab-Email"] = email
+    response.headers["X-CodeLab-Role"] = role_courant() or "user"
+    return response
 
 
 @flask_app.get("/health")
@@ -7859,7 +7855,7 @@ ICONE_AICHAT = (
 ICONES_PAR_DEFAUT = {
     DAGSTER_NOM: ICONE_DAGSTER,
     DIAGNOSTIC_NOM: ICONE_DIAGNOSTIC,
-    AICHAT_NOM: ICONE_AICHAT,
+    OPENWEBUI_NOM: ICONE_AICHAT,
 }
 
 
@@ -8668,58 +8664,6 @@ DIAGNOSTIC_MARQUEUR = os.path.join(STATE_DIR, "diagnostic-inscrit")
 # pas), et l'application demarrerait sans pilote Postgres.
 DIAGNOSTIC_COMMANDE = "python3 app.py"
 DIAGNOSTIC_BUILD = 'pip install --target vendor "psycopg[binary]"'
-AICHAT_MARQUEUR = os.path.join(STATE_DIR, "aichat-inscrit")
-AICHAT_COMMANDE = "python3 app.py"
-
-
-def _poser_marqueur_aichat():
-    try:
-        with open(AICHAT_MARQUEUR, "w") as f:
-            f.write("1\n")
-    except OSError:
-        pass
-
-
-def amorcer_aichat():
-    """Inscrit AIChat une fois, y compris sur un workspace déjà initialisé."""
-    if os.path.exists(AICHAT_MARQUEUR):
-        return None
-    apps = load()
-    chemin = os.path.join(ROOT, AICHAT_NOM)
-    if not os.path.isfile(os.path.join(chemin, "app.py")):
-        source = os.path.join("/opt/codelab", "aichat.default")
-        if not os.path.isfile(os.path.join(source, "app.py")):
-            return None
-        try:
-            if os.path.exists(chemin):
-                return None
-            shutil.copytree(source, chemin)
-            try:
-                os.chown(chemin, 1001, 2000)
-                for racine, dossiers, fichiers in os.walk(chemin):
-                    for nom in dossiers + fichiers:
-                        try:
-                            os.chown(os.path.join(racine, nom), 1001, 2000)
-                        except OSError:
-                            pass
-            except OSError:
-                pass
-        except OSError:
-            return None
-    if AICHAT_NOM in apps:
-        _poser_marqueur_aichat()
-        return None
-    apps[AICHAT_NOM] = {
-        "path": chemin, "command": AICHAT_COMMANDE, "port": next_port(apps),
-        "enabled": True, "build_command": "", "max_memory_mb": 384,
-        "visibility": "privee", "description": "Chat CodeLab pour utiliser les modèles LiteLLM.",
-        "categorie": "Outils", "alertes": "",
-    }
-    save(apps)
-    _poser_marqueur_aichat()
-    return AICHAT_NOM
-
-
 def amorcer_diagnostic():
     """Inscrit le projet de diagnostic au premier demarrage, et le lance.
 
@@ -8895,8 +8839,6 @@ if __name__ == "__main__":
     # nouvelle sur un port occupe -- sans que personne ne comprenne pourquoi.
     adopter_processus_survivants()
     resume()
-    if amorcer_aichat():
-        print("[app-manager] AIChat inscrit.", flush=True)
     if inscrit:
         threading.Thread(target=_preparer_diagnostic, args=(inscrit,),
                          daemon=True).start()
