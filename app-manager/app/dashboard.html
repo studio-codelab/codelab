@@ -569,12 +569,14 @@ label:has(> input[type=checkbox]),label:has(> input[type=radio]){
 /* Les services de la stack ont une surface explicite : contrairement aux
    projets, Dagster est un service externe au workspace et son icône seule
    ne suffit pas toujours à détacher la tuile du fond du hub. */
-.hub-liste.compacte .hub-projet.service-stack{background:var(--surface);border-color:var(--line)}
 .hub-liste.compacte .hub-projet:hover{background:none;border-color:transparent}
 .hub-liste.compacte .hub-projet:hover img{transform:translateY(-2px)}
 .hub-liste.compacte .hub-projet:hover .nom{color:var(--accent)}
 .hub-liste.compacte .hub-projet img{width:88px;height:88px;border-radius:22px;
  transition:transform .12s}
+.hub-liste.compacte .hub-icone{display:grid;place-items:center}
+.hub-liste.compacte .hub-icone.service-icone{padding:10px;background:var(--surface);
+ border:1px solid var(--line);border-radius:26px}
 .hub-liste.compacte .hub-projet .txt{width:100%}
 .hub-liste.compacte .hub-projet .nom{font-size:14px;font-weight:600;
  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -3294,10 +3296,10 @@ function peindreHub(){
   /* Un service ouvre sa PROPRE adresse, et dans un nouvel onglet : il vit
      sur un autre port, sans le ruban qui ramene au panneau -- y aller dans
      l'onglet courant, c'est perdre le hub. */
-  const tuile = a => `<a class="hub-projet${a.externe ? ' service-stack' : ''} ${a.running?'':'arretee'}"
+  const tuile = a => `<a class="hub-projet ${a.running?'':'arretee'}"
       href="${a.externe ? a.url : urlApplication(a.name)}" target="${a.externe ? '_blank' : '_self'}"
       title="${esc(a.description||a.name)}">
-      <img src="${icone(a.name)}" alt="">
+      <span class="hub-icone${a.externe ? ' service-icone' : ''}"><img src="${icone(a.name)}" alt=""></span>
       <div class="txt"><div class="nom">${esc(a.name)}</div>
       <div class="bas">${badgeEtat(a)}${badgeVis(a)}</div></div></a>`;
 
