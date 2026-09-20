@@ -8657,6 +8657,36 @@ def _page(title, msg, extra=""):
 #      en parallele, et c'est dagster qui amorce /workspace. Dans ce cas on ne
 #      pose PAS le marqueur et on reessaiera au prochain demarrage.
 DIAGNOSTIC_MARQUEUR = os.path.join(STATE_DIR, "diagnostic-inscrit")
+AICHAT_LEGACY_MARQUEUR = os.path.join(STATE_DIR, "aichat-inscrit")
+
+
+def retirer_aichat_legacy():
+    """Supprime l'ancien AIChat fourni par CodeLab lors de la migration."""
+    apps = load()
+    entree = apps.get("aichat")
+    marqueur = os.path.exists(AICHAT_LEGACY_MARQUEUR)
+    if not marqueur and not entree:
+        return
+    if entree and (marqueur or entree.get("description") == "Chat CodeLab pour utiliser les modèles LiteLLM."):
+        try:
+            if is_running("aichat"):
+                stop("aichat")
+        except Exception:
+            pass
+        apps.pop("aichat", None)
+        save(apps)
+        chemin = os.path.join(ROOT, "aichat")
+        if os.path.isdir(chemin):
+            try:
+                shutil.rmtree(chemin)
+            except OSError as e:
+                print(f"[app-manager] ancien AIChat non supprime ({e}).", flush=True)
+    try:
+        os.remove(AICHAT_LEGACY_MARQUEUR)
+    except OSError:
+        pass
+
+
 
 # Les deux commandes du README du projet, pas une detection automatique :
 # detect_project() proposerait bien "python3 app.py", mais rendrait une
@@ -8833,6 +8863,7 @@ if __name__ == "__main__":
     os.makedirs(LOG_DIR, exist_ok=True)
     if not os.path.exists(APPS_FILE):
         save({})
+    retirer_aichat_legacy()
     inscrit = amorcer_diagnostic()
     # AVANT resume() : les applications survivent a l'arret du panneau, et
     # relancer par-dessus une application deja en vie ferait mourir la
