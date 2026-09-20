@@ -3325,7 +3325,11 @@ function peindreHub(){
 
 /* ---------------- vue d'ensemble ---------------- */
 function barChart(list, key, unit, maxHint){
-  const items=list.filter(a=>a.running);
+  /* Les services externes sont ecartes : le panneau ne les lance pas, donc
+     il n'a pas leur pid et ne mesure RIEN. Une barre a 0.0 % a cote des
+     applications qu'il mesure vraiment se lit comme « ce service ne
+     consomme rien », ce qui est faux -- on ne sait pas. */
+  const items=list.filter(a=>a.running && !a.externe);
   if(!items.length) return '<div class="chart-empty">Aucune application en ligne pour le moment.</div>';
   const max=Math.max(maxHint, ...items.map(a=>a[key]||0));
   return items.map(a=>{

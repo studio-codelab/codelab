@@ -767,8 +767,14 @@ DIAGNOSTIC_NOM = "diagnostic"
 # pas. Elle a remplace une application maison de 140 lignes -- ecrire et
 # maintenir une interface de chat (conversations, markdown, blocs de code,
 # pieces jointes, reprise d'historique) n'est pas le travail de CodeLab.
-OPENWEBUI_NOM = "open-webui"
+# « chat » et non « open-webui » : le nom de la tuile est ce que l'utilisateur
+# lit dans le hub, et le nom du produit qui la sert ne le regarde pas. C'est
+# aussi ce qui permet d'en changer un jour sans renommer une tuile sous les
+# yeux de tout le monde.
+OPENWEBUI_NOM = "chat"
 OPENWEBUI_PORT = int(os.environ.get("APP_MANAGER_OPENWEBUI_PORT", "3001") or 3001)
+OPENWEBUI_HOTE_INTERNE = (os.environ.get("APP_MANAGER_OPENWEBUI_HOTE")
+                          or "codelab-open-webui-proxy")
 
 # LES APPLICATIONS PAR DEFAUT : celles que CodeLab apporte avec lui.
 #
@@ -839,30 +845,46 @@ def origine_dagster():
     return f"{request.scheme}://{hote}:{DAGSTER_PORT}/"
 
 
-_dagster_sonde = {"quand": 0.0, "ouvert": False}
+_sondes_de_port = {}
 
 
-def dagster_repond():
-    """Le port de Dagster est-il ouvert ? Reponse mise en cache 10 s.
+def _port_repond(hote, port):
+    """Ce port est-il ouvert ? Reponse mise en cache 10 s.
 
     Le hub se rafraichit toutes les dix secondes : sans ce cache, chaque
     passage ouvrirait une connexion de plus, pour une reponse qui ne change
     pas d'une seconde a l'autre.
     """
+    cle = (hote, port)
+    sonde = _sondes_de_port.setdefault(cle, {"quand": 0.0, "ouvert": False})
     maintenant = time.time()
-    if maintenant - _dagster_sonde["quand"] < 10:
-        return _dagster_sonde["ouvert"]
+    if maintenant - sonde["quand"] < 10:
+        return sonde["ouvert"]
     ouvert = False
     s = socket.socket()
     s.settimeout(1.0)
     try:
-        ouvert = s.connect_ex((DAGSTER_HOTE_INTERNE, DAGSTER_PORT)) == 0
+        ouvert = s.connect_ex((hote, port)) == 0
     except OSError:
         ouvert = False
     finally:
         s.close()
-    _dagster_sonde.update(quand=maintenant, ouvert=ouvert)
+    sonde.update(quand=maintenant, ouvert=ouvert)
     return ouvert
+
+
+def dagster_repond():
+    return _port_repond(DAGSTER_HOTE_INTERNE, DAGSTER_PORT)
+
+
+def openwebui_repond():
+    """Meme question pour l'interface de chat.
+
+    Le profil « llm » est optionnel : sans lui, le conteneur n'existe pas.
+    Annoncer la tuile « en ligne » quand rien n'ecoute donne un lien mort, et
+    un lien mort dans un hub se lit comme une panne du hub.
+    """
+    return _port_repond(OPENWEBUI_HOTE_INTERNE, OPENWEBUI_PORT)
 
 
 # ------------------- ce que le panneau sait de Dagster -------------------
@@ -996,7 +1018,8 @@ def services_du_hub():
             services.append(_tuile_de_service(
                 OPENWEBUI_NOM,
                 "Chat avec les modèles, conversations gardées et reprises.",
-                adresse, OPENWEBUI_PORT, categorie="Outils"))
+                adresse, OPENWEBUI_PORT, repond=openwebui_repond(),
+                categorie="Outils"))
     if not est_admin():
         return services
     adresse = origine_dagster()
@@ -7941,10 +7964,16 @@ ICONE_DIAGNOSTIC = (
 # sans legende. Dessinee ici et pas reprise d'Open WebUI : la tuile doit
 # ressembler aux autres tuiles de CodeLab, pas a un logo invite.
 ICONE_OPENWEBUI = (
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
-    '<rect width="64" height="64" rx="16" fill="#0e7c86"/>'
-    '<path d="M16 18h32a6 6 0 0 1 6 6v17a6 6 0 0 1-6 6H30l-10 7v-7h-4a6 6 0 0 1-6-6V24a6 6 0 0 1 6-6Z" fill="none" stroke="#fff" stroke-width="4"/>'
-    '<circle cx="24" cy="32" r="2.5" fill="#fff"/><circle cx="32" cy="32" r="2.5" fill="#fff"/><circle cx="40" cy="32" r="2.5" fill="#fff"/>'
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" '
+    'aria-label="Chat">'
+    # PAS de rectangle de fond : les icones du hub se posent sur la tuile,
+    # pas dans une pastille. Une seule icone avec un fond plein se voyait
+    # comme une piece rapportee a cote de celle de Dagster.
+    '<path d="M10 11h28a5 5 0 0 1 5 5v14a5 5 0 0 1-5 5H23l-9 6v-6h-4a5 5 0 0 1-5-5V16a5 5 0 0 1 5-5Z" '
+    'fill="none" stroke="#0e7c86" stroke-width="3" stroke-linejoin="round"/>'
+    '<circle cx="17" cy="23" r="2.2" fill="#0e7c86"/>'
+    '<circle cx="24" cy="23" r="2.2" fill="#0e7c86"/>'
+    '<circle cx="31" cy="23" r="2.2" fill="#0e7c86"/>'
     '</svg>')
 
 ICONES_PAR_DEFAUT = {

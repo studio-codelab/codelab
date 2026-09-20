@@ -10971,7 +10971,7 @@ def test_dagster_parait_dans_le_hub_et_mene_au_port_3000(hub_dagster):
     services = d["services"]
     # Deux services, et l'ordre compte : l'outil de tous les jours d'abord,
     # l'orchestrateur ensuite.
-    assert [s["name"] for s in services] == ["open-webui", "dagster"]
+    assert [s["name"] for s in services] == ["chat", "dagster"]
     chat, dagster = services
     # L'interface de chat mene a SON portier, sur le port 3001.
     assert chat["url"].endswith(":3001"), chat["url"]
@@ -11750,3 +11750,89 @@ def test_le_titre_du_cockpit_compte_les_memes_sondes_que_la_pastille():
     bloc = source.split("if critiques or erreur_db:")[1].split("elif alertes:")[0]
     assert "combien = len(critiques) or 1" in bloc
     assert "len(critiques) + (1 if erreur_db else 0)" not in bloc
+
+
+def test_l_icone_du_chat_n_a_pas_de_fond():
+    """Les icones du hub se posent sur la tuile, pas dans une pastille.
+
+    Une seule icone avec un rectangle plein derriere elle se voyait comme une
+    piece rapportee a cote de celle de Dagster, et contredisait le mode icone
+    -- ou il ne doit y avoir que l'icone et le nom dessous.
+    """
+    source = (_racine_app_manager() / "app.py").read_text(encoding="utf-8")
+    debut = source.index("ICONE_OPENWEBUI")
+    bloc = source[debut:debut + 1500]
+    assert "<svg" in bloc
+    assert "<rect" not in bloc, "un fond plein est revenu derriere l'icone"
+    assert 'aria-label="Chat"' in bloc
+
+
+def test_la_tuile_du_chat_porte_un_nom_lisible():
+    """« open-webui » est le nom du produit qui sert la page, pas celui que
+    l'utilisateur doit lire dans son hub."""
+    source = (_racine_app_manager() / "app.py").read_text(encoding="utf-8")
+    assert 'OPENWEBUI_NOM = "chat"' in source
+
+
+def test_la_tuile_du_chat_ne_s_annonce_pas_en_ligne_sans_service(monkeypatch, tmp_path):
+    """Un lien mort dans un hub se lit comme une panne du hub.
+
+    Le profil « llm » est optionnel : sans lui, le conteneur n'existe pas. La
+    tuile s'annoncait « en ligne » quoi qu'il arrive, parce que rien ne
+    demandait au port s'il ecoutait -- alors que Dagster, lui, le demande.
+    """
+    m = _charger_app_manager(monkeypatch, tmp_path)
+    monkeypatch.setattr(m, "is_authed", lambda: True)
+    monkeypatch.setattr(m, "est_admin", lambda: False)
+    monkeypatch.setattr(m, "origine_openwebui", lambda: "http://exemple:3001")
+    monkeypatch.setattr(m, "_ecouteurs_port", lambda port: [])
+
+    monkeypatch.setattr(m, "openwebui_repond", lambda: False)
+    with m.flask_app.test_request_context("/"):
+        chat = m.services_du_hub()[0]
+    assert chat["name"] == "chat"
+    assert chat["running"] is False and chat["listening"] is False
+
+    monkeypatch.setattr(m, "openwebui_repond", lambda: True)
+    with m.flask_app.test_request_context("/"):
+        assert m.services_du_hub()[0]["running"] is True
+
+
+def test_la_sonde_de_port_garde_un_cache_par_service(monkeypatch, tmp_path):
+    """Un cache unique pour deux services rendait la reponse de l'un pour
+    l'autre -- et le hub interroge les deux a chaque rafraichissement."""
+    m = _charger_app_manager(monkeypatch, tmp_path)
+    m._sondes_de_port.clear()
+    appels = []
+
+    class FauxSocket:
+        def settimeout(self, _):
+            pass
+
+        def connect_ex(self, cible):
+            appels.append(cible)
+            return 0 if cible[1] == 3001 else 1
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(m.socket, "socket", lambda *a, **k: FauxSocket())
+    assert m._port_repond("a", 3001) is True
+    assert m._port_repond("b", 3000) is False
+    # Chacun son entree : deux appels, deux reponses distinctes.
+    assert appels == [("a", 3001), ("b", 3000)]
+    # Et le cache tient : le second passage ne rouvre pas de connexion.
+    assert m._port_repond("a", 3001) is True
+    assert len(appels) == 2
+
+
+def test_les_graphiques_ecartent_les_services_que_le_panneau_ne_mesure_pas():
+    """Le panneau n'a pas le pid d'un service externe : il ne mesure rien.
+
+    Une barre a 0.0 % a cote des applications qu'il mesure vraiment se lit
+    comme « ce service ne consomme rien ». C'est faux -- on ne sait pas.
+    """
+    page = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
+    bloc = page.split("function barChart(")[1].split("\n}")[0]
+    assert "!a.externe" in bloc, (
+        "les graphiques CPU et mémoire doivent ecarter les services externes")
