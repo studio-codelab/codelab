@@ -3037,7 +3037,13 @@ async function chargerMessages(){
   let d;
   try{ d=await (await fetch('/api/messages')).json(); }catch(e){ return; }
   msgTous=d.messages||[];
-  $('side-count-messages').textContent=d.non_lus||0;
+  const inboxCount=Number(d.boite||0);
+  const unreadCount=Number(d.non_lus||0);
+  $('side-count-messages').textContent=inboxCount;
+  $('side-count-messages').classList.toggle('messages-non-lus', unreadCount>0);
+  $('side-count-messages').title=unreadCount
+    ? unreadCount+' nouveau'+(unreadCount>1?'x':'')+' dans la boîte de réception'
+    : (inboxCount ? inboxCount+' message'+(inboxCount>1?'s':'')+' dans la boîte de réception' : 'Boîte de réception vide');
   msgRemplirFiltre();
   peindreMessages();
 
@@ -4769,7 +4775,12 @@ async function marquerMessagesLus(){
     const r=await fetch('/api/messages/lus',{method:'POST'});
     if(!r.ok) return;
     const n=$('toast-messages'); if(n) n.remove();
-    $('side-count-messages').textContent='0';
+    const inbox=msgTous.filter(m=>!m.archive).length;
+    $('side-count-messages').textContent=inbox;
+    $('side-count-messages').classList.remove('messages-non-lus');
+    $('side-count-messages').title=inbox
+      ? inbox+' message'+(inbox>1?'s':'')+' dans la boîte de réception'
+      : 'Boîte de réception vide';
     msgTous=msgTous.map(m=>({...m,lu:true}));
     peindreMessages();
   }catch(e){}
