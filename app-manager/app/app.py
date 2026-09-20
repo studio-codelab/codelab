@@ -2167,7 +2167,7 @@ def modifier_message(identifiant, retenu=None, lu=None, statut=None, archive=Non
     if supprimer:
         _pg_deposer(("message_supprime", identifiant))
     else:
-        _pg_deposer(("message_modifie", identifiant))
+        _pg_deposer(("message_modifie", vise.copy()))
     return True
 
 
@@ -2543,6 +2543,11 @@ def _pg_boucle():
                         with cx.cursor() as cur:
                             cur.execute("DELETE FROM messages WHERE id = %s",
                                         (charge,))
+                    elif genre == "message_modifie":
+                        with cx.cursor() as cur:
+                            cur.execute("DELETE FROM messages WHERE id = %s",
+                                        (charge.get("id"),))
+                        _pg_ecrire_messages(cx, [charge])
                     elif genre == "messages_lus":
                         with cx.cursor() as cur:
                             cur.execute("UPDATE messages SET lu = TRUE WHERE lu = FALSE")
@@ -8294,7 +8299,9 @@ def api_messages_liste():
     # avoir a les rechercher.
     messages.sort(key=lambda m: (not m.get("retenu"), -(m.get("ts") or 0)))
     return jsonify({"messages": messages,
-                     "non_lus": sum(1 for m in messages if not m.get("lu"))})
+                     "non_lus": sum(1 for m in messages if not m.get("lu")),
+                     "boite": sum(1 for m in lire_messages(limite=MESSAGES_AFFICHES)
+                                   if not m.get("archive"))})
 
 
 @flask_app.post("/api/messages/lus")
