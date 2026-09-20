@@ -7845,7 +7845,7 @@ ICONE_DIAGNOSTIC = (
     'stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>'
     '</svg>')
 
-ICONE_AICHAT = (
+ICONE_OPENWEBUI = (
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
     '<rect width="64" height="64" rx="16" fill="#0e7c86"/>'
     '<path d="M16 18h32a6 6 0 0 1 6 6v17a6 6 0 0 1-6 6H30l-10 7v-7h-4a6 6 0 0 1-6-6V24a6 6 0 0 1 6-6Z" fill="none" stroke="#fff" stroke-width="4"/>'
@@ -7855,7 +7855,7 @@ ICONE_AICHAT = (
 ICONES_PAR_DEFAUT = {
     DAGSTER_NOM: ICONE_DAGSTER,
     DIAGNOSTIC_NOM: ICONE_DIAGNOSTIC,
-    OPENWEBUI_NOM: ICONE_AICHAT,
+    OPENWEBUI_NOM: ICONE_OPENWEBUI,
 }
 
 
