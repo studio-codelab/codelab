@@ -160,10 +160,14 @@ def _sso_identity(assertion):
         return None
 
 
-def _identity(authorization, x_codelab_auth=None):
+def _identity(authorization, x_codelab_auth=None, x_openwebui_user_id=None):
     sso = _sso_identity(x_codelab_auth)
     if sso:
         return sso
+    # Open WebUI est le seul consommateur du service sur le reseau Docker :
+    # il transmet l'identite de sa session SSO via ces en-tetes.
+    if x_openwebui_user_id:
+        return {"user_id": str(x_openwebui_user_id), "app_id": "open-webui"}
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "Bearer CodeLab key required")
     value = authorization[7:].strip()
@@ -255,8 +259,9 @@ def models():
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request, authorization: str | None = Header(default=None),
                            x_codelab_auth: str | None = Header(default=None),
+                           x_openwebui_user_id: str | None = Header(default=None),
                            x_codelab_conversation_id: str | None = Header(default=None)):
-    identity = _identity(authorization, x_codelab_auth)
+    identity = _identity(authorization, x_codelab_auth, x_openwebui_user_id)
     _check_rate_limit(identity)
     body = await request.body()
     if len(body) > MAX_BODY_BYTES:
