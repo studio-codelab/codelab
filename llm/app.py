@@ -20,7 +20,7 @@ MAX_BODY_BYTES = 512 * 1024
 RATE_LIMIT_PER_MINUTE = 60
 ALLOWED_MODELS = {"codelab-fast", "codelab-smart", "codelab-coding"}
 SSO_ISSUER = "codelab"
-SSO_AUDIENCE = "aichat"
+SSO_AUDIENCE = "open-webui"
 _rate_history = defaultdict(deque)
 
 # Legacy provider identifiers kept in this comment so older diagnostic suites
