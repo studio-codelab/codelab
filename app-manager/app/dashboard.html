@@ -566,6 +566,10 @@ label:has(> input[type=checkbox]),label:has(> input[type=radio]){
 .hub-liste.compacte{grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:10px}
 .hub-liste.compacte .hub-projet{flex-direction:column;align-items:center;gap:11px;
  padding:16px 8px;text-align:center;background:none;border-color:transparent}
+/* Les services de la stack ont une surface explicite : contrairement aux
+   projets, Dagster est un service externe au workspace et son icône seule
+   ne suffit pas toujours à détacher la tuile du fond du hub. */
+.hub-liste.compacte .hub-projet.service-stack{background:var(--surface);border-color:var(--line)}
 .hub-liste.compacte .hub-projet:hover{background:none;border-color:transparent}
 .hub-liste.compacte .hub-projet:hover img{transform:translateY(-2px)}
 .hub-liste.compacte .hub-projet:hover .nom{color:var(--accent)}
@@ -3290,7 +3294,7 @@ function peindreHub(){
   /* Un service ouvre sa PROPRE adresse, et dans un nouvel onglet : il vit
      sur un autre port, sans le ruban qui ramene au panneau -- y aller dans
      l'onglet courant, c'est perdre le hub. */
-  const tuile = a => `<a class="hub-projet ${a.running?'':'arretee'}"
+  const tuile = a => `<a class="hub-projet${a.externe ? ' service-stack' : ''} ${a.running?'':'arretee'}"
       href="${a.externe ? '/'+encodeURIComponent(a.name)+'/' : urlApplication(a.name)}"
       title="${esc(a.description||a.name)}">
       <img src="${icone(a.name)}" alt="">
