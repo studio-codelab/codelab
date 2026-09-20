@@ -107,14 +107,34 @@ select,button{border:1px solid var(--line2);border-radius:7px;background:var(--s
 .compose{border-top:1px solid var(--line);padding:14px;display:flex;gap:10px;background:var(--surface2)}textarea{flex:1;resize:none;min-height:48px;max-height:180px;border:1px solid var(--line2);border-radius:8px;background:var(--surface);color:var(--txt);padding:10px 12px;font:inherit;outline:none}textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-ring)}.send{align-self:flex-end;background:var(--accent);color:var(--sur-accent);border-color:var(--accent);height:42px}.send:hover{background:var(--accent-h);color:var(--sur-accent)}.status{font-size:12px;color:var(--dim);min-height:18px;padding:0 16px 10px}.status.err{color:var(--err)}@media(max-width:700px){.layout{padding:14px}.controls{margin-left:0}.messages{padding:16px}.compose{padding:10px}.msg{max-width:96%}}
 </style></head><body>
 <header class="bar"><div class="brand"><span class="brand-icon"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/><circle cx="9" cy="10" r="1"/><circle cx="12" cy="10" r="1"/><circle cx="15" cy="10" r="1"/></svg></span><b>CodeLab</b><span>· AIChat</span></div><div class="spacer"></div><div class="user" id="user"></div></header>
-<main class="layout"><div class="top"><div><h1>AIChat</h1><p>Une interface légère pour les modèles exposés par LiteLLM.</p></div><div class="controls"><select id="model" aria-label="Modèle"></select><button id="new" type="button">Nouvelle conversation</button></div></div>
+<main class="layout"><div class="top"><div><h1>AIChat</h1><p>Une interface légère pour les modèles exposés par LiteLLM.</p></div><div class="controls"><select id="model" aria-label="Modèle" disabled></select><button id="refresh-models" type="button" title="Recharger les modèles disponibles">Actualiser</button><button id="new" type="button">Nouvelle conversation</button></div></div>
 <section class="chat"><div class="messages" id="messages"><div class="empty"><b>Prêt à discuter.</b>Choisis un modèle puis écris ton premier message.</div></div><div class="status" id="status"></div><form class="compose" id="form"><textarea id="input" rows="1" placeholder="Écris ton message…" autocomplete="off"></textarea><button class="send" id="send" type="submit">Envoyer</button></form></section></main>
 <script>
 const $=id=>document.getElementById(id);let history=[],conversationId="",sending=false;
 function draw(){const box=$("messages");if(!history.length){box.innerHTML='<div class="empty"><b>Prêt à discuter.</b>Choisis un modèle puis écris ton premier message.</div>';return}box.innerHTML=history.map(m=>'<div class="msg '+m.role+'"></div>').join('');history.forEach((m,i)=>box.children[i].textContent=m.content);box.scrollTop=box.scrollHeight}
 function status(text,error=false){$("status").textContent=text||"";$("status").className="status"+(error?" err":"")}
-async function boot(){const me=await (await fetch("/api/me")).json();if(me.error){location.reload();return}$("user").textContent=me.user;const r=await fetch("/api/models");const d=await r.json();if(!r.ok){status(d.error||"Impossible de charger les modèles.",true);return}const models=(d.data||[]).map(x=>x.id).filter(Boolean);$("model").innerHTML=models.map(m=>'<option value="'+m.replaceAll('"','&quot;')+'">'+m+"</option>").join("");draw()}
+async function chargerModeles(){
+  const select=$("model"), precedent=select.value;
+  select.disabled=true;
+  $("refresh-models").disabled=true;
+  status("Chargement des modèles disponibles…");
+  try{
+    const r=await fetch("/api/models"); const d=await r.json();
+    if(!r.ok) throw new Error(d.error||"Impossible de charger les modèles.");
+    const models=[...new Set((d.data||[]).map(x=>x&&x.id).filter(Boolean))];
+    select.innerHTML=models.length
+      ? models.map(m=>'<option value="'+m.replaceAll('"','&quot;')+'">'+m+"</option>").join("")
+      : '<option value="">Aucun modèle disponible</option>';
+    if(precedent && models.includes(precedent)) select.value=precedent;
+    select.disabled=!models.length;
+    status(models.length ? models.length+" modèle"+(models.length>1?"s":"")+" disponible"+(models.length>1?"s":"")+"." : "Aucun modèle disponible.", !models.length);
+  }catch(err){
+    select.innerHTML='<option value="">Indisponible</option>'; select.disabled=true;
+    status(err.message||"Impossible de charger les modèles.",true);
+  }finally{$("refresh-models").disabled=false;}
+}
+async function boot(){const me=await (await fetch("/api/me")).json();if(me.error){location.reload();return}$("user").textContent=me.user;await chargerModeles();draw()}
 $("form").onsubmit=async e=>{e.preventDefault();if(sending)return;const text=$("input").value.trim();if(!text)return;const model=$("model").value;if(!model){status("Aucun modèle disponible.",true);return}sending=true;$("send").disabled=true;status("Réponse en cours…");history.push({role:"user",content:text});$("input").value="";draw();try{const r=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model,messages:history,conversation_id:conversationId})});const d=await r.json();if(!r.ok)throw new Error(d.error||d.detail||"Le service LLM a refusé la requête.");conversationId=d.conversation_id||conversationId;const answer=d.choices?.[0]?.message?.content||"Réponse vide.";history.push({role:"assistant",content:answer});draw();status("")}catch(err){history.pop();draw();status(err.message||"Erreur de communication avec LiteLLM.",true)}finally{sending=false;$("send").disabled=false;$("input").focus()}};
-$("new").onclick=()=>{history=[];conversationId="";status("");draw();$("input").focus()};$("input").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();$("form").requestSubmit()}});boot();
+$("refresh-models").onclick=chargerModeles;$("new").onclick=()=>{history=[];conversationId="";status("");draw();$("input").focus()};$("input").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();$("form").requestSubmit()}});boot();
 </script></body></html>"""
 if __name__=="__main__": app.run(host="0.0.0.0",port=int(os.environ.get("PORT","9101")),debug=False)
