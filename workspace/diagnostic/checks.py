@@ -11735,3 +11735,18 @@ def test_une_sonde_sans_objet_ne_compte_ni_au_numerateur_ni_au_denominateur():
                           [(Etat.SANS_OBJET, "c", "")])
     assert "sans objet" in html
     assert "0 sur 0" not in html
+
+
+def test_le_titre_du_cockpit_compte_les_memes_sondes_que_la_pastille():
+    """« 8 vérifications en échec » au-dessus d'une pastille qui en montrait
+    sept : le premier reflexe est de chercher la huitieme.
+
+    L'erreur d'ecriture en base est deja portee par la sonde Postgres. La
+    compter une seconde fois dans le titre faisait diverger les deux nombres
+    des qu'elle survenait -- c'est-a-dire exactement quand on lit la page.
+    """
+    import app as diag
+    source = (Path(diag.__file__).resolve()).read_text(encoding="utf-8")
+    bloc = source.split("if critiques or erreur_db:")[1].split("elif alertes:")[0]
+    assert "combien = len(critiques) or 1" in bloc
+    assert "len(critiques) + (1 if erreur_db else 0)" not in bloc

@@ -827,7 +827,14 @@ def index(ouvrir_verification=False):
         checks.Etat.ALERTE if (alertes or not dagster_a_ecrit) else checks.Etat.OK)
 
     if critiques or erreur_db:
-        combien = len(critiques) + (1 if erreur_db else 0)
+        # Le titre compte les SONDES en echec, ni plus ni moins : c'est le
+        # meme nombre que la pastille « erreurs » a cote, et que la somme des
+        # rubriques. L'erreur d'ecriture en base, quand il y en a une, est
+        # DEJA portee par la sonde Postgres -- l'ajouter au compte annoncait
+        # « 8 verifications en echec » au-dessus d'une pastille qui en
+        # montrait sept, et le premier reflexe est alors de chercher la
+        # huitieme.
+        combien = len(critiques) or 1
         titre = (f'{combien} vérification{"s" if combien > 1 else ""} en échec')
         phrase = ('À traiter maintenant. La rubrique en cause porte sa couleur '
                   'ci-dessous&nbsp;: ' + (f'<b>{esc(", ".join(critiques))}</b>.'
