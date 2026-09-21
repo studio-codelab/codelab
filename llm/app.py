@@ -64,8 +64,18 @@ SSO_EMETTEUR = "codelab"
 # demandee.
 SSO_AUDIENCE = os.environ.get("CODELAB_LLM_AUDIENCE", "")
 
+# L'AMONT : codelab-litellm, et non plus un fournisseur en direct.
+#
+# Ce service garde ce qui lui appartient -- identite CodeLab, quota par
+# personne, comptabilite -- et delegue le routage a LiteLLM : choix du
+# fournisseur, repli quand l'un tombe, budgets. La cle d'un fournisseur ne
+# transite plus par ici ; elle vit dans codelab-litellm, qui n'est joignable
+# que depuis ce service.
+#
+# La valeur reste surchargeable : pointer directement un fournisseur
+# compatible OpenAI (comme avant) demande une seule variable.
 FOURNISSEUR_URL = os.environ.get(
-    "CODELAB_LLM_FOURNISSEUR", "https://openrouter.ai/api/v1")
+    "CODELAB_LLM_FOURNISSEUR", "http://codelab-litellm:4000/v1")
 
 # Les noms logiques, et le modele reel derriere chacun. Un nom sans modele
 # configure n'est PAS propose : trois noms qui pointent tous sur la meme
@@ -125,6 +135,17 @@ def valeur(nom, defaut=""):
     """L'environnement d'abord, le fichier ensuite. Le compose peut donc
     tout surcharger sans reconstruire l'image."""
     return os.environ.get(nom) or lire_env().get(nom, defaut)
+
+
+def cle_amont():
+    """La cle presentee a l'amont.
+
+    CODELAB_LLM_AMONT_KEY d'abord -- c'est la cle maitresse de
+    codelab-litellm. OPENROUTER_API_KEY ensuite, pour qu'une installation
+    existante, qui pointe encore un fournisseur en direct, continue de
+    fonctionner sans rien toucher.
+    """
+    return valeur("CODELAB_LLM_AMONT_KEY") or valeur("OPENROUTER_API_KEY")
 
 
 def modeles():
@@ -316,8 +337,13 @@ def limiter(qui):
 # ---------------------------- comptabilite ----------------------------
 
 def noter_consommation(qui, demande, reel, jetons, latence):
-    entree = int(jetons.get("prompt_tokens") or 0)
-    sortie = int(jetons.get("completion_tokens") or 0)
+    # Deux noms pour la meme chose : /chat/completions compte en
+    # prompt_tokens / completion_tokens, /responses en input_tokens /
+    # output_tokens. Lire un seul des deux jeux ferait une comptabilite a
+    # zero sur la moitie du trafic -- et une consommation a zero ne se
+    # remarque pas, elle se croit.
+    entree = int(jetons.get("prompt_tokens") or jetons.get("input_tokens") or 0)
+    sortie = int(jetons.get("completion_tokens") or jetons.get("output_tokens") or 0)
     fournisseur = reel.split("/", 1)[0] if "/" in (reel or "") else None
     try:
         with pool().connection() as cx:
@@ -351,8 +377,108 @@ def sante():
     except Exception:                                             # noqa: BLE001
         base = False
     return {"status": "ok" if base else "degrade", "service": "codelab-llm",
-            "base": base, "cle_fournisseur": bool(valeur("OPENROUTER_API_KEY")),
+            "base": base, "cle_fournisseur": bool(cle_amont()),
             "modeles": sorted(modeles())}
+
+
+
+# L'API RESPONSES, parce que les agents de developpement n'ont plus le choix.
+#
+# Codex a retire le protocole « chat » en fevrier 2026 : un fournisseur qui
+# n'expose que /chat/completions ne lui sert a rien. C'est LiteLLM qui fait le
+# pont vers les modeles qui ne parlent que l'ancien protocole ; ce service, lui,
+# n'a qu'a relayer -- et a compter ce qui passe.
+#
+# Volontairement SANS relecture du document : le format Responses est riche et
+# bouge vite, et le reecrire ici serait promettre de le suivre. On verifie
+# l'identite, le quota et le modele demande ; le reste traverse.
+@app.post("/v1/responses")
+async def responses(request: Request,
+                    authorization: str | None = Header(default=None),
+                    x_codelab_auth: str | None = Header(default=None),
+                    x_codelab_user_id: str | None = Header(default=None)):
+    qui = identite(authorization, x_codelab_auth, x_codelab_user_id)
+    limiter(qui)
+
+    corps = await request.body()
+    if len(corps) > CORPS_MAX:
+        raise HTTPException(413, "Requete trop volumineuse.")
+    table = modeles()
+    charge, demande = _payload_responses_valide(corps, table)
+
+    cle = cle_amont()
+    if not cle:
+        raise HTTPException(503, "Aucune cle de fournisseur configuree.")
+
+    amont = dict(charge, model=table[demande])
+    entetes = {"Authorization": f"Bearer {cle}", "Content-Type": "application/json"}
+    debut = time.monotonic()
+
+    if charge.get("stream") is True:
+        return StreamingResponse(
+            _flux_responses(amont, entetes, qui, demande, debut),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    try:
+        reponse = await _client.post(FOURNISSEUR_URL + "/responses",
+                                     json=amont, headers=entetes)
+    except httpx.HTTPError:
+        print("[codelab-llm] amont injoignable (/responses).", flush=True)
+        raise HTTPException(502, "Le fournisseur de modeles ne repond pas.")
+    if reponse.status_code >= 400:
+        print(f"[codelab-llm] amont : HTTP {reponse.status_code} (/responses)",
+              flush=True)
+        raise HTTPException(502, "Le fournisseur de modeles a refuse la requete.")
+
+    data = reponse.json()
+    noter_consommation(qui, demande, data.get("model") or table[demande],
+                       data.get("usage") or {},
+                       int((time.monotonic() - debut) * 1000))
+    data["model"] = demande
+    return JSONResponse(data)
+
+
+async def _flux_responses(amont, entetes, qui, demande, debut):
+    """Le flux de l'API Responses : des evenements nommes, pas des deltas.
+
+    Le compte de jetons arrive dans l'evenement final, sous « response.usage ».
+    Comme ailleurs ici, le contenu traverse sans etre garde.
+    """
+    jetons, reel = {}, amont["model"]
+    try:
+        async with _client.stream("POST", FOURNISSEUR_URL + "/responses",
+                                  json=amont, headers=entetes) as reponse:
+            if reponse.status_code >= 400:
+                await reponse.aread()
+                print(f"[codelab-llm] amont : HTTP {reponse.status_code} "
+                      f"(/responses, flux)", flush=True)
+                yield ("data: " + json.dumps(
+                    {"error": {"message": "Le fournisseur de modeles a refuse "
+                                          "la requete.", "type": "upstream"}}) + "\n\n")
+                return
+            async for ligne in reponse.aiter_lines():
+                if ligne.startswith("data: "):
+                    brut = ligne[6:].strip()
+                    if brut and brut != "[DONE]":
+                        try:
+                            evenement = json.loads(brut)
+                        except json.JSONDecodeError:
+                            evenement = None
+                        if isinstance(evenement, dict):
+                            corps = evenement.get("response") or {}
+                            if isinstance(corps, dict):
+                                jetons = corps.get("usage") or jetons
+                                reel = corps.get("model") or reel
+                yield ligne + "\n"
+    except httpx.HTTPError:
+        print("[codelab-llm] amont injoignable (/responses, flux).", flush=True)
+        yield ("data: " + json.dumps(
+            {"error": {"message": "Le fournisseur de modeles ne repond pas.",
+                       "type": "upstream"}}) + "\n\n")
+    finally:
+        noter_consommation(qui, demande, reel, jetons,
+                           int((time.monotonic() - debut) * 1000))
 
 
 @app.get("/v1/models")
@@ -376,6 +502,28 @@ def _payload_valide(corps, table):
     return charge, modele
 
 
+def _payload_responses_valide(corps, table):
+    """Meme controle, autre protocole.
+
+    L'API Responses ne porte pas « messages » mais « input » -- une chaine
+    ou une liste. On valide ce qu'on sait valider : le modele demande doit
+    figurer dans la table, et l'entree ne doit pas etre vide. Le reste du
+    document traverse sans etre relu : ce service route et compte, il
+    n'interprete pas le contenu.
+    """
+    try:
+        charge = json.loads(corps)
+    except json.JSONDecodeError as e:
+        raise HTTPException(400, "Corps JSON invalide.") from e
+    modele = charge.get("model")
+    if modele not in table:
+        raise HTTPException(400, f"Modele inconnu : {modele}.")
+    entree = charge.get("input")
+    if entree is None or (isinstance(entree, (str, list)) and not entree):
+        raise HTTPException(400, "« input » doit etre une chaine ou une liste non vide.")
+    return charge, modele
+
+
 @app.post("/v1/chat/completions")
 async def completions(request: Request,
                       authorization: str | None = Header(default=None),
@@ -390,7 +538,7 @@ async def completions(request: Request,
     table = modeles()
     charge, demande = _payload_valide(corps, table)
 
-    cle = valeur("OPENROUTER_API_KEY")
+    cle = cle_amont()
     if not cle:
         raise HTTPException(503, "Aucune cle de fournisseur configuree.")
 

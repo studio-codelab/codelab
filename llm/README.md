@@ -1,14 +1,37 @@
 # Le profil IA de CodeLab
 
-Un conteneur, une seule porte. Le profil `llm` est optionnel : sans lui, rien
-de tout cela ne démarre.
+Deux conteneurs, une seule porte. Le profil `llm` est optionnel : sans lui,
+rien de tout cela ne démarre.
 
 | Conteneur | Rôle | Joignable depuis |
 |---|---|---|
-| `codelab-llm` | Passerelle compatible OpenAI : identité, quota, comptabilité | le réseau interne seulement |
+| `codelab-llm` | Identité CodeLab, quota par personne, comptabilité | réseau `codelab` (les applications) |
+| `codelab-litellm` | Routage, replis, clés des fournisseurs | réseau `codelab-ia` (codelab-llm seul) |
 
-`codelab-llm` ne publie aucun port : il détient la clé du fournisseur, et ses
-clients sont les applications de CodeLab, qui partagent le réseau `codelab`.
+**Aucun des deux ne publie de port.** Les applications et les éditeurs
+s'adressent à `codelab-llm`, qui va lui-même chercher le routeur.
+
+## La frontière entre les deux
+
+| | `codelab-llm` | `codelab-litellm` |
+|---|---|---|
+| Qui parle, à quel rythme | ✅ | — |
+| Ce qui a été consommé, en base | ✅ | — |
+| Vers quel fournisseur, avec quel repli | — | ✅ |
+| Les clés des fournisseurs | — | ✅ |
+
+Le routeur n'est pas sur le réseau `codelab`, et c'est le point important :
+les applications déployées par le panneau y tournent, et pouvoir l'appeler
+en direct reviendrait à contourner identité, quota et comptabilité — avec
+les clés de chaque fournisseur au bout.
+
+Les noms logiques (`codelab-coding`, `codelab-fast`, `codelab-reasoning`,
+`codelab-local`) sont le contrat avec les clients. Changer de modèle se fait
+dans `litellm/config.yaml`, sans toucher à un seul client.
+
+`codelab-local` ne se replie jamais sur un fournisseur distant : sans serveur
+Ollama joignable, il répond en erreur. Un repli silencieux ferait sortir de
+la machine des données qu'on gardait ici exprès.
 
 ## Pas d'interface de conversation
 

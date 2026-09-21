@@ -8960,7 +8960,7 @@ def test_chaque_service_est_borne_dans_les_deux_composes():
         # Les memes services des deux cotes : un compose qui en oublie un
         # est une installation qui ne demarre pas pareil selon la porte
         # d'entree.
-        assert len(services) == 7, (chemin, sorted(services))
+        assert len(services) == 8, (chemin, sorted(services))
         for nom, reglages in services.items():
             assert "pids_limit" in reglages or "deploy_pids" in reglages, (
                 f"{nom} n'a pas de limite processus dans {os.path.basename(chemin)}")
@@ -11441,7 +11441,20 @@ def test_le_service_llm_tient_ses_connexions_ouvertes():
 
 
 def test_le_service_llm_n_embarque_plus_litellm():
-    """Un seul fournisseur compatible OpenAI : httpx suffit."""
+    """LiteLLM est un SERVICE a cote, jamais une dependance de celui-ci.
+
+    Ce test a d'abord voulu dire « un seul fournisseur compatible OpenAI,
+    httpx suffit ». L'argument a change le jour ou l'on a voulu plusieurs
+    fournisseurs avec du repli -- c'est exactement ce que LiteLLM fait bien.
+    Le test, lui, reste : il ne dit plus « pas de routage », il dit « pas
+    ICI ».
+
+    La raison tient en une phrase : ce conteneur detient l'identite CodeLab
+    et la comptabilite. Cent dependances transitives de plus dans cette
+    image-la, c'est une surface a suivre en securite pour un service qui n'a
+    aucune raison de la porter. Dans codelab-litellm, qui ne fait que router,
+    c'est son travail et rien d'autre.
+    """
     requirements = (_racine_llm() / "requirements.txt").read_text(encoding="utf-8")
     assert "litellm" not in requirements
     lignes = [l.strip() for l in requirements.splitlines() if l.strip()
@@ -11483,14 +11496,62 @@ def test_le_compose_llm_est_opt_in_et_ne_publie_pas_le_port_du_modele():
     for chemin in _composes():
         contenu = open(chemin, encoding="utf-8").read()
         services = _services_du_compose(chemin)
-        assert "codelab-llm" in services, f"codelab-llm absent de {chemin}"
+        for nom in ("codelab-llm", "codelab-litellm"):
+            assert nom in services, f"{nom} absent de {chemin}"
         assert 'profiles: ["llm"]' in contenu
+        # AUCUN des deux ne publie de port. Celui du modele detenait deja la
+        # cle du fournisseur ; le routeur les detient toutes.
         assert "8080:8080" not in contenu, chemin
+        assert "4000:4000" not in contenu, chemin
         # Plus d'interface de chat : ni le service, ni son portier, ni le
-        # port qu'il publiait, ni le reseau ferme qui l'isolait.
+        # port qu'il publiait.
         assert "codelab-open-webui" not in contenu, chemin
         assert "3001:3001" not in contenu, chemin
-        assert "codelab-ia" not in contenu, chemin
+
+
+def test_le_routeur_de_modeles_n_est_pas_joignable_par_les_applications():
+    """Les cles des fournisseurs ne sont pas offertes au reseau des projets.
+
+    Les applications declarees dans le panneau tournent DANS le conteneur
+    app-manager : elles partagent son reseau, « codelab ». Si le routeur y
+    etait aussi, n'importe laquelle l'appellerait en direct -- sans identite,
+    sans quota, sans comptabilite, et avec les cles de chaque fournisseur au
+    bout.
+
+    Le routeur ne voit donc que « codelab-ia », ou codelab-llm vient le
+    chercher. Ce reseau n'est PAS « internal », contrairement a celui que
+    portait l'interface de chat : ce service doit justement sortir pour
+    appeler les fournisseurs. L'isolement cherche est vers l'interieur.
+    """
+    for chemin in _composes():
+        charge = _reseaux_du_compose(chemin)
+        nom = os.path.basename(chemin)
+        assert charge["codelab-litellm"] == ["codelab-ia"], (nom, charge)
+        # codelab-llm garde un pied sur les deux : les applications viennent
+        # a lui, il va au routeur.
+        assert charge["codelab-llm"] == ["codelab", "codelab-ia"], (nom, charge)
+        assert "codelab-ia" not in charge["codelab-app-manager"], nom
+
+
+def test_le_service_du_modele_ne_parle_qu_au_routeur_et_garde_la_comptabilite():
+    """La frontiere entre les deux services, lue dans le code.
+
+    codelab-llm garde ce qui demande une identite CodeLab -- qui parle, a
+    quel rythme, ce qui a ete consomme -- et delegue le reste. Il n'embarque
+    toujours pas LiteLLM : c'est precisement ce qui lui permet de rester
+    mince tout en beneficiant du routage.
+    """
+    source = (_racine_llm() / "app.py").read_text(encoding="utf-8")
+    assert "codelab-litellm:4000" in source, (
+        "l'amont par defaut ne pointe pas le routeur")
+    assert "import litellm" not in source and "from litellm" not in source
+    # Les deux protocoles, parce qu'un agent de developpement n'a plus le
+    # choix : Codex a retire « chat » en fevrier 2026.
+    assert '@app.post("/v1/responses")' in source
+    assert '@app.post("/v1/chat/completions")' in source
+    # Et les deux facons de compter les jetons, sans quoi la moitie du trafic
+    # serait comptee a zero.
+    assert "input_tokens" in source and "prompt_tokens" in source
 
 
 def test_l_api_llm_refuse_les_modeles_inconnus_et_exige_une_identite():
