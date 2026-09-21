@@ -79,7 +79,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1024m
+          memory: 896m
           cpus: "1.5"
           pids: 512
     logging:
@@ -115,7 +115,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 640m
+          memory: 512m
           cpus: "1.0"
           pids: 512
     logging:
@@ -282,7 +282,7 @@ services:
     container_name: codelab-llm
     restart: unless-stopped
 
-    mem_limit: 320m
+    mem_limit: 384m
     cpus: 0.5
     pids_limit: 256
     logging:
@@ -372,7 +372,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 128m
+          memory: 384m
           cpus: "0.25"
           pids: 128
     logging:
