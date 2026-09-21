@@ -46,7 +46,7 @@
 # ces lignes existent precisement pour empecher. Un plafond au-dessus de la
 # RAM disponible n'est pas une securite large, c'est une securite absente.
 #
-# Total actuel : 4,7 Go de plafonds avec le profil llm, 3,8 Go sans lui. La
+# Total actuel : 4,7 Go de plafonds avec le profil llm, 3,9 Go sans lui. La
 # somme depasse encore les 4 Go, et c'est toujours voulu -- mais aucun
 # service ne peut plus prendre a lui seul plus du tiers de la machine.
 #
@@ -645,8 +645,20 @@ services:
     container_name: codelab-dagster-proxy
     restart: unless-stopped
 
-    # Un nginx qui relaie : il n'a besoin de rien. Voir l'explication en tete de fichier.
-    mem_limit: 96m
+    # UN NGINX QUI RELAIE N'A BESOIN DE RIEN -- MAIS 96 Mo NE PASSENT PAS.
+    #
+    # Signale par Lucas au deploiement : Docker refuse de creer le conteneur,
+    # « Minimum memory limit can not be less than memory reservation limit ».
+    # Ce message ne sort que si une RESERVATION memoire superieure au plafond
+    # est appliquee au conteneur -- et il n'y en a aucune dans ce fichier.
+    # Elle vient donc d'ailleurs : l'hote, ou l'interface qui gere
+    # l'application (CasaOS/ZimaOS recopie ce compose chez lui).
+    #
+    # 128 Mo tenaient depuis des mois ; 96 Mo cassent. Tant qu'on ne sait pas
+    # QUI pose cette reservation ni a quelle valeur, le plancher est celui
+    # qui marche. Les 32 Mo economises ne valaient pas une stack qui ne
+    # demarre plus.
+    mem_limit: 128m
     cpus: 0.25
     pids_limit: 128
     logging:
