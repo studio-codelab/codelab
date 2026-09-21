@@ -45,12 +45,20 @@ La verification approfondie ne modifie **rien** de l'installation : aucune appli
 aucun reglage. Ses ecritures vont dans la table du diagnostic ou dans son propre dossier, et les
 actions interdites doivent etre REFUSEES -- si l'une passe, c'est le resultat du test.
 
-**La suite de regressions du panneau vit ici aussi**, dans `checks.py`, et la verification
-approfondie la lance en dernier. C'est le seul endroit d'ou elle est joignable des deux cotes : par
-la CI avant qu'une image ne parte, et depuis l'installation qui tourne.
+**La suite de regressions du panneau vit ici aussi**, dans `test_regressions.py`, et la
+verification approfondie la lance en dernier. C'est le seul endroit d'ou elle est joignable des deux
+cotes : par la CI avant qu'une image ne parte, et depuis l'installation qui tourne.
+
+Les deux fichiers ont des roles distincts, et c'est ce qui permet aux sondes de tourner en
+production :
+
+| | |
+|---|---|
+| `checks.py` | les sondes. Bibliotheque standard seulement, aucune trace de pytest — `app.py` et l'asset Dagster l'importent dans des images qui ne l'embarquent pas. |
+| `test_regressions.py` | la suite. Elle importe `checks`, jamais l'inverse. |
 
 ```bash
-python -m pytest workspace/diagnostic/checks.py -q
+python -m pytest workspace/diagnostic/test_regressions.py -q
 ```
 
 Ces tests ecrivent -- ils enregistrent des applications, creent des comptes, posent des cles
@@ -307,11 +315,16 @@ rm -rf /workspace/diagnostic
 ```
 
 
-## Supervision de codelab-llm / LiteLLM
+## Supervision du profil IA
 
-Diagnostic vérifie maintenant TCP, `/health`, `/v1/models`, l'authentification Bearer,
-puis, si une clé diagnostique est configurée, une vraie completion et `/v1/usage`.
-Une exception inattendue d'une sonde devient un résultat `ECHEC` au lieu de produire un HTTP 500.
+Diagnostic vérifie TCP, `/health`, `/v1/models`, l'authentification Bearer, puis, si une clé
+diagnostique est configurée, une vraie completion et `/v1/usage`. Une exception inattendue d'une
+sonde devient un résultat `ECHEC` au lieu de produire un HTTP 500.
 
-La completion est opt-in car elle consomme une requête OpenRouter. La clé dédiée doit rester dans
-`credentials.env` sur le serveur sous `CODELAB_LLM_DIAGNOSTIC_KEY` et ne doit jamais être committée.
+La completion reste opt-in : elle consomme une requête réelle chez le fournisseur, facturée comme
+une autre. La clé dédiée doit rester dans `credentials.env` sur le serveur sous
+`CODELAB_LLM_DIAGNOSTIC_KEY` et ne doit jamais être committée.
+
+Sans le profil `llm` démarré, ces sondes sont « sans objet » et non « en panne » : une
+installation qui n'a pas d'IA ne doit pas ouvrir le diagnostic sur des lignes rouges qu'elle
+apprendrait à ne plus regarder.

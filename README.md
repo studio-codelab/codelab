@@ -14,24 +14,45 @@ propos.
 |---|---|---|
 | **Postgres** | Serveur de bases partagé : une base par projet | interne |
 | **Dev** | Accès SSH et VS Code Remote-SSH | `2222` |
-| **Dagster** | Orchestration et planification de jobs | interne |
+| **Dagster** | Orchestration des jobs : l'interface et le serveur | interne |
+| **Dagster-daemon** | Ce qui déclenche à l'heure dite : plannings et capteurs | interne |
 | **Dagster-proxy** | Authentification devant Dagster | `3000` |
 | **App-manager** | Le panneau : déploiement et supervision des applications | `9001` |
 | **Applications** | Les projets déployés, servis sur leur propre adresse | `9002` |
-| **CodeLab LLM** | Passerelle compatible OpenAI, optionnelle | interne |
+| **CodeLab LLM** | Passerelle compatible OpenAI : identité, quota, comptabilité | interne |
+| **CodeLab LiteLLM** | Routage des modèles, replis, clés des fournisseurs | interne |
 
 Aucune configuration manuelle après l'installation : les identifiants de base de données et les clés
 SSH sont générés au premier démarrage, et la connexion à Postgres est déjà prête dans le conteneur
 `dev`.
 
-Le profil `llm` est optionnel et ne démarre pas par défaut. Il ajoute une passerelle compatible
-OpenAI, réservée aux clients porteurs d'une clé CodeLab. La valeur à renseigner est décrite dans
-`.env.example` ; la configuration complète est dans
-[`llm/README.md`](llm/README.md).
+Le profil `llm` est optionnel et ne démarre pas par défaut. Il ajoute deux conteneurs : une
+passerelle réservée aux clients porteurs d'une clé CodeLab, et le routeur qui choisit le
+fournisseur derrière. Aucun des deux ne publie de port. Les valeurs à renseigner sont décrites
+dans `.env.example` ; la configuration complète est dans [`llm/README.md`](llm/README.md).
 
 ```bash
 docker compose --profile llm up -d
 ```
+
+## Prérequis
+
+| | |
+|---|---|
+| Mémoire | **4 Go** — la cible du dimensionnement |
+| Processeur | **2 cœurs** |
+| Disque | ~3 Go pour les images, plus ce que pèsent vos projets |
+| Docker | Docker Engine avec le plugin Compose |
+
+Les limites de chaque conteneur sont calculées pour cette machine : aucun service ne peut prendre
+à lui seul plus du tiers de la mémoire, pour que le panneau reste joignable même quand une
+application part en boucle — sans quoi on ne peut plus l'arrêter depuis le panneau. Deux tests
+vérifient que ces plafonds restent cohérents avec la cible annoncée.
+
+Sur une machine plus grande, remonter l'ensemble proportionnellement dans les deux fichiers
+`docker-compose*.yml`, et la constante `RAM_CIBLE_MO` de `workspace/diagnostic/checks.py`.
+
+Le profil `llm` est optionnel : il ajoute deux conteneurs et environ 830 Mo de plafonds.
 
 ## Installation
 

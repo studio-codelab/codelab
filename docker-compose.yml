@@ -34,13 +34,28 @@
 # l'annoncait, au moment ou il etait deja plein.
 #
 # Ce sont des PLAFONDS, pas des reservations : un service qui n'en a pas
-# besoin ne les consomme pas. Leur somme depasse volontairement la RAM d'une
-# petite machine -- ce qu'on veut empecher, c'est qu'UN service prenne tout,
-# pas repartir la memoire a l'avance.
+# besoin ne les consomme pas. Leur somme depasse volontairement la RAM de la
+# machine -- ce qu'on veut empecher, c'est qu'UN service prenne tout, pas
+# repartir la memoire a l'avance.
+#
+# CIBLE : 4 Go et 2 coeurs.
+#
+# Les valeurs visaient auparavant 8 Go, et elles ne bornaient plus rien sur
+# une machine deux fois plus petite : un plafond de 4 Go pour le panneau, sur
+# un serveur qui en a 4, laisse ce seul service emporter la machine -- ce que
+# ces lignes existent precisement pour empecher. Un plafond au-dessus de la
+# RAM disponible n'est pas une securite large, c'est une securite absente.
+#
+# Total actuel : 4,7 Go de plafonds avec le profil llm, 3,8 Go sans lui. La
+# somme depasse encore les 4 Go, et c'est toujours voulu -- mais aucun
+# service ne peut plus prendre a lui seul plus du tiers de la machine.
+#
+# CPU : meme raisonnement. Un plafond de 2.0 sur un serveur bi-coeur ne
+# limite rien. Aucun service ne depasse desormais 1.5.
 #
 # Si un service est tue par manque de memoire (code de sortie 137, "OOMKilled"
-# dans docker inspect), augmente SA ligne mem_limit plutot que de retirer le
-# bloc. Les valeurs ci-dessous visent une machine de 8 Go.
+# dans docker inspect), augmente SA ligne plutot que de retirer le bloc -- et
+# si la machine est plus grande, remonte l'ensemble proportionnellement.
 
 services:
 
@@ -58,8 +73,8 @@ services:
     restart: unless-stopped
 
     # La base. 1 Go suffit largement au volume d'un serveur personnel. Voir l'explication en tete de fichier.
-    mem_limit: 1g
-    cpus: 2.0
+    mem_limit: 512m
+    cpus: 1.0
     pids_limit: 512
     logging:
       driver: json-file
@@ -131,8 +146,8 @@ services:
     restart: unless-stopped
 
     # Le shell : on y compile, d'ou une part plus large que les services. Voir l'explication en tete de fichier.
-    mem_limit: 2g
-    cpus: 2.0
+    mem_limit: 1024m
+    cpus: 1.5
     pids_limit: 512
     logging:
       driver: json-file
@@ -215,8 +230,8 @@ services:
     restart: unless-stopped
 
     # L'interface et le code serveur des assets. Voir l'explication en tete de fichier.
-    mem_limit: 1g
-    cpus: 2.0
+    mem_limit: 640m
+    cpus: 1.0
     pids_limit: 512
     logging:
       driver: json-file
@@ -285,8 +300,8 @@ services:
     restart: unless-stopped
 
     # Il ne fait qu'ordonnancer : il lance les runs, il ne les execute pas. Voir l'explication en tete de fichier.
-    mem_limit: 768m
-    cpus: 1.0
+    mem_limit: 384m
+    cpus: 0.5
     pids_limit: 256
     logging:
       driver: json-file
@@ -343,8 +358,8 @@ services:
     restart: unless-stopped
 
     # LA PART LA PLUS LARGE, et c'est normal : ce conteneur porte le panneau, les builds npm ET toutes les applications deployees, qui sont ses processus fils. Trop juste ici, c'est une application tuee au hasard par le noyau en plein build. Voir l'explication en tete de fichier.
-    mem_limit: 4g
-    cpus: 2.0
+    mem_limit: 1280m
+    cpus: 1.5
     pids_limit: 1024
     logging:
       driver: json-file
@@ -468,8 +483,8 @@ services:
     container_name: codelab-llm
     restart: unless-stopped
 
-    mem_limit: 512m
-    cpus: 1.0
+    mem_limit: 320m
+    cpus: 0.5
     pids_limit: 256
     logging:
       driver: json-file
@@ -555,8 +570,8 @@ services:
     container_name: codelab-litellm
     restart: unless-stopped
 
-    mem_limit: 1g
-    cpus: 1.0
+    mem_limit: 512m
+    cpus: 0.75
     pids_limit: 256
     logging:
       driver: json-file
@@ -611,8 +626,8 @@ services:
     restart: unless-stopped
 
     # Un nginx qui relaie : il n'a besoin de rien. Voir l'explication en tete de fichier.
-    mem_limit: 128m
-    cpus: 0.5
+    mem_limit: 96m
+    cpus: 0.25
     pids_limit: 128
     logging:
       driver: json-file

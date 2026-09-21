@@ -15,7 +15,6 @@ RUN apt-get update \
         sudo \
         acl \
         postgresql-client \
-        gnupg \
     && rm -rf /var/lib/apt/lists/*
 
 # NODE 24, ET PAS CELUI DE DEBIAN.
@@ -27,8 +26,16 @@ RUN apt-get update \
 #
 # Version de la BRANCHE epinglee (24.x) et non "current" : une branche LTS
 # recoit des correctifs, pas des changements de comportement.
-RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
+# gnupg ne sert qu'au depot NodeSource, le temps de verifier sa signature :
+# il est installe et retire DANS LA MEME COUCHE, sans quoi il resterait dans
+# l'image -- une couche Docker ne rend jamais ce qu'une couche suivante
+# supprime.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
+    && apt-get purge -y gnupg \
+    && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/* \
     && node --version && npm --version
 
