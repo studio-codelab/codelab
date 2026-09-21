@@ -83,13 +83,17 @@ Si le serveur expose une interface d'installation par collage de compose (les ap
 CasaOS, par exemple), `docker-compose-casaos.yml` est le même fichier avec les métadonnées
 d'affichage que ces interfaces savent lire.
 
-Ce jumeau ne porte **aucun commentaire**, et c'est délibéré : ces interfaces ne se contentent pas
-de lancer le fichier, elles le relisent et le réécrivent avec leur propre bibliothèque YAML. Les
-commentaires ne survivent pas à ce passage — au mieux ils disparaissent, au pire ils ressortent mal
-placés et le fichier ne se relit plus. C'est une donnée pour une machine ; tout ce qu'il y a à
-expliquer se lit dans `docker-compose.yml`, qui est commenté ligne à ligne, et dans les README.
-Un test (`test_le_compose_casaos_ne_porte_aucun_commentaire`) tient la règle dans le sens où elle
-se perd : on ajoute un commentaire par réflexe, on ne l'enlève jamais par hasard.
+Ce jumeau ne porte **aucun commentaire**, et c'est délibéré : il se colle dans une zone de texte,
+il ne se lit pas. La même explication écrite à deux endroits finit par diverger, et c'est la copie
+qu'on ne lit jamais qui se met à mentir. Tout ce qu'il y a à dire est donc dans
+`docker-compose.yml`, commenté ligne à ligne, et dans les README ; celui-ci ne porte que les
+valeurs. Un test (`test_le_compose_casaos_ne_porte_aucun_commentaire`) tient la règle dans le sens
+où elle se perd : on ajoute un commentaire par réflexe, on ne l'enlève jamais par hasard.
+
+> **En le collant, remplacer TOUT le contenu de la zone** (Ctrl+A, puis coller). Un collage inséré
+> au curseur laisse la fin de l'ancienne version derrière lui : les deux fichiers se retrouvent
+> soudés, et l'interface refuse le résultat avec une erreur YAML qui désigne une ligne sans rapport
+> — `Map keys must be unique`, parce que `networks:` apparaît alors deux fois.
 
 ## Utilisation
 

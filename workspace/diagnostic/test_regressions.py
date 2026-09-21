@@ -10507,14 +10507,12 @@ def test_le_compose_annonce_la_meme_cible_que_les_tests():
 
 
 def test_le_compose_casaos_ne_porte_aucun_commentaire():
-    """CasaOS RELIT ce fichier, il ne fait pas que le lancer.
+    """Ce fichier-la se colle dans une zone de texte, il ne se lit pas.
 
-    Son interface le desserialise puis le reserialise avec sa propre
-    bibliotheque YAML. Les commentaires ne survivent pas a ce passage : au
-    mieux ils disparaissent, au pire ils ressortent mal places et le fichier
-    ne se relit plus -- « Nested mappings are not allowed in compact
-    mappings ». Ce jumeau est donc une donnee pour une machine, et tout ce
-    qu'il y avait a expliquer se lit dans docker-compose.yml et les README.
+    La meme explication ecrite a deux endroits finit par diverger, et c'est
+    la copie qu'on ne lit jamais qui se met a mentir. Ce jumeau ne porte donc
+    que les valeurs ; tout ce qu'il y a a dire est dans docker-compose.yml,
+    commente ligne a ligne, et dans les README.
 
     Le test tient la contrainte dans le sens ou elle se perd : on ajoute un
     commentaire par reflexe, on ne l'enleve jamais par hasard.
