@@ -12,6 +12,27 @@
 # (pg_upgrade ou dump/restore) : ce n'est pas un simple changement de tag.
 FROM postgres:18
 
+# pgvector : le type « vector » et ses index, dans la base qu'on a deja.
+#
+# C'est la reponse de ce projet au besoin d'une base vectorielle -- une
+# extension plutot qu'un service de plus. Sur une machine de 4 Go, un
+# conteneur supplementaire se paie ; une extension ne coute que sa taille sur
+# disque, et les vecteurs vivent a cote des donnees du projet, dans la meme
+# transaction et la meme sauvegarde.
+#
+# Le paquet vient du depot PGDG, deja declare par l'image officielle. Le
+# nommage suit la convention postgresql-<majeure>-<extension> : la version de
+# l'extension est donc liee a celle du serveur, et une montee de Postgres
+# emmene pgvector avec elle.
+#
+# Si ce paquet venait a manquer pour une majeure recente, le build ECHOUE
+# ici, bruyamment -- et c'est voulu. Une image qui se construirait sans
+# l'extension laisserait « CREATE EXTENSION vector » echouer au premier
+# demarrage, beaucoup plus loin de la cause.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-18-pgvector \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY postgres/entrypoint.sh /usr/local/bin/codelab-entrypoint.sh
 RUN chmod +x /usr/local/bin/codelab-entrypoint.sh
 

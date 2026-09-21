@@ -12,7 +12,7 @@ propos.
 
 | Service | Rôle | Port |
 |---|---|---|
-| **Postgres** | Serveur de bases partagé : une base par projet | interne |
+| **Postgres** | Serveur de bases partagé : une base par projet, `pgvector` inclus | interne |
 | **Dev** | Accès SSH et VS Code Remote-SSH | `2222` |
 | **Dagster** | Orchestration des jobs : l'interface et le serveur | interne |
 | **Dagster-daemon** | Ce qui déclenche à l'heure dite : plannings et capteurs | interne |

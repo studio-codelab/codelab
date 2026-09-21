@@ -559,6 +559,55 @@ def check_postgres(env_file=None):
         conn.close()
 
 
+def check_pgvector(env_file=None):
+    """L'extension « vector » est-elle disponible dans la base du projet ?
+
+    Deux questions distinctes, et la nuance compte pour qui doit reparer :
+
+      - le PAQUET est-il dans l'image ? (pg_available_extensions)
+      - l'extension est-elle CREEE dans cette base ? (pg_extension)
+
+    Un paquet absent se repare en reconstruisant l'image ; une extension non
+    creee, par un CREATE EXTENSION. Repondre « pgvector ne marche pas » aux
+    deux enverrait chercher du mauvais cote.
+
+    ALERTE et non ECHEC : une installation qui ne fait pas de recherche
+    vectorielle fonctionne parfaitement sans. Ce n'est pas une panne, c'est
+    une capacite absente.
+    """
+    try:
+        pilote_pg()
+    except PiloteAbsent:
+        return (Etat.SANS_OBJET, "pgvector",
+                "pilote Postgres absent -- voir la sonde précédente")
+    try:
+        conn = connect_pg(env_file)
+    except Exception:
+        return (Etat.SANS_OBJET, "pgvector",
+                "base injoignable -- voir la sonde Postgres")
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT default_version FROM pg_available_extensions "
+                        "WHERE name = 'vector'")
+            dispo = cur.fetchone()
+            if not dispo:
+                return (Etat.ALERTE, "pgvector",
+                        "extension absente de l'image : reconstruire "
+                        "codelab-postgres, ou s'en passer si aucun projet "
+                        "n'en a besoin")
+            cur.execute("SELECT extversion FROM pg_extension WHERE extname = 'vector'")
+            creee = cur.fetchone()
+        if not creee:
+            return (Etat.ALERTE, "pgvector",
+                    f"disponible (v{dispo[0]}) mais pas créée dans cette base -- "
+                    f"CREATE EXTENSION vector")
+        return (Etat.OK, "pgvector", f"extension active, version {creee[0]}")
+    except Exception as e:
+        return (Etat.ALERTE, "pgvector", f"état indéterminé -- {type(e).__name__}: {e}")
+    finally:
+        conn.close()
+
+
 def check_http(nom, url, timeout=4, gravite=Etat.ECHEC):
     """Un service HTTP repond-il ? gravite dit ce que coute son silence.
 
@@ -1750,6 +1799,7 @@ THEME_DES_SONDES = {
     "codelab-app-manager": "services",
     "Postgres (pilote)": "donnees",
     "Postgres": "donnees",
+    "pgvector": "donnees",
     "panneau fermé": "securite",
     "origine des applications": "securite",
     "exposition": "securite",
@@ -1942,6 +1992,11 @@ SEVERITE_MAX = {
     "provenance des connexions": Etat.ALERTE,  # a expliquer, pas une intrusion
     "applications déclarées": Etat.ALERTE,    # un projet tombe n'est pas la stack
     "surface exposée": Etat.ALERTE,           # un choix, pas une panne
+    # Une CAPACITE absente, pas une panne : une installation qui ne fait
+    # aucune recherche vectorielle tourne parfaitement sans l'extension. La
+    # mettre au rang 1 enverrait un mail de nuit pour un type que personne
+    # n'utilise.
+    "pgvector": Etat.ALERTE,
 }
 
 
@@ -2108,6 +2163,7 @@ def run_all(env_file=None, workspace=None, ssh_dir=None):
         _executer_sonde("check_workspace", lambda: check_workspace(workspace)),
         _executer_sonde("check_pilote_pg", lambda: check_pilote_pg()),
         _executer_sonde("check_postgres", lambda: check_postgres(env_file)),
+        _executer_sonde("pgvector", lambda: check_pgvector(env_file)),
         _executer_sonde("check_tcp", lambda: check_tcp("codelab-postgres (TCP)", host, port)),
         _executer_sonde("codelab-llm (TCP)", lambda: check_llm_tcp(env_file)),
         _executer_sonde("codelab-llm (health)", lambda: check_litellm_health(env_file)),
