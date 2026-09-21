@@ -8960,7 +8960,7 @@ def test_chaque_service_est_borne_dans_les_deux_composes():
         # Les memes services des deux cotes : un compose qui en oublie un
         # est une installation qui ne demarre pas pareil selon la porte
         # d'entree.
-        assert len(services) == 7, (chemin, sorted(services))
+        assert len(services) == 8, (chemin, sorted(services))
         for nom, reglages in services.items():
             assert "pids_limit" in reglages or "deploy_pids" in reglages, (
                 f"{nom} n'a pas de limite processus dans {os.path.basename(chemin)}")
@@ -11441,7 +11441,20 @@ def test_le_service_llm_tient_ses_connexions_ouvertes():
 
 
 def test_le_service_llm_n_embarque_plus_litellm():
-    """Un seul fournisseur compatible OpenAI : httpx suffit."""
+    """LiteLLM est un SERVICE a cote, jamais une dependance de celui-ci.
+
+    Ce test a d'abord voulu dire « un seul fournisseur compatible OpenAI,
+    httpx suffit ». L'argument a change le jour ou l'on a voulu plusieurs
+    fournisseurs avec du repli -- c'est exactement ce que LiteLLM fait bien.
+    Le test, lui, reste : il ne dit plus « pas de routage », il dit « pas
+    ICI ».
+
+    La raison tient en une phrase : ce conteneur detient l'identite CodeLab
+    et la comptabilite. Cent dependances transitives de plus dans cette
+    image-la, c'est une surface a suivre en securite pour un service qui n'a
+    aucune raison de la porter. Dans codelab-litellm, qui ne fait que router,
+    c'est son travail et rien d'autre.
+    """
     requirements = (_racine_llm() / "requirements.txt").read_text(encoding="utf-8")
     assert "litellm" not in requirements
     lignes = [l.strip() for l in requirements.splitlines() if l.strip()
@@ -11483,14 +11496,62 @@ def test_le_compose_llm_est_opt_in_et_ne_publie_pas_le_port_du_modele():
     for chemin in _composes():
         contenu = open(chemin, encoding="utf-8").read()
         services = _services_du_compose(chemin)
-        assert "codelab-llm" in services, f"codelab-llm absent de {chemin}"
+        for nom in ("codelab-llm", "codelab-litellm"):
+            assert nom in services, f"{nom} absent de {chemin}"
         assert 'profiles: ["llm"]' in contenu
+        # AUCUN des deux ne publie de port. Celui du modele detenait deja la
+        # cle du fournisseur ; le routeur les detient toutes.
         assert "8080:8080" not in contenu, chemin
+        assert "4000:4000" not in contenu, chemin
         # Plus d'interface de chat : ni le service, ni son portier, ni le
-        # port qu'il publiait, ni le reseau ferme qui l'isolait.
+        # port qu'il publiait.
         assert "codelab-open-webui" not in contenu, chemin
         assert "3001:3001" not in contenu, chemin
-        assert "codelab-ia" not in contenu, chemin
+
+
+def test_le_routeur_de_modeles_n_est_pas_joignable_par_les_applications():
+    """Les cles des fournisseurs ne sont pas offertes au reseau des projets.
+
+    Les applications declarees dans le panneau tournent DANS le conteneur
+    app-manager : elles partagent son reseau, « codelab ». Si le routeur y
+    etait aussi, n'importe laquelle l'appellerait en direct -- sans identite,
+    sans quota, sans comptabilite, et avec les cles de chaque fournisseur au
+    bout.
+
+    Le routeur ne voit donc que « codelab-ia », ou codelab-llm vient le
+    chercher. Ce reseau n'est PAS « internal », contrairement a celui que
+    portait l'interface de chat : ce service doit justement sortir pour
+    appeler les fournisseurs. L'isolement cherche est vers l'interieur.
+    """
+    for chemin in _composes():
+        charge = _reseaux_du_compose(chemin)
+        nom = os.path.basename(chemin)
+        assert charge["codelab-litellm"] == ["codelab-ia"], (nom, charge)
+        # codelab-llm garde un pied sur les deux : les applications viennent
+        # a lui, il va au routeur.
+        assert charge["codelab-llm"] == ["codelab", "codelab-ia"], (nom, charge)
+        assert "codelab-ia" not in charge["codelab-app-manager"], nom
+
+
+def test_le_service_du_modele_ne_parle_qu_au_routeur_et_garde_la_comptabilite():
+    """La frontiere entre les deux services, lue dans le code.
+
+    codelab-llm garde ce qui demande une identite CodeLab -- qui parle, a
+    quel rythme, ce qui a ete consomme -- et delegue le reste. Il n'embarque
+    toujours pas LiteLLM : c'est precisement ce qui lui permet de rester
+    mince tout en beneficiant du routage.
+    """
+    source = (_racine_llm() / "app.py").read_text(encoding="utf-8")
+    assert "codelab-litellm:4000" in source, (
+        "l'amont par defaut ne pointe pas le routeur")
+    assert "import litellm" not in source and "from litellm" not in source
+    # Les deux protocoles, parce qu'un agent de developpement n'a plus le
+    # choix : Codex a retire « chat » en fevrier 2026.
+    assert '@app.post("/v1/responses")' in source
+    assert '@app.post("/v1/chat/completions")' in source
+    # Et les deux facons de compter les jetons, sans quoi la moitie du trafic
+    # serait comptee a zero.
+    assert "input_tokens" in source and "prompt_tokens" in source
 
 
 def test_l_api_llm_refuse_les_modeles_inconnus_et_exige_une_identite():
@@ -11768,3 +11829,278 @@ def _reseaux_du_compose(chemin):
         elif courant and dans_reseaux and ligne.strip().startswith("- "):
             par_service[courant].append(ligne.strip()[2:].strip())
     return par_service
+
+
+# ---------- 36. ce que l'agent de developpement ne peut pas atteindre -----
+#
+# codelab-dev porte un agent qui execute des commandes sans qu'on relise
+# chacune. Ce qui l'empeche de sortir de son perimetre ne tient PAS a ses
+# consignes -- AGENTS.md est lu par un modele, pas applique par le noyau --
+# mais a trois faits, verifies ici :
+#
+#   1. la session SSH tourne en « vscode », qui n'appartient a aucun groupe
+#      d'administration ;
+#   2. aucune regle sudoers ne lui est deposee, donc « sudo » reste installe
+#      mais hors de portee depuis une session ;
+#   3. credentials.env -- mot de passe d'administration du panneau, cle
+#      privee SSO, mot de passe SMTP -- est monte en lecture seule et reste
+#      en 0600 root, donc illisible par « vscode ».
+#
+# Ces trois faits tiennent aujourd'hui par ABSENCE : personne n'a ajoute la
+# ligne qui les romprait. Un « usermod -aG sudo vscode » glisse un jour pour
+# installer un paquet ouvrirait credentials.env a l'agent, sans que rien ne
+# le signale. C'est exactement ce qu'un test doit retenir.
+
+def _dockerfile_dev():
+    chemin = os.path.join(_racine_depot(), "dev", "Dockerfile")
+    if not os.path.exists(chemin):
+        pytest.skip("depot complet absent de cette image")
+    return open(chemin, encoding="utf-8").read()
+
+
+def _entrypoint_dev():
+    chemin = os.path.join(_racine_depot(), "dev", "entrypoint.sh")
+    if not os.path.exists(chemin):
+        pytest.skip("depot complet absent de cette image")
+    return open(chemin, encoding="utf-8").read()
+
+
+def test_l_utilisateur_des_sessions_n_est_dans_aucun_groupe_d_administration():
+    """« vscode » appartient a « codelab », et a rien d'autre.
+
+    Le groupe codelab donne l'ecriture partagee sur /workspace, et c'est tout
+    ce qu'il donne. Tout autre groupe secondaire -- sudo, admin, wheel, root,
+    docker -- rendrait la machine entiere accessible depuis une session, donc
+    a l'agent qui y tourne.
+    """
+    source = _dockerfile_dev()
+    groupes = re.findall(r"usermod\s+-aG\s+([A-Za-z0-9_,-]+)\s+vscode", source)
+    assert groupes, "aucun usermod -aG pour vscode : le Dockerfile a change de forme"
+    for liste in groupes:
+        assert set(liste.split(",")) == {"codelab"}, (
+            f"vscode ajoute au(x) groupe(s) {liste} : seul « codelab » est prevu")
+    # Et pas par une autre porte : ni creation directe dans un groupe
+    # d'administration, ni ajout par gpasswd/adduser.
+    for interdit in ("-aG sudo", "-aG wheel", "-aG root", "-aG docker",
+                     "gpasswd -a vscode", "adduser vscode sudo"):
+        assert interdit not in source, f"« {interdit} » dans dev/Dockerfile"
+
+
+def test_aucune_regle_sudoers_n_est_deposee_pour_les_sessions():
+    """sudo est installe, et reste inutilisable depuis une session.
+
+    L'image embarque sudo -- un environnement de developpement en a l'usage
+    quand on entre en root par « docker exec ». Ce qui ne doit jamais
+    arriver, c'est qu'une session SSH puisse s'en servir : ni regle dans
+    /etc/sudoers.d, ni NOPASSWD, ni mot de passe pose sur le compte.
+    """
+    for source, nom in ((_dockerfile_dev(), "dev/Dockerfile"),
+                        (_entrypoint_dev(), "dev/entrypoint.sh")):
+        for interdit in ("NOPASSWD", "sudoers", "chpasswd", "passwd vscode"):
+            assert interdit not in source, f"« {interdit} » dans {nom}"
+
+
+def test_le_fichier_de_secrets_est_en_lecture_seule_pour_codelab_dev():
+    """credentials.env n'est pas modifiable depuis le conteneur du shell.
+
+    Trois services le montent en lecture-ecriture parce qu'ils y ecrivent
+    leur propre bloc (postgres, app-manager, dagster-proxy). codelab-dev,
+    lui, ne fait que lire le mot de passe Postgres : un montage accessible en
+    ecriture lui permettrait de reecrire les secrets de la stack.
+    """
+    for chemin in _composes():
+        services = _services_du_compose(chemin)
+        assert "codelab-dev" in services, chemin
+        texte = open(chemin, encoding="utf-8").read()
+        bloc = texte.split("  codelab-dev:", 1)[1].split("\n  codelab-", 1)[0]
+        montages = [l.strip()[2:] for l in bloc.splitlines()
+                    if l.strip().startswith("- /DATA")]
+        config = [m for m in montages if m.endswith(":/var/lib/codelab/config")
+                  or m.endswith(":/var/lib/codelab/config:ro")]
+        assert config, (chemin, montages)
+        for m in config:
+            assert m.endswith(":ro"), (
+                f"{os.path.basename(chemin)} : codelab-dev monte le dossier de "
+                f"secrets en ecriture ({m})")
+
+
+def test_l_entrypoint_du_shell_ne_relache_pas_les_droits_du_fichier_de_secrets():
+    """Personne ne rend credentials.env lisible « pour que ce soit plus simple ».
+
+    Le fichier est ecrit en 0600 root par codelab-postgres. Un chmod ou un
+    chown pose ici le rendrait lisible par vscode -- donc par l'agent -- et
+    la lecture seule du montage n'y changerait rien.
+    """
+    source = _entrypoint_dev()
+    for ligne in source.splitlines():
+        nue = ligne.strip()
+        if nue.startswith("#"):
+            continue
+        if ("chmod" in nue or "chown" in nue or "setfacl" in nue) and "credentials" in nue:
+            raise AssertionError(f"dev/entrypoint.sh touche aux droits du fichier "
+                                 f"de secrets : {nue}")
+
+
+def test_le_gitconfig_pose_par_le_shell_ne_porte_ni_identite_ni_secret():
+    """Un .gitconfig d'amorce, et rien de plus.
+
+    Deux choses n'ont rien a faire dans un fichier ecrit par l'image :
+
+      - une identite. Personne ici ne sait qui est l'utilisateur, et une
+        valeur inventee signerait ses commits d'un faux nom. Sans user.name
+        ni user.email, git refuse de commiter avec un message qui dit
+        exactement quoi taper -- c'est le bon comportement.
+      - un moyen de s'authentifier. Un jeton ou un credential helper pointant
+        sur un fichier du workspace serait lisible par tout ce qui tourne en
+        « vscode », dont l'agent, et par Dagster et app-manager qui montent le
+        meme dossier. Les cles restent sur le poste du developpeur et sont
+        pretees le temps d'une session (ssh -A).
+    """
+    source = _entrypoint_dev()
+    debut = source.find('cat > "$GITCONFIG"')
+    assert debut != -1, "le .gitconfig d'amorce a disparu de l'entrypoint"
+    bloc = source[debut:source.find("GITCFG\nfi", debut)]
+    for interdit in ("user.name", "user.email", "[user]", "credential",
+                     "helper", "token", "PAT", "password"):
+        assert interdit not in bloc, f"« {interdit} » dans le .gitconfig d'amorce"
+    # Ecrit une seule fois : un reglage fait a la main depuis une session doit
+    # survivre a une mise a jour d'image.
+    assert '[ ! -f "$GITCONFIG" ]' in source, (
+        "le .gitconfig est reecrit a chaque demarrage : les reglages de "
+        "l'utilisateur seraient perdus")
+
+
+def test_l_entrypoint_du_shell_ne_depose_aucun_jeton_d_acces():
+    """Aucun secret d'authentification ecrit dans le workspace.
+
+    Vaut pour git comme pour le reste : ce conteneur ne fabrique pas de
+    credentials permanents, parce qu'un agent qui tourne sans personne devant
+    les utiliserait sans qu'on l'ait voulu.
+    """
+    source = _entrypoint_dev()
+    for ligne in source.splitlines():
+        nue = ligne.strip()
+        if nue.startswith("#") or not nue:
+            continue
+        minuscules = nue.lower()
+        if any(motif in minuscules for motif in
+               ("git_askpass", "credential.helper", "ghp_", "github_token",
+                ".git-credentials")):
+            raise AssertionError(f"dev/entrypoint.sh depose un moyen "
+                                 f"d'authentification : {nue}")
+
+
+def test_codex_passe_par_la_passerelle_et_non_par_un_fournisseur_en_direct():
+    """L'agent de developpement n'a pas de compte a lui.
+
+    Vecu a l'envers : Codex etait installe dans l'image mais sa
+    configuration ne contenait que le bac a sable et la politique
+    d'approbation. L'authentification se faisait par « codex login », c'est-a-dire
+    un compte OpenAI personnel appelant api.openai.com en direct -- aucune cle
+    centralisee, aucune comptabilite, aucun routage. La passerelle existait, et
+    l'agent passait a cote.
+    """
+    source = _entrypoint_dev()
+    debut = source.find("cat > \"$CODEX_HOME_DIR/config.toml\"")
+    assert debut != -1, "le config.toml d'amorce a disparu de l'entrypoint"
+    bloc = source[debut:source.find("CODEXCFG\nfi", debut)]
+    assert 'model_provider = "codelab"' in bloc
+    assert "http://codelab-llm:8080/v1" in bloc
+    assert 'env_key = "CODELAB_LLM_KEY"' in bloc
+    # wire_api n'est pas pose : « responses » est le seul protocole accepte
+    # depuis fevrier 2026, et c'est le defaut. L'ecrire serait se donner une
+    # ligne a corriger le jour ou la valeur changera de nom.
+    assert "wire_api" not in bloc
+    # La cle ne s'ecrit pas dans la configuration : elle est lue dans
+    # l'environnement, donc remplacable sans toucher au reste.
+    assert "cl_" not in bloc and "api_key" not in bloc
+
+
+def test_la_cle_de_la_passerelle_est_lue_dans_un_fichier_et_jamais_ecrite_en_dur():
+    """Le profil exporte la cle si elle existe, et se tait sinon.
+
+    Une session sans cle doit s'ouvrir normalement : le profil est lu par
+    toutes les sessions, y compris celles de quelqu'un qui ne se sert pas de
+    l'agent. Un « set -u » ou un fichier absent ne doit pas casser la
+    connexion.
+    """
+    source = _entrypoint_dev()
+    assert "CLE_LLM_FICHIER" in source
+    assert "codelab-llm.key" in source
+    # Lecture conditionnelle : pas de fichier, pas d'export, pas d'erreur.
+    assert '[ -r \\"$CLE_LLM_FICHIER\\" ]' in source or '[ -r "$CLE_LLM_FICHIER" ]' in source
+    # Et le fichier de cle est reserve a son proprietaire.
+    assert 'chmod 600 "$CLE_LLM_FICHIER"' in source
+
+
+def test_les_noms_logiques_du_service_et_du_routeur_concordent():
+    """Un nom demande par un client doit exister des deux cotes.
+
+    codelab-llm valide le nom demande contre SA table, puis le transmet au
+    routeur. Un nom present ici et absent la-bas donne une erreur du
+    fournisseur au premier appel, pas au demarrage -- donc au pire moment.
+    """
+    source = (_racine_llm() / "app.py").read_text(encoding="utf-8")
+    debut = source.find("MODELES_PAR_DEFAUT = {")
+    assert debut != -1
+    bloc = source[debut:source.find("}", debut)]
+    logiques = set(re.findall(r'"([a-z0-9-]+)":', bloc))
+    assert logiques, "aucun nom logique lu dans MODELES_PAR_DEFAUT"
+
+    config = os.path.join(_racine_depot(), "litellm", "config.yaml")
+    if not os.path.exists(config):
+        pytest.skip("depot complet absent de cette image")
+    declares = set(re.findall(r"^\s*-\s*model_name:\s*([a-z0-9-]+)\s*$",
+                              open(config, encoding="utf-8").read(), re.M))
+    manquants = logiques - declares
+    assert not manquants, (
+        f"servis par codelab-llm mais absents de litellm/config.yaml : "
+        f"{sorted(manquants)}")
+
+
+def test_les_deux_agents_sont_epingles_et_passent_par_la_passerelle():
+    """codex et openclaw : meme image, meme passerelle, versions figees.
+
+    Une version non epinglee fait qu'un rebuild change l'outil sous les
+    pieds de tout le monde, sans qu'aucun commit ne le dise.
+    """
+    source = _dockerfile_dev()
+    assert re.search(r"npm install -g openclaw@\d", source), (
+        "openclaw n'est pas epingle sur une version")
+    # openclaw exige Node >= 24.16 : celui de Debian est trop ancien, d'ou
+    # NodeSource. Sans cette ligne, l'installation echoue au build.
+    assert "deb.nodesource.com/setup_24.x" in source, (
+        "Node vient encore d'apt : openclaw refusera de s'installer")
+    assert "\n        nodejs \\" not in source, (
+        "nodejs est encore installe depuis apt, en conflit avec NodeSource")
+    # L'assistant interactif n'a rien a faire dans un build.
+    assert "OPENCLAW_NO_PROMPT" in source
+
+
+def test_openclaw_pointe_la_passerelle_et_pas_un_fournisseur():
+    """Meme regle que pour Codex : aucun agent n'a de compte a lui."""
+    source = _entrypoint_dev()
+    debut = source.find('cat > "$OPENCLAW_HOME_DIR/openclaw.json"')
+    assert debut != -1, "la configuration d'amorce d'OpenClaw a disparu"
+    bloc = source[debut:source.find("OPENCLAWCFG\n    chown", debut)]
+    assert '"baseUrl": "http://codelab-llm:8080/v1"' in bloc
+    # La cle part vers un hote du reseau prive : sans cela, OpenClaw refuse.
+    assert '"allowPrivateNetwork": true' in bloc
+    # Aucune cle de fournisseur ecrite en dur.
+    for interdit in ("sk-", "api.openai.com", "api.anthropic.com"):
+        assert interdit not in bloc, f"« {interdit} » dans la configuration d'OpenClaw"
+
+
+def test_la_configuration_des_agents_vit_dans_le_workspace():
+    """Elle doit survivre a une recreation du conteneur.
+
+    Vecu a l'envers pour Codex : range sous /home/vscode, son auth.json
+    disparaissait a chaque mise a jour d'image et il fallait refaire
+    « codex login ». Meme piege pour OpenClaw, evite de la meme facon.
+    """
+    source = _entrypoint_dev()
+    assert 'CODEX_HOME_DIR="${CODEX_HOME:-$WORKSPACE_DIR/.codex}"' in source
+    assert 'OPENCLAW_HOME_DIR="$WORKSPACE_DIR/.openclaw"' in source
+    # OpenClaw lit ~/.openclaw : un lien symbolique l'emmene dans le
+    # workspace sans dependre d'un nom de variable d'environnement.
+    assert "ln -s \"$OPENCLAW_HOME_DIR\" /home/vscode/.openclaw" in source

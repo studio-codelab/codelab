@@ -226,12 +226,134 @@ L'equivalent existe partout : `basePath` pour Next.js, `--base-href` pour
 Angular, `homepage` dans le `package.json` pour Create React App.
 
 
+## Git et GitHub
+
+Un `~/.gitconfig` d'amorce est ecrit au premier demarrage, puis plus jamais
+touche : `init.defaultBranch = main`, `pull.rebase = false`, et
+`safe.directory = *`.
+
+Ce dernier merite un mot. `/workspace` est ecrit par trois services aux
+identites differentes — les sessions SSH en `vscode`, Dagster et app-manager
+en root. Un depot dont le `.git` appartient a root fait refuser git avec
+« dubious ownership ». Ici la propriete mixte est voulue par l'architecture,
+pas un accident : le reglage est donc juste. Il ne le serait pas sur une
+machine partagee, ou il revient a faire confiance aux depots des autres.
+
+**Ce fichier ne porte ni identité ni secret**, et c'est délibéré.
+
+### Se nommer
+
+Aucun `user.name` ni `user.email` n'est pose : une valeur inventee signerait
+vos commits d'un faux nom. Git refuse de commiter tant que vous ne vous etes
+pas nomme, avec un message qui dit quoi taper. Une fois pour toutes :
+
+```bash
+git config --global user.name "Votre Nom"
+git config --global user.email "vous@exemple.fr"
+```
+
+### Pousser vers GitHub
+
+Apportez votre agent SSH avec vous, plutot que de deposer une cle dans le
+conteneur :
+
+```bash
+ssh -A -p 2222 vscode@<IP-du-serveur>
+```
+
+Les cles restent sur votre poste, la session les emprunte, et l'emprunt
+s'arrete avec elle. Verifier que l'agent suit : `ssh-add -l` doit lister vos
+cles une fois connecte.
+
+Ne deposez pas de jeton ni de cle de deploiement dans `/workspace` : le
+dossier est lisible par tout ce qui tourne en `vscode` — dont l'agent de
+developpement, qui execute des commandes sans qu'on relise chacune — et il
+est monte par Dagster et app-manager. Un credential permanent y serait
+utilisable par un agent travaillant sans personne devant.
+
+## OpenClaw
+
+Second agent de developpement, installe a cote de `codex` et epingle sur la
+ligne `extended-stable`. Sa configuration vit dans `/workspace/.openclaw`,
+atteinte par un lien depuis `~/.openclaw` : comme pour Codex, c'est le seul
+dossier qui survit a une recreation du conteneur.
+
+Le `openclaw.json` d'amorce pointe la meme passerelle que Codex, et reprend
+la cle deposee dans `/workspace/.codex/codelab-llm.key` si elle est deja la :
+
+```json
+{ "models": { "providers": { "codelab": {
+      "baseUrl": "http://codelab-llm:8080/v1",
+      "api": "openai-completions",
+      "request": { "allowPrivateNetwork": true } } } } }
+```
+
+`allowPrivateNetwork` est indispensable : la cle part vers un hote du reseau
+prive, ce qu'OpenClaw refuse par defaut. On leve cette protection en
+connaissance de cause, parce que l'hote en question est le notre.
+
+Contrairement a Codex, OpenClaw sait parler `openai-completions` — il n'a pas
+besoin du protocole Responses. `codelab-llm` expose les deux.
+
+> **Non verifie a l'execution.** Ce fichier suit la forme documentee, mais
+> aucun OpenClaw n'a pu etre lance pour la confirmer. S'il est refuse au
+> demarrage, le supprimer rend la main a `openclaw onboard`, qui reste la
+> reference.
+
+Ce paquet est **gros** : 66 dependances directes, un gateway, des connecteurs
+de messagerie dont ce conteneur n'a aucun usage. Il exige aussi Node 24.16+,
+d'ou l'installation de Node par NodeSource plutot que par apt. S'il ne sert
+pas, le retirer du `Dockerfile` allege l'image d'autant.
+
 ## Codex
 
 `codex` est installe dans l'image et `CODEX_HOME` pointe sur
 `/workspace/.codex`, cree au demarrage du conteneur avec un `config.toml` par
-defaut. L'authentification et les reglages survivent donc aux mises a jour
-d'image : `codex login` n'est a refaire que la premiere fois.
+defaut.
+
+### Il passe par la passerelle CodeLab
+
+Le `config.toml` d'amorce pointe `codelab-llm`, et non un fournisseur en
+direct :
+
+```toml
+model_provider = "codelab"
+model = "codelab-coding"
+
+[model_providers.codelab]
+base_url = "http://codelab-llm:8080/v1"
+env_key = "CODELAB_LLM_KEY"
+```
+
+Les noms de modeles disponibles sont les noms **logiques** — `codelab-coding`,
+`codelab-fast`, `codelab-reasoning`, `codelab-local` — definis dans
+`litellm/config.yaml`. Changer le modele reel derriere un nom se fait la-bas,
+sans toucher a Codex.
+
+Il faut donc **une cle CodeLab**, a creer une fois :
+
+```bash
+docker exec codelab-llm python3 app.py create-key \
+    --name vscode --user VOTRE-NOM --app vscode
+```
+
+La valeur s'affiche **une seule fois** ; la coller dans
+`/workspace/.codex/codelab-llm.key`. Le profil de session l'exporte ensuite
+en `CODELAB_LLM_KEY` a chaque connexion.
+
+C'est une cle CodeLab, pas une cle de fournisseur : elle porte un quota et
+une comptabilite, se revoque en une commande (`revoke-key`), et ne donne
+acces a aucun compte OpenAI ou Anthropic — ces cles-la vivent dans
+`codelab-litellm`, que ce conteneur ne voit meme pas.
+
+Sans le profil `llm` demarre (`docker compose --profile llm up -d`), la
+passerelle n'existe pas et Codex echouera a la connexion.
+
+### Ou avec un compte personnel
+
+`codex login` reste possible et reprend la main : le `config.toml` n'est ecrit
+qu'une fois, donc le modifier ou le supprimer suffit. Le trafic sort alors de
+CodeLab sans passer par la comptabilite.
 
 Le flux OAuth ouvre un serveur sur le port 1455 **dans le conteneur**. Depuis
 l'ordinateur local, dans un second terminal :

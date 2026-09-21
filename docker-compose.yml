@@ -142,15 +142,25 @@ services:
 
     # PAS de durcissement ici, et c'est un choix.
     #
-    # Ce conteneur EST le shell : sshd ouvre une session, et "sudo" y est
-    # installe parce qu'un environnement de developpement en a besoin. Or
-    # no-new-privileges casse sudo -- silencieusement, avec un message qui
-    # n'explique rien -- et cap_drop: ALL empeche sshd de faire sa separation
-    # de privileges. On durcirait exactement ce pour quoi ce service existe.
+    # Ce conteneur EST le shell : sshd ouvre une session, et cap_drop: ALL
+    # l'empeche de faire sa separation de privileges. On durcirait exactement
+    # ce pour quoi ce service existe.
     #
-    # Ce qui le protege est ailleurs, et c'est deja en place : aucun mot de
-    # passe (cle publique uniquement), pas de connexion root, et une seule
-    # facon d'autoriser une machine -- deposer sa cle dans
+    # PRECISION, parce que ce commentaire a dit le contraire : le frein n'est
+    # PAS sudo. sudo est bien installe dans l'image, mais l'utilisateur des
+    # sessions ("vscode") n'est dans aucun groupe d'administration et aucune
+    # regle sudoers ne lui est deposee -- il ne peut donc pas s'en servir.
+    # sudo ne sert qu'a root, entre par "docker exec". C'est ce qui met
+    # credentials.env (0600 root) hors de portee d'une session, et donc de
+    # l'agent de developpement qui y tourne.
+    #
+    # Ces faits tiennent par absence, et une ligne ajoutee un jour les
+    # romprait en silence : la section 36 de workspace/diagnostic/checks.py
+    # les retient.
+    #
+    # Ce qui le protege par ailleurs est deja en place : aucun mot de passe
+    # (cle publique uniquement), pas de connexion root, et une seule facon
+    # d'autoriser une machine -- deposer sa cle dans
     # config/ssh/authorized_keys.d/.
 
     ports:
@@ -490,6 +500,10 @@ services:
       # Vide, aucune assertion n'est acceptee : les clients s'identifient
       # alors par une cle CodeLab, enregistree en base et revocable.
       CODELAB_LLM_AUDIENCE: ${CODELAB_LLM_AUDIENCE:-}
+      # La cle presentee au routeur : LA MEME valeur des deux cotes, posee
+      # une fois dans le .env de l'hote. Vide, ce service ne peut pas parler
+      # au routeur -- et c'est voulu, une cle vide n'ouvre rien.
+      CODELAB_LLM_AMONT_KEY: ${CODELAB_LITELLM_KEY:-}
       # Les modeles proposes. Un nom logique par variable ; vider la valeur
       # retire le modele de la liste. Le nom reel est celui du fournisseur.
       # CODELAB_LLM_MODELE_CODELAB_SMART: "openrouter/auto"
@@ -516,6 +530,79 @@ services:
 
     networks:
       - codelab
+      - codelab-ia
+
+
+  # LE ROUTAGE DES MODELES. Un service a part, et pas une bibliotheque dans
+  # codelab-llm : c'est ce qui permet de garder celui-ci mince.
+  #
+  # LiteLLM parle a cent fournisseurs, et amene les dependances qui vont avec.
+  # Dans l'image qui detient l'identite CodeLab et la comptabilite, c'etait
+  # une surface a suivre en securite pour un service qui n'a pas a la porter ;
+  # dans un conteneur qui ne fait que router, c'est son travail.
+  #
+  # Ce que chacun garde :
+  #
+  #   codelab-llm      qui parle, a quel rythme, et ce qui a ete consomme
+  #   codelab-litellm  vers quel fournisseur, avec quel repli, et les cles
+  #
+  # Version EPINGLEE : "main-stable" n'est plus publie depuis septembre 2026
+  # et "latest" est une etiquette mouvante. La montee de version est une
+  # decision, comme partout ici.
+  codelab-litellm:
+    profiles: ["llm"]
+    image: ghcr.io/berriai/litellm:v1.99.0
+    container_name: codelab-litellm
+    restart: unless-stopped
+
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    security_opt:
+      - no-new-privileges:true
+
+    command: ["--config", "/etc/litellm/config.yaml", "--port", "4000"]
+
+    # PAS de port publie. Son seul client est codelab-llm, et il detient les
+    # cles des fournisseurs : une adresse joignable depuis le reseau local
+    # serait la cle de chacun d'eux, offerte sans identite ni quota.
+    expose:
+      - "4000"
+
+    environment:
+      # La cle maitresse, partagee avec codelab-llm et posee dans le .env de
+      # l'hote. Vide, ce service n'ouvre a personne -- et c'est voulu.
+      LITELLM_MASTER_KEY: ${CODELAB_LITELLM_KEY:-}
+      # Les cles des fournisseurs. Absente, la ligne du model_list qui s'en
+      # sert repond en erreur ; les autres continuent.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Un serveur Ollama sur l'hote ou ailleurs sur le reseau. Vide, le nom
+      # logique "codelab-local" repond en erreur, sans repli distant.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+
+    volumes:
+      - ./litellm/config.yaml:/etc/litellm/config.yaml:ro
+
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+    # PAS "codelab" : les applications declarees dans le panneau partagent ce
+    # reseau, et joindre ce service en direct reviendrait a contourner
+    # l'identite, le quota et la comptabilite de codelab-llm -- avec les cles
+    # des fournisseurs au bout.
+    networks:
+      - codelab-ia
 
 
   codelab-dagster-proxy:
@@ -576,3 +663,16 @@ services:
 networks:
   codelab:
     name: codelab_codelab
+
+  # LE RESEAU DE L'IA : codelab-llm et le routeur, personne d'autre.
+  #
+  # Il porte le meme nom qu'un reseau retire avec l'interface de chat, pour
+  # une raison differente et tout aussi valable : ce qui vit ici detient les
+  # cles des fournisseurs, et ne doit etre joignable que par son client
+  # legitime.
+  #
+  # PAS "internal: true", contrairement a l'usage precedent : ce routeur doit
+  # justement sortir de la machine pour appeler les fournisseurs. L'isolement
+  # cherche ici est vers l'INTERIEUR -- que les applications ne le voient pas.
+  codelab-ia:
+    name: codelab_ia
