@@ -271,6 +271,40 @@ developpement, qui execute des commandes sans qu'on relise chacune — et il
 est monte par Dagster et app-manager. Un credential permanent y serait
 utilisable par un agent travaillant sans personne devant.
 
+## OpenClaw
+
+Second agent de developpement, installe a cote de `codex` et epingle sur la
+ligne `extended-stable`. Sa configuration vit dans `/workspace/.openclaw`,
+atteinte par un lien depuis `~/.openclaw` : comme pour Codex, c'est le seul
+dossier qui survit a une recreation du conteneur.
+
+Le `openclaw.json` d'amorce pointe la meme passerelle que Codex, et reprend
+la cle deposee dans `/workspace/.codex/codelab-llm.key` si elle est deja la :
+
+```json
+{ "models": { "providers": { "codelab": {
+      "baseUrl": "http://codelab-llm:8080/v1",
+      "api": "openai-completions",
+      "request": { "allowPrivateNetwork": true } } } } }
+```
+
+`allowPrivateNetwork` est indispensable : la cle part vers un hote du reseau
+prive, ce qu'OpenClaw refuse par defaut. On leve cette protection en
+connaissance de cause, parce que l'hote en question est le notre.
+
+Contrairement a Codex, OpenClaw sait parler `openai-completions` — il n'a pas
+besoin du protocole Responses. `codelab-llm` expose les deux.
+
+> **Non verifie a l'execution.** Ce fichier suit la forme documentee, mais
+> aucun OpenClaw n'a pu etre lance pour la confirmer. S'il est refuse au
+> demarrage, le supprimer rend la main a `openclaw onboard`, qui reste la
+> reference.
+
+Ce paquet est **gros** : 66 dependances directes, un gateway, des connecteurs
+de messagerie dont ce conteneur n'a aucun usage. Il exige aussi Node 24.16+,
+d'ou l'installation de Node par NodeSource plutot que par apt. S'il ne sert
+pas, le retirer du `Dockerfile` allege l'image d'autant.
+
 ## Codex
 
 `codex` est installe dans l'image et `CODEX_HOME` pointe sur

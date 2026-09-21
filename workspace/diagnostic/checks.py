@@ -12056,3 +12056,51 @@ def test_les_noms_logiques_du_service_et_du_routeur_concordent():
     assert not manquants, (
         f"servis par codelab-llm mais absents de litellm/config.yaml : "
         f"{sorted(manquants)}")
+
+
+def test_les_deux_agents_sont_epingles_et_passent_par_la_passerelle():
+    """codex et openclaw : meme image, meme passerelle, versions figees.
+
+    Une version non epinglee fait qu'un rebuild change l'outil sous les
+    pieds de tout le monde, sans qu'aucun commit ne le dise.
+    """
+    source = _dockerfile_dev()
+    assert re.search(r"npm install -g openclaw@\d", source), (
+        "openclaw n'est pas epingle sur une version")
+    # openclaw exige Node >= 24.16 : celui de Debian est trop ancien, d'ou
+    # NodeSource. Sans cette ligne, l'installation echoue au build.
+    assert "deb.nodesource.com/setup_24.x" in source, (
+        "Node vient encore d'apt : openclaw refusera de s'installer")
+    assert "\n        nodejs \\" not in source, (
+        "nodejs est encore installe depuis apt, en conflit avec NodeSource")
+    # L'assistant interactif n'a rien a faire dans un build.
+    assert "OPENCLAW_NO_PROMPT" in source
+
+
+def test_openclaw_pointe_la_passerelle_et_pas_un_fournisseur():
+    """Meme regle que pour Codex : aucun agent n'a de compte a lui."""
+    source = _entrypoint_dev()
+    debut = source.find('cat > "$OPENCLAW_HOME_DIR/openclaw.json"')
+    assert debut != -1, "la configuration d'amorce d'OpenClaw a disparu"
+    bloc = source[debut:source.find("OPENCLAWCFG\n    chown", debut)]
+    assert '"baseUrl": "http://codelab-llm:8080/v1"' in bloc
+    # La cle part vers un hote du reseau prive : sans cela, OpenClaw refuse.
+    assert '"allowPrivateNetwork": true' in bloc
+    # Aucune cle de fournisseur ecrite en dur.
+    for interdit in ("sk-", "api.openai.com", "api.anthropic.com"):
+        assert interdit not in bloc, f"« {interdit} » dans la configuration d'OpenClaw"
+
+
+def test_la_configuration_des_agents_vit_dans_le_workspace():
+    """Elle doit survivre a une recreation du conteneur.
+
+    Vecu a l'envers pour Codex : range sous /home/vscode, son auth.json
+    disparaissait a chaque mise a jour d'image et il fallait refaire
+    « codex login ». Meme piege pour OpenClaw, evite de la meme facon.
+    """
+    source = _entrypoint_dev()
+    assert 'CODEX_HOME_DIR="${CODEX_HOME:-$WORKSPACE_DIR/.codex}"' in source
+    assert 'OPENCLAW_HOME_DIR="$WORKSPACE_DIR/.openclaw"' in source
+    # OpenClaw lit ~/.openclaw : un lien symbolique l'emmene dans le
+    # workspace sans dependre d'un nom de variable d'environnement.
+    assert "ln -s \"$OPENCLAW_HOME_DIR\" /home/vscode/.openclaw" in source

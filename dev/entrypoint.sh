@@ -216,6 +216,61 @@ if [ -r "$AGENTS_SOURCE" ]; then
     chmod 664 "$CODEX_HOME_DIR/AGENTS.md" 2>/dev/null || true
 fi
 
+# ----------------------------- OpenClaw -----------------------------
+#
+# Second agent de developpement, a cote de codex. Sa configuration vit dans
+# /workspace comme celle de Codex, pour la meme raison : c'est le seul dossier
+# qui survit a une recreation du conteneur. OpenClaw lit ~/.openclaw ; un lien
+# symbolique suffit a l'y emmener, sans dependre d'un nom de variable
+# d'environnement qui pourrait changer.
+OPENCLAW_HOME_DIR="$WORKSPACE_DIR/.openclaw"
+mkdir -p "$OPENCLAW_HOME_DIR"
+chown "$SSH_USER" "$OPENCLAW_HOME_DIR" 2>/dev/null || true
+chgrp "$CODELAB_GROUP" "$OPENCLAW_HOME_DIR" 2>/dev/null || true
+chmod 2770 "$OPENCLAW_HOME_DIR" 2>/dev/null || true
+if [ ! -e /home/vscode/.openclaw ]; then
+    ln -s "$OPENCLAW_HOME_DIR" /home/vscode/.openclaw 2>/dev/null || true
+    chown -h vscode:vscode /home/vscode/.openclaw 2>/dev/null || true
+fi
+
+# La configuration d'amorce, ecrite UNE SEULE FOIS comme celle de Codex.
+#
+# allowPrivateNetwork est indispensable et merite d'etre explique : la cle
+# part vers un hote du reseau prive (codelab-llm), ce qu'OpenClaw refuse par
+# defaut -- une protection raisonnable, qu'on leve ici en connaissance de
+# cause parce que cet hote est le notre.
+#
+# api = "openai-completions" et non le protocole Responses : contrairement a
+# Codex, OpenClaw sait parler l'ancien, et codelab-llm expose les deux.
+#
+# NON VERIFIE A L'EXECUTION : ce fichier suit la forme documentee, mais
+# aucun OpenClaw n'a pu etre lance ici pour la confirmer. En cas de refus au
+# demarrage, le supprimer remet OpenClaw sur son propre assistant de
+# configuration ("openclaw onboard"), qui reste la reference.
+if [ ! -f "$OPENCLAW_HOME_DIR/openclaw.json" ]; then
+    CLE_POUR_OPENCLAW=""
+    if [ -r "$CODEX_HOME_DIR/codelab-llm.key" ]; then
+        CLE_POUR_OPENCLAW="$(head -n 1 "$CODEX_HOME_DIR/codelab-llm.key" | tr -d '[:space:]')"
+    fi
+    cat > "$OPENCLAW_HOME_DIR/openclaw.json" <<OPENCLAWCFG
+{
+  "models": {
+    "providers": {
+      "codelab": {
+        "baseUrl": "http://codelab-llm:8080/v1",
+        "apiKey": "$CLE_POUR_OPENCLAW",
+        "api": "openai-completions",
+        "request": { "allowPrivateNetwork": true }
+      }
+    }
+  }
+}
+OPENCLAWCFG
+    chown "$SSH_USER" "$OPENCLAW_HOME_DIR/openclaw.json" 2>/dev/null || true
+    chmod 600 "$OPENCLAW_HOME_DIR/openclaw.json" 2>/dev/null || true
+fi
+
+
 # ------------------------------- git -------------------------------
 #
 # Un .gitconfig minimal, ecrit UNE SEULE FOIS : comme le config.toml de
