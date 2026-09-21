@@ -35,6 +35,25 @@ dans `.env.example` ; la configuration complète est dans [`llm/README.md`](llm/
 docker compose --profile llm up -d
 ```
 
+## Prérequis
+
+| | |
+|---|---|
+| Mémoire | **4 Go** — la cible du dimensionnement |
+| Processeur | **2 cœurs** |
+| Disque | ~3 Go pour les images, plus ce que pèsent vos projets |
+| Docker | Docker Engine avec le plugin Compose |
+
+Les limites de chaque conteneur sont calculées pour cette machine : aucun service ne peut prendre
+à lui seul plus du tiers de la mémoire, pour que le panneau reste joignable même quand une
+application part en boucle — sans quoi on ne peut plus l'arrêter depuis le panneau. Deux tests
+vérifient que ces plafonds restent cohérents avec la cible annoncée.
+
+Sur une machine plus grande, remonter l'ensemble proportionnellement dans les deux fichiers
+`docker-compose*.yml`, et la constante `RAM_CIBLE_MO` de `workspace/diagnostic/checks.py`.
+
+Le profil `llm` est optionnel : il ajoute deux conteneurs et environ 830 Mo de plafonds.
+
 ## Installation
 
 ```bash

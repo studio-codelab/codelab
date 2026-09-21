@@ -12207,3 +12207,66 @@ def test_les_variables_du_env_example_sont_toutes_lues_quelque_part():
     orphelines = sorted(v for v in variables if v not in lu)
     assert not orphelines, (
         f"declarees dans .env.example mais lues nulle part : {orphelines}")
+
+
+# La cible materielle, ecrite UNE fois. Les deux composes la declarent en
+# commentaire ; ce test est ce qui l'applique.
+RAM_CIBLE_MO = 4096
+COEURS_CIBLE = 2
+
+
+def test_aucun_plafond_ne_depasse_la_machine_visee():
+    """Un plafond au-dessus de la RAM disponible n'est pas une securite large.
+
+    Vecu a l'envers : les valeurs visaient 8 Go et le panneau avait 4 Go de
+    plafond. Sur un serveur de 4 Go, ce plafond ne bornait plus rien -- ce
+    seul service pouvait emporter la machine, ce que ces lignes existent
+    precisement pour empecher.
+
+    La regle : aucun service ne prend a lui seul plus du TIERS de la machine.
+    Il en reste alors assez pour que le panneau reponde et qu'on puisse
+    arreter le fautif depuis le panneau -- ce qui etait impossible avant que
+    ces limites existent.
+    """
+    maximum = RAM_CIBLE_MO // 3
+    def en_mo(v):
+        v = str(v)
+        return int(v[:-1]) * 1024 if v.endswith("g") else int(v.rstrip("m"))
+    for chemin in _composes():
+        for nom, reglages in _services_du_compose(chemin).items():
+            brut = reglages.get("mem_limit", reglages.get("deploy_memory"))
+            assert brut, (chemin, nom)
+            assert en_mo(brut) <= maximum, (
+                f"{nom} : plafond de {en_mo(brut)} Mo, au-dela du tiers de la "
+                f"machine visee ({maximum} Mo pour {RAM_CIBLE_MO} Mo)")
+
+
+def test_aucun_plafond_processeur_ne_depasse_la_machine_visee():
+    """Meme raisonnement pour le processeur.
+
+    Un plafond de 2.0 sur un serveur bi-coeur ne limite rien : il autorise
+    un service a prendre les deux coeurs, donc a rendre la machine sourde.
+    Aucun ne depasse les trois quarts du total.
+    """
+    maximum = COEURS_CIBLE * 0.75
+    for chemin in _composes():
+        for nom, reglages in _services_du_compose(chemin).items():
+            brut = reglages.get("cpus", reglages.get("deploy_cpus"))
+            assert brut, (chemin, nom)
+            part = float(str(brut).strip('"'))
+            assert part <= maximum, (
+                f"{nom} : {part} cpus, au-dela des trois quarts des "
+                f"{COEURS_CIBLE} coeurs vises")
+
+
+def test_les_composes_annoncent_la_meme_cible_que_les_tests():
+    """Le commentaire et le test doivent dire le meme chiffre.
+
+    Un commentaire qui annonce 8 Go au-dessus de valeurs calculees pour 4 Go
+    ferait remonter les plafonds a la premiere relecture, en toute bonne foi.
+    """
+    for chemin in _composes():
+        texte = open(chemin, encoding="utf-8").read()
+        assert f"CIBLE : {RAM_CIBLE_MO // 1024} Go et {COEURS_CIBLE} coeurs" in texte, (
+            f"{os.path.basename(chemin)} n'annonce pas la cible "
+            f"{RAM_CIBLE_MO // 1024} Go / {COEURS_CIBLE} coeurs")

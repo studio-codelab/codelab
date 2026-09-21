@@ -142,13 +142,28 @@ x-casaos:
 # l'annoncait, au moment ou il etait deja plein.
 #
 # Ce sont des PLAFONDS, pas des reservations : un service qui n'en a pas
-# besoin ne les consomme pas. Leur somme depasse volontairement la RAM d'une
-# petite machine -- ce qu'on veut empecher, c'est qu'UN service prenne tout,
-# pas repartir la memoire a l'avance.
+# besoin ne les consomme pas. Leur somme depasse volontairement la RAM de la
+# machine -- ce qu'on veut empecher, c'est qu'UN service prenne tout, pas
+# repartir la memoire a l'avance.
+#
+# CIBLE : 4 Go et 2 coeurs.
+#
+# Les valeurs visaient auparavant 8 Go, et elles ne bornaient plus rien sur
+# une machine deux fois plus petite : un plafond de 4 Go pour le panneau, sur
+# un serveur qui en a 4, laisse ce seul service emporter la machine -- ce que
+# ces lignes existent precisement pour empecher. Un plafond au-dessus de la
+# RAM disponible n'est pas une securite large, c'est une securite absente.
+#
+# Total actuel : 4,7 Go de plafonds avec le profil llm, 3,8 Go sans lui. La
+# somme depasse encore les 4 Go, et c'est toujours voulu -- mais aucun
+# service ne peut plus prendre a lui seul plus du tiers de la machine.
+#
+# CPU : meme raisonnement. Un plafond de 2.0 sur un serveur bi-coeur ne
+# limite rien. Aucun service ne depasse desormais 1.5.
 #
 # Si un service est tue par manque de memoire (code de sortie 137, "OOMKilled"
-# dans docker inspect), augmente SA ligne mem_limit plutot que de retirer le
-# bloc. Les valeurs ci-dessous visent une machine de 8 Go.
+# dans docker inspect), augmente SA ligne plutot que de retirer le bloc -- et
+# si la machine est plus grande, remonte l'ensemble proportionnellement.
 
 services:
 
@@ -169,8 +184,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1g
-          cpus: "2.0"
+          memory: 512m
+          cpus: "1.0"
           pids: 512
     logging:
       driver: json-file
@@ -245,8 +260,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2g
-          cpus: "2.0"
+          memory: 1024m
+          cpus: "1.5"
           pids: 512
     logging:
       driver: json-file
@@ -332,8 +347,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1g
-          cpus: "2.0"
+          memory: 640m
+          cpus: "1.0"
           pids: 512
     logging:
       driver: json-file
@@ -405,8 +420,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 768m
-          cpus: "1.0"
+          memory: 384m
+          cpus: "0.5"
           pids: 256
     logging:
       driver: json-file
@@ -466,8 +481,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 4g
-          cpus: "2.0"
+          memory: 1280m
+          cpus: "1.5"
           pids: 1024
     logging:
       driver: json-file
@@ -590,8 +605,8 @@ services:
     container_name: codelab-llm
     restart: unless-stopped
 
-    mem_limit: 512m
-    cpus: 1.0
+    mem_limit: 320m
+    cpus: 0.5
     pids_limit: 256
     logging:
       driver: json-file
@@ -677,8 +692,8 @@ services:
     container_name: codelab-litellm
     restart: unless-stopped
 
-    mem_limit: 1g
-    cpus: 1.0
+    mem_limit: 512m
+    cpus: 0.75
     pids_limit: 256
     logging:
       driver: json-file
@@ -736,8 +751,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 128m
-          cpus: "0.5"
+          memory: 96m
+          cpus: "0.25"
           pids: 128
     logging:
       driver: json-file
