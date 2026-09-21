@@ -7530,24 +7530,35 @@ def test_la_page_affiche_le_nom_et_designe_par_la_cle():
 # ---------- 30 ter. la tuile d'un service ressemble aux autres ----------
 
 def test_aucune_tuile_ne_porte_de_cadre_a_part():
-    """Demande : « L'app Dagster ne doit pas avoir ce contour blanc. Seul le
-    logo doit avoir un fond comme les autres applications. »
+    """Demande, en deux temps.
 
-    Dagster portait un fond et une bordure au niveau de la TUILE, pour se
-    detacher du hub. Au milieu de projets qui n'en ont pas, cela faisait une
-    vignette cerclee de blanc. Ce qui manquait etait un fond sous le LOGO :
-    Dagster sert une icone transparente la ou les projets servent une image
-    pleine.
+    D'abord : « L'app Dagster ne doit pas avoir ce contour blanc. Seul le
+    logo doit avoir un fond comme les autres applications. » Dagster portait
+    un fond ET une bordure au niveau de la TUILE, pour se detacher du hub --
+    une vignette cerclee de blanc au milieu de projets qui n'en ont pas.
+
+    Puis, capture a l'appui : « Retire le fond derriere dagster. Je veux
+    juste un contour autour du logo qui fait la meme taille que l'icone de
+    diagnostic. » Le fond plein pose sous l'image refaisait la meme vignette
+    en plus petit. Ce qu'il fallait n'etait pas une plaque mais un CONTOUR :
+    il donne au logo transparent l'empreinte d'une icone pleine, sans rien
+    peindre derriere lui.
     """
     page = _page_panneau("dashboard.html")
     assert "service-stack" not in page, (
         "la tuile d'un service porte encore un style a part")
     debut = page.index(".hub-liste.compacte .hub-projet img{")
     regle = page[debut:page.index("}", debut)]
-    # La plaque est SOUS l'image : une icone pleine la recouvre et ne change
-    # pas d'aspect, seule une icone transparente la laisse paraitre.
-    assert "background:var(--surface)" in regle, regle
+    # UN CONTOUR, PAS UNE PLAQUE. Un fond plein sous une icone transparente
+    # refait la vignette qu'on vient de retirer, en plus petit : la bordure
+    # donne la meme empreinte sans rien peindre derriere le logo.
+    assert "border:1px solid var(--line)" in regle, regle
+    assert "background" not in regle, regle
     assert "object-fit:contain" in regle, regle
+    # Les 88 px sont la mesure commune : sans border-box, la bordure les
+    # ferait passer a 90 et la tuile de Dagster ne serait plus alignee.
+    assert "width:88px;height:88px" in regle, regle
+    assert "box-sizing:border-box" in page
 
 
 # ---------- 31. une page d'erreur n'affiche pas ce qu'on lui envoie ----------

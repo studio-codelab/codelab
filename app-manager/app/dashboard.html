@@ -552,7 +552,7 @@ label:has(> input[type=checkbox]),label:has(> input[type=radio]){
    et le fond leger disent la meme chose sans rien agiter. */
 .hub-projet:hover{border-color:var(--accent);background:var(--accent-soft)}
 .hub-projet img{width:36px;height:36px;border-radius:var(--r-s);flex:none;
- background:var(--surface);object-fit:contain}
+ border:1px solid var(--line);object-fit:contain}
 .hub-projet .txt{min-width:0;flex:1}
 .hub-projet .nom{font-weight:620;font-size:14.5px;letter-spacing:-.01em}
 .hub-projet .desc{font-size:12.5px;color:var(--dim);margin-top:3px;line-height:1.45;
@@ -589,10 +589,17 @@ label:has(> input[type=checkbox]),label:has(> input[type=radio]){
 .hub-liste.compacte .hub-projet:hover img{transform:translateY(-2px)}
 .hub-liste.compacte .hub-projet:hover .nom{color:var(--accent)}
 .hub-liste.compacte .hub-projet img{width:88px;height:88px;border-radius:22px;
- /* Sous l'image, jamais devant : une icone pleine la recouvre entierement et
-    ne change pas d'aspect. Seule une icone transparente la laisse paraitre,
-    et c'est exactement le cas qu'on traite. */
- background:var(--surface);object-fit:contain;
+ /* UN CONTOUR, PAS UNE PLAQUE. Le fond pose ici remplissait les 88 px d'un
+    gris plein : sous une icone transparente comme celle de Dagster, cela
+    refaisait exactement la vignette qu'on venait de retirer, en plus petit.
+    Une bordure suffit -- elle donne au logo transparent la meme empreinte
+    qu'une icone pleine, sans rien peindre derriere lui.
+
+    Sur une icone pleine (diagnostic, un projet qui a depose son logo),
+    l'image couvre les 88 px et la bordure se confond avec son bord arrondi.
+    box-sizing:border-box est global : la bordure ne prend pas un pixel de
+    plus, les deux tuiles font donc la meme taille au pixel pres. */
+ border:1px solid var(--line);object-fit:contain;
  transition:transform .12s}
 .hub-liste.compacte .hub-projet .txt{width:100%}
 .hub-liste.compacte .hub-projet .nom{font-size:14px;font-weight:600;
