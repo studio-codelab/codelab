@@ -12104,3 +12104,106 @@ def test_la_configuration_des_agents_vit_dans_le_workspace():
     # OpenClaw lit ~/.openclaw : un lien symbolique l'emmene dans le
     # workspace sans dependre d'un nom de variable d'environnement.
     assert "ln -s \"$OPENCLAW_HOME_DIR\" /home/vscode/.openclaw" in source
+
+
+# ---------- 37. la documentation ne ment pas ------------------------------
+#
+# Le depot tient sa documentation pour une source, pas pour un commentaire :
+# les README expliquent POURQUOI chaque chose est ainsi, et quelqu'un les lit
+# avant de toucher au code. Une documentation perimee est donc pire qu'une
+# documentation absente -- elle fait prendre une decision fausse en toute
+# confiance.
+#
+# Vecu a l'envers : le retrait de l'interface de chat a laisse dans
+# llm/README.md une section entiere decrivant son portier, son reseau ferme
+# et le secret partage -- trois mecanismes qui n'existaient plus. Le code
+# etait juste, les tests verts, et la documentation racontait l'installation
+# d'avant.
+
+def _readme_racine():
+    chemin = os.path.join(_racine_depot(), "README.md")
+    if not os.path.exists(chemin):
+        pytest.skip("depot complet absent de cette image")
+    return open(chemin, encoding="utf-8").read()
+
+
+def test_le_readme_racine_liste_les_services_qui_existent():
+    """Le tableau des services, confronte au compose.
+
+    Un service ajoute sans sa ligne se decouvre en lisant le compose ; un
+    service retire dont la ligne reste envoie chercher un conteneur qui
+    n'existe pas.
+    """
+    texte = _readme_racine().lower()
+    services = set(_services_du_compose(_composes()[0]))
+    # Les noms tels qu'ils se lisent dans le tableau, sans le prefixe.
+    for service in services:
+        court = service.replace("codelab-", "")
+        assert court in texte, (
+            f"le service {service} n'apparait nulle part dans README.md")
+    # Et l'inverse : rien qui ne tourne plus.
+    for disparu in ("open-webui", "openwebui", "aichat"):
+        for ligne in _readme_racine().splitlines():
+            if ligne.startswith("|") and disparu in ligne.lower():
+                raise AssertionError(
+                    f"README.md decrit encore « {disparu} » comme un service")
+
+
+def test_aucun_readme_ne_decrit_un_composant_retire():
+    """Les mecanismes disparus ne doivent plus etre expliques au present.
+
+    On cherche ce qui designe sans ambiguite l'ancienne installation. Les
+    passages qui RACONTENT le retrait sont legitimes et restent : c'est la
+    difference entre « l'interface vit sur un reseau ferme » et « l'interface
+    a ete retiree ».
+    """
+    racine = _racine_depot()
+    if not os.path.exists(os.path.join(racine, "README.md")):
+        pytest.skip("depot complet absent de cette image")
+    interdits = ("codelab-open-webui", "X-OpenWebUI-User-Id",
+                 "CODELAB_OPENWEBUI_KEY", "/api/sso-check")
+    fautes = []
+    for dossier, _, fichiers in os.walk(racine):
+        if ".git" in dossier:
+            continue
+        for nom in fichiers:
+            if not nom.endswith(".md"):
+                continue
+            chemin = os.path.join(dossier, nom)
+            texte = open(chemin, encoding="utf-8", errors="replace").read()
+            for motif in interdits:
+                if motif in texte:
+                    fautes.append(f"{os.path.relpath(chemin, racine)} : {motif}")
+    assert not fautes, "documentation perimee :\n  " + "\n  ".join(fautes)
+
+
+def test_les_variables_du_env_example_sont_toutes_lues_quelque_part():
+    """Une variable documentee que personne ne lit est une fausse piste.
+
+    Quelqu'un la renseigne, s'attend a un effet, et ne comprend pas pourquoi
+    rien ne change.
+    """
+    racine = _racine_depot()
+    exemple = os.path.join(racine, ".env.example")
+    if not os.path.exists(exemple):
+        pytest.skip("depot complet absent de cette image")
+    variables = set()
+    for ligne in open(exemple, encoding="utf-8"):
+        ligne = ligne.strip()
+        if ligne and not ligne.startswith("#") and "=" in ligne:
+            variables.add(ligne.split("=", 1)[0])
+    assert variables, ".env.example ne declare aucune variable"
+
+    lu = ""
+    for nom in ("docker-compose.yml", "docker-compose-casaos.yml"):
+        lu += open(os.path.join(racine, nom), encoding="utf-8").read()
+    for sous in ("llm", "app-manager", "postgres", "dev", "dagster"):
+        d = os.path.join(racine, sous)
+        for dossier, _, fichiers in os.walk(d):
+            for f in fichiers:
+                if f.endswith((".py", ".sh", ".yaml", ".yml")):
+                    lu += open(os.path.join(dossier, f), encoding="utf-8",
+                               errors="replace").read()
+    orphelines = sorted(v for v in variables if v not in lu)
+    assert not orphelines, (
+        f"declarees dans .env.example mais lues nulle part : {orphelines}")

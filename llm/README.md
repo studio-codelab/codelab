@@ -47,43 +47,54 @@ une clé CodeLab (voir plus bas), pas par une session de navigateur.
 
 ## Démarrage
 
-Une valeur à renseigner dans `.env`, décrite dans `.env.example` : la clé du
-fournisseur.
+Deux valeurs à renseigner dans `.env`, décrites dans `.env.example` :
+`CODELAB_LITELLM_KEY` (la clé partagée entre la passerelle et le routeur,
+n'importe quelle valeur au hasard) et au moins une clé de fournisseur
+(`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`).
 
 ```bash
 docker compose --profile llm up -d
 ```
 
 La base `codelab_llm` et son rôle dédié sont créés par Postgres au premier
-démarrage ; le schéma est initialisé par la passerelle. La clé du fournisseur
-n'est pas posée dans l'environnement du conteneur : le panneau l'écrit dans
-`config/llm/llm.env`, que `codelab-llm` lit au démarrage.
-
-L'interface s'ouvre ensuite depuis le hub CodeLab, sous « Chat ».
+démarrage ; le schéma est initialisé par la passerelle.
 
 ## Qui est qui
 
-Le portier interroge le panneau à chaque requête et réécrit lui-même les
-en-têtes d'identité, en écrasant ce que le client aurait pu envoyer. Sans
-session CodeLab valide, la requête est renvoyée vers la page de connexion.
+Aucun en-tête n'est cru sur parole. Une requête arrive avec l'une de deux
+preuves, et sans elle, 401 :
 
-L'interface prouve son identité à la passerelle par le secret partagé,
-comparé en temps constant. C'est ce qui empêche une autre application de se
-faire passer pour elle : sur un réseau partagé, un en-tête d'identité ne
-prouve rien.
+| Preuve | Pour qui |
+|---|---|
+| Une assertion SSO signée par le panneau (Ed25519) | une application déclarée, dont le nom figure dans `CODELAB_LLM_AUDIENCE` |
+| Une clé CodeLab enregistrée en base, révocable | un éditeur, un agent de développement, une application à soi |
 
-Et le portier ne protégerait rien si l'on pouvait passer à côté : les
-applications déclarées dans le panneau tournent dans son conteneur et
-partagent donc son réseau. L'interface vit pour cette raison sur un réseau
-à part, fermé vers l'extérieur, que seuls son portier et la passerelle
-voient.
+Une audience vide n'autorise personne : sans nom configuré, aucune assertion
+n'est acceptée. C'est volontaire — un défaut qui nommerait une application la
+rendrait autorisée sur une installation qui ne l'a jamais demandée.
+
+Un en-tête `X-CodeLab-User-Id` reste lu, mais il ne **prouve** rien : il sert
+à attribuer la consommation au bon utilisateur, une fois la clé vérifiée. Sur
+un réseau partagé, un en-tête d'identité ne prouve jamais rien.
 
 ## Les modèles proposés
 
-Une entrée par défaut, `codelab-smart`, laisse le fournisseur choisir. Pour
-en ajouter ou en changer, poser une variable `CODELAB_LLM_MODELE_<NOM>` :
+Quatre noms logiques par défaut, alignés sur `litellm/config.yaml` :
+
+| Nom | Usage |
+|---|---|
+| `codelab-coding` | le modèle de travail des agents de développement |
+| `codelab-fast` | les tâches courtes, le peu coûteux |
+| `codelab-reasoning` | ce qu'on accepte de payer plus cher et d'attendre |
+| `codelab-local` | un Ollama à soi — aucun jeton ne sort de la machine |
+
+Pour en ajouter ou en changer, poser une variable `CODELAB_LLM_MODELE_<NOM>` :
 le nom logique est celui de la variable, en minuscules, tirets à la place des
 soulignés. Un nom absent de cette table est refusé avant tout appel sortant.
+
+Ces noms doivent exister **des deux côtés** : servis ici, et déclarés dans
+`litellm/config.yaml`. Un test le vérifie — un nom présent d'un seul côté
+échouerait au premier appel, pas au démarrage.
 
 ## Une clé pour une application
 
