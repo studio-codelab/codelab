@@ -69,6 +69,16 @@ panneau et Dagster, eux, restent joignables sans SSH.
 Les données vivent en dehors des conteneurs et survivent donc aux mises à jour d'image. Pour les
 ranger ailleurs, il suffit de changer les chemins hôte des volumes dans `docker-compose.yml`.
 
+Le nom du projet Compose est fixé à `codelab` dans les deux fichiers. Sans cela, il serait déduit du
+dossier d'où l'on démarre — `codelab-main` pour l'archive ZIP de GitHub, ou un nom du genre
+`compose-d4601441b33edb0f` pour une interface qui recopie le fichier chez elle, comme CasaOS, qui en
+fait aussi le nom du dossier de l'application.
+
+> **Si votre installation existe déjà sous un autre nom de projet**, faites `docker compose down`
+> avant la mise à jour, puis `up -d`. Compose repère ses conteneurs par un label de projet : sous un
+> nouveau nom il voudrait en recréer, alors que les noms de conteneurs sont pris. Les données ne
+> bougent pas — elles sont dans `/DATA/AppData/codelab/`, pas dans des volumes nommés par le projet.
+
 Si le serveur expose une interface d'installation par collage de compose (les app stores de type
 CasaOS, par exemple), `docker-compose-casaos.yml` est le même fichier avec les métadonnées
 d'affichage que ces interfaces savent lire.

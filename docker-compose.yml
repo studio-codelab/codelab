@@ -57,6 +57,26 @@
 # dans docker inspect), augmente SA ligne plutot que de retirer le bloc -- et
 # si la machine est plus grande, remonte l'ensemble proportionnellement.
 
+# LE NOM DU PROJET, ecrit ici et pas devine.
+#
+# Sans cette ligne, Docker Compose nomme le projet d'apres le DOSSIER qui
+# contient ce fichier. Cloner dans "codelab" donne "codelab" ; telecharger
+# l'archive ZIP de GitHub donne "codelab-main" ; et une interface qui copie
+# ce fichier dans un dossier a elle -- CasaOS le fait -- donne un nom du
+# genre "compose-d4601441b33edb0f".
+#
+# Ce nom n'est pas cosmetique : il prefixe les ressources creees par Compose
+# et, sur CasaOS, il DONNE SON NOM AU DOSSIER de l'application. Le fixer ici
+# le rend identique partout, quel que soit le chemin d'ou l'on demarre.
+#
+# ATTENTION SUR UNE INSTALLATION EXISTANTE dont le projet portait un autre
+# nom : Compose ne reconnaitra plus ses conteneurs (il les repere par un
+# label de projet) et voudra en creer de nouveaux, alors que les noms de
+# conteneurs sont deja pris. Faire "docker compose down" AVANT la mise a
+# jour, puis "up -d". Les donnees ne bougent pas : elles vivent dans
+# /DATA/AppData/codelab/, pas dans des volumes nommes par le projet.
+name: codelab
+
 services:
 
   codelab-postgres:
