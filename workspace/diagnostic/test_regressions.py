@@ -10265,3 +10265,42 @@ def test_l_extension_est_creee_dans_la_meme_boucle_que_le_schema():
     assert "CREATE SCHEMA IF NOT EXISTS" in boucle
     assert "CREATE EXTENSION IF NOT EXISTS vector" in boucle, (
         "l'extension est creee hors de la boucle des bases de projet")
+
+
+# ---------- 40. le nom du projet ne se devine pas ------------------------
+#
+# Sans "name:" en tete, Compose nomme le projet d'apres le DOSSIER qui
+# contient le fichier. Trois chemins donnent trois noms : un clone donne
+# « codelab », l'archive ZIP de GitHub donne « codelab-main », et une
+# interface qui recopie le fichier dans un dossier a elle -- CasaOS le fait
+# -- donne « compose-d4601441b33edb0f ».
+#
+# Ce nom prefixe les ressources de Compose et, sur CasaOS, donne son nom au
+# DOSSIER de l'application. Le fixer, c'est le rendre identique partout.
+
+def test_les_deux_composes_nomment_le_projet():
+    """Le nom est ecrit, pas derive du chemin."""
+    for chemin in _composes():
+        texte = open(chemin, encoding="utf-8").read()
+        noms = re.findall(r"^name:\s*(\S+)\s*$", texte, re.M)
+        assert noms, (
+            f"{os.path.basename(chemin)} ne declare pas « name: » : le nom du "
+            f"projet dependra du dossier d'ou l'on demarre")
+        assert noms[0] == "codelab", (
+            f"{os.path.basename(chemin)} nomme le projet « {noms[0]} »")
+
+
+def test_les_deux_composes_nomment_le_meme_projet():
+    """Deux noms differents feraient deux installations qui s'ignorent.
+
+    Les deux fichiers decrivent la MEME stack : demarrer avec l'un puis avec
+    l'autre doit reprendre les memes conteneurs, pas en creer une seconde
+    serie a cote.
+    """
+    noms = set()
+    for chemin in _composes():
+        texte = open(chemin, encoding="utf-8").read()
+        trouve = re.findall(r"^name:\s*(\S+)\s*$", texte, re.M)
+        if trouve:
+            noms.add(trouve[0])
+    assert len(noms) == 1, f"les composes nomment des projets differents : {sorted(noms)}"
