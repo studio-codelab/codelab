@@ -765,6 +765,35 @@ qui n'est pas implemente ici.
 | `/api/icon/<nom>` | GET | oui | Icone du projet si trouvee, sinon avatar SVG genere |
 | `/<nom>/...` | * | **non** | Proxy transparent vers l'application, si elle est demarree |
 
+## Le nom d'une application, et son adresse
+
+Ce sont deux chaines differentes depuis qu'un nom peut se lire.
+
+| Nom saisi | Adresse servie |
+|---|---|
+| `Mon Site` | `/mon-site/` |
+| `SITE` | `/site/` |
+| `Mon  --  Site` | `/mon-site/` |
+| `Café` | `/caf/` |
+| `---` | *(rien : refuse)* |
+
+La transformation, dans cet ordre : minuscules, espaces en tirets, tout ce qui ne peut pas figurer
+dans une adresse en tirets, puis les doublons de tirets fondus et les bords tailles.
+
+**C'est l'adresse obtenue qui decide de la validite**, pas le nom. Un nom qui ne laisse rien —
+fait de tirets seuls, ou de caracteres qu'une adresse ne sait pas porter — est refuse, et le
+message montre ce qu'il donnait. La regle d'avant etait un refus sec : une majuscule rendait le nom
+invalide sans rien dire de plus, et on devinait la contrainte au lieu de la lire.
+
+L'adresse est la **cle** du registre `apps.json`, et elle le reste : c'est elle que portent
+`data-cible`, les cases a cocher d'autorisation, l'environnement `CODELAB_APP` et les fichiers de
+journal. Le nom saisi vit a cote, dans le champ `titre`, et ne sert qu'a l'affichage. Une
+application inscrite avant cette separation n'a pas de `titre` : sa cle fait office de nom, et elle
+s'affiche exactement comme avant — rien a migrer.
+
+Renommer en ne changeant que la casse ou les espaces (`site` → `Site`) ne deplace donc rien :
+l'adresse est la meme, l'application ne s'arrete pas, seul le nom affiche change.
+
 ## Auto-detection de la commande de lancement
 
 `detect_command()` inspecte le dossier choisi et propose une commande sans jamais l'imposer (le champ reste
@@ -822,9 +851,13 @@ de le lancer et de le superviser. `POST /api/add` refuse d'ailleurs un chemin qu
 5. **Reprise au redemarrage du conteneur** (`resume()`) : toute application marquee `enabled: true` dans
    `apps.json` est relancee automatiquement au demarrage du service — l'etat "actif" survit donc a un
    redemarrage du conteneur `codelab-app-manager` lui-meme.
-6. **Les applications par defaut sont tenues debout** (`tenir_les_applications_par_defaut()`, appelee par
-   `resume()`) : `dagster` et `diagnostic` repassent a `enabled: true` a chaque demarrage du panneau, et la
-   tuile du diagnostic recoit sa description si elle n'en a pas.
+6. **Les applications par defaut sont tenues debout** (`tenir_les_applications_par_defaut()`) :
+   `dagster` et `diagnostic` repassent a `enabled: true`, et la tuile du diagnostic recoit son nom
+   affiche et sa description si elle n'en a pas. Le rattrapage a lieu au demarrage (`resume()`)
+   **et a chaque tour du moniteur** — sans quoi une application eteinte entre deux redemarrages le
+   restait jusqu'au suivant, c'est-a-dire, sur une machine qui ne redemarre pas, pour de bon. Il ne
+   court-circuite rien : c'est toujours la limite d'essais du moniteur qui decide de relancer, donc
+   une application qui plante en boucle n'est pas relancee sans fin.
 
    Ce n'est pas une commodite, c'est la contrepartie d'un refus. Arreter, redemarrer, deployer ou builder une
    application par defaut est interdit cote serveur (`refus_action_protegee`, `403`) — comme leur
@@ -874,15 +907,16 @@ compte en redemarrant l'application, sans redemarrer le panneau.
 
 ## Inscription automatique du projet de diagnostic
 
-Au tout premier demarrage, le panneau inscrit lui-meme le projet `diagnostic` — celui que le
-conteneur `codelab-dagster` depose dans `/workspace` — puis lance sa commande de build et le
-demarre. Une stack fraiche est donc verifiable sans aucune saisie : l'etape « Ajouter un projet »
+A **chaque** demarrage, le panneau s'assure que le projet `diagnostic` — celui que le conteneur
+`codelab-dagster` depose dans `/workspace` — est inscrit et configure ; a la premiere inscription,
+il lance aussi sa commande de build et le demarre. Une stack fraiche est donc verifiable sans aucune saisie : l'etape « Ajouter un projet »
 etait la seule chose qui separait une installation neuve d'une installation constatee saine, et
 c'est precisement celle qu'on saute quand on est presse.
 
 | Champ | Valeur inscrite |
 |---|---|
-| Nom | `diagnostic` |
+| Nom affiche | `Diagnostic` |
+| Chemin | `diagnostic` |
 | Dossier | `/workspace/diagnostic` |
 | Commande de lancement | `python3 app.py` |
 | Commande de build | `pip install --target vendor "psycopg[binary]"` |
@@ -897,18 +931,24 @@ dizaines de secondes, pendant lesquelles le panneau doit rester ouvrable — c'e
 d'ou constater ce qui se passe. Un build en echec n'empeche pas le demarrage : la sonde
 `Postgres (pilote)` affiche alors ce qui manque, ce qui vaut mieux qu'une application absente.
 
-**L'inscription ne se rejoue jamais.** Trois garde-fous, dans cet ordre :
+**L'inscription se rejoue a chaque demarrage, et c'est voulu.** Elle etait auparavant une amorce
+jouee une seule fois, gardee par un marqueur `diagnostic-inscrit` et par la condition « `apps.json`
+est vide ». Trois chemins menaient alors a une installation sans diagnostic, et aucun ne se voyait :
 
-1. un marqueur `diagnostic-inscrit` dans le dossier d'etat, pose des que la question est tranchee —
-   un projet supprime depuis le panneau ne reapparait pas au redemarrage suivant, meme raison
-   d'etre que le marqueur de squelette cote `dagster/entrypoint.sh` ;
-2. un `apps.json` non vide vaut « installation deja en service » : rien n'est ajoute, seul le
-   marqueur est pose. Une mise a jour ne touche donc pas a un panneau existant ;
-3. si le dossier n'est pas encore la — `app-manager` et `dagster` demarrent en parallele, et c'est
-   `dagster` qui amorce `/workspace` — le marqueur n'est **pas** pose et l'inscription est retentee
-   au demarrage suivant.
+1. le dossier pas encore depose par `dagster` — les deux conteneurs demarrent en parallele —
+   pendant qu'une autre application etait deja inscrite : plus jamais de diagnostic ;
+2. un marqueur pose alors que l'inscription avait echoue ;
+3. toute installation anterieure a l'existence du projet, dont le registre n'etait pas vide.
 
-Supprimer le marqueur autorise une nouvelle inscription, a condition que le panneau soit vide.
+Le diagnostic est une **application par defaut** : le serveur refuse de la supprimer, de la
+configurer et de l'arreter (voir *Cycle de vie d'une application*, point 6). Il n'y avait donc plus
+de suppression volontaire a respecter — un registre sans elle n'est pas un choix, c'est un etat
+casse. Le marqueur n'avait plus rien a garder et a disparu.
+
+Ce que le panneau remet en place a chaque demarrage : le dossier, la commande de lancement, la
+commande de build, et le port s'il manque. Ce qu'il ne touche pas : la visibilite, qui se regle
+d'un clic et reste un choix. La seule condition qui subsiste est l'existence du dossier — on ne
+peut pas inscrire un chemin qui n'est pas la, et l'inscription est retentee au demarrage suivant.
 
 ## Ce que l'interface ne fait pas
 

@@ -786,6 +786,12 @@ DIAGNOSTIC_NOM = "diagnostic"
 APPS_PAR_DEFAUT = (DAGSTER_NOM, DIAGNOSTIC_NOM)
 APPLICATIONS_PROTEGEES = {DAGSTER_NOM, DIAGNOSTIC_NOM}
 
+# Le nom AFFICHE des deux applications par defaut. Leur cle est le chemin --
+# « dagster », « diagnostic » -- et c'est elle qui s'affichait : deux tuiles
+# en minuscules au milieu de projets nommes par leur auteur. Elles n'ont pas
+# de formulaire ou corriger cela, la valeur est donc posee ici.
+TITRES_PAR_DEFAUT = {DAGSTER_NOM: "Dagster", DIAGNOSTIC_NOM: "Diagnostic"}
+
 # La tuile du diagnostic a besoin d'une phrase, et cette phrase ne peut pas
 # s'ecrire a la main : la fiche d'une application par defaut n'a pas de
 # formulaire. Elle est donc posee ici, et le panneau la met en place au
@@ -961,6 +967,7 @@ def services_du_hub():
         return services
     return services + [{
         "name": DAGSTER_NOM,
+        "titre": TITRES_PAR_DEFAUT[DAGSTER_NOM],
         "description": "Orchestration des jobs : plannings, assets, "
                        "exécutions et journaux.",
         "categorie": "",
@@ -3914,6 +3921,9 @@ def tenir_les_applications_par_defaut():
         if not a.get("enabled"):
             a["enabled"] = True
             change = True
+        if not (a.get("titre") or "").strip():
+            a["titre"] = TITRES_PAR_DEFAUT[nom]
+            change = True
         if nom == DIAGNOSTIC_NOM and not (a.get("description") or "").strip():
             a["description"] = DIAGNOSTIC_DESCRIPTION
             change = True
@@ -3943,6 +3953,13 @@ def monitor_tick():
     volontaire -- stop() met "enabled" a False) est redemarree
     automatiquement, avec une limite d'essais pour eviter de s'epuiser
     sur une app qui plante en boucle des le demarrage."""
+    # LE RATTRAPAGE NE VAUT PAS QU'AU DEMARRAGE. Une application par defaut
+    # eteinte entre deux redemarrages du panneau le restait jusqu'au suivant
+    # -- c'est-a-dire, sur une machine qui ne redemarre pas, pour de bon. Le
+    # geste est le meme ici, et il ne court-circuite rien : c'est toujours la
+    # limite d'essais ci-dessous qui decide de relancer ou non, donc une
+    # application qui plante en boucle n'est pas relancee sans fin.
+    tenir_les_applications_par_defaut()
     apps = load()
     now = time.time()
     for name, a in apps.items():
@@ -4980,11 +4997,57 @@ def default_icon_svg(name):
 
 
 
+# Longueur d'un nom d'application. Le nom s'affiche sous une icone, dans une
+# tuile large de 148 px : au-dela, il est coupe et ne se lit plus.
+NOM_MAX = 60
+
+
+def titre_de(nom, a=None):
+    """Le nom a afficher : celui qui a ete saisi, ou la cle a defaut.
+
+    Les applications inscrites avant que le nom et le chemin se separent
+    n'ont pas de titre. La cle EST leur nom, et elle le reste : rien a
+    migrer, et une inscription ancienne s'affiche exactement comme avant.
+    """
+    return ((a or {}).get("titre") or "").strip() or nom
+
+
+def titre_propre(brut):
+    """Le nom TEL QU'IL S'AFFICHE : casse et espaces conserves.
+
+    Une seule normalisation, sur les espaces : les doubler ou les mettre en
+    tete ne veut rien dire, et deux noms qui ne different que par la se
+    liraient comme un seul.
+    """
+    return re.sub(r"\s+", " ", str(brut or "")).strip()[:NOM_MAX]
+
+
 def valid_name(raw):
-    value = str(raw or "").strip()
-    if value != value.lower():
-        return ""
-    return re.sub(r"[^a-z0-9_-]", "-", value).strip("-")
+    """Le CHEMIN tire du nom : ce qui apparait dans l'adresse.
+
+    Le nom et le chemin ne sont plus la meme chaine. « Mon Site » s'affiche
+    ainsi et se sert sur /mon-site/. Deux raisons de les separer :
+
+      - une adresse est sensible a la casse et ne prend pas d'espace, alors
+        qu'un nom d'application est fait pour etre lu ;
+      - la regle d'avant refusait tout net une majuscule ("Site" -> nom
+        invalide, sans rien dire de plus), ce qui obligeait a deviner la
+        contrainte au lieu de la subir.
+
+    C'est donc le chemin OBTENU qui decide de la validite : si la
+    transformation ne laisse rien -- un nom fait de "---" ou d'ideogrammes
+    que l'adresse ne sait pas porter -- il n'y a pas de chemin, donc pas
+    d'application.
+    """
+    value = str(raw or "").strip().lower()
+    # Les espaces deviennent des tirets, explicitement. Le remplacement
+    # general ci-dessous le ferait aussi, mais c'est la regle annoncee a
+    # l'utilisateur : elle doit se lire dans le code.
+    value = re.sub(r"\s+", "-", value)
+    value = re.sub(r"[^a-z0-9_-]", "-", value)
+    # Pas deux tirets de suite : "Mon  --  Site" ne donne pas "mon----site".
+    value = re.sub(r"-{2,}", "-", value)
+    return value.strip("-")[:NOM_MAX]
 
 
 # Longueur d'une description de projet. Assez pour une phrase qui dit a quoi
@@ -7129,7 +7192,8 @@ def api_apps():
         if run:
             record_metrics(name, stats["cpu_percent"], stats["memory_mb"])
         out.append({
-            "name": name, "path": a["path"], "command": a["command"],
+            "name": name, "titre": titre_de(name, a),
+            "path": a["path"], "command": a["command"],
             "port": a["port"], "port_listeners": _ecouteurs_port(a["port"]),
             "running": run,
             "failed": bool(a.get("enabled")) and not run,
@@ -7197,6 +7261,7 @@ def api_detect():
 @require_admin
 def api_add():
     d = request.get_json(force=True)
+    titre = titre_propre(d.get("name"))
     name = valid_name(d.get("name"))
     path = (d.get("path") or "").strip()
     command = (d.get("command") or "").strip()
@@ -7211,12 +7276,19 @@ def api_add():
         vis = VISIBILITE_PRIVEE
     apps = load()
 
-    if not name:
+    if not titre:
         return jsonify({"error": "Le nom est obligatoire."}), 400
+    # Le refus porte sur le CHEMIN, et il le dit : un nom refuse sans qu'on
+    # montre ce qu'il donnait dans l'adresse ne s'apprend pas.
+    if not name:
+        return jsonify({"error": f"« {titre} » ne donne aucune adresse utilisable. "
+                                 f"Il faut au moins une lettre sans accent "
+                                 f"ou un chiffre."}), 400
     if name in ("api", "static", "health", "login", "logout"):
-        return jsonify({"error": "Ce nom est réservé."}), 400
+        return jsonify({"error": f"L'adresse « /{name}/ » est réservée."}), 400
     if name in apps:
-        return jsonify({"error": "Une application porte déjà ce nom."}), 400
+        return jsonify({"error": f"L'adresse « /{name}/ » est déjà prise par "
+                                 f"une autre application."}), 400
     if not os.path.isdir(path):
         return jsonify({"error": "Dossier introuvable : " + path}), 400
     if not under_root(path):
@@ -7228,6 +7300,7 @@ def api_add():
         return jsonify({"error": "Plus de port interne disponible."}), 400
 
     apps[name] = {
+        "titre": titre,
         "path": path, "command": command, "port": port, "enabled": False,
         "build_command": build_command, "max_memory_mb": max_memory_mb,
         "visibility": vis,
@@ -7235,7 +7308,7 @@ def api_add():
         "categorie": categorie_valide(d.get("categorie")),
     }
     save(apps)
-    return jsonify({"ok": True, "name": name, "port": port})
+    return jsonify({"ok": True, "name": name, "titre": titre, "port": port})
 
 
 # CE QUI NE SE VOIT QU'AU PROCHAIN DEMARRAGE.
@@ -7604,15 +7677,29 @@ def api_renommer(n):
         return jsonify({"error": "Le projet de diagnostic ne se renomme pas : "
                                  "c'est lui qui dit si cette installation va bien, "
                                  "et le panneau le retrouve par son nom."}), 403
-    nouveau = valid_name((request.get_json(force=True, silent=True) or {}).get("nom"))
-    if not nouveau:
+    brut = (request.get_json(force=True, silent=True) or {}).get("nom")
+    titre = titre_propre(brut)
+    nouveau = valid_name(brut)
+    if not titre:
         return jsonify({"error": "Le nouveau nom est obligatoire."}), 400
+    if not nouveau:
+        return jsonify({"error": f"« {titre} » ne donne aucune adresse utilisable. "
+                                 f"Il faut au moins une lettre sans accent "
+                                 f"ou un chiffre."}), 400
+    # LE NOM SEUL A PU CHANGER. « site » renomme en « Site » garde le chemin
+    # /site/ : rien a deplacer, rien a arreter -- on enregistre le titre et
+    # on s'arrete la. Sans ce cas, le renommage echouait sur « une adresse
+    # deja prise » : la sienne.
     if nouveau == n:
-        return jsonify({"ok": True, "nom": n, "redemarree": False})
+        if titre != (apps[n].get("titre") or n):
+            apps[n]["titre"] = titre
+            save(apps)
+        return jsonify({"ok": True, "nom": n, "titre": titre, "redemarree": False})
     if nouveau in ("api", "static", "health", "login", "logout"):
-        return jsonify({"error": "Ce nom est réservé."}), 400
+        return jsonify({"error": f"L'adresse « /{nouveau}/ » est réservée."}), 400
     if nouveau in apps:
-        return jsonify({"error": "Une application porte déjà ce nom."}), 400
+        return jsonify({"error": f"L'adresse « /{nouveau}/ » est déjà prise par "
+                                 f"une autre application."}), 400
 
     # L'application doit s'arreter le temps du renommage : son processus
     # porte l'ancien nom dans son environnement (CODELAB_APP), c'est ce qui
@@ -7631,6 +7718,7 @@ def api_renommer(n):
     # celui des listes de la page, et une application qui saute en fin de
     # liste parce qu'on l'a renommee se cherche.
     apps = {(nouveau if cle == n else cle): valeur for cle, valeur in apps.items()}
+    apps[nouveau]["titre"] = titre
     save(apps)
     _renommer_references(n, nouveau)
     repris = _reprendre_les_fichiers(dossier, ancien_uid, nouvel_uid)
@@ -7641,7 +7729,8 @@ def api_renommer(n):
     erreur = None
     if tournait:
         erreur = start(nouveau)
-    return jsonify({"ok": True, "nom": nouveau, "redemarree": tournait and not erreur,
+    return jsonify({"ok": True, "nom": nouveau, "titre": titre,
+                    "redemarree": tournait and not erreur,
                     "fichiers_repris": repris,
                     "erreur_demarrage": erreur or ""})
 
@@ -8206,11 +8295,12 @@ def api_mes_apps():
         if autorises is not None and nom not in autorises:
             continue
         if nom in cachees:
-            masquees.append({"name": nom,
+            masquees.append({"name": nom, "titre": titre_de(nom, a),
                              "description": a.get("description") or ""})
             continue
         liste.append({
             "name": nom,
+            "titre": titre_de(nom, a),
             "description": a.get("description") or "",
             "categorie": categorie_valide(a.get("categorie"), connues),
             "running": is_running(nom),
@@ -8690,20 +8780,11 @@ def _page(title, msg, extra=""):
 # precisement celle qu'on saute quand on est presse, donc celle qui manque le
 # jour ou quelque chose ne marche pas.
 #
-# Le projet est donc inscrit tout seul, une fois, au premier demarrage.
-#
-# "Une fois" est la partie delicate. Trois garde-fous, dans cet ordre :
-#
-#   1. Un marqueur dans STATE_DIR. Pose des que la question est tranchee, il
-#      garantit qu'un projet supprime depuis le panneau ne reapparait pas au
-#      redemarrage suivant -- meme raison d'etre que le marqueur de squelette
-#      cote dagster (voir dagster/entrypoint.sh).
-#   2. Un registre non vide veut dire "installation deja en service" : on ne
-#      touche pas a un panneau existant, on pose seulement le marqueur.
-#   3. Le dossier peut ne pas encore exister : app-manager et dagster demarrent
-#      en parallele, et c'est dagster qui amorce /workspace. Dans ce cas on ne
-#      pose PAS le marqueur et on reessaiera au prochain demarrage.
-DIAGNOSTIC_MARQUEUR = os.path.join(STATE_DIR, "diagnostic-inscrit")
+# Le projet est donc inscrit tout seul, et il l'est a CHAQUE demarrage --
+# voir amorcer_diagnostic(), qui dit pourquoi ce n'est plus une amorce jouee
+# une seule fois. Une seule condition subsiste : le dossier doit exister.
+# app-manager et dagster demarrent en parallele, c'est dagster qui amorce
+# /workspace, et on ne peut pas inscrire un chemin qui n'est pas la.
 
 # Les deux commandes du README du projet, pas une detection automatique :
 # detect_project() proposerait bien "python3 app.py", mais rendrait une
@@ -8741,35 +8822,68 @@ def retirer_aichat():
 
 
 def amorcer_diagnostic():
-    """Inscrit le projet de diagnostic au premier demarrage, et le lance.
+    """Inscrit le projet de diagnostic et le configure. A CHAQUE demarrage.
 
-    Ne fait rien du tout sur une installation deja en service. Renvoie le nom
-    inscrit, ou None.
+    CE QUI A CHANGE. L'inscription etait une amorce a jouer UNE FOIS : elle
+    ne se declenchait que sur un registre vide, et un marqueur sur le disque
+    l'empechait de se rejouer. Trois facons de se retrouver sans diagnostic
+    en decoulaient, et aucune ne se voyait :
+
+      - le dossier n'etait pas encore la (dagster amorce /workspace, et les
+        deux conteneurs demarrent en parallele) et une autre application
+        avait ete inscrite entre-temps : plus jamais de diagnostic ;
+      - le marqueur avait ete pose sans que l'inscription reussisse ;
+      - une installation d'avant l'existence du diagnostic gardait un
+        registre non vide, donc ne l'a jamais recu.
+
+    Ce n'est plus une amorce, c'est un invariant : le diagnostic est une
+    application PAR DEFAUT, au meme titre que Dagster. Elle ne se supprime
+    pas (est_app_par_defaut la protege), ne se configure pas, ne s'arrete
+    pas -- le marqueur qui evitait de la reinscrire n'a donc plus rien a
+    eviter.
+
+    Renvoie le nom si l'inscription vient d'avoir lieu (il reste a builder
+    et a lancer), None si elle etait deja la ou si le dossier manque encore.
     """
-    if os.path.exists(DIAGNOSTIC_MARQUEUR):
-        return None
-
-    apps = load()
-    if apps:
-        # Panneau deja utilise : l'utilisateur a peut-etre inscrit ce projet
-        # lui-meme, ou l'a supprime volontairement. On s'efface, definitivement.
-        _poser_marqueur_diagnostic()
-        return None
-
     chemin = os.path.join(ROOT, DIAGNOSTIC_NOM)
     if not os.path.isfile(os.path.join(chemin, "app.py")):
         # Pas encore amorce par dagster : on retentera au prochain demarrage.
+        # C'est maintenant vrai a chaque fois, et non plus seulement tant que
+        # le registre reste vide.
+        return None
+
+    apps = load()
+    a = apps.get(DIAGNOSTIC_NOM)
+    if a is not None:
+        # Deja inscrite : on ne recree rien, on remet seulement ce qui doit
+        # etre vrai. Le chemin et la commande ne sont pas configurables pour
+        # cette application-la ; les laisser deriver n'apporterait rien.
+        change = False
+        for cle, valeur in (("path", chemin),
+                            ("command", DIAGNOSTIC_COMMANDE),
+                            ("build_command", DIAGNOSTIC_BUILD)):
+            if a.get(cle) != valeur:
+                a[cle] = valeur
+                change = True
+        if not a.get("port"):
+            a["port"] = next_port(apps)
+            change = True
+        if change:
+            save(apps)
         return None
 
     apps[DIAGNOSTIC_NOM] = {
+        "titre": TITRES_PAR_DEFAUT[DIAGNOSTIC_NOM],
         "path": chemin,
         "command": DIAGNOSTIC_COMMANDE,
         "port": next_port(apps),
-        # Demarree par le thread d'amorcage, apres le build : la mettre a True
-        # ici la ferait lancer par resume() sans son pilote Postgres.
         "enabled": True,
-        "build_command": "",
+        # La commande de build EST la configuration par defaut : sans elle,
+        # la fiche n'ayant pas de formulaire, le pilote Postgres ne
+        # s'installait sur ordre de personne.
+        "build_command": DIAGNOSTIC_BUILD,
         "max_memory_mb": None,
+        "description": DIAGNOSTIC_DESCRIPTION,
         # Privee : la page nomme les conteneurs, l'utilisateur SSH et l'etat de
         # la base. Rien de secret, mais rien non plus a offrir a un visiteur
         # anonyme le jour ou le port 9001 est publie. L'utilisateur peut la
@@ -8777,22 +8891,7 @@ def amorcer_diagnostic():
         "visibility": VISIBILITE_PRIVEE,
     }
     save(apps)
-    _poser_marqueur_diagnostic()
     return DIAGNOSTIC_NOM
-
-
-def _poser_marqueur_diagnostic():
-    try:
-        with open(DIAGNOSTIC_MARQUEUR, "w") as f:
-            f.write("Le projet de diagnostic a ete inscrit une fois au premier "
-                    "demarrage. Supprimer ce fichier le fera reinscrire, s'il "
-                    "n'est plus dans le panneau et qu'aucune autre application "
-                    "n'y figure.\n")
-    except OSError as e:
-        # Sans marqueur l'inscription se rejouerait, mais seulement tant que le
-        # registre est vide : le pire cas reste borne, et il ne justifie pas
-        # d'empecher le panneau de demarrer.
-        print(f"[app-manager] marqueur de diagnostic non ecrit ({e}).", flush=True)
 
 
 def _preparer_diagnostic(name):
@@ -8807,7 +8906,20 @@ def _preparer_diagnostic(name):
     demarrage : l'application affiche alors "aucun pilote Postgres" sur la
     ligne concernee et toutes les autres sondes repondent normalement. Une
     page qui explique ce qui manque vaut mieux qu'une application absente.
+
+    LE BUILD MANQUAIT. Ce texte decrivait « build puis demarrage » depuis le
+    debut, et la fonction ne faisait que demarrer : la commande de build
+    n'etait meme pas inscrite. Le pilote Postgres ne s'installait donc sur
+    ordre de personne, et la page de diagnostic annoncait son absence sur une
+    installation neuve, sans que rien ne dise quoi faire.
     """
+    try:
+        ok, message = run_build(name)
+        if not ok:
+            print(f"[app-manager] {name} : build initial en echec ({message}). "
+                  f"L'application demarre quand meme.", flush=True)
+    except Exception as e:
+        print(f"[app-manager] {name} : build initial impossible ({e}).", flush=True)
     try:
         start(name)
     except Exception as e:
