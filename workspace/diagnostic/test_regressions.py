@@ -101,7 +101,7 @@ CHEMINS_ETAT = [
     "STATE_DIR", "APPS_FILE", "LOG_DIR", "UTILISATEURS_FILE", "PASSKEYS_FILE",
     "ACCES_FILE", "PROCESSUS_FILE", "MASQUEES_FILE", "MESSAGES_FILE", "CHILD_HOME", "ALERTES_FILE", "SMTP_FILE",
     "CATEGORIES_FILE",
-    "EXPOSITION_FILE", "DIAGNOSTIC_MARQUEUR", "ICONE_DAGSTER_CACHE", "SHARED_CONFIG_DIR",
+    "EXPOSITION_FILE", "ICONE_DAGSTER_CACHE", "SHARED_CONFIG_DIR",
     "SHARED_ENV_FILE", "LEGACY_ADMIN_PASSWORD_FILE", "LEGACY_SECRET_KEY_FILE",
     "SSO_PRIVATE_FILE",
 ]
@@ -133,7 +133,6 @@ def _bac_a_sable(tmp_path, monkeypatch):
         "SMTP_FILE": str(etat / "smtp.json"),
         "CATEGORIES_FILE": str(etat / "categories.json"),
         "EXPOSITION_FILE": str(etat / "exposition.json"),
-        "DIAGNOSTIC_MARQUEUR": str(etat / "diagnostic-inscrit"),
         "ICONE_DAGSTER_CACHE": str(etat / "dagster-icone"),
         "SHARED_CONFIG_DIR": str(partage),
         "SHARED_ENV_FILE": str(partage / "credentials.env"),
@@ -1148,11 +1147,22 @@ def test_une_application_sans_limite_memoire_abandonne_quand_meme_ses_privileges
 
 # ------------------- 5. inscription du projet de diagnostic -------------------
 #
-# Le projet de diagnostic s'inscrit tout seul au premier demarrage. La
-# propriete a tenir n'est pas "il s'inscrit" (visible du premier coup d'oeil)
-# mais "il ne se reinscrit jamais" : un projet supprime qui revient au
-# redemarrage suivant est exactement le defaut qui rend une installation
-# penible, et il ne se voit qu'apres coup.
+# CE QUE CETTE SECTION DISAIT AVANT, ET POURQUOI ELLE DIT L'INVERSE.
+#
+# L'inscription etait une amorce a jouer UNE FOIS, et la propriete tenue ici
+# etait « il ne se reinscrit jamais » : un projet supprime depuis le panneau
+# ne devait pas revenir au redemarrage suivant.
+#
+# Le diagnostic n'est plus un projet parmi d'autres. C'est une application
+# PAR DEFAUT : le serveur refuse de la supprimer, de la configurer et de
+# l'arreter. Il n'y a donc plus de suppression volontaire a respecter, et la
+# garantie qui compte s'est inversee -- sur une installation en service, le
+# diagnostic EST LA, inscrit et configure.
+#
+# Ce n'est pas un confort. Trois chemins menaient a une installation qui n'en
+# avait pas, et aucun ne se voyait : le dossier pas encore amorce par dagster
+# pendant qu'une autre application etait inscrite, un marqueur pose sans que
+# l'inscription reussisse, et toute installation anterieure au diagnostic.
 
 def _amorcage(tmp_path, monkeypatch, avec_projet=True):
     etat = tmp_path / "etat"
@@ -1163,58 +1173,110 @@ def _amorcage(tmp_path, monkeypatch, avec_projet=True):
         (racine / "diagnostic").mkdir()
         (racine / "diagnostic" / "app.py").write_text("")
     monkeypatch.setattr(app, "APPS_FILE", str(etat / "apps.json"))
-    monkeypatch.setattr(app, "DIAGNOSTIC_MARQUEUR", str(etat / "diagnostic-inscrit"))
     monkeypatch.setattr(app, "ROOT", str(racine))
     app._apps_cache["signature"] = None
     return racine
 
 
-def test_le_diagnostic_est_inscrit_au_premier_demarrage(tmp_path, monkeypatch):
+def test_le_diagnostic_est_inscrit_et_configure(tmp_path, monkeypatch):
+    """« Deja cree ET configure » : la fiche n'a pas de formulaire.
+
+    Une application par defaut ne se configure pas depuis le panneau. Tout ce
+    dont elle a besoin doit donc etre pose a l'inscription -- a commencer par
+    la commande de build, sans laquelle le pilote Postgres ne s'installe sur
+    ordre de personne.
+    """
     racine = _amorcage(tmp_path, monkeypatch)
     assert app.amorcer_diagnostic() == "diagnostic"
     inscrit = app.load()["diagnostic"]
     assert inscrit["path"] == str(racine / "diagnostic")
     assert inscrit["command"] == app.DIAGNOSTIC_COMMANDE
-    # Le diagnostic est construit à la demande ; son inscription initiale ne déclenche aucun build.
-    assert inscrit["build_command"] == ""
-    # Pas demarree ici : c'est le thread d'amorcage qui la lance, apres le
-    # build qui installe son pilote Postgres.
+    assert inscrit["build_command"] == app.DIAGNOSTIC_BUILD
     assert inscrit["enabled"] is True
+    assert inscrit["titre"] == app.TITRES_PAR_DEFAUT["diagnostic"]
+    assert inscrit["description"] == app.DIAGNOSTIC_DESCRIPTION
     assert inscrit["visibility"] == app.VISIBILITE_PRIVEE
     assert app.PORT_MIN <= inscrit["port"] <= app.PORT_MAX
 
 
-def test_un_diagnostic_supprime_ne_revient_pas_au_redemarrage(tmp_path, monkeypatch):
-    """Le defaut a empecher : supprimer le projet depuis le panneau, puis le
-    retrouver au demarrage suivant."""
+def test_un_diagnostic_efface_revient_au_redemarrage(tmp_path, monkeypatch):
+    """L'INVERSE de ce que ce fichier tenait avant, et c'est voulu.
+
+    Le diagnostic ne se supprime pas depuis le panneau -- la route repond
+    403. Un registre sans lui n'est donc pas un choix de l'utilisateur : c'est
+    un etat casse, et le seul geste utile est de le reparer.
+    """
     _amorcage(tmp_path, monkeypatch)
     app.amorcer_diagnostic()
-    app.save({})                       # suppression depuis le panneau
-    assert app.amorcer_diagnostic() is None
-    assert app.load() == {}
+    app.save({})
+    assert app.amorcer_diagnostic() == "diagnostic"
+    assert "diagnostic" in app.load()
 
 
-def test_un_panneau_deja_utilise_n_est_pas_touche(tmp_path, monkeypatch):
-    """Mise a jour d'une installation existante : le registre a deja des
-    applications, on n'y ajoute rien -- l'utilisateur a peut-etre inscrit ce
-    projet lui-meme, ou l'a supprime volontairement."""
+def test_une_installation_deja_en_service_le_recoit_aussi(tmp_path, monkeypatch):
+    """Le chemin qui privait une installation entiere de diagnostic.
+
+    L'inscription ne se declenchait que sur un registre VIDE. Une stack qui
+    avait declare une application avant que dagster ait depose le projet --
+    les deux conteneurs demarrent en parallele -- ne le recevait jamais. Ni
+    au redemarrage suivant, ni aucun autre.
+    """
     _amorcage(tmp_path, monkeypatch)
     app.save({"mon-site": {"port": 9101}})
+    assert app.amorcer_diagnostic() == "diagnostic"
+    apres = app.load()
+    assert "diagnostic" in apres
+    # Et l'application qui etait la n'a pas bouge.
+    assert apres["mon-site"]["port"] == 9101
+
+
+def test_une_inscription_deja_faite_n_est_pas_recreee(tmp_path, monkeypatch):
+    """Inscrire n'est pas ecraser : le port attribue ne doit pas changer.
+
+    Une application dont le port change a chaque demarrage du panneau, c'est
+    une adresse qu'on ne peut pas noter.
+    """
+    _amorcage(tmp_path, monkeypatch)
+    app.amorcer_diagnostic()
+    port = app.load()["diagnostic"]["port"]
     assert app.amorcer_diagnostic() is None
-    assert list(app.load()) == ["mon-site"]
-    # Et la question est tranchee pour de bon, meme si le panneau se vide.
-    app.save({})
-    assert app.amorcer_diagnostic() is None
+    assert app.load()["diagnostic"]["port"] == port
+
+
+def test_une_configuration_derivee_est_remise_droite(tmp_path, monkeypatch):
+    """Ce que le panneau remet, et ce qu'il laisse.
+
+    Le chemin, la commande et le build ne sont pas configurables pour cette
+    application-la : les laisser deriver n'apporte rien et prive du
+    diagnostic. Le reste -- ce que l'utilisateur PEUT changer, comme la
+    visibilite -- n'est pas touche.
+    """
+    racine = _amorcage(tmp_path, monkeypatch)
+    app.amorcer_diagnostic()
+    apps = app.load()
+    apps["diagnostic"]["command"] = "sleep 1"
+    apps["diagnostic"]["build_command"] = ""
+    apps["diagnostic"]["visibility"] = app.VISIBILITE_PUBLIQUE
+    app.save(apps)
+
+    app.amorcer_diagnostic()
+
+    remis = app.load()["diagnostic"]
+    assert remis["command"] == app.DIAGNOSTIC_COMMANDE
+    assert remis["build_command"] == app.DIAGNOSTIC_BUILD
+    assert remis["path"] == str(racine / "diagnostic")
+    assert remis["visibility"] == app.VISIBILITE_PUBLIQUE
 
 
 def test_un_projet_pas_encore_amorce_est_retente_au_demarrage_suivant(tmp_path, monkeypatch):
     """app-manager et dagster demarrent en parallele, et c'est dagster qui
     depose le projet dans /workspace : au premier demarrage le dossier peut
-    ne pas encore exister. Renoncer definitivement ici priverait l'utilisateur
-    du projet pour une simple question d'ordre de demarrage."""
+    ne pas encore exister. On ne peut pas inscrire un chemin absent -- mais
+    renoncer DEFINITIVEMENT, comme avant, privait du projet pour une simple
+    question d'ordre de demarrage."""
     racine = _amorcage(tmp_path, monkeypatch, avec_projet=False)
     assert app.amorcer_diagnostic() is None
-    assert not os.path.exists(app.DIAGNOSTIC_MARQUEUR)
+    assert app.load() == {}
 
     (racine / "diagnostic").mkdir()
     (racine / "diagnostic" / "app.py").write_text("")
@@ -7316,6 +7378,176 @@ def test_le_menu_ne_defile_pas_avec_la_page():
     # Sans cela, le parent etire la colonne et "sticky" n'a plus de prise.
     debut_corps = page.index(".page-body{")
     assert "align-items:flex-start" in page[debut_corps:page.index("}", debut_corps)]
+
+
+def test_le_moniteur_rallume_une_application_par_defaut_eteinte(hub_dagster, monkeypatch):
+    """Le rattrapage ne vaut pas qu'au demarrage du panneau.
+
+    Il n'avait lieu que dans resume(). Une application par defaut eteinte
+    entre deux redemarrages -- par l'echec de lancement de start(), le seul
+    chemin qui y mene -- le restait jusqu'au suivant. Sur une machine qui ne
+    redemarre pas, c'est-a-dire pour de bon.
+    """
+    monkeypatch.setattr(app, "start", lambda n, attendre=True: demarrees.append(n))
+    demarrees = []
+    apps = app.load()
+    apps[app.DIAGNOSTIC_NOM] = {"path": "/w/diag", "command": "python3 app.py",
+                                "port": 9109, "enabled": False}
+    app.save(apps)
+
+    app.monitor_tick()
+
+    assert app.load()[app.DIAGNOSTIC_NOM]["enabled"] is True
+    # Et le tour suivant la relance, puisqu'elle est desormais "enabled".
+    assert app.DIAGNOSTIC_NOM in demarrees, demarrees
+
+
+def test_le_moniteur_ne_rallume_pas_une_application_ordinaire_arretee(hub_dagster, monkeypatch):
+    """Un arret volontaire est un choix, et il se respecte.
+
+    Le rattrapage ne vaut que pour les deux qui n'ont pas le choix -- celles
+    dont le bouton « Arreter » est refuse par le serveur.
+    """
+    monkeypatch.setattr(app, "start", lambda n, attendre=True: None)
+    app.monitor_tick()
+    assert not app.load()["site"].get("enabled")
+
+
+# ---------- 30 bis. le nom se lit, le chemin se tape ----------
+#
+# Demande : « Le nom de l'application peut etre en majuscule, remplace par des
+# minuscules dans le path, et les espaces sont autorises dans le nom,
+# remplaces par des tirets dans le path. La validite du nom de l'app doit
+# dependre du path resultant. »
+#
+# Avant, les deux etaient la MEME chaine, et la regle etait un refus sec :
+# une majuscule rendait le nom invalide, sans rien dire de plus. On devinait
+# la contrainte au lieu de la lire.
+
+def test_le_chemin_se_tire_du_nom():
+    """La transformation, cas par cas."""
+    for nom, chemin in [
+        ("Mon Site", "mon-site"),
+        ("SITE", "site"),
+        ("Mon  --  Site", "mon-site"),      # ni doubles tirets ni doubles espaces
+        ("  Site  ", "site"),               # les bords se taillent
+        ("Café", "caf"),                    # l'accent ne passe pas dans l'adresse
+        ("site_2", "site_2"),               # le tiret bas reste
+        ("---", ""),                        # rien d'utilisable : pas de chemin
+        ("", ""),
+        (None, ""),
+    ]:
+        assert app.valid_name(nom) == chemin, nom
+
+
+def test_le_nom_garde_sa_casse_et_ses_espaces():
+    assert app.titre_propre("  Mon   Site  ") == "Mon Site"
+    assert app.titre_propre("SITE") == "SITE"
+    assert app.titre_propre(None) == ""
+
+
+def test_une_application_se_declare_sous_son_nom_et_se_sert_sous_son_chemin(hub_dagster, monkeypatch):
+    monkeypatch.setattr(os.path, "isdir", lambda p: True)
+    monkeypatch.setattr(app, "under_root", lambda p: True)
+    c = hub_dagster
+    c.post("/login", json={"password": "secret-de-test"})
+    r = c.post("/api/add", json={"name": "Mon Site", "path": "/w/x",
+                                 "command": "python3 app.py"})
+    assert r.status_code == 200, r.data
+    d = r.get_json()
+    assert d["name"] == "mon-site" and d["titre"] == "Mon Site"
+
+    # La cle du registre EST le chemin : c'est elle que porte l'adresse.
+    assert "mon-site" in app.load()
+    ligne = [a for a in c.get("/api/apps").get_json()["apps"]
+             if a["name"] == "mon-site"][0]
+    assert ligne["titre"] == "Mon Site"
+
+
+def test_un_nom_qui_ne_donne_aucun_chemin_est_refuse(hub_dagster, monkeypatch):
+    """La validite depend du chemin OBTENU, et le refus le dit.
+
+    Un nom fait de tirets seuls, ou de caracteres accentues seuls, se lit
+    tres bien et ne laisse pourtant rien dont faire une adresse. Refuser sans
+    montrer ce que le nom donnait dans l'adresse n'apprend rien.
+    """
+    monkeypatch.setattr(os.path, "isdir", lambda p: True)
+    monkeypatch.setattr(app, "under_root", lambda p: True)
+    c = hub_dagster
+    c.post("/login", json={"password": "secret-de-test"})
+    r = c.post("/api/add", json={"name": "---", "path": "/w/x",
+                                 "command": "python3 app.py"})
+    assert r.status_code == 400
+    assert "adresse" in r.get_json()["error"]
+
+
+def test_deux_noms_qui_donnent_le_meme_chemin_se_refusent(hub_dagster, monkeypatch):
+    """« Mon Site » et « mon site » se lisent differemment et se servent au
+    meme endroit. Le second doit tomber, sur le chemin et non sur le nom."""
+    monkeypatch.setattr(os.path, "isdir", lambda p: True)
+    monkeypatch.setattr(app, "under_root", lambda p: True)
+    c = hub_dagster
+    c.post("/login", json={"password": "secret-de-test"})
+    assert c.post("/api/add", json={"name": "Mon Site", "path": "/w/x",
+                                    "command": "x"}).status_code == 200
+    r = c.post("/api/add", json={"name": "mon site", "path": "/w/x",
+                                "command": "x"})
+    assert r.status_code == 400
+    assert "/mon-site/" in r.get_json()["error"], r.get_json()
+
+
+def test_changer_la_seule_casse_ne_deplace_rien(hub_dagster):
+    """« site » renomme en « Site » garde le chemin /site/.
+
+    Sans ce cas, le renommage echouait sur « une adresse deja prise » : la
+    sienne. Et rien ne doit s'arreter -- il n'y a rien a deplacer.
+    """
+    c = hub_dagster
+    c.post("/login", json={"password": "secret-de-test"})
+    r = c.post("/api/app/site/renommer", json={"nom": "Site"})
+    assert r.status_code == 200, r.data
+    d = r.get_json()
+    assert d["nom"] == "site" and d["titre"] == "Site"
+    assert d["redemarree"] is False
+    assert app.load()["site"]["titre"] == "Site"
+
+
+def test_la_page_affiche_le_nom_et_designe_par_la_cle():
+    """Deux chaines, deux usages, et il ne faut pas les echanger.
+
+    Afficher la cle, c'est montrer « mon-site » a qui a tape « Mon Site ».
+    Designer par le nom, c'est fabriquer une adresse qui n'existe pas.
+    """
+    page = _page_panneau("dashboard.html")
+    assert "const nomAffiche" in page
+    # La tuile du hub et la ligne du tableau LISENT le nom.
+    assert '<div class="nom">${esc(nomAffiche(a))}</div>' in page
+    assert '<div class="n">${esc(nomAffiche(a))}</div>' in page
+    # Et tout ce qui DESIGNE garde la cle.
+    assert 'data-cible="${esc(a.name)}"' in page
+
+
+# ---------- 30 ter. la tuile d'un service ressemble aux autres ----------
+
+def test_aucune_tuile_ne_porte_de_cadre_a_part():
+    """Demande : « L'app Dagster ne doit pas avoir ce contour blanc. Seul le
+    logo doit avoir un fond comme les autres applications. »
+
+    Dagster portait un fond et une bordure au niveau de la TUILE, pour se
+    detacher du hub. Au milieu de projets qui n'en ont pas, cela faisait une
+    vignette cerclee de blanc. Ce qui manquait etait un fond sous le LOGO :
+    Dagster sert une icone transparente la ou les projets servent une image
+    pleine.
+    """
+    page = _page_panneau("dashboard.html")
+    assert "service-stack" not in page, (
+        "la tuile d'un service porte encore un style a part")
+    debut = page.index(".hub-liste.compacte .hub-projet img{")
+    regle = page[debut:page.index("}", debut)]
+    # La plaque est SOUS l'image : une icone pleine la recouvre et ne change
+    # pas d'aspect, seule une icone transparente la laisse paraitre.
+    assert "background:var(--surface)" in regle, regle
+    assert "object-fit:contain" in regle, regle
 
 
 # ---------- 31. une page d'erreur n'affiche pas ce qu'on lui envoie ----------

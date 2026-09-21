@@ -551,7 +551,8 @@ label:has(> input[type=checkbox]),label:has(> input[type=radio]){
    est une mode, et elle fait vibrer une grille entiere. La bordure d'accent
    et le fond leger disent la meme chose sans rien agiter. */
 .hub-projet:hover{border-color:var(--accent);background:var(--accent-soft)}
-.hub-projet img{width:36px;height:36px;border-radius:var(--r-s);flex:none}
+.hub-projet img{width:36px;height:36px;border-radius:var(--r-s);flex:none;
+ background:var(--surface);object-fit:contain}
 .hub-projet .txt{min-width:0;flex:1}
 .hub-projet .nom{font-weight:620;font-size:14.5px;letter-spacing:-.01em}
 .hub-projet .desc{font-size:12.5px;color:var(--dim);margin-top:3px;line-height:1.45;
@@ -578,14 +579,20 @@ label:has(> input[type=checkbox]),label:has(> input[type=radio]){
 .hub-liste.compacte{grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:10px}
 .hub-liste.compacte .hub-projet{flex-direction:column;align-items:center;gap:11px;
  padding:16px 8px;text-align:center;background:none;border-color:transparent}
-/* Les services de la stack ont une surface explicite : contrairement aux
-   projets, Dagster est un service externe au workspace et son icône seule
-   ne suffit pas toujours à détacher la tuile du fond du hub. */
-.hub-liste.compacte .hub-projet.service-stack{background:var(--surface);border-color:var(--line)}
+/* PAS DE CADRE AUTOUR DE LA TUILE D'UN SERVICE. Dagster en portait un --
+   fond et bordure -- pour se detacher du hub, et le resultat etait une tuile
+   cerclee de blanc au milieu de projets qui n'en ont pas. Ce qui manquait
+   n'etait pas un cadre : c'etait un FOND SOUS LE LOGO. Dagster sert une
+   icone transparente, les projets une image pleine ; la plaque ci-dessous
+   la leur donne a toutes, et les tuiles redeviennent identiques. */
 .hub-liste.compacte .hub-projet:hover{background:none;border-color:transparent}
 .hub-liste.compacte .hub-projet:hover img{transform:translateY(-2px)}
 .hub-liste.compacte .hub-projet:hover .nom{color:var(--accent)}
 .hub-liste.compacte .hub-projet img{width:88px;height:88px;border-radius:22px;
+ /* Sous l'image, jamais devant : une icone pleine la recouvre entierement et
+    ne change pas d'aspect. Seule une icone transparente la laisse paraitre,
+    et c'est exactement le cas qu'on traite. */
+ background:var(--surface);object-fit:contain;
  transition:transform .12s}
 .hub-liste.compacte .hub-projet .txt{width:100%}
 .hub-liste.compacte .hub-projet .nom{font-size:14px;font-weight:600;
@@ -2464,6 +2471,14 @@ const $=i=>document.getElementById(i), hide=i=>$(i).classList.remove("show");
    redevient une apostrophe, qui referme la chaine. La seule parade est de
    ne pas fabriquer de programme a partir d'une donnee -- voir ACTIONS plus
    bas, et le navigateur de dossiers, qui construit du DOM. */
+/* LE NOM QU'ON LIT, ET LA CLE QUI DESIGNE. Depuis que le nom accepte les
+   majuscules et les espaces, les deux ne sont plus la meme chaine : « Mon
+   Site » s'affiche ainsi et se sert sur /mon-site/. Tout ce qui DESIGNE une
+   application -- data-cible, une URL, une case a cocher -- garde la cle ;
+   seul le texte affiche passe par ici. Une inscription d'avant la separation
+   n'a pas de titre, et sa cle fait office de nom : rien a migrer. */
+const nomAffiche = a => (a && a.titre) || (a && a.name) || '';
+
 const esc=s=>(s||"").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',
                                              '"':'&quot;',"'":'&#39;'}[c]));
 const icone=n=>'/api/icon/'+encodeURIComponent(n);
@@ -3221,7 +3236,7 @@ function peindreMasquees(){
     <input type="checkbox"${cachee?'':' checked'}
       data-changer="app-masquer" data-cible="${esc(a.name)}">
     <img src="${icone(a.name)}" alt="">
-    <div class="masquee-txt"><b>${esc(a.name)}</b>
+    <div class="masquee-txt"><b>${esc(nomAffiche(a))}</b>
       ${a.description?`<span>${esc(a.description)}</span>`:''}</div>
     <span class="masquee-etat">${cachee?'Masquée':'Affichée'}</span>
   </label>`;}).join('');
@@ -3306,11 +3321,11 @@ function peindreHub(){
   /* Un service ouvre sa PROPRE adresse, et dans un nouvel onglet : il vit
      sur un autre port, sans le ruban qui ramene au panneau -- y aller dans
      l'onglet courant, c'est perdre le hub. */
-  const tuile = a => `<a class="hub-projet${a.externe ? ' service-stack' : ''} ${a.running?'':'arretee'}"
+  const tuile = a => `<a class="hub-projet ${a.running?'':'arretee'}"
       href="${a.externe ? '/'+encodeURIComponent(a.name)+'/' : urlApplication(a.name)}"
       title="${esc(a.description||a.name)}">
       <img src="${icone(a.name)}" alt="">
-      <div class="txt"><div class="nom">${esc(a.name)}</div>
+      <div class="txt"><div class="nom">${esc(nomAffiche(a))}</div>
       <div class="bas">${badgeEtat(a)}${badgeVis(a)}</div></div></a>`;
 
   /* Sans categorie declaree, le hub reste ce qu'il etait : une seule liste.
@@ -3346,7 +3361,7 @@ function barChart(list, key, unit, maxHint){
   const max=Math.max(maxHint, ...items.map(a=>a[key]||0));
   return items.map(a=>{
     const v=a[key]||0, pct=max?Math.min(100, v/max*100):0;
-    return `<div class="bar-row"><div class="bar-name">${esc(a.name)}</div>
+    return `<div class="bar-row"><div class="bar-name">${esc(nomAffiche(a))}</div>
       <div class="bar-track"><span style="width:${pct}%"></span></div>
       <div class="bar-val">${v.toFixed(1)}${unit}</div></div>`;
   }).join('');
@@ -3432,7 +3447,7 @@ function render(){
     </tr></thead><tbody>
     ${liste.map(a=>`<tr data-agir="app-ouvrir" data-cible="${esc(a.name)}">
       <td><div class="tbl-nom"><img src="${icone(a.name)}" alt="">
-        <div style="min-width:0"><div class="n">${esc(a.name)}</div>
+        <div style="min-width:0"><div class="n">${esc(nomAffiche(a))}</div>
         ${a.description?`<div class="d">${esc(a.description)}</div>`:''}</div></div></td>
       <td>${badgeEtat(a)}</td>
       <td>${badgeVis(a)}</td>
@@ -4862,14 +4877,14 @@ function usPeindreFiche(){
      qui ne l'est pas. Une rangee de cases nues ne disait ni de quelle
      application il s'agissait, ni lesquelles etaient publiques -- donc
      lesquelles cocher ne changeait rien. */
-  const declares = apps.slice().sort((a,b)=>a.name.localeCompare(b.name,'fr'));
+  const declares = apps.slice().sort((a,b)=>nomAffiche(a).localeCompare(nomAffiche(b),'fr'));
   $('us-f-projets').innerHTML = declares.length ? declares.map(a=>{
     const coche = c.projets.includes(a.name) ? ' checked' : '';
     const prive = a.visibility==='privee';
     return `<label class="choix-ligne proj-ligne${prive?'':' publique'}">
       <input type="checkbox" value="${esc(a.name)}"${coche}>
       <img src="${icone(a.name)}" alt="">
-      <div class="proj-txt"><b>${esc(a.name)}</b>
+      <div class="proj-txt"><b>${esc(nomAffiche(a))}</b>
         ${a.description?`<span>${esc(a.description)}</span>`:''}</div>
       ${badgeVis(a)}</label>`;
   }).join('') : '<div class="hint">Aucun projet déclaré.</div>';
