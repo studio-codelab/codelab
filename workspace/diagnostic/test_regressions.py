@@ -10203,3 +10203,65 @@ def test_la_ci_et_la_documentation_lancent_la_suite_au_bon_endroit():
     assert "pytest workspace/diagnostic/test_regressions.py" in texte, (
         "la CI ne lance pas la suite au bon chemin")
     assert "pytest workspace/diagnostic/checks.py" not in texte
+
+
+# ---------- 39. pgvector : la base vectorielle est la base ---------------
+#
+# Le besoin d'une base vectorielle se traite ici par une EXTENSION et non par
+# un service de plus. Sur une machine de 4 Go, un conteneur supplementaire se
+# paie ; une extension ne coute que sa taille sur disque. Et les vecteurs
+# vivent a cote des donnees du projet : meme transaction, meme sauvegarde.
+
+def _dockerfile_postgres():
+    racine = os.path.dirname(DOSSIER_PANNEAU or "")
+    chemin = os.path.join(racine, "postgres", "Dockerfile")
+    if not os.path.exists(chemin):
+        pytest.skip("Dockerfile postgres absent de cette image")
+    return open(chemin, encoding="utf-8").read()
+
+
+def test_l_image_postgres_embarque_pgvector():
+    """L'extension est dans l'image, et sa version suit celle du serveur.
+
+    Le paquet PGDG se nomme postgresql-<majeure>-<extension> : une montee de
+    Postgres qui oublierait ce numero installerait l'extension d'une autre
+    majeure, ou rien du tout.
+    """
+    source = _dockerfile_postgres()
+    majeures = re.findall(r"^FROM postgres:(\d+)", source, re.M)
+    assert majeures, "la version de Postgres ne se lit plus dans le Dockerfile"
+    majeure = majeures[0]
+    assert f"postgresql-{majeure}-pgvector" in source, (
+        f"l'image est basee sur postgres:{majeure} mais n'installe pas "
+        f"postgresql-{majeure}-pgvector")
+    # Les listes apt ne restent pas dans l'image.
+    assert "rm -rf /var/lib/apt/lists/*" in source
+
+
+def test_chaque_base_de_projet_recoit_l_extension():
+    """« Aucune configuration manuelle apres l'installation » vaut aussi ici.
+
+    L'extension est creee a cote du schema du projet, dans la meme boucle :
+    une base creee plus tard la recoit au demarrage suivant, sans que
+    personne ait a y penser.
+    """
+    script = _entrypoint_postgres()
+    assert "CREATE EXTENSION IF NOT EXISTS vector" in script
+    # Dans « public » et non dans le schema du projet : une extension posee
+    # dans un schema supprimable disparait avec lui.
+    assert "SCHEMA public" in script
+    # Et l'echec se lit dans les journaux au demarrage, au lieu de se
+    # decouvrir au premier CREATE TABLE.
+    assert "pgvector indisponible" in script
+
+
+def test_l_extension_est_creee_dans_la_meme_boucle_que_le_schema():
+    """Sinon une base creee apres coup n'aurait que la moitie de sa mise en place."""
+    script = _entrypoint_postgres()
+    debut = script.find("for db in $CODELAB_PROJECT_DBS; do")
+    assert debut != -1, "la boucle de provisionnement a change de forme"
+    fin = script.find("\n  done", debut)
+    boucle = script[debut:fin]
+    assert "CREATE SCHEMA IF NOT EXISTS" in boucle
+    assert "CREATE EXTENSION IF NOT EXISTS vector" in boucle, (
+        "l'extension est creee hors de la boucle des bases de projet")

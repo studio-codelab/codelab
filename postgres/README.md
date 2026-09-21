@@ -223,10 +223,43 @@ panne de disque. Le dossier entier se copie d'un seul geste :
 rsync -a --delete /DATA/AppData/codelab/sauvegardes/ ailleurs:/sauvegardes-codelab/
 ```
 
+## pgvector
+
+L'extension `vector` est installee dans l'image et **creee dans chaque base de projet** au demarrage,
+dans le schema `public`. Rien a configurer : le type `vector` et ses index sont utilisables tels
+quels depuis un projet.
+
+```sql
+CREATE TABLE documents (
+    id     bigserial PRIMARY KEY,
+    texte  text,
+    plonge vector(1536)
+);
+
+CREATE INDEX ON documents USING hnsw (plonge vector_cosine_ops);
+
+SELECT texte FROM documents ORDER BY plonge <=> $1 LIMIT 5;
+```
+
+**Pourquoi une extension plutot qu'un service.** Une base vectorielle dediee — Pinecone, Qdrant,
+Chroma — ajouterait un conteneur, une sauvegarde de plus, et une seconde source de verite a garder
+synchronisee. Ici les vecteurs vivent a cote des donnees du projet : meme transaction, meme
+sauvegarde, meme `pg_dump`. Sur une machine de 4 Go, c'est aussi un conteneur qu'on ne paie pas.
+
+Le schema `public` et non celui du projet : une extension posee dans un schema supprimable
+disparaitrait avec lui. `public` est dans le `search_path` de toutes les bases, donc le type se
+nomme sans prefixe.
+
+Une sonde du diagnostic distingue **paquet absent de l'image** (reconstruire) et **extension non
+creee dans cette base** (`CREATE EXTENSION vector`) — deux pannes qui ne se reparent pas pareil.
+Elle est classee en alerte et non en echec : une installation qui ne fait aucune recherche
+vectorielle tourne parfaitement sans.
+
 ## Monter de version
 
 Changer le tag `FROM` dans `postgres/Dockerfile`, puis pousser un tag Git — les quatre images sortent
-ensemble. **Attention** : un saut de version majeure demande une migration du repertoire de donnees
+ensemble. **Penser au paquet `postgresql-<majeure>-pgvector`**, dont le nom porte la version du
+serveur : un test le verifie, et le build echoue si les deux divergent. **Attention** : un saut de version majeure demande une migration du repertoire de donnees
 (`pg_upgrade` ou dump/restore). Ce n'est pas un simple changement de tag, et un demarrage sur un repertoire
 d'une version anterieure echoue avec un message explicite dans les logs.
 

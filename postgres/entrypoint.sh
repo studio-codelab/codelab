@@ -309,6 +309,19 @@ CREATE SCHEMA IF NOT EXISTS "$CODELAB_PROJECT_SCHEMA";
 ALTER ROLE "$POSTGRES_USER" IN DATABASE "$db"
   SET search_path TO "$CODELAB_PROJECT_SCHEMA", public;
 SQL
+    # pgvector, dans le schema « public » et non dans celui du projet : une
+    # extension posee dans un schema qui peut etre supprime disparait avec
+    # lui. public est dans le search_path de toutes les bases, donc le type
+    # « vector » se nomme sans prefixe depuis le code du projet.
+    #
+    # Separe du bloc ci-dessus, et sans "|| true" partage : si l'extension
+    # manque dans l'image, on veut le lire dans les journaux au demarrage,
+    # pas le decouvrir au premier CREATE TABLE.
+    if ! psql -U "$POSTGRES_USER" -d "$db" >/dev/null 2>&1 \
+         -c 'CREATE EXTENSION IF NOT EXISTS vector SCHEMA public'; then
+      echo "[codelab-postgres] pgvector indisponible pour \"$db\" :" \
+           "le type vector ne sera pas utilisable." >&2
+    fi
   done
 
   # La base du service LLM et SON role, proprietaire de cette base et de
