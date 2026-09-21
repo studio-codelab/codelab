@@ -10490,6 +10490,37 @@ RAM_CIBLE_MO = 4096
 COEURS_CIBLE = 2
 
 
+# 128 Mo : le plancher constate en production, pas un chiffre choisi.
+PLANCHER_PROXY_MO = 128
+
+
+def test_le_plafond_du_proxy_ne_redescend_pas_sous_son_plancher():
+    """Un plafond trop BAS casse le demarrage, et pas seulement la marche.
+
+    Vecu : le plafond du proxy Dagster est passe de 128 a 96 Mo par souci
+    d'economie, et Docker a refuse de creer le conteneur -- « Minimum memory
+    limit can not be less than memory reservation limit ». Ce message ne
+    sort que si une RESERVATION memoire superieure au plafond est appliquee
+    au conteneur, et il n'y en a aucune dans nos deux fichiers : elle vient
+    de l'hote ou de l'interface qui gere l'application.
+
+    Toute la stack s'arretait la, sur 32 Mo economises.
+
+    Les tests voisins tiennent le PLAFOND -- qu'aucun service ne prenne trop.
+    Celui-ci tient le PLANCHER, qui est l'autre facon de se tromper, et dont
+    rien ne protegeait. Tant qu'on ne sait pas qui pose cette reservation ni
+    a quelle valeur, le plancher reste celui qui marche.
+    """
+    for chemin in _composes():
+        reglages = _services_du_compose(chemin)["codelab-dagster-proxy"]
+        brut = str(reglages.get("mem_limit", reglages.get("deploy_memory")))
+        mo = int(brut[:-1]) * 1024 if brut.endswith("g") else int(brut.rstrip("m"))
+        assert mo >= PLANCHER_PROXY_MO, (
+            f"{os.path.basename(chemin)} : le proxy Dagster est plafonne a "
+            f"{mo} Mo, sous le plancher de {PLANCHER_PROXY_MO} Mo qui le fait "
+            f"demarrer")
+
+
 def test_aucun_plafond_ne_depasse_la_machine_visee():
     """Un plafond au-dessus de la RAM disponible n'est pas une securite large.
 
