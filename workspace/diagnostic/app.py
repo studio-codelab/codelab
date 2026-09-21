@@ -728,11 +728,19 @@ def _rubrique(cle, titre, description, resultats, extra=""):
     coup d'oeil laquelle demande un geste maintenant, et laquelle attend
     qu'on passe.
     """
-    total = len(resultats)
-    passees = sum(1 for etat, _, _ in resultats if etat is checks.Etat.OK)
+    # Le denominateur ecarte les sondes SANS OBJET, comme l'anneau du
+    # cockpit : « 5 sur 11 » sur une installation ou tout va bien, parce que
+    # six sondes ne s'appliquent pas ici, est un chiffre qui inquiete pour
+    # rien. Les deux comptes doivent raconter la meme chose.
+    applicables = [e for e, _, _ in resultats if e is not checks.Etat.SANS_OBJET]
+    total = len(applicables)
+    passees = sum(1 for etat in applicables if etat is checks.Etat.OK)
     rang = checks.pire(resultats).classe
+    # Une rubrique entierement sans objet ne montre pas « 0 sur 0 » : elle
+    # le dit avec des mots.
     pastille = (f'<span class="pastille {rang}">'
-                f'{passees} sur {total}</span>')
+                + (f'{passees} sur {total}' if total else 'sans objet')
+                + '</span>')
     bouton = (f'<button class="btn btn-simple btn-sm" data-verifier="{esc(cle)}">'
               f'Vérifier</button>')
     large = " large" if extra else ""
@@ -819,7 +827,14 @@ def index(ouvrir_verification=False):
         checks.Etat.ALERTE if (alertes or not dagster_a_ecrit) else checks.Etat.OK)
 
     if critiques or erreur_db:
-        combien = len(critiques) + (1 if erreur_db else 0)
+        # Le titre compte les SONDES en echec, ni plus ni moins : c'est le
+        # meme nombre que la pastille « erreurs » a cote, et que la somme des
+        # rubriques. L'erreur d'ecriture en base, quand il y en a une, est
+        # DEJA portee par la sonde Postgres -- l'ajouter au compte annoncait
+        # « 8 verifications en echec » au-dessus d'une pastille qui en
+        # montrait sept, et le premier reflexe est alors de chercher la
+        # huitieme.
+        combien = len(critiques) or 1
         titre = (f'{combien} vérification{"s" if combien > 1 else ""} en échec')
         phrase = ('À traiter maintenant. La rubrique en cause porte sa couleur '
                   'ci-dessous&nbsp;: ' + (f'<b>{esc(", ".join(critiques))}</b>.'

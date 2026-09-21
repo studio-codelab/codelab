@@ -3325,7 +3325,11 @@ function peindreHub(){
 
 /* ---------------- vue d'ensemble ---------------- */
 function barChart(list, key, unit, maxHint){
-  const items=list.filter(a=>a.running);
+  /* Les services externes sont ecartes : le panneau ne les lance pas, donc
+     il n'a pas leur pid et ne mesure RIEN. Une barre a 0.0 % a cote des
+     applications qu'il mesure vraiment se lit comme « ce service ne
+     consomme rien », ce qui est faux -- on ne sait pas. */
+  const items=list.filter(a=>a.running && !a.externe);
   if(!items.length) return '<div class="chart-empty">Aucune application en ligne pour le moment.</div>';
   const max=Math.max(maxHint, ...items.map(a=>a[key]||0));
   return items.map(a=>{
@@ -5611,6 +5615,32 @@ if(estAdmin) document.querySelectorAll('#param-onglets button[data-admin]')
 
 const visible = id => $(id).style.display!=='none';
 
+/* UN ONGLET EN ARRIERE-PLAN NE DOIT RIEN DEMANDER.
+   Les minuteries du panneau interrogeaient le serveur toutes les cinq, dix
+   et vingt secondes, que la page soit regardee ou non : un onglet oublie
+   derriere une autre fenetre faisait travailler la machine indefiniment, et
+   « Applications » mesure la charge de chaque processus a chaque tour.
+   Ce relais coupe tout quand l'onglet passe en arriere-plan, et rejoue
+   immediatement au retour -- c'est ce retour immediat qui permet de couper
+   sans rien perdre : la page est a jour avant meme d'etre relue. */
+const _minuteries = [];
+function surveiller(fn, delai){
+  const t = {fn: fn, delai: delai, id: null};
+  _minuteries.push(t);
+  if(!document.hidden) t.id = setInterval(fn, delai);
+  return t;
+}
+document.addEventListener('visibilitychange', ()=>{
+  _minuteries.forEach(t=>{
+    if(document.hidden){
+      clearInterval(t.id); t.id = null;
+    }else if(t.id === null){
+      t.fn();
+      t.id = setInterval(t.fn, t.delai);
+    }
+  });
+});
+
 if(estAdmin){
   /* « Hub » cote administrateur : il y voit TOUTES les applications, pas
      seulement les siennes -- le titre « Mes applications » serait faux. */
@@ -5620,13 +5650,13 @@ if(estAdmin){
   refresh();
   chargerUtilisateurs();
   chargerAdressePublique();
-  setInterval(()=>{ if(visible('sec-overview')||visible('sec-apps')||visible('sec-app')) refresh(); }, 5000);
+  surveiller(()=>{ if(visible('sec-overview')||visible('sec-apps')||visible('sec-app')) refresh(); }, 5000);
   /* Les messages arrivent quand ils arrivent : on les guette depuis
      n'importe quelle page du panneau, pas seulement depuis la leur. */
   chargerMessages();
-  setInterval(guetterMessages, 20000);
+  surveiller(guetterMessages, 20000);
   /* Les metriques de la fiche ne se rafraichissent que lorsqu'on les regarde. */
-  setInterval(()=>{
+  surveiller(()=>{
     if(ficheNom && ficheOngletActif==='metriques' && visible('sec-app')) chargerMetriques(ficheNom);
   }, 5000);
 }else{
@@ -5638,12 +5668,11 @@ if(estAdmin){
   $('profil-securite').style.display='none';
   $('sidebar').style.display='none';
   $('btn-menu').style.display='none';
-  $('profil-securite').style.display='none';
 }
 /* Le hub est l'accueil de tout le monde. Laisse ouvert il reste juste : les
    etats changent tout seuls quand une application tombe ou repart. */
 showSection('hub');
-setInterval(()=>{ if(visible('sec-hub')) chargerHub(); }, 10000);
+surveiller(()=>{ if(visible('sec-hub')) chargerHub(); }, 10000);
 
 </script>
 </body></html>

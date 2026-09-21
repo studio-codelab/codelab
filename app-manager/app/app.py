@@ -761,7 +761,20 @@ def origine_applications():
 # avec les autres, et elle mene au port 3000.
 DAGSTER_NOM = "dagster"
 DIAGNOSTIC_NOM = "diagnostic"
-AICHAT_NOM = "aichat"
+
+# L'interface de chat. C'est un SERVICE de la stack, comme Dagster : elle a
+# son conteneur, son port et son portier nginx, et le panneau ne la demarre
+# pas. Elle a remplace une application maison de 140 lignes -- ecrire et
+# maintenir une interface de chat (conversations, markdown, blocs de code,
+# pieces jointes, reprise d'historique) n'est pas le travail de CodeLab.
+# « chat » et non « open-webui » : le nom de la tuile est ce que l'utilisateur
+# lit dans le hub, et le nom du produit qui la sert ne le regarde pas. C'est
+# aussi ce qui permet d'en changer un jour sans renommer une tuile sous les
+# yeux de tout le monde.
+OPENWEBUI_NOM = "chat"
+OPENWEBUI_PORT = int(os.environ.get("APP_MANAGER_OPENWEBUI_PORT", "3001") or 3001)
+OPENWEBUI_HOTE_INTERNE = (os.environ.get("APP_MANAGER_OPENWEBUI_HOTE")
+                          or "codelab-open-webui-proxy")
 
 # LES APPLICATIONS PAR DEFAUT : celles que CodeLab apporte avec lui.
 #
@@ -832,30 +845,46 @@ def origine_dagster():
     return f"{request.scheme}://{hote}:{DAGSTER_PORT}/"
 
 
-_dagster_sonde = {"quand": 0.0, "ouvert": False}
+_sondes_de_port = {}
 
 
-def dagster_repond():
-    """Le port de Dagster est-il ouvert ? Reponse mise en cache 10 s.
+def _port_repond(hote, port):
+    """Ce port est-il ouvert ? Reponse mise en cache 10 s.
 
     Le hub se rafraichit toutes les dix secondes : sans ce cache, chaque
     passage ouvrirait une connexion de plus, pour une reponse qui ne change
     pas d'une seconde a l'autre.
     """
+    cle = (hote, port)
+    sonde = _sondes_de_port.setdefault(cle, {"quand": 0.0, "ouvert": False})
     maintenant = time.time()
-    if maintenant - _dagster_sonde["quand"] < 10:
-        return _dagster_sonde["ouvert"]
+    if maintenant - sonde["quand"] < 10:
+        return sonde["ouvert"]
     ouvert = False
     s = socket.socket()
     s.settimeout(1.0)
     try:
-        ouvert = s.connect_ex((DAGSTER_HOTE_INTERNE, DAGSTER_PORT)) == 0
+        ouvert = s.connect_ex((hote, port)) == 0
     except OSError:
         ouvert = False
     finally:
         s.close()
-    _dagster_sonde.update(quand=maintenant, ouvert=ouvert)
+    sonde.update(quand=maintenant, ouvert=ouvert)
     return ouvert
+
+
+def dagster_repond():
+    return _port_repond(DAGSTER_HOTE_INTERNE, DAGSTER_PORT)
+
+
+def openwebui_repond():
+    """Meme question pour l'interface de chat.
+
+    Le profil « llm » est optionnel : sans lui, le conteneur n'existe pas.
+    Annoncer la tuile « en ligne » quand rien n'ecoute donne un lien mort, et
+    un lien mort dans un hub se lit comme une panne du hub.
+    """
+    return _port_repond(OPENWEBUI_HOTE_INTERNE, OPENWEBUI_PORT)
 
 
 # ------------------- ce que le panneau sait de Dagster -------------------
@@ -931,21 +960,72 @@ def journal_du_service(nom, ligne):
         pass        # journaliser n'est pas le travail : voir journaliser()
 
 
+def _tuile_de_service(nom, description, adresse, port, repond=True, categorie=""):
+    """Une tuile de hub pour un service que le panneau ne lance pas.
+
+    Les memes cles que les autres lignes, avec des valeurs vides la ou elles
+    n'ont pas de sens : la page lit ces champs sans se demander a chaque fois
+    si elle a affaire a un service. Un « undefined » dans une fiche est un
+    defaut d'affichage de plus a prevoir, et il finit toujours par passer.
+    """
+    return {
+        "name": nom, "description": description, "categorie": categorie,
+        "running": repond, "listening": repond,
+        "visibility": VISIBILITE_PRIVEE,
+        # Ce qui la distingue d'une application : elle a sa propre adresse,
+        # et le panneau ne la demarre ni ne l'arrete.
+        "externe": True, "par_defaut": True, "url": adresse,
+        "path": "", "command": "", "port": port,
+        "port_listeners": _ecouteurs_port(port),
+        "failed": False, "crash_looping": False, "has_build": False,
+        "build_command": "", "max_memory_mb": None, "alertes": [],
+        "cpu_percent": 0.0, "memory_mb": 0.0,
+    }
+
+
+def origine_openwebui():
+    """L'adresse de l'interface de chat, vue depuis le navigateur.
+
+    Meme construction que l'origine des applications : le nom d'hote par
+    lequel on est arrive, et le port du portier. Sans nom d'hote exploitable,
+    pas de tuile -- mieux vaut pas de lien qu'un lien mort.
+    """
+    declaree = (os.environ.get("APP_MANAGER_OPENWEBUI_URL") or "").rstrip("/")
+    if declaree:
+        return declaree
+    hote = hote_demande()
+    return f"{request.scheme}://{hote}:{OPENWEBUI_PORT}" if hote else ""
+
+
 def services_du_hub():
     """Les tuiles du hub qui ne sont pas des applications declarees.
 
-    RESERVEES A L'ADMINISTRATEUR, et ce n'est pas une politesse : l'interface
-    de Dagster permet de lancer des jobs, donc d'executer du code sur cette
-    machine. Le proxy le refuse deja a un compte utilisateur (voir
+    Dagster est RESERVE A L'ADMINISTRATEUR, et ce n'est pas une politesse :
+    son interface permet de lancer des jobs, donc d'executer du code sur
+    cette machine. Le proxy le refuse deja a un compte utilisateur (voir
     /api/auth-check) -- lui montrer une tuile qui le renverrait a la page de
     connexion serait promettre une porte qui ne s'ouvre pas.
+
+    L'interface de chat, elle, s'ouvre a TOUT COMPTE CONNECTE : c'est un
+    outil qu'on partage, et le reserver a l'administrateur reviendrait a ne
+    jamais le partager. Son portier applique la meme regle
+    (/api/sso-check).
     """
+    services = []
+    if is_authed():
+        adresse = origine_openwebui()
+        if adresse:
+            services.append(_tuile_de_service(
+                OPENWEBUI_NOM,
+                "Chat avec les modèles, conversations gardées et reprises.",
+                adresse, OPENWEBUI_PORT, repond=openwebui_repond(),
+                categorie="Outils"))
     if not est_admin():
-        return []
+        return services
     adresse = origine_dagster()
     if not adresse:
-        return []
-    return [{
+        return services
+    return services + [{
         "name": DAGSTER_NOM,
         "description": "Orchestration des jobs : plannings, assets, "
                        "exécutions et journaux.",
@@ -2882,7 +2962,7 @@ def peut_voir(name):
     """
     if est_app_par_defaut(name):
         return est_admin()
-    if name == AICHAT_NOM:
+    if name == OPENWEBUI_NOM:
         return is_authed()
     autorises = projets_autorises()
     return autorises is None or name in autorises
@@ -7059,6 +7139,37 @@ def api_auth_check():
     return Response("", 204)
 
 
+@flask_app.get("/api/sso-check")
+def api_sso_check():
+    """Le meme point d'appui, pour Open WebUI : qui est-ce ?
+
+    Deux differences avec /api/auth-check, et chacune a sa raison :
+
+      - TOUT COMPTE CONNECTE passe. Dagster execute du code sur la machine,
+        donc reste a l'administrateur ; une interface de chat, non -- c'est
+        un outil qu'on partage, et le reserver a l'administrateur reviendrait
+        a ne jamais le partager.
+
+      - La reponse PORTE L'IDENTITE, en en-tetes. nginx les relit et les
+        repose lui-meme vers Open WebUI, en ecrasant ceux du navigateur :
+        c'est ce qui fait qu'une identite ne peut pas s'inventer depuis le
+        client.
+    """
+    if not is_authed():
+        return Response("", 401)
+    nom = utilisateur_courant() or ""
+    compte = None if est_admin() else lire_utilisateurs().get(nom)
+    # Open WebUI identifie un compte par son adresse mail. Sans adresse
+    # declaree, on en fabrique une, stable et interne : elle n'est jamais
+    # envoyee nulle part, elle sert de cle primaire a l'interface.
+    email = (compte or {}).get("email") or f"{nom}@codelab.local"
+    reponse = Response("", 204)
+    reponse.headers["X-CodeLab-User"] = nom
+    reponse.headers["X-CodeLab-Email"] = email
+    reponse.headers["X-CodeLab-Role"] = role_courant() or ""
+    return reponse
+
+
 @flask_app.get("/health")
 def health():
     return Response("ok\n", mimetype="text/plain")
@@ -7849,17 +7960,26 @@ ICONE_DIAGNOSTIC = (
     'stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>'
     '</svg>')
 
-ICONE_AICHAT = (
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
-    '<rect width="64" height="64" rx="16" fill="#0e7c86"/>'
-    '<path d="M16 18h32a6 6 0 0 1 6 6v17a6 6 0 0 1-6 6H30l-10 7v-7h-4a6 6 0 0 1-6-6V24a6 6 0 0 1 6-6Z" fill="none" stroke="#fff" stroke-width="4"/>'
-    '<circle cx="24" cy="32" r="2.5" fill="#fff"/><circle cx="32" cy="32" r="2.5" fill="#fff"/><circle cx="40" cy="32" r="2.5" fill="#fff"/>'
+# L'interface de chat : une bulle, et trois points -- ce qu'on reconnait
+# sans legende. Dessinee ici et pas reprise d'Open WebUI : la tuile doit
+# ressembler aux autres tuiles de CodeLab, pas a un logo invite.
+ICONE_OPENWEBUI = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" '
+    'aria-label="Chat">'
+    # PAS de rectangle de fond : les icones du hub se posent sur la tuile,
+    # pas dans une pastille. Une seule icone avec un fond plein se voyait
+    # comme une piece rapportee a cote de celle de Dagster.
+    '<path d="M10 11h28a5 5 0 0 1 5 5v14a5 5 0 0 1-5 5H23l-9 6v-6h-4a5 5 0 0 1-5-5V16a5 5 0 0 1 5-5Z" '
+    'fill="none" stroke="#0e7c86" stroke-width="3" stroke-linejoin="round"/>'
+    '<circle cx="17" cy="23" r="2.2" fill="#0e7c86"/>'
+    '<circle cx="24" cy="23" r="2.2" fill="#0e7c86"/>'
+    '<circle cx="31" cy="23" r="2.2" fill="#0e7c86"/>'
     '</svg>')
 
 ICONES_PAR_DEFAUT = {
     DAGSTER_NOM: ICONE_DAGSTER,
     DIAGNOSTIC_NOM: ICONE_DIAGNOSTIC,
-    AICHAT_NOM: ICONE_AICHAT,
+    OPENWEBUI_NOM: ICONE_OPENWEBUI,
 }
 
 
@@ -8668,56 +8788,33 @@ DIAGNOSTIC_MARQUEUR = os.path.join(STATE_DIR, "diagnostic-inscrit")
 # pas), et l'application demarrerait sans pilote Postgres.
 DIAGNOSTIC_COMMANDE = "python3 app.py"
 DIAGNOSTIC_BUILD = 'pip install --target vendor "psycopg[binary]"'
-AICHAT_MARQUEUR = os.path.join(STATE_DIR, "aichat-inscrit")
-AICHAT_COMMANDE = "python3 app.py"
+# L'ANCIENNE APPLICATION AICHAT. Elle etait inscrite ici, copiee dans
+# /workspace et lancee par le panneau. Elle a ete remplacee par Open WebUI,
+# qui est un SERVICE de la stack : plus rien a inscrire, plus rien a copier,
+# plus de port a attribuer. Les installations qui la portent encore la voient
+# retiree du registre au demarrage -- voir retirer_aichat().
+AICHAT_ANCIEN_NOM = "aichat"
 
 
-def _poser_marqueur_aichat():
-    try:
-        with open(AICHAT_MARQUEUR, "w") as f:
-            f.write("1\n")
-    except OSError:
-        pass
+def retirer_aichat():
+    """Retire l'ancienne application AIChat du registre, une fois.
 
-
-def amorcer_aichat():
-    """Inscrit AIChat une fois, y compris sur un workspace déjà initialisé."""
-    if os.path.exists(AICHAT_MARQUEUR):
-        return None
+    Le dossier /workspace/aichat, lui, n'est PAS touche : c'est du code, il
+    appartient a l'utilisateur, et le supprimer serait une perte de donnees
+    silencieuse. Seule l'inscription disparait -- la tuile pointait vers une
+    application qui ne peut plus rien faire.
+    """
     apps = load()
-    chemin = os.path.join(ROOT, AICHAT_NOM)
-    if not os.path.isfile(os.path.join(chemin, "app.py")):
-        source = os.path.join("/opt/codelab", "aichat.default")
-        if not os.path.isfile(os.path.join(source, "app.py")):
-            return None
-        try:
-            if os.path.exists(chemin):
-                return None
-            shutil.copytree(source, chemin)
-            try:
-                os.chown(chemin, 1001, 2000)
-                for racine, dossiers, fichiers in os.walk(chemin):
-                    for nom in dossiers + fichiers:
-                        try:
-                            os.chown(os.path.join(racine, nom), 1001, 2000)
-                        except OSError:
-                            pass
-            except OSError:
-                pass
-        except OSError:
-            return None
-    if AICHAT_NOM in apps:
-        _poser_marqueur_aichat()
+    if AICHAT_ANCIEN_NOM not in apps:
         return None
-    apps[AICHAT_NOM] = {
-        "path": chemin, "command": AICHAT_COMMANDE, "port": next_port(apps),
-        "enabled": True, "build_command": "", "max_memory_mb": 384,
-        "visibility": "privee", "description": "Chat CodeLab pour utiliser les modèles LiteLLM.",
-        "categorie": "Outils", "alertes": "",
-    }
+    stop(AICHAT_ANCIEN_NOM)
+    apps = load()
+    apps.pop(AICHAT_ANCIEN_NOM, None)
     save(apps)
-    _poser_marqueur_aichat()
-    return AICHAT_NOM
+    print("[app-manager] AIChat retire du registre : l'interface de chat est "
+          "desormais Open WebUI (port 3001). Le dossier /workspace/aichat "
+          "n'a pas ete touche.", flush=True)
+    return AICHAT_ANCIEN_NOM
 
 
 def amorcer_diagnostic():
@@ -8895,8 +8992,7 @@ if __name__ == "__main__":
     # nouvelle sur un port occupe -- sans que personne ne comprenne pourquoi.
     adopter_processus_survivants()
     resume()
-    if amorcer_aichat():
-        print("[app-manager] AIChat inscrit.", flush=True)
+    retirer_aichat()
     if inscrit:
         threading.Thread(target=_preparer_diagnostic, args=(inscrit,),
                          daemon=True).start()

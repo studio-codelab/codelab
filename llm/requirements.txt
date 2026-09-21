@@ -1,6 +1,13 @@
-fastapi==0.116.1
-litellm==1.75.3
-litellm==1.75.3
-psycopg[binary]==3.2.9
-uvicorn==0.35.0
+# Epinglees, comme les dependances du panneau : une montee de version est une
+# decision, pas un effet de bord d'une reconstruction d'image.
+#
+# LiteLLM a disparu de cette liste. Elle parlait a cent fournisseurs pour en
+# servir un seul, deja compatible OpenAI, et amenait plus de cent dependances
+# transitives dans une image qui detient une cle d'API. httpx fait le POST,
+# et le code du service fait le reste -- quarante lignes, lisibles.
+fastapi==0.141.1
+uvicorn==0.53.0
+httpx==0.28.1
+psycopg[binary]==3.3.5
+psycopg-pool==3.3.2
 cryptography==50.0.1

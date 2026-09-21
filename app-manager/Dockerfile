@@ -51,8 +51,14 @@ RUN useradd -u 1001 -g 2000 -M -s /usr/sbin/nologin codelab-app
 # aussi, sans dependance sous Linux (colorama est reserve a win32, pillow et
 # pypng sont des extras qu'on n'installe pas). Facultatif cote code : sans
 # lui, la page retombe sur la cle a recopier a la main.
-# webauthn : les cles d'acces (passkeys). Elle apporte "cryptography", et
-# c'est justement la raison de l'utiliser : ecrire soi-meme la verification
+# cryptography : la signature Ed25519 des assertions SSO transmises aux
+# applications. Elle arrivait JUSQU'ICI par la bande, en dependance de
+# webauthn -- retirer les cles d'acces aurait donc eteint le SSO, sans un
+# mot, et sans rapport apparent entre les deux. Une dependance dont on
+# depend se declare.
+#
+# webauthn : les cles d'acces (passkeys). Elle apporte elle aussi
+# "cryptography", et c'est justement la raison de l'utiliser : ecrire soi-meme la verification
 # d'une signature ECDSA et le decodage CBOR d'une attestation, c'est le genre
 # de code ou une erreur discrete ne se voit que de celui qui la cherche.
 # Facultative cote code : sans elle, les cles d'acces sont indisponibles et
@@ -85,16 +91,14 @@ RUN pip install --no-cache-dir \
         qrcode==8.2 \
         webauthn==3.0.0 \
         "psycopg[binary]==3.3.5" \
-        pytest==9.1.1
+        pytest==9.1.1 \
+        cryptography==50.0.1
 
 
 # L'application entiere -- app.py et les deux pages HTML qu'il sert -- vit
 # dans son propre dossier. Une seule ligne a maintenir ici, et le service
 # reste lisible a la racine : Dockerfile, entrypoint, README, tests.
 COPY app-manager/app /opt/codelab/app-manager/app
-# AIChat est une application fournie par CodeLab : elle doit être disponible
-# même quand /workspace existe déjà sur une installation ancienne.
-COPY workspace/aichat /opt/codelab/aichat.default
 # Les modeles de configuration du VPS. L'assistant de liaison y substitue le
 # domaine et les adresses plutot que de regenerer un texte de son cote :
 # une seule source de verite, celle que documente app-manager/vps/README.md.

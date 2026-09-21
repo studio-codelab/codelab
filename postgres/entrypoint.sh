@@ -84,6 +84,23 @@ CODELAB_PROJECT_DBS="${CODELAB_PROJECT_DBS:-diagnostic}"
 # sans toucher aux requetes.
 CODELAB_PROJECT_SCHEMA="${CODELAB_PROJECT_SCHEMA:-dagster}"
 
+# ---------------------- le compte du service LLM ----------------------
+#
+# Un ROLE A LUI, et un mot de passe a lui. Tous les autres services se
+# connectent avec le superutilisateur "codelab" -- c'est deja beaucoup, et
+# c'est un vieux sujet -- mais codelab-llm est celui qui embarque le plus de
+# code tiers et qui parle a l'exterieur. Lui donner le superutilisateur
+# reviendrait a offrir toute la stack au premier paquet compromis.
+#
+# Son mot de passe ne vit pas dans credentials.env : ce fichier porte le mot
+# de passe d'administration du panneau, la cle privee SSO et le mot de passe
+# SMTP, et codelab-llm n'a aucune raison de les voir. Il recoit un dossier a
+# lui, avec le seul secret dont il a besoin.
+CODELAB_LLM_DB="${CODELAB_LLM_DB:-codelab_llm}"
+CODELAB_LLM_USER="${CODELAB_LLM_USER:-codelab_llm}"
+LLM_DIR="$CONFIG_DIR/llm"
+LLM_ENV_FILE="$LLM_DIR/llm.env"
+
 upsert_block "codelab-header" "# credentials.env -- TOUS les identifiants CodeLab, generes et
 # geres automatiquement par les services au demarrage. C'est le seul
 # fichier de secrets : rien n'est stocke ailleurs. Ne pas editer a la
@@ -111,6 +128,50 @@ upsert_block "codelab-dev" "# Pas de mot de passe : l'acces SSH (port 2222) se f
 # host_keys/) -- des fichiers de cles, pas des valeurs a lister ici."
 
 chmod 600 "$ENV_FILE"
+
+# ------------------- le dossier de secrets de codelab-llm -------------------
+#
+# Cree ICI et pas ailleurs, parce que ce conteneur demarre le premier (tous
+# les autres ont depends_on: service_healthy). Un DOSSIER monte, pas un
+# fichier : Docker cree un dossier vide a la place d'un fichier absent, et la
+# stack partirait avec un "llm.env/" que personne ne saurait lire.
+# Le mot de passe ne se lit QUE dans llm.env : le mettre aussi dans
+# credentials.env annulerait la separation qu'on vient d'etablir.
+LLM_PASSWORD=""
+if [ -s "$LLM_ENV_FILE" ]; then
+  LLM_PASSWORD="$(sed -n 's/^POSTGRES_PASSWORD=//p' "$LLM_ENV_FILE" | tail -n 1)"
+fi
+if [ -z "$LLM_PASSWORD" ]; then
+  LLM_PASSWORD="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+fi
+mkdir -p "$LLM_DIR"
+chmod 700 "$LLM_DIR"
+
+# La cle du fournisseur : elle arrive par l'environnement du compose (fichier
+# .env de l'hote) ou reste celle deja posee ici. Jamais copiee depuis
+# credentials.env -- l'interet du dossier serait perdu.
+LLM_PROVIDER_KEY="${OPENROUTER_API_KEY:-}"
+if [ -z "$LLM_PROVIDER_KEY" ] && [ -s "$LLM_ENV_FILE" ]; then
+  LLM_PROVIDER_KEY="$(sed -n 's/^OPENROUTER_API_KEY=//p' "$LLM_ENV_FILE" | tail -n 1)"
+fi
+
+cat > "$LLM_ENV_FILE.new" <<LLMENV
+# llm.env -- les secrets de codelab-llm, et rien d'autre.
+#
+# Ecrit par codelab-postgres au demarrage. codelab-llm monte CE dossier,
+# pas celui de credentials.env : il n'a ainsi jamais sous les yeux le mot de
+# passe d'administration du panneau, la cle privee SSO ni le mot de passe
+# SMTP. Mettre la cle du fournisseur dans le .env de l'hote
+# (OPENROUTER_API_KEY) ou directement ici.
+POSTGRES_HOST=codelab-postgres
+POSTGRES_PORT=5432
+POSTGRES_USER=$CODELAB_LLM_USER
+POSTGRES_PASSWORD=$LLM_PASSWORD
+POSTGRES_DB=$CODELAB_LLM_DB
+OPENROUTER_API_KEY=$LLM_PROVIDER_KEY
+LLMENV
+mv "$LLM_ENV_FILE.new" "$LLM_ENV_FILE"
+chmod 600 "$LLM_ENV_FILE"
 
 # Migration terminee et ecrite : l'ancien fichier n'a plus de raison
 # d'exister. Supprime seulement apres coup, jamais avant.
@@ -250,6 +311,23 @@ ALTER ROLE "$POSTGRES_USER" IN DATABASE "$db"
 SQL
   done
 
+  # La base du service LLM et SON role, proprietaire de cette base et de
+  # rien d'autre. CREATE ROLE n'accepte pas IF NOT EXISTS : on regarde
+  # d'abord, et on repose le mot de passe a chaque demarrage -- c'est ce qui
+  # permet de le regenerer en effacant simplement le dossier llm/.
+  if [ "$(psql -U "$POSTGRES_USER" -d "$CODELAB_INSTANCE_DB" -tAc \
+          "SELECT 1 FROM pg_roles WHERE rolname='$CODELAB_LLM_USER'")" != "1" ]; then
+    psql -U "$POSTGRES_USER" -d "$CODELAB_INSTANCE_DB" >/dev/null \
+      -c "CREATE ROLE \"$CODELAB_LLM_USER\" LOGIN" && \
+      echo "[codelab-postgres] role \"$CODELAB_LLM_USER\" cree."
+  fi
+  psql -U "$POSTGRES_USER" -d "$CODELAB_INSTANCE_DB" >/dev/null 2>&1 \
+    -c "ALTER ROLE \"$CODELAB_LLM_USER\" WITH PASSWORD '$LLM_PASSWORD'" || true
+  if create_db_if_missing "$CODELAB_LLM_DB"; then
+    psql -U "$POSTGRES_USER" -d "$CODELAB_INSTANCE_DB" >/dev/null 2>&1 \
+      -c "ALTER DATABASE \"$CODELAB_LLM_DB\" OWNER TO \"$CODELAB_LLM_USER\"" || true
+  fi
+
   # En dernier : les bases de la stack existent, plus rien n'a besoin de la
   # base livree par initdb.
   drop_maintenance_db
@@ -327,7 +405,14 @@ sauvegardes_periodiques() {
     # On attend que le serveur reponde avant le premier tour : au demarrage
     # de la stack, il ne repond pas encore.
     if pg_isready -q -U "$POSTGRES_USER" 2>/dev/null; then
-      bases=$(psql -U "$POSTGRES_USER" -d postgres -Atc \
+      # -d "$CODELAB_INSTANCE_DB" et non -d postgres : la base de
+      # maintenance est justement SUPPRIMEE par drop_maintenance_db plus
+      # haut. La requete echouait donc, l'erreur partait dans /dev/null,
+      # la liste revenait vide -- et la boucle annoncait fierement
+      # « sauvegarde : 0 base(s) ecrite(s) » a chaque tour. Une
+      # sauvegarde qui ne sauvegarde rien sans le dire est pire que pas
+      # de sauvegarde du tout.
+      bases=$(psql -U "$POSTGRES_USER" -d "$CODELAB_INSTANCE_DB" -Atc \
         "SELECT datname FROM pg_database
           WHERE NOT datistemplate AND datallowconn ORDER BY datname" 2>/dev/null)
       faites=0
