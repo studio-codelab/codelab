@@ -11768,3 +11768,113 @@ def _reseaux_du_compose(chemin):
         elif courant and dans_reseaux and ligne.strip().startswith("- "):
             par_service[courant].append(ligne.strip()[2:].strip())
     return par_service
+
+
+# ---------- 36. ce que l'agent de developpement ne peut pas atteindre -----
+#
+# codelab-dev porte un agent qui execute des commandes sans qu'on relise
+# chacune. Ce qui l'empeche de sortir de son perimetre ne tient PAS a ses
+# consignes -- AGENTS.md est lu par un modele, pas applique par le noyau --
+# mais a trois faits, verifies ici :
+#
+#   1. la session SSH tourne en « vscode », qui n'appartient a aucun groupe
+#      d'administration ;
+#   2. aucune regle sudoers ne lui est deposee, donc « sudo » reste installe
+#      mais hors de portee depuis une session ;
+#   3. credentials.env -- mot de passe d'administration du panneau, cle
+#      privee SSO, mot de passe SMTP -- est monte en lecture seule et reste
+#      en 0600 root, donc illisible par « vscode ».
+#
+# Ces trois faits tiennent aujourd'hui par ABSENCE : personne n'a ajoute la
+# ligne qui les romprait. Un « usermod -aG sudo vscode » glisse un jour pour
+# installer un paquet ouvrirait credentials.env a l'agent, sans que rien ne
+# le signale. C'est exactement ce qu'un test doit retenir.
+
+def _dockerfile_dev():
+    chemin = os.path.join(_racine_depot(), "dev", "Dockerfile")
+    if not os.path.exists(chemin):
+        pytest.skip("depot complet absent de cette image")
+    return open(chemin, encoding="utf-8").read()
+
+
+def _entrypoint_dev():
+    chemin = os.path.join(_racine_depot(), "dev", "entrypoint.sh")
+    if not os.path.exists(chemin):
+        pytest.skip("depot complet absent de cette image")
+    return open(chemin, encoding="utf-8").read()
+
+
+def test_l_utilisateur_des_sessions_n_est_dans_aucun_groupe_d_administration():
+    """« vscode » appartient a « codelab », et a rien d'autre.
+
+    Le groupe codelab donne l'ecriture partagee sur /workspace, et c'est tout
+    ce qu'il donne. Tout autre groupe secondaire -- sudo, admin, wheel, root,
+    docker -- rendrait la machine entiere accessible depuis une session, donc
+    a l'agent qui y tourne.
+    """
+    source = _dockerfile_dev()
+    groupes = re.findall(r"usermod\s+-aG\s+([A-Za-z0-9_,-]+)\s+vscode", source)
+    assert groupes, "aucun usermod -aG pour vscode : le Dockerfile a change de forme"
+    for liste in groupes:
+        assert set(liste.split(",")) == {"codelab"}, (
+            f"vscode ajoute au(x) groupe(s) {liste} : seul « codelab » est prevu")
+    # Et pas par une autre porte : ni creation directe dans un groupe
+    # d'administration, ni ajout par gpasswd/adduser.
+    for interdit in ("-aG sudo", "-aG wheel", "-aG root", "-aG docker",
+                     "gpasswd -a vscode", "adduser vscode sudo"):
+        assert interdit not in source, f"« {interdit} » dans dev/Dockerfile"
+
+
+def test_aucune_regle_sudoers_n_est_deposee_pour_les_sessions():
+    """sudo est installe, et reste inutilisable depuis une session.
+
+    L'image embarque sudo -- un environnement de developpement en a l'usage
+    quand on entre en root par « docker exec ». Ce qui ne doit jamais
+    arriver, c'est qu'une session SSH puisse s'en servir : ni regle dans
+    /etc/sudoers.d, ni NOPASSWD, ni mot de passe pose sur le compte.
+    """
+    for source, nom in ((_dockerfile_dev(), "dev/Dockerfile"),
+                        (_entrypoint_dev(), "dev/entrypoint.sh")):
+        for interdit in ("NOPASSWD", "sudoers", "chpasswd", "passwd vscode"):
+            assert interdit not in source, f"« {interdit} » dans {nom}"
+
+
+def test_le_fichier_de_secrets_est_en_lecture_seule_pour_codelab_dev():
+    """credentials.env n'est pas modifiable depuis le conteneur du shell.
+
+    Trois services le montent en lecture-ecriture parce qu'ils y ecrivent
+    leur propre bloc (postgres, app-manager, dagster-proxy). codelab-dev,
+    lui, ne fait que lire le mot de passe Postgres : un montage accessible en
+    ecriture lui permettrait de reecrire les secrets de la stack.
+    """
+    for chemin in _composes():
+        services = _services_du_compose(chemin)
+        assert "codelab-dev" in services, chemin
+        texte = open(chemin, encoding="utf-8").read()
+        bloc = texte.split("  codelab-dev:", 1)[1].split("\n  codelab-", 1)[0]
+        montages = [l.strip()[2:] for l in bloc.splitlines()
+                    if l.strip().startswith("- /DATA")]
+        config = [m for m in montages if m.endswith(":/var/lib/codelab/config")
+                  or m.endswith(":/var/lib/codelab/config:ro")]
+        assert config, (chemin, montages)
+        for m in config:
+            assert m.endswith(":ro"), (
+                f"{os.path.basename(chemin)} : codelab-dev monte le dossier de "
+                f"secrets en ecriture ({m})")
+
+
+def test_l_entrypoint_du_shell_ne_relache_pas_les_droits_du_fichier_de_secrets():
+    """Personne ne rend credentials.env lisible « pour que ce soit plus simple ».
+
+    Le fichier est ecrit en 0600 root par codelab-postgres. Un chmod ou un
+    chown pose ici le rendrait lisible par vscode -- donc par l'agent -- et
+    la lecture seule du montage n'y changerait rien.
+    """
+    source = _entrypoint_dev()
+    for ligne in source.splitlines():
+        nue = ligne.strip()
+        if nue.startswith("#"):
+            continue
+        if ("chmod" in nue or "chown" in nue or "setfacl" in nue) and "credentials" in nue:
+            raise AssertionError(f"dev/entrypoint.sh touche aux droits du fichier "
+                                 f"de secrets : {nue}")

@@ -25,6 +25,13 @@ RUN apt-get update \
 # different dans deux conteneurs ne donne aucun droit commun sur le bind
 # mount. Ne jamais changer ce numero sans reappliquer les permissions sur un
 # workspace existant (supprimer /workspace/.codelab/permissions-v* suffit).
+#
+# « codelab » est le SEUL groupe secondaire de vscode, et ce n'est pas un
+# oubli. Ce conteneur porte un agent de developpement qui execute des
+# commandes sans qu'on relise chacune : l'ajouter a sudo, wheel ou docker lui
+# donnerait credentials.env -- mot de passe d'administration du panneau, cle
+# privee SSO, mot de passe SMTP -- et, par la, la stack entiere. Un test
+# retient cette ligne (checks.py, section 36).
 RUN groupadd -g 2000 codelab \
     && useradd -m -u 1000 -s /bin/bash vscode \
     && usermod -aG codelab vscode \

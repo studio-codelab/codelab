@@ -256,15 +256,25 @@ services:
 
     # PAS de durcissement ici, et c'est un choix.
     #
-    # Ce conteneur EST le shell : sshd ouvre une session, et "sudo" y est
-    # installe parce qu'un environnement de developpement en a besoin. Or
-    # no-new-privileges casse sudo -- silencieusement, avec un message qui
-    # n'explique rien -- et cap_drop: ALL empeche sshd de faire sa separation
-    # de privileges. On durcirait exactement ce pour quoi ce service existe.
+    # Ce conteneur EST le shell : sshd ouvre une session, et cap_drop: ALL
+    # l'empeche de faire sa separation de privileges. On durcirait exactement
+    # ce pour quoi ce service existe.
     #
-    # Ce qui le protege est ailleurs, et c'est deja en place : aucun mot de
-    # passe (cle publique uniquement), pas de connexion root, et une seule
-    # facon d'autoriser une machine -- deposer sa cle dans
+    # PRECISION, parce que ce commentaire a dit le contraire : le frein n'est
+    # PAS sudo. sudo est bien installe dans l'image, mais l'utilisateur des
+    # sessions ("vscode") n'est dans aucun groupe d'administration et aucune
+    # regle sudoers ne lui est deposee -- il ne peut donc pas s'en servir.
+    # sudo ne sert qu'a root, entre par "docker exec". C'est ce qui met
+    # credentials.env (0600 root) hors de portee d'une session, et donc de
+    # l'agent de developpement qui y tourne.
+    #
+    # Ces faits tiennent par absence, et une ligne ajoutee un jour les
+    # romprait en silence : la section 36 de workspace/diagnostic/checks.py
+    # les retient.
+    #
+    # Ce qui le protege par ailleurs est deja en place : aucun mot de passe
+    # (cle publique uniquement), pas de connexion root, et une seule facon
+    # d'autoriser une machine -- deposer sa cle dans
     # config/ssh/authorized_keys.d/.
 
     ports:
