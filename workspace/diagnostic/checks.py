@@ -11988,3 +11988,71 @@ def test_l_entrypoint_du_shell_ne_depose_aucun_jeton_d_acces():
                 ".git-credentials")):
             raise AssertionError(f"dev/entrypoint.sh depose un moyen "
                                  f"d'authentification : {nue}")
+
+
+def test_codex_passe_par_la_passerelle_et_non_par_un_fournisseur_en_direct():
+    """L'agent de developpement n'a pas de compte a lui.
+
+    Vecu a l'envers : Codex etait installe dans l'image mais sa
+    configuration ne contenait que le bac a sable et la politique
+    d'approbation. L'authentification se faisait par « codex login », c'est-a-dire
+    un compte OpenAI personnel appelant api.openai.com en direct -- aucune cle
+    centralisee, aucune comptabilite, aucun routage. La passerelle existait, et
+    l'agent passait a cote.
+    """
+    source = _entrypoint_dev()
+    debut = source.find("cat > \"$CODEX_HOME_DIR/config.toml\"")
+    assert debut != -1, "le config.toml d'amorce a disparu de l'entrypoint"
+    bloc = source[debut:source.find("CODEXCFG\nfi", debut)]
+    assert 'model_provider = "codelab"' in bloc
+    assert "http://codelab-llm:8080/v1" in bloc
+    assert 'env_key = "CODELAB_LLM_KEY"' in bloc
+    # wire_api n'est pas pose : « responses » est le seul protocole accepte
+    # depuis fevrier 2026, et c'est le defaut. L'ecrire serait se donner une
+    # ligne a corriger le jour ou la valeur changera de nom.
+    assert "wire_api" not in bloc
+    # La cle ne s'ecrit pas dans la configuration : elle est lue dans
+    # l'environnement, donc remplacable sans toucher au reste.
+    assert "cl_" not in bloc and "api_key" not in bloc
+
+
+def test_la_cle_de_la_passerelle_est_lue_dans_un_fichier_et_jamais_ecrite_en_dur():
+    """Le profil exporte la cle si elle existe, et se tait sinon.
+
+    Une session sans cle doit s'ouvrir normalement : le profil est lu par
+    toutes les sessions, y compris celles de quelqu'un qui ne se sert pas de
+    l'agent. Un « set -u » ou un fichier absent ne doit pas casser la
+    connexion.
+    """
+    source = _entrypoint_dev()
+    assert "CLE_LLM_FICHIER" in source
+    assert "codelab-llm.key" in source
+    # Lecture conditionnelle : pas de fichier, pas d'export, pas d'erreur.
+    assert '[ -r \\"$CLE_LLM_FICHIER\\" ]' in source or '[ -r "$CLE_LLM_FICHIER" ]' in source
+    # Et le fichier de cle est reserve a son proprietaire.
+    assert 'chmod 600 "$CLE_LLM_FICHIER"' in source
+
+
+def test_les_noms_logiques_du_service_et_du_routeur_concordent():
+    """Un nom demande par un client doit exister des deux cotes.
+
+    codelab-llm valide le nom demande contre SA table, puis le transmet au
+    routeur. Un nom present ici et absent la-bas donne une erreur du
+    fournisseur au premier appel, pas au demarrage -- donc au pire moment.
+    """
+    source = (_racine_llm() / "app.py").read_text(encoding="utf-8")
+    debut = source.find("MODELES_PAR_DEFAUT = {")
+    assert debut != -1
+    bloc = source[debut:source.find("}", debut)]
+    logiques = set(re.findall(r'"([a-z0-9-]+)":', bloc))
+    assert logiques, "aucun nom logique lu dans MODELES_PAR_DEFAUT"
+
+    config = os.path.join(_racine_depot(), "litellm", "config.yaml")
+    if not os.path.exists(config):
+        pytest.skip("depot complet absent de cette image")
+    declares = set(re.findall(r"^\s*-\s*model_name:\s*([a-z0-9-]+)\s*$",
+                              open(config, encoding="utf-8").read(), re.M))
+    manquants = logiques - declares
+    assert not manquants, (
+        f"servis par codelab-llm mais absents de litellm/config.yaml : "
+        f"{sorted(manquants)}")

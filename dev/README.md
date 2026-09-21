@@ -275,8 +275,51 @@ utilisable par un agent travaillant sans personne devant.
 
 `codex` est installe dans l'image et `CODEX_HOME` pointe sur
 `/workspace/.codex`, cree au demarrage du conteneur avec un `config.toml` par
-defaut. L'authentification et les reglages survivent donc aux mises a jour
-d'image : `codex login` n'est a refaire que la premiere fois.
+defaut.
+
+### Il passe par la passerelle CodeLab
+
+Le `config.toml` d'amorce pointe `codelab-llm`, et non un fournisseur en
+direct :
+
+```toml
+model_provider = "codelab"
+model = "codelab-coding"
+
+[model_providers.codelab]
+base_url = "http://codelab-llm:8080/v1"
+env_key = "CODELAB_LLM_KEY"
+```
+
+Les noms de modeles disponibles sont les noms **logiques** — `codelab-coding`,
+`codelab-fast`, `codelab-reasoning`, `codelab-local` — definis dans
+`litellm/config.yaml`. Changer le modele reel derriere un nom se fait la-bas,
+sans toucher a Codex.
+
+Il faut donc **une cle CodeLab**, a creer une fois :
+
+```bash
+docker exec codelab-llm python3 app.py create-key \
+    --name vscode --user VOTRE-NOM --app vscode
+```
+
+La valeur s'affiche **une seule fois** ; la coller dans
+`/workspace/.codex/codelab-llm.key`. Le profil de session l'exporte ensuite
+en `CODELAB_LLM_KEY` a chaque connexion.
+
+C'est une cle CodeLab, pas une cle de fournisseur : elle porte un quota et
+une comptabilite, se revoque en une commande (`revoke-key`), et ne donne
+acces a aucun compte OpenAI ou Anthropic — ces cles-la vivent dans
+`codelab-litellm`, que ce conteneur ne voit meme pas.
+
+Sans le profil `llm` demarre (`docker compose --profile llm up -d`), la
+passerelle n'existe pas et Codex echouera a la connexion.
+
+### Ou avec un compte personnel
+
+`codex login` reste possible et reprend la main : le `config.toml` n'est ecrit
+qu'une fois, donc le modifier ou le supprimer suffit. Le trafic sort alors de
+CodeLab sans passer par la comptabilite.
 
 Le flux OAuth ouvre un serveur sur le port 1455 **dans le conteneur**. Depuis
 l'ordinateur local, dans un second terminal :

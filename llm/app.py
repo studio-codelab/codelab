@@ -81,7 +81,20 @@ FOURNISSEUR_URL = os.environ.get(
 # configure n'est PAS propose : trois noms qui pointent tous sur la meme
 # route -- ce qu'on avait -- donnent a l'interface un choix qui n'en est pas
 # un, et a l'utilisateur l'impression que son reglage ne change rien.
-MODELES_PAR_DEFAUT = {"codelab-smart": "openrouter/auto"}
+# Les noms logiques SERVIS PAR DEFAUT, alignes sur litellm/config.yaml : le
+# nom est le meme des deux cotes, et c'est le routeur qui le traduit en modele
+# reel. Quatre noms qui menent a quatre routes differentes -- pas trois noms
+# pour une seule, ce qui donnerait un choix qui n'en est pas un.
+#
+# « codelab-smart » a disparu : il designait openrouter/auto, qui n'existe
+# pas chez le routeur. Une installation qui y tenait le remet en une ligne
+# (CODELAB_LLM_MODELE_CODELAB_SMART) et l'ajoute au config.yaml.
+MODELES_PAR_DEFAUT = {
+    "codelab-coding": "codelab-coding",
+    "codelab-fast": "codelab-fast",
+    "codelab-reasoning": "codelab-reasoning",
+    "codelab-local": "codelab-local",
+}
 PREFIXE_MODELE = "CODELAB_LLM_MODELE_"
 
 DELAI_FOURNISSEUR = 90.0

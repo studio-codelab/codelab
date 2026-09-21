@@ -136,18 +136,69 @@ chmod 2770 "$CODEX_HOME_DIR" 2>/dev/null || true
 # indisponibles dans un conteneur non privilegie ("bwrap: No permissions to
 # create a new namespace") et aucune commande ne s'execute. L'isolation est
 # deja celle du conteneur ; en empiler une seconde ne fait que tout bloquer.
+#
+# Le provider pointe la PASSERELLE CodeLab, pas un fournisseur en direct.
+# Sans cela, "codex login" envoie le trafic chez OpenAI avec un compte
+# personnel : aucune cle centralisee, aucune comptabilite, aucun routage --
+# exactement ce que codelab-llm existe pour eviter.
+#
+# wire_api n'est pas pose : "responses" est le seul protocole accepte depuis
+# fevrier 2026, et c'est aussi le defaut. C'est la raison pour laquelle
+# codelab-llm expose /v1/responses.
+#
+# La cle est lue dans l'environnement (env_key), jamais ecrite ici : voir le
+# profil plus bas.
 if [ ! -f "$CODEX_HOME_DIR/config.toml" ]; then
-    {
-        echo '# Ecrit une seule fois par codelab-dev -- modifiable librement.'
-        echo 'sandbox_mode = "danger-full-access"'
-        echo 'approval_policy = "on-request"'
-    } > "$CODEX_HOME_DIR/config.toml"
+    cat > "$CODEX_HOME_DIR/config.toml" <<'CODEXCFG'
+# Ecrit une seule fois par codelab-dev -- modifiable librement.
+sandbox_mode = "danger-full-access"
+approval_policy = "on-request"
+
+model_provider = "codelab"
+model = "codelab-coding"
+
+[model_providers.codelab]
+name = "CodeLab"
+base_url = "http://codelab-llm:8080/v1"
+env_key = "CODELAB_LLM_KEY"
+CODEXCFG
     chown "$SSH_USER" "$CODEX_HOME_DIR/config.toml" 2>/dev/null || true
 fi
 
-printf '%s\n' '# Genere par codelab-dev -- authentification Codex persistante.' \
-    "export CODEX_HOME=$CODEX_HOME_DIR" > "$CODEX_PROFILE"
+# LA CLE DE LA PASSERELLE, si elle a ete deposee.
+#
+# C'est une cle CodeLab -- enregistree en base, revocable, portant un quota et
+# une comptabilite -- et surtout PAS une cle de fournisseur. Sa compromission
+# se repare en une commande ("revoke-key") et ne donne acces a aucun compte
+# OpenAI ou Anthropic : les cles des fournisseurs vivent dans
+# codelab-litellm, que ce conteneur ne voit meme pas.
+#
+# Elle est lue dans un fichier et exportee dans les sessions, plutot
+# qu'inscrite dans config.toml : un fichier se remplace sans toucher a la
+# configuration, et se retire sans la casser.
+#
+# La creer depuis une session, une fois :
+#
+#   docker exec codelab-llm python3 app.py create-key \
+#       --name vscode --user VOTRE-NOM --app vscode
+#
+# puis coller la valeur affichee dans $CODEX_HOME/codelab-llm.key.
+CLE_LLM_FICHIER="$CODEX_HOME_DIR/codelab-llm.key"
+{
+    echo '# Genere par codelab-dev -- environnement Codex.'
+    echo "export CODEX_HOME=$CODEX_HOME_DIR"
+    echo "if [ -r \"$CLE_LLM_FICHIER\" ]; then"
+    echo "    CODELAB_LLM_KEY=\"\$(head -n 1 \"$CLE_LLM_FICHIER\" | tr -d '[:space:]')\""
+    echo "    export CODELAB_LLM_KEY"
+    echo "fi"
+} > "$CODEX_PROFILE"
 chmod 644 "$CODEX_PROFILE"
+
+# Droits du fichier de cle, s'il existe deja : personne d'autre que son
+# proprietaire n'a a le lire.
+[ -f "$CLE_LLM_FICHIER" ] && chmod 600 "$CLE_LLM_FICHIER" 2>/dev/null
+[ -f "$CLE_LLM_FICHIER" ] && chown "$SSH_USER" "$CLE_LLM_FICHIER" 2>/dev/null
+true
 
 # Manuel de l'environnement, lu par Codex comme instructions globales. Recopie
 # a CHAQUE demarrage, contrairement au config.toml : ce fichier decrit la
