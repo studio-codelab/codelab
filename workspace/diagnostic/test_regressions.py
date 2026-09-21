@@ -7542,13 +7542,23 @@ def test_aucune_tuile_ne_porte_de_cadre_a_part():
     diagnostic. » Le fond plein pose sous l'image refaisait la meme vignette
     en plus petit. Ce qu'il fallait n'etait pas une plaque mais un CONTOUR.
 
-    Enfin : « reduis la taille du logo pour que le rendu soit plus
+    Puis : « reduis la taille du logo pour que le rendu soit plus
     esthetique. » Le logo touchait son cadre.
 
-    D'ou la forme finale, et pourquoi elle vise l'ICONE et pas la tuile : ce
-    qui distingue Dagster n'est pas d'etre un service, c'est que son logo est
-    TRANSPARENT la ou les projets deposent une image pleine. Habiller la
-    tuile traitait la mauvaise difference -- c'etait la vignette de depart.
+    Enfin : « ajoute un fond derriere dagster quand meme. »
+
+    Le fond revient donc, et ce n'est pas un aller-retour pour rien : ce qui
+    le rendait laid les deux premieres fois, ce n'etait pas le fond, c'etait
+    son ABSENCE DE MARGE. Sur la tuile, la plaque debordait l'icone et le nom
+    tombait en dehors ; sous l'image sans marge, le logo touchait les bords.
+    Avec la marge, les trois ensemble donnent une plaque de la taille exacte
+    des autres icones et un logo centre -- la forme d'une icone
+    d'application.
+
+    La regle vise l'ICONE et pas la tuile : ce qui distingue Dagster n'est pas
+    d'etre un service, c'est que son logo est TRANSPARENT la ou les projets
+    deposent une image pleine. Habiller la tuile traitait la mauvaise
+    difference -- c'etait la vignette de depart.
     """
     page = _page_panneau("dashboard.html")
 
@@ -7568,12 +7578,11 @@ def test_aucune_tuile_ne_porte_de_cadre_a_part():
     debut = page.index(".hub-liste.compacte .hub-projet.service-stack img{")
     icone = page[debut:page.index("}", debut)]
     assert "border:1px solid var(--line)" in icone, icone
-    # Une bordure sans marge : le logo touche le cadre, et une icone dont le
-    # dessin colle au bord ne respire pas.
+    # LES TROIS ENSEMBLE, et c'est la MARGE qui fait la difference. Un fond
+    # sans marge donne un carre gris derriere un dessin qui touche les bords ;
+    # avec la marge, c'est une plaque d'icone et un logo centre.
+    assert "background:var(--surface)" in icone, icone
     assert "padding:" in icone, icone
-    # Aucun fond : un gris plein sous un logo transparent refait la vignette
-    # qu'on vient de retirer, en plus petit.
-    assert "background" not in icone, icone
 
     # Les 88 px sont la mesure commune. box-sizing:border-box fait tenir
     # bordure ET marge DEDANS : sans lui, la tuile du service serait plus
