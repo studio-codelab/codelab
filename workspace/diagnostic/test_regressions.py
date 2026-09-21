@@ -7530,24 +7530,62 @@ def test_la_page_affiche_le_nom_et_designe_par_la_cle():
 # ---------- 30 ter. la tuile d'un service ressemble aux autres ----------
 
 def test_aucune_tuile_ne_porte_de_cadre_a_part():
-    """Demande : « L'app Dagster ne doit pas avoir ce contour blanc. Seul le
-    logo doit avoir un fond comme les autres applications. »
+    """Demande, en deux temps.
 
-    Dagster portait un fond et une bordure au niveau de la TUILE, pour se
-    detacher du hub. Au milieu de projets qui n'en ont pas, cela faisait une
-    vignette cerclee de blanc. Ce qui manquait etait un fond sous le LOGO :
-    Dagster sert une icone transparente la ou les projets servent une image
-    pleine.
+    D'abord : « L'app Dagster ne doit pas avoir ce contour blanc. Seul le
+    logo doit avoir un fond comme les autres applications. » Dagster portait
+    un fond ET une bordure au niveau de la TUILE, pour se detacher du hub --
+    une vignette cerclee de blanc au milieu de projets qui n'en ont pas.
+
+    Puis, capture a l'appui : « Retire le fond derriere dagster. Je veux
+    juste un contour autour du logo qui fait la meme taille que l'icone de
+    diagnostic. » Le fond plein pose sous l'image refaisait la meme vignette
+    en plus petit. Ce qu'il fallait n'etait pas une plaque mais un CONTOUR.
+
+    Enfin : « reduis la taille du logo pour que le rendu soit plus
+    esthetique. » Le logo touchait son cadre.
+
+    D'ou la forme finale, et pourquoi elle vise l'ICONE et pas la tuile : ce
+    qui distingue Dagster n'est pas d'etre un service, c'est que son logo est
+    TRANSPARENT la ou les projets deposent une image pleine. Habiller la
+    tuile traitait la mauvaise difference -- c'etait la vignette de depart.
     """
     page = _page_panneau("dashboard.html")
-    assert "service-stack" not in page, (
-        "la tuile d'un service porte encore un style a part")
+
+    # LA TUILE elle-meme n'a rien de particulier : c'est la vignette cerclee
+    # de blanc qu'on a retiree, et c'est elle qui ne doit pas revenir.
+    debut = page.index(".hub-liste.compacte .hub-projet{")
+    tuile = page[debut:page.index("}", debut)]
+    assert "background:none" in tuile, tuile
+    assert "border-color:transparent" in tuile, tuile
+    for regle_de_service in (".hub-liste.compacte .hub-projet.service-stack{",
+                             ".hub-projet.service-stack{"):
+        assert regle_de_service not in page, (
+            f"{regle_de_service} habille la tuile, pas l'icone")
+
+    # L'ICONE d'un service, elle, a son cadre : son logo est transparent, et
+    # sans cadre il flotte sans forme au milieu d'icones pleines.
+    debut = page.index(".hub-liste.compacte .hub-projet.service-stack img{")
+    icone = page[debut:page.index("}", debut)]
+    assert "border:1px solid var(--line)" in icone, icone
+    # Une bordure sans marge : le logo touche le cadre, et une icone dont le
+    # dessin colle au bord ne respire pas.
+    assert "padding:" in icone, icone
+    # Aucun fond : un gris plein sous un logo transparent refait la vignette
+    # qu'on vient de retirer, en plus petit.
+    assert "background" not in icone, icone
+
+    # Les 88 px sont la mesure commune. box-sizing:border-box fait tenir
+    # bordure ET marge DEDANS : sans lui, la tuile du service serait plus
+    # grande que celle du diagnostic, ce qu'on cherche justement a eviter.
     debut = page.index(".hub-liste.compacte .hub-projet img{")
-    regle = page[debut:page.index("}", debut)]
-    # La plaque est SOUS l'image : une icone pleine la recouvre et ne change
-    # pas d'aspect, seule une icone transparente la laisse paraitre.
-    assert "background:var(--surface)" in regle, regle
-    assert "object-fit:contain" in regle, regle
+    commune = page[debut:page.index("}", debut)]
+    assert "width:88px;height:88px" in commune, commune
+    assert "object-fit:contain" in commune, commune
+    # "border:" et non "border" : border-radius est legitime ici, c'est le
+    # coin arrondi commun a toutes les icones.
+    assert "border:" not in commune, commune
+    assert "box-sizing:border-box" in page
 
 
 # ---------- 31. une page d'erreur n'affiche pas ce qu'on lui envoie ----------

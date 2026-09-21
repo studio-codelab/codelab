@@ -552,7 +552,8 @@ label:has(> input[type=checkbox]),label:has(> input[type=radio]){
    et le fond leger disent la meme chose sans rien agiter. */
 .hub-projet:hover{border-color:var(--accent);background:var(--accent-soft)}
 .hub-projet img{width:36px;height:36px;border-radius:var(--r-s);flex:none;
- background:var(--surface);object-fit:contain}
+ object-fit:contain}
+.hub-projet.service-stack img{border:1px solid var(--line);padding:5px}
 .hub-projet .txt{min-width:0;flex:1}
 .hub-projet .nom{font-weight:620;font-size:14.5px;letter-spacing:-.01em}
 .hub-projet .desc{font-size:12.5px;color:var(--dim);margin-top:3px;line-height:1.45;
@@ -589,11 +590,27 @@ label:has(> input[type=checkbox]),label:has(> input[type=radio]){
 .hub-liste.compacte .hub-projet:hover img{transform:translateY(-2px)}
 .hub-liste.compacte .hub-projet:hover .nom{color:var(--accent)}
 .hub-liste.compacte .hub-projet img{width:88px;height:88px;border-radius:22px;
- /* Sous l'image, jamais devant : une icone pleine la recouvre entierement et
-    ne change pas d'aspect. Seule une icone transparente la laisse paraitre,
-    et c'est exactement le cas qu'on traite. */
- background:var(--surface);object-fit:contain;
- transition:transform .12s}
+ object-fit:contain;transition:transform .12s}
+/* ---- L'ICONE QUI NE REMPLIT PAS SON CARRE ----
+   Les projets deposent un logo plein : il couvre les 88 px, porte sa propre
+   couleur et son propre bord arrondi. Dagster sert le sien en transparent,
+   et il flottait donc sans forme au milieu de la grille.
+
+   Trois essais, deux ecartes :
+
+     - un fond ET une bordure sur la TUILE : une vignette cerclee de blanc au
+       milieu de projets qui n'en ont pas ;
+     - un fond plein sous l'image : la meme vignette, en plus petit.
+
+   Reste le cadre : une bordure lui donne l'empreinte d'une icone pleine sans
+   rien peindre derriere lui, et une marge interieure empeche le logo de
+   toucher ce cadre -- c'est ce qui fait qu'une icone d'application respire.
+
+   La regle vise l'IMAGE et pas la tuile : c'est l'icone qui differe, pas
+   l'application. box-sizing:border-box est global, donc bordure et marge se
+   prennent DANS les 88 px : la tuile garde exactement la taille des autres. */
+.hub-liste.compacte .hub-projet.service-stack img{
+ border:1px solid var(--line);padding:14px}
 .hub-liste.compacte .hub-projet .txt{width:100%}
 .hub-liste.compacte .hub-projet .nom{font-size:14px;font-weight:600;
  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -3321,7 +3338,7 @@ function peindreHub(){
   /* Un service ouvre sa PROPRE adresse, et dans un nouvel onglet : il vit
      sur un autre port, sans le ruban qui ramene au panneau -- y aller dans
      l'onglet courant, c'est perdre le hub. */
-  const tuile = a => `<a class="hub-projet ${a.running?'':'arretee'}"
+  const tuile = a => `<a class="hub-projet${a.externe ? ' service-stack' : ''} ${a.running?'':'arretee'}"
       href="${a.externe ? '/'+encodeURIComponent(a.name)+'/' : urlApplication(a.name)}"
       title="${esc(a.description||a.name)}">
       <img src="${icone(a.name)}" alt="">
