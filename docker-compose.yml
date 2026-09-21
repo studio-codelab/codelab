@@ -445,7 +445,7 @@ services:
   # ------------------------- L'IA DE CODELAB -------------------------
   #
   # Deux conteneurs, et une porte unique. codelab-llm detient la cle du
-  # fournisseur et compte ce qui est consomme ; Open WebUI est l'interface.
+  # fournisseur et compte ce qui est consomme.
   # Aucun des deux n'est joignable directement : le proxy ci-dessous exige la
   # session CodeLab avant de laisser passer, exactement comme pour Dagster.
   #
@@ -475,20 +475,21 @@ services:
     cap_drop:
       - ALL
 
-    # PAS de port publie : son seul client est Open WebUI, sur le reseau
-    # interne. Le port 8080 etait expose a tout le reseau local -- la meme
-    # erreur que Dagster, corrigee pour la meme raison.
+    # PAS de port publie : ses clients sont les applications de CodeLab, qui
+    # partagent le reseau « codelab ». Le port 8080 etait expose a tout le
+    # reseau local -- la meme erreur que Dagster, corrigee pour la meme
+    # raison. Un acces depuis le poste du developpeur (VS Code, un agent)
+    # demandera un port publie et une decision explicite : ce n'est pas le
+    # cas aujourd'hui.
     expose:
       - "8080"
 
     environment:
       CODELAB_LLM_ENV_FILE: /var/lib/codelab/llm/llm.env
       # Le nom de l'application autorisee a presenter une assertion SSO.
-      CODELAB_LLM_AUDIENCE: open-webui
-      # La cle partagee avec l'interface : la meme valeur des deux cotes,
-      # posee dans le .env de l'hote. Vide, l'interface ne peut pas parler au
-      # service -- et c'est voulu : une cle vide n'ouvre rien.
-      CODELAB_OPENWEBUI_KEY: ${CODELAB_OPENWEBUI_KEY:-}
+      # Vide, aucune assertion n'est acceptee : les clients s'identifient
+      # alors par une cle CodeLab, enregistree en base et revocable.
+      CODELAB_LLM_AUDIENCE: ${CODELAB_LLM_AUDIENCE:-}
       # Les modeles proposes. Un nom logique par variable ; vider la valeur
       # retire le modele de la liste. Le nom reel est celui du fournisseur.
       # CODELAB_LLM_MODELE_CODELAB_SMART: "openrouter/auto"
@@ -515,110 +516,7 @@ services:
 
     networks:
       - codelab
-      - codelab-ia
 
-
-  # L'interface de chat. Open WebUI plutot qu'une application maison : elle
-  # apporte les conversations, le markdown, les blocs de code, les pieces
-  # jointes et la reprise d'historique -- tout ce qu'une interface de chat
-  # doit avoir et que personne n'a envie de maintenir a la main. Elle est
-  # branchee sur codelab-llm, qui reste la porte unique vers le fournisseur.
-  #
-  # Version EPINGLEE : "main" est une etiquette mouvante, et une interface
-  # qui change toute seule un matin n'est pas une interface, c'est une
-  # surprise. La montee de version est une decision, comme partout ici.
-  codelab-open-webui:
-    profiles: ["llm"]
-    image: ghcr.io/open-webui/open-webui:v0.6.33
-    container_name: codelab-open-webui
-    restart: unless-stopped
-
-    mem_limit: 1g
-    cpus: 1.0
-    pids_limit: 512
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-    security_opt:
-      - no-new-privileges:true
-
-    environment:
-      # Tout passe par codelab-llm : Open WebUI ne connait aucune cle de
-      # fournisseur, et n'a pas d'acces direct a l'exterieur.
-      OPENAI_API_BASE_URL: http://codelab-llm:8080/v1
-      # La cle que le panneau a creee pour elle (voir codelab-open-webui-key
-      # dans llm.env). C'est elle qui prouve a codelab-llm que la requete
-      # vient bien d'ici.
-      OPENAI_API_KEY: ${CODELAB_OPENWEBUI_KEY:-}
-      # L'identite arrive par en-tetes, poses par le proxy et jamais par le
-      # navigateur : c'est la session CodeLab qui fait foi.
-      WEBUI_AUTH_TRUSTED_EMAIL_HEADER: X-CodeLab-Email
-      WEBUI_AUTH_TRUSTED_NAME_HEADER: X-CodeLab-User
-      ENABLE_LOGIN_FORM: "false"
-      ENABLE_SIGNUP: "false"
-      # Open WebUI transmet l'identite au service en amont : c'est ce qui
-      # permet a codelab-llm de compter la consommation par personne.
-      ENABLE_FORWARD_USER_INFO_HEADERS: "true"
-
-    volumes:
-      # Les conversations vivent ICI, et nulle part ailleurs. codelab-llm ne
-      # garde que la comptabilite : deux exemplaires de chaque echange prive
-      # dans deux systemes a sauvegarder, pour une relecture que personne ne
-      # fait, c'est une copie de trop.
-      - /DATA/AppData/codelab/open-webui:/app/backend/data
-
-    depends_on:
-      codelab-llm:
-        condition: service_healthy
-
-    networks:
-      - codelab-ia
-
-
-  # Le portier d'Open WebUI. Meme role et meme forme que celui de Dagster :
-  # nginx demande au panneau si la session est valide (auth_request), puis
-  # remplace les en-tetes d'identite par ceux que le panneau lui rend. Ceux
-  # du navigateur ne traversent jamais.
-  #
-  # nginx et pas le proxy du panneau : Open WebUI diffuse ses reponses au fil
-  # de l'eau (SSE) et ouvre des WebSockets, ce que le proxy urllib du panneau
-  # ne sait pas relayer.
-  codelab-open-webui-proxy:
-    profiles: ["llm"]
-    image: nginx:1.29-alpine
-    container_name: codelab-open-webui-proxy
-    restart: unless-stopped
-
-    mem_limit: 128m
-    cpus: 0.5
-    pids_limit: 128
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-    security_opt:
-      - no-new-privileges:true
-
-    ports:
-      - "3001:3001"
-
-    volumes:
-      - ./open-webui/nginx.conf:/etc/nginx/nginx.conf:ro
-
-    depends_on:
-      codelab-app-manager:
-        condition: service_healthy
-      codelab-open-webui:
-        condition: service_started
-
-    networks:
-      - codelab
-      - codelab-ia
 
   codelab-dagster-proxy:
     image: ghcr.io/studio-codelab/codelab-dagster-proxy:latest
@@ -678,19 +576,3 @@ services:
 networks:
   codelab:
     name: codelab_codelab
-
-  # LE RESEAU DE L'IA, ferme sur lui-meme.
-  #
-  # Les applications declarees dans le panneau tournent DANS le conteneur
-  # app-manager : elles partagent donc son reseau, et pouvaient joindre
-  # http://codelab-open-webui:8080 en direct -- c'est-a-dire contourner le
-  # portier et poser elles-memes l'en-tete X-CodeLab-Email. Toute la
-  # separation d'identite tombait par ce chemin.
-  #
-  # Open WebUI n'est donc plus sur « codelab » du tout : seuls son portier et
-  # la passerelle la voient. « internal » lui coupe aussi l'acces a
-  # l'exterieur, dont elle n'a aucun besoin : ses appels de modele passent
-  # par codelab-llm.
-  codelab-ia:
-    name: codelab_ia
-    internal: true

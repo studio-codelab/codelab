@@ -19,15 +19,14 @@ propos.
 | **App-manager** | Le panneau : déploiement et supervision des applications | `9001` |
 | **Applications** | Les projets déployés, servis sur leur propre adresse | `9002` |
 | **CodeLab LLM** | Passerelle compatible OpenAI, optionnelle | interne |
-| **Chat** | Interface de conversation, derrière l'authentification | `3001` |
 
 Aucune configuration manuelle après l'installation : les identifiants de base de données et les clés
 SSH sont générés au premier démarrage, et la connexion à Postgres est déjà prête dans le conteneur
 `dev`.
 
 Le profil `llm` est optionnel et ne démarre pas par défaut. Il ajoute une passerelle compatible
-OpenAI et une interface de conversation, toutes deux réservées aux sessions CodeLab. Les deux
-valeurs à renseigner sont décrites dans `.env.example` ; la configuration complète est dans
+OpenAI, réservée aux clients porteurs d'une clé CodeLab. La valeur à renseigner est décrite dans
+`.env.example` ; la configuration complète est dans
 [`llm/README.md`](llm/README.md).
 
 ```bash

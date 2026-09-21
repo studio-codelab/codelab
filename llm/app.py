@@ -9,15 +9,14 @@ Ce que ce service fait, et pourquoi il existe :
               401 -- et la cle du fournisseur ne quitte jamais ce conteneur.
 
   COMPTABILITE. Qui a consomme quoi, quand, et combien de jetons. C'est la
-              SEULE chose que ce service garde : les conversations
-              appartiennent a l'interface qui les affiche (Open WebUI les
-              range dans son propre volume), et les recopier ici ferait deux
-              exemplaires de chaque echange prive, dans deux systemes a
-              sauvegarder, pour une relecture que personne ne fait.
+              SEULE chose que ce service garde : les echanges appartiennent
+              au client qui les mene, et les recopier ici ferait deux
+              exemplaires de chaque conversation privee, dans deux systemes
+              a sauvegarder, pour une relecture que personne ne fait.
 
   TRADUCTION. Un nom logique (« codelab-smart ») vers un modele reel du
-              fournisseur. L'interface ne connait que les noms logiques :
-              changer de modele ne demande pas de toucher a l'interface.
+              fournisseur. Le client ne connait que les noms logiques :
+              changer de modele ne demande pas de toucher au client.
 
 POURQUOI PLUS DE LITELLM. La version precedente importait LiteLLM -- une
 bibliotheque qui parle a cent fournisseurs -- pour appeler UN fournisseur
@@ -59,7 +58,11 @@ CLIENTS_SUIVIS_MAX = 512
 
 SSO_EMETTEUR = "codelab"
 # L'audience attendue dans l'assertion : le nom de l'application qui parle.
-SSO_AUDIENCE = os.environ.get("CODELAB_LLM_AUDIENCE", "open-webui")
+# VIDE PAR DEFAUT, et c'est volontaire : aucune application n'est autorisee
+# tant qu'on ne l'a pas nommee. Un defaut qui designe une application
+# particuliere la rend autorisee sur une installation qui ne l'a jamais
+# demandee.
+SSO_AUDIENCE = os.environ.get("CODELAB_LLM_AUDIENCE", "")
 
 FOURNISSEUR_URL = os.environ.get(
     "CODELAB_LLM_FOURNISSEUR", "https://openrouter.ai/api/v1")
@@ -229,6 +232,11 @@ def identite_sso(assertion):
         charge = json.loads(_b64(morceaux[1]).decode())
         if entete.get("alg") != "EdDSA" or entete.get("typ") != "JWT":
             return None
+        # Sans audience configuree, AUCUNE assertion n'est acceptee : deux
+        # chaines vides seraient egales, et une assertion sans destinataire
+        # ouvrirait le service. Une audience vide n'autorise personne.
+        if not SSO_AUDIENCE:
+            return None
         if charge.get("iss") != SSO_EMETTEUR or charge.get("aud") != SSO_AUDIENCE:
             return None
         if not charge.get("sub"):
@@ -248,29 +256,6 @@ def identite_sso(assertion):
         return None
 
 
-def identite_interface(autorisation, utilisateur_transmis):
-    """L'interface de chat, reconnue par une cle partagee.
-
-    Open WebUI ne sait presenter qu'un « Authorization: Bearer ». Cette
-    cle-la est posee des deux cotes par le compose (CODELAB_OPENWEBUI_KEY),
-    ce qui evite d'avoir a en creer une a la main avant le premier
-    demarrage -- une etape d'installation qu'on oublie toujours.
-
-    Non configuree, elle n'ouvre RIEN : sans ce garde-fou, deux chaines vides
-    seraient egales et n'importe quelle requete sans cle passerait.
-    """
-    attendue = valeur("CODELAB_OPENWEBUI_KEY")
-    if not attendue or not autorisation or not autorisation.startswith("Bearer "):
-        return None
-    if not secrets.compare_digest(autorisation[7:].strip(), attendue):
-        return None
-    # La cle prouve QUELLE APPLICATION parle. Le nom d'utilisateur, lui,
-    # arrive en clair : il ne sert qu'a attribuer la consommation, jamais a
-    # ouvrir un droit.
-    return {"user_id": str(utilisateur_transmis or "inconnu")[:120],
-            "app_id": SSO_AUDIENCE}
-
-
 def identite_par_cle(autorisation):
     """La cle CodeLab, enregistree en base et revocable."""
     if not autorisation or not autorisation.startswith("Bearer "):
@@ -286,11 +271,12 @@ def identite_par_cle(autorisation):
 def identite(autorisation, assertion=None, utilisateur_transmis=None):
     """Qui parle. Deux preuves possibles, et AUCUN en-tete de confiance.
 
-    La version precedente acceptait n'importe quelle requete portant
-    « X-OpenWebUI-User-Id », au motif qu'Open WebUI etait seul sur le reseau
-    Docker. Il ne l'est pas : toutes les applications deployees par le
-    panneau y sont aussi, et ce sont elles qui executent du code quelconque.
-    N'importe laquelle pouvait donc se faire passer pour n'importe qui.
+    Une version anterieure acceptait n'importe quelle requete portant un
+    en-tete d'utilisateur, au motif que l'interface de chat etait seule sur
+    le reseau Docker. Elle ne l'etait pas : toutes les applications deployees
+    par le panneau y sont aussi, et ce sont elles qui executent du code
+    quelconque. N'importe laquelle pouvait donc se faire passer pour
+    n'importe qui.
 
     L'en-tete reste lu, mais il ne PROUVE plus rien : il ne sert qu'a
     attribuer la consommation au bon utilisateur, une fois que la cle de
@@ -299,9 +285,6 @@ def identite(autorisation, assertion=None, utilisateur_transmis=None):
     sso = identite_sso(assertion)
     if sso:
         return sso
-    interface = identite_interface(autorisation, utilisateur_transmis)
-    if interface:
-        return interface
     par_cle = identite_par_cle(autorisation)
     if not par_cle:
         raise HTTPException(401, "Identite CodeLab requise (assertion SSO ou cle).")
@@ -369,7 +352,6 @@ def sante():
         base = False
     return {"status": "ok" if base else "degrade", "service": "codelab-llm",
             "base": base, "cle_fournisseur": bool(valeur("OPENROUTER_API_KEY")),
-            "cle_interface": bool(valeur("CODELAB_OPENWEBUI_KEY")),
             "modeles": sorted(modeles())}
 
 
@@ -398,8 +380,8 @@ def _payload_valide(corps, table):
 async def completions(request: Request,
                       authorization: str | None = Header(default=None),
                       x_codelab_auth: str | None = Header(default=None),
-                      x_openwebui_user_id: str | None = Header(default=None)):
-    qui = identite(authorization, x_codelab_auth, x_openwebui_user_id)
+                      x_codelab_user_id: str | None = Header(default=None)):
+    qui = identite(authorization, x_codelab_auth, x_codelab_user_id)
     limiter(qui)
 
     corps = await request.body()

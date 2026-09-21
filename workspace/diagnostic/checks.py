@@ -2060,9 +2060,6 @@ def check_litellm_health(env_file=None):
     if not data.get("cle_fournisseur"):
         return (Etat.ALERTE, "codelab-llm (santé)",
                 "aucune clé de fournisseur configurée : aucun modèle ne répondra")
-    if not data.get("cle_interface"):
-        return (Etat.ALERTE, "codelab-llm (santé)",
-                "CODELAB_OPENWEBUI_KEY absente : l'interface de chat ne pourra pas parler au service")
     return (Etat.OK, "codelab-llm (santé)", "service actif, clés en place")
 
 
@@ -2094,7 +2091,7 @@ def check_litellm_auth(env_file=None):
 
     Une requete sans en-tete d'autorisation : le service doit repondre 401.
     C'est la sonde qui aurait attrape la version ou un simple en-tete
-    « X-OpenWebUI-User-Id » suffisait a se faire passer pour n'importe qui.
+    d'utilisateur suffisait a se faire passer pour n'importe qui.
     """
     if not llm_installe(env_file):
         return (Etat.SANS_OBJET, "identité exigée par le service",
@@ -2102,7 +2099,7 @@ def check_litellm_auth(env_file=None):
     payload = b'{"model":"codelab-smart","messages":[{"role":"user","content":"sonde"}]}'
     status, _ = _llm_post("/v1/chat/completions", payload, env_file,
                           {"Content-Type": "application/json",
-                           "X-OpenWebUI-User-Id": "sonde-sans-cle"})
+                           "X-CodeLab-User-Id": "sonde-sans-cle"})
     if status != 401:
         return (Etat.ECHEC, "identité exigée par le service",
                 f"HTTP {status} au lieu de 401 : le service a accepté une "
@@ -8963,7 +8960,7 @@ def test_chaque_service_est_borne_dans_les_deux_composes():
         # Les memes services des deux cotes : un compose qui en oublie un
         # est une installation qui ne demarre pas pareil selon la porte
         # d'entree.
-        assert len(services) == 9, (chemin, sorted(services))
+        assert len(services) == 7, (chemin, sorted(services))
         for nom, reglages in services.items():
             assert "pids_limit" in reglages or "deploy_pids" in reglages, (
                 f"{nom} n'a pas de limite processus dans {os.path.basename(chemin)}")
@@ -9261,11 +9258,10 @@ def test_une_application_par_defaut_est_reservee_a_l_administrateur(hub_dagster)
     noms = {a["name"] for a in d["apps"]} | {a["name"] for a in d.get("masquees", [])}
     assert not (noms & set(app.APPS_PAR_DEFAUT)), sorted(noms)
     # Dagster n'apparait pas : son interface execute du code sur la machine.
-    # L'interface de chat, si -- c'est un outil qu'on partage, et son portier
-    # ouvre a tout compte connecte.
+    # Et rien d'autre n'apparait a sa place : le hub d'un compte utilisateur
+    # ne porte aucune tuile de service.
     services = {x["name"] for x in d.get("services", [])}
-    assert app.DAGSTER_NOM not in services, sorted(services)
-    assert services <= {app.OPENWEBUI_NOM}, sorted(services)
+    assert services == set(), sorted(services)
 
 
 def test_les_applications_par_defaut_suivent_la_frontiere_de_l_administration(
@@ -10983,13 +10979,9 @@ def test_dagster_parait_dans_le_hub_et_mene_au_port_3000(hub_dagster):
     d = hub_dagster.get("/api/mes-apps").get_json()
 
     services = d["services"]
-    # Deux services, et l'ordre compte : l'outil de tous les jours d'abord,
-    # l'orchestrateur ensuite.
-    assert [s["name"] for s in services] == ["chat", "dagster"]
-    chat, dagster = services
-    # L'interface de chat mene a SON portier, sur le port 3001.
-    assert chat["url"].endswith(":3001"), chat["url"]
-    assert chat["externe"] is True
+    # Un seul service dans le hub : l'orchestrateur.
+    assert [s["name"] for s in services] == ["dagster"]
+    (dagster,) = services
     # L'adresse est celle du NAVIGATEUR : meme hote, autre port.
     assert dagster["url"].endswith(":3000/"), dagster["url"]
     assert dagster["externe"] is True
@@ -11424,7 +11416,7 @@ def test_le_service_llm_ne_contient_aucun_secret_provider():
 
 
 def test_le_service_llm_ne_garde_que_la_comptabilite():
-    """Les conversations vivent dans Open WebUI, pas ici.
+    """Les echanges appartiennent au client qui les mene, pas a la passerelle.
 
     Vecu a l'envers : le service stockait chaque message dans llm_message et
     relisait tout l'historique a chaque tour. La table grossissait en carre du
@@ -11478,40 +11470,27 @@ def test_le_service_llm_tourne_sans_privileges():
 
 
 def test_le_compose_llm_est_opt_in_et_ne_publie_pas_le_port_du_modele():
-    """Le profil llm reste optionnel, et seul le proxy est joignable.
+    """Le profil llm reste optionnel, et rien n'est joignable de l'exterieur.
 
     Vecu a l'envers : codelab-llm publiait 8080 sur la machine. N'importe qui
     sur le reseau local parlait au fournisseur avec la cle de CodeLab.
+
+    Le jour ou un client hors Docker devra l'appeler -- un editeur, un agent
+    de developpement -- publier ce port sera une DECISION, prise avec ce
+    qu'elle implique. Tant que ce test tient, elle n'a pas ete prise par
+    accident.
     """
     for chemin in _composes():
         contenu = open(chemin, encoding="utf-8").read()
         services = _services_du_compose(chemin)
-        for nom in ("codelab-llm", "codelab-open-webui", "codelab-open-webui-proxy"):
-            assert nom in services, f"{nom} absent de {chemin}"
-            assert 'profiles: ["llm"]' in contenu
+        assert "codelab-llm" in services, f"codelab-llm absent de {chemin}"
+        assert 'profiles: ["llm"]' in contenu
         assert "8080:8080" not in contenu, chemin
-        assert "3001:3001" in contenu, chemin
-        # Le secret partage entre Open WebUI et codelab-llm vient de l'hote.
-        assert "CODELAB_OPENWEBUI_KEY" in contenu, chemin
-
-
-def test_l_interface_de_chat_ne_s_ouvre_qu_avec_une_session():
-    """Open WebUI ne decide pas qui est qui : le panneau le lui dit.
-
-    Vecu a l'envers : la proposition initiale faisait confiance a un en-tete
-    X-OpenWebUI-User-Id envoye par le client. Toutes les applications partagent
-    le reseau codelab : n'importe laquelle se serait fait passer pour un autre.
-    """
-    nginx = _racine_llm().parent / "open-webui" / "nginx.conf"
-    if not nginx.is_file():
-        pytest.skip("sources open-webui absentes de cette image")
-    contenu = nginx.read_text(encoding="utf-8")
-    assert "auth_request /_codelab_auth" in contenu
-    assert "/api/sso-check" in contenu
-    assert "error_page 401" in contenu
-    # Les en-tetes d'identite sont reecrits par le proxy, jamais relayes.
-    for entete in ("X-CodeLab-User", "X-CodeLab-Email", "X-CodeLab-Role"):
-        assert re.search(rf"proxy_set_header +{entete} +\$codelab_", contenu)
+        # Plus d'interface de chat : ni le service, ni son portier, ni le
+        # port qu'il publiait, ni le reseau ferme qui l'isolait.
+        assert "codelab-open-webui" not in contenu, chemin
+        assert "3001:3001" not in contenu, chemin
+        assert "codelab-ia" not in contenu, chemin
 
 
 def test_l_api_llm_refuse_les_modeles_inconnus_et_exige_une_identite():
@@ -11520,65 +11499,25 @@ def test_l_api_llm_refuse_les_modeles_inconnus_et_exige_une_identite():
     assert "CORPS_MAX" in source
     assert "APPELS_PAR_MINUTE" in source
     assert "CLIENTS_SUIVIS_MAX" in source, "le suivi du debit doit etre borne"
-    # L'interface prouve son identite par un secret partage, pas par un en-tete.
-    assert "compare_digest" in source
-    assert "CODELAB_OPENWEBUI_KEY" in source
+    # Deux preuves, et AUCUN en-tete de confiance : une assertion SSO signee,
+    # ou une cle CodeLab enregistree en base et revocable. La cle partagee de
+    # l'interface de chat est partie avec l'interface.
+    assert "CODELAB_OPENWEBUI_KEY" not in source
+    assert "identite_interface" not in source
+    # Une audience vide n'autorise personne a presenter une assertion.
+    assert "if not SSO_AUDIENCE:" in source
     # Une erreur du fournisseur ne repart pas telle quelle vers le client.
     assert "str(erreur)" not in source
 
 
-# ---------- 25. la migration vers Open WebUI ------------------------------
+# ---------- 25. CodeLab n'heberge pas d'interface de chat -----------------
 #
-# L'interface de chat n'est plus une application inscrite dans le panneau,
-# mais un service de la stack derriere son propre portier. Trois choses
-# doivent rester vraies : le portier dit qui est qui sans jamais croire le
-# client, l'ancienne application disparait du registre sans perte de code, et
-# le panneau cesse de travailler quand l'onglet n'est pas regarde.
-
-def test_le_portier_du_chat_ouvre_a_tout_compte_connecte(monkeypatch, tmp_path):
-    """Un outil qu'on partage, pas une console d'administration.
-
-    Dagster execute du code sur la machine et reste donc a l'administrateur.
-    Reserver le chat au meme public reviendrait a ne jamais le partager.
-    """
-    m = _charger_app_manager(monkeypatch, tmp_path)
-    monkeypatch.setattr(m, "is_authed", lambda: True)
-    monkeypatch.setattr(m, "est_admin", lambda: False)
-    monkeypatch.setattr(m, "utilisateur_courant", lambda: "alice")
-    monkeypatch.setattr(m, "role_courant", lambda: "membre")
-    monkeypatch.setattr(m, "lire_utilisateurs", lambda: {"alice": {}})
-
-    with m.flask_app.test_request_context("/api/sso-check"):
-        reponse = m.api_sso_check()
-    assert reponse.status_code == 204
-    assert reponse.headers["X-CodeLab-User"] == "alice"
-    assert reponse.headers["X-CodeLab-Role"] == "membre"
-    # Sans adresse declaree, une adresse interne stable : elle ne sort jamais
-    # de la machine, elle sert de cle primaire a l'interface.
-    assert reponse.headers["X-CodeLab-Email"] == "alice@codelab.local"
-
-
-def test_le_portier_du_chat_refuse_un_visiteur(monkeypatch, tmp_path):
-    m = _charger_app_manager(monkeypatch, tmp_path)
-    monkeypatch.setattr(m, "is_authed", lambda: False)
-    with m.flask_app.test_request_context("/api/sso-check"):
-        assert m.api_sso_check().status_code == 401
-
-
-def test_le_chat_s_ouvre_a_tout_compte_connecte_mais_pas_a_un_visiteur(monkeypatch, tmp_path):
-    m = _charger_app_manager(monkeypatch, tmp_path)
-    monkeypatch.setattr(m, "est_app_par_defaut", lambda name: False)
-    monkeypatch.setattr(m, "projets_autorises", lambda: [])
-    monkeypatch.setattr(m, "est_admin", lambda: False)
-
-    monkeypatch.setattr(m, "is_authed", lambda: True)
-    assert m.peut_voir(m.OPENWEBUI_NOM) is True
-    monkeypatch.setattr(m, "is_authed", lambda: False)
-    assert m.peut_voir(m.OPENWEBUI_NOM) is False
-    # Le reste ne change pas : une application privee non autorisee reste
-    # fermee, connecte ou non.
-    assert m.peut_voir("facturier") is False
-
+# L'application maison « aichat » a ete retiree, et l'interface Open WebUI qui
+# l'avait remplacee l'a ete a son tour : l'outil du developpeur est son
+# editeur, et les applications appellent la passerelle directement. Deux
+# choses doivent rester vraies : l'ancienne application disparait du registre
+# sans perte de code, et le panneau cesse de travailler quand l'onglet n'est
+# pas regarde.
 
 def test_l_ancienne_application_aichat_quitte_le_registre(monkeypatch, tmp_path):
     """Le registre est nettoye, le code de l'utilisateur ne l'est pas.
@@ -11766,52 +11705,6 @@ def test_le_titre_du_cockpit_compte_les_memes_sondes_que_la_pastille():
     assert "len(critiques) + (1 if erreur_db else 0)" not in bloc
 
 
-def test_l_icone_du_chat_n_a_pas_de_fond():
-    """Les icones du hub se posent sur la tuile, pas dans une pastille.
-
-    Une seule icone avec un rectangle plein derriere elle se voyait comme une
-    piece rapportee a cote de celle de Dagster, et contredisait le mode icone
-    -- ou il ne doit y avoir que l'icone et le nom dessous.
-    """
-    source = (_racine_app_manager() / "app.py").read_text(encoding="utf-8")
-    debut = source.index("ICONE_OPENWEBUI")
-    bloc = source[debut:debut + 1500]
-    assert "<svg" in bloc
-    assert "<rect" not in bloc, "un fond plein est revenu derriere l'icone"
-    assert 'aria-label="Chat"' in bloc
-
-
-def test_la_tuile_du_chat_porte_un_nom_lisible():
-    """« open-webui » est le nom du produit qui sert la page, pas celui que
-    l'utilisateur doit lire dans son hub."""
-    source = (_racine_app_manager() / "app.py").read_text(encoding="utf-8")
-    assert 'OPENWEBUI_NOM = "chat"' in source
-
-
-def test_la_tuile_du_chat_ne_s_annonce_pas_en_ligne_sans_service(monkeypatch, tmp_path):
-    """Un lien mort dans un hub se lit comme une panne du hub.
-
-    Le profil « llm » est optionnel : sans lui, le conteneur n'existe pas. La
-    tuile s'annoncait « en ligne » quoi qu'il arrive, parce que rien ne
-    demandait au port s'il ecoutait -- alors que Dagster, lui, le demande.
-    """
-    m = _charger_app_manager(monkeypatch, tmp_path)
-    monkeypatch.setattr(m, "is_authed", lambda: True)
-    monkeypatch.setattr(m, "est_admin", lambda: False)
-    monkeypatch.setattr(m, "origine_openwebui", lambda: "http://exemple:3001")
-    monkeypatch.setattr(m, "_ecouteurs_port", lambda port: [])
-
-    monkeypatch.setattr(m, "openwebui_repond", lambda: False)
-    with m.flask_app.test_request_context("/"):
-        chat = m.services_du_hub()[0]
-    assert chat["name"] == "chat"
-    assert chat["running"] is False and chat["listening"] is False
-
-    monkeypatch.setattr(m, "openwebui_repond", lambda: True)
-    with m.flask_app.test_request_context("/"):
-        assert m.services_du_hub()[0]["running"] is True
-
-
 def test_la_sonde_de_port_garde_un_cache_par_service(monkeypatch, tmp_path):
     """Un cache unique pour deux services rendait la reponse de l'un pour
     l'autre -- et le hub interroge les deux a chaque rafraichissement."""
@@ -11850,30 +11743,6 @@ def test_les_graphiques_ecartent_les_services_que_le_panneau_ne_mesure_pas():
     bloc = page.split("function barChart(")[1].split("\n}")[0]
     assert "!a.externe" in bloc, (
         "les graphiques CPU et mémoire doivent ecarter les services externes")
-
-
-def test_l_interface_de_chat_n_est_pas_joignable_par_les_applications():
-    """Le portier ne protege rien si l'on peut passer a cote.
-
-    Les applications declarees dans le panneau tournent DANS le conteneur
-    app-manager : elles partagent son reseau. Tant qu'Open WebUI etait sur
-    « codelab », n'importe laquelle joignait http://codelab-open-webui:8080
-    en direct et posait elle-meme X-CodeLab-Email -- toute la separation
-    d'identite tombait par ce chemin.
-    """
-    for chemin in _composes():
-        charge = _reseaux_du_compose(chemin)
-        nom = os.path.basename(chemin)
-        assert charge["codelab-open-webui"] == ["codelab-ia"], (nom, charge)
-        # Le portier, lui, a un pied de chaque cote : il doit joindre le
-        # panneau pour poser sa question.
-        assert charge["codelab-open-webui-proxy"] == ["codelab", "codelab-ia"], nom
-        # Et la passerelle aussi : Postgres est sur « codelab », et une
-        # application qui possede une cle CodeLab a le droit de l'appeler.
-        assert charge["codelab-llm"] == ["codelab", "codelab-ia"], nom
-        contenu = open(chemin, encoding="utf-8").read()
-        assert "internal: true" in contenu, (
-            f"{nom} : le reseau de l'IA doit etre ferme vers l'exterieur")
 
 
 def _reseaux_du_compose(chemin):
