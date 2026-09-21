@@ -119,7 +119,9 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 .acct-item.acct-sortir:hover{background:var(--err-bg);color:var(--err)}
 
 /* ------------------------------ colonne de gauche ------------------------------ */
-.page-body{display:flex;min-height:calc(100vh - 52px)}
+/* align-items:flex-start : sans lui, la colonne est etiree a la hauteur du
+   contenu, et "position:sticky" n'a plus rien a quoi se coller. */
+.page-body{display:flex;min-height:calc(100vh - 52px);align-items:flex-start}
 /* LA COLONNE SE REDUIT SANS RIEN FAIRE SAUTER.
    Avant, replier la colonne posait display:none sur les libelles et
    recentrait les items : le texte disparaissait d'un coup, et les icones
@@ -133,7 +135,17 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
    disparaitre avant elle. */
 .sidebar{width:212px;flex:none;background:var(--nav);color:var(--nav-dim);
  display:flex;flex-direction:column;padding:12px 8px 10px;
- border-right:1px solid var(--nav-line);overflow:hidden;
+ border-right:1px solid var(--nav-line);
+ /* LE MENU RESTE EN PLACE PENDANT QUE LA PAGE DEFILE.
+    Il partait avec elle : sur une longue liste d'applications, changer de
+    rubrique demandait de remonter d'abord. Il se colle donc sous la barre du
+    haut (52 px) et garde sa propre hauteur ; s'il devenait lui-meme trop
+    long, c'est LUI qui defile, pas la page.
+
+    overflow-x reste "hidden" -- c'est ce qui rogne les libelles pendant que
+    la colonne se replie ; seul overflow-y devient "auto". */
+ overflow-x:hidden;overflow-y:auto;
+ position:sticky;top:52px;height:calc(100vh - 52px);
  transition:width .14s ease}
 .sidebar.collapsed{width:62px}
 .sidebar.collapsed .side-label,.sidebar.collapsed .side-item span,
