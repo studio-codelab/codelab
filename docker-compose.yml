@@ -46,7 +46,7 @@
 # ces lignes existent precisement pour empecher. Un plafond au-dessus de la
 # RAM disponible n'est pas une securite large, c'est une securite absente.
 #
-# Total actuel : 4,7 Go de plafonds avec le profil llm, 3,9 Go sans lui. La
+# Total actuel : 4,8 Go de plafonds avec le profil llm, 3,9 Go sans lui. La
 # somme depasse encore les 4 Go, et c'est toujours voulu -- mais aucun
 # service ne peut plus prendre a lui seul plus du tiers de la machine.
 #
@@ -166,7 +166,7 @@ services:
     restart: unless-stopped
 
     # Le shell : on y compile, d'ou une part plus large que les services. Voir l'explication en tete de fichier.
-    mem_limit: 1024m
+    mem_limit: 896m
     cpus: 1.5
     pids_limit: 512
     logging:
@@ -250,7 +250,7 @@ services:
     restart: unless-stopped
 
     # L'interface et le code serveur des assets. Voir l'explication en tete de fichier.
-    mem_limit: 640m
+    mem_limit: 512m
     cpus: 1.0
     pids_limit: 512
     logging:
@@ -503,7 +503,7 @@ services:
     container_name: codelab-llm
     restart: unless-stopped
 
-    mem_limit: 320m
+    mem_limit: 384m
     cpus: 0.5
     pids_limit: 256
     logging:
@@ -645,20 +645,25 @@ services:
     container_name: codelab-dagster-proxy
     restart: unless-stopped
 
-    # UN NGINX QUI RELAIE N'A BESOIN DE RIEN -- MAIS 96 Mo NE PASSENT PAS.
+    # 384 Mo POUR UN NGINX QUI RELAIE : ce n'est pas un besoin, c'est un
+    # plancher impose de l'exterieur.
     #
-    # Signale par Lucas au deploiement : Docker refuse de creer le conteneur,
-    # « Minimum memory limit can not be less than memory reservation limit ».
-    # Ce message ne sort que si une RESERVATION memoire superieure au plafond
-    # est appliquee au conteneur -- et il n'y en a aucune dans ce fichier.
-    # Elle vient donc d'ailleurs : l'hote, ou l'interface qui gere
-    # l'application (CasaOS/ZimaOS recopie ce compose chez lui).
+    # Docker refuse de creer ce conteneur avec « Minimum memory limit can not
+    # be less than memory reservation limit ». Ce message ne sort que si une
+    # RESERVATION memoire superieure au plafond est appliquee au conteneur.
+    # Il n'y en a aucune dans ce fichier : elle vient de l'hote, ou de
+    # l'interface qui recopie ce compose chez elle.
     #
-    # 128 Mo tenaient depuis des mois ; 96 Mo cassent. Tant qu'on ne sait pas
-    # QUI pose cette reservation ni a quelle valeur, le plancher est celui
-    # qui marche. Les 32 Mo economises ne valaient pas une stack qui ne
-    # demarre plus.
-    mem_limit: 128m
+    # On ne sait pas QUI la pose. On sait l'ENCADRER, par ce qui marche et ce
+    # qui casse sur la machine de reference :
+    #
+    #     96 Mo   -> refus          128 Mo  -> refus
+    #     384 Mo  -> demarre (c'est le plafond de codelab-dagster-daemon)
+    #
+    # La reservation est donc dans ]128, 384]. 384 est la plus petite valeur
+    # dont on ait la preuve qu'elle passe -- d'ou ce chiffre, et pas un autre.
+    # Le jour ou la reservation est identifiee, ce plafond redescend.
+    mem_limit: 384m
     cpus: 0.25
     pids_limit: 128
     logging:

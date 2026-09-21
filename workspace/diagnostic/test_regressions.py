@@ -6924,7 +6924,10 @@ def test_le_panneau_a_la_part_la_plus_large():
         part = {n: en_mo(r.get("mem_limit", r.get("deploy_memory")))
             for n, r in services.items()}
         assert part["codelab-app-manager"] == max(part.values()), chemin
-        # Et le relais nginx, qui ne fait que relayer, garde la plus petite.
+        # Et le relais nginx, qui ne fait que relayer, reste AU PLANCHER --
+        # il n'est plus seul dessus depuis qu'une reservation exterieure
+        # empeche de descendre plus bas (voir le test du plancher), mais
+        # aucun service ne doit passer sous lui.
         assert part["codelab-dagster-proxy"] == min(part.values()), chemin
 
 
@@ -10490,35 +10493,45 @@ RAM_CIBLE_MO = 4096
 COEURS_CIBLE = 2
 
 
-# 128 Mo : le plancher constate en production, pas un chiffre choisi.
-PLANCHER_PROXY_MO = 128
+# 384 Mo : encadre par ce qui marche et ce qui casse sur la machine de
+# reference, pas choisi. Voir le test ci-dessous.
+PLANCHER_MEMOIRE_MO = 384
 
 
-def test_le_plafond_du_proxy_ne_redescend_pas_sous_son_plancher():
+def test_aucun_plafond_ne_descend_sous_le_plancher_de_demarrage():
     """Un plafond trop BAS casse le demarrage, et pas seulement la marche.
 
-    Vecu : le plafond du proxy Dagster est passe de 128 a 96 Mo par souci
-    d'economie, et Docker a refuse de creer le conteneur -- « Minimum memory
-    limit can not be less than memory reservation limit ». Ce message ne
-    sort que si une RESERVATION memoire superieure au plafond est appliquee
-    au conteneur, et il n'y en a aucune dans nos deux fichiers : elle vient
-    de l'hote ou de l'interface qui gere l'application.
+    Vecu : le plafond du proxy Dagster est passe a 96 Mo par souci
+    d'economie, et Docker a refuse de CREER le conteneur -- « Minimum memory
+    limit can not be less than memory reservation limit ». Toute la stack
+    s'arretait la, sur 32 Mo economises.
 
-    Toute la stack s'arretait la, sur 32 Mo economises.
+    Ce message ne sort que si une RESERVATION memoire superieure au plafond
+    est appliquee au conteneur. Il n'y en a aucune dans nos deux fichiers :
+    elle vient de l'hote, ou de l'interface qui recopie ce compose chez elle.
 
-    Les tests voisins tiennent le PLAFOND -- qu'aucun service ne prenne trop.
-    Celui-ci tient le PLANCHER, qui est l'autre facon de se tromper, et dont
-    rien ne protegeait. Tant qu'on ne sait pas qui pose cette reservation ni
-    a quelle valeur, le plancher reste celui qui marche.
+    On ne sait pas QUI la pose. On sait l'ENCADRER, par ce qui marche et ce
+    qui casse sur la machine de reference :
+
+        96 Mo  -> refus     128 Mo -> refus     384 Mo -> demarre
+
+    Elle est donc dans ]128, 384]. Le plancher vaut pour TOUS les services,
+    pas seulement le proxy : si la reservation est posee par l'hote, elle
+    s'applique a chaque conteneur, et le proxy n'a echoue que parce qu'il
+    etait le seul en dessous.
+
+    Les tests voisins tiennent le PLAFOND -- qu'aucun service ne prenne plus
+    du tiers de la machine. Celui-ci tient le PLANCHER, l'autre facon de se
+    tromper, dont rien ne protegeait.
     """
     for chemin in _composes():
-        reglages = _services_du_compose(chemin)["codelab-dagster-proxy"]
-        brut = str(reglages.get("mem_limit", reglages.get("deploy_memory")))
-        mo = int(brut[:-1]) * 1024 if brut.endswith("g") else int(brut.rstrip("m"))
-        assert mo >= PLANCHER_PROXY_MO, (
-            f"{os.path.basename(chemin)} : le proxy Dagster est plafonne a "
-            f"{mo} Mo, sous le plancher de {PLANCHER_PROXY_MO} Mo qui le fait "
-            f"demarrer")
+        for nom, reglages in _services_du_compose(chemin).items():
+            brut = str(reglages.get("mem_limit", reglages.get("deploy_memory")))
+            mo = int(brut[:-1]) * 1024 if brut.endswith("g") else int(brut.rstrip("m"))
+            assert mo >= PLANCHER_MEMOIRE_MO, (
+                f"{os.path.basename(chemin)} : {nom} est plafonne a {mo} Mo, "
+                f"sous le plancher de {PLANCHER_MEMOIRE_MO} Mo en dessous "
+                f"duquel le conteneur ne se cree pas")
 
 
 def test_aucun_plafond_ne_depasse_la_machine_visee():
