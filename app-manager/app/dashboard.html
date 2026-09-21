@@ -553,7 +553,8 @@ label:has(> input[type=checkbox]),label:has(> input[type=radio]){
 .hub-projet:hover{border-color:var(--accent);background:var(--accent-soft)}
 .hub-projet img{width:36px;height:36px;border-radius:var(--r-s);flex:none;
  object-fit:contain}
-.hub-projet.service-stack img{border:1px solid var(--line);padding:5px}
+.hub-projet.service-stack img{
+ background:var(--surface);border:1px solid var(--line);padding:5px}
 .hub-projet .txt{min-width:0;flex:1}
 .hub-projet .nom{font-weight:620;font-size:14.5px;letter-spacing:-.01em}
 .hub-projet .desc{font-size:12.5px;color:var(--dim);margin-top:3px;line-height:1.45;
@@ -596,21 +597,24 @@ label:has(> input[type=checkbox]),label:has(> input[type=radio]){
    couleur et son propre bord arrondi. Dagster sert le sien en transparent,
    et il flottait donc sans forme au milieu de la grille.
 
-   Trois essais, deux ecartes :
+   Quatre essais, et ce qui les separe n'est pas le fond mais la MARGE :
 
-     - un fond ET une bordure sur la TUILE : une vignette cerclee de blanc au
-       milieu de projets qui n'en ont pas ;
-     - un fond plein sous l'image : la meme vignette, en plus petit.
-
-   Reste le cadre : une bordure lui donne l'empreinte d'une icone pleine sans
-   rien peindre derriere lui, et une marge interieure empeche le logo de
-   toucher ce cadre -- c'est ce qui fait qu'une icone d'application respire.
+     - un fond et une bordure sur la TUILE : une vignette cerclee de blanc au
+       milieu de projets qui n'en ont pas. La tuile est plus large que
+       l'icone, et le nom tombait en dehors de la plaque ;
+     - un fond plein sous l'image, sans marge : le logo touchait les bords,
+       et la plaque se lisait comme un carre gris derriere un dessin ;
+     - bordure et marge, sans fond : le logo respirait mais flottait, la ou
+       les projets posent un aplat de couleur ;
+     - les trois ensemble, ci-dessous : une plaque de la taille exacte des
+       autres icones, un logo centre qui ne touche pas le bord. C'est la
+       forme d'une icone d'application.
 
    La regle vise l'IMAGE et pas la tuile : c'est l'icone qui differe, pas
    l'application. box-sizing:border-box est global, donc bordure et marge se
    prennent DANS les 88 px : la tuile garde exactement la taille des autres. */
 .hub-liste.compacte .hub-projet.service-stack img{
- border:1px solid var(--line);padding:14px}
+ background:var(--surface);border:1px solid var(--line);padding:14px}
 .hub-liste.compacte .hub-projet .txt{width:100%}
 .hub-liste.compacte .hub-projet .nom{font-size:14px;font-weight:600;
  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
