@@ -1,29 +1,31 @@
 # Le profil IA de CodeLab
 
-Trois conteneurs, une seule porte. Le profil `llm` est optionnel : sans lui,
-rien de tout cela ne démarre.
+Un conteneur, une seule porte. Le profil `llm` est optionnel : sans lui, rien
+de tout cela ne démarre.
 
 | Conteneur | Rôle | Joignable depuis |
 |---|---|---|
 | `codelab-llm` | Passerelle compatible OpenAI : identité, quota, comptabilité | le réseau interne seulement |
-| `codelab-open-webui` | L'interface de conversation | le réseau interne seulement |
-| `codelab-open-webui-proxy` | Le portier : il vérifie la session CodeLab | port `3001` |
 
-La seule adresse publiée est celle du portier. `codelab-llm` ne publie aucun
-port : il détient la clé du fournisseur, et son unique client est l'interface.
+`codelab-llm` ne publie aucun port : il détient la clé du fournisseur, et ses
+clients sont les applications de CodeLab, qui partagent le réseau `codelab`.
 
-## Pourquoi Open WebUI et non une application maison
+## Pas d'interface de conversation
 
-L'ancienne application `aichat` réécrivait une interface de conversation —
-historique, pièces jointes, rendu Markdown, reprise de fil — que ce projet
-n'a pas vocation à maintenir. Open WebUI le fait déjà, se branche sur une API
-compatible OpenAI, et ne connaît aucune clé de fournisseur : elle parle à
-`codelab-llm`, et rien d'autre.
+CodeLab n'héberge pas d'interface de chat. L'ancienne application `aichat` a
+été retirée, et l'interface Open WebUI qui l'avait remplacée l'a été à son
+tour : l'outil du développeur est son éditeur, et les applications appellent
+la passerelle directement. Une interface web de conversation n'apportait
+qu'une couche de plus, avec son portier, son réseau dédié et son volume de
+conversations à sauvegarder.
+
+Un client extérieur — un éditeur, un agent de développement — s'identifie par
+une clé CodeLab (voir plus bas), pas par une session de navigateur.
 
 ## Démarrage
 
-Deux valeurs à renseigner dans `.env`, décrites dans `.env.example` : la clé
-du fournisseur et le secret partagé entre l'interface et la passerelle.
+Une valeur à renseigner dans `.env`, décrite dans `.env.example` : la clé du
+fournisseur.
 
 ```bash
 docker compose --profile llm up -d
@@ -76,10 +78,10 @@ valeur à `revoke-key`.
 
 ## Ce qui est conservé
 
-Les conversations vivent dans Open WebUI, et nulle part ailleurs. La
-passerelle ne garde que la comptabilité : qui, quelle application, quel
+La passerelle ne garde que la comptabilité : qui, quelle application, quel
 modèle demandé, quel modèle réel, combien de jetons. Le contenu des échanges
-n'est ni stocké ni journalisé par elle.
+n'est ni stocké ni journalisé par elle — il appartient au client qui les
+mène.
 
 ## Diagnostic
 
