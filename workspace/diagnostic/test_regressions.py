@@ -10255,17 +10255,44 @@ def test_aucun_plafond_processeur_ne_depasse_la_machine_visee():
                 f"{COEURS_CIBLE} coeurs vises")
 
 
-def test_les_composes_annoncent_la_meme_cible_que_les_tests():
+def test_le_compose_annonce_la_meme_cible_que_les_tests():
     """Le commentaire et le test doivent dire le meme chiffre.
 
     Un commentaire qui annonce 8 Go au-dessus de valeurs calculees pour 4 Go
     ferait remonter les plafonds a la premiere relecture, en toute bonne foi.
+
+    Seul docker-compose.yml est concerne : c'est LUI qu'on lit et qu'on
+    modifie. Son jumeau CasaOS ne porte aucun commentaire, pour la raison
+    que dit le test suivant -- et les plafonds eux-memes y sont verifies
+    chiffre par chiffre par les tests ci-dessus, pas par une phrase.
     """
-    for chemin in _composes():
-        texte = open(chemin, encoding="utf-8").read()
-        assert f"CIBLE : {RAM_CIBLE_MO // 1024} Go et {COEURS_CIBLE} coeurs" in texte, (
-            f"{os.path.basename(chemin)} n'annonce pas la cible "
-            f"{RAM_CIBLE_MO // 1024} Go / {COEURS_CIBLE} coeurs")
+    chemin = [c for c in _composes()
+              if os.path.basename(c) == "docker-compose.yml"][0]
+    texte = open(chemin, encoding="utf-8").read()
+    assert f"CIBLE : {RAM_CIBLE_MO // 1024} Go et {COEURS_CIBLE} coeurs" in texte, (
+        f"docker-compose.yml n'annonce pas la cible "
+        f"{RAM_CIBLE_MO // 1024} Go / {COEURS_CIBLE} coeurs")
+
+
+def test_le_compose_casaos_ne_porte_aucun_commentaire():
+    """CasaOS RELIT ce fichier, il ne fait pas que le lancer.
+
+    Son interface le desserialise puis le reserialise avec sa propre
+    bibliotheque YAML. Les commentaires ne survivent pas a ce passage : au
+    mieux ils disparaissent, au pire ils ressortent mal places et le fichier
+    ne se relit plus -- « Nested mappings are not allowed in compact
+    mappings ». Ce jumeau est donc une donnee pour une machine, et tout ce
+    qu'il y avait a expliquer se lit dans docker-compose.yml et les README.
+
+    Le test tient la contrainte dans le sens ou elle se perd : on ajoute un
+    commentaire par reflexe, on ne l'enleve jamais par hasard.
+    """
+    chemin = [c for c in _composes()
+              if os.path.basename(c) == "docker-compose-casaos.yml"][0]
+    fautives = [(n, l) for n, l in enumerate(
+        open(chemin, encoding="utf-8").read().split("\n"), 1) if "#" in l]
+    assert not fautives, ("docker-compose-casaos.yml porte un commentaire : "
+                          + "; ".join(f"ligne {n} : {l.strip()}" for n, l in fautives))
 
 
 # ---------- 38. les sondes et les tests restent separes ------------------
