@@ -786,6 +786,14 @@ DIAGNOSTIC_NOM = "diagnostic"
 APPS_PAR_DEFAUT = (DAGSTER_NOM, DIAGNOSTIC_NOM)
 APPLICATIONS_PROTEGEES = {DAGSTER_NOM, DIAGNOSTIC_NOM}
 
+# La tuile du diagnostic a besoin d'une phrase, et cette phrase ne peut pas
+# s'ecrire a la main : la fiche d'une application par defaut n'a pas de
+# formulaire. Elle est donc posee ici, et le panneau la met en place au
+# demarrage si elle manque (voir tenir_les_applications_par_defaut).
+DIAGNOSTIC_DESCRIPTION = ("État de santé de l'installation : les services se "
+                          "parlent-ils, la base répond-elle, et qu'est-ce qui "
+                          "est ouvert ?")
+
 
 def refus_action_protegee(nom, action):
     if nom in APPLICATIONS_PROTEGEES:
@@ -3875,7 +3883,46 @@ def stop(name):
     return None
 
 
+def tenir_les_applications_par_defaut():
+    """Elles ne s'arretent plus a la main, donc le panneau s'en charge.
+
+    Le piege qu'on ferme ici : une application par defaut n'est PAS
+    configurable, et son arret est refuse cote serveur (voir
+    refus_action_protegee). Il reste pourtant un chemin qui la marque
+    "enabled": False sans que personne l'ait voulu -- l'echec de lancement
+    dans start(), quand le systeme refuse la limite memoire ou l'abandon de
+    privileges. Une fois a False, plus rien ne la rallumait : le bouton qui
+    l'aurait fait est justement celui qu'on interdit. L'installation restait
+    sans diagnostic, definitivement, et sans rien pour le dire.
+
+    Deux gestes, a chaque demarrage du panneau :
+
+      - REMETTRE "enabled", pour sortir de cet etat mort ;
+      - POSER LA DESCRIPTION si elle manque, parce qu'une tuile sans
+        description n'apprend rien et que celle-ci ne s'ecrit pas ailleurs.
+
+    Ni l'un ni l'autre n'ecrase un choix : la description deja presente est
+    laissee telle quelle, et "enabled" n'est pas un reglage que l'on choisit
+    pour ces deux-la.
+    """
+    apps = load()
+    change = False
+    for nom in APPS_PAR_DEFAUT:
+        a = apps.get(nom)
+        if a is None:
+            continue
+        if not a.get("enabled"):
+            a["enabled"] = True
+            change = True
+        if nom == DIAGNOSTIC_NOM and not (a.get("description") or "").strip():
+            a["description"] = DIAGNOSTIC_DESCRIPTION
+            change = True
+    if change:
+        save(apps)
+
+
 def resume():
+    tenir_les_applications_par_defaut()
     for name, a in load().items():
         if a.get("enabled"):
             # Une app qui refuse de demarrer ne doit jamais empecher le

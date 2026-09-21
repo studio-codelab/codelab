@@ -822,6 +822,19 @@ de le lancer et de le superviser. `POST /api/add` refuse d'ailleurs un chemin qu
 5. **Reprise au redemarrage du conteneur** (`resume()`) : toute application marquee `enabled: true` dans
    `apps.json` est relancee automatiquement au demarrage du service — l'etat "actif" survit donc a un
    redemarrage du conteneur `codelab-app-manager` lui-meme.
+6. **Les applications par defaut sont tenues debout** (`tenir_les_applications_par_defaut()`, appelee par
+   `resume()`) : `dagster` et `diagnostic` repassent a `enabled: true` a chaque demarrage du panneau, et la
+   tuile du diagnostic recoit sa description si elle n'en a pas.
+
+   Ce n'est pas une commodite, c'est la contrepartie d'un refus. Arreter, redemarrer, deployer ou builder une
+   application par defaut est interdit cote serveur (`refus_action_protegee`, `403`) — comme leur
+   configuration l'est (`refus_configuration`). Il reste pourtant un chemin qui les marque `enabled: false`
+   sans que personne l'ait voulu : l'echec de lancement dans `start()`, quand le systeme refuse la limite
+   memoire ou l'abandon de privileges. Sans ce rattrapage, l'installation se retrouvait sans diagnostic
+   **definitivement** — le bouton qui l'aurait rallume est justement celui qu'on interdit.
+
+   Le rattrapage comble un manque, il ne decide pas a la place : une description deja ecrite est laissee
+   telle quelle, et une application ordinaire arretee le reste (un arret volontaire est un choix).
 
 ## Secrets transmis aux applications
 

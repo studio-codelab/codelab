@@ -7196,6 +7196,128 @@ def test_l_administrateur_du_reseau_local_reste_connecte(client, tmp_path, monke
                            environ_overrides={"REMOTE_ADDR": ip}).status_code == 403, ip
 
 
+def test_une_application_par_defaut_ne_s_arrete_pas_a_la_main(hub_dagster):
+    """Le cycle de vie aussi est refuse cote SERVEUR, pas seulement masque.
+
+    Le piege qu'on ferme : une application par defaut n'est pas
+    configurable. La laisser s'arreter d'un clic, c'est offrir un bouton
+    « Arreter » sans le bouton qui rallume -- l'installation se retrouverait
+    sans diagnostic, sans rien pour le dire et sans moyen d'y revenir.
+
+    Les gardes existaient deja dans le panneau, mais AUCUN test ne les
+    tenait : un refactor pouvait les faire disparaitre en silence.
+    """
+    c = hub_dagster
+    c.post("/login", json={"password": "secret-de-test"})
+    apps = app.load()
+    apps[app.DIAGNOSTIC_NOM] = {"path": "/w/diag", "command": "python3 app.py",
+                                "port": 9109, "visibility": "privee"}
+    app.save(apps)
+
+    for nom in app.APPS_PAR_DEFAUT:
+        for route in (f"/api/toggle/{nom}", f"/api/restart/{nom}",
+                      f"/api/deploy/{nom}", f"/api/build/{nom}"):
+            r = c.post(route, json={})
+            assert r.status_code == 403, f"POST {route} -> {r.status_code}"
+            # Le message NOMME l'application et l'action : « 403 » seul
+            # n'apprend rien a qui lit la reponse.
+            message = (r.get_json() or {}).get("error", "")
+            assert nom in message, route
+            assert "interdite" in message, route
+
+    # Et une application ordinaire n'est pas prise dans le meme filet -- sans
+    # quoi un refus rendu pour tout le monde passerait ce test.
+    assert app.refus_action_protegee("site", "arrêt/redémarrage") is None
+
+
+def test_le_panneau_tient_ses_applications_par_defaut_debout(hub_dagster):
+    """Le chemin qui mene a l'etat mort, et ce qui en sort.
+
+    start() marque « enabled: False » quand le lancement echoue (limite
+    memoire refusee, abandon de privileges impossible). Personne ne l'a
+    voulu, et le bouton qui rallumerait est justement celui qu'on interdit
+    au test precedent. Sans ce rattrapage au demarrage, l'application par
+    defaut restait eteinte pour de bon.
+    """
+    apps = app.load()
+    apps[app.DAGSTER_NOM] = {"path": "/w/dag", "command": "x", "port": 9108,
+                             "enabled": False}
+    apps[app.DIAGNOSTIC_NOM] = {"path": "/w/diag", "command": "python3 app.py",
+                                "port": 9109, "enabled": False}
+    app.save(apps)
+
+    app.tenir_les_applications_par_defaut()
+
+    apres = app.load()
+    for nom in app.APPS_PAR_DEFAUT:
+        assert apres[nom]["enabled"] is True, nom
+    # La tuile du diagnostic dit ce qu'elle est : sa fiche n'ayant pas de
+    # formulaire, cette phrase ne s'ecrit nulle part ailleurs.
+    assert apres[app.DIAGNOSTIC_NOM]["description"] == app.DIAGNOSTIC_DESCRIPTION
+    # Rien n'est impose a Dagster : ce qu'on repare ici, c'est l'etat mort.
+    assert "description" not in apres[app.DAGSTER_NOM]
+    # Une application ordinaire arretee le RESTE : un arret volontaire est un
+    # choix, et le rattrapage ne vaut que pour les deux qui n'ont pas le choix.
+    assert not apres["site"].get("enabled")
+
+
+def test_la_description_deja_posee_n_est_pas_ecrasee(hub_dagster):
+    """Le rattrapage comble un manque, il ne decide pas a la place."""
+    apps = app.load()
+    apps[app.DIAGNOSTIC_NOM] = {"path": "/w/diag", "command": "python3 app.py",
+                                "port": 9109, "enabled": False,
+                                "description": "Ma phrase à moi"}
+    app.save(apps)
+
+    app.tenir_les_applications_par_defaut()
+
+    apres = app.load()
+    assert apres[app.DIAGNOSTIC_NOM]["description"] == "Ma phrase à moi"
+    assert apres[app.DIAGNOSTIC_NOM]["enabled"] is True
+
+
+def test_le_demarrage_du_panneau_rallume_ce_qui_ne_se_rallume_pas_a_la_main(
+        hub_dagster, monkeypatch):
+    """Bout en bout : le rattrapage est BRANCHE, pas seulement ecrit.
+
+    Une fonction correcte que resume() n'appelle pas ne repare rien.
+    """
+    demarrees = []
+    monkeypatch.setattr(app, "start", lambda n, attendre=True: demarrees.append(n))
+    apps = app.load()
+    apps[app.DIAGNOSTIC_NOM] = {"path": "/w/diag", "command": "python3 app.py",
+                                "port": 9109, "enabled": False}
+    app.save(apps)
+
+    app.resume()
+
+    assert app.DIAGNOSTIC_NOM in demarrees, demarrees
+    assert app.load()[app.DIAGNOSTIC_NOM]["enabled"] is True
+
+
+def test_le_menu_ne_defile_pas_avec_la_page():
+    """Il partait avec elle.
+
+    Sur une longue liste d'applications, changer de rubrique demandait de
+    remonter d'abord -- le menu etait reste tout en haut.
+    """
+    page = _page_panneau("dashboard.html")
+    debut = page.index(".sidebar{")
+    regle = page[debut:page.index("}", debut)]
+    assert "position:sticky" in regle, regle
+    assert "top:52px" in regle, regle
+    # Sa propre hauteur, donc son propre defilement : un menu plus long que
+    # l'ecran doit rester entierement atteignable.
+    assert "overflow-y:auto" in regle, regle
+    # Et le rognage horizontal SURVIT : c'est lui qui decoupe les libelles
+    # pendant que la colonne se replie. Un "overflow:auto" pour les deux axes
+    # ferait apparaitre une barre de defilement pendant l'animation.
+    assert "overflow-x:hidden" in regle, regle
+    # Sans cela, le parent etire la colonne et "sticky" n'a plus de prise.
+    debut_corps = page.index(".page-body{")
+    assert "align-items:flex-start" in page[debut_corps:page.index("}", debut_corps)]
+
+
 # ---------- 31. une page d'erreur n'affiche pas ce qu'on lui envoie ----------
 
 def test_la_page_d_erreur_echappe_ce_qu_elle_affiche(client):
