@@ -60,6 +60,7 @@ ENV_FILE="${CODELAB_ENV_FILE:-/var/lib/codelab/config/credentials.env}"
 PROFILE=/etc/profile.d/codelab-pg.sh
 UMASK_PROFILE=/etc/profile.d/codelab-umask.sh
 CODEX_PROFILE=/etc/profile.d/codelab-codex.sh
+GITCONFIG=/home/vscode/.gitconfig
 BASHRC=/home/vscode/.bashrc
 
 # --------------------- permissions partagees sur /workspace ---------------------
@@ -163,6 +164,52 @@ if [ -r "$AGENTS_SOURCE" ]; then
     chown "$SSH_USER" "$CODEX_HOME_DIR/AGENTS.md" 2>/dev/null || true
     chmod 664 "$CODEX_HOME_DIR/AGENTS.md" 2>/dev/null || true
 fi
+
+# ------------------------------- git -------------------------------
+#
+# Un .gitconfig minimal, ecrit UNE SEULE FOIS : comme le config.toml de
+# Codex, il n'est jamais reecrit ensuite, pour que les reglages faits a la
+# main depuis une session survivent aux mises a jour d'image.
+#
+# CE FICHIER NE PORTE AUCUNE IDENTITE ET AUCUN SECRET.
+#
+#   - Pas de user.name ni de user.email : personne ici ne sait qui vous etes,
+#     et une valeur inventee signerait vos commits d'un faux nom. Sans eux,
+#     git refuse de commiter avec un message qui dit exactement quoi taper.
+#   - Pas de credential helper, pas de jeton. Pour pousser vers GitHub,
+#     apportez votre agent SSH avec vous :
+#
+#         ssh -A -p 2222 vscode@l-hote
+#
+#     Les cles restent sur votre poste, la session les emprunte, et
+#     l'emprunt s'arrete avec elle. Un jeton depose dans /workspace, lui,
+#     resterait lisible par tout ce qui tourne en "vscode" -- dont l'agent
+#     de developpement -- et par Dagster et app-manager, qui montent le meme
+#     dossier.
+#
+# safe.directory = * demande une explication, parce que c'est large.
+# /workspace est ecrit par trois services aux identites differentes (voir
+# plus haut) : un depot dont le .git appartient a root fait refuser git avec
+# "dubious ownership". La propriete mixte est ici VOULUE par l'architecture,
+# pas un accident a signaler. Ce reglage est acceptable parce que ce
+# conteneur est dedie et ne porte qu'un seul utilisateur humain ; il ne le
+# serait pas sur une machine partagee, ou il revient a faire confiance aux
+# depots des autres.
+if [ ! -f "$GITCONFIG" ]; then
+    cat > "$GITCONFIG" <<'GITCFG'
+# Ecrit une seule fois par codelab-dev -- modifiable librement.
+# Ni identite ni secret ici : voir dev/entrypoint.sh.
+[init]
+	defaultBranch = main
+[pull]
+	rebase = false
+[safe]
+	directory = *
+GITCFG
+fi
+chown vscode:vscode "$GITCONFIG" 2>/dev/null || true
+chmod 644 "$GITCONFIG" 2>/dev/null || true
+
 
 # ------------------------------ cles SSH ------------------------------
 

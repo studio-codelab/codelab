@@ -226,6 +226,51 @@ L'equivalent existe partout : `basePath` pour Next.js, `--base-href` pour
 Angular, `homepage` dans le `package.json` pour Create React App.
 
 
+## Git et GitHub
+
+Un `~/.gitconfig` d'amorce est ecrit au premier demarrage, puis plus jamais
+touche : `init.defaultBranch = main`, `pull.rebase = false`, et
+`safe.directory = *`.
+
+Ce dernier merite un mot. `/workspace` est ecrit par trois services aux
+identites differentes — les sessions SSH en `vscode`, Dagster et app-manager
+en root. Un depot dont le `.git` appartient a root fait refuser git avec
+« dubious ownership ». Ici la propriete mixte est voulue par l'architecture,
+pas un accident : le reglage est donc juste. Il ne le serait pas sur une
+machine partagee, ou il revient a faire confiance aux depots des autres.
+
+**Ce fichier ne porte ni identité ni secret**, et c'est délibéré.
+
+### Se nommer
+
+Aucun `user.name` ni `user.email` n'est pose : une valeur inventee signerait
+vos commits d'un faux nom. Git refuse de commiter tant que vous ne vous etes
+pas nomme, avec un message qui dit quoi taper. Une fois pour toutes :
+
+```bash
+git config --global user.name "Votre Nom"
+git config --global user.email "vous@exemple.fr"
+```
+
+### Pousser vers GitHub
+
+Apportez votre agent SSH avec vous, plutot que de deposer une cle dans le
+conteneur :
+
+```bash
+ssh -A -p 2222 vscode@<IP-du-serveur>
+```
+
+Les cles restent sur votre poste, la session les emprunte, et l'emprunt
+s'arrete avec elle. Verifier que l'agent suit : `ssh-add -l` doit lister vos
+cles une fois connecte.
+
+Ne deposez pas de jeton ni de cle de deploiement dans `/workspace` : le
+dossier est lisible par tout ce qui tourne en `vscode` — dont l'agent de
+developpement, qui execute des commandes sans qu'on relise chacune — et il
+est monte par Dagster et app-manager. Un credential permanent y serait
+utilisable par un agent travaillant sans personne devant.
+
 ## Codex
 
 `codex` est installe dans l'image et `CODEX_HOME` pointe sur

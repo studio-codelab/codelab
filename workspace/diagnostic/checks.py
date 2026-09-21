@@ -11878,3 +11878,52 @@ def test_l_entrypoint_du_shell_ne_relache_pas_les_droits_du_fichier_de_secrets()
         if ("chmod" in nue or "chown" in nue or "setfacl" in nue) and "credentials" in nue:
             raise AssertionError(f"dev/entrypoint.sh touche aux droits du fichier "
                                  f"de secrets : {nue}")
+
+
+def test_le_gitconfig_pose_par_le_shell_ne_porte_ni_identite_ni_secret():
+    """Un .gitconfig d'amorce, et rien de plus.
+
+    Deux choses n'ont rien a faire dans un fichier ecrit par l'image :
+
+      - une identite. Personne ici ne sait qui est l'utilisateur, et une
+        valeur inventee signerait ses commits d'un faux nom. Sans user.name
+        ni user.email, git refuse de commiter avec un message qui dit
+        exactement quoi taper -- c'est le bon comportement.
+      - un moyen de s'authentifier. Un jeton ou un credential helper pointant
+        sur un fichier du workspace serait lisible par tout ce qui tourne en
+        « vscode », dont l'agent, et par Dagster et app-manager qui montent le
+        meme dossier. Les cles restent sur le poste du developpeur et sont
+        pretees le temps d'une session (ssh -A).
+    """
+    source = _entrypoint_dev()
+    debut = source.find('cat > "$GITCONFIG"')
+    assert debut != -1, "le .gitconfig d'amorce a disparu de l'entrypoint"
+    bloc = source[debut:source.find("GITCFG\nfi", debut)]
+    for interdit in ("user.name", "user.email", "[user]", "credential",
+                     "helper", "token", "PAT", "password"):
+        assert interdit not in bloc, f"« {interdit} » dans le .gitconfig d'amorce"
+    # Ecrit une seule fois : un reglage fait a la main depuis une session doit
+    # survivre a une mise a jour d'image.
+    assert '[ ! -f "$GITCONFIG" ]' in source, (
+        "le .gitconfig est reecrit a chaque demarrage : les reglages de "
+        "l'utilisateur seraient perdus")
+
+
+def test_l_entrypoint_du_shell_ne_depose_aucun_jeton_d_acces():
+    """Aucun secret d'authentification ecrit dans le workspace.
+
+    Vaut pour git comme pour le reste : ce conteneur ne fabrique pas de
+    credentials permanents, parce qu'un agent qui tourne sans personne devant
+    les utiliserait sans qu'on l'ait voulu.
+    """
+    source = _entrypoint_dev()
+    for ligne in source.splitlines():
+        nue = ligne.strip()
+        if nue.startswith("#") or not nue:
+            continue
+        minuscules = nue.lower()
+        if any(motif in minuscules for motif in
+               ("git_askpass", "credential.helper", "ghp_", "github_token",
+                ".git-credentials")):
+            raise AssertionError(f"dev/entrypoint.sh depose un moyen "
+                                 f"d'authentification : {nue}")
