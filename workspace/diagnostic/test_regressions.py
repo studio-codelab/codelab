@@ -10383,12 +10383,25 @@ def test_les_deux_agents_sont_epingles_et_passent_par_la_passerelle():
     assert "OPENCLAW_NO_PROMPT" in source
 
 
+def _config_openclaw():
+    """Le JSON que l'entrypoint ecrit pour OpenClaw, tel qu'il l'ecrit.
+
+    Un seul extracteur pour tous les tests qui le lisent : celui qui vivait
+    dans un test est tombe au premier renommage de la variable de chemin,
+    et le message disait « la configuration a disparu » alors qu'elle etait
+    la, deux lignes plus loin.
+    """
+    source = _entrypoint_dev()
+    ouverture = "cat > \"$OPENCLAW_CFG\" <<OPENCLAWCFG\n"
+    debut = source.find(ouverture)
+    assert debut != -1, "la configuration d'amorce d'OpenClaw a disparu"
+    debut += len(ouverture)
+    return source[debut:source.index("\nOPENCLAWCFG", debut)]
+
+
 def test_openclaw_pointe_la_passerelle_et_pas_un_fournisseur():
     """Meme regle que pour Codex : aucun agent n'a de compte a lui."""
-    source = _entrypoint_dev()
-    debut = source.find('cat > "$OPENCLAW_HOME_DIR/openclaw.json"')
-    assert debut != -1, "la configuration d'amorce d'OpenClaw a disparu"
-    bloc = source[debut:source.find("OPENCLAWCFG\n    chown", debut)]
+    bloc = _config_openclaw()
     assert '"baseUrl": "http://codelab-llm:8080/v1"' in bloc
     # La cle part vers un hote du reseau prive : sans cela, OpenClaw refuse.
     assert '"allowPrivateNetwork": true' in bloc
@@ -11587,3 +11600,181 @@ def test_la_carte_du_rangement_ne_dit_plus_l_inverse_de_ce_qu_elle_fait():
     assert "Coche une application pour la retirer" not in carte
     # Le rangement n'est pas une fermeture : la carte doit continuer de le dire.
     assert "rangement" in carte
+
+
+# ---------- 43. OpenClaw repond : config valide, et un gateway ----------
+#
+# CE QUE CETTE SECTION PROTEGE. Le fichier ecrit par l'entrypoint etait
+# REFUSE par OpenClaw, et son propre commentaire l'annoncait : « NON VERIFIE
+# A L'EXECUTION ». Sur la machine de Lucas, la CLI disait :
+#
+#     Config: invalid. Default agent: main.
+#     Gateway: not reachable at ws://127.0.0.1:18789
+#
+# « openclaw config validate » donne la cause, et elle n'etait pas
+# devinable : « custom model providers must declare models ». Les tests
+# ci-dessous tiennent les trois exigences constatees a l'execution, plus la
+# quatrieme que le gateway signale lui-meme au demarrage.
+#
+# Ils lisent la FORME, faute de pouvoir lancer OpenClaw en CI -- l'image de
+# test ne l'embarque pas. La validation reelle a ete faite a la main, avec le
+# paquet epingle, sur le JSON que ce heredoc produit exactement.
+
+
+def test_le_provider_openclaw_declare_ses_modeles():
+    """LE defaut signale. Un provider sans « models » n'est pas incomplet :
+    il est refuse, et OpenClaw tombe alors sur ses commandes deterministes
+    sans jamais le redire."""
+    config = json.loads(_config_openclaw()
+                        .replace("$JETON_OPENCLAW", "j" * 64)
+                        .replace("$CLE_POUR_OPENCLAW", "cl_exemple"))
+    modeles = config["models"]["providers"]["codelab"]["models"]
+    assert modeles, "le provider ne declare aucun modele : OpenClaw le refuse"
+    for m in modeles:
+        assert m.get("id"), f"un modele sans id : {m}"
+
+
+def test_le_gateway_openclaw_a_le_mode_sans_lequel_il_refuse_de_demarrer():
+    """Constate a l'execution : « Gateway start blocked: existing config is
+    missing gateway.mode. »"""
+    config = json.loads(_config_openclaw()
+                        .replace("$JETON_OPENCLAW", "j" * 64)
+                        .replace("$CLE_POUR_OPENCLAW", "cl_exemple"))
+    assert config["gateway"]["mode"] == "local"
+    # Sur la boucle locale : ses clients sont dans CE conteneur. Un autre
+    # bind ouvrirait le gateway au reseau, sans port publie pour le dire.
+    assert config["gateway"]["bind"] == "loopback"
+
+
+def test_un_modele_par_defaut_est_designe():
+    """Un provider declare sans modele par defaut ne sert a personne : rien
+    ne dit lequel utiliser, et l'agent demarre sans modele."""
+    config = json.loads(_config_openclaw()
+                        .replace("$JETON_OPENCLAW", "j" * 64)
+                        .replace("$CLE_POUR_OPENCLAW", "cl_exemple"))
+    primaire = config["agents"]["defaults"]["model"]["primary"]
+    assert primaire.startswith("codelab/"), primaire
+    modeles = {m["id"] for m in config["models"]["providers"]["codelab"]["models"]}
+    assert primaire.split("/", 1)[1] in modeles, (
+        f"le modele par defaut {primaire} n'est pas dans la liste declaree")
+
+
+def test_les_modeles_d_openclaw_sont_ceux_que_la_passerelle_sert():
+    """Trois fichiers nomment les memes modeles logiques : llm/app.py les
+    sert, le config.toml de Codex en choisit un, et OpenClaw les declare.
+
+    Un nom present d'un seul cote ne se voit qu'au premier appel, en erreur.
+    """
+    config = json.loads(_config_openclaw()
+                        .replace("$JETON_OPENCLAW", "j" * 64)
+                        .replace("$CLE_POUR_OPENCLAW", "cl_exemple"))
+    declares = {m["id"] for m in config["models"]["providers"]["codelab"]["models"]}
+    passerelle = (_racine_llm() / "app.py").read_text(encoding="utf-8")
+    bloc = passerelle[passerelle.index("MODELES_PAR_DEFAUT"):]
+    bloc = bloc[:bloc.index("}")]
+    servis = set(re.findall(r'"([a-z0-9-]+)":', bloc))
+    assert declares == servis, (
+        f"OpenClaw declare {sorted(declares)}, la passerelle sert {sorted(servis)}")
+
+
+def test_le_jeton_du_gateway_est_persiste_et_pas_retire_a_chaque_demarrage():
+    """Signale par le gateway lui-meme : « auth token was missing. Generated
+    a runtime token for this startup […] restart will generate a different
+    token. »
+
+    La CLI et l'extension VS Code lisent le MEME fichier : un jeton qui
+    change a chaque redemarrage les laisse dehors sans rien expliquer.
+    """
+    source = _entrypoint_dev()
+    config = _config_openclaw()
+    assert '"token": "$JETON_OPENCLAW"' in config, (
+        "le jeton du gateway n'est pas ecrit dans la configuration")
+    # Repris du fichier existant AVANT d'en tirer un neuf.
+    assert 'JETON_OPENCLAW="$(python3' in source, (
+        "le jeton n'est pas relu : chaque demarrage en poserait un neuf")
+    assert "if [ -z \"$JETON_OPENCLAW\" ]; then" in source, (
+        "aucun repli quand le fichier n'en porte pas encore")
+
+
+def test_la_configuration_refusee_par_openclaw_est_reecrite():
+    """LA reparation des installations deja cassees.
+
+    La regle precedente ne reecrivait que sur une cle perimee. Un fichier
+    refuse par OpenClaw restait donc en place indefiniment -- exactement ce
+    qui est arrive. C'est OpenClaw qui juge, pas nous : « config validate »
+    connait son schema, nous ne le connaissons que de seconde main.
+    """
+    # Les COMMENTAIRES sont hors sujet : celui qui explique la reparation
+    # cite forcement la commande. C'est du code qu'on parle -- et cette
+    # distinction a deja fait tomber un test sur sa propre justification.
+    lignes = [l for l in _entrypoint_dev().split("\n")
+              if not l.strip().startswith("#") and "openclaw config validate" in l]
+    assert lignes, "l'entrypoint ne demande plus son avis a OpenClaw"
+    # Et le refus doit MENER a la reecriture, pas seulement etre constate.
+    source = _entrypoint_dev()
+    debut = source.index(lignes[0])
+    assert "OPENCLAW_A_ECRIRE=1" in source[debut:debut + 300], (
+        "le refus d'OpenClaw ne declenche pas la reecriture")
+
+
+def test_le_gateway_est_lance_au_demarrage_du_conteneur():
+    """Sans lui, la CLI, la TUI et l'extension VS Code repondent toutes
+    « not reachable » -- c'est le second symptome signale."""
+    # La COMMANDE passee a su, et pas la presence de la chaine quelque part :
+    # un mutant qui la commentait (« true # openclaw gateway ») passait au
+    # travers, puisque le texte restait dans la ligne. C'est ce mutant qui a
+    # ecrit cette version du test.
+    lignes = [l for l in _entrypoint_dev().split("\n")
+              if not l.strip().startswith("#") and "openclaw gateway" in l]
+    assert lignes, "le gateway n'est pas lance : rien ne repondra sur 18789"
+    ligne = lignes[0]
+    lancee = re.search(r"""-c ["']([^"']+)""", ligne)
+    assert lancee and lancee.group(1).startswith("openclaw gateway"), (
+        f"la commande lancee ne demarre pas le gateway : {ligne}")
+    # Sous le compte de l'utilisateur, pas en root : le gateway execute du
+    # code d'agent, et root dans ce conteneur voit credentials.env.
+    assert "$SSH_USER" in ligne, f"le gateway ne tourne pas sous vscode : {ligne}"
+    # sshd reste le processus principal : c'est lui qui porte les journaux
+    # d'authentification et l'arret propre.
+    assert _entrypoint_dev().rstrip().endswith('exec "$@"'), (
+        "sshd n'est plus le dernier mot de l'entrypoint")
+
+
+def test_le_serveur_vscode_survit_a_une_mise_a_jour_d_image():
+    """Remote-SSH installe ses extensions DANS le conteneur. Sans montage,
+    chaque « compose pull » les effacait toutes, sans rien dire."""
+    for chemin in _composes():
+        texte = open(chemin, encoding="utf-8").read()
+        assert "/home/vscode/.vscode-server" in texte, (
+            f"{os.path.basename(chemin)} ne persiste pas le serveur VS Code")
+
+
+def test_le_dossier_du_serveur_vscode_est_rendu_a_son_utilisateur():
+    """Docker cree un montage absent EN ROOT. Sans ce chown, la premiere
+    connexion Remote-SSH echoue sur un refus d'ecriture, et le message cote
+    VS Code ne nomme ni le dossier ni le proprietaire."""
+    source = _entrypoint_dev()
+    assert "VSCODE_SERVER_DIR=/home/vscode/.vscode-server" in source
+    debut = source.index("VSCODE_SERVER_DIR=/home/vscode/.vscode-server")
+    bloc = source[debut:debut + 700]
+    assert 'chown -R "$SSH_USER:$SSH_USER" "$VSCODE_SERVER_DIR"' in bloc
+    # Pas a chaque demarrage : un chown -R sur des milliers de fichiers
+    # d'extensions couterait plusieurs secondes pour ne rien changer.
+    assert "stat -c %U" in bloc, (
+        "le chown n'est pas conditionne : il tournera a chaque demarrage")
+
+
+def test_l_extension_vscode_est_proposee_et_pas_imposee():
+    """VS Code lit extensions.json et OFFRE d'installer. Installer dans le
+    dos de l'utilisateur, dans un conteneur qui porte ses agents, serait une
+    decision qui ne nous appartient pas."""
+    source = _entrypoint_dev()
+    assert '"openknot.openclaw-extension"' in source
+    debut = source.index("VSCODE_DIR=")
+    bloc = source[debut:debut + 800]
+    assert '"recommendations"' in bloc, (
+        "l'extension n'est pas une recommandation : VS Code l'installerait "
+        "ou l'ignorerait, selon la cle employee")
+    assert 'if [ ! -f "$VSCODE_DIR/extensions.json" ]; then' in bloc, (
+        "le fichier est reecrit a chaque demarrage : une extension ajoutee "
+        "a la main par l'utilisateur disparaitrait")

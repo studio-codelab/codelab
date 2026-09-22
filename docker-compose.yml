@@ -238,6 +238,19 @@ services:
       # En lecture-ecriture : c'est ce service qui genere les cles hote au
       # premier demarrage et qui reconstruit le fichier derive.
       - /DATA/AppData/codelab/config/ssh:/var/lib/codelab/ssh
+      # LE SERVEUR VS CODE, ET SES EXTENSIONS.
+      #
+      # Remote-SSH installe son serveur et les extensions du poste dans
+      # ~/.vscode-server, DANS le conteneur. Rien ne montait ce dossier :
+      # chaque mise a jour de l'image -- donc chaque « compose pull » --
+      # effacait toutes les extensions installees, et il fallait les
+      # reinstaller une par une sans savoir pourquoi elles avaient disparu.
+      #
+      # Un dossier a part et pas /workspace : ce sont des binaires lies a la
+      # version de VS Code du poste, pas du code a sauvegarder. Les effacer
+      # pour repartir propre ne doit rien couter d'autre qu'une
+      # reinstallation.
+      - /DATA/AppData/codelab/vscode-server:/home/vscode/.vscode-server
       # Cible differente du montage ci-dessus, donc pas d'imbrication : le
       # fichier de secrets reste en lecture seule pour ce conteneur.
       - /DATA/AppData/codelab/config:/var/lib/codelab/config:ro

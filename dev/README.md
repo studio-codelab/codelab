@@ -278,27 +278,74 @@ ligne `extended-stable`. Sa configuration vit dans `/workspace/.openclaw`,
 atteinte par un lien depuis `~/.openclaw` : comme pour Codex, c'est le seul
 dossier qui survit a une recreation du conteneur.
 
-Le `openclaw.json` d'amorce pointe la meme passerelle que Codex, et reprend
-la cle deposee dans `/workspace/.codex/codelab-llm.key` si elle est deja la :
+Le `openclaw.json` d'amorce pointe la même passerelle que Codex, et reprend
+la clé déposée dans `/workspace/.codex/codelab-llm.key` si elle est déjà là.
 
-```json
-{ "models": { "providers": { "codelab": {
-      "baseUrl": "http://codelab-llm:8080/v1",
-      "api": "openai-completions",
-      "request": { "allowPrivateNetwork": true } } } } }
+Il déclare aussi **les modèles**, **un modèle par défaut** et **le mode du
+gateway** — et aucun des trois n'est facultatif :
+
+| Clé | Sans elle |
+|---|---|
+| `models.providers.codelab.models[]` | *« custom model providers must declare models »* — la configuration est **refusée**, pas incomplète |
+| `agents.defaults.model.primary` | un provider déclaré que rien ne désigne : l'agent démarre sans modèle |
+| `gateway.mode` | *« Gateway start blocked: existing config is missing gateway.mode »* |
+
+Les identifiants de modèles sont les noms **logiques** de `codelab-llm`, les
+mêmes que dans le `config.toml` de Codex. Un test tient les trois fichiers
+d'accord : un nom présent d'un seul côté ne se verrait qu'au premier appel,
+en erreur.
+
+`allowPrivateNetwork` est indispensable : la clé part vers un hôte du réseau
+privé, ce qu'OpenClaw refuse par défaut. On lève cette protection en
+connaissance de cause, parce que l'hôte en question est le nôtre.
+
+Le `gateway.auth.token` est **tiré une fois et conservé**. Sans lui, le
+gateway en génère un nouveau à chaque démarrage — il le dit dans son journal
+— et la CLI comme l'extension VS Code, qui lisent le même fichier, se
+retrouvent dehors sans explication.
+
+### Le gateway
+
+**Rien ne répond sans lui.** La CLI, la TUI et l'extension VS Code sont
+toutes des clients du gateway : c'est lui qui tient les sessions, les outils
+et le routage. Il ne démarre pas tout seul, d'où le message :
+
+```
+Gateway: not reachable at ws://127.0.0.1:18789
 ```
 
-`allowPrivateNetwork` est indispensable : la cle part vers un hote du reseau
-prive, ce qu'OpenClaw refuse par defaut. On leve cette protection en
-connaissance de cause, parce que l'hote en question est le notre.
+L'entrypoint le lance donc au démarrage du conteneur, sous le compte
+`vscode`, **sur la boucle locale uniquement**. Ses clients sont dans ce
+conteneur ; aucun port n'est publié, et la documentation d'OpenClaw note que
+les connexions en boucle locale sont approuvées d'office — donc pas
+d'appairage à faire à la main. Son journal : `/workspace/.openclaw/gateway.log`.
 
-Contrairement a Codex, OpenClaw sait parler `openai-completions` — il n'a pas
-besoin du protocole Responses. `codelab-llm` expose les deux.
+`sshd` reste le processus principal : si le gateway tombe, les sessions SSH
+continuent.
 
-> **Non verifie a l'execution.** Ce fichier suit la forme documentee, mais
-> aucun OpenClaw n'a pu etre lance pour la confirmer. S'il est refuse au
-> demarrage, le supprimer rend la main a `openclaw onboard`, qui reste la
-> reference.
+### L'extension VS Code
+
+`/workspace/.vscode/extensions.json` recommande
+[`openknot.openclaw-extension`](https://github.com/OpenKnots/openclaw-extension)
+— chat en barre latérale, `@` pour attacher des fichiers, `/explain`,
+`/fix`, `/review`. VS Code **propose** de l'installer à l'ouverture du
+dossier ; il ne l'installe pas tout seul, et une extension retirée à la main
+le reste. Le fichier n'est écrit qu'une fois : la liste est à compléter
+soi-même.
+
+Pour qu'elle survive : `~/.vscode-server` est désormais **monté depuis
+l'hôte**. Sans ce montage, chaque `docker compose pull` effaçait toutes les
+extensions installées par Remote-SSH, sans rien dire.
+
+### Si la configuration est refusée
+
+L'entrypoint demande son avis à OpenClaw (`openclaw config validate`) et
+**réécrit le fichier s'il est refusé**. Une configuration valide ajustée à la
+main n'est jamais touchée ; une configuration cassée se répare au prochain
+démarrage du conteneur.
+
+En dernier recours, supprimer `openclaw.json` rend la main à
+`openclaw onboard`, qui reste la référence.
 
 Ce paquet est **gros** : 66 dependances directes, un gateway, des connecteurs
 de messagerie dont ce conteneur n'a aucun usage. Il exige aussi Node 24.16+,
