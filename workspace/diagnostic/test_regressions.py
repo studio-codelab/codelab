@@ -7584,7 +7584,10 @@ def test_aucune_tuile_ne_porte_de_cadre_a_part():
     # LES TROIS ENSEMBLE, et c'est la MARGE qui fait la difference. Un fond
     # sans marge donne un carre gris derriere un dessin qui touche les bords ;
     # avec la marge, c'est une plaque d'icone et un logo centre.
-    assert "background:var(--surface)" in icone, icone
+    # Un jeton A PART, et pas --surface : en theme sombre celui-ci vaut
+    # #141b23 sur un fond #0d1218, soit 1,08:1 -- la plaque y etait
+    # invisible. Voir --plaque-logo dans theme.css.
+    assert "background:var(--plaque-logo)" in icone, icone
     assert "padding:" in icone, icone
 
     # Les 88 px sont la mesure commune. box-sizing:border-box fait tenir
