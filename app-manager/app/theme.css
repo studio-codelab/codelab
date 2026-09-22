@@ -73,21 +73,17 @@
   --bg:#eef1f4; --surface:#ffffff; --surface2:#f5f7f9; --bg-input:#ffffff;
   --line:#dde2e8; --line2:#c5ccd5;
   /* LA PLAQUE D'UNE ICONE TRANSPARENTE. Dagster sert son logo sans fond, la
-     ou les projets deposent une image pleine : sans plaque il flotte, avec
-     --surface il disparait en theme sombre -- #141b23 sur un fond #0d1218,
-     les deux se confondent. D'ou un jeton a part, choisi pour CONTRASTER
-     avec le fond de la page, et non pour se fondre dans les cartes.
+     ou les projets deposent une image pleine : sans plaque il flotte.
 
-     En SOMBRE, #556274 atteint 3,03:1 sur le fond de page -- le seuil WCAG
-     des elements non textuels. --surface y plafonnait a 1,08 : la plaque
-     etait invisible, ce qui etait tout l'objet du signalement. La valeur est
-     claire pour un theme sombre, volontairement : elle place la tuile du
-     service dans la meme famille de luminosite que les icones pleines
-     voisines, au lieu d'en faire un carre plus sombre qu'elles.
+     CLAIRE DANS LES DEUX THEMES, et le logo lui-meme en decide. Le mark
+     Dagster est bleu (#4C9AFF) sur une forme presque noire (#1F1F1F) : sur
+     la plaque grise-bleue d'avant (#556274), cette partie sombre tombait a
+     2,66:1 et le dessin se refermait sur lui-meme. Sur #eef1f4 elle remonte
+     a 14,54:1 -- mesure, pas estimation.
 
-     En CLAIR, la plaque reste blanche comme les cartes : le contraste y est
-     porte par la bordure, et un gris moyen ferait une tache au milieu
-     d'icones saturees. */
+     C'est le seul jeton qui ne suit PAS le theme, et c'est voulu : il ne
+     decrit pas une surface de l'interface, il decrit le fond sur lequel un
+     logo a ete dessine pour etre lu. */
   --plaque-logo:#ffffff;
   --txt:#141a21; --dim:#5b6673; --dim2:#8a94a1;
 
@@ -144,7 +140,11 @@
   :root:not([data-theme="light"]):not([data-theme="dark"]){
     --bg:#0d1218; --surface:#141b23; --surface2:#1a222b; --bg-input:#0f161d;
     --line:#242e39; --line2:#323e4b;
-    --plaque-logo:#556274;
+    /* Pas #ffffff : contre un fond de page #0d1218, un carre blanc pur
+       de 40 px eblouit le soir. #eef1f4 est le fond de page du theme
+       clair -- meme famille, 16,59:1 sur le fond sombre, et le #1F1F1F du
+       logo y reste a 14,54:1. */
+    --plaque-logo:#eef1f4;
     --txt:#e7ecf1; --dim:#98a3b0; --dim2:#6d7986;
 
     --nav:#101821; --nav2:#161f28; --nav-line:#242e39;
@@ -170,7 +170,10 @@
 :root[data-theme="dark"]{
   --bg:#0d1218; --surface:#141b23; --surface2:#1a222b; --bg-input:#0f161d;
   --line:#242e39; --line2:#323e4b;
-  --plaque-logo:#556274;
+  /* Meme valeur que le bloc « prefers-color-scheme » ci-dessus : le theme
+     sombre choisi a la main et le theme sombre du systeme doivent peindre
+     la meme chose. */
+  --plaque-logo:#eef1f4;
   --txt:#e7ecf1; --dim:#98a3b0; --dim2:#6d7986;
 
   --nav:#101821; --nav2:#161f28; --nav-line:#242e39;

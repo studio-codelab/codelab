@@ -135,6 +135,10 @@ surveiller à l'œil :
   revient.
 - **Catégories** — des tiroirs pour ranger les projets dans le hub. Purement visuel : une catégorie
   ne donne aucun droit.
+- **Applications du hub** — ce que *ton* hub affiche, compte par compte. Cochée, elle est affichée.
+  **Dagster en fait partie** : sur une installation où l'on n'ouvre jamais l'orchestrateur, sa tuile
+  se range comme les autres. C'est du rangement, pas une fermeture : le service continue de tourner
+  et son adresse répond toujours.
 - **Clés et secrets** — la clé CodeLab que Codex et OpenClaw présentent à la passerelle, et les
   clés des fournisseurs. Créer une clé la tire, l'inscrit en base et la pose dans les deux fichiers
   où les agents la lisent, en un geste ; **elle ne s'affiche jamais**, pas même à la création, et

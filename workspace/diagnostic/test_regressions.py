@@ -101,7 +101,7 @@ CHEMINS_ETAT = [
     "STATE_DIR", "APPS_FILE", "LOG_DIR", "UTILISATEURS_FILE", "PASSKEYS_FILE",
     "ACCES_FILE", "PROCESSUS_FILE", "MASQUEES_FILE", "MESSAGES_FILE", "CHILD_HOME", "ALERTES_FILE", "SMTP_FILE",
     "CATEGORIES_FILE",
-    "EXPOSITION_FILE", "ICONE_DAGSTER_CACHE", "SHARED_CONFIG_DIR",
+    "EXPOSITION_FILE", "SHARED_CONFIG_DIR",
     "SHARED_ENV_FILE", "LEGACY_ADMIN_PASSWORD_FILE", "LEGACY_SECRET_KEY_FILE",
     "SSO_PRIVATE_FILE",
     # Les secrets du profil IA. Les deux derniers sont sous ROOT, pas sous
@@ -141,7 +141,6 @@ def _bac_a_sable(tmp_path, monkeypatch):
         "SMTP_FILE": str(etat / "smtp.json"),
         "CATEGORIES_FILE": str(etat / "categories.json"),
         "EXPOSITION_FILE": str(etat / "exposition.json"),
-        "ICONE_DAGSTER_CACHE": str(etat / "dagster-icone"),
         "SHARED_CONFIG_DIR": str(partage),
         "SHARED_ENV_FILE": str(partage / "credentials.env"),
         "LEGACY_ADMIN_PASSWORD_FILE": str(etat / "admin_password"),
@@ -11336,3 +11335,255 @@ def test_l_onglet_des_cles_est_marque_reserve_a_l_administrateur():
     ligne = [l for l in page.split("\n") if 'data-p="cles"' in l]
     assert len(ligne) == 1, "l'onglet des cles a disparu, ou il y en a deux"
     assert 'data-admin="1"' in ligne[0], ligne[0]
+
+
+# ---------- 42. la tuile Dagster : son logo, et son rangement ------------
+#
+# Trois signalements, une meme tuile.
+#
+#   « le logo n'est pas net »        -> il etait telecharge, donc matriciel ;
+#   « un fond clair, constamment »   -> la plaque suivait le theme ;
+#   « pouvoir masquer Dagster »      -> c'etait la seule tuile qu'on ne
+#                                       pouvait pas retirer de son hub.
+
+
+def _plaques_du_theme():
+    """La valeur de --plaque-logo dans chacun des blocs de theme.css.
+
+    Trois blocs : clair, « prefers-color-scheme: dark », et le sombre choisi
+    a la main. Les trois doivent etre peints, et un jeton oublie dans l'un
+    d'eux ne se voit qu'en basculant le theme a la main -- ce qui n'arrive
+    jamais au moment ou l'on ecrit la regle.
+    """
+    feuille = (_racine_app_manager() / "theme.css").read_text(encoding="utf-8")
+    valeurs = re.findall(r"--plaque-logo:\s*(#[0-9a-fA-F]{3,6})\s*;", feuille)
+    assert len(valeurs) == 3, (
+        f"theme.css definit --plaque-logo {len(valeurs)} fois, trois attendues")
+    return valeurs
+
+
+def _luminance(hexa):
+    """La luminance relative WCAG d'une couleur, pour dire « clair » sans
+    se fier a l'impression qu'en donne le nom du jeton."""
+    h = hexa.lstrip("#")
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    canaux = [int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+    canaux = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+              for c in canaux]
+    return 0.2126 * canaux[0] + 0.7152 * canaux[1] + 0.0722 * canaux[2]
+
+
+def test_la_plaque_du_logo_est_claire_dans_les_trois_themes():
+    """Demande explicitement : « un fond clair CONSTAMMENT ».
+
+    Et ce n'est pas qu'une preference : le mark Dagster porte une forme
+    presque noire (#1F1F1F). Sur la plaque grise-bleue d'avant (#556274) elle
+    tombait a 2,66:1 et le dessin se refermait sur lui-meme.
+
+    Le seuil est pose sur la LUMINANCE, pas sur la valeur : #556274 comme
+    n'importe quel gris moyen echoue, et une future retouche claire passe
+    sans qu'on ait a toucher ce test.
+    """
+    for valeur in _plaques_du_theme():
+        assert _luminance(valeur) > 0.6, (
+            f"--plaque-logo vaut {valeur} : ce n'est pas un fond clair "
+            f"(luminance {_luminance(valeur):.2f})")
+
+
+def test_la_partie_sombre_du_logo_reste_lisible_sur_la_plaque():
+    """Le chiffre qui justifie le changement, verifie plutot qu'affirme."""
+    def contraste(a, b):
+        la, lb = _luminance(a), _luminance(b)
+        return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+    for plaque in _plaques_du_theme():
+        assert contraste("#1F1F1F", plaque) >= 10, (
+            f"la forme sombre du logo tombe a "
+            f"{contraste('#1F1F1F', plaque):.2f}:1 sur {plaque}")
+
+
+def test_le_logo_dagster_servi_est_le_svg_livre_avec_l_image(hub):
+    """LE test du signalement « choisis un logo plus net ».
+
+    Le panneau allait chercher /favicon.ico sur l'instance Dagster et servait
+    ce qu'il trouvait, EN PRIORITE sur le SVG livre. Un favicon fait 32 px ;
+    la tuile du hub en fait 40 a 48. Le navigateur agrandissait donc une
+    image matricielle.
+
+    Le test voisin « le logo est vectoriel et net » lisait la CONSTANTE. Il
+    passait donc pendant que la reponse servie, elle, etait matricielle.
+    Celui-ci lit la REPONSE.
+    """
+    hub.post("/login", json={"password": "secret-de-test"})
+    r = hub.get("/api/icon/" + app.DAGSTER_NOM)
+    assert r.status_code == 200
+    assert r.mimetype == "image/svg+xml", (
+        f"le logo de Dagster est servi en {r.mimetype} : une image "
+        f"matricielle agrandie dans la tuile")
+    corps = r.get_data(as_text=True)
+    assert corps == app.ICONE_DAGSTER
+    assert "<svg" in corps and "viewBox" in corps
+
+
+def test_le_panneau_ne_telecharge_plus_le_logo_de_dagster():
+    """Ni appel reseau, ni cache sur disque, ni fichier de type a cote.
+
+    Le cache vivait dans STATE_DIR : le laisser derriere aurait garde un
+    fichier que plus rien n'ecrit et que le filet des tests devait encore
+    detourner.
+    """
+    for parti in ("icone_dagster", "ICONE_DAGSTER_CACHE",
+                  "ICONES_DAGSTER_CANDIDATES", "_lire_icone_dagster_du_disque"):
+        assert not hasattr(app, parti), (
+            f"{parti} est encore la : le logo peut encore etre telecharge")
+    # « favicon » reste un nom legitime AILLEURS : find_icon() le cherche
+    # parmi les logos qu'un projet depose dans son dossier. Ce qu'on
+    # interdit, c'est de le chercher CHEZ DAGSTER -- donc les deux mots
+    # ensemble, dans la meme ligne ou le meme appel.
+    source = (_racine_app_manager() / "app.py").read_text(encoding="utf-8")
+    # Les COMMENTAIRES sont hors sujet : celui qui explique le retrait cite
+    # forcement les deux mots, et ce test le faisait tomber sur sa propre
+    # justification. C'est du code qu'on parle.
+    coupables = [ligne for ligne in source.split("\n")
+                 if not ligne.strip().startswith("#")
+                 and "favicon" in ligne.lower() and "dagster" in ligne.lower()]
+    assert not coupables, (
+        "app.py va encore chercher un favicon chez Dagster : " + str(coupables))
+    assert "DAGSTER_PORT}/favicon" not in source
+    assert "ICONE_DAGSTER" in source, "le SVG livre doit rester, lui"
+
+
+# ------------------------- ranger Dagster ------------------------------
+
+def _admin_du_hub(c):
+    c.post("/login", json={"password": "secret-de-test"})
+    return c
+
+
+def test_dagster_se_range_hors_du_hub_comme_une_application(hub, monkeypatch):
+    """Sa tuile etait la seule qu'on ne pouvait pas ecarter.
+
+    Dagster n'est pas une application declaree : il ne figure pas dans
+    load(), et la route de masquage le refusait donc en 404.
+    """
+    monkeypatch.setattr(app, "origine_dagster", lambda: "http://dagster:3000/")
+    c = _admin_du_hub(hub)
+    assert app.DAGSTER_NOM in [
+        s["name"] for s in c.get("/api/mes-apps").get_json()["services"]]
+
+    assert c.post("/api/mes-apps/" + app.DAGSTER_NOM + "/masquer").status_code == 200
+
+    d = c.get("/api/mes-apps").get_json()
+    assert d["services"] == [], "la tuile est restee dans le hub"
+    assert [s["name"] for s in d["services_masques"]] == [app.DAGSTER_NOM], (
+        "range, il disparait aussi des reglages : impossible de le remettre")
+
+
+def test_ranger_dagster_ne_l_arrete_pas_et_ne_ferme_rien(hub, monkeypatch):
+    """Le point a ne pas se tromper, et il vaut ici plus qu'ailleurs : c'est
+    un SERVICE. Croire qu'on l'a eteint en le rangeant ferait prendre un
+    rangement pour un arret."""
+    monkeypatch.setattr(app, "origine_dagster", lambda: "http://dagster:3000/")
+    c = _admin_du_hub(hub)
+    c.post("/api/mes-apps/" + app.DAGSTER_NOM + "/masquer")
+    # Le portier de Dagster continue d'ouvrir : le proxy ne consulte pas le
+    # rangement, et c'est bien ainsi.
+    assert c.get("/api/auth-check").status_code == 204
+
+
+def test_remettre_dagster_le_ramene_dans_le_hub(hub, monkeypatch):
+    monkeypatch.setattr(app, "origine_dagster", lambda: "http://dagster:3000/")
+    c = _admin_du_hub(hub)
+    c.post("/api/mes-apps/" + app.DAGSTER_NOM + "/masquer")
+    assert c.delete("/api/mes-apps/" + app.DAGSTER_NOM + "/masquer").status_code == 200
+    d = c.get("/api/mes-apps").get_json()
+    assert [s["name"] for s in d["services"]] == [app.DAGSTER_NOM]
+    assert d["services_masques"] == []
+
+
+def test_un_compte_utilisateur_ne_peut_pas_ranger_dagster(hub):
+    """Ouvrir ce nom a la route de masquage ne doit rien ouvrir d'autre.
+
+    peut_voir() garde le dernier mot : pour une application par defaut il
+    exige l'administrateur. Un compte nomme qui tenterait le coup
+    apprendrait, sinon, que ce service existe.
+    """
+    c = _connexion_marie(hub)
+    assert c.post("/api/mes-apps/" + app.DAGSTER_NOM + "/masquer").status_code == 404
+    d = c.get("/api/mes-apps").get_json()
+    assert d["services"] == [] and d["services_masques"] == []
+
+
+def test_seuls_les_services_nommes_passent_par_la_route_de_masquage():
+    """Une liste fermee, pas « tout ce qui n'est pas une application » :
+    sinon la route accepterait n'importe quel nom et masquees.json se
+    remplirait d'entrees qui ne designent rien."""
+    assert app.SERVICES_MASQUABLES == frozenset({app.DAGSTER_NOM})
+
+
+def test_ranger_un_nom_inconnu_reste_un_refus(hub):
+    c = _admin_du_hub(hub)
+    assert c.post("/api/mes-apps/nexiste-pas/masquer").status_code == 404
+
+
+# ------------------------- la liste des reglages -----------------------
+
+def _bloc_liste_rangement():
+    page = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
+    debut = page.index("const lignes = toutes.map(a=>{")
+    return page[debut:page.index("}).join('');", debut)]
+
+
+def test_une_ligne_de_rangement_ne_porte_que_le_nom_et_la_case():
+    """« Rends la liste plus legere. »
+
+    Chaque ligne portait l'icone, le nom, la description complete et le mot
+    « Affichée » ou « Masquée » : quatre informations pour un reglage qui en
+    a une. La description est deja sur la tuile du hub, et l'etat est dans la
+    case -- cochee veut dire affichee, c'est tout le propos.
+    """
+    bloc = _bloc_liste_rangement()
+    assert "a.description" not in bloc, (
+        "la description est revenue dans la ligne : deux hauteurs de ligne "
+        "differentes selon que l'application en a une")
+    assert "masquee-etat" not in bloc, (
+        "le libelle « Affichée / Masquée » est revenu : il repete la case")
+    assert "nomAffiche(a)" in bloc and "app-masquer" in bloc, (
+        "une ligne doit toujours porter le nom et la case")
+
+
+def test_la_liste_du_rangement_est_batie_sur_les_quatre_sources():
+    """Sans les services, Dagster se masque par l'API et ne se remet plus.
+
+    La verification porte sur L'EXPRESSION qui construit la liste, et pas sur
+    la presence des noms dans la fonction : un mutant qui remplacait
+    « .concat(hubServices||[]) » par « .concat([]) » laissait les deux noms
+    ailleurs -- dans le commentaire au-dessus et dans le calcul des cochees --
+    et passait au travers. C'est ce mutant qui a ecrit ce test-ci.
+    """
+    page = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
+    debut = page.index("function peindreMasquees(){")
+    fin = page.index("}", page.index("const lignes", debut))
+    corps = page[debut:fin]
+    depart = corps.index("const toutes =")
+    expression = corps[depart:corps.index(";", depart)]
+    for source in ("hubApps", "hubMasquees", "hubServices", "hubServicesMasques"):
+        assert source in expression, (
+            f"la liste du rangement ne part pas de {source} : "
+            f"« {expression.strip()} »")
+
+
+def test_la_carte_du_rangement_ne_dit_plus_l_inverse_de_ce_qu_elle_fait():
+    """Elle disait « Coche une application pour la retirer de ton hub ».
+
+    Le code fait l'inverse depuis longtemps -- cochee veut dire AFFICHEE --
+    et la phrase etait restee. Sur un reglage dont tout l'interet est le sens
+    de la case, c'est la seule phrase qu'il fallait avoir juste.
+    """
+    page = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
+    debut = page.index('<b>Applications du hub</b>')
+    carte = page[debut:debut + 900]
+    assert "Cochée, elle est affichée" in carte
+    assert "Coche une application pour la retirer" not in carte
+    # Le rangement n'est pas une fermeture : la carte doit continuer de le dire.
+    assert "rangement" in carte
