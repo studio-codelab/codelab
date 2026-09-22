@@ -330,7 +330,18 @@ Les noms de modeles disponibles sont les noms **logiques** — `codelab-coding`,
 `litellm/config.yaml`. Changer le modele reel derriere un nom se fait la-bas,
 sans toucher a Codex.
 
-Il faut donc **une cle CodeLab**, a creer une fois :
+Il faut donc **une clé CodeLab**, à créer une fois.
+
+**Depuis le panneau** — *Paramètres → Clés et secrets → Créer une clé*. Le
+panneau tire la clé, inscrit son empreinte dans la base de `codelab-llm`,
+et la pose lui-même dans `/workspace/.codex/codelab-llm.key` (en `0600`) et
+dans `/workspace/.openclaw/openclaw.json`. Il ne l'affiche jamais, pas même
+à la création : il l'écrit directement là où elle sert, et n'en remontre que
+les quatre derniers caractères. **Ouvrir un nouveau terminal** ensuite — le
+profil de session exporte `CODELAB_LLM_KEY` à l'ouverture, pas après coup.
+
+**Ou en ligne de commande**, si l'on veut la clé en main pour la poser
+ailleurs :
 
 ```bash
 docker exec codelab-llm python3 app.py create-key \
@@ -338,8 +349,13 @@ docker exec codelab-llm python3 app.py create-key \
 ```
 
 La valeur s'affiche **une seule fois** ; la coller dans
-`/workspace/.codex/codelab-llm.key`. Le profil de session l'exporte ensuite
-en `CODELAB_LLM_KEY` a chaque connexion.
+`/workspace/.codex/codelab-llm.key`. Les deux chemins écrivent la même table
+et la même empreinte : une clé créée ici se révoque depuis le panneau, et
+inversement.
+
+C'est ce qui manquait quand Codex affichait
+`Missing environment variable: CODELAB_LLM_KEY` — le message ne disait pas
+lequel des trois gestes avait été oublié.
 
 C'est une cle CodeLab, pas une cle de fournisseur : elle porte un quota et
 une comptabilite, se revoque en une commande (`revoke-key`), et ne donne

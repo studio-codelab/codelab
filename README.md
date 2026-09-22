@@ -135,6 +135,11 @@ surveiller à l'œil :
   revient.
 - **Catégories** — des tiroirs pour ranger les projets dans le hub. Purement visuel : une catégorie
   ne donne aucun droit.
+- **Clés et secrets** — la clé CodeLab que Codex et OpenClaw présentent à la passerelle, et les
+  clés des fournisseurs. Créer une clé la tire, l'inscrit en base et la pose dans les deux fichiers
+  où les agents la lisent, en un geste ; **elle ne s'affiche jamais**, pas même à la création, et
+  seuls ses quatre derniers caractères remontent. Le panneau n'atteint ni le compose ni le `.env`
+  de l'hôte — les lui monter lui donnerait de quoi réécrire la stack.
 
 **Dagster** — `http://<IP-du-serveur>:3000/`. Charge `/workspace/definitions.py` comme code
 Dagster. Il n'a pas d'identifiants à lui : il utilise la session du panneau, donc la même connexion

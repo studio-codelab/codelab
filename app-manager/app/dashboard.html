@@ -1633,6 +1633,7 @@ table.tbl-journal{min-width:560px}
     <button data-p="compte" onclick="paramOnglet('compte')" class="active">Compte</button>
     <button data-p="securite" onclick="paramOnglet('securite')">Sécurité</button>
     <button data-p="serveur" onclick="paramOnglet('serveur')" data-admin="1">Serveur</button>
+    <button data-p="cles" onclick="paramOnglet('cles')" data-admin="1">Clés et secrets</button>
     <button data-p="categories" onclick="paramOnglet('categories')" data-admin="1">Catégories</button>
     <button data-p="email" onclick="paramOnglet('email')" data-admin="1">E-mail</button>
     <button data-p="alertes" onclick="paramOnglet('alertes')" data-admin="1">Alertes</button>
@@ -1973,6 +1974,67 @@ table.tbl-journal{min-width:560px}
 
   </div>
 
+  <div class="onglet-p" id="param-cles">
+  <div class="zone">
+    <div class="zone-title">Les agents de VS Code</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Clé CodeLab LLM</b>
+        <div class="path">Celle que Codex et OpenClaw présentent à la passerelle.</div>
+      </div>
+      <span class="pill" id="cle-etat"><i></i>&nbsp;</span></div>
+
+      <div class="hint">Un seul bouton remplace les trois gestes d'avant : la clé est tirée au
+        hasard ici, son <b>empreinte</b> est inscrite dans la base de <code>codelab-llm</code>, et
+        sa valeur est posée dans <code>.codex/codelab-llm.key</code> et dans
+        <code>.openclaw/openclaw.json</code> — les deux seuls endroits où les agents la lisent.
+        C'est ce qui manquait quand Codex affichait
+        <code>Missing environment variable: CODELAB_LLM_KEY</code>.</div>
+
+      <div class="hint" style="margin-top:8px"><b>Elle ne s'affiche jamais</b>, pas même à la
+        création. Le panneau l'écrit directement là où elle sert ; la montrer ici n'ouvrirait rien
+        de plus et la laisserait dans un presse-papier et dans l'historique du navigateur. Seuls
+        ses quatre derniers caractères remontent, pour reconnaître laquelle est posée.</div>
+
+      <div id="cle-detail" style="margin-top:14px"></div>
+
+      <div class="actions">
+        <button class="btn btn-primary" id="cle-creer" onclick="cleCreer()">Créer une clé</button>
+        <button class="btn btn-danger-quiet" id="cle-revoquer" onclick="cleRevoquer()">Révoquer</button>
+      </div>
+      <div class="err" id="cle-err" style="display:none"></div>
+      <div class="hint" id="cle-msg" style="display:none"></div>
+
+      <div class="hint" style="margin-top:14px">Une clé déjà posée est révoquée dans le même
+        geste : deux clés vivantes pour un seul poste, et plus personne ne sait laquelle sert.
+        Côté VS Code, <b>ouvre un nouveau terminal</b> après l'opération — la variable
+        d'environnement est exportée à l'ouverture d'une session, pas après coup.</div>
+    </div>
+  </div>
+
+  <div class="zone">
+    <div class="zone-title">Les clés des fournisseurs</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Ce que le panneau écrit, et ce qu'il ne touche pas</b>
+      </div></div>
+
+      <div class="hint">Ces valeurs vont dans deux fichiers de secrets, en <code>0600</code>, que
+        seuls <code>codelab-llm</code> et <code>codelab-litellm</code> lisent. Le panneau
+        <b>n'atteint ni le compose ni le <code>.env</code> de l'hôte</b>, et c'est délibéré : les
+        lui monter lui donnerait de quoi réécrire la stack, c'est-à-dire root sur la machine
+        depuis une page web. C'est cette limite, et rien d'autre, qui explique qu'une partie des
+        valeurs demande un redémarrage.</div>
+
+      <div class="hint" style="margin-top:8px">Une valeur enregistrée n'est plus relisible :
+        le champ repart vide et la ligne n'affiche que ses quatre derniers caractères.</div>
+
+      <div id="secrets-liste" style="margin-top:14px"></div>
+      <div class="err" id="secrets-err" style="display:none"></div>
+    </div>
+  </div>
+
+  </div>
   <div class="onglet-p" id="param-categories">
   <div class="zone">
     <div class="zone-title">Catégories</div>
@@ -2535,6 +2597,8 @@ const ACTIONS = {
   'passkey-retirer': id => pkSupprimer(id),
   'compte-ouvrir':   n => usOuvrir(n),
   'param-onglet':    o => paramOnglet(o),
+  'secret-poser':    id => secretPoser(id),
+  'secret-effacer':  id => secretEffacer(id),
 };
 
 document.addEventListener('click', e => {
@@ -2862,6 +2926,7 @@ function paramOnglet(o){
   if(o==='serveur' && estAdmin){ chargerSecurite(); chargerVps(); }
   if(o==='serveur') chargerSecurite();
   if(o==='categories') chargerCategories();
+  if(o==='cles' && estAdmin) chargerCles();
   /* Les deux onglets lisent la meme reponse : le serveur d'envoi et les
      alertes vivent dans le meme bloc de credentials.env. */
   if(o==='email' || o==='alertes') chargerAlertes();
@@ -5471,6 +5536,192 @@ async function pubEnregistrer(){
   const d=await r.json();
   if(!r.ok){ e.textContent=d.error||'Enregistrement impossible.'; e.style.display='block'; return; }
   chargerSecurite();
+}
+
+/* ---------------- cles et secrets ----------------
+   CE QUI N'ARRIVE JAMAIS ICI : une valeur complete. Le serveur ne renvoie
+   que l'apercu qu'il a calcule -- les quatre derniers caracteres -- et
+   jamais la cle des agents, meme a la creation. Cette page ne peut donc pas
+   divulguer ce qu'elle n'a pas.
+
+   Rien ne part non plus par une URL : les deux ecritures passent par le
+   corps de la requete. Une valeur dans un chemin se retrouve dans le
+   journal du serveur, dans l'historique du navigateur et dans le referrer
+   de la page suivante -- trois endroits ou personne ne va la chercher pour
+   l'effacer. */
+let clesEtat = null;
+
+async function chargerCles(){
+  let d;
+  try{ d = await (await fetch('/api/cles')).json(); }
+  catch(e){ return; }
+  if(d.error) return;
+  clesEtat = d;
+  peindreCleLlm(d.llm);
+  peindreSecrets(d.secrets);
+}
+
+/* Les phrases de l'etat de la cle. Chacune nomme CE QUI MANQUE, parce que
+   trois choses peuvent manquer separement et que les confondre est
+   exactement ce qui rendait la panne illisible. */
+const CLE_PHRASES = {
+  active:      ['on',  'Active'],
+  absente:     ['warn','Inconnue de la base'],
+  revoquee:    ['err', 'Révoquée'],
+  injoignable: ['off', 'Base injoignable'],
+  inconnue:    ['off', 'Aucune clé'],
+};
+
+function peindreCleLlm(l){
+  const etat = l.posee ? l.base : 'inconnue';
+  const [classe, texte] = CLE_PHRASES[etat] || CLE_PHRASES.inconnue;
+  const pill = $('cle-etat');
+  pill.className = 'pill ' + classe;
+  pill.innerHTML = '<i></i>' + texte;
+
+  $('cle-revoquer').style.display = l.posee ? '' : 'none';
+  $('cle-creer').textContent = l.posee ? 'Remplacer la clé' : 'Créer une clé';
+
+  const lignes = [];
+  if(!l.posee){
+    lignes.push('<div class="hint">Aucune clé n\'est posée sur ce serveur. '
+      + 'Codex affichera <code>Missing environment variable: CODELAB_LLM_KEY</code> '
+      + 'tant que ce sera le cas.</div>');
+  }else{
+    lignes.push(ligneCle('Clé posée', '<code>' + esc(l.apercu) + '</code>'));
+    if(l.nom) lignes.push(ligneCle('Nom', esc(l.nom)));
+    if(l.creee) lignes.push(ligneCle('Créée le', esc(dateCourte(l.creee))));
+    lignes.push(ligneCle('OpenClaw', l.openclaw
+      ? 'porte la même clé'
+      : '<b>ne porte pas cette clé</b> — recrée-la pour les remettre d\'accord'));
+    if(l.base === 'absente') lignes.push('<div class="hint">Cette clé n\'est pas '
+      + 'dans la base de <code>codelab-llm</code> : la passerelle la refusera. '
+      + 'C\'est le cas après une remise à zéro de la base.</div>');
+    if(l.base === 'revoquee') lignes.push('<div class="hint">Cette clé a été '
+      + 'révoquée : le fichier est là, les appels sont refusés.</div>');
+    if(l.base === 'injoignable') lignes.push('<div class="hint">Postgres ne '
+      + 'répond pas : impossible de dire si cette clé est encore valable.</div>');
+  }
+  $('cle-detail').innerHTML = lignes.join('');
+}
+
+function ligneCle(nom, valeur){
+  return '<div class="kv"><span class="k">' + esc(nom) + '</span>'
+       + '<span class="v">' + valeur + '</span></div>';
+}
+
+/* Une date lisible, ou la chaine brute si le navigateur ne sait pas la lire :
+   afficher « Invalid Date » vaut moins que l'horodatage tel quel. */
+function dateCourte(iso){
+  const d = new Date(iso);
+  return isNaN(d) ? iso : d.toLocaleString();
+}
+
+async function cleCreer(){
+  const remplace = clesEtat && clesEtat.llm && clesEtat.llm.posee;
+  if(remplace && !await demander('Remplacer la clé',
+      'L\'ancienne sera révoquée dans le même geste : tout ce qui s\'en sert '
+      + 'encore recevra un refus.', 'Remplacer', true)) return;
+  $('cle-err').style.display = 'none';
+  $('cle-msg').style.display = 'none';
+  const bouton = $('cle-creer');
+  bouton.disabled = true;
+  try{
+    const r = await fetch('/api/cles/llm', {method:'POST',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({})});
+    const d = await r.json();
+    if(!r.ok){ erreurCles('cle-err', d.error); return; }
+    clesEtat.llm = d.llm;
+    peindreCleLlm(d.llm);
+    const m = $('cle-msg');
+    m.style.display = '';
+    m.innerHTML = 'Clé écrite dans ' + esc((d.fichiers || []).join(' et '))
+      + '. <b>Ouvre un nouveau terminal</b> dans VS Code pour que Codex la voie.';
+  }catch(e){ erreurCles('cle-err', 'Le serveur n\'a pas répondu.'); }
+  finally{ bouton.disabled = false; }
+}
+
+async function cleRevoquer(){
+  if(!await demander('Révoquer la clé',
+      'Codex et OpenClaw cesseront d\'être servis tant qu\'une nouvelle clé '
+      + 'n\'est pas créée.', 'Révoquer', true)) return;
+  $('cle-err').style.display = 'none';
+  $('cle-msg').style.display = 'none';
+  try{
+    const r = await fetch('/api/cles/llm', {method:'DELETE'});
+    const d = await r.json();
+    if(!r.ok){ erreurCles('cle-err', d.error); return; }
+    clesEtat.llm = d.llm;
+    peindreCleLlm(d.llm);
+  }catch(e){ erreurCles('cle-err', 'Le serveur n\'a pas répondu.'); }
+}
+
+/* Deux mots pour l'effet d'une valeur, parce que la difference est reelle et
+   qu'elle se paie : codelab-llm relit son fichier a chaque appel, le routeur
+   recoit le sien par l'environnement, que Docker fige au demarrage. */
+const EFFET_PHRASE = {
+  vif: 'Prise en compte immédiatement.',
+  redemarrage: 'Prise en compte au prochain <code>docker compose --profile llm up -d</code>.',
+};
+
+function peindreSecrets(liste){
+  $('secrets-liste').innerHTML = (liste || []).map(s => {
+    const pose = s.definie
+      ? '<span class="pill on"><i></i>Renseignée</span>'
+      : '<span class="pill off"><i></i>Non renseignée</span>';
+    const apercu = s.definie
+      ? '<div class="hint"><code>' + esc(s.apercu) + '</code></div>' : '';
+    return '<div class="card settings-card">'
+      + '<div class="card-top"><div class="card-name"><b>' + esc(s.titre) + '</b>'
+      + '<div class="path">' + esc(s.aide) + '</div></div>' + pose + '</div>'
+      + apercu
+      + '<div class="field" style="margin-top:12px">'
+      + '<input id="secret-' + esc(s.id) + '" type="' + (s.secret ? 'password' : 'text')
+      + '" autocomplete="off" spellcheck="false" placeholder="'
+      + (s.definie ? 'Remplacer la valeur' : 'Coller la valeur') + '"></div>'
+      + '<div class="hint">' + EFFET_PHRASE[s.effet] + ' Écrite dans '
+      + s.variables.map(v => '<code>' + esc(v) + '</code>').join(' et ') + '.</div>'
+      + '<div class="actions">'
+      + '<button class="btn btn-primary" data-agir="secret-poser" data-cible="'
+      + esc(s.id) + '">Enregistrer</button>'
+      + (s.definie ? '<button class="btn btn-danger-quiet" data-agir="secret-effacer"'
+          + ' data-cible="' + esc(s.id) + '">Effacer</button>' : '')
+      + '</div></div>';
+  }).join('');
+}
+
+async function secretPoser(id){
+  const champ = $('secret-' + id);
+  if(!champ) return;
+  await secretEcrire(id, champ.value);
+}
+
+async function secretEffacer(id){
+  if(!await demander('Effacer la valeur',
+      'La ligne est retirée du fichier de secrets. Ce qui s\'en sert cessera '
+      + 'de fonctionner au prochain démarrage.', 'Effacer', true)) return;
+  await secretEcrire(id, '');
+}
+
+async function secretEcrire(id, valeur){
+  $('secrets-err').style.display = 'none';
+  try{
+    const r = await fetch('/api/cles/secrets', {method:'PUT',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({id: id, valeur: valeur})});
+    const d = await r.json();
+    if(!r.ok){ erreurCles('secrets-err', d.error); return; }
+    /* On relit tout plutot que de repeindre la seule ligne : le champ se
+       vide de lui-meme, et l'apercu affiche vient du serveur -- c'est la
+       seule facon de voir ce qui a REELLEMENT ete ecrit. */
+    await chargerCles();
+  }catch(e){ erreurCles('secrets-err', 'Le serveur n\'a pas répondu.'); }
+}
+
+function erreurCles(cible, texte){
+  const n = $(cible);
+  n.style.display = '';
+  n.textContent = texte || 'Opération refusée.';
 }
 
 /* ---------------- liaison avec un VPS ---------------- */

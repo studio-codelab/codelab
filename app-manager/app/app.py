@@ -6482,6 +6482,533 @@ def api_exposition():
                     "admin_reseau_local": admin_limite_au_reseau_local()})
 
 
+# ------------------------- cles et secrets -------------------------
+#
+# POURQUOI CETTE PAGE EXISTE. Renseigner une cle demandait trois gestes a
+# trois endroits : « docker exec codelab-llm python3 app.py create-key », un
+# copier-coller dans /workspace/.codex/codelab-llm.key, et une edition du
+# .env de l'hote. Rien ne disait lequel manquait : Codex affichait « Missing
+# environment variable: CODELAB_LLM_KEY » et s'arretait la.
+#
+# CE QUE LE PANNEAU TOUCHE, ET CE QU'IL NE TOUCHE PAS.
+#
+#   base codelab_llm            il y inscrit l'EMPREINTE d'une cle, jamais la
+#                               cle. Meme table et meme empreinte que
+#                               « create-key » : une cle posee ici est
+#                               reconnue par la passerelle, et une cle posee
+#                               la-bas se revoque ici.
+#   .codex/codelab-llm.key      la cle en clair, 0600, parce que c'est le
+#                               seul endroit ou le conteneur de
+#                               developpement sait la lire.
+#   .openclaw/openclaw.json     la meme cle : OpenClaw ne lit pas
+#                               l'environnement, il veut sa valeur ici.
+#   config/llm/llm.env          les secrets de codelab-llm. Relu a CHAQUE
+#                               appel par ce service : ce qu'on y ecrit
+#                               prend effet sans redemarrage.
+#   config/llm/fournisseurs.env les cles que codelab-litellm recoit par
+#                               env_file. Un fichier d'environnement n'est
+#                               lu qu'au demarrage du conteneur : la page le
+#                               dit, et donne la commande.
+#
+#   le compose et le .env de l'hote : JAMAIS. Ils ne sont pas montes ici, et
+#   les monter donnerait au panneau de quoi reecrire la stack -- c'est-a-dire
+#   root sur l'hote, depuis une page web. La limite est deliberee, et c'est
+#   elle qui explique pourquoi certaines valeurs demandent une commande.
+#
+# CE QUI NE SORT PAS VERS LE NAVIGATEUR. Aucune valeur complete, jamais, pas
+# meme celle qu'on vient d'ecrire. La page ne recoit qu'un apercu calcule
+# ici. Aucune valeur ne passe par une URL -- tout est en corps de requete --
+# ni par le journal : journaliser() ne recoit que le NOM du reglage touche.
+
+CODEX_DIR = os.path.join(ROOT, ".codex")
+OPENCLAW_DIR = os.path.join(ROOT, ".openclaw")
+CLE_CODEX_FICHIER = os.path.join(CODEX_DIR, "codelab-llm.key")
+OPENCLAW_FICHIER = os.path.join(OPENCLAW_DIR, "openclaw.json")
+
+LLM_CONFIG_DIR = os.path.join(SHARED_CONFIG_DIR, "llm")
+LLM_ENV_FICHIER = os.path.join(LLM_CONFIG_DIR, "llm.env")
+FOURNISSEURS_ENV_FICHIER = os.path.join(LLM_CONFIG_DIR, "fournisseurs.env")
+
+PG_BASE_LLM = "codelab_llm"
+PG_ROLE_LLM = "codelab_llm"
+
+# En dessous de cette longueur, quatre caracteres sont une part
+# reconnaissable du tout : on n'en montre alors aucun.
+APERCU_MIN = 12
+
+# Les secrets que cette page sait poser, et OU chacun doit atterrir.
+#
+# « ou » est une liste parce qu'une meme valeur sert parfois deux services
+# sous deux noms differents : la cle du routeur est CODELAB_LLM_AMONT_KEY
+# pour codelab-llm et LITELLM_MASTER_KEY pour codelab-litellm. Les tenir
+# d'accord a la main, c'est la panne silencieuse assuree -- le routeur
+# refuse, et rien ne dit pourquoi.
+#
+# « vif » : le service relit son fichier a chaque appel, l'effet est
+# immediat. « redemarrage » : la valeur arrive par l'environnement du
+# conteneur, que Docker fige au demarrage.
+SECRETS_GERES = (
+    {"id": "routeur",
+     "titre": "Clé partagée avec le routeur",
+     "aide": "La même valeur des deux côtés : codelab-llm la présente, "
+             "codelab-litellm l'exige. Vide, le routeur n'ouvre à personne. "
+             "À tirer au hasard une fois pour toutes.",
+     "secret": True, "effet": "redemarrage",
+     "ou": (("llm", "CODELAB_LLM_AMONT_KEY"),
+            ("fournisseurs", "LITELLM_MASTER_KEY"))},
+    {"id": "openrouter",
+     "titre": "Clé OpenRouter",
+     "aide": "Le fournisseur compatible OpenAI que codelab-llm appelle "
+             "quand il ne passe pas par le routeur.",
+     "secret": True, "effet": "vif",
+     "ou": (("llm", "OPENROUTER_API_KEY"),)},
+    {"id": "anthropic",
+     "titre": "Clé Anthropic",
+     "aide": "Lue par le routeur seul. Absente, les modèles qui s'en "
+             "servent répondent en erreur ; les autres continuent.",
+     "secret": True, "effet": "redemarrage",
+     "ou": (("fournisseurs", "ANTHROPIC_API_KEY"),)},
+    {"id": "openai",
+     "titre": "Clé OpenAI",
+     "aide": "Lue par le routeur seul. Même règle que la précédente.",
+     "secret": True, "effet": "redemarrage",
+     "ou": (("fournisseurs", "OPENAI_API_KEY"),)},
+    {"id": "ollama",
+     "titre": "Adresse du serveur Ollama",
+     "aide": "Pour « codelab-local », le nom logique dont les jetons ne "
+             "sortent pas de chez toi. Exemple : "
+             "http://host.docker.internal:11434",
+     "secret": False, "effet": "redemarrage",
+     "ou": (("fournisseurs", "OLLAMA_BASE_URL"),)},
+)
+
+FICHIERS_SECRETS = {"llm": LLM_ENV_FICHIER, "fournisseurs": FOURNISSEURS_ENV_FICHIER}
+
+# Les en-tetes de chaque fichier. Ecrites a chaque fois : un fichier de
+# secrets qu'on trouve six mois plus tard sans savoir qui l'ecrit ni ce qui
+# le relit est un fichier qu'on n'ose pas toucher.
+ENTETE_FOURNISSEURS = (
+    "# fournisseurs.env -- les cles que codelab-litellm recoit par env_file.",
+    "#",
+    "# Ecrit par codelab-postgres au demarrage (depuis le .env de l'hote, s'il",
+    "# en porte) puis par le panneau, Parametres > Cles et secrets. Une valeur",
+    "# posee ici ne prend effet qu'au PROCHAIN demarrage du conteneur :",
+    "#",
+    "#   docker compose --profile llm up -d",
+    "#",
+    "# Le panneau n'atteint ni le compose ni le .env de l'hote, et c'est",
+    "# voulu : les lui donner reviendrait a lui donner root sur la machine.",
+    "",
+)
+
+
+def apercu_secret(valeur):
+    """Ce qu'on accepte de montrer d'un secret : ses quatre derniers
+    caracteres, et rien d'autre.
+
+    Calcule ICI, dans le processus qui detient la valeur. Elle ne part donc
+    jamais vers le navigateur -- ni pour l'affichage, ni « au cas ou » : la
+    page n'a pas de quoi la reveler, meme si l'on s'y trompait plus tard.
+
+    Quatre caracteres suffisent a reconnaitre laquelle des deux cles on a
+    posee, ce qui est tout ce qu'on demande a cet apercu. Ils ne suffisent
+    pas a reconstituer le reste -- sauf sur une valeur courte, ou ils en
+    sont une part appreciable : en dessous de douze caracteres on n'en
+    montre aucun.
+    """
+    v = str(valeur or "")
+    if not v:
+        return ""
+    if len(v) < APERCU_MIN:
+        return "\u2022" * len(v)
+    return "\u2022" * 8 + v[-4:]
+
+
+def lire_env_fichier(chemin):
+    """Les paires d'un fichier d'environnement. Illisible = dictionnaire vide.
+
+    Meme lecture que celle de codelab-llm, volontairement : ce que le
+    panneau croit avoir ecrit et ce que le service lit doivent etre la meme
+    chose.
+    """
+    valeurs = {}
+    try:
+        with open(chemin, encoding="utf-8") as flux:
+            for ligne in flux:
+                ligne = ligne.strip()
+                if ligne and not ligne.startswith("#") and "=" in ligne:
+                    cle, _, valeur = ligne.partition("=")
+                    valeurs[cle.strip()] = valeur.strip()
+    except OSError:
+        pass
+    return valeurs
+
+
+def _ecrire_0600(chemin, contenu, modele=None):
+    """Ecrit un fichier en 0600, sans passage a vide ni fenetre lisible.
+
+    Deux precautions, et chacune repare un defaut reel :
+
+      le mode est pose A LA CREATION (os.open, pas open puis chmod) -- sinon
+      le fichier existe en 0644 le temps d'etre rempli, et cette fenetre
+      suffit ;
+
+      le contenu est ecrit a cote puis renomme -- codelab-llm relit son
+      fichier a CHAQUE appel, il tomberait sur la troncature.
+
+    « modele » donne son proprietaire au fichier : le panneau ecrit en root,
+    le conteneur de developpement lit sous « vscode ». Un 0600 root:root
+    serait ecrit, correct, et illisible par le seul programme qui en a
+    besoin -- on ne s'en apercevrait qu'au « Missing environment variable ».
+    """
+    os.makedirs(os.path.dirname(chemin), exist_ok=True)
+    tmp = chemin + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(contenu)
+    if modele:
+        try:
+            st = os.stat(modele)
+            os.chown(tmp, st.st_uid, st.st_gid)
+        except OSError:
+            pass
+    os.replace(tmp, chemin)
+
+
+def ecrire_env_secrets(quel, valeurs):
+    """Reecrit un des deux fichiers de secrets, en gardant ce qu'on ne gere pas.
+
+    Le fichier llm.env porte aussi les identifiants Postgres de
+    codelab-llm, ecrits par codelab-postgres au demarrage. Les reecrire de
+    memoire les perdrait : on relit le fichier, on remplace les seules cles
+    demandees, et le reste repart tel quel.
+    """
+    chemin = FICHIERS_SECRETS[quel]
+    presentes = lire_env_fichier(chemin)
+    for cle, valeur in valeurs.items():
+        if valeur:
+            presentes[cle] = valeur
+        else:
+            presentes.pop(cle, None)
+    entete = ENTETE_FOURNISSEURS if quel == "fournisseurs" else ()
+    lignes = list(entete) + [f"{c}={presentes[c]}" for c in sorted(presentes)]
+    os.makedirs(LLM_CONFIG_DIR, exist_ok=True)
+    try:
+        os.chmod(LLM_CONFIG_DIR, 0o700)
+    except OSError:
+        pass
+    _ecrire_0600(chemin, "\n".join(lignes) + "\n")
+
+
+def secret_propre(brut):
+    """La valeur telle qu'on accepte de l'ecrire, ou None si on la refuse.
+
+    Un retour a la ligne couperait le fichier en deux et ferait passer la
+    suite de la valeur pour une AUTRE variable : c'est le seul caractere qui
+    change le sens du fichier, et c'est celui qu'on refuse. Le reste, y
+    compris « = », se relit sans ambiguite -- la lecture coupe au premier.
+    """
+    v = str(brut or "").strip()
+    if "\n" in v or "\r" in v or "\0" in v:
+        return None
+    return v
+
+
+def empreinte_cle(brut):
+    """L'empreinte d'une cle, telle que codelab-llm la calcule.
+
+    sha256 du texte brut, en hexadecimal. Si cette ligne et celle de
+    llm/app.py divergeaient, le panneau inscrirait des cles que la
+    passerelle ne reconnaitrait pas -- sans une erreur nulle part.
+    """
+    return hashlib.sha256(brut.encode()).hexdigest()
+
+
+def _llm_preparer_base():
+    """Cree la base et la table des cles si le profil IA n'a jamais tourne.
+
+    Sans cela la page serait inutilisable tant que le profil n'a pas demarre
+    une premiere fois -- alors que la cle qu'elle pose est justement ce qui
+    permet de s'en servir.
+
+    Le schema est recopie de codelab-llm mot pour mot. Deux definitions qui
+    divergeraient donneraient deux tables selon qui demarre le premier.
+    """
+    import psycopg
+    r = _pg_reglages()
+    with _pg_connexion(r["instance"]) as cx:
+        if not cx.execute("SELECT 1 FROM pg_database WHERE datname = %s",
+                          (PG_BASE_LLM,)).fetchone():
+            cx.execute(psycopg.sql.SQL("CREATE DATABASE {}").format(
+                psycopg.sql.Identifier(PG_BASE_LLM)))
+    with _pg_connexion(PG_BASE_LLM) as cx:
+        cx.execute("""
+            CREATE TABLE IF NOT EXISTS llm_api_keys (
+                id BIGSERIAL PRIMARY KEY, key_hash TEXT NOT NULL UNIQUE,
+                key_name TEXT NOT NULL, user_id TEXT NOT NULL,
+                app_id TEXT NOT NULL, revoked_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )""")
+        # Le panneau se connecte en superutilisateur : une table creee ici
+        # lui appartiendrait, et codelab-llm -- qui tourne sous son propre
+        # role -- ne pourrait pas y ecrire. On lui en rend la propriete.
+        if cx.execute("SELECT 1 FROM pg_roles WHERE rolname=%s",
+                      (PG_ROLE_LLM,)).fetchone():
+            for ordre in ("ALTER TABLE llm_api_keys OWNER TO {}",
+                          "ALTER SEQUENCE llm_api_keys_id_seq OWNER TO {}"):
+                try:
+                    cx.execute(psycopg.sql.SQL(ordre).format(
+                        psycopg.sql.Identifier(PG_ROLE_LLM)))
+                except Exception:
+                    # Deja la bonne propriete, ou une sequence renommee par
+                    # une version future : ni l'un ni l'autre n'empeche
+                    # d'ecrire une cle.
+                    pass
+
+
+def _openclaw_reporter(brut):
+    """Inscrit la cle dans openclaw.json sans perdre le reste du fichier.
+
+    On relit et on remplace la seule valeur : OpenClaw se configure aussi a
+    la main, et reecrire le fichier entier effacerait ces reglages a chaque
+    rotation de cle. Un fichier absent ou illisible, lui, est refait sur la
+    forme d'amorce -- celle qu'ecrit le conteneur de developpement.
+    """
+    config = None
+    try:
+        with open(OPENCLAW_FICHIER, encoding="utf-8") as f:
+            config = json.load(f)
+    except (OSError, ValueError):
+        config = None
+    if not isinstance(config, dict):
+        config = {}
+    modeles = config.setdefault("models", {})
+    if not isinstance(modeles, dict):
+        modeles = config["models"] = {}
+    fournisseurs = modeles.setdefault("providers", {})
+    if not isinstance(fournisseurs, dict):
+        fournisseurs = modeles["providers"] = {}
+    codelab = fournisseurs.setdefault("codelab", {})
+    if not isinstance(codelab, dict):
+        codelab = fournisseurs["codelab"] = {}
+    codelab.setdefault("baseUrl", "http://codelab-llm:8080/v1")
+    codelab.setdefault("api", "openai-completions")
+    # Le reseau prive est refuse par defaut, et codelab-llm en est un :
+    # sans cette ligne la cle est bonne et l'appel ne part jamais.
+    requete = codelab.setdefault("request", {})
+    if isinstance(requete, dict):
+        requete.setdefault("allowPrivateNetwork", True)
+    codelab["apiKey"] = brut
+    try:
+        _ecrire_0600(OPENCLAW_FICHIER,
+                     json.dumps(config, indent=2, ensure_ascii=False) + "\n",
+                     modele=OPENCLAW_DIR)
+        return True
+    except OSError:
+        return False
+
+
+def poser_cle_pour_les_agents(brut):
+    """Ecrit la cle la ou Codex et OpenClaw la lisent. Renvoie les fichiers touches.
+
+    Les deux ne la prennent pas au meme endroit : Codex attend une variable
+    d'environnement, exportee au login par le profil du conteneur de
+    developpement depuis ce fichier ; OpenClaw n'a pas d'equivalent et veut
+    la valeur dans sa configuration.
+    """
+    ecrits = []
+    try:
+        _ecrire_0600(CLE_CODEX_FICHIER, brut + "\n", modele=CODEX_DIR)
+        ecrits.append(CLE_CODEX_FICHIER)
+    except OSError:
+        pass
+    if _openclaw_reporter(brut):
+        ecrits.append(OPENCLAW_FICHIER)
+    return ecrits
+
+
+def cle_codex_posee():
+    """La cle inscrite pour les agents, ou "" si le fichier n'est pas la."""
+    try:
+        with open(CLE_CODEX_FICHIER, encoding="utf-8") as f:
+            return f.readline().strip()
+    except OSError:
+        return ""
+
+
+def _etat_cle_llm():
+    """Ce que la page sait dire de la cle des agents, sans jamais la montrer.
+
+    Trois choses peuvent manquer independamment, et les confondre est
+    precisement ce qui rendait la panne illisible : la cle peut etre
+    inscrite en base sans etre posee dans le fichier (creee par « docker
+    exec »), posee dans le fichier sans etre en base (base effacee), ou
+    revoquee tout en restant posee. Chaque cas a sa phrase.
+    """
+    posee = cle_codex_posee()
+    etat = {"posee": bool(posee), "apercu": apercu_secret(posee),
+            "base": "inconnue", "nom": "", "creee": "", "openclaw": False}
+    # OpenClaw porte-t-il la MEME cle ? Compare ici, jamais renvoye.
+    try:
+        with open(OPENCLAW_FICHIER, encoding="utf-8") as f:
+            config = json.load(f)
+        inscrite = (((config.get("models") or {}).get("providers") or {})
+                    .get("codelab") or {}).get("apiKey") or ""
+        etat["openclaw"] = bool(posee) and inscrite == posee
+    except (OSError, ValueError, AttributeError):
+        etat["openclaw"] = False
+    if not posee:
+        return etat
+    try:
+        with _pg_connexion(PG_BASE_LLM) as cx:
+            ligne = cx.execute(
+                "SELECT key_name, created_at, revoked_at FROM llm_api_keys"
+                " WHERE key_hash = %s", (empreinte_cle(posee),)).fetchone()
+    except Exception:
+        etat["base"] = "injoignable"
+        return etat
+    if not ligne:
+        etat["base"] = "absente"
+    elif ligne[2] is not None:
+        etat["base"] = "revoquee"
+    else:
+        etat["base"] = "active"
+    if ligne:
+        etat["nom"] = ligne[0] or ""
+        etat["creee"] = ligne[1].isoformat() if ligne[1] else ""
+    return etat
+
+
+@flask_app.get("/api/cles")
+@require_admin
+def api_cles():
+    """L'etat des cles et des secrets. Aucune valeur complete ici."""
+    secrets_vus = []
+    for spec in SECRETS_GERES:
+        quel, nom = spec["ou"][0]
+        valeur = lire_env_fichier(FICHIERS_SECRETS[quel]).get(nom, "")
+        secrets_vus.append({
+            "id": spec["id"], "titre": spec["titre"], "aide": spec["aide"],
+            "secret": spec["secret"], "effet": spec["effet"],
+            "definie": bool(valeur),
+            "apercu": apercu_secret(valeur) if spec["secret"] else valeur,
+            "variables": [n for _, n in spec["ou"]],
+        })
+    return jsonify({"llm": _etat_cle_llm(), "secrets": secrets_vus})
+
+
+@flask_app.post("/api/cles/llm")
+@require_admin
+def api_cles_llm_creer():
+    """Tire une cle neuve, l'inscrit en base et la pose la ou elle se lit.
+
+    ELLE N'EST PAS RENVOYEE. La page n'en recoit que l'apercu : la valeur va
+    directement dans les deux fichiers ou les agents la prennent, ce qui est
+    le seul endroit ou elle sert. Un copier-coller depuis le navigateur
+    n'aurait rien ouvert de plus, et aurait mis la cle dans un presse-papier,
+    un historique, et le cache de la page.
+
+    L'ancienne est revoquee dans le meme geste : la laisser vivante ferait
+    de chaque rotation une cle de plus a reconnaitre, sans que personne ne
+    sache plus laquelle sert.
+    """
+    demande = request.get_json(force=True, silent=True) or {}
+    nom = titre_propre(demande.get("nom")) or "poste de developpement"
+    ancienne = cle_codex_posee()
+    try:
+        _llm_preparer_base()
+    except Exception as e:
+        return jsonify({"error": "La base de codelab-llm n'est pas joignable : "
+                                 f"{e}. Démarre Postgres, puis réessaie."}), 503
+    brut = "cl_" + secrets.token_urlsafe(32)
+    try:
+        with _pg_connexion(PG_BASE_LLM) as cx:
+            cx.execute("INSERT INTO llm_api_keys (key_hash, key_name, user_id, app_id)"
+                       " VALUES (%s,%s,%s,%s)",
+                       (empreinte_cle(brut), nom, NOM_ADMIN, "codelab-dev"))
+            if ancienne:
+                cx.execute("UPDATE llm_api_keys SET revoked_at=now()"
+                           " WHERE key_hash=%s AND revoked_at IS NULL",
+                           (empreinte_cle(ancienne),))
+    except Exception as e:
+        return jsonify({"error": f"Clé non inscrite : {e}"}), 500
+    ecrits = poser_cle_pour_les_agents(brut)
+    if CLE_CODEX_FICHIER not in ecrits:
+        return jsonify({"error": "La clé est inscrite en base mais le fichier "
+                                 f"{CLE_CODEX_FICHIER} n'a pas pu être écrit : "
+                                 "Codex ne la verra pas."}), 500
+    journaliser("secret", qui=utilisateur_courant() or NOM_ADMIN,
+                action="cle llm creee", ip=_adresse_client())
+    return jsonify({"ok": True, "llm": _etat_cle_llm(),
+                    "fichiers": [os.path.basename(c) for c in ecrits]})
+
+
+@flask_app.delete("/api/cles/llm")
+@require_admin
+def api_cles_llm_revoquer():
+    """Revoque la cle posee et retire le fichier que Codex lit.
+
+    Les deux, et dans cet ordre : revoquer sans retirer le fichier laisse un
+    poste qui croit avoir une cle et recoit un refus a chaque appel, ce qui
+    se diagnostique mal. Retirer le fichier sans revoquer laisse une cle
+    valable dont plus personne ne connait le porteur.
+    """
+    posee = cle_codex_posee()
+    if not posee:
+        return jsonify({"error": "Aucune clé n'est posée sur ce serveur."}), 400
+    try:
+        with _pg_connexion(PG_BASE_LLM) as cx:
+            cx.execute("UPDATE llm_api_keys SET revoked_at=now()"
+                       " WHERE key_hash=%s AND revoked_at IS NULL",
+                       (empreinte_cle(posee),))
+    except Exception as e:
+        return jsonify({"error": f"Clé non révoquée, rien n'a été retiré : {e}"}), 500
+    try:
+        os.remove(CLE_CODEX_FICHIER)
+    except OSError:
+        pass
+    _openclaw_reporter("")
+    journaliser("secret", qui=utilisateur_courant() or NOM_ADMIN,
+                action="cle llm revoquee", ip=_adresse_client())
+    return jsonify({"ok": True, "llm": _etat_cle_llm()})
+
+
+@flask_app.put("/api/cles/secrets")
+@require_admin
+def api_cles_secrets():
+    """Pose ou efface un secret de fournisseur. Une seule valeur a la fois.
+
+    Une valeur vide EFFACE la ligne plutot que d'ecrire une valeur vide :
+    codelab-llm lit « l'environnement d'abord, le fichier ensuite » avec un
+    « or » -- une ligne vide et une ligne absente y sont la meme chose, mais
+    seule l'absence se lit comme telle quand on ouvre le fichier.
+    """
+    demande = request.get_json(force=True, silent=True) or {}
+    spec = next((s for s in SECRETS_GERES if s["id"] == demande.get("id")), None)
+    if not spec:
+        return jsonify({"error": "Réglage inconnu."}), 400
+    valeur = secret_propre(demande.get("valeur"))
+    if valeur is None:
+        return jsonify({"error": "Une clé ne contient pas de retour à la ligne : "
+                                 "vérifie ce qui a été collé."}), 400
+    par_fichier = {}
+    for quel, nom in spec["ou"]:
+        par_fichier.setdefault(quel, {})[nom] = valeur
+    try:
+        for quel, valeurs in par_fichier.items():
+            ecrire_env_secrets(quel, valeurs)
+    except OSError as e:
+        return jsonify({"error": f"Fichier non écrit : {e}"}), 500
+    # Le NOM du reglage, jamais sa valeur ni son apercu : le journal se
+    # consulte depuis la page des acces, et se recopie dans Postgres.
+    journaliser("secret", qui=utilisateur_courant() or NOM_ADMIN,
+                action=("pose" if valeur else "efface"), cle=spec["id"],
+                ip=_adresse_client())
+    return jsonify({"ok": True, "definie": bool(valeur),
+                    "apercu": apercu_secret(valeur) if spec["secret"] else valeur})
+
+
+
 # ------------------- assistant de liaison avec un VPS -------------------
 #
 # CE QU'IL FAIT, ET CE QU'IL NE FAIT PAS. Il prend un domaine et l'adresse

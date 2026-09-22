@@ -47,10 +47,24 @@ une clé CodeLab (voir plus bas), pas par une session de navigateur.
 
 ## Démarrage
 
-Deux valeurs à renseigner dans `.env`, décrites dans `.env.example` :
-`CODELAB_LITELLM_KEY` (la clé partagée entre la passerelle et le routeur,
-n'importe quelle valeur au hasard) et au moins une clé de fournisseur
-(`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`).
+Deux valeurs à renseigner : `CODELAB_LITELLM_KEY` (la clé partagée entre la
+passerelle et le routeur, n'importe quelle valeur au hasard) et au moins une
+clé de fournisseur (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`).
+
+Deux endroits possibles, et ils ne s'écrasent pas :
+
+- **le panneau**, *Paramètres → Clés et secrets*. Il écrit
+  `config/llm/fournisseurs.env` (en `0600`), que le routeur reçoit par
+  `env_file`, et n'en réaffiche que les quatre derniers caractères ;
+- **le `.env` de l'hôte**, décrit dans `.env.example`, pour une installation
+  scriptée. Au démarrage, `codelab-postgres` recopie ce qu'il y trouve dans
+  le même fichier — **une valeur vide ne remplace jamais celle déjà posée**,
+  donc ce qui a été saisi dans le panneau survit aux redémarrages.
+
+Le panneau n'atteint ni le compose ni le `.env` de l'hôte, et c'est
+délibéré : les lui monter lui donnerait de quoi réécrire la stack. C'est
+pour cette raison, et pas une autre, qu'une clé de fournisseur posée depuis
+l'interface ne prend effet qu'au prochain démarrage du conteneur.
 
 ```bash
 docker compose --profile llm up -d
@@ -109,6 +123,12 @@ docker compose exec codelab-llm \
 La clé est affichée une seule fois — la base n'en garde que l'empreinte, donc
 personne ne peut la relire ensuite. Pour la révoquer, fournir cette même
 valeur à `revoke-key`.
+
+Le panneau fait le même geste, sans commande et sans copier-coller :
+*Paramètres → Clés et secrets*. Il écrit la même table avec la même
+empreinte, puis pose la valeur dans les deux fichiers où Codex et OpenClaw
+la lisent — et ne l'affiche jamais. Une clé créée d'un côté se révoque de
+l'autre.
 
 ## Ce qui est conservé
 

@@ -104,6 +104,12 @@ CHEMINS_ETAT = [
     "EXPOSITION_FILE", "ICONE_DAGSTER_CACHE", "SHARED_CONFIG_DIR",
     "SHARED_ENV_FILE", "LEGACY_ADMIN_PASSWORD_FILE", "LEGACY_SECRET_KEY_FILE",
     "SSO_PRIVATE_FILE",
+    # Les secrets du profil IA. Les deux derniers sont sous ROOT, pas sous
+    # STATE_DIR : ce sont les dossiers que le conteneur de developpement
+    # partage avec le panneau. Sans le filet, un test qui cree une cle
+    # ecrirait dans le /workspace de la machine qui lance la suite.
+    "LLM_CONFIG_DIR", "LLM_ENV_FICHIER", "FOURNISSEURS_ENV_FICHIER",
+    "CODEX_DIR", "CLE_CODEX_FICHIER", "OPENCLAW_DIR", "OPENCLAW_FICHIER",
 ]
 
 
@@ -116,8 +122,10 @@ def _bac_a_sable(tmp_path, monkeypatch):
     # doit marcher sur les pieds de personne.
     etat = tmp_path / "_filet-etat"
     partage = tmp_path / "_filet-config"
+    travail = tmp_path / "_filet-workspace"
     etat.mkdir()
     partage.mkdir()
+    travail.mkdir()
     remplacements = {
         "STATE_DIR": str(etat),
         "APPS_FILE": str(etat / "apps.json"),
@@ -139,7 +147,20 @@ def _bac_a_sable(tmp_path, monkeypatch):
         "LEGACY_ADMIN_PASSWORD_FILE": str(etat / "admin_password"),
         "LEGACY_SECRET_KEY_FILE": str(etat / "flask_secret_key"),
         "SSO_PRIVATE_FILE": str(etat / "codelab_sso_private.key"),
+        "LLM_CONFIG_DIR": str(partage / "llm"),
+        "LLM_ENV_FICHIER": str(partage / "llm" / "llm.env"),
+        "FOURNISSEURS_ENV_FICHIER": str(partage / "llm" / "fournisseurs.env"),
+        "CODEX_DIR": str(travail / ".codex"),
+        "CLE_CODEX_FICHIER": str(travail / ".codex" / "codelab-llm.key"),
+        "OPENCLAW_DIR": str(travail / ".openclaw"),
+        "OPENCLAW_FICHIER": str(travail / ".openclaw" / "openclaw.json"),
     }
+    # FICHIERS_SECRETS tient les MEMES chemins dans un dictionnaire : le
+    # detourner aussi, sinon les routes ecrivent a cote du filet -- c'est-a-
+    # dire dans l'installation reelle.
+    monkeypatch.setattr(app, "FICHIERS_SECRETS",
+                        {"llm": remplacements["LLM_ENV_FICHIER"],
+                         "fournisseurs": remplacements["FOURNISSEURS_ENV_FICHIER"]})
     for nom in CHEMINS_ETAT:
         assert hasattr(app, nom), (
             f"{nom} a disparu du panneau : le filet ne couvre plus tout, "
@@ -168,10 +189,15 @@ def test_le_filet_detourne_bien_tous_les_chemins():
     test le dirait avant qu'une ecriture n'atteigne une vraie installation."""
     import inspect
     source = inspect.getsource(app)
-    # Tout ce qui ressemble a un chemin construit sous STATE_DIR ou
-    # SHARED_CONFIG_DIR doit figurer dans CHEMINS_ETAT.
+    # Tout ce qui ressemble a un chemin construit sous STATE_DIR,
+    # SHARED_CONFIG_DIR ou ROOT doit figurer dans CHEMINS_ETAT.
+    #
+    # ROOT a ete ajoute avec la page des cles : le panneau y ecrit desormais
+    # /workspace/.codex et /workspace/.openclaw, et ces deux-la echappaient
+    # au motif -- un test qui cree une cle serait alle ecrire dans le vrai
+    # /workspace de la machine qui lance la suite.
     trouves = set(re.findall(
-        r"^([A-Z][A-Z0-9_]*) = os\.path\.join\((?:STATE_DIR|SHARED_CONFIG_DIR)",
+        r"^([A-Z][A-Z0-9_]*) = os\.path\.join\((?:STATE_DIR|SHARED_CONFIG_DIR|ROOT)",
         source, re.M))
     oublies = trouves - set(CHEMINS_ETAT)
     assert not oublies, (
@@ -10778,3 +10804,530 @@ def test_les_deux_composes_nomment_le_meme_projet():
         if trouve:
             noms.add(trouve[0])
     assert len(noms) == 1, f"les composes nomment des projets differents : {sorted(noms)}"
+
+
+# ---------- 41. les cles et les secrets se posent depuis le panneau -------
+#
+# CE QUE CETTE SECTION PROTEGE, et pourquoi chaque test existe.
+#
+# La page remplace trois gestes manuels par un bouton. Elle touche donc aux
+# seuls fichiers de la stack qui portent des secrets en clair, et elle les
+# montre -- partiellement -- dans un navigateur. Les deux risques sont
+# nommes et testes separement :
+#
+#   DIVULGATION    aucune valeur complete ne doit sortir du processus, ni
+#                  par une reponse, ni par une URL, ni par le journal.
+#   INCOHERENCE    le panneau ecrit ce que d'autres programmes lisent. Une
+#                  variable mal nommee, une empreinte calculee autrement, un
+#                  fichier que le compose ne monte plus : rien ne leve
+#                  d'erreur, tout se tait, et la cle est simplement refusee.
+
+class _FauxResultat:
+    def __init__(self, lignes):
+        self._lignes = list(lignes)
+        self.rowcount = len(self._lignes)
+
+    def fetchone(self):
+        return self._lignes[0] if self._lignes else None
+
+
+class _FauxPostgres:
+    """Un Postgres de papier : il note les ordres recus et rend ce qu'on lui
+    a dit de rendre.
+
+    Ni docker ni base reelle dans cette suite -- ce qu'on verifie ici, c'est
+    l'ordre SQL que le panneau emet et ce qu'il en fait, pas le moteur.
+    """
+
+    def __init__(self, reponses=None):
+        self.ordres = []
+        self._reponses = dict(reponses or {})
+
+    def execute(self, sql, params=()):
+        self.ordres.append((" ".join(sql.split()), params))
+        for motif, lignes in self._reponses.items():
+            if motif in " ".join(sql.split()):
+                return _FauxResultat(lignes)
+        return _FauxResultat([])
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+@pytest.fixture
+def cles_admin(tmp_path, monkeypatch):
+    """Une session d'administration ouverte, et un Postgres de papier.
+
+    Renvoie (client, faux_pg). Le filet a deja detourne tous les chemins
+    vers tmp_path : ce qui s'ecrit ici ne quitte pas le bac.
+    """
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "_totp_secret", "")
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    app._login_attempts.clear()
+    faux = _FauxPostgres()
+    monkeypatch.setattr(app, "_pg_connexion", lambda base: faux)
+    monkeypatch.setattr(app, "_llm_preparer_base", lambda: None)
+    client = app.flask_app.test_client()
+    assert client.post("/login", json={"password": "secret-de-test"}).status_code == 200
+    return client, faux
+
+
+# --------------------------- ce qui sort de la page ---------------------
+
+def test_l_apercu_ne_montre_que_les_quatre_derniers_caracteres():
+    """Quatre caracteres suffisent a reconnaitre la cle posee. Cinq n'en
+    reconnaissent pas plus, et en donnent un de plus."""
+    valeur = "sk-ant-api03-ABCDEFGHIJKLMNOP"
+    vu = app.apercu_secret(valeur)
+    assert vu.endswith("MNOP")
+    assert "KLMN" not in vu, "cinq caracteres ou plus ont fui"
+    # Rien du debut, la ou vit le prefixe qui nomme le fournisseur et le
+    # compte : c'est la partie la plus parlante de la cle.
+    assert "sk-ant" not in vu
+    assert len(vu.strip("•")) == 4
+
+
+def test_l_apercu_d_une_valeur_courte_ne_montre_aucun_caractere():
+    """Sur une valeur de onze caracteres, quatre en sont plus du tiers.
+
+    La frontiere est verifiee des deux cotes : c'est elle, et pas le
+    principe, qui se deplace par erreur au fil des relectures.
+    """
+    assert app.apercu_secret("a" * 11) == "•" * 11
+    assert app.apercu_secret("b" * 12).endswith("bbbb")
+    assert app.apercu_secret("") == ""
+
+
+def test_aucune_reponse_de_la_page_ne_porte_une_valeur_complete(cles_admin):
+    """Le test qui compte : on pose une vraie valeur, et on relit TOUT ce que
+    la page recoit. Aucun octet de la valeur ne doit s'y trouver."""
+    client, _ = cles_admin
+    valeur = "sk-secret-a-ne-jamais-revoir-0042"
+    r = client.put("/api/cles/secrets", json={"id": "anthropic", "valeur": valeur})
+    assert r.status_code == 200, r.data
+    assert valeur not in r.get_data(as_text=True)
+
+    corps = client.get("/api/cles").get_data(as_text=True)
+    assert valeur not in corps
+    # Et pas davantage par morceaux : c'est la forme qu'aurait une fuite
+    # « partielle » ajoutee sans y penser.
+    assert "sk-secret" not in corps
+    assert "0042" in corps, "l'apercu des quatre derniers devrait, lui, etre la"
+
+
+def test_aucune_route_des_cles_ne_prend_de_valeur_dans_son_chemin():
+    """Une valeur dans une URL se retrouve dans le journal du serveur, dans
+    l'historique du navigateur et dans le referrer de la page suivante.
+
+    Aucune des quatre routes n'a de variable de chemin : tout passe par le
+    corps. Le test lit la table de routage, pas le code -- c'est elle qui
+    fait foi.
+    """
+    regles = [r for r in app.flask_app.url_map.iter_rules()
+              if str(r).startswith("/api/cles")]
+    assert regles, "les routes des cles ont disparu"
+    for regle in regles:
+        assert not regle.arguments, (
+            f"{regle} porte une variable de chemin : une valeur peut y passer")
+
+
+def test_le_journal_ne_recoit_que_le_nom_du_reglage(cles_admin, monkeypatch):
+    """journaliser() ecrit sur le disque ET se recopie dans Postgres. Une
+    valeur qui y entre est ensuite dans deux endroits qu'on n'inspecte
+    jamais."""
+    client, _ = cles_admin
+    vus = []
+    monkeypatch.setattr(app, "journaliser",
+                        lambda genre, **d: vus.append((genre, d)))
+    valeur = "sk-secret-de-journal-9999"
+    assert client.put("/api/cles/secrets",
+                      json={"id": "openai", "valeur": valeur}).status_code == 200
+    assert vus, "l'operation n'a rien journalise du tout"
+    for _, details in vus:
+        texte = " ".join(str(v) for v in details.values())
+        assert valeur not in texte
+        assert "9999" not in texte, "meme l'apercu n'a rien a faire dans le journal"
+    assert any(d.get("cle") == "openai" for _, d in vus), (
+        "le journal doit dire QUEL reglage a change")
+
+
+def test_la_page_des_cles_est_reservee_a_l_administrateur(tmp_path, monkeypatch):
+    """Un compte nomme ne doit pas lire l'etat des secrets, ni en poser.
+
+    Le controle est sur les routes, pas seulement dans la page : masquer un
+    onglet ne protege rien.
+    """
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
+    app.ecrire_utilisateurs({"marie": {
+        "sel": "abcdef",
+        "hash": app.derive_mot_de_passe("un-mot-de-passe", "abcdef"),
+        "projets": []}})
+    app.flask_app.secret_key = "cle-de-test"
+    app.flask_app.config["TESTING"] = True
+    client = app.flask_app.test_client()
+    with client.session_transaction() as sess:
+        sess["authed"] = True
+        sess["role"] = app.ROLE_UTILISATEUR
+        sess["utilisateur"] = "marie"
+        sess["ouverte"] = int(time.time())
+        sess["jeton"] = "j"
+    # La session est bien ouverte : c'est le ROLE qui est refuse, pas elle.
+    assert client.get("/api/mon-compte").status_code == 200
+    assert client.get("/api/cles").status_code == 403
+    assert client.post("/api/cles/llm", json={}).status_code == 403
+    assert client.delete("/api/cles/llm").status_code == 403
+    assert client.put("/api/cles/secrets",
+                      json={"id": "openai", "valeur": "x"}).status_code == 403
+
+
+# ------------------------ ce qui s'ecrit sur le disque ------------------
+
+def test_un_fichier_de_secrets_n_est_jamais_lisible_par_les_autres():
+    """0600, et pose A LA CREATION.
+
+    Ecrire puis restreindre laisse le fichier en 0644 le temps d'etre
+    rempli ; sur un dossier partage, cette fenetre suffit.
+    """
+    app.ecrire_env_secrets("fournisseurs", {"ANTHROPIC_API_KEY": "sk-test-1234"})
+    mode = stat.S_IMODE(os.stat(app.FOURNISSEURS_ENV_FICHIER).st_mode)
+    assert mode == 0o600, oct(mode)
+
+
+def test_ecrire_un_secret_garde_les_autres_lignes_du_fichier():
+    """llm.env porte AUSSI le mot de passe Postgres de codelab-llm, ecrit par
+    codelab-postgres au demarrage. Le reecrire de memoire le perdrait, et le
+    service ne pourrait plus ouvrir sa base."""
+    os.makedirs(app.LLM_CONFIG_DIR, exist_ok=True)
+    with open(app.LLM_ENV_FICHIER, "w") as f:
+        f.write("POSTGRES_HOST=codelab-postgres\nPOSTGRES_PASSWORD=motdepasse\n")
+
+    app.ecrire_env_secrets("llm", {"OPENROUTER_API_KEY": "sk-or-abcdefgh1234"})
+
+    relu = app.lire_env_fichier(app.LLM_ENV_FICHIER)
+    assert relu["POSTGRES_PASSWORD"] == "motdepasse"
+    assert relu["POSTGRES_HOST"] == "codelab-postgres"
+    assert relu["OPENROUTER_API_KEY"] == "sk-or-abcdefgh1234"
+
+
+def test_une_valeur_vide_retire_la_ligne_au_lieu_de_l_ecrire_vide():
+    """codelab-llm lit « l'environnement d'abord, le fichier ensuite » avec un
+    « or » : une ligne vide et une ligne absente y sont la meme chose.
+
+    Mais seule l'absence se lit comme telle quand on ouvre le fichier, et
+    c'est ce fichier qu'on regarde quand plus rien ne marche.
+    """
+    app.ecrire_env_secrets("fournisseurs", {"OPENAI_API_KEY": "sk-plein-1234"})
+    assert "OPENAI_API_KEY" in app.lire_env_fichier(app.FOURNISSEURS_ENV_FICHIER)
+
+    app.ecrire_env_secrets("fournisseurs", {"OPENAI_API_KEY": ""})
+    texte = open(app.FOURNISSEURS_ENV_FICHIER, encoding="utf-8").read()
+    assert "OPENAI_API_KEY" not in texte
+    assert "sk-plein" not in texte
+
+
+def test_une_valeur_a_retour_a_la_ligne_est_refusee(cles_admin):
+    """Un retour a la ligne couperait le fichier en deux : la suite de la
+    valeur y passerait pour une AUTRE variable d'environnement, posee dans le
+    conteneur du routeur par celui qui a colle la valeur."""
+    client, _ = cles_admin
+    assert app.secret_propre("sk-bon-1234") == "sk-bon-1234"
+    assert app.secret_propre("sk-x\nLD_PRELOAD=/tmp/mechant.so") is None
+    assert app.secret_propre("sk-x\rAUTRE=1") is None
+
+    r = client.put("/api/cles/secrets",
+                   json={"id": "openai", "valeur": "sk-x\nAUTRE=1"})
+    assert r.status_code == 400
+    assert "AUTRE" not in open(app.FOURNISSEURS_ENV_FICHIER, encoding="utf-8").read() \
+        if os.path.exists(app.FOURNISSEURS_ENV_FICHIER) else True
+
+
+def test_le_panneau_ecrit_ce_que_codelab_llm_sait_relire():
+    """Les deux programmes ont leur propre lecteur de fichier .env.
+
+    S'ils divergeaient, le panneau ecrirait une ligne que le service ne voit
+    pas -- sans erreur nulle part. Le test rejoue ICI la lecture de
+    llm/app.py, prise dans son fichier source.
+    """
+    import textwrap
+    source = open(os.path.join(_racine_depot(), "llm", "app.py"),
+                  encoding="utf-8").read()
+    corps = re.search(r"def lire_env\(chemin=None\):.*?\n    return valeurs\n",
+                      source, re.S)
+    assert corps, "lire_env() a disparu de llm/app.py"
+
+    app.ecrire_env_secrets("llm", {"OPENROUTER_API_KEY": "sk-or-valeur=avec=egal"})
+
+    espace = {"os": os, "ENV_FILE": app.LLM_ENV_FICHIER}
+    exec(compile(textwrap.dedent(corps.group(0)), "lire_env", "exec"), espace)
+    vu = espace["lire_env"](app.LLM_ENV_FICHIER)
+    assert vu.get("OPENROUTER_API_KEY") == "sk-or-valeur=avec=egal", (
+        "codelab-llm ne relit pas ce que le panneau vient d'ecrire")
+
+
+# ------------------------------ la cle des agents ------------------------
+
+def test_l_empreinte_du_panneau_est_celle_de_la_passerelle():
+    """Deux formules differentes donneraient des cles inscrites que la
+    passerelle ne reconnaitrait pas -- et aucune des deux ne leverait
+    d'erreur. On compare le resultat, pas le texte."""
+    import hashlib
+    source = open(os.path.join(_racine_depot(), "llm", "app.py"),
+                  encoding="utf-8").read()
+    corps = re.search(r"def empreinte\(valeur_brute\):\n(.*?)\n\n", source, re.S)
+    assert corps, "empreinte() a disparu de llm/app.py"
+    espace = {"hashlib": hashlib}
+    exec(compile("def empreinte(valeur_brute):\n" + corps.group(1),
+                 "empreinte", "exec"), espace)
+    for echantillon in ("cl_abc", "", "cl_" + "z" * 43):
+        assert app.empreinte_cle(echantillon) == espace["empreinte"](echantillon)
+
+
+def test_creer_une_cle_l_inscrit_la_pose_et_ne_la_renvoie_pas(cles_admin):
+    """Le geste complet, en une requete. Et la cle ne revient pas."""
+    client, faux = cles_admin
+    r = client.post("/api/cles/llm", json={})
+    assert r.status_code == 200, r.data
+    corps = r.get_data(as_text=True)
+
+    posee = open(app.CLE_CODEX_FICHIER, encoding="utf-8").read().strip()
+    assert posee.startswith("cl_")
+    assert posee not in corps, "la cle est revenue au navigateur"
+    assert posee[4:] not in corps
+
+    # Inscrite en base sous son EMPREINTE, jamais en clair.
+    inserts = [(s, p) for s, p in faux.ordres if s.startswith("INSERT INTO llm_api_keys")]
+    assert len(inserts) == 1, faux.ordres
+    assert inserts[0][1][0] == app.empreinte_cle(posee)
+    assert posee not in " ".join(str(p) for p in inserts[0][1])
+
+    # Et posee pour OpenClaw, qui ne lit pas l'environnement.
+    config = json.load(open(app.OPENCLAW_FICHIER, encoding="utf-8"))
+    assert config["models"]["providers"]["codelab"]["apiKey"] == posee
+
+
+def test_le_fichier_de_cle_n_est_lisible_que_par_son_proprietaire(cles_admin):
+    """Ce fichier est monte dans /workspace, que d'autres processus voient."""
+    client, _ = cles_admin
+    assert client.post("/api/cles/llm", json={}).status_code == 200
+    mode = stat.S_IMODE(os.stat(app.CLE_CODEX_FICHIER).st_mode)
+    assert mode == 0o600, oct(mode)
+
+
+def test_creer_une_cle_revoque_celle_qu_elle_remplace(cles_admin):
+    """Deux cles vivantes pour un seul poste, et plus personne ne sait
+    laquelle sert -- ni laquelle revoquer le jour ou il le faut."""
+    client, faux = cles_admin
+    assert client.post("/api/cles/llm", json={}).status_code == 200
+    premiere = open(app.CLE_CODEX_FICHIER, encoding="utf-8").read().strip()
+
+    faux.ordres.clear()
+    assert client.post("/api/cles/llm", json={}).status_code == 200
+    seconde = open(app.CLE_CODEX_FICHIER, encoding="utf-8").read().strip()
+    assert seconde != premiere
+
+    revocations = [(s, p) for s, p in faux.ordres if "revoked_at=now()" in s]
+    assert len(revocations) == 1, faux.ordres
+    assert revocations[0][1][0] == app.empreinte_cle(premiere), (
+        "c'est l'ANCIENNE cle qui doit etre revoquee")
+
+
+def test_revoquer_retire_le_fichier_et_desarme_openclaw(cles_admin):
+    """Les deux, et pas seulement la base : un poste qui croit avoir une cle
+    et recoit un refus a chaque appel ne se diagnostique pas."""
+    client, faux = cles_admin
+    assert client.post("/api/cles/llm", json={}).status_code == 200
+    posee = open(app.CLE_CODEX_FICHIER, encoding="utf-8").read().strip()
+
+    assert client.delete("/api/cles/llm").status_code == 200
+    assert not os.path.exists(app.CLE_CODEX_FICHIER)
+    config = json.load(open(app.OPENCLAW_FICHIER, encoding="utf-8"))
+    assert config["models"]["providers"]["codelab"]["apiKey"] == ""
+    assert any("revoked_at=now()" in s and p[0] == app.empreinte_cle(posee)
+               for s, p in faux.ordres)
+
+
+def test_openclaw_garde_ses_reglages_quand_la_cle_change():
+    """OpenClaw se configure aussi a la main. Reecrire le fichier entier a
+    chaque rotation effacerait ces reglages, sans prevenir."""
+    os.makedirs(app.OPENCLAW_DIR, exist_ok=True)
+    with open(app.OPENCLAW_FICHIER, "w", encoding="utf-8") as f:
+        json.dump({"models": {"providers": {"codelab": {
+            "baseUrl": "http://codelab-llm:8080/v1", "apiKey": "vieille"}}},
+            "monReglage": "a garder"}, f)
+
+    assert app._openclaw_reporter("neuve")
+
+    config = json.load(open(app.OPENCLAW_FICHIER, encoding="utf-8"))
+    assert config["models"]["providers"]["codelab"]["apiKey"] == "neuve"
+    assert config["monReglage"] == "a garder"
+
+
+def test_openclaw_absent_est_recree_avec_ce_qu_il_faut_pour_repondre():
+    """allowPrivateNetwork manquant, la cle est bonne et l'appel ne part
+    jamais : codelab-llm est sur un reseau prive, qu'OpenClaw refuse par
+    defaut."""
+    assert app._openclaw_reporter("cl_neuve")
+    codelab = json.load(open(app.OPENCLAW_FICHIER, encoding="utf-8")
+                        )["models"]["providers"]["codelab"]
+    assert codelab["apiKey"] == "cl_neuve"
+    assert codelab["baseUrl"] == "http://codelab-llm:8080/v1"
+    assert codelab["request"]["allowPrivateNetwork"] is True
+
+
+def test_l_etat_distingue_les_trois_facons_de_ne_pas_marcher(cles_admin, monkeypatch):
+    """Cle posee mais inconnue de la base, posee mais revoquee, base
+    injoignable : trois pannes, trois causes, trois gestes differents.
+
+    Les confondre sous un seul « ca ne marche pas » est exactement ce qui
+    rendait la situation illisible avant cette page.
+    """
+    client, _ = cles_admin
+    assert client.post("/api/cles/llm", json={}).status_code == 200
+    posee = open(app.CLE_CODEX_FICHIER, encoding="utf-8").read().strip()
+    empreinte = app.empreinte_cle(posee)
+
+    monkeypatch.setattr(app, "_pg_connexion",
+                        lambda base: _FauxPostgres({"SELECT key_name": []}))
+    assert app._etat_cle_llm()["base"] == "absente"
+
+    monkeypatch.setattr(app, "_pg_connexion", lambda base: _FauxPostgres(
+        {"SELECT key_name": [("poste", None, "2026-01-01")]}))
+    assert app._etat_cle_llm()["base"] == "revoquee"
+
+    monkeypatch.setattr(app, "_pg_connexion", lambda base: _FauxPostgres(
+        {"SELECT key_name": [("poste", None, None)]}))
+    etat = app._etat_cle_llm()
+    assert etat["base"] == "active"
+    assert etat["posee"] and posee not in json.dumps(etat)
+
+    def _tombe(base):
+        raise OSError("Postgres ne repond pas")
+    monkeypatch.setattr(app, "_pg_connexion", _tombe)
+    assert app._etat_cle_llm()["base"] == "injoignable"
+    assert empreinte  # l'empreinte n'a servi qu'ici, jamais a l'affichage
+
+
+# ------------- le panneau ecrit ce que les autres lisent vraiment --------
+
+def test_le_routeur_ne_recoit_ses_cles_que_par_le_fichier_du_panneau():
+    """Dans Compose, « environment: » l'emporte sur « env_file: », y compris
+    quand la valeur substituee est VIDE.
+
+    Reposer ici « ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-} » effacerait donc
+    ce que le panneau vient d'ecrire, des que le .env de l'hote n'en porte
+    pas -- c'est-a-dire dans le cas courant. Le defaut serait muet : le
+    routeur repondrait « cle absente » sur une valeur qu'on vient de saisir.
+    """
+    import yaml
+    for chemin in _composes():
+        config = yaml.safe_load(open(chemin, encoding="utf-8"))
+        routeur = config["services"]["codelab-litellm"]
+        env = routeur.get("environment") or {}
+        for interdite in ("LITELLM_MASTER_KEY", "ANTHROPIC_API_KEY",
+                          "OPENAI_API_KEY", "OLLAMA_BASE_URL"):
+            assert interdite not in env, (
+                f"{os.path.basename(chemin)} repose {interdite} dans "
+                f"« environment: » : elle ecrasera le fichier du panneau")
+        fichiers = routeur.get("env_file") or []
+        vus = [f for f in fichiers
+               if str((f or {}).get("path") if isinstance(f, dict) else f)
+               .endswith("config/llm/fournisseurs.env")]
+        assert vus, (
+            f"{os.path.basename(chemin)} : le routeur ne lit plus le fichier "
+            f"que le panneau ecrit")
+        # required: false, et donc la forme LONGUE. Au tout premier demarrage
+        # le fichier n'existe pas encore -- codelab-postgres ne l'a pas ecrit.
+        # La forme courte ("- /chemin") vaut required: true, et Compose refuse
+        # alors de demarrer LA STACK ENTIERE, pas seulement ce service.
+        for f in vus:
+            assert isinstance(f, dict), (
+                f"{os.path.basename(chemin)} : env_file est ecrit en forme "
+                f"courte, donc obligatoire -- la premiere installation ne "
+                f"demarrerait pas")
+            assert f.get("required") is False, (
+                f"{os.path.basename(chemin)} : sans « required: false », "
+                f"la premiere installation ne demarre pas")
+
+
+def test_le_panneau_nomme_les_variables_que_les_services_lisent():
+    """Une variable mal nommee ne leve rien : le panneau ecrit, le service ne
+    trouve pas, et le message est « cle absente » sur une cle presente.
+
+    Chaque destination declaree dans le panneau doit etre lue quelque part :
+    dans litellm/config.yaml pour le routeur, dans llm/app.py pour la
+    passerelle.
+    """
+    routeur = open(os.path.join(_racine_depot(), "litellm", "config.yaml"),
+                   encoding="utf-8").read()
+    passerelle = open(os.path.join(_racine_depot(), "llm", "app.py"),
+                      encoding="utf-8").read()
+    # LITELLM_MASTER_KEY est lue par le programme LiteLLM lui-meme, pas par
+    # son fichier de configuration : c'est la seule qu'on ne peut pas
+    # retrouver dans un des deux fichiers du depot.
+    connues_du_routeur = {"LITELLM_MASTER_KEY", "OLLAMA_BASE_URL"}
+    for spec in app.SECRETS_GERES:
+        for quel, nom in spec["ou"]:
+            if quel == "llm":
+                assert nom in passerelle, (
+                    f"{nom} n'est lue nulle part dans llm/app.py")
+            else:
+                assert nom in routeur or nom in connues_du_routeur, (
+                    f"{nom} n'est lue nulle part par le routeur")
+
+
+def test_l_entrypoint_postgres_n_ecrase_jamais_une_valeur_deja_posee():
+    """Sans cette regle, chaque redemarrage annulerait ce qui a ete saisi dans
+    le panneau -- sur une installation dont le .env ne porte rien, c'est-a-
+    dire le cas courant.
+
+    La fonction est PRISE DANS l'entrypoint et executee : un test qui
+    relirait seulement le texte passerait encore si la logique s'inversait.
+    """
+    import subprocess
+    import tempfile
+    source = open(os.path.join(_racine_depot(), "postgres", "entrypoint.sh"),
+                  encoding="utf-8").read()
+    fonction = re.search(r"valeur_fournisseur\(\) \{.*?\n\}\n", source, re.S)
+    assert fonction, "valeur_fournisseur() a disparu de postgres/entrypoint.sh"
+
+    with tempfile.TemporaryDirectory() as bac:
+        fichier = os.path.join(bac, "fournisseurs.env")
+        open(fichier, "w").write("ANTHROPIC_API_KEY=deja-posee-par-le-panneau\n")
+        script = (f'FOURNISSEURS_ENV_FILE="{fichier}"\n' + fonction.group(0)
+                  + 'valeur_fournisseur ANTHROPIC_API_KEY "$1"\n')
+        vide = subprocess.run(["sh", "-c", script, "sh", ""],
+                              capture_output=True, text=True, timeout=30)
+        assert vide.stdout.strip() == "deja-posee-par-le-panneau", vide
+
+        plein = subprocess.run(["sh", "-c", script, "sh", "venue-du-env-de-l-hote"],
+                               capture_output=True, text=True, timeout=30)
+        assert plein.stdout.strip() == "venue-du-env-de-l-hote", plein
+
+
+def test_l_env_example_ne_pretend_plus_que_le_panneau_ecrit_llm_env_seul():
+    """Il l'affirmait, et c'etait faux : c'est codelab-postgres qui ecrit ce
+    fichier au demarrage. Depuis cette page, les deux l'ecrivent -- et le
+    modele doit dire lequel fait quoi."""
+    texte = open(os.path.join(_racine_depot(), ".env.example"),
+                 encoding="utf-8").read()
+    assert "codelab-postgres" in texte, (
+        ".env.example ne dit toujours pas qui ecrit config/llm/llm.env")
+    assert "fournisseurs.env" in texte, (
+        ".env.example ne mentionne pas le fichier que le routeur lit")
+
+
+def test_l_onglet_des_cles_est_marque_reserve_a_l_administrateur():
+    """La regle CSS masque « button[data-admin] » ; un onglet qui l'oublie
+    s'affiche pour tout le monde. Le refus vient des routes -- teste plus
+    haut -- mais un onglet qui mene a quatre 403 est un onglet casse."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+    ligne = [l for l in page.split("\n") if 'data-p="cles"' in l]
+    assert len(ligne) == 1, "l'onglet des cles a disparu, ou il y en a deux"
+    assert 'data-admin="1"' in ligne[0], ligne[0]
