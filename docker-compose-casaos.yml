@@ -55,6 +55,10 @@ services:
       POSTGRES_DB: dagster
       POSTGRES_USER: codelab
       CODELAB_PROJECT_DBS: "diagnostic codelab_llm"
+      CODELAB_LITELLM_KEY: ${CODELAB_LITELLM_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
 
     volumes:
       - /DATA/AppData/codelab/sauvegardes:/sauvegardes
@@ -345,11 +349,9 @@ services:
     expose:
       - "4000"
 
-    environment:
-      LITELLM_MASTER_KEY: ${CODELAB_LITELLM_KEY:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+    env_file:
+      - path: /DATA/AppData/codelab/config/llm/fournisseurs.env
+        required: false
 
     volumes:
       - ./litellm/config.yaml:/etc/litellm/config.yaml:ro

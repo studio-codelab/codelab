@@ -173,6 +173,54 @@ LLMENV
 mv "$LLM_ENV_FILE.new" "$LLM_ENV_FILE"
 chmod 600 "$LLM_ENV_FILE"
 
+# ------------- les cles que codelab-litellm recoit par env_file -------------
+#
+# Le routeur ne les prend plus par "environment:" dans le compose, et la
+# raison est dans le compose : "environment:" l'emporte sur "env_file:", meme
+# quand la valeur substituee est vide -- une ligne laissee la-bas effacerait
+# ce que le panneau vient d'ecrire ici.
+#
+# Ce fichier est donc la seule source, et il a deux auteurs : ce script au
+# demarrage, pour le .env de l'hote, et le panneau ensuite
+# (Parametres > Cles et secrets). UNE VALEUR DEJA POSEE N'EST JAMAIS
+# ECRASEE PAR UNE VALEUR VIDE : sans cette regle, chaque redemarrage
+# annulerait ce qui a ete saisi dans l'interface, sur une installation dont
+# le .env ne porte rien -- c'est-a-dire le cas courant.
+FOURNISSEURS_ENV_FILE="$LLM_DIR/fournisseurs.env"
+
+# $1 nom de la variable dans ce fichier, $2 valeur venue du .env de l'hote.
+valeur_fournisseur() {
+  if [ -n "$2" ]; then
+    printf '%s' "$2"
+  elif [ -s "$FOURNISSEURS_ENV_FILE" ]; then
+    sed -n "s/^$1=//p" "$FOURNISSEURS_ENV_FILE" | tail -n 1
+  fi
+}
+
+LITELLM_MASTER_KEY_V="$(valeur_fournisseur LITELLM_MASTER_KEY "${CODELAB_LITELLM_KEY:-}")"
+ANTHROPIC_API_KEY_V="$(valeur_fournisseur ANTHROPIC_API_KEY "${ANTHROPIC_API_KEY:-}")"
+OPENAI_API_KEY_V="$(valeur_fournisseur OPENAI_API_KEY "${OPENAI_API_KEY:-}")"
+OLLAMA_BASE_URL_V="$(valeur_fournisseur OLLAMA_BASE_URL "${OLLAMA_BASE_URL:-}")"
+
+cat > "$FOURNISSEURS_ENV_FILE.new" <<FOURNISSEURSENV
+# fournisseurs.env -- les cles que codelab-litellm recoit par env_file.
+#
+# Ecrit par codelab-postgres au demarrage (depuis le .env de l'hote, s'il en
+# porte) puis par le panneau, Parametres > Cles et secrets. Une valeur posee
+# ici ne prend effet qu'au PROCHAIN demarrage du conteneur :
+#
+#   docker compose --profile llm up -d
+#
+# Le panneau n'atteint ni le compose ni le .env de l'hote, et c'est voulu :
+# les lui donner reviendrait a lui donner root sur la machine.
+ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY_V
+LITELLM_MASTER_KEY=$LITELLM_MASTER_KEY_V
+OLLAMA_BASE_URL=$OLLAMA_BASE_URL_V
+OPENAI_API_KEY=$OPENAI_API_KEY_V
+FOURNISSEURSENV
+mv "$FOURNISSEURS_ENV_FILE.new" "$FOURNISSEURS_ENV_FILE"
+chmod 600 "$FOURNISSEURS_ENV_FILE"
+
 # Migration terminee et ecrite : l'ancien fichier n'a plus de raison
 # d'exister. Supprime seulement apres coup, jamais avant.
 if [ "$MIGRATED" = "1" ]; then
