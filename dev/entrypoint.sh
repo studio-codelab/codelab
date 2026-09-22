@@ -247,11 +247,31 @@ fi
 # aucun OpenClaw n'a pu etre lance ici pour la confirmer. En cas de refus au
 # demarrage, le supprimer remet OpenClaw sur son propre assistant de
 # configuration ("openclaw onboard"), qui reste la reference.
+# ECRITE UNE FOIS, MAIS PAS AVEC UNE CLE VIDE.
+#
+# Defaut vecu : a la premiere installation, codelab-llm.key n'existe pas
+# encore -- il faut avoir demarre le profil llm et cree une cle. OpenClaw
+# recevait donc "apiKey": "" et, le fichier existant desormais, ne le
+# reecrivait JAMAIS. Il restait casse en silence meme apres la creation de
+# la cle, et rien ne reliait la panne a sa cause.
+#
+# La regle devient donc : on (re)ecrit tant que la cle inscrite ne vaut pas
+# celle du fichier. Les reglages faits a la main restent proteges des que la
+# cle est la -- c'est le cas courant -- et le seul cas ou l'on ecrase est
+# celui ou la configuration est de toute facon inutilisable.
+CLE_POUR_OPENCLAW=""
+if [ -r "$CODEX_HOME_DIR/codelab-llm.key" ]; then
+    CLE_POUR_OPENCLAW="$(head -n 1 "$CODEX_HOME_DIR/codelab-llm.key" | tr -d '[:space:]')"
+fi
+OPENCLAW_A_ECRIRE=0
 if [ ! -f "$OPENCLAW_HOME_DIR/openclaw.json" ]; then
-    CLE_POUR_OPENCLAW=""
-    if [ -r "$CODEX_HOME_DIR/codelab-llm.key" ]; then
-        CLE_POUR_OPENCLAW="$(head -n 1 "$CODEX_HOME_DIR/codelab-llm.key" | tr -d '[:space:]')"
-    fi
+    OPENCLAW_A_ECRIRE=1
+elif [ -n "$CLE_POUR_OPENCLAW" ] \
+        && ! grep -q "\"apiKey\": \"$CLE_POUR_OPENCLAW\"" "$OPENCLAW_HOME_DIR/openclaw.json" 2>/dev/null; then
+    OPENCLAW_A_ECRIRE=1
+    echo "[codelab-dev] openclaw.json ne porte pas la cle courante : reecrit." >&2
+fi
+if [ "$OPENCLAW_A_ECRIRE" = "1" ]; then
     cat > "$OPENCLAW_HOME_DIR/openclaw.json" <<OPENCLAWCFG
 {
   "models": {
