@@ -106,8 +106,16 @@ jobs:
       # alignees sur app-manager/Dockerfile -- tester une autre version que
       # celle qu'on livre ne prouve pas grand-chose. En ajouter une ici sans
       # l'ajouter la-bas, ou l'inverse, remet des tests en sommeil.
+      #
+      # pyyaml est la SEULE exception, et elle va dans l'autre sens : c'est un
+      # outil de TEST, pas une dependance du panneau, et il n'a donc rien a
+      # faire dans app-manager/Dockerfile. Il etait absent, et deux tests qui
+      # relisent les composes se contentaient de ne rien verifier ici -- dont
+      # celui qui tient la regle « environment: l'emporte sur env_file: »,
+      # exactement le genre de piege muet qu'une suite doit attraper en CI et
+      # pas seulement sur le poste de celui qui l'ecrit.
       - name: Dependances
-        run: pip install flask psutil requests pytest webauthn==3.0.0 qrcode==8.2 cryptography==50.0.1
+        run: pip install flask psutil requests pytest webauthn==3.0.0 qrcode==8.2 cryptography==50.0.1 pyyaml
 
       # La suite vit dans test_regressions.py, separee des sondes de
       # checks.py : celles-ci tournent en production, dans des images qui

@@ -2690,8 +2690,8 @@ def test_le_compose_produit_tient_debout(conteneur):
     # comporter comme l'application se comporte ici.
     assert "          memory: 256M" in lignes
 
-    # Et si un analyseur YAML est la -- il l'est en developpement, pas en CI --
-    # on ne s'en prive pas.
+    # Et si un analyseur YAML est la -- c'est le cas en developpement et en
+    # CI, pas forcement dans une image -- on ne s'en prive pas.
     try:
         import yaml
     except ImportError:
@@ -11224,8 +11224,13 @@ def test_le_routeur_ne_recoit_ses_cles_que_par_le_fichier_du_panneau():
     pas -- c'est-a-dire dans le cas courant. Le defaut serait muet : le
     routeur repondrait « cle absente » sur une valeur qu'on vient de saisir.
     """
+    # _composes() d'abord : il ignore ce test dans une image qui ne porte pas
+    # les composes. Importer yaml avant transformait ce « rien a verifier
+    # ici » en echec -- et c'est ce qui a fait rougir la CI, ou PyYAML
+    # n'etait pas installe. Il l'est desormais (voir build-images.yml).
+    chemins = _composes()
     import yaml
-    for chemin in _composes():
+    for chemin in chemins:
         config = yaml.safe_load(open(chemin, encoding="utf-8"))
         routeur = config["services"]["codelab-litellm"]
         env = routeur.get("environment") or {}
