@@ -106,6 +106,7 @@ services:
     volumes:
       - /DATA/AppData/codelab/workspace:/workspace
       - /DATA/AppData/codelab/config/ssh:/var/lib/codelab/ssh
+      - /DATA/AppData/codelab/vscode-server:/home/vscode/.vscode-server
       - /DATA/AppData/codelab/config:/var/lib/codelab/config:ro
 
     networks:
