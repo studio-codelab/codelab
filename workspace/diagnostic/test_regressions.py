@@ -10493,9 +10493,9 @@ RAM_CIBLE_MO = 4096
 COEURS_CIBLE = 2
 
 
-# 384 Mo : encadre par ce qui marche et ce qui casse sur la machine de
-# reference, pas choisi. Voir le test ci-dessous.
-PLANCHER_MEMOIRE_MO = 384
+# 256 Mio : la reservation memoire que CasaOS/ZimaOS ajoute a CHAQUE
+# service en recopiant le compose. Mesuree, pas choisie -- voir le test.
+RESERVATION_HOTE_MO = 256
 
 
 def test_aucun_plafond_ne_descend_sous_le_plancher_de_demarrage():
@@ -10506,19 +10506,20 @@ def test_aucun_plafond_ne_descend_sous_le_plancher_de_demarrage():
     limit can not be less than memory reservation limit ». Toute la stack
     s'arretait la, sur 32 Mo economises.
 
-    Ce message ne sort que si une RESERVATION memoire superieure au plafond
-    est appliquee au conteneur. Il n'y en a aucune dans nos deux fichiers :
-    elle vient de l'hote, ou de l'interface qui recopie ce compose chez elle.
+    LA CAUSE, MESUREE. « docker compose config » sur la machine de
+    reference montre ce que CasaOS/ZimaOS ajoute en recopiant le compose --
+    a CHAQUE service, la meme valeur, absente de nos deux fichiers :
 
-    On ne sait pas QUI la pose. On sait l'ENCADRER, par ce qui marche et ce
-    qui casse sur la machine de reference :
+        deploy.resources.reservations.memory: "268435456"   (256 Mio)
 
-        96 Mo  -> refus     128 Mo -> refus     384 Mo -> demarre
+    Docker refuse alors de creer un conteneur dont le plafond est sous cette
+    reservation. Le proxy, plafonne a 96 Mo, etait le seul en dessous.
 
-    Elle est donc dans ]128, 384]. Le plancher vaut pour TOUS les services,
-    pas seulement le proxy : si la reservation est posee par l'hote, elle
-    s'applique a chaque conteneur, et le proxy n'a echoue que parce qu'il
-    etait le seul en dessous.
+    Le plancher vaut donc pour TOUS les services, pas seulement le proxy :
+    la reservation s'applique a chaque conteneur, et les autres passaient
+    seulement parce qu'ils etaient deja au-dessus. Le jour ou quelqu'un
+    economise 100 Mo sur n'importe lequel, c'est la stack entiere qui ne
+    demarre plus -- et le message de Docker ne nomme pas le coupable.
 
     Les tests voisins tiennent le PLAFOND -- qu'aucun service ne prenne plus
     du tiers de la machine. Celui-ci tient le PLANCHER, l'autre facon de se
@@ -10528,10 +10529,10 @@ def test_aucun_plafond_ne_descend_sous_le_plancher_de_demarrage():
         for nom, reglages in _services_du_compose(chemin).items():
             brut = str(reglages.get("mem_limit", reglages.get("deploy_memory")))
             mo = int(brut[:-1]) * 1024 if brut.endswith("g") else int(brut.rstrip("m"))
-            assert mo >= PLANCHER_MEMOIRE_MO, (
+            assert mo >= RESERVATION_HOTE_MO, (
                 f"{os.path.basename(chemin)} : {nom} est plafonne a {mo} Mo, "
-                f"sous le plancher de {PLANCHER_MEMOIRE_MO} Mo en dessous "
-                f"duquel le conteneur ne se cree pas")
+                f"sous la reservation de {RESERVATION_HOTE_MO} Mio que l'hote "
+                f"ajoute -- Docker refusera de creer ce conteneur")
 
 
 def test_aucun_plafond_ne_depasse_la_machine_visee():

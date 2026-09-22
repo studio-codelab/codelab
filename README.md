@@ -52,7 +52,7 @@ vérifient que ces plafonds restent cohérents avec la cible annoncée.
 Sur une machine plus grande, remonter l'ensemble proportionnellement dans les deux fichiers
 `docker-compose*.yml`, et la constante `RAM_CIBLE_MO` de `workspace/diagnostic/checks.py`.
 
-Le profil `llm` est optionnel : il ajoute deux conteneurs et environ 900 Mo de plafonds.
+Le profil `llm` est optionnel : il ajoute deux conteneurs et environ 830 Mo de plafonds.
 
 ## Installation
 

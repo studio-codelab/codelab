@@ -46,7 +46,7 @@
 # ces lignes existent precisement pour empecher. Un plafond au-dessus de la
 # RAM disponible n'est pas une securite large, c'est une securite absente.
 #
-# Total actuel : 4,8 Go de plafonds avec le profil llm, 3,9 Go sans lui. La
+# Total actuel : 4,6 Go de plafonds avec le profil llm, 3,8 Go sans lui. La
 # somme depasse encore les 4 Go, et c'est toujours voulu -- mais aucun
 # service ne peut plus prendre a lui seul plus du tiers de la machine.
 #
@@ -503,7 +503,7 @@ services:
     container_name: codelab-llm
     restart: unless-stopped
 
-    mem_limit: 384m
+    mem_limit: 320m
     cpus: 0.5
     pids_limit: 256
     logging:
@@ -645,25 +645,25 @@ services:
     container_name: codelab-dagster-proxy
     restart: unless-stopped
 
-    # 384 Mo POUR UN NGINX QUI RELAIE : ce n'est pas un besoin, c'est un
-    # plancher impose de l'exterieur.
+    # 320 Mo POUR UN NGINX QUI RELAIE : ce n'est pas un besoin, c'est un
+    # plancher impose de l'exterieur. Il en consomme une vingtaine.
     #
-    # Docker refuse de creer ce conteneur avec « Minimum memory limit can not
-    # be less than memory reservation limit ». Ce message ne sort que si une
-    # RESERVATION memoire superieure au plafond est appliquee au conteneur.
-    # Il n'y en a aucune dans ce fichier : elle vient de l'hote, ou de
-    # l'interface qui recopie ce compose chez elle.
+    # LA CAUSE, MESUREE. « docker compose config » sur la machine de
+    # reference montre ce que CasaOS/ZimaOS ajoute en recopiant ce compose --
+    # a CHAQUE service, la meme valeur, absente de nos fichiers :
     #
-    # On ne sait pas QUI la pose. On sait l'ENCADRER, par ce qui marche et ce
-    # qui casse sur la machine de reference :
+    #     deploy.resources.reservations.memory: "268435456"   (256 Mio)
     #
-    #     96 Mo   -> refus          128 Mo  -> refus
-    #     384 Mo  -> demarre (c'est le plafond de codelab-dagster-daemon)
+    # Docker refuse alors de creer un conteneur dont le PLAFOND est sous
+    # cette RESERVATION : « Minimum memory limit can not be less than memory
+    # reservation limit ». Le proxy, plafonne a 96 Mo, etait le seul en
+    # dessous : toute la stack s'arretait sur lui.
     #
-    # La reservation est donc dans ]128, 384]. 384 est la plus petite valeur
-    # dont on ait la preuve qu'elle passe -- d'ou ce chiffre, et pas un autre.
-    # Le jour ou la reservation est identifiee, ce plafond redescend.
-    mem_limit: 384m
+    # 320 et pas 256 : 64 Mo de marge, parce que cette reservation n'est pas
+    # la notre et que personne ne nous previendra le jour ou elle montera.
+    # 320 et pas plus : c'est la plus petite part de la stack, et un test
+    # voisin exige que ce relais la garde.
+    mem_limit: 320m
     cpus: 0.25
     pids_limit: 128
     logging:
