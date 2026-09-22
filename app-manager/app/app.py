@@ -950,6 +950,34 @@ def journal_du_service(nom, ligne):
         pass        # journaliser n'est pas le travail : voir journaliser()
 
 
+# Les services de la stack qu'un compte peut ranger hors de son hub. Une
+# liste nommee plutot qu'un « tout ce qui n'est pas une application » : ce
+# qui est masquable se decide ici, et se lit d'un coup d'oeil.
+SERVICES_MASQUABLES = frozenset({DAGSTER_NOM})
+
+# La phrase de la tuile Dagster, lue par les deux listes ci-dessous. Deux
+# copies divergeraient, et la tuile rangee ne se decrirait plus comme celle
+# qu'on retrouve en la remettant.
+DESCRIPTION_DAGSTER = ("Orchestration des jobs : plannings, assets, "
+                       "exécutions et journaux.")
+
+
+def services_masques():
+    """Les services que CE compte a ranges hors de son hub.
+
+    Meme forme que services_du_hub() -- nom, titre, description -- et rien de
+    plus : cette liste ne sert qu'a les reproposer dans les reglages. Elle est
+    vide pour un compte qui n'est pas administrateur, comme l'autre : un
+    service qu'on ne peut pas voir n'est pas un service qu'on range.
+    """
+    if not est_admin():
+        return []
+    if DAGSTER_NOM not in masquees_du_compte():
+        return []
+    return [{"name": DAGSTER_NOM, "titre": TITRES_PAR_DEFAUT[DAGSTER_NOM],
+             "description": DESCRIPTION_DAGSTER, "externe": True}]
+
+
 def services_du_hub():
     """Les tuiles du hub qui ne sont pas des applications declarees.
 
@@ -962,14 +990,21 @@ def services_du_hub():
     services = []
     if not est_admin():
         return services
+    # RANGE EST RANGE, meme pour un service. Dagster occupait une tuile que
+    # rien ne permettait de retirer : sur une installation ou l'on n'ouvre
+    # jamais l'orchestrateur, c'etait la seule tuile impossible a ecarter de
+    # son propre hub. Le masquage reste ce qu'il est -- du rangement, par
+    # compte, sans rien fermer : Dagster tourne, son adresse repond, et
+    # l'administrateur le retrouve dans Parametres > Compte.
+    if DAGSTER_NOM in masquees_du_compte():
+        return services
     adresse = origine_dagster()
     if not adresse:
         return services
     return services + [{
         "name": DAGSTER_NOM,
         "titre": TITRES_PAR_DEFAUT[DAGSTER_NOM],
-        "description": "Orchestration des jobs : plannings, assets, "
-                       "exécutions et journaux.",
+        "description": DESCRIPTION_DAGSTER,
         "categorie": "",
         "running": dagster_repond(),
         "listening": dagster_repond(),
@@ -8575,82 +8610,26 @@ flask_app.add_url_rule("/" + DAGSTER_NOM, "ouvrir_dagster_sans_barre",
 # premiere fois -- stack qui demarre, conteneur arrete -- la tuile doit
 # afficher quelque chose, et surtout pas la lettre « D » qu'elle partagerait
 # avec « demo » et « diagnostic ».
-ICONES_DAGSTER_CANDIDATES = ("/favicon.ico", "/favicon.png",
-                             "/favicon-32x32.png", "/static/favicon.ico")
-ICONE_DAGSTER_CACHE = os.path.join(STATE_DIR, "dagster-icone")
-ICONE_DAGSTER_DUREE = 24 * 3600
-_icone_dagster = {"quand": 0.0, "octets": b"", "type": ""}
-
-
-# Les entetes des formats qu'un navigateur sait afficher dans une balise
-# <img>. On lit les octets plutot que l'entete HTTP : c'est ce que le
-# navigateur fera, et lui ne se laisse pas convaincre par une etiquette.
-SIGNATURES_IMAGE = (b"\x89PNG\r\n\x1a\n", b"GIF87a", b"GIF89a",
-                    b"\xff\xd8\xff", b"\x00\x00\x01\x00", b"RIFF")
-
-
-def _est_une_image(octets):
-    if octets.lstrip()[:5].lower() in (b"<svg ", b"<svg>", b"<?xml"):
-        return True
-    return any(octets.startswith(debut) for debut in SIGNATURES_IMAGE)
-
-
-def _lire_icone_dagster_du_disque():
-    """Ce qui a ete rapporte lors d'un demarrage precedent.
-
-    Sans ce cache, chaque redemarrage du panneau reaffiche le dessin de repli
-    jusqu'a ce que Dagster reponde -- et sur une stack qui demarre, Dagster
-    est le dernier debout.
-    """
-    try:
-        with open(ICONE_DAGSTER_CACHE + ".type") as f:
-            type_mime = f.read().strip()
-        with open(ICONE_DAGSTER_CACHE, "rb") as f:
-            octets = f.read()
-    except OSError:
-        return
-    if octets and type_mime:
-        _icone_dagster.update(octets=octets, type=type_mime,
-                              quand=os.path.getmtime(ICONE_DAGSTER_CACHE))
-
-
-def icone_dagster():
-    """(octets, type MIME) -- vides tant que Dagster n'a rien donne."""
-    if not _icone_dagster["octets"]:
-        _lire_icone_dagster_du_disque()
-    if (_icone_dagster["octets"]
-            and time.time() - _icone_dagster["quand"] < ICONE_DAGSTER_DUREE):
-        return _icone_dagster["octets"], _icone_dagster["type"]
-    for chemin in ICONES_DAGSTER_CANDIDATES:
-        try:
-            with urllib.request.urlopen(
-                    f"http://{DAGSTER_AMONT}:{DAGSTER_PORT}{chemin}",
-                    timeout=3) as r:
-                type_mime = (r.headers.get("Content-Type") or "").split(";")[0].strip()
-                octets = r.read(256 * 1024)
-        except Exception:
-            continue
-        # Une image, et rien d'autre. Deux controles, et il faut les deux :
-        # Dagster rend sa page d'accueil en 200 pour un chemin inconnu (on
-        # afficherait du HTML comme une icone), et un fichier annonce
-        # « image/png » qui n'en est pas donne une tuile cassee -- vu en
-        # essai, et une tuile cassee est pire qu'un repli.
-        if not octets or not type_mime.startswith("image/"):
-            continue
-        if not _est_une_image(octets):
-            continue
-        _icone_dagster.update(octets=octets, type=type_mime, quand=time.time())
-        try:
-            with open(ICONE_DAGSTER_CACHE, "wb") as f:
-                f.write(octets)
-            with open(ICONE_DAGSTER_CACHE + ".type", "w") as f:
-                f.write(type_mime)
-        except OSError:
-            pass
-        return octets, type_mime
-    # Rien obtenu : on ne retente pas avant la prochaine expiration si l'on
-    # avait deja quelque chose, et tout de suite sinon.
-    return _icone_dagster["octets"], _icone_dagster["type"]
+# LE LOGO DE DAGSTER NE SE TELECHARGE PLUS, ET C'EST UNE CORRECTION.
+#
+# Le panneau allait chercher /favicon.ico sur l'instance Dagster et servait
+# ce qu'il trouvait, en priorite sur le SVG ci-dessus. L'intention etait
+# bonne -- porter le vrai logo plutot qu'une reproduction. Le resultat ne
+# l'etait pas : un favicon fait 32 px de cote, la tuile du hub en fait 40 a
+# 48. Le navigateur agrandissait donc une image matricielle, et le logo
+# paraissait flou. Signale tel quel : « choisis un logo plus net ».
+#
+# Un test affirmait depuis longtemps que ce logo « est vectoriel et net ».
+# Il lisait la constante, pas la reponse servie : la garantie existait sur le
+# papier et etait defaite a l'execution par la branche qui est retiree ici.
+# Le test de la reponse, lui, est ajoute avec ce changement.
+#
+# Ce qui disparait avec la branche : quatre chemins candidats, un cache sur
+# disque et son fichier de type, une lecture des octets pour verifier que
+# Dagster ne renvoie pas sa page d'accueil en guise d'image, et un appel
+# reseau toutes les 24 h. Le SVG livre avec l'image ne demande rien a
+# personne, reste net a toutes les tailles, et s'affiche meme quand Dagster
+# est eteint -- ce qui est precisement le moment ou l'on regarde sa tuile.
 
 
 @flask_app.get("/api/icon/<n>")
@@ -8668,14 +8647,6 @@ def api_icon(n):
     « D » colore : trois carres a distinguer en lisant le nom dessous,
     c'est-a-dire en cessant de les reconnaitre d'un coup d'oeil.
     """
-    # Dagster est un service de la stack, visible uniquement par l'administrateur.
-    # Son logo vient de Dagster lui-même ; le SVG CodeLab reste le repli.
-    if n == DAGSTER_NOM and est_admin():
-        octets, type_mime = icone_dagster()
-        if octets:
-            return Response(octets, mimetype=type_mime,
-                            headers={"X-Content-Type-Options": "nosniff"})
-
     # Accessible a un compte utilisateur, pour que son espace affiche les
     # icones -- mais seulement des projets qu'il peut ouvrir : la liste des
     # icones est une liste des projets existants.
@@ -8843,6 +8814,11 @@ def api_mes_apps():
                     # applications -- celle qu'on masque, celle qu'on cite
                     # dans un message -- reste ce qu'elle est.
                     "services": services_du_hub(),
+                    # Les services RANGES partent a part des applications
+                    # rangees : la page des reglages doit pouvoir les
+                    # reproposer, et le choix « de quelle application
+                    # veux-tu parler » ne doit toujours pas les voir.
+                    "services_masques": services_masques(),
                     "masquees": masquees,
                     "categories": connues,
                     "utilisateur": utilisateur_courant(),
@@ -9015,8 +8991,15 @@ def api_masquer(n):
     comptes le voient, et son adresse reste ouverte a qui la connait. On ne
     peut masquer que ce qu'on peut deja voir -- sinon la liste des masquees
     dirait l'existence de projets qu'on n'a pas le droit de connaitre.
+
+    LES SERVICES DE LA STACK AUSSI. Dagster n'est pas une application
+    declaree : il ne figure pas dans load(), et cette route le refusait donc
+    en 404. Sa tuile etait la seule qu'on ne pouvait pas ecarter de son
+    propre hub. peut_voir() garde le dernier mot -- pour une application par
+    defaut, il exige l'administrateur -- donc ouvrir ce nom-ci n'ouvre rien
+    de plus a un compte utilisateur.
     """
-    if n not in load() or not peut_voir(n):
+    if not (n in load() or n in SERVICES_MASQUABLES) or not peut_voir(n):
         return jsonify({"error": "Application inconnue."}), 404
     qui = utilisateur_courant() or NOM_ADMIN
     d = lire_masquees()
