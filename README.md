@@ -139,11 +139,13 @@ surveiller à l'œil :
   **Dagster en fait partie** : sur une installation où l'on n'ouvre jamais l'orchestrateur, sa tuile
   se range comme les autres. C'est du rangement, pas une fermeture : le service continue de tourner
   et son adresse répond toujours.
-- **Clés et secrets** — la clé CodeLab que Codex et OpenClaw présentent à la passerelle, et les
-  clés des fournisseurs. Créer une clé la tire, l'inscrit en base et la pose dans les deux fichiers
-  où les agents la lisent, en un geste ; **elle ne s'affiche jamais**, pas même à la création, et
-  seuls ses quatre derniers caractères remontent. Le panneau n'atteint ni le compose ni le `.env`
-  de l'hôte — les lui monter lui donnerait de quoi réécrire la stack.
+- **Clés et secrets** — une console, comme chez un fournisseur de LLM : créer une clé à la
+  demande, en révoquer une sans toucher aux autres, et voir ce que **chacune** a consommé
+  (requêtes, jetons, coût, dernier appel). La clé de Codex et OpenClaw, elle, est **créée et posée
+  toute seule** — rien à saisir — et ne s'affiche jamais. Une clé destinée à une application est
+  montrée **une seule fois** : la base n'en garde que l'empreinte.
+  Le panneau n'atteint ni le compose ni le `.env` de l'hôte — les lui monter lui donnerait de quoi
+  réécrire la stack.
 
 **Dagster** — `http://<IP-du-serveur>:3000/`. Charge `/workspace/definitions.py` comme code
 Dagster. Il n'a pas d'identifiants à lui : il utilise la session du panneau, donc la même connexion

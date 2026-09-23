@@ -743,6 +743,40 @@ textarea{resize:vertical;min-height:72px;line-height:1.5}
 .masquee-txt{flex:1;min-width:0;font-size:var(--t-m);font-weight:600;
  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
+/* ---------------- la console des cles ----------------
+   Un TABLEAU et pas une liste de cartes : on vient y comparer des chiffres
+   d'une ligne a l'autre, et des colonnes alignees se comparent a l'oeil la
+   ou des cartes empilees demandent de retenir. Les nombres sont a droite et
+   tabulaires -- la police du panneau les aligne d'elle-meme. */
+.tbl-cles{width:100%;border-collapse:collapse;font-size:var(--t-m)}
+.tbl-cles th{text-align:left;font-size:var(--t-s);font-weight:600;color:var(--dim);
+ padding:6px 10px 6px 0;border-bottom:1px solid var(--line);white-space:nowrap}
+.tbl-cles td{padding:9px 10px 9px 0;border-bottom:1px solid var(--line)}
+.tbl-cles tr:last-child td{border-bottom:none}
+.tbl-cles .n{text-align:right;font-variant-numeric:tabular-nums}
+.tbl-cles th.n{text-align:right}
+/* Revoquee : la ligne reste LISIBLE, en retrait. L'effacer priverait de ce
+   qu'on vient justement verifier -- ce qu'elle avait consomme avant. */
+.tbl-cles tr.revoquee td{color:var(--dim)}
+.btn-mini{padding:3px 9px;font-size:var(--t-s)}
+
+/* Les trois chiffres de la periode. Gros, parce que c'est ce qu'on regarde
+   en arrivant, et sur une seule ligne qui se replie en petite largeur. */
+.chiffres{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
+.chiffre{flex:1 1 120px;border:1px solid var(--line);border-radius:var(--r-s);
+ padding:11px 13px;background:var(--bg-input)}
+.chiffre b{display:block;font-size:var(--t-xl);font-weight:660;
+ font-variant-numeric:tabular-nums;line-height:1.15}
+.chiffre span{display:block;font-size:var(--t-s);color:var(--dim);margin-top:2px}
+
+/* La cle affichee une seule fois. Encadree en accent : cette boite demande
+   une action tout de suite, et ne reviendra pas. */
+.cle-neuve{margin-top:14px;border:1px solid var(--accent);border-radius:var(--r-s);
+ padding:13px;background:var(--accent-soft)}
+.cle-brute{display:block;margin-top:10px;padding:10px;border-radius:var(--r-xs);
+ background:var(--bg-input);border:1px solid var(--line);font-family:var(--mono);
+ font-size:var(--t-s);word-break:break-all;user-select:all}
+
 /* Les projets autorises d'un compte, dans sa fiche. Meme dessin que la liste
    ci-dessus : une ligne par application, son icone, son nom, sa visibilite.
    Une rangee de cases a cocher nues ne disait ni de quoi il s'agissait, ni
@@ -1977,38 +2011,79 @@ table.tbl-journal{min-width:560px}
 
   <div class="onglet-p" id="param-cles">
   <div class="zone">
-    <div class="zone-title">Les agents de VS Code</div>
+    <div class="zone-title">Consommation</div>
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
-        <b>Clé CodeLab LLM</b>
-        <div class="path">Celle que Codex et OpenClaw présentent à la passerelle.</div>
+        <b>Ce qui a été consommé</b>
+        <div class="path" id="conso-periode">Sur les 30 derniers jours.</div>
+      </div>
+      <span class="pill" id="conso-etat"><i></i>&nbsp;</span></div>
+      <div class="chiffres" id="conso-chiffres"></div>
+      <div id="conso-modeles" style="margin-top:6px"></div>
+    </div>
+  </div>
+
+  <div class="zone">
+    <div class="zone-title">Clés d'accès au LLM</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Les clés</b>
+        <div class="path">Créer, révoquer, et voir ce que chacune consomme.</div>
+      </div></div>
+
+      <div class="hint">La base ne garde que l'<b>empreinte</b> d'une clé — comme n'importe quel
+        service de LLM. Personne ne peut la relire ensuite, pas même le panneau. Une clé révoquée
+        est refusée dès l'appel suivant.</div>
+
+      <div class="hint" style="margin-top:8px">Le nom et l'application sont une <b>étiquette
+        comptable</b> : ils disent qui a consommé quoi, et permettent de couper une clé qui
+        dérape. Ils ne <b>restreignent pas</b> ce que la clé peut demander — ce serait un contrôle
+        à faire dans la passerelle, et l'annoncer ici sans l'avoir fait serait pire que de ne rien
+        promettre.</div>
+
+      <div id="cles-liste" style="margin-top:14px"></div>
+      <div class="err" id="cles-err" style="display:none"></div>
+
+      <div class="mb-titre" style="margin-top:18px">Créer une clé</div>
+      <div class="grid2">
+        <div class="field"><label>Nom</label>
+          <input id="cle-nom" placeholder="facturier, poste de Marie…" autocomplete="off"></div>
+        <div class="field"><label>Application</label>
+          <input id="cle-app" placeholder="facturier" autocomplete="off">
+          <div class="hint">Minuscules et tirets. Sert à regrouper la consommation.</div></div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" id="cle-creer" onclick="cleCreer(false)">Créer la clé</button>
+      </div>
+      <div class="hint" id="cle-msg" style="display:none"></div>
+      <div id="cle-valeur" style="display:none"></div>
+    </div>
+  </div>
+
+  <div class="zone">
+    <div class="zone-title">Le poste de développement</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>La clé de Codex et OpenClaw</b>
+        <div class="path">Créée et posée toute seule — rien à saisir.</div>
       </div>
       <span class="pill" id="cle-etat"><i></i>&nbsp;</span></div>
 
-      <div class="hint">Un seul bouton remplace les trois gestes d'avant : la clé est tirée au
-        hasard ici, son <b>empreinte</b> est inscrite dans la base de <code>codelab-llm</code>, et
-        sa valeur est posée dans <code>.codex/codelab-llm.key</code> et dans
+      <div class="hint">Le panneau la crée au démarrage si elle manque, inscrit son empreinte en
+        base, et pose sa valeur dans <code>.codex/codelab-llm.key</code> et
         <code>.openclaw/openclaw.json</code> — les deux seuls endroits où les agents la lisent.
-        C'est ce qui manquait quand Codex affichait
-        <code>Missing environment variable: CODELAB_LLM_KEY</code>.</div>
-
-      <div class="hint" style="margin-top:8px"><b>Elle ne s'affiche jamais</b>, pas même à la
-        création. Le panneau l'écrit directement là où elle sert ; la montrer ici n'ouvrirait rien
-        de plus et la laisserait dans un presse-papier et dans l'historique du navigateur. Seuls
-        ses quatre derniers caractères remontent, pour reconnaître laquelle est posée.</div>
+        <b>Celle-là ne s'affiche jamais</b>, pas même à la création : elle est écrite directement
+        là où elle sert.</div>
 
       <div id="cle-detail" style="margin-top:14px"></div>
 
       <div class="actions">
-        <button class="btn btn-primary" id="cle-creer" onclick="cleCreer()">Créer une clé</button>
-        <button class="btn btn-danger-quiet" id="cle-revoquer" onclick="cleRevoquer()">Révoquer</button>
+        <button class="btn btn-default" onclick="cleCreer(true)">Remplacer la clé du poste</button>
       </div>
-      <div class="err" id="cle-err" style="display:none"></div>
-      <div class="hint" id="cle-msg" style="display:none"></div>
+      <div class="err" id="poste-err" style="display:none"></div>
 
-      <div class="hint" style="margin-top:14px">Une clé déjà posée est révoquée dans le même
-        geste : deux clés vivantes pour un seul poste, et plus personne ne sait laquelle sert.
-        Côté VS Code, <b>ouvre un nouveau terminal</b> après l'opération — la variable
+      <div class="hint" style="margin-top:14px">La remplacer révoque l'ancienne dans le même
+        geste. Côté VS Code, <b>ouvre un nouveau terminal</b> ensuite — la variable
         d'environnement est exportée à l'ouverture d'une session, pas après coup.</div>
     </div>
   </div>
@@ -2036,6 +2111,7 @@ table.tbl-journal{min-width:560px}
   </div>
 
   </div>
+
   <div class="onglet-p" id="param-categories">
   <div class="zone">
     <div class="zone-title">Catégories</div>
@@ -2599,6 +2675,9 @@ const ACTIONS = {
   'compte-ouvrir':   n => usOuvrir(n),
   'param-onglet':    o => paramOnglet(o),
   'secret-poser':    id => secretPoser(id),
+  'cle-revoquer':    id => cleRevoquer(id),
+  'cle-copier':      v => cleCopier(v),
+  'cle-cacher':      () => cleCacher(),
   'secret-effacer':  id => secretEffacer(id),
 };
 
@@ -5550,17 +5629,15 @@ async function pubEnregistrer(){
   chargerSecurite();
 }
 
-/* ---------------- cles et secrets ----------------
-   CE QUI N'ARRIVE JAMAIS ICI : une valeur complete. Le serveur ne renvoie
-   que l'apercu qu'il a calcule -- les quatre derniers caracteres -- et
-   jamais la cle des agents, meme a la creation. Cette page ne peut donc pas
-   divulguer ce qu'elle n'a pas.
+/* ---------------- la console des cles ----------------
+   CE QUI N'ARRIVE JAMAIS ICI : une valeur complete, a une exception pres et
+   elle est voulue. Une cle destinee a une APPLICATION est affichee une seule
+   fois, a la creation -- sans quoi elle serait inutilisable, puisque la base
+   n'en garde que l'empreinte. Celle du POSTE, elle, ne sort jamais : le
+   panneau l'ecrit directement dans les fichiers ou les agents la lisent.
 
-   Rien ne part non plus par une URL : les deux ecritures passent par le
-   corps de la requete. Une valeur dans un chemin se retrouve dans le
-   journal du serveur, dans l'historique du navigateur et dans le referrer
-   de la page suivante -- trois endroits ou personne ne va la chercher pour
-   l'effacer. */
+   Rien ne part par une URL : les ecritures passent par le corps, et la
+   revocation par l'identifiant de la ligne -- un nombre, pas un secret. */
 let clesEtat = null;
 
 async function chargerCles(){
@@ -5569,13 +5646,99 @@ async function chargerCles(){
   catch(e){ return; }
   if(d.error) return;
   clesEtat = d;
+  peindreConsommation(d);
+  peindreLesCles(d);
   peindreCleLlm(d.llm);
   peindreSecrets(d.secrets);
 }
 
-/* Les phrases de l'etat de la cle. Chacune nomme CE QUI MANQUE, parce que
-   trois choses peuvent manquer separement et que les confondre est
-   exactement ce qui rendait la panne illisible. */
+function peindreConsommation(d){
+  const pill = $('conso-etat');
+  if(!d.base){
+    pill.className = 'pill off';
+    pill.innerHTML = '<i></i>Base injoignable';
+    $('conso-chiffres').innerHTML = '<div class="hint">La base de <code>codelab-llm</code> ne '
+      + 'répond pas' + (d.empechement ? ' : ' + esc(d.empechement) : '')
+      + '. Le profil IA a-t-il déjà démarré ? <code>docker compose --profile llm up -d</code></div>';
+    $('conso-modeles').innerHTML = '';
+    return;
+  }
+  const c = d.consommation || {requetes:0, jetons:0, cout:0, modeles:[], jours:30};
+  pill.className = 'pill ' + (c.requetes ? 'on' : 'off');
+  pill.innerHTML = '<i></i>' + (c.requetes ? 'Active' : 'Rien à compter');
+  $('conso-periode').textContent = 'Sur les ' + c.jours + ' derniers jours.';
+  $('conso-chiffres').innerHTML =
+      chiffre('Requêtes', nombre(c.requetes))
+    + chiffre('Jetons', nombre(c.jetons))
+    + chiffre('Coût', cout(c.cout));
+  /* AUCUNE MESURE N'EST PAS UNE PANNE, et la difference vaut d'etre dite :
+     une passerelle qui n'a jamais servi affiche les memes zeros qu'une
+     passerelle en panne. */
+  if(!c.requetes){
+    $('conso-modeles').innerHTML = '<div class="hint">Aucun appel enregistré sur la période. '
+      + 'La passerelle compte à partir du moment où une clé s\'en sert.</div>';
+    return;
+  }
+  $('conso-modeles').innerHTML =
+    '<div class="mb-titre" style="margin-top:16px">Par modèle</div>'
+    + '<table class="tbl-cles"><thead><tr><th>Modèle</th><th class="n">Requêtes</th>'
+    + '<th class="n">Jetons</th><th class="n">Coût</th></tr></thead><tbody>'
+    + c.modeles.map(m => '<tr><td><code>' + esc(m.modele) + '</code></td>'
+        + '<td class="n">' + nombre(m.requetes) + '</td>'
+        + '<td class="n">' + nombre(m.jetons) + '</td>'
+        + '<td class="n">' + cout(m.cout) + '</td></tr>').join('')
+    + '</tbody></table>';
+}
+
+function chiffre(nom, valeur){
+  return '<div class="chiffre"><b>' + valeur + '</b><span>' + esc(nom) + '</span></div>';
+}
+const nombre = n => (n||0).toLocaleString('fr-FR');
+/* Quatre decimales : a ces prix-la, deux afficheraient « 0,00 » sur une
+   journee de travail entiere -- et un cout affiche a zero ne se remarque
+   pas, il se croit. */
+const cout = c => (c||0).toLocaleString('fr-FR',
+  {minimumFractionDigits:4, maximumFractionDigits:4}) + ' $';
+
+function peindreLesCles(d){
+  const zone = $('cles-liste');
+  if(!d.base){
+    zone.innerHTML = '<div class="hint">Liste indisponible tant que la base ne répond pas.</div>';
+    return;
+  }
+  const cles = d.cles || [];
+  if(!cles.length){
+    zone.innerHTML = '<div class="hint">Aucune clé. Celle du poste de développement est créée '
+      + 'automatiquement dès que la base répond.</div>';
+    return;
+  }
+  zone.innerHTML = '<table class="tbl-cles"><thead><tr>'
+    + '<th>Nom</th><th>Application</th><th>État</th>'
+    + '<th class="n">Requêtes</th><th class="n">Jetons</th><th class="n">Coût</th>'
+    + '<th>Dernier appel</th><th></th></tr></thead><tbody>'
+    + cles.map(k => {
+      const etat = !k.active
+        ? '<span class="pill err"><i></i>Révoquée</span>'
+        : (k.posee ? '<span class="pill on"><i></i>Posée ici</span>'
+                   : '<span class="pill pub"><i></i>Active</span>');
+      return '<tr' + (k.active ? '' : ' class="revoquee"') + '>'
+        + '<td>' + esc(k.nom || '(sans nom)') + '</td>'
+        + '<td><code>' + esc(k.application) + '</code></td>'
+        + '<td>' + etat + '</td>'
+        + '<td class="n">' + nombre(k.requetes) + '</td>'
+        + '<td class="n">' + nombre(k.jetons) + '</td>'
+        + '<td class="n">' + cout(k.cout) + '</td>'
+        + '<td>' + (k.derniere ? esc(dateCourte(k.derniere)) : '—') + '</td>'
+        + '<td class="n">' + (k.active
+            ? '<button class="btn btn-danger-quiet btn-mini" data-agir="cle-revoquer"'
+              + ' data-cible="' + k.id + '">Révoquer</button>'
+            : '') + '</td></tr>';
+    }).join('') + '</tbody></table>';
+}
+
+/* Les phrases de l'etat de la cle du poste. Chacune nomme CE QUI MANQUE :
+   trois choses peuvent manquer separement, et les confondre est exactement
+   ce qui rendait la panne illisible. */
 const CLE_PHRASES = {
   active:      ['on',  'Active'],
   absente:     ['warn','Inconnue de la base'],
@@ -5591,21 +5754,18 @@ function peindreCleLlm(l){
   pill.className = 'pill ' + classe;
   pill.innerHTML = '<i></i>' + texte;
 
-  $('cle-revoquer').style.display = l.posee ? '' : 'none';
-  $('cle-creer').textContent = l.posee ? 'Remplacer la clé' : 'Créer une clé';
-
   const lignes = [];
   if(!l.posee){
     lignes.push('<div class="hint">Aucune clé n\'est posée sur ce serveur. '
       + 'Codex affichera <code>Missing environment variable: CODELAB_LLM_KEY</code> '
-      + 'tant que ce sera le cas.</div>');
+      + 'tant que ce sera le cas — le panneau la crée tout seul dès que la base répond.</div>');
   }else{
     lignes.push(ligneCle('Clé posée', '<code>' + esc(l.apercu) + '</code>'));
     if(l.nom) lignes.push(ligneCle('Nom', esc(l.nom)));
     if(l.creee) lignes.push(ligneCle('Créée le', esc(dateCourte(l.creee))));
     lignes.push(ligneCle('OpenClaw', l.openclaw
       ? 'porte la même clé'
-      : '<b>ne porte pas cette clé</b> — recrée-la pour les remettre d\'accord'));
+      : '<b>ne porte pas cette clé</b> — remplace-la pour les remettre d\'accord'));
     if(l.base === 'absente') lignes.push('<div class="hint">Cette clé n\'est pas '
       + 'dans la base de <code>codelab-llm</code> : la passerelle la refusera. '
       + 'C\'est le cas après une remise à zéro de la base.</div>');
@@ -5629,43 +5789,77 @@ function dateCourte(iso){
   return isNaN(d) ? iso : d.toLocaleString();
 }
 
-async function cleCreer(){
-  const remplace = clesEtat && clesEtat.llm && clesEtat.llm.posee;
-  if(remplace && !await demander('Remplacer la clé',
-      'L\'ancienne sera révoquée dans le même geste : tout ce qui s\'en sert '
-      + 'encore recevra un refus.', 'Remplacer', true)) return;
-  $('cle-err').style.display = 'none';
+async function cleCreer(poste){
+  const cible = poste ? 'poste-err' : 'cles-err';
+  if(poste && clesEtat && clesEtat.llm && clesEtat.llm.posee
+     && !await demander('Remplacer la clé du poste',
+        'L\'ancienne sera révoquée dans le même geste : Codex et OpenClaw cesseront '
+        + 'd\'être servis jusqu\'à l\'ouverture d\'un nouveau terminal.',
+        'Remplacer', true)) return;
+  $(cible).style.display = 'none';
   $('cle-msg').style.display = 'none';
-  const bouton = $('cle-creer');
-  bouton.disabled = true;
+  $('cle-valeur').style.display = 'none';
+  const corps = poste ? {poste:true} : {
+    nom: ($('cle-nom').value || '').trim(),
+    application: ($('cle-app').value || '').trim(),
+  };
+  if(!poste && !corps.nom){ erreurCles(cible, 'Donne un nom à la clé.'); return; }
   try{
     const r = await fetch('/api/cles/llm', {method:'POST',
-      headers:{'Content-Type':'application/json'}, body: JSON.stringify({})});
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify(corps)});
     const d = await r.json();
-    if(!r.ok){ erreurCles('cle-err', d.error); return; }
-    clesEtat.llm = d.llm;
-    peindreCleLlm(d.llm);
-    const m = $('cle-msg');
-    m.style.display = '';
-    m.innerHTML = 'Clé écrite dans ' + esc((d.fichiers || []).join(' et '))
-      + '. <b>Ouvre un nouveau terminal</b> dans VS Code pour que Codex la voie.';
-  }catch(e){ erreurCles('cle-err', 'Le serveur n\'a pas répondu.'); }
-  finally{ bouton.disabled = false; }
+    if(!r.ok){ erreurCles(cible, d.error); return; }
+    if(poste){
+      const m = $('cle-msg');
+      m.style.display = '';
+      m.innerHTML = 'Clé écrite dans ' + esc((d.fichiers || []).join(' et '))
+        + '. <b>Ouvre un nouveau terminal</b> dans VS Code pour que Codex la voie.';
+    }else{
+      $('cle-nom').value = ''; $('cle-app').value = '';
+      montrerLaCleUneFois(d.valeur);
+    }
+    await chargerCles();
+  }catch(e){ erreurCles(cible, 'Le serveur n\'a pas répondu.'); }
 }
 
-async function cleRevoquer(){
+/* LA SEULE FOIS OU UNE CLE COMPLETE S'AFFICHE. La base n'en garde que
+   l'empreinte : ne pas la montrer ici la rendrait inutilisable. On le dit
+   sans detour, et on ne la remet pas dans le presse-papier sans le geste de
+   l'utilisateur. */
+function montrerLaCleUneFois(valeur){
+  const n = $('cle-valeur');
+  n.style.display = '';
+  n.innerHTML = '<div class="cle-neuve"><div class="mb-titre">Copie-la maintenant</div>'
+    + '<div class="hint">Elle ne sera plus jamais affichée : la base n\'en garde que '
+    + 'l\'empreinte. Perdue, elle se révoque et se recrée — elle ne se retrouve pas.</div>'
+    + '<code class="cle-brute">' + esc(valeur) + '</code>'
+    + '<div class="actions"><button class="btn btn-default" data-agir="cle-copier"'
+    + ' data-cible="' + esc(valeur) + '">Copier</button>'
+    + '<button class="btn btn-default" data-agir="cle-cacher" data-cible="x">'
+    + 'J\'ai copié</button></div></div>';
+}
+
+async function cleCopier(valeur){
+  try{ await navigator.clipboard.writeText(valeur); notifier('Clé copiée.'); }
+  catch(e){ notifier('Copie refusée par le navigateur : sélectionne-la à la main.', 'err'); }
+}
+function cleCacher(){ $('cle-valeur').style.display = 'none'; $('cle-valeur').innerHTML = ''; }
+
+async function cleRevoquer(id){
+  const k = (clesEtat && clesEtat.cles || []).find(c => String(c.id) === String(id));
+  const posee = k && k.posee;
   if(!await demander('Révoquer la clé',
-      'Codex et OpenClaw cesseront d\'être servis tant qu\'une nouvelle clé '
-      + 'n\'est pas créée.', 'Révoquer', true)) return;
-  $('cle-err').style.display = 'none';
-  $('cle-msg').style.display = 'none';
+      posee ? 'C\'est la clé du poste : Codex et OpenClaw cesseront d\'être servis, et le '
+              + 'fichier sera retiré.'
+            : 'Tout ce qui s\'en sert recevra un refus dès l\'appel suivant.',
+      'Révoquer', true)) return;
+  $('cles-err').style.display = 'none';
   try{
-    const r = await fetch('/api/cles/llm', {method:'DELETE'});
+    const r = await fetch('/api/cles/llm/' + encodeURIComponent(id), {method:'DELETE'});
     const d = await r.json();
-    if(!r.ok){ erreurCles('cle-err', d.error); return; }
-    clesEtat.llm = d.llm;
-    peindreCleLlm(d.llm);
-  }catch(e){ erreurCles('cle-err', 'Le serveur n\'a pas répondu.'); }
+    if(!r.ok){ erreurCles('cles-err', d.error); return; }
+    await chargerCles();
+  }catch(e){ erreurCles('cles-err', 'Le serveur n\'a pas répondu.'); }
 }
 
 /* Deux mots pour l'effet d'une valeur, parce que la difference est reelle et

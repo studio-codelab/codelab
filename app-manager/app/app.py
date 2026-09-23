@@ -3995,6 +3995,13 @@ def monitor_tick():
     # limite d'essais ci-dessous qui decide de relancer ou non, donc une
     # application qui plante en boucle n'est pas relancee sans fin.
     tenir_les_applications_par_defaut()
+    # LA CLE DU POSTE EXISTE SANS QU'ON LA DEMANDE. Demande explicitement :
+    # « je veux que la cle CodeLab LLM soit creee et configuree par defaut ».
+    # Ici et pas au demarrage du panneau : a la premiere installation,
+    # Postgres n'est pas encore pret quand ce processus se leve, et un
+    # geste tente une seule fois aurait echoue une seule fois, pour
+    # toujours. Le tour suivant reessaie.
+    tenir_la_cle_du_poste()
     apps = load()
     now = time.time()
     for name, a in apps.items():
@@ -6914,6 +6921,201 @@ def _etat_cle_llm():
     return etat
 
 
+# ------------------- la console des cles d'acces au LLM -------------------
+#
+# CE QU'ELLE REMPLACE. La page ne connaissait qu'UNE cle : celle posee dans
+# le fichier que lisent Codex et OpenClaw. Creer la seconde pour une
+# application, savoir laquelle consomme quoi, en revoquer une sans toucher
+# aux autres -- rien de tout cela n'existait, et la base portait pourtant
+# deja plusieurs lignes.
+#
+# CE QUI MANQUAIT EN BASE, et c'etait le point dur : llm_usage ne notait que
+# le couple (utilisateur, application). Deux cles du meme poste etaient
+# indistinguables. La colonne key_id, ajoutee dans llm/app.py, est ce qui
+# rend « suivre l'utilisation de chacune » possible du tout.
+#
+# ETIQUETTE, PAS BARRIERE. Le nom et l'application d'une cle servent a la
+# COMPTABILITE : savoir qui a consomme quoi, et couper une cle qui derape.
+# Ils ne restreignent pas ce que la cle peut demander -- ce serait un
+# controle a faire dans la passerelle, pas ici, et le presenter comme une
+# protection alors qu'il n'en est pas une serait pire que de ne rien
+# promettre. La page le dit.
+
+# L'application inscrite sur la cle du poste de developpement. C'est elle que
+# Codex et OpenClaw presentent, et c'est a ce nom qu'on la reconnait dans la
+# liste.
+APP_POSTE = "codelab-dev"
+NOM_CLE_POSTE = "poste de developpement"
+
+
+def _pg_llm_dispo():
+    """La base des cles repond-elle ? (bool, phrase a afficher)."""
+    try:
+        with _pg_connexion(PG_BASE_LLM) as cx:
+            cx.execute("SELECT 1")
+        return True, ""
+    except Exception as e:                                        # noqa: BLE001
+        return False, str(e).strip().split("\n")[0][:200]
+
+
+def lister_cles_llm():
+    """Les cles, avec ce que chacune a consomme.
+
+    UNE SEULE REQUETE, et c'est voulu : une boucle « pour chaque cle, compter
+    sa consommation » ferait N+1 requetes sur une table qui grossit a chaque
+    appel de modele. Le LEFT JOIN garde les cles qui n'ont jamais servi --
+    ce sont justement celles qu'on vient chercher pour les revoquer.
+    """
+    with _pg_connexion(PG_BASE_LLM) as cx:
+        lignes = cx.execute("""
+            SELECT k.id, k.key_name, k.user_id, k.app_id, k.created_at,
+                   k.revoked_at,
+                   COALESCE(COUNT(u.id), 0),
+                   COALESCE(SUM(u.total_tokens), 0),
+                   COALESCE(SUM(u.cost), 0),
+                   MAX(u.timestamp)
+              FROM llm_api_keys k
+              LEFT JOIN llm_usage u ON u.key_id = k.id
+             GROUP BY k.id
+             ORDER BY k.revoked_at IS NOT NULL, k.created_at DESC
+        """).fetchall()
+    posee = cle_codex_posee()
+    empreinte_posee = empreinte_cle(posee) if posee else ""
+    with _pg_connexion(PG_BASE_LLM) as cx:
+        empreintes = dict(cx.execute(
+            "SELECT id, key_hash FROM llm_api_keys").fetchall())
+    cles = []
+    for (ident, nom, qui, app, creee, revoquee, requetes,
+         jetons, cout, derniere) in lignes:
+        cles.append({
+            "id": ident,
+            "nom": nom or "",
+            "utilisateur": qui or "",
+            "application": app or "",
+            "creee": creee.isoformat() if creee else "",
+            "revoquee": revoquee.isoformat() if revoquee else "",
+            "active": revoquee is None,
+            # CELLE QUI SERT ICI. La page doit pouvoir dire « c'est celle que
+            # Codex utilise » sans que personne ait a comparer des empreintes
+            # a l'oeil -- et l'empreinte, elle, ne sort pas.
+            "posee": bool(posee) and empreintes.get(ident) == empreinte_posee,
+            "requetes": int(requetes or 0),
+            "jetons": int(jetons or 0),
+            "cout": float(cout or 0),
+            "derniere": derniere.isoformat() if derniere else "",
+        })
+    return cles
+
+
+def consommation_llm(jours=30):
+    """Ce que la stack a consomme sur la periode, et par quel modele.
+
+    Les jours sont bornes : une page qui demanderait dix ans ferait lire
+    toute la table a chaque ouverture.
+    """
+    jours = max(1, min(int(jours or 30), 365))
+    with _pg_connexion(PG_BASE_LLM) as cx:
+        total = cx.execute(
+            "SELECT COALESCE(COUNT(*),0), COALESCE(SUM(total_tokens),0),"
+            " COALESCE(SUM(cost),0)"
+            " FROM llm_usage WHERE timestamp > now() - %s::interval",
+            (f"{jours} days",)).fetchone()
+        modeles = cx.execute(
+            "SELECT requested_model, COUNT(*), COALESCE(SUM(total_tokens),0),"
+            " COALESCE(SUM(cost),0)"
+            " FROM llm_usage WHERE timestamp > now() - %s::interval"
+            " GROUP BY requested_model ORDER BY 2 DESC LIMIT 12",
+            (f"{jours} days",)).fetchall()
+    return {
+        "jours": jours,
+        "requetes": int(total[0] or 0),
+        "jetons": int(total[1] or 0),
+        "cout": float(total[2] or 0),
+        "modeles": [{"modele": m or "(inconnu)", "requetes": int(r or 0),
+                     "jetons": int(j or 0), "cout": float(c or 0)}
+                    for m, r, j, c in modeles],
+    }
+
+
+def creer_cle_llm(nom, utilisateur, application):
+    """Tire une cle, l'inscrit, et rend (valeur brute, identifiant).
+
+    La valeur brute ne sert qu'a l'appelant, le temps de la poser dans un
+    fichier. La base n'en garde que l'empreinte -- comme « create-key », et
+    comme n'importe quel service de LLM.
+    """
+    _llm_preparer_base()
+    brut = "cl_" + secrets.token_urlsafe(32)
+    with _pg_connexion(PG_BASE_LLM) as cx:
+        ident = cx.execute(
+            "INSERT INTO llm_api_keys (key_hash, key_name, user_id, app_id)"
+            " VALUES (%s,%s,%s,%s) RETURNING id",
+            (empreinte_cle(brut), nom, utilisateur, application)).fetchone()[0]
+    return brut, ident
+
+
+def revoquer_cle_llm(ident):
+    """Revoque UNE cle, par son identifiant. Renvoie sa ligne, ou None."""
+    with _pg_connexion(PG_BASE_LLM) as cx:
+        ligne = cx.execute(
+            "SELECT key_hash, key_name, revoked_at FROM llm_api_keys WHERE id=%s",
+            (ident,)).fetchone()
+        if not ligne:
+            return None
+        if ligne[2] is None:
+            cx.execute("UPDATE llm_api_keys SET revoked_at=now() WHERE id=%s",
+                       (ident,))
+    return {"empreinte": ligne[0], "nom": ligne[1] or ""}
+
+
+def tenir_la_cle_du_poste():
+    """La cle du poste de developpement existe, sans qu'on ait a la demander.
+
+    DEMANDE EXPLICITEMENT : « je veux que la cle CodeLab LLM soit creee et
+    configuree par defaut ». Le premier demarrage ne doit donc rien demander
+    a personne -- ni « docker exec », ni un bouton a cliquer, ni un
+    copier-coller.
+
+    N'echoue jamais : appelee depuis la boucle de surveillance, elle ne doit
+    pas faire tomber le tour parce que Postgres redemarre. Le prochain tour
+    reessaiera.
+
+    Ne recree pas ce qui est deja la : si le fichier porte une cle encore
+    active en base, il n'y a rien a faire -- et c'est le cas a tous les tours
+    sauf le premier.
+    """
+    try:
+        posee = cle_codex_posee()
+        if posee:
+            with _pg_connexion(PG_BASE_LLM) as cx:
+                vivante = cx.execute(
+                    "SELECT 1 FROM llm_api_keys"
+                    " WHERE key_hash=%s AND revoked_at IS NULL",
+                    (empreinte_cle(posee),)).fetchone()
+            if vivante:
+                return False
+        brut, _ = creer_cle_llm(NOM_CLE_POSTE, NOM_ADMIN, APP_POSTE)
+        ecrits = poser_cle_pour_les_agents(brut)
+        if CLE_CODEX_FICHIER not in ecrits:
+            return False
+        journaliser("secret", qui=NOM_ADMIN, action="cle du poste creee",
+                    cle="llm")
+        print("[app-manager] cle CodeLab LLM creee et posee pour Codex "
+              "et OpenClaw.", flush=True)
+        return True
+    except Exception as e:                                        # noqa: BLE001
+        # Muet SAUF au premier echec : repeter la meme ligne toutes les
+        # quelques secondes dans « docker logs » noierait tout le reste.
+        if not _cle_poste_plainte["dit"]:
+            _cle_poste_plainte["dit"] = True
+            print(f"[app-manager] cle CodeLab LLM non creee ({e}) -- "
+                  f"nouvelle tentative au prochain tour.", flush=True)
+        return False
+
+
+_cle_poste_plainte = {"dit": False}
+
+
 @flask_app.get("/api/cles")
 @require_admin
 def api_cles():
@@ -6929,83 +7131,108 @@ def api_cles():
             "apercu": apercu_secret(valeur) if spec["secret"] else valeur,
             "variables": [n for _, n in spec["ou"]],
         })
-    return jsonify({"llm": _etat_cle_llm(), "secrets": secrets_vus})
+    joignable, empechement = _pg_llm_dispo()
+    cles, conso = [], None
+    if joignable:
+        try:
+            cles = lister_cles_llm()
+            conso = consommation_llm(_entier(request.args.get("jours"), 30))
+        except Exception as e:                                    # noqa: BLE001
+            joignable, empechement = False, str(e).split("\n")[0][:200]
+    return jsonify({"llm": _etat_cle_llm(), "secrets": secrets_vus,
+                    "base": joignable, "empechement": empechement,
+                    "cles": cles, "consommation": conso,
+                    "app_poste": APP_POSTE})
+
+
+def _entier(brut, defaut):
+    try:
+        return int(str(brut))
+    except (TypeError, ValueError):
+        return defaut
 
 
 @flask_app.post("/api/cles/llm")
 @require_admin
 def api_cles_llm_creer():
-    """Tire une cle neuve, l'inscrit en base et la pose la ou elle se lit.
+    """Tire une cle neuve, l'inscrit, et la pose si elle est celle du poste.
 
-    ELLE N'EST PAS RENVOYEE. La page n'en recoit que l'apercu : la valeur va
-    directement dans les deux fichiers ou les agents la prennent, ce qui est
-    le seul endroit ou elle sert. Un copier-coller depuis le navigateur
-    n'aurait rien ouvert de plus, et aurait mis la cle dans un presse-papier,
-    un historique, et le cache de la page.
+    ELLE N'EST PAS RENVOYEE quand elle est posee : la valeur va directement
+    dans les deux fichiers ou les agents la lisent, ce qui est le seul
+    endroit ou elle sert.
 
-    L'ancienne est revoquee dans le meme geste : la laisser vivante ferait
-    de chaque rotation une cle de plus a reconnaitre, sans que personne ne
-    sache plus laquelle sert.
+    ELLE L'EST UNE FOIS quand elle ne l'est pas -- une cle destinee a une
+    application vit ailleurs, dans un fichier de projet ou une variable
+    d'environnement que le panneau ne connait pas. Affichee une seule fois,
+    comme chez n'importe quel service de LLM : la base n'en garde que
+    l'empreinte, donc personne ne pourra la relire, pas meme nous.
     """
     demande = request.get_json(force=True, silent=True) or {}
-    nom = titre_propre(demande.get("nom")) or "poste de developpement"
-    ancienne = cle_codex_posee()
+    poste = bool(demande.get("poste"))
+    nom = titre_propre(demande.get("nom")) or (NOM_CLE_POSTE if poste else "sans nom")
+    application = valid_name(demande.get("application")) or (
+        APP_POSTE if poste else "application")
     try:
         _llm_preparer_base()
-    except Exception as e:
+    except Exception as e:                                        # noqa: BLE001
         return jsonify({"error": "La base de codelab-llm n'est pas joignable : "
                                  f"{e}. Démarre Postgres, puis réessaie."}), 503
-    brut = "cl_" + secrets.token_urlsafe(32)
+
+    ancienne = cle_codex_posee() if poste else ""
     try:
-        with _pg_connexion(PG_BASE_LLM) as cx:
-            cx.execute("INSERT INTO llm_api_keys (key_hash, key_name, user_id, app_id)"
-                       " VALUES (%s,%s,%s,%s)",
-                       (empreinte_cle(brut), nom, NOM_ADMIN, "codelab-dev"))
-            if ancienne:
+        brut, ident = creer_cle_llm(nom, utilisateur_courant() or NOM_ADMIN,
+                                    application)
+        if ancienne:
+            with _pg_connexion(PG_BASE_LLM) as cx:
                 cx.execute("UPDATE llm_api_keys SET revoked_at=now()"
                            " WHERE key_hash=%s AND revoked_at IS NULL",
                            (empreinte_cle(ancienne),))
-    except Exception as e:
+    except Exception as e:                                        # noqa: BLE001
         return jsonify({"error": f"Clé non inscrite : {e}"}), 500
-    ecrits = poser_cle_pour_les_agents(brut)
-    if CLE_CODEX_FICHIER not in ecrits:
-        return jsonify({"error": "La clé est inscrite en base mais le fichier "
-                                 f"{CLE_CODEX_FICHIER} n'a pas pu être écrit : "
-                                 "Codex ne la verra pas."}), 500
+
+    reponse = {"ok": True, "id": ident}
+    if poste:
+        ecrits = poser_cle_pour_les_agents(brut)
+        if CLE_CODEX_FICHIER not in ecrits:
+            return jsonify({"error": "La clé est inscrite en base mais le fichier "
+                                     f"{CLE_CODEX_FICHIER} n'a pas pu être écrit : "
+                                     "Codex ne la verra pas."}), 500
+        reponse["fichiers"] = [os.path.basename(c) for c in ecrits]
+    else:
+        # LE SEUL ENDROIT DE TOUT LE PANNEAU OU UNE CLE COMPLETE SORT, et
+        # c'est une decision : sans elle, une cle pour une application
+        # exterieure serait inutilisable. Elle n'est ni journalisee, ni
+        # relisible ensuite.
+        reponse["valeur"] = brut
     journaliser("secret", qui=utilisateur_courant() or NOM_ADMIN,
-                action="cle llm creee", ip=_adresse_client())
-    return jsonify({"ok": True, "llm": _etat_cle_llm(),
-                    "fichiers": [os.path.basename(c) for c in ecrits]})
+                action="cle llm creee", cle=str(ident), ip=_adresse_client())
+    return jsonify(reponse)
 
 
-@flask_app.delete("/api/cles/llm")
+@flask_app.delete("/api/cles/llm/<int:ident>")
 @require_admin
-def api_cles_llm_revoquer():
-    """Revoque la cle posee et retire le fichier que Codex lit.
+def api_cles_llm_revoquer(ident):
+    """Revoque UNE cle, par son identifiant.
 
-    Les deux, et dans cet ordre : revoquer sans retirer le fichier laisse un
-    poste qui croit avoir une cle et recoit un refus a chaque appel, ce qui
-    se diagnostique mal. Retirer le fichier sans revoquer laisse une cle
-    valable dont plus personne ne connait le porteur.
+    Si c'est celle du poste, le fichier part avec : un poste qui croit avoir
+    une cle et recoit un refus a chaque appel ne se diagnostique pas.
     """
     posee = cle_codex_posee()
-    if not posee:
-        return jsonify({"error": "Aucune clé n'est posée sur ce serveur."}), 400
     try:
-        with _pg_connexion(PG_BASE_LLM) as cx:
-            cx.execute("UPDATE llm_api_keys SET revoked_at=now()"
-                       " WHERE key_hash=%s AND revoked_at IS NULL",
-                       (empreinte_cle(posee),))
-    except Exception as e:
-        return jsonify({"error": f"Clé non révoquée, rien n'a été retiré : {e}"}), 500
-    try:
-        os.remove(CLE_CODEX_FICHIER)
-    except OSError:
-        pass
-    _openclaw_reporter("")
+        ligne = revoquer_cle_llm(ident)
+    except Exception as e:                                        # noqa: BLE001
+        return jsonify({"error": f"Clé non révoquée : {e}"}), 500
+    if not ligne:
+        return jsonify({"error": "Clé inconnue."}), 404
+    if posee and ligne["empreinte"] == empreinte_cle(posee):
+        try:
+            os.remove(CLE_CODEX_FICHIER)
+        except OSError:
+            pass
+        _openclaw_reporter("")
     journaliser("secret", qui=utilisateur_courant() or NOM_ADMIN,
-                action="cle llm revoquee", ip=_adresse_client())
-    return jsonify({"ok": True, "llm": _etat_cle_llm()})
+                action="cle llm revoquee", cle=str(ident), ip=_adresse_client())
+    return jsonify({"ok": True})
 
 
 @flask_app.put("/api/cles/secrets")

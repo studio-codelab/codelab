@@ -126,9 +126,30 @@ valeur à `revoke-key`.
 
 Le panneau fait le même geste, sans commande et sans copier-coller :
 *Paramètres → Clés et secrets*. Il écrit la même table avec la même
-empreinte, puis pose la valeur dans les deux fichiers où Codex et OpenClaw
-la lisent — et ne l'affiche jamais. Une clé créée d'un côté se révoque de
-l'autre.
+empreinte, et une clé créée d'un côté se révoque de l'autre.
+
+La console y ajoute ce que la ligne de commande ne donne pas :
+
+| | |
+|---|---|
+| **Créer** | un nom, une application, et la clé est montrée **une seule fois** |
+| **Révoquer** | une clé parmi d'autres, par son identifiant |
+| **Suivre** | requêtes, jetons, coût et dernier appel, **par clé** |
+
+Le suivi par clé demande la colonne `llm_usage.key_id` : sans elle, deux clés
+du même poste sont indistinguables. Elle est ajoutée aux bases existantes par
+un `ALTER TABLE` au démarrage — `CREATE TABLE IF NOT EXISTS` ne touche pas
+une table qui existe déjà.
+
+**La clé du poste de développement est un cas à part** : le panneau la crée
+au démarrage si elle manque, et la pose lui-même dans
+`.codex/codelab-llm.key` et `.openclaw/openclaw.json`. Elle ne s'affiche
+jamais, pas même à la création — elle est écrite directement là où elle sert.
+
+Le nom et l'application sont une **étiquette comptable** : ils disent qui a
+consommé quoi et permettent de couper une clé qui dérape. Ils ne
+*restreignent* pas ce que la clé peut demander — ce serait un contrôle à
+faire dans la passerelle.
 
 ## Ce qui est conservé
 

@@ -109,6 +109,11 @@ CREATE TABLE IF NOT EXISTS llm_api_keys (
 CREATE TABLE IF NOT EXISTS llm_usage (
     id BIGSERIAL PRIMARY KEY, timestamp TIMESTAMPTZ NOT NULL DEFAULT now(),
     user_id TEXT NOT NULL, app_id TEXT NOT NULL,
+    -- QUELLE CLE A PAYE. Sans cette colonne, la consommation ne se rattachait
+    -- qu'au couple (utilisateur, application) : deux cles du meme poste
+    -- etaient indistinguables, et « suivre l'utilisation de chacune » etait
+    -- impossible. NULL pour une identite SSO, qui n'a pas de cle.
+    key_id BIGINT,
     requested_model TEXT NOT NULL, actual_model TEXT, provider TEXT,
     input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0,
     total_tokens INTEGER NOT NULL DEFAULT 0, cost NUMERIC(18, 8) NOT NULL DEFAULT 0,
@@ -117,6 +122,11 @@ CREATE TABLE IF NOT EXISTS llm_usage (
 );
 CREATE INDEX IF NOT EXISTS llm_usage_dimensions_idx
     ON llm_usage (user_id, app_id, requested_model, provider, timestamp);
+-- Les installations d'avant la colonne : CREATE TABLE IF NOT EXISTS ne
+-- touche pas une table qui existe deja, et sans cette ligne la consommation
+-- continuerait de s'enregistrer sans cle, en silence.
+ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS key_id BIGINT;
+CREATE INDEX IF NOT EXISTS llm_usage_cle_idx ON llm_usage (key_id, timestamp);
 """
 
 _appels = defaultdict(deque)
@@ -296,10 +306,14 @@ def identite_par_cle(autorisation):
         return None
     with pool().connection() as cx:
         ligne = cx.execute(
-            "SELECT user_id, app_id FROM llm_api_keys "
+            "SELECT user_id, app_id, id FROM llm_api_keys "
             "WHERE key_hash=%s AND revoked_at IS NULL",
             (empreinte(autorisation[7:].strip()),)).fetchone()
-    return {"user_id": ligne[0], "app_id": ligne[1]} if ligne else None
+    if not ligne:
+        return None
+    # key_id voyage avec l'identite jusqu'a l'ecriture de la consommation :
+    # c'est le seul endroit ou l'on sait encore QUELLE cle a ete presentee.
+    return {"user_id": ligne[0], "app_id": ligne[1], "key_id": ligne[2]}
 
 
 def identite(autorisation, assertion=None, utilisateur_transmis=None):
@@ -361,11 +375,13 @@ def noter_consommation(qui, demande, reel, jetons, latence):
     try:
         with pool().connection() as cx:
             cx.execute(
-                "INSERT INTO llm_usage (user_id, app_id, requested_model, actual_model,"
-                " input_tokens, output_tokens, total_tokens, latency_ms, provider, fallback)"
-                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                (qui["user_id"], qui["app_id"], demande, reel, entree, sortie,
-                 entree + sortie, latence, fournisseur, reel != demande))
+                "INSERT INTO llm_usage (user_id, app_id, key_id, requested_model,"
+                " actual_model, input_tokens, output_tokens, total_tokens,"
+                " latency_ms, provider, fallback)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (qui["user_id"], qui["app_id"], qui.get("key_id"), demande, reel,
+                 entree, sortie, entree + sortie, latence, fournisseur,
+                 reel != demande))
     except Exception as e:                                        # noqa: BLE001
         # La comptabilite ne doit jamais faire perdre une reponse deja
         # obtenue : on le dit dans le journal, et l'utilisateur garde son
