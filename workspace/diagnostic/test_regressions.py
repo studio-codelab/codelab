@@ -11023,7 +11023,9 @@ def test_la_page_des_cles_est_reservee_a_l_administrateur(tmp_path, monkeypatch)
     assert client.delete("/api/cles/llm/1").status_code == 403
     assert client.put("/api/cles/fournisseur",
                       json={"id": "openai", "valeur": "x"}).status_code == 403
-    assert client.post("/api/cles/liaison").status_code == 403
+    # La regeneration manuelle de la liaison n'existe plus : la section est
+    # partie de la page, et le secret se pose tout seul (voir plus bas).
+    assert client.post("/api/cles/liaison").status_code == 404
 
 
 # ------------------------ ce qui s'ecrit sur le disque ------------------
@@ -12175,16 +12177,27 @@ def test_la_cle_montree_une_fois_le_dit_sans_detour():
 
 
 def test_la_console_est_reservee_a_l_administrateur():
-    """Les quatre routes, y compris les deux nouvelles."""
+    """TOUTES les routes de la console, sans exception a tenir a jour.
+
+    La liste etait ecrite a la main : une route ajoutee sans son decorateur
+    n'y figurait pas, donc ce test ne la voyait pas. Il les cherche
+    desormais dans le fichier -- une route de la console qui naitrait sans
+    @require_admin echoue ici sans que personne ait a y penser.
+    """
     source = (_racine_app_manager() / "app.py").read_text(encoding="utf-8")
-    for route in ('@flask_app.get("/api/cles")',
-                  '@flask_app.post("/api/cles/llm")',
-                  '@flask_app.delete("/api/cles/llm/<int:ident>")',
-                  '@flask_app.put("/api/cles/fournisseur")',
-                  '@flask_app.post("/api/cles/liaison")'):
-        debut = source.index(route)
-        assert "@require_admin" in source[debut:debut + 120], (
-            f"{route} n'est pas reservee a l'administrateur")
+    routes = re.findall(r'@flask_app\.(?:get|post|put|delete)\("(/api/cles[^"]*)"\)',
+                        source)
+    assert len(routes) >= 4, f"console introuvable : {routes}"
+    for chemin in routes:
+        debut = source.index(f'"{chemin}")')
+        # JUSQU'AU « def », ET PAS SUR N OCTETS. Une fenetre de 120
+        # caracteres deborde sur la route SUIVANTE et y trouve son
+        # @require_admin : une route non protegee passait au travers, ce
+        # qu'un mutant a montre. Les decorateurs vivent entre la route et
+        # son def -- c'est exactement la qu'il faut regarder.
+        bloc = source[debut:source.index("\ndef ", debut)]
+        assert "@require_admin" in bloc, (
+            f"{chemin} n'est pas reservee a l'administrateur")
 
 
 # ---------- 45. fournisseurs au choix, liaison a part, et rien a payer ----
@@ -12459,3 +12472,194 @@ def test_la_retention_ne_mange_pas_ce_que_le_panneau_sait_afficher():
         f"la retention ({retenus} j) ne couvre pas la fenetre que le panneau "
         f"sait afficher ({affichables} j) : la purge detruirait des lignes "
         "encore consultables")
+
+
+# ---------- 47. la console des cles, par projet et par utilisateur -------
+#
+# QUATRE RETOURS DE LUCAS, dont un qui etait une panne :
+#
+#   « relation "llm_usage" does not exist »   la console entiere restait
+#                                             vide, et le message accusait
+#                                             le profil IA ;
+#   un formulaire par provider                remplace par un bouton ;
+#   la liaison interne                        retiree de la page ;
+#   un projet et un utilisateur               attaches a chaque cle.
+
+
+def _page_cles():
+    return open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
+                encoding="utf-8").read()
+
+
+def test_le_panneau_cree_aussi_la_table_de_consommation():
+    """LA PANNE SIGNALEE. _llm_preparer_base creait llm_api_keys et pas
+    llm_usage : le tableau des cles la joint et les chiffres la lisent,
+    donc la console entiere tombait sur « relation "llm_usage" does not
+    exist » tant que le profil IA n'avait jamais demarre -- en accusant ce
+    profil, alors que la meme fonction savait deja creer l'autre table."""
+    source = (_racine_app_manager() / "app.py").read_text(encoding="utf-8")
+    bloc = source[source.index("def _llm_preparer_base("):]
+    bloc = bloc[:bloc.index("\ndef ")]
+    for table in ("llm_api_keys", "llm_usage"):
+        assert f"CREATE TABLE IF NOT EXISTS {table}" in bloc, (
+            f"{table} n'est pas creee par le panneau")
+    # RENDUE A codelab-llm, comme l'autre : une table creee par le panneau
+    # lui appartient, et la passerelle -- qui tourne sous son propre role --
+    # ne pourrait pas y ecrire sa consommation.
+    assert "ALTER TABLE llm_usage OWNER TO {}" in bloc, (
+        "llm_usage reste au panneau : codelab-llm ne pourra pas y ecrire")
+
+
+def test_les_deux_definitions_de_llm_usage_ne_divergent_pas():
+    """Deux fichiers ecrivent la meme table, et le premier a demarrer
+    l'emporte. Une colonne presente d'un seul cote donnerait deux schemas
+    selon l'ordre de demarrage -- une panne qui ne se reproduit pas."""
+    passerelle = open(os.path.join(_racine_depot(), "llm", "app.py"),
+                      encoding="utf-8").read()
+    panneau = (_racine_app_manager() / "app.py").read_text(encoding="utf-8")
+
+    def colonnes(source):
+        bloc = source[source.index("CREATE TABLE IF NOT EXISTS llm_usage ("):]
+        bloc = bloc[bloc.index("(") + 1:bloc.index(")\"\"\"")
+                    if ')"""' in bloc[:4000] else bloc.index("\n)")]
+        # Un nom de colonne par declaration : le reste (types, defauts,
+        # retours a la ligne, commentaires) varie de forme sans changer la
+        # table, et le comparer ferait echouer ce test sur une indentation.
+        noms = []
+        for morceau in re.split(r",(?![^(]*\))", bloc):
+            morceau = "\n".join(l for l in morceau.split("\n")
+                                if not l.strip().startswith("--"))
+            mot = re.search(r"([a-z_]+)\s+(?:BIGSERIAL|TEXT|BIGINT|INTEGER|"
+                            r"NUMERIC|BOOLEAN|TIMESTAMPTZ)", morceau)
+            if mot:
+                noms.append(mot.group(1))
+        return set(noms)
+
+    a, b = colonnes(passerelle), colonnes(panneau)
+    assert a and b, "les colonnes ne se lisent pas"
+    assert a == b, (
+        "les deux definitions de llm_usage divergent : "
+        f"passerelle seule {sorted(a - b)}, panneau seul {sorted(b - a)}")
+
+
+def test_un_seul_formulaire_de_provider_et_il_est_replie():
+    """Demande de Lucas : « pas un formulaire par provider, mais un bouton
+    ajouter un provider, puis un selecteur suivi de la cle ». La version
+    precedente ouvrait un champ a secret SOUS CHAQUE provider pose."""
+    page = _page_cles()
+    peintre = page[page.index("function peindreFournisseurs(d){"):]
+    peintre = peintre[:peintre.index("\nfunction ")]
+    assert "<input" not in peintre, (
+        "la liste des providers contient encore un champ de saisie : "
+        "c'est le formulaire par provider qu'il fallait retirer")
+
+    # Le formulaire existe, une seule fois, et il est replie au depart.
+    assert page.count('id="four-form"') == 1, "il n'y a pas un formulaire et un seul"
+    bloc = page[page.index('<div id="four-form"'):]
+    bloc = bloc[:bloc.index(">") + 1]
+    assert "display:none" in bloc, "le formulaire n'est pas replie au depart"
+    assert 'onclick="fournisseurOuvrir()"' in page, (
+        "aucun bouton n'ouvre le formulaire")
+
+
+def test_le_champ_a_secret_est_vide_quand_le_formulaire_se_replie():
+    """Un secret colle puis abandonne ne doit pas rester dans un formulaire
+    cache : il y attendrait la prochaine ouverture de la page."""
+    page = _page_cles()
+    bloc = page[page.index("function fournisseurFermer(){"):]
+    bloc = bloc[:bloc.index("\nfunction ")]
+    sans_commentaires = re.sub(r"/\*.*?\*/", "", bloc, flags=re.S)
+    assert "$('four-valeur').value = ''" in sans_commentaires, (
+        "le champ a secret n'est pas vide avant d'etre cache")
+    assert (sans_commentaires.index("$('four-valeur').value = ''")
+            < sans_commentaires.index("display = 'none'")), (
+        "le champ est cache avant d'etre vide")
+
+
+def test_la_liaison_interne_ne_parait_plus_dans_la_page():
+    """Retiree a la demande. Elle montrait un secret interne que personne ne
+    delivre, a cote des cles de fournisseurs qui, elles, se saisissent."""
+    page = _page_cles()
+    assert "Entre la passerelle et le routeur" not in page
+    assert "peindreLiaison" not in page and "liaisonRegenerer" not in page, (
+        "du code de la section retiree traine encore dans la page")
+    source = (_racine_app_manager() / "app.py").read_text(encoding="utf-8")
+    assert '"/api/cles/liaison"' not in source, (
+        "la route de regeneration manuelle est orpheline")
+
+
+def test_le_mecanisme_de_la_liaison_reste_entier():
+    """LE POINT QUI COMPTE. Retirer la SECTION ne doit pas retirer le
+    SECRET : c'est lui qui garantit que codelab-llm et codelab-litellm
+    portent la meme valeur. Sans lui, le routeur refuse tout appel en
+    parlant d'authentification sans dire laquelle."""
+    source = (_racine_app_manager() / "app.py").read_text(encoding="utf-8")
+    corps = [l for l in source.split("\n") if not l.strip().startswith("#")]
+    assert any(l.strip() == "tenir_la_cle_de_liaison()" for l in corps), (
+        "la liaison n'est plus posee par la surveillance")
+    # Et elle reste refusee comme cle de fournisseur : la saisir a la main
+    # rouvrirait precisement le desaccord que le tirage automatique evite.
+    bloc = source[source.index('@flask_app.put("/api/cles/fournisseur")'):]
+    bloc = bloc[:bloc.index("\n@flask_app")]
+    assert "liaison interne" in bloc, (
+        "la liaison redevient saisissable par la route des fournisseurs")
+
+
+def test_une_cle_porte_un_projet_et_un_utilisateur(cles_admin):
+    """Demande de Lucas : « ajouter un projet aux cles que je cree, et un
+    utilisateur ». L'utilisateur etait toujours le compte qui cliquait, ce
+    qui rendait la colonne inutile -- toutes les cles portaient le meme."""
+    client, faux = cles_admin
+    r = client.post("/api/cles/llm", json={"nom": "Facturier",
+                                           "application": "facturier",
+                                           "utilisateur": "Marie"})
+    assert r.status_code == 200, r.get_json()
+    ecrit = [p for (o, p) in faux.ordres if "INSERT INTO llm_api_keys" in o]
+    assert ecrit, "aucune cle inscrite"
+    assert "facturier" in ecrit[0] and "Marie" in ecrit[0], (
+        f"le projet ou l'utilisateur n'est pas inscrit : {ecrit[0]}")
+
+
+def test_l_utilisateur_laisse_vide_retombe_sur_le_compte_courant(cles_admin):
+    """Le champ est facultatif : laisse vide, la cle revient a qui la cree.
+    Une colonne vide ne dirait rien a personne."""
+    client, faux = cles_admin
+    r = client.post("/api/cles/llm", json={"nom": "Sans qui",
+                                           "application": "essai"})
+    assert r.status_code == 200, r.get_json()
+    ecrit = [p for (o, p) in faux.ordres if "INSERT INTO llm_api_keys" in o]
+    assert ecrit, "aucune cle inscrite"
+    # (empreinte, nom, user_id, app_id) : c'est user_id qu'on regarde.
+    assert ecrit[0][2], (
+        f"l'utilisateur est vide au lieu de retomber sur le compte : {ecrit[0]}")
+
+
+def test_le_tableau_des_cles_montre_le_projet_et_l_utilisateur():
+    """Les deux colonnes sont la raison d'etre de la page : « controler
+    toutes les cles et leur usage, notamment pour les applications que
+    j'aurais developpees »."""
+    page = _page_cles()
+    bloc = page[page.index("function peindreLesCles(d){"):]
+    bloc = bloc[:bloc.index("\n/* Les phrases")]
+    entetes = re.search(r"<thead><tr>'\s*\+\s*'([^;]+?)</tr>", bloc, re.S)
+    assert entetes, "l'entete du tableau ne se lit pas"
+    for colonne in ("<th>Projet</th>", "<th>Utilisateur</th>"):
+        assert colonne in entetes.group(1), (
+            f"{colonne} manque a l'entete : {entetes.group(1)}")
+    assert "k.utilisateur" in bloc, "la colonne utilisateur n'est pas remplie"
+
+
+def test_un_provider_deja_pose_garde_sa_nature_quand_on_le_remplace():
+    """TROUVE AU NAVIGATEUR, pas en relisant le code. Le catalogue envoye
+    par le serveur ne contient que ce qui n'est PAS encore pose ; un
+    remplacement vise donc une entree qui n'y est plus. Ollama -- une
+    ADRESSE, pas un secret -- se remplacait dans un champ « Clé » masque en
+    mot de passe : on ne relisait pas ce qu'on collait, dans le seul cas ou
+    la valeur n'est pas secrete."""
+    page = _page_cles()
+    bloc = page[page.index("function fournisseurChoisi(){"):]
+    bloc = bloc[:bloc.index("\nasync function ")]
+    bloc = re.sub(r"/\*.*?\*/", "", bloc, flags=re.S)
+    assert "clesEtat.catalogue" in bloc and "clesEtat.fournisseurs" in bloc, (
+        "le provider n'est cherche que dans le catalogue : un remplacement "
+        "perd sa nature (adresse prise pour un secret)")
