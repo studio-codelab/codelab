@@ -655,9 +655,23 @@ services:
     # required: false -- au tout premier demarrage, codelab-postgres n'a pas
     # encore ecrit le fichier. Sans cette ligne, la stack entiere refuserait
     # de partir.
+    # FORME COURTE, ET C'EST UNE CONTRAINTE EXTERIEURE. La forme longue
+    # (« path: » / « required: false ») demande Compose 2.24 ; le validateur
+    # de CasaOS, lui, la refuse en bloc -- « Echec de l'enregistrement de
+    # l'application personnalisee », sans nommer la ligne. Le fichier n'etait
+    # alors jamais enregistre, donc codelab-llm et codelab-litellm restaient
+    # absents de l'installation, donc Codex et OpenClaw repondaient
+    # « error sending request » : une seule ligne de syntaxe, trois pannes.
+    #
+    # Ce que « required: false » protegeait : un fichier absent fait echouer
+    # « up » avant tout demarrage, Compose resolvant les env_file au
+    # chargement du projet. Ici il est ecrit par DEUX services sans profil,
+    # donc bien avant que celui-ci puisse etre demande : codelab-postgres a
+    # son demarrage, et le panneau a chaque tour de surveillance. Il ne
+    # manque que si la stack n'a jamais demarre une seule fois -- et « up »
+    # nomme alors le fichier exact.
     env_file:
-      - path: /DATA/AppData/codelab/config/llm/fournisseurs.env
-        required: false
+      - /DATA/AppData/codelab/config/llm/fournisseurs.env
 
     volumes:
       - ./litellm/config.yaml:/etc/litellm/config.yaml:ro

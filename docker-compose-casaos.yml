@@ -351,8 +351,7 @@ services:
       - "4000"
 
     env_file:
-      - path: /DATA/AppData/codelab/config/llm/fournisseurs.env
-        required: false
+      - /DATA/AppData/codelab/config/llm/fournisseurs.env
 
     volumes:
       - ./litellm/config.yaml:/etc/litellm/config.yaml:ro
