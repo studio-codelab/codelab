@@ -11296,18 +11296,23 @@ def test_le_routeur_ne_recoit_ses_cles_que_par_le_fichier_du_panneau():
         assert vus, (
             f"{os.path.basename(chemin)} : le routeur ne lit plus le fichier "
             f"que le panneau ecrit")
-        # required: false, et donc la forme LONGUE. Au tout premier demarrage
-        # le fichier n'existe pas encore -- codelab-postgres ne l'a pas ecrit.
-        # La forme courte ("- /chemin") vaut required: true, et Compose refuse
-        # alors de demarrer LA STACK ENTIERE, pas seulement ce service.
-        for f in vus:
-            assert isinstance(f, dict), (
-                f"{os.path.basename(chemin)} : env_file est ecrit en forme "
-                f"courte, donc obligatoire -- la premiere installation ne "
-                f"demarrerait pas")
-            assert f.get("required") is False, (
-                f"{os.path.basename(chemin)} : sans « required: false », "
-                f"la premiere installation ne demarre pas")
+        # CE TEST EXIGEAIT LA FORME LONGUE, et sa raison etait fausse.
+        #
+        # Il affirmait qu'une forme courte empecherait « la premiere
+        # installation » de demarrer. Mesure faite : Compose ne resout les
+        # env_file que des services d'un profil ACTIF. Le « up » d'une
+        # premiere installation n'active pas « llm », donc il ne lit meme pas
+        # cette ligne -- il demarre, et codelab-postgres ecrit alors le
+        # fichier. Seul « --profile llm up -d » sur une stack qui n'a JAMAIS
+        # tourne echoue, en nommant le fichier manquant.
+        #
+        # Et le cout de la forme longue, lui, etait bien reel : CasaOS la
+        # refuse, donc n'enregistrait plus le compose DU TOUT, donc les deux
+        # services IA n'atteignaient jamais l'installation. Un garde-fou qui
+        # empeche le fichier d'arriver ne protege rien.
+        #
+        # La forme est desormais tenue par la section 48, qui porte aussi la
+        # garantie qui remplace « required: false ».
 
 
 def test_le_panneau_nomme_les_variables_que_les_services_lisent():
@@ -12663,3 +12668,65 @@ def test_un_provider_deja_pose_garde_sa_nature_quand_on_le_remplace():
     assert "clesEtat.catalogue" in bloc and "clesEtat.fournisseurs" in bloc, (
         "le provider n'est cherche que dans le catalogue : un remplacement "
         "perd sa nature (adresse prise pour un secret)")
+
+
+# ---------- 48. le compose doit passer le validateur de CasaOS -----------
+#
+# « Echec de l'enregistrement de l'application personnalisee ». CasaOS
+# refusait le fichier ENTIER, sans nommer la ligne. Consequence en chaine :
+# le compose deploye restait fige a la derniere version acceptee -- celle
+# d'AVANT le profil IA -- donc codelab-llm et codelab-litellm etaient absents
+# de l'installation, donc « docker compose --profile llm up -d » demarrait
+# six conteneurs sans un mot sur les deux manquants, donc Codex et OpenClaw
+# repondaient « error sending request ». Une ligne de syntaxe, trois pannes.
+
+
+def test_aucun_env_file_en_forme_longue_dans_les_composes():
+    """La forme longue (« path: » / « required: false ») demande Compose
+    2.24. Le validateur de CasaOS la refuse, et c'est une contrainte qu'on
+    ne choisit pas : c'est lui qui deploie."""
+    for chemin in _composes():
+        lignes = open(chemin, encoding="utf-8").read().split("\n")
+        for i, ligne in enumerate(lignes):
+            if ligne.strip() != "env_file:":
+                continue
+            marge = len(ligne) - len(ligne.lstrip())
+            # Les entrees de la liste, jusqu'a la fin du bloc.
+            for entree in lignes[i + 1:]:
+                nue = entree.strip()
+                if not nue or nue.startswith("#"):
+                    continue
+                if len(entree) - len(entree.lstrip()) <= marge:
+                    break
+                assert nue.startswith("- /") or nue.startswith("- ."), (
+                    f"{os.path.basename(chemin)} ligne {i + 1} : env_file en "
+                    f"forme longue ({nue!r}). CasaOS refuse alors "
+                    "d'enregistrer le fichier ENTIER, sans nommer la ligne.")
+
+
+def test_le_fichier_des_fournisseurs_est_ecrit_par_des_services_sans_profil():
+    """CE QUI REMPLACE « required: false ». Compose resout les env_file au
+    CHARGEMENT du projet, avant tout demarrage : un fichier absent fait
+    echouer « up » d'emblee, et aucun depends_on n'y change quoi que ce
+    soit -- mesure faite. La forme courte n'est donc sure que si le fichier
+    est ecrit par des services qui, eux, tournent toujours."""
+    postgres = open(os.path.join(_racine_depot(), "postgres", "entrypoint.sh"),
+                    encoding="utf-8").read()
+    assert 'cat > "$FOURNISSEURS_ENV_FILE' in postgres, (
+        "codelab-postgres n'ecrit plus fournisseurs.env")
+
+    # Et le panneau, a chaque tour de surveillance, par la cle de liaison.
+    panneau = (_racine_app_manager() / "app.py").read_text(encoding="utf-8")
+    corps = [l for l in panneau.split("\n") if not l.strip().startswith("#")]
+    assert any(l.strip() == "tenir_la_cle_de_liaison()" for l in corps), (
+        "le panneau n'ecrit plus dans fournisseurs.env")
+
+    # LES DEUX SONT SANS PROFIL. C'est toute la garantie : un service
+    # derriere le profil llm ne pourrait pas creer le fichier que ce meme
+    # profil exige pour demarrer.
+    for chemin in _composes():
+        services = _services_du_compose(chemin)
+        for nom in ("codelab-postgres", "codelab-app-manager"):
+            assert "profiles" not in services[nom], (
+                f"{os.path.basename(chemin)} : {nom} est passe derriere un "
+                "profil -- il ne peut plus garantir fournisseurs.env")
