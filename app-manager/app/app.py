@@ -6809,13 +6809,38 @@ def _llm_preparer_base():
                 app_id TEXT NOT NULL, revoked_at TIMESTAMPTZ,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now()
             )""")
+        # LA CONSOMMATION AUSSI. Elle ne l'etait pas, et la page tombait sur
+        # « relation "llm_usage" does not exist » tant que le profil IA
+        # n'avait jamais demarre -- en accusant ce profil, alors que la
+        # meme fonction savait deja creer l'autre table. Le tableau des
+        # cles la joint (LEFT JOIN) et les chiffres la lisent : sans elle,
+        # la console entiere reste vide.
+        cx.execute("""
+            CREATE TABLE IF NOT EXISTS llm_usage (
+                id BIGSERIAL PRIMARY KEY,
+                timestamp TIMESTAMPTZ NOT NULL DEFAULT now(),
+                user_id TEXT NOT NULL, app_id TEXT NOT NULL,
+                key_id BIGINT,
+                requested_model TEXT NOT NULL, actual_model TEXT, provider TEXT,
+                input_tokens INTEGER NOT NULL DEFAULT 0,
+                output_tokens INTEGER NOT NULL DEFAULT 0,
+                total_tokens INTEGER NOT NULL DEFAULT 0,
+                cost NUMERIC(18, 8) NOT NULL DEFAULT 0,
+                latency_ms INTEGER NOT NULL,
+                cache_hit BOOLEAN NOT NULL DEFAULT FALSE,
+                fallback BOOLEAN NOT NULL DEFAULT FALSE
+            )""")
+        cx.execute("CREATE INDEX IF NOT EXISTS llm_usage_cle_idx"
+                   " ON llm_usage (key_id, timestamp)")
         # Le panneau se connecte en superutilisateur : une table creee ici
         # lui appartiendrait, et codelab-llm -- qui tourne sous son propre
         # role -- ne pourrait pas y ecrire. On lui en rend la propriete.
         if cx.execute("SELECT 1 FROM pg_roles WHERE rolname=%s",
                       (PG_ROLE_LLM,)).fetchone():
             for ordre in ("ALTER TABLE llm_api_keys OWNER TO {}",
-                          "ALTER SEQUENCE llm_api_keys_id_seq OWNER TO {}"):
+                          "ALTER SEQUENCE llm_api_keys_id_seq OWNER TO {}",
+                          "ALTER TABLE llm_usage OWNER TO {}",
+                          "ALTER SEQUENCE llm_usage_id_seq OWNER TO {}"):
                 try:
                     cx.execute(psycopg.sql.SQL(ordre).format(
                         psycopg.sql.Identifier(PG_ROLE_LLM)))
@@ -7153,7 +7178,6 @@ def api_cles():
                     # ramenerait la liste figee de cinq champs qu'on vient
                     # de retirer.
                     "fournisseurs": poses, "catalogue": catalogue,
-                    "liaison": etat_de_la_liaison(),
                     "base": joignable, "empechement": empechement,
                     "cles": cles, "consommation": conso,
                     "app_poste": APP_POSTE})
@@ -7184,8 +7208,18 @@ def api_cles_llm_creer():
     demande = request.get_json(force=True, silent=True) or {}
     poste = bool(demande.get("poste"))
     nom = titre_propre(demande.get("nom")) or (NOM_CLE_POSTE if poste else "sans nom")
+    # « application » cote API et « app_id » en base : c'est la colonne que
+    # la passerelle remplit elle aussi, et la renommer pour l'appeler
+    # « projet » couterait une migration a laquelle rien ne repondrait.
+    # L'interface, elle, dit « projet » -- c'est le mot de qui s'en sert.
     application = valid_name(demande.get("application")) or (
-        APP_POSTE if poste else "application")
+        APP_POSTE if poste else "sans-projet")
+    # A QUI ELLE EST ATTRIBUEE. Jusqu'ici c'etait toujours le compte qui
+    # cliquait, ce qui rendait la colonne inutile : toutes les cles
+    # portaient le meme nom. Elle se saisit maintenant, et retombe sur le
+    # compte courant quand elle est laissee vide.
+    utilisateur = titre_propre(demande.get("utilisateur")) or (
+        utilisateur_courant() or NOM_ADMIN)
     try:
         _llm_preparer_base()
     except Exception as e:                                        # noqa: BLE001
@@ -7194,8 +7228,7 @@ def api_cles_llm_creer():
 
     ancienne = cle_codex_posee() if poste else ""
     try:
-        brut, ident = creer_cle_llm(nom, utilisateur_courant() or NOM_ADMIN,
-                                    application)
+        brut, ident = creer_cle_llm(nom, utilisateur, application)
         if ancienne:
             with _pg_connexion(PG_BASE_LLM) as cx:
                 cx.execute("UPDATE llm_api_keys SET revoked_at=now()"
@@ -7361,11 +7394,17 @@ def api_cles_fournisseur():
 # -hex 32 » pour recopier le resultat dans deux fichiers. On le tire ici.
 
 def etat_de_la_liaison():
-    """Ce que la page sait dire de la liaison, sans la montrer.
+    """Si les deux cotes portent la meme valeur. Lu par la surveillance.
 
     ACCORDEE veut dire : la meme valeur des deux cotes. Deux valeurs
     differentes sont la panne la plus muette de toute la stack -- le routeur
     refuse, et le message parle d'authentification sans dire laquelle.
+
+    LA PAGE NE L'AFFICHE PLUS. Elle montrait un secret interne que personne
+    ne delivre, a cote des cles de fournisseurs qui, elles, se saisissent :
+    deux choses sans rapport dans la meme colonne. Le mecanisme, lui, reste
+    entier -- c'est lui qui garantit que les deux conteneurs s'accordent, et
+    le retirer ouvrirait la panne que ce code existe pour eviter.
     """
     valeurs = [lire_env_fichier(FICHIERS_SECRETS[d["quel"]]).get(d["nom"], "")
                for d in LIAISON]
@@ -7397,21 +7436,6 @@ def tenir_la_cle_de_liaison():
     print("[app-manager] cle de liaison codelab-llm <-> codelab-litellm "
           "posee des deux cotes.", flush=True)
     return True
-
-
-@flask_app.post("/api/cles/liaison")
-@require_admin
-def api_cles_liaison():
-    """Regenere la liaison. Les deux cotes en meme temps, toujours."""
-    valeur = secrets.token_hex(32)
-    try:
-        for d in LIAISON:
-            ecrire_env_secrets(d["quel"], {d["nom"]: valeur})
-    except OSError as e:
-        return jsonify({"error": f"Fichier non écrit : {e}"}), 500
-    journaliser("secret", qui=utilisateur_courant() or NOM_ADMIN,
-                action="liaison regeneree", ip=_adresse_client())
-    return jsonify({"ok": True, "liaison": etat_de_la_liaison()})
 
 
 # ------------------- assistant de liaison avec un VPS -------------------

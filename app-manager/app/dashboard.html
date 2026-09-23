@@ -2035,11 +2035,11 @@ table.tbl-journal{min-width:560px}
         service de LLM. Personne ne peut la relire ensuite, pas même le panneau. Une clé révoquée
         est refusée dès l'appel suivant.</div>
 
-      <div class="hint" style="margin-top:8px">Le nom et l'application sont une <b>étiquette
-        comptable</b> : ils disent qui a consommé quoi, et permettent de couper une clé qui
-        dérape. Ils ne <b>restreignent pas</b> ce que la clé peut demander — ce serait un contrôle
-        à faire dans la passerelle, et l'annoncer ici sans l'avoir fait serait pire que de ne rien
-        promettre.</div>
+      <div class="hint" style="margin-top:8px">Le nom, le <b>projet</b> et l'<b>utilisateur</b>
+        sont une <b>étiquette comptable</b> : ils disent qui a consommé quoi, et permettent de
+        couper une clé qui dérape. Ils ne <b>restreignent pas</b> ce que la clé peut demander —
+        ce serait un contrôle à faire dans la passerelle, et l'annoncer ici sans l'avoir fait
+        serait pire que de ne rien promettre.</div>
 
       <div id="cles-liste" style="margin-top:14px"></div>
       <div class="err" id="cles-err" style="display:none"></div>
@@ -2047,11 +2047,18 @@ table.tbl-journal{min-width:560px}
       <div class="mb-titre" style="margin-top:18px">Créer une clé</div>
       <div class="grid2">
         <div class="field"><label>Nom</label>
-          <input id="cle-nom" placeholder="facturier, poste de Marie…" autocomplete="off"></div>
-        <div class="field"><label>Application</label>
+          <input id="cle-nom" placeholder="facturier — production" autocomplete="off">
+          <div class="hint">Ce qui la distingue des autres dans le tableau.</div></div>
+        <div class="field"><label>Projet</label>
           <input id="cle-app" placeholder="facturier" autocomplete="off">
-          <div class="hint">Minuscules et tirets. Sert à regrouper la consommation.</div></div>
+          <div class="hint">Minuscules et tirets. C'est par là que se regroupe la
+            consommation : une clé par environnement du même projet reste lisible
+            comme un seul poste de dépense.</div></div>
       </div>
+      <div class="field"><label>Utilisateur</label>
+        <input id="cle-qui" placeholder="Laissé vide : toi" autocomplete="off">
+        <div class="hint">À qui cette clé est attribuée. Sert à savoir qui appeler quand
+          une clé dérape — <b>pas à restreindre ce qu'elle peut demander</b>.</div></div>
       <div class="actions">
         <button class="btn btn-primary" id="cle-creer" onclick="cleCreer(false)">Créer la clé</button>
       </div>
@@ -2108,51 +2115,37 @@ table.tbl-journal{min-width:560px}
 
       <div id="fournisseurs-liste" style="margin-top:14px"></div>
 
-      <div class="mb-titre" style="margin-top:18px">Ajouter un fournisseur</div>
-      <div class="grid2">
-        <div class="field"><label>Fournisseur</label>
-          <select id="four-choix" onchange="fournisseurChoisi()"></select></div>
-        <div class="field" id="four-champ-var" style="display:none">
-          <label>Nom de la variable</label>
-          <input id="four-var" placeholder="MISTRAL_API_KEY" autocomplete="off"></div>
+      <div class="actions" id="four-ouvrir" style="margin-top:16px">
+        <button class="btn btn-primary" onclick="fournisseurOuvrir()">Ajouter un provider</button>
       </div>
-      <div class="field"><label id="four-label">Clé</label>
-        <input id="four-valeur" type="password" autocomplete="off" spellcheck="false"
-               placeholder="Coller la valeur"></div>
-      <div class="hint" id="four-aide"></div>
-      <div class="actions">
-        <button class="btn btn-primary" onclick="fournisseurAjouter()">Ajouter</button>
+
+      <!-- REPLIE PAR DEFAUT, et un seul pour toute la page. La version
+           precedente ouvrait un champ de saisie SOUS CHAQUE fournisseur
+           deja pose, plus un formulaire d'ajout : autant de boites a
+           secrets ouvertes en permanence que de comptes, pour un geste
+           qu'on fait deux fois par an. -->
+      <div id="four-form" style="display:none;margin-top:16px">
+        <div class="mb-titre" id="four-titre">Ajouter un provider</div>
+        <div class="grid2">
+          <div class="field"><label>Provider</label>
+            <select id="four-choix" onchange="fournisseurChoisi()"></select></div>
+          <div class="field" id="four-champ-var" style="display:none">
+            <label>Nom de la variable</label>
+            <input id="four-var" placeholder="MISTRAL_API_KEY" autocomplete="off"></div>
+        </div>
+        <div class="field"><label id="four-label">Clé</label>
+          <input id="four-valeur" type="password" autocomplete="off" spellcheck="false"
+                 placeholder="Coller la valeur"></div>
+        <div class="hint" id="four-aide"></div>
+        <div class="actions">
+          <button class="btn btn-primary" onclick="fournisseurAjouter()">Enregistrer</button>
+          <button class="btn btn-default" onclick="fournisseurFermer()">Annuler</button>
+        </div>
       </div>
       <div class="err" id="fournisseurs-err" style="display:none"></div>
     </div>
   </div>
 
-  <div class="zone">
-    <div class="zone-title">Liaison interne</div>
-    <div class="card settings-card">
-      <div class="card-top"><div class="card-name">
-        <b>Entre la passerelle et le routeur</b>
-        <div class="path">Tirée au hasard, posée des deux côtés. Rien à saisir.</div>
-      </div>
-      <span class="pill" id="liaison-etat"><i></i>&nbsp;</span></div>
-
-      <div class="hint">Ce n'est <b>pas une clé de fournisseur</b> : c'est un secret partagé
-        entre deux de tes conteneurs, <code>codelab-llm</code> et <code>codelab-litellm</code>.
-        Il ne veut rien dire ailleurs, personne ne le délivre, et il n'a aucune valeur pour qui
-        n'a pas déjà accès au réseau interne. Le panneau le tire au hasard et l'écrit des deux
-        côtés — c'est la seule façon d'être sûr qu'ils portent la même.</div>
-
-      <div id="liaison-detail" style="margin-top:14px"></div>
-
-      <div class="actions">
-        <button class="btn btn-default" onclick="liaisonRegenerer()">Régénérer</button>
-      </div>
-      <div class="err" id="liaison-err" style="display:none"></div>
-      <div class="hint" style="margin-top:10px">La régénérer coupe le routeur jusqu'au prochain
-        <code>docker compose --profile llm up -d</code> : les deux conteneurs lisent leur valeur
-        au démarrage.</div>
-    </div>
-  </div>
 
   </div>
 
@@ -5694,7 +5687,6 @@ async function chargerCles(){
   peindreLesCles(d);
   peindreCleLlm(d.llm);
   peindreFournisseurs(d);
-  peindreLiaison(d.liaison || {definie:false, accordee:false, variables:[]});
 }
 
 function peindreConsommation(d){
@@ -5756,7 +5748,7 @@ function peindreLesCles(d){
     return;
   }
   zone.innerHTML = '<table class="tbl-cles"><thead><tr>'
-    + '<th>Nom</th><th>Application</th><th>État</th>'
+    + '<th>Nom</th><th>Projet</th><th>Utilisateur</th><th>État</th>'
     + '<th class="n">Requêtes</th><th class="n">Jetons</th>'
     + '<th>Dernier appel</th><th></th></tr></thead><tbody>'
     + cles.map(k => {
@@ -5767,6 +5759,7 @@ function peindreLesCles(d){
       return '<tr' + (k.active ? '' : ' class="revoquee"') + '>'
         + '<td>' + esc(k.nom || '(sans nom)') + '</td>'
         + '<td><code>' + esc(k.application) + '</code></td>'
+        + '<td>' + esc(k.utilisateur || '—') + '</td>'
         + '<td>' + etat + '</td>'
         + '<td class="n">' + nombre(k.requetes) + '</td>'
         + '<td class="n">' + nombre(k.jetons) + '</td>'
@@ -5844,6 +5837,7 @@ async function cleCreer(poste){
   const corps = poste ? {poste:true} : {
     nom: ($('cle-nom').value || '').trim(),
     application: ($('cle-app').value || '').trim(),
+    utilisateur: ($('cle-qui').value || '').trim(),
   };
   if(!poste && !corps.nom){ erreurCles(cible, 'Donne un nom à la clé.'); return; }
   try{
@@ -5857,7 +5851,7 @@ async function cleCreer(poste){
       m.innerHTML = 'Clé écrite dans ' + esc((d.fichiers || []).join(' et '))
         + '. <b>Ouvre un nouveau terminal</b> dans VS Code pour que Codex la voie.';
     }else{
-      $('cle-nom').value = ''; $('cle-app').value = '';
+      $('cle-nom').value = ''; $('cle-app').value = ''; $('cle-qui').value = '';
       montrerLaCleUneFois(d.valeur);
     }
     await chargerCles();
@@ -5915,6 +5909,9 @@ const EFFET_PHRASE = {
 function peindreFournisseurs(d){
   const poses = d.fournisseurs || [];
   const zone = $('fournisseurs-liste');
+  /* UNE LIGNE PAR PROVIDER, SANS CHAMP DE SAISIE. On vient ici pour voir ce
+     qui est branche, pas pour saisir : la saisie a son formulaire, replie,
+     un seul pour toute la page. « Remplacer » l'ouvre sur la bonne ligne. */
   zone.innerHTML = poses.length ? poses.map(f => {
     const pose = f.definie
       ? '<span class="pill on"><i></i>Renseignée</span>'
@@ -5930,38 +5927,68 @@ function peindreFournisseurs(d){
     return '<div class="card settings-card">'
       + '<div class="card-top"><div class="card-name"><b>' + esc(f.titre) + '</b>'
       + '<div class="path">' + esc(f.aide) + '</div></div>' + pose + '</div>'
-      + (f.definie ? '<div class="hint"><code>' + esc(f.apercu) + '</code></div>' : '')
+      + (f.definie ? '<div class="hint"><code>' + esc(f.apercu) + '</code> — écrite dans <code>'
+          + esc(f.variable) + '</code>. ' + EFFET_PHRASE[f.effet] + '</div>'
+        : '<div class="hint">Écrite dans <code>' + esc(f.variable) + '</code>. '
+          + EFFET_PHRASE[f.effet] + '</div>')
       + modeles
-      + '<div class="field" style="margin-top:12px">'
-      + '<input id="four-' + esc(f.variable) + '" type="'
-      + (f.secret ? 'password' : 'text') + '" autocomplete="off" spellcheck="false"'
-      + ' placeholder="' + (f.definie ? 'Remplacer la valeur' : 'Coller la valeur') + '"></div>'
-      + '<div class="hint">' + EFFET_PHRASE[f.effet] + ' Écrite dans <code>'
-      + esc(f.variable) + '</code>.</div>'
       + '<div class="actions">'
-      + '<button class="btn btn-primary" data-agir="four-poser" data-cible="'
-      + esc(f.variable) + '">Enregistrer</button>'
+      + '<button class="btn btn-default" data-agir="four-poser" data-cible="'
+      + esc(f.variable) + '">' + (f.definie ? 'Remplacer' : 'Renseigner') + '</button>'
       + (f.definie ? '<button class="btn btn-danger-quiet" data-agir="four-effacer"'
           + ' data-cible="' + esc(f.variable) + '">Effacer</button>' : '')
       + '</div></div>';
-  }).join('') : '<div class="hint">Aucun fournisseur renseigné. Sans clé, les noms logiques '
+  }).join('') : '<div class="hint">Aucun provider renseigné. Sans clé, les noms logiques '
       + 'qui en dépendent répondent en erreur — les autres continuent.</div>';
+}
 
-  /* La liste de choix ne contient que ce qui N'EST PAS deja pose : proposer
-     d'ajouter ce qui est deja la ferait deux lignes pour une valeur. */
+/* Le formulaire, un seul, replie. Sans argument c'est un ajout ; avec la
+   variable d'un provider deja pose, c'est un remplacement.
+
+   Le catalogue que le serveur envoie ne contient QUE ce qui n'est pas deja
+   pose -- proposer d'ajouter ce qui est la ferait deux lignes pour une
+   valeur. Un remplacement vise donc une entree qui n'y est pas, et on l'y
+   ajoute pour ce seul geste. */
+function fournisseurOuvrir(variable){
   const choix = $('four-choix');
-  const catalogue = d.catalogue || [];
-  choix.innerHTML = catalogue.map(c => '<option value="' + esc(c.id) + '">'
-      + esc(c.titre) + '</option>').join('')
-    + '<option value="__autre__">Un autre fournisseur…</option>';
+  const catalogue = (clesEtat && clesEtat.catalogue) || [];
+  const deja = variable
+    ? ((clesEtat && clesEtat.fournisseurs) || []).find(x => x.variable === variable)
+    : null;
+  let options = catalogue.map(c => '<option value="' + esc(c.id) + '">'
+      + esc(c.titre) + '</option>').join('');
+  if(deja) options = '<option value="' + esc(deja.connu ? deja.id : '__autre__') + '">'
+      + esc(deja.titre) + '</option>' + options;
+  choix.innerHTML = options
+    + '<option value="__autre__">Un autre provider…</option>';
+  $('four-titre').textContent = deja ? 'Remplacer ' + deja.titre : 'Ajouter un provider';
+  $('four-var').value = (deja && !deja.connu) ? deja.variable : '';
+  $('four-valeur').value = '';
+  $('four-form').style.display = '';
+  $('four-ouvrir').style.display = 'none';
+  $('fournisseurs-err').style.display = 'none';
   fournisseurChoisi();
+  $('four-valeur').focus();
+}
+
+function fournisseurFermer(){
+  /* Le champ est vide AVANT d'etre cache : un secret colle puis abandonne
+     ne doit pas rester dans le formulaire replie. */
+  $('four-valeur').value = ''; $('four-var').value = '';
+  $('four-form').style.display = 'none';
+  $('four-ouvrir').style.display = '';
 }
 
 function fournisseurChoisi(){
   const id = $('four-choix').value;
   const autre = id === '__autre__';
   $('four-champ-var').style.display = autre ? '' : 'none';
-  const c = ((clesEtat && clesEtat.catalogue) || []).find(x => x.id === id);
+  /* LE CATALOGUE NE SUFFIT PAS. Il ne contient que ce qui n'est PAS encore
+     pose ; en remplacement on vise justement une entree qui n'y est plus.
+     Sans ce second coup d'oeil, Ollama -- une adresse, pas un secret --
+     se remplacait dans un champ « Clé » masque en mot de passe. */
+  const c = ((clesEtat && clesEtat.catalogue) || []).find(x => x.id === id)
+         || ((clesEtat && clesEtat.fournisseurs) || []).find(x => x.id === id);
   $('four-label').textContent = (c && !c.secret) ? 'Adresse' : 'Clé';
   $('four-valeur').type = (c && !c.secret) ? 'text' : 'password';
   $('four-aide').innerHTML = autre
@@ -5977,20 +6004,12 @@ async function fournisseurAjouter(){
   if(id === '__autre__') corps.variable = ($('four-var').value || '').trim();
   else corps.id = id;
   if(!corps.valeur){ erreurCles('fournisseurs-err', 'Colle une valeur.'); return; }
-  if(await fournisseurEcrire(corps)){
-    $('four-valeur').value = ''; $('four-var').value = '';
-  }
+  if(await fournisseurEcrire(corps)) fournisseurFermer();
 }
 
-async function fourPoser(variable){
-  const champ = $('four-' + variable);
-  if(!champ || !champ.value){
-    erreurCles('fournisseurs-err', 'Colle une valeur.'); return;
-  }
-  const f = ((clesEtat && clesEtat.fournisseurs) || []).find(x => x.variable === variable);
-  await fournisseurEcrire(f && f.connu ? {id: f.id, valeur: champ.value}
-                                       : {variable: variable, valeur: champ.value});
-}
+/* « Remplacer » n'ecrit rien : il ouvre le formulaire sur ce provider. La
+   valeur se colle a un seul endroit, celui qui dit ce qu'il va en faire. */
+function fourPoser(variable){ fournisseurOuvrir(variable); }
 
 async function fourEffacer(variable){
   if(!await demander('Effacer la valeur',
@@ -6014,44 +6033,6 @@ async function fournisseurEcrire(corps){
     await chargerCles();
     return true;
   }catch(e){ erreurCles('fournisseurs-err', 'Le serveur n\'a pas répondu.'); return false; }
-}
-
-function peindreLiaison(l){
-  const pill = $('liaison-etat');
-  if(!l.definie){
-    pill.className = 'pill off'; pill.innerHTML = '<i></i>Absente';
-  }else if(!l.accordee){
-    pill.className = 'pill err'; pill.innerHTML = '<i></i>Désaccordée';
-  }else{
-    pill.className = 'pill on'; pill.innerHTML = '<i></i>Accordée';
-  }
-  const lignes = [];
-  if(l.definie) lignes.push(ligneCle('Valeur', '<code>' + esc(l.apercu) + '</code>'));
-  lignes.push(ligneCle('Écrite dans',
-    l.variables.map(v => '<code>' + esc(v) + '</code>').join(' et ')));
-  /* DEUX VALEURS DIFFERENTES est la panne la plus muette de la stack : le
-     routeur refuse, et son message parle d'authentification sans dire
-     laquelle. La page le nomme. */
-  if(l.definie && !l.accordee) lignes.push('<div class="hint">Les deux côtés ne portent '
-    + '<b>pas la même valeur</b>. Le routeur refusera tout appel, en parlant '
-    + 'd\'authentification sans dire laquelle. Régénère pour les remettre d\'accord.</div>');
-  if(!l.definie) lignes.push('<div class="hint">Le panneau la pose au prochain tour de '
-    + 'surveillance — quelques secondes.</div>');
-  $('liaison-detail').innerHTML = lignes.join('');
-}
-
-async function liaisonRegenerer(){
-  if(!await demander('Régénérer la liaison',
-      'Le routeur refusera tout appel jusqu\'au prochain démarrage des deux conteneurs.',
-      'Régénérer', true)) return;
-  $('liaison-err').style.display = 'none';
-  try{
-    const r = await fetch('/api/cles/liaison', {method:'POST'});
-    const d = await r.json();
-    if(!r.ok){ erreurCles('liaison-err', d.error); return; }
-    await chargerCles();
-    notifier('Liaison régénérée. Redémarre le profil llm pour qu\'elle prenne effet.');
-  }catch(e){ erreurCles('liaison-err', 'Le serveur n\'a pas répondu.'); }
 }
 
 function erreurCles(cible, texte){
