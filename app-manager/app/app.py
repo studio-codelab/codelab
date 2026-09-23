@@ -6807,8 +6807,13 @@ def _llm_preparer_base():
                 id BIGSERIAL PRIMARY KEY, key_hash TEXT NOT NULL UNIQUE,
                 key_name TEXT NOT NULL, user_id TEXT NOT NULL,
                 app_id TEXT NOT NULL, revoked_at TIMESTAMPTZ,
+                description TEXT,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now()
             )""")
+        # Les installations d'avant la colonne : CREATE TABLE IF NOT EXISTS
+        # ne touche pas une table qui existe deja.
+        cx.execute("ALTER TABLE llm_api_keys"
+                   " ADD COLUMN IF NOT EXISTS description TEXT")
         # LA CONSOMMATION AUSSI. Elle ne l'etait pas, et la page tombait sur
         # « relation "llm_usage" does not exist » tant que le profil IA
         # n'avait jamais demarre -- en accusant ce profil, alors que la
@@ -7012,7 +7017,7 @@ def lister_cles_llm():
     with _pg_connexion(PG_BASE_LLM) as cx:
         lignes = cx.execute("""
             SELECT k.id, k.key_name, k.user_id, k.app_id, k.created_at,
-                   k.revoked_at,
+                   k.revoked_at, k.description,
                    COALESCE(COUNT(u.id), 0),
                    COALESCE(SUM(u.total_tokens), 0),
                    COALESCE(SUM(u.cost), 0),
@@ -7028,13 +7033,14 @@ def lister_cles_llm():
         empreintes = dict(cx.execute(
             "SELECT id, key_hash FROM llm_api_keys").fetchall())
     cles = []
-    for (ident, nom, qui, app, creee, revoquee, requetes,
+    for (ident, nom, qui, app, creee, revoquee, description, requetes,
          jetons, cout, derniere) in lignes:
         cles.append({
             "id": ident,
             "nom": nom or "",
             "utilisateur": qui or "",
             "application": app or "",
+            "description": description or "",
             "creee": creee.isoformat() if creee else "",
             "revoquee": revoquee.isoformat() if revoquee else "",
             "active": revoquee is None,
@@ -7080,7 +7086,7 @@ def consommation_llm(jours=30):
     }
 
 
-def creer_cle_llm(nom, utilisateur, application):
+def creer_cle_llm(nom, utilisateur, application, description=""):
     """Tire une cle, l'inscrit, et rend (valeur brute, identifiant).
 
     La valeur brute ne sert qu'a l'appelant, le temps de la poser dans un
@@ -7091,10 +7097,45 @@ def creer_cle_llm(nom, utilisateur, application):
     brut = "cl_" + secrets.token_urlsafe(32)
     with _pg_connexion(PG_BASE_LLM) as cx:
         ident = cx.execute(
-            "INSERT INTO llm_api_keys (key_hash, key_name, user_id, app_id)"
-            " VALUES (%s,%s,%s,%s) RETURNING id",
-            (empreinte_cle(brut), nom, utilisateur, application)).fetchone()[0]
+            "INSERT INTO llm_api_keys"
+            " (key_hash, key_name, user_id, app_id, description)"
+            " VALUES (%s,%s,%s,%s,%s) RETURNING id",
+            (empreinte_cle(brut), nom, utilisateur, application,
+             description or None)).fetchone()[0]
     return brut, ident
+
+
+def revoquer_les_cles_de(colonne, valeur):
+    """Supprime les cles attachees a un compte ou a un projet disparu.
+
+    SUPPRIMEES ET PAS REVOQUEES, et c'est une decision. Une cle revoquee
+    reste dans le tableau pour sa consommation passee -- utile tant que ce
+    qu'elle designe existe encore. Quand le compte ou le projet n'existe
+    plus, cette ligne ne designe plus rien : elle devient un nom mort dans
+    une liste, et recreer un projet du meme nom lui rendrait des cles qu'il
+    n'a jamais eues.
+
+    La consommation, elle, reste : llm_usage n'est pas touchee, et sa
+    retention (400 jours) continue de s'appliquer. La trace de ce qui a ete
+    consomme ne disparait donc pas avec la cle.
+    """
+    if colonne not in ("user_id", "app_id"):
+        raise ValueError(colonne)
+    if not valeur:
+        return 0
+    try:
+        with _pg_connexion(PG_BASE_LLM) as cx:
+            # Le nom de colonne vient de la liste fermee ci-dessus, jamais de
+            # l'appelant : la valeur, elle, reste un parametre lie.
+            r = cx.execute(
+                f"DELETE FROM llm_api_keys WHERE {colonne} = %s", (valeur,))
+            return r.rowcount or 0
+    except Exception as e:                                        # noqa: BLE001
+        # La base peut etre eteinte (profil IA arrete) : supprimer un compte
+        # ne doit pas echouer pour autant. Les cles orphelines seront
+        # rattrapees au prochain passage.
+        print(f"[app-manager] cles de {valeur} non supprimees : {e}", flush=True)
+        return 0
 
 
 def revoquer_cle_llm(ident):
@@ -7180,6 +7221,13 @@ def api_cles():
                     "fournisseurs": poses, "catalogue": catalogue,
                     "base": joignable, "empechement": empechement,
                     "cles": cles, "consommation": conso,
+                    # DE QUOI REMPLIR LES DEUX LISTES DE CHOIX. La page ne
+                    # devine pas les comptes ni les projets : ils viennent
+                    # d'ici, donc ce qu'elle propose est toujours ce qui
+                    # existe VRAIMENT -- condition pour que la suppression
+                    # en cascade ait un sens.
+                    "comptes": sorted(lire_utilisateurs()),
+                    "projets": sorted(load()),
                     "app_poste": APP_POSTE})
 
 
@@ -7213,13 +7261,32 @@ def api_cles_llm_creer():
     # « projet » couterait une migration a laquelle rien ne repondrait.
     # L'interface, elle, dit « projet » -- c'est le mot de qui s'en sert.
     application = valid_name(demande.get("application")) or (
-        APP_POSTE if poste else "sans-projet")
-    # A QUI ELLE EST ATTRIBUEE. Jusqu'ici c'etait toujours le compte qui
-    # cliquait, ce qui rendait la colonne inutile : toutes les cles
-    # portaient le meme nom. Elle se saisit maintenant, et retombe sur le
-    # compte courant quand elle est laissee vide.
-    utilisateur = titre_propre(demande.get("utilisateur")) or (
-        utilisateur_courant() or NOM_ADMIN)
+        APP_POSTE if poste else "")
+    # A QUI ELLE EST ATTRIBUEE. Un compte QUI EXISTE, ou aucun.
+    #
+    # Le champ etait libre : on pouvait y ecrire n'importe quoi, et la cle
+    # restait attachee a un nom que personne ne portait. Elle se choisit
+    # maintenant dans la liste des comptes, et « aucun » est un choix
+    # legitime -- une cle de service n'appartient a personne.
+    #
+    # VALIDE ICI, et pas seulement dans la page : c'est cette verification
+    # qui rend la suppression en cascade tenable. Une cle attachee a un
+    # compte inexistant ne serait jamais reprise par personne.
+    utilisateur = titre_propre(demande.get("utilisateur"))
+    if utilisateur and not poste and utilisateur not in lire_utilisateurs():
+        return jsonify({"error": f"« {utilisateur} » n'est pas un compte de "
+                                 "ce serveur. Choisis-en un dans la liste, "
+                                 "ou laisse le champ à « aucun »."}), 400
+
+    # ET LE PROJET, de meme : une application declaree, ou aucune.
+    if application and not poste and application not in load():
+        return jsonify({"error": f"« {application} » n'est pas un projet de "
+                                 "ce serveur. Choisis-en un dans la liste, "
+                                 "ou laisse le champ à « aucun »."}), 400
+
+    # Une phrase facultative : a quoi sert cette cle. Bornee, parce qu'elle
+    # s'affiche dans un tableau et qu'un roman y tiendrait mal.
+    description = (titre_propre(demande.get("description")) or "")[:200]
     try:
         _llm_preparer_base()
     except Exception as e:                                        # noqa: BLE001
@@ -7228,7 +7295,7 @@ def api_cles_llm_creer():
 
     ancienne = cle_codex_posee() if poste else ""
     try:
-        brut, ident = creer_cle_llm(nom, utilisateur, application)
+        brut, ident = creer_cle_llm(nom, utilisateur, application, description)
         if ancienne:
             with _pg_connexion(PG_BASE_LLM) as cx:
                 cx.execute("UPDATE llm_api_keys SET revoked_at=now()"
@@ -8085,6 +8152,15 @@ def api_utilisateur_supprimer(nom):
     except OSError as e:
         return jsonify({"error": f"Compte non supprimé : {e}"}), 500
 
+    # Les cles LLM du compte partent avec lui, pour la meme raison que les
+    # passkeys ci-dessous : recreer un compte du meme nom lui rendrait sinon
+    # les cles de l'ancien. La consommation deja enregistree, elle, reste.
+    partiees = revoquer_les_cles_de("user_id", nom)
+    if partiees:
+        journaliser("secret", qui=utilisateur_courant() or NOM_ADMIN,
+                    action=f"{partiees} cle(s) llm supprimee(s) avec le compte",
+                    cle=nom, ip=_adresse_client())
+
     # Les cles d'acces partent avec le compte. Les laisser serait pire qu'un
     # oubli de menage : recreer un compte du meme nom lui rendrait les cles
     # de l'ancien, et l'appareil de la personne partie rouvrirait la porte.
@@ -8539,6 +8615,14 @@ def api_delete(n):
     apps = load()
     apps.pop(n, None)
     save(apps)
+    # Les cles LLM du projet partent avec lui : sans cela elles resteraient
+    # dans le tableau sous un nom qui ne designe plus rien, et un projet
+    # recree du meme nom herirait de cles qu'il n'a jamais eues.
+    partiees = revoquer_les_cles_de("app_id", n)
+    if partiees:
+        journaliser("secret", qui=utilisateur_courant() or NOM_ADMIN,
+                    action=f"{partiees} cle(s) llm supprimee(s) avec le projet",
+                    cle=n, ip=_adresse_client())
     return jsonify({"ok": True})
 
 
@@ -8566,6 +8650,20 @@ def _renommer_references(ancien, nouveau):
             touche = True
     if touche:
         ecrire_utilisateurs(comptes)
+
+    # Les cles LLM attachees au projet. Sans cette ligne, un renommage les
+    # laisserait sur l'ancien nom : elles disparaitraient du tableau, et la
+    # suppression du projet ne les emporterait plus -- elles survivraient a
+    # ce qu'elles designent, ce que la cascade existe pour empecher.
+    try:
+        with _pg_connexion(PG_BASE_LLM) as cx:
+            cx.execute("UPDATE llm_api_keys SET app_id=%s WHERE app_id=%s",
+                       (nouveau, ancien))
+    except Exception as e:                                        # noqa: BLE001
+        # Base eteinte : le renommage de l'application n'a pas a echouer
+        # pour autant. On le dit, on continue.
+        print(f"[app-manager] cles llm non renommees ({ancien} -> "
+              f"{nouveau}) : {e}", flush=True)
 
     # Les applications que chacun a retirees de son hub.
     masquees = lire_masquees()

@@ -2045,20 +2045,24 @@ table.tbl-journal{min-width:560px}
       <div class="err" id="cles-err" style="display:none"></div>
 
       <div class="mb-titre" style="margin-top:18px">Créer une clé</div>
+      <div class="field"><label>Nom</label>
+        <input id="cle-nom" placeholder="facturier — production" autocomplete="off">
+        <div class="hint">Ce qui la distingue des autres dans le tableau.</div></div>
       <div class="grid2">
-        <div class="field"><label>Nom</label>
-          <input id="cle-nom" placeholder="facturier — production" autocomplete="off">
-          <div class="hint">Ce qui la distingue des autres dans le tableau.</div></div>
         <div class="field"><label>Projet</label>
-          <input id="cle-app" placeholder="facturier" autocomplete="off">
-          <div class="hint">Minuscules et tirets. C'est par là que se regroupe la
-            consommation : une clé par environnement du même projet reste lisible
-            comme un seul poste de dépense.</div></div>
+          <select id="cle-app"></select>
+          <div class="hint">Une application déclarée, ou aucune. C'est par là que se
+            regroupe la consommation. <b>Supprimer le projet supprime ses clés.</b></div></div>
+        <div class="field"><label>Utilisateur</label>
+          <select id="cle-qui"></select>
+          <div class="hint">Un compte de ce serveur, ou aucun — une clé de service
+            n'appartient à personne. <b>Supprimer le compte supprime ses clés.</b></div></div>
       </div>
-      <div class="field"><label>Utilisateur</label>
-        <input id="cle-qui" placeholder="Laissé vide : toi" autocomplete="off">
-        <div class="hint">À qui cette clé est attribuée. Sert à savoir qui appeler quand
-          une clé dérape — <b>pas à restreindre ce qu'elle peut demander</b>.</div></div>
+      <div class="field"><label>Description <span class="hint"
+          style="display:inline">— facultative</span></label>
+        <input id="cle-desc" placeholder="À quoi sert cette clé ?" autocomplete="off"
+               maxlength="200">
+        <div class="hint">Une phrase, pour retrouver de quoi il s'agit dans six mois.</div></div>
       <div class="actions">
         <button class="btn btn-primary" id="cle-creer" onclick="cleCreer(false)">Créer la clé</button>
       </div>
@@ -5685,6 +5689,7 @@ async function chargerCles(){
   clesEtat = d;
   peindreConsommation(d);
   peindreLesCles(d);
+  peindreChoixDeCle(d);
   peindreCleLlm(d.llm);
   peindreFournisseurs(d);
 }
@@ -5735,6 +5740,21 @@ const nombre = n => (n||0).toLocaleString('fr-FR');
    prix devant quelqu'un a qui le service est offert ne l'informe pas, cela
    le fait hesiter avant chaque appel. */
 
+/* LES DEUX LISTES VIENNENT DU SERVEUR. La page ne devine ni les comptes ni
+   les projets : proposer un nom que la route refusera ensuite serait un
+   aller-retour pour rien, et c'est cette liste fermee qui rend la
+   suppression en cascade tenable.
+
+   « Aucun » est un choix, pas un defaut : une cle de service n'appartient a
+   personne, et un projet n'est pas toujours pertinent. */
+function peindreChoixDeCle(d){
+  const aucun = '<option value="">— aucun —</option>';
+  $('cle-app').innerHTML = aucun + (d.projets || [])
+    .map(p => '<option value="' + esc(p) + '">' + esc(p) + '</option>').join('');
+  $('cle-qui').innerHTML = aucun + (d.comptes || [])
+    .map(c => '<option value="' + esc(c) + '">' + esc(c) + '</option>').join('');
+}
+
 function peindreLesCles(d){
   const zone = $('cles-liste');
   if(!d.base){
@@ -5757,8 +5777,11 @@ function peindreLesCles(d){
         : (k.posee ? '<span class="pill on"><i></i>Posée ici</span>'
                    : '<span class="pill pub"><i></i>Active</span>');
       return '<tr' + (k.active ? '' : ' class="revoquee"') + '>'
-        + '<td>' + esc(k.nom || '(sans nom)') + '</td>'
-        + '<td><code>' + esc(k.application) + '</code></td>'
+        + '<td>' + esc(k.nom || '(sans nom)')
+            + (k.description
+                ? '<div class="hint" style="margin:2px 0 0">' + esc(k.description) + '</div>'
+                : '') + '</td>'
+        + '<td>' + (k.application ? '<code>' + esc(k.application) + '</code>' : '—') + '</td>'
         + '<td>' + esc(k.utilisateur || '—') + '</td>'
         + '<td>' + etat + '</td>'
         + '<td class="n">' + nombre(k.requetes) + '</td>'
@@ -5838,6 +5861,7 @@ async function cleCreer(poste){
     nom: ($('cle-nom').value || '').trim(),
     application: ($('cle-app').value || '').trim(),
     utilisateur: ($('cle-qui').value || '').trim(),
+    description: ($('cle-desc').value || '').trim(),
   };
   if(!poste && !corps.nom){ erreurCles(cible, 'Donne un nom à la clé.'); return; }
   try{
@@ -5852,6 +5876,7 @@ async function cleCreer(poste){
         + '. <b>Ouvre un nouveau terminal</b> dans VS Code pour que Codex la voie.';
     }else{
       $('cle-nom').value = ''; $('cle-app').value = ''; $('cle-qui').value = '';
+      $('cle-desc').value = '';
       montrerLaCleUneFois(d.valeur);
     }
     await chargerCles();
