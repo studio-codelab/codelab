@@ -2089,24 +2089,68 @@ table.tbl-journal{min-width:560px}
   </div>
 
   <div class="zone">
-    <div class="zone-title">Les clés des fournisseurs</div>
+    <div class="zone-title">Les fournisseurs</div>
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
-        <b>Ce que le panneau écrit, et ce qu'il ne touche pas</b>
+        <b>Les comptes chez qui les modèles tournent</b>
+        <div class="path">Anthropic, OpenAI, Ollama — ou un autre.</div>
       </div></div>
 
-      <div class="hint">Ces valeurs vont dans deux fichiers de secrets, en <code>0600</code>, que
+      <div class="hint">Ces valeurs vont dans un fichier de secrets en <code>0600</code> que
         seuls <code>codelab-llm</code> et <code>codelab-litellm</code> lisent. Le panneau
         <b>n'atteint ni le compose ni le <code>.env</code> de l'hôte</b>, et c'est délibéré : les
         lui monter lui donnerait de quoi réécrire la stack, c'est-à-dire root sur la machine
-        depuis une page web. C'est cette limite, et rien d'autre, qui explique qu'une partie des
-        valeurs demande un redémarrage.</div>
+        depuis une page web. C'est cette limite, et rien d'autre, qui explique qu'une clé
+        demande un redémarrage pour prendre effet.</div>
 
       <div class="hint" style="margin-top:8px">Une valeur enregistrée n'est plus relisible :
         le champ repart vide et la ligne n'affiche que ses quatre derniers caractères.</div>
 
-      <div id="secrets-liste" style="margin-top:14px"></div>
-      <div class="err" id="secrets-err" style="display:none"></div>
+      <div id="fournisseurs-liste" style="margin-top:14px"></div>
+
+      <div class="mb-titre" style="margin-top:18px">Ajouter un fournisseur</div>
+      <div class="grid2">
+        <div class="field"><label>Fournisseur</label>
+          <select id="four-choix" onchange="fournisseurChoisi()"></select></div>
+        <div class="field" id="four-champ-var" style="display:none">
+          <label>Nom de la variable</label>
+          <input id="four-var" placeholder="MISTRAL_API_KEY" autocomplete="off"></div>
+      </div>
+      <div class="field"><label id="four-label">Clé</label>
+        <input id="four-valeur" type="password" autocomplete="off" spellcheck="false"
+               placeholder="Coller la valeur"></div>
+      <div class="hint" id="four-aide"></div>
+      <div class="actions">
+        <button class="btn btn-primary" onclick="fournisseurAjouter()">Ajouter</button>
+      </div>
+      <div class="err" id="fournisseurs-err" style="display:none"></div>
+    </div>
+  </div>
+
+  <div class="zone">
+    <div class="zone-title">Liaison interne</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Entre la passerelle et le routeur</b>
+        <div class="path">Tirée au hasard, posée des deux côtés. Rien à saisir.</div>
+      </div>
+      <span class="pill" id="liaison-etat"><i></i>&nbsp;</span></div>
+
+      <div class="hint">Ce n'est <b>pas une clé de fournisseur</b> : c'est un secret partagé
+        entre deux de tes conteneurs, <code>codelab-llm</code> et <code>codelab-litellm</code>.
+        Il ne veut rien dire ailleurs, personne ne le délivre, et il n'a aucune valeur pour qui
+        n'a pas déjà accès au réseau interne. Le panneau le tire au hasard et l'écrit des deux
+        côtés — c'est la seule façon d'être sûr qu'ils portent la même.</div>
+
+      <div id="liaison-detail" style="margin-top:14px"></div>
+
+      <div class="actions">
+        <button class="btn btn-default" onclick="liaisonRegenerer()">Régénérer</button>
+      </div>
+      <div class="err" id="liaison-err" style="display:none"></div>
+      <div class="hint" style="margin-top:10px">La régénérer coupe le routeur jusqu'au prochain
+        <code>docker compose --profile llm up -d</code> : les deux conteneurs lisent leur valeur
+        au démarrage.</div>
     </div>
   </div>
 
@@ -2674,11 +2718,11 @@ const ACTIONS = {
   'passkey-retirer': id => pkSupprimer(id),
   'compte-ouvrir':   n => usOuvrir(n),
   'param-onglet':    o => paramOnglet(o),
-  'secret-poser':    id => secretPoser(id),
+  'four-poser':      v => fourPoser(v),
+  'four-effacer':    v => fourEffacer(v),
   'cle-revoquer':    id => cleRevoquer(id),
   'cle-copier':      v => cleCopier(v),
   'cle-cacher':      () => cleCacher(),
-  'secret-effacer':  id => secretEffacer(id),
 };
 
 document.addEventListener('click', e => {
@@ -5649,7 +5693,8 @@ async function chargerCles(){
   peindreConsommation(d);
   peindreLesCles(d);
   peindreCleLlm(d.llm);
-  peindreSecrets(d.secrets);
+  peindreFournisseurs(d);
+  peindreLiaison(d.liaison || {definie:false, accordee:false, variables:[]});
 }
 
 function peindreConsommation(d){
@@ -5669,8 +5714,7 @@ function peindreConsommation(d){
   $('conso-periode').textContent = 'Sur les ' + c.jours + ' derniers jours.';
   $('conso-chiffres').innerHTML =
       chiffre('Requêtes', nombre(c.requetes))
-    + chiffre('Jetons', nombre(c.jetons))
-    + chiffre('Coût', cout(c.cout));
+    + chiffre('Jetons', nombre(c.jetons));
   /* AUCUNE MESURE N'EST PAS UNE PANNE, et la difference vaut d'etre dite :
      une passerelle qui n'a jamais servi affiche les memes zeros qu'une
      passerelle en panne. */
@@ -5682,11 +5726,10 @@ function peindreConsommation(d){
   $('conso-modeles').innerHTML =
     '<div class="mb-titre" style="margin-top:16px">Par modèle</div>'
     + '<table class="tbl-cles"><thead><tr><th>Modèle</th><th class="n">Requêtes</th>'
-    + '<th class="n">Jetons</th><th class="n">Coût</th></tr></thead><tbody>'
+    + '<th class="n">Jetons</th></tr></thead><tbody>'
     + c.modeles.map(m => '<tr><td><code>' + esc(m.modele) + '</code></td>'
         + '<td class="n">' + nombre(m.requetes) + '</td>'
-        + '<td class="n">' + nombre(m.jetons) + '</td>'
-        + '<td class="n">' + cout(m.cout) + '</td></tr>').join('')
+        + '<td class="n">' + nombre(m.jetons) + '</td></tr>').join('')
     + '</tbody></table>';
 }
 
@@ -5694,11 +5737,11 @@ function chiffre(nom, valeur){
   return '<div class="chiffre"><b>' + valeur + '</b><span>' + esc(nom) + '</span></div>';
 }
 const nombre = n => (n||0).toLocaleString('fr-FR');
-/* Quatre decimales : a ces prix-la, deux afficheraient « 0,00 » sur une
-   journee de travail entiere -- et un cout affiche a zero ne se remarque
-   pas, il se croit. */
-const cout = c => (c||0).toLocaleString('fr-FR',
-  {minimumFractionDigits:4, maximumFractionDigits:4}) + ' $';
+/* PAS DE COUT AFFICHE, et c'est une decision de Lucas : « ce doit etre
+   gratuit ». La passerelle continue de l'enregistrer en base -- la colonne
+   existe et LiteLLM la remplit -- mais la page ne la montre pas. Mettre un
+   prix devant quelqu'un a qui le service est offert ne l'informe pas, cela
+   le fait hesiter avant chaque appel. */
 
 function peindreLesCles(d){
   const zone = $('cles-liste');
@@ -5714,7 +5757,7 @@ function peindreLesCles(d){
   }
   zone.innerHTML = '<table class="tbl-cles"><thead><tr>'
     + '<th>Nom</th><th>Application</th><th>État</th>'
-    + '<th class="n">Requêtes</th><th class="n">Jetons</th><th class="n">Coût</th>'
+    + '<th class="n">Requêtes</th><th class="n">Jetons</th>'
     + '<th>Dernier appel</th><th></th></tr></thead><tbody>'
     + cles.map(k => {
       const etat = !k.active
@@ -5727,7 +5770,6 @@ function peindreLesCles(d){
         + '<td>' + etat + '</td>'
         + '<td class="n">' + nombre(k.requetes) + '</td>'
         + '<td class="n">' + nombre(k.jetons) + '</td>'
-        + '<td class="n">' + cout(k.cout) + '</td>'
         + '<td>' + (k.derniere ? esc(dateCourte(k.derniere)) : '—') + '</td>'
         + '<td class="n">' + (k.active
             ? '<button class="btn btn-danger-quiet btn-mini" data-agir="cle-revoquer"'
@@ -5870,58 +5912,146 @@ const EFFET_PHRASE = {
   redemarrage: 'Prise en compte au prochain <code>docker compose --profile llm up -d</code>.',
 };
 
-function peindreSecrets(liste){
-  $('secrets-liste').innerHTML = (liste || []).map(s => {
-    const pose = s.definie
+function peindreFournisseurs(d){
+  const poses = d.fournisseurs || [];
+  const zone = $('fournisseurs-liste');
+  zone.innerHTML = poses.length ? poses.map(f => {
+    const pose = f.definie
       ? '<span class="pill on"><i></i>Renseignée</span>'
-      : '<span class="pill off"><i></i>Non renseignée</span>';
-    const apercu = s.definie
-      ? '<div class="hint"><code>' + esc(s.apercu) + '</code></div>' : '';
+      : '<span class="pill off"><i></i>Vide</span>';
+    /* CE QUI TOMBE SANS ELLE. C'est la seule chose vraiment utile a savoir
+       devant une cle : « Anthropic » ne dit rien, « codelab-coding et
+       codelab-reasoning » dit tout. */
+    const modeles = (f.modeles || []).length
+      ? '<div class="hint">Sert : ' + f.modeles.map(m => '<code>' + esc(m) + '</code>').join(', ')
+        + '</div>'
+      : '<div class="hint">Aucun modèle de <code>litellm/config.yaml</code> ne la nomme : '
+        + 'elle ne sert à rien tant que ce n\'est pas le cas.</div>';
     return '<div class="card settings-card">'
-      + '<div class="card-top"><div class="card-name"><b>' + esc(s.titre) + '</b>'
-      + '<div class="path">' + esc(s.aide) + '</div></div>' + pose + '</div>'
-      + apercu
+      + '<div class="card-top"><div class="card-name"><b>' + esc(f.titre) + '</b>'
+      + '<div class="path">' + esc(f.aide) + '</div></div>' + pose + '</div>'
+      + (f.definie ? '<div class="hint"><code>' + esc(f.apercu) + '</code></div>' : '')
+      + modeles
       + '<div class="field" style="margin-top:12px">'
-      + '<input id="secret-' + esc(s.id) + '" type="' + (s.secret ? 'password' : 'text')
-      + '" autocomplete="off" spellcheck="false" placeholder="'
-      + (s.definie ? 'Remplacer la valeur' : 'Coller la valeur') + '"></div>'
-      + '<div class="hint">' + EFFET_PHRASE[s.effet] + ' Écrite dans '
-      + s.variables.map(v => '<code>' + esc(v) + '</code>').join(' et ') + '.</div>'
+      + '<input id="four-' + esc(f.variable) + '" type="'
+      + (f.secret ? 'password' : 'text') + '" autocomplete="off" spellcheck="false"'
+      + ' placeholder="' + (f.definie ? 'Remplacer la valeur' : 'Coller la valeur') + '"></div>'
+      + '<div class="hint">' + EFFET_PHRASE[f.effet] + ' Écrite dans <code>'
+      + esc(f.variable) + '</code>.</div>'
       + '<div class="actions">'
-      + '<button class="btn btn-primary" data-agir="secret-poser" data-cible="'
-      + esc(s.id) + '">Enregistrer</button>'
-      + (s.definie ? '<button class="btn btn-danger-quiet" data-agir="secret-effacer"'
-          + ' data-cible="' + esc(s.id) + '">Effacer</button>' : '')
+      + '<button class="btn btn-primary" data-agir="four-poser" data-cible="'
+      + esc(f.variable) + '">Enregistrer</button>'
+      + (f.definie ? '<button class="btn btn-danger-quiet" data-agir="four-effacer"'
+          + ' data-cible="' + esc(f.variable) + '">Effacer</button>' : '')
       + '</div></div>';
-  }).join('');
+  }).join('') : '<div class="hint">Aucun fournisseur renseigné. Sans clé, les noms logiques '
+      + 'qui en dépendent répondent en erreur — les autres continuent.</div>';
+
+  /* La liste de choix ne contient que ce qui N'EST PAS deja pose : proposer
+     d'ajouter ce qui est deja la ferait deux lignes pour une valeur. */
+  const choix = $('four-choix');
+  const catalogue = d.catalogue || [];
+  choix.innerHTML = catalogue.map(c => '<option value="' + esc(c.id) + '">'
+      + esc(c.titre) + '</option>').join('')
+    + '<option value="__autre__">Un autre fournisseur…</option>';
+  fournisseurChoisi();
 }
 
-async function secretPoser(id){
-  const champ = $('secret-' + id);
-  if(!champ) return;
-  await secretEcrire(id, champ.value);
+function fournisseurChoisi(){
+  const id = $('four-choix').value;
+  const autre = id === '__autre__';
+  $('four-champ-var').style.display = autre ? '' : 'none';
+  const c = ((clesEtat && clesEtat.catalogue) || []).find(x => x.id === id);
+  $('four-label').textContent = (c && !c.secret) ? 'Adresse' : 'Clé';
+  $('four-valeur').type = (c && !c.secret) ? 'text' : 'password';
+  $('four-aide').innerHTML = autre
+    ? 'Le nom doit être en majuscules et finir par <code>_API_KEY</code>, <code>_KEY</code> '
+      + 'ou <code>_BASE_URL</code>. <b>Elle ne servira que si un modèle de '
+      + '<code>litellm/config.yaml</code> la nomme</b> — l\'ajouter ici ne suffit pas.'
+    : (c ? esc(c.aide) + ' ' + EFFET_PHRASE[c.effet] : '');
 }
 
-async function secretEffacer(id){
+async function fournisseurAjouter(){
+  const id = $('four-choix').value;
+  const corps = {valeur: $('four-valeur').value};
+  if(id === '__autre__') corps.variable = ($('four-var').value || '').trim();
+  else corps.id = id;
+  if(!corps.valeur){ erreurCles('fournisseurs-err', 'Colle une valeur.'); return; }
+  if(await fournisseurEcrire(corps)){
+    $('four-valeur').value = ''; $('four-var').value = '';
+  }
+}
+
+async function fourPoser(variable){
+  const champ = $('four-' + variable);
+  if(!champ || !champ.value){
+    erreurCles('fournisseurs-err', 'Colle une valeur.'); return;
+  }
+  const f = ((clesEtat && clesEtat.fournisseurs) || []).find(x => x.variable === variable);
+  await fournisseurEcrire(f && f.connu ? {id: f.id, valeur: champ.value}
+                                       : {variable: variable, valeur: champ.value});
+}
+
+async function fourEffacer(variable){
   if(!await demander('Effacer la valeur',
-      'La ligne est retirée du fichier de secrets. Ce qui s\'en sert cessera '
-      + 'de fonctionner au prochain démarrage.', 'Effacer', true)) return;
-  await secretEcrire(id, '');
+      'La ligne est retirée du fichier de secrets. Les modèles qui en dépendent '
+      + 'répondront en erreur au prochain démarrage.', 'Effacer', true)) return;
+  const f = ((clesEtat && clesEtat.fournisseurs) || []).find(x => x.variable === variable);
+  await fournisseurEcrire(f && f.connu ? {id: f.id, valeur: ''}
+                                       : {variable: variable, valeur: ''});
 }
 
-async function secretEcrire(id, valeur){
-  $('secrets-err').style.display = 'none';
+async function fournisseurEcrire(corps){
+  $('fournisseurs-err').style.display = 'none';
   try{
-    const r = await fetch('/api/cles/secrets', {method:'PUT',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({id: id, valeur: valeur})});
+    const r = await fetch('/api/cles/fournisseur', {method:'PUT',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify(corps)});
     const d = await r.json();
-    if(!r.ok){ erreurCles('secrets-err', d.error); return; }
-    /* On relit tout plutot que de repeindre la seule ligne : le champ se
-       vide de lui-meme, et l'apercu affiche vient du serveur -- c'est la
-       seule facon de voir ce qui a REELLEMENT ete ecrit. */
+    if(!r.ok){ erreurCles('fournisseurs-err', d.error); return false; }
+    /* On relit tout plutot que de repeindre la seule ligne : l'apercu
+       affiche vient du serveur, seule facon de voir ce qui a REELLEMENT
+       ete ecrit. */
     await chargerCles();
-  }catch(e){ erreurCles('secrets-err', 'Le serveur n\'a pas répondu.'); }
+    return true;
+  }catch(e){ erreurCles('fournisseurs-err', 'Le serveur n\'a pas répondu.'); return false; }
+}
+
+function peindreLiaison(l){
+  const pill = $('liaison-etat');
+  if(!l.definie){
+    pill.className = 'pill off'; pill.innerHTML = '<i></i>Absente';
+  }else if(!l.accordee){
+    pill.className = 'pill err'; pill.innerHTML = '<i></i>Désaccordée';
+  }else{
+    pill.className = 'pill on'; pill.innerHTML = '<i></i>Accordée';
+  }
+  const lignes = [];
+  if(l.definie) lignes.push(ligneCle('Valeur', '<code>' + esc(l.apercu) + '</code>'));
+  lignes.push(ligneCle('Écrite dans',
+    l.variables.map(v => '<code>' + esc(v) + '</code>').join(' et ')));
+  /* DEUX VALEURS DIFFERENTES est la panne la plus muette de la stack : le
+     routeur refuse, et son message parle d'authentification sans dire
+     laquelle. La page le nomme. */
+  if(l.definie && !l.accordee) lignes.push('<div class="hint">Les deux côtés ne portent '
+    + '<b>pas la même valeur</b>. Le routeur refusera tout appel, en parlant '
+    + 'd\'authentification sans dire laquelle. Régénère pour les remettre d\'accord.</div>');
+  if(!l.definie) lignes.push('<div class="hint">Le panneau la pose au prochain tour de '
+    + 'surveillance — quelques secondes.</div>');
+  $('liaison-detail').innerHTML = lignes.join('');
+}
+
+async function liaisonRegenerer(){
+  if(!await demander('Régénérer la liaison',
+      'Le routeur refusera tout appel jusqu\'au prochain démarrage des deux conteneurs.',
+      'Régénérer', true)) return;
+  $('liaison-err').style.display = 'none';
+  try{
+    const r = await fetch('/api/cles/liaison', {method:'POST'});
+    const d = await r.json();
+    if(!r.ok){ erreurCles('liaison-err', d.error); return; }
+    await chargerCles();
+    notifier('Liaison régénérée. Redémarre le profil llm pour qu\'elle prenne effet.');
+  }catch(e){ erreurCles('liaison-err', 'Le serveur n\'a pas répondu.'); }
 }
 
 function erreurCles(cible, texte){

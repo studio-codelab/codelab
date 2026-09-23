@@ -10937,7 +10937,7 @@ def test_aucune_reponse_de_la_page_ne_porte_une_valeur_complete(cles_admin):
     la page recoit. Aucun octet de la valeur ne doit s'y trouver."""
     client, _ = cles_admin
     valeur = "sk-secret-a-ne-jamais-revoir-0042"
-    r = client.put("/api/cles/secrets", json={"id": "anthropic", "valeur": valeur})
+    r = client.put("/api/cles/fournisseur", json={"id": "anthropic", "valeur": valeur})
     assert r.status_code == 200, r.data
     assert valeur not in r.get_data(as_text=True)
 
@@ -10981,15 +10981,18 @@ def test_le_journal_ne_recoit_que_le_nom_du_reglage(cles_admin, monkeypatch):
     monkeypatch.setattr(app, "journaliser",
                         lambda genre, **d: vus.append((genre, d)))
     valeur = "sk-secret-de-journal-9999"
-    assert client.put("/api/cles/secrets",
+    assert client.put("/api/cles/fournisseur",
                       json={"id": "openai", "valeur": valeur}).status_code == 200
     assert vus, "l'operation n'a rien journalise du tout"
     for _, details in vus:
         texte = " ".join(str(v) for v in details.values())
         assert valeur not in texte
         assert "9999" not in texte, "meme l'apercu n'a rien a faire dans le journal"
-    assert any(d.get("cle") == "openai" for _, d in vus), (
-        "le journal doit dire QUEL reglage a change")
+    # LE NOM DE LA VARIABLE et pas l'identifiant du catalogue : c'est ce qui
+    # designe la valeur sans ambiguite, y compris pour un fournisseur ajoute
+    # a la main, qui n'a pas d'identifiant.
+    assert any(d.get("cle") == "OPENAI_API_KEY" for _, d in vus), (
+        "le journal doit dire QUELLE variable a change")
 
 
 def test_la_page_des_cles_est_reservee_a_l_administrateur(tmp_path, monkeypatch):
@@ -11018,8 +11021,9 @@ def test_la_page_des_cles_est_reservee_a_l_administrateur(tmp_path, monkeypatch)
     assert client.get("/api/cles").status_code == 403
     assert client.post("/api/cles/llm", json={"poste": True}).status_code == 403
     assert client.delete("/api/cles/llm/1").status_code == 403
-    assert client.put("/api/cles/secrets",
+    assert client.put("/api/cles/fournisseur",
                       json={"id": "openai", "valeur": "x"}).status_code == 403
+    assert client.post("/api/cles/liaison").status_code == 403
 
 
 # ------------------------ ce qui s'ecrit sur le disque ------------------
@@ -11076,7 +11080,7 @@ def test_une_valeur_a_retour_a_la_ligne_est_refusee(cles_admin):
     assert app.secret_propre("sk-x\nLD_PRELOAD=/tmp/mechant.so") is None
     assert app.secret_propre("sk-x\rAUTRE=1") is None
 
-    r = client.put("/api/cles/secrets",
+    r = client.put("/api/cles/fournisseur",
                    json={"id": "openai", "valeur": "sk-x\nAUTRE=1"})
     assert r.status_code == 400
     assert "AUTRE" not in open(app.FOURNISSEURS_ENV_FICHIER, encoding="utf-8").read() \
@@ -11319,15 +11323,20 @@ def test_le_panneau_nomme_les_variables_que_les_services_lisent():
     # LITELLM_MASTER_KEY est lue par le programme LiteLLM lui-meme, pas par
     # son fichier de configuration : c'est la seule qu'on ne peut pas
     # retrouver dans un des deux fichiers du depot.
-    connues_du_routeur = {"LITELLM_MASTER_KEY", "OLLAMA_BASE_URL"}
-    for spec in app.SECRETS_GERES:
-        for quel, nom in spec["ou"]:
-            if quel == "llm":
-                assert nom in passerelle, (
-                    f"{nom} n'est lue nulle part dans llm/app.py")
-            else:
-                assert nom in routeur or nom in connues_du_routeur, (
-                    f"{nom} n'est lue nulle part par le routeur")
+    connues_du_routeur = {"OLLAMA_BASE_URL"}
+    for spec in app.FOURNISSEURS:
+        nom = spec["variable"]
+        if spec.get("ou") == "llm":
+            assert nom in passerelle, (
+                f"{nom} n'est lue nulle part dans llm/app.py")
+        else:
+            assert nom in routeur or nom in connues_du_routeur, (
+                f"{nom} n'est lue nulle part par le routeur")
+    # La liaison, elle, est lue des deux cotes -- c'est sa definition meme.
+    for d in app.LIAISON:
+        source = passerelle if d["quel"] == "llm" else routeur
+        assert d["nom"] in source or d["nom"] == "LITELLM_MASTER_KEY", (
+            f"{d['nom']} n'est lue nulle part")
 
 
 def test_l_entrypoint_postgres_n_ecrase_jamais_une_valeur_deja_posee():
@@ -11988,6 +11997,9 @@ def test_la_boucle_de_surveillance_tient_la_cle():
     bloc = source[source.index("def monitor_tick():"):]
     bloc = bloc[:bloc.index("\n    apps = load()")]
     assert "tenir_la_cle_du_poste()" in bloc
+    # La liaison aussi : elle s'engendre pour la meme raison, et rien ne la
+    # poserait sans cet appel -- la page attendrait indefiniment.
+    assert "tenir_la_cle_de_liaison()" in bloc
 
 
 # ------------------------------ le suivi -------------------------------
@@ -12024,7 +12036,7 @@ def test_aucune_valeur_complete_ne_sort_de_la_console(cles_admin):
     valeur de fournisseur et on relit TOUT ce que la console recoit."""
     client, _ = cles_admin
     valeur = "sk-secret-de-la-console-0042"
-    assert client.put("/api/cles/secrets",
+    assert client.put("/api/cles/fournisseur",
                       json={"id": "anthropic", "valeur": valeur}).status_code == 200
     corps = client.get("/api/cles").get_data(as_text=True)
     assert valeur not in corps
@@ -12077,7 +12089,7 @@ def test_la_console_montre_un_tableau_et_pas_des_cartes():
     bloc = page[page.index("function peindreLesCles("):]
     bloc = bloc[:bloc.index("\nfunction ")]
     assert "<table" in bloc and "tbl-cles" in bloc
-    for colonne in ("Requêtes", "Jetons", "Coût", "Dernier appel"):
+    for colonne in ("Requêtes", "Jetons", "Dernier appel"):
         assert colonne in bloc, f"la colonne « {colonne} » manque au tableau"
 
 
@@ -12111,7 +12123,203 @@ def test_la_console_est_reservee_a_l_administrateur():
     for route in ('@flask_app.get("/api/cles")',
                   '@flask_app.post("/api/cles/llm")',
                   '@flask_app.delete("/api/cles/llm/<int:ident>")',
-                  '@flask_app.put("/api/cles/secrets")'):
+                  '@flask_app.put("/api/cles/fournisseur")',
+                  '@flask_app.post("/api/cles/liaison")'):
         debut = source.index(route)
         assert "@require_admin" in source[debut:debut + 120], (
             f"{route} n'est pas reservee a l'administrateur")
+
+
+# ---------- 45. fournisseurs au choix, liaison a part, et rien a payer ----
+#
+# TROIS DEMANDES, et la premiere etait une question : « a quoi correspond
+# la cle partagee avec le routeur ? » Elle revelait le defaut -- la page melait
+# dans une meme liste figee la cle interne de la liaison et les cles des
+# comptes exterieurs. Deux choses sans rapport :
+#
+#   une cle de FOURNISSEUR   vient de l'exterieur, se paie, donne des modeles ;
+#   la cle de LIAISON        un secret entre deux de NOS conteneurs, qui ne
+#                            veut rien dire ailleurs et se tire au hasard.
+
+
+def test_la_liaison_n_est_pas_dans_le_catalogue_des_fournisseurs():
+    """Ce sont deux choses differentes, et les melanger a produit la
+    question de Lucas."""
+    variables = {f["variable"] for f in app.FOURNISSEURS}
+    for d in app.LIAISON:
+        assert d["nom"] not in variables, (
+            f"{d['nom']} est la liaison interne, pas un fournisseur")
+
+
+def test_la_liaison_se_pose_toute_seule_et_des_deux_cotes(cles_admin):
+    """« Renseigner a la main le moins possible. » Un secret partage entre
+    deux de nos conteneurs n'a aucune raison d'etre saisi : personne ne le
+    delivre, et le demander revenait a faire recopier un « openssl rand »
+    dans deux fichiers."""
+    assert app.etat_de_la_liaison()["definie"] is False
+    assert app.tenir_la_cle_de_liaison() is True
+    etat = app.etat_de_la_liaison()
+    assert etat["definie"] and etat["accordee"]
+    # LA MEME valeur des deux cotes : deux valeurs differentes sont la panne
+    # la plus muette de la stack.
+    valeurs = [app.lire_env_fichier(app.FICHIERS_SECRETS[d["quel"]])[d["nom"]]
+               for d in app.LIAISON]
+    assert len(set(valeurs)) == 1 and valeurs[0]
+
+
+def test_la_liaison_ne_change_pas_a_chaque_tour(cles_admin):
+    """Appelee depuis la boucle de surveillance : la regenerer a chaque tour
+    ferait refuser le routeur en permanence, puisqu'il lit sa valeur au
+    demarrage."""
+    assert app.tenir_la_cle_de_liaison() is True
+    avant = app.lire_env_fichier(app.FICHIERS_SECRETS["llm"])["CODELAB_LLM_AMONT_KEY"]
+    assert app.tenir_la_cle_de_liaison() is False
+    apres = app.lire_env_fichier(app.FICHIERS_SECRETS["llm"])["CODELAB_LLM_AMONT_KEY"]
+    assert avant == apres
+
+
+def test_une_liaison_desaccordee_est_reparee_et_nommee(cles_admin):
+    """Deux valeurs differentes : le routeur refuse et parle
+    d'authentification sans dire laquelle. C'est la panne qu'on ne trouve
+    pas."""
+    app.ecrire_env_secrets("llm", {"CODELAB_LLM_AMONT_KEY": "une-valeur"})
+    app.ecrire_env_secrets("fournisseurs", {"LITELLM_MASTER_KEY": "une-autre"})
+    etat = app.etat_de_la_liaison()
+    assert etat["definie"] is True and etat["accordee"] is False, (
+        "le desaccord n'est pas vu : la page dirait que tout va bien")
+    assert app.tenir_la_cle_de_liaison() is True
+    assert app.etat_de_la_liaison()["accordee"] is True
+
+
+def test_la_liaison_ne_se_saisit_pas_par_la_route_des_fournisseurs(cles_admin):
+    """Sinon on retomberait sur ce qu'on vient de retirer : une valeur
+    interne qu'on demande a l'utilisateur."""
+    client, _ = cles_admin
+    r = client.put("/api/cles/fournisseur",
+                   json={"variable": "LITELLM_MASTER_KEY", "valeur": "x"})
+    assert r.status_code == 400
+    assert "régénère" in r.get_json()["error"].lower()
+
+
+# ------------------------ le choix du fournisseur ----------------------
+
+def test_le_catalogue_ne_propose_que_ce_qui_n_est_pas_deja_pose(cles_admin):
+    """Proposer d'ajouter ce qui est deja la ferait deux lignes pour une
+    valeur."""
+    client, _ = cles_admin
+    d = client.get("/api/cles").get_json()
+    assert {c["id"] for c in d["catalogue"]} == {f["id"] for f in app.FOURNISSEURS}
+
+    client.put("/api/cles/fournisseur",
+               json={"id": "anthropic", "valeur": "sk-ant-quelque-chose"})
+    d = client.get("/api/cles").get_json()
+    assert "anthropic" not in {c["id"] for c in d["catalogue"]}
+    assert "anthropic" in {f["id"] for f in d["fournisseurs"]}
+
+
+def test_un_fournisseur_hors_catalogue_s_ajoute_par_son_nom_de_variable(cles_admin):
+    """« Anthropic, OpenAI ou autre. » L'autre doit exister."""
+    client, _ = cles_admin
+    r = client.put("/api/cles/fournisseur",
+                   json={"variable": "mistral_api_key", "valeur": "sk-mistral-x"})
+    assert r.status_code == 200, r.data
+    # Normalise en majuscules : une variable d'environnement l'est.
+    valeurs = app.lire_env_fichier(app.FICHIERS_SECRETS["fournisseurs"])
+    assert valeurs.get("MISTRAL_API_KEY") == "sk-mistral-x"
+    d = client.get("/api/cles").get_json()
+    ligne = [f for f in d["fournisseurs"] if f["variable"] == "MISTRAL_API_KEY"]
+    assert ligne and ligne[0]["connu"] is False
+
+
+def test_un_nom_de_variable_quelconque_est_refuse(cles_admin):
+    """LE point de securite de ce champ. Sans contrainte, il deviendrait une
+    facon d'ajouter n'importe quelle variable d'environnement au conteneur
+    du routeur -- LD_PRELOAD y chargerait une bibliotheque au demarrage."""
+    client, _ = cles_admin
+    for mauvais in ("LD_PRELOAD", "PATH", "anything", "A_B", "PATH_API_KEY_"):
+        r = client.put("/api/cles/fournisseur",
+                       json={"variable": mauvais, "valeur": "x"})
+        assert r.status_code == 400, f"« {mauvais} » a ete accepte"
+    valeurs = app.lire_env_fichier(app.FICHIERS_SECRETS["fournisseurs"])
+    assert "LD_PRELOAD" not in valeurs and "PATH" not in valeurs
+
+
+def test_la_page_dit_quels_modeles_tombent_sans_la_cle():
+    """La seule chose vraiment utile devant une cle : « Anthropic » ne dit
+    rien, « codelab-coding et codelab-reasoning » dit tout."""
+    page = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
+    bloc = page[page.index("function peindreFournisseurs("):]
+    bloc = bloc[:bloc.index("\nfunction ")]
+    # LA CONDITION, et rien qu'elle. Deux decoupages plus larges ont echoue
+    # avant celui-ci : le mutant qui la remplacait par « false » laissait
+    # « f.modeles » dans les branches du ternaire, donc l'affectation
+    # entiere le contenait encore. Ce qu'on veut dire est precis -- c'est la
+    # LISTE DES MODELES qui decide de ce qui s'affiche.
+    depart = bloc.index("const modeles =") + len("const modeles =")
+    condition = bloc[depart:bloc.index("?", depart)]
+    assert "f.modeles" in condition, (
+        f"ce n'est plus la liste des modeles qui decide : « {condition.strip()} »")
+    assert "Sert" in bloc
+
+
+def test_les_modeles_annonces_sont_ceux_du_routeur():
+    """MODELES_PAR_FOURNISSEUR est recopie a la main : litellm/config.yaml
+    n'est pas monte dans le conteneur du panneau. Sans ce test, la page
+    promettrait qu'une cle sert un modele que personne ne demande."""
+    import yaml
+    chemin = os.path.join(_racine_depot(), "litellm", "config.yaml")
+    config = yaml.safe_load(open(chemin, encoding="utf-8"))
+    attendu = {}
+    for entree in config["model_list"]:
+        params = entree["litellm_params"]
+        for champ in ("api_key", "api_base"):
+            valeur = str(params.get(champ) or "")
+            if valeur.startswith("os.environ/"):
+                attendu.setdefault(valeur.split("/", 1)[1], []).append(
+                    entree["model_name"])
+    for variable, modeles in attendu.items():
+        assert app.MODELES_PAR_FOURNISSEUR.get(variable) == modeles, (
+            f"{variable} sert {modeles} dans litellm/config.yaml, mais la "
+            f"page annonce {app.MODELES_PAR_FOURNISSEUR.get(variable)}")
+    assert set(app.MODELES_PAR_FOURNISSEUR) == set(attendu), (
+        "la table du panneau et le routeur ne nomment pas les memes variables")
+
+
+def test_les_identifiants_postgres_ne_passent_pas_pour_des_fournisseurs(cles_admin):
+    """llm.env porte AUSSI le mot de passe Postgres de codelab-llm. Le lister
+    comme une cle de fournisseur inviterait a l'effacer."""
+    client, _ = cles_admin
+    # POSTGRES_SSL_KEY et pas POSTGRES_PASSWORD : le second est deja ecarte
+    # par le motif des noms de variables, donc il n'eprouvait pas le filtre.
+    # Le premier, lui, finit par « _KEY » et passerait sans lui -- c'est le
+    # mutant qui a ecrit cette version du test.
+    app.ecrire_env_secrets("llm", {"POSTGRES_PASSWORD": "motdepasse",
+                                   "POSTGRES_SSL_KEY": "un-certificat",
+                                   "OPENROUTER_API_KEY": "sk-or-x"})
+    d = client.get("/api/cles").get_json()
+    variables = {f["variable"] for f in d["fournisseurs"]}
+    assert "OPENROUTER_API_KEY" in variables
+    assert not [v for v in variables if v.startswith("POSTGRES_")], (
+        f"un identifiant Postgres est propose comme cle de fournisseur : "
+        f"{sorted(variables)}")
+
+
+# ------------------------------ c'est gratuit ---------------------------
+
+def test_aucun_prix_n_est_affiche():
+    """Demande explicitement : retirer la rubrique sur le prix, parce que le
+    service doit etre gratuit.
+
+    La passerelle continue de l'enregistrer -- la colonne existe et LiteLLM
+    la remplit -- mais mettre un prix devant quelqu'un a qui le service est
+    offert ne l'informe pas, cela le fait hesiter avant chaque appel.
+    """
+    page = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
+    debut = page.index('<div class="onglet-p" id="param-cles">')
+    fin = page.index('<div class="onglet-p" id="param-categories">')
+    assert "Coût" not in page[debut:fin], "un prix est affiche dans la page"
+    for fonction in ("peindreConsommation", "peindreLesCles"):
+        bloc = page[page.index(f"function {fonction}("):]
+        bloc = bloc[:bloc.index("\nfunction ")]
+        assert "Coût" not in bloc and "cout(" not in bloc, (
+            f"{fonction} affiche encore un prix")

@@ -47,19 +47,34 @@ une clé CodeLab (voir plus bas), pas par une session de navigateur.
 
 ## Démarrage
 
-Deux valeurs à renseigner : `CODELAB_LITELLM_KEY` (la clé partagée entre la
-passerelle et le routeur, n'importe quelle valeur au hasard) et au moins une
-clé de fournisseur (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`).
+**Une seule valeur à renseigner** : au moins une clé de fournisseur.
 
-Deux endroits possibles, et ils ne s'écrasent pas :
+La clé partagée entre la passerelle et le routeur — appelée *liaison* dans
+le panneau — **ne se saisit plus**. C'est un secret entre deux de tes
+conteneurs : il ne veut rien dire ailleurs, personne ne le délivre, et le
+demander revenait à faire recopier un `openssl rand -hex 32` dans deux
+fichiers. Le panneau le tire au hasard et l'écrit des deux côtés, ce qui est
+aussi la seule façon d'être sûr qu'ils portent la même. Deux valeurs
+différentes sont la panne la plus muette de la stack : le routeur refuse, et
+son message parle d'authentification sans dire laquelle.
 
-- **le panneau**, *Paramètres → Clés et secrets*. Il écrit
+Pour les clés de fournisseurs, deux endroits possibles, et ils ne s'écrasent
+pas :
+
+- **le panneau**, *Paramètres → Clés et secrets*. On **choisit un
+  fournisseur** dans une liste — Anthropic, OpenAI, Ollama, ou un autre en
+  nommant sa variable — et on colle la valeur. Le panneau écrit
   `config/llm/fournisseurs.env` (en `0600`), que le routeur reçoit par
-  `env_file`, et n'en réaffiche que les quatre derniers caractères ;
+  `env_file`, et n'en réaffiche que les quatre derniers caractères. Chaque
+  ligne dit **quels noms logiques tombent** sans elle ;
 - **le `.env` de l'hôte**, décrit dans `.env.example`, pour une installation
   scriptée. Au démarrage, `codelab-postgres` recopie ce qu'il y trouve dans
   le même fichier — **une valeur vide ne remplace jamais celle déjà posée**,
   donc ce qui a été saisi dans le panneau survit aux redémarrages.
+
+> Un fournisseur ajouté « à la main » n'est utile que si un modèle de
+> `litellm/config.yaml` nomme sa variable. Le panneau le dit plutôt que de
+> laisser croire que la clé suffit.
 
 Le panneau n'atteint ni le compose ni le `.env` de l'hôte, et c'est
 délibéré : les lui monter lui donnerait de quoi réécrire la stack. C'est
@@ -134,7 +149,7 @@ La console y ajoute ce que la ligne de commande ne donne pas :
 |---|---|
 | **Créer** | un nom, une application, et la clé est montrée **une seule fois** |
 | **Révoquer** | une clé parmi d'autres, par son identifiant |
-| **Suivre** | requêtes, jetons, coût et dernier appel, **par clé** |
+| **Suivre** | requêtes, jetons et dernier appel, **par clé** |
 
 Le suivi par clé demande la colonne `llm_usage.key_id` : sans elle, deux clés
 du même poste sont indistinguables. Elle est ajoutée aux bases existantes par

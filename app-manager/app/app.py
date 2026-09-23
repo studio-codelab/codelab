@@ -4002,6 +4002,7 @@ def monitor_tick():
     # geste tente une seule fois aurait echoue une seule fois, pour
     # toujours. Le tour suivant reessaie.
     tenir_la_cle_du_poste()
+    tenir_la_cle_de_liaison()
     apps = load()
     now = time.time()
     for name, a in apps.items():
@@ -6578,51 +6579,68 @@ PG_ROLE_LLM = "codelab_llm"
 # reconnaissable du tout : on n'en montre alors aucun.
 APERCU_MIN = 12
 
-# Les secrets que cette page sait poser, et OU chacun doit atterrir.
+# ------------------------ les fournisseurs de modeles ------------------------
 #
-# « ou » est une liste parce qu'une meme valeur sert parfois deux services
-# sous deux noms differents : la cle du routeur est CODELAB_LLM_AMONT_KEY
-# pour codelab-llm et LITELLM_MASTER_KEY pour codelab-litellm. Les tenir
-# d'accord a la main, c'est la panne silencieuse assuree -- le routeur
-# refuse, et rien ne dit pourquoi.
+# CE QUI A CHANGE, ET POURQUOI. La page presentait une liste FIGEE de cinq
+# champs, ou la cle interne de la liaison voisinait avec les cles des
+# fournisseurs. Lucas a pose la question qui le revelait : « a quoi
+# correspond la cle partagee avec le routeur ? » -- signe que le regroupement
+# melait deux choses sans rapport.
 #
-# « vif » : le service relit son fichier a chaque appel, l'effet est
-# immediat. « redemarrage » : la valeur arrive par l'environnement du
-# conteneur, que Docker fige au demarrage.
-SECRETS_GERES = (
-    {"id": "routeur",
-     "titre": "Clé partagée avec le routeur",
-     "aide": "La même valeur des deux côtés : codelab-llm la présente, "
-             "codelab-litellm l'exige. Vide, le routeur n'ouvre à personne. "
-             "À tirer au hasard une fois pour toutes.",
-     "secret": True, "effet": "redemarrage",
-     "ou": (("llm", "CODELAB_LLM_AMONT_KEY"),
-            ("fournisseurs", "LITELLM_MASTER_KEY"))},
-    {"id": "openrouter",
-     "titre": "Clé OpenRouter",
-     "aide": "Le fournisseur compatible OpenAI que codelab-llm appelle "
-             "quand il ne passe pas par le routeur.",
-     "secret": True, "effet": "vif",
-     "ou": (("llm", "OPENROUTER_API_KEY"),)},
-    {"id": "anthropic",
-     "titre": "Clé Anthropic",
-     "aide": "Lue par le routeur seul. Absente, les modèles qui s'en "
-             "servent répondent en erreur ; les autres continuent.",
-     "secret": True, "effet": "redemarrage",
-     "ou": (("fournisseurs", "ANTHROPIC_API_KEY"),)},
-    {"id": "openai",
-     "titre": "Clé OpenAI",
-     "aide": "Lue par le routeur seul. Même règle que la précédente.",
-     "secret": True, "effet": "redemarrage",
-     "ou": (("fournisseurs", "OPENAI_API_KEY"),)},
-    {"id": "ollama",
-     "titre": "Adresse du serveur Ollama",
-     "aide": "Pour « codelab-local », le nom logique dont les jetons ne "
-             "sortent pas de chez toi. Exemple : "
-             "http://host.docker.internal:11434",
-     "secret": False, "effet": "redemarrage",
-     "ou": (("fournisseurs", "OLLAMA_BASE_URL"),)},
+#   une cle de FOURNISSEUR   un compte chez Anthropic, OpenAI, OpenRouter.
+#                            Elle vient de l'exterieur, elle se paie, et
+#                            elle donne acces a des modeles.
+#   la cle de LIAISON        un secret partage entre deux de NOS conteneurs,
+#                            qui ne veut rien dire ailleurs. Elle ne se
+#                            demande a personne : on la tire au hasard.
+#
+# La liaison est donc sortie de cette liste, et elle s'engendre toute seule
+# (voir tenir_la_cle_de_liaison).
+#
+# CE QUE « modeles » APPORTE, et c'est le seul champ vraiment utile avant de
+# poser une cle : quels noms logiques tombent si elle manque. Un test tient
+# cette colonne d'accord avec litellm/config.yaml -- sans lui, la page
+# promettrait qu'une cle sert a quelque chose qu'aucun modele ne demande.
+FOURNISSEURS = (
+    {"id": "anthropic", "titre": "Anthropic", "variable": "ANTHROPIC_API_KEY",
+     "secret": True, "ou": "fournisseurs",
+     "aide": "Claude. La clé se crée dans la console Anthropic."},
+    {"id": "openai", "titre": "OpenAI", "variable": "OPENAI_API_KEY",
+     "secret": True, "ou": "fournisseurs",
+     "aide": "GPT. La clé se crée dans la plateforme OpenAI."},
+    {"id": "ollama", "titre": "Ollama", "variable": "OLLAMA_BASE_URL",
+     "secret": False, "ou": "fournisseurs",
+     "aide": "Une ADRESSE, pas une clé : un serveur Ollama chez toi ou sur "
+             "le réseau. Exemple : http://host.docker.internal:11434"},
+    # CELLE-CI NE PASSE PAS PAR LE ROUTEUR. codelab-llm sait appeler un
+    # fournisseur compatible OpenAI en direct, sans codelab-litellm ; c'est
+    # le chemin d'avant, garde pour les installations qui s'en servent
+    # encore. D'ou un fichier different et un effet immediat.
+    {"id": "openrouter", "titre": "OpenRouter (accès direct)",
+     "variable": "OPENROUTER_API_KEY", "secret": True, "ou": "llm",
+     "aide": "Appelé directement par codelab-llm, sans passer par le "
+             "routeur. Prise en compte immédiatement."},
 )
+
+# Les noms logiques que chaque fournisseur sert, lus dans litellm/config.yaml
+# a la construction de l'image. Ecrits ici parce que ce fichier n'est pas
+# monte dans ce conteneur -- et tenus d'accord par un test, qui lui a le
+# depot sous la main.
+MODELES_PAR_FOURNISSEUR = {
+    "ANTHROPIC_API_KEY": ["codelab-coding", "codelab-reasoning"],
+    "OPENAI_API_KEY": ["codelab-fast"],
+    "OLLAMA_BASE_URL": ["codelab-local"],
+}
+
+# Le prefixe des variables qu'on accepte d'ecrire pour un fournisseur non
+# catalogue. Sans contrainte, ce champ deviendrait une facon d'ajouter
+# n'importe quelle variable d'environnement au conteneur du routeur -- par
+# exemple LD_PRELOAD.
+VARIABLE_FOURNISSEUR = re.compile(r"^[A-Z][A-Z0-9_]{2,60}_(?:API_KEY|BASE_URL|KEY)$")
+
+# La liaison interne, tiree au hasard et posee des deux cotes.
+LIAISON = ({"quel": "llm", "nom": "CODELAB_LLM_AMONT_KEY"},
+           {"quel": "fournisseurs", "nom": "LITELLM_MASTER_KEY"})
 
 FICHIERS_SECRETS = {"llm": LLM_ENV_FICHIER, "fournisseurs": FOURNISSEURS_ENV_FICHIER}
 
@@ -7120,17 +7138,7 @@ _cle_poste_plainte = {"dit": False}
 @require_admin
 def api_cles():
     """L'etat des cles et des secrets. Aucune valeur complete ici."""
-    secrets_vus = []
-    for spec in SECRETS_GERES:
-        quel, nom = spec["ou"][0]
-        valeur = lire_env_fichier(FICHIERS_SECRETS[quel]).get(nom, "")
-        secrets_vus.append({
-            "id": spec["id"], "titre": spec["titre"], "aide": spec["aide"],
-            "secret": spec["secret"], "effet": spec["effet"],
-            "definie": bool(valeur),
-            "apercu": apercu_secret(valeur) if spec["secret"] else valeur,
-            "variables": [n for _, n in spec["ou"]],
-        })
+    poses, catalogue = etat_des_fournisseurs()
     joignable, empechement = _pg_llm_dispo()
     cles, conso = [], None
     if joignable:
@@ -7139,7 +7147,13 @@ def api_cles():
             conso = consommation_llm(_entier(request.args.get("jours"), 30))
         except Exception as e:                                    # noqa: BLE001
             joignable, empechement = False, str(e).split("\n")[0][:200]
-    return jsonify({"llm": _etat_cle_llm(), "secrets": secrets_vus,
+    return jsonify({"llm": _etat_cle_llm(),
+                    # POSES et CATALOGUE sont deux listes distinctes : la
+                    # premiere se lit, la seconde s'ajoute. Les confondre
+                    # ramenerait la liste figee de cinq champs qu'on vient
+                    # de retirer.
+                    "fournisseurs": poses, "catalogue": catalogue,
+                    "liaison": etat_de_la_liaison(),
                     "base": joignable, "empechement": empechement,
                     "cles": cles, "consommation": conso,
                     "app_poste": APP_POSTE})
@@ -7235,10 +7249,70 @@ def api_cles_llm_revoquer(ident):
     return jsonify({"ok": True})
 
 
-@flask_app.put("/api/cles/secrets")
+def _fichier_du_fournisseur(spec):
+    return spec.get("ou", "fournisseurs")
+
+
+def etat_des_fournisseurs():
+    """(ce qui est pose, ce qu'on peut ajouter).
+
+    POSE contient tout ce que les deux fichiers portent -- y compris une
+    variable ajoutee a la main ou par un fournisseur « autre » -- parce
+    qu'une valeur qu'on ne voit pas est une valeur qu'on ne pense pas a
+    retirer. CATALOGUE ne contient que ce qui n'est pas encore pose : c'est
+    la liste dans laquelle on choisit.
+    """
+    connus = {s["variable"]: s for s in FOURNISSEURS}
+    internes = {d["nom"] for d in LIAISON}
+    poses = []
+    for quel in ("fournisseurs", "llm"):
+        valeurs = lire_env_fichier(FICHIERS_SECRETS[quel])
+        for nom, valeur in sorted(valeurs.items()):
+            # La liaison et les identifiants Postgres de codelab-llm vivent
+            # dans les memes fichiers et ne sont pas des fournisseurs.
+            if nom in internes or nom.startswith("POSTGRES_"):
+                continue
+            spec = connus.get(nom)
+            if spec is None and not VARIABLE_FOURNISSEUR.match(nom):
+                continue
+            secret = spec["secret"] if spec else True
+            poses.append({
+                "id": spec["id"] if spec else nom,
+                "titre": spec["titre"] if spec else nom,
+                "aide": spec["aide"] if spec else
+                        "Ajoutée à la main. Elle ne sert que si un modèle de "
+                        "litellm/config.yaml la nomme.",
+                "variable": nom,
+                "secret": secret,
+                "definie": bool(valeur),
+                "apercu": apercu_secret(valeur) if secret else valeur,
+                "modeles": MODELES_PAR_FOURNISSEUR.get(nom, []),
+                "effet": "vif" if quel == "llm" else "redemarrage",
+                "connu": spec is not None,
+            })
+    deja = {p["variable"] for p in poses}
+    catalogue = [{"id": s["id"], "titre": s["titre"], "variable": s["variable"],
+                  "secret": s["secret"], "aide": s["aide"],
+                  "modeles": MODELES_PAR_FOURNISSEUR.get(s["variable"], []),
+                  "effet": "vif" if s.get("ou") == "llm" else "redemarrage"}
+                 for s in FOURNISSEURS if s["variable"] not in deja]
+    return poses, catalogue
+
+
+@flask_app.put("/api/cles/fournisseur")
 @require_admin
-def api_cles_secrets():
-    """Pose ou efface un secret de fournisseur. Une seule valeur a la fois.
+def api_cles_fournisseur():
+    """Pose ou efface la cle d'un fournisseur. Une seule valeur a la fois.
+
+    DEUX FACONS DE LE DESIGNER, et c'est ce que la page demandait :
+
+      « id »        un fournisseur du catalogue -- on choisit dans une liste,
+                    le nom de variable vient avec ;
+      « variable »  un fournisseur que le catalogue ne connait pas. Le nom
+                    doit ressembler a un nom de cle (…_API_KEY, …_BASE_URL) :
+                    sans cette contrainte, ce champ deviendrait une facon
+                    d'ajouter n'importe quelle variable d'environnement au
+                    conteneur du routeur, LD_PRELOAD compris.
 
     Une valeur vide EFFACE la ligne plutot que d'ecrire une valeur vide :
     codelab-llm lit « l'environnement d'abord, le fichier ensuite » avec un
@@ -7246,29 +7320,98 @@ def api_cles_secrets():
     seule l'absence se lit comme telle quand on ouvre le fichier.
     """
     demande = request.get_json(force=True, silent=True) or {}
-    spec = next((s for s in SECRETS_GERES if s["id"] == demande.get("id")), None)
-    if not spec:
-        return jsonify({"error": "Réglage inconnu."}), 400
+    spec = next((s for s in FOURNISSEURS if s["id"] == demande.get("id")), None)
+    if spec:
+        variable, quel, secret = spec["variable"], _fichier_du_fournisseur(spec), spec["secret"]
+    else:
+        variable = str(demande.get("variable") or "").strip().upper()
+        if not VARIABLE_FOURNISSEUR.match(variable):
+            return jsonify({"error": "Nom de variable refusé. Il doit être en "
+                                     "majuscules et se terminer par _API_KEY, "
+                                     "_KEY ou _BASE_URL — par exemple "
+                                     "MISTRAL_API_KEY."}), 400
+        if variable in {d["nom"] for d in LIAISON}:
+            return jsonify({"error": "Cette variable est la liaison interne : "
+                                     "elle se régénère, elle ne se saisit "
+                                     "pas."}), 400
+        quel, secret = "fournisseurs", True
+
     valeur = secret_propre(demande.get("valeur"))
     if valeur is None:
         return jsonify({"error": "Une clé ne contient pas de retour à la ligne : "
                                  "vérifie ce qui a été collé."}), 400
-    par_fichier = {}
-    for quel, nom in spec["ou"]:
-        par_fichier.setdefault(quel, {})[nom] = valeur
     try:
-        for quel, valeurs in par_fichier.items():
-            ecrire_env_secrets(quel, valeurs)
+        ecrire_env_secrets(quel, {variable: valeur})
     except OSError as e:
         return jsonify({"error": f"Fichier non écrit : {e}"}), 500
-    # Le NOM du reglage, jamais sa valeur ni son apercu : le journal se
+    # Le NOM de la variable, jamais sa valeur ni son apercu : le journal se
     # consulte depuis la page des acces, et se recopie dans Postgres.
     journaliser("secret", qui=utilisateur_courant() or NOM_ADMIN,
-                action=("pose" if valeur else "efface"), cle=spec["id"],
+                action=("pose" if valeur else "efface"), cle=variable,
                 ip=_adresse_client())
     return jsonify({"ok": True, "definie": bool(valeur),
-                    "apercu": apercu_secret(valeur) if spec["secret"] else valeur})
+                    "apercu": apercu_secret(valeur) if secret else valeur})
 
+
+# --------------------------- la liaison interne ---------------------------
+#
+# ELLE NE SE SAISIT PAS. C'est un secret partage entre deux de nos
+# conteneurs : il n'a de sens nulle part ailleurs, personne ne le delivre, et
+# le demander a l'utilisateur revenait a lui faire executer « openssl rand
+# -hex 32 » pour recopier le resultat dans deux fichiers. On le tire ici.
+
+def etat_de_la_liaison():
+    """Ce que la page sait dire de la liaison, sans la montrer.
+
+    ACCORDEE veut dire : la meme valeur des deux cotes. Deux valeurs
+    differentes sont la panne la plus muette de toute la stack -- le routeur
+    refuse, et le message parle d'authentification sans dire laquelle.
+    """
+    valeurs = [lire_env_fichier(FICHIERS_SECRETS[d["quel"]]).get(d["nom"], "")
+               for d in LIAISON]
+    posee = all(valeurs)
+    return {"definie": posee,
+            "accordee": posee and len(set(valeurs)) == 1,
+            "apercu": apercu_secret(valeurs[0]) if posee else "",
+            "variables": [d["nom"] for d in LIAISON]}
+
+
+def tenir_la_cle_de_liaison():
+    """Pose la liaison si elle manque ou si les deux cotes divergent.
+
+    Appelee au meme endroit que la cle du poste, et pour la meme raison : ce
+    qui peut s'engendrer tout seul ne doit pas attendre qu'on y pense.
+    N'ecrit RIEN quand les deux cotes sont deja d'accord -- sinon chaque tour
+    de surveillance changerait la cle, et le routeur refuserait tout entre
+    deux redemarrages.
+    """
+    etat = etat_de_la_liaison()
+    if etat["accordee"]:
+        return False
+    valeur = secrets.token_hex(32)
+    try:
+        for d in LIAISON:
+            ecrire_env_secrets(d["quel"], {d["nom"]: valeur})
+    except OSError:
+        return False
+    print("[app-manager] cle de liaison codelab-llm <-> codelab-litellm "
+          "posee des deux cotes.", flush=True)
+    return True
+
+
+@flask_app.post("/api/cles/liaison")
+@require_admin
+def api_cles_liaison():
+    """Regenere la liaison. Les deux cotes en meme temps, toujours."""
+    valeur = secrets.token_hex(32)
+    try:
+        for d in LIAISON:
+            ecrire_env_secrets(d["quel"], {d["nom"]: valeur})
+    except OSError as e:
+        return jsonify({"error": f"Fichier non écrit : {e}"}), 500
+    journaliser("secret", qui=utilisateur_courant() or NOM_ADMIN,
+                action="liaison regeneree", ip=_adresse_client())
+    return jsonify({"ok": True, "liaison": etat_de_la_liaison()})
 
 
 # ------------------- assistant de liaison avec un VPS -------------------

@@ -141,7 +141,9 @@ surveiller à l'œil :
   et son adresse répond toujours.
 - **Clés et secrets** — une console, comme chez un fournisseur de LLM : créer une clé à la
   demande, en révoquer une sans toucher aux autres, et voir ce que **chacune** a consommé
-  (requêtes, jetons, coût, dernier appel). La clé de Codex et OpenClaw, elle, est **créée et posée
+  (requêtes, jetons, dernier appel). Les clés des fournisseurs s'ajoutent en **choisissant**
+  Anthropic, OpenAI, Ollama ou un autre ; la clé interne entre la passerelle et le routeur, elle,
+  se tire toute seule. La clé de Codex et OpenClaw, elle, est **créée et posée
   toute seule** — rien à saisir — et ne s'affiche jamais. Une clé destinée à une application est
   montrée **une seule fois** : la base n'en garde que l'empreinte.
   Le panneau n'atteint ni le compose ni le `.env` de l'hôte — les lui monter lui donnerait de quoi
