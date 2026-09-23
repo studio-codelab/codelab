@@ -6097,6 +6097,12 @@ def _phrases_du_script(page):
                 continue
             if re.search(r"[/<>{}#=]|\bfunction\b|\bvar\b", t):
                 continue
+            # MEME ARTEFACT QUE LE SIGNE EGAL, autre forme. Le texte pris
+            # entre deux chaines voisines est du code, et une concatenation
+            # commence ou finit par « + » : « + (c.requetes ? » en est un.
+            # Aucune phrase ne commence ni ne finit par un plus.
+            if t.strip().startswith("+") or t.strip().endswith("+"):
+                continue
             phrases.append(t.replace("\\'", "'"))
     return phrases
 
@@ -10842,6 +10848,9 @@ class _FauxResultat:
     def fetchone(self):
         return self._lignes[0] if self._lignes else None
 
+    def fetchall(self):
+        return list(self._lignes)
+
 
 class _FauxPostgres:
     """Un Postgres de papier : il note les ordres recus et rend ce qu'on lui
@@ -10853,13 +10862,21 @@ class _FauxPostgres:
 
     def __init__(self, reponses=None):
         self.ordres = []
+        self.dernier_id = 100
         self._reponses = dict(reponses or {})
 
     def execute(self, sql, params=()):
-        self.ordres.append((" ".join(sql.split()), params))
+        plat = " ".join(sql.split())
+        self.ordres.append((plat, params))
         for motif, lignes in self._reponses.items():
-            if motif in " ".join(sql.split()):
+            if motif in plat:
                 return _FauxResultat(lignes)
+        # « RETURNING id » doit rendre une ligne : l'appelant lit [0] dessus,
+        # et un resultat vide le ferait tomber sur None -- ce qui ressemble a
+        # un bug du panneau alors que c'est un trou du faux.
+        if "RETURNING id" in plat:
+            self.dernier_id += 1
+            return _FauxResultat([(self.dernier_id,)])
         return _FauxResultat([])
 
     def __enter__(self):
@@ -10920,7 +10937,7 @@ def test_aucune_reponse_de_la_page_ne_porte_une_valeur_complete(cles_admin):
     la page recoit. Aucun octet de la valeur ne doit s'y trouver."""
     client, _ = cles_admin
     valeur = "sk-secret-a-ne-jamais-revoir-0042"
-    r = client.put("/api/cles/secrets", json={"id": "anthropic", "valeur": valeur})
+    r = client.put("/api/cles/fournisseur", json={"id": "anthropic", "valeur": valeur})
     assert r.status_code == 200, r.data
     assert valeur not in r.get_data(as_text=True)
 
@@ -10944,8 +10961,15 @@ def test_aucune_route_des_cles_ne_prend_de_valeur_dans_son_chemin():
               if str(r).startswith("/api/cles")]
     assert regles, "les routes des cles ont disparu"
     for regle in regles:
-        assert not regle.arguments, (
-            f"{regle} porte une variable de chemin : une valeur peut y passer")
+        # Un IDENTIFIANT de ligne a le droit d'y passer -- c'est un numero,
+        # pas un secret, et revoquer une cle parmi d'autres le demande. Ce
+        # qui est interdit, c'est qu'une VALEUR puisse y tenir : le
+        # convertisseur « int » de Werkzeug refuse tout ce qui n'est pas un
+        # entier, donc aucune cle ne peut emprunter ce chemin.
+        for nom in regle.arguments:
+            assert f"<int:{nom}>" in str(regle), (
+                f"{regle} porte « {nom} » sans le convertisseur int : une "
+                f"valeur pourrait y passer")
 
 
 def test_le_journal_ne_recoit_que_le_nom_du_reglage(cles_admin, monkeypatch):
@@ -10957,15 +10981,18 @@ def test_le_journal_ne_recoit_que_le_nom_du_reglage(cles_admin, monkeypatch):
     monkeypatch.setattr(app, "journaliser",
                         lambda genre, **d: vus.append((genre, d)))
     valeur = "sk-secret-de-journal-9999"
-    assert client.put("/api/cles/secrets",
+    assert client.put("/api/cles/fournisseur",
                       json={"id": "openai", "valeur": valeur}).status_code == 200
     assert vus, "l'operation n'a rien journalise du tout"
     for _, details in vus:
         texte = " ".join(str(v) for v in details.values())
         assert valeur not in texte
         assert "9999" not in texte, "meme l'apercu n'a rien a faire dans le journal"
-    assert any(d.get("cle") == "openai" for _, d in vus), (
-        "le journal doit dire QUEL reglage a change")
+    # LE NOM DE LA VARIABLE et pas l'identifiant du catalogue : c'est ce qui
+    # designe la valeur sans ambiguite, y compris pour un fournisseur ajoute
+    # a la main, qui n'a pas d'identifiant.
+    assert any(d.get("cle") == "OPENAI_API_KEY" for _, d in vus), (
+        "le journal doit dire QUELLE variable a change")
 
 
 def test_la_page_des_cles_est_reservee_a_l_administrateur(tmp_path, monkeypatch):
@@ -10992,10 +11019,11 @@ def test_la_page_des_cles_est_reservee_a_l_administrateur(tmp_path, monkeypatch)
     # La session est bien ouverte : c'est le ROLE qui est refuse, pas elle.
     assert client.get("/api/mon-compte").status_code == 200
     assert client.get("/api/cles").status_code == 403
-    assert client.post("/api/cles/llm", json={}).status_code == 403
-    assert client.delete("/api/cles/llm").status_code == 403
-    assert client.put("/api/cles/secrets",
+    assert client.post("/api/cles/llm", json={"poste": True}).status_code == 403
+    assert client.delete("/api/cles/llm/1").status_code == 403
+    assert client.put("/api/cles/fournisseur",
                       json={"id": "openai", "valeur": "x"}).status_code == 403
+    assert client.post("/api/cles/liaison").status_code == 403
 
 
 # ------------------------ ce qui s'ecrit sur le disque ------------------
@@ -11052,7 +11080,7 @@ def test_une_valeur_a_retour_a_la_ligne_est_refusee(cles_admin):
     assert app.secret_propre("sk-x\nLD_PRELOAD=/tmp/mechant.so") is None
     assert app.secret_propre("sk-x\rAUTRE=1") is None
 
-    r = client.put("/api/cles/secrets",
+    r = client.put("/api/cles/fournisseur",
                    json={"id": "openai", "valeur": "sk-x\nAUTRE=1"})
     assert r.status_code == 400
     assert "AUTRE" not in open(app.FOURNISSEURS_ENV_FICHIER, encoding="utf-8").read() \
@@ -11103,7 +11131,7 @@ def test_l_empreinte_du_panneau_est_celle_de_la_passerelle():
 def test_creer_une_cle_l_inscrit_la_pose_et_ne_la_renvoie_pas(cles_admin):
     """Le geste complet, en une requete. Et la cle ne revient pas."""
     client, faux = cles_admin
-    r = client.post("/api/cles/llm", json={})
+    r = client.post("/api/cles/llm", json={"poste": True})
     assert r.status_code == 200, r.data
     corps = r.get_data(as_text=True)
 
@@ -11126,7 +11154,7 @@ def test_creer_une_cle_l_inscrit_la_pose_et_ne_la_renvoie_pas(cles_admin):
 def test_le_fichier_de_cle_n_est_lisible_que_par_son_proprietaire(cles_admin):
     """Ce fichier est monte dans /workspace, que d'autres processus voient."""
     client, _ = cles_admin
-    assert client.post("/api/cles/llm", json={}).status_code == 200
+    assert client.post("/api/cles/llm", json={"poste": True}).status_code == 200
     mode = stat.S_IMODE(os.stat(app.CLE_CODEX_FICHIER).st_mode)
     assert mode == 0o600, oct(mode)
 
@@ -11135,11 +11163,11 @@ def test_creer_une_cle_revoque_celle_qu_elle_remplace(cles_admin):
     """Deux cles vivantes pour un seul poste, et plus personne ne sait
     laquelle sert -- ni laquelle revoquer le jour ou il le faut."""
     client, faux = cles_admin
-    assert client.post("/api/cles/llm", json={}).status_code == 200
+    assert client.post("/api/cles/llm", json={"poste": True}).status_code == 200
     premiere = open(app.CLE_CODEX_FICHIER, encoding="utf-8").read().strip()
 
     faux.ordres.clear()
-    assert client.post("/api/cles/llm", json={}).status_code == 200
+    assert client.post("/api/cles/llm", json={"poste": True}).status_code == 200
     seconde = open(app.CLE_CODEX_FICHIER, encoding="utf-8").read().strip()
     assert seconde != premiere
 
@@ -11153,15 +11181,23 @@ def test_revoquer_retire_le_fichier_et_desarme_openclaw(cles_admin):
     """Les deux, et pas seulement la base : un poste qui croit avoir une cle
     et recoit un refus a chaque appel ne se diagnostique pas."""
     client, faux = cles_admin
-    assert client.post("/api/cles/llm", json={}).status_code == 200
+    r = client.post("/api/cles/llm", json={"poste": True})
+    assert r.status_code == 200, r.data
+    ident = r.get_json()["id"]
     posee = open(app.CLE_CODEX_FICHIER, encoding="utf-8").read().strip()
 
-    assert client.delete("/api/cles/llm").status_code == 200
-    assert not os.path.exists(app.CLE_CODEX_FICHIER)
+    # La revocation passe par l'IDENTIFIANT de la ligne : c'est ce qui permet
+    # d'en couper une parmi plusieurs. Le faux doit donc rendre la ligne que
+    # la route relit avant de la revoquer.
+    faux._reponses["SELECT key_hash, key_name, revoked_at"] = [
+        (app.empreinte_cle(posee), "poste de developpement", None)]
+    assert client.delete(f"/api/cles/llm/{ident}").status_code == 200
+    assert not os.path.exists(app.CLE_CODEX_FICHIER), (
+        "le fichier est reste : le poste croit avoir une cle et recoit un refus")
     config = json.load(open(app.OPENCLAW_FICHIER, encoding="utf-8"))
     assert config["models"]["providers"]["codelab"]["apiKey"] == ""
-    assert any("revoked_at=now()" in s and p[0] == app.empreinte_cle(posee)
-               for s, p in faux.ordres)
+    assert any("UPDATE llm_api_keys SET revoked_at=now() WHERE id=" in s
+               for s, _ in faux.ordres)
 
 
 def test_openclaw_garde_ses_reglages_quand_la_cle_change():
@@ -11200,7 +11236,7 @@ def test_l_etat_distingue_les_trois_facons_de_ne_pas_marcher(cles_admin, monkeyp
     rendait la situation illisible avant cette page.
     """
     client, _ = cles_admin
-    assert client.post("/api/cles/llm", json={}).status_code == 200
+    assert client.post("/api/cles/llm", json={"poste": True}).status_code == 200
     posee = open(app.CLE_CODEX_FICHIER, encoding="utf-8").read().strip()
     empreinte = app.empreinte_cle(posee)
 
@@ -11287,15 +11323,20 @@ def test_le_panneau_nomme_les_variables_que_les_services_lisent():
     # LITELLM_MASTER_KEY est lue par le programme LiteLLM lui-meme, pas par
     # son fichier de configuration : c'est la seule qu'on ne peut pas
     # retrouver dans un des deux fichiers du depot.
-    connues_du_routeur = {"LITELLM_MASTER_KEY", "OLLAMA_BASE_URL"}
-    for spec in app.SECRETS_GERES:
-        for quel, nom in spec["ou"]:
-            if quel == "llm":
-                assert nom in passerelle, (
-                    f"{nom} n'est lue nulle part dans llm/app.py")
-            else:
-                assert nom in routeur or nom in connues_du_routeur, (
-                    f"{nom} n'est lue nulle part par le routeur")
+    connues_du_routeur = {"OLLAMA_BASE_URL"}
+    for spec in app.FOURNISSEURS:
+        nom = spec["variable"]
+        if spec.get("ou") == "llm":
+            assert nom in passerelle, (
+                f"{nom} n'est lue nulle part dans llm/app.py")
+        else:
+            assert nom in routeur or nom in connues_du_routeur, (
+                f"{nom} n'est lue nulle part par le routeur")
+    # La liaison, elle, est lue des deux cotes -- c'est sa definition meme.
+    for d in app.LIAISON:
+        source = passerelle if d["quel"] == "llm" else routeur
+        assert d["nom"] in source or d["nom"] == "LITELLM_MASTER_KEY", (
+            f"{d['nom']} n'est lue nulle part")
 
 
 def test_l_entrypoint_postgres_n_ecrase_jamais_une_valeur_deja_posee():
@@ -11778,3 +11819,507 @@ def test_l_extension_vscode_est_proposee_et_pas_imposee():
     assert 'if [ ! -f "$VSCODE_DIR/extensions.json" ]; then' in bloc, (
         "le fichier est reecrit a chaque demarrage : une extension ajoutee "
         "a la main par l'utilisateur disparaitrait")
+
+
+# ---------- 44. la console des cles : creer, revoquer, suivre ------------
+#
+# DEMANDE : « controler les cles LLM comme si j'etais un service de LLM --
+# creer a la demande, supprimer celles qui existent, suivre l'utilisation de
+# chacune », et « renseigner a la main le moins possible ».
+#
+# LE POINT DUR ETAIT EN BASE. llm_usage ne notait que le couple
+# (utilisateur, application) : deux cles du meme poste etaient
+# indistinguables, et « suivre chacune » etait impossible quoi qu'on affiche.
+# La colonne key_id est ce qui rend la page possible du tout, et c'est elle
+# que les premiers tests tiennent.
+
+
+def test_la_consommation_porte_la_cle_qui_a_paye():
+    """Sans key_id, aucune page ne peut dire ce qu'une cle a consomme."""
+    source = (_racine_llm() / "app.py").read_text(encoding="utf-8")
+    # LE CREATE TABLE SEUL, pas tout le bloc SCHEMA : l'ALTER qui suit parle
+    # aussi de key_id, et un decoupage plus large laissait passer un mutant
+    # qui retirait la colonne de la creation. C'est ce mutant qui a ecrit
+    # cette version du test.
+    debut = source.index("CREATE TABLE IF NOT EXISTS llm_usage")
+    creation = source[debut:source.index(");", debut)]
+    assert "key_id" in creation, "llm_usage ne porte pas la cle a sa creation"
+
+    # LA LISTE DES COLONNES de l'INSERT, pas ses valeurs : « qui.get("key_id") »
+    # cote Python passait pour la colonne SQL, et un INSERT ampute passait au
+    # travers.
+    debut = source.index("INSERT INTO llm_usage")
+    colonnes = source[debut:source.index("VALUES", debut)]
+    assert "key_id" in colonnes, (
+        "la colonne n'est pas dans l'INSERT : la consommation resterait "
+        "anonyme, et la page afficherait des zeros sans rien de casse")
+    assert 'qui.get("key_id")' in source, (
+        "la colonne est listee mais rien ne la remplit")
+
+
+def test_les_bases_deja_creees_recoivent_la_colonne():
+    """CREATE TABLE IF NOT EXISTS ne touche pas une table existante.
+
+    Sans ALTER, une installation d'avant ce changement continuerait
+    d'enregistrer sans cle -- en silence, et la page afficherait des zeros
+    partout sans que rien ne soit casse.
+    """
+    source = (_racine_llm() / "app.py").read_text(encoding="utf-8")
+    assert "ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS key_id" in source
+
+
+def test_l_identite_par_cle_rapporte_l_identifiant():
+    """key_id doit voyager de l'authentification jusqu'a l'ecriture : c'est
+    le seul endroit ou l'on sait encore QUELLE cle a ete presentee."""
+    source = (_racine_llm() / "app.py").read_text(encoding="utf-8")
+    bloc = source[source.index("def identite_par_cle"):]
+    bloc = bloc[:bloc.index("\ndef ")]
+    assert "SELECT user_id, app_id, id FROM llm_api_keys" in bloc
+    assert '"key_id"' in bloc
+
+
+# ------------------------- creer et revoquer ---------------------------
+
+def test_une_cle_d_application_est_montree_une_fois_et_une_seule(cles_admin):
+    """LA difference avec la cle du poste, et elle est voulue.
+
+    La base ne garde que l'empreinte : ne pas montrer une cle destinee a une
+    application exterieure la rendrait inutilisable. On la montre donc une
+    fois -- comme chez n'importe quel service de LLM -- et jamais plus.
+    """
+    client, faux = cles_admin
+    r = client.post("/api/cles/llm",
+                    json={"nom": "Facturier", "application": "facturier"})
+    assert r.status_code == 200, r.data
+    d = r.get_json()
+    assert d["valeur"].startswith("cl_"), "la cle n'est pas rendue a la creation"
+
+    # Inscrite sous son EMPREINTE, jamais en clair.
+    inserts = [(s, p) for s, p in faux.ordres if s.startswith("INSERT INTO llm_api_keys")]
+    assert len(inserts) == 1
+    assert inserts[0][1][0] == app.empreinte_cle(d["valeur"])
+    assert d["valeur"] not in " ".join(str(p) for p in inserts[0][1])
+
+    # Et elle n'est pas posee dans les fichiers du poste : ce n'est pas la
+    # cle des agents.
+    assert not os.path.exists(app.CLE_CODEX_FICHIER)
+
+
+def test_la_cle_du_poste_n_est_jamais_montree(cles_admin):
+    """Elle, le panneau l'ecrit la ou elle sert. La montrer n'ouvrirait rien
+    de plus et la laisserait dans un presse-papier."""
+    client, _ = cles_admin
+    r = client.post("/api/cles/llm", json={"poste": True})
+    assert r.status_code == 200, r.data
+    corps = r.get_data(as_text=True)
+    assert "valeur" not in r.get_json(), "la cle du poste est revenue au navigateur"
+    posee = open(app.CLE_CODEX_FICHIER, encoding="utf-8").read().strip()
+    assert posee not in corps
+
+
+def test_le_nom_et_l_application_d_une_cle_sont_inscrits(cles_admin):
+    """Ce sont eux qui rendent la comptabilite lisible : « 3,80 $ » sans
+    savoir de qui ne sert a rien."""
+    client, faux = cles_admin
+    client.post("/api/cles/llm", json={"nom": "Poste de Marie",
+                                       "application": "Mon Projet"})
+    insert = [p for s, p in faux.ordres if s.startswith("INSERT INTO llm_api_keys")][0]
+    assert insert[1] == "Poste de Marie"
+    # L'application passe par valid_name : elle sert de cle de regroupement,
+    # et « Mon Projet » et « mon-projet » ne doivent pas faire deux colonnes.
+    assert insert[3] == "mon-projet", insert
+
+
+def test_revoquer_une_cle_ne_touche_pas_les_autres(cles_admin):
+    """C'est tout l'interet d'avoir plusieurs cles : couper celle qui derape
+    sans arreter le poste de developpement."""
+    client, faux = cles_admin
+    faux._reponses["SELECT key_hash, key_name, revoked_at"] = [
+        ("empreinte-d-une-autre", "facturier", None)]
+    assert client.delete("/api/cles/llm/7").status_code == 200
+    majs = [(s, p) for s, p in faux.ordres if "SET revoked_at=now()" in s]
+    assert len(majs) == 1, majs
+    assert majs[0][1] == (7,), "la revocation ne vise pas la ligne demandee"
+
+
+def test_revoquer_une_cle_inconnue_est_un_refus_et_pas_un_silence(cles_admin):
+    client, faux = cles_admin
+    faux._reponses["SELECT key_hash, key_name, revoked_at"] = []
+    assert client.delete("/api/cles/llm/999").status_code == 404
+
+
+# --------------------- la cle du poste s'amorce seule -------------------
+
+def test_la_cle_du_poste_est_creee_sans_qu_on_la_demande(cles_admin, monkeypatch):
+    """« Je veux que la cle CodeLab LLM soit creee et configuree par
+    defaut. » Le premier demarrage ne doit rien demander a personne."""
+    _, faux = cles_admin
+    assert not os.path.exists(app.CLE_CODEX_FICHIER)
+    faux._reponses["SELECT 1 FROM llm_api_keys"] = []
+    assert app.tenir_la_cle_du_poste() is True
+    posee = open(app.CLE_CODEX_FICHIER, encoding="utf-8").read().strip()
+    assert posee.startswith("cl_")
+    config = json.load(open(app.OPENCLAW_FICHIER, encoding="utf-8"))
+    assert config["models"]["providers"]["codelab"]["apiKey"] == posee
+
+
+def test_la_cle_du_poste_ne_se_recree_pas_a_chaque_tour(cles_admin):
+    """Appelee depuis la boucle de surveillance, elle tourne toutes les
+    quelques secondes. Recreer la cle a chaque tour remplirait la base et
+    casserait Codex en boucle."""
+    _, faux = cles_admin
+    faux._reponses["SELECT 1 FROM llm_api_keys"] = []
+    assert app.tenir_la_cle_du_poste() is True
+    # Desormais le fichier existe ET la base la dit vivante.
+    faux._reponses["SELECT 1 FROM llm_api_keys"] = [(1,)]
+    faux.ordres.clear()
+    assert app.tenir_la_cle_du_poste() is False
+    assert not [s for s, _ in faux.ordres if s.startswith("INSERT")], (
+        "une cle de plus a ete creee alors qu'une vivante etait deja posee")
+
+
+def test_l_amorcage_de_la_cle_ne_fait_jamais_tomber_le_tour(monkeypatch):
+    """Postgres redemarre, le disque est plein, la base n'existe pas encore :
+    aucun de ces cas ne doit interrompre la surveillance des applications."""
+    def _tombe(*a, **kw):
+        raise RuntimeError("Postgres ne repond pas")
+    monkeypatch.setattr(app, "_pg_connexion", _tombe)
+    monkeypatch.setattr(app, "cle_codex_posee", lambda: "cl_posee")
+    app._cle_poste_plainte["dit"] = False
+    assert app.tenir_la_cle_du_poste() is False
+
+
+def test_la_boucle_de_surveillance_tient_la_cle():
+    """Dans monitor_tick et pas au demarrage : a la premiere installation,
+    Postgres n'est pas pret quand le panneau se leve, et un geste tente une
+    seule fois aurait echoue une seule fois, pour toujours."""
+    source = (_racine_app_manager() / "app.py").read_text(encoding="utf-8")
+    bloc = source[source.index("def monitor_tick():"):]
+    bloc = bloc[:bloc.index("\n    apps = load()")]
+    assert "tenir_la_cle_du_poste()" in bloc
+    # La liaison aussi : elle s'engendre pour la meme raison, et rien ne la
+    # poserait sans cet appel -- la page attendrait indefiniment.
+    assert "tenir_la_cle_de_liaison()" in bloc
+
+
+# ------------------------------ le suivi -------------------------------
+
+def test_la_liste_des_cles_ne_fait_pas_une_requete_par_cle():
+    """Une boucle « pour chaque cle, compter sa consommation » ferait N+1
+    requetes sur une table qui grossit a chaque appel de modele."""
+    source = (_racine_app_manager() / "app.py").read_text(encoding="utf-8")
+    bloc = source[source.index("def lister_cles_llm():"):]
+    bloc = bloc[:bloc.index("\ndef ")]
+    assert "LEFT JOIN llm_usage" in bloc, (
+        "la consommation n'est pas jointe : ce serait une requete par cle")
+    # LEFT et pas INNER : une cle qui n'a jamais servi doit rester dans la
+    # liste -- c'est justement celle qu'on vient revoquer.
+    assert "INNER JOIN" not in bloc
+
+
+def test_la_periode_de_consommation_est_bornee(cles_admin, monkeypatch):
+    """Une page qui demanderait dix ans ferait lire toute la table a chaque
+    ouverture."""
+    vus = []
+    monkeypatch.setattr(app, "_pg_connexion",
+                        lambda base: _FauxPostgres({"SELECT COALESCE": [(0, 0, 0)]}))
+    # Le plancher est UN jour, pas la valeur par defaut : une demande
+    # negative est absurde, et la borner au plus petit intervalle utile
+    # protege la lecture sans inventer une intention.
+    for demande, attendu in ((99999, 365), (0, 30), (-5, 1), (7, 7), (None, 30)):
+        assert app.consommation_llm(demande)["jours"] == attendu, demande
+    assert vus == []
+
+
+def test_aucune_valeur_complete_ne_sort_de_la_console(cles_admin):
+    """Le test qui compte, reconduit sur la nouvelle page : on pose une vraie
+    valeur de fournisseur et on relit TOUT ce que la console recoit."""
+    client, _ = cles_admin
+    valeur = "sk-secret-de-la-console-0042"
+    assert client.put("/api/cles/fournisseur",
+                      json={"id": "anthropic", "valeur": valeur}).status_code == 200
+    corps = client.get("/api/cles").get_data(as_text=True)
+    assert valeur not in corps
+    assert "sk-secret" not in corps
+    assert "0042" in corps, "l'apercu des quatre derniers devrait, lui, etre la"
+
+
+def test_la_console_dit_quand_la_base_ne_repond_pas(cles_admin, monkeypatch):
+    """Une passerelle jamais demarree affiche les memes zeros qu'une
+    passerelle en panne. Les confondre ferait chercher un bug la ou il n'y a
+    rien."""
+    client, _ = cles_admin
+
+    def _tombe(base):
+        raise RuntimeError("could not connect to server")
+    monkeypatch.setattr(app, "_pg_connexion", _tombe)
+    d = client.get("/api/cles").get_json()
+    assert d["base"] is False
+    assert "could not connect" in d["empechement"]
+    assert d["cles"] == [] and d["consommation"] is None
+
+
+def test_une_base_qui_repond_puis_lache_ne_passe_pas_pour_vide(cles_admin, monkeypatch):
+    """DEUX pannes distinctes, et la seconde manquait.
+
+    Le ping peut passer et la lecture echouer juste apres -- une table
+    absente, un droit retire, une connexion coupee entre les deux. Sans ce
+    test, un mutant qui avalait l'erreur affichait « aucune cle » sur une
+    base parfaitement joignable : le pire des deux mondes, puisque rien
+    n'invite alors a chercher.
+    """
+    client, _ = cles_admin
+    monkeypatch.setattr(app, "_pg_llm_dispo", lambda: (True, ""))
+    def _tombe():
+        raise RuntimeError("relation llm_api_keys does not exist")
+    monkeypatch.setattr(app, "lister_cles_llm", _tombe)
+    d = client.get("/api/cles").get_json()
+    assert d["base"] is False, (
+        "la panne de lecture est avalee : la page dirait « aucune cle » "
+        "sur une base qui repond")
+    assert "does not exist" in d["empechement"]
+
+
+# ------------------------------ la page --------------------------------
+
+def test_la_console_montre_un_tableau_et_pas_des_cartes():
+    """On vient y comparer des chiffres d'une ligne a l'autre. Des cartes
+    empilees demandent de retenir ce que des colonnes alignees donnent."""
+    page = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
+    bloc = page[page.index("function peindreLesCles("):]
+    bloc = bloc[:bloc.index("\nfunction ")]
+    assert "<table" in bloc and "tbl-cles" in bloc
+    for colonne in ("Requêtes", "Jetons", "Dernier appel"):
+        assert colonne in bloc, f"la colonne « {colonne} » manque au tableau"
+
+
+def test_la_page_ne_promet_pas_une_protection_qu_elle_n_offre_pas():
+    """Le nom et l'application sont une ETIQUETTE COMPTABLE. Les presenter
+    comme une restriction alors que la passerelle ne controle rien serait
+    pire que de ne rien promettre du tout."""
+    page = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
+    debut = page.index("<b>Les clés</b>")
+    # Espaces normalises : le HTML replie ses lignes, et la locution qu'on
+    # cherche y est coupee en deux. Un test qui en dependrait tomberait a la
+    # premiere reindentation du fichier.
+    carte = " ".join(page[debut:debut + 1800].split())
+    assert "étiquette comptable" in carte
+    assert "restreignent pas" in carte
+
+
+def test_la_cle_montree_une_fois_le_dit_sans_detour():
+    """Perdue, elle ne se retrouve pas : la base n'en garde que l'empreinte.
+    Une boite qui ne le dirait pas ferait fermer la page sans copier."""
+    page = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
+    bloc = page[page.index("function montrerLaCleUneFois("):]
+    bloc = bloc[:bloc.index("\nasync function ")]
+    assert "plus jamais affichée" in bloc
+    assert "empreinte" in bloc
+
+
+def test_la_console_est_reservee_a_l_administrateur():
+    """Les quatre routes, y compris les deux nouvelles."""
+    source = (_racine_app_manager() / "app.py").read_text(encoding="utf-8")
+    for route in ('@flask_app.get("/api/cles")',
+                  '@flask_app.post("/api/cles/llm")',
+                  '@flask_app.delete("/api/cles/llm/<int:ident>")',
+                  '@flask_app.put("/api/cles/fournisseur")',
+                  '@flask_app.post("/api/cles/liaison")'):
+        debut = source.index(route)
+        assert "@require_admin" in source[debut:debut + 120], (
+            f"{route} n'est pas reservee a l'administrateur")
+
+
+# ---------- 45. fournisseurs au choix, liaison a part, et rien a payer ----
+#
+# TROIS DEMANDES, et la premiere etait une question : « a quoi correspond
+# la cle partagee avec le routeur ? » Elle revelait le defaut -- la page melait
+# dans une meme liste figee la cle interne de la liaison et les cles des
+# comptes exterieurs. Deux choses sans rapport :
+#
+#   une cle de FOURNISSEUR   vient de l'exterieur, se paie, donne des modeles ;
+#   la cle de LIAISON        un secret entre deux de NOS conteneurs, qui ne
+#                            veut rien dire ailleurs et se tire au hasard.
+
+
+def test_la_liaison_n_est_pas_dans_le_catalogue_des_fournisseurs():
+    """Ce sont deux choses differentes, et les melanger a produit la
+    question de Lucas."""
+    variables = {f["variable"] for f in app.FOURNISSEURS}
+    for d in app.LIAISON:
+        assert d["nom"] not in variables, (
+            f"{d['nom']} est la liaison interne, pas un fournisseur")
+
+
+def test_la_liaison_se_pose_toute_seule_et_des_deux_cotes(cles_admin):
+    """« Renseigner a la main le moins possible. » Un secret partage entre
+    deux de nos conteneurs n'a aucune raison d'etre saisi : personne ne le
+    delivre, et le demander revenait a faire recopier un « openssl rand »
+    dans deux fichiers."""
+    assert app.etat_de_la_liaison()["definie"] is False
+    assert app.tenir_la_cle_de_liaison() is True
+    etat = app.etat_de_la_liaison()
+    assert etat["definie"] and etat["accordee"]
+    # LA MEME valeur des deux cotes : deux valeurs differentes sont la panne
+    # la plus muette de la stack.
+    valeurs = [app.lire_env_fichier(app.FICHIERS_SECRETS[d["quel"]])[d["nom"]]
+               for d in app.LIAISON]
+    assert len(set(valeurs)) == 1 and valeurs[0]
+
+
+def test_la_liaison_ne_change_pas_a_chaque_tour(cles_admin):
+    """Appelee depuis la boucle de surveillance : la regenerer a chaque tour
+    ferait refuser le routeur en permanence, puisqu'il lit sa valeur au
+    demarrage."""
+    assert app.tenir_la_cle_de_liaison() is True
+    avant = app.lire_env_fichier(app.FICHIERS_SECRETS["llm"])["CODELAB_LLM_AMONT_KEY"]
+    assert app.tenir_la_cle_de_liaison() is False
+    apres = app.lire_env_fichier(app.FICHIERS_SECRETS["llm"])["CODELAB_LLM_AMONT_KEY"]
+    assert avant == apres
+
+
+def test_une_liaison_desaccordee_est_reparee_et_nommee(cles_admin):
+    """Deux valeurs differentes : le routeur refuse et parle
+    d'authentification sans dire laquelle. C'est la panne qu'on ne trouve
+    pas."""
+    app.ecrire_env_secrets("llm", {"CODELAB_LLM_AMONT_KEY": "une-valeur"})
+    app.ecrire_env_secrets("fournisseurs", {"LITELLM_MASTER_KEY": "une-autre"})
+    etat = app.etat_de_la_liaison()
+    assert etat["definie"] is True and etat["accordee"] is False, (
+        "le desaccord n'est pas vu : la page dirait que tout va bien")
+    assert app.tenir_la_cle_de_liaison() is True
+    assert app.etat_de_la_liaison()["accordee"] is True
+
+
+def test_la_liaison_ne_se_saisit_pas_par_la_route_des_fournisseurs(cles_admin):
+    """Sinon on retomberait sur ce qu'on vient de retirer : une valeur
+    interne qu'on demande a l'utilisateur."""
+    client, _ = cles_admin
+    r = client.put("/api/cles/fournisseur",
+                   json={"variable": "LITELLM_MASTER_KEY", "valeur": "x"})
+    assert r.status_code == 400
+    assert "régénère" in r.get_json()["error"].lower()
+
+
+# ------------------------ le choix du fournisseur ----------------------
+
+def test_le_catalogue_ne_propose_que_ce_qui_n_est_pas_deja_pose(cles_admin):
+    """Proposer d'ajouter ce qui est deja la ferait deux lignes pour une
+    valeur."""
+    client, _ = cles_admin
+    d = client.get("/api/cles").get_json()
+    assert {c["id"] for c in d["catalogue"]} == {f["id"] for f in app.FOURNISSEURS}
+
+    client.put("/api/cles/fournisseur",
+               json={"id": "anthropic", "valeur": "sk-ant-quelque-chose"})
+    d = client.get("/api/cles").get_json()
+    assert "anthropic" not in {c["id"] for c in d["catalogue"]}
+    assert "anthropic" in {f["id"] for f in d["fournisseurs"]}
+
+
+def test_un_fournisseur_hors_catalogue_s_ajoute_par_son_nom_de_variable(cles_admin):
+    """« Anthropic, OpenAI ou autre. » L'autre doit exister."""
+    client, _ = cles_admin
+    r = client.put("/api/cles/fournisseur",
+                   json={"variable": "mistral_api_key", "valeur": "sk-mistral-x"})
+    assert r.status_code == 200, r.data
+    # Normalise en majuscules : une variable d'environnement l'est.
+    valeurs = app.lire_env_fichier(app.FICHIERS_SECRETS["fournisseurs"])
+    assert valeurs.get("MISTRAL_API_KEY") == "sk-mistral-x"
+    d = client.get("/api/cles").get_json()
+    ligne = [f for f in d["fournisseurs"] if f["variable"] == "MISTRAL_API_KEY"]
+    assert ligne and ligne[0]["connu"] is False
+
+
+def test_un_nom_de_variable_quelconque_est_refuse(cles_admin):
+    """LE point de securite de ce champ. Sans contrainte, il deviendrait une
+    facon d'ajouter n'importe quelle variable d'environnement au conteneur
+    du routeur -- LD_PRELOAD y chargerait une bibliotheque au demarrage."""
+    client, _ = cles_admin
+    for mauvais in ("LD_PRELOAD", "PATH", "anything", "A_B", "PATH_API_KEY_"):
+        r = client.put("/api/cles/fournisseur",
+                       json={"variable": mauvais, "valeur": "x"})
+        assert r.status_code == 400, f"« {mauvais} » a ete accepte"
+    valeurs = app.lire_env_fichier(app.FICHIERS_SECRETS["fournisseurs"])
+    assert "LD_PRELOAD" not in valeurs and "PATH" not in valeurs
+
+
+def test_la_page_dit_quels_modeles_tombent_sans_la_cle():
+    """La seule chose vraiment utile devant une cle : « Anthropic » ne dit
+    rien, « codelab-coding et codelab-reasoning » dit tout."""
+    page = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
+    bloc = page[page.index("function peindreFournisseurs("):]
+    bloc = bloc[:bloc.index("\nfunction ")]
+    # LA CONDITION, et rien qu'elle. Deux decoupages plus larges ont echoue
+    # avant celui-ci : le mutant qui la remplacait par « false » laissait
+    # « f.modeles » dans les branches du ternaire, donc l'affectation
+    # entiere le contenait encore. Ce qu'on veut dire est precis -- c'est la
+    # LISTE DES MODELES qui decide de ce qui s'affiche.
+    depart = bloc.index("const modeles =") + len("const modeles =")
+    condition = bloc[depart:bloc.index("?", depart)]
+    assert "f.modeles" in condition, (
+        f"ce n'est plus la liste des modeles qui decide : « {condition.strip()} »")
+    assert "Sert" in bloc
+
+
+def test_les_modeles_annonces_sont_ceux_du_routeur():
+    """MODELES_PAR_FOURNISSEUR est recopie a la main : litellm/config.yaml
+    n'est pas monte dans le conteneur du panneau. Sans ce test, la page
+    promettrait qu'une cle sert un modele que personne ne demande."""
+    import yaml
+    chemin = os.path.join(_racine_depot(), "litellm", "config.yaml")
+    config = yaml.safe_load(open(chemin, encoding="utf-8"))
+    attendu = {}
+    for entree in config["model_list"]:
+        params = entree["litellm_params"]
+        for champ in ("api_key", "api_base"):
+            valeur = str(params.get(champ) or "")
+            if valeur.startswith("os.environ/"):
+                attendu.setdefault(valeur.split("/", 1)[1], []).append(
+                    entree["model_name"])
+    for variable, modeles in attendu.items():
+        assert app.MODELES_PAR_FOURNISSEUR.get(variable) == modeles, (
+            f"{variable} sert {modeles} dans litellm/config.yaml, mais la "
+            f"page annonce {app.MODELES_PAR_FOURNISSEUR.get(variable)}")
+    assert set(app.MODELES_PAR_FOURNISSEUR) == set(attendu), (
+        "la table du panneau et le routeur ne nomment pas les memes variables")
+
+
+def test_les_identifiants_postgres_ne_passent_pas_pour_des_fournisseurs(cles_admin):
+    """llm.env porte AUSSI le mot de passe Postgres de codelab-llm. Le lister
+    comme une cle de fournisseur inviterait a l'effacer."""
+    client, _ = cles_admin
+    # POSTGRES_SSL_KEY et pas POSTGRES_PASSWORD : le second est deja ecarte
+    # par le motif des noms de variables, donc il n'eprouvait pas le filtre.
+    # Le premier, lui, finit par « _KEY » et passerait sans lui -- c'est le
+    # mutant qui a ecrit cette version du test.
+    app.ecrire_env_secrets("llm", {"POSTGRES_PASSWORD": "motdepasse",
+                                   "POSTGRES_SSL_KEY": "un-certificat",
+                                   "OPENROUTER_API_KEY": "sk-or-x"})
+    d = client.get("/api/cles").get_json()
+    variables = {f["variable"] for f in d["fournisseurs"]}
+    assert "OPENROUTER_API_KEY" in variables
+    assert not [v for v in variables if v.startswith("POSTGRES_")], (
+        f"un identifiant Postgres est propose comme cle de fournisseur : "
+        f"{sorted(variables)}")
+
+
+# ------------------------------ c'est gratuit ---------------------------
+
+def test_aucun_prix_n_est_affiche():
+    """Demande explicitement : retirer la rubrique sur le prix, parce que le
+    service doit etre gratuit.
+
+    La passerelle continue de l'enregistrer -- la colonne existe et LiteLLM
+    la remplit -- mais mettre un prix devant quelqu'un a qui le service est
+    offert ne l'informe pas, cela le fait hesiter avant chaque appel.
+    """
+    page = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
+    debut = page.index('<div class="onglet-p" id="param-cles">')
+    fin = page.index('<div class="onglet-p" id="param-categories">')
+    assert "Coût" not in page[debut:fin], "un prix est affiche dans la page"
+    for fonction in ("peindreConsommation", "peindreLesCles"):
+        bloc = page[page.index(f"function {fonction}("):]
+        bloc = bloc[:bloc.index("\nfunction ")]
+        assert "Coût" not in bloc and "cout(" not in bloc, (
+            f"{fonction} affiche encore un prix")
