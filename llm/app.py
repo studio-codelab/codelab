@@ -29,6 +29,7 @@ elle porte un vrai travail, pas quand elle porte un POST.
     Commande : uvicorn app:app --host 0.0.0.0 --port 8080
 """
 import argparse
+import asyncio
 import base64
 import hashlib
 import json
@@ -99,6 +100,21 @@ PREFIXE_MODELE = "CODELAB_LLM_MODELE_"
 
 DELAI_FOURNISSEUR = 90.0
 DELAI_CONNEXION = 10.0
+
+# COMBIEN DE TEMPS ON GARDE LA CONSOMMATION. llm_usage prend une ligne par
+# requete et n'en perdait aucune : sur un serveur personnel qui tourne des
+# annees, c'est la seule table de ce service qui grossit sans fin, en silence
+# et sans plafond.
+#
+# 400 jours et pas 365 : le panneau ne sait afficher qu'une fenetre de 365
+# jours au maximum (consommation_llm la plafonne), donc au-dela d'un an ces
+# lignes ne sont plus lisibles nulle part -- elles n'occupent que le disque.
+# La marge de 35 jours garantit qu'aucune ligne qu'une fenetre affichable
+# pourrait encore atteindre ne soit supprimee.
+#
+# Mettre 0 desactive la purge, pour qui veut tout garder.
+RETENTION_USAGE_JOURS = int(os.environ.get("CODELAB_LLM_RETENTION_JOURS", "400"))
+PURGE_INTERVALLE = 24 * 3600
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS llm_api_keys (
@@ -222,6 +238,38 @@ def preparer_schema():
         cx.execute(SCHEMA)
 
 
+def purger_la_consommation_ancienne():
+    """Supprime les lignes de llm_usage au-dela de la retention. Renvoie le
+    nombre de lignes supprimees."""
+    if RETENTION_USAGE_JOURS <= 0:
+        return 0
+    with pool().connection() as cx:
+        # make_interval(days => %s) et pas une chaine d'intervalle assemblee :
+        # l'argument reste un entier lie, jamais du texte concatene dans le SQL.
+        r = cx.execute("DELETE FROM llm_usage WHERE timestamp < now()"
+                       " - make_interval(days => %s)", (RETENTION_USAGE_JOURS,))
+        return r.rowcount
+
+
+async def boucle_de_purge():
+    """Une passe au demarrage -- c'est elle qui rattrape une base deja grosse
+    -- puis une par jour. Le conteneur peut tourner des mois sans redemarrer :
+    purger seulement au demarrage ne plafonnerait rien entre deux."""
+    while True:
+        try:
+            # to_thread : psycopg est synchrone, et un DELETE sur une grosse
+            # table bloquerait la boucle d'evenements le temps de s'executer.
+            n = await asyncio.to_thread(purger_la_consommation_ancienne)
+            if n:
+                print(f"[codelab-llm] consommation purgee : {n} ligne(s) de"
+                      f" plus de {RETENTION_USAGE_JOURS} jours", flush=True)
+        except Exception as e:                                    # noqa: BLE001
+            # Une purge ratee ne doit pas emporter le service : le routage
+            # continue, et la passe suivante reessaiera.
+            print(f"[codelab-llm] purge impossible : {e}", flush=True)
+        await asyncio.sleep(PURGE_INTERVALLE)
+
+
 @asynccontextmanager
 async def cycle_de_vie(_app):
     """Ouverture et fermeture propres. @app.on_event est deprecie depuis
@@ -236,9 +284,11 @@ async def cycle_de_vie(_app):
         # pas, et le panneau la lit. Refuser de demarrer ferait redemarrer le
         # conteneur en boucle sans jamais afficher la raison.
         print(f"[codelab-llm] schema non prepare : {e}", flush=True)
+    purge = asyncio.create_task(boucle_de_purge())
     try:
         yield
     finally:
+        purge.cancel()
         await _client.aclose()
         if _pool is not None:
             _pool.close()
