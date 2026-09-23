@@ -11309,18 +11309,23 @@ def test_le_routeur_ne_recoit_ses_cles_que_par_le_fichier_du_panneau():
         assert vus, (
             f"{os.path.basename(chemin)} : le routeur ne lit plus le fichier "
             f"que le panneau ecrit")
-        # required: false, et donc la forme LONGUE. Au tout premier demarrage
-        # le fichier n'existe pas encore -- codelab-postgres ne l'a pas ecrit.
-        # La forme courte ("- /chemin") vaut required: true, et Compose refuse
-        # alors de demarrer LA STACK ENTIERE, pas seulement ce service.
-        for f in vus:
-            assert isinstance(f, dict), (
-                f"{os.path.basename(chemin)} : env_file est ecrit en forme "
-                f"courte, donc obligatoire -- la premiere installation ne "
-                f"demarrerait pas")
-            assert f.get("required") is False, (
-                f"{os.path.basename(chemin)} : sans « required: false », "
-                f"la premiere installation ne demarre pas")
+        # CE TEST EXIGEAIT LA FORME LONGUE, et sa raison etait fausse.
+        #
+        # Il affirmait qu'une forme courte empecherait « la premiere
+        # installation » de demarrer. Mesure faite : Compose ne resout les
+        # env_file que des services d'un profil ACTIF. Le « up » d'une
+        # premiere installation n'active pas « llm », donc il ne lit meme pas
+        # cette ligne -- il demarre, et codelab-postgres ecrit alors le
+        # fichier. Seul « --profile llm up -d » sur une stack qui n'a JAMAIS
+        # tourne echoue, en nommant le fichier manquant.
+        #
+        # Et le cout de la forme longue, lui, etait bien reel : CasaOS la
+        # refuse, donc n'enregistrait plus le compose DU TOUT, donc les deux
+        # services IA n'atteignaient jamais l'installation. Un garde-fou qui
+        # empeche le fichier d'arriver ne protege rien.
+        #
+        # La forme est desormais tenue par la section 48, qui porte aussi la
+        # garantie qui remplace « required: false ».
 
 
 def test_le_panneau_nomme_les_variables_que_les_services_lisent():
