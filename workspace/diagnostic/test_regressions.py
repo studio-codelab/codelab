@@ -11781,6 +11781,63 @@ def test_le_gateway_est_lance_au_demarrage_du_conteneur():
         "sshd n'est plus le dernier mot de l'entrypoint")
 
 
+def test_le_journal_du_gateway_est_plafonne():
+    """Le gateway ecrit dans /workspace/.openclaw/gateway.log, sur le disque
+    de donnees, tant que le conteneur tourne. La premiere version de ce bloc
+    n'avait aucune rotation : le fichier grossissait jusqu'a remplir le
+    disque. C'est le defaut que ce test tient ferme."""
+    source = _entrypoint_dev()
+    corps = [l for l in source.split("\n") if not l.strip().startswith("#")]
+    code = "\n".join(corps)
+
+    # Un plafond chiffre, et pas seulement l'intention d'en avoir un.
+    assert re.search(r"^OPENCLAW_LOG_MAX=(\d+)", code, re.M), (
+        "aucun plafond n'est fixe pour le journal du gateway")
+    plafond = int(re.search(r"^OPENCLAW_LOG_MAX=(\d+)", code, re.M).group(1))
+    garde = int(re.search(r"^OPENCLAW_LOG_GARDE=(\d+)", code, re.M).group(1))
+    assert 0 < plafond <= 16 * 1024 * 1024, f"plafond deraisonnable : {plafond}"
+    assert 0 < garde < plafond, (
+        f"la garde ({garde}) doit tenir sous le plafond ({plafond})")
+
+    # APPELEE, et pas seulement definie : un mutant qui supprimait les appels
+    # laissait la fonction en place et tous les mots de ce test avec elle.
+    assert "plafonner_le_journal_openclaw() {" in code, (
+        "la fonction de plafonnement n'est pas definie")
+    appels = [l.strip() for l in corps
+              if l.strip() == "plafonner_le_journal_openclaw"]
+    assert len(appels) >= 2, (
+        "le journal doit etre plafonne au demarrage ET pendant que le "
+        f"conteneur tourne ; appels trouves : {len(appels)}")
+
+    # Le conteneur peut tourner des mois sans redemarrer : un controle
+    # uniquement au demarrage ne plafonne rien entre deux.
+    assert re.search(r"while sleep \d+; do\s*\n\s*plafonner_le_journal_openclaw",
+                     code), "aucun controle periodique du journal"
+
+
+def test_le_journal_du_gateway_est_tronque_et_pas_renomme():
+    """Le gateway ecrit via « >> », donc son descripteur suit l'inode. Un
+    renommage le laisse remplir le .1 pendant que le fichier courant reste
+    vide : mesure faite, le .1 passait 3 Mo et continuait de grossir. Seule
+    une troncature en place plafonne quoi que ce soit."""
+    source = _entrypoint_dev()
+    debut = source.index("plafonner_le_journal_openclaw() {")
+    fin = source.index("\n}", debut)
+    corps = source[debut:fin]
+    corps = "\n".join(l for l in corps.split("\n")
+                      if not l.strip().startswith("#"))
+
+    assert ': > "$OPENCLAW_LOG"' in corps, (
+        "le journal courant n'est pas tronque en place -- sans cela le "
+        "plafond ne s'applique pas a un gateway deja lance")
+    # La queue est conservee AVANT la troncature, sinon on la perd.
+    assert corps.index("tail -c") < corps.index(': > "$OPENCLAW_LOG"'), (
+        "le journal est tronque avant que sa fin ne soit recopiee")
+    assert not re.search(r"\bmv\s+[\"\']?\$OPENCLAW_LOG", corps), (
+        "le journal est renomme : le gateway continuerait d'ecrire dans "
+        "l'ancien inode, et rien ne serait plafonne")
+
+
 def test_le_serveur_vscode_survit_a_une_mise_a_jour_d_image():
     """Remote-SSH installe ses extensions DANS le conteneur. Sans montage,
     chaque « compose pull » les effacait toutes, sans rien dire."""
@@ -12323,3 +12380,82 @@ def test_aucun_prix_n_est_affiche():
         bloc = bloc[:bloc.index("\nfunction ")]
         assert "Coût" not in bloc and "cout(" not in bloc, (
             f"{fonction} affiche encore un prix")
+
+
+# ---------- 46. ce qui s'accumule finit par etre purge -------------------
+#
+# Deux fuites lentes, trouvees en cherchant ce qui occupait le disque du
+# serveur : le journal du gateway OpenClaw (couvert en section 43) et la
+# table llm_usage. Aucune n'avait de plafond, et aucune ne se serait
+# signalee autrement qu'en remplissant le disque.
+
+
+def _source_llm():
+    return open(os.path.join(_racine_depot(), "llm", "app.py"),
+                encoding="utf-8").read()
+
+
+def test_la_consommation_est_purgee_au_dela_de_la_retention():
+    """llm_usage prend une ligne par requete et n'en perdait aucune. Sur un
+    serveur qui tourne des annees, c'est la seule table de ce service qui
+    grossissait sans fin."""
+    source = _source_llm()
+    assert re.search(r"^RETENTION_USAGE_JOURS = ", source, re.M), (
+        "aucune retention n'est definie pour llm_usage")
+
+    # La requete, et pas le nom de la fonction : un mutant qui vidait le
+    # corps laissait le nom -- et ce test -- intacts.
+    bloc = source[source.index("def purger_la_consommation_ancienne("):]
+    bloc = bloc[:bloc.index("\nasync def ")]
+    # SANS LES COMMENTAIRES : le commentaire qui explique le choix de
+    # make_interval contient le motif qu'on cherche. Un mutant qui remplacait
+    # la requete par une concatenation de texte passait au travers, le
+    # commentaire suffisant a satisfaire l'assertion.
+    bloc = "\n".join(l for l in bloc.split("\n")
+                     if not l.strip().startswith("#"))
+    assert "DELETE FROM llm_usage" in bloc, (
+        "la purge ne supprime rien")
+    assert "make_interval(days => %s)" in bloc, (
+        "l'intervalle n'est pas un entier lie : soit la requete est fausse, "
+        "soit elle concatene du texte dans le SQL")
+    assert "RETENTION_USAGE_JOURS <= 0" in bloc, (
+        "on ne peut plus desactiver la purge pour tout garder")
+
+
+def test_la_purge_tourne_et_pas_seulement_au_demarrage():
+    """Le conteneur peut tourner des mois sans redemarrer : une purge
+    appelee uniquement au demarrage ne plafonne rien entre deux."""
+    source = _source_llm()
+    bloc = source[source.index("async def boucle_de_purge("):]
+    bloc = bloc[:bloc.index("\n@asynccontextmanager")]
+    assert "while True:" in bloc and "asyncio.sleep(PURGE_INTERVALLE)" in bloc, (
+        "la purge ne se repete pas")
+    assert "purger_la_consommation_ancienne" in bloc, (
+        "la boucle ne purge rien")
+    # LANCEE. Une boucle definie et jamais demarree ne purge pas davantage.
+    vie = source[source.index("async def cycle_de_vie("):]
+    vie = vie[:vie.index("\n\n\n")]
+    assert "asyncio.create_task(boucle_de_purge())" in vie, (
+        "la boucle de purge n'est jamais lancee")
+    assert ".cancel()" in vie, (
+        "la boucle n'est pas arretee a la fermeture : le service ne rendrait "
+        "plus la main proprement")
+
+
+def test_la_retention_ne_mange_pas_ce_que_le_panneau_sait_afficher():
+    """LE TEST QUI COMPTE. La purge et l'affichage sont dans deux fichiers
+    qui ne se lisent pas l'un l'autre. Descendre la retention sous la
+    fenetre du panneau detruirait, en silence, des lignes encore
+    consultables -- et personne ne s'en apercevrait avant d'ouvrir l'onglet
+    et d'y trouver un trou."""
+    retenus = int(re.search(r'RETENTION_USAGE_JOURS = int\(\s*os\.environ\.get\('
+                            r'"CODELAB_LLM_RETENTION_JOURS", "(\d+)"\)\)',
+                            _source_llm()).group(1))
+    panneau = open(os.path.join(_racine_depot(), "app-manager", "app", "app.py"),
+                   encoding="utf-8").read()
+    bloc = panneau[panneau.index("def consommation_llm("):]
+    affichables = int(re.search(r"min\(int\(jours or \d+\), (\d+)\)", bloc).group(1))
+    assert retenus > affichables, (
+        f"la retention ({retenus} j) ne couvre pas la fenetre que le panneau "
+        f"sait afficher ({affichables} j) : la purge detruirait des lignes "
+        "encore consultables")

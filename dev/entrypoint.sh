@@ -396,6 +396,44 @@ fi
 OPENCLAW_LOG="$OPENCLAW_HOME_DIR/gateway.log"
 touch "$OPENCLAW_LOG" 2>/dev/null || true
 chown "$SSH_USER" "$OPENCLAW_LOG" 2>/dev/null || true
+
+# Ce journal n'a pas de rotation a lui. Il vit sur le disque de donnees
+# (/workspace/.openclaw) et le gateway y ecrit tant que le conteneur tourne :
+# sans plafond, il grossit jusqu'a remplir le disque, et un conteneur qui ne
+# redemarre pas pendant des mois ne le rouvre jamais. On garde au plus
+# OPENCLAW_LOG_MAX dans le fichier courant et la fin de l'ancien dans .1,
+# soit un plafond total de MAX + GARDE -- le meme principe que le panneau
+# (MAX_LOG_BYTES, un seul .1 conserve).
+#
+# TRONQUER, ET PAS RENOMMER : le gateway ecrit via « >> », donc son
+# descripteur suit l'inode. Le renommer le laisserait remplir le .1 pendant
+# que le fichier courant reste vide -- la rotation ne plafonnerait rien.
+# « : > fichier » remet la taille a zero sous ce meme descripteur, et
+# O_APPEND fait repartir les ecritures du nouveau debut.
+OPENCLAW_LOG_MAX=2097152   # 2 Mo dans le fichier courant
+OPENCLAW_LOG_GARDE=262144  # 256 Ko d'historique repris dans .1
+
+plafonner_le_journal_openclaw() {
+    [ -f "$OPENCLAW_LOG" ] || return 0
+    local taille_journal
+    taille_journal=$(wc -c < "$OPENCLAW_LOG" 2>/dev/null) || return 0
+    [ "$taille_journal" -gt "$OPENCLAW_LOG_MAX" ] || return 0
+    tail -c "$OPENCLAW_LOG_GARDE" "$OPENCLAW_LOG" > "$OPENCLAW_LOG.1" 2>/dev/null || return 0
+    chown "$SSH_USER" "$OPENCLAW_LOG.1" 2>/dev/null || true
+    : > "$OPENCLAW_LOG"
+}
+
+# Une fois au demarrage pour reprendre les journaux deja gros -- dont ceux
+# ecrits sans plafond par les versions precedentes -- puis toutes les heures,
+# parce que c'est le conteneur qui tourne longtemps, pas ses redemarrages,
+# qui remplissent le fichier.
+plafonner_le_journal_openclaw
+(
+    while sleep 3600; do
+        plafonner_le_journal_openclaw
+    done
+) &
+
 if su -s /bin/sh -c "openclaw gateway >> '$OPENCLAW_LOG' 2>&1 &" "$SSH_USER"; then
     echo "[codelab-dev] gateway OpenClaw lance sur 127.0.0.1:18789" \
          "(journal : $OPENCLAW_LOG)"
