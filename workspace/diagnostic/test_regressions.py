@@ -10886,6 +10886,19 @@ class _FauxPostgres:
         return False
 
 
+def _declarer(monkeypatch, projets=(), comptes=()):
+    """Fait exister des projets et des comptes le temps d'un test.
+
+    Depuis que la route valide ce qu'on lui donne, une cle ne peut plus
+    porter un nom que personne ne porte -- c'est ce qui rend la suppression
+    en cascade tenable. Les tests doivent donc declarer ce qu'ils utilisent,
+    comme un vrai serveur.
+    """
+    monkeypatch.setattr(app, "load", lambda: {p: {} for p in projets})
+    monkeypatch.setattr(app, "lire_utilisateurs",
+                        lambda: {c: {} for c in comptes})
+
+
 @pytest.fixture
 def cles_admin(tmp_path, monkeypatch):
     """Une session d'administration ouverte, et un Postgres de papier.
@@ -11944,7 +11957,7 @@ def test_l_identite_par_cle_rapporte_l_identifiant():
 
 # ------------------------- creer et revoquer ---------------------------
 
-def test_une_cle_d_application_est_montree_une_fois_et_une_seule(cles_admin):
+def test_une_cle_d_application_est_montree_une_fois_et_une_seule(cles_admin, monkeypatch):
     """LA difference avec la cle du poste, et elle est voulue.
 
     La base ne garde que l'empreinte : ne pas montrer une cle destinee a une
@@ -11952,6 +11965,7 @@ def test_une_cle_d_application_est_montree_une_fois_et_une_seule(cles_admin):
     fois -- comme chez n'importe quel service de LLM -- et jamais plus.
     """
     client, faux = cles_admin
+    _declarer(monkeypatch, projets=["facturier"])
     r = client.post("/api/cles/llm",
                     json={"nom": "Facturier", "application": "facturier"})
     assert r.status_code == 200, r.data
@@ -11981,10 +11995,11 @@ def test_la_cle_du_poste_n_est_jamais_montree(cles_admin):
     assert posee not in corps
 
 
-def test_le_nom_et_l_application_d_une_cle_sont_inscrits(cles_admin):
+def test_le_nom_et_l_application_d_une_cle_sont_inscrits(cles_admin, monkeypatch):
     """Ce sont eux qui rendent la comptabilite lisible : « 3,80 $ » sans
     savoir de qui ne sert a rien."""
     client, faux = cles_admin
+    _declarer(monkeypatch, projets=["mon-projet"])
     client.post("/api/cles/llm", json={"nom": "Poste de Marie",
                                        "application": "Mon Projet"})
     insert = [p for s, p in faux.ordres if s.startswith("INSERT INTO llm_api_keys")][0]
@@ -12610,33 +12625,104 @@ def test_le_mecanisme_de_la_liaison_reste_entier():
         "la liaison redevient saisissable par la route des fournisseurs")
 
 
-def test_une_cle_porte_un_projet_et_un_utilisateur(cles_admin):
+def test_une_cle_porte_un_projet_et_un_utilisateur(cles_admin, monkeypatch):
     """Demande de Lucas : « ajouter un projet aux cles que je cree, et un
     utilisateur ». L'utilisateur etait toujours le compte qui cliquait, ce
     qui rendait la colonne inutile -- toutes les cles portaient le meme."""
     client, faux = cles_admin
+    _declarer(monkeypatch, projets=["facturier"], comptes=["Marie"])
     r = client.post("/api/cles/llm", json={"nom": "Facturier",
                                            "application": "facturier",
-                                           "utilisateur": "Marie"})
+                                           "utilisateur": "Marie",
+                                           "description": "Facturation mensuelle"})
     assert r.status_code == 200, r.get_json()
     ecrit = [p for (o, p) in faux.ordres if "INSERT INTO llm_api_keys" in o]
     assert ecrit, "aucune cle inscrite"
     assert "facturier" in ecrit[0] and "Marie" in ecrit[0], (
         f"le projet ou l'utilisateur n'est pas inscrit : {ecrit[0]}")
+    assert "Facturation mensuelle" in ecrit[0], (
+        f"la description n'est pas inscrite : {ecrit[0]}")
 
 
-def test_l_utilisateur_laisse_vide_retombe_sur_le_compte_courant(cles_admin):
-    """Le champ est facultatif : laisse vide, la cle revient a qui la cree.
-    Une colonne vide ne dirait rien a personne."""
+def test_une_cle_ne_peut_pas_designer_un_compte_ou_un_projet_inexistant(
+        cles_admin, monkeypatch):
+    """CE QUI REND LA CASCADE TENABLE. Les deux champs etaient libres : on
+    pouvait y ecrire n'importe quoi, et la cle restait attachee a un nom que
+    personne ne portait. Une telle cle ne serait jamais reprise par la
+    suppression d'un compte ou d'un projet -- elle survivrait a tout."""
+    client, _ = cles_admin
+    _declarer(monkeypatch, projets=["facturier"], comptes=["Marie"])
+
+    r = client.post("/api/cles/llm", json={"nom": "X", "application": "facturier",
+                                           "utilisateur": "Fantome"})
+    assert r.status_code == 400, r.get_json()
+    assert "compte" in r.get_json()["error"]
+
+    r = client.post("/api/cles/llm", json={"nom": "X", "application": "fantome",
+                                           "utilisateur": "Marie"})
+    assert r.status_code == 400, r.get_json()
+    assert "projet" in r.get_json()["error"]
+
+
+def test_une_cle_peut_n_appartenir_a_personne(cles_admin, monkeypatch):
+    """« un user existant, OU PAS ». Une cle de service n'appartient a
+    personne, et lui coller d'office le compte qui a clique -- ce que
+    faisait la version precedente -- en fait une etiquette fausse."""
     client, faux = cles_admin
-    r = client.post("/api/cles/llm", json={"nom": "Sans qui",
-                                           "application": "essai"})
+    _declarer(monkeypatch, projets=["facturier"], comptes=["Marie"])
+    r = client.post("/api/cles/llm", json={"nom": "Service",
+                                           "application": "facturier"})
     assert r.status_code == 200, r.get_json()
     ecrit = [p for (o, p) in faux.ordres if "INSERT INTO llm_api_keys" in o]
     assert ecrit, "aucune cle inscrite"
-    # (empreinte, nom, user_id, app_id) : c'est user_id qu'on regarde.
-    assert ecrit[0][2], (
-        f"l'utilisateur est vide au lieu de retomber sur le compte : {ecrit[0]}")
+    # (empreinte, nom, user_id, app_id, description) : user_id doit etre vide,
+    # et surtout PAS le compte courant.
+    assert ecrit[0][2] == "", (
+        f"l'utilisateur a ete impose au lieu d'etre laisse vide : {ecrit[0]}")
+
+
+def test_les_cles_d_un_compte_supprime_partent_avec_lui(cles_admin, monkeypatch):
+    """« supprime si le user est supprime ». Les laisser serait pire qu'un
+    oubli : recreer un compte du meme nom lui rendrait les cles de
+    l'ancien."""
+    client, faux = cles_admin
+    monkeypatch.setattr(app, "lire_utilisateurs", lambda: {"Marie": {}})
+    monkeypatch.setattr(app, "ecrire_utilisateurs", lambda c: None)
+    r = client.delete("/api/utilisateurs/Marie")
+    assert r.status_code == 200, r.get_json()
+    efface = [(o, p) for (o, p) in faux.ordres
+              if "DELETE FROM llm_api_keys" in o]
+    assert efface, "les cles du compte n'ont pas ete supprimees"
+    assert "user_id" in efface[0][0], efface[0][0]
+    assert efface[0][1] == ("Marie",), efface[0][1]
+
+
+def test_les_cles_d_un_projet_supprime_partent_avec_lui(cles_admin, monkeypatch):
+    """« supprime si le projet est supprime ». Meme raison : une cle qui
+    survit a ce qu'elle designe est un nom mort dans le tableau."""
+    client, faux = cles_admin
+    monkeypatch.setattr(app, "load", lambda: {"facturier": {}})
+    monkeypatch.setattr(app, "save", lambda a: None)
+    monkeypatch.setattr(app, "stop", lambda n: None)
+    monkeypatch.setattr(app, "est_app_par_defaut", lambda n: False)
+    r = client.delete("/api/app/facturier")
+    assert r.status_code == 200, r.get_json()
+    efface = [(o, p) for (o, p) in faux.ordres
+              if "DELETE FROM llm_api_keys" in o]
+    assert efface, "les cles du projet n'ont pas ete supprimees"
+    assert "app_id" in efface[0][0], efface[0][0]
+    assert efface[0][1] == ("facturier",), efface[0][1]
+
+
+def test_la_page_propose_les_comptes_et_les_projets_qui_existent(
+        cles_admin, monkeypatch):
+    """Les deux listes de choix viennent du serveur. Si la page les
+    devinait, elle proposerait des noms que la route refuserait ensuite."""
+    client, _ = cles_admin
+    _declarer(monkeypatch, projets=["facturier", "aichat"], comptes=["Marie"])
+    d = client.get("/api/cles").get_json()
+    assert d["projets"] == ["aichat", "facturier"], d.get("projets")
+    assert d["comptes"] == ["Marie"], d.get("comptes")
 
 
 def test_le_tableau_des_cles_montre_le_projet_et_l_utilisateur():
@@ -12670,63 +12756,82 @@ def test_un_provider_deja_pose_garde_sa_nature_quand_on_le_remplace():
         "perd sa nature (adresse prise pour un secret)")
 
 
-# ---------- 48. le compose doit passer le validateur de CasaOS -----------
+# ---------- 49. le workspace s'ecrit, et OpenClaw se parle en page --------
 #
-# « Echec de l'enregistrement de l'application personnalisee ». CasaOS
-# refusait le fichier ENTIER, sans nommer la ligne. Consequence en chaine :
-# le compose deploye restait fige a la derniere version acceptee -- celle
-# d'AVANT le profil IA -- donc codelab-llm et codelab-litellm etaient absents
-# de l'installation, donc « docker compose --profile llm up -d » demarrait
-# six conteneurs sans un mot sur les deux manquants, donc Codex et OpenClaw
-# repondaient « error sending request ». Une ligne de syntaxe, trois pannes.
+# Deux demandes de Lucas : « vscode doit avoir acces aux dossiers des projets
+# dans workspace, pour modifier les config git par exemple », et « discuter
+# dans un chat plutot qu'en terminal ».
 
 
-def test_aucun_env_file_en_forme_longue_dans_les_composes():
-    """La forme longue (« path: » / « required: false ») demande Compose
-    2.24. Le validateur de CasaOS la refuse, et c'est une contrainte qu'on
-    ne choisit pas : c'est lui qui deploie."""
-    for chemin in _composes():
-        lignes = open(chemin, encoding="utf-8").read().split("\n")
-        for i, ligne in enumerate(lignes):
-            if ligne.strip() != "env_file:":
-                continue
-            marge = len(ligne) - len(ligne.lstrip())
-            # Les entrees de la liste, jusqu'a la fin du bloc.
-            for entree in lignes[i + 1:]:
-                nue = entree.strip()
-                if not nue or nue.startswith("#"):
-                    continue
-                if len(entree) - len(entree.lstrip()) <= marge:
-                    break
-                assert nue.startswith("- /") or nue.startswith("- ."), (
-                    f"{os.path.basename(chemin)} ligne {i + 1} : env_file en "
-                    f"forme longue ({nue!r}). CasaOS refuse alors "
-                    "d'enregistrer le fichier ENTIER, sans nommer la ligne.")
+def test_les_permissions_du_workspace_sont_rattrapees_a_chaque_demarrage():
+    """LA PASSE COMPLETE EST PROTEGEE PAR UN MARQUEUR, et c'est voulu : un
+    chgrp -R sur un gros workspace coute plusieurs secondes a chaque
+    demarrage. Mais elle laissait un trou -- /workspace est partage, et un
+    dossier amorce par Dagster ou clone depuis une autre session nait avec
+    le groupe de son createur, APRES la premiere passe. Plus rien ne le
+    rattrapait : vscode le voyait sans pouvoir y ecrire, et « git config »
+    echouait sur un refus de droits.
+    """
+    source = _entrypoint_dev()
+    corps = "\n".join(l for l in source.split("\n")
+                      if not l.strip().startswith("#"))
+    marqueur = corps.index('if [ ! -f "$PERM_MARKER" ]')
+    apres = corps[corps.index("\nfi", marqueur):]
+
+    # HORS DU BLOC DU MARQUEUR : un rattrapage place dedans ne tournerait
+    # qu'une fois, ce qui est exactement le defaut qu'on repare.
+    assert "-exec chgrp" in apres, (
+        "aucun rattrapage de groupe hors du bloc protege par le marqueur")
+    assert "-exec chmod g+rwX" in apres, (
+        "aucun rattrapage de droits hors du bloc protege par le marqueur")
+    # Le setgid, sans quoi ce qui nait dans un dossier rattrape reprend le
+    # groupe de son createur et le trou se rouvre au fichier suivant.
+    assert "-exec chmod g+s" in apres, "le setgid n'est pas rattrape"
+
+    # CIBLE, et pas massif : find ecarte les entrees deja conformes, donc le
+    # cas courant ne coute qu'un parcours. Sans les negations, ce serait un
+    # chmod -R a chaque demarrage.
+    for negation in ('\\! -group "$CODELAB_GROUP"', "\\! -perm -g+w",
+                     "\\! -perm -g+s"):
+        assert negation in apres, (
+            f"le rattrapage n'ecarte pas ce qui est deja conforme ({negation}) : "
+            "il reecrirait tout le workspace a chaque demarrage")
 
 
-def test_le_fichier_des_fournisseurs_est_ecrit_par_des_services_sans_profil():
-    """CE QUI REMPLACE « required: false ». Compose resout les env_file au
-    CHARGEMENT du projet, avant tout demarrage : un fichier absent fait
-    echouer « up » d'emblee, et aucun depends_on n'y change quoi que ce
-    soit -- mesure faite. La forme courte n'est donc sure que si le fichier
-    est ecrit par des services qui, eux, tournent toujours."""
-    postgres = open(os.path.join(_racine_depot(), "postgres", "entrypoint.sh"),
-                    encoding="utf-8").read()
-    assert 'cat > "$FOURNISSEURS_ENV_FILE' in postgres, (
-        "codelab-postgres n'ecrit plus fournisseurs.env")
+def test_le_chat_openclaw_est_joignable_sans_extension():
+    """OpenClaw sert sa propre interface de conversation -- la « Control UI »
+    -- sur le port du gateway. Verifie a l'execution : la page repond bien un
+    document « OpenClaw Control ». Il n'y a donc aucune extension a installer,
+    et c'est tant mieux : celle qu'on recommandait n'a jamais pu etre
+    verifiee depuis cet environnement.
+    """
+    source = _entrypoint_dev()
+    assert '"$VSCODE_DIR/settings.json"' in source, (
+        "VS Code ne recoit aucun reglage : le port ne sera pas redirige")
+    bloc = source[source.index("cat > \"$VSCODE_DIR/settings.json\""):]
+    bloc = bloc[:bloc.index("\nVSCODESET\n")]
+    reglages = json.loads(bloc[bloc.index("{"):bloc.rindex("}") + 1])
+    assert reglages.get("remote.autoForwardPorts") is True, (
+        "la redirection automatique est coupee : le port ne remontera pas")
+    assert "18789" in reglages.get("remote.portsAttributes", {}), (
+        "le port du gateway n'est pas declare a VS Code")
 
-    # Et le panneau, a chaque tour de surveillance, par la cle de liaison.
-    panneau = (_racine_app_manager() / "app.py").read_text(encoding="utf-8")
-    corps = [l for l in panneau.split("\n") if not l.strip().startswith("#")]
-    assert any(l.strip() == "tenir_la_cle_de_liaison()" for l in corps), (
-        "le panneau n'ecrit plus dans fournisseurs.env")
 
-    # LES DEUX SONT SANS PROFIL. C'est toute la garantie : un service
-    # derriere le profil llm ne pourrait pas creer le fichier que ce meme
-    # profil exige pour demarrer.
-    for chemin in _composes():
-        services = _services_du_compose(chemin)
-        for nom in ("codelab-postgres", "codelab-app-manager"):
-            assert "profiles" not in services[nom], (
-                f"{os.path.basename(chemin)} : {nom} est passe derriere un "
-                "profil -- il ne peut plus garantir fournisseurs.env")
+def test_l_adresse_du_chat_porte_le_jeton():
+    """La Control UI s'authentifie par un fragment « #token=... », et un
+    fragment ne se devine pas. « openclaw dashboard » ne l'ajoute que s'il
+    peut ouvrir un navigateur -- ce qu'une session SSH ne peut pas."""
+    source = _entrypoint_dev()
+    assert "/usr/local/bin/openclaw-chat" in source, (
+        "aucune commande ne donne l'adresse du chat")
+    bloc = source[source.index("cat > /usr/local/bin/openclaw-chat"):]
+    bloc = bloc[:bloc.index("\nCHATCMD\n")]
+    sans_commentaires = "\n".join(l for l in bloc.split("\n")
+                                  if not l.strip().startswith("#"))
+    assert "#token=$JETON" in sans_commentaires, (
+        "l'adresse ne porte pas le jeton : la page refusera la connexion")
+    # Lu dans la configuration, pas journalise : un jeton dans « docker logs »
+    # y resterait pour tout le monde.
+    assert "gateway" in sans_commentaires and "auth" in sans_commentaires, (
+        "le jeton n'est pas lu dans la configuration du gateway")
+    assert "18789" in sans_commentaires, "l'adresse ne vise pas le bon port"

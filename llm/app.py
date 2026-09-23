@@ -120,6 +120,10 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS llm_api_keys (
     id BIGSERIAL PRIMARY KEY, key_hash TEXT NOT NULL UNIQUE, key_name TEXT NOT NULL,
     user_id TEXT NOT NULL, app_id TEXT NOT NULL, revoked_at TIMESTAMPTZ,
+    -- A QUOI ELLE SERT, en une phrase. Facultative : une cle sans
+    -- description reste une cle, et forcer un texte ne ferait que produire
+    -- des « test » et des « cle ».
+    description TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TABLE IF NOT EXISTS llm_usage (
@@ -141,6 +145,7 @@ CREATE INDEX IF NOT EXISTS llm_usage_dimensions_idx
 -- Les installations d'avant la colonne : CREATE TABLE IF NOT EXISTS ne
 -- touche pas une table qui existe deja, et sans cette ligne la consommation
 -- continuerait de s'enregistrer sans cle, en silence.
+ALTER TABLE llm_api_keys ADD COLUMN IF NOT EXISTS description TEXT;
 ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS key_id BIGINT;
 CREATE INDEX IF NOT EXISTS llm_usage_cle_idx ON llm_usage (key_id, timestamp);
 """

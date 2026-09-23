@@ -109,6 +109,29 @@ if [ ! -f "$PERM_MARKER" ]; then
     chmod 2775 "$(dirname "$PERM_MARKER")" 2>/dev/null || true
 fi
 
+# ET UNE PASSE DE RATTRAPAGE A CHAQUE DEMARRAGE.
+#
+# Le marqueur ci-dessus ne protege qu'UNE passe complete, et c'est voulu :
+# un chgrp -R sur un gros workspace coute plusieurs secondes a chaque
+# demarrage. Mais il laissait un trou. /workspace est partage avec les
+# autres conteneurs -- Dagster y amorce des dossiers, et un projet clone
+# depuis une autre session nait avec le groupe et les droits de qui l'a
+# cree. Ces entrees-la arrivent APRES la premiere passe, donc plus rien ne
+# les rattrapait : vscode les voyait sans pouvoir y ecrire, et « git config »
+# ou un simple enregistrement echouait sur un refus de droits.
+#
+# Celle-ci ne touche QUE ce qui ne va pas : find ecarte d'emblee les entrees
+# deja conformes, donc le cas courant ne coute qu'un parcours. Rien a
+# corriger, rien d'ecrit.
+echo "[codelab-dev] rattrapage des permissions du workspace..."
+find "$WORKSPACE_DIR" \! -group "$CODELAB_GROUP" -exec chgrp "$CODELAB_GROUP" {} + 2>/dev/null || true
+# -perm -g+w ne garde que ce qui A deja le droit : la negation garde donc ce
+# qui ne l'a pas. Le X majuscule laisse les fichiers de code non executables.
+find "$WORKSPACE_DIR" \! -perm -g+w -exec chmod g+rwX {} + 2>/dev/null || true
+# Le setgid sur les dossiers : sans lui, ce qui nait dedans reprend le groupe
+# de son createur et le trou se rouvre au fichier suivant.
+find "$WORKSPACE_DIR" -type d \! -perm -g+s -exec chmod g+s {} + 2>/dev/null || true
+
 # Ceinture et bretelles avec UMASK dans /etc/login.defs : couvre les shells
 # de login et les shells interactifs, y compris quand un ~/.profile
 # utilisateur reimpose un umask plus restrictif apres coup.
@@ -460,6 +483,66 @@ VSCODEEXT
     chown -R "$SSH_USER" "$VSCODE_DIR" 2>/dev/null || true
     chgrp -R "$CODELAB_GROUP" "$VSCODE_DIR" 2>/dev/null || true
 fi
+
+# DISCUTER DANS UNE PAGE, PAS DANS UN TERMINAL.
+#
+# OpenClaw sert une interface de conversation -- sa « Control UI » -- sur le
+# meme port que le gateway. Verifie a l'execution : la page repond bien un
+# document « OpenClaw Control », et « openclaw dashboard » la nomme. Il n'y a
+# donc aucune extension a installer : elle est deja dans le paquet epingle.
+#
+# Ce fichier dit a VS Code de rediriger ce port des qu'il le voit ecouter, et
+# de l'etiqueter dans le panneau « Ports ». Le gateway, lui, reste sur la
+# boucle locale du conteneur : c'est Remote-SSH qui transporte, pas un port
+# publie de plus sur le reseau.
+#
+# Ecrit une seule fois, comme extensions.json : ce sont des reglages qu'on
+# ajuste ensuite soi-meme.
+if [ ! -f "$VSCODE_DIR/settings.json" ]; then
+    mkdir -p "$VSCODE_DIR"
+    cat > "$VSCODE_DIR/settings.json" <<'VSCODESET'
+{
+  "remote.autoForwardPorts": true,
+  "remote.portsAttributes": {
+    "18789": {
+      "label": "OpenClaw - chat",
+      "onAutoForward": "silent"
+    }
+  }
+}
+VSCODESET
+    chown "$SSH_USER" "$VSCODE_DIR/settings.json" 2>/dev/null || true
+    chgrp "$CODELAB_GROUP" "$VSCODE_DIR/settings.json" 2>/dev/null || true
+fi
+
+# L'ADRESSE COMPLETE, JETON COMPRIS. La Control UI s'authentifie par un
+# fragment « #token=... », et un fragment ne se devine pas. « openclaw
+# dashboard » ne l'ajoute que s'il peut ouvrir un navigateur -- ce qu'une
+# session SSH ne peut pas. D'ou cette commande, qui lit le jeton dans la
+# configuration et imprime l'adresse a coller.
+#
+# Le jeton n'est jamais journalise : il n'apparait que dans la sortie de
+# cette commande, lancee a la demande.
+cat > /usr/local/bin/openclaw-chat <<'CHATCMD'
+#!/bin/sh
+# Imprime l'adresse de l'interface de conversation d'OpenClaw, jeton compris.
+CFG="${OPENCLAW_CONFIG_PATH:-$HOME/.openclaw/openclaw.json}"
+JETON="$(python3 - "$CFG" <<'PYJETONCHAT' 2>/dev/null
+import json, sys
+try:
+    print(json.load(open(sys.argv[1])).get("gateway", {}).get("auth", {}).get("token", ""))
+except Exception:
+    pass
+PYJETONCHAT
+)"
+if [ -z "$JETON" ]; then
+    echo "Jeton introuvable dans $CFG -- le gateway a-t-il demarre ?" >&2
+    exit 1
+fi
+echo "Ouvre cette adresse dans ton navigateur (VS Code redirige le port) :"
+echo "  http://127.0.0.1:18789/#token=$JETON"
+CHATCMD
+chmod 755 /usr/local/bin/openclaw-chat
 
 # ------------------------------- git -------------------------------
 #
