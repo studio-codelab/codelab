@@ -118,10 +118,24 @@ RUN npm install -g openclaw@2026.6.35 \
 # une installation silencieuse, au runtime, a chaque recreation du conteneur.
 #
 # Epingles tous les deux, comme openclaw.
+#
+# UN SEUL CODEX DANS L'IMAGE. codex-acp embarque sa propre copie de
+# @openai/codex (374 Mo, binaire compris) et lance « @openai/codex/bin/
+# codex.js » depuis ses dependances. Cette copie remplissait le disque au
+# « docker compose pull » (« no space left on device »). On la remplace par
+# un lien vers le Codex installe plus haut : meme programme, meme
+# config.toml, une seule fois sur le disque.
 RUN npm install -g acpx@0.19.3 @agentclientprotocol/codex-acp@1.13.1 \
+    && NM="$(npm root -g)" \
+    && rm -rf "$NM/@agentclientprotocol/codex-acp/node_modules/@openai" \
+    && mkdir -p "$NM/@agentclientprotocol/codex-acp/node_modules/@openai" \
+    && ln -s "$NM/@openai/codex" \
+        "$NM/@agentclientprotocol/codex-acp/node_modules/@openai/codex" \
     && npm cache clean --force \
     && acpx --version \
-    && command -v codex-acp
+    && command -v codex-acp \
+    && node -e "require.resolve('@openai/codex/bin/codex.js', \
+        {paths: ['$NM/@agentclientprotocol/codex-acp']})"
 
 COPY dev/entrypoint.sh /opt/codelab/dev/entrypoint.sh
 RUN chmod +x /opt/codelab/dev/entrypoint.sh
