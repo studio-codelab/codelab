@@ -10399,6 +10399,14 @@ def test_le_chat_de_l_extension_vscode_a_ce_qu_il_lance():
         "acpx absent ou non epingle : le chat de l'extension ne demarre pas")
     assert re.search(r"@agentclientprotocol/codex-acp@\d", source), (
         "codex-acp absent ou non epingle : acpx le telechargera au runtime")
+    # codex-acp embarque sa propre copie de Codex (374 Mo) : elle a rempli
+    # le disque d'un serveur au « docker compose pull ». Elle est remplacee
+    # par un lien vers le Codex deja installe.
+    assert 'ln -s "$NM/@openai/codex"' in source, (
+        "codex-acp garde sa copie de Codex : l'image grossit de 374 Mo")
+    assert source.index("npm install -g @openai/codex") < source.index(
+        "@agentclientprotocol/codex-acp@"), (
+        "le lien vise un Codex installe apres lui")
 
 
 def test_codex_trouve_sa_configuration_et_sa_cle_sans_le_profil_de_session():
