@@ -9322,12 +9322,57 @@ def test_dagster_ne_parait_pas_pour_un_compte_utilisateur(hub_dagster):
 
 def test_la_tuile_de_dagster_revient_par_le_panneau():
     """La tuile passe par l'app-manager pour journaliser l'ouverture et garder
-    un chemin de retour, sans perdre l'origine propre de Dagster."""
+    un chemin de retour, sans perdre l'origine propre de Dagster.
+
+    L'expression etait ecrite ICI, dans la tuile. Elle vit maintenant dans
+    lienOuverture(), avec les quatre autres endroits qui ouvrent une
+    application. Le test suit le deplacement et verifie les DEUX : que la
+    tuile applique la regle, et ce que la regle dit. Ne verifier que la tuile
+    laisserait vider lienOuverture() sans que rien ne rougisse.
+    """
     page = _page_panneau("dashboard.html")
     bloc = page.split("const tuile = a =>")[1].split("`;")[0]
-    assert "a.externe ? '/'+encodeURIComponent(a.name)+'/'" in bloc
+    assert "lienOuverture(a)" in bloc
     assert 'target="_blank"' not in bloc
     assert "hubApps.concat(hubServices)" in page
+
+    regle = page.split("const lienOuverture = a =>")[1].split(";")[0]
+    # Un service externe par la porte du panneau, une application par
+    # l'origine des applications.
+    assert "a.externe" in regle
+    assert "'/' + encodeURIComponent(a.name) + '/'" in regle
+    assert "urlApplication(a.name)" in regle
+
+
+def test_ouvrir_une_application_passe_partout_par_la_meme_adresse():
+    """Cinq endroits ouvrent une application ; un seul doit dire ou.
+
+    L'adresse etait recopiee dans la tuile du hub, dans les trois boutons
+    « Ouvrir » de la fiche et dans sa ligne « Adresse ». Quatre disaient la
+    meme chose et la cinquieme avait derive : la ligne « Adresse » d'un
+    service externe pointait sur son adresse PROPRE (Dagster sur son port),
+    court-circuitant la porte qui verifie le droit d'entrer et journalise
+    l'ouverture. Un droit manquant n'y donnait plus le refus du panneau mais
+    la page d'erreur nue du service.
+
+    Ce test tient la regle de bout en bout : aucun de ces endroits ne
+    reconstruit l'adresse dans son coin, et aucun n'ouvre un onglet.
+    """
+    page = _page_panneau("dashboard.html")
+
+    # Aucune page du panneau n'ouvre plus d'onglet : depuis une application,
+    # le ruban de retour pose par le proxy ramene au hub.
+    assert 'target="_blank"' not in page
+
+    # Les trois boutons « Ouvrir » de la fiche.
+    boutons = re.findall(r'<a class="btn[^"]*" href="\$\{([^}]+)\}"[^>]*>\$\{svgOuvrir\}', page)
+    assert len(boutons) == 3, boutons
+    assert all(b.strip() == "lienOuverture(a)" for b in boutons), boutons
+
+    # La ligne « Adresse » de la fiche : le TEXTE dit ou le service vit, le
+    # LIEN passe par la porte du panneau. Les deux ne se confondent pas.
+    assert "$('fa-url').href = lienOuverture(a);" in page
+    assert "$('fa-url').textContent = externe ? a.url : '/'+a.name+'/';" in page
 
 def test_les_applications_par_defaut_ont_leur_icone(hub_dagster, tmp_path):
     """« dagster », « diagnostic » et « demo » donneraient le meme « D ».
