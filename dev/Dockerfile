@@ -106,6 +106,23 @@ RUN npm install -g openclaw@2026.6.35 \
     && npm cache clean --force \
     && openclaw --version
 
+# LE PANNEAU DE CHAT DE L'EXTENSION VS CODE, et ce qu'il appelle vraiment.
+#
+# L'extension recommandee (openknot.openclaw-extension) ne parle PAS au
+# gateway pour son chat : chaque message lance « acpx --format json ...
+# exec <prompt> », avec l'agent « codex » par defaut. acpx n'etait pas dans
+# l'image : le premier message tombait sur « spawn acpx ENOENT ».
+#
+# codex-acp est l'adaptateur ACP de Codex. Installe ici, acpx le trouve dans
+# le PATH ; absent, acpx le telecharge par « npx » au premier message --
+# une installation silencieuse, au runtime, a chaque recreation du conteneur.
+#
+# Epingles tous les deux, comme openclaw.
+RUN npm install -g acpx@0.19.3 @agentclientprotocol/codex-acp@1.13.1 \
+    && npm cache clean --force \
+    && acpx --version \
+    && command -v codex-acp
+
 COPY dev/entrypoint.sh /opt/codelab/dev/entrypoint.sh
 RUN chmod +x /opt/codelab/dev/entrypoint.sh
 
