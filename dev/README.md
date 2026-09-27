@@ -306,9 +306,10 @@ retrouvent dehors sans explication.
 
 ### Le gateway
 
-**Rien ne répond sans lui.** La CLI, la TUI et l'extension VS Code sont
-toutes des clients du gateway : c'est lui qui tient les sessions, les outils
-et le routage. Il ne démarre pas tout seul, d'où le message :
+**Rien ne répond sans lui.** La CLI, la TUI et la page de chat (Control UI)
+sont toutes des clients du gateway : c'est lui qui tient les sessions, les
+outils et le routage. Le panneau de chat de l'extension VS Code, lui, n'en
+dépend pas — voir plus bas. Il ne démarre pas tout seul, d'où le message :
 
 ```
 Gateway: not reachable at ws://127.0.0.1:18789
@@ -332,6 +333,30 @@ continuent.
 dossier ; il ne l'installe pas tout seul, et une extension retirée à la main
 le reste. Le fichier n'est écrit qu'une fois : la liste est à compléter
 soi-même.
+
+**Son chat ne passe pas par le gateway.** Chaque message lance
+`acpx --format json … exec "<message>"`, avec l'agent `codex` par défaut :
+`acpx` démarre l'adaptateur `codex-acp`, qui lit le `config.toml` de Codex
+et appelle `codelab-llm`. Les deux sont installés et épinglés dans l'image ;
+sans `acpx`, le premier message échouait sur `spawn acpx ENOENT`.
+
+`.vscode/settings.json` restreint la liste des agents du chat à `codex`
+(`openclaw.chat.models`) : `claude` et `opencode`, proposés par défaut par
+l'extension, ne sont pas installés. Ce fichier n'étant écrit qu'une fois,
+une installation existante peut ajouter ces deux lignes à la main :
+
+```json
+"openclaw.chat.agent": "codex",
+"openclaw.chat.models": ["codex"]
+```
+
+L'avertissement *« Model metadata for `codelab-coding` not found »* qui
+s'affiche en tête de réponse est sans conséquence : Codex ne connaît pas les
+noms logiques de CodeLab et prend des valeurs par défaut.
+
+**Sans extension**, la page de chat d'OpenClaw fait le même travail en
+passant par le gateway : `openclaw-chat` imprime son adresse, jeton compris,
+et VS Code redirige le port.
 
 Pour qu'elle survive : `~/.vscode-server` est désormais **monté depuis
 l'hôte**. Sans ce montage, chaque `docker compose pull` effaçait toutes les
@@ -369,8 +394,19 @@ model = "codelab-coding"
 
 [model_providers.codelab]
 base_url = "http://codelab-llm:8080/v1"
-env_key = "CODELAB_LLM_KEY"
+
+[model_providers.codelab.auth]
+command = "head"
+args = ["-n", "1", "/workspace/.codex/codelab-llm.key"]
 ```
+
+La clé est relue dans son fichier par une commande, pas dans
+l'environnement : une clé créée après l'ouverture de VS Code est prise
+aussitôt, dans le terminal comme dans le chat de l'extension. Les
+installations qui portaient l'ancienne ligne `env_key` sont converties au
+démarrage du conteneur — seule cette ligne change. `~/.codex` mène à
+`/workspace/.codex`, pour qu'un Codex lancé sans le profil de session
+trouve quand même sa configuration.
 
 Les noms de modeles disponibles sont les noms **logiques** — `codelab-coding`,
 `codelab-fast`, `codelab-reasoning`, `codelab-local` — definis dans
@@ -384,8 +420,7 @@ panneau tire la clé, inscrit son empreinte dans la base de `codelab-llm`,
 et la pose lui-même dans `/workspace/.codex/codelab-llm.key` (en `0600`) et
 dans `/workspace/.openclaw/openclaw.json`. Il ne l'affiche jamais, pas même
 à la création : il l'écrit directement là où elle sert, et n'en remontre que
-les quatre derniers caractères. **Ouvrir un nouveau terminal** ensuite — le
-profil de session exporte `CODELAB_LLM_KEY` à l'ouverture, pas après coup.
+les quatre derniers caractères. Rien à rouvrir : Codex relit le fichier.
 
 **Ou en ligne de commande**, si l'on veut la clé en main pour la poser
 ailleurs :
@@ -400,9 +435,8 @@ La valeur s'affiche **une seule fois** ; la coller dans
 et la même empreinte : une clé créée ici se révoque depuis le panneau, et
 inversement.
 
-C'est ce qui manquait quand Codex affichait
-`Missing environment variable: CODELAB_LLM_KEY` — le message ne disait pas
-lequel des trois gestes avait été oublié.
+Sans elle, Codex — et le chat de l'extension — affichent
+`cannot open '/workspace/.codex/codelab-llm.key'`.
 
 C'est une cle CodeLab, pas une cle de fournisseur : elle porte un quota et
 une comptabilite, se revoque en une commande (`revoke-key`), et ne donne

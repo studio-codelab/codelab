@@ -10360,17 +10360,96 @@ def test_codex_passe_par_la_passerelle_et_non_par_un_fournisseur_en_direct():
     source = _entrypoint_dev()
     debut = source.find("cat > \"$CODEX_HOME_DIR/config.toml\"")
     assert debut != -1, "le config.toml d'amorce a disparu de l'entrypoint"
-    bloc = source[debut:source.find("CODEXCFG\nfi", debut)]
+    # Borne sur la fin REELLE du heredoc. L'ancienne borne (« CODEXCFG\nfi »)
+    # n'existait pas : find rendait -1, le bloc courait jusqu'a la fin du
+    # fichier, et chaque assertion pouvait etre satisfaite par n'importe quel
+    # autre passage de l'entrypoint.
+    fin = source.find("\nCODEXCFG\n", debut)
+    assert fin != -1, "fin du heredoc CODEXCFG introuvable"
+    bloc = source[debut:fin]
     assert 'model_provider = "codelab"' in bloc
     assert "http://codelab-llm:8080/v1" in bloc
-    assert 'env_key = "CODELAB_LLM_KEY"' in bloc
+    # La cle est lue dans SON FICHIER par une commande, pas dans
+    # l'environnement : voir le test du chat de l'extension VS Code.
+    assert "[model_providers.codelab.auth]" in bloc
+    assert "codelab-llm.key" in bloc
+    # Codex refuse la configuration si env_key et auth sont poses ensemble.
+    assert "env_key" not in bloc
     # wire_api n'est pas pose : « responses » est le seul protocole accepte
     # depuis fevrier 2026, et c'est le defaut. L'ecrire serait se donner une
     # ligne a corriger le jour ou la valeur changera de nom.
     assert "wire_api" not in bloc
-    # La cle ne s'ecrit pas dans la configuration : elle est lue dans
-    # l'environnement, donc remplacable sans toucher au reste.
+    # La cle ne s'ecrit pas dans la configuration : elle est lue dans son
+    # fichier, donc remplacable sans toucher au reste.
     assert "cl_" not in bloc and "api_key" not in bloc
+    assert "experimental_bearer_token" not in bloc
+
+
+def test_le_chat_de_l_extension_vscode_a_ce_qu_il_lance():
+    """Le panneau de chat de openknot.openclaw-extension ne parle pas au
+    gateway : chaque message lance « acpx ... exec <prompt> », agent codex
+    par defaut, et acpx lance l'adaptateur codex-acp.
+
+    Vecu : acpx n'etait pas dans l'image, et le premier message du chat
+    tombait sur « spawn acpx ENOENT ». Sans codex-acp installe, acpx le
+    telecharge par npx au premier message, a chaque recreation du conteneur.
+    """
+    source = _dockerfile_dev()
+    assert re.search(r"npm install -g acpx@\d", source), (
+        "acpx absent ou non epingle : le chat de l'extension ne demarre pas")
+    assert re.search(r"@agentclientprotocol/codex-acp@\d", source), (
+        "codex-acp absent ou non epingle : acpx le telechargera au runtime")
+
+
+def test_codex_trouve_sa_configuration_et_sa_cle_sans_le_profil_de_session():
+    """L'hote d'extensions VS Code ne passe pas forcement par
+    /etc/profile.d, et son environnement est fige au demarrage du serveur.
+
+    Vecu : lance de la, Codex ne voyait ni CODEX_HOME (« Authentication
+    required ») ni une cle creee apres coup (« Missing environment
+    variable: CODELAB_LLM_KEY »), alors que le meme appel marchait dans un
+    terminal.
+    """
+    source = _entrypoint_dev()
+    assert 'ln -s "$CODEX_HOME_DIR" /home/vscode/.codex' in source, (
+        "~/.codex ne mene pas a CODEX_HOME : Codex lance hors session "
+        "cherchera sa configuration ailleurs")
+    # Les installations existantes : seule la ligne d'amorce est remplacee,
+    # et seulement si le bloc auth n'est pas deja la.
+    debut = source.index("CODEX_CFG=")
+    bloc = source[debut:source.index("PYCODEXAUTH\nfi", debut)]
+    assert "grep -qx 'env_key = \"CODELAB_LLM_KEY\"'" in bloc
+    assert "! grep -qF '[model_providers.codelab.auth]'" in bloc, (
+        "la migration n'est pas idempotente : le bloc auth serait ajoute "
+        "a chaque demarrage")
+
+
+def test_la_migration_de_config_toml_ne_touche_que_la_ligne_d_amorce(tmp_path):
+    """Execute le vrai script sur un config.toml que Codex a deja complete
+    lui-meme ([projects...]) : la ligne env_key part, le bloc auth arrive,
+    tout le reste est intact -- et un second passage ne change rien."""
+    source = _entrypoint_dev()
+    debut = source.index("<<'PYCODEXAUTH'")
+    script = source[source.index("\n", source.index("\n", debut) + 1) + 1:
+                    source.index("\nPYCODEXAUTH\n", debut)]
+    cfg = tmp_path / "config.toml"
+    avant = ('model_provider = "codelab"\n\n[model_providers.codelab]\n'
+             'name = "CodeLab"\nbase_url = "http://codelab-llm:8080/v1"\n'
+             'env_key = "CODELAB_LLM_KEY"\n\n[projects."/workspace"]\n'
+             'trust_level = "trusted"\n')
+    cfg.write_text(avant, encoding="utf-8")
+    import subprocess, sys as _sys
+    subprocess.run([_sys.executable, "-c", script, str(cfg), "/w/.codex/k.key"],
+                   check=True)
+    apres = cfg.read_text(encoding="utf-8")
+    assert "env_key" not in apres
+    assert '[projects."/workspace"]\ntrust_level = "trusted"' in apres
+    assert apres.endswith('[model_providers.codelab.auth]\ncommand = "head"\n'
+                          'args = ["-n", "1", "/w/.codex/k.key"]\n')
+    tomllib = pytest.importorskip("tomllib")
+    fournisseur = tomllib.loads(apres)["model_providers"]["codelab"]
+    assert fournisseur["base_url"] == "http://codelab-llm:8080/v1"
+    assert fournisseur["auth"]["command"] == "head"
 
 
 def test_la_cle_de_la_passerelle_est_lue_dans_un_fichier_et_jamais_ecrite_en_dur():
@@ -12860,6 +12939,10 @@ def test_le_chat_openclaw_est_joignable_sans_extension():
         "la redirection automatique est coupee : le port ne remontera pas")
     assert "18789" in reglages.get("remote.portsAttributes", {}), (
         "le port du gateway n'est pas declare a VS Code")
+    # Le chat de l'extension ne propose que l'agent installe : claude et
+    # opencode, ses autres choix par defaut, n'existent pas dans l'image.
+    assert reglages.get("openclaw.chat.agent") == "codex"
+    assert reglages.get("openclaw.chat.models") == ["codex"]
 
 
 def test_l_adresse_du_chat_porte_le_jeton():

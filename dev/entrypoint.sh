@@ -169,10 +169,18 @@ chmod 2770 "$CODEX_HOME_DIR" 2>/dev/null || true
 # fevrier 2026, et c'est aussi le defaut. C'est la raison pour laquelle
 # codelab-llm expose /v1/responses.
 #
-# La cle est lue dans l'environnement (env_key), jamais ecrite ici : voir le
-# profil plus bas.
+# La cle n'est jamais ecrite ici : Codex la lit dans son fichier, par une
+# commande (auth.command), a chaque fois qu'il en a besoin.
+#
+# PAS PAR L'ENVIRONNEMENT (env_key), comme avant. Le panneau de chat de
+# l'extension VS Code lance Codex depuis l'hote d'extensions, dont
+# l'environnement est fige au demarrage du serveur VS Code : une cle creee
+# ensuite dans le panneau n'y etait pas, et le chat repondait « Missing
+# environment variable: CODELAB_LLM_KEY » jusqu'a un redemarrage complet du
+# serveur. Lue dans le fichier, la cle est prise des qu'elle est posee, par
+# la CLI comme par l'extension. Codex refuse env_key ET auth ensemble.
 if [ ! -f "$CODEX_HOME_DIR/config.toml" ]; then
-    cat > "$CODEX_HOME_DIR/config.toml" <<'CODEXCFG'
+    cat > "$CODEX_HOME_DIR/config.toml" <<CODEXCFG
 # Ecrit une seule fois par codelab-dev -- modifiable librement.
 sandbox_mode = "danger-full-access"
 approval_policy = "on-request"
@@ -183,9 +191,45 @@ model = "codelab-coding"
 [model_providers.codelab]
 name = "CodeLab"
 base_url = "http://codelab-llm:8080/v1"
-env_key = "CODELAB_LLM_KEY"
+
+[model_providers.codelab.auth]
+command = "head"
+args = ["-n", "1", "$CODEX_HOME_DIR/codelab-llm.key"]
 CODEXCFG
     chown "$SSH_USER" "$CODEX_HOME_DIR/config.toml" 2>/dev/null || true
+fi
+
+# Les installations existantes ont l'ancienne ligne d'amorce. On ne touche
+# qu'a ELLE -- la ligne exacte que ce script ecrivait, dans un fichier qui
+# pointe encore la passerelle et n'a pas deja son bloc auth -- et le reste du
+# fichier, que Codex complete lui-meme ([projects...]) et que l'on a pu
+# ajuster a la main, reste tel quel.
+CODEX_CFG="$CODEX_HOME_DIR/config.toml"
+if grep -qx 'env_key = "CODELAB_LLM_KEY"' "$CODEX_CFG" 2>/dev/null \
+        && grep -qx 'base_url = "http://codelab-llm:8080/v1"' "$CODEX_CFG" \
+        && ! grep -qF '[model_providers.codelab.auth]' "$CODEX_CFG"; then
+    python3 - "$CODEX_CFG" "$CODEX_HOME_DIR/codelab-llm.key" <<'PYCODEXAUTH' \
+        && echo "[codelab-dev] config.toml de Codex : cle lue dans son fichier."
+import sys
+chemin, cle = sys.argv[1], sys.argv[2]
+lignes = open(chemin, encoding="utf-8").read().split("\n")
+lignes.remove('env_key = "CODELAB_LLM_KEY"')
+texte = "\n".join(lignes).rstrip("\n") + (
+    '\n\n[model_providers.codelab.auth]\n'
+    'command = "head"\n'
+    f'args = ["-n", "1", "{cle}"]\n')
+open(chemin, "w", encoding="utf-8").write(texte)
+PYCODEXAUTH
+fi
+
+# ~/.codex vers CODEX_HOME, comme ~/.openclaw plus bas. CODEX_HOME n'est pose
+# que par le profil de session : un processus lance sans passer par lui --
+# l'hote d'extensions VS Code, selon la facon dont le serveur a demarre --
+# cherchait sa configuration dans ~/.codex, ne trouvait rien, et le chat
+# repondait « Authentication required ».
+if [ ! -e /home/vscode/.codex ]; then
+    ln -s "$CODEX_HOME_DIR" /home/vscode/.codex 2>/dev/null || true
+    chown -h vscode:vscode /home/vscode/.codex 2>/dev/null || true
 fi
 
 # LA CLE DE LA PASSERELLE, si elle a ete deposee.
@@ -399,11 +443,12 @@ fi
 
 # ---------------------------- le gateway ----------------------------
 #
-# SANS LUI, RIEN NE REPOND. La CLI, la TUI et l'extension VS Code sont
-# toutes des clients du gateway : c'est lui qui tient les sessions, les
-# outils et le routage. Il ne se lance pas tout seul -- d'ou le « Gateway:
-# not reachable at ws://127.0.0.1:18789 » que voyait Lucas, meme avec une
-# configuration correcte.
+# SANS LUI, RIEN NE REPOND. La CLI, la TUI et la page de chat (Control UI)
+# sont toutes des clients du gateway : c'est lui qui tient les sessions, les
+# outils et le routage. (Le panneau de chat de l'extension VS Code passe,
+# lui, par acpx et Codex -- voir le Dockerfile.) Il ne se lance pas tout
+# seul -- d'ou le « Gateway: not reachable at ws://127.0.0.1:18789 » que
+# voyait Lucas, meme avec une configuration correcte.
 #
 # SUR LA BOUCLE LOCALE, ET RIEN D'AUTRE. bind: "loopback" est le defaut
 # d'OpenClaw, et c'est ce qu'on veut : ses clients sont dans CE conteneur
@@ -496,12 +541,20 @@ fi
 # boucle locale du conteneur : c'est Remote-SSH qui transporte, pas un port
 # publie de plus sur le reseau.
 #
+# Le panneau de chat de l'extension propose par defaut trois agents --
+# codex, claude, opencode -- et seul codex est installe (avec son adaptateur
+# ACP, voir le Dockerfile). Les deux autres partaient telecharger un
+# adaptateur par npx et echouaient faute de compte. On ne laisse dans la
+# liste que celui qui repond.
+#
 # Ecrit une seule fois, comme extensions.json : ce sont des reglages qu'on
 # ajuste ensuite soi-meme.
 if [ ! -f "$VSCODE_DIR/settings.json" ]; then
     mkdir -p "$VSCODE_DIR"
     cat > "$VSCODE_DIR/settings.json" <<'VSCODESET'
 {
+  "openclaw.chat.agent": "codex",
+  "openclaw.chat.models": ["codex"],
   "remote.autoForwardPorts": true,
   "remote.portsAttributes": {
     "18789": {

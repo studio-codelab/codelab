@@ -5831,7 +5831,7 @@ function peindreCleLlm(l){
   const lignes = [];
   if(!l.posee){
     lignes.push('<div class="hint">Aucune clé n\'est posée sur ce serveur. '
-      + 'Codex affichera <code>Missing environment variable: CODELAB_LLM_KEY</code> '
+      + 'Codex et le chat VS Code afficheront <code>cannot open \'/workspace/.codex/codelab-llm.key\'</code> '
       + 'tant que ce sera le cas — le panneau la crée tout seul dès que la base répond.</div>');
   }else{
     lignes.push(ligneCle('Clé posée', '<code>' + esc(l.apercu) + '</code>'));
