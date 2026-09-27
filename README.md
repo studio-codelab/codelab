@@ -12,26 +12,47 @@ propos.
 
 | Service | Rôle | Port |
 |---|---|---|
-| **Postgres** | Serveur de bases partagé : une base par projet | interne |
+| **Postgres** | Serveur de bases partagé : une base par projet, `pgvector` inclus | interne |
 | **Dev** | Accès SSH et VS Code Remote-SSH | `2222` |
-| **Dagster** | Orchestration et planification de jobs | interne |
+| **Dagster** | Orchestration des jobs : l'interface et le serveur | interne |
+| **Dagster-daemon** | Ce qui déclenche à l'heure dite : plannings et capteurs | interne |
 | **Dagster-proxy** | Authentification devant Dagster | `3000` |
 | **App-manager** | Le panneau : déploiement et supervision des applications | `9001` |
 | **Applications** | Les projets déployés, servis sur leur propre adresse | `9002` |
-| **CodeLab LLM** | Passerelle compatible OpenAI, optionnelle | interne |
+| **CodeLab LLM** | Passerelle compatible OpenAI : identité, quota, comptabilité | interne |
+| **CodeLab LiteLLM** | Routage des modèles, replis, clés des fournisseurs | interne |
 
 Aucune configuration manuelle après l'installation : les identifiants de base de données et les clés
 SSH sont générés au premier démarrage, et la connexion à Postgres est déjà prête dans le conteneur
 `dev`.
 
-Le profil `llm` est optionnel et ne démarre pas par défaut. Il ajoute une passerelle compatible
-OpenAI, réservée aux clients porteurs d'une clé CodeLab. La valeur à renseigner est décrite dans
-`.env.example` ; la configuration complète est dans
-[`llm/README.md`](llm/README.md).
+Le profil `llm` est optionnel et ne démarre pas par défaut. Il ajoute deux conteneurs : une
+passerelle réservée aux clients porteurs d'une clé CodeLab, et le routeur qui choisit le
+fournisseur derrière. Aucun des deux ne publie de port. Les valeurs à renseigner sont décrites
+dans `.env.example` ; la configuration complète est dans [`llm/README.md`](llm/README.md).
 
 ```bash
 docker compose --profile llm up -d
 ```
+
+## Prérequis
+
+| | |
+|---|---|
+| Mémoire | **4 Go** — la cible du dimensionnement |
+| Processeur | **2 cœurs** |
+| Disque | ~3 Go pour les images, plus ce que pèsent vos projets |
+| Docker | Docker Engine avec le plugin Compose |
+
+Les limites de chaque conteneur sont calculées pour cette machine : aucun service ne peut prendre
+à lui seul plus du tiers de la mémoire, pour que le panneau reste joignable même quand une
+application part en boucle — sans quoi on ne peut plus l'arrêter depuis le panneau. Deux tests
+vérifient que ces plafonds restent cohérents avec la cible annoncée.
+
+Sur une machine plus grande, remonter l'ensemble proportionnellement dans les deux fichiers
+`docker-compose*.yml`, et la constante `RAM_CIBLE_MO` de `workspace/diagnostic/checks.py`.
+
+Le profil `llm` est optionnel : il ajoute deux conteneurs et environ 830 Mo de plafonds.
 
 ## Installation
 
@@ -48,9 +69,31 @@ panneau et Dagster, eux, restent joignables sans SSH.
 Les données vivent en dehors des conteneurs et survivent donc aux mises à jour d'image. Pour les
 ranger ailleurs, il suffit de changer les chemins hôte des volumes dans `docker-compose.yml`.
 
+Le nom du projet Compose est fixé à `codelab` dans les deux fichiers. Sans cela, il serait déduit du
+dossier d'où l'on démarre — `codelab-main` pour l'archive ZIP de GitHub, ou un nom du genre
+`compose-d4601441b33edb0f` pour une interface qui recopie le fichier chez elle, comme CasaOS, qui en
+fait aussi le nom du dossier de l'application.
+
+> **Si votre installation existe déjà sous un autre nom de projet**, faites `docker compose down`
+> avant la mise à jour, puis `up -d`. Compose repère ses conteneurs par un label de projet : sous un
+> nouveau nom il voudrait en recréer, alors que les noms de conteneurs sont pris. Les données ne
+> bougent pas — elles sont dans `/DATA/AppData/codelab/`, pas dans des volumes nommés par le projet.
+
 Si le serveur expose une interface d'installation par collage de compose (les app stores de type
 CasaOS, par exemple), `docker-compose-casaos.yml` est le même fichier avec les métadonnées
 d'affichage que ces interfaces savent lire.
+
+Ce jumeau ne porte **aucun commentaire**, et c'est délibéré : il se colle dans une zone de texte,
+il ne se lit pas. La même explication écrite à deux endroits finit par diverger, et c'est la copie
+qu'on ne lit jamais qui se met à mentir. Tout ce qu'il y a à dire est donc dans
+`docker-compose.yml`, commenté ligne à ligne, et dans les README ; celui-ci ne porte que les
+valeurs. Un test (`test_le_compose_casaos_ne_porte_aucun_commentaire`) tient la règle dans le sens
+où elle se perd : on ajoute un commentaire par réflexe, on ne l'enlève jamais par hasard.
+
+> **En le collant, remplacer TOUT le contenu de la zone** (Ctrl+A, puis coller). Un collage inséré
+> au curseur laisse la fin de l'ancienne version derrière lui : les deux fichiers se retrouvent
+> soudés, et l'interface refuse le résultat avec une erreur YAML qui désigne une ligne sans rapport
+> — `Map keys must be unique`, parce que `networks:` apparaît alors deux fois.
 
 ## Utilisation
 
@@ -92,6 +135,19 @@ surveiller à l'œil :
   revient.
 - **Catégories** — des tiroirs pour ranger les projets dans le hub. Purement visuel : une catégorie
   ne donne aucun droit.
+- **Applications du hub** — ce que *ton* hub affiche, compte par compte. Cochée, elle est affichée.
+  **Dagster en fait partie** : sur une installation où l'on n'ouvre jamais l'orchestrateur, sa tuile
+  se range comme les autres. C'est du rangement, pas une fermeture : le service continue de tourner
+  et son adresse répond toujours.
+- **Clés et secrets** — une console, comme chez un fournisseur de LLM : créer une clé à la
+  demande, en révoquer une sans toucher aux autres, et voir ce que **chacune** a consommé
+  (requêtes, jetons, dernier appel). Les clés des fournisseurs s'ajoutent en **choisissant**
+  Anthropic, OpenAI, Ollama ou un autre ; la clé interne entre la passerelle et le routeur, elle,
+  se tire toute seule. La clé de Codex et OpenClaw, elle, est **créée et posée
+  toute seule** — rien à saisir — et ne s'affiche jamais. Une clé destinée à une application est
+  montrée **une seule fois** : la base n'en garde que l'empreinte.
+  Le panneau n'atteint ni le compose ni le `.env` de l'hôte — les lui monter lui donnerait de quoi
+  réécrire la stack.
 
 **Dagster** — `http://<IP-du-serveur>:3000/`. Charge `/workspace/definitions.py` comme code
 Dagster. Il n'a pas d'identifiants à lui : il utilise la session du panneau, donc la même connexion

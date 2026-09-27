@@ -15,9 +15,29 @@ RUN apt-get update \
         sudo \
         acl \
         postgresql-client \
-        nodejs \
-        npm \
     && rm -rf /var/lib/apt/lists/*
+
+# NODE 24, ET PAS CELUI DE DEBIAN.
+#
+# openclaw declare "engines: node >=24.16.0 <25 || >=26.1.0" et refuse de
+# s'installer en dessous ; le nodejs empaquete par Debian est plusieurs
+# versions en arriere. NodeSource est la facon documentee d'avoir une version
+# recente, et il fournit npm avec.
+#
+# Version de la BRANCHE epinglee (24.x) et non "current" : une branche LTS
+# recoit des correctifs, pas des changements de comportement.
+# gnupg ne sert qu'au depot NodeSource, le temps de verifier sa signature :
+# il est installe et retire DANS LA MEME COUCHE, sans quoi il resterait dans
+# l'image -- une couche Docker ne rend jamais ce qu'une couche suivante
+# supprime.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && apt-get purge -y gnupg \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/* \
+    && node --version && npm --version
 
 # Groupe partage entre les trois services qui ecrivent dans /workspace
 # (dev, dagster, app-manager). GID FIXE et identique dans les trois images :
@@ -25,6 +45,13 @@ RUN apt-get update \
 # different dans deux conteneurs ne donne aucun droit commun sur le bind
 # mount. Ne jamais changer ce numero sans reappliquer les permissions sur un
 # workspace existant (supprimer /workspace/.codelab/permissions-v* suffit).
+#
+# « codelab » est le SEUL groupe secondaire de vscode, et ce n'est pas un
+# oubli. Ce conteneur porte un agent de developpement qui execute des
+# commandes sans qu'on relise chacune : l'ajouter a sudo, wheel ou docker lui
+# donnerait credentials.env -- mot de passe d'administration du panneau, cle
+# privee SSO, mot de passe SMTP -- et, par la, la stack entiere. Un test
+# retient cette ligne (checks.py, section 36).
 RUN groupadd -g 2000 codelab \
     && useradd -m -u 1000 -s /bin/bash vscode \
     && usermod -aG codelab vscode \
@@ -49,15 +76,35 @@ RUN pip install --no-cache-dir \
 # depuis une session SSH. Installe globalement (/usr/local/bin/codex), donc
 # dans le PATH de l'utilisateur "vscode" comme de root.
 #
-# C'est ce paquet qui amene node et npm dans l'image, plus haut : la base
-# python:3.13-slim n'en a pas. npm resout ici la dependance optionnelle
-# correspondant a l'architecture de build (@openai/codex-linux-x64 ou
-# -linux-arm64) -- les deux images sont publiees, les deux fonctionnent.
+# npm resout ici la dependance optionnelle correspondant a l'architecture de
+# build (@openai/codex-linux-x64 ou -linux-arm64) -- les deux images sont
+# publiees, les deux fonctionnent. node et npm viennent de NodeSource, plus
+# haut : la base python:3.13-slim n'en a pas.
 #
 # Volontairement non epingle, comme les paquets pip ci-dessus : la version
 # est celle du jour du build. Pour figer, remplacer par "@openai/codex@X.Y.Z".
 RUN npm install -g @openai/codex \
     && npm cache clean --force
+
+# OpenClaw, le second agent de developpement, utilisable depuis une session
+# SSH comme codex. Les deux cohabitent : ils lisent le meme AGENTS.md et
+# passent par la meme passerelle.
+#
+# EPINGLE sur la ligne "extended-stable" et non sur "latest" : au jour de
+# l'ecriture, le dist-tag "beta" pointe la meme version que "latest", ce qui
+# n'est pas ce qu'on veut dans une image que plusieurs personnes utilisent
+# pour travailler. Changer de version est une decision, comme partout ici.
+#
+# OPENCLAW_NO_PROMPT : ses scripts d'installation lancent sinon un assistant
+# de configuration interactif, qui n'a rien a faire dans un build.
+#
+# Ce paquet est GROS -- 66 dependances directes, un gateway, des connecteurs
+# de messagerie dont ce conteneur n'a aucun usage. Il est ici parce qu'on l'a
+# demande ; s'il n'est pas utilise, le retirer allege l'image d'autant.
+ENV OPENCLAW_NO_PROMPT=1
+RUN npm install -g openclaw@2026.6.35 \
+    && npm cache clean --force \
+    && openclaw --version
 
 COPY dev/entrypoint.sh /opt/codelab/dev/entrypoint.sh
 RUN chmod +x /opt/codelab/dev/entrypoint.sh

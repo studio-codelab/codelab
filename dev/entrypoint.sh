@@ -60,6 +60,7 @@ ENV_FILE="${CODELAB_ENV_FILE:-/var/lib/codelab/config/credentials.env}"
 PROFILE=/etc/profile.d/codelab-pg.sh
 UMASK_PROFILE=/etc/profile.d/codelab-umask.sh
 CODEX_PROFILE=/etc/profile.d/codelab-codex.sh
+GITCONFIG=/home/vscode/.gitconfig
 BASHRC=/home/vscode/.bashrc
 
 # --------------------- permissions partagees sur /workspace ---------------------
@@ -108,6 +109,29 @@ if [ ! -f "$PERM_MARKER" ]; then
     chmod 2775 "$(dirname "$PERM_MARKER")" 2>/dev/null || true
 fi
 
+# ET UNE PASSE DE RATTRAPAGE A CHAQUE DEMARRAGE.
+#
+# Le marqueur ci-dessus ne protege qu'UNE passe complete, et c'est voulu :
+# un chgrp -R sur un gros workspace coute plusieurs secondes a chaque
+# demarrage. Mais il laissait un trou. /workspace est partage avec les
+# autres conteneurs -- Dagster y amorce des dossiers, et un projet clone
+# depuis une autre session nait avec le groupe et les droits de qui l'a
+# cree. Ces entrees-la arrivent APRES la premiere passe, donc plus rien ne
+# les rattrapait : vscode les voyait sans pouvoir y ecrire, et « git config »
+# ou un simple enregistrement echouait sur un refus de droits.
+#
+# Celle-ci ne touche QUE ce qui ne va pas : find ecarte d'emblee les entrees
+# deja conformes, donc le cas courant ne coute qu'un parcours. Rien a
+# corriger, rien d'ecrit.
+echo "[codelab-dev] rattrapage des permissions du workspace..."
+find "$WORKSPACE_DIR" \! -group "$CODELAB_GROUP" -exec chgrp "$CODELAB_GROUP" {} + 2>/dev/null || true
+# -perm -g+w ne garde que ce qui A deja le droit : la negation garde donc ce
+# qui ne l'a pas. Le X majuscule laisse les fichiers de code non executables.
+find "$WORKSPACE_DIR" \! -perm -g+w -exec chmod g+rwX {} + 2>/dev/null || true
+# Le setgid sur les dossiers : sans lui, ce qui nait dedans reprend le groupe
+# de son createur et le trou se rouvre au fichier suivant.
+find "$WORKSPACE_DIR" -type d \! -perm -g+s -exec chmod g+s {} + 2>/dev/null || true
+
 # Ceinture et bretelles avec UMASK dans /etc/login.defs : couvre les shells
 # de login et les shells interactifs, y compris quand un ~/.profile
 # utilisateur reimpose un umask plus restrictif apres coup.
@@ -135,18 +159,69 @@ chmod 2770 "$CODEX_HOME_DIR" 2>/dev/null || true
 # indisponibles dans un conteneur non privilegie ("bwrap: No permissions to
 # create a new namespace") et aucune commande ne s'execute. L'isolation est
 # deja celle du conteneur ; en empiler une seconde ne fait que tout bloquer.
+#
+# Le provider pointe la PASSERELLE CodeLab, pas un fournisseur en direct.
+# Sans cela, "codex login" envoie le trafic chez OpenAI avec un compte
+# personnel : aucune cle centralisee, aucune comptabilite, aucun routage --
+# exactement ce que codelab-llm existe pour eviter.
+#
+# wire_api n'est pas pose : "responses" est le seul protocole accepte depuis
+# fevrier 2026, et c'est aussi le defaut. C'est la raison pour laquelle
+# codelab-llm expose /v1/responses.
+#
+# La cle est lue dans l'environnement (env_key), jamais ecrite ici : voir le
+# profil plus bas.
 if [ ! -f "$CODEX_HOME_DIR/config.toml" ]; then
-    {
-        echo '# Ecrit une seule fois par codelab-dev -- modifiable librement.'
-        echo 'sandbox_mode = "danger-full-access"'
-        echo 'approval_policy = "on-request"'
-    } > "$CODEX_HOME_DIR/config.toml"
+    cat > "$CODEX_HOME_DIR/config.toml" <<'CODEXCFG'
+# Ecrit une seule fois par codelab-dev -- modifiable librement.
+sandbox_mode = "danger-full-access"
+approval_policy = "on-request"
+
+model_provider = "codelab"
+model = "codelab-coding"
+
+[model_providers.codelab]
+name = "CodeLab"
+base_url = "http://codelab-llm:8080/v1"
+env_key = "CODELAB_LLM_KEY"
+CODEXCFG
     chown "$SSH_USER" "$CODEX_HOME_DIR/config.toml" 2>/dev/null || true
 fi
 
-printf '%s\n' '# Genere par codelab-dev -- authentification Codex persistante.' \
-    "export CODEX_HOME=$CODEX_HOME_DIR" > "$CODEX_PROFILE"
+# LA CLE DE LA PASSERELLE, si elle a ete deposee.
+#
+# C'est une cle CodeLab -- enregistree en base, revocable, portant un quota et
+# une comptabilite -- et surtout PAS une cle de fournisseur. Sa compromission
+# se repare en une commande ("revoke-key") et ne donne acces a aucun compte
+# OpenAI ou Anthropic : les cles des fournisseurs vivent dans
+# codelab-litellm, que ce conteneur ne voit meme pas.
+#
+# Elle est lue dans un fichier et exportee dans les sessions, plutot
+# qu'inscrite dans config.toml : un fichier se remplace sans toucher a la
+# configuration, et se retire sans la casser.
+#
+# La creer depuis une session, une fois :
+#
+#   docker exec codelab-llm python3 app.py create-key \
+#       --name vscode --user VOTRE-NOM --app vscode
+#
+# puis coller la valeur affichee dans $CODEX_HOME/codelab-llm.key.
+CLE_LLM_FICHIER="$CODEX_HOME_DIR/codelab-llm.key"
+{
+    echo '# Genere par codelab-dev -- environnement Codex.'
+    echo "export CODEX_HOME=$CODEX_HOME_DIR"
+    echo "if [ -r \"$CLE_LLM_FICHIER\" ]; then"
+    echo "    CODELAB_LLM_KEY=\"\$(head -n 1 \"$CLE_LLM_FICHIER\" | tr -d '[:space:]')\""
+    echo "    export CODELAB_LLM_KEY"
+    echo "fi"
+} > "$CODEX_PROFILE"
 chmod 644 "$CODEX_PROFILE"
+
+# Droits du fichier de cle, s'il existe deja : personne d'autre que son
+# proprietaire n'a a le lire.
+[ -f "$CLE_LLM_FICHIER" ] && chmod 600 "$CLE_LLM_FICHIER" 2>/dev/null
+[ -f "$CLE_LLM_FICHIER" ] && chown "$SSH_USER" "$CLE_LLM_FICHIER" 2>/dev/null
+true
 
 # Manuel de l'environnement, lu par Codex comme instructions globales. Recopie
 # a CHAQUE demarrage, contrairement au config.toml : ce fichier decrit la
@@ -163,6 +238,357 @@ if [ -r "$AGENTS_SOURCE" ]; then
     chown "$SSH_USER" "$CODEX_HOME_DIR/AGENTS.md" 2>/dev/null || true
     chmod 664 "$CODEX_HOME_DIR/AGENTS.md" 2>/dev/null || true
 fi
+
+# ----------------------------- OpenClaw -----------------------------
+#
+# Second agent de developpement, a cote de codex. Sa configuration vit dans
+# /workspace comme celle de Codex, pour la meme raison : c'est le seul dossier
+# qui survit a une recreation du conteneur. OpenClaw lit ~/.openclaw ; un lien
+# symbolique suffit a l'y emmener, sans dependre d'un nom de variable
+# d'environnement qui pourrait changer.
+OPENCLAW_HOME_DIR="$WORKSPACE_DIR/.openclaw"
+mkdir -p "$OPENCLAW_HOME_DIR"
+chown "$SSH_USER" "$OPENCLAW_HOME_DIR" 2>/dev/null || true
+chgrp "$CODELAB_GROUP" "$OPENCLAW_HOME_DIR" 2>/dev/null || true
+chmod 2770 "$OPENCLAW_HOME_DIR" 2>/dev/null || true
+if [ ! -e /home/vscode/.openclaw ]; then
+    ln -s "$OPENCLAW_HOME_DIR" /home/vscode/.openclaw 2>/dev/null || true
+    chown -h vscode:vscode /home/vscode/.openclaw 2>/dev/null || true
+fi
+
+# La configuration d'amorce d'OpenClaw, et son gateway.
+#
+# CE BLOC A ETE VERIFIE EN EXECUTANT OPENCLAW, ce qui n'etait pas le cas de
+# la version precedente -- son commentaire le disait, et elle etait fausse.
+# Lancee sur la machine de Lucas, la CLI repondait :
+#
+#     Config: invalid. Default agent: main.
+#     Gateway: not reachable at ws://127.0.0.1:18789
+#     Using: deterministic typed commands until we configure a model.
+#
+# « openclaw config validate » sur le fichier qu'on ecrivait donne la cause
+# exacte, et elle n'etait pas devinable :
+#
+#     models.providers.codelab.models: custom model providers must declare
+#     models; provider overlays without models are only supported for
+#     bundled providers
+#
+# Un provider sans « models » n'est pas une configuration incomplete : c'est
+# une configuration REFUSEE. OpenClaw tombait alors sur ses commandes
+# deterministes, sans modele, et le fichier restait tel quel indefiniment.
+#
+# TROIS CHOSES MANQUAIENT, chacune constatee a l'execution :
+#
+#   models[]          la liste des modeles du provider. Ce sont les noms
+#                     LOGIQUES de codelab-llm, les memes que ceux du
+#                     config.toml de Codex -- un test tient les deux d'accord.
+#   agents.defaults   sans modele par defaut, un provider declare ne sert a
+#     .model.primary  personne : rien ne dit lequel utiliser.
+#   gateway.mode      « Gateway start blocked: existing config is missing
+#                     gateway.mode. » Le gateway REFUSE de demarrer sans.
+#
+# Et un quatrieme point, signale par le gateway lui-meme au demarrage :
+# sans gateway.auth.token persiste, il en genere un NOUVEAU a chaque
+# demarrage. La CLI et l'extension VS Code lisent le meme fichier : un jeton
+# qui change a chaque redemarrage les laisserait dehors. On le tire une fois
+# et on le garde.
+CLE_POUR_OPENCLAW=""
+if [ -r "$CODEX_HOME_DIR/codelab-llm.key" ]; then
+    CLE_POUR_OPENCLAW="$(head -n 1 "$CODEX_HOME_DIR/codelab-llm.key" | tr -d '[:space:]')"
+fi
+
+OPENCLAW_CFG="$OPENCLAW_HOME_DIR/openclaw.json"
+
+# Le jeton du gateway : celui deja pose, ou un neuf. Lu avec python3 plutot
+# qu'a la grep -- c'est du JSON, et une accolade deplacee suffirait a faire
+# regenerer un jeton a chaque demarrage sans que personne le remarque.
+JETON_OPENCLAW="$(python3 - "$OPENCLAW_CFG" <<'PYJETON' 2>/dev/null || true
+import json, sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as f:
+        config = json.load(f)
+    jeton = ((config.get("gateway") or {}).get("auth") or {}).get("token") or ""
+except Exception:
+    jeton = ""
+print(jeton if isinstance(jeton, str) else "")
+PYJETON
+)"
+if [ -z "$JETON_OPENCLAW" ]; then
+    JETON_OPENCLAW="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+fi
+
+# QUAND REECRIT-ON ? Trois cas, et le troisieme est nouveau.
+#
+#   absent              rien a preserver ;
+#   cle perimee         la cle inscrite ne vaut plus celle du fichier --
+#                       la configuration est de toute facon inutilisable ;
+#   refuse par OpenClaw c'est LUI qui juge, pas nous. Ce cas repare les
+#                       installations deja cassees par la version
+#                       precedente, sans toucher a une configuration valide
+#                       que quelqu'un aurait ajustee a la main.
+OPENCLAW_A_ECRIRE=0
+if [ ! -f "$OPENCLAW_CFG" ]; then
+    OPENCLAW_A_ECRIRE=1
+elif [ -n "$CLE_POUR_OPENCLAW" ] \
+        && ! grep -q "\"apiKey\": \"$CLE_POUR_OPENCLAW\"" "$OPENCLAW_CFG" 2>/dev/null; then
+    OPENCLAW_A_ECRIRE=1
+    echo "[codelab-dev] openclaw.json ne porte pas la cle courante : reecrit." >&2
+elif ! su -s /bin/sh -c "openclaw config validate" "$SSH_USER" >/dev/null 2>&1; then
+    OPENCLAW_A_ECRIRE=1
+    echo "[codelab-dev] openclaw.json refuse par OpenClaw : reecrit." >&2
+fi
+
+if [ "$OPENCLAW_A_ECRIRE" = "1" ]; then
+    cat > "$OPENCLAW_CFG" <<OPENCLAWCFG
+{
+  "gateway": {
+    "mode": "local",
+    "port": 18789,
+    "bind": "loopback",
+    "auth": { "mode": "token", "token": "$JETON_OPENCLAW" }
+  },
+  "agents": {
+    "defaults": { "model": { "primary": "codelab/codelab-coding" } }
+  },
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "codelab": {
+        "baseUrl": "http://codelab-llm:8080/v1",
+        "apiKey": "$CLE_POUR_OPENCLAW",
+        "api": "openai-completions",
+        "timeoutSeconds": 300,
+        "models": [
+          { "id": "codelab-coding", "name": "CodeLab Coding", "reasoning": false,
+            "input": ["text"], "contextWindow": 200000, "maxTokens": 16384 },
+          { "id": "codelab-fast", "name": "CodeLab Fast", "reasoning": false,
+            "input": ["text"], "contextWindow": 128000, "maxTokens": 8192 },
+          { "id": "codelab-reasoning", "name": "CodeLab Reasoning", "reasoning": true,
+            "input": ["text"], "contextWindow": 200000, "maxTokens": 32768 },
+          { "id": "codelab-local", "name": "CodeLab Local", "reasoning": false,
+            "input": ["text"], "contextWindow": 32000, "maxTokens": 4096 }
+        ],
+        "request": { "allowPrivateNetwork": true }
+      }
+    }
+  }
+}
+OPENCLAWCFG
+    chown "$SSH_USER" "$OPENCLAW_CFG" 2>/dev/null || true
+    chmod 600 "$OPENCLAW_CFG" 2>/dev/null || true
+fi
+
+# ------------------- le serveur VS Code, et ses droits -------------------
+#
+# Le dossier est monte depuis l'hote, donc CREE PAR DOCKER EN ROOT quand il
+# n'existe pas encore. Remote-SSH s'y installe sous « vscode » : sans ce
+# chown, la premiere connexion echoue sur un refus d'ecriture, et le message
+# cote VS Code ne nomme ni le dossier ni le proprietaire.
+#
+# Seulement s'il n'appartient pas deja au bon compte : un chown -R sur des
+# milliers de fichiers d'extensions couterait plusieurs secondes a chaque
+# demarrage, pour ne rien changer.
+VSCODE_SERVER_DIR=/home/vscode/.vscode-server
+if [ -d "$VSCODE_SERVER_DIR" ]; then
+    if [ "$(stat -c %U "$VSCODE_SERVER_DIR" 2>/dev/null)" != "$SSH_USER" ]; then
+        chown -R "$SSH_USER:$SSH_USER" "$VSCODE_SERVER_DIR" 2>/dev/null \
+            && echo "[codelab-dev] $VSCODE_SERVER_DIR rendu a $SSH_USER."
+    fi
+fi
+
+
+# ---------------------------- le gateway ----------------------------
+#
+# SANS LUI, RIEN NE REPOND. La CLI, la TUI et l'extension VS Code sont
+# toutes des clients du gateway : c'est lui qui tient les sessions, les
+# outils et le routage. Il ne se lance pas tout seul -- d'ou le « Gateway:
+# not reachable at ws://127.0.0.1:18789 » que voyait Lucas, meme avec une
+# configuration correcte.
+#
+# SUR LA BOUCLE LOCALE, ET RIEN D'AUTRE. bind: "loopback" est le defaut
+# d'OpenClaw, et c'est ce qu'on veut : ses clients sont dans CE conteneur
+# (les sessions SSH, et le serveur VS Code qui s'y installe). Aucun port
+# publie, aucune surface de plus sur le reseau -- et la doc d'OpenClaw note
+# au passage que les connexions en boucle locale sont approuvees d'office,
+# donc pas d'appairage a faire a la main.
+#
+# En tache de fond et pas en PID 1 : sshd reste le processus principal, pour
+# garder ses journaux dans « docker logs » et son arret propre sur SIGTERM.
+# Si le gateway tombe, les sessions SSH continuent -- l'inverse serait un
+# agent qui emporte l'acces au conteneur avec lui.
+OPENCLAW_LOG="$OPENCLAW_HOME_DIR/gateway.log"
+touch "$OPENCLAW_LOG" 2>/dev/null || true
+chown "$SSH_USER" "$OPENCLAW_LOG" 2>/dev/null || true
+
+# Ce journal n'a pas de rotation a lui. Il vit sur le disque de donnees
+# (/workspace/.openclaw) et le gateway y ecrit tant que le conteneur tourne :
+# sans plafond, il grossit jusqu'a remplir le disque, et un conteneur qui ne
+# redemarre pas pendant des mois ne le rouvre jamais. On garde au plus
+# OPENCLAW_LOG_MAX dans le fichier courant et la fin de l'ancien dans .1,
+# soit un plafond total de MAX + GARDE -- le meme principe que le panneau
+# (MAX_LOG_BYTES, un seul .1 conserve).
+#
+# TRONQUER, ET PAS RENOMMER : le gateway ecrit via « >> », donc son
+# descripteur suit l'inode. Le renommer le laisserait remplir le .1 pendant
+# que le fichier courant reste vide -- la rotation ne plafonnerait rien.
+# « : > fichier » remet la taille a zero sous ce meme descripteur, et
+# O_APPEND fait repartir les ecritures du nouveau debut.
+OPENCLAW_LOG_MAX=2097152   # 2 Mo dans le fichier courant
+OPENCLAW_LOG_GARDE=262144  # 256 Ko d'historique repris dans .1
+
+plafonner_le_journal_openclaw() {
+    [ -f "$OPENCLAW_LOG" ] || return 0
+    local taille_journal
+    taille_journal=$(wc -c < "$OPENCLAW_LOG" 2>/dev/null) || return 0
+    [ "$taille_journal" -gt "$OPENCLAW_LOG_MAX" ] || return 0
+    tail -c "$OPENCLAW_LOG_GARDE" "$OPENCLAW_LOG" > "$OPENCLAW_LOG.1" 2>/dev/null || return 0
+    chown "$SSH_USER" "$OPENCLAW_LOG.1" 2>/dev/null || true
+    : > "$OPENCLAW_LOG"
+}
+
+# Une fois au demarrage pour reprendre les journaux deja gros -- dont ceux
+# ecrits sans plafond par les versions precedentes -- puis toutes les heures,
+# parce que c'est le conteneur qui tourne longtemps, pas ses redemarrages,
+# qui remplissent le fichier.
+plafonner_le_journal_openclaw
+(
+    while sleep 3600; do
+        plafonner_le_journal_openclaw
+    done
+) &
+
+if su -s /bin/sh -c "openclaw gateway >> '$OPENCLAW_LOG' 2>&1 &" "$SSH_USER"; then
+    echo "[codelab-dev] gateway OpenClaw lance sur 127.0.0.1:18789" \
+         "(journal : $OPENCLAW_LOG)"
+else
+    echo "[codelab-dev] gateway OpenClaw non lance -- openclaw repondra" \
+         "« not reachable ». Journal : $OPENCLAW_LOG" >&2
+fi
+
+# L'extension VS Code, PROPOSEE et pas imposee. VS Code lit ce fichier a
+# l'ouverture du dossier et offre de l'installer ; il ne l'installe pas dans
+# le dos de l'utilisateur, et une extension retiree a la main le reste.
+#
+# Ecrit une seule fois : c'est une liste que l'on complete soi-meme.
+VSCODE_DIR="$WORKSPACE_DIR/.vscode"
+if [ ! -f "$VSCODE_DIR/extensions.json" ]; then
+    mkdir -p "$VSCODE_DIR"
+    cat > "$VSCODE_DIR/extensions.json" <<'VSCODEEXT'
+{
+  "recommendations": [
+    "openknot.openclaw-extension"
+  ]
+}
+VSCODEEXT
+    chown -R "$SSH_USER" "$VSCODE_DIR" 2>/dev/null || true
+    chgrp -R "$CODELAB_GROUP" "$VSCODE_DIR" 2>/dev/null || true
+fi
+
+# DISCUTER DANS UNE PAGE, PAS DANS UN TERMINAL.
+#
+# OpenClaw sert une interface de conversation -- sa « Control UI » -- sur le
+# meme port que le gateway. Verifie a l'execution : la page repond bien un
+# document « OpenClaw Control », et « openclaw dashboard » la nomme. Il n'y a
+# donc aucune extension a installer : elle est deja dans le paquet epingle.
+#
+# Ce fichier dit a VS Code de rediriger ce port des qu'il le voit ecouter, et
+# de l'etiqueter dans le panneau « Ports ». Le gateway, lui, reste sur la
+# boucle locale du conteneur : c'est Remote-SSH qui transporte, pas un port
+# publie de plus sur le reseau.
+#
+# Ecrit une seule fois, comme extensions.json : ce sont des reglages qu'on
+# ajuste ensuite soi-meme.
+if [ ! -f "$VSCODE_DIR/settings.json" ]; then
+    mkdir -p "$VSCODE_DIR"
+    cat > "$VSCODE_DIR/settings.json" <<'VSCODESET'
+{
+  "remote.autoForwardPorts": true,
+  "remote.portsAttributes": {
+    "18789": {
+      "label": "OpenClaw - chat",
+      "onAutoForward": "silent"
+    }
+  }
+}
+VSCODESET
+    chown "$SSH_USER" "$VSCODE_DIR/settings.json" 2>/dev/null || true
+    chgrp "$CODELAB_GROUP" "$VSCODE_DIR/settings.json" 2>/dev/null || true
+fi
+
+# L'ADRESSE COMPLETE, JETON COMPRIS. La Control UI s'authentifie par un
+# fragment « #token=... », et un fragment ne se devine pas. « openclaw
+# dashboard » ne l'ajoute que s'il peut ouvrir un navigateur -- ce qu'une
+# session SSH ne peut pas. D'ou cette commande, qui lit le jeton dans la
+# configuration et imprime l'adresse a coller.
+#
+# Le jeton n'est jamais journalise : il n'apparait que dans la sortie de
+# cette commande, lancee a la demande.
+cat > /usr/local/bin/openclaw-chat <<'CHATCMD'
+#!/bin/sh
+# Imprime l'adresse de l'interface de conversation d'OpenClaw, jeton compris.
+CFG="${OPENCLAW_CONFIG_PATH:-$HOME/.openclaw/openclaw.json}"
+JETON="$(python3 - "$CFG" <<'PYJETONCHAT' 2>/dev/null
+import json, sys
+try:
+    print(json.load(open(sys.argv[1])).get("gateway", {}).get("auth", {}).get("token", ""))
+except Exception:
+    pass
+PYJETONCHAT
+)"
+if [ -z "$JETON" ]; then
+    echo "Jeton introuvable dans $CFG -- le gateway a-t-il demarre ?" >&2
+    exit 1
+fi
+echo "Ouvre cette adresse dans ton navigateur (VS Code redirige le port) :"
+echo "  http://127.0.0.1:18789/#token=$JETON"
+CHATCMD
+chmod 755 /usr/local/bin/openclaw-chat
+
+# ------------------------------- git -------------------------------
+#
+# Un .gitconfig minimal, ecrit UNE SEULE FOIS : comme le config.toml de
+# Codex, il n'est jamais reecrit ensuite, pour que les reglages faits a la
+# main depuis une session survivent aux mises a jour d'image.
+#
+# CE FICHIER NE PORTE AUCUNE IDENTITE ET AUCUN SECRET.
+#
+#   - Pas de user.name ni de user.email : personne ici ne sait qui vous etes,
+#     et une valeur inventee signerait vos commits d'un faux nom. Sans eux,
+#     git refuse de commiter avec un message qui dit exactement quoi taper.
+#   - Pas de credential helper, pas de jeton. Pour pousser vers GitHub,
+#     apportez votre agent SSH avec vous :
+#
+#         ssh -A -p 2222 vscode@l-hote
+#
+#     Les cles restent sur votre poste, la session les emprunte, et
+#     l'emprunt s'arrete avec elle. Un jeton depose dans /workspace, lui,
+#     resterait lisible par tout ce qui tourne en "vscode" -- dont l'agent
+#     de developpement -- et par Dagster et app-manager, qui montent le meme
+#     dossier.
+#
+# safe.directory = * demande une explication, parce que c'est large.
+# /workspace est ecrit par trois services aux identites differentes (voir
+# plus haut) : un depot dont le .git appartient a root fait refuser git avec
+# "dubious ownership". La propriete mixte est ici VOULUE par l'architecture,
+# pas un accident a signaler. Ce reglage est acceptable parce que ce
+# conteneur est dedie et ne porte qu'un seul utilisateur humain ; il ne le
+# serait pas sur une machine partagee, ou il revient a faire confiance aux
+# depots des autres.
+if [ ! -f "$GITCONFIG" ]; then
+    cat > "$GITCONFIG" <<'GITCFG'
+# Ecrit une seule fois par codelab-dev -- modifiable librement.
+# Ni identite ni secret ici : voir dev/entrypoint.sh.
+[init]
+	defaultBranch = main
+[pull]
+	rebase = false
+[safe]
+	directory = *
+GITCFG
+fi
+chown vscode:vscode "$GITCONFIG" 2>/dev/null || true
+chmod 644 "$GITCONFIG" 2>/dev/null || true
+
 
 # ------------------------------ cles SSH ------------------------------
 

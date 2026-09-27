@@ -1,14 +1,5 @@
-# CodeLab -- variante pour les interfaces d'installation de type CasaOS.
-#
-# Strictement identique a docker-compose.yml, plus les metadonnees "x-casaos"
-# que ces interfaces lisent pour afficher l'application : icone (encodee en
-# base64 pour ne dependre d'aucune URL), titre, description, application
-# principale et port a ouvrir, la note affichee a
-# l'installation, et la note affichee avant installation (x-casaos.tips).
-#
-# Docker Compose ignore les cles "x-*" : ce fichier reste utilisable tel quel
-# avec "docker compose up -d". A garder en phase avec docker-compose.yml a
-# chaque modification -- le reste du contenu doit rester identique.
+name: codelab
+
 x-casaos:
   architectures:
     - amd64
@@ -30,147 +21,18 @@ x-casaos:
     en_US: CodeLab
     fr_FR: CodeLab
 
-  # Affiche avant l'installation, dans une fenetre que l'utilisateur doit
-  # lire puis valider. C'est le seul endroit ou dire ce qu'il faut savoir
-  # AVANT de cliquer -- la cle SSH a fournir, les ports, l'emplacement des
-  # donnees. Markdown accepte.
-  tips:
-    before_install:
-      fr_FR: |
-        ### Rien a saisir, une chose a faire apres l'installation
-
-        Aucun champ a remplir ici. L'acces SSH s'ouvre en deposant ta cle
-        publique dans un dossier, apres le premier demarrage :
-
-        `/DATA/AppData/codelab/config/ssh/authorized_keys.d/<nom>.pub`
-
-        un fichier par machine autorisee (le contenu de
-        `~/.ssh/id_ed25519.pub`, par exemple), puis redemarrer le conteneur
-        `codelab-dev`. Retirer l'acces a une machine, c'est supprimer son
-        fichier.
-
-        > **Tant qu'aucune cle n'est deposee, aucune connexion SSH n'est
-        > possible** -- c'est voulu : la liste des machines autorisees se lit
-        > entierement dans ce dossier, et nulle part ailleurs. Le panneau
-        > (port 9001) et Dagster (port 3000) restent accessibles sans SSH.
-
-        ### Ports
-
-        - `2222` — SSH et VS Code Remote-SSH (utilisateur `vscode`)
-        - `3000` — Dagster, orchestration et planification des jobs
-          (protege par mot de passe)
-        - `9001` — panneau de gestion des applications (page d'accueil)
-
-        ### Donnees
-
-        Tout est ecrit sous `/DATA/AppData/codelab/` : ton code
-        (`workspace/`), la base Postgres, l'etat de Dagster et le fichier
-        d'identifiants (`config/credentials.env`). Ces dossiers survivent a
-        une mise a jour d'image, a une recreation de conteneur et a une
-        reinstallation.
-
-        > A la desinstallation, refuser la suppression des donnees de
-        > l'application pour les conserver.
-
-        ### Mots de passe
-
-        Rien a choisir : ceux de Postgres, du panneau et de Dagster sont
-        generes au premier demarrage et ecrits dans
-        `/DATA/AppData/codelab/config/credentials.env`, lisible directement
-        depuis le gestionnaire de fichiers.
-      en_US: |
-        ### Nothing to fill in, one thing to do after installing
-
-        No field to fill here. SSH access is opened by dropping your public
-        key into a folder, after the first start:
-
-        `/DATA/AppData/codelab/config/ssh/authorized_keys.d/<name>.pub`
-
-        one file per authorized machine (the contents of
-        `~/.ssh/id_ed25519.pub`, for instance), then restart the
-        `codelab-dev` container. Revoking a machine means deleting its file.
-
-        > **Until a key is dropped there, no SSH connection is possible** --
-        > by design: the list of authorized machines is readable entirely
-        > from that folder, and nowhere else. The panel (port 9001) and
-        > Dagster (port 3000) remain reachable without SSH.
-
-        ### Ports
-
-        - `2222` — SSH and VS Code Remote-SSH (`vscode` user)
-        - `3000` — Dagster, job orchestration and scheduling
-          (password protected)
-        - `9001` — application manager panel (landing page)
-
-        ### Data
-
-        Everything is written under `/DATA/AppData/codelab/`: your code
-        (`workspace/`), the Postgres database, Dagster state and the
-        credentials file (`config/credentials.env`). These folders survive
-        an image update, a container recreation and a reinstall.
-
-        > When uninstalling, decline the removal of application data to
-        > keep it.
-
-        ### Passwords
-
-        Nothing to choose: the Postgres password and the panel password are
-        generated on first start and written to
-        `/DATA/AppData/codelab/config/credentials.env`, readable straight
-        from the file manager.
-#
-# DURCISSEMENT DES CONTENEURS
-#
-# Cinq des six services tournent avec cap_drop: ALL et no-new-privileges : ils
-# n'ont plus que les quelques capabilities dont ils se servent reellement,
-# listees et justifiees service par service ci-dessous. codelab-dev en est
-# exclu volontairement -- c'est le shell, et le durcir casserait sudo et la
-# separation de privileges de sshd.
-#
-# Si un service refuse de demarrer apres une mise a jour : commente ses lignes
-# security_opt / cap_drop / cap_add, relance, et signale-le. Une capability
-# manquante se voit dans "docker logs <service>" sous la forme d'un
-# "Operation not permitted" -- c'est elle qu'il faut rendre, pas tout le
-# bloc.
-
-# LIMITES DE RESSOURCES ET JOURNAUX
-#
-# Sans elles, une seule application partie en boucle emportait la machine
-# entiere : le panneau devenait injoignable, donc on ne pouvait meme plus
-# l'arreter depuis le panneau. Et sans rotation, les journaux Docker
-# grossissaient sans fin jusqu'a remplir le disque -- la sonde du diagnostic
-# l'annoncait, au moment ou il etait deja plein.
-#
-# Ce sont des PLAFONDS, pas des reservations : un service qui n'en a pas
-# besoin ne les consomme pas. Leur somme depasse volontairement la RAM d'une
-# petite machine -- ce qu'on veut empecher, c'est qu'UN service prenne tout,
-# pas repartir la memoire a l'avance.
-#
-# Si un service est tue par manque de memoire (code de sortie 137, "OOMKilled"
-# dans docker inspect), augmente SA ligne mem_limit plutot que de retirer le
-# bloc. Les valeurs ci-dessous visent une machine de 8 Go.
-
 services:
 
   codelab-postgres:
-    # L'image officielle postgres, plus un entrypoint versionne qui genere le
-    # mot de passe et ecrit credentials.env (voir postgres/entrypoint.sh).
-    # Ce script vivait dans ce fichier, en entrypoint inline ; Compose
-    # interpole les "$$VAR" d'un script inline avant que le shell ne les
-    # voie, et certaines interfaces d'installation reecrivent le compose a
-    # l'import, ce qui annule l'echappement cense y remedier -- Postgres ne
-    # demarrait plus ("mkdir: cannot create directory ''"). Dans une image,
-    # le script ne traverse plus aucune de ces reecritures.
     image: ghcr.io/studio-codelab/codelab-postgres:latest
     container_name: codelab-postgres
     restart: unless-stopped
 
-    # La base. 1 Go suffit largement au volume d'un serveur personnel. Voir l'explication en tete de fichier.
     deploy:
       resources:
         limits:
-          memory: 1g
-          cpus: "2.0"
+          memory: 512m
+          cpus: "1.0"
           pids: 512
     logging:
       driver: json-file
@@ -178,10 +40,6 @@ services:
         max-size: "10m"
         max-file: "3"
 
-    # Durcissement : tout retirer, puis rendre le strict necessaire.
-    # L'image officielle demarre en root, prepare le cluster et bascule sur
-    # l'utilisateur postgres -- d'ou SETUID/SETGID -- apres avoir pose les
-    # droits du repertoire de donnees -- d'ou CHOWN, FOWNER, DAC_OVERRIDE.
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -194,35 +52,17 @@ services:
       - SETUID
 
     environment:
-      # Base d'INSTANCE de Dagster (runs, evenements, planifications), creee
-      # par l'image officielle a l'initialisation du cluster. Ce n'est pas une
-      # base fourre-tout : les donnees d'un projet vont dans la base du projet.
       POSTGRES_DB: dagster
       POSTGRES_USER: codelab
-      # Bases de projet creees (ou completees) a chaque demarrage par
-      # l'entrypoint, avec leur schema "dagster" et le search_path qui va
-      # avec. Liste separee par des espaces. Un projet ajoute plus tard se
-      # provisionne sans redemarrage avec "codelab db <nom>" depuis une
-      # session SSH.
       CODELAB_PROJECT_DBS: "diagnostic codelab_llm"
-      # Pas de POSTGRES_PASSWORD/_FILE ici : l'entrypoint ci-dessus lit la
-      # valeur dans credentials.env et l'exporte lui-meme.
+      CODELAB_LITELLM_KEY: ${CODELAB_LITELLM_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
 
     volumes:
-      # Les sauvegardes. C'est ce conteneur qui les ecrit : pg_dump
-      # refuse de sauvegarder un serveur plus recent que lui, et il
-      # est le seul de la stack a porter la version exacte du
-      # serveur. Restauration : postgres/README.md.
       - /DATA/AppData/codelab/sauvegardes:/sauvegardes
-      # Chemin hote par defaut : /DATA/AppData/codelab/postgres. Ecrit en
-      # litteral, sans variable : les interfaces d'installation qui lisent ce
-      # fichier pour proposer un champ modifiable ne savent pas resoudre une
-      # variable, et echouent dessus. Pour ranger les donnees ailleurs,
-      # editer ce chemin ici.
       - /DATA/AppData/codelab/postgres:/var/lib/postgresql
-      # Pas ":ro" ici : c'est ce service qui cree credentials.env et y ecrit
-      # le mot de passe. Les autres le montent en lecture seule, sauf
-      # app-manager qui y ajoute son propre bloc.
       - /DATA/AppData/codelab/config:/var/lib/codelab/config
 
     healthcheck:
@@ -235,37 +75,22 @@ services:
     networks:
       - codelab
 
-
   codelab-dev:
     image: ghcr.io/studio-codelab/codelab-dev:latest
     container_name: codelab-dev
     restart: unless-stopped
 
-    # Le shell : on y compile, d'ou une part plus large que les services. Voir l'explication en tete de fichier.
     deploy:
       resources:
         limits:
-          memory: 2g
-          cpus: "2.0"
+          memory: 896m
+          cpus: "1.5"
           pids: 512
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
-
-    # PAS de durcissement ici, et c'est un choix.
-    #
-    # Ce conteneur EST le shell : sshd ouvre une session, et "sudo" y est
-    # installe parce qu'un environnement de developpement en a besoin. Or
-    # no-new-privileges casse sudo -- silencieusement, avec un message qui
-    # n'explique rien -- et cap_drop: ALL empeche sshd de faire sa separation
-    # de privileges. On durcirait exactement ce pour quoi ce service existe.
-    #
-    # Ce qui le protege est ailleurs, et c'est deja en place : aucun mot de
-    # passe (cle publique uniquement), pas de connexion root, et une seule
-    # facon d'autoriser une machine -- deposer sa cle dans
-    # config/ssh/authorized_keys.d/.
 
     ports:
       - "2222:22"
@@ -273,57 +98,30 @@ services:
     environment:
       PGHOST: codelab-postgres
       PGPORT: "5432"
-      # Une session SSH atterrit dans la base du projet modele, pas dans la
-      # base d'instance de Dagster ni dans la base de maintenance "postgres" :
-      # c'est la ou se trouvent les tables qu'on vient regarder. Pour en
-      # changer le temps d'une commande : psql -d autre-projet.
       PGDATABASE: diagnostic
       PGUSER: codelab
-      # Le mot de passe est lu dans credentials.env, comme partout ailleurs.
       CODELAB_ENV_FILE: /var/lib/codelab/config/credentials.env
-      # Cles autorisees + cles hote, dans un seul dossier.
       CODELAB_SSH_DIR: /var/lib/codelab/ssh
 
     volumes:
-      # Chemin hote par defaut : /DATA/AppData/codelab/workspace. Doit rester
-      # identique sur les 4 services qui le montent (dev, dagster,
-      # dagster-daemon, app-manager).
       - /DATA/AppData/codelab/workspace:/workspace
-      # Un seul dossier pour tout le SSH : authorized_keys.d/ (une cle
-      # publique par machine autorisee), authorized_keys (fichier derive,
-      # reconstruit au demarrage) et host_keys/ (identite du serveur, pour
-      # que l'empreinte ne change pas a chaque recreation du conteneur).
-      # En lecture-ecriture : c'est ce service qui genere les cles hote au
-      # premier demarrage et qui reconstruit le fichier derive.
       - /DATA/AppData/codelab/config/ssh:/var/lib/codelab/ssh
-      # Cible differente du montage ci-dessus, donc pas d'imbrication : le
-      # fichier de secrets reste en lecture seule pour ce conteneur.
+      - /DATA/AppData/codelab/vscode-server:/home/vscode/.vscode-server
       - /DATA/AppData/codelab/config:/var/lib/codelab/config:ro
-
-    # Pas de "depends_on: codelab-postgres: condition: service_healthy" ici,
-    # volontairement -- observe a plusieurs reprises qu'un orchestrateur
-    # laisse ce conteneur a l'etat "Created" (jamais demarre) si Postgres met
-    # un peu de temps a devenir "healthy" a l'installation. codelab-dev
-    # n'a pas besoin que Postgres soit deja pret a cet instant precis : les
-    # identifiants sont lus depuis un fichier au demarrage, et une vraie
-    # connexion a la base n'est necessaire que lorsque l'utilisateur s'en
-    # sert depuis une session SSH, pas au boot du conteneur lui-meme.
 
     networks:
       - codelab
-
 
   codelab-dagster:
     image: ghcr.io/studio-codelab/codelab-dagster:latest
     container_name: codelab-dagster
     restart: unless-stopped
 
-    # L'interface et le code serveur des assets. Voir l'explication en tete de fichier.
     deploy:
       resources:
         limits:
-          memory: 1g
-          cpus: "2.0"
+          memory: 512m
+          cpus: "1.0"
           pids: 512
     logging:
       driver: json-file
@@ -331,10 +129,6 @@ services:
         max-size: "10m"
         max-file: "3"
 
-    # Durcissement. Ce service execute du code arbitraire (c'est sa raison
-    # d'etre) : c'est celui ou une capability inutile coute le plus cher.
-    # Il lui reste de quoi poser les droits de /workspace au demarrage et
-    # basculer sur l'utilisateur dagster.
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -346,24 +140,14 @@ services:
       - SETGID
       - SETUID
 
-    # Pas de "ports" ici, volontairement : Dagster n'a aucune
-    # authentification, et son interface permet de lancer des jobs -- donc
-    # d'executer du code. Il n'est accessible qu'a travers
-    # codelab-dagster-proxy, qui publie le port 3000 et demande un mot de
-    # passe.
-
     environment:
       DAGSTER_HOME: /opt/dagster/home
       PYTHONUNBUFFERED: "1"
-      # Permet a "-m definitions" de resoudre /workspace/definitions.py
-      # (monte en volume) plutot que la copie embarquee dans l'image.
       PYTHONPATH: /workspace
       DAGSTER_PG_HOST: codelab-postgres
       DAGSTER_PG_PORT: "5432"
       DAGSTER_PG_DB: dagster
       DAGSTER_PG_USER: codelab
-      # Mot de passe lu dans credentials.env par l'entrypoint, qui l'exporte
-      # en DAGSTER_PG_PASSWORD (dagster.yaml ne sait lire qu'une env var).
       CODELAB_ENV_FILE: /var/lib/codelab/config/credentials.env
 
     volumes:
@@ -385,18 +169,16 @@ services:
     networks:
       - codelab
 
-
   codelab-dagster-daemon:
     image: ghcr.io/studio-codelab/codelab-dagster:latest
     container_name: codelab-dagster-daemon
     restart: unless-stopped
 
-    # Il ne fait qu'ordonnancer : il lance les runs, il ne les execute pas. Voir l'explication en tete de fichier.
     deploy:
       resources:
         limits:
-          memory: 768m
-          cpus: "1.0"
+          memory: 384m
+          cpus: "0.5"
           pids: 256
     logging:
       driver: json-file
@@ -404,7 +186,6 @@ services:
         max-size: "10m"
         max-file: "3"
 
-    # Meme image, meme code arbitraire, meme durcissement.
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -430,8 +211,6 @@ services:
       DAGSTER_PG_PORT: "5432"
       DAGSTER_PG_DB: dagster
       DAGSTER_PG_USER: codelab
-      # Mot de passe lu dans credentials.env par l'entrypoint, qui l'exporte
-      # en DAGSTER_PG_PASSWORD (dagster.yaml ne sait lire qu'une env var).
       CODELAB_ENV_FILE: /var/lib/codelab/config/credentials.env
 
     volumes:
@@ -446,18 +225,16 @@ services:
     networks:
       - codelab
 
-
   codelab-app-manager:
     image: ghcr.io/studio-codelab/codelab-app-manager:latest
     container_name: codelab-app-manager
     restart: unless-stopped
 
-    # LA PART LA PLUS LARGE, et c'est normal : ce conteneur porte le panneau, les builds npm ET toutes les applications deployees, qui sont ses processus fils. Trop juste ici, c'est une application tuee au hasard par le noyau en plein build. Voir l'explication en tete de fichier.
     deploy:
       resources:
         limits:
-          memory: 4g
-          cpus: "2.0"
+          memory: 1280m
+          cpus: "1.5"
           pids: 1024
     logging:
       driver: json-file
@@ -465,17 +242,6 @@ services:
         max-size: "10m"
         max-file: "3"
 
-    # Durcissement. SETUID/SETGID sont indispensables ici : c'est ce qui
-    # permet a drop_privileges() de faire tomber chaque application sur son
-    # propre uid. Les retirer ne durcirait rien, cela DESACTIVERAIT
-    # l'isolation des applications.
-    #
-    # KILL l'est tout autant, et son absence a coute cher : le panneau tourne
-    # en root, mais le noyau n'autorise un signal que si l'expediteur a
-    # CAP_KILL ou s'il a l'uid de sa cible. Chaque application tournant sous
-    # SON PROPRE uid, root se voyait refuser l'arret de toutes -- « Operation
-    # not permitted », bouton « Arreter » sans effet. Le panneau ne signale
-    # que les processus qu'il a lui-meme lances.
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -490,69 +256,20 @@ services:
 
     ports:
       - "9001:9001"
-      # Les applications deployees sont servies ICI, sur un port a part -- donc
-      # dans une origine differente de celle du panneau. C'est ce qui empeche
-      # une faille dans une application d'atteindre le panneau : le navigateur
-      # traite deux ports comme deux sites, et refuse a l'un de lire l'autre.
-      # Sans ce port publie, le panneau s'en apercoit, le dit dans
-      # Parametres > Serveur, et continue de servir les applications lui-meme.
       - "9002:9002"
 
     volumes:
       - /DATA/AppData/codelab/app-manager:/var/lib/codelab/app-manager
       - /DATA/AppData/codelab/workspace:/workspace
-      # Lecture-ecriture (pas ":ro") : ce service ajoute sa propre ligne
-      # dans le credentials.env consolide partage avec codelab-postgres.
       - /DATA/AppData/codelab/config:/var/lib/codelab/config
-      # Le MEME dossier que celui de codelab-postgres : les dumps
-      # des bases et l'archive de l'etat du panneau (comptes,
-      # applications declarees, journal) se retrouvent au meme
-      # endroit, et se copient ailleurs d'un seul geste. Chacun
-      # des deux services sauvegarde ce qu'il est SEUL a voir.
       - /DATA/AppData/codelab/sauvegardes:/sauvegardes
 
     environment:
       APP_MANAGER_STATE: /var/lib/codelab/app-manager
       APP_MANAGER_ROOT: /workspace
       MANAGER_PORT: "9001"
-      # Ecrit noir sur blanc, alors que le panneau prend deja 9002 par
-      # defaut : une valeur devinee ne se relit pas. Le port publie
-      # ci-dessus et celui que sert le panneau doivent etre le meme, et
-      # c'est ici qu'on le voit d'un coup d'oeil.
       APP_MANAGER_APPS_PORT: "9002"
       APP_MANAGER_SHARED_CONFIG: /var/lib/codelab/config
-
-      # --- Le jour ou ce panneau sort de ton reseau ---------------------
-      # RIEN A DECOMMENTER ICI dans le cas courant : ces quatre reglages se
-      # posent depuis le panneau, Parametres > Serveur. Marche a suivre
-      # complete dans le README, section « Sortir de chez toi » (et
-      # app-manager/vps/ pour la variante avec un VPS devant).
-      #
-      # Les cases de la page refusent de s'activer tant que la situation ne
-      # les justifie pas -- HTTPS seulement depuis une page deja en https,
-      # le proxy seulement si un en-tete X-Forwarded-* est reellement la,
-      # et l'administration-sur-le-reseau-local seulement depuis une requete
-      # qui vient elle-meme du reseau local. C'est ce qui evite les pieges
-      # d'autrefois : un cookie "Secure" pose trop tot, que le navigateur
-      # cesse d'envoyer en clair et qui faisait tomber la session sans
-      # retour ; un X-Forwarded-For cru sur un panneau publie en direct, ou
-      # n'importe quel client annonce l'adresse qu'il veut et contourne la
-      # limite de tentatives ; et un verrou d'administration active depuis
-      # l'exterieur, qui se refermerait sur son auteur dans la seconde.
-      #
-      # APP_MANAGER_ADMIN_LAN_ONLY reserve le compte d'administration aux
-      # adresses du reseau local -- les comptes nommes, eux, continuent
-      # d'entrer de n'importe ou. C'est la ligne a poser a "0" ici si ce
-      # verrou t'a enferme dehors : c'est sa seule marche arriere.
-      #
-      # Les lignes ci-dessous restent lues et PRIORITAIRES : posees ici,
-      # elles grisent la case correspondante. C'est la marche arriere qui ne
-      # depend pas du panneau, utile si un reglage le rend inatteignable.
-      #
-      # APP_MANAGER_HTTPS: "1"
-      # APP_MANAGER_TRUST_PROXY: "1"
-      # APP_MANAGER_PUBLIC_URL: "https://codelab.tondomaine.fr"
-      # APP_MANAGER_ADMIN_LAN_ONLY: "1"
 
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:9001/health')\" || exit 1"]
@@ -564,24 +281,14 @@ services:
     networks:
       - codelab
 
-
-  # ------------------------- L'IA DE CODELAB -------------------------
-  #
-  # Deux conteneurs, et une porte unique. codelab-llm detient la cle du
-  # fournisseur et compte ce qui est consomme.
-  # Aucun des deux n'est joignable directement : le proxy ci-dessous exige la
-  # session CodeLab avant de laisser passer, exactement comme pour Dagster.
-  #
-  # Profil "llm" : rien de tout cela ne demarre tant qu'on ne le demande pas
-  # (docker compose --profile llm up -d).
   codelab-llm:
     profiles: ["llm"]
     image: ghcr.io/studio-codelab/codelab-llm:latest
     container_name: codelab-llm
     restart: unless-stopped
 
-    mem_limit: 512m
-    cpus: 1.0
+    mem_limit: 320m
+    cpus: 0.5
     pids_limit: 256
     logging:
       driver: json-file
@@ -589,40 +296,20 @@ services:
         max-size: "10m"
         max-file: "3"
 
-    # Le durcissement de tous les autres services, qui manquait ici. C'est
-    # pourtant celui qui embarque le plus de code tiers et le seul qui parle
-    # a l'exterieur de la machine.
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
 
-    # PAS de port publie : ses clients sont les applications de CodeLab, qui
-    # partagent le reseau « codelab ». Le port 8080 etait expose a tout le
-    # reseau local -- la meme erreur que Dagster, corrigee pour la meme
-    # raison. Un acces depuis le poste du developpeur (VS Code, un agent)
-    # demandera un port publie et une decision explicite : ce n'est pas le
-    # cas aujourd'hui.
     expose:
       - "8080"
 
     environment:
       CODELAB_LLM_ENV_FILE: /var/lib/codelab/llm/llm.env
-      # Le nom de l'application autorisee a presenter une assertion SSO.
-      # Vide, aucune assertion n'est acceptee : les clients s'identifient
-      # alors par une cle CodeLab, enregistree en base et revocable.
       CODELAB_LLM_AUDIENCE: ${CODELAB_LLM_AUDIENCE:-}
-      # Les modeles proposes. Un nom logique par variable ; vider la valeur
-      # retire le modele de la liste. Le nom reel est celui du fournisseur.
-      # CODELAB_LLM_MODELE_CODELAB_SMART: "openrouter/auto"
-      # CODELAB_LLM_MODELE_CODELAB_FAST: "..."
-      # CODELAB_LLM_MODELE_CODELAB_CODING: "..."
+      CODELAB_LLM_AMONT_KEY: ${CODELAB_LITELLM_KEY:-}
 
     volumes:
-      # SON dossier de secrets, et rien d'autre. credentials.env porte le mot
-      # de passe d'administration du panneau, la cle privee SSO et le mot de
-      # passe SMTP : ce service n'a aucune raison de les voir, et il ne les
-      # voit plus. codelab-postgres ecrit ce dossier au demarrage.
       - /DATA/AppData/codelab/config/llm:/var/lib/codelab/llm:ro
 
     depends_on:
@@ -638,19 +325,57 @@ services:
 
     networks:
       - codelab
+      - codelab-ia
 
+  codelab-litellm:
+    profiles: ["llm"]
+    image: ghcr.io/berriai/litellm:v1.99.0
+    container_name: codelab-litellm
+    restart: unless-stopped
+
+    mem_limit: 512m
+    cpus: 0.75
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    security_opt:
+      - no-new-privileges:true
+
+    command: ["--config", "/etc/litellm/config.yaml", "--port", "4000"]
+
+    expose:
+      - "4000"
+
+    env_file:
+      - /DATA/AppData/codelab/config/llm/fournisseurs.env
+
+    volumes:
+      - ./litellm/config.yaml:/etc/litellm/config.yaml:ro
+
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+    networks:
+      - codelab-ia
 
   codelab-dagster-proxy:
     image: ghcr.io/studio-codelab/codelab-dagster-proxy:latest
     container_name: codelab-dagster-proxy
     restart: unless-stopped
 
-    # Un nginx qui relaie : il n'a besoin de rien. Voir l'explication en tete de fichier.
     deploy:
       resources:
         limits:
-          memory: 128m
-          cpus: "0.5"
+          memory: 320m
+          cpus: "0.25"
           pids: 128
     logging:
       driver: json-file
@@ -658,8 +383,6 @@ services:
         max-size: "10m"
         max-file: "3"
 
-    # nginx : le maitre demarre en root pour lire sa configuration et ouvrir
-    # son port, puis les workers tournent en "nginx". Rien d'autre.
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -674,20 +397,12 @@ services:
       - "3000:3000"
 
     volumes:
-      # Lecture-ecriture : ce service ajoute son propre bloc (identifiants
-      # d'acces a Dagster) dans le credentials.env partage.
       - /DATA/AppData/codelab/config:/var/lib/codelab/config
 
     depends_on:
       - codelab-dagster
 
     healthcheck:
-      # 401 attendu sans identifiants : c'est la preuve que nginx repond ET
-      # que l'authentification est bien en place. Un 200 ici signifierait
-      # qu'elle est tombee.
-      # Sonde dediee, hors du chemin authentifie : une requete sur "/" sans
-      # session redirige maintenant vers le panneau, et wget suivrait cette
-      # redirection vers un hote absent de ce conteneur.
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/_sante"]
       interval: 10s
       timeout: 5s
@@ -697,7 +412,9 @@ services:
     networks:
       - codelab
 
-
 networks:
   codelab:
     name: codelab_codelab
+
+  codelab-ia:
+    name: codelab_ia

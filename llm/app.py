@@ -29,6 +29,7 @@ elle porte un vrai travail, pas quand elle porte un POST.
     Commande : uvicorn app:app --host 0.0.0.0 --port 8080
 """
 import argparse
+import asyncio
 import base64
 import hashlib
 import json
@@ -64,28 +65,75 @@ SSO_EMETTEUR = "codelab"
 # demandee.
 SSO_AUDIENCE = os.environ.get("CODELAB_LLM_AUDIENCE", "")
 
+# L'AMONT : codelab-litellm, et non plus un fournisseur en direct.
+#
+# Ce service garde ce qui lui appartient -- identite CodeLab, quota par
+# personne, comptabilite -- et delegue le routage a LiteLLM : choix du
+# fournisseur, repli quand l'un tombe, budgets. La cle d'un fournisseur ne
+# transite plus par ici ; elle vit dans codelab-litellm, qui n'est joignable
+# que depuis ce service.
+#
+# La valeur reste surchargeable : pointer directement un fournisseur
+# compatible OpenAI (comme avant) demande une seule variable.
 FOURNISSEUR_URL = os.environ.get(
-    "CODELAB_LLM_FOURNISSEUR", "https://openrouter.ai/api/v1")
+    "CODELAB_LLM_FOURNISSEUR", "http://codelab-litellm:4000/v1")
 
 # Les noms logiques, et le modele reel derriere chacun. Un nom sans modele
 # configure n'est PAS propose : trois noms qui pointent tous sur la meme
 # route -- ce qu'on avait -- donnent a l'interface un choix qui n'en est pas
 # un, et a l'utilisateur l'impression que son reglage ne change rien.
-MODELES_PAR_DEFAUT = {"codelab-smart": "openrouter/auto"}
+# Les noms logiques SERVIS PAR DEFAUT, alignes sur litellm/config.yaml : le
+# nom est le meme des deux cotes, et c'est le routeur qui le traduit en modele
+# reel. Quatre noms qui menent a quatre routes differentes -- pas trois noms
+# pour une seule, ce qui donnerait un choix qui n'en est pas un.
+#
+# « codelab-smart » a disparu : il designait openrouter/auto, qui n'existe
+# pas chez le routeur. Une installation qui y tenait le remet en une ligne
+# (CODELAB_LLM_MODELE_CODELAB_SMART) et l'ajoute au config.yaml.
+MODELES_PAR_DEFAUT = {
+    "codelab-coding": "codelab-coding",
+    "codelab-fast": "codelab-fast",
+    "codelab-reasoning": "codelab-reasoning",
+    "codelab-local": "codelab-local",
+}
 PREFIXE_MODELE = "CODELAB_LLM_MODELE_"
 
 DELAI_FOURNISSEUR = 90.0
 DELAI_CONNEXION = 10.0
 
+# COMBIEN DE TEMPS ON GARDE LA CONSOMMATION. llm_usage prend une ligne par
+# requete et n'en perdait aucune : sur un serveur personnel qui tourne des
+# annees, c'est la seule table de ce service qui grossit sans fin, en silence
+# et sans plafond.
+#
+# 400 jours et pas 365 : le panneau ne sait afficher qu'une fenetre de 365
+# jours au maximum (consommation_llm la plafonne), donc au-dela d'un an ces
+# lignes ne sont plus lisibles nulle part -- elles n'occupent que le disque.
+# La marge de 35 jours garantit qu'aucune ligne qu'une fenetre affichable
+# pourrait encore atteindre ne soit supprimee.
+#
+# Mettre 0 desactive la purge, pour qui veut tout garder.
+RETENTION_USAGE_JOURS = int(os.environ.get("CODELAB_LLM_RETENTION_JOURS", "400"))
+PURGE_INTERVALLE = 24 * 3600
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS llm_api_keys (
     id BIGSERIAL PRIMARY KEY, key_hash TEXT NOT NULL UNIQUE, key_name TEXT NOT NULL,
     user_id TEXT NOT NULL, app_id TEXT NOT NULL, revoked_at TIMESTAMPTZ,
+    -- A QUOI ELLE SERT, en une phrase. Facultative : une cle sans
+    -- description reste une cle, et forcer un texte ne ferait que produire
+    -- des « test » et des « cle ».
+    description TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TABLE IF NOT EXISTS llm_usage (
     id BIGSERIAL PRIMARY KEY, timestamp TIMESTAMPTZ NOT NULL DEFAULT now(),
     user_id TEXT NOT NULL, app_id TEXT NOT NULL,
+    -- QUELLE CLE A PAYE. Sans cette colonne, la consommation ne se rattachait
+    -- qu'au couple (utilisateur, application) : deux cles du meme poste
+    -- etaient indistinguables, et « suivre l'utilisation de chacune » etait
+    -- impossible. NULL pour une identite SSO, qui n'a pas de cle.
+    key_id BIGINT,
     requested_model TEXT NOT NULL, actual_model TEXT, provider TEXT,
     input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0,
     total_tokens INTEGER NOT NULL DEFAULT 0, cost NUMERIC(18, 8) NOT NULL DEFAULT 0,
@@ -94,6 +142,12 @@ CREATE TABLE IF NOT EXISTS llm_usage (
 );
 CREATE INDEX IF NOT EXISTS llm_usage_dimensions_idx
     ON llm_usage (user_id, app_id, requested_model, provider, timestamp);
+-- Les installations d'avant la colonne : CREATE TABLE IF NOT EXISTS ne
+-- touche pas une table qui existe deja, et sans cette ligne la consommation
+-- continuerait de s'enregistrer sans cle, en silence.
+ALTER TABLE llm_api_keys ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS key_id BIGINT;
+CREATE INDEX IF NOT EXISTS llm_usage_cle_idx ON llm_usage (key_id, timestamp);
 """
 
 _appels = defaultdict(deque)
@@ -125,6 +179,17 @@ def valeur(nom, defaut=""):
     """L'environnement d'abord, le fichier ensuite. Le compose peut donc
     tout surcharger sans reconstruire l'image."""
     return os.environ.get(nom) or lire_env().get(nom, defaut)
+
+
+def cle_amont():
+    """La cle presentee a l'amont.
+
+    CODELAB_LLM_AMONT_KEY d'abord -- c'est la cle maitresse de
+    codelab-litellm. OPENROUTER_API_KEY ensuite, pour qu'une installation
+    existante, qui pointe encore un fournisseur en direct, continue de
+    fonctionner sans rien toucher.
+    """
+    return valeur("CODELAB_LLM_AMONT_KEY") or valeur("OPENROUTER_API_KEY")
 
 
 def modeles():
@@ -178,6 +243,38 @@ def preparer_schema():
         cx.execute(SCHEMA)
 
 
+def purger_la_consommation_ancienne():
+    """Supprime les lignes de llm_usage au-dela de la retention. Renvoie le
+    nombre de lignes supprimees."""
+    if RETENTION_USAGE_JOURS <= 0:
+        return 0
+    with pool().connection() as cx:
+        # make_interval(days => %s) et pas une chaine d'intervalle assemblee :
+        # l'argument reste un entier lie, jamais du texte concatene dans le SQL.
+        r = cx.execute("DELETE FROM llm_usage WHERE timestamp < now()"
+                       " - make_interval(days => %s)", (RETENTION_USAGE_JOURS,))
+        return r.rowcount
+
+
+async def boucle_de_purge():
+    """Une passe au demarrage -- c'est elle qui rattrape une base deja grosse
+    -- puis une par jour. Le conteneur peut tourner des mois sans redemarrer :
+    purger seulement au demarrage ne plafonnerait rien entre deux."""
+    while True:
+        try:
+            # to_thread : psycopg est synchrone, et un DELETE sur une grosse
+            # table bloquerait la boucle d'evenements le temps de s'executer.
+            n = await asyncio.to_thread(purger_la_consommation_ancienne)
+            if n:
+                print(f"[codelab-llm] consommation purgee : {n} ligne(s) de"
+                      f" plus de {RETENTION_USAGE_JOURS} jours", flush=True)
+        except Exception as e:                                    # noqa: BLE001
+            # Une purge ratee ne doit pas emporter le service : le routage
+            # continue, et la passe suivante reessaiera.
+            print(f"[codelab-llm] purge impossible : {e}", flush=True)
+        await asyncio.sleep(PURGE_INTERVALLE)
+
+
 @asynccontextmanager
 async def cycle_de_vie(_app):
     """Ouverture et fermeture propres. @app.on_event est deprecie depuis
@@ -192,9 +289,11 @@ async def cycle_de_vie(_app):
         # pas, et le panneau la lit. Refuser de demarrer ferait redemarrer le
         # conteneur en boucle sans jamais afficher la raison.
         print(f"[codelab-llm] schema non prepare : {e}", flush=True)
+    purge = asyncio.create_task(boucle_de_purge())
     try:
         yield
     finally:
+        purge.cancel()
         await _client.aclose()
         if _pool is not None:
             _pool.close()
@@ -262,10 +361,14 @@ def identite_par_cle(autorisation):
         return None
     with pool().connection() as cx:
         ligne = cx.execute(
-            "SELECT user_id, app_id FROM llm_api_keys "
+            "SELECT user_id, app_id, id FROM llm_api_keys "
             "WHERE key_hash=%s AND revoked_at IS NULL",
             (empreinte(autorisation[7:].strip()),)).fetchone()
-    return {"user_id": ligne[0], "app_id": ligne[1]} if ligne else None
+    if not ligne:
+        return None
+    # key_id voyage avec l'identite jusqu'a l'ecriture de la consommation :
+    # c'est le seul endroit ou l'on sait encore QUELLE cle a ete presentee.
+    return {"user_id": ligne[0], "app_id": ligne[1], "key_id": ligne[2]}
 
 
 def identite(autorisation, assertion=None, utilisateur_transmis=None):
@@ -316,17 +419,24 @@ def limiter(qui):
 # ---------------------------- comptabilite ----------------------------
 
 def noter_consommation(qui, demande, reel, jetons, latence):
-    entree = int(jetons.get("prompt_tokens") or 0)
-    sortie = int(jetons.get("completion_tokens") or 0)
+    # Deux noms pour la meme chose : /chat/completions compte en
+    # prompt_tokens / completion_tokens, /responses en input_tokens /
+    # output_tokens. Lire un seul des deux jeux ferait une comptabilite a
+    # zero sur la moitie du trafic -- et une consommation a zero ne se
+    # remarque pas, elle se croit.
+    entree = int(jetons.get("prompt_tokens") or jetons.get("input_tokens") or 0)
+    sortie = int(jetons.get("completion_tokens") or jetons.get("output_tokens") or 0)
     fournisseur = reel.split("/", 1)[0] if "/" in (reel or "") else None
     try:
         with pool().connection() as cx:
             cx.execute(
-                "INSERT INTO llm_usage (user_id, app_id, requested_model, actual_model,"
-                " input_tokens, output_tokens, total_tokens, latency_ms, provider, fallback)"
-                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                (qui["user_id"], qui["app_id"], demande, reel, entree, sortie,
-                 entree + sortie, latence, fournisseur, reel != demande))
+                "INSERT INTO llm_usage (user_id, app_id, key_id, requested_model,"
+                " actual_model, input_tokens, output_tokens, total_tokens,"
+                " latency_ms, provider, fallback)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (qui["user_id"], qui["app_id"], qui.get("key_id"), demande, reel,
+                 entree, sortie, entree + sortie, latence, fournisseur,
+                 reel != demande))
     except Exception as e:                                        # noqa: BLE001
         # La comptabilite ne doit jamais faire perdre une reponse deja
         # obtenue : on le dit dans le journal, et l'utilisateur garde son
@@ -351,8 +461,108 @@ def sante():
     except Exception:                                             # noqa: BLE001
         base = False
     return {"status": "ok" if base else "degrade", "service": "codelab-llm",
-            "base": base, "cle_fournisseur": bool(valeur("OPENROUTER_API_KEY")),
+            "base": base, "cle_fournisseur": bool(cle_amont()),
             "modeles": sorted(modeles())}
+
+
+
+# L'API RESPONSES, parce que les agents de developpement n'ont plus le choix.
+#
+# Codex a retire le protocole « chat » en fevrier 2026 : un fournisseur qui
+# n'expose que /chat/completions ne lui sert a rien. C'est LiteLLM qui fait le
+# pont vers les modeles qui ne parlent que l'ancien protocole ; ce service, lui,
+# n'a qu'a relayer -- et a compter ce qui passe.
+#
+# Volontairement SANS relecture du document : le format Responses est riche et
+# bouge vite, et le reecrire ici serait promettre de le suivre. On verifie
+# l'identite, le quota et le modele demande ; le reste traverse.
+@app.post("/v1/responses")
+async def responses(request: Request,
+                    authorization: str | None = Header(default=None),
+                    x_codelab_auth: str | None = Header(default=None),
+                    x_codelab_user_id: str | None = Header(default=None)):
+    qui = identite(authorization, x_codelab_auth, x_codelab_user_id)
+    limiter(qui)
+
+    corps = await request.body()
+    if len(corps) > CORPS_MAX:
+        raise HTTPException(413, "Requete trop volumineuse.")
+    table = modeles()
+    charge, demande = _payload_responses_valide(corps, table)
+
+    cle = cle_amont()
+    if not cle:
+        raise HTTPException(503, "Aucune cle de fournisseur configuree.")
+
+    amont = dict(charge, model=table[demande])
+    entetes = {"Authorization": f"Bearer {cle}", "Content-Type": "application/json"}
+    debut = time.monotonic()
+
+    if charge.get("stream") is True:
+        return StreamingResponse(
+            _flux_responses(amont, entetes, qui, demande, debut),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    try:
+        reponse = await _client.post(FOURNISSEUR_URL + "/responses",
+                                     json=amont, headers=entetes)
+    except httpx.HTTPError:
+        print("[codelab-llm] amont injoignable (/responses).", flush=True)
+        raise HTTPException(502, "Le fournisseur de modeles ne repond pas.")
+    if reponse.status_code >= 400:
+        print(f"[codelab-llm] amont : HTTP {reponse.status_code} (/responses)",
+              flush=True)
+        raise HTTPException(502, "Le fournisseur de modeles a refuse la requete.")
+
+    data = reponse.json()
+    noter_consommation(qui, demande, data.get("model") or table[demande],
+                       data.get("usage") or {},
+                       int((time.monotonic() - debut) * 1000))
+    data["model"] = demande
+    return JSONResponse(data)
+
+
+async def _flux_responses(amont, entetes, qui, demande, debut):
+    """Le flux de l'API Responses : des evenements nommes, pas des deltas.
+
+    Le compte de jetons arrive dans l'evenement final, sous « response.usage ».
+    Comme ailleurs ici, le contenu traverse sans etre garde.
+    """
+    jetons, reel = {}, amont["model"]
+    try:
+        async with _client.stream("POST", FOURNISSEUR_URL + "/responses",
+                                  json=amont, headers=entetes) as reponse:
+            if reponse.status_code >= 400:
+                await reponse.aread()
+                print(f"[codelab-llm] amont : HTTP {reponse.status_code} "
+                      f"(/responses, flux)", flush=True)
+                yield ("data: " + json.dumps(
+                    {"error": {"message": "Le fournisseur de modeles a refuse "
+                                          "la requete.", "type": "upstream"}}) + "\n\n")
+                return
+            async for ligne in reponse.aiter_lines():
+                if ligne.startswith("data: "):
+                    brut = ligne[6:].strip()
+                    if brut and brut != "[DONE]":
+                        try:
+                            evenement = json.loads(brut)
+                        except json.JSONDecodeError:
+                            evenement = None
+                        if isinstance(evenement, dict):
+                            corps = evenement.get("response") or {}
+                            if isinstance(corps, dict):
+                                jetons = corps.get("usage") or jetons
+                                reel = corps.get("model") or reel
+                yield ligne + "\n"
+    except httpx.HTTPError:
+        print("[codelab-llm] amont injoignable (/responses, flux).", flush=True)
+        yield ("data: " + json.dumps(
+            {"error": {"message": "Le fournisseur de modeles ne repond pas.",
+                       "type": "upstream"}}) + "\n\n")
+    finally:
+        noter_consommation(qui, demande, reel, jetons,
+                           int((time.monotonic() - debut) * 1000))
 
 
 @app.get("/v1/models")
@@ -376,6 +586,28 @@ def _payload_valide(corps, table):
     return charge, modele
 
 
+def _payload_responses_valide(corps, table):
+    """Meme controle, autre protocole.
+
+    L'API Responses ne porte pas « messages » mais « input » -- une chaine
+    ou une liste. On valide ce qu'on sait valider : le modele demande doit
+    figurer dans la table, et l'entree ne doit pas etre vide. Le reste du
+    document traverse sans etre relu : ce service route et compte, il
+    n'interprete pas le contenu.
+    """
+    try:
+        charge = json.loads(corps)
+    except json.JSONDecodeError as e:
+        raise HTTPException(400, "Corps JSON invalide.") from e
+    modele = charge.get("model")
+    if modele not in table:
+        raise HTTPException(400, f"Modele inconnu : {modele}.")
+    entree = charge.get("input")
+    if entree is None or (isinstance(entree, (str, list)) and not entree):
+        raise HTTPException(400, "« input » doit etre une chaine ou une liste non vide.")
+    return charge, modele
+
+
 @app.post("/v1/chat/completions")
 async def completions(request: Request,
                       authorization: str | None = Header(default=None),
@@ -390,7 +622,7 @@ async def completions(request: Request,
     table = modeles()
     charge, demande = _payload_valide(corps, table)
 
-    cle = valeur("OPENROUTER_API_KEY")
+    cle = cle_amont()
     if not cle:
         raise HTTPException(503, "Aucune cle de fournisseur configuree.")
 

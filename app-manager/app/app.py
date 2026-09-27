@@ -786,6 +786,20 @@ DIAGNOSTIC_NOM = "diagnostic"
 APPS_PAR_DEFAUT = (DAGSTER_NOM, DIAGNOSTIC_NOM)
 APPLICATIONS_PROTEGEES = {DAGSTER_NOM, DIAGNOSTIC_NOM}
 
+# Le nom AFFICHE des deux applications par defaut. Leur cle est le chemin --
+# « dagster », « diagnostic » -- et c'est elle qui s'affichait : deux tuiles
+# en minuscules au milieu de projets nommes par leur auteur. Elles n'ont pas
+# de formulaire ou corriger cela, la valeur est donc posee ici.
+TITRES_PAR_DEFAUT = {DAGSTER_NOM: "Dagster", DIAGNOSTIC_NOM: "Diagnostic"}
+
+# La tuile du diagnostic a besoin d'une phrase, et cette phrase ne peut pas
+# s'ecrire a la main : la fiche d'une application par defaut n'a pas de
+# formulaire. Elle est donc posee ici, et le panneau la met en place au
+# demarrage si elle manque (voir tenir_les_applications_par_defaut).
+DIAGNOSTIC_DESCRIPTION = ("État de santé de l'installation : les services se "
+                          "parlent-ils, la base répond-elle, et qu'est-ce qui "
+                          "est ouvert ?")
+
 
 def refus_action_protegee(nom, action):
     if nom in APPLICATIONS_PROTEGEES:
@@ -936,6 +950,34 @@ def journal_du_service(nom, ligne):
         pass        # journaliser n'est pas le travail : voir journaliser()
 
 
+# Les services de la stack qu'un compte peut ranger hors de son hub. Une
+# liste nommee plutot qu'un « tout ce qui n'est pas une application » : ce
+# qui est masquable se decide ici, et se lit d'un coup d'oeil.
+SERVICES_MASQUABLES = frozenset({DAGSTER_NOM})
+
+# La phrase de la tuile Dagster, lue par les deux listes ci-dessous. Deux
+# copies divergeraient, et la tuile rangee ne se decrirait plus comme celle
+# qu'on retrouve en la remettant.
+DESCRIPTION_DAGSTER = ("Orchestration des jobs : plannings, assets, "
+                       "exécutions et journaux.")
+
+
+def services_masques():
+    """Les services que CE compte a ranges hors de son hub.
+
+    Meme forme que services_du_hub() -- nom, titre, description -- et rien de
+    plus : cette liste ne sert qu'a les reproposer dans les reglages. Elle est
+    vide pour un compte qui n'est pas administrateur, comme l'autre : un
+    service qu'on ne peut pas voir n'est pas un service qu'on range.
+    """
+    if not est_admin():
+        return []
+    if DAGSTER_NOM not in masquees_du_compte():
+        return []
+    return [{"name": DAGSTER_NOM, "titre": TITRES_PAR_DEFAUT[DAGSTER_NOM],
+             "description": DESCRIPTION_DAGSTER, "externe": True}]
+
+
 def services_du_hub():
     """Les tuiles du hub qui ne sont pas des applications declarees.
 
@@ -948,13 +990,21 @@ def services_du_hub():
     services = []
     if not est_admin():
         return services
+    # RANGE EST RANGE, meme pour un service. Dagster occupait une tuile que
+    # rien ne permettait de retirer : sur une installation ou l'on n'ouvre
+    # jamais l'orchestrateur, c'etait la seule tuile impossible a ecarter de
+    # son propre hub. Le masquage reste ce qu'il est -- du rangement, par
+    # compte, sans rien fermer : Dagster tourne, son adresse repond, et
+    # l'administrateur le retrouve dans Parametres > Compte.
+    if DAGSTER_NOM in masquees_du_compte():
+        return services
     adresse = origine_dagster()
     if not adresse:
         return services
     return services + [{
         "name": DAGSTER_NOM,
-        "description": "Orchestration des jobs : plannings, assets, "
-                       "exécutions et journaux.",
+        "titre": TITRES_PAR_DEFAUT[DAGSTER_NOM],
+        "description": DESCRIPTION_DAGSTER,
         "categorie": "",
         "running": dagster_repond(),
         "listening": dagster_repond(),
@@ -3875,7 +3925,49 @@ def stop(name):
     return None
 
 
+def tenir_les_applications_par_defaut():
+    """Elles ne s'arretent plus a la main, donc le panneau s'en charge.
+
+    Le piege qu'on ferme ici : une application par defaut n'est PAS
+    configurable, et son arret est refuse cote serveur (voir
+    refus_action_protegee). Il reste pourtant un chemin qui la marque
+    "enabled": False sans que personne l'ait voulu -- l'echec de lancement
+    dans start(), quand le systeme refuse la limite memoire ou l'abandon de
+    privileges. Une fois a False, plus rien ne la rallumait : le bouton qui
+    l'aurait fait est justement celui qu'on interdit. L'installation restait
+    sans diagnostic, definitivement, et sans rien pour le dire.
+
+    Deux gestes, a chaque demarrage du panneau :
+
+      - REMETTRE "enabled", pour sortir de cet etat mort ;
+      - POSER LA DESCRIPTION si elle manque, parce qu'une tuile sans
+        description n'apprend rien et que celle-ci ne s'ecrit pas ailleurs.
+
+    Ni l'un ni l'autre n'ecrase un choix : la description deja presente est
+    laissee telle quelle, et "enabled" n'est pas un reglage que l'on choisit
+    pour ces deux-la.
+    """
+    apps = load()
+    change = False
+    for nom in APPS_PAR_DEFAUT:
+        a = apps.get(nom)
+        if a is None:
+            continue
+        if not a.get("enabled"):
+            a["enabled"] = True
+            change = True
+        if not (a.get("titre") or "").strip():
+            a["titre"] = TITRES_PAR_DEFAUT[nom]
+            change = True
+        if nom == DIAGNOSTIC_NOM and not (a.get("description") or "").strip():
+            a["description"] = DIAGNOSTIC_DESCRIPTION
+            change = True
+    if change:
+        save(apps)
+
+
 def resume():
+    tenir_les_applications_par_defaut()
     for name, a in load().items():
         if a.get("enabled"):
             # Une app qui refuse de demarrer ne doit jamais empecher le
@@ -3896,6 +3988,21 @@ def monitor_tick():
     volontaire -- stop() met "enabled" a False) est redemarree
     automatiquement, avec une limite d'essais pour eviter de s'epuiser
     sur une app qui plante en boucle des le demarrage."""
+    # LE RATTRAPAGE NE VAUT PAS QU'AU DEMARRAGE. Une application par defaut
+    # eteinte entre deux redemarrages du panneau le restait jusqu'au suivant
+    # -- c'est-a-dire, sur une machine qui ne redemarre pas, pour de bon. Le
+    # geste est le meme ici, et il ne court-circuite rien : c'est toujours la
+    # limite d'essais ci-dessous qui decide de relancer ou non, donc une
+    # application qui plante en boucle n'est pas relancee sans fin.
+    tenir_les_applications_par_defaut()
+    # LA CLE DU POSTE EXISTE SANS QU'ON LA DEMANDE. Demande explicitement :
+    # « je veux que la cle CodeLab LLM soit creee et configuree par defaut ».
+    # Ici et pas au demarrage du panneau : a la premiere installation,
+    # Postgres n'est pas encore pret quand ce processus se leve, et un
+    # geste tente une seule fois aurait echoue une seule fois, pour
+    # toujours. Le tour suivant reessaie.
+    tenir_la_cle_du_poste()
+    tenir_la_cle_de_liaison()
     apps = load()
     now = time.time()
     for name, a in apps.items():
@@ -4933,11 +5040,57 @@ def default_icon_svg(name):
 
 
 
+# Longueur d'un nom d'application. Le nom s'affiche sous une icone, dans une
+# tuile large de 148 px : au-dela, il est coupe et ne se lit plus.
+NOM_MAX = 60
+
+
+def titre_de(nom, a=None):
+    """Le nom a afficher : celui qui a ete saisi, ou la cle a defaut.
+
+    Les applications inscrites avant que le nom et le chemin se separent
+    n'ont pas de titre. La cle EST leur nom, et elle le reste : rien a
+    migrer, et une inscription ancienne s'affiche exactement comme avant.
+    """
+    return ((a or {}).get("titre") or "").strip() or nom
+
+
+def titre_propre(brut):
+    """Le nom TEL QU'IL S'AFFICHE : casse et espaces conserves.
+
+    Une seule normalisation, sur les espaces : les doubler ou les mettre en
+    tete ne veut rien dire, et deux noms qui ne different que par la se
+    liraient comme un seul.
+    """
+    return re.sub(r"\s+", " ", str(brut or "")).strip()[:NOM_MAX]
+
+
 def valid_name(raw):
-    value = str(raw or "").strip()
-    if value != value.lower():
-        return ""
-    return re.sub(r"[^a-z0-9_-]", "-", value).strip("-")
+    """Le CHEMIN tire du nom : ce qui apparait dans l'adresse.
+
+    Le nom et le chemin ne sont plus la meme chaine. « Mon Site » s'affiche
+    ainsi et se sert sur /mon-site/. Deux raisons de les separer :
+
+      - une adresse est sensible a la casse et ne prend pas d'espace, alors
+        qu'un nom d'application est fait pour etre lu ;
+      - la regle d'avant refusait tout net une majuscule ("Site" -> nom
+        invalide, sans rien dire de plus), ce qui obligeait a deviner la
+        contrainte au lieu de la subir.
+
+    C'est donc le chemin OBTENU qui decide de la validite : si la
+    transformation ne laisse rien -- un nom fait de "---" ou d'ideogrammes
+    que l'adresse ne sait pas porter -- il n'y a pas de chemin, donc pas
+    d'application.
+    """
+    value = str(raw or "").strip().lower()
+    # Les espaces deviennent des tirets, explicitement. Le remplacement
+    # general ci-dessous le ferait aussi, mais c'est la regle annoncee a
+    # l'utilisateur : elle doit se lire dans le code.
+    value = re.sub(r"\s+", "-", value)
+    value = re.sub(r"[^a-z0-9_-]", "-", value)
+    # Pas deux tirets de suite : "Mon  --  Site" ne donne pas "mon----site".
+    value = re.sub(r"-{2,}", "-", value)
+    return value.strip("-")[:NOM_MAX]
 
 
 # Longueur d'une description de projet. Assez pour une phrase qui dit a quoi
@@ -6372,6 +6525,986 @@ def api_exposition():
                     "admin_reseau_local": admin_limite_au_reseau_local()})
 
 
+# ------------------------- cles et secrets -------------------------
+#
+# POURQUOI CETTE PAGE EXISTE. Renseigner une cle demandait trois gestes a
+# trois endroits : « docker exec codelab-llm python3 app.py create-key », un
+# copier-coller dans /workspace/.codex/codelab-llm.key, et une edition du
+# .env de l'hote. Rien ne disait lequel manquait : Codex affichait « Missing
+# environment variable: CODELAB_LLM_KEY » et s'arretait la.
+#
+# CE QUE LE PANNEAU TOUCHE, ET CE QU'IL NE TOUCHE PAS.
+#
+#   base codelab_llm            il y inscrit l'EMPREINTE d'une cle, jamais la
+#                               cle. Meme table et meme empreinte que
+#                               « create-key » : une cle posee ici est
+#                               reconnue par la passerelle, et une cle posee
+#                               la-bas se revoque ici.
+#   .codex/codelab-llm.key      la cle en clair, 0600, parce que c'est le
+#                               seul endroit ou le conteneur de
+#                               developpement sait la lire.
+#   .openclaw/openclaw.json     la meme cle : OpenClaw ne lit pas
+#                               l'environnement, il veut sa valeur ici.
+#   config/llm/llm.env          les secrets de codelab-llm. Relu a CHAQUE
+#                               appel par ce service : ce qu'on y ecrit
+#                               prend effet sans redemarrage.
+#   config/llm/fournisseurs.env les cles que codelab-litellm recoit par
+#                               env_file. Un fichier d'environnement n'est
+#                               lu qu'au demarrage du conteneur : la page le
+#                               dit, et donne la commande.
+#
+#   le compose et le .env de l'hote : JAMAIS. Ils ne sont pas montes ici, et
+#   les monter donnerait au panneau de quoi reecrire la stack -- c'est-a-dire
+#   root sur l'hote, depuis une page web. La limite est deliberee, et c'est
+#   elle qui explique pourquoi certaines valeurs demandent une commande.
+#
+# CE QUI NE SORT PAS VERS LE NAVIGATEUR. Aucune valeur complete, jamais, pas
+# meme celle qu'on vient d'ecrire. La page ne recoit qu'un apercu calcule
+# ici. Aucune valeur ne passe par une URL -- tout est en corps de requete --
+# ni par le journal : journaliser() ne recoit que le NOM du reglage touche.
+
+CODEX_DIR = os.path.join(ROOT, ".codex")
+OPENCLAW_DIR = os.path.join(ROOT, ".openclaw")
+CLE_CODEX_FICHIER = os.path.join(CODEX_DIR, "codelab-llm.key")
+OPENCLAW_FICHIER = os.path.join(OPENCLAW_DIR, "openclaw.json")
+
+LLM_CONFIG_DIR = os.path.join(SHARED_CONFIG_DIR, "llm")
+LLM_ENV_FICHIER = os.path.join(LLM_CONFIG_DIR, "llm.env")
+FOURNISSEURS_ENV_FICHIER = os.path.join(LLM_CONFIG_DIR, "fournisseurs.env")
+
+PG_BASE_LLM = "codelab_llm"
+PG_ROLE_LLM = "codelab_llm"
+
+# En dessous de cette longueur, quatre caracteres sont une part
+# reconnaissable du tout : on n'en montre alors aucun.
+APERCU_MIN = 12
+
+# ------------------------ les fournisseurs de modeles ------------------------
+#
+# CE QUI A CHANGE, ET POURQUOI. La page presentait une liste FIGEE de cinq
+# champs, ou la cle interne de la liaison voisinait avec les cles des
+# fournisseurs. Lucas a pose la question qui le revelait : « a quoi
+# correspond la cle partagee avec le routeur ? » -- signe que le regroupement
+# melait deux choses sans rapport.
+#
+#   une cle de FOURNISSEUR   un compte chez Anthropic, OpenAI, OpenRouter.
+#                            Elle vient de l'exterieur, elle se paie, et
+#                            elle donne acces a des modeles.
+#   la cle de LIAISON        un secret partage entre deux de NOS conteneurs,
+#                            qui ne veut rien dire ailleurs. Elle ne se
+#                            demande a personne : on la tire au hasard.
+#
+# La liaison est donc sortie de cette liste, et elle s'engendre toute seule
+# (voir tenir_la_cle_de_liaison).
+#
+# CE QUE « modeles » APPORTE, et c'est le seul champ vraiment utile avant de
+# poser une cle : quels noms logiques tombent si elle manque. Un test tient
+# cette colonne d'accord avec litellm/config.yaml -- sans lui, la page
+# promettrait qu'une cle sert a quelque chose qu'aucun modele ne demande.
+FOURNISSEURS = (
+    {"id": "anthropic", "titre": "Anthropic", "variable": "ANTHROPIC_API_KEY",
+     "secret": True, "ou": "fournisseurs",
+     "aide": "Claude. La clé se crée dans la console Anthropic."},
+    {"id": "openai", "titre": "OpenAI", "variable": "OPENAI_API_KEY",
+     "secret": True, "ou": "fournisseurs",
+     "aide": "GPT. La clé se crée dans la plateforme OpenAI."},
+    {"id": "ollama", "titre": "Ollama", "variable": "OLLAMA_BASE_URL",
+     "secret": False, "ou": "fournisseurs",
+     "aide": "Une ADRESSE, pas une clé : un serveur Ollama chez toi ou sur "
+             "le réseau. Exemple : http://host.docker.internal:11434"},
+    # CELLE-CI NE PASSE PAS PAR LE ROUTEUR. codelab-llm sait appeler un
+    # fournisseur compatible OpenAI en direct, sans codelab-litellm ; c'est
+    # le chemin d'avant, garde pour les installations qui s'en servent
+    # encore. D'ou un fichier different et un effet immediat.
+    {"id": "openrouter", "titre": "OpenRouter (accès direct)",
+     "variable": "OPENROUTER_API_KEY", "secret": True, "ou": "llm",
+     "aide": "Appelé directement par codelab-llm, sans passer par le "
+             "routeur. Prise en compte immédiatement."},
+)
+
+# Les noms logiques que chaque fournisseur sert, lus dans litellm/config.yaml
+# a la construction de l'image. Ecrits ici parce que ce fichier n'est pas
+# monte dans ce conteneur -- et tenus d'accord par un test, qui lui a le
+# depot sous la main.
+MODELES_PAR_FOURNISSEUR = {
+    "ANTHROPIC_API_KEY": ["codelab-coding", "codelab-reasoning"],
+    "OPENAI_API_KEY": ["codelab-fast"],
+    "OLLAMA_BASE_URL": ["codelab-local"],
+}
+
+# Le prefixe des variables qu'on accepte d'ecrire pour un fournisseur non
+# catalogue. Sans contrainte, ce champ deviendrait une facon d'ajouter
+# n'importe quelle variable d'environnement au conteneur du routeur -- par
+# exemple LD_PRELOAD.
+VARIABLE_FOURNISSEUR = re.compile(r"^[A-Z][A-Z0-9_]{2,60}_(?:API_KEY|BASE_URL|KEY)$")
+
+# La liaison interne, tiree au hasard et posee des deux cotes.
+LIAISON = ({"quel": "llm", "nom": "CODELAB_LLM_AMONT_KEY"},
+           {"quel": "fournisseurs", "nom": "LITELLM_MASTER_KEY"})
+
+FICHIERS_SECRETS = {"llm": LLM_ENV_FICHIER, "fournisseurs": FOURNISSEURS_ENV_FICHIER}
+
+# Les en-tetes de chaque fichier. Ecrites a chaque fois : un fichier de
+# secrets qu'on trouve six mois plus tard sans savoir qui l'ecrit ni ce qui
+# le relit est un fichier qu'on n'ose pas toucher.
+ENTETE_FOURNISSEURS = (
+    "# fournisseurs.env -- les cles que codelab-litellm recoit par env_file.",
+    "#",
+    "# Ecrit par codelab-postgres au demarrage (depuis le .env de l'hote, s'il",
+    "# en porte) puis par le panneau, Parametres > Cles et secrets. Une valeur",
+    "# posee ici ne prend effet qu'au PROCHAIN demarrage du conteneur :",
+    "#",
+    "#   docker compose --profile llm up -d",
+    "#",
+    "# Le panneau n'atteint ni le compose ni le .env de l'hote, et c'est",
+    "# voulu : les lui donner reviendrait a lui donner root sur la machine.",
+    "",
+)
+
+
+def apercu_secret(valeur):
+    """Ce qu'on accepte de montrer d'un secret : ses quatre derniers
+    caracteres, et rien d'autre.
+
+    Calcule ICI, dans le processus qui detient la valeur. Elle ne part donc
+    jamais vers le navigateur -- ni pour l'affichage, ni « au cas ou » : la
+    page n'a pas de quoi la reveler, meme si l'on s'y trompait plus tard.
+
+    Quatre caracteres suffisent a reconnaitre laquelle des deux cles on a
+    posee, ce qui est tout ce qu'on demande a cet apercu. Ils ne suffisent
+    pas a reconstituer le reste -- sauf sur une valeur courte, ou ils en
+    sont une part appreciable : en dessous de douze caracteres on n'en
+    montre aucun.
+    """
+    v = str(valeur or "")
+    if not v:
+        return ""
+    if len(v) < APERCU_MIN:
+        return "\u2022" * len(v)
+    return "\u2022" * 8 + v[-4:]
+
+
+def lire_env_fichier(chemin):
+    """Les paires d'un fichier d'environnement. Illisible = dictionnaire vide.
+
+    Meme lecture que celle de codelab-llm, volontairement : ce que le
+    panneau croit avoir ecrit et ce que le service lit doivent etre la meme
+    chose.
+    """
+    valeurs = {}
+    try:
+        with open(chemin, encoding="utf-8") as flux:
+            for ligne in flux:
+                ligne = ligne.strip()
+                if ligne and not ligne.startswith("#") and "=" in ligne:
+                    cle, _, valeur = ligne.partition("=")
+                    valeurs[cle.strip()] = valeur.strip()
+    except OSError:
+        pass
+    return valeurs
+
+
+def _ecrire_0600(chemin, contenu, modele=None):
+    """Ecrit un fichier en 0600, sans passage a vide ni fenetre lisible.
+
+    Deux precautions, et chacune repare un defaut reel :
+
+      le mode est pose A LA CREATION (os.open, pas open puis chmod) -- sinon
+      le fichier existe en 0644 le temps d'etre rempli, et cette fenetre
+      suffit ;
+
+      le contenu est ecrit a cote puis renomme -- codelab-llm relit son
+      fichier a CHAQUE appel, il tomberait sur la troncature.
+
+    « modele » donne son proprietaire au fichier : le panneau ecrit en root,
+    le conteneur de developpement lit sous « vscode ». Un 0600 root:root
+    serait ecrit, correct, et illisible par le seul programme qui en a
+    besoin -- on ne s'en apercevrait qu'au « Missing environment variable ».
+    """
+    os.makedirs(os.path.dirname(chemin), exist_ok=True)
+    tmp = chemin + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(contenu)
+    if modele:
+        try:
+            st = os.stat(modele)
+            os.chown(tmp, st.st_uid, st.st_gid)
+        except OSError:
+            pass
+    os.replace(tmp, chemin)
+
+
+def ecrire_env_secrets(quel, valeurs):
+    """Reecrit un des deux fichiers de secrets, en gardant ce qu'on ne gere pas.
+
+    Le fichier llm.env porte aussi les identifiants Postgres de
+    codelab-llm, ecrits par codelab-postgres au demarrage. Les reecrire de
+    memoire les perdrait : on relit le fichier, on remplace les seules cles
+    demandees, et le reste repart tel quel.
+    """
+    chemin = FICHIERS_SECRETS[quel]
+    presentes = lire_env_fichier(chemin)
+    for cle, valeur in valeurs.items():
+        if valeur:
+            presentes[cle] = valeur
+        else:
+            presentes.pop(cle, None)
+    entete = ENTETE_FOURNISSEURS if quel == "fournisseurs" else ()
+    lignes = list(entete) + [f"{c}={presentes[c]}" for c in sorted(presentes)]
+    os.makedirs(LLM_CONFIG_DIR, exist_ok=True)
+    try:
+        os.chmod(LLM_CONFIG_DIR, 0o700)
+    except OSError:
+        pass
+    _ecrire_0600(chemin, "\n".join(lignes) + "\n")
+
+
+def secret_propre(brut):
+    """La valeur telle qu'on accepte de l'ecrire, ou None si on la refuse.
+
+    Un retour a la ligne couperait le fichier en deux et ferait passer la
+    suite de la valeur pour une AUTRE variable : c'est le seul caractere qui
+    change le sens du fichier, et c'est celui qu'on refuse. Le reste, y
+    compris « = », se relit sans ambiguite -- la lecture coupe au premier.
+    """
+    v = str(brut or "").strip()
+    if "\n" in v or "\r" in v or "\0" in v:
+        return None
+    return v
+
+
+def empreinte_cle(brut):
+    """L'empreinte d'une cle, telle que codelab-llm la calcule.
+
+    sha256 du texte brut, en hexadecimal. Si cette ligne et celle de
+    llm/app.py divergeaient, le panneau inscrirait des cles que la
+    passerelle ne reconnaitrait pas -- sans une erreur nulle part.
+    """
+    return hashlib.sha256(brut.encode()).hexdigest()
+
+
+def _llm_preparer_base():
+    """Cree la base et la table des cles si le profil IA n'a jamais tourne.
+
+    Sans cela la page serait inutilisable tant que le profil n'a pas demarre
+    une premiere fois -- alors que la cle qu'elle pose est justement ce qui
+    permet de s'en servir.
+
+    Le schema est recopie de codelab-llm mot pour mot. Deux definitions qui
+    divergeraient donneraient deux tables selon qui demarre le premier.
+    """
+    import psycopg
+    r = _pg_reglages()
+    with _pg_connexion(r["instance"]) as cx:
+        if not cx.execute("SELECT 1 FROM pg_database WHERE datname = %s",
+                          (PG_BASE_LLM,)).fetchone():
+            cx.execute(psycopg.sql.SQL("CREATE DATABASE {}").format(
+                psycopg.sql.Identifier(PG_BASE_LLM)))
+    with _pg_connexion(PG_BASE_LLM) as cx:
+        cx.execute("""
+            CREATE TABLE IF NOT EXISTS llm_api_keys (
+                id BIGSERIAL PRIMARY KEY, key_hash TEXT NOT NULL UNIQUE,
+                key_name TEXT NOT NULL, user_id TEXT NOT NULL,
+                app_id TEXT NOT NULL, revoked_at TIMESTAMPTZ,
+                description TEXT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )""")
+        # Les installations d'avant la colonne : CREATE TABLE IF NOT EXISTS
+        # ne touche pas une table qui existe deja.
+        cx.execute("ALTER TABLE llm_api_keys"
+                   " ADD COLUMN IF NOT EXISTS description TEXT")
+        # LA CONSOMMATION AUSSI. Elle ne l'etait pas, et la page tombait sur
+        # « relation "llm_usage" does not exist » tant que le profil IA
+        # n'avait jamais demarre -- en accusant ce profil, alors que la
+        # meme fonction savait deja creer l'autre table. Le tableau des
+        # cles la joint (LEFT JOIN) et les chiffres la lisent : sans elle,
+        # la console entiere reste vide.
+        cx.execute("""
+            CREATE TABLE IF NOT EXISTS llm_usage (
+                id BIGSERIAL PRIMARY KEY,
+                timestamp TIMESTAMPTZ NOT NULL DEFAULT now(),
+                user_id TEXT NOT NULL, app_id TEXT NOT NULL,
+                key_id BIGINT,
+                requested_model TEXT NOT NULL, actual_model TEXT, provider TEXT,
+                input_tokens INTEGER NOT NULL DEFAULT 0,
+                output_tokens INTEGER NOT NULL DEFAULT 0,
+                total_tokens INTEGER NOT NULL DEFAULT 0,
+                cost NUMERIC(18, 8) NOT NULL DEFAULT 0,
+                latency_ms INTEGER NOT NULL,
+                cache_hit BOOLEAN NOT NULL DEFAULT FALSE,
+                fallback BOOLEAN NOT NULL DEFAULT FALSE
+            )""")
+        cx.execute("CREATE INDEX IF NOT EXISTS llm_usage_cle_idx"
+                   " ON llm_usage (key_id, timestamp)")
+        # Le panneau se connecte en superutilisateur : une table creee ici
+        # lui appartiendrait, et codelab-llm -- qui tourne sous son propre
+        # role -- ne pourrait pas y ecrire. On lui en rend la propriete.
+        if cx.execute("SELECT 1 FROM pg_roles WHERE rolname=%s",
+                      (PG_ROLE_LLM,)).fetchone():
+            for ordre in ("ALTER TABLE llm_api_keys OWNER TO {}",
+                          "ALTER SEQUENCE llm_api_keys_id_seq OWNER TO {}",
+                          "ALTER TABLE llm_usage OWNER TO {}",
+                          "ALTER SEQUENCE llm_usage_id_seq OWNER TO {}"):
+                try:
+                    cx.execute(psycopg.sql.SQL(ordre).format(
+                        psycopg.sql.Identifier(PG_ROLE_LLM)))
+                except Exception:
+                    # Deja la bonne propriete, ou une sequence renommee par
+                    # une version future : ni l'un ni l'autre n'empeche
+                    # d'ecrire une cle.
+                    pass
+
+
+def _openclaw_reporter(brut):
+    """Inscrit la cle dans openclaw.json sans perdre le reste du fichier.
+
+    On relit et on remplace la seule valeur : OpenClaw se configure aussi a
+    la main, et reecrire le fichier entier effacerait ces reglages a chaque
+    rotation de cle. Un fichier absent ou illisible, lui, est refait sur la
+    forme d'amorce -- celle qu'ecrit le conteneur de developpement.
+    """
+    config = None
+    try:
+        with open(OPENCLAW_FICHIER, encoding="utf-8") as f:
+            config = json.load(f)
+    except (OSError, ValueError):
+        config = None
+    if not isinstance(config, dict):
+        config = {}
+    modeles = config.setdefault("models", {})
+    if not isinstance(modeles, dict):
+        modeles = config["models"] = {}
+    fournisseurs = modeles.setdefault("providers", {})
+    if not isinstance(fournisseurs, dict):
+        fournisseurs = modeles["providers"] = {}
+    codelab = fournisseurs.setdefault("codelab", {})
+    if not isinstance(codelab, dict):
+        codelab = fournisseurs["codelab"] = {}
+    codelab.setdefault("baseUrl", "http://codelab-llm:8080/v1")
+    codelab.setdefault("api", "openai-completions")
+    # Le reseau prive est refuse par defaut, et codelab-llm en est un :
+    # sans cette ligne la cle est bonne et l'appel ne part jamais.
+    requete = codelab.setdefault("request", {})
+    if isinstance(requete, dict):
+        requete.setdefault("allowPrivateNetwork", True)
+    codelab["apiKey"] = brut
+    try:
+        _ecrire_0600(OPENCLAW_FICHIER,
+                     json.dumps(config, indent=2, ensure_ascii=False) + "\n",
+                     modele=OPENCLAW_DIR)
+        return True
+    except OSError:
+        return False
+
+
+def poser_cle_pour_les_agents(brut):
+    """Ecrit la cle la ou Codex et OpenClaw la lisent. Renvoie les fichiers touches.
+
+    Les deux ne la prennent pas au meme endroit : Codex attend une variable
+    d'environnement, exportee au login par le profil du conteneur de
+    developpement depuis ce fichier ; OpenClaw n'a pas d'equivalent et veut
+    la valeur dans sa configuration.
+    """
+    ecrits = []
+    try:
+        _ecrire_0600(CLE_CODEX_FICHIER, brut + "\n", modele=CODEX_DIR)
+        ecrits.append(CLE_CODEX_FICHIER)
+    except OSError:
+        pass
+    if _openclaw_reporter(brut):
+        ecrits.append(OPENCLAW_FICHIER)
+    return ecrits
+
+
+def cle_codex_posee():
+    """La cle inscrite pour les agents, ou "" si le fichier n'est pas la."""
+    try:
+        with open(CLE_CODEX_FICHIER, encoding="utf-8") as f:
+            return f.readline().strip()
+    except OSError:
+        return ""
+
+
+def _etat_cle_llm():
+    """Ce que la page sait dire de la cle des agents, sans jamais la montrer.
+
+    Trois choses peuvent manquer independamment, et les confondre est
+    precisement ce qui rendait la panne illisible : la cle peut etre
+    inscrite en base sans etre posee dans le fichier (creee par « docker
+    exec »), posee dans le fichier sans etre en base (base effacee), ou
+    revoquee tout en restant posee. Chaque cas a sa phrase.
+    """
+    posee = cle_codex_posee()
+    etat = {"posee": bool(posee), "apercu": apercu_secret(posee),
+            "base": "inconnue", "nom": "", "creee": "", "openclaw": False}
+    # OpenClaw porte-t-il la MEME cle ? Compare ici, jamais renvoye.
+    try:
+        with open(OPENCLAW_FICHIER, encoding="utf-8") as f:
+            config = json.load(f)
+        inscrite = (((config.get("models") or {}).get("providers") or {})
+                    .get("codelab") or {}).get("apiKey") or ""
+        etat["openclaw"] = bool(posee) and inscrite == posee
+    except (OSError, ValueError, AttributeError):
+        etat["openclaw"] = False
+    if not posee:
+        return etat
+    try:
+        with _pg_connexion(PG_BASE_LLM) as cx:
+            ligne = cx.execute(
+                "SELECT key_name, created_at, revoked_at FROM llm_api_keys"
+                " WHERE key_hash = %s", (empreinte_cle(posee),)).fetchone()
+    except Exception:
+        etat["base"] = "injoignable"
+        return etat
+    if not ligne:
+        etat["base"] = "absente"
+    elif ligne[2] is not None:
+        etat["base"] = "revoquee"
+    else:
+        etat["base"] = "active"
+    if ligne:
+        etat["nom"] = ligne[0] or ""
+        etat["creee"] = ligne[1].isoformat() if ligne[1] else ""
+    return etat
+
+
+# ------------------- la console des cles d'acces au LLM -------------------
+#
+# CE QU'ELLE REMPLACE. La page ne connaissait qu'UNE cle : celle posee dans
+# le fichier que lisent Codex et OpenClaw. Creer la seconde pour une
+# application, savoir laquelle consomme quoi, en revoquer une sans toucher
+# aux autres -- rien de tout cela n'existait, et la base portait pourtant
+# deja plusieurs lignes.
+#
+# CE QUI MANQUAIT EN BASE, et c'etait le point dur : llm_usage ne notait que
+# le couple (utilisateur, application). Deux cles du meme poste etaient
+# indistinguables. La colonne key_id, ajoutee dans llm/app.py, est ce qui
+# rend « suivre l'utilisation de chacune » possible du tout.
+#
+# ETIQUETTE, PAS BARRIERE. Le nom et l'application d'une cle servent a la
+# COMPTABILITE : savoir qui a consomme quoi, et couper une cle qui derape.
+# Ils ne restreignent pas ce que la cle peut demander -- ce serait un
+# controle a faire dans la passerelle, pas ici, et le presenter comme une
+# protection alors qu'il n'en est pas une serait pire que de ne rien
+# promettre. La page le dit.
+
+# L'application inscrite sur la cle du poste de developpement. C'est elle que
+# Codex et OpenClaw presentent, et c'est a ce nom qu'on la reconnait dans la
+# liste.
+APP_POSTE = "codelab-dev"
+NOM_CLE_POSTE = "poste de developpement"
+
+
+def _pg_llm_dispo():
+    """La base des cles repond-elle ? (bool, phrase a afficher)."""
+    try:
+        with _pg_connexion(PG_BASE_LLM) as cx:
+            cx.execute("SELECT 1")
+        return True, ""
+    except Exception as e:                                        # noqa: BLE001
+        return False, str(e).strip().split("\n")[0][:200]
+
+
+def lister_cles_llm():
+    """Les cles, avec ce que chacune a consomme.
+
+    UNE SEULE REQUETE, et c'est voulu : une boucle « pour chaque cle, compter
+    sa consommation » ferait N+1 requetes sur une table qui grossit a chaque
+    appel de modele. Le LEFT JOIN garde les cles qui n'ont jamais servi --
+    ce sont justement celles qu'on vient chercher pour les revoquer.
+    """
+    with _pg_connexion(PG_BASE_LLM) as cx:
+        lignes = cx.execute("""
+            SELECT k.id, k.key_name, k.user_id, k.app_id, k.created_at,
+                   k.revoked_at, k.description,
+                   COALESCE(COUNT(u.id), 0),
+                   COALESCE(SUM(u.total_tokens), 0),
+                   COALESCE(SUM(u.cost), 0),
+                   MAX(u.timestamp)
+              FROM llm_api_keys k
+              LEFT JOIN llm_usage u ON u.key_id = k.id
+             GROUP BY k.id
+             ORDER BY k.revoked_at IS NOT NULL, k.created_at DESC
+        """).fetchall()
+    posee = cle_codex_posee()
+    empreinte_posee = empreinte_cle(posee) if posee else ""
+    with _pg_connexion(PG_BASE_LLM) as cx:
+        empreintes = dict(cx.execute(
+            "SELECT id, key_hash FROM llm_api_keys").fetchall())
+    cles = []
+    for (ident, nom, qui, app, creee, revoquee, description, requetes,
+         jetons, cout, derniere) in lignes:
+        cles.append({
+            "id": ident,
+            "nom": nom or "",
+            "utilisateur": qui or "",
+            "application": app or "",
+            "description": description or "",
+            "creee": creee.isoformat() if creee else "",
+            "revoquee": revoquee.isoformat() if revoquee else "",
+            "active": revoquee is None,
+            # CELLE QUI SERT ICI. La page doit pouvoir dire « c'est celle que
+            # Codex utilise » sans que personne ait a comparer des empreintes
+            # a l'oeil -- et l'empreinte, elle, ne sort pas.
+            "posee": bool(posee) and empreintes.get(ident) == empreinte_posee,
+            "requetes": int(requetes or 0),
+            "jetons": int(jetons or 0),
+            "cout": float(cout or 0),
+            "derniere": derniere.isoformat() if derniere else "",
+        })
+    return cles
+
+
+def consommation_llm(jours=30):
+    """Ce que la stack a consomme sur la periode, et par quel modele.
+
+    Les jours sont bornes : une page qui demanderait dix ans ferait lire
+    toute la table a chaque ouverture.
+    """
+    jours = max(1, min(int(jours or 30), 365))
+    with _pg_connexion(PG_BASE_LLM) as cx:
+        total = cx.execute(
+            "SELECT COALESCE(COUNT(*),0), COALESCE(SUM(total_tokens),0),"
+            " COALESCE(SUM(cost),0)"
+            " FROM llm_usage WHERE timestamp > now() - %s::interval",
+            (f"{jours} days",)).fetchone()
+        modeles = cx.execute(
+            "SELECT requested_model, COUNT(*), COALESCE(SUM(total_tokens),0),"
+            " COALESCE(SUM(cost),0)"
+            " FROM llm_usage WHERE timestamp > now() - %s::interval"
+            " GROUP BY requested_model ORDER BY 2 DESC LIMIT 12",
+            (f"{jours} days",)).fetchall()
+    return {
+        "jours": jours,
+        "requetes": int(total[0] or 0),
+        "jetons": int(total[1] or 0),
+        "cout": float(total[2] or 0),
+        "modeles": [{"modele": m or "(inconnu)", "requetes": int(r or 0),
+                     "jetons": int(j or 0), "cout": float(c or 0)}
+                    for m, r, j, c in modeles],
+    }
+
+
+def creer_cle_llm(nom, utilisateur, application, description=""):
+    """Tire une cle, l'inscrit, et rend (valeur brute, identifiant).
+
+    La valeur brute ne sert qu'a l'appelant, le temps de la poser dans un
+    fichier. La base n'en garde que l'empreinte -- comme « create-key », et
+    comme n'importe quel service de LLM.
+    """
+    _llm_preparer_base()
+    brut = "cl_" + secrets.token_urlsafe(32)
+    with _pg_connexion(PG_BASE_LLM) as cx:
+        ident = cx.execute(
+            "INSERT INTO llm_api_keys"
+            " (key_hash, key_name, user_id, app_id, description)"
+            " VALUES (%s,%s,%s,%s,%s) RETURNING id",
+            (empreinte_cle(brut), nom, utilisateur, application,
+             description or None)).fetchone()[0]
+    return brut, ident
+
+
+def revoquer_les_cles_de(colonne, valeur):
+    """Supprime les cles attachees a un compte ou a un projet disparu.
+
+    SUPPRIMEES ET PAS REVOQUEES, et c'est une decision. Une cle revoquee
+    reste dans le tableau pour sa consommation passee -- utile tant que ce
+    qu'elle designe existe encore. Quand le compte ou le projet n'existe
+    plus, cette ligne ne designe plus rien : elle devient un nom mort dans
+    une liste, et recreer un projet du meme nom lui rendrait des cles qu'il
+    n'a jamais eues.
+
+    La consommation, elle, reste : llm_usage n'est pas touchee, et sa
+    retention (400 jours) continue de s'appliquer. La trace de ce qui a ete
+    consomme ne disparait donc pas avec la cle.
+    """
+    if colonne not in ("user_id", "app_id"):
+        raise ValueError(colonne)
+    if not valeur:
+        return 0
+    try:
+        with _pg_connexion(PG_BASE_LLM) as cx:
+            # Le nom de colonne vient de la liste fermee ci-dessus, jamais de
+            # l'appelant : la valeur, elle, reste un parametre lie.
+            r = cx.execute(
+                f"DELETE FROM llm_api_keys WHERE {colonne} = %s", (valeur,))
+            return r.rowcount or 0
+    except Exception as e:                                        # noqa: BLE001
+        # La base peut etre eteinte (profil IA arrete) : supprimer un compte
+        # ne doit pas echouer pour autant. Les cles orphelines seront
+        # rattrapees au prochain passage.
+        print(f"[app-manager] cles de {valeur} non supprimees : {e}", flush=True)
+        return 0
+
+
+def revoquer_cle_llm(ident):
+    """Revoque UNE cle, par son identifiant. Renvoie sa ligne, ou None."""
+    with _pg_connexion(PG_BASE_LLM) as cx:
+        ligne = cx.execute(
+            "SELECT key_hash, key_name, revoked_at FROM llm_api_keys WHERE id=%s",
+            (ident,)).fetchone()
+        if not ligne:
+            return None
+        if ligne[2] is None:
+            cx.execute("UPDATE llm_api_keys SET revoked_at=now() WHERE id=%s",
+                       (ident,))
+    return {"empreinte": ligne[0], "nom": ligne[1] or ""}
+
+
+def tenir_la_cle_du_poste():
+    """La cle du poste de developpement existe, sans qu'on ait a la demander.
+
+    DEMANDE EXPLICITEMENT : « je veux que la cle CodeLab LLM soit creee et
+    configuree par defaut ». Le premier demarrage ne doit donc rien demander
+    a personne -- ni « docker exec », ni un bouton a cliquer, ni un
+    copier-coller.
+
+    N'echoue jamais : appelee depuis la boucle de surveillance, elle ne doit
+    pas faire tomber le tour parce que Postgres redemarre. Le prochain tour
+    reessaiera.
+
+    Ne recree pas ce qui est deja la : si le fichier porte une cle encore
+    active en base, il n'y a rien a faire -- et c'est le cas a tous les tours
+    sauf le premier.
+    """
+    try:
+        posee = cle_codex_posee()
+        if posee:
+            with _pg_connexion(PG_BASE_LLM) as cx:
+                vivante = cx.execute(
+                    "SELECT 1 FROM llm_api_keys"
+                    " WHERE key_hash=%s AND revoked_at IS NULL",
+                    (empreinte_cle(posee),)).fetchone()
+            if vivante:
+                return False
+        brut, _ = creer_cle_llm(NOM_CLE_POSTE, NOM_ADMIN, APP_POSTE)
+        ecrits = poser_cle_pour_les_agents(brut)
+        if CLE_CODEX_FICHIER not in ecrits:
+            return False
+        journaliser("secret", qui=NOM_ADMIN, action="cle du poste creee",
+                    cle="llm")
+        print("[app-manager] cle CodeLab LLM creee et posee pour Codex "
+              "et OpenClaw.", flush=True)
+        return True
+    except Exception as e:                                        # noqa: BLE001
+        # Muet SAUF au premier echec : repeter la meme ligne toutes les
+        # quelques secondes dans « docker logs » noierait tout le reste.
+        if not _cle_poste_plainte["dit"]:
+            _cle_poste_plainte["dit"] = True
+            print(f"[app-manager] cle CodeLab LLM non creee ({e}) -- "
+                  f"nouvelle tentative au prochain tour.", flush=True)
+        return False
+
+
+_cle_poste_plainte = {"dit": False}
+
+
+@flask_app.get("/api/cles")
+@require_admin
+def api_cles():
+    """L'etat des cles et des secrets. Aucune valeur complete ici."""
+    poses, catalogue = etat_des_fournisseurs()
+    joignable, empechement = _pg_llm_dispo()
+    cles, conso = [], None
+    if joignable:
+        try:
+            cles = lister_cles_llm()
+            conso = consommation_llm(_entier(request.args.get("jours"), 30))
+        except Exception as e:                                    # noqa: BLE001
+            joignable, empechement = False, str(e).split("\n")[0][:200]
+    return jsonify({"llm": _etat_cle_llm(),
+                    # POSES et CATALOGUE sont deux listes distinctes : la
+                    # premiere se lit, la seconde s'ajoute. Les confondre
+                    # ramenerait la liste figee de cinq champs qu'on vient
+                    # de retirer.
+                    "fournisseurs": poses, "catalogue": catalogue,
+                    "base": joignable, "empechement": empechement,
+                    "cles": cles, "consommation": conso,
+                    # DE QUOI REMPLIR LES DEUX LISTES DE CHOIX. La page ne
+                    # devine pas les comptes ni les projets : ils viennent
+                    # d'ici, donc ce qu'elle propose est toujours ce qui
+                    # existe VRAIMENT -- condition pour que la suppression
+                    # en cascade ait un sens.
+                    "comptes": sorted(lire_utilisateurs()),
+                    "projets": sorted(load()),
+                    "app_poste": APP_POSTE})
+
+
+def _entier(brut, defaut):
+    try:
+        return int(str(brut))
+    except (TypeError, ValueError):
+        return defaut
+
+
+@flask_app.post("/api/cles/llm")
+@require_admin
+def api_cles_llm_creer():
+    """Tire une cle neuve, l'inscrit, et la pose si elle est celle du poste.
+
+    ELLE N'EST PAS RENVOYEE quand elle est posee : la valeur va directement
+    dans les deux fichiers ou les agents la lisent, ce qui est le seul
+    endroit ou elle sert.
+
+    ELLE L'EST UNE FOIS quand elle ne l'est pas -- une cle destinee a une
+    application vit ailleurs, dans un fichier de projet ou une variable
+    d'environnement que le panneau ne connait pas. Affichee une seule fois,
+    comme chez n'importe quel service de LLM : la base n'en garde que
+    l'empreinte, donc personne ne pourra la relire, pas meme nous.
+    """
+    demande = request.get_json(force=True, silent=True) or {}
+    poste = bool(demande.get("poste"))
+    nom = titre_propre(demande.get("nom")) or (NOM_CLE_POSTE if poste else "sans nom")
+    # « application » cote API et « app_id » en base : c'est la colonne que
+    # la passerelle remplit elle aussi, et la renommer pour l'appeler
+    # « projet » couterait une migration a laquelle rien ne repondrait.
+    # L'interface, elle, dit « projet » -- c'est le mot de qui s'en sert.
+    application = valid_name(demande.get("application")) or (
+        APP_POSTE if poste else "")
+    # A QUI ELLE EST ATTRIBUEE. Un compte QUI EXISTE, ou aucun.
+    #
+    # Le champ etait libre : on pouvait y ecrire n'importe quoi, et la cle
+    # restait attachee a un nom que personne ne portait. Elle se choisit
+    # maintenant dans la liste des comptes, et « aucun » est un choix
+    # legitime -- une cle de service n'appartient a personne.
+    #
+    # VALIDE ICI, et pas seulement dans la page : c'est cette verification
+    # qui rend la suppression en cascade tenable. Une cle attachee a un
+    # compte inexistant ne serait jamais reprise par personne.
+    utilisateur = titre_propre(demande.get("utilisateur"))
+    if utilisateur and not poste and utilisateur not in lire_utilisateurs():
+        return jsonify({"error": f"« {utilisateur} » n'est pas un compte de "
+                                 "ce serveur. Choisis-en un dans la liste, "
+                                 "ou laisse le champ à « aucun »."}), 400
+
+    # ET LE PROJET, de meme : une application declaree, ou aucune.
+    if application and not poste and application not in load():
+        return jsonify({"error": f"« {application} » n'est pas un projet de "
+                                 "ce serveur. Choisis-en un dans la liste, "
+                                 "ou laisse le champ à « aucun »."}), 400
+
+    # Une phrase facultative : a quoi sert cette cle. Bornee, parce qu'elle
+    # s'affiche dans un tableau et qu'un roman y tiendrait mal.
+    description = (titre_propre(demande.get("description")) or "")[:200]
+    try:
+        _llm_preparer_base()
+    except Exception as e:                                        # noqa: BLE001
+        return jsonify({"error": "La base de codelab-llm n'est pas joignable : "
+                                 f"{e}. Démarre Postgres, puis réessaie."}), 503
+
+    ancienne = cle_codex_posee() if poste else ""
+    try:
+        brut, ident = creer_cle_llm(nom, utilisateur, application, description)
+        if ancienne:
+            with _pg_connexion(PG_BASE_LLM) as cx:
+                cx.execute("UPDATE llm_api_keys SET revoked_at=now()"
+                           " WHERE key_hash=%s AND revoked_at IS NULL",
+                           (empreinte_cle(ancienne),))
+    except Exception as e:                                        # noqa: BLE001
+        return jsonify({"error": f"Clé non inscrite : {e}"}), 500
+
+    reponse = {"ok": True, "id": ident}
+    if poste:
+        ecrits = poser_cle_pour_les_agents(brut)
+        if CLE_CODEX_FICHIER not in ecrits:
+            return jsonify({"error": "La clé est inscrite en base mais le fichier "
+                                     f"{CLE_CODEX_FICHIER} n'a pas pu être écrit : "
+                                     "Codex ne la verra pas."}), 500
+        reponse["fichiers"] = [os.path.basename(c) for c in ecrits]
+    else:
+        # LE SEUL ENDROIT DE TOUT LE PANNEAU OU UNE CLE COMPLETE SORT, et
+        # c'est une decision : sans elle, une cle pour une application
+        # exterieure serait inutilisable. Elle n'est ni journalisee, ni
+        # relisible ensuite.
+        reponse["valeur"] = brut
+    journaliser("secret", qui=utilisateur_courant() or NOM_ADMIN,
+                action="cle llm creee", cle=str(ident), ip=_adresse_client())
+    return jsonify(reponse)
+
+
+@flask_app.delete("/api/cles/llm/<int:ident>")
+@require_admin
+def api_cles_llm_revoquer(ident):
+    """Revoque UNE cle, par son identifiant.
+
+    Si c'est celle du poste, le fichier part avec : un poste qui croit avoir
+    une cle et recoit un refus a chaque appel ne se diagnostique pas.
+    """
+    posee = cle_codex_posee()
+    try:
+        ligne = revoquer_cle_llm(ident)
+    except Exception as e:                                        # noqa: BLE001
+        return jsonify({"error": f"Clé non révoquée : {e}"}), 500
+    if not ligne:
+        return jsonify({"error": "Clé inconnue."}), 404
+    if posee and ligne["empreinte"] == empreinte_cle(posee):
+        try:
+            os.remove(CLE_CODEX_FICHIER)
+        except OSError:
+            pass
+        _openclaw_reporter("")
+    journaliser("secret", qui=utilisateur_courant() or NOM_ADMIN,
+                action="cle llm revoquee", cle=str(ident), ip=_adresse_client())
+    return jsonify({"ok": True})
+
+
+def _fichier_du_fournisseur(spec):
+    return spec.get("ou", "fournisseurs")
+
+
+def etat_des_fournisseurs():
+    """(ce qui est pose, ce qu'on peut ajouter).
+
+    POSE contient tout ce que les deux fichiers portent -- y compris une
+    variable ajoutee a la main ou par un fournisseur « autre » -- parce
+    qu'une valeur qu'on ne voit pas est une valeur qu'on ne pense pas a
+    retirer. CATALOGUE ne contient que ce qui n'est pas encore pose : c'est
+    la liste dans laquelle on choisit.
+    """
+    connus = {s["variable"]: s for s in FOURNISSEURS}
+    internes = {d["nom"] for d in LIAISON}
+    poses = []
+    for quel in ("fournisseurs", "llm"):
+        valeurs = lire_env_fichier(FICHIERS_SECRETS[quel])
+        for nom, valeur in sorted(valeurs.items()):
+            # La liaison et les identifiants Postgres de codelab-llm vivent
+            # dans les memes fichiers et ne sont pas des fournisseurs.
+            if nom in internes or nom.startswith("POSTGRES_"):
+                continue
+            spec = connus.get(nom)
+            if spec is None and not VARIABLE_FOURNISSEUR.match(nom):
+                continue
+            secret = spec["secret"] if spec else True
+            poses.append({
+                "id": spec["id"] if spec else nom,
+                "titre": spec["titre"] if spec else nom,
+                "aide": spec["aide"] if spec else
+                        "Ajoutée à la main. Elle ne sert que si un modèle de "
+                        "litellm/config.yaml la nomme.",
+                "variable": nom,
+                "secret": secret,
+                "definie": bool(valeur),
+                "apercu": apercu_secret(valeur) if secret else valeur,
+                "modeles": MODELES_PAR_FOURNISSEUR.get(nom, []),
+                "effet": "vif" if quel == "llm" else "redemarrage",
+                "connu": spec is not None,
+            })
+    deja = {p["variable"] for p in poses}
+    catalogue = [{"id": s["id"], "titre": s["titre"], "variable": s["variable"],
+                  "secret": s["secret"], "aide": s["aide"],
+                  "modeles": MODELES_PAR_FOURNISSEUR.get(s["variable"], []),
+                  "effet": "vif" if s.get("ou") == "llm" else "redemarrage"}
+                 for s in FOURNISSEURS if s["variable"] not in deja]
+    return poses, catalogue
+
+
+@flask_app.put("/api/cles/fournisseur")
+@require_admin
+def api_cles_fournisseur():
+    """Pose ou efface la cle d'un fournisseur. Une seule valeur a la fois.
+
+    DEUX FACONS DE LE DESIGNER, et c'est ce que la page demandait :
+
+      « id »        un fournisseur du catalogue -- on choisit dans une liste,
+                    le nom de variable vient avec ;
+      « variable »  un fournisseur que le catalogue ne connait pas. Le nom
+                    doit ressembler a un nom de cle (…_API_KEY, …_BASE_URL) :
+                    sans cette contrainte, ce champ deviendrait une facon
+                    d'ajouter n'importe quelle variable d'environnement au
+                    conteneur du routeur, LD_PRELOAD compris.
+
+    Une valeur vide EFFACE la ligne plutot que d'ecrire une valeur vide :
+    codelab-llm lit « l'environnement d'abord, le fichier ensuite » avec un
+    « or » -- une ligne vide et une ligne absente y sont la meme chose, mais
+    seule l'absence se lit comme telle quand on ouvre le fichier.
+    """
+    demande = request.get_json(force=True, silent=True) or {}
+    spec = next((s for s in FOURNISSEURS if s["id"] == demande.get("id")), None)
+    if spec:
+        variable, quel, secret = spec["variable"], _fichier_du_fournisseur(spec), spec["secret"]
+    else:
+        variable = str(demande.get("variable") or "").strip().upper()
+        if not VARIABLE_FOURNISSEUR.match(variable):
+            return jsonify({"error": "Nom de variable refusé. Il doit être en "
+                                     "majuscules et se terminer par _API_KEY, "
+                                     "_KEY ou _BASE_URL — par exemple "
+                                     "MISTRAL_API_KEY."}), 400
+        if variable in {d["nom"] for d in LIAISON}:
+            return jsonify({"error": "Cette variable est la liaison interne : "
+                                     "elle se régénère, elle ne se saisit "
+                                     "pas."}), 400
+        quel, secret = "fournisseurs", True
+
+    valeur = secret_propre(demande.get("valeur"))
+    if valeur is None:
+        return jsonify({"error": "Une clé ne contient pas de retour à la ligne : "
+                                 "vérifie ce qui a été collé."}), 400
+    try:
+        ecrire_env_secrets(quel, {variable: valeur})
+    except OSError as e:
+        return jsonify({"error": f"Fichier non écrit : {e}"}), 500
+    # Le NOM de la variable, jamais sa valeur ni son apercu : le journal se
+    # consulte depuis la page des acces, et se recopie dans Postgres.
+    journaliser("secret", qui=utilisateur_courant() or NOM_ADMIN,
+                action=("pose" if valeur else "efface"), cle=variable,
+                ip=_adresse_client())
+    return jsonify({"ok": True, "definie": bool(valeur),
+                    "apercu": apercu_secret(valeur) if secret else valeur})
+
+
+# --------------------------- la liaison interne ---------------------------
+#
+# ELLE NE SE SAISIT PAS. C'est un secret partage entre deux de nos
+# conteneurs : il n'a de sens nulle part ailleurs, personne ne le delivre, et
+# le demander a l'utilisateur revenait a lui faire executer « openssl rand
+# -hex 32 » pour recopier le resultat dans deux fichiers. On le tire ici.
+
+def etat_de_la_liaison():
+    """Si les deux cotes portent la meme valeur. Lu par la surveillance.
+
+    ACCORDEE veut dire : la meme valeur des deux cotes. Deux valeurs
+    differentes sont la panne la plus muette de toute la stack -- le routeur
+    refuse, et le message parle d'authentification sans dire laquelle.
+
+    LA PAGE NE L'AFFICHE PLUS. Elle montrait un secret interne que personne
+    ne delivre, a cote des cles de fournisseurs qui, elles, se saisissent :
+    deux choses sans rapport dans la meme colonne. Le mecanisme, lui, reste
+    entier -- c'est lui qui garantit que les deux conteneurs s'accordent, et
+    le retirer ouvrirait la panne que ce code existe pour eviter.
+    """
+    valeurs = [lire_env_fichier(FICHIERS_SECRETS[d["quel"]]).get(d["nom"], "")
+               for d in LIAISON]
+    posee = all(valeurs)
+    return {"definie": posee,
+            "accordee": posee and len(set(valeurs)) == 1,
+            "apercu": apercu_secret(valeurs[0]) if posee else "",
+            "variables": [d["nom"] for d in LIAISON]}
+
+
+def tenir_la_cle_de_liaison():
+    """Pose la liaison si elle manque ou si les deux cotes divergent.
+
+    Appelee au meme endroit que la cle du poste, et pour la meme raison : ce
+    qui peut s'engendrer tout seul ne doit pas attendre qu'on y pense.
+    N'ecrit RIEN quand les deux cotes sont deja d'accord -- sinon chaque tour
+    de surveillance changerait la cle, et le routeur refuserait tout entre
+    deux redemarrages.
+    """
+    etat = etat_de_la_liaison()
+    if etat["accordee"]:
+        return False
+    valeur = secrets.token_hex(32)
+    try:
+        for d in LIAISON:
+            ecrire_env_secrets(d["quel"], {d["nom"]: valeur})
+    except OSError:
+        return False
+    print("[app-manager] cle de liaison codelab-llm <-> codelab-litellm "
+          "posee des deux cotes.", flush=True)
+    return True
+
+
 # ------------------- assistant de liaison avec un VPS -------------------
 #
 # CE QU'IL FAIT, ET CE QU'IL NE FAIT PAS. Il prend un domaine et l'adresse
@@ -7019,6 +8152,15 @@ def api_utilisateur_supprimer(nom):
     except OSError as e:
         return jsonify({"error": f"Compte non supprimé : {e}"}), 500
 
+    # Les cles LLM du compte partent avec lui, pour la meme raison que les
+    # passkeys ci-dessous : recreer un compte du meme nom lui rendrait sinon
+    # les cles de l'ancien. La consommation deja enregistree, elle, reste.
+    partiees = revoquer_les_cles_de("user_id", nom)
+    if partiees:
+        journaliser("secret", qui=utilisateur_courant() or NOM_ADMIN,
+                    action=f"{partiees} cle(s) llm supprimee(s) avec le compte",
+                    cle=nom, ip=_adresse_client())
+
     # Les cles d'acces partent avec le compte. Les laisser serait pire qu'un
     # oubli de menage : recreer un compte du meme nom lui rendrait les cles
     # de l'ancien, et l'appareil de la personne partie rouvrirait la porte.
@@ -7082,7 +8224,8 @@ def api_apps():
         if run:
             record_metrics(name, stats["cpu_percent"], stats["memory_mb"])
         out.append({
-            "name": name, "path": a["path"], "command": a["command"],
+            "name": name, "titre": titre_de(name, a),
+            "path": a["path"], "command": a["command"],
             "port": a["port"], "port_listeners": _ecouteurs_port(a["port"]),
             "running": run,
             "failed": bool(a.get("enabled")) and not run,
@@ -7150,6 +8293,7 @@ def api_detect():
 @require_admin
 def api_add():
     d = request.get_json(force=True)
+    titre = titre_propre(d.get("name"))
     name = valid_name(d.get("name"))
     path = (d.get("path") or "").strip()
     command = (d.get("command") or "").strip()
@@ -7164,12 +8308,19 @@ def api_add():
         vis = VISIBILITE_PRIVEE
     apps = load()
 
-    if not name:
+    if not titre:
         return jsonify({"error": "Le nom est obligatoire."}), 400
+    # Le refus porte sur le CHEMIN, et il le dit : un nom refuse sans qu'on
+    # montre ce qu'il donnait dans l'adresse ne s'apprend pas.
+    if not name:
+        return jsonify({"error": f"« {titre} » ne donne aucune adresse utilisable. "
+                                 f"Il faut au moins une lettre sans accent "
+                                 f"ou un chiffre."}), 400
     if name in ("api", "static", "health", "login", "logout"):
-        return jsonify({"error": "Ce nom est réservé."}), 400
+        return jsonify({"error": f"L'adresse « /{name}/ » est réservée."}), 400
     if name in apps:
-        return jsonify({"error": "Une application porte déjà ce nom."}), 400
+        return jsonify({"error": f"L'adresse « /{name}/ » est déjà prise par "
+                                 f"une autre application."}), 400
     if not os.path.isdir(path):
         return jsonify({"error": "Dossier introuvable : " + path}), 400
     if not under_root(path):
@@ -7181,6 +8332,7 @@ def api_add():
         return jsonify({"error": "Plus de port interne disponible."}), 400
 
     apps[name] = {
+        "titre": titre,
         "path": path, "command": command, "port": port, "enabled": False,
         "build_command": build_command, "max_memory_mb": max_memory_mb,
         "visibility": vis,
@@ -7188,7 +8340,7 @@ def api_add():
         "categorie": categorie_valide(d.get("categorie")),
     }
     save(apps)
-    return jsonify({"ok": True, "name": name, "port": port})
+    return jsonify({"ok": True, "name": name, "titre": titre, "port": port})
 
 
 # CE QUI NE SE VOIT QU'AU PROCHAIN DEMARRAGE.
@@ -7463,6 +8615,14 @@ def api_delete(n):
     apps = load()
     apps.pop(n, None)
     save(apps)
+    # Les cles LLM du projet partent avec lui : sans cela elles resteraient
+    # dans le tableau sous un nom qui ne designe plus rien, et un projet
+    # recree du meme nom herirait de cles qu'il n'a jamais eues.
+    partiees = revoquer_les_cles_de("app_id", n)
+    if partiees:
+        journaliser("secret", qui=utilisateur_courant() or NOM_ADMIN,
+                    action=f"{partiees} cle(s) llm supprimee(s) avec le projet",
+                    cle=n, ip=_adresse_client())
     return jsonify({"ok": True})
 
 
@@ -7490,6 +8650,20 @@ def _renommer_references(ancien, nouveau):
             touche = True
     if touche:
         ecrire_utilisateurs(comptes)
+
+    # Les cles LLM attachees au projet. Sans cette ligne, un renommage les
+    # laisserait sur l'ancien nom : elles disparaitraient du tableau, et la
+    # suppression du projet ne les emporterait plus -- elles survivraient a
+    # ce qu'elles designent, ce que la cascade existe pour empecher.
+    try:
+        with _pg_connexion(PG_BASE_LLM) as cx:
+            cx.execute("UPDATE llm_api_keys SET app_id=%s WHERE app_id=%s",
+                       (nouveau, ancien))
+    except Exception as e:                                        # noqa: BLE001
+        # Base eteinte : le renommage de l'application n'a pas a echouer
+        # pour autant. On le dit, on continue.
+        print(f"[app-manager] cles llm non renommees ({ancien} -> "
+              f"{nouveau}) : {e}", flush=True)
 
     # Les applications que chacun a retirees de son hub.
     masquees = lire_masquees()
@@ -7557,15 +8731,29 @@ def api_renommer(n):
         return jsonify({"error": "Le projet de diagnostic ne se renomme pas : "
                                  "c'est lui qui dit si cette installation va bien, "
                                  "et le panneau le retrouve par son nom."}), 403
-    nouveau = valid_name((request.get_json(force=True, silent=True) or {}).get("nom"))
-    if not nouveau:
+    brut = (request.get_json(force=True, silent=True) or {}).get("nom")
+    titre = titre_propre(brut)
+    nouveau = valid_name(brut)
+    if not titre:
         return jsonify({"error": "Le nouveau nom est obligatoire."}), 400
+    if not nouveau:
+        return jsonify({"error": f"« {titre} » ne donne aucune adresse utilisable. "
+                                 f"Il faut au moins une lettre sans accent "
+                                 f"ou un chiffre."}), 400
+    # LE NOM SEUL A PU CHANGER. « site » renomme en « Site » garde le chemin
+    # /site/ : rien a deplacer, rien a arreter -- on enregistre le titre et
+    # on s'arrete la. Sans ce cas, le renommage echouait sur « une adresse
+    # deja prise » : la sienne.
     if nouveau == n:
-        return jsonify({"ok": True, "nom": n, "redemarree": False})
+        if titre != (apps[n].get("titre") or n):
+            apps[n]["titre"] = titre
+            save(apps)
+        return jsonify({"ok": True, "nom": n, "titre": titre, "redemarree": False})
     if nouveau in ("api", "static", "health", "login", "logout"):
-        return jsonify({"error": "Ce nom est réservé."}), 400
+        return jsonify({"error": f"L'adresse « /{nouveau}/ » est réservée."}), 400
     if nouveau in apps:
-        return jsonify({"error": "Une application porte déjà ce nom."}), 400
+        return jsonify({"error": f"L'adresse « /{nouveau}/ » est déjà prise par "
+                                 f"une autre application."}), 400
 
     # L'application doit s'arreter le temps du renommage : son processus
     # porte l'ancien nom dans son environnement (CODELAB_APP), c'est ce qui
@@ -7584,6 +8772,7 @@ def api_renommer(n):
     # celui des listes de la page, et une application qui saute en fin de
     # liste parce qu'on l'a renommee se cherche.
     apps = {(nouveau if cle == n else cle): valeur for cle, valeur in apps.items()}
+    apps[nouveau]["titre"] = titre
     save(apps)
     _renommer_references(n, nouveau)
     repris = _reprendre_les_fichiers(dossier, ancien_uid, nouvel_uid)
@@ -7594,7 +8783,8 @@ def api_renommer(n):
     erreur = None
     if tournait:
         erreur = start(nouveau)
-    return jsonify({"ok": True, "nom": nouveau, "redemarree": tournait and not erreur,
+    return jsonify({"ok": True, "nom": nouveau, "titre": titre,
+                    "redemarree": tournait and not erreur,
                     "fichiers_repris": repris,
                     "erreur_demarrage": erreur or ""})
 
@@ -7912,82 +9102,26 @@ flask_app.add_url_rule("/" + DAGSTER_NOM, "ouvrir_dagster_sans_barre",
 # premiere fois -- stack qui demarre, conteneur arrete -- la tuile doit
 # afficher quelque chose, et surtout pas la lettre « D » qu'elle partagerait
 # avec « demo » et « diagnostic ».
-ICONES_DAGSTER_CANDIDATES = ("/favicon.ico", "/favicon.png",
-                             "/favicon-32x32.png", "/static/favicon.ico")
-ICONE_DAGSTER_CACHE = os.path.join(STATE_DIR, "dagster-icone")
-ICONE_DAGSTER_DUREE = 24 * 3600
-_icone_dagster = {"quand": 0.0, "octets": b"", "type": ""}
-
-
-# Les entetes des formats qu'un navigateur sait afficher dans une balise
-# <img>. On lit les octets plutot que l'entete HTTP : c'est ce que le
-# navigateur fera, et lui ne se laisse pas convaincre par une etiquette.
-SIGNATURES_IMAGE = (b"\x89PNG\r\n\x1a\n", b"GIF87a", b"GIF89a",
-                    b"\xff\xd8\xff", b"\x00\x00\x01\x00", b"RIFF")
-
-
-def _est_une_image(octets):
-    if octets.lstrip()[:5].lower() in (b"<svg ", b"<svg>", b"<?xml"):
-        return True
-    return any(octets.startswith(debut) for debut in SIGNATURES_IMAGE)
-
-
-def _lire_icone_dagster_du_disque():
-    """Ce qui a ete rapporte lors d'un demarrage precedent.
-
-    Sans ce cache, chaque redemarrage du panneau reaffiche le dessin de repli
-    jusqu'a ce que Dagster reponde -- et sur une stack qui demarre, Dagster
-    est le dernier debout.
-    """
-    try:
-        with open(ICONE_DAGSTER_CACHE + ".type") as f:
-            type_mime = f.read().strip()
-        with open(ICONE_DAGSTER_CACHE, "rb") as f:
-            octets = f.read()
-    except OSError:
-        return
-    if octets and type_mime:
-        _icone_dagster.update(octets=octets, type=type_mime,
-                              quand=os.path.getmtime(ICONE_DAGSTER_CACHE))
-
-
-def icone_dagster():
-    """(octets, type MIME) -- vides tant que Dagster n'a rien donne."""
-    if not _icone_dagster["octets"]:
-        _lire_icone_dagster_du_disque()
-    if (_icone_dagster["octets"]
-            and time.time() - _icone_dagster["quand"] < ICONE_DAGSTER_DUREE):
-        return _icone_dagster["octets"], _icone_dagster["type"]
-    for chemin in ICONES_DAGSTER_CANDIDATES:
-        try:
-            with urllib.request.urlopen(
-                    f"http://{DAGSTER_AMONT}:{DAGSTER_PORT}{chemin}",
-                    timeout=3) as r:
-                type_mime = (r.headers.get("Content-Type") or "").split(";")[0].strip()
-                octets = r.read(256 * 1024)
-        except Exception:
-            continue
-        # Une image, et rien d'autre. Deux controles, et il faut les deux :
-        # Dagster rend sa page d'accueil en 200 pour un chemin inconnu (on
-        # afficherait du HTML comme une icone), et un fichier annonce
-        # « image/png » qui n'en est pas donne une tuile cassee -- vu en
-        # essai, et une tuile cassee est pire qu'un repli.
-        if not octets or not type_mime.startswith("image/"):
-            continue
-        if not _est_une_image(octets):
-            continue
-        _icone_dagster.update(octets=octets, type=type_mime, quand=time.time())
-        try:
-            with open(ICONE_DAGSTER_CACHE, "wb") as f:
-                f.write(octets)
-            with open(ICONE_DAGSTER_CACHE + ".type", "w") as f:
-                f.write(type_mime)
-        except OSError:
-            pass
-        return octets, type_mime
-    # Rien obtenu : on ne retente pas avant la prochaine expiration si l'on
-    # avait deja quelque chose, et tout de suite sinon.
-    return _icone_dagster["octets"], _icone_dagster["type"]
+# LE LOGO DE DAGSTER NE SE TELECHARGE PLUS, ET C'EST UNE CORRECTION.
+#
+# Le panneau allait chercher /favicon.ico sur l'instance Dagster et servait
+# ce qu'il trouvait, en priorite sur le SVG ci-dessus. L'intention etait
+# bonne -- porter le vrai logo plutot qu'une reproduction. Le resultat ne
+# l'etait pas : un favicon fait 32 px de cote, la tuile du hub en fait 40 a
+# 48. Le navigateur agrandissait donc une image matricielle, et le logo
+# paraissait flou. Signale tel quel : « choisis un logo plus net ».
+#
+# Un test affirmait depuis longtemps que ce logo « est vectoriel et net ».
+# Il lisait la constante, pas la reponse servie : la garantie existait sur le
+# papier et etait defaite a l'execution par la branche qui est retiree ici.
+# Le test de la reponse, lui, est ajoute avec ce changement.
+#
+# Ce qui disparait avec la branche : quatre chemins candidats, un cache sur
+# disque et son fichier de type, une lecture des octets pour verifier que
+# Dagster ne renvoie pas sa page d'accueil en guise d'image, et un appel
+# reseau toutes les 24 h. Le SVG livre avec l'image ne demande rien a
+# personne, reste net a toutes les tailles, et s'affiche meme quand Dagster
+# est eteint -- ce qui est precisement le moment ou l'on regarde sa tuile.
 
 
 @flask_app.get("/api/icon/<n>")
@@ -8005,14 +9139,6 @@ def api_icon(n):
     « D » colore : trois carres a distinguer en lisant le nom dessous,
     c'est-a-dire en cessant de les reconnaitre d'un coup d'oeil.
     """
-    # Dagster est un service de la stack, visible uniquement par l'administrateur.
-    # Son logo vient de Dagster lui-même ; le SVG CodeLab reste le repli.
-    if n == DAGSTER_NOM and est_admin():
-        octets, type_mime = icone_dagster()
-        if octets:
-            return Response(octets, mimetype=type_mime,
-                            headers={"X-Content-Type-Options": "nosniff"})
-
     # Accessible a un compte utilisateur, pour que son espace affiche les
     # icones -- mais seulement des projets qu'il peut ouvrir : la liste des
     # icones est une liste des projets existants.
@@ -8159,11 +9285,12 @@ def api_mes_apps():
         if autorises is not None and nom not in autorises:
             continue
         if nom in cachees:
-            masquees.append({"name": nom,
+            masquees.append({"name": nom, "titre": titre_de(nom, a),
                              "description": a.get("description") or ""})
             continue
         liste.append({
             "name": nom,
+            "titre": titre_de(nom, a),
             "description": a.get("description") or "",
             "categorie": categorie_valide(a.get("categorie"), connues),
             "running": is_running(nom),
@@ -8179,6 +9306,11 @@ def api_mes_apps():
                     # applications -- celle qu'on masque, celle qu'on cite
                     # dans un message -- reste ce qu'elle est.
                     "services": services_du_hub(),
+                    # Les services RANGES partent a part des applications
+                    # rangees : la page des reglages doit pouvoir les
+                    # reproposer, et le choix « de quelle application
+                    # veux-tu parler » ne doit toujours pas les voir.
+                    "services_masques": services_masques(),
                     "masquees": masquees,
                     "categories": connues,
                     "utilisateur": utilisateur_courant(),
@@ -8351,8 +9483,15 @@ def api_masquer(n):
     comptes le voient, et son adresse reste ouverte a qui la connait. On ne
     peut masquer que ce qu'on peut deja voir -- sinon la liste des masquees
     dirait l'existence de projets qu'on n'a pas le droit de connaitre.
+
+    LES SERVICES DE LA STACK AUSSI. Dagster n'est pas une application
+    declaree : il ne figure pas dans load(), et cette route le refusait donc
+    en 404. Sa tuile etait la seule qu'on ne pouvait pas ecarter de son
+    propre hub. peut_voir() garde le dernier mot -- pour une application par
+    defaut, il exige l'administrateur -- donc ouvrir ce nom-ci n'ouvre rien
+    de plus a un compte utilisateur.
     """
-    if n not in load() or not peut_voir(n):
+    if not (n in load() or n in SERVICES_MASQUABLES) or not peut_voir(n):
         return jsonify({"error": "Application inconnue."}), 404
     qui = utilisateur_courant() or NOM_ADMIN
     d = lire_masquees()
@@ -8643,20 +9782,11 @@ def _page(title, msg, extra=""):
 # precisement celle qu'on saute quand on est presse, donc celle qui manque le
 # jour ou quelque chose ne marche pas.
 #
-# Le projet est donc inscrit tout seul, une fois, au premier demarrage.
-#
-# "Une fois" est la partie delicate. Trois garde-fous, dans cet ordre :
-#
-#   1. Un marqueur dans STATE_DIR. Pose des que la question est tranchee, il
-#      garantit qu'un projet supprime depuis le panneau ne reapparait pas au
-#      redemarrage suivant -- meme raison d'etre que le marqueur de squelette
-#      cote dagster (voir dagster/entrypoint.sh).
-#   2. Un registre non vide veut dire "installation deja en service" : on ne
-#      touche pas a un panneau existant, on pose seulement le marqueur.
-#   3. Le dossier peut ne pas encore exister : app-manager et dagster demarrent
-#      en parallele, et c'est dagster qui amorce /workspace. Dans ce cas on ne
-#      pose PAS le marqueur et on reessaiera au prochain demarrage.
-DIAGNOSTIC_MARQUEUR = os.path.join(STATE_DIR, "diagnostic-inscrit")
+# Le projet est donc inscrit tout seul, et il l'est a CHAQUE demarrage --
+# voir amorcer_diagnostic(), qui dit pourquoi ce n'est plus une amorce jouee
+# une seule fois. Une seule condition subsiste : le dossier doit exister.
+# app-manager et dagster demarrent en parallele, c'est dagster qui amorce
+# /workspace, et on ne peut pas inscrire un chemin qui n'est pas la.
 
 # Les deux commandes du README du projet, pas une detection automatique :
 # detect_project() proposerait bien "python3 app.py", mais rendrait une
@@ -8694,35 +9824,68 @@ def retirer_aichat():
 
 
 def amorcer_diagnostic():
-    """Inscrit le projet de diagnostic au premier demarrage, et le lance.
+    """Inscrit le projet de diagnostic et le configure. A CHAQUE demarrage.
 
-    Ne fait rien du tout sur une installation deja en service. Renvoie le nom
-    inscrit, ou None.
+    CE QUI A CHANGE. L'inscription etait une amorce a jouer UNE FOIS : elle
+    ne se declenchait que sur un registre vide, et un marqueur sur le disque
+    l'empechait de se rejouer. Trois facons de se retrouver sans diagnostic
+    en decoulaient, et aucune ne se voyait :
+
+      - le dossier n'etait pas encore la (dagster amorce /workspace, et les
+        deux conteneurs demarrent en parallele) et une autre application
+        avait ete inscrite entre-temps : plus jamais de diagnostic ;
+      - le marqueur avait ete pose sans que l'inscription reussisse ;
+      - une installation d'avant l'existence du diagnostic gardait un
+        registre non vide, donc ne l'a jamais recu.
+
+    Ce n'est plus une amorce, c'est un invariant : le diagnostic est une
+    application PAR DEFAUT, au meme titre que Dagster. Elle ne se supprime
+    pas (est_app_par_defaut la protege), ne se configure pas, ne s'arrete
+    pas -- le marqueur qui evitait de la reinscrire n'a donc plus rien a
+    eviter.
+
+    Renvoie le nom si l'inscription vient d'avoir lieu (il reste a builder
+    et a lancer), None si elle etait deja la ou si le dossier manque encore.
     """
-    if os.path.exists(DIAGNOSTIC_MARQUEUR):
-        return None
-
-    apps = load()
-    if apps:
-        # Panneau deja utilise : l'utilisateur a peut-etre inscrit ce projet
-        # lui-meme, ou l'a supprime volontairement. On s'efface, definitivement.
-        _poser_marqueur_diagnostic()
-        return None
-
     chemin = os.path.join(ROOT, DIAGNOSTIC_NOM)
     if not os.path.isfile(os.path.join(chemin, "app.py")):
         # Pas encore amorce par dagster : on retentera au prochain demarrage.
+        # C'est maintenant vrai a chaque fois, et non plus seulement tant que
+        # le registre reste vide.
+        return None
+
+    apps = load()
+    a = apps.get(DIAGNOSTIC_NOM)
+    if a is not None:
+        # Deja inscrite : on ne recree rien, on remet seulement ce qui doit
+        # etre vrai. Le chemin et la commande ne sont pas configurables pour
+        # cette application-la ; les laisser deriver n'apporterait rien.
+        change = False
+        for cle, valeur in (("path", chemin),
+                            ("command", DIAGNOSTIC_COMMANDE),
+                            ("build_command", DIAGNOSTIC_BUILD)):
+            if a.get(cle) != valeur:
+                a[cle] = valeur
+                change = True
+        if not a.get("port"):
+            a["port"] = next_port(apps)
+            change = True
+        if change:
+            save(apps)
         return None
 
     apps[DIAGNOSTIC_NOM] = {
+        "titre": TITRES_PAR_DEFAUT[DIAGNOSTIC_NOM],
         "path": chemin,
         "command": DIAGNOSTIC_COMMANDE,
         "port": next_port(apps),
-        # Demarree par le thread d'amorcage, apres le build : la mettre a True
-        # ici la ferait lancer par resume() sans son pilote Postgres.
         "enabled": True,
-        "build_command": "",
+        # La commande de build EST la configuration par defaut : sans elle,
+        # la fiche n'ayant pas de formulaire, le pilote Postgres ne
+        # s'installait sur ordre de personne.
+        "build_command": DIAGNOSTIC_BUILD,
         "max_memory_mb": None,
+        "description": DIAGNOSTIC_DESCRIPTION,
         # Privee : la page nomme les conteneurs, l'utilisateur SSH et l'etat de
         # la base. Rien de secret, mais rien non plus a offrir a un visiteur
         # anonyme le jour ou le port 9001 est publie. L'utilisateur peut la
@@ -8730,22 +9893,7 @@ def amorcer_diagnostic():
         "visibility": VISIBILITE_PRIVEE,
     }
     save(apps)
-    _poser_marqueur_diagnostic()
     return DIAGNOSTIC_NOM
-
-
-def _poser_marqueur_diagnostic():
-    try:
-        with open(DIAGNOSTIC_MARQUEUR, "w") as f:
-            f.write("Le projet de diagnostic a ete inscrit une fois au premier "
-                    "demarrage. Supprimer ce fichier le fera reinscrire, s'il "
-                    "n'est plus dans le panneau et qu'aucune autre application "
-                    "n'y figure.\n")
-    except OSError as e:
-        # Sans marqueur l'inscription se rejouerait, mais seulement tant que le
-        # registre est vide : le pire cas reste borne, et il ne justifie pas
-        # d'empecher le panneau de demarrer.
-        print(f"[app-manager] marqueur de diagnostic non ecrit ({e}).", flush=True)
 
 
 def _preparer_diagnostic(name):
@@ -8760,7 +9908,20 @@ def _preparer_diagnostic(name):
     demarrage : l'application affiche alors "aucun pilote Postgres" sur la
     ligne concernee et toutes les autres sondes repondent normalement. Une
     page qui explique ce qui manque vaut mieux qu'une application absente.
+
+    LE BUILD MANQUAIT. Ce texte decrivait « build puis demarrage » depuis le
+    debut, et la fonction ne faisait que demarrer : la commande de build
+    n'etait meme pas inscrite. Le pilote Postgres ne s'installait donc sur
+    ordre de personne, et la page de diagnostic annoncait son absence sur une
+    installation neuve, sans que rien ne dise quoi faire.
     """
+    try:
+        ok, message = run_build(name)
+        if not ok:
+            print(f"[app-manager] {name} : build initial en echec ({message}). "
+                  f"L'application demarre quand meme.", flush=True)
+    except Exception as e:
+        print(f"[app-manager] {name} : build initial impossible ({e}).", flush=True)
     try:
         start(name)
     except Exception as e:
