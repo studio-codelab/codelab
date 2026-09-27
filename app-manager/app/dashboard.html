@@ -1313,7 +1313,7 @@ table.tbl-journal{min-width:560px}
     <div class="cartes c2 zone">
       <div class="card">
         <div class="card-top"><div class="card-name"><b>État</b></div></div>
-        <div class="kv"><span class="k">Adresse</span><span class="v"><a id="fa-url" href="#" target="_blank"></a></span></div>
+        <div class="kv"><span class="k">Adresse</span><span class="v"><a id="fa-url" href="#"></a></span></div>
         <div class="kv"><span class="k">Port interne</span><span class="v" id="fa-port">—</span></div>
         <div class="kv"><span class="k">Réponse</span><span class="v" id="fa-ecoute">—</span></div>
         <div class="kv"><span class="k">Visibilité</span><span class="v" id="fa-vis-txt">—</span></div>
@@ -2410,6 +2410,20 @@ const JETON=__JETON__;
    l'interet, le navigateur doit les traiter comme un site different. */
 const APPS_BASE=__APPS_BASE__;
 const urlApplication = nom => APPS_BASE + '/' + encodeURIComponent(nom) + '/';
+
+/* OUVRIR UNE APPLICATION : une seule adresse, pour tout le panneau.
+   La tuile du hub, le bouton « Ouvrir » de la fiche et la ligne « Adresse »
+   menaient au meme endroit par trois expressions recopiees -- et le jour ou
+   l'une a change, les autres sont restees. Elles passent maintenant par ici.
+
+   Un service externe passe par la PORTE DU PANNEAU (/<nom>/) et non par sa
+   propre adresse : cette porte verifie le droit d'entrer, journalise
+   l'ouverture, puis redirige. Y aller en direct, c'est court-circuiter les
+   deux et tomber sur la page d'erreur nue du service quand le droit manque.
+   Une application, elle, vit sur l'origine des applications. */
+const lienOuverture = a => a.externe
+  ? '/' + encodeURIComponent(a.name) + '/'
+  : urlApplication(a.name);
 const fetchNu = window.fetch.bind(window);
 
 /* Le jeton ne part QUE vers ce panneau. Aujourd'hui tous les appels de cette
@@ -3291,11 +3305,11 @@ function peindreHub(){
   }
   /* Rien d'autre qu'un lien : une tuile du hub sert a ouvrir une
      application. Ce qu'on affiche ou non se regle dans les parametres. */
-  /* Un service ouvre sa PROPRE adresse, et dans un nouvel onglet : il vit
-     sur un autre port, sans le ruban qui ramene au panneau -- y aller dans
-     l'onglet courant, c'est perdre le hub. */
+  /* Dans l'onglet courant, comme partout ailleurs : le ruban de retour pose
+     par le proxy ramene au hub, et un nouvel onglet par application ouverte
+     ne laissait au navigateur que des onglets a fermer. */
   const tuile = a => `<a class="hub-projet${a.externe ? ' service-stack' : ''} ${a.running?'':'arretee'}"
-      href="${a.externe ? '/'+encodeURIComponent(a.name)+'/' : urlApplication(a.name)}"
+      href="${lienOuverture(a)}"
       title="${esc(a.description||a.name)}">
       <img src="${icone(a.name)}" alt="">
       <div class="txt"><div class="nom">${esc(a.name)}</div>
@@ -3662,7 +3676,9 @@ function peindreFiche(){
   $('fa-vis').innerHTML='<i></i>'+(prive?'Privé':'Public');
 
   $('fa-url').textContent = externe ? a.url : '/'+a.name+'/';
-  $('fa-url').href = externe ? a.url : urlApplication(a.name);
+  /* Le texte dit ou le service VIT, le lien passe par la porte du panneau :
+     ce ne sont pas la meme chose pour un service externe. */
+  $('fa-url').href = lienOuverture(a);
   $('fa-port').textContent=a.port;
   /* Un service externe n'est jamais « arrêtée » : le panneau ne l'arrete
      pas, il constate seulement si le port repond. */
@@ -3695,13 +3711,13 @@ function peindreFiche(){
   /* Un service externe : le panneau ne le demarre pas, ne l'arrete pas, ne
      le deploie pas. Il ouvre, et c'est tout. */
   if(externe){
-    b.push(`<a class="btn btn-primary" href="/${encodeURIComponent(a.name)}/">${svgOuvrir}Ouvrir</a>`);
+    b.push(`<a class="btn btn-primary" href="${lienOuverture(a)}">${svgOuvrir}Ouvrir</a>`);
     $('fa-actions').innerHTML=b.join('');
     return;
   }
   if(a.name === 'diagnostic'){
     if(!a.running) b.push(`<button class="btn btn-demarrer" data-agir="app-basculer" data-cible="${esc(a.name)}">${svgPlay}Démarrer</button>`);
-    if(a.running) b.push(`<a class="btn btn-ouvrir" href="${urlApplication(a.name)}" target="_blank">${svgOuvrir}Ouvrir</a>`);
+    if(a.running) b.push(`<a class="btn btn-ouvrir" href="${lienOuverture(a)}">${svgOuvrir}Ouvrir</a>`);
     $('fa-actions').innerHTML=b.join('');
     return;
   }
@@ -3728,7 +3744,7 @@ function peindreFiche(){
     b.push(`<span class="hint" style="align-self:center;max-width:320px">Déclare l'adresse
       publique du serveur (Paramètres &gt; Serveur) pour pouvoir partager une application.</span>`);
   }
-  if(a.running) b.push(`<a class="btn btn-ouvrir" href="${urlApplication(a.name)}" target="_blank">${svgOuvrir}Ouvrir</a>`);
+  if(a.running) b.push(`<a class="btn btn-ouvrir" href="${lienOuverture(a)}">${svgOuvrir}Ouvrir</a>`);
   $('fa-actions').innerHTML=b.join('');
 }
 
