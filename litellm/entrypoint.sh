@@ -37,4 +37,10 @@ else
     echo "[codelab-litellm] $FICHIER absent : aucune cle de fournisseur." >&2
 fi
 
+# Le point d'entree de l'image officielle, s'il est la (il vit sous
+# /app/docker, WORKDIR de l'image) : c'est lui qu'elle lancerait sans nous.
+# Sinon, le programme directement.
+if [ -x /app/docker/prod_entrypoint.sh ]; then
+    exec /app/docker/prod_entrypoint.sh "$@"
+fi
 exec litellm "$@"
