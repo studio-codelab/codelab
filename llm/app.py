@@ -518,9 +518,11 @@ async def responses(request: Request,
         print("[codelab-llm] amont injoignable (/responses).", flush=True)
         raise HTTPException(502, "Le fournisseur de modeles ne repond pas.")
     if reponse.status_code >= 400:
-        print(f"[codelab-llm] amont : HTTP {reponse.status_code} (/responses)",
-              flush=True)
-        raise HTTPException(502, "Le fournisseur de modeles a refuse la requete.")
+        raison = raison_amont(reponse.content, cle)
+        print(f"[codelab-llm] amont : HTTP {reponse.status_code} (/responses) : "
+              f"{raison}", flush=True)
+        raise HTTPException(502, "Le fournisseur de modeles a refuse la requete "
+                                 f"(HTTP {reponse.status_code}) : {raison}")
 
     data = reponse.json()
     noter_consommation(qui, demande, data.get("model") or table[demande],
@@ -528,6 +530,41 @@ async def responses(request: Request,
                        int((time.monotonic() - debut) * 1000))
     data["model"] = demande
     return JSONResponse(data)
+
+
+def raison_amont(corps, cle=""):
+    """Ce que le fournisseur reproche a la requete, lisible et sans secret.
+
+    Sans elle, un refus d'OpenRouter -- modele inconnu, credit epuise, cle
+    invalide -- arrivait dans Codex comme un flux coupe, reessaye cinq fois,
+    sans un mot sur la cause. On ne garde que « error.message » du JSON
+    renvoye, borne en longueur, et la cle du fournisseur en est retiree si
+    jamais elle y figurait.
+    """
+    try:
+        texte = json.loads(corps).get("error", {}).get("message") or ""
+    except (ValueError, AttributeError):
+        texte = ""
+    texte = " ".join(str(texte).split())[:300] or "raison non precisee"
+    if cle:
+        texte = texte.replace(cle, "***")
+    return texte
+
+
+def echec_responses(message):
+    """Un echec dans le flux Responses, sous la forme que Codex sait lire.
+
+    Un simple « data: {"error": ...} » n'est pas un evenement de ce
+    protocole : Codex l'ignorait, voyait le flux se fermer avant
+    « response.completed », et affichait « stream disconnected » au lieu du
+    message. « response.failed » est l'evenement prevu, et Codex en affiche
+    l'erreur.
+    """
+    evenement = {"type": "response.failed", "response": {
+        "id": "resp_codelab", "object": "response", "status": "failed",
+        "error": {"code": "upstream_error", "message": message}}}
+    return ("event: response.failed\ndata: "
+            + json.dumps(evenement, ensure_ascii=False) + "\n\n")
 
 
 async def _flux_responses(amont, entetes, qui, demande, debut):
@@ -541,12 +578,12 @@ async def _flux_responses(amont, entetes, qui, demande, debut):
         async with _client.stream("POST", fournisseur_url() + "/responses",
                                   json=amont, headers=entetes) as reponse:
             if reponse.status_code >= 400:
-                await reponse.aread()
+                raison = raison_amont(await reponse.aread(), cle_amont())
                 print(f"[codelab-llm] amont : HTTP {reponse.status_code} "
-                      f"(/responses, flux)", flush=True)
-                yield ("data: " + json.dumps(
-                    {"error": {"message": "Le fournisseur de modeles a refuse "
-                                          "la requete.", "type": "upstream"}}) + "\n\n")
+                      f"(/responses, flux) : {raison}", flush=True)
+                yield echec_responses(
+                    f"Le fournisseur de modeles a refuse la requete "
+                    f"(HTTP {reponse.status_code}) : {raison}")
                 return
             async for ligne in reponse.aiter_lines():
                 if ligne.startswith("data: "):
@@ -564,9 +601,7 @@ async def _flux_responses(amont, entetes, qui, demande, debut):
                 yield ligne + "\n"
     except httpx.HTTPError:
         print("[codelab-llm] amont injoignable (/responses, flux).", flush=True)
-        yield ("data: " + json.dumps(
-            {"error": {"message": "Le fournisseur de modeles ne repond pas.",
-                       "type": "upstream"}}) + "\n\n")
+        yield echec_responses("Le fournisseur de modeles ne repond pas.")
     finally:
         noter_consommation(qui, demande, reel, jetons,
                            int((time.monotonic() - debut) * 1000))
@@ -574,9 +609,13 @@ async def _flux_responses(amont, entetes, qui, demande, debut):
 
 @app.get("/v1/models")
 def liste_modeles():
+    # « models », vide, a cote de « data » : Codex interroge aussi cette
+    # adresse, attend SA forme de catalogue et journalisait « missing field
+    # `models` » a chaque demarrage. Vide, il garde ses reglages par defaut
+    # -- et les clients OpenAI, qui lisent « data », ne voient rien changer.
     return {"object": "list", "data": [
         {"id": nom, "object": "model", "owned_by": "codelab"}
-        for nom in sorted(modeles())]}
+        for nom in sorted(modeles())], "models": []}
 
 
 def _payload_valide(corps, table):
@@ -653,8 +692,11 @@ async def completions(request: Request,
         print("[codelab-llm] fournisseur injoignable.", flush=True)
         raise HTTPException(502, "Le fournisseur de modeles ne repond pas.")
     if reponse.status_code >= 400:
-        print(f"[codelab-llm] fournisseur : HTTP {reponse.status_code}", flush=True)
-        raise HTTPException(502, "Le fournisseur de modeles a refuse la requete.")
+        raison = raison_amont(reponse.content, cle)
+        print(f"[codelab-llm] fournisseur : HTTP {reponse.status_code} : {raison}",
+              flush=True)
+        raise HTTPException(502, "Le fournisseur de modeles a refuse la requete "
+                                 f"(HTTP {reponse.status_code}) : {raison}")
 
     data = reponse.json()
     noter_consommation(qui, demande, data.get("model") or table[demande],
@@ -679,12 +721,14 @@ async def _flux(amont, entetes, qui, demande, debut):
         async with _client.stream("POST", fournisseur_url() + "/chat/completions",
                                   json=amont, headers=entetes) as reponse:
             if reponse.status_code >= 400:
-                await reponse.aread()
-                print(f"[codelab-llm] fournisseur : HTTP {reponse.status_code}",
-                      flush=True)
+                raison = raison_amont(await reponse.aread(), cle_amont())
+                print(f"[codelab-llm] fournisseur : HTTP {reponse.status_code} : "
+                      f"{raison}", flush=True)
                 yield ("data: " + json.dumps(
-                    {"error": {"message": "Le fournisseur de modeles a refuse "
-                                          "la requete.", "type": "upstream"}}) + "\n\n")
+                    {"error": {"message": "Le fournisseur de modeles a refuse la "
+                                          f"requete (HTTP {reponse.status_code}) : "
+                                          f"{raison}", "type": "upstream"}},
+                    ensure_ascii=False) + "\n\n")
                 return
             async for ligne in reponse.aiter_lines():
                 if not ligne.startswith("data: "):
