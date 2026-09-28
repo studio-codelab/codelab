@@ -2924,8 +2924,8 @@ function paramOnglet(o){
      compte, sans un mot, et l'onglet passait pour casse. Ce qu'il protege
      est un confort d'affichage ; chaque route verifie le role de son cote. */
   if(!estAdmin && o!=='compte' && o!=='securite' && o!=='message') o='compte';
-  /* Un onglet retire (« cles », l'ancien service IA) peut encore etre
-     demande par un lien garde : on ouvre le compte plutot qu'une page vide. */
+  /* Un onglet retire peut encore etre demande par un lien garde : on ouvre
+     le compte plutot qu'une page vide. */
   if(!$('param-'+o)) o='compte';
   paramOngletActif=o;
   document.querySelectorAll('#param-onglets button')

@@ -9696,18 +9696,11 @@ def test_le_logo_dagster_est_vectoriel_et_net():
     assert 'fill="#4C9AFF"' in bloc
     assert '<path' in bloc
 
-# ---------- 23. service LLM CodeLab ---------------------------------------
-#
-# Ces tests restent hermetiques : ils ne contactent ni provider ni Docker.
-# Dans une image installee, le depot source n'est pas monte a cote du projet
-# diagnostic ; les tests sont alors ignores plutot que de transformer une
-# absence de fichier de developpement en panne de production.
-
 # ---------- 25. CodeLab n'heberge pas d'interface de chat -----------------
 #
 # L'application maison « aichat » a ete retiree, et l'interface Open WebUI qui
 # l'avait remplacee l'a ete a son tour : l'outil du developpeur est son
-# editeur, et les applications appellent la passerelle directement. Deux
+# editeur, et les applications appellent leurs services elles-memes. Deux
 # choses doivent rester vraies : l'ancienne application disparait du registre
 # sans perte de code, et le panneau cesse de travailler quand l'onglet n'est
 # pas regarde.
@@ -9788,11 +9781,10 @@ def test_la_liste_des_bases_a_sauvegarder_ne_passe_pas_par_la_base_supprimee():
     assert "drop_maintenance_db()" in script
 
 
-# ---------- 27. la rubrique IA, et ce qui ne s'applique pas --------------
+# ---------- 27. ce qui ne s'applique pas ----------------------------------
 #
-# Le profil « llm » est optionnel. Sur une installation qui ne l'a pas
-# demarre, les sondes IA ne doivent pas etre rouges : il n'y a rien a
-# reparer. « Sans objet » est un troisieme etat, et il doit se propager
+# Une sonde qui ne concerne pas une installation ne doit pas etre rouge :
+# il n'y a rien a reparer. « Sans objet » est un troisieme etat, et il doit se propager
 # jusqu'au compte affiche.
 
 def test_une_sonde_sans_objet_ne_compte_ni_au_numerateur_ni_au_denominateur():
@@ -9809,11 +9801,11 @@ def test_une_sonde_sans_objet_ne_compte_ni_au_numerateur_ni_au_denominateur():
         (Etat.SANS_OBJET, "c", ""),
         (Etat.SANS_OBJET, "d", ""),
     ]
-    html = diag._rubrique("ia", "Intelligence artificielle", "", resultats)
+    html = diag._rubrique("services", "Services", "", resultats)
     assert "2 sur 2" in html, html
     # Et une rubrique entierement sans objet le dit avec des mots plutot que
     # d'afficher « 0 sur 0 ».
-    html = diag._rubrique("ia", "Intelligence artificielle", "",
+    html = diag._rubrique("services", "Services", "",
                           [(Etat.SANS_OBJET, "c", "")])
     assert "sans objet" in html
     assert "0 sur 0" not in html
@@ -10093,7 +10085,7 @@ def test_la_configuration_des_agents_vit_dans_le_workspace():
 # confiance.
 #
 # Vecu a l'envers : le retrait de l'interface de chat a laisse dans
-# llm/README.md une section entiere decrivant son portier, son reseau ferme
+# un README une section entiere decrivant son portier, son reseau ferme
 # et le secret partage -- trois mecanismes qui n'existaient plus. Le code
 # etait juste, les tests verts, et la documentation racontait l'installation
 # d'avant.
@@ -10745,63 +10737,6 @@ def test_le_dossier_du_serveur_vscode_est_rendu_a_son_utilisateur():
         "le chown n'est pas conditionne : il tournera a chaque demarrage")
 
 
-# ---------- 44. la console des cles : creer, revoquer, suivre ------------
-#
-# DEMANDE : « controler les cles LLM comme si j'etais un service de LLM --
-# creer a la demande, supprimer celles qui existent, suivre l'utilisation de
-# chacune », et « renseigner a la main le moins possible ».
-#
-# LE POINT DUR ETAIT EN BASE. llm_usage ne notait que le couple
-# (utilisateur, application) : deux cles du meme poste etaient
-# indistinguables, et « suivre chacune » etait impossible quoi qu'on affiche.
-# La colonne key_id est ce qui rend la page possible du tout, et c'est elle
-# que les premiers tests tiennent.
-
-
-# ------------------------- creer et revoquer ---------------------------
-
-# --------------------- la cle du poste s'amorce seule -------------------
-
-# ------------------------------ la page --------------------------------
-
-# ---------- 45. le fournisseur, et rien a payer --------------------------
-#
-# UN SEUL FOURNISSEUR, OpenRouter, appele en direct par codelab-llm. Le
-# routeur et la cle de liaison qui le reliait a la passerelle sont retires :
-# ils coutaient un conteneur, plus d'un Go de disque et une panne muette de
-# plus (deux valeurs differentes des deux cotes), pour un routage
-# qu'OpenRouter fait deja.
-
-
-# ------------------------ le choix du fournisseur ----------------------
-
-# ------------------------------ c'est gratuit ---------------------------
-
-# ---------- 46. ce qui s'accumule finit par etre purge -------------------
-#
-# Deux fuites lentes, trouvees en cherchant ce qui occupait le disque du
-# serveur : le journal du gateway OpenClaw (couvert en section 43) et la
-# table llm_usage. Aucune n'avait de plafond, et aucune ne se serait
-# signalee autrement qu'en remplissant le disque.
-
-
-def _source_llm():
-    return open(os.path.join(_racine_depot(), "llm", "app.py"),
-                encoding="utf-8").read()
-
-
-# ---------- 47. la console des cles, par projet et par utilisateur -------
-#
-# QUATRE RETOURS DE LUCAS, dont un qui etait une panne :
-#
-#   « relation "llm_usage" does not exist »   la console entiere restait
-#                                             vide, et le message accusait
-#                                             le profil IA ;
-#   un formulaire par provider                remplace par un bouton ;
-#   la liaison interne                        retiree de la page ;
-#   un projet et un utilisateur               attaches a chaque cle.
-
-
 # ---------- 49. le workspace s'ecrit, et OpenClaw se parle en page --------
 #
 # Deux demandes de Lucas : « vscode doit avoir acces aux dossiers des projets
@@ -11008,7 +10943,7 @@ def test_lancer_relance_le_daemon_et_s_arrete_proprement(tmp_path):
     assert subprocess.run(["sh", str(script)], env=env, timeout=15).returncode == 3
 
 
-@pytest.mark.parametrize("nom", ["codelab_llm", "codelab", "dagster", "postgres"])
+@pytest.mark.parametrize("nom", ["codelab", "dagster", "postgres"])
 def test_codelab_db_refuse_les_bases_de_la_stack(nom):
     import subprocess
     outil = os.path.join(_racine_depot(), "dev", "codelab")
@@ -11019,48 +10954,14 @@ def test_codelab_db_refuse_les_bases_de_la_stack(nom):
 
 
 def test_le_compose_casaos_ne_porte_aucune_variable_a_substituer():
-    """CasaOS ne substitue pas « ${...} » : il transmettait le texte tel
-    quel, et codelab-postgres recopiait « ${OPENROUTER_API_KEY} » par-dessus
-    la cle posee dans le panneau (OpenRouter : « Missing Authentication
-    header »)."""
+    """CasaOS ne substitue pas « ${...} » : il transmet le texte tel quel,
+    et un service recevrait la chaine « ${VARIABLE} » au lieu de sa valeur."""
     texte = open(os.path.join(_racine_depot(), "docker-compose-casaos.yml"),
                  encoding="utf-8").read()
     assert "${" not in texte
 
 
-@pytest.mark.parametrize("fichier", ["docker-compose.yml", "docker-compose-casaos.yml"])
-def test_la_base_de_codelab_llm_n_est_pas_une_base_de_projet(fichier):
-    """Listee dans CODELAB_PROJECT_DBS, codelab_llm recevait le search_path
-    d'un projet a chaque demarrage : le panneau y inscrivait les cles la ou
-    la passerelle ne les lisait pas, et Codex recevait 401."""
-    texte = open(os.path.join(_racine_depot(), fichier), encoding="utf-8").read()
-    ligne = re.search(r'CODELAB_PROJECT_DBS:\s*"([^"]*)"', texte).group(1)
-    assert "codelab_llm" not in ligne.split()
-
-
 # ------------------------ Codex sur un compte ChatGPT ------------------------
-
-CONFIG_CODEX_PASSERELLE = """model_catalog_json = "/usr/local/share/codelab/codex-modeles.json"
-# Ecrit une seule fois par codelab-dev -- modifiable librement.
-sandbox_mode = "danger-full-access"
-approval_policy = "on-request"
-
-model_provider = "codelab"
-model = "gpt-5.5"
-model_reasoning_effort = "low"
-
-[model_providers.codelab]
-name = "CodeLab"
-base_url = "http://codelab-llm:8080/v1"
-
-[projects."/workspace/WineManager"]
-trust_level = "trusted"
-
-[model_providers.codelab.auth]
-command = "head"
-args = ["-n", "1", "/workspace/.codex/codelab-llm.key"]
-"""
-
 
 def _bloc_codex(dossier):
     """Le bloc Codex de dev/entrypoint.sh, pris tel quel et execute."""
@@ -11076,31 +10977,11 @@ def _bloc_codex(dossier):
                           capture_output=True, text=True, timeout=30)
 
 
-def test_codex_quitte_la_passerelle_pour_le_compte_chatgpt(tmp_path):
-    """Le config.toml d'un poste qui passait par codelab-llm -- celui du
-    serveur, tel quel -- perd le fournisseur « codelab », ses sections et le
-    catalogue de l'image, et garde tout le reste : les projets de confiance,
-    le modele choisi dans l'extension, les reglages faits a la main."""
-    (tmp_path / "config.toml").write_text(CONFIG_CODEX_PASSERELLE, encoding="utf-8")
-    (tmp_path / "codelab-llm.key").write_text("cl_ancienne\n", encoding="utf-8")
-    for _ in range(2):
-        r = _bloc_codex(tmp_path)
-        assert r.returncode == 0, r.stderr
-    texte = (tmp_path / "config.toml").read_text(encoding="utf-8")
-    for parti in ("codelab", "model_catalog_json", "model_providers", "codelab-llm.key"):
-        assert parti not in texte.replace("par codelab-dev", ""), parti
-    for garde in ('sandbox_mode = "danger-full-access"', 'model = "gpt-5.5"',
-                  'model_reasoning_effort = "low"', '[projects."/workspace/WineManager"]',
-                  'trust_level = "trusted"'):
-        assert garde in texte, garde
-    assert not (tmp_path / "codelab-llm.key").exists(), "l'ancienne cle est restee"
-
-
 def test_un_config_toml_neuf_n_a_aucun_fournisseur_et_un_autre_n_est_pas_touche(tmp_path):
     r = _bloc_codex(tmp_path)
     assert r.returncode == 0, r.stderr
     neuf = (tmp_path / "config.toml").read_text(encoding="utf-8")
-    assert "model_provider" not in neuf and "codelab-llm" not in neuf
+    assert "model_provider" not in neuf
     assert 'sandbox_mode = "danger-full-access"' in neuf
 
     a_soi = 'model = "gpt-5.5"\n\n[mcp_servers.x]\ncommand = "y"\n'
@@ -11119,46 +11000,44 @@ def test_le_jeton_chatgpt_n_est_lisible_que_par_vscode(tmp_path):
     assert stat.S_IMODE(jeton.stat().st_mode) == 0o600
 
 
-def test_l_image_dev_ne_porte_plus_rien_de_la_passerelle_pour_codex():
+def test_l_image_dev_n_embarque_pas_de_catalogue_de_modeles():
     racine = _racine_depot()
     dockerfile = open(os.path.join(racine, "dev", "Dockerfile"), encoding="utf-8").read()
-    entrypoint = open(os.path.join(racine, "dev", "entrypoint.sh"), encoding="utf-8").read()
     assert "codex-modeles" not in dockerfile
     assert not os.path.exists(os.path.join(racine, "dev", "codex-modeles.json"))
-    # Ce que l'entrypoint ecrit encore ne pointe plus la passerelle.
-    ecrit = entrypoint[entrypoint.index('cat > "$CODEX_CFG" <<CODEXCFG'):]
-    ecrit = ecrit[:ecrit.index("\nCODEXCFG")]
-    assert "codelab-llm" not in ecrit and "model_provider" not in ecrit
-    assert "CODELAB_LLM_KEY" not in entrypoint
 
 
+def test_plus_aucune_trace_de_l_ancien_service_ia_dans_le_depot():
+    """Demande : plus aucune reference a l'ancien service IA, nulle part.
 
-def test_codelab_ne_porte_plus_de_service_ia():
-    """Les applications parlent a leurs fournisseurs elles-memes, avec leurs
-    propres cles ; Codex se connecte avec un compte ChatGPT. Plus rien dans
-    la stack ne sert, ne cree ni ne configure un service IA -- mais les
-    donnees de l'ancien restent en place, a supprimer a la main."""
+    Le service, sa passerelle, ses cles et le code qui migrait les
+    installations existantes sont partis. Le nettoyage d'un serveur qui les
+    portait encore se fait une fois, a la main. Ce test tient la regle sur
+    TOUT le depot : un mot qui revient dans un commentaire, une doc ou un
+    script le fait echouer. Les motifs sont assembles morceau par morceau,
+    sans quoi ce fichier se trouverait lui-meme.
+    """
+    mot = "l" + "l" + "m"
+    motif = re.compile("(?<![a-z])" + mot + "(?![a-z])|lite" + mot + "|open" + "router",
+                       re.IGNORECASE)
     racine = _racine_depot()
-    assert not os.path.exists(os.path.join(racine, "llm"))
-    for chemin in _composes():
-        assert "codelab-llm" not in open(chemin, encoding="utf-8").read(), chemin
-    ci = open(os.path.join(racine, ".github", "workflows", "build-images.yml"),
-              encoding="utf-8").read()
-    assert "llm" not in ci
-    postgres = open(os.path.join(racine, "postgres", "entrypoint.sh"),
-                    encoding="utf-8").read()
-    for disparu in ("CREATE ROLE", "llm.env", "OPENROUTER"):
-        assert disparu not in postgres, disparu
-    # Deux suppressions permises, et nommees : la base de maintenance vide,
-    # et la base jetable de la restauration d'essai.
-    assert "BASE_ESSAI=codelab_essai_restauration" in postgres
-    assert "DROP DATABASE" not in (postgres.replace('-c "DROP DATABASE postgres"', "")
-                                   .replace('"DROP DATABASE IF EXISTS $BASE_ESSAI"', "")), (
-        "les donnees de l'ancien service ne se suppriment pas toutes seules")
+    trouves = []
+    for dossier, sous, fichiers in os.walk(racine):
+        sous[:] = [s for s in sous if s not in (".git", "__pycache__", ".pytest_cache",
+                                                "node_modules", ".venv")]
+        for nom in fichiers:
+            chemin = os.path.join(dossier, nom)
+            try:
+                with open(chemin, encoding="utf-8") as f:
+                    for n, ligne in enumerate(f, 1):
+                        if motif.search(ligne):
+                            trouves.append(f"{os.path.relpath(chemin, racine)}:{n}")
+            except (UnicodeDecodeError, OSError):
+                continue
+    assert not trouves, trouves
+    assert not os.path.exists(os.path.join(racine, "l" + "lm"))
     regles = {r.rule for r in app.flask_app.url_map.iter_rules()}
     assert not [r for r in regles if r.startswith("/api/cles")], regles
-    page = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
-    assert 'id="param-cles"' not in page and "codelab-llm" not in page
 
 
 # ---------- Redis : un service partage, ferme, et un verrou sur les secrets --

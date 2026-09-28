@@ -68,8 +68,6 @@ conteneur, VS Code, Codex) et ce qui sert a **faire tourner** une application
 **Une application deployee** ne voit rien de tout ca. Elle lit, de la couche
 la plus faible a la plus forte : les variables que le panneau lui passe, puis
 le `.env` de son projet — voir [`workspace/README.md`](../workspace/README.md#configuration-et-secrets).
-Une application qui appelle l'IA le fait elle-meme, avec **sa propre cle**
-de fournisseur posee dans son `.env` : CodeLab ne fournit pas de service IA.
 
 
 ## Le cycle complet
@@ -383,15 +381,6 @@ ChatGPT.
 
 **Avec une cle d'API OpenAI** plutot qu'un abonnement :
 `printenv OPENAI_API_KEY | codex login --with-api-key`.
-
-### Les installations qui passaient par la passerelle
-
-Au demarrage, le conteneur retire du `config.toml` ce qu'il y avait ecrit
-pour `codelab-llm` -- `model_provider = "codelab"`, les sections
-`[model_providers.codelab]`, le catalogue de modeles de l'image, un modele
-`codelab-*` -- et supprime `codelab-llm.key`. Le reste (projets de
-confiance, modele choisi, reglages faits a la main) ne bouge pas. Le panneau,
-de son cote, revoque l'ancienne cle du poste.
 
 ```bash
 cd /workspace/mon-projet

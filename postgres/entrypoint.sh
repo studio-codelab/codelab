@@ -93,13 +93,6 @@ CODELAB_PROJECT_DBS="${CODELAB_PROJECT_DBS:-diagnostic}"
 # sans toucher aux requetes.
 CODELAB_PROJECT_SCHEMA="${CODELAB_PROJECT_SCHEMA:-dagster}"
 
-# L'ANCIEN SERVICE IA. codelab-llm est retire : ce conteneur ne cree plus
-# son role, sa base ni son dossier de secrets. Ce qui existe est LAISSE EN
-# PLACE -- la base codelab_llm, le role, config/llm/ -- et se supprime a la
-# main (voir postgres/README.md). Le nom reste reserve : « codelab_llm »
-# n'est pas un nom de projet.
-ANCIENNE_BASE_LLM=codelab_llm
-
 # Retire un bloc entier, marqueurs compris. Pour les blocs que plus aucun
 # service n'ecrit : un bloc sans valeur n'est que du bruit a relire.
 remove_block() {
@@ -303,7 +296,7 @@ provision_databases() {
     # Les bases de la stack ne sont pas des projets : leur poser le schema
     # « dagster » en tete du search_path detournerait leurs tables.
     case "$db" in
-      "$ANCIENNE_BASE_LLM"|"$CODELAB_INSTANCE_DB"|codelab|postgres)
+      "$CODELAB_INSTANCE_DB"|codelab|postgres)
         echo "[codelab-postgres] \"$db\" est une base de la stack, pas un projet : ignoree." >&2
         continue ;;
     esac
