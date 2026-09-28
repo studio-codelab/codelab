@@ -13095,3 +13095,21 @@ def test_openrouter_gratuits_suit_le_catalogue_du_moment(monkeypatch):
                                             "stream": True})
     assert r.status_code == 200
     assert [a[2]["model"] for a in appels2] == ["vendeur/modele-a:free", "petit/contexte:free"]
+
+
+def test_openrouter_gratuits_essaie_d_abord_les_modeles_de_code(monkeypatch):
+    """Parmi les gratuits, un modele fait pour le code passe avant un
+    generaliste a plus grand contexte : c'est Codex qui s'en sert."""
+    client, module, appels = _passerelle_llm(
+        monkeypatch, lambda fid, corps: _sse({"choices": [{"delta": {"content": "ok"}}]}),
+        cles={"OPENROUTER_API_KEY": CLES_DE_TEST["OPENROUTER_API_KEY"]})
+    catalogue = [
+        {"id": "general/geant:free", "context_length": 1048576, "supported_parameters": ["tools"]},
+        {"id": "cohere/north-mini-code:free", "context_length": 256000, "supported_parameters": ["tools"]},
+        {"id": "poolside/laguna-s-2.1:free", "context_length": 262144, "supported_parameters": ["tools"]},
+    ]
+    monkeypatch.setattr(sys.modules[__name__], "CATALOGUE_OPENROUTER", catalogue)
+    import asyncio
+    liste = asyncio.run(module.modeles_gratuits())
+    assert liste == ["poolside/laguna-s-2.1:free", "cohere/north-mini-code:free",
+                     "general/geant:free"]

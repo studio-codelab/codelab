@@ -36,6 +36,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import secrets
 import time
 from collections import defaultdict, deque
@@ -159,6 +160,7 @@ MODELES_PAR_DEFAUT = {
 # les outils (Codex ne fait rien sans), les plus grands contextes d'abord,
 # et essaie les premiers. Le catalogue est garde une heure.
 GRATUITS = "gratuits"
+POUR_LE_CODE = re.compile(r"cod(e|er|estral)|devstral|laguna|swe", re.I)
 GRATUITS_ESSAYES = 4
 GRATUITS_DUREE = 3600
 _gratuits = {"quand": 0.0, "liste": []}
@@ -724,7 +726,11 @@ async def modeles_gratuits():
     gratuits = [m for m in donnees if isinstance(m, dict)
                 and str(m.get("id", "")).endswith(":free")
                 and "tools" in (m.get("supported_parameters") or [])]
-    gratuits.sort(key=lambda m: -(m.get("context_length") or 0))
+    # Les modeles faits pour le code d'abord (« code », « coder », « dev »,
+    # « laguna »...) -- c'est Codex qui s'en sert --, puis les plus grands
+    # contextes.
+    gratuits.sort(key=lambda m: (not POUR_LE_CODE.search(str(m.get("id", ""))),
+                                 -(m.get("context_length") or 0)))
     if gratuits:
         _gratuits.update(quand=time.monotonic(), liste=[m["id"] for m in gratuits])
     return _gratuits["liste"][:GRATUITS_ESSAYES]
