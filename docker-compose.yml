@@ -13,7 +13,7 @@
 #
 # DURCISSEMENT DES CONTENEURS
 #
-# Cinq des six services tournent avec cap_drop: ALL et no-new-privileges : ils
+# Six des sept services tournent avec cap_drop: ALL et no-new-privileges : ils
 # n'ont plus que les quelques capabilities dont ils se servent reellement,
 # listees et justifiees service par service ci-dessous. codelab-dev en est
 # exclu volontairement -- c'est le shell, et le durcir casserait sudo et la
@@ -46,7 +46,7 @@
 # ces lignes existent precisement pour empecher. Un plafond au-dessus de la
 # RAM disponible n'est pas une securite large, c'est une securite absente.
 #
-# Total actuel : 4,1 Go de plafonds. La
+# Total actuel : 4,4 Go de plafonds. La
 # somme depasse encore les 4 Go, et c'est toujours voulu -- mais aucun
 # service ne peut plus prendre a lui seul plus du tiers de la machine.
 #
@@ -216,6 +216,74 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
+
+    networks:
+      - codelab
+
+
+  codelab-mailpit:
+    # L'envoi de mails des applications. Elles parlent SMTP a ce service
+    # (MAIL_HOST/MAIL_PORT, transmis par le panneau) ; il garde chaque mail
+    # consultable -- interface sur le port 8025, a travers
+    # codelab-dagster-proxy et la session d'administration du panneau -- et
+    # le relaie par le serveur d'envoi de Parametres > E-mail. Voir
+    # mailpit/README.md.
+    image: ghcr.io/studio-codelab/codelab-mailpit:latest
+    container_name: codelab-mailpit
+    restart: unless-stopped
+
+    # 320 Mo : le plancher impose par CasaOS (voir codelab-dagster-proxy).
+    # Mailpit en consomme une trentaine.
+    mem_limit: 320m
+    cpus: 0.25
+    pids_limit: 128
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Mailpit tourne en root dans son image, sans rien demander au noyau.
+    # DAC_OVERRIDE seulement pour ecrire dans un dossier de donnees qu'une
+    # interface d'installation aurait donne a un autre utilisateur.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - DAC_OVERRIDE
+
+    # Pas de "ports" : le SMTP n'est joignable que depuis le reseau de la
+    # stack, et l'interface passe par codelab-dagster-proxy.
+
+    environment:
+      MP_DATABASE: /data/mailpit.db
+      # Ce qui est garde : les 500 derniers mails, un mois au plus. Ils
+      # contiennent des liens de reinitialisation de mot de passe.
+      MP_MAX_MESSAGES: "500"
+      MP_MAX_AGE: "30d"
+      # Les applications envoient sans identifiants ; certaines en
+      # presentent quand meme par habitude : on les accepte, sur le reseau
+      # interne seulement.
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+      MP_DISABLE_VERSION_CHECK: "true"
+      MP_BLOCK_REMOTE_CSS_AND_FONTS: "true"
+      # "auto" : relaie des qu'un serveur d'envoi est regle dans le panneau.
+      # "non" : garde tout sans rien envoyer -- le mode test.
+      CODELAB_MAILPIT_RELAIS: "auto"
+
+    volumes:
+      - /DATA/AppData/codelab/mailpit:/data
+      # Lecture-ecriture : ce service y ecrit son bloc (MAIL_HOST...).
+      - /DATA/AppData/codelab/config:/var/lib/codelab/config
+
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
     networks:
       - codelab
@@ -553,6 +621,9 @@ services:
 
     ports:
       - "3000:3000"
+      # L'interface de Mailpit, derriere la meme session d'administration
+      # (voir dagster/proxy/mailpit.conf).
+      - "8025:8025"
 
     volumes:
       # Lecture-ecriture : ce service ajoute son propre bloc (identifiants

@@ -173,6 +173,8 @@ tete dit a quoi sert chaque bloc :
 |---|---|---|
 | `codelab-postgres` | la base partagee (`POSTGRES_*`) | oui |
 | `codelab-redis` | le Redis partage (`REDIS_URL`, `REDIS_*`) | oui |
+| `codelab-mailpit` | l'envoi de mails (`MAIL_HOST`, `MAIL_PORT`, `MAIL_URL`) | oui |
+| `codelab-relais-mail`, `codelab-proxy` | entre services : le serveur relaye par Mailpit, son acces interne | NON |
 | `codelab-app-manager` | la connexion au panneau | **non** |
 | `codelab-sso` | l'identite des applications | la cle publique seule |
 | `codelab-alertes` | l'envoi des mails d'alerte (`SMTP_*`) | **non** |

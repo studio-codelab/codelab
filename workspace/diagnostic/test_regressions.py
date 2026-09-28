@@ -6908,7 +6908,7 @@ def test_chaque_service_est_borne_dans_les_deux_composes():
         # Les memes services des deux cotes : un compose qui en oublie un
         # est une installation qui ne demarre pas pareil selon la porte
         # d'entree.
-        assert len(services) == 6, (chemin, sorted(services))
+        assert len(services) == 7, (chemin, sorted(services))
         for nom, reglages in services.items():
             assert "pids_limit" in reglages or "deploy_pids" in reglages, (
                 f"{nom} n'a pas de limite processus dans {os.path.basename(chemin)}")
@@ -11326,3 +11326,139 @@ def test_une_session_ssh_recoit_redis_et_le_sommaire_le_nomme():
                                  encoding="utf-8").read()
     postgres = open(os.path.join(racine, "postgres", "entrypoint.sh"), encoding="utf-8").read()
     assert "#   codelab-redis        codelab-redis" in postgres
+
+
+# ---------- Mailpit : l'envoi de mails, garde et relaye ----------
+
+def test_mailpit_est_dans_la_stack_ferme_et_derriere_le_proxy():
+    for chemin in _composes():
+        bloc = _bloc_du_service(chemin, "codelab-mailpit")
+        assert bloc, f"codelab-mailpit absent de {os.path.basename(chemin)}"
+        assert "ports:" not in bloc, chemin
+        assert "no-new-privileges:true" in bloc and "- ALL" in bloc, chemin
+        assert 'CODELAB_MAILPIT_RELAIS: "auto"' in bloc, chemin
+        proxy = _bloc_du_service(chemin, "codelab-dagster-proxy")
+        assert '"8025:8025"' in proxy, chemin
+    racine = _racine_depot()
+    ci = open(os.path.join(racine, ".github", "workflows", "build-images.yml"),
+              encoding="utf-8").read()
+    assert "name: codelab-mailpit" in ci and '"mailpit/**"' in ci
+    conf = open(os.path.join(racine, "dagster", "proxy", "mailpit.conf"), encoding="utf-8").read()
+    emplacement = conf[conf.index("location / {"):]
+    # L'autorisation du panneau d'abord, puis le mot de passe interne.
+    assert "auth_request /_auth;" in emplacement
+    assert "include /etc/nginx/codelab/mailpit-auth.conf;" in emplacement
+    dockerfile = open(os.path.join(racine, "dagster", "proxy", "Dockerfile"), encoding="utf-8").read()
+    assert "echo 'return 503;' > /etc/nginx/codelab/mailpit-auth.conf" in dockerfile
+
+
+def test_le_proxy_genere_le_mot_de_passe_interne_de_mailpit(tmp_path):
+    import base64 as b64
+    import subprocess
+    (tmp_path / "config").mkdir()
+    env_file = tmp_path / "config" / "credentials.env"
+    env_file.write_text("# ===== codelab-postgres =====\nPOSTGRES_PASSWORD=y\n"
+                        "# ===== /codelab-postgres =====\n", encoding="utf-8")
+    include = tmp_path / "ng" / "mailpit-auth.conf"
+    env = {"CODELAB_CONFIG_DIR": str(tmp_path / "config"),
+           "CODELAB_MAILPIT_AUTH_INCLUDE": str(include), "PATH": "/usr/bin:/bin"}
+    script = os.path.join(_racine_depot(), "dagster", "proxy", "entrypoint.sh")
+    for _ in range(2):
+        subprocess.run(["sh", script, "true"], check=True, timeout=30, env=env,
+                       capture_output=True)
+    texte = env_file.read_text(encoding="utf-8")
+    assert "POSTGRES_PASSWORD=y" in texte
+    assert texte.count("# ===== codelab-proxy =====") == 1
+    mdp = re.search(r"^CODELAB_INTERNE_MAILPIT_UI_PASSWORD=([0-9a-f]{64})$", texte, re.M).group(1)
+    attendu = b64.b64encode(f"codelab:{mdp}".encode()).decode()
+    assert include.read_text() == f'proxy_set_header Authorization "Basic {attendu}";\n'
+    assert stat.S_IMODE(include.stat().st_mode) == 0o600
+
+
+def _lancer_entrypoint_mailpit(tmp_path, blocs, extra_env=None):
+    """mailpit/entrypoint.sh tel quel, avec un faux binaire Mailpit qui note son
+    environnement et s'arrete : l'entrypoint doit alors sortir avec lui."""
+    import subprocess
+    (tmp_path / "config").mkdir(exist_ok=True)
+    (tmp_path / "config" / "credentials.env").write_text(blocs, encoding="utf-8")
+    faux = tmp_path / "mailpit"
+    faux.write_text(f'#!/bin/sh\nenv | grep "^MP_" | sort > "{tmp_path}/env.txt"\nexit 0\n',
+                    encoding="utf-8")
+    faux.chmod(0o755)
+    env = {"PATH": "/usr/bin:/bin", "CODELAB_CONFIG_DIR": str(tmp_path / "config"),
+           "CODELAB_MAILPIT_BIN": str(faux), "CODELAB_MAILPIT_INTERVALLE": "1",
+           "CODELAB_MAILPIT_ATTENTE": "2"}
+    env.update(extra_env or {})
+    proc = subprocess.run(["sh", os.path.join(_racine_depot(), "mailpit", "entrypoint.sh")],
+                          env=env, capture_output=True, text=True, timeout=30)
+    vu = {}
+    if (tmp_path / "env.txt").exists():
+        for ligne in (tmp_path / "env.txt").read_text().splitlines():
+            cle, _, valeur = ligne.partition("=")
+            vu[cle] = valeur
+    return proc, vu
+
+
+_UI = "CODELAB_INTERNE_MAILPIT_UI_PASSWORD=" + "a" * 64 + "\n"
+
+
+def test_mailpit_relaie_par_le_serveur_du_panneau(tmp_path):
+    blocs = (_UI + "CODELAB_INTERNE_RELAIS_HOST=smtp.gmail.com\n"
+             "CODELAB_INTERNE_RELAIS_PORT=587\nCODELAB_INTERNE_RELAIS_TLS=starttls\n"
+             "CODELAB_INTERNE_RELAIS_USER=moi@gmail.com\n"
+             "CODELAB_INTERNE_RELAIS_PASSWORD=abcd efgh\n"
+             "CODELAB_INTERNE_RELAIS_FROM=moi@gmail.com\n")
+    proc, vu = _lancer_entrypoint_mailpit(tmp_path, blocs)
+    assert proc.returncode == 0, proc.stderr
+    assert vu["MP_UI_AUTH"] == "codelab:" + "a" * 64
+    assert vu["MP_SMTP_RELAY_ALL"] == "true"
+    assert vu["MP_SMTP_RELAY_HOST"] == "smtp.gmail.com" and vu["MP_SMTP_RELAY_PORT"] == "587"
+    assert vu["MP_SMTP_RELAY_STARTTLS"] == "true" and "MP_SMTP_RELAY_TLS" not in vu
+    assert vu["MP_SMTP_RELAY_AUTH"] == "plain"
+    assert vu["MP_SMTP_RELAY_PASSWORD"] == "abcd efgh"
+    assert vu["MP_SMTP_RELAY_OVERRIDE_FROM"] == "moi@gmail.com"
+    # Le mot de passe du serveur d'envoi ne sort pas dans les journaux.
+    assert "abcd efgh" not in proc.stdout + proc.stderr
+    texte = (tmp_path / "config" / "credentials.env").read_text()
+    assert "MAIL_HOST=codelab-mailpit\nMAIL_PORT=1025\n" in texte
+
+
+def test_mailpit_en_ssl_et_en_mode_test(tmp_path):
+    blocs = (_UI + "CODELAB_INTERNE_RELAIS_HOST=ssl0.ovh.net\n"
+             "CODELAB_INTERNE_RELAIS_PORT=465\nCODELAB_INTERNE_RELAIS_TLS=ssl\n")
+    _, vu = _lancer_entrypoint_mailpit(tmp_path, blocs)
+    assert vu["MP_SMTP_RELAY_TLS"] == "true" and "MP_SMTP_RELAY_STARTTLS" not in vu
+    assert vu["MP_SMTP_RELAY_AUTH"] == "none"
+    _, vu = _lancer_entrypoint_mailpit(tmp_path, blocs, {"CODELAB_MAILPIT_RELAIS": "non"})
+    assert not [c for c in vu if c.startswith("MP_SMTP_RELAY")], vu
+    # Sans serveur d'envoi : tout est garde, rien n'est relaye.
+    _, vu = _lancer_entrypoint_mailpit(tmp_path, _UI)
+    assert not [c for c in vu if c.startswith("MP_SMTP_RELAY")], vu
+
+
+def test_mailpit_refuse_de_demarrer_sans_le_mot_de_passe_interne(tmp_path):
+    """Sans lui, son API serait ouverte a toutes les applications du reseau."""
+    proc, vu = _lancer_entrypoint_mailpit(tmp_path, "")
+    assert proc.returncode == 1
+    assert vu == {}, "Mailpit a ete lance sans mot de passe"
+
+
+def test_le_panneau_publie_le_relais_mais_ne_le_transmet_pas(tmp_path, monkeypatch):
+    env_file = tmp_path / "credentials.env"
+    monkeypatch.setattr(app, "SHARED_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(app, "SHARED_ENV_FILE", str(env_file))
+    monkeypatch.setattr(app, "lire_smtp_personnalise", lambda: app._normalise_smtp({
+        "host": "smtp.gmail.com", "port": 587, "tls": "starttls",
+        "user": "moi@gmail.com", "password": "secret"}))
+    assert app.publier_relais_mail()
+    texte = env_file.read_text()
+    assert "CODELAB_INTERNE_RELAIS_HOST=smtp.gmail.com" in texte
+    assert "CODELAB_INTERNE_RELAIS_PASSWORD=secret" in texte
+    assert "CODELAB_INTERNE_RELAIS_FROM=moi@gmail.com" in texte
+    with open(env_file, "a") as f:
+        f.write("MAIL_HOST=codelab-mailpit\nCODELAB_INTERNE_MAILPIT_UI_PASSWORD=x\n")
+    transmis = app.secrets_partages()
+    assert transmis.get("MAIL_HOST") == "codelab-mailpit"
+    assert not [c for c in transmis if c.startswith("CODELAB_INTERNE_")], transmis
+    # Et il suit un enregistrement depuis Parametres > E-mail.
+    assert "publier_relais_mail()" in inspect.getsource(app)

@@ -8,6 +8,12 @@ FROM nginx:1.31-alpine
 # de nginx : c'est le seul endroit ou une directive "map" est acceptee.
 COPY dagster/proxy/map-upgrade.conf /etc/nginx/conf.d/00-map-upgrade.conf
 COPY dagster/proxy/nginx.conf /etc/nginx/conf.d/default.conf
+COPY dagster/proxy/mailpit.conf /etc/nginx/conf.d/mailpit.conf
+# L'en-tete d'authentification vers Mailpit est ecrit au demarrage par
+# l'entrypoint. En attendant -- et pour que "nginx -t" passe ci-dessous --,
+# un fichier qui refuse tout : jamais d'acces a Mailpit sans son mot de passe.
+RUN mkdir -p /etc/nginx/codelab \
+    && echo 'return 503;' > /etc/nginx/codelab/mailpit-auth.conf
 COPY dagster/proxy/indisponible.html /usr/share/nginx/codelab/_indisponible.html
 COPY dagster/proxy/entrypoint.sh /opt/codelab/dagster-proxy/entrypoint.sh
 RUN chmod +x /opt/codelab/dagster-proxy/entrypoint.sh
@@ -22,7 +28,7 @@ RUN chmod +x /opt/codelab/dagster-proxy/entrypoint.sh
 # "host not found in upstream".
 RUN nginx -t
 
-EXPOSE 3000
+EXPOSE 3000 8025
 
 # nginx reste le processus principal : il recoit le SIGTERM de "docker stop"
 # et ses journaux d'acces arrivent dans "docker logs".

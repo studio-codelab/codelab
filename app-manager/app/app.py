@@ -3133,6 +3133,11 @@ CLES_RESERVEES = {"PATH", "HOME", "PORT", "PYTHONPATH", "PYTHONHOME",
 # jamais entrer dans l'environnement d'une application ; la publique est
 # injectee explicitement par start() pour rendre la verification portable.
 CLES_SSO = {"CODELAB_SSO_PRIVATE_KEY", "CODELAB_SSO_PUBLIC_KEY"}
+# Ce que les services se passent entre eux par credentials.env sans que les
+# applications aient a le voir : le serveur d'envoi que Mailpit relaie (son
+# mot de passe compris) et le mot de passe interne entre le proxy et Mailpit.
+# Une application qui l'aurait lirait tous les mails de ses voisines.
+PREFIXE_INTERNE = "CODELAB_INTERNE_"
 
 # Le bloc d'alertes du panneau (serveur d'envoi, identifiant, mot de passe,
 # adresse de l'administrateur). Defini plus bas, avec CHAMPS_SMTP dont il
@@ -3168,6 +3173,7 @@ def secrets_partages():
                 cle, _, valeur = ligne.partition("=")
                 cle, valeur = cle.strip(), valeur.strip()
                 if (not cle or cle.startswith(PREFIXE_PRIVE)
+                        or cle.startswith(PREFIXE_INTERNE)
                         or cle in CLES_RESERVEES or cle in CLES_PANNEAU
                         or cle in CLES_SSO):
                     continue
@@ -4501,6 +4507,42 @@ def effacer_smtp_personnalise():
         os.remove(SMTP_FILE)
     except OSError:
         pass
+
+
+BLOC_RELAIS_MAIL = "codelab-relais-mail"
+
+
+def publier_relais_mail():
+    """Publie pour codelab-mailpit le serveur d'envoi a relayer.
+
+    Celui que le panneau utilise lui-meme : la configuration saisie dans
+    Parametres > E-mail si elle existe, celle d'origine sinon. Mailpit ne
+    peut pas lire smtp.json, qui vit dans le dossier d'etat du panneau ; il
+    lit ce bloc, et se relance tout seul quand il change. Une seule
+    configuration d'envoi pour toute la stack, donc.
+
+    Cles prefixees CODELAB_INTERNE_ : jamais transmises aux applications.
+    Elles envoient par Mailpit, sans jamais voir ce mot de passe.
+    """
+    cfg = lire_smtp_personnalise() or smtp_origine()
+    valeurs = {}
+    if cfg.get("host"):
+        valeurs = {
+            "CODELAB_INTERNE_RELAIS_HOST": cfg["host"],
+            "CODELAB_INTERNE_RELAIS_PORT": str(cfg["port"]),
+            "CODELAB_INTERNE_RELAIS_TLS": cfg["tls"],
+            "CODELAB_INTERNE_RELAIS_USER": cfg["user"],
+            "CODELAB_INTERNE_RELAIS_PASSWORD": cfg["password"],
+            "CODELAB_INTERNE_RELAIS_FROM": cfg["expediteur"],
+        }
+    commentaires = [
+        "# Le serveur d'envoi que codelab-mailpit relaie : celui de",
+        "#   Parametres > E-mail, recopie ici par le panneau. Ne pas editer :",
+        "#   le panneau reecrit ce bloc a chaque enregistrement.",
+        "# Jamais transmis aux applications (prefixe CODELAB_INTERNE_).",
+    ]
+    return upsert_shared_block(BLOC_RELAIS_MAIL, commentaires,
+                               {k: v for k, v in valeurs.items() if v})
 
 
 def smtp_incomplet(cfg):
@@ -6919,6 +6961,9 @@ def api_alertes_enregistrer():
             except OSError as e:
                 return jsonify({"error": f"Configuration non enregistrée : {e}"}), 500
 
+        # Mailpit relaie par ce meme serveur : il suit le changement.
+        publier_relais_mail()
+
     # --- l'adresse d'administration, dans le bloc partage ------------------
     if not ecrire_bloc_alertes({"ALERTE_ADMIN": ", ".join(admin)}):
         return jsonify({"error": "credentials.env n'a pas pu être écrit."}), 500
@@ -9020,6 +9065,7 @@ def servir(port):
 if __name__ == "__main__":
     bootstrap_secrets()
     bootstrap_sso()
+    publier_relais_mail()
     os.makedirs(LOG_DIR, exist_ok=True)
     if not os.path.exists(APPS_FILE):
         save({})
