@@ -9272,9 +9272,9 @@ def test_dagster_parait_dans_le_hub_et_mene_au_port_3000(hub_dagster):
     d = hub_dagster.get("/api/mes-apps").get_json()
 
     services = d["services"]
-    # Un seul service dans le hub : l'orchestrateur.
-    assert [s["name"] for s in services] == ["dagster"]
-    (dagster,) = services
+    # Deux services dans le hub : l'orchestrateur, et le courrier.
+    assert [s["name"] for s in services] == ["dagster", "mailpit"]
+    dagster = services[0]
     # L'adresse est celle du NAVIGATEUR : meme hote, autre port.
     assert dagster["url"].endswith(":3000/"), dagster["url"]
     assert dagster["externe"] is True
@@ -10601,7 +10601,8 @@ def test_dagster_se_range_hors_du_hub_comme_une_application(hub, monkeypatch):
     assert c.post("/api/mes-apps/" + app.DAGSTER_NOM + "/masquer").status_code == 200
 
     d = c.get("/api/mes-apps").get_json()
-    assert d["services"] == [], "la tuile est restee dans le hub"
+    assert app.DAGSTER_NOM not in [s["name"] for s in d["services"]], (
+        "la tuile est restee dans le hub")
     assert [s["name"] for s in d["services_masques"]] == [app.DAGSTER_NOM], (
         "range, il disparait aussi des reglages : impossible de le remettre")
 
@@ -10624,7 +10625,7 @@ def test_remettre_dagster_le_ramene_dans_le_hub(hub, monkeypatch):
     c.post("/api/mes-apps/" + app.DAGSTER_NOM + "/masquer")
     assert c.delete("/api/mes-apps/" + app.DAGSTER_NOM + "/masquer").status_code == 200
     d = c.get("/api/mes-apps").get_json()
-    assert [s["name"] for s in d["services"]] == [app.DAGSTER_NOM]
+    assert [s["name"] for s in d["services"]] == [app.DAGSTER_NOM, app.MAILPIT_NOM]
     assert d["services_masques"] == []
 
 
@@ -10645,7 +10646,7 @@ def test_seuls_les_services_nommes_passent_par_la_route_de_masquage():
     """Une liste fermee, pas « tout ce qui n'est pas une application » :
     sinon la route accepterait n'importe quel nom et masquees.json se
     remplirait d'entrees qui ne designent rien."""
-    assert app.SERVICES_MASQUABLES == frozenset({app.DAGSTER_NOM})
+    assert app.SERVICES_MASQUABLES == frozenset({app.DAGSTER_NOM, app.MAILPIT_NOM})
 
 
 def test_ranger_un_nom_inconnu_reste_un_refus(hub):
@@ -11462,3 +11463,55 @@ def test_le_panneau_publie_le_relais_mais_ne_le_transmet_pas(tmp_path, monkeypat
     assert not [c for c in transmis if c.startswith("CODELAB_INTERNE_")], transmis
     # Et il suit un enregistrement depuis Parametres > E-mail.
     assert "publier_relais_mail()" in inspect.getsource(app)
+
+
+# ---------- la tuile Mailpit ----------
+
+def test_mailpit_a_sa_tuile_dans_le_hub_et_mene_au_port_8025(hub_dagster):
+    hub_dagster.post("/login", json={"password": "secret-de-test"})
+    d = hub_dagster.get("/api/mes-apps").get_json()
+    (mailpit,) = [s for s in d["services"] if s["name"] == app.MAILPIT_NOM]
+    assert mailpit["url"].endswith(":8025/"), mailpit["url"]
+    assert mailpit["externe"] is True and mailpit["par_defaut"] is True
+    assert mailpit["titre"] == "Mailpit"
+    # La porte du panneau journalise puis redirige vers le proxy.
+    r = hub_dagster.get("/mailpit/")
+    assert r.status_code == 302 and r.headers["Location"].endswith(":8025/")
+    # Son icone, dessinee, distincte des autres.
+    icone = hub_dagster.get("/api/icon/mailpit")
+    assert icone.mimetype == "image/svg+xml" and b"<text" not in icone.data
+    assert icone.data != hub_dagster.get("/api/icon/dagster").data
+
+
+def test_mailpit_est_reserve_a_l_administrateur(hub_dagster):
+    """Son interface montre tous les mails, liens de reinitialisation compris."""
+    c = hub_dagster
+    _connecte(c, "marie", "un-mot-de-passe")
+    assert c.get("/mailpit/").status_code in (302, 403, 404)
+    assert c.get("/mailpit/").headers.get("Location", "").endswith(":8025/") is False
+    d = c.get("/api/mes-apps").get_json()
+    assert not [s for s in d.get("services", []) if s["name"] == app.MAILPIT_NOM]
+    assert c.post("/api/mes-apps/mailpit/masquer").status_code == 404
+
+
+def test_mailpit_se_range_et_ne_se_configure_pas(hub, monkeypatch):
+    monkeypatch.setattr(app, "origine_mailpit", lambda: "http://x:8025/")
+    c = _admin_du_hub(hub)
+    assert c.post("/api/mes-apps/mailpit/masquer").status_code == 200
+    d = c.get("/api/mes-apps").get_json()
+    assert app.MAILPIT_NOM not in [s["name"] for s in d["services"]]
+    assert app.MAILPIT_NOM in [s["name"] for s in d["services_masques"]]
+    assert "par défaut" in app.refus_configuration(app.MAILPIT_NOM)
+    assert app.refus_action_protegee(app.MAILPIT_NOM, "arrêt") is not None
+
+
+def test_la_surveillance_de_mailpit_ne_note_que_les_changements(monkeypatch, tmp_path):
+    monkeypatch.setattr(app, "LOG_DIR", str(tmp_path))
+    monkeypatch.setattr(app, "_mailpit_suivi", {"debout": None})
+    etats = iter([(True, 3.0), (True, 4.0), (False, 5000.0)])
+    monkeypatch.setattr(app, "mailpit_sonde", lambda: next(etats))
+    for _ in range(3):
+        app.mailpit_tick()
+    lignes = (tmp_path / "mailpit.log").read_text().splitlines()
+    assert len(lignes) == 2, lignes
+    assert "Mailpit répond" in lignes[0] and "ne répond pas" in lignes[1]

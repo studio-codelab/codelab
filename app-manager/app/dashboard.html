@@ -3336,7 +3336,7 @@ async function chargerHub(){
   try{
     const d=await (await fetch('/api/mes-apps')).json();
     hubApps=d.apps||[];
-    /* Les services de la stack -- Dagster aujourd'hui -- vivent a part :
+    /* Les services de la stack -- Dagster, Mailpit -- vivent a part :
        ils se peignent dans la meme grille, mais ils ne sont pas des
        applications declarees. Les meler a hubApps les ferait entrer dans la
        liste de ce qu'on masque et dans le choix « de quelle application
@@ -3743,7 +3743,7 @@ function peindreFiche(){
   $('mt-cpu-titre').textContent = externe ? 'Temps de réponse' : 'CPU maintenant';
   $('mt-mem-titre').textContent = externe ? 'Disponibilité' : 'Mémoire maintenant';
   $('mt-note').textContent = externe
-    ? "Mesuré par le panneau, toutes les 10 secondes : une requête à Dagster "
+    ? "Mesuré par le panneau, toutes les 10 secondes : une requête à " + nomAffiche(a) + " "
       + "et le temps qu'elle met à revenir. Le panneau ne voit ni le processeur "
       + "ni la mémoire d'un autre conteneur."
     : 'Sur les deux dernières minutes environ, relevé toutes les 5 secondes.';
