@@ -213,13 +213,14 @@ if [ -z "$LLM_PROVIDER_KEY" ] && [ -s "$LLM_ENV_FILE" ]; then
   LLM_PROVIDER_KEY="$(pas_un_gabarit "$(sed -n 's/^OPENROUTER_API_KEY=//p' "$LLM_ENV_FILE" | tail -n 1)")"
 fi
 
-# Les reglages poses a la main dans ce fichier -- un autre fournisseur, un
-# autre modele derriere un nom logique -- survivent a la reecriture. Seuls
-# ceux-la : le reste est regenere, et CODELAB_LLM_AMONT_KEY (la liaison avec
-# le routeur retire) disparait avec lui.
+# Ce qui a ete pose dans ce fichier -- par le panneau (les cles Gemini, Groq,
+# Mistral) ou a la main (une autre chaine de modeles, un autre fournisseur)
+# -- survit a la reecriture. Seulement cela : le reste est regenere, et
+# CODELAB_LLM_AMONT_KEY (la liaison avec le routeur retire) disparait avec
+# lui.
 LLM_REGLAGES=""
 if [ -s "$LLM_ENV_FILE" ]; then
-  LLM_REGLAGES="$(grep -E '^(CODELAB_LLM_FOURNISSEUR|CODELAB_LLM_MODELE_[A-Z0-9_]+)=' "$LLM_ENV_FILE" || true)"
+  LLM_REGLAGES="$(grep -E '^(CODELAB_LLM_FOURNISSEUR|CODELAB_LLM_MODELE_[A-Z0-9_]+|GEMINI_API_KEY|GROQ_API_KEY|MISTRAL_API_KEY)=' "$LLM_ENV_FILE" || true)"
 fi
 
 cat > "$LLM_ENV_FILE.new" <<LLMENV
@@ -233,9 +234,11 @@ cat > "$LLM_ENV_FILE.new" <<LLMENV
 # .env de l'hote s'il en porte une) et par le panneau (Parametres > Cles et
 # secrets). Une cle deja posee n'est jamais effacee par une valeur vide.
 #
-# A la main, et conserve aux redemarrages :
-#   CODELAB_LLM_MODELE_<NOM>=...   le modele reel derriere un nom logique
-#   CODELAB_LLM_FOURNISSEUR=...    un autre fournisseur compatible OpenAI
+# Conserve aux redemarrages :
+#   GEMINI_API_KEY, MISTRAL_API_KEY, GROQ_API_KEY   poses par le panneau
+#   CODELAB_LLM_MODELE_<NOM>=fournisseur:modele, ...   la chaine d'un nom
+#                                  logique, essayee dans l'ordre
+#   CODELAB_LLM_FOURNISSEUR=...    une autre adresse a la place d'OpenRouter
 POSTGRES_HOST=codelab-postgres
 POSTGRES_PORT=5432
 POSTGRES_USER=$CODELAB_LLM_USER

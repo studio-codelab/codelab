@@ -9743,7 +9743,7 @@ def test_le_service_llm_ne_propose_que_des_modeles_configures():
     source = (_racine_llm() / "app.py").read_text(encoding="utf-8")
     assert "MODELES_PAR_DEFAUT" in source
     assert "PREFIXE_MODELE" in source
-    assert "codelab-smart" in source
+    assert "codelab-coding" in source
     # Les anciens noms figes ne doivent plus exister : ils rendaient le
     # service incapable de suivre le catalogue du fournisseur.
     assert "codelab-smart-openrouter" not in source
@@ -12639,8 +12639,17 @@ def test_codelab_db_refuse_les_bases_de_la_stack(nom):
     assert "base de la stack" in r.stderr
 
 
-def _passerelle_llm(monkeypatch, statut, corps):
-    """llm/app.py charge pour de vrai, devant un faux fournisseur."""
+CLES_DE_TEST = {"GEMINI_API_KEY": "AI-test-gemini-123", "GROQ_API_KEY": "gq-test-groq-123",
+                "MISTRAL_API_KEY": "mi-test-mistral-123",
+                "OPENROUTER_API_KEY": "or-test-openrouter-123"}
+
+
+def _passerelle_llm(monkeypatch, repondre, cles=CLES_DE_TEST):
+    """llm/app.py charge pour de vrai, devant de faux fournisseurs.
+
+    repondre(fournisseur, corps_json) -> httpx.Response. Rend (client,
+    module, appels) ; appels garde (fournisseur, chemin, corps, en-tete).
+    """
     pytest.importorskip("fastapi")
     pytest.importorskip("psycopg_pool")
     httpx = pytest.importorskip("httpx")
@@ -12648,42 +12657,242 @@ def _passerelle_llm(monkeypatch, statut, corps):
         "codelab_llm_passerelle", os.path.join(_racine_depot(), "llm", "app.py"))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    for variable in CLES_DE_TEST:
+        monkeypatch.delenv(variable, raising=False)
+    for variable, valeur in cles.items():
+        monkeypatch.setenv(variable, valeur)
+    monkeypatch.setattr(module, "ENV_FILE", "/nexiste/pas")
     monkeypatch.setattr(module, "identite", lambda *a: {"user_id": "u", "app_id": "a"})
     monkeypatch.setattr(module, "limiter", lambda qui: None)
-    monkeypatch.setattr(module, "cle_amont", lambda: "sk-or-SECRET-123")
-    monkeypatch.setattr(module, "noter_consommation", lambda *a: None)
-    module._client = httpx.AsyncClient(transport=httpx.MockTransport(
-        lambda requete: httpx.Response(statut, json=corps)))
+    comptes = []
+    monkeypatch.setattr(module, "noter_consommation",
+                        lambda *a, **k: comptes.append((a, k)))
+    hotes = {"generativelanguage.googleapis.com": "gemini", "api.groq.com": "groq",
+             "api.mistral.ai": "mistral", "openrouter.ai": "openrouter"}
+    appels = []
+
+    def transport(requete):
+        fid = hotes[requete.url.host]
+        corps = json.loads(requete.content or b"{}")
+        appels.append((fid, requete.url.path, corps,
+                       requete.headers.get("authorization")))
+        return repondre(fid, corps)
+
+    module._client = httpx.AsyncClient(transport=httpx.MockTransport(transport))
     from fastapi.testclient import TestClient
-    return TestClient(module.app)
+    client = TestClient(module.app)
+    client.comptes = comptes
+    return client, module, appels
 
 
-def test_un_refus_du_fournisseur_arrive_dans_codex_avec_sa_raison(monkeypatch):
-    """Un refus d'OpenRouter en plein flux arrivait dans Codex comme un flux
-    coupe (« stream closed before response.completed »), reessaye cinq fois,
-    sans la cause. Il doit arriver en « response.failed », avec la raison du
-    fournisseur -- et jamais sa cle."""
-    client = _passerelle_llm(monkeypatch, 400, {"error": {
-        "message": "anthropic/x is not a valid model ID (cle sk-or-SECRET-123)"}})
-    r = client.post("/v1/responses", json={
-        "model": "codelab-coding", "input": "ping", "stream": True})
-    assert "event: response.failed" in r.text
-    evenement = json.loads(r.text.split("data: ", 1)[1].split("\n", 1)[0])
-    assert evenement["type"] == "response.failed"
-    message = evenement["response"]["error"]["message"]
-    assert "HTTP 400" in message and "not a valid model ID" in message
-    assert "sk-or-SECRET-123" not in r.text
+def _sse(*fragments):
+    httpx = pytest.importorskip("httpx")
+    texte = "".join("data: " + json.dumps(f) + "\n\n" for f in fragments) + "data: [DONE]\n\n"
+    return httpx.Response(200, content=texte.encode(),
+                          headers={"content-type": "text/event-stream"})
 
-    r = client.post("/v1/responses", json={"model": "codelab-coding", "input": "ping"})
+
+def _evenements(texte):
+    return [json.loads(l[6:]) for l in texte.splitlines() if l.startswith("data: ")]
+
+
+def test_la_chaine_passe_au_fournisseur_suivant_quand_le_quota_est_epuise(monkeypatch):
+    """La part gratuite d'un fournisseur s'epuise en cours de journee : le
+    suivant de la chaine doit prendre la requete, sans que Codex le voie. Et
+    celui qui a dit 429 est mis au repos : on ne lui redemande pas a chaque
+    appel."""
+    httpx = pytest.importorskip("httpx")
+
+    def repondre(fid, corps):
+        if fid == "gemini":
+            return httpx.Response(429, json={"error": {"message": "Quota exceeded"}},
+                                  headers={"retry-after": "120"})
+        return _sse({"choices": [{"delta": {"content": "pong"}}]},
+                    {"choices": [], "usage": {"prompt_tokens": 7, "completion_tokens": 1}})
+
+    client, module, appels = _passerelle_llm(monkeypatch, repondre)
+    r = client.post("/v1/responses", json={"model": "codelab-coding", "input": "ping",
+                                           "stream": True})
+    assert r.status_code == 200
+    evenements = _evenements(r.text)
+    assert [e["delta"] for e in evenements if e["type"] == "response.output_text.delta"] == ["pong"]
+    fin = evenements[-1]
+    assert fin["type"] == "response.completed"
+    assert fin["response"]["usage"]["input_tokens"] == 7
+    assert [a[0] for a in appels] == ["gemini", "mistral"]
+    assert appels[1][3] == "Bearer mi-test-mistral-123", "la cle d'un autre fournisseur est partie"
+    _, options = client.comptes[-1]
+    assert options == {"fournisseur": "mistral", "repli": True}
+
+    appels.clear()
+    client.post("/v1/responses", json={"model": "codelab-coding", "input": "encore",
+                                       "stream": True})
+    assert [a[0] for a in appels] == ["mistral"], "gemini, au repos, a ete redemande"
+
+
+def test_quand_toute_la_chaine_refuse_chaque_raison_est_dite_sans_cle(monkeypatch):
+    httpx = pytest.importorskip("httpx")
+
+    def repondre(fid, corps):
+        return httpx.Response(402, json={"error": {"message": f"{fid} sans credit "
+                                                              + CLES_DE_TEST["GROQ_API_KEY"]}})
+
+    client, _, appels = _passerelle_llm(monkeypatch, repondre)
+    r = client.post("/v1/responses", json={"model": "codelab-coding", "input": "ping",
+                                           "stream": True})
     assert r.status_code == 502
-    assert "not a valid model ID" in r.json()["detail"]
-    assert "sk-or-SECRET-123" not in r.text
+    detail = r.json()["detail"]
+    for fid in ("gemini", "mistral", "groq", "openrouter"):
+        assert f"{fid} : HTTP 402" in detail
+    assert CLES_DE_TEST["GROQ_API_KEY"] not in r.text
+    assert len(appels) == 4
+
+
+def test_sans_aucune_cle_la_passerelle_dit_quoi_faire(monkeypatch):
+    client, _, appels = _passerelle_llm(monkeypatch, lambda *a: None, cles={})
+    r = client.post("/v1/responses", json={"model": "codelab-coding", "input": "ping"})
+    assert r.status_code == 503 and "panneau" in r.json()["detail"]
+    assert not appels
+
+
+def test_une_ancienne_valeur_sans_fournisseur_va_a_openrouter(monkeypatch):
+    """« anthropic/claude-sonnet-5 », valeur d'avant les chaines, se lit
+    encore : un element sans fournisseur connu est un modele OpenRouter."""
+    client, module, _ = _passerelle_llm(monkeypatch, lambda *a: None)
+    monkeypatch.setenv("CODELAB_LLM_MODELE_CODELAB_CODING",
+                       "anthropic/claude-sonnet-5, mistral:devstral-medium-latest, "
+                       "qwen/qwen3-coder:free")
+    assert module.chaine("codelab-coding") == [
+        ("openrouter", "anthropic/claude-sonnet-5"),
+        ("mistral", "devstral-medium-latest"),
+        ("openrouter", "qwen/qwen3-coder:free")]
+    monkeypatch.delenv("MISTRAL_API_KEY")
+    assert ("mistral", "devstral-medium-latest") not in module.chaine("codelab-coding")
+
+
+def test_une_session_codex_est_traduite_pour_un_fournisseur_chat(monkeypatch):
+    """Ce que Codex envoie -- instructions, message developpeur, appel
+    d'outil et son resultat, outil « custom » apply_patch -- doit arriver en
+    Chat Completions valide chez chaque fournisseur."""
+    client, module, _ = _passerelle_llm(monkeypatch, lambda *a: None)
+    charge = {
+        "model": "codelab-coding", "instructions": "Tu es Codex.", "stream": True,
+        "tool_choice": "auto", "parallel_tool_calls": True, "store": False,
+        "reasoning": {"effort": "medium"}, "include": ["reasoning.encrypted_content"],
+        "input": [
+            {"type": "message", "role": "developer",
+             "content": [{"type": "input_text", "text": "Sandbox : aucune."}]},
+            {"type": "message", "role": "user",
+             "content": [{"type": "input_text", "text": "Liste les fichiers"}]},
+            {"type": "reasoning", "summary": [], "encrypted_content": "xxx"},
+            {"type": "function_call", "name": "shell", "call_id": "call_LONG_ID_0001",
+             "arguments": "{\"command\":[\"ls\"]}"},
+            {"type": "function_call_output", "call_id": "call_LONG_ID_0001",
+             "output": "a.py\nb.py"},
+            {"type": "custom_tool_call", "name": "apply_patch", "call_id": "call_P2",
+             "input": "*** Begin Patch\n*** End Patch"},
+            {"type": "custom_tool_call_output", "call_id": "call_P2", "output": "ok"},
+            {"type": "message", "role": "assistant",
+             "content": [{"type": "output_text", "text": "C'est fait."}]},
+        ],
+        "tools": [
+            {"type": "function", "name": "shell", "description": "Lance une commande",
+             "strict": False, "parameters": {"type": "object", "additionalProperties": False,
+                                             "properties": {"command": {"type": "array"}}}},
+            {"type": "custom", "name": "apply_patch", "description": "Applique un patch",
+             "format": {"type": "grammar", "syntax": "lark", "definition": "start: x"}},
+            {"type": "web_search"},
+        ],
+    }
+    corps, customs = module.responses_vers_chat(charge, "gemini-flash-latest", "gemini")
+    assert customs == {"apply_patch"}
+    messages = corps["messages"]
+    assert messages[0] == {"role": "system", "content": "Tu es Codex.\n\nSandbox : aucune."}
+    assert [m["role"] for m in messages] == ["system", "user", "assistant", "tool",
+                                             "assistant", "tool", "assistant"]
+    assert messages[1]["content"] == "Liste les fichiers"
+    assert messages[2]["tool_calls"][0]["function"] == {
+        "name": "shell", "arguments": "{\"command\":[\"ls\"]}"}
+    assert messages[3] == {"role": "tool", "tool_call_id": "call_LONG_ID_0001",
+                           "name": "shell", "content": "a.py\nb.py"}
+    assert json.loads(messages[4]["tool_calls"][0]["function"]["arguments"]) == {
+        "input": "*** Begin Patch\n*** End Patch"}
+    noms = [o["function"]["name"] for o in corps["tools"]]
+    assert noms == ["shell", "apply_patch"], "web_search n'a pas d'equivalent"
+    assert "additionalProperties" not in json.dumps(corps["tools"]), "Gemini le refuse"
+    assert "start: x" in corps["tools"][1]["function"]["description"]
+    assert corps["tool_choice"] == "auto" and corps["stream"] is True
+    for inconnu in ("reasoning", "include", "store", "parallel_tool_calls", "input"):
+        assert inconnu not in corps
+
+    # Mistral : identifiants de 9 caracteres, les memes pour l'appel et son
+    # resultat -- sans quoi il ne relie plus l'un a l'autre.
+    corps, _ = module.responses_vers_chat(charge, "devstral-medium-latest", "mistral")
+    appel = corps["messages"][2]["tool_calls"][0]["id"]
+    assert len(appel) == 9 and appel.isalnum()
+    assert corps["messages"][3]["tool_call_id"] == appel
+    assert "additionalProperties" in json.dumps(corps["tools"])
+
+
+def test_les_appels_d_outils_en_morceaux_arrivent_entiers_dans_codex(monkeypatch):
+    """Les arguments d'un appel arrivent en plusieurs fragments ; Codex
+    n'execute qu'un appel complet. Un appel a apply_patch redevient un
+    « custom_tool_call » avec son texte brut."""
+    def repondre(fid, corps):
+        return _sse(
+            {"choices": [{"delta": {"content": "Je regarde."}}]},
+            {"choices": [{"delta": {"tool_calls": [
+                {"index": 0, "id": "call_a", "function": {"name": "shell", "arguments": "{\"comm"}}]}}]},
+            {"choices": [{"delta": {"tool_calls": [
+                {"index": 0, "function": {"arguments": "and\":[\"ls\"]}"}}]}}]},
+            {"choices": [{"delta": {"tool_calls": [
+                {"index": 1, "id": "call_b", "function": {
+                    "name": "apply_patch",
+                    "arguments": json.dumps({"input": "*** Begin Patch"})}}]}}]},
+            {"choices": [{"delta": {}, "finish_reason": "tool_calls"}],
+             "usage": {"prompt_tokens": 100, "completion_tokens": 20}})
+
+    client, _, _ = _passerelle_llm(monkeypatch, repondre)
+    r = client.post("/v1/responses", json={
+        "model": "codelab-coding", "input": "ls", "stream": True,
+        "tools": [{"type": "function", "name": "shell", "parameters": {"type": "object"}},
+                  {"type": "custom", "name": "apply_patch"}]})
+    evenements = _evenements(r.text)
+    types = [e["type"] for e in evenements]
+    assert types[0] == "response.created" and types[-1] == "response.completed"
+    faits = [e["item"] for e in evenements if e["type"] == "response.output_item.done"]
+    assert faits[0]["type"] == "message"
+    assert faits[0]["content"][0]["text"] == "Je regarde."
+    assert faits[1] == dict(faits[1], type="function_call", call_id="call_a", name="shell",
+                            arguments="{\"command\":[\"ls\"]}")
+    assert faits[2] == dict(faits[2], type="custom_tool_call", call_id="call_b",
+                            name="apply_patch", input="*** Begin Patch")
+    assert evenements[-1]["response"]["output"] == faits
+    assert evenements[-1]["response"]["usage"]["total_tokens"] == 120
+
+
+def test_les_applications_ont_le_meme_repli_et_leur_nom_logique(monkeypatch):
+    httpx = pytest.importorskip("httpx")
+
+    def repondre(fid, corps):
+        if fid == "groq":
+            return httpx.Response(503, json={"error": {"message": "surcharge"}})
+        return httpx.Response(200, json={"model": corps["model"], "choices": [
+            {"message": {"role": "assistant", "content": "ok"}}], "usage": {}})
+
+    client, _, appels = _passerelle_llm(monkeypatch, repondre)
+    r = client.post("/v1/chat/completions", json={
+        "model": "codelab-fast", "messages": [{"role": "user", "content": "ping"}]})
+    assert r.status_code == 200
+    assert r.json()["model"] == "codelab-fast"
+    assert [a[0] for a in appels] == ["groq", "gemini"]
+    assert appels[1][2]["model"] == "gemini-flash-lite-latest"
 
 
 def test_la_liste_des_modeles_convient_aussi_a_codex(monkeypatch):
     """Codex lit « models » sur cette adresse et journalisait « missing field
     `models` » ; les clients OpenAI lisent « data »."""
-    client = _passerelle_llm(monkeypatch, 200, {})
+    client, _, _ = _passerelle_llm(monkeypatch, lambda *a: None)
     corps = client.get("/v1/models?client_version=0.155.1").json()
     assert corps["models"] == []
     assert "codelab-coding" in [m["id"] for m in corps["data"]]
@@ -12731,3 +12940,28 @@ def test_un_gabarit_non_substitue_n_est_pas_une_cle(tmp_path, monkeypatch):
     monkeypatch.setattr(passerelle, "ENV_FILE", str(env))
     monkeypatch.setenv("OPENROUTER_API_KEY", "${OPENROUTER_API_KEY}")
     assert passerelle.cle_amont() == ""
+
+
+def test_les_cles_du_panneau_survivent_au_redemarrage_de_postgres(tmp_path):
+    """codelab-postgres reecrit llm.env a chaque demarrage. Une cle du
+    catalogue qu'il ne garderait pas serait posee dans le panneau, marcherait
+    jusqu'au prochain redemarrage, puis disparaitrait sans un mot. Le bloc
+    est pris dans l'entrypoint et execute."""
+    import subprocess
+    source = open(os.path.join(_racine_depot(), "postgres", "entrypoint.sh"),
+                  encoding="utf-8").read()
+    debut = source.index('LLM_REGLAGES=""')
+    bloc = source[debut:source.index("\nfi\n", debut) + 4]
+    fichier = tmp_path / "llm.env"
+    lignes = [f"{f['variable']}=valeur-{f['id']}" for f in app.FOURNISSEURS
+              if f["variable"] != "OPENROUTER_API_KEY"]
+    lignes += ["CODELAB_LLM_MODELE_CODELAB_CODING=mistral:devstral-medium-latest",
+               "CODELAB_LLM_AMONT_KEY=ancienne-liaison", "POSTGRES_PASSWORD=x"]
+    fichier.write_text("\n".join(lignes) + "\n", encoding="utf-8")
+    r = subprocess.run(["sh", "-c", f'LLM_ENV_FILE="{fichier}"\n' + bloc
+                        + 'printf "%s\\n" "$LLM_REGLAGES"'],
+                       capture_output=True, text=True, timeout=30)
+    gardees = set(r.stdout.split())
+    assert set(lignes[:-2]) <= gardees, set(lignes[:-2]) - gardees
+    assert "CODELAB_LLM_AMONT_KEY=ancienne-liaison" not in gardees
+    assert "POSTGRES_PASSWORD=x" not in gardees, "celle-la est regeneree"

@@ -302,7 +302,7 @@ disposition éditeur + conversation équivalente à un panneau de chat.
 Le chemin est court, et c'est voulu :
 
 ```
-codex ──clé CodeLab──▶ codelab-llm ──clé OpenRouter──▶ OpenRouter
+codex ──clé CodeLab──▶ codelab-llm ──▶ Gemini, Mistral, Groq ou OpenRouter (le premier qui a du quota)
 ```
 
 L'image portait aussi OpenClaw, une extension VS Code de chat, `acpx` et
@@ -382,8 +382,8 @@ Sans elle, Codex affiche
 
 C'est une cle CodeLab, pas une cle de fournisseur : elle porte un quota et
 une comptabilite, se revoque en une commande (`revoke-key`), et ne donne
-acces au compte OpenRouter — cette cle-la vit dans `codelab-llm`, dont ce
-conteneur ne voit pas les fichiers.
+acces a aucun compte de fournisseur — ces cles-la vivent dans `codelab-llm`,
+dont ce conteneur ne voit pas les fichiers.
 
 Sans le profil `llm` demarre (`docker compose --profile llm up -d`), la
 passerelle n'existe pas et Codex echouera a la connexion.

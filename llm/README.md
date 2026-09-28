@@ -5,45 +5,78 @@ réseau `codelab` (tes applications, le poste de développement) et **ne publie
 aucun port**.
 
 ```
-application / Codex ──clé CodeLab──▶ codelab-llm ──clé OpenRouter──▶ OpenRouter ──▶ Claude, GPT…
+application / Codex ──clé CodeLab──▶ codelab-llm ──▶ Gemini ─┐ quota épuisé ?
+                                                  ──▶ Mistral ─┤ le suivant
+                                                  ──▶ Groq ────┤
+                                                  ──▶ OpenRouter (modèles « :free »)
 ```
 
 | | `codelab-llm` |
 |---|---|
 | Qui parle, à quel rythme | ✅ identité CodeLab, quota |
-| Ce qui a été consommé | ✅ comptabilité en base, par clé |
-| Vers quel fournisseur | OpenRouter par défaut, appelé en direct |
-| La clé du fournisseur | ✅ dans `config/llm/llm.env`, que lui seul lit |
+| Ce qui a été consommé | ✅ comptabilité en base, par clé et par fournisseur |
+| Vers quel fournisseur | une **chaîne** : Gemini, Mistral, Groq, OpenRouter, appelés en direct |
+| Les clés des fournisseurs | ✅ dans `config/llm/llm.env`, que lui seul lit |
 
-Ni tes applications ni le poste de développement ne voient la clé du
-fournisseur : ils présentent une **clé CodeLab**, révocable, avec quota et
+Ni tes applications ni le poste de développement ne voient les clés des
+fournisseurs : ils présentent une **clé CodeLab**, révocable, avec quota et
 comptabilité. C'est ce qui rend acceptable qu'un agent comme Codex tourne
 avec tous les droits dans `/workspace` : au pire, il fuite une clé CodeLab,
 qui se révoque en un clic.
 
-## Pourquoi plus de routeur
+## La part gratuite de plusieurs fournisseurs
+
+Chaque fournisseur offre un quota gratuit — requêtes par minute, par jour,
+jetons par mois — et aucun ne suffit seul à une journée de Codex. Un nom
+logique désigne donc une **chaîne** : le premier fournisseur dont la clé est
+posée répond ; s'il refuse (quota épuisé, crédit insuffisant, modèle retiré,
+panne), le suivant prend la requête. Ni Codex ni l'application ne le voient.
+
+Un fournisseur qui vient de dire « quota épuisé » est mis **au repos** le
+temps qu'il indique (une minute sinon) : on ne lui redemande pas à chaque
+appel. Si tous refusent, la réponse dit pourquoi, fournisseur par
+fournisseur — et c'est aussi dans `docker logs codelab-llm`.
+
+| Fournisseur | Clé gratuite | Ce qu'il apporte |
+|---|---|---|
+| Google Gemini | [aistudio.google.com](https://aistudio.google.com) | le quota le plus large, très grand contexte |
+| Mistral | [console.mistral.ai](https://console.mistral.ai) (palier « Experiment ») | Devstral, fait pour le code |
+| Groq | [console.groq.com](https://console.groq.com) | très rapide ; limites par minute basses |
+| OpenRouter | [openrouter.ai](https://openrouter.ai) | modèles « :free » ; avec du crédit, Claude, GPT… |
+
+**Ce que coûte le gratuit.** Au palier gratuit, ces services peuvent se
+servir des échanges pour améliorer leurs modèles : n'y envoie pas ce qui ne
+doit pas sortir. Les quotas et les modèles offerts changent souvent.
+
+**Une seule clé suffit** pour que tout marche ; chacune de plus repousse le
+moment où tout est épuisé.
+
+## Pourquoi plus de routeur, et pourquoi une traduction
 
 Il y avait un second conteneur, `codelab-litellm`, entre la passerelle et les
-fournisseurs, et une clé de *liaison* entre les deux. Il est retiré : sur une
-petite machine, il coûtait plus d'un Go de disque, 512 Mo de RAM, un fichier
-de clés et une panne muette de plus — pour router entre fournisseurs, ce
-qu'**OpenRouter** fait déjà, avec une seule clé et ses propres replis.
+fournisseurs. Il est retiré : sur une petite machine, il coûtait plus d'un Go
+de disque, 512 Mo de RAM et une clé de liaison de plus. La chaîne tient en
+une boucle dans `app.py`.
 
-Le fournisseur doit servir `/responses` (Codex n'a plus que ce protocole) et
-`/chat/completions` (les applications). OpenRouter sert les deux.
+Codex ne parle plus que le protocole **Responses** ; Gemini, Mistral et Groq
+ne servent que **Chat Completions**. La passerelle traduit dans les deux sens
+ce dont Codex se sert : texte, instructions, outils (y compris `apply_patch`),
+appels d'outils et leurs résultats, en flux. Ce qui est propre à OpenAI —
+raisonnement chiffré, recherche web intégrée — est ignoré ; Codex se rabat
+sur ses outils ordinaires.
 
 ## Démarrage
 
-**Une seule valeur à renseigner : la clé OpenRouter.** Deux endroits
-possibles, et ils ne s'écrasent pas :
+Les clés se posent dans **le panneau**, *Paramètres → Clés et secrets →
+Ajouter un fournisseur* : le panneau les écrit dans `config/llm/llm.env` (en
+`0600`) et n'en réaffiche que les quatre derniers caractères. **Prises en
+compte immédiatement** — la passerelle relit ce fichier à chaque appel — et
+conservées quand `codelab-postgres` réécrit le fichier au démarrage.
 
-- **le panneau**, *Paramètres → Clés et secrets* : on colle la clé, le
-  panneau l'écrit dans `config/llm/llm.env` (en `0600`) et n'en réaffiche que
-  les quatre derniers caractères. **Prise en compte immédiatement** — la
-  passerelle relit ce fichier à chaque appel ;
-- **le `.env` de l'hôte** (`OPENROUTER_API_KEY`, voir `.env.example`), pour
-  une installation scriptée. Au démarrage, `codelab-postgres` la recopie dans
-  le même fichier — **une valeur vide ne remplace jamais celle déjà posée**.
+La clé OpenRouter peut aussi venir du `.env` de l'hôte (`OPENROUTER_API_KEY`,
+voir `.env.example`) avec `docker-compose.yml` ; **pas avec CasaOS**, qui ne
+substitue pas les variables du compose. Une valeur vide ne remplace jamais
+celle déjà posée.
 
 Avec `docker-compose.yml`, le service est derrière le profil optionnel
 `llm` :
@@ -53,35 +86,51 @@ docker compose --profile llm up -d
 ```
 
 Avec `docker-compose-casaos.yml`, il n'y a **pas de profil** : CasaOS ne sait
-pas en activer un. Le service démarre avec le reste, et le compose se suffit à
-lui-même — c'est le seul fichier à importer dans CasaOS.
+pas en activer un. Le service démarre avec le reste.
 
 La base `codelab_llm` et son rôle dédié sont créés par Postgres au premier
 démarrage ; le schéma est initialisé par la passerelle.
 
 ## Les modèles proposés
 
-Trois noms logiques — le contrat avec les clients :
+Trois noms logiques — le contrat avec les clients — et la chaîne derrière
+chacun, dans l'ordre d'essai :
 
-| Nom | Modèle réel (OpenRouter) | Usage |
+| Nom | Chaîne par défaut | Usage |
 |---|---|---|
-| `codelab-coding` | `anthropic/claude-sonnet-5` | le modèle de travail de Codex |
-| `codelab-fast` | `anthropic/claude-haiku-4.5` | les tâches courtes, le peu coûteux |
-| `codelab-reasoning` | `anthropic/claude-opus-5.5` | ce qu'on accepte de payer plus cher |
+| `codelab-coding` | `gemini-flash-latest` → `devstral-medium-latest` → Groq `openai/gpt-oss-120b` → `qwen/qwen3-coder:free` | le modèle de travail de Codex |
+| `codelab-fast` | Groq `openai/gpt-oss-20b` → `gemini-flash-lite-latest` → `mistral-small-latest` → `llama-3.3-70b-instruct:free` | les tâches courtes |
+| `codelab-reasoning` | `gemini-pro-latest` → `magistral-medium-latest` → Groq `openai/gpt-oss-120b` → `deepseek-r1:free` | les questions difficiles |
 
-Vérifie ces identifiants sur [openrouter.ai/models](https://openrouter.ai/models)
-le jour de l'installation : un identifiant inexact se voit au premier appel,
-pas au démarrage. Pour en changer — ou ajouter un nom — pose une ligne
-`CODELAB_LLM_MODELE_<NOM>` dans `config/llm/llm.env` : le nom logique est
-celui de la variable, en minuscules, tirets à la place des soulignés.
+Les alias `-latest` suivent les nouvelles versions ; un identifiant devenu
+faux n'arrête rien — le fournisseur répond 404, le suivant prend la requête —
+mais il se lit dans `docker logs codelab-llm`. Pour changer une chaîne, pose
+une ligne `CODELAB_LLM_MODELE_<NOM>` dans `config/llm/llm.env` : des
+éléments `fournisseur:modèle` séparés par des virgules, essayés dans l'ordre.
+Le nom logique est celui de la variable, en minuscules, tirets à la place des
+soulignés.
 
 ```
-CODELAB_LLM_MODELE_CODELAB_FAST=openai/gpt-5-mini
+CODELAB_LLM_MODELE_CODELAB_CODING=mistral:devstral-medium-latest, gemini:gemini-flash-latest
 ```
 
-Pour un autre fournisseur compatible OpenAI, `CODELAB_LLM_FOURNISSEUR=` (son
-adresse `…/v1`) dans le même fichier. Ces réglages posés à la main survivent
-aux redémarrages : `codelab-postgres` réécrit le fichier mais les conserve.
+Un élément sans fournisseur connu va à OpenRouter : `anthropic/claude-sonnet-5`
+seul redonne Claude, avec du crédit. `CODELAB_LLM_FOURNISSEUR=` remplace
+l'adresse d'OpenRouter par un autre service compatible OpenAI. Ces réglages
+survivent aux redémarrages.
+
+Pour voir les modèles qu'un fournisseur offre à ta clé :
+
+```bash
+sudo docker exec codelab-llm python3 -c '
+import app, httpx
+for f in app.FOURNISSEURS:
+    if app.cle_de(f):
+        r = httpx.get(app.base_de(f) + "/models", timeout=30,
+                      headers={"Authorization": "Bearer " + app.cle_de(f)})
+        print(f, "->", [m["id"] for m in r.json().get("data", [])][:40])
+'
+```
 
 ## Qui est qui
 
