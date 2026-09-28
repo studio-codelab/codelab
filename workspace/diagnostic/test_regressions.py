@@ -12644,6 +12644,18 @@ CLES_DE_TEST = {"GEMINI_API_KEY": "AI-test-gemini-123", "GROQ_API_KEY": "gq-test
                 "OPENROUTER_API_KEY": "or-test-openrouter-123"}
 
 
+# Le catalogue public d'OpenRouter, tel que la passerelle le lit pour
+# « openrouter:gratuits » : seul le deuxieme est gratuit ET accepte les outils.
+CATALOGUE_OPENROUTER = [
+    {"id": "qwen/qwen3-coder", "context_length": 262000,
+     "supported_parameters": ["tools"]},
+    {"id": "vendeur/modele-a:free", "context_length": 131000,
+     "supported_parameters": ["tools", "temperature"]},
+    {"id": "vendeur/sans-outils:free", "context_length": 999000,
+     "supported_parameters": ["temperature"]},
+]
+
+
 def _passerelle_llm(monkeypatch, repondre, cles=CLES_DE_TEST):
     """llm/app.py charge pour de vrai, devant de faux fournisseurs.
 
@@ -12673,6 +12685,8 @@ def _passerelle_llm(monkeypatch, repondre, cles=CLES_DE_TEST):
 
     def transport(requete):
         fid = hotes[requete.url.host]
+        if requete.method == "GET" and requete.url.path.endswith("/models"):
+            return httpx.Response(200, json={"data": CATALOGUE_OPENROUTER})
         corps = json.loads(requete.content or b"{}")
         appels.append((fid, requete.url.path, corps,
                        requete.headers.get("authorization")))
@@ -13050,3 +13064,52 @@ def test_un_modele_choisi_dans_l_extension_codex_part_vers_codelab_coding(monkey
     r = client.post("/v1/responses", json={"model": "gpt-5.5", "input": "ping"})
     assert r.status_code == 400 and not appels
     assert "par-defaut" not in module.modeles() and "defaut" not in module.modeles()
+
+
+def test_openrouter_gratuits_suit_le_catalogue_du_moment(monkeypatch):
+    """Un modele « :free » ecrit en dur est devenu payant, et la chaine
+    finissait sur « This model is unavailable for free ». « gratuits » lit le
+    catalogue d'OpenRouter : seuls les modeles gratuits qui acceptent les
+    outils sont essayes, les plus grands contextes d'abord."""
+    httpx = pytest.importorskip("httpx")
+    client, module, appels = _passerelle_llm(
+        monkeypatch, lambda fid, corps: _sse({"choices": [{"delta": {"content": "ok"}}]}),
+        cles={"OPENROUTER_API_KEY": CLES_DE_TEST["OPENROUTER_API_KEY"]})
+    catalogue = [dict(CATALOGUE_OPENROUTER[1], id="petit/contexte:free", context_length=8000)]
+    catalogue += CATALOGUE_OPENROUTER
+    monkeypatch.setattr(sys.modules[__name__], "CATALOGUE_OPENROUTER", catalogue)
+    r = client.post("/v1/responses", json={"model": "codelab-coding", "input": "ping",
+                                           "stream": True})
+    assert r.status_code == 200
+    assert [a[2]["model"] for a in appels] == ["vendeur/modele-a:free"]
+
+    # Le suivant est essaye quand le premier n'est plus gratuit.
+    module._gratuits.update(quand=0.0, liste=[])
+    def repondre(fid, corps):
+        if corps["model"] == "vendeur/modele-a:free":
+            return httpx.Response(404, json={"error": {"message": "unavailable for free"}})
+        return _sse({"choices": [{"delta": {"content": "ok"}}]})
+    client2, _, appels2 = _passerelle_llm(
+        monkeypatch, repondre, cles={"OPENROUTER_API_KEY": CLES_DE_TEST["OPENROUTER_API_KEY"]})
+    r = client2.post("/v1/responses", json={"model": "codelab-coding", "input": "ping",
+                                            "stream": True})
+    assert r.status_code == 200
+    assert [a[2]["model"] for a in appels2] == ["vendeur/modele-a:free", "petit/contexte:free"]
+
+
+def test_openrouter_gratuits_essaie_d_abord_les_modeles_de_code(monkeypatch):
+    """Parmi les gratuits, un modele fait pour le code passe avant un
+    generaliste a plus grand contexte : c'est Codex qui s'en sert."""
+    client, module, appels = _passerelle_llm(
+        monkeypatch, lambda fid, corps: _sse({"choices": [{"delta": {"content": "ok"}}]}),
+        cles={"OPENROUTER_API_KEY": CLES_DE_TEST["OPENROUTER_API_KEY"]})
+    catalogue = [
+        {"id": "general/geant:free", "context_length": 1048576, "supported_parameters": ["tools"]},
+        {"id": "cohere/north-mini-code:free", "context_length": 256000, "supported_parameters": ["tools"]},
+        {"id": "poolside/laguna-s-2.1:free", "context_length": 262144, "supported_parameters": ["tools"]},
+    ]
+    monkeypatch.setattr(sys.modules[__name__], "CATALOGUE_OPENROUTER", catalogue)
+    import asyncio
+    liste = asyncio.run(module.modeles_gratuits())
+    assert liste == ["poolside/laguna-s-2.1:free", "cohere/north-mini-code:free",
+                     "general/geant:free"]
