@@ -146,6 +146,14 @@ if [ -z "$LLM_PASSWORD" ]; then
 fi
 mkdir -p "$LLM_DIR"
 chmod 700 "$LLM_DIR"
+# A CODELAB-LLM, PAS A ROOT. La passerelle tourne sous un utilisateur dedie
+# (uid 1003, voir llm/Dockerfile) et sans aucune capacite : un dossier 0700
+# et un fichier 0600 appartenant a root lui etaient illisibles. Elle lisait
+# alors un fichier « vide » sans erreur -- mot de passe Postgres vide, cle du
+# fournisseur vide -- et chaque appel finissait en « fe_sendauth: no password
+# supplied ». Le panneau, qui reecrit ce fichier, reprend ce proprietaire.
+CODELAB_LLM_UID=1003
+chown "$CODELAB_LLM_UID" "$LLM_DIR"
 
 # La cle du fournisseur : elle arrive par l'environnement du compose (fichier
 # .env de l'hote) ou reste celle deja posee ici. Jamais copiee depuis
@@ -182,6 +190,7 @@ LLMENV
 [ -n "$LLM_REGLAGES" ] && printf '%s\n' "$LLM_REGLAGES" >> "$LLM_ENV_FILE.new"
 mv "$LLM_ENV_FILE.new" "$LLM_ENV_FILE"
 chmod 600 "$LLM_ENV_FILE"
+chown "$CODELAB_LLM_UID" "$LLM_ENV_FILE"
 
 # L'ancien fichier du routeur retire (codelab-litellm). Plus personne ne le
 # lit ; on le supprime pour qu'aucune cle de fournisseur ne dorme sur le

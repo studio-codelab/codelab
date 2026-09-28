@@ -12401,3 +12401,29 @@ def test_les_permissions_du_workspace_sont_rattrapees_a_chaque_demarrage():
             "il reecrirait tout le workspace a chaque demarrage")
 
 
+
+
+def test_le_fichier_de_codelab_llm_appartient_a_son_utilisateur():
+    """codelab-llm tourne sous un uid dedie et sans capacite. Ecrit en root,
+    en 0600 dans un dossier 0700, llm.env lui etait illisible : il le lisait
+    « vide » sans erreur, et chaque appel finissait en « fe_sendauth: no
+    password supplied ». L'uid donne par codelab-postgres doit etre celui
+    de l'image."""
+    racine = _racine_depot()
+    dockerfile = open(os.path.join(racine, "llm", "Dockerfile"), encoding="utf-8").read()
+    uid = re.search(r"useradd -u (\d+)", dockerfile).group(1)
+    assert "USER codelab-llm" in dockerfile
+    source = open(os.path.join(racine, "postgres", "entrypoint.sh"), encoding="utf-8").read()
+    assert f"CODELAB_LLM_UID={uid}" in source, (
+        "codelab-postgres ne donne pas le dossier a l'uid de l'image codelab-llm")
+    assert 'chown "$CODELAB_LLM_UID" "$LLM_DIR"' in source
+    assert 'chown "$CODELAB_LLM_UID" "$LLM_ENV_FILE"' in source
+
+
+def test_le_panneau_garde_le_proprietaire_du_fichier_de_codelab_llm(monkeypatch):
+    """Le panneau reecrit llm.env quand on colle la cle : le nouveau fichier
+    doit reprendre le proprietaire du dossier, pas celui du panneau (root)."""
+    vus = []
+    monkeypatch.setattr(app.os, "chown", lambda chemin, uid, gid: vus.append(chemin))
+    app.ecrire_env_secrets("llm", {"OPENROUTER_API_KEY": "sk-or-proprietaire-1234"})
+    assert vus, "aucun chown : le fichier resterait a root, illisible par codelab-llm"
