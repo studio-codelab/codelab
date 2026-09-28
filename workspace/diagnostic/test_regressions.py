@@ -12965,3 +12965,59 @@ def test_les_cles_du_panneau_survivent_au_redemarrage_de_postgres(tmp_path):
     assert set(lignes[:-2]) <= gardees, set(lignes[:-2]) - gardees
     assert "CODELAB_LLM_AMONT_KEY=ancienne-liaison" not in gardees
     assert "POSTGRES_PASSWORD=x" not in gardees, "celle-la est regeneree"
+
+
+def test_le_catalogue_de_codex_propose_les_noms_de_la_passerelle():
+    """Sans catalogue, le selecteur de modele de Codex (extension VS Code,
+    /model) propose les modeles d'OpenAI -- que la passerelle refuse -- et
+    Codex previent « Model metadata not found » a chaque demarrage. Les
+    champs exiges par Codex 0.158 ont ete releves en lui soumettant des
+    entrees incompletes : sans l'un d'eux, il refuse le fichier entier."""
+    racine = _racine_depot()
+    catalogue = json.load(open(os.path.join(racine, "dev", "codex-modeles.json"),
+                               encoding="utf-8"))["models"]
+    passerelle = open(os.path.join(racine, "llm", "app.py"), encoding="utf-8").read()
+    source = passerelle[passerelle.index("MODELES_PAR_DEFAUT = {"):]
+    servis = set(re.findall(r'"([a-z0-9-]+)":', source[:source.index("}")]))
+    assert {m["slug"] for m in catalogue} == servis
+    exiges = {"slug", "display_name", "supported_reasoning_levels", "shell_type",
+              "visibility", "supported_in_api", "priority", "support_verbosity",
+              "truncation_policy", "experimental_supported_tools"}
+    for m in catalogue:
+        assert exiges <= set(m), exiges - set(m)
+        assert m["visibility"] == "list"
+        # Rien qui changerait le protocole que parle Codex : la passerelle ne
+        # traduit que le Responses ordinaire.
+        assert not {"use_responses_lite", "tool_mode", "base_instructions"} & set(m)
+    instructions = open(os.path.join(racine, "dev", "codex-instructions.md"),
+                        encoding="utf-8").read()
+    assert len(instructions) > 5000, "sans instructions, Codex n'envoie aucun prompt"
+    dockerfile = open(os.path.join(racine, "dev", "Dockerfile"), encoding="utf-8").read()
+    assert "setdefault('base_instructions', i)" in dockerfile
+
+
+def test_un_ancien_config_toml_de_codex_recoit_le_catalogue(tmp_path):
+    """La ligne s'ajoute EN TETE (une cle de premier niveau doit preceder les
+    sections en TOML), une seule fois, et seulement si le fichier pointe la
+    passerelle. Le bloc est pris dans l'entrypoint et execute."""
+    import subprocess
+    source = open(os.path.join(_racine_depot(), "dev", "entrypoint.sh"),
+                  encoding="utf-8").read()
+    debut = source.index('if [ -r "$CATALOGUE_CODEX" ]')
+    bloc = source[debut:source.index("\nfi\n", debut) + 4]
+    catalogue = tmp_path / "catalogue.json"
+    catalogue.write_text("{}", encoding="utf-8")
+    ancien = ('model_provider = "codelab"\n\n[model_providers.codelab]\n'
+              'base_url = "http://codelab-llm:8080/v1"\n')
+    cfg = tmp_path / "config.toml"
+    cfg.write_text(ancien, encoding="utf-8")
+    script = f'CATALOGUE_CODEX="{catalogue}"\nCODEX_CFG="{cfg}"\n' + bloc
+    for _ in range(2):
+        subprocess.run(["sh", "-c", script], check=True, capture_output=True, timeout=30)
+    texte = cfg.read_text(encoding="utf-8")
+    assert texte == f'model_catalog_json = "{catalogue}"\n' + ancien
+
+    autre = 'model_provider = "openai"\n'
+    cfg.write_text(autre, encoding="utf-8")
+    subprocess.run(["sh", "-c", script], check=True, capture_output=True, timeout=30)
+    assert cfg.read_text(encoding="utf-8") == autre, "un config.toml a soi a ete touche"

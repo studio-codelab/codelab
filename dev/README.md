@@ -294,10 +294,30 @@ utilisable par un agent travaillant sans personne devant.
 
 ## Discuter avec l'IA dans VS Code
 
-**Codex, dans le terminal intégré.** C'est le seul agent de l'image : ouvrir
-un terminal VS Code (connecté en Remote-SSH), aller dans le projet et lancer
-`codex`. Glisser l'onglet du terminal vers le bord droit donne une
-disposition éditeur + conversation équivalente à un panneau de chat.
+**L'extension Codex, en panneau de chat.** Dans VS Code connecté en
+Remote-SSH, installer l'extension *Codex – OpenAI's coding agent*
+(`openai.chatgpt`) **côté serveur** (« Install in SSH: … »). Elle lit la
+même configuration que le terminal — `~/.codex/config.toml`, qui pointe la
+passerelle CodeLab et sa clé — : rien à saisir, pas de compte OpenAI.
+
+**Choisir le modèle** : le sélecteur de l'extension (et `/model` dans le
+terminal) propose les trois noms de la passerelle, tous gratuits :
+
+| Dans le sélecteur | Pour quoi |
+|---|---|
+| CodeLab Coding (gratuit) | le travail courant — c'est le défaut |
+| CodeLab Fast (gratuit) | les petites tâches, plus rapide |
+| CodeLab Reasoning (gratuit) | les questions difficiles, plus lent |
+
+Ils viennent d'un catalogue livré dans l'image
+(`/usr/local/share/codelab/codex-modeles.json`, désigné par
+`model_catalog_json` dans `config.toml`) : sans lui, le sélecteur proposait
+les modèles d'OpenAI, que la passerelle refuse. Le niveau de raisonnement
+n'est pas proposé : ces modèles ne le règlent pas comme ceux d'OpenAI.
+
+**Ou dans le terminal intégré** : `codex` dans le dossier du projet. Glisser
+l'onglet du terminal vers le bord droit donne la même disposition éditeur +
+conversation.
 
 Le chemin est court, et c'est voulu :
 
@@ -539,6 +559,8 @@ qu'on lit *pourquoi* un `Permission denied (publickey)` se produit), et il recoi
 | `entrypoint.sh` | Toute la logique de demarrage |
 | `AGENTS.md` | Manuel de l'environnement lu par les agents (perimetre, base, Dagster, app-manager) |
 | `codelab` | Outil de projet installe dans le PATH : `codelab new`, `codelab db`, `codelab agents` |
+| `codex-modeles.json` | Catalogue des modeles de Codex : les trois noms de la passerelle, pour son selecteur |
+| `codex-instructions.md` | Prompt de base de Codex CLI (open source, Apache-2.0), injecte dans chaque entree du catalogue au build |
 
 Le `Dockerfile` et l'`entrypoint.sh` portent l'essentiel. `AGENTS.md` est une **ressource livree par l'image**, pas les instructions du depot CodeLab : il decrit l'environnement des projets, et l'image le recopie dans `$CODEX_HOME/AGENTS.md` puis, via `codelab agents`, dans les projets. `codelab` est sans extension parce que c'est un executable du PATH, pas un fichier a sourcer : l'`entrypoint.sh` reste le seul `.sh` du service, comme dans les trois autres. Les dependances Python sont declarees directement dans le `Dockerfile`
 plutot que dans un `requirements.txt` separe : trois paquets ne justifient pas un fichier de plus, et
