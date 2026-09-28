@@ -12427,3 +12427,83 @@ def test_le_panneau_garde_le_proprietaire_du_fichier_de_codelab_llm(monkeypatch)
     monkeypatch.setattr(app.os, "chown", lambda chemin, uid, gid: vus.append(chemin))
     app.ecrire_env_secrets("llm", {"OPENROUTER_API_KEY": "sk-or-proprietaire-1234"})
     assert vus, "aucun chown : le fichier resterait a root, illisible par codelab-llm"
+
+
+def test_le_sommaire_de_credentials_env_est_en_tete_et_les_blocs_vides_partent(tmp_path):
+    """Execute les fonctions de codelab-postgres sur un fichier d'une ancienne
+    installation : le sommaire doit arriver EN TETE, en un seul exemplaire,
+    le bloc vide « codelab-dev » doit partir, et les blocs des autres
+    services rester intacts."""
+    import subprocess
+    source = open(os.path.join(_racine_depot(), "postgres", "entrypoint.sh"),
+                  encoding="utf-8").read()
+    fonctions = "".join(re.findall(r"^(?:upsert_block|remove_block|header_block)\(\) \{.*?\n\}\n",
+                                   source, re.S | re.M))
+    assert "header_block()" in fonctions and "remove_block()" in fonctions
+    appel = re.search(r'^header_block "# credentials\.env.*?"\n', source, re.S | re.M).group(0)
+    assert 'remove_block "codelab-dev"' in source
+    assert 'upsert_block "codelab-dev"' not in source
+    fichier = tmp_path / "credentials.env"
+    fichier.write_text(
+        "# ===== codelab-app-manager =====\nAPP_MANAGER_ADMIN_PASSWORD=x\n"
+        "# ===== /codelab-app-manager =====\n"
+        "# ===== codelab-header =====\n# ancien\n# ===== /codelab-header =====\n"
+        "# ===== codelab-dev =====\n# Pas de mot de passe\n# ===== /codelab-dev =====\n",
+        encoding="utf-8")
+    script = f'ENV_FILE="{fichier}"\n' + fonctions + appel + 'remove_block "codelab-dev"\n'
+    subprocess.run(["sh", "-c", script], check=True, timeout=30)
+    texte = fichier.read_text(encoding="utf-8")
+    assert texte.startswith("# ===== codelab-header =====\n"), texte[:80]
+    assert texte.count("# ===== codelab-header =====") == 1
+    assert "# ancien" not in texte
+    assert "codelab-dev =====" not in texte
+    assert "APP_MANAGER_ADMIN_PASSWORD=x" in texte
+    # Le sommaire nomme chaque bloc qui existe encore, et dit s'il va aux apps.
+    for bloc in ("codelab-postgres", "codelab-app-manager", "codelab-sso", "codelab-alertes"):
+        assert bloc in texte, bloc
+
+
+def test_le_proxy_dagster_retire_son_ancien_bloc_au_lieu_de_le_reecrire(tmp_path):
+    """Le bloc ne portait plus aucune valeur : il part, les autres restent."""
+    import subprocess
+    source = open(os.path.join(_racine_depot(), "dagster", "proxy", "entrypoint.sh"),
+                  encoding="utf-8").read()
+    assert 'upsert_block "codelab-dagster-proxy"' not in source
+    debut = source.index("CONFIG_DIR=")
+    fin = source.index('mv "$ENV_FILE.tmp" "$ENV_FILE"') + len('mv "$ENV_FILE.tmp" "$ENV_FILE"')
+    fichier = tmp_path / "credentials.env"
+    fichier.write_text(
+        "# ===== codelab-postgres =====\nPOSTGRES_PASSWORD=y\n# ===== /codelab-postgres =====\n"
+        "# ===== codelab-dagster-proxy =====\n# note\n# ===== /codelab-dagster-proxy =====\n",
+        encoding="utf-8")
+    subprocess.run(["sh", "-c", source[debut:fin]], check=True, timeout=30,
+                   env={"CODELAB_CONFIG_DIR": str(tmp_path), "PATH": "/usr/bin:/bin"})
+    texte = fichier.read_text(encoding="utf-8")
+    assert "codelab-dagster-proxy" not in texte
+    assert "POSTGRES_PASSWORD=y" in texte
+
+
+def test_les_restes_d_openclaw_partent_sauf_ce_qui_a_ete_retouche(tmp_path):
+    """Execute le bloc de l'entrypoint : .openclaw part, les fichiers VS Code
+    ecrits pour OpenClaw partent s'ils sont intacts, et un settings.json
+    complete a la main reste."""
+    import subprocess
+    source = _entrypoint_dev()
+    debut = source.index('rm -rf "$WORKSPACE_DIR/.openclaw"')
+    fin = source.index("\nPYRESTES\n", debut) + len("\nPYRESTES\n")
+    (tmp_path / ".openclaw").mkdir()
+    (tmp_path / ".openclaw" / "openclaw.json").write_text("{}", encoding="utf-8")
+    vs = tmp_path / ".vscode"
+    vs.mkdir()
+    (vs / "extensions.json").write_text(json.dumps(
+        {"recommendations": ["openknot.openclaw-extension"]}), encoding="utf-8")
+    retouche = {"remote.autoForwardPorts": True,
+                "remote.portsAttributes": {"18789": {"label": "OpenClaw - chat",
+                                                     "onAutoForward": "silent"}},
+                "editor.fontSize": 14}
+    (vs / "settings.json").write_text(json.dumps(retouche), encoding="utf-8")
+    subprocess.run(["bash", "-c", source[debut:fin]], check=True, timeout=30,
+                   env={"WORKSPACE_DIR": str(tmp_path), "PATH": "/usr/bin:/bin:/usr/local/bin"})
+    assert not (tmp_path / ".openclaw").exists()
+    assert not (vs / "extensions.json").exists()
+    assert json.loads((vs / "settings.json").read_text(encoding="utf-8")) == retouche

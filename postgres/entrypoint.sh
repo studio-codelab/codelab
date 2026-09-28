@@ -101,12 +101,53 @@ CODELAB_LLM_USER="${CODELAB_LLM_USER:-codelab_llm}"
 LLM_DIR="$CONFIG_DIR/llm"
 LLM_ENV_FILE="$LLM_DIR/llm.env"
 
-upsert_block "codelab-header" "# credentials.env -- TOUS les identifiants CodeLab, generes et
-# geres automatiquement par les services au demarrage. C'est le seul
-# fichier de secrets : rien n'est stocke ailleurs. Ne pas editer a la
-# main, chaque bloc est entierement reecrit au redemarrage du service
-# concerne. Permissions 600 -- lisible uniquement par root sur le
-# disque de l'hote."
+# Retire un bloc entier, marqueurs compris. Pour les blocs que plus aucun
+# service n'ecrit : un bloc sans valeur n'est que du bruit a relire.
+remove_block() {
+  name="$1"
+  awk -v s="# ===== $name =====" -v e="# ===== /$name =====" \
+    '$0==s{skip=1} !skip{print} $0==e{skip=0}' "$ENV_FILE" > "$ENV_FILE.tmp"
+  mv "$ENV_FILE.tmp" "$ENV_FILE"
+}
+
+# Comme upsert_block, mais EN TETE du fichier : c'est le sommaire, il doit se
+# lire en premier. upsert_block ajoute en fin de fichier, et le panneau
+# reecrit ses blocs apres ce service -- l'en-tete finissait au milieu.
+header_block() {
+  content="$1"
+  awk -v s="# ===== codelab-header =====" -v e="# ===== /codelab-header =====" \
+    '$0==s{skip=1} !skip{print} $0==e{skip=0}' "$ENV_FILE" > "$ENV_FILE.tmp"
+  {
+    echo "# ===== codelab-header ====="
+    printf '%s\n' "$content" | sed 's/^[[:space:]]*//'
+    echo "# ===== /codelab-header ====="
+    cat "$ENV_FILE.tmp"
+  } > "$ENV_FILE.new"
+  mv "$ENV_FILE.new" "$ENV_FILE"
+  rm -f "$ENV_FILE.tmp"
+}
+
+header_block "# credentials.env -- les identifiants des services CodeLab.
+#
+# Genere par les services eux-memes : rien a y saisir pour que la stack
+# tourne. Chaque bloc « ===== nom ===== » appartient a UN service, qui le
+# reecrit en entier a son demarrage -- une retouche a la main dans un de ces
+# blocs est perdue. Un bloc ajoute sous un autre nom est conserve.
+# Fichier 0600 root : ne pas le copier, il porte plusieurs secrets.
+#
+#   bloc                 ecrit par          sert a                     transmis aux apps
+#   codelab-postgres     codelab-postgres   base partagee (Postgres)   oui
+#   codelab-app-manager  panneau            connexion au panneau       NON
+#   codelab-sso          panneau            identite des applications  cle publique seule
+#   codelab-alertes      panneau            envoi des mails d'alerte   NON
+#
+# « Transmis aux apps » : ce que le panneau passe, par l'environnement, aux
+# applications qu'il lance. Le .env d'un projet l'emporte toujours.
+#
+# Ailleurs, et c'est voulu :
+#   config/llm/llm.env   la cle du fournisseur IA -- seul codelab-llm la lit
+#   config/ssh/          les cles SSH autorisees et les cles hote
+#   Dagster n'a pas d'identifiant a lui : il reprend la session du panneau."
 
 upsert_block "codelab-postgres" "# Serveur Postgres partage par tous les services CodeLab.
 # Utilise par : codelab-dev, codelab-dagster, codelab-dagster-daemon,
@@ -122,10 +163,9 @@ POSTGRES_DB=$CODELAB_INSTANCE_DB
 POSTGRES_USER=codelab
 POSTGRES_PASSWORD=$PG_PASSWORD"
 
-upsert_block "codelab-dev" "# Pas de mot de passe : l'acces SSH (port 2222) se fait uniquement par
-# cle publique. Les cles autorisees et les cles hote sont regroupees
-# dans /DATA/AppData/codelab/config/ssh/ (authorized_keys et
-# host_keys/) -- des fichiers de cles, pas des valeurs a lister ici."
+# Plus de bloc « codelab-dev » : il ne portait aucune valeur, seulement une
+# phrase sur SSH, que le sommaire ci-dessus reprend.
+remove_block "codelab-dev"
 
 chmod 600 "$ENV_FILE"
 
@@ -173,13 +213,19 @@ if [ -s "$LLM_ENV_FILE" ]; then
 fi
 
 cat > "$LLM_ENV_FILE.new" <<LLMENV
-# llm.env -- les secrets de codelab-llm, et rien d'autre.
+# llm.env -- les reglages du service IA (codelab-llm), et rien d'autre.
 #
-# Ecrit par codelab-postgres au demarrage. codelab-llm monte CE dossier,
-# pas celui de credentials.env : il n'a ainsi jamais sous les yeux le mot de
-# passe d'administration du panneau, la cle privee SSO ni le mot de passe
-# SMTP. Mettre la cle du fournisseur dans le .env de l'hote
-# (OPENROUTER_API_KEY) ou directement ici.
+# Lu par codelab-llm SEUL, a chaque appel : une valeur changee ici prend
+# effet sans redemarrage. Ni les applications ni le poste de developpement
+# ne voient ce fichier -- ils presentent une cle CodeLab, pas celle-ci.
+#
+# Ecrit par codelab-postgres au demarrage (POSTGRES_*, et la cle venue du
+# .env de l'hote s'il en porte une) et par le panneau (Parametres > Cles et
+# secrets). Une cle deja posee n'est jamais effacee par une valeur vide.
+#
+# A la main, et conserve aux redemarrages :
+#   CODELAB_LLM_MODELE_<NOM>=...   le modele reel derriere un nom logique
+#   CODELAB_LLM_FOURNISSEUR=...    un autre fournisseur compatible OpenAI
 POSTGRES_HOST=codelab-postgres
 POSTGRES_PORT=5432
 POSTGRES_USER=$CODELAB_LLM_USER

@@ -35,8 +35,8 @@ L'authentification precedente etait en HTTP Basic. Elle fonctionnait, mais :
 - **elle faisait un deuxieme mot de passe** a retenir pour la meme personne, sans second facteur.
 
 Desormais Dagster herite de la session du panneau : meme mot de passe, meme double authentification si elle
-est activee, meme deconnexion. `DAGSTER_USER` et `DAGSTER_PASSWORD` n'existent plus — l'entrypoint remplace
-l'ancien bloc de `credentials.env` par une note expliquant ou ils sont passes, plutot que de laisser un vide.
+est activee, meme deconnexion. `DAGSTER_USER` et `DAGSTER_PASSWORD` n'existent plus — l'entrypoint retire
+l'ancien bloc de `credentials.env`, et le sommaire en tete de ce fichier dit qu'il n'y en a plus.
 
 **Le cookie traverse les deux ports** parce que la portee d'un cookie ignore le numero de port : celui pose
 sur `:9001` est envoye a `:3000`. Et `SameSite=Lax` laisse passer une navigation de premier niveau, ce
@@ -51,7 +51,7 @@ ferme. C'est le bon sens de defaillance — mieux vaut Dagster injoignable qu'ou
 | Fichier | Role |
 |---|---|
 | `Dockerfile` | Image (nginx seul) |
-| `entrypoint.sh` | Remplace l'ancien bloc d'identifiants de `credentials.env` par une note |
+| `entrypoint.sh` | Retire l'ancien bloc d'identifiants de `credentials.env` |
 | `nginx.conf` | Le proxy lui-meme : authentification, websockets, delais |
 | `map-upgrade.conf` | `Connection: upgrade` seulement quand le client le demande |
 

@@ -33,9 +33,10 @@ Avant de rendre la main a `docker-entrypoint.sh` de l'image officielle :
 
    Une valeur existante n'est **jamais** regeneree par-dessus : la base refuserait la connexion.
 
-2. **Ecrit ses blocs dans `credentials.env`** (`codelab-header`, `codelab-postgres`, `codelab-dev`),
-   delimites par des marqueurs `# ===== <nom> =====`. Chaque service ne touche qu'a son propre bloc, les
-   autres restent intacts quel que soit l'ordre de demarrage.
+2. **Ecrit ses blocs dans `credentials.env`**, delimites par des marqueurs `# ===== <nom> =====` :
+   `codelab-header`, le sommaire du fichier, place **en tete** ; et `codelab-postgres`. Chaque service ne
+   touche qu'a son propre bloc, les autres restent intacts quel que soit l'ordre de demarrage. L'ancien
+   bloc `codelab-dev`, qui ne portait aucune valeur, est retire.
 
 3. **Exporte `POSTGRES_PASSWORD`** et retire `POSTGRES_PASSWORD_FILE` — l'image officielle refuse les deux
    en meme temps.

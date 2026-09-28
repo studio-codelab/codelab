@@ -160,6 +160,53 @@ et la même déconnexion.
 **Agents** — `codelab agents`, dans un projet, y écrit le mode d'emploi de la stack sous forme d'un
 `AGENTS.md` que `codex` lit avant chaque tâche. Voir [`dev/README.md`](dev/README.md#codex).
 
+## Où vit la configuration
+
+Trois mondes, et chacun a ses fichiers. **Rien n'est à saisir pour que la stack tourne** : les mots
+de passe et les clés sont générés au premier démarrage. Les seules valeurs à fournir sont la clé
+OpenRouter (dans le panneau) et, pour SSH, une clé publique par machine.
+
+### 1. Le serveur — ce qui fait tourner la stack
+
+Tout vit dans `/DATA/AppData/codelab/config/`, en dehors des conteneurs.
+
+| Fichier | Contenu | Écrit par | Lu par |
+|---|---|---|---|
+| `credentials.env` | identifiants des services, **un bloc par service** ; un sommaire en tête dit qui écrit quoi | les services, à leur démarrage | les services ; une partie est passée aux apps (voir 3) |
+| `llm/llm.env` | clé OpenRouter, accès à la base du service IA, réglages des modèles | `codelab-postgres` et le panneau | `codelab-llm` seul |
+| `ssh/authorized_keys.d/` | une clé publique par machine autorisée | toi | `codelab-dev` |
+| `.env` de l'hôte (à côté du compose) | seulement `OPENROUTER_API_KEY`, facultatif — voir `.env.example` | toi | `codelab-postgres`, qui la recopie |
+
+On n'édite `credentials.env` qu'en y **ajoutant** un bloc à soi : chaque bloc d'un service est
+réécrit à son démarrage. Détails : [`workspace/README.md`](workspace/README.md#credentialsenv).
+
+### 2. Le poste de développement — VS Code, Codex, SSH
+
+Ce qui sert à **écrire** du code, dans le conteneur `codelab-dev`. Détails :
+[`dev/README.md`](dev/README.md).
+
+| Où | Contenu |
+|---|---|
+| `/workspace/.codex/` | configuration de Codex (`config.toml`), sa clé CodeLab (`codelab-llm.key`, posée par le panneau), le manuel `AGENTS.md` |
+| `~/.vscode-server` (→ `/DATA/AppData/codelab/vscode-server`) | le serveur VS Code et ses extensions, conservés aux mises à jour |
+| profil de session (`/etc/profile.d/`) | variables `PG*` pour `psql`, `CODEX_HOME`, `CODELAB_LLM_KEY` — posées à chaque connexion SSH |
+
+Aucun de ces fichiers ne va aux applications déployées.
+
+### 3. Les applications — ce que le panneau lance
+
+Ce qui sert à **faire tourner** un projet. Détails :
+[`workspace/README.md`](workspace/README.md#configuration-et-secrets).
+
+| Couche (de la plus faible à la plus forte) | Contenu |
+|---|---|
+| variables passées par le panneau | le bloc `codelab-postgres` de `credentials.env`, `PORT`, l'identité SSO (clé publique, émetteur, audience) — jamais le mot de passe du panneau, sa clé privée SSO ni la configuration d'envoi des alertes |
+| `/workspace/<projet>/.env` | ce qui ne concerne que ce projet ; **l'emporte toujours** |
+| réglages de l'app dans le panneau | commande de lancement, build, visibilité, adresse — stockés dans `app-manager/apps.json` |
+
+Une application qui appelle l'IA le fait avec **sa propre clé CodeLab** (panneau → *Clés et
+secrets* → *Créer une clé*), posée dans son `.env` — jamais avec la clé OpenRouter.
+
 ## Contenu par défaut du workspace
 
 Au tout premier démarrage, un squelette est déposé dans `/workspace` :
