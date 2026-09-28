@@ -277,8 +277,10 @@ fi
 
 # ------------------ les extensions VS Code du poste ------------------
 #
-# L'extension PostgreSQL (Microsoft) fait partie du poste : parcourir les
-# bases, lancer une requete, lire un schema, sans quitter VS Code. D'autres
+# Database Client JDBC (cweijan) fait partie du poste : parcourir les bases,
+# lancer une requete, lire un schema, sans quitter VS Code. VS Code installe
+# avec elle Database Client, dont elle depend, et qui parle nativement a
+# Postgres et Redis ; la partie JDBC ne sert qu'aux autres bases. D'autres
 # s'ajoutent ici, separees par des espaces (CODELAB_VSCODE_EXTENSIONS dans le
 # compose ; vide pour n'en installer aucune).
 #
@@ -293,12 +295,19 @@ fi
 #   2. la RECOMMANDATION dans /workspace/.vscode/extensions.json, pour
 #      qu'un poste qui ouvre le dossier la propose meme si l'installation
 #      automatique n'a pas pu se faire (pas de reseau, serveur neuf).
-VSCODE_EXTENSIONS="${CODELAB_VSCODE_EXTENSIONS-ms-ossdata.vscode-pgsql}"
+VSCODE_EXTENSIONS="${CODELAB_VSCODE_EXTENSIONS-cweijan.dbclient-jdbc}"
+# Recommandees par une version precedente et remplacees depuis : retirees de
+# extensions.json. Rien n'est desinstalle -- une extension deja installee se
+# retire d'un clic, et c'est a son utilisateur de le decider.
+VSCODE_EXTENSIONS_RETIREES="ms-ossdata.vscode-pgsql"
 
 if [ -n "$VSCODE_EXTENSIONS" ]; then
+CODELAB_RETIREES="$VSCODE_EXTENSIONS_RETIREES" \
 python3 - "$WORKSPACE_DIR/.vscode/extensions.json" $VSCODE_EXTENSIONS <<'PYRECO' || true
 import json, os, sys
 chemin, voulues = sys.argv[1], sys.argv[2:]
+retirees = {e.lower() for e in os.environ.get("CODELAB_RETIREES", "").split()} \
+    - {e.lower() for e in voulues}
 contenu = {}
 if os.path.exists(chemin):
     try:
@@ -313,15 +322,16 @@ if os.path.exists(chemin):
 reco = contenu.get("recommendations")
 if not isinstance(reco, list):
     reco = []
-manquantes = [e for e in voulues if e.lower() not in {str(r).lower() for r in reco}]
-if not manquantes:
+gardees = [r for r in reco if str(r).lower() not in retirees]
+manquantes = [e for e in voulues if e.lower() not in {str(r).lower() for r in gardees}]
+if not manquantes and len(gardees) == len(reco):
     sys.exit(0)
-contenu["recommendations"] = reco + manquantes
+contenu["recommendations"] = gardees + manquantes
 os.makedirs(os.path.dirname(chemin), exist_ok=True)
 with open(chemin, "w", encoding="utf-8") as f:
     json.dump(contenu, f, indent=2)
     f.write("\n")
-print(f"[codelab-dev] {chemin} : {', '.join(manquantes)} recommandee(s).")
+print(f"[codelab-dev] {chemin} : recommandations mises a jour.")
 PYRECO
 chown -R "$SSH_USER" "$WORKSPACE_DIR/.vscode" 2>/dev/null || true
 fi

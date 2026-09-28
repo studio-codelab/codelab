@@ -351,7 +351,7 @@ services:
       # Extensions VS Code installees d'office sur le serveur VS Code du
       # conteneur, a la premiere connexion Remote-SSH (voir dev/README.md).
       # Separees par des espaces ; vide pour n'en installer aucune.
-      CODELAB_VSCODE_EXTENSIONS: "ms-ossdata.vscode-pgsql"
+      CODELAB_VSCODE_EXTENSIONS: "cweijan.dbclient-jdbc"
 
     volumes:
       # Chemin hote par defaut : /DATA/AppData/codelab/workspace. Doit rester
