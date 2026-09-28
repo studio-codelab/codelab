@@ -4003,13 +4003,10 @@ def monitor_tick():
     # limite d'essais ci-dessous qui decide de relancer ou non, donc une
     # application qui plante en boucle n'est pas relancee sans fin.
     tenir_les_applications_par_defaut()
-    # LA CLE DU POSTE EXISTE SANS QU'ON LA DEMANDE. Demande explicitement :
-    # « je veux que la cle CodeLab LLM soit creee et configuree par defaut ».
-    # Ici et pas au demarrage du panneau : a la premiere installation,
-    # Postgres n'est pas encore pret quand ce processus se leve, et un
-    # geste tente une seule fois aurait echoue une seule fois, pour
-    # toujours. Le tour suivant reessaie.
-    tenir_la_cle_du_poste()
+    # L'ANCIENNE CLE DE CODEX PART. Ici et pas au demarrage du panneau :
+    # Postgres n'est pas toujours pret quand ce processus se leve, et le
+    # tour suivant reessaie.
+    retirer_la_cle_du_poste()
     apps = load()
     now = time.time()
     for name, a in apps.items():
@@ -6534,11 +6531,13 @@ def api_exposition():
 
 # ------------------------- cles et secrets -------------------------
 #
-# POURQUOI CETTE PAGE EXISTE. Renseigner une cle demandait trois gestes a
-# trois endroits : « docker exec codelab-llm python3 app.py create-key », un
-# copier-coller dans /workspace/.codex/codelab-llm.key, et une edition du
-# .env de l'hote. Rien ne disait lequel manquait : Codex affichait « Missing
-# environment variable: CODELAB_LLM_KEY » et s'arretait la.
+# POURQUOI CETTE PAGE EXISTE. Creer une cle pour une application demandait
+# « docker exec codelab-llm python3 app.py create-key », et poser la cle
+# d'un fournisseur, une edition de fichier a la main. La page fait les deux,
+# et montre ce que chaque cle a consomme.
+#
+# CODEX N'EN FAIT PLUS PARTIE : il se connecte avec un compte ChatGPT, dans
+# le conteneur de developpement. La passerelle sert les APPLICATIONS.
 #
 # CE QUE LE PANNEAU TOUCHE, ET CE QU'IL NE TOUCHE PAS.
 #
@@ -6547,9 +6546,6 @@ def api_exposition():
 #                               « create-key » : une cle posee ici est
 #                               reconnue par la passerelle, et une cle posee
 #                               la-bas se revoque ici.
-#   .codex/codelab-llm.key      la cle en clair, 0600, parce que c'est le
-#                               seul endroit ou le conteneur de
-#                               developpement sait la lire.
 #   config/llm/llm.env          les secrets de codelab-llm, dont la cle du
 #                               fournisseur. Relu a CHAQUE appel par ce
 #                               service : ce qu'on y ecrit prend effet sans
@@ -6565,8 +6561,10 @@ def api_exposition():
 # ici. Aucune valeur ne passe par une URL -- tout est en corps de requete --
 # ni par le journal : journaliser() ne recoit que le NOM du reglage touche.
 
-CODEX_DIR = os.path.join(ROOT, ".codex")
-CLE_CODEX_FICHIER = os.path.join(CODEX_DIR, "codelab-llm.key")
+# L'ANCIEN fichier de cle de Codex. Codex se connecte maintenant avec un
+# compte ChatGPT et ne passe plus par codelab-llm : ce fichier n'est plus
+# ecrit, seulement retire (voir retirer_la_cle_du_poste).
+ANCIENNE_CLE_CODEX = os.path.join(ROOT, ".codex", "codelab-llm.key")
 
 LLM_CONFIG_DIR = os.path.join(SHARED_CONFIG_DIR, "llm")
 LLM_ENV_FICHIER = os.path.join(LLM_CONFIG_DIR, "llm.env")
@@ -6812,65 +6810,6 @@ def _llm_preparer_base():
                     pass
 
 
-def poser_cle_pour_les_agents(brut):
-    """Ecrit la cle la ou Codex la lit. Renvoie les fichiers touches.
-
-    Codex la relit dans ce fichier par une commande (voir le config.toml
-    qu'ecrit le conteneur de developpement), et le profil de session
-    l'exporte aussi en CODELAB_LLM_KEY pour les autres outils.
-    """
-    ecrits = []
-    try:
-        _ecrire_0600(CLE_CODEX_FICHIER, brut + "\n", modele=CODEX_DIR)
-        ecrits.append(CLE_CODEX_FICHIER)
-    except OSError:
-        pass
-    return ecrits
-
-
-def cle_codex_posee():
-    """La cle inscrite pour les agents, ou "" si le fichier n'est pas la."""
-    try:
-        with open(CLE_CODEX_FICHIER, encoding="utf-8") as f:
-            return f.readline().strip()
-    except OSError:
-        return ""
-
-
-def _etat_cle_llm():
-    """Ce que la page sait dire de la cle des agents, sans jamais la montrer.
-
-    Trois choses peuvent manquer independamment, et les confondre est
-    precisement ce qui rendait la panne illisible : la cle peut etre
-    inscrite en base sans etre posee dans le fichier (creee par « docker
-    exec »), posee dans le fichier sans etre en base (base effacee), ou
-    revoquee tout en restant posee. Chaque cas a sa phrase.
-    """
-    posee = cle_codex_posee()
-    etat = {"posee": bool(posee), "apercu": apercu_secret(posee),
-            "base": "inconnue", "nom": "", "creee": ""}
-    if not posee:
-        return etat
-    try:
-        with _pg_connexion(PG_BASE_LLM) as cx:
-            ligne = cx.execute(
-                "SELECT key_name, created_at, revoked_at FROM llm_api_keys"
-                " WHERE key_hash = %s", (empreinte_cle(posee),)).fetchone()
-    except Exception:
-        etat["base"] = "injoignable"
-        return etat
-    if not ligne:
-        etat["base"] = "absente"
-    elif ligne[2] is not None:
-        etat["base"] = "revoquee"
-    else:
-        etat["base"] = "active"
-    if ligne:
-        etat["nom"] = ligne[0] or ""
-        etat["creee"] = ligne[1].isoformat() if ligne[1] else ""
-    return etat
-
-
 # ------------------- la console des cles d'acces au LLM -------------------
 #
 # CE QU'ELLE REMPLACE. La page ne connaissait qu'UNE cle : celle posee dans
@@ -6891,11 +6830,15 @@ def _etat_cle_llm():
 # protection alors qu'il n'en est pas une serait pire que de ne rien
 # promettre. La page le dit.
 
-# L'application inscrite sur la cle du poste de developpement. C'est elle que
-# Codex presente, et c'est a ce nom qu'on la reconnait dans la
-# liste.
+# La cle qu'on creait pour Codex, reconnue a ces deux etiquettes pour etre
+# revoquee une fois (voir retirer_la_cle_du_poste).
 APP_POSTE = "codelab-dev"
 NOM_CLE_POSTE = "poste de developpement"
+
+# CE QU'UNE APPLICATION DOIT SAVOIR pour se servir de sa cle : l'adresse de
+# la passerelle sur le reseau Docker, et les noms de modeles qu'elle sert.
+# Envoye a la page, qui l'affiche avec la cle neuve.
+PASSERELLE_URL = "http://codelab-llm:8080/v1"
 
 
 def _pg_llm_dispo():
@@ -6929,11 +6872,6 @@ def lister_cles_llm():
              GROUP BY k.id
              ORDER BY k.revoked_at IS NOT NULL, k.created_at DESC
         """).fetchall()
-    posee = cle_codex_posee()
-    empreinte_posee = empreinte_cle(posee) if posee else ""
-    with _pg_connexion(PG_BASE_LLM) as cx:
-        empreintes = dict(cx.execute(
-            "SELECT id, key_hash FROM llm_api_keys").fetchall())
     cles = []
     for (ident, nom, qui, app, creee, revoquee, description, requetes,
          jetons, cout, derniere) in lignes:
@@ -6946,10 +6884,6 @@ def lister_cles_llm():
             "creee": creee.isoformat() if creee else "",
             "revoquee": revoquee.isoformat() if revoquee else "",
             "active": revoquee is None,
-            # CELLE QUI SERT ICI. La page doit pouvoir dire « c'est celle que
-            # Codex utilise » sans que personne ait a comparer des empreintes
-            # a l'oeil -- et l'empreinte, elle, ne sort pas.
-            "posee": bool(posee) and empreintes.get(ident) == empreinte_posee,
             "requetes": int(requetes or 0),
             "jetons": int(jetons or 0),
             "cout": float(cout or 0),
@@ -7054,52 +6988,40 @@ def revoquer_cle_llm(ident):
     return {"empreinte": ligne[0], "nom": ligne[1] or ""}
 
 
-def tenir_la_cle_du_poste():
-    """La cle du poste de developpement existe, sans qu'on ait a la demander.
+def retirer_la_cle_du_poste():
+    """Revoque la cle que le panneau creait pour Codex, et retire son fichier.
 
-    DEMANDE EXPLICITEMENT : « je veux que la cle CodeLab LLM soit creee et
-    configuree par defaut ». Le premier demarrage ne doit donc rien demander
-    a personne -- ni « docker exec », ni un bouton a cliquer, ni un
-    copier-coller.
-
-    N'echoue jamais : appelee depuis la boucle de surveillance, elle ne doit
-    pas faire tomber le tour parce que Postgres redemarre. Le prochain tour
-    reessaiera.
-
-    Ne recree pas ce qui est deja la : si le fichier porte une cle encore
-    active en base, il n'y a rien a faire -- et c'est le cas a tous les tours
-    sauf le premier.
+    Codex se connecte maintenant avec un compte ChatGPT : cette cle ne sert
+    plus a rien, et une cle active qui ne sert a rien est une cle qui peut
+    fuir. Une seule fois par demarrage du panneau reussi ; n'echoue jamais
+    (appelee depuis la boucle de surveillance, Postgres peut etre en train
+    de demarrer -- le tour suivant reessaie).
     """
-    try:
-        posee = cle_codex_posee()
-        if posee:
-            with _pg_connexion(PG_BASE_LLM) as cx:
-                vivante = cx.execute(
-                    "SELECT 1 FROM llm_api_keys"
-                    " WHERE key_hash=%s AND revoked_at IS NULL",
-                    (empreinte_cle(posee),)).fetchone()
-            if vivante:
-                return False
-        brut, _ = creer_cle_llm(NOM_CLE_POSTE, NOM_ADMIN, APP_POSTE)
-        ecrits = poser_cle_pour_les_agents(brut)
-        if CLE_CODEX_FICHIER not in ecrits:
-            return False
-        journaliser("secret", qui=NOM_ADMIN, action="cle du poste creee",
-                    cle="llm")
-        print("[app-manager] cle CodeLab LLM creee et posee pour Codex.",
-              flush=True)
-        return True
-    except Exception as e:                                        # noqa: BLE001
-        # Muet SAUF au premier echec : repeter la meme ligne toutes les
-        # quelques secondes dans « docker logs » noierait tout le reste.
-        if not _cle_poste_plainte["dit"]:
-            _cle_poste_plainte["dit"] = True
-            print(f"[app-manager] cle CodeLab LLM non creee ({e}) -- "
-                  f"nouvelle tentative au prochain tour.", flush=True)
+    if _poste_retire["fait"]:
         return False
+    try:
+        with _pg_connexion(PG_BASE_LLM) as cx:
+            r = cx.execute(
+                "UPDATE llm_api_keys SET revoked_at=now()"
+                " WHERE app_id=%s AND key_name=%s AND revoked_at IS NULL",
+                (APP_POSTE, NOM_CLE_POSTE))
+            n = r.rowcount or 0
+    except Exception:                                             # noqa: BLE001
+        return False
+    try:
+        os.remove(ANCIENNE_CLE_CODEX)
+    except OSError:
+        pass
+    _poste_retire["fait"] = True
+    if n:
+        journaliser("secret", qui=NOM_ADMIN, action="cle du poste revoquee",
+                    cle="llm")
+        print("[app-manager] ancienne cle de Codex revoquee (Codex passe par "
+              "un compte ChatGPT).", flush=True)
+    return bool(n)
 
 
-_cle_poste_plainte = {"dit": False}
+_poste_retire = {"fait": False}
 
 
 @flask_app.get("/api/cles")
@@ -7115,8 +7037,7 @@ def api_cles():
             conso = consommation_llm(_entier(request.args.get("jours"), 30))
         except Exception as e:                                    # noqa: BLE001
             joignable, empechement = False, str(e).split("\n")[0][:200]
-    return jsonify({"llm": _etat_cle_llm(),
-                    # POSES et CATALOGUE sont deux listes distinctes : la
+    return jsonify({# POSES et CATALOGUE sont deux listes distinctes : la
                     # premiere se lit, la seconde s'ajoute. Les confondre
                     # ramenerait la liste figee de cinq champs qu'on vient
                     # de retirer.
@@ -7130,7 +7051,8 @@ def api_cles():
                     # en cascade ait un sens.
                     "comptes": sorted(lire_utilisateurs()),
                     "projets": sorted(load()),
-                    "app_poste": APP_POSTE})
+                    "passerelle": {"url": PASSERELLE_URL,
+                                   "modeles": _TOUS_LES_MODELES}})
 
 
 def _entier(brut, defaut):
@@ -7143,27 +7065,20 @@ def _entier(brut, defaut):
 @flask_app.post("/api/cles/llm")
 @require_admin
 def api_cles_llm_creer():
-    """Tire une cle neuve, l'inscrit, et la pose si elle est celle du poste.
+    """Tire une cle neuve pour une application, l'inscrit, et la renvoie.
 
-    ELLE N'EST PAS RENVOYEE quand elle est posee : la valeur va directement
-    dans les deux fichiers ou les agents la lisent, ce qui est le seul
-    endroit ou elle sert.
-
-    ELLE L'EST UNE FOIS quand elle ne l'est pas -- une cle destinee a une
-    application vit ailleurs, dans un fichier de projet ou une variable
-    d'environnement que le panneau ne connait pas. Affichee une seule fois,
-    comme chez n'importe quel service de LLM : la base n'en garde que
-    l'empreinte, donc personne ne pourra la relire, pas meme nous.
+    UNE FOIS : elle vit ensuite dans le .env de l'application, que le
+    panneau ne relit pas. Affichee une seule fois, comme chez n'importe quel
+    service de LLM : la base n'en garde que l'empreinte, donc personne ne
+    pourra la relire, pas meme nous.
     """
     demande = request.get_json(force=True, silent=True) or {}
-    poste = bool(demande.get("poste"))
-    nom = titre_propre(demande.get("nom")) or (NOM_CLE_POSTE if poste else "sans nom")
+    nom = titre_propre(demande.get("nom")) or "sans nom"
     # « application » cote API et « app_id » en base : c'est la colonne que
     # la passerelle remplit elle aussi, et la renommer pour l'appeler
     # « projet » couterait une migration a laquelle rien ne repondrait.
     # L'interface, elle, dit « projet » -- c'est le mot de qui s'en sert.
-    application = valid_name(demande.get("application")) or (
-        APP_POSTE if poste else "")
+    application = valid_name(demande.get("application")) or ""
     # A QUI ELLE EST ATTRIBUEE. Un compte QUI EXISTE, ou aucun.
     #
     # Le champ etait libre : on pouvait y ecrire n'importe quoi, et la cle
@@ -7175,13 +7090,13 @@ def api_cles_llm_creer():
     # qui rend la suppression en cascade tenable. Une cle attachee a un
     # compte inexistant ne serait jamais reprise par personne.
     utilisateur = titre_propre(demande.get("utilisateur"))
-    if utilisateur and not poste and utilisateur not in lire_utilisateurs():
+    if utilisateur and utilisateur not in lire_utilisateurs():
         return jsonify({"error": f"« {utilisateur} » n'est pas un compte de "
                                  "ce serveur. Choisis-en un dans la liste, "
                                  "ou laisse le champ à « aucun »."}), 400
 
     # ET LE PROJET, de meme : une application declaree, ou aucune.
-    if application and not poste and application not in load():
+    if application and application not in load():
         return jsonify({"error": f"« {application} » n'est pas un projet de "
                                  "ce serveur. Choisis-en un dans la liste, "
                                  "ou laisse le champ à « aucun »."}), 400
@@ -7195,56 +7110,30 @@ def api_cles_llm_creer():
         return jsonify({"error": "La base de codelab-llm n'est pas joignable : "
                                  f"{e}. Démarre Postgres, puis réessaie."}), 503
 
-    ancienne = cle_codex_posee() if poste else ""
     try:
         brut, ident = creer_cle_llm(nom, utilisateur, application, description)
-        if ancienne:
-            with _pg_connexion(PG_BASE_LLM) as cx:
-                cx.execute("UPDATE llm_api_keys SET revoked_at=now()"
-                           " WHERE key_hash=%s AND revoked_at IS NULL",
-                           (empreinte_cle(ancienne),))
     except Exception as e:                                        # noqa: BLE001
         return jsonify({"error": f"Clé non inscrite : {e}"}), 500
 
-    reponse = {"ok": True, "id": ident}
-    if poste:
-        ecrits = poser_cle_pour_les_agents(brut)
-        if CLE_CODEX_FICHIER not in ecrits:
-            return jsonify({"error": "La clé est inscrite en base mais le fichier "
-                                     f"{CLE_CODEX_FICHIER} n'a pas pu être écrit : "
-                                     "Codex ne la verra pas."}), 500
-        reponse["fichiers"] = [os.path.basename(c) for c in ecrits]
-    else:
-        # LE SEUL ENDROIT DE TOUT LE PANNEAU OU UNE CLE COMPLETE SORT, et
-        # c'est une decision : sans elle, une cle pour une application
-        # exterieure serait inutilisable. Elle n'est ni journalisee, ni
-        # relisible ensuite.
-        reponse["valeur"] = brut
+    # LE SEUL ENDROIT DE TOUT LE PANNEAU OU UNE CLE COMPLETE SORT, et c'est
+    # une decision : sans elle, une cle pour une application serait
+    # inutilisable. Elle n'est ni journalisee, ni relisible ensuite.
     journaliser("secret", qui=utilisateur_courant() or NOM_ADMIN,
                 action="cle llm creee", cle=str(ident), ip=_adresse_client())
-    return jsonify(reponse)
+    return jsonify({"ok": True, "id": ident, "valeur": brut,
+                    "application": application})
 
 
 @flask_app.delete("/api/cles/llm/<int:ident>")
 @require_admin
 def api_cles_llm_revoquer(ident):
-    """Revoque UNE cle, par son identifiant.
-
-    Si c'est celle du poste, le fichier part avec : un poste qui croit avoir
-    une cle et recoit un refus a chaque appel ne se diagnostique pas.
-    """
-    posee = cle_codex_posee()
+    """Revoque UNE cle, par son identifiant."""
     try:
         ligne = revoquer_cle_llm(ident)
     except Exception as e:                                        # noqa: BLE001
         return jsonify({"error": f"Clé non révoquée : {e}"}), 500
     if not ligne:
         return jsonify({"error": "Clé inconnue."}), 404
-    if posee and ligne["empreinte"] == empreinte_cle(posee):
-        try:
-            os.remove(CLE_CODEX_FICHIER)
-        except OSError:
-            pass
     journaliser("secret", qui=utilisateur_courant() or NOM_ADMIN,
                 action="cle llm revoquee", cle=str(ident), ip=_adresse_client())
     return jsonify({"ok": True})
