@@ -312,6 +312,98 @@ if [ -d "$VSCODE_SERVER_DIR" ]; then
     fi
 fi
 
+# ------------------ les extensions VS Code du poste ------------------
+#
+# L'extension PostgreSQL (Microsoft) fait partie du poste : parcourir les
+# bases, lancer une requete, lire un schema, sans quitter VS Code. D'autres
+# s'ajoutent ici, separees par des espaces (CODELAB_VSCODE_EXTENSIONS dans le
+# compose ; vide pour n'en installer aucune).
+#
+# DEUX MECANISMES, parce qu'aucun ne suffit seul :
+#
+#   1. l'INSTALLATION sur le serveur VS Code de ce conteneur. Le serveur
+#      n'existe qu'apres la premiere connexion Remote-SSH -- c'est VS Code
+#      qui le depose, a la version du poste. Un guetteur en tache de fond
+#      attend donc qu'il apparaisse, puis installe ce qui manque. Le dossier
+#      est monte depuis l'hote : une extension installee survit aux mises a
+#      jour d'image, et une extension deja la n'est pas retelechargee.
+#   2. la RECOMMANDATION dans /workspace/.vscode/extensions.json, pour
+#      qu'un poste qui ouvre le dossier la propose meme si l'installation
+#      automatique n'a pas pu se faire (pas de reseau, serveur neuf).
+VSCODE_EXTENSIONS="${CODELAB_VSCODE_EXTENSIONS-ms-ossdata.vscode-pgsql}"
+
+if [ -n "$VSCODE_EXTENSIONS" ]; then
+python3 - "$WORKSPACE_DIR/.vscode/extensions.json" $VSCODE_EXTENSIONS <<'PYRECO' || true
+import json, os, sys
+chemin, voulues = sys.argv[1], sys.argv[2:]
+contenu = {}
+if os.path.exists(chemin):
+    try:
+        with open(chemin, encoding="utf-8") as f:
+            contenu = json.load(f)
+    except (OSError, ValueError):
+        # Un fichier avec des commentaires (JSONC, ce que VS Code accepte)
+        # ou ecrit a la main d'une autre facon : on n'y touche pas.
+        sys.exit(0)
+    if not isinstance(contenu, dict):
+        sys.exit(0)
+reco = contenu.get("recommendations")
+if not isinstance(reco, list):
+    reco = []
+manquantes = [e for e in voulues if e.lower() not in {str(r).lower() for r in reco}]
+if not manquantes:
+    sys.exit(0)
+contenu["recommendations"] = reco + manquantes
+os.makedirs(os.path.dirname(chemin), exist_ok=True)
+with open(chemin, "w", encoding="utf-8") as f:
+    json.dump(contenu, f, indent=2)
+    f.write("\n")
+print(f"[codelab-dev] {chemin} : {', '.join(manquantes)} recommandee(s).")
+PYRECO
+chown -R "$SSH_USER" "$WORKSPACE_DIR/.vscode" 2>/dev/null || true
+fi
+
+# Le binaire du serveur VS Code : l'emplacement a change entre versions.
+cli_vscode() {
+    for cli in "$VSCODE_SERVER_DIR"/cli/servers/*/server/bin/code-server \
+               "$VSCODE_SERVER_DIR"/bin/*/bin/code-server; do
+        if [ -x "$cli" ]; then echo "$cli"; fi
+    done
+    return 0
+}
+
+installer_les_extensions() {
+    for cli in $(cli_vscode); do
+        for ext in $VSCODE_EXTENSIONS; do
+            ext_min=$(printf '%s' "$ext" | tr '[:upper:]' '[:lower:]')
+            # Deja installee (le dossier porte l'identifiant en minuscules,
+            # suivi de la version) : rien a faire, rien a telecharger.
+            if ls -d "$VSCODE_SERVER_DIR/extensions/$ext_min-"* >/dev/null 2>&1; then
+                continue
+            fi
+            # Un echec recent (pas de reseau) : on reessaie dans une heure,
+            # pas a chaque minute.
+            echec="/tmp/codelab-extension-echec-$ext_min"
+            if [ -n "$(find "$echec" -mmin -60 2>/dev/null)" ]; then
+                continue
+            fi
+            if runuser -u "$SSH_USER" -- env HOME="/home/$SSH_USER" \
+                   "$cli" --install-extension "$ext" >/dev/null 2>&1; then
+                echo "[codelab-dev] extension VS Code $ext installee."
+                rm -f "$echec"
+            else
+                echo "[codelab-dev] extension VS Code $ext : installation" \
+                     "impossible, nouvel essai dans une heure."
+                touch "$echec"
+            fi
+        done
+    done
+}
+
+if [ -n "$VSCODE_EXTENSIONS" ]; then
+    ( while :; do installer_les_extensions || true; sleep 60; done ) &
+fi
+
 
 # ------------------------------- git -------------------------------
 #

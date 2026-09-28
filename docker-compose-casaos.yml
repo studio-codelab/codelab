@@ -190,6 +190,7 @@ services:
       PGUSER: codelab
       CODELAB_ENV_FILE: /var/lib/codelab/config/credentials.env
       CODELAB_SSH_DIR: /var/lib/codelab/ssh
+      CODELAB_VSCODE_EXTENSIONS: "ms-ossdata.vscode-pgsql"
 
     volumes:
       - /DATA/AppData/codelab/workspace:/workspace

@@ -348,6 +348,10 @@ services:
       CODELAB_ENV_FILE: /var/lib/codelab/config/credentials.env
       # Cles autorisees + cles hote, dans un seul dossier.
       CODELAB_SSH_DIR: /var/lib/codelab/ssh
+      # Extensions VS Code installees d'office sur le serveur VS Code du
+      # conteneur, a la premiere connexion Remote-SSH (voir dev/README.md).
+      # Separees par des espaces ; vide pour n'en installer aucune.
+      CODELAB_VSCODE_EXTENSIONS: "ms-ossdata.vscode-pgsql"
 
     volumes:
       # Chemin hote par defaut : /DATA/AppData/codelab/workspace. Doit rester
