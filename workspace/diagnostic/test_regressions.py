@@ -11296,7 +11296,7 @@ def test_l_entrypoint_postgres_n_ecrase_jamais_une_valeur_deja_posee():
     import tempfile
     source = open(os.path.join(_racine_depot(), "postgres", "entrypoint.sh"),
                   encoding="utf-8").read()
-    debut = source.index('LLM_PROVIDER_KEY="${OPENROUTER_API_KEY:-}"')
+    debut = source.index("pas_un_gabarit() {")
     fin = source.index("\nfi\n", debut) + 4
     bloc = source[debut:fin]
     with tempfile.TemporaryDirectory() as bac:
@@ -11310,6 +11310,11 @@ def test_l_entrypoint_postgres_n_ecrase_jamais_une_valeur_deja_posee():
         plein = subprocess.run(["sh", "-c", script, "sh", "venue-du-env-de-l-hote"],
                                capture_output=True, text=True, timeout=30)
         assert plein.stdout.strip() == "venue-du-env-de-l-hote", plein
+        # CasaOS transmet « ${OPENROUTER_API_KEY} » tel quel : ce n'est pas
+        # une valeur, la cle du panneau reste.
+        gabarit = subprocess.run(["sh", "-c", script, "sh", "${OPENROUTER_API_KEY}"],
+                                 capture_output=True, text=True, timeout=30)
+        assert gabarit.stdout.strip() == "deja-posee-par-le-panneau", gabarit
 
 
 def test_postgres_garde_les_reglages_poses_a_la_main_dans_llm_env():
@@ -12682,3 +12687,47 @@ def test_la_liste_des_modeles_convient_aussi_a_codex(monkeypatch):
     corps = client.get("/v1/models?client_version=0.155.1").json()
     assert corps["models"] == []
     assert "codelab-coding" in [m["id"] for m in corps["data"]]
+
+
+def test_le_compose_casaos_ne_porte_aucune_variable_a_substituer():
+    """CasaOS ne substitue pas « ${...} » : il transmettait le texte tel
+    quel, et codelab-postgres recopiait « ${OPENROUTER_API_KEY} » par-dessus
+    la cle posee dans le panneau (OpenRouter : « Missing Authentication
+    header »)."""
+    texte = open(os.path.join(_racine_depot(), "docker-compose-casaos.yml"),
+                 encoding="utf-8").read()
+    assert "${" not in texte
+
+
+@pytest.mark.parametrize("fichier", ["docker-compose.yml", "docker-compose-casaos.yml"])
+def test_la_base_de_codelab_llm_n_est_pas_une_base_de_projet(fichier):
+    """Listee dans CODELAB_PROJECT_DBS, codelab_llm recevait le search_path
+    d'un projet a chaque demarrage : le panneau y inscrivait les cles la ou
+    la passerelle ne les lisait pas, et Codex recevait 401."""
+    texte = open(os.path.join(_racine_depot(), fichier), encoding="utf-8").read()
+    ligne = re.search(r'CODELAB_PROJECT_DBS:\s*"([^"]*)"', texte).group(1)
+    assert "codelab_llm" not in ligne.split()
+
+
+def test_un_gabarit_non_substitue_n_est_pas_une_cle(tmp_path, monkeypatch):
+    import subprocess
+    source = open(os.path.join(_racine_depot(), "postgres", "entrypoint.sh"),
+                  encoding="utf-8").read()
+    fonction = source[source.index("pas_un_gabarit() {"):]
+    fonction = fonction[:fonction.index("\n}\n") + 3]
+    for entree, attendu in (("${OPENROUTER_API_KEY}", ""), ("sk-or-v1-abc", "sk-or-v1-abc"), ("", "")):
+        r = subprocess.run(["sh", "-c", fonction + 'pas_un_gabarit "$1"', "sh", entree],
+                           capture_output=True, text=True, timeout=10)
+        assert r.stdout.strip() == attendu
+
+    pytest.importorskip("fastapi")
+    pytest.importorskip("psycopg_pool")
+    env = tmp_path / "llm.env"
+    env.write_text("OPENROUTER_API_KEY=${OPENROUTER_API_KEY}\n", encoding="utf-8")
+    spec = importlib.util.spec_from_file_location(
+        "codelab_llm_gabarit", os.path.join(_racine_depot(), "llm", "app.py"))
+    passerelle = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(passerelle)
+    monkeypatch.setattr(passerelle, "ENV_FILE", str(env))
+    monkeypatch.setenv("OPENROUTER_API_KEY", "${OPENROUTER_API_KEY}")
+    assert passerelle.cle_amont() == ""

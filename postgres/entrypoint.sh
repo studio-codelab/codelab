@@ -198,9 +198,19 @@ chown "$CODELAB_LLM_UID" "$LLM_DIR"
 # La cle du fournisseur : elle arrive par l'environnement du compose (fichier
 # .env de l'hote) ou reste celle deja posee ici. Jamais copiee depuis
 # credentials.env -- l'interet du dossier serait perdu.
-LLM_PROVIDER_KEY="${OPENROUTER_API_KEY:-}"
+#
+# UN « ${...} » N'EST PAS UNE CLE. CasaOS ne substitue pas les variables du
+# compose : il transmettait le texte « ${OPENROUTER_API_KEY} » tel quel, que
+# ce bloc recopiait a chaque demarrage par-dessus la cle posee dans le
+# panneau -- et OpenRouter repondait « Missing Authentication header ». Ce
+# texte, qu'il vienne de l'environnement ou d'un fichier deja pollue, est
+# traite comme une absence.
+pas_un_gabarit() {
+  case "$1" in '${'*) echo "" ;; *) echo "$1" ;; esac
+}
+LLM_PROVIDER_KEY="$(pas_un_gabarit "${OPENROUTER_API_KEY:-}")"
 if [ -z "$LLM_PROVIDER_KEY" ] && [ -s "$LLM_ENV_FILE" ]; then
-  LLM_PROVIDER_KEY="$(sed -n 's/^OPENROUTER_API_KEY=//p' "$LLM_ENV_FILE" | tail -n 1)"
+  LLM_PROVIDER_KEY="$(pas_un_gabarit "$(sed -n 's/^OPENROUTER_API_KEY=//p' "$LLM_ENV_FILE" | tail -n 1)")"
 fi
 
 # Les reglages poses a la main dans ce fichier -- un autre fournisseur, un
