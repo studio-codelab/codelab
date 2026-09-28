@@ -6688,7 +6688,10 @@ def ecrire_env_secrets(quel, valeurs):
         os.chmod(LLM_CONFIG_DIR, 0o700)
     except OSError:
         pass
-    _ecrire_0600(chemin, "\n".join(lignes) + "\n")
+    # Le proprietaire du DOSSIER, que codelab-postgres donne a codelab-llm :
+    # ecrit en root, le fichier redeviendrait illisible pour la passerelle, qui
+    # tourne sous son propre utilisateur et sans capacite.
+    _ecrire_0600(chemin, "\n".join(lignes) + "\n", modele=LLM_CONFIG_DIR)
 
 
 def secret_propre(brut):
