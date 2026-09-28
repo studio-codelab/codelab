@@ -52,7 +52,9 @@ Sans serveur d'envoi réglé, les mails sont gardés et aucun ne part.
 
 ## Consulter les mails
 
-`http://<IP-du-serveur>:8025/`, avec la **session d'administration du panneau**, comme Dagster.
+Par la **tuile Mailpit du hub**, ou directement sur `http://<IP-du-serveur>:8025/`, avec la
+**session d'administration du panneau**, comme Dagster. La tuile se range comme les autres (*Paramètres >
+Compte*), et sa fiche montre si Mailpit répond.
 L'interface montre tous les mails, liens de réinitialisation de mot de passe compris. Elle n'est donc
 ouverte à aucun compte utilisateur.
 

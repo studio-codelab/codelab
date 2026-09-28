@@ -137,7 +137,7 @@ surveiller à l'œil :
 - **Catégories** — des tiroirs pour ranger les projets dans le hub. Purement visuel : une catégorie
   ne donne aucun droit.
 - **Applications du hub** — ce que *ton* hub affiche, compte par compte. Cochée, elle est affichée.
-  **Dagster en fait partie** : sur une installation où l'on n'ouvre jamais l'orchestrateur, sa tuile
+  **Dagster et Mailpit en font partie** : sur une installation où l'on n'ouvre jamais l'orchestrateur, sa tuile
   se range comme les autres. C'est du rangement, pas une fermeture : le service continue de tourner
   et son adresse répond toujours.
 

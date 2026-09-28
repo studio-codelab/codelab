@@ -803,13 +803,19 @@ DIAGNOSTIC_NOM = "diagnostic"
 #      l'administration est limitee au reseau local, ces deux-la le sont
 #      aussi -- meme session, meme frontiere.
 APPS_PAR_DEFAUT = (DAGSTER_NOM, DIAGNOSTIC_NOM)
-APPLICATIONS_PROTEGEES = {DAGSTER_NOM, DIAGNOSTIC_NOM}
+# Mailpit : un service de la stack, comme Dagster, mais qui n'a jamais ete
+# declare dans apps.json. Il en a les memes regles -- reserve a
+# l'administrateur (son interface montre TOUS les mails envoyes, liens de
+# reinitialisation compris), rien a configurer, rien a demarrer ni arreter.
+MAILPIT_NOM = "mailpit"
+APPLICATIONS_PROTEGEES = {DAGSTER_NOM, DIAGNOSTIC_NOM, MAILPIT_NOM}
 
 # Le nom AFFICHE des deux applications par defaut. Leur cle est le chemin --
 # « dagster », « diagnostic » -- et c'est elle qui s'affichait : deux tuiles
 # en minuscules au milieu de projets nommes par leur auteur. Elles n'ont pas
 # de formulaire ou corriger cela, la valeur est donc posee ici.
-TITRES_PAR_DEFAUT = {DAGSTER_NOM: "Dagster", DIAGNOSTIC_NOM: "Diagnostic"}
+TITRES_PAR_DEFAUT = {DAGSTER_NOM: "Dagster", DIAGNOSTIC_NOM: "Diagnostic",
+                     MAILPIT_NOM: "Mailpit"}
 
 # La tuile du diagnostic a besoin d'une phrase, et cette phrase ne peut pas
 # s'ecrire a la main : la fiche d'une application par defaut n'a pas de
@@ -827,7 +833,7 @@ def refus_action_protegee(nom, action):
 
 
 def est_app_par_defaut(nom):
-    return nom in APPS_PAR_DEFAUT
+    return nom in APPS_PAR_DEFAUT or nom == MAILPIT_NOM
 
 
 def refus_configuration(nom):
@@ -896,6 +902,25 @@ def dagster_repond():
     return _port_repond(DAGSTER_HOTE_INTERNE, DAGSTER_PORT)
 
 
+# Mailpit : meme montage que Dagster. Son interface est publiee par le meme
+# proxy authentifiant, sur un autre port.
+MAILPIT_PORT = int(os.environ.get("APP_MANAGER_MAILPIT_PORT", "8025") or 8025)
+MAILPIT_HOTE_INTERNE = os.environ.get("APP_MANAGER_MAILPIT_HOTE") or "codelab-dagster-proxy"
+MAILPIT_AMONT = os.environ.get("APP_MANAGER_MAILPIT_AMONT") or "codelab-mailpit"
+
+
+def origine_mailpit():
+    """L'adresse de Mailpit vue du navigateur : meme hote, port 8025."""
+    hote = hote_demande()
+    if not hote:
+        return ""
+    return f"{request.scheme}://{hote}:{MAILPIT_PORT}/"
+
+
+def mailpit_repond():
+    return _port_repond(MAILPIT_HOTE_INTERNE, MAILPIT_PORT)
+
+
 # ------------------- ce que le panneau sait de Dagster -------------------
 #
 # Dagster tourne dans un AUTRE conteneur : le panneau n'a pas son pid, donc
@@ -952,6 +977,44 @@ def dagster_tick():
             f"-- conteneur arrêté ? « docker compose up -d codelab-dagster ».")
 
 
+_mailpit_suivi = {"debout": None}
+
+
+def mailpit_sonde():
+    """(debout, millisecondes). /readyz est la seule route de Mailpit ouverte
+    sans son mot de passe interne -- et c'est exactement la question."""
+    debut = time.time()
+    try:
+        with urllib.request.urlopen(f"http://{MAILPIT_AMONT}:{MAILPIT_PORT}/readyz",
+                                    timeout=5) as r:
+            debout = r.status == 200
+    except Exception:
+        return False, (time.time() - debut) * 1000
+    return debout, (time.time() - debut) * 1000
+
+
+def mailpit_tick():
+    """Comme dagster_tick : des mesures a chaque tour, une ligne de journal
+    seulement quand l'etat change."""
+    debout, ms = mailpit_sonde()
+    record_metrics(MAILPIT_NOM, round(ms, 1), 100.0 if debout else 0.0)
+    if _mailpit_suivi["debout"] is debout:
+        return
+    premier = _mailpit_suivi["debout"] is None
+    _mailpit_suivi["debout"] = debout
+    if debout:
+        journal_du_service(MAILPIT_NOM,
+                           f"Mailpit répond ({ms:.0f} ms)."
+                           if premier else
+                           f"Mailpit répond de nouveau ({ms:.0f} ms).")
+    else:
+        journal_du_service(
+            MAILPIT_NOM,
+            f"Mailpit ne répond pas sur http://{MAILPIT_AMONT}:{MAILPIT_PORT}/ "
+            f"-- les mails des applications ne partent plus. "
+            f"« docker compose up -d codelab-mailpit ».")
+
+
 def journal_du_service(nom, ligne):
     """Ecrit dans le journal d'une application que le panneau ne lance pas.
 
@@ -972,13 +1035,15 @@ def journal_du_service(nom, ligne):
 # Les services de la stack qu'un compte peut ranger hors de son hub. Une
 # liste nommee plutot qu'un « tout ce qui n'est pas une application » : ce
 # qui est masquable se decide ici, et se lit d'un coup d'oeil.
-SERVICES_MASQUABLES = frozenset({DAGSTER_NOM})
+SERVICES_MASQUABLES = frozenset({DAGSTER_NOM, MAILPIT_NOM})
 
 # La phrase de la tuile Dagster, lue par les deux listes ci-dessous. Deux
 # copies divergeraient, et la tuile rangee ne se decrirait plus comme celle
 # qu'on retrouve en la remettant.
 DESCRIPTION_DAGSTER = ("Orchestration des jobs : plannings, assets, "
                        "exécutions et journaux.")
+DESCRIPTION_MAILPIT = ("Les mails envoyés par les applications : chacun se "
+                       "relit ici, avant ou après son départ.")
 
 
 def services_masques():
@@ -991,10 +1056,12 @@ def services_masques():
     """
     if not est_admin():
         return []
-    if DAGSTER_NOM not in masquees_du_compte():
-        return []
-    return [{"name": DAGSTER_NOM, "titre": TITRES_PAR_DEFAUT[DAGSTER_NOM],
-             "description": DESCRIPTION_DAGSTER, "externe": True}]
+    masquees = masquees_du_compte()
+    return [{"name": nom, "titre": TITRES_PAR_DEFAUT[nom],
+             "description": description, "externe": True}
+            for nom, description in ((DAGSTER_NOM, DESCRIPTION_DAGSTER),
+                                     (MAILPIT_NOM, DESCRIPTION_MAILPIT))
+            if nom in masquees]
 
 
 def services_du_hub():
@@ -1015,18 +1082,35 @@ def services_du_hub():
     # son propre hub. Le masquage reste ce qu'il est -- du rangement, par
     # compte, sans rien fermer : Dagster tourne, son adresse repond, et
     # l'administrateur le retrouve dans Parametres > Compte.
-    if DAGSTER_NOM in masquees_du_compte():
-        return services
-    adresse = origine_dagster()
-    if not adresse:
-        return services
-    return services + [{
-        "name": DAGSTER_NOM,
-        "titre": TITRES_PAR_DEFAUT[DAGSTER_NOM],
-        "description": DESCRIPTION_DAGSTER,
+    #
+    # Mailpit suit les memes regles, pour une raison voisine : son interface
+    # montre tous les mails envoyes par les applications, liens de
+    # reinitialisation de mot de passe compris.
+    masquees = masquees_du_compte()
+    if DAGSTER_NOM not in masquees:
+        adresse = origine_dagster()
+        if adresse:
+            debout = dagster_repond()
+            services.append(_tuile_service(DAGSTER_NOM, DESCRIPTION_DAGSTER,
+                                           adresse, debout, DAGSTER_PORT))
+    if MAILPIT_NOM not in masquees:
+        adresse = origine_mailpit()
+        if adresse:
+            debout = mailpit_repond()
+            services.append(_tuile_service(MAILPIT_NOM, DESCRIPTION_MAILPIT,
+                                           adresse, debout, MAILPIT_PORT))
+    return services
+
+
+def _tuile_service(nom, description, adresse, debout, port):
+    """Une tuile de service de la stack, avec les cles d'une application."""
+    return {
+        "name": nom,
+        "titre": TITRES_PAR_DEFAUT[nom],
+        "description": description,
         "categorie": "",
-        "running": dagster_repond(),
-        "listening": dagster_repond(),
+        "running": debout,
+        "listening": debout,
         "visibility": VISIBILITE_PRIVEE,
         # Ce qui la distingue d'une application : elle a sa propre adresse,
         # et le panneau ne la demarre ni ne l'arrete.
@@ -1037,12 +1121,12 @@ def services_du_hub():
         # page lit ces champs sans se demander a chaque fois si elle a
         # affaire a un service. Un « undefined » dans une fiche est un defaut
         # d'affichage de plus a prevoir, et il finit toujours par passer.
-        "path": "", "command": "", "port": DAGSTER_PORT,
-        "port_listeners": _ecouteurs_port(DAGSTER_PORT),
+        "path": "", "command": "", "port": port,
+        "port_listeners": _ecouteurs_port(port),
         "failed": False, "crash_looping": False, "has_build": False,
         "build_command": "", "max_memory_mb": None, "alertes": [],
         "cpu_percent": 0.0, "memory_mb": 0.0,
-    }]
+    }
 
 
 def lien_panneau():
@@ -4154,6 +4238,10 @@ def start_monitor_thread():
                 dagster_tick()
             except Exception as e:
                 print(f"[app-manager] erreur dans la surveillance de Dagster : {e}", flush=True)
+            try:
+                mailpit_tick()
+            except Exception as e:
+                print(f"[app-manager] erreur dans la surveillance de Mailpit : {e}", flush=True)
             # Les alertes en dernier, et dans le meme thread : un envoi SMTP
             # peut prendre jusqu'a 20 secondes, mais il n'a lieu qu'une fois
             # l'incident deja constate -- le redemarrage automatique a donc
@@ -8088,9 +8176,22 @@ ICONE_DIAGNOSTIC = (
     'stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>'
     '</svg>')
 
+# Mailpit : une enveloppe, et le point qui dit « il y a du courrier ».
+# Dessin original, ce n'est pas le logo de Mailpit.
+ICONE_MAILPIT = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+    '<rect width="64" height="64" rx="16" fill="#2a6fdb"/>'
+    '<rect x="13" y="19" width="38" height="27" rx="4" fill="none" '
+    'stroke="#fff" stroke-width="4"/>'
+    '<path d="M15 22l17 13 17-13" fill="none" stroke="#fff" stroke-width="4" '
+    'stroke-linecap="round" stroke-linejoin="round"/>'
+    '<circle cx="49" cy="18" r="7" fill="#ffb020" stroke="#2a6fdb" stroke-width="3"/>'
+    '</svg>')
+
 ICONES_PAR_DEFAUT = {
     DAGSTER_NOM: ICONE_DAGSTER,
     DIAGNOSTIC_NOM: ICONE_DIAGNOSTIC,
+    MAILPIT_NOM: ICONE_MAILPIT,
 }
 
 
@@ -8132,6 +8233,31 @@ flask_app.add_url_rule("/" + DAGSTER_NOM + "/", "ouvrir_dagster",
                        require_admin(ouvrir_dagster))
 flask_app.add_url_rule("/" + DAGSTER_NOM, "ouvrir_dagster_sans_barre",
                        require_admin(ouvrir_dagster))
+
+
+# OUVRIR MAILPIT : la meme porte que Dagster, pour les memes raisons --
+# l'ouverture est notee, l'adresse construite par le serveur, et le reseau
+# local verifie si l'administration y est limitee.
+def ouvrir_mailpit():
+    hors = refus_admin_hors_reseau()
+    if hors:
+        journaliser("refus", app=MAILPIT_NOM, motif="hors reseau local",
+                    ip=_adresse_client())
+        return Response(_page("Accès refusé", hors), 403, mimetype="text/html")
+    adresse = origine_mailpit()
+    if not adresse:
+        return Response(_page("Adresse introuvable",
+                              "Le panneau n'a pas su construire l'adresse de "
+                              "Mailpit depuis cette requête."),
+                        503, mimetype="text/html")
+    journaliser_ouverture(MAILPIT_NOM)
+    return redirect(adresse, 302)
+
+
+flask_app.add_url_rule("/" + MAILPIT_NOM + "/", "ouvrir_mailpit",
+                       require_admin(ouvrir_mailpit))
+flask_app.add_url_rule("/" + MAILPIT_NOM, "ouvrir_mailpit_sans_barre",
+                       require_admin(ouvrir_mailpit))
 
 
 # L'ICONE DE DAGSTER : CELLE QUE DAGSTER SERT LUI-MEME.
