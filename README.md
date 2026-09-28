@@ -164,7 +164,13 @@ Tout vit dans `/DATA/AppData/codelab/config/`, en dehors des conteneurs.
 | Fichier | Contenu | Écrit par | Lu par |
 |---|---|---|---|
 | `credentials.env` | identifiants des services, **un bloc par service** ; un sommaire en tête dit qui écrit quoi | les services, à leur démarrage | les services ; une partie est passée aux apps (voir 3) |
+| base Postgres, table `reglages` | réglages saisis dans le panneau (SMTP et son mot de passe, alertes, destinataires, surveillance, e-mails des comptes), **chiffrés** avec `APP_MANAGER_CHIFFREMENT_CLE` ; copie chiffrée locale `reglages.chiffres` si Postgres est arrêté | le panneau | le panneau |
 | `ssh/authorized_keys.d/` | une clé publique par machine autorisée | toi | `codelab-dev` |
+
+Les identifiants par défaut (panneau, Postgres, Redis) sont tous dans `credentials.env`.
+**Sauvegarde `APP_MANAGER_CHIFFREMENT_CLE`** : sans elle, les réglages chiffrés sont illisibles
+(le panneau ne la régénère jamais si elle existe). Les apps, l'exposition et les catégories
+restent dans des fichiers, pour que le panneau démarre et se répare même sans Postgres.
 
 On n'édite `credentials.env` qu'en y **ajoutant** un bloc à soi : chaque bloc d'un service est
 réécrit à son démarrage. Détails : [`workspace/README.md`](workspace/README.md#credentialsenv).

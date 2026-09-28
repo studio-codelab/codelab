@@ -35,6 +35,7 @@ n'y depose aucun fichier. Les dossiers sont crees par l'utilisateur (SSH,
 VS Code, git clone) puis simplement declares ici.
 """
 import base64
+import copy
 import datetime
 import fcntl
 import functools
@@ -289,15 +290,24 @@ def ecrire_bloc_panneau(pw, key, totp):
     """
     commentaires = [
         "# Panneau web de gestion des applications deployees (http://<IP>:9001/).",
-        "# APP_MANAGER_ADMIN_PASSWORD : mot de passe de connexion au panneau.",
+        "# APP_MANAGER_ADMIN_LOGIN / _PASSWORD : l'identifiant et le mot de",
+        "#   passe du compte d'administration. Dagster et Mailpit s'ouvrent",
+        "#   avec la meme session : ils n'ont pas d'identifiant a eux.",
         "# APP_MANAGER_SESSION_SECRET : cle de signature des sessions -- la",
         "#   changer deconnecte tout le monde ; ne jamais la partager.",
+        "# APP_MANAGER_CHIFFREMENT_CLE : chiffre les reglages saisis dans le",
+        "#   panneau (e-mails, serveur d'envoi, surveillance), en base comme",
+        "#   dans la copie locale. La perdre rend ces reglages illisibles :",
+        "#   la sauvegarder avec ce fichier, ne jamais la regenerer.",
     ]
     valeurs = {
         "APP_MANAGER_URL": "http://<IP-du-serveur>:9001",
+        "APP_MANAGER_ADMIN_LOGIN": NOM_ADMIN,
         "APP_MANAGER_ADMIN_PASSWORD": pw,
         "APP_MANAGER_SESSION_SECRET": key,
     }
+    if _cle_chiffrement:
+        valeurs["APP_MANAGER_CHIFFREMENT_CLE"] = _cle_chiffrement
     if totp:
         commentaires.append(
             "# APP_MANAGER_TOTP_SECRET : double authentification activee. Vider")
@@ -334,6 +344,20 @@ def bootstrap_secrets():
 
     _admin_password = pw
     flask_app.secret_key = key
+
+    # La cle du coffre. Lue, jamais regeneree par-dessus une valeur presente :
+    # une nouvelle cle rendrait illisible tout ce qui a ete chiffre avec
+    # l'ancienne.
+    global _cle_chiffrement
+    _cle_chiffrement = read_shared_value("APP_MANAGER_CHIFFREMENT_CLE") or ""
+    if not _cle_chiffrement:
+        try:
+            from cryptography.fernet import Fernet
+            _cle_chiffrement = Fernet.generate_key().decode()
+            print("[app-manager] cle de chiffrement des reglages generee.", flush=True)
+        except ImportError:
+            print("[app-manager] cryptography absent : reglages non chiffrables.", flush=True)
+    _coffre["donnees"] = None
 
     # Le secret de double authentification, s'il a ete active un jour. Absent =
     # desactivee, et la connexion se fait au seul mot de passe.
@@ -1548,6 +1572,123 @@ def require_admin(view):
 # Les mots de passe sont derives, jamais stockes : le fichier vit dans le
 # dossier d'etat, a cote de apps.json, et une copie de sauvegarde ne doit pas
 # etre une liste de mots de passe.
+# ------------------------------- LE COFFRE -------------------------------
+#
+# Ce qui se regle DEPUIS LE PANNEAU et qui dit quelque chose de quelqu'un --
+# les adresses e-mail des comptes et des alertes, le serveur d'envoi et son
+# mot de passe, l'adresse de surveillance -- ne vit plus dans des fichiers
+# en clair. Chaque valeur est chiffree (Fernet : AES-128-CBC + HMAC-SHA256)
+# avec une cle rangee dans credentials.env (APP_MANAGER_CHIFFREMENT_CLE),
+# puis :
+#
+#   - ecrite dans Postgres, table « reglages » de la base du panneau. C'est
+#     la qu'elle vit, et elle est sauvegardee avec les autres bases ;
+#   - recopiee, chiffree elle aussi, dans STATE_DIR/reglages.chiffres. Une
+#     alerte doit partir PRECISEMENT quand quelque chose est tombe --
+#     Postgres compris. Le panneau ne depend donc jamais de la base pour LIRE
+#     ses reglages : il la tient a jour, et s'y reprend si la copie manque.
+#
+# Sans la cle, ni la base ni la copie ne se lisent, et c'est le but : un dump
+# de la base ou une archive de sauvegarde ne livrent aucune adresse. La
+# perdre, c'est perdre ces reglages (pas les comptes, pas les applications) :
+# elle se sauvegarde avec credentials.env.
+#
+# CE QUI RESTE EN FICHIERS, et pourquoi : les applications declarees,
+# l'exposition, les categories, les rangements du hub. Le panneau en a
+# besoin pour DEMARRER et pour qu'on puisse s'y connecter afin de reparer le
+# reste. Les faire dependre de Postgres le rendrait plus fragile, pas plus sur.
+COFFRE_FILE = os.path.join(STATE_DIR, "reglages.chiffres")
+_cle_chiffrement = ""
+_coffre = {"donnees": None}
+_coffre_verrou = threading.RLock()
+
+
+def _fernet():
+    from cryptography.fernet import Fernet
+    if not _cle_chiffrement:
+        raise RuntimeError("cle de chiffrement absente (APP_MANAGER_CHIFFREMENT_CLE)")
+    return Fernet(_cle_chiffrement.encode())
+
+
+def chiffrer(valeur):
+    return _fernet().encrypt(json.dumps(valeur, ensure_ascii=False).encode())
+
+
+def dechiffrer(jeton):
+    return json.loads(_fernet().decrypt(bytes(jeton)).decode())
+
+
+def _coffre_donnees():
+    """Le contenu dechiffre, charge une fois. Jamais d'exception.
+
+    Tant que la cle n'est pas chargee, rien n'est mis en cache : une lecture
+    trop tot ne doit pas figer un coffre vide qu'une ecriture viendrait
+    ensuite poser par-dessus le vrai.
+    """
+    with _coffre_verrou:
+        if _coffre["donnees"] is not None:
+            return _coffre["donnees"]
+        if not _cle_chiffrement:
+            return {}
+        donnees = {}
+        try:
+            with open(COFFRE_FILE, "rb") as f:
+                donnees = dechiffrer(f.read())
+        except FileNotFoundError:
+            pass
+        except Exception as e:                                    # noqa: BLE001
+            # Cle changee ou fichier abime. On ne l'ecrase pas en silence :
+            # il est mis de cote, et le panneau repart d'un coffre vide.
+            cote = f"{COFFRE_FILE}.illisible-{int(time.time())}"
+            try:
+                os.replace(COFFRE_FILE, cote)
+            except OSError:
+                pass
+            print(f"[app-manager] reglages chiffres illisibles ({type(e).__name__}) : "
+                  f"mis de cote dans {cote}. La cle APP_MANAGER_CHIFFREMENT_CLE "
+                  f"de credentials.env a-t-elle change ?", flush=True)
+        _coffre["donnees"] = donnees if isinstance(donnees, dict) else {}
+        return _coffre["donnees"]
+
+
+def _coffre_sauver():
+    tmp = COFFRE_FILE + ".tmp"
+    with open(tmp, "wb") as f:
+        f.write(chiffrer(_coffre_donnees()))
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, COFFRE_FILE)
+
+
+def reglage(cle, defaut=None):
+    """Une valeur du coffre, dechiffree. Une COPIE : la modifier ne change rien."""
+    with _coffre_verrou:
+        return copy.deepcopy(_coffre_donnees().get(cle, defaut))
+
+
+def ecrire_reglage(cle, valeur):
+    """Ecrit (None = retire) une valeur. Leve si la copie locale ne s'ecrit pas :
+    c'est a l'appelant de dire que rien n'a ete enregistre."""
+    with _coffre_verrou:
+        if not _cle_chiffrement:
+            raise RuntimeError("cle de chiffrement absente (APP_MANAGER_CHIFFREMENT_CLE)")
+        donnees = _coffre_donnees()
+        avant = copy.deepcopy(donnees.get(cle))
+        if valeur is None:
+            donnees.pop(cle, None)
+        else:
+            donnees[cle] = copy.deepcopy(valeur)
+        try:
+            _coffre_sauver()
+        except BaseException:
+            # Rien n'est ecrit : la memoire revient a l'etat d'avant.
+            if avant is None:
+                donnees.pop(cle, None)
+            else:
+                donnees[cle] = avant
+            raise
+    _pg_deposer(("reglage", cle))
+
+
 UTILISATEURS_FILE = os.path.join(STATE_DIR, "utilisateurs.json")
 
 # Nom reserve : le compte d'administration n'est pas dans ce fichier, son mot
@@ -1567,19 +1708,40 @@ PBKDF2_ITERATIONS = 200_000
 
 def lire_utilisateurs():
     """Le registre des comptes. Jamais d'exception : un fichier illisible ne
-    doit pas empecher l'administrateur de se connecter pour le reparer."""
+    doit pas empecher l'administrateur de se connecter pour le reparer.
+
+    L'adresse e-mail de chaque compte vit dans le COFFRE, chiffree : elle est
+    rattachee ici, pour que tout le reste du panneau lise un compte comme
+    avant. Une adresse encore presente dans le fichier (installation d'avant)
+    reste lue jusqu'a sa migration.
+    """
     try:
         with open(UTILISATEURS_FILE) as f:
             d = json.load(f)
     except (OSError, ValueError):
         return {}
-    return d if isinstance(d, dict) else {}
+    if not isinstance(d, dict):
+        return {}
+    emails = reglage("emails_comptes", {}) or {}
+    for nom, compte in d.items():
+        if isinstance(compte, dict) and emails.get(nom):
+            compte["email"] = emails[nom]
+    return d
 
 
 def ecrire_utilisateurs(comptes):
+    # Les adresses partent au coffre, chiffrees ; le fichier n'en garde
+    # aucune. D'abord le coffre : s'il echoue, le fichier n'est pas touche
+    # et rien ne se perd.
+    emails = {nom: c["email"] for nom, c in comptes.items()
+              if isinstance(c, dict) and c.get("email")}
+    ecrire_reglage("emails_comptes", emails or None)
+    sans_email = {nom: ({k: v for k, v in c.items() if k != "email"}
+                        if isinstance(c, dict) else c)
+                  for nom, c in comptes.items()}
     tmp = UTILISATEURS_FILE + ".tmp"
     with open(tmp, "w") as f:
-        json.dump(comptes, f, indent=2)
+        json.dump(sans_email, f, indent=2)
     os.replace(tmp, UTILISATEURS_FILE)
     try:
         # Meme si le contenu est derive, ce fichier dit qui existe : il n'a
@@ -2585,6 +2747,15 @@ def _pg_preparer():
               motif       TEXT,
               action      TEXT
             )""")
+        # Le coffre : une valeur chiffree par cle, illisible sans la cle de
+        # credentials.env. Cette base est joignable par les projets deployes
+        # (meme utilisateur Postgres) : rien n'y est en clair.
+        cx.execute("""
+            CREATE TABLE IF NOT EXISTS reglages (
+              cle    TEXT PRIMARY KEY,
+              valeur BYTEA NOT NULL,
+              maj    TIMESTAMPTZ NOT NULL DEFAULT now()
+            )""")
         cx.execute("CREATE INDEX IF NOT EXISTS acces_ts ON acces (ts DESC)")
         cx.execute("CREATE INDEX IF NOT EXISTS acces_qui ON acces (qui, ts DESC)")
         cx.execute("CREATE INDEX IF NOT EXISTS acces_app ON acces (application, ts DESC)")
@@ -2694,7 +2865,7 @@ def _pg_ecrire_utilisateurs(cx):
                   second_facteur=EXCLUDED.second_facteur,
                   cles_acces=EXCLUDED.cles_acces, projets=EXCLUDED.projets,
                   cree=EXCLUDED.cree, supprime=NULL, maj=now()
-            """, (nom, c.get("email") or "", bool(c.get("email_verifie")),
+            """, (nom, "", bool(c.get("email_verifie")),
                   bool(c.get("attente_email")), bool(c.get("totp")),
                   len(cles.get(nom, [])), sorted(c.get("projets", [])),
                   datetime.datetime.fromtimestamp(c.get("cree") or 0,
@@ -2702,6 +2873,56 @@ def _pg_ecrire_utilisateurs(cx):
         cur.execute("""UPDATE utilisateurs SET supprime = now(), maj = now()
                         WHERE supprime IS NULL AND NOT (nom = ANY(%s))""",
                     (list(comptes),))
+        # Les adresses ne sont plus recopiees ici : elles vivent chiffrees
+        # dans « reglages ». Celles qu'une version precedente y avait
+        # ecrites en clair sont effacees.
+        cur.execute("UPDATE utilisateurs SET email = '' WHERE email <> ''")
+
+
+def _pg_ecrire_reglage(cx, cle):
+    valeur = reglage(cle)
+    with cx.cursor() as cur:
+        if valeur is None:
+            cur.execute("DELETE FROM reglages WHERE cle = %s", (cle,))
+        else:
+            cur.execute("""INSERT INTO reglages (cle, valeur, maj) VALUES (%s, %s, now())
+                           ON CONFLICT (cle) DO UPDATE SET valeur = EXCLUDED.valeur,
+                                                           maj = now()""",
+                        (cle, chiffrer(valeur)))
+
+
+def _pg_synchroniser_reglages(cx):
+    """La copie locale et la base, remises d'accord.
+
+    Copie locale absente (dossier d'etat restaure, disque remplace) et base
+    remplie : la base fait autorite, et la copie est reconstruite depuis elle.
+    Sinon, la copie locale est la plus recente -- chaque ecriture y passe
+    d'abord -- et la base la rattrape.
+    """
+    if not _cle_chiffrement:
+        return
+    with cx.cursor() as cur:
+        cur.execute("SELECT cle, valeur FROM reglages")
+        lignes = cur.fetchall()
+    if not os.path.exists(COFFRE_FILE) and lignes:
+        with _coffre_verrou:
+            donnees = _coffre_donnees()
+            for cle, valeur in lignes:
+                try:
+                    donnees[cle] = dechiffrer(valeur)
+                except Exception as e:                            # noqa: BLE001
+                    print(f"[app-manager] reglage « {cle} » illisible en base "
+                          f"({type(e).__name__}) : ignore.", flush=True)
+            _coffre_sauver()
+        print(f"[app-manager] reglages repris de la base ({len(lignes)}).", flush=True)
+        return
+    locales = set(_coffre_donnees())
+    for cle in locales:
+        _pg_ecrire_reglage(cx, cle)
+    with cx.cursor() as cur:
+        for cle, _ in lignes:
+            if cle not in locales:
+                cur.execute("DELETE FROM reglages WHERE cle = %s", (cle,))
 
 
 def _pg_rattraper(cx):
@@ -2714,6 +2935,7 @@ def _pg_rattraper(cx):
     _pg_ecrire_acces(cx, lire_acces(limite=100000))
     _pg_ecrire_messages(cx, lire_messages(limite=100000))
     _pg_ecrire_utilisateurs(cx)
+    _pg_synchroniser_reglages(cx)
 
 
 def _pg_boucle():
@@ -2750,6 +2972,8 @@ def _pg_boucle():
                             cur.execute("UPDATE messages SET lu = TRUE WHERE lu = FALSE")
                     elif genre == "utilisateurs":
                         _pg_ecrire_utilisateurs(cx)
+                    elif genre == "reglage":
+                        _pg_ecrire_reglage(cx, charge)
         except Exception as e:
             # Base eteinte, mot de passe change, disque plein cote serveur :
             # on note, on attend, on recommence. Le panneau, lui, continue.
@@ -4486,11 +4710,7 @@ _surveillance_etat = {"quand": None, "ok": None, "detail": ""}
 
 
 def lire_surveillance():
-    try:
-        with open(SURVEILLANCE_FILE) as f:
-            d = json.load(f)
-    except (OSError, ValueError):
-        return ""
+    d = reglage("surveillance", {}) or {}
     url = d.get("url") if isinstance(d, dict) else ""
     return url if isinstance(url, str) and url_surveillance_valide(url) else ""
 
@@ -4508,11 +4728,8 @@ def url_surveillance_valide(url):
 
 
 def ecrire_surveillance(url):
-    tmp = SURVEILLANCE_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump({"url": url}, f)
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, SURVEILLANCE_FILE)
+    # Au coffre : l'adresse de ping suffit a faire croire le serveur vivant.
+    ecrire_reglage("surveillance", {"url": url} if url else None)
 
 
 def signaler_vie(url=None):
@@ -4568,7 +4785,7 @@ def api_surveillance_ecrire():
                                      "été enregistré.", "detail": detail}), 400
     try:
         ecrire_surveillance(url)
-    except OSError as e:
+    except (OSError, RuntimeError) as e:
         return jsonify({"error": f"Réglage non enregistré : {e}"}), 500
     if not url:
         _surveillance_etat.update(quand=None, ok=None, detail="")
@@ -4640,12 +4857,10 @@ ALERTE_LOG_LIGNES = 25
 
 
 def lire_alertes():
-    """Reglages non secrets. Jamais d'exception : une configuration illisible
-    ne doit pas empecher le panneau de demarrer ni le moniteur de tourner."""
-    try:
-        with open(ALERTES_FILE) as f:
-            d = json.load(f)
-    except (OSError, ValueError):
+    """L'interrupteur et l'ancienne liste globale, lus dans le coffre. Jamais
+    d'exception : le moniteur doit tourner quoi qu'il arrive."""
+    d = reglage("alertes", {}) or {}
+    if not isinstance(d, dict):
         d = {}
     return {
         "actif": bool(d.get("actif")),
@@ -4654,10 +4869,8 @@ def lire_alertes():
 
 
 def ecrire_alertes(actif, destinataires):
-    tmp = ALERTES_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump({"actif": bool(actif), "destinataires": list(destinataires)}, f, indent=2)
-    os.replace(tmp, ALERTES_FILE)
+    ecrire_reglage("alertes", {"actif": bool(actif),
+                               "destinataires": list(destinataires)})
 
 
 def ecrire_bloc_alertes(valeurs):
@@ -4681,8 +4894,9 @@ def ecrire_bloc_alertes(valeurs):
         "# SMTP_TLS : starttls (defaut, port 587) | ssl (port 465) | none.",
         "# SMTP_USER et SMTP_PASSWORD sont optionnels : un relais interne peut",
         "#   ne pas demander d'authentification.",
-        "# ALERTE_ADMIN : l'adresse qui recoit TOUTES les alertes, en plus de",
-        "#   celles propres a chaque application.",
+        "# ALERTE_ADMIN : l'adresse qui recoit TOUTES les alertes, posee ici a",
+        "#   l'installation. Celle reglee dans le panneau l'emporte : elle est",
+        "#   en base, chiffree, et n'est jamais recopiee dans ce fichier.",
     ]
     cles = list(CHAMPS_SMTP.values()) + ["ALERTE_ADMIN"]
     fusion = {}
@@ -4795,38 +5009,102 @@ def lire_smtp_personnalise():
     Jamais d'exception : un fichier illisible doit faire retomber sur la
     configuration d'origine, pas empecher le panneau de demarrer.
     """
-    try:
-        with open(SMTP_FILE) as f:
-            d = json.load(f)
-    except (OSError, ValueError):
-        return None
+    d = reglage("smtp")
     if not isinstance(d, dict) or not str(d.get("host") or "").strip():
         return None
     return _normalise_smtp(d)
 
 
 def ecrire_smtp_personnalise(cfg):
-    tmp = SMTP_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(cfg, f, indent=2, ensure_ascii=False)
-    os.replace(tmp, SMTP_FILE)
-    try:
-        # Il contient un mot de passe : meme regime que credentials.env.
-        os.chmod(SMTP_FILE, 0o600)
-    except OSError:
-        pass
+    # Au coffre, chiffre : il porte le mot de passe du serveur d'envoi.
+    ecrire_reglage("smtp", cfg)
 
 
 def effacer_smtp_personnalise():
     """Revenir a la configuration d'origine. Toujours permis -- c'est la
     marche arriere, et elle ne doit dependre d'aucune condition."""
     try:
-        os.remove(SMTP_FILE)
-    except OSError:
-        pass
+        ecrire_reglage("smtp", None)
+    except (OSError, RuntimeError) as e:
+        print(f"[app-manager] configuration d'envoi non effacee : {e}", flush=True)
 
 
 BLOC_RELAIS_MAIL = "codelab-relais-mail"
+
+
+def migrer_vers_le_coffre():
+    """Range au coffre ce que les versions precedentes gardaient en clair.
+
+    Chaque source n'est supprimee qu'APRES une ecriture reussie au coffre :
+    une migration qui echoue laisse tout en place, et reessaie au prochain
+    demarrage.
+    """
+    if not _cle_chiffrement:
+        return
+
+    def _json(chemin):
+        try:
+            with open(chemin) as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return None
+
+    for chemin, cle in ((SMTP_FILE, "smtp"), (ALERTES_FILE, "alertes"),
+                        (SURVEILLANCE_FILE, "surveillance")):
+        if not os.path.exists(chemin):
+            continue
+        valeur = _json(chemin)
+        try:
+            if isinstance(valeur, dict) and reglage(cle) is None:
+                ecrire_reglage(cle, valeur)
+            os.remove(chemin)
+            print(f"[app-manager] {os.path.basename(chemin)} range au coffre "
+                  f"(chiffre) puis supprime.", flush=True)
+        except (OSError, RuntimeError) as e:
+            print(f"[app-manager] {chemin} non migre : {e}", flush=True)
+
+    # L'adresse d'administration, que le panneau ecrivait dans credentials.env.
+    admin = _adresses(read_shared_value("ALERTE_ADMIN") or "")
+    if admin:
+        try:
+            if not reglage("alertes_admin"):
+                ecrire_reglage("alertes_admin", admin)
+            ecrire_bloc_alertes({"ALERTE_ADMIN": ""})
+            print("[app-manager] adresse d'alerte rangee au coffre.", flush=True)
+        except (OSError, RuntimeError) as e:
+            print(f"[app-manager] adresse d'alerte non migree : {e}", flush=True)
+
+    # Les destinataires propres a chaque application, gardes dans apps.json.
+    apps = load()
+    anciens = {n: _adresses(a.get("alertes")) for n, a in apps.items()
+               if isinstance(a, dict) and "alertes" in a}
+    if anciens:
+        try:
+            par_app = reglage("alertes_par_app", {}) or {}
+            for n, adresses in anciens.items():
+                if adresses and n not in par_app:
+                    par_app[n] = adresses
+            ecrire_reglage("alertes_par_app", par_app or None)
+            for n in anciens:
+                apps[n].pop("alertes", None)
+            save(apps)
+            print("[app-manager] destinataires d'alerte ranges au coffre.", flush=True)
+        except (OSError, RuntimeError) as e:
+            print(f"[app-manager] destinataires d'alerte non migres : {e}", flush=True)
+
+    # Les adresses des comptes, encore dans utilisateurs.json.
+    try:
+        with open(UTILISATEURS_FILE) as f:
+            brut = json.load(f)
+    except (OSError, ValueError):
+        brut = {}
+    if isinstance(brut, dict) and any(isinstance(c, dict) and c.get("email")
+                                      for c in brut.values()):
+        try:
+            ecrire_utilisateurs(lire_utilisateurs())
+            print("[app-manager] adresses des comptes rangees au coffre.", flush=True)
+        except (OSError, RuntimeError) as e:
+            print(f"[app-manager] adresses des comptes non migrees : {e}", flush=True)
 
 
 def publier_relais_mail():
@@ -4937,8 +5215,11 @@ def alertes_admin():
     installation existante aurait cesse d'etre prevenue a la mise a jour --
     silencieusement, et l'on ne s'en serait apercu qu'au premier incident.
     """
-    depuis_bloc = _adresses(read_shared_value("ALERTE_ADMIN") or "")
-    return depuis_bloc or _adresses(lire_alertes()["destinataires"])
+    # Celle reglee dans le panneau (au coffre), sinon celle posee a
+    # l'installation dans credentials.env, sinon l'ancienne liste globale.
+    return (_adresses(reglage("alertes_admin") or [])
+            or _adresses(read_shared_value("ALERTE_ADMIN") or "")
+            or _adresses(lire_alertes()["destinataires"]))
 
 
 def config_smtp():
@@ -5012,7 +5293,7 @@ def destinataires_alerte(name, apps=None):
     tombe pas en silence.
     """
     apps = apps if apps is not None else load()
-    propres = _adresses((apps.get(name) or {}).get("alertes"))
+    propres = _adresses((reglage("alertes_par_app", {}) or {}).get(name))
     vus, tout = set(), []
     for adresse in alertes_admin() + propres:
         if adresse not in vus:
@@ -7196,6 +7477,7 @@ def api_alertes():
     ouverte.
     """
     reglages = lire_alertes()
+    par_app = reglage("alertes_par_app", {}) or {}
     origine = smtp_origine()
     personnalisee = lire_smtp_personnalise()
     effective, manquants = config_smtp()
@@ -7220,8 +7502,8 @@ def api_alertes():
         "smtp_ok": not smtp_incomplet(effective),
         "incidents": sorted(_alertes_en_cours),
         # Les destinataires propres a chaque application, pour la page.
-        "par_application": {nom: _adresses(a.get("alertes"))
-                            for nom, a in sorted(load().items())},
+        "par_application": {nom: _adresses(par_app.get(nom))
+                            for nom in sorted(load())},
     })
 
 
@@ -7275,19 +7557,21 @@ def api_alertes_enregistrer():
                     "detail": detail}), 400
             try:
                 ecrire_smtp_personnalise(candidate)
-            except OSError as e:
+            except (OSError, RuntimeError) as e:
                 return jsonify({"error": f"Configuration non enregistrée : {e}"}), 500
 
         # Mailpit relaie par ce meme serveur : il suit le changement.
         publier_relais_mail()
 
     # --- l'adresse d'administration, dans le bloc partage ------------------
-    if not ecrire_bloc_alertes({"ALERTE_ADMIN": ", ".join(admin)}):
-        return jsonify({"error": "credentials.env n'a pas pu être écrit."}), 500
+    try:
+        ecrire_reglage("alertes_admin", admin or None)
+    except (OSError, RuntimeError) as e:
+        return jsonify({"error": f"Adresse non enregistrée : {e}"}), 500
 
     try:
         ecrire_alertes(actif, admin)
-    except OSError as e:
+    except (OSError, RuntimeError) as e:
         return jsonify({"error": f"Réglages non enregistrés : {e}"}), 500
 
     _, manquants = config_smtp()
@@ -7310,10 +7594,14 @@ def api_alertes_application(name):
         return jsonify({"error": "Application inconnue."}), 404
     d = request.get_json(force=True, silent=True) or {}
     adresses = _adresses(d.get("alertes"))
-    apps[name]["alertes"] = adresses
+    par_app = reglage("alertes_par_app", {}) or {}
+    if adresses:
+        par_app[name] = adresses
+    else:
+        par_app.pop(name, None)
     try:
-        save(apps)
-    except OSError as e:
+        ecrire_reglage("alertes_par_app", par_app or None)
+    except (OSError, RuntimeError) as e:
         return jsonify({"error": f"Non enregistré : {e}"}), 500
     return jsonify({"ok": True, "alertes": adresses,
                     "destinataires": destinataires_alerte(name, apps)})
@@ -7634,6 +7922,7 @@ def health():
 def api_apps():
     apps = load()
     out = []
+    par_app = reglage("alertes_par_app", {}) or {}
     for name in sorted(apps):
         a = apps[name]
         run = is_running(name)
@@ -7661,7 +7950,7 @@ def api_apps():
             # l'application : la liste doit donc arriver avec elle. Aucun
             # secret ici -- une adresse de destination n'en est pas un, et
             # cette route est deja reservee a l'administrateur.
-            "alertes": _adresses(a.get("alertes")),
+            "alertes": _adresses(par_app.get(name)),
             # Ce qui n'est pas configurable, la page doit le savoir : c'est
             # elle qui retire les onglets et les boutons correspondants.
             "par_defaut": est_app_par_defaut(name),
@@ -8074,6 +8363,12 @@ def api_delete(n):
     apps = load()
     apps.pop(n, None)
     save(apps)
+    par_app = reglage("alertes_par_app", {}) or {}
+    if par_app.pop(n, None) is not None:
+        try:
+            ecrire_reglage("alertes_par_app", par_app or None)
+        except (OSError, RuntimeError):
+            pass
     return jsonify({"ok": True})
 
 
@@ -8101,6 +8396,12 @@ def _renommer_references(ancien, nouveau):
             touche = True
     if touche:
         ecrire_utilisateurs(comptes)
+
+    # Les destinataires d'alerte de l'application, au coffre.
+    par_app = reglage("alertes_par_app", {}) or {}
+    if ancien in par_app:
+        par_app[nouveau] = par_app.pop(ancien)
+        ecrire_reglage("alertes_par_app", par_app)
 
     # Les applications que chacun a retirees de son hub.
     masquees = lire_masquees()
@@ -8460,15 +8761,90 @@ def api_logo_retirer(n):
 # original, dans le violet de la marque -- ce n'est pas le logo officiel, et
 # il ne pretend pas l'etre.
 ICONE_DAGSTER = (
-    # Reproduction vectorielle du composant officiel Dagster, récupéré depuis
-    # le dépôt amont. Le mark reste net à 16/24/32/48 px, contrairement à
-    # l'ancien dessin approximatif dans un carré violet.
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" '
-    'role="img" aria-label="Dagster" fill="none">'
-    '<path fill="#4C9AFF" d="M16.093 46.055c.001.268.056.533.162.779.106.245.261.466.455.648.194.182.423.321.672.41.25.088.514.123.778.103 10.011-.727 19.467-7.918 22.485-19.149.159-.646.637-.97 1.273-.97.326.013.634.157.857.399.223.242.343.564.334.895 0 2.505-3.172 9.049-7.707 12.847-.231.197-.416.445-.539.725-.124.279-.183.584-.175.89.005.25.058.496.156.724.099.229.24.435.418.608.177.173.386.309.614.399.229.09.473.134.719.128.397 0 1.033-.243 1.828-.97C41.594 41.611 47.639 33.45 47.639 24.481 47.639 11.332 37.622 0 23.642 0 11.168 0 .362 10.343.362 22.301c0 7.918 6.198 13.896 14.381 13.896 6.278 0 12.078-4.523 13.668-10.746.159-.646.634-.97 1.271-.97.326.013.634.157.857.399.223.242.343.564.335.895 0 2.828-5.245 12.691-15.892 12.691-2.543 0-5.721-.727-7.947-2.021-.298-.147-.622-.229-.953-.242-.253-.01-.506.033-.742.128-.236.094-.45.237-.629.419-.179.182-.319.4-.411.64-.092.24-.134.497-.124.754.01.329.103.651.27.933.167.283.402.518.683.683 2.941 1.705 6.437 2.586 10.012 2.586 8.899 0 17.004-6.141 19.388-15.19.159-.646.637-.97 1.271-.97.326.014.634.157.857.399.223.242.343.564.334.895 0 3.716-6.515 15.675-19.069 16.645-.486.036-.941.254-1.279.61-.337.357-.533.828-.55 1.322Z"/>'
-    '<path fill="#fff" d="M28.539 15.107c1.713-.013 3.395.467 4.851 1.386.146-.817.228-1.645.242-2.476 0-3.836-2.881-7.272-6.389-7.272-2.728 0-4.433 2.294-4.433 5.128-.013 1.531.517 3.015 1.493 4.182 1.322-.64 2.771-.964 4.236-.948Z"/>'
-    '<path fill="#1F1F1F" d="M28.57 10.344c1.789.051 3.198 1.564 3.148 3.379-.018.652-.222 1.255-.559 1.757-.847-.252-1.73-.379-2.621-.373-.928-.01-1.85.117-2.739.375-.371-.552-.58-1.223-.56-1.942.05-1.815 1.541-3.246 3.331-3.196Z"/>'
-    '</svg>')
+    # Le logo OFFICIEL, tel que dagster-webserver le sert lui-meme
+    # (webapp/build/favicon.svg) : memes traces, memes couleurs -- l'indigo
+    # #4F43DD, son ombre #352D8E, l'oeil blanc. Recopie, pas redessine.
+    #
+    # Une seule retouche : la variante « ecran sombre » du fichier d'origine
+    # (@media prefers-color-scheme) est retiree. Elle eclaircit le logo en
+    # lavande, pensee pour un fond sombre ; or ici le logo est toujours pose
+    # sur la plaque blanche (--plaque-logo), ou ce lavande disparaitrait.
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 67 67" role="img" aria-'
+    'label="Dagster" fill="none"><style> .daggy-body { fill: #4F43DD; } .daggy-sh'
+    'adow { fill: #352D8E; }  </style><path class="daggy-body" d="M22.0142 63.398'
+    '9C22.0153 63.7681 22.0925 64.1331 22.2409 64.4711C22.3894 64.8091 22.606 65.'
+    '1129 22.8771 65.3635C23.1482 65.6141 23.4681 65.806 23.8167 65.9275C24.1654 '
+    '66.0489 24.5353 66.0971 24.9034 66.0692C38.8959 65.0678 52.1113 55.1693 56.3'
+    '304 39.7088C56.5521 38.8196 57.2196 38.3737 58.1088 38.3737C58.5646 38.392 5'
+    '8.9949 38.5892 59.3063 38.9226C59.6177 39.256 59.7852 39.6987 59.7725 40.154'
+    '7C59.7725 43.6019 55.3395 52.6113 49.0004 57.8395C48.6773 58.1113 48.4197 58'
+    '.4524 48.2468 58.8375C48.0739 59.2226 47.9901 59.6418 48.0017 60.0638C48.008'
+    '1 60.4069 48.0822 60.7454 48.2198 61.0599C48.3573 61.3743 48.5555 61.6585 48'
+    '.8031 61.8961C49.0507 62.1338 49.3428 62.3202 49.6626 62.4448C49.9823 62.569'
+    '3 50.3236 62.6295 50.6667 62.6219C51.2221 62.6219 52.1113 62.2881 53.2221 61'
+    '.2868C57.6551 57.2815 66.1038 46.0479 66.1038 33.7008C66.1038 15.5988 52.103'
+    '5 0 32.5646 0C15.1301 0 0.0267944 14.2376 0.0267944 30.6995C0.0267944 41.599'
+    '3 8.68929 49.8289 20.1263 49.8289C28.9009 49.8289 37.008 43.6019 39.2297 35.'
+    '0359C39.4513 34.1467 40.1163 33.7008 41.0055 33.7008C41.4615 33.7192 41.892 '
+    '33.9163 42.2038 34.2496C42.5157 34.5829 42.6838 35.0256 42.6717 35.4818C42.6'
+    '717 39.375 35.3417 52.9528 20.4601 52.9528C16.9059 52.9528 12.4651 51.9515 9'
+    '.35423 50.1705C8.93778 49.9687 8.48415 49.8551 8.02174 49.8368C7.66768 49.82'
+    '32 7.31463 49.8829 6.9848 50.0124C6.65497 50.1418 6.35549 50.3381 6.10519 50'
+    '.5889C5.85489 50.8397 5.65919 51.1396 5.53038 51.4697C5.40158 51.7997 5.3424'
+    '7 52.1529 5.35676 52.5069C5.37113 52.9605 5.50107 53.4028 5.73426 53.7921C5.'
+    '96744 54.1813 6.29615 54.5046 6.68925 54.7312C10.7989 57.0781 15.6855 58.290'
+    '6 20.6817 58.2906C33.12 58.2906 44.4475 49.8367 47.7801 37.3802C48.0017 36.4'
+    '91 48.6693 36.0451 49.5558 36.0451C50.0119 36.0634 50.4424 36.2606 50.7542 3'
+    '6.5939C51.066 36.9272 51.2341 37.3698 51.2221 37.8261C51.2221 42.9422 42.116'
+    '3 59.4041 24.5697 60.7392C23.8908 60.7896 23.2544 61.089 22.7828 61.5799C22.'
+    '3111 62.0708 22.0374 62.7186 22.0142 63.3989Z" fill="#DEDEFC"/><path d="M39.'
+    '4016 20.8013C41.7966 20.7834 44.1476 21.4453 46.1814 22.71C46.3869 21.5851 4'
+    '6.5003 20.4453 46.5204 19.3019C46.5204 14.0215 42.4943 9.29126 37.592 9.2912'
+    '6C33.7796 9.29126 31.3963 12.4491 31.3963 16.3501C31.3781 18.4574 32.1185 20'
+    '.501 33.4824 22.1077C35.3301 21.2267 37.3548 20.7798 39.4016 20.8013Z" fill='
+    '"white"/><path class="daggy-shadow" d="M50.8881 39.9307C51.5687 37.6047 51.8'
+    '685 35.9906 51.8685 34.9423C51.8478 34.4896 51.6537 34.0622 51.3266 33.7487C'
+    '50.9994 33.4351 50.5642 33.2593 50.111 33.2578C49.6888 33.2657 49.2814 33.41'
+    '44 48.9535 33.6804C48.6256 33.9464 48.396 34.3144 48.3013 34.7259C48.1162 35'
+    '.4899 47.7198 37.5604 47.3287 38.8746C47.4903 38.3826 47.6381 37.8828 47.772'
+    ' 37.3752C47.9936 36.4834 48.6612 36.0401 49.5477 36.0401C50.0036 36.0578 50.'
+    '4341 36.2544 50.746 36.5873C51.0579 36.9201 51.226 37.3625 51.214 37.8185C51'
+    '.1931 38.5354 51.0783 39.2463 50.8724 39.9333L50.8881 39.9307Z" fill="#C9C6F'
+    'A"/><path class="daggy-shadow" d="M60.3271 37.5004C60.3058 37.0484 60.1119 3'
+    '6.6218 59.7854 36.3084C59.459 35.995 59.0248 35.8188 58.5722 35.8159C58.1505'
+    ' 35.8243 57.7437 35.9734 57.4163 36.2393C57.0889 36.5053 56.8598 36.873 56.7'
+    '652 37.284C56.5774 38.0663 56.1732 40.168 55.7769 41.4797H55.7951C55.9881 40'
+    '.8955 56.168 40.3036 56.3166 39.7013C56.5383 38.8095 57.2058 38.3662 58.095 '
+    '38.3662C58.5506 38.3838 58.9809 38.5805 59.2923 38.9135C59.6038 39.2464 59.7'
+    '714 39.6888 59.7587 40.1446C59.746 40.6982 59.6698 41.2485 59.5318 41.7848C6'
+    '0.0846 39.8447 60.3271 38.4418 60.3271 37.5004Z" fill="#C9C6FA"/><path d="M3'
+    '9.4009 20.8014C40.5911 20.799 41.7761 20.9577 42.9237 21.2734C43.5263 20.451'
+    '7 43.8273 19.4476 43.7763 18.43C43.7253 17.4124 43.3253 16.4434 42.6437 15.6'
+    '862C41.962 14.9289 41.0403 14.4296 40.0336 14.2722C39.027 14.1148 37.9968 14'
+    '.309 37.1166 14.8221L38.9419 17.8261L35.5233 16.3476C35.0603 17.0948 34.8281'
+    ' 17.962 34.8559 18.8406C34.8838 19.7192 35.1704 20.57 35.6798 21.2864C36.893'
+    ' 20.9594 38.1444 20.7963 39.4009 20.8014Z" fill="#163B36"/><path class="dagg'
+    'y-shadow" d="M13.0639 40.1334C14.5041 40.1334 15.6715 38.966 15.6715 37.5258'
+    'C15.6715 36.0857 14.5041 34.9182 13.0639 34.9182C11.6238 34.9182 10.4563 36.'
+    '0857 10.4563 37.5258C10.4563 38.966 11.6238 40.1334 13.0639 40.1334Z" fill="'
+    '#C9C6FA"/><path class="daggy-shadow" d="M13.0639 29.7035C14.5041 29.7035 15.'
+    '6715 28.536 15.6715 27.0959C15.6715 25.6558 14.5041 24.4883 13.0639 24.4883C'
+    '11.6238 24.4883 10.4563 25.6558 10.4563 27.0959C10.4563 28.536 11.6238 29.70'
+    '35 13.0639 29.7035Z" fill="#C9C6FA"/><path class="daggy-shadow" d="M7.84895 '
+    '34.9191C9.28909 34.9191 10.4566 33.7516 10.4566 32.3115C10.4566 30.8713 9.28'
+    '909 29.7039 7.84895 29.7039C6.4088 29.7039 5.24133 30.8713 5.24133 32.3115C5'
+    '.24133 33.7516 6.4088 34.9191 7.84895 34.9191Z" fill="#C9C6FA"/><path class='
+    '"daggy-shadow" d="M19.5832 49.8241H20.1047C28.8793 49.8241 36.9864 43.5971 3'
+    '9.2081 35.0311C39.4298 34.1419 40.0947 33.696 40.9839 33.696C41.4399 33.7143'
+    ' 41.8704 33.9115 42.1823 34.2447C42.4941 34.578 42.6622 35.0207 42.6502 35.4'
+    '77C42.6104 36.3872 42.4045 37.2824 42.0426 38.1185C42.1055 38.0214 42.1604 3'
+    '7.9193 42.2069 37.8134C42.8667 36.3053 43.2076 34.6771 43.2082 33.031C43.208'
+    '2 30.473 41.4298 28.8041 38.8769 28.8041C34.4257 28.8041 33.5339 32.6894 31.'
+    '6564 36.8434C29.7086 41.1564 26.1309 45.8214 17.1086 45.8214C7.73419 45.8214'
+    ' -1.89834 39.258 0.45112 25.9122C0.479804 25.7453 0.50327 25.5967 0.521523 2'
+    '5.4585C0.177264 27.1827 0.00259008 28.9364 0 30.6946C0.0260762 41.438 8.4199'
+    '9 49.5737 19.5832 49.8241Z" fill="#C9C6FA"/></svg>'
+)
 
 # Diagnostic : le trace d'un moniteur cardiaque, et un point qui bat. C'est
 # ce que la page montre -- l'etat de sante de l'installation -- et c'est deja
@@ -8480,17 +8856,19 @@ ICONE_DIAGNOSTIC = (
     'stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>'
     '</svg>')
 
-# Mailpit : une enveloppe, et le point qui dit « il y a du courrier ».
-# Dessin original, ce n'est pas le logo de Mailpit.
+# Mailpit : une enveloppe sur le turquoise de CodeLab. LE MEME dessin que
+# celui que le proxy sert a la place du logo de Mailpit, dans sa barre et
+# dans l'onglet (dagster/proxy/mailpit-theme/logo.svg) : la tuile et
+# l'application se reconnaissent. Dessin original, pas le logo de Mailpit.
 ICONE_MAILPIT = (
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
-    '<rect width="64" height="64" rx="16" fill="#2a6fdb"/>'
-    '<rect x="13" y="19" width="38" height="27" rx="4" fill="none" '
-    'stroke="#fff" stroke-width="4"/>'
-    '<path d="M15 22l17 13 17-13" fill="none" stroke="#fff" stroke-width="4" '
-    'stroke-linecap="round" stroke-linejoin="round"/>'
-    '<circle cx="49" cy="18" r="7" fill="#ffb020" stroke="#2a6fdb" stroke-width="3"/>'
-    '</svg>')
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-'
+    'label="Mailpit"><defs><linearGradient id="cl-mp" x1="0" y1="0" x2="1" y2="1"'
+    '><stop offset="0" stop-color="#15a6b0"/><stop offset="1" stop-color="#0b646c'
+    '"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#c'
+    'l-mp)"/><rect x="13" y="19" width="38" height="27" rx="5" fill="#fff"/><path'
+    ' d="M15.5 22.5 32 34.5l16.5-12" fill="none" stroke="#0e7c86" stroke-width="3'
+    '.4" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+)
 
 ICONES_PAR_DEFAUT = {
     DAGSTER_NOM: ICONE_DAGSTER,
@@ -9082,6 +9460,35 @@ def injecter_ruban(data, status, entetes):
     return data, entetes
 
 
+# L'ICONE D'ONGLET D'UNE APPLICATION. Le panneau porte le logo CodeLab dans
+# ses onglets ; une application porte le SIEN, et seulement la. Beaucoup
+# d'applications n'en declarent aucun : l'onglet restait vide, ou prenait
+# ce que le navigateur trouvait. Le logo qu'on voit dans le hub est donc
+# pose comme icone d'onglet -- a condition que la page n'en declare pas
+# deja une : celle de l'application gagne toujours.
+_MARQUES_ICONE = (b'rel="icon"', b"rel='icon'", b"rel=icon", b'rel="shortcut icon"',
+                  b"rel='shortcut icon'", b'rel="apple-touch-icon"')
+
+
+def injecter_icone(data, status, entetes, nom):
+    """Ajoute <link rel="icon"> avant </head>, si la page n'en a aucun."""
+    if status != 200:
+        return data, entetes
+    if "text/html" not in _entete(entetes, "content-type").lower():
+        return data, entetes
+    if _entete(entetes, "content-encoding"):
+        return data, entetes
+    bas = data.lower()
+    i = bas.find(b"</head>")
+    if i < 0 or any(m in bas[:i] for m in _MARQUES_ICONE):
+        return data, entetes
+    lien = (lien_panneau() + "api/icon/" + urllib.parse.quote(nom, safe="")).encode()
+    data = data[:i] + b'<link rel="icon" href="' + lien + b'">' + data[i:]
+    entetes = [(k, v) for k, v in entetes if k.lower() != "content-length"]
+    entetes.append(("Content-Length", str(len(data))))
+    return data, entetes
+
+
 def _proxy(name, sub):
     a = load().get(name)
     if not a:
@@ -9185,6 +9592,9 @@ def _proxy(name, sub):
     # page de connexion dont il n'a que faire.
     if is_authed():
         data, sortants = injecter_ruban(data, status, sortants)
+        # Meme condition que le ruban : /api/icon exige une session, et un
+        # visiteur anonyme n'a pas a voir d'adresse du panneau.
+        data, sortants = injecter_icone(data, status, sortants, name)
     return Response(data, status, sortants)
 
 
@@ -9495,6 +9905,7 @@ def servir(port):
 if __name__ == "__main__":
     bootstrap_secrets()
     bootstrap_sso()
+    migrer_vers_le_coffre()
     publier_relais_mail()
     os.makedirs(LOG_DIR, exist_ok=True)
     if not os.path.exists(APPS_FILE):

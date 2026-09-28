@@ -58,6 +58,7 @@ awk -v s="# ===== codelab-proxy =====" -v e="# ===== /codelab-proxy =====" \
   echo "# Mot de passe interne entre codelab-dagster-proxy et codelab-mailpit."
   echo "# Personne n'a a le taper : l'interface de Mailpit s'ouvre avec la"
   echo "# session d'administration du panneau. Jamais transmis aux applications."
+  echo "CODELAB_INTERNE_MAILPIT_UI_USER=codelab"
   echo "CODELAB_INTERNE_MAILPIT_UI_PASSWORD=$MAILPIT_MDP"
   echo "# ===== /codelab-proxy ====="
 } > "$ENV_FILE.proxy.new"

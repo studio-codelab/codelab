@@ -2044,6 +2044,8 @@ table.tbl-journal{min-width:560px}
         les <b>codes de vérification</b> des adresses mail des comptes, et l'<b>inscription
         libre</b> — qui reste fermée tant qu'aucun serveur n'est configuré, faute de pouvoir
         vérifier une adresse.</div>
+      <div class="hint" style="margin-top:8px">Enregistrée <b>en base, chiffrée</b>, mot de passe
+        compris — comme les adresses d'alerte et celles des comptes.</div>
 
       <div class="grid2" style="margin-top:14px">
         <div class="field"><label>Hôte SMTP</label>
@@ -2953,7 +2955,7 @@ function paramOnglet(o){
   if(o==='serveur') chargerSecurite();
   if(o==='categories') chargerCategories();
   /* Les deux onglets lisent la meme reponse : le serveur d'envoi et les
-     alertes vivent dans le meme bloc de credentials.env. */
+     alertes vivent au meme endroit, le coffre chiffre du panneau. */
   if(o==='email' || o==='alertes') chargerAlertes();
 }
 
@@ -5254,7 +5256,7 @@ async function chargerAlertes(){
     : 'Non configuré');
 
   /* Le formulaire montre la configuration PERSONNALISEE, jamais celle
-     d'origine : sinon enregistrer la recopierait dans smtp.json, et l'on
+     d'origine : sinon enregistrer la recopierait au coffre, et l'on
      perdrait la distinction qui fait tout l'interet du repli. */
   const perso = d.personnalisee || {};
   $('al-host').value = perso.host||'';

@@ -140,6 +140,17 @@ header_block "# credentials.env -- les identifiants des services CodeLab.
 # « Transmis aux apps » : ce que le panneau passe, par l'environnement, aux
 # applications qu'il lance. Le .env d'un projet l'emporte toujours.
 #
+# LES IDENTIFIANTS PAR DEFAUT, en un coup d'oeil :
+#   panneau (et Dagster, Mailpit)  APP_MANAGER_ADMIN_LOGIN / _PASSWORD
+#   Postgres                       POSTGRES_USER / POSTGRES_PASSWORD
+#   Redis                          REDIS_USER / REDIS_PASSWORD
+#   SSH (codelab-dev)              vscode, par cle publique seulement
+#                                  (config/ssh/authorized_keys.d/)
+#
+# Ce qui se regle DANS le panneau (adresses e-mail, serveur d'envoi,
+# surveillance) n'est pas ici : c'est en base, chiffre avec
+# APP_MANAGER_CHIFFREMENT_CLE.
+#
 # Ailleurs, et c'est voulu :
 #   config/ssh/          les cles SSH autorisees et les cles hote
 #   Dagster n'a pas d'identifiant a lui : il reprend la session du panneau."
