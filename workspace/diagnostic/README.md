@@ -7,7 +7,7 @@ projet, le plus rapide est de le copier (`cp -r /workspace/diagnostic /workspace
 vider ce qui ne sert pas.
 
 C'est aussi **l'etat des lieux de l'installation**, et il ne se supprime pas depuis le panneau : sans lui, une stack
-n'a plus aucun moyen de se controler elle-meme. Il verifie que les cinq services se parlent, depuis les deux extremites de la chaine : une
+n'a plus aucun moyen de se controler elle-meme. Il verifie que les services se parlent, depuis les deux extremites de la chaine : une
 application web lancee par **app-manager**, et un asset execute par **Dagster**. Les deux ecrivent dans la
 meme table Postgres — voir les deux sources cote a cote est la preuve que tout est relie.
 

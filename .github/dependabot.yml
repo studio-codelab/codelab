@@ -5,14 +5,14 @@
 # Dependabot lit le commentaire " # v4" qui suit chaque SHA, ouvre une PR
 # quand une nouvelle version sort, et met a jour le SHA ET le commentaire.
 # La PR passe par la CI comme une autre : les tests d'abord, puis la
-# construction des cinq images sans publication.
+# construction des sept images sans publication.
 #
 # Deux ecosystemes seulement, et c'est deliberé :
 #
 #   github-actions  ce qui s'execute dans la CI avec un jeton d'ecriture sur
 #                   le registre. C'est le seul endroit ou du code tiers
 #                   touche a la publication des images.
-#   docker          les images de base des cinq Dockerfiles. Elles restent
+#   docker          les images de base des sept Dockerfiles. Elles restent
 #                   volontairement referencees par tag (postgres:18,
 #                   python:3.13-slim) pour continuer de recevoir les
 #                   correctifs a chaque reconstruction ; Dependabot signale
@@ -37,6 +37,8 @@ updates:
   - package-ecosystem: docker
     directories:
       - /postgres
+      - /redis
+      - /mailpit
       - /dev
       - /dagster
       - /dagster/proxy

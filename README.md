@@ -45,7 +45,7 @@ Sur une machine plus grande, remonter l'ensemble proportionnellement dans les de
 ## Installation
 
 ```bash
-git clone https://github.com/lucasrtn/codelab.git && cd codelab
+git clone https://github.com/studio-codelab/codelab.git && cd codelab
 docker compose up -d
 ```
 

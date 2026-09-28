@@ -57,7 +57,7 @@ concurrency:
 jobs:
   # --------------------------- les images ---------------------------
   # Le systeme de fichiers plutot que les images publiees : le scan tourne sur
-  # ce que le depot decrit, sans avoir a construire cinq images
+  # ce que le depot decrit, sans avoir a construire sept images
   # multi-architecture d'abord. Les images de base restent volontairement
   # referencees par tag pour recevoir les correctifs a chaque reconstruction
   # (voir dependabot.yml) ; ce scan dit ce qui reste ouvert malgre cela.
