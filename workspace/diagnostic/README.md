@@ -313,18 +313,3 @@ c.commit(); c.close(); print("table supprimee")
 EOF
 rm -rf /workspace/diagnostic
 ```
-
-
-## Supervision du profil IA
-
-Diagnostic vérifie TCP, `/health`, `/v1/models`, l'authentification Bearer, puis, si une clé
-diagnostique est configurée, une vraie completion et `/v1/usage`. Une exception inattendue d'une
-sonde devient un résultat `ECHEC` au lieu de produire un HTTP 500.
-
-La completion reste opt-in : elle consomme une requête réelle chez le fournisseur, facturée comme
-une autre. La clé dédiée doit rester dans `credentials.env` sur le serveur sous
-`CODELAB_LLM_DIAGNOSTIC_KEY` et ne doit jamais être committée.
-
-Sans le profil `llm` démarré, ces sondes sont « sans objet » et non « en panne » : une
-installation qui n'a pas d'IA ne doit pas ouvrir le diagnostic sur des lignes rouges qu'elle
-apprendrait à ne plus regarder.

@@ -1651,53 +1651,6 @@ def verif_le_projet_est_ecrivable():
             f"{ici} -- écrit, relu, effacé")
 
 
-def verif_llm_repond(env_file=None):
-    if not llm_installe(env_file):
-        return (Etat.SANS_OBJET, "Le modèle répond",
-                "service IA non installé (profil « llm » non démarré)")
-    key = read_env("CODELAB_LLM_DIAGNOSTIC_KEY", env_file) or os.environ.get(
-        "CODELAB_LLM_DIAGNOSTIC_KEY", "")
-    if not key:
-        return (Etat.SANS_OBJET, "Le modèle répond", "clé diagnostique non configurée (CODELAB_LLM_DIAGNOSTIC_KEY)")
-    payload = json.dumps({
-        "model": "codelab-smart",
-        "messages": [{"role": "user", "content": "Réponds uniquement: OK"}],
-        "max_tokens": 8,
-    }).encode()
-    status, body = _llm_post("/v1/chat/completions", payload, env_file, {
-        "Authorization": f"Bearer {key}", "Content-Type": "application/json"})
-    if status != 200:
-        return (Etat.ECHEC, "Le modèle répond",
-                f"HTTP {status}: {body[:300].decode(errors='replace')}")
-    try:
-        data = json.loads(body)
-    except ValueError:
-        return (Etat.ECHEC, "Le modèle répond", "JSON invalide")
-    choice = (data.get("choices") or [{}])[0]
-    if not choice.get("message"):
-        return (Etat.ECHEC, "Le modèle répond", "réponse sans message")
-    return (Etat.OK, "Le modèle répond",
-            f"modèle réel: {data.get('model') or 'inconnu'}")
-
-
-def verif_llm_compte(env_file=None):
-    if not llm_installe(env_file):
-        return (Etat.SANS_OBJET, "La consommation est comptée",
-                "service IA non installé (profil « llm » non démarré)")
-    key = read_env("CODELAB_LLM_DIAGNOSTIC_KEY", env_file) or os.environ.get(
-        "CODELAB_LLM_DIAGNOSTIC_KEY", "")
-    if not key:
-        return (Etat.SANS_OBJET, "La consommation est comptée", "clé diagnostique non configurée")
-    status, body = _llm_get("/v1/usage", env_file, {"Authorization": f"Bearer {key}"})
-    if status != 200:
-        return (Etat.ECHEC, "La consommation est comptée", f"HTTP {status}")
-    try:
-        count = len(json.loads(body).get("items", []))
-    except (ValueError, AttributeError):
-        return (Etat.ECHEC, "La consommation est comptée", "réponse usage invalide")
-    return (Etat.OK, "La consommation est comptée", f"{count} agrégations")
-
-
 # Prefixe "verif_" et non "test_" : ce fichier contient AUSSI la suite de
 # tests du panneau, que pytest collecte. Nommees "test_...", ces cinq
 # verifications seraient ramassees par pytest et tourneraient a la
@@ -1777,8 +1730,6 @@ THEMES = [
      "Ce qui doit être fermé l'est-il, et depuis où peut-on entrer."),
     ("applications", "Applications",
      "Ce que le panneau porte, et dans quel état."),
-    ("ia", "Intelligence artificielle",
-     "La porte vers les modèles, et l'interface qui s'en sert."),
     ("ressources", "Ressources",
      "Le disque, les journaux, et la place qui reste."),
 ]
@@ -1792,10 +1743,6 @@ THEME_DES_SONDES = {
     "codelab-dagster": "services",
     "codelab-dev (SSH)": "services",
     "codelab-postgres (TCP)": "services",
-    "codelab-llm (TCP)": "ia",
-    "codelab-llm (santé)": "ia",
-    "modèles proposés": "ia",
-    "identité exigée par le service": "ia",
     "codelab-app-manager": "services",
     "Postgres (pilote)": "donnees",
     "Postgres": "donnees",
@@ -1850,10 +1797,6 @@ TESTS_APPROFONDIS = [
     ("Le proxy sert cette application", verif_proxy_sert_cette_application),
     ("Le journal des accès enregistre", verif_le_journal_enregistre),
     ("Le dossier du projet est écrivable", verif_le_projet_est_ecrivable),
-    # Les deux qui coutent : une vraie reponse du modele, et la ligne de
-    # comptabilite qu'elle laisse. A la demande, jamais en sonde.
-    ("Le modèle répond", verif_llm_repond),
-    ("La consommation est comptée", verif_llm_compte),
 ]
 
 # La suite de regressions du panneau vient toujours en dernier : c'est la
@@ -1873,8 +1816,6 @@ THEME_DES_TESTS = {
     "Le proxy sert cette application": "services",
     "Le journal des accès enregistre": "securite",
     "Le dossier du projet est écrivable": "ressources",
-    "Le modèle répond": "ia",
-    "La consommation est comptée": "ia",
     NOM_SUITE_PANNEAU: "code",
 }
 
@@ -1958,19 +1899,6 @@ SEVERITE_MAX = {
     "codelab-dagster": Etat.ECHEC,            # un conteneur tombe est une panne,
     "codelab-dev (SSH)": Etat.ECHEC,          # pas un reglage a revoir
     "codelab-app-manager": Etat.ECHEC,
-    # L'IA est un profil OPTIONNEL (docker compose --profile llm). Elle n'a
-    # donc rien a faire au rang 1 : sur une installation qui ne l'a jamais
-    # demarree, le run du diagnostic echouerait toutes les quinze minutes et
-    # enverrait un mail pour un service que personne n'a installe. Une
-    # interface de chat qui ne repond pas se regarde le lendemain.
-    #
-    # Sauf UN cas, qui reste au rang 1 parce qu'il ne parle pas de
-    # disponibilite mais de fermeture : un service qui accepte une requete
-    # sans identite.
-    "codelab-llm (TCP)": Etat.ALERTE,
-    "codelab-llm (santé)": Etat.ALERTE,
-    "modèles proposés": Etat.ALERTE,
-    "identité exigée par le service": Etat.ECHEC,
     # Rang 1 pour une autre raison : une breche CONSTATEE. Ces deux sondes
     # n'y montent que sur une preuve -- une route d'administration qui repond
     # sans session, le panneau qui repond sur l'origine des applications. Un
@@ -2016,143 +1944,6 @@ def _executer_sonde(nom, fonction):
         return (Etat.ECHEC, nom, f"exception inattendue ({type(error).__name__}: {error})")
 
 
-def _llm_url(env_file=None):
-    host = read_env("CODELAB_LLM_HOST", env_file) or "codelab-llm"
-    port = int(read_env("CODELAB_LLM_PORT", env_file) or 8080)
-    return f"http://{host}:{port}"
-
-
-def llm_installe(env_file=None):
-    """Le service IA est-il deploye ici ?
-
-    Le profil « llm » est optionnel : sur une installation qui ne l'a jamais
-    demarre, le nom codelab-llm ne resout pas du tout -- le DNS de Docker ne
-    connait que les conteneurs du reseau. Une sonde qui crie « injoignable »
-    pour un service que personne n'a installe use la seule chose qui compte
-    dans une alerte : qu'on la lise.
-    """
-    host = read_env("CODELAB_LLM_HOST", env_file) or "codelab-llm"
-    try:
-        socket.getaddrinfo(host, None)
-        return True
-    except socket.gaierror:
-        return False
-
-
-def check_llm_tcp(env_file=None):
-    """Le port du service IA, quand ce service existe."""
-    if not llm_installe(env_file):
-        return (Etat.SANS_OBJET, "codelab-llm (TCP)",
-                "service IA non installé (profil « llm » non démarré)")
-    return check_tcp("codelab-llm (TCP)",
-                     read_env("CODELAB_LLM_HOST", env_file) or "codelab-llm",
-                     int(read_env("CODELAB_LLM_PORT", env_file) or 8080),
-                     gravite=Etat.ALERTE)
-
-
-def _llm_get(path, env_file=None, headers=None):
-    request = urllib.request.Request(_llm_url(env_file) + path, headers=headers or {})
-    try:
-        with urllib.request.urlopen(request, timeout=5) as response:
-            return response.status, response.read()
-    except urllib.error.HTTPError as error:
-        return error.code, error.read()
-
-
-def _llm_post(path, payload, env_file=None, headers=None):
-    request = urllib.request.Request(_llm_url(env_file) + path, data=payload,
-                                     headers=headers or {}, method="POST")
-    try:
-        with urllib.request.urlopen(request, timeout=90) as response:
-            return response.status, response.read()
-    except urllib.error.HTTPError as error:
-        return error.code, error.read()
-
-
-def check_litellm_health(env_file=None):
-    if not llm_installe(env_file):
-        return (Etat.SANS_OBJET, "codelab-llm (santé)",
-                "service IA non installé (profil « llm » non démarré)")
-    status, body = _llm_get("/health", env_file)
-    if status != 200:
-        return (Etat.ECHEC, "codelab-llm (santé)", f"HTTP {status}")
-    try:
-        data = json.loads(body)
-    except (TypeError, ValueError):
-        return (Etat.ECHEC, "codelab-llm (santé)", "JSON invalide")
-    if data.get("service") != "codelab-llm":
-        return (Etat.ECHEC, "codelab-llm (santé)", "ce n'est pas le service attendu")
-    # Le service se dit « degrade » quand sa base ne repond pas : il tourne,
-    # mais il ne peut plus compter ce qu'il sert. C'est une ALERTE, pas un
-    # echec -- les reponses, elles, continuent d'arriver.
-    if data.get("status") != "ok":
-        return (Etat.ALERTE, "codelab-llm (santé)",
-                "service en marche mais dégradé : base injoignable")
-    if not data.get("cle_fournisseur"):
-        return (Etat.ALERTE, "codelab-llm (santé)",
-                "aucune clé de fournisseur configurée : aucun modèle ne répondra")
-    return (Etat.OK, "codelab-llm (santé)", "service actif, clés en place")
-
-
-def check_litellm_models(env_file=None):
-    """Les modeles PROPOSES, quels qu'ils soient.
-
-    La version precedente exigeait exactement trois noms -- qui pointaient
-    tous sur la meme route. Ce qui compte n'est pas leur nombre : c'est
-    qu'il y en ait au moins un, et que la liste soit lisible.
-    """
-    if not llm_installe(env_file):
-        return (Etat.SANS_OBJET, "modèles proposés",
-                "service IA non installé (profil « llm » non démarré)")
-    status, body = _llm_get("/v1/models", env_file)
-    if status != 200:
-        return (Etat.ECHEC, "modèles proposés", f"HTTP {status}")
-    try:
-        ids = [item.get("id") for item in json.loads(body).get("data", [])]
-    except (TypeError, ValueError, AttributeError):
-        return (Etat.ECHEC, "modèles proposés", "catalogue invalide")
-    if not ids:
-        return (Etat.ALERTE, "modèles proposés",
-                "aucun modèle configuré : rien à choisir dans l'interface")
-    return (Etat.OK, "modèles proposés", ", ".join(str(i) for i in ids))
-
-
-def check_litellm_auth(env_file=None):
-    """Sans identite, la porte reste fermee.
-
-    Une requete sans en-tete d'autorisation : le service doit repondre 401.
-    C'est la sonde qui aurait attrape la version ou un simple en-tete
-    d'utilisateur suffisait a se faire passer pour n'importe qui.
-    """
-    if not llm_installe(env_file):
-        return (Etat.SANS_OBJET, "identité exigée par le service",
-                "service IA non installé (profil « llm » non démarré)")
-    payload = b'{"model":"codelab-smart","messages":[{"role":"user","content":"sonde"}]}'
-    status, _ = _llm_post("/v1/chat/completions", payload, env_file,
-                          {"Content-Type": "application/json",
-                           "X-CodeLab-User-Id": "sonde-sans-cle"})
-    if status != 401:
-        return (Etat.ECHEC, "identité exigée par le service",
-                f"HTTP {status} au lieu de 401 : le service a accepté une "
-                f"requête sans clé ni assertion")
-    return (Etat.OK, "identité exigée par le service",
-            "une requête sans identité reçoit bien 401")
-
-
-# LA COMPLETION N'EST PAS UNE SONDE, et elle l'etait.
-#
-# Elle demandait une vraie reponse au modele -- donc des jetons consommes, une
-# ligne de comptabilite ecrite et jusqu'a quatre-vingt-dix secondes d'attente
-# -- a CHAQUE affichage de la page d'etat, et quatre-vingt-seize fois par jour
-# de plus par le planning Dagster. Or la page le dit elle-meme : « ces sondes
-# ne font que regarder ». Une sonde qui depense de l'argent et attend une
-# minute et demie n'est pas une sonde.
-#
-# Elle est donc passee dans la verification approfondie, avec les autres
-# tests qui AGISSENT (voir TESTS_APPROFONDIS plus bas) : on la lance quand on
-# veut savoir, pas quatre-vingt-seize fois par jour.
-
-
 def run_all(env_file=None, workspace=None, ssh_dir=None):
     """Toutes les sondes, dans l'ordre ou on veut les lire : d'abord ce qui
     doit MARCHER, ensuite ce qui doit etre FERME, enfin l'etat des lieux."""
@@ -2165,10 +1956,6 @@ def run_all(env_file=None, workspace=None, ssh_dir=None):
         _executer_sonde("check_postgres", lambda: check_postgres(env_file)),
         _executer_sonde("pgvector", lambda: check_pgvector(env_file)),
         _executer_sonde("check_tcp", lambda: check_tcp("codelab-postgres (TCP)", host, port)),
-        _executer_sonde("codelab-llm (TCP)", lambda: check_llm_tcp(env_file)),
-        _executer_sonde("codelab-llm (health)", lambda: check_litellm_health(env_file)),
-        _executer_sonde("codelab-llm (modèles)", lambda: check_litellm_models(env_file)),
-        _executer_sonde("codelab-llm (auth)", lambda: check_litellm_auth(env_file)),
         _executer_sonde("check_http", lambda: check_http("codelab-dagster", "http://codelab-dagster:3000/")),
         _executer_sonde("check_tcp", lambda: check_tcp("codelab-dev (SSH)", "codelab-dev", 22, lire_banniere=True)),
         _executer_sonde("check_panneau_joignable", lambda: check_panneau_joignable()),

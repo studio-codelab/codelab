@@ -68,8 +68,8 @@ conteneur, VS Code, Codex) et ce qui sert a **faire tourner** une application
 **Une application deployee** ne voit rien de tout ca. Elle lit, de la couche
 la plus faible a la plus forte : les variables que le panneau lui passe, puis
 le `.env` de son projet — voir [`workspace/README.md`](../workspace/README.md#configuration-et-secrets).
-Une application qui appelle l'IA le fait avec **sa propre cle CodeLab**, creee
-dans le panneau (*Cles et secrets*) et posee dans son `.env`.
+Une application qui appelle l'IA le fait elle-meme, avec **sa propre cle**
+de fournisseur posee dans son `.env` : CodeLab ne fournit pas de service IA.
 
 
 ## Le cycle complet
@@ -310,11 +310,9 @@ configuration (`/workspace/.codex`).
 codex ──compte ChatGPT──▶ OpenAI
 ```
 
-**Codex ne passe pas par `codelab-llm`.** Un agent de code envoie des
-dizaines de requêtes par tâche, chacune avec une vingtaine de milliers de
-jetons d'instructions : aucune part gratuite de fournisseur n'y suffit. La
-passerelle est réservée aux **applications**, qui en consomment peu (voir
-`llm/README.md`).
+Un agent de code envoie des dizaines de requêtes par tâche, chacune avec une
+vingtaine de milliers de jetons d'instructions : aucune part gratuite de
+fournisseur n'y suffit, d'où le compte ChatGPT.
 
 L'image portait aussi OpenClaw, une extension VS Code de chat, `acpx` et
 `codex-acp` : un message passait par six étapes, chacune avec sa version et

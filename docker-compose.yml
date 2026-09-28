@@ -13,7 +13,7 @@
 #
 # DURCISSEMENT DES CONTENEURS
 #
-# Cinq des six services tournent avec cap_drop: ALL et no-new-privileges : ils
+# Quatre des cinq services tournent avec cap_drop: ALL et no-new-privileges : ils
 # n'ont plus que les quelques capabilities dont ils se servent reellement,
 # listees et justifiees service par service ci-dessous. codelab-dev en est
 # exclu volontairement -- c'est le shell, et le durcir casserait sudo et la
@@ -46,7 +46,7 @@
 # ces lignes existent precisement pour empecher. Un plafond au-dessus de la
 # RAM disponible n'est pas une securite large, c'est une securite absente.
 #
-# Total actuel : 4,1 Go de plafonds avec le profil llm, 3,8 Go sans lui. La
+# Total actuel : 3,8 Go de plafonds. La
 # somme depasse encore les 4 Go, et c'est toujours voulu -- mais aucun
 # service ne peut plus prendre a lui seul plus du tiers de la machine.
 #
@@ -131,13 +131,6 @@ services:
       CODELAB_PROJECT_DBS: "diagnostic"
       # Pas de POSTGRES_PASSWORD/_FILE ici : l'entrypoint ci-dessus lit la
       # valeur dans credentials.env et l'exporte lui-meme.
-      #
-      # La cle du fournisseur, lue dans le .env de l'hote. Ce service ne
-      # s'en sert pas : il la RECOPIE dans config/llm/llm.env, le fichier de
-      # codelab-llm -- que le panneau ecrit aussi. C'est ici parce que c'est
-      # le premier conteneur a demarrer. Une valeur vide ne remplace jamais
-      # celle deja posee : le panneau garde le dernier mot.
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
 
     volumes:
       # Les sauvegardes. C'est ce conteneur qui les ecrit : pg_dump
@@ -449,84 +442,6 @@ services:
       retries: 5
       start_period: 5s
 
-    networks:
-      - codelab
-
-
-  # ------------------------- L'IA DE CODELAB -------------------------
-  #
-  # Un conteneur, une porte unique. codelab-llm detient la cle du
-  # fournisseur, verifie la cle CodeLab de chaque appelant et compte ce qui
-  # est consomme. Il ne publie aucun port.
-  #
-  # Profil "llm" : il ne demarre pas tant qu'on ne le demande pas
-  # (docker compose --profile llm up -d). Dans docker-compose-casaos.yml, il
-  # n'a pas de profil : CasaOS ne sait pas en activer un.
-  codelab-llm:
-    profiles: ["llm"]
-    build: ./llm
-    image: ghcr.io/studio-codelab/codelab-llm:latest
-    container_name: codelab-llm
-    restart: unless-stopped
-
-    mem_limit: 320m
-    cpus: 0.5
-    pids_limit: 256
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-    # Le durcissement de tous les autres services, qui manquait ici. C'est
-    # pourtant celui qui embarque le plus de code tiers et le seul qui parle
-    # a l'exterieur de la machine.
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-
-    # PAS de port publie : ses clients sont les applications de CodeLab, qui
-    # partagent le reseau « codelab ». Le port 8080 etait expose a tout le
-    # reseau local -- la meme erreur que Dagster, corrigee pour la meme
-    # raison. Un acces depuis le poste du developpeur (VS Code, un agent)
-    # demandera un port publie et une decision explicite : ce n'est pas le
-    # cas aujourd'hui.
-    expose:
-      - "8080"
-
-    environment:
-      CODELAB_LLM_ENV_FILE: /var/lib/codelab/llm/llm.env
-      # Le nom de l'application autorisee a presenter une assertion SSO.
-      # Vide, aucune assertion n'est acceptee : les clients s'identifient
-      # alors par une cle CodeLab, enregistree en base et revocable.
-      CODELAB_LLM_AUDIENCE: ${CODELAB_LLM_AUDIENCE:-}
-      # Les modeles proposes. Un nom logique par variable ; vider la valeur
-      # retire le modele de la liste. Le nom reel est celui du fournisseur
-      # (identifiant OpenRouter par defaut). Aussi posables dans llm.env.
-      # CODELAB_LLM_MODELE_CODELAB_CODING: "anthropic/claude-sonnet-5"
-      # CODELAB_LLM_MODELE_CODELAB_FAST: "..."
-
-    volumes:
-      # SON dossier de secrets, et rien d'autre. credentials.env porte le mot
-      # de passe d'administration du panneau, la cle privee SSO et le mot de
-      # passe SMTP : ce service n'a aucune raison de les voir, et il ne les
-      # voit plus. codelab-postgres ecrit ce dossier au demarrage.
-      - /DATA/AppData/codelab/config/llm:/var/lib/codelab/llm:ro
-
-    depends_on:
-      codelab-postgres:
-        condition: service_healthy
-
-    healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')\""]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
-
-    # « codelab », celui des applications : ce sont ses clients. Il sort
-    # vers le fournisseur (Internet) par ce meme reseau.
     networks:
       - codelab
 

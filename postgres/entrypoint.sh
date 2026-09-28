@@ -84,22 +84,12 @@ CODELAB_PROJECT_DBS="${CODELAB_PROJECT_DBS:-diagnostic}"
 # sans toucher aux requetes.
 CODELAB_PROJECT_SCHEMA="${CODELAB_PROJECT_SCHEMA:-dagster}"
 
-# ---------------------- le compte du service LLM ----------------------
-#
-# Un ROLE A LUI, et un mot de passe a lui. Tous les autres services se
-# connectent avec le superutilisateur "codelab" -- c'est deja beaucoup, et
-# c'est un vieux sujet -- mais codelab-llm est celui qui embarque le plus de
-# code tiers et qui parle a l'exterieur. Lui donner le superutilisateur
-# reviendrait a offrir toute la stack au premier paquet compromis.
-#
-# Son mot de passe ne vit pas dans credentials.env : ce fichier porte le mot
-# de passe d'administration du panneau, la cle privee SSO et le mot de passe
-# SMTP, et codelab-llm n'a aucune raison de les voir. Il recoit un dossier a
-# lui, avec le seul secret dont il a besoin.
-CODELAB_LLM_DB="${CODELAB_LLM_DB:-codelab_llm}"
-CODELAB_LLM_USER="${CODELAB_LLM_USER:-codelab_llm}"
-LLM_DIR="$CONFIG_DIR/llm"
-LLM_ENV_FILE="$LLM_DIR/llm.env"
+# L'ANCIEN SERVICE IA. codelab-llm est retire : ce conteneur ne cree plus
+# son role, sa base ni son dossier de secrets. Ce qui existe est LAISSE EN
+# PLACE -- la base codelab_llm, le role, config/llm/ -- et se supprime a la
+# main (voir postgres/README.md). Le nom reste reserve : « codelab_llm »
+# n'est pas un nom de projet.
+ANCIENNE_BASE_LLM=codelab_llm
 
 # Retire un bloc entier, marqueurs compris. Pour les blocs que plus aucun
 # service n'ecrit : un bloc sans valeur n'est que du bruit a relire.
@@ -145,7 +135,6 @@ header_block "# credentials.env -- les identifiants des services CodeLab.
 # applications qu'il lance. Le .env d'un projet l'emporte toujours.
 #
 # Ailleurs, et c'est voulu :
-#   config/llm/llm.env   la cle du fournisseur IA -- seul codelab-llm la lit
 #   config/ssh/          les cles SSH autorisees et les cles hote
 #   Dagster n'a pas d'identifiant a lui : il reprend la session du panneau."
 
@@ -168,95 +157,6 @@ POSTGRES_PASSWORD=$PG_PASSWORD"
 remove_block "codelab-dev"
 
 chmod 600 "$ENV_FILE"
-
-# ------------------- le dossier de secrets de codelab-llm -------------------
-#
-# Cree ICI et pas ailleurs, parce que ce conteneur demarre le premier (tous
-# les autres ont depends_on: service_healthy). Un DOSSIER monte, pas un
-# fichier : Docker cree un dossier vide a la place d'un fichier absent, et la
-# stack partirait avec un "llm.env/" que personne ne saurait lire.
-# Le mot de passe ne se lit QUE dans llm.env : le mettre aussi dans
-# credentials.env annulerait la separation qu'on vient d'etablir.
-LLM_PASSWORD=""
-if [ -s "$LLM_ENV_FILE" ]; then
-  LLM_PASSWORD="$(sed -n 's/^POSTGRES_PASSWORD=//p' "$LLM_ENV_FILE" | tail -n 1)"
-fi
-if [ -z "$LLM_PASSWORD" ]; then
-  LLM_PASSWORD="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
-fi
-mkdir -p "$LLM_DIR"
-chmod 700 "$LLM_DIR"
-# A CODELAB-LLM, PAS A ROOT. La passerelle tourne sous un utilisateur dedie
-# (uid 1003, voir llm/Dockerfile) et sans aucune capacite : un dossier 0700
-# et un fichier 0600 appartenant a root lui etaient illisibles. Elle lisait
-# alors un fichier « vide » sans erreur -- mot de passe Postgres vide, cle du
-# fournisseur vide -- et chaque appel finissait en « fe_sendauth: no password
-# supplied ». Le panneau, qui reecrit ce fichier, reprend ce proprietaire.
-CODELAB_LLM_UID=1003
-chown "$CODELAB_LLM_UID" "$LLM_DIR"
-
-# La cle du fournisseur : elle arrive par l'environnement du compose (fichier
-# .env de l'hote) ou reste celle deja posee ici. Jamais copiee depuis
-# credentials.env -- l'interet du dossier serait perdu.
-#
-# UN « ${...} » N'EST PAS UNE CLE. CasaOS ne substitue pas les variables du
-# compose : il transmettait le texte « ${OPENROUTER_API_KEY} » tel quel, que
-# ce bloc recopiait a chaque demarrage par-dessus la cle posee dans le
-# panneau -- et OpenRouter repondait « Missing Authentication header ». Ce
-# texte, qu'il vienne de l'environnement ou d'un fichier deja pollue, est
-# traite comme une absence.
-pas_un_gabarit() {
-  case "$1" in '${'*) echo "" ;; *) echo "$1" ;; esac
-}
-LLM_PROVIDER_KEY="$(pas_un_gabarit "${OPENROUTER_API_KEY:-}")"
-if [ -z "$LLM_PROVIDER_KEY" ] && [ -s "$LLM_ENV_FILE" ]; then
-  LLM_PROVIDER_KEY="$(pas_un_gabarit "$(sed -n 's/^OPENROUTER_API_KEY=//p' "$LLM_ENV_FILE" | tail -n 1)")"
-fi
-
-# Ce qui a ete pose dans ce fichier -- par le panneau (les cles Gemini, Groq,
-# Mistral) ou a la main (une autre chaine de modeles, un autre fournisseur)
-# -- survit a la reecriture. Seulement cela : le reste est regenere, et
-# CODELAB_LLM_AMONT_KEY (la liaison avec le routeur retire) disparait avec
-# lui.
-LLM_REGLAGES=""
-if [ -s "$LLM_ENV_FILE" ]; then
-  LLM_REGLAGES="$(grep -E '^(CODELAB_LLM_FOURNISSEUR|CODELAB_LLM_MODELE_[A-Z0-9_]+|CODELAB_LLM_DEFAUT|GEMINI_API_KEY|GROQ_API_KEY|MISTRAL_API_KEY)=' "$LLM_ENV_FILE" || true)"
-fi
-
-cat > "$LLM_ENV_FILE.new" <<LLMENV
-# llm.env -- les reglages du service IA (codelab-llm), et rien d'autre.
-#
-# Lu par codelab-llm SEUL, a chaque appel : une valeur changee ici prend
-# effet sans redemarrage. Ni les applications ni le poste de developpement
-# ne voient ce fichier -- ils presentent une cle CodeLab, pas celle-ci.
-#
-# Ecrit par codelab-postgres au demarrage (POSTGRES_*, et la cle venue du
-# .env de l'hote s'il en porte une) et par le panneau (Parametres > Cles et
-# secrets). Une cle deja posee n'est jamais effacee par une valeur vide.
-#
-# Conserve aux redemarrages :
-#   GEMINI_API_KEY, MISTRAL_API_KEY, GROQ_API_KEY   poses par le panneau
-#   CODELAB_LLM_MODELE_<NOM>=fournisseur:modele, ...   la chaine d'un nom
-#                                  logique, essayee dans l'ordre
-#   CODELAB_LLM_FOURNISSEUR=...    une autre adresse a la place d'OpenRouter
-#   CODELAB_LLM_DEFAUT=...         le nom logique d'un modele demande inconnu
-#                                  (codelab-coding ; « aucun » pour refuser)
-POSTGRES_HOST=codelab-postgres
-POSTGRES_PORT=5432
-POSTGRES_USER=$CODELAB_LLM_USER
-POSTGRES_PASSWORD=$LLM_PASSWORD
-POSTGRES_DB=$CODELAB_LLM_DB
-OPENROUTER_API_KEY=$LLM_PROVIDER_KEY
-LLMENV
-[ -n "$LLM_REGLAGES" ] && printf '%s\n' "$LLM_REGLAGES" >> "$LLM_ENV_FILE.new"
-mv "$LLM_ENV_FILE.new" "$LLM_ENV_FILE"
-chmod 600 "$LLM_ENV_FILE"
-chown "$CODELAB_LLM_UID" "$LLM_ENV_FILE"
-
-# L'ancien fichier du routeur retire (codelab-litellm). Plus personne ne le
-# lit ; on le supprime pour qu'aucune cle de fournisseur ne dorme sur le
-# disque sans usage. Un dossier vide cree par Docker a sa place part aussi.
-rm -f "$LLM_DIR/fournisseurs.env" 2>/dev/null || rmdir "$LLM_DIR/fournisseurs.env" 2>/dev/null || true
 
 # Migration terminee et ecrite : l'ancien fichier n'a plus de raison
 # d'exister. Supprime seulement apres coup, jamais avant.
@@ -354,72 +254,6 @@ drop_maintenance_db() {
   fi
 }
 
-# Remet la base de codelab-llm d'aplomb si elle a ete traitee en projet.
-#
-# « codelab db codelab_llm » y posait le schema « dagster » en tete du
-# search_path du superutilisateur. Le panneau, qui s'y connecte avec ce
-# role, creait alors ses tables dans « dagster » et y inscrivait les cles,
-# pendant que la passerelle les cherchait dans « public » : chaque appel
-# finissait en 401, sans une erreur nulle part.
-#
-# Ce qui est fait, et ne fait rien quand tout est en ordre :
-#   - le search_path du superutilisateur dans cette base est retire ;
-#   - les cles egarees rejoignent « public » (sans doublon : key_hash est
-#     unique), ou la table y est deplacee entiere s'il n'y en a pas ;
-#   - la consommation egaree, que la passerelle n'a jamais ecrite la, part
-#     si elle est vide -- sinon elle reste, et on le dit ;
-#   - le schema, s'il ne contient plus rien, est supprime.
-reparer_base_llm() {
-  psql -U "$POSTGRES_USER" -d "$CODELAB_LLM_DB" -v ON_ERROR_STOP=1 -q >/dev/null <<SQL \
-    || echo "[codelab-postgres] base \"$CODELAB_LLM_DB\" : reparation du schema impossible." >&2
-ALTER ROLE "$POSTGRES_USER" IN DATABASE "$CODELAB_LLM_DB" RESET search_path;
-DO \$\$
-DECLARE
-  egare TEXT := '$CODELAB_PROJECT_SCHEMA';
-  pleine BOOLEAN;
-BEGIN
-  IF egare = 'public' THEN
-    RETURN;
-  END IF;
-  IF to_regclass(format('%I.llm_api_keys', egare)) IS NOT NULL THEN
-    IF to_regclass('public.llm_api_keys') IS NULL THEN
-      EXECUTE format('ALTER TABLE %I.llm_api_keys SET SCHEMA public', egare);
-    ELSE
-      EXECUTE format('ALTER TABLE %I.llm_api_keys ADD COLUMN IF NOT EXISTS description TEXT', egare);
-      ALTER TABLE public.llm_api_keys ADD COLUMN IF NOT EXISTS description TEXT;
-      EXECUTE format(
-        'INSERT INTO public.llm_api_keys'
-        ' (key_hash, key_name, user_id, app_id, revoked_at, description, created_at)'
-        ' SELECT key_hash, key_name, user_id, app_id, revoked_at, description, created_at'
-        ' FROM %I.llm_api_keys ON CONFLICT (key_hash) DO NOTHING', egare);
-      EXECUTE format('DROP TABLE %I.llm_api_keys', egare);
-    END IF;
-    RAISE NOTICE 'cles de codelab-llm ramenees dans public';
-  END IF;
-  IF to_regclass(format('%I.llm_usage', egare)) IS NOT NULL THEN
-    IF to_regclass('public.llm_usage') IS NULL THEN
-      EXECUTE format('ALTER TABLE %I.llm_usage SET SCHEMA public', egare);
-    ELSE
-      EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I.llm_usage)', egare) INTO pleine;
-      IF pleine THEN
-        RAISE WARNING 'table %.llm_usage non vide : conservee', egare;
-      ELSE
-        EXECUTE format('DROP TABLE %I.llm_usage', egare);
-      END IF;
-    END IF;
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = egare) THEN
-    BEGIN
-      EXECUTE format('DROP SCHEMA %I RESTRICT', egare);
-    EXCEPTION WHEN dependent_objects_still_exist THEN
-      NULL;
-    END;
-  END IF;
-END
-\$\$;
-SQL
-}
-
 # Provisionnement en tache de fond : le serveur doit d'abord ecouter, et
 # c'est "exec docker-entrypoint.sh" plus bas qui le demarre. Toute erreur
 # ici est non fatale -- une base de projet manquante se rattrape avec
@@ -454,7 +288,7 @@ provision_databases() {
     # Les bases de la stack ne sont pas des projets : leur poser le schema
     # « dagster » en tete du search_path detournerait leurs tables.
     case "$db" in
-      "$CODELAB_LLM_DB"|"$CODELAB_INSTANCE_DB"|codelab|postgres)
+      "$ANCIENNE_BASE_LLM"|"$CODELAB_INSTANCE_DB"|codelab|postgres)
         echo "[codelab-postgres] \"$db\" est une base de la stack, pas un projet : ignoree." >&2
         continue ;;
     esac
@@ -481,24 +315,6 @@ SQL
            "le type vector ne sera pas utilisable." >&2
     fi
   done
-
-  # La base du service LLM et SON role, proprietaire de cette base et de
-  # rien d'autre. CREATE ROLE n'accepte pas IF NOT EXISTS : on regarde
-  # d'abord, et on repose le mot de passe a chaque demarrage -- c'est ce qui
-  # permet de le regenerer en effacant simplement le dossier llm/.
-  if [ "$(psql -U "$POSTGRES_USER" -d "$CODELAB_INSTANCE_DB" -tAc \
-          "SELECT 1 FROM pg_roles WHERE rolname='$CODELAB_LLM_USER'")" != "1" ]; then
-    psql -U "$POSTGRES_USER" -d "$CODELAB_INSTANCE_DB" >/dev/null \
-      -c "CREATE ROLE \"$CODELAB_LLM_USER\" LOGIN" && \
-      echo "[codelab-postgres] role \"$CODELAB_LLM_USER\" cree."
-  fi
-  psql -U "$POSTGRES_USER" -d "$CODELAB_INSTANCE_DB" >/dev/null 2>&1 \
-    -c "ALTER ROLE \"$CODELAB_LLM_USER\" WITH PASSWORD '$LLM_PASSWORD'" || true
-  if create_db_if_missing "$CODELAB_LLM_DB"; then
-    psql -U "$POSTGRES_USER" -d "$CODELAB_INSTANCE_DB" >/dev/null 2>&1 \
-      -c "ALTER DATABASE \"$CODELAB_LLM_DB\" OWNER TO \"$CODELAB_LLM_USER\"" || true
-    reparer_base_llm
-  fi
 
   # En dernier : les bases de la stack existent, plus rien n'a besoin de la
   # base livree par initdb.
