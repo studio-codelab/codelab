@@ -105,11 +105,11 @@ CHEMINS_ETAT = [
     "SHARED_ENV_FILE", "LEGACY_ADMIN_PASSWORD_FILE", "LEGACY_SECRET_KEY_FILE",
     "SSO_PRIVATE_FILE",
     # Les secrets du profil IA. Les deux derniers sont sous ROOT, pas sous
-    # STATE_DIR : ce sont les dossiers que le conteneur de developpement
+    # STATE_DIR : c'est le dossier que le conteneur de developpement
     # partage avec le panneau. Sans le filet, un test qui cree une cle
     # ecrirait dans le /workspace de la machine qui lance la suite.
-    "LLM_CONFIG_DIR", "LLM_ENV_FICHIER", "FOURNISSEURS_ENV_FICHIER",
-    "CODEX_DIR", "CLE_CODEX_FICHIER", "OPENCLAW_DIR", "OPENCLAW_FICHIER",
+    "LLM_CONFIG_DIR", "LLM_ENV_FICHIER",
+    "CODEX_DIR", "CLE_CODEX_FICHIER",
 ]
 
 
@@ -148,18 +148,14 @@ def _bac_a_sable(tmp_path, monkeypatch):
         "SSO_PRIVATE_FILE": str(etat / "codelab_sso_private.key"),
         "LLM_CONFIG_DIR": str(partage / "llm"),
         "LLM_ENV_FICHIER": str(partage / "llm" / "llm.env"),
-        "FOURNISSEURS_ENV_FICHIER": str(partage / "llm" / "fournisseurs.env"),
         "CODEX_DIR": str(travail / ".codex"),
         "CLE_CODEX_FICHIER": str(travail / ".codex" / "codelab-llm.key"),
-        "OPENCLAW_DIR": str(travail / ".openclaw"),
-        "OPENCLAW_FICHIER": str(travail / ".openclaw" / "openclaw.json"),
     }
     # FICHIERS_SECRETS tient les MEMES chemins dans un dictionnaire : le
     # detourner aussi, sinon les routes ecrivent a cote du filet -- c'est-a-
     # dire dans l'installation reelle.
     monkeypatch.setattr(app, "FICHIERS_SECRETS",
-                        {"llm": remplacements["LLM_ENV_FICHIER"],
-                         "fournisseurs": remplacements["FOURNISSEURS_ENV_FICHIER"]})
+                        {"llm": remplacements["LLM_ENV_FICHIER"]})
     for nom in CHEMINS_ETAT:
         assert hasattr(app, nom), (
             f"{nom} a disparu du panneau : le filet ne couvre plus tout, "
@@ -6927,7 +6923,7 @@ def test_chaque_service_est_borne_dans_les_deux_composes():
         # Les memes services des deux cotes : un compose qui en oublie un
         # est une installation qui ne demarre pas pareil selon la porte
         # d'entree.
-        assert len(services) == 8, (chemin, sorted(services))
+        assert len(services) == 7, (chemin, sorted(services))
         for nom, reglages in services.items():
             assert "pids_limit" in reglages or "deploy_pids" in reglages, (
                 f"{nom} n'a pas de limite processus dans {os.path.basename(chemin)}")
@@ -9765,11 +9761,16 @@ def test_le_service_llm_ne_contient_aucun_secret_provider():
     # La cle du fournisseur est lue dans llm.env, jamais posee par le compose :
     # un conteneur compromis ne doit pas la trouver dans son environnement.
     assert "CODELAB_LLM_ENV_FILE" in contenu
+    #
+    # codelab-postgres, lui, la recoit du .env de l'hote pour la recopier
+    # dans llm.env : c'est le premier conteneur a demarrer, et il ne parle
+    # pas a l'exterieur. Seul le bloc de codelab-llm est donc verifie.
     for chemin in _composes():
         compose = open(chemin, encoding="utf-8").read()
         assert "GEMINI_API_KEY" not in compose
         assert "GROQ_API_KEY" not in compose
-        assert "OPENROUTER_API_KEY: ${OPENROUTER_API_KEY" not in compose
+        bloc = _bloc_du_service(chemin, "codelab-llm")
+        assert "OPENROUTER_API_KEY" not in bloc, chemin
 
 
 def test_le_service_llm_ne_garde_que_la_comptabilite():
@@ -9798,19 +9799,12 @@ def test_le_service_llm_tient_ses_connexions_ouvertes():
 
 
 def test_le_service_llm_n_embarque_plus_litellm():
-    """LiteLLM est un SERVICE a cote, jamais une dependance de celui-ci.
+    """Un seul fournisseur compatible OpenAI : httpx suffit.
 
-    Ce test a d'abord voulu dire « un seul fournisseur compatible OpenAI,
-    httpx suffit ». L'argument a change le jour ou l'on a voulu plusieurs
-    fournisseurs avec du repli -- c'est exactement ce que LiteLLM fait bien.
-    Le test, lui, reste : il ne dit plus « pas de routage », il dit « pas
-    ICI ».
-
-    La raison tient en une phrase : ce conteneur detient l'identite CodeLab
-    et la comptabilite. Cent dependances transitives de plus dans cette
-    image-la, c'est une surface a suivre en securite pour un service qui n'a
-    aucune raison de la porter. Dans codelab-litellm, qui ne fait que router,
-    c'est son travail et rien d'autre.
+    Ce conteneur detient l'identite CodeLab et la comptabilite. Cent
+    dependances transitives de plus dans cette image-la, c'est une surface a
+    suivre en securite pour un POST. Le routage entre editeurs, s'il en faut,
+    est le travail du fournisseur (OpenRouter), pas de ce service.
     """
     requirements = (_racine_llm() / "requirements.txt").read_text(encoding="utf-8")
     assert "litellm" not in requirements
@@ -9853,11 +9847,19 @@ def test_le_compose_llm_est_opt_in_et_ne_publie_pas_le_port_du_modele():
     for chemin in _composes():
         contenu = open(chemin, encoding="utf-8").read()
         services = _services_du_compose(chemin)
-        for nom in ("codelab-llm", "codelab-litellm"):
-            assert nom in services, f"{nom} absent de {chemin}"
-        assert 'profiles: ["llm"]' in contenu
-        # AUCUN des deux ne publie de port. Celui du modele detenait deja la
-        # cle du fournisseur ; le routeur les detient toutes.
+        assert "codelab-llm" in services, f"codelab-llm absent de {chemin}"
+        # Plus de routeur : codelab-llm appelle le fournisseur en direct.
+        assert "codelab-litellm" not in services, chemin
+        # Optionnel dans le compose qu'on lance a la main. PAS dans celui de
+        # CasaOS : CasaOS ne sait pas activer un profil, et les deux
+        # services n'y demarraient donc jamais -- Codex repondait « error
+        # sending request » sans que rien ne dise pourquoi.
+        if os.path.basename(chemin) == "docker-compose.yml":
+            assert 'profiles: ["llm"]' in contenu
+        else:
+            assert "profiles:" not in contenu, (
+                "le compose CasaOS remet un profil : CasaOS ne l'activera pas")
+        # AUCUN port publie : ce service detient la cle du fournisseur.
         assert "8080:8080" not in contenu, chemin
         assert "4000:4000" not in contenu, chemin
         # Plus d'interface de chat : ni le service, ni son portier, ni le
@@ -9866,41 +9868,14 @@ def test_le_compose_llm_est_opt_in_et_ne_publie_pas_le_port_du_modele():
         assert "3001:3001" not in contenu, chemin
 
 
-def test_le_routeur_de_modeles_n_est_pas_joignable_par_les_applications():
-    """Les cles des fournisseurs ne sont pas offertes au reseau des projets.
-
-    Les applications declarees dans le panneau tournent DANS le conteneur
-    app-manager : elles partagent son reseau, « codelab ». Si le routeur y
-    etait aussi, n'importe laquelle l'appellerait en direct -- sans identite,
-    sans quota, sans comptabilite, et avec les cles de chaque fournisseur au
-    bout.
-
-    Le routeur ne voit donc que « codelab-ia », ou codelab-llm vient le
-    chercher. Ce reseau n'est PAS « internal », contrairement a celui que
-    portait l'interface de chat : ce service doit justement sortir pour
-    appeler les fournisseurs. L'isolement cherche est vers l'interieur.
-    """
-    for chemin in _composes():
-        charge = _reseaux_du_compose(chemin)
-        nom = os.path.basename(chemin)
-        assert charge["codelab-litellm"] == ["codelab-ia"], (nom, charge)
-        # codelab-llm garde un pied sur les deux : les applications viennent
-        # a lui, il va au routeur.
-        assert charge["codelab-llm"] == ["codelab", "codelab-ia"], (nom, charge)
-        assert "codelab-ia" not in charge["codelab-app-manager"], nom
-
-
-def test_le_service_du_modele_ne_parle_qu_au_routeur_et_garde_la_comptabilite():
-    """La frontiere entre les deux services, lue dans le code.
-
-    codelab-llm garde ce qui demande une identite CodeLab -- qui parle, a
-    quel rythme, ce qui a ete consomme -- et delegue le reste. Il n'embarque
-    toujours pas LiteLLM : c'est precisement ce qui lui permet de rester
-    mince tout en beneficiant du routage.
+def test_le_service_du_modele_appelle_le_fournisseur_et_garde_la_comptabilite():
+    """codelab-llm garde ce qui demande une identite CodeLab -- qui parle, a
+    quel rythme, ce qui a ete consomme -- et appelle le fournisseur en
+    direct. Plus de routeur entre les deux, et toujours pas LiteLLM dedans.
     """
     source = (_racine_llm() / "app.py").read_text(encoding="utf-8")
-    assert "codelab-litellm:4000" in source, (
-        "l'amont par defaut ne pointe pas le routeur")
+    assert 'FOURNISSEUR_PAR_DEFAUT = "https://openrouter.ai/api/v1"' in source
+    assert "codelab-litellm:4000" not in source
     assert "import litellm" not in source and "from litellm" not in source
     # Les deux protocoles, parce qu'un agent de developpement n'a plus le
     # choix : Codex a retire « chat » en fevrier 2026.
@@ -10385,30 +10360,6 @@ def test_codex_passe_par_la_passerelle_et_non_par_un_fournisseur_en_direct():
     assert "experimental_bearer_token" not in bloc
 
 
-def test_le_chat_de_l_extension_vscode_a_ce_qu_il_lance():
-    """Le panneau de chat de openknot.openclaw-extension ne parle pas au
-    gateway : chaque message lance « acpx ... exec <prompt> », agent codex
-    par defaut, et acpx lance l'adaptateur codex-acp.
-
-    Vecu : acpx n'etait pas dans l'image, et le premier message du chat
-    tombait sur « spawn acpx ENOENT ». Sans codex-acp installe, acpx le
-    telecharge par npx au premier message, a chaque recreation du conteneur.
-    """
-    source = _dockerfile_dev()
-    assert re.search(r"npm install -g acpx@\d", source), (
-        "acpx absent ou non epingle : le chat de l'extension ne demarre pas")
-    assert re.search(r"@agentclientprotocol/codex-acp@\d", source), (
-        "codex-acp absent ou non epingle : acpx le telechargera au runtime")
-    # codex-acp embarque sa propre copie de Codex (374 Mo) : elle a rempli
-    # le disque d'un serveur au « docker compose pull ». Elle est remplacee
-    # par un lien vers le Codex deja installe.
-    assert 'ln -s "$NM/@openai/codex"' in source, (
-        "codex-acp garde sa copie de Codex : l'image grossit de 374 Mo")
-    assert source.index("npm install -g @openai/codex") < source.index(
-        "@agentclientprotocol/codex-acp@"), (
-        "le lien vise un Codex installe apres lui")
-
-
 def test_codex_trouve_sa_configuration_et_sa_cle_sans_le_profil_de_session():
     """L'hote d'extensions VS Code ne passe pas forcement par
     /etc/profile.d, et son environnement est fige au demarrage du serveur.
@@ -10477,75 +10428,19 @@ def test_la_cle_de_la_passerelle_est_lue_dans_un_fichier_et_jamais_ecrite_en_dur
     assert 'chmod 600 "$CLE_LLM_FICHIER"' in source
 
 
-def test_les_noms_logiques_du_service_et_du_routeur_concordent():
-    """Un nom demande par un client doit exister des deux cotes.
-
-    codelab-llm valide le nom demande contre SA table, puis le transmet au
-    routeur. Un nom present ici et absent la-bas donne une erreur du
-    fournisseur au premier appel, pas au demarrage -- donc au pire moment.
-    """
-    source = (_racine_llm() / "app.py").read_text(encoding="utf-8")
-    debut = source.find("MODELES_PAR_DEFAUT = {")
-    assert debut != -1
-    bloc = source[debut:source.find("}", debut)]
-    logiques = set(re.findall(r'"([a-z0-9-]+)":', bloc))
-    assert logiques, "aucun nom logique lu dans MODELES_PAR_DEFAUT"
-
-    config = os.path.join(_racine_depot(), "litellm", "config.yaml")
-    if not os.path.exists(config):
-        pytest.skip("depot complet absent de cette image")
-    declares = set(re.findall(r"^\s*-\s*model_name:\s*([a-z0-9-]+)\s*$",
-                              open(config, encoding="utf-8").read(), re.M))
-    manquants = logiques - declares
-    assert not manquants, (
-        f"servis par codelab-llm mais absents de litellm/config.yaml : "
-        f"{sorted(manquants)}")
-
-
-def test_les_deux_agents_sont_epingles_et_passent_par_la_passerelle():
-    """codex et openclaw : meme image, meme passerelle, versions figees.
-
-    Une version non epinglee fait qu'un rebuild change l'outil sous les
-    pieds de tout le monde, sans qu'aucun commit ne le dise.
-    """
+def test_l_image_dev_ne_porte_que_codex():
+    """OpenClaw, acpx et codex-acp sont retires : un gateway, des
+    connecteurs de messagerie et une chaine de six etapes pour un chat que
+    Codex fait seul, dans le terminal. Ils pesaient des centaines de Mo sur
+    une machine dont le disque a deborde."""
     source = _dockerfile_dev()
-    assert re.search(r"npm install -g openclaw@\d", source), (
-        "openclaw n'est pas epingle sur une version")
-    # openclaw exige Node >= 24.16 : celui de Debian est trop ancien, d'ou
-    # NodeSource. Sans cette ligne, l'installation echoue au build.
+    assert "npm install -g @openai/codex" in source
+    for retire in ("openclaw", "acpx", "codex-acp"):
+        assert retire not in source.lower(), f"{retire} revient dans l'image"
     assert "deb.nodesource.com/setup_24.x" in source, (
-        "Node vient encore d'apt : openclaw refusera de s'installer")
+        "Node vient encore d'apt : trop ancien")
     assert "\n        nodejs \\" not in source, (
         "nodejs est encore installe depuis apt, en conflit avec NodeSource")
-    # L'assistant interactif n'a rien a faire dans un build.
-    assert "OPENCLAW_NO_PROMPT" in source
-
-
-def _config_openclaw():
-    """Le JSON que l'entrypoint ecrit pour OpenClaw, tel qu'il l'ecrit.
-
-    Un seul extracteur pour tous les tests qui le lisent : celui qui vivait
-    dans un test est tombe au premier renommage de la variable de chemin,
-    et le message disait « la configuration a disparu » alors qu'elle etait
-    la, deux lignes plus loin.
-    """
-    source = _entrypoint_dev()
-    ouverture = "cat > \"$OPENCLAW_CFG\" <<OPENCLAWCFG\n"
-    debut = source.find(ouverture)
-    assert debut != -1, "la configuration d'amorce d'OpenClaw a disparu"
-    debut += len(ouverture)
-    return source[debut:source.index("\nOPENCLAWCFG", debut)]
-
-
-def test_openclaw_pointe_la_passerelle_et_pas_un_fournisseur():
-    """Meme regle que pour Codex : aucun agent n'a de compte a lui."""
-    bloc = _config_openclaw()
-    assert '"baseUrl": "http://codelab-llm:8080/v1"' in bloc
-    # La cle part vers un hote du reseau prive : sans cela, OpenClaw refuse.
-    assert '"allowPrivateNetwork": true' in bloc
-    # Aucune cle de fournisseur ecrite en dur.
-    for interdit in ("sk-", "api.openai.com", "api.anthropic.com"):
-        assert interdit not in bloc, f"« {interdit} » dans la configuration d'OpenClaw"
 
 
 def test_la_configuration_des_agents_vit_dans_le_workspace():
@@ -10553,14 +10448,10 @@ def test_la_configuration_des_agents_vit_dans_le_workspace():
 
     Vecu a l'envers pour Codex : range sous /home/vscode, son auth.json
     disparaissait a chaque mise a jour d'image et il fallait refaire
-    « codex login ». Meme piege pour OpenClaw, evite de la meme facon.
+    « codex login ».
     """
     source = _entrypoint_dev()
     assert 'CODEX_HOME_DIR="${CODEX_HOME:-$WORKSPACE_DIR/.codex}"' in source
-    assert 'OPENCLAW_HOME_DIR="$WORKSPACE_DIR/.openclaw"' in source
-    # OpenClaw lit ~/.openclaw : un lien symbolique l'emmene dans le
-    # workspace sans dependre d'un nom de variable d'environnement.
-    assert "ln -s \"$OPENCLAW_HOME_DIR\" /home/vscode/.openclaw" in source
 
 
 # ---------- 37. la documentation ne ment pas ------------------------------
@@ -11082,7 +10973,7 @@ def test_aucune_reponse_de_la_page_ne_porte_une_valeur_complete(cles_admin):
     la page recoit. Aucun octet de la valeur ne doit s'y trouver."""
     client, _ = cles_admin
     valeur = "sk-secret-a-ne-jamais-revoir-0042"
-    r = client.put("/api/cles/fournisseur", json={"id": "anthropic", "valeur": valeur})
+    r = client.put("/api/cles/fournisseur", json={"id": "openrouter", "valeur": valeur})
     assert r.status_code == 200, r.data
     assert valeur not in r.get_data(as_text=True)
 
@@ -11127,16 +11018,15 @@ def test_le_journal_ne_recoit_que_le_nom_du_reglage(cles_admin, monkeypatch):
                         lambda genre, **d: vus.append((genre, d)))
     valeur = "sk-secret-de-journal-9999"
     assert client.put("/api/cles/fournisseur",
-                      json={"id": "openai", "valeur": valeur}).status_code == 200
+                      json={"id": "openrouter", "valeur": valeur}).status_code == 200
     assert vus, "l'operation n'a rien journalise du tout"
     for _, details in vus:
         texte = " ".join(str(v) for v in details.values())
         assert valeur not in texte
         assert "9999" not in texte, "meme l'apercu n'a rien a faire dans le journal"
     # LE NOM DE LA VARIABLE et pas l'identifiant du catalogue : c'est ce qui
-    # designe la valeur sans ambiguite, y compris pour un fournisseur ajoute
-    # a la main, qui n'a pas d'identifiant.
-    assert any(d.get("cle") == "OPENAI_API_KEY" for _, d in vus), (
+    # designe la valeur sans ambiguite quand on ouvre le fichier.
+    assert any(d.get("cle") == "OPENROUTER_API_KEY" for _, d in vus), (
         "le journal doit dire QUELLE variable a change")
 
 
@@ -11181,8 +11071,8 @@ def test_un_fichier_de_secrets_n_est_jamais_lisible_par_les_autres():
     Ecrire puis restreindre laisse le fichier en 0644 le temps d'etre
     rempli ; sur un dossier partage, cette fenetre suffit.
     """
-    app.ecrire_env_secrets("fournisseurs", {"ANTHROPIC_API_KEY": "sk-test-1234"})
-    mode = stat.S_IMODE(os.stat(app.FOURNISSEURS_ENV_FICHIER).st_mode)
+    app.ecrire_env_secrets("llm", {"OPENROUTER_API_KEY": "sk-test-1234"})
+    mode = stat.S_IMODE(os.stat(app.LLM_ENV_FICHIER).st_mode)
     assert mode == 0o600, oct(mode)
 
 
@@ -11209,29 +11099,29 @@ def test_une_valeur_vide_retire_la_ligne_au_lieu_de_l_ecrire_vide():
     Mais seule l'absence se lit comme telle quand on ouvre le fichier, et
     c'est ce fichier qu'on regarde quand plus rien ne marche.
     """
-    app.ecrire_env_secrets("fournisseurs", {"OPENAI_API_KEY": "sk-plein-1234"})
-    assert "OPENAI_API_KEY" in app.lire_env_fichier(app.FOURNISSEURS_ENV_FICHIER)
+    app.ecrire_env_secrets("llm", {"OPENROUTER_API_KEY": "sk-plein-1234"})
+    assert "OPENROUTER_API_KEY" in app.lire_env_fichier(app.LLM_ENV_FICHIER)
 
-    app.ecrire_env_secrets("fournisseurs", {"OPENAI_API_KEY": ""})
-    texte = open(app.FOURNISSEURS_ENV_FICHIER, encoding="utf-8").read()
-    assert "OPENAI_API_KEY" not in texte
+    app.ecrire_env_secrets("llm", {"OPENROUTER_API_KEY": ""})
+    texte = open(app.LLM_ENV_FICHIER, encoding="utf-8").read()
+    assert "OPENROUTER_API_KEY" not in texte
     assert "sk-plein" not in texte
 
 
 def test_une_valeur_a_retour_a_la_ligne_est_refusee(cles_admin):
     """Un retour a la ligne couperait le fichier en deux : la suite de la
-    valeur y passerait pour une AUTRE variable d'environnement, posee dans le
-    conteneur du routeur par celui qui a colle la valeur."""
+    valeur y passerait pour une AUTRE variable, lue par codelab-llm, posee
+    par celui qui a colle la valeur."""
     client, _ = cles_admin
     assert app.secret_propre("sk-bon-1234") == "sk-bon-1234"
     assert app.secret_propre("sk-x\nLD_PRELOAD=/tmp/mechant.so") is None
     assert app.secret_propre("sk-x\rAUTRE=1") is None
 
     r = client.put("/api/cles/fournisseur",
-                   json={"id": "openai", "valeur": "sk-x\nAUTRE=1"})
+                   json={"id": "openrouter", "valeur": "sk-x\nAUTRE=1"})
     assert r.status_code == 400
-    assert "AUTRE" not in open(app.FOURNISSEURS_ENV_FICHIER, encoding="utf-8").read() \
-        if os.path.exists(app.FOURNISSEURS_ENV_FICHIER) else True
+    assert "AUTRE" not in open(app.LLM_ENV_FICHIER, encoding="utf-8").read() \
+        if os.path.exists(app.LLM_ENV_FICHIER) else True
 
 
 def test_le_panneau_ecrit_ce_que_codelab_llm_sait_relire():
@@ -11293,10 +11183,6 @@ def test_creer_une_cle_l_inscrit_la_pose_et_ne_la_renvoie_pas(cles_admin):
     assert inserts[0][1][0] == app.empreinte_cle(posee)
     assert posee not in " ".join(str(p) for p in inserts[0][1])
 
-    # Et posee pour OpenClaw, qui ne lit pas l'environnement.
-    config = json.load(open(app.OPENCLAW_FICHIER, encoding="utf-8"))
-    assert config["models"]["providers"]["codelab"]["apiKey"] == posee
-
 
 def test_le_fichier_de_cle_n_est_lisible_que_par_son_proprietaire(cles_admin):
     """Ce fichier est monte dans /workspace, que d'autres processus voient."""
@@ -11324,8 +11210,8 @@ def test_creer_une_cle_revoque_celle_qu_elle_remplace(cles_admin):
         "c'est l'ANCIENNE cle qui doit etre revoquee")
 
 
-def test_revoquer_retire_le_fichier_et_desarme_openclaw(cles_admin):
-    """Les deux, et pas seulement la base : un poste qui croit avoir une cle
+def test_revoquer_retire_le_fichier_de_la_cle(cles_admin):
+    """Le fichier, et pas seulement la base : un poste qui croit avoir une cle
     et recoit un refus a chaque appel ne se diagnostique pas."""
     client, faux = cles_admin
     r = client.post("/api/cles/llm", json={"poste": True})
@@ -11341,38 +11227,8 @@ def test_revoquer_retire_le_fichier_et_desarme_openclaw(cles_admin):
     assert client.delete(f"/api/cles/llm/{ident}").status_code == 200
     assert not os.path.exists(app.CLE_CODEX_FICHIER), (
         "le fichier est reste : le poste croit avoir une cle et recoit un refus")
-    config = json.load(open(app.OPENCLAW_FICHIER, encoding="utf-8"))
-    assert config["models"]["providers"]["codelab"]["apiKey"] == ""
     assert any("UPDATE llm_api_keys SET revoked_at=now() WHERE id=" in s
                for s, _ in faux.ordres)
-
-
-def test_openclaw_garde_ses_reglages_quand_la_cle_change():
-    """OpenClaw se configure aussi a la main. Reecrire le fichier entier a
-    chaque rotation effacerait ces reglages, sans prevenir."""
-    os.makedirs(app.OPENCLAW_DIR, exist_ok=True)
-    with open(app.OPENCLAW_FICHIER, "w", encoding="utf-8") as f:
-        json.dump({"models": {"providers": {"codelab": {
-            "baseUrl": "http://codelab-llm:8080/v1", "apiKey": "vieille"}}},
-            "monReglage": "a garder"}, f)
-
-    assert app._openclaw_reporter("neuve")
-
-    config = json.load(open(app.OPENCLAW_FICHIER, encoding="utf-8"))
-    assert config["models"]["providers"]["codelab"]["apiKey"] == "neuve"
-    assert config["monReglage"] == "a garder"
-
-
-def test_openclaw_absent_est_recree_avec_ce_qu_il_faut_pour_repondre():
-    """allowPrivateNetwork manquant, la cle est bonne et l'appel ne part
-    jamais : codelab-llm est sur un reseau prive, qu'OpenClaw refuse par
-    defaut."""
-    assert app._openclaw_reporter("cl_neuve")
-    codelab = json.load(open(app.OPENCLAW_FICHIER, encoding="utf-8")
-                        )["models"]["providers"]["codelab"]
-    assert codelab["apiKey"] == "cl_neuve"
-    assert codelab["baseUrl"] == "http://codelab-llm:8080/v1"
-    assert codelab["request"]["allowPrivateNetwork"] is True
 
 
 def test_l_etat_distingue_les_trois_facons_de_ne_pas_marcher(cles_admin, monkeypatch):
@@ -11410,85 +11266,22 @@ def test_l_etat_distingue_les_trois_facons_de_ne_pas_marcher(cles_admin, monkeyp
 
 # ------------- le panneau ecrit ce que les autres lisent vraiment --------
 
-def test_le_routeur_ne_recoit_ses_cles_que_par_le_fichier_du_panneau():
-    """Dans Compose, « environment: » l'emporte sur « env_file: », y compris
-    quand la valeur substituee est VIDE.
-
-    Reposer ici « ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-} » effacerait donc
-    ce que le panneau vient d'ecrire, des que le .env de l'hote n'en porte
-    pas -- c'est-a-dire dans le cas courant. Le defaut serait muet : le
-    routeur repondrait « cle absente » sur une valeur qu'on vient de saisir.
-    """
-    # _composes() d'abord : il ignore ce test dans une image qui ne porte pas
-    # les composes. Importer yaml avant transformait ce « rien a verifier
-    # ici » en echec -- et c'est ce qui a fait rougir la CI, ou PyYAML
-    # n'etait pas installe. Il l'est desormais (voir build-images.yml).
-    chemins = _composes()
-    import yaml
-    for chemin in chemins:
-        config = yaml.safe_load(open(chemin, encoding="utf-8"))
-        routeur = config["services"]["codelab-litellm"]
-        env = routeur.get("environment") or {}
-        for interdite in ("LITELLM_MASTER_KEY", "ANTHROPIC_API_KEY",
-                          "OPENAI_API_KEY", "OLLAMA_BASE_URL"):
-            assert interdite not in env, (
-                f"{os.path.basename(chemin)} repose {interdite} dans "
-                f"« environment: » : elle ecrasera le fichier du panneau")
-        fichiers = routeur.get("env_file") or []
-        vus = [f for f in fichiers
-               if str((f or {}).get("path") if isinstance(f, dict) else f)
-               .endswith("config/llm/fournisseurs.env")]
-        assert vus, (
-            f"{os.path.basename(chemin)} : le routeur ne lit plus le fichier "
-            f"que le panneau ecrit")
-        # CE TEST EXIGEAIT LA FORME LONGUE, et sa raison etait fausse.
-        #
-        # Il affirmait qu'une forme courte empecherait « la premiere
-        # installation » de demarrer. Mesure faite : Compose ne resout les
-        # env_file que des services d'un profil ACTIF. Le « up » d'une
-        # premiere installation n'active pas « llm », donc il ne lit meme pas
-        # cette ligne -- il demarre, et codelab-postgres ecrit alors le
-        # fichier. Seul « --profile llm up -d » sur une stack qui n'a JAMAIS
-        # tourne echoue, en nommant le fichier manquant.
-        #
-        # Et le cout de la forme longue, lui, etait bien reel : CasaOS la
-        # refuse, donc n'enregistrait plus le compose DU TOUT, donc les deux
-        # services IA n'atteignaient jamais l'installation. Un garde-fou qui
-        # empeche le fichier d'arriver ne protege rien.
-        #
-        # La forme est desormais tenue par la section 48, qui porte aussi la
-        # garantie qui remplace « required: false ».
-
-
 def test_le_panneau_nomme_les_variables_que_les_services_lisent():
     """Une variable mal nommee ne leve rien : le panneau ecrit, le service ne
     trouve pas, et le message est « cle absente » sur une cle presente.
 
-    Chaque destination declaree dans le panneau doit etre lue quelque part :
-    dans litellm/config.yaml pour le routeur, dans llm/app.py pour la
-    passerelle.
+    Chaque cle du catalogue du panneau doit etre lue par la passerelle, et
+    les modeles qu'il annonce doivent etre ceux qu'elle sert.
     """
-    routeur = open(os.path.join(_racine_depot(), "litellm", "config.yaml"),
-                   encoding="utf-8").read()
     passerelle = open(os.path.join(_racine_depot(), "llm", "app.py"),
                       encoding="utf-8").read()
-    # LITELLM_MASTER_KEY est lue par le programme LiteLLM lui-meme, pas par
-    # son fichier de configuration : c'est la seule qu'on ne peut pas
-    # retrouver dans un des deux fichiers du depot.
-    connues_du_routeur = {"OLLAMA_BASE_URL"}
     for spec in app.FOURNISSEURS:
-        nom = spec["variable"]
-        if spec.get("ou") == "llm":
-            assert nom in passerelle, (
-                f"{nom} n'est lue nulle part dans llm/app.py")
-        else:
-            assert nom in routeur or nom in connues_du_routeur, (
-                f"{nom} n'est lue nulle part par le routeur")
-    # La liaison, elle, est lue des deux cotes -- c'est sa definition meme.
-    for d in app.LIAISON:
-        source = passerelle if d["quel"] == "llm" else routeur
-        assert d["nom"] in source or d["nom"] == "LITELLM_MASTER_KEY", (
-            f"{d['nom']} n'est lue nulle part")
+        assert spec["variable"] in passerelle, (
+            f"{spec['variable']} n'est lue nulle part dans llm/app.py")
+    source = passerelle[passerelle.index("MODELES_PAR_DEFAUT = {"):]
+    servis = set(re.findall(r'"([a-z0-9-]+)":', source[:source.index("}")]))
+    annonces = {m for liste in app.MODELES_PAR_FOURNISSEUR.values() for m in liste}
+    assert annonces == servis, (annonces, servis)
 
 
 def test_l_entrypoint_postgres_n_ecrase_jamais_une_valeur_deja_posee():
@@ -11496,28 +11289,36 @@ def test_l_entrypoint_postgres_n_ecrase_jamais_une_valeur_deja_posee():
     le panneau -- sur une installation dont le .env ne porte rien, c'est-a-
     dire le cas courant.
 
-    La fonction est PRISE DANS l'entrypoint et executee : un test qui
-    relirait seulement le texte passerait encore si la logique s'inversait.
+    Le bloc est PRIS DANS l'entrypoint et execute : un test qui relirait
+    seulement le texte passerait encore si la logique s'inversait.
     """
     import subprocess
     import tempfile
     source = open(os.path.join(_racine_depot(), "postgres", "entrypoint.sh"),
                   encoding="utf-8").read()
-    fonction = re.search(r"valeur_fournisseur\(\) \{.*?\n\}\n", source, re.S)
-    assert fonction, "valeur_fournisseur() a disparu de postgres/entrypoint.sh"
-
+    debut = source.index('LLM_PROVIDER_KEY="${OPENROUTER_API_KEY:-}"')
+    fin = source.index("\nfi\n", debut) + 4
+    bloc = source[debut:fin]
     with tempfile.TemporaryDirectory() as bac:
-        fichier = os.path.join(bac, "fournisseurs.env")
-        open(fichier, "w").write("ANTHROPIC_API_KEY=deja-posee-par-le-panneau\n")
-        script = (f'FOURNISSEURS_ENV_FILE="{fichier}"\n' + fonction.group(0)
-                  + 'valeur_fournisseur ANTHROPIC_API_KEY "$1"\n')
+        fichier = os.path.join(bac, "llm.env")
+        open(fichier, "w").write("OPENROUTER_API_KEY=deja-posee-par-le-panneau\n")
+        script = (f'LLM_ENV_FILE="{fichier}"\nOPENROUTER_API_KEY="$1"\n' + bloc
+                  + 'printf %s "$LLM_PROVIDER_KEY"\n')
         vide = subprocess.run(["sh", "-c", script, "sh", ""],
                               capture_output=True, text=True, timeout=30)
         assert vide.stdout.strip() == "deja-posee-par-le-panneau", vide
-
         plein = subprocess.run(["sh", "-c", script, "sh", "venue-du-env-de-l-hote"],
                                capture_output=True, text=True, timeout=30)
         assert plein.stdout.strip() == "venue-du-env-de-l-hote", plein
+
+
+def test_postgres_garde_les_reglages_poses_a_la_main_dans_llm_env():
+    """llm.env est reecrit a chaque demarrage. Un autre fournisseur ou un autre
+    modele pose a la main y survit ; l'ancienne cle de liaison, non."""
+    source = open(os.path.join(_racine_depot(), "postgres", "entrypoint.sh"),
+                  encoding="utf-8").read()
+    assert "CODELAB_LLM_FOURNISSEUR|CODELAB_LLM_MODELE_" in source
+    assert "CODELAB_LLM_AMONT_KEY=" not in source.split("LLMENV")[1]
 
 
 def test_l_env_example_ne_pretend_plus_que_le_panneau_ecrit_llm_env_seul():
@@ -11528,8 +11329,7 @@ def test_l_env_example_ne_pretend_plus_que_le_panneau_ecrit_llm_env_seul():
                  encoding="utf-8").read()
     assert "codelab-postgres" in texte, (
         ".env.example ne dit toujours pas qui ecrit config/llm/llm.env")
-    assert "fournisseurs.env" in texte, (
-        ".env.example ne mentionne pas le fichier que le routeur lit")
+    assert "OPENROUTER_API_KEY=" in texte
 
 
 def test_l_onglet_des_cles_est_marque_reserve_a_l_administrateur():
@@ -11795,199 +11595,7 @@ def test_la_carte_du_rangement_ne_dit_plus_l_inverse_de_ce_qu_elle_fait():
     assert "rangement" in carte
 
 
-# ---------- 43. OpenClaw repond : config valide, et un gateway ----------
-#
-# CE QUE CETTE SECTION PROTEGE. Le fichier ecrit par l'entrypoint etait
-# REFUSE par OpenClaw, et son propre commentaire l'annoncait : « NON VERIFIE
-# A L'EXECUTION ». Sur la machine de Lucas, la CLI disait :
-#
-#     Config: invalid. Default agent: main.
-#     Gateway: not reachable at ws://127.0.0.1:18789
-#
-# « openclaw config validate » donne la cause, et elle n'etait pas
-# devinable : « custom model providers must declare models ». Les tests
-# ci-dessous tiennent les trois exigences constatees a l'execution, plus la
-# quatrieme que le gateway signale lui-meme au demarrage.
-#
-# Ils lisent la FORME, faute de pouvoir lancer OpenClaw en CI -- l'image de
-# test ne l'embarque pas. La validation reelle a ete faite a la main, avec le
-# paquet epingle, sur le JSON que ce heredoc produit exactement.
-
-
-def test_le_provider_openclaw_declare_ses_modeles():
-    """LE defaut signale. Un provider sans « models » n'est pas incomplet :
-    il est refuse, et OpenClaw tombe alors sur ses commandes deterministes
-    sans jamais le redire."""
-    config = json.loads(_config_openclaw()
-                        .replace("$JETON_OPENCLAW", "j" * 64)
-                        .replace("$CLE_POUR_OPENCLAW", "cl_exemple"))
-    modeles = config["models"]["providers"]["codelab"]["models"]
-    assert modeles, "le provider ne declare aucun modele : OpenClaw le refuse"
-    for m in modeles:
-        assert m.get("id"), f"un modele sans id : {m}"
-
-
-def test_le_gateway_openclaw_a_le_mode_sans_lequel_il_refuse_de_demarrer():
-    """Constate a l'execution : « Gateway start blocked: existing config is
-    missing gateway.mode. »"""
-    config = json.loads(_config_openclaw()
-                        .replace("$JETON_OPENCLAW", "j" * 64)
-                        .replace("$CLE_POUR_OPENCLAW", "cl_exemple"))
-    assert config["gateway"]["mode"] == "local"
-    # Sur la boucle locale : ses clients sont dans CE conteneur. Un autre
-    # bind ouvrirait le gateway au reseau, sans port publie pour le dire.
-    assert config["gateway"]["bind"] == "loopback"
-
-
-def test_un_modele_par_defaut_est_designe():
-    """Un provider declare sans modele par defaut ne sert a personne : rien
-    ne dit lequel utiliser, et l'agent demarre sans modele."""
-    config = json.loads(_config_openclaw()
-                        .replace("$JETON_OPENCLAW", "j" * 64)
-                        .replace("$CLE_POUR_OPENCLAW", "cl_exemple"))
-    primaire = config["agents"]["defaults"]["model"]["primary"]
-    assert primaire.startswith("codelab/"), primaire
-    modeles = {m["id"] for m in config["models"]["providers"]["codelab"]["models"]}
-    assert primaire.split("/", 1)[1] in modeles, (
-        f"le modele par defaut {primaire} n'est pas dans la liste declaree")
-
-
-def test_les_modeles_d_openclaw_sont_ceux_que_la_passerelle_sert():
-    """Trois fichiers nomment les memes modeles logiques : llm/app.py les
-    sert, le config.toml de Codex en choisit un, et OpenClaw les declare.
-
-    Un nom present d'un seul cote ne se voit qu'au premier appel, en erreur.
-    """
-    config = json.loads(_config_openclaw()
-                        .replace("$JETON_OPENCLAW", "j" * 64)
-                        .replace("$CLE_POUR_OPENCLAW", "cl_exemple"))
-    declares = {m["id"] for m in config["models"]["providers"]["codelab"]["models"]}
-    passerelle = (_racine_llm() / "app.py").read_text(encoding="utf-8")
-    bloc = passerelle[passerelle.index("MODELES_PAR_DEFAUT"):]
-    bloc = bloc[:bloc.index("}")]
-    servis = set(re.findall(r'"([a-z0-9-]+)":', bloc))
-    assert declares == servis, (
-        f"OpenClaw declare {sorted(declares)}, la passerelle sert {sorted(servis)}")
-
-
-def test_le_jeton_du_gateway_est_persiste_et_pas_retire_a_chaque_demarrage():
-    """Signale par le gateway lui-meme : « auth token was missing. Generated
-    a runtime token for this startup […] restart will generate a different
-    token. »
-
-    La CLI et l'extension VS Code lisent le MEME fichier : un jeton qui
-    change a chaque redemarrage les laisse dehors sans rien expliquer.
-    """
-    source = _entrypoint_dev()
-    config = _config_openclaw()
-    assert '"token": "$JETON_OPENCLAW"' in config, (
-        "le jeton du gateway n'est pas ecrit dans la configuration")
-    # Repris du fichier existant AVANT d'en tirer un neuf.
-    assert 'JETON_OPENCLAW="$(python3' in source, (
-        "le jeton n'est pas relu : chaque demarrage en poserait un neuf")
-    assert "if [ -z \"$JETON_OPENCLAW\" ]; then" in source, (
-        "aucun repli quand le fichier n'en porte pas encore")
-
-
-def test_la_configuration_refusee_par_openclaw_est_reecrite():
-    """LA reparation des installations deja cassees.
-
-    La regle precedente ne reecrivait que sur une cle perimee. Un fichier
-    refuse par OpenClaw restait donc en place indefiniment -- exactement ce
-    qui est arrive. C'est OpenClaw qui juge, pas nous : « config validate »
-    connait son schema, nous ne le connaissons que de seconde main.
-    """
-    # Les COMMENTAIRES sont hors sujet : celui qui explique la reparation
-    # cite forcement la commande. C'est du code qu'on parle -- et cette
-    # distinction a deja fait tomber un test sur sa propre justification.
-    lignes = [l for l in _entrypoint_dev().split("\n")
-              if not l.strip().startswith("#") and "openclaw config validate" in l]
-    assert lignes, "l'entrypoint ne demande plus son avis a OpenClaw"
-    # Et le refus doit MENER a la reecriture, pas seulement etre constate.
-    source = _entrypoint_dev()
-    debut = source.index(lignes[0])
-    assert "OPENCLAW_A_ECRIRE=1" in source[debut:debut + 300], (
-        "le refus d'OpenClaw ne declenche pas la reecriture")
-
-
-def test_le_gateway_est_lance_au_demarrage_du_conteneur():
-    """Sans lui, la CLI, la TUI et l'extension VS Code repondent toutes
-    « not reachable » -- c'est le second symptome signale."""
-    # La COMMANDE passee a su, et pas la presence de la chaine quelque part :
-    # un mutant qui la commentait (« true # openclaw gateway ») passait au
-    # travers, puisque le texte restait dans la ligne. C'est ce mutant qui a
-    # ecrit cette version du test.
-    lignes = [l for l in _entrypoint_dev().split("\n")
-              if not l.strip().startswith("#") and "openclaw gateway" in l]
-    assert lignes, "le gateway n'est pas lance : rien ne repondra sur 18789"
-    ligne = lignes[0]
-    lancee = re.search(r"""-c ["']([^"']+)""", ligne)
-    assert lancee and lancee.group(1).startswith("openclaw gateway"), (
-        f"la commande lancee ne demarre pas le gateway : {ligne}")
-    # Sous le compte de l'utilisateur, pas en root : le gateway execute du
-    # code d'agent, et root dans ce conteneur voit credentials.env.
-    assert "$SSH_USER" in ligne, f"le gateway ne tourne pas sous vscode : {ligne}"
-    # sshd reste le processus principal : c'est lui qui porte les journaux
-    # d'authentification et l'arret propre.
-    assert _entrypoint_dev().rstrip().endswith('exec "$@"'), (
-        "sshd n'est plus le dernier mot de l'entrypoint")
-
-
-def test_le_journal_du_gateway_est_plafonne():
-    """Le gateway ecrit dans /workspace/.openclaw/gateway.log, sur le disque
-    de donnees, tant que le conteneur tourne. La premiere version de ce bloc
-    n'avait aucune rotation : le fichier grossissait jusqu'a remplir le
-    disque. C'est le defaut que ce test tient ferme."""
-    source = _entrypoint_dev()
-    corps = [l for l in source.split("\n") if not l.strip().startswith("#")]
-    code = "\n".join(corps)
-
-    # Un plafond chiffre, et pas seulement l'intention d'en avoir un.
-    assert re.search(r"^OPENCLAW_LOG_MAX=(\d+)", code, re.M), (
-        "aucun plafond n'est fixe pour le journal du gateway")
-    plafond = int(re.search(r"^OPENCLAW_LOG_MAX=(\d+)", code, re.M).group(1))
-    garde = int(re.search(r"^OPENCLAW_LOG_GARDE=(\d+)", code, re.M).group(1))
-    assert 0 < plafond <= 16 * 1024 * 1024, f"plafond deraisonnable : {plafond}"
-    assert 0 < garde < plafond, (
-        f"la garde ({garde}) doit tenir sous le plafond ({plafond})")
-
-    # APPELEE, et pas seulement definie : un mutant qui supprimait les appels
-    # laissait la fonction en place et tous les mots de ce test avec elle.
-    assert "plafonner_le_journal_openclaw() {" in code, (
-        "la fonction de plafonnement n'est pas definie")
-    appels = [l.strip() for l in corps
-              if l.strip() == "plafonner_le_journal_openclaw"]
-    assert len(appels) >= 2, (
-        "le journal doit etre plafonne au demarrage ET pendant que le "
-        f"conteneur tourne ; appels trouves : {len(appels)}")
-
-    # Le conteneur peut tourner des mois sans redemarrer : un controle
-    # uniquement au demarrage ne plafonne rien entre deux.
-    assert re.search(r"while sleep \d+; do\s*\n\s*plafonner_le_journal_openclaw",
-                     code), "aucun controle periodique du journal"
-
-
-def test_le_journal_du_gateway_est_tronque_et_pas_renomme():
-    """Le gateway ecrit via « >> », donc son descripteur suit l'inode. Un
-    renommage le laisse remplir le .1 pendant que le fichier courant reste
-    vide : mesure faite, le .1 passait 3 Mo et continuait de grossir. Seule
-    une troncature en place plafonne quoi que ce soit."""
-    source = _entrypoint_dev()
-    debut = source.index("plafonner_le_journal_openclaw() {")
-    fin = source.index("\n}", debut)
-    corps = source[debut:fin]
-    corps = "\n".join(l for l in corps.split("\n")
-                      if not l.strip().startswith("#"))
-
-    assert ': > "$OPENCLAW_LOG"' in corps, (
-        "le journal courant n'est pas tronque en place -- sans cela le "
-        "plafond ne s'applique pas a un gateway deja lance")
-    # La queue est conservee AVANT la troncature, sinon on la perd.
-    assert corps.index("tail -c") < corps.index(': > "$OPENCLAW_LOG"'), (
-        "le journal est tronque avant que sa fin ne soit recopiee")
-    assert not re.search(r"\bmv\s+[\"\']?\$OPENCLAW_LOG", corps), (
-        "le journal est renomme : le gateway continuerait d'ecrire dans "
-        "l'ancien inode, et rien ne serait plafonne")
+# ---------- 43. le serveur VS Code survit aux mises a jour ----------
 
 
 def test_le_serveur_vscode_survit_a_une_mise_a_jour_d_image():
@@ -12012,22 +11620,6 @@ def test_le_dossier_du_serveur_vscode_est_rendu_a_son_utilisateur():
     # d'extensions couterait plusieurs secondes pour ne rien changer.
     assert "stat -c %U" in bloc, (
         "le chown n'est pas conditionne : il tournera a chaque demarrage")
-
-
-def test_l_extension_vscode_est_proposee_et_pas_imposee():
-    """VS Code lit extensions.json et OFFRE d'installer. Installer dans le
-    dos de l'utilisateur, dans un conteneur qui porte ses agents, serait une
-    decision qui ne nous appartient pas."""
-    source = _entrypoint_dev()
-    assert '"openknot.openclaw-extension"' in source
-    debut = source.index("VSCODE_DIR=")
-    bloc = source[debut:debut + 800]
-    assert '"recommendations"' in bloc, (
-        "l'extension n'est pas une recommandation : VS Code l'installerait "
-        "ou l'ignorerait, selon la cle employee")
-    assert 'if [ ! -f "$VSCODE_DIR/extensions.json" ]; then' in bloc, (
-        "le fichier est reecrit a chaque demarrage : une extension ajoutee "
-        "a la main par l'utilisateur disparaitrait")
 
 
 # ---------- 44. la console des cles : creer, revoquer, suivre ------------
@@ -12170,8 +11762,6 @@ def test_la_cle_du_poste_est_creee_sans_qu_on_la_demande(cles_admin, monkeypatch
     assert app.tenir_la_cle_du_poste() is True
     posee = open(app.CLE_CODEX_FICHIER, encoding="utf-8").read().strip()
     assert posee.startswith("cl_")
-    config = json.load(open(app.OPENCLAW_FICHIER, encoding="utf-8"))
-    assert config["models"]["providers"]["codelab"]["apiKey"] == posee
 
 
 def test_la_cle_du_poste_ne_se_recree_pas_a_chaque_tour(cles_admin):
@@ -12208,9 +11798,6 @@ def test_la_boucle_de_surveillance_tient_la_cle():
     bloc = source[source.index("def monitor_tick():"):]
     bloc = bloc[:bloc.index("\n    apps = load()")]
     assert "tenir_la_cle_du_poste()" in bloc
-    # La liaison aussi : elle s'engendre pour la meme raison, et rien ne la
-    # poserait sans cet appel -- la page attendrait indefiniment.
-    assert "tenir_la_cle_de_liaison()" in bloc
 
 
 # ------------------------------ le suivi -------------------------------
@@ -12248,7 +11835,7 @@ def test_aucune_valeur_complete_ne_sort_de_la_console(cles_admin):
     client, _ = cles_admin
     valeur = "sk-secret-de-la-console-0042"
     assert client.put("/api/cles/fournisseur",
-                      json={"id": "anthropic", "valeur": valeur}).status_code == 200
+                      json={"id": "openrouter", "valeur": valeur}).status_code == 200
     corps = client.get("/api/cles").get_data(as_text=True)
     assert valeur not in corps
     assert "sk-secret" not in corps
@@ -12352,75 +11939,13 @@ def test_la_console_est_reservee_a_l_administrateur():
             f"{chemin} n'est pas reservee a l'administrateur")
 
 
-# ---------- 45. fournisseurs au choix, liaison a part, et rien a payer ----
+# ---------- 45. le fournisseur, et rien a payer --------------------------
 #
-# TROIS DEMANDES, et la premiere etait une question : « a quoi correspond
-# la cle partagee avec le routeur ? » Elle revelait le defaut -- la page melait
-# dans une meme liste figee la cle interne de la liaison et les cles des
-# comptes exterieurs. Deux choses sans rapport :
-#
-#   une cle de FOURNISSEUR   vient de l'exterieur, se paie, donne des modeles ;
-#   la cle de LIAISON        un secret entre deux de NOS conteneurs, qui ne
-#                            veut rien dire ailleurs et se tire au hasard.
-
-
-def test_la_liaison_n_est_pas_dans_le_catalogue_des_fournisseurs():
-    """Ce sont deux choses differentes, et les melanger a produit la
-    question de Lucas."""
-    variables = {f["variable"] for f in app.FOURNISSEURS}
-    for d in app.LIAISON:
-        assert d["nom"] not in variables, (
-            f"{d['nom']} est la liaison interne, pas un fournisseur")
-
-
-def test_la_liaison_se_pose_toute_seule_et_des_deux_cotes(cles_admin):
-    """« Renseigner a la main le moins possible. » Un secret partage entre
-    deux de nos conteneurs n'a aucune raison d'etre saisi : personne ne le
-    delivre, et le demander revenait a faire recopier un « openssl rand »
-    dans deux fichiers."""
-    assert app.etat_de_la_liaison()["definie"] is False
-    assert app.tenir_la_cle_de_liaison() is True
-    etat = app.etat_de_la_liaison()
-    assert etat["definie"] and etat["accordee"]
-    # LA MEME valeur des deux cotes : deux valeurs differentes sont la panne
-    # la plus muette de la stack.
-    valeurs = [app.lire_env_fichier(app.FICHIERS_SECRETS[d["quel"]])[d["nom"]]
-               for d in app.LIAISON]
-    assert len(set(valeurs)) == 1 and valeurs[0]
-
-
-def test_la_liaison_ne_change_pas_a_chaque_tour(cles_admin):
-    """Appelee depuis la boucle de surveillance : la regenerer a chaque tour
-    ferait refuser le routeur en permanence, puisqu'il lit sa valeur au
-    demarrage."""
-    assert app.tenir_la_cle_de_liaison() is True
-    avant = app.lire_env_fichier(app.FICHIERS_SECRETS["llm"])["CODELAB_LLM_AMONT_KEY"]
-    assert app.tenir_la_cle_de_liaison() is False
-    apres = app.lire_env_fichier(app.FICHIERS_SECRETS["llm"])["CODELAB_LLM_AMONT_KEY"]
-    assert avant == apres
-
-
-def test_une_liaison_desaccordee_est_reparee_et_nommee(cles_admin):
-    """Deux valeurs differentes : le routeur refuse et parle
-    d'authentification sans dire laquelle. C'est la panne qu'on ne trouve
-    pas."""
-    app.ecrire_env_secrets("llm", {"CODELAB_LLM_AMONT_KEY": "une-valeur"})
-    app.ecrire_env_secrets("fournisseurs", {"LITELLM_MASTER_KEY": "une-autre"})
-    etat = app.etat_de_la_liaison()
-    assert etat["definie"] is True and etat["accordee"] is False, (
-        "le desaccord n'est pas vu : la page dirait que tout va bien")
-    assert app.tenir_la_cle_de_liaison() is True
-    assert app.etat_de_la_liaison()["accordee"] is True
-
-
-def test_la_liaison_ne_se_saisit_pas_par_la_route_des_fournisseurs(cles_admin):
-    """Sinon on retomberait sur ce qu'on vient de retirer : une valeur
-    interne qu'on demande a l'utilisateur."""
-    client, _ = cles_admin
-    r = client.put("/api/cles/fournisseur",
-                   json={"variable": "LITELLM_MASTER_KEY", "valeur": "x"})
-    assert r.status_code == 400
-    assert "régénère" in r.get_json()["error"].lower()
+# UN SEUL FOURNISSEUR, OpenRouter, appele en direct par codelab-llm. Le
+# routeur et la cle de liaison qui le reliait a la passerelle sont retires :
+# ils coutaient un conteneur, plus d'un Go de disque et une panne muette de
+# plus (deux valeurs differentes des deux cotes), pour un routage
+# qu'OpenRouter fait deja.
 
 
 # ------------------------ le choix du fournisseur ----------------------
@@ -12433,36 +11958,22 @@ def test_le_catalogue_ne_propose_que_ce_qui_n_est_pas_deja_pose(cles_admin):
     assert {c["id"] for c in d["catalogue"]} == {f["id"] for f in app.FOURNISSEURS}
 
     client.put("/api/cles/fournisseur",
-               json={"id": "anthropic", "valeur": "sk-ant-quelque-chose"})
+               json={"id": "openrouter", "valeur": "sk-or-quelque-chose"})
     d = client.get("/api/cles").get_json()
-    assert "anthropic" not in {c["id"] for c in d["catalogue"]}
-    assert "anthropic" in {f["id"] for f in d["fournisseurs"]}
-
-
-def test_un_fournisseur_hors_catalogue_s_ajoute_par_son_nom_de_variable(cles_admin):
-    """« Anthropic, OpenAI ou autre. » L'autre doit exister."""
-    client, _ = cles_admin
-    r = client.put("/api/cles/fournisseur",
-                   json={"variable": "mistral_api_key", "valeur": "sk-mistral-x"})
-    assert r.status_code == 200, r.data
-    # Normalise en majuscules : une variable d'environnement l'est.
-    valeurs = app.lire_env_fichier(app.FICHIERS_SECRETS["fournisseurs"])
-    assert valeurs.get("MISTRAL_API_KEY") == "sk-mistral-x"
-    d = client.get("/api/cles").get_json()
-    ligne = [f for f in d["fournisseurs"] if f["variable"] == "MISTRAL_API_KEY"]
-    assert ligne and ligne[0]["connu"] is False
+    assert "openrouter" not in {c["id"] for c in d["catalogue"]}
+    assert "openrouter" in {f["id"] for f in d["fournisseurs"]}
 
 
 def test_un_nom_de_variable_quelconque_est_refuse(cles_admin):
-    """LE point de securite de ce champ. Sans contrainte, il deviendrait une
-    facon d'ajouter n'importe quelle variable d'environnement au conteneur
-    du routeur -- LD_PRELOAD y chargerait une bibliotheque au demarrage."""
+    """Seul le catalogue s'ecrit. Un nom libre deviendrait une facon d'ecrire
+    n'importe quoi dans le fichier de secrets de codelab-llm -- y compris la
+    variable qui choisit l'adresse du fournisseur, donc ou partent les cles."""
     client, _ = cles_admin
-    for mauvais in ("LD_PRELOAD", "PATH", "anything", "A_B", "PATH_API_KEY_"):
+    for mauvais in ("LD_PRELOAD", "PATH", "MISTRAL_API_KEY", "CODELAB_LLM_FOURNISSEUR"):
         r = client.put("/api/cles/fournisseur",
                        json={"variable": mauvais, "valeur": "x"})
         assert r.status_code == 400, f"« {mauvais} » a ete accepte"
-    valeurs = app.lire_env_fichier(app.FICHIERS_SECRETS["fournisseurs"])
+    valeurs = app.lire_env_fichier(app.FICHIERS_SECRETS["llm"])
     assert "LD_PRELOAD" not in valeurs and "PATH" not in valeurs
 
 
@@ -12482,29 +11993,6 @@ def test_la_page_dit_quels_modeles_tombent_sans_la_cle():
     assert "f.modeles" in condition, (
         f"ce n'est plus la liste des modeles qui decide : « {condition.strip()} »")
     assert "Sert" in bloc
-
-
-def test_les_modeles_annonces_sont_ceux_du_routeur():
-    """MODELES_PAR_FOURNISSEUR est recopie a la main : litellm/config.yaml
-    n'est pas monte dans le conteneur du panneau. Sans ce test, la page
-    promettrait qu'une cle sert un modele que personne ne demande."""
-    import yaml
-    chemin = os.path.join(_racine_depot(), "litellm", "config.yaml")
-    config = yaml.safe_load(open(chemin, encoding="utf-8"))
-    attendu = {}
-    for entree in config["model_list"]:
-        params = entree["litellm_params"]
-        for champ in ("api_key", "api_base"):
-            valeur = str(params.get(champ) or "")
-            if valeur.startswith("os.environ/"):
-                attendu.setdefault(valeur.split("/", 1)[1], []).append(
-                    entree["model_name"])
-    for variable, modeles in attendu.items():
-        assert app.MODELES_PAR_FOURNISSEUR.get(variable) == modeles, (
-            f"{variable} sert {modeles} dans litellm/config.yaml, mais la "
-            f"page annonce {app.MODELES_PAR_FOURNISSEUR.get(variable)}")
-    assert set(app.MODELES_PAR_FOURNISSEUR) == set(attendu), (
-        "la table du panneau et le routeur ne nomment pas les memes variables")
 
 
 def test_les_identifiants_postgres_ne_passent_pas_pour_des_fournisseurs(cles_admin):
@@ -12740,23 +12228,6 @@ def test_la_liaison_interne_ne_parait_plus_dans_la_page():
         "la route de regeneration manuelle est orpheline")
 
 
-def test_le_mecanisme_de_la_liaison_reste_entier():
-    """LE POINT QUI COMPTE. Retirer la SECTION ne doit pas retirer le
-    SECRET : c'est lui qui garantit que codelab-llm et codelab-litellm
-    portent la meme valeur. Sans lui, le routeur refuse tout appel en
-    parlant d'authentification sans dire laquelle."""
-    source = (_racine_app_manager() / "app.py").read_text(encoding="utf-8")
-    corps = [l for l in source.split("\n") if not l.strip().startswith("#")]
-    assert any(l.strip() == "tenir_la_cle_de_liaison()" for l in corps), (
-        "la liaison n'est plus posee par la surveillance")
-    # Et elle reste refusee comme cle de fournisseur : la saisir a la main
-    # rouvrirait precisement le desaccord que le tirage automatique evite.
-    bloc = source[source.index('@flask_app.put("/api/cles/fournisseur")'):]
-    bloc = bloc[:bloc.index("\n@flask_app")]
-    assert "liaison interne" in bloc, (
-        "la liaison redevient saisissable par la route des fournisseurs")
-
-
 def test_une_cle_porte_un_projet_et_un_utilisateur(cles_admin, monkeypatch):
     """Demande de Lucas : « ajouter un projet aux cles que je cree, et un
     utilisateur ». L'utilisateur etait toujours le compte qui cliquait, ce
@@ -12930,44 +12401,3 @@ def test_les_permissions_du_workspace_sont_rattrapees_a_chaque_demarrage():
             "il reecrirait tout le workspace a chaque demarrage")
 
 
-def test_le_chat_openclaw_est_joignable_sans_extension():
-    """OpenClaw sert sa propre interface de conversation -- la « Control UI »
-    -- sur le port du gateway. Verifie a l'execution : la page repond bien un
-    document « OpenClaw Control ». Il n'y a donc aucune extension a installer,
-    et c'est tant mieux : celle qu'on recommandait n'a jamais pu etre
-    verifiee depuis cet environnement.
-    """
-    source = _entrypoint_dev()
-    assert '"$VSCODE_DIR/settings.json"' in source, (
-        "VS Code ne recoit aucun reglage : le port ne sera pas redirige")
-    bloc = source[source.index("cat > \"$VSCODE_DIR/settings.json\""):]
-    bloc = bloc[:bloc.index("\nVSCODESET\n")]
-    reglages = json.loads(bloc[bloc.index("{"):bloc.rindex("}") + 1])
-    assert reglages.get("remote.autoForwardPorts") is True, (
-        "la redirection automatique est coupee : le port ne remontera pas")
-    assert "18789" in reglages.get("remote.portsAttributes", {}), (
-        "le port du gateway n'est pas declare a VS Code")
-    # Le chat de l'extension ne propose que l'agent installe : claude et
-    # opencode, ses autres choix par defaut, n'existent pas dans l'image.
-    assert reglages.get("openclaw.chat.agent") == "codex"
-    assert reglages.get("openclaw.chat.models") == ["codex"]
-
-
-def test_l_adresse_du_chat_porte_le_jeton():
-    """La Control UI s'authentifie par un fragment « #token=... », et un
-    fragment ne se devine pas. « openclaw dashboard » ne l'ajoute que s'il
-    peut ouvrir un navigateur -- ce qu'une session SSH ne peut pas."""
-    source = _entrypoint_dev()
-    assert "/usr/local/bin/openclaw-chat" in source, (
-        "aucune commande ne donne l'adresse du chat")
-    bloc = source[source.index("cat > /usr/local/bin/openclaw-chat"):]
-    bloc = bloc[:bloc.index("\nCHATCMD\n")]
-    sans_commentaires = "\n".join(l for l in bloc.split("\n")
-                                  if not l.strip().startswith("#"))
-    assert "#token=$JETON" in sans_commentaires, (
-        "l'adresse ne porte pas le jeton : la page refusera la connexion")
-    # Lu dans la configuration, pas journalise : un jeton dans « docker logs »
-    # y resterait pour tout le monde.
-    assert "gateway" in sans_commentaires and "auth" in sans_commentaires, (
-        "le jeton n'est pas lu dans la configuration du gateway")
-    assert "18789" in sans_commentaires, "l'adresse ne vise pas le bon port"

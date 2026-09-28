@@ -271,111 +271,31 @@ developpement, qui execute des commandes sans qu'on relise chacune — et il
 est monte par Dagster et app-manager. Un credential permanent y serait
 utilisable par un agent travaillant sans personne devant.
 
-## OpenClaw
+## Discuter avec l'IA dans VS Code
 
-Second agent de developpement, installe a cote de `codex` et epingle sur la
-ligne `extended-stable`. Sa configuration vit dans `/workspace/.openclaw`,
-atteinte par un lien depuis `~/.openclaw` : comme pour Codex, c'est le seul
-dossier qui survit a une recreation du conteneur.
+**Codex, dans le terminal intégré.** C'est le seul agent de l'image : ouvrir
+un terminal VS Code (connecté en Remote-SSH), aller dans le projet et lancer
+`codex`. Glisser l'onglet du terminal vers le bord droit donne une
+disposition éditeur + conversation équivalente à un panneau de chat.
 
-Le `openclaw.json` d'amorce pointe la même passerelle que Codex, et reprend
-la clé déposée dans `/workspace/.codex/codelab-llm.key` si elle est déjà là.
-
-Il déclare aussi **les modèles**, **un modèle par défaut** et **le mode du
-gateway** — et aucun des trois n'est facultatif :
-
-| Clé | Sans elle |
-|---|---|
-| `models.providers.codelab.models[]` | *« custom model providers must declare models »* — la configuration est **refusée**, pas incomplète |
-| `agents.defaults.model.primary` | un provider déclaré que rien ne désigne : l'agent démarre sans modèle |
-| `gateway.mode` | *« Gateway start blocked: existing config is missing gateway.mode »* |
-
-Les identifiants de modèles sont les noms **logiques** de `codelab-llm`, les
-mêmes que dans le `config.toml` de Codex. Un test tient les trois fichiers
-d'accord : un nom présent d'un seul côté ne se verrait qu'au premier appel,
-en erreur.
-
-`allowPrivateNetwork` est indispensable : la clé part vers un hôte du réseau
-privé, ce qu'OpenClaw refuse par défaut. On lève cette protection en
-connaissance de cause, parce que l'hôte en question est le nôtre.
-
-Le `gateway.auth.token` est **tiré une fois et conservé**. Sans lui, le
-gateway en génère un nouveau à chaque démarrage — il le dit dans son journal
-— et la CLI comme l'extension VS Code, qui lisent le même fichier, se
-retrouvent dehors sans explication.
-
-### Le gateway
-
-**Rien ne répond sans lui.** La CLI, la TUI et la page de chat (Control UI)
-sont toutes des clients du gateway : c'est lui qui tient les sessions, les
-outils et le routage. Le panneau de chat de l'extension VS Code, lui, n'en
-dépend pas — voir plus bas. Il ne démarre pas tout seul, d'où le message :
+Le chemin est court, et c'est voulu :
 
 ```
-Gateway: not reachable at ws://127.0.0.1:18789
+codex ──clé CodeLab──▶ codelab-llm ──clé OpenRouter──▶ OpenRouter
 ```
 
-L'entrypoint le lance donc au démarrage du conteneur, sous le compte
-`vscode`, **sur la boucle locale uniquement**. Ses clients sont dans ce
-conteneur ; aucun port n'est publié, et la documentation d'OpenClaw note que
-les connexions en boucle locale sont approuvées d'office — donc pas
-d'appairage à faire à la main. Son journal : `/workspace/.openclaw/gateway.log`.
+L'image portait aussi OpenClaw, une extension VS Code de chat, `acpx` et
+`codex-acp` : un message passait par six étapes, chacune avec sa version et
+sa configuration, pour un résultat que Codex donne seul. Ils sont retirés,
+ce qui allège l'image de plusieurs centaines de Mo. Sur une installation
+existante, `/workspace/.openclaw` et la recommandation d'extension dans
+`/workspace/.vscode/` peuvent être supprimés à la main : plus rien ne les lit.
 
-`sshd` reste le processus principal : si le gateway tombe, les sessions SSH
-continuent.
-
-### L'extension VS Code
-
-`/workspace/.vscode/extensions.json` recommande
-[`openknot.openclaw-extension`](https://github.com/OpenKnots/openclaw-extension)
-— chat en barre latérale, `@` pour attacher des fichiers, `/explain`,
-`/fix`, `/review`. VS Code **propose** de l'installer à l'ouverture du
-dossier ; il ne l'installe pas tout seul, et une extension retirée à la main
-le reste. Le fichier n'est écrit qu'une fois : la liste est à compléter
-soi-même.
-
-**Son chat ne passe pas par le gateway.** Chaque message lance
-`acpx --format json … exec "<message>"`, avec l'agent `codex` par défaut :
-`acpx` démarre l'adaptateur `codex-acp`, qui lit le `config.toml` de Codex
-et appelle `codelab-llm`. Les deux sont installés et épinglés dans l'image ;
-sans `acpx`, le premier message échouait sur `spawn acpx ENOENT`.
-
-`.vscode/settings.json` restreint la liste des agents du chat à `codex`
-(`openclaw.chat.models`) : `claude` et `opencode`, proposés par défaut par
-l'extension, ne sont pas installés. Ce fichier n'étant écrit qu'une fois,
-une installation existante peut ajouter ces deux lignes à la main :
-
-```json
-"openclaw.chat.agent": "codex",
-"openclaw.chat.models": ["codex"]
-```
-
-L'avertissement *« Model metadata for `codelab-coding` not found »* qui
-s'affiche en tête de réponse est sans conséquence : Codex ne connaît pas les
-noms logiques de CodeLab et prend des valeurs par défaut.
-
-**Sans extension**, la page de chat d'OpenClaw fait le même travail en
-passant par le gateway : `openclaw-chat` imprime son adresse, jeton compris,
-et VS Code redirige le port.
-
-Pour qu'elle survive : `~/.vscode-server` est désormais **monté depuis
-l'hôte**. Sans ce montage, chaque `docker compose pull` effaçait toutes les
-extensions installées par Remote-SSH, sans rien dire.
-
-### Si la configuration est refusée
-
-L'entrypoint demande son avis à OpenClaw (`openclaw config validate`) et
-**réécrit le fichier s'il est refusé**. Une configuration valide ajustée à la
-main n'est jamais touchée ; une configuration cassée se répare au prochain
-démarrage du conteneur.
-
-En dernier recours, supprimer `openclaw.json` rend la main à
-`openclaw onboard`, qui reste la référence.
-
-Ce paquet est **gros** : 66 dependances directes, un gateway, des connecteurs
-de messagerie dont ce conteneur n'a aucun usage. Il exige aussi Node 24.16+,
-d'ou l'installation de Node par NodeSource plutot que par apt. S'il ne sert
-pas, le retirer du `Dockerfile` allege l'image d'autant.
+`~/.vscode-server` est **monté depuis l'hôte**, pour que les extensions
+survivent à une mise à jour d'image. VS Code y garde une copie complète de
+son serveur **par version** et ne supprime jamais les anciennes : un
+nettoyage de temps en temps (supprimer le dossier, VS Code le réinstalle à
+la connexion suivante) évite qu'il grossisse sans fin.
 
 ## Codex
 
@@ -402,23 +322,23 @@ args = ["-n", "1", "/workspace/.codex/codelab-llm.key"]
 
 La clé est relue dans son fichier par une commande, pas dans
 l'environnement : une clé créée après l'ouverture de VS Code est prise
-aussitôt, dans le terminal comme dans le chat de l'extension. Les
+aussitôt, sans rouvrir de terminal. Les
 installations qui portaient l'ancienne ligne `env_key` sont converties au
 démarrage du conteneur — seule cette ligne change. `~/.codex` mène à
 `/workspace/.codex`, pour qu'un Codex lancé sans le profil de session
 trouve quand même sa configuration.
 
 Les noms de modeles disponibles sont les noms **logiques** — `codelab-coding`,
-`codelab-fast`, `codelab-reasoning`, `codelab-local` — definis dans
-`litellm/config.yaml`. Changer le modele reel derriere un nom se fait la-bas,
+`codelab-fast`, `codelab-reasoning` — servis par `codelab-llm` (voir
+`llm/README.md`). Changer le modele reel derriere un nom se fait la-bas,
 sans toucher a Codex.
 
 Il faut donc **une clé CodeLab**, à créer une fois.
 
 **Depuis le panneau** — *Paramètres → Clés et secrets → Créer une clé*. Le
 panneau tire la clé, inscrit son empreinte dans la base de `codelab-llm`,
-et la pose lui-même dans `/workspace/.codex/codelab-llm.key` (en `0600`) et
-dans `/workspace/.openclaw/openclaw.json`. Il ne l'affiche jamais, pas même
+et la pose lui-même dans `/workspace/.codex/codelab-llm.key` (en `0600`). Il
+ne l'affiche jamais, pas même
 à la création : il l'écrit directement là où elle sert, et n'en remontre que
 les quatre derniers caractères. Rien à rouvrir : Codex relit le fichier.
 
@@ -435,13 +355,13 @@ La valeur s'affiche **une seule fois** ; la coller dans
 et la même empreinte : une clé créée ici se révoque depuis le panneau, et
 inversement.
 
-Sans elle, Codex — et le chat de l'extension — affichent
+Sans elle, Codex affiche
 `cannot open '/workspace/.codex/codelab-llm.key'`.
 
 C'est une cle CodeLab, pas une cle de fournisseur : elle porte un quota et
 une comptabilite, se revoque en une commande (`revoke-key`), et ne donne
-acces a aucun compte OpenAI ou Anthropic — ces cles-la vivent dans
-`codelab-litellm`, que ce conteneur ne voit meme pas.
+acces au compte OpenRouter — cette cle-la vit dans `codelab-llm`, dont ce
+conteneur ne voit pas les fichiers.
 
 Sans le profil `llm` demarre (`docker compose --profile llm up -d`), la
 passerelle n'existe pas et Codex echouera a la connexion.

@@ -2075,14 +2075,13 @@ table.tbl-journal{min-width:560px}
     <div class="zone-title">Le poste de développement</div>
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
-        <b>La clé de Codex et OpenClaw</b>
+        <b>La clé de Codex</b>
         <div class="path">Créée et posée toute seule — rien à saisir.</div>
       </div>
       <span class="pill" id="cle-etat"><i></i>&nbsp;</span></div>
 
       <div class="hint">Le panneau la crée au démarrage si elle manque, inscrit son empreinte en
-        base, et pose sa valeur dans <code>.codex/codelab-llm.key</code> et
-        <code>.openclaw/openclaw.json</code> — les deux seuls endroits où les agents la lisent.
+        base, et pose sa valeur dans <code>.codex/codelab-llm.key</code> — là où Codex la relit.
         <b>Celle-là ne s'affiche jamais</b>, pas même à la création : elle est écrite directement
         là où elle sert.</div>
 
@@ -2094,8 +2093,7 @@ table.tbl-journal{min-width:560px}
       <div class="err" id="poste-err" style="display:none"></div>
 
       <div class="hint" style="margin-top:14px">La remplacer révoque l'ancienne dans le même
-        geste. Côté VS Code, <b>ouvre un nouveau terminal</b> ensuite — la variable
-        d'environnement est exportée à l'ouverture d'une session, pas après coup.</div>
+        geste. Codex relit le fichier : rien à rouvrir.</div>
     </div>
   </div>
 
@@ -2103,16 +2101,14 @@ table.tbl-journal{min-width:560px}
     <div class="zone-title">Les fournisseurs</div>
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
-        <b>Les comptes chez qui les modèles tournent</b>
-        <div class="path">Anthropic, OpenAI, Ollama — ou un autre.</div>
+        <b>Le compte chez qui les modèles tournent</b>
+        <div class="path">OpenRouter : une clé pour Claude, GPT et les autres.</div>
       </div></div>
 
       <div class="hint">Ces valeurs vont dans un fichier de secrets en <code>0600</code> que
-        seuls <code>codelab-llm</code> et <code>codelab-litellm</code> lisent. Le panneau
-        <b>n'atteint ni le compose ni le <code>.env</code> de l'hôte</b>, et c'est délibéré : les
-        lui monter lui donnerait de quoi réécrire la stack, c'est-à-dire root sur la machine
-        depuis une page web. C'est cette limite, et rien d'autre, qui explique qu'une clé
-        demande un redémarrage pour prendre effet.</div>
+        seul <code>codelab-llm</code> lit, à chaque appel : une clé posée ici sert aussitôt. Ni
+        tes applications ni le poste de développement ne la voient — ils présentent une clé
+        CodeLab, révocable, et la passerelle appelle le fournisseur à leur place.</div>
 
       <div class="hint" style="margin-top:8px">Une valeur enregistrée n'est plus relisible :
         le champ repart vide et la ligne n'affiche que ses quatre derniers caractères.</div>
@@ -5752,7 +5748,7 @@ function chiffre(nom, valeur){
 const nombre = n => (n||0).toLocaleString('fr-FR');
 /* PAS DE COUT AFFICHE, et c'est une decision de Lucas : « ce doit etre
    gratuit ». La passerelle continue de l'enregistrer en base -- la colonne
-   existe et LiteLLM la remplit -- mais la page ne la montre pas. Mettre un
+   existe -- mais la page ne la montre pas. Mettre un
    prix devant quelqu'un a qui le service est offert ne l'informe pas, cela
    le fait hesiter avant chaque appel. */
 
@@ -5837,9 +5833,6 @@ function peindreCleLlm(l){
     lignes.push(ligneCle('Clé posée', '<code>' + esc(l.apercu) + '</code>'));
     if(l.nom) lignes.push(ligneCle('Nom', esc(l.nom)));
     if(l.creee) lignes.push(ligneCle('Créée le', esc(dateCourte(l.creee))));
-    lignes.push(ligneCle('OpenClaw', l.openclaw
-      ? 'porte la même clé'
-      : '<b>ne porte pas cette clé</b> — remplace-la pour les remettre d\'accord'));
     if(l.base === 'absente') lignes.push('<div class="hint">Cette clé n\'est pas '
       + 'dans la base de <code>codelab-llm</code> : la passerelle la refusera. '
       + 'C\'est le cas après une remise à zéro de la base.</div>');
@@ -5867,7 +5860,7 @@ async function cleCreer(poste){
   const cible = poste ? 'poste-err' : 'cles-err';
   if(poste && clesEtat && clesEtat.llm && clesEtat.llm.posee
      && !await demander('Remplacer la clé du poste',
-        'L\'ancienne sera révoquée dans le même geste : Codex et OpenClaw cesseront '
+        'L\'ancienne sera révoquée dans le même geste : Codex cessera '
         + 'd\'être servis jusqu\'à l\'ouverture d\'un nouveau terminal.',
         'Remplacer', true)) return;
   $(cible).style.display = 'none';
@@ -5926,7 +5919,7 @@ async function cleRevoquer(id){
   const k = (clesEtat && clesEtat.cles || []).find(c => String(c.id) === String(id));
   const posee = k && k.posee;
   if(!await demander('Révoquer la clé',
-      posee ? 'C\'est la clé du poste : Codex et OpenClaw cesseront d\'être servis, et le '
+      posee ? 'C\'est la clé du poste : Codex cessera d\'être servis, et le '
               + 'fichier sera retiré.'
             : 'Tout ce qui s\'en sert recevra un refus dès l\'appel suivant.',
       'Révoquer', true)) return;
@@ -5939,12 +5932,10 @@ async function cleRevoquer(id){
   }catch(e){ erreurCles('cles-err', 'Le serveur n\'a pas répondu.'); }
 }
 
-/* Deux mots pour l'effet d'une valeur, parce que la difference est reelle et
-   qu'elle se paie : codelab-llm relit son fichier a chaque appel, le routeur
-   recoit le sien par l'environnement, que Docker fige au demarrage. */
+/* codelab-llm relit son fichier a chaque appel : une valeur posee ici sert
+   aussitot. */
 const EFFET_PHRASE = {
   vif: 'Prise en compte immédiatement.',
-  redemarrage: 'Prise en compte au prochain <code>docker compose --profile llm up -d</code>.',
 };
 
 function peindreFournisseurs(d){
@@ -5963,8 +5954,7 @@ function peindreFournisseurs(d){
     const modeles = (f.modeles || []).length
       ? '<div class="hint">Sert : ' + f.modeles.map(m => '<code>' + esc(m) + '</code>').join(', ')
         + '</div>'
-      : '<div class="hint">Aucun modèle de <code>litellm/config.yaml</code> ne la nomme : '
-        + 'elle ne sert à rien tant que ce n\'est pas le cas.</div>';
+      : '';
     return '<div class="card settings-card">'
       + '<div class="card-top"><div class="card-name"><b>' + esc(f.titre) + '</b>'
       + '<div class="path">' + esc(f.aide) + '</div></div>' + pose + '</div>'
@@ -6000,8 +5990,7 @@ function fournisseurOuvrir(variable){
       + esc(c.titre) + '</option>').join('');
   if(deja) options = '<option value="' + esc(deja.connu ? deja.id : '__autre__') + '">'
       + esc(deja.titre) + '</option>' + options;
-  choix.innerHTML = options
-    + '<option value="__autre__">Un autre provider…</option>';
+  choix.innerHTML = options;
   $('four-titre').textContent = deja ? 'Remplacer ' + deja.titre : 'Ajouter un provider';
   $('four-var').value = (deja && !deja.connu) ? deja.variable : '';
   $('four-valeur').value = '';
@@ -6033,9 +6022,7 @@ function fournisseurChoisi(){
   $('four-label').textContent = (c && !c.secret) ? 'Adresse' : 'Clé';
   $('four-valeur').type = (c && !c.secret) ? 'text' : 'password';
   $('four-aide').innerHTML = autre
-    ? 'Le nom doit être en majuscules et finir par <code>_API_KEY</code>, <code>_KEY</code> '
-      + 'ou <code>_BASE_URL</code>. <b>Elle ne servira que si un modèle de '
-      + '<code>litellm/config.yaml</code> la nomme</b> — l\'ajouter ici ne suffit pas.'
+    ? ''
     : (c ? esc(c.aide) + ' ' + EFFET_PHRASE[c.effet] : '');
 }
 
@@ -6055,7 +6042,7 @@ function fourPoser(variable){ fournisseurOuvrir(variable); }
 async function fourEffacer(variable){
   if(!await demander('Effacer la valeur',
       'La ligne est retirée du fichier de secrets. Les modèles qui en dépendent '
-      + 'répondront en erreur au prochain démarrage.', 'Effacer', true)) return;
+      + 'répondront en erreur dès le prochain appel.', 'Effacer', true)) return;
   const f = ((clesEtat && clesEtat.fournisseurs) || []).find(x => x.variable === variable);
   await fournisseurEcrire(f && f.connu ? {id: f.id, valeur: ''}
                                        : {variable: variable, valeur: ''});

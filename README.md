@@ -20,20 +20,25 @@ propos.
 | **App-manager** | Le panneau : déploiement et supervision des applications | `9001` |
 | **Applications** | Les projets déployés, servis sur leur propre adresse | `9002` |
 | **CodeLab LLM** | Passerelle compatible OpenAI : identité, quota, comptabilité | interne |
-| **CodeLab LiteLLM** | Routage des modèles, replis, clés des fournisseurs | interne |
 
 Aucune configuration manuelle après l'installation : les identifiants de base de données et les clés
 SSH sont générés au premier démarrage, et la connexion à Postgres est déjà prête dans le conteneur
 `dev`.
 
-Le profil `llm` est optionnel et ne démarre pas par défaut. Il ajoute deux conteneurs : une
-passerelle réservée aux clients porteurs d'une clé CodeLab, et le routeur qui choisit le
-fournisseur derrière. Aucun des deux ne publie de port. Les valeurs à renseigner sont décrites
-dans `.env.example` ; la configuration complète est dans [`llm/README.md`](llm/README.md).
+Le service IA est un seul conteneur : une passerelle réservée aux clients porteurs d'une clé
+CodeLab, qui appelle **OpenRouter** en direct — une clé pour Claude, GPT et les autres. Il ne
+publie aucun port. La seule valeur à renseigner est la clé OpenRouter, depuis le panneau ; la
+configuration complète est dans [`llm/README.md`](llm/README.md).
+
+Avec `docker-compose.yml`, il est optionnel et se démarre à part :
 
 ```bash
 docker compose --profile llm up -d
 ```
+
+Avec `docker-compose-casaos.yml`, il n'y a **pas de profil** : CasaOS ne sait pas en activer un, et
+le service n'y démarrait jamais. Il part donc avec le reste : le compose se suffit à lui-même, c'est
+le seul fichier à importer dans CasaOS.
 
 ## Prérequis
 
@@ -52,7 +57,7 @@ vérifient que ces plafonds restent cohérents avec la cible annoncée.
 Sur une machine plus grande, remonter l'ensemble proportionnellement dans les deux fichiers
 `docker-compose*.yml`, et la constante `RAM_CIBLE_MO` de `workspace/diagnostic/checks.py`.
 
-Le profil `llm` est optionnel : il ajoute deux conteneurs et environ 830 Mo de plafonds.
+Le service IA ajoute un conteneur et 320 Mo de plafond.
 
 ## Installation
 
@@ -141,9 +146,8 @@ surveiller à l'œil :
   et son adresse répond toujours.
 - **Clés et secrets** — une console, comme chez un fournisseur de LLM : créer une clé à la
   demande, en révoquer une sans toucher aux autres, et voir ce que **chacune** a consommé
-  (requêtes, jetons, dernier appel). Les clés des fournisseurs s'ajoutent en **choisissant**
-  Anthropic, OpenAI, Ollama ou un autre ; la clé interne entre la passerelle et le routeur, elle,
-  se tire toute seule. La clé de Codex et OpenClaw, elle, est **créée et posée
+  (requêtes, jetons, dernier appel). La clé du fournisseur (OpenRouter) se colle une fois et sert
+  aussitôt. La clé de Codex, elle, est **créée et posée
   toute seule** — rien à saisir — et ne s'affiche jamais. Une clé destinée à une application est
   montrée **une seule fois** : la base n'en garde que l'empreinte.
   Le panneau n'atteint ni le compose ni le `.env` de l'hôte — les lui monter lui donnerait de quoi

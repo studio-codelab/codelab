@@ -4002,7 +4002,6 @@ def monitor_tick():
     # geste tente une seule fois aurait echoue une seule fois, pour
     # toujours. Le tour suivant reessaie.
     tenir_la_cle_du_poste()
-    tenir_la_cle_de_liaison()
     apps = load()
     now = time.time()
     for name, a in apps.items():
@@ -6543,15 +6542,10 @@ def api_exposition():
 #   .codex/codelab-llm.key      la cle en clair, 0600, parce que c'est le
 #                               seul endroit ou le conteneur de
 #                               developpement sait la lire.
-#   .openclaw/openclaw.json     la meme cle : OpenClaw ne lit pas
-#                               l'environnement, il veut sa valeur ici.
-#   config/llm/llm.env          les secrets de codelab-llm. Relu a CHAQUE
-#                               appel par ce service : ce qu'on y ecrit
-#                               prend effet sans redemarrage.
-#   config/llm/fournisseurs.env les cles que codelab-litellm recoit par
-#                               env_file. Un fichier d'environnement n'est
-#                               lu qu'au demarrage du conteneur : la page le
-#                               dit, et donne la commande.
+#   config/llm/llm.env          les secrets de codelab-llm, dont la cle du
+#                               fournisseur. Relu a CHAQUE appel par ce
+#                               service : ce qu'on y ecrit prend effet sans
+#                               redemarrage.
 #
 #   le compose et le .env de l'hote : JAMAIS. Ils ne sont pas montes ici, et
 #   les monter donnerait au panneau de quoi reecrire la stack -- c'est-a-dire
@@ -6564,13 +6558,10 @@ def api_exposition():
 # ni par le journal : journaliser() ne recoit que le NOM du reglage touche.
 
 CODEX_DIR = os.path.join(ROOT, ".codex")
-OPENCLAW_DIR = os.path.join(ROOT, ".openclaw")
 CLE_CODEX_FICHIER = os.path.join(CODEX_DIR, "codelab-llm.key")
-OPENCLAW_FICHIER = os.path.join(OPENCLAW_DIR, "openclaw.json")
 
 LLM_CONFIG_DIR = os.path.join(SHARED_CONFIG_DIR, "llm")
 LLM_ENV_FICHIER = os.path.join(LLM_CONFIG_DIR, "llm.env")
-FOURNISSEURS_ENV_FICHIER = os.path.join(LLM_CONFIG_DIR, "fournisseurs.env")
 
 PG_BASE_LLM = "codelab_llm"
 PG_ROLE_LLM = "codelab_llm"
@@ -6579,87 +6570,28 @@ PG_ROLE_LLM = "codelab_llm"
 # reconnaissable du tout : on n'en montre alors aucun.
 APERCU_MIN = 12
 
-# ------------------------ les fournisseurs de modeles ------------------------
+# ------------------------ le fournisseur de modeles ------------------------
 #
-# CE QUI A CHANGE, ET POURQUOI. La page presentait une liste FIGEE de cinq
-# champs, ou la cle interne de la liaison voisinait avec les cles des
-# fournisseurs. Lucas a pose la question qui le revelait : « a quoi
-# correspond la cle partagee avec le routeur ? » -- signe que le regroupement
-# melait deux choses sans rapport.
+# UN SEUL, APPELE EN DIRECT PAR codelab-llm. Il y avait un routeur
+# (codelab-litellm) et une cle de liaison entre les deux, tiree ici ; ils
+# sont retires. OpenRouter donne acces aux modeles de plusieurs editeurs
+# avec une seule cle, et gere lui-meme ses replis.
 #
-#   une cle de FOURNISSEUR   un compte chez Anthropic, OpenAI, OpenRouter.
-#                            Elle vient de l'exterieur, elle se paie, et
-#                            elle donne acces a des modeles.
-#   la cle de LIAISON        un secret partage entre deux de NOS conteneurs,
-#                            qui ne veut rien dire ailleurs. Elle ne se
-#                            demande a personne : on la tire au hasard.
-#
-# La liaison est donc sortie de cette liste, et elle s'engendre toute seule
-# (voir tenir_la_cle_de_liaison).
-#
-# CE QUE « modeles » APPORTE, et c'est le seul champ vraiment utile avant de
-# poser une cle : quels noms logiques tombent si elle manque. Un test tient
-# cette colonne d'accord avec litellm/config.yaml -- sans lui, la page
-# promettrait qu'une cle sert a quelque chose qu'aucun modele ne demande.
+# « modeles » dit quels noms logiques tombent si la cle manque : tous, puisque
+# tous passent par elle. Un test tient cette liste d'accord avec la table de
+# codelab-llm (llm/app.py, MODELES_PAR_DEFAUT).
 FOURNISSEURS = (
-    {"id": "anthropic", "titre": "Anthropic", "variable": "ANTHROPIC_API_KEY",
-     "secret": True, "ou": "fournisseurs",
-     "aide": "Claude. La clé se crée dans la console Anthropic."},
-    {"id": "openai", "titre": "OpenAI", "variable": "OPENAI_API_KEY",
-     "secret": True, "ou": "fournisseurs",
-     "aide": "GPT. La clé se crée dans la plateforme OpenAI."},
-    {"id": "ollama", "titre": "Ollama", "variable": "OLLAMA_BASE_URL",
-     "secret": False, "ou": "fournisseurs",
-     "aide": "Une ADRESSE, pas une clé : un serveur Ollama chez toi ou sur "
-             "le réseau. Exemple : http://host.docker.internal:11434"},
-    # CELLE-CI NE PASSE PAS PAR LE ROUTEUR. codelab-llm sait appeler un
-    # fournisseur compatible OpenAI en direct, sans codelab-litellm ; c'est
-    # le chemin d'avant, garde pour les installations qui s'en servent
-    # encore. D'ou un fichier different et un effet immediat.
-    {"id": "openrouter", "titre": "OpenRouter (accès direct)",
-     "variable": "OPENROUTER_API_KEY", "secret": True, "ou": "llm",
-     "aide": "Appelé directement par codelab-llm, sans passer par le "
-             "routeur. Prise en compte immédiatement."},
+    {"id": "openrouter", "titre": "OpenRouter",
+     "variable": "OPENROUTER_API_KEY", "secret": True,
+     "aide": "Une seule clé pour Claude, GPT et les autres. Elle se crée sur "
+             "openrouter.ai. Prise en compte immédiatement."},
 )
 
-# Les noms logiques que chaque fournisseur sert, lus dans litellm/config.yaml
-# a la construction de l'image. Ecrits ici parce que ce fichier n'est pas
-# monte dans ce conteneur -- et tenus d'accord par un test, qui lui a le
-# depot sous la main.
 MODELES_PAR_FOURNISSEUR = {
-    "ANTHROPIC_API_KEY": ["codelab-coding", "codelab-reasoning"],
-    "OPENAI_API_KEY": ["codelab-fast"],
-    "OLLAMA_BASE_URL": ["codelab-local"],
+    "OPENROUTER_API_KEY": ["codelab-coding", "codelab-fast", "codelab-reasoning"],
 }
 
-# Le prefixe des variables qu'on accepte d'ecrire pour un fournisseur non
-# catalogue. Sans contrainte, ce champ deviendrait une facon d'ajouter
-# n'importe quelle variable d'environnement au conteneur du routeur -- par
-# exemple LD_PRELOAD.
-VARIABLE_FOURNISSEUR = re.compile(r"^[A-Z][A-Z0-9_]{2,60}_(?:API_KEY|BASE_URL|KEY)$")
-
-# La liaison interne, tiree au hasard et posee des deux cotes.
-LIAISON = ({"quel": "llm", "nom": "CODELAB_LLM_AMONT_KEY"},
-           {"quel": "fournisseurs", "nom": "LITELLM_MASTER_KEY"})
-
-FICHIERS_SECRETS = {"llm": LLM_ENV_FICHIER, "fournisseurs": FOURNISSEURS_ENV_FICHIER}
-
-# Les en-tetes de chaque fichier. Ecrites a chaque fois : un fichier de
-# secrets qu'on trouve six mois plus tard sans savoir qui l'ecrit ni ce qui
-# le relit est un fichier qu'on n'ose pas toucher.
-ENTETE_FOURNISSEURS = (
-    "# fournisseurs.env -- les cles que codelab-litellm recoit par env_file.",
-    "#",
-    "# Ecrit par codelab-postgres au demarrage (depuis le .env de l'hote, s'il",
-    "# en porte) puis par le panneau, Parametres > Cles et secrets. Une valeur",
-    "# posee ici ne prend effet qu'au PROCHAIN demarrage du conteneur :",
-    "#",
-    "#   docker compose --profile llm up -d",
-    "#",
-    "# Le panneau n'atteint ni le compose ni le .env de l'hote, et c'est",
-    "# voulu : les lui donner reviendrait a lui donner root sur la machine.",
-    "",
-)
+FICHIERS_SECRETS = {"llm": LLM_ENV_FICHIER}
 
 
 def apercu_secret(valeur):
@@ -6750,8 +6682,7 @@ def ecrire_env_secrets(quel, valeurs):
             presentes[cle] = valeur
         else:
             presentes.pop(cle, None)
-    entete = ENTETE_FOURNISSEURS if quel == "fournisseurs" else ()
-    lignes = list(entete) + [f"{c}={presentes[c]}" for c in sorted(presentes)]
+    lignes = [f"{c}={presentes[c]}" for c in sorted(presentes)]
     os.makedirs(LLM_CONFIG_DIR, exist_ok=True)
     try:
         os.chmod(LLM_CONFIG_DIR, 0o700)
@@ -6856,55 +6787,12 @@ def _llm_preparer_base():
                     pass
 
 
-def _openclaw_reporter(brut):
-    """Inscrit la cle dans openclaw.json sans perdre le reste du fichier.
-
-    On relit et on remplace la seule valeur : OpenClaw se configure aussi a
-    la main, et reecrire le fichier entier effacerait ces reglages a chaque
-    rotation de cle. Un fichier absent ou illisible, lui, est refait sur la
-    forme d'amorce -- celle qu'ecrit le conteneur de developpement.
-    """
-    config = None
-    try:
-        with open(OPENCLAW_FICHIER, encoding="utf-8") as f:
-            config = json.load(f)
-    except (OSError, ValueError):
-        config = None
-    if not isinstance(config, dict):
-        config = {}
-    modeles = config.setdefault("models", {})
-    if not isinstance(modeles, dict):
-        modeles = config["models"] = {}
-    fournisseurs = modeles.setdefault("providers", {})
-    if not isinstance(fournisseurs, dict):
-        fournisseurs = modeles["providers"] = {}
-    codelab = fournisseurs.setdefault("codelab", {})
-    if not isinstance(codelab, dict):
-        codelab = fournisseurs["codelab"] = {}
-    codelab.setdefault("baseUrl", "http://codelab-llm:8080/v1")
-    codelab.setdefault("api", "openai-completions")
-    # Le reseau prive est refuse par defaut, et codelab-llm en est un :
-    # sans cette ligne la cle est bonne et l'appel ne part jamais.
-    requete = codelab.setdefault("request", {})
-    if isinstance(requete, dict):
-        requete.setdefault("allowPrivateNetwork", True)
-    codelab["apiKey"] = brut
-    try:
-        _ecrire_0600(OPENCLAW_FICHIER,
-                     json.dumps(config, indent=2, ensure_ascii=False) + "\n",
-                     modele=OPENCLAW_DIR)
-        return True
-    except OSError:
-        return False
-
-
 def poser_cle_pour_les_agents(brut):
-    """Ecrit la cle la ou Codex et OpenClaw la lisent. Renvoie les fichiers touches.
+    """Ecrit la cle la ou Codex la lit. Renvoie les fichiers touches.
 
-    Les deux ne la prennent pas au meme endroit : Codex attend une variable
-    d'environnement, exportee au login par le profil du conteneur de
-    developpement depuis ce fichier ; OpenClaw n'a pas d'equivalent et veut
-    la valeur dans sa configuration.
+    Codex la relit dans ce fichier par une commande (voir le config.toml
+    qu'ecrit le conteneur de developpement), et le profil de session
+    l'exporte aussi en CODELAB_LLM_KEY pour les autres outils.
     """
     ecrits = []
     try:
@@ -6912,8 +6800,6 @@ def poser_cle_pour_les_agents(brut):
         ecrits.append(CLE_CODEX_FICHIER)
     except OSError:
         pass
-    if _openclaw_reporter(brut):
-        ecrits.append(OPENCLAW_FICHIER)
     return ecrits
 
 
@@ -6937,16 +6823,7 @@ def _etat_cle_llm():
     """
     posee = cle_codex_posee()
     etat = {"posee": bool(posee), "apercu": apercu_secret(posee),
-            "base": "inconnue", "nom": "", "creee": "", "openclaw": False}
-    # OpenClaw porte-t-il la MEME cle ? Compare ici, jamais renvoye.
-    try:
-        with open(OPENCLAW_FICHIER, encoding="utf-8") as f:
-            config = json.load(f)
-        inscrite = (((config.get("models") or {}).get("providers") or {})
-                    .get("codelab") or {}).get("apiKey") or ""
-        etat["openclaw"] = bool(posee) and inscrite == posee
-    except (OSError, ValueError, AttributeError):
-        etat["openclaw"] = False
+            "base": "inconnue", "nom": "", "creee": ""}
     if not posee:
         return etat
     try:
@@ -6972,7 +6849,7 @@ def _etat_cle_llm():
 # ------------------- la console des cles d'acces au LLM -------------------
 #
 # CE QU'ELLE REMPLACE. La page ne connaissait qu'UNE cle : celle posee dans
-# le fichier que lisent Codex et OpenClaw. Creer la seconde pour une
+# le fichier que lit Codex. Creer la seconde pour une
 # application, savoir laquelle consomme quoi, en revoquer une sans toucher
 # aux autres -- rien de tout cela n'existait, et la base portait pourtant
 # deja plusieurs lignes.
@@ -6990,7 +6867,7 @@ def _etat_cle_llm():
 # promettre. La page le dit.
 
 # L'application inscrite sur la cle du poste de developpement. C'est elle que
-# Codex et OpenClaw presentent, et c'est a ce nom qu'on la reconnait dans la
+# Codex presente, et c'est a ce nom qu'on la reconnait dans la
 # liste.
 APP_POSTE = "codelab-dev"
 NOM_CLE_POSTE = "poste de developpement"
@@ -7184,8 +7061,8 @@ def tenir_la_cle_du_poste():
             return False
         journaliser("secret", qui=NOM_ADMIN, action="cle du poste creee",
                     cle="llm")
-        print("[app-manager] cle CodeLab LLM creee et posee pour Codex "
-              "et OpenClaw.", flush=True)
+        print("[app-manager] cle CodeLab LLM creee et posee pour Codex.",
+              flush=True)
         return True
     except Exception as e:                                        # noqa: BLE001
         # Muet SAUF au premier echec : repeter la meme ligne toutes les
@@ -7343,76 +7220,41 @@ def api_cles_llm_revoquer(ident):
             os.remove(CLE_CODEX_FICHIER)
         except OSError:
             pass
-        _openclaw_reporter("")
     journaliser("secret", qui=utilisateur_courant() or NOM_ADMIN,
                 action="cle llm revoquee", cle=str(ident), ip=_adresse_client())
     return jsonify({"ok": True})
 
 
-def _fichier_du_fournisseur(spec):
-    return spec.get("ou", "fournisseurs")
-
-
 def etat_des_fournisseurs():
-    """(ce qui est pose, ce qu'on peut ajouter).
+    """(ce qui est pose, ce qu'on peut ajouter), pour le catalogue.
 
-    POSE contient tout ce que les deux fichiers portent -- y compris une
-    variable ajoutee a la main ou par un fournisseur « autre » -- parce
-    qu'une valeur qu'on ne voit pas est une valeur qu'on ne pense pas a
-    retirer. CATALOGUE ne contient que ce qui n'est pas encore pose : c'est
-    la liste dans laquelle on choisit.
+    Seuls les fournisseurs du catalogue : llm.env porte aussi les
+    identifiants Postgres de codelab-llm et ses reglages, qui ne sont pas des
+    cles de fournisseur.
     """
-    connus = {s["variable"]: s for s in FOURNISSEURS}
-    internes = {d["nom"] for d in LIAISON}
-    poses = []
-    for quel in ("fournisseurs", "llm"):
-        valeurs = lire_env_fichier(FICHIERS_SECRETS[quel])
-        for nom, valeur in sorted(valeurs.items()):
-            # La liaison et les identifiants Postgres de codelab-llm vivent
-            # dans les memes fichiers et ne sont pas des fournisseurs.
-            if nom in internes or nom.startswith("POSTGRES_"):
-                continue
-            spec = connus.get(nom)
-            if spec is None and not VARIABLE_FOURNISSEUR.match(nom):
-                continue
-            secret = spec["secret"] if spec else True
-            poses.append({
-                "id": spec["id"] if spec else nom,
-                "titre": spec["titre"] if spec else nom,
-                "aide": spec["aide"] if spec else
-                        "Ajoutée à la main. Elle ne sert que si un modèle de "
-                        "litellm/config.yaml la nomme.",
-                "variable": nom,
-                "secret": secret,
-                "definie": bool(valeur),
-                "apercu": apercu_secret(valeur) if secret else valeur,
-                "modeles": MODELES_PAR_FOURNISSEUR.get(nom, []),
-                "effet": "vif" if quel == "llm" else "redemarrage",
-                "connu": spec is not None,
-            })
-    deja = {p["variable"] for p in poses}
-    catalogue = [{"id": s["id"], "titre": s["titre"], "variable": s["variable"],
+    valeurs = lire_env_fichier(LLM_ENV_FICHIER)
+    poses, catalogue = [], []
+    for s in FOURNISSEURS:
+        entree = {"id": s["id"], "titre": s["titre"], "variable": s["variable"],
                   "secret": s["secret"], "aide": s["aide"],
                   "modeles": MODELES_PAR_FOURNISSEUR.get(s["variable"], []),
-                  "effet": "vif" if s.get("ou") == "llm" else "redemarrage"}
-                 for s in FOURNISSEURS if s["variable"] not in deja]
+                  "effet": "vif"}
+        valeur = valeurs.get(s["variable"], "")
+        if valeur:
+            poses.append(dict(entree, definie=True, connu=True,
+                              apercu=apercu_secret(valeur) if s["secret"] else valeur))
+        else:
+            catalogue.append(entree)
     return poses, catalogue
 
 
 @flask_app.put("/api/cles/fournisseur")
 @require_admin
 def api_cles_fournisseur():
-    """Pose ou efface la cle d'un fournisseur. Une seule valeur a la fois.
+    """Pose ou efface la cle d'un fournisseur du catalogue. Une seule valeur.
 
-    DEUX FACONS DE LE DESIGNER, et c'est ce que la page demandait :
-
-      « id »        un fournisseur du catalogue -- on choisit dans une liste,
-                    le nom de variable vient avec ;
-      « variable »  un fournisseur que le catalogue ne connait pas. Le nom
-                    doit ressembler a un nom de cle (…_API_KEY, …_BASE_URL) :
-                    sans cette contrainte, ce champ deviendrait une facon
-                    d'ajouter n'importe quelle variable d'environnement au
-                    conteneur du routeur, LD_PRELOAD compris.
+    Seul le catalogue est accepte : un nom de variable libre deviendrait une
+    facon d'ecrire n'importe quoi dans le fichier de secrets de codelab-llm.
 
     Une valeur vide EFFACE la ligne plutot que d'ecrire une valeur vide :
     codelab-llm lit « l'environnement d'abord, le fichier ensuite » avec un
@@ -7421,27 +7263,16 @@ def api_cles_fournisseur():
     """
     demande = request.get_json(force=True, silent=True) or {}
     spec = next((s for s in FOURNISSEURS if s["id"] == demande.get("id")), None)
-    if spec:
-        variable, quel, secret = spec["variable"], _fichier_du_fournisseur(spec), spec["secret"]
-    else:
-        variable = str(demande.get("variable") or "").strip().upper()
-        if not VARIABLE_FOURNISSEUR.match(variable):
-            return jsonify({"error": "Nom de variable refusé. Il doit être en "
-                                     "majuscules et se terminer par _API_KEY, "
-                                     "_KEY ou _BASE_URL — par exemple "
-                                     "MISTRAL_API_KEY."}), 400
-        if variable in {d["nom"] for d in LIAISON}:
-            return jsonify({"error": "Cette variable est la liaison interne : "
-                                     "elle se régénère, elle ne se saisit "
-                                     "pas."}), 400
-        quel, secret = "fournisseurs", True
+    if not spec:
+        return jsonify({"error": "Fournisseur inconnu."}), 400
+    variable, secret = spec["variable"], spec["secret"]
 
     valeur = secret_propre(demande.get("valeur"))
     if valeur is None:
         return jsonify({"error": "Une clé ne contient pas de retour à la ligne : "
                                  "vérifie ce qui a été collé."}), 400
     try:
-        ecrire_env_secrets(quel, {variable: valeur})
+        ecrire_env_secrets("llm", {variable: valeur})
     except OSError as e:
         return jsonify({"error": f"Fichier non écrit : {e}"}), 500
     # Le NOM de la variable, jamais sa valeur ni son apercu : le journal se
@@ -7451,58 +7282,6 @@ def api_cles_fournisseur():
                 ip=_adresse_client())
     return jsonify({"ok": True, "definie": bool(valeur),
                     "apercu": apercu_secret(valeur) if secret else valeur})
-
-
-# --------------------------- la liaison interne ---------------------------
-#
-# ELLE NE SE SAISIT PAS. C'est un secret partage entre deux de nos
-# conteneurs : il n'a de sens nulle part ailleurs, personne ne le delivre, et
-# le demander a l'utilisateur revenait a lui faire executer « openssl rand
-# -hex 32 » pour recopier le resultat dans deux fichiers. On le tire ici.
-
-def etat_de_la_liaison():
-    """Si les deux cotes portent la meme valeur. Lu par la surveillance.
-
-    ACCORDEE veut dire : la meme valeur des deux cotes. Deux valeurs
-    differentes sont la panne la plus muette de toute la stack -- le routeur
-    refuse, et le message parle d'authentification sans dire laquelle.
-
-    LA PAGE NE L'AFFICHE PLUS. Elle montrait un secret interne que personne
-    ne delivre, a cote des cles de fournisseurs qui, elles, se saisissent :
-    deux choses sans rapport dans la meme colonne. Le mecanisme, lui, reste
-    entier -- c'est lui qui garantit que les deux conteneurs s'accordent, et
-    le retirer ouvrirait la panne que ce code existe pour eviter.
-    """
-    valeurs = [lire_env_fichier(FICHIERS_SECRETS[d["quel"]]).get(d["nom"], "")
-               for d in LIAISON]
-    posee = all(valeurs)
-    return {"definie": posee,
-            "accordee": posee and len(set(valeurs)) == 1,
-            "apercu": apercu_secret(valeurs[0]) if posee else "",
-            "variables": [d["nom"] for d in LIAISON]}
-
-
-def tenir_la_cle_de_liaison():
-    """Pose la liaison si elle manque ou si les deux cotes divergent.
-
-    Appelee au meme endroit que la cle du poste, et pour la meme raison : ce
-    qui peut s'engendrer tout seul ne doit pas attendre qu'on y pense.
-    N'ecrit RIEN quand les deux cotes sont deja d'accord -- sinon chaque tour
-    de surveillance changerait la cle, et le routeur refuserait tout entre
-    deux redemarrages.
-    """
-    etat = etat_de_la_liaison()
-    if etat["accordee"]:
-        return False
-    valeur = secrets.token_hex(32)
-    try:
-        for d in LIAISON:
-            ecrire_env_secrets(d["quel"], {d["nom"]: valeur})
-    except OSError:
-        return False
-    print("[app-manager] cle de liaison codelab-llm <-> codelab-litellm "
-          "posee des deux cotes.", flush=True)
-    return True
 
 
 # ------------------- assistant de liaison avec un VPS -------------------

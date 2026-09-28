@@ -132,16 +132,12 @@ services:
       # Pas de POSTGRES_PASSWORD/_FILE ici : l'entrypoint ci-dessus lit la
       # valeur dans credentials.env et l'exporte lui-meme.
       #
-      # Les cles du profil "llm", lues dans le .env de l'hote. Ce service ne
-      # s'en sert pas : il les RECOPIE dans config/llm/, le dossier que
-      # codelab-llm et codelab-litellm montent -- et que le panneau ecrit
-      # ensuite. C'est ici parce que c'est le premier conteneur a demarrer,
-      # comme llm.env juste a cote. Une valeur vide ne remplace jamais celle
-      # deja posee : le panneau garde le dernier mot.
-      CODELAB_LITELLM_KEY: ${CODELAB_LITELLM_KEY:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      # La cle du fournisseur, lue dans le .env de l'hote. Ce service ne
+      # s'en sert pas : il la RECOPIE dans config/llm/llm.env, le fichier de
+      # codelab-llm -- que le panneau ecrit aussi. C'est ici parce que c'est
+      # le premier conteneur a demarrer. Une valeur vide ne remplace jamais
+      # celle deja posee : le panneau garde le dernier mot.
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
 
     volumes:
       # Les sauvegardes. C'est ce conteneur qui les ecrit : pg_dump
@@ -559,15 +555,11 @@ services:
       # Vide, aucune assertion n'est acceptee : les clients s'identifient
       # alors par une cle CodeLab, enregistree en base et revocable.
       CODELAB_LLM_AUDIENCE: ${CODELAB_LLM_AUDIENCE:-}
-      # La cle presentee au routeur : LA MEME valeur des deux cotes, posee
-      # une fois dans le .env de l'hote. Vide, ce service ne peut pas parler
-      # au routeur -- et c'est voulu, une cle vide n'ouvre rien.
-      CODELAB_LLM_AMONT_KEY: ${CODELAB_LITELLM_KEY:-}
       # Les modeles proposes. Un nom logique par variable ; vider la valeur
-      # retire le modele de la liste. Le nom reel est celui du fournisseur.
-      # CODELAB_LLM_MODELE_CODELAB_SMART: "openrouter/auto"
+      # retire le modele de la liste. Le nom reel est celui du fournisseur
+      # (identifiant OpenRouter par defaut). Aussi posables dans llm.env.
+      # CODELAB_LLM_MODELE_CODELAB_CODING: "anthropic/claude-sonnet-5"
       # CODELAB_LLM_MODELE_CODELAB_FAST: "..."
-      # CODELAB_LLM_MODELE_CODELAB_CODING: "..."
 
     volumes:
       # SON dossier de secrets, et rien d'autre. credentials.env porte le mot
@@ -587,108 +579,10 @@ services:
       retries: 5
       start_period: 15s
 
+    # « codelab », celui des applications : ce sont ses clients. Il sort
+    # vers le fournisseur (Internet) par ce meme reseau.
     networks:
       - codelab
-      - codelab-ia
-
-
-  # LE ROUTAGE DES MODELES. Un service a part, et pas une bibliotheque dans
-  # codelab-llm : c'est ce qui permet de garder celui-ci mince.
-  #
-  # LiteLLM parle a cent fournisseurs, et amene les dependances qui vont avec.
-  # Dans l'image qui detient l'identite CodeLab et la comptabilite, c'etait
-  # une surface a suivre en securite pour un service qui n'a pas a la porter ;
-  # dans un conteneur qui ne fait que router, c'est son travail.
-  #
-  # Ce que chacun garde :
-  #
-  #   codelab-llm      qui parle, a quel rythme, et ce qui a ete consomme
-  #   codelab-litellm  vers quel fournisseur, avec quel repli, et les cles
-  #
-  # Version EPINGLEE : "main-stable" n'est plus publie depuis septembre 2026
-  # et "latest" est une etiquette mouvante. La montee de version est une
-  # decision, comme partout ici.
-  codelab-litellm:
-    profiles: ["llm"]
-    image: ghcr.io/berriai/litellm:v1.99.0
-    container_name: codelab-litellm
-    restart: unless-stopped
-
-    mem_limit: 512m
-    cpus: 0.75
-    pids_limit: 256
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-    security_opt:
-      - no-new-privileges:true
-
-    command: ["--config", "/etc/litellm/config.yaml", "--port", "4000"]
-
-    # PAS de port publie. Son seul client est codelab-llm, et il detient les
-    # cles des fournisseurs : une adresse joignable depuis le reseau local
-    # serait la cle de chacun d'eux, offerte sans identite ni quota.
-    expose:
-      - "4000"
-
-    # UN FICHIER, PAS DES LIGNES "environment:", et la raison vaut d'etre
-    # lue : la cle maitresse, celles des fournisseurs et l'adresse d'Ollama
-    # se posent depuis le panneau (Parametres > Cles et secrets), qui ecrit
-    # CE fichier. Le panneau n'atteint ni ce compose ni le .env de l'hote --
-    # les lui monter lui donnerait de quoi reecrire la stack, c'est-a-dire
-    # root sur la machine depuis une page web.
-    #
-    # Et il faut que ce soit UNIQUEMENT ce fichier : dans Compose,
-    # "environment:" l'emporte sur "env_file:", y compris quand la valeur
-    # substituee est VIDE. Garder ici "ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}"
-    # effacerait donc la valeur du fichier des que le .env de l'hote n'en
-    # porte pas -- c'est-a-dire dans le cas courant, celui ou le panneau
-    # vient justement de l'ecrire.
-    #
-    # Le .env de l'hote continue de servir : codelab-postgres l'y lit au
-    # demarrage et recopie ses valeurs dans ce fichier, sans jamais ecraser
-    # une valeur deja posee. Une installation existante ne perd rien.
-    #
-    # required: false -- au tout premier demarrage, codelab-postgres n'a pas
-    # encore ecrit le fichier. Sans cette ligne, la stack entiere refuserait
-    # de partir.
-    # FORME COURTE, ET C'EST UNE CONTRAINTE EXTERIEURE. La forme longue
-    # (« path: » / « required: false ») demande Compose 2.24 ; le validateur
-    # de CasaOS, lui, la refuse en bloc -- « Echec de l'enregistrement de
-    # l'application personnalisee », sans nommer la ligne. Le fichier n'etait
-    # alors jamais enregistre, donc codelab-llm et codelab-litellm restaient
-    # absents de l'installation, donc Codex et OpenClaw repondaient
-    # « error sending request » : une seule ligne de syntaxe, trois pannes.
-    #
-    # Ce que « required: false » protegeait : un fichier absent fait echouer
-    # « up » avant tout demarrage, Compose resolvant les env_file au
-    # chargement du projet. Ici il est ecrit par DEUX services sans profil,
-    # donc bien avant que celui-ci puisse etre demande : codelab-postgres a
-    # son demarrage, et le panneau a chaque tour de surveillance. Il ne
-    # manque que si la stack n'a jamais demarre une seule fois -- et « up »
-    # nomme alors le fichier exact.
-    env_file:
-      - /DATA/AppData/codelab/config/llm/fournisseurs.env
-
-    volumes:
-      - ./litellm/config.yaml:/etc/litellm/config.yaml:ro
-
-    healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness')\""]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-
-    # PAS "codelab" : les applications declarees dans le panneau partagent ce
-    # reseau, et joindre ce service en direct reviendrait a contourner
-    # l'identite, le quota et la comptabilite de codelab-llm -- avec les cles
-    # des fournisseurs au bout.
-    networks:
-      - codelab-ia
 
 
   codelab-dagster-proxy:
@@ -766,16 +660,3 @@ services:
 networks:
   codelab:
     name: codelab_codelab
-
-  # LE RESEAU DE L'IA : codelab-llm et le routeur, personne d'autre.
-  #
-  # Il porte le meme nom qu'un reseau retire avec l'interface de chat, pour
-  # une raison differente et tout aussi valable : ce qui vit ici detient les
-  # cles des fournisseurs, et ne doit etre joignable que par son client
-  # legitime.
-  #
-  # PAS "internal: true", contrairement a l'usage precedent : ce routeur doit
-  # justement sortir de la machine pour appeler les fournisseurs. L'isolement
-  # cherche ici est vers l'INTERIEUR -- que les applications ne le voient pas.
-  codelab-ia:
-    name: codelab_ia
