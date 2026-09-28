@@ -78,9 +78,13 @@ COPY dagster/dagster.yaml /opt/dagster/dagster.yaml.default
 # automatique. Liste figee, voir l'entrypoint.
 COPY dagster/dagster.yaml.sums /opt/dagster/dagster.yaml.sums
 COPY dagster/entrypoint.sh /opt/dagster/entrypoint.sh
-RUN chmod +x /opt/dagster/entrypoint.sh
+# L'interface web ET le daemon (plannings, capteurs) dans ce seul conteneur :
+# voir lancer.sh. L'entrypoint le lance apres la bascule sur l'utilisateur
+# dagster, comme il lancait avant chacun des deux programmes.
+COPY dagster/lancer.sh /opt/dagster/lancer.sh
+RUN chmod +x /opt/dagster/entrypoint.sh /opt/dagster/lancer.sh
 
 EXPOSE 3000
 
 ENTRYPOINT ["/opt/dagster/entrypoint.sh"]
-CMD ["dagster-webserver", "-h", "0.0.0.0", "-p", "3000", "-m", "definitions"]
+CMD ["/opt/dagster/lancer.sh"]

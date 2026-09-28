@@ -162,7 +162,7 @@ CLES_MOT_DE_PASSE_PG = (
     # credentials.env en root et transmet la valeur aux applications qu'il
     # lance sous un uid sans droit dessus.
     "POSTGRES_PASSWORD",
-    # codelab-dagster / codelab-dagster-daemon : l'entrypoint exporte la
+    # codelab-dagster (interface et daemon) : l'entrypoint exporte la
     # valeur sous ce nom (dagster.yaml ne sait lire qu'une variable
     # d'environnement), puis bascule sur l'uid 1002.
     "DAGSTER_PG_PASSWORD",

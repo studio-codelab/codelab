@@ -560,7 +560,7 @@ la liste se lit a l'endroit ou elle est installee.
 
 | Point de montage | Contenu |
 |---|---|
-| `/workspace` | Ton code — partage avec `codelab-dagster`, `codelab-dagster-daemon` et `codelab-app-manager` |
+| `/workspace` | Ton code — partage avec `codelab-dagster` et `codelab-app-manager` |
 | `/var/lib/codelab/ssh` | Tout le SSH au meme endroit : `authorized_keys.d/`, `authorized_keys` et `host_keys/` (cote hote : `config/ssh/`) |
 | `/var/lib/codelab/config` | Lecture seule — `credentials.env`, d'ou est lu le mot de passe Postgres |
 

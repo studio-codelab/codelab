@@ -191,7 +191,7 @@ l'environnement -- sous un nom different selon le service :
 | Conteneur | Variable | Pose par |
 |---|---|---|
 | `codelab-app-manager` | `POSTGRES_PASSWORD` | le panneau, qui la transmet aux applications qu'il lance |
-| `codelab-dagster`, `codelab-dagster-daemon` | `DAGSTER_PG_PASSWORD` | l'entrypoint, avant de basculer sur l'uid 1002 |
+| `codelab-dagster` | `DAGSTER_PG_PASSWORD` | l'entrypoint, avant de basculer sur l'uid 1002 |
 | `codelab-dev` (session SSH) | `PGPASSWORD` | l'entrypoint, dans le profil du shell |
 
 Un fichier illisible est donc l'etat **normal** de deux conteneurs sur trois. Ce qui compte est que
@@ -223,7 +223,7 @@ service hors du reseau, pas une panne du service lui-meme.
 ## Alertes par mail sur echec
 
 `definitions.py` contient un capteur Dagster qui envoie un mail a **chaque run en echec**, tous jobs confondus —
-pas seulement l'asset de diagnostic. Il est execute par `codelab-dagster-daemon`, qui tourne deja dans la
+pas seulement l'asset de diagnostic. Il est execute par le daemon de Dagster, qui tourne deja dans `codelab-dagster` et dans la
 stack : rien a installer, rien a ajouter au `docker-compose.yml`.
 
 ### Configuration
@@ -260,7 +260,7 @@ SMTP_USER=moi@gmail.com
 SMTP_PASSWORD=xxxxxxxxxxxxxxxx
 # ===== /codelab-alertes =====
 EOF
-docker restart codelab-dagster-daemon
+docker restart codelab-dagster
 ```
 
 | Cle | Role |
@@ -271,7 +271,7 @@ docker restart codelab-dagster-daemon
 | `ALERTE_FROM` | Rarement utile. L'expediteur suit `SMTP_USER`, que Gmail impose de toute facon |
 
 Le lien vers le run dans le mail utilise `CODELAB_DAGSTER_URL`, `http://<IP-du-serveur>:3000` par defaut. Pour
-un lien cliquable, mets ton IP reelle dans l'`environment:` du service `codelab-dagster-daemon`.
+un lien cliquable, mets ton IP reelle dans le `.env` du projet (`CODELAB_DAGSTER_URL`).
 
 **Gmail** : il faut la validation en deux etapes activee, puis un *mot de passe d'application* de 16
 caracteres (myaccount.google.com → Securite → Mots de passe des applications). Ton mot de passe Google
@@ -284,7 +284,7 @@ l'interface — on ne s'apercevrait de l'oubli qu'en ratant une alerte.
 
 Il ne fait **jamais** echouer un run. Configuration absente, mot de passe refuse, serveur injoignable : il
 journalise et s'arrete la. Une alerte qui ne part pas ne doit pas ajouter une panne a celle qu'elle signale.
-Les messages apparaissent dans l'onglet **Sensors** de Dagster et dans `docker logs codelab-dagster-daemon`.
+Les messages apparaissent dans l'onglet **Sensors** de Dagster et dans `docker logs codelab-dagster`.
 
 ### Verifier que ca marche
 
@@ -292,7 +292,7 @@ Le plus simple est de provoquer un echec reel : arrete `codelab-postgres`, mater
 `diagnostic_codelab` — la sonde Postgres echoue, donc l'asset aussi — et le mail doit partir dans la minute. Le capteur est evalue toutes les 30 secondes par defaut.
 
 ```bash
-docker logs --tail 30 codelab-dagster-daemon | grep -i alerte
+docker logs --tail 30 codelab-dagster | grep -i alerte
 ```
 
 ## Nettoyage

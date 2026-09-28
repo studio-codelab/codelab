@@ -5,9 +5,16 @@
 > `codelab-dagster-proxy`, qui demande un mot de passe et relaie ici. Voir
 > [`proxy/README.md`](proxy/README.md).
 
-Image partagee par les deux services Dagster du compose : `codelab-dagster` (interface web, `dagster-webserver`)
-et `codelab-dagster-daemon` (`dagster-daemon run`, execute les schedules et sensors). Meme image, deux commandes
-de demarrage differentes — voir `command:` de chaque service dans `docker-compose.yml`.
+Un seul conteneur, `codelab-dagster`, fait tourner les deux programmes de Dagster : l'interface web
+(`dagster-webserver`) et le daemon (`dagster-daemon run`, qui execute les plannings et les capteurs). C'est
+`lancer.sh` qui les demarre : le daemon en tache de fond, relance s'il s'arrete, et l'interface au premier plan.
+Un arret du conteneur les arrete proprement tous les deux.
+
+Ils etaient deux services, `codelab-dagster` et `codelab-dagster-daemon` : meme image, memes montages, memes
+capacites, meme utilisateur. Les fusionner retire un bloc du compose et 384 Mo de plafond, sans rien changer a
+la securite : `lancer.sh` tourne apres la bascule sur l'utilisateur `dagster`, le daemon n'a jamais eu de port,
+et l'interface reste derriere `codelab-dagster-proxy`. Les journaux des deux arrivent dans
+`docker logs codelab-dagster`.
 
 ## Ce que fait l'image
 
@@ -28,7 +35,7 @@ de demarrage differentes — voir `command:` de chaque service dans `docker-comp
 
 ## entrypoint.sh
 
-Execute avant toute commande (`dagster-webserver` ou `dagster-daemon run`), dans cet ordre :
+Execute avant la commande du conteneur (`lancer.sh`, ou une commande ponctuelle), dans cet ordre :
 
 1. **Resout le mot de passe Postgres.** Lit `POSTGRES_PASSWORD` dans `CODELAB_ENV_FILE`
    (`credentials.env`, le fichier unique de secrets ecrit par `codelab-postgres`) et l'exporte en
@@ -81,9 +88,8 @@ projet vont dans la base de ce projet (schema `dagster`), qui est une autre base
 
 ## Chargement de `/workspace/definitions.py`
 
-La commande de `codelab-dagster` est `dagster-webserver -h 0.0.0.0 -p 3000 -m definitions` (voir
-`Dockerfile`) ; celle de `codelab-dagster-daemon` est `dagster-daemon run -m definitions` (voir
-`docker-compose.yml`). Dans les deux cas, `-m definitions` demande a Python de resoudre un **module** nomme
+`lancer.sh` lance `dagster-webserver -h 0.0.0.0 -p 3000 -m definitions` et `dagster-daemon run -m definitions`.
+Dans les deux cas, `-m definitions` demande a Python de resoudre un **module** nomme
 `definitions` — la variable d'environnement `PYTHONPATH=/workspace` (fixee dans le compose) garantit que c'est
 bien `/workspace/definitions.py` qui est charge, et non une eventuelle copie embarquee dans l'image.
 

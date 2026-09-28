@@ -117,9 +117,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512m
+          memory: 896m
           cpus: "1.0"
-          pids: 512
+          pids: 768
     logging:
       driver: json-file
       options:
@@ -162,62 +162,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 15s
-
-    networks:
-      - codelab
-
-  codelab-dagster-daemon:
-    image: ghcr.io/studio-codelab/codelab-dagster:latest
-    container_name: codelab-dagster-daemon
-    restart: unless-stopped
-
-    deploy:
-      resources:
-        limits:
-          memory: 384m
-          cpus: "0.5"
-          pids: 256
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-      - DAC_OVERRIDE
-      - FOWNER
-      - SETGID
-      - SETUID
-
-    command:
-      - dagster-daemon
-      - run
-      - -m
-      - definitions
-
-    environment:
-      DAGSTER_HOME: /opt/dagster/home
-      PYTHONUNBUFFERED: "1"
-      PYTHONPATH: /workspace
-      DAGSTER_PG_HOST: codelab-postgres
-      DAGSTER_PG_PORT: "5432"
-      DAGSTER_PG_DB: dagster
-      DAGSTER_PG_USER: codelab
-      CODELAB_ENV_FILE: /var/lib/codelab/config/credentials.env
-
-    volumes:
-      - /DATA/AppData/codelab/dagster:/opt/dagster/home
-      - /DATA/AppData/codelab/workspace:/workspace
-      - /DATA/AppData/codelab/config:/var/lib/codelab/config:ro
-
-    depends_on:
-      codelab-postgres:
-        condition: service_healthy
 
     networks:
       - codelab

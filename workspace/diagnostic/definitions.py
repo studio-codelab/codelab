@@ -182,8 +182,8 @@ def _tableau(resultats):
 # ==========================================================================
 # Alertes par mail sur echec de job
 #
-# Le capteur est execute par codelab-dagster-daemon, qui tourne deja dans la
-# stack. Il se declenche sur chaque run en echec, tous jobs confondus -- pas
+# Le capteur est execute par le daemon de Dagster, qui tourne dans
+# codelab-dagster. Il se declenche sur chaque run en echec, tous jobs confondus -- pas
 # seulement sur l'asset ci-dessus.
 # ==========================================================================
 

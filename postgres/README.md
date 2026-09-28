@@ -1,7 +1,7 @@
 # codelab-postgres
 
 L'image officielle `postgres:18`, plus un entrypoint versionne. Le serveur Postgres partage par tous les
-services CodeLab : `codelab-dev`, `codelab-dagster`, `codelab-dagster-daemon` s'y connectent, et le panneau
+services CodeLab : `codelab-dev` et `codelab-dagster` s'y connectent, et le panneau
 `codelab-app-manager` cohabite avec lui dans le meme `credentials.env`.
 
 Pas de port publie : la base n'est joignable que depuis le reseau `codelab`.

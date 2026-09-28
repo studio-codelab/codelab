@@ -150,7 +150,7 @@ header_block "# credentials.env -- les identifiants des services CodeLab.
 #   Dagster n'a pas d'identifiant a lui : il reprend la session du panneau."
 
 upsert_block "codelab-postgres" "# Serveur Postgres partage par tous les services CodeLab.
-# Utilise par : codelab-dev, codelab-dagster, codelab-dagster-daemon,
+# Utilise par : codelab-dev, codelab-dagster (interface et daemon),
 # qui lisent POSTGRES_PASSWORD ici meme (plus de fichier dedie).
 #
 # POSTGRES_DB est la base d'INSTANCE de Dagster (runs, evenements,

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Entrypoint commun a codelab-dagster (webserver) et codelab-dagster-daemon.
+# Entrypoint de codelab-dagster, qui fait tourner l'interface web et le daemon (voir lancer.sh).
 # Quatre roles :
 #   1. Lire le mot de passe Postgres dans credentials.env -- le fichier unique
 #      de secrets CodeLab -- et l'exposer en DAGSTER_PG_PASSWORD, car

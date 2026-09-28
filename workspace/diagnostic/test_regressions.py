@@ -6923,7 +6923,7 @@ def test_chaque_service_est_borne_dans_les_deux_composes():
         # Les memes services des deux cotes : un compose qui en oublie un
         # est une installation qui ne demarre pas pareil selon la porte
         # d'entree.
-        assert len(services) == 7, (chemin, sorted(services))
+        assert len(services) == 6, (chemin, sorted(services))
         for nom, reglages in services.items():
             assert "pids_limit" in reglages or "deploy_pids" in reglages, (
                 f"{nom} n'a pas de limite processus dans {os.path.basename(chemin)}")
@@ -12524,3 +12524,68 @@ def test_les_images_python_partagent_la_meme_base():
               encoding="utf-8").read()
     assert f'python-version: "{version}"' in ci, (
         "la CI ne teste pas sur la version de Python que le panneau livre")
+
+
+def test_dagster_tient_interface_et_daemon_dans_un_seul_conteneur():
+    """Plus de service codelab-dagster-daemon : l'image lance les deux
+    programmes, et rien ne donne au daemon plus que ce qu'il avait."""
+    racine = _racine_depot()
+    for chemin in _composes():
+        services = _services_du_compose(chemin)
+        assert "codelab-dagster-daemon" not in services, chemin
+        assert "codelab-dagster" in services, chemin
+        # Toujours derriere le proxy : pas de port publie pour Dagster lui-meme.
+        bloc = _bloc_du_service(chemin, "codelab-dagster")
+        assert "ports:" not in bloc, chemin
+    dockerfile = open(os.path.join(racine, "dagster", "Dockerfile"), encoding="utf-8").read()
+    assert 'CMD ["/opt/dagster/lancer.sh"]' in dockerfile
+    # lancer.sh passe par l'entrypoint, donc par la bascule sur l'utilisateur
+    # dagster : pas d'ENTRYPOINT qui la contournerait.
+    assert 'ENTRYPOINT ["/opt/dagster/entrypoint.sh"]' in dockerfile
+    entree = open(os.path.join(racine, "dagster", "entrypoint.sh"), encoding="utf-8").read()
+    assert 'exec gosu "$CODELAB_USER" "$@"' in entree
+
+
+def test_lancer_relance_le_daemon_et_s_arrete_proprement(tmp_path):
+    """Execute le vrai lancer.sh avec de faux programmes Dagster : un daemon
+    qui tombe est relance, SIGTERM arrete les deux, et une interface qui
+    meurt seule fait sortir le conteneur avec son code."""
+    import signal
+    import subprocess
+    import time
+    source = open(os.path.join(_racine_depot(), "dagster", "lancer.sh"),
+                  encoding="utf-8").read().replace("PAUSE_RELANCE=10", "PAUSE_RELANCE=1")
+    script = tmp_path / "lancer.sh"
+    script.write_text(source, encoding="utf-8")
+    journal = tmp_path / "journal"
+    binaires = tmp_path / "bin"
+    binaires.mkdir()
+    (binaires / "dagster-daemon").write_text(
+        "#!/bin/sh\n"
+        f'echo "daemon start" >> {journal}\n'
+        f'n=$(grep -c "daemon start" {journal})\n'
+        f"trap 'echo \"daemon term\" >> {journal}; exit 0' TERM\n"
+        'if [ "$n" -eq 1 ]; then sleep 0.5; exit 1; fi\n'
+        "while :; do sleep 0.1; done\n", encoding="utf-8")
+    (binaires / "dagster-webserver").write_text(
+        "#!/bin/sh\n"
+        f'echo "web start $*" >> {journal}\n'
+        f"trap 'echo \"web term\" >> {journal}; exit 0' TERM\n"
+        f'if [ -f {tmp_path}/web-meurt ]; then sleep 0.5; exit 3; fi\n'
+        "while :; do sleep 0.1; done\n", encoding="utf-8")
+    for f in binaires.iterdir():
+        f.chmod(0o755)
+    env = {"PATH": f"{binaires}:/usr/bin:/bin"}
+
+    p = subprocess.Popen(["sh", str(script)], env=env)
+    time.sleep(3)
+    p.send_signal(signal.SIGTERM)
+    assert p.wait(timeout=15) == 0
+    lignes = journal.read_text(encoding="utf-8").splitlines()
+    assert lignes.count("daemon start") == 2, lignes     # relance apres la chute
+    assert "daemon term" in lignes and "web term" in lignes
+    assert "web start -h 0.0.0.0 -p 3000 -m definitions" in lignes
+
+    journal.write_text("", encoding="utf-8")
+    (tmp_path / "web-meurt").write_text("", encoding="utf-8")
+    assert subprocess.run(["sh", str(script)], env=env, timeout=15).returncode == 3
