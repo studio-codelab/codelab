@@ -15,33 +15,14 @@ mkdir -p "$CONFIG_DIR"
 [ -f "$ENV_FILE" ] || : > "$ENV_FILE"
 chmod 600 "$ENV_FILE" 2>/dev/null || true
 
-# Remplacement par BLOC entier, delimite par des marqueurs -- meme mecanique
-# que codelab-postgres et codelab-app-manager : chaque service ne touche qu'a
-# son propre bloc, les autres restent intacts quel que soit l'ordre de
-# demarrage.
-upsert_block() {
-  name="$1"; content="$2"
-  awk -v s="# ===== $name =====" -v e="# ===== /$name =====" \
-    '$0==s{skip=1} !skip{print} $0==e{skip=0}' "$ENV_FILE" > "$ENV_FILE.tmp"
-  {
-    cat "$ENV_FILE.tmp"
-    echo "# ===== $name ====="
-    printf '%s\n' "$content" | sed 's/^[[:space:]]*//'
-    echo "# ===== /$name ====="
-  } > "$ENV_FILE.new"
-  mv "$ENV_FILE.new" "$ENV_FILE"
-  rm -f "$ENV_FILE.tmp"
-}
-
-# Le bloc n'est pas supprime mais remplace par une explication : quelqu'un qui
-# cherchera DAGSTER_PASSWORD dans ce fichier doit comprendre ou il est passe,
-# plutot que de trouver un vide.
-upsert_block "codelab-dagster-proxy" "# Dagster (http://<IP>:3000/) utilise desormais la SESSION DU PANNEAU.
-# Il n'y a plus ni DAGSTER_USER ni DAGSTER_PASSWORD : le mot de passe est
-# celui du panneau (APP_MANAGER_ADMIN_PASSWORD), avec son second facteur s'il
-# est active, et la deconnexion du panneau ferme aussi l'acces a Dagster.
-# L'authentification HTTP Basic precedente n'avait ni session, ni expiration,
-# ni deconnexion possible."
+# Le bloc est RETIRE, pas remplace : il ne portait plus aucune valeur. Qui
+# cherche DAGSTER_PASSWORD trouve l'explication dans le sommaire en tete de
+# credentials.env (« Dagster n'a pas d'identifiant a lui »), ecrit par
+# codelab-postgres. L'authentification HTTP Basic precedente n'avait ni
+# session, ni expiration, ni deconnexion possible.
+awk -v s="# ===== codelab-dagster-proxy =====" -v e="# ===== /codelab-dagster-proxy =====" \
+  '$0==s{skip=1} !skip{print} $0==e{skip=0}' "$ENV_FILE" > "$ENV_FILE.tmp"
+mv "$ENV_FILE.tmp" "$ENV_FILE"
 chmod 600 "$ENV_FILE" 2>/dev/null || true
 
 echo "[codelab-dagster-proxy] pret -- Dagster sur le port 3000."

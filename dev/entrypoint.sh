@@ -280,6 +280,43 @@ if [ -r "$AGENTS_SOURCE" ]; then
     chmod 664 "$CODEX_HOME_DIR/AGENTS.md" 2>/dev/null || true
 fi
 
+# ------------------------ les restes d'OpenClaw ------------------------
+#
+# OpenClaw a quitte l'image (voir dev/README.md). Les fichiers qu'il laissait
+# dans /workspace -- sa configuration, son journal, et la recommandation
+# d'extension et les reglages VS Code que CE script ecrivait pour lui -- ne
+# sont plus lus par personne. On les retire, mais les fichiers VS Code
+# SEULEMENT s'ils sont encore exactement ceux qu'on avait ecrits : un
+# settings.json complete a la main est a toi, il reste.
+rm -rf "$WORKSPACE_DIR/.openclaw" 2>/dev/null || true
+python3 - "$WORKSPACE_DIR/.vscode" <<'PYRESTES' || true
+import json, os, sys
+dossier = sys.argv[1]
+ports = {"18789": {"label": "OpenClaw - chat", "onAutoForward": "silent"}}
+ecrits = {
+    "extensions.json": [{"recommendations": ["openknot.openclaw-extension"]}],
+    "settings.json": [
+        {"remote.autoForwardPorts": True, "remote.portsAttributes": ports},
+        {"openclaw.chat.agent": "codex", "openclaw.chat.models": ["codex"],
+         "remote.autoForwardPorts": True, "remote.portsAttributes": ports},
+    ],
+}
+for nom, modeles in ecrits.items():
+    chemin = os.path.join(dossier, nom)
+    try:
+        with open(chemin, encoding="utf-8") as f:
+            contenu = json.load(f)
+    except (OSError, ValueError):
+        continue
+    if contenu in modeles:
+        os.remove(chemin)
+        print(f"[codelab-dev] {chemin} (ecrit pour OpenClaw) retire.")
+try:
+    os.rmdir(dossier)
+except OSError:
+    pass
+PYRESTES
+
 # ------------------- le serveur VS Code, et ses droits -------------------
 #
 # Le dossier est monte depuis l'hote, donc CREE PAR DOCKER EN ROOT quand il

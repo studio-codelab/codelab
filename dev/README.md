@@ -12,9 +12,6 @@ Pour ce que CodeLab fait dans son ensemble, voir le [README](../README.md).
 
 # Developper et deployer
 
-De la page blanche a l'application en ligne.
-
-
 De la page blanche a l'application en ligne. Cette partie decrit le travail
 quotidien : ou lancer ses commandes, comment creer un projet, comment le
 mettre en ligne, et quoi regarder quand ca ne marche pas.
@@ -49,6 +46,30 @@ durer va dans `/workspace`, ou dans le `Dockerfile` du service.
 > Ne jamais donner un chemin absolu a un agent lance depuis l'ordinateur local :
 > il chercherait un `/workspace/...` qui n'existe que sur le serveur. Dire
 > « dans le projet courant ».
+
+
+## Ce qui configure le poste — et ce qui n'en fait pas partie
+
+Deux choses a ne pas confondre : ce qui sert a **ecrire** du code (ce
+conteneur, VS Code, Codex) et ce qui sert a **faire tourner** une application
+(le panneau). Elles ne partagent aucun fichier de configuration.
+
+**Le poste de developpement** — tout est pose automatiquement :
+
+| Ou | Quoi | Qui l'ecrit |
+|---|---|---|
+| `/workspace/.codex/config.toml` | Codex passe par la passerelle CodeLab, modele `codelab-coding` | ce conteneur, une seule fois — ensuite a toi |
+| `/workspace/.codex/codelab-llm.key` | la cle CodeLab du poste (quota, comptabilite, revocable) | le panneau, tout seul |
+| `/workspace/.codex/AGENTS.md` | le manuel de l'environnement, lu par Codex | ce conteneur, a chaque demarrage |
+| `/etc/profile.d/codelab-*.sh` | `PGHOST`, `PGUSER`… pour `psql` sans argument ; `CODEX_HOME`, `CODELAB_LLM_KEY` | ce conteneur, a chaque demarrage |
+| `~/.vscode-server` | serveur VS Code et extensions (monte depuis l'hote) | VS Code |
+| `config/ssh/authorized_keys.d/` (sur l'hote) | une cle publique par machine autorisee | toi |
+
+**Une application deployee** ne voit rien de tout ca. Elle lit, de la couche
+la plus faible a la plus forte : les variables que le panneau lui passe, puis
+le `.env` de son projet — voir [`workspace/README.md`](../workspace/README.md#configuration-et-secrets).
+Une application qui appelle l'IA le fait avec **sa propre cle CodeLab**, creee
+dans le panneau et posee dans son `.env` : jamais celle du poste.
 
 
 ## Le cycle complet
@@ -288,8 +309,9 @@ L'image portait aussi OpenClaw, une extension VS Code de chat, `acpx` et
 `codex-acp` : un message passait par six étapes, chacune avec sa version et
 sa configuration, pour un résultat que Codex donne seul. Ils sont retirés,
 ce qui allège l'image de plusieurs centaines de Mo. Sur une installation
-existante, `/workspace/.openclaw` et la recommandation d'extension dans
-`/workspace/.vscode/` peuvent être supprimés à la main : plus rien ne les lit.
+existante, le conteneur retire `/workspace/.openclaw` à son démarrage, ainsi
+que les fichiers de `/workspace/.vscode/` qu'il avait écrits pour OpenClaw —
+seulement s'ils sont intacts : un `settings.json` retouché à la main reste.
 
 `~/.vscode-server` est **monté depuis l'hôte**, pour que les extensions
 survivent à une mise à jour d'image. VS Code y garde une copie complète de

@@ -165,44 +165,44 @@ contenant `.env` est le minimum si tu pousses le projet sur git.
 
 ### `credentials.env`
 
-Le fichier commun se trouve dans `/DATA/AppData/codelab/config/credentials.env`, visible depuis les
-conteneurs sous `/var/lib/codelab/config/credentials.env`.
+Le fichier commun : `/DATA/AppData/codelab/config/credentials.env` sur l'hote,
+`/var/lib/codelab/config/credentials.env` dans les conteneurs. Un sommaire en
+tete dit a quoi sert chaque bloc :
 
-Ce fichier est gere **par bloc** : chaque service ne reecrit que le sien. Un bloc ajoute a la main
-sous un nom qu'aucun service ne connait survit donc a tous les redemarrages et a une
-reinstallation.
+| Bloc | Sert a | Transmis a ton application |
+|---|---|---|
+| `codelab-postgres` | la base partagee (`POSTGRES_*`) | oui |
+| `codelab-app-manager` | la connexion au panneau | **non** |
+| `codelab-sso` | l'identite des applications | la cle publique seule |
+| `codelab-alertes` | l'envoi des mails d'alerte (`SMTP_*`) | **non** |
+
+Chaque service reecrit **son** bloc a son demarrage : n'y retouche rien. Pour
+une valeur commune a plusieurs projets, ajoute un bloc a toi — aucun service
+ne le reecrit, il survit aux redemarrages et a une reinstallation :
 
 ```bash
-sudo tee -a /DATA/AppData/codelab/config/credentials.env > /dev/null <<'EOF'
+sudo tee -a /DATA/AppData/codelab/config/credentials.env > /dev/null <<'FIN'
 # ===== mon-projet =====
-# Bloc ajoute a la main : aucun service ne le reecrit.
 API_TOKEN=xxxxxxxx
 # ===== /mon-projet =====
-EOF
+FIN
 ```
 
-Les blocs y sont reecrits en fin de fichier au demarrage des services : c'est la **derniere**
-occurrence d'une cle qui fait foi, une valeur laissee plus haut est perimee. Le module `codelab`
-s'en charge.
+C'est la **derniere** occurrence d'une cle qui fait foi : les blocs sont
+reecrits en fin de fichier.
 
-Le fichier est en `0600 root`. Cote Dagster, qui tourne en root, `read_env()` le lit directement.
-Cote **app-manager** c'est impossible : les applications y tournent sous l'uid 1001, precisement
-pour qu'un projet ne puisse pas toucher au conteneur. Le panneau lit donc le fichier pour elles et
-leur passe les valeurs **par l'environnement**, au lancement comme au build — `read_env()` les y
-trouve sans que rien change dans ton code. Deux exceptions : le bloc du panneau
-(`APP_MANAGER_*`, dont son mot de passe et son secret de double authentification) et le bloc
-d'alertes (`SMTP_*`, `ALERTE_FROM`, `ALERTE_ADMIN`) ne sont jamais transmis. Les cles qui
-changeraient la maniere dont ton programme s'execute (`PATH`, `HOME`, `PORT`, `PYTHONPATH`,
-`PYTHONHOME`, `LD_PRELOAD`, `LD_LIBRARY_PATH`) sont ignorees elles aussi.
+**Comment ton code y accede.** Le fichier est en `0600 root`. Dagster, qui
+tourne en root, le lit directement. Les applications du panneau tournent sous
+un autre uid et ne peuvent pas le lire : le panneau le lit pour elles et leur
+passe les valeurs **par l'environnement**, au lancement comme au build —
+`read_env()` les y trouve, rien ne change dans ton code. Un mot de passe
+change est pris en compte en redemarrant l'application.
 
-Le second bloc est celui du panneau, meme s'il n'en porte pas le prefixe : c'est **sa**
-configuration d'envoi, celle d'ou partent les alertes. Cote Dagster, `read_env()` continue de la
-lire directement dans le fichier, le capteur d'alerte n'y perd rien. Si ton application doit
-envoyer du courrier pour son propre compte, mets ses identifiants dans **son** `.env` — qui gagne
-de toute facon sur cette couche.
-
-Consequence pratique : **un mot de passe change est pris en compte en redemarrant l'application**,
-sans redemarrer le panneau.
+Ne sont jamais transmis : les blocs marques « non » ci-dessus, la cle privee
+SSO, et les cles qui changeraient la maniere dont ton programme s'execute
+(`PATH`, `HOME`, `PORT`, `PYTHONPATH`, `PYTHONHOME`, `LD_PRELOAD`,
+`LD_LIBRARY_PATH`). Si ton application doit envoyer du courrier pour son
+propre compte, mets ses identifiants dans **son** `.env`.
 
 ## Base de donnees — une base par projet
 
