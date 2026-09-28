@@ -12956,6 +12956,7 @@ def test_les_cles_du_panneau_survivent_au_redemarrage_de_postgres(tmp_path):
     lignes = [f"{f['variable']}=valeur-{f['id']}" for f in app.FOURNISSEURS
               if f["variable"] != "OPENROUTER_API_KEY"]
     lignes += ["CODELAB_LLM_MODELE_CODELAB_CODING=mistral:devstral-medium-latest",
+               "CODELAB_LLM_DEFAUT=codelab-fast",
                "CODELAB_LLM_AMONT_KEY=ancienne-liaison", "POSTGRES_PASSWORD=x"]
     fichier.write_text("\n".join(lignes) + "\n", encoding="utf-8")
     r = subprocess.run(["sh", "-c", f'LLM_ENV_FILE="{fichier}"\n' + bloc
@@ -13021,3 +13022,31 @@ def test_un_ancien_config_toml_de_codex_recoit_le_catalogue(tmp_path):
     cfg.write_text(autre, encoding="utf-8")
     subprocess.run(["sh", "-c", script], check=True, capture_output=True, timeout=30)
     assert cfg.read_text(encoding="utf-8") == autre, "un config.toml a soi a ete touche"
+
+
+def test_un_modele_choisi_dans_l_extension_codex_part_vers_codelab_coding(monkeypatch):
+    """L'extension Codex de VS Code n'affiche que les modeles d'OpenAI et
+    ecrit le choix dans config.toml (« gpt-5.5 »). Refuse, ce nom rendait
+    l'extension inutilisable ; il est servi par la chaine de codelab-coding
+    -- et le nom demande n'atteint jamais un fournisseur."""
+    client, module, appels = _passerelle_llm(
+        monkeypatch, lambda fid, corps: _sse({"choices": [{"delta": {"content": "ok"}}]}))
+    r = client.post("/v1/responses", json={"model": "gpt-5.5", "input": "ping",
+                                           "stream": True,
+                                           "reasoning": {"effort": "low"}})
+    assert r.status_code == 200
+    assert [e for e in _evenements(r.text) if e["type"] == "response.completed"]
+    assert appels[0][2]["model"] == "gemini-flash-latest"
+    assert "gpt-5.5" not in json.dumps([a[2] for a in appels])
+
+    monkeypatch.setenv("CODELAB_LLM_DEFAUT", "codelab-fast")
+    appels.clear()
+    client.post("/v1/chat/completions", json={"model": "gpt-5.5", "stream": True,
+                                              "messages": [{"role": "user", "content": "x"}]})
+    assert appels[0][0] == "groq", "CODELAB_LLM_DEFAUT n'a pas ete suivi"
+
+    monkeypatch.setenv("CODELAB_LLM_DEFAUT", "aucun")
+    appels.clear()
+    r = client.post("/v1/responses", json={"model": "gpt-5.5", "input": "ping"})
+    assert r.status_code == 400 and not appels
+    assert "par-defaut" not in module.modeles() and "defaut" not in module.modeles()

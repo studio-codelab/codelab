@@ -300,8 +300,15 @@ Remote-SSH, installer l'extension *Codex – OpenAI's coding agent*
 même configuration que le terminal — `~/.codex/config.toml`, qui pointe la
 passerelle CodeLab et sa clé — : rien à saisir, pas de compte OpenAI.
 
-**Choisir le modèle** : le sélecteur de l'extension (et `/model` dans le
-terminal) propose les trois noms de la passerelle, tous gratuits :
+**Le sélecteur de l'extension n'affiche que les modèles d'OpenAI**, quoi
+qu'on lui donne, et écrit le choix dans `config.toml` (`model = "gpt-5.5"`).
+Ce n'est pas un problème : **tout nom que la passerelle ne connaît pas est
+servi par `codelab-coding`**, donc par les modèles gratuits. Choisir « GPT-5.5 »
+dans l'extension, c'est utiliser CodeLab Coding. Pour un autre modèle par
+défaut, `CODELAB_LLM_DEFAUT=codelab-fast` dans `config/llm/llm.env`.
+
+Dans le terminal, `/model` propose les trois noms de la passerelle, tous
+gratuits :
 
 | Dans le sélecteur | Pour quoi |
 |---|---|
