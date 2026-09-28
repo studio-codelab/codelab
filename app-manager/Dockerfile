@@ -1,4 +1,10 @@
-FROM python:3.14-slim 
+# LA MEME BASE QUE codelab-dev, codelab-dagster et codelab-llm. Docker ne
+# stocke une couche qu'une fois : quatre images sur python:3.13-slim ne
+# paient la base qu'une seule fois sur le disque, alors que celle-ci, en
+# 3.14, en portait une copie a elle (environ 120 Mo) sur un serveur dont
+# l'eMMC a deborde. Et les applications, developpees sous 3.13 dans
+# codelab-dev, tournent ici sous la meme version.
+FROM python:3.13-slim
 
 WORKDIR /opt/codelab/app-manager 
 

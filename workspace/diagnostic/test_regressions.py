@@ -12507,3 +12507,20 @@ def test_les_restes_d_openclaw_partent_sauf_ce_qui_a_ete_retouche(tmp_path):
     assert not (tmp_path / ".openclaw").exists()
     assert not (vs / "extensions.json").exists()
     assert json.loads((vs / "settings.json").read_text(encoding="utf-8")) == retouche
+
+
+def test_les_images_python_partagent_la_meme_base():
+    """Docker ne stocke une couche qu'une fois. Une image sur une autre base
+    Python en porte une copie a elle -- environ 120 Mo sur une eMMC de 17 Go
+    qui a deja deborde. Et la CI teste sur la version que le panneau livre."""
+    racine = _racine_depot()
+    bases = {}
+    for service in ("app-manager", "dev", "dagster", "llm"):
+        source = open(os.path.join(racine, service, "Dockerfile"), encoding="utf-8").read()
+        bases[service] = re.search(r"^FROM (\S+)", source, re.M).group(1)
+    assert len(set(bases.values())) == 1, bases
+    version = re.search(r"python:(\d+\.\d+)", bases["app-manager"]).group(1)
+    ci = open(os.path.join(racine, ".github", "workflows", "build-images.yml"),
+              encoding="utf-8").read()
+    assert f'python-version: "{version}"' in ci, (
+        "la CI ne teste pas sur la version de Python que le panneau livre")
