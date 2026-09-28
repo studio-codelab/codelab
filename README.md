@@ -14,8 +14,7 @@ propos.
 |---|---|---|
 | **Postgres** | Serveur de bases partagé : une base par projet, `pgvector` inclus | interne |
 | **Dev** | Accès SSH et VS Code Remote-SSH | `2222` |
-| **Dagster** | Orchestration des jobs : l'interface et le serveur | interne |
-| **Dagster-daemon** | Ce qui déclenche à l'heure dite : plannings et capteurs | interne |
+| **Dagster** | Orchestration des jobs : l'interface, et le daemon qui déclenche plannings et capteurs | interne |
 | **Dagster-proxy** | Authentification devant Dagster | `3000` |
 | **App-manager** | Le panneau : déploiement et supervision des applications | `9001` |
 | **Applications** | Les projets déployés, servis sur leur propre adresse | `9002` |
