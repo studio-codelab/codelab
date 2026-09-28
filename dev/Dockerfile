@@ -19,8 +19,7 @@ RUN apt-get update \
 
 # NODE 24, ET PAS CELUI DE DEBIAN.
 #
-# openclaw declare "engines: node >=24.16.0 <25 || >=26.1.0" et refuse de
-# s'installer en dessous ; le nodejs empaquete par Debian est plusieurs
+# Codex s'installe par npm, et le nodejs empaquete par Debian est plusieurs
 # versions en arriere. NodeSource est la facon documentee d'avoir une version
 # recente, et il fournit npm avec.
 #
@@ -85,57 +84,6 @@ RUN pip install --no-cache-dir \
 # est celle du jour du build. Pour figer, remplacer par "@openai/codex@X.Y.Z".
 RUN npm install -g @openai/codex \
     && npm cache clean --force
-
-# OpenClaw, le second agent de developpement, utilisable depuis une session
-# SSH comme codex. Les deux cohabitent : ils lisent le meme AGENTS.md et
-# passent par la meme passerelle.
-#
-# EPINGLE sur la ligne "extended-stable" et non sur "latest" : au jour de
-# l'ecriture, le dist-tag "beta" pointe la meme version que "latest", ce qui
-# n'est pas ce qu'on veut dans une image que plusieurs personnes utilisent
-# pour travailler. Changer de version est une decision, comme partout ici.
-#
-# OPENCLAW_NO_PROMPT : ses scripts d'installation lancent sinon un assistant
-# de configuration interactif, qui n'a rien a faire dans un build.
-#
-# Ce paquet est GROS -- 66 dependances directes, un gateway, des connecteurs
-# de messagerie dont ce conteneur n'a aucun usage. Il est ici parce qu'on l'a
-# demande ; s'il n'est pas utilise, le retirer allege l'image d'autant.
-ENV OPENCLAW_NO_PROMPT=1
-RUN npm install -g openclaw@2026.6.35 \
-    && npm cache clean --force \
-    && openclaw --version
-
-# LE PANNEAU DE CHAT DE L'EXTENSION VS CODE, et ce qu'il appelle vraiment.
-#
-# L'extension recommandee (openknot.openclaw-extension) ne parle PAS au
-# gateway pour son chat : chaque message lance « acpx --format json ...
-# exec <prompt> », avec l'agent « codex » par defaut. acpx n'etait pas dans
-# l'image : le premier message tombait sur « spawn acpx ENOENT ».
-#
-# codex-acp est l'adaptateur ACP de Codex. Installe ici, acpx le trouve dans
-# le PATH ; absent, acpx le telecharge par « npx » au premier message --
-# une installation silencieuse, au runtime, a chaque recreation du conteneur.
-#
-# Epingles tous les deux, comme openclaw.
-#
-# UN SEUL CODEX DANS L'IMAGE. codex-acp embarque sa propre copie de
-# @openai/codex (374 Mo, binaire compris) et lance « @openai/codex/bin/
-# codex.js » depuis ses dependances. Cette copie remplissait le disque au
-# « docker compose pull » (« no space left on device »). On la remplace par
-# un lien vers le Codex installe plus haut : meme programme, meme
-# config.toml, une seule fois sur le disque.
-RUN npm install -g acpx@0.19.3 @agentclientprotocol/codex-acp@1.13.1 \
-    && NM="$(npm root -g)" \
-    && rm -rf "$NM/@agentclientprotocol/codex-acp/node_modules/@openai" \
-    && mkdir -p "$NM/@agentclientprotocol/codex-acp/node_modules/@openai" \
-    && ln -s "$NM/@openai/codex" \
-        "$NM/@agentclientprotocol/codex-acp/node_modules/@openai/codex" \
-    && npm cache clean --force \
-    && acpx --version \
-    && command -v codex-acp \
-    && node -e "require.resolve('@openai/codex/bin/codex.js', \
-        {paths: ['$NM/@agentclientprotocol/codex-acp']})"
 
 COPY dev/entrypoint.sh /opt/codelab/dev/entrypoint.sh
 RUN chmod +x /opt/codelab/dev/entrypoint.sh

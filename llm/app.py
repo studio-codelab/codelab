@@ -65,36 +65,43 @@ SSO_EMETTEUR = "codelab"
 # demandee.
 SSO_AUDIENCE = os.environ.get("CODELAB_LLM_AUDIENCE", "")
 
-# L'AMONT : codelab-litellm, et non plus un fournisseur en direct.
+# L'AMONT : un fournisseur compatible OpenAI, appele EN DIRECT.
 #
-# Ce service garde ce qui lui appartient -- identite CodeLab, quota par
-# personne, comptabilite -- et delegue le routage a LiteLLM : choix du
-# fournisseur, repli quand l'un tombe, budgets. La cle d'un fournisseur ne
-# transite plus par ici ; elle vit dans codelab-litellm, qui n'est joignable
-# que depuis ce service.
+# Il y avait un routeur (codelab-litellm) entre ce service et le fournisseur.
+# Il est retire : sur une petite machine, il coutait un conteneur, plus d'un
+# Go de disque, une cle de liaison entre les deux et un fichier de cles de
+# plus -- pour router entre fournisseurs, ce qu'OpenRouter fait deja, avec
+# une seule cle et ses propres replis.
 #
-# La valeur reste surchargeable : pointer directement un fournisseur
-# compatible OpenAI (comme avant) demande une seule variable.
-FOURNISSEUR_URL = os.environ.get(
-    "CODELAB_LLM_FOURNISSEUR", "http://codelab-litellm:4000/v1")
+# Ce service garde ce qui lui appartient : identite CodeLab, quota,
+# comptabilite. La cle du fournisseur vit dans SON fichier (llm.env), que ni
+# les applications ni le conteneur de developpement ne voient.
+#
+# Le fournisseur doit exposer /responses (Codex n'a plus que ce protocole)
+# et /chat/completions (les applications). OpenRouter sert les deux. Un
+# autre -- OpenAI par exemple -- se pose avec CODELAB_LLM_FOURNISSEUR, dans
+# l'environnement ou dans llm.env.
+FOURNISSEUR_PAR_DEFAUT = "https://openrouter.ai/api/v1"
 
-# Les noms logiques, et le modele reel derriere chacun. Un nom sans modele
-# configure n'est PAS propose : trois noms qui pointent tous sur la meme
-# route -- ce qu'on avait -- donnent a l'interface un choix qui n'en est pas
-# un, et a l'utilisateur l'impression que son reglage ne change rien.
-# Les noms logiques SERVIS PAR DEFAUT, alignes sur litellm/config.yaml : le
-# nom est le meme des deux cotes, et c'est le routeur qui le traduit en modele
-# reel. Quatre noms qui menent a quatre routes differentes -- pas trois noms
-# pour une seule, ce qui donnerait un choix qui n'en est pas un.
+
+def fournisseur_url():
+    """L'adresse de l'amont, relue a chaque appel comme la cle : changer de
+    fournisseur dans llm.env prend effet sans redemarrer."""
+    return (valeur("CODELAB_LLM_FOURNISSEUR") or FOURNISSEUR_PAR_DEFAUT).rstrip("/")
+
+
+# Les noms logiques, et le modele reel derriere chacun. C'est le contrat avec
+# les clients : une application demande « codelab-coding », jamais un nom de
+# fournisseur. Changer de modele se fait ici -- ou, sans reconstruire,
+# avec CODELAB_LLM_MODELE_<NOM> dans llm.env -- sans toucher a un client.
 #
-# « codelab-smart » a disparu : il designait openrouter/auto, qui n'existe
-# pas chez le routeur. Une installation qui y tenait le remet en une ligne
-# (CODELAB_LLM_MODELE_CODELAB_SMART) et l'ajoute au config.yaml.
+# Identifiants OpenRouter. Un identifiant inexact se voit au premier appel
+# (erreur du fournisseur), pas au demarrage : le verifier sur
+# openrouter.ai/models le jour de l'installation, et l'ajuster au besoin.
 MODELES_PAR_DEFAUT = {
-    "codelab-coding": "codelab-coding",
-    "codelab-fast": "codelab-fast",
-    "codelab-reasoning": "codelab-reasoning",
-    "codelab-local": "codelab-local",
+    "codelab-coding": "anthropic/claude-sonnet-5",
+    "codelab-fast": "anthropic/claude-haiku-4.5",
+    "codelab-reasoning": "anthropic/claude-opus-5.5",
 }
 PREFIXE_MODELE = "CODELAB_LLM_MODELE_"
 
@@ -182,14 +189,14 @@ def valeur(nom, defaut=""):
 
 
 def cle_amont():
-    """La cle presentee a l'amont.
+    """La cle presentee au fournisseur : OPENROUTER_API_KEY.
 
-    CODELAB_LLM_AMONT_KEY d'abord -- c'est la cle maitresse de
-    codelab-litellm. OPENROUTER_API_KEY ensuite, pour qu'une installation
-    existante, qui pointe encore un fournisseur en direct, continue de
-    fonctionner sans rien toucher.
+    CODELAB_LLM_AMONT_KEY n'est PLUS lue. C'etait la cle de liaison avec le
+    routeur retire, et le panneau l'a posee dans llm.env sur les
+    installations existantes : la lire encore l'enverrait a OpenRouter, qui
+    repondrait 401 sur une cle qui n'est pas la sienne.
     """
-    return valeur("CODELAB_LLM_AMONT_KEY") or valeur("OPENROUTER_API_KEY")
+    return valeur("OPENROUTER_API_KEY")
 
 
 def modeles():
@@ -469,9 +476,9 @@ def sante():
 # L'API RESPONSES, parce que les agents de developpement n'ont plus le choix.
 #
 # Codex a retire le protocole « chat » en fevrier 2026 : un fournisseur qui
-# n'expose que /chat/completions ne lui sert a rien. C'est LiteLLM qui fait le
-# pont vers les modeles qui ne parlent que l'ancien protocole ; ce service, lui,
-# n'a qu'a relayer -- et a compter ce qui passe.
+# n'expose que /chat/completions ne lui sert a rien. Le fournisseur doit donc
+# servir /responses lui-meme (OpenRouter le fait) ; ce service, lui, n'a qu'a
+# relayer -- et a compter ce qui passe.
 #
 # Volontairement SANS relecture du document : le format Responses est riche et
 # bouge vite, et le reecrire ici serait promettre de le suivre. On verifie
@@ -505,7 +512,7 @@ async def responses(request: Request,
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     try:
-        reponse = await _client.post(FOURNISSEUR_URL + "/responses",
+        reponse = await _client.post(fournisseur_url() + "/responses",
                                      json=amont, headers=entetes)
     except httpx.HTTPError:
         print("[codelab-llm] amont injoignable (/responses).", flush=True)
@@ -531,7 +538,7 @@ async def _flux_responses(amont, entetes, qui, demande, debut):
     """
     jetons, reel = {}, amont["model"]
     try:
-        async with _client.stream("POST", FOURNISSEUR_URL + "/responses",
+        async with _client.stream("POST", fournisseur_url() + "/responses",
                                   json=amont, headers=entetes) as reponse:
             if reponse.status_code >= 400:
                 await reponse.aread()
@@ -637,7 +644,7 @@ async def completions(request: Request,
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     try:
-        reponse = await _client.post(FOURNISSEUR_URL + "/chat/completions",
+        reponse = await _client.post(fournisseur_url() + "/chat/completions",
                                      json=amont, headers=entetes)
     except httpx.HTTPError:
         # Le message du fournisseur n'est PAS recopie au client : il peut
@@ -669,7 +676,7 @@ async def _flux(amont, entetes, qui, demande, debut):
     """
     jetons, reel = {}, amont["model"]
     try:
-        async with _client.stream("POST", FOURNISSEUR_URL + "/chat/completions",
+        async with _client.stream("POST", fournisseur_url() + "/chat/completions",
                                   json=amont, headers=entetes) as reponse:
             if reponse.status_code >= 400:
                 await reponse.aread()

@@ -1,99 +1,87 @@
-# Le profil IA de CodeLab
+# Le service IA de CodeLab
 
-Deux conteneurs, une seule porte. Le profil `llm` est optionnel : sans lui,
-rien de tout cela ne démarre.
+Un conteneur, une seule porte : `codelab-llm`. Il est joignable depuis le
+réseau `codelab` (tes applications, le poste de développement) et **ne publie
+aucun port**.
 
-| Conteneur | Rôle | Joignable depuis |
-|---|---|---|
-| `codelab-llm` | Identité CodeLab, quota par personne, comptabilité | réseau `codelab` (les applications) |
-| `codelab-litellm` | Routage, replis, clés des fournisseurs | réseau `codelab-ia` (codelab-llm seul) |
+```
+application / Codex ──clé CodeLab──▶ codelab-llm ──clé OpenRouter──▶ OpenRouter ──▶ Claude, GPT…
+```
 
-**Aucun des deux ne publie de port.** Les applications et les éditeurs
-s'adressent à `codelab-llm`, qui va lui-même chercher le routeur.
+| | `codelab-llm` |
+|---|---|
+| Qui parle, à quel rythme | ✅ identité CodeLab, quota |
+| Ce qui a été consommé | ✅ comptabilité en base, par clé |
+| Vers quel fournisseur | OpenRouter par défaut, appelé en direct |
+| La clé du fournisseur | ✅ dans `config/llm/llm.env`, que lui seul lit |
 
-## La frontière entre les deux
+Ni tes applications ni le poste de développement ne voient la clé du
+fournisseur : ils présentent une **clé CodeLab**, révocable, avec quota et
+comptabilité. C'est ce qui rend acceptable qu'un agent comme Codex tourne
+avec tous les droits dans `/workspace` : au pire, il fuite une clé CodeLab,
+qui se révoque en un clic.
 
-| | `codelab-llm` | `codelab-litellm` |
-|---|---|---|
-| Qui parle, à quel rythme | ✅ | — |
-| Ce qui a été consommé, en base | ✅ | — |
-| Vers quel fournisseur, avec quel repli | — | ✅ |
-| Les clés des fournisseurs | — | ✅ |
+## Pourquoi plus de routeur
 
-Le routeur n'est pas sur le réseau `codelab`, et c'est le point important :
-les applications déployées par le panneau y tournent, et pouvoir l'appeler
-en direct reviendrait à contourner identité, quota et comptabilité — avec
-les clés de chaque fournisseur au bout.
+Il y avait un second conteneur, `codelab-litellm`, entre la passerelle et les
+fournisseurs, et une clé de *liaison* entre les deux. Il est retiré : sur une
+petite machine, il coûtait plus d'un Go de disque, 512 Mo de RAM, un fichier
+de clés et une panne muette de plus — pour router entre fournisseurs, ce
+qu'**OpenRouter** fait déjà, avec une seule clé et ses propres replis.
 
-Les noms logiques (`codelab-coding`, `codelab-fast`, `codelab-reasoning`,
-`codelab-local`) sont le contrat avec les clients. Changer de modèle se fait
-dans `litellm/config.yaml`, sans toucher à un seul client.
-
-`codelab-local` ne se replie jamais sur un fournisseur distant : sans serveur
-Ollama joignable, il répond en erreur. Un repli silencieux ferait sortir de
-la machine des données qu'on gardait ici exprès.
-
-## Pas d'interface de conversation
-
-CodeLab n'héberge pas d'interface de chat. L'ancienne application `aichat` a
-été retirée, et l'interface Open WebUI qui l'avait remplacée l'a été à son
-tour : l'outil du développeur est son éditeur, et les applications appellent
-la passerelle directement. Une interface web de conversation n'apportait
-qu'une couche de plus, avec son portier, son réseau dédié et son volume de
-conversations à sauvegarder.
-
-Un client extérieur — un éditeur, un agent de développement — s'identifie par
-une clé CodeLab (voir plus bas), pas par une session de navigateur.
+Le fournisseur doit servir `/responses` (Codex n'a plus que ce protocole) et
+`/chat/completions` (les applications). OpenRouter sert les deux.
 
 ## Démarrage
 
-**Une seule valeur à renseigner** : au moins une clé de fournisseur.
+**Une seule valeur à renseigner : la clé OpenRouter.** Deux endroits
+possibles, et ils ne s'écrasent pas :
 
-La clé partagée entre la passerelle et le routeur — appelée *liaison* dans
-le panneau — **ne se saisit plus**. C'est un secret entre deux de tes
-conteneurs : il ne veut rien dire ailleurs, personne ne le délivre, et le
-demander revenait à faire recopier un `openssl rand -hex 32` dans deux
-fichiers. Le panneau le tire au hasard et l'écrit des deux côtés, ce qui est
-aussi la seule façon d'être sûr qu'ils portent la même. Deux valeurs
-différentes sont la panne la plus muette de la stack : le routeur refuse, et
-son message parle d'authentification sans dire laquelle.
+- **le panneau**, *Paramètres → Clés et secrets* : on colle la clé, le
+  panneau l'écrit dans `config/llm/llm.env` (en `0600`) et n'en réaffiche que
+  les quatre derniers caractères. **Prise en compte immédiatement** — la
+  passerelle relit ce fichier à chaque appel ;
+- **le `.env` de l'hôte** (`OPENROUTER_API_KEY`, voir `.env.example`), pour
+  une installation scriptée. Au démarrage, `codelab-postgres` la recopie dans
+  le même fichier — **une valeur vide ne remplace jamais celle déjà posée**.
 
-Pour les clés de fournisseurs, deux endroits possibles, et ils ne s'écrasent
-pas :
-
-- **le panneau**, *Paramètres → Clés et secrets*. On **choisit un
-  fournisseur** dans une liste — Anthropic, OpenAI, Ollama, ou un autre en
-  nommant sa variable — et on colle la valeur. Le panneau écrit
-  `config/llm/fournisseurs.env` (en `0600`), que le routeur monte en
-  lecture seule et lit à son démarrage, et n'en réaffiche que les quatre derniers caractères. Chaque
-  ligne dit **quels noms logiques tombent** sans elle ;
-- **le `.env` de l'hôte**, décrit dans `.env.example`, pour une installation
-  scriptée. Au démarrage, `codelab-postgres` recopie ce qu'il y trouve dans
-  le même fichier — **une valeur vide ne remplace jamais celle déjà posée**,
-  donc ce qui a été saisi dans le panneau survit aux redémarrages.
-
-> Un fournisseur ajouté « à la main » n'est utile que si un modèle de
-> `litellm/config.yaml` nomme sa variable. Le panneau le dit plutôt que de
-> laisser croire que la clé suffit.
-
-Le panneau n'atteint ni le compose ni le `.env` de l'hôte, et c'est
-délibéré : les lui monter lui donnerait de quoi réécrire la stack. C'est
-pour cette raison, et pas une autre, qu'une clé de fournisseur posée depuis
-l'interface ne prend effet qu'au prochain démarrage du conteneur.
+Avec `docker-compose.yml`, le service est derrière le profil optionnel
+`llm` :
 
 ```bash
-docker compose --profile llm up -d            # docker-compose.yml
-docker compose restart codelab-litellm        # installation CasaOS : pas de profil
+docker compose --profile llm up -d
 ```
 
-`litellm/config.yaml` est intégré à l'image `codelab-litellm` (voir
-`litellm/Dockerfile`) : le compose ne monte plus aucun fichier du dépôt, ce
-qui le rend utilisable tel quel par CasaOS, qui le recopie dans un dossier à
-lui. Changer de modèle se fait toujours dans ce fichier ; la nouvelle image
-le porte au prochain `docker compose pull`.
+Avec `docker-compose-casaos.yml`, il n'y a **pas de profil** : CasaOS ne sait
+pas en activer un. Le service démarre avec le reste, et le compose se suffit à
+lui-même — c'est le seul fichier à importer dans CasaOS.
 
 La base `codelab_llm` et son rôle dédié sont créés par Postgres au premier
 démarrage ; le schéma est initialisé par la passerelle.
+
+## Les modèles proposés
+
+Trois noms logiques — le contrat avec les clients :
+
+| Nom | Modèle réel (OpenRouter) | Usage |
+|---|---|---|
+| `codelab-coding` | `anthropic/claude-sonnet-5` | le modèle de travail de Codex |
+| `codelab-fast` | `anthropic/claude-haiku-4.5` | les tâches courtes, le peu coûteux |
+| `codelab-reasoning` | `anthropic/claude-opus-5.5` | ce qu'on accepte de payer plus cher |
+
+Vérifie ces identifiants sur [openrouter.ai/models](https://openrouter.ai/models)
+le jour de l'installation : un identifiant inexact se voit au premier appel,
+pas au démarrage. Pour en changer — ou ajouter un nom — pose une ligne
+`CODELAB_LLM_MODELE_<NOM>` dans `config/llm/llm.env` : le nom logique est
+celui de la variable, en minuscules, tirets à la place des soulignés.
+
+```
+CODELAB_LLM_MODELE_CODELAB_FAST=openai/gpt-5-mini
+```
+
+Pour un autre fournisseur compatible OpenAI, `CODELAB_LLM_FOURNISSEUR=` (son
+adresse `…/v1`) dans le même fichier. Ces réglages posés à la main survivent
+aux redémarrages : `codelab-postgres` réécrit le fichier mais les conserve.
 
 ## Qui est qui
 
@@ -106,31 +94,10 @@ preuves, et sans elle, 401 :
 | Une clé CodeLab enregistrée en base, révocable | un éditeur, un agent de développement, une application à soi |
 
 Une audience vide n'autorise personne : sans nom configuré, aucune assertion
-n'est acceptée. C'est volontaire — un défaut qui nommerait une application la
-rendrait autorisée sur une installation qui ne l'a jamais demandée.
+n'est acceptée.
 
 Un en-tête `X-CodeLab-User-Id` reste lu, mais il ne **prouve** rien : il sert
-à attribuer la consommation au bon utilisateur, une fois la clé vérifiée. Sur
-un réseau partagé, un en-tête d'identité ne prouve jamais rien.
-
-## Les modèles proposés
-
-Quatre noms logiques par défaut, alignés sur `litellm/config.yaml` :
-
-| Nom | Usage |
-|---|---|
-| `codelab-coding` | le modèle de travail des agents de développement |
-| `codelab-fast` | les tâches courtes, le peu coûteux |
-| `codelab-reasoning` | ce qu'on accepte de payer plus cher et d'attendre |
-| `codelab-local` | un Ollama à soi — aucun jeton ne sort de la machine |
-
-Pour en ajouter ou en changer, poser une variable `CODELAB_LLM_MODELE_<NOM>` :
-le nom logique est celui de la variable, en minuscules, tirets à la place des
-soulignés. Un nom absent de cette table est refusé avant tout appel sortant.
-
-Ces noms doivent exister **des deux côtés** : servis ici, et déclarés dans
-`litellm/config.yaml`. Un test le vérifie — un nom présent d'un seul côté
-échouerait au premier appel, pas au démarrage.
+à attribuer la consommation au bon utilisateur, une fois la clé vérifiée.
 
 ## Une clé pour une application
 
@@ -165,7 +132,7 @@ une table qui existe déjà.
 
 **La clé du poste de développement est un cas à part** : le panneau la crée
 au démarrage si elle manque, et la pose lui-même dans
-`.codex/codelab-llm.key` et `.openclaw/openclaw.json`. Elle ne s'affiche
+`.codex/codelab-llm.key`, où Codex la relit. Elle ne s'affiche
 jamais, pas même à la création — elle est écrite directement là où elle sert.
 
 Le nom et l'application sont une **étiquette comptable** : ils disent qui a
