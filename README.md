@@ -194,10 +194,9 @@ Ce qui sert à **faire tourner** un projet. Détails :
 | `/workspace/<projet>/.env` | ce qui ne concerne que ce projet ; **l'emporte toujours** |
 | réglages de l'app dans le panneau | commande de lancement, build, visibilité, adresse — stockés dans `app-manager/apps.json` |
 
-**L'IA n'est pas fournie par CodeLab.** Une application qui s'en sert appelle elle-même le
-fournisseur de son choix (OpenAI, Gemini, Mistral, OpenRouter…), avec **une clé à elle** posée dans
-son `.env` — jamais commité. Créer une clé par application chez le fournisseur garde la révocation
-et le suivi de consommation application par application, depuis son tableau de bord.
+**Un service externe** (paiement, API tierce…) s'appelle depuis l'application elle-même, avec
+**une clé à elle** posée dans son `.env` — jamais commité. Une clé par application chez le
+fournisseur garde la révocation et le suivi de consommation application par application.
 
 ## Contenu par défaut du workspace
 

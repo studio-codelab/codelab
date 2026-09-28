@@ -152,11 +152,11 @@ chown "$SSH_USER" "$CODEX_HOME_DIR" 2>/dev/null || true
 chgrp "$CODELAB_GROUP" "$CODEX_HOME_DIR" 2>/dev/null || true
 chmod 2770 "$CODEX_HOME_DIR" 2>/dev/null || true
 
-# CODEX SE CONNECTE AVEC UN COMPTE CHATGPT, pas par codelab-llm.
+# CODEX SE CONNECTE AVEC UN COMPTE CHATGPT.
 #
 # Un agent de code envoie des dizaines de requetes par tache, chacune avec
 # une vingtaine de milliers de jetons d'instructions : aucune part gratuite
-# de fournisseur n'y suffit, et la passerelle est reservee aux applications.
+# de fournisseur n'y suffit.
 # L'abonnement ChatGPT inclut l'usage de Codex -- connexion une fois, par le
 # bouton « Sign in » de l'extension ou « codex login » dans un terminal VS
 # Code (qui transfere tout seul le port de retour). Le jeton est range dans
@@ -181,43 +181,6 @@ approval_policy = "on-request"
 CODEXCFG
     chown "$SSH_USER" "$CODEX_CFG" 2>/dev/null || true
 fi
-
-# LES config.toml QUI PASSAIENT PAR LA PASSERELLE. On ne retire QUE ce que
-# ce conteneur y avait ecrit -- le fournisseur « codelab » et ses sections,
-# le catalogue de modeles de l'image, un modele « codelab-* » -- et le reste
-# (les [projects...] que Codex ajoute, les reglages faits a la main) reste
-# tel quel. Sans ce menage, Codex continuerait d'appeler codelab-llm.
-if grep -q '^model_provider = "codelab"' "$CODEX_CFG" 2>/dev/null \
-        || grep -qF '[model_providers.codelab]' "$CODEX_CFG" 2>/dev/null; then
-    python3 - "$CODEX_CFG" <<'PYCODEXCHATGPT' \
-        && echo "[codelab-dev] config.toml de Codex : passerelle retiree, compte ChatGPT."
-import re, sys
-chemin = sys.argv[1]
-gardees, dans_codelab = [], False
-for ligne in open(chemin, encoding="utf-8").read().split("\n"):
-    section = re.match(r"^\s*\[([^\]]+)\]\s*$", ligne)
-    if section:
-        dans_codelab = section.group(1).strip() in (
-            "model_providers.codelab", "model_providers.codelab.auth")
-        if dans_codelab:
-            continue
-    if dans_codelab:
-        continue
-    nette = ligne.strip()
-    if nette == 'model_provider = "codelab"':
-        continue
-    if re.fullmatch(r'model = "codelab-[a-z-]+"', nette):
-        continue
-    if re.fullmatch(r'model_catalog_json = "/usr/local/share/codelab/[^"]*"', nette):
-        continue
-    gardees.append(ligne)
-texte = re.sub(r"\n{3,}", "\n\n", "\n".join(gardees)).strip("\n") + "\n"
-open(chemin, "w", encoding="utf-8").write(texte)
-PYCODEXCHATGPT
-fi
-
-# L'ancienne cle de la passerelle : le panneau la revoque, elle part d'ici.
-rm -f "$CODEX_HOME_DIR/codelab-llm.key" 2>/dev/null || true
 
 # LE JETON CHATGPT N'EST LISIBLE QUE PAR vscode. Le dossier est partage avec
 # le groupe codelab (le panneau, Dagster) : un auth.json en 0660 leur

@@ -176,12 +176,10 @@ cmd_db() {
       exit 2 ;;
   esac
 
-  # Les bases de la stack ne sont pas des projets. Leur poser le schema
-  # « dagster » en tete du search_path detournait leurs tables : sur
-  # codelab_llm, le panneau inscrivait les cles la ou la passerelle ne les
-  # lisait pas, et chaque appel etait refuse en 401.
+  # Les bases de la stack ne sont pas des projets : leur poser le schema
+  # « dagster » en tete du search_path detournerait leurs tables.
   case "$projet" in
-    codelab_llm | codelab | dagster | postgres | "${CODELAB_INSTANCE_DB:-dagster}")
+    codelab | dagster | postgres | "${CODELAB_INSTANCE_DB:-dagster}")
       echo "codelab db: \"$projet\" est une base de la stack CodeLab, pas un" \
            "projet -- choisis un autre nom." >&2
       exit 2 ;;
