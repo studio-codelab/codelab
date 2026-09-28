@@ -1128,6 +1128,10 @@ def services_du_hub():
     return services
 
 
+# Les services dont le logo n'a pas de fond propre (voir "plaque" plus bas).
+SERVICES_LOGO_TRANSPARENT = frozenset({DAGSTER_NOM})
+
+
 def _tuile_service(nom, description, adresse, debout, port):
     """Une tuile de service de la stack, avec les cles d'une application."""
     return {
@@ -1141,6 +1145,11 @@ def _tuile_service(nom, description, adresse, debout, port):
         # Ce qui la distingue d'une application : elle a sa propre adresse,
         # et le panneau ne la demarre ni ne l'arrete.
         "externe": True,
+        # Le fond clair sous le logo, sur la tuile du hub : seulement pour
+        # un logo TRANSPARENT (Dagster), qui flotterait sans lui. Celui de
+        # Mailpit porte deja son fond turquoise, comme le diagnostic : une
+        # plaque blanche autour l'encadrait pour rien.
+        "plaque": nom in SERVICES_LOGO_TRANSPARENT,
         "par_defaut": True,
         "url": adresse,
         # Les memes cles que les autres lignes, avec des valeurs vides : la

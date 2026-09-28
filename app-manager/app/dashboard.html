@@ -3445,7 +3445,10 @@ function peindreHub(){
   /* Dans l'onglet courant, comme partout ailleurs : le ruban de retour pose
      par le proxy ramene au hub, et un nouvel onglet par application ouverte
      ne laissait au navigateur que des onglets a fermer. */
-  const tuile = a => `<a class="hub-projet${a.externe ? ' service-stack' : ''} ${a.running?'':'arretee'}"
+  /* service-stack = la plaque claire sous le logo : seulement pour un logo
+     transparent (Dagster). Mailpit porte son propre fond, comme le
+     diagnostic, et une plaque blanche autour l'encadrait pour rien. */
+  const tuile = a => `<a class="hub-projet${a.externe && a.plaque ? ' service-stack' : ''} ${a.running?'':'arretee'}"
       href="${lienOuverture(a)}"
       title="${esc(a.description||a.name)}">
       <img src="${icone(a.name)}" alt="">

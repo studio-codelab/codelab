@@ -11821,3 +11821,14 @@ def test_postgres_realigne_le_mot_de_passe_a_chaque_demarrage():
     assert "s/'/''/g" in fonction
     provision = script.split("provision_databases() {", 1)[1].split("\n}\n", 1)[0]
     assert "realigner_mot_de_passe" in provision
+
+
+def test_seul_un_logo_transparent_a_une_plaque_sur_le_hub():
+    """Le logo de Mailpit porte son fond turquoise, comme le diagnostic : pas
+    de plaque blanche autour. Celui de Dagster, transparent, garde la sienne."""
+    dagster = app._tuile_service(app.DAGSTER_NOM, "", "http://x:3000/", True, 3000)
+    mailpit = app._tuile_service(app.MAILPIT_NOM, "", "http://x:8025/", True, 8025)
+    assert dagster["plaque"] is True
+    assert mailpit["plaque"] is False
+    page = _page_panneau("dashboard.html")
+    assert "${a.externe && a.plaque ? ' service-stack' : ''}" in page
