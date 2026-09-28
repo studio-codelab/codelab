@@ -176,6 +176,17 @@ cmd_db() {
       exit 2 ;;
   esac
 
+  # Les bases de la stack ne sont pas des projets. Leur poser le schema
+  # « dagster » en tete du search_path detournait leurs tables : sur
+  # codelab_llm, le panneau inscrivait les cles la ou la passerelle ne les
+  # lisait pas, et Codex recevait 401 a chaque appel.
+  case "$projet" in
+    codelab_llm | codelab | dagster | postgres | "${CODELAB_INSTANCE_DB:-dagster}")
+      echo "codelab db: \"$projet\" est une base de la stack CodeLab, pas un" \
+           "projet -- choisis un autre nom." >&2
+      exit 2 ;;
+  esac
+
   ENV_FILE="${CODELAB_ENV_FILE:-/var/lib/codelab/config/credentials.env}"
   # Base de maintenance : on ne peut pas creer une base depuis elle-meme, il
   # faut etre connecte ailleurs. La base d'instance de Dagster existe

@@ -339,6 +339,72 @@ drop_maintenance_db() {
   fi
 }
 
+# Remet la base de codelab-llm d'aplomb si elle a ete traitee en projet.
+#
+# « codelab db codelab_llm » y posait le schema « dagster » en tete du
+# search_path du superutilisateur. Le panneau, qui s'y connecte avec ce
+# role, creait alors ses tables dans « dagster » et y inscrivait les cles,
+# pendant que la passerelle les cherchait dans « public » : chaque appel
+# finissait en 401, sans une erreur nulle part.
+#
+# Ce qui est fait, et ne fait rien quand tout est en ordre :
+#   - le search_path du superutilisateur dans cette base est retire ;
+#   - les cles egarees rejoignent « public » (sans doublon : key_hash est
+#     unique), ou la table y est deplacee entiere s'il n'y en a pas ;
+#   - la consommation egaree, que la passerelle n'a jamais ecrite la, part
+#     si elle est vide -- sinon elle reste, et on le dit ;
+#   - le schema, s'il ne contient plus rien, est supprime.
+reparer_base_llm() {
+  psql -U "$POSTGRES_USER" -d "$CODELAB_LLM_DB" -v ON_ERROR_STOP=1 -q >/dev/null <<SQL \
+    || echo "[codelab-postgres] base \"$CODELAB_LLM_DB\" : reparation du schema impossible." >&2
+ALTER ROLE "$POSTGRES_USER" IN DATABASE "$CODELAB_LLM_DB" RESET search_path;
+DO \$\$
+DECLARE
+  egare TEXT := '$CODELAB_PROJECT_SCHEMA';
+  pleine BOOLEAN;
+BEGIN
+  IF egare = 'public' THEN
+    RETURN;
+  END IF;
+  IF to_regclass(format('%I.llm_api_keys', egare)) IS NOT NULL THEN
+    IF to_regclass('public.llm_api_keys') IS NULL THEN
+      EXECUTE format('ALTER TABLE %I.llm_api_keys SET SCHEMA public', egare);
+    ELSE
+      EXECUTE format('ALTER TABLE %I.llm_api_keys ADD COLUMN IF NOT EXISTS description TEXT', egare);
+      ALTER TABLE public.llm_api_keys ADD COLUMN IF NOT EXISTS description TEXT;
+      EXECUTE format(
+        'INSERT INTO public.llm_api_keys'
+        ' (key_hash, key_name, user_id, app_id, revoked_at, description, created_at)'
+        ' SELECT key_hash, key_name, user_id, app_id, revoked_at, description, created_at'
+        ' FROM %I.llm_api_keys ON CONFLICT (key_hash) DO NOTHING', egare);
+      EXECUTE format('DROP TABLE %I.llm_api_keys', egare);
+    END IF;
+    RAISE NOTICE 'cles de codelab-llm ramenees dans public';
+  END IF;
+  IF to_regclass(format('%I.llm_usage', egare)) IS NOT NULL THEN
+    IF to_regclass('public.llm_usage') IS NULL THEN
+      EXECUTE format('ALTER TABLE %I.llm_usage SET SCHEMA public', egare);
+    ELSE
+      EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I.llm_usage)', egare) INTO pleine;
+      IF pleine THEN
+        RAISE WARNING 'table %.llm_usage non vide : conservee', egare;
+      ELSE
+        EXECUTE format('DROP TABLE %I.llm_usage', egare);
+      END IF;
+    END IF;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = egare) THEN
+    BEGIN
+      EXECUTE format('DROP SCHEMA %I RESTRICT', egare);
+    EXCEPTION WHEN dependent_objects_still_exist THEN
+      NULL;
+    END;
+  END IF;
+END
+\$\$;
+SQL
+}
+
 # Provisionnement en tache de fond : le serveur doit d'abord ecouter, et
 # c'est "exec docker-entrypoint.sh" plus bas qui le demarre. Toute erreur
 # ici est non fatale -- une base de projet manquante se rattrape avec
@@ -370,6 +436,13 @@ provision_databases() {
   fi
 
   for db in $CODELAB_PROJECT_DBS; do
+    # Les bases de la stack ne sont pas des projets : leur poser le schema
+    # « dagster » en tete du search_path detournerait leurs tables.
+    case "$db" in
+      "$CODELAB_LLM_DB"|"$CODELAB_INSTANCE_DB"|codelab|postgres)
+        echo "[codelab-postgres] \"$db\" est une base de la stack, pas un projet : ignoree." >&2
+        continue ;;
+    esac
     create_db_if_missing "$db" || continue
     # Le schema d'abord, le search_path ensuite. ALTER ROLE ... IN DATABASE
     # est ce qui fait qu'un "CREATE TABLE ma_table" dans un asset atterrit
@@ -409,6 +482,7 @@ SQL
   if create_db_if_missing "$CODELAB_LLM_DB"; then
     psql -U "$POSTGRES_USER" -d "$CODELAB_INSTANCE_DB" >/dev/null 2>&1 \
       -c "ALTER DATABASE \"$CODELAB_LLM_DB\" OWNER TO \"$CODELAB_LLM_USER\"" || true
+    reparer_base_llm
   fi
 
   # En dernier : les bases de la stack existent, plus rien n'a besoin de la

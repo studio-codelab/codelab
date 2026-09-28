@@ -2414,9 +2414,17 @@ def _pg_reglages():
 def _pg_connexion(base):
     import psycopg
     r = _pg_reglages()
+    # LA BASE DE codelab-llm SE LIT DANS « public », TOUJOURS. Le panneau s'y
+    # connecte en superutilisateur, dont le search_path peut avoir ete change
+    # dans cette base (un « codelab db codelab_llm » pose « dagster, public ») :
+    # ses CREATE TABLE IF NOT EXISTS atterrissaient alors dans « dagster », il
+    # y inscrivait les cles, et la passerelle -- qui lit « public » sous son
+    # propre role -- les refusait toutes en 401, sans une erreur nulle part.
+    options = "-c search_path=public" if base == PG_BASE_LLM else None
     return psycopg.connect(host=r["host"], port=r["port"], user=r["user"],
                            password=r["password"], dbname=base,
-                           connect_timeout=5, autocommit=True)
+                           connect_timeout=5, autocommit=True,
+                           options=options)
 
 
 def _pg_preparer():

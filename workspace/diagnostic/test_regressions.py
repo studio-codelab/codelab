@@ -12589,3 +12589,46 @@ def test_lancer_relance_le_daemon_et_s_arrete_proprement(tmp_path):
     journal.write_text("", encoding="utf-8")
     (tmp_path / "web-meurt").write_text("", encoding="utf-8")
     assert subprocess.run(["sh", str(script)], env=env, timeout=15).returncode == 3
+
+
+def test_le_panneau_lit_la_base_de_codelab_llm_dans_public(monkeypatch):
+    """Le panneau et la passerelle doivent voir la MEME table de cles. Un
+    « codelab db codelab_llm » posait « dagster, public » comme search_path
+    du superutilisateur dans cette base : le panneau y creait ses tables et
+    y inscrivait les cles, la passerelle les cherchait dans public, et
+    chaque appel de Codex finissait en 401."""
+    import types
+    vus = []
+    faux = types.SimpleNamespace(connect=lambda **kw: vus.append(kw))
+    monkeypatch.setitem(sys.modules, "psycopg", faux)
+    app._pg_connexion(app.PG_BASE_LLM)
+    app._pg_connexion(app.PG_BASE)
+    assert vus[0]["options"] == "-c search_path=public"
+    assert vus[1]["options"] is None, (
+        "les autres bases gardent le search_path de leur role")
+
+
+def test_codelab_postgres_repare_une_base_llm_traitee_en_projet():
+    """Au demarrage, la base de codelab-llm est remise d'aplomb : search_path
+    retire, cles egarees ramenees dans public. Et elle ne peut plus etre
+    prise pour un projet."""
+    source = open(os.path.join(_racine_depot(), "postgres", "entrypoint.sh"),
+                  encoding="utf-8").read()
+    fonction = source[source.index("reparer_base_llm() {"):]
+    fonction = fonction[:fonction.index("\n}\n")]
+    assert 'RESET search_path' in fonction
+    assert "SET SCHEMA public" in fonction
+    assert "ON CONFLICT (key_hash) DO NOTHING" in fonction
+    assert "    reparer_base_llm\n" in source, "la reparation n'est jamais appelee"
+    boucle = source[source.index("for db in $CODELAB_PROJECT_DBS; do"):]
+    assert '"$CODELAB_LLM_DB"' in boucle[:boucle.index("create_db_if_missing")]
+
+
+@pytest.mark.parametrize("nom", ["codelab_llm", "codelab", "dagster", "postgres"])
+def test_codelab_db_refuse_les_bases_de_la_stack(nom):
+    import subprocess
+    outil = os.path.join(_racine_depot(), "dev", "codelab")
+    r = subprocess.run(["bash", outil, "db", nom], capture_output=True, text=True,
+                       timeout=10, env={"PATH": os.environ["PATH"]})
+    assert r.returncode == 2
+    assert "base de la stack" in r.stderr
