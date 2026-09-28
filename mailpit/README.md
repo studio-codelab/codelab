@@ -55,6 +55,8 @@ Sans serveur d'envoi réglé, les mails sont gardés et aucun ne part.
 Par la **tuile Mailpit du hub**, ou directement sur `http://<IP-du-serveur>:8025/`, avec la
 **session d'administration du panneau**, comme Dagster. La tuile se range comme les autres (*Paramètres >
 Compte*), et sa fiche montre si Mailpit répond.
+L'interface est habillée aux couleurs de CodeLab (logo, police Manrope, thème clair et sombre) par le
+proxy, sans toucher à Mailpit : une feuille de style injectée, rien de plus.
 L'interface montre tous les mails, liens de réinitialisation de mot de passe compris. Elle n'est donc
 ouverte à aucun compte utilisateur.
 

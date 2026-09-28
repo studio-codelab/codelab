@@ -78,6 +78,7 @@ upsert_block "codelab-redis" "# Serveur Redis partage : cache, sessions, files d
 # celles des voisines.
 REDIS_HOST=$REDIS_HOST_PUBLIC
 REDIS_PORT=$REDIS_PORT
+REDIS_USER=default
 REDIS_PASSWORD=$REDIS_PASSWORD
 REDIS_URL=redis://default:$REDIS_PASSWORD@$REDIS_HOST_PUBLIC:$REDIS_PORT/0"
 

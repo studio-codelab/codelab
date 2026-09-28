@@ -75,11 +75,9 @@
   /* LA PLAQUE D'UNE ICONE TRANSPARENTE. Dagster sert son logo sans fond, la
      ou les projets deposent une image pleine : sans plaque il flotte.
 
-     CLAIRE DANS LES DEUX THEMES, et le logo lui-meme en decide. Le mark
-     Dagster est bleu (#4C9AFF) sur une forme presque noire (#1F1F1F) : sur
-     la plaque grise-bleue d'avant (#556274), cette partie sombre tombait a
-     2,66:1 et le dessin se refermait sur lui-meme. Sur #eef1f4 elle remonte
-     a 14,54:1 -- mesure, pas estimation.
+     CLAIRE DANS LES DEUX THEMES, et le logo lui-meme en decide. Le logo
+     officiel de Dagster est indigo (#4F43DD, ombre #352D8E) : il est dessine
+     pour un fond clair, et une plaque sombre le refermerait sur lui-meme.
 
      C'est le seul jeton qui ne suit PAS le theme, et c'est voulu : il ne
      decrit pas une surface de l'interface, il decrit le fond sur lequel un
@@ -142,8 +140,8 @@
     --line:#242e39; --line2:#323e4b;
     /* Pas #ffffff : contre un fond de page #0d1218, un carre blanc pur
        de 40 px eblouit le soir. #eef1f4 est le fond de page du theme
-       clair -- meme famille, 16,59:1 sur le fond sombre, et le #1F1F1F du
-       logo y reste a 14,54:1. */
+       clair -- meme famille, 16,59:1 sur le fond sombre, et l'indigo
+       #4F43DD du logo Dagster y reste net. */
     --plaque-logo:#eef1f4;
     --txt:#e7ecf1; --dim:#98a3b0; --dim2:#6d7986;
 

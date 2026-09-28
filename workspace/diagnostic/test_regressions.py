@@ -100,7 +100,7 @@ from checks import (                                            # noqa: E402
 CHEMINS_ETAT = [
     "STATE_DIR", "APPS_FILE", "LOG_DIR", "UTILISATEURS_FILE", "PASSKEYS_FILE",
     "ACCES_FILE", "PROCESSUS_FILE", "MASQUEES_FILE", "MESSAGES_FILE", "CHILD_HOME", "ALERTES_FILE", "SMTP_FILE",
-    "CATEGORIES_FILE", "SURVEILLANCE_FILE",
+    "CATEGORIES_FILE", "SURVEILLANCE_FILE", "COFFRE_FILE",
     "EXPOSITION_FILE", "SHARED_CONFIG_DIR",
     "SHARED_ENV_FILE", "LEGACY_ADMIN_PASSWORD_FILE", "LEGACY_SECRET_KEY_FILE",
     "SSO_PRIVATE_FILE",
@@ -134,6 +134,7 @@ def _bac_a_sable(tmp_path, monkeypatch):
         "ALERTES_FILE": str(etat / "alertes.json"),
         "SMTP_FILE": str(etat / "smtp.json"),
         "SURVEILLANCE_FILE": str(etat / "surveillance.json"),
+        "COFFRE_FILE": str(etat / "reglages.chiffres"),
         "CATEGORIES_FILE": str(etat / "categories.json"),
         "EXPOSITION_FILE": str(etat / "exposition.json"),
         "SHARED_CONFIG_DIR": str(partage),
@@ -162,7 +163,13 @@ def _bac_a_sable(tmp_path, monkeypatch):
     # elle-meme remettent None, ceux qui veulent la branche isolee
     # posent True.
     app._isolement.update(verdict=False, raison="fixe par le filet")
+    # Le coffre : une cle neuve par test, et rien en memoire d'un test a
+    # l'autre -- sinon un reglage ecrit par l'un se lirait dans le suivant.
+    from cryptography.fernet import Fernet
+    monkeypatch.setattr(app, "_cle_chiffrement", Fernet.generate_key().decode())
+    app._coffre["donnees"] = None
     yield
+    app._coffre["donnees"] = None
 
 
 def test_le_filet_detourne_bien_tous_les_chemins():
@@ -5944,7 +5951,7 @@ def test_les_destinataires_d_alerte_vivent_dans_la_fiche_de_l_application():
     assert "$('e-alertes').value" in lecture
     src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
     bloc = src.split("def api_apps():")[1].split("\n\n\n")[0]
-    assert '"alertes": _adresses(a.get("alertes"))' in bloc, (
+    assert '"alertes": _adresses(par_app.get(name))' in bloc, (
         "la liste doit arriver avec l'application")
 
 
@@ -9687,13 +9694,14 @@ def test_ouverture_des_stats_force_une_premiere_mesure(monkeypatch, tmp_path):
 
 
 def test_le_logo_dagster_est_vectoriel_et_net():
-    source = (_racine_app_manager() / "app.py").read_text(encoding="utf-8")
-    debut = source.index("ICONE_DAGSTER")
-    bloc = source[debut:debut + 5000]
+    bloc = app.ICONE_DAGSTER
     assert '<svg' in bloc
-    assert 'viewBox="0 0 48 48"' in bloc
     assert 'aria-label="Dagster"' in bloc
-    assert 'fill="#4C9AFF"' in bloc
+    # Les couleurs OFFICIELLES, celles du favicon de dagster-webserver.
+    assert "#4F43DD" in bloc and "#352D8E" in bloc
+    assert "#4C9AFF" not in bloc
+    # Toujours pose sur la plaque blanche : pas de variante sombre.
+    assert "prefers-color-scheme" not in bloc
     assert '<path' in bloc
 
 # ---------- 25. CodeLab n'heberge pas d'interface de chat -----------------
@@ -11452,7 +11460,6 @@ def test_un_second_clic_sur_demarrer_n_arrete_pas(hub, monkeypatch):
 
 
 def test_la_surveillance_externe_n_accepte_que_https_et_verifie_l_adresse(client, monkeypatch, tmp_path):
-    monkeypatch.setattr(app, "SURVEILLANCE_FILE", str(tmp_path / "surveillance.json"))
     client.post("/login", json={"password": "secret-de-test"})
     r = client.post("/api/surveillance-externe", json={"url": "http://hc-ping.com/x"})
     assert r.status_code == 400
@@ -11465,7 +11472,9 @@ def test_la_surveillance_externe_n_accepte_que_https_et_verifie_l_adresse(client
     assert client.post("/api/surveillance-externe",
                        json={"url": "https://hc-ping.com/abc"}).status_code == 200
     assert app.lire_surveillance() == "https://hc-ping.com/abc"
-    assert stat.S_IMODE(os.stat(app.SURVEILLANCE_FILE).st_mode) == 0o600
+    # Au coffre : chiffree, en 0600, jamais en clair.
+    assert stat.S_IMODE(os.stat(app.COFFRE_FILE).st_mode) == 0o600
+    assert b"hc-ping.com" not in open(app.COFFRE_FILE, "rb").read()
     assert client.post("/api/surveillance-externe", json={"url": ""}).status_code == 200
     assert app.lire_surveillance() == ""
 
@@ -11586,3 +11595,213 @@ def test_l_extension_postgresql_s_installe_une_fois_sous_le_compte_vscode():
     for chemin in _composes():
         assert 'CODELAB_VSCODE_EXTENSIONS: "ms-ossdata.vscode-pgsql"' in open(
             chemin, encoding="utf-8").read(), chemin
+
+
+# ---------- le coffre : reglages et adresses chiffres, en base et en local ----
+
+def _octets_de_l_etat():
+    """Tout ce que le panneau a ecrit sur disque, concatene."""
+    tout = b""
+    for dossier, _, fichiers in os.walk(app.STATE_DIR):
+        for nom in fichiers:
+            with open(os.path.join(dossier, nom), "rb") as f:
+                tout += f.read()
+    if os.path.exists(app.SHARED_ENV_FILE):
+        tout += open(app.SHARED_ENV_FILE, "rb").read()
+    return tout
+
+
+def test_les_adresses_des_comptes_ne_sont_jamais_en_clair():
+    app.ecrire_utilisateurs({"marie": {"sel": "aa", "hash": "bb", "projets": [],
+                                       "email": "marie@exemple.fr"}})
+    brut = json.load(open(app.UTILISATEURS_FILE))
+    assert "email" not in brut["marie"], "l'adresse est restee dans le fichier"
+    assert app.lire_utilisateurs()["marie"]["email"] == "marie@exemple.fr"
+    assert b"marie@exemple.fr" not in _octets_de_l_etat()
+    assert stat.S_IMODE(os.stat(app.COFFRE_FILE).st_mode) == 0o600
+
+
+def test_le_serveur_d_envoi_et_son_mot_de_passe_sont_chiffres():
+    app.ecrire_smtp_personnalise(app._normalise_smtp({
+        "host": "smtp.gmail.com", "port": 587, "user": "moi@gmail.com",
+        "password": "motdepasse-tres-secret"}))
+    assert app.lire_smtp_personnalise()["password"] == "motdepasse-tres-secret"
+    for secret in (b"motdepasse-tres-secret", b"moi@gmail.com"):
+        assert secret not in _octets_de_l_etat(), secret
+    app.effacer_smtp_personnalise()
+    assert app.lire_smtp_personnalise() is None
+
+
+def test_une_cle_perdue_ne_casse_rien_et_ne_detruit_rien():
+    """Cle changee : la copie illisible est mise de cote, jamais ecrasee, et
+    le panneau repart sur un coffre vide plutot que de tomber."""
+    from cryptography.fernet import Fernet
+    app.ecrire_reglage("alertes_admin", ["moi@exemple.fr"])
+    app._cle_chiffrement = Fernet.generate_key().decode()
+    app._coffre["donnees"] = None
+    assert app.reglage("alertes_admin") is None
+    assert not os.path.exists(app.COFFRE_FILE)
+    assert [n for n in os.listdir(app.STATE_DIR) if ".illisible-" in n]
+
+
+def test_les_anciens_fichiers_en_clair_migrent_au_coffre():
+    etat = app.STATE_DIR
+    json.dump({"host": "smtp.x.fr", "password": "ancien-mdp"}, open(app.SMTP_FILE, "w"))
+    json.dump({"actif": True, "destinataires": ["a@x.fr"]}, open(app.ALERTES_FILE, "w"))
+    json.dump({"url": "https://hc-ping.com/abc"}, open(app.SURVEILLANCE_FILE, "w"))
+    json.dump({"paul": {"sel": "aa", "hash": "bb", "email": "paul@x.fr"}},
+              open(app.UTILISATEURS_FILE, "w"))
+    app.save({"site": {"path": "/w/s", "command": "x", "port": 9101,
+                       "alertes": ["ops@x.fr"]}})
+    app.upsert_shared_block("codelab-alertes", [], {"SMTP_HOST": "smtp.origine.fr",
+                                                    "ALERTE_ADMIN": "chef@x.fr"})
+    app.migrer_vers_le_coffre()
+
+    for chemin in (app.SMTP_FILE, app.ALERTES_FILE, app.SURVEILLANCE_FILE):
+        assert not os.path.exists(chemin), chemin
+    assert app.lire_smtp_personnalise()["password"] == "ancien-mdp"
+    assert app.lire_alertes()["actif"] is True
+    assert app.lire_surveillance() == "https://hc-ping.com/abc"
+    assert app.alertes_admin() == ["chef@x.fr"]
+    assert app.destinataires_alerte("site") == ["chef@x.fr", "ops@x.fr"]
+    assert "alertes" not in app.load()["site"]
+    assert app.lire_utilisateurs()["paul"]["email"] == "paul@x.fr"
+    env = open(app.SHARED_ENV_FILE).read()
+    assert "ALERTE_ADMIN=" not in env and "SMTP_HOST=smtp.origine.fr" in env
+    for clair in (b"ancien-mdp", b"chef@x.fr", b"ops@x.fr", b"paul@x.fr", b"hc-ping.com"):
+        assert clair not in _octets_de_l_etat(), clair
+    assert os.path.isdir(etat)
+
+
+def test_les_destinataires_suivent_un_renommage_et_partent_avec_l_application():
+    app.ecrire_reglage("alertes_par_app", {"vieux": ["a@x.fr"]})
+    app._renommer_references("vieux", "neuf")
+    assert app.reglage("alertes_par_app") == {"neuf": ["a@x.fr"]}
+
+
+class _FauxCurseur:
+    def __init__(self, base):
+        self.base, self.resultat = base, []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def execute(self, sql, params=()):
+        if sql.startswith("SELECT cle, valeur FROM reglages"):
+            self.resultat = list(self.base.items())
+        elif sql.startswith("INSERT INTO reglages"):
+            self.base[params[0]] = bytes(params[1])
+        elif sql.startswith("DELETE FROM reglages"):
+            self.base.pop(params[0], None)
+
+    def fetchall(self):
+        return self.resultat
+
+
+class _FausseBase:
+    def __init__(self):
+        self.lignes = {}
+
+    def cursor(self):
+        return _FauxCurseur(self.lignes)
+
+
+def test_la_base_recoit_les_reglages_chiffres_et_sait_les_rendre():
+    """En base : chiffre, jamais en clair. Et si la copie locale disparait
+    (dossier d'etat restaure, disque change), le panneau se reprend depuis
+    la base."""
+    base = _FausseBase()
+    app.ecrire_reglage("smtp", {"host": "smtp.x.fr", "password": "secret-en-base"})
+    app._pg_synchroniser_reglages(base)
+    assert set(base.lignes) == {"smtp"}
+    assert b"secret-en-base" not in base.lignes["smtp"]
+
+    os.remove(app.COFFRE_FILE)
+    app._coffre["donnees"] = None
+    app._pg_synchroniser_reglages(base)
+    assert app.reglage("smtp")["password"] == "secret-en-base"
+    assert os.path.exists(app.COFFRE_FILE)
+    source = inspect.getsource(app._pg_ecrire_utilisateurs)
+    assert 'UPDATE utilisateurs SET email = \'\'' in source, (
+        "les adresses recopiees en clair par une version precedente doivent partir")
+
+
+def test_credentials_env_porte_les_identifiants_par_defaut_et_la_cle():
+    app.ecrire_bloc_panneau("mdp", "cle-session", "")
+    env = open(app.SHARED_ENV_FILE).read()
+    assert "APP_MANAGER_ADMIN_LOGIN=admin" in env
+    assert f"APP_MANAGER_CHIFFREMENT_CLE={app._cle_chiffrement}" in env
+    # Jamais transmise aux applications : prefixe du panneau.
+    assert not [c for c in app.secrets_partages() if "CHIFFREMENT" in c]
+    racine = _racine_depot()
+    assert "REDIS_USER=default" in open(os.path.join(racine, "redis", "entrypoint.sh")).read()
+    assert "CODELAB_INTERNE_MAILPIT_UI_USER=codelab" in open(
+        os.path.join(racine, "dagster", "proxy", "entrypoint.sh")).read()
+
+
+def test_la_cle_de_chiffrement_n_est_jamais_regeneree(monkeypatch):
+    cle = app._cle_chiffrement
+    app.ecrire_bloc_panneau("mdp", "cle-session", "")
+    monkeypatch.setattr(app, "_cle_chiffrement", "")
+    app.bootstrap_secrets()
+    assert app._cle_chiffrement == cle
+
+
+def test_l_onglet_d_une_application_prend_son_logo_si_elle_n_en_a_pas():
+    page = b"<html><head><title>x</title></head><body>ok</body></html>"
+    entetes = [("Content-Type", "text/html"), ("Content-Length", str(len(page)))]
+    with app.flask_app.test_request_context("/site/"):
+        data, sortants = app.injecter_icone(page, 200, entetes, "mon site")
+    assert b'<link rel="icon" href="/api/icon/mon%20site"></head>' in data
+    assert ("Content-Length", str(len(data))) in sortants
+    # Une application qui declare deja son icone la garde.
+    propre = page.replace(b"</head>", b'<link rel="icon" href="/f.png"></head>')
+    with app.flask_app.test_request_context("/site/"):
+        data, _ = app.injecter_icone(propre, 200, entetes, "site")
+    assert data == propre
+    # Le panneau garde le logo CodeLab dans ses onglets.
+    panneau = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
+    assert panneau.count('rel="icon"') == 1
+
+
+def test_mailpit_est_habille_aux_couleurs_de_codelab():
+    """Mailpit n'est pas modifie : le proxy injecte une feuille de style,
+    sert la police du panneau et remplace son logo par le notre."""
+    racine = _racine_depot()
+    conf = open(os.path.join(racine, "dagster", "proxy", "mailpit.conf"), encoding="utf-8").read()
+    assert '''sub_filter '</head>' '<link rel="stylesheet" href="/_codelab/mailpit.css"></head>';''' in conf
+    for route in ("location /_codelab/", "location = /mailpit.svg", "location = /favicon.svg"):
+        assert route in conf, route
+    dockerfile = open(os.path.join(racine, "dagster", "proxy", "Dockerfile"), encoding="utf-8").read()
+    assert "COPY dagster/proxy/mailpit-theme/ /usr/share/nginx/codelab/mailpit/" in dockerfile
+    assert "manrope-latin.woff2 /usr/share/nginx/codelab/mailpit/manrope.woff2" in dockerfile
+    css = open(os.path.join(racine, "dagster", "proxy", "mailpit-theme", "mailpit.css"),
+               encoding="utf-8").read()
+    # Par les variables de Bootstrap, pas en visant les classes une a une.
+    assert "--bs-primary: #0e7c86;" in css and "--bs-primary: #2ab5bf;" in css
+    assert 'font-family: "Manrope"' in css and "/_codelab/manrope.woff2" in css
+    # Le ruban de retour n'herite pas de l'icone « lien externe » de Mailpit.
+    assert "#codelab-retour-hub::after" in css
+    # Le meme logo sur la tuile du hub et dans Mailpit.
+    logo = open(os.path.join(racine, "dagster", "proxy", "mailpit-theme", "logo.svg"),
+                encoding="utf-8").read().strip()
+    assert app.ICONE_MAILPIT == logo
+
+
+def test_postgres_realigne_le_mot_de_passe_a_chaque_demarrage():
+    """credentials.env regenere, donnees gardees : la base doit reprendre le
+    mot de passe du fichier, sinon tous les clients sont refuses."""
+    racine = _racine_depot()
+    script = open(os.path.join(racine, "postgres", "entrypoint.sh"),
+                  encoding="utf-8").read()
+    fonction = script.split("realigner_mot_de_passe() {", 1)[1].split("\n}\n", 1)[0]
+    assert "ALTER ROLE" in fonction and "PASSWORD" in fonction
+    # Par l'entree standard, jamais en argument de psql (visible dans ps).
+    assert "| psql" in fonction and " -c " not in fonction
+    # Apostrophes doublees pour le litteral SQL.
+    assert "s/'/''/g" in fonction
+    provision = script.split("provision_databases() {", 1)[1].split("\n}\n", 1)[0]
+    assert "realigner_mot_de_passe" in provision

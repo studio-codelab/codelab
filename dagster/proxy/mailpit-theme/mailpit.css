@@ -1,0 +1,181 @@
+/* ===========================================================================
+   Mailpit aux couleurs de CodeLab.
+
+   Injectee par codelab-dagster-proxy (voir mailpit.conf) : Mailpit n'est pas
+   modifie, seulement rhabille. Il est construit sur Bootstrap 5, dont les
+   couleurs, la police et les arrondis passent par des variables CSS : c'est
+   par elles qu'on repeint, et non en visant ses classes une par une -- une
+   mise a jour de Mailpit qui deplace un bouton ne casse donc rien ici.
+
+   Memes jetons que le panneau (app-manager/app/theme.css) : ardoise froide,
+   turquoise reserve a ce qui se clique, Manrope pour tout.
+   =========================================================================== */
+
+@font-face {
+  font-family: "Manrope";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("/_codelab/manrope.woff2") format("woff2");
+}
+
+:root, [data-bs-theme="light"] {
+  --bs-body-font-family: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --bs-body-bg: #eef1f4;
+  --bs-body-bg-rgb: 238, 241, 244;
+  --bs-body-color: #141a21;
+  --bs-body-color-rgb: 20, 26, 33;
+  --bs-secondary-color: #5b6673;
+  --bs-tertiary-color: #8a94a1;
+  --bs-secondary-bg: #f5f7f9;
+  --bs-tertiary-bg: #f5f7f9;
+  --bs-tertiary-bg-rgb: 245, 247, 249;
+  --bs-border-color: #dde2e8;
+  --bs-border-color-translucent: rgba(20, 26, 33, .1);
+  --bs-primary: #0e7c86;
+  --bs-primary-rgb: 14, 124, 134;
+  --bs-primary-bg-subtle: #e2f2f3;
+  --bs-primary-text-emphasis: #0b646c;
+  --bs-link-color: #0e7c86;
+  --bs-link-color-rgb: 14, 124, 134;
+  --bs-link-hover-color: #0b646c;
+  --bs-link-hover-color-rgb: 11, 100, 108;
+  --bs-focus-ring-color: rgba(14, 124, 134, .22);
+  --bs-border-radius: 8px;
+  --bs-border-radius-sm: 6px;
+  --bs-border-radius-lg: 10px;
+  --codelab-surface: #ffffff;
+  --codelab-accent-h: #0b646c;
+  --codelab-sur-accent: #ffffff;
+}
+
+[data-bs-theme="dark"] {
+  --bs-body-bg: #0d1218;
+  --bs-body-bg-rgb: 13, 18, 24;
+  --bs-body-color: #e7ecf1;
+  --bs-body-color-rgb: 231, 236, 241;
+  --bs-secondary-color: #98a3b0;
+  --bs-tertiary-color: #6d7986;
+  --bs-secondary-bg: #1a222b;
+  --bs-tertiary-bg: #1a222b;
+  --bs-tertiary-bg-rgb: 26, 34, 43;
+  --bs-border-color: #242e39;
+  --bs-border-color-translucent: rgba(255, 255, 255, .08);
+  --bs-primary: #2ab5bf;
+  --bs-primary-rgb: 42, 181, 191;
+  --bs-primary-bg-subtle: #0d2a2d;
+  --bs-primary-text-emphasis: #45cdd6;
+  --bs-link-color: #2ab5bf;
+  --bs-link-color-rgb: 42, 181, 191;
+  --bs-link-hover-color: #45cdd6;
+  --bs-link-hover-color-rgb: 69, 205, 214;
+  --bs-focus-ring-color: rgba(42, 181, 191, .3);
+  --codelab-surface: #141b23;
+  --codelab-accent-h: #45cdd6;
+  /* Sur le turquoise clair du theme sombre, le texte blanc ne passe pas le
+     contraste : le panneau y met un texte tres sombre (--sur-accent). */
+  --codelab-sur-accent: #08222a;
+}
+
+body {
+  font-family: var(--bs-body-font-family);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* La barre du haut : l'ardoise sombre du panneau, et non le bleu nuit de
+   Mailpit. Un trait en bas plutot qu'une ombre. */
+.navbar.bg-primary {
+  background: #101821 !important;
+  border-bottom: 1px solid #242e39;
+}
+.navbar .navbar-brand {
+  font-weight: 650;
+  letter-spacing: -.01em;
+}
+.navbar .navbar-brand img {
+  border-radius: 10px;
+}
+.navbar .form-control {
+  background-color: #161f28;
+  border-color: #2b3642;
+  color: #e7ecf1;
+}
+.navbar .form-control::placeholder { color: #8a94a1; }
+.navbar .form-control:focus {
+  border-color: #2ab5bf;
+  box-shadow: 0 0 0 .2rem rgba(42, 181, 191, .25);
+}
+
+/* Les boutons : turquoise, comme toute action dans CodeLab. */
+.btn-primary {
+  --bs-btn-bg: var(--bs-primary);
+  --bs-btn-border-color: var(--bs-primary);
+  --bs-btn-hover-bg: var(--codelab-accent-h);
+  --bs-btn-hover-border-color: var(--codelab-accent-h);
+  --bs-btn-active-bg: var(--codelab-accent-h);
+  --bs-btn-active-border-color: var(--codelab-accent-h);
+  --bs-btn-disabled-bg: var(--bs-primary);
+  --bs-btn-disabled-border-color: var(--bs-primary);
+  --bs-btn-focus-shadow-rgb: var(--bs-primary-rgb);
+  --bs-btn-color: var(--codelab-sur-accent);
+  --bs-btn-hover-color: var(--codelab-sur-accent);
+  --bs-btn-active-color: var(--codelab-sur-accent);
+  --bs-btn-disabled-color: var(--codelab-sur-accent);
+  font-weight: 600;
+}
+.btn-outline-primary {
+  --bs-btn-color: var(--bs-primary);
+  --bs-btn-border-color: var(--bs-primary);
+  --bs-btn-hover-bg: var(--bs-primary);
+  --bs-btn-hover-border-color: var(--bs-primary);
+  --bs-btn-active-bg: var(--bs-primary);
+  --bs-btn-active-border-color: var(--bs-primary);
+  --bs-btn-focus-shadow-rgb: var(--bs-primary-rgb);
+}
+.btn { border-radius: var(--bs-border-radius-sm); }
+
+/* Listes, onglets, pagination, cases : la selection est turquoise. */
+.list-group {
+  --bs-list-group-active-bg: var(--bs-primary);
+  --bs-list-group-active-border-color: var(--bs-primary);
+  --bs-list-group-active-color: var(--codelab-sur-accent);
+  --bs-list-group-bg: var(--codelab-surface);
+}
+.nav-tabs {
+  --bs-nav-tabs-link-active-color: var(--bs-body-color);
+  --bs-nav-tabs-link-active-bg: var(--codelab-surface);
+}
+.nav-link { color: var(--bs-secondary-color); }
+.nav-link:hover, .nav-link:focus { color: var(--bs-link-hover-color); }
+.pagination {
+  --bs-pagination-active-bg: var(--bs-primary);
+  --bs-pagination-active-border-color: var(--bs-primary);
+  --bs-pagination-color: var(--bs-link-color);
+}
+.form-check-input:checked {
+  background-color: var(--bs-primary);
+  border-color: var(--bs-primary);
+}
+.form-control:focus, .form-select:focus {
+  border-color: var(--bs-primary);
+  box-shadow: 0 0 0 .2rem var(--bs-focus-ring-color);
+}
+
+/* Les surfaces : des cartes blanches, avec un trait d'un pixel, posees sur
+   le fond ardoise. */
+.card, .modal-content, .dropdown-menu, .offcanvas {
+  background-color: var(--codelab-surface);
+  border-color: var(--bs-border-color);
+}
+.dropdown-menu {
+  --bs-dropdown-link-active-bg: var(--bs-primary);
+  box-shadow: 0 8px 24px rgba(20, 26, 33, .12);
+}
+.badge.bg-primary, .badge.text-bg-primary { background-color: var(--bs-primary) !important; }
+
+/* Le ruban de retour pose par le proxy : en bas a DROITE, parce que Mailpit
+   range ses reglages en bas a gauche ; et sans l'icone « lien externe » que
+   la feuille de Mailpit ajoute a tout lien en http(s)://. */
+#codelab-retour-hub { left: auto !important; right: 18px !important; bottom: 18px !important; }
+#codelab-retour-hub::after { content: none !important; display: none !important; }
