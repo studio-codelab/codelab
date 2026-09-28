@@ -148,6 +148,8 @@ jobs:
             dockerfile: app-manager/Dockerfile
           - name: codelab-llm
             dockerfile: llm/Dockerfile
+          - name: codelab-litellm
+            dockerfile: litellm/Dockerfile
 
     steps:
       - name: Checkout

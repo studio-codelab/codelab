@@ -6648,13 +6648,13 @@ FICHIERS_SECRETS = {"llm": LLM_ENV_FICHIER, "fournisseurs": FOURNISSEURS_ENV_FIC
 # secrets qu'on trouve six mois plus tard sans savoir qui l'ecrit ni ce qui
 # le relit est un fichier qu'on n'ose pas toucher.
 ENTETE_FOURNISSEURS = (
-    "# fournisseurs.env -- les cles que codelab-litellm recoit par env_file.",
+    "# fournisseurs.env -- les cles que codelab-litellm lit a son demarrage.",
     "#",
     "# Ecrit par codelab-postgres au demarrage (depuis le .env de l'hote, s'il",
     "# en porte) puis par le panneau, Parametres > Cles et secrets. Une valeur",
     "# posee ici ne prend effet qu'au PROCHAIN demarrage du conteneur :",
     "#",
-    "#   docker compose --profile llm up -d",
+    "#   docker compose restart codelab-litellm",
     "#",
     "# Le panneau n'atteint ni le compose ni le .env de l'hote, et c'est",
     "# voulu : les lui donner reviendrait a lui donner root sur la machine.",

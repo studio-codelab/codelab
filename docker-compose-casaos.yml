@@ -282,7 +282,6 @@ services:
       - codelab
 
   codelab-llm:
-    profiles: ["llm"]
     image: ghcr.io/studio-codelab/codelab-llm:latest
     container_name: codelab-llm
     restart: unless-stopped
@@ -328,8 +327,7 @@ services:
       - codelab-ia
 
   codelab-litellm:
-    profiles: ["llm"]
-    image: ghcr.io/berriai/litellm:v1.99.0
+    image: ghcr.io/studio-codelab/codelab-litellm:latest
     container_name: codelab-litellm
     restart: unless-stopped
 
@@ -345,16 +343,15 @@ services:
     security_opt:
       - no-new-privileges:true
 
-    command: ["--config", "/etc/litellm/config.yaml", "--port", "4000"]
-
     expose:
       - "4000"
 
-    env_file:
-      - /DATA/AppData/codelab/config/llm/fournisseurs.env
-
     volumes:
-      - ./litellm/config.yaml:/etc/litellm/config.yaml:ro
+      - /DATA/AppData/codelab/config/llm/fournisseurs.env:/var/lib/codelab/litellm/fournisseurs.env:ro
+
+    depends_on:
+      codelab-postgres:
+        condition: service_healthy
 
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness')\""]

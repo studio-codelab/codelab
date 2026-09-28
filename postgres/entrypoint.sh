@@ -173,7 +173,7 @@ LLMENV
 mv "$LLM_ENV_FILE.new" "$LLM_ENV_FILE"
 chmod 600 "$LLM_ENV_FILE"
 
-# ------------- les cles que codelab-litellm recoit par env_file -------------
+# ------------- les cles que codelab-litellm lit a son demarrage -------------
 #
 # Le routeur ne les prend plus par "environment:" dans le compose, et la
 # raison est dans le compose : "environment:" l'emporte sur "env_file:", meme
@@ -187,6 +187,17 @@ chmod 600 "$LLM_ENV_FILE"
 # annulerait ce qui a ete saisi dans l'interface, sur une installation dont
 # le .env ne porte rien -- c'est-a-dire le cas courant.
 FOURNISSEURS_ENV_FILE="$LLM_DIR/fournisseurs.env"
+
+# UN DOSSIER A LA PLACE DU FICHIER. codelab-litellm monte ce fichier ; au
+# tout premier demarrage il n'existe pas encore, et Docker cree alors un
+# DOSSIER vide a son nom. « mv » deplacerait ensuite le fichier DEDANS, et
+# le routeur ne verrait jamais ses cles. Ce service demarre avant lui
+# (depends_on) : on retire le dossier -- seulement s'il est vide -- avant
+# d'ecrire.
+if [ -d "$FOURNISSEURS_ENV_FILE" ]; then
+  rmdir "$FOURNISSEURS_ENV_FILE" 2>/dev/null \
+    && echo "[codelab-postgres] dossier vide cree par Docker a la place de fournisseurs.env : retire."
+fi
 
 # $1 nom de la variable dans ce fichier, $2 valeur venue du .env de l'hote.
 valeur_fournisseur() {
@@ -203,13 +214,13 @@ OPENAI_API_KEY_V="$(valeur_fournisseur OPENAI_API_KEY "${OPENAI_API_KEY:-}")"
 OLLAMA_BASE_URL_V="$(valeur_fournisseur OLLAMA_BASE_URL "${OLLAMA_BASE_URL:-}")"
 
 cat > "$FOURNISSEURS_ENV_FILE.new" <<FOURNISSEURSENV
-# fournisseurs.env -- les cles que codelab-litellm recoit par env_file.
+# fournisseurs.env -- les cles que codelab-litellm lit a son demarrage.
 #
 # Ecrit par codelab-postgres au demarrage (depuis le .env de l'hote, s'il en
 # porte) puis par le panneau, Parametres > Cles et secrets. Une valeur posee
 # ici ne prend effet qu'au PROCHAIN demarrage du conteneur :
 #
-#   docker compose --profile llm up -d
+#   docker compose restart codelab-litellm
 #
 # Le panneau n'atteint ni le compose ni le .env de l'hote, et c'est voulu :
 # les lui donner reviendrait a lui donner root sur la machine.

@@ -64,8 +64,8 @@ pas :
 - **le panneau**, *Paramètres → Clés et secrets*. On **choisit un
   fournisseur** dans une liste — Anthropic, OpenAI, Ollama, ou un autre en
   nommant sa variable — et on colle la valeur. Le panneau écrit
-  `config/llm/fournisseurs.env` (en `0600`), que le routeur reçoit par
-  `env_file`, et n'en réaffiche que les quatre derniers caractères. Chaque
+  `config/llm/fournisseurs.env` (en `0600`), que le routeur monte en
+  lecture seule et lit à son démarrage, et n'en réaffiche que les quatre derniers caractères. Chaque
   ligne dit **quels noms logiques tombent** sans elle ;
 - **le `.env` de l'hôte**, décrit dans `.env.example`, pour une installation
   scriptée. Au démarrage, `codelab-postgres` recopie ce qu'il y trouve dans
@@ -82,8 +82,15 @@ pour cette raison, et pas une autre, qu'une clé de fournisseur posée depuis
 l'interface ne prend effet qu'au prochain démarrage du conteneur.
 
 ```bash
-docker compose --profile llm up -d
+docker compose --profile llm up -d            # docker-compose.yml
+docker compose restart codelab-litellm        # installation CasaOS : pas de profil
 ```
+
+`litellm/config.yaml` est intégré à l'image `codelab-litellm` (voir
+`litellm/Dockerfile`) : le compose ne monte plus aucun fichier du dépôt, ce
+qui le rend utilisable tel quel par CasaOS, qui le recopie dans un dossier à
+lui. Changer de modèle se fait toujours dans ce fichier ; la nouvelle image
+le porte au prochain `docker compose pull`.
 
 La base `codelab_llm` et son rôle dédié sont créés par Postgres au premier
 démarrage ; le schéma est initialisé par la passerelle.

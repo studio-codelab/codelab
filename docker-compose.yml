@@ -610,7 +610,11 @@ services:
   # decision, comme partout ici.
   codelab-litellm:
     profiles: ["llm"]
-    image: ghcr.io/berriai/litellm:v1.99.0
+    # NOTRE IMAGE, et plus l'officielle : la meme, avec litellm/config.yaml
+    # dedans (voir litellm/Dockerfile). Le montage « ./litellm/config.yaml »
+    # etait relatif au dossier du compose ; CasaOS recopie le compose
+    # ailleurs, ou ce fichier n'existe pas, et Docker y creait un dossier.
+    image: ghcr.io/studio-codelab/codelab-litellm:latest
     container_name: codelab-litellm
     restart: unless-stopped
 
@@ -626,55 +630,38 @@ services:
     security_opt:
       - no-new-privileges:true
 
-    command: ["--config", "/etc/litellm/config.yaml", "--port", "4000"]
-
     # PAS de port publie. Son seul client est codelab-llm, et il detient les
     # cles des fournisseurs : une adresse joignable depuis le reseau local
     # serait la cle de chacun d'eux, offerte sans identite ni quota.
     expose:
       - "4000"
 
-    # UN FICHIER, PAS DES LIGNES "environment:", et la raison vaut d'etre
-    # lue : la cle maitresse, celles des fournisseurs et l'adresse d'Ollama
-    # se posent depuis le panneau (Parametres > Cles et secrets), qui ecrit
-    # CE fichier. Le panneau n'atteint ni ce compose ni le .env de l'hote --
-    # les lui monter lui donnerait de quoi reecrire la stack, c'est-a-dire
-    # root sur la machine depuis une page web.
+    # LES CLES : UN FICHIER, PAS DES LIGNES "environment:". La cle
+    # maitresse, celles des fournisseurs et l'adresse d'Ollama se posent
+    # depuis le panneau (Parametres > Cles et secrets), qui ecrit CE fichier.
+    # Le panneau n'atteint ni ce compose ni le .env de l'hote -- les lui
+    # monter lui donnerait de quoi reecrire la stack, c'est-a-dire root sur
+    # la machine depuis une page web. Et "environment:" l'emporterait sur le
+    # fichier, meme avec une valeur substituee VIDE.
     #
-    # Et il faut que ce soit UNIQUEMENT ce fichier : dans Compose,
-    # "environment:" l'emporte sur "env_file:", y compris quand la valeur
-    # substituee est VIDE. Garder ici "ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}"
-    # effacerait donc la valeur du fichier des que le .env de l'hote n'en
-    # porte pas -- c'est-a-dire dans le cas courant, celui ou le panneau
-    # vient justement de l'ecrire.
+    # MONTE ET LU AU DEMARRAGE, PLUS "env_file:". Compose resout un
+    # env_file au chargement du projet : absent, la stack entiere refuse de
+    # partir. La forme tolerante (« required: false ») est refusee par le
+    # validateur de CasaOS -- « Echec de l'enregistrement de l'application
+    # personnalisee », sans nommer la ligne. Le script d'entree de l'image
+    # lit ce fichier s'il existe, et demarre sans cle sinon.
     #
-    # Le .env de l'hote continue de servir : codelab-postgres l'y lit au
-    # demarrage et recopie ses valeurs dans ce fichier, sans jamais ecraser
-    # une valeur deja posee. Une installation existante ne perd rien.
-    #
-    # required: false -- au tout premier demarrage, codelab-postgres n'a pas
-    # encore ecrit le fichier. Sans cette ligne, la stack entiere refuserait
-    # de partir.
-    # FORME COURTE, ET C'EST UNE CONTRAINTE EXTERIEURE. La forme longue
-    # (« path: » / « required: false ») demande Compose 2.24 ; le validateur
-    # de CasaOS, lui, la refuse en bloc -- « Echec de l'enregistrement de
-    # l'application personnalisee », sans nommer la ligne. Le fichier n'etait
-    # alors jamais enregistre, donc codelab-llm et codelab-litellm restaient
-    # absents de l'installation, donc Codex et OpenClaw repondaient
-    # « error sending request » : une seule ligne de syntaxe, trois pannes.
-    #
-    # Ce que « required: false » protegeait : un fichier absent fait echouer
-    # « up » avant tout demarrage, Compose resolvant les env_file au
-    # chargement du projet. Ici il est ecrit par DEUX services sans profil,
-    # donc bien avant que celui-ci puisse etre demande : codelab-postgres a
-    # son demarrage, et le panneau a chaque tour de surveillance. Il ne
-    # manque que si la stack n'a jamais demarre une seule fois -- et « up »
-    # nomme alors le fichier exact.
-    env_file:
-      - /DATA/AppData/codelab/config/llm/fournisseurs.env
-
+    # Au tout premier demarrage, Docker cree un DOSSIER a la place du
+    # fichier absent ; codelab-postgres, qui demarre avant (depends_on), le
+    # retire puis ecrit le fichier. Le .env de l'hote continue de servir :
+    # codelab-postgres y lit ses valeurs sans jamais ecraser une valeur deja
+    # posee.
     volumes:
-      - ./litellm/config.yaml:/etc/litellm/config.yaml:ro
+      - /DATA/AppData/codelab/config/llm/fournisseurs.env:/var/lib/codelab/litellm/fournisseurs.env:ro
+
+    depends_on:
+      codelab-postgres:
+        condition: service_healthy
 
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness')\""]

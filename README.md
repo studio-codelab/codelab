@@ -26,14 +26,21 @@ Aucune configuration manuelle après l'installation : les identifiants de base d
 SSH sont générés au premier démarrage, et la connexion à Postgres est déjà prête dans le conteneur
 `dev`.
 
-Le profil `llm` est optionnel et ne démarre pas par défaut. Il ajoute deux conteneurs : une
-passerelle réservée aux clients porteurs d'une clé CodeLab, et le routeur qui choisit le
-fournisseur derrière. Aucun des deux ne publie de port. Les valeurs à renseigner sont décrites
-dans `.env.example` ; la configuration complète est dans [`llm/README.md`](llm/README.md).
+Le profil `llm` ajoute deux conteneurs : une passerelle réservée aux clients porteurs d'une clé
+CodeLab, et le routeur qui choisit le fournisseur derrière. Aucun des deux ne publie de port. Les
+valeurs à renseigner sont décrites dans `.env.example` ; la configuration complète est dans
+[`llm/README.md`](llm/README.md).
+
+Avec `docker-compose.yml`, il est optionnel et se démarre à part :
 
 ```bash
 docker compose --profile llm up -d
 ```
+
+Avec `docker-compose-casaos.yml`, il n'y a **pas de profil** : CasaOS ne sait pas en activer un, et
+les deux services n'y démarraient jamais. Ils partent donc avec le reste. La configuration du
+routeur est dans son image (`codelab-litellm`), si bien que le compose se suffit à lui-même : c'est
+le seul fichier à importer dans CasaOS.
 
 ## Prérequis
 

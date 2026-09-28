@@ -9855,7 +9855,15 @@ def test_le_compose_llm_est_opt_in_et_ne_publie_pas_le_port_du_modele():
         services = _services_du_compose(chemin)
         for nom in ("codelab-llm", "codelab-litellm"):
             assert nom in services, f"{nom} absent de {chemin}"
-        assert 'profiles: ["llm"]' in contenu
+        # Optionnel dans le compose qu'on lance a la main. PAS dans celui de
+        # CasaOS : CasaOS ne sait pas activer un profil, et les deux
+        # services n'y demarraient donc jamais -- Codex repondait « error
+        # sending request » sans que rien ne dise pourquoi.
+        if os.path.basename(chemin) == "docker-compose.yml":
+            assert 'profiles: ["llm"]' in contenu
+        else:
+            assert "profiles:" not in contenu, (
+                "le compose CasaOS remet un profil : CasaOS ne l'activera pas")
         # AUCUN des deux ne publie de port. Celui du modele detenait deja la
         # cle du fournisseur ; le routeur les detient toutes.
         assert "8080:8080" not in contenu, chemin
@@ -11434,30 +11442,111 @@ def test_le_routeur_ne_recoit_ses_cles_que_par_le_fichier_du_panneau():
             assert interdite not in env, (
                 f"{os.path.basename(chemin)} repose {interdite} dans "
                 f"« environment: » : elle ecrasera le fichier du panneau")
-        fichiers = routeur.get("env_file") or []
-        vus = [f for f in fichiers
-               if str((f or {}).get("path") if isinstance(f, dict) else f)
-               .endswith("config/llm/fournisseurs.env")]
-        assert vus, (
+        # MONTE, PLUS « env_file: ». Compose resout un env_file au
+        # chargement : absent, toute la stack refuse de partir, et la forme
+        # tolerante (« required: false ») est refusee par CasaOS. Sans
+        # profil dans le compose CasaOS, ce fichier serait exige des la
+        # premiere installation. Le script d'entree de l'image le lit s'il
+        # existe.
+        assert not routeur.get("env_file"), (
+            f"{os.path.basename(chemin)} : env_file revient -- une premiere "
+            f"installation, sans ce fichier, ne demarrerait plus")
+        montages = [str(v) for v in routeur.get("volumes") or []]
+        assert any(v.startswith("/DATA/AppData/codelab/config/llm/fournisseurs.env:"
+                                "/var/lib/codelab/litellm/fournisseurs.env")
+                   and v.endswith(":ro") for v in montages), (
             f"{os.path.basename(chemin)} : le routeur ne lit plus le fichier "
             f"que le panneau ecrit")
-        # CE TEST EXIGEAIT LA FORME LONGUE, et sa raison etait fausse.
-        #
-        # Il affirmait qu'une forme courte empecherait « la premiere
-        # installation » de demarrer. Mesure faite : Compose ne resout les
-        # env_file que des services d'un profil ACTIF. Le « up » d'une
-        # premiere installation n'active pas « llm », donc il ne lit meme pas
-        # cette ligne -- il demarre, et codelab-postgres ecrit alors le
-        # fichier. Seul « --profile llm up -d » sur une stack qui n'a JAMAIS
-        # tourne echoue, en nommant le fichier manquant.
-        #
-        # Et le cout de la forme longue, lui, etait bien reel : CasaOS la
-        # refuse, donc n'enregistrait plus le compose DU TOUT, donc les deux
-        # services IA n'atteignaient jamais l'installation. Un garde-fou qui
-        # empeche le fichier d'arriver ne protege rien.
-        #
-        # La forme est desormais tenue par la section 48, qui porte aussi la
-        # garantie qui remplace « required: false ».
+        # Et pas le dossier entier : il porte llm.env, le mot de passe de la
+        # base de codelab-llm, que le routeur n'a pas a voir.
+        assert not any(v.startswith("/DATA/AppData/codelab/config/llm:")
+                       for v in montages), os.path.basename(chemin)
+        # codelab-postgres ecrit le fichier -- et retire le dossier que
+        # Docker cree a sa place au premier demarrage -- AVANT le routeur.
+        dependances = routeur.get("depends_on") or {}
+        assert "codelab-postgres" in dependances, os.path.basename(chemin)
+        # La configuration voyage dans l'image : plus de chemin relatif au
+        # dossier du compose, que CasaOS recopie ailleurs.
+        assert not any(v.startswith("./") for v in montages), (
+            f"{os.path.basename(chemin)} : montage relatif -- absent du "
+            f"dossier ou CasaOS recopie le compose")
+        assert routeur["image"] == "ghcr.io/studio-codelab/codelab-litellm:latest"
+
+
+def test_l_image_du_routeur_porte_sa_configuration_et_son_script():
+    """litellm/Dockerfile construit l'image que les deux composes nomment, et
+    la CI la publie : sans elle, « pull » echouerait sur une image absente."""
+    racine = _racine_depot()
+    dockerfile = os.path.join(racine, "litellm", "Dockerfile")
+    if not os.path.exists(dockerfile):
+        pytest.skip("depot complet absent de cette image")
+    source = open(dockerfile, encoding="utf-8").read()
+    assert "FROM ghcr.io/berriai/litellm:v" in source, "base non epinglee"
+    assert "COPY litellm/config.yaml /etc/litellm/config.yaml" in source
+    assert "ENTRYPOINT" in source and "codelab-litellm-entrypoint" in source
+    # Le build verifie ce que le script suppose de l'image officielle.
+    assert "command -v litellm" in source
+    ci = open(os.path.join(racine, ".github", "workflows", "build-images.yml"),
+              encoding="utf-8").read()
+    assert "name: codelab-litellm" in ci and "litellm/Dockerfile" in ci, (
+        "la CI ne publie pas l'image que les composes demandent")
+
+
+def test_le_script_du_routeur_lit_les_cles_sans_les_executer(tmp_path):
+    """Execute le vrai script : il exporte les lignes NOM=valeur, ignore le
+    reste, n'execute rien, et demarre aussi sans fichier."""
+    racine = _racine_depot()
+    script = os.path.join(racine, "litellm", "entrypoint.sh")
+    if not os.path.exists(script):
+        pytest.skip("depot complet absent de cette image")
+    import subprocess
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    faux = bin_ / "litellm"
+    faux.write_text('#!/bin/sh\necho "ARGS=$*"\nenv\n', encoding="utf-8")
+    faux.chmod(0o755)
+    fichier = tmp_path / "fournisseurs.env"
+    source = open(script, encoding="utf-8").read().replace(
+        "/var/lib/codelab/litellm/fournisseurs.env", str(fichier))
+    copie = tmp_path / "entrypoint.sh"
+    copie.write_text(source, encoding="utf-8")
+    temoin = tmp_path / "pirate"
+    fichier.write_text(
+        "# commentaire\n"
+        "ANTHROPIC_API_KEY=sk-ant-a=b\n"
+        "OPENAI_API_KEY=\n"
+        "minuscule=1\n"
+        f"X$(touch {temoin})=1\n"
+        "LITELLM_MASTER_KEY=liaison", encoding="utf-8")
+    env = {"PATH": f"{bin_}:/usr/bin:/bin"}
+    sortie = subprocess.run(["sh", str(copie), "--port", "4000"], env=env,
+                            capture_output=True, text=True, check=True).stdout
+    assert "ARGS=--port 4000" in sortie
+    assert "ANTHROPIC_API_KEY=sk-ant-a=b" in sortie
+    assert "LITELLM_MASTER_KEY=liaison" in sortie   # derniere ligne sans \n
+    assert "OPENAI_API_KEY=" not in sortie           # vide : pas exportee
+    assert "minuscule=" not in sortie
+    assert not temoin.exists(), "le fichier de cles a ete execute"
+    # Sans fichier -- ou avec le dossier que Docker cree a sa place --
+    # LiteLLM demarre quand meme.
+    fichier.unlink()
+    fichier.mkdir()
+    sortie = subprocess.run(["sh", str(copie)], env=env, capture_output=True,
+                            text=True, check=True).stdout
+    assert "ARGS=" in sortie
+
+
+def test_postgres_retire_le_dossier_cree_a_la_place_du_fichier_de_cles():
+    """Au premier demarrage, Docker cree un dossier au nom du fichier monte
+    dans le routeur ; « mv » y deplacerait le fichier au lieu de le poser."""
+    source = open(os.path.join(_racine_depot(), "postgres", "entrypoint.sh"),
+                  encoding="utf-8").read()
+    debut = source.index('FOURNISSEURS_ENV_FILE="$LLM_DIR/fournisseurs.env"')
+    ecriture = source.index('cat > "$FOURNISSEURS_ENV_FILE.new"', debut)
+    bloc = source[debut:ecriture]
+    assert 'if [ -d "$FOURNISSEURS_ENV_FILE" ]' in bloc
+    assert 'rmdir "$FOURNISSEURS_ENV_FILE"' in bloc
+    assert "rm -rf" not in bloc
 
 
 def test_le_panneau_nomme_les_variables_que_les_services_lisent():
