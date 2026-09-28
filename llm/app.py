@@ -756,7 +756,13 @@ async def _ouvrir(demande, table, fabrique):
                                  "en ajouter une dans le panneau (Cles et secrets).")
     actifs = [e for e in essais if not _au_repos(e[0])] or essais
     raisons = []
+    # Un fournisseur qui dit « quota epuise » (429) ou « credit insuffisant »
+    # (402) le dit pour TOUS ses modeles : les suivants de la chaine chez lui
+    # sont sautes dans cette requete, au lieu d'echouer un par un.
+    epuises = set()
     for fid, modele in actifs:
+        if fid in epuises:
+            continue
         cle = cle_de(fid)
         chemin, corps = fabrique(fid, modele)
         requete = _client.build_request(
@@ -773,6 +779,8 @@ async def _ouvrir(demande, table, fabrique):
             raison = raison_amont(await reponse.aread(), cle)
             await reponse.aclose()
             _mettre_au_repos(fid, reponse)
+            if reponse.status_code in (402, 429):
+                epuises.add(fid)
             print(f"[codelab-llm] {fid} ({modele}) : HTTP {reponse.status_code} : "
                   f"{raison}", flush=True)
             raisons.append(f"{fid} : HTTP {reponse.status_code} : {raison}")
