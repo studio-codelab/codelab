@@ -12632,3 +12632,53 @@ def test_codelab_db_refuse_les_bases_de_la_stack(nom):
                        timeout=10, env={"PATH": os.environ["PATH"]})
     assert r.returncode == 2
     assert "base de la stack" in r.stderr
+
+
+def _passerelle_llm(monkeypatch, statut, corps):
+    """llm/app.py charge pour de vrai, devant un faux fournisseur."""
+    pytest.importorskip("fastapi")
+    pytest.importorskip("psycopg_pool")
+    httpx = pytest.importorskip("httpx")
+    spec = importlib.util.spec_from_file_location(
+        "codelab_llm_passerelle", os.path.join(_racine_depot(), "llm", "app.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "identite", lambda *a: {"user_id": "u", "app_id": "a"})
+    monkeypatch.setattr(module, "limiter", lambda qui: None)
+    monkeypatch.setattr(module, "cle_amont", lambda: "sk-or-SECRET-123")
+    monkeypatch.setattr(module, "noter_consommation", lambda *a: None)
+    module._client = httpx.AsyncClient(transport=httpx.MockTransport(
+        lambda requete: httpx.Response(statut, json=corps)))
+    from fastapi.testclient import TestClient
+    return TestClient(module.app)
+
+
+def test_un_refus_du_fournisseur_arrive_dans_codex_avec_sa_raison(monkeypatch):
+    """Un refus d'OpenRouter en plein flux arrivait dans Codex comme un flux
+    coupe (« stream closed before response.completed »), reessaye cinq fois,
+    sans la cause. Il doit arriver en « response.failed », avec la raison du
+    fournisseur -- et jamais sa cle."""
+    client = _passerelle_llm(monkeypatch, 400, {"error": {
+        "message": "anthropic/x is not a valid model ID (cle sk-or-SECRET-123)"}})
+    r = client.post("/v1/responses", json={
+        "model": "codelab-coding", "input": "ping", "stream": True})
+    assert "event: response.failed" in r.text
+    evenement = json.loads(r.text.split("data: ", 1)[1].split("\n", 1)[0])
+    assert evenement["type"] == "response.failed"
+    message = evenement["response"]["error"]["message"]
+    assert "HTTP 400" in message and "not a valid model ID" in message
+    assert "sk-or-SECRET-123" not in r.text
+
+    r = client.post("/v1/responses", json={"model": "codelab-coding", "input": "ping"})
+    assert r.status_code == 502
+    assert "not a valid model ID" in r.json()["detail"]
+    assert "sk-or-SECRET-123" not in r.text
+
+
+def test_la_liste_des_modeles_convient_aussi_a_codex(monkeypatch):
+    """Codex lit « models » sur cette adresse et journalisait « missing field
+    `models` » ; les clients OpenAI lisent « data »."""
+    client = _passerelle_llm(monkeypatch, 200, {})
+    corps = client.get("/v1/models?client_version=0.155.1").json()
+    assert corps["models"] == []
+    assert "codelab-coding" in [m["id"] for m in corps["data"]]
