@@ -54,8 +54,7 @@ services:
     environment:
       POSTGRES_DB: dagster
       POSTGRES_USER: codelab
-      CODELAB_PROJECT_DBS: "diagnostic codelab_llm"
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      CODELAB_PROJECT_DBS: "diagnostic"
 
     volumes:
       - /DATA/AppData/codelab/sauvegardes:/sauvegardes
@@ -246,7 +245,6 @@ services:
 
     environment:
       CODELAB_LLM_ENV_FILE: /var/lib/codelab/llm/llm.env
-      CODELAB_LLM_AUDIENCE: ${CODELAB_LLM_AUDIENCE:-}
 
     volumes:
       - /DATA/AppData/codelab/config/llm:/var/lib/codelab/llm:ro

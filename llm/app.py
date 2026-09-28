@@ -64,6 +64,9 @@ SSO_EMETTEUR = "codelab"
 # particuliere la rend autorisee sur une installation qui ne l'a jamais
 # demandee.
 SSO_AUDIENCE = os.environ.get("CODELAB_LLM_AUDIENCE", "")
+if SSO_AUDIENCE.startswith("${"):
+    # Une variable du compose que CasaOS n'a pas substituee : pas un nom.
+    SSO_AUDIENCE = ""
 
 # L'AMONT : un fournisseur compatible OpenAI, appele EN DIRECT.
 #
@@ -182,10 +185,18 @@ def lire_env(chemin=None):
     return valeurs
 
 
+def pas_un_gabarit(v):
+    """Une valeur « ${...} » n'en est pas une : c'est une variable du compose
+    que CasaOS n'a pas substituee. Envoyee telle quelle comme cle, OpenRouter
+    repondait « Missing Authentication header »."""
+    return "" if (v or "").startswith("${") else (v or "")
+
+
 def valeur(nom, defaut=""):
     """L'environnement d'abord, le fichier ensuite. Le compose peut donc
     tout surcharger sans reconstruire l'image."""
-    return os.environ.get(nom) or lire_env().get(nom, defaut)
+    return (pas_un_gabarit(os.environ.get(nom))
+            or pas_un_gabarit(lire_env().get(nom)) or defaut)
 
 
 def cle_amont():
