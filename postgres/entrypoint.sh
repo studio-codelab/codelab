@@ -22,6 +22,15 @@ mkdir -p "$CONFIG_DIR"
 touch "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 
+# Le verrou partage avec les autres services qui ecrivent credentials.env
+# (codelab-redis, le panneau, le proxy Dagster). Sans lui, deux services qui
+# demarrent ensemble lisent le meme fichier, et le dernier a ecrire efface le
+# bloc que l'autre venait d'ajouter. Rendu plus bas, avant le demarrage du
+# serveur : Postgres ne doit pas le garder.
+exec 9>"$ENV_FILE.lock"
+chmod 600 "$ENV_FILE.lock" 2>/dev/null || true
+if command -v flock >/dev/null 2>&1; then flock 9; fi
+
 # Lit une cle dans credentials.env (chaine vide si absente).
 get_value() {
   # Derniere occurrence : upsert_block reecrit toujours son bloc en fin de
@@ -127,6 +136,7 @@ header_block "# credentials.env -- les identifiants des services CodeLab.
 #
 #   bloc                 ecrit par          sert a                     transmis aux apps
 #   codelab-postgres     codelab-postgres   base partagee (Postgres)   oui
+#   codelab-redis        codelab-redis      cache et files (Redis)     oui
 #   codelab-app-manager  panneau            connexion au panneau       NON
 #   codelab-sso          panneau            identite des applications  cle publique seule
 #   codelab-alertes      panneau            envoi des mails d'alerte   NON
@@ -157,6 +167,8 @@ POSTGRES_PASSWORD=$PG_PASSWORD"
 remove_block "codelab-dev"
 
 chmod 600 "$ENV_FILE"
+if command -v flock >/dev/null 2>&1; then flock -u 9; fi
+exec 9>&-
 
 # Migration terminee et ecrite : l'ancien fichier n'a plus de raison
 # d'exister. Supprime seulement apres coup, jamais avant.

@@ -13,7 +13,7 @@
 #
 # DURCISSEMENT DES CONTENEURS
 #
-# Quatre des cinq services tournent avec cap_drop: ALL et no-new-privileges : ils
+# Cinq des six services tournent avec cap_drop: ALL et no-new-privileges : ils
 # n'ont plus que les quelques capabilities dont ils se servent reellement,
 # listees et justifiees service par service ci-dessous. codelab-dev en est
 # exclu volontairement -- c'est le shell, et le durcir casserait sudo et la
@@ -46,7 +46,7 @@
 # ces lignes existent precisement pour empecher. Un plafond au-dessus de la
 # RAM disponible n'est pas une securite large, c'est une securite absente.
 #
-# Total actuel : 3,8 Go de plafonds. La
+# Total actuel : 4,1 Go de plafonds. La
 # somme depasse encore les 4 Go, et c'est toujours voulu -- mais aucun
 # service ne peut plus prendre a lui seul plus du tiers de la machine.
 #
@@ -155,6 +155,67 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+
+    networks:
+      - codelab
+
+
+  codelab-redis:
+    # Redis : cache, sessions, files de taches, compteurs -- partage par les
+    # applications, qui le recoivent du panneau sous REDIS_URL. Meme
+    # construction que Postgres : l'image officielle plus un entrypoint qui
+    # genere le mot de passe dans credentials.env (voir redis/entrypoint.sh).
+    image: ghcr.io/studio-codelab/codelab-redis:latest
+    container_name: codelab-redis
+    restart: unless-stopped
+
+    # 320 Mo : le plancher impose par CasaOS (voir codelab-dagster-proxy),
+    # pas un besoin. Les DONNEES sont plafonnees plus bas, a 192 Mo, par
+    # l'entrypoint : Redis a besoin de marge au-dela de ses cles quand il
+    # reecrit son journal.
+    mem_limit: 320m
+    cpus: 0.5
+    pids_limit: 128
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # L'entrypoint ecrit sa configuration en root dans un dossier qui
+    # appartient a redis -- d'ou DAC_OVERRIDE, CHOWN et FOWNER --, puis
+    # l'image officielle bascule sur l'utilisateur redis -- d'ou
+    # SETUID/SETGID.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+
+    # Pas de "ports", volontairement : Redis n'est joignable que depuis le
+    # reseau de la stack. Un Redis publie sur Internet est l'une des portes
+    # les plus exploitees qui soient.
+
+    volumes:
+      # Le journal des ecritures (appendonly). Ce n'est pas une sauvegarde :
+      # ce qui compte vraiment va dans Postgres.
+      - /DATA/AppData/codelab/redis:/data
+      # Lecture-ecriture : ce service y ecrit son bloc.
+      - /DATA/AppData/codelab/config:/var/lib/codelab/config
+
+    healthcheck:
+      # Un PING authentifie ; le script lit le mot de passe lui-meme, sans
+      # "$" a faire traverser le compose.
+      test: ["CMD", "codelab-redis-sante"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 
     networks:
       - codelab

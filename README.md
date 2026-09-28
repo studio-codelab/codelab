@@ -1,7 +1,7 @@
 # CodeLab
 
 Environnement de développement personnel, auto-hébergé sur son propre serveur. Une seule
-installation fournit une base de données partagée, un accès SSH/VS Code, un orchestrateur de jobs et
+installation fournit une base de données partagée, un Redis, un accès SSH/VS Code, un orchestrateur de jobs et
 un gestionnaire d'applications — un `docker-compose.yml`, rien d'autre à installer sur l'hôte que
 Docker.
 
@@ -13,6 +13,7 @@ propos.
 | Service | Rôle | Port |
 |---|---|---|
 | **Postgres** | Serveur de bases partagé : une base par projet, `pgvector` inclus | interne |
+| **Redis** | Cache, sessions, files de tâches et compteurs, partagé par les applications | interne |
 | **Dev** | Accès SSH et VS Code Remote-SSH | `2222` |
 | **Dagster** | Orchestration des jobs : l'interface, et le daemon qui déclenche plannings et capteurs | interne |
 | **Dagster-proxy** | Authentification devant Dagster | `3000` |
@@ -20,8 +21,8 @@ propos.
 | **Applications** | Les projets déployés, servis sur leur propre adresse | `9002` |
 
 Aucune configuration manuelle après l'installation : les identifiants de base de données et les clés
-SSH sont générés au premier démarrage, et la connexion à Postgres est déjà prête dans le conteneur
-`dev`.
+SSH sont générés au premier démarrage, et les connexions à Postgres et à Redis sont déjà prêtes dans
+le conteneur `dev`.
 
 ## Prérequis
 
@@ -100,6 +101,13 @@ dossier, avec un schéma `dagster` dedans pour les tables de ses assets. Une ses
 directement dans la base du projet modèle ; celle d'un projet créé après coup s'ajoute avec
 `codelab db mon-projet`.
 
+**Redis.** Un serveur partagé, pour ce qui vit à la vitesse des requêtes : cache, sessions, files
+de tâches, limitation de débit. Les applications lancées par le panneau reçoivent `REDIS_URL` ; une
+session SSH aussi, et `redis-cli -h codelab-redis` s'y connecte sans mot de passe à taper. Trois
+règles, détaillées dans [`redis/README.md`](redis/README.md) : **préfixer ses clés** par le nom de
+l'application, **donner une durée de vie** à ce qui est du cache, et garder dans Postgres ce qui ne
+doit pas se perdre.
+
 **Le panneau** — `http://<IP-du-serveur>:9001/`. Démarrer et arrêter ses applications, les
 déployer, consulter leurs journaux. L'accueil est un **hub** : la liste des projets ouvrables,
 chacun avec sa description d'une ligne. Le parcours complet, du dossier vide à l'application en
@@ -160,7 +168,7 @@ Ce qui sert à **écrire** du code, dans le conteneur `codelab-dev`. Détails :
 |---|---|
 | `/workspace/.codex/` | configuration de Codex (`config.toml`), sa connexion au compte ChatGPT (`auth.json`, en `0600`), le manuel `AGENTS.md` |
 | `~/.vscode-server` (→ `/DATA/AppData/codelab/vscode-server`) | le serveur VS Code et ses extensions, conservés aux mises à jour |
-| profil de session (`/etc/profile.d/`) | variables `PG*` pour `psql`, `CODEX_HOME` — posées à chaque connexion SSH |
+| profil de session (`/etc/profile.d/`) | variables `PG*` pour `psql`, `REDIS_URL` et `REDISCLI_AUTH` pour Redis, `CODEX_HOME` — posées à chaque connexion SSH |
 
 Aucun de ces fichiers ne va aux applications déployées. **Codex se connecte avec un compte
 ChatGPT** (bouton *Sign in* de l'extension, ou `codex login`).
@@ -172,7 +180,7 @@ Ce qui sert à **faire tourner** un projet. Détails :
 
 | Couche (de la plus faible à la plus forte) | Contenu |
 |---|---|
-| variables passées par le panneau | le bloc `codelab-postgres` de `credentials.env`, `PORT`, l'identité SSO (clé publique, émetteur, audience) — jamais le mot de passe du panneau, sa clé privée SSO ni la configuration d'envoi des alertes |
+| variables passées par le panneau | les blocs `codelab-postgres` et `codelab-redis` de `credentials.env`, `PORT`, l'identité SSO (clé publique, émetteur, audience) — jamais le mot de passe du panneau, sa clé privée SSO ni la configuration d'envoi des alertes |
 | `/workspace/<projet>/.env` | ce qui ne concerne que ce projet ; **l'emporte toujours** |
 | réglages de l'app dans le panneau | commande de lancement, build, visibilité, adresse — stockés dans `app-manager/apps.json` |
 
@@ -216,5 +224,5 @@ vérifiable sans aucune saisie.
   les services se parlent et si l'ensemble est correctement fermé. Il ne se supprime pas — sans lui,
   une installation n'a plus aucun moyen de se contrôler elle-même.
 - **Le fonctionnement interne d'un service** : le `README.md` de son dossier —
-  [`postgres/`](postgres/README.md), [`dev/`](dev/README.md), [`dagster/`](dagster/README.md),
+  [`postgres/`](postgres/README.md), [`redis/`](redis/README.md), [`dev/`](dev/README.md), [`dagster/`](dagster/README.md),
   [`app-manager/`](app-manager/README.md).

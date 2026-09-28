@@ -6908,7 +6908,7 @@ def test_chaque_service_est_borne_dans_les_deux_composes():
         # Les memes services des deux cotes : un compose qui en oublie un
         # est une installation qui ne demarre pas pareil selon la porte
         # d'entree.
-        assert len(services) == 5, (chemin, sorted(services))
+        assert len(services) == 6, (chemin, sorted(services))
         for nom, reglages in services.items():
             assert "pids_limit" in reglages or "deploy_pids" in reglages, (
                 f"{nom} n'a pas de limite processus dans {os.path.basename(chemin)}")
@@ -11153,3 +11153,176 @@ def test_codelab_ne_porte_plus_de_service_ia():
     assert not [r for r in regles if r.startswith("/api/cles")], regles
     page = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
     assert 'id="param-cles"' not in page and "codelab-llm" not in page
+
+
+# ---------- Redis : un service partage, ferme, et un verrou sur les secrets --
+
+def _lancer_entrypoint_redis(tmp_path, extra_env=None):
+    """Execute redis/entrypoint.sh tel quel, avec un faux entrypoint officiel
+    qui se contente d'afficher ce qu'il recoit."""
+    import subprocess
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    faux = bin_dir / "docker-entrypoint.sh"
+    faux.write_text('#!/bin/sh\necho "LANCE $*"\n', encoding="utf-8")
+    faux.chmod(0o755)
+    (tmp_path / "config").mkdir(exist_ok=True)
+    env = {"PATH": f"{bin_dir}:/usr/bin:/bin",
+           "CODELAB_CONFIG_DIR": str(tmp_path / "config"),
+           "CODELAB_REDIS_CONF": str(tmp_path / "redis.conf"),
+           "CODELAB_REDIS_DIR": str(tmp_path / "data")}
+    env.update(extra_env or {})
+    return subprocess.Popen(
+        ["sh", os.path.join(_racine_depot(), "redis", "entrypoint.sh"),
+         "redis-server", str(tmp_path / "redis.conf")],
+        env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+
+def test_redis_est_dans_la_stack_sans_port_publie_et_durci():
+    """Un Redis publie sur Internet est l'une des portes les plus exploitees
+    qui soient : il n'est joignable que depuis le reseau de la stack."""
+    for chemin in _composes():
+        bloc = _bloc_du_service(chemin, "codelab-redis")
+        assert bloc, f"codelab-redis absent de {os.path.basename(chemin)}"
+        assert "ports:" not in bloc, chemin
+        assert "no-new-privileges:true" in bloc and "- ALL" in bloc, chemin
+        assert "/DATA/AppData/codelab/redis:/data" in bloc, chemin
+        # La sonde lit le mot de passe elle-meme : aucun "$" dans le compose.
+        assert '["CMD", "codelab-redis-sante"]' in bloc, chemin
+        valeurs = "".join(l for l in bloc.splitlines(True) if not l.lstrip().startswith("#"))
+        assert "$" not in valeurs, chemin
+    ci = open(os.path.join(_racine_depot(), ".github", "workflows", "build-images.yml"),
+              encoding="utf-8").read()
+    assert "name: codelab-redis" in ci and '"redis/**"' in ci
+
+
+def test_l_entrypoint_redis_genere_un_mot_de_passe_stable_et_une_config_fermee(tmp_path):
+    config = tmp_path / "config"
+    config.mkdir()
+    env_file = config / "credentials.env"
+    env_file.write_text("# ===== codelab-postgres =====\nPOSTGRES_PASSWORD=y\n"
+                        "# ===== /codelab-postgres =====\n", encoding="utf-8")
+    sortie = _lancer_entrypoint_redis(tmp_path).communicate(timeout=30)[0]
+    assert f"LANCE redis-server {tmp_path / 'redis.conf'}" in sortie, sortie
+    texte = env_file.read_text(encoding="utf-8")
+    assert "POSTGRES_PASSWORD=y" in texte
+    mdp = re.search(r"^REDIS_PASSWORD=([0-9a-f]{64})$", texte, re.M).group(1)
+    assert f"REDIS_URL=redis://default:{mdp}@codelab-redis:6379/0" in texte
+    assert stat.S_IMODE(env_file.stat().st_mode) == 0o600
+    conf = (tmp_path / "redis.conf").read_text(encoding="utf-8")
+    assert stat.S_IMODE((tmp_path / "redis.conf").stat().st_mode) == 0o600
+    assert f"user default on >{mdp} ~* &* +@all -@admin" in conf
+    assert "maxmemory-policy volatile-lru" in conf and "appendonly yes" in conf
+    # Le mot de passe ne passe jamais sur la ligne de commande.
+    assert mdp not in sortie
+
+    # Second demarrage : meme mot de passe, un seul bloc.
+    _lancer_entrypoint_redis(tmp_path).communicate(timeout=30)
+    texte = env_file.read_text(encoding="utf-8")
+    assert texte.count("# ===== codelab-redis =====") == 1
+    assert f"REDIS_PASSWORD={mdp}" in texte
+
+
+@pytest.mark.skipif(not shutil.which("redis-server"), reason="redis-server absent")
+def test_la_config_redis_generee_refuse_l_anonyme_et_l_administration(tmp_path):
+    """La configuration, chargee par un vrai redis-server : sans mot de passe
+    rien ne passe, et avec, CONFIG reste refusee."""
+    import subprocess
+    port = _port_libre()
+    _lancer_entrypoint_redis(tmp_path, {"CODELAB_REDIS_PORT": str(port)}).communicate(timeout=30)
+    (tmp_path / "data").mkdir(exist_ok=True)
+    serveur = subprocess.Popen(["redis-server", str(tmp_path / "redis.conf")],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        mdp = re.search(r"^REDIS_PASSWORD=(\w+)$",
+                        (tmp_path / "config" / "credentials.env").read_text(), re.M).group(1)
+
+        def cli(*args, auth=True):
+            env = dict(os.environ, REDISCLI_AUTH=mdp) if auth else {
+                k: v for k, v in os.environ.items() if k != "REDISCLI_AUTH"}
+            return subprocess.run(["redis-cli", "-p", str(port), *args], env=env,
+                                  capture_output=True, text=True, timeout=10).stdout
+
+        for _ in range(50):
+            if "PONG" in cli("ping"):
+                break
+            time.sleep(0.1)
+        assert "NOAUTH" in cli("get", "x", auth=False)
+        assert cli("set", "app:x", "1").strip() == "OK"
+        assert "NOPERM" in cli("config", "set", "dir", "/tmp")
+        # Et la sonde de sante du conteneur passe sur cette configuration.
+        sante = subprocess.run(
+            ["sh", os.path.join(_racine_depot(), "redis", "sante.sh")],
+            env=dict(os.environ, CODELAB_REDIS_CONF=str(tmp_path / "redis.conf"),
+                     CODELAB_REDIS_PORT=str(port)), timeout=10)
+        assert sante.returncode == 0
+    finally:
+        serveur.kill()
+        serveur.wait()
+
+
+def _port_libre():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def test_les_ecrivains_de_credentials_env_attendent_le_verrou_partage(tmp_path):
+    """Quatre services reecrivent credentials.env a leur demarrage. Sans
+    verrou, deux qui demarrent ensemble lisent le meme contenu, et le dernier
+    a ecrire efface le bloc de l'autre -- celui de Postgres compris, dont le
+    mot de passe ne se regenere pas sans casser la base.
+
+    Le verrou est tenu ici comme le panneau le tient : l'entrypoint Redis doit
+    attendre, puis ecrire une fois le verrou rendu."""
+    import fcntl
+    (tmp_path / "config").mkdir()
+    env_file = tmp_path / "config" / "credentials.env"
+    env_file.write_text("", encoding="utf-8")
+    verrou = os.open(str(env_file) + ".lock", os.O_WRONLY | os.O_CREAT, 0o600)
+    fcntl.flock(verrou, fcntl.LOCK_EX)
+    proc = _lancer_entrypoint_redis(tmp_path)
+    try:
+        time.sleep(0.5)
+        assert proc.poll() is None, "l'entrypoint n'a pas attendu le verrou"
+        assert "REDIS_PASSWORD" not in env_file.read_text(encoding="utf-8")
+    finally:
+        os.close(verrou)
+    proc.communicate(timeout=30)
+    assert "REDIS_PASSWORD=" in env_file.read_text(encoding="utf-8")
+
+    racine = _racine_depot()
+    for chemin in (("postgres", "entrypoint.sh"), ("redis", "entrypoint.sh"),
+                   ("dagster", "proxy", "entrypoint.sh")):
+        source = open(os.path.join(racine, *chemin), encoding="utf-8").read()
+        assert 'exec 9>"$ENV_FILE.lock"' in source and "flock 9" in source, chemin
+        # Rendu avant de passer la main au serveur, qui le garderait sinon.
+        assert source.index("exec 9>&-") < source.rindex("\nexec "), chemin
+    assert "fcntl.flock" in inspect.getsource(app.upsert_shared_block)
+
+
+def test_le_panneau_ecrit_credentials_env_sous_le_verrou(tmp_path, monkeypatch):
+    """upsert_shared_block attend le meme verrou que les entrypoints."""
+    import fcntl
+    import threading
+    monkeypatch.setattr(app, "SHARED_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setattr(app, "SHARED_ENV_FILE", str(tmp_path / "credentials.env"))
+    verrou = os.open(str(tmp_path / "credentials.env.lock"), os.O_WRONLY | os.O_CREAT, 0o600)
+    fcntl.flock(verrou, fcntl.LOCK_EX)
+    fil = threading.Thread(target=app.upsert_shared_block, args=("essai", [], {"A": "1"}))
+    fil.start()
+    time.sleep(0.3)
+    assert fil.is_alive(), "le panneau a ecrit sans attendre le verrou"
+    os.close(verrou)
+    fil.join(10)
+    assert "A=1" in (tmp_path / "credentials.env").read_text()
+
+
+def test_une_session_ssh_recoit_redis_et_le_sommaire_le_nomme():
+    racine = _racine_depot()
+    entree = open(os.path.join(racine, "dev", "entrypoint.sh"), encoding="utf-8").read()
+    assert 'export REDISCLI_AUTH=' in entree and 'export REDIS_URL=' in entree
+    assert "redis-tools" in open(os.path.join(racine, "dev", "Dockerfile"),
+                                 encoding="utf-8").read()
+    postgres = open(os.path.join(racine, "postgres", "entrypoint.sh"), encoding="utf-8").read()
+    assert "#   codelab-redis        codelab-redis" in postgres

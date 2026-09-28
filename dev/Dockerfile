@@ -15,6 +15,7 @@ RUN apt-get update \
         sudo \
         acl \
         postgresql-client \
+        redis-tools \
     && rm -rf /var/lib/apt/lists/*
 
 # NODE 24, ET PAS CELUI DE DEBIAN.

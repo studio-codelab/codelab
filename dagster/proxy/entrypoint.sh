@@ -20,10 +20,17 @@ chmod 600 "$ENV_FILE" 2>/dev/null || true
 # credentials.env (« Dagster n'a pas d'identifiant a lui »), ecrit par
 # codelab-postgres. L'authentification HTTP Basic precedente n'avait ni
 # session, ni expiration, ni deconnexion possible.
+# Sous le verrou partage avec les autres services qui ecrivent ce fichier
+# (voir postgres/entrypoint.sh) : sans lui, ce retrait pouvait effacer un bloc
+# qu'un voisin venait d'ajouter.
+exec 9>"$ENV_FILE.lock"
+if command -v flock >/dev/null 2>&1; then flock 9; fi
 awk -v s="# ===== codelab-dagster-proxy =====" -v e="# ===== /codelab-dagster-proxy =====" \
   '$0==s{skip=1} !skip{print} $0==e{skip=0}' "$ENV_FILE" > "$ENV_FILE.tmp"
 mv "$ENV_FILE.tmp" "$ENV_FILE"
 chmod 600 "$ENV_FILE" 2>/dev/null || true
+if command -v flock >/dev/null 2>&1; then flock -u 9; fi
+exec 9>&-
 
 echo "[codelab-dagster-proxy] pret -- Dagster sur le port 3000."
 echo "[codelab-dagster-proxy] acces via la session du panneau (port 9001)."
