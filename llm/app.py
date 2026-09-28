@@ -612,14 +612,35 @@ def liste_modeles():
         for nom in sorted(modeles())], "models": []}
 
 
+# UN NOM INCONNU VA AU MODELE PAR DEFAUT, au lieu d'etre refuse.
+#
+# L'extension Codex de VS Code n'affiche que les modeles d'OpenAI dans son
+# selecteur, quel que soit le catalogue, et ECRIT le choix dans config.toml
+# (« gpt-5.5 ») : refuse, ce nom rendait l'extension inutilisable des le
+# premier clic. Il est donc servi par la chaine de codelab-coding -- ce qui
+# ne donne acces a rien de plus : seules les chaines de la table partent
+# vers un fournisseur, jamais le nom demande.
+#
+# CODELAB_LLM_DEFAUT (llm.env) choisit un autre nom logique ;
+# « aucun » retablit le refus.
+MODELE_PAR_DEFAUT = "codelab-coding"
+
+
+def nom_logique(demande, table):
+    if demande in table:
+        return demande
+    defaut = valeur("CODELAB_LLM_DEFAUT") or MODELE_PAR_DEFAUT
+    if defaut in table and demande:
+        return defaut
+    raise HTTPException(400, f"Modele inconnu : {demande}.")
+
+
 def _payload_valide(corps, table):
     try:
         charge = json.loads(corps)
     except json.JSONDecodeError as e:
         raise HTTPException(400, "Corps JSON invalide.") from e
-    modele = charge.get("model")
-    if modele not in table:
-        raise HTTPException(400, f"Modele inconnu : {modele}.")
+    modele = nom_logique(charge.get("model"), table)
     messages = charge.get("messages")
     if not isinstance(messages, list) or not messages:
         raise HTTPException(400, "« messages » doit etre une liste non vide.")
@@ -639,9 +660,7 @@ def _payload_responses_valide(corps, table):
         charge = json.loads(corps)
     except json.JSONDecodeError as e:
         raise HTTPException(400, "Corps JSON invalide.") from e
-    modele = charge.get("model")
-    if modele not in table:
-        raise HTTPException(400, f"Modele inconnu : {modele}.")
+    modele = nom_logique(charge.get("model"), table)
     entree = charge.get("input")
     if entree is None or (isinstance(entree, (str, list)) and not entree):
         raise HTTPException(400, "« input » doit etre une chaine ou une liste non vide.")

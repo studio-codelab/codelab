@@ -220,7 +220,7 @@ fi
 # lui.
 LLM_REGLAGES=""
 if [ -s "$LLM_ENV_FILE" ]; then
-  LLM_REGLAGES="$(grep -E '^(CODELAB_LLM_FOURNISSEUR|CODELAB_LLM_MODELE_[A-Z0-9_]+|GEMINI_API_KEY|GROQ_API_KEY|MISTRAL_API_KEY)=' "$LLM_ENV_FILE" || true)"
+  LLM_REGLAGES="$(grep -E '^(CODELAB_LLM_FOURNISSEUR|CODELAB_LLM_MODELE_[A-Z0-9_]+|CODELAB_LLM_DEFAUT|GEMINI_API_KEY|GROQ_API_KEY|MISTRAL_API_KEY)=' "$LLM_ENV_FILE" || true)"
 fi
 
 cat > "$LLM_ENV_FILE.new" <<LLMENV
@@ -239,6 +239,8 @@ cat > "$LLM_ENV_FILE.new" <<LLMENV
 #   CODELAB_LLM_MODELE_<NOM>=fournisseur:modele, ...   la chaine d'un nom
 #                                  logique, essayee dans l'ordre
 #   CODELAB_LLM_FOURNISSEUR=...    une autre adresse a la place d'OpenRouter
+#   CODELAB_LLM_DEFAUT=...         le nom logique d'un modele demande inconnu
+#                                  (codelab-coding ; « aucun » pour refuser)
 POSTGRES_HOST=codelab-postgres
 POSTGRES_PORT=5432
 POSTGRES_USER=$CODELAB_LLM_USER
