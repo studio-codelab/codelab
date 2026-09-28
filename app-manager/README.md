@@ -175,8 +175,10 @@ cat /DATA/AppData/codelab/config/credentials.env
 
 `upsert_shared_block()` n'ecrit que son propre bloc, commentaires inclus (delimite par
 `# ===== codelab-app-manager =====` / `# ===== /codelab-app-manager =====`) — les blocs deposes par
-`codelab-postgres` (et l'en-tete general du fichier) restent intacts, peu importe l'ordre de demarrage des deux
-services. Voir [Fichier `credentials.env`](#fichier-credentialsenv) plus bas pour le detail du
+`codelab-postgres` et `codelab-redis` (et l'en-tete general du fichier) restent intacts, peu importe l'ordre de
+demarrage des services : chaque ecriture se fait sous un verrou partage (`flock` sur
+`credentials.env.lock`), sans lequel deux services demarres ensemble pouvaient effacer le bloc l'un de
+l'autre. Voir [Fichier `credentials.env`](#fichier-credentialsenv) plus bas pour le detail du
 mecanisme.
 
 Les sessions sont signees avec une cle secrete elle aussi generee et persistee dans le meme fichier

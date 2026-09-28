@@ -172,6 +172,7 @@ tete dit a quoi sert chaque bloc :
 | Bloc | Sert a | Transmis a ton application |
 |---|---|---|
 | `codelab-postgres` | la base partagee (`POSTGRES_*`) | oui |
+| `codelab-redis` | le Redis partage (`REDIS_URL`, `REDIS_*`) | oui |
 | `codelab-app-manager` | la connexion au panneau | **non** |
 | `codelab-sso` | l'identite des applications | la cle publique seule |
 | `codelab-alertes` | l'envoi des mails d'alerte (`SMTP_*`) | **non** |

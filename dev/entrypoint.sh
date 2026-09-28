@@ -508,7 +508,7 @@ sync_authorized_keys || echo "[codelab-dev] reconstruction des cles autorisees e
 sed -i '/^AuthorizedKeysFile /d' /etc/ssh/sshd_config
 echo "AuthorizedKeysFile $AUTHORIZED_KEYS" >> /etc/ssh/sshd_config
 
-# -------------------------- identifiants Postgres --------------------------
+# ---------------------- identifiants Postgres et Redis ----------------------
 
 # Tout ce bloc est une commodite : il pre-remplit PGHOST/PGPASSWORD/... dans
 # les shells SSH. Il est appele plus bas de maniere non fatale -- une erreur
@@ -519,7 +519,8 @@ configure_pg_profile() {
 # Attente bornee : 30 s suffisent largement a codelab-postgres pour ecrire son
 # bloc, et si le fichier n'arrive jamais on demarre quand meme sans PGPASSWORD.
 for _ in $(seq 1 30); do
-    if [ -r "$ENV_FILE" ] && grep -q '^POSTGRES_PASSWORD=' "$ENV_FILE"; then
+    if [ -r "$ENV_FILE" ] && grep -q '^POSTGRES_PASSWORD=' "$ENV_FILE" \
+       && grep -q '^REDIS_PASSWORD=' "$ENV_FILE"; then
         break
     fi
     sleep 1
@@ -529,6 +530,16 @@ PG_PASSWORD=""
 if [ -r "$ENV_FILE" ]; then
     # tail : la derniere occurrence fait autorite (bloc reecrit en fin de fichier).
     PG_PASSWORD="$(sed -n 's/^POSTGRES_PASSWORD=//p' "$ENV_FILE" | tail -n 1)"
+fi
+# Redis, meme logique : REDIS_URL pour le code lance depuis une session, et
+# REDISCLI_AUTH pour que "redis-cli -h codelab-redis" s'authentifie sans
+# mettre le mot de passe sur la ligne de commande. Absent si codelab-redis
+# n'a pas encore ecrit son bloc : le prochain redemarrage le reprendra.
+REDIS_PASSWORD=""
+REDIS_URL=""
+if [ -r "$ENV_FILE" ]; then
+    REDIS_PASSWORD="$(sed -n 's/^REDIS_PASSWORD=//p' "$ENV_FILE" | tail -n 1)"
+    REDIS_URL="$(sed -n 's/^REDIS_URL=//p' "$ENV_FILE" | tail -n 1)"
 fi
 if [ -z "$PG_PASSWORD" ]; then
     echo "[codelab-dev] POSTGRES_PASSWORD introuvable dans $ENV_FILE :" \
@@ -542,6 +553,10 @@ fi
     if [ -n "${PGDATABASE:-}" ]; then echo "export PGDATABASE=$(printf '%q' "$PGDATABASE")"; fi
     if [ -n "${PGUSER:-}" ]; then echo "export PGUSER=$(printf '%q' "$PGUSER")"; fi
     if [ -n "$PG_PASSWORD" ]; then echo "export PGPASSWORD=$(printf '%q' "$PG_PASSWORD")"; fi
+    if [ -n "$REDIS_PASSWORD" ]; then
+        echo "export REDISCLI_AUTH=$(printf '%q' "$REDIS_PASSWORD")"
+        echo "export REDIS_URL=$(printf '%q' "$REDIS_URL")"
+    fi
 } > "$PROFILE"
 chmod 644 "$PROFILE"
 

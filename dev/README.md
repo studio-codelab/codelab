@@ -524,6 +524,7 @@ la liste se lit a l'endroit ou elle est installee.
 |---|---|---|
 | `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` | Fixees dans `docker-compose.yml` | Connexion a `codelab-postgres`. `PGDATABASE=diagnostic` : une session SSH atterrit dans la base du projet modele, pas dans la base d'instance de Dagster |
 | `CODELAB_ENV_FILE` | Fixee dans `docker-compose.yml` | `credentials.env` : `POSTGRES_PASSWORD` y est lu pour construire `PGPASSWORD` |
+| `REDIS_URL`, `REDISCLI_AUTH` | Lus dans `credentials.env` (bloc `codelab-redis`) | Connexion a `codelab-redis` : `REDIS_URL` pour le code, `REDISCLI_AUTH` pour que `redis-cli -h codelab-redis` s'authentifie seul |
 | `CODELAB_SSH_DIR` | Fixee dans `docker-compose.yml` | Dossier unique des cles : `authorized_keys.d/`, `authorized_keys` (derive) + `host_keys/` |
 
 ## Volumes attendus

@@ -36,6 +36,7 @@ VS Code, git clone) puis simplement declares ici.
 """
 import base64
 import datetime
+import fcntl
 import queue
 import hashlib
 import hmac
@@ -230,6 +231,24 @@ def upsert_shared_block(name, comment_lines, pairs):
     cote codelab-postgres dans docker-compose.yml."""
     try:
         os.makedirs(SHARED_CONFIG_DIR, exist_ok=True)
+        # Le verrou partage avec codelab-postgres, codelab-redis et le proxy
+        # Dagster (flock sur le meme fichier, meme noyau). Sans lui, deux
+        # services qui demarrent ensemble lisent le meme contenu, et le
+        # dernier a ecrire efface le bloc que l'autre venait d'ajouter.
+        verrou = os.open(SHARED_ENV_FILE + ".lock", os.O_WRONLY | os.O_CREAT, 0o600)
+    except OSError as e:
+        print(f"[app-manager] credentials.env non ecrit ({e}), repli sur "
+              f"les fichiers de {STATE_DIR}.", flush=True)
+        return False
+    try:
+        fcntl.flock(verrou, fcntl.LOCK_EX)
+        return _upsert_shared_block_verrouille(name, comment_lines, pairs)
+    finally:
+        os.close(verrou)
+
+
+def _upsert_shared_block_verrouille(name, comment_lines, pairs):
+    try:
         start, end = f"# ===== {name} =====", f"# ===== /{name} ====="
         existing = []
         if os.path.exists(SHARED_ENV_FILE):
