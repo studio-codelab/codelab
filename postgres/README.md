@@ -264,6 +264,22 @@ serveur : un test le verifie, et le build echoue si les deux divergent. **Attent
 (`pg_upgrade` ou dump/restore). Ce n'est pas un simple changement de tag, et un demarrage sur un repertoire
 d'une version anterieure echoue avec un message explicite dans les logs.
 
+## L'ancien service IA
+
+`codelab-llm` est retiré : ce conteneur ne crée plus son rôle, sa base ni
+`config/llm/`. **Ce qui existait est laissé en place** — les clés et la
+consommation enregistrées ne sont pas effacées sans qu'on le demande. Pour
+les supprimer, une fois sûr de ne plus en avoir besoin, sur l'hôte :
+
+```bash
+sudo docker exec codelab-postgres psql -U codelab -d dagster \
+  -c 'DROP DATABASE IF EXISTS codelab_llm' -c 'DROP ROLE IF EXISTS codelab_llm'
+sudo rm -rf /DATA/AppData/codelab/config/llm
+```
+
+Le nom `codelab_llm` reste réservé : `codelab db` et `CODELAB_PROJECT_DBS`
+le refusent comme nom de projet.
+
 ## Tester localement
 
 ```bash

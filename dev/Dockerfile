@@ -96,20 +96,6 @@ RUN chmod +x /opt/codelab/dev/entrypoint.sh
 # "codelab agents" l'installe dans un projet.
 COPY dev/AGENTS.md /usr/local/share/codelab/AGENTS.md
 
-# LE CATALOGUE DES MODELES DE CODEX : les trois noms de la passerelle, pour
-# que le selecteur de modele (extension VS Code, /model en terminal) les
-# propose, et que Codex cesse de dire « Model metadata not found ».
-#
-# Codex n'utilise pas le catalogue d'un fournisseur personnalise qu'il
-# telecharge : il faut le lui donner en fichier (model_catalog_json, pose
-# par l'entrypoint dans config.toml). Chaque entree doit porter ses
-# instructions de base -- sans elles Codex n'envoie plus AUCUN prompt
-# systeme. codex-instructions.md est celui que Codex emploie de lui-meme
-# pour un modele inconnu (prompt de Codex CLI, projet open source
-# d'OpenAI, licence Apache-2.0), injecte ici dans chaque entree.
-COPY dev/codex-modeles.json dev/codex-instructions.md /usr/local/share/codelab/
-RUN python3 -c "import json; d = '/usr/local/share/codelab/'; c = json.load(open(d + 'codex-modeles.json')); i = open(d + 'codex-instructions.md', encoding='utf-8').read(); [m.setdefault('base_instructions', i) for m in c['models']]; json.dump(c, open(d + 'codex-modeles.json', 'w', encoding='utf-8'), ensure_ascii=False, indent=1)"
-
 # Outil de projet : "codelab db" (base + schema "dagster" + search_path, pour
 # les projets ajoutes apres l'installation de la stack) et "codelab agents".
 # Dans le PATH de toutes les sessions SSH, d'ou /usr/local/bin. Sans

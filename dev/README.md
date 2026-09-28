@@ -54,22 +54,22 @@ Deux choses a ne pas confondre : ce qui sert a **ecrire** du code (ce
 conteneur, VS Code, Codex) et ce qui sert a **faire tourner** une application
 (le panneau). Elles ne partagent aucun fichier de configuration.
 
-**Le poste de developpement** — tout est pose automatiquement :
+**Le poste de developpement** — tout est pose automatiquement, sauf la connexion ChatGPT de Codex (une fois) :
 
 | Ou | Quoi | Qui l'ecrit |
 |---|---|---|
-| `/workspace/.codex/config.toml` | Codex passe par la passerelle CodeLab, modele `codelab-coding` | ce conteneur, une seule fois — ensuite a toi |
-| `/workspace/.codex/codelab-llm.key` | la cle CodeLab du poste (quota, comptabilite, revocable) | le panneau, tout seul |
+| `/workspace/.codex/config.toml` | reglages de Codex (sandbox, approbations, modele choisi) | ce conteneur, une seule fois — ensuite a toi |
+| `/workspace/.codex/auth.json` | la connexion au compte ChatGPT, en `0600` | Codex, a la connexion |
 | `/workspace/.codex/AGENTS.md` | le manuel de l'environnement, lu par Codex | ce conteneur, a chaque demarrage |
-| `/etc/profile.d/codelab-*.sh` | `PGHOST`, `PGUSER`… pour `psql` sans argument ; `CODEX_HOME`, `CODELAB_LLM_KEY` | ce conteneur, a chaque demarrage |
+| `/etc/profile.d/codelab-*.sh` | `PGHOST`, `PGUSER`… pour `psql` sans argument ; `CODEX_HOME` | ce conteneur, a chaque demarrage |
 | `~/.vscode-server` | serveur VS Code et extensions (monte depuis l'hote) | VS Code |
 | `config/ssh/authorized_keys.d/` (sur l'hote) | une cle publique par machine autorisee | toi |
 
 **Une application deployee** ne voit rien de tout ca. Elle lit, de la couche
 la plus faible a la plus forte : les variables que le panneau lui passe, puis
 le `.env` de son projet — voir [`workspace/README.md`](../workspace/README.md#configuration-et-secrets).
-Une application qui appelle l'IA le fait avec **sa propre cle CodeLab**, creee
-dans le panneau et posee dans son `.env` : jamais celle du poste.
+Une application qui appelle l'IA le fait elle-meme, avec **sa propre cle**
+de fournisseur posee dans son `.env` : CodeLab ne fournit pas de service IA.
 
 
 ## Le cycle complet
@@ -296,41 +296,23 @@ utilisable par un agent travaillant sans personne devant.
 
 **L'extension Codex, en panneau de chat.** Dans VS Code connecté en
 Remote-SSH, installer l'extension *Codex – OpenAI's coding agent*
-(`openai.chatgpt`) **côté serveur** (« Install in SSH: … »). Elle lit la
-même configuration que le terminal — `~/.codex/config.toml`, qui pointe la
-passerelle CodeLab et sa clé — : rien à saisir, pas de compte OpenAI.
-
-**Le sélecteur de l'extension n'affiche que les modèles d'OpenAI**, quoi
-qu'on lui donne, et écrit le choix dans `config.toml` (`model = "gpt-5.5"`).
-Ce n'est pas un problème : **tout nom que la passerelle ne connaît pas est
-servi par `codelab-coding`**, donc par les modèles gratuits. Choisir « GPT-5.5 »
-dans l'extension, c'est utiliser CodeLab Coding. Pour un autre modèle par
-défaut, `CODELAB_LLM_DEFAUT=codelab-fast` dans `config/llm/llm.env`.
-
-Dans le terminal, `/model` propose les trois noms de la passerelle, tous
-gratuits :
-
-| Dans le sélecteur | Pour quoi |
-|---|---|
-| CodeLab Coding (gratuit) | le travail courant — c'est le défaut |
-| CodeLab Fast (gratuit) | les petites tâches, plus rapide |
-| CodeLab Reasoning (gratuit) | les questions difficiles, plus lent |
-
-Ils viennent d'un catalogue livré dans l'image
-(`/usr/local/share/codelab/codex-modeles.json`, désigné par
-`model_catalog_json` dans `config.toml`) : sans lui, le sélecteur proposait
-les modèles d'OpenAI, que la passerelle refuse. Le niveau de raisonnement
-n'est pas proposé : ces modèles ne le règlent pas comme ceux d'OpenAI.
+(`openai.chatgpt`) **côté serveur** (« Install in SSH: … »), puis cliquer
+sur **Sign in with ChatGPT**. L'usage de Codex est compris dans les
+abonnements ChatGPT : pas de clé, pas de facture à l'appel. Le modèle se
+choisit dans le sélecteur de l'extension.
 
 **Ou dans le terminal intégré** : `codex` dans le dossier du projet. Glisser
 l'onglet du terminal vers le bord droit donne la même disposition éditeur +
-conversation.
-
-Le chemin est court, et c'est voulu :
+conversation. Extension et terminal partagent la même connexion et la même
+configuration (`/workspace/.codex`).
 
 ```
-codex ──clé CodeLab──▶ codelab-llm ──▶ Gemini, Mistral, Groq ou OpenRouter (le premier qui a du quota)
+codex ──compte ChatGPT──▶ OpenAI
 ```
+
+Un agent de code envoie des dizaines de requêtes par tâche, chacune avec une
+vingtaine de milliers de jetons d'instructions : aucune part gratuite de
+fournisseur n'y suffit, d'où le compte ChatGPT.
 
 L'image portait aussi OpenClaw, une extension VS Code de chat, `acpx` et
 `codex-acp` : un message passait par six étapes, chacune avec sa version et
@@ -350,87 +332,48 @@ la connexion suivante) évite qu'il grossisse sans fin.
 
 `codex` est installe dans l'image et `CODEX_HOME` pointe sur
 `/workspace/.codex`, cree au demarrage du conteneur avec un `config.toml` par
-defaut.
-
-### Il passe par la passerelle CodeLab
-
-Le `config.toml` d'amorce pointe `codelab-llm`, et non un fournisseur en
-direct :
+defaut, ecrit une seule fois :
 
 ```toml
-model_provider = "codelab"
-model = "codelab-coding"
-
-[model_providers.codelab]
-base_url = "http://codelab-llm:8080/v1"
-
-[model_providers.codelab.auth]
-command = "head"
-args = ["-n", "1", "/workspace/.codex/codelab-llm.key"]
+sandbox_mode = "danger-full-access"
+approval_policy = "on-request"
 ```
 
-La clé est relue dans son fichier par une commande, pas dans
-l'environnement : une clé créée après l'ouverture de VS Code est prise
-aussitôt, sans rouvrir de terminal. Les
-installations qui portaient l'ancienne ligne `env_key` sont converties au
-démarrage du conteneur — seule cette ligne change. `~/.codex` mène à
-`/workspace/.codex`, pour qu'un Codex lancé sans le profil de session
-trouve quand même sa configuration.
+Aucun fournisseur n'y est nomme : Codex emploie celui d'OpenAI, avec le
+compte ChatGPT connecte. `~/.codex` mene a `/workspace/.codex`, pour que
+l'extension et un Codex lance sans le profil de session trouvent la meme
+configuration et la meme connexion.
 
-Les noms de modeles disponibles sont les noms **logiques** — `codelab-coding`,
-`codelab-fast`, `codelab-reasoning` — servis par `codelab-llm` (voir
-`llm/README.md`). Changer le modele reel derriere un nom se fait la-bas,
-sans toucher a Codex.
+### Se connecter
 
-Il faut donc **une clé CodeLab**, à créer une fois.
+**Depuis l'extension** : *Sign in with ChatGPT*. VS Code transfere tout seul
+le port de retour de la connexion (1455) vers le conteneur.
 
-**Depuis le panneau** — *Paramètres → Clés et secrets → Créer une clé*. Le
-panneau tire la clé, inscrit son empreinte dans la base de `codelab-llm`,
-et la pose lui-même dans `/workspace/.codex/codelab-llm.key` (en `0600`). Il
-ne l'affiche jamais, pas même
-à la création : il l'écrit directement là où elle sert, et n'en remontre que
-les quatre derniers caractères. Rien à rouvrir : Codex relit le fichier.
-
-**Ou en ligne de commande**, si l'on veut la clé en main pour la poser
-ailleurs :
-
-```bash
-docker exec codelab-llm python3 app.py create-key \
-    --name vscode --user VOTRE-NOM --app vscode
-```
-
-La valeur s'affiche **une seule fois** ; la coller dans
-`/workspace/.codex/codelab-llm.key`. Les deux chemins écrivent la même table
-et la même empreinte : une clé créée ici se révoque depuis le panneau, et
-inversement.
-
-Sans elle, Codex affiche
-`cannot open '/workspace/.codex/codelab-llm.key'`.
-
-C'est une cle CodeLab, pas une cle de fournisseur : elle porte un quota et
-une comptabilite, se revoque en une commande (`revoke-key`), et ne donne
-acces a aucun compte de fournisseur — ces cles-la vivent dans `codelab-llm`,
-dont ce conteneur ne voit pas les fichiers.
-
-Sans le profil `llm` demarre (`docker compose --profile llm up -d`), la
-passerelle n'existe pas et Codex echouera a la connexion.
-
-### Ou avec un compte personnel
-
-`codex login` reste possible et reprend la main : le `config.toml` n'est ecrit
-qu'une fois, donc le modifier ou le supprimer suffit. Le trafic sort alors de
-CodeLab sans passer par la comptabilite.
-
-Le flux OAuth ouvre un serveur sur le port 1455 **dans le conteneur**. Depuis
-l'ordinateur local, dans un second terminal :
+**Ou dans un terminal VS Code** : `codex login`, puis ouvrir l'adresse
+affichee — meme transfert de port. Depuis un simple terminal SSH, sans VS
+Code, ouvrir d'abord un tunnel depuis l'ordinateur local :
 
 ```bash
 ssh -p 2222 -L 1455:127.0.0.1:1455 vscode@<IP-du-serveur>
 ```
 
-puis, cote conteneur, `codex login` et ouvrir l'URL affichee. Sans tunnel :
-`codex login --device-auth`. C'est fait quand `/workspace/.codex/auth.json`
-existe.
+C'est fait quand `codex login status` dit « Logged in ». Le jeton est range
+dans `/workspace/.codex/auth.json` : il survit aux mises a jour d'image, et
+le conteneur le remet en `0600` a chaque demarrage -- le dossier est partage
+avec le groupe `codelab` (le panneau, Dagster), qui n'a pas a lire le compte
+ChatGPT.
+
+**Avec une cle d'API OpenAI** plutot qu'un abonnement :
+`printenv OPENAI_API_KEY | codex login --with-api-key`.
+
+### Les installations qui passaient par la passerelle
+
+Au demarrage, le conteneur retire du `config.toml` ce qu'il y avait ecrit
+pour `codelab-llm` -- `model_provider = "codelab"`, les sections
+`[model_providers.codelab]`, le catalogue de modeles de l'image, un modele
+`codelab-*` -- et supprime `codelab-llm.key`. Le reste (projets de
+confiance, modele choisi, reglages faits a la main) ne bouge pas. Le panneau,
+de son cote, revoque l'ancienne cle du poste.
 
 ```bash
 cd /workspace/mon-projet
@@ -566,8 +509,6 @@ qu'on lit *pourquoi* un `Permission denied (publickey)` se produit), et il recoi
 | `entrypoint.sh` | Toute la logique de demarrage |
 | `AGENTS.md` | Manuel de l'environnement lu par les agents (perimetre, base, Dagster, app-manager) |
 | `codelab` | Outil de projet installe dans le PATH : `codelab new`, `codelab db`, `codelab agents` |
-| `codex-modeles.json` | Catalogue des modeles de Codex : les trois noms de la passerelle, pour son selecteur |
-| `codex-instructions.md` | Prompt de base de Codex CLI (open source, Apache-2.0), injecte dans chaque entree du catalogue au build |
 
 Le `Dockerfile` et l'`entrypoint.sh` portent l'essentiel. `AGENTS.md` est une **ressource livree par l'image**, pas les instructions du depot CodeLab : il decrit l'environnement des projets, et l'image le recopie dans `$CODEX_HOME/AGENTS.md` puis, via `codelab agents`, dans les projets. `codelab` est sans extension parce que c'est un executable du PATH, pas un fichier a sourcer : l'`entrypoint.sh` reste le seul `.sh` du service, comme dans les trois autres. Les dependances Python sont declarees directement dans le `Dockerfile`
 plutot que dans un `requirements.txt` separe : trois paquets ne justifient pas un fichier de plus, et

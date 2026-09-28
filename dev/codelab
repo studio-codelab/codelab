@@ -179,7 +179,7 @@ cmd_db() {
   # Les bases de la stack ne sont pas des projets. Leur poser le schema
   # « dagster » en tete du search_path detournait leurs tables : sur
   # codelab_llm, le panneau inscrivait les cles la ou la passerelle ne les
-  # lisait pas, et Codex recevait 401 a chaque appel.
+  # lisait pas, et chaque appel etait refuse en 401.
   case "$projet" in
     codelab_llm | codelab | dagster | postgres | "${CODELAB_INSTANCE_DB:-dagster}")
       echo "codelab db: \"$projet\" est une base de la stack CodeLab, pas un" \

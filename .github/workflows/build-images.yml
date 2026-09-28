@@ -20,7 +20,6 @@ on:
       - "dagster/**"
       - "workspace/**"
       - "app-manager/**"
-      - "llm/**"
       - "docker-compose.yml"
       - "docker-compose-casaos.yml"
       - ".github/workflows/build-images.yml"
@@ -36,7 +35,6 @@ on:
       - "dagster/**"
       - "workspace/**"
       - "app-manager/**"
-      - "llm/**"
       - "docker-compose.yml"
       - "docker-compose-casaos.yml"
       - ".github/workflows/build-images.yml"
@@ -114,13 +112,8 @@ jobs:
       # celui qui tient la regle « environment: l'emporte sur env_file: »,
       # exactement le genre de piege muet qu'une suite doit attraper en CI et
       # pas seulement sur le poste de celui qui l'ecrit.
-      #
-      # llm/requirements.txt, tel quel : les tests de la passerelle chargent
-      # llm/app.py pour de vrai (chaine de fournisseurs, traduction pour
-      # Codex) et s'ignoraient ici faute de fastapi et httpx. Le fichier de
-      # l'image lui-meme, pour que les versions ne puissent pas diverger.
       - name: Dependances
-        run: pip install flask psutil requests pytest webauthn==3.0.0 qrcode==8.2 cryptography==50.0.1 pyyaml -r llm/requirements.txt
+        run: pip install flask psutil requests pytest webauthn==3.0.0 qrcode==8.2 cryptography==50.0.1 pyyaml
 
       # La suite vit dans test_regressions.py, separee des sondes de
       # checks.py : celles-ci tournent en production, dans des images qui
@@ -151,8 +144,6 @@ jobs:
             dockerfile: dagster/proxy/Dockerfile
           - name: codelab-app-manager
             dockerfile: app-manager/Dockerfile
-          - name: codelab-llm
-            dockerfile: llm/Dockerfile
 
     steps:
       - name: Checkout

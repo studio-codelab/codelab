@@ -21,8 +21,9 @@
 #      login) et on source ce fichier depuis ~/.bashrc (shells interactifs
 #      non-login, dont Remote-SSH de VS Code).
 #
-#   4. Environnement Codex. CODEX_HOME pointe sur /workspace/.codex, cree ici
-#      (Codex ne cree pas ce dossier et refuse de demarrer s'il manque) :
+#   4. Environnement Codex (compte ChatGPT). CODEX_HOME pointe sur
+#      /workspace/.codex, cree ici (Codex ne cree pas ce dossier et refuse
+#      de demarrer s'il manque) :
 #      l'authentification et le config.toml survivent ainsi a une recreation
 #      du conteneur, alors qu'ils seraient perdus sous /home/vscode.
 #
@@ -142,7 +143,7 @@ chmod 644 "$UMASK_PROFILE"
 #
 # CODEX_HOME dans /workspace, seul dossier qui survit a une recreation du
 # conteneur : sans lui, Codex range son auth.json sous /home/vscode et il
-# faut refaire "codex login" apres chaque mise a jour d'image. Le dossier est
+# faut refaire la connexion apres chaque mise a jour d'image. Le dossier est
 # cree ici parce que Codex ne le cree pas lui-meme et refuse de demarrer si
 # le chemin n'existe pas.
 CODEX_HOME_DIR="${CODEX_HOME:-$WORKSPACE_DIR/.codex}"
@@ -151,134 +152,94 @@ chown "$SSH_USER" "$CODEX_HOME_DIR" 2>/dev/null || true
 chgrp "$CODELAB_GROUP" "$CODEX_HOME_DIR" 2>/dev/null || true
 chmod 2770 "$CODEX_HOME_DIR" 2>/dev/null || true
 
+# CODEX SE CONNECTE AVEC UN COMPTE CHATGPT, pas par codelab-llm.
+#
+# Un agent de code envoie des dizaines de requetes par tache, chacune avec
+# une vingtaine de milliers de jetons d'instructions : aucune part gratuite
+# de fournisseur n'y suffit, et la passerelle est reservee aux applications.
+# L'abonnement ChatGPT inclut l'usage de Codex -- connexion une fois, par le
+# bouton « Sign in » de l'extension ou « codex login » dans un terminal VS
+# Code (qui transfere tout seul le port de retour). Le jeton est range dans
+# $CODEX_HOME/auth.json.
+#
 # config.toml par defaut, ecrit une seule fois : jamais reecrit ensuite, les
-# reglages faits a la main depuis une session survivent aux redemarrages.
+# reglages faits a la main survivent aux redemarrages. Aucun fournisseur :
+# celui d'OpenAI est le defaut de Codex, et le modele se choisit dans
+# l'extension ou avec /model.
 #
 # "danger-full-access" est un choix, pas une negligence : sans lui Codex
 # tente de s'isoler avec bubblewrap, qui exige des user namespaces
 # indisponibles dans un conteneur non privilegie ("bwrap: No permissions to
 # create a new namespace") et aucune commande ne s'execute. L'isolation est
 # deja celle du conteneur ; en empiler une seconde ne fait que tout bloquer.
-#
-# Le provider pointe la PASSERELLE CodeLab, pas un fournisseur en direct.
-# Sans cela, "codex login" envoie le trafic chez OpenAI avec un compte
-# personnel : aucune cle centralisee, aucune comptabilite, aucun routage --
-# exactement ce que codelab-llm existe pour eviter.
-#
-# wire_api n'est pas pose : "responses" est le seul protocole accepte depuis
-# fevrier 2026, et c'est aussi le defaut. C'est la raison pour laquelle
-# codelab-llm expose /v1/responses.
-#
-# La cle n'est jamais ecrite ici : Codex la lit dans son fichier, par une
-# commande (auth.command), a chaque fois qu'il en a besoin.
-#
-# PAS PAR L'ENVIRONNEMENT (env_key), comme avant. L'environnement d'une
-# session est fige a son ouverture : une cle creee ensuite dans le panneau
-# n'y etait pas, et Codex repondait « Missing environment variable:
-# CODELAB_LLM_KEY » jusqu'au terminal suivant. Lue dans le fichier, la cle
-# est prise des qu'elle est posee. Codex refuse env_key ET auth ensemble.
-# Le catalogue des modeles, livre dans l'image (voir dev/Dockerfile) : les
-# noms de la passerelle dans le selecteur de modele, avec leurs metadonnees.
-CATALOGUE_CODEX=/usr/local/share/codelab/codex-modeles.json
-if [ ! -f "$CODEX_HOME_DIR/config.toml" ]; then
-    cat > "$CODEX_HOME_DIR/config.toml" <<CODEXCFG
+CODEX_CFG="$CODEX_HOME_DIR/config.toml"
+if [ ! -f "$CODEX_CFG" ]; then
+    cat > "$CODEX_CFG" <<CODEXCFG
 # Ecrit une seule fois par codelab-dev -- modifiable librement.
-model_catalog_json = "$CATALOGUE_CODEX"
 sandbox_mode = "danger-full-access"
 approval_policy = "on-request"
-
-model_provider = "codelab"
-model = "codelab-coding"
-
-[model_providers.codelab]
-name = "CodeLab"
-base_url = "http://codelab-llm:8080/v1"
-
-[model_providers.codelab.auth]
-command = "head"
-args = ["-n", "1", "$CODEX_HOME_DIR/codelab-llm.key"]
 CODEXCFG
-    chown "$SSH_USER" "$CODEX_HOME_DIR/config.toml" 2>/dev/null || true
+    chown "$SSH_USER" "$CODEX_CFG" 2>/dev/null || true
 fi
 
-# Les installations existantes ont l'ancienne ligne d'amorce. On ne touche
-# qu'a ELLE -- la ligne exacte que ce script ecrivait, dans un fichier qui
-# pointe encore la passerelle et n'a pas deja son bloc auth -- et le reste du
-# fichier, que Codex complete lui-meme ([projects...]) et que l'on a pu
-# ajuster a la main, reste tel quel.
-CODEX_CFG="$CODEX_HOME_DIR/config.toml"
-if grep -qx 'env_key = "CODELAB_LLM_KEY"' "$CODEX_CFG" 2>/dev/null \
-        && grep -qx 'base_url = "http://codelab-llm:8080/v1"' "$CODEX_CFG" \
-        && ! grep -qF '[model_providers.codelab.auth]' "$CODEX_CFG"; then
-    python3 - "$CODEX_CFG" "$CODEX_HOME_DIR/codelab-llm.key" <<'PYCODEXAUTH' \
-        && echo "[codelab-dev] config.toml de Codex : cle lue dans son fichier."
-import sys
-chemin, cle = sys.argv[1], sys.argv[2]
-lignes = open(chemin, encoding="utf-8").read().split("\n")
-lignes.remove('env_key = "CODELAB_LLM_KEY"')
-texte = "\n".join(lignes).rstrip("\n") + (
-    '\n\n[model_providers.codelab.auth]\n'
-    'command = "head"\n'
-    f'args = ["-n", "1", "{cle}"]\n')
+# LES config.toml QUI PASSAIENT PAR LA PASSERELLE. On ne retire QUE ce que
+# ce conteneur y avait ecrit -- le fournisseur « codelab » et ses sections,
+# le catalogue de modeles de l'image, un modele « codelab-* » -- et le reste
+# (les [projects...] que Codex ajoute, les reglages faits a la main) reste
+# tel quel. Sans ce menage, Codex continuerait d'appeler codelab-llm.
+if grep -q '^model_provider = "codelab"' "$CODEX_CFG" 2>/dev/null \
+        || grep -qF '[model_providers.codelab]' "$CODEX_CFG" 2>/dev/null; then
+    python3 - "$CODEX_CFG" <<'PYCODEXCHATGPT' \
+        && echo "[codelab-dev] config.toml de Codex : passerelle retiree, compte ChatGPT."
+import re, sys
+chemin = sys.argv[1]
+gardees, dans_codelab = [], False
+for ligne in open(chemin, encoding="utf-8").read().split("\n"):
+    section = re.match(r"^\s*\[([^\]]+)\]\s*$", ligne)
+    if section:
+        dans_codelab = section.group(1).strip() in (
+            "model_providers.codelab", "model_providers.codelab.auth")
+        if dans_codelab:
+            continue
+    if dans_codelab:
+        continue
+    nette = ligne.strip()
+    if nette == 'model_provider = "codelab"':
+        continue
+    if re.fullmatch(r'model = "codelab-[a-z-]+"', nette):
+        continue
+    if re.fullmatch(r'model_catalog_json = "/usr/local/share/codelab/[^"]*"', nette):
+        continue
+    gardees.append(ligne)
+texte = re.sub(r"\n{3,}", "\n\n", "\n".join(gardees)).strip("\n") + "\n"
 open(chemin, "w", encoding="utf-8").write(texte)
-PYCODEXAUTH
+PYCODEXCHATGPT
 fi
 
-# Les config.toml d'avant le catalogue : la ligne est ajoutee EN TETE --
-# une cle de premier niveau doit preceder toute section [..] en TOML -- et
-# seulement sur un fichier qui pointe encore la passerelle et n'en a pas.
-if [ -r "$CATALOGUE_CODEX" ] \
-        && grep -qx 'base_url = "http://codelab-llm:8080/v1"' "$CODEX_CFG" 2>/dev/null \
-        && ! grep -q '^model_catalog_json' "$CODEX_CFG"; then
-    { printf 'model_catalog_json = "%s"\n' "$CATALOGUE_CODEX"; cat "$CODEX_CFG"; } \
-        > "$CODEX_CFG.nouveau" \
-        && cat "$CODEX_CFG.nouveau" > "$CODEX_CFG" && rm -f "$CODEX_CFG.nouveau" \
-        && echo "[codelab-dev] config.toml de Codex : catalogue des modeles ajoute."
-fi
+# L'ancienne cle de la passerelle : le panneau la revoque, elle part d'ici.
+rm -f "$CODEX_HOME_DIR/codelab-llm.key" 2>/dev/null || true
+
+# LE JETON CHATGPT N'EST LISIBLE QUE PAR vscode. Le dossier est partage avec
+# le groupe codelab (le panneau, Dagster) : un auth.json en 0660 leur
+# donnerait l'acces au compte ChatGPT.
+[ -f "$CODEX_HOME_DIR/auth.json" ] && chmod 600 "$CODEX_HOME_DIR/auth.json" 2>/dev/null
+[ -f "$CODEX_HOME_DIR/auth.json" ] && chown "$SSH_USER" "$CODEX_HOME_DIR/auth.json" 2>/dev/null
+true
 
 # ~/.codex vers CODEX_HOME. CODEX_HOME n'est pose que par le profil de
-# session : un Codex lance sans passer par lui -- un script, une tache VS Code
-# -- cherchait sa configuration dans ~/.codex, ne trouvait rien, et repondait
-# « Authentication required ».
+# session : un Codex lance sans passer par lui -- l'extension VS Code, un
+# script -- cherchait sa configuration dans ~/.codex, ne trouvait rien, et
+# redemandait la connexion.
 if [ ! -e /home/vscode/.codex ]; then
     ln -s "$CODEX_HOME_DIR" /home/vscode/.codex 2>/dev/null || true
     chown -h vscode:vscode /home/vscode/.codex 2>/dev/null || true
 fi
 
-# LA CLE DE LA PASSERELLE, si elle a ete deposee.
-#
-# C'est une cle CodeLab -- enregistree en base, revocable, portant un quota et
-# une comptabilite -- et surtout PAS une cle de fournisseur. Sa compromission
-# se repare en une commande ("revoke-key") et ne donne acces a aucun compte
-# OpenAI ou Anthropic : les cles des fournisseurs vivent dans
-# codelab-litellm, que ce conteneur ne voit meme pas.
-#
-# Elle est lue dans un fichier et exportee dans les sessions, plutot
-# qu'inscrite dans config.toml : un fichier se remplace sans toucher a la
-# configuration, et se retire sans la casser.
-#
-# La creer depuis une session, une fois :
-#
-#   docker exec codelab-llm python3 app.py create-key \
-#       --name vscode --user VOTRE-NOM --app vscode
-#
-# puis coller la valeur affichee dans $CODEX_HOME/codelab-llm.key.
-CLE_LLM_FICHIER="$CODEX_HOME_DIR/codelab-llm.key"
 {
     echo '# Genere par codelab-dev -- environnement Codex.'
     echo "export CODEX_HOME=$CODEX_HOME_DIR"
-    echo "if [ -r \"$CLE_LLM_FICHIER\" ]; then"
-    echo "    CODELAB_LLM_KEY=\"\$(head -n 1 \"$CLE_LLM_FICHIER\" | tr -d '[:space:]')\""
-    echo "    export CODELAB_LLM_KEY"
-    echo "fi"
 } > "$CODEX_PROFILE"
 chmod 644 "$CODEX_PROFILE"
-
-# Droits du fichier de cle, s'il existe deja : personne d'autre que son
-# proprietaire n'a a le lire.
-[ -f "$CLE_LLM_FICHIER" ] && chmod 600 "$CLE_LLM_FICHIER" 2>/dev/null
-[ -f "$CLE_LLM_FICHIER" ] && chown "$SSH_USER" "$CLE_LLM_FICHIER" 2>/dev/null
-true
 
 # Manuel de l'environnement, lu par Codex comme instructions globales. Recopie
 # a CHAQUE demarrage, contrairement au config.toml : ce fichier decrit la

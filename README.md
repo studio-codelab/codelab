@@ -18,26 +18,10 @@ propos.
 | **Dagster-proxy** | Authentification devant Dagster | `3000` |
 | **App-manager** | Le panneau : déploiement et supervision des applications | `9001` |
 | **Applications** | Les projets déployés, servis sur leur propre adresse | `9002` |
-| **CodeLab LLM** | Passerelle compatible OpenAI : identité, quota, comptabilité | interne |
 
 Aucune configuration manuelle après l'installation : les identifiants de base de données et les clés
 SSH sont générés au premier démarrage, et la connexion à Postgres est déjà prête dans le conteneur
 `dev`.
-
-Le service IA est un seul conteneur : une passerelle réservée aux clients porteurs d'une clé
-CodeLab, qui appelle en direct la **part gratuite** de Gemini, Mistral, Groq et OpenRouter — quand
-le quota de l'un est épuisé, le suivant répond. Il ne publie aucun port. Une seule clé gratuite,
-collée dans le panneau, suffit ; la configuration complète est dans [`llm/README.md`](llm/README.md).
-
-Avec `docker-compose.yml`, il est optionnel et se démarre à part :
-
-```bash
-docker compose --profile llm up -d
-```
-
-Avec `docker-compose-casaos.yml`, il n'y a **pas de profil** : CasaOS ne sait pas en activer un, et
-le service n'y démarrait jamais. Il part donc avec le reste : le compose se suffit à lui-même, c'est
-le seul fichier à importer dans CasaOS.
 
 ## Prérequis
 
@@ -55,8 +39,6 @@ vérifient que ces plafonds restent cohérents avec la cible annoncée.
 
 Sur une machine plus grande, remonter l'ensemble proportionnellement dans les deux fichiers
 `docker-compose*.yml`, et la constante `RAM_CIBLE_MO` de `workspace/diagnostic/checks.py`.
-
-Le service IA ajoute un conteneur et 320 Mo de plafond.
 
 ## Installation
 
@@ -143,14 +125,6 @@ surveiller à l'œil :
   **Dagster en fait partie** : sur une installation où l'on n'ouvre jamais l'orchestrateur, sa tuile
   se range comme les autres. C'est du rangement, pas une fermeture : le service continue de tourner
   et son adresse répond toujours.
-- **Clés et secrets** — une console, comme chez un fournisseur de LLM : créer une clé à la
-  demande, en révoquer une sans toucher aux autres, et voir ce que **chacune** a consommé
-  (requêtes, jetons, dernier appel). Les clés des fournisseurs (Gemini, Mistral, Groq, OpenRouter)
-  se collent une fois et servent aussitôt. La clé de Codex, elle, est **créée et posée
-  toute seule** — rien à saisir — et ne s'affiche jamais. Une clé destinée à une application est
-  montrée **une seule fois** : la base n'en garde que l'empreinte.
-  Le panneau n'atteint ni le compose ni le `.env` de l'hôte — les lui monter lui donnerait de quoi
-  réécrire la stack.
 
 **Dagster** — `http://<IP-du-serveur>:3000/`. Charge `/workspace/definitions.py` comme code
 Dagster. Il n'a pas d'identifiants à lui : il utilise la session du panneau, donc la même connexion
@@ -162,8 +136,8 @@ et la même déconnexion.
 ## Où vit la configuration
 
 Trois mondes, et chacun a ses fichiers. **Rien n'est à saisir pour que la stack tourne** : les mots
-de passe et les clés sont générés au premier démarrage. Les seules valeurs à fournir sont une clé
-de fournisseur IA gratuite (dans le panneau) et, pour SSH, une clé publique par machine.
+de passe et les clés sont générés au premier démarrage. La seule valeur à fournir est, pour SSH,
+une clé publique par machine.
 
 ### 1. Le serveur — ce qui fait tourner la stack
 
@@ -172,9 +146,7 @@ Tout vit dans `/DATA/AppData/codelab/config/`, en dehors des conteneurs.
 | Fichier | Contenu | Écrit par | Lu par |
 |---|---|---|---|
 | `credentials.env` | identifiants des services, **un bloc par service** ; un sommaire en tête dit qui écrit quoi | les services, à leur démarrage | les services ; une partie est passée aux apps (voir 3) |
-| `llm/llm.env` | clés des fournisseurs IA, accès à la base du service IA, chaînes de modèles | `codelab-postgres` et le panneau | `codelab-llm` seul |
 | `ssh/authorized_keys.d/` | une clé publique par machine autorisée | toi | `codelab-dev` |
-| `.env` de l'hôte (à côté du compose, pas avec CasaOS) | seulement `OPENROUTER_API_KEY`, facultatif — voir `.env.example` | toi | `codelab-postgres`, qui la recopie |
 
 On n'édite `credentials.env` qu'en y **ajoutant** un bloc à soi : chaque bloc d'un service est
 réécrit à son démarrage. Détails : [`workspace/README.md`](workspace/README.md#credentialsenv).
@@ -186,11 +158,12 @@ Ce qui sert à **écrire** du code, dans le conteneur `codelab-dev`. Détails :
 
 | Où | Contenu |
 |---|---|
-| `/workspace/.codex/` | configuration de Codex (`config.toml`), sa clé CodeLab (`codelab-llm.key`, posée par le panneau), le manuel `AGENTS.md` |
+| `/workspace/.codex/` | configuration de Codex (`config.toml`), sa connexion au compte ChatGPT (`auth.json`, en `0600`), le manuel `AGENTS.md` |
 | `~/.vscode-server` (→ `/DATA/AppData/codelab/vscode-server`) | le serveur VS Code et ses extensions, conservés aux mises à jour |
-| profil de session (`/etc/profile.d/`) | variables `PG*` pour `psql`, `CODEX_HOME`, `CODELAB_LLM_KEY` — posées à chaque connexion SSH |
+| profil de session (`/etc/profile.d/`) | variables `PG*` pour `psql`, `CODEX_HOME` — posées à chaque connexion SSH |
 
-Aucun de ces fichiers ne va aux applications déployées.
+Aucun de ces fichiers ne va aux applications déployées. **Codex se connecte avec un compte
+ChatGPT** (bouton *Sign in* de l'extension, ou `codex login`).
 
 ### 3. Les applications — ce que le panneau lance
 
@@ -203,8 +176,10 @@ Ce qui sert à **faire tourner** un projet. Détails :
 | `/workspace/<projet>/.env` | ce qui ne concerne que ce projet ; **l'emporte toujours** |
 | réglages de l'app dans le panneau | commande de lancement, build, visibilité, adresse — stockés dans `app-manager/apps.json` |
 
-Une application qui appelle l'IA le fait avec **sa propre clé CodeLab** (panneau → *Clés et
-secrets* → *Créer une clé*), posée dans son `.env` — jamais avec la clé OpenRouter.
+**L'IA n'est pas fournie par CodeLab.** Une application qui s'en sert appelle elle-même le
+fournisseur de son choix (OpenAI, Gemini, Mistral, OpenRouter…), avec **une clé à elle** posée dans
+son `.env` — jamais commité. Créer une clé par application chez le fournisseur garde la révocation
+et le suivi de consommation application par application, depuis son tableau de bord.
 
 ## Contenu par défaut du workspace
 

@@ -221,48 +221,6 @@ services:
     networks:
       - codelab
 
-  codelab-llm:
-    image: ghcr.io/studio-codelab/codelab-llm:latest
-    container_name: codelab-llm
-    restart: unless-stopped
-
-    mem_limit: 320m
-    cpus: 0.5
-    pids_limit: 256
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-
-    expose:
-      - "8080"
-
-    environment:
-      CODELAB_LLM_ENV_FILE: /var/lib/codelab/llm/llm.env
-
-    volumes:
-      - /DATA/AppData/codelab/config/llm:/var/lib/codelab/llm:ro
-
-    depends_on:
-      codelab-postgres:
-        condition: service_healthy
-
-    healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')\""]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
-
-    networks:
-      - codelab
-
   codelab-dagster-proxy:
     image: ghcr.io/studio-codelab/codelab-dagster-proxy:latest
     container_name: codelab-dagster-proxy
