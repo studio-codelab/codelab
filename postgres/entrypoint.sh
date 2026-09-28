@@ -273,6 +273,30 @@ drop_maintenance_db() {
   fi
 }
 
+# Le mot de passe du role est celui de credentials.env, a CHAQUE demarrage.
+#
+# POSTGRES_PASSWORD n'est applique par l'image officielle qu'a la toute
+# premiere initialisation du cluster. Si credentials.env est regenere plus
+# tard (reinstallation, fichier perdu) alors que les donnees sont gardees,
+# tous les clients -- panneau, Dagster, projets -- lisent un mot de passe que
+# la base ne connait pas : "password authentication failed". credentials.env
+# etant la source unique que lisent tous les services, c'est la base qu'on
+# aligne sur lui, jamais l'inverse.
+#
+# Aucune securite en moins : le secret reste celui du fichier 0600. Il passe
+# par l'entree standard de psql et non par -c, pour ne pas apparaitre dans
+# ps ; les apostrophes sont doublees pour le litteral SQL.
+realigner_mot_de_passe() {
+  mdp_sql=$(printf '%s' "$PG_PASSWORD" | sed "s/'/''/g")
+  if printf "ALTER ROLE \"%s\" PASSWORD '%s';\n" "$POSTGRES_USER" "$mdp_sql" \
+       | psql -U "$POSTGRES_USER" -d "$CODELAB_INSTANCE_DB" -q >/dev/null 2>&1; then
+    echo "[codelab-postgres] mot de passe du role aligne sur credentials.env."
+  else
+    echo "[codelab-postgres] alignement du mot de passe impossible :" \
+         "les clients risquent un refus d'authentification." >&2
+  fi
+}
+
 # Provisionnement en tache de fond : le serveur doit d'abord ecouter, et
 # c'est "exec docker-entrypoint.sh" plus bas qui le demarre. Toute erreur
 # ici est non fatale -- une base de projet manquante se rattrape avec
@@ -302,6 +326,8 @@ provision_databases() {
          "non provisionnees." >&2
     return 1
   fi
+
+  realigner_mot_de_passe
 
   for db in $CODELAB_PROJECT_DBS; do
     # Les bases de la stack ne sont pas des projets : leur poser le schema

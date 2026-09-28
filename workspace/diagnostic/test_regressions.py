@@ -11789,3 +11789,19 @@ def test_mailpit_est_habille_aux_couleurs_de_codelab():
     logo = open(os.path.join(racine, "dagster", "proxy", "mailpit-theme", "logo.svg"),
                 encoding="utf-8").read().strip()
     assert app.ICONE_MAILPIT == logo
+
+
+def test_postgres_realigne_le_mot_de_passe_a_chaque_demarrage():
+    """credentials.env regenere, donnees gardees : la base doit reprendre le
+    mot de passe du fichier, sinon tous les clients sont refuses."""
+    racine = _racine_depot()
+    script = open(os.path.join(racine, "postgres", "entrypoint.sh"),
+                  encoding="utf-8").read()
+    fonction = script.split("realigner_mot_de_passe() {", 1)[1].split("\n}\n", 1)[0]
+    assert "ALTER ROLE" in fonction and "PASSWORD" in fonction
+    # Par l'entree standard, jamais en argument de psql (visible dans ps).
+    assert "| psql" in fonction and " -c " not in fonction
+    # Apostrophes doublees pour le litteral SQL.
+    assert "s/'/''/g" in fonction
+    provision = script.split("provision_databases() {", 1)[1].split("\n}\n", 1)[0]
+    assert "realigner_mot_de_passe" in provision
