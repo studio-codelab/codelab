@@ -290,17 +290,21 @@ developpement, qui execute des commandes sans qu'on relise chacune — et il
 est monte par Dagster et app-manager. Un credential permanent y serait
 utilisable par un agent travaillant sans personne devant.
 
-## L'extension PostgreSQL
+## L'extension Database Client JDBC
 
-L'extension **PostgreSQL** de Microsoft (`ms-ossdata.vscode-pgsql`) fait partie du poste : elle permet de
-parcourir les bases, lire un schéma et lancer une requête sans quitter VS Code.
+L'extension **Database Client JDBC** (`cweijan.dbclient-jdbc`) fait partie du poste : elle permet de
+parcourir les bases, lire un schéma et lancer une requête sans quitter VS Code. VS Code installe avec elle
+**Database Client**, dont elle dépend, qui se connecte nativement à Postgres et à Redis. La partie JDBC ne
+sert qu'aux autres bases, et demande alors un Java que l'image n'embarque pas.
 
 - **Installée d'office** sur le serveur VS Code du conteneur. Ce serveur n'existe qu'après la première
   connexion Remote-SSH ; le conteneur attend qu'il apparaisse, puis installe l'extension dans la minute. Elle
   est gardée dans `~/.vscode-server`, monté depuis l'hôte, et survit donc aux mises à jour d'image.
 - **Recommandée** dans `/workspace/.vscode/extensions.json`, pour que VS Code la propose même si
-  l'installation automatique n'a pas pu se faire (pas de réseau). Un fichier existant n'est que complété,
-  et un fichier avec des commentaires est laissé tel quel.
+  l'installation automatique n'a pas pu se faire (pas de réseau). Un fichier existant n'est que complété
+  (l'ancienne recommandation `ms-ossdata.vscode-pgsql` en est retirée), et un fichier avec des commentaires
+  est laissé tel quel. L'ancienne extension PostgreSQL déjà installée n'est pas désinstallée : elle se
+  retire d'un clic dans VS Code.
 
 Pour s'y connecter : hôte `codelab-postgres`, port `5432`, utilisateur `codelab`, base au choix (celle du
 projet). Le mot de passe s'affiche dans une session SSH avec `echo $PGPASSWORD`.
@@ -531,7 +535,7 @@ la liste se lit a l'endroit ou elle est installee.
 |---|---|---|
 | `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` | Fixees dans `docker-compose.yml` | Connexion a `codelab-postgres`. `PGDATABASE=diagnostic` : une session SSH atterrit dans la base du projet modele, pas dans la base d'instance de Dagster |
 | `CODELAB_ENV_FILE` | Fixee dans `docker-compose.yml` | `credentials.env` : `POSTGRES_PASSWORD` y est lu pour construire `PGPASSWORD` |
-| `CODELAB_VSCODE_EXTENSIONS` | Fixee dans `docker-compose.yml` | Extensions VS Code installees d'office sur le serveur VS Code (defaut : l'extension PostgreSQL) |
+| `CODELAB_VSCODE_EXTENSIONS` | Fixee dans `docker-compose.yml` | Extensions VS Code installees d'office sur le serveur VS Code (defaut : Database Client JDBC) |
 | `REDIS_URL`, `REDISCLI_AUTH` | Lus dans `credentials.env` (bloc `codelab-redis`) | Connexion a `codelab-redis` : `REDIS_URL` pour le code, `REDISCLI_AUTH` pour que `redis-cli -h codelab-redis` s'authentifie seul |
 | `CODELAB_SSH_DIR` | Fixee dans `docker-compose.yml` | Dossier unique des cles : `authorized_keys.d/`, `authorized_keys` (derive) + `host_keys/` |
 
