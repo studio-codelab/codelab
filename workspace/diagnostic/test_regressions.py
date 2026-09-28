@@ -13113,3 +13113,19 @@ def test_openrouter_gratuits_essaie_d_abord_les_modeles_de_code(monkeypatch):
     liste = asyncio.run(module.modeles_gratuits())
     assert liste == ["poolside/laguna-s-2.1:free", "cohere/north-mini-code:free",
                      "general/geant:free"]
+
+
+def test_un_quota_epuise_saute_les_autres_modeles_du_meme_fournisseur(monkeypatch):
+    """« free-models-per-day » vaut pour tous les modeles gratuits
+    d'OpenRouter : apres ce 429, la passerelle en essayait encore trois, qui
+    ne pouvaient qu'echouer de la meme facon."""
+    httpx = pytest.importorskip("httpx")
+    def repondre(fid, corps):
+        return httpx.Response(429, json={"error": {"message": "free-models-per-day"}})
+    client, module, appels = _passerelle_llm(
+        monkeypatch, repondre, cles={"OPENROUTER_API_KEY": CLES_DE_TEST["OPENROUTER_API_KEY"]})
+    monkeypatch.setenv("CODELAB_LLM_MODELE_CODELAB_CODING",
+                       "openrouter:a:free, openrouter:b:free, openrouter:c:free")
+    r = client.post("/v1/responses", json={"model": "codelab-coding", "input": "ping"})
+    assert r.status_code == 502
+    assert [a[2]["model"] for a in appels] == ["a:free"]
