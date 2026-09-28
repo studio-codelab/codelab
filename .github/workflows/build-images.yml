@@ -17,6 +17,7 @@ on:
     paths:
       - "postgres/**"
       - "redis/**"
+      - "mailpit/**"
       - "dev/**"
       - "dagster/**"
       - "workspace/**"
@@ -33,6 +34,7 @@ on:
     paths:
       - "postgres/**"
       - "redis/**"
+      - "mailpit/**"
       - "dev/**"
       - "dagster/**"
       - "workspace/**"
@@ -140,6 +142,8 @@ jobs:
             dockerfile: postgres/Dockerfile
           - name: codelab-redis
             dockerfile: redis/Dockerfile
+          - name: codelab-mailpit
+            dockerfile: mailpit/Dockerfile
           - name: codelab-dev
             dockerfile: dev/Dockerfile
           - name: codelab-dagster

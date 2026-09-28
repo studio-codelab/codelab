@@ -93,3 +93,12 @@ docker logs codelab-dagster-proxy
 Un `200` sur `/` sans session signifierait que l'authentification est tombee. Le `healthcheck`, lui, sonde
 `/_sante` : une requete sur `/` redirige desormais, et le client du healthcheck suivrait cette redirection
 vers un hote qui n'existe pas dans ce conteneur.
+
+## Mailpit, sur le port 8025
+
+Le même proxy garde l'interface de Mailpit (`mailpit.conf`), avec la même session d'administration du
+panneau. Mailpit exige de son côté un mot de passe sur toute son API, pour que les applications, qui
+partagent son réseau, ne puissent pas lire les mails de leurs voisines. Ce mot de passe est généré ici au
+démarrage, publié dans `credentials.env` (bloc `codelab-proxy`, jamais transmis aux applications) et
+ajouté par nginx à chaque requête **déjà autorisée** par le panneau. Tant que l'entrypoint ne l'a pas
+écrit, le port 8025 répond 503 : jamais d'accès à Mailpit sans lui.

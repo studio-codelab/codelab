@@ -137,6 +137,9 @@ header_block "# credentials.env -- les identifiants des services CodeLab.
 #   bloc                 ecrit par          sert a                     transmis aux apps
 #   codelab-postgres     codelab-postgres   base partagee (Postgres)   oui
 #   codelab-redis        codelab-redis      cache et files (Redis)     oui
+#   codelab-mailpit      codelab-mailpit    envoi de mails (SMTP)      oui
+#   codelab-relais-mail  panneau            serveur relaye par Mailpit NON
+#   codelab-proxy        proxy Dagster      acces interne a Mailpit    NON
 #   codelab-app-manager  panneau            connexion au panneau       NON
 #   codelab-sso          panneau            identite des applications  cle publique seule
 #   codelab-alertes      panneau            envoi des mails d'alerte   NON

@@ -1,7 +1,7 @@
 # CodeLab
 
 Environnement de développement personnel, auto-hébergé sur son propre serveur. Une seule
-installation fournit une base de données partagée, un Redis, un accès SSH/VS Code, un orchestrateur de jobs et
+installation fournit une base de données partagée, un Redis, un envoi de mails, un accès SSH/VS Code, un orchestrateur de jobs et
 un gestionnaire d'applications — un `docker-compose.yml`, rien d'autre à installer sur l'hôte que
 Docker.
 
@@ -14,9 +14,10 @@ propos.
 |---|---|---|
 | **Postgres** | Serveur de bases partagé : une base par projet, `pgvector` inclus | interne |
 | **Redis** | Cache, sessions, files de tâches et compteurs, partagé par les applications | interne |
+| **Mailpit** | Envoi de mails des applications : les garde consultables, les relaie par ton serveur d'envoi | `8025` (via le proxy) |
 | **Dev** | Accès SSH et VS Code Remote-SSH | `2222` |
 | **Dagster** | Orchestration des jobs : l'interface, et le daemon qui déclenche plannings et capteurs | interne |
-| **Dagster-proxy** | Authentification devant Dagster | `3000` |
+| **Dagster-proxy** | Authentification devant Dagster et Mailpit | `3000`, `8025` |
 | **App-manager** | Le panneau : déploiement et supervision des applications | `9001` |
 | **Applications** | Les projets déployés, servis sur leur propre adresse | `9002` |
 
@@ -108,6 +109,12 @@ règles, détaillées dans [`redis/README.md`](redis/README.md) : **préfixer se
 l'application, **donner une durée de vie** à ce qui est du cache, et garder dans Postgres ce qui ne
 doit pas se perdre.
 
+**Les e-mails.** Une application envoie ses mails à Mailpit (`MAIL_HOST`, `MAIL_PORT`, transmis par
+le panneau), sans identifiants. Chaque mail reste consultable sur `http://<IP-du-serveur>:8025/`
+(session d'administration du panneau) et part par le serveur d'envoi réglé dans *Paramètres >
+E-mail* — le même que pour les alertes, un simple compte Gmail suffit. Détails et mode test :
+[`mailpit/README.md`](mailpit/README.md).
+
 **Le panneau** — `http://<IP-du-serveur>:9001/`. Démarrer et arrêter ses applications, les
 déployer, consulter leurs journaux. L'accueil est un **hub** : la liste des projets ouvrables,
 chacun avec sa description d'une ligne. Le parcours complet, du dossier vide à l'application en
@@ -180,7 +187,7 @@ Ce qui sert à **faire tourner** un projet. Détails :
 
 | Couche (de la plus faible à la plus forte) | Contenu |
 |---|---|
-| variables passées par le panneau | les blocs `codelab-postgres` et `codelab-redis` de `credentials.env`, `PORT`, l'identité SSO (clé publique, émetteur, audience) — jamais le mot de passe du panneau, sa clé privée SSO ni la configuration d'envoi des alertes |
+| variables passées par le panneau | les blocs `codelab-postgres`, `codelab-redis` et `codelab-mailpit` de `credentials.env`, `PORT`, l'identité SSO (clé publique, émetteur, audience) — jamais le mot de passe du panneau, sa clé privée SSO ni la configuration d'envoi des alertes |
 | `/workspace/<projet>/.env` | ce qui ne concerne que ce projet ; **l'emporte toujours** |
 | réglages de l'app dans le panneau | commande de lancement, build, visibilité, adresse — stockés dans `app-manager/apps.json` |
 
@@ -224,5 +231,5 @@ vérifiable sans aucune saisie.
   les services se parlent et si l'ensemble est correctement fermé. Il ne se supprime pas — sans lui,
   une installation n'a plus aucun moyen de se contrôler elle-même.
 - **Le fonctionnement interne d'un service** : le `README.md` de son dossier —
-  [`postgres/`](postgres/README.md), [`redis/`](redis/README.md), [`dev/`](dev/README.md), [`dagster/`](dagster/README.md),
+  [`postgres/`](postgres/README.md), [`redis/`](redis/README.md), [`mailpit/`](mailpit/README.md), [`dev/`](dev/README.md), [`dagster/`](dagster/README.md),
   [`app-manager/`](app-manager/README.md).

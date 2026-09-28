@@ -1744,6 +1744,7 @@ THEME_DES_SONDES = {
     "codelab-dev (SSH)": "services",
     "codelab-postgres (TCP)": "services",
     "codelab-redis (TCP)": "services",
+    "codelab-mailpit (SMTP)": "services",
     "codelab-app-manager": "services",
     "Postgres (pilote)": "donnees",
     "Postgres": "donnees",
@@ -1898,6 +1899,7 @@ SEVERITE_MAX = {
     "Postgres": Etat.ECHEC,
     "codelab-postgres (TCP)": Etat.ECHEC,
     "codelab-redis (TCP)": Etat.ECHEC,       # les applications qui s'en servent tombent
+    "codelab-mailpit (SMTP)": Etat.ALERTE,   # des mails qui ne partent plus, pas une panne
     "codelab-dagster": Etat.ECHEC,            # un conteneur tombe est une panne,
     "codelab-dev (SSH)": Etat.ECHEC,          # pas un reglage a revoir
     "codelab-app-manager": Etat.ECHEC,
@@ -1959,6 +1961,8 @@ def run_all(env_file=None, workspace=None, ssh_dir=None):
         _executer_sonde("pgvector", lambda: check_pgvector(env_file)),
         _executer_sonde("check_tcp", lambda: check_tcp("codelab-postgres (TCP)", host, port)),
         _executer_sonde("check_tcp", lambda: check_tcp("codelab-redis (TCP)", "codelab-redis", 6379)),
+        _executer_sonde("check_tcp", lambda: check_tcp("codelab-mailpit (SMTP)", "codelab-mailpit", 1025,
+                                                        lire_banniere=True, gravite=Etat.ALERTE)),
         _executer_sonde("check_http", lambda: check_http("codelab-dagster", "http://codelab-dagster:3000/")),
         _executer_sonde("check_tcp", lambda: check_tcp("codelab-dev (SSH)", "codelab-dev", 22, lire_banniere=True)),
         _executer_sonde("check_panneau_joignable", lambda: check_panneau_joignable()),
