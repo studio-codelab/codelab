@@ -11791,6 +11791,20 @@ def test_mailpit_est_habille_aux_couleurs_de_codelab():
     logo = open(os.path.join(racine, "dagster", "proxy", "mailpit-theme", "logo.svg"),
                 encoding="utf-8").read().strip()
     assert app.ICONE_MAILPIT == logo
+    # Un seul fond, le turquoise : l'enveloppe est un trait blanc, sans
+    # aplat blanc dessous (comme le logo du diagnostic).
+    assert logo.count("<rect") == 2 and 'fill="#fff"' not in logo
+    assert 'fill="none" stroke="#fff"' in logo
+    # Le logo aussi dans les notifications et sous /favicon.ico, en PNG.
+    for route in ("location = /notification.png", "location = /favicon.ico"):
+        assert route in conf, route
+    png = open(os.path.join(racine, "dagster", "proxy", "mailpit-theme", "logo.png"), "rb").read()
+    assert png[:8] == b"\x89PNG\r\n\x1a\n"
+    # Dans les fenetres (reglages, a propos) : le logo devant le titre, les
+    # interrupteurs en liste, des onglets segmentes.
+    assert ".modal-title::before" in css and "/_codelab/logo.svg" in css
+    assert "#SettingsModal .form-switch" in css
+    assert ".modal .nav-tabs" in css
 
 
 def test_postgres_realigne_le_mot_de_passe_a_chaque_demarrage():

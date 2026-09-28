@@ -179,3 +179,219 @@ body {
    la feuille de Mailpit ajoute a tout lien en http(s)://. */
 #codelab-retour-hub { left: auto !important; right: 18px !important; bottom: 18px !important; }
 #codelab-retour-hub::after { content: none !important; display: none !important; }
+
+/* ---------------------------------------------------------------------------
+   Les fenetres (reglages, a propos, confirmations) : celles du panneau.
+   Une carte arrondie sur un voile floute, un titre net, le pied sans trait.
+   --------------------------------------------------------------------------- */
+.modal-backdrop.show { opacity: .45; }
+.modal-backdrop { background-color: #0a0f14; }
+.modal.show { backdrop-filter: blur(3px); }
+.modal-content {
+  border: 1px solid var(--bs-border-color);
+  border-radius: 18px;
+  box-shadow: 0 24px 60px rgba(10, 15, 20, .28);
+  overflow: hidden;
+}
+.modal-header {
+  padding: 20px 24px 14px;
+  border-bottom: 0;
+}
+.modal-title {
+  font-weight: 700;
+  font-size: 1.15rem;
+  letter-spacing: -.01em;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+/* Le logo devant le titre de chaque fenetre : l'application se reconnait
+   aussi a l'interieur. */
+.modal-title::before {
+  content: "";
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: url("/_codelab/logo.svg") center / cover no-repeat;
+}
+.modal-body { padding: 4px 24px 20px; }
+.modal-footer {
+  border-top: 0;
+  padding: 0 24px 20px;
+  gap: 8px;
+}
+.modal-footer > * { margin: 0; }
+.btn-close { border-radius: 8px; opacity: .55; }
+.btn-close:hover { opacity: .9; }
+
+/* Les onglets des reglages : un selecteur segmente, et non les onglets a
+   bordure de Bootstrap. */
+.modal .nav-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 18px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--bs-secondary-bg);
+}
+.modal .nav-tabs .nav-link {
+  margin: 0;
+  padding: 7px 16px;
+  border: 0;
+  border-radius: 9px;
+  font-weight: 600;
+  font-size: .9rem;
+  color: var(--bs-secondary-color);
+}
+.modal .nav-tabs .nav-link.active {
+  color: var(--bs-body-color);
+  background: var(--codelab-surface);
+  box-shadow: 0 1px 3px rgba(10, 15, 20, .12);
+}
+.modal .tab-pane > .my-3:first-child,
+.modal .tab-pane > .my-3.mb-5 { margin-top: 0 !important; }
+
+/* Libelles et aides. */
+.modal .form-label,
+.modal label:not(.form-check-label) {
+  font-weight: 600;
+  font-size: .85rem;
+  margin-bottom: 6px;
+}
+.modal .form-text { color: var(--bs-secondary-color); font-size: .83rem; line-height: 1.5; }
+
+/* Champs : sur fond de carte, un trait net plutot qu'un aplat gris. */
+.modal .form-select,
+.modal .form-control {
+  background-color: var(--codelab-surface);
+  border: 1px solid var(--bs-border-color);
+  border-radius: 10px;
+  min-height: 42px;
+}
+
+/* Les interrupteurs : chacun sur sa ligne, libelle a gauche, bascule a
+   droite, le tout dans une liste encadree comme les reglages du panneau. */
+#SettingsModal .tab-pane > .mb-3:has(> .form-switch) {
+  margin-bottom: 0 !important;
+  border: 1px solid var(--bs-border-color);
+  border-top-width: 0;
+  background: var(--codelab-surface);
+}
+#SettingsModal .tab-pane > :not(.mb-3:has(> .form-switch)) + .mb-3:has(> .form-switch) {
+  border-top-width: 1px;
+  border-radius: 12px 12px 0 0;
+  margin-top: 20px;
+}
+#SettingsModal .tab-pane > .mb-3:has(> .form-switch):not(:has(+ .mb-3 > .form-switch)) {
+  border-radius: 0 0 12px 12px;
+}
+#SettingsModal .form-switch {
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0;
+  padding: 12px 16px;
+  min-height: 50px;
+}
+#SettingsModal .form-switch .form-check-input {
+  float: none;
+  margin: 0;
+  flex: none;
+  width: 2.4em;
+  height: 1.3em;
+  cursor: pointer;
+}
+#SettingsModal .form-switch .form-check-label { font-size: .92rem; cursor: pointer; }
+
+/* Le code dans le texte : une pastille turquoise discrete, et non le rose
+   de Bootstrap. */
+.modal code {
+  color: var(--bs-primary-text-emphasis);
+  background: var(--bs-primary-bg-subtle);
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: .82em;
+}
+
+/* Le bouton de fermeture du pied : l'action neutre du panneau. */
+.modal-footer .btn-outline-secondary,
+.modal-footer .btn-secondary {
+  --bs-btn-color: var(--bs-body-color);
+  --bs-btn-bg: var(--bs-secondary-bg);
+  --bs-btn-border-color: var(--bs-border-color);
+  --bs-btn-hover-color: var(--bs-body-color);
+  --bs-btn-hover-bg: var(--bs-border-color);
+  --bs-btn-hover-border-color: var(--bs-border-color);
+  font-weight: 600;
+  padding: 8px 18px;
+  border-radius: 10px;
+}
+/* Mailpit place parfois le pied DANS le corps de la fenetre : il herite
+   alors deja de ses marges laterales. */
+.modal-body .modal-footer { padding: 20px 0 0; }
+
+/* « A propos » : des cartes au trait fin, un en-tete discret, des chiffres
+   lisibles -- au lieu des bordures sombres de Bootstrap. */
+.modal .card,
+.modal .card.border-secondary {
+  border: 1px solid var(--bs-border-color) !important;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--codelab-surface);
+}
+.modal .card-header {
+  background: var(--bs-secondary-bg);
+  border-bottom: 1px solid var(--bs-border-color);
+  font-weight: 600;
+  font-size: .85rem;
+  color: var(--bs-secondary-color);
+  padding: 10px 14px;
+}
+.modal .card-header.h4 {
+  font-size: .95rem;
+  font-weight: 700;
+  color: var(--bs-body-color);
+}
+.modal .card-title {
+  font-weight: 700;
+  font-size: 1.35rem;
+  color: var(--bs-body-color);
+  margin: 0;
+}
+.modal .table {
+  --bs-table-bg: transparent;
+  --bs-table-striped-bg: transparent;
+  --bs-table-hover-bg: var(--bs-secondary-bg);
+}
+.modal .table > tbody > tr > * {
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--bs-border-color);
+}
+.modal .table > tbody > tr:last-child > * { border-bottom: 0; }
+.modal .table td:first-child, .modal .table th:first-child { color: var(--bs-secondary-color); }
+.modal .btn-outline-secondary.btn-sm { border-color: var(--bs-border-color); color: var(--bs-body-color); border-radius: 8px; }
+.modal .alert { border-radius: 12px; }
+.modal .accordion {
+  --bs-accordion-border-radius: 12px;
+  --bs-accordion-inner-border-radius: 11px;
+  --bs-accordion-border-color: var(--bs-border-color);
+  --bs-accordion-bg: var(--codelab-surface);
+  --bs-accordion-active-bg: var(--bs-primary-bg-subtle);
+  --bs-accordion-active-color: var(--bs-primary-text-emphasis);
+  --bs-accordion-btn-focus-box-shadow: 0 0 0 .2rem var(--bs-focus-ring-color);
+}
+
+/* En bas a gauche : « About » et la roue des reglages, alignes et sobres. */
+.about-mailpit .btn-outline-secondary {
+  border-color: var(--bs-border-color);
+  color: var(--bs-secondary-color);
+  border-radius: 8px;
+}
+.about-mailpit .btn-outline-secondary:hover {
+  background: var(--bs-secondary-bg);
+  color: var(--bs-body-color);
+}
