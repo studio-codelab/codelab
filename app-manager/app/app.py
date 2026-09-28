@@ -37,6 +37,8 @@ VS Code, git clone) puis simplement declares ici.
 import base64
 import datetime
 import fcntl
+import functools
+import gzip
 import queue
 import hashlib
 import hmac
@@ -1311,6 +1313,42 @@ CSP_PANNEAU = ("default-src 'self'; base-uri 'none'; object-src 'none'; "
 # eux, ne nous appartiennent pas forcement. Pose seulement quand le panneau
 # SAIT qu'il est servi en TLS -- sinon il se rendrait lui-meme injoignable.
 HSTS = "max-age=15552000"
+
+
+# LA COMPRESSION. La page du panneau pese 300 Ko et repartait telle quelle a
+# chaque visite : sans importance sur le reseau local, sensible depuis un
+# telephone a l'exterieur. En gzip, elle en fait environ 60.
+#
+# Ce qui n'est PAS compresse, et pourquoi :
+#   - le proxy des applications : leurs reponses sont les leurs, et elles
+#     compressent deja si elles le veulent ;
+#   - les flux (journaux en direct) : un flux compresse arrive par paquets ;
+#   - tout ce qui n'est pas un GET sans parametres. C'est la parade a BREACH,
+#     l'attaque qui devine un secret (ici le jeton de la page) a la taille
+#     d'une reponse compressee -- elle exige que l'attaquant fasse refleter
+#     un texte a lui dans la MEME reponse, donc une requete qu'il compose.
+COMPRESSIBLES = {"text/html", "application/json", "text/css",
+                 "application/javascript", "text/javascript", "image/svg+xml",
+                 "text/plain"}
+
+
+@flask_app.after_request
+def compresser(reponse):
+    if (request.method != "GET" or request.query_string
+            or request.endpoint in ("proxy", "proxy_noslash")
+            or "gzip" not in request.headers.get("Accept-Encoding", "")
+            or reponse.status_code != 200 or reponse.direct_passthrough
+            or reponse.is_streamed or "Content-Encoding" in reponse.headers
+            or reponse.mimetype not in COMPRESSIBLES):
+        return reponse
+    donnees = reponse.get_data()
+    if len(donnees) < 1024:
+        return reponse
+    reponse.set_data(gzip.compress(donnees, compresslevel=6))
+    reponse.headers["Content-Encoding"] = "gzip"
+    reponse.headers["Content-Length"] = str(len(reponse.get_data()))
+    reponse.vary.add("Accept-Encoding")
+    return reponse
 
 
 @flask_app.after_request
@@ -4356,6 +4394,190 @@ def _rotation_sauvegardes():
             pass
 
 
+# ------------------------- LE CODE DE /workspace -------------------------
+#
+# Les bases et l'etat du panneau etaient sauvegardes ; le CODE des projets ne
+# l'etait pas. Tant qu'un projet est pousse sur Git, rien n'est perdu -- mais
+# rien ne le verifie, et un projet commence un soir sans « git init » vit
+# seulement sur ce disque.
+#
+# Une archive par semaine, quatre gardees. Sans ce qui se reconstruit
+# (dependances, caches, builds) ni les fichiers de plus de 50 Mo (jeux de
+# donnees, binaires) : l'archive doit rester petite pour qu'on la copie
+# ailleurs sans y penser. Relue avant d'etre gardee, comme les autres.
+WORKSPACE_PREFIXE = "workspace-"
+WORKSPACE_JOURS = int(os.environ.get("APP_MANAGER_WORKSPACE_JOURS", "7"))
+WORKSPACE_GARDEES = 4
+WORKSPACE_FICHIER_MAX = 50 * 1024 * 1024
+WORKSPACE_EXCLUS = {"node_modules", ".venv", "venv", "__pycache__", ".cache",
+                    ".npm", "dist", "build", ".next", ".pytest_cache",
+                    ".mypy_cache", ".vscode-server", ".codex"}
+
+
+def _filtre_workspace(membre):
+    parties = membre.name.split("/")
+    if any(p in WORKSPACE_EXCLUS for p in parties):
+        return None
+    if membre.isfile() and membre.size > WORKSPACE_FICHIER_MAX:
+        return None
+    # Les secrets d'un projet (.env) restent dans l'archive : sans eux, le
+    # projet restaure ne demarre pas. L'archive est donc en 0600, comme
+    # celle de l'etat du panneau.
+    return membre
+
+
+def workspace_a_sauvegarder():
+    """Vrai si la derniere archive a plus de WORKSPACE_JOURS jours."""
+    if WORKSPACE_JOURS <= 0 or not os.path.isdir(ROOT):
+        return False
+    try:
+        archives = sorted(n for n in os.listdir(SAUVEGARDES_DIR)
+                          if n.startswith(WORKSPACE_PREFIXE) and n.endswith(".tar.gz"))
+    except OSError:
+        return False
+    if not archives:
+        return True
+    age = time.time() - os.path.getmtime(os.path.join(SAUVEGARDES_DIR, archives[-1]))
+    return age >= WORKSPACE_JOURS * 86400
+
+
+def sauvegarder_le_workspace():
+    horodatage = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S")
+    final = os.path.join(SAUVEGARDES_DIR, f"{WORKSPACE_PREFIXE}{horodatage}.tar.gz")
+    provisoire = final + ".partielle"
+    try:
+        with tarfile.open(provisoire, "w:gz") as archive:
+            archive.add(ROOT, arcname=".", filter=_filtre_workspace)
+        with tarfile.open(provisoire) as archive:
+            if not archive.getmembers():
+                raise OSError("archive vide")
+        os.chmod(provisoire, 0o600)
+        os.replace(provisoire, final)
+    except BaseException:
+        try:
+            os.remove(provisoire)
+        except OSError:
+            pass
+        raise
+    archives = sorted(n for n in os.listdir(SAUVEGARDES_DIR)
+                      if n.startswith(WORKSPACE_PREFIXE) and n.endswith(".tar.gz"))
+    for vieille in archives[:-WORKSPACE_GARDEES]:
+        try:
+            os.remove(os.path.join(SAUVEGARDES_DIR, vieille))
+        except OSError:
+            pass
+    return final
+
+
+# ------------------------ LA SURVEILLANCE EXTERNE ------------------------
+#
+# Toutes les alertes de la stack partent DE la machine : si elle s'eteint --
+# coupure de courant, disque mort, box en panne --, personne ne previent
+# personne. Seul un service EXTERIEUR peut constater un silence.
+#
+# Le principe est celui du « dead man's switch » : le panneau appelle une
+# adresse toutes les cinq minutes, et le service exterieur (healthchecks.io,
+# gratuit jusqu'a 20 surveillances, ou tout service compatible) envoie un
+# mail quand les appels cessent. Aucun port a ouvrir : c'est la machine qui
+# appelle.
+SURVEILLANCE_FILE = os.path.join(STATE_DIR, "surveillance.json")
+SURVEILLANCE_INTERVALLE = 300
+_surveillance_etat = {"quand": None, "ok": None, "detail": ""}
+
+
+def lire_surveillance():
+    try:
+        with open(SURVEILLANCE_FILE) as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return ""
+    url = d.get("url") if isinstance(d, dict) else ""
+    return url if isinstance(url, str) and url_surveillance_valide(url) else ""
+
+
+def url_surveillance_valide(url):
+    """https seulement, sans espace, d'une longueur raisonnable. C'est une
+    adresse que le panneau appellera tout seul, a intervalles reguliers."""
+    if not isinstance(url, str) or len(url) > 300 or any(c.isspace() for c in url):
+        return False
+    try:
+        u = urllib.parse.urlsplit(url)
+    except ValueError:
+        return False
+    return u.scheme == "https" and bool(u.hostname)
+
+
+def ecrire_surveillance(url):
+    tmp = SURVEILLANCE_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump({"url": url}, f)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, SURVEILLANCE_FILE)
+
+
+def signaler_vie(url=None):
+    """Un appel a l'adresse de surveillance. (ok, detail), jamais d'exception."""
+    url = url if url is not None else lire_surveillance()
+    if not url:
+        return None, "aucune adresse"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "CodeLab"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            ok, detail = 200 <= r.status < 300, f"HTTP {r.status}"
+    except Exception as e:                                        # noqa: BLE001
+        ok, detail = False, f"{type(e).__name__}: {e}"
+    _surveillance_etat.update(quand=time.time(), ok=ok, detail=detail)
+    if not ok:
+        print(f"[app-manager] surveillance externe injoignable : {detail}", flush=True)
+    return ok, detail
+
+
+def demarrer_la_surveillance_externe():
+    def _boucle():
+        while True:
+            try:
+                signaler_vie()
+            except Exception as e:                                # noqa: BLE001
+                print(f"[app-manager] surveillance externe : {e}", flush=True)
+            time.sleep(SURVEILLANCE_INTERVALLE)
+    threading.Thread(target=_boucle, daemon=True).start()
+
+
+@flask_app.get("/api/surveillance-externe")
+@require_admin
+def api_surveillance_lire():
+    etat = dict(_surveillance_etat)
+    return jsonify({"url": lire_surveillance(), "intervalle": SURVEILLANCE_INTERVALLE,
+                    "dernier_appel": etat["quand"], "ok": etat["ok"],
+                    "detail": etat["detail"]})
+
+
+@flask_app.post("/api/surveillance-externe")
+@require_admin
+def api_surveillance_ecrire():
+    """Enregistre l'adresse et l'appelle AUSSITOT : une adresse mal copiee
+    se voit ici, pas le jour ou la machine tombe sans que rien ne sonne."""
+    url = str((request.get_json(silent=True) or {}).get("url") or "").strip()
+    if url and not url_surveillance_valide(url):
+        return jsonify({"error": "Adresse invalide : elle doit commencer par "
+                                 "https:// (celle que donne healthchecks.io)."}), 400
+    if url:
+        ok, detail = signaler_vie(url)
+        if not ok:
+            return jsonify({"error": "Cette adresse n'a pas répondu, rien n'a "
+                                     "été enregistré.", "detail": detail}), 400
+    try:
+        ecrire_surveillance(url)
+    except OSError as e:
+        return jsonify({"error": f"Réglage non enregistré : {e}"}), 500
+    if not url:
+        _surveillance_etat.update(quand=None, ok=None, detail="")
+    journaliser("reglage", qui=utilisateur_courant() or NOM_ADMIN,
+                action="surveillance externe " + ("activee" if url else "retiree"),
+                ip=_adresse_client())
+    return jsonify({"ok": True, "url": url})
+
+
 def demarrer_les_sauvegardes():
     if not sauvegardes_actives():
         if SAUVEGARDE_HEURES <= 0:
@@ -4369,6 +4591,13 @@ def demarrer_les_sauvegardes():
 
     def _boucle():
         while True:
+            try:
+                if workspace_a_sauvegarder():
+                    chemin = sauvegarder_le_workspace()
+                    journaliser("sauvegarde", fichier=os.path.basename(chemin),
+                                octets=os.path.getsize(chemin))
+            except Exception as e:
+                print(f"[app-manager] archive du workspace impossible : {e}", flush=True)
             try:
                 chemin = sauvegarder_l_etat()
                 journaliser("sauvegarde", fichier=os.path.basename(chemin),
@@ -7360,6 +7589,39 @@ def api_auth_check():
     return Response("", 204)
 
 
+_erreurs_navigateur = {}
+
+
+@flask_app.post("/api/erreur-navigateur")
+@require_auth
+def api_erreur_navigateur():
+    """Une erreur JavaScript de la page du panneau, ecrite dans ses journaux.
+
+    Tout compte connecte peut en envoyer -- c'est sa page qui plante --, mais
+    trente par cinq minutes et par adresse au plus, et chaque champ tronque :
+    cette route ecrit dans un journal, elle ne doit pas servir a le remplir.
+    """
+    ip = _client_ip()
+    maintenant = time.time()
+    recentes = [x for x in _erreurs_navigateur.get(ip, []) if maintenant - x < 300]
+    if len(recentes) >= 30:
+        _erreurs_navigateur[ip] = recentes
+        return jsonify({"ok": False}), 429
+    recentes.append(maintenant)
+    _erreurs_navigateur[ip] = recentes
+    d = request.get_json(silent=True) or {}
+
+    def champ(nom, taille):
+        # Une seule ligne par champ : un saut de ligne glisse dans le message
+        # fabriquerait de fausses lignes dans le journal.
+        return " ".join(str(d.get(nom) or "").split())[:taille]
+
+    print(f"[navigateur] {utilisateur_courant() or NOM_ADMIN} {champ('page', 100)} : "
+          f"{champ('message', 500)} ({champ('source', 200)}:{champ('ligne', 10)}:"
+          f"{champ('colonne', 10)}) {champ('pile', 1500)}", flush=True)
+    return jsonify({"ok": True})
+
+
 @flask_app.get("/health")
 def health():
     return Response("ok\n", mimetype="text/plain")
@@ -7572,8 +7834,39 @@ def api_edit(n):
     })
 
 
+# UNE ACTION A LA FOIS PAR APPLICATION.
+#
+# Un double clic sur « Demarrer » envoyait deux requetes : la premiere
+# demarrait, la seconde -- arrivee quand l'application tournait deja --
+# l'arretait. Et deux deploiements lances ensemble construisaient dans le
+# meme dossier en meme temps. Le bouton desactive dans la page ne suffit
+# pas : deux onglets, ou deux administrateurs, ou un appel a la main,
+# passent a cote. Le serveur tient donc la regle : pendant qu'une action
+# tourne sur une application, les autres sont refusees en 409, avec un
+# message qui dit pourquoi.
+_actions_en_cours = {}
+_actions_verrou = threading.Lock()
+
+
+def une_action_a_la_fois(route):
+    @functools.wraps(route)
+    def enveloppe(n, *args, **kwargs):
+        with _actions_verrou:
+            verrou = _actions_en_cours.setdefault(n, threading.Lock())
+        if not verrou.acquire(blocking=False):
+            return jsonify({"error": f"Une action est déjà en cours sur « {n} ». "
+                                     f"Attends qu'elle se termine, puis réessaie.",
+                            "en_cours": True}), 409
+        try:
+            return route(n, *args, **kwargs)
+        finally:
+            verrou.release()
+    return enveloppe
+
+
 @flask_app.post("/api/toggle/<n>")
 @require_admin
+@une_action_a_la_fois
 def api_toggle(n):
     refus = refus_action_protegee(n, "arrêt/redémarrage")
     if refus:
@@ -7598,6 +7891,14 @@ def api_toggle(n):
     if n not in load():
         return jsonify({"error": "Application inconnue."}), 404
     action = "arret" if is_running(n) else "demarrage"
+    # L'action VOULUE, quand la page la donne. Un second clic parti avant
+    # que la page ait vu le premier aboutir demande encore « demarrage » ;
+    # l'application tourne deja, il n'y a donc rien a faire -- surtout pas
+    # l'arreter.
+    voulue = (request.get_json(silent=True) or {}).get("action")
+    if voulue in ("arret", "demarrage") and voulue != action:
+        return jsonify({"ok": True, "action": voulue, "deja": True,
+                        "running": voulue == "demarrage"})
     try:
         erreur = stop(n) if action == "arret" else start(n)
         if erreur:
@@ -7670,6 +7971,7 @@ def api_visibility(n):
 
 @flask_app.post("/api/restart/<n>")
 @require_admin
+@une_action_a_la_fois
 def api_restart(n):
     refus = refus_action_protegee(n, "redémarrage")
     if refus:
@@ -7684,6 +7986,7 @@ def api_restart(n):
 
 @flask_app.post("/api/deploy/<n>")
 @require_admin
+@une_action_a_la_fois
 def api_deploy(n):
     refus = refus_action_protegee(n, "déploiement")
     if refus:
@@ -7717,6 +8020,7 @@ def api_deploy(n):
 
 @flask_app.post("/api/build/<n>")
 @require_admin
+@une_action_a_la_fois
 def api_build(n):
     refus = refus_action_protegee(n, "build")
     if refus:
@@ -9208,4 +9512,5 @@ if __name__ == "__main__":
     start_monitor_thread()
     demarrer_miroir_pg()
     demarrer_les_sauvegardes()
+    demarrer_la_surveillance_externe()
     servir(int(os.environ.get("MANAGER_PORT", "9001")))

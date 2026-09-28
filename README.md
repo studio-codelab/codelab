@@ -134,6 +134,9 @@ surveiller à l'œil :
   savoir si un projet sert encore avant de l'arrêter.
 - **Alertes par mail** — un message quand une application ne redémarre plus, un autre quand elle
   revient.
+- **Si le serveur entier tombe** — le panneau appelle toutes les 5 minutes une adresse de
+  surveillance (healthchecks.io, gratuit) ; quand les appels cessent, c'est le service extérieur qui
+  t'écrit. À régler dans *Paramètres > Alertes*.
 - **Catégories** — des tiroirs pour ranger les projets dans le hub. Purement visuel : une catégorie
   ne donne aucun droit.
 - **Applications du hub** — ce que *ton* hub affiche, compte par compte. Cochée, elle est affichée.

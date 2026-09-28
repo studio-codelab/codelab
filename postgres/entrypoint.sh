@@ -388,6 +388,81 @@ sauvegarder_une_base() {
   return 0
 }
 
+# ----------------------- LA RESTAURATION D'ESSAI -----------------------
+#
+# pg_restore --list prouve qu'un fichier se LIT, pas qu'il se RESTAURE : une
+# extension absente, un objet qui depend d'un autre, et la sauvegarde qu'on
+# croyait bonne ne revient pas. La seule preuve, c'est de restaurer.
+#
+# Apres chaque passage, la derniere sauvegarde de chaque base est donc
+# restauree dans une base jetable, supprimee aussitot. Elle est reussie si :
+#   - pg_restore n'a signale aucune erreur (hors « existe deja », qu'une
+#     base neuve produit toujours pour le schema public) ;
+#   - chaque table annoncee par la sauvegarde existe dans la base restauree.
+# On compare a la SAUVEGARDE et non a la base en service : celle-ci a change
+# depuis (Dagster y ecrit en continu), et la comparaison crierait au loup.
+#
+# Le verdict s'ecrit dans VERIFICATION, que le diagnostic lit.
+VERIFICATION="$SAUVEGARDES_DIR/verification-restauration.txt"
+BASE_ESSAI=codelab_essai_restauration
+
+tables_de_la_sauvegarde() {
+  # Ligne de sommaire : « 215; 1259 16390 TABLE schema nom proprietaire ».
+  # Les lignes « TABLE DATA » sont les donnees des memes tables.
+  pg_restore --list "$1" 2>/dev/null \
+    | awk '$4 == "TABLE" && $5 != "DATA" {print $5 "." $6}' | sort
+}
+
+tables_de_la_base() {
+  psql -U "$POSTGRES_USER" -d "$1" -Atc \
+    "SELECT schemaname || '.' || relname FROM pg_stat_user_tables" 2>/dev/null | sort
+}
+
+verifier_restaurations() {
+  bases="$1"
+  faites=0; echecs=""
+  erreurs_fichier="${TMPDIR:-/tmp}/codelab-restauration.err"
+  for db in $bases; do
+    fichier=$(ls -1 "$SAUVEGARDES_DIR/base-$db-"*.dump 2>/dev/null | sort -r | head -n 1)
+    [ -n "$fichier" ] || continue
+    psql -U "$POSTGRES_USER" -d "$CODELAB_INSTANCE_DB" -qc \
+      "DROP DATABASE IF EXISTS $BASE_ESSAI" >/dev/null 2>&1
+    if ! psql -U "$POSTGRES_USER" -d "$CODELAB_INSTANCE_DB" -qc \
+         "CREATE DATABASE $BASE_ESSAI" >/dev/null 2>&1; then
+      echecs="$echecs $db(base d'essai impossible a creer)"
+      continue
+    fi
+    pg_restore -U "$POSTGRES_USER" -d "$BASE_ESSAI" "$fichier" \
+      >/dev/null 2>"$erreurs_fichier" || true
+    # « || true » : grep -c rend 1 quand il compte zero, et ce script tourne
+    # sous « set -e ».
+    erreurs=$(grep -i "error:" "$erreurs_fichier" | grep -vci "already exists" || true)
+    manquantes=$(tables_de_la_sauvegarde "$fichier" \
+                 | comm -23 - "$(tables_de_la_base "$BASE_ESSAI" > "$erreurs_fichier.t"; \
+                                 echo "$erreurs_fichier.t")" | head -n 3 | tr '\n' ' ')
+    if [ "$erreurs" = "0" ] && [ -z "$manquantes" ]; then
+      faites=$((faites + 1))
+    elif [ -n "$manquantes" ]; then
+      echecs="$echecs $db(tables absentes : $manquantes)"
+    else
+      echecs="$echecs $db($erreurs erreur(s) : $(grep -i "error:" "$erreurs_fichier" \
+                      | grep -vi "already exists" | head -n 1 | cut -c1-150))"
+    fi
+  done
+  rm -f "$erreurs_fichier" "$erreurs_fichier.t"
+  psql -U "$POSTGRES_USER" -d "$CODELAB_INSTANCE_DB" -qc \
+    "DROP DATABASE IF EXISTS $BASE_ESSAI" >/dev/null 2>&1
+  quand=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  if [ -n "$echecs" ]; then
+    echo "$quand ECHEC restauration d'essai ratee pour :$echecs" > "$VERIFICATION"
+    echo "[codelab-postgres] RESTAURATION D'ESSAI RATEE pour :$echecs" >&2
+  else
+    echo "$quand OK $faites base(s) restauree(s) sans erreur" > "$VERIFICATION"
+    echo "[codelab-postgres] restauration d'essai : $faites base(s) sans erreur."
+  fi
+  chmod 644 "$VERIFICATION" 2>/dev/null || true
+}
+
 sauvegardes_periodiques() {
   if [ "$SAUVEGARDE_HEURES" = "0" ]; then
     echo "[codelab-postgres] sauvegardes desactivees (CODELAB_SAUVEGARDE_HEURES=0)."
@@ -417,13 +492,15 @@ sauvegardes_periodiques() {
       # de sauvegarde du tout.
       bases=$(psql -U "$POSTGRES_USER" -d "$CODELAB_INSTANCE_DB" -Atc \
         "SELECT datname FROM pg_database
-          WHERE NOT datistemplate AND datallowconn ORDER BY datname" 2>/dev/null)
+          WHERE NOT datistemplate AND datallowconn
+            AND datname <> '$BASE_ESSAI' ORDER BY datname" 2>/dev/null)
       faites=0
       for db in $bases; do
         sauvegarder_une_base "$db" && faites=$((faites + 1))
       done
       echo "[codelab-postgres] sauvegarde : $faites base(s) ecrite(s) dans" \
            "$SAUVEGARDES_DIR"
+      verifier_restaurations "$bases"
     fi
     sleep $((SAUVEGARDE_HEURES * 3600))
   done

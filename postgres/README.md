@@ -158,6 +158,26 @@ Reglages, dans `docker-compose.yml` : `CODELAB_SAUVEGARDE_HEURES` (24 par defaut
 `APP_MANAGER_SAUVEGARDES_GARDEES`. La sonde **sauvegardes** du diagnostic surveille leur fraicheur : elle
 passe en alerte a 26 h sans nouvelle sauvegarde, et en erreur a 72 h.
 
+### La restauration d'essai
+
+Relire une sauvegarde (`pg_restore --list`) prouve qu'elle se **lit**, pas qu'elle se **restaure**.
+Après chaque passage, la dernière sauvegarde de chaque base est donc restaurée dans une base jetable
+(`codelab_essai_restauration`, supprimée aussitôt). Elle est réussie si `pg_restore` ne signale
+aucune erreur et si chaque table annoncée par la sauvegarde existe dans la base restaurée.
+
+Le verdict s'écrit dans `/sauvegardes/verification-restauration.txt`, et le diagnostic passe au
+rouge à la première restauration ratée.
+
+### Le code de `/workspace`
+
+`codelab-app-manager` archive aussi le code des projets, **une fois par semaine** (`workspace-*.tar.gz`,
+quatre gardées). Ce qui se reconstruit n'y est pas (`node_modules`, `.venv`, `dist`, `build`,
+caches…), ni les fichiers de plus de 50 Mo. Les `.env` y sont : l'archive est en `0600`. Git reste
+la vraie sauvegarde du code ; celle-ci rattrape le projet qu'on n'a jamais poussé.
+
+Restaurer un projet : `tar xzf /DATA/AppData/codelab/sauvegardes/workspace-<date>.tar.gz -C /tmp/r ./mon-projet`,
+puis recopier ce qu'il faut.
+
 ### Restaurer une base
 
 ```bash

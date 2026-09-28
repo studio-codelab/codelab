@@ -272,6 +272,11 @@ services:
       # "auto" : relaie des qu'un serveur d'envoi est regle dans le panneau.
       # "non" : garde tout sans rien envoyer -- le mode test.
       CODELAB_MAILPIT_RELAIS: "auto"
+      # Plafond d'envoi : au-dela, sur l'heure ou les 24 heures glissantes,
+      # les mails sont gardes sans etre relayes -- une application en boucle
+      # ne fait pas suspendre le compte d'envoi (Gmail : ~500 par jour).
+      CODELAB_MAILPIT_MAX_HEURE: "50"
+      CODELAB_MAILPIT_MAX_JOUR: "200"
 
     volumes:
       - /DATA/AppData/codelab/mailpit:/data

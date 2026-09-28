@@ -146,6 +146,8 @@ services:
       MP_DISABLE_VERSION_CHECK: "true"
       MP_BLOCK_REMOTE_CSS_AND_FONTS: "true"
       CODELAB_MAILPIT_RELAIS: "auto"
+      CODELAB_MAILPIT_MAX_HEURE: "50"
+      CODELAB_MAILPIT_MAX_JOUR: "200"
 
     volumes:
       - /DATA/AppData/codelab/mailpit:/data

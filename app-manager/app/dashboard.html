@@ -2149,6 +2149,32 @@ table.tbl-journal{min-width:560px}
       <div class="hint" id="al-msg" style="display:none"></div>
     </div>
 
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Si le serveur entier tombe</b>
+        <div class="path">Un service extérieur te prévient quand le serveur se tait.</div>
+      </div>
+      <span class="pill" id="sv-etat"><i></i>&nbsp;</span></div>
+
+      <div class="hint">Les alertes ci-dessus partent <b>du serveur</b> : s'il s'éteint (coupure de
+        courant, disque, box), aucune ne part. Le panneau appelle donc une adresse toutes les
+        5 minutes ; quand les appels cessent, le service extérieur t'écrit. Gratuit sur
+        <b>healthchecks.io</b> : crée un compte, un « check » avec une période de 5 minutes et
+        un délai de grâce de 10, puis colle ici son adresse de ping.</div>
+
+      <div class="field" style="margin-top:14px">
+        <label>Adresse de ping</label>
+        <input id="sv-url" placeholder="https://hc-ping.com/…" autocomplete="off">
+        <div class="hint">Vide = désactivé. L'adresse est appelée une fois à l'enregistrement,
+          pour vérifier qu'elle répond.</div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" id="sv-save" onclick="svEnregistrer()">Enregistrer</button>
+      </div>
+      <div class="err" id="sv-err" style="display:none"></div>
+      <div class="hint" id="sv-msg" style="display:none"></div>
+    </div>
+
   </div>
 
   </div>
@@ -2514,6 +2540,34 @@ window.fetch = function(cible, options){
   h.set('X-CodeLab-Jeton', JETON);
   return fetchNu(cible, Object.assign({}, options, {headers: h}));
 };
+
+/* LES ERREURS DU NAVIGATEUR. Une exception JavaScript dans cette page ne se
+   voyait nulle part : ni dans les journaux du panneau, ni ailleurs -- un
+   bouton cessait de repondre, sans trace. Elles partent maintenant au
+   serveur, qui les ecrit dans « docker logs codelab-app-manager ». Dix au
+   plus par chargement de page, sans doublon : une erreur dans une boucle de
+   rafraichissement ne doit pas inonder le journal. */
+const erreursVues = new Set();
+function remonterErreur(message, source, ligne, colonne, pile){
+  const cle = message + '|' + source + '|' + ligne;
+  if(erreursVues.has(cle) || erreursVues.size >= 10) return;
+  erreursVues.add(cle);
+  try{
+    fetch('/api/erreur-navigateur', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({message:String(message||'').slice(0,500),
+        source:String(source||'').slice(0,300), ligne:ligne||0, colonne:colonne||0,
+        pile:String(pile||'').slice(0,2000), page:location.pathname+location.hash})
+    }).catch(()=>{});
+  }catch(e){}
+}
+window.addEventListener('error', ev=>{
+  remonterErreur(ev.message, ev.filename, ev.lineno, ev.colno, ev.error && ev.error.stack);
+});
+window.addEventListener('unhandledrejection', ev=>{
+  const r = ev.reason;
+  remonterErreur('Promesse rejetée : ' + ((r && r.message) || r), '', 0, 0, r && r.stack);
+});
 
 const $=i=>document.getElementById(i), hide=i=>$(i).classList.remove("show");
 /* Echappe le TEXTE et les VALEURS D'ATTRIBUT, et rien d'autre.
@@ -3558,33 +3612,59 @@ async function echec(r, defaut){
    La page connait l'etat qu'elle vient d'afficher -- c'est lui qui choisit
    la phrase quand le serveur ne dit rien du tout. Quand il parle, son
    message gagne : il nomme l'action tentee. */
-async function tg(n){
+/* UNE ACTION A LA FOIS. Un double clic sur « Demarrer » demarrait puis
+   arretait l'application : la seconde requete partait avant que la page ait
+   vu la premiere aboutir. Pendant qu'une action tourne, ses boutons sont
+   desactives, et un clic de plus ne part pas. Le serveur tient la meme
+   regle de son cote (409), pour deux onglets ou deux administrateurs. */
+const actionsEnCours = new Set();
+async function uneAction(n, fn){
+  if(actionsEnCours.has(n)) return;
+  actionsEnCours.add(n);
+  const boutons=[...document.querySelectorAll('[data-cible]')].filter(b=>b.dataset.cible===n);
+  /* L'etat d'avant est garde : « Redemarrer » est deja grise sur une
+     application arretee, et doit le rester apres. Un rafraichissement qui
+     repeint les boutons entre-temps ne rouvre rien : le Set ci-dessus
+     refuse le clic tant que l'action n'est pas finie. */
+  const avant=boutons.map(b=>b.disabled);
+  boutons.forEach(b=>{ b.disabled=true; b.setAttribute('aria-busy','true'); });
+  try{ await fn(); }
+  finally{
+    actionsEnCours.delete(n);
+    boutons.forEach((b,i)=>{ b.disabled=avant[i]; b.removeAttribute('aria-busy'); });
+  }
+}
+async function tg(n){ return uneAction(n, async()=>{
   const arret=(apps.find(a=>a.name===n)||{}).running===true;
-  const r=await fetch('/api/toggle/'+n,{method:'POST'});
+  const r=await fetch('/api/toggle/'+n,{method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action: arret ? 'arret' : 'demarrage'})});
   if(!r.ok) notifier(await echec(r, arret ? "L'application n'a pas pu être arrêtée."
                                           : "L'application n'a pas démarré."), 'err');
   setTimeout(refresh,400);
-}
+}); }
 /* Le redemarrage jetait sa reponse sans la regarder : une application qui ne
    repartait pas laissait le bouton silencieux et la pastille sur
    « Arretee », sans un mot pour dire pourquoi. */
-async function restartApp(n){
+async function restartApp(n){ return uneAction(n, async()=>{
   const r=await fetch('/api/restart/'+n,{method:'POST'});
   if(!r.ok) notifier(await echec(r, "L'application n'a pas redémarré."), 'err');
   else notifier('« '+n+' » a redémarré.');
   setTimeout(refresh,500);
-}
-async function deployApp(n){
+}); }
+async function deployApp(n){ return uneAction(n, async()=>{
+  /* Le journal s'ouvre tout de suite : un build dure, et c'est la qu'on le
+     suit. Avant, il ne s'ouvrait qu'a la fin. */
+  ouvrirFiche(n); ficheOnglet('journal');
   const r=await fetch('/api/deploy/'+n,{method:'POST'});
   if(!r.ok) notifier(await echec(r, 'Le déploiement a échoué.'), 'err');
-  ouvrirFiche(n); ficheOnglet('journal');
   setTimeout(refresh,600);
-}
-async function buildApp(n){
+}); }
+async function buildApp(n){ return uneAction(n, async()=>{
+  ouvrirFiche(n); ficheOnglet('journal');
   const r=await fetch('/api/build/'+n,{method:'POST'});
   if(!r.ok) notifier(await echec(r, 'Le build a échoué.'), 'err');
-  ouvrirFiche(n); ficheOnglet('journal');
-}
+}); }
 async function basculerVisibilite(n){
   const r=await fetch('/api/visibility/'+n,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
   const d=await r.json();
@@ -5155,6 +5235,7 @@ function alMessage(texte, erreur, ou){
 }
 
 async function chargerAlertes(){
+  svCharger();
   let d;
   try{ d=await (await fetch('/api/alertes')).json(); }catch(e){ return; }
   alEtat = d;
@@ -5215,6 +5296,48 @@ async function chargerAlertes(){
   const incidents=(d.incidents||[]);
   alMessage(incidents.length
     ? 'Incident en cours sur : '+incidents.join(', ')+'.' : '', false);
+}
+
+/* LA SURVEILLANCE EXTERNE. */
+function svPeindre(d){
+  $('sv-url').value = d.url || '';
+  const p=$('sv-etat');
+  const actif=!!d.url;
+  p.className='pill '+(!actif ? 'off' : (d.ok===false ? 'err' : 'on'));
+  p.innerHTML='<i></i>'+(!actif ? 'Désactivée'
+    : d.ok===false ? 'Injoignable' : d.ok ? 'Active' : 'En attente');
+  const m=$('sv-msg');
+  if(actif && d.dernier_appel){
+    m.textContent='Dernier appel : '+new Date(d.dernier_appel*1000).toLocaleString()
+      +' ('+(d.detail||'')+').';
+    m.style.display='block';
+  }else m.style.display='none';
+}
+async function svCharger(){
+  try{
+    const r=await fetch('/api/surveillance-externe');
+    if(r.ok) svPeindre(await r.json());
+  }catch(e){}
+}
+async function svEnregistrer(){
+  const b=$('sv-save'); if(b.disabled) return;
+  b.disabled=true; const avant=b.textContent; b.textContent='Vérification...';
+  $('sv-err').style.display='none';
+  try{
+    const r=await fetch('/api/surveillance-externe',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({url:$('sv-url').value.trim()})});
+    const d=await r.json();
+    if(!r.ok){
+      $('sv-err').textContent=(d.error||'Enregistrement impossible.')+(d.detail?' — '+d.detail:'');
+      $('sv-err').style.display='block';
+      return;
+    }
+    notifier(d.url ? 'Surveillance externe active.' : 'Surveillance externe désactivée.');
+    svCharger();
+  }catch(e){
+    $('sv-err').textContent='Le panneau n\'a pas répondu.'; $('sv-err').style.display='block';
+  }finally{ b.disabled=false; b.textContent=avant; }
 }
 
 /* Ce que les deux onglets envoient. Les champs des deux sont dans le

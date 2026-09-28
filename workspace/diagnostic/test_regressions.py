@@ -100,7 +100,7 @@ from checks import (                                            # noqa: E402
 CHEMINS_ETAT = [
     "STATE_DIR", "APPS_FILE", "LOG_DIR", "UTILISATEURS_FILE", "PASSKEYS_FILE",
     "ACCES_FILE", "PROCESSUS_FILE", "MASQUEES_FILE", "MESSAGES_FILE", "CHILD_HOME", "ALERTES_FILE", "SMTP_FILE",
-    "CATEGORIES_FILE",
+    "CATEGORIES_FILE", "SURVEILLANCE_FILE",
     "EXPOSITION_FILE", "SHARED_CONFIG_DIR",
     "SHARED_ENV_FILE", "LEGACY_ADMIN_PASSWORD_FILE", "LEGACY_SECRET_KEY_FILE",
     "SSO_PRIVATE_FILE",
@@ -133,6 +133,7 @@ def _bac_a_sable(tmp_path, monkeypatch):
         "CHILD_HOME": str(etat / "home"),
         "ALERTES_FILE": str(etat / "alertes.json"),
         "SMTP_FILE": str(etat / "smtp.json"),
+        "SURVEILLANCE_FILE": str(etat / "surveillance.json"),
         "CATEGORIES_FILE": str(etat / "categories.json"),
         "EXPOSITION_FILE": str(etat / "exposition.json"),
         "SHARED_CONFIG_DIR": str(partage),
@@ -11148,7 +11149,11 @@ def test_codelab_ne_porte_plus_de_service_ia():
                     encoding="utf-8").read()
     for disparu in ("CREATE ROLE", "llm.env", "OPENROUTER"):
         assert disparu not in postgres, disparu
-    assert "DROP DATABASE" not in postgres.replace('-c "DROP DATABASE postgres"', ""), (
+    # Deux suppressions permises, et nommees : la base de maintenance vide,
+    # et la base jetable de la restauration d'essai.
+    assert "BASE_ESSAI=codelab_essai_restauration" in postgres
+    assert "DROP DATABASE" not in (postgres.replace('-c "DROP DATABASE postgres"', "")
+                                   .replace('"DROP DATABASE IF EXISTS $BASE_ESSAI"', "")), (
         "les donnees de l'ancien service ne se suppriment pas toutes seules")
     regles = {r.rule for r in app.flask_app.url_map.iter_rules()}
     assert not [r for r in regles if r.startswith("/api/cles")], regles
@@ -11515,3 +11520,148 @@ def test_la_surveillance_de_mailpit_ne_note_que_les_changements(monkeypatch, tmp
     lignes = (tmp_path / "mailpit.log").read_text().splitlines()
     assert len(lignes) == 2, lignes
     assert "Mailpit répond" in lignes[0] and "ne répond pas" in lignes[1]
+
+
+# ---------- robustesse : double clic, plafonds, surveillance, erreurs ----------
+
+def test_une_seule_action_a_la_fois_par_application(hub, monkeypatch):
+    """Un double clic sur « Demarrer » demarrait puis arretait : la seconde
+    requete arrivait quand l'application tournait deja. Pendant qu'une action
+    tourne, les autres sont refusees en 409."""
+    import threading
+    c = _admin_du_hub(hub)
+    entree, sortie = threading.Event(), threading.Event()
+
+    def build_lent(n):
+        entree.set()
+        sortie.wait(5)
+        return True, "ok"
+    monkeypatch.setattr(app, "run_build", build_lent)
+    resultat = {}
+    # Le premier build tourne dans un fil, avec sa propre session admin.
+    c2 = app.flask_app.test_client()
+    c2.post("/login", json={"password": "secret-de-test"})
+    fil = threading.Thread(target=lambda: resultat.setdefault(
+        "premier", c2.post("/api/build/compta").status_code))
+    fil.start()
+    assert entree.wait(5)
+    r = c.post("/api/deploy/compta")
+    assert r.status_code == 409 and r.get_json()["en_cours"] is True
+    assert c.post("/api/toggle/compta").status_code == 409
+    # Une AUTRE application n'est pas bloquee.
+    monkeypatch.setattr(app, "stop", lambda n: None)
+    assert c.post("/api/toggle/vitrine").status_code == 200
+    sortie.set()
+    fil.join(5)
+    assert resultat["premier"] == 200
+    # Le verrou est rendu.
+    monkeypatch.setattr(app, "run_build", lambda n: (True, "ok"))
+    assert c.post("/api/build/compta").status_code == 200
+
+
+def test_un_second_clic_sur_demarrer_n_arrete_pas(hub, monkeypatch):
+    """La page dit l'action VOULUE : si l'application tourne deja, un
+    « demarrage » ne fait rien -- surtout pas un arret."""
+    c = _admin_du_hub(hub)
+    arrets = []
+    monkeypatch.setattr(app, "stop", lambda n: arrets.append(n))
+    r = c.post("/api/toggle/compta", json={"action": "demarrage"})
+    assert r.status_code == 200 and r.get_json()["deja"] is True
+    assert arrets == []
+    page = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
+    assert "actionsEnCours" in page and "body:JSON.stringify({action:" in page
+
+
+def test_la_surveillance_externe_n_accepte_que_https_et_verifie_l_adresse(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(app, "SURVEILLANCE_FILE", str(tmp_path / "surveillance.json"))
+    client.post("/login", json={"password": "secret-de-test"})
+    r = client.post("/api/surveillance-externe", json={"url": "http://hc-ping.com/x"})
+    assert r.status_code == 400
+    appels = []
+    monkeypatch.setattr(app, "signaler_vie", lambda url=None: (appels.append(url) or (False, "HTTP 404")))
+    r = client.post("/api/surveillance-externe", json={"url": "https://hc-ping.com/abc"})
+    assert r.status_code == 400 and appels == ["https://hc-ping.com/abc"]
+    assert app.lire_surveillance() == "", "une adresse qui ne repond pas ne s'enregistre pas"
+    monkeypatch.setattr(app, "signaler_vie", lambda url=None: (True, "HTTP 200"))
+    assert client.post("/api/surveillance-externe",
+                       json={"url": "https://hc-ping.com/abc"}).status_code == 200
+    assert app.lire_surveillance() == "https://hc-ping.com/abc"
+    assert stat.S_IMODE(os.stat(app.SURVEILLANCE_FILE).st_mode) == 0o600
+    assert client.post("/api/surveillance-externe", json={"url": ""}).status_code == 200
+    assert app.lire_surveillance() == ""
+
+
+def test_le_panneau_compresse_sans_exposer_le_jeton(client):
+    client.post("/login", json={"password": "secret-de-test"})
+    r = client.get("/", headers={"Accept-Encoding": "gzip"})
+    assert r.headers.get("Content-Encoding") == "gzip"
+    assert "Accept-Encoding" in r.headers.get("Vary", "")
+    import gzip as gz
+    assert b"<html" in gz.decompress(r.data).lower()
+    # BREACH : une requete qui porte des parametres n'est jamais compressee.
+    r = client.get("/?x=1", headers={"Accept-Encoding": "gzip"})
+    assert "Content-Encoding" not in r.headers
+    # Sans Accept-Encoding, rien ne change.
+    assert "Content-Encoding" not in client.get("/").headers
+
+
+def test_les_erreurs_du_navigateur_arrivent_dans_les_journaux(client, capsys):
+    client.post("/login", json={"password": "secret-de-test"})
+    r = client.post("/api/erreur-navigateur", json={
+        "message": "x is not defined\n[faux] ligne", "source": "/", "ligne": 12,
+        "page": "/#hub"})
+    assert r.status_code == 200
+    sortie = capsys.readouterr().out
+    assert "[navigateur]" in sortie and "x is not defined [faux] ligne" in sortie
+    assert "\n[faux]" not in sortie, "un saut de ligne fabriquerait une fausse ligne"
+    for _ in range(40):
+        r = client.post("/api/erreur-navigateur", json={"message": "boucle"})
+    assert r.status_code == 429
+    page = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
+    assert "addEventListener('unhandledrejection'" in page
+
+
+def test_la_sauvegarde_est_restauree_a_l_essai():
+    source = _entrypoint_postgres()
+    assert 'verifier_restaurations "$bases"' in source
+    bloc = source.split("verifier_restaurations() {")[1].split("\n}\n")[0]
+    assert "pg_restore -U" in bloc and "tables_de_la_sauvegarde" in bloc
+    assert "ECHEC" in bloc and "$VERIFICATION" in bloc
+    # La base jetable n'est jamais elle-meme sauvegardee.
+    assert "AND datname <> '$BASE_ESSAI'" in source
+
+
+def test_le_diagnostic_rougit_si_la_restauration_d_essai_rate(tmp_path):
+    for nom in ("base-diagnostic-20990101-000000.dump", "panneau-20990101-000000.tar.gz"):
+        (tmp_path / nom).write_text("x")
+    (tmp_path / "verification-restauration.txt").write_text(
+        "2099-01-01T00:00:00Z ECHEC restauration d'essai ratee pour : diagnostic\n")
+    etat, _, detail = checks.check_sauvegardes(str(tmp_path))
+    assert etat == checks.Etat.ECHEC and "restauration d'essai" in detail
+    (tmp_path / "verification-restauration.txt").write_text(
+        "2099-01-01T00:00:00Z OK 2 base(s) restauree(s) sans erreur\n")
+    etat, _, detail = checks.check_sauvegardes(str(tmp_path))
+    assert etat == checks.Etat.OK and "sans erreur" in detail
+
+
+def test_le_code_du_workspace_est_archive_sans_ce_qui_se_reconstruit(tmp_path, monkeypatch):
+    racine, cible = tmp_path / "ws", tmp_path / "sv"
+    (racine / "projet" / "node_modules" / "x").mkdir(parents=True)
+    (racine / "projet" / "node_modules" / "x" / "index.js").write_text("lourd")
+    (racine / "projet" / "app.py").write_text("print(1)")
+    (racine / "projet" / ".env").write_text("CLE=1")
+    (racine / "projet" / "gros.bin").write_bytes(b"0" * 100)
+    cible.mkdir()
+    monkeypatch.setattr(app, "ROOT", str(racine))
+    monkeypatch.setattr(app, "SAUVEGARDES_DIR", str(cible))
+    monkeypatch.setattr(app, "WORKSPACE_FICHIER_MAX", 50)
+    assert app.workspace_a_sauvegarder()
+    chemin = app.sauvegarder_le_workspace()
+    import tarfile
+    with tarfile.open(chemin) as archive:
+        noms = {n.lstrip("./") for n in archive.getnames()}
+    assert "projet/app.py" in noms and "projet/.env" in noms
+    assert not [n for n in noms if "node_modules" in n]
+    assert "projet/gros.bin" not in noms
+    assert stat.S_IMODE(os.stat(chemin).st_mode) == 0o600
+    assert not app.workspace_a_sauvegarder(), "une par semaine, pas a chaque passage"
