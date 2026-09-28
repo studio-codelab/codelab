@@ -17,8 +17,11 @@ Ce que ce service fait, et pourquoi il existe :
   TRADUCTION. Un nom logique (« codelab-coding ») vers une CHAINE de
               modeles reels chez plusieurs fournisseurs, essayes dans
               l'ordre : quand la part gratuite de l'un est epuisee, le
-              suivant repond. Et le protocole Responses de Codex vers le
-              Chat Completions que servent ces fournisseurs.
+              suivant repond.
+
+POUR LES APPLICATIONS SEULEMENT. Codex, l'agent de developpement, se
+connecte avec un compte ChatGPT dans le conteneur dev : un agent envoie des
+dizaines de requetes par tache, et aucune part gratuite n'y suffit.
 
 POURQUOI PLUS DE LITELLM. La version precedente importait LiteLLM -- une
 bibliotheque qui parle a cent fournisseurs -- pour appeler UN fournisseur
@@ -36,7 +39,6 @@ import base64
 import hashlib
 import json
 import os
-import re
 import secrets
 import time
 from collections import defaultdict, deque
@@ -55,8 +57,8 @@ from psycopg_pool import ConnectionPool
 # parle a l'exterieur, il n'a aucune raison de les voir.
 ENV_FILE = os.environ.get("CODELAB_LLM_ENV_FILE", "/var/lib/codelab/llm/llm.env")
 
-# Codex renvoie TOUT l'historique de la session a chaque tour : 512 Ko, la
-# limite d'avant, tombait au bout d'une petite heure de travail.
+# Une conversation renvoie tout son historique a chaque tour : la limite
+# laisse de la place a une longue discussion, et bloque ce qui n'en est pas.
 CORPS_MAX = 4 * 1024 * 1024
 APPELS_PAR_MINUTE = 60
 # Au-dela, un client qui ne revient jamais garderait sa file pour toujours.
@@ -80,8 +82,9 @@ if SSO_AUDIENCE.startswith("${"):
 # Go de disque et une cle de liaison de plus.
 #
 # PLUSIEURS FOURNISSEURS, POUR LEUR PART GRATUITE. Chacun offre un quota
-# gratuit (requetes par minute, par jour, jetons par mois) ; aucun ne suffit
-# seul a une journee de Codex. Un nom logique designe donc une CHAINE :
+# gratuit (requetes par minute, par jour, jetons par mois), vite atteint
+# par une application un peu sollicitee. Un nom logique designe donc une
+# CHAINE :
 # le premier fournisseur dont la cle est posee est essaye, et s'il refuse --
 # quota epuise (429), credit insuffisant (402), modele retire (404), panne --
 # le suivant prend la requete. Le client n'en sait rien.
@@ -90,9 +93,7 @@ if SSO_AUDIENCE.startswith("${"):
 # comptabilite. Les cles des fournisseurs vivent dans SON fichier (llm.env),
 # que ni les applications ni le conteneur de developpement ne voient.
 #
-# Tous parlent /chat/completions. Codex, lui, ne parle plus que /responses :
-# la traduction est faite ici (voir plus bas), ce qui laisse brancher des
-# fournisseurs qui n'ont jamais servi ce protocole.
+# Tous parlent /chat/completions, le seul protocole que sert ce service.
 #
 # « base » d'OpenRouter : CODELAB_LLM_FOURNISSEUR la remplace, pour un autre
 # service compatible (OpenAI par exemple) avec la meme cle.
@@ -157,10 +158,10 @@ MODELES_PAR_DEFAUT = {
 # ecrit ici (« qwen/qwen3-coder:free ») est devenu payant, et la chaine
 # tombait sur « This model is unavailable for free ». La passerelle lit donc
 # le catalogue public d'OpenRouter, garde les modeles gratuits qui acceptent
-# les outils (Codex ne fait rien sans), les plus grands contextes d'abord,
-# et essaie les premiers. Le catalogue est garde une heure.
+# les outils (une application qui en appelle ne doit pas tomber sur un
+# modele qui les ignore), les plus grands contextes d'abord, et essaie les
+# premiers. Le catalogue est garde une heure.
 GRATUITS = "gratuits"
-POUR_LE_CODE = re.compile(r"cod(e|er|estral)|devstral|laguna|swe", re.I)
 GRATUITS_ESSAYES = 4
 GRATUITS_DUREE = 3600
 _gratuits = {"quand": 0.0, "liste": []}
@@ -563,9 +564,8 @@ def sante():
 def raison_amont(corps, cle=""):
     """Ce que le fournisseur reproche a la requete, lisible et sans secret.
 
-    Sans elle, un refus d'OpenRouter -- modele inconnu, credit epuise, cle
-    invalide -- arrivait dans Codex comme un flux coupe, reessaye cinq fois,
-    sans un mot sur la cause. On ne garde que « error.message » du JSON
+    Sans elle, un refus du fournisseur -- modele inconnu, credit epuise,
+    cle invalide -- arrivait dans l'application sans un mot sur la cause. On ne garde que « error.message » du JSON
     renvoye, borne en longueur, et la cle du fournisseur en est retiree si
     jamais elle y figurait.
     """
@@ -597,56 +597,11 @@ def raison_amont(corps, cle=""):
     return texte[:300] or "raison non precisee"
 
 
-def echec_responses(message):
-    """Un echec dans le flux Responses, sous la forme que Codex sait lire.
-
-    Un simple « data: {"error": ...} » n'est pas un evenement de ce
-    protocole : Codex l'ignorait, voyait le flux se fermer avant
-    « response.completed », et affichait « stream disconnected » au lieu du
-    message. « response.failed » est l'evenement prevu, et Codex en affiche
-    l'erreur.
-    """
-    evenement = {"type": "response.failed", "response": {
-        "id": "resp_codelab", "object": "response", "status": "failed",
-        "error": {"code": "upstream_error", "message": message}}}
-    return ("event: response.failed\ndata: "
-            + json.dumps(evenement, ensure_ascii=False) + "\n\n")
-
-
-
-
 @app.get("/v1/models")
 def liste_modeles():
-    # « models », vide, a cote de « data » : Codex interroge aussi cette
-    # adresse, attend SA forme de catalogue et journalisait « missing field
-    # `models` » a chaque demarrage. Vide, il garde ses reglages par defaut
-    # -- et les clients OpenAI, qui lisent « data », ne voient rien changer.
     return {"object": "list", "data": [
         {"id": nom, "object": "model", "owned_by": "codelab"}
-        for nom in sorted(modeles())], "models": []}
-
-
-# UN NOM INCONNU VA AU MODELE PAR DEFAUT, au lieu d'etre refuse.
-#
-# L'extension Codex de VS Code n'affiche que les modeles d'OpenAI dans son
-# selecteur, quel que soit le catalogue, et ECRIT le choix dans config.toml
-# (« gpt-5.5 ») : refuse, ce nom rendait l'extension inutilisable des le
-# premier clic. Il est donc servi par la chaine de codelab-coding -- ce qui
-# ne donne acces a rien de plus : seules les chaines de la table partent
-# vers un fournisseur, jamais le nom demande.
-#
-# CODELAB_LLM_DEFAUT (llm.env) choisit un autre nom logique ;
-# « aucun » retablit le refus.
-MODELE_PAR_DEFAUT = "codelab-coding"
-
-
-def nom_logique(demande, table):
-    if demande in table:
-        return demande
-    defaut = valeur("CODELAB_LLM_DEFAUT") or MODELE_PAR_DEFAUT
-    if defaut in table and demande:
-        return defaut
-    raise HTTPException(400, f"Modele inconnu : {demande}.")
+        for nom in sorted(modeles())]}
 
 
 def _payload_valide(corps, table):
@@ -654,41 +609,20 @@ def _payload_valide(corps, table):
         charge = json.loads(corps)
     except json.JSONDecodeError as e:
         raise HTTPException(400, "Corps JSON invalide.") from e
-    modele = nom_logique(charge.get("model"), table)
+    modele = charge.get("model")
+    if modele not in table:
+        raise HTTPException(400, f"Modele inconnu : {modele}.")
     messages = charge.get("messages")
     if not isinstance(messages, list) or not messages:
         raise HTTPException(400, "« messages » doit etre une liste non vide.")
     return charge, modele
 
 
-def _payload_responses_valide(corps, table):
-    """Meme controle, autre protocole.
-
-    L'API Responses ne porte pas « messages » mais « input » -- une chaine
-    ou une liste. On valide ce qu'on sait valider : le modele demande doit
-    figurer dans la table, et l'entree ne doit pas etre vide. Le reste du
-    document traverse sans etre relu : ce service route et compte, il
-    n'interprete pas le contenu.
-    """
-    try:
-        charge = json.loads(corps)
-    except json.JSONDecodeError as e:
-        raise HTTPException(400, "Corps JSON invalide.") from e
-    modele = nom_logique(charge.get("model"), table)
-    entree = charge.get("input")
-    if entree is None or (isinstance(entree, (str, list)) and not entree):
-        raise HTTPException(400, "« input » doit etre une chaine ou une liste non vide.")
-    return charge, modele
-
-
-
-
 # ------------------------ la chaine de fournisseurs ------------------------
 #
 # Un fournisseur qui vient de dire « quota epuise » (429) ou « credit
 # insuffisant » (402) est mis AU REPOS le temps qu'il indique (Retry-After),
-# une minute sinon : Codex enchaine les appels, et redemander a chaque fois a
-# celui qui vient de refuser ajouterait son aller-retour a chaque reponse.
+# une minute sinon : redemander a chaque appel a celui qui vient de refuser ajouterait son aller-retour a chaque reponse.
 # Si toute la chaine est au repos, on la retente quand meme : mieux vaut un
 # refus de plus qu'un refus sans avoir essaye.
 REPOS_PAR_DEFAUT = 60
@@ -726,11 +660,7 @@ async def modeles_gratuits():
     gratuits = [m for m in donnees if isinstance(m, dict)
                 and str(m.get("id", "")).endswith(":free")
                 and "tools" in (m.get("supported_parameters") or [])]
-    # Les modeles faits pour le code d'abord (« code », « coder », « dev »,
-    # « laguna »...) -- c'est Codex qui s'en sert --, puis les plus grands
-    # contextes.
-    gratuits.sort(key=lambda m: (not POUR_LE_CODE.search(str(m.get("id", ""))),
-                                 -(m.get("context_length") or 0)))
+    gratuits.sort(key=lambda m: -(m.get("context_length") or 0))
     if gratuits:
         _gratuits.update(quand=time.monotonic(), liste=[m["id"] for m in gratuits])
     return _gratuits["liste"][:GRATUITS_ESSAYES]
@@ -788,371 +718,6 @@ async def _ouvrir(demande, table, fabrique):
         return fid, modele, reponse, bool(raisons)
     raise HTTPException(502, "Aucun fournisseur n'a accepte la requete -- "
                              + " | ".join(raisons))
-
-
-# ------------------ traduction Responses <-> Chat Completions ------------------
-#
-# Codex ne parle que /responses ; Gemini, Groq et Mistral ne servent que
-# /chat/completions. La traduction porte sur ce dont Codex se sert : texte,
-# instructions, outils « function » et « custom » (apply_patch), appels
-# d'outils et leurs resultats, en flux. Le raisonnement chiffre, la
-# recherche web ou le shell « local » propres a OpenAI n'ont pas
-# d'equivalent : ils sont ignores, et Codex se rabat sur ses outils
-# ordinaires.
-
-def _texte(contenu):
-    if isinstance(contenu, str):
-        return contenu
-    morceaux = []
-    for partie in contenu or []:
-        if isinstance(partie, str):
-            morceaux.append(partie)
-        elif isinstance(partie, dict) and isinstance(partie.get("text"), str):
-            morceaux.append(partie["text"])
-    return "\n".join(m for m in morceaux if m)
-
-
-def _contenu_utilisateur(contenu):
-    """Texte seul : une chaine. Avec une image : la liste de parties."""
-    if isinstance(contenu, list) and any(
-            isinstance(p, dict) and p.get("type") == "input_image" for p in contenu):
-        parties = []
-        for p in contenu:
-            if not isinstance(p, dict):
-                continue
-            if p.get("type") == "input_image" and p.get("image_url"):
-                parties.append({"type": "image_url", "image_url": {"url": p["image_url"]}})
-            elif isinstance(p.get("text"), str):
-                parties.append({"type": "text", "text": p["text"]})
-        return parties
-    return _texte(contenu)
-
-
-def _schema_simple(schema):
-    """Gemini refuse une partie du JSON Schema qu'emploie Codex
-    (additionalProperties, $schema...). Retire recursivement."""
-    if isinstance(schema, dict):
-        return {k: _schema_simple(v) for k, v in schema.items()
-                if k not in ("additionalProperties", "$schema", "strict")}
-    if isinstance(schema, list):
-        return [_schema_simple(v) for v in schema]
-    return schema
-
-
-def responses_vers_chat(charge, modele, fid=None):
-    """Une requete Responses -> (corps Chat Completions, noms d'outils custom)."""
-    ids_courts = bool(fid and FOURNISSEURS[fid].get("ids_courts"))
-    schema_simple = fid == "gemini"
-
-    def ident(valeur_id):
-        valeur_id = str(valeur_id or "")
-        if ids_courts:
-            return hashlib.sha256(valeur_id.encode()).hexdigest()[:9]
-        return valeur_id
-
-    systeme = [charge["instructions"]] if charge.get("instructions") else []
-    messages, noms_appels = [], {}
-    entree = charge.get("input")
-    if isinstance(entree, str):
-        entree = [{"type": "message", "role": "user", "content": entree}]
-    for element in entree or []:
-        if not isinstance(element, dict):
-            continue
-        genre = element.get("type") or ("message" if "role" in element else "")
-        if genre == "message":
-            role = element.get("role")
-            if role in ("system", "developer"):
-                systeme.append(_texte(element.get("content")))
-            elif role == "assistant":
-                messages.append({"role": "assistant",
-                                 "content": _texte(element.get("content"))})
-            else:
-                messages.append({"role": "user",
-                                 "content": _contenu_utilisateur(element.get("content"))})
-        elif genre in ("function_call", "custom_tool_call"):
-            call_id = element.get("call_id") or element.get("id") or ""
-            noms_appels[call_id] = element.get("name") or ""
-            arguments = (element.get("arguments") if genre == "function_call"
-                         else json.dumps({"input": element.get("input") or ""}))
-            appel = {"id": ident(call_id), "type": "function",
-                     "function": {"name": element.get("name") or "",
-                                  "arguments": arguments or "{}"}}
-            # Contenu vide d'un message qui n'est qu'appels d'outils : null
-            # pour la norme OpenAI, mais Mistral veut une chaine.
-            vide = "" if ids_courts else None
-            dernier = messages[-1] if messages else None
-            if dernier and dernier["role"] == "assistant":
-                dernier.setdefault("tool_calls", []).append(appel)
-                if not dernier.get("content"):
-                    dernier["content"] = vide
-            else:
-                messages.append({"role": "assistant", "content": vide,
-                                 "tool_calls": [appel]})
-        elif genre in ("function_call_output", "custom_tool_call_output"):
-            call_id = element.get("call_id") or ""
-            sortie = element.get("output")
-            if isinstance(sortie, dict):
-                sortie = sortie.get("content") if isinstance(sortie.get("content"), str) \
-                    else json.dumps(sortie, ensure_ascii=False)
-            elif not isinstance(sortie, str):
-                sortie = _texte(sortie)
-            messages.append({"role": "tool", "tool_call_id": ident(call_id),
-                             "name": noms_appels.get(call_id, ""),
-                             "content": sortie or ""})
-        # reasoning, web_search_call, local_shell_call... : sans equivalent.
-    systeme = [s for s in systeme if s]
-    if systeme:
-        messages.insert(0, {"role": "system", "content": "\n\n".join(systeme)})
-
-    outils, customs = [], set()
-    for outil in charge.get("tools") or []:
-        if not isinstance(outil, dict) or not outil.get("name"):
-            continue
-        if outil.get("type") == "function":
-            parametres = outil.get("parameters") or {"type": "object", "properties": {}}
-        elif outil.get("type") == "custom":
-            customs.add(outil["name"])
-            parametres = {"type": "object", "required": ["input"], "properties": {
-                "input": {"type": "string",
-                          "description": "Le texte brut attendu par l'outil."}}}
-        else:
-            continue
-        if schema_simple:
-            parametres = _schema_simple(parametres)
-        description = outil.get("description") or ""
-        forme = (outil.get("format") or {}).get("definition")
-        if isinstance(forme, str) and len(forme) < 4000:
-            description += "\n\nFormat attendu de « input » :\n" + forme
-        outils.append({"type": "function", "function": {
-            "name": outil["name"], "description": description,
-            "parameters": parametres}})
-
-    corps = {"model": modele, "messages": messages,
-             "stream": charge.get("stream") is True}
-    if outils:
-        corps["tools"] = outils
-        choix = charge.get("tool_choice")
-        if choix in ("auto", "none", "required"):
-            corps["tool_choice"] = choix
-        elif isinstance(choix, dict) and choix.get("name"):
-            corps["tool_choice"] = {"type": "function",
-                                    "function": {"name": choix["name"]}}
-    for source, cible in (("max_output_tokens", "max_tokens"),
-                          ("temperature", "temperature"), ("top_p", "top_p")):
-        if charge.get(source) is not None:
-            corps[cible] = charge[source]
-    return corps, customs
-
-
-def _nouvel_id(prefixe):
-    return prefixe + secrets.token_hex(12)
-
-
-def _elements_de_sortie(texte, appels, customs):
-    """Le texte et les appels d'outils d'une reponse Chat, en elements
-    Responses : ce que Codex garde dans son historique et renvoie au tour
-    suivant."""
-    elements = []
-    if texte:
-        elements.append({"type": "message", "id": _nouvel_id("msg_"),
-                         "role": "assistant", "status": "completed",
-                         "content": [{"type": "output_text", "text": texte,
-                                      "annotations": []}]})
-    for appel in appels:
-        nom = appel.get("name") or ""
-        call_id = appel.get("id") or _nouvel_id("call_")
-        arguments = appel.get("arguments") or ""
-        if not isinstance(arguments, str):
-            arguments = json.dumps(arguments, ensure_ascii=False)
-        if nom in customs:
-            try:
-                brut = json.loads(arguments or "{}").get("input", "")
-            except (ValueError, AttributeError):
-                brut = arguments
-            elements.append({"type": "custom_tool_call", "id": _nouvel_id("ctc_"),
-                             "call_id": call_id, "name": nom, "input": brut,
-                             "status": "completed"})
-        else:
-            elements.append({"type": "function_call", "id": _nouvel_id("fc_"),
-                             "call_id": call_id, "name": nom,
-                             "arguments": arguments or "{}", "status": "completed"})
-    return elements
-
-
-def _usage_responses(jetons):
-    entree = int(jetons.get("prompt_tokens") or jetons.get("input_tokens") or 0)
-    sortie = int(jetons.get("completion_tokens") or jetons.get("output_tokens") or 0)
-    return {"input_tokens": entree, "output_tokens": sortie,
-            "total_tokens": entree + sortie,
-            "input_tokens_details": {"cached_tokens": 0},
-            "output_tokens_details": {"reasoning_tokens": 0}}
-
-
-def chat_vers_responses(data, demande, customs):
-    """Une reponse Chat Completions complete -> un objet Responses."""
-    message = ((data.get("choices") or [{}])[0].get("message") or {})
-    appels = [{"id": a.get("id"), "name": (a.get("function") or {}).get("name"),
-               "arguments": (a.get("function") or {}).get("arguments")}
-              for a in message.get("tool_calls") or []]
-    return {"id": _nouvel_id("resp_"), "object": "response",
-            "created_at": int(time.time()), "status": "completed",
-            "model": demande,
-            "output": _elements_de_sortie(_texte(message.get("content")), appels, customs),
-            "usage": _usage_responses(data.get("usage") or {})}
-
-
-def _evenement(genre, **champs):
-    return ("event: " + genre + "\ndata: "
-            + json.dumps(dict(type=genre, **champs), ensure_ascii=False) + "\n\n")
-
-
-async def flux_chat_vers_responses(lignes, demande, customs, releve):
-    """Le flux Chat Completions -> les evenements Responses que Codex lit.
-
-    Le texte part au fil de l'eau ; les appels d'outils, eux, ne partent
-    qu'entiers, a la fin : leurs arguments arrivent en morceaux, et Codex
-    n'execute qu'un appel complet. « releve » recoit le compte de jetons.
-    """
-    rid = _nouvel_id("resp_")
-    yield _evenement("response.created", response={
-        "id": rid, "object": "response", "status": "in_progress",
-        "model": demande, "output": []})
-    texte, msg_id, appels = [], None, {}
-    async for ligne in lignes:
-        if not ligne.startswith("data:"):
-            continue
-        brut = ligne[5:].strip()
-        if brut == "[DONE]":
-            break
-        try:
-            fragment = json.loads(brut)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(fragment, dict):
-            continue
-        if fragment.get("error"):
-            message = raison_amont(json.dumps({"error": fragment["error"]}))
-            yield echec_responses("Le fournisseur a interrompu la reponse : " + message)
-            return
-        jetons = fragment.get("usage") or (fragment.get("x_groq") or {}).get("usage")
-        if jetons:
-            releve.update(jetons)
-        for choix in fragment.get("choices") or []:
-            delta = choix.get("delta") or {}
-            morceau = _texte(delta.get("content")) if delta.get("content") else ""
-            if morceau:
-                if msg_id is None:
-                    msg_id = _nouvel_id("msg_")
-                    yield _evenement("response.output_item.added", output_index=0, item={
-                        "type": "message", "id": msg_id, "role": "assistant",
-                        "status": "in_progress", "content": []})
-                    yield _evenement("response.content_part.added", item_id=msg_id,
-                                     output_index=0, content_index=0,
-                                     part={"type": "output_text", "text": "",
-                                           "annotations": []})
-                texte.append(morceau)
-                yield _evenement("response.output_text.delta", item_id=msg_id,
-                                 output_index=0, content_index=0, delta=morceau)
-            for rang, appel in enumerate(delta.get("tool_calls") or []):
-                cle = appel.get("index", rang)
-                deja = appels.get(cle)
-                # Un nouvel identifiant sur un index deja pris : un AUTRE
-                # appel (certains fournisseurs envoient tout a l'index 0).
-                if deja and appel.get("id") and deja["id"] and appel["id"] != deja["id"]:
-                    cle = ("suite", len(appels))
-                entree = appels.setdefault(cle, {"id": None, "name": "", "arguments": ""})
-                entree["id"] = entree["id"] or appel.get("id")
-                fonction = appel.get("function") or {}
-                if fonction.get("name") and not entree["name"]:
-                    entree["name"] = fonction["name"]
-                morceau_args = fonction.get("arguments")
-                if isinstance(morceau_args, str):
-                    entree["arguments"] += morceau_args
-                elif morceau_args is not None:
-                    entree["arguments"] = json.dumps(morceau_args, ensure_ascii=False)
-
-    contenu = "".join(texte)
-    elements = _elements_de_sortie(contenu, list(appels.values()), customs)
-    rang = 0
-    if contenu:
-        message = dict(elements[0], id=msg_id)
-        elements[0] = message
-        yield _evenement("response.output_text.done", item_id=msg_id, output_index=0,
-                         content_index=0, text=contenu)
-        yield _evenement("response.content_part.done", item_id=msg_id, output_index=0,
-                         content_index=0, part=message["content"][0])
-        yield _evenement("response.output_item.done", output_index=0, item=message)
-        rang = 1
-    for element in elements[rang:]:
-        yield _evenement("response.output_item.added", output_index=rang,
-                         item=dict(element, status="in_progress"))
-        yield _evenement("response.output_item.done", output_index=rang, item=element)
-        rang += 1
-    yield _evenement("response.completed", response={
-        "id": rid, "object": "response", "created_at": int(time.time()),
-        "status": "completed", "model": demande, "output": elements,
-        "usage": _usage_responses(releve)})
-
-
-# ------------------------------- /v1/responses -------------------------------
-#
-# L'API RESPONSES, parce que les agents de developpement n'ont plus le choix :
-# Codex a retire le protocole « chat » en fevrier 2026. La requete est
-# traduite pour le fournisseur choisi dans la chaine, et sa reponse retraduite.
-@app.post("/v1/responses")
-async def responses(request: Request,
-                    authorization: str | None = Header(default=None),
-                    x_codelab_auth: str | None = Header(default=None),
-                    x_codelab_user_id: str | None = Header(default=None)):
-    qui = identite(authorization, x_codelab_auth, x_codelab_user_id)
-    limiter(qui)
-
-    corps = await request.body()
-    if len(corps) > CORPS_MAX:
-        raise HTTPException(413, "Requete trop volumineuse.")
-    table = modeles()
-    charge, demande = _payload_responses_valide(corps, table)
-    debut = time.monotonic()
-    customs = set()
-
-    def fabrique(fid, modele):
-        traduit, noms = responses_vers_chat(charge, modele, fid)
-        customs.clear()
-        customs.update(noms)
-        return "/chat/completions", traduit
-
-    fid, modele, reponse, repli = await _ouvrir(demande, table, fabrique)
-
-    if charge.get("stream") is not True:
-        try:
-            data = json.loads(await reponse.aread())
-        except (httpx.HTTPError, ValueError):
-            raise HTTPException(502, f"Reponse illisible de {fid}.")
-        finally:
-            await reponse.aclose()
-        noter_consommation(qui, demande, modele, data.get("usage") or {},
-                           int((time.monotonic() - debut) * 1000),
-                           fournisseur=fid, repli=repli)
-        return JSONResponse(chat_vers_responses(data, demande, customs))
-
-    async def flux():
-        releve = {}
-        try:
-            async for evenement in flux_chat_vers_responses(
-                    reponse.aiter_lines(), demande, customs, releve):
-                yield evenement
-        except httpx.HTTPError:
-            print(f"[codelab-llm] {fid} : flux interrompu.", flush=True)
-            yield echec_responses(f"Le fournisseur ({fid}) a coupe la reponse.")
-        finally:
-            await reponse.aclose()
-            noter_consommation(qui, demande, modele, releve,
-                               int((time.monotonic() - debut) * 1000),
-                               fournisseur=fid, repli=repli)
-
-    return StreamingResponse(flux(), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-cache",
-                                      "X-Accel-Buffering": "no"})
 
 
 # ---------------------------- /v1/chat/completions ----------------------------

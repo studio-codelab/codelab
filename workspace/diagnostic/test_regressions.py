@@ -109,7 +109,7 @@ CHEMINS_ETAT = [
     # partage avec le panneau. Sans le filet, un test qui cree une cle
     # ecrirait dans le /workspace de la machine qui lance la suite.
     "LLM_CONFIG_DIR", "LLM_ENV_FICHIER",
-    "CODEX_DIR", "CLE_CODEX_FICHIER",
+    "ANCIENNE_CLE_CODEX",
 ]
 
 
@@ -148,8 +148,7 @@ def _bac_a_sable(tmp_path, monkeypatch):
         "SSO_PRIVATE_FILE": str(etat / "codelab_sso_private.key"),
         "LLM_CONFIG_DIR": str(partage / "llm"),
         "LLM_ENV_FICHIER": str(partage / "llm" / "llm.env"),
-        "CODEX_DIR": str(travail / ".codex"),
-        "CLE_CODEX_FICHIER": str(travail / ".codex" / "codelab-llm.key"),
+        "ANCIENNE_CLE_CODEX": str(travail / ".codex" / "codelab-llm.key"),
     }
     # FICHIERS_SECRETS tient les MEMES chemins dans un dictionnaire : le
     # detourner aussi, sinon les routes ecrivent a cote du filet -- c'est-a-
@@ -9877,10 +9876,10 @@ def test_le_service_du_modele_appelle_le_fournisseur_et_garde_la_comptabilite():
     assert 'FOURNISSEUR_PAR_DEFAUT = "https://openrouter.ai/api/v1"' in source
     assert "codelab-litellm:4000" not in source
     assert "import litellm" not in source and "from litellm" not in source
-    # Les deux protocoles, parce qu'un agent de developpement n'a plus le
-    # choix : Codex a retire « chat » en fevrier 2026.
-    assert '@app.post("/v1/responses")' in source
+    # Le protocole des applications, et lui seul : Codex se connecte avec
+    # un compte ChatGPT et ne passe plus par ici.
     assert '@app.post("/v1/chat/completions")' in source
+    assert '@app.post("/v1/responses")' not in source
     # Et les deux facons de compter les jetons, sans quoi la moitie du trafic
     # serait comptee a zero.
     assert "input_tokens" in source and "prompt_tokens" in source
@@ -10320,112 +10319,6 @@ def test_l_entrypoint_du_shell_ne_depose_aucun_jeton_d_acces():
                 ".git-credentials")):
             raise AssertionError(f"dev/entrypoint.sh depose un moyen "
                                  f"d'authentification : {nue}")
-
-
-def test_codex_passe_par_la_passerelle_et_non_par_un_fournisseur_en_direct():
-    """L'agent de developpement n'a pas de compte a lui.
-
-    Vecu a l'envers : Codex etait installe dans l'image mais sa
-    configuration ne contenait que le bac a sable et la politique
-    d'approbation. L'authentification se faisait par « codex login », c'est-a-dire
-    un compte OpenAI personnel appelant api.openai.com en direct -- aucune cle
-    centralisee, aucune comptabilite, aucun routage. La passerelle existait, et
-    l'agent passait a cote.
-    """
-    source = _entrypoint_dev()
-    debut = source.find("cat > \"$CODEX_HOME_DIR/config.toml\"")
-    assert debut != -1, "le config.toml d'amorce a disparu de l'entrypoint"
-    # Borne sur la fin REELLE du heredoc. L'ancienne borne (« CODEXCFG\nfi »)
-    # n'existait pas : find rendait -1, le bloc courait jusqu'a la fin du
-    # fichier, et chaque assertion pouvait etre satisfaite par n'importe quel
-    # autre passage de l'entrypoint.
-    fin = source.find("\nCODEXCFG\n", debut)
-    assert fin != -1, "fin du heredoc CODEXCFG introuvable"
-    bloc = source[debut:fin]
-    assert 'model_provider = "codelab"' in bloc
-    assert "http://codelab-llm:8080/v1" in bloc
-    # La cle est lue dans SON FICHIER par une commande, pas dans
-    # l'environnement : voir le test du chat de l'extension VS Code.
-    assert "[model_providers.codelab.auth]" in bloc
-    assert "codelab-llm.key" in bloc
-    # Codex refuse la configuration si env_key et auth sont poses ensemble.
-    assert "env_key" not in bloc
-    # wire_api n'est pas pose : « responses » est le seul protocole accepte
-    # depuis fevrier 2026, et c'est le defaut. L'ecrire serait se donner une
-    # ligne a corriger le jour ou la valeur changera de nom.
-    assert "wire_api" not in bloc
-    # La cle ne s'ecrit pas dans la configuration : elle est lue dans son
-    # fichier, donc remplacable sans toucher au reste.
-    assert "cl_" not in bloc and "api_key" not in bloc
-    assert "experimental_bearer_token" not in bloc
-
-
-def test_codex_trouve_sa_configuration_et_sa_cle_sans_le_profil_de_session():
-    """L'hote d'extensions VS Code ne passe pas forcement par
-    /etc/profile.d, et son environnement est fige au demarrage du serveur.
-
-    Vecu : lance de la, Codex ne voyait ni CODEX_HOME (« Authentication
-    required ») ni une cle creee apres coup (« Missing environment
-    variable: CODELAB_LLM_KEY »), alors que le meme appel marchait dans un
-    terminal.
-    """
-    source = _entrypoint_dev()
-    assert 'ln -s "$CODEX_HOME_DIR" /home/vscode/.codex' in source, (
-        "~/.codex ne mene pas a CODEX_HOME : Codex lance hors session "
-        "cherchera sa configuration ailleurs")
-    # Les installations existantes : seule la ligne d'amorce est remplacee,
-    # et seulement si le bloc auth n'est pas deja la.
-    debut = source.index("CODEX_CFG=")
-    bloc = source[debut:source.index("PYCODEXAUTH\nfi", debut)]
-    assert "grep -qx 'env_key = \"CODELAB_LLM_KEY\"'" in bloc
-    assert "! grep -qF '[model_providers.codelab.auth]'" in bloc, (
-        "la migration n'est pas idempotente : le bloc auth serait ajoute "
-        "a chaque demarrage")
-
-
-def test_la_migration_de_config_toml_ne_touche_que_la_ligne_d_amorce(tmp_path):
-    """Execute le vrai script sur un config.toml que Codex a deja complete
-    lui-meme ([projects...]) : la ligne env_key part, le bloc auth arrive,
-    tout le reste est intact -- et un second passage ne change rien."""
-    source = _entrypoint_dev()
-    debut = source.index("<<'PYCODEXAUTH'")
-    script = source[source.index("\n", source.index("\n", debut) + 1) + 1:
-                    source.index("\nPYCODEXAUTH\n", debut)]
-    cfg = tmp_path / "config.toml"
-    avant = ('model_provider = "codelab"\n\n[model_providers.codelab]\n'
-             'name = "CodeLab"\nbase_url = "http://codelab-llm:8080/v1"\n'
-             'env_key = "CODELAB_LLM_KEY"\n\n[projects."/workspace"]\n'
-             'trust_level = "trusted"\n')
-    cfg.write_text(avant, encoding="utf-8")
-    import subprocess, sys as _sys
-    subprocess.run([_sys.executable, "-c", script, str(cfg), "/w/.codex/k.key"],
-                   check=True)
-    apres = cfg.read_text(encoding="utf-8")
-    assert "env_key" not in apres
-    assert '[projects."/workspace"]\ntrust_level = "trusted"' in apres
-    assert apres.endswith('[model_providers.codelab.auth]\ncommand = "head"\n'
-                          'args = ["-n", "1", "/w/.codex/k.key"]\n')
-    tomllib = pytest.importorskip("tomllib")
-    fournisseur = tomllib.loads(apres)["model_providers"]["codelab"]
-    assert fournisseur["base_url"] == "http://codelab-llm:8080/v1"
-    assert fournisseur["auth"]["command"] == "head"
-
-
-def test_la_cle_de_la_passerelle_est_lue_dans_un_fichier_et_jamais_ecrite_en_dur():
-    """Le profil exporte la cle si elle existe, et se tait sinon.
-
-    Une session sans cle doit s'ouvrir normalement : le profil est lu par
-    toutes les sessions, y compris celles de quelqu'un qui ne se sert pas de
-    l'agent. Un « set -u » ou un fichier absent ne doit pas casser la
-    connexion.
-    """
-    source = _entrypoint_dev()
-    assert "CLE_LLM_FICHIER" in source
-    assert "codelab-llm.key" in source
-    # Lecture conditionnelle : pas de fichier, pas d'export, pas d'erreur.
-    assert '[ -r \\"$CLE_LLM_FICHIER\\" ]' in source or '[ -r "$CLE_LLM_FICHIER" ]' in source
-    # Et le fichier de cle est reserve a son proprietaire.
-    assert 'chmod 600 "$CLE_LLM_FICHIER"' in source
 
 
 def test_l_image_dev_ne_porte_que_codex():
@@ -11165,107 +11058,6 @@ def test_l_empreinte_du_panneau_est_celle_de_la_passerelle():
         assert app.empreinte_cle(echantillon) == espace["empreinte"](echantillon)
 
 
-def test_creer_une_cle_l_inscrit_la_pose_et_ne_la_renvoie_pas(cles_admin):
-    """Le geste complet, en une requete. Et la cle ne revient pas."""
-    client, faux = cles_admin
-    r = client.post("/api/cles/llm", json={"poste": True})
-    assert r.status_code == 200, r.data
-    corps = r.get_data(as_text=True)
-
-    posee = open(app.CLE_CODEX_FICHIER, encoding="utf-8").read().strip()
-    assert posee.startswith("cl_")
-    assert posee not in corps, "la cle est revenue au navigateur"
-    assert posee[4:] not in corps
-
-    # Inscrite en base sous son EMPREINTE, jamais en clair.
-    inserts = [(s, p) for s, p in faux.ordres if s.startswith("INSERT INTO llm_api_keys")]
-    assert len(inserts) == 1, faux.ordres
-    assert inserts[0][1][0] == app.empreinte_cle(posee)
-    assert posee not in " ".join(str(p) for p in inserts[0][1])
-
-
-def test_le_fichier_de_cle_n_est_lisible_que_par_son_proprietaire(cles_admin):
-    """Ce fichier est monte dans /workspace, que d'autres processus voient."""
-    client, _ = cles_admin
-    assert client.post("/api/cles/llm", json={"poste": True}).status_code == 200
-    mode = stat.S_IMODE(os.stat(app.CLE_CODEX_FICHIER).st_mode)
-    assert mode == 0o600, oct(mode)
-
-
-def test_creer_une_cle_revoque_celle_qu_elle_remplace(cles_admin):
-    """Deux cles vivantes pour un seul poste, et plus personne ne sait
-    laquelle sert -- ni laquelle revoquer le jour ou il le faut."""
-    client, faux = cles_admin
-    assert client.post("/api/cles/llm", json={"poste": True}).status_code == 200
-    premiere = open(app.CLE_CODEX_FICHIER, encoding="utf-8").read().strip()
-
-    faux.ordres.clear()
-    assert client.post("/api/cles/llm", json={"poste": True}).status_code == 200
-    seconde = open(app.CLE_CODEX_FICHIER, encoding="utf-8").read().strip()
-    assert seconde != premiere
-
-    revocations = [(s, p) for s, p in faux.ordres if "revoked_at=now()" in s]
-    assert len(revocations) == 1, faux.ordres
-    assert revocations[0][1][0] == app.empreinte_cle(premiere), (
-        "c'est l'ANCIENNE cle qui doit etre revoquee")
-
-
-def test_revoquer_retire_le_fichier_de_la_cle(cles_admin):
-    """Le fichier, et pas seulement la base : un poste qui croit avoir une cle
-    et recoit un refus a chaque appel ne se diagnostique pas."""
-    client, faux = cles_admin
-    r = client.post("/api/cles/llm", json={"poste": True})
-    assert r.status_code == 200, r.data
-    ident = r.get_json()["id"]
-    posee = open(app.CLE_CODEX_FICHIER, encoding="utf-8").read().strip()
-
-    # La revocation passe par l'IDENTIFIANT de la ligne : c'est ce qui permet
-    # d'en couper une parmi plusieurs. Le faux doit donc rendre la ligne que
-    # la route relit avant de la revoquer.
-    faux._reponses["SELECT key_hash, key_name, revoked_at"] = [
-        (app.empreinte_cle(posee), "poste de developpement", None)]
-    assert client.delete(f"/api/cles/llm/{ident}").status_code == 200
-    assert not os.path.exists(app.CLE_CODEX_FICHIER), (
-        "le fichier est reste : le poste croit avoir une cle et recoit un refus")
-    assert any("UPDATE llm_api_keys SET revoked_at=now() WHERE id=" in s
-               for s, _ in faux.ordres)
-
-
-def test_l_etat_distingue_les_trois_facons_de_ne_pas_marcher(cles_admin, monkeypatch):
-    """Cle posee mais inconnue de la base, posee mais revoquee, base
-    injoignable : trois pannes, trois causes, trois gestes differents.
-
-    Les confondre sous un seul « ca ne marche pas » est exactement ce qui
-    rendait la situation illisible avant cette page.
-    """
-    client, _ = cles_admin
-    assert client.post("/api/cles/llm", json={"poste": True}).status_code == 200
-    posee = open(app.CLE_CODEX_FICHIER, encoding="utf-8").read().strip()
-    empreinte = app.empreinte_cle(posee)
-
-    monkeypatch.setattr(app, "_pg_connexion",
-                        lambda base: _FauxPostgres({"SELECT key_name": []}))
-    assert app._etat_cle_llm()["base"] == "absente"
-
-    monkeypatch.setattr(app, "_pg_connexion", lambda base: _FauxPostgres(
-        {"SELECT key_name": [("poste", None, "2026-01-01")]}))
-    assert app._etat_cle_llm()["base"] == "revoquee"
-
-    monkeypatch.setattr(app, "_pg_connexion", lambda base: _FauxPostgres(
-        {"SELECT key_name": [("poste", None, None)]}))
-    etat = app._etat_cle_llm()
-    assert etat["base"] == "active"
-    assert etat["posee"] and posee not in json.dumps(etat)
-
-    def _tombe(base):
-        raise OSError("Postgres ne repond pas")
-    monkeypatch.setattr(app, "_pg_connexion", _tombe)
-    assert app._etat_cle_llm()["base"] == "injoignable"
-    assert empreinte  # l'empreinte n'a servi qu'ici, jamais a l'affichage
-
-
-# ------------- le panneau ecrit ce que les autres lisent vraiment --------
-
 def test_le_panneau_nomme_les_variables_que_les_services_lisent():
     """Une variable mal nommee ne leve rien : le panneau ecrit, le service ne
     trouve pas, et le message est « cle absente » sur une cle presente.
@@ -11687,9 +11479,7 @@ def test_l_identite_par_cle_rapporte_l_identifiant():
 # ------------------------- creer et revoquer ---------------------------
 
 def test_une_cle_d_application_est_montree_une_fois_et_une_seule(cles_admin, monkeypatch):
-    """LA difference avec la cle du poste, et elle est voulue.
-
-    La base ne garde que l'empreinte : ne pas montrer une cle destinee a une
+    """La base ne garde que l'empreinte : ne pas montrer une cle destinee a une
     application exterieure la rendrait inutilisable. On la montre donc une
     fois -- comme chez n'importe quel service de LLM -- et jamais plus.
     """
@@ -11707,21 +11497,10 @@ def test_une_cle_d_application_est_montree_une_fois_et_une_seule(cles_admin, mon
     assert inserts[0][1][0] == app.empreinte_cle(d["valeur"])
     assert d["valeur"] not in " ".join(str(p) for p in inserts[0][1])
 
-    # Et elle n'est pas posee dans les fichiers du poste : ce n'est pas la
-    # cle des agents.
-    assert not os.path.exists(app.CLE_CODEX_FICHIER)
-
-
-def test_la_cle_du_poste_n_est_jamais_montree(cles_admin):
-    """Elle, le panneau l'ecrit la ou elle sert. La montrer n'ouvrirait rien
-    de plus et la laisserait dans un presse-papier."""
-    client, _ = cles_admin
-    r = client.post("/api/cles/llm", json={"poste": True})
-    assert r.status_code == 200, r.data
-    corps = r.get_data(as_text=True)
-    assert "valeur" not in r.get_json(), "la cle du poste est revenue au navigateur"
-    posee = open(app.CLE_CODEX_FICHIER, encoding="utf-8").read().strip()
-    assert posee not in corps
+    # Et la page recoit de quoi l'employer : l'adresse de la passerelle et
+    # le projet auquel elle est attachee.
+    assert d["application"] == "facturier"
+    assert not os.path.exists(app.ANCIENNE_CLE_CODEX)
 
 
 def test_le_nom_et_l_application_d_une_cle_sont_inscrits(cles_admin, monkeypatch):
@@ -11757,55 +11536,6 @@ def test_revoquer_une_cle_inconnue_est_un_refus_et_pas_un_silence(cles_admin):
 
 
 # --------------------- la cle du poste s'amorce seule -------------------
-
-def test_la_cle_du_poste_est_creee_sans_qu_on_la_demande(cles_admin, monkeypatch):
-    """« Je veux que la cle CodeLab LLM soit creee et configuree par
-    defaut. » Le premier demarrage ne doit rien demander a personne."""
-    _, faux = cles_admin
-    assert not os.path.exists(app.CLE_CODEX_FICHIER)
-    faux._reponses["SELECT 1 FROM llm_api_keys"] = []
-    assert app.tenir_la_cle_du_poste() is True
-    posee = open(app.CLE_CODEX_FICHIER, encoding="utf-8").read().strip()
-    assert posee.startswith("cl_")
-
-
-def test_la_cle_du_poste_ne_se_recree_pas_a_chaque_tour(cles_admin):
-    """Appelee depuis la boucle de surveillance, elle tourne toutes les
-    quelques secondes. Recreer la cle a chaque tour remplirait la base et
-    casserait Codex en boucle."""
-    _, faux = cles_admin
-    faux._reponses["SELECT 1 FROM llm_api_keys"] = []
-    assert app.tenir_la_cle_du_poste() is True
-    # Desormais le fichier existe ET la base la dit vivante.
-    faux._reponses["SELECT 1 FROM llm_api_keys"] = [(1,)]
-    faux.ordres.clear()
-    assert app.tenir_la_cle_du_poste() is False
-    assert not [s for s, _ in faux.ordres if s.startswith("INSERT")], (
-        "une cle de plus a ete creee alors qu'une vivante etait deja posee")
-
-
-def test_l_amorcage_de_la_cle_ne_fait_jamais_tomber_le_tour(monkeypatch):
-    """Postgres redemarre, le disque est plein, la base n'existe pas encore :
-    aucun de ces cas ne doit interrompre la surveillance des applications."""
-    def _tombe(*a, **kw):
-        raise RuntimeError("Postgres ne repond pas")
-    monkeypatch.setattr(app, "_pg_connexion", _tombe)
-    monkeypatch.setattr(app, "cle_codex_posee", lambda: "cl_posee")
-    app._cle_poste_plainte["dit"] = False
-    assert app.tenir_la_cle_du_poste() is False
-
-
-def test_la_boucle_de_surveillance_tient_la_cle():
-    """Dans monitor_tick et pas au demarrage : a la premiere installation,
-    Postgres n'est pas pret quand le panneau se leve, et un geste tente une
-    seule fois aurait echoue une seule fois, pour toujours."""
-    source = (_racine_app_manager() / "app.py").read_text(encoding="utf-8")
-    bloc = source[source.index("def monitor_tick():"):]
-    bloc = bloc[:bloc.index("\n    apps = load()")]
-    assert "tenir_la_cle_du_poste()" in bloc
-
-
-# ------------------------------ le suivi -------------------------------
 
 def test_la_liste_des_cles_ne_fait_pas_une_requete_par_cle():
     """Une boucle « pour chaque cle, compter sa consommation » ferait N+1
@@ -12339,7 +12069,7 @@ def test_le_tableau_des_cles_montre_le_projet_et_l_utilisateur():
     j'aurais developpees »."""
     page = _page_cles()
     bloc = page[page.index("function peindreLesCles(d){"):]
-    bloc = bloc[:bloc.index("\n/* Les phrases")]
+    bloc = bloc[:bloc.index("\nfunction ", 10)]
     entetes = re.search(r"<thead><tr>'\s*\+\s*'([^;]+?)</tr>", bloc, re.S)
     assert entetes, "l'entete du tableau ne se lit pas"
     for colonne in ("<th>Projet</th>", "<th>Utilisateur</th>"):
@@ -12706,10 +12436,6 @@ def _sse(*fragments):
                           headers={"content-type": "text/event-stream"})
 
 
-def _evenements(texte):
-    return [json.loads(l[6:]) for l in texte.splitlines() if l.startswith("data: ")]
-
-
 def test_la_chaine_passe_au_fournisseur_suivant_quand_le_quota_est_epuise(monkeypatch):
     """La part gratuite d'un fournisseur s'epuise en cours de journee : le
     suivant de la chaine doit prendre la requete, sans que Codex le voie. Et
@@ -12725,22 +12451,20 @@ def test_la_chaine_passe_au_fournisseur_suivant_quand_le_quota_est_epuise(monkey
                     {"choices": [], "usage": {"prompt_tokens": 7, "completion_tokens": 1}})
 
     client, module, appels = _passerelle_llm(monkeypatch, repondre)
-    r = client.post("/v1/responses", json={"model": "codelab-coding", "input": "ping",
-                                           "stream": True})
+    r = client.post("/v1/chat/completions", json={
+        "model": "codelab-coding", "stream": True,
+        "messages": [{"role": "user", "content": "ping"}]})
     assert r.status_code == 200
-    evenements = _evenements(r.text)
-    assert [e["delta"] for e in evenements if e["type"] == "response.output_text.delta"] == ["pong"]
-    fin = evenements[-1]
-    assert fin["type"] == "response.completed"
-    assert fin["response"]["usage"]["input_tokens"] == 7
+    assert '"pong"' in r.text and r.text.rstrip().endswith("data: [DONE]")
     assert [a[0] for a in appels] == ["gemini", "mistral"]
     assert appels[1][3] == "Bearer mi-test-mistral-123", "la cle d'un autre fournisseur est partie"
     _, options = client.comptes[-1]
     assert options == {"fournisseur": "mistral", "repli": True}
 
     appels.clear()
-    client.post("/v1/responses", json={"model": "codelab-coding", "input": "encore",
-                                       "stream": True})
+    client.post("/v1/chat/completions", json={
+        "model": "codelab-coding", "stream": True,
+        "messages": [{"role": "user", "content": "encore"}]})
     assert [a[0] for a in appels] == ["mistral"], "gemini, au repos, a ete redemande"
 
 
@@ -12752,8 +12476,9 @@ def test_quand_toute_la_chaine_refuse_chaque_raison_est_dite_sans_cle(monkeypatc
                                                               + CLES_DE_TEST["GROQ_API_KEY"]}})
 
     client, _, appels = _passerelle_llm(monkeypatch, repondre)
-    r = client.post("/v1/responses", json={"model": "codelab-coding", "input": "ping",
-                                           "stream": True})
+    r = client.post("/v1/chat/completions", json={
+        "model": "codelab-coding", "stream": True,
+        "messages": [{"role": "user", "content": "ping"}]})
     assert r.status_code == 502
     detail = r.json()["detail"]
     for fid in ("gemini", "mistral", "groq", "openrouter"):
@@ -12764,7 +12489,8 @@ def test_quand_toute_la_chaine_refuse_chaque_raison_est_dite_sans_cle(monkeypatc
 
 def test_sans_aucune_cle_la_passerelle_dit_quoi_faire(monkeypatch):
     client, _, appels = _passerelle_llm(monkeypatch, lambda *a: None, cles={})
-    r = client.post("/v1/responses", json={"model": "codelab-coding", "input": "ping"})
+    r = client.post("/v1/chat/completions", json={
+        "model": "codelab-coding", "messages": [{"role": "user", "content": "ping"}]})
     assert r.status_code == 503 and "panneau" in r.json()["detail"]
     assert not appels
 
@@ -12784,107 +12510,6 @@ def test_une_ancienne_valeur_sans_fournisseur_va_a_openrouter(monkeypatch):
     assert ("mistral", "devstral-medium-latest") not in module.chaine("codelab-coding")
 
 
-def test_une_session_codex_est_traduite_pour_un_fournisseur_chat(monkeypatch):
-    """Ce que Codex envoie -- instructions, message developpeur, appel
-    d'outil et son resultat, outil « custom » apply_patch -- doit arriver en
-    Chat Completions valide chez chaque fournisseur."""
-    client, module, _ = _passerelle_llm(monkeypatch, lambda *a: None)
-    charge = {
-        "model": "codelab-coding", "instructions": "Tu es Codex.", "stream": True,
-        "tool_choice": "auto", "parallel_tool_calls": True, "store": False,
-        "reasoning": {"effort": "medium"}, "include": ["reasoning.encrypted_content"],
-        "input": [
-            {"type": "message", "role": "developer",
-             "content": [{"type": "input_text", "text": "Sandbox : aucune."}]},
-            {"type": "message", "role": "user",
-             "content": [{"type": "input_text", "text": "Liste les fichiers"}]},
-            {"type": "reasoning", "summary": [], "encrypted_content": "xxx"},
-            {"type": "function_call", "name": "shell", "call_id": "call_LONG_ID_0001",
-             "arguments": "{\"command\":[\"ls\"]}"},
-            {"type": "function_call_output", "call_id": "call_LONG_ID_0001",
-             "output": "a.py\nb.py"},
-            {"type": "custom_tool_call", "name": "apply_patch", "call_id": "call_P2",
-             "input": "*** Begin Patch\n*** End Patch"},
-            {"type": "custom_tool_call_output", "call_id": "call_P2", "output": "ok"},
-            {"type": "message", "role": "assistant",
-             "content": [{"type": "output_text", "text": "C'est fait."}]},
-        ],
-        "tools": [
-            {"type": "function", "name": "shell", "description": "Lance une commande",
-             "strict": False, "parameters": {"type": "object", "additionalProperties": False,
-                                             "properties": {"command": {"type": "array"}}}},
-            {"type": "custom", "name": "apply_patch", "description": "Applique un patch",
-             "format": {"type": "grammar", "syntax": "lark", "definition": "start: x"}},
-            {"type": "web_search"},
-        ],
-    }
-    corps, customs = module.responses_vers_chat(charge, "gemini-flash-latest", "gemini")
-    assert customs == {"apply_patch"}
-    messages = corps["messages"]
-    assert messages[0] == {"role": "system", "content": "Tu es Codex.\n\nSandbox : aucune."}
-    assert [m["role"] for m in messages] == ["system", "user", "assistant", "tool",
-                                             "assistant", "tool", "assistant"]
-    assert messages[1]["content"] == "Liste les fichiers"
-    assert messages[2]["tool_calls"][0]["function"] == {
-        "name": "shell", "arguments": "{\"command\":[\"ls\"]}"}
-    assert messages[3] == {"role": "tool", "tool_call_id": "call_LONG_ID_0001",
-                           "name": "shell", "content": "a.py\nb.py"}
-    assert json.loads(messages[4]["tool_calls"][0]["function"]["arguments"]) == {
-        "input": "*** Begin Patch\n*** End Patch"}
-    noms = [o["function"]["name"] for o in corps["tools"]]
-    assert noms == ["shell", "apply_patch"], "web_search n'a pas d'equivalent"
-    assert "additionalProperties" not in json.dumps(corps["tools"]), "Gemini le refuse"
-    assert "start: x" in corps["tools"][1]["function"]["description"]
-    assert corps["tool_choice"] == "auto" and corps["stream"] is True
-    for inconnu in ("reasoning", "include", "store", "parallel_tool_calls", "input"):
-        assert inconnu not in corps
-
-    # Mistral : identifiants de 9 caracteres, les memes pour l'appel et son
-    # resultat -- sans quoi il ne relie plus l'un a l'autre.
-    corps, _ = module.responses_vers_chat(charge, "devstral-medium-latest", "mistral")
-    appel = corps["messages"][2]["tool_calls"][0]["id"]
-    assert len(appel) == 9 and appel.isalnum()
-    assert corps["messages"][3]["tool_call_id"] == appel
-    assert "additionalProperties" in json.dumps(corps["tools"])
-
-
-def test_les_appels_d_outils_en_morceaux_arrivent_entiers_dans_codex(monkeypatch):
-    """Les arguments d'un appel arrivent en plusieurs fragments ; Codex
-    n'execute qu'un appel complet. Un appel a apply_patch redevient un
-    « custom_tool_call » avec son texte brut."""
-    def repondre(fid, corps):
-        return _sse(
-            {"choices": [{"delta": {"content": "Je regarde."}}]},
-            {"choices": [{"delta": {"tool_calls": [
-                {"index": 0, "id": "call_a", "function": {"name": "shell", "arguments": "{\"comm"}}]}}]},
-            {"choices": [{"delta": {"tool_calls": [
-                {"index": 0, "function": {"arguments": "and\":[\"ls\"]}"}}]}}]},
-            {"choices": [{"delta": {"tool_calls": [
-                {"index": 1, "id": "call_b", "function": {
-                    "name": "apply_patch",
-                    "arguments": json.dumps({"input": "*** Begin Patch"})}}]}}]},
-            {"choices": [{"delta": {}, "finish_reason": "tool_calls"}],
-             "usage": {"prompt_tokens": 100, "completion_tokens": 20}})
-
-    client, _, _ = _passerelle_llm(monkeypatch, repondre)
-    r = client.post("/v1/responses", json={
-        "model": "codelab-coding", "input": "ls", "stream": True,
-        "tools": [{"type": "function", "name": "shell", "parameters": {"type": "object"}},
-                  {"type": "custom", "name": "apply_patch"}]})
-    evenements = _evenements(r.text)
-    types = [e["type"] for e in evenements]
-    assert types[0] == "response.created" and types[-1] == "response.completed"
-    faits = [e["item"] for e in evenements if e["type"] == "response.output_item.done"]
-    assert faits[0]["type"] == "message"
-    assert faits[0]["content"][0]["text"] == "Je regarde."
-    assert faits[1] == dict(faits[1], type="function_call", call_id="call_a", name="shell",
-                            arguments="{\"command\":[\"ls\"]}")
-    assert faits[2] == dict(faits[2], type="custom_tool_call", call_id="call_b",
-                            name="apply_patch", input="*** Begin Patch")
-    assert evenements[-1]["response"]["output"] == faits
-    assert evenements[-1]["response"]["usage"]["total_tokens"] == 120
-
-
 def test_les_applications_ont_le_meme_repli_et_leur_nom_logique(monkeypatch):
     httpx = pytest.importorskip("httpx")
 
@@ -12901,15 +12526,6 @@ def test_les_applications_ont_le_meme_repli_et_leur_nom_logique(monkeypatch):
     assert r.json()["model"] == "codelab-fast"
     assert [a[0] for a in appels] == ["groq", "gemini"]
     assert appels[1][2]["model"] == "gemini-flash-lite-latest"
-
-
-def test_la_liste_des_modeles_convient_aussi_a_codex(monkeypatch):
-    """Codex lit « models » sur cette adresse et journalisait « missing field
-    `models` » ; les clients OpenAI lisent « data »."""
-    client, _, _ = _passerelle_llm(monkeypatch, lambda *a: None)
-    corps = client.get("/v1/models?client_version=0.155.1").json()
-    assert corps["models"] == []
-    assert "codelab-coding" in [m["id"] for m in corps["data"]]
 
 
 def test_le_compose_casaos_ne_porte_aucune_variable_a_substituer():
@@ -12982,90 +12598,6 @@ def test_les_cles_du_panneau_survivent_au_redemarrage_de_postgres(tmp_path):
     assert "POSTGRES_PASSWORD=x" not in gardees, "celle-la est regeneree"
 
 
-def test_le_catalogue_de_codex_propose_les_noms_de_la_passerelle():
-    """Sans catalogue, le selecteur de modele de Codex (extension VS Code,
-    /model) propose les modeles d'OpenAI -- que la passerelle refuse -- et
-    Codex previent « Model metadata not found » a chaque demarrage. Les
-    champs exiges par Codex 0.158 ont ete releves en lui soumettant des
-    entrees incompletes : sans l'un d'eux, il refuse le fichier entier."""
-    racine = _racine_depot()
-    catalogue = json.load(open(os.path.join(racine, "dev", "codex-modeles.json"),
-                               encoding="utf-8"))["models"]
-    passerelle = open(os.path.join(racine, "llm", "app.py"), encoding="utf-8").read()
-    source = passerelle[passerelle.index("MODELES_PAR_DEFAUT = {"):]
-    servis = set(re.findall(r'"([a-z0-9-]+)":', source[:source.index("}")]))
-    assert {m["slug"] for m in catalogue} == servis
-    exiges = {"slug", "display_name", "supported_reasoning_levels", "shell_type",
-              "visibility", "supported_in_api", "priority", "support_verbosity",
-              "truncation_policy", "experimental_supported_tools"}
-    for m in catalogue:
-        assert exiges <= set(m), exiges - set(m)
-        assert m["visibility"] == "list"
-        # Rien qui changerait le protocole que parle Codex : la passerelle ne
-        # traduit que le Responses ordinaire.
-        assert not {"use_responses_lite", "tool_mode", "base_instructions"} & set(m)
-    instructions = open(os.path.join(racine, "dev", "codex-instructions.md"),
-                        encoding="utf-8").read()
-    assert len(instructions) > 5000, "sans instructions, Codex n'envoie aucun prompt"
-    dockerfile = open(os.path.join(racine, "dev", "Dockerfile"), encoding="utf-8").read()
-    assert "setdefault('base_instructions', i)" in dockerfile
-
-
-def test_un_ancien_config_toml_de_codex_recoit_le_catalogue(tmp_path):
-    """La ligne s'ajoute EN TETE (une cle de premier niveau doit preceder les
-    sections en TOML), une seule fois, et seulement si le fichier pointe la
-    passerelle. Le bloc est pris dans l'entrypoint et execute."""
-    import subprocess
-    source = open(os.path.join(_racine_depot(), "dev", "entrypoint.sh"),
-                  encoding="utf-8").read()
-    debut = source.index('if [ -r "$CATALOGUE_CODEX" ]')
-    bloc = source[debut:source.index("\nfi\n", debut) + 4]
-    catalogue = tmp_path / "catalogue.json"
-    catalogue.write_text("{}", encoding="utf-8")
-    ancien = ('model_provider = "codelab"\n\n[model_providers.codelab]\n'
-              'base_url = "http://codelab-llm:8080/v1"\n')
-    cfg = tmp_path / "config.toml"
-    cfg.write_text(ancien, encoding="utf-8")
-    script = f'CATALOGUE_CODEX="{catalogue}"\nCODEX_CFG="{cfg}"\n' + bloc
-    for _ in range(2):
-        subprocess.run(["sh", "-c", script], check=True, capture_output=True, timeout=30)
-    texte = cfg.read_text(encoding="utf-8")
-    assert texte == f'model_catalog_json = "{catalogue}"\n' + ancien
-
-    autre = 'model_provider = "openai"\n'
-    cfg.write_text(autre, encoding="utf-8")
-    subprocess.run(["sh", "-c", script], check=True, capture_output=True, timeout=30)
-    assert cfg.read_text(encoding="utf-8") == autre, "un config.toml a soi a ete touche"
-
-
-def test_un_modele_choisi_dans_l_extension_codex_part_vers_codelab_coding(monkeypatch):
-    """L'extension Codex de VS Code n'affiche que les modeles d'OpenAI et
-    ecrit le choix dans config.toml (« gpt-5.5 »). Refuse, ce nom rendait
-    l'extension inutilisable ; il est servi par la chaine de codelab-coding
-    -- et le nom demande n'atteint jamais un fournisseur."""
-    client, module, appels = _passerelle_llm(
-        monkeypatch, lambda fid, corps: _sse({"choices": [{"delta": {"content": "ok"}}]}))
-    r = client.post("/v1/responses", json={"model": "gpt-5.5", "input": "ping",
-                                           "stream": True,
-                                           "reasoning": {"effort": "low"}})
-    assert r.status_code == 200
-    assert [e for e in _evenements(r.text) if e["type"] == "response.completed"]
-    assert appels[0][2]["model"] == "gemini-flash-latest"
-    assert "gpt-5.5" not in json.dumps([a[2] for a in appels])
-
-    monkeypatch.setenv("CODELAB_LLM_DEFAUT", "codelab-fast")
-    appels.clear()
-    client.post("/v1/chat/completions", json={"model": "gpt-5.5", "stream": True,
-                                              "messages": [{"role": "user", "content": "x"}]})
-    assert appels[0][0] == "groq", "CODELAB_LLM_DEFAUT n'a pas ete suivi"
-
-    monkeypatch.setenv("CODELAB_LLM_DEFAUT", "aucun")
-    appels.clear()
-    r = client.post("/v1/responses", json={"model": "gpt-5.5", "input": "ping"})
-    assert r.status_code == 400 and not appels
-    assert "par-defaut" not in module.modeles() and "defaut" not in module.modeles()
-
-
 def test_openrouter_gratuits_suit_le_catalogue_du_moment(monkeypatch):
     """Un modele « :free » ecrit en dur est devenu payant, et la chaine
     finissait sur « This model is unavailable for free ». « gratuits » lit le
@@ -13078,8 +12610,9 @@ def test_openrouter_gratuits_suit_le_catalogue_du_moment(monkeypatch):
     catalogue = [dict(CATALOGUE_OPENROUTER[1], id="petit/contexte:free", context_length=8000)]
     catalogue += CATALOGUE_OPENROUTER
     monkeypatch.setattr(sys.modules[__name__], "CATALOGUE_OPENROUTER", catalogue)
-    r = client.post("/v1/responses", json={"model": "codelab-coding", "input": "ping",
-                                           "stream": True})
+    r = client.post("/v1/chat/completions", json={
+        "model": "codelab-coding", "stream": True,
+        "messages": [{"role": "user", "content": "ping"}]})
     assert r.status_code == 200
     assert [a[2]["model"] for a in appels] == ["vendeur/modele-a:free"]
 
@@ -13091,28 +12624,11 @@ def test_openrouter_gratuits_suit_le_catalogue_du_moment(monkeypatch):
         return _sse({"choices": [{"delta": {"content": "ok"}}]})
     client2, _, appels2 = _passerelle_llm(
         monkeypatch, repondre, cles={"OPENROUTER_API_KEY": CLES_DE_TEST["OPENROUTER_API_KEY"]})
-    r = client2.post("/v1/responses", json={"model": "codelab-coding", "input": "ping",
-                                            "stream": True})
+    r = client2.post("/v1/chat/completions", json={
+        "model": "codelab-coding", "stream": True,
+        "messages": [{"role": "user", "content": "ping"}]})
     assert r.status_code == 200
     assert [a[2]["model"] for a in appels2] == ["vendeur/modele-a:free", "petit/contexte:free"]
-
-
-def test_openrouter_gratuits_essaie_d_abord_les_modeles_de_code(monkeypatch):
-    """Parmi les gratuits, un modele fait pour le code passe avant un
-    generaliste a plus grand contexte : c'est Codex qui s'en sert."""
-    client, module, appels = _passerelle_llm(
-        monkeypatch, lambda fid, corps: _sse({"choices": [{"delta": {"content": "ok"}}]}),
-        cles={"OPENROUTER_API_KEY": CLES_DE_TEST["OPENROUTER_API_KEY"]})
-    catalogue = [
-        {"id": "general/geant:free", "context_length": 1048576, "supported_parameters": ["tools"]},
-        {"id": "cohere/north-mini-code:free", "context_length": 256000, "supported_parameters": ["tools"]},
-        {"id": "poolside/laguna-s-2.1:free", "context_length": 262144, "supported_parameters": ["tools"]},
-    ]
-    monkeypatch.setattr(sys.modules[__name__], "CATALOGUE_OPENROUTER", catalogue)
-    import asyncio
-    liste = asyncio.run(module.modeles_gratuits())
-    assert liste == ["poolside/laguna-s-2.1:free", "cohere/north-mini-code:free",
-                     "general/geant:free"]
 
 
 def test_un_quota_epuise_saute_les_autres_modeles_du_meme_fournisseur(monkeypatch):
@@ -13126,6 +12642,134 @@ def test_un_quota_epuise_saute_les_autres_modeles_du_meme_fournisseur(monkeypatc
         monkeypatch, repondre, cles={"OPENROUTER_API_KEY": CLES_DE_TEST["OPENROUTER_API_KEY"]})
     monkeypatch.setenv("CODELAB_LLM_MODELE_CODELAB_CODING",
                        "openrouter:a:free, openrouter:b:free, openrouter:c:free")
-    r = client.post("/v1/responses", json={"model": "codelab-coding", "input": "ping"})
+    r = client.post("/v1/chat/completions", json={
+        "model": "codelab-coding", "messages": [{"role": "user", "content": "ping"}]})
     assert r.status_code == 502
     assert [a[2]["model"] for a in appels] == ["a:free"]
+
+
+# ------------------------ Codex sur un compte ChatGPT ------------------------
+
+CONFIG_CODEX_PASSERELLE = """model_catalog_json = "/usr/local/share/codelab/codex-modeles.json"
+# Ecrit une seule fois par codelab-dev -- modifiable librement.
+sandbox_mode = "danger-full-access"
+approval_policy = "on-request"
+
+model_provider = "codelab"
+model = "gpt-5.5"
+model_reasoning_effort = "low"
+
+[model_providers.codelab]
+name = "CodeLab"
+base_url = "http://codelab-llm:8080/v1"
+
+[projects."/workspace/WineManager"]
+trust_level = "trusted"
+
+[model_providers.codelab.auth]
+command = "head"
+args = ["-n", "1", "/workspace/.codex/codelab-llm.key"]
+"""
+
+
+def _bloc_codex(dossier):
+    """Le bloc Codex de dev/entrypoint.sh, pris tel quel et execute."""
+    import subprocess
+    source = open(os.path.join(_racine_depot(), "dev", "entrypoint.sh"),
+                  encoding="utf-8").read()
+    debut = source.index('CODEX_CFG="$CODEX_HOME_DIR/config.toml"')
+    fin = source.index("# ~/.codex vers CODEX_HOME.")
+    bloc = source[debut:fin]
+    return subprocess.run(["sh", "-c", bloc],
+                          env=dict(os.environ, CODEX_HOME_DIR=str(dossier),
+                                   SSH_USER=str(os.getuid())),
+                          capture_output=True, text=True, timeout=30)
+
+
+def test_codex_quitte_la_passerelle_pour_le_compte_chatgpt(tmp_path):
+    """Le config.toml d'un poste qui passait par codelab-llm -- celui du
+    serveur, tel quel -- perd le fournisseur « codelab », ses sections et le
+    catalogue de l'image, et garde tout le reste : les projets de confiance,
+    le modele choisi dans l'extension, les reglages faits a la main."""
+    (tmp_path / "config.toml").write_text(CONFIG_CODEX_PASSERELLE, encoding="utf-8")
+    (tmp_path / "codelab-llm.key").write_text("cl_ancienne\n", encoding="utf-8")
+    for _ in range(2):
+        r = _bloc_codex(tmp_path)
+        assert r.returncode == 0, r.stderr
+    texte = (tmp_path / "config.toml").read_text(encoding="utf-8")
+    for parti in ("codelab", "model_catalog_json", "model_providers", "codelab-llm.key"):
+        assert parti not in texte.replace("par codelab-dev", ""), parti
+    for garde in ('sandbox_mode = "danger-full-access"', 'model = "gpt-5.5"',
+                  'model_reasoning_effort = "low"', '[projects."/workspace/WineManager"]',
+                  'trust_level = "trusted"'):
+        assert garde in texte, garde
+    assert not (tmp_path / "codelab-llm.key").exists(), "l'ancienne cle est restee"
+
+
+def test_un_config_toml_neuf_n_a_aucun_fournisseur_et_un_autre_n_est_pas_touche(tmp_path):
+    r = _bloc_codex(tmp_path)
+    assert r.returncode == 0, r.stderr
+    neuf = (tmp_path / "config.toml").read_text(encoding="utf-8")
+    assert "model_provider" not in neuf and "codelab-llm" not in neuf
+    assert 'sandbox_mode = "danger-full-access"' in neuf
+
+    a_soi = 'model = "gpt-5.5"\n\n[mcp_servers.x]\ncommand = "y"\n'
+    (tmp_path / "config.toml").write_text(a_soi, encoding="utf-8")
+    _bloc_codex(tmp_path)
+    assert (tmp_path / "config.toml").read_text(encoding="utf-8") == a_soi
+
+
+def test_le_jeton_chatgpt_n_est_lisible_que_par_vscode(tmp_path):
+    """/workspace/.codex est partage avec le groupe codelab (panneau,
+    Dagster) : un auth.json en 0660 leur donnerait le compte ChatGPT."""
+    jeton = tmp_path / "auth.json"
+    jeton.write_text("{}", encoding="utf-8")
+    jeton.chmod(0o664)
+    assert _bloc_codex(tmp_path).returncode == 0
+    assert stat.S_IMODE(jeton.stat().st_mode) == 0o600
+
+
+def test_l_image_dev_ne_porte_plus_rien_de_la_passerelle_pour_codex():
+    racine = _racine_depot()
+    dockerfile = open(os.path.join(racine, "dev", "Dockerfile"), encoding="utf-8").read()
+    entrypoint = open(os.path.join(racine, "dev", "entrypoint.sh"), encoding="utf-8").read()
+    assert "codex-modeles" not in dockerfile
+    assert not os.path.exists(os.path.join(racine, "dev", "codex-modeles.json"))
+    # Ce que l'entrypoint ecrit encore ne pointe plus la passerelle.
+    ecrit = entrypoint[entrypoint.index('cat > "$CODEX_CFG" <<CODEXCFG'):]
+    ecrit = ecrit[:ecrit.index("\nCODEXCFG")]
+    assert "codelab-llm" not in ecrit and "model_provider" not in ecrit
+    assert "CODELAB_LLM_KEY" not in entrypoint
+
+
+def test_le_panneau_revoque_une_fois_l_ancienne_cle_de_codex(tmp_path, monkeypatch):
+    faux = _FauxPostgres({"UPDATE llm_api_keys SET revoked_at": [(1,)]})
+    monkeypatch.setattr(app, "_pg_connexion", lambda base: faux)
+    monkeypatch.setattr(app, "_poste_retire", {"fait": False})
+    os.makedirs(os.path.dirname(app.ANCIENNE_CLE_CODEX), exist_ok=True)
+    open(app.ANCIENNE_CLE_CODEX, "w").write("cl_ancienne\n")
+    assert app.retirer_la_cle_du_poste() is True
+    ordre, params = [o for o in faux.ordres if o[0].startswith("UPDATE")][0]
+    assert params == (app.APP_POSTE, app.NOM_CLE_POSTE)
+    assert "revoked_at IS NULL" in ordre
+    assert not os.path.exists(app.ANCIENNE_CLE_CODEX)
+    faux.ordres.clear()
+    app.retirer_la_cle_du_poste()
+    assert not faux.ordres, "la revocation se rejoue a chaque tour"
+
+
+def test_la_page_des_cles_donne_de_quoi_brancher_une_application(cles_admin):
+    """Une cle pour une application n'est utile qu'avec l'adresse de la
+    passerelle et un nom de modele : la page les recoit et les affiche avec
+    la cle, prets a coller dans le .env."""
+    client, _ = cles_admin
+    d = client.get("/api/cles").get_json()
+    assert d["passerelle"]["url"] == "http://codelab-llm:8080/v1"
+    assert "codelab-fast" in d["passerelle"]["modeles"]
+    assert "llm" not in d, "l'etat de la cle de Codex est encore envoye"
+    page = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
+    bloc = page[page.index("function montrerLaCleUneFois("):]
+    bloc = bloc[:bloc.index("\n}\n")]
+    for variable in ("CODELAB_LLM_URL=", "CODELAB_LLM_KEY=", "CODELAB_LLM_MODEL="):
+        assert variable in bloc
+    assert "poste de développement" not in page.lower()

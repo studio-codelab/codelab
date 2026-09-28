@@ -6669,9 +6669,8 @@ def _ecrire_0600(chemin, contenu, modele=None):
       fichier a CHAQUE appel, il tomberait sur la troncature.
 
     « modele » donne son proprietaire au fichier : le panneau ecrit en root,
-    le conteneur de developpement lit sous « vscode ». Un 0600 root:root
-    serait ecrit, correct, et illisible par le seul programme qui en a
-    besoin -- on ne s'en apercevrait qu'au « cannot open ...codelab-llm.key » de Codex.
+    codelab-llm lit sous son propre utilisateur. Un 0600 root:root serait
+    ecrit, correct, et illisible par le seul programme qui en a besoin.
     """
     os.makedirs(os.path.dirname(chemin), exist_ok=True)
     tmp = chemin + ".tmp"

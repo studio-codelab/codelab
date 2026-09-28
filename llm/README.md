@@ -1,11 +1,15 @@
 # Le service IA de CodeLab
 
-Un conteneur, une seule porte : `codelab-llm`. Il est joignable depuis le
-réseau `codelab` (tes applications, le poste de développement) et **ne publie
-aucun port**.
+Un conteneur, une seule porte pour **tes applications** : `codelab-llm`. Il
+est joignable depuis le réseau `codelab` et **ne publie aucun port**.
+
+Codex, l'agent de développement, n'y passe pas : il se connecte avec un
+compte ChatGPT (voir [`dev/README.md`](../dev/README.md#codex)). Un agent
+envoie des dizaines de requêtes par tâche, et aucune part gratuite n'y
+suffit ; une application en envoie peu.
 
 ```
-application / Codex ──clé CodeLab──▶ codelab-llm ──▶ Gemini ─┐ quota épuisé ?
+application ──clé CodeLab──▶ codelab-llm ──▶ Gemini ─┐ quota épuisé ?
                                                   ──▶ Mistral ─┤ le suivant
                                                   ──▶ Groq ────┤
                                                   ──▶ OpenRouter (modèles « :free »)
@@ -18,19 +22,43 @@ application / Codex ──clé CodeLab──▶ codelab-llm ──▶ Gemini ─
 | Vers quel fournisseur | une **chaîne** : Gemini, Mistral, Groq, OpenRouter, appelés en direct |
 | Les clés des fournisseurs | ✅ dans `config/llm/llm.env`, que lui seul lit |
 
-Ni tes applications ni le poste de développement ne voient les clés des
-fournisseurs : ils présentent une **clé CodeLab**, révocable, avec quota et
-comptabilité. C'est ce qui rend acceptable qu'un agent comme Codex tourne
-avec tous les droits dans `/workspace` : au pire, il fuite une clé CodeLab,
-qui se révoque en un clic.
+Tes applications ne voient pas les clés des fournisseurs : chacune présente
+**sa propre clé CodeLab**, révocable, avec sa comptabilité. Une application
+compromise fuit au pire sa clé CodeLab, qui se révoque en un clic — jamais la
+clé Gemini ou OpenRouter.
+
+## Brancher une application
+
+Dans le panneau, *Paramètres → Clés et secrets → Créer une clé* : un nom, le
+projet. La clé s'affiche **une seule fois**, avec les trois lignes à coller
+dans le `.env` du projet :
+
+```
+CODELAB_LLM_URL=http://codelab-llm:8080/v1
+CODELAB_LLM_KEY=cl_…
+CODELAB_LLM_MODEL=codelab-fast
+```
+
+L'API est celle d'OpenAI (`POST /chat/completions`, en flux ou non) : tout
+client OpenAI s'y branche en changeant l'adresse de base.
+
+```python
+from openai import OpenAI
+import os
+client = OpenAI(base_url=os.environ["CODELAB_LLM_URL"], api_key=os.environ["CODELAB_LLM_KEY"])
+r = client.chat.completions.create(model=os.environ["CODELAB_LLM_MODEL"],
+                                   messages=[{"role": "user", "content": "Bonjour"}])
+```
+
+Le panneau montre ensuite ce que chaque clé consomme, et la révoque d'un clic.
 
 ## La part gratuite de plusieurs fournisseurs
 
 Chaque fournisseur offre un quota gratuit — requêtes par minute, par jour,
-jetons par mois — et aucun ne suffit seul à une journée de Codex. Un nom
+jetons par mois — vite atteint par une application un peu sollicitée. Un nom
 logique désigne donc une **chaîne** : le premier fournisseur dont la clé est
 posée répond ; s'il refuse (quota épuisé, crédit insuffisant, modèle retiré,
-panne), le suivant prend la requête. Ni Codex ni l'application ne le voient.
+panne), le suivant prend la requête. L'application ne le voit pas.
 
 Un fournisseur qui vient de dire « quota épuisé » est mis **au repos** le
 temps qu'il indique (une minute sinon) : on ne lui redemande pas à chaque
@@ -40,7 +68,7 @@ fournisseur — et c'est aussi dans `docker logs codelab-llm`.
 | Fournisseur | Clé gratuite | Ce qu'il apporte |
 |---|---|---|
 | Google Gemini | [aistudio.google.com](https://aistudio.google.com) | le quota le plus large, très grand contexte |
-| Mistral | [console.mistral.ai](https://console.mistral.ai) (palier « Experiment ») | Devstral, fait pour le code |
+| Mistral | [console.mistral.ai](https://console.mistral.ai) (palier « Experiment ») | modèles européens, dont Devstral |
 | Groq | [console.groq.com](https://console.groq.com) | très rapide ; limites par minute basses |
 | OpenRouter | [openrouter.ai](https://openrouter.ai) | modèles « :free » ; avec du crédit, Claude, GPT… |
 
@@ -51,19 +79,12 @@ doit pas sortir. Les quotas et les modèles offerts changent souvent.
 **Une seule clé suffit** pour que tout marche ; chacune de plus repousse le
 moment où tout est épuisé.
 
-## Pourquoi plus de routeur, et pourquoi une traduction
+## Pourquoi plus de routeur
 
 Il y avait un second conteneur, `codelab-litellm`, entre la passerelle et les
 fournisseurs. Il est retiré : sur une petite machine, il coûtait plus d'un Go
 de disque, 512 Mo de RAM et une clé de liaison de plus. La chaîne tient en
 une boucle dans `app.py`.
-
-Codex ne parle plus que le protocole **Responses** ; Gemini, Mistral et Groq
-ne servent que **Chat Completions**. La passerelle traduit dans les deux sens
-ce dont Codex se sert : texte, instructions, outils (y compris `apply_patch`),
-appels d'outils et leurs résultats, en flux. Ce qui est propre à OpenAI —
-raisonnement chiffré, recherche web intégrée — est ignoré ; Codex se rabat
-sur ses outils ordinaires.
 
 ## Démarrage
 
@@ -98,7 +119,7 @@ chacun, dans l'ordre d'essai :
 
 | Nom | Chaîne par défaut | Usage |
 |---|---|---|
-| `codelab-coding` | `gemini-flash-latest` → `devstral-medium-latest` → Groq `openai/gpt-oss-120b` → OpenRouter gratuits | le modèle de travail de Codex |
+| `codelab-coding` | `gemini-flash-latest` → `devstral-medium-latest` → Groq `openai/gpt-oss-120b` → OpenRouter gratuits | le travail courant |
 | `codelab-fast` | Groq `openai/gpt-oss-20b` → `gemini-flash-lite-latest` → `mistral-small-latest` → OpenRouter gratuits | les tâches courtes |
 | `codelab-reasoning` | `gemini-pro-latest` → `magistral-medium-latest` → Groq `openai/gpt-oss-120b` → OpenRouter gratuits | les questions difficiles |
 
@@ -181,14 +202,12 @@ La console y ajoute ce que la ligne de commande ne donne pas :
 | **Suivre** | requêtes, jetons et dernier appel, **par clé** |
 
 Le suivi par clé demande la colonne `llm_usage.key_id` : sans elle, deux clés
-du même poste sont indistinguables. Elle est ajoutée aux bases existantes par
+de la même application sont indistinguables. Elle est ajoutée aux bases existantes par
 un `ALTER TABLE` au démarrage — `CREATE TABLE IF NOT EXISTS` ne touche pas
 une table qui existe déjà.
 
-**La clé du poste de développement est un cas à part** : le panneau la crée
-au démarrage si elle manque, et la pose lui-même dans
-`.codex/codelab-llm.key`, où Codex la relit. Elle ne s'affiche
-jamais, pas même à la création — elle est écrite directement là où elle sert.
+L'ancienne clé que le panneau créait pour Codex (« poste de développement »)
+est révoquée à son démarrage : Codex n'en a plus besoin.
 
 Le nom et l'application sont une **étiquette comptable** : ils disent qui a
 consommé quoi et permettent de couper une clé qui dérape. Ils ne

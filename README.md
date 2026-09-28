@@ -24,7 +24,7 @@ Aucune configuration manuelle après l'installation : les identifiants de base d
 SSH sont générés au premier démarrage, et la connexion à Postgres est déjà prête dans le conteneur
 `dev`.
 
-Le service IA est un seul conteneur : une passerelle réservée aux clients porteurs d'une clé
+Le service IA de tes **applications** est un seul conteneur : une passerelle réservée aux clients porteurs d'une clé
 CodeLab, qui appelle en direct la **part gratuite** de Gemini, Mistral, Groq et OpenRouter — quand
 le quota de l'un est épuisé, le suivant répond. Il ne publie aucun port. Une seule clé gratuite,
 collée dans le panneau, suffit ; la configuration complète est dans [`llm/README.md`](llm/README.md).
@@ -146,9 +146,9 @@ surveiller à l'œil :
 - **Clés et secrets** — une console, comme chez un fournisseur de LLM : créer une clé à la
   demande, en révoquer une sans toucher aux autres, et voir ce que **chacune** a consommé
   (requêtes, jetons, dernier appel). Les clés des fournisseurs (Gemini, Mistral, Groq, OpenRouter)
-  se collent une fois et servent aussitôt. La clé de Codex, elle, est **créée et posée
-  toute seule** — rien à saisir — et ne s'affiche jamais. Une clé destinée à une application est
-  montrée **une seule fois** : la base n'en garde que l'empreinte.
+  se collent une fois et servent aussitôt. Une clé créée pour une application est montrée
+  **une seule fois**, avec les trois lignes à coller dans son `.env` : la base n'en garde que
+  l'empreinte.
   Le panneau n'atteint ni le compose ni le `.env` de l'hôte — les lui monter lui donnerait de quoi
   réécrire la stack.
 
@@ -186,11 +186,13 @@ Ce qui sert à **écrire** du code, dans le conteneur `codelab-dev`. Détails :
 
 | Où | Contenu |
 |---|---|
-| `/workspace/.codex/` | configuration de Codex (`config.toml`), sa clé CodeLab (`codelab-llm.key`, posée par le panneau), le manuel `AGENTS.md` |
+| `/workspace/.codex/` | configuration de Codex (`config.toml`), sa connexion au compte ChatGPT (`auth.json`, en `0600`), le manuel `AGENTS.md` |
 | `~/.vscode-server` (→ `/DATA/AppData/codelab/vscode-server`) | le serveur VS Code et ses extensions, conservés aux mises à jour |
-| profil de session (`/etc/profile.d/`) | variables `PG*` pour `psql`, `CODEX_HOME`, `CODELAB_LLM_KEY` — posées à chaque connexion SSH |
+| profil de session (`/etc/profile.d/`) | variables `PG*` pour `psql`, `CODEX_HOME` — posées à chaque connexion SSH |
 
-Aucun de ces fichiers ne va aux applications déployées.
+Aucun de ces fichiers ne va aux applications déployées. **Codex se connecte avec un compte
+ChatGPT** (bouton *Sign in* de l'extension, ou `codex login`) et ne passe pas par `codelab-llm`,
+réservé aux applications.
 
 ### 3. Les applications — ce que le panneau lance
 
@@ -204,7 +206,8 @@ Ce qui sert à **faire tourner** un projet. Détails :
 | réglages de l'app dans le panneau | commande de lancement, build, visibilité, adresse — stockés dans `app-manager/apps.json` |
 
 Une application qui appelle l'IA le fait avec **sa propre clé CodeLab** (panneau → *Clés et
-secrets* → *Créer une clé*), posée dans son `.env` — jamais avec la clé OpenRouter.
+secrets* → *Créer une clé*), posée dans son `.env` avec l'adresse `http://codelab-llm:8080/v1`
+— jamais avec la clé d'un fournisseur.
 
 ## Contenu par défaut du workspace
 

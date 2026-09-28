@@ -116,8 +116,8 @@ jobs:
       # pas seulement sur le poste de celui qui l'ecrit.
       #
       # llm/requirements.txt, tel quel : les tests de la passerelle chargent
-      # llm/app.py pour de vrai (chaine de fournisseurs, traduction pour
-      # Codex) et s'ignoraient ici faute de fastapi et httpx. Le fichier de
+      # llm/app.py pour de vrai (chaine de fournisseurs, repli, cles
+      # masquees) et s'ignoraient ici faute de fastapi et httpx. Le fichier de
       # l'image lui-meme, pour que les versions ne puissent pas diverger.
       - name: Dependances
         run: pip install flask psutil requests pytest webauthn==3.0.0 qrcode==8.2 cryptography==50.0.1 pyyaml -r llm/requirements.txt
