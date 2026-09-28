@@ -25,6 +25,17 @@ MAIL_HOTE="${CODELAB_MAILPIT_HOST:-codelab-mailpit}"
 # ecrire a personne.
 RELAIS="${CODELAB_MAILPIT_RELAIS:-auto}"
 INTERVALLE="${CODELAB_MAILPIT_INTERVALLE:-15}"
+# LE PLAFOND D'ENVOI. Une application partie en boucle enverrait un mail par
+# tour de boucle -- et le compte d'envoi (Gmail : ~500 par jour) finirait
+# suspendu, alertes du panneau comprises. Au-dela de ces nombres, sur l'heure
+# ou les 24 heures glissantes, Mailpit GARDE les mails sans les relayer ; il
+# reprend tout seul quand la fenetre se vide. Les mails retenus se relaient a
+# la main depuis l'interface (bouton « Release »). 0 desactive un plafond.
+MAX_HEURE="${CODELAB_MAILPIT_MAX_HEURE:-50}"
+MAX_JOUR="${CODELAB_MAILPIT_MAX_JOUR:-200}"
+API="${CODELAB_MAILPIT_API:-http://127.0.0.1:8025}"
+PLAFOND_ATTEINT=0
+RELAIS_ACTIF=0
 ATTENTE_MAX="${CODELAB_MAILPIT_ATTENTE:-120}"
 
 mkdir -p "$CONFIG_DIR"
@@ -99,6 +110,7 @@ preparer_relais() {
     unset "MP_SMTP_RELAY_$v"
   done
   unset MP_SMTP_RELAY_ALL
+  RELAIS_ACTIF=0
   hote="$(avec_verrou s get_value CODELAB_INTERNE_RELAIS_HOST)"
   if [ "$RELAIS" = "non" ] || [ -z "$hote" ]; then
     if [ "$RELAIS" = "non" ]; then
@@ -128,8 +140,64 @@ preparer_relais() {
   # fournisseurs refusent d'expedier au nom d'une autre adresse.
   expediteur="$(avec_verrou s get_value CODELAB_INTERNE_RELAIS_FROM)"
   if [ -n "$expediteur" ]; then export MP_SMTP_RELAY_OVERRIDE_FROM="$expediteur"; fi
+  RELAIS_ACTIF=1
+  if [ "$PLAFOND_ATTEINT" = "1" ]; then
+    # La configuration reste : c'est elle qui permet de relayer a la main
+    # depuis l'interface. Seul le relais AUTOMATIQUE est coupe.
+    echo "[codelab-mailpit] plafond d'envoi atteint : les mails sont gardes," \
+         "rien ne part jusqu'a ce que la fenetre se vide."
+    return 0
+  fi
   export MP_SMTP_RELAY_ALL=true
-  echo "[codelab-mailpit] relais actif par $hote."
+  echo "[codelab-mailpit] relais actif par $hote (au plus $MAX_HEURE/heure," \
+       "$MAX_JOUR/24 h)."
+}
+
+# Combien de mails recus depuis cette date (UTC, AAAA-MM-JJTHH:MM:SS) ?
+# Les 500 derniers suffisent : c'est tout ce que Mailpit garde.
+# Rien du tout si l'API ne repond pas (Mailpit qui redemarre) : un zero
+# ferait croire la fenetre vide, et le relais reprendrait pour etre coupe
+# au tour suivant.
+DATES=""
+lire_dates() {
+  auth="$(printf 'codelab:%s' "$UI_MDP" | base64 | tr -d '\n')"
+  reponse="$(wget -q -T 5 -O - --header "Authorization: Basic $auth" \
+      "$API/api/v1/messages?limit=500" 2>/dev/null)" || return 1
+  case "$reponse" in *'"messages"'*) ;; *) return 1 ;; esac
+  DATES="$(printf '%s' "$reponse" | grep -o '"Created":"[^"]*"' | cut -d'"' -f4)"
+}
+compter_depuis() {
+  printf '%s\n' "$DATES" | awk -v s="$1" 'NF && $0 >= s {n++} END {print n+0}'
+}
+
+il_y_a() {
+  date -u -d "@$(( $(date +%s) - $1 ))" +%Y-%m-%dT%H:%M:%S
+}
+
+# Rend 0 si l'etat du plafond a change (il faut relancer), 1 sinon.
+verifier_plafond() {
+  [ "$RELAIS_ACTIF" = "1" ] || [ "$PLAFOND_ATTEINT" = "1" ] || return 1
+  lire_dates || return 1
+  depasse=0
+  if [ "$MAX_HEURE" -gt 0 ] 2>/dev/null; then
+    n="$(compter_depuis "$(il_y_a 3600)")"
+    [ "${n:-0}" -ge "$MAX_HEURE" ] && depasse=1
+  fi
+  if [ "$depasse" = 0 ] && [ "$MAX_JOUR" -gt 0 ] 2>/dev/null; then
+    n="$(compter_depuis "$(il_y_a 86400)")"
+    [ "${n:-0}" -ge "$MAX_JOUR" ] && depasse=1
+  fi
+  if [ "$depasse" != "$PLAFOND_ATTEINT" ]; then
+    PLAFOND_ATTEINT="$depasse"
+    if [ "$depasse" = 1 ]; then
+      echo "[codelab-mailpit] ALERTE : plafond d'envoi atteint ($MAX_HEURE/heure" \
+           "ou $MAX_JOUR/24 h). Une application envoie-t-elle en boucle ?" >&2
+    else
+      echo "[codelab-mailpit] sous le plafond d'envoi : le relais reprend."
+    fi
+    return 0
+  fi
+  return 1
 }
 
 PID=""
@@ -159,7 +227,10 @@ while :; do
     exit "$code"
   fi
   NOUVELLE="$(avec_verrou s signature)"
-  if [ "$NOUVELLE" != "$SIG" ]; then
+  if verifier_plafond; then
+    arreter
+    lancer "$@"
+  elif [ "$NOUVELLE" != "$SIG" ]; then
     echo "[codelab-mailpit] configuration changee : relance."
     arreter
     UI_MDP="$(avec_verrou s get_value CODELAB_INTERNE_MAILPIT_UI_PASSWORD)"

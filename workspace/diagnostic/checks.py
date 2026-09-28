@@ -1264,6 +1264,13 @@ def check_sauvegardes(dossier=None):
                 + f"rien pour : {', '.join(manquants)} -- au premier "
                   f"démarrage, la première sauvegarde arrive tout de suite ; "
                   f"sinon, regarde les journaux du service concerné.")
+    # La restauration d'essai de codelab-postgres : une sauvegarde qui ne se
+    # restaure pas est une panne, meme si elle est fraiche.
+    verification = _lire_verification(dossier)
+    if verification:
+        lignes.append("restauration d'essai : " + verification)
+        if " ECHEC " in f" {verification} ":
+            return (Etat.ECHEC, "sauvegardes", " | ".join(lignes))
     vieille = max(ages.values())
     if vieille >= SAUVEGARDE_VIEILLE_H:
         return (Etat.ECHEC, "sauvegardes",
@@ -1273,6 +1280,16 @@ def check_sauvegardes(dossier=None):
         return (Etat.ALERTE, "sauvegardes",
                 " | ".join(lignes) + " -- un passage a été manqué.")
     return Etat.OK, "sauvegardes", " | ".join(lignes)
+
+
+def _lire_verification(dossier):
+    """La derniere ligne de verification-restauration.txt, ou ""."""
+    try:
+        with open(os.path.join(dossier, "verification-restauration.txt"),
+                  encoding="utf-8", errors="replace") as f:
+            return f.readline().strip()[:300]
+    except OSError:
+        return ""
 
 
 def _date_de_fichier(chemin):

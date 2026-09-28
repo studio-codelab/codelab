@@ -69,6 +69,18 @@ Les 500 derniers mails sont conservés, un mois au plus.
 Dans le service du `docker-compose.yml` : `CODELAB_MAILPIT_RELAIS: "non"`, puis redémarrer
 `codelab-mailpit`. Tout est gardé, rien n'est envoyé. Remettre `"auto"` pour relayer de nouveau.
 
+## Le plafond d'envoi
+
+Une application partie en boucle enverrait un mail par tour de boucle, et le compte d'envoi finirait
+suspendu, alertes du panneau comprises. Au-delà de **50 mails sur l'heure** ou de **200 sur les
+24 dernières heures** (réglables dans le compose : `CODELAB_MAILPIT_MAX_HEURE`,
+`CODELAB_MAILPIT_MAX_JOUR`, `0` pour désactiver), Mailpit **garde** les mails sans les relayer.
+`docker logs codelab-mailpit` le signale par une ligne `ALERTE : plafond d'envoi atteint`.
+
+Le relais reprend tout seul quand la fenêtre se vide. Les mails retenus se relaient à la main depuis
+l'interface (bouton *Release*). Le plafond est vérifié toutes les quinze secondes, donc à quelques
+mails près lors d'une rafale.
+
 ## Limites
 
 - Un serveur d'envoi Gmail accepte environ 500 mails par jour : largement assez pour des inscriptions
