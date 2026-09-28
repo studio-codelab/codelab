@@ -98,9 +98,15 @@ chacun, dans l'ordre d'essai :
 
 | Nom | Chaîne par défaut | Usage |
 |---|---|---|
-| `codelab-coding` | `gemini-flash-latest` → `devstral-medium-latest` → Groq `openai/gpt-oss-120b` → `qwen/qwen3-coder:free` | le modèle de travail de Codex |
-| `codelab-fast` | Groq `openai/gpt-oss-20b` → `gemini-flash-lite-latest` → `mistral-small-latest` → `llama-3.3-70b-instruct:free` | les tâches courtes |
-| `codelab-reasoning` | `gemini-pro-latest` → `magistral-medium-latest` → Groq `openai/gpt-oss-120b` → `deepseek-r1:free` | les questions difficiles |
+| `codelab-coding` | `gemini-flash-latest` → `devstral-medium-latest` → Groq `openai/gpt-oss-120b` → OpenRouter gratuits | le modèle de travail de Codex |
+| `codelab-fast` | Groq `openai/gpt-oss-20b` → `gemini-flash-lite-latest` → `mistral-small-latest` → OpenRouter gratuits | les tâches courtes |
+| `codelab-reasoning` | `gemini-pro-latest` → `magistral-medium-latest` → Groq `openai/gpt-oss-120b` → OpenRouter gratuits | les questions difficiles |
+
+**OpenRouter gratuits** (`openrouter:gratuits`) n'est pas un nom figé : la
+passerelle lit le catalogue d'OpenRouter (une fois par heure) et essaie les
+quatre modèles `:free` du moment qui acceptent les outils, les plus grands
+contextes d'abord. Un modèle gratuit qui devient payant est donc remplacé
+tout seul.
 
 Les alias `-latest` suivent les nouvelles versions ; un identifiant devenu
 faux n'arrête rien — le fournisseur répond 404, le suivant prend la requête —

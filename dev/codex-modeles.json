@@ -3,7 +3,7 @@
     {
       "slug": "codelab-coding",
       "display_name": "CodeLab Coding (gratuit)",
-      "description": "Le modele de travail : Gemini Flash, puis Devstral, Groq, OpenRouter -- le premier qui a encore du quota gratuit.",
+      "description": "Le modele de travail : Gemini Flash, puis Devstral, Groq, puis les modeles gratuits du moment chez OpenRouter -- le premier qui a encore du quota gratuit.",
       "priority": 1,
       "visibility": "list",
       "supported_in_api": true,

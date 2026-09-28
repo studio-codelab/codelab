@@ -143,13 +143,25 @@ def cle_de(fid):
 # requete -- mais il se lit dans « docker logs codelab-llm ».
 MODELES_PAR_DEFAUT = {
     "codelab-coding": ("gemini:gemini-flash-latest, mistral:devstral-medium-latest,"
-                       " groq:openai/gpt-oss-120b, openrouter:qwen/qwen3-coder:free"),
+                       " groq:openai/gpt-oss-120b, openrouter:gratuits"),
     "codelab-fast": ("groq:openai/gpt-oss-20b, gemini:gemini-flash-lite-latest,"
-                     " mistral:mistral-small-latest,"
-                     " openrouter:meta-llama/llama-3.3-70b-instruct:free"),
+                     " mistral:mistral-small-latest, openrouter:gratuits"),
     "codelab-reasoning": ("gemini:gemini-pro-latest, mistral:magistral-medium-latest,"
-                          " groq:openai/gpt-oss-120b, openrouter:deepseek/deepseek-r1:free"),
+                          " groq:openai/gpt-oss-120b, openrouter:gratuits"),
 }
+
+# « openrouter:gratuits » : LES MODELES GRATUITS DU MOMENT, pas un nom fige.
+#
+# La liste des modeles « :free » d'OpenRouter change chaque semaine : un nom
+# ecrit ici (« qwen/qwen3-coder:free ») est devenu payant, et la chaine
+# tombait sur « This model is unavailable for free ». La passerelle lit donc
+# le catalogue public d'OpenRouter, garde les modeles gratuits qui acceptent
+# les outils (Codex ne fait rien sans), les plus grands contextes d'abord,
+# et essaie les premiers. Le catalogue est garde une heure.
+GRATUITS = "gratuits"
+GRATUITS_ESSAYES = 4
+GRATUITS_DUREE = 3600
+_gratuits = {"quand": 0.0, "liste": []}
 PREFIXE_MODELE = "CODELAB_LLM_MODELE_"
 
 DELAI_FOURNISSEUR = 90.0
@@ -696,6 +708,28 @@ def _au_repos(fid):
     return _repos.get(fid, 0) > time.monotonic()
 
 
+async def modeles_gratuits():
+    """Les modeles gratuits d'OpenRouter qui acceptent les outils, les plus
+    grands contextes d'abord. Catalogue relu au plus une fois par heure ;
+    s'il est injoignable, la derniere liste connue sert encore."""
+    if _gratuits["liste"] and time.monotonic() - _gratuits["quand"] < GRATUITS_DUREE:
+        return _gratuits["liste"][:GRATUITS_ESSAYES]
+    try:
+        reponse = await _client.get(base_de("openrouter") + "/models",
+                                    headers={"Authorization": f"Bearer {cle_de('openrouter')}"})
+        donnees = reponse.json().get("data") or []
+    except (httpx.HTTPError, ValueError, AttributeError):
+        print("[codelab-llm] catalogue OpenRouter illisible.", flush=True)
+        return _gratuits["liste"][:GRATUITS_ESSAYES]
+    gratuits = [m for m in donnees if isinstance(m, dict)
+                and str(m.get("id", "")).endswith(":free")
+                and "tools" in (m.get("supported_parameters") or [])]
+    gratuits.sort(key=lambda m: -(m.get("context_length") or 0))
+    if gratuits:
+        _gratuits.update(quand=time.monotonic(), liste=[m["id"] for m in gratuits])
+    return _gratuits["liste"][:GRATUITS_ESSAYES]
+
+
 async def _ouvrir(demande, table, fabrique):
     """Essaie la chaine de « demande » jusqu'au premier fournisseur qui
     accepte. Renvoie (fournisseur, modele, reponse ouverte en flux, repli).
@@ -705,7 +739,12 @@ async def _ouvrir(demande, table, fabrique):
     de s'engager, et donc de passer au suivant sans avoir rien envoye au
     client.
     """
-    essais = chaine(demande, table)
+    essais = []
+    for fid, modele in chaine(demande, table):
+        if fid == "openrouter" and modele == GRATUITS:
+            essais += [(fid, m) for m in await modeles_gratuits()]
+        else:
+            essais.append((fid, modele))
     if not essais:
         raise HTTPException(503, f"Aucune cle de fournisseur posee pour {demande} : "
                                  "en ajouter une dans le panneau (Cles et secrets).")
