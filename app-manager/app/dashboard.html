@@ -2101,14 +2101,16 @@ table.tbl-journal{min-width:560px}
     <div class="zone-title">Les fournisseurs</div>
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
-        <b>Le compte chez qui les modèles tournent</b>
-        <div class="path">OpenRouter : une clé pour Claude, GPT et les autres.</div>
+        <b>Les comptes chez qui les modèles tournent</b>
+        <div class="path">Gemini, Mistral, Groq, OpenRouter : leur part gratuite, l'un après l'autre.</div>
       </div></div>
 
       <div class="hint">Ces valeurs vont dans un fichier de secrets en <code>0600</code> que
         seul <code>codelab-llm</code> lit, à chaque appel : une clé posée ici sert aussitôt. Ni
         tes applications ni le poste de développement ne la voient — ils présentent une clé
-        CodeLab, révocable, et la passerelle appelle le fournisseur à leur place.</div>
+        CodeLab, révocable, et la passerelle appelle le fournisseur à leur place.<br><br>
+        Une seule clé suffit. Avec plusieurs, quand le quota gratuit de l'une est épuisé,
+        la suivante prend le relais sans que Codex ni tes applications ne s'en aperçoivent.</div>
 
       <div class="hint" style="margin-top:8px">Une valeur enregistrée n'est plus relisible :
         le champ repart vide et la ligne n'affiche que ses quatre derniers caractères.</div>

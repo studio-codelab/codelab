@@ -25,9 +25,9 @@ SSH sont générés au premier démarrage, et la connexion à Postgres est déj�
 `dev`.
 
 Le service IA est un seul conteneur : une passerelle réservée aux clients porteurs d'une clé
-CodeLab, qui appelle **OpenRouter** en direct — une clé pour Claude, GPT et les autres. Il ne
-publie aucun port. La seule valeur à renseigner est la clé OpenRouter, depuis le panneau ; la
-configuration complète est dans [`llm/README.md`](llm/README.md).
+CodeLab, qui appelle en direct la **part gratuite** de Gemini, Mistral, Groq et OpenRouter — quand
+le quota de l'un est épuisé, le suivant répond. Il ne publie aucun port. Une seule clé gratuite,
+collée dans le panneau, suffit ; la configuration complète est dans [`llm/README.md`](llm/README.md).
 
 Avec `docker-compose.yml`, il est optionnel et se démarre à part :
 
@@ -145,8 +145,8 @@ surveiller à l'œil :
   et son adresse répond toujours.
 - **Clés et secrets** — une console, comme chez un fournisseur de LLM : créer une clé à la
   demande, en révoquer une sans toucher aux autres, et voir ce que **chacune** a consommé
-  (requêtes, jetons, dernier appel). La clé du fournisseur (OpenRouter) se colle une fois et sert
-  aussitôt. La clé de Codex, elle, est **créée et posée
+  (requêtes, jetons, dernier appel). Les clés des fournisseurs (Gemini, Mistral, Groq, OpenRouter)
+  se collent une fois et servent aussitôt. La clé de Codex, elle, est **créée et posée
   toute seule** — rien à saisir — et ne s'affiche jamais. Une clé destinée à une application est
   montrée **une seule fois** : la base n'en garde que l'empreinte.
   Le panneau n'atteint ni le compose ni le `.env` de l'hôte — les lui monter lui donnerait de quoi
@@ -162,8 +162,8 @@ et la même déconnexion.
 ## Où vit la configuration
 
 Trois mondes, et chacun a ses fichiers. **Rien n'est à saisir pour que la stack tourne** : les mots
-de passe et les clés sont générés au premier démarrage. Les seules valeurs à fournir sont la clé
-OpenRouter (dans le panneau) et, pour SSH, une clé publique par machine.
+de passe et les clés sont générés au premier démarrage. Les seules valeurs à fournir sont une clé
+de fournisseur IA gratuite (dans le panneau) et, pour SSH, une clé publique par machine.
 
 ### 1. Le serveur — ce qui fait tourner la stack
 
@@ -172,9 +172,9 @@ Tout vit dans `/DATA/AppData/codelab/config/`, en dehors des conteneurs.
 | Fichier | Contenu | Écrit par | Lu par |
 |---|---|---|---|
 | `credentials.env` | identifiants des services, **un bloc par service** ; un sommaire en tête dit qui écrit quoi | les services, à leur démarrage | les services ; une partie est passée aux apps (voir 3) |
-| `llm/llm.env` | clé OpenRouter, accès à la base du service IA, réglages des modèles | `codelab-postgres` et le panneau | `codelab-llm` seul |
+| `llm/llm.env` | clés des fournisseurs IA, accès à la base du service IA, chaînes de modèles | `codelab-postgres` et le panneau | `codelab-llm` seul |
 | `ssh/authorized_keys.d/` | une clé publique par machine autorisée | toi | `codelab-dev` |
-| `.env` de l'hôte (à côté du compose) | seulement `OPENROUTER_API_KEY`, facultatif — voir `.env.example` | toi | `codelab-postgres`, qui la recopie |
+| `.env` de l'hôte (à côté du compose, pas avec CasaOS) | seulement `OPENROUTER_API_KEY`, facultatif — voir `.env.example` | toi | `codelab-postgres`, qui la recopie |
 
 On n'édite `credentials.env` qu'en y **ajoutant** un bloc à soi : chaque bloc d'un service est
 réécrit à son démarrage. Détails : [`workspace/README.md`](workspace/README.md#credentialsenv).

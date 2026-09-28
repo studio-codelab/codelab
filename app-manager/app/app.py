@@ -6578,26 +6578,40 @@ PG_ROLE_LLM = "codelab_llm"
 # reconnaissable du tout : on n'en montre alors aucun.
 APERCU_MIN = 12
 
-# ------------------------ le fournisseur de modeles ------------------------
+# ----------------------- les fournisseurs de modeles -----------------------
 #
-# UN SEUL, APPELE EN DIRECT PAR codelab-llm. Il y avait un routeur
-# (codelab-litellm) et une cle de liaison entre les deux, tiree ici ; ils
-# sont retires. OpenRouter donne acces aux modeles de plusieurs editeurs
-# avec une seule cle, et gere lui-meme ses replis.
+# PLUSIEURS, POUR LEUR PART GRATUITE, APPELES EN DIRECT PAR codelab-llm.
+# Chaque nom logique y designe une chaine de modeles chez ces fournisseurs :
+# quand le quota gratuit de l'un est epuise, le suivant repond. Une seule
+# cle suffit a tout faire marcher ; chacune de plus repousse le moment ou
+# tout est epuise.
 #
-# « modeles » dit quels noms logiques tombent si la cle manque : tous, puisque
-# tous passent par elle. Un test tient cette liste d'accord avec la table de
-# codelab-llm (llm/app.py, MODELES_PAR_DEFAUT).
+# « modeles » dit quels noms logiques cette cle sert : tous, puisque chaque
+# chaine passe par chaque fournisseur. Un test tient cette liste d'accord
+# avec la table de codelab-llm (llm/app.py, MODELES_PAR_DEFAUT), et un autre
+# verifie que chaque variable y est lue.
 FOURNISSEURS = (
+    {"id": "gemini", "titre": "Google Gemini",
+     "variable": "GEMINI_API_KEY", "secret": True,
+     "aide": "Gratuite, le quota le plus large (grand contexte). Elle se crée sur "
+             "aistudio.google.com. Au palier gratuit, Google peut se servir des "
+             "échanges pour améliorer ses modèles."},
+    {"id": "mistral", "titre": "Mistral",
+     "variable": "MISTRAL_API_KEY", "secret": True,
+     "aide": "Palier « Experiment » gratuit, avec Devstral pour le code. Elle se "
+             "crée sur console.mistral.ai (numéro de téléphone demandé)."},
+    {"id": "groq", "titre": "Groq",
+     "variable": "GROQ_API_KEY", "secret": True,
+     "aide": "Gratuite et très rapide, limites par minute plus basses. Elle se "
+             "crée sur console.groq.com."},
     {"id": "openrouter", "titre": "OpenRouter",
      "variable": "OPENROUTER_API_KEY", "secret": True,
-     "aide": "Une seule clé pour Claude, GPT et les autres. Elle se crée sur "
-             "openrouter.ai. Prise en compte immédiatement."},
+     "aide": "Modèles « :free » sans crédit (quota journalier réduit), ou "
+             "Claude, GPT… avec crédit. Elle se crée sur openrouter.ai."},
 )
 
-MODELES_PAR_FOURNISSEUR = {
-    "OPENROUTER_API_KEY": ["codelab-coding", "codelab-fast", "codelab-reasoning"],
-}
+_TOUS_LES_MODELES = ["codelab-coding", "codelab-fast", "codelab-reasoning"]
+MODELES_PAR_FOURNISSEUR = {f["variable"]: _TOUS_LES_MODELES for f in FOURNISSEURS}
 
 FICHIERS_SECRETS = {"llm": LLM_ENV_FICHIER}
 
