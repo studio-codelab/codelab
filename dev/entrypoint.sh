@@ -177,9 +177,13 @@ chmod 2770 "$CODEX_HOME_DIR" 2>/dev/null || true
 # n'y etait pas, et Codex repondait « Missing environment variable:
 # CODELAB_LLM_KEY » jusqu'au terminal suivant. Lue dans le fichier, la cle
 # est prise des qu'elle est posee. Codex refuse env_key ET auth ensemble.
+# Le catalogue des modeles, livre dans l'image (voir dev/Dockerfile) : les
+# noms de la passerelle dans le selecteur de modele, avec leurs metadonnees.
+CATALOGUE_CODEX=/usr/local/share/codelab/codex-modeles.json
 if [ ! -f "$CODEX_HOME_DIR/config.toml" ]; then
     cat > "$CODEX_HOME_DIR/config.toml" <<CODEXCFG
 # Ecrit une seule fois par codelab-dev -- modifiable librement.
+model_catalog_json = "$CATALOGUE_CODEX"
 sandbox_mode = "danger-full-access"
 approval_policy = "on-request"
 
@@ -218,6 +222,18 @@ texte = "\n".join(lignes).rstrip("\n") + (
     f'args = ["-n", "1", "{cle}"]\n')
 open(chemin, "w", encoding="utf-8").write(texte)
 PYCODEXAUTH
+fi
+
+# Les config.toml d'avant le catalogue : la ligne est ajoutee EN TETE --
+# une cle de premier niveau doit preceder toute section [..] en TOML -- et
+# seulement sur un fichier qui pointe encore la passerelle et n'en a pas.
+if [ -r "$CATALOGUE_CODEX" ] \
+        && grep -qx 'base_url = "http://codelab-llm:8080/v1"' "$CODEX_CFG" 2>/dev/null \
+        && ! grep -q '^model_catalog_json' "$CODEX_CFG"; then
+    { printf 'model_catalog_json = "%s"\n' "$CATALOGUE_CODEX"; cat "$CODEX_CFG"; } \
+        > "$CODEX_CFG.nouveau" \
+        && cat "$CODEX_CFG.nouveau" > "$CODEX_CFG" && rm -f "$CODEX_CFG.nouveau" \
+        && echo "[codelab-dev] config.toml de Codex : catalogue des modeles ajoute."
 fi
 
 # ~/.codex vers CODEX_HOME. CODEX_HOME n'est pose que par le profil de
