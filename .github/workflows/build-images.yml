@@ -114,8 +114,13 @@ jobs:
       # celui qui tient la regle « environment: l'emporte sur env_file: »,
       # exactement le genre de piege muet qu'une suite doit attraper en CI et
       # pas seulement sur le poste de celui qui l'ecrit.
+      #
+      # llm/requirements.txt, tel quel : les tests de la passerelle chargent
+      # llm/app.py pour de vrai (chaine de fournisseurs, traduction pour
+      # Codex) et s'ignoraient ici faute de fastapi et httpx. Le fichier de
+      # l'image lui-meme, pour que les versions ne puissent pas diverger.
       - name: Dependances
-        run: pip install flask psutil requests pytest webauthn==3.0.0 qrcode==8.2 cryptography==50.0.1 pyyaml
+        run: pip install flask psutil requests pytest webauthn==3.0.0 qrcode==8.2 cryptography==50.0.1 pyyaml -r llm/requirements.txt
 
       # La suite vit dans test_regressions.py, separee des sondes de
       # checks.py : celles-ci tournent en production, dans des images qui

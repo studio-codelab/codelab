@@ -12686,7 +12686,7 @@ def _passerelle_llm(monkeypatch, repondre, cles=CLES_DE_TEST):
 
 
 def _sse(*fragments):
-    import httpx
+    httpx = pytest.importorskip("httpx")
     texte = "".join("data: " + json.dumps(f) + "\n\n" for f in fragments) + "data: [DONE]\n\n"
     return httpx.Response(200, content=texte.encode(),
                           headers={"content-type": "text/event-stream"})
@@ -12701,7 +12701,7 @@ def test_la_chaine_passe_au_fournisseur_suivant_quand_le_quota_est_epuise(monkey
     suivant de la chaine doit prendre la requete, sans que Codex le voie. Et
     celui qui a dit 429 est mis au repos : on ne lui redemande pas a chaque
     appel."""
-    import httpx
+    httpx = pytest.importorskip("httpx")
 
     def repondre(fid, corps):
         if fid == "gemini":
@@ -12731,7 +12731,7 @@ def test_la_chaine_passe_au_fournisseur_suivant_quand_le_quota_est_epuise(monkey
 
 
 def test_quand_toute_la_chaine_refuse_chaque_raison_est_dite_sans_cle(monkeypatch):
-    import httpx
+    httpx = pytest.importorskip("httpx")
 
     def repondre(fid, corps):
         return httpx.Response(402, json={"error": {"message": f"{fid} sans credit "
@@ -12872,7 +12872,7 @@ def test_les_appels_d_outils_en_morceaux_arrivent_entiers_dans_codex(monkeypatch
 
 
 def test_les_applications_ont_le_meme_repli_et_leur_nom_logique(monkeypatch):
-    import httpx
+    httpx = pytest.importorskip("httpx")
 
     def repondre(fid, corps):
         if fid == "groq":
