@@ -8856,7 +8856,8 @@ ICONE_DIAGNOSTIC = (
     'stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>'
     '</svg>')
 
-# Mailpit : une enveloppe sur le turquoise de CodeLab. LE MEME dessin que
+# Mailpit : une enveloppe blanche au trait, seule sur le turquoise de
+# CodeLab -- pas de fond blanc, comme le logo du diagnostic. LE MEME dessin que
 # celui que le proxy sert a la place du logo de Mailpit, dans sa barre et
 # dans l'onglet (dagster/proxy/mailpit-theme/logo.svg) : la tuile et
 # l'application se reconnaissent. Dessin original, pas le logo de Mailpit.
@@ -8865,9 +8866,10 @@ ICONE_MAILPIT = (
     'label="Mailpit"><defs><linearGradient id="cl-mp" x1="0" y1="0" x2="1" y2="1"'
     '><stop offset="0" stop-color="#15a6b0"/><stop offset="1" stop-color="#0b646c'
     '"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#c'
-    'l-mp)"/><rect x="13" y="19" width="38" height="27" rx="5" fill="#fff"/><path'
-    ' d="M15.5 22.5 32 34.5l16.5-12" fill="none" stroke="#0e7c86" stroke-width="3'
-    '.4" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    'l-mp)"/><rect x="11" y="17" width="42" height="30" rx="5" fill="none" stroke'
+    '="#fff" stroke-width="4" stroke-linejoin="round"/><path d="M13 20 32 34.5 51'
+    ' 20" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" strok'
+    'e-linejoin="round"/></svg>'
 )
 
 ICONES_PAR_DEFAUT = {
