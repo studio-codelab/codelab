@@ -278,7 +278,7 @@ vectorielle tourne parfaitement sans.
 
 ## Monter de version
 
-Changer le tag `FROM` dans `postgres/Dockerfile`, puis pousser un tag Git — les quatre images sortent
+Changer le tag `FROM` dans `postgres/Dockerfile`, puis pousser un tag Git — toutes les images sortent
 ensemble. **Penser au paquet `postgresql-<majeure>-pgvector`**, dont le nom porte la version du
 serveur : un test le verifie, et le build echoue si les deux divergent. **Attention** : un saut de version majeure demande une migration du repertoire de donnees
 (`pg_upgrade` ou dump/restore). Ce n'est pas un simple changement de tag, et un demarrage sur un repertoire

@@ -93,7 +93,6 @@ RUN pip install --no-cache-dir \
         flask==3.1.3 \
         waitress==3.0.2 \
         psutil==7.2.2 \
-        requests==2.34.2 \
         qrcode==8.2 \
         webauthn==3.0.0 \
         "psycopg[binary]==3.3.5" \

@@ -11665,3 +11665,45 @@ def test_le_code_du_workspace_est_archive_sans_ce_qui_se_reconstruit(tmp_path, m
     assert "projet/gros.bin" not in noms
     assert stat.S_IMODE(os.stat(chemin).st_mode) == 0o600
     assert not app.workspace_a_sauvegarder(), "une par semaine, pas a chaque passage"
+
+
+# ---------- l'extension PostgreSQL dans VS Code ----------
+
+def _bloc_extensions_vscode(tmp_path):
+    source = open(os.path.join(_racine_depot(), "dev", "entrypoint.sh"), encoding="utf-8").read()
+    debut = source.index('VSCODE_EXTENSIONS="${CODELAB_VSCODE_EXTENSIONS')
+    fin = source.index('if [ -n "$VSCODE_EXTENSIONS" ]; then\n    ( while')
+    return source, source[debut:fin]
+
+
+def test_l_extension_postgresql_est_recommandee_sans_ecraser_le_reste(tmp_path):
+    import subprocess
+    source, bloc = _bloc_extensions_vscode(tmp_path)
+    assert "ms-ossdata.vscode-pgsql" in bloc
+    ws = tmp_path / "ws"
+    (ws / ".vscode").mkdir(parents=True)
+    fichier = ws / ".vscode" / "extensions.json"
+    fichier.write_text('{"recommendations": ["ms-python.python"], "autre": 1}')
+    script = (f'set -e\nSSH_USER=personne\nVSCODE_SERVER_DIR="{tmp_path}/vs"\n'
+              f'WORKSPACE_DIR="{ws}"\n' + bloc)
+    for _ in range(2):   # idempotent : pas de doublon au redemarrage
+        subprocess.run(["bash", "-c", script], check=True, timeout=30)
+    contenu = json.loads(fichier.read_text())
+    assert contenu == {"recommendations": ["ms-python.python", "ms-ossdata.vscode-pgsql"],
+                       "autre": 1}
+    # Un fichier JSONC (avec commentaires) est laisse tel quel.
+    fichier.write_text('// a moi\n{"recommendations": []}')
+    subprocess.run(["bash", "-c", script], check=True, timeout=30)
+    assert fichier.read_text().startswith("// a moi")
+
+
+def test_l_extension_postgresql_s_installe_une_fois_sous_le_compte_vscode():
+    source = open(os.path.join(_racine_depot(), "dev", "entrypoint.sh"), encoding="utf-8").read()
+    assert 'runuser -u "$SSH_USER" -- env HOME="/home/$SSH_USER"' in source
+    assert '--install-extension "$ext"' in source
+    # Deja installee : rien a telecharger. Echec : un nouvel essai par heure.
+    assert 'ls -d "$VSCODE_SERVER_DIR/extensions/$ext_min-"*' in source
+    assert "-mmin -60" in source
+    for chemin in _composes():
+        assert 'CODELAB_VSCODE_EXTENSIONS: "ms-ossdata.vscode-pgsql"' in open(
+            chemin, encoding="utf-8").read(), chemin

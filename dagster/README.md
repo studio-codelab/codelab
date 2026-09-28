@@ -18,8 +18,8 @@ et l'interface reste derriere `codelab-dagster-proxy`. Les journaux des deux arr
 
 ## Ce que fait l'image
 
-- Installe `dagster`, `dagster-webserver` (memes versions, `DAGSTER_VERSION`), plus `dagster-postgres` et
-  `dagster-docker` (versions **non figees** — voir [Versionnement des paquets Dagster](#versionnement-des-paquets-dagster)).
+- Installe `dagster`, `dagster-webserver` (memes versions, `DAGSTER_VERSION`), plus `dagster-postgres`
+  (version **non figee** — voir [Versionnement des paquets Dagster](#versionnement-des-paquets-dagster)).
 - Embarque une configuration et un exemple de code par defaut (`dagster.yaml.default`,
   `definitions.default.py`), deployes automatiquement au tout premier demarrage si absents — jamais utilises
   directement en fonctionnement normal (voir [entrypoint.sh](#entrypointsh)).
@@ -101,23 +101,26 @@ bien `/workspace/definitions.py` qui est charge, et non une eventuelle copie emb
 ## Versionnement des paquets Dagster
 
 Piege classique de l'ecosysteme Dagster : `dagster` et `dagster-webserver` suivent la meme version
-(`DAGSTER_VERSION`, ex. `1.13.7`), mais les paquets d'integration (`dagster-postgres`, `dagster-docker`, et plus
+(`DAGSTER_VERSION`, ex. `1.13.7`), mais les paquets d'integration (`dagster-postgres`, et plus
 generalement tous les `dagster-*` sauf le coeur et le webserver) suivent **leur propre schema de version**,
 historiquement decale — `dagster-postgres==1.13.7` n'existe simplement pas sur PyPI.
 
-C'est pourquoi le `Dockerfile` les installe **sans version figee** :
+C'est pourquoi le `Dockerfile` l'installe **sans version figee** :
 
 ```dockerfile
 RUN pip install --no-cache-dir \
     "dagster==${DAGSTER_VERSION}" \
     "dagster-webserver==${DAGSTER_VERSION}" \
-    "dagster-postgres" \
-    "dagster-docker"
+    "dagster-postgres"
 ```
 
-`pip` resout alors automatiquement la version de `dagster-postgres`/`dagster-docker` compatible avec la version
-exacte de `dagster` installee, via leurs propres contraintes de dependance declarees. Ne jamais figer ces deux
-paquets sur `${DAGSTER_VERSION}`.
+`dagster-docker` n'est plus installe : il ne sert qu'a lancer chaque run dans son propre conteneur
+(`DockerRunLauncher`), ce que CodeLab ne fait pas -- les runs tournent dans `codelab-dagster`. Il tirait le
+SDK Docker pour rien.
+
+`pip` resout alors automatiquement la version de `dagster-postgres` compatible avec la version
+exacte de `dagster` installee, via leurs propres contraintes de dependance declarees. Ne jamais figer ce
+paquet sur `${DAGSTER_VERSION}`.
 
 ## Developper / tester localement
 
