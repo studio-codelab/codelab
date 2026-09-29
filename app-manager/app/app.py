@@ -120,12 +120,12 @@ LOGIN_PAGE = _lire_ressource("login.html")
 # plutot que recopie dans chacune, pour qu'il n'existe qu'un endroit a changer
 # et qu'aucune des deux ne puisse deriver de l'autre.
 THEME_CSS = _lire_ressource("theme.css")
-# L'icone CodeLab des onglets, celle que les deux pages portent en ligne
-# (<link rel="icon" href="data:...">). Relue dans la page plutot que recopiee
-# ici : un seul dessin, qu'on ne peut pas changer a un endroit et oublier a
-# l'autre. Servie aussi sous /favicon.ico -- voir favicon_panneau().
+# Le logo CodeLab : celui de la barre du haut, relu dans la page plutot que
+# recopie ici -- un seul dessin, qu'on ne peut pas changer a un endroit et
+# oublier a l'autre. C'est aussi l'icone des onglets, servie a une VRAIE
+# adresse (/favicon.png, /favicon.ico) : voir favicon_panneau().
 ICONE_CODELAB_PNG = base64.b64decode(re.search(
-    r'<link rel="icon" type="image/png" href="data:image/png;base64,([A-Za-z0-9+/=]+)"',
+    r'class="topbar-brand"[^>]*>\s*<img src="data:image/png;base64,([A-Za-z0-9+/=]+)"',
     DASHBOARD_PAGE).group(1))
 
 # Les seuls fichiers que /polices/<nom> accepte de servir.
@@ -8997,14 +8997,18 @@ flask_app.add_url_rule("/" + MAILPIT_NOM, "ouvrir_mailpit_sans_barre",
 
 # L'ONGLET DU HUB PORTE LE LOGO CODELAB, ET RIEN D'AUTRE.
 #
-# Les pages du panneau declarent leur icone en ligne. Mais un navigateur
-# demande aussi /favicon.ico de lui-meme, et retient la reponse par site :
-# un 404 ici le laissait libre d'afficher pour le hub une icone vue ailleurs
-# sur la meme machine -- celle de Mailpit, ouvert dans le meme onglet. Le
-# panneau repond donc lui-meme, avec son logo. Sur l'origine des
-# applications, la route n'existe pas (separer_les_origines) : une
-# application y garde son icone, ou celle que le proxy lui injecte.
+# L'icone etait ecrite DANS la page (<link rel="icon" href="data:...">).
+# Plusieurs navigateurs n'en tiennent pas compte pour l'onglet -- Safari en
+# tete -- et retombent sur leur cache d'icones ou sur /favicon.ico, qui
+# repondait 404 : l'onglet du hub montrait alors une icone vue ailleurs.
+# Les deux pages pointent desormais vers /favicon.png?v=... : une vraie
+# adresse, que tous suivent, et versionnee pour qu'aucun cache ne serve un
+# ancien dessin. /favicon.ico repond la meme chose, pour ceux qui la
+# demandent d'eux-memes. Sur l'origine des applications, ces routes
+# n'existent pas (separer_les_origines) : une application garde son icone,
+# ou celle que le proxy lui injecte.
 @flask_app.get("/favicon.ico")
+@flask_app.get("/favicon.png")
 def favicon_panneau():
     r = Response(ICONE_CODELAB_PNG, mimetype="image/png")
     r.headers["Cache-Control"] = "no-cache"
