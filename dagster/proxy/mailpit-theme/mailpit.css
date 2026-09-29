@@ -96,6 +96,15 @@ body {
 .navbar .navbar-brand img {
   border-radius: 10px;
 }
+/* LE LOGO DE LA BARRE (et de la page 404), PEINT PAR-DESSUS L'IMAGE DE
+   MAILPIT. Son <img src="/mailpit.svg"> est mis en cache un an par le
+   navigateur (« immutable ») : l'ancien logo resterait affiche. On repousse
+   donc l'image hors de sa boite (object-position) et on pose le notre en
+   fond, a une adresse versionnee -- voir mailpit.conf. */
+img[src$="mailpit.svg"] {
+  object-position: -99999px 0;
+  background: url("/_codelab/logo.svg?v=3") center / contain no-repeat;
+}
 .navbar .form-control {
   background-color: #161f28;
   border-color: #2b3642;
@@ -213,7 +222,7 @@ body {
   width: 32px;
   height: 32px;
   border-radius: 9px;
-  background: url("/_codelab/logo.svg") center / cover no-repeat;
+  background: url("/_codelab/logo.svg?v=3") center / cover no-repeat;
 }
 .modal-body { padding: 4px 24px 20px; }
 .modal-footer {

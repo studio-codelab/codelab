@@ -11774,7 +11774,7 @@ def test_mailpit_est_habille_aux_couleurs_de_codelab():
     sert la police du panneau et remplace son logo par le notre."""
     racine = _racine_depot()
     conf = open(os.path.join(racine, "dagster", "proxy", "mailpit.conf"), encoding="utf-8").read()
-    assert '''sub_filter '</head>' '<link rel="stylesheet" href="/_codelab/mailpit.css"></head>';''' in conf
+    assert re.search(r"""sub_filter '</head>' '<link rel="stylesheet" href="/_codelab/mailpit\.css\?v=\w+"></head>';""", conf)
     for route in ("location /_codelab/", "location = /mailpit.svg", "location = /favicon.svg"):
         assert route in conf, route
     dockerfile = open(os.path.join(racine, "dagster", "proxy", "Dockerfile"), encoding="utf-8").read()
@@ -11832,3 +11832,38 @@ def test_seul_un_logo_transparent_a_une_plaque_sur_le_hub():
     assert mailpit["plaque"] is False
     page = _page_panneau("dashboard.html")
     assert "${a.externe && a.plaque ? ' service-stack' : ''}" in page
+
+
+def test_le_hub_sert_le_logo_codelab_en_favicon_et_pas_les_applications():
+    """/favicon.ico sur le panneau = le logo CodeLab des pages ; sur l'origine
+    des applications, rien : une application garde son icone."""
+    ancien = app._origines_separees["actif"]
+    ancien_apps = app.APPS_PORT
+    app._origines_separees["actif"] = True
+    app.APPS_PORT = 9002
+    try:
+        client = app.flask_app.test_client()
+        r = client.get("/favicon.ico", **_sur_port(9001))
+        assert r.status_code == 200
+        assert r.headers["Content-Type"].startswith("image/png")
+        assert r.data[:8] == b"\x89PNG\r\n\x1a\n"
+        assert base64.b64encode(r.data).decode() in _page_panneau("dashboard.html")
+        r = client.get("/favicon.ico", **_sur_port(9002))
+        assert r.status_code == 404
+    finally:
+        app._origines_separees["actif"] = ancien
+        app.APPS_PORT = ancien_apps
+
+
+def test_le_logo_mailpit_ne_depend_pas_du_cache_de_mailpit():
+    """Mailpit sert /mailpit.svg et /favicon.svg « immutable » pour un an :
+    l'onglet et la barre passent par une adresse a nous, versionnee."""
+    racine = _racine_depot()
+    conf = open(os.path.join(racine, "dagster", "proxy", "mailpit.conf"), encoding="utf-8").read()
+    css = open(os.path.join(racine, "dagster", "proxy", "mailpit-theme", "mailpit.css"),
+               encoding="utf-8").read()
+    version = re.search(r'href="/_codelab/logo\.svg\?v=(\w+)"', conf).group(1)
+    assert f'''sub_filter 'href="/favicon.svg"' 'href="/_codelab/logo.svg?v={version}"';''' in conf
+    assert f'href="/_codelab/mailpit.css?v={version}"' in conf
+    assert 'img[src$="mailpit.svg"]' in css and "object-position: -99999px 0;" in css
+    assert css.count(f'url("/_codelab/logo.svg?v={version}")') == 2

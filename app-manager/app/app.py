@@ -120,6 +120,13 @@ LOGIN_PAGE = _lire_ressource("login.html")
 # plutot que recopie dans chacune, pour qu'il n'existe qu'un endroit a changer
 # et qu'aucune des deux ne puisse deriver de l'autre.
 THEME_CSS = _lire_ressource("theme.css")
+# L'icone CodeLab des onglets, celle que les deux pages portent en ligne
+# (<link rel="icon" href="data:...">). Relue dans la page plutot que recopiee
+# ici : un seul dessin, qu'on ne peut pas changer a un endroit et oublier a
+# l'autre. Servie aussi sous /favicon.ico -- voir favicon_panneau().
+ICONE_CODELAB_PNG = base64.b64decode(re.search(
+    r'<link rel="icon" type="image/png" href="data:image/png;base64,([A-Za-z0-9+/=]+)"',
+    DASHBOARD_PAGE).group(1))
 
 # Les seuls fichiers que /polices/<nom> accepte de servir.
 POLICES_SERVIES = {"manrope-latin.woff2"}
@@ -8986,6 +8993,22 @@ flask_app.add_url_rule("/" + MAILPIT_NOM, "ouvrir_mailpit_sans_barre",
 # reseau toutes les 24 h. Le SVG livre avec l'image ne demande rien a
 # personne, reste net a toutes les tailles, et s'affiche meme quand Dagster
 # est eteint -- ce qui est precisement le moment ou l'on regarde sa tuile.
+
+
+# L'ONGLET DU HUB PORTE LE LOGO CODELAB, ET RIEN D'AUTRE.
+#
+# Les pages du panneau declarent leur icone en ligne. Mais un navigateur
+# demande aussi /favicon.ico de lui-meme, et retient la reponse par site :
+# un 404 ici le laissait libre d'afficher pour le hub une icone vue ailleurs
+# sur la meme machine -- celle de Mailpit, ouvert dans le meme onglet. Le
+# panneau repond donc lui-meme, avec son logo. Sur l'origine des
+# applications, la route n'existe pas (separer_les_origines) : une
+# application y garde son icone, ou celle que le proxy lui injecte.
+@flask_app.get("/favicon.ico")
+def favicon_panneau():
+    r = Response(ICONE_CODELAB_PNG, mimetype="image/png")
+    r.headers["Cache-Control"] = "no-cache"
+    return r
 
 
 @flask_app.get("/api/icon/<n>")
