@@ -11850,6 +11850,14 @@ def test_le_hub_sert_le_logo_codelab_en_favicon_et_pas_les_applications():
         assert base64.b64encode(r.data).decode() in _page_panneau("dashboard.html")
         r = client.get("/favicon.ico", **_sur_port(9002))
         assert r.status_code == 404
+        # Une vraie adresse dans les deux pages, pas une image en ligne :
+        # plusieurs navigateurs ignorent une icone data: pour l'onglet.
+        assert client.get("/favicon.png", **_sur_port(9001)).data == app.ICONE_CODELAB_PNG
+        assert client.get("/favicon.png", **_sur_port(9002)).status_code == 404
+        for nom in ("dashboard.html", "login.html"):
+            page = _page_panneau(nom)
+            assert '<link rel="icon" type="image/png" sizes="128x128" href="/favicon.png?v=' in page, nom
+            assert 'rel="icon" type="image/png" href="data:' not in page, nom
     finally:
         app._origines_separees["actif"] = ancien
         app.APPS_PORT = ancien_apps
