@@ -11875,3 +11875,13 @@ def test_le_logo_mailpit_ne_depend_pas_du_cache_de_mailpit():
     assert f'href="/_codelab/mailpit.css?v={version}"' in conf
     assert 'img[src$="mailpit.svg"]' in css and "object-position: -99999px 0;" in css
     assert css.count(f'url("/_codelab/logo.svg?v={version}")') == 2
+
+
+def test_dagster_garde_un_pilote_postgres_qu_il_sait_ouvrir():
+    """SQLAlchemy 2.1 prend psycopg (v3) par defaut pour postgresql://, que
+    dagster-postgres n'installe pas : Dagster redemarrait en boucle. L'image
+    epingle SQLAlchemy et verifie le pilote AU BUILD."""
+    racine = _racine_depot()
+    dockerfile = open(os.path.join(racine, "dagster", "Dockerfile"), encoding="utf-8").read()
+    assert '"sqlalchemy<2.1"' in dockerfile
+    assert "sqlalchemy.create_engine('postgresql://" in dockerfile

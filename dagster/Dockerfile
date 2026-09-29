@@ -8,10 +8,24 @@ ENV DAGSTER_HOME=/opt/dagster/home
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
+# SQLALCHEMY < 2.1, ET UNE VERIFICATION QUI FAIT ECHOUER LE BUILD.
+#
+# SQLAlchemy 2.1 a change le pilote par defaut des adresses postgresql:// :
+# psycopg (v3) au lieu de psycopg2. dagster-postgres construit ce genre
+# d'adresse et n'installe que psycopg2 -- et dagster accepte n'importe quel
+# SQLAlchemy < 3. Une reconstruction de l'image a donc tire 2.1, et Dagster
+# plantait a chaque demarrage (« No module named 'psycopg' ») : redemarrage
+# en boucle, un coeur du serveur occupe en permanence, interface injoignable.
+#
+# La ligne create_engine() ouvre le pilote comme Dagster le fera au
+# demarrage : si une mise a jour le casse de nouveau, c'est la CI qui echoue,
+# et non le serveur.
 RUN pip install --no-cache-dir \
     "dagster==${DAGSTER_VERSION}" \
     "dagster-webserver==${DAGSTER_VERSION}" \
-    "dagster-postgres"
+    "dagster-postgres" \
+    "sqlalchemy<2.1" \
+ && python -c "import sqlalchemy; sqlalchemy.create_engine('postgresql://u:p@localhost/db')"
 
 RUN mkdir -p /opt/dagster/home
 
