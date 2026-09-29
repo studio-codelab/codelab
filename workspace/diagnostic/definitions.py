@@ -8,7 +8,7 @@ dans l'interface Dagster.
 Ce fichier contient tout le cote Dagster du projet :
 
   - l'asset diagnostic_codelab, qui execute les sondes et ecrit en base ;
-  - le planning qui le declenche toutes les quinze minutes ;
+  - le planning qui le declenche toutes les heures ;
   - le capteur alerte_mail_echec, qui envoie un mail a chaque run en echec.
 
 CE QUI FAIT ECHOUER UN RUN, ET CE QUI NE LE FAIT PAS. Les sondes ne rendent
@@ -327,11 +327,16 @@ def alerte_mail_echec(context: RunFailureSensorContext):
 # ne partait -- un systeme d'alerte complet, avec son SMTP et son repli, qui
 # n'attendait qu'un clic pour servir.
 #
-# QUINZE MINUTES. Assez court pour qu'une panne se voie dans l'heure, assez
-# long pour que le journal des runs reste lisible (96 runs par jour).
+# UNE FOIS PAR HEURE, a la septieme minute. C'etait toutes les quinze
+# minutes : sur une ZimaBlade, chaque run demarre un processus Python qui
+# recharge Dagster et le code, interroge le panneau et ecrit dans Postgres --
+# un pic sur trois conteneurs, 96 fois par jour. Une panne se voit toujours
+# dans l'heure, pour quatre fois moins de travail (24 runs par jour).
 #
-# Le cron n'a pas de fuseau ici : toutes les quinze minutes tombe au meme
-# moment partout.
+# La minute 7 et pas 0 : l'heure pile est le moment ou tout le reste se
+# declenche aussi (taches planifiees, sauvegardes, sondes exterieures).
+#
+# Le cron n'a pas de fuseau ici : la minute 7 tombe au meme moment partout.
 #
 # CE QUI N'EST PAS PLANIFIE, et volontairement : la verification approfondie
 # de /tests. Ces tests-la AGISSENT -- ils ecrivent, traversent le proxy,
@@ -346,15 +351,15 @@ job_diagnostic = define_asset_job(
     description="Execute les sondes de diagnostic et ecrit un battement de coeur.",
 )
 
-diagnostic_toutes_les_quinze_minutes = ScheduleDefinition(
-    name="diagnostic_toutes_les_quinze_minutes",
+diagnostic_toutes_les_heures = ScheduleDefinition(
+    name="diagnostic_toutes_les_heures",
     job=job_diagnostic,
-    cron_schedule="*/15 * * * *",
+    cron_schedule="7 * * * *",
     # Actif des le chargement du code, pour la meme raison que le capteur :
     # sinon il faut penser a l'activer a la main, et l'on ne s'en apercoit
     # qu'en ratant une alerte.
     default_status=DefaultScheduleStatus.RUNNING,
-    description="Toutes les quinze minutes. C'est ce qui fait partir les "
+    description="Toutes les heures. C'est ce qui fait partir les "
                 "alertes : sans run, pas d'echec, donc pas de mail.",
 )
 
@@ -362,6 +367,6 @@ diagnostic_toutes_les_quinze_minutes = ScheduleDefinition(
 defs = Definitions(
     assets=[diagnostic_codelab],
     jobs=[job_diagnostic],
-    schedules=[diagnostic_toutes_les_quinze_minutes],
+    schedules=[diagnostic_toutes_les_heures],
     sensors=[alerte_mail_echec],
 )

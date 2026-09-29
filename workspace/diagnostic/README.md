@@ -119,16 +119,17 @@ decouvre tout seul. Il n'y a **pas** de fichier central a editer pour declarer u
 
 1. Ouvre `http://<IP-du-serveur>:9001/diagnostic/`. Dix-sept verifications s'affichent, et la page ecrit une ligne
    `app-manager` en base a chaque rechargement.
-2. Le bandeau reste orange tant que Dagster n'a rien ecrit. **Il passe au vert tout seul dans le
-   quart d'heure** : l'asset est planifie toutes les quinze minutes. Pour ne pas attendre, va sur
+2. Le bandeau reste orange tant que Dagster n'a rien ecrit. **Il passe au vert tout seul dans
+   l'heure** : l'asset est planifie toutes les heures (a la minute 7). Pour ne pas attendre, va sur
    `http://<IP-du-serveur>:3000/` (la session du panneau suffit : si tu y es deja connecte, Dagster
    s'ouvre sans rien redemander) et materialise l'asset **`diagnostic_codelab`** a la main.
 3. Bandeau vert = chaine complete.
 
 ### Le planning
 
-L'asset tourne **toutes les quinze minutes**, sans intervention (`diagnostic_toutes_les_quinze_minutes`,
-actif des le chargement du code).
+L'asset tourne **toutes les heures, a la minute 7**, sans intervention (`diagnostic_toutes_les_heures`,
+actif des le chargement du code). C'etait toutes les quinze minutes : sur une ZimaBlade, chaque run
+recharge Dagster et sollicite le panneau et Postgres, et une panne se voit toujours dans l'heure.
 
 Ce n'est pas un confort : le capteur d'alerte ci-dessous reagit a un run **en echec**. Sans planning,
 aucun run ne demarre tout seul, donc aucun ne peut echouer, donc **aucune alerte ne part** — un systeme

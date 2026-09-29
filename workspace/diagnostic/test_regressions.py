@@ -5326,7 +5326,10 @@ def test_le_diagnostic_a_un_planning_et_il_est_actif():
     assert "ScheduleDefinition(" in src, (
         "aucun planning : l'asset ne tournera que si on le declenche a la main, "
         "et le capteur d'alerte n'aura jamais de run en echec a signaler")
-    assert 'cron_schedule="*/15 * * * *"' in src
+    # Une fois par heure, hors de l'heure pile : toutes les quinze minutes,
+    # chaque run chargeait Dagster, le panneau et Postgres 96 fois par jour.
+    assert 'cron_schedule="7 * * * *"' in src
+    assert "*/15" not in src
     assert "DefaultScheduleStatus.RUNNING" in src, (
         "un planning qu'il faut activer a la main dans l'interface : on ne "
         "s'apercoit de l'oubli qu'en ratant une alerte")
@@ -5351,7 +5354,7 @@ def test_la_verification_approfondie_reste_a_la_demande():
     run_tests() et la suite du panneau ecrivent, traversent le proxy et
     laissent des traces. Les jouer quatre fois par heure remplirait les
     journaux de traces que personne n'a demandees. Seules les sondes en
-    lecture seule tournent toutes les quinze minutes.
+    lecture seule tournent toutes les heures.
     """
     src = _definitions_diagnostic()
     assert "run_tests" not in src, (
@@ -7883,8 +7886,8 @@ def _fichier_du_depot(*morceaux):
 
 
 def test_les_runs_planifies_passent_par_une_file_d_attente():
-    """Depuis qu'un planning declenche le diagnostic toutes les quinze
-    minutes, les runs arrivent tout seuls. Sans coordinateur, Dagster les
+    """Depuis qu'un planning declenche le diagnostic chaque heure, les
+    runs arrivent tout seuls. Sans coordinateur, Dagster les
     demarre TOUS a la fois, chacun dans son processus -- et sur une machine
     de la taille d'une ZimaBlade, quelques runs qui se chevauchent suffisent
     a emporter le webserver. Ce qu'on voit alors est un 502 qui ne dit rien.
@@ -8487,7 +8490,7 @@ def test_isoler_a_zero_est_un_choix_assume(monkeypatch):
 #
 # C'est la decision qui compte : le capteur alerte_mail_echec se declenche sur
 # un run EN ECHEC. Ce qui fait echouer le run fait donc partir le mail -- et
-# un mail toutes les quinze minutes pour un disque a 87 % est un mail qu'on
+# un mail toutes les heures pour un disque a 87 % est un mail qu'on
 # apprend a ne plus ouvrir.
 #
 # definitions.py importe dagster, absent de cette image (et de celle du

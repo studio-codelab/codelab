@@ -884,10 +884,10 @@ def index(ouvrir_verification=False):
         if not dagster_a_ecrit:
             bloc_db += ('<div class="note"><b>Aucune ligne <code>dagster</code> :</b> c\'est le '
                         'seul maillon encore non vérifié. Elle arrive toute seule &mdash; le '
-                        'planning <code>diagnostic_toutes_les_quinze_minutes</code> matérialise '
-                        'l\'asset <code>diagnostic_codelab</code> quatre fois par heure, et la '
+                        'planning <code>diagnostic_toutes_les_heures</code> matérialise '
+                        'l\'asset <code>diagnostic_codelab</code> une fois par heure, et la '
                         'première ligne paraît ici au prochain passage. Si rien ne vient au bout '
-                        'd\'une demi-heure, Dagster ne tourne pas : la sonde '
+                        'd\'une heure et quart, Dagster ne tourne pas : la sonde '
                         '<code>codelab-dagster</code> le dit, et son interface est sur le '
                         'port 3000.</div>')
     else:

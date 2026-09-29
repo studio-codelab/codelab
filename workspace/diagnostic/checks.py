@@ -1338,7 +1338,7 @@ def check_surface_exposee():
     # administration joignable de partout. Le reste est un etat des lieux.
     #
     # Rang 2 quand meme : c'est une CONFIGURATION, choisie, qu'un mail toutes
-    # les quinze minutes ne changera pas. La sonde la nomme et dit ou la
+    # les heures ne changera pas. La sonde la nomme et dit ou la
     # revoir ; decider reste a l'administrateur.
     mauvais = bool(adresse) and not admin_local
     if mauvais:
