@@ -11886,6 +11886,43 @@ def test_le_manifeste_d_une_application_reste_dans_son_projet(client, monkeypatc
     assert r.status_code == 302 and r.headers["Location"].endswith("/login")
 
 
+def test_le_panneau_installe_ouvre_les_applications_sans_en_sortir(client, monkeypatch, tmp_path):
+    """Dans le panneau ajoute a l'ecran d'accueil, une application ouverte
+    directement vivait sur une autre origine : iOS l'affichait dans son
+    navigateur integre (« Done », fleches). Elle s'ouvre maintenant encadree
+    dans une page du panneau, qui n'autorise a encadrer QUE l'origine des
+    applications."""
+    fichier = tmp_path / "apps.json"
+    monkeypatch.setattr(app, "APPS_FILE", str(fichier))
+    app._apps_cache["signature"] = None
+    app.save({"site": {"path": str(tmp_path), "command": "x", "port": 9101,
+                       "enabled": True, "titre": "Mon <site>"}})
+    monkeypatch.setattr(app, "origines_separees", lambda: True)
+    monkeypatch.setattr(app, "origine_applications", lambda: "http://hote:9002")
+
+    # Sans session : rien, pas meme le nom.
+    assert client.get("/ouvrir.html?app=site").status_code in (302, 401)
+
+    client.post("/login", json={"password": "secret-de-test"})
+    r = client.get("/ouvrir.html?app=site")
+    assert r.status_code == 200
+    corps = r.get_data(as_text=True)
+    assert '<iframe src="http://hote:9002/site/"' in corps
+    assert "Mon &lt;site&gt;" in corps and "Mon <site>" not in corps
+    csp = r.headers["Content-Security-Policy"]
+    assert csp.endswith("; frame-src http://hote:9002")
+    assert "frame-ancestors 'none'" in csp, "la page elle-meme ne s'encadre pas"
+    assert client.get("/ouvrir.html?app=inconnue").status_code == 404
+
+    # Le ruban ramene la FENETRE au hub, pas le cadre.
+    with app.flask_app.test_request_context("/site/"):
+        assert b'target="_top"' in app.ruban_retour()
+
+    # Le hub n'y passe qu'en mode app.
+    html = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
+    assert "display-mode: standalone" in html and "/ouvrir.html?app=" in html
+
+
 def test_mailpit_est_habille_aux_couleurs_de_codelab():
     """Mailpit n'est pas modifie : le proxy injecte une feuille de style,
     sert la police du panneau et remplace son logo par le notre."""

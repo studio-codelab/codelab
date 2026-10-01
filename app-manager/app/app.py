@@ -9188,6 +9188,58 @@ def index():
     return Response(page, mimetype="text/html")
 
 
+# PARCOURIR LES APPLICATIONS SANS QUITTER LE PANNEAU INSTALLE.
+#
+# Le panneau ajoute a l'ecran d'accueil est une app dont la portee est SON
+# origine. Les applications vivent sur une autre (le port des applications,
+# voir separer_les_origines) : y naviguer, c'est sortir de l'app, et iOS
+# l'affiche dans son navigateur integre -- « Done » en haut, fleches en bas.
+# Aucun manifeste ne couvre deux origines.
+#
+# L'application est donc ENCADREE dans une page du panneau : la fenetre reste
+# sur l'origine du panneau, donc dans l'app, et l'application garde la
+# sienne -- l'iframe ne lui donne aucun acces au panneau, la separation tient.
+# Le hub n'y passe qu'en mode app (display-mode: standalone) ; dans Safari,
+# une tuile ouvre toujours l'application directement.
+#
+# Le point dans le chemin n'est pas decoratif : un nom d'application ne peut
+# pas en contenir (valid_name), cette adresse ne peut donc jamais masquer une
+# application.
+@flask_app.get("/ouvrir.html")
+@require_auth
+def ouvrir_dans_le_panneau():
+    nom = request.args.get("app", "")
+    apps = load()
+    a = apps.get(nom)
+    if not a or not peut_voir(nom) or a.get("externe"):
+        return Response(_page("Introuvable", "Aucune application \u00ab " + nom + " \u00bb."),
+                        404, mimetype="text/html")
+    base = origine_applications() if origines_separees() else ""
+    cible = base + "/" + urllib.parse.quote(nom, safe="") + "/"
+    titre = titre_de(nom, a)
+
+    def esc(x):
+        return (str(x).replace("&", "&amp;").replace("<", "&lt;")
+                .replace(">", "&gt;").replace('"', "&quot;"))
+    page = ('<!doctype html><html lang="fr"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width,initial-scale=1">'
+            '<title>' + esc(titre) + '</title>'
+            '<link rel="icon" type="image/png" href="/favicon.png?v=2">'
+            '<link rel="manifest" href="/manifest.webmanifest">'
+            '<meta name="apple-mobile-web-app-capable" content="yes">'
+            '<style>html,body{margin:0;height:100%;background:#fff}'
+            'iframe{display:block;border:0;width:100%;height:100%;height:100dvh}</style>'
+            '</head><body><iframe src="' + esc(cible) + '" title="' + esc(titre) + '" '
+            'allow="clipboard-read; clipboard-write; fullscreen"></iframe></body></html>')
+    r = Response(page, mimetype="text/html")
+    # La politique du panneau, plus le droit d'encadrer l'origine des
+    # applications -- et elle seule.
+    r.headers["Content-Security-Policy"] = (
+        CSP_PANNEAU + "; frame-src " + (base or "'self'"))
+    r.headers["Cache-Control"] = "no-store"
+    return r
+
+
 @flask_app.get("/espace")
 @require_auth
 def espace():
@@ -9494,7 +9546,10 @@ def strip_session_cookie(raw):
 def ruban_retour():
     """Le ruban, construit a chaque page : son lien depend de l'origine."""
     return (
-        '<a href="' + lien_panneau() + '" id="codelab-retour-hub" '
+        # target=_top : dans le panneau installe, l'application est encadree
+        # (voir ouvrir_dans_le_panneau). Sans lui, le hub s'ouvrirait DANS
+        # le cadre, un panneau dans le panneau.
+        '<a href="' + lien_panneau() + '" target="_top" id="codelab-retour-hub" '
         'title="Revenir au hub CodeLab" '
         'style="all:initial;position:fixed;left:14px;bottom:14px;z-index:2147483647;'
         'display:inline-flex;align-items:center;gap:7px;padding:8px 13px;'

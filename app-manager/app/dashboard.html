@@ -2514,9 +2514,17 @@ const urlApplication = nom => APPS_BASE + '/' + encodeURIComponent(nom) + '/';
    l'ouverture, puis redirige. Y aller en direct, c'est court-circuiter les
    deux et tomber sur la page d'erreur nue du service quand le droit manque.
    Une application, elle, vit sur l'origine des applications. */
+/* Dans le panneau INSTALLE (ecran d'accueil), une application ouverte
+   directement sortirait de l'app : elle vit sur une autre origine, et iOS
+   l'afficherait dans son navigateur integre. Elle s'ouvre donc encadree dans
+   une page du panneau (/ouvrir.html, voir ouvrir_dans_le_panneau). */
+const enModeApp = (window.matchMedia
+    && matchMedia('(display-mode: standalone)').matches)
+  || window.navigator.standalone === true;
 const lienOuverture = a => a.externe
   ? '/' + encodeURIComponent(a.name) + '/'
-  : urlApplication(a.name);
+  : (enModeApp ? '/ouvrir.html?app=' + encodeURIComponent(a.name)
+               : urlApplication(a.name));
 const fetchNu = window.fetch.bind(window);
 
 /* Le jeton ne part QUE vers ce panneau. Aujourd'hui tous les appels de cette
