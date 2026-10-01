@@ -10556,6 +10556,42 @@ def test_le_logo_dagster_servi_est_le_svg_livre_avec_l_image(hub):
     assert "<svg" in corps and "viewBox" in corps
 
 
+def test_le_panneau_s_ajoute_a_l_ecran_d_accueil_d_un_iphone(client):
+    """Safari > Partager > « Sur l'ecran d'accueil ».
+
+    Sans manifeste ni balises apple-mobile-web-app-*, iOS posait une capture
+    de la page en guise d'icone et l'ouvrait dans un onglet Safari ordinaire.
+    Tout cela doit repondre SANS session : on ajoute souvent l'icone depuis
+    la page de connexion.
+    """
+    import struct
+    for page in ("dashboard.html", "login.html"):
+        html = (_racine_app_manager() / page).read_text(encoding="utf-8")
+        for balise in ('rel="manifest" href="/manifest.webmanifest"',
+                       'rel="apple-touch-icon" href="/apple-touch-icon.png',
+                       'name="apple-mobile-web-app-capable" content="yes"',
+                       'name="apple-mobile-web-app-title" content="CodeLab"'):
+            assert balise in html, f"{page} : {balise} manque"
+
+    r = client.get("/manifest.webmanifest")
+    assert r.status_code == 200
+    assert r.mimetype == "application/manifest+json"
+    m = json.loads(r.get_data(as_text=True))
+    assert m["display"] == "standalone" and m["start_url"] == "/"
+    assert m["short_name"] == "CodeLab"
+
+    for adresse in ["/apple-touch-icon.png"] + [i["src"] for i in m["icons"]]:
+        r = client.get(adresse)
+        assert r.status_code == 200 and r.mimetype == "image/png"
+        png = r.get_data()
+        assert png[:8] == b"\x89PNG\r\n\x1a\n"
+        largeur, hauteur, _, type_couleur = struct.unpack(">IIBB", png[16:26])
+        assert (largeur, hauteur) == (180, 180)
+        # 2 = RVB sans canal alpha. iOS peint en NOIR la transparence d'une
+        # apple-touch-icon : l'icone doit etre opaque.
+        assert type_couleur == 2, "l'icone de l'ecran d'accueil a un canal alpha"
+
+
 def test_le_panneau_ne_telecharge_plus_le_logo_de_dagster():
     """Ni appel reseau, ni cache sur disque, ni fichier de type a cote.
 

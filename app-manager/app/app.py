@@ -128,6 +128,14 @@ ICONE_CODELAB_PNG = base64.b64decode(re.search(
     r'class="topbar-brand"[^>]*>\s*<img src="data:image/png;base64,([A-Za-z0-9+/=]+)"',
     DASHBOARD_PAGE).group(1))
 
+# L'icone de l'ecran d'accueil (iPhone, Android) : le meme logo, pose sur un
+# fond blanc OPAQUE de 180 px. iOS remplit de noir la transparence d'une
+# apple-touch-icon : le logo du favicon, transparent, y devenait un flacon
+# bleu sur un carre noir. Voir ecran_accueil_icone().
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "icone-ecran-accueil.png"), "rb") as _f:
+    ICONE_ECRAN_ACCUEIL_PNG = _f.read()
+
 # Les seuls fichiers que /polices/<nom> accepte de servir.
 POLICES_SERVIES = {"manrope-latin.woff2"}
 
@@ -9011,6 +9019,48 @@ flask_app.add_url_rule("/" + MAILPIT_NOM, "ouvrir_mailpit_sans_barre",
 @flask_app.get("/favicon.png")
 def favicon_panneau():
     r = Response(ICONE_CODELAB_PNG, mimetype="image/png")
+    r.headers["Cache-Control"] = "no-cache"
+    return r
+
+
+# LE PANNEAU S'AJOUTE A L'ECRAN D'ACCUEIL D'UN TELEPHONE.
+#
+# Safari > Partager > « Sur l'ecran d'accueil » : sans ce qui suit, iOS posait
+# une capture de la page en guise d'icone, et l'ouvrait dans un onglet Safari
+# ordinaire, barre d'adresse comprise. Le manifeste et les balises
+# apple-mobile-web-app-* des deux pages en font une application a part :
+# plein ecran, son propre nom sous l'icone, son propre logo.
+#
+# Publics, comme le favicon : iOS les demande au moment d'ajouter l'icone,
+# souvent depuis la page de connexion, et ils ne revelent qu'un nom et un
+# logo. /apple-touch-icon.png est aussi l'adresse qu'iOS essaie de lui-meme
+# quand une page n'en declare aucune.
+#
+# A savoir : sur iOS, l'application ajoutee a SES PROPRES cookies, separes de
+# ceux de Safari. Il faut donc s'y connecter une fois, la session ouverte
+# dans Safari ne la suit pas.
+@flask_app.get("/apple-touch-icon.png")
+@flask_app.get("/apple-touch-icon-precomposed.png")
+def ecran_accueil_icone():
+    r = Response(ICONE_ECRAN_ACCUEIL_PNG, mimetype="image/png")
+    r.headers["Cache-Control"] = "no-cache"
+    return r
+
+
+@flask_app.get("/manifest.webmanifest")
+def ecran_accueil_manifeste():
+    manifeste = {
+        "name": "CodeLab",
+        "short_name": "CodeLab",
+        "start_url": "/",
+        "scope": "/",
+        "display": "standalone",
+        "background_color": "#ffffff",
+        "theme_color": "#ffffff",
+        "icons": [{"src": "/apple-touch-icon.png", "sizes": "180x180",
+                   "type": "image/png", "purpose": "any"}],
+    }
+    r = Response(json.dumps(manifeste), mimetype="application/manifest+json")
     r.headers["Cache-Control"] = "no-cache"
     return r
 
