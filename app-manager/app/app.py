@@ -1349,6 +1349,9 @@ def separer_les_origines():
 # politique du panneau casserait la premiere qui charge une police, une carte
 # ou un script depuis ailleurs -- et ce serait decider a leur place. Le
 # panneau protege le panneau.
+# Une seule regle leur est imposee, frame-ancestors, qui ne dit rien de ce
+# qu'elles chargent : seulement qui peut les encadrer. Voir
+# proteger_l_encadrement.
 CSP_PANNEAU = ("default-src 'self'; base-uri 'none'; object-src 'none'; "
                "frame-ancestors 'none'; form-action 'self'; "
                "img-src 'self' data:; font-src 'self'; connect-src 'self'; "
@@ -1403,6 +1406,12 @@ def compresser(reponse):
 def poser_les_entetes(reponse):
     reponse.headers.setdefault("X-Content-Type-Options", "nosniff")
     if request.endpoint in ("proxy", "proxy_noslash"):
+        # Toute reponse d'application, page d'erreur et redirection
+        # comprises : seul le panneau peut l'encadrer.
+        entetes = proteger_l_encadrement(list(reponse.headers.items()))
+        reponse.headers.clear()
+        for k, v in entetes:
+            reponse.headers.add(k, v)
         return reponse
     reponse.headers.setdefault("Content-Security-Policy", CSP_PANNEAU)
     reponse.headers.setdefault("X-Frame-Options", "DENY")
@@ -9188,6 +9197,58 @@ def index():
     return Response(page, mimetype="text/html")
 
 
+# PARCOURIR LES APPLICATIONS SANS QUITTER LE PANNEAU INSTALLE.
+#
+# Le panneau ajoute a l'ecran d'accueil est une app dont la portee est SON
+# origine. Les applications vivent sur une autre (le port des applications,
+# voir separer_les_origines) : y naviguer, c'est sortir de l'app, et iOS
+# l'affiche dans son navigateur integre -- « Done » en haut, fleches en bas.
+# Aucun manifeste ne couvre deux origines.
+#
+# L'application est donc ENCADREE dans une page du panneau : la fenetre reste
+# sur l'origine du panneau, donc dans l'app, et l'application garde la
+# sienne -- l'iframe ne lui donne aucun acces au panneau, la separation tient.
+# Le hub n'y passe qu'en mode app (display-mode: standalone) ; dans Safari,
+# une tuile ouvre toujours l'application directement.
+#
+# Le point dans le chemin n'est pas decoratif : un nom d'application ne peut
+# pas en contenir (valid_name), cette adresse ne peut donc jamais masquer une
+# application.
+@flask_app.get("/ouvrir.html")
+@require_auth
+def ouvrir_dans_le_panneau():
+    nom = request.args.get("app", "")
+    apps = load()
+    a = apps.get(nom)
+    if not a or not peut_voir(nom) or a.get("externe"):
+        return Response(_page("Introuvable", "Aucune application \u00ab " + nom + " \u00bb."),
+                        404, mimetype="text/html")
+    base = origine_applications() if origines_separees() else ""
+    cible = base + "/" + urllib.parse.quote(nom, safe="") + "/"
+    titre = titre_de(nom, a)
+
+    def esc(x):
+        return (str(x).replace("&", "&amp;").replace("<", "&lt;")
+                .replace(">", "&gt;").replace('"', "&quot;"))
+    page = ('<!doctype html><html lang="fr"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width,initial-scale=1">'
+            '<title>' + esc(titre) + '</title>'
+            '<link rel="icon" type="image/png" href="/favicon.png?v=2">'
+            '<link rel="manifest" href="/manifest.webmanifest">'
+            '<meta name="apple-mobile-web-app-capable" content="yes">'
+            '<style>html,body{margin:0;height:100%;background:#fff}'
+            'iframe{display:block;border:0;width:100%;height:100%;height:100dvh}</style>'
+            '</head><body><iframe src="' + esc(cible) + '" title="' + esc(titre) + '" '
+            'allow="clipboard-read; clipboard-write; fullscreen"></iframe></body></html>')
+    r = Response(page, mimetype="text/html")
+    # La politique du panneau, plus le droit d'encadrer l'origine des
+    # applications -- et elle seule.
+    r.headers["Content-Security-Policy"] = (
+        CSP_PANNEAU + "; frame-src " + (base or "'self'"))
+    r.headers["Cache-Control"] = "no-store"
+    return r
+
+
 @flask_app.get("/espace")
 @require_auth
 def espace():
@@ -9494,7 +9555,10 @@ def strip_session_cookie(raw):
 def ruban_retour():
     """Le ruban, construit a chaque page : son lien depend de l'origine."""
     return (
-        '<a href="' + lien_panneau() + '" id="codelab-retour-hub" '
+        # target=_top : dans le panneau installe, l'application est encadree
+        # (voir ouvrir_dans_le_panneau). Sans lui, le hub s'ouvrirait DANS
+        # le cadre, un panneau dans le panneau.
+        '<a href="' + lien_panneau() + '" target="_top" id="codelab-retour-hub" '
         'title="Revenir au hub CodeLab" '
         'style="all:initial;position:fixed;left:14px;bottom:14px;z-index:2147483647;'
         'display:inline-flex;align-items:center;gap:7px;padding:8px 13px;'
@@ -9680,6 +9744,49 @@ def webapp_icone(a):
     r.headers["Cache-Control"] = "no-cache"
     r.headers["X-Content-Type-Options"] = "nosniff"
     return r
+
+
+# QUI PEUT AFFICHER UNE APPLICATION DANS UN CADRE : LE PANNEAU, ET LUI SEUL.
+#
+# Sans regle, n'importe quel site pouvait poser une application dans une
+# iframe invisible et faire cliquer l'utilisateur dedans a son insu
+# (clickjacking) -- avec SA session, puisque le navigateur l'envoie. A
+# l'inverse, une application qui se protegeait elle-meme (X-Frame-Options,
+# pose d'office par Django, Rails, Helmet...) s'affichait vide dans le
+# panneau installe, qui l'encadre (voir ouvrir_dans_le_panneau) : DENY
+# refuse tout, et SAMEORIGIN refuse le panneau, qui vit sur un autre port.
+#
+# Le proxy tranche donc pour toutes : frame-ancestors n'autorise que le
+# panneau, sous chacune des adresses par lesquelles on l'atteint -- celle
+# publiee par un reverse proxy, le meme hote que la requete sur le port du
+# panneau, et localhost pour l'adresse locale. X-Frame-Options est retire :
+# il ne sait pas nommer une autre origine, et frame-ancestors le remplace.
+#
+# Une application qui pose SA propre regle frame-ancestors la garde : c'est
+# un choix explicite, et les politiques CSP se cumulent -- la plus stricte
+# l'emporte.
+def origines_encadrantes():
+    """Les sources frame-ancestors : le panneau, sous toutes ses adresses."""
+    if not origines_separees():
+        return "'self'"
+    sources = []
+    if PANEL_URL:
+        sources.append(PANEL_URL)
+    hote = hote_demande()
+    if hote and has_request_context():
+        sources.append(f"{request.scheme}://{hote}:{PANEL_PORT}")
+    sources += [f"http://localhost:{PANEL_PORT}", f"http://127.0.0.1:{PANEL_PORT}"]
+    return " ".join(dict.fromkeys(sources))
+
+
+def proteger_l_encadrement(entetes):
+    entetes = [(k, v) for k, v in entetes if k.lower() != "x-frame-options"]
+    politiques = " ".join(v for k, v in entetes
+                          if k.lower() == "content-security-policy").lower()
+    if "frame-ancestors" not in politiques:
+        entetes.append(("Content-Security-Policy",
+                        "frame-ancestors " + origines_encadrantes()))
+    return entetes
 
 
 def _proxy(name, sub):
