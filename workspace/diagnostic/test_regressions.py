@@ -6804,9 +6804,13 @@ def test_hsts_n_est_pose_que_derriere_du_tls(client, monkeypatch):
 def test_une_application_hebergee_garde_sa_propre_politique(deux_espaces):
     """La politique du panneau casserait la premiere application qui charge
     une police, une carte ou un script ailleurs -- et ce serait decider a sa
-    place. Seul nosniff reste, il ne coute rien a personne."""
+    place. Restent nosniff, et frame-ancestors -- qui ne dit rien de ce que
+    l'application charge, seulement de QUI peut l'encadrer (voir
+    proteger_l_encadrement)."""
     r = deux_espaces.get("/public/")
-    assert "Content-Security-Policy" not in r.headers
+    csp = r.headers.get("Content-Security-Policy", "")
+    assert csp.startswith("frame-ancestors ") and ";" not in csp, (
+        "seul frame-ancestors est impose aux applications : " + csp)
     assert "X-Frame-Options" not in r.headers
     assert r.headers.get("X-Content-Type-Options") == "nosniff"
 
@@ -11921,6 +11925,49 @@ def test_le_panneau_installe_ouvre_les_applications_sans_en_sortir(client, monke
     # Le hub n'y passe qu'en mode app.
     html = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
     assert "display-mode: standalone" in html and "/ouvrir.html?app=" in html
+
+
+def test_seul_le_panneau_peut_encadrer_une_application(monkeypatch):
+    """Clickjacking : aucun autre site ne pose une application dans un cadre.
+    Et le panneau installe, qui l'encadre, n'est plus bloque par un
+    X-Frame-Options pose d'office par le framework de l'application."""
+    monkeypatch.setattr(app, "origines_separees", lambda: True)
+    monkeypatch.setattr(app, "PANEL_URL", "https://codelab.exemple.fr")
+    with app.flask_app.test_request_context("/site/", base_url="http://10.126.126.1:9002"):
+        sortants = app.proteger_l_encadrement(
+            [("Content-Type", "text/html"), ("X-Frame-Options", "SAMEORIGIN")])
+    assert not [k for k, _ in sortants if k.lower() == "x-frame-options"]
+    csp = dict(sortants)["Content-Security-Policy"]
+    assert csp == ("frame-ancestors https://codelab.exemple.fr http://10.126.126.1:9001 "
+                   "http://localhost:9001 http://127.0.0.1:9001")
+
+    # Une application qui a SA regle frame-ancestors la garde.
+    propre = [("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'")]
+    with app.flask_app.test_request_context("/site/"):
+        assert app.proteger_l_encadrement(propre) == propre
+
+    # Sans separation des origines, le panneau EST l'origine des applications.
+    monkeypatch.setattr(app, "origines_separees", lambda: False)
+    with app.flask_app.test_request_context("/site/"):
+        assert dict(app.proteger_l_encadrement([]))["Content-Security-Policy"] \
+            == "frame-ancestors 'self'"
+
+
+
+def test_la_protection_d_encadrement_couvre_toute_reponse_d_application(
+        client, monkeypatch, tmp_path):
+    """Pages d'erreur et redirections comprises, pas seulement les pages
+    relayees depuis l'application."""
+    fichier = tmp_path / "apps.json"
+    monkeypatch.setattr(app, "APPS_FILE", str(fichier))
+    app._apps_cache["signature"] = None
+    app.save({"site": {"path": str(tmp_path), "command": "x", "port": 9101,
+                       "enabled": True}})
+    monkeypatch.setattr(app, "is_running", lambda n: False)
+    r = client.get("/site/")
+    assert r.status_code == 503
+    assert "frame-ancestors" in r.headers.get("Content-Security-Policy", "")
+    assert "X-Frame-Options" not in r.headers
 
 
 def test_mailpit_est_habille_aux_couleurs_de_codelab():

@@ -1349,6 +1349,9 @@ def separer_les_origines():
 # politique du panneau casserait la premiere qui charge une police, une carte
 # ou un script depuis ailleurs -- et ce serait decider a leur place. Le
 # panneau protege le panneau.
+# Une seule regle leur est imposee, frame-ancestors, qui ne dit rien de ce
+# qu'elles chargent : seulement qui peut les encadrer. Voir
+# proteger_l_encadrement.
 CSP_PANNEAU = ("default-src 'self'; base-uri 'none'; object-src 'none'; "
                "frame-ancestors 'none'; form-action 'self'; "
                "img-src 'self' data:; font-src 'self'; connect-src 'self'; "
@@ -1403,6 +1406,12 @@ def compresser(reponse):
 def poser_les_entetes(reponse):
     reponse.headers.setdefault("X-Content-Type-Options", "nosniff")
     if request.endpoint in ("proxy", "proxy_noslash"):
+        # Toute reponse d'application, page d'erreur et redirection
+        # comprises : seul le panneau peut l'encadrer.
+        entetes = proteger_l_encadrement(list(reponse.headers.items()))
+        reponse.headers.clear()
+        for k, v in entetes:
+            reponse.headers.add(k, v)
         return reponse
     reponse.headers.setdefault("Content-Security-Policy", CSP_PANNEAU)
     reponse.headers.setdefault("X-Frame-Options", "DENY")
@@ -9735,6 +9744,49 @@ def webapp_icone(a):
     r.headers["Cache-Control"] = "no-cache"
     r.headers["X-Content-Type-Options"] = "nosniff"
     return r
+
+
+# QUI PEUT AFFICHER UNE APPLICATION DANS UN CADRE : LE PANNEAU, ET LUI SEUL.
+#
+# Sans regle, n'importe quel site pouvait poser une application dans une
+# iframe invisible et faire cliquer l'utilisateur dedans a son insu
+# (clickjacking) -- avec SA session, puisque le navigateur l'envoie. A
+# l'inverse, une application qui se protegeait elle-meme (X-Frame-Options,
+# pose d'office par Django, Rails, Helmet...) s'affichait vide dans le
+# panneau installe, qui l'encadre (voir ouvrir_dans_le_panneau) : DENY
+# refuse tout, et SAMEORIGIN refuse le panneau, qui vit sur un autre port.
+#
+# Le proxy tranche donc pour toutes : frame-ancestors n'autorise que le
+# panneau, sous chacune des adresses par lesquelles on l'atteint -- celle
+# publiee par un reverse proxy, le meme hote que la requete sur le port du
+# panneau, et localhost pour l'adresse locale. X-Frame-Options est retire :
+# il ne sait pas nommer une autre origine, et frame-ancestors le remplace.
+#
+# Une application qui pose SA propre regle frame-ancestors la garde : c'est
+# un choix explicite, et les politiques CSP se cumulent -- la plus stricte
+# l'emporte.
+def origines_encadrantes():
+    """Les sources frame-ancestors : le panneau, sous toutes ses adresses."""
+    if not origines_separees():
+        return "'self'"
+    sources = []
+    if PANEL_URL:
+        sources.append(PANEL_URL)
+    hote = hote_demande()
+    if hote and has_request_context():
+        sources.append(f"{request.scheme}://{hote}:{PANEL_PORT}")
+    sources += [f"http://localhost:{PANEL_PORT}", f"http://127.0.0.1:{PANEL_PORT}"]
+    return " ".join(dict.fromkeys(sources))
+
+
+def proteger_l_encadrement(entetes):
+    entetes = [(k, v) for k, v in entetes if k.lower() != "x-frame-options"]
+    politiques = " ".join(v for k, v in entetes
+                          if k.lower() == "content-security-policy").lower()
+    if "frame-ancestors" not in politiques:
+        entetes.append(("Content-Security-Policy",
+                        "frame-ancestors " + origines_encadrantes()))
+    return entetes
 
 
 def _proxy(name, sub):
