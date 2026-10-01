@@ -9596,9 +9596,8 @@ def injecter_icone(data, status, entetes, nom):
 # Chaque piece n'est posee que si la page ne la declare pas deja : une
 # application qui a son propre manifeste ou sa propre icone garde les siens.
 #
-# En mode app (display-mode: standalone), le ruban « ← CodeLab » est masque :
-# il menerait hors de l'app, vers le panneau -- precisement le retour en
-# arriere qu'on vient de retirer.
+# Le ruban « ← CodeLab » reste affiche en mode app : c'est le seul chemin
+# vers le hub depuis une app installee, et il est voulu.
 PREFIXE_CODELAB = "__codelab/"
 
 
@@ -9630,8 +9629,6 @@ def injecter_webapp(data, status, entetes, nom, titre):
         ajout += '<meta name="mobile-web-app-capable" content="yes">'
     if b"apple-mobile-web-app-title" not in tete:
         ajout += '<meta name="apple-mobile-web-app-title" content="' + titre_html + '">'
-    ajout += ('<style>@media (display-mode: standalone){'
-              '#codelab-retour-hub{display:none!important}}</style>')
     data = data[:i] + ajout.encode() + data[i:]
     entetes = [(k, v) for k, v in entetes if k.lower() != "content-length"]
     entetes.append(("Content-Length", str(len(data))))

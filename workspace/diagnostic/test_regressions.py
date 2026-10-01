@@ -11822,8 +11822,8 @@ def test_une_application_s_installe_comme_une_app_sur_l_ecran_d_accueil():
     assert b'name="apple-mobile-web-app-capable" content="yes"' in tete
     assert b'name="mobile-web-app-capable" content="yes"' in tete
     assert b'content="Mon &lt;site&gt;"' in tete, "le titre doit etre echappe"
-    # En mode app, le ruban menerait hors de l'app : il est masque.
-    assert b"display-mode: standalone" in tete and b"#codelab-retour-hub" in tete
+    # Le ruban reste visible en mode app : rien ne le masque.
+    assert b"display-mode" not in tete
     assert ("Content-Length", str(len(data))) in sortants
 
     # Ce que l'application declare deja reste a elle.
