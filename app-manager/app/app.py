@@ -9577,6 +9577,114 @@ def injecter_icone(data, status, entetes, nom):
     return data, entetes
 
 
+# CHAQUE APPLICATION S'AJOUTE A L'ECRAN D'ACCUEIL COMME UNE APP.
+#
+# Le panneau le fait pour lui-meme (voir ecran_accueil_manifeste). Une
+# application deployee, elle, s'ajoutait comme un simple signet : capture de
+# la page en guise d'icone, onglet Safari a l'ouverture, barre d'adresse et
+# retour arriere compris. Le proxy lui donne donc ce qu'il faut, comme il lui
+# donne deja son ruban et son icone d'onglet :
+#
+#   - un manifeste PROPRE A L'APPLICATION, servi sous son prefixe
+#     (/<nom>/__codelab/manifest.webmanifest). Sa portee s'arrete a /<nom>/ :
+#     l'app installee reste dans son projet, et un lien vers un autre projet
+#     sort de l'app au lieu de la detourner ;
+#   - les balises apple-mobile-web-app-*, et une icone servie sur l'ORIGINE
+#     DE L'APPLICATION -- /api/icon vit sur celle du panneau et exige une
+#     session, qu'une app fraichement ajoutee n'a pas encore.
+#
+# Chaque piece n'est posee que si la page ne la declare pas deja : une
+# application qui a son propre manifeste ou sa propre icone garde les siens.
+#
+# En mode app (display-mode: standalone), le ruban « ← CodeLab » est masque :
+# il menerait hors de l'app, vers le panneau -- precisement le retour en
+# arriere qu'on vient de retirer.
+PREFIXE_CODELAB = "__codelab/"
+
+
+def injecter_webapp(data, status, entetes, nom, titre):
+    """Ajoute avant </head> ce qui fait de la page une app installable."""
+    if status != 200:
+        return data, entetes
+    if "text/html" not in _entete(entetes, "content-type").lower():
+        return data, entetes
+    if _entete(entetes, "content-encoding"):
+        return data, entetes
+    bas = data.lower()
+    i = bas.find(b"</head>")
+    if i < 0:
+        return data, entetes
+    tete = bas[:i]
+    base = "/" + urllib.parse.quote(nom, safe="") + "/" + PREFIXE_CODELAB
+    titre_html = (titre.replace("&", "&amp;").replace("<", "&lt;")
+                  .replace(">", "&gt;").replace('"', "&quot;"))
+    ajout = ""
+    if b'rel="manifest"' not in tete and b"rel='manifest'" not in tete \
+            and b"rel=manifest" not in tete:
+        ajout += '<link rel="manifest" href="' + base + 'manifest.webmanifest">'
+    if b"apple-touch-icon" not in tete:
+        ajout += '<link rel="apple-touch-icon" href="' + base + 'icone.png">'
+    if b"apple-mobile-web-app-capable" not in tete:
+        ajout += '<meta name="apple-mobile-web-app-capable" content="yes">'
+    if b"mobile-web-app-capable" not in tete.replace(b"apple-mobile-web-app-capable", b""):
+        ajout += '<meta name="mobile-web-app-capable" content="yes">'
+    if b"apple-mobile-web-app-title" not in tete:
+        ajout += '<meta name="apple-mobile-web-app-title" content="' + titre_html + '">'
+    ajout += ('<style>@media (display-mode: standalone){'
+              '#codelab-retour-hub{display:none!important}}</style>')
+    data = data[:i] + ajout.encode() + data[i:]
+    entetes = [(k, v) for k, v in entetes if k.lower() != "content-length"]
+    entetes.append(("Content-Length", str(len(data))))
+    return data, entetes
+
+
+def webapp_manifeste(nom, titre):
+    """Le manifeste d'une application : sa portee, son nom, son icone."""
+    racine = "/" + urllib.parse.quote(nom, safe="") + "/"
+    manifeste = {
+        "name": titre,
+        "short_name": titre,
+        "start_url": racine,
+        "scope": racine,
+        "display": "standalone",
+        "background_color": "#ffffff",
+        "theme_color": "#ffffff",
+        "icons": [{"src": racine + PREFIXE_CODELAB + "icone.png",
+                   "sizes": "180x180", "purpose": "any"}],
+    }
+    r = Response(json.dumps(manifeste), mimetype="application/manifest+json")
+    r.headers["Cache-Control"] = "no-cache"
+    return r
+
+
+def webapp_icone(a):
+    """L'icone d'ecran d'accueil d'une application.
+
+    iOS ne lit ni le SVG ni l'initiale coloree du hub : il lui faut une image
+    matricielle. Le logo depose dans le projet sert s'il en est une (PNG ou
+    JPEG, reconnu a sa signature) ; sinon, le logo CodeLab.
+    """
+    chemin = find_icon(a["path"]) if a.get("path") else None
+    if chemin:
+        try:
+            with open(chemin, "rb") as f:
+                octets = f.read()
+        except OSError:
+            octets = b""
+        for signature, type_mime in ((b"\x89PNG\r\n\x1a\n", "image/png"),
+                                     (b"\xff\xd8\xff", "image/jpeg")):
+            if octets.startswith(signature):
+                r = Response(octets, mimetype=type_mime)
+                break
+        else:
+            r = Response(ICONE_ECRAN_ACCUEIL_PNG, mimetype="image/png")
+    else:
+        r = Response(ICONE_ECRAN_ACCUEIL_PNG, mimetype="image/png")
+    r.headers["Cache-Control"] = "no-cache"
+    r.headers["X-Content-Type-Options"] = "nosniff"
+    return r
+
+
 def _proxy(name, sub):
     a = load().get(name)
     if not a:
@@ -9603,12 +9711,24 @@ def _proxy(name, sub):
                             mimetype="text/html")
     if visibilite(a) == VISIBILITE_PRIVEE:
         if not is_authed():
-            return redirect("/login")
+            # La connexion vit sur l'origine du PANNEAU : un "/login" relatif
+            # tombait, sur le port des applications, sur « Ce n'est pas le
+            # panneau ». C'est le premier ecran d'une app privee ajoutee a
+            # l'ecran d'accueil, qui n'a pas encore de session a elle.
+            return redirect(lien_panneau() + "login")
         if not peut_voir(name):
             return Response(_page("Accès refusé",
                                   "Ton compte n'a pas accès à \u00ab " + name + " \u00bb.",
                                   "Demande l'accès à l'administrateur."),
                             403, mimetype="text/html")
+    # Le manifeste et l'icone d'ecran d'accueil, APRES les controles d'acces
+    # (le nom d'une app privee ne regarde que ceux qui peuvent l'ouvrir) mais
+    # AVANT le journal : iOS les demande de lui-meme, ce ne sont pas des
+    # visites. Repondus meme application arretee.
+    if request.method == "GET" and sub == PREFIXE_CODELAB + "manifest.webmanifest":
+        return webapp_manifeste(name, titre_de(name, a))
+    if request.method == "GET" and sub == PREFIXE_CODELAB + "icone.png":
+        return webapp_icone(a)
     # Note l'ouverture APRES les controles d'acces : un refus n'est pas une
     # visite, et le journal servirait mal s'il melangeait les deux.
     journaliser_ouverture(name)
@@ -9683,6 +9803,12 @@ def _proxy(name, sub):
         # Meme condition que le ruban : /api/icon exige une session, et un
         # visiteur anonyme n'a pas a voir d'adresse du panneau.
         data, sortants = injecter_icone(data, status, sortants, name)
+    # Pour tout le monde, connecte ou non : une application publique doit
+    # pouvoir s'installer aussi, et rien de ce qui est pose ici ne pointe
+    # vers le panneau. Apres injecter_icone, qui renonce des qu'il voit une
+    # apple-touch-icon -- et celle-ci en ajoute une.
+    data, sortants = injecter_webapp(data, status, sortants, name,
+                                     titre_de(name, a))
     return Response(data, status, sortants)
 
 

@@ -11808,6 +11808,84 @@ def test_l_onglet_d_une_application_prend_son_logo_si_elle_n_en_a_pas():
     assert panneau.count('rel="icon"') == 1
 
 
+def test_une_application_s_installe_comme_une_app_sur_l_ecran_d_accueil():
+    """Le proxy pose manifeste, icone et balises iOS dans chaque page --
+    sans jamais ecraser ce que l'application declare elle-meme."""
+    page = b"<html><head><title>x</title></head><body>ok</body></html>"
+    entetes = [("Content-Type", "text/html"), ("Content-Length", str(len(page)))]
+    with app.flask_app.test_request_context("/site/"):
+        data, sortants = app.injecter_webapp(page, 200, entetes, "mon site",
+                                             'Mon <site>')
+    tete = data[:data.index(b"</head>")]
+    assert b'<link rel="manifest" href="/mon%20site/__codelab/manifest.webmanifest">' in tete
+    assert b'<link rel="apple-touch-icon" href="/mon%20site/__codelab/icone.png">' in tete
+    assert b'name="apple-mobile-web-app-capable" content="yes"' in tete
+    assert b'name="mobile-web-app-capable" content="yes"' in tete
+    assert b'content="Mon &lt;site&gt;"' in tete, "le titre doit etre echappe"
+    # En mode app, le ruban menerait hors de l'app : il est masque.
+    assert b"display-mode: standalone" in tete and b"#codelab-retour-hub" in tete
+    assert ("Content-Length", str(len(data))) in sortants
+
+    # Ce que l'application declare deja reste a elle.
+    propre = page.replace(b"</head>", b'<link rel="manifest" href="/m.json">'
+                          b'<link rel="apple-touch-icon" href="/i.png">'
+                          b'<meta name="apple-mobile-web-app-title" content="A"></head>')
+    with app.flask_app.test_request_context("/site/"):
+        data, _ = app.injecter_webapp(propre, 200, entetes, "site", "site")
+    assert data.count(b'rel="manifest"') == 1
+    assert data.count(b"apple-touch-icon") == 1
+    assert data.count(b"apple-mobile-web-app-title") == 1
+
+    # Les memes refus que le ruban : on ne touche ni a une erreur, ni a
+    # autre chose que du HTML, ni a un corps compresse.
+    with app.flask_app.test_request_context("/site/"):
+        assert app.injecter_webapp(page, 404, entetes, "s", "s")[0] == page
+        assert app.injecter_webapp(page, 200, [("Content-Type", "application/json")],
+                                   "s", "s")[0] == page
+        assert app.injecter_webapp(page, 200, entetes + [("Content-Encoding", "gzip")],
+                                   "s", "s")[0] == page
+
+
+def test_le_manifeste_d_une_application_reste_dans_son_projet(client, monkeypatch, tmp_path):
+    """Portee /<nom>/ : l'app installee ne deborde pas sur les autres projets.
+    Le manifeste et l'icone suivent les controles d'acces du proxy, et
+    repondent meme application arretee."""
+    import struct
+    fichier = tmp_path / "apps.json"
+    monkeypatch.setattr(app, "APPS_FILE", str(fichier))
+    app._apps_cache["signature"] = None
+    projet = tmp_path / "projet"
+    projet.mkdir()
+    app.save({"site": {"path": str(projet), "command": "x", "port": 9101,
+                       "enabled": True, "titre": "Mon site"},
+              "prive": {"path": str(projet), "command": "x", "port": 9102,
+                        "enabled": True, "visibility": "privee"}})
+    monkeypatch.setattr(app, "is_running", lambda n: False)
+
+    r = client.get("/site/__codelab/manifest.webmanifest")
+    assert r.status_code == 200 and r.mimetype == "application/manifest+json"
+    m = json.loads(r.get_data(as_text=True))
+    assert m["scope"] == m["start_url"] == "/site/"
+    assert m["display"] == "standalone" and m["name"] == "Mon site"
+
+    # Sans logo dans le projet : le logo CodeLab, opaque, en PNG.
+    r = client.get("/site/__codelab/icone.png")
+    assert r.status_code == 200 and r.data == app.ICONE_ECRAN_ACCUEIL_PNG
+    # Un logo PNG depose dans le projet prend la place.
+    png = b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR" + b"\x00" * 17
+    (projet / "icon.png").write_bytes(png)
+    r = client.get("/site/__codelab/icone.png")
+    assert r.data == png and r.mimetype == "image/png"
+    # Un SVG, qu'iOS ne sait pas afficher, retombe sur le logo CodeLab.
+    (projet / "icon.png").unlink()
+    (projet / "icon.svg").write_text("<svg/>")
+    assert client.get("/site/__codelab/icone.png").data == app.ICONE_ECRAN_ACCUEIL_PNG
+
+    # Application privee : rien sans session, pas meme son nom.
+    r = client.get("/prive/__codelab/manifest.webmanifest", follow_redirects=False)
+    assert r.status_code == 302 and r.headers["Location"].endswith("/login")
+
+
 def test_mailpit_est_habille_aux_couleurs_de_codelab():
     """Mailpit n'est pas modifie : le proxy injecte une feuille de style,
     sert la police du panneau et remplace son logo par le notre."""
