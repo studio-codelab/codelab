@@ -4658,16 +4658,17 @@ function peindreCarte(d){
       + (sommet>1 ? ` — au plus ${sommet} dans une journée.` : '.')
     : "Aucune ouverture d'application sur la période.";
 
-  /* D'ou viennent les chiffres. Le fichier oublie au-dela d'un megaoctet :
-     une carte batie sur lui montre des cases vides qui ne prouvent aucune
-     inactivite, et le taire serait mentir par omission. */
+  /* D'ou viennent les chiffres. La base locale du panneau ne garde que les
+     50 000 derniers evenements : une carte batie sur elle peut montrer des
+     cases vides qui ne prouvent aucune inactivite, et le taire serait mentir
+     par omission. */
   const src=$('carte-source');
   if(d.source==='postgres'){ src.style.display='none'; }
   else{
     src.style.display='block';
-    src.innerHTML="Historique lu dans le <b>fichier</b> du panneau, qui ne garde "
-      + "que son dernier mégaoctet : les jours vides les plus anciens peuvent "
-      + "simplement avoir été oubliés. La base garde tout.";
+    src.innerHTML="Historique lu dans la <b>base locale</b> du panneau, qui garde "
+      + "les 50 000 derniers événements : les jours vides les plus anciens peuvent "
+      + "simplement avoir été oubliés. Postgres garde tout.";
   }
 }
 

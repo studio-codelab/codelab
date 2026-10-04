@@ -3230,10 +3230,10 @@ def _pg_synchroniser_reglages(cx):
 
 
 def _pg_rattraper(cx):
-    """Rejoue le fichier en entier : ce qui manque entre, le reste glisse.
+    """Rejoue le journal local en entier : ce qui manque entre, le reste glisse.
 
-    Appele au demarrage et apres chaque reconnexion. Le fichier est plafonne
-    a 1 Mo, donc c'est quelques milliers de lignes -- et ON CONFLICT DO
+    Appele au demarrage et apres chaque reconnexion. Le journal local est
+    plafonne a 50 000 evenements -- et ON CONFLICT DO
     NOTHING rend l'operation sans consequence quand tout est deja la.
     """
     _pg_ecrire_acces(cx, lire_acces(limite=100000))
@@ -3322,11 +3322,11 @@ def pg_lire_acces(limite=ACCES_LIGNES_LUES, app=None, qui=None):
 
 # ------------------------- les analyses -------------------------
 #
-# Le fichier plafonne a 1 Mo : il OUBLIE. Tant qu'il servait a afficher les
+# Le journal local est plafonne (50 000 evenements) : il OUBLIE. Tant qu'il servait a afficher les
 # quarante dernieres lignes, cela n'avait aucune importance. Des qu'on compte
 # -- « combien de fois ce projet a-t-il ete ouvert cette annee », « quels
 # jours cette personne travaille » -- la question change : un total calcule
-# sur une fenetre glissante d'un megaoctet ne veut rien dire, et il diminue
+# sur une fenetre glissante ne veut rien dire, et il diminue
 # tout seul a mesure que le journal tourne.
 #
 # Les analyses lisent donc Postgres, qui garde tout. Le fichier reste le
@@ -7274,9 +7274,9 @@ def api_activite():
     Reserve a l'administrateur : c'est le seul role a qui la question « qui a
     ouvert quoi » se pose, et la reponse contient des adresses IP.
 
-    Postgres d'abord quand il repond : il garde tout, la ou le fichier est
-    plafonne a 1 Mo et oublie le plus ancien. Il ne remplace jamais le
-    fichier -- une base eteinte rend simplement la vue plus courte, et la
+    Postgres d'abord quand il repond : il garde tout, la ou la base locale
+    est plafonnee et oublie le plus ancien. Il ne remplace jamais la base
+    locale -- un Postgres eteint rend simplement la vue plus courte, et la
     reponse dit d'ou viennent les lignes.
     """
     app_ = request.args.get("app") or None
