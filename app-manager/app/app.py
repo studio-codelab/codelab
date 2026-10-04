@@ -71,7 +71,26 @@ import psutil
 from flask import (Flask, Response, has_request_context, jsonify, redirect,
                    request, session, send_file, stream_with_context)
 
+# Le module de stockage vit a cote de ce fichier, et se charge PAR SON
+# CHEMIN. app.py est parfois charge lui-meme par son chemin (le diagnostic,
+# les tests) ; ajouter son dossier au chemin d'import ferait alors passer ce
+# fichier-ci pour le « app » d'un autre projet -- celui du diagnostic.
+import importlib.util as _importlib_util
+import sys
+_spec_stockage = _importlib_util.spec_from_file_location(
+    "codelab_stockage", os.path.join(os.path.dirname(os.path.abspath(__file__)), "stockage.py"))
+stockage = sys.modules.get("codelab_stockage") or _importlib_util.module_from_spec(_spec_stockage)
+if "codelab_stockage" not in sys.modules:
+    sys.modules["codelab_stockage"] = stockage
+    _spec_stockage.loader.exec_module(stockage)
+
 STATE_DIR = os.environ.get("APP_MANAGER_STATE", "/var/lib/codelab/app-manager")
+# LA BASE DU PANNEAU. Applications, comptes, droits, cles d'acces, journal,
+# messages et reglages y vivent, chacun dans sa table -- voir stockage.py et
+# la section « Donnees » du README. Les anciens fichiers JSON ci-dessous ne
+# servent plus qu'a l'import automatique, une fois, au premier demarrage
+# apres la mise a jour (voir importer_anciens_fichiers).
+DB_FILE = os.path.join(STATE_DIR, "codelab.db")
 APPS_FILE = os.path.join(STATE_DIR, "apps.json")
 LOG_DIR = os.path.join(STATE_DIR, "logs")
 ROOT = os.environ.get("APP_MANAGER_ROOT", "/workspace")
@@ -1671,20 +1690,19 @@ def require_admin(view):
 #
 #   - ecrite dans Postgres, table « reglages » de la base du panneau. C'est
 #     la qu'elle vit, et elle est sauvegardee avec les autres bases ;
-#   - recopiee, chiffree elle aussi, dans STATE_DIR/reglages.chiffres. Une
-#     alerte doit partir PRECISEMENT quand quelque chose est tombe --
-#     Postgres compris. Le panneau ne depend donc jamais de la base pour LIRE
-#     ses reglages : il la tient a jour, et s'y reprend si la copie manque.
+#   - recopiee, chiffree elle aussi, dans la base locale du panneau (table
+#     reglages_chiffres de codelab.db). Une alerte doit partir PRECISEMENT
+#     quand quelque chose est tombe -- Postgres compris. Le panneau ne depend
+#     donc jamais de Postgres pour LIRE ses reglages : il le tient a jour, et
+#     s'y reprend si la copie locale est vide.
 #
 # Sans la cle, ni la base ni la copie ne se lisent, et c'est le but : un dump
 # de la base ou une archive de sauvegarde ne livrent aucune adresse. La
 # perdre, c'est perdre ces reglages (pas les comptes, pas les applications) :
 # elle se sauvegarde avec credentials.env.
 #
-# CE QUI RESTE EN FICHIERS, et pourquoi : les applications declarees,
-# l'exposition, les categories, les rangements du hub. Le panneau en a
-# besoin pour DEMARRER et pour qu'on puisse s'y connecter afin de reparer le
-# reste. Les faire dependre de Postgres le rendrait plus fragile, pas plus sur.
+# Ancien emplacement (un fichier chiffre d'un seul bloc) : lu une fois par
+# l'import automatique, puis mis de cote.
 COFFRE_FILE = os.path.join(STATE_DIR, "reglages.chiffres")
 _cle_chiffrement = ""
 _coffre = {"donnees": None}
@@ -1720,31 +1738,34 @@ def _coffre_donnees():
             return {}
         donnees = {}
         try:
-            with open(COFFRE_FILE, "rb") as f:
-                donnees = dechiffrer(f.read())
-        except FileNotFoundError:
-            pass
+            lignes = stockage.lire(DB_FILE, "SELECT cle, valeur FROM reglages_chiffres")
         except Exception as e:                                    # noqa: BLE001
-            # Cle changee ou fichier abime. On ne l'ecrase pas en silence :
-            # il est mis de cote, et le panneau repart d'un coffre vide.
-            cote = f"{COFFRE_FILE}.illisible-{int(time.time())}"
+            print(f"[app-manager] reglages illisibles ({type(e).__name__}: {e}).",
+                  flush=True)
+            return {}
+        for ligne in lignes:
             try:
-                os.replace(COFFRE_FILE, cote)
-            except OSError:
-                pass
-            print(f"[app-manager] reglages chiffres illisibles ({type(e).__name__}) : "
-                  f"mis de cote dans {cote}. La cle APP_MANAGER_CHIFFREMENT_CLE "
-                  f"de credentials.env a-t-elle change ?", flush=True)
-        _coffre["donnees"] = donnees if isinstance(donnees, dict) else {}
+                donnees[ligne["cle"]] = dechiffrer(ligne["valeur"])
+            except Exception as e:                                # noqa: BLE001
+                # Cle changee ou valeur abimee : la ligne reste en base, pour
+                # qu'une cle retrouvee la rende lisible ; elle est seulement
+                # ignoree ici.
+                print(f"[app-manager] reglage « {ligne['cle']} » illisible "
+                      f"({type(e).__name__}) : la cle APP_MANAGER_CHIFFREMENT_CLE "
+                      f"de credentials.env a-t-elle change ?", flush=True)
+        _coffre["donnees"] = donnees
         return _coffre["donnees"]
 
 
-def _coffre_sauver():
-    tmp = COFFRE_FILE + ".tmp"
-    with open(tmp, "wb") as f:
-        f.write(chiffrer(_coffre_donnees()))
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, COFFRE_FILE)
+def _coffre_ecrire(cle, valeur):
+    """Ecrit une valeur chiffree en base (None = retire). Leve si l'ecriture
+    echoue."""
+    with stockage.transaction(DB_FILE) as cx:
+        if valeur is None:
+            cx.execute("DELETE FROM reglages_chiffres WHERE cle = ?", (cle,))
+        else:
+            cx.execute("INSERT OR REPLACE INTO reglages_chiffres (cle, valeur) "
+                       "VALUES (?, ?)", (cle, chiffrer(valeur)))
 
 
 def reglage(cle, defaut=None):
@@ -1754,26 +1775,20 @@ def reglage(cle, defaut=None):
 
 
 def ecrire_reglage(cle, valeur):
-    """Ecrit (None = retire) une valeur. Leve si la copie locale ne s'ecrit pas :
-    c'est a l'appelant de dire que rien n'a ete enregistre."""
+    """Ecrit (None = retire) une valeur. Leve si elle ne s'ecrit pas : c'est
+    a l'appelant de dire que rien n'a ete enregistre."""
     with _coffre_verrou:
         if not _cle_chiffrement:
             raise RuntimeError("cle de chiffrement absente (APP_MANAGER_CHIFFREMENT_CLE)")
         donnees = _coffre_donnees()
-        avant = copy.deepcopy(donnees.get(cle))
+        try:
+            _coffre_ecrire(cle, valeur)
+        except Exception as e:                                    # noqa: BLE001
+            raise OSError(f"reglage non enregistre : {e}") from e
         if valeur is None:
             donnees.pop(cle, None)
         else:
             donnees[cle] = copy.deepcopy(valeur)
-        try:
-            _coffre_sauver()
-        except BaseException:
-            # Rien n'est ecrit : la memoire revient a l'etat d'avant.
-            if avant is None:
-                donnees.pop(cle, None)
-            else:
-                donnees[cle] = avant
-            raise
     _pg_deposer(("reglage", cle))
 
 
@@ -1799,50 +1814,69 @@ PBKDF2_ITERATIONS = 200_000
 MDP_MIN = 12
 
 
+CHAMPS_COMPTE = (
+    ("sel", "sel", "txt"), ("hash", "empreinte_mdp", "txt"),
+    ("email_verifie", "email_verifie", "bool"), ("attente_email", "attente_email", "bool"),
+    ("suspendu", "suspendu", "bool"), ("totp", "totp", "txt"), ("cree", "cree", "int"),
+    ("sessions_depuis", "sessions_depuis", "int"),
+    ("code_mail_suspendu", "code_mail_suspendu", "bool"),
+)
+
+
 def lire_utilisateurs():
-    """Le registre des comptes. Jamais d'exception : un fichier illisible ne
-    doit pas empecher l'administrateur de se connecter pour le reparer.
+    """Les comptes, tables comptes et acces_applications. Jamais d'exception :
+    une base illisible ne doit pas empecher l'administrateur de se connecter
+    pour la reparer.
 
     L'adresse e-mail de chaque compte vit dans le COFFRE, chiffree : elle est
-    rattachee ici, pour que tout le reste du panneau lise un compte comme
-    avant. Une adresse encore presente dans le fichier (installation d'avant)
-    reste lue jusqu'a sa migration.
+    rattachee ici, pour que tout le reste du panneau lise un compte d'un seul
+    tenant.
     """
     try:
-        with open(UTILISATEURS_FILE) as f:
-            d = json.load(f)
-    except (OSError, ValueError):
+        lignes = stockage.lire(DB_FILE, "SELECT * FROM comptes ORDER BY nom")
+        droits = stockage.lire(DB_FILE, "SELECT compte, application FROM "
+                                        "acces_applications ORDER BY rowid")
+    except Exception as e:                                        # noqa: BLE001
+        print(f"[app-manager] comptes illisibles ({type(e).__name__}: {e}).", flush=True)
         return {}
-    if not isinstance(d, dict):
-        return {}
+    projets = {}
+    for ligne in droits:
+        projets.setdefault(ligne["compte"], []).append(ligne["application"])
     emails = reglage("emails_comptes", {}) or {}
-    for nom, compte in d.items():
-        if isinstance(compte, dict) and emails.get(nom):
-            compte["email"] = emails[nom]
-    return d
+    comptes = {}
+    for ligne in lignes:
+        compte = stockage.depuis_ligne(ligne, CHAMPS_COMPTE, ligne["options"])
+        compte["projets"] = projets.get(ligne["nom"], [])
+        if emails.get(ligne["nom"]):
+            compte["email"] = emails[ligne["nom"]]
+        comptes[ligne["nom"]] = compte
+    return comptes
 
 
 def ecrire_utilisateurs(comptes):
-    # Les adresses partent au coffre, chiffrees ; le fichier n'en garde
-    # aucune. D'abord le coffre : s'il echoue, le fichier n'est pas touche
-    # et rien ne se perd.
+    """Remplace l'ensemble des comptes, en une transaction."""
+    # Les adresses partent au coffre, chiffrees ; la table n'en garde
+    # aucune. D'abord le coffre : s'il echoue, les comptes ne sont pas
+    # touches et rien ne se perd.
     emails = {nom: c["email"] for nom, c in comptes.items()
               if isinstance(c, dict) and c.get("email")}
     ecrire_reglage("emails_comptes", emails or None)
-    sans_email = {nom: ({k: v for k, v in c.items() if k != "email"}
-                        if isinstance(c, dict) else c)
-                  for nom, c in comptes.items()}
-    tmp = UTILISATEURS_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(sans_email, f, indent=2)
-    os.replace(tmp, UTILISATEURS_FILE)
-    try:
-        # Meme si le contenu est derive, ce fichier dit qui existe : il n'a
-        # aucune raison d'etre lisible par les applications lancees.
-        os.chmod(UTILISATEURS_FILE, 0o600)
-    except OSError:
-        pass
-    # APRES l'ecriture, jamais avant : le miroir relit le fichier pour le
+    with stockage.transaction(DB_FILE) as cx:
+        cx.execute("DELETE FROM acces_applications")
+        cx.execute("DELETE FROM comptes")
+        for nom, c in comptes.items():
+            if not isinstance(c, dict):
+                continue
+            reste = {k: v for k, v in c.items() if k not in ("email", "projets")}
+            ligne, options = stockage.vers_ligne(reste, CHAMPS_COMPTE)
+            ligne["nom"] = nom
+            stockage.inserer(cx, "comptes", ligne, options)
+            # Dans l'ordre donne, sans doublon : l'ordre est celui que
+            # l'interface affiche.
+            for application in dict.fromkeys(c.get("projets") or []):
+                cx.execute("INSERT INTO acces_applications (compte, application) "
+                           "VALUES (?, ?)", (nom, application))
+    # APRES l'ecriture, jamais avant : le miroir relit les comptes pour les
     # recopier, et prendrait sinon l'etat d'avant la modification.
     _pg_deposer(("utilisateurs", None))
 
@@ -2253,23 +2287,32 @@ def passkey_contexte():
 
 
 def lire_passkeys():
+    """Les cles d'acces, par compte : {compte: [cle, ...]}."""
     try:
-        with open(PASSKEYS_FILE) as f:
-            d = json.load(f)
-    except (OSError, ValueError):
+        lignes = stockage.lire(DB_FILE, "SELECT * FROM cles_acces ORDER BY cree, id")
+    except Exception:                                             # noqa: BLE001
         return {}
-    return d if isinstance(d, dict) else {}
+    tout = {}
+    for ligne in lignes:
+        cle = {"id": ligne["id"], "cle_publique": ligne["cle_publique"],
+               "compteur": ligne["compteur"] or 0}
+        for champ in ("nom", "cree", "dernier"):
+            if ligne[champ] is not None:
+                cle[champ] = ligne[champ]
+        tout.setdefault(ligne["compte"], []).append(cle)
+    return tout
 
 
 def ecrire_passkeys(tout):
-    tmp = PASSKEYS_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(tout, f, indent=2)
-    os.replace(tmp, PASSKEYS_FILE)
-    try:
-        os.chmod(PASSKEYS_FILE, 0o600)
-    except OSError:
-        pass
+    with stockage.transaction(DB_FILE) as cx:
+        cx.execute("DELETE FROM cles_acces")
+        for compte, cles in tout.items():
+            for k in cles or []:
+                cx.execute("INSERT OR REPLACE INTO cles_acces (id, compte, cle_publique, "
+                           "compteur, nom, cree, dernier) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                           (k["id"], compte, k.get("cle_publique") or "",
+                            int(k.get("compteur") or 0), k.get("nom"),
+                            k.get("cree"), k.get("dernier")))
     # Le nombre de cles d'un compte fait partie de ce que le miroir recopie.
     # Depose apres l'ecriture, pour la meme raison qu'au-dessus.
     _pg_deposer(("utilisateurs", None))
@@ -2698,7 +2741,7 @@ def fichiers_conteneur(a):
 # que Postgres redemarrait serait un message que personne ne saura jamais
 # avoir ete ecrit.
 MESSAGES_FILE = os.path.join(STATE_DIR, "messages.jsonl")
-MESSAGES_MAX_OCTETS = 1024 * 1024
+MESSAGES_MAX = 5000          # au-dela, les plus anciens non retenus partent
 MESSAGE_LONGUEUR_MAX = 2000
 # Une minute entre deux messages du meme compte : de quoi corriger une faute
 # de frappe, pas de quoi remplir la boite de l'administrateur.
@@ -2712,51 +2755,31 @@ MESSAGES_AFFICHES = 300
 _dernier_message = {}
 
 
+CHAMPS_MESSAGE = (
+    ("id", "id", "txt"), ("ts", "ts", "int"), ("qui", "qui", "txt"),
+    ("cible", "cible", "txt"), ("app", "app", "txt"), ("texte", "texte", "txt"),
+    ("statut", "statut", "txt"), ("lu", "lu", "bool"), ("retenu", "retenu", "bool"),
+    ("archive", "archive", "bool"),
+)
+
+
 def lire_messages(limite=200):
     """Les plus recents d'abord."""
-    lignes = []
-    for chemin in (MESSAGES_FILE, MESSAGES_FILE + ".1"):
-        try:
-            with open(chemin, errors="replace") as f:
-                lignes.extend(f.readlines())
-        except OSError:
-            continue
-    messages = []
-    for ligne in lignes:
-        try:
-            messages.append(json.loads(ligne))
-        except ValueError:
-            continue
-    messages.sort(key=lambda m: m.get("ts") or 0, reverse=True)
-    return messages[:limite]
+    try:
+        lignes = stockage.lire(DB_FILE, "SELECT * FROM messages ORDER BY ts DESC, rowid DESC "
+                                        "LIMIT ?", (int(limite),))
+    except Exception:                                             # noqa: BLE001
+        return []
+    return [stockage.depuis_ligne(l, CHAMPS_MESSAGE, l["options"]) for l in lignes]
 
 
 def reecrire_messages(messages):
-    """Reecrit le fichier des messages en entier, et consolide sa rotation.
-
-    Un fichier de lignes ajoutees a la fin ne sait pas retirer une ligne :
-    supprimer ou retenir un message demande donc de le reecrire. C'est
-    supportable ici -- le fichier est plafonne a 1 Mo -- et cela fait
-    disparaitre du meme coup le .1 de rotation, dont le contenu revient dans
-    le fichier principal. Sans cela, un message supprime dans le fichier
-    courant reparaitrait a la premiere relecture depuis l'archive.
-
-    Ecriture atomique : un panneau tue en plein milieu laisse l'ancien
-    fichier entier, jamais une boite de messages a moitie ecrite.
-    """
-    os.makedirs(os.path.dirname(MESSAGES_FILE) or ".", exist_ok=True)
-    tmp = MESSAGES_FILE + ".tmp"
-    # Du plus ancien au plus recent : c'est l'ordre d'un fichier qui s'ecrit
-    # par la fin, et lire_messages retrie de toute facon.
-    ordonnes = sorted(messages, key=lambda m: m.get("ts") or 0)
-    with open(tmp, "w") as f:
-        for m in ordonnes:
-            f.write(json.dumps(m, ensure_ascii=False) + "\n")
-    os.replace(tmp, MESSAGES_FILE)
-    try:
-        os.remove(MESSAGES_FILE + ".1")
-    except OSError:
-        pass
+    """Remplace l'ensemble des messages, en une transaction."""
+    with stockage.transaction(DB_FILE) as cx:
+        cx.execute("DELETE FROM messages")
+        for m in messages:
+            ligne, options = stockage.vers_ligne(m, CHAMPS_MESSAGE)
+            stockage.inserer(cx, "messages", ligne, options)
 
 
 def modifier_message(identifiant, retenu=None, lu=None, statut=None, archive=None, supprimer=False):
@@ -2811,20 +2834,18 @@ def marquer_messages_lus():
 
 
 def enregistrer_message(message):
-    """Ecrit le message, et n'echoue jamais bruyamment.
-
-    Le fichier tourne comme le journal des acces : un message qui remplit le
-    disque transformerait une remarque en panne.
-    """
-    with _acces_verrou:
-        try:
-            if (os.path.exists(MESSAGES_FILE)
-                    and os.path.getsize(MESSAGES_FILE) > MESSAGES_MAX_OCTETS):
-                os.replace(MESSAGES_FILE, MESSAGES_FILE + ".1")
-            with open(MESSAGES_FILE, "a") as f:
-                f.write(json.dumps(message, ensure_ascii=False) + "\n")
-        except OSError:
-            return False
+    """Ecrit le message, et n'echoue jamais bruyamment."""
+    try:
+        with stockage.transaction(DB_FILE) as cx:
+            ligne, options = stockage.vers_ligne(message, CHAMPS_MESSAGE)
+            stockage.inserer(cx, "messages", ligne, options)
+            # Plafond : une boite qui se remplit en boucle ne doit pas remplir
+            # le disque. Les plus anciens partent, les retenus restent.
+            cx.execute("DELETE FROM messages WHERE rowid IN (SELECT rowid FROM messages "
+                       "WHERE COALESCE(retenu, 0) = 0 ORDER BY ts DESC LIMIT -1 OFFSET ?)",
+                       (MESSAGES_MAX,))
+    except Exception:                                             # noqa: BLE001
+        return False
     _pg_deposer(("message", message))
     return True
 
@@ -2844,20 +2865,27 @@ MASQUEES_FILE = os.path.join(STATE_DIR, "masquees.json")
 
 
 def lire_masquees():
+    """{compte: [applications rangees hors du hub]}."""
     try:
-        with open(MASQUEES_FILE) as f:
-            d = json.load(f)
-        return d if isinstance(d, dict) else {}
-    except (OSError, ValueError):
+        # Dans l'ordre ou elles ont ete rangees (rowid = ordre d'ecriture).
+        lignes = stockage.lire(DB_FILE, "SELECT compte, application FROM masquees "
+                                        "ORDER BY compte, rowid")
+    except Exception:                                             # noqa: BLE001
         return {}
+    d = {}
+    for l in lignes:
+        d.setdefault(l["compte"], []).append(l["application"])
+    return d
 
 
 def ecrire_masquees(d):
-    os.makedirs(os.path.dirname(MASQUEES_FILE) or ".", exist_ok=True)
-    tmp = MASQUEES_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(d, f, indent=2)
-    os.replace(tmp, MASQUEES_FILE)
+    with stockage.transaction(DB_FILE) as cx:
+        cx.execute("DELETE FROM masquees")
+        for compte, applications in (d or {}).items():
+            for application in applications or []:
+                if isinstance(application, str):
+                    cx.execute("INSERT OR IGNORE INTO masquees (compte, application) "
+                               "VALUES (?, ?)", (compte, application))
 
 
 def masquees_du_compte(qui=None):
@@ -2879,7 +2907,8 @@ def masquees_du_compte(qui=None):
 # les journaux d'application -- un journal qui remplit le disque transforme
 # une curiosite en panne.
 ACCES_FILE = os.path.join(STATE_DIR, "acces.jsonl")
-ACCES_MAX_OCTETS = 1024 * 1024      # 1 Mo, soit ~8 000 evenements
+JOURNAL_MAX = 50000                 # evenements gardes en local (Postgres garde tout)
+_journal_ecrits = [0]
 ACCES_LIGNES_LUES = 400             # ce que l'interface affiche au plus
 # Une page web, c'est des dizaines de requetes. Une ouverture par personne et
 # par application n'est donc notee qu'une fois par quart d'heure : au-dela on
@@ -2892,34 +2921,44 @@ _acces_verrou = threading.Lock()
 
 def _adresse_client():
     """L'adresse du visiteur, selon qu'on est derriere un proxy de confiance."""
+    # La meme regle que _client_ip : derriere un proxy de confiance, c'est
+    # l'adresse qu'IL a ajoutee (la derniere) qui fait foi -- la premiere est
+    # celle que le client a choisie, et le journal noterait un mensonge.
     if trust_proxy():
-        avant = (request.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
-        if avant:
-            return avant
+        derniere = (request.headers.get("X-Forwarded-For") or "").split(",")[-1].strip()
+        if derniere:
+            return derniere
     return request.remote_addr or ""
 
 
 def journaliser(genre, **details):
-    """Ajoute un evenement. N'echoue jamais : journaliser n'est pas le travail.
+    """Ajoute un evenement, table journal. N'echoue jamais : journaliser
+    n'est pas le travail.
 
-    Une ecriture impossible (disque plein, montage en lecture seule) ne doit
-    ni refuser une connexion ni casser le proxy -- ce serait faire tomber le
+    Une ecriture impossible (disque plein, base verrouillee) ne doit ni
+    refuser une connexion ni casser le proxy -- ce serait faire tomber le
     service pour proteger son journal.
     """
-    # Un identifiant par evenement : c'est lui qui rend la copie vers
-    # Postgres rejouable. Sans lui, un rattrapage apres une coupure de la
-    # base insererait deux fois les memes lignes.
     evenement = {"id": secrets.token_hex(12), "ts": int(time.time()), "genre": genre}
     evenement.update(details)
     _pg_deposer(("acces", evenement))
+    reste = {k: v for k, v in evenement.items()
+             if k not in ("id", "ts", "genre", "qui", "app", "ip")}
     try:
-        with _acces_verrou:
-            if (os.path.exists(ACCES_FILE)
-                    and os.path.getsize(ACCES_FILE) > ACCES_MAX_OCTETS):
-                os.replace(ACCES_FILE, ACCES_FILE + ".1")
-            with open(ACCES_FILE, "a") as f:
-                f.write(json.dumps(evenement, ensure_ascii=False) + "\n")
-    except OSError:
+        with stockage.transaction(DB_FILE) as cx:
+            cx.execute("INSERT OR IGNORE INTO journal (id, ts, genre, qui, app, ip, details) "
+                       "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                       (evenement["id"], evenement["ts"], genre,
+                        evenement.get("qui"), evenement.get("app"), evenement.get("ip"),
+                        json.dumps(reste, ensure_ascii=False)))
+            _journal_ecrits[0] += 1
+            if _journal_ecrits[0] % 200 == 0:
+                # Le plafond, verifie de temps en temps plutot qu'a chaque
+                # ligne : les plus anciens evenements partent. Postgres, lui,
+                # garde tout.
+                cx.execute("DELETE FROM journal WHERE rowid IN (SELECT rowid FROM journal "
+                           "ORDER BY ts DESC, rowid DESC LIMIT -1 OFFSET ?)", (JOURNAL_MAX,))
+    except Exception:                                             # noqa: BLE001
         pass
 
 
@@ -3159,7 +3198,7 @@ def _pg_ecrire_reglage(cx, cle):
 def _pg_synchroniser_reglages(cx):
     """La copie locale et la base, remises d'accord.
 
-    Copie locale absente (dossier d'etat restaure, disque remplace) et base
+    Copie locale vide (dossier d'etat restaure, disque remplace) et base
     remplie : la base fait autorite, et la copie est reconstruite depuis elle.
     Sinon, la copie locale est la plus recente -- chaque ecriture y passe
     d'abord -- et la base la rattrape.
@@ -3169,16 +3208,16 @@ def _pg_synchroniser_reglages(cx):
     with cx.cursor() as cur:
         cur.execute("SELECT cle, valeur FROM reglages")
         lignes = cur.fetchall()
-    if not os.path.exists(COFFRE_FILE) and lignes:
+    if not _coffre_donnees() and lignes:
         with _coffre_verrou:
             donnees = _coffre_donnees()
             for cle, valeur in lignes:
                 try:
                     donnees[cle] = dechiffrer(valeur)
+                    _coffre_ecrire(cle, donnees[cle])
                 except Exception as e:                            # noqa: BLE001
                     print(f"[app-manager] reglage « {cle} » illisible en base "
                           f"({type(e).__name__}) : ignore.", flush=True)
-            _coffre_sauver()
         print(f"[app-manager] reglages repris de la base ({len(lignes)}).", flush=True)
         return
     locales = set(_coffre_donnees())
@@ -3191,10 +3230,10 @@ def _pg_synchroniser_reglages(cx):
 
 
 def _pg_rattraper(cx):
-    """Rejoue le fichier en entier : ce qui manque entre, le reste glisse.
+    """Rejoue le journal local en entier : ce qui manque entre, le reste glisse.
 
-    Appele au demarrage et apres chaque reconnexion. Le fichier est plafonne
-    a 1 Mo, donc c'est quelques milliers de lignes -- et ON CONFLICT DO
+    Appele au demarrage et apres chaque reconnexion. Le journal local est
+    plafonne a 50 000 evenements -- et ON CONFLICT DO
     NOTHING rend l'operation sans consequence quand tout est deja la.
     """
     _pg_ecrire_acces(cx, lire_acces(limite=100000))
@@ -3283,11 +3322,11 @@ def pg_lire_acces(limite=ACCES_LIGNES_LUES, app=None, qui=None):
 
 # ------------------------- les analyses -------------------------
 #
-# Le fichier plafonne a 1 Mo : il OUBLIE. Tant qu'il servait a afficher les
+# Le journal local est plafonne (50 000 evenements) : il OUBLIE. Tant qu'il servait a afficher les
 # quarante dernieres lignes, cela n'avait aucune importance. Des qu'on compte
 # -- « combien de fois ce projet a-t-il ete ouvert cette annee », « quels
 # jours cette personne travaille » -- la question change : un total calcule
-# sur une fenetre glissante d'un megaoctet ne veut rien dire, et il diminue
+# sur une fenetre glissante ne veut rien dire, et il diminue
 # tout seul a mesure que le journal tourne.
 #
 # Les analyses lisent donc Postgres, qui garde tout. Le fichier reste le
@@ -3442,34 +3481,32 @@ def pg_resume_acces():
 
 
 def lire_acces(limite=ACCES_LIGNES_LUES, app=None, qui=None):
-    """Les evenements les plus recents d'abord.
-
-    Lit le fichier en entier : a 1 Mo plafonne, c'est un coup de disque
-    negligeable, et cela evite un index a tenir a jour pour une page qu'on
-    ouvre trois fois par mois.
-    """
-    lignes = []
-    for chemin in (ACCES_FILE, ACCES_FILE + ".1"):
-        try:
-            with open(chemin) as f:
-                lignes.extend(f.readlines())
-        except OSError:
-            continue
+    """Les evenements les plus recents d'abord, table journal."""
+    conditions, valeurs = [], []
+    if app is not None:
+        conditions.append("app = ?")
+        valeurs.append(app)
+    if qui is not None:
+        conditions.append("COALESCE(qui, '') = ?")
+        valeurs.append(qui)
+    ou = (" WHERE " + " AND ".join(conditions)) if conditions else ""
+    try:
+        lignes = stockage.lire(DB_FILE, f"SELECT * FROM journal{ou} "
+                                        f"ORDER BY ts DESC, rowid DESC LIMIT ?",
+                               (*valeurs, int(limite)))
+    except Exception:                                             # noqa: BLE001
+        return []
     evenements = []
-    for ligne in reversed(lignes):
+    for l in lignes:
+        e = {"id": l["id"], "ts": l["ts"], "genre": l["genre"]}
+        for champ in ("qui", "app", "ip"):
+            if l[champ] is not None:
+                e[champ] = l[champ]
         try:
-            e = json.loads(ligne)
+            e.update(json.loads(l["details"] or "{}"))
         except ValueError:
-            continue
-        if not isinstance(e, dict):
-            continue
-        if app is not None and e.get("app") != app:
-            continue
-        if qui is not None and (e.get("qui") or "") != qui:
-            continue
+            pass
         evenements.append(e)
-        if len(evenements) >= limite:
-            break
     return evenements
 
 
@@ -3590,48 +3627,57 @@ def peut_voir(name):
 _apps_cache = {"signature": None, "apps": {}}
 
 
+CHAMPS_APPLICATION = (
+    ("titre", "titre", "txt"), ("description", "description", "txt"),
+    ("path", "dossier", "txt"), ("command", "commande", "txt"),
+    ("build_command", "commande_build", "txt"), ("port", "port", "int"),
+    ("enabled", "actif", "bool"), ("visibility", "visibilite", "txt"),
+    ("categorie", "categorie", "txt"), ("max_memory_mb", "memoire_max_mo", "int"),
+)
+
+
 def load():
+    """Les applications declarees, table applications.
+
+    Le cache est indexe par un compteur que chaque ecriture fait avancer :
+    load() est appele partout -- a chaque tour du moniteur et, surtout, a
+    chaque requete servie par le proxy. Une requete d'une ligne sur la table
+    meta remplace la relecture de toute la table quand rien n'a bouge.
+    """
     try:
-        st = os.stat(APPS_FILE)
-        signature = (st.st_mtime_ns, st.st_size)
-    except OSError:
-        # Fichier absent : cas normal au tout premier demarrage.
-        return {}
-    if _apps_cache["signature"] != signature:
-        try:
-            with open(APPS_FILE) as f:
-                _apps_cache["apps"] = json.load(f)
-            _apps_cache["signature"] = signature
-        except Exception:
-            # JSON tronque ou illisible : on ne met pas le cache a jour, la
-            # prochaine lecture reessaiera. Renvoyer un registre vide ici
-            # arreterait toutes les applications au tour de moniteur suivant.
-            return _apps_cache["apps"]
+        gen = stockage.generation(DB_FILE, "applications")
+        if _apps_cache["signature"] != (DB_FILE, gen):
+            lignes = stockage.lire(DB_FILE, "SELECT * FROM applications ORDER BY rowid")
+            _apps_cache["apps"] = {
+                ligne["nom"]: stockage.depuis_ligne(ligne, CHAMPS_APPLICATION,
+                                                    ligne["options"])
+                for ligne in lignes}
+            _apps_cache["signature"] = (DB_FILE, gen)
+    except Exception as e:                                        # noqa: BLE001
+        # Base momentanement illisible : on garde ce qu'on avait. Renvoyer
+        # un registre vide ici arreterait toutes les applications au tour de
+        # moniteur suivant.
+        print(f"[app-manager] applications illisibles ({type(e).__name__}: {e}).",
+              flush=True)
     # Copie : les appelants modifient librement ce qu'ils recoivent avant de
     # le repasser a save(), et une reference partagee ferait apparaitre ces
     # modifications avant meme l'ecriture -- y compris si elle echoue.
-    #
-    # Un seul niveau, pas un deepcopy : les valeurs sont des dictionnaires
-    # plats (chemin, commande, port, etat). Mesure sur 8 applications et
-    # 20 000 appels : 24 ms ainsi, 570 ms avec deepcopy, 347 ms sans cache du
-    # tout -- le deepcopy rendait l'optimisation PLUS lente que le code
-    # qu'elle remplacait.
     return {nom: dict(a) if isinstance(a, dict) else a
             for nom, a in _apps_cache["apps"].items()}
 
 
 def save(apps):
-    tmp = APPS_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(apps, f, indent=2)
-    os.replace(tmp, APPS_FILE)
-    try:
-        st = os.stat(APPS_FILE)
-        _apps_cache["apps"] = {nom: dict(a) if isinstance(a, dict) else a
-                               for nom, a in apps.items()}
-        _apps_cache["signature"] = (st.st_mtime_ns, st.st_size)
-    except OSError:
-        _apps_cache["signature"] = None   # forcera une relecture
+    """Remplace l'ensemble des applications, en une transaction."""
+    with stockage.transaction(DB_FILE) as cx:
+        cx.execute("DELETE FROM applications")
+        for nom, a in apps.items():
+            if not isinstance(a, dict):
+                continue
+            ligne, options = stockage.vers_ligne(a, CHAMPS_APPLICATION)
+            ligne["nom"] = nom
+            stockage.inserer(cx, "applications", ligne, options)
+        stockage.avancer_generation(cx, "applications")
+    _apps_cache["signature"] = None   # relu au prochain load()
 
 
 def next_port(apps):
@@ -4126,24 +4172,21 @@ PROCESSUS_FILE = os.path.join(STATE_DIR, "processus.json")
 
 
 def _ecrire_processus(d):
-    """Ecriture atomique : un panneau tue pendant l'ecriture laisse l'ancien
-    fichier entier, jamais un JSON tronque qu'on ne saurait plus relire -- et
-    ce fichier est justement celui qui sert a se remettre d'un arret brutal.
-    """
-    os.makedirs(os.path.dirname(PROCESSUS_FILE) or ".", exist_ok=True)
-    tmp = PROCESSUS_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(d, f, indent=2)
-    os.replace(tmp, PROCESSUS_FILE)
+    """Remplace la liste des processus lances, en une transaction : c'est
+    elle qui sert a se remettre d'un arret brutal."""
+    with stockage.transaction(DB_FILE) as cx:
+        cx.execute("DELETE FROM processus")
+        for nom, p in (d or {}).items():
+            cx.execute("INSERT INTO processus (nom, pid, depuis) VALUES (?, ?, ?)",
+                       (nom, int(p.get("pid") or 0), p.get("depuis")))
 
 
 def lire_processus():
     try:
-        with open(PROCESSUS_FILE) as f:
-            d = json.load(f)
-        return d if isinstance(d, dict) else {}
-    except (OSError, ValueError):
+        lignes = stockage.lire(DB_FILE, "SELECT nom, pid, depuis FROM processus")
+    except Exception:                                             # noqa: BLE001
         return {}
+    return {l["nom"]: {"pid": l["pid"], "depuis": l["depuis"]} for l in lignes}
 
 
 def _noter_processus(nom, pid):
@@ -4835,6 +4878,11 @@ def _filtre_de_l_archive(info):
     chemin = info.name[2:] if info.name.startswith("./") else info.name
     if chemin.split("/")[0] in ARCHIVE_EXCLUS or chemin.endswith((".log", ".log.1")):
         return None
+    # La base vivante ne se copie pas fichier par fichier : une ecriture en
+    # cours, ou ce qui attend encore dans le -wal, donnerait une copie
+    # incoherente. L'archive en recoit un instantane (voir plus bas).
+    if chemin in ("codelab.db", "codelab.db-wal", "codelab.db-shm"):
+        return None
     return info
 
 
@@ -4853,8 +4901,19 @@ def sauvegarder_l_etat():
     nom = f"{SAUVEGARDE_PREFIXE}{horodatage}.tar.gz"
     final = os.path.join(SAUVEGARDES_DIR, nom)
     provisoire = final + ".partielle"
-    with tarfile.open(provisoire, "w:gz") as archive:
-        archive.add(STATE_DIR, arcname=".", filter=_filtre_de_l_archive)
+    instantane = os.path.join(SAUVEGARDES_DIR, f".codelab-{horodatage}.db")
+    try:
+        # Un instantane coherent de la base, pris par SQLite lui-meme, meme
+        # pendant des ecritures.
+        stockage.sauvegarder_vers(DB_FILE, instantane)
+        with tarfile.open(provisoire, "w:gz") as archive:
+            archive.add(STATE_DIR, arcname=".", filter=_filtre_de_l_archive)
+            archive.add(instantane, arcname="./codelab.db")
+    finally:
+        try:
+            os.remove(instantane)
+        except OSError:
+            pass
     with tarfile.open(provisoire) as archive:
         if not archive.getmembers():
             raise OSError("archive vide")
@@ -5356,20 +5415,169 @@ def migrer_vers_le_coffre():
             print("[app-manager] destinataires d'alerte ranges au coffre.", flush=True)
         except (OSError, RuntimeError) as e:
             print(f"[app-manager] destinataires d'alerte non migres : {e}", flush=True)
+    # Ce qui vient d'etre retire en clair ne doit pas survivre dans le
+    # journal d'ecriture de la base.
+    stockage.vider_le_journal(DB_FILE)
 
-    # Les adresses des comptes, encore dans utilisateurs.json.
+
+# ------------------ import des anciens fichiers (une fois) ------------------
+#
+# Avant la base, chaque donnee avait son fichier. Au premier demarrage apres
+# la mise a jour, chacun est lu, verse dans sa table, puis RENOMME en
+# « .migre » -- jamais supprime : c'est la sauvegarde de l'etat d'avant, et le
+# moyen de revenir en arriere. Une table deja remplie n'est pas ecrasee : un
+# import joue deux fois ne fait rien de plus.
+
+def _lire_fichier_json(chemin, defaut):
     try:
-        with open(UTILISATEURS_FILE) as f:
-            brut = json.load(f)
+        with open(chemin) as f:
+            d = json.load(f)
+        return d if isinstance(d, type(defaut)) else defaut
     except (OSError, ValueError):
-        brut = {}
-    if isinstance(brut, dict) and any(isinstance(c, dict) and c.get("email")
-                                      for c in brut.values()):
+        return defaut
+
+
+def _lire_fichier_lignes(chemin):
+    lignes = []
+    for c in (chemin + ".1", chemin):
         try:
-            ecrire_utilisateurs(lire_utilisateurs())
-            print("[app-manager] adresses des comptes rangees au coffre.", flush=True)
-        except (OSError, RuntimeError) as e:
-            print(f"[app-manager] adresses des comptes non migrees : {e}", flush=True)
+            with open(c, errors="replace") as f:
+                for ligne in f:
+                    try:
+                        e = json.loads(ligne)
+                    except ValueError:
+                        continue
+                    if isinstance(e, dict):
+                        lignes.append(e)
+        except OSError:
+            continue
+    return lignes
+
+
+def _mettre_de_cote(*chemins):
+    for chemin in chemins:
+        for c in (chemin, chemin + ".1"):
+            if os.path.exists(c):
+                try:
+                    os.replace(c, c + ".migre")
+                except OSError:
+                    pass
+
+
+def _table_vide(table):
+    return not stockage.lire(DB_FILE, f"SELECT 1 FROM {table} LIMIT 1")
+
+
+def importer_anciens_fichiers():
+    """Verse les anciens fichiers JSON dans la base. Rend la liste importee."""
+    faits = []
+
+    # Le coffre d'abord : les adresses des comptes y sont.
+    if os.path.exists(COFFRE_FILE) and _cle_chiffrement:
+        try:
+            with open(COFFRE_FILE, "rb") as f:
+                ancien = dechiffrer(f.read())
+            with _coffre_verrou:
+                presentes = set(_coffre_donnees())
+                for cle, valeur in (ancien or {}).items():
+                    if cle not in presentes:
+                        _coffre_ecrire(cle, valeur)
+                _coffre["donnees"] = None
+            _mettre_de_cote(COFFRE_FILE)
+            faits.append("reglages chiffres")
+        except Exception as e:                                    # noqa: BLE001
+            print(f"[app-manager] import du coffre impossible ({type(e).__name__}) : "
+                  f"le fichier reste en place.", flush=True)
+
+    if os.path.exists(APPS_FILE):
+        if _table_vide("applications"):
+            save(_lire_fichier_json(APPS_FILE, {}))
+            faits.append("applications")
+        _mettre_de_cote(APPS_FILE)
+
+    if os.path.exists(UTILISATEURS_FILE):
+        if _table_vide("comptes"):
+            comptes = _lire_fichier_json(UTILISATEURS_FILE, {})
+            emails = reglage("emails_comptes", {}) or {}
+            for nom, c in comptes.items():
+                if isinstance(c, dict) and emails.get(nom) and not c.get("email"):
+                    c["email"] = emails[nom]
+            try:
+                ecrire_utilisateurs({n: c for n, c in comptes.items() if isinstance(c, dict)})
+                faits.append("comptes")
+            except (OSError, RuntimeError) as e:
+                print(f"[app-manager] import des comptes impossible : {e}", flush=True)
+                return faits
+        # La copie gardee ne doit pas garder ce que la base chiffre : une tres
+        # ancienne installation avait les adresses en clair dans ce fichier.
+        try:
+            brut = _lire_fichier_json(UTILISATEURS_FILE, {})
+            for c in brut.values():
+                if isinstance(c, dict):
+                    c.pop("email", None)
+            with open(UTILISATEURS_FILE, "w") as f:
+                json.dump(brut, f, indent=2)
+            os.chmod(UTILISATEURS_FILE, 0o600)
+        except OSError:
+            pass
+        _mettre_de_cote(UTILISATEURS_FILE)
+
+    if os.path.exists(PASSKEYS_FILE):
+        if _table_vide("cles_acces"):
+            ecrire_passkeys(_lire_fichier_json(PASSKEYS_FILE, {}))
+            faits.append("cles d'acces")
+        _mettre_de_cote(PASSKEYS_FILE)
+
+    if os.path.exists(CATEGORIES_FILE):
+        if _table_vide("categories"):
+            ecrire_categories([c for c in (categorie_propre(x) for x in
+                               _lire_fichier_json(CATEGORIES_FILE, [])) if c])
+            faits.append("categories")
+        _mettre_de_cote(CATEGORIES_FILE)
+
+    if os.path.exists(MASQUEES_FILE):
+        if _table_vide("masquees"):
+            ecrire_masquees(_lire_fichier_json(MASQUEES_FILE, {}))
+            faits.append("rangements du hub")
+        _mettre_de_cote(MASQUEES_FILE)
+
+    if os.path.exists(EXPOSITION_FILE):
+        if lire_parametre("exposition") is None:
+            ecrire_exposition(_lire_fichier_json(EXPOSITION_FILE, {}))
+            faits.append("exposition")
+        _mettre_de_cote(EXPOSITION_FILE)
+
+    if os.path.exists(PROCESSUS_FILE):
+        if _table_vide("processus"):
+            _ecrire_processus(_lire_fichier_json(PROCESSUS_FILE, {}))
+        _mettre_de_cote(PROCESSUS_FILE)
+
+    if os.path.exists(ACCES_FILE) or os.path.exists(ACCES_FILE + ".1"):
+        evenements = _lire_fichier_lignes(ACCES_FILE)
+        with stockage.transaction(DB_FILE) as cx:
+            for e in evenements:
+                reste = {k: v for k, v in e.items()
+                         if k not in ("id", "ts", "genre", "qui", "app", "ip")}
+                cx.execute("INSERT OR IGNORE INTO journal (id, ts, genre, qui, app, ip, "
+                           "details) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                           (e.get("id") or secrets.token_hex(12), int(e.get("ts") or 0),
+                            e.get("genre") or "", e.get("qui"), e.get("app"), e.get("ip"),
+                            json.dumps(reste, ensure_ascii=False)))
+        _mettre_de_cote(ACCES_FILE)
+        faits.append(f"journal ({len(evenements)} evenements)")
+
+    if os.path.exists(MESSAGES_FILE) or os.path.exists(MESSAGES_FILE + ".1"):
+        if _table_vide("messages"):
+            reecrire_messages(_lire_fichier_lignes(MESSAGES_FILE))
+            faits.append("messages")
+        _mettre_de_cote(MESSAGES_FILE)
+
+    stockage.vider_le_journal(DB_FILE)
+    if faits:
+        print("[app-manager] anciens fichiers importes dans codelab.db : "
+              + ", ".join(faits) + ". Les originaux sont gardes en « .migre ».",
+              flush=True)
+    return faits
 
 
 def publier_relais_mail():
@@ -6093,20 +6301,18 @@ def lire_categories():
     la liste, pas par un tri alphabetique impose.
     """
     try:
-        with open(CATEGORIES_FILE) as f:
-            brut = json.load(f)
-    except (OSError, ValueError):
+        lignes = stockage.lire(DB_FILE, "SELECT nom FROM categories ORDER BY position")
+    except Exception:                                             # noqa: BLE001
         return []
-    if not isinstance(brut, list):
-        return []
-    return [c for c in (categorie_propre(x) for x in brut) if c][:CATEGORIES_MAX]
+    return [c for c in (categorie_propre(l["nom"]) for l in lignes) if c][:CATEGORIES_MAX]
 
 
 def ecrire_categories(liste):
-    tmp = CATEGORIES_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(liste, f, indent=2, ensure_ascii=False)
-    os.replace(tmp, CATEGORIES_FILE)
+    with stockage.transaction(DB_FILE) as cx:
+        cx.execute("DELETE FROM categories")
+        for position, nom in enumerate(liste):
+            cx.execute("INSERT OR IGNORE INTO categories (nom, position) VALUES (?, ?)",
+                       (nom, position))
 
 
 def categorie_valide(brute, connues=None):
@@ -6153,19 +6359,31 @@ def _vrai(valeur):
     return str(valeur or "").strip().lower() in ("1", "true", "yes")
 
 
-def lire_exposition():
+def lire_parametre(cle, defaut=None):
+    """Un reglage en clair, table parametres (JSON)."""
     try:
-        with open(EXPOSITION_FILE) as f:
-            return json.load(f) or {}
-    except (OSError, ValueError):
-        return {}
+        ligne = stockage.lire(DB_FILE, "SELECT valeur FROM parametres WHERE cle = ?", (cle,))
+        return json.loads(ligne[0]["valeur"]) if ligne else defaut
+    except Exception:                                             # noqa: BLE001
+        return defaut
+
+
+def ecrire_parametre(cle, valeur):
+    with stockage.transaction(DB_FILE) as cx:
+        if valeur is None:
+            cx.execute("DELETE FROM parametres WHERE cle = ?", (cle,))
+        else:
+            cx.execute("INSERT OR REPLACE INTO parametres (cle, valeur) VALUES (?, ?)",
+                       (cle, json.dumps(valeur, ensure_ascii=False)))
+
+
+def lire_exposition():
+    d = lire_parametre("exposition", {})
+    return d if isinstance(d, dict) else {}
 
 
 def ecrire_exposition(reglages):
-    tmp = EXPOSITION_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(reglages, f, indent=2, ensure_ascii=False)
-    os.replace(tmp, EXPOSITION_FILE)
+    ecrire_parametre("exposition", reglages)
 
 
 def fixe_par_environnement(nom):
@@ -7056,9 +7274,9 @@ def api_activite():
     Reserve a l'administrateur : c'est le seul role a qui la question « qui a
     ouvert quoi » se pose, et la reponse contient des adresses IP.
 
-    Postgres d'abord quand il repond : il garde tout, la ou le fichier est
-    plafonne a 1 Mo et oublie le plus ancien. Il ne remplace jamais le
-    fichier -- une base eteinte rend simplement la vue plus courte, et la
+    Postgres d'abord quand il repond : il garde tout, la ou la base locale
+    est plafonnee et oublie le plus ancien. Il ne remplace jamais la base
+    locale -- un Postgres eteint rend simplement la vue plus courte, et la
     reponse dit d'ou viennent les lignes.
     """
     app_ = request.args.get("app") or None
@@ -7898,6 +8116,12 @@ def api_vps_enregistrer():
 
     reglages = lire_exposition()
     reglages["vps"] = {"domaine": domaine, "ip": ip, "reseau": reseau}
+    # Le domaine du VPS EST l'adresse publique, dans ce montage : la faire
+    # ressaisir dans un autre champ etait une etape de plus pour rien. Une
+    # adresse deja declaree (ou fixee par le compose) n'est pas touchee.
+    if (domaine and not adresse_publique()
+            and not fixe_par_environnement("adresse_publique")):
+        reglages["adresse_publique"] = f"https://{domaine}"
     try:
         ecrire_exposition(reglages)
     except OSError as e:
@@ -9770,7 +9994,9 @@ def ouvrir_dans_le_panneau():
     page = ('<!doctype html><html lang="fr"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width,initial-scale=1">'
             '<title>' + esc(titre) + '</title>'
-            '<link rel="icon" type="image/png" href="/favicon.png?v=2">'
+            # L'onglet porte l'icone de L'APPLICATION ouverte : c'est elle
+            # qu'on regarde. Le panneau, lui, garde toujours la sienne.
+            '<link rel="icon" href="/api/icon/' + urllib.parse.quote(nom, safe="") + '">'
             '<link rel="manifest" href="/manifest.webmanifest">'
             '<meta name="apple-mobile-web-app-capable" content="yes">'
             '<style>html,body{margin:0;height:100%;background:#fff}'
@@ -10760,11 +10986,10 @@ def servir(port):
 if __name__ == "__main__":
     bootstrap_secrets()
     bootstrap_sso()
+    importer_anciens_fichiers()
     migrer_vers_le_coffre()
     publier_relais_mail()
     os.makedirs(LOG_DIR, exist_ok=True)
-    if not os.path.exists(APPS_FILE):
-        save({})
     inscrit = amorcer_diagnostic()
     # AVANT resume() : les applications survivent a l'arret du panneau, et
     # relancer par-dessus une application deja en vie ferait mourir la

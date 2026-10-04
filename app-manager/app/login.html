@@ -2,8 +2,14 @@
 <html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>CodeLab &middot; Connexion</title>
-<link rel="icon" type="image/png" sizes="128x128" href="/favicon.png?v=2">
-<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=1">
+<!-- L'icone de CodeLab, explicite et versionnee : Safari garde une icone par
+     NOM D'HOTE, sans le port, et celle d'une application (port des
+     applications), de Mailpit ou de Dagster pouvait sinon reprendre l'onglet du
+     panneau. Le panneau declare la sienne a chaque page, sous une adresse
+     propre. -->
+<link rel="icon" type="image/png" sizes="128x128" href="/favicon.png?v=3">
+<link rel="shortcut icon" href="/favicon.ico?v=3">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3">
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -133,6 +139,9 @@ body{min-height:100vh;display:flex}
 .presentation{width:44%;max-width:520px;background:var(--vitrine);color:var(--vitrine-txt);
  padding:54px 48px;display:flex;flex-direction:column;justify-content:center;flex:none}
 @media (max-width:900px){.presentation{display:none}}
+/* Sur un telephone, le rappel technique (credentials.env) n'a rien a faire
+   sous le formulaire. */
+@media (max-width:760px){.pied{display:none}}
 .presentation .marque{display:flex;align-items:center;gap:11px;margin-bottom:38px}
 .presentation .marque img{width:34px;height:34px;border-radius:9px}
 .presentation .marque b{font-size:19px;font-weight:650;letter-spacing:-.02em}

@@ -103,7 +103,7 @@ CHEMINS_ETAT = [
     "CATEGORIES_FILE", "SURVEILLANCE_FILE", "COFFRE_FILE",
     "EXPOSITION_FILE", "SHARED_CONFIG_DIR",
     "SHARED_ENV_FILE", "LEGACY_ADMIN_PASSWORD_FILE", "LEGACY_SECRET_KEY_FILE",
-    "SSO_PRIVATE_FILE",
+    "SSO_PRIVATE_FILE", "DB_FILE",
 ]
 
 
@@ -142,6 +142,7 @@ def _bac_a_sable(tmp_path, monkeypatch):
         "LEGACY_ADMIN_PASSWORD_FILE": str(etat / "admin_password"),
         "LEGACY_SECRET_KEY_FILE": str(etat / "flask_secret_key"),
         "SSO_PRIVATE_FILE": str(etat / "codelab_sso_private.key"),
+        "DB_FILE": str(etat / "codelab.db"),
     }
     for nom in CHEMINS_ETAT:
         assert hasattr(app, nom), (
@@ -916,17 +917,18 @@ def test_secrets_partages_n_expose_pas_les_cles_sso(tmp_path, monkeypatch):
 # proxifiee. Le risque du cache est de servir un registre perime : ces deux
 # tests tiennent la seule propriete qui compte, "une modification est vue".
 
-def test_le_registre_est_relu_quand_le_fichier_change(tmp_path, monkeypatch):
-    fichier = tmp_path / "apps.json"
-    monkeypatch.setattr(app, "APPS_FILE", str(fichier))
+def test_le_registre_est_relu_quand_la_base_change(tmp_path, monkeypatch):
+    import sqlite3
     app._apps_cache["signature"] = None
-
     app.save({"un": {"port": 9101}})
     assert list(app.load()) == ["un"]
 
-    # Ecriture exterieure, sans passer par save() : le panneau documente
-    # d'editer apps.json a la main, et un job Dagster pourrait le faire.
-    fichier.write_text(json.dumps({"deux": {"port": 9102}}))
+    # Ecriture exterieure, sans passer par save() : avec sqlite3 ou DB
+    # Browser, par exemple. Les declencheurs de la table la signalent.
+    cx = sqlite3.connect(app.DB_FILE)
+    cx.execute("UPDATE applications SET nom = 'deux', port = 9102")
+    cx.commit()
+    cx.close()
     assert list(app.load()) == ["deux"]
 
 
@@ -2258,8 +2260,17 @@ def test_les_parametres_tiennent_en_un_seul_endroit(deux_espaces):
     assert '.fiche-onglets button[data-admin]{display:none}' in page
     assert "if(estAdmin) document.querySelectorAll('#param-onglets button[data-admin]')" in page
     for onglet in ("param-compte", "param-securite", "param-serveur",
-                   "param-categories", "param-alertes"):
+                   "param-categories", "param-email"):
         assert f'id="{onglet}"' in page
+    # Les alertes vivent avec le serveur d'envoi, dans un seul onglet.
+    assert 'id="param-alertes"' not in page
+
+
+def test_aucun_onglet_de_parametres_ne_reste_vide():
+    """Un onglet sans rien a regler pour ce compte ne s'affiche pas."""
+    page = _page_panneau("dashboard.html")
+    assert "function majOngletsParametres()" in page
+    assert page.count("majOngletsParametres();") >= 2
 
 
 def test_l_ancienne_adresse_de_l_espace_ramene_a_la_page_unique(deux_espaces):
@@ -3218,6 +3229,20 @@ def _code_du_dernier_mail(partis):
 # peut prouver a distance qui il est ; et si le seul recours etait
 # l'administrateur, il faudrait le deranger a chaque oubli.
 
+def _base_brute():
+    """Tout ce que la base du panneau garde sur le disque, octet par octet :
+    le fichier, et ce qui attend encore dans son journal d'ecriture (-wal).
+    C'est ce que lirait quiconque copie le dossier d'etat."""
+    brut = b""
+    for suffixe in ("", "-wal"):
+        try:
+            with open(app.DB_FILE + suffixe, "rb") as f:
+                brut += f.read()
+        except OSError:
+            pass
+    return brut.decode("latin-1")
+
+
 def _compte_avec_adresse(nom="marie", mdp="mot-de-passe-long", verifiee=True,
                          face_id=True):
     """face_id : une cle d'acces enregistree -- la condition, depuis l'option A,
@@ -3255,7 +3280,7 @@ def test_le_code_de_reinitialisation_ne_dort_pas_en_clair(comptes_mail):
     _compte_avec_adresse()
     c.post("/mot-de-passe/oubli", json={"nom": "marie"})
     code = _code_du_dernier_mail(partis)
-    assert code not in open(app.UTILISATEURS_FILE).read()
+    assert code not in _base_brute()
 
 
 def test_le_code_de_reinitialisation_ne_sert_qu_une_fois(comptes_mail):
@@ -3349,7 +3374,7 @@ def test_aucun_mot_de_passe_n_est_ecrit_en_clair(comptes_mail):
     c.post("/mot-de-passe/reinitialiser",
            json={"nom": "marie", "code": _code_du_dernier_mail(partis),
                  "nouveau": "nouveau-mot-de-passe"})
-    registre = open(app.UTILISATEURS_FILE).read()
+    registre = _base_brute()
     assert "nouveau-mot-de-passe" not in registre
     assert "mot-de-passe-long" not in registre
     compte = app.lire_utilisateurs()["marie"]
@@ -3387,8 +3412,7 @@ def test_le_code_de_verification_ne_dort_pas_en_clair(comptes_mail):
     code = _code_du_dernier_mail(partis)
     assert partis[-1][0] == ["marie@example.com"], "le code part a l'adresse declaree"
 
-    brut = open(app.UTILISATEURS_FILE).read()
-    assert code not in brut, "le code ne doit etre range que sous forme d'empreinte"
+    assert code not in _base_brute(), "le code ne doit etre range que sous forme d'empreinte"
 
     assert c.post("/api/mon-compte/email/confirmer",
                   json={"code": "000000" if code != "000000" else "111111"}).status_code == 400
@@ -3605,11 +3629,16 @@ def test_l_adoption_passe_avant_la_reprise_automatique():
 # fichier restant le repli.
 
 def _semer_ouvertures(monkeypatch, tmp_path, evenements):
-    chemin = tmp_path / "carte.jsonl"
-    with open(chemin, "w") as f:
+    """Verse des evenements dans le journal (table journal de la base)."""
+    with app.stockage.transaction(app.DB_FILE) as cx:
+        cx.execute("DELETE FROM journal")
         for e in evenements:
-            f.write(json.dumps(e) + "\n")
-    monkeypatch.setattr(app, "ACCES_FILE", str(chemin))
+            reste = {k: v for k, v in e.items()
+                     if k not in ("id", "ts", "genre", "qui", "app", "ip")}
+            cx.execute("INSERT INTO journal (id, ts, genre, qui, app, ip, details) "
+                       "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                       (e["id"], e["ts"], e["genre"], e.get("qui"), e.get("app"),
+                        e.get("ip"), json.dumps(reste)))
 
 
 def test_la_carte_compte_par_jour_et_pas_par_evenement(journal, tmp_path, monkeypatch):
@@ -3832,16 +3861,17 @@ def test_les_connexions_et_les_echecs_sont_notes(journal):
     assert resume["comptes"]["admin"]["connexions"] == 1
 
 
-def test_le_journal_tourne_au_lieu_de_remplir_le_disque(journal, monkeypatch):
-    """Un journal sans plafond transforme une curiosite en panne."""
-    monkeypatch.setattr(app, "ACCES_MAX_OCTETS", 400)
-    for i in range(60):
+def test_le_journal_a_un_plafond_au_lieu_de_remplir_le_disque(journal, monkeypatch):
+    """Un journal sans plafond transforme une curiosite en panne : au-dela,
+    les plus anciens evenements partent (Postgres, lui, garde tout)."""
+    monkeypatch.setattr(app, "JOURNAL_MAX", 50)
+    app._journal_ecrits[0] = 0
+    for i in range(400):
         app.journaliser("ouverture", qui=f"compte{i}", app="public", ip="10.0.0.1")
-    assert os.path.getsize(app.ACCES_FILE) <= 400 + 200   # la ligne en cours
-    assert os.path.exists(app.ACCES_FILE + ".1")
-    # Rien n'est perdu tant que la rotation n'a pas tourne deux fois : les
-    # deux fichiers sont relus ensemble.
-    assert len(app.lire_acces(limite=1000)) > 1
+    restants = app.lire_acces(limite=1000)
+    assert len(restants) <= 50 + 200          # la purge passe tous les 200
+    # Ce sont les plus ANCIENS qui partent.
+    assert restants[0]["qui"] == "compte399"
 
 
 def test_journaliser_ne_fait_jamais_tomber_le_service(journal, monkeypatch):
@@ -7008,11 +7038,22 @@ def test_l_archive_de_l_etat_porte_ce_qui_ne_se_redeclare_pas(sauvegardes):
     """Les comptes, les applications, le journal. Pas les journaux
     d'applications : ils se regenerent, et ils sont de loin ce qui pese."""
     _, cible = sauvegardes
+    app.save({"demo": {"path": "/w/d", "command": "x", "port": 9101}})
+    app.journaliser("connexion", qui="marie", ip="10.0.0.1")
     chemin = app.sauvegarder_l_etat()
+    import sqlite3
     import tarfile
     with tarfile.open(chemin) as archive:
         noms = {n.lstrip("./") for n in archive.getnames()}
-    assert {"utilisateurs.json", "apps.json", "acces.jsonl"} <= noms
+        # La base y est sous forme d'INSTANTANE coherent, pris par SQLite --
+        # jamais le fichier vivant ni son -wal.
+        archive.extract("./codelab.db", path=cible / "restauree")
+    assert "codelab.db" in noms
+    assert not {"codelab.db-wal", "codelab.db-shm"} & noms
+    cx = sqlite3.connect(cible / "restauree" / "codelab.db")
+    assert [r[0] for r in cx.execute("SELECT nom FROM applications")] == ["demo"]
+    assert cx.execute("SELECT COUNT(*) FROM journal").fetchone()[0] == 1
+    cx.close()
     # Les journaux d'applications pesent et se regenerent ; le dossier
     # personnel des applications est un cache, ECRIVABLE PAR ELLES -- l'y
     # inclure leur laisserait decider du poids de la sauvegarde.
@@ -9480,30 +9521,30 @@ def test_supprimer_un_message_le_retire_du_fichier(boite):
     assert c.delete("/api/messages/" + parti).status_code == 200
     restants = [m["id"] for m in c.get("/api/messages").get_json()["messages"]]
     assert restants == [garde]
-    # Dans le fichier aussi, pas seulement dans la reponse : un message qui
+    # Dans la base aussi, pas seulement dans la reponse : un message qui
     # revient au redemarrage n'a pas ete supprime.
-    contenu = (tmp_path / "messages.jsonl").read_text()
-    assert parti not in contenu and garde in contenu
+    ids = [l["id"] for l in app.stockage.lire(app.DB_FILE, "SELECT id FROM messages")]
+    assert parti not in ids and garde in ids
     # Et c'est journalise : supprimer un mot qui vous est adresse se trace.
     genres = [e.get("genre") for e in app.lire_acces()]
     assert "message" in genres
 
 
-def test_supprimer_emporte_aussi_ce_qui_dort_dans_la_rotation(boite):
-    """Le fichier tourne a 1 Mo : sans consolidation, un message supprime du
-    fichier courant reparaitrait depuis l'archive a la premiere relecture."""
+def test_les_anciens_messages_sont_importes_puis_supprimables(boite):
+    """Les messages d'avant la base (fichier courant ET sa rotation) entrent
+    dans la table a l'import, et s'y suppriment comme les autres."""
     c, tmp_path = boite
     ancien = {"id": secrets.token_hex(12), "ts": int(time.time()) - 10000,
               "qui": "marie", "cible": "hub", "app": "", "texte": "d'avant la rotation"}
-    (tmp_path / "messages.jsonl.1").write_text(
-        json.dumps(ancien, ensure_ascii=False) + "\n")
+    with open(app.MESSAGES_FILE + ".1", "w") as f:
+        f.write(json.dumps(ancien, ensure_ascii=False) + "\n")
+    app.importer_anciens_fichiers()
     recent = _message(c, "hub", "récent")
 
     assert c.delete("/api/messages/" + ancien["id"]).status_code == 200
     restants = [m["id"] for m in c.get("/api/messages").get_json()["messages"]]
     assert restants == [recent]
-    assert not (tmp_path / "messages.jsonl.1").exists()
-
+    assert not os.path.exists(app.MESSAGES_FILE + ".1")
 
 def test_le_guet_ne_redemande_que_ce_qui_est_arrive_depuis(boite):
     """La page interroge toutes les vingt secondes : lui renvoyer trois cents
@@ -11531,8 +11572,8 @@ def test_la_surveillance_externe_n_accepte_que_https_et_verifie_l_adresse(client
                        json={"url": "https://hc-ping.com/abc"}).status_code == 200
     assert app.lire_surveillance() == "https://hc-ping.com/abc"
     # Au coffre : chiffree, en 0600, jamais en clair.
-    assert stat.S_IMODE(os.stat(app.COFFRE_FILE).st_mode) == 0o600
-    assert b"hc-ping.com" not in open(app.COFFRE_FILE, "rb").read()
+    assert stat.S_IMODE(os.stat(app.DB_FILE).st_mode) == 0o600
+    assert b"hc-ping.com" not in _octets_de_l_etat()
     assert client.post("/api/surveillance-externe", json={"url": ""}).status_code == 200
     assert app.lire_surveillance() == ""
 
@@ -11674,11 +11715,9 @@ def _octets_de_l_etat():
 def test_les_adresses_des_comptes_ne_sont_jamais_en_clair():
     app.ecrire_utilisateurs({"marie": {"sel": "aa", "hash": "bb", "projets": [],
                                        "email": "marie@exemple.fr"}})
-    brut = json.load(open(app.UTILISATEURS_FILE))
-    assert "email" not in brut["marie"], "l'adresse est restee dans le fichier"
     assert app.lire_utilisateurs()["marie"]["email"] == "marie@exemple.fr"
     assert b"marie@exemple.fr" not in _octets_de_l_etat()
-    assert stat.S_IMODE(os.stat(app.COFFRE_FILE).st_mode) == 0o600
+    assert stat.S_IMODE(os.stat(app.DB_FILE).st_mode) == 0o600
 
 
 def test_le_serveur_d_envoi_et_son_mot_de_passe_sont_chiffres():
@@ -11693,15 +11732,20 @@ def test_le_serveur_d_envoi_et_son_mot_de_passe_sont_chiffres():
 
 
 def test_une_cle_perdue_ne_casse_rien_et_ne_detruit_rien():
-    """Cle changee : la copie illisible est mise de cote, jamais ecrasee, et
-    le panneau repart sur un coffre vide plutot que de tomber."""
+    """Cle changee : la valeur illisible n'est ni effacee ni ecrasee, le
+    panneau fait comme si elle manquait plutot que de tomber -- et la cle
+    retrouvee la rend de nouveau lisible."""
     from cryptography.fernet import Fernet
     app.ecrire_reglage("alertes_admin", ["moi@exemple.fr"])
+    bonne = app._cle_chiffrement
     app._cle_chiffrement = Fernet.generate_key().decode()
     app._coffre["donnees"] = None
     assert app.reglage("alertes_admin") is None
-    assert not os.path.exists(app.COFFRE_FILE)
-    assert [n for n in os.listdir(app.STATE_DIR) if ".illisible-" in n]
+    assert app.stockage.lire(app.DB_FILE, "SELECT 1 FROM reglages_chiffres "
+                                          "WHERE cle = 'alertes_admin'")
+    app._cle_chiffrement = bonne
+    app._coffre["donnees"] = None
+    assert app.reglage("alertes_admin") == ["moi@exemple.fr"]
 
 
 def test_les_anciens_fichiers_en_clair_migrent_au_coffre():
@@ -11715,6 +11759,7 @@ def test_les_anciens_fichiers_en_clair_migrent_au_coffre():
                        "alertes": ["ops@x.fr"]}})
     app.upsert_shared_block("codelab-alertes", [], {"SMTP_HOST": "smtp.origine.fr",
                                                     "ALERTE_ADMIN": "chef@x.fr"})
+    app.importer_anciens_fichiers()
     app.migrer_vers_le_coffre()
 
     for chemin in (app.SMTP_FILE, app.ALERTES_FILE, app.SURVEILLANCE_FILE):
@@ -11779,11 +11824,13 @@ def test_la_base_recoit_les_reglages_chiffres_et_sait_les_rendre():
     assert set(base.lignes) == {"smtp"}
     assert b"secret-en-base" not in base.lignes["smtp"]
 
-    os.remove(app.COFFRE_FILE)
+    with app.stockage.transaction(app.DB_FILE) as cx:     # copie locale perdue
+        cx.execute("DELETE FROM reglages_chiffres")
     app._coffre["donnees"] = None
     app._pg_synchroniser_reglages(base)
     assert app.reglage("smtp")["password"] == "secret-en-base"
-    assert os.path.exists(app.COFFRE_FILE)
+    app._coffre["donnees"] = None                        # et elle est reecrite
+    assert app.reglage("smtp")["password"] == "secret-en-base"
     source = inspect.getsource(app._pg_ecrire_utilisateurs)
     assert 'UPDATE utilisateurs SET email = \'\'' in source, (
         "les adresses recopiees en clair par une version precedente doivent partir")
@@ -11928,6 +11975,8 @@ def test_le_panneau_installe_ouvre_les_applications_sans_en_sortir(client, monke
     corps = r.get_data(as_text=True)
     assert '<iframe src="http://hote:9002/site/"' in corps
     assert "Mon &lt;site&gt;" in corps and "Mon <site>" not in corps
+    # L'onglet porte l'icone de l'application ouverte, pas celle du panneau.
+    assert '<link rel="icon" href="/api/icon/site">' in corps
     csp = r.headers["Content-Security-Policy"]
     assert csp.endswith("; frame-src http://hote:9002")
     assert "frame-ancestors 'none'" in csp, "la page elle-meme ne s'encadre pas"
@@ -12521,3 +12570,151 @@ def test_une_connexion_admin_depuis_une_adresse_inconnue_est_signalee(journal, m
     c.post("/login", json={"password": "secret-de-test"},
            headers={"X-Forwarded-For": "192.168.1.77"})       # nouvelle
     assert len(envois) == 1 and envois[0][1] == ["moi@example.com"]
+
+
+
+# ------------------- la base du panneau (SQLite) -------------------
+#
+# Les donnees vivaient dans une quinzaine de fichiers JSON ; elles vivent dans
+# codelab.db, une table par sujet. Ce qui doit rester vrai : l'import des
+# anciens fichiers ne perd rien et ne se rejoue pas, les originaux sont gardes
+# (sans adresse en clair), le schema est versionne, et le diagnostic lit la
+# base sans pouvoir l'ecrire.
+
+def _anciens_fichiers():
+    etat = app.STATE_DIR
+    ecrire = lambda nom, donnee: open(os.path.join(etat, nom), "w").write(
+        json.dumps(donnee, ensure_ascii=False))
+    ecrire("apps.json", {"site": {"path": "/w/s", "command": "x", "port": 9101,
+                                  "enabled": True, "visibility": "privee"},
+                         "blog": {"path": "/w/b", "command": "y", "port": 9102}})
+    ecrire("utilisateurs.json", {"marie": {"sel": "aa", "hash": "bb", "projets": ["site"],
+                                           "email": "marie@x.fr", "email_verifie": True,
+                                           "totp": "SECRET"}})
+    ecrire("passkeys.json", {"marie": [{"id": "K1", "cle_publique": "AAAA", "compteur": 3,
+                                        "nom": "Face ID", "cree": 1, "dernier": 2}]})
+    ecrire("categories.json", ["Outils", "Sites"])
+    ecrire("masquees.json", {"marie": ["blog"]})
+    ecrire("exposition.json", {"adresse_publique": "https://x.fr"})
+    open(os.path.join(etat, "acces.jsonl"), "w").write(
+        json.dumps({"id": "e1", "ts": 100, "genre": "connexion", "qui": "marie",
+                    "ip": "10.0.0.1", "moyen": "mot de passe"}) + "\n")
+
+
+def test_l_import_verse_chaque_ancien_fichier_dans_sa_table():
+    _anciens_fichiers()
+    faits = app.importer_anciens_fichiers()
+    assert faits
+    apps = app.load()
+    assert list(apps) == ["site", "blog"]
+    assert apps["site"]["enabled"] is True and apps["site"]["visibility"] == "privee"
+    marie = app.lire_utilisateurs()["marie"]
+    assert marie["projets"] == ["site"] and marie["totp"] == "SECRET"
+    assert marie["email"] == "marie@x.fr" and marie["email_verifie"] is True
+    assert app.lire_passkeys()["marie"][0]["compteur"] == 3
+    assert app.lire_categories() == ["Outils", "Sites"]
+    assert app.lire_masquees() == {"marie": ["blog"]}
+    assert app.lire_exposition()["adresse_publique"] == "https://x.fr"
+    e = app.lire_acces()[0]
+    assert e["qui"] == "marie" and e["moyen"] == "mot de passe"
+
+
+def test_l_import_garde_les_originaux_sans_adresse_en_clair():
+    _anciens_fichiers()
+    app.importer_anciens_fichiers()
+    etat = app.STATE_DIR
+    assert not os.path.exists(os.path.join(etat, "apps.json"))
+    assert os.path.exists(os.path.join(etat, "apps.json.migre"))
+    garde = open(os.path.join(etat, "utilisateurs.json.migre")).read()
+    assert "marie@x.fr" not in garde and "bb" in garde
+    assert b"marie@x.fr" not in _octets_de_l_etat()
+
+
+def test_un_import_rejoue_n_ecrase_rien():
+    _anciens_fichiers()
+    app.importer_anciens_fichiers()
+    app.save({"nouvelle": {"path": "/w/n", "command": "z", "port": 9103}})
+    # Un vieux fichier reapparu (restauration partielle) ne remplace pas ce
+    # que la base porte deja.
+    open(os.path.join(app.STATE_DIR, "apps.json"), "w").write('{"vieille": {}}')
+    app.importer_anciens_fichiers()
+    assert list(app.load()) == ["nouvelle"]
+
+
+def test_le_schema_est_versionne_et_la_base_reservee_au_panneau():
+    import sqlite3
+    app.load()
+    cx = sqlite3.connect(app.DB_FILE)
+    assert cx.execute("PRAGMA user_version").fetchone()[0] == app.stockage.VERSION
+    tables = {r[0] for r in cx.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert {"applications", "comptes", "acces_applications", "cles_acces", "categories",
+            "masquees", "journal", "messages", "processus", "parametres",
+            "reglages_chiffres"} <= tables
+    cx.close()
+    assert stat.S_IMODE(os.stat(app.DB_FILE).st_mode) == 0o600
+
+
+def test_supprimer_un_compte_retire_aussi_ses_droits():
+    app.ecrire_utilisateurs({"marie": {"sel": "a", "hash": "b", "projets": ["site"]},
+                             "paul": {"sel": "c", "hash": "d", "projets": ["site"]}})
+    comptes = app.lire_utilisateurs()
+    comptes.pop("marie")
+    app.ecrire_utilisateurs(comptes)
+    lignes = app.stockage.lire(app.DB_FILE, "SELECT compte FROM acces_applications")
+    assert [l["compte"] for l in lignes] == ["paul"]
+
+
+def test_le_diagnostic_lit_la_base_en_lecture_seule(monkeypatch):
+    monkeypatch.setenv("APP_MANAGER_STATE", app.STATE_DIR)
+    app.save({"site": {"path": "/w/s", "command": "x", "port": 9101,
+                       "visibility": "publique"}})
+    app.ecrire_utilisateurs({"marie": {"sel": "a", "hash": "b", "projets": []}})
+    app.ecrire_exposition({"admin_reseau_local": True})
+    app.journaliser("connexion", qui="marie", ip="203.0.113.9")
+    assert checks._apps_panneau()["site"]["visibility"] == "publique"
+    assert checks._comptes_panneau() == {"marie": {}}
+    assert checks._exposition_panneau() == {"admin_reseau_local": True}
+    assert checks._ips_du_journal() == ["203.0.113.9"]
+    # Lecture seule : une ecriture par cette voie est refusee.
+    assert checks._requete_panneau("DELETE FROM applications") is None
+    assert list(app.load()) == ["site"]
+
+
+
+def test_le_panneau_declare_toujours_sa_propre_icone():
+    """Safari garde une icone par nom d'hote : celle d'une application ou de
+    Mailpit (meme hote, autre port) ne doit pas reprendre l'onglet du
+    panneau. Chaque page du panneau declare donc la sienne, versionnee."""
+    for nom in ("dashboard.html", "login.html"):
+        page = _page_panneau(nom)
+        assert 'href="/favicon.png?v=3"' in page and 'href="/favicon.ico?v=3"' in page, nom
+        assert 'href="/apple-touch-icon.png?v=3"' in page, nom
+
+
+def test_les_connexions_recentes_se_filtrent_et_restent_courtes():
+    page = _page_panneau("dashboard.html")
+    assert 'id="ac-genre"' in page and "AC_MAX=200" in page
+    # 10 par defaut : la liste ne deborde plus a l'ouverture.
+    assert "return 10;" in page
+
+
+
+def test_sur_telephone_le_menu_est_ferme_et_s_ouvre_par_dessus():
+    """Sur un telephone, la colonne de gauche prenait la moitie de l'ecran."""
+    page = _page_panneau("dashboard.html")
+    assert "@media (max-width:760px)" in page
+    assert ".sidebar.ouvert{transform:none}" in page
+    assert "function fermerMenuMobile()" in page
+    # Changer de rubrique referme le menu.
+    debut = page.index("function showSection(name){")
+    assert "fermerMenuMobile();" in page[debut:debut + 800]
+
+
+def test_sur_telephone_le_hub_est_une_grille_d_icones():
+    page = _page_panneau("dashboard.html")
+    assert ".hub-liste.compacte{grid-template-columns:repeat(4,minmax(0,1fr))" in page
+
+
+def test_la_page_de_connexion_ne_montre_pas_credentials_sur_telephone():
+    page = _page_panneau("login.html")
+    assert "@media (max-width:760px){.pied{display:none}}" in page
