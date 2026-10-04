@@ -3438,9 +3438,11 @@ def test_un_compte_inscrit_librement_n_ouvre_rien_et_attend_son_code(comptes_mai
     assert c.post("/inscription/confirmer",
                   json={"code": _code_du_dernier_mail(partis)}).status_code == 200
     # Le compte devient utilisable : la connexion demande maintenant le
-    # second facteur, comme pour tout compte utilisateur.
+    # second facteur, comme pour tout compte utilisateur -- un code envoye a
+    # l'adresse verifiee, sans application a installer.
     r = c.post("/login", json={"nom": "paul", "password": "mot-de-passe-long"})
-    assert r.status_code == 200 and r.get_json().get("inscription") is True
+    assert r.status_code == 401 and r.get_json().get("moyen") == "email"
+    assert c.get("/api/mes-apps").status_code == 401
 
 
 def test_sans_serveur_d_envoi_l_inscription_est_fermee(comptes_mail, tmp_path):
@@ -4813,6 +4815,9 @@ def test_toutes_les_routes_d_ecriture_sont_couvertes(deux_espaces):
         "login_submit", "login_second_facteur",
         "login_passkey_options", "login_passkey",
         "inscription_creer", "inscription_confirmer",
+        # Ouverte par la personne invitee, sans session -- ou dans le
+        # navigateur de l'administrateur qui essaie son propre lien.
+        "invitation_accepter",
         "proxy", "proxy_noslash",
     }
 
@@ -12086,3 +12091,189 @@ def test_dagster_garde_un_pilote_postgres_qu_il_sait_ouvrir():
     dockerfile = open(os.path.join(racine, "dagster", "Dockerfile"), encoding="utf-8").read()
     assert '"sqlalchemy<2.1"' in dockerfile
     assert "sqlalchemy.create_engine('postgresql://" in dockerfile
+
+
+# ------------- invitations, codes par mail ou SMS, envoi par Mailpit -------------
+#
+# Creer un compte, c'est donner une adresse : la personne recoit un lien et
+# choisit elle-meme son nom et son mot de passe. Le second facteur n'exige
+# plus d'application : un code part par mail (ou SMS). Et les mails du
+# panneau passent par Mailpit, comme ceux des applications.
+
+
+def _jeton_du_lien(partis):
+    return re.search(r"/invitation/([A-Za-z0-9_-]+)", partis[-1][1]).group(1)
+
+
+@pytest.fixture
+def invitations(comptes_mail):
+    c, partis = comptes_mail
+    with c.session_transaction() as s:
+        s.update(authed=True, role=app.ROLE_ADMIN, utilisateur=app.NOM_ADMIN,
+                 ouverte=int(time.time()), jeton="j")
+    return c, partis, {app.JETON_ENTETE: "j"}
+
+
+def test_une_invitation_envoie_un_lien_et_le_rend_a_l_administrateur(invitations):
+    c, partis, h = invitations
+    r = c.post("/api/invitations", json={"email": "paul@example.com"}, headers=h)
+    assert r.status_code == 200, r.data
+    d = r.get_json()
+    assert d["envoye"] is True and partis[-1][0] == ["paul@example.com"]
+    assert d["lien"].endswith("/invitation/" + _jeton_du_lien(partis))
+    # Seule l'empreinte est rangee : le jeton ne se relit nulle part.
+    assert _jeton_du_lien(partis) not in json.dumps(app.reglage("invitations"))
+    assert [i["email"] for i in c.get("/api/invitations").get_json()["invitations"]] \
+        == ["paul@example.com"]
+
+
+def test_accepter_l_invitation_cree_le_compte_verifie_et_ouvre_la_session(invitations):
+    c, partis, h = invitations
+    c.post("/api/invitations", json={"email": "paul@example.com"}, headers=h)
+    jeton = _jeton_du_lien(partis)
+    c.post("/logout")
+    assert c.get("/api/invitation/" + jeton).get_json()["email"] == "paul@example.com"
+    r = c.post("/invitation/" + jeton, json={"nom": "paul", "mot_de_passe": "mot-de-passe-long",
+                                            "telephone": "06 12 34 56 78"})
+    assert r.status_code == 200, r.data
+    compte = app.lire_utilisateurs()["paul"]
+    assert compte["email"] == "paul@example.com" and compte["email_verifie"] is True
+    assert compte["telephone"] == "+33612345678"
+    assert c.get("/api/mes-apps").status_code == 200
+    # Le numero vit au coffre, pas dans le fichier des comptes.
+    assert "+33612345678" not in open(app.UTILISATEURS_FILE).read()
+    # Le lien ne sert qu'une fois.
+    c.post("/logout")
+    assert c.post("/invitation/" + jeton, json={"nom": "autre",
+                  "mot_de_passe": "mot-de-passe-long"}).status_code == 404
+
+
+def test_un_lien_d_invitation_invente_ne_cree_rien(invitations):
+    c, _, _ = invitations
+    c.post("/logout")
+    r = c.post("/invitation/" + "x" * 43, json={"nom": "intrus",
+                                                "mot_de_passe": "mot-de-passe-long"})
+    assert r.status_code == 404
+    assert "intrus" not in app.lire_utilisateurs()
+
+
+def test_une_invitation_annulee_ne_vaut_plus_rien(invitations):
+    c, partis, h = invitations
+    ident = c.post("/api/invitations", json={"email": "paul@example.com"},
+                   headers=h).get_json()["id"]
+    jeton = _jeton_du_lien(partis)
+    assert c.delete("/api/invitations/" + ident, headers=h).status_code == 200
+    assert c.get("/api/invitation/" + jeton).status_code == 404
+
+
+def test_un_compte_verifie_recoit_son_code_par_mail_et_entre_avec(comptes_mail):
+    c, partis = comptes_mail
+    _compte_avec_adresse()
+    r = c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long"})
+    d = r.get_json()
+    assert r.status_code == 401 and d["moyen"] == "email" and d["envoye"] is True
+    assert "marie@example.com" not in json.dumps(d), "l'adresse ne doit pas s'afficher en entier"
+    assert partis[-1][0] == ["marie@example.com"]
+    assert c.get("/api/mes-apps").status_code == 401
+    app._login_attempts.clear()
+    r = c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long",
+                               "code": _code_du_dernier_mail(partis)})
+    assert r.status_code == 200, r.data
+    assert c.get("/api/mes-apps").status_code == 200
+
+
+def test_le_code_de_connexion_ne_sert_qu_une_fois_et_exige_le_mot_de_passe(comptes_mail):
+    c, partis = comptes_mail
+    _compte_avec_adresse()
+    c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long"})
+    code = _code_du_dernier_mail(partis)
+    app._login_attempts.clear()
+    assert c.post("/login", json={"nom": "marie", "password": "faux",
+                                  "code": code}).status_code == 401
+    assert c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long",
+                                  "code": code}).status_code == 200
+    c.post("/logout")
+    app._login_attempts.clear()
+    assert c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long",
+                                  "code": code}).status_code == 401
+
+
+def test_le_code_part_par_sms_quand_une_passerelle_est_reglee(comptes_mail, monkeypatch):
+    c, partis = comptes_mail
+    _compte_avec_adresse()
+    comptes = app.lire_utilisateurs()
+    comptes["marie"]["telephone"] = "+33612345678"
+    app.ecrire_utilisateurs(comptes)
+    app.ecrire_reglage("sms", {"url": "http://passerelle", "utilisateur": "u",
+                               "mot_de_passe": "p"})
+    sms = []
+    monkeypatch.setattr(app, "envoyer_sms", lambda numero, texte, cfg=None: sms.append((numero, texte)))
+    d = c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long"}).get_json()
+    assert d["moyen"] == "sms" and d["moyens"] == ["sms", "email"]
+    assert d["destination"].endswith("78") and "612345" not in d["destination"]
+    assert sms and sms[-1][0] == "+33612345678"
+    # La personne peut toujours basculer sur le mail.
+    d = c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long",
+                               "moyen": "email"}).get_json()
+    assert d["moyen"] == "email" and partis[-1][0] == ["marie@example.com"]
+
+
+def test_un_numero_s_ecrit_a_la_francaise_ou_a_l_internationale():
+    assert app.telephone_valide("06 12 34 56 78") == "+33612345678"
+    assert app.telephone_valide("+33 6.12.34.56.78") == "+33612345678"
+    assert app.telephone_valide("0033612345678") == "+33612345678"
+    assert app.telephone_valide("12") == ""
+    assert app.telephone_valide("abc") == ""
+
+
+def test_la_passerelle_sms_recoit_le_format_attendu(monkeypatch):
+    vus = []
+
+    class Reponse:
+        status = 202
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    monkeypatch.setattr(app.urllib.request, "urlopen",
+                        lambda req, timeout=None: vus.append(req) or Reponse())
+    app.envoyer_sms("+33612345678", "bonjour",
+                    cfg={"url": "http://tel:8080/messages", "utilisateur": "u",
+                         "mot_de_passe": "p"})
+    corps = json.loads(vus[0].data)
+    assert corps == {"textMessage": {"text": "bonjour"}, "phoneNumbers": ["+33612345678"]}
+    assert vus[0].get_header("Authorization") == "Basic " + base64.b64encode(b"u:p").decode()
+
+
+def test_les_mails_du_panneau_passent_par_mailpit(monkeypatch):
+    remis = []
+    monkeypatch.setattr(app, "MAIL_PAR_MAILPIT", True)
+    monkeypatch.setattr(app, "_envoyer_par_mailpit", lambda msg: remis.append(msg))
+    direct = []
+    monkeypatch.setattr(app.smtplib, "SMTP", lambda *a, **k: direct.append(a))
+    app.envoyer_mail({"host": "smtp.example.com", "port": 587, "tls": "starttls",
+                      "user": "", "password": "", "expediteur": "moi@example.com"},
+                     "sujet", "corps", destinataires=["toi@example.com"])
+    assert remis and remis[0]["To"] == "toi@example.com" and not direct
+
+
+def test_mailpit_injoignable_l_envoi_repart_en_direct(monkeypatch):
+    def refuse(msg):
+        raise ConnectionRefusedError("arrete")
+    monkeypatch.setattr(app, "MAIL_PAR_MAILPIT", True)
+    monkeypatch.setattr(app, "_envoyer_par_mailpit", refuse)
+    envois = []
+
+    class FauxSMTP:
+        def __init__(self, *a, **k): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def ehlo(self): pass
+        def starttls(self, **k): pass
+        def login(self, *a): pass
+        def send_message(self, msg): envois.append(msg)
+
+    monkeypatch.setattr(app.smtplib, "SMTP", FauxSMTP)
+    app.envoyer_mail({"host": "smtp.example.com", "port": 587, "tls": "starttls",
+                      "user": "", "password": "", "expediteur": "moi@example.com"},
+                     "sujet", "corps", destinataires=["toi@example.com"])
+    assert len(envois) == 1

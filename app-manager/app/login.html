@@ -212,7 +212,7 @@ button.principal:disabled{opacity:.6;cursor:default}
   <div class="atout"><div class="ico">
     <svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"/>
     <path d="M8 10V7a4 4 0 118 0v3"/></svg></div>
-    <div><b>Accès sécurisé</b><span>Second facteur obligatoire pour les comptes utilisateurs</span></div></div>
+    <div><b>Accès sécurisé</b><span>Face ID, ou un code reçu par mail ou par SMS</span></div></div>
 
   <div class="atout"><div class="ico">
     <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/>
@@ -238,8 +238,42 @@ button.principal:disabled{opacity:.6;cursor:default}
       <h2>Connexion</h2>
       <div class="st">Accède à tes applications en toute sécurité.</div>
 
+      <!-- FACE ID D'ABORD. Une cle d'acces remplace le mot de passe ET le
+           code : c'est le chemin le plus court, il passe donc en premier.
+           Masque tant que le serveur n'a pas dit qu'il est en etat d'en
+           utiliser (HTTPS, nom de domaine, et la bibliotheque installee) :
+           un bouton qui echoue toujours est pire qu'un bouton absent. -->
+      <div id="pk-zone" style="display:none">
+        <button class="principal" id="pk-go" onclick="connexionPasskey()" style="margin-top:0">
+          <span id="pk-libelle">Se connecter avec Face ID</span></button>
+        <div class="ou">ou avec ton mot de passe</div>
+      </div>
+
+      <!-- INVITATION. La meme page, ouverte par le lien recu par mail : la
+           personne choisit son nom et son mot de passe, rien d'autre. -->
+      <div id="invitation" style="display:none">
+        <div class="field"><label>Adresse mail</label>
+          <input type="email" id="inv-mail" disabled></div>
+        <div class="field"><label>Nom d'utilisateur</label>
+          <input type="text" id="inv-nom" autocomplete="username" placeholder="marie"
+                 autocapitalize="none" spellcheck="false"></div>
+        <div class="etape-num">Minuscules, chiffres, tiret ou souligné.</div>
+        <div class="field" style="margin-top:14px"><label>Mot de passe</label>
+          <input type="password" id="inv-mdp" autocomplete="new-password"
+                 placeholder="8 caractères au minimum"></div>
+        <div id="inv-tel-zone" style="display:none">
+          <div class="field" style="margin-top:14px"><label>Téléphone
+            <span class="opt">facultatif</span></label>
+            <input type="tel" id="inv-tel" autocomplete="tel" placeholder="06 12 34 56 78"></div>
+          <div class="etape-num">Pour recevoir ton code de connexion par SMS. Sans numéro,
+            il arrive par mail.</div>
+        </div>
+      </div>
+
+      <div id="connexion-champs">
       <div class="field"><label>Nom</label>
-        <input type="text" id="nom" autofocus autocomplete="username" placeholder="admin"></div>
+        <input type="text" id="nom" autofocus autocomplete="username webauthn" placeholder="admin"
+          autocapitalize="none" spellcheck="false"></div>
       <div id="creation" style="display:none">
         <div class="field"><label>Adresse mail</label>
           <input type="email" id="c-mail" autocomplete="email" placeholder="moi@example.com"></div>
@@ -248,11 +282,16 @@ button.principal:disabled{opacity:.6;cursor:default}
 
       <div class="field"><label>Mot de passe</label>
         <input type="password" id="pw" autocomplete="current-password"></div>
+      </div>
 
       <div id="totp-bloc" style="display:none">
-        <div class="field"><label>Code de vérification</label>
+        <div class="ok" id="code-info"></div>
+        <div class="field" style="margin-top:14px"><label id="code-label">Code de vérification</label>
           <input type="text" id="code" inputmode="numeric" autocomplete="one-time-code"
                  maxlength="6" placeholder="123456"></div>
+        <!-- Les autres moyens du compte : un SMS qui n'arrive pas ne doit
+             pas bloquer quelqu'un qui a aussi une adresse mail. -->
+        <div class="bascule" id="code-moyens"></div>
       </div>
 
       <div id="inscription" style="display:none">
@@ -320,17 +359,6 @@ button.principal:disabled{opacity:.6;cursor:default}
       </div>
       <div class="ok" id="copie">Clé copiée.</div>
 
-      <!-- Chemin par cle d'acces. Masque tant que le serveur n'a pas dit
-           qu'il est en etat d'en utiliser (HTTPS, nom de domaine, et la
-           bibliotheque installee) : un bouton qui echoue toujours est pire
-           qu'un bouton absent. -->
-      <div id="pk-zone" style="display:none">
-        <div class="ou">ou</div>
-        <button class="secondaire" id="pk-go" onclick="connexionPasskey()">
-          <svg viewBox="0 0 24 24"><circle cx="8" cy="12" r="4"/><path d="M12 12h9"/>
-          <path d="M17 12v3"/><path d="M20.5 12v2"/></svg>
-          Utiliser une clé d'accès</button>
-      </div>
 
       <!-- Affiche seulement si un serveur d'envoi est configure : sans mail,
            aucune adresse ne peut etre verifiee, donc pas de compte libre. -->
@@ -362,6 +390,8 @@ const codeInscription=document.getElementById('code-inscription');
    normal, lui, apparait quand le serveur repond qu'il en attend un -- la
    page ne peut pas le savoir avant d'avoir essaye. */
 let etape='mot-de-passe';
+/* Le jeton d'une invitation, quand la page est ouverte par le lien recu. */
+const jetonInvitation=(location.pathname.match(/^\/invitation\/([A-Za-z0-9_-]+)/)||[])[1]||'';
 const $$=i=>document.getElementById(i);
 /* __TOTP__ est remplace par "1" ou "0" au moment de servir la page : le champ
    du code n'apparait que si la double authentification est active. */
@@ -513,29 +543,65 @@ const b64urlVersOctets = t => Uint8Array.from(
 const octetsVersB64url = b => btoa(String.fromCharCode(...new Uint8Array(b)))
   .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 
+/* Le nom du geste suit l'appareil : « Face ID » sur iPhone et iPad, Touch ID
+   sur Mac, l'empreinte sur Android, Windows Hello sur un PC. Les quatre sont
+   la meme cle d'acces ; ce qui compte est que la personne reconnaisse le
+   geste qu'elle fait tous les jours. */
+function nomDuGeste(){
+  const ua=navigator.userAgent||'';
+  if(/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints>1)) return 'Face ID';
+  if(/Macintosh/.test(ua)) return 'Touch ID';
+  if(/Android/.test(ua)) return 'ton empreinte';
+  if(/Windows/.test(ua)) return 'Windows Hello';
+  return 'une clé d\'accès';
+}
+
+/* Une demande « conditionnelle » attend en silence que la personne touche
+   le champ du nom : le navigateur y propose alors la cle d'acces, comme un
+   mot de passe enregistre. Elle doit etre annulee avant toute autre demande,
+   sinon le navigateur refuse la seconde. */
+let attenteConditionnelle=null;
+
 (async()=>{
-  if(!window.PublicKeyCredential) return;
+  if(!window.PublicKeyCredential || jetonInvitation) return;
   try{
     const d=await (await fetch('/api/passkeys/etat')).json();
-    if(d.possible) $$('pk-zone').style.display='block';
+    if(!d.possible) return;
+    $$('pk-libelle').textContent='Se connecter avec ' + nomDuGeste();
+    $$('pk-zone').style.display='block';
+    if(PublicKeyCredential.isConditionalMediationAvailable
+       && await PublicKeyCredential.isConditionalMediationAvailable()){
+      connexionPasskey(true);
+    }
   }catch(e){}
 })();
 
-async function connexionPasskey(){
+async function connexionPasskey(conditionnelle){
+  if(attenteConditionnelle){ attenteConditionnelle.abort(); attenteConditionnelle=null; }
   err.style.display='none';
-  const bouton=$$('pk-go'); bouton.disabled=true;
+  const bouton=$$('pk-go'); if(!conditionnelle) bouton.disabled=true;
   try{
     /* Le nom est envoye s'il est deja tape : cela restreint la demande aux
        cles de ce compte. Vide, le navigateur propose celles qu'il connait
        pour ce site -- et le serveur ne revele aucune liste de comptes. */
     const r=await fetch('/login/passkey/options',{method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({nom:(nom.value||'').trim()})});
+      body:JSON.stringify({nom: conditionnelle ? '' : (nom.value||'').trim()})});
     const o=await r.json();
-    if(!r.ok){ err.textContent=o.error||'Impossible.'; err.style.display='block'; return; }
+    if(!r.ok){
+      if(!conditionnelle){ err.textContent=o.error||'Impossible.'; err.style.display='block'; }
+      return;
+    }
     o.challenge=b64urlVersOctets(o.challenge);
     (o.allowCredentials||[]).forEach(c=>{ c.id=b64urlVersOctets(c.id); });
-    const cred=await navigator.credentials.get({publicKey:o});
+    const demande={publicKey:o};
+    if(conditionnelle){
+      attenteConditionnelle=new AbortController();
+      demande.mediation='conditional';
+      demande.signal=attenteConditionnelle.signal;
+    }
+    const cred=await navigator.credentials.get(demande);
+    attenteConditionnelle=null;
     const envoi={
       id:cred.id, rawId:octetsVersB64url(cred.rawId), type:cred.type,
       response:{
@@ -551,8 +617,11 @@ async function connexionPasskey(){
     if(r2.ok){ location.href='/'; return; }
     err.textContent=d2.error||'Clé refusée.'; err.style.display='block';
   }catch(e){
+    /* Une attente conditionnelle annulee (on a clique sur le bouton) n'est
+       pas une erreur a montrer. */
+    if(conditionnelle || (e && e.name==='AbortError')) return;
     err.textContent = (e && e.name==='NotAllowedError')
-      ? 'Connexion annulee.' : ('Clé d\'accès indisponible : ' + (e&&e.message||e));
+      ? 'Connexion annulée.' : ('Clé d\'accès indisponible : ' + (e&&e.message||e));
     err.style.display='block';
   }finally{ bouton.disabled=false; }
 }
@@ -565,9 +634,91 @@ function copierSecret(){
   }).catch(()=>{});
 }
 
+/* ---------------- second facteur par code ---------------- */
+/* Le serveur dit quel code il attend (application, SMS ou mail) et quels
+   autres moyens ce compte possede. La page n'en devine rien. */
+let moyenCourant='';
+const LIBELLES_MOYEN={totp:"mon application d'authentification", sms:'un SMS', email:'un mail'};
+function afficherCode(d){
+  moyenCourant=d.moyen;
+  $$('totp-bloc').style.display='block';
+  $$('connexion-champs').style.display='none';
+  $$('pk-zone').style.display='none';
+  $$('oubli-lien-zone').style.display='none';
+  $$('bascule').style.display='none';
+  $$('pied').style.display='none';
+  $$('code-label').textContent = d.moyen==='totp'
+    ? "Code de ton application d'authentification" : 'Code reçu ' + (d.moyen==='sms' ? 'par SMS' : 'par mail');
+  const info=$$('code-info');
+  info.textContent = d.moyen==='totp' ? '' : (d.error||'');
+  info.style.display = info.textContent ? 'block' : 'none';
+  if(d.envoi_impossible){ info.style.display='none'; err.textContent=d.error; err.style.display='block'; }
+  const autres=(d.moyens||[]).filter(m=>m!==d.moyen && LIBELLES_MOYEN[m]);
+  const liens=autres.map(m=>`<a onclick="choisirMoyen('${m}')">Utiliser ${LIBELLES_MOYEN[m]||m}</a>`);
+  if(d.moyen!=='totp') liens.unshift(`<a onclick="choisirMoyen('${d.moyen}')">Renvoyer le code</a>`);
+  $$('code-moyens').innerHTML=liens.join(' · ');
+  code.value='';
+  document.querySelector('.boite h2').textContent='Vérification';
+  document.querySelector('.boite .st').textContent='Une dernière étape pour confirmer que c\'est bien toi.';
+  setTimeout(()=>code.focus(), 40);
+}
+async function choisirMoyen(m){
+  err.style.display='none';
+  try{
+    const r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({nom:nom.value, password:pw.value, moyen:m})});
+    const d=await r.json();
+    if(d.moyen){ afficherCode(d); return; }
+    err.textContent=d.error||'Erreur.'; err.style.display='block';
+  }catch(e){ err.textContent='Erreur réseau.'; err.style.display='block'; }
+}
+
+/* ---------------- invitation ---------------- */
+/* Ouverte par le lien recu par mail : /invitation/<jeton>. La personne
+   choisit son nom et son mot de passe ; l'adresse est deja verifiee. */
+if(jetonInvitation){
+  etape='invitation';
+  $$('connexion-champs').style.display='none';
+  $$('invitation').style.display='block';
+  $$('oubli-lien-zone').style.display='none';
+  $$('pied').style.display='none';
+  document.querySelector('.boite h2').textContent='Bienvenue sur CodeLab';
+  document.querySelector('.boite .st').textContent='Choisis ton nom d\'utilisateur et ton mot de passe.';
+  go.textContent='Créer mon compte';
+  (async()=>{
+    try{
+      const r=await fetch('/api/invitation/'+encodeURIComponent(jetonInvitation));
+      const d=await r.json();
+      if(!r.ok || !d.valide){
+        $$('invitation').style.display='none'; go.style.display='none';
+        err.textContent="Ce lien d'invitation n'est plus valable : il a déjà servi ou il a "
+          + 'expiré. Demande-en un nouveau à ton administrateur.';
+        err.style.display='block';
+        return;
+      }
+      $$('inv-mail').value=d.email;
+      if(d.sms) $$('inv-tel-zone').style.display='block';
+      $$('inv-nom').focus();
+    }catch(e){ err.textContent='Erreur réseau.'; err.style.display='block'; }
+  })();
+}
+
 async function submit(){
   err.style.display='none'; go.disabled=true; go.textContent='Connexion...';
   try{
+    if(etape==='invitation'){
+      const r=await fetch('/invitation/'+encodeURIComponent(jetonInvitation),{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({nom:$$('inv-nom').value, mot_de_passe:$$('inv-mdp').value,
+                             telephone:$$('inv-tel').value})});
+      const d=await r.json();
+      /* Le compte est cree et la session ouverte : le panneau propose aussitot
+         d'activer Face ID pour les prochaines fois. */
+      if(r.ok){ location.href='/?bienvenue=1'; return; }
+      err.textContent=d.error||'Création impossible.'; err.style.display='block';
+      go.disabled=false; go.textContent='Créer mon compte';
+      return;
+    }
     if(etape==='creation'){
       const r=await fetch('/inscription',{method:'POST',
         headers:{'Content-Type':'application/json'},
@@ -610,15 +761,21 @@ async function submit(){
        -- le serveur seul sait quels comptes existent. */
     const codeVisible=document.getElementById('totp-bloc').style.display!=='none';
     if(codeVisible) corps.code=code.value;
+    if(codeVisible && moyenCourant && moyenCourant!=='totp' && !code.value.trim()){
+      /* Champ vide : on renvoie un code par le meme moyen plutot que de
+         compter un essai rate. */
+      corps.moyen=moyenCourant;
+    }
     const r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(corps)});
     const d=await r.json();
     if(r.ok && d.inscription){ afficherInscription(d); go.disabled=false; return; }
     if(r.ok){ location.href='/'; return; }
+    if(d.moyen && !corps.code){ afficherCode(d); go.disabled=false; go.textContent='Valider le code'; return; }
     err.textContent=d.error||'Erreur.'; err.style.display='block';
     if(d.totp && code){ document.getElementById('totp-bloc').style.display='block'; code.focus(); }
   }catch(e){ err.textContent='Erreur réseau.'; err.style.display='block'; }
-  go.disabled=false; go.textContent='Se connecter';
+  go.disabled=false; go.textContent = moyenCourant ? 'Valider le code' : 'Se connecter';
 }
 const valider=e=>{ if(e.key==='Enter') submit(); };
 nom.addEventListener('keydown', valider);
@@ -628,6 +785,7 @@ if(code) code.addEventListener('keydown', valider);
 codeInscription.addEventListener('keydown', valider);
 $$('c-mail').addEventListener('keydown', valider);
 $$('c-code').addEventListener('keydown', valider);
+['inv-nom','inv-mdp','inv-tel'].forEach(i=>$$(i).addEventListener('keydown', valider));
 majChamps();
 </script>
 </body></html>

@@ -224,7 +224,8 @@ page bricolee dans le navigateur ne donne aucun droit supplementaire.
 `/espace`, l'ancienne adresse de l'espace utilisateur, redirige vers `/` : elle a pu etre mise en
 favori.
 
-Les comptes se creent depuis **Utilisateurs**, dans le menu lateral. La liste donne l'essentiel d'un
+Les comptes se creent depuis **Utilisateurs**, dans le menu lateral, par **invitation** : voir
+ci-dessous. La liste donne l'essentiel d'un
 coup d'oeil — ce qui empeche quelqu'un d'entrer en premier, et en rouge — et **« Modifier » ouvre la
 fiche du compte** : adresse mail, nouveau mot de passe, projets autorises, remise a zero du second
 facteur, retrait des cles d'acces, suppression.
@@ -241,6 +242,26 @@ des connexions**, plus bas sur la meme page, qui se pagine — voir ci-dessous.
 Le filtrage se fait **dans la page**, sur une liste recue en entier. C'est le bon compromis a
 cette echelle, et c'est deja ce que fait la recherche d'applications. Au-dela de quelques milliers
 de comptes il faudrait filtrer cote serveur ; ce jour-la, la question ne se posera pas qu'ici.
+
+### Inviter quelqu'un
+
+**Creer un compte, c'est donner une adresse mail.** *Inviter quelqu'un* envoie un lien (par
+Mailpit) ; la personne l'ouvre, choisit **elle-meme** son nom d'utilisateur et son mot de passe
+(et, si une passerelle SMS est reglee, son numero de telephone), et entre aussitot dans le panneau.
+L'administrateur n'invente plus de mot de passe a transmettre par un autre canal.
+
+- Le lien est servi par la page de connexion (`/invitation/<jeton>`). Le jeton fait 256 bits ;
+  seule son **empreinte** est rangee, au coffre chiffre. Il **ne sert qu'une fois** et **expire au
+  bout de sept jours**.
+- Cliquer sur le lien prouve qu'on releve l'adresse : le compte nait avec une adresse **verifiee**,
+  sans code a recopier. Ce lien tient lieu de second facteur pour cette **premiere** connexion
+  seulement ; les suivantes demandent mot de passe et code, ou Face ID.
+- Le lien est **toujours affiche** a l'administrateur, avec un bouton *Copier* : sans serveur d'envoi
+  (ou Mailpit en mode test), le mail est garde dans Mailpit sans partir, et c'est a lui de le
+  transmettre.
+- Les invitations en attente se listent sous le formulaire : *Renvoyer* tire un **nouveau** lien
+  (l'ancien ne vaut plus rien), *Annuler* le retire.
+- *Creer le compte toi-meme* reste possible, avec un mot de passe choisi par l'administrateur.
 
 ### Le journal des connexions
 
@@ -282,6 +303,28 @@ Ces comptes existent pour etre distribues — a un collegue, a un client. Leur m
 donc par un canal qu'on ne maitrise pas, et sera reutilise ailleurs : c'est exactement le cas ou un
 seul secret ne suffit pas. Un compte utilisateur n'ouvre **jamais** de session sur le seul mot de
 passe.
+
+**Sans application a installer.** Apres le mot de passe, un **code a six chiffres** part
+automatiquement :
+
+1. par **SMS**, si le compte a un numero et qu'une passerelle est reglee (*Parametres > E-mail >
+   SMS*) ;
+2. sinon par **mail**, a l'adresse verifiee du compte (tous les comptes invites en ont une).
+
+La page dit ou le code est parti (adresse et numero masques) et propose de **basculer** d'un moyen
+a l'autre, ou de renvoyer le code. Le code vaut dix minutes, sert une fois, et cinq essais au plus ;
+il ne part jamais que vers la destination enregistree sur le compte, et seulement apres un mot de
+passe juste. Un compte qui a deja une application d'authentification la garde comme moyen par
+defaut.
+
+**Face ID.** Juste apres une connexion par mot de passe (ou l'acceptation d'une invitation), sur un
+appareil qui sait verifier la personne, le panneau propose **d'activer Face ID** (Touch ID,
+l'empreinte ou Windows Hello selon l'appareil) — c'est une cle d'acces, voir plus bas. Sur la page
+de connexion, le bouton *Se connecter avec Face ID* passe en premier, et le navigateur propose la
+cle d'acces directement dans le champ du nom.
+
+Le parcours historique ci-dessous (QR code et application d'authentification) ne s'applique plus
+qu'aux comptes **sans** adresse verifiee ni numero :
 
 L'administrateur, lui, garde le choix (Parametres > Securite) : le lui imposer d'office pourrait
 l'enfermer hors de son propre panneau. Il est vivement conseille de l'activer avant toute
@@ -475,7 +518,33 @@ categorie disparue — il serait range dans un tiroir que le hub n'affiche plus,
 La liste vit dans `categories.json` (dans `STATE_DIR`), a cote de `apps.json` : une categorie existe
 avant qu'un projet la porte, et survit a la suppression du dernier projet qui l'utilisait.
 
+## Les SMS, par son propre telephone
+
+Les codes de connexion peuvent partir par SMS, **gratuitement** : les messages partent d'un
+telephone Android avec l'application libre **SMS Gateway for Android**
+([sms-gate.app](https://sms-gate.app)), donc du forfait de ce telephone — illimite chez la
+plupart des operateurs. Les services d'envoi en ligne facturent chaque SMS, et leurs offres
+gratuites se limitent a quelques messages d'essai.
+
+1. Installer l'application sur un telephone Android (avec une carte SIM).
+2. L'activer en **serveur local** (le telephone sur le meme reseau que le serveur :
+   `http://<ip-du-telephone>:8080/messages`) ou en **serveur cloud** (relais en ligne :
+   `https://api.sms-gate.app/3rdparty/v1/messages`, propose par defaut).
+3. Recopier l'adresse, l'identifiant et le mot de passe affiches dans *Parametres > E-mail > SMS*,
+   puis *Envoyer un SMS d'essai*.
+
+La configuration est rangee au coffre, chiffree. Sans passerelle, les codes partent par mail. Le
+numero de chaque compte (pose a l'invitation, dans *Parametres > Compte*, ou par l'administrateur
+dans la fiche) vit lui aussi au coffre, jamais dans `utilisateurs.json`.
+
 ## Le serveur d'envoi, et les alertes
+
+**Tous les mails du panneau passent par Mailpit** (`codelab-mailpit:1025`) — alertes, codes,
+invitations, reinitialisations — comme ceux des applications : chacun se relit dans l'interface de
+Mailpit, et le mode test et le plafond d'envoi valent pour tout le monde. Mailpit relaie par le
+serveur d'envoi ci-dessous. S'il est injoignable, le panneau repasse en envoi direct. Pour revenir a
+l'envoi direct : `APP_MANAGER_MAIL_PAR_MAILPIT=0` dans le compose.
+
 
 Ce sont **deux choses**, et elles ont chacune leur onglet.
 
@@ -755,6 +824,14 @@ qui n'est pas implemente ici.
 | `/api/inscription` | GET | **non** | L'inscription libre est-elle ouverte (serveur d'envoi configure) |
 | `/inscription` | POST | **non** | Cree un compte sans aucun projet, et envoie un code a l'adresse |
 | `/inscription/confirmer` | POST | **non** | Confirme l'adresse et rend le compte utilisable |
+| `/api/invitations` | GET / POST | oui | Les invitations en attente ; en envoie une (rend toujours le lien) |
+| `/api/invitations/<id>/renvoyer` | POST | oui | Tire un nouveau lien et le renvoie |
+| `/api/invitations/<id>` | DELETE | oui | Annule une invitation |
+| `/invitation/<jeton>` | GET / POST | **non** | La page d'invitation ; cree le compte et ouvre la session |
+| `/api/invitation/<jeton>` | GET | **non** | Le lien est-il valable, et pour quelle adresse |
+| `/api/sms` | GET / PUT | oui | La passerelle SMS (adresse vide = desactivee) |
+| `/api/sms/test` | POST | oui | Envoie un SMS d'essai |
+| `/api/mon-compte/telephone` | POST | oui | Pose ou retire son numero (codes par SMS) |
 | `/qr/totp.svg` | GET | **non** | Le QR code de l'inscription au second facteur en attente dans la session |
 | `/api/securite` | GET | oui | Etat des reglages de securite (TOTP, HTTPS, cookie, proxy de confiance) |
 | `/api/securite/totp/preparer` | POST | oui | Tire un secret candidat, sans rien enregistrer |
