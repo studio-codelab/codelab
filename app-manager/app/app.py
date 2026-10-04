@@ -9994,7 +9994,9 @@ def ouvrir_dans_le_panneau():
     page = ('<!doctype html><html lang="fr"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width,initial-scale=1">'
             '<title>' + esc(titre) + '</title>'
-            '<link rel="icon" type="image/png" href="/favicon.png?v=2">'
+            # L'onglet porte l'icone de L'APPLICATION ouverte : c'est elle
+            # qu'on regarde. Le panneau, lui, garde toujours la sienne.
+            '<link rel="icon" href="/api/icon/' + urllib.parse.quote(nom, safe="") + '">'
             '<link rel="manifest" href="/manifest.webmanifest">'
             '<meta name="apple-mobile-web-app-capable" content="yes">'
             '<style>html,body{margin:0;height:100%;background:#fff}'

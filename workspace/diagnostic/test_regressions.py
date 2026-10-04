@@ -11975,6 +11975,8 @@ def test_le_panneau_installe_ouvre_les_applications_sans_en_sortir(client, monke
     corps = r.get_data(as_text=True)
     assert '<iframe src="http://hote:9002/site/"' in corps
     assert "Mon &lt;site&gt;" in corps and "Mon <site>" not in corps
+    # L'onglet porte l'icone de l'application ouverte, pas celle du panneau.
+    assert '<link rel="icon" href="/api/icon/site">' in corps
     csp = r.headers["Content-Security-Policy"]
     assert csp.endswith("; frame-src http://hote:9002")
     assert "frame-ancestors 'none'" in csp, "la page elle-meme ne s'encadre pas"
@@ -12676,3 +12678,21 @@ def test_le_diagnostic_lit_la_base_en_lecture_seule(monkeypatch):
     # Lecture seule : une ecriture par cette voie est refusee.
     assert checks._requete_panneau("DELETE FROM applications") is None
     assert list(app.load()) == ["site"]
+
+
+
+def test_le_panneau_declare_toujours_sa_propre_icone():
+    """Safari garde une icone par nom d'hote : celle d'une application ou de
+    Mailpit (meme hote, autre port) ne doit pas reprendre l'onglet du
+    panneau. Chaque page du panneau declare donc la sienne, versionnee."""
+    for nom in ("dashboard.html", "login.html"):
+        page = _page_panneau(nom)
+        assert 'href="/favicon.png?v=3"' in page and 'href="/favicon.ico?v=3"' in page, nom
+        assert 'href="/apple-touch-icon.png?v=3"' in page, nom
+
+
+def test_les_connexions_recentes_se_filtrent_et_restent_courtes():
+    page = _page_panneau("dashboard.html")
+    assert 'id="ac-genre"' in page and "AC_MAX=200" in page
+    # 10 par defaut : la liste ne deborde plus a l'ouverture.
+    assert "return 10;" in page

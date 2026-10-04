@@ -2,8 +2,14 @@
 <html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>CodeLab &middot; App Manager</title>
-<link rel="icon" type="image/png" sizes="128x128" href="/favicon.png?v=2">
-<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=1">
+<!-- L'icone de CodeLab, explicite et versionnee : Safari garde une icone par
+     NOM D'HOTE, sans le port, et celle d'une application (port des
+     applications), de Mailpit ou de Dagster pouvait sinon reprendre l'onglet du
+     panneau. Le panneau declare la sienne a chaque page, sous une adresse
+     propre. -->
+<link rel="icon" type="image/png" sizes="128x128" href="/favicon.png?v=3">
+<link rel="shortcut icon" href="/favicon.ico?v=3">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3">
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2310,9 +2316,17 @@ table.tbl-journal{min-width:560px}
     <div class="us-filtres" style="margin:-2px 0 12px">
       <div class="hint" style="flex:1 1 320px;margin:0">Qui est entré, quand, et quelle
         application a été ouverte.</div>
-      <div class="field" style="flex:0 0 110px;margin:0">
+      <div class="field" style="flex:0 0 190px;margin:0">
+        <label for="ac-genre">Afficher</label>
+        <select id="ac-genre" onchange="acGenre()">
+          <option value="connexions">Connexions et refus</option>
+          <option value="ouvertures">Ouvertures d'applications</option>
+          <option value="tout">Tout</option>
+        </select></div>
+      <div class="field" style="flex:0 0 100px;margin:0">
         <label for="ac-taille">Par page</label>
         <select id="ac-taille" onchange="acTaille()">
+          <option value="10">10</option>
           <option value="25">25</option>
           <option value="50">50</option>
         </select></div>
@@ -4753,10 +4767,31 @@ function acParPage(){
   try{
     const v=parseInt(localStorage.getItem('codelab.journal.taille')
                      || localStorage.getItem('codelab.us.taille'), 10);
-    if(v===25 || v===50) return v;
+    if(v===10 || v===25 || v===50) return v;
   }catch(e){}
-  return 25;
+  return 10;
 }
+
+/* CE QU'ON REGARDE. Chaque ouverture d'application s'ajoutait aux
+   connexions, et la liste debordait de lignes qu'on ne cherchait pas. Par
+   defaut : qui est entre, et qui a ete refuse -- la question de securite.
+   Les ouvertures sont a un choix. Memorise comme la taille. */
+const AC_GENRES={connexions:['connexion','echec','refus'], ouvertures:['ouverture'], tout:null};
+function acGenreCourant(){
+  try{
+    const v=localStorage.getItem('codelab.journal.genre');
+    if(v && v in AC_GENRES) return v;
+  }catch(e){}
+  return 'connexions';
+}
+function acGenre(){
+  try{ localStorage.setItem('codelab.journal.genre', $('ac-genre').value); }catch(e){}
+  acPage=1;
+  peindreConnexions();
+}
+/* Au plus deux cents evenements dans la page : au-dela, c'est une recherche,
+   et le journal complet reste dans la base (et dans Postgres). */
+const AC_MAX=200;
 
 function acTaille(){
   const v=$('ac-taille').value;
@@ -4772,7 +4807,10 @@ function acAllerA(n){
 }
 
 function peindreConnexions(){
-  const tous=activite.evenements||[];
+  const genres=AC_GENRES[acGenreCourant()];
+  const tous=(activite.evenements||[])
+    .filter(e=>!genres || genres.includes(e.genre)).slice(0, AC_MAX);
+  const gs=$('ac-genre'); if(gs) gs.value=acGenreCourant();
   const taille=acParPage();
   const pages=Math.max(1, Math.ceil(tous.length/taille));
   /* Rester sur une page qui n'existe plus -- le journal a ete vide, ou la
