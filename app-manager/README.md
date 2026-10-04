@@ -150,6 +150,7 @@ applications est gere directement par ce service.
 | `app/app.py` | Le service : authentification, API, cycle de vie des process, reverse proxy |
 | `app/dashboard.html` | L'interface du panneau |
 | `app/login.html` | La page de connexion |
+| `app/stockage.py` | La base du panneau (SQLite) : connexions, schema versionne, sauvegarde coherente |
 | `vps/` | Tunnel WireGuard + nginx pour exposer ce panneau en HTTPS — voir [`vps/README.md`](vps/README.md). **Ne fait pas partie de l'image** : ces fichiers s'installent sur un VPS et sur l'hote, pas dans le conteneur |
 
 L'application vit dans `app/` : une seule ligne de `COPY` dans le `Dockerfile`, et la racine du service
@@ -161,6 +162,61 @@ Ce que ce panneau expose est controle ailleurs : les sondes de securite vivent d
 Les deux pages etaient des chaines Python dans `app/app.py` — 67 Ko sur une seule ligne pour le tableau de
 bord. Elles sont lues une fois au demarrage, et `__ROOT__` y est remplace par la racine du workspace au
 moment de servir la page. Un fichier `.html` se relit, se diffe et se colore ; une chaine echappee, non.
+
+## Donnees : la base `codelab.db`
+
+Tout ce que le panneau retient vit dans **une seule base SQLite**, `codelab.db`, dans son dossier
+d'etat (`/var/lib/codelab/app-manager`). Une table par sujet, des colonnes typees, des liens entre
+elles. Elle s'ouvre avec n'importe quel outil SQLite — **DB Browser for SQLite** ou TablePlus
+(sur une copie, panneau arrete ou via la sauvegarde), ou en ligne de commande :
+
+```sh
+sqlite3 /DATA/AppData/codelab/app-manager/codelab.db ".tables"
+sqlite3 /DATA/AppData/codelab/app-manager/codelab.db \
+  "SELECT qui, datetime(ts, 'unixepoch'), app FROM journal WHERE genre = 'ouverture' ORDER BY ts DESC LIMIT 20"
+```
+
+| Table | Contenu |
+|---|---|
+| `applications` | Les applications declarees : dossier, commande, commande de build, port, actif, visibilite, categorie, limite memoire |
+| `comptes` | Les comptes utilisateurs : empreinte du mot de passe (PBKDF2) et son sel, adresse verifiee, suspendu, second facteur, date de creation |
+| `acces_applications` | Qui peut ouvrir quelle application privee (une ligne par droit ; supprimee avec le compte) |
+| `cles_acces` | Les cles d'acces (Face ID, Touch ID, empreinte, Windows Hello) : cle publique, compteur, nom, derniere utilisation. `compte = 'admin'` pour l'administrateur |
+| `categories` | Les categories du hub, dans l'ordre voulu |
+| `masquees` | Ce que chaque compte a range hors de son hub |
+| `journal` | Connexions, echecs, ouvertures d'applications, changements de compte : date, genre, qui, application, adresse IP, details. Les 50 000 derniers evenements ; Postgres garde tout |
+| `messages` | Les messages laisses a l'administrateur, avec leur statut |
+| `processus` | Les processus lances, pour les retrouver apres un redemarrage du panneau |
+| `parametres` | Les reglages en clair : exposition, VPS |
+| `reglages_chiffres` | Les reglages sensibles, **chiffres valeur par valeur** : adresses des comptes et des alertes, serveur d'envoi, invitations, adresse de surveillance |
+| `meta` | Compteurs internes (cache des applications) |
+
+**Garanties.** Chaque ecriture est une transaction (complete ou absente, meme si le panneau est tue
+au milieu) ; le mode WAL laisse le proxy lire sans jamais attendre une ecriture ; le fichier est en
+`0600` ; une ligne supprimee est **effacee** du fichier (`secure_delete`), pas seulement oubliee. Le
+schema est **versionne** (`PRAGMA user_version`) : une evolution s'ajoute a la liste `MIGRATIONS` de
+`stockage.py` et se joue une fois, au demarrage.
+
+**Pourquoi SQLite et pas Postgres.** Postgres est partage avec les applications : si le panneau en
+dependait pour lire ses comptes, une base saturee ou cassee empecherait de se connecter au panneau —
+l'outil qui sert a la reparer. SQLite est un fichier local, sans serveur, inclus dans Python. Postgres
+garde son role de copie, pour l'historique long et les requetes.
+
+**Sans `credentials.env`, les secrets ne se lisent pas** : la cle `APP_MANAGER_CHIFFREMENT_CLE` y
+vit. Une copie de la base seule ne livre ni adresse, ni serveur d'envoi.
+
+**Sauvegarde.** L'archive quotidienne du dossier d'etat contient un **instantane coherent** de la
+base, pris par SQLite lui-meme (`backup`), jamais le fichier vivant.
+
+**Migration depuis les fichiers JSON.** Au premier demarrage apres la mise a jour, chaque ancien
+fichier (`apps.json`, `utilisateurs.json`, `passkeys.json`, `acces.jsonl`, `messages.jsonl`,
+`categories.json`, `masquees.json`, `exposition.json`, `processus.json`, `reglages.chiffres`) est
+verse dans sa table puis **renomme en `.migre`** — garde, jamais supprime, pour pouvoir revenir en
+arriere. Les adresses mail encore en clair dans un tres ancien `utilisateurs.json` sont retirees de
+cette copie. Un import rejoue ne remplace jamais ce que la base porte deja.
+
+Le **diagnostic** lit la base en **lecture seule** (`mode=ro`) : une sonde ne peut pas modifier ce
+qu'elle observe.
 
 ## Authentification
 
@@ -376,7 +432,7 @@ Une inscription ne remplace jamais un facteur deja en service (409) : deux conne
 ne peuvent pas invalider le telephone que l'une des deux vient de configurer.
 
 Les mots de passe des comptes sont derives (PBKDF2-HMAC-SHA256, 200 000 iterations, un sel par
-compte) et stockes dans `utilisateurs.json` en `0600`. Une copie de sauvegarde du dossier d'etat
+compte) et stockes dans la table `comptes` de `codelab.db` (`0600`). Une copie de sauvegarde du dossier d'etat
 n'est donc pas une liste de mots de passe. Le compte d'administration, lui, n'est pas dans ce
 fichier : son mot de passe vit dans `credentials.env`, et le nom `admin` est reserve.
 
@@ -391,7 +447,7 @@ sans arreter personne. Volontairement le meme geste que le second facteur, que l
 deja. Cette verification **ne remplace pas le second facteur et n'ouvre aucune session** : elle
 atteste seulement que l'adresse existe et qu'elle est bien relevee par qui la declare.
 
-- Le code est range **sous forme d'empreinte** dans `utilisateurs.json` : il n'a pas a y rester
+- Le code est range **sous forme d'empreinte** dans la base : il n'a pas a y rester
   lisible a cote du nom du compte.
 - Il vaut 15 minutes, tolere 5 essais, et un nouvel envoi est refuse pendant 60 secondes — un bouton
   « renvoyer » sans limite est un moyen d'inonder une boite mail qu'on ne possede pas.
@@ -479,9 +535,8 @@ enregistre.
 | `ALERTE_FROM` | Rarement utile : l'expediteur suit `SMTP_USER`, que Gmail impose de toute facon |
 | `ALERTE_ADMIN` | L'adresse qui recoit **toutes** les alertes, en plus de celles propres a chaque application |
 
-L'interrupteur vit dans `alertes.json`, et les destinataires propres a chaque application dans
-`apps.json`, a cote du reste de leur fiche. Une adresse de destination n'est pas un secret : la
-garder hors du fichier de secrets evite de le reecrire pour un changement anodin.
+L'interrupteur et les destinataires (generaux et propres a chaque application) vivent dans la
+table `reglages_chiffres` de `codelab.db`, chiffres comme les autres adresses.
 
 **Gmail** : validation en deux etapes activee, puis un *mot de passe d'application* de 16
 caracteres. Le mot de passe habituel du compte sera refuse.
@@ -507,7 +562,7 @@ silencieusement sans bloquer le demarrage du service — c'est une commodite, pa
 
 | Variable | Role |
 |---|---|
-| `APP_MANAGER_STATE` | Ou vivent `apps.json`, les logs, le mot de passe admin et la cle de session — le seul dossier que le service ecrit |
+| `APP_MANAGER_STATE` | Ou vivent `codelab.db`, les logs, le mot de passe admin et la cle de session — le seul dossier que le service ecrit |
 | `APP_MANAGER_ROOT` | Racine du navigateur de dossiers et des chemins d'applications (`/workspace`) |
 | `APP_MANAGER_SHARED_CONFIG` | Dossier de `credentials.env`, le fichier unique de secrets (`/var/lib/codelab/config`) |
 | `MANAGER_PORT` | Port d'ecoute du panneau lui-meme (`9001`) |
@@ -521,7 +576,7 @@ silencieusement sans bloquer le demarrage du service — c'est une commodite, pa
 
 | Point de montage | Contenu |
 |---|---|
-| `/var/lib/codelab/app-manager` | `apps.json`, `logs/`, `alertes.json`, `utilisateurs.json`, `categories.json`, `acces.jsonl`, `exposition.json`, `passkeys.json` et `diagnostic-inscrit` — l'etat du panneau. Aucun secret en clair : les mots de passe des comptes sont derives, ceux des services sont dans `credentials.env` |
+| `/var/lib/codelab/app-manager` | `codelab.db` (la base, voir « Donnees »), `logs/` et `diagnostic-inscrit` — l'etat du panneau. Aucun secret en clair : les mots de passe des comptes sont derives, ceux des services sont dans `credentials.env` |
 | `/workspace` | Racine dans laquelle chercher/lancer les applications |
 
 ## Bilan de securite
@@ -710,7 +765,7 @@ fait de tirets seuls, ou de caracteres qu'une adresse ne sait pas porter — est
 message montre ce qu'il donnait. La regle d'avant etait un refus sec : une majuscule rendait le nom
 invalide sans rien dire de plus, et on devinait la contrainte au lieu de la lire.
 
-L'adresse est la **cle** du registre `apps.json`, et elle le reste : c'est elle que portent
+L'adresse est la **cle** de la table `applications`, et elle le reste : c'est elle que portent
 `data-cible`, les cases a cocher d'autorisation, l'environnement `CODELAB_APP` et les fichiers de
 journal. Le nom saisi vit a cote, dans le champ `titre`, et ne sert qu'a l'affichage. Une
 application inscrite avant cette separation n'a pas de `titre` : sa cle fait office de nom, et elle
@@ -774,7 +829,7 @@ de le lancer et de le superviser. `POST /api/add` refuse d'ailleurs un chemin qu
 4. **Edition** (`PUT /api/app/<nom>`) : refusee tant que l'application tourne (`400`), pour eviter un
    changement de chemin/commande en plein vol.
 5. **Reprise au redemarrage du conteneur** (`resume()`) : toute application marquee `enabled: true` dans
-   `apps.json` est relancee automatiquement au demarrage du service — l'etat "actif" survit donc a un
+   la table `applications` est relancee automatiquement au demarrage du service — l'etat "actif" survit donc a un
    redemarrage du conteneur `codelab-app-manager` lui-meme.
 6. **Les applications par defaut sont tenues debout** (`tenir_les_applications_par_defaut()`) :
    `dagster` et `diagnostic` repassent a `enabled: true`, et la tuile du diagnostic recoit son nom

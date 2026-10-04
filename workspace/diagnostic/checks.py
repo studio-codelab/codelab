@@ -907,17 +907,12 @@ def check_exposition():
     """
     # DEUX SOURCES, ET IL FAUT LES DEUX. Ces reglages se posent desormais
     # depuis la page Exposition du panneau, qui les ecrit dans
-    # exposition.json ; la variable d'environnement reste prioritaire quand
+    # la base du panneau ; la variable d'environnement reste prioritaire quand
     # le compose la fixe. Ne lire que l'environnement, comme le faisait cette
     # sonde, annoncait "il manque APP_MANAGER_HTTPS" sur une installation ou
     # HTTPS etait deja active depuis la page -- la sonde reclamait ce qui
     # etait deja fait.
-    etat = _etat_panneau()
-    try:
-        with open(os.path.join(etat, "exposition.json")) as f:
-            pose = json.load(f) or {}
-    except (OSError, ValueError):
-        pose = {}
+    pose = _exposition_panneau() or {}
 
     # Ni le fichier ni une variable : on ne regarde pas le bon conteneur.
     # Repondre "reseau local, tout va bien" ici serait inventer une reponse a
@@ -983,22 +978,15 @@ def check_provenance():
     import ipaddress
     if not _etat_panneau_visible():
         return Etat.SANS_OBJET, "provenance des connexions", _hors_de_portee()
-    journal = os.path.join(_etat_panneau(), "acces.jsonl")
-    if not os.path.exists(journal):
+    ips = _ips_du_journal()
+    if ips is None:
+        return Etat.SANS_OBJET, "provenance des connexions", "journal illisible ici"
+    if not ips:
         return (Etat.OK, "provenance des connexions",
                 "aucune connexion enregistrée pour l'instant")
-    try:
-        with open(journal, errors="replace") as f:
-            lignes = f.readlines()[-2000:]
-    except OSError as e:
-        return Etat.SANS_OBJET, "provenance des connexions", f"journal illisible ici ({e})"
 
     dehors, dedans = {}, 0
-    for ligne in lignes:
-        try:
-            ip = json.loads(ligne).get("ip") or ""
-        except ValueError:
-            continue
+    for ip in ips:
         if not ip:
             continue
         try:
@@ -1059,6 +1047,101 @@ def _hors_de_portee():
             f"(page de diagnostic du panneau)")
 
 
+# ------------------- la base du panneau, en lecture seule -------------------
+#
+# Le panneau range ses donnees dans une base SQLite, codelab.db (voir
+# app-manager/app/stockage.py). Les sondes la lisent en LECTURE SEULE : un
+# diagnostic ne doit jamais pouvoir modifier ce qu'il observe. Les anciens
+# fichiers JSON restent le repli, pour une installation pas encore migree.
+
+def _base_panneau():
+    return os.path.join(_etat_panneau(), "codelab.db")
+
+
+def _requete_panneau(requete, parametres=()):
+    """Les lignes de la requete, ou None si la base n'est pas lisible ici."""
+    import sqlite3
+    chemin = _base_panneau()
+    if not os.path.exists(chemin):
+        return None
+    try:
+        cx = sqlite3.connect(f"file:{chemin}?mode=ro", uri=True, timeout=5)
+        try:
+            cx.row_factory = sqlite3.Row
+            return cx.execute(requete, parametres).fetchall()
+        finally:
+            cx.close()
+    except sqlite3.Error:
+        return None
+
+
+def _apps_panneau():
+    lignes = _requete_panneau("SELECT nom, dossier, commande, port, actif, visibilite "
+                              "FROM applications")
+    if lignes is None:
+        return _lire_json(os.path.join(_etat_panneau(), "apps.json"), {})
+    apps = {}
+    for l in lignes:
+        a = {"path": l["dossier"] or "", "command": l["commande"] or "",
+             "port": l["port"], "enabled": bool(l["actif"])}
+        if l["visibilite"]:
+            a["visibility"] = l["visibilite"]
+        apps[l["nom"]] = a
+    return apps
+
+
+def _comptes_panneau():
+    lignes = _requete_panneau("SELECT nom, totp FROM comptes")
+    if lignes is None:
+        return _lire_json(os.path.join(_etat_panneau(), "utilisateurs.json"), {})
+    return {l["nom"]: ({"totp": l["totp"]} if l["totp"] else {}) for l in lignes}
+
+
+def _exposition_panneau():
+    lignes = _requete_panneau("SELECT valeur FROM parametres WHERE cle = 'exposition'")
+    if lignes is None:
+        return _lire_json(os.path.join(_etat_panneau(), "exposition.json"), {})
+    try:
+        return json.loads(lignes[0]["valeur"]) if lignes else {}
+    except ValueError:
+        return {}
+
+
+def _ips_du_journal(nombre=2000):
+    """Les adresses des derniers evenements, ou None si le journal est
+    illisible ici."""
+    lignes = _requete_panneau("SELECT ip FROM journal ORDER BY ts DESC LIMIT ?", (nombre,))
+    if lignes is not None:
+        return [l["ip"] or "" for l in lignes]
+    journal = os.path.join(_etat_panneau(), "acces.jsonl")
+    if not os.path.exists(journal):
+        return []
+    try:
+        with open(journal, errors="replace") as f:
+            brutes = f.readlines()[-nombre:]
+    except OSError:
+        return None
+    ips = []
+    for ligne in brutes:
+        try:
+            ips.append(json.loads(ligne).get("ip") or "")
+        except ValueError:
+            continue
+    return ips
+
+
+def _taille_du_journal():
+    """Le nombre d'evenements (ou la taille de l'ancien fichier), -1 si
+    illisible."""
+    lignes = _requete_panneau("SELECT COUNT(*) AS n FROM journal")
+    if lignes is not None:
+        return lignes[0]["n"]
+    try:
+        return os.path.getsize(os.path.join(_etat_panneau(), "acces.jsonl"))
+    except OSError:
+        return -1
+
+
 def _lire_json(chemin, defaut):
     try:
         with open(chemin) as f:
@@ -1092,7 +1175,7 @@ def check_applications():
     """
     if not _etat_panneau_visible():
         return Etat.SANS_OBJET, "applications déclarées", _hors_de_portee()
-    apps = _lire_json(os.path.join(_etat_panneau(), "apps.json"), {})
+    apps = _apps_panneau()
     if not apps:
         return (Etat.OK, "applications déclarées",
                 "Aucune application déclarée : rien à vérifier.")
@@ -1303,9 +1386,9 @@ def check_surface_exposee():
     """Ce qui est REELLEMENT joignable, et par qui.
 
     Constate plutot que de faire confiance a ce qui est declare : la liste
-    des applications publiques vient d'apps.json, la restriction
-    d'administration d'exposition.json, et les comptes sans second facteur
-    d'utilisateurs.json. Trois fichiers, trois verites qu'on ne rapproche
+    des applications publiques, la restriction d'administration et les
+    comptes sans second facteur viennent de trois tables de la base du
+    panneau. Trois sources, trois verites qu'on ne rapproche
     jamais a l'oeil.
 
     Elle ne dit pas "c'est mal" : une application publique sur une machine
@@ -1315,9 +1398,9 @@ def check_surface_exposee():
     if not _etat_panneau_visible():
         return Etat.SANS_OBJET, "surface exposée", _hors_de_portee()
     etat = _etat_panneau()
-    apps = _lire_json(os.path.join(etat, "apps.json"), {})
-    expo = _lire_json(os.path.join(etat, "exposition.json"), {})
-    comptes = _lire_json(os.path.join(etat, "utilisateurs.json"), {})
+    apps = _apps_panneau()
+    expo = _exposition_panneau()
+    comptes = _comptes_panneau()
 
     publiques = sorted(n for n, a in apps.items()
                        if (a.get("visibility") or "privee") == "publique")
@@ -1615,16 +1698,8 @@ def verif_le_journal_enregistre():
     cherche qui s'est connecte il n'y a rien a lire.
     """
     import urllib.request
-    etat = os.environ.get("APP_MANAGER_STATE") or "/var/lib/codelab/app-manager"
-    journal = os.path.join(etat, "acces.jsonl")
-
-    def taille():
-        try:
-            return os.path.getsize(journal)
-        except OSError:
-            return -1
-
-    avant = taille()
+    journal = "le journal du panneau"
+    avant = _taille_du_journal()
     if avant < 0:
         return (False, "le journal des accès enregistré",
                 f"{journal} introuvable ou illisible depuis ici")
@@ -1635,14 +1710,14 @@ def verif_le_journal_enregistre():
     except Exception:                                             # noqa: BLE001
         pass
     time.sleep(1.0)
-    apres = taille()
+    apres = _taille_du_journal()
     if apres > avant:
         return (True, "le journal des accès enregistré",
-                f"une ouverture de plus notée ({apres - avant} octets)")
+                f"une ouverture de plus notée ({apres} événements)")
     # Les ouvertures sont regroupees par quart d'heure et par compte : rien
     # de neuf peut vouloir dire "deja note il y a dix minutes", pas "casse".
     return (True, "le journal des accès enregistré",
-            f"{journal} lisible ({avant} octets) — rien de neuf, les "
+            f"{journal} lisible ({avant} événements) — rien de neuf, les "
             f"ouvertures sont regroupées par quart d'heure")
 
 
