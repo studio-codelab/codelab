@@ -669,10 +669,20 @@ RATE_LIMIT_MAX = 5
 
 
 def _client_ip():
+    """L'adresse du client.
+
+    Derriere un proxy de confiance, c'est la DERNIERE adresse de
+    X-Forwarded-For qui fait foi, jamais la premiere. nginx
+    ($proxy_add_x_forwarded_for) AJOUTE l'adresse qu'il voit a la fin de ce
+    que le client a envoye : la premiere est donc celle que le client a
+    choisie. La prendre laissait n'importe qui, depuis Internet, se dire
+    « 192.168.1.10 » -- et passer la restriction de l'administration au
+    reseau local comme la limite de tentatives.
+    """
     if trust_proxy():
         forwarded = request.headers.get("X-Forwarded-For", "")
         if forwarded:
-            return forwarded.split(",")[0].strip()
+            return forwarded.split(",")[-1].strip()
     return request.remote_addr or "unknown"
 
 
@@ -1225,7 +1235,45 @@ def fermer_les_sessions_suspendues():
     compte = lire_utilisateurs().get(nom) if nom else None
     if compte is None or compte_suspendu(compte):
         session.clear()
+        return None
+    # Mot de passe change ou reinitialise, cles Face ID retirees : les
+    # sessions ouvertes AVANT tombent. Une session est un cookie signe, que
+    # le serveur ne peut pas rappeler -- sans cette date, un cookie vole
+    # survivait au changement de mot de passe fait justement pour s'en
+    # debarrasser.
+    depuis = compte.get("sessions_depuis") or 0
+    if (session.get("ouverte") or 0) < depuis:
+        session.clear()
     return None
+
+
+# AUTHENTIFICATION RECENTE. Ajouter une cle Face ID ou changer l'adresse qui
+# recoit les codes, c'est installer un acces DURABLE au compte. Un cookie de
+# session vole ne doit pas y suffire : ces deux gestes exigent une connexion
+# de moins d'un quart d'heure. Le panneau propose Face ID juste apres la
+# connexion, donc dans cette fenetre.
+AUTHENTIFICATION_RECENTE = 900
+
+
+def authentification_recente():
+    return int(time.time()) - int(session.get("ouverte") or 0) <= AUTHENTIFICATION_RECENTE
+
+
+def refus_authentification_ancienne():
+    if authentification_recente():
+        return None
+    return jsonify({"error": "Par sécurité, reconnecte-toi avant cette opération "
+                             "(connexion de moins de 15 minutes requise).",
+                    "reconnexion": True}), 403
+
+
+def fermer_les_autres_sessions(compte, garder_celle_ci=False):
+    """Invalide les sessions ouvertes de ce compte (a ecrire ensuite)."""
+    maintenant = int(time.time())
+    compte["sessions_depuis"] = maintenant
+    if garder_celle_ci:
+        # Celle qui vient de prouver le mot de passe reste ouverte.
+        session["ouverte"] = maintenant
 
 
 @flask_app.before_request
@@ -1739,6 +1787,11 @@ ROLE_UTILISATEUR = "utilisateur"
 # dizaines de millisecondes ici, des annees pour qui essaie un dictionnaire.
 PBKDF2_ITERATIONS = 200_000
 
+# Le meme minimum partout ou un mot de passe nait : invitation, inscription,
+# reinitialisation, administrateur, changement. Il etait de 8 a la creation
+# et de 12 au changement -- le plus faible des deux faisait la regle.
+MDP_MIN = 12
+
 
 def lire_utilisateurs():
     """Le registre des comptes. Jamais d'exception : un fichier illisible ne
@@ -1979,9 +2032,19 @@ def moyens_second_facteur(compte):
     moyens = []
     if compte.get("totp"):
         moyens.append(MOYEN_TOTP)
-    if compte.get("email") and compte.get("email_verifie") and smtp_utilisable()[1]:
+    # Apres une reinitialisation du mot de passe PAR MAIL, le mail a deja
+    # servi de preuve : le reprendre comme second facteur reviendrait a
+    # ouvrir le compte a qui tient la boite. Le code par mail reste suspendu
+    # jusqu'a une connexion par l'application ou par Face ID.
+    if (compte.get("email") and compte.get("email_verifie")
+            and not compte.get("code_mail_suspendu") and smtp_utilisable()[1]):
         moyens.append(MOYEN_EMAIL)
     return moyens
+
+
+def facteur_fort(nom, compte):
+    """Le compte a-t-il un facteur qui ne passe PAS par la boite mail ?"""
+    return bool(compte.get("totp") or passkeys_du_compte(nom))
 
 
 def poser_code_connexion(compte, moyen):
@@ -6420,6 +6483,7 @@ def login_submit():
             journaliser("echec", qui=nom, motif="second facteur", ip=_adresse_client())
             return jsonify({"error": "Code de vérification incorrect.",
                             "totp": True, "moyens": moyens}), 401
+        _lever_suspension_code_mail(nom)
         return _ouvrir_session_utilisateur(nom)
 
     if moyens:
@@ -6457,6 +6521,19 @@ def login_submit():
         reponse["envoye"] = True
         return jsonify(reponse), 401
 
+    if (compte.get("email_verifie") or compte.get("code_mail_suspendu")
+            or passkeys_du_compte(nom)):
+        # Ce compte a deja un facteur (adresse verifiee, Face ID) qu'on ne
+        # peut pas utiliser en ce moment : serveur d'envoi en panne, ou code
+        # par mail suspendu. Laisser enregistrer une application ici, sur le
+        # seul mot de passe, contournerait ce facteur.
+        register_failed_attempt()
+        journaliser("echec", qui=nom, motif="aucun second facteur utilisable",
+                    ip=_adresse_client())
+        return jsonify({"error": "Aucun code ne peut être envoyé pour le moment. "
+                                 "Connecte-toi avec Face ID, ou demande de l'aide à "
+                                 "ton administrateur."}), 403
+
     if not secret:
         # Premier acces : inscription obligatoire avant toute session. Le
         # secret candidat vit dans le cookie signe -- rien n'est enregistre
@@ -6475,6 +6552,17 @@ def login_submit():
     # et la branche "moyens" ci-dessus a deja repondu. Garde par prudence.
     register_failed_attempt()
     return jsonify({"error": "Code de vérification incorrect.", "totp": True}), 401
+
+
+def _lever_suspension_code_mail(nom):
+    """Une connexion par un facteur fort rend le code par mail."""
+    comptes = lire_utilisateurs()
+    if comptes.get(nom, {}).get("code_mail_suspendu"):
+        comptes[nom].pop("code_mail_suspendu", None)
+        try:
+            ecrire_utilisateurs(comptes)
+        except (OSError, RuntimeError):
+            pass
 
 
 def _ouvrir_session_utilisateur(nom):
@@ -6594,7 +6682,7 @@ def _refus_passkey():
 @require_auth
 def api_passkey_options():
     """Prepare l'enregistrement d'une cle pour le compte connecte."""
-    refus = _refus_passkey()
+    refus = _refus_passkey() or refus_authentification_ancienne()
     if refus:
         return refus
     from webauthn import generate_registration_options, options_to_json
@@ -6632,7 +6720,7 @@ def api_passkey_options():
 @require_auth
 def api_passkey_enregistrer():
     """Verifie la reponse du navigateur et range la cle."""
-    refus = _refus_passkey()
+    refus = _refus_passkey() or refus_authentification_ancienne()
     if refus:
         return refus
     from webauthn import verify_registration_response
@@ -6821,6 +6909,12 @@ def login_passkey():
             return jsonify({"error": "Compte inconnu."}), 401
         if compte.get("attente_email"):
             return jsonify({"error": "Confirme d'abord ton adresse mail."}), 403
+        if compte_suspendu(compte):
+            journaliser("echec", qui=proprietaire, motif="compte suspendu",
+                        moyen="cle d'acces", ip=_adresse_client())
+            return jsonify({"error": "Ce compte est suspendu. Demande à "
+                                     "l'administrateur de le réactiver."}), 403
+        _lever_suspension_code_mail(proprietaire)
 
     session.pop("passkey_defi", None)
     session.permanent = True
@@ -6948,6 +7042,9 @@ def api_mon_email():
     if compte is None:
         return jsonify({"error": "Le compte d'administration n'a pas d'adresse "
                                  "propre : règle les destinataires des alertes."}), 400
+    refus = refus_authentification_ancienne()
+    if refus:
+        return refus
     adresse = email_valide((request.get_json(force=True, silent=True) or {}).get("email"))
     if not adresse:
         return jsonify({"error": "Adresse mail invalide."}), 400
@@ -7061,8 +7158,8 @@ def inscription_creer():
         return jsonify({"error": "Ce nom est réservé."}), 400
     if not adresse:
         return jsonify({"error": "Adresse mail invalide."}), 400
-    if len(mdp) < 8:
-        return jsonify({"error": "Mot de passe : 8 caractères au minimum."}), 400
+    if len(mdp) < MDP_MIN:
+        return jsonify({"error": f"Mot de passe : {MDP_MIN} caractères au minimum."}), 400
 
     comptes = lire_utilisateurs()
     if nom in comptes:
@@ -7128,7 +7225,13 @@ def mot_de_passe_oubli():
 
     comptes = lire_utilisateurs()
     compte = comptes.get(nom) if nom else None
-    if compte and compte.get("email") and compte.get("email_verifie"):
+    # OPTION A : la reinitialisation par mail n'est ouverte qu'aux comptes qui
+    # ont un facteur HORS de la boite mail (application ou Face ID). Sinon,
+    # la boite mail seule suffirait a prendre le compte : elle donnerait le
+    # mot de passe ET le code de connexion. Ces comptes passent par
+    # l'administrateur.
+    if (compte and compte.get("email") and compte.get("email_verifie")
+            and facteur_fort(nom, compte)):
         en_cours = compte.get("reinit_code") or {}
         # Pas plus d'un envoi par minute et par compte : sans cela, ce
         # formulaire devient un robinet a mails vers l'adresse de quelqu'un
@@ -7162,8 +7265,8 @@ def mot_de_passe_reinitialiser():
     d = request.get_json(force=True, silent=True) or {}
     nom = nom_utilisateur_valide(d.get("nom"))
     nouveau = (d.get("nouveau") or "").strip()
-    if len(nouveau) < 8:
-        return jsonify({"error": "Mot de passe : 8 caractères au minimum."}), 400
+    if len(nouveau) < MDP_MIN:
+        return jsonify({"error": f"Mot de passe : {MDP_MIN} caractères au minimum."}), 400
 
     comptes = lire_utilisateurs()
     compte = comptes.get(nom) if nom else None
@@ -7184,6 +7287,10 @@ def mot_de_passe_reinitialiser():
     sel = secrets.token_hex(16)
     compte["sel"] = sel
     compte["hash"] = derive_mot_de_passe(nouveau, sel)
+    # Le mail vient de servir : il ne sera pas, en plus, le second facteur.
+    compte["code_mail_suspendu"] = True
+    fermer_les_autres_sessions(compte)
+    compte.pop("code_connexion", None)
     try:
         ecrire_utilisateurs(comptes)
     except OSError as e:
@@ -7344,8 +7451,8 @@ def invitation_accepter(jeton):
                                  "minuscules, chiffres, tiret ou souligné."}), 400
     if nom == NOM_ADMIN:
         return jsonify({"error": "Ce nom est réservé."}), 400
-    if len(mdp) < 8:
-        return jsonify({"error": "Mot de passe : 8 caractères au minimum."}), 400
+    if len(mdp) < MDP_MIN:
+        return jsonify({"error": f"Mot de passe : {MDP_MIN} caractères au minimum."}), 400
 
     comptes = lire_utilisateurs()
     if nom in comptes:
@@ -7815,11 +7922,8 @@ def api_changer_mot_de_passe():
     ancien = (d.get("ancien") or "").strip()
     nouveau = (d.get("nouveau") or "").strip()
 
-    if len(nouveau) < 12:
-        # Douze, et non huit comme pour les comptes crees par
-        # l'administrateur : celui-ci se choisit lui-meme, il n'a pas a etre
-        # transmis, et rien n'oblige a le raccourcir.
-        return jsonify({"error": "Mot de passe : 12 caractères au minimum."}), 400
+    if len(nouveau) < MDP_MIN:
+        return jsonify({"error": f"Mot de passe : {MDP_MIN} caractères au minimum."}), 400
     if nouveau == ancien:
         return jsonify({"error": "Le nouveau mot de passe est identique à l'ancien."}), 400
 
@@ -7849,6 +7953,7 @@ def api_changer_mot_de_passe():
         return jsonify({"error": "Ancien mot de passe incorrect."}), 403
     compte["sel"] = secrets.token_hex(16)
     compte["hash"] = derive_mot_de_passe(nouveau, compte["sel"])
+    fermer_les_autres_sessions(compte, garder_celle_ci=True)
     try:
         ecrire_utilisateurs(comptes)
     except OSError as e:
@@ -8110,8 +8215,8 @@ def api_utilisateur_creer():
                                  "minuscules, chiffres, tiret ou souligné."}), 400
     if nom == NOM_ADMIN:
         return jsonify({"error": "Ce nom est celui du compte d'administration."}), 400
-    if len(mdp) < 8:
-        return jsonify({"error": "Mot de passe : 8 caractères au minimum."}), 400
+    if len(mdp) < MDP_MIN:
+        return jsonify({"error": f"Mot de passe : {MDP_MIN} caractères au minimum."}), 400
 
     comptes = lire_utilisateurs()
     if nom in comptes:
@@ -8163,10 +8268,11 @@ def api_utilisateur_modifier(nom):
                     ip=_adresse_client())
     mdp = (d.get("mot_de_passe") or "").strip()
     if mdp:
-        if len(mdp) < 8:
-            return jsonify({"error": "Mot de passe : 8 caractères au minimum."}), 400
+        if len(mdp) < MDP_MIN:
+            return jsonify({"error": f"Mot de passe : {MDP_MIN} caractères au minimum."}), 400
         compte["sel"] = secrets.token_hex(16)
         compte["hash"] = derive_mot_de_passe(mdp, compte["sel"])
+        fermer_les_autres_sessions(compte)
 
     # Telephone perdu ou remplace : on efface le secret, et la personne
     # s'inscrit de nouveau a sa prochaine connexion. C'est le seul moyen de
@@ -8192,6 +8298,8 @@ def api_utilisateur_modifier(nom):
     # facteur a zero, mais pas retirer les cles d'acces -- le compte restait
     # ouvrable par un telephone egare. Meme geste, meme raison.
     if d.get("retirer_passkeys"):
+        # Appareil perdu : la session qu'il porte peut-etre tombe aussi.
+        fermer_les_autres_sessions(compte)
         tout = lire_passkeys()
         if tout.pop(nom, None) is not None:
             try:

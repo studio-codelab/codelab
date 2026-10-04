@@ -2345,7 +2345,7 @@ table.tbl-journal{min-width:560px}
           </div>
         </div>
         <div class="field" style="margin-top:14px"><label>Mot de passe</label>
-          <input id="us-mdp" type="password" autocomplete="new-password" placeholder="8 caractères au minimum">
+          <input id="us-mdp" type="password" autocomplete="new-password" placeholder="12 caractères au minimum">
           <div class="hint">Le second facteur, lui, s'enregistre à la première connexion : tu ne
             connais jamais la clé de quelqu'un d'autre.</div>
         </div>
@@ -2439,8 +2439,9 @@ table.tbl-journal{min-width:560px}
       </div>
       <div class="hint" id="us-f-mail-etat"></div>
       <details class="repli"><summary>Ce qui ne se change pas</summary>
-        <div class="hint">8 caractères au minimum pour le mot de passe. La personne n'est pas
-          déconnectée : sa session en cours reste valable jusqu'à ce qu'elle la ferme.</div>
+        <div class="hint">12 caractères au minimum pour le mot de passe. Poser un nouveau mot de
+          passe (ou retirer les clés d'accès) ferme les sessions ouvertes de la personne : un
+          appareil perdu ou un cookie volé cesse aussitôt de servir.</div>
         <div class="hint">Le nom du compte ne se change pas : il identifie la personne partout —
           dans ses clés d'accès, dans le journal des accès, dans la liste des projets autorisés.
           Pour renommer quelqu'un, crée un compte et supprime l'ancien.</div>
@@ -5147,7 +5148,7 @@ async function usEcrire(corps, message){
 
 async function usEnregistrer(){
   const mdp=$('us-f-mdp').value;
-  if(mdp && mdp.length<8) return usFicheErreur('Mot de passe : 8 caractères au minimum.');
+  if(mdp && mdp.length<12) return usFicheErreur('Mot de passe : 12 caractères au minimum.');
   const projets=[...document.querySelectorAll('#us-f-projets input:checked')].map(i=>i.value);
   const corps={email:$('us-f-mail').value.trim(), projets};
   if(mdp) corps.mot_de_passe=mdp;

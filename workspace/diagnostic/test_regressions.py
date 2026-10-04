@@ -3199,12 +3199,18 @@ def _code_du_dernier_mail(partis):
 # peut prouver a distance qui il est ; et si le seul recours etait
 # l'administrateur, il faudrait le deranger a chaque oubli.
 
-def _compte_avec_adresse(nom="marie", mdp="mot-de-passe-long", verifiee=True):
+def _compte_avec_adresse(nom="marie", mdp="mot-de-passe-long", verifiee=True,
+                         face_id=True):
+    """face_id : une cle d'acces enregistree -- la condition, depuis l'option A,
+    pour que la reinitialisation par mail soit ouverte."""
     sel = "ee" * 16
     app.ecrire_utilisateurs({nom: {
         "sel": sel, "hash": app.derive_mot_de_passe(mdp, sel),
         "projets": [], "cree": 0,
         "email": f"{nom}@example.com", "email_verifie": verifiee}})
+    app.ecrire_passkeys({nom: [{"id": "CLE", "cle_publique": "AAAA", "compteur": 0,
+                                "nom": "Face ID", "cree": 0, "dernier": 0}]}
+                        if face_id else {})
 
 
 def test_un_code_de_reinitialisation_part_a_l_adresse_verifiee(comptes_mail):
@@ -4234,6 +4240,31 @@ def test_un_proxy_declare_rend_l_adresse_reelle_a_nouveau_lisible(exposition):
                  headers={"X-Forwarded-For": "192.168.1.42"}).status_code == 200
     r = c.get("/api/apps", headers={"X-Forwarded-For": "203.0.113.7"})
     assert r.status_code == 403, r.data
+
+
+def test_une_adresse_locale_injectee_par_le_client_ne_passe_pas_le_verrou(exposition):
+    """L'attaque : depuis Internet, envoyer soi-meme « X-Forwarded-For:
+    192.168.1.42 ». nginx AJOUTE l'adresse reelle a la suite : c'est elle,
+    la derniere, qui doit compter."""
+    c = exposition
+    c.put("/api/securite/exposition", json={"trust_proxy": True},
+          headers={"X-Forwarded-For": "192.168.1.42"})
+    _active_le_verrou(c)
+    r = c.get("/api/apps", headers={"X-Forwarded-For": "192.168.1.42, 203.0.113.7"})
+    assert r.status_code == 403, r.data
+    assert c.get("/api/apps", headers={
+        "X-Forwarded-For": "203.0.113.7, 192.168.1.42"}).status_code == 200
+
+
+def test_changer_d_adresse_inventee_ne_contourne_pas_la_limite(client, monkeypatch):
+    monkeypatch.setattr(app, "trust_proxy", lambda: True)
+    app._login_attempts.clear()
+    for i in range(app.RATE_LIMIT_MAX):
+        client.post("/login", json={"password": "faux"},
+                    headers={"X-Forwarded-For": f"10.9.9.{i}, 203.0.113.7"})
+    r = client.post("/login", json={"password": "faux"},
+                    headers={"X-Forwarded-For": "10.9.9.200, 203.0.113.7"})
+    assert r.status_code == 429
 
 
 def test_le_compose_peut_rouvrir_l_administration(exposition, monkeypatch):
@@ -12227,3 +12258,170 @@ def test_mailpit_injoignable_l_envoi_repart_en_direct(monkeypatch):
                       "user": "", "password": "", "expediteur": "moi@example.com"},
                      "sujet", "corps", destinataires=["toi@example.com"])
     assert len(envois) == 1
+
+
+# ---------- option A : la boite mail seule ne prend pas un compte ----------
+#
+# Le mail sert deja de second facteur (code de connexion). S'il servait AUSSI a
+# reinitialiser le mot de passe, qui tient la boite tiendrait le compte. D'ou :
+# reinitialisation par mail reservee aux comptes qui ont Face ID ou une
+# application, et code par mail suspendu apres une reinitialisation.
+
+def _reinitialiser_par_mail(c, partis, nouveau="nouveau-mot-de-passe"):
+    c.post("/mot-de-passe/oubli", json={"nom": "marie"})
+    code = _code_du_dernier_mail(partis)
+    app._login_attempts.clear()
+    return c.post("/mot-de-passe/reinitialiser",
+                  json={"nom": "marie", "code": code, "nouveau": nouveau})
+
+
+def test_sans_facteur_fort_la_reinitialisation_par_mail_est_fermee(comptes_mail):
+    c, partis = comptes_mail
+    _compte_avec_adresse(face_id=False)
+    assert c.post("/mot-de-passe/oubli", json={"nom": "marie"}).status_code == 200
+    assert partis == [], "un code de reinitialisation est parti sans facteur fort"
+
+
+def test_apres_une_reinitialisation_par_mail_le_code_mail_ne_suffit_plus(comptes_mail):
+    """Le scenario de la boite mail volee : mot de passe reinitialise par mail,
+    puis tentative d'entrer avec le code... envoye par mail."""
+    c, partis = comptes_mail
+    _compte_avec_adresse()
+    assert _reinitialiser_par_mail(c, partis).status_code == 200
+    app._login_attempts.clear()
+    nb = len(partis)
+    r = c.post("/login", json={"nom": "marie", "password": "nouveau-mot-de-passe",
+                               "moyen": "email"})
+    assert r.status_code == 403, r.data
+    assert len(partis) == nb, "un code de connexion est parti par mail"
+    assert c.get("/api/mes-apps").status_code == 401
+
+
+def test_apres_reinitialisation_aucune_application_ne_s_inscrit_sur_le_mot_de_passe(comptes_mail):
+    """Sans ce verrou, le mot de passe reinitialise suffirait a enregistrer
+    une application d'authentification -- et a entrer."""
+    c, partis = comptes_mail
+    _compte_avec_adresse()
+    _reinitialiser_par_mail(c, partis)
+    app._login_attempts.clear()
+    r = c.post("/login", json={"nom": "marie", "password": "nouveau-mot-de-passe"})
+    assert r.status_code == 403 and not r.get_json().get("inscription")
+
+
+def test_un_facteur_fort_rend_le_code_par_mail(comptes_mail):
+    c, partis = comptes_mail
+    _compte_avec_adresse()
+    comptes = app.lire_utilisateurs()
+    comptes["marie"]["totp"] = "JBSWY3DPEHPK3PXP"
+    app.ecrire_utilisateurs(comptes)
+    _reinitialiser_par_mail(c, partis)
+    assert app.lire_utilisateurs()["marie"]["code_mail_suspendu"] is True
+    app._login_attempts.clear()
+    d = c.post("/login", json={"nom": "marie", "password": "nouveau-mot-de-passe"}).get_json()
+    assert d["moyens"] == ["totp"]
+    code = app.totp_code("JBSWY3DPEHPK3PXP", int(time.time()) // app.TOTP_PAS)
+    assert c.post("/login", json={"nom": "marie", "password": "nouveau-mot-de-passe",
+                                  "code": code}).status_code == 200
+    assert not app.lire_utilisateurs()["marie"].get("code_mail_suspendu")
+
+
+def test_une_adresse_verifiee_sans_serveur_d_envoi_n_ouvre_pas_l_inscription(comptes_mail, tmp_path):
+    """Serveur d'envoi en panne : le compte ne doit pas retomber sur
+    l'inscription d'une application, qui n'exige que le mot de passe."""
+    c, _ = comptes_mail
+    _compte_avec_adresse(face_id=False)
+    (tmp_path / "credentials.env").write_text("")
+    r = c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long"})
+    assert r.status_code == 403 and not r.get_json().get("inscription")
+
+
+def test_un_compte_suspendu_n_entre_pas_par_face_id(comptes_mail, monkeypatch):
+    """Le mot de passe refusait deja un compte suspendu ; la cle d'acces, non."""
+    pytest.importorskip("webauthn")
+    import webauthn
+    c, _ = comptes_mail
+    _compte_avec_adresse()
+    comptes = app.lire_utilisateurs()
+    comptes["marie"]["suspendu"] = True
+    app.ecrire_utilisateurs(comptes)
+    monkeypatch.setattr(app, "passkey_contexte",
+                        lambda: ("codelab.exemple.fr", "https://codelab.exemple.fr", ""))
+
+    class Verifiee:
+        new_sign_count = 1
+    monkeypatch.setattr(webauthn, "verify_authentication_response", lambda **k: Verifiee())
+    with c.session_transaction() as sess:
+        sess["passkey_defi"] = base64.b64encode(b"defi").decode()
+    r = c.post("/login/passkey", json={"credential": {"id": "CLE"}})
+    assert r.status_code == 403, r.data
+    assert c.get("/api/mes-apps").status_code == 401
+
+
+# ---------- un changement de mot de passe ferme les sessions ouvertes ----------
+
+def test_un_nouveau_mot_de_passe_pose_par_l_admin_ferme_la_session_volee(deux_espaces):
+    vol = app.flask_app.test_client()
+    _connecte(vol, "marie", "mot-de-passe-long")
+    assert vol.get("/api/mes-apps").status_code == 200
+    time.sleep(1.1)
+    comptes = app.lire_utilisateurs()
+    app.fermer_les_autres_sessions(comptes["marie"])
+    app.ecrire_utilisateurs(comptes)
+    assert vol.get("/api/mes-apps").status_code == 401
+
+
+def test_changer_son_mot_de_passe_garde_sa_session_et_ferme_les_autres(deux_espaces):
+    c = deux_espaces
+    autre = app.flask_app.test_client()
+    _connecte(c, "marie", "mot-de-passe-long")
+    _connecte(autre, "marie", "mot-de-passe-long")
+    time.sleep(1.1)
+    jeton = c.get("/").get_data(as_text=True)
+    jeton = re.search(r"const JETON=(\"[^\"]+\")", jeton).group(1).strip('"')
+    r = c.post("/api/compte/mot-de-passe",
+               json={"ancien": "mot-de-passe-long", "nouveau": "un-tout-nouveau-mot-de-passe"},
+               headers={app.JETON_ENTETE: jeton})
+    assert r.status_code == 200, r.data
+    assert c.get("/api/mes-apps").status_code == 200
+    assert autre.get("/api/mes-apps").status_code == 401
+
+
+def test_une_reinitialisation_par_mail_ferme_les_sessions_ouvertes(comptes_mail):
+    c, partis = comptes_mail
+    _compte_avec_adresse()
+    vol = app.flask_app.test_client()
+    with vol.session_transaction() as s:
+        s.update(authed=True, role=app.ROLE_UTILISATEUR, utilisateur="marie",
+                 ouverte=int(time.time()) - 10, jeton="j")
+    assert vol.get("/api/mes-apps").status_code == 200
+    assert _reinitialiser_par_mail(c, partis).status_code == 200
+    assert vol.get("/api/mes-apps").status_code == 401
+
+
+def test_un_cookie_ancien_ne_suffit_pas_a_ajouter_une_cle_ni_changer_d_adresse(comptes_mail):
+    """Une session volee ne doit pas pouvoir s'installer durablement : ajouter
+    sa propre cle Face ID, ou detourner l'adresse qui recoit les codes."""
+    c, _ = comptes_mail
+    _compte_avec_adresse()
+    with c.session_transaction() as s:
+        s.update(authed=True, role=app.ROLE_UTILISATEUR, utilisateur="marie",
+                 ouverte=int(time.time()) - app.AUTHENTIFICATION_RECENTE - 60, jeton="j")
+    h = {app.JETON_ENTETE: "j"}
+    r = c.post("/api/mon-compte/email", json={"email": "pirate@example.com"}, headers=h)
+    assert r.status_code == 403 and r.get_json()["reconnexion"] is True
+    assert app.lire_utilisateurs()["marie"]["email"] == "marie@example.com"
+    if app.passkeys_disponibles():
+        r = c.post("/api/mon-compte/passkeys/options", headers=h)
+        assert r.status_code in (400, 403)
+
+
+def test_juste_apres_la_connexion_l_adresse_se_change(comptes_mail):
+    c, partis = comptes_mail
+    _compte_avec_adresse()
+    with c.session_transaction() as s:
+        s.update(authed=True, role=app.ROLE_UTILISATEUR, utilisateur="marie",
+                 ouverte=int(time.time()), jeton="j")
+    r = c.post("/api/mon-compte/email", json={"email": "nouvelle@example.com"},
+               headers={app.JETON_ENTETE: "j"})
+    assert r.status_code == 200, r.data
+    assert partis[-1][0] == ["nouvelle@example.com"]

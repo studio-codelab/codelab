@@ -260,7 +260,7 @@ button.principal:disabled{opacity:.6;cursor:default}
         <div class="etape-num">Minuscules, chiffres, tiret ou souligné.</div>
         <div class="field" style="margin-top:14px"><label>Mot de passe</label>
           <input type="password" id="inv-mdp" autocomplete="new-password"
-                 placeholder="8 caractères au minimum"></div>
+                 placeholder="12 caractères au minimum"></div>
       </div>
 
       <div id="connexion-champs">
@@ -324,9 +324,10 @@ button.principal:disabled{opacity:.6;cursor:default}
 
       <div id="oubli" style="display:none">
         <div class="etape">Mot de passe oublié</div>
-        <div class="etape-num">Saisis ton nom de compte : si une adresse mail vérifiée y est
-          rattachée, un code à six chiffres part dessus. Sinon, demande à ton administrateur
-          de t'en poser un nouveau — c'est l'autre chemin, et il ne dépend d'aucun mail.</div>
+        <div class="etape-num">Saisis ton nom de compte : si Face ID (ou une application
+          d'authentification) est activé sur ton compte, un code à six chiffres part sur ton
+          adresse mail. Sinon, demande à ton administrateur de t'en poser un nouveau : ta boîte
+          mail seule ne doit pas suffire à prendre ton compte.</div>
         <div class="etape-num"><b>Le compte d'administration ne se réinitialise pas d'ici :</b>
           son mot de passe est celui de <code>credentials.env</code>, sur le serveur.</div>
         <div class="field" style="margin-top:12px"><label>Nom du compte</label>
@@ -340,8 +341,8 @@ button.principal:disabled{opacity:.6;cursor:default}
               autocomplete="one-time-code" placeholder="123456"></div>
           <div class="field"><label>Nouveau mot de passe</label>
             <input type="password" id="oubli-mdp" autocomplete="new-password"></div>
-          <div class="etape-num">8 caractères au minimum. Tu te reconnecteras ensuite
-            normalement, second facteur compris.</div>
+          <div class="etape-num">12 caractères au minimum. Tu te reconnecteras ensuite avec
+            Face ID ou ton application : le code par mail reste suspendu jusque-là.</div>
           <button class="principal" id="oubli-poser" onclick="poserMotDePasse()"
             style="margin-top:10px">Changer le mot de passe</button>
         </div>
@@ -446,8 +447,8 @@ async function demanderCode(){
     else{
       /* La reponse est la meme que le compte existe ou non : la page ne peut
          donc pas en dire plus, et ne doit pas faire semblant de savoir. */
-      ok.textContent='Si une adresse vérifiée est rattachée à ce compte, le code vient '
-        + "de partir. Sinon, demande à ton administrateur de t'en poser un nouveau.";
+      ok.textContent='Si ce compte a Face ID ou une application d\'authentification, le code '
+        + "vient de partir. Sinon, demande à ton administrateur de t'en poser un nouveau.";
       $$('oubli-suite').style.display='block';
     }
   }catch(err){ e.textContent='Erreur réseau.'; }
@@ -460,7 +461,7 @@ async function poserMotDePasse(){
   const corps={nom:($$('oubli-nom').value||'').trim(),
                code:($$('oubli-code').value||'').trim(),
                nouveau:$$('oubli-mdp').value||''};
-  if(corps.nouveau.length<8){ e.textContent='Mot de passe : 8 caractères au minimum.'; return; }
+  if(corps.nouveau.length<12){ e.textContent='Mot de passe : 12 caractères au minimum.'; return; }
   b.disabled=true; b.textContent='Enregistrement...';
   try{
     const r=await fetch('/mot-de-passe/reinitialiser',{method:'POST',

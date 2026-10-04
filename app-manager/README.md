@@ -318,6 +318,23 @@ l'empreinte ou Windows Hello selon l'appareil) — c'est une cle d'acces, voir p
 de connexion, le bouton *Se connecter avec Face ID* passe en premier, et le navigateur propose la
 cle d'acces directement dans le champ du nom.
 
+**La boite mail seule ne prend pas un compte.** Le mail sert deja de second facteur ; s'il
+servait aussi, sans autre preuve, a reinitialiser le mot de passe, qui tient la boite tiendrait le
+compte. Donc :
+
+- *Mot de passe oublie* n'envoie un code que si le compte a **Face ID ou une application
+  d'authentification**. Sinon, c'est l'administrateur qui pose un nouveau mot de passe.
+- Apres une reinitialisation par mail, le **code par mail est suspendu** : la connexion suivante
+  passe par Face ID ou par l'application, et c'est elle qui le rend.
+- Un compte qui a deja un facteur (adresse verifiee, Face ID) ne peut pas enregistrer une
+  application sur le seul mot de passe — par exemple quand le serveur d'envoi est en panne.
+
+**Sessions.** Poser un nouveau mot de passe (par mail, par l'administrateur ou soi-meme) ou retirer
+les cles d'acces **ferme les sessions deja ouvertes** du compte : un cookie vole cesse de servir.
+Ajouter une cle Face ID ou changer son adresse mail exige une **connexion de moins de quinze
+minutes** : une session volee ne peut pas s'installer durablement. Les mots de passe font
+**12 caracteres au minimum**, partout.
+
 Le parcours historique ci-dessous (QR code et application d'authentification) ne s'applique plus
 qu'aux comptes **sans** adresse verifiee :
 
