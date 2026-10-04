@@ -12696,3 +12696,25 @@ def test_les_connexions_recentes_se_filtrent_et_restent_courtes():
     assert 'id="ac-genre"' in page and "AC_MAX=200" in page
     # 10 par defaut : la liste ne deborde plus a l'ouverture.
     assert "return 10;" in page
+
+
+
+def test_sur_telephone_le_menu_est_ferme_et_s_ouvre_par_dessus():
+    """Sur un telephone, la colonne de gauche prenait la moitie de l'ecran."""
+    page = _page_panneau("dashboard.html")
+    assert "@media (max-width:760px)" in page
+    assert ".sidebar.ouvert{transform:none}" in page
+    assert "function fermerMenuMobile()" in page
+    # Changer de rubrique referme le menu.
+    debut = page.index("function showSection(name){")
+    assert "fermerMenuMobile();" in page[debut:debut + 800]
+
+
+def test_sur_telephone_le_hub_est_une_grille_d_icones():
+    page = _page_panneau("dashboard.html")
+    assert ".hub-liste.compacte{grid-template-columns:repeat(4,minmax(0,1fr))" in page
+
+
+def test_la_page_de_connexion_ne_montre_pas_credentials_sur_telephone():
+    page = _page_panneau("login.html")
+    assert "@media (max-width:760px){.pied{display:none}}" in page

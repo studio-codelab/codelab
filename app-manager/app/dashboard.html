@@ -1137,6 +1137,70 @@ table.tbl-journal{min-width:560px}
  color:var(--dim2);margin-bottom:10px;display:flex;align-items:center;gap:8px}
 .hub-groupe-titre span{font-size:11px;font-weight:600;padding:1px 7px;border-radius:20px;
  background:var(--surface);border:1px solid var(--line);color:var(--dim);letter-spacing:0}
+
+/* ================================ MOBILE ================================
+   Sur un telephone, la colonne de gauche prenait la moitie de l'ecran et
+   tout le reste se tassait a droite. Ici, elle est FERMEE et s'ouvre
+   par-dessus la page (bouton menu) ; le hub devient une grille d'icones,
+   comme l'ecran d'accueil d'un telephone ; les tableaux deviennent des
+   cartes empilees. */
+.voile-menu{display:none}
+@media (max-width:760px){
+  .sidebar{position:fixed;left:0;top:52px;z-index:60;width:248px;height:calc(100dvh - 52px);
+   transform:translateX(-100%);transition:transform .18s ease;box-shadow:0 12px 40px var(--shadow)}
+  .sidebar.collapsed{width:248px}
+  .sidebar.collapsed .side-label,.sidebar.collapsed .side-item span,
+  .sidebar.collapsed .side-count{opacity:1}
+  .sidebar.ouvert{transform:none}
+  .voile-menu.show{display:block;position:fixed;inset:52px 0 0 0;z-index:55;
+   background:rgba(0,0,0,.28)}
+
+  /* Le hub : 4 icones par ligne. */
+  .hub-liste.compacte{grid-template-columns:repeat(4,minmax(0,1fr));gap:2px}
+  .hub-liste.compacte .hub-projet{padding:10px 2px;gap:7px}
+  .hub-liste.compacte .hub-projet img{width:58px;height:58px;border-radius:15px}
+  .hub-liste.compacte .hub-projet .nom{font-size:11.5px;font-weight:560;
+   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .hub-liste.compacte .hub-projet .bas{display:none}
+
+  /* Les tableaux : une carte par ligne, sans en-tete. */
+  table.tbl,table.tbl-journal{min-width:0}
+  .tbl thead{display:none}
+  .tbl tbody,.tbl tr,.tbl td{display:block;width:100%}
+  .tbl tr{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;padding:12px 14px;
+   border-bottom:1px solid var(--line)}
+  .tbl td{width:auto;padding:0 !important;border:0 !important}
+  .tbl td:first-child{flex:1 1 100%}
+  .tbl .tbl-num{font-size:12px;color:var(--dim)}
+  .tbl-act{margin-left:auto}
+  .tbl-journal td:first-child{flex:0 1 auto}
+  /* Le liseré d'etat passe de la premiere cellule a la carte entiere. */
+  .tbl tbody tr td:first-child{box-shadow:none !important}
+  .tbl tbody tr{box-shadow:inset 3px 0 0 var(--line2)}
+  .tbl tbody tr:has(.pill.on){box-shadow:inset 3px 0 0 var(--ok)}
+  .tbl tbody tr:has(.pill.err){box-shadow:inset 3px 0 0 var(--err)}
+  .tbl tbody tr:has(.pill.warn){box-shadow:inset 3px 0 0 var(--warn)}
+  .tbl-journal tbody tr{box-shadow:none}
+  .tbl-journal td.act-quand{margin-left:auto}
+  .tbl-journal td.act-quoi{flex:1 1 100%;order:3}
+  .tbl-journal td.act-ip{order:4;font-size:11.5px;color:var(--dim2)}
+  .tbl-journal td.act-qui{order:1;font-weight:600}
+  .tbl-journal td.act-quand{order:2;font-size:12px;color:var(--dim)}
+
+  /* Ce qui debordait : le bouton passe sous le titre, en pleine largeur. */
+  .card-top{flex-wrap:wrap}
+  .card-top>.btn{flex:1 1 100%;justify-content:center}
+  .toolbar>.btn{flex:1 1 100%;justify-content:center}
+  .us-pages{flex-wrap:wrap}
+  .us-pages .hint{flex:1 1 100%;text-align:center;order:-1}
+  .us-filtres .field{flex:1 1 100% !important}
+  .kv{flex-wrap:wrap;gap:2px 12px}
+  .kv .v{word-break:break-all}
+
+  /* La fiche : une seule rangee d'actions, boutons de meme taille. */
+  .fiche-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;width:100%}
+  .fiche-actions .btn{justify-content:center;padding-left:6px;padding-right:6px}
+}
 </style></head><body>
 <div class="topbar">
   <!-- LA GAUCHE DU BANDEAU TENAIT TROIS CHOSES COLLEES : le bouton de menu,
@@ -1191,6 +1255,7 @@ table.tbl-journal{min-width:560px}
 
 <div class="page-body">
 
+<div class="voile-menu" id="voile-menu" onclick="fermerMenuMobile()"></div>
 <nav class="sidebar" id="sidebar">
   <div class="side-nav">
     <div class="side-label">Navigation</div>
@@ -1245,7 +1310,6 @@ table.tbl-journal{min-width:560px}
 <!-- ==================== VUE D'ENSEMBLE ==================== -->
 <div id="sec-overview" class="section">
   <div class="toolbar"><h2>Vue d'ensemble</h2></div>
-  <div class="sous">L'état du serveur et des applications déployées.</div>
 
   <div class="cartes c3 zone">
     <div class="card">
@@ -1343,7 +1407,6 @@ table.tbl-journal{min-width:560px}
     <button class="btn btn-primary" onclick="openAdd()">
       <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Nouvelle application</button>
   </div>
-  <div class="sous">Gérez et surveillez toutes vos applications. Cliquez sur une ligne pour ouvrir sa fiche.</div>
   <div id="tbl-projets"></div>
 </div>
 
@@ -1449,9 +1512,6 @@ table.tbl-journal{min-width:560px}
       <div class="zone-title">Dernières ouvertures</div>
       <div id="ac-liste"></div>
     </div>
-    <div class="hint">Une ouverture est notée au plus une fois par quart d'heure et par compte :
-      une page web, c'est des dizaines de requêtes, et les compter toutes ne dirait plus rien
-      de la fréquentation.</div>
   </div>
 
   <div class="onglet" id="onglet-acces">
@@ -1464,9 +1524,6 @@ table.tbl-journal{min-width:560px}
         <span class="pill" id="ac-etat"><i></i>&nbsp;</span></div>
 
         <div class="hint" id="ac-publique" style="display:none"></div>
-        <div class="hint">La même information que dans la fiche d'un compte, prise par l'autre
-          bout. Pour savoir qui ouvre une application il fallait jusqu'ici ouvrir les fiches une
-          par une — et pour donner l'accès à cinq personnes, cinq allers-retours.</div>
 
         <div id="ac-liste" style="margin-top:14px"></div>
         <div class="err" id="ac-err" style="display:none"></div>
@@ -1483,10 +1540,7 @@ table.tbl-journal{min-width:560px}
       </div>
       <span class="pill" id="ct-pile"><i></i>&nbsp;</span></div>
 
-      <div class="hint">CodeLab <b>produit</b> ces fichiers — il ne construit aucune image
-        et ne lance rien : le panneau n'a pas de socket Docker, et lui en donner un
-        reviendrait à lui offrir la machine entière. Ce sont un point de départ sérieux,
-        pas une vérité : relis-les.</div>
+      <div class="hint">Fichiers produits pour faire tourner l'application hors de CodeLab : un point de départ à relire.</div>
 
       <div id="ct-resume" class="hint" style="margin-top:10px"></div>
       <div id="ct-fichiers" style="margin-top:14px"></div>
@@ -1536,9 +1590,7 @@ table.tbl-journal{min-width:560px}
             <span class="logo-voile">Changer</span>
           </button>
           <div class="logo-texte">
-            <div class="hint">PNG, JPEG, GIF ou WebP, 512 Ko au maximum. Le fichier est
-              déposé dans le dossier du projet sous le nom <code>icon.png</code> — il
-              suit donc le projet si tu le copies ailleurs.</div>
+            <div class="hint">PNG, JPEG, GIF ou WebP, 512 Ko au maximum.</div>
             <div class="hint">Le SVG est refusé : servi par le panneau, il pourrait y
               exécuter du script.</div>
             <div class="actions" style="margin-top:10px">
@@ -1566,9 +1618,7 @@ table.tbl-journal{min-width:560px}
           </div>
           <div class="hint">C'est aussi son adresse : <code id="e-nom-url"></code>.
             Les liens déjà partagés vers l'ancienne ne mèneront plus nulle part.</div>
-          <div class="hint">L'application s'arrête le temps du changement, puis repart si elle
-            tournait. Ce qu'elle a écrit dans son dossier lui est rendu — elle tourne sous un
-            identifiant dérivé de son nom.</div>
+          <div class="hint">L'application redémarre si elle tournait.</div>
           <div class="err" id="e-nom-err" style="display:none"></div>
           <div class="hint" id="e-nom-ok" style="display:none"></div>
         </div>
@@ -1719,9 +1769,7 @@ table.tbl-journal{min-width:560px}
       </div>
       <span class="pill" id="mail-etat"><i></i>&nbsp;</span></div>
 
-      <div class="hint">Un code à six chiffres est envoyé à cette adresse pour vérifier que tu la
-        relèves vraiment. Cette vérification ne remplace pas le second facteur et n'ouvre aucune
-        session : elle atteste seulement que l'adresse est la tienne.</div>
+      <div class="hint">Un code de vérification part à cette adresse.</div>
 
       <div class="field" style="margin-top:14px">
         <label>Adresse</label>
@@ -1754,9 +1802,7 @@ table.tbl-journal{min-width:560px}
         <div class="path">Celui avec lequel tu te connectes à ce panneau.</div>
       </div></div>
 
-      <div class="hint">L'ancien est demandé même sur cette session : sans cela, un cookie
-        capturé suffirait à prendre ta place définitivement. <b>12 caractères au minimum</b> —
-        tu le choisis toi-même, rien n'oblige à le raccourcir.</div>
+      <div class="hint">12 caractères au minimum.</div>
 
       <div class="field" style="margin-top:14px"><label>Mot de passe actuel</label>
         <input id="mdp-ancien" type="password" autocomplete="current-password"></div>
@@ -1781,9 +1827,7 @@ table.tbl-journal{min-width:560px}
         <b>Applications du hub</b>
         <div class="path">Ce que ton hub affiche, et ce qu'il n'affiche pas.</div>
       </div></div>
-      <div class="hint"><b>Cochée, elle est affichée.</b> Décoche pour la retirer de ton
-        hub — c'est du rangement, pas une fermeture : l'application continue de tourner,
-        les autres comptes la voient, et son adresse reste ouverte à qui la connaît.</div>
+      <div class="hint"><b>Cochée, elle est affichée.</b> Décocher, c'est du rangement : l'application reste en ligne.</div>
       <div id="masquees-liste" style="margin-top:14px"></div>
     </div>
   </div>
@@ -1828,11 +1872,7 @@ table.tbl-journal{min-width:560px}
       </div>
       <span class="pill" id="totp-etat"><i></i>&nbsp;</span></div>
 
-      <div class="hint" id="totp-pourquoi">Le mot de passe est un secret unique : s'il fuit, il donne
-        l'exécution de commandes sur cette machine. Le second facteur exige en plus ton téléphone.
-        Il est <b>obligatoire</b> pour le compte d'administration : sans lui (ni Face ID), la
-        connexion par mot de passe impose d'en enregistrer un. En cas de téléphone perdu :
-        <code>APP_MANAGER_ADMIN_2FA: "0"</code> dans le compose, le temps de reprendre la main.</div>
+      <div class="hint" id="totp-pourquoi">Obligatoire pour l'administrateur. Téléphone perdu : <code>APP_MANAGER_ADMIN_2FA: "0"</code> dans le compose.</div>
 
       <div id="totp-etape-1" style="display:none">
         <button class="btn btn-primary" onclick="totpPreparer()">Activer</button>
@@ -1845,9 +1885,7 @@ table.tbl-journal{min-width:560px}
         <img class="qr" id="totp-qr" alt="QR code du second facteur">
         <div class="hint">Ou saisis la clé à la main :</div>
         <div class="field"><input id="totp-secret" readonly onclick="this.select()"></div>
-        <div class="hint">2. Saisis le code affiché par l'application pour confirmer. Rien n'est
-          enregistré tant que ce code n'est pas valide — une clé mal recopiée ne peut donc pas
-          t'enfermer dehors.</div>
+        <div class="hint">2. Saisis le code affiché par l'application.</div>
         <div class="field"><input id="totp-code" inputmode="numeric" maxlength="6" placeholder="123456"></div>
         <div class="actions">
           <button class="btn btn-primary" onclick="totpActiver()">Confirmer</button>
@@ -1875,10 +1913,7 @@ table.tbl-journal{min-width:560px}
       </div>
       <span class="pill" id="pk-etat"><i></i>&nbsp;</span></div>
 
-      <div class="hint">Une clé d'accès remplace le mot de passe <b>et</b> le code à six chiffres :
-        l'appareil prouve la possession, et l'empreinte (ou le code de l'appareil) prouve que c'est
-        bien toi. Rien à retenir, rien à recopier — et rien à hameçonner, puisque la clé ne signe
-        que pour le domaine qui l'a enregistrée.</div>
+      <div class="hint">Face ID, Touch ID ou empreinte : ni mot de passe ni code à saisir.</div>
 
       <div class="hint" id="pk-empechement" style="display:none;margin-top:8px"></div>
 
@@ -1922,11 +1957,7 @@ table.tbl-journal{min-width:560px}
         <code>APP_MANAGER_PUBLIC_URL</code> dans le compose : elle se modifie là-bas.</div>
 
       <details class="repli"><summary>Passer par un VPS (sans rien ouvrir sur ta box)</summary>
-        <div class="hint" style="margin-top:8px">Le VPS porte le nom de domaine et le certificat ;
-          cette machine reste joignable seulement par un tunnel. Saisis le domaine et l'adresse du
-          VPS : le panneau produit les fichiers de configuration à copier, et s'en sert comme
-          adresse publique si tu n'en as pas déclaré. Il ne se connecte jamais au VPS.
-          <span class="pill" id="vps-etat"><i></i>&nbsp;</span></div>
+        <div class="hint" style="margin-top:8px">Le VPS porte le domaine et le certificat ; ta box reste fermée. Le panneau produit les fichiers à copier, sans jamais se connecter au VPS. <span class="pill" id="vps-etat"><i></i>&nbsp;</span></div>
       <div class="grid2" style="margin-top:14px">
         <div class="field"><label>Nom de domaine</label>
           <input id="vps-domaine" placeholder="codelab.tondomaine.fr" autocomplete="off"></div>
@@ -1954,9 +1985,7 @@ table.tbl-journal{min-width:560px}
       </details>
 
       <details class="repli"><summary>Réglages avancés (proxy, HTTPS, réseau local)</summary>
-        <div class="hint" style="margin-top:8px">Une case ne s'active que si la situation la
-          justifie, sinon elle reste grisée et dit pourquoi : activer HTTPS depuis une page servie
-          en clair te déconnecterait sans retour possible. Les éteindre est toujours permis.</div>
+        <div class="hint" style="margin-top:8px">Une case grisée dit pourquoi elle ne peut pas s'activer.</div>
       <div class="field" style="margin-top:14px">
         <label class="choix-ligne">
           <input type="checkbox" id="expo-proxy" onchange="expoBascule('trust_proxy', this)">
@@ -1994,10 +2023,7 @@ table.tbl-journal{min-width:560px}
         <div class="path">Des tiroirs pour ranger les projets sur la page d'accueil.</div>
       </div></div>
 
-      <div class="hint">Une catégorie ne donne aucun droit et ne change rien au déploiement :
-        elle regroupe les projets dans le hub, dans l'ordre de cette liste. Un projet sans
-        catégorie apparaît à la fin, sous « Autres ». Choisis la catégorie d'un projet dans sa
-        fiche, onglet <b>Configuration</b>.</div>
+      <div class="hint">Regroupe les applications dans le hub, dans l'ordre de cette liste.</div>
 
       <div id="cat-liste" style="margin-top:14px"></div>
 
@@ -2036,10 +2062,7 @@ table.tbl-journal{min-width:560px}
         <div class="path">Par où sortent les mails de CodeLab : alertes, invitations, codes.</div>
       </div>
       <span class="pill" id="sm-etat"><i></i>&nbsp;</span></div>
-      <div class="hint">Tous ces mails passent par <b>Mailpit</b>, comme ceux des applications :
-        chacun s'y relit, et Mailpit les relaie par ce serveur. Un compte Gmail avec un
-        <em>mot de passe d'application</em> suffit. À l'enregistrement, CodeLab s'y connecte
-        réellement : une configuration qui ne répond pas n'est pas enregistrée.</div>
+      <div class="hint">Les mails passent par Mailpit, qui les relaie par ce serveur. Un compte Gmail avec un mot de passe d'application suffit.</div>
       <div class="grid2" style="margin-top:14px">
         <div class="field"><label>Hôte SMTP</label>
           <input id="al-host" placeholder="smtp.gmail.com" autocomplete="off"></div>
@@ -2061,10 +2084,6 @@ table.tbl-journal{min-width:560px}
         <div class="hint">Laisse vide pour conserver celui déjà enregistré. Gmail exige un
           <em>mot de passe d'application</em>, pas ton mot de passe habituel.</div>
       </div>
-      <div class="hint">A l'enregistrement, CodeLab <b>se connecte réellement</b> à ce serveur :
-        chiffrement et authentification compris. Une configuration qui ne répond pas n'est pas
-        enregistrée, et le message du serveur t'est rendu tel quel. Rien à lancer à la main,
-        rien à penser à vérifier.</div>
 
       <div class="actions">
         <button class="btn btn-primary" id="sm-save" onclick="alEnregistrer('sm')">Vérifier et enregistrer</button>
@@ -2080,9 +2099,8 @@ table.tbl-journal{min-width:560px}
         <span class="v" id="sm-origine-host">&mdash;</span></div>
       <div class="kv"><span class="k">Expéditeur</span>
         <span class="v" id="sm-origine-from">&mdash;</span></div>
-      <div class="hint" style="margin-top:10px">Elle se modifie dans le bloc
-        <code>codelab-alertes</code> de <code>credentials.env</code>, sur le serveur. Le capteur
-        d'alerte de Dagster lit le même bloc.</div>
+      <div class="hint" style="margin-top:10px">Se modifie dans <code>credentials.env</code>
+        (bloc <code>codelab-alertes</code>).</div>
       </details>
     </div>
   </div>
@@ -2095,9 +2113,7 @@ table.tbl-journal{min-width:560px}
         <div class="path">Un mail quand une application tombe, un autre quand elle revient.</div>
       </div>
       <span class="pill" id="al-etat"><i></i>&nbsp;</span></div>
-      <div class="hint">Le panneau redémarre tout seul une application qui plante. Il abandonne au
-        bout de 5 tentatives en 10 minutes — c'est à ce moment-là que le mail part, pas au premier
-        soubresaut. Un second mail signale le retour à la normale.</div>
+      <div class="hint">Un mail quand une application ne redémarre plus (5 échecs en 10 minutes), un autre quand elle revient.</div>
 
 
       <div class="err" id="al-err" style="display:none"></div>
@@ -2106,7 +2122,7 @@ table.tbl-journal{min-width:560px}
       <div class="field" style="margin-top:14px">
         <label>Qui reçoit les alertes</label>
         <input id="al-admin" placeholder="moi@example.com" autocomplete="off">
-        <div class="hint">Plusieurs adresses possibles, séparées par des virgules. Elles reçoivent les alertes de <b>toutes</b> les applications ; chacune peut en ajouter d'autres dans sa fiche.</div>
+        <div class="hint">Séparées par des virgules. Elles reçoivent les alertes de toutes les applications.</div>
       </div>
       <div class="actions">
         <button class="btn btn-primary" id="adm-save" onclick="alEnregistrer('adm')">Enregistrer</button>
@@ -2122,11 +2138,7 @@ table.tbl-journal{min-width:560px}
       </div>
       <span class="pill" id="sv-etat"><i></i>&nbsp;</span></div>
 
-      <div class="hint">Les alertes ci-dessus partent <b>du serveur</b> : s'il s'éteint (coupure de
-        courant, disque, box), aucune ne part. Le panneau appelle donc une adresse toutes les
-        5 minutes ; quand les appels cessent, le service extérieur t'écrit. Gratuit sur
-        <b>healthchecks.io</b> : crée un compte, un « check » avec une période de 5 minutes et
-        un délai de grâce de 10, puis colle ici son adresse de ping.</div>
+      <div class="hint">Quand le serveur se tait (coupure, panne), un service extérieur gratuit te prévient. Sur <b>healthchecks.io</b> : un « check » de 5 minutes, puis colle ici son adresse de ping.</div>
 
       <div class="field" style="margin-top:14px">
         <label>Adresse de ping</label>
@@ -2158,9 +2170,7 @@ table.tbl-journal{min-width:560px}
         <div class="path">Une gêne, une idée, une application qui manque.</div>
       </div></div>
 
-      <div class="hint">Ton message part par mail à l'administrateur du serveur et reste
-        dans le panneau. Il porte ton nom de compte : c'est ce qui lui permet de te
-        répondre.</div>
+      <div class="hint">Ton message part à l'administrateur, avec ton nom de compte.</div>
 
       <div id="msg-form" style="margin-top:14px">
         <div class="field"><label for="msg-cible">De quoi veux-tu parler ?</label>
@@ -2191,7 +2201,6 @@ table.tbl-journal{min-width:560px}
 <!-- ========================= MESSAGES ========================= -->
 <div id="sec-messages" class="section" style="display:none">
   <div class="toolbar"><h2>Messages</h2></div>
-  <div class="sous">Tous les nouveaux messages apparaissent ici d'un coup d'œil. Utilise ensuite le filtre pour te concentrer sur un sujet ou une application.</div>
 
   <div class="card">
     <div class="card-top"><div class="card-name">
@@ -2227,7 +2236,6 @@ table.tbl-journal{min-width:560px}
      reglage du serveur, c'est une activite a part entiere. -->
 <div id="sec-users" class="section" style="display:none">
   <div class="toolbar"><h2>Utilisateurs</h2></div>
-  <div class="sous">Les comptes qui ouvrent ce serveur, et ce que chacun peut voir.</div>
 
   <div class="zone">
     <div class="card settings-card card-large">
@@ -2246,8 +2254,7 @@ table.tbl-journal{min-width:560px}
         <div class="field"><label>Adresse mail</label>
           <input id="inv-mail" type="email" placeholder="marie@example.com" autocomplete="off"
             onkeydown="if(event.key==='Enter') invEnvoyer()">
-          <div class="hint">Un lien part à cette adresse (par Mailpit). La personne y choisit son nom
-            d'utilisateur et son mot de passe ; le lien sert une fois et vaut sept jours.</div>
+          <div class="hint">La personne reçoit un lien pour choisir son nom et son mot de passe (valable 7 jours).</div>
         </div>
         <div class="actions">
           <button class="btn btn-primary" id="inv-envoyer" onclick="invEnvoyer()">Envoyer l'invitation</button>
@@ -2400,12 +2407,8 @@ table.tbl-journal{min-width:560px}
       </div>
       <div class="hint" id="us-f-mail-etat"></div>
       <details class="repli"><summary>Ce qui ne se change pas</summary>
-        <div class="hint">12 caractères au minimum pour le mot de passe. Poser un nouveau mot de
-          passe (ou retirer les clés d'accès) ferme les sessions ouvertes de la personne : un
-          appareil perdu ou un cookie volé cesse aussitôt de servir.</div>
-        <div class="hint">Le nom du compte ne se change pas : il identifie la personne partout —
-          dans ses clés d'accès, dans le journal des accès, dans la liste des projets autorisés.
-          Pour renommer quelqu'un, crée un compte et supprime l'ancien.</div>
+        <div class="hint">12 caractères au minimum. Un nouveau mot de passe ferme les sessions ouvertes de la personne.</div>
+        <div class="hint">Le nom du compte ne se change pas.</div>
       </details>
     </div>
 
@@ -2440,9 +2443,7 @@ table.tbl-journal{min-width:560px}
         <button class="btn btn-default danger btn-sm" onclick="usSupprimer()">Supprimer</button>
       </div>
       <details class="repli"><summary>La différence entre les deux</summary>
-        <div class="hint"><b>Suspendre</b> ferme l'accès sur-le-champ — la session ouverte cesse
-          d'autoriser quoi que ce soit — et garde tout en l'état : projets autorisés, adresse,
-          clés d'accès. Un clic défait.</div>
+        <div class="hint">Suspendre ferme l'accès tout de suite et garde tout en l'état.</div>
         <div class="hint"><b>Supprimer</b> efface le compte et ses clés d'accès. Le journal des
           accès, lui, garde la trace de ce qu'il a fait.</div>
       </details>
@@ -2696,10 +2697,23 @@ noterThemePartage(themeChoisi);
 
 /* ---------------- colonne de gauche ---------------- */
 function applySidebar(state){ $('sidebar').classList.toggle('collapsed', state==='collapsed'); }
+const ecranMobile = () => window.matchMedia('(max-width:760px)').matches;
 function toggleSidebar(){
+  /* Sur un telephone, le menu s'ouvre par-dessus la page au lieu de se
+     reduire a une colonne d'icones. */
+  if(ecranMobile()){
+    const ouvert=!$('sidebar').classList.contains('ouvert');
+    $('sidebar').classList.toggle('ouvert', ouvert);
+    $('voile-menu').classList.toggle('show', ouvert);
+    return;
+  }
   const next = $('sidebar').classList.contains('collapsed') ? 'expanded' : 'collapsed';
-  localStorage.setItem('codelab-sidebar', next);
+  try{ localStorage.setItem('codelab-sidebar', next); }catch(e){}
   applySidebar(next);
+}
+function fermerMenuMobile(){
+  $('sidebar').classList.remove('ouvert');
+  $('voile-menu').classList.remove('show');
 }
 applySidebar(localStorage.getItem('codelab-sidebar')||'expanded');
 
@@ -2721,6 +2735,7 @@ function showSection(name){
      cote -- c'est ce qui evite qu'un clic egare mene a une page vide et a des
      appels refuses. */
   if(!estAdmin && name!=='hub' && name!=='parametres') name='hub';
+  fermerMenuMobile();
   document.querySelectorAll('.section').forEach(s=>{ s.style.display = (s.id==='sec-'+name) ? '' : 'none'; });
   /* La fiche d'une application appartient a "Applications" : l'entree du menu
      doit rester allumee quand on y descend. */
@@ -3439,9 +3454,8 @@ function remplir(el, html){
 
 function peindreHub(){
   const classeListe = 'hub-liste compacte';
-  $('hub-sous').textContent = estAdmin
-    ? 'Toutes les applications déclarées. C\'est cette page que voient les comptes utilisateurs, limitée à ce que tu leur autorises.'
-    : 'Les applications que ton administrateur t\'a autorisées.';
+  /* Le titre suffit : pas de phrase sous « Hub ». */
+  $('hub-sous').style.display='none';
 
   /* Applications et services dans la meme grille, ranges ensemble par leur
      nom : on vient au hub pour OUVRIR quelque chose, et ce qui l'ouvre ne
@@ -3935,9 +3949,6 @@ function peindreFiche(){
   }else if(!prive || adressePublique){
     b.push(`<button class="btn btn-quiet" data-agir="app-visibilite" data-cible="${esc(a.name)}">
       ${prive?'Rendre publique':'Rendre privée'}</button>`);
-  }else{
-    b.push(`<span class="hint" style="align-self:center;max-width:320px">Déclare l'adresse
-      publique du serveur (Paramètres &gt; Serveur) pour pouvoir partager une application.</span>`);
   }
   if(a.running) b.push(`<a class="btn btn-ouvrir" href="${lienOuverture(a)}">${svgOuvrir}Ouvrir</a>`);
   $('fa-actions').innerHTML=b.join('');

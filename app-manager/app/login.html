@@ -139,6 +139,9 @@ body{min-height:100vh;display:flex}
 .presentation{width:44%;max-width:520px;background:var(--vitrine);color:var(--vitrine-txt);
  padding:54px 48px;display:flex;flex-direction:column;justify-content:center;flex:none}
 @media (max-width:900px){.presentation{display:none}}
+/* Sur un telephone, le rappel technique (credentials.env) n'a rien a faire
+   sous le formulaire. */
+@media (max-width:760px){.pied{display:none}}
 .presentation .marque{display:flex;align-items:center;gap:11px;margin-bottom:38px}
 .presentation .marque img{width:34px;height:34px;border-radius:9px}
 .presentation .marque b{font-size:19px;font-weight:650;letter-spacing:-.02em}
