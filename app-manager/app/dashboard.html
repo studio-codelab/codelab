@@ -1825,7 +1825,9 @@ table.tbl-journal{min-width:560px}
 
       <div class="hint" id="totp-pourquoi">Le mot de passe est un secret unique : s'il fuit, il donne
         l'exécution de commandes sur cette machine. Le second facteur exige en plus ton téléphone.
-        À activer avant d'exposer ce panneau au-delà de ton réseau.</div>
+        Il est <b>obligatoire</b> pour le compte d'administration : sans lui (ni Face ID), la
+        connexion par mot de passe impose d'en enregistrer un. En cas de téléphone perdu :
+        <code>APP_MANAGER_ADMIN_2FA: "0"</code> dans le compose, le temps de reprendre la main.</div>
 
       <div id="totp-etape-1" style="display:none">
         <button class="btn btn-primary" onclick="totpPreparer()">Activer</button>
@@ -2032,7 +2034,7 @@ table.tbl-journal{min-width:560px}
 
   <!-- LE SERVEUR D'ENVOI ET LES ALERTES SONT DEUX CHOSES. Le premier est une
        fourniture partagee : il porte les alertes, mais aussi les codes de
-       verification d'adresse et l'inscription libre. Les secondes n'en sont
+       verification d'adresse et les invitations. Les secondes n'en sont
        qu'un usage. Les melanger dans une seule carte faisait passer un
        serveur parfaitement configure pour incomplet tant qu'aucune alerte
        n'etait reglee. -->
@@ -2046,10 +2048,11 @@ table.tbl-journal{min-width:560px}
       </div>
       <span class="pill" id="sm-etat"><i></i>&nbsp;</span></div>
 
-      <div class="hint">Trois choses en dépendent : les <b>alertes</b> quand une application tombe,
-        les <b>codes de vérification</b> des adresses mail des comptes, et l'<b>inscription
-        libre</b> — qui reste fermée tant qu'aucun serveur n'est configuré, faute de pouvoir
-        vérifier une adresse.</div>
+      <div class="hint">En dépendent : les <b>alertes</b> quand une application tombe, les
+        <b>invitations</b>, et les <b>codes de connexion</b> et de vérification envoyés par
+        mail.</div>
+      <div class="hint" style="margin-top:8px">Tous ces mails passent par <b>Mailpit</b>, comme
+        ceux des applications : chacun s'y relit, et Mailpit les relaie par ce serveur.</div>
       <div class="hint" style="margin-top:8px">Enregistrée <b>en base, chiffrée</b>, mot de passe
         compris — comme les adresses d'alerte et celles des comptes.</div>
 
@@ -2280,9 +2283,31 @@ table.tbl-journal{min-width:560px}
         <div class="path">Chacun n'ouvre que les projets privés que tu lui autorises.</div>
       </div>
       <div class="spacer"></div>
-      <button class="btn btn-primary btn-sm" onclick="usFormulaire(true)">Nouveau compte</button></div>
+      <button class="btn btn-primary btn-sm" onclick="invFormulaire(true)">Inviter quelqu'un</button></div>
 
-      <div class="hint" id="us-inscription-libre" style="display:none"></div>
+      <!-- INVITER, C'EST DONNER UNE ADRESSE. La personne recoit un lien et
+           choisit elle-meme son nom et son mot de passe : rien a inventer
+           pour elle, rien a lui transmettre par un autre canal. -->
+      <div id="inv-nouveau" style="display:none;margin-top:16px;border-top:1px solid var(--line);padding-top:16px">
+        <div class="mb-titre">Inviter quelqu'un</div>
+        <div class="field"><label>Adresse mail</label>
+          <input id="inv-mail" type="email" placeholder="marie@example.com" autocomplete="off"
+            onkeydown="if(event.key==='Enter') invEnvoyer()">
+          <div class="hint">Un lien part à cette adresse (par Mailpit). La personne y choisit son nom
+            d'utilisateur et son mot de passe ; le lien sert une fois et vaut sept jours.</div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-primary" id="inv-envoyer" onclick="invEnvoyer()">Envoyer l'invitation</button>
+          <button class="btn btn-default" onclick="invFormulaire(false)">Annuler</button>
+        </div>
+        <div class="err" id="inv-err" style="display:none"></div>
+        <div id="inv-resultat" style="display:none;margin-top:12px"></div>
+        <div class="hint" style="margin-top:10px">Ou <a href="#" onclick="event.preventDefault();invFormulaire(false);usFormulaire(true)">crée
+          le compte toi-même</a>, avec un mot de passe que tu lui transmettras.</div>
+      </div>
+
+      <div id="inv-liste" style="margin-top:14px"></div>
+
 
       <!-- Retrouver quelqu'un. Deux filtres qui se combinent, parce qu'on
            cherche de deux facons : par la personne qu'on a en tete, ou par
@@ -2320,7 +2345,7 @@ table.tbl-journal{min-width:560px}
           </div>
         </div>
         <div class="field" style="margin-top:14px"><label>Mot de passe</label>
-          <input id="us-mdp" type="password" autocomplete="new-password" placeholder="8 caractères au minimum">
+          <input id="us-mdp" type="password" autocomplete="new-password" placeholder="12 caractères au minimum">
           <div class="hint">Le second facteur, lui, s'enregistre à la première connexion : tu ne
             connais jamais la clé de quelqu'un d'autre.</div>
         </div>
@@ -2376,6 +2401,20 @@ table.tbl-journal{min-width:560px}
   </div>
 </div></div>
 
+<!-- FACE ID, PROPOSE AU BON MOMENT : juste apres une connexion par mot de
+     passe, sur un appareil qui sait le faire. Dans les parametres, personne
+     n'allait le chercher. -->
+<div class="ov" id="ov-faceid"><div class="modal" style="max-width:440px">
+  <div class="mh"><h3 id="fid-titre">Activer Face ID ?</h3>
+    <p id="fid-texte">La prochaine fois, connecte-toi d'un regard : ni mot de passe, ni code à
+      recopier. Tu pourras le retirer à tout moment dans Paramètres &gt; Sécurité.</p></div>
+  <div class="mb"><div class="err" id="fid-err" style="display:none"></div></div>
+  <div class="mf">
+    <button class="btn btn-default" onclick="faceIdPlusTard()">Plus tard</button>
+    <button class="btn btn-primary" id="fid-ok" onclick="faceIdActiver()">Activer</button>
+  </div>
+</div></div>
+
 <div class="toasts" id="toasts"></div>
 
 <!-- ==================== POP-UP : FICHE D'UN COMPTE ==================== -->
@@ -2400,8 +2439,9 @@ table.tbl-journal{min-width:560px}
       </div>
       <div class="hint" id="us-f-mail-etat"></div>
       <details class="repli"><summary>Ce qui ne se change pas</summary>
-        <div class="hint">8 caractères au minimum pour le mot de passe. La personne n'est pas
-          déconnectée : sa session en cours reste valable jusqu'à ce qu'elle la ferme.</div>
+        <div class="hint">12 caractères au minimum pour le mot de passe. Poser un nouveau mot de
+          passe (ou retirer les clés d'accès) ferme les sessions ouvertes de la personne : un
+          appareil perdu ou un cookie volé cesse aussitôt de servir.</div>
         <div class="hint">Le nom du compte ne se change pas : il identifie la personne partout —
           dans ses clés d'accès, dans le journal des accès, dans la liste des projets autorisés.
           Pour renommer quelqu'un, crée un compte et supprime l'ancien.</div>
@@ -2637,6 +2677,9 @@ const ACTIONS = {
   'msg-supprimer':   id => msgSupprimer(id),
   'passkey-retirer': id => pkSupprimer(id),
   'compte-ouvrir':   n => usOuvrir(n),
+  'invitation-renvoyer': id => invRenvoyer(id),
+  'invitation-annuler':  id => invAnnuler(id),
+  'invitation-copier':   (_, d) => copierLien(d.lien),
   'param-onglet':    o => paramOnglet(o),
 };
 
@@ -2735,7 +2778,7 @@ function showSection(name){
   }
   /* L'etat de securite est relu a chaque ouverture : il peut avoir change
      depuis un autre onglet, ou au redemarrage du service. */
-  if(name==='users'){ chargerUtilisateurs(); chargerInscriptionLibre(); chargerActivite(); }
+  if(name==='users'){ chargerUtilisateurs(); chargerInvitations(); chargerActivite(); }
   /* Chaque onglet des parametres relit ce qu'il affiche a son ouverture : ces
      etats changent depuis un autre onglet du navigateur, ou au redemarrage du
      service. On ne recharge que l'onglet regarde. */
@@ -3422,6 +3465,16 @@ async function chargerHub(){
   }catch(e){ return; }
   peindreHub();
 }
+/* NE REPEINDRE QUE CE QUI CHANGE. Le hub se recharge toutes les dix secondes ;
+   remplacer le HTML a chaque tour, meme identique, recreait toutes les tuiles
+   et leurs images : l'ecran clignotait. On compare au dernier HTML pose. */
+const _dernierHtml = new WeakMap();
+function remplir(el, html){
+  if(!el || _dernierHtml.get(el) === html) return;
+  _dernierHtml.set(el, html);
+  el.innerHTML = html;
+}
+
 function peindreHub(){
   const classeListe = 'hub-liste compacte';
   $('hub-sous').textContent = estAdmin
@@ -3438,20 +3491,20 @@ function peindreHub(){
   const nbCaches = (hubMasquees||[]).length;
   $('hub-masquees').style.display = nbCaches ? 'block' : 'none';
   if(nbCaches){
-    $('hub-masquees').innerHTML = nbCaches + (nbCaches>1
+    remplir($('hub-masquees'), nbCaches + (nbCaches>1
       ? ' applications masquées — ' : ' application masquée — ')
       + '<a href="#" onclick="event.preventDefault();allerA(\'parametres\');'
       + 'paramOnglet(\'compte\')">à décocher dans tes paramètres</a> pour '
-      + (nbCaches>1 ? 'les' : 'la') + ' revoir.';
+      + (nbCaches>1 ? 'les' : 'la') + ' revoir.');
   }
   if(!liste.length){
     $('hub-liste').className='';
-    $('hub-liste').innerHTML = filtre
+    remplir($('hub-liste'), filtre
       ? '<div class="hub-vide"><b>Aucun résultat</b>Aucune application ne correspond a « '+esc(filtre)+' ».</div>'
       : (estAdmin
         ? '<div class="hub-vide"><b>Aucune application déclarée</b>Ouvre « Applications » dans le menu de gauche pour en ajouter une.</div>'
         : '<div class="hub-vide"><b>Aucune application pour le moment</b>'
-          + 'Ton administrateur ne t\'a pas encore donne accès à une application.</div>');
+          + 'Ton administrateur ne t\'a pas encore donne accès à une application.</div>'));
     return;
   }
   /* Rien d'autre qu'un lien : une tuile du hub sert a ouvrir une
@@ -3474,7 +3527,7 @@ function peindreHub(){
   const utiles = categories.filter(c=>liste.some(a=>a.categorie===c));
   if(!utiles.length){
     $('hub-liste').className=classeListe;
-    $('hub-liste').innerHTML = liste.map(tuile).join('');
+    remplir($('hub-liste'), liste.map(tuile).join(''));
     return;
   }
 
@@ -3485,10 +3538,10 @@ function peindreHub(){
   if(restants.length) groupes.push(['Autres', restants]);
 
   $('hub-liste').className='';
-  $('hub-liste').innerHTML = groupes.map(([nom, apps])=>`<div class="hub-groupe">
+  remplir($('hub-liste'), groupes.map(([nom, apps])=>`<div class="hub-groupe">
     <div class="hub-groupe-titre">${esc(nom)}<span>${apps.length}</span></div>
     <div class="${classeListe}">${apps.map(tuile).join('')}</div>
-  </div>`).join('');
+  </div>`).join(''));
 }
 
 /* ---------------- vue d'ensemble ---------------- */
@@ -3528,8 +3581,8 @@ function renderOverview(){
   $('res-mem-val').textContent=Math.round(memSum)+' Mo';
   $('res-mem-bar').style.width=Math.min(100, memSum/2048*100)+'%';
 
-  $('ov-chart-cpu').innerHTML=barChart(apps, 'cpu_percent', '%', 10);
-  $('ov-chart-mem').innerHTML=barChart(apps, 'memory_mb', ' Mo', 64);
+  remplir($('ov-chart-cpu'), barChart(apps, 'cpu_percent', '%', 10));
+  remplir($('ov-chart-mem'), barChart(apps, 'memory_mb', ' Mo', 64));
 }
 
 /* ---------------- donnees ---------------- */
@@ -4866,7 +4919,11 @@ function usLigne(c){
      ce compte tant qu'il l'est. */
   if(c.suspendu) badges.push('<span class="pill err"><i></i>Suspendu</span>');
   if(c.attente_email) badges.push('<span class="pill err"><i></i>Inscription a confirmer</span>');
-  if(!c.totp) badges.push('<span class="pill off"><i></i>2FA en attente</span>');
+  /* Une adresse verifiee suffit desormais : le code arrive par mail. Le
+     second facteur n'est en attente que sans adresse, sans application et
+     sans cle d'acces. */
+  if(!c.totp && !c.email_verifie && !c.passkeys)
+    badges.push('<span class="pill off"><i></i>2FA en attente</span>');
   if(c.passkeys) badges.push(`<span class="pill on"><i></i>${c.passkeys} clé${c.passkeys>1?'s':''}</span>`);
   const projets = c.projets.length
     ? c.projets.length + ' projet' + (c.projets.length>1?'s':'')
@@ -5059,8 +5116,11 @@ function usPeindreFiche(){
   }).join('') : '<div class="hint">Aucun projet déclaré.</div>';
 
   const morceaux=[];
-  morceaux.push(c.totp
-    ? 'Second facteur enregistré.'
+  const codes=[];
+  if(c.totp) codes.push("son application d'authentification");
+  if(c.email && c.email_verifie) codes.push('mail');
+  morceaux.push(codes.length
+    ? 'Code de connexion par ' + codes.join(', ') + '.'
     : "Second facteur en attente : il sera enregistré à la première connexion.");
   morceaux.push(c.passkeys
     ? `${c.passkeys} clé${c.passkeys>1?'s':''} d'accès enregistrée${c.passkeys>1?'s':''}.`
@@ -5098,7 +5158,7 @@ async function usEcrire(corps, message){
 
 async function usEnregistrer(){
   const mdp=$('us-f-mdp').value;
-  if(mdp && mdp.length<8) return usFicheErreur('Mot de passe : 8 caractères au minimum.');
+  if(mdp && mdp.length<12) return usFicheErreur('Mot de passe : 12 caractères au minimum.');
   const projets=[...document.querySelectorAll('#us-f-projets input:checked')].map(i=>i.value);
   const corps={email:$('us-f-mail').value.trim(), projets};
   if(mdp) corps.mot_de_passe=mdp;
@@ -5122,18 +5182,139 @@ async function usCreer(){
   notifier('Compte « ' + d.nom + ' » créé. Ouvre-le pour lui autoriser des projets.');
 }
 
-/* L'inscription libre suit le serveur d'envoi : sans mail, aucun moyen de
-   verifier une adresse, donc pas de creation de compte ouverte. */
-async function chargerInscriptionLibre(){
-  let d;
-  try{ d=await (await fetch('/api/inscription')).json(); }catch(e){ return; }
-  const z=$('us-inscription-libre');
+/* ---------------- invitations ---------------- */
+function invFormulaire(ouvert){
+  $('inv-nouveau').style.display = ouvert ? 'block' : 'none';
+  $('inv-err').style.display='none';
+  $('inv-resultat').style.display='none';
+  if(ouvert){ usFormulaire(false); setTimeout(()=>$('inv-mail').focus(), 40); }
+}
+
+/* Le lien est TOUJOURS montre a l'administrateur : sans serveur d'envoi (ou
+   Mailpit en mode test), le mail est garde sans partir, et c'est a lui de le
+   transmettre. Il ne se relit plus ensuite -- seule son empreinte est gardee. */
+function invMontrerResultat(d, adresse){
+  const z=$('inv-resultat');
+  const etat = !d.envoye
+    ? `<b>Le mail n'est pas parti</b> (${esc(d.detail||'')}). Transmets ce lien toi-même :`
+    : (d.relaye
+      ? `Invitation envoyée à <b>${esc(adresse)}</b>. Le lien, si besoin :`
+      : `Invitation remise à Mailpit, mais <b>aucun serveur d'envoi n'est réglé</b> : elle y est `
+        + `gardée sans partir. Transmets ce lien toi-même :`);
+  z.innerHTML = `<div class="hint">${etat}</div>
+    <div class="ligne-champ" style="margin-top:6px">
+      <input readonly value="${esc(d.lien)}" style="flex:1" onclick="this.select()">
+      <button class="btn btn-default btn-sm" data-agir="invitation-copier" data-lien="${esc(d.lien)}">Copier</button>
+    </div>`;
   z.style.display='block';
-  z.innerHTML = d.ouverte
-    ? '<b>L\'inscription libre est ouverte</b> sur la page de connexion. Un compte créé ainsi '
-      + 'n\'ouvre <b>aucun projet</b> tant que tu ne lui en autorisés pas.'
-    : '<b>L\'inscription libre est fermee</b> : sans serveur d\'envoi (Paramètres &gt; E-mail), '
-      + 'une adresse déclarée ne peut pas être vérifiée.';
+}
+
+async function invEnvoyer(){
+  const e=$('inv-err'); e.style.display='none';
+  const adresse=$('inv-mail').value.trim();
+  if(!adresse){ e.textContent='Saisis une adresse mail.'; e.style.display='block'; return; }
+  $('inv-envoyer').disabled=true;
+  try{
+    const r=await fetch('/api/invitations',{method:'POST',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify({email:adresse})});
+    const d=await r.json();
+    if(!r.ok){ e.textContent=d.error||'Invitation impossible.'; e.style.display='block'; return; }
+    $('inv-mail').value='';
+    invMontrerResultat(d, adresse);
+    chargerInvitations();
+  }finally{ $('inv-envoyer').disabled=false; }
+}
+
+async function chargerInvitations(){
+  let d;
+  try{ d=await (await fetch('/api/invitations')).json(); }catch(e){ return; }
+  const liste=d.invitations||[];
+  $('inv-liste').innerHTML = liste.length
+    ? '<div class="mb-titre">Invitations en attente</div>' + liste.map(i=>`<div class="us-ligne">
+        <div class="us-rond">@</div>
+        <div class="us-corps">
+          <div class="us-nom"><b>${esc(i.email)}</b><span class="pill off"><i></i>Invitation envoyée</span></div>
+          <div class="us-meta">Envoyée ${esc(ilYA(i.cree))} — le lien expire dans ${
+            Math.max(1, Math.round((i.expire - Date.now()/1000)/86400))} j</div>
+        </div>
+        <button class="btn btn-default btn-sm" data-agir="invitation-renvoyer" data-cible="${esc(i.id)}">Renvoyer</button>
+        <button class="btn btn-default btn-sm" data-agir="invitation-annuler" data-cible="${esc(i.id)}">Annuler</button>
+      </div>`).join('')
+    : '';
+}
+
+async function invRenvoyer(id){
+  const r=await fetch('/api/invitations/'+encodeURIComponent(id)+'/renvoyer',{method:'POST'});
+  const d=await r.json();
+  if(!r.ok){ notifier(d.error||'Renvoi impossible.', 'err'); return; }
+  invFormulaire(true);
+  invMontrerResultat(d, '');
+  if(d.envoye) notifier('Nouveau lien envoyé. L\'ancien ne vaut plus rien.');
+  chargerInvitations();
+}
+
+async function invAnnuler(id){
+  if(!await demander("Annuler l'invitation ?",
+    "Le lien envoyé ne permettra plus de créer le compte.", 'Annuler l\'invitation', true)) return;
+  const r=await fetch('/api/invitations/'+encodeURIComponent(id),{method:'DELETE'});
+  if(!r.ok){ const d=await r.json(); notifier(d.error||'Annulation impossible.', 'err'); return; }
+  chargerInvitations();
+}
+
+function copierLien(lien){
+  navigator.clipboard?.writeText(lien).then(()=>notifier('Lien copié.'))
+    .catch(()=>notifier('Copie impossible : sélectionne le lien à la main.', 'err'));
+}
+
+/* ---------------- proposer Face ID ---------------- */
+/* Juste apres l'arrivee (invitation acceptee, ou connexion par mot de passe),
+   si l'appareil sait verifier la personne et qu'aucune cle n'existe encore.
+   « Plus tard » est retenu sur cet appareil : on ne repose pas la question a
+   chaque page. */
+function nomDuGeste(){
+  const ua=navigator.userAgent||'';
+  if(/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints>1)) return 'Face ID';
+  if(/Macintosh/.test(ua)) return 'Touch ID';
+  if(/Android/.test(ua)) return 'ton empreinte';
+  if(/Windows/.test(ua)) return 'Windows Hello';
+  return 'une clé d\'accès';
+}
+async function proposerFaceId(){
+  const bienvenue = new URLSearchParams(location.search).has('bienvenue');
+  if(bienvenue) history.replaceState(null, '', location.pathname);
+  try{ if(!bienvenue && localStorage.getItem('codelab-faceid-plus-tard')) return; }catch(e){}
+  if(!window.PublicKeyCredential || !PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable) return;
+  try{
+    if(!await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()) return;
+    const etat=await (await fetch('/api/passkeys/etat')).json();
+    if(!etat.possible) return;
+    const liste=await (await fetch('/api/mon-compte/passkeys')).json();
+    if((liste.passkeys||[]).length) return;
+  }catch(e){ return; }
+  const geste=nomDuGeste();
+  $('fid-titre').textContent = (bienvenue ? 'Bienvenue ! ' : '') + 'Activer ' + geste + ' ?';
+  $('fid-texte').textContent = 'La prochaine fois, connecte-toi avec ' + geste
+    + ' : ni mot de passe, ni code à recopier. Tu pourras le retirer à tout moment dans '
+    + 'Paramètres > Sécurité.';
+  $('ov-faceid').classList.add('show');
+}
+function faceIdPlusTard(){
+  try{ localStorage.setItem('codelab-faceid-plus-tard', '1'); }catch(e){}
+  hide('ov-faceid');
+}
+async function faceIdActiver(){
+  const e=$('fid-err'); e.style.display='none';
+  $('fid-ok').disabled=true;
+  /* Meme enregistrement que Parametres > Securite : on nomme la cle d'apres
+     l'appareil, pour la reconnaitre dans la liste. */
+  $('pk-nom').value = nomDuGeste().replace(/^ton /,'').replace(/^une clé d'accès$/,'Clé d\'accès');
+  await pkAjouter();
+  $('fid-ok').disabled=false;
+  if($('pk-err').style.display==='block'){
+    e.textContent=$('pk-err').textContent; e.style.display='block'; return;
+  }
+  hide('ov-faceid');
+  notifier(nomDuGeste().replace(/^ton /,'Ton ') + ' est activé pour tes prochaines connexions.');
 }
 
 /* ---------------- mon adresse mail ---------------- */
@@ -5912,6 +6093,7 @@ if(estAdmin){
    etats changent tout seuls quand une application tombe ou repart. */
 showSection('hub');
 surveiller(()=>{ if(visible('sec-hub')) chargerHub(); }, 10000);
+proposerFaceId();
 
 </script>
 </body></html>

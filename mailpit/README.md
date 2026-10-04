@@ -13,6 +13,13 @@ consultable et le **relaie** par le serveur d'envoi réglé dans le panneau.
 - **Un mode test** : tout est gardé et rien n'est envoyé. On peut essayer une inscription ou un « mot
   de passe oublié » sans écrire à personne.
 
+## Les mails du panneau aussi
+
+Le panneau envoie **ses propres mails** (alertes, codes de connexion, invitations, mots de passe
+oublies) par ce meme service. Ils se relisent donc dans l'interface, comme ceux des applications —
+pratique pour retrouver un lien d'invitation, ou un code en mode test. Si Mailpit ne repond pas, le
+panneau repasse en envoi direct par le serveur de *Parametres > E-mail*.
+
 ## S'en servir depuis une application
 
 Le panneau transmet :

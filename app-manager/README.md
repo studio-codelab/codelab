@@ -224,7 +224,8 @@ page bricolee dans le navigateur ne donne aucun droit supplementaire.
 `/espace`, l'ancienne adresse de l'espace utilisateur, redirige vers `/` : elle a pu etre mise en
 favori.
 
-Les comptes se creent depuis **Utilisateurs**, dans le menu lateral. La liste donne l'essentiel d'un
+Les comptes se creent depuis **Utilisateurs**, dans le menu lateral, par **invitation** : voir
+ci-dessous. La liste donne l'essentiel d'un
 coup d'oeil — ce qui empeche quelqu'un d'entrer en premier, et en rouge — et **« Modifier » ouvre la
 fiche du compte** : adresse mail, nouveau mot de passe, projets autorises, remise a zero du second
 facteur, retrait des cles d'acces, suppression.
@@ -241,6 +242,26 @@ des connexions**, plus bas sur la meme page, qui se pagine — voir ci-dessous.
 Le filtrage se fait **dans la page**, sur une liste recue en entier. C'est le bon compromis a
 cette echelle, et c'est deja ce que fait la recherche d'applications. Au-dela de quelques milliers
 de comptes il faudrait filtrer cote serveur ; ce jour-la, la question ne se posera pas qu'ici.
+
+### Inviter quelqu'un
+
+**Creer un compte, c'est donner une adresse mail.** *Inviter quelqu'un* envoie un lien (par
+Mailpit) ; la personne l'ouvre, choisit **elle-meme** son nom d'utilisateur et son mot de passe,
+et entre aussitot dans le panneau.
+L'administrateur n'invente plus de mot de passe a transmettre par un autre canal.
+
+- Le lien est servi par la page de connexion (`/invitation/<jeton>`). Le jeton fait 256 bits ;
+  seule son **empreinte** est rangee, au coffre chiffre. Il **ne sert qu'une fois** et **expire au
+  bout de sept jours**.
+- Cliquer sur le lien prouve qu'on releve l'adresse : le compte nait avec une adresse **verifiee**,
+  sans code a recopier. Ce lien tient lieu de second facteur pour cette **premiere** connexion
+  seulement ; les suivantes demandent mot de passe et code, ou Face ID.
+- Le lien est **toujours affiche** a l'administrateur, avec un bouton *Copier* : sans serveur d'envoi
+  (ou Mailpit en mode test), le mail est garde dans Mailpit sans partir, et c'est a lui de le
+  transmettre.
+- Les invitations en attente se listent sous le formulaire : *Renvoyer* tire un **nouveau** lien
+  (l'ancien ne vaut plus rien), *Annuler* le retire.
+- *Creer le compte toi-meme* reste possible, avec un mot de passe choisi par l'administrateur.
 
 ### Le journal des connexions
 
@@ -283,9 +304,57 @@ donc par un canal qu'on ne maitrise pas, et sera reutilise ailleurs : c'est exac
 seul secret ne suffit pas. Un compte utilisateur n'ouvre **jamais** de session sur le seul mot de
 passe.
 
-L'administrateur, lui, garde le choix (Parametres > Securite) : le lui imposer d'office pourrait
-l'enfermer hors de son propre panneau. Il est vivement conseille de l'activer avant toute
-exposition.
+**Sans application a installer.** Apres le mot de passe, un **code a six chiffres** part
+automatiquement par **mail**, a l'adresse verifiee du compte (tous les comptes invites en ont une).
+
+La page dit ou le code est parti (adresse masquee) et propose de le renvoyer. Le code vaut dix
+minutes, sert une fois, et cinq essais au plus ; il ne part jamais que vers l'adresse enregistree
+sur le compte, et seulement apres un mot de passe juste. Un compte qui a deja une application d'authentification la garde comme moyen par
+defaut.
+
+**Face ID.** Juste apres une connexion par mot de passe (ou l'acceptation d'une invitation), sur un
+appareil qui sait verifier la personne, le panneau propose **d'activer Face ID** (Touch ID,
+l'empreinte ou Windows Hello selon l'appareil) — c'est une cle d'acces, voir plus bas. Sur la page
+de connexion, le bouton *Se connecter avec Face ID* passe en premier, et le navigateur propose la
+cle d'acces directement dans le champ du nom.
+
+**La boite mail seule ne prend pas un compte.** Le mail sert deja de second facteur ; s'il
+servait aussi, sans autre preuve, a reinitialiser le mot de passe, qui tient la boite tiendrait le
+compte. Donc :
+
+- *Mot de passe oublie* n'envoie un code que si le compte a **Face ID ou une application
+  d'authentification**. Sinon, c'est l'administrateur qui pose un nouveau mot de passe.
+- Apres une reinitialisation par mail, le **code par mail est suspendu** : la connexion suivante
+  passe par Face ID ou par l'application, et c'est elle qui le rend.
+- Un compte qui a deja un facteur (adresse verifiee, Face ID) ne peut pas enregistrer une
+  application sur le seul mot de passe — par exemple quand le serveur d'envoi est en panne.
+
+**Sessions.** Poser un nouveau mot de passe (par mail, par l'administrateur ou soi-meme) ou retirer
+les cles d'acces **ferme les sessions deja ouvertes** du compte : un cookie vole cesse de servir.
+Ajouter une cle Face ID ou changer son adresse mail exige une **connexion de moins de quinze
+minutes** : une session volee ne peut pas s'installer durablement. Les mots de passe font
+**12 caracteres au minimum**, partout.
+
+Le parcours historique ci-dessous (QR code et application d'authentification) ne s'applique plus
+qu'aux comptes **sans** adresse verifiee :
+
+**Le compte d'administration est plus exigeant qu'un compte utilisateur :**
+
+- **Second facteur obligatoire** (application d'authentification ou Face ID). Sans facteur
+  enregistre, le mot de passe juste mene a l'inscription d'une application, pas a une session ;
+  avec Face ID seulement, le mot de passe seul est refuse. Marche arriere en cas de telephone perdu :
+  `APP_MANAGER_ADMIN_2FA: "0"` dans le compose, le temps de reprendre la main.
+- **Session de douze heures au plus** (trente jours pour un compte utilisateur) : elle ouvre
+  Dagster et Mailpit, donc l'execution de code et tous les mails envoyes.
+- **Alerte par mail** a l'adresse d'alerte quand une session d'administration s'ouvre depuis une
+  adresse IP jamais vue (les 20 dernieres sont retenues).
+- Pas de code par mail ni de reinitialisation par mail : son mot de passe est celui de
+  `credentials.env`. Et l'option « administration limitee au reseau local » reste disponible.
+
+**Dagster et Mailpit ne s'ouvrent qu'a l'administrateur**, par aucun autre chemin : aucune tuile
+pour un compte utilisateur, `/api/auth-check` (interroge par nginx avant chaque requete vers les
+ports 3000 et 8025) refuse toute session qui n'est pas d'administration, et ni l'un ni l'autre ne
+s'accorde a un compte.
 
 Le parcours, en trois etats :
 
@@ -311,7 +380,7 @@ compte) et stockes dans `utilisateurs.json` en `0600`. Une copie de sauvegarde d
 n'est donc pas une liste de mots de passe. Le compte d'administration, lui, n'est pas dans ce
 fichier : son mot de passe vit dans `credentials.env`, et le nom `admin` est reserve.
 
-## Adresse mail des comptes, et inscription libre
+## Adresse mail des comptes
 
 Chaque compte utilisateur porte une **adresse mail**, posee a la creation (par l'administrateur) ou
 choisie par la personne dans ses *Parametres*. L'adresse relie le compte a quelqu'un de joignable.
@@ -329,160 +398,12 @@ atteste seulement que l'adresse existe et qu'elle est bien relevee par qui la de
 - **Changer d'adresse annule la verification**, cote personne comme cote administrateur : sinon il
   suffirait de remplacer une adresse verifiee par une autre pour heriter de son statut.
 
-**L'inscription libre** (« Creer un compte » sur la page de connexion) n'est ouverte que si un
-serveur d'envoi est configure : sans mail, une adresse declaree ne peut pas etre verifiee, et la
-creation de comptes devient un formulaire a remplir en boucle. Le parcours :
-
-1. nom, adresse, mot de passe ; un code part vers l'adresse ;
-2. tant que ce code n'est pas revenu, **le compte ne se connecte pas** — mot de passe juste compris ;
-3. une fois confirme, il se connecte comme tout compte utilisateur, en enregistrant son second
-   facteur a la premiere connexion.
-
-**Un compte cree ainsi n'ouvre aucun projet** tant que l'administrateur ne lui en autorise pas :
-c'est ce qui rend l'inscription libre sans consequence — au pire, des comptes vides. La creation est
-comptee dans la limite de tentatives (5 par fenetre et par adresse IP), pour qu'un robot ne fasse pas
-partir des mails en boucle. Un mail qui ne part pas retire le compte : sinon le nom resterait pris
-par quelqu'un qui ne pourra jamais s'en servir.
-
-## Cles d'acces (passkeys)
-
-Une cle d'acces remplace le mot de passe **et** le code a six chiffres : l'appareil prouve la
-possession, et l'empreinte (ou le code de l'appareil) prouve la personne. Rien a retenir, rien a
-recopier — et **rien a hameconner**, puisque la cle ne signe que pour le domaine qui l'a
-enregistree.
-
-Elle s'ajoute depuis *Parametres > Securite*, une fois connecte : on enregistre une cle sur le
-compte qu'on occupe deja. Plusieurs cles par compte (telephone, ordinateur), retirables une par une.
-
-**L'enregistrement exige la verification d'utilisateur** (`user_verification: required`) : sans
-empreinte ni code d'appareil, une cle ne serait qu'un facteur de possession, et ouvrir une session
-sur cette moitie serait un recul par rapport au mot de passe + TOTP. La connexion l'exige aussi.
-
-### Trois conditions que le navigateur impose
-
-Elles sont **annoncees** dans la page plutot que subies — un bouton qui echoue toujours est pire
-qu'un bouton absent :
-
-1. **HTTPS.** Le navigateur refuse WebAuthn hors contexte securise (sauf sur `localhost`). Sur
-   `http://192.168.1.20:9001`, les cles d'acces sont donc impossibles.
-2. **Un nom de domaine, pas une adresse IP.** Le `rp_id` ne peut pas etre une IP.
-3. **Toujours le meme nom.** Une cle enregistree sur `codelab.exemple.fr` ne fonctionne pas sur
-   `192.168.1.20`, et c'est voulu : c'est ce qui la rend inhameconnable.
-
-Un cas merite son message a lui : quand un proxy annonce `X-Forwarded-Proto: https` mais que
-`APP_MANAGER_TRUST_PROXY` n'est pas pose, le panneau ne le croit pas (n'importe quel client peut
-poser cet en-tete) et le dit — « declare ton proxy », pas « mets du TLS ».
-
-Les cles vivent dans `passkeys.json` (`0600`), une entree par compte, avec le compteur de signature
-que la norme demande de faire avancer : **il ne doit jamais reculer**, c'est la qu'une cle clonee se
-trahit. La bibliotheque `webauthn` fait la cryptographie — ecrire soi-meme la verification d'une
-signature ECDSA et le decodage CBOR d'une attestation, c'est le genre de code ou une erreur discrete
-ne se voit que de celui qui la cherche. Import optionnel : sans elle, les cles d'acces sont
-indisponibles et le reste ne bouge pas.
-
-## Adresse publique, et ce que « publique » veut dire
-
-Une application **publique** est servie **sans authentification** : c'est ce qui permet de partager
-un projet par un simple lien. Tant que ce serveur n'est joignable que depuis ton reseau, le mot
-promet une ouverture qui n'existe pas — il ne retire que l'authentification, sans rien partager.
-
-Le panneau **ne propose donc pas de rendre une application publique tant qu'aucune adresse publique
-n'est declaree** (*Parametres > Serveur > Adresse publique*), et la route refuse aussi le
-changement. Trois consequences, voulues :
-
-- une application **deja publique** n'est pas touchee, et peut toujours etre **refermee** — on ne
-  bloque jamais le chemin qui referme ;
-- une application **neuve nait privee** sur un serveur prive, meme si le formulaire demande autre
-  chose : elle s'ouvre en une bascule, alors qu'une application ouverte par megarde ne se referme
-  qu'apres coup ;
-- des que l'adresse est declaree, tout redevient possible, sans redemarrage.
-
-**Elle se declare a la main**, et c'est deliberé : le panneau ne peut pas savoir si le port 443 de
-la box est ouvert, si le tunnel tourne, ni quel nom de domaine y mene. La renseigner, c'est dire
-« j'ai fait le necessaire ». `APP_MANAGER_PUBLIC_URL` dans le compose l'emporte sur la page, et la
-page le dit plutot que de laisser modifier ce qu'un redemarrage remettrait.
-
-## Journal des acces
-
-Qui s'est connecte, quand, depuis quelle adresse, et quelle application il a ouverte. Deux usages, et
-deux seulement : **reconnaitre une tentative d'intrusion** (des echecs de connexion en rafale, une
-connexion a une heure inhabituelle) et **savoir si un projet sert encore a quelqu'un** avant de
-l'arreter. Il se lit dans **Utilisateurs** (connexions recentes, et la derniere connexion sous chaque
-compte) et dans la fiche d'une application, onglet **Activite**.
-
-Trois decisions qui comptent :
-
-- **Une ouverture est notee apres les controles d'acces.** Un refus n'est pas une visite : les
-  compter donnerait a une application fermee l'air d'etre tres frequentee.
-- **Une ouverture par personne et par application, au plus une fois par quart d'heure.** Une page
-  web, c'est des dizaines de requetes ; les compter toutes ne dirait plus rien de la frequentation
-  et remplirait le disque.
-- **Journaliser n'echoue jamais.** Disque plein, montage en lecture seule : l'evenement est perdu,
-  le service continue. Refuser une connexion pour proteger son journal reviendrait a eteindre le
-  service au moment ou on veut justement l'observer.
-
-Le fichier est `acces.jsonl` (dans `STATE_DIR`), une ligne JSON par evenement, plafonne a 1 Mo avec
-un `.1` conserve — la meme rotation que les journaux d'application. Un fichier texte se relit depuis
-une session SSH le jour ou le panneau ne repond plus, ce qu'une base ne permettrait pas.
-
-### La memoire longue : Postgres
-
-Le fichier oublie — 1 Mo, environ 8 000 evenements. Le panneau recopie donc **en plus** le journal
-et le registre des comptes dans Postgres, dans une base `codelab` qu'il cree lui-meme au premier
-demarrage (deux tables, `acces` et `utilisateurs`). C'est la que vit l'historique long, interrogeable
-en SQL depuis un projet ou une session `psql`.
-
-**En plus, jamais a la place, et jamais sur le chemin d'une requete.** Une file en memoire et un fil
-dedie : si la base est eteinte, lente, ou si le mot de passe a change, la file se vide dans le vide
-et **la connexion comme l'ouverture d'une application passent quand meme**. Le fichier reste la
-source de verite ; la base est un miroir.
-
-- **Chaque evenement porte un identifiant.** C'est lui qui rend le rattrapage rejouable : au
-  demarrage et apres chaque reconnexion, le fil rejoue le fichier en entier, et `ON CONFLICT DO
-  NOTHING` fait le tri. Rien n'est compte deux fois, et ce qui s'est produit pendant une panne de la
-  base est rattrape tout seul, tant que la ligne est encore dans le fichier.
-- **Aucun secret ne traverse.** La table `utilisateurs` porte le nom, l'adresse, les etats (adresse
-  verifiee, second facteur enregistre, nombre de cles d'acces) et les projets autorises — ni
-  empreinte de mot de passe, ni sel, ni cle du second facteur, ni cle d'acces. Cette base est
-  joignable par les projets deployes : elle ne contient que ce qui se lit deja dans le panneau.
-- **Un compte supprime laisse sa ligne**, marquee `supprime`. Le journal le designe par son nom, et
-  un historique qui perd ses acteurs ne s'interprete plus.
-- `APP_MANAGER_PG=0` coupe le miroir. Sans `psycopg` dans l'image, il est simplement inactif.
-
-La page *Utilisateurs* lit Postgres quand il repond, et retombe sur le fichier sinon — une base
-eteinte rend seulement la vue plus courte, et la reponse de `/api/activite` dit d'ou viennent les
-lignes.
-
-`GET /api/activite` est **reserve a l'administrateur** : il contient des adresses IP et le detail de
-qui ouvre quoi.
-
-## Categories
-
-Une categorie est un intitule libre — « Outils », « Sites », « Donnees » — qui **regroupe les projets
-dans le hub**, et rien d'autre : elle ne donne aucun droit, ne change rien au deploiement et
-n'apparait pas dans le proxy. C'est du rangement.
-
-- La liste se tient dans **Parametres > Categories**. Son ordre est l'ordre d'affichage des
-  groupes : on la range, on n'impose pas un tri alphabetique.
-- La categorie d'un projet se choisit dans sa fiche, onglet **Configuration**, parmi cette liste.
-- Un projet sans categorie apparait a la fin, sous **Autres**. Tant qu'aucune categorie n'existe, le
-  hub reste une seule liste — un titre « Autres » tout seul ne rangerait rien.
-
-**Supprimer une categorie ne casse rien mais deplace des projets** : ceux qui la portaient
-redeviennent non ranges, tout de suite, et la page dit combien. Un projet ne garde jamais une
-categorie disparue — il serait range dans un tiroir que le hub n'affiche plus, donc invisible.
-
-La liste vit dans `categories.json` (dans `STATE_DIR`), a cote de `apps.json` : une categorie existe
-avant qu'un projet la porte, et survit a la suppression du dernier projet qui l'utilisait.
-
-## Le serveur d'envoi, et les alertes
-
-Ce sont **deux choses**, et elles ont chacune leur onglet.
-
 Le **serveur d'envoi** (*Parametres > E-mail*) est une fourniture partagee : hote, port,
-chiffrement, identifiant. Trois usages en dependent — les **alertes**, les **codes de verification**
-des adresses des comptes, et l'**inscription libre**, qui reste fermee tant qu'aucun serveur n'est
-configure faute de pouvoir verifier une adresse.
+chiffrement, identifiant. Trois usages en dependent — les **alertes**, les **invitations**, et les
+**codes** (connexion, verification d'adresse, mot de passe oublie).
+
+**Il n'y a pas d'inscription libre** : un compte ne nait que par invitation de l'administrateur (ou
+cree par lui directement). Aucun formulaire public ne cree de compte.
 
 Les **alertes** (*Parametres > Alertes*) n'en sont qu'un usage : qui prevenir, et l'interrupteur.
 
@@ -752,9 +673,11 @@ qui n'est pas implemente ici.
 | `/api/mon-compte/email` | POST | oui | Declare ou change sa propre adresse, et envoie un code |
 | `/api/mon-compte/email/code` | POST | oui | Renvoie un code (une fois par minute au plus) |
 | `/api/mon-compte/email/confirmer` | POST | oui | Confirme l'adresse avec le code recu |
-| `/api/inscription` | GET | **non** | L'inscription libre est-elle ouverte (serveur d'envoi configure) |
-| `/inscription` | POST | **non** | Cree un compte sans aucun projet, et envoie un code a l'adresse |
-| `/inscription/confirmer` | POST | **non** | Confirme l'adresse et rend le compte utilisable |
+| `/api/invitations` | GET / POST | oui | Les invitations en attente ; en envoie une (rend toujours le lien) |
+| `/api/invitations/<id>/renvoyer` | POST | oui | Tire un nouveau lien et le renvoie |
+| `/api/invitations/<id>` | DELETE | oui | Annule une invitation |
+| `/invitation/<jeton>` | GET / POST | **non** | La page d'invitation ; cree le compte et ouvre la session |
+| `/api/invitation/<jeton>` | GET | **non** | Le lien est-il valable, et pour quelle adresse |
 | `/qr/totp.svg` | GET | **non** | Le QR code de l'inscription au second facteur en attente dans la session |
 | `/api/securite` | GET | oui | Etat des reglages de securite (TOTP, HTTPS, cookie, proxy de confiance) |
 | `/api/securite/totp/preparer` | POST | oui | Tire un secret candidat, sans rien enregistrer |

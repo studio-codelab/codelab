@@ -163,6 +163,11 @@ def _bac_a_sable(tmp_path, monkeypatch):
     # elle-meme remettent None, ceux qui veulent la branche isolee
     # posent True.
     app._isolement.update(verdict=False, raison="fixe par le filet")
+    # Le second facteur obligatoire de l'administrateur est eteint par
+    # defaut ICI SEULEMENT : des centaines de tests se connectent en
+    # administrateur avec le mot de passe, et parlent d'autre chose. Les
+    # tests de ce facteur le rallument (voir « admin_2fa »).
+    monkeypatch.setenv("APP_MANAGER_ADMIN_2FA", "0")
     # Le coffre : une cle neuve par test, et rien en memoire d'un test a
     # l'autre -- sinon un reglage ecrit par l'un se lirait dans le suivant.
     from cryptography.fernet import Fernet
@@ -2088,9 +2093,9 @@ def test_l_inscription_ne_remplace_pas_un_facteur_deja_en_service(deux_espaces):
     assert app.lire_utilisateurs()["marie"]["totp"] == "AUTRECLEDEJAENREGISTREE"
 
 
-def test_l_administrateur_garde_le_choix_de_son_second_facteur(deux_espaces):
-    """Le rendre obligatoire pour lui aussi pourrait l'enfermer hors de son
-    propre panneau : c'est un reglage, pas une regle."""
+def test_sans_l_obligation_l_administrateur_entre_au_mot_de_passe(deux_espaces):
+    """APP_MANAGER_ADMIN_2FA=0 (pose par le filet) : la marche arriere du
+    compose, le jour ou le telephone qui portait le facteur est perdu."""
     c = deux_espaces
     assert not app.totp_actif()
     assert c.post("/login", json={"password": "secret-de-test"}).status_code == 200
@@ -2317,14 +2322,28 @@ def test_une_session_de_plus_de_trente_jours_ne_vaut_plus_rien(journal):
         assert sess.get("authed") is not True
 
 
-def test_une_session_de_vingt_neuf_jours_tient_encore(journal):
+def test_une_session_de_vingt_neuf_jours_tient_encore(deux_espaces):
     """La limite est une limite, pas une approximation : on ne deconnecte
-    pas quelqu'un la veille."""
+    pas quelqu'un la veille. (Un compte utilisateur : l'administrateur a la
+    sienne, plus courte.)"""
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    with c.session_transaction() as sess:
+        sess["ouverte"] = time.time() - 29 * 86400
+    assert c.get("/api/mes-apps").status_code == 200
+
+
+def test_la_session_d_administration_tombe_au_bout_de_douze_heures(journal):
+    """L'administrateur ouvre tout, Dagster et Mailpit compris : sa session
+    vit une journee de travail, pas un mois."""
     c = journal
     c.post("/login", json={"password": "secret-de-test"})
     with c.session_transaction() as sess:
-        sess["ouverte"] = time.time() - 29 * 86400
+        sess["ouverte"] = time.time() - 11 * 3600
     assert c.get("/api/apps").status_code == 200
+    with c.session_transaction() as sess:
+        sess["ouverte"] = time.time() - 13 * 3600
+    assert c.get("/api/apps").status_code in (401, 403)
 
 
 def test_une_session_d_avant_ce_mecanisme_n_est_pas_jetee(journal):
@@ -2346,7 +2365,7 @@ def test_l_expiration_est_journalisee(journal):
         sess["ouverte"] = time.time() - 31 * 86400
     c.get("/api/apps")
     genres = [e.get("action") for e in app.lire_acces() if e.get("genre") == "session"]
-    assert any("30 jours" in (a or "") for a in genres), genres
+    assert any("12 heures" in (a or "") for a in genres), genres
 
 
 # ---------- 12 sexies. un mot laisse depuis le hub ----------
@@ -3199,12 +3218,18 @@ def _code_du_dernier_mail(partis):
 # peut prouver a distance qui il est ; et si le seul recours etait
 # l'administrateur, il faudrait le deranger a chaque oubli.
 
-def _compte_avec_adresse(nom="marie", mdp="mot-de-passe-long", verifiee=True):
+def _compte_avec_adresse(nom="marie", mdp="mot-de-passe-long", verifiee=True,
+                         face_id=True):
+    """face_id : une cle d'acces enregistree -- la condition, depuis l'option A,
+    pour que la reinitialisation par mail soit ouverte."""
     sel = "ee" * 16
     app.ecrire_utilisateurs({nom: {
         "sel": sel, "hash": app.derive_mot_de_passe(mdp, sel),
         "projets": [], "cree": 0,
         "email": f"{nom}@example.com", "email_verifie": verifiee}})
+    app.ecrire_passkeys({nom: [{"id": "CLE", "cle_publique": "AAAA", "compteur": 0,
+                                "nom": "Face ID", "cree": 0, "dernier": 0}]}
+                        if face_id else {})
 
 
 def test_un_code_de_reinitialisation_part_a_l_adresse_verifiee(comptes_mail):
@@ -3417,55 +3442,18 @@ def test_changer_d_adresse_annule_la_verification(comptes_mail):
     assert app.lire_utilisateurs()["marie"]["email_verifie"] is False
 
 
-def test_un_compte_inscrit_librement_n_ouvre_rien_et_attend_son_code(comptes_mail):
-    """Le compte existe, mais il ne se connecte pas et n'autorise aucun projet."""
+def test_il_n_y_a_plus_d_inscription_libre(comptes_mail):
+    """Les comptes ne naissent que par invitation de l'administrateur : plus de
+    formulaire public, meme avec un serveur d'envoi configure."""
     c, partis = comptes_mail
-    app.save({"prive": {"path": "/w/a", "command": "x", "port": 9101,
-                        "enabled": True, "visibility": "privee"}})
     r = c.post("/inscription", json={"nom": "paul", "email": "paul@example.com",
                                      "mot_de_passe": "mot-de-passe-long"})
-    assert r.status_code == 200, r.data
-    assert app.lire_utilisateurs()["paul"]["projets"] == []
-
-    # Mot de passe juste, et pourtant pas de session : l'adresse n'a pas
-    # encore repondu.
-    r = c.post("/login", json={"nom": "paul", "password": "mot-de-passe-long"})
-    assert r.status_code == 403
-    assert r.get_json().get("attente_email") is True
-    assert c.get("/api/mes-apps").status_code == 401
-
-    app._login_attempts.clear()
-    assert c.post("/inscription/confirmer",
-                  json={"code": _code_du_dernier_mail(partis)}).status_code == 200
-    # Le compte devient utilisable : la connexion demande maintenant le
-    # second facteur, comme pour tout compte utilisateur.
-    r = c.post("/login", json={"nom": "paul", "password": "mot-de-passe-long"})
-    assert r.status_code == 200 and r.get_json().get("inscription") is True
-
-
-def test_sans_serveur_d_envoi_l_inscription_est_fermee(comptes_mail, tmp_path):
-    """Sans mail, une adresse declaree ne peut pas etre verifiee : ouvrir la
-    creation de comptes reviendrait a offrir un formulaire a remplir en
-    boucle."""
-    c, _ = comptes_mail
-    (tmp_path / "credentials.env").write_text("")
-    assert c.get("/api/inscription").get_json()["ouverte"] is False
-    r = c.post("/inscription", json={"nom": "paul", "email": "paul@example.com",
-                                     "mot_de_passe": "mot-de-passe-long"})
-    assert r.status_code == 403
-    assert "paul" not in app.lire_utilisateurs()
-
-
-def test_un_mail_qui_ne_part_pas_ne_laisse_pas_un_nom_pris(comptes_mail, monkeypatch):
-    """Sinon le nom serait pris par quelqu'un qui ne pourra jamais s'en servir."""
-    c, _ = comptes_mail
-    def refuse(*a, **k):
-        raise OSError("relais injoignable")
-    monkeypatch.setattr(app, "envoyer_mail", refuse)
-    r = c.post("/inscription", json={"nom": "paul", "email": "paul@example.com",
-                                     "mot_de_passe": "mot-de-passe-long"})
-    assert r.status_code == 502
-    assert "paul" not in app.lire_utilisateurs()
+    assert r.status_code >= 300
+    r = c.post("/inscription/", json={"nom": "paul", "email": "paul@example.com",
+                                      "mot_de_passe": "mot-de-passe-long"})
+    assert r.status_code == 404
+    assert "paul" not in app.lire_utilisateurs() and not partis
+    assert c.get("/api/inscription").status_code in (401, 404)
 
 
 # ---------- 16. journal des acces ----------
@@ -4234,6 +4222,31 @@ def test_un_proxy_declare_rend_l_adresse_reelle_a_nouveau_lisible(exposition):
     assert r.status_code == 403, r.data
 
 
+def test_une_adresse_locale_injectee_par_le_client_ne_passe_pas_le_verrou(exposition):
+    """L'attaque : depuis Internet, envoyer soi-meme « X-Forwarded-For:
+    192.168.1.42 ». nginx AJOUTE l'adresse reelle a la suite : c'est elle,
+    la derniere, qui doit compter."""
+    c = exposition
+    c.put("/api/securite/exposition", json={"trust_proxy": True},
+          headers={"X-Forwarded-For": "192.168.1.42"})
+    _active_le_verrou(c)
+    r = c.get("/api/apps", headers={"X-Forwarded-For": "192.168.1.42, 203.0.113.7"})
+    assert r.status_code == 403, r.data
+    assert c.get("/api/apps", headers={
+        "X-Forwarded-For": "203.0.113.7, 192.168.1.42"}).status_code == 200
+
+
+def test_changer_d_adresse_inventee_ne_contourne_pas_la_limite(client, monkeypatch):
+    monkeypatch.setattr(app, "trust_proxy", lambda: True)
+    app._login_attempts.clear()
+    for i in range(app.RATE_LIMIT_MAX):
+        client.post("/login", json={"password": "faux"},
+                    headers={"X-Forwarded-For": f"10.9.9.{i}, 203.0.113.7"})
+    r = client.post("/login", json={"password": "faux"},
+                    headers={"X-Forwarded-For": "10.9.9.200, 203.0.113.7"})
+    assert r.status_code == 429
+
+
 def test_le_compose_peut_rouvrir_l_administration(exposition, monkeypatch):
     """La seule marche arriere qui ne passe pas par le panneau, et celle qui
     compte le jour ou l'on se retrouve enferme dehors."""
@@ -4812,7 +4825,9 @@ def test_toutes_les_routes_d_ecriture_sont_couvertes(deux_espaces):
     assert app.JETON_EXEMPTS == {
         "login_submit", "login_second_facteur",
         "login_passkey_options", "login_passkey",
-        "inscription_creer", "inscription_confirmer",
+        # Ouverte par la personne invitee, sans session -- ou dans le
+        # navigateur de l'administrateur qui essaie son propre lien.
+        "invitation_accepter",
         "proxy", "proxy_noslash",
     }
 
@@ -12086,3 +12101,423 @@ def test_dagster_garde_un_pilote_postgres_qu_il_sait_ouvrir():
     dockerfile = open(os.path.join(racine, "dagster", "Dockerfile"), encoding="utf-8").read()
     assert '"sqlalchemy<2.1"' in dockerfile
     assert "sqlalchemy.create_engine('postgresql://" in dockerfile
+
+
+# ---------------- invitations, codes par mail, envoi par Mailpit ----------------
+#
+# Creer un compte, c'est donner une adresse : la personne recoit un lien et
+# choisit elle-meme son nom et son mot de passe. Le second facteur n'exige
+# plus d'application : un code part par mail. Et les mails du panneau
+# passent par Mailpit, comme ceux des applications.
+
+
+def _jeton_du_lien(partis):
+    return re.search(r"/invitation/([A-Za-z0-9_-]+)", partis[-1][1]).group(1)
+
+
+@pytest.fixture
+def invitations(comptes_mail):
+    c, partis = comptes_mail
+    with c.session_transaction() as s:
+        s.update(authed=True, role=app.ROLE_ADMIN, utilisateur=app.NOM_ADMIN,
+                 ouverte=int(time.time()), jeton="j")
+    return c, partis, {app.JETON_ENTETE: "j"}
+
+
+def test_une_invitation_envoie_un_lien_et_le_rend_a_l_administrateur(invitations):
+    c, partis, h = invitations
+    r = c.post("/api/invitations", json={"email": "paul@example.com"}, headers=h)
+    assert r.status_code == 200, r.data
+    d = r.get_json()
+    assert d["envoye"] is True and partis[-1][0] == ["paul@example.com"]
+    assert d["lien"].endswith("/invitation/" + _jeton_du_lien(partis))
+    # Seule l'empreinte est rangee : le jeton ne se relit nulle part.
+    assert _jeton_du_lien(partis) not in json.dumps(app.reglage("invitations"))
+    assert [i["email"] for i in c.get("/api/invitations").get_json()["invitations"]] \
+        == ["paul@example.com"]
+
+
+def test_accepter_l_invitation_cree_le_compte_verifie_et_ouvre_la_session(invitations):
+    c, partis, h = invitations
+    c.post("/api/invitations", json={"email": "paul@example.com"}, headers=h)
+    jeton = _jeton_du_lien(partis)
+    c.post("/logout")
+    assert c.get("/api/invitation/" + jeton).get_json()["email"] == "paul@example.com"
+    r = c.post("/invitation/" + jeton, json={"nom": "paul", "mot_de_passe": "mot-de-passe-long"})
+    assert r.status_code == 200, r.data
+    compte = app.lire_utilisateurs()["paul"]
+    assert compte["email"] == "paul@example.com" and compte["email_verifie"] is True
+    assert c.get("/api/mes-apps").status_code == 200
+    # Le lien ne sert qu'une fois.
+    c.post("/logout")
+    assert c.post("/invitation/" + jeton, json={"nom": "autre",
+                  "mot_de_passe": "mot-de-passe-long"}).status_code == 404
+
+
+def test_un_lien_d_invitation_invente_ne_cree_rien(invitations):
+    c, _, _ = invitations
+    c.post("/logout")
+    r = c.post("/invitation/" + "x" * 43, json={"nom": "intrus",
+                                                "mot_de_passe": "mot-de-passe-long"})
+    assert r.status_code == 404
+    assert "intrus" not in app.lire_utilisateurs()
+
+
+def test_une_invitation_annulee_ne_vaut_plus_rien(invitations):
+    c, partis, h = invitations
+    ident = c.post("/api/invitations", json={"email": "paul@example.com"},
+                   headers=h).get_json()["id"]
+    jeton = _jeton_du_lien(partis)
+    assert c.delete("/api/invitations/" + ident, headers=h).status_code == 200
+    assert c.get("/api/invitation/" + jeton).status_code == 404
+
+
+def test_un_compte_verifie_recoit_son_code_par_mail_et_entre_avec(comptes_mail):
+    c, partis = comptes_mail
+    _compte_avec_adresse()
+    r = c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long"})
+    d = r.get_json()
+    assert r.status_code == 401 and d["moyen"] == "email" and d["envoye"] is True
+    assert "marie@example.com" not in json.dumps(d), "l'adresse ne doit pas s'afficher en entier"
+    assert partis[-1][0] == ["marie@example.com"]
+    assert c.get("/api/mes-apps").status_code == 401
+    app._login_attempts.clear()
+    r = c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long",
+                               "code": _code_du_dernier_mail(partis)})
+    assert r.status_code == 200, r.data
+    assert c.get("/api/mes-apps").status_code == 200
+
+
+def test_le_code_de_connexion_ne_sert_qu_une_fois_et_exige_le_mot_de_passe(comptes_mail):
+    c, partis = comptes_mail
+    _compte_avec_adresse()
+    c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long"})
+    code = _code_du_dernier_mail(partis)
+    app._login_attempts.clear()
+    assert c.post("/login", json={"nom": "marie", "password": "faux",
+                                  "code": code}).status_code == 401
+    assert c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long",
+                                  "code": code}).status_code == 200
+    c.post("/logout")
+    app._login_attempts.clear()
+    assert c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long",
+                                  "code": code}).status_code == 401
+
+
+def test_les_mails_du_panneau_passent_par_mailpit(monkeypatch):
+    remis = []
+    monkeypatch.setattr(app, "MAIL_PAR_MAILPIT", True)
+    monkeypatch.setattr(app, "_envoyer_par_mailpit", lambda msg: remis.append(msg))
+    direct = []
+    monkeypatch.setattr(app.smtplib, "SMTP", lambda *a, **k: direct.append(a))
+    app.envoyer_mail({"host": "smtp.example.com", "port": 587, "tls": "starttls",
+                      "user": "", "password": "", "expediteur": "moi@example.com"},
+                     "sujet", "corps", destinataires=["toi@example.com"])
+    assert remis and remis[0]["To"] == "toi@example.com" and not direct
+
+
+def test_mailpit_injoignable_l_envoi_repart_en_direct(monkeypatch):
+    def refuse(msg):
+        raise ConnectionRefusedError("arrete")
+    monkeypatch.setattr(app, "MAIL_PAR_MAILPIT", True)
+    monkeypatch.setattr(app, "_envoyer_par_mailpit", refuse)
+    envois = []
+
+    class FauxSMTP:
+        def __init__(self, *a, **k): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def ehlo(self): pass
+        def starttls(self, **k): pass
+        def login(self, *a): pass
+        def send_message(self, msg): envois.append(msg)
+
+    monkeypatch.setattr(app.smtplib, "SMTP", FauxSMTP)
+    app.envoyer_mail({"host": "smtp.example.com", "port": 587, "tls": "starttls",
+                      "user": "", "password": "", "expediteur": "moi@example.com"},
+                     "sujet", "corps", destinataires=["toi@example.com"])
+    assert len(envois) == 1
+
+
+# ---------- option A : la boite mail seule ne prend pas un compte ----------
+#
+# Le mail sert deja de second facteur (code de connexion). S'il servait AUSSI a
+# reinitialiser le mot de passe, qui tient la boite tiendrait le compte. D'ou :
+# reinitialisation par mail reservee aux comptes qui ont Face ID ou une
+# application, et code par mail suspendu apres une reinitialisation.
+
+def _reinitialiser_par_mail(c, partis, nouveau="nouveau-mot-de-passe"):
+    c.post("/mot-de-passe/oubli", json={"nom": "marie"})
+    code = _code_du_dernier_mail(partis)
+    app._login_attempts.clear()
+    return c.post("/mot-de-passe/reinitialiser",
+                  json={"nom": "marie", "code": code, "nouveau": nouveau})
+
+
+def test_sans_facteur_fort_la_reinitialisation_par_mail_est_fermee(comptes_mail):
+    c, partis = comptes_mail
+    _compte_avec_adresse(face_id=False)
+    assert c.post("/mot-de-passe/oubli", json={"nom": "marie"}).status_code == 200
+    assert partis == [], "un code de reinitialisation est parti sans facteur fort"
+
+
+def test_apres_une_reinitialisation_par_mail_le_code_mail_ne_suffit_plus(comptes_mail):
+    """Le scenario de la boite mail volee : mot de passe reinitialise par mail,
+    puis tentative d'entrer avec le code... envoye par mail."""
+    c, partis = comptes_mail
+    _compte_avec_adresse()
+    assert _reinitialiser_par_mail(c, partis).status_code == 200
+    app._login_attempts.clear()
+    nb = len(partis)
+    r = c.post("/login", json={"nom": "marie", "password": "nouveau-mot-de-passe",
+                               "moyen": "email"})
+    assert r.status_code == 403, r.data
+    assert len(partis) == nb, "un code de connexion est parti par mail"
+    assert c.get("/api/mes-apps").status_code == 401
+
+
+def test_apres_reinitialisation_aucune_application_ne_s_inscrit_sur_le_mot_de_passe(comptes_mail):
+    """Sans ce verrou, le mot de passe reinitialise suffirait a enregistrer
+    une application d'authentification -- et a entrer."""
+    c, partis = comptes_mail
+    _compte_avec_adresse()
+    _reinitialiser_par_mail(c, partis)
+    app._login_attempts.clear()
+    r = c.post("/login", json={"nom": "marie", "password": "nouveau-mot-de-passe"})
+    assert r.status_code == 403 and not r.get_json().get("inscription")
+
+
+def test_un_facteur_fort_rend_le_code_par_mail(comptes_mail):
+    c, partis = comptes_mail
+    _compte_avec_adresse()
+    comptes = app.lire_utilisateurs()
+    comptes["marie"]["totp"] = "JBSWY3DPEHPK3PXP"
+    app.ecrire_utilisateurs(comptes)
+    _reinitialiser_par_mail(c, partis)
+    assert app.lire_utilisateurs()["marie"]["code_mail_suspendu"] is True
+    app._login_attempts.clear()
+    d = c.post("/login", json={"nom": "marie", "password": "nouveau-mot-de-passe"}).get_json()
+    assert d["moyens"] == ["totp"]
+    code = app.totp_code("JBSWY3DPEHPK3PXP", int(time.time()) // app.TOTP_PAS)
+    assert c.post("/login", json={"nom": "marie", "password": "nouveau-mot-de-passe",
+                                  "code": code}).status_code == 200
+    assert not app.lire_utilisateurs()["marie"].get("code_mail_suspendu")
+
+
+def test_une_adresse_verifiee_sans_serveur_d_envoi_n_ouvre_pas_l_inscription(comptes_mail, tmp_path):
+    """Serveur d'envoi en panne : le compte ne doit pas retomber sur
+    l'inscription d'une application, qui n'exige que le mot de passe."""
+    c, _ = comptes_mail
+    _compte_avec_adresse(face_id=False)
+    (tmp_path / "credentials.env").write_text("")
+    r = c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long"})
+    assert r.status_code == 403 and not r.get_json().get("inscription")
+
+
+def test_un_compte_suspendu_n_entre_pas_par_face_id(comptes_mail, monkeypatch):
+    """Le mot de passe refusait deja un compte suspendu ; la cle d'acces, non."""
+    pytest.importorskip("webauthn")
+    import webauthn
+    c, _ = comptes_mail
+    _compte_avec_adresse()
+    comptes = app.lire_utilisateurs()
+    comptes["marie"]["suspendu"] = True
+    app.ecrire_utilisateurs(comptes)
+    monkeypatch.setattr(app, "passkey_contexte",
+                        lambda: ("codelab.exemple.fr", "https://codelab.exemple.fr", ""))
+
+    class Verifiee:
+        new_sign_count = 1
+    monkeypatch.setattr(webauthn, "verify_authentication_response", lambda **k: Verifiee())
+    with c.session_transaction() as sess:
+        sess["passkey_defi"] = base64.b64encode(b"defi").decode()
+    r = c.post("/login/passkey", json={"credential": {"id": "CLE"}})
+    assert r.status_code == 403, r.data
+    assert c.get("/api/mes-apps").status_code == 401
+
+
+# ---------- un changement de mot de passe ferme les sessions ouvertes ----------
+
+def test_un_nouveau_mot_de_passe_pose_par_l_admin_ferme_la_session_volee(deux_espaces):
+    vol = app.flask_app.test_client()
+    _connecte(vol, "marie", "mot-de-passe-long")
+    assert vol.get("/api/mes-apps").status_code == 200
+    time.sleep(1.1)
+    comptes = app.lire_utilisateurs()
+    app.fermer_les_autres_sessions(comptes["marie"])
+    app.ecrire_utilisateurs(comptes)
+    assert vol.get("/api/mes-apps").status_code == 401
+
+
+def test_changer_son_mot_de_passe_garde_sa_session_et_ferme_les_autres(deux_espaces):
+    c = deux_espaces
+    autre = app.flask_app.test_client()
+    _connecte(c, "marie", "mot-de-passe-long")
+    _connecte(autre, "marie", "mot-de-passe-long")
+    time.sleep(1.1)
+    jeton = c.get("/").get_data(as_text=True)
+    jeton = re.search(r"const JETON=(\"[^\"]+\")", jeton).group(1).strip('"')
+    r = c.post("/api/compte/mot-de-passe",
+               json={"ancien": "mot-de-passe-long", "nouveau": "un-tout-nouveau-mot-de-passe"},
+               headers={app.JETON_ENTETE: jeton})
+    assert r.status_code == 200, r.data
+    assert c.get("/api/mes-apps").status_code == 200
+    assert autre.get("/api/mes-apps").status_code == 401
+
+
+def test_une_reinitialisation_par_mail_ferme_les_sessions_ouvertes(comptes_mail):
+    c, partis = comptes_mail
+    _compte_avec_adresse()
+    vol = app.flask_app.test_client()
+    with vol.session_transaction() as s:
+        s.update(authed=True, role=app.ROLE_UTILISATEUR, utilisateur="marie",
+                 ouverte=int(time.time()) - 10, jeton="j")
+    assert vol.get("/api/mes-apps").status_code == 200
+    assert _reinitialiser_par_mail(c, partis).status_code == 200
+    assert vol.get("/api/mes-apps").status_code == 401
+
+
+def test_un_cookie_ancien_ne_suffit_pas_a_ajouter_une_cle_ni_changer_d_adresse(comptes_mail):
+    """Une session volee ne doit pas pouvoir s'installer durablement : ajouter
+    sa propre cle Face ID, ou detourner l'adresse qui recoit les codes."""
+    c, _ = comptes_mail
+    _compte_avec_adresse()
+    with c.session_transaction() as s:
+        s.update(authed=True, role=app.ROLE_UTILISATEUR, utilisateur="marie",
+                 ouverte=int(time.time()) - app.AUTHENTIFICATION_RECENTE - 60, jeton="j")
+    h = {app.JETON_ENTETE: "j"}
+    r = c.post("/api/mon-compte/email", json={"email": "pirate@example.com"}, headers=h)
+    assert r.status_code == 403 and r.get_json()["reconnexion"] is True
+    assert app.lire_utilisateurs()["marie"]["email"] == "marie@example.com"
+    if app.passkeys_disponibles():
+        r = c.post("/api/mon-compte/passkeys/options", headers=h)
+        assert r.status_code in (400, 403)
+
+
+def test_juste_apres_la_connexion_l_adresse_se_change(comptes_mail):
+    c, partis = comptes_mail
+    _compte_avec_adresse()
+    with c.session_transaction() as s:
+        s.update(authed=True, role=app.ROLE_UTILISATEUR, utilisateur="marie",
+                 ouverte=int(time.time()), jeton="j")
+    r = c.post("/api/mon-compte/email", json={"email": "nouvelle@example.com"},
+               headers={app.JETON_ENTETE: "j"})
+    assert r.status_code == 200, r.data
+    assert partis[-1][0] == ["nouvelle@example.com"]
+
+
+# ---------- Dagster et Mailpit : a l'administrateur, et a personne d'autre ----------
+#
+# Dagster execute du code sur la machine ; Mailpit montre tous les mails,
+# codes de connexion et liens d'invitation compris. Ni l'un ni l'autre ne
+# doit jamais s'ouvrir a un compte utilisateur, par aucun chemin.
+
+def _session_utilisateur(c, nom="marie"):
+    with c.session_transaction() as s:
+        s.update(authed=True, role=app.ROLE_UTILISATEUR, utilisateur=nom,
+                 ouverte=int(time.time()), jeton="j")
+
+
+def test_le_proxy_de_dagster_et_mailpit_refuse_un_compte_utilisateur(hub_dagster):
+    """C'est /api/auth-check que nginx interroge avant CHAQUE requete vers
+    Dagster (port 3000) et Mailpit (port 8025)."""
+    c = hub_dagster
+    assert c.get("/api/auth-check").status_code == 401          # anonyme
+    _session_utilisateur(c)
+    assert c.get("/api/auth-check").status_code == 401          # utilisateur
+    c.post("/logout")
+    c.post("/login", json={"password": "secret-de-test"})
+    assert c.get("/api/auth-check").status_code == 204          # administrateur
+
+
+def test_aucune_tuile_dagster_ni_mailpit_pour_un_compte_utilisateur(hub_dagster, monkeypatch):
+    monkeypatch.setattr(app, "mailpit_repond", lambda: True)
+    c = hub_dagster
+    _session_utilisateur(c)
+    d = c.get("/api/mes-apps").get_json()
+    noms = {a["name"] for a in d.get("apps", []) + d.get("services", [])}
+    assert not noms & {app.DAGSTER_NOM, app.MAILPIT_NOM}, noms
+
+
+def test_dagster_et_mailpit_ne_s_accordent_a_aucun_compte(hub_dagster):
+    c = hub_dagster
+    c.post("/login", json={"password": "secret-de-test"})
+    for service in (app.DAGSTER_NOM, app.MAILPIT_NOM):
+        r = c.put(f"/api/apps/{service}/acces", json={"utilisateurs": ["marie"]},
+                  headers={app.JETON_ENTETE: c.get("/").get_data(as_text=True)
+                           .split("const JETON=\"")[1].split("\"")[0]})
+        assert r.status_code in (403, 404), (service, r.data)
+    assert app.lire_utilisateurs()["marie"]["projets"] == ["site"]
+
+
+# ---------- le compte d'administration : second facteur obligatoire ----------
+
+@pytest.fixture
+def admin_2fa(journal, monkeypatch):
+    monkeypatch.setenv("APP_MANAGER_ADMIN_2FA", "1")
+    monkeypatch.setattr(app, "_totp_secret", "")
+    monkeypatch.setattr(app, "ecrire_bloc_panneau", lambda pw, key, totp: True)
+    return journal
+
+
+def test_le_mot_de_passe_admin_seul_n_ouvre_pas_de_session(admin_2fa):
+    c = admin_2fa
+    r = c.post("/login", json={"password": "secret-de-test"})
+    assert r.status_code == 200 and r.get_json()["inscription"] is True
+    assert c.get("/api/apps").status_code == 401
+    assert c.get("/api/auth-check").status_code == 401
+
+
+def test_l_admin_enregistre_son_facteur_puis_doit_le_donner(admin_2fa):
+    c = admin_2fa
+    secret = c.post("/login", json={"password": "secret-de-test"}).get_json()["secret"]
+    code = app.totp_code(secret, int(time.time()) // app.TOTP_PAS)
+    assert c.post("/login/second-facteur", json={"code": code}).status_code == 200
+    assert app._totp_secret == secret
+    assert c.get("/api/apps").status_code == 200
+    c.post("/logout")
+    app._login_attempts.clear()
+    r = c.post("/login", json={"password": "secret-de-test"})
+    assert r.status_code == 401 and r.get_json()["totp"] is True
+
+
+def test_un_admin_avec_face_id_seulement_ne_passe_pas_au_mot_de_passe(admin_2fa):
+    """Sinon le mot de passe seul permettrait d'enregistrer une application,
+    et de contourner Face ID."""
+    app.ecrire_passkeys({app.NOM_ADMIN: [{"id": "A", "cle_publique": "AAAA",
+                                          "compteur": 0, "nom": "Face ID"}]})
+    c = admin_2fa
+    r = c.post("/login", json={"password": "secret-de-test"})
+    assert r.status_code == 403 and not r.get_json().get("inscription")
+    assert c.get("/api/apps").status_code == 401
+
+
+def test_la_marche_arriere_du_compose_rouvre_le_mot_de_passe(admin_2fa, monkeypatch):
+    monkeypatch.setenv("APP_MANAGER_ADMIN_2FA", "0")
+    assert admin_2fa.post("/login", json={"password": "secret-de-test"}).status_code == 200
+
+
+def test_une_connexion_admin_depuis_une_adresse_inconnue_est_signalee(journal, monkeypatch):
+    envois = []
+    monkeypatch.setattr(app, "alertes_admin", lambda: ["moi@example.com"])
+    monkeypatch.setattr(app, "envoyer_avec_repli",
+                        lambda sujet, corps, dest: envois.append((sujet, dest)))
+
+    class ThreadImmediat:
+        def __init__(self, target, args=(), daemon=None):
+            self.t, self.a = target, args
+        def start(self):
+            self.t(*self.a)
+    monkeypatch.setattr(app.threading, "Thread", ThreadImmediat)
+    monkeypatch.setattr(app, "trust_proxy", lambda: True)
+    c = journal
+    c.post("/login", json={"password": "secret-de-test"},
+           headers={"X-Forwarded-For": "192.168.1.10"})       # l'installation
+    c.post("/logout")
+    c.post("/login", json={"password": "secret-de-test"},
+           headers={"X-Forwarded-For": "192.168.1.10"})       # deja vue
+    assert envois == []
+    c.post("/logout")
+    c.post("/login", json={"password": "secret-de-test"},
+           headers={"X-Forwarded-For": "192.168.1.77"})       # nouvelle
+    assert len(envois) == 1 and envois[0][1] == ["moi@example.com"]

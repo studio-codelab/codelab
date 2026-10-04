@@ -180,6 +180,10 @@ flask_app.config.update(
 
 SESSION_INACTIVITE = flask_app.config["PERMANENT_SESSION_LIFETIME"]
 SESSION_ABSOLUE = datetime.timedelta(days=30)
+# L'administrateur ouvre tout, Dagster et Mailpit compris : sa session tombe
+# au bout de douze heures, quoi qu'il arrive. Une journee de travail, pas un
+# mois de cookie a voler.
+SESSION_ADMIN_ABSOLUE = datetime.timedelta(hours=12)
 procs = {}          # nom -> subprocess.Popen
 lock = threading.Lock()
 _proc_cache = {}     # pid -> psutil.Process (prime pour cpu_percent delta)
@@ -669,10 +673,20 @@ RATE_LIMIT_MAX = 5
 
 
 def _client_ip():
+    """L'adresse du client.
+
+    Derriere un proxy de confiance, c'est la DERNIERE adresse de
+    X-Forwarded-For qui fait foi, jamais la premiere. nginx
+    ($proxy_add_x_forwarded_for) AJOUTE l'adresse qu'il voit a la fin de ce
+    que le client a envoye : la premiere est donc celle que le client a
+    choisie. La prendre laissait n'importe qui, depuis Internet, se dire
+    « 192.168.1.10 » -- et passer la restriction de l'administration au
+    reseau local comme la limite de tentatives.
+    """
     if trust_proxy():
         forwarded = request.headers.get("X-Forwarded-For", "")
         if forwarded:
-            return forwarded.split(",")[0].strip()
+            return forwarded.split(",")[-1].strip()
     return request.remote_addr or "unknown"
 
 
@@ -1225,7 +1239,45 @@ def fermer_les_sessions_suspendues():
     compte = lire_utilisateurs().get(nom) if nom else None
     if compte is None or compte_suspendu(compte):
         session.clear()
+        return None
+    # Mot de passe change ou reinitialise, cles Face ID retirees : les
+    # sessions ouvertes AVANT tombent. Une session est un cookie signe, que
+    # le serveur ne peut pas rappeler -- sans cette date, un cookie vole
+    # survivait au changement de mot de passe fait justement pour s'en
+    # debarrasser.
+    depuis = compte.get("sessions_depuis") or 0
+    if (session.get("ouverte") or 0) < depuis:
+        session.clear()
     return None
+
+
+# AUTHENTIFICATION RECENTE. Ajouter une cle Face ID ou changer l'adresse qui
+# recoit les codes, c'est installer un acces DURABLE au compte. Un cookie de
+# session vole ne doit pas y suffire : ces deux gestes exigent une connexion
+# de moins d'un quart d'heure. Le panneau propose Face ID juste apres la
+# connexion, donc dans cette fenetre.
+AUTHENTIFICATION_RECENTE = 900
+
+
+def authentification_recente():
+    return int(time.time()) - int(session.get("ouverte") or 0) <= AUTHENTIFICATION_RECENTE
+
+
+def refus_authentification_ancienne():
+    if authentification_recente():
+        return None
+    return jsonify({"error": "Par sécurité, reconnecte-toi avant cette opération "
+                             "(connexion de moins de 15 minutes requise).",
+                    "reconnexion": True}), 403
+
+
+def fermer_les_autres_sessions(compte, garder_celle_ci=False):
+    """Invalide les sessions ouvertes de ce compte (a ecrire ensuite)."""
+    maintenant = int(time.time())
+    compte["sessions_depuis"] = maintenant
+    if garder_celle_ci:
+        # Celle qui vient de prouver le mot de passe reste ouverte.
+        session["ouverte"] = maintenant
 
 
 @flask_app.before_request
@@ -1251,10 +1303,13 @@ def expirer_les_sessions_trop_vieilles():
         # que de deconnecter tout le monde a la mise a jour.
         session["ouverte"] = int(time.time())
         return None
-    if time.time() - ouverte > SESSION_ABSOLUE.total_seconds():
+    limite = (SESSION_ADMIN_ABSOLUE if session.get("role", ROLE_ADMIN) == ROLE_ADMIN
+              else SESSION_ABSOLUE)
+    if time.time() - ouverte > limite.total_seconds():
         qui = session.get("utilisateur") or ""
         session.clear()
-        journaliser("session", qui=qui, action="expiree (30 jours)",
+        journaliser("session", qui=qui, action="expiree (" + (
+                        "12 heures" if limite == SESSION_ADMIN_ABSOLUE else "30 jours") + ")",
                     ip=_adresse_client())
     return None
 
@@ -1514,7 +1569,7 @@ JETON_ENTETE = "X-CodeLab-Jeton"
 JETON_EXEMPTS = {
     "login_submit", "login_second_facteur",
     "login_passkey_options", "login_passkey",
-    "inscription_creer", "inscription_confirmer",
+    "invitation_accepter",
     # Le proxy transporte les requetes des applications hebergees : leurs
     # formulaires ne connaissent pas le jeton du panneau, et n'ont aucune
     # raison de le connaitre.
@@ -1738,6 +1793,11 @@ ROLE_UTILISATEUR = "utilisateur"
 # dizaines de millisecondes ici, des annees pour qui essaie un dictionnaire.
 PBKDF2_ITERATIONS = 200_000
 
+# Le meme minimum partout ou un mot de passe nait : invitation, inscription,
+# reinitialisation, administrateur, changement. Il etait de 8 a la creation
+# et de 12 au changement -- le plus faible des deux faisait la regle.
+MDP_MIN = 12
+
 
 def lire_utilisateurs():
     """Le registre des comptes. Jamais d'exception : un fichier illisible ne
@@ -1939,6 +1999,178 @@ def envoyer_code_reinit(adresse, nom, code):
                  "sans ce code, ton mot de passe ne change pas.\n\n"
                  "-- CodeLab, panneau de gestion des applications",
                  destinataires=[adresse])
+
+
+# ---------------------- second facteur par code envoye ----------------------
+#
+# LE SECOND FACTEUR SANS APPLICATION A INSTALLER. Scanner un QR code avec une
+# application d'authentification, c'etait l'etape ou l'on perdait les gens :
+# il faut l'application, comprendre ce qu'elle fait, et la retrouver le jour
+# ou l'on change de telephone. Un code a six chiffres recu par mail, au
+# moment de se connecter, ne demande rien de tout cela -- et Face ID (une cle
+# d'acces) dispense meme du code.
+#
+# Il reste un VRAI second facteur : le mot de passe est verifie d'abord, et
+# le code ne part que vers l'adresse verifiee du compte -- jamais vers une
+# destination fournie par la requete.
+#
+# Ordre de preference : l'application d'authentification si la personne en a
+# enregistre une (elle l'a choisie, et elle marche hors ligne), puis le mail.
+# La personne peut toujours basculer de l'un a l'autre.
+CODE_CONNEXION_VALIDITE = 600   # 10 minutes
+CODE_CONNEXION_ESSAIS = 5
+MOYEN_TOTP, MOYEN_EMAIL = "totp", "email"
+
+
+def masquer_destination(moyen, valeur):
+    """Ce qu'on peut afficher de la destination sans la reveler : la page de
+    connexion est publique, et le mot de passe seul ne doit pas suffire a
+    lire l'adresse de quelqu'un."""
+    valeur = str(valeur or "")
+    if moyen == MOYEN_EMAIL and "@" in valeur:
+        local, domaine = valeur.split("@", 1)
+        return local[:1] + "•••@" + domaine
+    return ""
+
+
+def moyens_second_facteur(compte):
+    """Les moyens utilisables pour ce compte, dans l'ordre de preference."""
+    moyens = []
+    if compte.get("totp"):
+        moyens.append(MOYEN_TOTP)
+    # Apres une reinitialisation du mot de passe PAR MAIL, le mail a deja
+    # servi de preuve : le reprendre comme second facteur reviendrait a
+    # ouvrir le compte a qui tient la boite. Le code par mail reste suspendu
+    # jusqu'a une connexion par l'application ou par Face ID.
+    if (compte.get("email") and compte.get("email_verifie")
+            and not compte.get("code_mail_suspendu") and smtp_utilisable()[1]):
+        moyens.append(MOYEN_EMAIL)
+    return moyens
+
+
+def facteur_fort(nom, compte):
+    """Le compte a-t-il un facteur qui ne passe PAS par la boite mail ?"""
+    return bool(compte.get("totp") or passkeys_du_compte(nom))
+
+
+def poser_code_connexion(compte, moyen):
+    code = f"{secrets.randbelow(1000000):06d}"
+    compte["code_connexion"] = {"empreinte": _empreinte_code(code),
+                                "expire": int(time.time()) + CODE_CONNEXION_VALIDITE,
+                                "essais": 0, "moyen": moyen,
+                                "envoye": int(time.time())}
+    return code
+
+
+def verifier_code_connexion(compte, code):
+    """Consomme un essai, et le code au premier succes. Rend True ou False."""
+    en_cours = compte.get("code_connexion") or {}
+    if not en_cours:
+        return False
+    if (int(time.time()) > en_cours.get("expire", 0)
+            or en_cours.get("essais", 0) >= CODE_CONNEXION_ESSAIS):
+        compte.pop("code_connexion", None)
+        return False
+    en_cours["essais"] = en_cours.get("essais", 0) + 1
+    propose = re.sub(r"\D", "", str(code or ""))
+    if propose and secrets.compare_digest(_empreinte_code(propose),
+                                          en_cours.get("empreinte", "")):
+        compte.pop("code_connexion", None)
+        return True
+    return False
+
+
+def envoyer_code_connexion(compte, nom, moyen, code):
+    """Envoie le code par mail, ou leve."""
+    validite = CODE_CONNEXION_VALIDITE // 60
+    cfg, _ = smtp_utilisable()
+    envoyer_mail(cfg, "[CodeLab] ton code de connexion",
+                 f"Code de connexion pour le compte « {nom} » : {code}\n\n"
+                 f"Il est valable {validite} minutes, et ne sert qu'une fois.\n\n"
+                 "Si tu n'es pas à l'origine de cette connexion, ton mot de passe "
+                 "est connu de quelqu'un d'autre : change-le, et préviens ton "
+                 "administrateur.\n\n"
+                 "-- CodeLab, panneau de gestion des applications",
+                 destinataires=[compte["email"]])
+
+
+# ------------------------------ invitations ------------------------------
+#
+# CREER UN COMPTE, C'EST DONNER UNE ADRESSE MAIL. L'administrateur n'invente
+# plus ni nom ni mot de passe a transmettre par un canal qu'il ne maitrise
+# pas : la personne recoit un lien, choisit elle-meme son nom et son mot de
+# passe, et son adresse est verifiee du meme coup -- c'est en cliquant sur le
+# lien recu qu'elle prouve qu'elle la releve.
+#
+# Le lien porte un jeton de 256 bits. Seule son EMPREINTE est rangee (au
+# coffre) : qui lit le coffre ne peut pas s'en servir. Il ne sert qu'une
+# fois et expire au bout de sept jours.
+INVITATION_VALIDITE = 7 * 86400
+
+
+def _empreinte_jeton(jeton):
+    return hashlib.sha256(str(jeton or "").encode()).hexdigest()
+
+
+def lire_invitations():
+    """Les invitations encore valables, les expirees en moins."""
+    maintenant = int(time.time())
+    tout = reglage("invitations", {}) or {}
+    return {k: v for k, v in tout.items()
+            if isinstance(v, dict) and v.get("expire", 0) > maintenant}
+
+
+def ecrire_invitations(invitations):
+    ecrire_reglage("invitations", invitations or None)
+
+
+def invitation_par_jeton(jeton):
+    """(empreinte, invitation) ou (None, None)."""
+    if not jeton or len(jeton) > 100:
+        return None, None
+    empreinte = _empreinte_jeton(jeton)
+    invitation = lire_invitations().get(empreinte)
+    return (empreinte, invitation) if invitation else (None, None)
+
+
+def lien_invitation(jeton):
+    """L'adresse publique du panneau si elle est connue -- l'administrateur
+    invite souvent depuis le reseau local, ou l'adresse qu'il a sous les
+    yeux ne s'ouvre pas de l'exterieur."""
+    base = adresse_publique() or request.host_url.rstrip("/")
+    return f"{base}/invitation/{jeton}"
+
+
+def envoyer_invitation(adresse, lien):
+    """Envoie le lien, ou leve. Passe par Mailpit : meme sans serveur
+    d'envoi, le mail se relit dans son interface."""
+    cfg, _ = smtp_utilisable()
+    envoyer_mail(cfg, "[CodeLab] ton invitation",
+                 "Bonjour,\n\n"
+                 "Un compte CodeLab t'attend. Ouvre ce lien pour choisir ton nom "
+                 "d'utilisateur et ton mot de passe :\n\n"
+                 f"{lien}\n\n"
+                 f"Le lien est valable {INVITATION_VALIDITE // 86400} jours et ne sert "
+                 "qu'une fois.\n\n"
+                 "Si tu ne t'attendais pas à ce message, ignore-le : sans ce lien, "
+                 "aucun compte n'est créé.\n\n"
+                 "-- CodeLab, panneau de gestion des applications",
+                 destinataires=[adresse])
+
+
+def creer_invitation(adresse, projets):
+    """Range une invitation neuve et rend (empreinte, jeton). Une invitation
+    deja en attente pour la meme adresse est remplacee : son ancien lien ne
+    vaut plus rien."""
+    invitations = {k: v for k, v in lire_invitations().items()
+                   if v.get("email") != adresse}
+    jeton = secrets.token_urlsafe(32)
+    empreinte = _empreinte_jeton(jeton)
+    invitations[empreinte] = {"email": adresse, "projets": projets,
+                              "cree": int(time.time()),
+                              "expire": int(time.time()) + INVITATION_VALIDITE}
+    ecrire_invitations(invitations)
+    return empreinte, jeton
 
 
 # --------------------------- cles d'acces (passkeys) ---------------------------
@@ -5281,14 +5513,55 @@ def smtp_utilisable():
     return cfg, not smtp_incomplet(cfg)
 
 
+# LES MAILS DU PANNEAU PASSENT PAR MAILPIT, comme ceux des applications.
+#
+# Avant, le panneau parlait directement au serveur d'envoi : ses mails
+# (alertes, codes, invitations) ne laissaient aucune trace, alors que ceux
+# des applications se relisaient dans Mailpit. Desormais tout passe par le
+# meme service : chaque mail se relit dans l'interface de Mailpit, le mode
+# test vaut pour tout le monde, et le plafond d'envoi aussi. Mailpit relaie
+# par le serveur de Parametres > E-mail, que le panneau lui publie deja
+# (publier_relais_mail).
+#
+# Mailpit injoignable (service arrete, installation sans lui) : repli sur
+# l'envoi direct, pour qu'une alerte ne tombe pas avec le service qui
+# devait la porter.
+MAILPIT_SMTP_HOTE = os.environ.get("APP_MANAGER_MAILPIT_SMTP_HOTE") or MAILPIT_AMONT
+MAILPIT_SMTP_PORT = int(os.environ.get("APP_MANAGER_MAILPIT_SMTP_PORT", "1025") or 1025)
+MAIL_PAR_MAILPIT = (os.environ.get("APP_MANAGER_MAIL_PAR_MAILPIT", "1").strip().lower()
+                    not in ("0", "non", "false", "no"))
+# Mailpit remplace l'expediteur par celui du compte d'envoi ; il en faut
+# quand meme un quand aucun serveur n'est regle (mail garde, pas relaye).
+EXPEDITEUR_DEFAUT = "CodeLab <codelab@localhost>"
+
+
+def _envoyer_par_mailpit(msg):
+    """Remet le message a Mailpit, ou leve OSError / SMTPException."""
+    with smtplib.SMTP(MAILPIT_SMTP_HOTE, MAILPIT_SMTP_PORT, timeout=10) as s:
+        s.send_message(msg)
+
+
 def envoyer_mail(cfg, sujet, corps, destinataires=None):
-    """Envoie, ou leve. Les trois modes de chiffrement du SMTP."""
+    """Envoie, ou leve. Par Mailpit d'abord, en direct sinon."""
     msg = EmailMessage()
     msg["Subject"] = sujet
-    msg["From"] = cfg["expediteur"]
+    msg["From"] = cfg.get("expediteur") or EXPEDITEUR_DEFAUT
     msg["To"] = ", ".join(destinataires if destinataires is not None
                           else cfg["destinataires"])
     msg.set_content(corps)
+
+    if MAIL_PAR_MAILPIT:
+        try:
+            _envoyer_par_mailpit(msg)
+            return
+        except (OSError, smtplib.SMTPException) as e:
+            if not cfg.get("host"):
+                raise RuntimeError(f"Mailpit injoignable ({type(e).__name__}: {e}) "
+                                   "et aucun serveur d'envoi configuré.") from e
+            print(f"[app-manager] Mailpit injoignable ({type(e).__name__}: {e}) : "
+                  "envoi direct.", flush=True)
+    elif not cfg.get("host"):
+        raise RuntimeError("Aucun serveur d'envoi configuré.")
 
     def _login(s):
         if cfg["user"] and cfg["password"]:
@@ -6106,6 +6379,88 @@ def under_root(path):
 
 # ------------------------------ auth --------------------------------
 
+def admin_2fa_obligatoire():
+    """Second facteur obligatoire pour l'administrateur (par defaut : oui).
+
+    APP_MANAGER_ADMIN_2FA=0 dans le compose est la marche arriere, le jour
+    ou le telephone qui portait le facteur est perdu : elle ne passe pas par
+    le panneau, donc reste possible quand on en est enferme dehors.
+    """
+    return (os.environ.get("APP_MANAGER_ADMIN_2FA", "1").strip().lower()
+            not in ("0", "non", "false", "no"))
+
+
+def _ouvrir_session_admin():
+    session.pop("totp_candidat", None)
+    session.pop("totp_inscription", None)
+    session.pop("totp_uri", None)
+    session.permanent = True
+    session["authed"] = True
+    session["ouverte"] = int(time.time())
+    jeton_session()
+    session["role"] = ROLE_ADMIN
+    session["utilisateur"] = NOM_ADMIN
+    journaliser("connexion", qui=NOM_ADMIN, role=ROLE_ADMIN, ip=_adresse_client())
+    signaler_connexion_admin()
+    return jsonify({"ok": True, "role": ROLE_ADMIN})
+
+
+def _inscrire_totp_admin(candidat):
+    """Fin de l'inscription forcee du facteur de l'administrateur."""
+    global _totp_secret
+    # Le verrou reseau, de nouveau : entre les deux etapes, on a pu changer
+    # de reseau, et c'est ici que la session nait.
+    hors = refus_admin_hors_reseau()
+    if hors:
+        return jsonify({"error": hors}), 403
+    if totp_actif():
+        return jsonify({"error": "Un second facteur a déjà été enregistré. "
+                                 "Recommence la connexion."}), 409
+    if not ecrire_bloc_panneau(admin_password(), flask_app.secret_key, candidat):
+        return jsonify({"error": "credentials.env n'a pas pu être écrit : rien "
+                                 "n'a été enregistré."}), 500
+    _totp_secret = candidat
+    return _ouvrir_session_admin()
+
+
+# ALERTE DE CONNEXION. Une connexion administrateur depuis une adresse jamais
+# vue part par mail a l'adresse d'alerte : si ce n'est pas toi, tu le sais
+# tout de suite, et pas au prochain coup d'oeil sur le journal. Les adresses
+# deja vues (les 20 dernieres) ne declenchent rien, pour ne pas en faire du
+# bruit qu'on finit par ignorer.
+ADMIN_IPS_CONNUES_MAX = 20
+
+
+def signaler_connexion_admin():
+    ip = _client_ip()
+    try:
+        connues = list(reglage("ips_admin_connues", []) or [])
+    except Exception:                                             # noqa: BLE001
+        return
+    if ip in connues:
+        return
+    premiere = not connues
+    connues = (connues + [ip])[-ADMIN_IPS_CONNUES_MAX:]
+    try:
+        ecrire_reglage("ips_admin_connues", connues)
+    except (OSError, RuntimeError):
+        return
+    destinataires = alertes_admin()
+    if premiere or not destinataires:
+        # La toute premiere connexion n'a rien d'inhabituel : c'est
+        # l'installation.
+        return
+    quand = time.strftime("%d/%m/%Y %H:%M", time.localtime())
+    threading.Thread(target=envoyer_avec_repli, daemon=True, args=(
+        "[CodeLab] connexion administrateur depuis une nouvelle adresse",
+        f"Une session d'administration vient de s'ouvrir le {quand}, depuis {ip}, "
+        "une adresse jamais vue jusqu'ici.\n\n"
+        "Si c'est toi, rien a faire. Sinon, change tout de suite le mot de passe "
+        "d'administration (credentials.env), retire les cles d'acces inconnues et "
+        "regarde le journal des connexions.\n\n"
+        "-- CodeLab, panneau de gestion des applications", destinataires)).start()
+
+
 @flask_app.post("/login")
 def login_submit():
     if rate_limited():
@@ -6145,6 +6500,27 @@ def login_submit():
         # Une tentative ratee ici compte comme une tentative ratee tout court :
         # sinon le second facteur serait forcable sans limite une fois le mot
         # de passe connu, ce qui le viderait de son sens.
+        # SECOND FACTEUR OBLIGATOIRE pour l'administrateur : son compte
+        # ouvre tout, Dagster (donc l'execution de code) et Mailpit (donc
+        # tous les codes et liens envoyes) compris. Sans facteur enregistre,
+        # le mot de passe juste mene a l'inscription d'une application, pas a
+        # une session. Avec Face ID seulement, le mot de passe seul est
+        # refuse : l'inscription d'une application le contournerait.
+        if admin_2fa_obligatoire() and not totp_actif():
+            if passkeys_du_compte(NOM_ADMIN):
+                register_failed_attempt()
+                journaliser("echec", qui=NOM_ADMIN, motif="second facteur requis",
+                            ip=_adresse_client())
+                return jsonify({"error": "Connecte-toi avec Face ID : le mot de passe "
+                                         "seul n'ouvre pas le compte d'administration."}), 403
+            candidat = totp_nouveau_secret()
+            session["totp_candidat"] = candidat
+            session["totp_inscription"] = NOM_ADMIN
+            session["totp_uri"] = totp_uri(candidat)
+            return jsonify({"inscription": True, "secret": candidat,
+                            "uri": session["totp_uri"], "compte": NOM_ADMIN,
+                            "qr": "/qr/totp.svg"})
+
         if totp_actif() and not totp_verifie(_totp_secret, d.get("code")):
             register_failed_attempt()
             journaliser("echec", qui=NOM_ADMIN, motif="second facteur", ip=_adresse_client())
@@ -6160,6 +6536,7 @@ def login_submit():
         session["role"] = ROLE_ADMIN
         session["utilisateur"] = NOM_ADMIN
         journaliser("connexion", qui=NOM_ADMIN, role=ROLE_ADMIN, ip=_adresse_client())
+        signaler_connexion_admin()
         return jsonify({"ok": True, "role": ROLE_ADMIN})
 
     compte = lire_utilisateurs().get(nom)
@@ -6196,6 +6573,77 @@ def login_submit():
                         "attente_email": True}), 403
 
     secret = compte.get("totp") or ""
+    moyens = moyens_second_facteur(compte)
+    code = d.get("code")
+    # Sans aucun moyen (ni secret, ni code envoye), un code tape ne prouve
+    # rien : on passe a l'inscription du facteur, plus bas.
+    if code and (moyens or compte.get("code_connexion")):
+        ok = bool(secret) and totp_verifie(secret, code)
+        if not ok and compte.get("code_connexion"):
+            comptes = lire_utilisateurs()
+            ok = verifier_code_connexion(comptes[nom], code)
+            try:
+                # Ecrit dans les deux cas : les essais consommes doivent
+                # survivre a la requete, sinon la limite ne limite rien.
+                ecrire_utilisateurs(comptes)
+            except OSError:
+                pass
+        if not ok:
+            register_failed_attempt()
+            journaliser("echec", qui=nom, motif="second facteur", ip=_adresse_client())
+            return jsonify({"error": "Code de vérification incorrect.",
+                            "totp": True, "moyens": moyens}), 401
+        _lever_suspension_code_mail(nom)
+        return _ouvrir_session_utilisateur(nom)
+
+    if moyens:
+        # Pas encore de code : on dit lequel attendre, et on l'envoie s'il
+        # doit partir par mail. Le moyen demande n'est retenu que
+        # s'il est dans la liste du compte -- la destination, elle, ne vient
+        # jamais de la requete.
+        moyen = d.get("moyen") if d.get("moyen") in moyens else moyens[0]
+        # Compte comme une tentative : sans cela, ce formulaire enverrait
+        # des mails en boucle a qui connait un mot de passe.
+        register_failed_attempt()
+        reponse = {"totp": True, "moyen": moyen, "moyens": moyens}
+        if moyen == MOYEN_TOTP:
+            reponse["error"] = "Saisis le code de ton application d'authentification."
+            return jsonify(reponse), 401
+        comptes = lire_utilisateurs()
+        cible = comptes[nom]
+        en_cours = cible.get("code_connexion") or {}
+        reponse["destination"] = masquer_destination(moyen, cible.get("email"))
+        recent = (en_cours.get("moyen") == moyen
+                  and int(time.time()) - int(en_cours.get("envoye") or 0) < CODE_EMAIL_DELAI)
+        if not recent:
+            code_envoye = poser_code_connexion(cible, moyen)
+            try:
+                envoyer_code_connexion(cible, nom, moyen, code_envoye)
+                ecrire_utilisateurs(comptes)
+            except Exception as e:                                # noqa: BLE001
+                journaliser("echec", qui=nom, motif=f"envoi du code ({moyen})",
+                            detail=f"{type(e).__name__}", ip=_adresse_client())
+                reponse["error"] = "Le code n'a pas pu partir par mail."
+                reponse["envoi_impossible"] = True
+                return jsonify(reponse), 401
+        reponse["error"] = ("Un code vient de t'être envoyé par mail à "
+                            + reponse["destination"] + ".")
+        reponse["envoye"] = True
+        return jsonify(reponse), 401
+
+    if (compte.get("email_verifie") or compte.get("code_mail_suspendu")
+            or passkeys_du_compte(nom)):
+        # Ce compte a deja un facteur (adresse verifiee, Face ID) qu'on ne
+        # peut pas utiliser en ce moment : serveur d'envoi en panne, ou code
+        # par mail suspendu. Laisser enregistrer une application ici, sur le
+        # seul mot de passe, contournerait ce facteur.
+        register_failed_attempt()
+        journaliser("echec", qui=nom, motif="aucun second facteur utilisable",
+                    ip=_adresse_client())
+        return jsonify({"error": "Aucun code ne peut être envoyé pour le moment. "
+                                 "Connecte-toi avec Face ID, ou demande de l'aide à "
+                                 "ton administrateur."}), 403
+
     if not secret:
         # Premier acces : inscription obligatoire avant toute session. Le
         # secret candidat vit dans le cookie signe -- rien n'est enregistre
@@ -6210,12 +6658,25 @@ def login_submit():
                         "uri": session["totp_uri"], "compte": nom,
                         "qr": "/qr/totp.svg"})
 
-    if not totp_verifie(secret, d.get("code")):
-        register_failed_attempt()
-        journaliser("echec", qui=nom, motif="second facteur", ip=_adresse_client())
-        return jsonify({"error": "Code de vérification incorrect.",
-                        "totp": True}), 401
+    # Inatteignable : un compte qui a un secret a au moins le moyen TOTP,
+    # et la branche "moyens" ci-dessus a deja repondu. Garde par prudence.
+    register_failed_attempt()
+    return jsonify({"error": "Code de vérification incorrect.", "totp": True}), 401
 
+
+def _lever_suspension_code_mail(nom):
+    """Une connexion par un facteur fort rend le code par mail."""
+    comptes = lire_utilisateurs()
+    if comptes.get(nom, {}).get("code_mail_suspendu"):
+        comptes[nom].pop("code_mail_suspendu", None)
+        try:
+            ecrire_utilisateurs(comptes)
+        except (OSError, RuntimeError):
+            pass
+
+
+def _ouvrir_session_utilisateur(nom):
+    """Ouvre la session d'un compte utilisateur, une fois tout verifie."""
     session.pop("totp_candidat", None)
     session.pop("totp_inscription", None)
     session.pop("totp_uri", None)
@@ -6252,7 +6713,10 @@ def login_second_facteur():
     code = (request.get_json(force=True, silent=True) or {}).get("code")
     if not totp_verifie(candidat, code):
         register_failed_attempt()
-        return jsonify({"error": "Code incorrect. Vérifié l'heure de ton téléphone."}), 400
+        return jsonify({"error": "Code incorrect. Vérifie l'heure de ton téléphone."}), 400
+
+    if nom == NOM_ADMIN:
+        return _inscrire_totp_admin(candidat)
 
     comptes = lire_utilisateurs()
     compte = comptes.get(nom)
@@ -6331,7 +6795,7 @@ def _refus_passkey():
 @require_auth
 def api_passkey_options():
     """Prepare l'enregistrement d'une cle pour le compte connecte."""
-    refus = _refus_passkey()
+    refus = _refus_passkey() or refus_authentification_ancienne()
     if refus:
         return refus
     from webauthn import generate_registration_options, options_to_json
@@ -6369,7 +6833,7 @@ def api_passkey_options():
 @require_auth
 def api_passkey_enregistrer():
     """Verifie la reponse du navigateur et range la cle."""
-    refus = _refus_passkey()
+    refus = _refus_passkey() or refus_authentification_ancienne()
     if refus:
         return refus
     from webauthn import verify_registration_response
@@ -6558,6 +7022,12 @@ def login_passkey():
             return jsonify({"error": "Compte inconnu."}), 401
         if compte.get("attente_email"):
             return jsonify({"error": "Confirme d'abord ton adresse mail."}), 403
+        if compte_suspendu(compte):
+            journaliser("echec", qui=proprietaire, motif="compte suspendu",
+                        moyen="cle d'acces", ip=_adresse_client())
+            return jsonify({"error": "Ce compte est suspendu. Demande à "
+                                     "l'administrateur de le réactiver."}), 403
+        _lever_suspension_code_mail(proprietaire)
 
     session.pop("passkey_defi", None)
     session.permanent = True
@@ -6573,6 +7043,8 @@ def login_passkey():
     session["utilisateur"] = proprietaire
     journaliser("connexion", qui=proprietaire, role=session["role"],
                 moyen="cle d'acces", ip=_adresse_client())
+    if est_administrateur:
+        signaler_connexion_admin()
     return jsonify({"ok": True, "role": session["role"]})
 
 
@@ -6666,6 +7138,7 @@ def api_mon_compte():
         "role": role_courant(),
         "email": (compte or {}).get("email") or "",
         "email_verifie": bool((compte or {}).get("email_verifie")),
+        "passkeys": len(passkeys_du_compte(utilisateur_courant())),
         # Sans serveur d'envoi, la page n'affiche pas un bouton qui echouera.
         "smtp": smtp_ok,
     })
@@ -6684,6 +7157,9 @@ def api_mon_email():
     if compte is None:
         return jsonify({"error": "Le compte d'administration n'a pas d'adresse "
                                  "propre : règle les destinataires des alertes."}), 400
+    refus = refus_authentification_ancienne()
+    if refus:
+        return refus
     adresse = email_valide((request.get_json(force=True, silent=True) or {}).get("email"))
     if not adresse:
         return jsonify({"error": "Adresse mail invalide."}), 400
@@ -6761,88 +7237,6 @@ def api_mon_email_confirmer():
     return jsonify({"ok": True})
 
 
-# --------------------- inscription libre ---------------------
-#
-# Ouverte seulement si un serveur d'envoi est configure : sans mail, aucun
-# moyen de verifier que l'adresse declaree existe, et la creation de comptes
-# devient un formulaire a remplir en boucle.
-#
-# Un compte cree ainsi n'ouvre AUCUN projet : il attend que l'administrateur
-# lui en autorise. C'est ce qui rend l'inscription libre sans consequence --
-# au pire, des comptes vides.
-
-@flask_app.get("/api/inscription")
-def api_inscription_etat():
-    _, ok = smtp_utilisable()
-    return jsonify({"ouverte": ok})
-
-
-@flask_app.post("/inscription")
-def inscription_creer():
-    if rate_limited():
-        return jsonify({"error": "Trop de tentatives. Réessaie dans quelques minutes."}), 429
-    _, smtp_ok = smtp_utilisable()
-    if not smtp_ok:
-        return jsonify({"error": "La création de compte n'est pas ouverte sur "
-                                 "ce serveur."}), 403
-
-    d = request.get_json(force=True, silent=True) or {}
-    nom = nom_utilisateur_valide(d.get("nom"))
-    mdp = (d.get("mot_de_passe") or "").strip()
-    adresse = email_valide(d.get("email"))
-    if not nom:
-        return jsonify({"error": "Nom invalide : 2 à 32 caractères, "
-                                 "minuscules, chiffres, tiret ou souligné."}), 400
-    if nom == NOM_ADMIN:
-        return jsonify({"error": "Ce nom est réservé."}), 400
-    if not adresse:
-        return jsonify({"error": "Adresse mail invalide."}), 400
-    if len(mdp) < 8:
-        return jsonify({"error": "Mot de passe : 8 caractères au minimum."}), 400
-
-    comptes = lire_utilisateurs()
-    if nom in comptes:
-        # Un nom deja pris se dit : il faudra bien en choisir un autre, et
-        # l'inscription ne revele rien de plus que la page de connexion.
-        return jsonify({"error": "Ce nom est déjà pris."}), 400
-
-    sel = secrets.token_hex(16)
-    comptes[nom] = {
-        "sel": sel,
-        "hash": derive_mot_de_passe(mdp, sel),
-        "projets": [],
-        "email": adresse,
-        "email_verifie": False,
-        # Tant que ce drapeau est la, le compte ne se connecte pas : c'est
-        # ce qui distingue une adresse declaree d'une adresse relevee.
-        "attente_email": True,
-        "cree": int(time.time()),
-    }
-    code = poser_code_email(comptes[nom])
-    try:
-        ecrire_utilisateurs(comptes)
-    except OSError as e:
-        return jsonify({"error": f"Compte non enregistré : {e}"}), 500
-    try:
-        envoyer_code_email(adresse, nom, code)
-    except Exception as e:
-        # Compte cree mais injoignable : on le retire plutot que de laisser
-        # un nom pris par quelqu'un qui ne pourra jamais s'en servir.
-        comptes.pop(nom, None)
-        try:
-            ecrire_utilisateurs(comptes)
-        except OSError:
-            pass
-        return jsonify({"error": f"Le mail n'est pas parti : {type(e).__name__}: {e}"}), 502
-
-    # Compte dans le compteur de tentatives : sans cela, un robot creerait
-    # des comptes en boucle depuis la meme adresse, et chacun ferait partir
-    # un mail. Cinq par fenetre, comme les connexions.
-    register_failed_attempt()
-    session["inscription_email"] = nom
-    return jsonify({"ok": True, "nom": nom, "confirmation": True})
-
-
 @flask_app.post("/mot-de-passe/oubli")
 def mot_de_passe_oubli():
     """Envoie un code de reinitialisation, si tout s'y prete.
@@ -6864,7 +7258,13 @@ def mot_de_passe_oubli():
 
     comptes = lire_utilisateurs()
     compte = comptes.get(nom) if nom else None
-    if compte and compte.get("email") and compte.get("email_verifie"):
+    # OPTION A : la reinitialisation par mail n'est ouverte qu'aux comptes qui
+    # ont un facteur HORS de la boite mail (application ou Face ID). Sinon,
+    # la boite mail seule suffirait a prendre le compte : elle donnerait le
+    # mot de passe ET le code de connexion. Ces comptes passent par
+    # l'administrateur.
+    if (compte and compte.get("email") and compte.get("email_verifie")
+            and facteur_fort(nom, compte)):
         en_cours = compte.get("reinit_code") or {}
         # Pas plus d'un envoi par minute et par compte : sans cela, ce
         # formulaire devient un robinet a mails vers l'adresse de quelqu'un
@@ -6898,8 +7298,8 @@ def mot_de_passe_reinitialiser():
     d = request.get_json(force=True, silent=True) or {}
     nom = nom_utilisateur_valide(d.get("nom"))
     nouveau = (d.get("nouveau") or "").strip()
-    if len(nouveau) < 8:
-        return jsonify({"error": "Mot de passe : 8 caractères au minimum."}), 400
+    if len(nouveau) < MDP_MIN:
+        return jsonify({"error": f"Mot de passe : {MDP_MIN} caractères au minimum."}), 400
 
     comptes = lire_utilisateurs()
     compte = comptes.get(nom) if nom else None
@@ -6920,6 +7320,10 @@ def mot_de_passe_reinitialiser():
     sel = secrets.token_hex(16)
     compte["sel"] = sel
     compte["hash"] = derive_mot_de_passe(nouveau, sel)
+    # Le mail vient de servir : il ne sera pas, en plus, le second facteur.
+    compte["code_mail_suspendu"] = True
+    fermer_les_autres_sessions(compte)
+    compte.pop("code_connexion", None)
     try:
         ecrire_utilisateurs(comptes)
     except OSError as e:
@@ -6929,34 +7333,155 @@ def mot_de_passe_reinitialiser():
     return jsonify({"ok": True})
 
 
-@flask_app.post("/inscription/confirmer")
-def inscription_confirmer():
-    """Confirme l'adresse, et rend le compte utilisable.
+# ------------------------------ invitations ------------------------------
 
-    N'ouvre pas de session : la personne se connecte ensuite normalement, et
-    enregistre a ce moment-la son second facteur. Le mail prouve l'adresse,
-    pas l'identite.
+def _invitation_publique(empreinte, inv):
+    return {"id": empreinte, "email": inv.get("email") or "",
+            "projets": sorted(inv.get("projets") or []),
+            "cree": inv.get("cree"), "expire": inv.get("expire")}
+
+
+def _envoyer_et_rendre(empreinte, jeton, adresse):
+    """Envoie le lien et rend la reponse. Le lien est TOUJOURS rendu a
+    l'administrateur : si le mail ne part pas (pas de serveur d'envoi,
+    Mailpit en mode test), il peut le transmettre lui-meme."""
+    lien = lien_invitation(jeton)
+    envoye, detail = True, ""
+    try:
+        envoyer_invitation(adresse, lien)
+    except Exception as e:                                        # noqa: BLE001
+        envoye, detail = False, f"{type(e).__name__}: {e}"
+    _, relais = smtp_utilisable()
+    return jsonify({"ok": True, "id": empreinte, "lien": lien, "envoye": envoye,
+                    # Remis a Mailpit sans serveur d'envoi : garde, pas parti.
+                    "relaye": envoye and relais, "detail": detail})
+
+
+@flask_app.get("/api/invitations")
+@require_admin
+def api_invitations():
+    return jsonify({"invitations": sorted(
+        (_invitation_publique(k, v) for k, v in lire_invitations().items()),
+        key=lambda i: -(i["cree"] or 0))})
+
+
+@flask_app.post("/api/invitations")
+@require_admin
+def api_invitation_creer():
+    d = request.get_json(force=True, silent=True) or {}
+    adresse = email_valide(d.get("email"))
+    if not adresse:
+        return jsonify({"error": "Adresse mail invalide."}), 400
+    if any((c.get("email") or "").lower() == adresse.lower()
+           for c in lire_utilisateurs().values() if isinstance(c, dict)):
+        return jsonify({"error": "Un compte utilise déjà cette adresse."}), 400
+    try:
+        empreinte, jeton = creer_invitation(adresse, _projets_valides(d.get("projets"), load()))
+    except (OSError, RuntimeError) as e:
+        return jsonify({"error": f"Invitation non enregistrée : {e}"}), 500
+    journaliser("compte", qui=utilisateur_courant() or NOM_ADMIN, cible=adresse,
+                action="invitation", ip=_adresse_client())
+    return _envoyer_et_rendre(empreinte, jeton, adresse)
+
+
+@flask_app.post("/api/invitations/<empreinte>/renvoyer")
+@require_admin
+def api_invitation_renvoyer(empreinte):
+    """Un nouveau lien : l'ancien, peut-etre perdu dans un mail, ne vaut plus
+    rien. Le delai repart de zero."""
+    inv = lire_invitations().get(empreinte)
+    if not inv:
+        return jsonify({"error": "Invitation inconnue ou expirée."}), 404
+    try:
+        nouvelle, jeton = creer_invitation(inv["email"], inv.get("projets") or [])
+    except (OSError, RuntimeError) as e:
+        return jsonify({"error": f"Invitation non enregistrée : {e}"}), 500
+    return _envoyer_et_rendre(nouvelle, jeton, inv["email"])
+
+
+@flask_app.delete("/api/invitations/<empreinte>")
+@require_admin
+def api_invitation_annuler(empreinte):
+    invitations = lire_invitations()
+    if invitations.pop(empreinte, None) is None:
+        return jsonify({"error": "Invitation inconnue ou expirée."}), 404
+    try:
+        ecrire_invitations(invitations)
+    except (OSError, RuntimeError) as e:
+        return jsonify({"error": f"Invitation non annulée : {e}"}), 500
+    return jsonify({"ok": True})
+
+
+@flask_app.get("/invitation/<jeton>")
+def invitation_page(jeton):
+    """La page de connexion, en mode invitation : c'est son script qui lit
+    le jeton dans l'adresse. Une seule page a maintenir."""
+    return login_page(invitation=True)
+
+
+@flask_app.get("/api/invitation/<jeton>")
+def api_invitation_etat(jeton):
+    if rate_limited():
+        return jsonify({"error": "Trop de tentatives. Réessaie dans quelques minutes."}), 429
+    _, inv = invitation_par_jeton(jeton)
+    if not inv:
+        register_failed_attempt()
+        return jsonify({"valide": False}), 404
+    return jsonify({"valide": True, "email": inv["email"]})
+
+
+@flask_app.post("/invitation/<jeton>")
+def invitation_accepter(jeton):
+    """Cree le compte et ouvre la session.
+
+    Le lien recu par mail tient lieu de second facteur pour CETTE premiere
+    connexion : il prouve qu'on releve l'adresse, il ne sert qu'une fois et
+    il expire. Les connexions suivantes demandent le mot de passe et un code
+    -- ou Face ID, que la page propose d'activer aussitot.
     """
     if rate_limited():
         return jsonify({"error": "Trop de tentatives. Réessaie dans quelques minutes."}), 429
-    nom = session.get("inscription_email")
-    comptes = lire_utilisateurs()
-    if not nom or nom not in comptes:
-        return jsonify({"error": "Recommence l'inscription : rien en attente."}), 400
-
-    code = (request.get_json(force=True, silent=True) or {}).get("code")
-    ok, message = verifier_code_email(comptes[nom], code)
-    if ok:
-        comptes[nom].pop("attente_email", None)
-    try:
-        ecrire_utilisateurs(comptes)
-    except OSError as e:
-        return jsonify({"error": f"État non enregistré : {e}"}), 500
-    if not ok:
+    empreinte, inv = invitation_par_jeton(jeton)
+    if not inv:
         register_failed_attempt()
-        return jsonify({"error": message}), 400
-    session.pop("inscription_email", None)
-    return jsonify({"ok": True})
+        return jsonify({"error": "Ce lien d'invitation n'est plus valable. "
+                                 "Demande-en un nouveau à ton administrateur."}), 404
+    d = request.get_json(force=True, silent=True) or {}
+    nom = nom_utilisateur_valide(d.get("nom"))
+    mdp = (d.get("mot_de_passe") or "").strip()
+    if not nom:
+        return jsonify({"error": "Nom invalide : 2 à 32 caractères, "
+                                 "minuscules, chiffres, tiret ou souligné."}), 400
+    if nom == NOM_ADMIN:
+        return jsonify({"error": "Ce nom est réservé."}), 400
+    if len(mdp) < MDP_MIN:
+        return jsonify({"error": f"Mot de passe : {MDP_MIN} caractères au minimum."}), 400
+
+    comptes = lire_utilisateurs()
+    if nom in comptes:
+        return jsonify({"error": "Ce nom est déjà pris."}), 400
+    sel = secrets.token_hex(16)
+    comptes[nom] = {
+        "sel": sel,
+        "hash": derive_mot_de_passe(mdp, sel),
+        "projets": _projets_valides(inv.get("projets"), load()),
+        "email": inv["email"],
+        # Le lien est arrive a cette adresse et en est revenu : elle est
+        # verifiee, sans code a recopier.
+        "email_verifie": True,
+        "cree": int(time.time()),
+    }
+    invitations = lire_invitations()
+    invitations.pop(empreinte, None)
+    try:
+        # L'invitation d'abord : un lien qui survivrait au compte cree
+        # permettrait d'en creer un second.
+        ecrire_invitations(invitations)
+        ecrire_utilisateurs(comptes)
+    except (OSError, RuntimeError) as e:
+        return jsonify({"error": f"Compte non enregistré : {e}"}), 500
+    journaliser("compte", qui=nom, action="invitation acceptée", ip=_adresse_client())
+    return _ouvrir_session_utilisateur(nom)
 
 
 @flask_app.get("/qr/totp.svg")
@@ -7400,11 +7925,8 @@ def api_changer_mot_de_passe():
     ancien = (d.get("ancien") or "").strip()
     nouveau = (d.get("nouveau") or "").strip()
 
-    if len(nouveau) < 12:
-        # Douze, et non huit comme pour les comptes crees par
-        # l'administrateur : celui-ci se choisit lui-meme, il n'a pas a etre
-        # transmis, et rien n'oblige a le raccourcir.
-        return jsonify({"error": "Mot de passe : 12 caractères au minimum."}), 400
+    if len(nouveau) < MDP_MIN:
+        return jsonify({"error": f"Mot de passe : {MDP_MIN} caractères au minimum."}), 400
     if nouveau == ancien:
         return jsonify({"error": "Le nouveau mot de passe est identique à l'ancien."}), 400
 
@@ -7434,6 +7956,7 @@ def api_changer_mot_de_passe():
         return jsonify({"error": "Ancien mot de passe incorrect."}), 403
     compte["sel"] = secrets.token_hex(16)
     compte["hash"] = derive_mot_de_passe(nouveau, compte["sel"])
+    fermer_les_autres_sessions(compte, garder_celle_ci=True)
     try:
         ecrire_utilisateurs(comptes)
     except OSError as e:
@@ -7469,7 +7992,7 @@ def api_totp_activer():
         return jsonify({"error": "Recommence la préparation : aucun secret en attente."}), 400
     code = (request.get_json(force=True, silent=True) or {}).get("code")
     if not totp_verifie(candidat, code):
-        return jsonify({"error": "Code incorrect. Vérifié l'heure de ton téléphone."}), 400
+        return jsonify({"error": "Code incorrect. Vérifie l'heure de ton téléphone."}), 400
     if not ecrire_bloc_panneau(admin_password(), flask_app.secret_key, candidat):
         return jsonify({"error": "credentials.env n'a pas pu être écrit : rien n'a été activé."}), 500
     _totp_secret = candidat
@@ -7695,8 +8218,8 @@ def api_utilisateur_creer():
                                  "minuscules, chiffres, tiret ou souligné."}), 400
     if nom == NOM_ADMIN:
         return jsonify({"error": "Ce nom est celui du compte d'administration."}), 400
-    if len(mdp) < 8:
-        return jsonify({"error": "Mot de passe : 8 caractères au minimum."}), 400
+    if len(mdp) < MDP_MIN:
+        return jsonify({"error": f"Mot de passe : {MDP_MIN} caractères au minimum."}), 400
 
     comptes = lire_utilisateurs()
     if nom in comptes:
@@ -7748,10 +8271,11 @@ def api_utilisateur_modifier(nom):
                     ip=_adresse_client())
     mdp = (d.get("mot_de_passe") or "").strip()
     if mdp:
-        if len(mdp) < 8:
-            return jsonify({"error": "Mot de passe : 8 caractères au minimum."}), 400
+        if len(mdp) < MDP_MIN:
+            return jsonify({"error": f"Mot de passe : {MDP_MIN} caractères au minimum."}), 400
         compte["sel"] = secrets.token_hex(16)
         compte["hash"] = derive_mot_de_passe(mdp, compte["sel"])
+        fermer_les_autres_sessions(compte)
 
     # Telephone perdu ou remplace : on efface le secret, et la personne
     # s'inscrit de nouveau a sa prochaine connexion. C'est le seul moyen de
@@ -7777,6 +8301,8 @@ def api_utilisateur_modifier(nom):
     # facteur a zero, mais pas retirer les cles d'acces -- le compte restait
     # ouvrable par un telephone egare. Meme geste, meme raison.
     if d.get("retirer_passkeys"):
+        # Appareil perdu : la session qu'il porte peut-etre tombe aussi.
+        fermer_les_autres_sessions(compte)
         tout = lire_passkeys()
         if tout.pop(nom, None) is not None:
             try:
@@ -9077,6 +9603,15 @@ def ecran_accueil_manifeste():
 @flask_app.get("/api/icon/<n>")
 @require_auth
 def api_icon(n):
+    reponse = _api_icon(n)
+    # Gardee cinq minutes par le navigateur : le hub se redessine toutes les
+    # dix secondes, et une icone redemandee a chaque fois faisait clignoter
+    # toutes les tuiles. « private » : la reponse depend de la session.
+    reponse.headers["Cache-Control"] = "private, max-age=300"
+    return reponse
+
+
+def _api_icon(n):
     """L'icone d'une application. Trois sources, dans cet ordre.
 
       1. le logo DEPOSE dans le projet -- il gagne toujours, c'est un choix
@@ -9161,8 +9696,10 @@ def theme_css():
 
 
 @flask_app.get("/login")
-def login_page():
-    if is_authed():
+def login_page(invitation=False):
+    # Une invitation s'ouvre meme avec une session en cours : c'est souvent
+    # l'administrateur qui essaie le lien qu'il vient d'envoyer.
+    if is_authed() and not invitation:
         return redirect("/")
     # __TOTP__ vaut "1" quand la double authentification est active : la page
     # affiche alors le champ du code. Substitue au moment de servir, comme

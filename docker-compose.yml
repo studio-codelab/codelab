@@ -572,6 +572,10 @@ services:
       # APP_MANAGER_TRUST_PROXY: "1"
       # APP_MANAGER_PUBLIC_URL: "https://codelab.tondomaine.fr"
       # APP_MANAGER_ADMIN_LAN_ONLY: "1"
+      # Second facteur OBLIGATOIRE pour le compte d'administration. Marche
+      # arriere en cas de telephone perdu : decommenter, relancer, se
+      # reconnecter, enregistrer un nouveau facteur, puis recommenter.
+      # APP_MANAGER_ADMIN_2FA: "0"
 
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import urllib.request;urllib.request.urlopen('http://127.0.0.1:9001/health')\" || exit 1"]
