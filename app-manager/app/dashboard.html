@@ -1825,7 +1825,9 @@ table.tbl-journal{min-width:560px}
 
       <div class="hint" id="totp-pourquoi">Le mot de passe est un secret unique : s'il fuit, il donne
         l'exécution de commandes sur cette machine. Le second facteur exige en plus ton téléphone.
-        À activer avant d'exposer ce panneau au-delà de ton réseau.</div>
+        Il est <b>obligatoire</b> pour le compte d'administration : sans lui (ni Face ID), la
+        connexion par mot de passe impose d'en enregistrer un. En cas de téléphone perdu :
+        <code>APP_MANAGER_ADMIN_2FA: "0"</code> dans le compose, le temps de reprendre la main.</div>
 
       <div id="totp-etape-1" style="display:none">
         <button class="btn btn-primary" onclick="totpPreparer()">Activer</button>
@@ -2032,7 +2034,7 @@ table.tbl-journal{min-width:560px}
 
   <!-- LE SERVEUR D'ENVOI ET LES ALERTES SONT DEUX CHOSES. Le premier est une
        fourniture partagee : il porte les alertes, mais aussi les codes de
-       verification d'adresse et l'inscription libre. Les secondes n'en sont
+       verification d'adresse et les invitations. Les secondes n'en sont
        qu'un usage. Les melanger dans une seule carte faisait passer un
        serveur parfaitement configure pour incomplet tant qu'aucune alerte
        n'etait reglee. -->
@@ -2047,9 +2049,8 @@ table.tbl-journal{min-width:560px}
       <span class="pill" id="sm-etat"><i></i>&nbsp;</span></div>
 
       <div class="hint">En dépendent : les <b>alertes</b> quand une application tombe, les
-        <b>invitations</b>, les <b>codes de connexion</b> et de vérification envoyés par mail, et
-        l'<b>inscription libre</b> — qui reste fermée tant qu'aucun serveur n'est configuré, faute
-        de pouvoir vérifier une adresse.</div>
+        <b>invitations</b>, et les <b>codes de connexion</b> et de vérification envoyés par
+        mail.</div>
       <div class="hint" style="margin-top:8px">Tous ces mails passent par <b>Mailpit</b>, comme
         ceux des applications : chacun s'y relit, et Mailpit les relaie par ce serveur.</div>
       <div class="hint" style="margin-top:8px">Enregistrée <b>en base, chiffrée</b>, mot de passe
@@ -2307,7 +2308,6 @@ table.tbl-journal{min-width:560px}
 
       <div id="inv-liste" style="margin-top:14px"></div>
 
-      <div class="hint" id="us-inscription-libre" style="display:none"></div>
 
       <!-- Retrouver quelqu'un. Deux filtres qui se combinent, parce qu'on
            cherche de deux facons : par la personne qu'on a en tete, ou par
@@ -2778,7 +2778,7 @@ function showSection(name){
   }
   /* L'etat de securite est relu a chaque ouverture : il peut avoir change
      depuis un autre onglet, ou au redemarrage du service. */
-  if(name==='users'){ chargerUtilisateurs(); chargerInvitations(); chargerInscriptionLibre(); chargerActivite(); }
+  if(name==='users'){ chargerUtilisateurs(); chargerInvitations(); chargerActivite(); }
   /* Chaque onglet des parametres relit ce qu'il affiche a son ouverture : ces
      etats changent depuis un autre onglet du navigateur, ou au redemarrage du
      service. On ne recharge que l'onglet regarde. */
@@ -3465,6 +3465,16 @@ async function chargerHub(){
   }catch(e){ return; }
   peindreHub();
 }
+/* NE REPEINDRE QUE CE QUI CHANGE. Le hub se recharge toutes les dix secondes ;
+   remplacer le HTML a chaque tour, meme identique, recreait toutes les tuiles
+   et leurs images : l'ecran clignotait. On compare au dernier HTML pose. */
+const _dernierHtml = new WeakMap();
+function remplir(el, html){
+  if(!el || _dernierHtml.get(el) === html) return;
+  _dernierHtml.set(el, html);
+  el.innerHTML = html;
+}
+
 function peindreHub(){
   const classeListe = 'hub-liste compacte';
   $('hub-sous').textContent = estAdmin
@@ -3481,20 +3491,20 @@ function peindreHub(){
   const nbCaches = (hubMasquees||[]).length;
   $('hub-masquees').style.display = nbCaches ? 'block' : 'none';
   if(nbCaches){
-    $('hub-masquees').innerHTML = nbCaches + (nbCaches>1
+    remplir($('hub-masquees'), nbCaches + (nbCaches>1
       ? ' applications masquées — ' : ' application masquée — ')
       + '<a href="#" onclick="event.preventDefault();allerA(\'parametres\');'
       + 'paramOnglet(\'compte\')">à décocher dans tes paramètres</a> pour '
-      + (nbCaches>1 ? 'les' : 'la') + ' revoir.';
+      + (nbCaches>1 ? 'les' : 'la') + ' revoir.');
   }
   if(!liste.length){
     $('hub-liste').className='';
-    $('hub-liste').innerHTML = filtre
+    remplir($('hub-liste'), filtre
       ? '<div class="hub-vide"><b>Aucun résultat</b>Aucune application ne correspond a « '+esc(filtre)+' ».</div>'
       : (estAdmin
         ? '<div class="hub-vide"><b>Aucune application déclarée</b>Ouvre « Applications » dans le menu de gauche pour en ajouter une.</div>'
         : '<div class="hub-vide"><b>Aucune application pour le moment</b>'
-          + 'Ton administrateur ne t\'a pas encore donne accès à une application.</div>');
+          + 'Ton administrateur ne t\'a pas encore donne accès à une application.</div>'));
     return;
   }
   /* Rien d'autre qu'un lien : une tuile du hub sert a ouvrir une
@@ -3517,7 +3527,7 @@ function peindreHub(){
   const utiles = categories.filter(c=>liste.some(a=>a.categorie===c));
   if(!utiles.length){
     $('hub-liste').className=classeListe;
-    $('hub-liste').innerHTML = liste.map(tuile).join('');
+    remplir($('hub-liste'), liste.map(tuile).join(''));
     return;
   }
 
@@ -3528,10 +3538,10 @@ function peindreHub(){
   if(restants.length) groupes.push(['Autres', restants]);
 
   $('hub-liste').className='';
-  $('hub-liste').innerHTML = groupes.map(([nom, apps])=>`<div class="hub-groupe">
+  remplir($('hub-liste'), groupes.map(([nom, apps])=>`<div class="hub-groupe">
     <div class="hub-groupe-titre">${esc(nom)}<span>${apps.length}</span></div>
     <div class="${classeListe}">${apps.map(tuile).join('')}</div>
-  </div>`).join('');
+  </div>`).join(''));
 }
 
 /* ---------------- vue d'ensemble ---------------- */
@@ -3571,8 +3581,8 @@ function renderOverview(){
   $('res-mem-val').textContent=Math.round(memSum)+' Mo';
   $('res-mem-bar').style.width=Math.min(100, memSum/2048*100)+'%';
 
-  $('ov-chart-cpu').innerHTML=barChart(apps, 'cpu_percent', '%', 10);
-  $('ov-chart-mem').innerHTML=barChart(apps, 'memory_mb', ' Mo', 64);
+  remplir($('ov-chart-cpu'), barChart(apps, 'cpu_percent', '%', 10));
+  remplir($('ov-chart-mem'), barChart(apps, 'memory_mb', ' Mo', 64));
 }
 
 /* ---------------- donnees ---------------- */
@@ -5305,20 +5315,6 @@ async function faceIdActiver(){
   }
   hide('ov-faceid');
   notifier(nomDuGeste().replace(/^ton /,'Ton ') + ' est activé pour tes prochaines connexions.');
-}
-
-/* L'inscription libre suit le serveur d'envoi : sans mail, aucun moyen de
-   verifier une adresse, donc pas de creation de compte ouverte. */
-async function chargerInscriptionLibre(){
-  let d;
-  try{ d=await (await fetch('/api/inscription')).json(); }catch(e){ return; }
-  const z=$('us-inscription-libre');
-  z.style.display='block';
-  z.innerHTML = d.ouverte
-    ? '<b>L\'inscription libre est ouverte</b> sur la page de connexion. Un compte créé ainsi '
-      + 'n\'ouvre <b>aucun projet</b> tant que tu ne lui en autorisés pas.'
-    : '<b>L\'inscription libre est fermee</b> : sans serveur d\'envoi (Paramètres &gt; E-mail), '
-      + 'une adresse déclarée ne peut pas être vérifiée.';
 }
 
 /* ---------------- mon adresse mail ---------------- */

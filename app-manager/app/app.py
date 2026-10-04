@@ -180,6 +180,10 @@ flask_app.config.update(
 
 SESSION_INACTIVITE = flask_app.config["PERMANENT_SESSION_LIFETIME"]
 SESSION_ABSOLUE = datetime.timedelta(days=30)
+# L'administrateur ouvre tout, Dagster et Mailpit compris : sa session tombe
+# au bout de douze heures, quoi qu'il arrive. Une journee de travail, pas un
+# mois de cookie a voler.
+SESSION_ADMIN_ABSOLUE = datetime.timedelta(hours=12)
 procs = {}          # nom -> subprocess.Popen
 lock = threading.Lock()
 _proc_cache = {}     # pid -> psutil.Process (prime pour cpu_percent delta)
@@ -1299,10 +1303,13 @@ def expirer_les_sessions_trop_vieilles():
         # que de deconnecter tout le monde a la mise a jour.
         session["ouverte"] = int(time.time())
         return None
-    if time.time() - ouverte > SESSION_ABSOLUE.total_seconds():
+    limite = (SESSION_ADMIN_ABSOLUE if session.get("role", ROLE_ADMIN) == ROLE_ADMIN
+              else SESSION_ABSOLUE)
+    if time.time() - ouverte > limite.total_seconds():
         qui = session.get("utilisateur") or ""
         session.clear()
-        journaliser("session", qui=qui, action="expiree (30 jours)",
+        journaliser("session", qui=qui, action="expiree (" + (
+                        "12 heures" if limite == SESSION_ADMIN_ABSOLUE else "30 jours") + ")",
                     ip=_adresse_client())
     return None
 
@@ -1562,7 +1569,6 @@ JETON_ENTETE = "X-CodeLab-Jeton"
 JETON_EXEMPTS = {
     "login_submit", "login_second_facteur",
     "login_passkey_options", "login_passkey",
-    "inscription_creer", "inscription_confirmer",
     "invitation_accepter",
     # Le proxy transporte les requetes des applications hebergees : leurs
     # formulaires ne connaissent pas le jeton du panneau, et n'ont aucune
@@ -6373,6 +6379,88 @@ def under_root(path):
 
 # ------------------------------ auth --------------------------------
 
+def admin_2fa_obligatoire():
+    """Second facteur obligatoire pour l'administrateur (par defaut : oui).
+
+    APP_MANAGER_ADMIN_2FA=0 dans le compose est la marche arriere, le jour
+    ou le telephone qui portait le facteur est perdu : elle ne passe pas par
+    le panneau, donc reste possible quand on en est enferme dehors.
+    """
+    return (os.environ.get("APP_MANAGER_ADMIN_2FA", "1").strip().lower()
+            not in ("0", "non", "false", "no"))
+
+
+def _ouvrir_session_admin():
+    session.pop("totp_candidat", None)
+    session.pop("totp_inscription", None)
+    session.pop("totp_uri", None)
+    session.permanent = True
+    session["authed"] = True
+    session["ouverte"] = int(time.time())
+    jeton_session()
+    session["role"] = ROLE_ADMIN
+    session["utilisateur"] = NOM_ADMIN
+    journaliser("connexion", qui=NOM_ADMIN, role=ROLE_ADMIN, ip=_adresse_client())
+    signaler_connexion_admin()
+    return jsonify({"ok": True, "role": ROLE_ADMIN})
+
+
+def _inscrire_totp_admin(candidat):
+    """Fin de l'inscription forcee du facteur de l'administrateur."""
+    global _totp_secret
+    # Le verrou reseau, de nouveau : entre les deux etapes, on a pu changer
+    # de reseau, et c'est ici que la session nait.
+    hors = refus_admin_hors_reseau()
+    if hors:
+        return jsonify({"error": hors}), 403
+    if totp_actif():
+        return jsonify({"error": "Un second facteur a déjà été enregistré. "
+                                 "Recommence la connexion."}), 409
+    if not ecrire_bloc_panneau(admin_password(), flask_app.secret_key, candidat):
+        return jsonify({"error": "credentials.env n'a pas pu être écrit : rien "
+                                 "n'a été enregistré."}), 500
+    _totp_secret = candidat
+    return _ouvrir_session_admin()
+
+
+# ALERTE DE CONNEXION. Une connexion administrateur depuis une adresse jamais
+# vue part par mail a l'adresse d'alerte : si ce n'est pas toi, tu le sais
+# tout de suite, et pas au prochain coup d'oeil sur le journal. Les adresses
+# deja vues (les 20 dernieres) ne declenchent rien, pour ne pas en faire du
+# bruit qu'on finit par ignorer.
+ADMIN_IPS_CONNUES_MAX = 20
+
+
+def signaler_connexion_admin():
+    ip = _client_ip()
+    try:
+        connues = list(reglage("ips_admin_connues", []) or [])
+    except Exception:                                             # noqa: BLE001
+        return
+    if ip in connues:
+        return
+    premiere = not connues
+    connues = (connues + [ip])[-ADMIN_IPS_CONNUES_MAX:]
+    try:
+        ecrire_reglage("ips_admin_connues", connues)
+    except (OSError, RuntimeError):
+        return
+    destinataires = alertes_admin()
+    if premiere or not destinataires:
+        # La toute premiere connexion n'a rien d'inhabituel : c'est
+        # l'installation.
+        return
+    quand = time.strftime("%d/%m/%Y %H:%M", time.localtime())
+    threading.Thread(target=envoyer_avec_repli, daemon=True, args=(
+        "[CodeLab] connexion administrateur depuis une nouvelle adresse",
+        f"Une session d'administration vient de s'ouvrir le {quand}, depuis {ip}, "
+        "une adresse jamais vue jusqu'ici.\n\n"
+        "Si c'est toi, rien a faire. Sinon, change tout de suite le mot de passe "
+        "d'administration (credentials.env), retire les cles d'acces inconnues et "
+        "regarde le journal des connexions.\n\n"
+        "-- CodeLab, panneau de gestion des applications", destinataires)).start()
+
+
 @flask_app.post("/login")
 def login_submit():
     if rate_limited():
@@ -6412,6 +6500,27 @@ def login_submit():
         # Une tentative ratee ici compte comme une tentative ratee tout court :
         # sinon le second facteur serait forcable sans limite une fois le mot
         # de passe connu, ce qui le viderait de son sens.
+        # SECOND FACTEUR OBLIGATOIRE pour l'administrateur : son compte
+        # ouvre tout, Dagster (donc l'execution de code) et Mailpit (donc
+        # tous les codes et liens envoyes) compris. Sans facteur enregistre,
+        # le mot de passe juste mene a l'inscription d'une application, pas a
+        # une session. Avec Face ID seulement, le mot de passe seul est
+        # refuse : l'inscription d'une application le contournerait.
+        if admin_2fa_obligatoire() and not totp_actif():
+            if passkeys_du_compte(NOM_ADMIN):
+                register_failed_attempt()
+                journaliser("echec", qui=NOM_ADMIN, motif="second facteur requis",
+                            ip=_adresse_client())
+                return jsonify({"error": "Connecte-toi avec Face ID : le mot de passe "
+                                         "seul n'ouvre pas le compte d'administration."}), 403
+            candidat = totp_nouveau_secret()
+            session["totp_candidat"] = candidat
+            session["totp_inscription"] = NOM_ADMIN
+            session["totp_uri"] = totp_uri(candidat)
+            return jsonify({"inscription": True, "secret": candidat,
+                            "uri": session["totp_uri"], "compte": NOM_ADMIN,
+                            "qr": "/qr/totp.svg"})
+
         if totp_actif() and not totp_verifie(_totp_secret, d.get("code")):
             register_failed_attempt()
             journaliser("echec", qui=NOM_ADMIN, motif="second facteur", ip=_adresse_client())
@@ -6427,6 +6536,7 @@ def login_submit():
         session["role"] = ROLE_ADMIN
         session["utilisateur"] = NOM_ADMIN
         journaliser("connexion", qui=NOM_ADMIN, role=ROLE_ADMIN, ip=_adresse_client())
+        signaler_connexion_admin()
         return jsonify({"ok": True, "role": ROLE_ADMIN})
 
     compte = lire_utilisateurs().get(nom)
@@ -6603,7 +6713,10 @@ def login_second_facteur():
     code = (request.get_json(force=True, silent=True) or {}).get("code")
     if not totp_verifie(candidat, code):
         register_failed_attempt()
-        return jsonify({"error": "Code incorrect. Vérifié l'heure de ton téléphone."}), 400
+        return jsonify({"error": "Code incorrect. Vérifie l'heure de ton téléphone."}), 400
+
+    if nom == NOM_ADMIN:
+        return _inscrire_totp_admin(candidat)
 
     comptes = lire_utilisateurs()
     compte = comptes.get(nom)
@@ -6930,6 +7043,8 @@ def login_passkey():
     session["utilisateur"] = proprietaire
     journaliser("connexion", qui=proprietaire, role=session["role"],
                 moyen="cle d'acces", ip=_adresse_client())
+    if est_administrateur:
+        signaler_connexion_admin()
     return jsonify({"ok": True, "role": session["role"]})
 
 
@@ -7122,88 +7237,6 @@ def api_mon_email_confirmer():
     return jsonify({"ok": True})
 
 
-# --------------------- inscription libre ---------------------
-#
-# Ouverte seulement si un serveur d'envoi est configure : sans mail, aucun
-# moyen de verifier que l'adresse declaree existe, et la creation de comptes
-# devient un formulaire a remplir en boucle.
-#
-# Un compte cree ainsi n'ouvre AUCUN projet : il attend que l'administrateur
-# lui en autorise. C'est ce qui rend l'inscription libre sans consequence --
-# au pire, des comptes vides.
-
-@flask_app.get("/api/inscription")
-def api_inscription_etat():
-    _, ok = smtp_utilisable()
-    return jsonify({"ouverte": ok})
-
-
-@flask_app.post("/inscription")
-def inscription_creer():
-    if rate_limited():
-        return jsonify({"error": "Trop de tentatives. Réessaie dans quelques minutes."}), 429
-    _, smtp_ok = smtp_utilisable()
-    if not smtp_ok:
-        return jsonify({"error": "La création de compte n'est pas ouverte sur "
-                                 "ce serveur."}), 403
-
-    d = request.get_json(force=True, silent=True) or {}
-    nom = nom_utilisateur_valide(d.get("nom"))
-    mdp = (d.get("mot_de_passe") or "").strip()
-    adresse = email_valide(d.get("email"))
-    if not nom:
-        return jsonify({"error": "Nom invalide : 2 à 32 caractères, "
-                                 "minuscules, chiffres, tiret ou souligné."}), 400
-    if nom == NOM_ADMIN:
-        return jsonify({"error": "Ce nom est réservé."}), 400
-    if not adresse:
-        return jsonify({"error": "Adresse mail invalide."}), 400
-    if len(mdp) < MDP_MIN:
-        return jsonify({"error": f"Mot de passe : {MDP_MIN} caractères au minimum."}), 400
-
-    comptes = lire_utilisateurs()
-    if nom in comptes:
-        # Un nom deja pris se dit : il faudra bien en choisir un autre, et
-        # l'inscription ne revele rien de plus que la page de connexion.
-        return jsonify({"error": "Ce nom est déjà pris."}), 400
-
-    sel = secrets.token_hex(16)
-    comptes[nom] = {
-        "sel": sel,
-        "hash": derive_mot_de_passe(mdp, sel),
-        "projets": [],
-        "email": adresse,
-        "email_verifie": False,
-        # Tant que ce drapeau est la, le compte ne se connecte pas : c'est
-        # ce qui distingue une adresse declaree d'une adresse relevee.
-        "attente_email": True,
-        "cree": int(time.time()),
-    }
-    code = poser_code_email(comptes[nom])
-    try:
-        ecrire_utilisateurs(comptes)
-    except OSError as e:
-        return jsonify({"error": f"Compte non enregistré : {e}"}), 500
-    try:
-        envoyer_code_email(adresse, nom, code)
-    except Exception as e:
-        # Compte cree mais injoignable : on le retire plutot que de laisser
-        # un nom pris par quelqu'un qui ne pourra jamais s'en servir.
-        comptes.pop(nom, None)
-        try:
-            ecrire_utilisateurs(comptes)
-        except OSError:
-            pass
-        return jsonify({"error": f"Le mail n'est pas parti : {type(e).__name__}: {e}"}), 502
-
-    # Compte dans le compteur de tentatives : sans cela, un robot creerait
-    # des comptes en boucle depuis la meme adresse, et chacun ferait partir
-    # un mail. Cinq par fenetre, comme les connexions.
-    register_failed_attempt()
-    session["inscription_email"] = nom
-    return jsonify({"ok": True, "nom": nom, "confirmation": True})
-
-
 @flask_app.post("/mot-de-passe/oubli")
 def mot_de_passe_oubli():
     """Envoie un code de reinitialisation, si tout s'y prete.
@@ -7297,36 +7330,6 @@ def mot_de_passe_reinitialiser():
         return jsonify({"error": f"Mot de passe non enregistré : {e}"}), 500
     journaliser("mot-de-passe", qui=nom, action="reinitialise par mail",
                 ip=_adresse_client())
-    return jsonify({"ok": True})
-
-
-@flask_app.post("/inscription/confirmer")
-def inscription_confirmer():
-    """Confirme l'adresse, et rend le compte utilisable.
-
-    N'ouvre pas de session : la personne se connecte ensuite normalement, et
-    enregistre a ce moment-la son second facteur. Le mail prouve l'adresse,
-    pas l'identite.
-    """
-    if rate_limited():
-        return jsonify({"error": "Trop de tentatives. Réessaie dans quelques minutes."}), 429
-    nom = session.get("inscription_email")
-    comptes = lire_utilisateurs()
-    if not nom or nom not in comptes:
-        return jsonify({"error": "Recommence l'inscription : rien en attente."}), 400
-
-    code = (request.get_json(force=True, silent=True) or {}).get("code")
-    ok, message = verifier_code_email(comptes[nom], code)
-    if ok:
-        comptes[nom].pop("attente_email", None)
-    try:
-        ecrire_utilisateurs(comptes)
-    except OSError as e:
-        return jsonify({"error": f"État non enregistré : {e}"}), 500
-    if not ok:
-        register_failed_attempt()
-        return jsonify({"error": message}), 400
-    session.pop("inscription_email", None)
     return jsonify({"ok": True})
 
 
@@ -7989,7 +7992,7 @@ def api_totp_activer():
         return jsonify({"error": "Recommence la préparation : aucun secret en attente."}), 400
     code = (request.get_json(force=True, silent=True) or {}).get("code")
     if not totp_verifie(candidat, code):
-        return jsonify({"error": "Code incorrect. Vérifié l'heure de ton téléphone."}), 400
+        return jsonify({"error": "Code incorrect. Vérifie l'heure de ton téléphone."}), 400
     if not ecrire_bloc_panneau(admin_password(), flask_app.secret_key, candidat):
         return jsonify({"error": "credentials.env n'a pas pu être écrit : rien n'a été activé."}), 500
     _totp_secret = candidat
@@ -9600,6 +9603,15 @@ def ecran_accueil_manifeste():
 @flask_app.get("/api/icon/<n>")
 @require_auth
 def api_icon(n):
+    reponse = _api_icon(n)
+    # Gardee cinq minutes par le navigateur : le hub se redessine toutes les
+    # dix secondes, et une icone redemandee a chaque fois faisait clignoter
+    # toutes les tuiles. « private » : la reponse depend de la session.
+    reponse.headers["Cache-Control"] = "private, max-age=300"
+    return reponse
+
+
+def _api_icon(n):
     """L'icone d'une application. Trois sources, dans cet ordre.
 
       1. le logo DEPOSE dans le projet -- il gagne toujours, c'est un choix

@@ -338,9 +338,23 @@ minutes** : une session volee ne peut pas s'installer durablement. Les mots de p
 Le parcours historique ci-dessous (QR code et application d'authentification) ne s'applique plus
 qu'aux comptes **sans** adresse verifiee :
 
-L'administrateur, lui, garde le choix (Parametres > Securite) : le lui imposer d'office pourrait
-l'enfermer hors de son propre panneau. Il est vivement conseille de l'activer avant toute
-exposition.
+**Le compte d'administration est plus exigeant qu'un compte utilisateur :**
+
+- **Second facteur obligatoire** (application d'authentification ou Face ID). Sans facteur
+  enregistre, le mot de passe juste mene a l'inscription d'une application, pas a une session ;
+  avec Face ID seulement, le mot de passe seul est refuse. Marche arriere en cas de telephone perdu :
+  `APP_MANAGER_ADMIN_2FA: "0"` dans le compose, le temps de reprendre la main.
+- **Session de douze heures au plus** (trente jours pour un compte utilisateur) : elle ouvre
+  Dagster et Mailpit, donc l'execution de code et tous les mails envoyes.
+- **Alerte par mail** a l'adresse d'alerte quand une session d'administration s'ouvre depuis une
+  adresse IP jamais vue (les 20 dernieres sont retenues).
+- Pas de code par mail ni de reinitialisation par mail : son mot de passe est celui de
+  `credentials.env`. Et l'option « administration limitee au reseau local » reste disponible.
+
+**Dagster et Mailpit ne s'ouvrent qu'a l'administrateur**, par aucun autre chemin : aucune tuile
+pour un compte utilisateur, `/api/auth-check` (interroge par nginx avant chaque requete vers les
+ports 3000 et 8025) refuse toute session qui n'est pas d'administration, et ni l'un ni l'autre ne
+s'accorde a un compte.
 
 Le parcours, en trois etats :
 
@@ -366,7 +380,7 @@ compte) et stockes dans `utilisateurs.json` en `0600`. Une copie de sauvegarde d
 n'est donc pas une liste de mots de passe. Le compte d'administration, lui, n'est pas dans ce
 fichier : son mot de passe vit dans `credentials.env`, et le nom `admin` est reserve.
 
-## Adresse mail des comptes, et inscription libre
+## Adresse mail des comptes
 
 Chaque compte utilisateur porte une **adresse mail**, posee a la creation (par l'administrateur) ou
 choisie par la personne dans ses *Parametres*. L'adresse relie le compte a quelqu'un de joignable.
@@ -384,167 +398,12 @@ atteste seulement que l'adresse existe et qu'elle est bien relevee par qui la de
 - **Changer d'adresse annule la verification**, cote personne comme cote administrateur : sinon il
   suffirait de remplacer une adresse verifiee par une autre pour heriter de son statut.
 
-**L'inscription libre** (« Creer un compte » sur la page de connexion) n'est ouverte que si un
-serveur d'envoi est configure : sans mail, une adresse declaree ne peut pas etre verifiee, et la
-creation de comptes devient un formulaire a remplir en boucle. Le parcours :
-
-1. nom, adresse, mot de passe ; un code part vers l'adresse ;
-2. tant que ce code n'est pas revenu, **le compte ne se connecte pas** — mot de passe juste compris ;
-3. une fois confirme, il se connecte comme tout compte utilisateur, en enregistrant son second
-   facteur a la premiere connexion.
-
-**Un compte cree ainsi n'ouvre aucun projet** tant que l'administrateur ne lui en autorise pas :
-c'est ce qui rend l'inscription libre sans consequence — au pire, des comptes vides. La creation est
-comptee dans la limite de tentatives (5 par fenetre et par adresse IP), pour qu'un robot ne fasse pas
-partir des mails en boucle. Un mail qui ne part pas retire le compte : sinon le nom resterait pris
-par quelqu'un qui ne pourra jamais s'en servir.
-
-## Cles d'acces (passkeys)
-
-Une cle d'acces remplace le mot de passe **et** le code a six chiffres : l'appareil prouve la
-possession, et l'empreinte (ou le code de l'appareil) prouve la personne. Rien a retenir, rien a
-recopier — et **rien a hameconner**, puisque la cle ne signe que pour le domaine qui l'a
-enregistree.
-
-Elle s'ajoute depuis *Parametres > Securite*, une fois connecte : on enregistre une cle sur le
-compte qu'on occupe deja. Plusieurs cles par compte (telephone, ordinateur), retirables une par une.
-
-**L'enregistrement exige la verification d'utilisateur** (`user_verification: required`) : sans
-empreinte ni code d'appareil, une cle ne serait qu'un facteur de possession, et ouvrir une session
-sur cette moitie serait un recul par rapport au mot de passe + TOTP. La connexion l'exige aussi.
-
-### Trois conditions que le navigateur impose
-
-Elles sont **annoncees** dans la page plutot que subies — un bouton qui echoue toujours est pire
-qu'un bouton absent :
-
-1. **HTTPS.** Le navigateur refuse WebAuthn hors contexte securise (sauf sur `localhost`). Sur
-   `http://192.168.1.20:9001`, les cles d'acces sont donc impossibles.
-2. **Un nom de domaine, pas une adresse IP.** Le `rp_id` ne peut pas etre une IP.
-3. **Toujours le meme nom.** Une cle enregistree sur `codelab.exemple.fr` ne fonctionne pas sur
-   `192.168.1.20`, et c'est voulu : c'est ce qui la rend inhameconnable.
-
-Un cas merite son message a lui : quand un proxy annonce `X-Forwarded-Proto: https` mais que
-`APP_MANAGER_TRUST_PROXY` n'est pas pose, le panneau ne le croit pas (n'importe quel client peut
-poser cet en-tete) et le dit — « declare ton proxy », pas « mets du TLS ».
-
-Les cles vivent dans `passkeys.json` (`0600`), une entree par compte, avec le compteur de signature
-que la norme demande de faire avancer : **il ne doit jamais reculer**, c'est la qu'une cle clonee se
-trahit. La bibliotheque `webauthn` fait la cryptographie — ecrire soi-meme la verification d'une
-signature ECDSA et le decodage CBOR d'une attestation, c'est le genre de code ou une erreur discrete
-ne se voit que de celui qui la cherche. Import optionnel : sans elle, les cles d'acces sont
-indisponibles et le reste ne bouge pas.
-
-## Adresse publique, et ce que « publique » veut dire
-
-Une application **publique** est servie **sans authentification** : c'est ce qui permet de partager
-un projet par un simple lien. Tant que ce serveur n'est joignable que depuis ton reseau, le mot
-promet une ouverture qui n'existe pas — il ne retire que l'authentification, sans rien partager.
-
-Le panneau **ne propose donc pas de rendre une application publique tant qu'aucune adresse publique
-n'est declaree** (*Parametres > Serveur > Adresse publique*), et la route refuse aussi le
-changement. Trois consequences, voulues :
-
-- une application **deja publique** n'est pas touchee, et peut toujours etre **refermee** — on ne
-  bloque jamais le chemin qui referme ;
-- une application **neuve nait privee** sur un serveur prive, meme si le formulaire demande autre
-  chose : elle s'ouvre en une bascule, alors qu'une application ouverte par megarde ne se referme
-  qu'apres coup ;
-- des que l'adresse est declaree, tout redevient possible, sans redemarrage.
-
-**Elle se declare a la main**, et c'est deliberé : le panneau ne peut pas savoir si le port 443 de
-la box est ouvert, si le tunnel tourne, ni quel nom de domaine y mene. La renseigner, c'est dire
-« j'ai fait le necessaire ». `APP_MANAGER_PUBLIC_URL` dans le compose l'emporte sur la page, et la
-page le dit plutot que de laisser modifier ce qu'un redemarrage remettrait.
-
-## Journal des acces
-
-Qui s'est connecte, quand, depuis quelle adresse, et quelle application il a ouverte. Deux usages, et
-deux seulement : **reconnaitre une tentative d'intrusion** (des echecs de connexion en rafale, une
-connexion a une heure inhabituelle) et **savoir si un projet sert encore a quelqu'un** avant de
-l'arreter. Il se lit dans **Utilisateurs** (connexions recentes, et la derniere connexion sous chaque
-compte) et dans la fiche d'une application, onglet **Activite**.
-
-Trois decisions qui comptent :
-
-- **Une ouverture est notee apres les controles d'acces.** Un refus n'est pas une visite : les
-  compter donnerait a une application fermee l'air d'etre tres frequentee.
-- **Une ouverture par personne et par application, au plus une fois par quart d'heure.** Une page
-  web, c'est des dizaines de requetes ; les compter toutes ne dirait plus rien de la frequentation
-  et remplirait le disque.
-- **Journaliser n'echoue jamais.** Disque plein, montage en lecture seule : l'evenement est perdu,
-  le service continue. Refuser une connexion pour proteger son journal reviendrait a eteindre le
-  service au moment ou on veut justement l'observer.
-
-Le fichier est `acces.jsonl` (dans `STATE_DIR`), une ligne JSON par evenement, plafonne a 1 Mo avec
-un `.1` conserve — la meme rotation que les journaux d'application. Un fichier texte se relit depuis
-une session SSH le jour ou le panneau ne repond plus, ce qu'une base ne permettrait pas.
-
-### La memoire longue : Postgres
-
-Le fichier oublie — 1 Mo, environ 8 000 evenements. Le panneau recopie donc **en plus** le journal
-et le registre des comptes dans Postgres, dans une base `codelab` qu'il cree lui-meme au premier
-demarrage (deux tables, `acces` et `utilisateurs`). C'est la que vit l'historique long, interrogeable
-en SQL depuis un projet ou une session `psql`.
-
-**En plus, jamais a la place, et jamais sur le chemin d'une requete.** Une file en memoire et un fil
-dedie : si la base est eteinte, lente, ou si le mot de passe a change, la file se vide dans le vide
-et **la connexion comme l'ouverture d'une application passent quand meme**. Le fichier reste la
-source de verite ; la base est un miroir.
-
-- **Chaque evenement porte un identifiant.** C'est lui qui rend le rattrapage rejouable : au
-  demarrage et apres chaque reconnexion, le fil rejoue le fichier en entier, et `ON CONFLICT DO
-  NOTHING` fait le tri. Rien n'est compte deux fois, et ce qui s'est produit pendant une panne de la
-  base est rattrape tout seul, tant que la ligne est encore dans le fichier.
-- **Aucun secret ne traverse.** La table `utilisateurs` porte le nom, l'adresse, les etats (adresse
-  verifiee, second facteur enregistre, nombre de cles d'acces) et les projets autorises — ni
-  empreinte de mot de passe, ni sel, ni cle du second facteur, ni cle d'acces. Cette base est
-  joignable par les projets deployes : elle ne contient que ce qui se lit deja dans le panneau.
-- **Un compte supprime laisse sa ligne**, marquee `supprime`. Le journal le designe par son nom, et
-  un historique qui perd ses acteurs ne s'interprete plus.
-- `APP_MANAGER_PG=0` coupe le miroir. Sans `psycopg` dans l'image, il est simplement inactif.
-
-La page *Utilisateurs* lit Postgres quand il repond, et retombe sur le fichier sinon — une base
-eteinte rend seulement la vue plus courte, et la reponse de `/api/activite` dit d'ou viennent les
-lignes.
-
-`GET /api/activite` est **reserve a l'administrateur** : il contient des adresses IP et le detail de
-qui ouvre quoi.
-
-## Categories
-
-Une categorie est un intitule libre — « Outils », « Sites », « Donnees » — qui **regroupe les projets
-dans le hub**, et rien d'autre : elle ne donne aucun droit, ne change rien au deploiement et
-n'apparait pas dans le proxy. C'est du rangement.
-
-- La liste se tient dans **Parametres > Categories**. Son ordre est l'ordre d'affichage des
-  groupes : on la range, on n'impose pas un tri alphabetique.
-- La categorie d'un projet se choisit dans sa fiche, onglet **Configuration**, parmi cette liste.
-- Un projet sans categorie apparait a la fin, sous **Autres**. Tant qu'aucune categorie n'existe, le
-  hub reste une seule liste — un titre « Autres » tout seul ne rangerait rien.
-
-**Supprimer une categorie ne casse rien mais deplace des projets** : ceux qui la portaient
-redeviennent non ranges, tout de suite, et la page dit combien. Un projet ne garde jamais une
-categorie disparue — il serait range dans un tiroir que le hub n'affiche plus, donc invisible.
-
-La liste vit dans `categories.json` (dans `STATE_DIR`), a cote de `apps.json` : une categorie existe
-avant qu'un projet la porte, et survit a la suppression du dernier projet qui l'utilisait.
-
-## Le serveur d'envoi, et les alertes
-
-**Tous les mails du panneau passent par Mailpit** (`codelab-mailpit:1025`) — alertes, codes,
-invitations, reinitialisations — comme ceux des applications : chacun se relit dans l'interface de
-Mailpit, et le mode test et le plafond d'envoi valent pour tout le monde. Mailpit relaie par le
-serveur d'envoi ci-dessous. S'il est injoignable, le panneau repasse en envoi direct. Pour revenir a
-l'envoi direct : `APP_MANAGER_MAIL_PAR_MAILPIT=0` dans le compose.
-
-
-Ce sont **deux choses**, et elles ont chacune leur onglet.
-
 Le **serveur d'envoi** (*Parametres > E-mail*) est une fourniture partagee : hote, port,
-chiffrement, identifiant. Trois usages en dependent — les **alertes**, les **codes de verification**
-des adresses des comptes, et l'**inscription libre**, qui reste fermee tant qu'aucun serveur n'est
-configure faute de pouvoir verifier une adresse.
+chiffrement, identifiant. Trois usages en dependent — les **alertes**, les **invitations**, et les
+**codes** (connexion, verification d'adresse, mot de passe oublie).
+
+**Il n'y a pas d'inscription libre** : un compte ne nait que par invitation de l'administrateur (ou
+cree par lui directement). Aucun formulaire public ne cree de compte.
 
 Les **alertes** (*Parametres > Alertes*) n'en sont qu'un usage : qui prevenir, et l'interrupteur.
 
@@ -814,9 +673,6 @@ qui n'est pas implemente ici.
 | `/api/mon-compte/email` | POST | oui | Declare ou change sa propre adresse, et envoie un code |
 | `/api/mon-compte/email/code` | POST | oui | Renvoie un code (une fois par minute au plus) |
 | `/api/mon-compte/email/confirmer` | POST | oui | Confirme l'adresse avec le code recu |
-| `/api/inscription` | GET | **non** | L'inscription libre est-elle ouverte (serveur d'envoi configure) |
-| `/inscription` | POST | **non** | Cree un compte sans aucun projet, et envoie un code a l'adresse |
-| `/inscription/confirmer` | POST | **non** | Confirme l'adresse et rend le compte utilisable |
 | `/api/invitations` | GET / POST | oui | Les invitations en attente ; en envoie une (rend toujours le lien) |
 | `/api/invitations/<id>/renvoyer` | POST | oui | Tire un nouveau lien et le renvoie |
 | `/api/invitations/<id>` | DELETE | oui | Annule une invitation |
