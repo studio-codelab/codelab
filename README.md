@@ -164,13 +164,14 @@ Tout vit dans `/DATA/AppData/codelab/config/`, en dehors des conteneurs.
 | Fichier | Contenu | Écrit par | Lu par |
 |---|---|---|---|
 | `credentials.env` | identifiants des services, **un bloc par service** ; un sommaire en tête dit qui écrit quoi | les services, à leur démarrage | les services ; une partie est passée aux apps (voir 3) |
-| base Postgres, table `reglages` | réglages saisis dans le panneau (SMTP et son mot de passe, alertes, destinataires, surveillance, e-mails des comptes), **chiffrés** avec `APP_MANAGER_CHIFFREMENT_CLE` ; copie chiffrée locale `reglages.chiffres` si Postgres est arrêté | le panneau | le panneau |
+| `app-manager/codelab.db` (SQLite) | **les données du panneau** : applications, comptes, droits, clés d'accès, journal, messages ; les réglages sensibles (SMTP, alertes, e-mails des comptes, invitations) y sont **chiffrés** avec `APP_MANAGER_CHIFFREMENT_CLE`. Copie d'historique dans Postgres | le panneau | le panneau, le diagnostic (lecture seule) |
 | `ssh/authorized_keys.d/` | une clé publique par machine autorisée | toi | `codelab-dev` |
 
 Les identifiants par défaut (panneau, Postgres, Redis) sont tous dans `credentials.env`.
 **Sauvegarde `APP_MANAGER_CHIFFREMENT_CLE`** : sans elle, les réglages chiffrés sont illisibles
-(le panneau ne la régénère jamais si elle existe). Les apps, l'exposition et les catégories
-restent dans des fichiers, pour que le panneau démarre et se répare même sans Postgres.
+(le panneau ne la régénère jamais si elle existe). La base du panneau est locale (SQLite), pour
+qu'il démarre et se répare même sans Postgres — voir
+[`app-manager/README.md`](app-manager/README.md#donnees--la-base-codelabdb).
 
 On n'édite `credentials.env` qu'en y **ajoutant** un bloc à soi : chaque bloc d'un service est
 réécrit à son démarrage. Détails : [`workspace/README.md`](workspace/README.md#credentialsenv).
@@ -198,7 +199,7 @@ Ce qui sert à **faire tourner** un projet. Détails :
 |---|---|
 | variables passées par le panneau | les blocs `codelab-postgres`, `codelab-redis` et `codelab-mailpit` de `credentials.env`, `PORT`, l'identité SSO (clé publique, émetteur, audience) — jamais le mot de passe du panneau, sa clé privée SSO ni la configuration d'envoi des alertes |
 | `/workspace/<projet>/.env` | ce qui ne concerne que ce projet ; **l'emporte toujours** |
-| réglages de l'app dans le panneau | commande de lancement, build, visibilité, adresse — stockés dans `app-manager/apps.json` |
+| réglages de l'app dans le panneau | commande de lancement, build, visibilité, adresse — stockés dans la base du panneau (`codelab.db`, table `applications`) |
 
 **Un service externe** (paiement, API tierce…) s'appelle depuis l'application elle-même, avec
 **une clé à elle** posée dans son `.env` — jamais commité. Une clé par application chez le
@@ -233,6 +234,12 @@ aussi inscrit tout seul dans le panneau, en visibilité privée — une stack fr
 vérifiable sans aucune saisie.
 
 ## Pour aller plus loin
+
+**[`docs/SPECIFICATION.md`](docs/SPECIFICATION.md)** — CodeLab en une page, l'architecture et les
+liens entre services, les comptes et la connexion, où vivent les données, et **les règles de
+sécurité** que le code doit respecter. C'est le document à partager pour décrire CodeLab ou
+rassurer quelqu'un à qui tu ouvres un accès.
+
 
 - **Développer un projet, le déployer, le dépanner** : [`dev/README.md`](dev/README.md).
 - **L'état de l'installation** : le projet `diagnostic`, inscrit tout seul dans le panneau. Il dit si
