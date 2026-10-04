@@ -2258,8 +2258,17 @@ def test_les_parametres_tiennent_en_un_seul_endroit(deux_espaces):
     assert '.fiche-onglets button[data-admin]{display:none}' in page
     assert "if(estAdmin) document.querySelectorAll('#param-onglets button[data-admin]')" in page
     for onglet in ("param-compte", "param-securite", "param-serveur",
-                   "param-categories", "param-alertes"):
+                   "param-categories", "param-email"):
         assert f'id="{onglet}"' in page
+    # Les alertes vivent avec le serveur d'envoi, dans un seul onglet.
+    assert 'id="param-alertes"' not in page
+
+
+def test_aucun_onglet_de_parametres_ne_reste_vide():
+    """Un onglet sans rien a regler pour ce compte ne s'affiche pas."""
+    page = _page_panneau("dashboard.html")
+    assert "function majOngletsParametres()" in page
+    assert page.count("majOngletsParametres();") >= 2
 
 
 def test_l_ancienne_adresse_de_l_espace_ramene_a_la_page_unique(deux_espaces):

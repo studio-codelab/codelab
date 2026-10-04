@@ -7898,6 +7898,12 @@ def api_vps_enregistrer():
 
     reglages = lire_exposition()
     reglages["vps"] = {"domaine": domaine, "ip": ip, "reseau": reseau}
+    # Le domaine du VPS EST l'adresse publique, dans ce montage : la faire
+    # ressaisir dans un autre champ etait une etape de plus pour rien. Une
+    # adresse deja declaree (ou fixee par le compose) n'est pas touchee.
+    if (domaine and not adresse_publique()
+            and not fixe_par_environnement("adresse_publique")):
+        reglages["adresse_publique"] = f"https://{domaine}"
     try:
         ecrire_exposition(reglages)
     except OSError as e:

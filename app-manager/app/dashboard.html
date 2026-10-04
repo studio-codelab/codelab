@@ -1661,8 +1661,7 @@ table.tbl-journal{min-width:560px}
     <button data-p="securite" onclick="paramOnglet('securite')">Sécurité</button>
     <button data-p="serveur" onclick="paramOnglet('serveur')" data-admin="1">Serveur</button>
     <button data-p="categories" onclick="paramOnglet('categories')" data-admin="1">Catégories</button>
-    <button data-p="email" onclick="paramOnglet('email')" data-admin="1">E-mail</button>
-    <button data-p="alertes" onclick="paramOnglet('alertes')" data-admin="1">Alertes</button>
+    <button data-p="email" onclick="paramOnglet('email')" data-admin="1">E-mail et alertes</button>
     <!-- Le mot a l'administrateur ferme la marche : on ne vient pas dans les
          parametres pour ecrire, on y vient pour regler. -->
     <button data-p="message" onclick="paramOnglet('message')">Message</button>
@@ -1741,7 +1740,7 @@ table.tbl-journal{min-width:560px}
     </div>
   </div>
 
-  <div class="zone">
+  <div class="zone" id="profil-mdp">
     <div class="zone-title">Mot de passe</div>
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
@@ -1892,59 +1891,36 @@ table.tbl-journal{min-width:560px}
 
   </div>
 
+  <!-- SERVEUR : UNE SEULE CARTE. Trois cartes (proxy et HTTPS, VPS, adresse
+       publique) decrivaient la meme chose -- rendre le panneau joignable
+       depuis internet -- et obligeaient a comprendre les trois pour en
+       regler une. On ne voit d'abord que l'adresse ; le VPS et les cases
+       techniques se deplient quand on en a besoin. -->
   <div class="onglet-p" id="param-serveur">
   <div class="zone">
-    <div class="zone-title">Serveur</div>
+    <div class="zone-title">Accès depuis internet</div>
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
-        <b>Derrière un proxy, en HTTPS</b>
-        <div class="path">Les deux réglages qui suivent le passage du panneau sur internet.</div>
-      </div></div>
-
-      <div class="hint">Une case ne s'active que si la situation la justifie — sinon elle reste
-        grisée et dit pourquoi. C'est délibéré : activer HTTPS depuis une page servie en clair
-        poserait un cookie « Secure » que ton navigateur cesserait d'envoyer, et te
-        déconnecterait <b>sans retour possible</b>. Les éteindre, en revanche, est toujours
-        permis.</div>
-
+        <b>Accès depuis internet</b>
+        <div class="path">L'adresse par laquelle ce serveur est joignable depuis internet.</div>
+      </div>
+      <span class="pill" id="pub-etat"><i></i>&nbsp;</span></div>
       <div class="field" style="margin-top:14px">
-        <label class="choix-ligne">
-          <input type="checkbox" id="expo-proxy" onchange="expoBascule('trust_proxy', this)">
-          <div class="proj-txt"><b>Proxy de confiance</b></div></label>
-        <div class="hint" id="expo-proxy-aide"></div>
+        <label>Adresse publique</label>
+        <input id="pub-adresse" placeholder="https://codelab.mondomaine.fr" autocomplete="off">
+        <div class="hint">Vide = serveur privé, joignable seulement depuis ton réseau.</div>
       </div>
+      <button class="btn btn-primary" id="pub-save" onclick="pubEnregistrer()">Enregistrer</button>
+      <div class="err" id="pub-err" style="display:none"></div>
+      <div class="hint" id="pub-fige" style="display:none">Cette adresse est fixée par
+        <code>APP_MANAGER_PUBLIC_URL</code> dans le compose : elle se modifie là-bas.</div>
 
-      <div class="field" style="margin-top:10px">
-        <label class="choix-ligne">
-          <input type="checkbox" id="expo-https" onchange="expoBascule('https', this)">
-          <div class="proj-txt"><b>Servi en HTTPS</b></div></label>
-        <div class="hint" id="expo-https-aide"></div>
-      </div>
-
-      <div class="field" style="margin-top:10px">
-        <label class="choix-ligne">
-          <input type="checkbox" id="expo-admin-lan"
-            onchange="expoBascule('admin_reseau_local', this)">
-          <div class="proj-txt"><b>Administration réservée au réseau local</b></div></label>
-        <div class="hint" id="expo-admin-lan-aide"></div>
-      </div>
-
-      <div class="err" id="expo-err" style="display:none"></div>
-    </div>
-
-    <div class="card settings-card">
-      <div class="card-top"><div class="card-name">
-        <b>Liaison avec un VPS</b>
-        <div class="path">Un VPS devant, un tunnel derrière, et rien d'ouvert sur ta box.</div>
-      </div>
-      <span class="pill" id="vps-etat"><i></i>&nbsp;</span></div>
-
-      <div class="hint">Le VPS porte le nom de domaine et le certificat ; cette machine ne publie
-        rien sur internet et reste joignable seulement par le tunnel. Saisis les deux valeurs
-        ci-dessous et le panneau produit les fichiers de configuration, prêts à copier.
-        <b>Il ne se connecte pas au VPS</b> : lui donner une clé SSH avec les droits qui vont avec
-        ferait de ce panneau la cible la plus intéressante de l'installation.</div>
-
+      <details class="repli"><summary>Passer par un VPS (sans rien ouvrir sur ta box)</summary>
+        <div class="hint" style="margin-top:8px">Le VPS porte le nom de domaine et le certificat ;
+          cette machine reste joignable seulement par un tunnel. Saisis le domaine et l'adresse du
+          VPS : le panneau produit les fichiers de configuration à copier, et s'en sert comme
+          adresse publique si tu n'en as pas déclaré. Il ne se connecte jamais au VPS.
+          <span class="pill" id="vps-etat"><i></i>&nbsp;</span></div>
       <div class="grid2" style="margin-top:14px">
         <div class="field"><label>Nom de domaine</label>
           <input id="vps-domaine" placeholder="codelab.tondomaine.fr" autocomplete="off"></div>
@@ -1969,35 +1945,38 @@ table.tbl-journal{min-width:560px}
 
       <div class="mb-titre" style="margin-top:18px">Fichiers à copier</div>
       <div id="vps-fichiers"></div>
-    </div>
+      </details>
 
-    <div class="card settings-card">
-      <div class="card-top"><div class="card-name">
-        <b>Adresse publique</b>
-        <div class="path">L'adresse par laquelle ce serveur est joignable depuis internet.</div>
-      </div>
-      <span class="pill" id="pub-etat"><i></i>&nbsp;</span></div>
-
-      <div class="hint">Tant qu'elle n'est pas déclarée, le panneau <b>ne propose pas de rendre une
-        application publique</b> : sur un serveur que personne d'autre ne peut joindre, « publique »
-        ne partagerait rien — cela retirerait seulement l'authentification. Une application déjà
-        publique n'est pas touchée, et peut toujours être refermée.</div>
-      <div class="hint" style="margin-top:8px">Elle se déclare à la main : le panneau ne peut pas
-        savoir si le port 443 de ta box est ouvert, si ton tunnel tourne, ni quel nom de domaine y
-        mène. La renseigner, c'est dire « j'ai fait le nécessaire ».</div>
-
+      <details class="repli"><summary>Réglages avancés (proxy, HTTPS, réseau local)</summary>
+        <div class="hint" style="margin-top:8px">Une case ne s'active que si la situation la
+          justifie, sinon elle reste grisée et dit pourquoi : activer HTTPS depuis une page servie
+          en clair te déconnecterait sans retour possible. Les éteindre est toujours permis.</div>
       <div class="field" style="margin-top:14px">
-        <label>Adresse</label>
-        <input id="pub-adresse" placeholder="https://codelab.mondomaine.fr" autocomplete="off">
-        <div class="hint">Vide = serveur privé, joignable seulement depuis ton réseau.</div>
+        <label class="choix-ligne">
+          <input type="checkbox" id="expo-proxy" onchange="expoBascule('trust_proxy', this)">
+          <div class="proj-txt"><b>Proxy de confiance</b></div></label>
+        <div class="hint" id="expo-proxy-aide"></div>
       </div>
-      <button class="btn btn-primary" id="pub-save" onclick="pubEnregistrer()">Enregistrer</button>
-      <div class="err" id="pub-err" style="display:none"></div>
-      <div class="hint" id="pub-fige" style="display:none">Cette adresse est fixée par
-        <code>APP_MANAGER_PUBLIC_URL</code> dans le compose : elle se modifie là-bas.</div>
+
+      <div class="field" style="margin-top:10px">
+        <label class="choix-ligne">
+          <input type="checkbox" id="expo-https" onchange="expoBascule('https', this)">
+          <div class="proj-txt"><b>Servi en HTTPS</b></div></label>
+        <div class="hint" id="expo-https-aide"></div>
+      </div>
+
+      <div class="field" style="margin-top:10px">
+        <label class="choix-ligne">
+          <input type="checkbox" id="expo-admin-lan"
+            onchange="expoBascule('admin_reseau_local', this)">
+          <div class="proj-txt"><b>Administration réservée au réseau local</b></div></label>
+        <div class="hint" id="expo-admin-lan-aide"></div>
+      </div>
+
+      <div class="err" id="expo-err" style="display:none"></div>
+      </details>
     </div>
   </div>
-
   </div>
 
   <div class="onglet-p" id="param-categories">
@@ -2038,24 +2017,23 @@ table.tbl-journal{min-width:560px}
        qu'un usage. Les melanger dans une seule carte faisait passer un
        serveur parfaitement configure pour incomplet tant qu'aucune alerte
        n'etait reglee. -->
+  <!-- E-MAIL ET ALERTES, UN SEUL ONGLET. Les alertes ne sont qu'un usage du
+       serveur d'envoi : les deux onglets se renvoyaient l'un a l'autre, et
+       l'on reglait l'adresse d'alerte dans « E-mail » pour l'activer dans
+       « Alertes ». -->
   <div class="onglet-p" id="param-email">
   <div class="zone">
-    <div class="zone-title">E-mail</div>
+    <div class="zone-title">Envoi des mails</div>
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
         <b>Serveur d'envoi (SMTP)</b>
-        <div class="path">Par où sortent les mails de CodeLab.</div>
+        <div class="path">Par où sortent les mails de CodeLab : alertes, invitations, codes.</div>
       </div>
       <span class="pill" id="sm-etat"><i></i>&nbsp;</span></div>
-
-      <div class="hint">En dépendent : les <b>alertes</b> quand une application tombe, les
-        <b>invitations</b>, et les <b>codes de connexion</b> et de vérification envoyés par
-        mail.</div>
-      <div class="hint" style="margin-top:8px">Tous ces mails passent par <b>Mailpit</b>, comme
-        ceux des applications : chacun s'y relit, et Mailpit les relaie par ce serveur.</div>
-      <div class="hint" style="margin-top:8px">Enregistrée <b>en base, chiffrée</b>, mot de passe
-        compris — comme les adresses d'alerte et celles des comptes.</div>
-
+      <div class="hint">Tous ces mails passent par <b>Mailpit</b>, comme ceux des applications :
+        chacun s'y relit, et Mailpit les relaie par ce serveur. Un compte Gmail avec un
+        <em>mot de passe d'application</em> suffit. À l'enregistrement, CodeLab s'y connecte
+        réellement : une configuration qui ne répond pas n'est pas enregistrée.</div>
       <div class="grid2" style="margin-top:14px">
         <div class="field"><label>Hôte SMTP</label>
           <input id="al-host" placeholder="smtp.gmail.com" autocomplete="off"></div>
@@ -2088,20 +2066,10 @@ table.tbl-journal{min-width:560px}
       </div>
       <div class="err" id="sm-err" style="display:none"></div>
       <div class="hint" id="sm-msg" style="display:none"></div>
-    </div>
-
-    <div class="card settings-card">
-      <div class="card-top"><div class="card-name">
-        <b>Configuration d'origine</b>
-        <div class="path">Celle de <code>credentials.env</code>. Elle ne bouge jamais.</div>
-      </div>
-      <span class="pill" id="sm-origine-etat"><i></i>&nbsp;</span></div>
-
-      <div class="hint">Posée à l'installation, elle sert de <b>repli</b> : si la configuration
-        ci-dessus cesse de fonctionner — mot de passe révoqué, quota atteint, serveur éteint —
-        les mails repartent automatiquement par celle-ci. Le panneau ne l'écrase jamais, c'est
-        pour cela qu'on peut lui faire confiance.</div>
-
+      <details class="repli"><summary>Configuration d'origine (repli)</summary>
+        <div class="hint">Celle de <code>credentials.env</code>, posée à l'installation. Si la
+          configuration ci-dessus cesse de fonctionner, les mails repartent par celle-ci.
+          <span class="pill" id="sm-origine-etat"><i></i>&nbsp;</span></div>
       <div class="kv" style="margin-top:12px"><span class="k">Serveur</span>
         <span class="v" id="sm-origine-host">&mdash;</span></div>
       <div class="kv"><span class="k">Expéditeur</span>
@@ -2109,35 +2077,10 @@ table.tbl-journal{min-width:560px}
       <div class="hint" style="margin-top:10px">Elle se modifie dans le bloc
         <code>codelab-alertes</code> de <code>credentials.env</code>, sur le serveur. Le capteur
         d'alerte de Dagster lit le même bloc.</div>
-    </div>
-
-    <div class="card settings-card">
-      <div class="card-top"><div class="card-name">
-        <b>Adresse d'alerte de l'administrateur</b>
-        <div class="path">Celle qui reçoit tout, quelle que soit l'application.</div>
-      </div></div>
-
-      <div class="hint">C'est le filet. Chaque application peut avoir ses propres destinataires
-        (dans sa fiche, onglet <b>Configuration</b>), mais cette adresse-ci les reçoit
-        <b>toutes</b> — y compris celles des applications dont la liste est restée vide. Sans
-        elle, une application oubliée tomberait en silence.</div>
-
-      <div class="field" style="margin-top:14px">
-        <label>Adresse</label>
-        <input id="al-admin" placeholder="moi@example.com" autocomplete="off">
-        <div class="hint">Plusieurs adresses possibles, séparées par des virgules.</div>
-      </div>
-      <div class="actions">
-        <button class="btn btn-primary" id="adm-save" onclick="alEnregistrer('adm')">Enregistrer</button>
-      </div>
-      <div class="err" id="adm-err" style="display:none"></div>
-      <div class="hint" id="adm-msg" style="display:none"></div>
+      </details>
     </div>
   </div>
 
-  </div>
-
-  <div class="onglet-p" id="param-alertes">
   <div class="zone">
     <div class="zone-title">Alertes</div>
     <div class="card settings-card">
@@ -2146,20 +2089,26 @@ table.tbl-journal{min-width:560px}
         <div class="path">Un mail quand une application tombe, un autre quand elle revient.</div>
       </div>
       <span class="pill" id="al-etat"><i></i>&nbsp;</span></div>
-
       <div class="hint">Le panneau redémarre tout seul une application qui plante. Il abandonne au
         bout de 5 tentatives en 10 minutes — c'est à ce moment-là que le mail part, pas au premier
         soubresaut. Un second mail signale le retour à la normale.</div>
 
-      <div class="hint" id="al-smtp-source" style="margin-top:12px"></div>
 
-      <div class="actions">
-        <button class="btn btn-default" id="al-toggle" onclick="alBasculer()">Activer</button>
-      </div>
       <div class="err" id="al-err" style="display:none"></div>
       <div class="hint" id="al-msg" style="display:none"></div>
+      <div class="hint" id="al-smtp-source" style="margin-top:8px"></div>
+      <div class="field" style="margin-top:14px">
+        <label>Qui reçoit les alertes</label>
+        <input id="al-admin" placeholder="moi@example.com" autocomplete="off">
+        <div class="hint">Plusieurs adresses possibles, séparées par des virgules. Elles reçoivent les alertes de <b>toutes</b> les applications ; chacune peut en ajouter d'autres dans sa fiche.</div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" id="adm-save" onclick="alEnregistrer('adm')">Enregistrer</button>
+        <button class="btn btn-default" id="al-toggle" onclick="alBasculer()">Activer</button>
+      </div>
+      <div class="err" id="adm-err" style="display:none"></div>
+      <div class="hint" id="adm-msg" style="display:none"></div>
     </div>
-
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
         <b>Si le serveur entier tombe</b>
@@ -2185,9 +2134,7 @@ table.tbl-journal{min-width:560px}
       <div class="err" id="sv-err" style="display:none"></div>
       <div class="hint" id="sv-msg" style="display:none"></div>
     </div>
-
   </div>
-
   </div>
 
   <div class="onglet-p" id="param-message">
@@ -2197,7 +2144,7 @@ table.tbl-journal{min-width:560px}
        reglages sont l'endroit ou l'on va quand on veut AGIR sur son compte,
        et un onglet se trouve par son nom -- ce qu'une carte au bas d'une
        liste de tuiles ne permet pas. -->
-  <div class="zone">
+  <div class="zone" id="profil-message">
     <div class="zone-title">Message</div>
     <div class="card settings-card" id="msg-carte">
       <div class="card-top"><div class="card-name">
@@ -2985,7 +2932,8 @@ function paramOnglet(o){
   if(!estAdmin && o!=='compte' && o!=='securite' && o!=='message') o='compte';
   /* Un onglet retire peut encore etre demande par un lien garde : on ouvre
      le compte plutot qu'une page vide. */
-  if(!$('param-'+o)) o='compte';
+  if(o==='alertes') o='email';        // ancien onglet, fusionne
+  if(!$('param-'+o) || $('param-onglets').querySelector('[data-p="'+o+'"]')?.style.display==='none') o='compte';
   paramOngletActif=o;
   document.querySelectorAll('#param-onglets button')
     .forEach(b=>b.classList.toggle('active', b.dataset.p===o));
@@ -5928,6 +5876,8 @@ async function vpsEnregistrer(){
       m.textContent='Enregistré. Les fichiers ci-dessous portent tes valeurs.';
       m.style.display='block';
       await chargerVps();
+      /* Le domaine a pu devenir l'adresse publique : on la relit. */
+      await chargerAdressePublique();
     }
   }catch(err){ e.textContent='Erreur réseau.'; e.style.display='block'; }
   finally{ b.disabled=false; }
@@ -6032,6 +5982,23 @@ $('qui-role').textContent = estAdmin ? 'Administrateur' : 'Utilisateur';
 /* Les onglets d'administration n'apparaissent que pour l'administrateur. */
 if(estAdmin) document.querySelectorAll('#param-onglets button[data-admin]')
   .forEach(b=>{ b.style.display='block'; });
+/* Rien a regler ici pour l'administrateur : son mot de passe est celui de
+   credentials.env, et le mot a l'administrateur lui serait adresse. */
+if(estAdmin){ $('profil-mdp').style.display='none'; $('profil-message').style.display='none'; }
+
+/* AUCUN ONGLET VIDE. Un onglet dont toutes les rubriques sont masquees pour
+   ce compte ne s'affiche pas : on n'ouvre pas une page pour n'y rien
+   trouver a regler. Relance quand une rubrique apparait ou disparait. */
+function majOngletsParametres(){
+  document.querySelectorAll('#param-onglets button').forEach(b=>{
+    const panneau=$('param-'+b.dataset.p);
+    const autorise = !b.hasAttribute('data-admin') || estAdmin;
+    const plein = !!panneau && [...panneau.querySelectorAll(':scope > .zone')]
+      .some(z=>z.style.display!=='none');
+    b.style.display = (autorise && plein) ? 'block' : 'none';
+  });
+}
+majOngletsParametres();
 
 const visible = id => $(id).style.display!=='none';
 
@@ -6089,6 +6056,7 @@ if(estAdmin){
   $('sidebar').style.display='none';
   $('btn-menu').style.display='none';
 }
+majOngletsParametres();
 /* Le hub est l'accueil de tout le monde. Laisse ouvert il reste juste : les
    etats changent tout seuls quand une application tombe ou repart. */
 showSection('hub');
