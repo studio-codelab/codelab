@@ -12093,12 +12093,12 @@ def test_dagster_garde_un_pilote_postgres_qu_il_sait_ouvrir():
     assert "sqlalchemy.create_engine('postgresql://" in dockerfile
 
 
-# ------------- invitations, codes par mail ou SMS, envoi par Mailpit -------------
+# ---------------- invitations, codes par mail, envoi par Mailpit ----------------
 #
 # Creer un compte, c'est donner une adresse : la personne recoit un lien et
 # choisit elle-meme son nom et son mot de passe. Le second facteur n'exige
-# plus d'application : un code part par mail (ou SMS). Et les mails du
-# panneau passent par Mailpit, comme ceux des applications.
+# plus d'application : un code part par mail. Et les mails du panneau
+# passent par Mailpit, comme ceux des applications.
 
 
 def _jeton_du_lien(partis):
@@ -12133,15 +12133,11 @@ def test_accepter_l_invitation_cree_le_compte_verifie_et_ouvre_la_session(invita
     jeton = _jeton_du_lien(partis)
     c.post("/logout")
     assert c.get("/api/invitation/" + jeton).get_json()["email"] == "paul@example.com"
-    r = c.post("/invitation/" + jeton, json={"nom": "paul", "mot_de_passe": "mot-de-passe-long",
-                                            "telephone": "06 12 34 56 78"})
+    r = c.post("/invitation/" + jeton, json={"nom": "paul", "mot_de_passe": "mot-de-passe-long"})
     assert r.status_code == 200, r.data
     compte = app.lire_utilisateurs()["paul"]
     assert compte["email"] == "paul@example.com" and compte["email_verifie"] is True
-    assert compte["telephone"] == "+33612345678"
     assert c.get("/api/mes-apps").status_code == 200
-    # Le numero vit au coffre, pas dans le fichier des comptes.
-    assert "+33612345678" not in open(app.UTILISATEURS_FILE).read()
     # Le lien ne sert qu'une fois.
     c.post("/logout")
     assert c.post("/invitation/" + jeton, json={"nom": "autre",
@@ -12196,52 +12192,6 @@ def test_le_code_de_connexion_ne_sert_qu_une_fois_et_exige_le_mot_de_passe(compt
     app._login_attempts.clear()
     assert c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long",
                                   "code": code}).status_code == 401
-
-
-def test_le_code_part_par_sms_quand_une_passerelle_est_reglee(comptes_mail, monkeypatch):
-    c, partis = comptes_mail
-    _compte_avec_adresse()
-    comptes = app.lire_utilisateurs()
-    comptes["marie"]["telephone"] = "+33612345678"
-    app.ecrire_utilisateurs(comptes)
-    app.ecrire_reglage("sms", {"url": "http://passerelle", "utilisateur": "u",
-                               "mot_de_passe": "p"})
-    sms = []
-    monkeypatch.setattr(app, "envoyer_sms", lambda numero, texte, cfg=None: sms.append((numero, texte)))
-    d = c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long"}).get_json()
-    assert d["moyen"] == "sms" and d["moyens"] == ["sms", "email"]
-    assert d["destination"].endswith("78") and "612345" not in d["destination"]
-    assert sms and sms[-1][0] == "+33612345678"
-    # La personne peut toujours basculer sur le mail.
-    d = c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long",
-                               "moyen": "email"}).get_json()
-    assert d["moyen"] == "email" and partis[-1][0] == ["marie@example.com"]
-
-
-def test_un_numero_s_ecrit_a_la_francaise_ou_a_l_internationale():
-    assert app.telephone_valide("06 12 34 56 78") == "+33612345678"
-    assert app.telephone_valide("+33 6.12.34.56.78") == "+33612345678"
-    assert app.telephone_valide("0033612345678") == "+33612345678"
-    assert app.telephone_valide("12") == ""
-    assert app.telephone_valide("abc") == ""
-
-
-def test_la_passerelle_sms_recoit_le_format_attendu(monkeypatch):
-    vus = []
-
-    class Reponse:
-        status = 202
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-
-    monkeypatch.setattr(app.urllib.request, "urlopen",
-                        lambda req, timeout=None: vus.append(req) or Reponse())
-    app.envoyer_sms("+33612345678", "bonjour",
-                    cfg={"url": "http://tel:8080/messages", "utilisateur": "u",
-                         "mot_de_passe": "p"})
-    corps = json.loads(vus[0].data)
-    assert corps == {"textMessage": {"text": "bonjour"}, "phoneNumbers": ["+33612345678"]}
-    assert vus[0].get_header("Authorization") == "Basic " + base64.b64encode(b"u:p").decode()
 
 
 def test_les_mails_du_panneau_passent_par_mailpit(monkeypatch):

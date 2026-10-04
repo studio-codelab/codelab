@@ -212,7 +212,7 @@ button.principal:disabled{opacity:.6;cursor:default}
   <div class="atout"><div class="ico">
     <svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"/>
     <path d="M8 10V7a4 4 0 118 0v3"/></svg></div>
-    <div><b>Accès sécurisé</b><span>Face ID, ou un code reçu par mail ou par SMS</span></div></div>
+    <div><b>Accès sécurisé</b><span>Face ID, ou un code reçu par mail</span></div></div>
 
   <div class="atout"><div class="ico">
     <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/>
@@ -261,13 +261,6 @@ button.principal:disabled{opacity:.6;cursor:default}
         <div class="field" style="margin-top:14px"><label>Mot de passe</label>
           <input type="password" id="inv-mdp" autocomplete="new-password"
                  placeholder="8 caractères au minimum"></div>
-        <div id="inv-tel-zone" style="display:none">
-          <div class="field" style="margin-top:14px"><label>Téléphone
-            <span class="opt">facultatif</span></label>
-            <input type="tel" id="inv-tel" autocomplete="tel" placeholder="06 12 34 56 78"></div>
-          <div class="etape-num">Pour recevoir ton code de connexion par SMS. Sans numéro,
-            il arrive par mail.</div>
-        </div>
       </div>
 
       <div id="connexion-champs">
@@ -289,8 +282,7 @@ button.principal:disabled{opacity:.6;cursor:default}
         <div class="field" style="margin-top:14px"><label id="code-label">Code de vérification</label>
           <input type="text" id="code" inputmode="numeric" autocomplete="one-time-code"
                  maxlength="6" placeholder="123456"></div>
-        <!-- Les autres moyens du compte : un SMS qui n'arrive pas ne doit
-             pas bloquer quelqu'un qui a aussi une adresse mail. -->
+        <!-- Les autres moyens du compte, et « Renvoyer le code ». -->
         <div class="bascule" id="code-moyens"></div>
       </div>
 
@@ -635,10 +627,10 @@ function copierSecret(){
 }
 
 /* ---------------- second facteur par code ---------------- */
-/* Le serveur dit quel code il attend (application, SMS ou mail) et quels
+/* Le serveur dit quel code il attend (application ou mail) et quels
    autres moyens ce compte possede. La page n'en devine rien. */
 let moyenCourant='';
-const LIBELLES_MOYEN={totp:"mon application d'authentification", sms:'un SMS', email:'un mail'};
+const LIBELLES_MOYEN={totp:"mon application d'authentification", email:'un mail'};
 function afficherCode(d){
   moyenCourant=d.moyen;
   $$('totp-bloc').style.display='block';
@@ -648,7 +640,7 @@ function afficherCode(d){
   $$('bascule').style.display='none';
   $$('pied').style.display='none';
   $$('code-label').textContent = d.moyen==='totp'
-    ? "Code de ton application d'authentification" : 'Code reçu ' + (d.moyen==='sms' ? 'par SMS' : 'par mail');
+    ? "Code de ton application d'authentification" : 'Code reçu par mail';
   const info=$$('code-info');
   info.textContent = d.moyen==='totp' ? '' : (d.error||'');
   info.style.display = info.textContent ? 'block' : 'none';
@@ -697,7 +689,6 @@ if(jetonInvitation){
         return;
       }
       $$('inv-mail').value=d.email;
-      if(d.sms) $$('inv-tel-zone').style.display='block';
       $$('inv-nom').focus();
     }catch(e){ err.textContent='Erreur réseau.'; err.style.display='block'; }
   })();
@@ -709,8 +700,7 @@ async function submit(){
     if(etape==='invitation'){
       const r=await fetch('/invitation/'+encodeURIComponent(jetonInvitation),{method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({nom:$$('inv-nom').value, mot_de_passe:$$('inv-mdp').value,
-                             telephone:$$('inv-tel').value})});
+        body:JSON.stringify({nom:$$('inv-nom').value, mot_de_passe:$$('inv-mdp').value})});
       const d=await r.json();
       /* Le compte est cree et la session ouverte : le panneau propose aussitot
          d'activer Face ID pour les prochaines fois. */
@@ -785,7 +775,7 @@ if(code) code.addEventListener('keydown', valider);
 codeInscription.addEventListener('keydown', valider);
 $$('c-mail').addEventListener('keydown', valider);
 $$('c-code').addEventListener('keydown', valider);
-['inv-nom','inv-mdp','inv-tel'].forEach(i=>$$(i).addEventListener('keydown', valider));
+['inv-nom','inv-mdp'].forEach(i=>$$(i).addEventListener('keydown', valider));
 majChamps();
 </script>
 </body></html>

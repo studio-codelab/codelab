@@ -1757,14 +1757,9 @@ def lire_utilisateurs():
     if not isinstance(d, dict):
         return {}
     emails = reglage("emails_comptes", {}) or {}
-    # Le numero de telephone (codes par SMS) suit la meme regle que
-    # l'adresse : au coffre, chiffre, jamais dans le fichier.
-    telephones = reglage("telephones_comptes", {}) or {}
     for nom, compte in d.items():
         if isinstance(compte, dict) and emails.get(nom):
             compte["email"] = emails[nom]
-        if isinstance(compte, dict) and telephones.get(nom):
-            compte["telephone"] = telephones[nom]
     return d
 
 
@@ -1775,12 +1770,7 @@ def ecrire_utilisateurs(comptes):
     emails = {nom: c["email"] for nom, c in comptes.items()
               if isinstance(c, dict) and c.get("email")}
     ecrire_reglage("emails_comptes", emails or None)
-    telephones = {nom: c["telephone"] for nom, c in comptes.items()
-                  if isinstance(c, dict) and c.get("telephone")}
-    if telephones or reglage("telephones_comptes"):
-        ecrire_reglage("telephones_comptes", telephones or None)
-    sans_email = {nom: ({k: v for k, v in c.items()
-                         if k not in ("email", "telephone")}
+    sans_email = {nom: ({k: v for k, v in c.items() if k != "email"}
                         if isinstance(c, dict) else c)
                   for nom, c in comptes.items()}
     tmp = UTILISATEURS_FILE + ".tmp"
@@ -1957,42 +1947,27 @@ def envoyer_code_reinit(adresse, nom, code):
 # LE SECOND FACTEUR SANS APPLICATION A INSTALLER. Scanner un QR code avec une
 # application d'authentification, c'etait l'etape ou l'on perdait les gens :
 # il faut l'application, comprendre ce qu'elle fait, et la retrouver le jour
-# ou l'on change de telephone. Un code a six chiffres recu par mail ou par
-# SMS, au moment de se connecter, ne demande rien de tout cela.
+# ou l'on change de telephone. Un code a six chiffres recu par mail, au
+# moment de se connecter, ne demande rien de tout cela -- et Face ID (une cle
+# d'acces) dispense meme du code.
 #
 # Il reste un VRAI second facteur : le mot de passe est verifie d'abord, et
-# le code ne part que vers une adresse verifiee ou le numero du compte --
-# jamais vers une destination fournie par la requete.
+# le code ne part que vers l'adresse verifiee du compte -- jamais vers une
+# destination fournie par la requete.
 #
 # Ordre de preference : l'application d'authentification si la personne en a
-# enregistre une (elle l'a choisie, et elle marche hors ligne), puis le SMS,
-# puis le mail. La personne peut toujours basculer d'un moyen a l'autre.
+# enregistre une (elle l'a choisie, et elle marche hors ligne), puis le mail.
+# La personne peut toujours basculer de l'un a l'autre.
 CODE_CONNEXION_VALIDITE = 600   # 10 minutes
 CODE_CONNEXION_ESSAIS = 5
-MOYEN_TOTP, MOYEN_SMS, MOYEN_EMAIL = "totp", "sms", "email"
-
-
-def telephone_valide(brut):
-    """Un numero au format international (+33612345678), ou "".
-
-    Un numero francais saisi a la francaise (06 12 34 56 78) est converti :
-    c'est ainsi que tout le monde ecrit le sien.
-    """
-    numero = re.sub(r"[\s.\-()]", "", str(brut or ""))[:20]
-    if numero.startswith("00"):
-        numero = "+" + numero[2:]
-    if re.fullmatch(r"0[1-9]\d{8}", numero):
-        numero = "+33" + numero[1:]
-    return numero if re.fullmatch(r"\+[1-9]\d{7,14}", numero) else ""
+MOYEN_TOTP, MOYEN_EMAIL = "totp", "email"
 
 
 def masquer_destination(moyen, valeur):
     """Ce qu'on peut afficher de la destination sans la reveler : la page de
     connexion est publique, et le mot de passe seul ne doit pas suffire a
-    lire l'adresse ou le numero de quelqu'un."""
+    lire l'adresse de quelqu'un."""
     valeur = str(valeur or "")
-    if moyen == MOYEN_SMS:
-        return "•" * max(len(valeur) - 2, 0) + valeur[-2:]
     if moyen == MOYEN_EMAIL and "@" in valeur:
         local, domaine = valeur.split("@", 1)
         return local[:1] + "•••@" + domaine
@@ -2004,8 +1979,6 @@ def moyens_second_facteur(compte):
     moyens = []
     if compte.get("totp"):
         moyens.append(MOYEN_TOTP)
-    if compte.get("telephone") and sms_configure():
-        moyens.append(MOYEN_SMS)
     if compte.get("email") and compte.get("email_verifie") and smtp_utilisable()[1]:
         moyens.append(MOYEN_EMAIL)
     return moyens
@@ -2039,13 +2012,8 @@ def verifier_code_connexion(compte, code):
 
 
 def envoyer_code_connexion(compte, nom, moyen, code):
-    """Envoie le code par le moyen choisi, ou leve."""
+    """Envoie le code par mail, ou leve."""
     validite = CODE_CONNEXION_VALIDITE // 60
-    if moyen == MOYEN_SMS:
-        envoyer_sms(compte["telephone"],
-                    f"CodeLab : {code} est ton code de connexion "
-                    f"(valable {validite} min). Ne le communique à personne.")
-        return
     cfg, _ = smtp_utilisable()
     envoyer_mail(cfg, "[CodeLab] ton code de connexion",
                  f"Code de connexion pour le compte « {nom} » : {code}\n\n"
@@ -2055,54 +2023,6 @@ def envoyer_code_connexion(compte, nom, moyen, code):
                  "administrateur.\n\n"
                  "-- CodeLab, panneau de gestion des applications",
                  destinataires=[compte["email"]])
-
-
-# ------------------------------- SMS -------------------------------
-#
-# PAR SON PROPRE TELEPHONE ANDROID, avec l'application libre « SMS Gateway
-# for Android » (sms-gate.app). C'est la seule voie a la fois gratuite et
-# sans limite : les services d'envoi en ligne facturent chaque SMS, et leurs
-# offres gratuites s'arretent a quelques messages d'essai. Ici, les SMS
-# partent du forfait du telephone -- illimite chez la plupart des
-# operateurs.
-#
-# Deux facons de la joindre, meme API :
-#   - en local : http://<ip-du-telephone>:8080/messages, si le telephone est
-#     sur le meme reseau que le serveur ;
-#   - par son relais en ligne : https://api.sms-gate.app/3rdparty/v1/messages,
-#     quand le telephone n'est pas joignable directement.
-# L'identifiant et le mot de passe sont ceux qu'affiche l'application.
-#
-# Rangee au coffre, chiffree, comme le serveur d'envoi des mails.
-SMS_URL_DEFAUT = "https://api.sms-gate.app/3rdparty/v1/messages"
-SMS_DELAI = 15
-
-
-def sms_config():
-    cfg = reglage("sms", {}) or {}
-    return {"url": str(cfg.get("url") or "").strip(),
-            "utilisateur": str(cfg.get("utilisateur") or "").strip(),
-            "mot_de_passe": str(cfg.get("mot_de_passe") or "")}
-
-
-def sms_configure():
-    cfg = sms_config()
-    return bool(cfg["url"] and cfg["utilisateur"] and cfg["mot_de_passe"])
-
-
-def envoyer_sms(numero, texte, cfg=None):
-    """Envoie un SMS par la passerelle, ou leve."""
-    cfg = cfg or sms_config()
-    if not (cfg["url"] and cfg["utilisateur"] and cfg["mot_de_passe"]):
-        raise RuntimeError("Aucune passerelle SMS configurée.")
-    corps = json.dumps({"textMessage": {"text": texte},
-                        "phoneNumbers": [numero]}).encode()
-    auth = base64.b64encode(f"{cfg['utilisateur']}:{cfg['mot_de_passe']}".encode()).decode()
-    req = urllib.request.Request(cfg["url"], data=corps, method="POST", headers={
-        "Content-Type": "application/json", "Authorization": f"Basic {auth}"})
-    with urllib.request.urlopen(req, timeout=SMS_DELAI) as r:
-        if r.status >= 300:
-            raise RuntimeError(f"La passerelle a répondu {r.status}.")
 
 
 # ------------------------------ invitations ------------------------------
@@ -6504,12 +6424,12 @@ def login_submit():
 
     if moyens:
         # Pas encore de code : on dit lequel attendre, et on l'envoie s'il
-        # doit partir par mail ou SMS. Le moyen demande n'est retenu que
+        # doit partir par mail. Le moyen demande n'est retenu que
         # s'il est dans la liste du compte -- la destination, elle, ne vient
         # jamais de la requete.
         moyen = d.get("moyen") if d.get("moyen") in moyens else moyens[0]
         # Compte comme une tentative : sans cela, ce formulaire enverrait
-        # des SMS en boucle a qui connait un mot de passe.
+        # des mails en boucle a qui connait un mot de passe.
         register_failed_attempt()
         reponse = {"totp": True, "moyen": moyen, "moyens": moyens}
         if moyen == MOYEN_TOTP:
@@ -6518,8 +6438,7 @@ def login_submit():
         comptes = lire_utilisateurs()
         cible = comptes[nom]
         en_cours = cible.get("code_connexion") or {}
-        reponse["destination"] = masquer_destination(
-            moyen, cible.get("telephone" if moyen == MOYEN_SMS else "email"))
+        reponse["destination"] = masquer_destination(moyen, cible.get("email"))
         recent = (en_cours.get("moyen") == moyen
                   and int(time.time()) - int(en_cours.get("envoye") or 0) < CODE_EMAIL_DELAI)
         if not recent:
@@ -6530,13 +6449,10 @@ def login_submit():
             except Exception as e:                                # noqa: BLE001
                 journaliser("echec", qui=nom, motif=f"envoi du code ({moyen})",
                             detail=f"{type(e).__name__}", ip=_adresse_client())
-                reponse["error"] = ("Le code n'a pas pu partir"
-                                    + (" par SMS" if moyen == MOYEN_SMS else " par mail")
-                                    + ". Essaie un autre moyen.")
+                reponse["error"] = "Le code n'a pas pu partir par mail."
                 reponse["envoi_impossible"] = True
                 return jsonify(reponse), 401
-        reponse["error"] = ("Un code vient de t'être envoyé "
-                            + ("par SMS au " if moyen == MOYEN_SMS else "par mail à ")
+        reponse["error"] = ("Un code vient de t'être envoyé par mail à "
                             + reponse["destination"] + ".")
         reponse["envoye"] = True
         return jsonify(reponse), 401
@@ -7013,8 +6929,6 @@ def api_mon_compte():
         "role": role_courant(),
         "email": (compte or {}).get("email") or "",
         "email_verifie": bool((compte or {}).get("email_verifie")),
-        "telephone": (compte or {}).get("telephone") or "",
-        "sms": sms_configure(),
         "passkeys": len(passkeys_du_compte(utilisateur_courant())),
         # Sans serveur d'envoi, la page n'affiche pas un bouton qui echouera.
         "smtp": smtp_ok,
@@ -7403,8 +7317,7 @@ def api_invitation_etat(jeton):
     if not inv:
         register_failed_attempt()
         return jsonify({"valide": False}), 404
-    return jsonify({"valide": True, "email": inv["email"],
-                    "sms": sms_configure()})
+    return jsonify({"valide": True, "email": inv["email"]})
 
 
 @flask_app.post("/invitation/<jeton>")
@@ -7426,7 +7339,6 @@ def invitation_accepter(jeton):
     d = request.get_json(force=True, silent=True) or {}
     nom = nom_utilisateur_valide(d.get("nom"))
     mdp = (d.get("mot_de_passe") or "").strip()
-    telephone = telephone_valide(d.get("telephone")) if d.get("telephone") else ""
     if not nom:
         return jsonify({"error": "Nom invalide : 2 à 32 caractères, "
                                  "minuscules, chiffres, tiret ou souligné."}), 400
@@ -7434,8 +7346,6 @@ def invitation_accepter(jeton):
         return jsonify({"error": "Ce nom est réservé."}), 400
     if len(mdp) < 8:
         return jsonify({"error": "Mot de passe : 8 caractères au minimum."}), 400
-    if d.get("telephone") and not telephone:
-        return jsonify({"error": "Numéro de téléphone invalide."}), 400
 
     comptes = lire_utilisateurs()
     if nom in comptes:
@@ -7451,8 +7361,6 @@ def invitation_accepter(jeton):
         "email_verifie": True,
         "cree": int(time.time()),
     }
-    if telephone:
-        comptes[nom]["telephone"] = telephone
     invitations = lire_invitations()
     invitations.pop(empreinte, None)
     try:
@@ -7464,81 +7372,6 @@ def invitation_accepter(jeton):
         return jsonify({"error": f"Compte non enregistré : {e}"}), 500
     journaliser("compte", qui=nom, action="invitation acceptée", ip=_adresse_client())
     return _ouvrir_session_utilisateur(nom)
-
-
-# ------------------------------- SMS -------------------------------
-
-@flask_app.get("/api/sms")
-@require_admin
-def api_sms():
-    cfg = sms_config()
-    return jsonify({"url": cfg["url"], "utilisateur": cfg["utilisateur"],
-                    "mot_de_passe_defini": bool(cfg["mot_de_passe"]),
-                    "configure": sms_configure(), "url_defaut": SMS_URL_DEFAUT})
-
-
-@flask_app.put("/api/sms")
-@require_admin
-def api_sms_enregistrer():
-    """Enregistre la passerelle. Champ adresse vide = SMS desactives."""
-    d = request.get_json(force=True, silent=True) or {}
-    url = str(d.get("url") or "").strip()
-    if not url:
-        try:
-            ecrire_reglage("sms", None)
-        except (OSError, RuntimeError) as e:
-            return jsonify({"error": f"Non enregistré : {e}"}), 500
-        return jsonify({"ok": True, "configure": False})
-    if not re.fullmatch(r"https?://[^\s/]+(/\S*)?", url):
-        return jsonify({"error": "Adresse de la passerelle invalide."}), 400
-    ancienne = sms_config()
-    cfg = {"url": url, "utilisateur": str(d.get("utilisateur") or "").strip(),
-           # Vide = inchange, comme pour le serveur d'envoi des mails.
-           "mot_de_passe": str(d.get("mot_de_passe") or "") or ancienne["mot_de_passe"]}
-    if not (cfg["utilisateur"] and cfg["mot_de_passe"]):
-        return jsonify({"error": "Identifiant et mot de passe de la passerelle requis."}), 400
-    try:
-        ecrire_reglage("sms", cfg)
-    except (OSError, RuntimeError) as e:
-        return jsonify({"error": f"Non enregistré : {e}"}), 500
-    return jsonify({"ok": True, "configure": True})
-
-
-@flask_app.post("/api/sms/test")
-@require_admin
-def api_sms_test():
-    numero = telephone_valide((request.get_json(force=True, silent=True) or {}).get("numero"))
-    if not numero:
-        return jsonify({"error": "Numéro de téléphone invalide."}), 400
-    try:
-        envoyer_sms(numero, "CodeLab : la passerelle SMS fonctionne.")
-    except Exception as e:                                        # noqa: BLE001
-        return jsonify({"error": f"SMS non envoyé : {type(e).__name__}: {e}"}), 502
-    return jsonify({"ok": True})
-
-
-@flask_app.post("/api/mon-compte/telephone")
-@require_auth
-def api_mon_telephone():
-    """Pose ou retire son numero (vide = retire)."""
-    compte = _mon_compte()
-    if compte is None:
-        return jsonify({"error": "Le compte d'administration n'a pas de numéro."}), 400
-    brut = (request.get_json(force=True, silent=True) or {}).get("telephone")
-    numero = telephone_valide(brut) if brut else ""
-    if brut and not numero:
-        return jsonify({"error": "Numéro de téléphone invalide. Exemple : 06 12 34 56 78."}), 400
-    comptes = lire_utilisateurs()
-    nom = utilisateur_courant()
-    if numero:
-        comptes[nom]["telephone"] = numero
-    else:
-        comptes[nom].pop("telephone", None)
-    try:
-        ecrire_utilisateurs(comptes)
-    except (OSError, RuntimeError) as e:
-        return jsonify({"error": f"Numéro non enregistré : {e}"}), 500
-    return jsonify({"ok": True, "telephone": numero})
 
 
 @flask_app.get("/qr/totp.svg")
@@ -8244,7 +8077,6 @@ def api_utilisateurs():
          "passkeys": len(lire_passkeys().get(nom, [])),
          "email": c.get("email") or "",
          "email_verifie": bool(c.get("email_verifie")),
-         "telephone": c.get("telephone") or "",
          # Un compte cree librement qui n'a pas encore confirme son adresse
          # n'ouvre aucune session : le dire evite de chercher pourquoi.
          "attente_email": bool(c.get("attente_email")),
@@ -8352,15 +8184,6 @@ def api_utilisateur_modifier(nom):
             # de son statut.
             compte["email_verifie"] = False
             compte.pop("email_code", None)
-
-    if "telephone" in d:
-        numero = telephone_valide(d.get("telephone")) if d.get("telephone") else ""
-        if d.get("telephone") and not numero:
-            return jsonify({"error": "Numéro de téléphone invalide."}), 400
-        if numero:
-            compte["telephone"] = numero
-        else:
-            compte.pop("telephone", None)
 
     if d.get("reinitialiser_totp"):
         compte.pop("totp", None)

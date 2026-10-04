@@ -1741,28 +1741,6 @@ table.tbl-journal{min-width:560px}
     </div>
   </div>
 
-  <!-- Le numero ne sert qu'a recevoir le code de connexion par SMS. Masque
-       pour l'administrateur, comme l'adresse. -->
-  <div class="zone" id="profil-tel" style="display:none">
-    <div class="zone-title">Téléphone</div>
-    <div class="card settings-card">
-      <div class="card-top"><div class="card-name">
-        <b>Code de connexion par SMS</b>
-        <div class="path">Le numéro qui reçoit ton code quand tu te connectes.</div>
-      </div>
-      <span class="pill" id="tel-etat"><i></i>&nbsp;</span></div>
-      <div class="hint" id="tel-sans-sms" style="display:none">Aucune passerelle SMS n'est réglée
-        sur ce serveur : ton code arrive par mail. Le numéro servira dès qu'elle le sera.</div>
-      <div class="field" style="margin-top:14px"><label>Numéro</label>
-        <input id="tel-numero" type="tel" placeholder="06 12 34 56 78" autocomplete="tel"></div>
-      <div class="actions">
-        <button class="btn btn-primary" onclick="telEnregistrer()">Enregistrer</button>
-      </div>
-      <div class="err" id="tel-err" style="display:none"></div>
-      <div class="hint" id="tel-msg" style="display:none"></div>
-    </div>
-  </div>
-
   <div class="zone">
     <div class="zone-title">Mot de passe</div>
     <div class="card settings-card">
@@ -2109,40 +2087,6 @@ table.tbl-journal{min-width:560px}
       </div>
       <div class="err" id="sm-err" style="display:none"></div>
       <div class="hint" id="sm-msg" style="display:none"></div>
-    </div>
-
-    <div class="card settings-card">
-      <div class="card-top"><div class="card-name">
-        <b>SMS (facultatif)</b>
-        <div class="path">Envoyer les codes de connexion par SMS, gratuitement.</div>
-      </div>
-      <span class="pill" id="sms-etat"><i></i>&nbsp;</span></div>
-
-      <div class="hint">Les SMS partent <b>de ton propre téléphone Android</b>, avec l'application
-        libre <b>SMS Gateway for Android</b> (sms-gate.app) : aucun abonnement, les messages sont
-        ceux de ton forfait. Installe-la, puis recopie ici l'adresse, l'identifiant et le mot de
-        passe qu'elle affiche. Les services d'envoi en ligne, eux, facturent chaque SMS.</div>
-      <div class="hint" style="margin-top:8px">Adresse : <code>http://&lt;ip-du-téléphone&gt;:8080/messages</code>
-        si le téléphone est sur le même réseau que le serveur, sinon celle du relais en ligne
-        (proposée par défaut). Sans passerelle, les codes partent par mail.</div>
-
-      <div class="field" style="margin-top:14px"><label>Adresse de la passerelle</label>
-        <input id="sms-url" placeholder="https://api.sms-gate.app/3rdparty/v1/messages" autocomplete="off"></div>
-      <div class="grid2">
-        <div class="field"><label>Identifiant</label>
-          <input id="sms-user" autocomplete="off"></div>
-        <div class="field"><label>Mot de passe</label>
-          <input id="sms-pass" type="password" autocomplete="new-password" placeholder="inchangé"></div>
-      </div>
-      <div class="actions">
-        <button class="btn btn-primary" onclick="smsEnregistrer()">Enregistrer</button>
-        <button class="btn btn-default" onclick="smsDesactiver()">Désactiver</button>
-      </div>
-      <div class="field" style="margin-top:14px"><label>Essayer avec un numéro</label>
-        <input id="sms-test-num" type="tel" placeholder="06 12 34 56 78" autocomplete="off"></div>
-      <button class="btn btn-default" onclick="smsTester()">Envoyer un SMS d'essai</button>
-      <div class="err" id="sms-err" style="display:none"></div>
-      <div class="hint" id="sms-msg" style="display:none"></div>
     </div>
 
     <div class="card settings-card">
@@ -2494,10 +2438,6 @@ table.tbl-journal{min-width:560px}
         </div>
       </div>
       <div class="hint" id="us-f-mail-etat"></div>
-      <div class="field" style="margin-top:12px"><label>Téléphone <span class="opt">facultatif</span></label>
-        <input id="us-f-tel" type="tel" placeholder="06 12 34 56 78" autocomplete="off">
-        <div class="hint">Pour recevoir le code de connexion par SMS, si une passerelle est réglée.</div>
-      </div>
       <details class="repli"><summary>Ce qui ne se change pas</summary>
         <div class="hint">8 caractères au minimum pour le mot de passe. La personne n'est pas
           déconnectée : sa session en cours reste valable jusqu'à ce qu'elle la ferme.</div>
@@ -3073,7 +3013,6 @@ function paramOnglet(o){
   /* Les deux onglets lisent la meme reponse : le serveur d'envoi et les
      alertes vivent au meme endroit, le coffre chiffre du panneau. */
   if(o==='email' || o==='alertes') chargerAlertes();
-  if(o==='email') chargerSms();
 }
 
 /* ---------------- etats ---------------- */
@@ -5139,7 +5078,6 @@ function usPeindreFiche(){
     : 'Compte utilisateur.';
   $('us-f-err').style.display='none';
   $('us-f-mail').value=c.email||'';
-  $('us-f-tel').value=c.telephone||'';
   $('us-f-mdp').value='';
   $('us-f-mail-etat').textContent = !c.email
     ? "Aucune adresse. La personne peut en déclarer une elle-même depuis ses paramètres."
@@ -5169,7 +5107,6 @@ function usPeindreFiche(){
   const morceaux=[];
   const codes=[];
   if(c.totp) codes.push("son application d'authentification");
-  if(c.telephone) codes.push('SMS');
   if(c.email && c.email_verifie) codes.push('mail');
   morceaux.push(codes.length
     ? 'Code de connexion par ' + codes.join(', ') + '.'
@@ -5212,7 +5149,7 @@ async function usEnregistrer(){
   const mdp=$('us-f-mdp').value;
   if(mdp && mdp.length<8) return usFicheErreur('Mot de passe : 8 caractères au minimum.');
   const projets=[...document.querySelectorAll('#us-f-projets input:checked')].map(i=>i.value);
-  const corps={email:$('us-f-mail').value.trim(), telephone:$('us-f-tel').value.trim(), projets};
+  const corps={email:$('us-f-mail').value.trim(), projets};
   if(mdp) corps.mot_de_passe=mdp;
   $('us-f-save').disabled=true;
   try{
@@ -5318,65 +5255,6 @@ function copierLien(lien){
     .catch(()=>notifier('Copie impossible : sélectionne le lien à la main.', 'err'));
 }
 
-/* ---------------- telephone (codes par SMS) ---------------- */
-function telMessage(texte, erreur){
-  $('tel-err').style.display = erreur ? 'block' : 'none';
-  $('tel-msg').style.display = (!erreur && texte) ? 'block' : 'none';
-  (erreur ? $('tel-err') : $('tel-msg')).textContent = texte;
-}
-async function telEnregistrer(){
-  telMessage('', false);
-  const r=await fetch('/api/mon-compte/telephone',{method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({telephone:$('tel-numero').value.trim()})});
-  const d=await r.json();
-  if(!r.ok){ telMessage(d.error||'Enregistrement impossible.', true); return; }
-  await chargerMonCompte();
-  telMessage(d.telephone ? 'Numéro enregistré.' : 'Numéro retiré.', false);
-}
-
-/* ---------------- passerelle SMS ---------------- */
-function smsMessage(texte, erreur){
-  $('sms-err').style.display = erreur ? 'block' : 'none';
-  $('sms-msg').style.display = (!erreur && texte) ? 'block' : 'none';
-  (erreur ? $('sms-err') : $('sms-msg')).textContent = texte;
-}
-async function chargerSms(){
-  let d;
-  try{ d=await (await fetch('/api/sms')).json(); }catch(e){ return; }
-  $('sms-url').value = d.url || '';
-  $('sms-url').placeholder = d.url_defaut || '';
-  $('sms-user').value = d.utilisateur || '';
-  $('sms-pass').value = '';
-  $('sms-pass').placeholder = d.mot_de_passe_defini ? 'inchangé' : 'aucun';
-  const p=$('sms-etat');
-  p.className='pill ' + (d.configure ? 'on' : 'off');
-  p.innerHTML='<i></i>' + (d.configure ? 'Activés' : 'Désactivés');
-}
-async function smsEnregistrer(){
-  smsMessage('', false);
-  const corps={url:$('sms-url').value.trim() || $('sms-url').placeholder,
-               utilisateur:$('sms-user').value.trim(), mot_de_passe:$('sms-pass').value};
-  const r=await fetch('/api/sms',{method:'PUT',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(corps)});
-  const d=await r.json();
-  if(!r.ok){ smsMessage(d.error||'Enregistrement impossible.', true); return; }
-  await chargerSms();
-  smsMessage('Passerelle enregistrée. Essaie-la avec ton numéro ci-dessous.', false);
-}
-async function smsDesactiver(){
-  const r=await fetch('/api/sms',{method:'PUT',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({url:''})});
-  if(r.ok){ await chargerSms(); smsMessage('SMS désactivés : les codes partent par mail.', false); }
-}
-async function smsTester(){
-  smsMessage('', false);
-  const r=await fetch('/api/sms/test',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({numero:$('sms-test-num').value.trim()})});
-  const d=await r.json();
-  smsMessage(r.ok ? 'SMS envoyé : vérifie le téléphone.' : (d.error||'Envoi impossible.'), !r.ok);
-}
-
 /* ---------------- proposer Face ID ---------------- */
 /* Juste apres l'arrivee (invitation acceptee, ou connexion par mot de passe),
    si l'appareil sait verifier la personne et qu'aucune cle n'existe encore.
@@ -5448,15 +5326,8 @@ async function chargerMonCompte(){
   try{ monCompte=await (await fetch('/api/mon-compte')).json(); }catch(e){ return; }
   /* Le compte d'administration n'a pas d'adresse propre : son mot de passe
      vit dans credentials.env, et les alertes ont deja leur destinataire. */
-  if(monCompte.role==='admin'){ $('profil-mail').style.display='none';
-                                $('profil-tel').style.display='none'; return; }
+  if(monCompte.role==='admin'){ $('profil-mail').style.display='none'; return; }
   $('profil-mail').style.display='';
-  $('profil-tel').style.display='';
-  $('tel-numero').value = monCompte.telephone || '';
-  $('tel-sans-sms').style.display = monCompte.sms ? 'none' : 'block';
-  const t=$('tel-etat');
-  t.className = 'pill ' + (monCompte.telephone && monCompte.sms ? 'on' : 'off');
-  t.innerHTML = '<i></i>' + (monCompte.telephone ? (monCompte.sms ? 'Actif' : 'En attente') : 'Aucun numéro');
   $('mail-adresse').value = monCompte.email || '';
   const p=$('mail-etat');
   p.className = 'pill ' + (monCompte.email_verifie ? 'on' : 'off');
