@@ -9,10 +9,10 @@ FROM nginx:1.31-alpine
 COPY dagster/proxy/map-upgrade.conf /etc/nginx/conf.d/00-map-upgrade.conf
 COPY dagster/proxy/nginx.conf /etc/nginx/conf.d/default.conf
 COPY dagster/proxy/mailpit.conf /etc/nginx/conf.d/mailpit.conf
-# L'habillage CodeLab de Mailpit : feuille de style, logo, et la police du
-# Style 2 du panneau (Plus Jakarta Sans, licence OFL jointe), recopiee ici
+# L'interface Mailpit de CodeLab (page, script, style, logos) et la police
+# du Style 2 du panneau (Plus Jakarta Sans, licence OFL jointe), recopiee ici
 # pour etre servie de la meme origine.
-COPY dagster/proxy/mailpit-theme/ /usr/share/nginx/codelab/mailpit/
+COPY dagster/proxy/mailpit-ui/ /usr/share/nginx/codelab/mailpit/
 COPY app-manager/app/polices/jakarta-latin.woff2 /usr/share/nginx/codelab/mailpit/jakarta.woff2
 COPY app-manager/app/polices/LICENCE-jakarta.txt /usr/share/nginx/codelab/mailpit/LICENCE-jakarta.txt
 # L'en-tete d'authentification vers Mailpit est ecrit au demarrage par

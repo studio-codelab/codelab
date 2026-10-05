@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<title>Mailpit · CodeLab</title>
+<!-- L'ONGLET PORTE LE LOGO CODELAB, a la MEME adresse que celle du panneau.
+     Safari range les icones par nom d'hote, sans le port : une seule image
+     a retenir pour tout l'hote, et c'est la notre. Le logo de Mailpit ne
+     sert jamais d'icone d'onglet. -->
+<link rel="icon" type="image/png" sizes="128x128" href="/icone-codelab.png?v=5">
+<link rel="shortcut icon" href="/icone-codelab.png?v=5">
+<link rel="stylesheet" href="/_codelab/app.css?v=1">
+<script src="/_codelab/theme.js?v=1"></script>
+<script src="/_codelab/app.js?v=1" defer></script>
+</head>
+<body>
+<div class="appli" id="appli">
+
+  <header class="barre">
+    <button class="icone-btn menu-btn" id="menu-btn" type="button" aria-label="Ouvrir le menu" aria-controls="menu" aria-expanded="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+    <a class="retour-codelab" id="retour-codelab" href="/" title="Revenir au hub CodeLab">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg><span>CodeLab</span>
+    </a>
+    <a class="marque" href="/" id="marque">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="mp-degrade" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7c6cf6"/><stop offset="1" stop-color="#4f46e5"/></linearGradient></defs><rect width="64" height="64" rx="18" fill="url(#mp-degrade)"/><rect x="14" y="19" width="36" height="26" rx="5" fill="none" stroke="#fff" stroke-width="4" stroke-linejoin="round"/><path d="M16 22 32 34 48 22" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>Mailpit</span>
+    </a>
+    <form class="recherche" id="recherche" role="search">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="recherche-champ" type="search" placeholder="Rechercher un message…" aria-label="Rechercher un message" autocomplete="off" spellcheck="false">
+      <kbd>/</kbd>
+    </form>
+    <div class="barre-droite">
+      <span class="direct" id="direct" title="Les nouveaux messages arrivent sans recharger"><i></i><span>Hors ligne</span></span>
+      <span class="pagination-texte" id="pagination-texte"></span>
+      <button class="icone-btn" id="page-prec" type="button" aria-label="Page précédente"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <button class="icone-btn" id="page-suiv" type="button" aria-label="Page suivante"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg></button>
+      <button class="icone-btn" id="apropos-btn" type="button" aria-label="À propos de Mailpit"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+    </div>
+  </header>
+
+  <div class="corps">
+    <div class="voile" id="voile" hidden></div>
+
+    <!-- Le menu. Son pied reste VIDE : rien en bas a gauche. -->
+    <nav class="menu" id="menu" aria-label="Boîte de réception">
+      <div class="menu-titre">Boîte</div>
+      <div class="menu-liste" id="filtres"></div>
+      <button class="menu-ligne discret" id="tout-lu" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+        <span>Tout marquer lu</span>
+      </button>
+      <button class="menu-ligne discret" id="tout-supprimer" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>
+        <span>Tout supprimer</span>
+      </button>
+      <div class="menu-titre">Étiquettes</div>
+      <div class="menu-liste" id="etiquettes"></div>
+      <p class="menu-vide" id="etiquettes-vide" hidden>Aucune étiquette. Une application en pose avec l'en-tête <code>X-Tags</code>.</p>
+    </nav>
+
+    <section class="liste" id="liste" aria-label="Messages">
+      <div class="liste-tete">
+        <div>
+          <h1 id="liste-titre">Réception</h1>
+          <p id="liste-sous-titre"></p>
+        </div>
+      </div>
+      <div class="liste-messages" id="liste-messages" role="list"></div>
+      <div class="liste-vide" id="liste-vide" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
+        <b id="liste-vide-titre">Aucun message</b>
+        <span id="liste-vide-texte">Les mails envoyés par tes applications arrivent ici.</span>
+      </div>
+    </section>
+
+    <div class="lecture" id="lecture">
+    <article class="message" id="message" aria-label="Message" hidden>
+      <div class="message-outils">
+        <button class="outil retour" id="retour-liste" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 18l-6-6 6-6"/></svg><span>Retour</span></button>
+        <span class="espace"></span>
+        <button class="icone-btn sans-bord" id="act-nonlu" type="button" aria-label="Marquer comme non lu" title="Marquer comme non lu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM3 3l18 18"/></svg></button>
+        <button class="icone-btn sans-bord" id="act-supprimer" type="button" aria-label="Supprimer" title="Supprimer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg></button>
+        <a class="icone-btn sans-bord" id="act-telecharger" href="#" aria-label="Télécharger le .eml" title="Télécharger le .eml"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg></a>
+        <button class="icone-btn sans-bord" id="act-prec" type="button" aria-label="Message précédent" title="Message précédent"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <button class="icone-btn sans-bord" id="act-suiv" type="button" aria-label="Message suivant" title="Message suivant"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg></button>
+      </div>
+      <div class="message-tete">
+        <h2 id="m-sujet"></h2>
+        <span class="pastille" id="m-pj" hidden></span>
+      </div>
+      <div class="expediteur">
+        <span class="avatar grand" id="m-avatar"></span>
+        <div class="expediteur-texte">
+          <b id="m-de"></b>
+          <span id="m-adresses"></span>
+        </div>
+        <time id="m-date"></time>
+      </div>
+      <div class="m-etiquettes" id="m-etiquettes"></div>
+      <nav class="onglets" id="onglets" aria-label="Vues du message"></nav>
+      <div class="vue" id="vue"></div>
+    </article>
+
+    <aside class="details" id="details" aria-label="Détails du message" hidden>
+      <section>
+        <h3>Détails</h3>
+        <dl class="details-grille" id="d-grille"></dl>
+      </section>
+      <section>
+        <h3>Contrôles</h3>
+        <div class="controle"><span>Compatibilité HTML</span><b class="score" id="d-html">…</b></div>
+        <div class="controle"><span>Liens</span><button class="lien-btn" id="d-liens" type="button">Vérifier</button></div>
+      </section>
+      <section>
+        <h3>Actions</h3>
+        <button class="action" id="d-nonlu" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>Marquer non lu</button>
+        <button class="action" id="d-etiquettes" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12l-8 8-9-9V3h8zM7.5 7.5h.01"/></svg>Ajouter une étiquette</button>
+        <a class="action" id="d-telecharger" href="#"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Télécharger le .eml</a>
+        <button class="action danger" id="d-supprimer" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>Supprimer</button>
+      </section>
+      <button class="details-lien" id="d-entetes" type="button">En-têtes bruts<span aria-hidden="true">›</span></button>
+    </aside>
+
+    <div class="accueil" id="accueil">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
+      <b>Choisis un message</b>
+      <span>Son contenu, ses en-têtes et ses contrôles s'affichent ici.</span>
+    </div>
+    </div>
+  </div>
+</div>
+
+<dialog class="fenetre" id="apropos" aria-labelledby="apropos-titre">
+  <form method="dialog">
+    <h2 id="apropos-titre">À propos de Mailpit</h2>
+    <dl class="details-grille" id="apropos-grille"></dl>
+    <p class="note">Mailpit garde et relaie les mails ; cette interface est celle de CodeLab, construite sur son API.</p>
+    <div class="fenetre-pied"><button class="bouton" value="ok">Fermer</button></div>
+  </form>
+</dialog>
+
+<dialog class="fenetre" id="confirmer" aria-labelledby="confirmer-titre">
+  <form method="dialog">
+    <h2 id="confirmer-titre"></h2>
+    <p id="confirmer-texte"></p>
+    <div class="fenetre-pied">
+      <button class="bouton" value="non">Annuler</button>
+      <button class="bouton danger" value="oui" id="confirmer-ok">Supprimer</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>
