@@ -1284,7 +1284,6 @@ table.tbl-journal{min-width:560px}
 .sous-taches{margin-left:2px}
 
 /* ---------------- reperes communs aux deux styles ---------------- */
-.reglages-btn{display:none}
 .salut{display:none}
 .side-item.utilisateur-seul{display:none}
 .compte-utilisateur #sidebar,.compte-utilisateur #btn-menu{display:none}
@@ -1306,11 +1305,6 @@ table.tbl-journal{min-width:560px}
 :root[data-style="design"] .topbar-brand b{font-size:18px;font-weight:800}
 :root[data-style="design"] .topbar-brand:hover{background:none}
 :root[data-style="design"] #btn-menu,:root[data-style="design"] .qui{display:none}
-:root[data-style="design"] .reglages-btn{display:grid;place-items:center;width:44px;height:44px;border-radius:50%;
- border:0;background:var(--surface);color:var(--txt);cursor:pointer;
- box-shadow:0 1px 3px var(--shadow-2)}
-:root[data-style="design"] .reglages-btn svg{width:20px;height:20px}
-:root[data-style="design"] .reglages-btn:hover{color:var(--accent)}
 :root[data-style="design"] .acct-btn{width:44px;height:44px;border:0;background:var(--accent);color:var(--sur-accent)}
 :root[data-style="design"] .acct-btn:hover,:root[data-style="design"] .acct-btn.active{background:var(--accent-h);color:var(--sur-accent)}
 :root[data-style="design"] .acct-menu{top:52px;border-radius:16px;padding:6px}
@@ -1441,11 +1435,6 @@ table.tbl-journal{min-width:560px}
   <div class="spacer"></div>
 
   <div class="qui"><b id="qui-nom"></b><span id="qui-role"></span></div>
-  <!-- La roue crantee, a cote du compte : le style Design la montre ; le
-       style classique garde l'entree du menu du compte. -->
-  <button class="reglages-btn" id="reglages-btn" onclick="allerA('parametres')"
-          title="Paramètres" aria-label="Paramètres"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/>
-        <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></button>
   <div class="acct-wrap">
     <button class="acct-btn" id="acct-btn" onclick="toggleAcctMenu()" title="Compte">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20.5c0-4.1 3.4-7.5 7.5-7.5s7.5 3.4 7.5 7.5"/></svg></button>

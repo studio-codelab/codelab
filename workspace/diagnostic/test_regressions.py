@@ -13001,8 +13001,9 @@ def test_le_style_design_ne_change_que_l_habit():
     page = _page_panneau("dashboard.html")
     # La roue crantee a cote du compte, le menu en pilule (barre du bas sur
     # un telephone), les reglages en fenetre.
-    assert 'class="reglages-btn"' in page
-    assert ':root[data-style="design"] .reglages-btn{display:grid' in page
+    # Pas de roue crantee : les parametres s'ouvrent depuis le menu du compte.
+    assert "reglages-btn" not in page
+    assert 'id="acct-parametres" onclick="allerA(\'parametres\')"' in page
     assert ':root[data-style="design"] #sec-parametres{display:grid' in page
     assert ':root[data-style="design"] .sidebar{top:auto;bottom:0' in page
     # Un compte utilisateur garde ses entrees : le hub et ses messages.

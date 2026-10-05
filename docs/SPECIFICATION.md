@@ -160,7 +160,7 @@ l'administrateur.
 
 *Paramètres › Compte › Apparence* propose deux styles : **Classique** (menu latéral) et
 **Design** (menu en pilule, barre du bas sur téléphone, hub en grandes icônes, réglages façon
-Mac, roue crantée à côté du compte). Les fonctions sont les mêmes ; seuls la mise en page et
+Mac, paramètres dans le menu du compte). Les fonctions sont les mêmes ; seuls la mise en page et
 les couleurs changent (`html[data-style="design"]`, jetons dans `theme.css`). Le choix est
 retenu par navigateur (cookie `codelab-style`), et posé par le serveur dès le premier octet
 de la page.
