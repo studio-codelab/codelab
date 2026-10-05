@@ -62,10 +62,19 @@ Sans serveur d'envoi réglé, les mails sont gardés et aucun ne part.
 Par la **tuile Mailpit du hub**, ou directement sur `http://<IP-du-serveur>:8025/`, avec la
 **session d'administration du panneau**, comme Dagster. La tuile se range comme les autres (*Paramètres >
 Compte*), et sa fiche montre si Mailpit répond.
-L'interface est habillée comme le Style 2 du panneau (police Plus Jakarta Sans, indigo, thème clair et
-sombre) par le proxy, sans toucher à Mailpit : une feuille de style injectée, rien de plus. Le menu de
-gauche garde son coin bas libre pour le bouton « ← CodeLab », et l'onglet porte toujours l'icône de
-CodeLab, à la même adresse que celle du panneau : Mailpit ne peut plus la repeindre.
+**L'interface est celle de CodeLab**, construite sur l'API publique de Mailpit (`/api/v1`, et
+`/api/events` pour le direct) : menu, liste, message et détails côte à côte, en clair ou en sombre selon le
+thème choisi dans le panneau. Mailpit garde, relaie et analyse les mails ; sa propre page n'est plus
+servie. Les fichiers vivent dans `dagster/proxy/mailpit-ui/`, servis par le proxy (voir
+`dagster/proxy/mailpit.conf`) :
+
+- la page n'exécute que ses propres fichiers (politique de sécurité sans script ni style en ligne) ;
+- le contenu d'un mail n'est jamais inséré dans la page : les textes passent par `textContent`, et le HTML
+  ne s'affiche que dans un cadre isolé, sans scripts (`/view/<id>.html`, servi par Mailpit) ;
+- le retour au hub est en haut à gauche ; rien n'est posé en bas à gauche ;
+- l'onglet porte toujours l'icône de CodeLab, à la même adresse que celle du panneau, et aucune adresse
+  d'icône du port 8025 ne rend celle de Mailpit.
+
 L'interface montre tous les mails, liens de réinitialisation de mot de passe compris. Elle n'est donc
 ouverte à aucun compte utilisateur.
 

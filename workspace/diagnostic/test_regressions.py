@@ -11914,53 +11914,72 @@ def test_la_protection_d_encadrement_couvre_toute_reponse_d_application(
     assert "X-Frame-Options" not in r.headers
 
 
-def test_mailpit_est_habille_aux_couleurs_de_codelab():
-    """Mailpit n'est pas modifie : le proxy injecte une feuille de style,
-    sert la police du panneau et remplace son logo par le notre."""
+def _mailpit_ui(nom, binaire=False):
+    chemin = os.path.join(_racine_depot(), "dagster", "proxy", "mailpit-ui", nom)
+    return open(chemin, "rb").read() if binaire else open(chemin, encoding="utf-8").read()
+
+
+def test_mailpit_a_l_interface_de_codelab():
+    """La page de Mailpit est la notre, construite sur son API : le proxy
+    sert index.html sur / et /message/<id>, derriere la session, et laisse
+    passer l'API, le direct et l'apercu jusqu'a Mailpit."""
     racine = _racine_depot()
     conf = open(os.path.join(racine, "dagster", "proxy", "mailpit.conf"), encoding="utf-8").read()
-    assert re.search(r"""sub_filter '</head>' '<link rel="stylesheet" href="/_codelab/mailpit\.css\?v=\w+"></head>';""", conf)
-    for route in ("location /_codelab/", "location = /mailpit.svg", "location = /favicon.svg"):
-        assert route in conf, route
+    page = conf.split("location ~ ^/(message/[A-Za-z0-9]+)?$ {", 1)[1].split("\n    }", 1)[0]
+    assert "auth_request /_auth;" in page and "try_files /index.html =404;" in page
+    # Aucun script ni style en ligne, aucune origine tierce.
+    csp = re.search(r'Content-Security-Policy "([^"]+)"', page).group(1)
+    assert "script-src 'self';" in csp and "style-src 'self';" in csp
+    assert "unsafe" not in csp and "frame-ancestors 'self'" in csp
+    # Le reste va a Mailpit, derriere la meme session et son mot de passe.
+    reste = conf.split("    location / {", 1)[1]
+    assert "auth_request /_auth;" in reste and "include /etc/nginx/codelab/mailpit-auth.conf;" in reste
+    # Le direct (websocket) : Mailpit n'accepte que si Host porte le port.
+    assert "proxy_set_header Host              $http_host;" in reste
+    assert "proxy_set_header Upgrade    $http_upgrade;" in reste
+    # Plus rien n'est injecte dans les pages de Mailpit.
+    assert "sub_filter" not in conf
     dockerfile = open(os.path.join(racine, "dagster", "proxy", "Dockerfile"), encoding="utf-8").read()
-    assert "COPY dagster/proxy/mailpit-theme/ /usr/share/nginx/codelab/mailpit/" in dockerfile
+    assert "COPY dagster/proxy/mailpit-ui/ /usr/share/nginx/codelab/mailpit/" in dockerfile
     assert "jakarta-latin.woff2 /usr/share/nginx/codelab/mailpit/jakarta.woff2" in dockerfile
     assert "LICENCE-jakarta.txt /usr/share/nginx/codelab/mailpit/" in dockerfile
-    css = open(os.path.join(racine, "dagster", "proxy", "mailpit-theme", "mailpit.css"),
-               encoding="utf-8").read()
-    # Par les variables de Bootstrap, pas en visant les classes une a une.
-    # Les memes jetons que le Style 2 du panneau, clair et sombre ; la barre
-    # du haut, que Mailpit force en sombre, suit le theme de la page.
-    assert "--cl-accent: #3b3fd8;" in css and "--cl-accent: #6366f1;" in css
-    assert "--bs-primary: var(--cl-accent);" in css
-    assert ':root:not([data-bs-theme="dark"]) .navbar[data-bs-theme="dark"]' in css
-    assert 'font-family: "Plus Jakarta Sans"' in css and "/_codelab/jakarta.woff2" in css
-    # Le ruban de retour n'herite pas de l'icone « lien externe » de Mailpit,
-    # et reste EN BAS A GAUCHE : la barre laterale lui laisse un pied vide.
-    assert "#codelab-retour-hub::after" in css
-    bouton = css.split("#codelab-retour-hub {", 1)[1].split("}", 1)[0]
-    assert "left: 20px !important;" in bouton and "right: auto !important;" in bouton
-    pied = css.split(".about-mailpit {", 1)[1].split("}", 1)[0]
-    assert "margin: 8px 0 64px !important;" in pied
-    # Le meme logo sur la tuile du hub et dans Mailpit.
-    logo = open(os.path.join(racine, "dagster", "proxy", "mailpit-theme", "logo.svg"),
-                encoding="utf-8").read().strip()
+
+    index = _mailpit_ui("index.html")
+    # Tous les scripts sont des fichiers ; aucun attribut style ni <style>.
+    for balise in re.findall(r"<script[^>]*>", index):
+        assert 'src="/_codelab/' in balise, balise
+    assert "<style" not in index and ' style="' not in index
+    assert re.search(r"\son[a-z]+=", index) is None, "gestionnaire en ligne"
+    # Rien en bas a gauche : le retour au hub est dans la barre du haut.
+    assert 'class="retour-codelab"' in index.split('<div class="corps">', 1)[0]
+    assert "codelab-retour-hub" not in index
+
+
+def test_le_contenu_d_un_mail_ne_touche_jamais_la_page():
+    """Les textes passent par textContent ; le HTML d'un mail ne s'affiche
+    que dans un cadre isole, sans scripts."""
+    js = _mailpit_ui("app.js")
+    for interdit in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function"):
+        assert interdit not in js, interdit
+    cadre = js.split('h("iframe"', 1)[1].split("});", 1)[0]
+    assert 'sandbox: "allow-same-origin allow-popups allow-popups-to-escape-sandbox"' in cadre
+    assert "allow-scripts" not in cadre
+    assert 'src: "/view/" + enc(id) + ".html"' in cadre
+    # Les liens d'un mail s'ouvrent dans un nouvel onglet, sans referer.
+    assert 'a.setAttribute("rel", "noopener noreferrer");' in js
+
+
+def test_mailpit_a_sa_nouvelle_icone_sur_la_tuile_et_dans_la_page():
+    """L'enveloppe blanche sur degrade violet des maquettes : la meme sur la
+    tuile du hub et dans la barre de l'interface. Jamais dans un onglet."""
+    logo = _mailpit_ui("logo.svg").strip()
     assert app.ICONE_MAILPIT == logo
-    # Un seul fond, le turquoise : l'enveloppe est un trait blanc, sans
-    # aplat blanc dessous (comme le logo du diagnostic).
-    assert logo.count("<rect") == 2 and 'fill="#fff"' not in logo
-    assert 'fill="none" stroke="#fff"' in logo
-    # Le logo dans les notifications, en PNG ; /favicon.ico rend celui de
-    # CodeLab (voir test_favicon_ico_est_le_logo_codelab_sur_tous_les_ports).
-    assert "location = /notification.png" in conf
-    assert "favicon\\.ico" in conf
-    png = open(os.path.join(racine, "dagster", "proxy", "mailpit-theme", "logo.png"), "rb").read()
-    assert png[:8] == b"\x89PNG\r\n\x1a\n"
-    # Dans les fenetres (reglages, a propos) : le logo devant le titre, les
-    # interrupteurs en liste, des onglets segmentes.
-    assert ".modal-title::before" in css and "/_codelab/logo.svg" in css
-    assert "#SettingsModal .form-switch" in css
-    assert ".modal .nav-tabs" in css
+    assert "#7c6cf6" in logo and "#4f46e5" in logo
+    assert 'fill="none" stroke="#fff"' in logo and 'fill="#fff"' not in logo
+    assert _mailpit_ui("logo.png", binaire=True)[:8] == b"\x89PNG\r\n\x1a\n"
+    index = _mailpit_ui("index.html")
+    barre = index.split('class="marque"', 1)[1].split("</a>", 1)[0]
+    assert 'stop-color="#7c6cf6"' in barre and 'stop-color="#4f46e5"' in barre
 
 
 def test_postgres_realigne_le_mot_de_passe_a_chaque_demarrage():
@@ -12017,40 +12036,31 @@ def test_favicon_ico_est_le_logo_codelab_sur_tous_les_ports():
         app.APPS_PORT = ancien_apps
     racine = _racine_depot()
     conf = open(os.path.join(racine, "dagster", "proxy", "mailpit.conf"), encoding="utf-8").read()
-    # Mailpit et Dagster partagent le nom d'hote du panneau : toutes leurs
-    # adresses d'icone rendent le logo CodeLab, et l'onglet de Mailpit le
-    # declare (Safari rangeait sinon leur icone a la place de la notre).
+    # Mailpit et Dagster partagent le nom d'hote du panneau : AUCUNE adresse
+    # d'icone de leurs ports ne rend autre chose que le logo CodeLab -- pas
+    # meme celles de l'ancienne page de Mailpit (/mailpit.svg,
+    # /notification.png), qu'un navigateur peut avoir gardees.
     bloc = conf.split("location ~ ^/(favicon\\.ico", 1)[1].split("}", 1)[0]
     assert "mailpit/codelab.png" in bloc
-    assert "location = /favicon.svg {\n        alias /usr/share/nginx/codelab/mailpit/codelab.svg;" in conf
-    # L'icone de l'onglet : la MEME adresse que celle du panneau, et declaree
-    # « shortcut icon » -- Mailpit repeint link[rel="icon"] (le compteur de
-    # non lus) et ne la trouve donc plus.
-    assert ("""sub_filter '<link rel="icon" href="/favicon.svg">' '<link rel="shortcut icon" """
-            """type="image/png" sizes="128x128" href="/icone-codelab.png?v=4">';""") in conf
-    assert "icone-codelab\\.png" in bloc
-    assert 'rel="icon"' not in conf.split("sub_filter '<link rel=\"icon\" href=\"/favicon.svg\">'", 1)[1].split(";", 1)[0]
+    for adresse in ("icone-codelab\\.png", "notification\\.png", "apple-touch-icon"):
+        assert adresse in conf.split("location ~ ^/(favicon\\.ico", 1)[1].split("{", 1)[0], adresse
+    svg_bloc = conf.split("location ~ ^/(favicon\\.svg|mailpit\\.svg)$ {", 1)[1].split("}", 1)[0]
+    assert "alias /usr/share/nginx/codelab/mailpit/codelab.svg;" in svg_bloc
+    assert "logo.svg" not in conf and "logo.png" not in conf
+    # L'onglet de Mailpit declare la MEME adresse que celle du panneau.
+    index = _mailpit_ui("index.html")
+    icones = re.findall(r'<link rel="(?:shortcut )?icon"[^>]*href="([^"]+)"', index)
+    assert icones and set(icones) == {"/icone-codelab.png?v=5"}
+    assert "/icone-codelab.png?v=5" in _page_panneau("dashboard.html")
     dagster = open(os.path.join(racine, "dagster", "proxy", "nginx.conf"), encoding="utf-8").read()
     assert "location ~ ^/favicon[-a-z0-9_]*\\.svg$ {\n        alias /usr/share/nginx/codelab/mailpit/codelab.svg;" in dagster
     assert "alias /usr/share/nginx/codelab/mailpit/codelab.png;" in dagster
     # Avant « location / » : sinon l'authentification passerait devant.
     assert dagster.index("favicon[-a-z0-9_]") < dagster.index("    location / {")
-    png = open(os.path.join(racine, "dagster", "proxy", "mailpit-theme", "codelab.png"), "rb").read()
+    png = _mailpit_ui("codelab.png", binaire=True)
     assert png == app.ICONE_CODELAB_PNG
-    svg = open(os.path.join(racine, "dagster", "proxy", "mailpit-theme", "codelab.svg"), encoding="utf-8").read()
+    svg = _mailpit_ui("codelab.svg")
     assert base64.b64encode(png).decode() in svg
-
-
-def test_le_logo_mailpit_ne_depend_pas_du_cache_de_mailpit():
-    """Mailpit sert /mailpit.svg et /favicon.svg « immutable » pour un an :
-    l'onglet et la barre passent par une adresse a nous, versionnee."""
-    racine = _racine_depot()
-    conf = open(os.path.join(racine, "dagster", "proxy", "mailpit.conf"), encoding="utf-8").read()
-    css = open(os.path.join(racine, "dagster", "proxy", "mailpit-theme", "mailpit.css"),
-               encoding="utf-8").read()
-    version = re.search(r'href="/_codelab/mailpit\.css\?v=(\w+)"', conf).group(1)
-    assert 'img[src$="mailpit.svg"]' in css and "object-position: -99999px 0;" in css
-    assert css.count(f'url("/_codelab/logo.svg?v={version}")') == 2
 
 
 def test_dagster_garde_un_pilote_postgres_qu_il_sait_ouvrir():
@@ -12715,7 +12725,7 @@ def test_le_panneau_declare_toujours_sa_propre_icone():
     for nom in ("dashboard.html", "login.html"):
         page = _page_panneau(nom)
         # Une adresse qu'aucun autre service du meme hote ne sert.
-        assert 'rel="icon" type="image/png" sizes="128x128" href="/icone-codelab.png?v=4"' in page, nom
+        assert 'rel="icon" type="image/png" sizes="128x128" href="/icone-codelab.png?v=5"' in page, nom
         assert 'href="/apple-touch-icon.png?v=4"' in page, nom
         assert "/favicon.png?v=" not in page and "/favicon.ico?v=" not in page, nom
         # Au retour sur l'onglet, les balises sont reposees.
