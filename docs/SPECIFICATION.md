@@ -158,9 +158,10 @@ l'administrateur.
 
 ### 3.3 Deux styles
 
-*Paramètres › Compte › Apparence* propose deux styles : **Classique** (menu latéral) et
-**Design** (menu en pilule, barre du bas sur téléphone, hub en grandes icônes, réglages façon
-Mac, paramètres dans le menu du compte). Les fonctions sont les mêmes ; seuls la mise en page et
+*Paramètres › Compte › Apparence* propose les styles, numérotés : **Style 1** (menu latéral) et
+**Style 2** (menu en pilule, barre du bas sur téléphone, hub en grandes icônes centrées,
+réglages façon Mac avec des icônes au trait, paramètres dans le menu du compte). Les clés
+internes restent `classique` et `design`, pour garder le choix déjà fait. Les fonctions sont les mêmes ; seuls la mise en page et
 les couleurs changent (`html[data-style="design"]`, jetons dans `theme.css`). Le choix est
 retenu par navigateur (cookie `codelab-style`), et posé par le serveur dès le premier octet
 de la page.
@@ -280,12 +281,21 @@ chiffrés sont illisibles.
 ## 7. Réseau et exposition
 
 - **Postgres et Redis** ne sont pas publiés. **Le SMTP de Mailpit** non plus.
-- **HTTPS** : indispensable dès que le panneau est joignable depuis Internet. Sans lui, Face ID ne
-  fonctionne pas et le cookie de session circule en clair.
+- **Toujours au plus strict, sans case à cocher.** Aucun réglage réseau ne peut affaiblir le
+  panneau :
+  - **HTTPS automatique** : dès qu'une requête arrive en https (directement, ou annoncée par le
+    proxy via `X-Forwarded-Proto`), le cookie de session est marqué `Secure` et HSTS est envoyé.
+    En clair, le cookie reste `HttpOnly` et `SameSite=Strict` ; Face ID attend le HTTPS.
+  - **`X-Forwarded-For` n'est jamais cru** : l'adresse du visiteur est celle de la connexion.
+    Derrière un proxy, tous les visiteurs partagent son adresse pour la limite de tentatives,
+    ce qui est plus strict, jamais moins.
+  - **L'administration ne répond qu'au réseau local, en connexion directe**, toujours. Une
+    requête relayée (en-têtes `X-Forwarded-*`) est refusée pour l'admin, même depuis une
+    adresse privée. Les comptes nommés, eux, entrent de partout.
+  - `APP_MANAGER_TRUST_PROXY` et `APP_MANAGER_ADMIN_LAN_ONLY` sont ignorées.
+    `APP_MANAGER_HTTPS=1` peut seulement forcer le cookie `Secure`.
 - **Recommandé : passer par un VPS** (*Paramètres > Serveur*) : le VPS porte le domaine et le
   certificat, ton serveur reste joignable seulement par un tunnel, rien n'est ouvert sur ta box.
-- **Proxy de confiance** : derrière un proxy, l'adresse du visiteur est celle **ajoutée par le
-  proxy** (la dernière de `X-Forwarded-For`), jamais celle que le visiteur annonce lui-même.
 - **Ne publie pas sur Internet** les ports `3000` (Dagster), `8025` (Mailpit) et `2222` (SSH) sans
   en avoir besoin : ils sont protégés, mais moins exposé vaut mieux.
 
@@ -382,10 +392,11 @@ Pour rassurer honnêtement, il faut aussi dire les limites :
 
 ## 12. Mise en production : la liste
 
-- [ ] HTTPS en place (VPS recommandé), « Proxy de confiance » coché si un proxy est devant.
+- [ ] HTTPS en place (VPS recommandé). Le cookie `Secure` et HSTS suivent d'eux-mêmes.
 - [ ] Face ID / Touch ID ou une application d'authentification activé sur le compte admin.
-- [ ] « Administration réservée au réseau local » activée si tu n'administres pas à distance.
-- [ ] Serveur d'envoi réglé (*Paramètres > E-mail et alertes*), adresse d'alerte renseignée.
+- [ ] Serveur d'envoi réglé (*Paramètres > E-mail et alertes*), adresse d'alerte renseignée. Le
+  panneau le propose à la première connexion admin, et **aucun compte ne peut être créé ni
+  invité sans lui** : les codes de connexion partent par e-mail.
 - [ ] Surveillance externe (healthchecks.io) réglée.
 - [ ] `credentials.env` sauvegardé **à part**, en lieu sûr.
 - [ ] Ports `3000`, `8025`, `2222` non publiés sur Internet (sauf besoin).

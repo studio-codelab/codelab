@@ -919,37 +919,23 @@ def check_exposition():
     # partir de fichiers qu'on n'a simplement pas sous les yeux.
     if not pose and not _etat_panneau_visible() and not any(
             (os.environ.get(v) or "").strip() for v in
-            ("APP_MANAGER_HTTPS", "APP_MANAGER_TRUST_PROXY", "APP_MANAGER_PUBLIC_URL")):
+            ("APP_MANAGER_HTTPS", "APP_MANAGER_PUBLIC_URL")):
         return Etat.SANS_OBJET, "exposition", _hors_de_portee()
 
-    def _actif(variable, cle):
-        depuis_env = (os.environ.get(variable) or "").strip()
-        if depuis_env:
-            return depuis_env.lower() in ("1", "true", "yes")
-        return bool(pose.get(cle))
-
-    https = _actif("APP_MANAGER_HTTPS", "https")
-    proxy = _actif("APP_MANAGER_TRUST_PROXY", "trust_proxy")
+    # Proxy de confiance et administration locale ne sont plus des reglages :
+    # X-Forwarded-For n'est jamais cru, l'administration ne repond qu'au
+    # reseau local. Le cookie Secure suit la connexion (https constate) ; la
+    # sonde, hors requete, ne voit que l'adresse publique declaree.
     publique = ((os.environ.get("APP_MANAGER_PUBLIC_URL") or "").strip()
                 or str(pose.get("adresse_publique") or "").strip())
-    if not (https or proxy or publique):
-        return (Etat.OK, "exposition",
-                "réseau local : aucune adresse publique déclarée, cookie non "
-                "marqué Secure -- cohérent tant que rien n'est devant")
-    manques = []
-    if not https:
-        manques.append("HTTPS (cookie de session non marque Secure)")
-    if not proxy:
-        manques.append("proxy de confiance (tous les visiteurs partagent une adresse)")
     if not publique:
-        manques.append("adresse publique (aucun partage possible)")
-    # Pas dans les "manques" : une stack exposee peut parfaitement vouloir
-    # que son administration reste joignable de l'exterieur, et la reclamer
-    # en rouge serait dicter un choix plutot que signaler un oubli. La sonde
-    # dit donc simplement lequel des deux est en vigueur.
-    admin_local = _actif("APP_MANAGER_ADMIN_LAN_ONLY", "admin_reseau_local")
-    portee = ("administration reservee au reseau local" if admin_local
-              else "administration joignable de l'exterieur")
+        return (Etat.OK, "exposition",
+                "réseau local : aucune adresse publique déclarée -- cohérent "
+                "tant que rien n'est devant")
+    portee = "administration reservee au reseau local"
+    manques = []
+    if not publique.lower().startswith("https://"):
+        manques.append("HTTPS (adresse publique en http://, cookie de session non marque Secure)")
     if manques:
         # Rang 2 : la stack tourne, et ce qui manque est un REGLAGE a poser,
         # pas un service tombe. Le dire en rouge sanglant a chaque quart
@@ -1406,7 +1392,7 @@ def check_surface_exposee():
                        if (a.get("visibility") or "privee") == "publique")
     sans_2fa = sorted(n for n, c in comptes.items()
                       if isinstance(c, dict) and not c.get("totp"))
-    admin_local = bool(expo.get("admin_reseau_local"))
+    admin_local = True    # toujours : ce n'est plus un reglage
     adresse = (expo.get("adresse_publique") or "").strip()
 
     morceaux = [

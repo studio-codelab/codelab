@@ -51,52 +51,25 @@ par l'adresse WireGuard de la ZimaBlade si tu as choisi un autre reseau. Puis
 **5. Le dire a CodeLab.** Depuis le panneau, ouvert par ton nouveau domaine :
 *Parametres > Serveur*. Rien a editer, rien a redemarrer.
 
-1. **Proxy de confiance** — a cocher en premier. La case ne s'active que si la requete porte
-   vraiment un en-tete `X-Forwarded-*`, donc seulement quand nginx est bien devant.
-2. **Servi en HTTPS** — ensuite. La case ne s'active que depuis une page qui arrive en https
-   (directement, ou annoncee par le proxy declare a l'etape 1).
-3. **Adresse publique** — `https://codelab.tondomaine.fr`.
-4. **Administration reservee au reseau local** — facultatif, et c'est le reglage qui change le
-   plus de choses une fois le panneau sur internet.
+1. **Adresse publique** — `https://codelab.tondomaine.fr`.
 
-   Coche-la et le compte d'administration ne repond plus qu'aux adresses de chez toi. Les comptes
-   nommes, eux, continuent d'entrer de n'importe ou : c'est la separation qui compte, puisqu'un
-   compte nomme n'ouvre que les projets qu'on lui a autorises, tandis que l'administration permet
-   de declarer une application — donc d'executer du code sur la machine. Un mot de passe
-   d'administration qui fuit ne suffit alors plus : il faut aussi etre dans la maison.
+C'est tout : il n'y a plus de case a cocher. La securite reseau est toujours au plus strict :
 
-   La case ne s'active que depuis une requete qui vient elle-meme du reseau local — sinon tu te
-   retirerais l'administration a l'instant du clic. **Coche-la donc depuis chez toi, pas depuis le
-   domaine public.**
-
-**L'ordre n'est pas decoratif** : derriere nginx qui termine le TLS, la requete arrive au panneau
-en clair et n'annonce `https` que par un en-tete. Tant que le proxy n'est pas declare, le panneau
-ne croit pas cet en-tete — et la case HTTPS reste grisee.
-
-**Une case grisee dit toujours pourquoi.** C'est ce qui remplace l'ancienne marche a suivre, ou
-`APP_MANAGER_HTTPS=1` pose trop tot marquait le cookie `Secure`, le navigateur cessait de
-l'envoyer en clair, et la session tombait au premier rechargement — sans page pour revenir en
-arriere. Le panneau refuse desormais d'en arriver la.
-
-> **Le compose garde le dernier mot.** `APP_MANAGER_HTTPS`, `APP_MANAGER_TRUST_PROXY`,
-> `APP_MANAGER_PUBLIC_URL` et `APP_MANAGER_ADMIN_LAN_ONLY` restent lisibles et prioritaires :
-> posees la, elles grisent les cases correspondantes. C'est la marche arriere qui ne depend pas du
-> panneau — utile le jour ou un reglage le rend inatteignable. Si le verrou d'administration
-> t'enferme dehors, `APP_MANAGER_ADMIN_LAN_ONLY: "0"` dans le compose est **la seule facon de
-> revenir**.
-
-> **Attention au proxy non declare.** Derriere nginx, `remote_addr` est l'adresse du proxy — une
-> adresse privee. Si le proxy de confiance n'est pas coche, toutes les requetes paraitraient
-> locales et ce verrou ne protegerait rien. Le panneau refuse donc de l'activer dans ce cas, et
-> ferme l'administration plutot que de l'ouvrir si un proxy apparait apres coup sans etre declare
-> — ne pas savoir d'ou vient une requete vaut refuser.
+- **HTTPS** est constate, pas declare : des que la requete arrive en https (annoncee par nginx via
+  `X-Forwarded-Proto`), le cookie de session devient `Secure` et HSTS part.
+- **`X-Forwarded-For` n'est jamais cru.** Derriere le tunnel, tous les visiteurs partagent donc
+  l'adresse du VPS pour la limite de tentatives : plus strict, jamais moins.
+- **L'administration ne repond qu'au reseau local, en connexion directe.** Une requete qui passe
+  par le VPS (en-tetes `X-Forwarded-*`) n'atteint jamais l'administration, meme si l'adresse du
+  tunnel est privee. Les comptes nommes, eux, entrent par le domaine. Pour administrer,
+  connecte-toi depuis chez toi, sur l'adresse locale du panneau.
 
 ## Verifier
 
 1. `https://codelab.tondomaine.fr` : cadenas, pas d'avertissement.
 2. *Parametres > Serveur* : les lignes en vert, et l'adresse publique declaree.
-3. *Utilisateurs* : ton adresse IP reelle dans les connexions recentes — pas `10.8.0.1`. Si tu vois
-   l'adresse du tunnel, `X-Forwarded-For` ne remonte pas ou le proxy de confiance n'est pas coche.
+3. Un compte nomme se connecte par le domaine ; l'administration, elle, y repond « reseau local
+   uniquement » — c'est voulu.
 4. *Parametres > Securite* : « Ajouter une cle » est actif. S'il ne l'est pas, la page dit
    pourquoi — et le message distingue « il manque du TLS » de « declare ton proxy ».
 5. Une fiche d'application : « Rendre publique » est revenu.
