@@ -4855,6 +4855,9 @@ def test_toutes_les_routes_d_ecriture_sont_couvertes(deux_espaces):
     assert app.JETON_EXEMPTS == {
         "login_submit", "login_second_facteur",
         "login_passkey_options", "login_passkey",
+        # Premiere connexion de l'administrateur : Face ID comme second
+        # facteur, apres le mot de passe, sans session encore ouverte.
+        "login_inscription_passkey_options", "login_inscription_passkey",
         # Ouverte par la personne invitee, sans session -- ou dans le
         # navigateur de l'administrateur qui essaie son propre lien.
         "invitation_accepter",
@@ -6085,26 +6088,18 @@ def test_la_rubrique_message_ferme_la_marche():
     assert noms[0] == "compte", "le compte reste la premiere rubrique"
 
 
-def test_le_bandeau_ne_tasse_plus_trois_choses_a_gauche():
-    """Le menu, la marque et un champ de 340 px se suivaient sans
-    respiration : on ne savait plus ou commencait l'un et finissait
-    l'autre. Deux groupes a gauche, et la recherche au centre."""
+def test_le_bandeau_n_a_plus_de_recherche():
+    """Le menu et la marque a gauche, le compte a droite : la barre de
+    recherche de l'entete est retiree, et rien ne filtre plus en silence le
+    hub ou la liste des applications."""
     page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
                 encoding="utf-8").read()
-    barre = page.split('<div class="topbar">')[1].split("</div>\n</div>")[0]
-    # Le menu et la marque sont dans le MEME groupe.
+    barre = page.split('<div class="topbar">')[1].split('<div class="acct-wrap">')[0]
     groupe = barre.split('<div class="topbar-gauche">')[1]
-    assert "side-toggle-btn" in groupe.split("</div>")[0] or "side-toggle-btn" in groupe[:400]
-    assert "topbar-brand" in groupe[:2000]
-    # Un ressort AVANT la recherche : sans lui, elle reste collee a gauche.
-    avant = barre.split('class="rechercher"')[0]
-    assert avant.count('class="spacer"') == 1, (
-        "il faut un ressort avant la recherche, et un seul")
-    apres = barre.split('class="rechercher"')[1]
-    assert 'class="spacer"' in apres, "et un ressort apres, sinon rien n'est centre"
-    # Elle ne s'etire pas entre les deux : une barre de recherche pleine
-    # largeur n'est plus une barre de recherche.
-    assert ".rechercher{position:relative;width:min(420px,38vw);flex:none}" in page
+    assert "side-toggle-btn" in groupe[:400] and "topbar-brand" in groupe[:2000]
+    assert barre.count('class="spacer"') == 1
+    for trace in ('class="rechercher"', 'id="q"', "onRecherche", "correspond(", ".rechercher{"):
+        assert trace not in page, trace
 
 
 def _phrases_du_script(page):
@@ -12099,33 +12094,37 @@ def test_seul_un_logo_transparent_a_une_plaque_sur_le_hub():
     assert "${a.externe && a.plaque ? ' service-stack' : ''}" in page
 
 
-def test_le_hub_sert_le_logo_codelab_en_favicon_et_pas_les_applications():
-    """/favicon.ico sur le panneau = le logo CodeLab des pages ; sur l'origine
-    des applications, rien : une application garde son icone."""
+def test_favicon_ico_est_le_logo_codelab_sur_tous_les_ports():
+    """Safari range les icones par nom d'hote, sans le port : /favicon.ico
+    rend le logo CodeLab sur le panneau, sur l'origine des applications et
+    chez Mailpit -- quoi que Safari retienne pour l'hote, c'est le notre."""
     ancien = app._origines_separees["actif"]
     ancien_apps = app.APPS_PORT
     app._origines_separees["actif"] = True
     app.APPS_PORT = 9002
     try:
         client = app.flask_app.test_client()
-        r = client.get("/favicon.ico", **_sur_port(9001))
-        assert r.status_code == 200
-        assert r.headers["Content-Type"].startswith("image/png")
-        assert r.data[:8] == b"\x89PNG\r\n\x1a\n"
-        assert base64.b64encode(r.data).decode() in _page_panneau("dashboard.html")
-        r = client.get("/favicon.ico", **_sur_port(9002))
-        assert r.status_code == 404
-        # Une vraie adresse dans les deux pages, pas une image en ligne :
-        # plusieurs navigateurs ignorent une icone data: pour l'onglet.
-        assert client.get("/favicon.png", **_sur_port(9001)).data == app.ICONE_CODELAB_PNG
-        assert client.get("/favicon.png", **_sur_port(9002)).status_code == 404
+        for port in (9001, 9002):
+            for chemin in ("/favicon.ico", "/icone-codelab.png"):
+                r = client.get(chemin, **_sur_port(port))
+                assert r.status_code == 200, (port, chemin)
+                assert r.headers["Content-Type"].startswith("image/png")
+                assert r.data == app.ICONE_CODELAB_PNG
+        assert base64.b64encode(app.ICONE_CODELAB_PNG).decode() in _page_panneau("dashboard.html")
+        # Le reste du panneau ne repond toujours pas sur le port des applications.
+        assert client.get("/login", **_sur_port(9002)).status_code == 404
         for nom in ("dashboard.html", "login.html"):
             page = _page_panneau(nom)
-            assert '<link rel="icon" type="image/png" sizes="128x128" href="/favicon.png?v=' in page, nom
             assert 'rel="icon" type="image/png" href="data:' not in page, nom
     finally:
         app._origines_separees["actif"] = ancien
         app.APPS_PORT = ancien_apps
+    racine = _racine_depot()
+    conf = open(os.path.join(racine, "dagster", "proxy", "mailpit.conf"), encoding="utf-8").read()
+    bloc = conf.split("location = /favicon.ico {", 1)[1].split("}", 1)[0]
+    assert "mailpit/codelab.png" in bloc
+    png = open(os.path.join(racine, "dagster", "proxy", "mailpit-theme", "codelab.png"), "rb").read()
+    assert png == app.ICONE_CODELAB_PNG
 
 
 def test_le_logo_mailpit_ne_depend_pas_du_cache_de_mailpit():
@@ -12541,6 +12540,84 @@ def test_un_admin_avec_face_id_seulement_ne_passe_pas_au_mot_de_passe(admin_2fa)
     assert c.get("/api/apps").status_code == 401
 
 
+def _inscription_face_id(monkeypatch):
+    """Un contexte HTTPS, et un navigateur dont la cle est toujours valide."""
+    pytest.importorskip("webauthn")
+    import webauthn
+    monkeypatch.setattr(app, "passkey_contexte",
+                        lambda: ("codelab.exemple.fr", "https://codelab.exemple.fr", ""))
+
+    class Verifiee:
+        credential_id = b"cle-admin"
+        credential_public_key = b"publique"
+        sign_count = 0
+    monkeypatch.setattr(webauthn, "verify_registration_response", lambda **k: Verifiee())
+
+
+def test_premiere_connexion_admin_par_face_id_sans_rien_recopier(admin_2fa, monkeypatch):
+    """Le mot de passe reconnu, Face ID s'enregistre en un geste et ouvre la
+    session : aucune cle ni aucun code a recopier."""
+    _inscription_face_id(monkeypatch)
+    c = admin_2fa
+    d = c.post("/login", json={"password": "secret-de-test"}).get_json()
+    assert d["inscription"] is True and d["passkey"] is True
+    assert d["uri"].startswith("otpauth://totp/")
+    r = c.post("/login/inscription/passkey/options")
+    assert r.status_code == 200 and r.get_json()["user"]["name"] == app.NOM_ADMIN
+    r = c.post("/login/inscription/passkey", json={"credential": {"id": "x"}, "nom": "Face ID"})
+    assert r.status_code == 200, r.data
+    assert [k["nom"] for k in app.passkeys_du_compte(app.NOM_ADMIN)] == ["Face ID"]
+    assert c.get("/api/apps").status_code == 200
+    # Une seule fois : le facteur existe, la porte est refermee.
+    c.post("/logout")
+    with c.session_transaction() as sess:
+        sess["totp_inscription"] = app.NOM_ADMIN
+        sess["inscription_depuis"] = int(time.time())
+    assert c.post("/login/inscription/passkey/options").status_code == 409
+
+
+def test_face_id_a_l_inscription_exige_le_mot_de_passe_juste_avant(admin_2fa, monkeypatch):
+    """Sans inscription en attente -- ou trop ancienne -- rien ne s'enregistre."""
+    _inscription_face_id(monkeypatch)
+    c = admin_2fa
+    assert c.post("/login/inscription/passkey/options").status_code == 400
+    assert c.post("/login/inscription/passkey", json={"credential": {}}).status_code == 400
+    c.post("/login", json={"password": "faux-mot-de-passe"})
+    assert c.post("/login/inscription/passkey/options").status_code == 400
+    app._login_attempts.clear()
+    c.post("/login", json={"password": "secret-de-test"})
+    with c.session_transaction() as sess:
+        sess["inscription_depuis"] = int(time.time()) - app.INSCRIPTION_VALIDITE - 1
+    assert c.post("/login/inscription/passkey/options").status_code == 400
+    assert not app.passkeys_du_compte(app.NOM_ADMIN)
+    assert c.get("/api/apps").status_code == 401
+
+
+def test_face_id_a_l_inscription_reste_dans_le_reseau_local(admin_2fa, monkeypatch):
+    _inscription_face_id(monkeypatch)
+    c = admin_2fa
+    c.post("/login", json={"password": "secret-de-test"})
+    monkeypatch.setattr(app, "refus_admin_hors_reseau", lambda: "Hors du réseau local.")
+    assert c.post("/login/inscription/passkey/options").status_code == 403
+    assert c.post("/login/inscription/passkey", json={"credential": {}}).status_code == 403
+    assert not app.passkeys_du_compte(app.NOM_ADMIN)
+
+
+def test_la_page_de_connexion_propose_face_id_puis_un_lien_prerempli():
+    page = _page_panneau("login.html")
+    assert "/login/inscription/passkey/options" in page and "inscrirePasskey()" in page
+    # Le lien otpauth:// ouvre l'application de codes avec tout deja rempli.
+    assert "$$('ins-lien').href=d.uri" in page
+    assert "Saisir la clé à la main" in page
+
+
+def test_les_parametres_n_ont_plus_de_posture_de_securite():
+    page = _page_panneau("dashboard.html")
+    for trace in ("Posture de sécurité", "sec-liste", "peindrePosture",
+                  "chargerPostureDuCompte", "POSTURE_"):
+        assert trace not in page, trace
+
+
 def test_la_marche_arriere_du_compose_rouvre_le_mot_de_passe(admin_2fa, monkeypatch):
     monkeypatch.setenv("APP_MANAGER_ADMIN_2FA", "0")
     assert admin_2fa.post("/login", json={"password": "secret-de-test"}).status_code == 200
@@ -12687,8 +12764,12 @@ def test_le_panneau_declare_toujours_sa_propre_icone():
     panneau. Chaque page du panneau declare donc la sienne, versionnee."""
     for nom in ("dashboard.html", "login.html"):
         page = _page_panneau(nom)
-        assert 'href="/favicon.png?v=3"' in page and 'href="/favicon.ico?v=3"' in page, nom
-        assert 'href="/apple-touch-icon.png?v=3"' in page, nom
+        # Une adresse qu'aucun autre service du meme hote ne sert.
+        assert 'rel="icon" type="image/png" sizes="128x128" href="/icone-codelab.png?v=4"' in page, nom
+        assert 'href="/apple-touch-icon.png?v=4"' in page, nom
+        assert "/favicon.png?v=" not in page and "/favicon.ico?v=" not in page, nom
+        # Au retour sur l'onglet, les balises sont reposees.
+        assert "window.addEventListener('pageshow', reposerIcone);" in page, nom
 
 
 def test_les_connexions_recentes_se_filtrent_et_restent_courtes():

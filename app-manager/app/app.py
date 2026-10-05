@@ -1340,7 +1340,8 @@ def expirer_les_sessions_trop_vieilles():
 # la feuille repondait 404 sur ce port et la page s'affichait sans un seul
 # jeton de couleur. Les deux routes sont deja publiques sur le panneau et ne
 # revelent rien : des couleurs et un fichier de police.
-ROUTES_APPLICATIONS = {"proxy", "proxy_noslash", "health", "theme_css", "police"}
+ROUTES_APPLICATIONS = {"proxy", "proxy_noslash", "health", "theme_css", "police",
+                       "favicon_panneau"}
 
 
 @flask_app.before_request
@@ -1588,6 +1589,7 @@ JETON_ENTETE = "X-CodeLab-Jeton"
 JETON_EXEMPTS = {
     "login_submit", "login_second_facteur",
     "login_passkey_options", "login_passkey",
+    "login_inscription_passkey_options", "login_inscription_passkey",
     "invitation_accepter",
     # Le proxy transporte les requetes des applications hebergees : leurs
     # formulaires ne connaissent pas le jeton du panneau, et n'ont aucune
@@ -6609,6 +6611,7 @@ def admin_2fa_obligatoire():
 
 
 def _ouvrir_session_admin():
+    session.pop("inscription_depuis", None)
     session.pop("totp_candidat", None)
     session.pop("totp_inscription", None)
     session.pop("totp_uri", None)
@@ -6735,9 +6738,14 @@ def login_submit():
             session["totp_candidat"] = candidat
             session["totp_inscription"] = NOM_ADMIN
             session["totp_uri"] = totp_uri(candidat)
+            session["inscription_depuis"] = int(time.time())
+            # Face ID d'abord quand le serveur le permet : un geste, rien a
+            # recopier. Le code a six chiffres reste propose a cote.
             return jsonify({"inscription": True, "secret": candidat,
                             "uri": session["totp_uri"], "compte": NOM_ADMIN,
-                            "qr": "/qr/totp.svg"})
+                            "qr": "/qr/totp.svg",
+                            "passkey": passkeys_disponibles()
+                            and not passkey_contexte()[2]})
 
         if totp_actif() and not totp_verifie(_totp_secret, d.get("code")):
             register_failed_attempt()
@@ -7016,12 +7024,16 @@ def api_passkey_options():
     refus = _refus_passkey() or refus_authentification_ancienne()
     if refus:
         return refus
+    return _options_enregistrement(utilisateur_courant())
+
+
+def _options_enregistrement(nom):
+    """Le defi d'enregistrement d'une cle pour le compte nom."""
     from webauthn import generate_registration_options, options_to_json
     from webauthn.helpers.structs import (AuthenticatorSelectionCriteria,
                                           ResidentKeyRequirement,
                                           UserVerificationRequirement)
     rp_id, _, _ = passkey_contexte()
-    nom = utilisateur_courant()
     options = generate_registration_options(
         rp_id=rp_id,
         rp_name="CodeLab",
@@ -7054,6 +7066,14 @@ def api_passkey_enregistrer():
     refus = _refus_passkey() or refus_authentification_ancienne()
     if refus:
         return refus
+    return _enregistrer_cle(utilisateur_courant()) or jsonify({"ok": True})
+
+
+def _enregistrer_cle(nom):
+    """Verifie la reponse du navigateur et range la cle de nom.
+
+    None si la cle est enregistree, sinon la reponse d'erreur.
+    """
     from webauthn import verify_registration_response
     from webauthn.helpers import bytes_to_base64url
     defi = session.get("passkey_defi")
@@ -7072,7 +7092,6 @@ def api_passkey_enregistrer():
     except Exception as e:
         return jsonify({"error": f"Clé refusée : {type(e).__name__}: {e}"}), 400
 
-    nom = utilisateur_courant()
     tout = lire_passkeys()
     liste = tout.setdefault(nom, [])
     identifiant = bytes_to_base64url(verifiee.credential_id)
@@ -7092,7 +7111,55 @@ def api_passkey_enregistrer():
         return jsonify({"error": f"Clé non enregistrée : {e}"}), 500
     session.pop("passkey_defi", None)
     journaliser("passkey", qui=nom, action="ajout", ip=_adresse_client())
-    return jsonify({"ok": True})
+    return None
+
+
+# PREMIERE CONNEXION DE L'ADMINISTRATEUR : FACE ID AU LIEU D'UN CODE A
+# RECOPIER. Le mot de passe vient d'etre reconnu par /login, qui a ouvert
+# une inscription en attente (sans session). Enregistrer une cle d'acces ici
+# vaut exactement ce que vaut le code a six chiffres a la meme etape : le
+# second facteur est lie au navigateur qui a prouve le mot de passe. La cle
+# exige la verification de la personne (Face ID, Touch ID, code de
+# l'appareil), comme partout ailleurs.
+#
+# Les gardes : une inscription admin en attente et recente (10 min), aucun
+# facteur deja enregistre (cette porte ne sert qu'une fois), le verrou du
+# reseau local, la limite de tentatives.
+INSCRIPTION_VALIDITE = 600
+
+
+def _refus_inscription_cle():
+    if rate_limited():
+        return jsonify({"error": "Trop de tentatives. Réessaie dans quelques minutes."}), 429
+    depuis = session.get("inscription_depuis") or 0
+    if (session.get("totp_inscription") != NOM_ADMIN
+            or time.time() - depuis > INSCRIPTION_VALIDITE):
+        return jsonify({"error": "Recommence la connexion : aucune inscription en attente."}), 400
+    hors = refus_admin_hors_reseau()
+    if hors:
+        return jsonify({"error": hors}), 403
+    if totp_actif() or passkeys_du_compte(NOM_ADMIN):
+        return jsonify({"error": "Un second facteur a déjà été enregistré. "
+                                 "Recommence la connexion."}), 409
+    return _refus_passkey()
+
+
+@flask_app.post("/login/inscription/passkey/options")
+def login_inscription_passkey_options():
+    return _refus_inscription_cle() or _options_enregistrement(NOM_ADMIN)
+
+
+@flask_app.post("/login/inscription/passkey")
+def login_inscription_passkey():
+    refus = _refus_inscription_cle()
+    if refus:
+        return refus
+    erreur = _enregistrer_cle(NOM_ADMIN)
+    if erreur:
+        register_failed_attempt()
+        return erreur
+    session.pop("inscription_depuis", None)
+    return _ouvrir_session_admin()
 
 
 @flask_app.get("/api/mon-compte/passkeys")
@@ -9771,11 +9838,20 @@ flask_app.add_url_rule("/" + MAILPIT_NOM, "ouvrir_mailpit_sans_barre",
 # Les deux pages pointent desormais vers /favicon.png?v=... : une vraie
 # adresse, que tous suivent, et versionnee pour qu'aucun cache ne serve un
 # ancien dessin. /favicon.ico repond la meme chose, pour ceux qui la
-# demandent d'eux-memes. Sur l'origine des applications, ces routes
-# n'existent pas (separer_les_origines) : une application garde son icone,
-# ou celle que le proxy lui injecte.
+# demandent d'eux-memes.
+#
+# Cela n'a pas suffi : Safari range les icones par NOM D'HOTE, sans le port.
+# Mailpit (8025) servait son logo sous /favicon.ico, et l'onglet du panneau
+# le reprenait des qu'on revenait d'une application. D'ou :
+#   - /icone-codelab.png, une adresse qu'aucun autre service ne sert ;
+#   - /favicon.ico = le logo CodeLab sur TOUS les ports du nom d'hote
+#     (le panneau, l'origine des applications, Mailpit) : quoi que Safari
+#     retienne pour l'hote, c'est le notre.
+# Une application garde son icone : celle qu'elle declare, ou celle que le
+# proxy lui injecte, passe toujours avant /favicon.ico.
 @flask_app.get("/favicon.ico")
 @flask_app.get("/favicon.png")
+@flask_app.get("/icone-codelab.png")
 def favicon_panneau():
     r = Response(ICONE_CODELAB_PNG, mimetype="image/png")
     r.headers["Cache-Control"] = "no-cache"
