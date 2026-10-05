@@ -559,19 +559,14 @@ services:
       # limite de tentatives ; et un verrou d'administration active depuis
       # l'exterieur, qui se refermerait sur son auteur dans la seconde.
       #
-      # APP_MANAGER_ADMIN_LAN_ONLY reserve le compte d'administration aux
-      # adresses du reseau local -- les comptes nommes, eux, continuent
-      # d'entrer de n'importe ou. C'est la ligne a poser a "0" ici si ce
-      # verrou t'a enferme dehors : c'est sa seule marche arriere.
-      #
-      # Les lignes ci-dessous restent lues et PRIORITAIRES : posees ici,
-      # elles grisent la case correspondante. C'est la marche arriere qui ne
-      # depend pas du panneau, utile si un reglage le rend inatteignable.
+      # Aujourd'hui, plus rien de cela n'est reglable : X-Forwarded-For
+      # n'est jamais cru, l'administration ne repond qu'au reseau local en
+      # connexion directe, et le cookie devient Secure des que la requete
+      # arrive en https. APP_MANAGER_TRUST_PROXY et APP_MANAGER_ADMIN_LAN_ONLY
+      # sont ignorees ; APP_MANAGER_HTTPS=1 peut seulement forcer Secure.
       #
       # APP_MANAGER_HTTPS: "1"
-      # APP_MANAGER_TRUST_PROXY: "1"
       # APP_MANAGER_PUBLIC_URL: "https://codelab.tondomaine.fr"
-      # APP_MANAGER_ADMIN_LAN_ONLY: "1"
       # Second facteur OBLIGATOIRE pour le compte d'administration. Marche
       # arriere en cas de telephone perdu : decommenter, relancer, se
       # reconnecter, enregistrer un nouveau facteur, puis recommenter.

@@ -497,7 +497,7 @@ input::placeholder{color:var(--dim2)}
 /* UNE CASE A COCHER N'EST PAS UN CHAMP DE SAISIE. La regle "input{width:100%}"
    juste au-dessus s'appliquait aussi aux cases : elles s'etiraient sur toute
    la largeur, et comme un label est un bloc, leur intitule tombait a la
-   ligne en dessous. « Proxy de confiance » s'affichait ainsi sous une case
+   ligne en dessous. L'intitule d'une case s'affichait ainsi sous une case
    centree, sans lien visible entre les deux. */
 input[type=checkbox],input[type=radio]{width:auto;margin:0;flex:none;
  /* Un peu plus grandes que par defaut : a 13 px, une case se vise mal et se
@@ -1284,7 +1284,6 @@ table.tbl-journal{min-width:560px}
 .sous-taches{margin-left:2px}
 
 /* ---------------- reperes communs aux deux styles ---------------- */
-.reglages-btn{display:none}
 .salut{display:none}
 .side-item.utilisateur-seul{display:none}
 .compte-utilisateur #sidebar,.compte-utilisateur #btn-menu{display:none}
@@ -1294,11 +1293,14 @@ table.tbl-journal{min-width:560px}
  color:var(--dim2);margin:4px 0 8px}
 
 /* =====================================================================
-   STYLE « DESIGN ». Les couleurs et la police sont dans theme.css ; ici,
-   la MISE EN PAGE : menu en pilule au centre du bandeau (barre du bas sur
-   un telephone), roue crantee a cote du compte, hub en grandes icones dans
-   une carte blanche, reglages en fenetre facon Mac. Le HTML et les
-   fonctions sont ceux du style classique.
+   STYLE 2 (cle interne « design »). Les couleurs et la police sont dans
+   theme.css ; ici, la MISE EN PAGE : menu en pilule au centre du bandeau
+   (barre du bas sur un telephone), hub en grandes icones dans une carte
+   blanche, reglages en fenetre facon Mac. Le HTML et les fonctions sont
+   ceux du style 1.
+
+   UN SEUL RYTHME D'ESPACEMENT : 8 / 16 / 24 / 32. Dedans une zone, 16 ;
+   entre deux zones, 32 ; le bord d'une grande carte, 32 (24 au telephone).
    ===================================================================== */
 :root[data-style="design"] body{letter-spacing:-.01em}
 :root[data-style="design"] .topbar{height:68px;padding:0 28px;background:var(--bg);border-bottom:0}
@@ -1306,17 +1308,16 @@ table.tbl-journal{min-width:560px}
 :root[data-style="design"] .topbar-brand b{font-size:18px;font-weight:800}
 :root[data-style="design"] .topbar-brand:hover{background:none}
 :root[data-style="design"] #btn-menu,:root[data-style="design"] .qui{display:none}
-:root[data-style="design"] .reglages-btn{display:grid;place-items:center;width:44px;height:44px;border-radius:50%;
- border:0;background:var(--surface);color:var(--txt);cursor:pointer;
- box-shadow:0 1px 3px var(--shadow-2)}
-:root[data-style="design"] .reglages-btn svg{width:20px;height:20px}
-:root[data-style="design"] .reglages-btn:hover{color:var(--accent)}
 :root[data-style="design"] .acct-btn{width:44px;height:44px;border:0;background:var(--accent);color:var(--sur-accent)}
 :root[data-style="design"] .acct-btn:hover,:root[data-style="design"] .acct-btn.active{background:var(--accent-h);color:var(--sur-accent)}
 :root[data-style="design"] .acct-menu{top:52px;border-radius:16px;padding:6px}
 :root[data-style="design"] .page-body{display:block}
 :root[data-style="design"] .wrap{max-width:1120px;padding:20px 28px 64px}
 :root[data-style="design"] .toolbar h2{font-size:30px;letter-spacing:-.035em}
+:root[data-style="design"] .toolbar{margin-bottom:16px}
+:root[data-style="design"] .zone{margin-bottom:32px}
+:root[data-style="design"] .zone-title{margin-bottom:12px}
+:root[data-style="design"] .card{padding:20px 24px}
 
 /* Le menu : une pilule au centre du bandeau. */
 :root[data-style="design"] .sidebar{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:45;
@@ -1349,13 +1350,20 @@ table.tbl-journal{min-width:560px}
 
 /* Le hub : un bonjour, puis les icones dans une carte blanche. */
 :root[data-style="design"] #sec-hub>.toolbar{display:none}
-:root[data-style="design"] .salut{display:block;text-align:center;font-size:44px;font-weight:800;letter-spacing:-.04em;
- margin:18px 0 28px;line-height:1.1}
+/* Le bonjour s'aligne a GAUCHE, sur le bord de la carte qu'il annonce :
+   meme largeur maximale, meme marge automatique. */
+:root[data-style="design"] .salut{display:block;text-align:left;font-size:38px;font-weight:800;letter-spacing:-.04em;
+ max-width:920px;margin:24px auto 24px;padding:0 8px;line-height:1.1}
 :root[data-style="design"] #hub-liste.hub-liste,:root[data-style="design"] .hub-groupe{background:var(--surface);border-radius:32px;
- padding:30px 34px 34px;box-shadow:0 10px 40px var(--shadow);max-width:920px;margin:0 auto 18px}
-:root[data-style="design"] .hub-groupe-titre{font-size:14px;letter-spacing:0;text-transform:none;color:var(--dim);margin-bottom:18px}
-:root[data-style="design"] .hub-liste.compacte{grid-template-columns:repeat(auto-fill,minmax(124px,1fr));gap:22px 10px}
-:root[data-style="design"] .hub-liste.compacte .hub-projet{padding:4px}
+ padding:32px;box-shadow:0 10px 40px var(--shadow);max-width:920px;margin:0 auto 24px}
+:root[data-style="design"] .hub-groupe-titre{font-size:14px;letter-spacing:0;text-transform:none;color:var(--dim);
+ margin:0 0 24px;text-align:center}
+/* Les icones au CENTRE de la carte. Une grille auto-fill laisse ses pistes
+   vides a droite : trois applications se tassaient a gauche d'une carte
+   large. Un flex centre les repartit au milieu, a largeur fixe. */
+:root[data-style="design"] .hub-liste.compacte{display:flex;flex-wrap:wrap;justify-content:center;gap:24px 16px}
+:root[data-style="design"] .hub-liste.compacte .hub-projet{padding:4px;width:124px;flex:none}
+:root[data-style="design"] .hub-groupe .hub-liste.compacte{background:none;box-shadow:none;padding:0;margin:0;max-width:none}
 :root[data-style="design"] .hub-liste.compacte .hub-projet img{width:84px;height:84px;border-radius:26px;
  box-shadow:0 6px 16px var(--shadow-2)}
 :root[data-style="design"] .hub-liste.compacte .hub-projet .nom{font-size:15px;font-weight:700}
@@ -1376,22 +1384,29 @@ table.tbl-journal{min-width:560px}
    margin:0;padding:12px 10px;border:0;border-right:1px solid var(--line);background:var(--surface2);
    max-width:none}
   :root[data-style="design"] #param-onglets button{display:flex;align-items:center;gap:10px;text-align:left;
-   padding:7px 10px;border:0;border-radius:8px;font-size:13px;font-weight:500;color:var(--txt);
+   padding:8px 10px;border:0;border-radius:8px;font-size:13px;font-weight:500;color:var(--txt);
    margin:0}
-  :root[data-style="design"] #param-onglets button::before{content:"";display:inline-block;width:22px;height:22px;
-   border-radius:6px;vertical-align:middle;margin-right:10px;background:var(--pastille,#8E8E93)}
-  :root[data-style="design"] #param-onglets button[data-p="compte"]{--pastille:#3B82F6}
-  :root[data-style="design"] #param-onglets button[data-p="securite"]{--pastille:#34C759}
-  :root[data-style="design"] #param-onglets button[data-p="serveur"]{--pastille:#0B6E77}
-  :root[data-style="design"] #param-onglets button[data-p="categories"]{--pastille:#AF52DE}
-  :root[data-style="design"] #param-onglets button[data-p="email"]{--pastille:#FF9500}
-  :root[data-style="design"] #param-onglets button[data-p="message"]{--pastille:#5E6280}
+  /* Une icone au trait, dans la couleur du texte : neutre, comme le reste
+     de l'interface. Un masque SVG (data:) plutot qu'une balise par onglet :
+     le HTML reste celui du style 1. */
+  :root[data-style="design"] #param-onglets button::before{content:"";display:inline-block;width:18px;height:18px;flex:none;
+   vertical-align:-4px;margin-right:10px;background-color:currentColor;opacity:.72;-webkit-mask:var(--icone) center/contain no-repeat;mask:var(--icone) center/contain no-repeat}
+  :root[data-style="design"] #param-onglets button.active::before{opacity:1}
+  :root[data-style="design"] #param-onglets button[data-p="compte"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='8' r='4'/%3E%3Cpath d='M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8'/%3E%3C/svg%3E")}
+  :root[data-style="design"] #param-onglets button[data-p="securite"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z'/%3E%3Cpath d='M9 12l2 2 4-4'/%3E%3C/svg%3E")}
+  :root[data-style="design"] #param-onglets button[data-p="serveur"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='7' rx='2'/%3E%3Crect x='3' y='13' width='18' height='7' rx='2'/%3E%3Cpath d='M7 7.5h.01M7 16.5h.01'/%3E%3C/svg%3E")}
+  :root[data-style="design"] #param-onglets button[data-p="categories"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/%3E%3C/svg%3E")}
+  :root[data-style="design"] #param-onglets button[data-p="email"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='14' rx='2'/%3E%3Cpath d='M3 7l9 6 9-6'/%3E%3C/svg%3E")}
+  :root[data-style="design"] #param-onglets button[data-p="message"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12a8 8 0 0 1-11.6 7.1L4 21l1.9-5.4A8 8 0 1 1 21 12z'/%3E%3C/svg%3E")}
   :root[data-style="design"] #param-onglets button.active{background:var(--accent);color:var(--sur-accent);border:0}
   :root[data-style="design"] #sec-parametres .onglet-p.actif{grid-column:2;grid-row:2;max-width:none;border:0;
-   border-radius:0;box-shadow:none;padding:20px 28px 28px;background:var(--surface)}
-  :root[data-style="design"] #sec-parametres .onglet-p .zone{margin-bottom:12px}
+   border-radius:0;box-shadow:none;padding:24px 32px 32px;background:var(--surface)}
+  :root[data-style="design"] #sec-parametres .onglet-p .zone{margin-bottom:24px}
+  :root[data-style="design"] #sec-parametres .onglet-p .zone:last-child{margin-bottom:0}
+  :root[data-style="design"] #sec-parametres .onglet-p .zone-title{margin:0 0 8px 4px}
+  :root[data-style="design"] #sec-parametres .onglet-p .settings-card + .settings-card{margin-top:8px}
   :root[data-style="design"] #sec-parametres .onglet-p .settings-card{background:var(--surface2);border:1px solid var(--line);
-   border-radius:10px;padding:12px 16px}
+   border-radius:10px;padding:14px 16px}
   :root[data-style="design"] #sec-parametres .onglet-p .zone:last-child .settings-card:last-child{border-bottom:1px solid var(--line)}
   :root[data-style="design"] #sec-parametres .settings-card.pliable>.card-top{margin:-12px -16px;padding:12px 16px}
   :root[data-style="design"] #sec-parametres .settings-card.pliable>.card-top:hover{background:var(--line)}
@@ -1421,9 +1436,13 @@ table.tbl-journal{min-width:560px}
   :root[data-style="design"] .voile-menu.show{display:none}
   :root[data-style="design"] .main-area{padding-bottom:84px}
   :root[data-style="design"] .wrap{padding:12px 16px 40px}
-  :root[data-style="design"] .salut{font-size:30px;text-align:left;margin:6px 0 18px}
-  :root[data-style="design"] #hub-liste.hub-liste,:root[data-style="design"] .hub-groupe{padding:20px 14px 22px;border-radius:26px}
-  :root[data-style="design"] .hub-liste.compacte{grid-template-columns:repeat(3,minmax(0,1fr));gap:18px 6px}
+  :root[data-style="design"] .salut{font-size:30px;margin:8px auto 16px;padding:0 4px}
+  :root[data-style="design"] #hub-liste.hub-liste,:root[data-style="design"] .hub-groupe{padding:24px 12px;border-radius:26px;margin-bottom:16px}
+  :root[data-style="design"] .hub-groupe-titre{margin-bottom:16px}
+  :root[data-style="design"] .hub-liste.compacte{gap:16px 0}
+  :root[data-style="design"] .hub-liste.compacte .hub-projet{width:33.333%}
+  :root[data-style="design"] .zone{margin-bottom:24px}
+  :root[data-style="design"] .card{padding:16px}
   :root[data-style="design"] .hub-liste.compacte .hub-projet img{width:66px;height:66px;border-radius:21px}
   :root[data-style="design"] .hub-liste.compacte .hub-projet .nom{font-size:13px}
 }
@@ -1441,11 +1460,6 @@ table.tbl-journal{min-width:560px}
   <div class="spacer"></div>
 
   <div class="qui"><b id="qui-nom"></b><span id="qui-role"></span></div>
-  <!-- La roue crantee, a cote du compte : le style Design la montre ; le
-       style classique garde l'entree du menu du compte. -->
-  <button class="reglages-btn" id="reglages-btn" onclick="allerA('parametres')"
-          title="Paramètres" aria-label="Paramètres"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/>
-        <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></button>
   <div class="acct-wrap">
     <button class="acct-btn" id="acct-btn" onclick="toggleAcctMenu()" title="Compte">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20.5c0-4.1 3.4-7.5 7.5-7.5s7.5 3.4 7.5 7.5"/></svg></button>
@@ -1962,12 +1976,12 @@ table.tbl-journal{min-width:560px}
       <div class="choix-liste" id="style-toggle" style="margin-bottom:14px">
         <button data-s="classique" onclick="setStyle('classique')">
           <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
-          <span><b>Classique</b><i>Menu latéral, cartes compactes.</i></span>
+          <span><b>Style 1</b><i>Menu latéral, cartes compactes.</i></span>
           <svg class="coche" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
         </button>
         <button data-s="design" onclick="setStyle('design')">
           <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2.5"/><rect x="14" y="3" width="7" height="7" rx="2.5"/><rect x="3" y="14" width="7" height="7" rx="2.5"/><rect x="14" y="14" width="7" height="7" rx="2.5"/></svg>
-          <span><b>Design</b><i>Grandes icônes, menu en haut, réglages façon Mac.</i></span>
+          <span><b>Style 2</b><i>Grandes icônes, menu en haut, réglages façon Mac.</i></span>
           <svg class="coche" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
         </button>
       </div>
@@ -2208,32 +2222,10 @@ table.tbl-journal{min-width:560px}
       <div id="vps-fichiers"></div>
       </details>
 
-      <details class="repli"><summary>Réglages avancés (proxy, HTTPS, réseau local)</summary>
-        <div class="hint" style="margin-top:8px">Une case grisée dit pourquoi elle ne peut pas s'activer.</div>
-      <div class="field" style="margin-top:14px">
-        <label class="choix-ligne">
-          <input type="checkbox" id="expo-proxy" onchange="expoBascule('trust_proxy', this)">
-          <div class="proj-txt"><b>Proxy de confiance</b></div></label>
-        <div class="hint" id="expo-proxy-aide"></div>
-      </div>
-
-      <div class="field" style="margin-top:10px">
-        <label class="choix-ligne">
-          <input type="checkbox" id="expo-https" onchange="expoBascule('https', this)">
-          <div class="proj-txt"><b>Servi en HTTPS</b></div></label>
-        <div class="hint" id="expo-https-aide"></div>
-      </div>
-
-      <div class="field" style="margin-top:10px">
-        <label class="choix-ligne">
-          <input type="checkbox" id="expo-admin-lan"
-            onchange="expoBascule('admin_reseau_local', this)">
-          <div class="proj-txt"><b>Administration réservée au réseau local</b></div></label>
-        <div class="hint" id="expo-admin-lan-aide"></div>
-      </div>
-
-      <div class="err" id="expo-err" style="display:none"></div>
-      </details>
+      <!-- Plus de reglage ici : la securite reseau est toujours au plus
+           strict (voir securite_reseau dans app.py). -->
+      <div class="hint" style="margin-top:12px">L'administration ne répond qu'au réseau local, et le
+        cookie de session devient sécurisé dès que le panneau arrive en HTTPS.</div>
     </div>
   </div>
   </div>
@@ -2311,21 +2303,9 @@ table.tbl-journal{min-width:560px}
 
       <div class="actions">
         <button class="btn btn-primary" id="sm-save" onclick="alEnregistrer('sm')">Vérifier et enregistrer</button>
-        <button class="btn btn-default" id="sm-reset" onclick="alRevenirOrigine()">Revenir à la configuration d'origine</button>
       </div>
       <div class="err" id="sm-err" style="display:none"></div>
       <div class="hint" id="sm-msg" style="display:none"></div>
-      <details class="repli"><summary>Configuration d'origine (repli)</summary>
-        <div class="hint">Celle de <code>credentials.env</code>, posée à l'installation. Si la
-          configuration ci-dessus cesse de fonctionner, les mails repartent par celle-ci.
-          <span class="pill" id="sm-origine-etat"><i></i>&nbsp;</span></div>
-      <div class="kv" style="margin-top:12px"><span class="k">Serveur</span>
-        <span class="v" id="sm-origine-host">&mdash;</span></div>
-      <div class="kv"><span class="k">Expéditeur</span>
-        <span class="v" id="sm-origine-from">&mdash;</span></div>
-      <div class="hint" style="margin-top:10px">Se modifie dans <code>credentials.env</code>
-        (bloc <code>codelab-alertes</code>).</div>
-      </details>
     </div>
   </div>
 
@@ -2478,7 +2458,11 @@ table.tbl-journal{min-width:560px}
         <div class="path">Chacun n'ouvre que les projets privés que tu lui autorises.</div>
       </div>
       <div class="spacer"></div>
-      <button class="btn btn-primary btn-sm" onclick="invFormulaire(true)">Inviter quelqu'un</button></div>
+      <button class="btn btn-primary btn-sm" id="inv-ouvrir" onclick="invFormulaire(true)">Inviter quelqu'un</button></div>
+
+      <div class="hint smtp-requis" id="us-smtp-requis" style="display:none;margin-top:12px">
+        Règle d'abord un <a href="/parametres/email" onclick="event.preventDefault();smtpRegler()">serveur
+        d'envoi</a> : sans lui, personne ne peut recevoir son invitation ni ses codes de connexion.</div>
 
       <!-- INVITER, C'EST DONNER UNE ADRESSE. La personne recoit un lien et
            choisit elle-meme son nom et son mot de passe : rien a inventer
@@ -2614,6 +2598,20 @@ table.tbl-journal{min-width:560px}
   <div class="mf">
     <button class="btn btn-default" onclick="faceIdPlusTard()">Plus tard</button>
     <button class="btn btn-primary" id="fid-ok" onclick="faceIdActiver()">Activer</button>
+  </div>
+</div></div>
+
+<!-- SANS SERVEUR D'ENVOI, PAS DE COMPTES. Propose a la connexion de
+     l'administrateur tant que rien n'est regle : une invitation est un mail,
+     et chaque compte recoit ses codes de connexion par mail. -->
+<div class="ov" id="ov-smtp"><div class="modal" style="max-width:460px">
+  <div class="mh"><h3>Régler l'envoi des e-mails</h3>
+    <p>Aucun serveur d'envoi (SMTP) n'est réglé. Sans lui, impossible d'inviter quelqu'un
+      ou de créer un compte : chacun reçoit son invitation et ses codes de connexion par e-mail.
+      Les alertes partent aussi par là.</p></div>
+  <div class="mf">
+    <button class="btn btn-default" onclick="smtpPlusTard()">Plus tard</button>
+    <button class="btn btn-primary" onclick="smtpRegler()">Régler maintenant</button>
   </div>
 </div></div>
 
@@ -5828,6 +5826,31 @@ function nomDuGeste(){
   if(/Windows/.test(ua)) return 'Windows Hello';
   return 'une clé d\'accès';
 }
+/* ---------------- serveur d'envoi requis ---------------- */
+function majSmtpRequis(ok){
+  SMTP_OK = ok;
+  $('us-smtp-requis').style.display = ok ? 'none' : 'block';
+  $('inv-ouvrir').disabled = !ok;
+  if(!ok){ invFormulaire(false); usFormulaire(false); }
+}
+function smtpPlusTard(){
+  try{ sessionStorage.setItem('codelab-smtp-plus-tard', '1'); }catch(e){}
+  hide('ov-smtp');
+}
+function smtpRegler(){
+  hide('ov-smtp');
+  allerA('parametres');
+  paramOnglet('email');
+}
+/* A la connexion de l'administrateur, tant que rien n'est regle. Une fois
+   par session : « Plus tard » ne doit pas revenir a chaque page. */
+function proposerSmtp(){
+  if(!estAdmin || SMTP_OK) return false;
+  try{ if(sessionStorage.getItem('codelab-smtp-plus-tard')) return false; }catch(e){}
+  $('ov-smtp').classList.add('show');
+  return true;
+}
+
 async function proposerFaceId(){
   const bienvenue = new URLSearchParams(location.search).has('bienvenue');
   if(bienvenue) history.replaceState(null, '', location.pathname);
@@ -5997,9 +6020,8 @@ async function chargerAlertes(){
      meme si personne n'est encore prevenu quand une application tombe. */
   const ps=$('sm-etat');
   ps.className='pill '+(d.smtp_ok?'on':'off');
-  ps.innerHTML='<i></i>'+(d.smtp_ok
-    ? (d.source==='personnalisee' ? 'Personnalisee' : 'Configuration d\'origine')
-    : 'Non configuré');
+  ps.innerHTML='<i></i>'+(d.smtp_ok ? 'Configuré' : 'Non configuré');
+  majSmtpRequis(!!d.smtp_ok);
 
   /* Le formulaire montre la configuration PERSONNALISEE, jamais celle
      d'origine : sinon enregistrer la recopierait au coffre, et l'on
@@ -6011,16 +6033,6 @@ async function chargerAlertes(){
   $('al-pass').value = '';
   $('al-pass').placeholder = perso.mot_de_passe_defini ? 'inchange' : 'aucun';
   alSetTls(perso.tls||'starttls');
-  $('sm-reset').disabled = !d.personnalisee;
-
-  const org = d.origine || {};
-  const po=$('sm-origine-etat');
-  po.className='pill '+(d.origine_utilisable?'on':'off');
-  po.innerHTML='<i></i>'+(d.origine_utilisable
-    ? (d.source==='personnalisee' ? 'En repli' : 'En service') : 'Absente');
-  $('sm-origine-host').textContent = org.host
-    ? org.host+':'+org.port+' ('+org.tls+')' : 'aucune';
-  $('sm-origine-from').textContent = org.expediteur || 'aucun';
 
   $('al-admin').value = (d.admin||[]).join(', ');
 
@@ -6032,11 +6044,7 @@ async function chargerAlertes(){
   }
 
   $('al-smtp-source').innerHTML = d.smtp_ok
-    ? ('Les mails sortent par la configuration <b>'
-       + (d.source==='personnalisee' ? 'personnalisee' : 'd\'origine')
-       + '</b> (onglet <b>E-mail</b>)'
-       + (d.source==='personnalisee' && d.origine_utilisable
-          ? ', avec celle d\'origine en repli.' : '.'))
+    ? 'Les mails sortent par le serveur réglé dans l\'onglet <b>E-mail</b>.'
     : 'Aucun serveur d\'envoi utilisable : les alertes ne partiront pas. '
       + 'Règle-le dans l\'onglet <b>E-mail</b>.';
 
@@ -6133,18 +6141,6 @@ async function alEnregistrer(ou){
   }
 }
 
-/* Toujours permis, sans condition : c'est la marche arriere, et on la
-   cherche justement quand rien ne va. */
-async function alRevenirOrigine(){
-  alMessage('', false, 'sm');
-  const corps=alCorps();
-  corps.smtp={host:''};
-  if(await alPoster(corps, 'sm-reset', 'sm')){
-    await chargerAlertes();
-    alMessage('Retour a la configuration d\'origine.', false, 'sm');
-  }
-}
-
 async function alBasculer(){
   alMessage('', false);
   const corps=alCorps();
@@ -6165,39 +6161,6 @@ async function chargerSecurite(){
   $('totp-etape-1').style.display = d.totp ? 'none' : 'block';
   $('totp-etape-3').style.display = d.totp ? 'block' : 'none';
   $('totp-etape-2').style.display = 'none';
-
-  /* Les trois interrupteurs. Une case grisee doit TOUJOURS dire pourquoi :
-     sans cela, on clique dans le vide sans savoir ce qui manque. */
-  const poser = (id, actif, fige, possible, aideOk, aideNon, aideFigee)=>{
-    const c=$(id); if(!c) return;
-    c.checked = !!actif;
-    /* Eteindre reste permis en toutes circonstances : on ne grise que
-       l'ALLUMAGE, et seulement quand il est refuse. */
-    c.disabled = !!fige || (!actif && !possible);
-    $(id+'-aide').innerHTML = fige ? aideFigee : (actif ? aideOk : (possible ? '' : aideNon));
-  };
-  poser('expo-proxy', d.trust_proxy, d.trust_proxy_fige, d.peut_activer_trust_proxy,
-        "Les adresses des visiteurs viennent de X-Forwarded-For.",
-        "Aucun en-tete <b>X-Forwarded-*</b> sur cette requête : rien ne prouve qu'un proxy est "
-        + "devant. L'activer laisserait n'importe quel client s'inventer une adresse.",
-        "Fixé par APP_MANAGER_TRUST_PROXY dans le compose.");
-  poser('expo-https', d.https, d.https_fige, d.peut_activer_https,
-        "Le cookie de session est marqué Secure.",
-        "Cette page n'arrive pas en https" + (d.https_constate ? "" : " et rien ne l'annonce")
-        + ". Mets le TLS en place, reviens par https, et la case s'activera"
-        + (d.https_constate && !d.trust_proxy ? " — ou déclare d'abord ton proxy ci-dessus." : "."),
-        "Fixé par APP_MANAGER_HTTPS dans le compose.");
-  poser('expo-admin-lan', d.admin_reseau_local, d.admin_reseau_local_fige,
-        d.peut_activer_admin_reseau_local,
-        "Le compte d'administration ne répond qu'aux adresses du réseau local. "
-        + "Les comptes nommés, eux, entrent toujours de n'importe où.",
-        (d.proxy_non_declare
-          ? ("Un proxy non déclaré s'interpose : toutes les requêtes paraîtraient locales, "
-             + "et ce réglage ne protégerait rien. Déclare-le ci-dessus d'abord.")
-          : ("Cette requête vient de <b>" + esc(d.client_ip||'?') + "</b>, hors du réseau local. "
-             + "L'activer maintenant te retirerait l'administration à l'instant même. "
-             + "Reconnecte-toi depuis chez toi et la case s'activera.")),
-        "Fixé par APP_MANAGER_ADMIN_LAN_ONLY dans le compose.");
 
   adressePublique = d.adresse_publique || '';
   $('pub-adresse').value = adressePublique;
@@ -6220,18 +6183,6 @@ async function chargerAdressePublique(){
     const d=await (await fetch('/api/securite')).json();
     adressePublique = d.adresse_publique || '';
   }catch(e){}
-}
-/* Bascule un reglage d'exposition. En cas de refus, la case revient d'elle
-   meme a son etat reel : laisser une case cochee sur un refus ferait croire
-   que c'est pose. */
-async function expoBascule(cle, boite){
-  const e=$('expo-err'); e.style.display='none';
-  const corps={}; corps[cle]=boite.checked;
-  const r=await fetch('/api/securite/exposition',{method:'PUT',
-    headers:{'Content-Type':'application/json'}, body:JSON.stringify(corps)});
-  const d=await r.json();
-  if(!r.ok){ e.textContent=d.error||'Enregistrement impossible.'; e.style.display='block'; }
-  chargerSecurite();
 }
 
 async function pubEnregistrer(){
@@ -6427,6 +6378,7 @@ ROOT=__ROOT__;
    uniquement : chaque route verifie le role de son cote. */
 const ROLE=__ROLE__, UTILISATEUR=__UTILISATEUR__;
 const estAdmin = ROLE==='admin';
+let SMTP_OK = __SMTP__;
 
 $('qui-nom').textContent = UTILISATEUR || '';
 $('hub-salut').textContent = 'Bonjour, ' + (UTILISATEUR || 'admin');
@@ -6512,7 +6464,10 @@ majOngletsParametres();
    etats changent tout seuls quand une application tombe ou repart. */
 routerDepuisAdresse();
 surveiller(()=>{ if(visible('sec-hub')) chargerHub(); }, 10000);
-proposerFaceId();
+if(estAdmin) majSmtpRequis(SMTP_OK);
+/* Une seule invitation a la fois : l'envoi des mails d'abord, Face ID au
+   prochain passage. */
+if(!proposerSmtp()) proposerFaceId();
 
 
 /* Au retour sur l'onglet (page restauree par « Precedent », onglet repris),

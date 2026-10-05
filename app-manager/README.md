@@ -62,9 +62,8 @@ applications est gere directement par ce service.
   - cookie de session en `SameSite=Lax` et `HttpOnly`. Les actions du panneau sont des `POST` sans corps :
     sans `SameSite`, n'importe quelle page ouverte dans le meme navigateur pouvait poster un formulaire vers
     `/api/toggle/<app>` et piloter la stack a l'insu de l'utilisateur, commande de build comprise ;
-  - `X-Forwarded-For` n'est cru que si `APP_MANAGER_TRUST_PROXY=1`. Le service etant publie directement sur
-    le port 9001, l'en-tete est pose par le client : le faire varier a chaque essai donnait un compteur neuf
-    et annulait la limite de 5 tentatives par 5 minutes ;
+  - `X-Forwarded-For` n'est jamais cru : l'en-tete est pose par le client, et le faire varier a chaque essai
+    donnait un compteur neuf qui annulait la limite de 5 tentatives par 5 minutes. Ce n'est plus un reglage ;
   - comparaison du mot de passe en temps constant (`secrets.compare_digest`) ;
   - chemin d'une application borne a `APP_MANAGER_ROOT` a l'ajout **et** a la modification, comme le
     navigateur de dossiers l'etait deja.
@@ -684,8 +683,8 @@ page servie en clair deconnecterait sur-le-champ la session qui vient de les act
 
 | Variable | Quand | Pourquoi |
 |---|---|---|
-| `APP_MANAGER_HTTPS=1` | des qu'un reverse proxy termine le TLS devant — **ou la case « Servi en HTTPS »**, *Parametres > Serveur* | Pose le cookie de session en `Secure` : il cesse de circuler sur une connexion en clair. Posee ici, la variable l'emporte sur la case et la grise |
-| `APP_MANAGER_TRUST_PROXY=1` | derriere un reverse proxy **de confiance** uniquement — **ou la case « Proxy de confiance »** | Fait lire l'adresse reelle du visiteur dans `X-Forwarded-For`. Sans reverse proxy, l'activer permettrait a n'importe qui de contourner la limite de tentatives en variant l'en-tete |
+| `APP_MANAGER_HTTPS=1` | facultatif | Force le cookie `Secure`. Sans elle, il le devient de lui-meme des que la requete arrive en https (directement ou via `X-Forwarded-Proto`), HSTS aussi |
+| ~~`APP_MANAGER_TRUST_PROXY`~~, ~~`APP_MANAGER_ADMIN_LAN_ONLY`~~ | ignorees | La configuration est toujours la plus stricte : `X-Forwarded-For` jamais cru, administration reservee au reseau local en connexion directe |
 
 La page *Parametres > Securite* affiche l'etat des trois, pour verifier d'un coup d'oeil ce qui est en place.
 

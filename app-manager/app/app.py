@@ -2265,10 +2265,13 @@ def _hote_et_schema():
     « mets du TLS » mais « declare ton proxy ».
     """
     hote = (request.host or "").split(":")[0]
+    # Le schema annonce par un proxy suffit ici : la signature d'une cle
+    # d'acces porte l'origine que le navigateur a REELLEMENT vue, et ne
+    # concordera pas avec un schema invente.
     annonce = (request.headers.get("X-Forwarded-Proto") or "").lower()
-    if trust_proxy() and annonce:
+    if annonce in ("http", "https"):
         return hote, annonce, False
-    return hote, request.scheme, (annonce == "https" and request.scheme != "https")
+    return hote, request.scheme, False
 
 
 def passkey_contexte():
@@ -5736,6 +5739,28 @@ def smtp_utilisable():
     return cfg, not smtp_incomplet(cfg)
 
 
+def envoi_mail_configure():
+    """Un serveur d'envoi est-il regle ? Sans lui, aucun compte : un compte
+    se connecte avec un code envoye par e-mail, et une invitation EST un
+    e-mail. Creer un compte qui ne pourrait pas recevoir son code, ce
+    serait le laisser entrer sans second facteur -- ou ne jamais entrer."""
+    try:
+        return smtp_utilisable()[1]
+    except Exception:                                             # noqa: BLE001
+        return False
+
+
+SMTP_REQUIS = ("Règle d'abord un serveur d'envoi (Paramètres › E-mail) : sans lui, "
+               "aucun compte ne peut recevoir son invitation ni ses codes de connexion.")
+
+
+def _refus_sans_smtp():
+    """409 si aucun serveur d'envoi n'est regle, None sinon."""
+    if envoi_mail_configure():
+        return None
+    return jsonify({"error": SMTP_REQUIS, "smtp_requis": True}), 409
+
+
 # LES MAILS DU PANNEAU PASSENT PAR MAILPIT, comme ceux des applications.
 #
 # Avant, le panneau parlait directement au serveur d'envoi : ses mails
@@ -6362,11 +6387,14 @@ EXPOSITION_FILE = os.path.join(STATE_DIR, "exposition.json")
 # surtout, c'est la seule marche arriere qui ne depend pas du panneau. Si un
 # reglage pose ici rendait le panneau inatteignable, il resterait le compose
 # pour reprendre la main.
+#
+# Seule l'adresse publique reste un reglage. APP_MANAGER_TRUST_PROXY et
+# APP_MANAGER_ADMIN_LAN_ONLY sont ignorees : proxy jamais cru,
+# administration toujours locale. APP_MANAGER_HTTPS=1 peut seulement forcer
+# le cookie Secure, jamais le retirer.
 REGLAGES_EXPOSITION = {
     "adresse_publique": "APP_MANAGER_PUBLIC_URL",
     "https": "APP_MANAGER_HTTPS",
-    "trust_proxy": "APP_MANAGER_TRUST_PROXY",
-    "admin_reseau_local": "APP_MANAGER_ADMIN_LAN_ONLY",
 }
 
 
@@ -6420,26 +6448,33 @@ def adresse_publique():
 
 
 def https_actif():
-    """Le panneau se considere-t-il servi en HTTPS ?
+    """La requete en cours arrive-t-elle en HTTPS ?
 
-    Lu a chaque appel, et non fige au demarrage : c'est ce qui permet de le
-    regler depuis la page Exposition sans redemarrer le service.
+    PLUS DE REGLAGE : le cookie de session devient « Secure » et HSTS part
+    des que le navigateur parle en https -- directement, ou derriere un
+    proxy qui l'annonce (X-Forwarded-Proto). Croire cet en-tete ici ne
+    donne rien a un menteur : un cookie Secure pose sur une connexion en
+    clair est ignore par le navigateur, et HSTS aussi. APP_MANAGER_HTTPS=1
+    le force (jamais l'inverse).
     """
-    if fixe_par_environnement("https"):
-        return _vrai(os.environ.get("APP_MANAGER_HTTPS"))
-    return bool(lire_exposition().get("https"))
+    if _vrai(os.environ.get("APP_MANAGER_HTTPS")):
+        return True
+    if not has_request_context():
+        return False
+    return request.is_secure or (
+        (request.headers.get("X-Forwarded-Proto") or "").lower() == "https")
 
 
 def trust_proxy():
-    """Croit-on les en-tetes X-Forwarded-* ?
+    """Croit-on X-Forwarded-For pour l'adresse du visiteur ? JAMAIS.
 
-    Etait une constante calculee a l'import. Devenue une fonction pour la
-    meme raison que ci-dessus -- et toutes les lectures passent par elle,
-    sans quoi la moitie du panneau garderait l'ancienne valeur.
+    C'etait un reglage. Il ne l'est plus : n'importe quel client peut poser
+    cet en-tete, et s'y fier ouvrait la porte a qui se dirait « 192.168.1.10 ».
+    L'adresse du visiteur est celle de la connexion, point. Derriere un
+    proxy, tous les visiteurs partagent donc son adresse -- c'est plus
+    strict (la limite de tentatives les compte ensemble), jamais moins.
     """
-    if fixe_par_environnement("trust_proxy"):
-        return _vrai(os.environ.get("APP_MANAGER_TRUST_PROXY"))
-    return bool(lire_exposition().get("trust_proxy"))
+    return False
 
 
 # ------------- l'administration reste sur le reseau local -------------
@@ -6520,12 +6555,10 @@ def proxy_non_declare():
 
 
 def admin_limite_au_reseau_local():
-    """Le reglage est-il actif ? L'environnement l'emporte, comme les autres
-    -- c'est la seule marche arriere qui ne passe pas par le panneau, et
-    celle qui compte le jour ou l'on se retrouve enferme dehors."""
-    if fixe_par_environnement("admin_reseau_local"):
-        return _vrai(os.environ.get("APP_MANAGER_ADMIN_LAN_ONLY"))
-    return bool(lire_exposition().get("admin_reseau_local"))
+    """TOUJOURS : l'administration ne repond qu'au reseau local, en connexion
+    directe. Ce n'est plus un reglage -- la securite la plus stricte n'est
+    pas une option."""
+    return True
 
 
 def client_est_local():
@@ -6552,22 +6585,30 @@ def refus_admin_hors_reseau():
         # Distinguer les deux causes : "je suis pourtant chez moi" est
         # exactement le moment ou l'on a besoin de savoir que c'est le proxy
         # qui brouille la piste, et non son adresse.
-        return ("L'administration est limitee au reseau local, et un proxy non "
-                "declare empeche d'etablir d'ou vient cette requete. Active "
-                "\"Proxy de confiance\" dans Parametres > Serveur, ou pose "
-                "APP_MANAGER_ADMIN_LAN_ONLY=0 dans le compose.")
+        return ("L'administration ne répond qu'au réseau local, en connexion directe : "
+                "cette requête passe par un intermédiaire (proxy, VPS). Connecte-toi "
+                "depuis chez toi, sur l'adresse locale du panneau.")
     return ("L'administration est limitee au reseau local. Cette requete vient "
             "de " + _client_ip() + ".")
 
 
 def appliquer_cookie_securise():
-    """Aligne le cookie de session sur le reglage HTTPS courant.
+    """Le cookie suit la requete (voir SessionSelonLaConnexion) : plus rien
+    a aligner. Gardee pour les appels existants."""
+    return None
 
-    Flask lit SESSION_COOKIE_SECURE dans app.config au moment de poser le
-    cookie : il suffit donc de tenir cette valeur a jour. Appele au
-    demarrage et apres chaque ecriture.
-    """
-    flask_app.config["SESSION_COOKIE_SECURE"] = https_actif()
+
+from flask.sessions import SecureCookieSessionInterface  # noqa: E402
+
+
+class SessionSelonLaConnexion(SecureCookieSessionInterface):
+    """« Secure » des que la requete arrive en HTTPS, sans reglage."""
+
+    def get_cookie_secure(self, app):
+        return https_actif()
+
+
+flask_app.session_interface = SessionSelonLaConnexion()
 
 
 def adresse_publique_valide(brute):
@@ -7801,6 +7842,9 @@ def api_invitations():
 @flask_app.post("/api/invitations")
 @require_admin
 def api_invitation_creer():
+    refus = _refus_sans_smtp()
+    if refus:
+        return refus
     d = request.get_json(force=True, silent=True) or {}
     adresse = email_valide(d.get("email"))
     if not adresse:
@@ -7822,6 +7866,9 @@ def api_invitation_creer():
 def api_invitation_renvoyer(empreinte):
     """Un nouveau lien : l'ancien, peut-etre perdu dans un mail, ne vaut plus
     rien. Le delai repart de zero."""
+    refus = _refus_sans_smtp()
+    if refus:
+        return refus
     inv = lire_invitations().get(empreinte)
     if not inv:
         return jsonify({"error": "Invitation inconnue ou expirée."}), 404
@@ -8005,31 +8052,15 @@ def api_securite():
         "https_constate": request.headers.get("X-Forwarded-Proto", "").lower() == "https"
                           or request.scheme == "https",
         "https": https_actif(),
-        "trust_proxy": trust_proxy(),
-        "cookie_secure": bool(flask_app.config.get("SESSION_COOKIE_SECURE")),
+        "cookie_secure": https_actif(),
         "adresse_publique": adresse_publique(),
         # Fige par l'environnement : la page n'offre pas de modifier ce
         # qu'un redemarrage remettrait comme avant.
         "adresse_figee": fixe_par_environnement("adresse_publique"),
-        "https_fige": fixe_par_environnement("https"),
-        "trust_proxy_fige": fixe_par_environnement("trust_proxy"),
-        # L'administration est-elle limitee au reseau local, et cette requete
-        # y est-elle ? La page a besoin des deux : l'une pour l'etat de la
-        # case, l'autre pour dire pourquoi elle est grisee.
+        # Toujours vrai : plus un reglage. Garde pour la page et le diagnostic.
         "admin_reseau_local": admin_limite_au_reseau_local(),
-        "admin_reseau_local_fige": fixe_par_environnement("admin_reseau_local"),
         "client_local": client_est_local(),
         "client_ip": _client_ip(),
-        "proxy_non_declare": proxy_non_declare(),
-        # De quoi griser la case plutot que de laisser cliquer sur un refus :
-        # les memes conditions que celles appliquees par la route d'ecriture.
-        "peut_activer_https": request.is_secure or (
-            trust_proxy()
-            and request.headers.get("X-Forwarded-Proto", "").lower() == "https"),
-        "peut_activer_trust_proxy": bool(
-            (request.headers.get("X-Forwarded-For")
-             or request.headers.get("X-Forwarded-Proto") or "").strip()),
-        "peut_activer_admin_reseau_local": client_est_local(),
         # Les applications sont-elles servies dans une autre origine que le
         # panneau ? C'est ce qui empeche une XSS dans l'une d'elles d'atteindre
         # le panneau, et c'est invisible sans le dire.
@@ -8045,32 +8076,21 @@ def api_securite():
 @flask_app.put("/api/securite/exposition")
 @require_admin
 def api_exposition():
-    """Les quatre reglages qui changent quand la stack sort du reseau local.
+    """L'adresse publique, seul reglage d'exposition qui reste.
 
-    CE QUI A CHANGE, ET POURQUOI. HTTPS et le proxy de confiance se posaient
-    uniquement dans le compose, a decommenter a la main. Le code disait
-    pourquoi : « l'activer depuis une page servie en clair deconnecterait
-    sur-le-champ la session qui vient de l'activer, sans moyen de revenir en
-    arriere. » L'objection etait juste. Elle ne l'est plus, parce qu'on ne
-    permet plus d'allumer un interrupteur que la situation ne justifie pas :
-
-      HTTPS          ne s'active que depuis une requete DEJA en https --
-                     la session qui l'active garde donc son cookie ;
-      proxy          ne s'active que si un en-tete X-Forwarded-* est
-                     reellement present -- sinon c'est une regression pure,
-                     n'importe quel client pouvant alors se declarer une
-                     adresse neuve a chaque essai et annuler la limite de
-                     tentatives de connexion.
-
-      admin local    ne s'active que depuis une requete qui vient elle-meme
-                     du reseau local -- sinon on se retirerait
-                     l'administration a l'instant meme.
-
-    ETEINDRE est toujours permis : la marche arriere ne doit jamais dependre
-    d'une condition. Et le compose garde le dernier mot sur les quatre.
+    HTTPS, proxy de confiance et administration locale etaient des cases.
+    Ils ne le sont plus : la configuration est toujours la plus stricte --
+    cookie Secure et HSTS des que la connexion est en https, X-Forwarded-For
+    jamais cru, administration reservee au reseau local en connexion directe.
     """
     demande = request.get_json(force=True, silent=True) or {}
+    for cle in ("trust_proxy", "https", "admin_reseau_local"):
+        if cle in demande:
+            return jsonify({"error": "Ce réglage n'existe plus : la sécurité réseau est "
+                                     "toujours au plus strict."}), 400
     reglages = lire_exposition()
+    for ancienne in ("trust_proxy", "https", "admin_reseau_local"):
+        reglages.pop(ancienne, None)
 
     # ------------------------------------------------ adresse publique
     if "adresse_publique" in demande:
@@ -8084,87 +8104,13 @@ def api_exposition():
                                      "http:// ou https://."}), 400
         reglages["adresse_publique"] = adresse
 
-    # ------------------------------------------------ proxy de confiance
-    #
-    # Traite AVANT https : derriere un proxy qui termine le TLS, la requete
-    # arrive ici en clair et n'annonce https que par un en-tete. Declarer le
-    # proxy d'abord, puis https, se fait alors en deux enregistrements -- et
-    # dans cet ordre, ce qui est le bon.
-    if "trust_proxy" in demande:
-        if fixe_par_environnement("trust_proxy"):
-            return jsonify({"error": "Le proxy de confiance est fixe par "
-                                     "APP_MANAGER_TRUST_PROXY dans le compose : "
-                                     "modifie-le là-bas."}), 400
-        voulu = bool(demande.get("trust_proxy"))
-        devant = (request.headers.get("X-Forwarded-For")
-                  or request.headers.get("X-Forwarded-Proto") or "")
-        if voulu and not devant.strip():
-            return jsonify({"error": "Aucun en-tete X-Forwarded-* sur cette requête : "
-                                     "rien ne prouve qu'un proxy est devant. L'activer "
-                                     "ici laisserait n'importe quel client s'inventer "
-                                     "une adresse, et annulerait la limite de "
-                                     "tentatives de connexion."}), 400
-        reglages["trust_proxy"] = voulu
-
-    # ------------------------------------------------ https
-    if "https" in demande:
-        if fixe_par_environnement("https"):
-            return jsonify({"error": "HTTPS est fixe par APP_MANAGER_HTTPS dans le "
-                                     "compose : modifie-le là-bas."}), 400
-        voulu = bool(demande.get("https"))
-        # "Deja en https" au sens de ce que le panneau croit : une connexion
-        # TLS directe, ou un proxy annoncant https ET declare de confiance.
-        # Sans cette seconde moitie, la case resterait impossible a cocher
-        # derriere un reverse proxy -- c'est-a-dire dans le cas courant.
-        annonce = (request.headers.get("X-Forwarded-Proto") or "").lower()
-        deja = request.is_secure or (reglages.get("trust_proxy") and annonce == "https")
-        if voulu and not deja:
-            return jsonify({"error": "Cette page n'est pas servie en HTTPS. L'activer "
-                                     "maintenant rendrait le cookie de session "
-                                     "\"Secure\", et te deconnecterait sans retour "
-                                     "possible. Mets le TLS en place, reviens par "
-                                     "https, et la case s'activera."}), 400
-        reglages["https"] = voulu
-
-    # --------------------------------- administration sur le reseau local
-    if "admin_reseau_local" in demande:
-        if fixe_par_environnement("admin_reseau_local"):
-            return jsonify({"error": "Ce réglage est fixe par "
-                                     "APP_MANAGER_ADMIN_LAN_ONLY dans le compose : "
-                                     "modifie-le là-bas."}), 400
-        voulu = bool(demande.get("admin_reseau_local"))
-        # Meme regle que pour HTTPS, pour la meme raison : on n'allume pas un
-        # interrupteur qui couperait la branche sur laquelle on est assis.
-        # L'activer depuis l'exterieur reviendrait a se retirer
-        # l'administration dans la seconde, et la seule facon de revenir
-        # serait d'aller editer le compose.
-        if voulu and not client_est_local():
-            if proxy_non_declare():
-                return jsonify({"error": "Un proxy non déclaré empeche de savoir d'ou "
-                                         "viennent les requêtes : toutes paraitraient "
-                                         "locales, et ce réglage ne protegerait rien. "
-                                         "Activé d'abord \"Proxy de confiance\"."}), 400
-            return jsonify({"error": "Cette requête ne vient pas du réseau local. "
-                                     "L'activer maintenant te retirerait "
-                                     "l'administration à l'instant même, sans retour "
-                                     "possible depuis cette page. Reconnecte-toi "
-                                     "depuis chez toi, et la case s'activera."}), 400
-        reglages["admin_reseau_local"] = voulu
-
     try:
         ecrire_exposition(reglages)
     except OSError as e:
         return jsonify({"error": f"Réglages non enregistrés : {e}"}), 500
 
-    # Le cookie suit immediatement : c'est tout l'interet de ne plus figer ce
-    # reglage au demarrage.
-    appliquer_cookie_securise()
-
-    return jsonify({"ok": True,
-                    "adresse_publique": adresse_publique(),
-                    "https": https_actif(),
-                    "trust_proxy": trust_proxy(),
-                    "admin_reseau_local": admin_limite_au_reseau_local()})
+    return jsonify({"ok": True, "adresse_publique": adresse_publique(),
+                    "https": https_actif(), "admin_reseau_local": True})
 
 
 # ------------------- assistant de liaison avec un VPS -------------------
@@ -8283,9 +8229,6 @@ def vps_diagnostic(reglages):
          "Aucun en-tête X-Forwarded-* sur cette requête. Soit tu regardes cette page "
          "directement depuis le réseau local — c'est normal — soit nginx n'est pas "
          "encore en place sur le VPS."),
-        ("Le proxy est déclaré de confiance", trust_proxy(),
-         "Case « Proxy de confiance », plus haut. Sans elle le panneau ne croit pas "
-         "l'adresse annoncée, et tous les visiteurs comptent pour un seul."),
         ("La requête arrive en HTTPS", annonce == "https" or request.is_secure,
          "Le certificat se pose sur le VPS (certbot), pas ici. Voir l'étape 3 du README."),
         ("Adresse publique déclarée dans le panneau", bool(publique),
@@ -8645,6 +8588,9 @@ def _projets_valides(brut, apps):
 @flask_app.post("/api/utilisateurs")
 @require_admin
 def api_utilisateur_creer():
+    refus = _refus_sans_smtp()
+    if refus:
+        return refus
     d = request.get_json(force=True, silent=True) or {}
     nom = nom_utilisateur_valide(d.get("nom"))
     mdp = (d.get("mot_de_passe") or "").strip()
@@ -10241,6 +10187,10 @@ def index():
                 origine_applications() if origines_separees() else ""))
             .replace("__ROOT__", json.dumps(ROOT))
             .replace("__ROLE__", json.dumps(role_courant() or ""))
+            # Seul l'admin en a besoin : la page lui propose de regler l'envoi
+            # tant qu'il manque, et grise la creation de comptes.
+            .replace("__SMTP__", json.dumps(
+                envoi_mail_configure() if role_courant() == "admin" else True))
             .replace("__UTILISATEUR__", json.dumps(utilisateur_courant())))
     return Response(avec_style(page), mimetype="text/html")
 

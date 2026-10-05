@@ -66,6 +66,10 @@ from checks import (                                            # noqa: E402
     sondes_par_theme,
 )
 
+# Le filet remplace envoi_mail_configure ; les tests de la regle reprennent
+# la vraie.
+_ENVOI_MAIL_REEL = app.envoi_mail_configure
+
 
 # ==========================================================================
 #                        TESTS DU PANNEAU (app-manager)
@@ -169,6 +173,10 @@ def _bac_a_sable(tmp_path, monkeypatch):
     # administrateur avec le mot de passe, et parlent d'autre chose. Les
     # tests de ce facteur le rallument (voir « admin_2fa »).
     monkeypatch.setenv("APP_MANAGER_ADMIN_2FA", "0")
+    # Sans serveur d'envoi, aucun compte ne se cree. Des dizaines de tests
+    # creent des comptes et parlent d'autre chose : le filet fait comme si
+    # l'envoi etait regle. Les tests de cette regle remettent le vrai.
+    monkeypatch.setattr(app, "envoi_mail_configure", lambda: True)
     # Le coffre : une cle neuve par test, et rien en memoire d'un test a
     # l'autre -- sinon un reglage ecrit par l'un se lirait dans le suivant.
     from cryptography.fernet import Fernet
@@ -1028,10 +1036,12 @@ def test_la_limite_de_tentatives_ne_se_contourne_pas_par_en_tete(client):
     """X-Forwarded-For est pose par le client quand le service est publie
     directement : le faire varier donnait un compteur neuf a chaque essai, ce
     qui annulait la limite."""
-    assert not app.trust_proxy(), "le proxy de confiance ne doit pas etre actif par defaut"
+    assert not app.trust_proxy(), "X-Forwarded-For ne doit jamais etre cru"
     for i in range(app.RATE_LIMIT_MAX):
+        # 403 : une requete relayee n'atteint pas l'administration. Le refus
+        # compte quand meme comme une tentative.
         assert client.post("/login", json={"nom": "admin", "password": "faux"},
-                           headers={"X-Forwarded-For": f"10.0.0.{i}"}).status_code == 401
+                           headers={"X-Forwarded-For": f"10.0.0.{i}"}).status_code in (401, 403)
     assert client.post("/login", json={"nom": "admin", "password": "faux"},
                        headers={"X-Forwarded-For": "10.0.0.99"}).status_code == 429
 
@@ -1801,14 +1811,12 @@ def test_le_diagnostic_ne_dit_que_ce_qu_il_constate(vps):
     assert all(e["aide"] for e in d["diagnostic"] if not e["ok"])
 
 
-def test_le_diagnostic_voit_le_proxy_quand_il_est_la(vps):
-    d = vps.get("/api/vps", headers={"X-Forwarded-For": "203.0.113.7",
-                                     "X-Forwarded-Proto": "https"}).get_json()
-    etapes = {e["etape"]: e["ok"] for e in d["diagnostic"]}
-    assert etapes["Un interm\u00e9diaire relaie cette requ\u00eate"] is True
-    assert etapes["La requ\u00eate arrive en HTTPS"] is True
-    # Le proxy n'est pas declare pour autant : constater n'est pas croire.
-    assert etapes["Le proxy est d\u00e9clar\u00e9 de confiance"] is False
+def test_l_administration_ne_passe_pas_par_le_proxy(vps):
+    """L'administration ne repond qu'en connexion directe depuis le reseau
+    local : une requete relayee (X-Forwarded-*) est refusee, VPS compris."""
+    r = vps.get("/api/vps", headers={"X-Forwarded-For": "203.0.113.7",
+                                     "X-Forwarded-Proto": "https"})
+    assert r.status_code == 403
 
 
 def test_enregistrer_le_vps_n_efface_pas_les_autres_reglages(vps):
@@ -3976,109 +3984,45 @@ def test_une_fois_l_adresse_declaree_le_partage_redevient_possible(exposition):
 # qui compte autant : ETEINDRE reste possible en toutes circonstances.
 
 
-def test_https_ne_s_active_pas_depuis_une_page_en_clair(exposition):
-    """Le verrou anti-enfermement. Sans lui, un clic depuis http posait un
-    cookie Secure que le navigateur cessait d'envoyer : plus de session, et
-    plus de page pour revenir en arriere."""
+def _cookie_de_session(reponse):
+    return next((v for k, v in reponse.headers.items()
+                 if k == "Set-Cookie" and v.startswith("session=")), "")
+
+
+def test_le_cookie_est_securise_des_que_la_connexion_l_est():
+    """Plus de case « Servi en HTTPS » : le cookie devient Secure, et HSTS
+    part, des que la requete arrive en https -- directement ou annoncee par
+    un proxy. En clair, rien de tel (le navigateur ne renverrait plus le
+    cookie)."""
+    app.flask_app.secret_key = "cle-de-test"
+    app._login_attempts.clear()
+    with app.flask_app.test_request_context("/", base_url="http://localhost"):
+        assert app.https_actif() is False
+    with app.flask_app.test_request_context("/", base_url="https://localhost"):
+        assert app.https_actif() is True
+    with app.flask_app.test_request_context("/", headers={"X-Forwarded-Proto": "https"}):
+        assert app.https_actif() is True
+    assert isinstance(app.flask_app.session_interface, app.SessionSelonLaConnexion)
+    c = app.flask_app.test_client()
+    r = c.get("/", base_url="https://localhost")
+    assert "Strict-Transport-Security" in r.headers
+    r = c.get("/", base_url="http://localhost")
+    assert "Strict-Transport-Security" not in r.headers
+
+
+def test_les_reglages_d_exposition_ne_sont_plus_reglables(exposition):
+    """Proxy, HTTPS et administration locale ne sont plus des options : la
+    configuration est toujours la plus stricte."""
     c = exposition
-    r = c.put("/api/securite/exposition", json={"https": True})
-    assert r.status_code == 400, r.data
-    assert "deconnecterait" in r.get_json()["error"]
-    assert app.https_actif() is False
-    assert app.flask_app.config["SESSION_COOKIE_SECURE"] is False
-
-
-def test_https_s_active_depuis_une_page_en_https(exposition):
-    c = exposition
-    r = c.put("/api/securite/exposition", json={"https": True},
-              base_url="https://localhost")
-    assert r.status_code == 200, r.data
-    assert app.https_actif() is True
-    # Le cookie suit tout de suite : c'est l'interet de ne plus figer au
-    # demarrage. Sans cette ligne, le reglage serait enregistre et sans effet
-    # jusqu'au prochain redemarrage -- une case qui ment.
-    assert app.flask_app.config["SESSION_COOKIE_SECURE"] is True
-
-
-def test_https_s_active_derriere_un_proxy_declare(exposition):
-    """Le cas courant : le TLS se termine au proxy, la requete arrive ici en
-    clair et n'annonce https que par un en-tete. Sans ce chemin, la case
-    serait inatteignable la ou elle sert le plus."""
-    c = exposition
-    assert c.put("/api/securite/exposition", json={"trust_proxy": True},
-                 headers={"X-Forwarded-Proto": "https"}).status_code == 200
-    r = c.put("/api/securite/exposition", json={"https": True},
-              headers={"X-Forwarded-Proto": "https"})
-    assert r.status_code == 200, r.data
-    assert app.https_actif() is True
-
-
-def test_eteindre_https_reste_possible_depuis_une_page_en_clair(exposition):
-    """La marche arriere ne doit dependre d'aucune condition : c'est elle
-    qu'on cherche quand tout va mal."""
-    c = exposition
-    c.put("/api/securite/exposition", json={"https": True},
-          base_url="https://localhost")
-    assert app.https_actif() is True
-    r = c.put("/api/securite/exposition", json={"https": False})
-    assert r.status_code == 200, r.data
-    assert app.https_actif() is False
-
-
-def test_le_proxy_ne_se_declare_pas_sans_proxy(exposition):
-    """Croire X-Forwarded-For sans proxy devant, c'est laisser n'importe quel
-    client s'inventer une adresse a chaque essai -- et annuler la limite de
-    tentatives de connexion. La page ne doit pas permettre cette regression."""
-    c = exposition
-    r = c.put("/api/securite/exposition", json={"trust_proxy": True})
-    assert r.status_code == 400, r.data
-    assert "X-Forwarded" in r.get_json()["error"]
+    for cle, valeur in (("trust_proxy", True), ("https", False), ("admin_reseau_local", False)):
+        r = c.put("/api/securite/exposition", json={cle: valeur})
+        assert r.status_code == 400, cle
     assert app.trust_proxy() is False
-
-
-def test_le_proxy_se_declare_quand_il_est_la(exposition):
-    c = exposition
-    r = c.put("/api/securite/exposition", json={"trust_proxy": True},
-              headers={"X-Forwarded-For": "203.0.113.7"})
-    assert r.status_code == 200, r.data
-    # Lu a chaud, sans redemarrage : c'est tout l'objet du changement.
-    assert app.trust_proxy() is True
-
-
-def test_enregistrer_l_adresse_n_efface_pas_les_deux_autres_reglages(exposition):
-    """Le fichier portait un seul reglage et etait reecrit en entier. Avec
-    trois, enregistrer l'adresse effacait HTTPS et le proxy en silence."""
-    c = exposition
-    c.put("/api/securite/exposition", json={"https": True},
-          base_url="https://localhost")
-    c.put("/api/securite/exposition", json={"trust_proxy": True},
-          headers={"X-Forwarded-For": "203.0.113.7"})
-
-    r = c.put("/api/securite/exposition",
-              json={"adresse_publique": "https://codelab.example.com"})
-    assert r.status_code == 200, r.data
-    assert app.https_actif() is True, "HTTPS efface par l'enregistrement de l'adresse"
-    assert app.trust_proxy() is True, "le proxy efface par l'enregistrement de l'adresse"
-
-
-def test_le_compose_l_emporte_sur_la_page_pour_https_et_le_proxy(exposition, monkeypatch):
-    """Meme regle que pour l'adresse, et pour la meme raison : la page ne doit
-    pas laisser modifier ce qu'un redemarrage remettrait. C'est aussi la seule
-    marche arriere qui ne passe pas par le panneau."""
-    c = exposition
-    monkeypatch.setenv("APP_MANAGER_HTTPS", "1")
-    monkeypatch.setenv("APP_MANAGER_TRUST_PROXY", "1")
-    assert app.https_actif() is True
-    assert app.trust_proxy() is True
-
-    etat = c.get("/api/securite").get_json()
-    assert etat["https_fige"] is True and etat["trust_proxy_fige"] is True
-
-    assert c.put("/api/securite/exposition",
-                 json={"https": False}).status_code == 400
-    assert c.put("/api/securite/exposition",
-                 json={"trust_proxy": False}).status_code == 400
-    assert app.https_actif() is True
+    assert app.admin_limite_au_reseau_local() is True
+    page = _page_panneau("dashboard.html")
+    for trace in ("expo-proxy", "expo-https", "expo-admin-lan", "Proxy de confiance",
+                  "Configuration d'origine", "alRevenirOrigine"):
+        assert trace not in page, trace
 
 
 # ---------- 12 bis. l'administration reste sur le reseau local ----------
@@ -4103,11 +4047,8 @@ CHEZ_SOI = {"REMOTE_ADDR": "192.168.1.42"}
 
 
 def _active_le_verrou(client):
-    """Active le reglage depuis le reseau local, seule facon permise."""
-    r = client.put("/api/securite/exposition", json={"admin_reseau_local": True})
-    assert r.status_code == 200, r.data
+    """Le verrou est toujours actif : plus rien a activer."""
     assert app.admin_limite_au_reseau_local() is True
-    return r
 
 
 def test_une_adresse_illisible_n_ouvre_pas_l_administration():
@@ -4132,15 +4073,6 @@ def test_une_adresse_illisible_n_ouvre_pas_l_administration():
     assert app.adresse_est_locale("unknown") is False
     assert app.adresse_est_locale("") is False
     assert app.adresse_est_locale(None) is False
-
-
-def test_sans_le_reglage_l_admin_entre_de_partout(exposition):
-    """L'etat par defaut ne change pas : ce serait une rupture pour qui
-    administre deja depuis l'exterieur sans avoir rien demande."""
-    assert app.admin_limite_au_reseau_local() is False
-    c = app.flask_app.test_client()
-    r = c.post("/login", json={"nom": "admin", "password": "secret-de-test"}, environ_base=DEHORS)
-    assert r.status_code == 200, r.data
 
 
 def test_l_admin_ne_se_connecte_plus_depuis_l_exterieur(exposition):
@@ -4196,37 +4128,6 @@ def test_une_session_admin_qui_sort_cesse_d_administrer(exposition):
     assert c.get("/api/apps", environ_base=CHEZ_SOI).status_code == 200
 
 
-def test_on_n_active_pas_ce_reglage_depuis_l_exterieur(exposition):
-    """Meme regle que pour HTTPS, et pour la meme raison : on n'allume pas un
-    interrupteur qui couperait la branche sur laquelle on est assis."""
-    c = exposition
-    r = c.put("/api/securite/exposition", json={"admin_reseau_local": True},
-              environ_base=DEHORS)
-    assert r.status_code == 400, r.data
-    assert "ne vient pas du" in r.get_json()["error"]
-    assert app.admin_limite_au_reseau_local() is False
-
-
-def test_eteindre_depuis_le_reseau_local_reste_toujours_permis(exposition):
-    c = exposition
-    _active_le_verrou(c)
-    r = c.put("/api/securite/exposition", json={"admin_reseau_local": False})
-    assert r.status_code == 200, r.data
-    assert app.admin_limite_au_reseau_local() is False
-
-
-def test_un_proxy_non_declare_interdit_d_activer(exposition):
-    """Le piege que ce reglage doit absolument eviter : derriere un proxy non
-    declare, remote_addr est l'adresse DU PROXY -- privee. Toute requete
-    paraitrait locale et le reglage serait affiche actif sans rien proteger."""
-    c = exposition
-    r = c.put("/api/securite/exposition", json={"admin_reseau_local": True},
-              headers={"X-Forwarded-For": "203.0.113.7"})
-    assert r.status_code == 400, r.data
-    assert "proxy" in r.get_json()["error"].lower()
-    assert app.admin_limite_au_reseau_local() is False
-
-
 def test_derriere_un_proxy_non_declare_l_administration_est_refusee(exposition):
     """Le choix qui compte : ne pas savoir vaut REFUSER.
 
@@ -4241,31 +4142,14 @@ def test_derriere_un_proxy_non_declare_l_administration_est_refusee(exposition):
     assert "proxy" in r.get_json()["error"].lower()
 
 
-def test_un_proxy_declare_rend_l_adresse_reelle_a_nouveau_lisible(exposition):
-    """Une fois le proxy declare, c'est X-Forwarded-For qui fait foi -- et le
-    verrou redevient utile au lieu d'etre bloquant."""
-    c = exposition
-    c.put("/api/securite/exposition", json={"trust_proxy": True},
-          headers={"X-Forwarded-For": "192.168.1.42"})
-    _active_le_verrou(c)
-    assert c.get("/api/apps",
-                 headers={"X-Forwarded-For": "192.168.1.42"}).status_code == 200
-    r = c.get("/api/apps", headers={"X-Forwarded-For": "203.0.113.7"})
-    assert r.status_code == 403, r.data
-
-
 def test_une_adresse_locale_injectee_par_le_client_ne_passe_pas_le_verrou(exposition):
     """L'attaque : depuis Internet, envoyer soi-meme « X-Forwarded-For:
-    192.168.1.42 ». nginx AJOUTE l'adresse reelle a la suite : c'est elle,
-    la derniere, qui doit compter."""
+    192.168.1.42 ». L'en-tete n'est jamais cru, et sa seule presence ferme
+    l'administration."""
     c = exposition
-    c.put("/api/securite/exposition", json={"trust_proxy": True},
-          headers={"X-Forwarded-For": "192.168.1.42"})
-    _active_le_verrou(c)
-    r = c.get("/api/apps", headers={"X-Forwarded-For": "192.168.1.42, 203.0.113.7"})
-    assert r.status_code == 403, r.data
-    assert c.get("/api/apps", headers={
-        "X-Forwarded-For": "203.0.113.7, 192.168.1.42"}).status_code == 200
+    for valeur in ("192.168.1.42", "192.168.1.42, 203.0.113.7", "203.0.113.7, 192.168.1.42"):
+        r = c.get("/api/apps", headers={"X-Forwarded-For": valeur}, environ_base=DEHORS)
+        assert r.status_code == 403, (valeur, r.data)
 
 
 def test_changer_d_adresse_inventee_ne_contourne_pas_la_limite(client, monkeypatch):
@@ -4277,27 +4161,6 @@ def test_changer_d_adresse_inventee_ne_contourne_pas_la_limite(client, monkeypat
     r = client.post("/login", json={"nom": "admin", "password": "faux"},
                     headers={"X-Forwarded-For": "10.9.9.200, 203.0.113.7"})
     assert r.status_code == 429
-
-
-def test_le_compose_peut_rouvrir_l_administration(exposition, monkeypatch):
-    """La seule marche arriere qui ne passe pas par le panneau, et celle qui
-    compte le jour ou l'on se retrouve enferme dehors."""
-    c = exposition
-    _active_le_verrou(c)
-    monkeypatch.setenv("APP_MANAGER_ADMIN_LAN_ONLY", "0")
-    assert app.admin_limite_au_reseau_local() is False
-    autre = app.flask_app.test_client()
-    assert autre.post("/login", json={"nom": "admin", "password": "secret-de-test"},
-                      environ_base=DEHORS).status_code == 200
-
-
-def test_le_compose_peut_aussi_l_imposer(exposition, monkeypatch):
-    c = exposition
-    monkeypatch.setenv("APP_MANAGER_ADMIN_LAN_ONLY", "1")
-    assert app.admin_limite_au_reseau_local() is True
-    r = c.put("/api/securite/exposition", json={"admin_reseau_local": False})
-    assert r.status_code == 400, r.data
-    assert "compose" in r.get_json()["error"]
 
 
 def test_une_cle_d_acces_ne_contourne_pas_le_verrou(exposition):
@@ -4334,19 +4197,6 @@ def test_marteler_le_refus_finit_par_etre_limite(exposition):
                        environ_base=DEHORS).status_code)
     assert 403 in vus, "le verrou n'a jamais refuse"
     assert 429 in vus, "le refus est gratuit : aucune limite ne s'applique"
-
-
-def test_la_page_recoit_de_quoi_griser_la_case_et_dire_pourquoi(exposition):
-    """Une case grisee sans raison fait cliquer dans le vide. La page a besoin
-    des trois : l'etat, si elle peut etre cochee, et d'ou l'on appelle."""
-    r = exposition.get("/api/securite", environ_base=DEHORS)
-    assert r.status_code == 200, r.data
-    d = r.get_json()
-    assert d["admin_reseau_local"] is False
-    assert d["peut_activer_admin_reseau_local"] is False
-    assert d["client_local"] is False
-    assert d["client_ip"] == "203.0.113.7"
-    assert d["admin_reseau_local_fige"] is False
 
 
 def test_l_adresse_du_compose_l_emporte_sur_celle_de_la_page(exposition, monkeypatch):
@@ -4415,12 +4265,10 @@ def test_un_proxy_non_declare_n_est_pas_cru_sur_parole(cles, monkeypatch):
     et poser une variable.
     """
     pytest.importorskip("webauthn")
+    # Le schema annonce suffit pour les cles : la signature porte l'origine
+    # que le navigateur a REELLEMENT vue, et ne concorde pas avec un schema
+    # invente. Aucun « proxy de confiance » a declarer.
     entetes = {"Host": "codelab.example.com", "X-Forwarded-Proto": "https"}
-    d = _etat_passkeys(cles, **entetes)
-    assert d["possible"] is False
-    assert "Proxy de confiance" in d["empechement"]
-
-    monkeypatch.setattr(app, "trust_proxy", lambda: True)
     assert _etat_passkeys(cles, **entetes)["possible"] is True
 
 
@@ -9030,6 +8878,33 @@ def _admin(client):
     return client
 
 
+def test_sans_serveur_d_envoi_aucun_compte_ne_se_cree(deux_comptes, monkeypatch):
+    """Une invitation est un mail, et chaque compte recoit ses codes par
+    mail : sans serveur d'envoi, ni invitation ni creation de compte. La
+    page le sait des son chargement, pour le proposer a l'admin."""
+    monkeypatch.setattr(app, "envoi_mail_configure", _ENVOI_MAIL_REEL)
+    monkeypatch.setattr(app, "lire_smtp_personnalise", lambda: None)
+    monkeypatch.setattr(app, "smtp_origine", lambda: {})
+    c = _admin(deux_comptes)
+    assert app.envoi_mail_configure() is False
+    r = c.post("/api/utilisateurs", json={"nom": "paul", "mot_de_passe": "x" * 16})
+    assert r.status_code == 409 and r.get_json()["smtp_requis"] is True
+    assert "paul" not in app.lire_utilisateurs()
+    r = c.post("/api/invitations", json={"email": "paul@example.com"})
+    assert r.status_code == 409 and r.get_json()["smtp_requis"] is True
+    assert not app.lire_invitations()
+    page = c.get("/").get_data(as_text=True)
+    assert "let SMTP_OK = false;" in page and 'id="ov-smtp"' in page
+
+    monkeypatch.setattr(app, "lire_smtp_personnalise", lambda: {
+        "host": "smtp.example.com", "port": 587, "tls": "starttls",
+        "expediteur": "codelab@example.com"})
+    assert app.envoi_mail_configure() is True
+    r = c.post("/api/utilisateurs", json={"nom": "paul", "mot_de_passe": "x" * 16})
+    assert r.status_code == 200, r.get_json()
+    assert "let SMTP_OK = true;" in c.get("/").get_data(as_text=True)
+
+
 def test_suspendre_garde_le_compte_et_ses_droits(deux_comptes):
     """C'est toute la difference avec supprimer : la porte se ferme, la piece
     reste en l'etat."""
@@ -12049,14 +11924,24 @@ def test_mailpit_est_habille_aux_couleurs_de_codelab():
         assert route in conf, route
     dockerfile = open(os.path.join(racine, "dagster", "proxy", "Dockerfile"), encoding="utf-8").read()
     assert "COPY dagster/proxy/mailpit-theme/ /usr/share/nginx/codelab/mailpit/" in dockerfile
-    assert "manrope-latin.woff2 /usr/share/nginx/codelab/mailpit/manrope.woff2" in dockerfile
+    assert "jakarta-latin.woff2 /usr/share/nginx/codelab/mailpit/jakarta.woff2" in dockerfile
+    assert "LICENCE-jakarta.txt /usr/share/nginx/codelab/mailpit/" in dockerfile
     css = open(os.path.join(racine, "dagster", "proxy", "mailpit-theme", "mailpit.css"),
                encoding="utf-8").read()
     # Par les variables de Bootstrap, pas en visant les classes une a une.
-    assert "--bs-primary: #0e7c86;" in css and "--bs-primary: #2ab5bf;" in css
-    assert 'font-family: "Manrope"' in css and "/_codelab/manrope.woff2" in css
-    # Le ruban de retour n'herite pas de l'icone « lien externe » de Mailpit.
+    # Les memes jetons que le Style 2 du panneau, clair et sombre ; la barre
+    # du haut, que Mailpit force en sombre, suit le theme de la page.
+    assert "--cl-accent: #3b3fd8;" in css and "--cl-accent: #6366f1;" in css
+    assert "--bs-primary: var(--cl-accent);" in css
+    assert ':root:not([data-bs-theme="dark"]) .navbar[data-bs-theme="dark"]' in css
+    assert 'font-family: "Plus Jakarta Sans"' in css and "/_codelab/jakarta.woff2" in css
+    # Le ruban de retour n'herite pas de l'icone « lien externe » de Mailpit,
+    # et reste EN BAS A GAUCHE : la barre laterale lui laisse un pied vide.
     assert "#codelab-retour-hub::after" in css
+    bouton = css.split("#codelab-retour-hub {", 1)[1].split("}", 1)[0]
+    assert "left: 20px !important;" in bouton and "right: auto !important;" in bouton
+    pied = css.split(".about-mailpit {", 1)[1].split("}", 1)[0]
+    assert "margin: 8px 0 64px !important;" in pied
     # Le meme logo sur la tuile du hub et dans Mailpit.
     logo = open(os.path.join(racine, "dagster", "proxy", "mailpit-theme", "logo.svg"),
                 encoding="utf-8").read().strip()
@@ -12138,7 +12023,13 @@ def test_favicon_ico_est_le_logo_codelab_sur_tous_les_ports():
     bloc = conf.split("location ~ ^/(favicon\\.ico", 1)[1].split("}", 1)[0]
     assert "mailpit/codelab.png" in bloc
     assert "location = /favicon.svg {\n        alias /usr/share/nginx/codelab/mailpit/codelab.svg;" in conf
-    assert """sub_filter 'href="/favicon.svg"' 'href="/_codelab/codelab.png?v=""" in conf
+    # L'icone de l'onglet : la MEME adresse que celle du panneau, et declaree
+    # « shortcut icon » -- Mailpit repeint link[rel="icon"] (le compteur de
+    # non lus) et ne la trouve donc plus.
+    assert ("""sub_filter '<link rel="icon" href="/favicon.svg">' '<link rel="shortcut icon" """
+            """type="image/png" sizes="128x128" href="/icone-codelab.png?v=4">';""") in conf
+    assert "icone-codelab\\.png" in bloc
+    assert 'rel="icon"' not in conf.split("sub_filter '<link rel=\"icon\" href=\"/favicon.svg\">'", 1)[1].split(";", 1)[0]
     dagster = open(os.path.join(racine, "dagster", "proxy", "nginx.conf"), encoding="utf-8").read()
     assert "location ~ ^/favicon[-a-z0-9_]*\\.svg$ {\n        alias /usr/share/nginx/codelab/mailpit/codelab.svg;" in dagster
     assert "alias /usr/share/nginx/codelab/mailpit/codelab.png;" in dagster
@@ -13001,8 +12892,9 @@ def test_le_style_design_ne_change_que_l_habit():
     page = _page_panneau("dashboard.html")
     # La roue crantee a cote du compte, le menu en pilule (barre du bas sur
     # un telephone), les reglages en fenetre.
-    assert 'class="reglages-btn"' in page
-    assert ':root[data-style="design"] .reglages-btn{display:grid' in page
+    # Pas de roue crantee : les parametres s'ouvrent depuis le menu du compte.
+    assert "reglages-btn" not in page
+    assert 'id="acct-parametres" onclick="allerA(\'parametres\')"' in page
     assert ':root[data-style="design"] #sec-parametres{display:grid' in page
     assert ':root[data-style="design"] .sidebar{top:auto;bottom:0' in page
     # Un compte utilisateur garde ses entrees : le hub et ses messages.
