@@ -1,101 +1,152 @@
 /* ===========================================================================
-   Mailpit aux couleurs de CodeLab.
+   Mailpit aux couleurs de CodeLab (Style 2 du panneau).
 
    Injectee par codelab-dagster-proxy (voir mailpit.conf) : Mailpit n'est pas
    modifie, seulement rhabille. Il est construit sur Bootstrap 5, dont les
-   couleurs, la police et les arrondis passent par des variables CSS : c'est
-   par elles qu'on repeint, et non en visant ses classes une par une -- une
-   mise a jour de Mailpit qui deplace un bouton ne casse donc rien ici.
+   couleurs, la police et les arrondis passent par des variables CSS : on
+   repeint d'abord par elles, puis on redessine la mise en page -- barre
+   laterale en menu, liste en carte, message en fiche -- sur les classes
+   stables de Mailpit (.message, .about-mailpit, #message-view, .navbar).
 
-   Memes jetons que le panneau (app-manager/app/theme.css) : ardoise froide,
-   turquoise reserve a ce qui se clique, Manrope pour tout.
+   Memes jetons que le Style 2 du panneau (app-manager/app/theme.css) : nuit
+   bleutee ou papier froid, indigo pour ce qui se clique, Plus Jakarta Sans.
+
+   LA PLACE EN BAS A GAUCHE est celle du bouton « ← CodeLab » pose par le
+   proxy : la barre laterale lui garde un pied vide (voir « Le pied »).
    =========================================================================== */
 
 @font-face {
-  font-family: "Manrope";
+  font-family: "Plus Jakarta Sans";
   font-style: normal;
-  font-weight: 400 700;
+  font-weight: 400 800;
   font-display: swap;
-  src: url("/_codelab/manrope.woff2") format("woff2");
+  src: url("/_codelab/jakarta.woff2") format("woff2");
 }
 
-:root, [data-bs-theme="light"] {
-  --bs-body-font-family: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --bs-body-bg: #eef1f4;
-  --bs-body-bg-rgb: 238, 241, 244;
-  --bs-body-color: #141a21;
-  --bs-body-color-rgb: 20, 26, 33;
-  --bs-secondary-color: #5b6673;
-  --bs-tertiary-color: #8a94a1;
-  --bs-secondary-bg: #f5f7f9;
-  --bs-tertiary-bg: #f5f7f9;
-  --bs-tertiary-bg-rgb: 245, 247, 249;
-  --bs-border-color: #dde2e8;
-  --bs-border-color-translucent: rgba(20, 26, 33, .1);
-  --bs-primary: #0e7c86;
-  --bs-primary-rgb: 14, 124, 134;
-  --bs-primary-bg-subtle: #e2f2f3;
-  --bs-primary-text-emphasis: #0b646c;
-  --bs-link-color: #0e7c86;
-  --bs-link-color-rgb: 14, 124, 134;
-  --bs-link-hover-color: #0b646c;
-  --bs-link-hover-color-rgb: 11, 100, 108;
-  --bs-focus-ring-color: rgba(14, 124, 134, .22);
-  --bs-border-radius: 8px;
-  --bs-border-radius-sm: 6px;
-  --bs-border-radius-lg: 10px;
-  --codelab-surface: #ffffff;
-  --codelab-accent-h: #0b646c;
-  --codelab-sur-accent: #ffffff;
+/* ----------------------------- les jetons ------------------------------
+   Clair par defaut ; sombre quand Mailpit pose data-bs-theme="dark" sur la
+   page. Mailpit force aussi data-bs-theme="dark" sur SA BARRE DU HAUT, en
+   toutes circonstances : en theme clair, on la ramene au clair, sinon elle
+   resterait une bande noire au-dessus d'une page blanche. */
+:root,
+:root:not([data-bs-theme="dark"]) .navbar[data-bs-theme="dark"] {
+  --cl-bg: #f1f2f7;
+  --cl-surface: #ffffff;
+  --cl-surface-2: #f6f7fb;
+  --cl-hover: #eef0f7;
+  --cl-line: #e4e6ef;
+  --cl-text: #15172a;
+  --cl-dim: #5e6280;
+  --cl-faint: #8b8fa8;
+  --cl-accent: #3b3fd8;
+  --cl-accent-h: #2f33bf;
+  --cl-accent-soft: #e9eaff;
+  --cl-accent-text: #3b3fd8;
+  --cl-sur-accent: #ffffff;
+  --cl-shadow: rgba(21, 23, 42, .06);
+  --cl-shadow-2: rgba(21, 23, 42, .12);
+  --cl-preview: #ffffff;
+
+  --bs-body-font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --bs-body-bg: var(--cl-bg);
+  --bs-body-bg-rgb: 241, 242, 247;
+  --bs-body-color: var(--cl-text);
+  --bs-body-color-rgb: 21, 23, 42;
+  --bs-emphasis-color: var(--cl-text);
+  --bs-secondary-color: var(--cl-dim);
+  --bs-tertiary-color: var(--cl-faint);
+  --bs-secondary-bg: var(--cl-surface-2);
+  --bs-tertiary-bg: var(--cl-surface-2);
+  --bs-tertiary-bg-rgb: 246, 247, 251;
+  --bs-border-color: var(--cl-line);
+  --bs-border-color-translucent: rgba(21, 23, 42, .08);
+  --bs-primary: var(--cl-accent);
+  --bs-primary-rgb: 59, 63, 216;
+  --bs-primary-bg-subtle: var(--cl-accent-soft);
+  --bs-primary-text-emphasis: var(--cl-accent-text);
+  --bs-link-color: var(--cl-accent-text);
+  --bs-link-color-rgb: 59, 63, 216;
+  --bs-link-hover-color: var(--cl-accent-h);
+  --bs-link-hover-color-rgb: 47, 51, 191;
+  --bs-focus-ring-color: rgba(59, 63, 216, .22);
+  --bs-border-radius: 12px;
+  --bs-border-radius-sm: 9px;
+  --bs-border-radius-lg: 16px;
+  color-scheme: light;
 }
 
-[data-bs-theme="dark"] {
-  --bs-body-bg: #0d1218;
-  --bs-body-bg-rgb: 13, 18, 24;
-  --bs-body-color: #e7ecf1;
-  --bs-body-color-rgb: 231, 236, 241;
-  --bs-secondary-color: #98a3b0;
-  --bs-tertiary-color: #6d7986;
-  --bs-secondary-bg: #1a222b;
-  --bs-tertiary-bg: #1a222b;
-  --bs-tertiary-bg-rgb: 26, 34, 43;
-  --bs-border-color: #242e39;
-  --bs-border-color-translucent: rgba(255, 255, 255, .08);
-  --bs-primary: #2ab5bf;
-  --bs-primary-rgb: 42, 181, 191;
-  --bs-primary-bg-subtle: #0d2a2d;
-  --bs-primary-text-emphasis: #45cdd6;
-  --bs-link-color: #2ab5bf;
-  --bs-link-color-rgb: 42, 181, 191;
-  --bs-link-hover-color: #45cdd6;
-  --bs-link-hover-color-rgb: 69, 205, 214;
-  --bs-focus-ring-color: rgba(42, 181, 191, .3);
-  --codelab-surface: #141b23;
-  --codelab-accent-h: #45cdd6;
-  /* Sur le turquoise clair du theme sombre, le texte blanc ne passe pas le
-     contraste : le panneau y met un texte tres sombre (--sur-accent). */
-  --codelab-sur-accent: #08222a;
+:root[data-bs-theme="dark"],
+:root[data-bs-theme="dark"] .navbar {
+  --cl-bg: #0b0d18;
+  --cl-surface: #121527;
+  --cl-surface-2: #181c32;
+  --cl-hover: #1c2140;
+  --cl-line: #232843;
+  --cl-text: #eceefb;
+  --cl-dim: #9599b8;
+  --cl-faint: #676c8f;
+  --cl-accent: #6366f1;
+  --cl-accent-h: #7c7ff5;
+  --cl-accent-soft: rgba(99, 102, 241, .16);
+  --cl-accent-text: #a5a8ff;
+  --cl-sur-accent: #ffffff;
+  --cl-shadow: rgba(0, 0, 0, .25);
+  --cl-shadow-2: rgba(0, 0, 0, .45);
+  --cl-preview: #ffffff;
+
+  --bs-body-bg: var(--cl-bg);
+  --bs-body-bg-rgb: 11, 13, 24;
+  --bs-body-color: var(--cl-text);
+  --bs-body-color-rgb: 236, 238, 251;
+  --bs-emphasis-color: var(--cl-text);
+  --bs-secondary-color: var(--cl-dim);
+  --bs-tertiary-color: var(--cl-faint);
+  --bs-secondary-bg: var(--cl-surface-2);
+  --bs-tertiary-bg: var(--cl-surface-2);
+  --bs-tertiary-bg-rgb: 24, 28, 50;
+  --bs-border-color: var(--cl-line);
+  --bs-border-color-translucent: rgba(255, 255, 255, .07);
+  --bs-primary: var(--cl-accent);
+  --bs-primary-rgb: 99, 102, 241;
+  --bs-primary-bg-subtle: var(--cl-accent-soft);
+  --bs-primary-text-emphasis: var(--cl-accent-text);
+  --bs-link-color: var(--cl-accent-text);
+  --bs-link-color-rgb: 165, 168, 255;
+  --bs-link-hover-color: #c3c5ff;
+  --bs-link-hover-color-rgb: 195, 197, 255;
+  --bs-focus-ring-color: rgba(99, 102, 241, .35);
+  color-scheme: dark;
 }
 
 body {
   font-family: var(--bs-body-font-family);
   font-variant-numeric: tabular-nums;
+  letter-spacing: -.005em;
   -webkit-font-smoothing: antialiased;
+  background: var(--cl-bg);
 }
+#app { padding-left: 20px; padding-right: 20px; }
+::selection { background: var(--cl-accent-soft); }
 
-/* La barre du haut : l'ardoise sombre du panneau, et non le bleu nuit de
-   Mailpit. Un trait en bas plutot qu'une ombre. */
+/* ------------------------------ la barre ------------------------------- */
 .navbar.bg-primary {
-  background: #101821 !important;
-  border-bottom: 1px solid #242e39;
+  background: var(--cl-bg) !important;
+  color: var(--cl-text) !important;
+  border-bottom: 1px solid var(--cl-line);
+  min-height: 68px;
+  padding-top: 10px;
+  padding-bottom: 10px;
 }
 .navbar .navbar-brand {
-  font-weight: 650;
-  letter-spacing: -.01em;
+  color: var(--cl-text) !important;
+  font-weight: 800;
+  font-size: 1.2rem;
+  letter-spacing: -.03em;
+  display: inline-flex;
+  align-items: center;
 }
-.navbar .navbar-brand img {
-  border-radius: 10px;
-}
+.navbar .navbar-brand span { opacity: 1; }
+.navbar .navbar-brand img { width: 36px; height: 36px; border-radius: 11px; }
 /* LE LOGO DE LA BARRE (et de la page 404), PEINT PAR-DESSUS L'IMAGE DE
    MAILPIT. Son <img src="/mailpit.svg"> est mis en cache un an par le
    navigateur (« immutable ») : l'ancien logo resterait affiche. On repousse
@@ -103,113 +154,467 @@ body {
    fond, a une adresse versionnee -- voir mailpit.conf. */
 img[src$="mailpit.svg"] {
   object-position: -99999px 0;
-  background: url("/_codelab/logo.svg?v=3") center / contain no-repeat;
+  background: url("/_codelab/logo.svg?v=4") center / contain no-repeat;
+}
+.navbar .text-white, .navbar small { color: var(--cl-dim) !important; }
+
+/* La recherche : un champ arrondi, la loupe dedans. */
+.navbar .input-group { border-radius: 12px; }
+.navbar .input-group > .d-flex.border {
+  border: 1px solid var(--cl-line) !important;
+  background: var(--cl-surface) !important;
+  border-radius: 12px 0 0 12px !important;
+  border-right: 0 !important;
 }
 .navbar .form-control {
-  background-color: #161f28;
-  border-color: #2b3642;
-  color: #e7ecf1;
+  background: transparent;
+  color: var(--cl-text);
+  height: 40px;
+  font-size: .92rem;
 }
-.navbar .form-control::placeholder { color: #8a94a1; }
-.navbar .form-control:focus {
-  border-color: #2ab5bf;
-  box-shadow: 0 0 0 .2rem rgba(42, 181, 191, .25);
+.navbar .form-control::placeholder { color: var(--cl-faint); }
+.navbar .form-control:focus { box-shadow: none; }
+.navbar .input-group:focus-within { box-shadow: 0 0 0 3px var(--bs-focus-ring-color); }
+.navbar .input-group > .btn {
+  border: 1px solid var(--cl-line);
+  border-left: 0;
+  background: var(--cl-surface);
+  color: var(--cl-dim);
+  border-radius: 0 12px 12px 0 !important;
+}
+.navbar .input-group > .btn:hover { color: var(--cl-text); background: var(--cl-hover); }
+
+/* Les boutons de la barre (pagination, marquer, supprimer, telecharger) :
+   des boutons fantomes arrondis, plus de contour blanc. */
+.navbar .btn-outline-light,
+.navbar .btn-outline-secondary {
+  --bs-btn-color: var(--cl-text);
+  --bs-btn-bg: var(--cl-surface);
+  --bs-btn-border-color: var(--cl-line);
+  --bs-btn-hover-color: var(--cl-text);
+  --bs-btn-hover-bg: var(--cl-hover);
+  --bs-btn-hover-border-color: var(--cl-line);
+  --bs-btn-active-color: var(--cl-text);
+  --bs-btn-active-bg: var(--cl-hover);
+  --bs-btn-active-border-color: var(--cl-line);
+  --bs-btn-disabled-color: var(--cl-faint);
+  --bs-btn-disabled-bg: transparent;
+  --bs-btn-disabled-border-color: var(--cl-line);
+  border-radius: 11px;
+  font-weight: 600;
+  font-size: .88rem;
+  min-height: 38px;
+  padding: 7px 13px;
+}
+.navbar .form-select {
+  background-color: var(--cl-surface);
+  border: 1px solid var(--cl-line);
+  border-radius: 10px;
+  color: var(--cl-text);
+  font-weight: 600;
+  min-height: 38px;
 }
 
-/* Les boutons : turquoise, comme toute action dans CodeLab. */
+/* --------------------------- boutons, champs ---------------------------- */
+.btn { border-radius: var(--bs-border-radius-sm); font-weight: 600; }
 .btn-primary {
-  --bs-btn-bg: var(--bs-primary);
-  --bs-btn-border-color: var(--bs-primary);
-  --bs-btn-hover-bg: var(--codelab-accent-h);
-  --bs-btn-hover-border-color: var(--codelab-accent-h);
-  --bs-btn-active-bg: var(--codelab-accent-h);
-  --bs-btn-active-border-color: var(--codelab-accent-h);
-  --bs-btn-disabled-bg: var(--bs-primary);
-  --bs-btn-disabled-border-color: var(--bs-primary);
+  --bs-btn-bg: var(--cl-accent);
+  --bs-btn-border-color: var(--cl-accent);
+  --bs-btn-hover-bg: var(--cl-accent-h);
+  --bs-btn-hover-border-color: var(--cl-accent-h);
+  --bs-btn-active-bg: var(--cl-accent-h);
+  --bs-btn-active-border-color: var(--cl-accent-h);
+  --bs-btn-disabled-bg: var(--cl-accent);
+  --bs-btn-disabled-border-color: var(--cl-accent);
   --bs-btn-focus-shadow-rgb: var(--bs-primary-rgb);
-  --bs-btn-color: var(--codelab-sur-accent);
-  --bs-btn-hover-color: var(--codelab-sur-accent);
-  --bs-btn-active-color: var(--codelab-sur-accent);
-  --bs-btn-disabled-color: var(--codelab-sur-accent);
-  font-weight: 600;
+  --bs-btn-color: var(--cl-sur-accent);
+  --bs-btn-hover-color: var(--cl-sur-accent);
+  --bs-btn-active-color: var(--cl-sur-accent);
+  --bs-btn-disabled-color: var(--cl-sur-accent);
 }
 .btn-outline-primary {
-  --bs-btn-color: var(--bs-primary);
-  --bs-btn-border-color: var(--bs-primary);
-  --bs-btn-hover-bg: var(--bs-primary);
-  --bs-btn-hover-border-color: var(--bs-primary);
-  --bs-btn-active-bg: var(--bs-primary);
-  --bs-btn-active-border-color: var(--bs-primary);
+  --bs-btn-color: var(--cl-accent-text);
+  --bs-btn-border-color: var(--cl-accent);
+  --bs-btn-hover-bg: var(--cl-accent);
+  --bs-btn-hover-border-color: var(--cl-accent);
+  --bs-btn-active-bg: var(--cl-accent);
+  --bs-btn-active-border-color: var(--cl-accent);
   --bs-btn-focus-shadow-rgb: var(--bs-primary-rgb);
 }
-.btn { border-radius: var(--bs-border-radius-sm); }
-
-/* Listes, onglets, pagination, cases : la selection est turquoise. */
-.list-group {
-  --bs-list-group-active-bg: var(--bs-primary);
-  --bs-list-group-active-border-color: var(--bs-primary);
-  --bs-list-group-active-color: var(--codelab-sur-accent);
-  --bs-list-group-bg: var(--codelab-surface);
+.btn-outline-secondary {
+  --bs-btn-color: var(--cl-dim);
+  --bs-btn-border-color: var(--cl-line);
+  --bs-btn-hover-color: var(--cl-text);
+  --bs-btn-hover-bg: var(--cl-hover);
+  --bs-btn-hover-border-color: var(--cl-line);
+  --bs-btn-active-color: var(--cl-text);
+  --bs-btn-active-bg: var(--cl-hover);
+  --bs-btn-active-border-color: var(--cl-line);
 }
-.nav-tabs {
-  --bs-nav-tabs-link-active-color: var(--bs-body-color);
-  --bs-nav-tabs-link-active-bg: var(--codelab-surface);
-}
-.nav-link { color: var(--bs-secondary-color); }
-.nav-link:hover, .nav-link:focus { color: var(--bs-link-hover-color); }
-.pagination {
-  --bs-pagination-active-bg: var(--bs-primary);
-  --bs-pagination-active-border-color: var(--bs-primary);
-  --bs-pagination-color: var(--bs-link-color);
-}
-.form-check-input:checked {
-  background-color: var(--bs-primary);
-  border-color: var(--bs-primary);
+.form-control, .form-select {
+  background-color: var(--cl-surface);
+  border-color: var(--cl-line);
+  color: var(--cl-text);
 }
 .form-control:focus, .form-select:focus {
-  border-color: var(--bs-primary);
-  box-shadow: 0 0 0 .2rem var(--bs-focus-ring-color);
+  background-color: var(--cl-surface);
+  border-color: var(--cl-accent);
+  color: var(--cl-text);
+  box-shadow: 0 0 0 3px var(--bs-focus-ring-color);
 }
-
-/* Les surfaces : des cartes blanches, avec un trait d'un pixel, posees sur
-   le fond ardoise. */
-.card, .modal-content, .dropdown-menu, .offcanvas {
-  background-color: var(--codelab-surface);
-  border-color: var(--bs-border-color);
+.form-check-input:checked { background-color: var(--cl-accent); border-color: var(--cl-accent); }
+.pagination {
+  --bs-pagination-active-bg: var(--cl-accent);
+  --bs-pagination-active-border-color: var(--cl-accent);
+  --bs-pagination-color: var(--cl-accent-text);
 }
 .dropdown-menu {
-  --bs-dropdown-link-active-bg: var(--bs-primary);
-  box-shadow: 0 8px 24px rgba(20, 26, 33, .12);
+  --bs-dropdown-bg: var(--cl-surface);
+  --bs-dropdown-border-color: var(--cl-line);
+  --bs-dropdown-link-color: var(--cl-text);
+  --bs-dropdown-link-hover-bg: var(--cl-hover);
+  --bs-dropdown-link-hover-color: var(--cl-text);
+  --bs-dropdown-link-active-bg: var(--cl-accent);
+  --bs-dropdown-link-active-color: var(--cl-sur-accent);
+  border-radius: 14px;
+  padding: 6px;
+  box-shadow: 0 14px 40px var(--cl-shadow-2);
 }
-.badge.bg-primary, .badge.text-bg-primary { background-color: var(--bs-primary) !important; }
+.dropdown-item { border-radius: 9px; padding: 7px 12px; font-size: .9rem; }
+.badge.bg-primary, .badge.text-bg-primary { background-color: var(--cl-accent) !important; }
+.card, .modal-content, .offcanvas {
+  background-color: var(--cl-surface);
+  border-color: var(--cl-line);
+}
 
-/* Le ruban de retour pose par le proxy : en bas a DROITE, parce que Mailpit
-   range ses reglages en bas a gauche ; et sans l'icone « lien externe » que
-   la feuille de Mailpit ajoute a tout lien en http(s)://. */
-#codelab-retour-hub { left: auto !important; right: 18px !important; bottom: 18px !important; }
+/* ---------------------- la barre laterale (menu) ------------------------ */
+/* Plus de cadres empiles : des lignes arrondies sur le fond, comme le menu
+   d'une application. La rubrique active est teintee d'indigo. */
+.row.flex-fill > .d-md-flex,
+.row.flex-fill > .d-xl-flex,
+.offcanvas-body > .d-flex {
+  padding-top: 14px;
+  padding-right: 18px;
+}
+.row.flex-fill > .d-md-flex .list-group,
+.row.flex-fill > .d-xl-flex > .list-group:first-child,
+.offcanvas-body .list-group {
+  --bs-list-group-bg: transparent;
+  --bs-list-group-border-width: 0;
+  --bs-list-group-color: var(--cl-dim);
+  --bs-list-group-action-color: var(--cl-dim);
+  --bs-list-group-action-hover-color: var(--cl-text);
+  --bs-list-group-action-hover-bg: var(--cl-hover);
+  --bs-list-group-action-active-bg: var(--cl-hover);
+  --bs-list-group-action-active-color: var(--cl-text);
+  --bs-list-group-active-bg: var(--cl-accent-soft);
+  --bs-list-group-active-color: var(--cl-accent-text);
+  --bs-list-group-active-border-color: transparent;
+  gap: 2px;
+  border-radius: 0;
+}
+.row.flex-fill > .d-md-flex .list-group-item,
+.row.flex-fill > .d-xl-flex > .list-group:first-child > .list-group-item,
+.offcanvas-body .list-group-item {
+  border: 0;
+  border-radius: 10px !important;
+  padding: 9px 12px;
+  font-size: .9rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.row.flex-fill > .d-md-flex .list-group-item.active,
+.offcanvas-body .list-group-item.active { font-weight: 700; }
+.row.flex-fill > .d-md-flex .list-group-item .bi,
+.offcanvas-body .list-group-item .bi { margin: 0 !important; font-size: 1rem; width: 18px; text-align: center; }
+.row.flex-fill > .d-md-flex .list-group-item .badge,
+.offcanvas-body .list-group-item .badge {
+  margin-left: auto !important;
+  float: none !important;
+  background: var(--cl-surface-2) !important;
+  color: var(--cl-dim) !important;
+  border: 1px solid var(--cl-line);
+  font-weight: 700;
+  padding: 3px 8px;
+}
+.row.flex-fill > .d-md-flex .list-group-item.active .badge,
+.offcanvas-body .list-group-item.active .badge {
+  background: var(--cl-accent) !important;
+  border-color: var(--cl-accent);
+  color: var(--cl-sur-accent) !important;
+}
+/* « Supprimer tout » garde sa corbeille rouge, sans crier. */
+.list-group-item .bi-trash-fill.text-danger { color: #e5484d !important; }
+
+/* Les titres de rubrique : en petites capitales, comme le menu du panneau. */
+.row.flex-fill > .d-md-flex .mt-4.text-muted,
+.offcanvas-body .mt-4.text-muted { margin-top: 22px !important; padding-left: 4px; }
+.row.flex-fill > .d-md-flex .mt-4.text-muted > .btn,
+.offcanvas-body .mt-4.text-muted > .btn {
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--cl-faint);
+  padding: 2px 6px;
+}
+
+/* Les etiquettes : la couleur de Mailpit (posee en ligne sur le bord
+   gauche) devient un trait arrondi a l'interieur de la ligne. */
+.row.flex-fill > .d-md-flex .list-group.mt-1 .list-group-item,
+.offcanvas-body .list-group.mt-1 .list-group-item {
+  border-left-style: solid !important;
+  border-left-width: 4px !important;
+  font-weight: 500;
+  padding: 7px 12px;
+}
+.list-group.mt-1 .list-group-item .bi-tag { opacity: .7; }
+
+/* Le pied : « A propos » et la roue des reglages, AU-DESSUS d'un espace
+   laisse libre pour le bouton « ← CodeLab », fixe en bas a gauche. */
+.about-mailpit {
+  background: transparent !important;
+  border-top: 1px solid var(--cl-line);
+  margin: 8px 0 64px !important;
+  padding: 12px 4px 0 !important;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.about-mailpit > .btn { float: none !important; }
+.about-mailpit .btn.text-muted { color: var(--cl-dim) !important; padding-left: 4px; }
+.about-mailpit .btn.text-muted:hover { color: var(--cl-text) !important; }
+.about-mailpit .btn-outline-secondary {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 10px;
+}
+
+/* --------------------------- la liste des mails ------------------------- */
+/* Une carte, des lignes aerees, un point indigo devant ce qui n'est pas lu. */
+#message-page > .list-group,
+.row.flex-fill > .d-xl-flex > .list-group:not(:first-child),
+.row.flex-fill > .d-xl-flex > div > .list-group {
+  --bs-list-group-bg: var(--cl-surface);
+  --bs-list-group-border-color: var(--cl-line);
+  --bs-list-group-action-hover-bg: var(--cl-hover);
+  --bs-list-group-action-hover-color: var(--cl-text);
+  --bs-list-group-active-bg: var(--cl-accent-soft);
+  --bs-list-group-active-color: var(--cl-text);
+  --bs-list-group-active-border-color: var(--cl-line);
+  background: var(--cl-surface);
+  border: 1px solid var(--cl-line);
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px var(--cl-shadow);
+}
+#message-page > .list-group { margin-top: 14px !important; }
+.list-group-item.message {
+  position: relative;
+  padding: 14px 20px 14px 30px;
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
+  border-bottom: 1px solid var(--cl-line);
+  color: var(--cl-text);
+  transition: background-color .12s;
+}
+.list-group-item.message:last-child { border-bottom: 0; }
+.list-group-item.message::before {
+  content: "";
+  position: absolute;
+  left: 12px;
+  top: 21px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cl-accent);
+}
+.list-group-item.message.read::before { background: transparent; }
+.list-group-item.message b { font-weight: 700; }
+.list-group-item.message.read b { font-weight: 600; }
+.list-group-item.message .subject b { font-size: .93rem; }
+.list-group-item.message .text-muted { color: var(--cl-dim) !important; }
+.list-group-item.message.active {
+  background: var(--cl-accent-soft);
+  box-shadow: inset 3px 0 0 var(--cl-accent);
+}
+.list-group-item.message.active .text-muted { color: var(--cl-dim) !important; }
+
+/* Les etiquettes des mails : des pilules, la couleur de Mailpit gardee. */
+.message .badge,
+.messageHeaders .badge,
+#message-view .badge {
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-weight: 650;
+  font-size: .72rem;
+  letter-spacing: 0;
+}
+
+/* ------------------------------ un message ------------------------------ */
+#message-view { padding-top: 16px; }
+/* L'en-tete : une fiche arrondie, libelles discrets, valeurs nettes. */
+#message-view .messageHeaders {
+  width: 100%;
+  margin: 0;
+  background: var(--cl-surface);
+  border: 1px solid var(--cl-line);
+  border-radius: 18px;
+  box-shadow: 0 1px 3px var(--cl-shadow);
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+}
+#message-view .messageHeaders tr > * { padding: 9px 12px; font-size: .9rem; }
+#message-view .messageHeaders tr:first-child > * { padding-top: 18px; }
+#message-view .messageHeaders tr:last-child > * { padding-bottom: 18px; }
+#message-view .messageHeaders th {
+  color: var(--cl-faint);
+  font-weight: 600;
+  font-size: .82rem;
+  padding-left: 22px;
+  min-width: 110px;
+  width: 1%;
+  white-space: nowrap;
+}
+#message-view .messageHeaders td { color: var(--cl-text); }
+#message-view .messageHeaders .subject,
+#message-view .messageHeaders tr th + td > strong,
+#message-view .messageHeaders tr th + td.subject {
+  font-size: 1.25rem;
+  font-weight: 800;
+  letter-spacing: -.02em;
+}
+
+/* Les onglets HTML / Texte / En-tetes... : soulignes, a la maniere d'une
+   application, au lieu des onglets a bordure de Bootstrap. */
+#message-view .nav-tabs {
+  --bs-nav-tabs-border-width: 0;
+  border-bottom: 1px solid var(--cl-line);
+  gap: 4px;
+}
+#message-view .nav-tabs .nav-link {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  color: var(--cl-dim);
+  font-weight: 600;
+  font-size: .9rem;
+  padding: 10px 12px;
+  margin-bottom: -1px;
+}
+#message-view .nav-tabs .nav-link:hover { color: var(--cl-text); }
+#message-view .nav-tabs .nav-link.active {
+  color: var(--cl-accent-text);
+  border-bottom-color: var(--cl-accent);
+  background: none;
+}
+#message-view .nav-tabs .btn {
+  border-radius: 9px;
+  color: var(--cl-dim);
+  border-color: transparent;
+}
+#message-view .nav-tabs .btn.active,
+#message-view .nav-tabs .btn:hover { background: var(--cl-hover); color: var(--cl-text); border-color: var(--cl-line); }
+
+/* L'apercu : le mail sur sa propre feuille, arrondie, posee sur le fond. */
+#responsive-view:not(.phone):not(.tablet) {
+  background: var(--cl-preview);
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid var(--cl-line);
+  box-shadow: 0 1px 3px var(--cl-shadow);
+}
+#preview-html { background: var(--cl-preview); }
+#nav-plain-text .text-view,
+#nav-source,
+#nav-headers,
+#nav-html-source pre {
+  background: var(--cl-surface);
+  border: 1px solid var(--cl-line);
+  border-radius: 16px;
+  padding: 18px;
+}
+.nav-tabs {
+  --bs-nav-tabs-link-active-color: var(--cl-text);
+  --bs-nav-tabs-link-active-bg: var(--cl-surface);
+}
+.nav-link { color: var(--cl-dim); }
+.nav-link:hover, .nav-link:focus { color: var(--cl-text); }
+.table {
+  --bs-table-bg: transparent;
+  --bs-table-color: var(--cl-text);
+  --bs-table-border-color: var(--cl-line);
+}
+
+/* --------------------------- le bouton CodeLab --------------------------- */
+/* Pose par le proxy, en bas a GAUCHE, dans l'espace que la barre laterale
+   lui laisse. Habille ici comme une pastille du panneau ; les styles en
+   ligne du proxy restent le repli si cette feuille ne charge pas. Sans
+   l'icone « lien externe » que Mailpit ajoute a tout lien http(s)://. */
+#codelab-retour-hub {
+  left: 20px !important;
+  right: auto !important;
+  bottom: 16px !important;
+  gap: 8px !important;
+  padding: 10px 16px 10px 13px !important;
+  background: var(--cl-surface) !important;
+  color: var(--cl-text) !important;
+  border: 1px solid var(--cl-line) !important;
+  border-radius: 999px !important;
+  box-shadow: 0 6px 20px var(--cl-shadow-2) !important;
+  font: 700 13.5px/1 var(--bs-body-font-family) !important;
+  transition: transform .12s, background-color .12s;
+}
+#codelab-retour-hub:hover { background: var(--cl-hover) !important; transform: translateX(-2px); }
+#codelab-retour-hub span {
+  color: var(--cl-text) !important;
+  font: 700 13.5px/1 var(--bs-body-font-family) !important;
+}
+#codelab-retour-hub span:first-child { color: var(--cl-accent-text) !important; font-size: 16px !important; }
 #codelab-retour-hub::after { content: none !important; display: none !important; }
+
+/* Telephone et tablette : la barre laterale est repliee (menu). Le bouton
+   flotte alors sur la liste : on lui garde la place sous le dernier mail. */
+@media (max-width: 767.98px) {
+  #app { padding-left: 12px; padding-right: 12px; }
+  #message-page { padding-bottom: 72px; }
+  .list-group-item.message { padding: 12px 14px 12px 26px; }
+  .list-group-item.message::before { left: 10px; top: 19px; }
+  .navbar.bg-primary { min-height: 0; }
+  #codelab-retour-hub { left: 12px !important; bottom: 12px !important; }
+}
+@media (max-width: 1199.98px) {
+  /* La vue d'un message cache sa liste laterale sous 1200 px : rien en bas a
+     gauche, sinon le bouton -- on garde la place sous l'apercu. */
+  #message-view { padding-bottom: 72px; }
+}
 
 /* ---------------------------------------------------------------------------
    Les fenetres (reglages, a propos, confirmations) : celles du panneau.
    Une carte arrondie sur un voile floute, un titre net, le pied sans trait.
    --------------------------------------------------------------------------- */
-.modal-backdrop.show { opacity: .45; }
-.modal-backdrop { background-color: #0a0f14; }
-.modal.show { backdrop-filter: blur(3px); }
+.modal-backdrop.show { opacity: .5; }
+.modal-backdrop { background-color: #05060d; }
+.modal.show { backdrop-filter: blur(4px); }
 .modal-content {
-  border: 1px solid var(--bs-border-color);
-  border-radius: 18px;
-  box-shadow: 0 24px 60px rgba(10, 15, 20, .28);
+  border: 1px solid var(--cl-line);
+  border-radius: 22px;
+  box-shadow: 0 24px 60px var(--cl-shadow-2);
   overflow: hidden;
 }
-.modal-header {
-  padding: 20px 24px 14px;
-  border-bottom: 0;
-}
+.modal-header { padding: 22px 24px 14px; border-bottom: 0; }
 .modal-title {
-  font-weight: 700;
+  font-weight: 800;
   font-size: 1.15rem;
-  letter-spacing: -.01em;
+  letter-spacing: -.02em;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -221,21 +626,17 @@ img[src$="mailpit.svg"] {
   flex: none;
   width: 32px;
   height: 32px;
-  border-radius: 9px;
-  background: url("/_codelab/logo.svg?v=3") center / cover no-repeat;
+  border-radius: 10px;
+  background: url("/_codelab/logo.svg?v=4") center / cover no-repeat;
 }
 .modal-body { padding: 4px 24px 20px; }
-.modal-footer {
-  border-top: 0;
-  padding: 0 24px 20px;
-  gap: 8px;
-}
+.modal-footer { border-top: 0; padding: 0 24px 22px; gap: 8px; }
 .modal-footer > * { margin: 0; }
 .btn-close { border-radius: 8px; opacity: .55; }
 .btn-close:hover { opacity: .9; }
+:root[data-bs-theme="dark"] .btn-close { filter: invert(1) grayscale(100%) brightness(200%); }
 
-/* Les onglets des reglages : un selecteur segmente, et non les onglets a
-   bordure de Bootstrap. */
+/* Les onglets des reglages : un selecteur segmente. */
 .modal .nav-tabs {
   display: inline-flex;
   gap: 4px;
@@ -243,7 +644,7 @@ img[src$="mailpit.svg"] {
   margin-bottom: 18px;
   border: 0;
   border-radius: 12px;
-  background: var(--bs-secondary-bg);
+  background: var(--cl-surface-2);
 }
 .modal .nav-tabs .nav-link {
   margin: 0;
@@ -252,31 +653,24 @@ img[src$="mailpit.svg"] {
   border-radius: 9px;
   font-weight: 600;
   font-size: .9rem;
-  color: var(--bs-secondary-color);
+  color: var(--cl-dim);
 }
 .modal .nav-tabs .nav-link.active {
-  color: var(--bs-body-color);
-  background: var(--codelab-surface);
-  box-shadow: 0 1px 3px rgba(10, 15, 20, .12);
+  color: var(--cl-text);
+  background: var(--cl-surface);
+  box-shadow: 0 1px 3px var(--cl-shadow-2);
 }
 .modal .tab-pane > .my-3:first-child,
 .modal .tab-pane > .my-3.mb-5 { margin-top: 0 !important; }
 
-/* Libelles et aides. */
 .modal .form-label,
-.modal label:not(.form-check-label) {
-  font-weight: 600;
-  font-size: .85rem;
-  margin-bottom: 6px;
-}
-.modal .form-text { color: var(--bs-secondary-color); font-size: .83rem; line-height: 1.5; }
-
-/* Champs : sur fond de carte, un trait net plutot qu'un aplat gris. */
+.modal label:not(.form-check-label) { font-weight: 600; font-size: .85rem; margin-bottom: 6px; }
+.modal .form-text { color: var(--cl-dim); font-size: .83rem; line-height: 1.5; }
 .modal .form-select,
 .modal .form-control {
-  background-color: var(--codelab-surface);
-  border: 1px solid var(--bs-border-color);
-  border-radius: 10px;
+  background-color: var(--cl-surface);
+  border: 1px solid var(--cl-line);
+  border-radius: 11px;
   min-height: 42px;
 }
 
@@ -284,17 +678,17 @@ img[src$="mailpit.svg"] {
    droite, le tout dans une liste encadree comme les reglages du panneau. */
 #SettingsModal .tab-pane > .mb-3:has(> .form-switch) {
   margin-bottom: 0 !important;
-  border: 1px solid var(--bs-border-color);
+  border: 1px solid var(--cl-line);
   border-top-width: 0;
-  background: var(--codelab-surface);
+  background: var(--cl-surface);
 }
 #SettingsModal .tab-pane > :not(.mb-3:has(> .form-switch)) + .mb-3:has(> .form-switch) {
   border-top-width: 1px;
-  border-radius: 12px 12px 0 0;
+  border-radius: 14px 14px 0 0;
   margin-top: 20px;
 }
 #SettingsModal .tab-pane > .mb-3:has(> .form-switch):not(:has(+ .mb-3 > .form-switch)) {
-  border-radius: 0 0 12px 12px;
+  border-radius: 0 0 14px 14px;
 }
 #SettingsModal .form-switch {
   display: flex;
@@ -316,91 +710,66 @@ img[src$="mailpit.svg"] {
 }
 #SettingsModal .form-switch .form-check-label { font-size: .92rem; cursor: pointer; }
 
-/* Le code dans le texte : une pastille turquoise discrete, et non le rose
-   de Bootstrap. */
 .modal code {
-  color: var(--bs-primary-text-emphasis);
-  background: var(--bs-primary-bg-subtle);
+  color: var(--cl-accent-text);
+  background: var(--cl-accent-soft);
   padding: 1px 6px;
-  border-radius: 5px;
+  border-radius: 6px;
   font-size: .82em;
 }
-
-/* Le bouton de fermeture du pied : l'action neutre du panneau. */
 .modal-footer .btn-outline-secondary,
 .modal-footer .btn-secondary {
-  --bs-btn-color: var(--bs-body-color);
-  --bs-btn-bg: var(--bs-secondary-bg);
-  --bs-btn-border-color: var(--bs-border-color);
-  --bs-btn-hover-color: var(--bs-body-color);
-  --bs-btn-hover-bg: var(--bs-border-color);
-  --bs-btn-hover-border-color: var(--bs-border-color);
-  font-weight: 600;
+  --bs-btn-color: var(--cl-text);
+  --bs-btn-bg: var(--cl-surface-2);
+  --bs-btn-border-color: var(--cl-line);
+  --bs-btn-hover-color: var(--cl-text);
+  --bs-btn-hover-bg: var(--cl-hover);
+  --bs-btn-hover-border-color: var(--cl-line);
   padding: 8px 18px;
-  border-radius: 10px;
+  border-radius: 11px;
 }
 /* Mailpit place parfois le pied DANS le corps de la fenetre : il herite
    alors deja de ses marges laterales. */
 .modal-body .modal-footer { padding: 20px 0 0; }
 
-/* « A propos » : des cartes au trait fin, un en-tete discret, des chiffres
-   lisibles -- au lieu des bordures sombres de Bootstrap. */
+/* « A propos » : des cartes au trait fin, des chiffres lisibles. */
 .modal .card,
 .modal .card.border-secondary {
-  border: 1px solid var(--bs-border-color) !important;
-  border-radius: 12px;
+  border: 1px solid var(--cl-line) !important;
+  border-radius: 14px;
   overflow: hidden;
-  background: var(--codelab-surface);
+  background: var(--cl-surface);
 }
 .modal .card-header {
-  background: var(--bs-secondary-bg);
-  border-bottom: 1px solid var(--bs-border-color);
+  background: var(--cl-surface-2);
+  border-bottom: 1px solid var(--cl-line);
   font-weight: 600;
   font-size: .85rem;
-  color: var(--bs-secondary-color);
+  color: var(--cl-dim);
   padding: 10px 14px;
 }
-.modal .card-header.h4 {
-  font-size: .95rem;
-  font-weight: 700;
-  color: var(--bs-body-color);
-}
-.modal .card-title {
-  font-weight: 700;
-  font-size: 1.35rem;
-  color: var(--bs-body-color);
-  margin: 0;
-}
-.modal .table {
-  --bs-table-bg: transparent;
-  --bs-table-striped-bg: transparent;
-  --bs-table-hover-bg: var(--bs-secondary-bg);
-}
-.modal .table > tbody > tr > * {
-  padding: 8px 6px;
-  border-bottom: 1px solid var(--bs-border-color);
-}
+.modal .card-header.h4 { font-size: .95rem; font-weight: 700; color: var(--cl-text); }
+.modal .card-title { font-weight: 800; font-size: 1.35rem; color: var(--cl-text); margin: 0; }
+.modal .table { --bs-table-hover-bg: var(--cl-hover); }
+.modal .table > tbody > tr > * { padding: 8px 6px; border-bottom: 1px solid var(--cl-line); }
 .modal .table > tbody > tr:last-child > * { border-bottom: 0; }
-.modal .table td:first-child, .modal .table th:first-child { color: var(--bs-secondary-color); }
-.modal .btn-outline-secondary.btn-sm { border-color: var(--bs-border-color); color: var(--bs-body-color); border-radius: 8px; }
-.modal .alert { border-radius: 12px; }
+.modal .table td:first-child, .modal .table th:first-child { color: var(--cl-dim); }
+.modal .btn-outline-secondary.btn-sm { border-color: var(--cl-line); color: var(--cl-text); border-radius: 9px; }
+.modal .alert { border-radius: 14px; }
 .modal .accordion {
-  --bs-accordion-border-radius: 12px;
-  --bs-accordion-inner-border-radius: 11px;
-  --bs-accordion-border-color: var(--bs-border-color);
-  --bs-accordion-bg: var(--codelab-surface);
-  --bs-accordion-active-bg: var(--bs-primary-bg-subtle);
-  --bs-accordion-active-color: var(--bs-primary-text-emphasis);
-  --bs-accordion-btn-focus-box-shadow: 0 0 0 .2rem var(--bs-focus-ring-color);
+  --bs-accordion-border-radius: 14px;
+  --bs-accordion-inner-border-radius: 13px;
+  --bs-accordion-border-color: var(--cl-line);
+  --bs-accordion-bg: var(--cl-surface);
+  --bs-accordion-active-bg: var(--cl-accent-soft);
+  --bs-accordion-active-color: var(--cl-accent-text);
+  --bs-accordion-btn-focus-box-shadow: 0 0 0 3px var(--bs-focus-ring-color);
 }
 
-/* En bas a gauche : « About » et la roue des reglages, alignes et sobres. */
-.about-mailpit .btn-outline-secondary {
-  border-color: var(--bs-border-color);
-  color: var(--bs-secondary-color);
-  border-radius: 8px;
-}
-.about-mailpit .btn-outline-secondary:hover {
-  background: var(--bs-secondary-bg);
-  color: var(--bs-body-color);
+/* Les notifications (« message supprime »...) : une pastille du panneau. */
+.toast {
+  background: var(--cl-surface);
+  border: 1px solid var(--cl-line);
+  border-radius: 14px;
+  box-shadow: 0 12px 32px var(--cl-shadow-2);
 }

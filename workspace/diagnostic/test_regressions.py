@@ -11924,14 +11924,24 @@ def test_mailpit_est_habille_aux_couleurs_de_codelab():
         assert route in conf, route
     dockerfile = open(os.path.join(racine, "dagster", "proxy", "Dockerfile"), encoding="utf-8").read()
     assert "COPY dagster/proxy/mailpit-theme/ /usr/share/nginx/codelab/mailpit/" in dockerfile
-    assert "manrope-latin.woff2 /usr/share/nginx/codelab/mailpit/manrope.woff2" in dockerfile
+    assert "jakarta-latin.woff2 /usr/share/nginx/codelab/mailpit/jakarta.woff2" in dockerfile
+    assert "LICENCE-jakarta.txt /usr/share/nginx/codelab/mailpit/" in dockerfile
     css = open(os.path.join(racine, "dagster", "proxy", "mailpit-theme", "mailpit.css"),
                encoding="utf-8").read()
     # Par les variables de Bootstrap, pas en visant les classes une a une.
-    assert "--bs-primary: #0e7c86;" in css and "--bs-primary: #2ab5bf;" in css
-    assert 'font-family: "Manrope"' in css and "/_codelab/manrope.woff2" in css
-    # Le ruban de retour n'herite pas de l'icone « lien externe » de Mailpit.
+    # Les memes jetons que le Style 2 du panneau, clair et sombre ; la barre
+    # du haut, que Mailpit force en sombre, suit le theme de la page.
+    assert "--cl-accent: #3b3fd8;" in css and "--cl-accent: #6366f1;" in css
+    assert "--bs-primary: var(--cl-accent);" in css
+    assert ':root:not([data-bs-theme="dark"]) .navbar[data-bs-theme="dark"]' in css
+    assert 'font-family: "Plus Jakarta Sans"' in css and "/_codelab/jakarta.woff2" in css
+    # Le ruban de retour n'herite pas de l'icone « lien externe » de Mailpit,
+    # et reste EN BAS A GAUCHE : la barre laterale lui laisse un pied vide.
     assert "#codelab-retour-hub::after" in css
+    bouton = css.split("#codelab-retour-hub {", 1)[1].split("}", 1)[0]
+    assert "left: 20px !important;" in bouton and "right: auto !important;" in bouton
+    pied = css.split(".about-mailpit {", 1)[1].split("}", 1)[0]
+    assert "margin: 8px 0 64px !important;" in pied
     # Le meme logo sur la tuile du hub et dans Mailpit.
     logo = open(os.path.join(racine, "dagster", "proxy", "mailpit-theme", "logo.svg"),
                 encoding="utf-8").read().strip()
@@ -12013,7 +12023,13 @@ def test_favicon_ico_est_le_logo_codelab_sur_tous_les_ports():
     bloc = conf.split("location ~ ^/(favicon\\.ico", 1)[1].split("}", 1)[0]
     assert "mailpit/codelab.png" in bloc
     assert "location = /favicon.svg {\n        alias /usr/share/nginx/codelab/mailpit/codelab.svg;" in conf
-    assert """sub_filter 'href="/favicon.svg"' 'href="/_codelab/codelab.png?v=""" in conf
+    # L'icone de l'onglet : la MEME adresse que celle du panneau, et declaree
+    # « shortcut icon » -- Mailpit repeint link[rel="icon"] (le compteur de
+    # non lus) et ne la trouve donc plus.
+    assert ("""sub_filter '<link rel="icon" href="/favicon.svg">' '<link rel="shortcut icon" """
+            """type="image/png" sizes="128x128" href="/icone-codelab.png?v=4">';""") in conf
+    assert "icone-codelab\\.png" in bloc
+    assert 'rel="icon"' not in conf.split("sub_filter '<link rel=\"icon\" href=\"/favicon.svg\">'", 1)[1].split(";", 1)[0]
     dagster = open(os.path.join(racine, "dagster", "proxy", "nginx.conf"), encoding="utf-8").read()
     assert "location ~ ^/favicon[-a-z0-9_]*\\.svg$ {\n        alias /usr/share/nginx/codelab/mailpit/codelab.svg;" in dagster
     assert "alias /usr/share/nginx/codelab/mailpit/codelab.png;" in dagster
