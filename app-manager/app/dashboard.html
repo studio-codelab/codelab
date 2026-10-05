@@ -1274,6 +1274,14 @@ table.tbl-journal{min-width:560px}
 .sous-tache-ajout{border:0;border-bottom:1px dashed var(--line2);border-radius:0;background:transparent;
  padding:5px 0;font-size:12.5px;width:100%}
 .sous-tache-ajout:focus{outline:none;border-bottom-color:var(--accent)}
+.poignee{flex:none;width:22px;height:26px;border:0;background:none;color:var(--dim2);
+ cursor:grab;display:grid;place-items:center;padding:0;border-radius:6px;touch-action:none}
+.poignee svg{width:16px;height:16px;fill:currentColor;stroke:none}
+.poignee:hover,.poignee:focus-visible{color:var(--accent);background:var(--surface2)}
+.tache-ligne.sous.glisse{background:var(--surface);box-shadow:0 6px 20px var(--shadow-2);
+ border-radius:10px;position:relative;z-index:2}
+.tache-ligne.sous.glisse .poignee{cursor:grabbing}
+.sous-taches{margin-left:2px}
 
 /* ---------------- reperes communs aux deux styles ---------------- */
 .reglages-btn{display:none}
@@ -3597,8 +3605,13 @@ function tacheBloc(t){
       <button class="msg-acte danger" title="Supprimer la tâche" data-agir="tache-supprimer" data-cible="${id}">${SVG_POUBELLE}</button>
     </div>
     ${source ? `<div class="tache-source">Depuis le message de ${esc(source.qui||'?')}</div>` : ''}
-    <div class="sous-taches">
-      ${t.sous_taches.map(st=>`<div class="tache-ligne sous">
+    <div class="sous-taches" data-tache="${id}">
+      ${t.sous_taches.map(st=>`<div class="tache-ligne sous" data-id="${esc(st.id)}">
+        <button class="poignee" type="button" title="Glisser pour changer la priorité"
+          aria-label="Déplacer « ${esc(st.titre)} » (flèches haut et bas)">
+          <svg viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.2"/><circle cx="15" cy="6" r="1.2"/>
+          <circle cx="9" cy="12" r="1.2"/><circle cx="15" cy="12" r="1.2"/>
+          <circle cx="9" cy="18" r="1.2"/><circle cx="15" cy="18" r="1.2"/></svg></button>
         <label class="tache-case"><input type="checkbox" ${st.faite?'checked':''} data-changer="sous-tache-faite" data-cible="${esc(st.id)}">
           <span>${esc(st.titre)}</span></label>
         <button class="msg-acte" title="Retirer" data-agir="sous-tache-supprimer" data-cible="${esc(st.id)}">${SVG_NON}</button>
@@ -3627,6 +3640,51 @@ document.addEventListener('keydown', async e=>{
   const titre=champ.value.trim(); if(!titre) return;
   if(await tacheAppel('/api/taches/'+encodeURIComponent(champ.dataset.tache)+'/sous-taches', 'POST', {titre}))
     chargerTaches();
+});
+
+/* ---- prioriser les sous-taches : glisser la poignee ----
+   Au pointeur (souris, doigt, stylet) plutot qu'au glisser-deposer HTML,
+   qui ne marche pas au doigt sur iPhone. Au clavier : fleches haut et bas
+   sur la poignee. L'ordre part au serveur au lacher. */
+let glisse=null;
+function lignesDe(liste){ return [...liste.querySelectorAll(':scope > .tache-ligne.sous')]; }
+async function enregistrerOrdre(liste){
+  const ids=lignesDe(liste).map(x=>x.dataset.id);
+  if(await tacheAppel('/api/taches/'+encodeURIComponent(liste.dataset.tache)+'/ordre', 'PUT', {ordre:ids}))
+    chargerTaches();
+}
+document.addEventListener('pointerdown', e=>{
+  const p=e.target.closest && e.target.closest('.poignee'); if(!p) return;
+  const ligne=p.closest('.tache-ligne.sous');
+  e.preventDefault();
+  glisse={ligne, liste:ligne.parentElement, depart:lignesDe(ligne.parentElement).indexOf(ligne)};
+  ligne.classList.add('glisse');
+  try{ p.setPointerCapture(e.pointerId); }catch(_){}
+});
+document.addEventListener('pointermove', e=>{
+  if(!glisse) return;
+  const autres=lignesDe(glisse.liste).filter(x=>x!==glisse.ligne);
+  const avant=autres.find(f=>{ const r=f.getBoundingClientRect(); return e.clientY < r.top + r.height/2; });
+  glisse.liste.insertBefore(glisse.ligne, avant || glisse.liste.querySelector('.sous-tache-ajout'));
+});
+function finGlisse(){
+  if(!glisse) return;
+  const g=glisse; glisse=null;
+  g.ligne.classList.remove('glisse');
+  if(lignesDe(g.liste).indexOf(g.ligne)!==g.depart) enregistrerOrdre(g.liste);
+}
+document.addEventListener('pointerup', finGlisse);
+document.addEventListener('pointercancel', finGlisse);
+document.addEventListener('keydown', e=>{
+  const p=e.target.closest && e.target.closest('.poignee');
+  if(!p || (e.key!=='ArrowUp' && e.key!=='ArrowDown')) return;
+  e.preventDefault();
+  const ligne=p.closest('.tache-ligne.sous'), liste=ligne.parentElement, l=lignesDe(liste);
+  const i=l.indexOf(ligne), j=e.key==='ArrowUp' ? i-1 : i+1;
+  if(j<0 || j>=l.length) return;
+  liste.insertBefore(ligne, e.key==='ArrowUp' ? l[j] : l[j].nextSibling);
+  p.focus();
+  enregistrerOrdre(liste);
 });
 
 /* Le formulaire : depuis un message (accepter), ou vide (nouvelle tache). */

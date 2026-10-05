@@ -140,7 +140,13 @@ Chaque rubrique a son adresse ; recharger la page y ramène, « Précédent » y
 | `/parametres/<onglet>` | Paramètres (compte, sécurité, message…) | tous (onglets selon le rôle) |
 
 Sans session, ces adresses mènent à la connexion, qui y renvoie ensuite (chemin local
-seulement). Ces noms ne peuvent pas servir d'adresse à une application.
+seulement). **Aucune application ne peut prendre le nom d'une route du panneau** : la liste des
+noms réservés est tirée de la table des routes elle-même (`adresses_reservees()`), donc toute
+route ajoutée demain est réservée d'office ; une application plus ancienne qui porterait un de
+ces noms est signalée au démarrage.
+
+Dans **Tâches**, les sous-tâches se priorisent en les glissant par leur poignée (souris, doigt,
+ou flèches haut/bas au clavier) ; la plus haute est la plus prioritaire.
 
 ### 3.2 Messages et tâches
 
@@ -181,9 +187,14 @@ le renvoyer (l'ancien lien cesse alors de fonctionner) ou l'annuler.
 - **Face ID / Touch ID / empreinte / Windows Hello** (clé d'accès, norme WebAuthn) : un geste, ni
   mot de passe ni code. C'est le moyen le plus sûr : la clé ne signe que pour ce domaine, donc un
   faux site n'en tire rien. Exige HTTPS et un nom de domaine.
-- **Mot de passe + code** : après le mot de passe, un code à six chiffres part par mail (ou est lu
-  dans l'application d'authentification si la personne en a une). Le code vaut **10 minutes**,
-  sert **une fois**, tolère **5 essais**, et ne part que vers l'adresse vérifiée du compte.
+- **Identifiant + mot de passe, puis une seconde étape** : l'identifiant est toujours demandé
+  (« admin » compris). Une fois le mot de passe reconnu, la page passe à l'étape 2 — jamais sur
+  le même écran :
+  - **Face ID / Touch ID** si le compte a une clé d'accès (il se lance de lui-même) ; la clé doit
+    être celle de CE compte, et l'étape n'est ouverte que 10 minutes après le mot de passe ;
+  - sinon un **code à six chiffres** : celui de l'application d'authentification, ou, pour un
+    compte utilisateur, un code envoyé par mail. Le code par mail vaut **10 minutes**, sert
+    **une fois**, tolère **5 essais**, et ne part que vers l'adresse vérifiée du compte.
 
 ### 4.3 Mot de passe oublié
 
