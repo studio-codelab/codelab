@@ -46,7 +46,7 @@
 # ces lignes existent precisement pour empecher. Un plafond au-dessus de la
 # RAM disponible n'est pas une securite large, c'est une securite absente.
 #
-# Total actuel : 4,4 Go de plafonds. La
+# Total actuel : 4,8 Go de plafonds. La
 # somme depasse encore les 4 Go, et c'est toujours voulu -- mais aucun
 # service ne peut plus prendre a lui seul plus du tiers de la machine.
 #
@@ -300,9 +300,19 @@ services:
     restart: unless-stopped
 
     # Le shell : on y compile, d'ou une part plus large que les services. Voir l'explication en tete de fichier.
-    mem_limit: 896m
+    #
+    # 1280m et 1024 processus, parce que 896m et 512 tuaient VS Code. Une
+    # session Remote-SSH, c'est le serveur VS Code, son hote d'extensions,
+    # Codex (son extension ET son agent), les serveurs de langage, la JVM de
+    # Database Client JDBC, et git a chaque rafraichissement. A 896m le noyau
+    # tuait l'hote d'extensions : l'agent IA et la vue Git redemarraient en
+    # boucle. Et pids_limit compte les FILS D'EXECUTION, pas les processus --
+    # chaque Node en ouvre une dizaine, la JVM plusieurs dizaines : a 512, un
+    # thread refuse suffisait a faire tomber l'hote d'extensions de la meme
+    # facon, sans aucune trace « OOMKilled ».
+    mem_limit: 1280m
     cpus: 1.5
-    pids_limit: 512
+    pids_limit: 1024
     logging:
       driver: json-file
       options:

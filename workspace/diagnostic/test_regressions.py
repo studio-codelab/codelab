@@ -6853,6 +6853,23 @@ def test_le_panneau_a_la_part_la_plus_large():
         assert part["codelab-dagster-proxy"] == min(part.values()), chemin
 
 
+def test_le_shell_tient_une_session_vscode():
+    """A 896 Mo et 512 processus, l'agent IA et la vue Git de VS Code
+    redemarraient en boucle : le noyau tuait l'hote d'extensions (serveur
+    VS Code, Codex, serveurs de langage, JVM de Database Client JDBC, git).
+    pids_limit compte les fils d'execution, et une JVM en ouvre des dizaines.
+    """
+    def en_mo(v):
+        v = str(v)
+        return int(v[:-1]) * 1024 if v.endswith("g") else int(v.rstrip("m"))
+    for chemin in _composes():
+        dev = _services_du_compose(chemin)["codelab-dev"]
+        memoire = dev.get("mem_limit", dev.get("deploy_memory"))
+        pids = dev.get("pids_limit", dev.get("deploy_pids"))
+        assert en_mo(memoire) >= 1280, (chemin, memoire)
+        assert int(pids) >= 1024, (chemin, pids)
+
+
 # ---------- 29. il n'y avait aucune sauvegarde ----------
 #
 # Rien ne copiait utilisateurs.json, apps.json, le journal des acces ni la

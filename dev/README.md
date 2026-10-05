@@ -352,6 +352,23 @@ son serveur **par version** et ne supprime jamais les anciennes : un
 nettoyage de temps en temps (supprimer le dossier, VS Code le réinstalle à
 la connexion suivante) évite qu'il grossisse sans fin.
 
+### VS Code : l'agent IA ou la vue Git redemarrent en boucle
+
+C'est l'hote d'extensions de VS Code qui tombe, presque toujours faute de
+memoire ou de fils d'execution dans `codelab-dev`. Le conteneur a 1280 Mo et
+1024 processus (fils d'execution compris) depuis que 896 Mo et 512 ne
+suffisaient plus. Pour le verifier sur le serveur :
+
+```bash
+docker stats --no-stream codelab-dev        # memoire et PIDS face aux plafonds
+docker exec codelab-dev ps -eLf | wc -l     # fils d'execution en cours
+sudo dmesg | grep -i -E "oom|memory cgroup" # le noyau a-t-il tue quelque chose ?
+```
+
+Si un plafond est encore atteint, remonte la ligne de `codelab-dev` dans
+le compose (sans depasser le tiers de la machine), ou desactive les
+extensions lourdes inutiles (Database Client JDBC lance une JVM).
+
 ## Codex
 
 `codex` est installe dans l'image et `CODEX_HOME` pointe sur
