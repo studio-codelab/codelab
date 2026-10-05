@@ -12056,14 +12056,17 @@ def test_favicon_ico_est_le_logo_codelab_sur_tous_les_ports():
         assert adresse in conf.split("location ~ ^/(favicon\\.ico", 1)[1].split("{", 1)[0], adresse
     svg_bloc = conf.split("location ~ ^/(favicon\\.svg|mailpit\\.svg)$ {", 1)[1].split("}", 1)[0]
     assert "alias /usr/share/nginx/codelab/mailpit/codelab.svg;" in svg_bloc
-    assert "logo.svg" not in conf and "logo.png" not in conf
-    # L'onglet de Mailpit declare la MEME adresse que celle du panneau.
+    # Le logo de Mailpit n'a qu'UNE adresse, celle que sa page declare pour
+    # son onglet ; aucune adresse d'icone generique ne le rend.
+    assert conf.count("logo.png") == 1 and "logo.svg" not in conf
+    seul = conf.split("location = /mailpit-onglet.png {", 1)[1].split("}", 1)[0]
+    assert "alias /usr/share/nginx/codelab/mailpit/logo.png;" in seul
     index = _mailpit_ui("index.html")
     icones = re.findall(r'<link rel="(?:shortcut )?icon"[^>]*href="([^"]+)"', index)
-    # Un NOM de fichier neuf, pas seulement une version : un navigateur qui
-    # range ses icones sans le « ?v= » n'a aucune ancienne image a y lier.
-    assert icones and set(icones) == {"/codelab-onglet.png"}
-    assert "codelab-onglet\\.png" in conf
+    assert icones == ["/mailpit-onglet.png"]
+    # Le panneau, lui, ne declare jamais cette adresse.
+    for nom in ("dashboard.html", "login.html"):
+        assert "mailpit-onglet" not in _page_panneau(nom), nom
     dagster = open(os.path.join(racine, "dagster", "proxy", "nginx.conf"), encoding="utf-8").read()
     assert "location ~ ^/favicon[-a-z0-9_]*\\.svg$ {\n        alias /usr/share/nginx/codelab/mailpit/codelab.svg;" in dagster
     assert "alias /usr/share/nginx/codelab/mailpit/codelab.png;" in dagster

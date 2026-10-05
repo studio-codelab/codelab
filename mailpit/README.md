@@ -72,8 +72,10 @@ servie. Les fichiers vivent dans `dagster/proxy/mailpit-ui/`, servis par le prox
 - le contenu d'un mail n'est jamais inséré dans la page : les textes passent par `textContent`, et le HTML
   ne s'affiche que dans un cadre isolé, sans scripts (`/view/<id>.html`, servi par Mailpit) ;
 - le retour au hub est en haut à gauche ; rien n'est posé en bas à gauche ;
-- l'onglet porte toujours l'icône de CodeLab, à la même adresse que celle du panneau, et aucune adresse
-  d'icône du port 8025 ne rend celle de Mailpit.
+- l'onglet porte l'icône de Mailpit, à une adresse qui n'est qu'à elle (`/mailpit-onglet.png`) ; les
+  adresses d'icône génériques du port 8025 (`favicon.ico`…) rendent le logo CodeLab. Safari range les
+  icônes par nom d'hôte, sans le port : s'il reprend celle de Mailpit dans l'onglet du panneau, vider
+  `~/Library/Safari/Favicon Cache` (Safari fermé) la remet en place.
 
 L'interface montre tous les mails, liens de réinitialisation de mot de passe compris. Elle n'est donc
 ouverte à aucun compte utilisateur.
