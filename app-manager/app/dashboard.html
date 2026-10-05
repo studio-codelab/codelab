@@ -1911,9 +1911,22 @@ table.tbl-journal{min-width:560px}
             <button data-v="publique" onclick="setVisEdit('publique')">Publique</button>
             <button data-v="privee" onclick="setVisEdit('privee')">Privée</button>
           </div>
-          <div class="hint">Publique : accessible à tous, même sans connexion. Privée : réservée aux
-            comptes autorisés.</div>
+          <div class="hint">Publique : ouverte à tous ; une personne connectée à CodeLab y est
+            reconnue automatiquement. Privée : réservée aux comptes CodeLab autorisés, la connexion
+            est demandée avant d'entrer.</div>
         </div>
+      </div>
+
+      <!-- SE CONNECTER AVEC CODELAB. Toujours affiche : meme une application
+           privee recoit l'identite, et c'est ici qu'on apprend qu'elle existe. -->
+      <div class="fset">
+        <div class="fset-title">Connexion CodeLab</div>
+        <div class="hint">L'application reçoit l'identité signée des personnes connectées
+          (<code>X-CodeLab-Auth</code>, vérifiable avec <code>CODELAB_SSO_PUBLIC_KEY</code>). Les modules
+          <code>codelab_auth.py</code> et <code>codelab-auth.js</code>, posés par
+          <code>codelab new</code>, font la connexion silencieuse : session de l'application, sinon
+          CodeLab, sinon son formulaire habituel. Après la connexion, le visiteur revient dans
+          l'application.</div>
       </div>
 
       <div class="fset">

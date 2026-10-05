@@ -553,6 +553,10 @@ def jeton_sso(nom_app):
     }
     if email:
         payload["email"] = email
+        # Confirmee ou non : une application ne relie un compte local a
+        # celui-ci par l'adresse QUE si elle est confirmee -- sinon, qui
+        # saisit l'adresse d'un autre dans CodeLab prendrait son compte.
+        payload["email_verified"] = bool((compte or {}).get("email_verifie"))
 
     message = _b64json(header) + "." + _b64json(payload)
     signature = _b64url(_sso_private_key.sign(message.encode("ascii")))
@@ -1240,6 +1244,116 @@ def lien_panneau():
     if not hote:
         return "/"
     return f"{request.scheme}://{hote}:{PANEL_PORT}/"
+
+
+# ----------------- se connecter avec CodeLab, puis revenir ----------------
+#
+# Une application (privee, ou publique avec un bouton « Se connecter avec
+# CodeLab ») envoie le visiteur a la connexion du panneau. Il doit revenir LA
+# OU IL ETAIT, pas sur le hub. Mais la page de connexion ne suit qu'un chemin
+# LOCAL (voir SUITE dans login.html) : une adresse quelconque en ferait un
+# tremplin vers n'importe quel site. Le retour passe donc par une adresse du
+# panneau, /ouvrir.app/<application>/<chemin>, qui ne mene QU'A une
+# application declaree, sur l'origine des applications de ce serveur.
+#
+# Le point dans « ouvrir.app » n'est pas decoratif : un nom d'application ne
+# peut pas en contenir (valid_name), cette adresse ne masque donc jamais une
+# application.
+_CHEMIN_APP = re.compile(r"^[A-Za-z0-9_\-./%~]*$")
+# Le meme filtre que SUITE dans login.html, cote serveur.
+_SUITE_LOCALE = re.compile(r"^/(?![/\\])[A-Za-z0-9_\-/%.]*$")
+
+
+def suite_locale(brute):
+    """Un chemin du panneau ou revenir apres la connexion, ou "/"."""
+    s = str(brute or "")
+    return s if _SUITE_LOCALE.match(s) and ".." not in s else "/"
+
+
+def chemin_dans_app(brut):
+    """Un chemin a l'interieur d'une application : jamais de « .. », jamais
+    de schema ni d'hote -- au pire, la racine de l'application."""
+    c = str(brut or "").lstrip("/")
+    if not _CHEMIN_APP.match(c) or ".." in c.split("/") or "\\" in c:
+        return ""
+    return c
+
+
+def adresse_application(nom, chemin=""):
+    """L'adresse d'une page d'application, vue depuis le navigateur."""
+    base = origine_applications() if origines_separees() else ""
+    return (base + "/" + urllib.parse.quote(nom, safe="") + "/"
+            + urllib.parse.quote(chemin_dans_app(chemin), safe="/%~"))
+
+
+def suite_vers_application(nom, chemin=""):
+    """Le « suite » de la connexion qui ramene dans une application."""
+    return ("/ouvrir.app/" + urllib.parse.quote(nom, safe="") + "/"
+            + urllib.parse.quote(chemin_dans_app(chemin), safe="/%"))
+
+
+@flask_app.get("/ouvrir.app/<n>/")
+@flask_app.get("/ouvrir.app/<n>/<path:chemin>")
+@require_auth
+def ouvrir_application_apres_connexion(n, chemin=""):
+    if n not in load():
+        return Response(_page("Introuvable", "Aucune application \u00ab " + n + " \u00bb."),
+                        404, mimetype="text/html")
+    # Pas de controle de droits ICI : le proxy les fait a l'arrivee, et dit
+    # « Acces refuse » avec le nom de l'application -- une redirection n'a
+    # rien a cacher de plus.
+    return redirect(adresse_application(n, chemin), 302)
+
+
+# SE DECONNECTER DE CODELAB DEPUIS UNE APPLICATION, puis y revenir.
+#
+# Une page qui DEMANDE avant de deconnecter : une deconnexion par simple
+# lien serait declenchable par n'importe quel site (une image suffit). Le
+# bouton envoie POST /logout avec le jeton de la session, comme le panneau.
+@flask_app.get("/deconnexion.html")
+def page_deconnexion():
+    nom = request.args.get("app", "")
+    cible = (adresse_application(nom, request.args.get("chemin", ""))
+             if nom in load() else "/")
+
+    def esc(x):
+        return (str(x).replace("&", "&amp;").replace("<", "&lt;")
+                .replace(">", "&gt;").replace('"', "&quot;"))
+    if is_authed():
+        titre = "Se d\u00e9connecter de CodeLab ?"
+        texte = ("Tu seras d\u00e9connect\u00e9 du panneau et de toutes les "
+                 "applications o\u00f9 CodeLab te reconna\u00eet.")
+        boutons = ('<a class="b" href="' + esc(cible) + '">Annuler</a>'
+                   '<button class="b p" id="ok" type="button">Se d\u00e9connecter</button>')
+        script = ('<script>document.getElementById("ok").onclick=function(){'
+                  'this.disabled=true;fetch("/logout",{method:"POST",credentials:"same-origin",'
+                  'headers:{"X-CodeLab-Jeton":' + json.dumps(jeton_session()) + '}})'
+                  '.finally(function(){location.href=' + json.dumps(cible) + ';});};</script>')
+    else:
+        titre = "Tu n\u2019es pas connect\u00e9 \u00e0 CodeLab"
+        texte = "Il n\u2019y a rien \u00e0 fermer."
+        boutons = '<a class="b p" href="' + esc(cible) + '">Revenir</a>'
+        script = ""
+    page = ('<!doctype html><html lang="fr"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width,initial-scale=1">'
+            '<title>D\u00e9connexion \u00b7 CodeLab</title>'
+            '<link rel="icon" type="image/png" href="/codelab-onglet.png">'
+            '<style>body{margin:0;min-height:100vh;display:grid;place-items:center;'
+            'background:#f1f2f7;color:#15172a;font:15px/1.5 -apple-system,BlinkMacSystemFont,'
+            '"Segoe UI",Roboto,sans-serif}.c{background:#fff;border-radius:22px;padding:28px 30px;'
+            'max-width:400px;margin:16px;box-shadow:0 10px 40px rgba(21,23,42,.1)}'
+            'h1{font-size:19px;margin:0 0 8px}p{color:#5e6280;margin:0 0 22px}'
+            '.r{display:flex;gap:10px;justify-content:flex-end}.b{font:inherit;font-weight:700;'
+            'padding:9px 18px;border-radius:11px;border:1px solid #e3e5ee;background:#f5f6fa;'
+            'color:#15172a;text-decoration:none;cursor:pointer}.p{background:#3b3fd8;'
+            'border-color:#3b3fd8;color:#fff}@media(prefers-color-scheme:dark){body{background:#0b0d18;'
+            'color:#eceefb}.c{background:#121527}p{color:#9599b8}.b{background:#181c32;'
+            'border-color:#232843;color:#eceefb}.p{background:#6366f1;border-color:#6366f1}}</style>'
+            '</head><body><main class="c"><h1>' + titre + '</h1><p>' + texte + '</p>'
+            '<div class="r">' + boutons + '</div></main>' + script + '</body></html>')
+    r = Response(page, mimetype="text/html")
+    r.headers["Cache-Control"] = "no-store"
+    return r
 
 
 @flask_app.before_request
@@ -10095,7 +10209,9 @@ def login_page(invitation=False):
     # Une invitation s'ouvre meme avec une session en cours : c'est souvent
     # l'administrateur qui essaie le lien qu'il vient d'envoyer.
     if is_authed() and not invitation:
-        return redirect("/")
+        # Deja connecte : « Se connecter avec CodeLab » depuis une
+        # application ramene directement dedans, sans formulaire.
+        return redirect(suite_locale(request.args.get("suite")))
     # __TOTP__ vaut "1" quand la double authentification est active : la page
     # affiche alors le champ du code. Substitue au moment de servir, comme
     # __ROOT__ dans le tableau de bord.
@@ -11039,7 +11155,10 @@ def _proxy(name, sub):
             # tombait, sur le port des applications, sur « Ce n'est pas le
             # panneau ». C'est le premier ecran d'une app privee ajoutee a
             # l'ecran d'accueil, qui n'a pas encore de session a elle.
-            return redirect(lien_panneau() + "login")
+            # Avec la suite : apres la connexion, le visiteur revient dans
+            # l'application, a la page qu'il demandait (/ouvrir.app/...).
+            return redirect(lien_panneau() + "login?suite=" + urllib.parse.quote(
+                suite_vers_application(name, sub), safe="/"))
         if not peut_voir(name):
             return Response(_page("Accès refusé",
                                   "Ton compte n'a pas accès à \u00ab " + name + " \u00bb.",
@@ -11071,10 +11190,11 @@ def _proxy(name, sub):
     # publique ne doit pas pouvoir s'attribuer une identite, et une application
     # privee ne doit recevoir que l'identite de la session qui a franchi les
     # controles de ce proxy.
-    sso_headers = {"x-codelab-auth", "x-codelab-user", "x-codelab-role",
-                   "x-codelab-email", "x-codelab-authenticated"}
+    # TOUT en-tete X-CodeLab-* : la liste des en-tetes poses par le proxy
+    # grandit, et un en-tete oublie dans une liste serait un en-tete que le
+    # navigateur pourrait fabriquer.
     for k, v in request.headers:
-        if k.lower() in HOP or k.lower() == "host" or k.lower() in sso_headers:
+        if k.lower() in HOP or k.lower() == "host" or k.lower().startswith("x-codelab-"):
             continue
         if k.lower() == "cookie":
             # Les applications sont servies sur la MEME origine que le
@@ -11097,6 +11217,10 @@ def _proxy(name, sub):
     # Assertion signee courte : l'application ne connait ni le cookie Flask
     # ni le secret de session. Pour un visiteur anonyme, aucune identite n'est
     # injectee, meme si l'application est publique.
+    # L'adresse du panneau, vue du navigateur : les liens « Se connecter avec
+    # CodeLab » et « Se deconnecter » de l'application en ont besoin, et
+    # l'application ne peut pas la deviner (autre port, autre nom public).
+    req.add_header("X-CodeLab-Panneau", lien_panneau())
     token = jeton_sso(name)
     if token:
         req.add_header("X-CodeLab-Auth", token)

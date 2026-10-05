@@ -105,6 +105,10 @@ codelab new mon-projet --db     # ... et sa base de donnees
 codelab new mon-projet --ouvrir # ... et la fenetre VS Code se rouvre dessus
 ```
 
+Le projet recoit aussi `codelab_auth.py` et `codelab-auth.js` : la connexion avec CodeLab, prete a
+brancher (voir leur en-tete, et « SSO des applications » dans `app-manager/README.md`). Une personne
+connectee a CodeLab entre sans formulaire ; les autres gardent celui de l'application.
+
 La commande refuse un dossier existant et un nom invalide : elle est sans danger a relancer.
 Elle ne fait **pas** l'echafaudage du framework — `npm create vite@latest .` telecharge, pose des
 questions et evolue a son rythme ; le reproduire ici vieillirait mal. La commande l'affiche en

@@ -272,6 +272,13 @@ chiffrés sont illisibles.
 - **Identité signée (SSO)** : une application sait qui la consulte grâce à une assertion signée
   **Ed25519**, valable 60 secondes et liée à cette application. Les en-têtes d'identité envoyés
   par le navigateur sont retirés avant d'ajouter les vrais.
+- **Se connecter avec CodeLab** : les modules `codelab_auth.py` / `codelab-auth.js` (posés par
+  `codelab new`) ouvrent la session de l'application d'après l'assertion, sans formulaire ; les
+  visiteurs sans CodeLab gardent le formulaire de l'application. Après la connexion, le retour passe
+  par `/ouvrir.app/<application>/...`, qui ne mène qu'à une application déclarée (jamais une adresse
+  quelconque). La déconnexion depuis une application demande confirmation. L'assertion dit si
+  l'adresse est confirmée (`email_verified`) : une application ne relie un compte par l'adresse que
+  si elle l'est. Tout en-tête `X-CodeLab-*` venu du navigateur est retiré par le proxy.
 - **Encadrement** : seul le panneau peut afficher une application dans un cadre
   (`frame-ancestors`).
 - **Ressources bornées** : aucun service ne peut prendre plus du tiers de la mémoire du serveur.
