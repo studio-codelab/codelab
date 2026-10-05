@@ -9185,7 +9185,9 @@ def test_toutes_les_coches_du_panneau_choisissent_une_ligne():
     """
     page = _page_panneau("dashboard.html")
     cases = re.findall(r'<label([^>]*)>\s*\n?\s*<input type="checkbox"', page)
-    nues = [c for c in cases if "choix-ligne" not in c]
+    # Seule exception : l'interrupteur (Face ID / Touch ID), un reglage
+    # marche/arret dessine comme tel.
+    nues = [c for c in cases if "choix-ligne" not in c and "interrupteur" not in c]
     assert not nues, f"cases a cocher hors d'une ligne a choisir : {nues}"
     # Et le style existe, dans les deux formes : une ligne de liste se teinte,
     # un reglage isole ne prend que la coche et l'accent sur son libelle.
@@ -12055,9 +12057,10 @@ def test_mailpit_est_habille_aux_couleurs_de_codelab():
     # aplat blanc dessous (comme le logo du diagnostic).
     assert logo.count("<rect") == 2 and 'fill="#fff"' not in logo
     assert 'fill="none" stroke="#fff"' in logo
-    # Le logo aussi dans les notifications et sous /favicon.ico, en PNG.
-    for route in ("location = /notification.png", "location = /favicon.ico"):
-        assert route in conf, route
+    # Le logo dans les notifications, en PNG ; /favicon.ico rend celui de
+    # CodeLab (voir test_favicon_ico_est_le_logo_codelab_sur_tous_les_ports).
+    assert "location = /notification.png" in conf
+    assert "favicon\\.ico" in conf
     png = open(os.path.join(racine, "dagster", "proxy", "mailpit-theme", "logo.png"), "rb").read()
     assert png[:8] == b"\x89PNG\r\n\x1a\n"
     # Dans les fenetres (reglages, a propos) : le logo devant le titre, les
@@ -12121,10 +12124,22 @@ def test_favicon_ico_est_le_logo_codelab_sur_tous_les_ports():
         app.APPS_PORT = ancien_apps
     racine = _racine_depot()
     conf = open(os.path.join(racine, "dagster", "proxy", "mailpit.conf"), encoding="utf-8").read()
-    bloc = conf.split("location = /favicon.ico {", 1)[1].split("}", 1)[0]
+    # Mailpit et Dagster partagent le nom d'hote du panneau : toutes leurs
+    # adresses d'icone rendent le logo CodeLab, et l'onglet de Mailpit le
+    # declare (Safari rangeait sinon leur icone a la place de la notre).
+    bloc = conf.split("location ~ ^/(favicon\\.ico", 1)[1].split("}", 1)[0]
     assert "mailpit/codelab.png" in bloc
+    assert "location = /favicon.svg {\n        alias /usr/share/nginx/codelab/mailpit/codelab.svg;" in conf
+    assert """sub_filter 'href="/favicon.svg"' 'href="/_codelab/codelab.png?v=""" in conf
+    dagster = open(os.path.join(racine, "dagster", "proxy", "nginx.conf"), encoding="utf-8").read()
+    assert "location ~ ^/favicon[-a-z0-9_]*\\.svg$ {\n        alias /usr/share/nginx/codelab/mailpit/codelab.svg;" in dagster
+    assert "alias /usr/share/nginx/codelab/mailpit/codelab.png;" in dagster
+    # Avant « location / » : sinon l'authentification passerait devant.
+    assert dagster.index("favicon[-a-z0-9_]") < dagster.index("    location / {")
     png = open(os.path.join(racine, "dagster", "proxy", "mailpit-theme", "codelab.png"), "rb").read()
     assert png == app.ICONE_CODELAB_PNG
+    svg = open(os.path.join(racine, "dagster", "proxy", "mailpit-theme", "codelab.svg"), encoding="utf-8").read()
+    assert base64.b64encode(png).decode() in svg
 
 
 def test_le_logo_mailpit_ne_depend_pas_du_cache_de_mailpit():
@@ -12134,9 +12149,7 @@ def test_le_logo_mailpit_ne_depend_pas_du_cache_de_mailpit():
     conf = open(os.path.join(racine, "dagster", "proxy", "mailpit.conf"), encoding="utf-8").read()
     css = open(os.path.join(racine, "dagster", "proxy", "mailpit-theme", "mailpit.css"),
                encoding="utf-8").read()
-    version = re.search(r'href="/_codelab/logo\.svg\?v=(\w+)"', conf).group(1)
-    assert f'''sub_filter 'href="/favicon.svg"' 'href="/_codelab/logo.svg?v={version}"';''' in conf
-    assert f'href="/_codelab/mailpit.css?v={version}"' in conf
+    version = re.search(r'href="/_codelab/mailpit\.css\?v=(\w+)"', conf).group(1)
     assert 'img[src$="mailpit.svg"]' in css and "object-position: -99999px 0;" in css
     assert css.count(f'url("/_codelab/logo.svg?v={version}")') == 2
 
@@ -12616,6 +12629,37 @@ def test_les_parametres_n_ont_plus_de_posture_de_securite():
     for trace in ("Posture de sécurité", "sec-liste", "peindrePosture",
                   "chargerPostureDuCompte", "POSTURE_"):
         assert trace not in page, trace
+
+
+def test_face_id_se_desactive_d_un_geste(deux_espaces):
+    """L'interrupteur eteint retire toutes les cles du compte connecte, et
+    seulement les siennes."""
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    app.ecrire_passkeys({
+        "marie": [{"id": "M1", "cle_publique": "AA", "compteur": 0, "nom": "Face ID"},
+                  {"id": "M2", "cle_publique": "AA", "compteur": 0, "nom": "Touch ID"}],
+        "paul": [{"id": "P1", "cle_publique": "AA", "compteur": 0, "nom": "Face ID"}]})
+    r = c.delete("/api/mon-compte/passkeys")
+    assert r.status_code == 200 and r.get_json()["retirees"] == 2
+    assert app.passkeys_du_compte("marie") == []
+    assert [k["id"] for k in app.passkeys_du_compte("paul")] == ["P1"]
+    assert app.flask_app.test_client().delete("/api/mon-compte/passkeys").status_code == 401
+
+
+def test_les_parametres_ont_un_interrupteur_face_id():
+    page = _page_panneau("dashboard.html")
+    assert 'id="pk-bascule" onchange="pkBasculer(this)"' in page
+    assert "fetch('/api/mon-compte/passkeys',{method:'DELETE'})" in page
+    # Plus de champ « Nom de la cle » a remplir : le nom suit l'appareil.
+    assert 'placeholder="Téléphone"' not in page
+
+
+def test_la_liste_des_comptes_n_a_plus_de_bouton_modifier():
+    page = _page_panneau("dashboard.html")
+    ligne = page.split("function usLigne(c){", 1)[1].split("\nfunction ", 1)[0]
+    assert ">Modifier</button>" not in ligne
+    assert 'data-agir="compte-ouvrir"' in ligne and 'role="button"' in ligne
 
 
 def test_la_marche_arriere_du_compose_rouvre_le_mot_de_passe(admin_2fa, monkeypatch):

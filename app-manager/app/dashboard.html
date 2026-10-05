@@ -1022,6 +1022,7 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
 /* Une carte seule (non pliee) est une colonne flex : son bouton s'etirait
    sur toute la largeur et se collait a l'aide du champ. */
 .onglet-p .settings-card>.btn{align-self:flex-start}
+.settings-card.sans-pli>.card-top{margin-bottom:0}
 .onglet-p .settings-card>.field+.btn,.onglet-p .card-corps>.field+.btn{margin-top:14px}
 .settings-card.pliable.ouverte>.card-top{margin-bottom:0}
 .settings-card.pliable>.card-corps{margin-top:18px}
@@ -1087,6 +1088,10 @@ table.tbl-journal{min-width:560px}
  transition:background .1s}
 .us-ligne:first-of-type{border-top:none}
 .us-ligne:hover{background:var(--surface2)}
+.us-ligne[data-agir]{cursor:pointer}
+.us-chevron{flex:none;width:16px;height:16px;color:var(--dim2);margin-right:6px}
+.us-chevron svg{width:16px;height:16px;display:block}
+.us-ligne:hover .us-chevron{color:var(--accent)}
 .us-rond{width:32px;height:32px;border-radius:50%;flex:none;display:grid;place-items:center;
  background:var(--surface2);color:var(--dim);font-weight:650;font-size:var(--t-m);
  border:1px solid var(--line);text-transform:uppercase}
@@ -1145,6 +1150,20 @@ table.tbl-journal{min-width:560px}
 /* ------------------------------ cles d'acces ------------------------------ */
 .pk-ligne{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
 .pk-liste .pk-ligne:first-child{border-top:none}
+/* L'interrupteur : une glissiere, l'etat lisible d'un coup d'oeil. La case
+   reste dans le document (clavier, lecteurs d'ecran) mais hors de vue. */
+.interrupteur{position:relative;display:inline-block;width:44px;height:26px;flex:none;
+ cursor:pointer;margin:0}
+.interrupteur input{position:absolute;opacity:0;width:1px;height:1px;margin:0}
+.interrupteur span{position:absolute;inset:0;border-radius:999px;background:var(--line2);
+ transition:background .16s}
+.interrupteur span::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;
+ border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform .16s}
+.interrupteur input:checked+span{background:var(--accent)}
+.interrupteur input:checked+span::after{transform:translateX(18px)}
+.interrupteur input:focus-visible+span{outline:2px solid var(--accent);outline-offset:2px}
+.interrupteur input:disabled+span{opacity:.45;cursor:default}
+.pk-liste:not(:empty){margin-top:12px}
 .pk-ligne svg{width:17px;height:17px;color:var(--dim);flex:none}
 .pk-ligne b{font-size:13.5px;font-weight:600}
 .pk-ligne .pk-quand{font-size:12px;color:var(--dim2)}
@@ -1895,25 +1914,27 @@ table.tbl-journal{min-width:560px}
 
   <div class="zone">
     <div class="zone-title">Clés d'accès</div>
-    <div class="card settings-card">
+    <div class="card settings-card sans-pli" id="pk-carte">
       <div class="card-top"><div class="card-name">
-        <b>Clés d'accès (passkeys)</b>
-        <div class="path">Se connecter avec l'empreinte ou le code de son appareil.</div>
+        <b id="pk-titre">Face ID / Touch ID</b>
+        <div class="path">Se connecter d'un geste, sans mot de passe ni code.</div>
       </div>
-      <span class="pill" id="pk-etat"><i></i>&nbsp;</span></div>
+      <!-- L'interrupteur dit l'etat et le change : allume, cet appareil est
+           enregistre ; eteint, toutes les cles du compte sont retirees. Le
+           clic ne replie pas la carte. -->
+      <label class="interrupteur" onclick="event.stopPropagation()" title="Activer ou désactiver">
+        <input type="checkbox" id="pk-bascule" onchange="pkBasculer(this)"
+               aria-labelledby="pk-titre"><span></span></label></div>
 
-      <div class="hint">Face ID, Touch ID ou empreinte : ni mot de passe ni code à saisir.</div>
+      <div class="hint" id="pk-empechement" style="display:none"></div>
 
-      <div class="hint" id="pk-empechement" style="display:none;margin-top:8px"></div>
+      <div class="pk-liste" id="pk-liste"></div>
 
-      <div class="pk-liste" id="pk-liste" style="margin-top:12px"></div>
-
-      <div class="field" style="margin-top:14px">
-        <label>Nom de la clé <span class="opt">facultatif</span></label>
-        <input id="pk-nom" placeholder="Téléphone" autocomplete="off" maxlength="40">
-        <div class="hint">Pour la reconnaître dans la liste, le jour où tu en auras plusieurs.</div>
-      </div>
-      <button class="btn btn-primary" id="pk-ajouter" onclick="pkAjouter()">Ajouter une clé</button>
+      <!-- Le nom de la cle suit l'appareil (Face ID, Touch ID...) : plus de
+           champ a remplir. -->
+      <input type="hidden" id="pk-nom">
+      <button class="btn btn-default" id="pk-ajouter" onclick="pkAjouter()"
+              style="display:none;margin-top:12px;align-self:flex-start">Ajouter un autre appareil</button>
       <div class="err" id="pk-err" style="display:none"></div>
       <div class="hint" id="pk-msg" style="display:none"></div>
     </div>
@@ -2645,6 +2666,14 @@ document.addEventListener('click', e => {
   agir(n.dataset.cible || '', n.dataset);
 });
 
+/* Une ligne cliquable (role="button") repond aussi au clavier. */
+document.addEventListener('keydown', e => {
+  if(e.key!=='Enter' && e.key!==' ') return;
+  const n = e.target.closest && e.target.closest('[data-agir][role="button"]');
+  if(!n || n!==e.target) return;
+  e.preventDefault(); n.click();
+});
+
 document.addEventListener('change', e => {
   const n = e.target.closest('[data-changer]');
   if(n && n.dataset.changer === 'app-masquer')
@@ -2775,7 +2804,8 @@ function pliBasculer(carte){
 }
 
 function plierLesCartes(){
-  document.querySelectorAll('.onglet-p .settings-card:not(.pliable)').forEach(carte=>{
+  /* .sans-pli : une carte que son interrupteur resume, rien a deplier. */
+  document.querySelectorAll('.onglet-p .settings-card:not(.pliable):not(.sans-pli)').forEach(carte=>{
     const tete=carte.querySelector('.card-top');
     if(!tete) return;
     /* UNE CARTE SEULE DANS SON ONGLET NE SE REPLIE PAS. Le pli sert a passer
@@ -4402,14 +4432,17 @@ async function chargerPasskeys(){
   /* Le navigateur a aussi son mot a dire : sans PublicKeyCredential, meme
      un serveur pret ne peut rien faire. */
   const possible = etat.possible && !!window.PublicKeyCredential;
-  const p=$('pk-etat');
   const cles=liste.passkeys||[];
-  p.className='pill ' + (cles.length ? 'on' : 'off');
-  p.innerHTML='<i></i>' + (cles.length
-    ? cles.length + ' clé' + (cles.length>1?'s':'')
-    : 'Aucune clé');
-  $('pk-ajouter').disabled = !possible;
-  $('pk-empechement').style.display = possible ? 'none' : 'block';
+  const actif=cles.length>0;
+  $('pk-titre').textContent = nomDuGeste().replace(/^ton empreinte$/,'Empreinte')
+    .replace(/^une clé d'accès$/,'Clé d\'accès');
+  const b=$('pk-bascule');
+  b.checked=actif;
+  /* Eteindre reste toujours possible ; allumer demande un serveur en HTTPS
+     et un appareil qui sait verifier la personne. */
+  b.disabled = !actif && !possible;
+  $('pk-ajouter').style.display = (actif && possible) ? '' : 'none';
+  $('pk-empechement').style.display = (possible || actif) ? 'none' : 'block';
   $('pk-empechement').innerHTML = possible ? '' :
     ('<b>Indisponible ici.</b> ' + esc(etat.empechement
       || 'Ce navigateur ne connait pas les clés d\'accès.'));
@@ -4451,17 +4484,47 @@ async function pkAjouter(){
     };
     const r2=await fetch('/api/mon-compte/passkeys',{method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({credential:envoi, nom:$('pk-nom').value.trim()})});
+      body:JSON.stringify({credential:envoi, nom:$('pk-nom').value.trim() || nomDeCle()})});
     const d2=await r2.json();
     if(!r2.ok){ pkMessage(d2.error||'Enregistrement impossible.', true); return; }
     $('pk-nom').value='';
     await chargerPasskeys();
-    pkMessage('Clé enregistrée. Tu peux desormais te connecter avec.', false);
+    pkMessage('', false);
+    notifier(nomDeCle() + ' activé pour tes prochaines connexions.');
   }catch(e){
     /* Annulation de l'utilisateur comprise : ce n'est pas une panne. */
     pkMessage(e && e.name==='NotAllowedError'
       ? 'Enregistrement annule.' : ('Enregistrement impossible : ' + (e&&e.message||e)), true);
   }
+}
+
+function nomDeCle(){
+  return nomDuGeste().replace(/^ton empreinte$/,'Empreinte').replace(/^une clé d'accès$/,'Clé d\'accès');
+}
+
+/* L'interrupteur. Allumer enregistre cet appareil ; eteindre retire TOUTES
+   les cles du compte, apres confirmation. En cas d'echec ou de refus, il
+   revient de lui-meme a l'etat reel (chargerPasskeys). */
+async function pkBasculer(boite){
+  pkMessage('', false);
+  if(boite.checked){
+    boite.disabled=true;
+    await pkAjouter();
+    boite.disabled=false;
+    await chargerPasskeys();
+    return;
+  }
+  if(!await demander('Désactiver ' + nomDeCle() + ' ?',
+      "Les clés d'accès de ce compte sont retirées de tous tes appareils. Tu te connecteras "
+      + "avec ton mot de passe et un code. Tu pourras le réactiver à tout moment.",
+      'Désactiver', true)){
+    boite.checked=true; return;
+  }
+  const r=await fetch('/api/mon-compte/passkeys',{method:'DELETE'});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok) pkMessage(d.error||'Désactivation impossible.', true);
+  else notifier(nomDeCle() + ' désactivé.');
+  chargerPasskeys();
 }
 
 async function pkSupprimer(id){
@@ -4904,13 +4967,17 @@ function usLigne(c){
   const adresse = c.email
     ? esc(c.email) + (c.email_verifie ? ' (vérifiée)' : ' (non vérifiée)')
     : 'sans adresse';
-  return `<div class="us-ligne${c.suspendu?' us-suspendu':''}">
+  /* La ligne entiere ouvre le compte : un bouton « Modifier » repete sur
+     chaque ligne n'apprenait rien de plus que le chevron. */
+  return `<div class="us-ligne${c.suspendu?' us-suspendu':''}" data-agir="compte-ouvrir"
+    data-cible="${esc(c.nom)}" role="button" tabindex="0" title="Ouvrir le compte">
     <div class="us-rond">${esc((c.nom||'?').slice(0,1))}</div>
     <div class="us-corps">
       <div class="us-nom"><b>${esc(c.nom)}</b>${badges.join('')}</div>
       <div class="us-meta">${adresse} — ${projets}<span data-activite="${esc(c.nom)}"></span></div>
     </div>
-    <button class="btn btn-default btn-sm" data-agir="compte-ouvrir" data-cible="${esc(c.nom)}">Modifier</button>
+    <span class="us-chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span>
   </div>`;
 }
 
@@ -5287,7 +5354,6 @@ async function faceIdActiver(){
     e.textContent=$('pk-err').textContent; e.style.display='block'; return;
   }
   hide('ov-faceid');
-  notifier(nomDuGeste().replace(/^ton /,'Ton ') + ' est activé pour tes prochaines connexions.');
 }
 
 /* ---------------- mon adresse mail ---------------- */

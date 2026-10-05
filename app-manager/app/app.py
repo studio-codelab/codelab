@@ -7176,6 +7176,28 @@ def api_passkey_liste():
         for k in passkeys_du_compte(utilisateur_courant())]})
 
 
+@flask_app.delete("/api/mon-compte/passkeys")
+@require_auth
+def api_passkey_tout_retirer():
+    """Desactive Face ID / Touch ID : retire toutes les cles du compte.
+
+    Le meme droit que retirer une cle a la fois, en un geste. Pour
+    l'administrateur sans application de codes, la prochaine connexion
+    redemande l'enregistrement d'un second facteur (voir login_submit).
+    """
+    nom = utilisateur_courant()
+    tout = lire_passkeys()
+    nombre = len(tout.get(nom, []))
+    if nombre:
+        tout[nom] = []
+        try:
+            ecrire_passkeys(tout)
+        except OSError as e:
+            return jsonify({"error": f"Clés non retirées : {e}"}), 500
+        journaliser("passkey", qui=nom, action="retrait", ip=_adresse_client())
+    return jsonify({"ok": True, "retirees": nombre})
+
+
 @flask_app.delete("/api/mon-compte/passkeys/<path:identifiant>")
 @require_auth
 def api_passkey_supprimer(identifiant):
