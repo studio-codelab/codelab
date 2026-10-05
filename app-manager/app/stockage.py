@@ -181,6 +181,32 @@ MIGRATIONS = [
         valeur  BLOB NOT NULL
     );
     """,
+    # --- version 2 : les taches nees des messages ---
+    # Un message accepte peut devenir une tache, rangee dans un projet (une
+    # application, ou « general »), avec ses sous-taches. La tache garde le
+    # lien vers le message qui l'a fait naitre ; supprimer le message ne
+    # supprime pas le travail qu'il a declenche.
+    """
+    CREATE TABLE taches (
+        id       TEXT PRIMARY KEY,
+        projet   TEXT NOT NULL,
+        titre    TEXT NOT NULL,
+        message  TEXT,
+        cree     INTEGER NOT NULL,
+        faite    INTEGER NOT NULL DEFAULT 0,
+        ordre    INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX taches_projet ON taches(projet, faite);
+
+    CREATE TABLE sous_taches (
+        id     TEXT PRIMARY KEY,
+        tache  TEXT NOT NULL REFERENCES taches(id) ON DELETE CASCADE,
+        titre  TEXT NOT NULL,
+        faite  INTEGER NOT NULL DEFAULT 0,
+        ordre  INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX sous_taches_tache ON sous_taches(tache, ordre);
+    """,
 ]
 
 VERSION = len(MIGRATIONS)

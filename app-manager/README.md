@@ -186,6 +186,7 @@ sqlite3 /DATA/AppData/codelab/app-manager/codelab.db \
 | `masquees` | Ce que chaque compte a range hors de son hub |
 | `journal` | Connexions, echecs, ouvertures d'applications, changements de compte : date, genre, qui, application, adresse IP, details. Les 50 000 derniers evenements ; Postgres garde tout |
 | `messages` | Les messages laisses a l'administrateur, avec leur statut |
+| `taches`, `sous_taches` | Les taches nees des messages acceptes, par projet, et leurs sous-taches (version 2 du schema) |
 | `processus` | Les processus lances, pour les retrouver apres un redemarrage du panneau |
 | `parametres` | Les reglages en clair : exposition, VPS |
 | `reglages_chiffres` | Les reglages sensibles, **chiffres valeur par valeur** : adresses des comptes et des alertes, serveur d'envoi, invitations, adresse de surveillance |

@@ -156,7 +156,7 @@ with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
     ICONE_ECRAN_ACCUEIL_PNG = _f.read()
 
 # Les seuls fichiers que /polices/<nom> accepte de servir.
-POLICES_SERVIES = {"manrope-latin.woff2"}
+POLICES_SERVIES = {"manrope-latin.woff2", "jakarta-latin.woff2"}
 
 
 flask_app = Flask(__name__)
@@ -732,6 +732,10 @@ def _refus(message, code):
     connexion."""
     if request.path.startswith("/api/"):
         return jsonify({"error": message}), code
+    # Une page du panneau demandee sans session : on y revient apres la
+    # connexion (login.html ne suit qu'un chemin local, voir SUITE).
+    if request.method == "GET" and request.path != "/":
+        return redirect("/login?suite=" + urllib.parse.quote(request.path, safe="/"))
     return redirect("/login")
 
 
@@ -1590,6 +1594,7 @@ JETON_EXEMPTS = {
     "login_submit", "login_second_facteur",
     "login_passkey_options", "login_passkey",
     "login_inscription_passkey_options", "login_inscription_passkey",
+    "login_facteur_passkey_options", "login_facteur_passkey",
     "invitation_accepter",
     # Le proxy transporte les requetes des applications hebergees : leurs
     # formulaires ne connaissent pas le jeton du panneau, et n'ont aucune
@@ -2056,6 +2061,10 @@ def envoyer_code_reinit(adresse, nom, code):
 CODE_CONNEXION_VALIDITE = 600   # 10 minutes
 CODE_CONNEXION_ESSAIS = 5
 MOYEN_TOTP, MOYEN_EMAIL = "totp", "email"
+# Face ID / Touch ID en second facteur : apres le mot de passe, la cle
+# d'acces de CE compte confirme que c'est bien la personne.
+MOYEN_PASSKEY = "passkey"
+SECOND_FACTEUR_VALIDITE = 600
 
 
 def masquer_destination(moyen, valeur):
@@ -2757,6 +2766,10 @@ MESSAGES_AFFICHES = 300
 _dernier_message = {}
 
 
+# en_attente : nouveau, rien de decide. a_reflechir : mis de cote pour y
+# revenir. accepte / refuse : traite.
+STATUTS_MESSAGE = ("en_attente", "a_reflechir", "accepte", "refuse")
+
 CHAMPS_MESSAGE = (
     ("id", "id", "txt"), ("ts", "ts", "int"), ("qui", "qui", "txt"),
     ("cible", "cible", "txt"), ("app", "app", "txt"), ("texte", "texte", "txt"),
@@ -2805,7 +2818,7 @@ def modifier_message(identifiant, retenu=None, lu=None, statut=None, archive=Non
                 else:
                     vise.pop("lu", None)
             if statut is not None:
-                if statut in ("en_attente", "accepte", "refuse"):
+                if statut in STATUTS_MESSAGE:
                     vise["statut"] = statut
             if archive is not None:
                 if archive:
@@ -6690,10 +6703,12 @@ def login_submit():
     pw = (d.get("password") or "").strip()
     nom = (d.get("nom") or "").strip().lower()
 
-    # Nom vide = administrateur. Le champ est arrive avec les comptes
-    # utilisateurs : exiger d'un coup que l'administrateur tape "admin"
-    # casserait l'habitude de tout le monde pour ne rien apporter.
-    if nom in ("", NOM_ADMIN):
+    # L'identifiant est obligatoire, administrateur compris : « admin » se
+    # tape comme n'importe quel nom. Un champ vide qui ouvrait le compte le
+    # plus puissant etait un raccourci a deviner pour tout le monde.
+    if not nom:
+        return jsonify({"error": "Renseigne ton identifiant."}), 400
+    if nom == NOM_ADMIN:
         # Avant meme de regarder le mot de passe : rien ne sert de laisser
         # essayer -- et surtout, aucune session d'administration ne doit
         # naitre hors du reseau local, pas meme une seconde.
@@ -6727,13 +6742,8 @@ def login_submit():
         # le mot de passe juste mene a l'inscription d'une application, pas a
         # une session. Avec Face ID seulement, le mot de passe seul est
         # refuse : l'inscription d'une application le contournerait.
-        if admin_2fa_obligatoire() and not totp_actif():
-            if passkeys_du_compte(NOM_ADMIN):
-                register_failed_attempt()
-                journaliser("echec", qui=NOM_ADMIN, motif="second facteur requis",
-                            ip=_adresse_client())
-                return jsonify({"error": "Connecte-toi avec Face ID : le mot de passe "
-                                         "seul n'ouvre pas le compte d'administration."}), 403
+        cles_admin = passkeys_du_compte(NOM_ADMIN)
+        if admin_2fa_obligatoire() and not totp_actif() and not cles_admin:
             candidat = totp_nouveau_secret()
             session["totp_candidat"] = candidat
             session["totp_inscription"] = NOM_ADMIN
@@ -6747,11 +6757,26 @@ def login_submit():
                             "passkey": passkeys_disponibles()
                             and not passkey_contexte()[2]})
 
-        if totp_actif() and not totp_verifie(_totp_secret, d.get("code")):
-            register_failed_attempt()
-            journaliser("echec", qui=NOM_ADMIN, motif="second facteur", ip=_adresse_client())
-            return jsonify({"error": "Code de vérification incorrect.",
-                            "totp": True}), 401
+        # LE SECOND FACTEUR, SUR UNE ETAPE A PART. Le mot de passe est juste :
+        # la page passe a l'etape suivante -- Face ID si une cle existe, sinon
+        # le code de l'application. Le code n'est plus demande a cote du mot
+        # de passe.
+        if totp_actif() or (admin_2fa_obligatoire() and cles_admin):
+            moyens = moyens_admin()
+            code = d.get("code")
+            if not code:
+                if not moyens:
+                    return jsonify({"error": "Face ID n'est pas utilisable ici : ouvre le "
+                                             "panneau en HTTPS, par son nom de domaine."}), 403
+                attendre_second_facteur(NOM_ADMIN)
+                moyen = d.get("moyen") if d.get("moyen") in moyens else moyens[0]
+                return jsonify({"totp": True, "second_facteur": True,
+                                "moyen": moyen, "moyens": moyens}), 401
+            if not (totp_actif() and totp_verifie(_totp_secret, code)):
+                register_failed_attempt()
+                journaliser("echec", qui=NOM_ADMIN, motif="second facteur", ip=_adresse_client())
+                return jsonify({"error": "Code de vérification incorrect.",
+                                "totp": True, "moyens": moyens}), 401
 
         session.permanent = True
         session["authed"] = True
@@ -6800,6 +6825,8 @@ def login_submit():
 
     secret = compte.get("totp") or ""
     moyens = moyens_second_facteur(compte)
+    if passkeys_du_compte(nom) and passkey_utilisable():
+        moyens = [MOYEN_PASSKEY] + moyens
     code = d.get("code")
     # Sans aucun moyen (ni secret, ni code envoye), un code tape ne prouve
     # rien : on passe a l'inscription du facteur, plus bas.
@@ -6828,6 +6855,11 @@ def login_submit():
         # s'il est dans la liste du compte -- la destination, elle, ne vient
         # jamais de la requete.
         moyen = d.get("moyen") if d.get("moyen") in moyens else moyens[0]
+        if moyen == MOYEN_PASSKEY:
+            # Rien ne part : la page demande Face ID a l'appareil.
+            attendre_second_facteur(nom)
+            return jsonify({"totp": True, "second_facteur": True,
+                            "moyen": moyen, "moyens": moyens}), 401
         # Compte comme une tentative : sans cela, ce formulaire enverrait
         # des mails en boucle a qui connait un mot de passe.
         register_failed_attempt()
@@ -6888,6 +6920,75 @@ def login_submit():
     # et la branche "moyens" ci-dessus a deja repondu. Garde par prudence.
     register_failed_attempt()
     return jsonify({"error": "Code de vérification incorrect.", "totp": True}), 401
+
+
+def passkey_utilisable():
+    return passkeys_disponibles() and not passkey_contexte()[2]
+
+
+def moyens_admin():
+    """Les seconds facteurs de l'administrateur, Face ID d'abord."""
+    moyens = []
+    if passkeys_du_compte(NOM_ADMIN) and passkey_utilisable():
+        moyens.append(MOYEN_PASSKEY)
+    if totp_actif():
+        moyens.append(MOYEN_TOTP)
+    return moyens
+
+
+def attendre_second_facteur(nom):
+    """Le mot de passe de « nom » vient d'etre reconnu, dans CE navigateur.
+
+    Rien d'autre : pas de session. C'est ce qui autorise, pendant dix
+    minutes, a confirmer avec Face ID sans renvoyer le mot de passe.
+    """
+    session["facteur_attente"] = {"nom": nom, "depuis": int(time.time())}
+
+
+def nom_en_attente():
+    attente = session.get("facteur_attente") or {}
+    if int(time.time()) - int(attente.get("depuis") or 0) > SECOND_FACTEUR_VALIDITE:
+        return None
+    return attente.get("nom") or None
+
+
+@flask_app.post("/login/second-facteur/passkey/options")
+def login_facteur_passkey_options():
+    """Le defi Face ID de l'etape 2, limite aux cles du compte en attente."""
+    if rate_limited():
+        return jsonify({"error": "Trop de tentatives. Réessaie dans quelques minutes."}), 429
+    nom = nom_en_attente()
+    if not nom:
+        return jsonify({"error": "Recommence la connexion."}), 400
+    refus = _refus_passkey()
+    if refus:
+        return refus
+    from webauthn import generate_authentication_options, options_to_json
+    from webauthn.helpers.structs import UserVerificationRequirement
+    rp_id, _, _ = passkey_contexte()
+    options = generate_authentication_options(
+        rp_id=rp_id, allow_credentials=_descripteurs(nom),
+        user_verification=UserVerificationRequirement.REQUIRED)
+    session["passkey_defi"] = base64.b64encode(options.challenge).decode()
+    return Response(options_to_json(options), mimetype="application/json")
+
+
+@flask_app.post("/login/second-facteur/passkey")
+def login_facteur_passkey():
+    """Face ID confirme le mot de passe : la session s'ouvre."""
+    if rate_limited():
+        return jsonify({"error": "Trop de tentatives. Réessaie dans quelques minutes."}), 429
+    nom = nom_en_attente()
+    if not nom:
+        return jsonify({"error": "Recommence la connexion."}), 400
+    refus = _refus_passkey()
+    if refus:
+        return refus
+    proprietaire, erreur = _verifier_cle(nom_attendu=nom)
+    if erreur:
+        return erreur
+    session.pop("facteur_attente", None)
+    return _ouvrir_session_par_cle(proprietaire)
 
 
 def _lever_suspension_code_mail(nom):
@@ -7258,11 +7359,23 @@ def login_passkey():
     refus = _refus_passkey()
     if refus:
         return refus
+    proprietaire, erreur = _verifier_cle()
+    if erreur:
+        return erreur
+    return _ouvrir_session_par_cle(proprietaire)
+
+
+def _verifier_cle(nom_attendu=None):
+    """Verifie la signature d'une cle d'acces.
+
+    Rend (proprietaire, None), ou (None, reponse d'erreur). Avec nom_attendu
+    (etape 2 de la connexion), la cle doit appartenir a ce compte.
+    """
     from webauthn import verify_authentication_response
     from webauthn.helpers import base64url_to_bytes
     defi = session.get("passkey_defi")
     if not defi:
-        return jsonify({"error": "Recommence : aucune demande en attente."}), 400
+        return None, (jsonify({"error": "Recommence : aucune demande en attente."}), 400)
     d = request.get_json(force=True, silent=True) or {}
     credential = d.get("credential") or {}
     identifiant = credential.get("id") or ""
@@ -7280,7 +7393,15 @@ def login_passkey():
     if not enregistree:
         register_failed_attempt()
         journaliser("echec", qui="", motif="cle d'acces inconnue", ip=_adresse_client())
-        return jsonify({"error": "Clé d'accès inconnue."}), 401
+        return None, (jsonify({"error": "Clé d'accès inconnue."}), 401)
+
+    # A l'etape 2, la cle doit etre celle du compte dont le mot de passe
+    # vient d'etre reconnu : la cle d'un autre compte ne confirme rien.
+    if nom_attendu and proprietaire != nom_attendu:
+        register_failed_attempt()
+        journaliser("echec", qui=nom_attendu, motif="cle d'acces d'un autre compte",
+                    ip=_adresse_client())
+        return None, (jsonify({"error": "Cette clé n'appartient pas à ce compte."}), 401)
 
     # Des que l'on sait a qui est la cle, et avant toute cryptographie : une
     # cle d'acces est un excellent second facteur, mais elle voyage avec son
@@ -7293,7 +7414,7 @@ def login_passkey():
             register_failed_attempt()   # meme raison que ci-dessus
             journaliser("refus", qui=NOM_ADMIN, motif="hors reseau local",
                         moyen="cle d'acces", ip=_adresse_client())
-            return jsonify({"error": hors}), 403
+            return None, (jsonify({"error": hors}), 403)
 
     rp_id, origine, _ = passkey_contexte()
     try:
@@ -7309,7 +7430,7 @@ def login_passkey():
     except Exception as e:
         register_failed_attempt()
         journaliser("echec", qui=proprietaire, motif="cle d'acces", ip=_adresse_client())
-        return jsonify({"error": f"Clé refusée : {type(e).__name__}: {e}"}), 401
+        return None, (jsonify({"error": f"Clé refusée : {type(e).__name__}: {e}"}), 401)
 
     # Le compteur ne doit jamais reculer : une cle clonee se trahit la.
     tout = lire_passkeys()
@@ -7322,6 +7443,11 @@ def login_passkey():
     except OSError:
         pass
 
+    return proprietaire, None
+
+
+def _ouvrir_session_par_cle(proprietaire):
+    """Ouvre la session du proprietaire d'une cle verifiee."""
     est_administrateur = proprietaire == NOM_ADMIN
     if not est_administrateur:
         compte = lire_utilisateurs().get(proprietaire)
@@ -8894,7 +9020,7 @@ def api_add():
         return jsonify({"error": f"« {titre} » ne donne aucune adresse utilisable. "
                                  f"Il faut au moins une lettre sans accent "
                                  f"ou un chiffre."}), 400
-    if name in ("api", "static", "health", "login", "logout"):
+    if name in adresses_reservees():
         return jsonify({"error": f"L'adresse « /{name}/ » est réservée."}), 400
     if name in apps:
         return jsonify({"error": f"L'adresse « /{name}/ » est déjà prise par "
@@ -9359,7 +9485,7 @@ def api_renommer(n):
             apps[n]["titre"] = titre
             save(apps)
         return jsonify({"ok": True, "nom": n, "titre": titre, "redemarree": False})
-    if nouveau in ("api", "static", "health", "login", "logout"):
+    if nouveau in adresses_reservees():
         return jsonify({"error": f"L'adresse « /{nouveau}/ » est réservée."}), 400
     if nouveau in apps:
         return jsonify({"error": f"L'adresse « /{nouveau}/ » est déjà prise par "
@@ -10027,7 +10153,70 @@ def login_page(invitation=False):
     # affiche alors le champ du code. Substitue au moment de servir, comme
     # __ROOT__ dans le tableau de bord.
     page = LOGIN_PAGE.replace("__TOTP__", "1" if totp_actif() else "0")
-    return Response(page, mimetype="text/html")
+    return Response(avec_style(page), mimetype="text/html")
+
+
+def avec_style(page):
+    """Pose le style choisi (cookie codelab-style) sur la page servie.
+
+    Pose cote serveur, l'attribut est la avant la premiere peinture : la
+    page ne passe pas par le style classique le temps que son script le lise.
+    Seule la valeur « design » est reconnue -- le cookie vient du client.
+    """
+    if request.cookies.get("codelab-style") == "design":
+        page = page.replace('<html lang="fr">', '<html lang="fr" data-style="design">', 1)
+    return page
+
+
+# LES PAGES DU PANNEAU ONT CHACUNE LEUR ADRESSE. Recharger les parametres
+# laisse sur les parametres, un lien vers la fiche d'une application s'ouvre
+# sur elle. C'est toujours la meme page (dashboard.html) : elle lit l'adresse
+# et ouvre la bonne rubrique. Ces noms ne peuvent plus servir de chemin a une
+# application (adresses_reservees).
+PAGES_DU_PANNEAU = ("apercu", "applications", "utilisateurs", "messages", "parametres")
+
+
+def adresses_reservees():
+    """Les premiers segments d'adresse qu'aucune application ne peut prendre.
+
+    DERIVES DE LA TABLE DES ROUTES, pas recopies a la main : toute route du
+    panneau -- /parametres, /invitation, /mot-de-passe, /qr, /polices,
+    celles de demain -- est reservee des qu'elle existe. Une liste tenue a la
+    main oubliait forcement la suivante, et l'application qui prenait ce nom
+    devenait injoignable sur le port du panneau (la route du panneau passe
+    avant le relais des applications).
+    """
+    noms = {"api", "static", "health", "login", "logout", *PAGES_DU_PANNEAU}
+    for regle in flask_app.url_map.iter_rules():
+        if regle.endpoint in ("proxy", "proxy_noslash", "static"):
+            continue
+        premier = regle.rule.lstrip("/").split("/", 1)[0]
+        if premier and "<" not in premier:
+            noms.add(premier.lower())
+    return frozenset(noms)
+
+
+def signaler_adresses_en_conflit():
+    """Une application declaree AVANT qu'une route du panneau prenne son nom
+    reste servie sur son origine (le port des applications), mais son lien
+    sur le port du panneau ouvre la page du panneau. On le dit au demarrage."""
+    for nom in sorted(set(load()) & adresses_reservees()):
+        print(f"[codelab] l'application « {nom} » porte un nom reserve au panneau : "
+              f"renomme-la (Applications > fiche > Renommer).", flush=True)
+
+
+@flask_app.get("/apercu")
+@flask_app.get("/applications")
+@flask_app.get("/applications/<nom>")
+@flask_app.get("/applications/<nom>/<onglet>")
+@flask_app.get("/utilisateurs")
+@flask_app.get("/messages")
+@flask_app.get("/messages/<vue>")
+@flask_app.get("/parametres")
+@flask_app.get("/parametres/<onglet>")
+@require_auth
+def page_du_panneau(**_):
+    return index()
 
 
 @flask_app.get("/")
@@ -10053,7 +10242,7 @@ def index():
             .replace("__ROOT__", json.dumps(ROOT))
             .replace("__ROLE__", json.dumps(role_courant() or ""))
             .replace("__UTILISATEUR__", json.dumps(utilisateur_courant())))
-    return Response(page, mimetype="text/html")
+    return Response(avec_style(page), mimetype="text/html")
 
 
 # PARCOURIR LES APPLICATIONS SANS QUITTER LE PANNEAU INSTALLE.
@@ -10304,17 +10493,23 @@ def api_messages_lus():
 
 @flask_app.put("/api/messages/<identifiant>")
 @require_admin
-def api_message_retenir(identifiant):
-    """Retient un message, ou le relache.
+def api_message_modifier(identifiant):
+    """Change l'etat d'un message : retenu, statut, archive.
 
-    RETENIR PLUTOT QU'ARCHIVER : un mot qu'on veut traiter reste en tete de
-    liste et survit au menage. C'est le seul etat qu'un message ait besoin
-    de porter -- tout le reste se lit dans son texte.
+    Seules les cles PRESENTES changent. La route ne lisait que « retenu » :
+    accepter, refuser ou archiver envoyaient leur etat, qui etait ignore --
+    et l'epingle tombait au passage, faute de cle.
     """
     d = request.get_json(force=True, silent=True) or {}
-    if not modifier_message(identifiant, retenu=bool(d.get("retenu"))):
+    statut = d.get("statut")
+    if statut is not None and statut not in STATUTS_MESSAGE:
+        return jsonify({"error": "Statut inconnu."}), 400
+    if not modifier_message(identifiant,
+                            retenu=bool(d["retenu"]) if "retenu" in d else None,
+                            statut=statut,
+                            archive=bool(d["archive"]) if "archive" in d else None):
         return jsonify({"error": "Message introuvable."}), 404
-    return jsonify({"ok": True, "retenu": bool(d.get("retenu"))})
+    return jsonify({"ok": True})
 
 
 @flask_app.put("/api/messages/<identifiant>/lu")
@@ -10334,6 +10529,219 @@ def api_message_supprimer(identifiant):
         return jsonify({"error": "Message introuvable."}), 404
     journaliser("message", qui=utilisateur_courant() or NOM_ADMIN,
                 action="supprime", ip=_adresse_client())
+    return jsonify({"ok": True})
+
+
+# ------------------------------- les taches -------------------------------
+#
+# Un message accepte devient une tache, rangee dans un projet : une
+# application declaree, ou « general » pour ce qui ne touche aucune d'elles.
+# Une tache a des sous-taches qu'on coche une a une. Reserve a
+# l'administrateur, comme les messages.
+TACHE_TITRE_MAX = 200
+SOUS_TACHES_MAX = 30
+TACHES_MAX = 2000
+PROJET_GENERAL = "general"
+
+
+def _titre_tache(brut):
+    return " ".join(str(brut or "").split())[:TACHE_TITRE_MAX]
+
+
+def _projet_valide(projet):
+    projet = str(projet or "").strip()
+    if projet == PROJET_GENERAL:
+        return projet
+    return projet if projet in load() else None
+
+
+def lire_taches():
+    """Les taches et leurs sous-taches, dans l'ordre de creation."""
+    try:
+        taches = stockage.lire(DB_FILE, "SELECT * FROM taches ORDER BY faite, cree, rowid")
+        sous = stockage.lire(DB_FILE, "SELECT * FROM sous_taches ORDER BY ordre, rowid")
+    except Exception:                                             # noqa: BLE001
+        return []
+    par_tache = {}
+    for st in sous:
+        par_tache.setdefault(st["tache"], []).append(
+            {"id": st["id"], "titre": st["titre"], "faite": bool(st["faite"])})
+    return [{"id": t["id"], "projet": t["projet"], "titre": t["titre"],
+             "message": t["message"], "cree": t["cree"], "faite": bool(t["faite"]),
+             "sous_taches": par_tache.get(t["id"], [])} for t in taches]
+
+
+def creer_tache(projet, titre, sous_taches=(), message=None):
+    """Cree la tache et ses sous-taches en une transaction. Rend son id."""
+    ident = secrets.token_hex(8)
+    with stockage.transaction(DB_FILE) as cx:
+        nombre = cx.execute("SELECT COUNT(*) FROM taches").fetchone()[0]
+        if nombre >= TACHES_MAX:
+            raise ValueError("Trop de tâches : termine ou supprime les anciennes.")
+        cx.execute("INSERT INTO taches (id, projet, titre, message, cree) VALUES (?, ?, ?, ?, ?)",
+                   (ident, projet, titre, message, int(time.time())))
+        for ordre, st in enumerate(sous_taches):
+            cx.execute("INSERT INTO sous_taches (id, tache, titre, ordre) VALUES (?, ?, ?, ?)",
+                       (secrets.token_hex(8), ident, st, ordre))
+    return ident
+
+
+def _sous_taches_propres(liste):
+    propres = [_titre_tache(x) for x in (liste or []) if _titre_tache(x)]
+    return propres[:SOUS_TACHES_MAX]
+
+
+@flask_app.post("/api/messages/<identifiant>/accepter")
+@require_admin
+def api_message_accepter(identifiant):
+    """Accepte un message et, si un titre est donne, en fait une tache."""
+    d = request.get_json(force=True, silent=True) or {}
+    if not any(m.get("id") == identifiant for m in lire_messages(limite=100000)):
+        return jsonify({"error": "Message introuvable."}), 404
+    tache = None
+    titre = _titre_tache(d.get("titre"))
+    if titre:
+        projet = _projet_valide(d.get("projet"))
+        if not projet:
+            return jsonify({"error": "Projet inconnu."}), 400
+        try:
+            tache = creer_tache(projet, titre, _sous_taches_propres(d.get("sous_taches")),
+                                message=identifiant)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+    modifier_message(identifiant, statut="accepte", lu=True)
+    return jsonify({"ok": True, "tache": tache})
+
+
+@flask_app.get("/api/taches")
+@require_admin
+def api_taches():
+    return jsonify({"taches": lire_taches()})
+
+
+@flask_app.post("/api/taches")
+@require_admin
+def api_tache_creer():
+    d = request.get_json(force=True, silent=True) or {}
+    titre = _titre_tache(d.get("titre"))
+    projet = _projet_valide(d.get("projet"))
+    if not titre:
+        return jsonify({"error": "Le titre est obligatoire."}), 400
+    if not projet:
+        return jsonify({"error": "Projet inconnu."}), 400
+    try:
+        ident = creer_tache(projet, titre, _sous_taches_propres(d.get("sous_taches")))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"ok": True, "id": ident})
+
+
+@flask_app.put("/api/taches/<ident>")
+@require_admin
+def api_tache_modifier(ident):
+    d = request.get_json(force=True, silent=True) or {}
+    champs, valeurs = [], []
+    if "titre" in d:
+        titre = _titre_tache(d.get("titre"))
+        if not titre:
+            return jsonify({"error": "Le titre est obligatoire."}), 400
+        champs.append("titre = ?"); valeurs.append(titre)
+    if "faite" in d:
+        champs.append("faite = ?"); valeurs.append(1 if d.get("faite") else 0)
+    if "projet" in d:
+        projet = _projet_valide(d.get("projet"))
+        if not projet:
+            return jsonify({"error": "Projet inconnu."}), 400
+        champs.append("projet = ?"); valeurs.append(projet)
+    if not champs:
+        return jsonify({"error": "Rien à modifier."}), 400
+    with stockage.transaction(DB_FILE) as cx:
+        n = cx.execute(f"UPDATE taches SET {', '.join(champs)} WHERE id = ?",
+                       (*valeurs, ident)).rowcount
+    if not n:
+        return jsonify({"error": "Tâche introuvable."}), 404
+    return jsonify({"ok": True})
+
+
+@flask_app.delete("/api/taches/<ident>")
+@require_admin
+def api_tache_supprimer(ident):
+    with stockage.transaction(DB_FILE) as cx:
+        n = cx.execute("DELETE FROM taches WHERE id = ?", (ident,)).rowcount
+    if not n:
+        return jsonify({"error": "Tâche introuvable."}), 404
+    return jsonify({"ok": True})
+
+
+@flask_app.post("/api/taches/<ident>/sous-taches")
+@require_admin
+def api_sous_tache_creer(ident):
+    titre = _titre_tache((request.get_json(force=True, silent=True) or {}).get("titre"))
+    if not titre:
+        return jsonify({"error": "Le titre est obligatoire."}), 400
+    with stockage.transaction(DB_FILE) as cx:
+        if not cx.execute("SELECT 1 FROM taches WHERE id = ?", (ident,)).fetchone():
+            return jsonify({"error": "Tâche introuvable."}), 404
+        nombre = cx.execute("SELECT COUNT(*) FROM sous_taches WHERE tache = ?",
+                            (ident,)).fetchone()[0]
+        if nombre >= SOUS_TACHES_MAX:
+            return jsonify({"error": f"{SOUS_TACHES_MAX} sous-tâches au plus."}), 400
+        sid = secrets.token_hex(8)
+        cx.execute("INSERT INTO sous_taches (id, tache, titre, ordre) VALUES (?, ?, ?, ?)",
+                   (sid, ident, titre, nombre))
+    return jsonify({"ok": True, "id": sid})
+
+
+@flask_app.put("/api/taches/<ident>/ordre")
+@require_admin
+def api_sous_taches_ordre(ident):
+    """L'ordre des sous-taches, apres un glisser-deposer : la plus haute est
+    la plus prioritaire. La liste doit nommer exactement les sous-taches de
+    la tache, ni plus ni moins."""
+    ordre = (request.get_json(force=True, silent=True) or {}).get("ordre")
+    if not isinstance(ordre, list) or not all(isinstance(x, str) for x in ordre):
+        return jsonify({"error": "Ordre invalide."}), 400
+    with stockage.transaction(DB_FILE) as cx:
+        if not cx.execute("SELECT 1 FROM taches WHERE id = ?", (ident,)).fetchone():
+            return jsonify({"error": "Tâche introuvable."}), 404
+        actuelles = {r[0] for r in cx.execute("SELECT id FROM sous_taches WHERE tache = ?",
+                                              (ident,))}
+        if set(ordre) != actuelles or len(ordre) != len(actuelles):
+            return jsonify({"error": "La liste ne correspond pas aux sous-tâches."}), 409
+        for rang, sid in enumerate(ordre):
+            cx.execute("UPDATE sous_taches SET ordre = ? WHERE id = ?", (rang, sid))
+    return jsonify({"ok": True})
+
+
+@flask_app.put("/api/sous-taches/<sid>")
+@require_admin
+def api_sous_tache_modifier(sid):
+    d = request.get_json(force=True, silent=True) or {}
+    champs, valeurs = [], []
+    if "titre" in d:
+        titre = _titre_tache(d.get("titre"))
+        if not titre:
+            return jsonify({"error": "Le titre est obligatoire."}), 400
+        champs.append("titre = ?"); valeurs.append(titre)
+    if "faite" in d:
+        champs.append("faite = ?"); valeurs.append(1 if d.get("faite") else 0)
+    if not champs:
+        return jsonify({"error": "Rien à modifier."}), 400
+    with stockage.transaction(DB_FILE) as cx:
+        n = cx.execute(f"UPDATE sous_taches SET {', '.join(champs)} WHERE id = ?",
+                       (*valeurs, sid)).rowcount
+    if not n:
+        return jsonify({"error": "Sous-tâche introuvable."}), 404
+    return jsonify({"ok": True})
+
+
+@flask_app.delete("/api/sous-taches/<sid>")
+@require_admin
+def api_sous_tache_supprimer(sid):
+    with stockage.transaction(DB_FILE) as cx:
+        n = cx.execute("DELETE FROM sous_taches WHERE id = ?", (sid,)).rowcount
+    if not n:
+        return jsonify({"error": "Sous-tâche introuvable."}), 404
     return jsonify({"ok": True})
 
 
@@ -11086,6 +11494,7 @@ if __name__ == "__main__":
     bootstrap_sso()
     importer_anciens_fichiers()
     migrer_vers_le_coffre()
+    signaler_adresses_en_conflit()
     publier_relais_mail()
     os.makedirs(LOG_DIR, exist_ok=True)
     inscrit = amorcer_diagnostic()

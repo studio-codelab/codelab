@@ -1020,7 +1020,7 @@ def client(tmp_path, monkeypatch):
 def test_les_routes_api_refusent_sans_session(client):
     assert client.get("/api/apps").status_code == 401
     assert client.post("/api/toggle/quelconque").status_code == 401
-    assert client.post("/login", json={"password": "secret-de-test"}).status_code == 200
+    assert client.post("/login", json={"nom": "admin", "password": "secret-de-test"}).status_code == 200
     assert client.get("/api/apps").status_code == 200
 
 
@@ -1030,9 +1030,9 @@ def test_la_limite_de_tentatives_ne_se_contourne_pas_par_en_tete(client):
     qui annulait la limite."""
     assert not app.trust_proxy(), "le proxy de confiance ne doit pas etre actif par defaut"
     for i in range(app.RATE_LIMIT_MAX):
-        assert client.post("/login", json={"password": "faux"},
+        assert client.post("/login", json={"nom": "admin", "password": "faux"},
                            headers={"X-Forwarded-For": f"10.0.0.{i}"}).status_code == 401
-    assert client.post("/login", json={"password": "faux"},
+    assert client.post("/login", json={"nom": "admin", "password": "faux"},
                        headers={"X-Forwarded-For": "10.0.0.99"}).status_code == 429
 
 
@@ -1044,7 +1044,7 @@ def test_le_point_d_appui_de_dagster_repond_par_un_code_sans_page(client):
     r = client.get("/api/auth-check")
     assert r.status_code == 401 and not r.data
 
-    client.post("/login", json={"password": "secret-de-test"})
+    client.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     r = client.get("/api/auth-check")
     assert r.status_code == 204 and not r.data
 
@@ -1053,7 +1053,7 @@ def test_le_cookie_de_session_est_samesite_lax(client):
     """Les actions du panneau sont des POST sans corps : sans SameSite, un
     formulaire pose sur un autre site peut les declencher avec le cookie de
     l'utilisateur connecte."""
-    r = client.post("/login", json={"password": "secret-de-test"})
+    r = client.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     cookie = r.headers.get("Set-Cookie", "")
     assert "SameSite=Lax" in cookie and "HttpOnly" in cookie
 
@@ -1077,7 +1077,7 @@ def test_une_application_privee_exige_la_session(client, monkeypatch, tmp_path):
     r = client.get("/prive/", follow_redirects=False)
     assert r.status_code == 302 and "/login" in r.headers["Location"]
 
-    client.post("/login", json={"password": "secret-de-test"})
+    client.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     # Connecte, la requete traverse le controle et va jusqu'au proxy ; le
     # port 9101 n'ecoute pas ici, donc 502 -- mais plus de redirection.
     assert client.get("/prive/", follow_redirects=False).status_code != 302
@@ -1111,14 +1111,14 @@ def test_le_code_tolere_un_intervalle_mais_pas_deux(monkeypatch):
 
 def test_sans_secret_la_connexion_se_fait_au_seul_mot_de_passe(client):
     assert not app.totp_actif()
-    assert client.post("/login", json={"password": "secret-de-test"}).status_code == 200
+    assert client.post("/login", json={"nom": "admin", "password": "secret-de-test"}).status_code == 200
 
 
 def test_avec_un_secret_le_mot_de_passe_seul_ne_suffit_plus(client, monkeypatch):
     monkeypatch.setattr(app, "_totp_secret", app.totp_nouveau_secret())
-    assert client.post("/login", json={"password": "secret-de-test"}).status_code == 401
+    assert client.post("/login", json={"nom": "admin", "password": "secret-de-test"}).status_code == 401
     bon = app.totp_code(app._totp_secret, int(time.time()) // app.TOTP_PAS)
-    assert client.post("/login", json={"password": "secret-de-test", "code": bon}).status_code == 200
+    assert client.post("/login", json={"nom": "admin", "password": "secret-de-test", "code": bon}).status_code == 200
 
 
 # --------------------- 4. isolation de ce qui est lance ---------------------
@@ -1614,7 +1614,7 @@ def test_un_utilisateur_ne_voit_que_ses_projets(deux_espaces):
     assert noms == ["prive-autorise"]
 
     c.post("/logout")
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     noms = [a["name"] for a in c.get("/api/mes-apps").get_json()["apps"]]
     assert noms == ["prive-autorise", "prive-refuse", "public"]
 
@@ -1645,7 +1645,7 @@ def test_dagster_reste_reserve_a_l_administrateur(deux_espaces):
     _connecte(c, "marie", "mot-de-passe-long")
     assert c.get("/api/auth-check").status_code == 401
     c.post("/logout")
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     assert c.get("/api/auth-check").status_code == 204
 
 
@@ -1661,7 +1661,7 @@ def test_une_session_ouverte_avant_les_comptes_reste_administratrice(deux_espace
 
 def test_le_nom_du_compte_d_administration_ne_peut_pas_etre_repris(deux_espaces):
     c = deux_espaces
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     r = c.post("/api/utilisateurs", json={"nom": "admin", "mot_de_passe": "mot-de-passe-long"})
     assert r.status_code == 400
     assert "administration" in r.get_json()["error"]
@@ -1671,7 +1671,7 @@ def test_les_mots_de_passe_sont_derives_et_sales(deux_espaces):
     """Deux comptes avec le meme mot de passe ne doivent pas donner la meme
     empreinte : sinon le fichier revele qui partage un mot de passe."""
     c = deux_espaces
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     for nom in ("paul", "jean"):
         assert c.post("/api/utilisateurs",
                       json={"nom": nom, "mot_de_passe": "le-meme-mot-de-passe"}).status_code == 200
@@ -1686,7 +1686,7 @@ def test_un_droit_sur_un_projet_inexistant_n_est_pas_enregistre(deux_espaces):
     """Un projet supprime puis recree sous le meme nom rendrait sinon un
     droit qu'on croyait perdu."""
     c = deux_espaces
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     r = c.put("/api/utilisateurs/marie", json={"projets": ["public", "jamais-declare"]})
     assert r.status_code == 200
     assert app.lire_utilisateurs()["marie"]["projets"] == ["public"]
@@ -1708,7 +1708,7 @@ def vps(tmp_path, monkeypatch):
     app.flask_app.config["TESTING"] = True
     app._login_attempts.clear()
     c = app.flask_app.test_client()
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     return c
 
 
@@ -1840,7 +1840,7 @@ def compte_admin(tmp_path, monkeypatch):
     app._login_attempts.clear()
     app.ecrire_bloc_panneau("ancien-mot-de-passe", "cle-de-session-existante", "")
     c = app.flask_app.test_client()
-    c.post("/login", json={"password": "ancien-mot-de-passe"})
+    c.post("/login", json={"nom": "admin", "password": "ancien-mot-de-passe"})
     return c
 
 
@@ -1938,7 +1938,7 @@ def acces(tmp_path, monkeypatch):
                  "projets": [], "cree": 0},
     })
     c = app.flask_app.test_client()
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     return c
 
 
@@ -2065,7 +2065,7 @@ def test_la_reinitialisation_par_l_admin_refait_passer_par_l_inscription(deux_es
     c.post("/login/second-facteur", json={"code": _code_valide(secret)})
     c.post("/logout")
 
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     assert c.get("/api/utilisateurs").get_json()["utilisateurs"][0]["totp"] is True
     assert c.put("/api/utilisateurs/marie",
                  json={"reinitialiser_totp": True}).status_code == 200
@@ -2100,7 +2100,7 @@ def test_sans_l_obligation_l_administrateur_entre_au_mot_de_passe(deux_espaces):
     compose, le jour ou le telephone qui portait le facteur est perdu."""
     c = deux_espaces
     assert not app.totp_actif()
-    assert c.post("/login", json={"password": "secret-de-test"}).status_code == 200
+    assert c.post("/login", json={"nom": "admin", "password": "secret-de-test"}).status_code == 200
 
 
 # ------------------- 10. presentation des projets -------------------
@@ -2119,7 +2119,7 @@ def test_la_description_est_nettoyee_a_la_declaration(deux_espaces, tmp_path, mo
     dossier = tmp_path / "nouveau"
     dossier.mkdir()
     c = deux_espaces
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     r = c.post("/api/add", json={"name": "nouveau", "path": str(dossier),
                                  "command": "python3 app.py",
                                  "description": "Deux\nlignes"})
@@ -2177,7 +2177,7 @@ def test_le_flux_refuse_le_dit_avec_un_code_utilisable(deux_espaces, monkeypatch
     expliquer, au lieu de rester sur « Connexion... »."""
     monkeypatch.setattr(app, "SSE_MAX_FLUX", 0)
     c = deux_espaces
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     r = c.get("/api/logs/public/stream")
     assert r.status_code == 503
     assert "journaux" in r.get_json()["error"]
@@ -2198,7 +2198,7 @@ def test_la_meme_page_est_servie_aux_deux_roles(deux_espaces):
     assert "sec-hub" in page_utilisateur
 
     c.post("/logout")
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     page_admin = c.get("/").get_data(as_text=True)
     assert '"admin"' in page_admin
     # Les memes sections sont servies aux deux roles : seul le role injecte
@@ -2215,10 +2215,12 @@ def test_le_hub_est_l_accueil_des_deux_roles(deux_espaces):
     lanceur, et la console d'administration s'atteint par le menu.
     """
     c = deux_espaces
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     page = c.get("/").get_data(as_text=True)
-    # En debut de ligne : l'appel du demarrage, pas un onclick de menu.
-    assert "\nshowSection('hub');\n" in page
+    # En debut de ligne : l'appel du demarrage, pas un onclick de menu. Il
+    # lit l'adresse, et « / » est le hub.
+    assert "\nrouterDepuisAdresse();\n" in page
+    assert "hub:'/'" in page
     assert "mode-toggle" not in page and "setMode" not in page
     # Le pied du menu lateral annoncait une evidence : il n'est plus la.
     assert "Serveur en service" not in page
@@ -2231,7 +2233,7 @@ def test_les_comptes_ont_leur_propre_entree_de_menu(deux_espaces):
     alertes. Ils ont leur section, et le menu lateral y mene.
     """
     c = deux_espaces
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     page = c.get("/").get_data(as_text=True)
     assert 'id="sec-users"' in page
     assert 'data-sec="users"' in page
@@ -2314,7 +2316,7 @@ def test_les_deux_limites_de_session_sont_posees():
 def test_une_session_ouverte_est_datee(journal):
     """Sans date d'ouverture, la limite absolue n'a rien a compter."""
     c = journal
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     with c.session_transaction() as sess:
         assert isinstance(sess.get("ouverte"), (int, float))
         assert abs(time.time() - sess["ouverte"]) < 30
@@ -2323,7 +2325,7 @@ def test_une_session_ouverte_est_datee(journal):
 def test_une_session_de_plus_de_trente_jours_ne_vaut_plus_rien(journal):
     """Meme entretenue : la date d'ouverture ne se repousse pas."""
     c = journal
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     assert c.get("/api/apps").status_code == 200
     with c.session_transaction() as sess:
         sess["ouverte"] = time.time() - 31 * 86400
@@ -2348,7 +2350,7 @@ def test_la_session_d_administration_tombe_au_bout_de_douze_heures(journal):
     """L'administrateur ouvre tout, Dagster et Mailpit compris : sa session
     vit une journee de travail, pas un mois."""
     c = journal
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     with c.session_transaction() as sess:
         sess["ouverte"] = time.time() - 11 * 3600
     assert c.get("/api/apps").status_code == 200
@@ -2361,7 +2363,7 @@ def test_une_session_d_avant_ce_mecanisme_n_est_pas_jetee(journal):
     """Mettre a jour le panneau ne doit deconnecter personne : une session
     sans date est datee de maintenant, pas refusee."""
     c = journal
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     with c.session_transaction() as sess:
         del sess["ouverte"]
     assert c.get("/api/apps").status_code == 200
@@ -2371,7 +2373,7 @@ def test_une_session_d_avant_ce_mecanisme_n_est_pas_jetee(journal):
 
 def test_l_expiration_est_journalisee(journal):
     c = journal
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     with c.session_transaction() as sess:
         sess["ouverte"] = time.time() - 31 * 86400
     c.get("/api/apps")
@@ -2505,7 +2507,7 @@ def test_seul_l_administrateur_lit_les_messages(messagerie):
     c.post("/api/messages", json={"cible": "hub", "texte": "bonjour"})
     assert c.get("/api/messages").status_code in (401, 403)
     admin = app.flask_app.test_client()
-    admin.post("/login", json={"password": "secret-de-test"})
+    admin.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     d = admin.get("/api/messages").get_json()
     assert [m["texte"] for m in d["messages"]] == ["bonjour"]
 
@@ -2570,7 +2572,7 @@ def test_une_application_masquee_quitte_le_hub_de_ce_compte_seulement(hub):
 
     # L'administrateur, lui, la voit toujours : masquer n'est pas supprimer.
     admin = app.flask_app.test_client()
-    admin.post("/login", json={"password": "secret-de-test"})
+    admin.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     assert "compta" in [a["name"] for a in admin.get("/api/mes-apps").get_json()["apps"]]
 
 
@@ -2624,7 +2626,7 @@ def test_l_administrateur_range_son_hub_comme_les_autres(hub):
     """Il ne figure pas dans le registre des comptes -- d'ou un fichier a
     part -- mais il a les memes yeux et le meme ecran que les autres."""
     c = hub
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     assert c.post("/api/mes-apps/vitrine/masquer").status_code == 200
     assert app.masquees_du_compte(app.NOM_ADMIN) == ["vitrine"]
     assert "vitrine" not in [a["name"] for a in c.get("/api/mes-apps").get_json()["apps"]]
@@ -2659,7 +2661,7 @@ def conteneur(tmp_path, monkeypatch):
     app.save({"facturier": {"path": str(projet), "command": "python3 app.py",
                             "port": 9105, "enabled": False, "max_memory_mb": 256}})
     c = app.flask_app.test_client()
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     return c, projet
 
 
@@ -2839,7 +2841,7 @@ def logo(tmp_path, monkeypatch):
     app.save({"site": {"path": str(projet), "command": "x", "port": 9101,
                        "enabled": False}})
     c = app.flask_app.test_client()
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     return c, projet
 
 
@@ -2970,7 +2972,7 @@ def en_marche(tmp_path, monkeypatch):
                        "enabled": True, "description": "avant",
                        "max_memory_mb": 256}})
     c = app.flask_app.test_client()
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     return c
 
 
@@ -3070,7 +3072,7 @@ def categorise(tmp_path, monkeypatch):
                        "enabled": True, "categorie": "Outils"}})
     app.ecrire_categories(["Outils", "Donnees"])
     c = app.flask_app.test_client()
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     return c
 
 
@@ -3141,7 +3143,7 @@ def test_le_qr_code_ne_sort_pas_de_la_session(client):
     # Sans inscription en attente, rien a montrer.
     assert client.get("/qr/totp.svg").status_code == 404
 
-    client.post("/login", json={"password": "secret-de-test"})
+    client.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     d = client.post("/api/securite/totp/preparer").get_json()
     assert d["qr"] == "/qr/totp.svg", "aucun secret ne doit apparaitre dans l'adresse"
 
@@ -3157,7 +3159,7 @@ def test_le_qr_code_ne_sort_pas_de_la_session(client):
 def test_le_qr_code_disparait_avec_l_inscription(client):
     """Une fois le facteur enregistre, la route ne doit plus rien servir."""
     pytest.importorskip("qrcode")
-    client.post("/login", json={"password": "secret-de-test"})
+    client.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     d = client.post("/api/securite/totp/preparer").get_json()
     assert client.get("/qr/totp.svg").status_code == 200
     code = app.totp_code(d["secret"], int(time.time()) // app.TOTP_PAS)
@@ -3177,7 +3179,7 @@ def test_sans_la_bibliotheque_qr_l_inscription_marche_encore(client, monkeypatch
     monkeypatch.setitem(sys.modules, "qrcode", None)
     assert app.qr_svg("otpauth://totp/CodeLab:admin?secret=AAAA") == ""
 
-    client.post("/login", json={"password": "secret-de-test"})
+    client.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     d = client.post("/api/securite/totp/preparer").get_json()
     assert d["secret"], "la cle a recopier reste fournie"
     assert client.get("/qr/totp.svg").status_code == 404
@@ -3403,7 +3405,7 @@ def test_le_code_de_verification_ne_dort_pas_en_clair(comptes_mail):
     exactement ce que la derivation des mots de passe evite par ailleurs.
     """
     c, partis = comptes_mail
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     c.post("/api/utilisateurs", json={"nom": "marie", "mot_de_passe": "mot-de-passe-long"})
     c.post("/logout")
     _connecte(c, "marie", "mot-de-passe-long")
@@ -3424,7 +3426,7 @@ def test_le_code_de_verification_ne_dort_pas_en_clair(comptes_mail):
 def test_un_code_ne_se_devine_pas_par_essais_successifs(comptes_mail):
     """Six chiffres se devinent en un million d'essais : il en faut une borne."""
     c, partis = comptes_mail
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     c.post("/api/utilisateurs", json={"nom": "marie", "mot_de_passe": "mot-de-passe-long"})
     c.post("/logout")
     _connecte(c, "marie", "mot-de-passe-long")
@@ -3444,7 +3446,7 @@ def test_changer_d_adresse_annule_la_verification(comptes_mail):
     """Sinon il suffirait de remplacer une adresse verifiee par une autre
     pour heriter de son statut sans jamais rien recevoir."""
     c, partis = comptes_mail
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     c.post("/api/utilisateurs", json={"nom": "marie", "mot_de_passe": "mot-de-passe-long"})
     c.post("/logout")
     _connecte(c, "marie", "mot-de-passe-long")
@@ -3461,7 +3463,7 @@ def test_changer_d_adresse_annule_la_verification(comptes_mail):
     comptes["marie"]["email_verifie"] = True
     app.ecrire_utilisateurs(comptes)
     c.post("/logout")
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     c.put("/api/utilisateurs/marie", json={"email": "encore@example.com"})
     assert app.lire_utilisateurs()["marie"]["email_verifie"] is False
 
@@ -3721,7 +3723,7 @@ def test_la_carte_est_reservee_a_l_administrateur(journal):
     journal, elle se garde comme lui."""
     c = journal
     assert c.get("/api/activite/carte").status_code in (401, 403)
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     r = c.get("/api/activite/carte")
     assert r.status_code == 200, r.data
     d = r.get_json()
@@ -3734,7 +3736,7 @@ def test_la_carte_est_reservee_a_l_administrateur(journal):
 def test_une_annee_farfelue_ne_fait_pas_tomber_la_carte(journal):
     """Le parametre arrive par l'URL : il se borne, il ne se croit pas."""
     c = journal
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     courante = app.annee_courante()
     for valeur in ("0", "-5", "99999", "beaucoup", ""):
         r = c.get("/api/activite/carte?annee=" + valeur)
@@ -3852,8 +3854,8 @@ def test_une_page_web_ne_fait_pas_cinquante_lignes_de_journal(journal):
 
 def test_les_connexions_et_les_echecs_sont_notes(journal):
     c = journal
-    c.post("/login", json={"password": "faux"})
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "faux"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     genres = [e["genre"] for e in app.lire_acces()]
     assert genres[:2] == ["connexion", "echec"], genres   # plus recent d'abord
     resume = app.resume_acces()
@@ -3883,7 +3885,7 @@ def test_journaliser_ne_fait_jamais_tomber_le_service(journal, monkeypatch):
     monkeypatch.setattr(app, "ACCES_FILE", "/proc/interdit/acces.jsonl")
     app.journaliser("connexion", qui="marie")          # ne leve pas
     assert journal.get("/public/").status_code in (200, 502, 503)
-    assert journal.post("/login", json={"password": "secret-de-test"}).status_code == 200
+    assert journal.post("/login", json={"nom": "admin", "password": "secret-de-test"}).status_code == 200
 
 
 def test_le_journal_est_reserve_a_l_administrateur(journal):
@@ -3919,7 +3921,7 @@ def exposition(tmp_path, monkeypatch):
               "prive": {"path": "/w/b", "command": "x", "port": 9102,
                         "enabled": True, "visibility": "privee"}})
     c = app.flask_app.test_client()
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     return c
 
 
@@ -4137,14 +4139,14 @@ def test_sans_le_reglage_l_admin_entre_de_partout(exposition):
     administre deja depuis l'exterieur sans avoir rien demande."""
     assert app.admin_limite_au_reseau_local() is False
     c = app.flask_app.test_client()
-    r = c.post("/login", json={"password": "secret-de-test"}, environ_base=DEHORS)
+    r = c.post("/login", json={"nom": "admin", "password": "secret-de-test"}, environ_base=DEHORS)
     assert r.status_code == 200, r.data
 
 
 def test_l_admin_ne_se_connecte_plus_depuis_l_exterieur(exposition):
     _active_le_verrou(exposition)
     c = app.flask_app.test_client()
-    r = c.post("/login", json={"password": "secret-de-test"}, environ_base=DEHORS)
+    r = c.post("/login", json={"nom": "admin", "password": "secret-de-test"}, environ_base=DEHORS)
     assert r.status_code == 403, r.data
     assert "reseau local" in r.get_json()["error"]
     # Et le mot de passe n'a meme pas ete regarde : aucune session ouverte.
@@ -4154,7 +4156,7 @@ def test_l_admin_ne_se_connecte_plus_depuis_l_exterieur(exposition):
 def test_l_admin_se_connecte_toujours_depuis_chez_lui(exposition):
     _active_le_verrou(exposition)
     c = app.flask_app.test_client()
-    r = c.post("/login", json={"password": "secret-de-test"}, environ_base=CHEZ_SOI)
+    r = c.post("/login", json={"nom": "admin", "password": "secret-de-test"}, environ_base=CHEZ_SOI)
     assert r.status_code == 200, r.data
 
 
@@ -4270,9 +4272,9 @@ def test_changer_d_adresse_inventee_ne_contourne_pas_la_limite(client, monkeypat
     monkeypatch.setattr(app, "trust_proxy", lambda: True)
     app._login_attempts.clear()
     for i in range(app.RATE_LIMIT_MAX):
-        client.post("/login", json={"password": "faux"},
+        client.post("/login", json={"nom": "admin", "password": "faux"},
                     headers={"X-Forwarded-For": f"10.9.9.{i}, 203.0.113.7"})
-    r = client.post("/login", json={"password": "faux"},
+    r = client.post("/login", json={"nom": "admin", "password": "faux"},
                     headers={"X-Forwarded-For": "10.9.9.200, 203.0.113.7"})
     assert r.status_code == 429
 
@@ -4285,7 +4287,7 @@ def test_le_compose_peut_rouvrir_l_administration(exposition, monkeypatch):
     monkeypatch.setenv("APP_MANAGER_ADMIN_LAN_ONLY", "0")
     assert app.admin_limite_au_reseau_local() is False
     autre = app.flask_app.test_client()
-    assert autre.post("/login", json={"password": "secret-de-test"},
+    assert autre.post("/login", json={"nom": "admin", "password": "secret-de-test"},
                       environ_base=DEHORS).status_code == 200
 
 
@@ -4328,7 +4330,7 @@ def test_marteler_le_refus_finit_par_etre_limite(exposition):
     c = app.flask_app.test_client()
     vus = set()
     for _ in range(app.RATE_LIMIT_MAX + 2):
-        vus.add(c.post("/login", json={"password": "peu importe"},
+        vus.add(c.post("/login", json={"nom": "admin", "password": "peu importe"},
                        environ_base=DEHORS).status_code)
     assert 403 in vus, "le verrou n'a jamais refuse"
     assert 429 in vus, "le refus est gratuit : aucune limite ne s'applique"
@@ -4445,7 +4447,7 @@ def test_les_cles_sont_celles_du_compte_connecte(cles):
         "marie": [{"id": "BBB", "cle_publique": "y", "compteur": 0, "nom": "Portable"}],
     })
     assert cles.get("/api/mon-compte/passkeys").status_code == 401
-    cles.post("/login", json={"password": "secret-de-test"})
+    cles.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     liste = cles.get("/api/mon-compte/passkeys").get_json()["passkeys"]
     assert [k["id"] for k in liste] == ["AAA"]
     # La cle publique ne sort pas : elle n'apprend rien a l'interface.
@@ -4473,7 +4475,7 @@ def test_supprimer_un_compte_emporte_ses_cles_d_acces(cles):
         "projets": [], "cree": 0}})
     app.ecrire_passkeys({"marie": [{"id": "AAA", "cle_publique": "x", "compteur": 0}]})
 
-    cles.post("/login", json={"password": "secret-de-test"})
+    cles.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     assert cles.delete("/api/utilisateurs/marie").status_code == 200
     assert "marie" not in app.lire_passkeys()
 
@@ -4492,7 +4494,7 @@ def test_l_administrateur_peut_retirer_les_cles_d_un_compte(cles):
         "projets": [], "cree": 0, "totp": app.totp_nouveau_secret()}})
     app.ecrire_passkeys({"marie": [{"id": "AAA", "cle_publique": "x", "compteur": 0}],
                          "admin": [{"id": "BBB", "cle_publique": "y", "compteur": 0}]})
-    cles.post("/login", json={"password": "secret-de-test"})
+    cles.post("/login", json={"nom": "admin", "password": "secret-de-test"})
 
     # Le compte annonce ce qu'il a, sans le livrer.
     comptes = cles.get("/api/utilisateurs").get_json()["utilisateurs"]
@@ -4540,7 +4542,7 @@ def envoi(tmp_path, monkeypatch):
     app.save({"site": {"path": "/workspace/site", "command": "python3 app.py",
                        "port": 9101, "enabled": True}})
     c = app.flask_app.test_client()
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     return c
 
 
@@ -4799,7 +4801,7 @@ def test_le_miroir_ecrit_vraiment_dans_postgres(tmp_path, monkeypatch):
 
 def test_une_ecriture_sans_jeton_est_refusee(deux_espaces):
     c = deux_espaces
-    r = c.post("/login", json={"password": "secret-de-test"})
+    r = c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     assert r.status_code == 200, r.get_json()
 
     with c.session_transaction() as sess:
@@ -4820,7 +4822,7 @@ def test_une_ecriture_sans_jeton_est_refusee(deux_espaces):
 
 def test_le_jeton_d_une_autre_session_ne_vaut_rien(deux_espaces):
     c = deux_espaces
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     r = c.post("/api/toggle/public",
                headers={app.JETON_ENTETE: secrets.token_urlsafe(32)})
     assert r.status_code == 403
@@ -4830,10 +4832,10 @@ def test_les_routes_de_connexion_restent_ouvertes_sans_jeton(deux_espaces):
     """Sinon plus personne ne peut se connecter : le jeton vit dans la
     session, et la session n'existe pas encore."""
     c = deux_espaces
-    r = c.post("/login", json={"password": "mauvais"})
+    r = c.post("/login", json={"nom": "admin", "password": "mauvais"})
     assert r.status_code == 401           # refuse par le mot de passe...
     assert "jeton" not in r.get_json()["error"].lower()   # ...pas par le jeton
-    r = c.post("/login", json={"password": "secret-de-test"})
+    r = c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     assert r.status_code == 200
 
 
@@ -4858,6 +4860,8 @@ def test_toutes_les_routes_d_ecriture_sont_couvertes(deux_espaces):
         # Premiere connexion de l'administrateur : Face ID comme second
         # facteur, apres le mot de passe, sans session encore ouverte.
         "login_inscription_passkey_options", "login_inscription_passkey",
+        # Etape 2 de la connexion : Face ID confirme le mot de passe.
+        "login_facteur_passkey_options", "login_facteur_passkey",
         # Ouverte par la personne invitee, sans session -- ou dans le
         # navigateur de l'administrateur qui essaie son propre lien.
         "invitation_accepter",
@@ -4869,7 +4873,7 @@ def test_le_get_n_est_jamais_concerne(deux_espaces):
     """Un GET ne change rien. L'exiger la n'apporterait aucune protection et
     casserait la moitie de la page."""
     c = deux_espaces
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     r = c.get("/api/apps", headers={app.JETON_ENTETE: "n'importe quoi"})
     assert r.status_code == 200
 
@@ -5194,9 +5198,12 @@ def test_les_deux_pages_lisent_le_meme_theme():
     # Les jetons structurants y sont, et dans les trois etats de theme.
     for cle in ("--accent:", "--bg:", "--ok:", "--err:", "--warn:", "--mono:", "--r:"):
         assert cle in theme, f"{cle} manque au theme"
-    assert theme.count("--accent:") == 3, (
-        "les trois etats de theme doivent etre tenus : clair, sombre du "
-        "systeme, sombre choisi explicitement")
+    # Pour chacun des deux styles (classique, puis « Design »).
+    classique, design = theme.split("LE STYLE « DESIGN »", 1)
+    for partie in (classique, design):
+        assert partie.count("--accent:") == 3, (
+            "les trois etats de theme doivent etre tenus : clair, sombre du "
+            "systeme, sombre choisi explicitement")
     assert '[data-theme="dark"]' in theme and "prefers-color-scheme" in theme
 
     for nom in ("dashboard.html", "login.html"):
@@ -5247,7 +5254,7 @@ def test_la_police_est_livree_avec_l_image():
     # On lit le BLOC, pas le fichier : un commentaire qui parle de swap
     # satisfaisait la verification alors que la declaration avait disparu.
     # Trouve en mutant le fichier -- la mutation survivait.
-    debut = theme.index("@font-face")
+    debut = theme.rindex("@font-face", 0, theme.index('font-family:"Manrope"'))
     bloc = theme[debut:theme.index("}", debut)]
     assert 'src:url("/polices/manrope-latin.woff2")' in bloc, (
         "la police n'est pas servie par le panneau lui-meme")
@@ -6780,7 +6787,7 @@ def test_le_navigateur_de_dossiers_lit_ce_que_le_serveur_envoie(
     (racine / "un projet").mkdir(parents=True)
     (racine / ".cache").mkdir()
     monkeypatch.setattr(app, "ROOT", str(racine))
-    client.post("/login", json={"password": "secret-de-test"})
+    client.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     d = client.get("/api/browse", query_string={"path": str(racine)}).get_json()
     # Des chaines, et les dossiers caches restent caches.
     assert d["dirs"] == ["un projet"], d["dirs"]
@@ -6809,7 +6816,7 @@ def test_le_panneau_pose_ses_entetes_de_securite(client):
     c'est la seule que voit quelqu'un qui n'a pas encore de session.
     """
     for chemin in ("/login", "/"):
-        client.post("/login", json={"password": "secret-de-test"})
+        client.post("/login", json={"nom": "admin", "password": "secret-de-test"})
         r = client.get(chemin)
         for entete in ("Content-Security-Policy", "X-Frame-Options",
                        "Referrer-Policy", "X-Content-Type-Options"):
@@ -6861,7 +6868,7 @@ def test_une_application_hebergee_garde_sa_propre_politique(deux_espaces):
 # tombe sans qu'un seul mot de passe ait ete tente.
 
 def test_un_corps_trop_gros_est_refuse(client):
-    client.post("/login", json={"password": "secret-de-test"})
+    client.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     trop = "x" * (app.CORPS_MAX_PANNEAU + 1)
     r = client.put("/api/categories", data=trop, content_type="application/json")
     assert r.status_code == 413
@@ -7201,7 +7208,7 @@ def test_les_applications_par_defaut_ne_se_configurent_pas(hub_dagster):
     et c'est exactement ce que fait qui cherche a contourner.
     """
     c = hub_dagster
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     apps = app.load()
     # Le diagnostic est declare comme sur une vraie installation.
     apps[app.DIAGNOSTIC_NOM] = {"path": "/w/diag", "command": "python3 app.py",
@@ -7231,7 +7238,7 @@ def test_dagster_figure_parmi_les_applications(hub_dagster):
     """Elle vivait sur le hub et nulle part ailleurs : on la cherchait dans
     « Applications », elle n'y etait pas."""
     c = hub_dagster
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     lignes = c.get("/api/apps").get_json()["apps"]
     par_nom = {a["name"]: a for a in lignes}
     assert app.DAGSTER_NOM in par_nom, "Dagster manque dans la liste"
@@ -7297,7 +7304,7 @@ def test_les_applications_par_defaut_suivent_la_frontiere_de_l_administration(
                                 "visibility": "privee"}
     app.save(apps)
     c = hub_dagster
-    c.post("/login", json={"password": "secret-de-test"},
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"},
            environ_overrides={"REMOTE_ADDR": "192.168.1.10"})
 
     # Depuis le reseau local : la requete atteint le proxy (l'application
@@ -7325,7 +7332,7 @@ def test_l_administrateur_du_reseau_local_reste_connecte(client, tmp_path, monke
                "100.101.102.103")
     for ip in locales:
         app._login_attempts.clear()
-        r = client.post("/login", json={"password": "secret-de-test"},
+        r = client.post("/login", json={"nom": "admin", "password": "secret-de-test"},
                         environ_overrides={"REMOTE_ADDR": ip})
         assert r.status_code == 200, f"{ip} : connexion refusee"
         # Et la session TIENT : trois requetes de suite, comme un usage reel.
@@ -7335,7 +7342,7 @@ def test_l_administrateur_du_reseau_local_reste_connecte(client, tmp_path, monke
     # De l'exterieur, rien ne s'ouvre.
     for ip in ("2.15.44.7", "203.0.113.9"):
         app._login_attempts.clear()
-        assert client.post("/login", json={"password": "secret-de-test"},
+        assert client.post("/login", json={"nom": "admin", "password": "secret-de-test"},
                            environ_overrides={"REMOTE_ADDR": ip}).status_code == 403, ip
 
 
@@ -7351,7 +7358,7 @@ def test_une_application_par_defaut_ne_s_arrete_pas_a_la_main(hub_dagster):
     tenait : un refactor pouvait les faire disparaitre en silence.
     """
     c = hub_dagster
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     apps = app.load()
     apps[app.DIAGNOSTIC_NOM] = {"path": "/w/diag", "command": "python3 app.py",
                                 "port": 9109, "visibility": "privee"}
@@ -7531,7 +7538,7 @@ def test_une_application_se_declare_sous_son_nom_et_se_sert_sous_son_chemin(hub_
     monkeypatch.setattr(os.path, "isdir", lambda p: True)
     monkeypatch.setattr(app, "under_root", lambda p: True)
     c = hub_dagster
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     r = c.post("/api/add", json={"name": "Mon Site", "path": "/w/x",
                                  "command": "python3 app.py"})
     assert r.status_code == 200, r.data
@@ -7555,7 +7562,7 @@ def test_un_nom_qui_ne_donne_aucun_chemin_est_refuse(hub_dagster, monkeypatch):
     monkeypatch.setattr(os.path, "isdir", lambda p: True)
     monkeypatch.setattr(app, "under_root", lambda p: True)
     c = hub_dagster
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     r = c.post("/api/add", json={"name": "---", "path": "/w/x",
                                  "command": "python3 app.py"})
     assert r.status_code == 400
@@ -7568,7 +7575,7 @@ def test_deux_noms_qui_donnent_le_meme_chemin_se_refusent(hub_dagster, monkeypat
     monkeypatch.setattr(os.path, "isdir", lambda p: True)
     monkeypatch.setattr(app, "under_root", lambda p: True)
     c = hub_dagster
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     assert c.post("/api/add", json={"name": "Mon Site", "path": "/w/x",
                                     "command": "x"}).status_code == 200
     r = c.post("/api/add", json={"name": "mon site", "path": "/w/x",
@@ -7584,7 +7591,7 @@ def test_changer_la_seule_casse_ne_deplace_rien(hub_dagster):
     sienne. Et rien ne doit s'arreter -- il n'y a rien a deplacer.
     """
     c = hub_dagster
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     r = c.post("/api/app/site/renommer", json={"nom": "Site"})
     assert r.status_code == 200, r.data
     d = r.get_json()
@@ -7739,7 +7746,7 @@ def test_le_diagnostic_porte_sa_marque_partout(hub_dagster):
     assert 'rel="icon"' in page
 
     # Et le panneau sert bien une icone a la tuile, distincte de la lettre.
-    hub_dagster.post("/login", json={"password": "secret-de-test"})
+    hub_dagster.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     r = hub_dagster.get("/api/icon/diagnostic")
     assert r.status_code == 200 and b"<text" not in r.data
     # Le meme geste : un trace ouvert, pas une lettre ni un cercle.
@@ -8233,7 +8240,7 @@ def test_ce_qu_une_application_isolee_ecrit_arrive_sur_le_disque(tmp_path, monke
 
 def test_le_diagnostic_ne_se_supprime_pas(deux_espaces):
     c = deux_espaces
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     app.save({app.DIAGNOSTIC_NOM: {"path": "/w/d", "command": "x", "port": 9100},
               "autre": {"path": "/w/a", "command": "x", "port": 9101}})
 
@@ -8861,7 +8868,7 @@ def a_renommer(tmp_path, monkeypatch):
     app.flask_app.config["TESTING"] = True
     app._login_attempts.clear()
     c = app.flask_app.test_client()
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     return c, tmp_path
 
 
@@ -9019,7 +9026,7 @@ def deux_comptes(tmp_path, monkeypatch):
 
 
 def _admin(client):
-    client.post("/login", json={"password": "secret-de-test"})
+    client.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     return client
 
 
@@ -9145,7 +9152,7 @@ def test_l_archive_de_conteneurisation_s_emporte(tmp_path, monkeypatch):
     app.flask_app.config["TESTING"] = True
     app._login_attempts.clear()
     c = app.flask_app.test_client()
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
 
     r = c.get("/api/app/site/conteneur.zip")
     assert r.status_code == 200
@@ -9187,7 +9194,8 @@ def test_toutes_les_coches_du_panneau_choisissent_une_ligne():
     cases = re.findall(r'<label([^>]*)>\s*\n?\s*<input type="checkbox"', page)
     # Seule exception : l'interrupteur (Face ID / Touch ID), un reglage
     # marche/arret dessine comme tel.
-    nues = [c for c in cases if "choix-ligne" not in c and "interrupteur" not in c]
+    nues = [c for c in cases if "choix-ligne" not in c and "interrupteur" not in c
+            and "tache-case" not in c]
     assert not nues, f"cases a cocher hors d'une ligne a choisir : {nues}"
     # Et le style existe, dans les deux formes : une ligne de liste se teinte,
     # un reglage isole ne prend que la coche et l'accent sur son libelle.
@@ -9336,7 +9344,7 @@ def hub_dagster(tmp_path, monkeypatch):
 
 
 def test_dagster_parait_dans_le_hub_et_mene_au_port_3000(hub_dagster):
-    hub_dagster.post("/login", json={"password": "secret-de-test"})
+    hub_dagster.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     d = hub_dagster.get("/api/mes-apps").get_json()
 
     services = d["services"]
@@ -9434,7 +9442,7 @@ def test_les_applications_par_defaut_ont_leur_icone(hub_dagster, tmp_path):
     reprend la main. L'ordre est celui-la et pas l'inverse, parce qu'un logo
     pose est un choix explicite, et l'icone livree n'est qu'un repli.
     """
-    hub_dagster.post("/login", json={"password": "secret-de-test"})
+    hub_dagster.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     for nom in app.APPS_PAR_DEFAUT:
         r = hub_dagster.get("/api/icon/" + nom)
         assert r.status_code == 200, nom
@@ -9478,7 +9486,7 @@ def boite(tmp_path, monkeypatch):
     app.flask_app.config["TESTING"] = True
     app._login_attempts.clear()
     c = app.flask_app.test_client()
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     return c, tmp_path
 
 
@@ -10545,8 +10553,8 @@ def _plaques_du_theme():
     """
     feuille = (_racine_app_manager() / "theme.css").read_text(encoding="utf-8")
     valeurs = re.findall(r"--plaque-logo:\s*(#[0-9a-fA-F]{3,6})\s*;", feuille)
-    assert len(valeurs) == 3, (
-        f"theme.css definit --plaque-logo {len(valeurs)} fois, trois attendues")
+    assert len(valeurs) == 6, (
+        f"theme.css definit --plaque-logo {len(valeurs)} fois, trois par style attendues")
     return valeurs
 
 
@@ -10602,7 +10610,7 @@ def test_le_logo_dagster_servi_est_le_svg_livre_avec_l_image(hub):
     passait donc pendant que la reponse servie, elle, etait matricielle.
     Celui-ci lit la REPONSE.
     """
-    hub.post("/login", json={"password": "secret-de-test"})
+    hub.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     r = hub.get("/api/icon/" + app.DAGSTER_NOM)
     assert r.status_code == 200
     assert r.mimetype == "image/svg+xml", (
@@ -10680,7 +10688,7 @@ def test_le_panneau_ne_telecharge_plus_le_logo_de_dagster():
 # ------------------------- ranger Dagster ------------------------------
 
 def _admin_du_hub(c):
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     return c
 
 
@@ -11456,7 +11464,7 @@ def test_le_panneau_publie_le_relais_mais_ne_le_transmet_pas(tmp_path, monkeypat
 # ---------- la tuile Mailpit ----------
 
 def test_mailpit_a_sa_tuile_dans_le_hub_et_mene_au_port_8025(hub_dagster):
-    hub_dagster.post("/login", json={"password": "secret-de-test"})
+    hub_dagster.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     d = hub_dagster.get("/api/mes-apps").get_json()
     (mailpit,) = [s for s in d["services"] if s["name"] == app.MAILPIT_NOM]
     assert mailpit["url"].endswith(":8025/"), mailpit["url"]
@@ -11523,7 +11531,7 @@ def test_une_seule_action_a_la_fois_par_application(hub, monkeypatch):
     resultat = {}
     # Le premier build tourne dans un fil, avec sa propre session admin.
     c2 = app.flask_app.test_client()
-    c2.post("/login", json={"password": "secret-de-test"})
+    c2.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     fil = threading.Thread(target=lambda: resultat.setdefault(
         "premier", c2.post("/api/build/compta").status_code))
     fil.start()
@@ -11556,7 +11564,7 @@ def test_un_second_clic_sur_demarrer_n_arrete_pas(hub, monkeypatch):
 
 
 def test_la_surveillance_externe_n_accepte_que_https_et_verifie_l_adresse(client, monkeypatch, tmp_path):
-    client.post("/login", json={"password": "secret-de-test"})
+    client.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     r = client.post("/api/surveillance-externe", json={"url": "http://hc-ping.com/x"})
     assert r.status_code == 400
     appels = []
@@ -11576,7 +11584,7 @@ def test_la_surveillance_externe_n_accepte_que_https_et_verifie_l_adresse(client
 
 
 def test_le_panneau_compresse_sans_exposer_le_jeton(client):
-    client.post("/login", json={"password": "secret-de-test"})
+    client.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     r = client.get("/", headers={"Accept-Encoding": "gzip"})
     assert r.headers.get("Content-Encoding") == "gzip"
     assert "Accept-Encoding" in r.headers.get("Vary", "")
@@ -11590,7 +11598,7 @@ def test_le_panneau_compresse_sans_exposer_le_jeton(client):
 
 
 def test_les_erreurs_du_navigateur_arrivent_dans_les_journaux(client, capsys):
-    client.post("/login", json={"password": "secret-de-test"})
+    client.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     r = client.post("/api/erreur-navigateur", json={
         "message": "x is not defined\n[faux] ligne", "source": "/", "ligne": 12,
         "page": "/#hub"})
@@ -11966,7 +11974,7 @@ def test_le_panneau_installe_ouvre_les_applications_sans_en_sortir(client, monke
     # Sans session : rien, pas meme le nom.
     assert client.get("/ouvrir.html?app=site").status_code in (302, 401)
 
-    client.post("/login", json={"password": "secret-de-test"})
+    client.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     r = client.get("/ouvrir.html?app=site")
     assert r.status_code == 200
     corps = r.get_data(as_text=True)
@@ -12235,7 +12243,7 @@ def test_une_invitation_annulee_ne_vaut_plus_rien(invitations):
 
 def test_un_compte_verifie_recoit_son_code_par_mail_et_entre_avec(comptes_mail):
     c, partis = comptes_mail
-    _compte_avec_adresse()
+    _compte_avec_adresse(face_id=False)
     r = c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long"})
     d = r.get_json()
     assert r.status_code == 401 and d["moyen"] == "email" and d["envoye"] is True
@@ -12251,7 +12259,7 @@ def test_un_compte_verifie_recoit_son_code_par_mail_et_entre_avec(comptes_mail):
 
 def test_le_code_de_connexion_ne_sert_qu_une_fois_et_exige_le_mot_de_passe(comptes_mail):
     c, partis = comptes_mail
-    _compte_avec_adresse()
+    _compte_avec_adresse(face_id=False)
     c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long"})
     code = _code_du_dernier_mail(partis)
     app._login_attempts.clear()
@@ -12332,7 +12340,8 @@ def test_apres_une_reinitialisation_par_mail_le_code_mail_ne_suffit_plus(comptes
     nb = len(partis)
     r = c.post("/login", json={"nom": "marie", "password": "nouveau-mot-de-passe",
                                "moyen": "email"})
-    assert r.status_code == 403, r.data
+    # Le mail n'est plus propose : il reste Face ID, a l'etape 2.
+    assert r.status_code == 401 and r.get_json()["moyens"] == ["passkey"], r.data
     assert len(partis) == nb, "un code de connexion est parti par mail"
     assert c.get("/api/mes-apps").status_code == 401
 
@@ -12345,7 +12354,9 @@ def test_apres_reinitialisation_aucune_application_ne_s_inscrit_sur_le_mot_de_pa
     _reinitialiser_par_mail(c, partis)
     app._login_attempts.clear()
     r = c.post("/login", json={"nom": "marie", "password": "nouveau-mot-de-passe"})
-    assert r.status_code == 403 and not r.get_json().get("inscription")
+    assert r.status_code == 401 and not r.get_json().get("inscription")
+    assert r.get_json()["moyen"] == "passkey"
+    assert c.get("/api/mes-apps").status_code == 401
 
 
 def test_un_facteur_fort_rend_le_code_par_mail(comptes_mail):
@@ -12358,7 +12369,7 @@ def test_un_facteur_fort_rend_le_code_par_mail(comptes_mail):
     assert app.lire_utilisateurs()["marie"]["code_mail_suspendu"] is True
     app._login_attempts.clear()
     d = c.post("/login", json={"nom": "marie", "password": "nouveau-mot-de-passe"}).get_json()
-    assert d["moyens"] == ["totp"]
+    assert d["moyens"] == ["passkey", "totp"]
     code = app.totp_code("JBSWY3DPEHPK3PXP", int(time.time()) // app.TOTP_PAS)
     assert c.post("/login", json={"nom": "marie", "password": "nouveau-mot-de-passe",
                                   "code": code}).status_code == 200
@@ -12487,7 +12498,7 @@ def test_le_proxy_de_dagster_et_mailpit_refuse_un_compte_utilisateur(hub_dagster
     _session_utilisateur(c)
     assert c.get("/api/auth-check").status_code == 401          # utilisateur
     c.post("/logout")
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     assert c.get("/api/auth-check").status_code == 204          # administrateur
 
 
@@ -12502,7 +12513,7 @@ def test_aucune_tuile_dagster_ni_mailpit_pour_un_compte_utilisateur(hub_dagster,
 
 def test_dagster_et_mailpit_ne_s_accordent_a_aucun_compte(hub_dagster):
     c = hub_dagster
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     for service in (app.DAGSTER_NOM, app.MAILPIT_NOM):
         r = c.put(f"/api/apps/{service}/acces", json={"utilisateurs": ["marie"]},
                   headers={app.JETON_ENTETE: c.get("/").get_data(as_text=True)
@@ -12523,7 +12534,7 @@ def admin_2fa(journal, monkeypatch):
 
 def test_le_mot_de_passe_admin_seul_n_ouvre_pas_de_session(admin_2fa):
     c = admin_2fa
-    r = c.post("/login", json={"password": "secret-de-test"})
+    r = c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     assert r.status_code == 200 and r.get_json()["inscription"] is True
     assert c.get("/api/apps").status_code == 401
     assert c.get("/api/auth-check").status_code == 401
@@ -12531,14 +12542,14 @@ def test_le_mot_de_passe_admin_seul_n_ouvre_pas_de_session(admin_2fa):
 
 def test_l_admin_enregistre_son_facteur_puis_doit_le_donner(admin_2fa):
     c = admin_2fa
-    secret = c.post("/login", json={"password": "secret-de-test"}).get_json()["secret"]
+    secret = c.post("/login", json={"nom": "admin", "password": "secret-de-test"}).get_json()["secret"]
     code = app.totp_code(secret, int(time.time()) // app.TOTP_PAS)
     assert c.post("/login/second-facteur", json={"code": code}).status_code == 200
     assert app._totp_secret == secret
     assert c.get("/api/apps").status_code == 200
     c.post("/logout")
     app._login_attempts.clear()
-    r = c.post("/login", json={"password": "secret-de-test"})
+    r = c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     assert r.status_code == 401 and r.get_json()["totp"] is True
 
 
@@ -12548,8 +12559,12 @@ def test_un_admin_avec_face_id_seulement_ne_passe_pas_au_mot_de_passe(admin_2fa)
     app.ecrire_passkeys({app.NOM_ADMIN: [{"id": "A", "cle_publique": "AAAA",
                                           "compteur": 0, "nom": "Face ID"}]})
     c = admin_2fa
-    r = c.post("/login", json={"password": "secret-de-test"})
-    assert r.status_code == 403 and not r.get_json().get("inscription")
+    r = c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    # Etape 2 : Face ID, ou rien. Jamais l'inscription d'une application.
+    assert not r.get_json().get("inscription")
+    assert r.status_code in (401, 403)
+    if r.status_code == 401:
+        assert r.get_json()["moyens"] == ["passkey"]
     assert c.get("/api/apps").status_code == 401
 
 
@@ -12572,7 +12587,7 @@ def test_premiere_connexion_admin_par_face_id_sans_rien_recopier(admin_2fa, monk
     session : aucune cle ni aucun code a recopier."""
     _inscription_face_id(monkeypatch)
     c = admin_2fa
-    d = c.post("/login", json={"password": "secret-de-test"}).get_json()
+    d = c.post("/login", json={"nom": "admin", "password": "secret-de-test"}).get_json()
     assert d["inscription"] is True and d["passkey"] is True
     assert d["uri"].startswith("otpauth://totp/")
     r = c.post("/login/inscription/passkey/options")
@@ -12595,10 +12610,10 @@ def test_face_id_a_l_inscription_exige_le_mot_de_passe_juste_avant(admin_2fa, mo
     c = admin_2fa
     assert c.post("/login/inscription/passkey/options").status_code == 400
     assert c.post("/login/inscription/passkey", json={"credential": {}}).status_code == 400
-    c.post("/login", json={"password": "faux-mot-de-passe"})
+    c.post("/login", json={"nom": "admin", "password": "faux-mot-de-passe"})
     assert c.post("/login/inscription/passkey/options").status_code == 400
     app._login_attempts.clear()
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     with c.session_transaction() as sess:
         sess["inscription_depuis"] = int(time.time()) - app.INSCRIPTION_VALIDITE - 1
     assert c.post("/login/inscription/passkey/options").status_code == 400
@@ -12609,7 +12624,7 @@ def test_face_id_a_l_inscription_exige_le_mot_de_passe_juste_avant(admin_2fa, mo
 def test_face_id_a_l_inscription_reste_dans_le_reseau_local(admin_2fa, monkeypatch):
     _inscription_face_id(monkeypatch)
     c = admin_2fa
-    c.post("/login", json={"password": "secret-de-test"})
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     monkeypatch.setattr(app, "refus_admin_hors_reseau", lambda: "Hors du réseau local.")
     assert c.post("/login/inscription/passkey/options").status_code == 403
     assert c.post("/login/inscription/passkey", json={"credential": {}}).status_code == 403
@@ -12664,7 +12679,7 @@ def test_la_liste_des_comptes_n_a_plus_de_bouton_modifier():
 
 def test_la_marche_arriere_du_compose_rouvre_le_mot_de_passe(admin_2fa, monkeypatch):
     monkeypatch.setenv("APP_MANAGER_ADMIN_2FA", "0")
-    assert admin_2fa.post("/login", json={"password": "secret-de-test"}).status_code == 200
+    assert admin_2fa.post("/login", json={"nom": "admin", "password": "secret-de-test"}).status_code == 200
 
 
 def test_une_connexion_admin_depuis_une_adresse_inconnue_est_signalee(journal, monkeypatch):
@@ -12681,14 +12696,14 @@ def test_une_connexion_admin_depuis_une_adresse_inconnue_est_signalee(journal, m
     monkeypatch.setattr(app.threading, "Thread", ThreadImmediat)
     monkeypatch.setattr(app, "trust_proxy", lambda: True)
     c = journal
-    c.post("/login", json={"password": "secret-de-test"},
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"},
            headers={"X-Forwarded-For": "192.168.1.10"})       # l'installation
     c.post("/logout")
-    c.post("/login", json={"password": "secret-de-test"},
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"},
            headers={"X-Forwarded-For": "192.168.1.10"})       # deja vue
     assert envois == []
     c.post("/logout")
-    c.post("/login", json={"password": "secret-de-test"},
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"},
            headers={"X-Forwarded-For": "192.168.1.77"})       # nouvelle
     assert len(envois) == 1 and envois[0][1] == ["moi@example.com"]
 
@@ -12843,3 +12858,261 @@ def test_sur_telephone_le_hub_est_une_grille_d_icones():
 def test_la_page_de_connexion_ne_montre_pas_credentials_sur_telephone():
     page = _page_panneau("login.html")
     assert "@media (max-width:760px){.pied{display:none}}" in page
+
+
+# ---------- adresses propres ----------
+
+def test_chaque_page_du_panneau_a_son_adresse(deux_espaces):
+    """Recharger /parametres/securite laisse sur les parametres : le serveur
+    sert le panneau a ces adresses, et renvoie a la connexion sans session,
+    avec le chemin a reprendre ensuite."""
+    c = deux_espaces
+    anonyme = app.flask_app.test_client()
+    r = anonyme.get("/parametres/securite")
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith("/login?suite=/parametres/securite")
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    for chemin in ("/apercu", "/applications", "/applications/site", "/applications/site/journal",
+                   "/utilisateurs", "/messages", "/messages/taches", "/parametres",
+                   "/parametres/securite"):
+        r = c.get(chemin)
+        assert r.status_code == 200, chemin
+        assert "routerDepuisAdresse" in r.get_data(as_text=True), chemin
+    # Ces noms ne peuvent plus servir d'adresse a une application -- ni
+    # aucun autre premier segment d'une route du panneau.
+    reserves = app.adresses_reservees()
+    for nom in app.PAGES_DU_PANNEAU + ("invitation", "qr", "polices", "mot-de-passe", "login"):
+        assert nom in reserves, nom
+    page = _page_panneau("login.html")
+    assert "location.href=SUITE" in page
+    regle = page.split("const SUITE=(()=>{", 1)[1].split("})();", 1)[0]
+    assert "(?![\\/\\\\])" in regle and "'..'" in regle
+
+
+def test_la_page_suit_l_adresse_et_l_historique():
+    page = _page_panneau("dashboard.html")
+    assert "window.addEventListener('popstate'" in page
+    assert "history.pushState(null, '', a)" in page
+    assert "'/parametres/'+paramOngletActif" in page
+    assert "'/messages/taches'" in page
+
+
+# ---------- messages : etats et taches ----------
+
+def test_accepter_refuser_et_mettre_de_cote_un_message(boite):
+    """La route ne lisait que « retenu » : accepter, refuser et archiver
+    etaient ignores (et l'epingle tombait)."""
+    c, _ = boite
+    ident = _message(c, "hub", "Une idee", retenu=True)
+    assert c.put(f"/api/messages/{ident}", json={"statut": "a_reflechir"}).status_code == 200
+    m = next(x for x in app.lire_messages() if x["id"] == ident)
+    assert m["statut"] == "a_reflechir" and m.get("retenu")
+    assert c.put(f"/api/messages/{ident}", json={"statut": "refuse"}).status_code == 200
+    assert c.put(f"/api/messages/{ident}", json={"archive": True}).status_code == 200
+    m = next(x for x in app.lire_messages() if x["id"] == ident)
+    assert m["statut"] == "refuse" and m.get("archive") and m.get("retenu")
+    assert c.put(f"/api/messages/{ident}", json={"statut": "n-importe"}).status_code == 400
+
+
+def test_un_message_accepte_devient_une_tache(boite):
+    c, _ = boite
+    ident = _message(c, "hub", "La page ne charge plus")
+    r = c.post(f"/api/messages/{ident}/accepter",
+               json={"projet": "general", "titre": "  Réparer   la page ",
+                     "sous_taches": ["Lire les journaux", "", "Corriger"]})
+    assert r.status_code == 200, r.data
+    tache = r.get_json()["tache"]
+    m = next(x for x in app.lire_messages() if x["id"] == ident)
+    assert m["statut"] == "accepte"
+    (t,) = c.get("/api/taches").get_json()["taches"]
+    assert t["id"] == tache and t["titre"] == "Réparer la page" and t["message"] == ident
+    assert [st["titre"] for st in t["sous_taches"]] == ["Lire les journaux", "Corriger"]
+    # Cocher, ajouter, retirer.
+    st = t["sous_taches"][0]["id"]
+    assert c.put(f"/api/sous-taches/{st}", json={"faite": True}).status_code == 200
+    assert c.post(f"/api/taches/{tache}/sous-taches", json={"titre": "Prévenir"}).status_code == 200
+    assert c.put(f"/api/taches/{tache}", json={"faite": True}).status_code == 200
+    (t,) = c.get("/api/taches").get_json()["taches"]
+    assert t["faite"] and t["sous_taches"][0]["faite"] and len(t["sous_taches"]) == 3
+    # Un projet qui n'existe pas est refuse ; supprimer la tache emporte ses sous-taches.
+    assert c.post("/api/taches", json={"projet": "inconnu", "titre": "x"}).status_code == 400
+    assert c.delete(f"/api/taches/{tache}").status_code == 200
+    assert stockage_lignes("sous_taches") == 0
+
+
+def stockage_lignes(table):
+    return app.stockage.lire(app.DB_FILE, f"SELECT COUNT(*) AS n FROM {table}")[0]["n"]
+
+
+def test_accepter_sans_tache_et_droits(boite, deux_espaces):
+    c, _ = boite
+    ident = _message(c, "hub", "Merci !")
+    r = c.post(f"/api/messages/{ident}/accepter", json={})
+    assert r.status_code == 200 and r.get_json()["tache"] is None
+    assert c.get("/api/taches").get_json()["taches"] == []
+    # Un compte utilisateur n'y a pas acces.
+    u = app.flask_app.test_client()
+    _connecte(u, "marie", "mot-de-passe-long")
+    assert u.get("/api/taches").status_code == 403
+    assert u.post(f"/api/messages/{ident}/accepter", json={}).status_code == 403
+
+
+def test_la_page_des_messages_a_ses_deux_vues():
+    page = _page_panneau("dashboard.html")
+    for trace in ('id="msg-vue-boite"', 'id="msg-vue-taches"', 'id="ov-tache"',
+                  "msgEtatChoisir('reflechir')", "data-agir=\"msg-accepter\"",
+                  "async function msgChangerStatut(", "function msgBadge("):
+        assert trace in page, trace
+    # Plus deux fonctions du meme nom : l'action ecrasait l'affichage.
+    assert page.count("function msgStatut(") == 0
+
+
+# ---------- style « Design » ----------
+
+def test_le_style_design_se_choisit_et_se_pose_cote_serveur(deux_espaces):
+    """Le choix vit dans un cookie : le serveur pose l'attribut avant la
+    premiere peinture. Seule la valeur « design » est reconnue."""
+    c = deux_espaces
+    assert 'data-style="design"' not in c.get("/login").get_data(as_text=True).split("<head>")[0]
+    c.set_cookie("codelab-style", "design")
+    assert '<html lang="fr" data-style="design">' in c.get("/login").get_data(as_text=True)
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    assert '<html lang="fr" data-style="design">' in c.get("/parametres").get_data(as_text=True)
+    c.set_cookie("codelab-style", '"><script>')
+    assert "<script>\">" not in c.get("/").get_data(as_text=True)[:200]
+    page = _page_panneau("dashboard.html")
+    assert "function setStyle(" in page and 'id="style-toggle"' in page
+    assert "codelab-style=" in page
+
+
+def test_le_style_design_ne_change_que_l_habit():
+    """Memes fonctions : le style Design est une surcouche CSS sous
+    html[data-style="design"], jetons dans theme.css, mise en page dans les
+    pages."""
+    racine = _racine_depot()
+    theme = open(os.path.join(racine, "app-manager", "app", "theme.css"), encoding="utf-8").read()
+    assert ':root[data-style="design"]{' in theme
+    assert ':root[data-style="design"][data-theme="dark"]{' in theme
+    assert '"/polices/jakarta-latin.woff2"' in theme
+    assert "jakarta-latin.woff2" in app.POLICES_SERVIES
+    police = os.path.join(racine, "app-manager", "app", "polices", "jakarta-latin.woff2")
+    assert open(police, "rb").read(4) == b"wOF2"
+    assert os.path.exists(os.path.join(racine, "app-manager", "app", "polices", "LICENCE-jakarta.txt"))
+    page = _page_panneau("dashboard.html")
+    # La roue crantee a cote du compte, le menu en pilule (barre du bas sur
+    # un telephone), les reglages en fenetre.
+    assert 'class="reglages-btn"' in page
+    assert ':root[data-style="design"] .reglages-btn{display:grid' in page
+    assert ':root[data-style="design"] #sec-parametres{display:grid' in page
+    assert ':root[data-style="design"] .sidebar{top:auto;bottom:0' in page
+    # Un compte utilisateur garde ses entrees : le hub et ses messages.
+    assert 'class="side-item utilisateur-seul"' in page
+    assert "document.body.classList.add('compte-utilisateur')" in page
+    login = _page_panneau("login.html")
+    assert ':root[data-style="design"] #pk-zone{display:none !important}' in login
+
+
+
+# ---------- connexion en deux etapes ----------
+
+def test_l_identifiant_admin_est_obligatoire(journal):
+    c = journal
+    r = c.post("/login", json={"password": "secret-de-test"})
+    assert r.status_code == 400
+    assert c.get("/api/apps").status_code == 401
+    page = _page_panneau("login.html")
+    assert 'placeholder="admin"' not in page
+    assert "Laisse le nom vide pour te connecter" not in page
+    assert "cat /DATA/AppData/codelab/config/credentials.env" not in page
+
+
+def _facteur_cle(monkeypatch, proprietaire_ok=True):
+    pytest.importorskip("webauthn")
+    import webauthn
+    monkeypatch.setattr(app, "passkey_contexte",
+                        lambda: ("codelab.exemple.fr", "https://codelab.exemple.fr", ""))
+
+    class Verifiee:
+        new_sign_count = 1
+    monkeypatch.setattr(webauthn, "verify_authentication_response", lambda **k: Verifiee())
+
+
+def test_le_second_facteur_par_face_id_vient_apres_le_mot_de_passe(admin_2fa, monkeypatch):
+    """Etape 1 : le mot de passe, sans code a cote. Etape 2 : Face ID, lie
+    au mot de passe qui vient d'etre reconnu dans ce navigateur."""
+    _facteur_cle(monkeypatch)
+    app.ecrire_passkeys({app.NOM_ADMIN: [{"id": "QUJD", "cle_publique": "AAAA",
+                                          "compteur": 0, "nom": "Face ID"}]})
+    c = admin_2fa
+    # Sans mot de passe juste, pas d'etape 2.
+    assert c.post("/login/second-facteur/passkey/options").status_code == 400
+    r = c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    assert r.status_code == 401 and r.get_json()["moyen"] == "passkey"
+    assert c.get("/api/apps").status_code == 401
+    assert c.post("/login/second-facteur/passkey/options").status_code == 200
+    r = c.post("/login/second-facteur/passkey", json={"credential": {"id": "QUJD"}})
+    assert r.status_code == 200, r.data
+    assert c.get("/api/apps").status_code == 200
+
+
+def test_la_cle_d_un_autre_compte_ne_confirme_rien(admin_2fa, monkeypatch):
+    _facteur_cle(monkeypatch)
+    app.ecrire_passkeys({app.NOM_ADMIN: [{"id": "QUJD", "cle_publique": "AAAA", "compteur": 0}],
+                         "marie": [{"id": "TUFS", "cle_publique": "AAAA", "compteur": 0}]})
+    c = admin_2fa
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    c.post("/login/second-facteur/passkey/options")
+    r = c.post("/login/second-facteur/passkey", json={"credential": {"id": "TUFS"}})
+    assert r.status_code == 401
+    assert c.get("/api/apps").status_code == 401
+
+
+def test_l_etape_2_expire(admin_2fa, monkeypatch):
+    _facteur_cle(monkeypatch)
+    app.ecrire_passkeys({app.NOM_ADMIN: [{"id": "QUJD", "cle_publique": "AAAA", "compteur": 0}]})
+    c = admin_2fa
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    with c.session_transaction() as sess:
+        attente = dict(sess["facteur_attente"])
+        attente["depuis"] -= app.SECOND_FACTEUR_VALIDITE + 1
+        sess["facteur_attente"] = attente
+    assert c.post("/login/second-facteur/passkey/options").status_code == 400
+
+
+def test_la_page_de_connexion_separe_les_deux_etapes():
+    page = _page_panneau("login.html")
+    assert "function majChamps(){}" in page
+    assert "/login/second-facteur/passkey/options" in page
+    assert 'id="facteur-pk"' in page and 'id="code-champ"' in page
+
+
+def test_une_application_ne_prend_pas_le_nom_d_une_route_du_panneau(deux_espaces, tmp_path):
+    c = deux_espaces
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    dossier = tmp_path / "w"
+    dossier.mkdir()
+    for nom in ("invitation", "parametres", "qr"):
+        r = c.post("/api/add", json={"name": nom, "path": str(dossier), "command": "x"})
+        assert r.status_code == 400 and "réservée" in r.get_json()["error"], (nom, r.data)
+
+
+def test_les_sous_taches_se_priorisent(boite):
+    """Glisser une sous-tache change son rang ; la liste envoyee doit nommer
+    exactement les sous-taches de la tache."""
+    c, _ = boite
+    r = c.post("/api/taches", json={"projet": "general", "titre": "T",
+                                    "sous_taches": ["a", "b", "c"]})
+    tache = r.get_json()["id"]
+    (t,) = c.get("/api/taches").get_json()["taches"]
+    a, b, cc = [st["id"] for st in t["sous_taches"]]
+    assert c.put(f"/api/taches/{tache}/ordre", json={"ordre": [cc, a, b]}).status_code == 200
+    (t,) = c.get("/api/taches").get_json()["taches"]
+    assert [st["titre"] for st in t["sous_taches"]] == ["c", "a", "b"]
+    # Une liste incomplete, etrangere ou mal formee est refusee.
+    assert c.put(f"/api/taches/{tache}/ordre", json={"ordre": [a, b]}).status_code == 409
+    assert c.put(f"/api/taches/{tache}/ordre", json={"ordre": [a, b, "x"]}).status_code == 409
+    assert c.put(f"/api/taches/{tache}/ordre", json={"ordre": "abc"}).status_code == 400
+    assert c.put("/api/taches/inconnue/ordre", json={"ordre": []}).status_code == 404
+    page = _page_panneau("dashboard.html")
+    assert 'class="poignee"' in page and "/ordre', 'PUT'" in page
+    assert ".poignee{" in page and "touch-action:none" in page

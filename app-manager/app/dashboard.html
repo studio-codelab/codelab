@@ -1239,6 +1239,194 @@ table.tbl-journal{min-width:560px}
   .fiche-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;width:100%}
   .fiche-actions .btn{justify-content:center;padding-left:6px;padding-right:6px}
 }
+
+/* ---------------- messages : etats, projets, taches ---------------- */
+.segment{display:inline-flex;padding:3px;border-radius:10px;background:var(--surface2);border:1px solid var(--line)}
+.segment button{border:0;background:transparent;color:var(--dim);font:inherit;font-size:var(--t-m);
+ font-weight:600;padding:6px 14px;border-radius:8px;cursor:pointer}
+.segment button.active{background:var(--surface);color:var(--txt);box-shadow:0 1px 2px var(--shadow)}
+.puces{display:flex;gap:6px;flex-wrap:wrap}
+.puces button{border:1px solid var(--line2);background:var(--surface);color:var(--txt);font:inherit;
+ font-size:12.5px;font-weight:600;padding:5px 12px;border-radius:999px;cursor:pointer}
+.puces button b{font-weight:750;color:var(--accent);margin-left:2px}
+.puces button.active{background:var(--txt);color:var(--surface);border-color:var(--txt)}
+.puces button.active b{color:inherit}
+.msg-groupe+.msg-groupe{margin-top:16px}
+.msg-groupe-titre{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
+ color:var(--dim2);margin:0 0 6px}
+.msg-decision{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.msg-statut.reflechir{color:var(--warn,#B4530F);background:var(--warn-bg,#FFF1E6)}
+.tache-projet{border:1px solid var(--line);border-radius:var(--r);padding:14px 16px}
+.tache-projet+.tache-projet{margin-top:12px}
+.tache-projet-tete{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.tache-projet-tete b{font-size:var(--t-b);font-weight:700}
+.tache-barre{height:5px;border-radius:999px;background:var(--surface2);margin:10px 0 4px;overflow:hidden}
+.tache-barre i{display:block;height:100%;background:var(--accent);border-radius:999px}
+.tache{border-top:1px solid var(--line);padding:10px 0 6px}
+.tache-ligne{display:flex;align-items:center;gap:8px}
+.tache-case{display:flex;align-items:center;gap:9px;flex:1;min-width:0;cursor:pointer;margin:0;font-weight:600}
+.tache-case input{accent-color:var(--accent);width:16px;height:16px}
+.tache.faite>.tache-ligne .tache-case span,.tache-ligne.sous:has(input:checked) span{
+ text-decoration:line-through;color:var(--dim2)}
+.tache-source{font-size:11.5px;color:var(--dim2);margin:2px 0 0 25px}
+.sous-taches{margin:6px 0 0 25px;display:flex;flex-direction:column;gap:4px}
+.tache-ligne.sous .tache-case{font-weight:400}
+.sous-tache-ajout{border:0;border-bottom:1px dashed var(--line2);border-radius:0;background:transparent;
+ padding:5px 0;font-size:12.5px;width:100%}
+.sous-tache-ajout:focus{outline:none;border-bottom-color:var(--accent)}
+.poignee{flex:none;width:22px;height:26px;border:0;background:none;color:var(--dim2);
+ cursor:grab;display:grid;place-items:center;padding:0;border-radius:6px;touch-action:none}
+.poignee svg{width:16px;height:16px;fill:currentColor;stroke:none}
+.poignee:hover,.poignee:focus-visible{color:var(--accent);background:var(--surface2)}
+.tache-ligne.sous.glisse{background:var(--surface);box-shadow:0 6px 20px var(--shadow-2);
+ border-radius:10px;position:relative;z-index:2}
+.tache-ligne.sous.glisse .poignee{cursor:grabbing}
+.sous-taches{margin-left:2px}
+
+/* ---------------- reperes communs aux deux styles ---------------- */
+.reglages-btn{display:none}
+.salut{display:none}
+.side-item.utilisateur-seul{display:none}
+.compte-utilisateur #sidebar,.compte-utilisateur #btn-menu{display:none}
+.compte-utilisateur .side-item.admin-seul{display:none}
+.compte-utilisateur .side-item.utilisateur-seul{display:flex}
+.choix-titre{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+ color:var(--dim2);margin:4px 0 8px}
+
+/* =====================================================================
+   STYLE « DESIGN ». Les couleurs et la police sont dans theme.css ; ici,
+   la MISE EN PAGE : menu en pilule au centre du bandeau (barre du bas sur
+   un telephone), roue crantee a cote du compte, hub en grandes icones dans
+   une carte blanche, reglages en fenetre facon Mac. Le HTML et les
+   fonctions sont ceux du style classique.
+   ===================================================================== */
+:root[data-style="design"] body{letter-spacing:-.01em}
+:root[data-style="design"] .topbar{height:68px;padding:0 28px;background:var(--bg);border-bottom:0}
+:root[data-style="design"] .topbar-brand img{width:38px;height:38px;border-radius:12px}
+:root[data-style="design"] .topbar-brand b{font-size:18px;font-weight:800}
+:root[data-style="design"] .topbar-brand:hover{background:none}
+:root[data-style="design"] #btn-menu,:root[data-style="design"] .qui{display:none}
+:root[data-style="design"] .reglages-btn{display:grid;place-items:center;width:44px;height:44px;border-radius:50%;
+ border:0;background:var(--surface);color:var(--txt);cursor:pointer;
+ box-shadow:0 1px 3px var(--shadow-2)}
+:root[data-style="design"] .reglages-btn svg{width:20px;height:20px}
+:root[data-style="design"] .reglages-btn:hover{color:var(--accent)}
+:root[data-style="design"] .acct-btn{width:44px;height:44px;border:0;background:var(--accent);color:var(--sur-accent)}
+:root[data-style="design"] .acct-btn:hover,:root[data-style="design"] .acct-btn.active{background:var(--accent-h);color:var(--sur-accent)}
+:root[data-style="design"] .acct-menu{top:52px;border-radius:16px;padding:6px}
+:root[data-style="design"] .page-body{display:block}
+:root[data-style="design"] .wrap{max-width:1120px;padding:20px 28px 64px}
+:root[data-style="design"] .toolbar h2{font-size:30px;letter-spacing:-.035em}
+
+/* Le menu : une pilule au centre du bandeau. */
+:root[data-style="design"] .sidebar{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:45;
+ width:auto;height:auto;padding:5px;border:0;border-radius:999px;background:var(--surface);
+ box-shadow:0 1px 3px var(--shadow-2);overflow:visible;flex-direction:row;transition:none}
+:root[data-style="design"] .sidebar.collapsed{width:auto}
+:root[data-style="design"] .side-nav{display:flex;align-items:center;gap:2px}
+:root[data-style="design"] .side-label,:root[data-style="design"] .side-sep{display:none}
+:root[data-style="design"] .side-item{padding:9px 16px;border-radius:999px;font-size:14px;font-weight:600;
+ color:var(--dim);gap:7px;white-space:nowrap}
+:root[data-style="design"] .side-item svg{display:none}
+:root[data-style="design"] .sidebar .side-item span{opacity:1}
+:root[data-style="design"] .side-item:hover{background:var(--surface2);color:var(--txt)}
+:root[data-style="design"] .side-item.active{background:var(--txt);color:var(--surface);font-weight:700}
+:root[data-style="design"] .side-item.active::before{display:none}
+:root[data-style="design"] .side-count{margin-left:0;padding:0 6px;background:var(--accent-soft);color:var(--accent)}
+:root[data-style="design"] .side-item.active .side-count{background:rgba(255,255,255,.22);color:inherit}
+:root[data-style="design"] .compte-utilisateur #sidebar{display:flex}
+@media (max-width:1180px) and (min-width:761px){
+  :root[data-style="design"] .side-item span:not(.side-count){display:none}
+  :root[data-style="design"] .side-item svg{display:block;width:18px;height:18px}
+  :root[data-style="design"] .side-item{padding:9px 13px}
+}
+
+/* Les cartes, plus rondes et plus douces. */
+:root[data-style="design"] .card{border-color:transparent;box-shadow:0 1px 3px var(--shadow);border-radius:var(--r)}
+:root[data-style="design"] .btn{border-radius:12px}
+:root[data-style="design"] input,:root[data-style="design"] select,:root[data-style="design"] textarea{border-radius:12px}
+:root[data-style="design"] .modal{border-radius:24px}
+
+/* Le hub : un bonjour, puis les icones dans une carte blanche. */
+:root[data-style="design"] #sec-hub>.toolbar{display:none}
+:root[data-style="design"] .salut{display:block;text-align:center;font-size:44px;font-weight:800;letter-spacing:-.04em;
+ margin:18px 0 28px;line-height:1.1}
+:root[data-style="design"] #hub-liste.hub-liste,:root[data-style="design"] .hub-groupe{background:var(--surface);border-radius:32px;
+ padding:30px 34px 34px;box-shadow:0 10px 40px var(--shadow);max-width:920px;margin:0 auto 18px}
+:root[data-style="design"] .hub-groupe-titre{font-size:14px;letter-spacing:0;text-transform:none;color:var(--dim);margin-bottom:18px}
+:root[data-style="design"] .hub-liste.compacte{grid-template-columns:repeat(auto-fill,minmax(124px,1fr));gap:22px 10px}
+:root[data-style="design"] .hub-liste.compacte .hub-projet{padding:4px}
+:root[data-style="design"] .hub-liste.compacte .hub-projet img{width:84px;height:84px;border-radius:26px;
+ box-shadow:0 6px 16px var(--shadow-2)}
+:root[data-style="design"] .hub-liste.compacte .hub-projet .nom{font-size:15px;font-weight:700}
+:root[data-style="design"] .hub-liste.compacte .hub-projet:hover .nom{color:var(--txt)}
+:root[data-style="design"] .hub-vide{border-radius:32px;max-width:640px;margin:0 auto}
+:root[data-style="design"] #hub-masquees{text-align:center}
+
+/* Les reglages : une fenetre facon Mac, la liste des rubriques a gauche. */
+@media (min-width:761px){
+  :root[data-style="design"] #sec-parametres{display:grid;grid-template-columns:240px minmax(0,1fr);max-width:1000px;
+   margin:6px auto 0;background:var(--surface);border:1px solid var(--line);border-radius:14px;
+   overflow:hidden;box-shadow:0 24px 60px var(--shadow-2);
+   font-family:-apple-system,BlinkMacSystemFont,var(--sans);font-size:13px}
+  :root[data-style="design"] #sec-parametres>.toolbar{grid-column:1/-1;margin:0;padding:12px 18px;justify-content:center;
+   background:var(--surface2);border-bottom:1px solid var(--line)}
+  :root[data-style="design"] #sec-parametres>.toolbar h2{font-size:13.5px;font-weight:700;letter-spacing:0}
+  :root[data-style="design"] #param-onglets{grid-column:1;grid-row:2;flex-direction:column;align-items:stretch;gap:2px;
+   margin:0;padding:12px 10px;border:0;border-right:1px solid var(--line);background:var(--surface2);
+   max-width:none}
+  :root[data-style="design"] #param-onglets button{display:flex;align-items:center;gap:10px;text-align:left;
+   padding:7px 10px;border:0;border-radius:8px;font-size:13px;font-weight:500;color:var(--txt);
+   margin:0}
+  :root[data-style="design"] #param-onglets button::before{content:"";display:inline-block;width:22px;height:22px;
+   border-radius:6px;vertical-align:middle;margin-right:10px;background:var(--pastille,#8E8E93)}
+  :root[data-style="design"] #param-onglets button[data-p="compte"]{--pastille:#3B82F6}
+  :root[data-style="design"] #param-onglets button[data-p="securite"]{--pastille:#34C759}
+  :root[data-style="design"] #param-onglets button[data-p="serveur"]{--pastille:#0B6E77}
+  :root[data-style="design"] #param-onglets button[data-p="categories"]{--pastille:#AF52DE}
+  :root[data-style="design"] #param-onglets button[data-p="email"]{--pastille:#FF9500}
+  :root[data-style="design"] #param-onglets button[data-p="message"]{--pastille:#5E6280}
+  :root[data-style="design"] #param-onglets button.active{background:var(--accent);color:var(--sur-accent);border:0}
+  :root[data-style="design"] #sec-parametres .onglet-p.actif{grid-column:2;grid-row:2;max-width:none;border:0;
+   border-radius:0;box-shadow:none;padding:20px 28px 28px;background:var(--surface)}
+  :root[data-style="design"] #sec-parametres .onglet-p .zone{margin-bottom:12px}
+  :root[data-style="design"] #sec-parametres .onglet-p .settings-card{background:var(--surface2);border:1px solid var(--line);
+   border-radius:10px;padding:12px 16px}
+  :root[data-style="design"] #sec-parametres .onglet-p .zone:last-child .settings-card:last-child{border-bottom:1px solid var(--line)}
+  :root[data-style="design"] #sec-parametres .settings-card.pliable>.card-top{margin:-12px -16px;padding:12px 16px}
+  :root[data-style="design"] #sec-parametres .settings-card.pliable>.card-top:hover{background:var(--line)}
+  :root[data-style="design"] #sec-parametres .settings-card.pliable>.card-corps{margin-top:14px}
+  :root[data-style="design"] #sec-parametres .settings-card .card-name b{font-size:13px;font-weight:600}
+  :root[data-style="design"] #sec-parametres .settings-card .card-name .path{font-size:11.5px}
+  :root[data-style="design"] #sec-parametres .btn{border-radius:7px;padding:4px 12px;font-size:13px}
+  :root[data-style="design"] #sec-parametres .interrupteur{width:38px;height:22px}
+  :root[data-style="design"] #sec-parametres .interrupteur span::after{width:18px;height:18px;top:2px;left:2px}
+  :root[data-style="design"] #sec-parametres .interrupteur input:checked+span::after{transform:translateX(16px)}
+}
+
+/* Telephone : le menu devient la barre du bas, comme une application. */
+@media (max-width:760px){
+  :root[data-style="design"] .topbar{height:60px;padding:0 16px}
+  :root[data-style="design"] .sidebar{top:auto;bottom:0;left:0;right:0;transform:none;width:auto;height:auto;
+   border-radius:0;padding:6px 6px calc(8px + env(safe-area-inset-bottom));
+   box-shadow:0 -1px 0 var(--line);background:var(--surface)}
+  :root[data-style="design"] .sidebar.collapsed{width:auto}
+  :root[data-style="design"] .side-nav{width:100%;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:0}
+  :root[data-style="design"] .side-item{flex-direction:column;gap:3px;padding:6px 2px;border-radius:12px;font-size:10.5px;
+   position:relative;background:none}
+  :root[data-style="design"] .side-item span:not(.side-count){display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+  :root[data-style="design"] .side-item svg{display:block;width:22px;height:22px}
+  :root[data-style="design"] .side-item.active,:root[data-style="design"] .side-item:hover{background:none;color:var(--accent)}
+  :root[data-style="design"] .side-count{position:absolute;top:0;left:calc(50% + 6px);font-size:10px;padding:0 5px}
+  :root[data-style="design"] .voile-menu.show{display:none}
+  :root[data-style="design"] .main-area{padding-bottom:84px}
+  :root[data-style="design"] .wrap{padding:12px 16px 40px}
+  :root[data-style="design"] .salut{font-size:30px;text-align:left;margin:6px 0 18px}
+  :root[data-style="design"] #hub-liste.hub-liste,:root[data-style="design"] .hub-groupe{padding:20px 14px 22px;border-radius:26px}
+  :root[data-style="design"] .hub-liste.compacte{grid-template-columns:repeat(3,minmax(0,1fr));gap:18px 6px}
+  :root[data-style="design"] .hub-liste.compacte .hub-projet img{width:66px;height:66px;border-radius:21px}
+  :root[data-style="design"] .hub-liste.compacte .hub-projet .nom{font-size:13px}
+}
 </style></head><body>
 <div class="topbar">
   <div class="topbar-gauche">
@@ -1253,6 +1441,11 @@ table.tbl-journal{min-width:560px}
   <div class="spacer"></div>
 
   <div class="qui"><b id="qui-nom"></b><span id="qui-role"></span></div>
+  <!-- La roue crantee, a cote du compte : le style Design la montre ; le
+       style classique garde l'entree du menu du compte. -->
+  <button class="reglages-btn" id="reglages-btn" onclick="allerA('parametres')"
+          title="Paramètres" aria-label="Paramètres"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></button>
   <div class="acct-wrap">
     <button class="acct-btn" id="acct-btn" onclick="toggleAcctMenu()" title="Compte">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20.5c0-4.1 3.4-7.5 7.5-7.5s7.5 3.4 7.5 7.5"/></svg></button>
@@ -1287,18 +1480,18 @@ table.tbl-journal{min-width:560px}
       <rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
       <span>Hub</span></div>
     <div class="side-sep"></div>
-    <div class="side-item" data-sec="overview" onclick="showSection('overview')">
+    <div class="side-item admin-seul" data-sec="overview" onclick="showSection('overview')">
       <svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="10" rx="1.5"/>
       <rect x="13" y="3" width="8" height="6" rx="1.5"/><rect x="13" y="11" width="8" height="10" rx="1.5"/>
       <rect x="3" y="15" width="8" height="6" rx="1.5"/></svg>
       <span>Vue d'ensemble</span></div>
-    <div class="side-item" data-sec="apps" onclick="showSection('apps')">
+    <div class="side-item admin-seul" data-sec="apps" onclick="showSection('apps')">
       <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/>
       <rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/>
       <rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
       <span>Applications</span>
       <span class="side-count" id="side-count">0</span></div>
-    <div class="side-item" data-sec="users" onclick="showSection('users')">
+    <div class="side-item admin-seul" data-sec="users" onclick="showSection('users')">
       <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.4"/>
       <path d="M2.5 20c0-3.6 2.9-6.5 6.5-6.5s6.5 2.9 6.5 6.5"/>
       <path d="M16.5 5.2a3.4 3.4 0 010 6.1"/><path d="M18 13.9c2.1.7 3.5 2.6 3.5 4.9"/></svg>
@@ -1308,10 +1501,16 @@ table.tbl-journal{min-width:560px}
          du menu, entre deux entrees qu'on ouvre tous les jours : on ne
          choisit pas d'aller lire ses messages en arrivant, on y va quand le
          compteur le dit. Le compteur reste, la place change. -->
-    <div class="side-item" data-sec="messages" onclick="showSection('messages')">
+    <div class="side-item admin-seul" data-sec="messages" onclick="showSection('messages')">
       <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
       <span>Messages</span>
       <span class="side-count" id="side-count-messages">0</span></div>
+    <!-- Un compte utilisateur ecrit a l'administrateur depuis Parametres >
+         Message : le style Design lui en donne l'entree dans le menu. -->
+    <div class="side-item utilisateur-seul" data-sec="message-utilisateur"
+         onclick="allerA('parametres');paramOnglet('message')">
+      <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <span>Messages</span></div>
   </div>
 </nav>
 
@@ -1323,6 +1522,7 @@ table.tbl-journal{min-width:560px}
   <div class="toolbar"><h2 id="hub-titre">Mes applications</h2>
     <div class="spacer"></div>
   </div>
+  <div class="salut" id="hub-salut"></div>
   <div class="sous" id="hub-sous"></div>
   <div class="hint" id="hub-masquees" style="display:none;margin:-8px 0 14px"></div>
   <div id="hub-liste" class="hub-liste"></div>
@@ -1758,6 +1958,20 @@ table.tbl-journal{min-width:560px}
            compte. Ici chaque choix a son icone, sa ligne et sa phrase : on
            reconnait « sombre » a sa lune avant d'avoir lu le mot, et le
            choix actif se voit d'un coup d'oeil. -->
+      <div class="choix-titre">Style</div>
+      <div class="choix-liste" id="style-toggle" style="margin-bottom:14px">
+        <button data-s="classique" onclick="setStyle('classique')">
+          <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
+          <span><b>Classique</b><i>Menu latéral, cartes compactes.</i></span>
+          <svg class="coche" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+        </button>
+        <button data-s="design" onclick="setStyle('design')">
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2.5"/><rect x="14" y="3" width="7" height="7" rx="2.5"/><rect x="3" y="14" width="7" height="7" rx="2.5"/><rect x="14" y="14" width="7" height="7" rx="2.5"/></svg>
+          <span><b>Design</b><i>Grandes icônes, menu en haut, réglages façon Mac.</i></span>
+          <svg class="coche" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+        </button>
+      </div>
+      <div class="choix-titre">Thème</div>
       <div class="choix-liste" id="theme-toggle">
         <button data-t="auto" onclick="setTheme('auto')">
           <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/>
@@ -2210,34 +2424,44 @@ table.tbl-journal{min-width:560px}
 <!-- ==================== UTILISATEURS ==================== -->
 <!-- ========================= MESSAGES ========================= -->
 <div id="sec-messages" class="section" style="display:none">
-  <div class="toolbar"><h2>Messages</h2></div>
-
-  <div class="card">
-    <div class="card-top"><div class="card-name">
-      <b id="msg-titre">Tous les messages</b>
-      <div class="path" id="msg-soustitre">Toute la boîte, y compris les messages déjà traités ou archivés.</div>
+  <div class="toolbar"><h2>Messages</h2><div class="spacer"></div>
+    <!-- Deux vues : ce qu'on t'ecrit, et ce que tu en as fait. Un message
+         accepte devient une tache, rangee dans son projet. -->
+    <div class="segment" id="msg-vues" role="tablist">
+      <button role="tab" data-v="boite" class="active" onclick="msgVue('boite')">Boîte de réception</button>
+      <button role="tab" data-v="taches" onclick="msgVue('taches')">Tâches</button>
     </div>
-    <span class="pill" id="msg-compte-section"><i></i>&nbsp;</span></div>
+  </div>
 
-    <!-- « Tous les messages » reste toujours en première position : c'est le
-         point d'entrée global. « Boîte de réception » isole ensuite ce qui
-         demande encore une action. -->
-    <div class="msg-barre">
-      <select id="msg-filtre" onchange="peindreMessages()" aria-label="Filtrer les messages">
-        <option value="">Tous les messages</option>
-        <option value="inbox">Boîte de réception</option>
-        <option value="attente">À traiter</option>
-        <option value="accepte">Acceptés</option>
-        <option value="refuse">Refusés</option>
-        <option value="archive">Archivés</option>
-        <option value="hub">À propos du hub</option>
-        <option value="idee">Idées d'applications</option>
-      </select>
-      <div class="spacer"></div>
-      <span class="hint" id="msg-retenus"></span>
+  <div id="msg-vue-boite">
+    <div class="card">
+      <div class="msg-barre">
+        <div class="puces" id="msg-etats">
+          <button data-f="attente" class="active" onclick="msgEtatChoisir('attente')">Nouveaux <b id="msg-n-attente"></b></button>
+          <button data-f="reflechir" onclick="msgEtatChoisir('reflechir')">À réfléchir <b id="msg-n-reflechir"></b></button>
+          <button data-f="traites" onclick="msgEtatChoisir('traites')">Traités</button>
+          <button data-f="" onclick="msgEtatChoisir('')">Tous</button>
+        </div>
+        <div class="spacer"></div>
+        <select id="msg-filtre" onchange="peindreMessages()" aria-label="Filtrer par projet">
+          <option value="">Tous les projets</option>
+          <option value="hub">À propos du hub</option>
+          <option value="idee">Idées d'applications</option>
+        </select>
+      </div>
+      <div class="msg-boite" id="msg-liste-section"></div>
     </div>
+  </div>
 
-    <div class="msg-boite" id="msg-liste-section"></div>
+  <div id="msg-vue-taches" style="display:none">
+    <div class="card">
+      <div class="msg-barre">
+        <div class="puces" id="tache-projets"></div>
+        <div class="spacer"></div>
+        <button class="btn btn-default btn-sm" onclick="tacheFormulaire(null)">Nouvelle tâche</button>
+      </div>
+      <div id="taches-liste" style="margin-top:12px"></div>
+    </div>
   </div>
 </div>
 
@@ -2390,6 +2614,27 @@ table.tbl-journal{min-width:560px}
   <div class="mf">
     <button class="btn btn-default" onclick="faceIdPlusTard()">Plus tard</button>
     <button class="btn btn-primary" id="fid-ok" onclick="faceIdActiver()">Activer</button>
+  </div>
+</div></div>
+
+<!-- ACCEPTER UN MESSAGE, OU CREER UNE TACHE. Le projet et le titre sont
+     pre-remplis d'apres le message ; les sous-taches, une par ligne. -->
+<div class="ov" id="ov-tache"><div class="modal" style="max-width:520px">
+  <div class="mh"><h3 id="tache-f-titre">Nouvelle tâche</h3><p id="tache-f-sous"></p></div>
+  <div class="mb">
+    <div class="field"><label for="tache-projet">Projet</label>
+      <select id="tache-projet"></select></div>
+    <div class="field"><label for="tache-titre">Tâche</label>
+      <input id="tache-titre" maxlength="200" autocomplete="off"></div>
+    <div class="field"><label for="tache-sous">Sous-tâches <span class="opt">une par ligne</span></label>
+      <textarea id="tache-sous" rows="4"></textarea></div>
+    <div class="err" id="tache-err" style="display:none"></div>
+  </div>
+  <div class="mf">
+    <button class="btn btn-quiet" id="tache-sans" onclick="tacheValider(false)">Accepter sans tâche</button>
+    <div class="spacer"></div>
+    <button class="btn btn-default" onclick="hide('ov-tache')">Annuler</button>
+    <button class="btn btn-primary" id="tache-ok" onclick="tacheValider(true)">Créer la tâche</button>
   </div>
 </div></div>
 
@@ -2640,7 +2885,11 @@ const ACTIONS = {
   'app-redemarrer':  n => restartApp(n),
   'app-build':       n => buildApp(n),
   'msg-retenir':    (n,d) => msgRetenir(n, d.valeur==='1'),
-  'msg-statut':     (n,d) => msgStatut(n, d.valeur),
+  'msg-statut':     (n,d) => msgChangerStatut(n, d.valeur),
+  'msg-accepter':   n => tacheFormulaire(n),
+  'tache-projet':   n => { tacheProjet=n; peindreTaches(); },
+  'tache-supprimer':     n => tacheSupprimer(n),
+  'sous-tache-supprimer': n => sousTacheSupprimer(n),
   'msg-archive':    (n,d) => msgArchiver(n, d.valeur==='1'),
   'msg-supprimer':  n => msgSupprimer(n),
   'app-deployer':    n => deployApp(n),
@@ -2678,6 +2927,8 @@ document.addEventListener('change', e => {
   const n = e.target.closest('[data-changer]');
   if(n && n.dataset.changer === 'app-masquer')
     basculerMasquage(n.dataset.cible, !e.target.checked);
+  if(n && n.dataset.changer === 'tache-faite') tacheFaite(n.dataset.cible, e.target.checked);
+  if(n && n.dataset.changer === 'sous-tache-faite') sousTacheFaite(n.dataset.cible, e.target.checked);
 });
 
 /* ---------------- theme ---------------- */
@@ -2712,6 +2963,25 @@ applyTheme(themeChoisi);
    le localStorage et n'a aucune raison de le refaire pour que les
    applications le voient. */
 noterThemePartage(themeChoisi);
+
+/* ---------------- style : classique ou design ----------------
+   Les fonctions sont les memes ; seuls la mise en page et les couleurs
+   changent (html[data-style="design"] dans theme.css et plus haut). Le
+   choix part aussi dans un cookie : le serveur pose l'attribut des le
+   premier octet de la page, et rien ne clignote au chargement. */
+function applyStyle(st){
+  if(st==='design') document.documentElement.setAttribute('data-style','design');
+  else document.documentElement.removeAttribute('data-style');
+  document.querySelectorAll('#style-toggle button').forEach(b=>b.classList.toggle('active', b.dataset.s===st));
+}
+function setStyle(st){
+  st = st==='design' ? 'design' : 'classique';
+  try{ localStorage.setItem('codelab-style', st); }catch(e){}
+  try{ document.cookie='codelab-style='+st+';path=/;max-age=31536000;SameSite=Lax'; }catch(e){}
+  applyStyle(st);
+}
+applyStyle(document.documentElement.getAttribute('data-style')==='design' ? 'design'
+  : ((()=>{ try{ return localStorage.getItem('codelab-style'); }catch(e){ return null; } })()||'classique'));
 
 /* ---------------- colonne de gauche ---------------- */
 function applySidebar(state){ $('sidebar').classList.toggle('collapsed', state==='collapsed'); }
@@ -2768,7 +3038,9 @@ function showSection(name){
   if(name==='overview' || name==='apps') refresh();
   if(name==='overview'){ chargerCarte(); chargerMessages(); }
   if(name==='messages') {
+    if(!apps.length) refresh();
     chargerMessages().then(()=>marquerMessagesLus());
+    msgVue(msgVueActive);
   }
   /* L'etat de securite est relu a chaque ouverture : il peut avoir change
      depuis un autre onglet, ou au redemarrage du service. */
@@ -2777,7 +3049,60 @@ function showSection(name){
      etats changent depuis un autre onglet du navigateur, ou au redemarrage du
      service. On ne recharge que l'onglet regarde. */
   if(name==='parametres') paramOnglet(paramOngletActif);
+  sectionCourante=name;
+  majAdresse();
 }
+
+/* ---------------- adresses propres ----------------
+   Chaque rubrique a son adresse : /parametres/securite, /applications/site,
+   /utilisateurs... Recharger la page y ramene, « Precedent » y revient, et
+   un lien se partage. Le serveur sert la meme page pour toutes ces adresses
+   (page_du_panneau) ; c'est ici qu'on lit l'adresse et qu'on ouvre la bonne
+   rubrique. */
+const ADRESSES={hub:'/', overview:'/apercu', apps:'/applications', users:'/utilisateurs',
+                messages:'/messages', parametres:'/parametres'};
+let sectionCourante='hub', routageEnCours=false;
+
+function adresseCourante(){
+  if(sectionCourante==='app' && ficheNom)
+    return '/applications/'+encodeURIComponent(ficheNom)
+      + (ficheOngletActif && ficheOngletActif!=='general' ? '/'+ficheOngletActif : '');
+  if(sectionCourante==='parametres') return '/parametres/'+paramOngletActif;
+  if(sectionCourante==='messages' && msgVueActive==='taches') return '/messages/taches';
+  return ADRESSES[sectionCourante]||'/';
+}
+function majAdresse(){
+  if(routageEnCours) return;
+  const a=adresseCourante();
+  if(a!==location.pathname) history.pushState(null, '', a);
+}
+async function routerDepuisAdresse(){
+  routageEnCours=true;
+  try{
+    const m=location.pathname.split('/').filter(Boolean).map(x=>{
+      try{ return decodeURIComponent(x); }catch(e){ return ''; }
+    });
+    if(m[0]==='parametres'){
+      if(m[1]) paramOngletActif=m[1];
+      showSection('parametres');
+    }else if(m[0]==='messages' && estAdmin){
+      msgVueActive = m[1]==='taches' ? 'taches' : 'boite';
+      showSection('messages');
+    }else if(m[0]==='applications' && m[1] && estAdmin){
+      if(!apps.length) await refresh();
+      ficheOngletActif = m[2] || 'general';
+      if(appParNom(m[1])) ouvrirFiche(m[1]); else showSection('apps');
+    }else{
+      const sec=Object.keys(ADRESSES).find(k=>ADRESSES[k]==='/'+(m[0]||''));
+      showSection(sec||'hub');
+    }
+  }finally{ routageEnCours=false; }
+  /* Une adresse inconnue, ou refusee a ce compte, est corrigee sans
+     ajouter d'etape a l'historique. */
+  const a=adresseCourante();
+  if(a!==location.pathname) history.replaceState(null, '', a);
+}
+window.addEventListener('popstate', ()=>routerDepuisAdresse());
 
 /* ---------------- les cartes de reglages se plient ----------------
    Une seule fonction pour toutes les cartes de tous les onglets, present et
@@ -2983,6 +3308,9 @@ function paramOnglet(o){
   if(o==='alertes') o='email';        // ancien onglet, fusionne
   if(!$('param-'+o) || $('param-onglets').querySelector('[data-p="'+o+'"]')?.style.display==='none') o='compte';
   paramOngletActif=o;
+  if(sectionCourante==='parametres') majAdresse();
+  document.querySelectorAll('.side-item.utilisateur-seul')
+    .forEach(t=>t.classList.toggle('active', o==='message'));
   document.querySelectorAll('#param-onglets button')
     .forEach(b=>b.classList.toggle('active', b.dataset.p===o));
   document.querySelectorAll('.onglet-p')
@@ -3121,101 +3449,281 @@ const SVG_OK = '<svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg>';
 const SVG_NON = '<svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>';
 const SVG_ARCHIVE = '<svg viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M5 7l1 13h12l1-13"/><path d="M9 11h6"/><path d="M3 4h18v3H3z"/></svg>';
 
-function msgStatut(m){
+/* Le statut d'un message, en une pastille. */
+function msgBadge(m){
   if(m.archive) return '<span class="msg-statut archive">archivé</span>';
-  const s=m.statut||'en_attente';
-  return s==='accepte' ? '<span class="msg-statut accepte">accepté</span>'
-    : s==='refuse' ? '<span class="msg-statut refuse">refusé</span>'
-    : '<span class="msg-statut attente">à traiter</span>';
+  const st=m.statut||'en_attente';
+  return st==='accepte' ? '<span class="msg-statut accepte">accepté</span>'
+    : st==='refuse' ? '<span class="msg-statut refuse">refusé</span>'
+    : st==='a_reflechir' ? '<span class="msg-statut reflechir">à réfléchir</span>'
+    : '';
+}
+
+/* Le projet d'un message : l'application dont il parle, le hub, ou une idee. */
+function msgProjet(m){
+  if(m.cible==='application' && m.app) return 'app:'+m.app;
+  return m.cible==='idee' ? 'idee' : 'hub';
+}
+function libelleProjet(cle){
+  if(cle==='hub') return 'À propos du hub';
+  if(cle==='idee') return 'Idées d\'applications';
+  if(cle==='general') return 'Général';
+  const n=cle.startsWith('app:') ? cle.slice(4) : cle;
+  const a=appParNom(n);
+  return (a && (a.titre||a.name)) || n;
 }
 
 function msgLigne(m){
-  const statut=m.statut||'en_attente';
-  return `<div class="msg-ligne${m.retenu?' retenu':''}${m.lu?'':' non-lu'}" data-msg="${esc(m.id||'')}">
-    <div class="msg-tete"><b>${esc(m.qui||'?')}</b>${m.lu?'':'<span class="msg-nouveau">nouveau</span>'}${msgStatut(m)}<span class="hint">${MSG_SUJET(m)}</span>
+  const st=m.statut||'en_attente';
+  const id=esc(m.id||'');
+  const traite = m.archive || st==='accepte' || st==='refuse';
+  return `<div class="msg-ligne${m.retenu?' retenu':''}${m.lu?'':' non-lu'}" data-msg="${id}">
+    <div class="msg-tete"><b>${esc(m.qui||'?')}</b>${m.lu?'':'<span class="msg-nouveau">nouveau</span>'}${msgBadge(m)}<span class="hint">${MSG_SUJET(m)}</span>
       <span class="quand" title="${esc(quandPrecis(m.ts))}">${esc(ilYA(m.ts))}</span>
       <div class="msg-actes">
-        ${statut!=='accepte'&&!m.archive ? `<button class="msg-acte accept" title="Accepter" data-agir="msg-statut" data-cible="${esc(m.id||'')}" data-valeur="accepte">${SVG_OK}</button>` : ''}
-        ${statut!=='refuse'&&!m.archive ? `<button class="msg-acte refuse" title="Refuser" data-agir="msg-statut" data-cible="${esc(m.id||'')}" data-valeur="refuse">${SVG_NON}</button>` : ''}
-        ${!m.archive ? `<button class="msg-acte" title="Archiver" data-agir="msg-archive" data-cible="${esc(m.id||'')}" data-valeur="1">${SVG_ARCHIVE}</button>`
-          : `<button class="msg-acte" title="Restaurer dans la boîte de réception" data-agir="msg-archive" data-cible="${esc(m.id||'')}" data-valeur="0">${SVG_ARCHIVE}</button>`}
+        ${!m.archive ? `<button class="msg-acte" title="Archiver" data-agir="msg-archive" data-cible="${id}" data-valeur="1">${SVG_ARCHIVE}</button>`
+          : `<button class="msg-acte" title="Restaurer dans la boîte de réception" data-agir="msg-archive" data-cible="${id}" data-valeur="0">${SVG_ARCHIVE}</button>`}
         <button class="msg-acte${m.retenu?' actif':''}" title="${m.retenu?'Relâcher':'Épingler'}"
-          data-agir="msg-retenir" data-cible="${esc(m.id||'')}"
-          data-valeur="${m.retenu?'0':'1'}">${SVG_EPINGLE}</button>
+          data-agir="msg-retenir" data-cible="${id}" data-valeur="${m.retenu?'0':'1'}">${SVG_EPINGLE}</button>
         <button class="msg-acte danger" title="Supprimer définitivement"
-          data-agir="msg-supprimer" data-cible="${esc(m.id||'')}">${SVG_POUBELLE}</button>
+          data-agir="msg-supprimer" data-cible="${id}">${SVG_POUBELLE}</button>
       </div></div>
-    <div class="msg-texte">${esc(m.texte||'')}</div></div>`;
+    <div class="msg-texte">${esc(m.texte||'')}</div>
+    ${traite ? '' : `<div class="msg-decision">
+      <button class="btn btn-primary btn-sm" data-agir="msg-accepter" data-cible="${id}">Accepter</button>
+      ${st==='a_reflechir'
+        ? `<button class="btn btn-default btn-sm" data-agir="msg-statut" data-cible="${id}" data-valeur="en_attente">Remettre dans les nouveaux</button>`
+        : `<button class="btn btn-default btn-sm" data-agir="msg-statut" data-cible="${id}" data-valeur="a_reflechir">À réfléchir</button>`}
+      <button class="btn btn-quiet btn-sm" data-agir="msg-statut" data-cible="${id}" data-valeur="refuse">Refuser</button>
+    </div>`}</div>`;
 }
 
-/* Le filtre des applications s'ajoute a la liste fixe : une application par
-   ligne, pour aller voir ce qu'on dit d'ELLE. */
+/* Le filtre par projet : le hub, les idees, puis chaque application dont
+   on a effectivement parle. */
 function msgRemplirFiltre(){
   const sel=$('msg-filtre'); if(!sel) return;
   const choisi=sel.value;
   const noms=[...new Set(msgTous.filter(m=>m.cible==='application' && m.app)
                                 .map(m=>m.app))].sort((a,b)=>a.localeCompare(b,'fr'));
-  sel.innerHTML = '<option value="">Tous les messages</option>'
-    + '<option value="inbox">Boîte de réception</option>'
-    + '<option value="attente">À traiter</option>'
-    + '<option value="accepte">Acceptés</option>'
-    + '<option value="refuse">Refusés</option>'
-    + '<option value="archive">Archivés</option>'
+  sel.innerHTML = '<option value="">Tous les projets</option>'
     + '<option value="hub">À propos du hub</option>'
     + '<option value="idee">Idées d\'applications</option>'
     + (noms.length ? '<optgroup label="Applications">'
-        + noms.map(n=>`<option value="app:${esc(n)}">${esc(n)}</option>`).join('')
+        + noms.map(n=>`<option value="app:${esc(n)}">${esc(libelleProjet(n))}</option>`).join('')
         + '</optgroup>' : '');
   sel.value = [...sel.options].some(o=>o.value===choisi) ? choisi : '';
 }
 
-function msgRetenus(cle){
-  if(cle==='') return msgTous;
-  if(cle==='inbox') return msgTous.filter(m=>!m.archive);
-  if(cle==='attente') return msgTous.filter(m=>!m.archive && (m.statut||'en_attente')==='en_attente');
-  if(cle==='accepte') return msgTous.filter(m=>(m.statut||'en_attente')==='accepte');
-  if(cle==='refuse') return msgTous.filter(m=>(m.statut||'en_attente')==='refuse');
-  if(cle==='archive') return msgTous.filter(m=>m.archive);
-  if(cle==='hub') return msgTous.filter(m=>m.cible==='hub');
-  if(cle==='idee') return msgTous.filter(m=>m.cible==='idee');
-  const nom=cle.slice(4);
-  return msgTous.filter(m=>m.cible==='application' && m.app===nom);
+/* Nouveaux, a reflechir, traites, ou tout. */
+let msgEtat='attente';
+function msgEtatChoisir(f){
+  msgEtat=f;
+  document.querySelectorAll('#msg-etats button').forEach(b=>b.classList.toggle('active', b.dataset.f===f));
+  peindreMessages();
+}
+function msgDansEtat(m, f){
+  const st=m.statut||'en_attente';
+  if(f==='attente') return !m.archive && st==='en_attente';
+  if(f==='reflechir') return !m.archive && st==='a_reflechir';
+  if(f==='traites') return !!m.archive || st==='accepte' || st==='refuse';
+  return true;
 }
 
 function peindreMessages(){
   const sel=$('msg-filtre'); if(!sel) return;
-  const cle=sel.value;
-  const liste=msgRetenus(cle);
-  const titres={'':['Tous les messages','Toute la boîte, y compris les messages déjà traités ou archivés.'],
-                'inbox':['Boîte de réception','Les messages qui attendent encore ton traitement.'],
-                'attente':['À traiter','Les messages qui n\'ont pas encore été acceptés ou refusés.'],
-                'accepte':['Acceptés','Les messages auxquels tu as répondu favorablement.'],
-                'refuse':['Refusés','Les messages auxquels tu as répondu négativement.'],
-                'archive':['Archivés','Les messages rangés hors de la boîte de réception.'],
-                'hub':['À propos du hub','Ce qu\'on te dit de CodeLab lui-même.'],
-                'idee':['Idées d\'applications','Les projets qu\'on aimerait voir ici.']};
-  const [titre, sous] = titres[cle]
-    || ['À propos de ' + cle.slice(4), 'Ce qu\'on te dit de cette application.'];
-  $('msg-titre').textContent=titre;
-  $('msg-soustitre').textContent=sous;
+  const projet=sel.value;
+  $('msg-n-attente').textContent = msgTous.filter(m=>msgDansEtat(m,'attente')).length || '';
+  $('msg-n-reflechir').textContent = msgTous.filter(m=>msgDansEtat(m,'reflechir')).length || '';
+  const liste=msgTous.filter(m=>msgDansEtat(m, msgEtat) && (!projet || msgProjet(m)===projet));
+  if(!liste.length){
+    $('msg-liste-section').innerHTML = '<div class="msg-vide">'
+      + (msgEtat==='attente' ? 'Aucun nouveau message.' : 'Rien ici.') + '</div>';
+    return;
+  }
+  /* Ranges par projet : on traite d'un coup ce qui concerne la meme
+     application. Les epingles restent en tete de leur groupe. */
+  const groupes={};
+  liste.forEach(m=>{ (groupes[msgProjet(m)] ||= []).push(m); });
+  $('msg-liste-section').innerHTML = Object.keys(groupes)
+    .sort((a,b)=>libelleProjet(a).localeCompare(libelleProjet(b),'fr'))
+    .map(k=>`<div class="msg-groupe"><div class="msg-groupe-titre">${esc(libelleProjet(k))}</div>`
+      + groupes[k].map(msgLigne).join('') + '</div>').join('');
+}
 
-  const p=$('msg-compte-section');
-  const retenus=msgTous.filter(m=>m.retenu).length;
-  const nonLus=msgTous.filter(m=>!m.lu).length;
-  const inbox=msgTous.filter(m=>!m.archive);
-  const aTraiter=inbox.filter(m=>(m.statut||'en_attente')==='en_attente').length;
-  p.className='pill '+(inbox.length?'on':'off');
-  p.innerHTML='<i></i>'+(inbox.length
-    ? inbox.length+' message'+(inbox.length>1?'s':'')+' dans la boîte'
-    : 'boîte de réception vide');
-  $('msg-retenus').textContent = (nonLus ? nonLus+' nouveau'+(nonLus>1?'x':'') : 'aucun nouveau')
-    + ' · ' + aTraiter + ' à traiter'
-    + (retenus ? ' · ' + retenus + ' épinglé'+(retenus>1?'s':'') : '');
+/* ---------------- les deux vues ---------------- */
+let msgVueActive='boite';
+function msgVue(v){
+  msgVueActive = v==='taches' ? 'taches' : 'boite';
+  document.querySelectorAll('#msg-vues button').forEach(b=>b.classList.toggle('active', b.dataset.v===msgVueActive));
+  $('msg-vue-boite').style.display = msgVueActive==='boite' ? '' : 'none';
+  $('msg-vue-taches').style.display = msgVueActive==='taches' ? '' : 'none';
+  if(msgVueActive==='taches') chargerTaches();
+  if(sectionCourante==='messages') majAdresse();
+}
 
-  $('msg-liste-section').innerHTML = liste.length
-    ? liste.map(msgLigne).join('')
-    : '<div class="msg-vide">Rien sur ce sujet. Le formulaire est dans '
-      + '<b>Paramètres &gt; Message</b>, pour tous les comptes.</div>';
+/* ---------------- les taches ---------------- */
+let taches=[], tacheProjet='';
+
+async function chargerTaches(){
+  if(!estAdmin) return;
+  if(!apps.length) await refresh();
+  try{ taches=(await (await fetch('/api/taches')).json()).taches||[]; }catch(e){ return; }
+  peindreTaches();
+}
+
+function peindreTaches(){
+  const projets=[...new Set(taches.map(t=>t.projet))]
+    .sort((a,b)=>libelleProjet(a).localeCompare(libelleProjet(b),'fr'));
+  if(tacheProjet && !projets.includes(tacheProjet)) tacheProjet='';
+  $('tache-projets').innerHTML = ['', ...projets].map(p=>
+    `<button class="${p===tacheProjet?'active':''}" data-agir="tache-projet" data-cible="${esc(p)}">`
+    + (p ? esc(libelleProjet(p)) : 'Tous') + '</button>').join('');
+  const vus = tacheProjet ? [tacheProjet] : projets;
+  if(!vus.length){
+    $('taches-liste').innerHTML='<div class="msg-vide">Aucune tâche. Accepte un message pour en créer une.</div>';
+    return;
+  }
+  $('taches-liste').innerHTML = vus.map(p=>{
+    const liste=taches.filter(t=>t.projet===p);
+    const faites=liste.filter(t=>t.faite).length;
+    const pc=Math.round(100*faites/Math.max(1,liste.length));
+    return `<div class="tache-projet">
+      <div class="tache-projet-tete"><b>${esc(libelleProjet(p))}</b>
+        <span class="hint">${faites} sur ${liste.length}</span></div>
+      <div class="tache-barre"><i style="width:${pc}%"></i></div>
+      ${liste.map(tacheBloc).join('')}</div>`;
+  }).join('');
+}
+
+function tacheBloc(t){
+  const id=esc(t.id);
+  const source=t.message ? msgTous.find(m=>m.id===t.message) : null;
+  return `<div class="tache${t.faite?' faite':''}">
+    <div class="tache-ligne">
+      <label class="tache-case"><input type="checkbox" ${t.faite?'checked':''} data-changer="tache-faite" data-cible="${id}">
+        <span>${esc(t.titre)}</span></label>
+      <button class="msg-acte danger" title="Supprimer la tâche" data-agir="tache-supprimer" data-cible="${id}">${SVG_POUBELLE}</button>
+    </div>
+    ${source ? `<div class="tache-source">Depuis le message de ${esc(source.qui||'?')}</div>` : ''}
+    <div class="sous-taches" data-tache="${id}">
+      ${t.sous_taches.map(st=>`<div class="tache-ligne sous" data-id="${esc(st.id)}">
+        <button class="poignee" type="button" title="Glisser pour changer la priorité"
+          aria-label="Déplacer « ${esc(st.titre)} » (flèches haut et bas)">
+          <svg viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.2"/><circle cx="15" cy="6" r="1.2"/>
+          <circle cx="9" cy="12" r="1.2"/><circle cx="15" cy="12" r="1.2"/>
+          <circle cx="9" cy="18" r="1.2"/><circle cx="15" cy="18" r="1.2"/></svg></button>
+        <label class="tache-case"><input type="checkbox" ${st.faite?'checked':''} data-changer="sous-tache-faite" data-cible="${esc(st.id)}">
+          <span>${esc(st.titre)}</span></label>
+        <button class="msg-acte" title="Retirer" data-agir="sous-tache-supprimer" data-cible="${esc(st.id)}">${SVG_NON}</button>
+      </div>`).join('')}
+      <input class="sous-tache-ajout" placeholder="Ajouter une sous-tâche" maxlength="200" data-tache="${id}">
+    </div></div>`;
+}
+
+async function tacheAppel(url, methode, corps){
+  const r=await fetch(url, {method:methode, headers:{'Content-Type':'application/json'},
+                            body: corps ? JSON.stringify(corps) : undefined});
+  if(!r.ok){ notifier(await echec(r, 'Modification impossible.'), 'err'); return false; }
+  return true;
+}
+async function tacheFaite(id, faite){ await tacheAppel('/api/taches/'+encodeURIComponent(id), 'PUT', {faite}); chargerTaches(); }
+async function sousTacheFaite(id, faite){ await tacheAppel('/api/sous-taches/'+encodeURIComponent(id), 'PUT', {faite}); chargerTaches(); }
+async function sousTacheSupprimer(id){ await tacheAppel('/api/sous-taches/'+encodeURIComponent(id), 'DELETE'); chargerTaches(); }
+async function tacheSupprimer(id){
+  if(!await demander('Supprimer cette tâche ?', 'Ses sous-tâches partent avec elle. Le message, lui, reste.', 'Supprimer', true)) return;
+  await tacheAppel('/api/taches/'+encodeURIComponent(id), 'DELETE'); chargerTaches();
+}
+document.addEventListener('keydown', async e=>{
+  const champ=e.target;
+  if(e.key!=='Enter' || !champ.classList || !champ.classList.contains('sous-tache-ajout')) return;
+  e.preventDefault();
+  const titre=champ.value.trim(); if(!titre) return;
+  if(await tacheAppel('/api/taches/'+encodeURIComponent(champ.dataset.tache)+'/sous-taches', 'POST', {titre}))
+    chargerTaches();
+});
+
+/* ---- prioriser les sous-taches : glisser la poignee ----
+   Au pointeur (souris, doigt, stylet) plutot qu'au glisser-deposer HTML,
+   qui ne marche pas au doigt sur iPhone. Au clavier : fleches haut et bas
+   sur la poignee. L'ordre part au serveur au lacher. */
+let glisse=null;
+function lignesDe(liste){ return [...liste.querySelectorAll(':scope > .tache-ligne.sous')]; }
+async function enregistrerOrdre(liste){
+  const ids=lignesDe(liste).map(x=>x.dataset.id);
+  if(await tacheAppel('/api/taches/'+encodeURIComponent(liste.dataset.tache)+'/ordre', 'PUT', {ordre:ids}))
+    chargerTaches();
+}
+document.addEventListener('pointerdown', e=>{
+  const p=e.target.closest && e.target.closest('.poignee'); if(!p) return;
+  const ligne=p.closest('.tache-ligne.sous');
+  e.preventDefault();
+  glisse={ligne, liste:ligne.parentElement, depart:lignesDe(ligne.parentElement).indexOf(ligne)};
+  ligne.classList.add('glisse');
+  try{ p.setPointerCapture(e.pointerId); }catch(_){}
+});
+document.addEventListener('pointermove', e=>{
+  if(!glisse) return;
+  const autres=lignesDe(glisse.liste).filter(x=>x!==glisse.ligne);
+  const avant=autres.find(f=>{ const r=f.getBoundingClientRect(); return e.clientY < r.top + r.height/2; });
+  glisse.liste.insertBefore(glisse.ligne, avant || glisse.liste.querySelector('.sous-tache-ajout'));
+});
+function finGlisse(){
+  if(!glisse) return;
+  const g=glisse; glisse=null;
+  g.ligne.classList.remove('glisse');
+  if(lignesDe(g.liste).indexOf(g.ligne)!==g.depart) enregistrerOrdre(g.liste);
+}
+document.addEventListener('pointerup', finGlisse);
+document.addEventListener('pointercancel', finGlisse);
+document.addEventListener('keydown', e=>{
+  const p=e.target.closest && e.target.closest('.poignee');
+  if(!p || (e.key!=='ArrowUp' && e.key!=='ArrowDown')) return;
+  e.preventDefault();
+  const ligne=p.closest('.tache-ligne.sous'), liste=ligne.parentElement, l=lignesDe(liste);
+  const i=l.indexOf(ligne), j=e.key==='ArrowUp' ? i-1 : i+1;
+  if(j<0 || j>=l.length) return;
+  liste.insertBefore(ligne, e.key==='ArrowUp' ? l[j] : l[j].nextSibling);
+  p.focus();
+  enregistrerOrdre(liste);
+});
+
+/* Le formulaire : depuis un message (accepter), ou vide (nouvelle tache). */
+let tacheMessage=null;
+function tacheFormulaire(idMessage){
+  tacheMessage=idMessage;
+  const m=idMessage ? msgTous.find(x=>x.id===idMessage) : null;
+  const sel=$('tache-projet');
+  const options=[['general','Général'], ...apps.filter(a=>!a.externe)
+    .map(a=>[a.name, a.titre||a.name]).sort((a,b)=>a[1].localeCompare(b[1],'fr'))];
+  sel.innerHTML=options.map(([v,t])=>`<option value="${esc(v)}">${esc(t)}</option>`).join('');
+  sel.value = (m && m.cible==='application' && appParNom(m.app)) ? m.app
+    : (tacheProjet && tacheProjet!=='' ? tacheProjet : 'general');
+  if(!sel.value) sel.value='general';
+  const premiere=m ? String(m.texte||'').split('\n')[0].trim() : '';
+  $('tache-titre').value = premiere.length>120 ? premiere.slice(0,117)+'…' : premiere;
+  $('tache-sous').value='';
+  $('tache-err').style.display='none';
+  $('tache-f-titre').textContent = m ? 'Accepter le message de '+(m.qui||'?') : 'Nouvelle tâche';
+  $('tache-f-sous').textContent = m ? 'Il devient une tâche, rangée dans son projet.' : '';
+  $('tache-sans').style.display = m ? '' : 'none';
+  $('tache-ok').textContent = m ? 'Accepter et créer la tâche' : 'Créer la tâche';
+  $('ov-tache').classList.add('show');
+  $('tache-titre').focus();
+}
+
+async function tacheValider(avecTache){
+  const e=$('tache-err'); e.style.display='none';
+  const corps={projet:$('tache-projet').value, titre:$('tache-titre').value.trim(),
+               sous_taches:$('tache-sous').value.split('\n').map(x=>x.trim()).filter(Boolean)};
+  if(avecTache && !corps.titre){ e.textContent='Donne un titre à la tâche.'; e.style.display='block'; return; }
+  const url = tacheMessage ? '/api/messages/'+encodeURIComponent(tacheMessage)+'/accepter' : '/api/taches';
+  const r=await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'},
+                            body:JSON.stringify(avecTache ? corps : {})});
+  if(!r.ok){ e.textContent=await echec(r, 'Création impossible.'); e.style.display='block'; return; }
+  hide('ov-tache');
+  notifier(avecTache ? 'Tâche créée.' : 'Message accepté.');
+  await chargerMessages();
+  if(msgVueActive==='taches') chargerTaches();
 }
 
 async function chargerMessages(){
@@ -3237,7 +3745,7 @@ async function chargerMessages(){
   msgPremierChargement=false;
 }
 
-async function msgStatut(id, statut){
+async function msgChangerStatut(id, statut){
   const r=await fetch('/api/messages/'+encodeURIComponent(id),
     {method:'PUT', headers:{'Content-Type':'application/json'},
      body:JSON.stringify({statut})});
@@ -3759,6 +4267,7 @@ function ouvrirFiche(n){
 
 function ficheOnglet(o){
   ficheOngletActif=o;
+  if(sectionCourante==='app') majAdresse();
   document.querySelectorAll('.fiche-onglets button').forEach(b=>b.classList.toggle('active', b.dataset.o===o));
   document.querySelectorAll('.onglet').forEach(n=>n.classList.toggle('actif', n.id==='onglet-'+o));
   if(o==='journal') ouvrirLog(ficheNom); else fermerLog();
@@ -5920,6 +6429,7 @@ const ROLE=__ROLE__, UTILISATEUR=__UTILISATEUR__;
 const estAdmin = ROLE==='admin';
 
 $('qui-nom').textContent = UTILISATEUR || '';
+$('hub-salut').textContent = 'Bonjour, ' + (UTILISATEUR || 'admin');
 $('qui-role').textContent = estAdmin ? 'Administrateur' : 'Utilisateur';
 /* Les onglets d'administration n'apparaissent que pour l'administrateur. */
 if(estAdmin) document.querySelectorAll('#param-onglets button[data-admin]')
@@ -5995,13 +6505,12 @@ if(estAdmin){
      cote serveur) : cette carte n'a rien a regler ici, et elle s'affichait
      sans etat ni bouton -- une case vide de plus a se demander. */
   $('profil-securite').style.display='none';
-  $('sidebar').style.display='none';
-  $('btn-menu').style.display='none';
+  document.body.classList.add('compte-utilisateur');
 }
 majOngletsParametres();
 /* Le hub est l'accueil de tout le monde. Laisse ouvert il reste juste : les
    etats changent tout seuls quand une application tombe ou repart. */
-showSection('hub');
+routerDepuisAdresse();
 surveiller(()=>{ if(visible('sec-hub')) chargerHub(); }, 10000);
 proposerFaceId();
 

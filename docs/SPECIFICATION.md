@@ -126,6 +126,45 @@ sans partir — et c'est là que tu retrouves le lien d'une invitation à transm
 
 **Il n'y a pas d'inscription libre.** Aucun formulaire public ne crée de compte.
 
+### 3.1 Les pages du panneau
+
+Chaque rubrique a son adresse ; recharger la page y ramène, « Précédent » y revient.
+
+| Adresse | Rubrique | Qui |
+|---|---|---|
+| `/` | Hub | tous |
+| `/apercu` | Vue d'ensemble | administrateur |
+| `/applications`, `/applications/<nom>[/<onglet>]` | Applications, fiche d'une application | administrateur |
+| `/utilisateurs` | Comptes, invitations, connexions | administrateur |
+| `/messages`, `/messages/taches` | Boîte de réception, tâches | administrateur |
+| `/parametres/<onglet>` | Paramètres (compte, sécurité, message…) | tous (onglets selon le rôle) |
+
+Sans session, ces adresses mènent à la connexion, qui y renvoie ensuite (chemin local
+seulement). **Aucune application ne peut prendre le nom d'une route du panneau** : la liste des
+noms réservés est tirée de la table des routes elle-même (`adresses_reservees()`), donc toute
+route ajoutée demain est réservée d'office ; une application plus ancienne qui porterait un de
+ces noms est signalée au démarrage.
+
+Dans **Tâches**, les sous-tâches se priorisent en les glissant par leur poignée (souris, doigt,
+ou flèches haut/bas au clavier) ; la plus haute est la plus prioritaire.
+
+### 3.2 Messages et tâches
+
+Un message laissé à l'administrateur est **nouveau**, **à réfléchir** (mis de côté),
+**accepté** ou **refusé**, et peut être épinglé ou archivé. Accepter un message peut en faire
+une **tâche**, rangée dans un projet (une application, ou « Général »), avec ses
+**sous-tâches** à cocher. Tables `taches` et `sous_taches` de `codelab.db` ; réservé à
+l'administrateur.
+
+### 3.3 Deux styles
+
+*Paramètres › Compte › Apparence* propose deux styles : **Classique** (menu latéral) et
+**Design** (menu en pilule, barre du bas sur téléphone, hub en grandes icônes, réglages façon
+Mac, roue crantée à côté du compte). Les fonctions sont les mêmes ; seuls la mise en page et
+les couleurs changent (`html[data-style="design"]`, jetons dans `theme.css`). Le choix est
+retenu par navigateur (cookie `codelab-style`), et posé par le serveur dès le premier octet
+de la page.
+
 ---
 
 ## 4. Authentification
@@ -148,9 +187,14 @@ le renvoyer (l'ancien lien cesse alors de fonctionner) ou l'annuler.
 - **Face ID / Touch ID / empreinte / Windows Hello** (clé d'accès, norme WebAuthn) : un geste, ni
   mot de passe ni code. C'est le moyen le plus sûr : la clé ne signe que pour ce domaine, donc un
   faux site n'en tire rien. Exige HTTPS et un nom de domaine.
-- **Mot de passe + code** : après le mot de passe, un code à six chiffres part par mail (ou est lu
-  dans l'application d'authentification si la personne en a une). Le code vaut **10 minutes**,
-  sert **une fois**, tolère **5 essais**, et ne part que vers l'adresse vérifiée du compte.
+- **Identifiant + mot de passe, puis une seconde étape** : l'identifiant est toujours demandé
+  (« admin » compris). Une fois le mot de passe reconnu, la page passe à l'étape 2 — jamais sur
+  le même écran :
+  - **Face ID / Touch ID** si le compte a une clé d'accès (il se lance de lui-même) ; la clé doit
+    être celle de CE compte, et l'étape n'est ouverte que 10 minutes après le mot de passe ;
+  - sinon un **code à six chiffres** : celui de l'application d'authentification, ou, pour un
+    compte utilisateur, un code envoyé par mail. Le code par mail vaut **10 minutes**, sert
+    **une fois**, tolère **5 essais**, et ne part que vers l'adresse vérifiée du compte.
 
 ### 4.3 Mot de passe oublié
 
