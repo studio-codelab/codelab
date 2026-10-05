@@ -2,14 +2,14 @@
 <html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>CodeLab &middot; Connexion</title>
-<!-- L'icone de CodeLab, explicite et versionnee : Safari garde une icone par
-     NOM D'HOTE, sans le port, et celle d'une application (port des
-     applications), de Mailpit ou de Dagster pouvait sinon reprendre l'onglet du
-     panneau. Le panneau declare la sienne a chaque page, sous une adresse
-     propre. -->
-<link rel="icon" type="image/png" sizes="128x128" href="/favicon.png?v=3">
-<link rel="shortcut icon" href="/favicon.ico?v=3">
-<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3">
+<!-- L'icone de CodeLab. Safari range les icones par NOM D'HOTE, sans le
+     port : Mailpit (8025) et les applications (9002) partagent celui du
+     panneau. L'adresse /icone-codelab.png n'existe que chez nous -- aucun
+     autre service ne peut la remplacer -- et /favicon.ico rend le meme logo
+     sur tous les ports. -->
+<link rel="icon" type="image/png" sizes="128x128" href="/icone-codelab.png?v=4">
+<link rel="shortcut icon" href="/icone-codelab.png?v=4">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=4">
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -290,20 +290,35 @@ button.principal:disabled{opacity:.6;cursor:default}
         <div class="bascule" id="code-moyens"></div>
       </div>
 
+      <!-- PREMIERE CONNEXION : le second facteur s'enregistre ici. Rien a
+           recopier dans le cas courant : Face ID (ou Touch ID) en un geste,
+           sinon un lien qui ouvre l'application de codes avec tout deja
+           rempli. Le QR code et la cle restent pour un autre appareil. -->
       <div id="inscription" style="display:none">
-        <div class="etape">Première connexion : enregistré ton second facteur.</div>
-        <div class="etape-num">1. Scanne ce code avec ton application d'authentification
-          (Google Authenticator, Authy, le gestionnaire de mots de passe de ton téléphone...).</div>
-        <!-- Si le QR code ne peut pas etre produit, l'image se masque et la cle
-             a recopier reste : l'inscription ne depend pas de lui. -->
-        <img class="qr" id="qr" alt="QR code du second facteur">
-        <div class="etape-num" id="secret-intro">Ou saisis cette clé à la main :</div>
-        <div class="secret" id="secret" onclick="copierSecret()" title="Cliquer pour copier"></div>
-        <div class="etape-num">2. Saisis le code à six chiffres qu'elle affiché.</div>
-        <input type="text" id="code-inscription" inputmode="numeric" autocomplete="one-time-code"
-               maxlength="6" placeholder="123456" style="margin-top:9px">
-        <div class="etape-num">Ce code te sera demande à chaque connexion. Si tu changes de
-          téléphone, ton administrateur peut remettre cette étape a zero.</div>
+        <div class="etape">Dernière étape : protège ton compte.</div>
+
+        <div id="ins-pk" style="display:none">
+          <button class="principal" id="ins-pk-go" onclick="inscrirePasskey()">
+            <span id="ins-pk-libelle">Activer Face ID</span></button>
+          <div class="etape-num">Un geste, rien à recopier. La prochaine fois, il suffira.</div>
+          <div class="bascule"><a onclick="montrerCodeApp()">Utiliser plutôt une application de codes</a></div>
+        </div>
+
+        <div id="ins-totp">
+          <a class="secondaire" id="ins-lien" style="margin-top:14px;text-decoration:none">
+            Ajouter à mon application de codes</a>
+          <div class="etape-num">Sur cet appareil, le lien ouvre l'application avec tout déjà rempli.
+            Sur un autre, scanne ce code :</div>
+          <!-- Si le QR code ne peut pas etre produit, l'image se masque et la cle
+               a recopier reste : l'inscription ne depend pas de lui. -->
+          <img class="qr" id="qr" alt="QR code du second facteur">
+          <details class="etape-num"><summary style="cursor:pointer">Saisir la clé à la main</summary>
+            <div class="secret" id="secret" onclick="copierSecret()" title="Cliquer pour copier"></div>
+          </details>
+          <div class="etape-num">Puis saisis le code à six chiffres affiché :</div>
+          <input type="text" id="code-inscription" inputmode="numeric" autocomplete="one-time-code"
+                 maxlength="6" placeholder="123456" style="margin-top:9px">
+        </div>
       </div>
 
       <button class="principal" id="go" onclick="submit()">Se connecter</button>
@@ -458,12 +473,68 @@ async function poserMotDePasse(){
 function afficherInscription(d){
   etape='inscription';
   document.getElementById('secret').textContent=d.secret;
+  $$('ins-lien').href=d.uri||'#';
   montrerQr(d.qr);
   document.getElementById('inscription').style.display='block';
   document.getElementById('totp-bloc').style.display='none';
+  $$('pk-zone').style.display='none';
+  $$('oubli-lien-zone').style.display='none';
   nom.disabled=true; pw.disabled=true;
+  /* Le mot de passe est reconnu : ses champs n'ont plus rien a dire. */
+  document.querySelectorAll('.field').forEach(f=>{
+    if(f.querySelector('#nom') || f.querySelector('#pw')) f.style.display='none';
+  });
   go.textContent='Confirmer';
+  /* Face ID d'abord, quand le serveur et l'appareil le permettent. */
+  if(d.passkey && window.PublicKeyCredential){
+    $$('ins-pk-libelle').textContent='Activer ' + nomDuGeste();
+    $$('ins-pk').style.display='block';
+    $$('ins-totp').style.display='none';
+    go.style.display='none';
+  }else{
+    montrerCodeApp();
+  }
+}
+
+function montrerCodeApp(){
+  $$('ins-pk').style.display='none';
+  $$('ins-totp').style.display='block';
+  go.style.display='';
   codeInscription.focus();
+}
+
+/* Enregistre la cle de l'appareil comme second facteur de l'administrateur,
+   et ouvre la session : le mot de passe vient d'etre reconnu. */
+async function inscrirePasskey(){
+  err.style.display='none';
+  const b=$$('ins-pk-go'); b.disabled=true;
+  try{
+    const r=await fetch('/login/inscription/passkey/options',{method:'POST'});
+    const o=await r.json();
+    if(!r.ok){ err.textContent=o.error||'Impossible.'; err.style.display='block'; return; }
+    o.challenge=b64urlVersOctets(o.challenge);
+    o.user.id=b64urlVersOctets(o.user.id);
+    (o.excludeCredentials||[]).forEach(c=>{ c.id=b64urlVersOctets(c.id); });
+    const cred=await navigator.credentials.create({publicKey:o});
+    const envoi={
+      id:cred.id, rawId:octetsVersB64url(cred.rawId), type:cred.type,
+      response:{
+        clientDataJSON:octetsVersB64url(cred.response.clientDataJSON),
+        attestationObject:octetsVersB64url(cred.response.attestationObject),
+      },
+    };
+    const r2=await fetch('/login/inscription/passkey',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({credential:envoi, nom:nomDuGeste()})});
+    const d2=await r2.json();
+    if(r2.ok){ location.href='/'; return; }
+    err.textContent=d2.error||'Clé refusée.'; err.style.display='block';
+  }catch(e){
+    err.textContent = (e && e.name==='NotAllowedError')
+      ? 'Annulé. Réessaie, ou utilise une application de codes.'
+      : ('Clé d\'accès indisponible : ' + (e&&e.message||e));
+    err.style.display='block';
+  }finally{ b.disabled=false; }
 }
 
 /* Le QR code est servi par le serveur a partir de la session : le secret
@@ -697,5 +768,15 @@ if(code) code.addEventListener('keydown', valider);
 codeInscription.addEventListener('keydown', valider);
 ['inv-nom','inv-mdp'].forEach(i=>$$(i).addEventListener('keydown', valider));
 majChamps();
+
+/* Au retour sur l'onglet (page restauree par « Precedent », onglet repris),
+   le navigateur peut garder l'icone vue en dernier sur ce nom d'hote --
+   celle de Mailpit ou d'une application. Reposer les balises lui fait
+   relire celle du panneau. */
+function reposerIcone(){
+  document.querySelectorAll('link[rel~="icon"]').forEach(l=>l.replaceWith(l.cloneNode()));
+}
+window.addEventListener('pageshow', reposerIcone);
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) reposerIcone(); });
 </script>
 </body></html>

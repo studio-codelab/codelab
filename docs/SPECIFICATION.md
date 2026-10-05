@@ -165,7 +165,12 @@ changer le mot de passe, qui prendrait la boîte mail prendrait le compte.
 ### 4.4 Le compte administrateur
 
 - Second facteur **obligatoire**. Sans facteur enregistré, le mot de passe juste mène à
-  l'enregistrement d'une application d'authentification, pas à une session.
+  l'enregistrement du second facteur, pas à une session. **Première connexion** : un bouton
+  « Activer Face ID / Touch ID » (dès que le panneau est servi en HTTPS sous un nom de domaine),
+  rien à recopier. Sinon, un lien ouvre l'application de codes de l'appareil avec tout déjà
+  rempli ; le QR code sert pour un autre appareil. Cette étape n'est ouverte que 10 minutes
+  après le mot de passe, une seule fois, et depuis le réseau local si l'administration y est
+  limitée.
 - Session de **12 heures** au plus.
 - **Alerte par mail** à chaque connexion depuis une adresse IP jamais vue.
 - Peut être **limité au réseau local** (*Paramètres > Serveur > Réglages avancés*).
