@@ -786,7 +786,7 @@
 
   /* --------------------------------- liens -------------------------------- */
   // Le retour au hub : le panneau, sur le meme hote, port 9001.
-  $("retour-codelab").setAttribute("href", location.protocol + "//" + location.hostname + ":9001/");
+  $("codelab-retour-hub").setAttribute("href", location.protocol + "//" + location.hostname + ":9001/");
 
   $("menu-btn").addEventListener("click", function () {
     if (appli.classList.contains("menu-ouvert")) fermerMenu(); else ouvrirMenu();

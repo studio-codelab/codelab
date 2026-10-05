@@ -11950,9 +11950,19 @@ def test_mailpit_a_l_interface_de_codelab():
         assert 'src="/_codelab/' in balise, balise
     assert "<style" not in index and ' style="' not in index
     assert re.search(r"\son[a-z]+=", index) is None, "gestionnaire en ligne"
-    # Rien en bas a gauche : le retour au hub est dans la barre du haut.
-    assert 'class="retour-codelab"' in index.split('<div class="corps">', 1)[0]
-    assert "codelab-retour-hub" not in index
+    # Le retour au hub est LE MEME ruban que sur les autres applications :
+    # meme id, meme place, memes valeurs que ruban_retour().
+    assert 'id="codelab-retour-hub" title="Revenir au hub CodeLab"' in index
+    assert 'target="_top"' in index.split('id="codelab-retour-hub"', 1)[0].rsplit("<a ", 1)[1]
+    css = _mailpit_ui("app.css")
+    regle = css.split("#codelab-retour-hub {", 1)[1].split("}", 1)[0]
+    ruban = app.ruban_retour().decode()
+    for propriete in ("position:fixed", "left:14px", "bottom:14px", "gap:7px", "padding:8px 13px",
+                      "color:#fff", "background:#141a21", "border-radius:999px",
+                      "box-shadow:0 2px 10px rgba(0,0,0,.28)"):
+        assert propriete in ruban, propriete
+        assert propriete.replace(":", ": ").replace(",", ", ").replace(", .", ", .") in regle \
+            or propriete.replace(":", ": ") in regle, propriete
 
 
 def test_le_contenu_d_un_mail_ne_touche_jamais_la_page():
@@ -12020,7 +12030,7 @@ def test_favicon_ico_est_le_logo_codelab_sur_tous_les_ports():
     try:
         client = app.flask_app.test_client()
         for port in (9001, 9002):
-            for chemin in ("/favicon.ico", "/icone-codelab.png"):
+            for chemin in ("/favicon.ico", "/icone-codelab.png", "/codelab-onglet.png"):
                 r = client.get(chemin, **_sur_port(port))
                 assert r.status_code == 200, (port, chemin)
                 assert r.headers["Content-Type"].startswith("image/png")
@@ -12050,8 +12060,10 @@ def test_favicon_ico_est_le_logo_codelab_sur_tous_les_ports():
     # L'onglet de Mailpit declare la MEME adresse que celle du panneau.
     index = _mailpit_ui("index.html")
     icones = re.findall(r'<link rel="(?:shortcut )?icon"[^>]*href="([^"]+)"', index)
-    assert icones and set(icones) == {"/icone-codelab.png?v=5"}
-    assert "/icone-codelab.png?v=5" in _page_panneau("dashboard.html")
+    # Un NOM de fichier neuf, pas seulement une version : un navigateur qui
+    # range ses icones sans le « ?v= » n'a aucune ancienne image a y lier.
+    assert icones and set(icones) == {"/codelab-onglet.png"}
+    assert "codelab-onglet\\.png" in conf
     dagster = open(os.path.join(racine, "dagster", "proxy", "nginx.conf"), encoding="utf-8").read()
     assert "location ~ ^/favicon[-a-z0-9_]*\\.svg$ {\n        alias /usr/share/nginx/codelab/mailpit/codelab.svg;" in dagster
     assert "alias /usr/share/nginx/codelab/mailpit/codelab.png;" in dagster
@@ -12718,6 +12730,11 @@ def test_le_diagnostic_lit_la_base_en_lecture_seule(monkeypatch):
 
 
 
+def test_l_onglet_du_panneau_s_appelle_codelab():
+    assert "<title>CodeLab</title>" in _page_panneau("dashboard.html")
+    assert "App Manager" not in _page_panneau("dashboard.html")
+
+
 def test_le_panneau_declare_toujours_sa_propre_icone():
     """Safari garde une icone par nom d'hote : celle d'une application ou de
     Mailpit (meme hote, autre port) ne doit pas reprendre l'onglet du
@@ -12725,7 +12742,7 @@ def test_le_panneau_declare_toujours_sa_propre_icone():
     for nom in ("dashboard.html", "login.html"):
         page = _page_panneau(nom)
         # Une adresse qu'aucun autre service du meme hote ne sert.
-        assert 'rel="icon" type="image/png" sizes="128x128" href="/icone-codelab.png?v=5"' in page, nom
+        assert 'rel="icon" type="image/png" sizes="128x128" href="/codelab-onglet.png"' in page, nom
         assert 'href="/apple-touch-icon.png?v=4"' in page, nom
         assert "/favicon.png?v=" not in page and "/favicon.ico?v=" not in page, nom
         # Au retour sur l'onglet, les balises sont reposees.

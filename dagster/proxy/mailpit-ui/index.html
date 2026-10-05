@@ -10,8 +10,8 @@
      Safari range les icones par nom d'hote, sans le port : une seule image
      a retenir pour tout l'hote, et c'est la notre. Le logo de Mailpit ne
      sert jamais d'icone d'onglet. -->
-<link rel="icon" type="image/png" sizes="128x128" href="/icone-codelab.png?v=5">
-<link rel="shortcut icon" href="/icone-codelab.png?v=5">
+<link rel="icon" type="image/png" sizes="128x128" href="/codelab-onglet.png">
+<link rel="shortcut icon" href="/codelab-onglet.png">
 <link rel="stylesheet" href="/_codelab/app.css?v=1">
 <script src="/_codelab/theme.js?v=1"></script>
 <script src="/_codelab/app.js?v=1" defer></script>
@@ -23,9 +23,6 @@
     <button class="icone-btn menu-btn" id="menu-btn" type="button" aria-label="Ouvrir le menu" aria-controls="menu" aria-expanded="false">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
     </button>
-    <a class="retour-codelab" id="retour-codelab" href="/" title="Revenir au hub CodeLab">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg><span>CodeLab</span>
-    </a>
     <a class="marque" href="/" id="marque">
       <svg viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="mp-degrade" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7c6cf6"/><stop offset="1" stop-color="#4f46e5"/></linearGradient></defs><rect width="64" height="64" rx="18" fill="url(#mp-degrade)"/><rect x="14" y="19" width="36" height="26" rx="5" fill="none" stroke="#fff" stroke-width="4" stroke-linejoin="round"/><path d="M16 22 32 34 48 22" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <span>Mailpit</span>
@@ -157,5 +154,11 @@
 </dialog>
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<!-- LE RUBAN DE RETOUR, LE MEME QUE SUR TOUTES LES APPLICATIONS : meme id,
+     meme place (en bas a gauche), meme dessin. Ailleurs, le proxy l'injecte
+     avec des styles en ligne ; ici la politique de securite les interdit,
+     les memes valeurs sont donc dans app.css. -->
+<a href="/" target="_top" id="codelab-retour-hub" title="Revenir au hub CodeLab"><span>&#8592;</span><span>CodeLab</span></a>
 </body>
 </html>

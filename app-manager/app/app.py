@@ -9946,6 +9946,7 @@ flask_app.add_url_rule("/" + MAILPIT_NOM, "ouvrir_mailpit_sans_barre",
 @flask_app.get("/favicon.ico")
 @flask_app.get("/favicon.png")
 @flask_app.get("/icone-codelab.png")
+@flask_app.get("/codelab-onglet.png")
 def favicon_panneau():
     r = Response(ICONE_CODELAB_PNG, mimetype="image/png")
     r.headers["Cache-Control"] = "no-cache"
