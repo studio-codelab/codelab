@@ -156,7 +156,7 @@ with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
     ICONE_ECRAN_ACCUEIL_PNG = _f.read()
 
 # Les seuls fichiers que /polices/<nom> accepte de servir.
-POLICES_SERVIES = {"manrope-latin.woff2"}
+POLICES_SERVIES = {"manrope-latin.woff2", "jakarta-latin.woff2"}
 
 
 flask_app = Flask(__name__)
@@ -732,6 +732,10 @@ def _refus(message, code):
     connexion."""
     if request.path.startswith("/api/"):
         return jsonify({"error": message}), code
+    # Une page du panneau demandee sans session : on y revient apres la
+    # connexion (login.html ne suit qu'un chemin local, voir SUITE).
+    if request.method == "GET" and request.path != "/":
+        return redirect("/login?suite=" + urllib.parse.quote(request.path, safe="/"))
     return redirect("/login")
 
 
@@ -2757,6 +2761,10 @@ MESSAGES_AFFICHES = 300
 _dernier_message = {}
 
 
+# en_attente : nouveau, rien de decide. a_reflechir : mis de cote pour y
+# revenir. accepte / refuse : traite.
+STATUTS_MESSAGE = ("en_attente", "a_reflechir", "accepte", "refuse")
+
 CHAMPS_MESSAGE = (
     ("id", "id", "txt"), ("ts", "ts", "int"), ("qui", "qui", "txt"),
     ("cible", "cible", "txt"), ("app", "app", "txt"), ("texte", "texte", "txt"),
@@ -2805,7 +2813,7 @@ def modifier_message(identifiant, retenu=None, lu=None, statut=None, archive=Non
                 else:
                     vise.pop("lu", None)
             if statut is not None:
-                if statut in ("en_attente", "accepte", "refuse"):
+                if statut in STATUTS_MESSAGE:
                     vise["statut"] = statut
             if archive is not None:
                 if archive:
@@ -8894,7 +8902,7 @@ def api_add():
         return jsonify({"error": f"« {titre} » ne donne aucune adresse utilisable. "
                                  f"Il faut au moins une lettre sans accent "
                                  f"ou un chiffre."}), 400
-    if name in ("api", "static", "health", "login", "logout"):
+    if name in ADRESSES_RESERVEES:
         return jsonify({"error": f"L'adresse « /{name}/ » est réservée."}), 400
     if name in apps:
         return jsonify({"error": f"L'adresse « /{name}/ » est déjà prise par "
@@ -9359,7 +9367,7 @@ def api_renommer(n):
             apps[n]["titre"] = titre
             save(apps)
         return jsonify({"ok": True, "nom": n, "titre": titre, "redemarree": False})
-    if nouveau in ("api", "static", "health", "login", "logout"):
+    if nouveau in ADRESSES_RESERVEES:
         return jsonify({"error": f"L'adresse « /{nouveau}/ » est réservée."}), 400
     if nouveau in apps:
         return jsonify({"error": f"L'adresse « /{nouveau}/ » est déjà prise par "
@@ -10027,7 +10035,43 @@ def login_page(invitation=False):
     # affiche alors le champ du code. Substitue au moment de servir, comme
     # __ROOT__ dans le tableau de bord.
     page = LOGIN_PAGE.replace("__TOTP__", "1" if totp_actif() else "0")
-    return Response(page, mimetype="text/html")
+    return Response(avec_style(page), mimetype="text/html")
+
+
+def avec_style(page):
+    """Pose le style choisi (cookie codelab-style) sur la page servie.
+
+    Pose cote serveur, l'attribut est la avant la premiere peinture : la
+    page ne passe pas par le style classique le temps que son script le lise.
+    Seule la valeur « design » est reconnue -- le cookie vient du client.
+    """
+    if request.cookies.get("codelab-style") == "design":
+        page = page.replace('<html lang="fr">', '<html lang="fr" data-style="design">', 1)
+    return page
+
+
+# LES PAGES DU PANNEAU ONT CHACUNE LEUR ADRESSE. Recharger les parametres
+# laisse sur les parametres, un lien vers la fiche d'une application s'ouvre
+# sur elle. C'est toujours la meme page (dashboard.html) : elle lit l'adresse
+# et ouvre la bonne rubrique. Ces noms ne peuvent plus servir de chemin a une
+# application (ADRESSES_RESERVEES).
+PAGES_DU_PANNEAU = ("apercu", "applications", "utilisateurs", "messages", "parametres")
+ADRESSES_RESERVEES = frozenset(("api", "static", "health", "login", "logout")
+                               + PAGES_DU_PANNEAU)
+
+
+@flask_app.get("/apercu")
+@flask_app.get("/applications")
+@flask_app.get("/applications/<nom>")
+@flask_app.get("/applications/<nom>/<onglet>")
+@flask_app.get("/utilisateurs")
+@flask_app.get("/messages")
+@flask_app.get("/messages/<vue>")
+@flask_app.get("/parametres")
+@flask_app.get("/parametres/<onglet>")
+@require_auth
+def page_du_panneau(**_):
+    return index()
 
 
 @flask_app.get("/")
@@ -10053,7 +10097,7 @@ def index():
             .replace("__ROOT__", json.dumps(ROOT))
             .replace("__ROLE__", json.dumps(role_courant() or ""))
             .replace("__UTILISATEUR__", json.dumps(utilisateur_courant())))
-    return Response(page, mimetype="text/html")
+    return Response(avec_style(page), mimetype="text/html")
 
 
 # PARCOURIR LES APPLICATIONS SANS QUITTER LE PANNEAU INSTALLE.
@@ -10304,17 +10348,23 @@ def api_messages_lus():
 
 @flask_app.put("/api/messages/<identifiant>")
 @require_admin
-def api_message_retenir(identifiant):
-    """Retient un message, ou le relache.
+def api_message_modifier(identifiant):
+    """Change l'etat d'un message : retenu, statut, archive.
 
-    RETENIR PLUTOT QU'ARCHIVER : un mot qu'on veut traiter reste en tete de
-    liste et survit au menage. C'est le seul etat qu'un message ait besoin
-    de porter -- tout le reste se lit dans son texte.
+    Seules les cles PRESENTES changent. La route ne lisait que « retenu » :
+    accepter, refuser ou archiver envoyaient leur etat, qui etait ignore --
+    et l'epingle tombait au passage, faute de cle.
     """
     d = request.get_json(force=True, silent=True) or {}
-    if not modifier_message(identifiant, retenu=bool(d.get("retenu"))):
+    statut = d.get("statut")
+    if statut is not None and statut not in STATUTS_MESSAGE:
+        return jsonify({"error": "Statut inconnu."}), 400
+    if not modifier_message(identifiant,
+                            retenu=bool(d["retenu"]) if "retenu" in d else None,
+                            statut=statut,
+                            archive=bool(d["archive"]) if "archive" in d else None):
         return jsonify({"error": "Message introuvable."}), 404
-    return jsonify({"ok": True, "retenu": bool(d.get("retenu"))})
+    return jsonify({"ok": True})
 
 
 @flask_app.put("/api/messages/<identifiant>/lu")
@@ -10334,6 +10384,198 @@ def api_message_supprimer(identifiant):
         return jsonify({"error": "Message introuvable."}), 404
     journaliser("message", qui=utilisateur_courant() or NOM_ADMIN,
                 action="supprime", ip=_adresse_client())
+    return jsonify({"ok": True})
+
+
+# ------------------------------- les taches -------------------------------
+#
+# Un message accepte devient une tache, rangee dans un projet : une
+# application declaree, ou « general » pour ce qui ne touche aucune d'elles.
+# Une tache a des sous-taches qu'on coche une a une. Reserve a
+# l'administrateur, comme les messages.
+TACHE_TITRE_MAX = 200
+SOUS_TACHES_MAX = 30
+TACHES_MAX = 2000
+PROJET_GENERAL = "general"
+
+
+def _titre_tache(brut):
+    return " ".join(str(brut or "").split())[:TACHE_TITRE_MAX]
+
+
+def _projet_valide(projet):
+    projet = str(projet or "").strip()
+    if projet == PROJET_GENERAL:
+        return projet
+    return projet if projet in load() else None
+
+
+def lire_taches():
+    """Les taches et leurs sous-taches, dans l'ordre de creation."""
+    try:
+        taches = stockage.lire(DB_FILE, "SELECT * FROM taches ORDER BY faite, cree, rowid")
+        sous = stockage.lire(DB_FILE, "SELECT * FROM sous_taches ORDER BY ordre, rowid")
+    except Exception:                                             # noqa: BLE001
+        return []
+    par_tache = {}
+    for st in sous:
+        par_tache.setdefault(st["tache"], []).append(
+            {"id": st["id"], "titre": st["titre"], "faite": bool(st["faite"])})
+    return [{"id": t["id"], "projet": t["projet"], "titre": t["titre"],
+             "message": t["message"], "cree": t["cree"], "faite": bool(t["faite"]),
+             "sous_taches": par_tache.get(t["id"], [])} for t in taches]
+
+
+def creer_tache(projet, titre, sous_taches=(), message=None):
+    """Cree la tache et ses sous-taches en une transaction. Rend son id."""
+    ident = secrets.token_hex(8)
+    with stockage.transaction(DB_FILE) as cx:
+        nombre = cx.execute("SELECT COUNT(*) FROM taches").fetchone()[0]
+        if nombre >= TACHES_MAX:
+            raise ValueError("Trop de tâches : termine ou supprime les anciennes.")
+        cx.execute("INSERT INTO taches (id, projet, titre, message, cree) VALUES (?, ?, ?, ?, ?)",
+                   (ident, projet, titre, message, int(time.time())))
+        for ordre, st in enumerate(sous_taches):
+            cx.execute("INSERT INTO sous_taches (id, tache, titre, ordre) VALUES (?, ?, ?, ?)",
+                       (secrets.token_hex(8), ident, st, ordre))
+    return ident
+
+
+def _sous_taches_propres(liste):
+    propres = [_titre_tache(x) for x in (liste or []) if _titre_tache(x)]
+    return propres[:SOUS_TACHES_MAX]
+
+
+@flask_app.post("/api/messages/<identifiant>/accepter")
+@require_admin
+def api_message_accepter(identifiant):
+    """Accepte un message et, si un titre est donne, en fait une tache."""
+    d = request.get_json(force=True, silent=True) or {}
+    if not any(m.get("id") == identifiant for m in lire_messages(limite=100000)):
+        return jsonify({"error": "Message introuvable."}), 404
+    tache = None
+    titre = _titre_tache(d.get("titre"))
+    if titre:
+        projet = _projet_valide(d.get("projet"))
+        if not projet:
+            return jsonify({"error": "Projet inconnu."}), 400
+        try:
+            tache = creer_tache(projet, titre, _sous_taches_propres(d.get("sous_taches")),
+                                message=identifiant)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+    modifier_message(identifiant, statut="accepte", lu=True)
+    return jsonify({"ok": True, "tache": tache})
+
+
+@flask_app.get("/api/taches")
+@require_admin
+def api_taches():
+    return jsonify({"taches": lire_taches()})
+
+
+@flask_app.post("/api/taches")
+@require_admin
+def api_tache_creer():
+    d = request.get_json(force=True, silent=True) or {}
+    titre = _titre_tache(d.get("titre"))
+    projet = _projet_valide(d.get("projet"))
+    if not titre:
+        return jsonify({"error": "Le titre est obligatoire."}), 400
+    if not projet:
+        return jsonify({"error": "Projet inconnu."}), 400
+    try:
+        ident = creer_tache(projet, titre, _sous_taches_propres(d.get("sous_taches")))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"ok": True, "id": ident})
+
+
+@flask_app.put("/api/taches/<ident>")
+@require_admin
+def api_tache_modifier(ident):
+    d = request.get_json(force=True, silent=True) or {}
+    champs, valeurs = [], []
+    if "titre" in d:
+        titre = _titre_tache(d.get("titre"))
+        if not titre:
+            return jsonify({"error": "Le titre est obligatoire."}), 400
+        champs.append("titre = ?"); valeurs.append(titre)
+    if "faite" in d:
+        champs.append("faite = ?"); valeurs.append(1 if d.get("faite") else 0)
+    if "projet" in d:
+        projet = _projet_valide(d.get("projet"))
+        if not projet:
+            return jsonify({"error": "Projet inconnu."}), 400
+        champs.append("projet = ?"); valeurs.append(projet)
+    if not champs:
+        return jsonify({"error": "Rien à modifier."}), 400
+    with stockage.transaction(DB_FILE) as cx:
+        n = cx.execute(f"UPDATE taches SET {', '.join(champs)} WHERE id = ?",
+                       (*valeurs, ident)).rowcount
+    if not n:
+        return jsonify({"error": "Tâche introuvable."}), 404
+    return jsonify({"ok": True})
+
+
+@flask_app.delete("/api/taches/<ident>")
+@require_admin
+def api_tache_supprimer(ident):
+    with stockage.transaction(DB_FILE) as cx:
+        n = cx.execute("DELETE FROM taches WHERE id = ?", (ident,)).rowcount
+    if not n:
+        return jsonify({"error": "Tâche introuvable."}), 404
+    return jsonify({"ok": True})
+
+
+@flask_app.post("/api/taches/<ident>/sous-taches")
+@require_admin
+def api_sous_tache_creer(ident):
+    titre = _titre_tache((request.get_json(force=True, silent=True) or {}).get("titre"))
+    if not titre:
+        return jsonify({"error": "Le titre est obligatoire."}), 400
+    with stockage.transaction(DB_FILE) as cx:
+        if not cx.execute("SELECT 1 FROM taches WHERE id = ?", (ident,)).fetchone():
+            return jsonify({"error": "Tâche introuvable."}), 404
+        nombre = cx.execute("SELECT COUNT(*) FROM sous_taches WHERE tache = ?",
+                            (ident,)).fetchone()[0]
+        if nombre >= SOUS_TACHES_MAX:
+            return jsonify({"error": f"{SOUS_TACHES_MAX} sous-tâches au plus."}), 400
+        sid = secrets.token_hex(8)
+        cx.execute("INSERT INTO sous_taches (id, tache, titre, ordre) VALUES (?, ?, ?, ?)",
+                   (sid, ident, titre, nombre))
+    return jsonify({"ok": True, "id": sid})
+
+
+@flask_app.put("/api/sous-taches/<sid>")
+@require_admin
+def api_sous_tache_modifier(sid):
+    d = request.get_json(force=True, silent=True) or {}
+    champs, valeurs = [], []
+    if "titre" in d:
+        titre = _titre_tache(d.get("titre"))
+        if not titre:
+            return jsonify({"error": "Le titre est obligatoire."}), 400
+        champs.append("titre = ?"); valeurs.append(titre)
+    if "faite" in d:
+        champs.append("faite = ?"); valeurs.append(1 if d.get("faite") else 0)
+    if not champs:
+        return jsonify({"error": "Rien à modifier."}), 400
+    with stockage.transaction(DB_FILE) as cx:
+        n = cx.execute(f"UPDATE sous_taches SET {', '.join(champs)} WHERE id = ?",
+                       (*valeurs, sid)).rowcount
+    if not n:
+        return jsonify({"error": "Sous-tâche introuvable."}), 404
+    return jsonify({"ok": True})
+
+
+@flask_app.delete("/api/sous-taches/<sid>")
+@require_admin
+def api_sous_tache_supprimer(sid):
+    with stockage.transaction(DB_FILE) as cx:
+        n = cx.execute("DELETE FROM sous_taches WHERE id = ?", (sid,)).rowcount
+    if not n:
+        return jsonify({"error": "Sous-tâche introuvable."}), 404
     return jsonify({"ok": True})
 
 

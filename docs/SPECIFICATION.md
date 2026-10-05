@@ -126,6 +126,39 @@ sans partir — et c'est là que tu retrouves le lien d'une invitation à transm
 
 **Il n'y a pas d'inscription libre.** Aucun formulaire public ne crée de compte.
 
+### 3.1 Les pages du panneau
+
+Chaque rubrique a son adresse ; recharger la page y ramène, « Précédent » y revient.
+
+| Adresse | Rubrique | Qui |
+|---|---|---|
+| `/` | Hub | tous |
+| `/apercu` | Vue d'ensemble | administrateur |
+| `/applications`, `/applications/<nom>[/<onglet>]` | Applications, fiche d'une application | administrateur |
+| `/utilisateurs` | Comptes, invitations, connexions | administrateur |
+| `/messages`, `/messages/taches` | Boîte de réception, tâches | administrateur |
+| `/parametres/<onglet>` | Paramètres (compte, sécurité, message…) | tous (onglets selon le rôle) |
+
+Sans session, ces adresses mènent à la connexion, qui y renvoie ensuite (chemin local
+seulement). Ces noms ne peuvent pas servir d'adresse à une application.
+
+### 3.2 Messages et tâches
+
+Un message laissé à l'administrateur est **nouveau**, **à réfléchir** (mis de côté),
+**accepté** ou **refusé**, et peut être épinglé ou archivé. Accepter un message peut en faire
+une **tâche**, rangée dans un projet (une application, ou « Général »), avec ses
+**sous-tâches** à cocher. Tables `taches` et `sous_taches` de `codelab.db` ; réservé à
+l'administrateur.
+
+### 3.3 Deux styles
+
+*Paramètres › Compte › Apparence* propose deux styles : **Classique** (menu latéral) et
+**Design** (menu en pilule, barre du bas sur téléphone, hub en grandes icônes, réglages façon
+Mac, roue crantée à côté du compte). Les fonctions sont les mêmes ; seuls la mise en page et
+les couleurs changent (`html[data-style="design"]`, jetons dans `theme.css`). Le choix est
+retenu par navigateur (cookie `codelab-style`), et posé par le serveur dès le premier octet
+de la page.
+
 ---
 
 ## 4. Authentification

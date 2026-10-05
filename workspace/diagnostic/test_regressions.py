@@ -2217,8 +2217,10 @@ def test_le_hub_est_l_accueil_des_deux_roles(deux_espaces):
     c = deux_espaces
     c.post("/login", json={"password": "secret-de-test"})
     page = c.get("/").get_data(as_text=True)
-    # En debut de ligne : l'appel du demarrage, pas un onclick de menu.
-    assert "\nshowSection('hub');\n" in page
+    # En debut de ligne : l'appel du demarrage, pas un onclick de menu. Il
+    # lit l'adresse, et « / » est le hub.
+    assert "\nrouterDepuisAdresse();\n" in page
+    assert "hub:'/'" in page
     assert "mode-toggle" not in page and "setMode" not in page
     # Le pied du menu lateral annoncait une evidence : il n'est plus la.
     assert "Serveur en service" not in page
@@ -5194,9 +5196,12 @@ def test_les_deux_pages_lisent_le_meme_theme():
     # Les jetons structurants y sont, et dans les trois etats de theme.
     for cle in ("--accent:", "--bg:", "--ok:", "--err:", "--warn:", "--mono:", "--r:"):
         assert cle in theme, f"{cle} manque au theme"
-    assert theme.count("--accent:") == 3, (
-        "les trois etats de theme doivent etre tenus : clair, sombre du "
-        "systeme, sombre choisi explicitement")
+    # Pour chacun des deux styles (classique, puis « Design »).
+    classique, design = theme.split("LE STYLE « DESIGN »", 1)
+    for partie in (classique, design):
+        assert partie.count("--accent:") == 3, (
+            "les trois etats de theme doivent etre tenus : clair, sombre du "
+            "systeme, sombre choisi explicitement")
     assert '[data-theme="dark"]' in theme and "prefers-color-scheme" in theme
 
     for nom in ("dashboard.html", "login.html"):
@@ -5247,7 +5252,7 @@ def test_la_police_est_livree_avec_l_image():
     # On lit le BLOC, pas le fichier : un commentaire qui parle de swap
     # satisfaisait la verification alors que la declaration avait disparu.
     # Trouve en mutant le fichier -- la mutation survivait.
-    debut = theme.index("@font-face")
+    debut = theme.rindex("@font-face", 0, theme.index('font-family:"Manrope"'))
     bloc = theme[debut:theme.index("}", debut)]
     assert 'src:url("/polices/manrope-latin.woff2")' in bloc, (
         "la police n'est pas servie par le panneau lui-meme")
@@ -9187,7 +9192,8 @@ def test_toutes_les_coches_du_panneau_choisissent_une_ligne():
     cases = re.findall(r'<label([^>]*)>\s*\n?\s*<input type="checkbox"', page)
     # Seule exception : l'interrupteur (Face ID / Touch ID), un reglage
     # marche/arret dessine comme tel.
-    nues = [c for c in cases if "choix-ligne" not in c and "interrupteur" not in c]
+    nues = [c for c in cases if "choix-ligne" not in c and "interrupteur" not in c
+            and "tache-case" not in c]
     assert not nues, f"cases a cocher hors d'une ligne a choisir : {nues}"
     # Et le style existe, dans les deux formes : une ligne de liste se teinte,
     # un reglage isole ne prend que la coche et l'accent sur son libelle.
@@ -10545,8 +10551,8 @@ def _plaques_du_theme():
     """
     feuille = (_racine_app_manager() / "theme.css").read_text(encoding="utf-8")
     valeurs = re.findall(r"--plaque-logo:\s*(#[0-9a-fA-F]{3,6})\s*;", feuille)
-    assert len(valeurs) == 3, (
-        f"theme.css definit --plaque-logo {len(valeurs)} fois, trois attendues")
+    assert len(valeurs) == 6, (
+        f"theme.css definit --plaque-logo {len(valeurs)} fois, trois par style attendues")
     return valeurs
 
 
@@ -12843,3 +12849,153 @@ def test_sur_telephone_le_hub_est_une_grille_d_icones():
 def test_la_page_de_connexion_ne_montre_pas_credentials_sur_telephone():
     page = _page_panneau("login.html")
     assert "@media (max-width:760px){.pied{display:none}}" in page
+
+
+# ---------- adresses propres ----------
+
+def test_chaque_page_du_panneau_a_son_adresse(deux_espaces):
+    """Recharger /parametres/securite laisse sur les parametres : le serveur
+    sert le panneau a ces adresses, et renvoie a la connexion sans session,
+    avec le chemin a reprendre ensuite."""
+    c = deux_espaces
+    anonyme = app.flask_app.test_client()
+    r = anonyme.get("/parametres/securite")
+    assert r.status_code == 302
+    assert r.headers["Location"].endswith("/login?suite=/parametres/securite")
+    c.post("/login", json={"password": "secret-de-test"})
+    for chemin in ("/apercu", "/applications", "/applications/site", "/applications/site/journal",
+                   "/utilisateurs", "/messages", "/messages/taches", "/parametres",
+                   "/parametres/securite"):
+        r = c.get(chemin)
+        assert r.status_code == 200, chemin
+        assert "routerDepuisAdresse" in r.get_data(as_text=True), chemin
+    # Ces noms ne peuvent plus servir d'adresse a une application.
+    for nom in app.PAGES_DU_PANNEAU:
+        assert nom in app.ADRESSES_RESERVEES
+    page = _page_panneau("login.html")
+    assert "location.href=SUITE" in page
+    regle = page.split("const SUITE=(()=>{", 1)[1].split("})();", 1)[0]
+    assert "(?![\\/\\\\])" in regle and "'..'" in regle
+
+
+def test_la_page_suit_l_adresse_et_l_historique():
+    page = _page_panneau("dashboard.html")
+    assert "window.addEventListener('popstate'" in page
+    assert "history.pushState(null, '', a)" in page
+    assert "'/parametres/'+paramOngletActif" in page
+    assert "'/messages/taches'" in page
+
+
+# ---------- messages : etats et taches ----------
+
+def test_accepter_refuser_et_mettre_de_cote_un_message(boite):
+    """La route ne lisait que « retenu » : accepter, refuser et archiver
+    etaient ignores (et l'epingle tombait)."""
+    c, _ = boite
+    ident = _message(c, "hub", "Une idee", retenu=True)
+    assert c.put(f"/api/messages/{ident}", json={"statut": "a_reflechir"}).status_code == 200
+    m = next(x for x in app.lire_messages() if x["id"] == ident)
+    assert m["statut"] == "a_reflechir" and m.get("retenu")
+    assert c.put(f"/api/messages/{ident}", json={"statut": "refuse"}).status_code == 200
+    assert c.put(f"/api/messages/{ident}", json={"archive": True}).status_code == 200
+    m = next(x for x in app.lire_messages() if x["id"] == ident)
+    assert m["statut"] == "refuse" and m.get("archive") and m.get("retenu")
+    assert c.put(f"/api/messages/{ident}", json={"statut": "n-importe"}).status_code == 400
+
+
+def test_un_message_accepte_devient_une_tache(boite):
+    c, _ = boite
+    ident = _message(c, "hub", "La page ne charge plus")
+    r = c.post(f"/api/messages/{ident}/accepter",
+               json={"projet": "general", "titre": "  Réparer   la page ",
+                     "sous_taches": ["Lire les journaux", "", "Corriger"]})
+    assert r.status_code == 200, r.data
+    tache = r.get_json()["tache"]
+    m = next(x for x in app.lire_messages() if x["id"] == ident)
+    assert m["statut"] == "accepte"
+    (t,) = c.get("/api/taches").get_json()["taches"]
+    assert t["id"] == tache and t["titre"] == "Réparer la page" and t["message"] == ident
+    assert [st["titre"] for st in t["sous_taches"]] == ["Lire les journaux", "Corriger"]
+    # Cocher, ajouter, retirer.
+    st = t["sous_taches"][0]["id"]
+    assert c.put(f"/api/sous-taches/{st}", json={"faite": True}).status_code == 200
+    assert c.post(f"/api/taches/{tache}/sous-taches", json={"titre": "Prévenir"}).status_code == 200
+    assert c.put(f"/api/taches/{tache}", json={"faite": True}).status_code == 200
+    (t,) = c.get("/api/taches").get_json()["taches"]
+    assert t["faite"] and t["sous_taches"][0]["faite"] and len(t["sous_taches"]) == 3
+    # Un projet qui n'existe pas est refuse ; supprimer la tache emporte ses sous-taches.
+    assert c.post("/api/taches", json={"projet": "inconnu", "titre": "x"}).status_code == 400
+    assert c.delete(f"/api/taches/{tache}").status_code == 200
+    assert stockage_lignes("sous_taches") == 0
+
+
+def stockage_lignes(table):
+    return app.stockage.lire(app.DB_FILE, f"SELECT COUNT(*) AS n FROM {table}")[0]["n"]
+
+
+def test_accepter_sans_tache_et_droits(boite, deux_espaces):
+    c, _ = boite
+    ident = _message(c, "hub", "Merci !")
+    r = c.post(f"/api/messages/{ident}/accepter", json={})
+    assert r.status_code == 200 and r.get_json()["tache"] is None
+    assert c.get("/api/taches").get_json()["taches"] == []
+    # Un compte utilisateur n'y a pas acces.
+    u = app.flask_app.test_client()
+    _connecte(u, "marie", "mot-de-passe-long")
+    assert u.get("/api/taches").status_code == 403
+    assert u.post(f"/api/messages/{ident}/accepter", json={}).status_code == 403
+
+
+def test_la_page_des_messages_a_ses_deux_vues():
+    page = _page_panneau("dashboard.html")
+    for trace in ('id="msg-vue-boite"', 'id="msg-vue-taches"', 'id="ov-tache"',
+                  "msgEtatChoisir('reflechir')", "data-agir=\"msg-accepter\"",
+                  "async function msgChangerStatut(", "function msgBadge("):
+        assert trace in page, trace
+    # Plus deux fonctions du meme nom : l'action ecrasait l'affichage.
+    assert page.count("function msgStatut(") == 0
+
+
+# ---------- style « Design » ----------
+
+def test_le_style_design_se_choisit_et_se_pose_cote_serveur(deux_espaces):
+    """Le choix vit dans un cookie : le serveur pose l'attribut avant la
+    premiere peinture. Seule la valeur « design » est reconnue."""
+    c = deux_espaces
+    assert 'data-style="design"' not in c.get("/login").get_data(as_text=True).split("<head>")[0]
+    c.set_cookie("codelab-style", "design")
+    assert '<html lang="fr" data-style="design">' in c.get("/login").get_data(as_text=True)
+    c.post("/login", json={"password": "secret-de-test"})
+    assert '<html lang="fr" data-style="design">' in c.get("/parametres").get_data(as_text=True)
+    c.set_cookie("codelab-style", '"><script>')
+    assert "<script>\">" not in c.get("/").get_data(as_text=True)[:200]
+    page = _page_panneau("dashboard.html")
+    assert "function setStyle(" in page and 'id="style-toggle"' in page
+    assert "codelab-style=" in page
+
+
+def test_le_style_design_ne_change_que_l_habit():
+    """Memes fonctions : le style Design est une surcouche CSS sous
+    html[data-style="design"], jetons dans theme.css, mise en page dans les
+    pages."""
+    racine = _racine_depot()
+    theme = open(os.path.join(racine, "app-manager", "app", "theme.css"), encoding="utf-8").read()
+    assert ':root[data-style="design"]{' in theme
+    assert ':root[data-style="design"][data-theme="dark"]{' in theme
+    assert '"/polices/jakarta-latin.woff2"' in theme
+    assert "jakarta-latin.woff2" in app.POLICES_SERVIES
+    police = os.path.join(racine, "app-manager", "app", "polices", "jakarta-latin.woff2")
+    assert open(police, "rb").read(4) == b"wOF2"
+    assert os.path.exists(os.path.join(racine, "app-manager", "app", "polices", "LICENCE-jakarta.txt"))
+    page = _page_panneau("dashboard.html")
+    # La roue crantee a cote du compte, le menu en pilule (barre du bas sur
+    # un telephone), les reglages en fenetre.
+    assert 'class="reglages-btn"' in page
+    assert ':root[data-style="design"] .reglages-btn{display:grid' in page
+    assert ':root[data-style="design"] #sec-parametres{display:grid' in page
+    assert ':root[data-style="design"] .sidebar{top:auto;bottom:0' in page
+    # Un compte utilisateur garde ses entrees : le hub et ses messages.
+    assert 'class="side-item utilisateur-seul"' in page
+    assert "document.body.classList.add('compte-utilisateur')" in page
+    login = _page_panneau("login.html")
+    assert ':root[data-style="design"] #pk-zone{display:none !important}' in login
