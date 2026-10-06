@@ -294,17 +294,19 @@ developpement, qui execute des commandes sans qu'on relise chacune — et il
 est monte par Dagster et app-manager. Un credential permanent y serait
 utilisable par un agent travaillant sans personne devant.
 
-## L'extension Database Client JDBC
+## Les extensions Database Client
 
-L'extension **Database Client JDBC** (`cweijan.dbclient-jdbc`) fait partie du poste : elle permet de
-parcourir les bases, lire un schéma et lancer une requête sans quitter VS Code. VS Code installe avec elle
-**Database Client**, dont elle dépend, qui se connecte nativement à Postgres et à Redis. La partie JDBC ne
-sert qu'aux autres bases, et demande alors un Java que l'image n'embarque pas.
+Deux extensions font partie du poste : elles permettent de parcourir les bases, lire un schéma et lancer
+une requête sans quitter VS Code.
 
-- **Installée d'office** sur le serveur VS Code du conteneur. Ce serveur n'existe qu'après la première
-  connexion Remote-SSH ; le conteneur attend qu'il apparaisse, puis installe l'extension dans la minute. Elle
-  est gardée dans `~/.vscode-server`, monté depuis l'hôte, et survit donc aux mises à jour d'image.
-- **Recommandée** dans `/workspace/.vscode/extensions.json`, pour que VS Code la propose même si
+- **Database Client** (`cweijan.vscode-database-client2`) se connecte nativement à Postgres et à Redis.
+- **Database Client JDBC** (`cweijan.dbclient-jdbc`) ne sert qu'aux autres bases, et demande alors un Java
+  que l'image n'embarque pas.
+
+- **Installées d'office** sur le serveur VS Code du conteneur. Ce serveur n'existe qu'après la première
+  connexion Remote-SSH ; le conteneur attend qu'il apparaisse, puis installe les extensions dans la minute.
+  Elles sont gardées dans `~/.vscode-server`, monté depuis l'hôte, et survivent donc aux mises à jour d'image.
+- **Recommandées** dans `/workspace/.vscode/extensions.json`, pour que VS Code les propose même si
   l'installation automatique n'a pas pu se faire (pas de réseau). Un fichier existant n'est que complété
   (l'ancienne recommandation `ms-ossdata.vscode-pgsql` en est retirée), et un fichier avec des commentaires
   est laissé tel quel. L'ancienne extension PostgreSQL déjà installée n'est pas désinstallée : elle se

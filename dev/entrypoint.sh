@@ -277,12 +277,13 @@ fi
 
 # ------------------ les extensions VS Code du poste ------------------
 #
-# Database Client JDBC (cweijan) fait partie du poste : parcourir les bases,
-# lancer une requete, lire un schema, sans quitter VS Code. VS Code installe
-# avec elle Database Client, dont elle depend, et qui parle nativement a
-# Postgres et Redis ; la partie JDBC ne sert qu'aux autres bases. D'autres
-# s'ajoutent ici, separees par des espaces (CODELAB_VSCODE_EXTENSIONS dans le
-# compose ; vide pour n'en installer aucune).
+# Deux extensions font partie du poste : parcourir les bases, lancer une
+# requete, lire un schema, sans quitter VS Code.
+#   - Database Client (cweijan.vscode-database-client2), qui parle
+#     nativement a Postgres et Redis ;
+#   - Database Client JDBC (cweijan.dbclient-jdbc), pour les autres bases.
+# D'autres s'ajoutent ici, separees par des espaces (CODELAB_VSCODE_EXTENSIONS
+# dans le compose ; vide pour n'en installer aucune).
 #
 # DEUX MECANISMES, parce qu'aucun ne suffit seul :
 #
@@ -295,7 +296,7 @@ fi
 #   2. la RECOMMANDATION dans /workspace/.vscode/extensions.json, pour
 #      qu'un poste qui ouvre le dossier la propose meme si l'installation
 #      automatique n'a pas pu se faire (pas de reseau, serveur neuf).
-VSCODE_EXTENSIONS="${CODELAB_VSCODE_EXTENSIONS-cweijan.dbclient-jdbc}"
+VSCODE_EXTENSIONS="${CODELAB_VSCODE_EXTENSIONS-cweijan.vscode-database-client2 cweijan.dbclient-jdbc}"
 # Recommandees par une version precedente et remplacees depuis : retirees de
 # extensions.json. Rien n'est desinstalle -- une extension deja installee se
 # retire d'un clic, et c'est a son utilisateur de le decider.

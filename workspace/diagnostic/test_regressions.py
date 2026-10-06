@@ -11563,7 +11563,7 @@ def _bloc_extensions_vscode(tmp_path):
 def test_l_extension_postgresql_est_recommandee_sans_ecraser_le_reste(tmp_path):
     import subprocess
     source, bloc = _bloc_extensions_vscode(tmp_path)
-    assert "cweijan.dbclient-jdbc" in bloc
+    assert "cweijan.vscode-database-client2 cweijan.dbclient-jdbc" in bloc
     ws = tmp_path / "ws"
     (ws / ".vscode").mkdir(parents=True)
     fichier = ws / ".vscode" / "extensions.json"
@@ -11575,7 +11575,8 @@ def test_l_extension_postgresql_est_recommandee_sans_ecraser_le_reste(tmp_path):
     for _ in range(2):   # idempotent : pas de doublon au redemarrage
         subprocess.run(["bash", "-c", script], check=True, timeout=30)
     contenu = json.loads(fichier.read_text())
-    assert contenu == {"recommendations": ["ms-python.python", "cweijan.dbclient-jdbc"],
+    assert contenu == {"recommendations": ["ms-python.python", "cweijan.vscode-database-client2",
+                                           "cweijan.dbclient-jdbc"],
                        "autre": 1}
     # Un fichier JSONC (avec commentaires) est laisse tel quel.
     fichier.write_text('// a moi\n{"recommendations": []}')
@@ -11591,7 +11592,8 @@ def test_l_extension_postgresql_s_installe_une_fois_sous_le_compte_vscode():
     assert 'ls -d "$VSCODE_SERVER_DIR/extensions/$ext_min-"*' in source
     assert "-mmin -60" in source
     for chemin in _composes():
-        assert 'CODELAB_VSCODE_EXTENSIONS: "cweijan.dbclient-jdbc"' in open(
+        assert ('CODELAB_VSCODE_EXTENSIONS: '
+                '"cweijan.vscode-database-client2 cweijan.dbclient-jdbc"') in open(
             chemin, encoding="utf-8").read(), chemin
 
 
