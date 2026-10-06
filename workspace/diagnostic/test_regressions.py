@@ -9998,6 +9998,59 @@ def test_le_gitconfig_pose_par_le_shell_ne_porte_ni_identite_ni_secret():
         "l'utilisateur seraient perdus")
 
 
+def _bloc_gitconfig(tmp_path):
+    """La section git de l'entrypoint, jouee dans un faux /home et /workspace."""
+    source = _entrypoint_dev()
+    debut = source.index('GITCONFIG="$WORKSPACE_DIR/.codelab/gitconfig"')
+    fin = source.index("# ------------------------------ cles SSH")
+    maison, ws = tmp_path / "home", tmp_path / "ws"
+    maison.mkdir(exist_ok=True)
+    ws.mkdir(exist_ok=True)
+    return maison, ws, (f'set -e\nSSH_USER=$(id -un)\nCODELAB_GROUP=$(id -gn)\n'
+                        f'WORKSPACE_DIR="{ws}"\nGITCONFIG_LIEN="{maison}/.gitconfig"\n'
+                        + source[debut:fin])
+
+
+def test_la_config_git_survit_a_une_mise_a_jour_d_image(tmp_path):
+    """« git config --global » ecrivait dans /home, recree a chaque mise a
+    jour : user.name et user.email disparaissaient a chaque compose pull.
+    Le fichier vit desormais dans /workspace, ~/.gitconfig n'est qu'un lien."""
+    import subprocess
+    maison, ws, script = _bloc_gitconfig(tmp_path)
+    subprocess.run(["bash", "-c", script], check=True, timeout=30)
+    lien, vrai = maison / ".gitconfig", ws / ".codelab" / "gitconfig"
+    assert lien.is_symlink() and lien.resolve() == vrai.resolve()
+    assert "defaultBranch = main" in vrai.read_text()
+    # git suit le lien en ecriture : le reglage atterrit dans /workspace.
+    env = dict(os.environ, HOME=str(maison), XDG_CONFIG_HOME=str(maison / ".config"))
+    subprocess.run(["git", "config", "--global", "user.name", "Quelqu'un"],
+                   check=True, env=env, timeout=30)
+    assert lien.is_symlink()
+    assert "Quelqu'un" in vrai.read_text()
+    # Mise a jour d'image : /home repart de zero, le reglage est toujours la.
+    lien.unlink()
+    subprocess.run(["bash", "-c", script], check=True, timeout=30)
+    sortie = subprocess.run(["git", "config", "--global", "user.name"], env=env,
+                            capture_output=True, text=True, check=True, timeout=30)
+    assert sortie.stdout.strip() == "Quelqu'un"
+
+
+def test_l_ancien_gitconfig_est_repris_jamais_efface(tmp_path):
+    import subprocess
+    maison, ws, script = _bloc_gitconfig(tmp_path)
+    lien, vrai = maison / ".gitconfig", ws / ".codelab" / "gitconfig"
+    # Premier demarrage de la nouvelle version : l'ancien fichier est repris.
+    lien.write_text("[user]\n\tname = Ancien\n")
+    subprocess.run(["bash", "-c", script], check=True, timeout=30)
+    assert lien.is_symlink() and "Ancien" in vrai.read_text()
+    # Un fichier ordinaire alors que /workspace en a deja un : mis de cote.
+    lien.unlink()
+    lien.write_text("[user]\n\tname = Autre\n")
+    subprocess.run(["bash", "-c", script], check=True, timeout=30)
+    assert lien.is_symlink() and "Ancien" in vrai.read_text()
+    assert "Autre" in (maison / ".gitconfig.avant-codelab").read_text()
+
+
 def test_l_entrypoint_du_shell_ne_depose_aucun_jeton_d_acces():
     """Aucun secret d'authentification ecrit dans le workspace.
 

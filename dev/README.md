@@ -251,7 +251,14 @@ Angular, `homepage` dans le `package.json` pour Create React App.
 
 ## Git et GitHub
 
-Un `~/.gitconfig` d'amorce est ecrit au premier demarrage, puis plus jamais
+La configuration git vit dans `/workspace/.codelab/gitconfig`, et
+`~/.gitconfig` n'est qu'un lien vers elle. `/home` est recree a chaque mise a
+jour de l'image : un `git config --global` y etait perdu a chaque fois. Rien ne
+change a l'usage, `git config --global` ecrit a travers le lien. Un ancien
+`~/.gitconfig` est repris au premier demarrage (ou mis de cote dans
+`~/.gitconfig.avant-codelab` si `/workspace` en a deja un), jamais efface.
+
+Le fichier d'amorce est ecrit au premier demarrage, puis plus jamais
 touche : `init.defaultBranch = main`, `pull.rebase = false`, et
 `safe.directory = *`.
 
@@ -262,13 +269,17 @@ en root. Un depot dont le `.git` appartient a root fait refuser git avec
 pas un accident : le reglage est donc juste. Il ne le serait pas sur une
 machine partagee, ou il revient a faire confiance aux depots des autres.
 
-**Ce fichier ne porte ni identité ni secret**, et c'est délibéré.
+**Le fichier d'amorce ne porte ni identité ni secret**, et c'est délibéré.
+Ajoutez-y votre nom et votre adresse, mais **jamais de secret** : il est dans
+`/workspace`, lisible par l'agent de développement, Dagster et app-manager.
+Pas de jeton, pas de `credential.helper store`.
 
 ### Se nommer
 
 Aucun `user.name` ni `user.email` n'est pose : une valeur inventee signerait
 vos commits d'un faux nom. Git refuse de commiter tant que vous ne vous etes
-pas nomme, avec un message qui dit quoi taper. Une fois pour toutes :
+pas nomme, avec un message qui dit quoi taper. Une fois pour toutes -- le
+reglage survit aux mises a jour :
 
 ```bash
 git config --global user.name "Votre Nom"

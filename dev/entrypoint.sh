@@ -61,7 +61,9 @@ ENV_FILE="${CODELAB_ENV_FILE:-/var/lib/codelab/config/credentials.env}"
 PROFILE=/etc/profile.d/codelab-pg.sh
 UMASK_PROFILE=/etc/profile.d/codelab-umask.sh
 CODEX_PROFILE=/etc/profile.d/codelab-codex.sh
-GITCONFIG=/home/vscode/.gitconfig
+# Le .gitconfig vit dans /workspace (voir la section git plus bas) ;
+# ~/.gitconfig n'est qu'un lien vers lui.
+GITCONFIG_LIEN=/home/vscode/.gitconfig
 BASHRC=/home/vscode/.bashrc
 
 # --------------------- permissions partagees sur /workspace ---------------------
@@ -381,15 +383,31 @@ fi
 
 # ------------------------------- git -------------------------------
 #
-# Un .gitconfig minimal, ecrit UNE SEULE FOIS : comme le config.toml de
-# Codex, il n'est jamais reecrit ensuite, pour que les reglages faits a la
-# main depuis une session survivent aux mises a jour d'image.
+# LE .gitconfig VIT DANS /workspace/.codelab/gitconfig, ~/.gitconfig n'est
+# qu'un lien vers lui. /home est recree a partir de l'image a chaque mise a
+# jour : un « git config --global » (user.name, user.email, alias...) y
+# disparaissait a chaque « compose pull », sans que rien ne le signale.
+# /workspace est le seul dossier qui survit -- c'est la que Codex range deja
+# sa configuration, pour la meme raison. git suit le lien en ecriture comme
+# en lecture : « git config --global » continue de marcher tel quel.
 #
-# CE FICHIER NE PORTE AUCUNE IDENTITE ET AUCUN SECRET.
+# Un .gitconfig ordinaire trouve dans /home (conteneur pas encore recree
+# depuis l'ancienne version) est repris s'il n'y a rien encore dans
+# /workspace, et mis de cote sinon -- jamais efface.
 #
-#   - Pas de user.name ni de user.email : personne ici ne sait qui vous etes,
-#     et une valeur inventee signerait vos commits d'un faux nom. Sans eux,
-#     git refuse de commiter avec un message qui dit exactement quoi taper.
+# Le fichier d'amorce est ecrit UNE SEULE FOIS : comme le config.toml de
+# Codex, il n'est jamais reecrit ensuite.
+#
+# CE FICHIER NE PORTE AUCUN SECRET, ET N'EN DOIT JAMAIS PORTER : il est dans
+# /workspace, lisible par l'agent de developpement, par Dagster et par
+# app-manager. L'identite (user.name, user.email) y a sa place -- elle est
+# ecrite dans chaque commit de toute facon --, un jeton ou un
+# « credential.helper store » non.
+#
+#   - Pas de user.name ni de user.email a l'amorce : personne ici ne sait qui
+#     vous etes, et une valeur inventee signerait vos commits d'un faux nom.
+#     Sans eux, git refuse de commiter avec un message qui dit exactement
+#     quoi taper.
 #   - Pas de credential helper, pas de jeton. Pour pousser vers GitHub,
 #     apportez votre agent SSH avec vous :
 #
@@ -409,10 +427,22 @@ fi
 # conteneur est dedie et ne porte qu'un seul utilisateur humain ; il ne le
 # serait pas sur une machine partagee, ou il revient a faire confiance aux
 # depots des autres.
+GITCONFIG="$WORKSPACE_DIR/.codelab/gitconfig"
+mkdir -p "$(dirname "$GITCONFIG")"
+if [ -f "$GITCONFIG_LIEN" ] && [ ! -L "$GITCONFIG_LIEN" ]; then
+    if [ ! -e "$GITCONFIG" ]; then
+        mv "$GITCONFIG_LIEN" "$GITCONFIG" \
+            && echo "[codelab-dev] ~/.gitconfig repris dans $GITCONFIG."
+    else
+        mv "$GITCONFIG_LIEN" "$GITCONFIG_LIEN.avant-codelab" \
+            && echo "[codelab-dev] ~/.gitconfig mis de cote ($GITCONFIG_LIEN.avant-codelab) :" \
+                    "$GITCONFIG existe deja."
+    fi
+fi
 if [ ! -f "$GITCONFIG" ]; then
     cat > "$GITCONFIG" <<'GITCFG'
-# Ecrit une seule fois par codelab-dev -- modifiable librement.
-# Ni identite ni secret ici : voir dev/entrypoint.sh.
+# Ecrit une seule fois par codelab-dev -- modifiable librement, mais jamais
+# de secret ici : ce fichier est dans /workspace. Voir dev/entrypoint.sh.
 [init]
 	defaultBranch = main
 [pull]
@@ -421,8 +451,11 @@ if [ ! -f "$GITCONFIG" ]; then
 	directory = *
 GITCFG
 fi
-chown vscode:vscode "$GITCONFIG" 2>/dev/null || true
+chown "$SSH_USER" "$GITCONFIG" 2>/dev/null || true
+chgrp "$CODELAB_GROUP" "$GITCONFIG" 2>/dev/null || true
 chmod 644 "$GITCONFIG" 2>/dev/null || true
+ln -sfn "$GITCONFIG" "$GITCONFIG_LIEN" 2>/dev/null || true
+chown -h "$SSH_USER" "$GITCONFIG_LIEN" 2>/dev/null || true
 
 
 # ------------------------------ cles SSH ------------------------------
