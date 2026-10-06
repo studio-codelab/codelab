@@ -1282,6 +1282,39 @@ table.tbl-journal{min-width:560px}
  border-radius:10px;position:relative;z-index:2}
 .tache-ligne.sous.glisse .poignee{cursor:grabbing}
 .sous-taches{margin-left:2px}
+/* La tache dans la liste : la coche, et le titre qui ouvre sa fiche. */
+.tache-titre{flex:1;min-width:0;display:flex;align-items:center;gap:8px;border:0;background:none;
+ font:inherit;font-weight:600;color:var(--txt);text-align:left;padding:4px 6px;margin:-4px 0;
+ border-radius:8px;cursor:pointer}
+.tache-titre:hover,.tache-titre:focus-visible{background:var(--surface2)}
+.tache-titre>span:first-child{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.tache.faite .tache-titre>span:first-child{text-decoration:line-through;color:var(--dim2)}
+.tache-compte{flex:none;font-size:11.5px;font-weight:650;color:var(--dim);
+ font-variant-numeric:tabular-nums;padding:2px 8px;border-radius:999px;background:var(--surface2)}
+.tache-chevron{flex:none;width:14px;height:14px;fill:none;stroke:var(--dim2);stroke-width:2}
+.tache-case.seule{flex:none}
+/* La fiche d'une tache. */
+.tf-tete{display:flex;align-items:center;gap:10px}
+.tf-tete .tache-case{flex:none}
+.tf-titre{flex:1;min-width:0;font-size:16px;font-weight:650;border:1px solid transparent;
+ background:transparent;border-radius:8px;padding:6px 8px;margin:-6px 0}
+.tf-titre:hover{border-color:var(--line)}
+.tf-titre:focus{outline:none;border-color:var(--accent);background:var(--surface)}
+.tf-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12.5px;color:var(--dim)}
+.tf-meta .dl{width:auto;min-width:180px;max-width:100%}
+.tf-section{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
+ color:var(--dim2);margin:20px 0 8px;display:flex;align-items:center;gap:8px}
+.tf-section .tache-compte{text-transform:none;letter-spacing:0}
+#tf-sous .sous-taches{margin:0}
+.tf-message{border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;background:var(--surface2)}
+.tf-message .msg-tete{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.tf-message .msg-texte{white-space:pre-wrap;overflow-wrap:anywhere;margin-top:8px}
+.tf-vide{font-size:12.5px;color:var(--dim2)}
+@media (max-width:760px){
+ #ov-tache-fiche{padding:0;align-items:stretch}
+ #ov-tache-fiche .modal{max-width:none;max-height:none;height:100%;border-radius:0;border:0}
+ #ov-tache-fiche .mb{flex:1}
+}
 
 /* ---------------- reperes communs aux deux styles ---------------- */
 .salut{display:none}
@@ -2649,6 +2682,36 @@ table.tbl-journal{min-width:560px}
   </div>
 </div></div>
 
+<!-- LA FICHE D'UNE TACHE. Un clic sur son titre, dans la liste : le titre
+     et le projet se corrigent sur place, les sous-taches se cochent,
+     s'ajoutent et se reordonnent comme dans la liste, et le message dont la
+     tache est nee se relit en entier. Son adresse (/messages/taches/<id>)
+     se partage et se recharge. -->
+<div class="ov" id="ov-tache-fiche"><div class="modal" style="max-width:620px"
+     role="dialog" aria-modal="true" aria-labelledby="tf-titre">
+  <div class="mh tf-tete">
+    <label class="tache-case seule" title="Terminée"><input type="checkbox" id="tf-faite"
+      data-changer="tache-faite" aria-label="Tâche terminée"></label>
+    <input id="tf-titre" class="tf-titre" maxlength="200" autocomplete="off" aria-label="Titre de la tâche">
+    <button class="msg-acte" type="button" title="Fermer" onclick="tacheFermer()" id="tf-fermer"></button>
+  </div>
+  <div class="mb">
+    <div class="tf-meta">
+      <select id="tf-projet" aria-label="Projet"></select>
+      <span id="tf-cree"></span>
+    </div>
+    <div class="tf-section">Sous-tâches <span class="tache-compte" id="tf-compte"></span></div>
+    <div id="tf-sous"></div>
+    <div class="tf-section">Message d'origine</div>
+    <div id="tf-message"></div>
+  </div>
+  <div class="mf">
+    <button class="btn btn-quiet" type="button" onclick="tacheFicheSupprimer()">Supprimer la tâche</button>
+    <div class="spacer"></div>
+    <button class="btn btn-default" type="button" onclick="tacheFermer()">Fermer</button>
+  </div>
+</div></div>
+
 <div class="toasts" id="toasts"></div>
 
 <!-- ==================== POP-UP : FICHE D'UN COMPTE ==================== -->
@@ -2900,6 +2963,7 @@ const ACTIONS = {
   'msg-accepter':   n => tacheFormulaire(n),
   'tache-projet':   n => { tacheProjet=n; peindreTaches(); },
   'tache-supprimer':     n => tacheSupprimer(n),
+  'tache-ouvrir':        n => tacheOuvrir(n),
   'sous-tache-supprimer': n => sousTacheSupprimer(n),
   'msg-archive':    (n,d) => msgArchiver(n, d.valeur==='1'),
   'msg-supprimer':  n => msgSupprimer(n),
@@ -3079,7 +3143,8 @@ function adresseCourante(){
     return '/applications/'+encodeURIComponent(ficheNom)
       + (ficheOngletActif && ficheOngletActif!=='general' ? '/'+ficheOngletActif : '');
   if(sectionCourante==='parametres') return '/parametres/'+paramOngletActif;
-  if(sectionCourante==='messages' && msgVueActive==='taches') return '/messages/taches';
+  if(sectionCourante==='messages' && msgVueActive==='taches')
+    return '/messages/taches' + (tacheFicheId ? '/'+encodeURIComponent(tacheFicheId) : '');
   return ADRESSES[sectionCourante]||'/';
 }
 function majAdresse(){
@@ -3099,6 +3164,10 @@ async function routerDepuisAdresse(){
     }else if(m[0]==='messages' && estAdmin){
       msgVueActive = m[1]==='taches' ? 'taches' : 'boite';
       showSection('messages');
+      /* /messages/taches/<id> : la fiche de cette tache, par-dessus la
+         liste. Revenir en arriere la referme. */
+      if(msgVueActive==='taches' && m[2]){ if(m[2]!==tacheFicheId) await tacheOuvrir(m[2]); }
+      else if(tacheFicheId){ hide('ov-tache-fiche'); tacheFicheId=null; }
     }else if(m[0]==='applications' && m[1] && estAdmin){
       if(!apps.length) await refresh();
       ficheOngletActif = m[2] || 'general';
@@ -3580,6 +3649,7 @@ async function chargerTaches(){
   if(!apps.length) await refresh();
   try{ taches=(await (await fetch('/api/taches')).json()).taches||[]; }catch(e){ return; }
   peindreTaches();
+  if(tacheFicheId && $('ov-tache-fiche').classList.contains('show')) tacheFichePeindre();
 }
 
 function peindreTaches(){
@@ -3606,17 +3676,32 @@ function peindreTaches(){
   }).join('');
 }
 
+/* Une tache dans la liste : la coche, et le titre qui ouvre sa fiche. Les
+   sous-taches et le message vivent dans la fiche -- la liste reste lisible
+   d'un coup d'oeil, avec l'avancement des sous-taches en pastille. */
 function tacheBloc(t){
   const id=esc(t.id);
+  const faites=t.sous_taches.filter(st=>st.faite).length;
   const source=t.message ? msgTous.find(m=>m.id===t.message) : null;
   return `<div class="tache${t.faite?' faite':''}">
     <div class="tache-ligne">
-      <label class="tache-case"><input type="checkbox" ${t.faite?'checked':''} data-changer="tache-faite" data-cible="${id}">
-        <span>${esc(t.titre)}</span></label>
+      <label class="tache-case seule" title="Terminée"><input type="checkbox" ${t.faite?'checked':''}
+        data-changer="tache-faite" data-cible="${id}" aria-label="Terminée : ${esc(t.titre)}"></label>
+      <button class="tache-titre" type="button" data-agir="tache-ouvrir" data-cible="${id}">
+        <span>${esc(t.titre)}</span>
+        ${t.sous_taches.length ? `<span class="tache-compte" title="Sous-tâches faites">${faites}/${t.sous_taches.length}</span>` : ''}
+        <svg class="tache-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+      </button>
       <button class="msg-acte danger" title="Supprimer la tâche" data-agir="tache-supprimer" data-cible="${id}">${SVG_POUBELLE}</button>
     </div>
     ${source ? `<div class="tache-source">Depuis le message de ${esc(source.qui||'?')}</div>` : ''}
-    <div class="sous-taches" data-tache="${id}">
+  </div>`;
+}
+
+/* Les sous-taches d'une tache : cocher, retirer, ajouter, glisser. */
+function sousTachesHtml(t){
+  const id=esc(t.id);
+  return `<div class="sous-taches" data-tache="${id}">
       ${t.sous_taches.map(st=>`<div class="tache-ligne sous" data-id="${esc(st.id)}">
         <button class="poignee" type="button" title="Glisser pour changer la priorité"
           aria-label="Déplacer « ${esc(st.titre)} » (flèches haut et bas)">
@@ -3628,7 +3713,94 @@ function tacheBloc(t){
         <button class="msg-acte" title="Retirer" data-agir="sous-tache-supprimer" data-cible="${esc(st.id)}">${SVG_NON}</button>
       </div>`).join('')}
       <input class="sous-tache-ajout" placeholder="Ajouter une sous-tâche" maxlength="200" data-tache="${id}">
-    </div></div>`;
+    </div>`;
+}
+
+/* ---- la fiche d'une tache ---- */
+let tacheFicheId=null, tacheFicheMessage=null, tacheFicheSource=false;
+
+async function tacheOuvrir(id){
+  let d;
+  try{
+    const r=await fetch('/api/taches/'+encodeURIComponent(id));
+    if(!r.ok){ notifier(await echec(r, 'Tâche introuvable.'), 'err'); return; }
+    d=await r.json();
+  }catch(e){ return; }
+  tacheFicheId=id; tacheFicheMessage=d.message||null; tacheFicheSource=!!d.tache.message;
+  const i=taches.findIndex(x=>x.id===id);
+  if(i>=0) taches[i]=d.tache; else taches.push(d.tache);
+  $('tf-fermer').innerHTML=SVG_NON;
+  tacheFichePeindre();
+  $('ov-tache-fiche').classList.add('show');
+  majAdresse();
+}
+
+function tacheFermer(){
+  if(!tacheFicheId) return;
+  hide('ov-tache-fiche');
+  tacheFicheId=null;
+  majAdresse();
+}
+
+function tacheFichePeindre(){
+  const t=taches.find(x=>x.id===tacheFicheId);
+  if(!t){ tacheFermer(); return; }
+  const titre=$('tf-titre');
+  if(document.activeElement!==titre) titre.value=t.titre;
+  $('tf-faite').checked=t.faite;
+  $('tf-faite').dataset.cible=t.id;
+  const sel=$('tf-projet');
+  const options=[['general','Général'], ...apps.filter(a=>!a.externe)
+    .map(a=>[a.name, a.titre||a.name]).sort((a,b)=>a[1].localeCompare(b[1],'fr'))];
+  if(!options.some(o=>o[0]===t.projet)) options.push([t.projet, libelleProjet(t.projet)]);
+  sel.innerHTML=options.map(([v,l])=>`<option value="${esc(v)}">${esc(l)}</option>`).join('');
+  sel.value=t.projet;
+  $('tf-cree').textContent = t.cree ? 'Créée '+ilYA(t.cree) : '';
+  $('tf-cree').title = t.cree ? quandPrecis(t.cree) : '';
+  const faites=t.sous_taches.filter(st=>st.faite).length;
+  $('tf-compte').textContent = t.sous_taches.length ? faites+'/'+t.sous_taches.length : '';
+  $('tf-compte').style.display = t.sous_taches.length ? '' : 'none';
+  /* Le champ d'ajout garde la main apres un ajout : on enchaine les
+     sous-taches au clavier sans recliquer. */
+  const ajoutActif = document.activeElement && document.activeElement.closest
+    && document.activeElement.closest('#tf-sous .sous-tache-ajout');
+  $('tf-sous').innerHTML=sousTachesHtml(t);
+  if(ajoutActif) $('tf-sous').querySelector('.sous-tache-ajout').focus();
+  const m=tacheFicheMessage;
+  $('tf-message').innerHTML = m
+    ? `<div class="tf-message">
+        <div class="msg-tete"><b>${esc(m.qui||'?')}</b>${msgBadge(m)}<span class="hint">${MSG_SUJET(m)}</span>
+          <span class="quand" title="${esc(quandPrecis(m.ts))}">${esc(ilYA(m.ts))}</span></div>
+        <div class="msg-texte">${esc(m.texte||'')}</div></div>`
+    : `<div class="tf-vide">${tacheFicheSource
+        ? 'Le message d\'origine a été supprimé.'
+        : 'Tâche créée à la main : pas de message d\'origine.'}</div>`;
+}
+
+async function tacheFicheModifier(corps){
+  if(!tacheFicheId) return;
+  await tacheAppel('/api/taches/'+encodeURIComponent(tacheFicheId), 'PUT', corps);
+  chargerTaches();   // et, en cas de refus, remet la fiche a l'etat du serveur
+}
+$('tf-titre').addEventListener('keydown', e=>{
+  if(e.key==='Enter'){ e.preventDefault(); e.target.blur(); }
+  if(e.key==='Escape'){ e.stopPropagation(); const t=taches.find(x=>x.id===tacheFicheId);
+    if(t) e.target.value=t.titre; e.target.blur(); }
+});
+$('tf-titre').addEventListener('blur', e=>{
+  const t=taches.find(x=>x.id===tacheFicheId);
+  const titre=e.target.value.trim();
+  if(!t || titre===t.titre) return;
+  if(!titre){ e.target.value=t.titre; return; }
+  tacheFicheModifier({titre});
+});
+$('tf-projet').addEventListener('change', e=>tacheFicheModifier({projet:e.target.value}));
+$('ov-tache-fiche').addEventListener('click', e=>{ if(e.target===e.currentTarget) tacheFermer(); });
+document.addEventListener('keydown', e=>{
+  if(e.key==='Escape' && $('ov-tache-fiche').classList.contains('show')) tacheFermer();
+});
+async function tacheFicheSupprimer(){
+  if(tacheFicheId && await tacheSupprimer(tacheFicheId)) tacheFermer();
 }
 
 async function tacheAppel(url, methode, corps){
@@ -3641,8 +3813,10 @@ async function tacheFaite(id, faite){ await tacheAppel('/api/taches/'+encodeURIC
 async function sousTacheFaite(id, faite){ await tacheAppel('/api/sous-taches/'+encodeURIComponent(id), 'PUT', {faite}); chargerTaches(); }
 async function sousTacheSupprimer(id){ await tacheAppel('/api/sous-taches/'+encodeURIComponent(id), 'DELETE'); chargerTaches(); }
 async function tacheSupprimer(id){
-  if(!await demander('Supprimer cette tâche ?', 'Ses sous-tâches partent avec elle. Le message, lui, reste.', 'Supprimer', true)) return;
-  await tacheAppel('/api/taches/'+encodeURIComponent(id), 'DELETE'); chargerTaches();
+  if(!await demander('Supprimer cette tâche ?', 'Ses sous-tâches partent avec elle. Le message, lui, reste.', 'Supprimer', true)) return false;
+  const ok=await tacheAppel('/api/taches/'+encodeURIComponent(id), 'DELETE');
+  chargerTaches();
+  return ok;
 }
 document.addEventListener('keydown', async e=>{
   const champ=e.target;

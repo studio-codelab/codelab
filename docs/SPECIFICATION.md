@@ -156,6 +156,12 @@ une **tâche**, rangée dans un projet (une application, ou « Général »), av
 **sous-tâches** à cocher. Tables `taches` et `sous_taches` de `codelab.db` ; réservé à
 l'administrateur.
 
+Un clic sur une tâche ouvre sa **fiche** (`/messages/taches/<id>`, qui se partage et se
+recharge) : titre et projet modifiables sur place, sous-tâches à cocher, ajouter et
+réordonner, et le **message d'origine** en entier, relu en base par `GET /api/taches/<id>`
+même quand il est sorti de la boîte de réception. Un message supprimé laisse la tâche
+intacte, sans message.
+
 ### 3.3 Deux styles
 
 *Paramètres › Compte › Apparence* propose les styles, numérotés : **Style 1** (menu latéral) et

@@ -12961,6 +12961,54 @@ def test_la_page_des_messages_a_ses_deux_vues():
     assert page.count("function msgStatut(") == 0
 
 
+def test_la_fiche_d_une_tache_rend_son_message_d_origine(boite, deux_espaces):
+    """Un clic sur une tache ouvre sa fiche : le titre, les sous-taches, et
+    le message dont elle est nee, relu en base -- pas dans la boite de
+    reception, qui s'arrete aux plus recents."""
+    c, _ = boite
+    ident = _message(c, "application", "Le bouton\nne répond plus", app_nom="facturier",
+                     quand=int(time.time()) - 86400 * 400)
+    tache = c.post(f"/api/messages/{ident}/accepter",
+                   json={"projet": "general", "titre": "Bouton",
+                         "sous_taches": ["Reproduire", "Corriger"]}).get_json()["tache"]
+    # Des centaines de messages plus recents ne l'en font pas sortir.
+    for i in range(205):
+        _message(c, "hub", f"bruit {i}")
+    d = c.get(f"/api/taches/{tache}").get_json()
+    assert d["tache"]["titre"] == "Bouton"
+    assert [st["titre"] for st in d["tache"]["sous_taches"]] == ["Reproduire", "Corriger"]
+    assert d["message"]["id"] == ident and d["message"]["texte"] == "Le bouton\nne répond plus"
+    assert d["message"]["qui"] == "marie" and d["message"]["app"] == "facturier"
+    # Le message supprime : la tache reste, sans message.
+    assert c.delete(f"/api/messages/{ident}").status_code == 200
+    d = c.get(f"/api/taches/{tache}").get_json()
+    assert d["tache"]["message"] == ident and d["message"] is None
+    # Une tache creee a la main n'a pas de message ; une inconnue est un 404.
+    seule = c.post("/api/taches", json={"projet": "general", "titre": "À la main"}).get_json()["id"]
+    assert c.get(f"/api/taches/{seule}").get_json()["message"] is None
+    assert c.get("/api/taches/inconnue").status_code == 404
+    # Son adresse se partage et se recharge.
+    assert c.get(f"/messages/taches/{seule}").status_code == 200
+    # Reserve a l'administrateur, comme le reste des taches.
+    u = app.flask_app.test_client()
+    _connecte(u, "marie", "mot-de-passe-long")
+    assert u.get(f"/api/taches/{seule}").status_code == 403
+
+
+def test_la_fiche_d_une_tache_s_ouvre_depuis_la_liste():
+    page = _page_panneau("dashboard.html")
+    for trace in ('id="ov-tache-fiche"', 'data-agir="tache-ouvrir"', "'tache-ouvrir':",
+                  "async function tacheOuvrir(", "function tacheFermer(",
+                  "function sousTachesHtml(", 'id="tf-titre"', 'id="tf-projet"',
+                  'id="tf-message"', "'/messages/taches' + (tacheFicheId"):
+        assert trace in page, trace
+    # Le message se lit en texte, jamais en HTML : il vient d'un utilisateur.
+    debut = page.index("function tacheFichePeindre(")
+    corps = page[debut:page.index("async function tacheFicheModifier(", debut)]
+    assert "${esc(m.texte||'')}" in corps and "${m.texte" not in corps
+    assert ".tf-message .msg-texte{white-space:pre-wrap" in page
+
+
 # ---------- style « Design » ----------
 
 def test_le_style_design_se_choisit_et_se_pose_cote_serveur(deux_espaces):

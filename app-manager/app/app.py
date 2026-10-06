@@ -10275,6 +10275,7 @@ def signaler_adresses_en_conflit():
 @flask_app.get("/utilisateurs")
 @flask_app.get("/messages")
 @flask_app.get("/messages/<vue>")
+@flask_app.get("/messages/<vue>/<ident>")
 @flask_app.get("/parametres")
 @flask_app.get("/parametres/<onglet>")
 @require_auth
@@ -10684,6 +10685,27 @@ def api_message_accepter(identifiant):
 @require_admin
 def api_taches():
     return jsonify({"taches": lire_taches()})
+
+
+@flask_app.get("/api/taches/<ident>")
+@require_admin
+def api_tache_detail(ident):
+    """Une tache, ses sous-taches, et le message dont elle est nee -- lu en
+    base, et non dans la liste de la boite de reception, qui s'arrete aux
+    plus recents : une tache ancienne doit garder son message."""
+    tache = next((t for t in lire_taches() if t["id"] == ident), None)
+    if tache is None:
+        return jsonify({"error": "Tâche introuvable."}), 404
+    message = None
+    if tache["message"]:
+        try:
+            lignes = stockage.lire(DB_FILE, "SELECT * FROM messages WHERE id = ?",
+                                   (tache["message"],))
+        except Exception:                                         # noqa: BLE001
+            lignes = []
+        if lignes:
+            message = stockage.depuis_ligne(lignes[0], CHAMPS_MESSAGE, lignes[0]["options"])
+    return jsonify({"tache": tache, "message": message})
 
 
 @flask_app.post("/api/taches")
