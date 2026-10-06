@@ -96,6 +96,9 @@ RUN chmod +x /opt/codelab/dev/entrypoint.sh
 # L'entrypoint le recopie en AGENTS.md global au demarrage, et
 # "codelab agents" l'installe dans un projet.
 COPY dev/AGENTS.md /usr/local/share/codelab/AGENTS.md
+# « Se connecter avec CodeLab » : les modules que « codelab new » depose
+# dans chaque projet (Python et Node, sans dependance).
+COPY dev/modeles/ /usr/local/share/codelab/modeles/
 
 # Outil de projet : "codelab db" (base + schema "dagster" + search_path, pour
 # les projets ajoutes apres l'installation de la stack) et "codelab agents".

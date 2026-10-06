@@ -123,6 +123,35 @@ sur `http://<serveur>:9001/<nom-du-projet>/`. Cinq regles :
    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor"))
    ```
 
+## Comptes et connexion : se connecter avec CodeLab
+
+Ne recode jamais un systeme de connexion de zero. Le projet contient
+`codelab_auth.py` (Python) et `codelab-auth.js` (Node), poses par
+`codelab new` -- leur en-tete donne un exemple complet. La regle, dans cet
+ordre, a chaque requete :
+
+1. une session de l'application existe : on continue ;
+2. sinon, la personne est connectee a CodeLab : `connexion_silencieuse`
+   (Python) ou `connexionSilencieuse` (Node) verifie le jeton signe
+   `X-CodeLab-Auth`, et la fonction `trouver_ou_creer` du projet retrouve
+   (colonne `codelab_sub`) ou cree le compte local -- sans formulaire ;
+3. sinon : le formulaire classique de l'application (connexion, creation de
+   compte), pour les visiteurs qui n'ont pas CodeLab.
+
+Interdits :
+- croire `X-CodeLab-User` ou `X-CodeLab-Role` seuls -- seul le jeton signe,
+  verifie par le module, compte ;
+- relier un compte local existant par l'adresse mail si
+  `email_verified` n'est pas vrai ;
+- deconnecter sans `deconnecter(session)` : sinon CodeLab reconnecte
+  aussitot.
+
+Les liens : `lien_connexion` (« Se connecter avec CodeLab », retour dans
+l'application apres la connexion) et `lien_deconnexion` (se deconnecter de
+CodeLab aussi, avec confirmation). Une application **privee** n'a rien a
+faire : le panneau impose la connexion CodeLab avant meme la premiere
+requete.
+
 ## Le style de CodeLab
 
 Une application servie par le panneau est vue **dans** CodeLab : elle gagne a

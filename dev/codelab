@@ -12,6 +12,10 @@
 set -eu
 
 MANUEL="${CODELAB_AGENTS_SOURCE:-/usr/local/share/codelab/AGENTS.md}"
+# Les modules « se connecter avec CodeLab » (Python et Node), deposes dans
+# chaque nouveau projet : l'identite est prete des la premiere seconde,
+# comme la base de donnees.
+MODELES="${CODELAB_MODELES:-/usr/local/share/codelab/modeles}"
 DEBUT='<!-- codelab:debut -- bloc gere par "codelab agents", ne pas editer a la main -->'
 FIN='<!-- codelab:fin -->'
 
@@ -140,6 +144,11 @@ IGNORE
 README
 
   cmd_agents "$DOSSIER" >/dev/null
+  for modele in codelab_auth.py codelab-auth.js; do
+    if [ -f "$MODELES/$modele" ]; then
+      cp "$MODELES/$modele" "$DOSSIER/$modele"
+    fi
+  done
   # Un "[ ... ] && cmd" ici sortirait du script sous "set -e" quand le test
   # echoue : la forme longue evite ce piege classique.
   if [ "$avec_db" -eq 1 ]; then
@@ -148,6 +157,7 @@ README
 
   echo "[codelab] projet cree : $DOSSIER"
   echo "[codelab]   AGENTS.md pose -- complete la section \"Projet $projet\""
+  echo "[codelab]   connexion CodeLab : codelab_auth.py / codelab-auth.js (voir leur en-tete)"
   [ "$avec_db" -eq 1 ] || echo "[codelab]   base de donnees : codelab db $projet"
   echo "[codelab]   projet web    : cd $DOSSIER && npm create vite@latest ."
   echo "[codelab]   puis declare-le dans le panneau (port 9001)."

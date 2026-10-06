@@ -6853,6 +6853,23 @@ def test_le_panneau_a_la_part_la_plus_large():
         assert part["codelab-dagster-proxy"] == min(part.values()), chemin
 
 
+def test_le_shell_tient_une_session_vscode():
+    """A 896 Mo et 512 processus, l'agent IA et la vue Git de VS Code
+    redemarraient en boucle : le noyau tuait l'hote d'extensions (serveur
+    VS Code, Codex, serveurs de langage, JVM de Database Client JDBC, git).
+    pids_limit compte les fils d'execution, et une JVM en ouvre des dizaines.
+    """
+    def en_mo(v):
+        v = str(v)
+        return int(v[:-1]) * 1024 if v.endswith("g") else int(v.rstrip("m"))
+    for chemin in _composes():
+        dev = _services_du_compose(chemin)["codelab-dev"]
+        memoire = dev.get("mem_limit", dev.get("deploy_memory"))
+        pids = dev.get("pids_limit", dev.get("deploy_pids"))
+        assert en_mo(memoire) >= 1280, (chemin, memoire)
+        assert int(pids) >= 1024, (chemin, pids)
+
+
 # ---------- 29. il n'y avait aucune sauvegarde ----------
 #
 # Rien ne copiait utilisateurs.json, apps.json, le journal des acces ni la
@@ -11829,7 +11846,8 @@ def test_le_manifeste_d_une_application_reste_dans_son_projet(client, monkeypatc
 
     # Application privee : rien sans session, pas meme son nom.
     r = client.get("/prive/__codelab/manifest.webmanifest", follow_redirects=False)
-    assert r.status_code == 302 and r.headers["Location"].endswith("/login")
+    # Vers la connexion, avec la suite qui ramenera dans l'application.
+    assert r.status_code == 302 and "/login?suite=/ouvrir.app/prive/" in r.headers["Location"]
 
 
 def test_le_panneau_installe_ouvre_les_applications_sans_en_sortir(client, monkeypatch, tmp_path):
@@ -13038,3 +13056,248 @@ def test_les_sous_taches_se_priorisent(boite):
     page = _page_panneau("dashboard.html")
     assert 'class="poignee"' in page and "/ordre', 'PUT'" in page
     assert ".poignee{" in page and "touch-action:none" in page
+
+
+# ------------------ se connecter avec CodeLab, puis revenir ------------------
+#
+# La connexion silencieuse : une personne connectee a CodeLab entre dans ses
+# applications sans formulaire ; apres une connexion, elle revient la ou
+# elle etait ; la deconnexion depuis une application demande confirmation.
+
+def _module_auth():
+    import importlib.util
+    chemin = os.path.join(_racine_depot(), "dev", "modeles", "codelab_auth.py")
+    spec = importlib.util.spec_from_file_location("codelab_auth_test", chemin)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _cle_sso(monkeypatch):
+    cle = app._generer_cle_sso()
+    monkeypatch.setattr(app, "_sso_private_key", cle)
+    monkeypatch.setattr(app, "_sso_public_key", app._public_sso_b64(cle))
+    return cle
+
+
+def _jeton(nom_app, utilisateur="alice", email="", verifie=False, monkeypatch=None):
+    app.flask_app.secret_key = "test-sso-secret"
+    comptes = {utilisateur: {"email": email, "email_verifie": verifie}} if email else {}
+    if monkeypatch is not None:
+        monkeypatch.setattr(app, "lire_utilisateurs", lambda: comptes)
+    with app.flask_app.test_request_context("/"):
+        app.session["authed"] = True
+        app.session["role"] = app.ROLE_UTILISATEUR
+        app.session["utilisateur"] = utilisateur
+        return app.jeton_sso(nom_app)
+
+
+def test_le_jeton_dit_si_l_adresse_est_confirmee(monkeypatch):
+    _cle_sso(monkeypatch)
+    import base64, json as _json
+
+    def charge(j):
+        p = j.split(".")[1]
+        return _json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4)))
+    oui = charge(_jeton("site", email="alice@example.com", verifie=True, monkeypatch=monkeypatch))
+    non = charge(_jeton("site", email="alice@example.com", verifie=False, monkeypatch=monkeypatch))
+    assert oui["email"] == "alice@example.com" and oui["email_verified"] is True
+    assert non["email_verified"] is False
+    assert "email_verified" not in charge(_jeton("site", monkeypatch=monkeypatch))
+
+
+@pytest.mark.parametrize("sans_cryptography", [False, True])
+def test_le_module_python_verifie_le_jeton(monkeypatch, sans_cryptography):
+    """Avec cryptography, et sans : l'implementation de reference incluse
+    doit accepter exactement ce que le panneau signe, et rien d'autre."""
+    _cle_sso(monkeypatch)
+    m = _module_auth()
+    if sans_cryptography:
+        monkeypatch.setattr(m, "_verifier", m._ed25519_verifier)
+    monkeypatch.setenv("CODELAB_SSO_PUBLIC_KEY", app._sso_public_key)
+    monkeypatch.setenv("CODELAB_SSO_ISSUER", app.SSO_ISSUER)
+    monkeypatch.setenv("CODELAB_SSO_AUDIENCE", "site")
+    jeton = _jeton("site", email="a@x.fr", verifie=True, monkeypatch=monkeypatch)
+    u = m.utilisateur({"X-CodeLab-Auth": jeton})
+    assert u == {"sub": "alice", "nom": "alice", "role": app.ROLE_UTILISATEUR,
+                 "email": "a@x.fr", "email_verified": True}
+    # En-tete en minuscules (WSGI, Starlette...) : meme resultat.
+    assert m.utilisateur({"x-codelab-auth": jeton}) == u
+    # Un octet de la charge change : signature invalide.
+    h, p, s = jeton.split(".")
+    altere = h + "." + p[:-2] + ("A" if p[-2] != "A" else "B") + p[-1] + "." + s
+    assert m.utilisateur({"X-CodeLab-Auth": altere}) is None
+    # Jeton d'une AUTRE application : refuse.
+    assert m.utilisateur({"X-CodeLab-Auth": _jeton("autre", monkeypatch=monkeypatch)}) is None
+    # Sans jeton, ou sans cle : personne.
+    assert m.utilisateur({}) is None
+    monkeypatch.setenv("CODELAB_SSO_PUBLIC_KEY", "")
+    assert m.utilisateur({"X-CodeLab-Auth": jeton}) is None
+
+
+def test_le_module_python_refuse_un_jeton_expire(monkeypatch):
+    _cle_sso(monkeypatch)
+    m = _module_auth()
+    monkeypatch.setenv("CODELAB_SSO_PUBLIC_KEY", app._sso_public_key)
+    monkeypatch.setenv("CODELAB_SSO_AUDIENCE", "site")
+    jeton = _jeton("site", monkeypatch=monkeypatch)
+    monkeypatch.setattr(m.time, "time", lambda: 10 ** 12)
+    assert m.utilisateur({"X-CodeLab-Auth": jeton}) is None
+
+
+def test_la_connexion_silencieuse_et_la_pause_apres_deconnexion(monkeypatch):
+    _cle_sso(monkeypatch)
+    m = _module_auth()
+    monkeypatch.setenv("CODELAB_SSO_PUBLIC_KEY", app._sso_public_key)
+    monkeypatch.setenv("CODELAB_SSO_AUDIENCE", "site")
+    entetes = {"X-CodeLab-Auth": _jeton("site", monkeypatch=monkeypatch)}
+    appels = []
+
+    def trouver_ou_creer(u):
+        appels.append(u["sub"])
+        return 42
+    session = {}
+    assert m.connexion_silencieuse(session, entetes, trouver_ou_creer) == 42
+    assert session["utilisateur"] == 42
+    # Session deja ouverte : plus de verification, plus d'appel.
+    assert m.connexion_silencieuse(session, {}, trouver_ou_creer) == 42
+    assert appels == ["alice"]
+    # Deconnexion de l'application : CodeLab ne reconnecte PAS aussitot.
+    m.deconnecter(session)
+    assert m.connexion_silencieuse(session, entetes, trouver_ou_creer) is None
+    m.reprendre(session)
+    assert m.connexion_silencieuse(session, entetes, trouver_ou_creer) == 42
+    # Visiteur sans CodeLab : rien, l'application montre son formulaire.
+    assert m.connexion_silencieuse({}, {}, trouver_ou_creer) is None
+
+
+def test_les_liens_du_module_passent_par_le_panneau(monkeypatch):
+    m = _module_auth()
+    monkeypatch.setenv("CODELAB_SSO_AUDIENCE", "site")
+    entetes = {"X-CodeLab-Panneau": "http://serveur:9001/"}
+    assert (m.lien_connexion(entetes, "/factures/12")
+            == "http://serveur:9001/login?suite=/ouvrir.app/site/factures/12")
+    assert (m.lien_deconnexion(entetes, "/")
+            == "http://serveur:9001/deconnexion.html?app=site&chemin=")
+    # Un en-tete douteux ne fait pas un lien vers ailleurs.
+    assert m.lien_connexion({"X-CodeLab-Panneau": "javascript:alert(1)"}).startswith("/login")
+
+
+def test_le_module_node_verifie_le_jeton(monkeypatch, tmp_path):
+    import shutil
+    import subprocess
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node absent")
+    _cle_sso(monkeypatch)
+    jeton = _jeton("site", email="a@x.fr", verifie=True, monkeypatch=monkeypatch)
+    module = os.path.join(_racine_depot(), "dev", "modeles", "codelab-auth.js")
+    script = tmp_path / "t.js"
+    script.write_text(
+        "const m = require(" + json.dumps(module) + ");\n"
+        "const req = (h) => ({ headers: h });\n"
+        "const j = process.argv[2];\n"
+        "const ok = m.utilisateur(req({'x-codelab-auth': j}));\n"
+        "const autre = m.utilisateur(req({'x-codelab-auth': j.slice(0, -4) + 'AAAA'}));\n"
+        "const lien = m.lienConnexion(req({'x-codelab-panneau': 'http://serveur:9001/'}), '/a/b');\n"
+        "const s = {}; m.deconnecter(s);\n"
+        "console.log(JSON.stringify({ ok, autre, lien, s }));\n")
+    env = dict(os.environ, CODELAB_SSO_PUBLIC_KEY=app._sso_public_key,
+               CODELAB_SSO_ISSUER=app.SSO_ISSUER, CODELAB_SSO_AUDIENCE="site")
+    r = subprocess.run([node, str(script), jeton], capture_output=True, text=True, env=env, timeout=30)
+    assert r.returncode == 0, r.stderr
+    d = json.loads(r.stdout)
+    assert d["ok"] == {"sub": "alice", "nom": "alice", "role": app.ROLE_UTILISATEUR,
+                       "email": "a@x.fr", "email_verified": True}
+    assert d["autre"] is None
+    assert d["lien"] == "http://serveur:9001/login?suite=/ouvrir.app/site/a/b"
+    assert d["s"] == {"codelab_pause": True}
+
+
+def _session_marie(c):
+    """Une session ouverte sur l'hote des tests (« serveur ») : le cookie
+    d'une connexion faite sur localhost ne suivrait pas."""
+    with c.session_transaction(**_sur_port(9301)) as s:
+        s.update(authed=True, role=app.ROLE_UTILISATEUR, utilisateur="marie",
+                 jeton="jeton-de-test")
+
+
+def test_apres_la_connexion_on_revient_dans_l_application(deux_origines):
+    c = deux_origines
+    # Visiteur anonyme sur une application privee : connexion, AVEC la suite.
+    r = c.get("/prive-autorise/factures/12", **_sur_port(9302))
+    assert r.status_code == 302
+    assert r.headers["Location"] == (
+        "http://serveur:9001/login?suite=/ouvrir.app/prive-autorise/factures/12")
+    # /ouvrir.app exige une session.
+    r = c.get("/ouvrir.app/prive-autorise/factures/12", **_sur_port(9301))
+    assert r.status_code == 302 and "/login" in r.headers["Location"]
+    _session_marie(c)
+    r = c.get("/ouvrir.app/prive-autorise/factures/12", **_sur_port(9301))
+    assert r.status_code == 302
+    assert r.headers["Location"] == "http://serveur:9302/prive-autorise/factures/12"
+    # Deja connecte, la page de connexion renvoie droit a la suite...
+    r = c.get("/login?suite=/ouvrir.app/public/", **_sur_port(9301))
+    assert r.headers["Location"].endswith("/ouvrir.app/public/")
+    # ... mais jamais vers ailleurs.
+    for mauvaise in ("//evil.example/x", "https://evil.example/", "/ouvrir.app/../x"):
+        r = c.get("/login", query_string={"suite": mauvaise}, **_sur_port(9301))
+        assert r.headers["Location"] in ("/", "http://serveur:9301/"), mauvaise
+    # Une application inconnue : 404, pas une redirection.
+    assert c.get("/ouvrir.app/inconnue/", **_sur_port(9301)).status_code == 404
+    # Un chemin qui remonte retombe a la racine de l'application.
+    r = c.get("/ouvrir.app/public/a/%2e%2e/%2e%2e/x", **_sur_port(9301))
+    assert r.headers["Location"] in ("http://serveur:9302/public/",
+                                     "http://serveur:9302/public/a/x"), r.headers["Location"]
+    assert ".." not in r.headers["Location"]
+
+
+def test_la_deconnexion_depuis_une_application_demande_confirmation(deux_origines):
+    c = deux_origines
+    r = c.get("/deconnexion.html?app=public&chemin=a", **_sur_port(9301))
+    assert r.status_code == 200 and "pas connect" in r.get_data(as_text=True)
+    _session_marie(c)
+    page = c.get("/deconnexion.html?app=public&chemin=a", **_sur_port(9301)).get_data(as_text=True)
+    assert "Se déconnecter" in page and "X-CodeLab-Jeton" in page
+    assert '"http://serveur:9302/public/a"' in page
+    # La page seule ne deconnecte pas : la session tient toujours.
+    with c.session_transaction(**_sur_port(9301)) as s:
+        assert s.get("authed")
+    # Une application inconnue ne fait pas une cible : retour au panneau.
+    page = c.get("/deconnexion.html?app=evil", **_sur_port(9301)).get_data(as_text=True)
+    assert '"/"' in page and "evil" not in page.split("<script>")[1]
+
+
+def test_le_proxy_pose_l_adresse_du_panneau_et_jette_les_en_tetes_du_client(deux_origines, monkeypatch):
+    c = deux_origines
+    vus = {}
+
+    class Reponse:
+        status = 200
+        headers = {"Content-Type": "text/plain"}
+
+        def read(self):
+            return b"ok"
+
+    def amont(req, timeout=30):
+        vus.update({k.lower(): v for k, v in req.header_items()})
+        return Reponse()
+    monkeypatch.setattr(app.urllib.request, "urlopen", amont)
+    r = c.get("/public/", headers={"X-CodeLab-Panneau": "http://evil/",
+                                   "X-CodeLab-Nouveau": "faux", "X-CodeLab-User": "admin"},
+              **_sur_port(9302))
+    assert r.status_code == 200
+    assert vus["x-codelab-panneau"] == "http://serveur:9001/"
+    assert "x-codelab-nouveau" not in vus and "x-codelab-user" not in vus
+
+
+def test_codelab_new_depose_les_modules_de_connexion(tmp_path):
+    modeles = os.path.join(_racine_depot(), "dev", "modeles")
+    r, espace = _lancer_codelab(tmp_path, ["new", "boutique"], {"CODELAB_MODELES": modeles})
+    assert r.returncode == 0, r.stdout + r.stderr
+    for nom in ("codelab_auth.py", "codelab-auth.js"):
+        assert (espace / "boutique" / nom).read_text() == open(os.path.join(modeles, nom)).read()
+    dockerfile = open(os.path.join(_racine_depot(), "dev", "Dockerfile")).read()
+    assert "COPY dev/modeles/ /usr/local/share/codelab/modeles/" in dockerfile
+    manuel = open(os.path.join(_racine_depot(), "dev", "AGENTS.md")).read()
+    assert "connexion_silencieuse" in manuel and "email_verified" in manuel
