@@ -136,6 +136,11 @@ aucun run ne demarre tout seul, donc aucun ne peut echouer, donc **aucune alerte
 d'alerte complet qui n'attend qu'un clic pour servir. Une surveillance qu'il faut declencher ne previent
 de rien : on ne la declenche que quand on soupconne deja quelque chose.
 
+Un second asset, **`audit_dependances`**, tourne **le lundi a 6 h 23** (`audit_dependances_chaque_semaine`) :
+il confronte les versions figees de chaque projet de `/workspace` a la base de vulnerabilites OSV, et
+echoue -- donc alerte -- des qu'une dependance est touchee. Voir « Audit des dependances » dans
+`/workspace/README.md`.
+
 Ce qui n'est **pas** planifie, et volontairement : la verification approfondie de `/tests`. Ces tests-la
 agissent — ils ecrivent, traversent le proxy, lancent la suite de regressions du panneau. Les jouer
 quatre fois par heure remplirait les journaux de traces que personne n'a demandees. Seules les sondes

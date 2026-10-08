@@ -9,7 +9,9 @@ Ce fichier contient tout le cote Dagster du projet :
 
   - l'asset diagnostic_codelab, qui execute les sondes et ecrit en base ;
   - le planning qui le declenche toutes les heures ;
-  - le capteur alerte_mail_echec, qui envoie un mail a chaque run en echec.
+  - le capteur alerte_mail_echec, qui envoie un mail a chaque run en echec ;
+  - l'asset audit_dependances, qui confronte chaque semaine les dependances
+    des projets a la base de vulnerabilites OSV.
 
 CE QUI FAIT ECHOUER UN RUN, ET CE QUI NE LE FAIT PAS. Les sondes ne rendent
 plus "oui / non" mais un RANG (checks.Etat) : ECHEC, ALERTE, SANS_OBJET, OK.
@@ -55,7 +57,7 @@ import ssl
 from email.message import EmailMessage
 
 from dagster import (AssetExecutionContext, Definitions, DefaultScheduleStatus,
-                     DefaultSensorStatus, MetadataValue, RunFailureSensorContext,
+                     DefaultSensorStatus, Failure, MetadataValue, RunFailureSensorContext,
                      ScheduleDefinition, asset, define_asset_job, run_failure_sensor)
 
 import checks
@@ -364,9 +366,76 @@ diagnostic_toutes_les_heures = ScheduleDefinition(
 )
 
 
+# ==========================================================================
+# Audit des dependances des projets, une fois par semaine
+#
+# Trivy ne regarde que le depot de la stack. Cet asset regarde les projets de
+# /workspace : ce qu'ils figent (requirements, vendor/, package-lock.json) est
+# confronte a la base publique OSV -- voir checks.audit_dependances.
+#
+# UNE DEPENDANCE VULNERABLE FAIT ECHOUER LE RUN, donc partir le mail du
+# capteur ci-dessus : c'est le seul canal d'alerte qui existe deja, et un
+# avis de securite est exactement ce qui doit le prendre. Le run reste rouge
+# chaque semaine tant que la version n'a pas ete montee.
+#
+# OSV injoignable fait aussi echouer le run. Un audit qui ne peut pas se faire
+# et ne le dit pas ressemble trait pour trait a un audit qui n'a rien trouve.
+#
+# Le lundi a 6 h 23 : apres la reconstruction hebdomadaire des images (5 h
+# UTC) et loin de l'heure pile, ou se declenche deja tout le reste.
+# ==========================================================================
+
+@asset(
+    name="audit_dependances",
+    description="Confronte les dependances figees de chaque projet de /workspace "
+                "a la base de vulnerabilites OSV.",
+    group_name="diagnostic",
+)
+def audit_dependances(context: AssetExecutionContext):
+    try:
+        nombre, rapport = checks.audit_dependances()
+    except (OSError, ValueError) as e:
+        raise Failure(f"Audit impossible : OSV ({checks.OSV_URL}) ne repond pas "
+                      f"({type(e).__name__}: {e}).")
+
+    lignes = []
+    for projet, paquets in rapport.items():
+        for eco, nom, version, ids in paquets:
+            lignes.append(f"{projet} : {nom} {version} ({eco}) -- "
+                          + ", ".join(f"https://osv.dev/vulnerability/{i}" for i in ids))
+    for ligne in lignes:
+        context.log.error(ligne)
+    context.add_output_metadata({
+        "paquets_audites": nombre,
+        "projets_touches": len(rapport),
+        "rapport": MetadataValue.md("\n".join(f"- {l}" for l in lignes) or "Rien a signaler."),
+    })
+    if lignes:
+        raise Failure(f"{len(lignes)} dependance(s) vulnerable(s) dans "
+                      f"{len(rapport)} projet(s) :\n" + "\n".join(lignes))
+    context.log.info(f"{nombre} paquet(s) audite(s), aucune vulnerabilite connue.")
+    return f"{nombre} paquet(s), aucune vulnerabilite connue"
+
+
+job_audit = define_asset_job(
+    name="audit_dependances_hebdomadaire",
+    selection=[audit_dependances],
+    description="Audite les dependances des projets de /workspace (base OSV).",
+)
+
+audit_chaque_semaine = ScheduleDefinition(
+    name="audit_dependances_chaque_semaine",
+    job=job_audit,
+    cron_schedule="23 6 * * 1",
+    default_status=DefaultScheduleStatus.RUNNING,
+    description="Le lundi matin. Une dependance vulnerable fait echouer le run, "
+                "donc partir un mail.",
+)
+
+
 defs = Definitions(
-    assets=[diagnostic_codelab],
-    jobs=[job_diagnostic],
-    schedules=[diagnostic_toutes_les_heures],
+    assets=[diagnostic_codelab, audit_dependances],
+    jobs=[job_diagnostic, job_audit],
+    schedules=[diagnostic_toutes_les_heures, audit_chaque_semaine],
     sensors=[alerte_mail_echec],
 )

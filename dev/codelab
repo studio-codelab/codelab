@@ -5,6 +5,7 @@
 #     ... --ouvrir             et rouvre la fenetre VS Code dessus
 #   codelab db <nom>          cree la base du projet et son schema "dagster"
 #   codelab agents [dossier]  ecrit le manuel CodeLab dans le AGENTS.md du projet
+#                             (et un CLAUDE.md qui l'importe, pour Claude Code)
 #
 # Une seule commande pour tout ce qui touche a un projet, plutot qu'un
 # executable par geste : la liste des sous-commandes se decouvre avec
@@ -12,9 +13,10 @@
 set -eu
 
 MANUEL="${CODELAB_AGENTS_SOURCE:-/usr/local/share/codelab/AGENTS.md}"
-# Les modules « se connecter avec CodeLab » (Python et Node), deposes dans
-# chaque nouveau projet : l'identite est prete des la premiere seconde,
-# comme la base de donnees.
+# Les modules deposes dans chaque nouveau projet, en Python et en Node :
+# « se connecter avec CodeLab » (codelab_auth), pour que l'identite soit
+# prete des la premiere seconde, comme la base de donnees ; et les pages
+# d'erreur et en-tetes de securite (codelab_web).
 MODELES="${CODELAB_MODELES:-/usr/local/share/codelab/modeles}"
 DEBUT='<!-- codelab:debut -- bloc gere par "codelab agents", ne pas editer a la main -->'
 FIN='<!-- codelab:fin -->'
@@ -23,12 +25,13 @@ usage() {
   cat >&2 <<'AIDE'
 usage: codelab <commande> [argument]
 
-  new <nom> [--db]    cree le projet : dossier, git, .gitignore, AGENTS.md
+  new <nom> [--db]    cree le projet : dossier, git, .gitignore, AGENTS.md,
+                      CLAUDE.md
        [--ouvrir]     (--db cree aussi sa base de donnees ; --ouvrir rouvre la
                       fenetre VS Code sur le nouveau projet)
   db <nom>            cree la base "<nom>" et son schema "dagster" (idempotent)
-  agents [dossier]    ecrit le manuel CodeLab dans le AGENTS.md du projet
-                      (defaut : le dossier courant)
+  agents [dossier]    ecrit le manuel CodeLab dans le AGENTS.md du projet,
+                      et un CLAUDE.md qui l'importe (defaut : le dossier courant)
 AIDE
 }
 
@@ -132,6 +135,7 @@ cmd_new() {
 .env
 node_modules/
 vendor/
+.dagster-venv/
 dist/
 build/
 __pycache__/
@@ -144,7 +148,7 @@ IGNORE
 README
 
   cmd_agents "$DOSSIER" >/dev/null
-  for modele in codelab_auth.py codelab-auth.js; do
+  for modele in codelab_auth.py codelab-auth.js codelab_web.py codelab-web.js; do
     if [ -f "$MODELES/$modele" ]; then
       cp "$MODELES/$modele" "$DOSSIER/$modele"
     fi
@@ -158,6 +162,7 @@ README
   echo "[codelab] projet cree : $DOSSIER"
   echo "[codelab]   AGENTS.md pose -- complete la section \"Projet $projet\""
   echo "[codelab]   connexion CodeLab : codelab_auth.py / codelab-auth.js (voir leur en-tete)"
+  echo "[codelab]   erreurs et en-tetes : codelab_web.py / codelab-web.js"
   [ "$avec_db" -eq 1 ] || echo "[codelab]   base de donnees : codelab db $projet"
   echo "[codelab]   projet web    : cd $DOSSIER && npm create vite@latest ."
   echo "[codelab]   puis declare-le dans le panneau (port 9001)."
@@ -313,6 +318,32 @@ SQUELETTE
   fi
 
   chmod g+rw "$CIBLE" 2>/dev/null || true
+  claude_md "$PROJET"
+}
+
+# Claude Code lit CLAUDE.md, pas AGENTS.md. Plutot qu'une seconde copie du
+# manuel -- deux copies divergent, et c'est celle qu'on ne relit jamais qui
+# se met a mentir --, un CLAUDE.md d'une ligne qui importe AGENTS.md
+# (syntaxe « @fichier » de Claude Code) : les deux agents lisent alors
+# exactement les memes consignes.
+#
+# Un CLAUDE.md deja present appartient au projet : on n'y touche pas, on
+# signale seulement s'il n'importe pas AGENTS.md.
+claude_md() {
+  CLAUDE="$1/CLAUDE.md"
+  if [ ! -e "$CLAUDE" ]; then
+    cat > "$CLAUDE" <<'CLAUDE'
+@AGENTS.md
+
+<!-- Les consignes de ce projet vivent dans AGENTS.md, lu aussi par Codex.
+     Ecris-les la-bas : ce fichier ne fait que l'importer pour Claude Code. -->
+CLAUDE
+    chmod g+rw "$CLAUDE" 2>/dev/null || true
+    echo "[codelab] $CLAUDE cree (importe AGENTS.md pour Claude Code)."
+  elif ! grep -q '^@AGENTS\.md' "$CLAUDE"; then
+    echo "[codelab] $CLAUDE existe et n'importe pas AGENTS.md : ajoute-y" \
+         "la ligne \"@AGENTS.md\" pour que Claude Code lise le manuel."
+  fi
 }
 
 # ------------------------------ dispatch ------------------------------

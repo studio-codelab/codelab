@@ -26,6 +26,21 @@ set -u
 MODULE="${CODELAB_DAGSTER_MODULE:-definitions}"
 PAUSE_RELANCE=10
 
+# LES PROJETS ISOLES. Un projet qui porte un requirements-dagster.txt tourne
+# dans son propre environnement Python : isolation.py le construit, puis
+# ecrit un workspace.yaml qui le declare a cote de l'emplacement commun --
+# voir dagster/isolation.py. Sans projet isole, il n'ecrit rien et l'on garde
+# « -m definitions », exactement comme avant.
+#
+# Le script est facultatif (une image ancienne, les tests) : absent ou en
+# echec, Dagster demarre comme avant, sans isolation, plutot que pas du tout.
+ISOLATION="${CODELAB_ISOLATION:-/opt/dagster/isolation.py}"
+CIBLE_CODE="-m $MODULE"
+if [ -f "$ISOLATION" ]; then
+  fichier=$(python3 "$ISOLATION") || fichier=""
+  [ -n "$fichier" ] && [ -f "$fichier" ] && CIBLE_CODE="-w $fichier"
+fi
+
 arret=0
 daemon_pid=""
 web_pid=""
@@ -44,7 +59,9 @@ trap arreter TERM INT
   while :; do
     # PAS de tube (« | sed ») : $! serait alors le PID du dernier programme
     # du tube, et l'arret tuerait le filtre en laissant le daemon tourner.
-    dagster-daemon run -m "$MODULE" &
+    # $CIBLE_CODE sans guillemets, a dessein : deux mots, l'option et sa
+    # valeur. Ni l'une ni l'autre ne contient d'espace.
+    dagster-daemon run $CIBLE_CODE &
     enfant=$!
     wait "$enfant"
     echo "[codelab-dagster] daemon arrete -- relance dans ${PAUSE_RELANCE} s." >&2
@@ -59,7 +76,7 @@ daemon_pid=$!
 if [ "$#" -gt 0 ]; then
   "$@" &
 else
-  dagster-webserver -h 0.0.0.0 -p 3000 -m "$MODULE" &
+  dagster-webserver -h 0.0.0.0 -p 3000 $CIBLE_CODE &
 fi
 web_pid=$!
 

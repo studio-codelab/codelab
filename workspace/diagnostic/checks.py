@@ -2066,6 +2066,170 @@ def run_all(env_file=None, workspace=None, ssh_dir=None):
 
 
 # --------------------------------------------------------------------------
+# Audit des dependances des projets
+#
+# Trivy, en CI, regarde le depot de la stack -- pas les projets de
+# /workspace. Une application qui embarque une version vulnerable de Flask
+# ou d'express ne se voyait nulle part. Cet audit lit ce que chaque projet
+# fige (versions exactes) et le confronte a la base publique OSV
+# (osv.dev, qui agrege les avis PyPI, npm, GitHub...).
+#
+# Seulement la bibliotheque standard : il tourne dans codelab-dagster, qui
+# n'a ni pip-audit ni npm. Et seulement des versions EXACTES : « flask>=2 »
+# ne dit pas ce qui est installe, l'auditer reviendrait a deviner.
+#
+# Ce qui est lu, par projet (dossiers de /workspace hors « . » et « _ ») :
+#   - requirements*.txt     les lignes « nom==version » ;
+#   - vendor/               les paquets installes par « pip install --target » ;
+#   - .dagster-venv/        ceux de l'environnement Dagster isole du projet ;
+#   - package-lock.json     les versions resolues par npm.
+# --------------------------------------------------------------------------
+
+OSV_URL = "https://api.osv.dev/v1/querybatch"
+OSV_LOT = 500           # l'API accepte 1000 requetes par appel ; marge.
+
+_EXIGENCE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)(?:\[[^\]]*\])?\s*==\s*([^\s;#]+)")
+
+
+def _normaliser_pypi(nom):
+    return re.sub(r"[-_.]+", "-", nom).lower()
+
+
+def _paquets_installes(dossier):
+    """Les paquets d'un site-packages (ou d'un vendor/), lus dans *.dist-info."""
+    paquets = set()
+    try:
+        entrees = os.listdir(dossier)
+    except OSError:
+        return paquets
+    for entree in entrees:
+        if not entree.endswith(".dist-info"):
+            continue
+        nom = version = None
+        try:
+            with open(os.path.join(dossier, entree, "METADATA"), encoding="utf-8",
+                      errors="replace") as f:
+                for ligne in f:
+                    if not ligne.strip():
+                        break           # fin de l'en-tete
+                    if ligne.startswith("Name:"):
+                        nom = ligne[5:].strip()
+                    elif ligne.startswith("Version:"):
+                        version = ligne[8:].strip()
+        except OSError:
+            continue
+        if nom and version:
+            paquets.add(("PyPI", _normaliser_pypi(nom), version))
+    return paquets
+
+
+def _paquets_npm(lock):
+    """Les versions resolues d'un package-lock.json (formats 1, 2 et 3)."""
+    paquets = set()
+    for chemin, info in (lock.get("packages") or {}).items():
+        if not chemin or not isinstance(info, dict) or info.get("link"):
+            continue                    # "" : le projet lui-meme
+        nom = info.get("name") or chemin.rsplit("node_modules/", 1)[-1]
+        if info.get("version"):
+            paquets.add(("npm", nom, info["version"]))
+    if not paquets:
+        # Format 1 : un arbre "dependencies" imbrique.
+        pile = [lock.get("dependencies") or {}]
+        while pile:
+            for nom, info in pile.pop().items():
+                if isinstance(info, dict):
+                    if info.get("version"):
+                        paquets.add(("npm", nom, info["version"]))
+                    pile.append(info.get("dependencies") or {})
+    return paquets
+
+
+def dependances_du_projet(dossier):
+    """Ensemble de (ecosysteme, nom, version) fige par un projet."""
+    paquets = set()
+    try:
+        entrees = sorted(os.listdir(dossier))
+    except OSError:
+        return paquets
+    for entree in entrees:
+        if entree.startswith("requirements") and entree.endswith(".txt"):
+            try:
+                with open(os.path.join(dossier, entree), encoding="utf-8",
+                          errors="replace") as f:
+                    for ligne in f:
+                        m = _EXIGENCE.match(ligne)
+                        if m:
+                            paquets.add(("PyPI", _normaliser_pypi(m.group(1)), m.group(2)))
+            except OSError:
+                pass
+    paquets |= _paquets_installes(os.path.join(dossier, "vendor"))
+    for site in sorted(Path(dossier, ".dagster-venv", "lib").glob("python*/site-packages")):
+        paquets |= _paquets_installes(str(site))
+    try:
+        with open(os.path.join(dossier, "package-lock.json"), encoding="utf-8") as f:
+            paquets |= _paquets_npm(json.load(f))
+    except (OSError, ValueError):
+        pass
+    return paquets
+
+
+def dependances_du_workspace(workspace=None):
+    """{projet: {(ecosysteme, nom, version), ...}} pour chaque projet."""
+    workspace = workspace or WORKSPACE
+    projets = {}
+    try:
+        noms = sorted(os.listdir(workspace))
+    except OSError:
+        return projets
+    for nom in noms:
+        chemin = os.path.join(workspace, nom)
+        if nom.startswith((".", "_")) or not os.path.isdir(chemin):
+            continue
+        paquets = dependances_du_projet(chemin)
+        if paquets:
+            projets[nom] = paquets
+    return projets
+
+
+def interroger_osv(paquets, timeout=30, url=OSV_URL):
+    """{(ecosysteme, nom, version): [identifiants d'avis]} pour les paquets
+    vulnerables. Leve OSError (ou ValueError) si OSV ne repond pas."""
+    paquets = sorted(paquets)
+    vulnerables = {}
+    for debut in range(0, len(paquets), OSV_LOT):
+        lot = paquets[debut:debut + OSV_LOT]
+        corps = json.dumps({"queries": [
+            {"package": {"ecosystem": eco, "name": nom}, "version": version}
+            for eco, nom, version in lot]}).encode()
+        requete = urllib.request.Request(url, data=corps, method="POST",
+                                         headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(requete, timeout=timeout) as r:
+            resultats = json.load(r).get("results") or []
+        for paquet, resultat in zip(lot, resultats):
+            ids = sorted(v.get("id") for v in (resultat or {}).get("vulns") or [] if v.get("id"))
+            if ids:
+                vulnerables[paquet] = ids
+    return vulnerables
+
+
+def audit_dependances(workspace=None, interroger=None):
+    """Confronte les dependances de chaque projet a OSV.
+
+    Renvoie (nombre de paquets audites, {projet: [(eco, nom, version, [ids])]}).
+    """
+    projets = dependances_du_workspace(workspace)
+    tous = set().union(*projets.values()) if projets else set()
+    vulnerables = (interroger or interroger_osv)(tous) if tous else {}
+    rapport = {}
+    for projet, paquets in projets.items():
+        touches = [(eco, nom, version, vulnerables[(eco, nom, version)])
+                   for eco, nom, version in sorted(paquets) if (eco, nom, version) in vulnerables]
+        if touches:
+            rapport[projet] = touches
+    return len(tous), rapport
+
+
+# --------------------------------------------------------------------------
 # Le module du panneau, pour la suite de tests ci-dessous.
 #
 # Deux emplacements possibles, et il faut les deux : dans le conteneur

@@ -35,13 +35,27 @@ WORKSPACE = os.path.dirname(os.path.abspath(__file__))
 # Les dossiers commencant par "." ou "_" sont ignores : .codelab (marqueurs
 # internes), .venv, __pycache__, et par convention "_quelque-chose" pour un
 # projet mis de cote sans le supprimer.
+#
+# Un projet qui porte un requirements-dagster.txt est ignore lui aussi : il a
+# ses propres dependances, et tourne dans son propre environnement Python,
+# declare a part par codelab-dagster (voir dagster/isolation.py dans le depot
+# CodeLab). Le charger ici aussi l'importerait sans ses paquets -- et en
+# double.
+ISOLE = "requirements-dagster.txt"
+
+
 def _dossiers_de_projet():
     for nom in sorted(os.listdir(WORKSPACE)):
         if nom.startswith(".") or nom.startswith("_"):
             continue
         chemin = os.path.join(WORKSPACE, nom)
-        if os.path.isdir(chemin) and os.path.isfile(os.path.join(chemin, "definitions.py")):
-            yield nom, chemin
+        if not (os.path.isdir(chemin) and os.path.isfile(os.path.join(chemin, "definitions.py"))):
+            continue
+        if os.path.isfile(os.path.join(chemin, ISOLE)):
+            print(f"[workspace] projet '{nom}' : charge dans son propre environnement "
+                  f"({ISOLE}), pas ici.", file=sys.stderr)
+            continue
+        yield nom, chemin
 
 
 def _charger(nom, chemin):
