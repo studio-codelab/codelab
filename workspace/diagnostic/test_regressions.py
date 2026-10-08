@@ -4943,7 +4943,7 @@ def _scripts_de_la_page(nom):
 def test_le_script_des_pages_du_panneau_est_analysable():
     import subprocess
     import tempfile
-    for nom in ("dashboard.html", "login.html"):
+    for nom in ("dashboard.html", "login.html", "demandes.html"):
         scripts = _scripts_de_la_page(nom)
         assert scripts, f"{nom} n'a plus de script : la page ne ferait plus rien"
         for i, script in enumerate(scripts):
@@ -5046,12 +5046,19 @@ def test_les_deux_pages_lisent_le_meme_theme():
     # Les jetons structurants y sont, et dans les trois etats de theme.
     for cle in ("--accent:", "--bg:", "--ok:", "--err:", "--warn:", "--mono:", "--r:"):
         assert cle in theme, f"{cle} manque au theme"
-    # Pour chacun des deux styles (classique, puis « Design »).
-    classique, design = theme.split("LE STYLE « DESIGN »", 1)
-    for partie in (classique, design):
-        assert partie.count("--accent:") == 3, (
+    # Pour chacun des styles : classique, « Design », puis ses deux variantes
+    # (lanceur et bento), qui tiennent chacune leurs trois etats.
+    classique, reste = theme.split("LE STYLE « DESIGN »", 1)
+    design, variantes = reste.split("STYLES 3 (« lanceur ») ET 4 (« bento »)", 1)
+    for partie, attendus in ((classique, 3), (design, 3), (variantes, 6)):
+        assert partie.count("--accent:") == attendus, (
             "les trois etats de theme doivent etre tenus : clair, sombre du "
             "systeme, sombre choisi explicitement")
+    for variante in ("lanceur", "bento"):
+        for bloc in (f':root[data-style="design"][data-variante="{variante}"]{{',
+                     f':root[data-style="design"][data-variante="{variante}"]:not([data-theme="light"]):not([data-theme="dark"]){{',
+                     f':root[data-style="design"][data-variante="{variante}"][data-theme="dark"]{{'):
+            assert bloc in variantes, bloc
     assert '[data-theme="dark"]' in theme and "prefers-color-scheme" in theme
 
     for nom in ("dashboard.html", "login.html"):
@@ -7573,24 +7580,24 @@ def test_la_page_d_erreur_echappe_ce_qu_elle_affiche(client):
 
 def test_la_vue_d_ensemble_ne_double_plus_les_messages():
     """Deux endroits ou lire la meme chose, c'est deux endroits ou croire les
-    avoir traites. Les messages ont leur rubrique, avec son compteur."""
+    avoir traites. Les demandes vivent dans leur application, et nulle part
+    ailleurs dans le panneau."""
     page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
                 encoding="utf-8").read()
     ensemble = page.split('<div id="sec-overview"')[1].split('<div id="sec-apps"')[0]
     assert "zone-messages" not in ensemble
     assert "msg-liste" not in ensemble
-    # La rubrique, elle, est toujours la.
-    assert 'id="sec-messages"' in page and 'id="side-count-messages"' in page
+    assert 'id="sec-messages"' not in page and "side-count-messages" not in page
 
 
-def test_l_onglet_messages_ferme_le_menu():
-    """On ne choisit pas d'aller lire ses messages en arrivant : on y va quand
-    le compteur le dit. La place suit l'usage."""
+def test_les_demandes_ont_quitte_le_menu():
+    """Les demandes sont une application du hub, au meme rang que le
+    diagnostic : le menu du panneau n'en a plus l'entree."""
     page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
                 encoding="utf-8").read()
     menu = page.split('<nav class="sidebar"')[1].split("</nav>")[0]
     rubriques = re.findall(r'data-sec="([a-z]+)"', menu)
-    assert rubriques[-1] == "messages", rubriques
+    assert "messages" not in rubriques, rubriques
     assert rubriques[0] == "hub", rubriques
 
 
@@ -9241,8 +9248,9 @@ def test_dagster_parait_dans_le_hub_et_mene_au_port_3000(hub_dagster):
     d = hub_dagster.get("/api/mes-apps").get_json()
 
     services = d["services"]
-    # Deux services dans le hub : l'orchestrateur, et le courrier.
-    assert [s["name"] for s in services] == ["dagster", "mailpit"]
+    # Trois services dans le hub : l'orchestrateur, le courrier, et les
+    # demandes recues.
+    assert [s["name"] for s in services] == ["dagster", "mailpit", "demandes"]
     dagster = services[0]
     # L'adresse est celle du NAVIGATEUR : meme hote, autre port.
     assert dagster["url"].endswith(":3000/"), dagster["url"]
@@ -9474,40 +9482,32 @@ def test_un_message_inconnu_ne_fait_pas_semblant(boite):
     assert c.put("/api/messages/jamais-vu", json={"retenu": True}).status_code == 404
 
 
-def test_la_rubrique_des_messages_filtre_et_defile():
-    """La page : une rubrique a elle, le hub par defaut, un filtre par
-    application, deux gestes et un defilement dans la carte."""
-    page = _page_panneau("dashboard.html")
-    assert 'id="sec-messages"' in page, "la rubrique n'existe pas"
-    assert "showSection('messages')" in page, "rien n'y mene depuis le menu"
-
-    # Le filtre s'ouvre sur le hub, et se complete des applications dont on
-    # a effectivement parle.
-    bloc = page.split('<select id="msg-filtre"')[1].split("</select>")[0]
-    assert 'value="hub"' in bloc and "selected" not in bloc, bloc
-    assert "peindreMessages()" in bloc
-    remplir = page.split("function msgRemplirFiltre(){")[1].split("\n}")[0]
-    assert "optgroup" in remplir and "app:" in remplir
-
-    # Les deux gestes.
-    assert "async function msgRetenir(" in page
-    assert "async function msgSupprimer(" in page
-    assert "demander(" in page.split("async function msgSupprimer(")[1].split("\n}")[0], (
-        "supprimer sans confirmation se clique par accident")
-
-    # Le defilement est DANS la carte : la barre de filtres doit rester sous
-    # les yeux pendant qu'on descend la liste.
-    style = page.split(".msg-boite{")[1].split("}")[0]
-    assert "overflow:auto" in style and "max-height" in style
+def test_l_application_demandes_trie_et_confirme():
+    """La boite de reception : des etats, trois gestes, et rien ne se
+    supprime sans confirmation."""
+    page = _page_panneau("demandes.html")
+    for etat in ("choisirEtat('attente')", "choisirEtat('reflechir')", "choisirEtat('traites')"):
+        assert etat in page, etat
+    for geste in ('data-agir="accepter"', 'data-agir="epingler"', 'data-agir="archiver"',
+                  'data-agir="supprimer-demande"'):
+        assert geste in page, geste
+    for fonction in ("async function demandeSupprimer(", "async function tacheSupprimer(",
+                     "async function projetSupprimer("):
+        corps = page.split(fonction)[1].split("\n}")[0]
+        assert "demander(" in corps, fonction + " supprime sans confirmation"
+    # Le jeton anti-falsification part avec toute requete qui modifie.
+    assert "X-CodeLab-Jeton" in page and "const JETON=__JETON__;" in page
 
 
 def test_un_message_recu_se_signale_dans_le_coin():
     """« Ajoute des notifications en bas a droite des qu'un message est
-    recu. » La page guette, et le dit la ou elle dit tout le reste."""
+    recu. » La page guette, le dit la ou elle dit tout le reste, et mene a
+    l'application Demandes."""
     page = _page_panneau("dashboard.html")
     bloc = page.split("async function guetterMessages(){")[1].split("\n}")[0]
     assert "apres=" in bloc, "le guet retelecharge toute la boite"
-    assert "notifier(" in bloc
+    assert "notifier" in bloc
+    assert "location.href='/demandes'" in page.split("function notifierMessage(")[1].split("\n}")[0]
     # surveiller() et non setInterval() : les minuteries s'arretent quand
     # l'onglet passe en arriere-plan.
     assert "surveiller(guetterMessages" in page
@@ -9517,12 +9517,12 @@ def test_un_message_recu_se_signale_dans_le_coin():
 
 
 
+
 # ---------- 24. regressions app-manager : ports / metriques / logo --------
 #
 # Ces tests sont volontairement des tests de source et de comportement isole :
 # ils ne demarrent ni Docker ni une application utilisateur. Ils garantissent
 # que les trois regressions vues en production restent couvertes.
-
 def _racine_app_manager():
     """Le dossier qui contient app.py, quelle que soit la mise en page.
 
@@ -10499,7 +10499,8 @@ def _plaques_du_theme():
     """
     feuille = (_racine_app_manager() / "theme.css").read_text(encoding="utf-8")
     valeurs = re.findall(r"--plaque-logo:\s*(#[0-9a-fA-F]{3,6})\s*;", feuille)
-    assert len(valeurs) == 6, (
+    # Quatre styles : classique, « design », et ses variantes lanceur et bento.
+    assert len(valeurs) == 12, (
         f"theme.css definit --plaque-logo {len(valeurs)} fois, trois par style attendues")
     return valeurs
 
@@ -10676,7 +10677,7 @@ def test_remettre_dagster_le_ramene_dans_le_hub(hub, monkeypatch):
     c.post("/api/mes-apps/" + app.DAGSTER_NOM + "/masquer")
     assert c.delete("/api/mes-apps/" + app.DAGSTER_NOM + "/masquer").status_code == 200
     d = c.get("/api/mes-apps").get_json()
-    assert [s["name"] for s in d["services"]] == [app.DAGSTER_NOM, app.MAILPIT_NOM]
+    assert [s["name"] for s in d["services"]] == [app.DAGSTER_NOM, app.MAILPIT_NOM, app.DEMANDES_NOM]
     assert d["services_masques"] == []
 
 
@@ -10697,7 +10698,8 @@ def test_seuls_les_services_nommes_passent_par_la_route_de_masquage():
     """Une liste fermee, pas « tout ce qui n'est pas une application » :
     sinon la route accepterait n'importe quel nom et masquees.json se
     remplirait d'entrees qui ne designent rien."""
-    assert app.SERVICES_MASQUABLES == frozenset({app.DAGSTER_NOM, app.MAILPIT_NOM})
+    assert app.SERVICES_MASQUABLES == frozenset({app.DAGSTER_NOM, app.MAILPIT_NOM,
+                                                app.DEMANDES_NOM})
 
 
 def test_ranger_un_nom_inconnu_reste_un_refus(hub):
@@ -12868,11 +12870,15 @@ def test_chaque_page_du_panneau_a_son_adresse(deux_espaces):
     assert r.headers["Location"].endswith("/login?suite=/parametres/securite")
     c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     for chemin in ("/apercu", "/applications", "/applications/site", "/applications/site/journal",
-                   "/utilisateurs", "/messages", "/messages/taches", "/parametres",
+                   "/utilisateurs", "/parametres",
                    "/parametres/securite"):
         r = c.get(chemin)
         assert r.status_code == 200, chemin
         assert "routerDepuisAdresse" in r.get_data(as_text=True), chemin
+    # Les anciennes adresses des messages menent a l'application Demandes.
+    for chemin in ("/messages", "/messages/taches"):
+        r = c.get(chemin)
+        assert r.status_code == 302 and r.headers["Location"].endswith("/demandes"), chemin
     # Ces noms ne peuvent plus servir d'adresse a une application -- ni
     # aucun autre premier segment d'une route du panneau.
     reserves = app.adresses_reservees()
@@ -12889,7 +12895,8 @@ def test_la_page_suit_l_adresse_et_l_historique():
     assert "window.addEventListener('popstate'" in page
     assert "history.pushState(null, '', a)" in page
     assert "'/parametres/'+paramOngletActif" in page
-    assert "'/messages/taches'" in page
+    # Les messages sont partis dans l'application Demandes.
+    assert "'/messages/taches'" not in page
 
 
 # ---------- messages : etats et taches ----------
@@ -12952,18 +12959,19 @@ def test_accepter_sans_tache_et_droits(boite, deux_espaces):
     assert u.post(f"/api/messages/{ident}/accepter", json={}).status_code == 403
 
 
-def test_la_page_des_messages_a_ses_deux_vues():
-    page = _page_panneau("dashboard.html")
-    for trace in ('id="msg-vue-boite"', 'id="msg-vue-taches"', 'id="ov-tache"',
-                  "msgEtatChoisir('reflechir')", "data-agir=\"msg-accepter\"",
-                  "async function msgChangerStatut(", "function msgBadge("):
+def test_l_application_demandes_a_ses_trois_vues():
+    page = _page_panneau("demandes.html")
+    for trace in ('id="vue-boite"', 'id="vue-tableau"', 'id="vue-projets"',
+                  'id="fen-accepter"', 'id="fen-tache"', 'id="fen-projet"',
+                  "nouveau_projet", "'/api/taches/ordre'", "history.pushState"):
         assert trace in page, trace
-    # Plus deux fonctions du meme nom : l'action ecrasait l'affichage.
-    assert page.count("function msgStatut(") == 0
+    # Les trois etapes d'un projet, et le geste qui le concretise.
+    for etape in ("'idee'", "'construction'", "'realise'", "Concrétiser"):
+        assert etape in page, etape
+
 
 
 # ---------- style « Design » ----------
-
 def test_le_style_design_se_choisit_et_se_pose_cote_serveur(deux_espaces):
     """Le choix vit dans un cookie : le serveur pose l'attribut avant la
     premiere peinture. Seule la valeur « design » est reconnue."""
@@ -13007,6 +13015,31 @@ def test_le_style_design_ne_change_que_l_habit():
     login = _page_panneau("login.html")
     assert ':root[data-style="design"] #pk-zone{display:none !important}' in login
 
+
+
+def test_les_styles_lanceur_et_bento_se_posent_cote_serveur(deux_espaces):
+    """Styles 3 et 4 : des variantes du style 2. Le serveur pose les deux
+    attributs avant la premiere peinture, et rien d'autre que les valeurs
+    connues -- le cookie vient du client."""
+    c = deux_espaces
+    for variante in ("lanceur", "bento"):
+        c.set_cookie("codelab-style", variante)
+        assert (f'<html lang="fr" data-style="design" data-variante="{variante}">'
+                in c.get("/login").get_data(as_text=True))
+    c.set_cookie("codelab-style", "lanceur\" onload=\"x")
+    assert "data-variante" not in c.get("/login").get_data(as_text=True)[:300]
+    page = _page_panneau("dashboard.html")
+    for cle in ("classique", "design", "lanceur", "bento"):
+        assert f"setStyle('{cle}')" in page, cle
+    assert "const STYLES = ['classique','design','lanceur','bento'];" in page
+    # Le hub change de forme : recherche et dock (lanceur), mosaique (bento).
+    assert 'id="hub-filtre"' in page and 'id="hub-dock"' in page
+    assert "function peindreDock(" in page and "function peindreBento(" in page
+    assert ':root[data-variante="lanceur"] .hub-dock:not(:empty){display:flex' in page
+    assert "#hub-liste.bento{display:grid" in page
+    # Le script ne peint pas le hub avant d'avoir declare ce qu'il lit.
+    debut = page.index("function applyStyle(")
+    assert "peindreHub" not in page[debut:page.index("function setStyle(")]
 
 
 # ---------- connexion en deux etapes ----------
@@ -13110,8 +13143,162 @@ def test_les_sous_taches_se_priorisent(boite):
     assert c.put(f"/api/taches/{tache}/ordre", json={"ordre": "abc"}).status_code == 400
     assert c.put("/api/taches/inconnue/ordre", json={"ordre": []}).status_code == 404
     page = _page_panneau("dashboard.html")
-    assert 'class="poignee"' in page and "/ordre', 'PUT'" in page
-    assert ".poignee{" in page and "touch-action:none" in page
+    page = _page_panneau("demandes.html")
+    assert "/ordre', 'PUT'" in page and 'data-agir="sous-monter"' in page
+
+
+
+# ---------- l'application « Demandes » : tableau, priorites, projets ----------
+
+def test_le_tableau_range_les_taches_par_colonne(boite):
+    """Glisser une carte : la colonne d'arrivee est renvoyee entiere, dans son
+    nouvel ordre ; une carte venue d'ailleurs y change de statut."""
+    c, _ = boite
+    ids = [c.post("/api/taches", json={"projet": "general", "titre": t}).get_json()["id"]
+           for t in ("a", "b", "c")]
+    a, b, cc = ids
+    taches = c.get("/api/taches").get_json()["taches"]
+    assert [t["statut"] for t in taches] == ["a_faire"] * 3
+    assert all(t["priorite"] == 2 and t["echeance"] is None for t in taches)
+    # « c » passe en cours, puis « a » le rejoint, au-dessus.
+    assert c.put("/api/taches/ordre", json={"statut": "en_cours", "ordre": [cc]}).status_code == 200
+    assert c.put("/api/taches/ordre", json={"statut": "en_cours", "ordre": [a, cc]}).status_code == 200
+    taches = {t["id"]: t for t in c.get("/api/taches").get_json()["taches"]}
+    assert taches[a]["statut"] == taches[cc]["statut"] == "en_cours"
+    assert taches[a]["ordre"] < taches[cc]["ordre"] and taches[b]["statut"] == "a_faire"
+    # « fait » tient la vieille case a cocher en accord.
+    assert c.put("/api/taches/ordre", json={"statut": "fait", "ordre": [b]}).status_code == 200
+    assert {t["id"]: t for t in c.get("/api/taches").get_json()["taches"]}[b]["faite"]
+    # Une liste qui invente, repete ou se trompe de colonne est refusee.
+    assert c.put("/api/taches/ordre", json={"statut": "fait", "ordre": ["x"]}).status_code == 409
+    assert c.put("/api/taches/ordre", json={"statut": "fait", "ordre": [a, a]}).status_code == 400
+    assert c.put("/api/taches/ordre", json={"statut": "ailleurs", "ordre": [a]}).status_code == 400
+
+
+def test_une_tache_a_priorite_echeance_et_notes(boite):
+    c, _ = boite
+    r = c.post("/api/taches", json={"projet": "general", "titre": "Urgent", "priorite": 0,
+                                    "echeance": "2026-12-01", "notes": "  voir le journal  "})
+    assert r.status_code == 200, r.data
+    ident = r.get_json()["id"]
+    (t,) = c.get("/api/taches").get_json()["taches"]
+    assert (t["priorite"], t["echeance"], t["notes"]) == (0, "2026-12-01", "voir le journal")
+    # Changer de statut envoie la tache en fin de sa nouvelle colonne.
+    assert c.put(f"/api/taches/{ident}", json={"statut": "en_cours", "echeance": None}).status_code == 200
+    (t,) = c.get("/api/taches").get_json()["taches"]
+    assert t["statut"] == "en_cours" and t["echeance"] is None and not t["faite"]
+    for mauvais in ({"priorite": 9}, {"priorite": "haute"}, {"echeance": "demain"},
+                    {"statut": "fini"}, {"titre": "  "}, {}):
+        assert c.put(f"/api/taches/{ident}", json=mauvais).status_code == 400, mauvais
+    assert c.post("/api/taches", json={"projet": "general", "titre": "x",
+                                       "echeance": "31/12/2026"}).status_code == 400
+    assert c.put("/api/taches/inconnue", json={"priorite": 1}).status_code == 404
+
+
+def test_un_projet_se_construit_puis_se_concretise(boite):
+    """Idee, construction, realise : et un projet realise peut nommer
+    l'application qui le concretise -- une application declaree, rien d'autre."""
+    c, _ = boite
+    app.save({"site": {"port": 8101, "titre": "Site"}})
+    r = c.post("/api/projets", json={"nom": "Agenda partagé", "description": "Un agenda",
+                                     "taches": ["Maquette", "", "Base"]})
+    assert r.status_code == 200, r.data
+    projet = r.get_json()["id"]
+    assert projet.startswith("p-")
+    (p,) = c.get("/api/projets").get_json()["projets"]
+    assert (p["nom"], p["etape"], p["application"]) == ("Agenda partagé", "idee", None)
+    taches = c.get("/api/taches").get_json()["taches"]
+    assert [t["titre"] for t in taches] == ["Maquette", "Base"]
+    assert {t["projet"] for t in taches} == {projet}
+    # Une tache peut rejoindre le projet par son identifiant.
+    assert c.post("/api/taches", json={"projet": projet, "titre": "Tests"}).status_code == 200
+    assert c.put(f"/api/projets/{projet}", json={"etape": "construction"}).status_code == 200
+    assert c.put(f"/api/projets/{projet}", json={"etape": "realise", "application": "site"}).status_code == 200
+    (p,) = c.get("/api/projets").get_json()["projets"]
+    assert (p["etape"], p["application"]) == ("realise", "site")
+    assert c.put(f"/api/projets/{projet}", json={"application": "inconnue"}).status_code == 400
+    assert c.put(f"/api/projets/{projet}", json={"etape": "fini"}).status_code == 400
+    assert c.put(f"/api/projets/{projet}", json={"application": ""}).status_code == 200
+    assert c.get("/api/projets").get_json()["projets"][0]["application"] is None
+    # Supprimer le projet ne perd aucune tache : elles passent dans « general ».
+    assert c.delete(f"/api/projets/{projet}").status_code == 200
+    assert c.get("/api/projets").get_json()["projets"] == []
+    assert {t["projet"] for t in c.get("/api/taches").get_json()["taches"]} == {"general"}
+    assert c.delete(f"/api/projets/{projet}").status_code == 404
+    assert c.post("/api/taches", json={"projet": projet, "titre": "x"}).status_code == 400
+
+
+def test_les_projets_se_reordonnent_en_entier(boite):
+    c, _ = boite
+    p1 = c.post("/api/projets", json={"nom": "Un"}).get_json()["id"]
+    p2 = c.post("/api/projets", json={"nom": "Deux"}).get_json()["id"]
+    assert c.put("/api/projets/ordre", json={"ordre": [p2, p1]}).status_code == 200
+    assert [p["nom"] for p in c.get("/api/projets").get_json()["projets"]] == ["Deux", "Un"]
+    assert c.put("/api/projets/ordre", json={"ordre": [p2]}).status_code == 409
+    assert c.put("/api/projets/ordre", json={"ordre": "x"}).status_code == 400
+
+
+def test_une_demande_acceptee_devient_un_projet(boite):
+    c, _ = boite
+    ident = _message(c, "idee", "Une appli pour les réservations de salle")
+    r = c.post(f"/api/messages/{ident}/accepter",
+               json={"nouveau_projet": {"nom": "Réservations", "description": "Salles"},
+                     "taches": ["Recenser les salles"]})
+    assert r.status_code == 200, r.data
+    d = r.get_json()
+    assert d["tache"] is None and d["projet"].startswith("p-")
+    (p,) = c.get("/api/projets").get_json()["projets"]
+    assert p["id"] == d["projet"] and p["message"] == ident and p["etape"] == "idee"
+    (t,) = c.get("/api/taches").get_json()["taches"]
+    assert t["projet"] == p["id"] and t["titre"] == "Recenser les salles"
+    m = next(x for x in app.lire_messages() if x["id"] == ident)
+    assert m["statut"] == "accepte"
+    # Un projet sans nom ne se cree pas, et la demande reste a traiter.
+    autre = _message(c, "idee", "Autre")
+    assert c.post(f"/api/messages/{autre}/accepter",
+                  json={"nouveau_projet": {"nom": " "}}).status_code == 400
+    assert next(x for x in app.lire_messages() if x["id"] == autre).get("statut", "en_attente") == "en_attente"
+    # Accepter en tache garde la priorite choisie.
+    r = c.post(f"/api/messages/{autre}/accepter", json={"titre": "Vite", "projet": p["id"], "priorite": 1})
+    assert r.status_code == 200
+    t = next(x for x in c.get("/api/taches").get_json()["taches"] if x["id"] == r.get_json()["tache"])
+    assert t["priorite"] == 1 and t["projet"] == p["id"]
+
+
+def test_l_application_demandes_est_reservee_a_l_administrateur(boite, deux_espaces):
+    c, _ = boite
+    r = c.get("/demandes/tableau")
+    assert r.status_code == 200
+    page = r.get_data(as_text=True)
+    assert "__JETON__" not in page and 'id="vue-tableau"' in page
+    # Un compte utilisateur est renvoye au hub ; un anonyme, a la connexion.
+    u = app.flask_app.test_client()
+    _connecte(u, "marie", "mot-de-passe-long")
+    r = u.get("/demandes")
+    assert r.status_code == 302 and r.headers["Location"].endswith("/")
+    for route in ("/api/projets", "/api/taches"):
+        assert u.get(route).status_code == 403, route
+    assert u.put("/api/taches/ordre", json={"statut": "fait", "ordre": []}).status_code == 403
+    assert app.flask_app.test_client().get("/demandes").status_code == 302
+    assert "demandes" in app.PAGES_DU_PANNEAU and "demandes" in app.adresses_reservees()
+
+
+def test_la_tuile_demandes_compte_les_non_lues(boite):
+    """Une tuile du hub au meme rang que le diagnostic, qui dit combien de
+    demandes attendent -- et que le panneau ouvre chez lui."""
+    c, _ = boite
+    _message(c, "hub", "Une")
+    _message(c, "hub", "Deux")
+    services = c.get("/api/mes-apps").get_json()["services"]
+    tuile = next(s for s in services if s["name"] == app.DEMANDES_NOM)
+    assert tuile["interne"] is True and tuile["url"] == "/demandes" and tuile["non_lues"] == 2
+    assert c.post("/api/messages/lus").status_code == 200
+    services = c.get("/api/mes-apps").get_json()["services"]
+    assert next(s for s in services if s["name"] == app.DEMANDES_NOM)["non_lues"] == 0
+    # Le tableau des applications, lui, ne la compte pas parmi les siennes.
+    assert app.DEMANDES_NOM not in [a.get("name") for a in c.get("/api/apps").get_json().get("apps", [])]
+    page = _page_panneau("dashboard.html")
+    assert "a.interne ? a.url" in page
 
 
 # ------------------ se connecter avec CodeLab, puis revenir ------------------

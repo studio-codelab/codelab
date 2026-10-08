@@ -9,7 +9,7 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](../SECURITE.m
 2. [Applications](#2-applications)
 3. [Comptes et accès](#3-comptes-et-accès)
 4. [Mails et alertes](#4-mails-et-alertes)
-5. [Messages et tâches](#5-messages-et-tâches)
+5. [Demandes : boîte de réception, tâches, projets](#5-demandes--boîte-de-réception-tâches-projets)
 6. [Poste de développement](#6-poste-de-développement)
 7. [Projets et Dagster](#7-projets-et-dagster)
 8. [Données, sauvegardes, restauration](#8-données-sauvegardes-restauration)
@@ -29,14 +29,21 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](../SECURITE.m
 | Vue d'ensemble | `/apercu` | admin | compteurs (en ligne, arrêtées, en erreur), charge CPU et mémoire |
 | Applications | `/applications`, `/applications/<nom>[/<onglet>]` | admin | liste, puis fiche d'une application |
 | Utilisateurs | `/utilisateurs` | admin | comptes, invitations, journal des accès, carte d'activité |
-| Messages | `/messages`, `/messages/taches` | admin | boîte de réception, tâches |
+| Demandes | `/demandes`, `/demandes/tableau`, `/demandes/projets` | admin | application à part, ouverte depuis sa tuile du hub (voir § 5) ; `/messages` y redirige |
 | Paramètres | `/parametres/<onglet>` | tous | onglets selon le rôle (voir plus bas) |
 
 - **Une seule application pour tous les rôles.** Le rôle décide de ce que le menu propose. Chaque
   rubrique a son adresse : recharger y ramène, « Précédent » y revient.
-- **Deux styles** (*Paramètres > Compte > Apparence*) :
-  - Style 1 : menu latéral ;
-  - Style 2 : menu en pilule, barre du bas sur téléphone, hub en grandes icônes.
+- **Quatre styles** (*Paramètres > Compte > Apparence*), retenus par navigateur :
+  - Style 1 : menu latéral, cartes compactes ;
+  - Style 2 : menu en pilule, barre du bas sur téléphone, hub en grandes icônes ;
+  - Style 3 « Lanceur » : le hub comme un écran d'accueil (trame de points, bonjour en grand,
+    recherche au centre, grandes icônes cerclées si l'application ne répond pas, Dagster, Mailpit et
+    Demandes dans un dock) ;
+  - Style 4 « Bento » : le hub en mosaïque (l'application ouverte en dernier en grand, une tuile
+    d'état « en ligne / total », une carte par application, recherche).
+
+  Les styles 3 et 4 reprennent la mise en page du style 2 pour le reste du panneau.
 - **Thème clair, sombre ou automatique.** Les jetons de couleur vivent dans
   `app-manager/app/theme.css`, aussi servi aux applications sur `/theme.css`.
 - **Installable sur l'écran d'accueil** d'un téléphone (manifeste web et icônes fournis).
@@ -114,7 +121,7 @@ Détails : [`app-manager/README.md`](../app-manager/README.md) et, côté dével
 
 **Applications par défaut**
 
-- **Dagster**, **Diagnostic** et **Mailpit** ont leur tuile, réservée à l'administrateur.
+- **Dagster**, **Diagnostic**, **Mailpit** et **Demandes** ont leur tuile, réservée à l'administrateur.
 - Elles ne se configurent pas, ne s'arrêtent pas et ne se suppriment pas : le panneau les remet en
   route à chaque tour.
 - Chaque compte peut les ranger hors de son hub.
@@ -169,14 +176,33 @@ Détails : [`mailpit/README.md`](../mailpit/README.md).
 - Chaque run Dagster en échec (capteur `alerte_mail_echec`), dont l'audit des dépendances.
 - Surveillance externe : un appel à healthchecks.io toutes les 5 minutes.
 
-## 5. Messages et tâches
+## 5. Demandes : boîte de réception, tâches, projets
 
-- **Un message** se laisse à l'administrateur depuis le hub.
-- **Traitement** : un message est nouveau, à réfléchir, accepté ou refusé. Il peut être épinglé,
-  archivé ou marqué lu.
-- **Tâches** : accepter un message peut créer une tâche, rangée dans un projet (une application, ou
-  « Général »).
-- **Sous-tâches** à cocher, réordonnées par glisser-déposer (souris, doigt ou clavier).
+Une application du hub, au même rang que Dagster, Mailpit et le diagnostic, réservée à
+l'administrateur. Sa tuile porte le nombre de demandes non lues. Servie par le panneau sur
+`/demandes` : même session, mêmes contrôles d'accès, même base.
+
+- **Une demande** se laisse depuis le hub (*Paramètres > Message*) : à propos du hub, d'une
+  application, ou une idée d'application. Une demande qui arrive s'annonce dans le coin du panneau.
+- **Boîte de réception** (`/demandes`) : nouvelles, à réfléchir, traitées. Une demande s'accepte,
+  se met de côté, se refuse, s'épingle, s'archive ou se supprime (avec confirmation). L'accepter en
+  fait au choix :
+  - **une tâche**, dans un projet, une application ou « Général », avec sa priorité et ses sous-tâches ;
+  - **un projet**, avec sa description et ses premières tâches ;
+  - rien de plus (acceptée sans suite).
+- **Tableau** (`/demandes/tableau`) : les tâches en trois colonnes, *à faire*, *en cours*, *fait*.
+  - Quatre priorités (urgente, haute, normale, basse), une échéance (en rouge si dépassée), des notes.
+  - Les cartes se glissent d'une colonne à l'autre et se réordonnent (souris, doigt, ou clavier :
+    ↑ ↓ pour l'ordre, ← → pour la colonne). Le haut de la colonne passe en premier.
+  - « Trier par priorité » range une colonne par priorité puis par échéance.
+  - Filtres par projet, priorité et texte. Le glisser est coupé tant qu'un filtre est actif.
+  - Une fiche par tâche : titre, projet, statut, priorité, échéance, notes, sous-tâches (cocher,
+    ajouter, monter, retirer), et la demande d'origine.
+- **Projets** (`/demandes/projets`) : trois étapes, *idée* → *en construction* → *réalisé*.
+  - Chaque projet montre son avancement (tâches faites sur le total).
+  - « Concrétiser » le passe en réalisé et peut le lier à l'application qui le concrétise.
+  - Supprimer un projet ne perd aucune tâche : elles passent dans « Général ».
+  - Les tâches rattachées à une application ou à « Général » ont leur propre carte.
 
 ## 6. Poste de développement
 

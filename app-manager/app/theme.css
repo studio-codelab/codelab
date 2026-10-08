@@ -247,3 +247,90 @@
   --accent-ring:rgba(140,144,255,.3); --sur-accent:#0F1117;
   --shadow:rgba(0,0,0,.35); --shadow-2:rgba(0,0,0,.55);
 }
+
+
+/* =====================================================================
+   STYLES 3 (« lanceur ») ET 4 (« bento »). Variantes du style 2 : la page
+   porte data-style="design" ET data-variante. Seuls les JETONS sont ici ;
+   la mise en page vit dans dashboard.html, sous :root[data-variante].
+   Police : Manrope, en graisse 800 pour les titres.
+
+   Specificites : chaque bloc d'une variante pese une classe de plus que le
+   bloc du style 2 qu'il remplace (clair 0,3,0 > 0,2,0 ; sombre du systeme
+   0,5,0 > 0,4,0 ; sombre choisi 0,4,0 > 0,3,0).
+   ===================================================================== */
+:root[data-style="design"][data-variante="lanceur"]{
+  --bg:#EEF1F5; --surface:#FFFFFF; --surface2:#F3F5F8; --bg-input:#FFFFFF;
+  --line:#DFE4EA; --line2:#C9D1DA; --plaque-logo:#FFFFFF;
+  --txt:#0B0F14; --dim:#566273; --dim2:#7A8696;
+  --nav:#EEF1F5; --nav2:#FFFFFF; --nav-line:#DFE4EA;
+  --nav-txt:#0B0F14; --nav-dim:#566273; --nav-hover:#E3E8EE;
+  --accent:#0E7C86; --accent-h:#0B646C; --accent-soft:#DFF1F2;
+  --accent-ring:rgba(14,124,134,.22); --sur-accent:#FFFFFF;
+  --shadow:rgba(11,15,20,.06); --shadow-2:rgba(11,15,20,.16);
+  --trame:rgba(11,15,20,.09);
+  --r:22px; --r-s:14px; --r-xs:8px;
+  --sans:"Manrope",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root[data-style="design"][data-variante="lanceur"]:not([data-theme="light"]):not([data-theme="dark"]){
+    --bg:#0B0F14; --surface:#121821; --surface2:#1A222D; --bg-input:#0F141B;
+    --line:#222C38; --line2:#2E3A48; --plaque-logo:#E8EDF3;
+    --txt:#E8EDF3; --dim:#9AA6B4; --dim2:#7D8998;
+    --nav:#0B0F14; --nav2:#121821; --nav-line:#222C38;
+    --nav-txt:#E8EDF3; --nav-dim:#9AA6B4; --nav-hover:#1A222D;
+    --accent:#5FD4DC; --accent-h:#8FE3E9; --accent-soft:rgba(95,212,220,.14);
+    --accent-ring:rgba(95,212,220,.3); --sur-accent:#04161A;
+    --shadow:rgba(0,0,0,.4); --shadow-2:rgba(0,0,0,.6);
+    --trame:rgba(255,255,255,.07);
+  }
+}
+:root[data-style="design"][data-variante="lanceur"][data-theme="dark"]{
+  --bg:#0B0F14; --surface:#121821; --surface2:#1A222D; --bg-input:#0F141B;
+  --line:#222C38; --line2:#2E3A48; --plaque-logo:#E8EDF3;
+  --txt:#E8EDF3; --dim:#9AA6B4; --dim2:#7D8998;
+  --nav:#0B0F14; --nav2:#121821; --nav-line:#222C38;
+  --nav-txt:#E8EDF3; --nav-dim:#9AA6B4; --nav-hover:#1A222D;
+  --accent:#5FD4DC; --accent-h:#8FE3E9; --accent-soft:rgba(95,212,220,.14);
+  --accent-ring:rgba(95,212,220,.3); --sur-accent:#04161A;
+  --shadow:rgba(0,0,0,.4); --shadow-2:rgba(0,0,0,.6);
+  --trame:rgba(255,255,255,.07);
+}
+
+:root[data-style="design"][data-variante="bento"]{
+  --bg:#E9EBEE; --surface:#FFFFFF; --surface2:#F4F5F7; --bg-input:#FFFFFF;
+  --line:#DADEE3; --line2:#C6CCD3; --plaque-logo:#FFFFFF;
+  --txt:#12161C; --dim:#525C67; --dim2:#76808B;
+  --nav:#E9EBEE; --nav2:#FFFFFF; --nav-line:#DADEE3;
+  --nav-txt:#12161C; --nav-dim:#525C67; --nav-hover:#DEE2E7;
+  --accent:#0E7C86; --accent-h:#0B646C; --accent-soft:#DFF1F2;
+  --accent-ring:rgba(14,124,134,.22); --sur-accent:#FFFFFF;
+  --shadow:rgba(18,22,28,.06); --shadow-2:rgba(18,22,28,.14);
+  --bento-encre:#12161C; --bento-sur-encre:#F1F4F7; --bento-lien:#8FE3E9; --bento-rail:rgba(255,255,255,.16);
+  --r:24px; --r-s:14px; --r-xs:8px;
+  --sans:"Manrope",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root[data-style="design"][data-variante="bento"]:not([data-theme="light"]):not([data-theme="dark"]){
+    --bg:#0D1015; --surface:#161B22; --surface2:#1D232C; --bg-input:#12171D;
+    --line:#262E38; --line2:#333D49; --plaque-logo:#EEF1F4;
+    --txt:#EEF1F4; --dim:#A0AAB5; --dim2:#7D8793;
+    --nav:#0D1015; --nav2:#161B22; --nav-line:#262E38;
+    --nav-txt:#EEF1F4; --nav-dim:#A0AAB5; --nav-hover:#1D232C;
+    --accent:#5FD4DC; --accent-h:#8FE3E9; --accent-soft:rgba(95,212,220,.14);
+    --accent-ring:rgba(95,212,220,.3); --sur-accent:#04161A;
+    --shadow:rgba(0,0,0,.4); --shadow-2:rgba(0,0,0,.6);
+    --bento-encre:#EEF1F4; --bento-sur-encre:#12161C; --bento-lien:#0B646C; --bento-rail:rgba(18,22,28,.14);
+  }
+}
+:root[data-style="design"][data-variante="bento"][data-theme="dark"]{
+  --bg:#0D1015; --surface:#161B22; --surface2:#1D232C; --bg-input:#12171D;
+  --line:#262E38; --line2:#333D49; --plaque-logo:#EEF1F4;
+  --txt:#EEF1F4; --dim:#A0AAB5; --dim2:#7D8793;
+  --nav:#0D1015; --nav2:#161B22; --nav-line:#262E38;
+  --nav-txt:#EEF1F4; --nav-dim:#A0AAB5; --nav-hover:#1D232C;
+  --accent:#5FD4DC; --accent-h:#8FE3E9; --accent-soft:rgba(95,212,220,.14);
+  --accent-ring:rgba(95,212,220,.3); --sur-accent:#04161A;
+  --shadow:rgba(0,0,0,.4); --shadow-2:rgba(0,0,0,.6);
+  --bento-encre:#EEF1F4; --bento-sur-encre:#12161C; --bento-lien:#0B646C; --bento-rail:rgba(18,22,28,.14);
+}

@@ -1,0 +1,864 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Demandes — CodeLab</title>
+<link rel="icon" type="image/png" sizes="128x128" href="/codelab-onglet.png">
+<link rel="stylesheet" href="/theme.css">
+<!--
+  L'APPLICATION « DEMANDES ». Servie par le panneau sur /demandes, reservee a
+  l'administrateur. Trois vues :
+
+    Boite de reception   les demandes laissees depuis le hub : on les accepte
+                         (en tache, en projet, ou sans suite), on les met de
+                         cote, on les refuse ;
+    Tableau              les taches en trois colonnes -- a faire, en cours,
+                         fait --, priorisees et reorganisees au glisser ;
+    Projets              ce qu'on construit puis concretise : idee, en
+                         construction, realise.
+
+  Les couleurs viennent de theme.css : la page suit le style et le theme
+  choisis dans le panneau. Aucune donnee n'est gardee ici ; tout passe par
+  l'API du panneau, qui verifie le role a chaque appel.
+-->
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:var(--t-b)/1.5 var(--sans);
+ font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+a{color:var(--accent)}
+.cache{display:none !important}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* ---- la barre du haut ---- */
+.barre{position:sticky;top:0;z-index:20;background:var(--surface);border-bottom:1px solid var(--line)}
+.barre-int{max-width:1400px;margin:0 auto;padding:12px 24px;display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px}
+.retour{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 12px 0 8px;border-radius:var(--r-s);
+ color:var(--dim);text-decoration:none;font-weight:650}
+.retour:hover{background:var(--surface2);color:var(--txt)}
+.retour svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.marque{display:flex;align-items:center;gap:10px}
+.marque img{width:34px;height:34px;border-radius:10px}
+.marque h1{margin:0;font-size:20px;font-weight:800;letter-spacing:-.02em}
+.onglets{display:flex;gap:4px;padding:4px;border-radius:999px;background:var(--surface2);border:1px solid var(--line)}
+.onglets button{border:0;background:none;min-height:36px;padding:0 16px;border-radius:999px;font-weight:650;color:var(--dim);cursor:pointer;
+ display:inline-flex;align-items:center;gap:8px}
+.onglets button[aria-selected="true"]{background:var(--surface);color:var(--txt);box-shadow:0 1px 3px var(--shadow-2)}
+.compte{min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--accent);color:var(--sur-accent);
+ font-size:11px;font-weight:800;display:inline-flex;align-items:center;justify-content:center}
+.compte:empty{display:none}
+.espace{flex:1}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:40px;padding:0 16px;border-radius:var(--r-s);
+ border:1px solid var(--line2);background:var(--surface);font-weight:700;cursor:pointer;color:var(--txt)}
+.btn:hover{border-color:var(--accent)}
+.btn.principal{background:var(--accent);border-color:var(--accent);color:var(--sur-accent)}
+.btn.principal:hover{background:var(--accent-h)}
+.btn.discret{border-color:transparent;background:none;color:var(--dim)}
+.btn.discret:hover{color:var(--txt);background:var(--surface2)}
+.btn.danger{color:var(--err);border-color:var(--err-border,var(--line2))}
+.btn.petit{min-height:32px;padding:0 12px;font-size:13px}
+.btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+main{max-width:1400px;margin:0 auto;padding:24px}
+.outils{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:18px}
+.puces{display:flex;flex-wrap:wrap;gap:6px}
+.puces button{min-height:36px;padding:0 14px;border-radius:999px;border:1px solid var(--line2);background:var(--surface);
+ font-weight:650;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.puces button[aria-pressed="true"]{background:var(--txt);border-color:var(--txt);color:var(--surface)}
+.puces b{font-size:11px;opacity:.75}
+select.choix,input.choix{min-height:36px;border:1px solid var(--line2);border-radius:var(--r-s);background:var(--bg-input);padding:0 10px}
+.vide{padding:40px 16px;text-align:center;color:var(--dim);border:1px dashed var(--line2);border-radius:var(--r)}
+
+/* ---- la boite de reception ---- */
+.demandes{display:flex;flex-direction:column;gap:12px;max-width:900px}
+.demande{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;display:flex;flex-direction:column;gap:10px}
+.demande.non-lue{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+.demande-tete{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.demande-tete b{font-weight:750}
+.demande-sujet{color:var(--dim);font-size:13px}
+.quand{margin-left:auto;color:var(--dim2);font-size:12px}
+.demande-texte{white-space:pre-wrap;word-break:break-word}
+.demande-actes{display:flex;flex-wrap:wrap;gap:8px}
+.etiquette{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:750;
+ background:var(--surface2);color:var(--dim)}
+.etiquette.accent{background:var(--accent-soft);color:var(--accent)}
+.etiquette.ok{background:var(--ok-bg);color:var(--ok)}
+.etiquette.warn{background:var(--warn-bg);color:var(--warn)}
+.etiquette.err{background:var(--err-bg);color:var(--err)}
+.icone-btn{width:36px;height:36px;border-radius:var(--r-s);border:0;background:none;color:var(--dim);cursor:pointer;
+ display:inline-flex;align-items:center;justify-content:center}
+.icone-btn:hover{background:var(--surface2);color:var(--txt)}
+.icone-btn.actif{color:var(--accent)}
+.icone-btn svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+/* ---- le tableau ---- */
+.colonnes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;align-items:start}
+.colonne{background:var(--surface2);border:1px solid var(--line);border-radius:var(--r);padding:12px;min-height:200px;display:flex;flex-direction:column;gap:10px}
+.colonne.survol{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+.colonne-tete{display:flex;align-items:center;gap:8px;padding:2px 4px}
+.colonne-tete h2{margin:0;font-size:14px;font-weight:800}
+.colonne-tete .nb{color:var(--dim);font-weight:700;font-size:13px}
+.colonne-liste{display:flex;flex-direction:column;gap:10px;min-height:40px}
+.carte{background:var(--surface);border:1px solid var(--line);border-radius:calc(var(--r) - 4px);padding:12px 12px 12px 10px;
+ display:flex;gap:8px;box-shadow:0 1px 2px var(--shadow);touch-action:none}
+.carte.glisse{opacity:.92;box-shadow:0 16px 40px var(--shadow-2);transform:rotate(1deg);position:relative;z-index:5}
+.carte.p0{box-shadow:inset 3px 0 0 var(--err),0 1px 2px var(--shadow)}
+.carte.p1{box-shadow:inset 3px 0 0 var(--warn),0 1px 2px var(--shadow)}
+.carte.faite .carte-titre{text-decoration:line-through;color:var(--dim)}
+.poignee{flex:none;width:24px;min-height:36px;border:0;background:none;color:var(--dim2);cursor:grab;border-radius:6px;padding:0;
+ display:flex;align-items:flex-start;justify-content:center;padding-top:2px}
+.poignee:hover{color:var(--accent);background:var(--surface2)}
+.poignee svg{width:16px;height:16px;fill:currentColor}
+.carte-corps{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.carte-titre{all:unset;cursor:pointer;font-weight:700;line-height:1.35;word-break:break-word}
+.carte-titre:hover{color:var(--accent)}
+.carte-meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px;color:var(--dim)}
+.retard{color:var(--err);font-weight:700}
+.ajout-rapide{display:flex;gap:6px}
+.ajout-rapide input{flex:1;min-width:0;min-height:36px;border:1px dashed var(--line2);border-radius:var(--r-s);background:transparent;padding:0 10px}
+.ajout-rapide input:focus{border-style:solid;border-color:var(--accent);background:var(--surface)}
+.aide{color:var(--dim);font-size:12.5px}
+
+/* ---- les projets ---- */
+.etapes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;align-items:start}
+.etape h2{margin:0 0 10px;font-size:14px;font-weight:800;display:flex;align-items:center;gap:8px}
+.etape-liste{display:flex;flex-direction:column;gap:12px}
+.projet{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:flex;flex-direction:column;gap:10px}
+.projet h3{margin:0;font-size:17px;font-weight:800;letter-spacing:-.01em}
+.projet p{margin:0;color:var(--dim);font-size:13px;white-space:pre-wrap;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.progres{height:8px;border-radius:999px;background:var(--surface2);overflow:hidden}
+.progres i{display:block;height:100%;background:var(--ok);border-radius:999px}
+.projet-chiffres{display:flex;gap:12px;font-size:12px;color:var(--dim)}
+.projet-actes{display:flex;flex-wrap:wrap;gap:6px}
+.seaux{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;margin-top:8px}
+.seau{all:unset;cursor:pointer;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;display:flex;flex-direction:column;gap:8px}
+.seau:hover{border-color:var(--accent)}
+.titre-zone{margin:32px 0 6px;font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+
+/* ---- fenetres ---- */
+.voile{position:fixed;inset:0;z-index:50;background:rgba(10,14,20,.45);display:flex;align-items:flex-start;justify-content:center;
+ padding:6vh 16px;overflow:auto}
+.fenetre{width:100%;max-width:560px;background:var(--surface);border:1px solid var(--line);border-radius:calc(var(--r) + 4px);
+ box-shadow:0 30px 80px rgba(0,0,0,.35);padding:22px;display:flex;flex-direction:column;gap:14px}
+.fenetre.large{max-width:720px}
+.fenetre h2{margin:0;font-size:19px;font-weight:800}
+.champ{display:flex;flex-direction:column;gap:6px}
+.champ label,.champ .lib{font-size:13px;font-weight:700;color:var(--dim)}
+.champ input,.champ select,.champ textarea{width:100%;min-height:40px;border:1px solid var(--line2);border-radius:var(--r-s);
+ background:var(--bg-input);padding:8px 10px}
+.champ textarea{min-height:90px;resize:vertical}
+.rangee{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.fenetre-actes{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.fenetre-actes .gauche{margin-right:auto}
+.erreur{color:var(--err);font-weight:650;font-size:13px}
+.modes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.modes label{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border:1px solid var(--line2);border-radius:var(--r-s);cursor:pointer}
+.modes label:has(input:checked){border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset;background:var(--accent-soft)}
+.modes input{position:absolute;opacity:0}
+.modes b{font-size:14px}
+.modes span{font-size:12px;color:var(--dim)}
+.citation{border-left:3px solid var(--line2);padding:6px 12px;color:var(--dim);white-space:pre-wrap;max-height:160px;overflow:auto}
+.sous-liste{display:flex;flex-direction:column;gap:4px}
+.sous{display:flex;align-items:center;gap:8px;min-height:36px;padding:0 4px;border-radius:6px}
+.sous:hover{background:var(--surface2)}
+.sous label{flex:1;display:flex;align-items:center;gap:8px;cursor:pointer}
+.sous input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent)}
+.sous.faite label span{text-decoration:line-through;color:var(--dim)}
+.toast{position:fixed;right:20px;bottom:20px;z-index:60;background:var(--txt);color:var(--surface);padding:12px 16px;border-radius:var(--r-s);
+ font-weight:650;box-shadow:0 10px 30px rgba(0,0,0,.3);max-width:360px}
+.toast.err{background:var(--err);color:#fff}
+
+@media (max-width:900px){
+  .colonnes,.etapes{grid-template-columns:minmax(0,1fr)}
+  .modes{grid-template-columns:minmax(0,1fr)}
+  main{padding:16px}
+  .barre-int{padding:10px 16px}
+}
+</style>
+</head>
+<body>
+<header class="barre">
+  <div class="barre-int">
+    <a class="retour" href="/"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>Hub</a>
+    <div class="marque"><img src="/api/icon/demandes" alt=""><h1>Demandes</h1></div>
+    <nav class="onglets" role="tablist" aria-label="Vues">
+      <button role="tab" id="tab-boite" aria-controls="vue-boite" onclick="allerVue('boite')">Boîte de réception <span class="compte" id="n-nouvelles"></span></button>
+      <button role="tab" id="tab-tableau" aria-controls="vue-tableau" onclick="allerVue('tableau')">Tableau</button>
+      <button role="tab" id="tab-projets" aria-controls="vue-projets" onclick="allerVue('projets')">Projets</button>
+    </nav>
+    <div class="espace"></div>
+    <button class="btn" onclick="ouvrirProjet(null)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Projet</button>
+    <button class="btn principal" onclick="ouvrirTache(null)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Tâche</button>
+  </div>
+</header>
+
+<main>
+  <!-- ============ BOITE DE RECEPTION ============ -->
+  <section id="vue-boite" role="tabpanel" aria-labelledby="tab-boite">
+    <div class="outils">
+      <div class="puces" id="filtres-boite" role="group" aria-label="État des demandes">
+        <button data-f="attente" onclick="choisirEtat('attente')">Nouvelles <b id="n-attente"></b></button>
+        <button data-f="reflechir" onclick="choisirEtat('reflechir')">À réfléchir <b id="n-reflechir"></b></button>
+        <button data-f="traites" onclick="choisirEtat('traites')">Traitées</button>
+        <button data-f="" onclick="choisirEtat('')">Toutes</button>
+      </div>
+    </div>
+    <div class="demandes" id="liste-demandes"></div>
+  </section>
+
+  <!-- ============ TABLEAU ============ -->
+  <section id="vue-tableau" role="tabpanel" aria-labelledby="tab-tableau" class="cache">
+    <div class="outils">
+      <label class="sr" for="f-projet">Projet</label>
+      <select class="choix" id="f-projet" onchange="peindreTableau()"></select>
+      <label class="sr" for="f-priorite">Priorité</label>
+      <select class="choix" id="f-priorite" onchange="peindreTableau()">
+        <option value="">Toutes priorités</option>
+        <option value="0">Urgentes</option><option value="1">Hautes</option>
+        <option value="2">Normales</option><option value="3">Basses</option>
+      </select>
+      <label class="sr" for="f-texte">Rechercher</label>
+      <input class="choix" id="f-texte" type="search" placeholder="Rechercher une tâche" oninput="peindreTableau()">
+      <span class="aide" id="aide-filtres"></span>
+    </div>
+    <div class="colonnes" id="colonnes"></div>
+  </section>
+
+  <!-- ============ PROJETS ============ -->
+  <section id="vue-projets" role="tabpanel" aria-labelledby="tab-projets" class="cache">
+    <div class="etapes" id="etapes"></div>
+    <div class="titre-zone">Applications et général</div>
+    <div class="aide">Les tâches rattachées à une application déclarée, ou à aucun projet.</div>
+    <div class="seaux" id="seaux"></div>
+  </section>
+</main>
+
+<!-- ============ ACCEPTER UNE DEMANDE ============ -->
+<div class="voile cache" id="fen-accepter" role="dialog" aria-modal="true" aria-labelledby="acc-titre">
+  <div class="fenetre large">
+    <h2 id="acc-titre">Accepter la demande</h2>
+    <div class="citation" id="acc-citation"></div>
+    <fieldset class="modes" style="border:0;padding:0;margin:0">
+      <legend class="sr">Ce que devient la demande</legend>
+      <label><input type="radio" name="acc-mode" value="tache" checked onchange="accMode()"><b>Une tâche</b><span>Un travail précis, dans un projet existant.</span></label>
+      <label><input type="radio" name="acc-mode" value="projet" onchange="accMode()"><b>Un projet</b><span>Une idée à construire, en plusieurs tâches.</span></label>
+      <label><input type="radio" name="acc-mode" value="aucun" onchange="accMode()"><b>Sans suite</b><span>Acceptée, rien à faire de plus.</span></label>
+    </fieldset>
+    <div id="acc-tache">
+      <div class="champ"><label for="acc-t-titre">Titre de la tâche</label><input id="acc-t-titre" maxlength="200"></div>
+      <div class="rangee" style="margin-top:12px">
+        <div class="champ"><label for="acc-t-projet">Projet</label><select id="acc-t-projet"></select></div>
+        <div class="champ"><label for="acc-t-priorite">Priorité</label><select id="acc-t-priorite"></select></div>
+      </div>
+      <div class="champ" style="margin-top:12px"><label for="acc-t-sous">Sous-tâches, une par ligne</label><textarea id="acc-t-sous"></textarea></div>
+    </div>
+    <div id="acc-projet" class="cache">
+      <div class="champ"><label for="acc-p-nom">Nom du projet</label><input id="acc-p-nom" maxlength="120"></div>
+      <div class="champ" style="margin-top:12px"><label for="acc-p-desc">Description</label><textarea id="acc-p-desc"></textarea></div>
+      <div class="champ" style="margin-top:12px"><label for="acc-p-taches">Premières tâches, une par ligne</label><textarea id="acc-p-taches"></textarea></div>
+    </div>
+    <div class="erreur cache" id="acc-err" role="alert"></div>
+    <div class="fenetre-actes">
+      <button class="btn discret" onclick="fermer('fen-accepter')">Annuler</button>
+      <button class="btn principal" id="acc-ok" onclick="accValider()">Accepter</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ UNE TACHE ============ -->
+<div class="voile cache" id="fen-tache" role="dialog" aria-modal="true" aria-labelledby="t-titre-fen">
+  <div class="fenetre large">
+    <h2 id="t-titre-fen">Tâche</h2>
+    <div class="champ"><label for="t-titre">Titre</label><input id="t-titre" maxlength="200"></div>
+    <div class="rangee">
+      <div class="champ"><label for="t-projet">Projet</label><select id="t-projet"></select></div>
+      <div class="champ"><label for="t-statut">Statut</label><select id="t-statut">
+        <option value="a_faire">À faire</option><option value="en_cours">En cours</option><option value="fait">Fait</option></select></div>
+      <div class="champ"><label for="t-priorite">Priorité</label><select id="t-priorite"></select></div>
+      <div class="champ"><label for="t-echeance">Échéance</label><input id="t-echeance" type="date"></div>
+    </div>
+    <div class="champ"><label for="t-notes">Notes</label><textarea id="t-notes" maxlength="4000"></textarea></div>
+    <div class="champ" id="t-zone-sous">
+      <span class="lib">Sous-tâches</span>
+      <div class="sous-liste" id="t-sous"></div>
+      <div class="ajout-rapide"><label class="sr" for="t-sous-ajout">Ajouter une sous-tâche</label>
+        <input id="t-sous-ajout" placeholder="Ajouter une sous-tâche, puis Entrée" maxlength="200"></div>
+    </div>
+    <div class="champ cache" id="t-zone-creation-sous"><label for="t-sous-lignes">Sous-tâches, une par ligne</label><textarea id="t-sous-lignes"></textarea></div>
+    <div class="citation cache" id="t-source"></div>
+    <div class="erreur cache" id="t-err" role="alert"></div>
+    <div class="fenetre-actes">
+      <button class="btn danger gauche" id="t-supprimer" onclick="tacheSupprimer()">Supprimer</button>
+      <button class="btn discret" onclick="fermer('fen-tache')">Fermer</button>
+      <button class="btn principal" id="t-ok" onclick="tacheEnregistrer()">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ UN PROJET ============ -->
+<div class="voile cache" id="fen-projet" role="dialog" aria-modal="true" aria-labelledby="p-titre-fen">
+  <div class="fenetre">
+    <h2 id="p-titre-fen">Projet</h2>
+    <div class="champ"><label for="p-nom">Nom</label><input id="p-nom" maxlength="120"></div>
+    <div class="champ"><label for="p-desc">Description</label><textarea id="p-desc" maxlength="4000"></textarea></div>
+    <div class="rangee">
+      <div class="champ"><label for="p-etape">Étape</label><select id="p-etape">
+        <option value="idee">Idée</option><option value="construction">En construction</option><option value="realise">Réalisé</option></select></div>
+      <div class="champ"><label for="p-app">Application qui le concrétise</label><select id="p-app"></select></div>
+    </div>
+    <div class="champ" id="p-zone-taches"><label for="p-taches">Premières tâches, une par ligne</label><textarea id="p-taches"></textarea></div>
+    <div class="erreur cache" id="p-err" role="alert"></div>
+    <div class="fenetre-actes">
+      <button class="btn danger gauche" id="p-supprimer" onclick="projetSupprimer()">Supprimer</button>
+      <button class="btn discret" onclick="fermer('fen-projet')">Annuler</button>
+      <button class="btn principal" onclick="projetEnregistrer()">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirmation : le bouton porte le verbe, jamais un « OK ». -->
+<div class="voile cache" id="fen-confirmer" role="alertdialog" aria-modal="true" aria-labelledby="c-titre">
+  <div class="fenetre">
+    <h2 id="c-titre"></h2>
+    <div id="c-texte" class="aide" style="font-size:14px"></div>
+    <div class="fenetre-actes">
+      <button class="btn discret" id="c-non">Annuler</button>
+      <button class="btn principal" id="c-oui"></button>
+    </div>
+  </div>
+</div>
+
+<script>
+const JETON=__JETON__;
+const $=i=>document.getElementById(i);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+/* Le theme et le style choisis dans le panneau : le style est pose par le
+   serveur (cookie), le theme vit dans le stockage de cette origine. */
+try{ const t=localStorage.getItem('codelab-theme'); if(t && t!=='auto') document.documentElement.setAttribute('data-theme', t); }catch(e){}
+
+/* Le jeton anti-falsification part avec toute requete qui modifie. */
+const fetchNu=window.fetch.bind(window);
+window.fetch=function(cible, options){
+  options=options||{};
+  const m=(options.method||'GET').toUpperCase();
+  if(m==='GET' || m==='HEAD') return fetchNu(cible, options);
+  const h=new Headers(options.headers||{});
+  h.set('X-CodeLab-Jeton', JETON);
+  return fetchNu(cible, Object.assign({}, options, {headers:h}));
+};
+async function echec(r, defaut){
+  let d={}; try{ d=await r.json(); }catch(e){}
+  if(d && d.error) return d.error;
+  if(r.status===401) return 'Session expirée : reconnecte-toi.';
+  if(r.status===403) return 'Action refusée. Recharge la page, puis réessaie.';
+  return defaut+' (réponse '+r.status+')';
+}
+async function appel(url, methode, corps, defaut){
+  const r=await fetch(url, {method:methode||'GET', headers:{'Content-Type':'application/json'},
+                            body: corps===undefined ? undefined : JSON.stringify(corps)});
+  if(!r.ok){ notifier(await echec(r, defaut||'Action impossible.'), true); return null; }
+  try{ return await r.json(); }catch(e){ return {}; }
+}
+let minuterieToast=null;
+function notifier(texte, erreur){
+  let n=document.querySelector('.toast');
+  if(!n){ n=document.createElement('div'); n.setAttribute('role','status'); document.body.appendChild(n); }
+  n.className='toast'+(erreur?' err':''); n.textContent=texte;
+  clearTimeout(minuterieToast); minuterieToast=setTimeout(()=>n.remove(), 3800);
+}
+function ouvrir(id){ $(id).classList.remove('cache'); }
+function fermer(id){ $(id).classList.add('cache'); }
+document.addEventListener('keydown', e=>{
+  if(e.key!=='Escape') return;
+  document.querySelectorAll('.voile:not(.cache)').forEach(v=>v.classList.add('cache'));
+});
+function demander(titre, texte, verbe){
+  return new Promise(res=>{
+    $('c-titre').textContent=titre; $('c-texte').textContent=texte; $('c-oui').textContent=verbe;
+    const fin=v=>{ fermer('fen-confirmer'); res(v); };
+    $('c-oui').onclick=()=>fin(true); $('c-non').onclick=()=>fin(false);
+    ouvrir('fen-confirmer'); $('c-non').focus();
+  });
+}
+function ilYA(ts){
+  const s=Math.max(0, Date.now()/1000-(ts||0));
+  if(s<60) return "à l'instant";
+  if(s<3600) return 'il y a '+Math.floor(s/60)+' min';
+  if(s<86400) return 'il y a '+Math.floor(s/3600)+' h';
+  const j=Math.floor(s/86400); return j===1 ? 'hier' : 'il y a '+j+' jours';
+}
+
+/* ---------------- les donnees ---------------- */
+let demandes=[], taches=[], projets=[], apps=[];
+const PRIORITES=[['0','Urgente','err'],['1','Haute','warn'],['2','Normale',''],['3','Basse','']];
+const STATUTS=[['a_faire','À faire'],['en_cours','En cours'],['fait','Fait']];
+const ETAPES=[['idee','Idées'],['construction','En construction'],['realise','Réalisés']];
+
+async function charger(){
+  const [m,t,p,a]=await Promise.all([
+    fetch('/api/messages').then(r=>r.ok?r.json():{}).catch(()=>({})),
+    fetch('/api/taches').then(r=>r.ok?r.json():{}).catch(()=>({})),
+    fetch('/api/projets').then(r=>r.ok?r.json():{}).catch(()=>({})),
+    apps.length ? Promise.resolve(null) : fetch('/api/apps').then(r=>r.ok?r.json():{}).catch(()=>({})),
+  ]);
+  demandes=m.messages||demandes; taches=t.taches||taches; projets=p.projets||projets;
+  if(a) apps=(a.apps||[]).filter(x=>!x.externe);
+  peindre();
+}
+
+/* Le nom lisible d'un projet de tache : un projet, une application, ou general. */
+function nomProjet(cle){
+  if(cle==='general') return 'Général';
+  const p=projets.find(x=>x.id===cle); if(p) return p.nom;
+  const a=apps.find(x=>x.name===cle); return a ? (a.titre||a.name) : cle;
+}
+function optionsProjets(choisi, avecTous){
+  const groupes=[];
+  if(avecTous) groupes.push('<option value="">Tous les projets</option>');
+  groupes.push(`<option value="general">Général</option>`);
+  if(projets.length) groupes.push('<optgroup label="Projets">'+projets.map(p=>`<option value="${esc(p.id)}">${esc(p.nom)}</option>`).join('')+'</optgroup>');
+  if(apps.length) groupes.push('<optgroup label="Applications">'+apps.slice().sort((x,y)=>(x.titre||x.name).localeCompare(y.titre||y.name,'fr'))
+    .map(x=>`<option value="${esc(x.name)}">${esc(x.titre||x.name)}</option>`).join('')+'</optgroup>');
+  return groupes.join('');
+}
+function optionsPriorites(){ return PRIORITES.map(([v,t])=>`<option value="${v}">${t}</option>`).join(''); }
+function etiquettePriorite(p){
+  const [,t,c]=PRIORITES.find(x=>Number(x[0])===Number(p))||PRIORITES[2];
+  return Number(p)===2 ? '' : `<span class="etiquette ${c}">${t}</span>`;
+}
+
+/* ---------------- les vues et l'adresse ---------------- */
+let vue='boite';
+function allerVue(v, sansHistorique){
+  vue=['boite','tableau','projets'].includes(v) ? v : 'boite';
+  for(const nom of ['boite','tableau','projets']){
+    $('vue-'+nom).classList.toggle('cache', nom!==vue);
+    $('tab-'+nom).setAttribute('aria-selected', nom===vue ? 'true' : 'false');
+  }
+  const adresse = vue==='boite' ? '/demandes' : '/demandes/'+vue;
+  if(!sansHistorique && location.pathname!==adresse) history.pushState(null, '', adresse);
+  if(vue==='boite') marquerLues();
+  peindre();
+}
+window.addEventListener('popstate', ()=>allerVue(location.pathname.split('/')[2]||'boite', true));
+function peindre(){
+  peindreCompteurs();
+  if(vue==='boite') peindreBoite();
+  if(vue==='tableau') peindreTableau();
+  if(vue==='projets') peindreProjets();
+}
+
+/* ---------------- la boite de reception ---------------- */
+let etat='attente';
+function dansEtat(m, f){
+  const st=m.statut||'en_attente';
+  if(f==='attente') return !m.archive && st==='en_attente';
+  if(f==='reflechir') return !m.archive && st==='a_reflechir';
+  if(f==='traites') return !!m.archive || st==='accepte' || st==='refuse';
+  return true;
+}
+function choisirEtat(f){ etat=f; peindreBoite(); }
+function peindreCompteurs(){
+  const nouvelles=demandes.filter(m=>!m.lu && !m.archive).length;
+  $('n-nouvelles').textContent = nouvelles || '';
+  $('n-attente').textContent = demandes.filter(m=>dansEtat(m,'attente')).length || '';
+  $('n-reflechir').textContent = demandes.filter(m=>dansEtat(m,'reflechir')).length || '';
+}
+async function marquerLues(){
+  if(!demandes.some(m=>!m.lu)) return;
+  const r=await fetch('/api/messages/lus', {method:'POST'});
+  if(r.ok){ setTimeout(()=>{ demandes=demandes.map(m=>({...m, lu:true})); peindreCompteurs(); }, 4000); }
+}
+const SUJET=m=>m.cible==='application' ? 'à propos de '+(apps.find(a=>a.name===m.app)?.titre||m.app||'')
+  : (m.cible==='idee' ? "une idée d'application" : 'à propos du hub');
+const SVG_EPINGLE='<svg viewBox="0 0 24 24"><path d="M12 17v5"/><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3z"/></svg>';
+const SVG_ARCHIVE='<svg viewBox="0 0 24 24"><path d="M3 4h18v3H3z"/><path d="M5 7l1 13h12l1-13"/><path d="M9 11h6"/></svg>';
+const SVG_POUBELLE='<svg viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M6 7l1 13h10l-1-13"/><path d="M9 7V4h6v3"/></svg>';
+function statutDemande(m){
+  if(m.archive) return '<span class="etiquette">archivée</span>';
+  const st=m.statut||'en_attente';
+  return st==='accepte' ? '<span class="etiquette ok">acceptée</span>'
+    : st==='refuse' ? '<span class="etiquette err">refusée</span>'
+    : st==='a_reflechir' ? '<span class="etiquette warn">à réfléchir</span>' : '';
+}
+function peindreBoite(){
+  document.querySelectorAll('#filtres-boite button').forEach(b=>b.setAttribute('aria-pressed', b.dataset.f===etat ? 'true':'false'));
+  const liste=demandes.filter(m=>dansEtat(m, etat));
+  if(!liste.length){
+    $('liste-demandes').innerHTML='<div class="vide">'+(etat==='attente' ? 'Aucune nouvelle demande.' : 'Rien ici.')+'</div>';
+    return;
+  }
+  $('liste-demandes').innerHTML=liste.map(m=>{
+    const id=esc(m.id), st=m.statut||'en_attente';
+    const traitee=m.archive || st==='accepte' || st==='refuse';
+    const nees=taches.filter(t=>t.message===m.id).length + projets.filter(p=>p.message===m.id).length;
+    return `<article class="demande${m.lu?'':' non-lue'}">
+      <div class="demande-tete"><b>${esc(m.qui||'?')}</b>${m.lu?'':'<span class="etiquette accent">nouvelle</span>'}${statutDemande(m)}
+        <span class="demande-sujet">${esc(SUJET(m))}</span>
+        <span class="quand" title="${esc(new Date((m.ts||0)*1000).toLocaleString('fr-FR'))}">${esc(ilYA(m.ts))}</span>
+        <button class="icone-btn${m.retenu?' actif':''}" aria-label="${m.retenu?'Désépingler':'Épingler'}" title="${m.retenu?'Désépingler':'Épingler'}" data-agir="epingler" data-id="${id}">${SVG_EPINGLE}</button>
+        <button class="icone-btn" aria-label="${m.archive?'Restaurer':'Archiver'}" title="${m.archive?'Restaurer':'Archiver'}" data-agir="archiver" data-id="${id}">${SVG_ARCHIVE}</button>
+        <button class="icone-btn" aria-label="Supprimer" title="Supprimer" data-agir="supprimer-demande" data-id="${id}">${SVG_POUBELLE}</button>
+      </div>
+      <div class="demande-texte">${esc(m.texte||'')}</div>
+      ${nees ? `<div class="aide">${nees} élément${nees>1?'s':''} né${nees>1?'s':''} de cette demande.</div>` : ''}
+      ${traitee ? '' : `<div class="demande-actes">
+        <button class="btn principal petit" data-agir="accepter" data-id="${id}">Accepter…</button>
+        ${st==='a_reflechir'
+          ? `<button class="btn petit" data-agir="statut" data-valeur="en_attente" data-id="${id}">Remettre dans les nouvelles</button>`
+          : `<button class="btn petit" data-agir="statut" data-valeur="a_reflechir" data-id="${id}">À réfléchir</button>`}
+        <button class="btn discret petit" data-agir="statut" data-valeur="refuse" data-id="${id}">Refuser</button></div>`}
+    </article>`;
+  }).join('');
+}
+async function demandeModifier(id, corps){
+  if(await appel('/api/messages/'+encodeURIComponent(id), 'PUT', corps, 'Modification impossible.')) charger();
+}
+async function demandeSupprimer(id){
+  if(!await demander('Supprimer cette demande ?', 'Elle disparaît définitivement. Les tâches et projets qui en sont nés restent.', 'Supprimer')) return;
+  if(await appel('/api/messages/'+encodeURIComponent(id), 'DELETE', undefined, 'Suppression impossible.')){ notifier('Demande supprimée.'); charger(); }
+}
+
+/* Accepter : en tache, en projet, ou sans suite. */
+let accId=null;
+function accOuvrir(id){
+  accId=id;
+  const m=demandes.find(x=>x.id===id); if(!m) return;
+  $('acc-citation').textContent=(m.qui||'?')+' — '+(m.texte||'');
+  const premiere=String(m.texte||'').split('\n')[0].trim();
+  const court=premiere.length>110 ? premiere.slice(0,107)+'…' : premiere;
+  $('acc-t-titre').value=court; $('acc-p-nom').value=court; $('acc-p-desc').value=m.texte||'';
+  $('acc-t-sous').value=''; $('acc-p-taches').value='';
+  $('acc-t-projet').innerHTML=optionsProjets(); $('acc-t-priorite').innerHTML=optionsPriorites();
+  $('acc-t-projet').value=(m.cible==='application' && apps.some(a=>a.name===m.app)) ? m.app : 'general';
+  $('acc-t-priorite').value='2';
+  document.querySelector('input[name="acc-mode"][value="'+(m.cible==='idee'?'projet':'tache')+'"]').checked=true;
+  $('acc-err').classList.add('cache');
+  accMode(); ouvrir('fen-accepter'); $('acc-t-titre').focus();
+}
+function accMode(){
+  const mode=document.querySelector('input[name="acc-mode"]:checked').value;
+  $('acc-tache').classList.toggle('cache', mode!=='tache');
+  $('acc-projet').classList.toggle('cache', mode!=='projet');
+  $('acc-ok').textContent = mode==='tache' ? 'Créer la tâche' : mode==='projet' ? 'Créer le projet' : 'Accepter';
+}
+async function accValider(){
+  const mode=document.querySelector('input[name="acc-mode"]:checked').value;
+  const lignes=v=>v.split('\n').map(x=>x.trim()).filter(Boolean);
+  let corps={};
+  if(mode==='tache') corps={titre:$('acc-t-titre').value.trim(), projet:$('acc-t-projet').value,
+    priorite:Number($('acc-t-priorite').value), sous_taches:lignes($('acc-t-sous').value)};
+  if(mode==='projet') corps={nouveau_projet:{nom:$('acc-p-nom').value.trim(), description:$('acc-p-desc').value},
+    taches:lignes($('acc-p-taches').value)};
+  const err=$('acc-err');
+  if(mode==='tache' && !corps.titre){ err.textContent='Donne un titre à la tâche.'; err.classList.remove('cache'); return; }
+  if(mode==='projet' && !corps.nouveau_projet.nom){ err.textContent='Donne un nom au projet.'; err.classList.remove('cache'); return; }
+  const r=await fetch('/api/messages/'+encodeURIComponent(accId)+'/accepter', {method:'POST',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify(corps)});
+  if(!r.ok){ err.textContent=await echec(r,'Acceptation impossible.'); err.classList.remove('cache'); return; }
+  fermer('fen-accepter');
+  notifier(mode==='tache' ? 'Tâche créée.' : mode==='projet' ? 'Projet créé.' : 'Demande acceptée.');
+  charger();
+}
+
+/* ---------------- le tableau ---------------- */
+function filtresActifs(){ return $('f-projet').value || $('f-priorite').value || $('f-texte').value.trim(); }
+function tacheVisible(t){
+  const p=$('f-projet').value, pr=$('f-priorite').value, q=$('f-texte').value.trim().toLowerCase();
+  return (!p || t.projet===p) && (pr==='' || String(t.priorite)===pr)
+    && (!q || (t.titre+' '+(t.notes||'')).toLowerCase().includes(q));
+}
+function peindreTableau(){
+  const sel=$('f-projet'), choisi=sel.value;
+  sel.innerHTML=optionsProjets(null, true);
+  sel.value=[...sel.options].some(o=>o.value===choisi) ? choisi : '';
+  const filtre=filtresActifs();
+  $('aide-filtres').textContent = filtre ? 'Filtres actifs : retire-les pour réorganiser au glisser.' : '';
+  const aujourdhui=new Date().toISOString().slice(0,10);
+  $('colonnes').innerHTML=STATUTS.map(([st, titre])=>{
+    const liste=taches.filter(t=>t.statut===st && tacheVisible(t));
+    return `<section class="colonne" data-statut="${st}" aria-labelledby="col-${st}">
+      <div class="colonne-tete"><h2 id="col-${st}">${titre}</h2><span class="nb">${liste.length}</span><span class="espace"></span>
+        ${st!=='fait' && liste.length>1 && !filtre ? `<button class="btn discret petit" data-agir="trier" data-statut="${st}" title="Ranger la colonne par priorité puis par échéance">Trier par priorité</button>` : ''}</div>
+      <div class="colonne-liste" data-statut="${st}">${liste.map(t=>carteTache(t, aujourdhui, filtre)).join('')}</div>
+      ${st==='a_faire' ? `<div class="ajout-rapide"><label class="sr" for="ajout-${st}">Nouvelle tâche</label>
+        <input id="ajout-${st}" data-statut="${st}" class="ajout-tache" placeholder="Nouvelle tâche, puis Entrée" maxlength="200"></div>` : ''}
+    </section>`;
+  }).join('');
+}
+function carteTache(t, aujourdhui, filtre){
+  const faites=t.sous_taches.filter(s=>s.faite).length, total=t.sous_taches.length;
+  const source=t.message ? demandes.find(m=>m.id===t.message) : null;
+  const retard=t.echeance && t.statut!=='fait' && t.echeance<aujourdhui;
+  return `<article class="carte p${t.priorite}${t.statut==='fait'?' faite':''}" data-id="${esc(t.id)}">
+    ${filtre ? '' : `<button class="poignee" type="button" aria-label="Déplacer « ${esc(t.titre)} » : flèches haut et bas pour l'ordre, gauche et droite pour la colonne">
+      <svg viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.4"/><circle cx="15" cy="6" r="1.4"/><circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="9" cy="18" r="1.4"/><circle cx="15" cy="18" r="1.4"/></svg></button>`}
+    <div class="carte-corps">
+      <button class="carte-titre" data-agir="ouvrir-tache" data-id="${esc(t.id)}">${esc(t.titre)}</button>
+      <div class="carte-meta">${etiquettePriorite(t.priorite)}<span class="etiquette">${esc(nomProjet(t.projet))}</span>
+        ${total ? `<span>${faites}/${total}</span>` : ''}
+        ${t.echeance ? `<span class="${retard?'retard':''}">${retard?'En retard · ':''}${esc(new Date(t.echeance+'T12:00').toLocaleDateString('fr-FR',{day:'numeric',month:'short'}))}</span>` : ''}
+        ${source ? `<span>Demandé par ${esc(source.qui||'?')}</span>` : ''}</div>
+    </div></article>`;
+}
+async function enregistrerColonne(statut){
+  const ids=[...document.querySelectorAll(`.colonne-liste[data-statut="${statut}"] .carte`)].map(c=>c.dataset.id);
+  if(await appel('/api/taches/ordre', 'PUT', {statut, ordre:ids}, 'Réorganisation impossible.')) charger();
+}
+async function trierColonne(statut){
+  const liste=taches.filter(t=>t.statut===statut).sort((a,b)=>
+    a.priorite-b.priorite || (a.echeance||'9999').localeCompare(b.echeance||'9999') || a.ordre-b.ordre);
+  if(await appel('/api/taches/ordre', 'PUT', {statut, ordre:liste.map(t=>t.id)}, 'Tri impossible.')){ notifier('Colonne triée par priorité.'); charger(); }
+}
+
+/* Glisser une carte : au pointeur (souris, doigt, stylet), dans sa colonne
+   ou dans une autre. L'ordre part au serveur au lacher. */
+let glisse=null;
+document.addEventListener('pointerdown', e=>{
+  const p=e.target.closest && e.target.closest('.poignee'); if(!p || !p.closest('.carte')) return;
+  e.preventDefault();
+  const carte=p.closest('.carte');
+  glisse={carte, depart:carte.parentElement.dataset.statut, ordre:[...carte.parentElement.children].indexOf(carte)};
+  carte.classList.add('glisse');
+  try{ p.setPointerCapture(e.pointerId); }catch(_){}
+});
+document.addEventListener('pointermove', e=>{
+  if(!glisse) return;
+  const sous=document.elementsFromPoint(e.clientX, e.clientY).find(x=>x.classList && x.classList.contains('colonne'));
+  document.querySelectorAll('.colonne').forEach(c=>c.classList.toggle('survol', c===sous));
+  if(!sous) return;
+  const liste=sous.querySelector('.colonne-liste');
+  const autres=[...liste.querySelectorAll('.carte')].filter(c=>c!==glisse.carte);
+  const avant=autres.find(c=>{ const r=c.getBoundingClientRect(); return e.clientY < r.top + r.height/2; });
+  liste.insertBefore(glisse.carte, avant||null);
+});
+function finGlisse(){
+  if(!glisse) return;
+  const g=glisse; glisse=null;
+  g.carte.classList.remove('glisse');
+  document.querySelectorAll('.colonne').forEach(c=>c.classList.remove('survol'));
+  const arrivee=g.carte.parentElement.dataset.statut;
+  if(arrivee!==g.depart || [...g.carte.parentElement.children].indexOf(g.carte)!==g.ordre) enregistrerColonne(arrivee);
+}
+document.addEventListener('pointerup', finGlisse);
+document.addEventListener('pointercancel', finGlisse);
+/* Au clavier, sur la poignee : haut et bas changent l'ordre, gauche et
+   droite changent de colonne. */
+document.addEventListener('keydown', e=>{
+  const p=e.target.closest && e.target.closest('.poignee');
+  if(!p || !['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) return;
+  e.preventDefault();
+  const carte=p.closest('.carte'), liste=carte.parentElement, id=carte.dataset.id;
+  if(e.key==='ArrowUp' || e.key==='ArrowDown'){
+    const cartes=[...liste.children], i=cartes.indexOf(carte), j=e.key==='ArrowUp' ? i-1 : i+1;
+    if(j<0 || j>=cartes.length) return;
+    liste.insertBefore(carte, e.key==='ArrowUp' ? cartes[j] : cartes[j].nextSibling);
+    enregistrerColonne(liste.dataset.statut).then(()=>setTimeout(()=>{ const q=document.querySelector(`.carte[data-id="${CSS.escape(id)}"] .poignee`); if(q) q.focus(); }, 50));
+    return;
+  }
+  const ordre=STATUTS.map(x=>x[0]), i=ordre.indexOf(liste.dataset.statut);
+  const cible=ordre[i+(e.key==='ArrowLeft' ? -1 : 1)]; if(!cible) return;
+  appel('/api/taches/'+encodeURIComponent(id), 'PUT', {statut:cible}, 'Déplacement impossible.').then(r=>{ if(r) charger().then(()=>{
+    const q=document.querySelector(`.carte[data-id="${CSS.escape(id)}"] .poignee`); if(q) q.focus(); }); });
+});
+document.addEventListener('keydown', async e=>{
+  const champ=e.target;
+  if(e.key!=='Enter' || !champ.classList) return;
+  if(champ.classList.contains('ajout-tache')){
+    e.preventDefault();
+    const titre=champ.value.trim(); if(!titre) return;
+    const projet=$('f-projet').value || 'general';
+    if(await appel('/api/taches', 'POST', {titre, projet, statut:champ.dataset.statut}, 'Création impossible.')){
+      await charger(); const n=$('ajout-a_faire'); if(n) n.focus();
+    }
+  }
+  if(champ.id==='t-sous-ajout' && tacheId){
+    e.preventDefault();
+    const titre=champ.value.trim(); if(!titre) return;
+    if(await appel('/api/taches/'+encodeURIComponent(tacheId)+'/sous-taches', 'POST', {titre}, 'Ajout impossible.')){
+      champ.value=''; await charger(); peindreSousTaches();
+    }
+  }
+});
+
+/* ---------------- une tache ---------------- */
+let tacheId=null;
+function ouvrirTache(id){
+  tacheId=id;
+  const t=id ? taches.find(x=>x.id===id) : null;
+  $('t-titre-fen').textContent = t ? 'Tâche' : 'Nouvelle tâche';
+  $('t-projet').innerHTML=optionsProjets(); $('t-priorite').innerHTML=optionsPriorites();
+  $('t-titre').value=t ? t.titre : '';
+  $('t-projet').value=t ? t.projet : ($('f-projet').value || 'general');
+  if(!$('t-projet').value) $('t-projet').value='general';
+  $('t-statut').value=t ? t.statut : 'a_faire';
+  $('t-priorite').value=String(t ? t.priorite : 2);
+  $('t-echeance').value=t && t.echeance ? t.echeance : '';
+  $('t-notes').value=t ? (t.notes||'') : '';
+  $('t-zone-sous').classList.toggle('cache', !t);
+  $('t-zone-creation-sous').classList.toggle('cache', !!t);
+  $('t-sous-lignes').value='';
+  $('t-supprimer').classList.toggle('cache', !t);
+  $('t-ok').textContent = t ? 'Enregistrer' : 'Créer la tâche';
+  const source=t && t.message ? demandes.find(m=>m.id===t.message) : null;
+  $('t-source').classList.toggle('cache', !source);
+  if(source) $('t-source').textContent='Demandé par '+(source.qui||'?')+' — '+(source.texte||'');
+  $('t-err').classList.add('cache');
+  if(t) peindreSousTaches();
+  ouvrir('fen-tache'); $('t-titre').focus();
+}
+function peindreSousTaches(){
+  const t=taches.find(x=>x.id===tacheId); if(!t) return;
+  $('t-sous').innerHTML=t.sous_taches.map((s,i)=>`<div class="sous${s.faite?' faite':''}">
+    <label><input type="checkbox" ${s.faite?'checked':''} data-changer="sous-faite" data-id="${esc(s.id)}"><span>${esc(s.titre)}</span></label>
+    <button class="icone-btn" aria-label="Monter « ${esc(s.titre)} »" title="Monter" data-agir="sous-monter" data-i="${i}" ${i?'':'disabled'}><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button>
+    <button class="icone-btn" aria-label="Retirer « ${esc(s.titre)} »" title="Retirer" data-agir="sous-retirer" data-id="${esc(s.id)}"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+  </div>`).join('') || '<div class="aide">Aucune sous-tâche.</div>';
+}
+async function tacheEnregistrer(){
+  const err=$('t-err'); err.classList.add('cache');
+  const corps={titre:$('t-titre').value.trim(), projet:$('t-projet').value, statut:$('t-statut').value,
+    priorite:Number($('t-priorite').value), echeance:$('t-echeance').value || null, notes:$('t-notes').value};
+  if(!corps.titre){ err.textContent='Donne un titre à la tâche.'; err.classList.remove('cache'); return; }
+  if(!tacheId) corps.sous_taches=$('t-sous-lignes').value.split('\n').map(x=>x.trim()).filter(Boolean);
+  const r=await fetch(tacheId ? '/api/taches/'+encodeURIComponent(tacheId) : '/api/taches',
+    {method:tacheId?'PUT':'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(corps)});
+  if(!r.ok){ err.textContent=await echec(r, 'Enregistrement impossible.'); err.classList.remove('cache'); return; }
+  fermer('fen-tache'); notifier(tacheId ? 'Tâche enregistrée.' : 'Tâche créée.'); charger();
+}
+async function tacheSupprimer(){
+  if(!tacheId || !await demander('Supprimer cette tâche ?', 'Ses sous-tâches partent avec elle. La demande d\'origine, elle, reste.', 'Supprimer')) return;
+  if(await appel('/api/taches/'+encodeURIComponent(tacheId), 'DELETE', undefined, 'Suppression impossible.')){
+    fermer('fen-tache'); notifier('Tâche supprimée.'); charger();
+  }
+}
+
+/* ---------------- les projets ---------------- */
+function avancement(cle){
+  const liste=taches.filter(t=>t.projet===cle);
+  const faites=liste.filter(t=>t.statut==='fait').length;
+  return {total:liste.length, faites, encours:liste.filter(t=>t.statut==='en_cours').length,
+          pc:Math.round(100*faites/Math.max(1, liste.length))};
+}
+function peindreProjets(){
+  $('etapes').innerHTML=ETAPES.map(([etape, titre])=>{
+    const liste=projets.filter(p=>p.etape===etape);
+    return `<section class="etape" aria-labelledby="et-${etape}"><h2 id="et-${etape}">${titre} <span class="aide">${liste.length}</span></h2>
+      <div class="etape-liste">${liste.map(carteProjet).join('') || '<div class="vide" style="padding:20px">'+(etape==='idee' ? 'Aucune idée. Une demande acceptée en projet arrive ici.' : 'Aucun projet.')+'</div>'}</div></section>`;
+  }).join('');
+  const cles=[...new Set(taches.map(t=>t.projet).filter(c=>!projets.some(p=>p.id===c)))];
+  $('seaux').innerHTML=cles.sort((a,b)=>nomProjet(a).localeCompare(nomProjet(b),'fr')).map(c=>{
+    const a=avancement(c);
+    return `<button class="seau" data-agir="voir-projet" data-id="${esc(c)}"><b>${esc(nomProjet(c))}</b>
+      <div class="progres" aria-hidden="true"><i style="width:${a.pc}%"></i></div>
+      <span class="aide">${a.faites} sur ${a.total} faites${a.encours ? ' · '+a.encours+' en cours' : ''}</span></button>`;
+  }).join('') || '<div class="aide">Aucune tâche hors projet.</div>';
+}
+function carteProjet(p){
+  const a=avancement(p.id), id=esc(p.id);
+  const app=p.application ? apps.find(x=>x.name===p.application) : null;
+  const suivant = p.etape==='idee' ? ['construction','Lancer la construction']
+    : p.etape==='construction' ? ['realise','Concrétiser…'] : ['construction','Rouvrir'];
+  return `<article class="projet">
+    <h3>${esc(p.nom)}</h3>
+    ${p.description ? `<p>${esc(p.description)}</p>` : ''}
+    <div class="progres" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${a.pc}" aria-label="Avancement"><i style="width:${a.pc}%"></i></div>
+    <div class="projet-chiffres"><span>${a.total ? a.faites+'/'+a.total+' faites' : 'Aucune tâche'}</span>${a.encours ? `<span>${a.encours} en cours</span>` : ''}
+      ${p.application ? `<span class="etiquette ok">${esc(app ? (app.titre||app.name) : p.application)}</span>` : ''}</div>
+    <div class="projet-actes">
+      <button class="btn petit" data-agir="voir-projet" data-id="${id}">Tableau</button>
+      <button class="btn petit${p.etape==='construction'?' principal':''}" data-agir="etape" data-id="${id}" data-valeur="${suivant[0]}">${suivant[1]}</button>
+      <button class="btn discret petit" data-agir="modifier-projet" data-id="${id}">Modifier</button>
+    </div></article>`;
+}
+let projetId=null;
+function ouvrirProjet(id, etapeVoulue){
+  projetId=id;
+  const p=id ? projets.find(x=>x.id===id) : null;
+  $('p-titre-fen').textContent = p ? (etapeVoulue==='realise' ? 'Concrétiser le projet' : 'Projet') : 'Nouveau projet';
+  $('p-nom').value=p ? p.nom : ''; $('p-desc').value=p ? (p.description||'') : '';
+  $('p-etape').value=etapeVoulue || (p ? p.etape : 'idee');
+  $('p-app').innerHTML='<option value="">Aucune</option>'+apps.slice().sort((x,y)=>(x.titre||x.name).localeCompare(y.titre||y.name,'fr'))
+    .map(x=>`<option value="${esc(x.name)}">${esc(x.titre||x.name)}</option>`).join('');
+  $('p-app').value=p && p.application ? p.application : '';
+  $('p-zone-taches').classList.toggle('cache', !!p); $('p-taches').value='';
+  $('p-supprimer').classList.toggle('cache', !p);
+  $('p-err').classList.add('cache');
+  ouvrir('fen-projet'); (etapeVoulue==='realise' ? $('p-app') : $('p-nom')).focus();
+}
+async function projetEnregistrer(){
+  const err=$('p-err'); err.classList.add('cache');
+  const corps={nom:$('p-nom').value.trim(), description:$('p-desc').value, etape:$('p-etape').value};
+  if(!corps.nom){ err.textContent='Donne un nom au projet.'; err.classList.remove('cache'); return; }
+  if(projetId) corps.application=$('p-app').value;
+  else corps.taches=$('p-taches').value.split('\n').map(x=>x.trim()).filter(Boolean);
+  const r=await fetch(projetId ? '/api/projets/'+encodeURIComponent(projetId) : '/api/projets',
+    {method:projetId?'PUT':'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(corps)});
+  if(!r.ok){ err.textContent=await echec(r, 'Enregistrement impossible.'); err.classList.remove('cache'); return; }
+  if(!projetId && $('p-app').value){
+    const d=await r.json().catch(()=>({}));
+    if(d.id) await appel('/api/projets/'+encodeURIComponent(d.id), 'PUT', {application:$('p-app').value});
+  }
+  fermer('fen-projet'); notifier(corps.etape==='realise' ? 'Projet concrétisé.' : 'Projet enregistré.'); charger();
+}
+async function projetSupprimer(){
+  if(!projetId || !await demander('Supprimer ce projet ?', 'Ses tâches ne disparaissent pas : elles passent dans « Général ».', 'Supprimer')) return;
+  if(await appel('/api/projets/'+encodeURIComponent(projetId), 'DELETE', undefined, 'Suppression impossible.')){
+    fermer('fen-projet'); notifier('Projet supprimé.'); charger();
+  }
+}
+
+/* ---------------- un seul aiguillage pour les boutons ---------------- */
+document.addEventListener('click', async e=>{
+  const b=e.target.closest && e.target.closest('[data-agir]'); if(!b) return;
+  const id=b.dataset.id, v=b.dataset.valeur;
+  const m=id ? demandes.find(x=>x.id===id) : null;
+  switch(b.dataset.agir){
+    case 'accepter': accOuvrir(id); break;
+    case 'statut': demandeModifier(id, {statut:v}); break;
+    case 'epingler': demandeModifier(id, {retenu:!(m && m.retenu)}); break;
+    case 'archiver': demandeModifier(id, {archive:!(m && m.archive)}); break;
+    case 'supprimer-demande': demandeSupprimer(id); break;
+    case 'ouvrir-tache': ouvrirTache(id); break;
+    case 'trier': trierColonne(b.dataset.statut); break;
+    case 'voir-projet': $('f-projet').value=id; allerVue('tableau'); $('f-projet').value=id; peindreTableau(); break;
+    case 'modifier-projet': ouvrirProjet(id); break;
+    case 'etape':
+      if(v==='realise') ouvrirProjet(id, 'realise');
+      else if(await appel('/api/projets/'+encodeURIComponent(id), 'PUT', {etape:v}, 'Changement impossible.')) charger();
+      break;
+    case 'sous-retirer':
+      if(await appel('/api/sous-taches/'+encodeURIComponent(id), 'DELETE', undefined, 'Retrait impossible.')){ await charger(); peindreSousTaches(); }
+      break;
+    case 'sous-monter': {
+      const t=taches.find(x=>x.id===tacheId); const i=Number(b.dataset.i); if(!t || i<1) break;
+      const ids=t.sous_taches.map(s=>s.id); [ids[i-1], ids[i]]=[ids[i], ids[i-1]];
+      if(await appel('/api/taches/'+encodeURIComponent(tacheId)+'/ordre', 'PUT', {ordre:ids}, 'Réorganisation impossible.')){ await charger(); peindreSousTaches(); }
+      break;
+    }
+  }
+});
+document.addEventListener('change', async e=>{
+  const c=e.target;
+  if(c.dataset && c.dataset.changer==='sous-faite'){
+    if(await appel('/api/sous-taches/'+encodeURIComponent(c.dataset.id), 'PUT', {faite:c.checked}, 'Modification impossible.')){ await charger(); peindreSousTaches(); }
+  }
+});
+document.querySelectorAll('.voile').forEach(v=>v.addEventListener('click', e=>{ if(e.target===v) v.classList.add('cache'); }));
+
+/* ---------------- demarrage ---------------- */
+allerVue(location.pathname.split('/')[2]||'boite', true);
+charger().then(()=>{ if(vue==='boite') marquerLues(); });
+/* Les demandes qui arrivent pendant qu'on travaille : un tour toutes les
+   vingt secondes, seulement quand l'onglet est au premier plan, et jamais
+   pendant qu'on glisse une carte ou qu'une fenetre est ouverte. */
+setInterval(()=>{
+  if(document.hidden || glisse || document.querySelector('.voile:not(.cache)')) return;
+  charger();
+}, 20000);
+</script>
+</body>
+</html>

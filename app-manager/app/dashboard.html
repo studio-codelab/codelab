@@ -623,49 +623,13 @@ label:has(> input[type=checkbox]),label:has(> input[type=radio]){
 .seg-icones{width:auto;flex:none}
 .seg-icones button{flex:none;width:34px;padding:6px 0;display:grid;place-items:center}
 .seg-icones svg{width:15px;height:15px}
-/* Un message recu : qui, quand, sur quoi, puis le texte. Le texte garde ses
-   retours a la ligne -- quelqu'un qui saute une ligne l'a voulu. */
-.msg-ligne{border-top:1px solid var(--line);padding:12px 0;position:relative}
-.msg-ligne:first-child{border-top:none;padding-top:0}
-.msg-tete{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px}
-.msg-tete b{font-size:var(--t-m);font-weight:650}
-.msg-tete .quand{color:var(--dim2);font-size:11.5px;margin-left:auto}
-.msg-texte{font-size:var(--t-m);color:var(--txt);white-space:pre-wrap;line-height:1.55}
-.msg-vide{color:var(--dim);font-size:var(--t-m);padding:6px 0}
-.msg-ligne.non-lu{border-left:3px solid var(--accent);padding-left:13px;background:var(--accent-soft)}
-.msg-nouveau{font-size:10px;font-weight:750;text-transform:uppercase;letter-spacing:.07em;color:var(--accent);padding:2px 7px;border-radius:999px;background:var(--accent-soft)}
+.hub-projet,.dock-item,.bento-carte{position:relative}
+.hub-pastille{position:absolute;top:-6px;right:-6px;min-width:22px;height:22px;padding:0 6px;border-radius:999px;
+ background:var(--accent);color:var(--sur-accent);font-size:11.5px;font-weight:800;display:inline-flex;
+ align-items:center;justify-content:center;box-shadow:0 0 0 3px var(--bg)}
 .toast-message{cursor:pointer;padding-right:10px}
 .toast-message button{margin-left:auto;border:1px solid var(--line2);background:var(--surface2);color:var(--txt);border-radius:6px;padding:5px 8px;font:inherit;font-size:12px;font-weight:650;cursor:pointer;white-space:nowrap}
 .toast-message button:hover{border-color:var(--accent);color:var(--accent)}
-/* Un message non lu se voit avant meme d'ouvrir sa fiche : il reste neutre
-   dans la liste, mais porte un filet d'accent et une pastille « nouveau ». */
-.msg-ligne.retenu{box-shadow:inset 3px 0 0 var(--accent);padding-left:11px;
- border-radius:0 var(--r-s) var(--r-s) 0}
-/* Les deux gestes, discrets tant qu'on ne survole pas la ligne : une boite
-   de messages se lit d'abord, se trie ensuite. */
-.msg-actes{display:flex;gap:4px;opacity:0;transition:opacity .12s}
-.msg-ligne:hover .msg-actes,.msg-ligne:focus-within .msg-actes{opacity:1}
-.msg-acte{border:1px solid var(--line2);background:var(--surface);color:var(--dim);
- width:26px;height:26px;border-radius:var(--r-s);cursor:pointer;display:grid;
- place-items:center;padding:0}
-.msg-acte svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;
- stroke-linecap:round;stroke-linejoin:round}
-.msg-acte:hover{border-color:var(--accent);color:var(--accent)}
-.msg-acte.actif{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
-.msg-acte.danger:hover{border-color:var(--err);color:var(--err);background:var(--err-bg)}
-.msg-acte.accept:hover{border-color:var(--ok);color:var(--ok);background:var(--ok-bg)}
-.msg-acte.refuse:hover{border-color:var(--err);color:var(--err);background:var(--err-bg)}
-.msg-statut{font-size:10px;font-weight:750;text-transform:uppercase;letter-spacing:.06em;padding:2px 7px;border-radius:999px;background:var(--surface2);color:var(--dim)}
-.msg-statut.attente{color:var(--accent);background:var(--accent-soft)}
-.msg-statut.accepte{color:var(--ok);background:var(--ok-bg)}
-.msg-statut.refuse{color:var(--err);background:var(--err-bg)}
-.msg-statut.archive{color:var(--dim2);background:var(--surface2)}
-.side-count.messages-non-lus{background:var(--accent);color:var(--sur-accent);box-shadow:0 0 0 3px var(--accent-soft)}
-/* AU-DELA D'UN ECRAN, ON DEFILE DANS LA CARTE, pas dans la page : la barre
-   de filtres reste sous les yeux pendant qu'on descend la liste. */
-.msg-boite{max-height:56vh;overflow:auto;margin-top:12px;padding-right:4px}
-.msg-barre{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px}
-.msg-barre .dl{width:auto;min-width:210px}
 textarea{resize:vertical;min-height:72px;line-height:1.5}
 
 /* LE MASQUAGE SE REGLE DANS LES PARAMETRES, PAS SUR LA TUILE.
@@ -1240,49 +1204,6 @@ table.tbl-journal{min-width:560px}
   .fiche-actions .btn{justify-content:center;padding-left:6px;padding-right:6px}
 }
 
-/* ---------------- messages : etats, projets, taches ---------------- */
-.segment{display:inline-flex;padding:3px;border-radius:10px;background:var(--surface2);border:1px solid var(--line)}
-.segment button{border:0;background:transparent;color:var(--dim);font:inherit;font-size:var(--t-m);
- font-weight:600;padding:6px 14px;border-radius:8px;cursor:pointer}
-.segment button.active{background:var(--surface);color:var(--txt);box-shadow:0 1px 2px var(--shadow)}
-.puces{display:flex;gap:6px;flex-wrap:wrap}
-.puces button{border:1px solid var(--line2);background:var(--surface);color:var(--txt);font:inherit;
- font-size:12.5px;font-weight:600;padding:5px 12px;border-radius:999px;cursor:pointer}
-.puces button b{font-weight:750;color:var(--accent);margin-left:2px}
-.puces button.active{background:var(--txt);color:var(--surface);border-color:var(--txt)}
-.puces button.active b{color:inherit}
-.msg-groupe+.msg-groupe{margin-top:16px}
-.msg-groupe-titre{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
- color:var(--dim2);margin:0 0 6px}
-.msg-decision{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-.msg-statut.reflechir{color:var(--warn,#B4530F);background:var(--warn-bg,#FFF1E6)}
-.tache-projet{border:1px solid var(--line);border-radius:var(--r);padding:14px 16px}
-.tache-projet+.tache-projet{margin-top:12px}
-.tache-projet-tete{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.tache-projet-tete b{font-size:var(--t-b);font-weight:700}
-.tache-barre{height:5px;border-radius:999px;background:var(--surface2);margin:10px 0 4px;overflow:hidden}
-.tache-barre i{display:block;height:100%;background:var(--accent);border-radius:999px}
-.tache{border-top:1px solid var(--line);padding:10px 0 6px}
-.tache-ligne{display:flex;align-items:center;gap:8px}
-.tache-case{display:flex;align-items:center;gap:9px;flex:1;min-width:0;cursor:pointer;margin:0;font-weight:600}
-.tache-case input{accent-color:var(--accent);width:16px;height:16px}
-.tache.faite>.tache-ligne .tache-case span,.tache-ligne.sous:has(input:checked) span{
- text-decoration:line-through;color:var(--dim2)}
-.tache-source{font-size:11.5px;color:var(--dim2);margin:2px 0 0 25px}
-.sous-taches{margin:6px 0 0 25px;display:flex;flex-direction:column;gap:4px}
-.tache-ligne.sous .tache-case{font-weight:400}
-.sous-tache-ajout{border:0;border-bottom:1px dashed var(--line2);border-radius:0;background:transparent;
- padding:5px 0;font-size:12.5px;width:100%}
-.sous-tache-ajout:focus{outline:none;border-bottom-color:var(--accent)}
-.poignee{flex:none;width:22px;height:26px;border:0;background:none;color:var(--dim2);
- cursor:grab;display:grid;place-items:center;padding:0;border-radius:6px;touch-action:none}
-.poignee svg{width:16px;height:16px;fill:currentColor;stroke:none}
-.poignee:hover,.poignee:focus-visible{color:var(--accent);background:var(--surface2)}
-.tache-ligne.sous.glisse{background:var(--surface);box-shadow:0 6px 20px var(--shadow-2);
- border-radius:10px;position:relative;z-index:2}
-.tache-ligne.sous.glisse .poignee{cursor:grabbing}
-.sous-taches{margin-left:2px}
-
 /* ---------------- reperes communs aux deux styles ---------------- */
 .salut{display:none}
 .side-item.utilisateur-seul{display:none}
@@ -1446,6 +1367,119 @@ table.tbl-journal{min-width:560px}
   :root[data-style="design"] .hub-liste.compacte .hub-projet img{width:66px;height:66px;border-radius:21px}
   :root[data-style="design"] .hub-liste.compacte .hub-projet .nom{font-size:13px}
 }
+
+/* La recherche et le dock du hub n'existent que dans les styles 3 et 4. */
+.hub-recherche,.hub-dock{display:none}
+
+/* =====================================================================
+   STYLES 3 ET 4 : variantes du style 2 (data-style="design" reste pose),
+   habillees par data-variante. Les jetons sont dans theme.css ; ici, ce
+   qui change dans la mise en page -- surtout le hub.
+   ===================================================================== */
+:root[data-variante] .salut{font-weight:800;letter-spacing:-.05em;line-height:.95}
+:root[data-variante] .hub-recherche{display:flex;align-items:center;gap:12px;max-width:600px;height:56px;
+ padding:0 20px;margin:0 auto 32px;box-sizing:border-box;border-radius:999px;background:var(--surface);
+ border:1px solid var(--line2)}
+:root[data-variante] .hub-recherche:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-ring)}
+:root[data-variante] .hub-recherche svg{width:20px;height:20px;flex:none;fill:none;stroke:var(--dim);stroke-width:2;stroke-linecap:round}
+:root[data-variante] .hub-recherche input{flex:1;min-width:0;height:auto;border:0;border-radius:0;outline:none;
+ background:transparent;box-shadow:none;padding:0;font:inherit;font-size:16px;color:var(--txt)}
+
+/* STYLE 3 -- LANCEUR : un ecran d'accueil. Fond trame, bonjour en grand au
+   centre, grandes icones sans carte autour, outils de la stack dans un
+   dock flottant. Une application qui ne repond pas est cerclee. */
+:root[data-variante="lanceur"] body{background-image:radial-gradient(var(--trame) 1px,transparent 1px);
+ background-size:28px 28px}
+:root[data-variante="lanceur"] .salut{text-align:center;font-size:clamp(40px,6vw,76px);max-width:none;margin:32px auto 12px}
+:root[data-variante="lanceur"] #hub-sous{text-align:center;color:var(--dim);font-size:16px;margin:0 auto 28px;max-width:none}
+:root[data-variante="lanceur"] #hub-liste.hub-liste,:root[data-variante="lanceur"] .hub-groupe{background:none;
+ box-shadow:none;padding:0;max-width:980px;margin:0 auto 40px}
+:root[data-variante="lanceur"] .hub-groupe-titre{font-weight:700;margin-bottom:20px}
+:root[data-variante="lanceur"] .hub-liste.compacte{gap:36px 24px}
+:root[data-variante="lanceur"] .hub-liste.compacte .hub-projet{width:128px}
+:root[data-variante="lanceur"] .hub-liste.compacte .hub-projet img{width:104px;height:104px;border-radius:30px;
+ box-shadow:0 14px 30px var(--shadow-2)}
+:root[data-variante="lanceur"] .hub-liste.compacte .hub-projet:has(.pill.warn) img{box-shadow:0 0 0 3px var(--bg),0 0 0 6px var(--warn)}
+:root[data-variante="lanceur"] .hub-liste.compacte .hub-projet:has(.pill.err) img{box-shadow:0 0 0 3px var(--bg),0 0 0 6px var(--err)}
+:root[data-variante="lanceur"] .hub-liste.compacte .hub-projet .nom{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;
+ -webkit-box-orient:vertical;overflow:hidden;line-height:1.25}
+:root[data-variante="lanceur"] .hub-liste.compacte .hub-projet .bas{display:flex;justify-content:center;margin-top:0}
+:root[data-variante="lanceur"] .hub-liste.compacte .hub-projet .bas .pill{background:none;padding:0;font-size:12px}
+:root[data-variante="lanceur"] .hub-liste.compacte .hub-projet .bas .pill.pub,
+:root[data-variante="lanceur"] .hub-liste.compacte .hub-projet .bas .pill.priv{display:none}
+:root[data-variante="lanceur"] .hub-dock:not(:empty){display:flex;flex-wrap:wrap;justify-content:center;gap:8px;
+ position:sticky;bottom:24px;z-index:30;width:max-content;max-width:100%;margin:8px auto 0;padding:8px;
+ box-sizing:border-box;border-radius:24px;background:var(--surface);border:1px solid var(--line);
+ box-shadow:0 18px 44px var(--shadow-2)}
+.dock-item{display:flex;align-items:center;gap:10px;min-height:52px;padding:0 16px 0 8px;border-radius:16px;
+ background:var(--surface2);color:var(--txt);text-decoration:none;font-weight:700}
+.dock-item:hover{background:var(--accent-soft)}
+.dock-item img{width:36px;height:36px;border-radius:11px}
+.dock-item .point{width:8px;height:8px;border-radius:999px;background:var(--dim2)}
+.dock-item .point.on{background:var(--ok)}
+.dock-item .point.warn{background:var(--warn)}
+.dock-item .point.err{background:var(--err)}
+
+/* STYLE 4 -- BENTO : une mosaique. L'application du moment en grand, une
+   tuile d'etat a fort contraste, puis une carte par application. */
+:root[data-variante="bento"] .salut{font-size:clamp(44px,6.5vw,84px);max-width:none;margin:16px 0 20px;padding:0}
+:root[data-variante="bento"] .hub-recherche{margin:0 0 24px;max-width:460px;height:50px}
+#hub-liste.bento{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));grid-auto-rows:minmax(168px,auto);
+ grid-auto-flow:dense;gap:14px}
+.bento-une{grid-column:span 6;grid-row:span 2;display:flex;flex-direction:column;gap:12px;padding:28px;
+ border-radius:24px;background:var(--accent);color:var(--sur-accent);text-decoration:none}
+.bento-une:hover{background:var(--accent-h)}
+.bento-une-haut{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.bento-sur{font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.85}
+.bento-une .pill{background:rgba(255,255,255,.18);color:inherit}
+.bento-une img{width:64px;height:64px;border-radius:18px;margin-top:auto}
+.bento-une-nom{font-size:clamp(32px,4vw,52px);font-weight:800;letter-spacing:-.045em;line-height:.95}
+.bento-une-desc{font-size:16px;opacity:.9;max-width:44ch}
+.bento-bouton{align-self:flex-start;display:inline-flex;align-items:center;gap:8px;min-height:46px;padding:0 20px;
+ border-radius:999px;background:var(--surface);color:var(--txt);font-weight:800}
+.bento-bouton svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.bento-etat{grid-column:span 3;grid-row:span 2;display:flex;flex-direction:column;justify-content:space-between;gap:16px;
+ padding:24px;border-radius:24px;background:var(--bento-encre);color:var(--bento-sur-encre)}
+.bento-etat h3{margin:0;font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.75}
+.bento-etat p{margin:6px 0 0;opacity:.75}
+.bento-chiffre{font-size:96px;font-weight:800;letter-spacing:-.06em;line-height:.85;font-variant-numeric:tabular-nums}
+.bento-chiffre span{opacity:.4}
+.bento-barres{display:flex;gap:5px;margin-bottom:10px}
+.bento-barres i{flex:1;height:8px;border-radius:999px;background:var(--bento-rail)}
+.bento-barres i.on{background:#3ccf7a}
+.bento-barres i.warn{background:#f2a33a}
+.bento-barres i.err{background:#ef5350}
+.bento-etat a{color:var(--bento-lien);font-weight:700}
+.bento-carte{grid-column:span 3;display:flex;flex-direction:column;gap:8px;padding:20px;border-radius:24px;
+ background:var(--surface);border:1px solid var(--line);color:var(--txt);text-decoration:none}
+.bento-carte:hover{border-color:var(--accent)}
+.bento-carte.warn{box-shadow:inset 0 0 0 2px var(--warn)}
+.bento-carte.err{box-shadow:inset 0 0 0 2px var(--err)}
+.bento-carte.off{opacity:.6;pointer-events:none}
+.bento-carte-haut{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:auto}
+.bento-carte img{width:48px;height:48px;border-radius:15px}
+.bento-carte-nom{font-size:21px;font-weight:800;letter-spacing:-.03em;line-height:1.1}
+.bento-carte-desc{font-size:13px;color:var(--dim);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+@media (max-width:1000px){
+  .bento-une{grid-column:span 12}
+  .bento-etat{grid-column:span 6;grid-row:span 1}
+  .bento-carte{grid-column:span 6}
+}
+
+@media (max-width:760px){
+  :root[data-variante="lanceur"] .salut{font-size:44px;margin:12px auto 8px}
+  :root[data-variante="lanceur"] .hub-liste.compacte .hub-projet{width:33.333%}
+  :root[data-variante="lanceur"] .hub-liste.compacte .hub-projet img{width:72px;height:72px;border-radius:22px}
+  /* La barre du bas tient deja le bas de l'ecran : le dock reprend sa place
+     dans la page, sous les icones. */
+  :root[data-variante="lanceur"] .hub-dock:not(:empty){position:static;margin-top:32px}
+  :root[data-variante] .hub-recherche{height:50px;margin-bottom:24px}
+  :root[data-variante="bento"] .salut{font-size:48px}
+  #hub-liste.bento{grid-template-columns:minmax(0,1fr);grid-auto-rows:auto}
+  .bento-une,.bento-etat,.bento-carte{grid-column:auto;grid-row:auto}
+  .bento-une{min-height:300px}
+  .bento-chiffre{font-size:72px}
+}
 </style></head><body>
 <div class="topbar">
   <div class="topbar-gauche">
@@ -1511,14 +1545,6 @@ table.tbl-journal{min-width:560px}
       <path d="M16.5 5.2a3.4 3.4 0 010 6.1"/><path d="M18 13.9c2.1.7 3.5 2.6 3.5 4.9"/></svg>
       <span>Utilisateurs</span>
       <span class="side-count" id="side-count-users">0</span></div>
-    <!-- LES MESSAGES FERMENT LA MARCHE. Ils avaient leur rubrique au milieu
-         du menu, entre deux entrees qu'on ouvre tous les jours : on ne
-         choisit pas d'aller lire ses messages en arrivant, on y va quand le
-         compteur le dit. Le compteur reste, la place change. -->
-    <div class="side-item admin-seul" data-sec="messages" onclick="showSection('messages')">
-      <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-      <span>Messages</span>
-      <span class="side-count" id="side-count-messages">0</span></div>
     <!-- Un compte utilisateur ecrit a l'administrateur depuis Parametres >
          Message : le style Design lui en donne l'entree dans le menu. -->
     <div class="side-item utilisateur-seul" data-sec="message-utilisateur"
@@ -1538,8 +1564,16 @@ table.tbl-journal{min-width:560px}
   </div>
   <div class="salut" id="hub-salut"></div>
   <div class="sous" id="hub-sous"></div>
+  <!-- Styles 3 et 4 : une recherche dans le hub. Masquee dans les autres. -->
+  <label class="hub-recherche" id="hub-recherche">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <input type="search" id="hub-filtre" placeholder="Ouvrir une application…" aria-label="Rechercher une application"
+      autocomplete="off" oninput="peindreHub()">
+  </label>
   <div class="hint" id="hub-masquees" style="display:none;margin:-8px 0 14px"></div>
   <div id="hub-liste" class="hub-liste"></div>
+  <!-- Style 3 : les services de la stack (Dagster, Mailpit) dans un dock. -->
+  <nav class="hub-dock" id="hub-dock" aria-label="Outils de la stack"></nav>
 
 </div>
 
@@ -1997,6 +2031,16 @@ table.tbl-journal{min-width:560px}
           <span><b>Style 2</b><i>Grandes icônes, menu en haut, réglages façon Mac.</i></span>
           <svg class="coche" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
         </button>
+        <button data-s="lanceur" onclick="setStyle('lanceur')">
+          <svg viewBox="0 0 24 24"><rect x="4" y="3" width="6" height="6" rx="2"/><rect x="14" y="3" width="6" height="6" rx="2"/><rect x="4" y="11" width="6" height="6" rx="2"/><rect x="14" y="11" width="6" height="6" rx="2"/><path d="M6 21h12"/></svg>
+          <span><b>Style 3 — Lanceur</b><i>Un écran d'accueil : grandes icônes, recherche au centre, outils dans un dock.</i></span>
+          <svg class="coche" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+        </button>
+        <button data-s="bento" onclick="setStyle('bento')">
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="11" height="10" rx="2"/><rect x="16" y="3" width="5" height="10" rx="2"/><rect x="3" y="15" width="5" height="6" rx="2"/><rect x="10" y="15" width="11" height="6" rx="2"/></svg>
+          <span><b>Style 4 — Bento</b><i>Une mosaïque : l'application du moment en grand, l'état d'un coup d'œil.</i></span>
+          <svg class="coche" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+        </button>
       </div>
       <div class="choix-titre">Thème</div>
       <div class="choix-liste" id="theme-toggle">
@@ -2415,49 +2459,6 @@ table.tbl-journal{min-width:560px}
 </div>
 
 <!-- ==================== UTILISATEURS ==================== -->
-<!-- ========================= MESSAGES ========================= -->
-<div id="sec-messages" class="section" style="display:none">
-  <div class="toolbar"><h2>Messages</h2><div class="spacer"></div>
-    <!-- Deux vues : ce qu'on t'ecrit, et ce que tu en as fait. Un message
-         accepte devient une tache, rangee dans son projet. -->
-    <div class="segment" id="msg-vues" role="tablist">
-      <button role="tab" data-v="boite" class="active" onclick="msgVue('boite')">Boîte de réception</button>
-      <button role="tab" data-v="taches" onclick="msgVue('taches')">Tâches</button>
-    </div>
-  </div>
-
-  <div id="msg-vue-boite">
-    <div class="card">
-      <div class="msg-barre">
-        <div class="puces" id="msg-etats">
-          <button data-f="attente" class="active" onclick="msgEtatChoisir('attente')">Nouveaux <b id="msg-n-attente"></b></button>
-          <button data-f="reflechir" onclick="msgEtatChoisir('reflechir')">À réfléchir <b id="msg-n-reflechir"></b></button>
-          <button data-f="traites" onclick="msgEtatChoisir('traites')">Traités</button>
-          <button data-f="" onclick="msgEtatChoisir('')">Tous</button>
-        </div>
-        <div class="spacer"></div>
-        <select id="msg-filtre" onchange="peindreMessages()" aria-label="Filtrer par projet">
-          <option value="">Tous les projets</option>
-          <option value="hub">À propos du hub</option>
-          <option value="idee">Idées d'applications</option>
-        </select>
-      </div>
-      <div class="msg-boite" id="msg-liste-section"></div>
-    </div>
-  </div>
-
-  <div id="msg-vue-taches" style="display:none">
-    <div class="card">
-      <div class="msg-barre">
-        <div class="puces" id="tache-projets"></div>
-        <div class="spacer"></div>
-        <button class="btn btn-default btn-sm" onclick="tacheFormulaire(null)">Nouvelle tâche</button>
-      </div>
-      <div id="taches-liste" style="margin-top:12px"></div>
-    </div>
-  </div>
-</div>
-
 <!-- Les comptes vivaient dans Configuration, entre les categories et les
      alertes. Ils meritent leur propre entree : gerer qui entre n'est pas un
      reglage du serveur, c'est une activite a part entiere. -->
@@ -2628,27 +2629,6 @@ table.tbl-journal{min-width:560px}
   </div>
 </div></div>
 
-<!-- ACCEPTER UN MESSAGE, OU CREER UNE TACHE. Le projet et le titre sont
-     pre-remplis d'apres le message ; les sous-taches, une par ligne. -->
-<div class="ov" id="ov-tache"><div class="modal" style="max-width:520px">
-  <div class="mh"><h3 id="tache-f-titre">Nouvelle tâche</h3><p id="tache-f-sous"></p></div>
-  <div class="mb">
-    <div class="field"><label for="tache-projet">Projet</label>
-      <select id="tache-projet"></select></div>
-    <div class="field"><label for="tache-titre">Tâche</label>
-      <input id="tache-titre" maxlength="200" autocomplete="off"></div>
-    <div class="field"><label for="tache-sous">Sous-tâches <span class="opt">une par ligne</span></label>
-      <textarea id="tache-sous" rows="4"></textarea></div>
-    <div class="err" id="tache-err" style="display:none"></div>
-  </div>
-  <div class="mf">
-    <button class="btn btn-quiet" id="tache-sans" onclick="tacheValider(false)">Accepter sans tâche</button>
-    <div class="spacer"></div>
-    <button class="btn btn-default" onclick="hide('ov-tache')">Annuler</button>
-    <button class="btn btn-primary" id="tache-ok" onclick="tacheValider(true)">Créer la tâche</button>
-  </div>
-</div></div>
-
 <div class="toasts" id="toasts"></div>
 
 <!-- ==================== POP-UP : FICHE D'UN COMPTE ==================== -->
@@ -2789,7 +2769,10 @@ const urlApplication = nom => APPS_BASE + '/' + encodeURIComponent(nom) + '/';
 const enModeApp = (window.matchMedia
     && matchMedia('(display-mode: standalone)').matches)
   || window.navigator.standalone === true;
-const lienOuverture = a => a.externe
+/* Une tuile « interne » (Demandes) est une page du panneau : elle s'ouvre a
+   son adresse, sans passer par le sous-domaine d'une application. */
+const lienOuverture = a => a.interne ? a.url
+  : a.externe
   ? '/' + encodeURIComponent(a.name) + '/'
   : (enModeApp ? '/ouvrir.html?app=' + encodeURIComponent(a.name)
                : urlApplication(a.name));
@@ -2895,18 +2878,8 @@ const ACTIONS = {
   'app-ouvrir':      n => ouvrirFiche(n),
   'app-redemarrer':  n => restartApp(n),
   'app-build':       n => buildApp(n),
-  'msg-retenir':    (n,d) => msgRetenir(n, d.valeur==='1'),
-  'msg-statut':     (n,d) => msgChangerStatut(n, d.valeur),
-  'msg-accepter':   n => tacheFormulaire(n),
-  'tache-projet':   n => { tacheProjet=n; peindreTaches(); },
-  'tache-supprimer':     n => tacheSupprimer(n),
-  'sous-tache-supprimer': n => sousTacheSupprimer(n),
-  'msg-archive':    (n,d) => msgArchiver(n, d.valeur==='1'),
-  'msg-supprimer':  n => msgSupprimer(n),
   'app-deployer':    n => deployApp(n),
   'app-visibilite':  n => basculerVisibilite(n),
-  'msg-retenir':     (id, d) => msgRetenir(id, d.valeur === '1'),
-  'msg-supprimer':   id => msgSupprimer(id),
   'passkey-retirer': id => pkSupprimer(id),
   'compte-ouvrir':   n => usOuvrir(n),
   'invitation-renvoyer': id => invRenvoyer(id),
@@ -2938,8 +2911,6 @@ document.addEventListener('change', e => {
   const n = e.target.closest('[data-changer]');
   if(n && n.dataset.changer === 'app-masquer')
     basculerMasquage(n.dataset.cible, !e.target.checked);
-  if(n && n.dataset.changer === 'tache-faite') tacheFaite(n.dataset.cible, e.target.checked);
-  if(n && n.dataset.changer === 'sous-tache-faite') sousTacheFaite(n.dataset.cible, e.target.checked);
 });
 
 /* ---------------- theme ---------------- */
@@ -2980,18 +2951,37 @@ noterThemePartage(themeChoisi);
    changent (html[data-style="design"] dans theme.css et plus haut). Le
    choix part aussi dans un cookie : le serveur pose l'attribut des le
    premier octet de la page, et rien ne clignote au chargement. */
+/* Quatre styles. Les styles 3 (« lanceur ») et 4 (« bento ») sont des
+   variantes du style 2 : ils en gardent la mise en page de base
+   (data-style="design") et ajoutent la leur sous data-variante. */
+const STYLES = ['classique','design','lanceur','bento'];
+const VARIANTES = ['lanceur','bento'];
+function styleCourant(){
+  const v = document.documentElement.getAttribute('data-variante');
+  if(VARIANTES.includes(v)) return v;
+  return document.documentElement.getAttribute('data-style')==='design' ? 'design' : 'classique';
+}
 function applyStyle(st){
-  if(st==='design') document.documentElement.setAttribute('data-style','design');
-  else document.documentElement.removeAttribute('data-style');
+  if(!STYLES.includes(st)) st='classique';
+  const racine = document.documentElement;
+  if(st==='classique') racine.removeAttribute('data-style');
+  else racine.setAttribute('data-style','design');
+  if(VARIANTES.includes(st)) racine.setAttribute('data-variante', st);
+  else racine.removeAttribute('data-variante');
   document.querySelectorAll('#style-toggle button').forEach(b=>b.classList.toggle('active', b.dataset.s===st));
 }
 function setStyle(st){
-  st = st==='design' ? 'design' : 'classique';
+  st = STYLES.includes(st) ? st : 'classique';
   try{ localStorage.setItem('codelab-style', st); }catch(e){}
   try{ document.cookie='codelab-style='+st+';path=/;max-age=31536000;SameSite=Lax'; }catch(e){}
   applyStyle(st);
+  /* Le hub change de FORME d'un style a l'autre, pas seulement d'habit :
+     il se redessine au prochain affichage. Pas ici au chargement -- le
+     script n'a pas encore declare ce dont peindreHub a besoin. Et seulement
+     une fois le hub charge, pour ne pas afficher « aucune application ». */
+  if(hubApps.length || hubServices.length) peindreHub();
 }
-applyStyle(document.documentElement.getAttribute('data-style')==='design' ? 'design'
+applyStyle(document.documentElement.hasAttribute('data-style') ? styleCourant()
   : ((()=>{ try{ return localStorage.getItem('codelab-style'); }catch(e){ return null; } })()||'classique'));
 
 /* ---------------- colonne de gauche ---------------- */
@@ -3047,12 +3037,7 @@ function showSection(name){
   if(name!=='app') fermerLog();
   if(name==='hub') chargerHub();
   if(name==='overview' || name==='apps') refresh();
-  if(name==='overview'){ chargerCarte(); chargerMessages(); }
-  if(name==='messages') {
-    if(!apps.length) refresh();
-    chargerMessages().then(()=>marquerMessagesLus());
-    msgVue(msgVueActive);
-  }
+  if(name==='overview') chargerCarte();
   /* L'etat de securite est relu a chaque ouverture : il peut avoir change
      depuis un autre onglet, ou au redemarrage du service. */
   if(name==='users'){ chargerUtilisateurs(); chargerInvitations(); chargerActivite(); }
@@ -3071,7 +3056,7 @@ function showSection(name){
    (page_du_panneau) ; c'est ici qu'on lit l'adresse et qu'on ouvre la bonne
    rubrique. */
 const ADRESSES={hub:'/', overview:'/apercu', apps:'/applications', users:'/utilisateurs',
-                messages:'/messages', parametres:'/parametres'};
+                parametres:'/parametres'};
 let sectionCourante='hub', routageEnCours=false;
 
 function adresseCourante(){
@@ -3079,7 +3064,6 @@ function adresseCourante(){
     return '/applications/'+encodeURIComponent(ficheNom)
       + (ficheOngletActif && ficheOngletActif!=='general' ? '/'+ficheOngletActif : '');
   if(sectionCourante==='parametres') return '/parametres/'+paramOngletActif;
-  if(sectionCourante==='messages' && msgVueActive==='taches') return '/messages/taches';
   return ADRESSES[sectionCourante]||'/';
 }
 function majAdresse(){
@@ -3096,9 +3080,6 @@ async function routerDepuisAdresse(){
     if(m[0]==='parametres'){
       if(m[1]) paramOngletActif=m[1];
       showSection('parametres');
-    }else if(m[0]==='messages' && estAdmin){
-      msgVueActive = m[1]==='taches' ? 'taches' : 'boite';
-      showSection('messages');
     }else if(m[0]==='applications' && m[1] && estAdmin){
       if(!apps.length) await refresh();
       ficheOngletActif = m[2] || 'general';
@@ -3440,360 +3421,24 @@ async function catEnregistrer(){
 
 /* ---------------- hub ---------------- */
 let hubApps=[];
-/* ---------------- les messages recus (administrateur) ----------------
-   Ils vivaient au bas de la vue d'ensemble, sous les graphiques : on ne les
-   trouvait qu'en descendant, et rien ne disait qu'il en etait arrive un. Ils
-   ont maintenant leur rubrique, un filtre, et deux gestes -- retenir ce
-   qu'on veut traiter, supprimer ce qui est traite. */
-let msgTous=[], msgDernierVu=0, msgPremierChargement=true;
-
-const MSG_SUJET = m => m.cible==='application'
-  ? 'à propos de <b>'+esc(m.app||'')+'</b>'
-  : (m.cible==='idee' ? 'une <b>idée d\'application</b>' : 'à propos du <b>hub</b>');
-
-const SVG_EPINGLE = '<svg viewBox="0 0 24 24"><path d="M12 17v5"/>'
-  + '<path d="M9 3h6l-1 6 3 3v2H7v-2l3-3z"/></svg>';
-const SVG_POUBELLE = '<svg viewBox="0 0 24 24"><path d="M4 7h16"/>'
-  + '<path d="M10 11v6"/><path d="M14 11v6"/>'
-  + '<path d="M6 7l1 13h10l-1-13"/><path d="M9 7V4h6v3"/></svg>';
-const SVG_OK = '<svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg>';
-const SVG_NON = '<svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>';
-const SVG_ARCHIVE = '<svg viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M5 7l1 13h12l1-13"/><path d="M9 11h6"/><path d="M3 4h18v3H3z"/></svg>';
-
-/* Le statut d'un message, en une pastille. */
-function msgBadge(m){
-  if(m.archive) return '<span class="msg-statut archive">archivé</span>';
-  const st=m.statut||'en_attente';
-  return st==='accepte' ? '<span class="msg-statut accepte">accepté</span>'
-    : st==='refuse' ? '<span class="msg-statut refuse">refusé</span>'
-    : st==='a_reflechir' ? '<span class="msg-statut reflechir">à réfléchir</span>'
-    : '';
-}
-
-/* Le projet d'un message : l'application dont il parle, le hub, ou une idee. */
-function msgProjet(m){
-  if(m.cible==='application' && m.app) return 'app:'+m.app;
-  return m.cible==='idee' ? 'idee' : 'hub';
-}
-function libelleProjet(cle){
-  if(cle==='hub') return 'À propos du hub';
-  if(cle==='idee') return 'Idées d\'applications';
-  if(cle==='general') return 'Général';
-  const n=cle.startsWith('app:') ? cle.slice(4) : cle;
-  const a=appParNom(n);
-  return (a && (a.titre||a.name)) || n;
-}
-
-function msgLigne(m){
-  const st=m.statut||'en_attente';
-  const id=esc(m.id||'');
-  const traite = m.archive || st==='accepte' || st==='refuse';
-  return `<div class="msg-ligne${m.retenu?' retenu':''}${m.lu?'':' non-lu'}" data-msg="${id}">
-    <div class="msg-tete"><b>${esc(m.qui||'?')}</b>${m.lu?'':'<span class="msg-nouveau">nouveau</span>'}${msgBadge(m)}<span class="hint">${MSG_SUJET(m)}</span>
-      <span class="quand" title="${esc(quandPrecis(m.ts))}">${esc(ilYA(m.ts))}</span>
-      <div class="msg-actes">
-        ${!m.archive ? `<button class="msg-acte" title="Archiver" data-agir="msg-archive" data-cible="${id}" data-valeur="1">${SVG_ARCHIVE}</button>`
-          : `<button class="msg-acte" title="Restaurer dans la boîte de réception" data-agir="msg-archive" data-cible="${id}" data-valeur="0">${SVG_ARCHIVE}</button>`}
-        <button class="msg-acte${m.retenu?' actif':''}" title="${m.retenu?'Relâcher':'Épingler'}"
-          data-agir="msg-retenir" data-cible="${id}" data-valeur="${m.retenu?'0':'1'}">${SVG_EPINGLE}</button>
-        <button class="msg-acte danger" title="Supprimer définitivement"
-          data-agir="msg-supprimer" data-cible="${id}">${SVG_POUBELLE}</button>
-      </div></div>
-    <div class="msg-texte">${esc(m.texte||'')}</div>
-    ${traite ? '' : `<div class="msg-decision">
-      <button class="btn btn-primary btn-sm" data-agir="msg-accepter" data-cible="${id}">Accepter</button>
-      ${st==='a_reflechir'
-        ? `<button class="btn btn-default btn-sm" data-agir="msg-statut" data-cible="${id}" data-valeur="en_attente">Remettre dans les nouveaux</button>`
-        : `<button class="btn btn-default btn-sm" data-agir="msg-statut" data-cible="${id}" data-valeur="a_reflechir">À réfléchir</button>`}
-      <button class="btn btn-quiet btn-sm" data-agir="msg-statut" data-cible="${id}" data-valeur="refuse">Refuser</button>
-    </div>`}</div>`;
-}
-
-/* Le filtre par projet : le hub, les idees, puis chaque application dont
-   on a effectivement parle. */
-function msgRemplirFiltre(){
-  const sel=$('msg-filtre'); if(!sel) return;
-  const choisi=sel.value;
-  const noms=[...new Set(msgTous.filter(m=>m.cible==='application' && m.app)
-                                .map(m=>m.app))].sort((a,b)=>a.localeCompare(b,'fr'));
-  sel.innerHTML = '<option value="">Tous les projets</option>'
-    + '<option value="hub">À propos du hub</option>'
-    + '<option value="idee">Idées d\'applications</option>'
-    + (noms.length ? '<optgroup label="Applications">'
-        + noms.map(n=>`<option value="app:${esc(n)}">${esc(libelleProjet(n))}</option>`).join('')
-        + '</optgroup>' : '');
-  sel.value = [...sel.options].some(o=>o.value===choisi) ? choisi : '';
-}
-
-/* Nouveaux, a reflechir, traites, ou tout. */
-let msgEtat='attente';
-function msgEtatChoisir(f){
-  msgEtat=f;
-  document.querySelectorAll('#msg-etats button').forEach(b=>b.classList.toggle('active', b.dataset.f===f));
-  peindreMessages();
-}
-function msgDansEtat(m, f){
-  const st=m.statut||'en_attente';
-  if(f==='attente') return !m.archive && st==='en_attente';
-  if(f==='reflechir') return !m.archive && st==='a_reflechir';
-  if(f==='traites') return !!m.archive || st==='accepte' || st==='refuse';
-  return true;
-}
-
-function peindreMessages(){
-  const sel=$('msg-filtre'); if(!sel) return;
-  const projet=sel.value;
-  $('msg-n-attente').textContent = msgTous.filter(m=>msgDansEtat(m,'attente')).length || '';
-  $('msg-n-reflechir').textContent = msgTous.filter(m=>msgDansEtat(m,'reflechir')).length || '';
-  const liste=msgTous.filter(m=>msgDansEtat(m, msgEtat) && (!projet || msgProjet(m)===projet));
-  if(!liste.length){
-    $('msg-liste-section').innerHTML = '<div class="msg-vide">'
-      + (msgEtat==='attente' ? 'Aucun nouveau message.' : 'Rien ici.') + '</div>';
-    return;
-  }
-  /* Ranges par projet : on traite d'un coup ce qui concerne la meme
-     application. Les epingles restent en tete de leur groupe. */
-  const groupes={};
-  liste.forEach(m=>{ (groupes[msgProjet(m)] ||= []).push(m); });
-  $('msg-liste-section').innerHTML = Object.keys(groupes)
-    .sort((a,b)=>libelleProjet(a).localeCompare(libelleProjet(b),'fr'))
-    .map(k=>`<div class="msg-groupe"><div class="msg-groupe-titre">${esc(libelleProjet(k))}</div>`
-      + groupes[k].map(msgLigne).join('') + '</div>').join('');
-}
-
-/* ---------------- les deux vues ---------------- */
-let msgVueActive='boite';
-function msgVue(v){
-  msgVueActive = v==='taches' ? 'taches' : 'boite';
-  document.querySelectorAll('#msg-vues button').forEach(b=>b.classList.toggle('active', b.dataset.v===msgVueActive));
-  $('msg-vue-boite').style.display = msgVueActive==='boite' ? '' : 'none';
-  $('msg-vue-taches').style.display = msgVueActive==='taches' ? '' : 'none';
-  if(msgVueActive==='taches') chargerTaches();
-  if(sectionCourante==='messages') majAdresse();
-}
-
-/* ---------------- les taches ---------------- */
-let taches=[], tacheProjet='';
-
-async function chargerTaches(){
-  if(!estAdmin) return;
-  if(!apps.length) await refresh();
-  try{ taches=(await (await fetch('/api/taches')).json()).taches||[]; }catch(e){ return; }
-  peindreTaches();
-}
-
-function peindreTaches(){
-  const projets=[...new Set(taches.map(t=>t.projet))]
-    .sort((a,b)=>libelleProjet(a).localeCompare(libelleProjet(b),'fr'));
-  if(tacheProjet && !projets.includes(tacheProjet)) tacheProjet='';
-  $('tache-projets').innerHTML = ['', ...projets].map(p=>
-    `<button class="${p===tacheProjet?'active':''}" data-agir="tache-projet" data-cible="${esc(p)}">`
-    + (p ? esc(libelleProjet(p)) : 'Tous') + '</button>').join('');
-  const vus = tacheProjet ? [tacheProjet] : projets;
-  if(!vus.length){
-    $('taches-liste').innerHTML='<div class="msg-vide">Aucune tâche. Accepte un message pour en créer une.</div>';
-    return;
-  }
-  $('taches-liste').innerHTML = vus.map(p=>{
-    const liste=taches.filter(t=>t.projet===p);
-    const faites=liste.filter(t=>t.faite).length;
-    const pc=Math.round(100*faites/Math.max(1,liste.length));
-    return `<div class="tache-projet">
-      <div class="tache-projet-tete"><b>${esc(libelleProjet(p))}</b>
-        <span class="hint">${faites} sur ${liste.length}</span></div>
-      <div class="tache-barre"><i style="width:${pc}%"></i></div>
-      ${liste.map(tacheBloc).join('')}</div>`;
-  }).join('');
-}
-
-function tacheBloc(t){
-  const id=esc(t.id);
-  const source=t.message ? msgTous.find(m=>m.id===t.message) : null;
-  return `<div class="tache${t.faite?' faite':''}">
-    <div class="tache-ligne">
-      <label class="tache-case"><input type="checkbox" ${t.faite?'checked':''} data-changer="tache-faite" data-cible="${id}">
-        <span>${esc(t.titre)}</span></label>
-      <button class="msg-acte danger" title="Supprimer la tâche" data-agir="tache-supprimer" data-cible="${id}">${SVG_POUBELLE}</button>
-    </div>
-    ${source ? `<div class="tache-source">Depuis le message de ${esc(source.qui||'?')}</div>` : ''}
-    <div class="sous-taches" data-tache="${id}">
-      ${t.sous_taches.map(st=>`<div class="tache-ligne sous" data-id="${esc(st.id)}">
-        <button class="poignee" type="button" title="Glisser pour changer la priorité"
-          aria-label="Déplacer « ${esc(st.titre)} » (flèches haut et bas)">
-          <svg viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.2"/><circle cx="15" cy="6" r="1.2"/>
-          <circle cx="9" cy="12" r="1.2"/><circle cx="15" cy="12" r="1.2"/>
-          <circle cx="9" cy="18" r="1.2"/><circle cx="15" cy="18" r="1.2"/></svg></button>
-        <label class="tache-case"><input type="checkbox" ${st.faite?'checked':''} data-changer="sous-tache-faite" data-cible="${esc(st.id)}">
-          <span>${esc(st.titre)}</span></label>
-        <button class="msg-acte" title="Retirer" data-agir="sous-tache-supprimer" data-cible="${esc(st.id)}">${SVG_NON}</button>
-      </div>`).join('')}
-      <input class="sous-tache-ajout" placeholder="Ajouter une sous-tâche" maxlength="200" data-tache="${id}">
-    </div></div>`;
-}
-
-async function tacheAppel(url, methode, corps){
-  const r=await fetch(url, {method:methode, headers:{'Content-Type':'application/json'},
-                            body: corps ? JSON.stringify(corps) : undefined});
-  if(!r.ok){ notifier(await echec(r, 'Modification impossible.'), 'err'); return false; }
-  return true;
-}
-async function tacheFaite(id, faite){ await tacheAppel('/api/taches/'+encodeURIComponent(id), 'PUT', {faite}); chargerTaches(); }
-async function sousTacheFaite(id, faite){ await tacheAppel('/api/sous-taches/'+encodeURIComponent(id), 'PUT', {faite}); chargerTaches(); }
-async function sousTacheSupprimer(id){ await tacheAppel('/api/sous-taches/'+encodeURIComponent(id), 'DELETE'); chargerTaches(); }
-async function tacheSupprimer(id){
-  if(!await demander('Supprimer cette tâche ?', 'Ses sous-tâches partent avec elle. Le message, lui, reste.', 'Supprimer', true)) return;
-  await tacheAppel('/api/taches/'+encodeURIComponent(id), 'DELETE'); chargerTaches();
-}
-document.addEventListener('keydown', async e=>{
-  const champ=e.target;
-  if(e.key!=='Enter' || !champ.classList || !champ.classList.contains('sous-tache-ajout')) return;
-  e.preventDefault();
-  const titre=champ.value.trim(); if(!titre) return;
-  if(await tacheAppel('/api/taches/'+encodeURIComponent(champ.dataset.tache)+'/sous-taches', 'POST', {titre}))
-    chargerTaches();
-});
-
-/* ---- prioriser les sous-taches : glisser la poignee ----
-   Au pointeur (souris, doigt, stylet) plutot qu'au glisser-deposer HTML,
-   qui ne marche pas au doigt sur iPhone. Au clavier : fleches haut et bas
-   sur la poignee. L'ordre part au serveur au lacher. */
-let glisse=null;
-function lignesDe(liste){ return [...liste.querySelectorAll(':scope > .tache-ligne.sous')]; }
-async function enregistrerOrdre(liste){
-  const ids=lignesDe(liste).map(x=>x.dataset.id);
-  if(await tacheAppel('/api/taches/'+encodeURIComponent(liste.dataset.tache)+'/ordre', 'PUT', {ordre:ids}))
-    chargerTaches();
-}
-document.addEventListener('pointerdown', e=>{
-  const p=e.target.closest && e.target.closest('.poignee'); if(!p) return;
-  const ligne=p.closest('.tache-ligne.sous');
-  e.preventDefault();
-  glisse={ligne, liste:ligne.parentElement, depart:lignesDe(ligne.parentElement).indexOf(ligne)};
-  ligne.classList.add('glisse');
-  try{ p.setPointerCapture(e.pointerId); }catch(_){}
-});
-document.addEventListener('pointermove', e=>{
-  if(!glisse) return;
-  const autres=lignesDe(glisse.liste).filter(x=>x!==glisse.ligne);
-  const avant=autres.find(f=>{ const r=f.getBoundingClientRect(); return e.clientY < r.top + r.height/2; });
-  glisse.liste.insertBefore(glisse.ligne, avant || glisse.liste.querySelector('.sous-tache-ajout'));
-});
-function finGlisse(){
-  if(!glisse) return;
-  const g=glisse; glisse=null;
-  g.ligne.classList.remove('glisse');
-  if(lignesDe(g.liste).indexOf(g.ligne)!==g.depart) enregistrerOrdre(g.liste);
-}
-document.addEventListener('pointerup', finGlisse);
-document.addEventListener('pointercancel', finGlisse);
-document.addEventListener('keydown', e=>{
-  const p=e.target.closest && e.target.closest('.poignee');
-  if(!p || (e.key!=='ArrowUp' && e.key!=='ArrowDown')) return;
-  e.preventDefault();
-  const ligne=p.closest('.tache-ligne.sous'), liste=ligne.parentElement, l=lignesDe(liste);
-  const i=l.indexOf(ligne), j=e.key==='ArrowUp' ? i-1 : i+1;
-  if(j<0 || j>=l.length) return;
-  liste.insertBefore(ligne, e.key==='ArrowUp' ? l[j] : l[j].nextSibling);
-  p.focus();
-  enregistrerOrdre(liste);
-});
-
-/* Le formulaire : depuis un message (accepter), ou vide (nouvelle tache). */
-let tacheMessage=null;
-function tacheFormulaire(idMessage){
-  tacheMessage=idMessage;
-  const m=idMessage ? msgTous.find(x=>x.id===idMessage) : null;
-  const sel=$('tache-projet');
-  const options=[['general','Général'], ...apps.filter(a=>!a.externe)
-    .map(a=>[a.name, a.titre||a.name]).sort((a,b)=>a[1].localeCompare(b[1],'fr'))];
-  sel.innerHTML=options.map(([v,t])=>`<option value="${esc(v)}">${esc(t)}</option>`).join('');
-  sel.value = (m && m.cible==='application' && appParNom(m.app)) ? m.app
-    : (tacheProjet && tacheProjet!=='' ? tacheProjet : 'general');
-  if(!sel.value) sel.value='general';
-  const premiere=m ? String(m.texte||'').split('\n')[0].trim() : '';
-  $('tache-titre').value = premiere.length>120 ? premiere.slice(0,117)+'…' : premiere;
-  $('tache-sous').value='';
-  $('tache-err').style.display='none';
-  $('tache-f-titre').textContent = m ? 'Accepter le message de '+(m.qui||'?') : 'Nouvelle tâche';
-  $('tache-f-sous').textContent = m ? 'Il devient une tâche, rangée dans son projet.' : '';
-  $('tache-sans').style.display = m ? '' : 'none';
-  $('tache-ok').textContent = m ? 'Accepter et créer la tâche' : 'Créer la tâche';
-  $('ov-tache').classList.add('show');
-  $('tache-titre').focus();
-}
-
-async function tacheValider(avecTache){
-  const e=$('tache-err'); e.style.display='none';
-  const corps={projet:$('tache-projet').value, titre:$('tache-titre').value.trim(),
-               sous_taches:$('tache-sous').value.split('\n').map(x=>x.trim()).filter(Boolean)};
-  if(avecTache && !corps.titre){ e.textContent='Donne un titre à la tâche.'; e.style.display='block'; return; }
-  const url = tacheMessage ? '/api/messages/'+encodeURIComponent(tacheMessage)+'/accepter' : '/api/taches';
-  const r=await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'},
-                            body:JSON.stringify(avecTache ? corps : {})});
-  if(!r.ok){ e.textContent=await echec(r, 'Création impossible.'); e.style.display='block'; return; }
-  hide('ov-tache');
-  notifier(avecTache ? 'Tâche créée.' : 'Message accepté.');
-  await chargerMessages();
-  if(msgVueActive==='taches') chargerTaches();
-}
+/* ---------------- les demandes recues (administrateur) ----------------
+   Elles se traitent dans l'application « Demandes » (/demandes) : boite de
+   reception, tableau des taches, projets. Le panneau ne fait plus que les
+   GUETTER, pour annoncer dans le coin celles qui arrivent pendant qu'on
+   travaille ailleurs. */
+let msgDernierVu=0, msgPremierChargement=true;
 
 async function chargerMessages(){
   if(!estAdmin) return;
   let d;
   try{ d=await (await fetch('/api/messages')).json(); }catch(e){ return; }
-  msgTous=d.messages||[];
-  const inboxCount=Number(d.boite||0);
-  const unreadCount=Number(d.non_lus||0);
-  $('side-count-messages').textContent=inboxCount;
-  $('side-count-messages').classList.toggle('messages-non-lus', unreadCount>0);
-  $('side-count-messages').title=unreadCount
-    ? unreadCount+' nouveau'+(unreadCount>1?'x':'')+' dans la boîte de réception'
-    : (inboxCount ? inboxCount+' message'+(inboxCount>1?'s':'')+' dans la boîte de réception' : 'Boîte de réception vide');
-  msgRemplirFiltre();
-  peindreMessages();
-
-  msgDernierVu = Math.max(msgDernierVu, ...msgTous.map(m=>m.ts||0), 0);
+  msgDernierVu = Math.max(msgDernierVu, ...(d.messages||[]).map(m=>m.ts||0), 0);
   msgPremierChargement=false;
 }
 
-async function msgChangerStatut(id, statut){
-  const r=await fetch('/api/messages/'+encodeURIComponent(id),
-    {method:'PUT', headers:{'Content-Type':'application/json'},
-     body:JSON.stringify({statut})});
-  if(!r.ok){ notifier(await echec(r, 'Impossible de modifier le message.'), 'err'); return; }
-  await chargerMessages();
-}
-
-async function msgArchiver(id, archive){
-  const r=await fetch('/api/messages/'+encodeURIComponent(id),
-    {method:'PUT', headers:{'Content-Type':'application/json'},
-     body:JSON.stringify({archive:!!archive})});
-  if(!r.ok){ notifier(await echec(r, 'Impossible de modifier l’archive.'), 'err'); return; }
-  await chargerMessages();
-}
-
-async function msgRetenir(id, retenu){
-  const r=await fetch('/api/messages/'+encodeURIComponent(id),
-    {method:'PUT', headers:{'Content-Type':'application/json'},
-     body:JSON.stringify({retenu:!!retenu})});
-  if(!r.ok){ notifier(await echec(r, 'Impossible de retenir ce message.'), 'err'); return; }
-  await chargerMessages();
-}
-
-async function msgSupprimer(id){
-  if(!await demander('Supprimer ce message ?',
-    "Il disparaît du panneau et de la base. Le journal des accès, lui, garde la trace "
-    + "qu'un message a été écrit.", 'Supprimer', true)) return;
-  const r=await fetch('/api/messages/'+encodeURIComponent(id), {method:'DELETE'});
-  if(!r.ok){ notifier(await echec(r, 'Suppression impossible.'), 'err'); return; }
-  notifier('Message supprimé.');
-  await chargerMessages();
-}
-
-/* UN MESSAGE QUI ARRIVE SE VOIT, meme si l'on est ailleurs dans le panneau.
-   La page demande toutes les vingt secondes ce qui est arrive DEPUIS ce
-   qu'elle a deja vu -- pas la liste entiere -- et l'annonce dans le coin,
-   comme les autres notifications. */
+/* UNE DEMANDE QUI ARRIVE SE VOIT, ou que l'on soit dans le panneau. La page
+   demande toutes les vingt secondes ce qui est arrive DEPUIS ce qu'elle a
+   deja vu -- pas la liste entiere -- et l'annonce dans le coin. */
 async function guetterMessages(){
   if(!estAdmin || msgPremierChargement) return;
   let d;
@@ -3804,11 +3449,11 @@ async function guetterMessages(){
   if(!neufs.length) return;
   msgDernierVu = Math.max(msgDernierVu, ...neufs.map(m=>m.ts||0));
   const premier=neufs[0];
-  /* notifier() devient ici une notification persistante : elle reste jusqu'à la prise de connaissance. */
   notifierMessage(neufs.length===1
-    ? 'Nouveau message de « ' + (premier.qui||'?') + ' ».'
-    : neufs.length + ' nouveaux messages.');
-  await chargerMessages();
+    ? 'Nouvelle demande de « ' + (premier.qui||'?') + ' ».'
+    : neufs.length + ' nouvelles demandes.');
+  /* La tuile « Demandes » du hub porte le compte : on la repeint. */
+  if(sectionCourante==='hub') chargerHub();
 }
 
 /* ---------------- un mot a l'administrateur ---------------- */
@@ -3981,14 +3626,31 @@ function remplir(el, html){
 
 function peindreHub(){
   const classeListe = 'hub-liste compacte';
-  /* Le titre suffit : pas de phrase sous « Hub ». */
+  /* Styles 3 et 4 : le hub change de forme (voir STYLES). */
+  const variante = document.documentElement.getAttribute('data-variante');
+  /* Le titre suffit : pas de phrase sous « Hub » -- sauf dans le lanceur,
+     ou une ligne dit d'un coup d'oeil si quelque chose cloche. */
   $('hub-sous').style.display='none';
+  const filtre = ($('hub-filtre').value||'').trim().toLowerCase();
+  const correspond = a => !filtre
+    || (nomAffiche(a)+' '+(a.description||'')).toLowerCase().includes(filtre);
 
   /* Applications et services dans la meme grille, ranges ensemble par leur
      nom : on vient au hub pour OUVRIR quelque chose, et ce qui l'ouvre ne
-     change rien a l'endroit ou l'oeil le cherche. */
-  const liste=hubApps.concat(hubServices)
+     change rien a l'endroit ou l'oeil le cherche. Le lanceur fait exception :
+     les services de la stack y vont dans le dock. */
+  const services = variante==='lanceur' ? [] : hubServices;
+  const liste=hubApps.concat(services).filter(correspond)
     .sort((a,b)=>a.name.localeCompare(b.name,'fr'));
+  peindreDock(variante==='lanceur' ? hubServices : []);
+  if(variante==='lanceur'){
+    const toutes = hubApps.concat(hubServices);
+    const souci = toutes.filter(a=>['err','warn'].includes(etatApp(a)[0])).length;
+    $('hub-sous').style.display='block';
+    $('hub-sous').textContent = toutes.length + (toutes.length>1 ? ' applications' : ' application')
+      + (souci ? (souci>1 ? ` · ${souci} demandent ton attention.` : ' · une demande ton attention.')
+               : ' · tout répond.');
+  }
   /* Une liste silencieusement plus courte inquiete plus qu'elle ne
      simplifie : le hub dit ce qu'il cache, et ou le retrouver. */
   const nbCaches = (hubMasquees||[]).length;
@@ -3999,6 +3661,11 @@ function peindreHub(){
       + '<a href="#" onclick="event.preventDefault();allerA(\'parametres\');'
       + 'paramOnglet(\'compte\')">à décocher dans tes paramètres</a> pour '
       + (nbCaches>1 ? 'les' : 'la') + ' revoir.');
+  }
+  if(!liste.length && filtre){
+    $('hub-liste').className='';
+    remplir($('hub-liste'), '<div class="hub-vide"><b>Aucune application ne correspond</b>Essaie un autre mot.</div>');
+    return;
   }
   if(!liste.length){
     $('hub-liste').className='';
@@ -4016,12 +3683,13 @@ function peindreHub(){
   /* service-stack = la plaque claire sous le logo : seulement pour un logo
      transparent (Dagster). Mailpit porte son propre fond, comme le
      diagnostic, et une plaque blanche autour l'encadrait pour rien. */
+  if(variante==='bento'){ peindreBento(liste); return; }
   const tuile = a => `<a class="hub-projet${a.externe && a.plaque ? ' service-stack' : ''} ${a.running?'':'arretee'}"
-      href="${lienOuverture(a)}"
+      href="${lienOuverture(a)}" data-app="${esc(a.name)}"
       title="${esc(a.description||a.name)}">
       <img src="${icone(a.name)}" alt="">
       <div class="txt"><div class="nom">${esc(nomAffiche(a))}</div>
-      <div class="bas">${badgeEtat(a)}${badgeVis(a)}</div></div></a>`;
+      <div class="bas">${badgeEtat(a)}${badgeVis(a)}</div></div>${pastille(a)}</a>`;
 
   /* Sans categorie declaree, le hub reste ce qu'il etait : une seule liste.
      Un unique titre « Autres » au-dessus de tout serait du bruit. */
@@ -4044,6 +3712,61 @@ function peindreHub(){
     <div class="${classeListe}">${apps.map(tuile).join('')}</div>
   </div>`).join(''));
 }
+
+/* STYLE 3 : le dock. Les services de la stack (Dagster, Mailpit), a part
+   des applications, comme les outils d'un systeme sous ses icones. */
+/* Le nombre de demandes non lues, sur la tuile « Demandes ». */
+const pastille = a => a.non_lues
+  ? `<span class="hub-pastille" title="${a.non_lues} nouvelle${a.non_lues>1?'s':''} demande${a.non_lues>1?'s':''}">${a.non_lues}</span>` : '';
+function peindreDock(services){
+  remplir($('hub-dock'), services.map(a=>{
+    const [c,t]=etatApp(a);
+    return `<a class="dock-item" href="${lienOuverture(a)}" title="${esc(nomAffiche(a))} — ${esc(t)}">
+      <img src="${icone(a.name)}" alt=""><span>${esc(nomAffiche(a))}</span>
+      <i class="point ${c}" aria-label="${esc(t)}"></i>${pastille(a)}</a>`;
+  }).join(''));
+}
+
+/* STYLE 4 : la mosaique. Une grande tuile pour l'application du moment --
+   la derniere ouverte depuis ce navigateur, sinon la premiere en ligne --,
+   une tuile d'etat, puis une carte par application. Les categories ne
+   decoupent pas la mosaique : elle se lit d'un seul regard. */
+function peindreBento(liste){
+  let derniere=null;
+  try{ derniere=localStorage.getItem('codelab-hub-derniere'); }catch(e){}
+  const apps = liste.filter(a=>!a.externe && !a.interne);
+  const une = apps.find(a=>a.name===derniere) || apps.find(a=>a.running) || apps[0];
+  const total = liste.length;
+  const enLigne = liste.filter(a=>etatApp(a)[0]==='on').length;
+  const souci = liste.find(a=>['err','warn'].includes(etatApp(a)[0]));
+  const desc = a => esc(a.description || (a.externe ? 'Outil de la stack' : 'Application'));
+  const tuileUne = !une ? '' : `<a class="bento-une" href="${lienOuverture(une)}" data-app="${esc(une.name)}">
+      <div class="bento-une-haut"><span class="bento-sur">${une.name===derniere ? 'Ouverte récemment' : 'À la une'}</span>${badgeEtat(une)}</div>
+      <img src="${icone(une.name)}" alt="">
+      <div class="bento-une-nom">${esc(nomAffiche(une))}</div>
+      <div class="bento-une-desc">${desc(une)}</div>
+      <span class="bento-bouton">Ouvrir <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></a>`;
+  const tuileEtat = `<section class="bento-etat" aria-label="État des applications">
+      <h3>État</h3>
+      <div><div class="bento-chiffre">${enLigne}<span>/${total}</span></div><p>en ligne</p></div>
+      <div class="bento-pied"><div class="bento-barres" aria-hidden="true">${liste.map(a=>`<i class="${etatApp(a)[0]}"></i>`).join('')}</div>
+      ${souci ? `<a href="${lienOuverture(souci)}">${esc(nomAffiche(souci))} : ${esc(etatApp(souci)[1].toLowerCase())}</a>` : '<p>Tout répond.</p>'}</div></section>`;
+  const carte = a => {
+    const [c] = etatApp(a);
+    return `<a class="bento-carte ${c}" href="${lienOuverture(a)}" data-app="${esc(a.name)}">
+      <div class="bento-carte-haut"><img src="${icone(a.name)}" alt="">${badgeEtat(a)}</div>
+      <div class="bento-carte-nom">${esc(nomAffiche(a))}</div>
+      <div class="bento-carte-desc">${desc(a)}</div>${pastille(a)}</a>`;
+  };
+  $('hub-liste').className='bento';
+  remplir($('hub-liste'), tuileUne + tuileEtat + liste.filter(a=>a!==une).map(carte).join(''));
+}
+/* L'application ouverte en dernier, retenue par ce navigateur seulement :
+   c'est elle que la mosaique met en avant. Rien ne part au serveur. */
+$('hub-liste').addEventListener('click', e=>{
+  const t = e.target.closest('[data-app]');
+  if(t){ try{ localStorage.setItem('codelab-hub-derniere', t.dataset.app); }catch(err){} }
+});
 
 /* ---------------- vue d'ensemble ---------------- */
 function barChart(list, key, unit, maxHint){
@@ -5584,33 +5307,10 @@ function notifierMessage(texte){
   n.id='toast-messages';
   n.className='toast toast-message ok';
   n.innerHTML='<svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>'
-    +'<div style="flex:1"><b>'+esc(texte)+'</b><div class="hint">Clique pour ouvrir Messages.</div></div>'
+    +'<div style="flex:1"><b>'+esc(texte)+'</b><div class="hint">Clique pour ouvrir Demandes.</div></div>'
     +'<button type="button">Voir</button>';
-  n.querySelector('button').onclick=async ev=>{ev.stopPropagation(); await voirMessagesDepuisNotification();};
-  n.onclick=voirMessagesDepuisNotification;
+  n.onclick=()=>{ location.href='/demandes'; };
   $('toasts').appendChild(n);
-}
-
-async function marquerMessagesLus(){
-  try{
-    const r=await fetch('/api/messages/lus',{method:'POST'});
-    if(!r.ok) return;
-    const n=$('toast-messages'); if(n) n.remove();
-    const inbox=msgTous.filter(m=>!m.archive).length;
-    $('side-count-messages').textContent=inbox;
-    $('side-count-messages').classList.remove('messages-non-lus');
-    $('side-count-messages').title=inbox
-      ? inbox+' message'+(inbox>1?'s':'')+' dans la boîte de réception'
-      : 'Boîte de réception vide';
-    msgTous=msgTous.map(m=>({...m,lu:true}));
-    peindreMessages();
-  }catch(e){}
-}
-
-async function voirMessagesDepuisNotification(){
-  showSection('messages');
-  await chargerMessages();
-  await marquerMessagesLus();
 }
 
 /* ---------------- creation d'un compte ---------------- */
