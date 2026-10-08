@@ -82,8 +82,15 @@ C'est tout : il n'y a plus de case a cocher. La securite reseau est toujours au 
 - **Les applications deployees heritent du TLS**, puisqu'elles passent par le meme panneau. Une
   application *publique* devient donc accessible a tout internet : c'est le but, et c'est la raison
   pour laquelle CodeLab ne le propose pas tant que l'adresse publique n'est pas declaree.
-- **Meme origine pour tout.** Tout est servi sous `https://codelab.tondomaine.fr/<nom>/`. Une faille
-  XSS dans une application reste une faille dans l'origine du panneau. Un sous-domaine par
-  application y remedierait, au prix d'un certificat generique et d'une entree DNS par projet.
+- **Les applications ont leur propre origine, et `codelab.conf` ne la publie pas.** Le panneau sert
+  les applications sur le port `9002`, que la configuration livree ne relaie pas. Pour les ouvrir
+  depuis internet :
+  1. ajoute un sous-domaine (`apps.tondomaine.fr`) et son certificat ;
+  2. ajoute un bloc `server` sur le modele du bloc Dagster en fin de `codelab.conf`, avec
+     `proxy_pass http://10.8.0.2:9002;` ;
+  3. declare `APP_MANAGER_APPS_URL: "https://apps.tondomaine.fr"` dans le compose.
+
+  Ne remets pas les applications sous le port du panneau (`APP_MANAGER_APPS_PORT: "0"`) : une
+  faille XSS dans une application deviendrait une faille du panneau.
 - **Le trafic passe par ton VPS.** Debit et volume mensuel sont ceux de l'offre, pas ceux de ta
   fibre.

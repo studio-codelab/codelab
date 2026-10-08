@@ -1,1138 +1,268 @@
-# codelab-app-manager
+# codelab-app-manager — le panneau
 
-Panneau de controle et reverse-proxy pour les applications que tu developpes dans `/workspace`, servi sur un
-unique port (`9001`), protege par mot de passe. Autonome : aucune dependance a Supervisor — le cycle de vie des
-applications est gere directement par ce service.
+Le cœur de CodeLab. Un seul service Flask (servi par waitress) qui :
 
-## Ce que fait le service
+- **authentifie** tout le monde (comptes, second facteur, clés d'accès) et décide pour Dagster et
+  Mailpit ;
+- **déclare, construit, lance et supervise** les applications de `/workspace` ;
+- **sert les applications** par un reverse proxy, sur une origine à part ;
+- **envoie** les mails (par Mailpit), les alertes et les invitations ;
+- **sauvegarde** son propre état et le code de `/workspace`.
 
-- Sert un dashboard (`http://<IP-du-serveur>:9001/`) organise autour d'un **bandeau fixe pleine largeur en haut** :
-  a gauche, un bouton dedie pour reduire/etendre la barre laterale (transition douce — cubic-bezier, texte en
-  fondu plutot qu'un `display:none` brutal), puis le logo CodeLab (fige, toujours visible que la barre soit
-  repliee ou non — cliquer dessus ramene a la Vue d'ensemble depuis n'importe quelle page) ; a droite, le
-  **bouton profil**. En dessous, la barre laterale reductible (etat retenu entre les sessions) avec 2 sections,
-  et le contenu principal :
-  - **Vue d'ensemble** — page d'accueil par defaut : compteurs (total / en ligne / arretees), barre de sante
-    (repartition en ligne / arretee / erreur), ressources cumulees (CPU/memoire), et deux graphiques en barres
-    (CPU et memoire par application en ligne). Pas d'actions rapides — uniquement des statistiques.
-  - **Projets** — grille de tuiles compactes façon icônes iOS : l'icône occupe presque toute la tuile, le nom
-    en dessous en petit texte centré, sans bordure ni fond autour (juste l'icône elle-même, deja arrondie).
-    Cliquer sur une tuile ouvre le site dans un nouvel onglet. Un menu **"..."** discret (visible en permanence
-    mais peu contrasté) donne acces a Modifier (masque tant que l'app tourne), Redemarrer (si en ligne),
-    Activer/Desactiver, Rendre publique/privee, Lancer le build (si une commande de build est definie), Metriques, Voir les logs et Supprimer. Une pastille sur l'icone indique le statut : verte (en
-    ligne), grise (arretee), rouge (erreur), rouge clignotante (boucle de crash — redemarrage automatique
-    interrompu apres 5 echecs). Le bouton "Ajouter un projet" vit dans la barre d'outils. **Bascule grille/liste** dans la barre d'outils (preference retenue) : la vue liste garde le meme
-    menu "..." mais affiche icone + nom sur une ligne, plus dense. Pas de bandeau de stats ici (deja dans Vue
-    d'ensemble), pas de message "aucun projet" quand c'est vide — juste la tuile, pas de tri (toujours par
-    ordre alphabetique, recherche disponible en haut).
-  - **Compte, 1er niveau** — clic sur l'icone de profil (generique, pas le logo CodeLab) en haut a droite :
-    mini-menu deroulant avec seulement **Parametres** et **Deconnexion**, pour un acces rapide sans changer de
-    page.
-  - **Compte, 2e niveau** — clic sur **Parametres** dans le mini-menu : page dediee complete (preference
-    d'apparence Auto / Clair / Sombre, deconnexion). Pas de commande de copie des identifiants dans
-    l'interface — `credentials.env` est deja directement lisible depuis le disque de l'hote.
-- Pour chaque application activee, lance sa commande de demarrage comme sous-processus, sur un port interne
-  attribue automatiquement (plage `9101`–`9140`).
-- Fait office de **reverse-proxy interne** : `http://<IP-du-serveur>:9001/<nom-app>/` route vers le port interne de
-  l'application correspondante — un seul port a exposer sur l'hote, quel que soit le nombre d'applications
-  gerees.
-- Protege l'ensemble du panneau et de son API par une **authentification par mot de passe**, generee
-  automatiquement au premier demarrage (meme principe que le mot de passe Postgres de `codelab-postgres`).
+| Port | Sert |
+|---|---|
+| `9001` | le panneau et son API |
+| `9002` | les applications, sous `/<nom>/` (`APP_MANAGER_APPS_PORT`, `0` pour les remettre sur `9001`) |
 
-## Fiabilite, observabilite, deploiement
-
-- **Les applications et leurs builds ne tournent pas en root** — le service, lui, en a besoin au demarrage
-  (groupe et setgid sur `/workspace`), mais tout ce qu'il lance bascule sur l'utilisateur `codelab-app`
-  (uid 1001, groupe `codelab`). Ce que cela fermait : `credentials.env` est monte ici en `0600 root`, donc
-  un processus enfant lance en root pouvait lire le mot de passe Postgres, celui du panneau et la cle de
-  session. Le vecteur realiste n'est pas l'application mais son build — `npm ci` execute les scripts
-  `postinstall` de toutes les dependances transitives, et une seule compromise suffit. `git pull` est
-  concerne aussi : un depot peut porter des hooks.
-  Les enfants recoivent un `HOME` dedie dans le volume d'etat (`home/`) : sans lui `npm` echoue sur son
-  cache, `/root` n'etant plus accessible. Le marqueur de permissions passe a `permissions-v2` pour rejouer
-  une fois la passe sur un workspace existant, dont les fichiers ont pu etre produits en root.
-- **Le cookie de session du panneau n'est pas transmis aux applications** — elles sont servies sur la meme
-  origine (`:9001/<app>/`), le navigateur le leur envoie donc, et le proxy le relayait tel quel : une
-  application deployee pouvait lire la session admin et piloter le panneau. Seul ce cookie est retire, ceux
-  de l'application passent. La meme origine reste : une XSS dans une application reste une XSS dans
-  l'origine du panneau, et y remedier demanderait un port ou un sous-domaine par application — ce que ce
-  proxy a justement pour but d'eviter.
-- **Le panneau est le point d'entree de toute la stack** — il execute des commandes arbitraires (lancement,
-  build) sous l'identite du service. Quatre garde-fous, dans cet esprit :
-  - cookie de session en `SameSite=Lax` et `HttpOnly`. Les actions du panneau sont des `POST` sans corps :
-    sans `SameSite`, n'importe quelle page ouverte dans le meme navigateur pouvait poster un formulaire vers
-    `/api/toggle/<app>` et piloter la stack a l'insu de l'utilisateur, commande de build comprise ;
-  - `X-Forwarded-For` n'est jamais cru : l'en-tete est pose par le client, et le faire varier a chaque essai
-    donnait un compteur neuf qui annulait la limite de 5 tentatives par 5 minutes. Ce n'est plus un reglage ;
-  - comparaison du mot de passe en temps constant (`secrets.compare_digest`) ;
-  - chemin d'une application borne a `APP_MANAGER_ROOT` a l'ajout **et** a la modification, comme le
-    navigateur de dossiers l'etait deja.
-
-- **Deployer en une action** — « Déployer » dans le menu « ... » enchaine build et redemarrage, et ne
-  redemarre que si le build a reussi. L'ancienne version reste servie pendant le build. C'etait
-  auparavant deux entrees de menu distinctes, dont la seconde s'oubliait : on lancait le build, la page
-  ne changeait pas, et le process servait toujours l'ancien `dist/`.
-- **Sonde d'ecoute** — « le process est vivant » et « l'application est joignable » sont deux choses
-  differentes : un serveur qui plante dans son thread d'ecoute, ou qui n'a jamais pris son port, laisse
-  un process bien vivant derriere lui, et la pastille restait verte devant une page blanche. Toutes les
-  10 s, une connexion TCP sur `127.0.0.1:<port interne>` — exactement la cible du reverse proxy — donne
-  l'etat reel : pastille orange et « Ne repond pas » quand rien n'ecoute. Pas de requete HTTP : le port
-  ouvert est le signal cherche, et un 404 applicatif ne veut pas dire que l'application est en panne.
-- **Node et git sont dans l'image** — ce service build les applications qu'il deploie : sans `npm`, tout projet
-  front echouait en `npm: command not found` alors que la meme commande marchait en SSH, et la parade etait
-  d'ecrire un `PATH` avec un numero de version de node fige dans la commande de build. Une commande de build
-  s'ecrit donc simplement `npm ci && npm run build`. `git` reste installe non pour le panneau, qui ne
-  l'appelle plus, mais parce que `npm ci` en a besoin des qu'une dependance transitive est declaree par une
-  adresse git.
-- **Detection du couple build + lancement** — a l'ajout d'un projet, le dossier est inspecte et les deux
-  commandes sont proposees d'un coup (Vite, Astro, Parcel, CRA, Angular, Next.js, Django, Flask, statique).
-  Pour un front, la suggestion sert le dossier produit par le build avec le `http.server` de Python plutot
-  que le serveur de developpement du framework. Le tableau complet est dans
-  [`dev/README.md`](../dev/README.md).
-- **`$PORT` dans l'environnement de l'application** — le port interne attribue est injecte dans le processus
-  lance : la commande peut s'ecrire `--port $PORT` au lieu d'un numero en dur a resynchroniser.
-
-- **Redemarrage automatique en cas de crash** — un thread de fond (`monitor_tick`, toutes les 10s) redemarre
-  automatiquement toute application marquee active dont le process est mort de maniere inattendue (crash, pas
-  un arret volontaire via le menu). Plafonne a 5 tentatives par tranche de 10 minutes : au-dela, l'application
-  est laissee arretee et la pastille de statut clignote en rouge ("boucle de crash") jusqu'a intervention
-  manuelle. Un arret volontaire (Desactiver) efface cet historique.
-- **Rotation des journaux** — un fichier de log qui depasse 2 Mo est renomme en `.log.1` (ecrasant l'ancien
-  s'il existe) au demarrage suivant de l'application concernee. Evite une croissance illimitee sur le disque.
-- **Redemarrer** — action distincte d'Activer/Desactiver dans le menu "...", visible seulement si l'application
-  tourne : l'arrete puis la relance immediatement (utile apres avoir modifie du code sans que l'app le recharge
-  seule).
-- **Historique de metriques** — CPU et memoire de chaque application en ligne sont enregistres a chaque
-  actualisation du dashboard (~5s), conserves en memoire sur les ~30 derniers points (~2,5 min). Consultable via
-  "Metriques" dans le menu "..." : deux mini-graphiques SVG (CPU, memoire), generes cote client sans
-  dependance supplementaire.
-- **Recherche dans les logs** — un champ de filtre au-dessus du journal en direct ; ne montre que les lignes
-  correspondantes, cote client, sans requete supplementaire au serveur.
-- **Build a la demande** — commande optionnelle (ex. `npm install`, `pip install -r requirements.txt`),
-  configurable par application dans le formulaire d'ajout/edition, executee separement du lancement via
-  "Lancer le build" dans le menu "..." (delai max 10 min). La sortie est ecrite dans le meme journal que
-  l'application, consultable normalement.
-- **Visibilite par application** — *publique* (accessible a qui a le lien, le comportement historique) ou
-  *privee* (la meme session que le panneau est exigee). Le controle est applique dans le reverse proxy et non
-  dans l'interface : une application privee reste fermee quel que soit le chemin emprunte pour l'atteindre.
-  Une application declaree avant ce reglage, sans le champ, est traitee comme publique — une mise a jour ne
-  ferme rien toute seule.
-- **Double authentification (TOTP)** — desactivee par defaut, activable depuis *Parametres > Securite*. Voir
-  plus bas.
-- **Limite memoire optionnelle** — champ "Limite memoire en Mo" dans le formulaire d'ajout/edition ; applique
-  une limite dure via `RLIMIT_AS` (herite par le process et ses enfants) au demarrage. Le process est arrete
-  par le noyau s'il tente de la depasser — protege contre une fuite memoire qui saturerait le serveur entier.
-  Pas de limite CPU equivalente : `RLIMIT_CPU` tue un process une fois un total de secondes CPU cumule atteint,
-  ce qui n'a pas de sens pour un serveur cense tourner indefiniment.
-
-> **Ce qui n'a volontairement pas ete ajoute** : un terminal web par application (redondant avec l'acces SSH
-> deja fourni par `codelab-dev` ; un vrai terminal interactif necessiterait un PTY + des websockets, une
-> surface de securite supplementaire pour un gain marginal) ; des domaines personnalises (necessiterait de
-> controler du DNS externe, impossible a automatiser depuis l'interieur d'un conteneur — le routage `/nom/`
-> actuel fonctionne sans dependance externe) ; toute interaction avec git (le
-> bouton « Git pull » a ete retire : le depot d'un projet se met a jour depuis une session SSH, la ou l'on a
-> deja l'authentification, l'historique et de quoi resoudre un conflit — un bouton qui lance un `git pull`
-> sans pouvoir rien resoudre rendait surtout des echecs) ; un auto-deploiement par webhook GitHub
-> (necessiterait un endpoint public joignable et une verification de signature).
-
-> **Structuration visuelle** : chaque page regroupe son contenu dans des "zones" (fond legerement different du
-> fond de page, titre de section en majuscules) plutot que de laisser les cartes flotter librement — Vue
-> d'ensemble a une zone "Resume" (les 3 cartes de stats) et une zone "Activite" (les 2 graphiques), Projets a
-> une zone "Projets" (la grille), Parametres a une zone par carte.
+Ce que l'utilisateur voit du panneau est décrit dans [`docs/FONCTIONNALITES.md`](../docs/FONCTIONNALITES.md) ;
+ses garanties de sécurité dans [`SECURITE.md`](../SECURITE.md).
 
 ## Fichiers
 
-| Fichier | Role |
+| Fichier | Rôle |
 |---|---|
-| `Dockerfile` | Construction de l'image (Flask, waitress, psutil, requests, qrcode, webauthn, Node.js, git) |
-| `entrypoint.sh` | Permissions partagees sur `/workspace`, puis demarrage |
-| `app/app.py` | Le service : authentification, API, cycle de vie des process, reverse proxy |
-| `app/dashboard.html` | L'interface du panneau |
-| `app/login.html` | La page de connexion |
-| `app/stockage.py` | La base du panneau (SQLite) : connexions, schema versionne, sauvegarde coherente |
-| `vps/` | Tunnel WireGuard + nginx pour exposer ce panneau en HTTPS — voir [`vps/README.md`](vps/README.md). **Ne fait pas partie de l'image** : ces fichiers s'installent sur un VPS et sur l'hote, pas dans le conteneur |
-
-L'application vit dans `app/` : une seule ligne de `COPY` dans le `Dockerfile`, et la racine du service
-reste lisible — l'image, le demarrage, la documentation, les tests.
-
-Ce que ce panneau expose est controle ailleurs : les sondes de securite vivent dans le projet
-`diagnostic` du workspace, ou elles font partie de l'etat des lieux de l'installation.
-
-Les deux pages etaient des chaines Python dans `app/app.py` — 67 Ko sur une seule ligne pour le tableau de
-bord. Elles sont lues une fois au demarrage, et `__ROOT__` y est remplace par la racine du workspace au
-moment de servir la page. Un fichier `.html` se relit, se diffe et se colore ; une chaine echappee, non.
-
-## Donnees : la base `codelab.db`
-
-Tout ce que le panneau retient vit dans **une seule base SQLite**, `codelab.db`, dans son dossier
-d'etat (`/var/lib/codelab/app-manager`). Une table par sujet, des colonnes typees, des liens entre
-elles. Elle s'ouvre avec n'importe quel outil SQLite — **DB Browser for SQLite** ou TablePlus
-(sur une copie, panneau arrete ou via la sauvegarde), ou en ligne de commande :
-
-```sh
-sqlite3 /DATA/AppData/codelab/app-manager/codelab.db ".tables"
-sqlite3 /DATA/AppData/codelab/app-manager/codelab.db \
-  "SELECT qui, datetime(ts, 'unixepoch'), app FROM journal WHERE genre = 'ouverture' ORDER BY ts DESC LIMIT 20"
-```
-
-| Table | Contenu |
-|---|---|
-| `applications` | Les applications declarees : dossier, commande, commande de build, port, actif, visibilite, categorie, limite memoire |
-| `comptes` | Les comptes utilisateurs : empreinte du mot de passe (PBKDF2) et son sel, adresse verifiee, suspendu, second facteur, date de creation |
-| `acces_applications` | Qui peut ouvrir quelle application privee (une ligne par droit ; supprimee avec le compte) |
-| `cles_acces` | Les cles d'acces (Face ID, Touch ID, empreinte, Windows Hello) : cle publique, compteur, nom, derniere utilisation. `compte = 'admin'` pour l'administrateur |
-| `categories` | Les categories du hub, dans l'ordre voulu |
-| `masquees` | Ce que chaque compte a range hors de son hub |
-| `journal` | Connexions, echecs, ouvertures d'applications, changements de compte : date, genre, qui, application, adresse IP, details. Les 50 000 derniers evenements ; Postgres garde tout |
-| `messages` | Les messages laisses a l'administrateur, avec leur statut |
-| `taches`, `sous_taches` | Les taches nees des messages acceptes, par projet, et leurs sous-taches (version 2 du schema) |
-| `processus` | Les processus lances, pour les retrouver apres un redemarrage du panneau |
-| `parametres` | Les reglages en clair : exposition, VPS |
-| `reglages_chiffres` | Les reglages sensibles, **chiffres valeur par valeur** : adresses des comptes et des alertes, serveur d'envoi, invitations, adresse de surveillance |
-| `meta` | Compteurs internes (cache des applications) |
-
-**Garanties.** Chaque ecriture est une transaction (complete ou absente, meme si le panneau est tue
-au milieu) ; le mode WAL laisse le proxy lire sans jamais attendre une ecriture ; le fichier est en
-`0600` ; une ligne supprimee est **effacee** du fichier (`secure_delete`), pas seulement oubliee. Le
-schema est **versionne** (`PRAGMA user_version`) : une evolution s'ajoute a la liste `MIGRATIONS` de
-`stockage.py` et se joue une fois, au demarrage.
-
-**Pourquoi SQLite et pas Postgres.** Postgres est partage avec les applications : si le panneau en
-dependait pour lire ses comptes, une base saturee ou cassee empecherait de se connecter au panneau —
-l'outil qui sert a la reparer. SQLite est un fichier local, sans serveur, inclus dans Python. Postgres
-garde son role de copie, pour l'historique long et les requetes.
-
-**Sans `credentials.env`, les secrets ne se lisent pas** : la cle `APP_MANAGER_CHIFFREMENT_CLE` y
-vit. Une copie de la base seule ne livre ni adresse, ni serveur d'envoi.
-
-**Sauvegarde.** L'archive quotidienne du dossier d'etat contient un **instantane coherent** de la
-base, pris par SQLite lui-meme (`backup`), jamais le fichier vivant.
-
-**Migration depuis les fichiers JSON.** Au premier demarrage apres la mise a jour, chaque ancien
-fichier (`apps.json`, `utilisateurs.json`, `passkeys.json`, `acces.jsonl`, `messages.jsonl`,
-`categories.json`, `masquees.json`, `exposition.json`, `processus.json`, `reglages.chiffres`) est
-verse dans sa table puis **renomme en `.migre`** — garde, jamais supprime, pour pouvoir revenir en
-arriere. Les adresses mail encore en clair dans un tres ancien `utilisateurs.json` sont retirees de
-cette copie. Un import rejoue ne remplace jamais ce que la base porte deja.
-
-Le **diagnostic** lit la base en **lecture seule** (`mode=ro`) : une sonde ne peut pas modifier ce
-qu'elle observe.
-
-## Authentification
-
-Au tout premier demarrage, un mot de passe admin est genere aleatoirement et ecrit dans
-`credentials.env` (permissions `600`), sous `APP_MANAGER_ADMIN_PASSWORD` — jamais defini par toi, jamais dans le
-compose. C'est le seul endroit ou il est stocke, lisible directement
-depuis le disque de l'hote sans `docker exec` :
-
-```bash
-cat /DATA/AppData/codelab/config/credentials.env
-```
-
-`upsert_shared_block()` n'ecrit que son propre bloc, commentaires inclus (delimite par
-`# ===== codelab-app-manager =====` / `# ===== /codelab-app-manager =====`) — les blocs deposes par
-`codelab-postgres` et `codelab-redis` (et l'en-tete general du fichier) restent intacts, peu importe l'ordre de
-demarrage des services : chaque ecriture se fait sous un verrou partage (`flock` sur
-`credentials.env.lock`), sans lequel deux services demarres ensemble pouvaient effacer le bloc l'un de
-l'autre. Voir [Fichier `credentials.env`](#fichier-credentialsenv) plus bas pour le detail du
-mecanisme.
-
-Les sessions sont signees avec une cle secrete elle aussi generee et persistee dans le meme fichier
-(`APP_MANAGER_SESSION_SECRET`), donc la connexion survit a un redemarrage
-du conteneur. Une bascule anti-bruteforce limite les tentatives de connexion echouees a 5 par tranche de 5
-minutes, par adresse IP.
-
-> **Le proxy `/<nom-app>/...` n'est volontairement pas protege par cette authentification** — seuls le dashboard
-> et son API le sont. Une application **publique** que tu deploies reste directement joignable (utile pour tester un
-> webhook, par exemple), independamment du mot de passe du panneau. Une application **privee**, elle,
-> exige une session : voir [Une seule application, deux roles](#une-seule-application-deux-roles).
-
-## Une seule application, deux roles
-
-| | Administrateur | Utilisateur |
-|---|---|---|
-| Connexion | nom vide (ou `admin`) + mot de passe de `credentials.env` | son nom + son mot de passe |
-| Second facteur | optionnel, a activer depuis Parametres | **obligatoire** |
-| Page d'accueil | le hub | le hub |
-| Declarer, editer, supprimer un projet | oui | non |
-| Demarrer, arreter, deployer, build | oui | non |
-| Visibilite, alertes, comptes, journaux | oui | non |
-| Dagster (`/api/auth-check`) | oui | **non** |
-| Ouvrir un projet | tous | ceux qu'on lui a autorises |
-
-**L'application s'appelle CodeLab, et il n'y en a qu'une** : une seule page, servie a la meme
-adresse (`/`) a tout le monde, avec le hub pour accueil. Il n'y a pas de bascule de mode a
-comprendre — c'est le role qui decide de ce que le menu propose en plus :
-
-- **Le hub** — la liste des projets ouvrables, l'accueil de tous les comptes (a ceci pres que
-  l'administrateur y voit tous les projets, l'utilisateur seulement les siens).
-- **Le menu lateral**, administrateur seulement — la vue d'ensemble, les applications (et la fiche
-  d'un projet avec ses journaux), et les **utilisateurs**.
-- **Le menu du compte**, en haut a droite — **Parametres**, une seule entree pour tout le monde.
-  Derriere, des onglets, en haut de la page : *Compte* (affichage, adresse mail, session) et
-  *Securite* (second facteur, cles d'acces) pour chacun ; *Serveur*, *Categories*, *E-mail* et
-  *Alertes* pour l'administrateur seul.
-
-Le role est injecte dans la page pour qu'elle sache quoi afficher, mais **ce n'est qu'un confort
-d'affichage** : chaque route d'administration verifie le role de son cote (`require_admin`), et une
-page bricolee dans le navigateur ne donne aucun droit supplementaire.
-
-`/espace`, l'ancienne adresse de l'espace utilisateur, redirige vers `/` : elle a pu etre mise en
-favori.
-
-Les comptes se creent depuis **Utilisateurs**, dans le menu lateral, par **invitation** : voir
-ci-dessous. La liste donne l'essentiel d'un
-coup d'oeil — ce qui empeche quelqu'un d'entrer en premier, et en rouge — et **« Modifier » ouvre la
-fiche du compte** : adresse mail, nouveau mot de passe, projets autorises, remise a zero du second
-facteur, retrait des cles d'acces, suppression.
-
-**Retrouver quelqu'un.** Deux filtres se combinent au-dessus de la liste, parce qu'on cherche de
-deux facons : par la **personne** qu'on a en tete (nom ou adresse mail), ou par l'**application**
-dont on veut savoir qui y a acces. La seconde question n'avait aucune reponse avant — il fallait
-ouvrir les fiches une par une.
-
-La liste **ne se pagine pas** : elle tient a l'ecran, et les deux filtres suffisent a s'y
-retrouver. Un compte sous la liste dit combien de comptes un filtre a ecartes. C'est le **journal
-des connexions**, plus bas sur la meme page, qui se pagine — voir ci-dessous.
-
-Le filtrage se fait **dans la page**, sur une liste recue en entier. C'est le bon compromis a
-cette echelle, et c'est deja ce que fait la recherche d'applications. Au-dela de quelques milliers
-de comptes il faudrait filtrer cote serveur ; ce jour-la, la question ne se posera pas qu'ici.
-
-### Inviter quelqu'un
-
-**Creer un compte, c'est donner une adresse mail.** *Inviter quelqu'un* envoie un lien (par
-Mailpit) ; la personne l'ouvre, choisit **elle-meme** son nom d'utilisateur et son mot de passe,
-et entre aussitot dans le panneau.
-L'administrateur n'invente plus de mot de passe a transmettre par un autre canal.
-
-- Le lien est servi par la page de connexion (`/invitation/<jeton>`). Le jeton fait 256 bits ;
-  seule son **empreinte** est rangee, au coffre chiffre. Il **ne sert qu'une fois** et **expire au
-  bout de sept jours**.
-- Cliquer sur le lien prouve qu'on releve l'adresse : le compte nait avec une adresse **verifiee**,
-  sans code a recopier. Ce lien tient lieu de second facteur pour cette **premiere** connexion
-  seulement ; les suivantes demandent mot de passe et code, ou Face ID.
-- Le lien est **toujours affiche** a l'administrateur, avec un bouton *Copier* : sans serveur d'envoi
-  (ou Mailpit en mode test), le mail est garde dans Mailpit sans partir, et c'est a lui de le
-  transmettre.
-- Les invitations en attente se listent sous le formulaire : *Renvoyer* tire un **nouveau** lien
-  (l'ancien ne vaut plus rien), *Annuler* le retire.
-- *Creer le compte toi-meme* reste possible, avec un mot de passe choisi par l'administrateur.
-
-### Le journal des connexions
-
-Sous la liste des comptes : qui est entre, quand, et quelle application a ete ouverte. Il s'affiche
-par pages de **25 ou 50**, reglable au-dessus du tableau ou dans *Parametres > Compte*. Le choix est
-retenu par navigateur : c'est une preference d'affichage, pas un reglage du serveur.
-
-C'est **lui** qui est long — il grandit a chaque visite, la ou une liste de comptes reste stable.
-Auparavant il etait coupe net a 40 lignes : ni reglable, ni annonce, et les lignes au-dela etaient
-simplement invisibles.
-
-**Le nom, lui, ne se change pas** : il identifie la personne partout — dans ses cles d'acces, dans le
-journal des acces, dans la liste des projets autorises. Pour renommer quelqu'un, on cree un compte
-et on supprime l'ancien.
-
-**Supprimer un compte emporte ses cles d'acces.** Les laisser serait pire qu'un oubli de menage :
-recreer un compte du meme nom lui rendrait les cles de l'ancien, et l'appareil de la personne partie
-rouvrirait la porte.
-
-Chaque compte porte la liste des projets qu'il peut
-ouvrir ; la retirer prend effet immediatement, sans deconnexion — chaque controle relit le registre.
-
-Trois points meritent d'etre explicites :
-
-- **L'autorisation ne concerne que les projets prives.** Un projet public est ouvert a tout le monde,
-  y compris a un visiteur non connecte : c'est le sens de « publique », et c'est ce qui permet de
-  partager un projet par un lien. Pour restreindre un projet a certains comptes, il faut donc
-  d'abord le passer en prive.
-- **Dagster reste reserve a l'administrateur.** Son interface lance des jobs, donc execute du code
-  sur la machine : y donner acces serait donner l'administration par la bande, quels que soient les
-  projets autorises.
-- **Le controle est dans les routes, pas dans l'interface.** Masquer un bouton ne protege rien : une
-  route reste appelable a la main. `require_admin` garde les routes d'administration, et le proxy
-  verifie l'autorisation projet par projet — connaitre l'adresse d'un projet prive ne suffit pas.
-
-### Le second facteur, obligatoire pour les comptes utilisateurs
-
-Ces comptes existent pour etre distribues — a un collegue, a un client. Leur mot de passe circule
-donc par un canal qu'on ne maitrise pas, et sera reutilise ailleurs : c'est exactement le cas ou un
-seul secret ne suffit pas. Un compte utilisateur n'ouvre **jamais** de session sur le seul mot de
-passe.
-
-**Sans application a installer.** Apres le mot de passe, un **code a six chiffres** part
-automatiquement par **mail**, a l'adresse verifiee du compte (tous les comptes invites en ont une).
-
-La page dit ou le code est parti (adresse masquee) et propose de le renvoyer. Le code vaut dix
-minutes, sert une fois, et cinq essais au plus ; il ne part jamais que vers l'adresse enregistree
-sur le compte, et seulement apres un mot de passe juste. Un compte qui a deja une application d'authentification la garde comme moyen par
-defaut.
-
-**Face ID.** Juste apres une connexion par mot de passe (ou l'acceptation d'une invitation), sur un
-appareil qui sait verifier la personne, le panneau propose **d'activer Face ID** (Touch ID,
-l'empreinte ou Windows Hello selon l'appareil) — c'est une cle d'acces, voir plus bas. Sur la page
-de connexion, le bouton *Se connecter avec Face ID* passe en premier, et le navigateur propose la
-cle d'acces directement dans le champ du nom.
-
-**La boite mail seule ne prend pas un compte.** Le mail sert deja de second facteur ; s'il
-servait aussi, sans autre preuve, a reinitialiser le mot de passe, qui tient la boite tiendrait le
-compte. Donc :
-
-- *Mot de passe oublie* n'envoie un code que si le compte a **Face ID ou une application
-  d'authentification**. Sinon, c'est l'administrateur qui pose un nouveau mot de passe.
-- Apres une reinitialisation par mail, le **code par mail est suspendu** : la connexion suivante
-  passe par Face ID ou par l'application, et c'est elle qui le rend.
-- Un compte qui a deja un facteur (adresse verifiee, Face ID) ne peut pas enregistrer une
-  application sur le seul mot de passe — par exemple quand le serveur d'envoi est en panne.
-
-**Sessions.** Poser un nouveau mot de passe (par mail, par l'administrateur ou soi-meme) ou retirer
-les cles d'acces **ferme les sessions deja ouvertes** du compte : un cookie vole cesse de servir.
-Ajouter une cle Face ID ou changer son adresse mail exige une **connexion de moins de quinze
-minutes** : une session volee ne peut pas s'installer durablement. Les mots de passe font
-**12 caracteres au minimum**, partout.
-
-Le parcours historique ci-dessous (QR code et application d'authentification) ne s'applique plus
-qu'aux comptes **sans** adresse verifiee :
-
-**Le compte d'administration est plus exigeant qu'un compte utilisateur :**
-
-- **Second facteur obligatoire** (application d'authentification ou Face ID). Sans facteur
-  enregistre, le mot de passe juste mene a l'inscription d'une application, pas a une session ;
-  avec Face ID seulement, le mot de passe seul est refuse. Marche arriere en cas de telephone perdu :
-  `APP_MANAGER_ADMIN_2FA: "0"` dans le compose, le temps de reprendre la main.
-- **Session de douze heures au plus** (trente jours pour un compte utilisateur) : elle ouvre
-  Dagster et Mailpit, donc l'execution de code et tous les mails envoyes.
-- **Alerte par mail** a l'adresse d'alerte quand une session d'administration s'ouvre depuis une
-  adresse IP jamais vue (les 20 dernieres sont retenues).
-- Pas de code par mail ni de reinitialisation par mail : son mot de passe est celui de
-  `credentials.env`. Et l'option « administration limitee au reseau local » reste disponible.
-
-**Dagster et Mailpit ne s'ouvrent qu'a l'administrateur**, par aucun autre chemin : aucune tuile
-pour un compte utilisateur, `/api/auth-check` (interroge par nginx avant chaque requete vers les
-ports 3000 et 8025) refuse toute session qui n'est pas d'administration, et ni l'un ni l'autre ne
-s'accorde a un compte.
-
-Le parcours, en trois etats :
-
-1. **Compte cree** — le panneau affiche « 2FA en attente ». Rien a transmettre a la personne en
-   dehors de son nom et de son mot de passe.
-2. **Premiere connexion** — apres le mot de passe, la page affiche un **QR code** a scanner avec
-   une application d'authentification (la cle reste affichee dessous, pour qui prefere la saisir),
-   puis demande le code produit. Entre les deux, **la session ne vaut rien** : elle ne porte pas
-   `authed`, donc elle n'ouvre ni page ni application. Rien n'est enregistre tant que le code n'est
-   pas valide — une cle mal recopiee ne peut pas enfermer dehors.
-3. **Ensuite** — le code est exige a chaque connexion, et le panneau affiche « 2FA enregistree ».
-
-L'administrateur ne connait a aucun moment la cle de quelqu'un d'autre : elle est tiree au premier
-acces et n'apparait que sur l'ecran de la personne concernee. **Telephone perdu ou remplace** :
-*Reinitialiser la 2FA* efface le secret, et la personne en enregistre un nouveau a sa prochaine
-connexion. Les sessions deja ouvertes ne sont pas coupees par cette remise a zero.
-
-Une inscription ne remplace jamais un facteur deja en service (409) : deux connexions en parallele
-ne peuvent pas invalider le telephone que l'une des deux vient de configurer.
-
-Les mots de passe des comptes sont derives (PBKDF2-HMAC-SHA256, 200 000 iterations, un sel par
-compte) et stockes dans la table `comptes` de `codelab.db` (`0600`). Une copie de sauvegarde du dossier d'etat
-n'est donc pas une liste de mots de passe. Le compte d'administration, lui, n'est pas dans ce
-fichier : son mot de passe vit dans `credentials.env`, et le nom `admin` est reserve.
-
-## Adresse mail des comptes
-
-Chaque compte utilisateur porte une **adresse mail**, posee a la creation (par l'administrateur) ou
-choisie par la personne dans ses *Parametres*. L'adresse relie le compte a quelqu'un de joignable.
-
-**Verifier une adresse** consiste a y envoyer un code a six chiffres et a attendre qu'il revienne :
-c'est le seul controle qui vaille, une expression reguliere stricte refusant des adresses valides
-sans arreter personne. Volontairement le meme geste que le second facteur, que la personne connait
-deja. Cette verification **ne remplace pas le second facteur et n'ouvre aucune session** : elle
-atteste seulement que l'adresse existe et qu'elle est bien relevee par qui la declare.
-
-- Le code est range **sous forme d'empreinte** dans la base : il n'a pas a y rester
-  lisible a cote du nom du compte.
-- Il vaut 15 minutes, tolere 5 essais, et un nouvel envoi est refuse pendant 60 secondes — un bouton
-  « renvoyer » sans limite est un moyen d'inonder une boite mail qu'on ne possede pas.
-- **Changer d'adresse annule la verification**, cote personne comme cote administrateur : sinon il
-  suffirait de remplacer une adresse verifiee par une autre pour heriter de son statut.
-
-Le **serveur d'envoi** (*Parametres > E-mail*) est une fourniture partagee : hote, port,
-chiffrement, identifiant. Trois usages en dependent — les **alertes**, les **invitations**, et les
-**codes** (connexion, verification d'adresse, mot de passe oublie).
-
-**Il n'y a pas d'inscription libre** : un compte ne nait que par invitation de l'administrateur (ou
-cree par lui directement). Aucun formulaire public ne cree de compte.
-
-Les **alertes** (*Parametres > Alertes*) n'en sont qu'un usage : qui prevenir, et l'interrupteur.
-
-Melangees dans une seule carte, elles donnaient un etat faux : un serveur parfaitement configure
-s'affichait « incomplet — il manque : destinataires » tant qu'aucune alerte n'etait reglee, alors
-qu'il envoyait tres bien les codes de verification. Chaque onglet ne signale desormais que ce qui
-lui manque a lui.
-
-### Deux configurations d'envoi, et pourquoi
-
-| | D'ou elle vient | Ce qu'elle fait |
-|---|---|---|
-| **D'origine** | le bloc `codelab-alertes` de `credentials.env`, pose a l'installation | sert par defaut, et reste en **repli** ensuite |
-| **Personnalisee** | saisie dans *Parametres > E-mail*, rangee dans `smtp.json` | sert des qu'elle existe |
-
-La personnalisee **n'ecrase jamais** celle d'origine. Sans cette separation, une faute de frappe
-dans un nom de serveur depuis une page web supprimait le seul moyen d'etre prevenu qu'une
-application est tombee — et l'on ne s'en apercevait qu'au premier incident, c'est-a-dire au pire
-moment.
-
-Deux consequences :
-
-- **a l'enregistrement**, une configuration personnalisee doit faire ses preuves : le panneau se
-  connecte reellement au serveur, chiffre, s'authentifie. Si cela echoue, rien n'est enregistre et
-  le message du serveur t'est rendu tel quel. C'est ce qui remplace l'ancien bouton « envoyer un
-  mail de test » — un test qu'il fallait penser a lancer, et dont l'oubli ne se voyait pas ;
-- **a l'envoi**, si la personnalisee echoue malgre tout (mot de passe revoque, quota, serveur
-  eteint), les mails repartent aussitot par celle d'origine.
-
-Vider le champ « hote » revient a la configuration d'origine. Sans condition : c'est la marche
-arriere, et on la cherche justement quand rien ne va.
-
-## Alertes par mail
-
-Le panneau redemarre deja tout seul une application qui plante — mais il fallait avoir le panneau
-sous les yeux pour le savoir. Une application qui tombe la nuit reste tombee jusqu'a ce qu'on pense
-a regarder.
-
-**Parametres > Alertes** : l'interrupteur, et les destinataires **application par application**.
-Le serveur d'envoi vit dans l'onglet **E-mail**, juste a cote.
-
-### A qui part une alerte
-
-Une application de facturation ne previent pas les memes personnes qu'un site vitrine : chacune
-declare donc ses propres destinataires. L'**adresse d'alerte de l'administrateur**
-(*Parametres > E-mail*) s'y ajoute **toujours** — c'est le filet, celui qui garantit qu'une
-application dont on a oublie de remplir la liste ne tombe pas en silence. Laisser la liste d'une
-application vide est donc un choix valable : elle n'alerte que l'administrateur.
-
-Ce qui declenche un mail, et ce qui n'en declenche pas :
-
-| Evenement | Mail |
-|---|---|
-| L'application plante et redemarre toute seule | non — c'est le filet de securite qui fonctionne |
-| Elle a epuise ses 5 tentatives en 10 minutes | **oui**, une fois |
-| Elle reste a terre, tour de moniteur apres tour | non — un incident, un mail |
-| Elle repond de nouveau | **oui**, un mail de retour |
-| Tu l'arretes toi-meme depuis le panneau | non — personne n'a besoin d'un mail pour son propre geste |
-
-Le mail de chute contient le dossier, la commande, le port et les 25 dernieres lignes du journal —
-de quoi reconnaitre une trace d'exception sans se connecter au serveur.
-
-La configuration d'origine vit dans le bloc `codelab-alertes` de `credentials.env`, **le meme** que
-lit le capteur d'alerte de Dagster. Le panneau ne la reecrit jamais : une configuration saisie dans
-l'interface va dans `smtp.json`, a cote. Laisser le champ mot de passe vide conserve celui deja
-enregistre.
-
-| Cle | Role |
-|---|---|
-| `SMTP_HOST`, `SMTP_PORT` | Serveur d'envoi. 587 avec STARTTLS, 465 avec `SMTP_TLS=ssl` |
-| `SMTP_TLS` | `starttls` (defaut), `ssl`, ou `none` pour un relais interne non chiffre |
-| `SMTP_USER`, `SMTP_PASSWORD` | Optionnels : un relais interne peut ne pas demander d'authentification |
-| `ALERTE_FROM` | Rarement utile : l'expediteur suit `SMTP_USER`, que Gmail impose de toute facon |
-| `ALERTE_ADMIN` | L'adresse qui recoit **toutes** les alertes, en plus de celles propres a chaque application |
-
-L'interrupteur et les destinataires (generaux et propres a chaque application) vivent dans la
-table `reglages_chiffres` de `codelab.db`, chiffres comme les autres adresses.
-
-**Gmail** : validation en deux etapes activee, puis un *mot de passe d'application* de 16
-caracteres. Le mot de passe habituel du compte sera refuse.
-
-Un envoi qui echoue (serveur injoignable, authentification refusee) est journalise et rien de plus :
-une alerte qui ne part pas ne doit pas ajouter une panne a celle qu'elle signale.
-
-## Fichier `credentials.env`
-
-`upsert_shared_block()` (appelee depuis `bootstrap_secrets()`) ecrit un **bloc entier** — commentaires de
-documentation inclus — dans `/var/lib/codelab/config/credentials.env`
-(`/DATA/AppData/codelab/config/credentials.env` cote hote), le meme fichier et le meme volume que
-`codelab-postgres` utilise pour ses propres identifiants. Le bloc est delimite par des marqueurs
-(`# ===== codelab-app-manager =====` ... `# ===== /codelab-app-manager =====`) et entierement remplace a
-chaque demarrage : toutes les lignes entre les deux marqueurs sont supprimees puis reecrites d'un coup,
-commentaires compris — pas juste les paires `CLE=valeur`, sinon la documentation s'accumulerait en double a
-chaque redemarrage. Les blocs des autres services (l'en-tete general du fichier et `codelab-postgres`, tous
-deux ecrits par `codelab-postgres` dans `docker-compose.yml`) restent intacts, quel que soit l'ordre de
-demarrage. Si le volume partage n'est pas monte (tests locaux hors compose, par exemple), l'ecriture echoue
-silencieusement sans bloquer le demarrage du service — c'est une commodite, pas une dependance critique.
-
-## Variables d'environnement
-
-| Variable | Role |
-|---|---|
-| `APP_MANAGER_STATE` | Ou vivent `codelab.db`, les logs, le mot de passe admin et la cle de session — le seul dossier que le service ecrit |
-| `APP_MANAGER_ROOT` | Racine du navigateur de dossiers et des chemins d'applications (`/workspace`) |
-| `APP_MANAGER_SHARED_CONFIG` | Dossier de `credentials.env`, le fichier unique de secrets (`/var/lib/codelab/config`) |
-| `MANAGER_PORT` | Port d'ecoute du panneau lui-meme (`9001`) |
-| `APP_MANAGER_THREADS` | Threads du serveur HTTP (`16`). Le panneau relaie le trafic des applications : une application lente retient un thread pendant toute sa reponse |
-| `APP_MANAGER_PG` | `0` coupe la recopie du journal et des comptes dans Postgres (active par defaut si `psycopg` est installe et le mot de passe present dans `credentials.env`) |
-| `APP_MANAGER_PG_BASE` | Nom de la base du miroir (`codelab`) |
-| `APP_MANAGER_PUBLIC_URL` | Adresse publique du serveur (`https://codelab.mondomaine.fr`). Vide = serveur prive : le panneau ne propose alors pas de rendre une application publique |
-| `APP_MANAGER_TIMEOUT` | Silence tolere sur une connexion avant fermeture, en secondes (`600`). Genereux, pour ne pas couper une application qui fait du long-polling |
-
-## Volumes attendus
-
-| Point de montage | Contenu |
-|---|---|
-| `/var/lib/codelab/app-manager` | `codelab.db` (la base, voir « Donnees »), `logs/` et `diagnostic-inscrit` — l'etat du panneau. Aucun secret en clair : les mots de passe des comptes sont derives, ceux des services sont dans `credentials.env` |
-| `/workspace` | Racine dans laquelle chercher/lancer les applications |
-
-## Bilan de securite
-
-*Parametres > Securite* s'ouvre sur une **posture** : sept controles, leur etat, et pour chacun ce
-qu'il reste a faire. Avant, l'etat de l'exposition vivait dans l'onglet *Serveur* — c'est-a-dire
-pas la ou on le cherche — et se lisait comme une liste de taches numerotees plutot que comme un
-constat.
-
-**Trois etats, pas deux, et c'est ce qui change tout.** Un controle qui ne s'applique pas ici —
-HTTPS sur un panneau qui ne sort pas du salon — est marque *sans objet* et **ne compte pas dans la
-note**. Afficher du rouge pour ce qui n'a pas lieu d'etre apprend a ignorer la page entiere, et une
-page de securite qu'on n'ouvre plus ne protege rien.
-
-La note est donc lue dans un cadre, annonce en tete : ce panneau sort-il du reseau local, oui ou
-non. Les memes reglages n'ont pas la meme importance dans les deux cas.
-
-| Controle | Ou il se regle |
-|---|---|
-| Double authentification | *Securite* |
-| Cles d'acces | *Securite* |
-| Administration sur le reseau local | *Serveur* |
-| Connexion chiffree (HTTPS) | hors du panneau — un tunnel, un Caddy, un VPS |
-| Cookie de session en Secure | *Serveur* |
-| Adresse reelle des visiteurs | *Serveur* |
-| Applications sur une origine a part | `docker-compose.yml` |
-
-Chaque ligne non acquise porte la marche a suivre, et un lien qui mene directement a l'onglet
-concerne.
-
-## Changer son mot de passe
-
-*Parametres > Compte*. Cela n'existait pas : le mot de passe d'administration ne se changeait qu'en
-editant `credentials.env` sur le serveur, donc en s'y connectant en SSH. **Un secret qu'on ne peut
-pas changer facilement est un secret qu'on ne change jamais** — et celui-la donne l'execution de
-commandes sur la machine.
-
-L'ancien mot de passe est exige **meme sur une session deja ouverte** : sans cette verification, un
-cookie capture suffirait a prendre la place de quelqu'un definitivement. Douze caracteres au
-minimum — on se le choisit soi-meme, rien n'oblige a le raccourcir.
-
-Pour l'administrateur, le nouveau va dans `credentials.env` (il doit survivre au redemarrage). La
-cle de session y est **relue a sa source** et reecrite telle quelle : en ecrire une differente
-deconnecterait tout le monde au redemarrage suivant, sans rapport visible avec le changement de
-mot de passe.
-
-## Liaison avec un VPS
-
-*Parametres > Serveur*. Saisis le nom de domaine et l'adresse publique du VPS : le panneau rend les
-**quatre fichiers de configuration prets a copier** — ceux-la memes que documente
-[`vps/README.md`](vps/README.md), avec tes valeurs substituees.
-
-**Il ne se connecte pas au VPS**, et c'est deliberé. Lui donner une cle SSH avec les droits qu'il
-faudrait reviendrait a confier a ce panneau l'administration d'une machine exposee sur internet —
-c'est-a-dire a en faire la cible la plus interessante de l'installation. Recopier trois fichiers a
-la main coute quelques minutes, une fois.
-
-Les modeles sont **substitues, pas regeneres** : ce sont les fichiers du depot qui font foi. Un
-assistant qui reecrit son propre texte finit toujours par decrire autre chose que le README, et
-c'est celui qu'on ne relit pas qui se trompe.
-
-Une adresse **privee** est refusee a la saisie : un VPS joignable depuis internet n'en a pas une, et
-saisir celle de sa propre machine donnerait une configuration qui ne peut pas marcher — autant le
-dire tout de suite qu'apres trois copies de fichiers.
-
-Sous les champs, un diagnostic dit **ce que le panneau constate** sur la requete qu'il traite : un
-intermediaire relaie-t-il cette requete, est-il declare de confiance, arrive-t-elle en HTTPS,
-l'adresse publique est-elle declaree. Aucune de ces lignes n'est une supposition — c'est la seule
-chose qu'il puisse honnetement affirmer sans se connecter au VPS.
-
-## Double authentification et exposition
-
-Trois reglages n'ont d'interet que le jour ou ce panneau devient joignable au-dela du reseau local. Ils sont
-**tous inactifs par defaut** : rien ne change tant qu'ils ne sont pas actives.
-
-### Le second facteur (TOTP)
-
-*Parametres > Securite > Double authentification.* Le panneau tire un secret, l'affiche en **QR code** (et en
-clair dessous), et **n'enregistre rien tant qu'un code valide n'a pas ete fourni** — une cle mal recopiee ne
-peut donc pas enfermer dehors. La desactivation exige elle aussi un code valide : une session volee ne doit
-pas pouvoir retirer le second facteur.
-
-**Le QR code ne voyage jamais par l'adresse.** `GET /qr/totp.svg` lit l'inscription en attente dans la session
-signee : un secret place dans une URL se retrouverait dans l'historique du navigateur, dans les journaux
-d'acces et dans le `Referer` de la page suivante. La route repond 404 des que l'inscription est terminee.
-
-La bibliotheque `qrcode` (Python pur, aucune dependance sous Linux) est installee dans l'image, mais le code
-ne la suppose pas : sans elle, `qr_svg()` renvoie une chaine vide, la route repond 404, l'image se masque
-d'elle-meme et la cle a recopier suffit. Le panneau reste lancable depuis un depot fraichement clone avec
-Flask pour seule dependance.
-
-L'algorithme (RFC 6238, SHA1, 6 chiffres, 30 s, tolerance d'un intervalle) est ecrit directement dans `app.py`
-plutot qu'importe : il tient en vingt lignes de bibliotheque standard, et ce service n'a que trois
-dependances. Un test verifie le vecteur officiel de la RFC — si ce test tombe, aucune application
-d'authentification du marche ne saura plus se synchroniser.
-
-Le secret vit dans `credentials.env`, sous `APP_MANAGER_TOTP_SECRET`. **En cas de perte du telephone** : vider
-cette valeur dans le fichier et redemarrer le service suffit a revenir au seul mot de passe.
-
-### Les deux variables d'environnement
-
-Elles se posent au demarrage du service, pas depuis l'interface — et c'est deliberé : les activer depuis une
-page servie en clair deconnecterait sur-le-champ la session qui vient de les activer.
-
-| Variable | Quand | Pourquoi |
-|---|---|---|
-| `APP_MANAGER_HTTPS=1` | facultatif | Force le cookie `Secure`. Sans elle, il le devient de lui-meme des que la requete arrive en https (directement ou via `X-Forwarded-Proto`), HSTS aussi |
-| ~~`APP_MANAGER_TRUST_PROXY`~~, ~~`APP_MANAGER_ADMIN_LAN_ONLY`~~ | ignorees | La configuration est toujours la plus stricte : `X-Forwarded-For` jamais cru, administration reservee au reseau local en connexion directe |
-
-La page *Parametres > Securite* affiche l'etat des trois, pour verifier d'un coup d'oeil ce qui est en place.
-
-### Ce que ces reglages ne couvrent pas
-
-Les applications deployees sont servies sur **la meme origine** que le panneau (`:9001/<app>/`). Une faille
-d'injection dans l'une d'elles reste une faille dans l'origine du panneau, second facteur ou non. Y remedier
-demande de servir chaque application sur son propre nom d'hote — un routage par `Host` plutot que par chemin,
-qui n'est pas implemente ici.
-
-## API
-
-| Route | Methode | Auth | Role |
-|---|---|---|---|
-| `/health` | GET | non | Sonde du `HEALTHCHECK` Docker |
-| `/login` | GET / POST | non | Page de connexion / verification du mot de passe |
-| `/logout` | POST | oui | Termine la session |
-| `/api/apps` | GET | oui | Liste des applications, avec statut, metriques en direct, `crash_looping`, `visibility`, `has_build` |
-| `/api/browse?path=...` | GET | oui | Navigateur de dossiers, borne a `APP_MANAGER_ROOT` |
-| `/api/detect?path=...` | GET | oui | Suggere une commande de lancement **et** une commande de build a partir du contenu du dossier |
-| `/api/add` | POST | oui | Enregistre une application existante (nom, chemin, commande, build, limite memoire) |
-| `/api/app/<nom>` | PUT | oui | Modifie le chemin/la commande/le build/la limite memoire d'une application **arretee** |
-| `/api/toggle/<nom>` | POST | oui | Demarre ou arrete une application |
-| `/api/restart/<nom>` | POST | oui | Arrete puis relance immediatement une application |
-| `/api/build/<nom>` | POST | oui | Execute la commande de build (si definie), sortie dans le journal |
-| `/api/deploy/<nom>` | POST | oui | Build **puis** mise en ligne ; un build en echec ne touche pas l'application qui tourne |
-| `/api/visibility/<nom>` | POST | oui | Bascule publique / privee (ou impose la valeur donnee) |
-| `/api/categories` | GET | oui | La liste des categories, dans l'ordre d'affichage (tous les roles) |
-| `/api/categories` | PUT | oui | Remplace la liste (**administrateur**) ; renvoie le nombre de projets declasses |
-| `/api/passkeys/etat` | GET | **non** | Les cles d'acces sont-elles utilisables ici (et sinon, pourquoi) |
-| `/api/mon-compte/passkeys` | GET / POST | oui | Les cles du compte connecte ; en enregistre une nouvelle |
-| `/api/mon-compte/passkeys/options` | POST | oui | Prepare l'enregistrement (defi range dans la session) |
-| `/api/mon-compte/passkeys/<id>` | DELETE | oui | Retire une cle du compte connecte |
-| `/login/passkey/options` | POST | **non** | Prepare une connexion par cle d'acces |
-| `/login/passkey` | POST | **non** | Ouvre la session si la signature est bonne |
-| `/api/securite/exposition` | PUT | oui | Declare (ou retire) l'adresse publique du serveur |
-| `/api/utilisateurs` | GET / POST | oui | Les comptes (sans rien qui ressemble a un mot de passe) ; en cree un |
-| `/api/utilisateurs/<nom>` | PUT / DELETE | oui | Modifie un compte (projets, adresse, mot de passe, remise a zero du second facteur, retrait des cles) ; le supprime, avec ses cles |
-| `/api/activite` | GET | oui | Journal des acces et son resume (**administrateur**) |
-| `/api/mon-compte` | GET | oui | Ce que la session dit d'elle-meme : nom, role, adresse et son etat |
-| `/api/mon-compte/email` | POST | oui | Declare ou change sa propre adresse, et envoie un code |
-| `/api/mon-compte/email/code` | POST | oui | Renvoie un code (une fois par minute au plus) |
-| `/api/mon-compte/email/confirmer` | POST | oui | Confirme l'adresse avec le code recu |
-| `/api/invitations` | GET / POST | oui | Les invitations en attente ; en envoie une (rend toujours le lien) |
-| `/api/invitations/<id>/renvoyer` | POST | oui | Tire un nouveau lien et le renvoie |
-| `/api/invitations/<id>` | DELETE | oui | Annule une invitation |
-| `/invitation/<jeton>` | GET / POST | **non** | La page d'invitation ; cree le compte et ouvre la session |
-| `/api/invitation/<jeton>` | GET | **non** | Le lien est-il valable, et pour quelle adresse |
-| `/qr/totp.svg` | GET | **non** | Le QR code de l'inscription au second facteur en attente dans la session |
-| `/api/securite` | GET | oui | Etat des reglages de securite (TOTP, HTTPS, cookie, proxy de confiance) |
-| `/api/securite/totp/preparer` | POST | oui | Tire un secret candidat, sans rien enregistrer |
-| `/api/securite/totp/activer` | POST | oui | Enregistre le secret candidat, apres verification d'un code |
-| `/api/securite/totp/desactiver` | POST | oui | Retire le secret, apres verification d'un code |
-| `/api/metrics/<nom>` | GET | oui | Historique CPU/memoire en memoire (~30 derniers points) |
-| `/api/app/<nom>` | DELETE | oui | Retire une application du registre (le dossier n'est jamais touche) |
-| `/api/logs/<nom>` | GET | oui | 120 dernieres lignes du journal |
-| `/api/logs/<nom>/stream` | GET | oui | Flux de logs en direct (Server-Sent Events) |
-| `/api/icon/<nom>` | GET | oui | Icone du projet si trouvee, sinon avatar SVG genere |
-| `/<nom>/...` | * | **non** | Proxy transparent vers l'application, si elle est demarree |
-
-## Le nom d'une application, et son adresse
-
-Ce sont deux chaines differentes depuis qu'un nom peut se lire.
-
-| Nom saisi | Adresse servie |
-|---|---|
-| `Mon Site` | `/mon-site/` |
-| `SITE` | `/site/` |
-| `Mon  --  Site` | `/mon-site/` |
-| `Café` | `/caf/` |
-| `---` | *(rien : refuse)* |
-
-La transformation, dans cet ordre : minuscules, espaces en tirets, tout ce qui ne peut pas figurer
-dans une adresse en tirets, puis les doublons de tirets fondus et les bords tailles.
-
-**C'est l'adresse obtenue qui decide de la validite**, pas le nom. Un nom qui ne laisse rien —
-fait de tirets seuls, ou de caracteres qu'une adresse ne sait pas porter — est refuse, et le
-message montre ce qu'il donnait. La regle d'avant etait un refus sec : une majuscule rendait le nom
-invalide sans rien dire de plus, et on devinait la contrainte au lieu de la lire.
-
-L'adresse est la **cle** de la table `applications`, et elle le reste : c'est elle que portent
-`data-cible`, les cases a cocher d'autorisation, l'environnement `CODELAB_APP` et les fichiers de
-journal. Le nom saisi vit a cote, dans le champ `titre`, et ne sert qu'a l'affichage. Une
-application inscrite avant cette separation n'a pas de `titre` : sa cle fait office de nom, et elle
-s'affiche exactement comme avant — rien a migrer.
-
-Renommer en ne changeant que la casse ou les espaces (`site` → `Site`) ne deplace donc rien :
-l'adresse est la meme, l'application ne s'arrete pas, seul le nom affiche change.
-
-## Auto-detection de la commande de lancement
-
-`detect_command()` inspecte le dossier choisi et propose une commande sans jamais l'imposer (le champ reste
-editable dans le formulaire) :
-
-| Indice trouve | Commande suggeree |
-|---|---|
-| `package.json` avec `scripts.start` | `npm start` |
-| `package.json` avec `main` | `node <main>` |
-| `manage.py` | `python3 manage.py runserver 0.0.0.0:$PORT` |
-| `app.py` / `main.py` | `python3 app.py` / `python3 main.py` |
-| `Procfile` avec une ligne `web:` | le contenu de cette ligne |
-| `index.html` seul | `python3 -m http.server $PORT` |
-
-## Metriques CPU / memoire
-
-`proc_stats()` agrege le CPU et la memoire du process lance (`bash -lc <commande>`) et de **tous ses
-descendants** via `psutil` — indispensable puisque `bash -lc` est presque toujours un parent transparent, le
-vrai travail se faisant dans un process enfant (`python3`, `node`, etc.).
-
-Point d'implementation a connaitre : `psutil.Process.cpu_percent()` ne renvoie une valeur exploitable qu'a
-partir du **second** appel sur un meme objet `Process` (le premier sert d'amorce et renvoie toujours `0.0`). Un
-cache de `Process` par PID (`_proc_cache`) est donc maintenu entre deux appels a `/api/apps`, pour que chaque
-requete affiche le delta depuis la precedente plutot qu'un `0.0` permanent.
-
-## Fonctionnement du proxy
-
-`_proxy()` relaie chaque requete (methode, en-tetes hors `HOP` — `connection`, `keep-alive`, etc. —, corps pour
-`POST`/`PUT`/`PATCH`) vers `http://127.0.0.1:<port-interne>/<chemin>`, et renvoie la reponse telle quelle. Deux
-cas particuliers geres explicitement :
-
-- **Application non demarree** : reponse `503` avec une page d'explication plutot qu'une erreur de connexion
-  brute.
-- **Application en train de demarrer** : `urllib.request.urlopen` echoue avant que le process interne n'ecoute
-  encore sur son port → reponse `502` invitant a reessayer, plutot qu'une erreur cryptique.
-
-Les chemins contenant espaces ou accents sont re-encodes (`urllib.parse.quote(sub, safe="/")`) avant transmission
-— necessaires car Flask les livre deja decodes, et une ligne de requete HTTP brute n'accepte ni espace ni
-caractere non-ASCII tel quel.
+| `Dockerfile` | Python 3.13, Node, npm, git ; Flask, waitress, psutil, qrcode, webauthn, psycopg, cryptography |
+| `entrypoint.sh` | permissions partagées sur `/workspace`, puis démarrage |
+| `app/app.py` | le service : authentification, API, cycle de vie des processus, proxy, mails, sauvegardes |
+| `app/stockage.py` | la base SQLite : connexions, schéma versionné (`MIGRATIONS`), sauvegarde cohérente |
+| `app/dashboard.html`, `app/login.html` | les deux pages |
+| `app/theme.css` | **toutes** les couleurs, formes et tailles (thèmes clair et sombre) ; servi aussi aux applications |
+| `app/polices/` | Manrope et Plus Jakarta Sans, auto-hébergées, servies par liste blanche |
+| `vps/` | exposer le panneau par un VPS ([`vps/README.md`](vps/README.md)) ; ne fait pas partie de l'image |
 
 ## Cycle de vie d'une application
 
-Le panneau ne cree jamais de projet : il n'ecrit rien dans `/workspace`. Un projet nait d'un `mkdir`, d'un
-`git clone` ou d'un `code .` depuis une session SSH sur `codelab-dev` ; le panneau se contente de le declarer,
-de le lancer et de le superviser. `POST /api/add` refuse d'ailleurs un chemin qui n'existe pas deja.
+Le panneau ne crée jamais de projet : il **déclare** un dossier existant de `/workspace`.
 
-1. **Attribution du port** : `next_port()` prend le premier port libre dans `9101`–`9140`.
-2. **Demarrage** (`start()`) : `subprocess.Popen(["bash", "-lc", <commande>], cwd=<chemin>, env={PORT: ..., ...})`,
-   sortie standard et erreur redirigees vers `logs/<nom>.log`. Le process tourne dans son propre groupe
-   (`start_new_session=True`), pour permettre un arret propre du groupe entier (pas juste du process racine).
-3. **Arret** (`stop()`) : `SIGTERM` au groupe, jusqu'a 3 secondes pour un arret propre, puis `SIGKILL` si
-   necessaire.
-4. **Edition** (`PUT /api/app/<nom>`) : refusee tant que l'application tourne (`400`), pour eviter un
-   changement de chemin/commande en plein vol.
-5. **Reprise au redemarrage du conteneur** (`resume()`) : toute application marquee `enabled: true` dans
-   la table `applications` est relancee automatiquement au demarrage du service — l'etat "actif" survit donc a un
-   redemarrage du conteneur `codelab-app-manager` lui-meme.
-6. **Les applications par defaut sont tenues debout** (`tenir_les_applications_par_defaut()`) :
-   `dagster` et `diagnostic` repassent a `enabled: true`, et la tuile du diagnostic recoit son nom
-   affiche et sa description si elle n'en a pas. Le rattrapage a lieu au demarrage (`resume()`)
-   **et a chaque tour du moniteur** — sans quoi une application eteinte entre deux redemarrages le
-   restait jusqu'au suivant, c'est-a-dire, sur une machine qui ne redemarre pas, pour de bon. Il ne
-   court-circuite rien : c'est toujours la limite d'essais du moniteur qui decide de relancer, donc
-   une application qui plante en boucle n'est pas relancee sans fin.
+1. **Ajout** :
+   - le dossier est inspecté et les commandes de build et de lancement sont proposées (tableau dans
+     [`dev/README.md`](../dev/README.md#déployer)) ;
+   - un port libre est attribué dans `9101`–`9140`.
+2. **Nom et adresse.** Le nom saisi est libre. L'adresse en est dérivée : minuscules, espaces et
+   caractères interdits changés en tirets (`Mon Site` → `/mon-site/`).
+   - Une adresse vide est refusée, de même qu'une adresse prise par une route du panneau
+     (`adresses_reservees()`).
+   - Renommer met à jour l'adresse, les droits et les fichiers.
+3. **Lancement** : `bash -lc <commande>` dans le dossier.
+   - **Identité** : un uid propre, dérivé du nom (`APP_MANAGER_UID_BASE`, 10000 par défaut), groupe
+     `codelab`, umask `002`.
+   - **Isolation** : un namespace utilisateur et de montage où `/workspace` ne contient que le projet,
+     et `/tmp` est privé (`APP_MANAGER_ISOLER=0` pour couper).
+   - **Mémoire** : une limite optionnelle (`RLIMIT_AS`).
+   - **Journal** : la sortie va dans `logs/<nom>.log`, avec rotation à 2 Mo.
+4. **Environnement** :
+   - `PORT`, `CODELAB_APP`, `PYTHONUNBUFFERED`, un `HOME` dédié ;
+   - `CODELAB_SSO_PUBLIC_KEY`, `CODELAB_SSO_ISSUER`, `CODELAB_SSO_AUDIENCE` ;
+   - les blocs `codelab-postgres`, `codelab-redis` et `codelab-mailpit` de `credentials.env`, relus à
+     chaque lancement ;
+   - **jamais** : `APP_MANAGER_*`, le bloc `codelab-alertes`, la clé privée SSO, ni `PATH`, `HOME`,
+     `PYTHONPATH`, `PYTHONHOME`, `LD_PRELOAD` ou `LD_LIBRARY_PATH` lus dans le fichier.
+5. **Build** : même identité et même environnement, délai de 10 minutes, sortie dans le journal.
+   **Déployer** enchaîne build puis redémarrage, seulement si le build réussit.
+6. **Surveillance** (`monitor_tick`, toutes les 10 s) :
+   - un crash est relancé, 5 fois au plus en 10 minutes ; au-delà, « boucle de crash » et alerte ;
+   - une sonde TCP sur le port interne donne l'état « Ne répond pas » ;
+   - les applications par défaut sont remises en route.
+7. **Reprise** : au démarrage du panneau, toute application active est relancée.
+8. **Arrêt** : `SIGTERM` au groupe de processus, puis `SIGKILL` après 3 s.
 
-   Ce n'est pas une commodite, c'est la contrepartie d'un refus. Arreter, redemarrer, deployer ou builder une
-   application par defaut est interdit cote serveur (`refus_action_protegee`, `403`) — comme leur
-   configuration l'est (`refus_configuration`). Il reste pourtant un chemin qui les marque `enabled: false`
-   sans que personne l'ait voulu : l'echec de lancement dans `start()`, quand le systeme refuse la limite
-   memoire ou l'abandon de privileges. Sans ce rattrapage, l'installation se retrouvait sans diagnostic
-   **definitivement** — le bouton qui l'aurait rallume est justement celui qu'on interdit.
+**Applications par défaut.** `dagster`, `diagnostic` et `mailpit`, réservées à l'administrateur.
+- Elles ne se configurent, ne s'arrêtent et ne se suppriment pas (`403` côté serveur).
+- Le diagnostic est réinscrit à chaque démarrage : commande `python3 app.py`, build
+  `pip install --target vendor "psycopg[binary]"`, visibilité privée.
 
-   Le rattrapage comble un manque, il ne decide pas a la place : une description deja ecrite est laissee
-   telle quelle, et une application ordinaire arretee le reste (un arret volontaire est un choix).
+## Le proxy
 
-## Secrets transmis aux applications
+- `/<nom>/...` sur `9002` est relayé vers `127.0.0.1:<port interne>/...`, **sans** le préfixe.
+- Réponses quand l'application n'est pas prête :
+  - `503` (avec une page) si elle est arrêtée ;
+  - `502` si elle démarre encore.
+- **En-têtes** :
+  - le cookie du panneau et tout en-tête `X-CodeLab-*` envoyé par le navigateur sont retirés ;
+  - le proxy ajoute `X-CodeLab-Panneau` (l'adresse du panneau) et, pour une personne connectée,
+    `X-CodeLab-Auth` : une assertion EdDSA/JWT valable 60 s, avec `aud` = l'application.
+  - S'y ajoutent, à titre indicatif seulement, `X-CodeLab-User`, `X-CodeLab-Role`, `X-CodeLab-Email`
+    et `X-CodeLab-Authenticated`.
+- **Visibilité** : une application privée exige une session autorisée pour elle. Sans session, la
+  personne passe par `/login?suite=/ouvrir.app/<nom>/<chemin>`. Une application ne peut devenir
+  publique que si une adresse publique est déclarée.
+- **Cadre** : `frame-ancestors` est ajouté si l'application ne le pose pas. `nosniff` est toujours
+  posé.
+- **Limites** :
+  - corps de 32 Mo au plus vers une application (`APP_MANAGER_CORPS_MAX_MO`), 2 Mo vers le panneau ;
+  - 600 s de silence toléré (`APP_MANAGER_TIMEOUT`).
+- **Déconnexion depuis une application** : `/deconnexion.html?app=<nom>&chemin=…` demande confirmation.
 
-`credentials.env` est en `0600 root` — il contient le mot de passe du panneau et le secret de
-double authentification. Les applications lancees par le panneau, elles, tournent sous l'uid 1001
-(voir `drop_privileges`) et ne peuvent donc pas le lire, alors que c'est precisement la que la
-documentation leur dit de prendre le mot de passe Postgres. Le symptome etait un
-`fe_sendauth: no password supplied`, une erreur qui ne dit rien de sa cause.
+## Comptes, mails, alertes
 
-Le panneau, qui tourne en root, lit le fichier pour elles et leur transmet les valeurs **par
-l'environnement**, au lancement (`start()`) comme au build (`run_build()`). C'est la couche la plus
-faible du modele de configuration decrit dans `/workspace/README.md` : le `.env` du projet continue
-de gagner.
+Le fonctionnement des comptes est décrit dans [`SECURITE.md`](../SECURITE.md). Côté service :
 
-Trois exclusions :
+**Administrateur**
 
-- **le bloc du panneau** (`APP_MANAGER_*`) n'est jamais transmis. Une application est du code
-  arbitraire tournant sous un autre uid ; lui donner le mot de passe admin annulerait cette
-  separation pour lui offrir l'acces au panneau ;
-- **le bloc d'alertes** (`SMTP_HOST`, `SMTP_PORT`, `SMTP_TLS`, `SMTP_USER`, `SMTP_PASSWORD`,
-  `ALERTE_FROM`, `ALERTE_ADMIN`) n'est pas transmis non plus. Ces cles vivent dans
-  `credentials.env` parce que le capteur Dagster les y lit, pas parce qu'une application aurait a
-  les connaitre : avec `SMTP_PASSWORD`, n'importe quelle application deployee pourrait expedier du
-  courrier **au nom de CodeLab**, depuis l'adresse meme d'ou partent les alertes. La regle
-  ci-dessus reposait sur le prefixe `APP_MANAGER_` ; ce bloc lui echappait faute de le porter, et
-  le renommer n'etait pas possible — le capteur Dagster lit ces noms-la ;
-- **les cles reservees** (`PATH`, `HOME`, `PORT`, `PYTHONPATH`, `PYTHONHOME`, `LD_PRELOAD`,
-  `LD_LIBRARY_PATH`) : elles changent la maniere dont le process s'execute plutot que ce qu'il
-  fait, et une ligne `PATH=` ajoutee a la main dans `credentials.env` casserait sinon toutes les
-  applications d'un coup, sans rien pour l'expliquer.
+- Son mot de passe (`APP_MANAGER_ADMIN_PASSWORD`) et son secret TOTP vivent dans `credentials.env`.
+- Le nom `admin` est réservé.
 
-> Une application qui doit envoyer du courrier pour son propre compte met ses identifiants dans
-> **son** `.env`, qui gagne de toute facon sur cette couche.
+**Envoi de mails**
 
-Le fichier est relu a chaque lancement, pas mis en cache : un mot de passe change est pris en
-compte en redemarrant l'application, sans redemarrer le panneau.
+- Tous les mails partent par Mailpit (`APP_MANAGER_MAIL_PAR_MAILPIT`).
+- Si Mailpit ne répond pas, le panneau envoie directement par le serveur d'envoi.
+- Le panneau publie ce serveur à Mailpit dans le bloc `codelab-relais-mail`.
 
-## Inscription automatique du projet de diagnostic
+**Deux configurations d'envoi**
 
-A **chaque** demarrage, le panneau s'assure que le projet `diagnostic` — celui que le conteneur
-`codelab-dagster` depose dans `/workspace` — est inscrit et configure ; a la premiere inscription,
-il lance aussi sa commande de build et le demarre. Une stack fraiche est donc verifiable sans aucune saisie : l'etape « Ajouter un projet »
-etait la seule chose qui separait une installation neuve d'une installation constatee saine, et
-c'est precisement celle qu'on saute quand on est presse.
+- **D'origine** : le bloc `codelab-alertes` de `credentials.env`, aussi lu par le capteur Dagster.
+  Le panneau ne le réécrit jamais.
+- **Personnalisée** : saisie dans *Paramètres > E-mail*, chiffrée en base. Elle est essayée avant
+  d'être enregistrée. Si un envoi échoue, le mail repart par celle d'origine. Vider l'hôte revient à
+  celle d'origine.
 
-| Champ | Valeur inscrite |
+| Clé (`codelab-alertes`) | Rôle |
 |---|---|
-| Nom affiche | `Diagnostic` |
-| Chemin | `diagnostic` |
-| Dossier | `/workspace/diagnostic` |
-| Commande de lancement | `python3 app.py` |
-| Commande de build | `pip install --target vendor "psycopg[binary]"` |
-| Visibilite | **privee** — la page nomme les conteneurs, l'utilisateur SSH et l'etat de la base |
+| `SMTP_HOST`, `SMTP_PORT` | serveur d'envoi (587 STARTTLS, 465 SSL) |
+| `SMTP_TLS` | `starttls` (défaut), `ssl`, `none` |
+| `SMTP_USER`, `SMTP_PASSWORD` | optionnels ; Gmail exige un mot de passe d'application |
+| `ALERTE_FROM` | expéditeur, si différent de `SMTP_USER` |
+| `ALERTE_ADMIN` | reçoit toutes les alertes |
 
-Les deux commandes sont ecrites en dur plutot que deduites par `detect_project()` : celle-ci
-proposerait bien `python3 app.py`, mais rendrait une commande de build vide (elle cherche un
-`requirements.txt`, que ce projet n'a pas) et l'application demarrerait sans pilote Postgres.
+**Alertes d'application**
 
-Le build tourne dans un thread, pas dans le demarrage : il demande un acces reseau et quelques
-dizaines de secondes, pendant lesquelles le panneau doit rester ouvrable — c'est la seule interface
-d'ou constater ce qui se passe. Un build en echec n'empeche pas le demarrage : la sonde
-`Postgres (pilote)` affiche alors ce qui manque, ce qui vaut mieux qu'une application absente.
+- Un mail quand l'application épuise ses 5 relances, puis un autre à son retour. Un arrêt volontaire
+  n'en envoie pas.
+- Les destinataires se règlent par application ; l'adresse d'alerte de l'administrateur s'ajoute
+  toujours.
 
-**L'inscription se rejoue a chaque demarrage, et c'est voulu.** Elle etait auparavant une amorce
-jouee une seule fois, gardee par un marqueur `diagnostic-inscrit` et par la condition « `apps.json`
-est vide ». Trois chemins menaient alors a une installation sans diagnostic, et aucun ne se voyait :
+**Surveillance externe** : une adresse healthchecks.io appelée toutes les 5 minutes, et aussitôt à
+l'enregistrement.
 
-1. le dossier pas encore depose par `dagster` — les deux conteneurs demarrent en parallele —
-   pendant qu'une autre application etait deja inscrite : plus jamais de diagnostic ;
-2. un marqueur pose alors que l'inscription avait echoue ;
-3. toute installation anterieure a l'existence du projet, dont le registre n'etait pas vide.
+## Données : `codelab.db`
 
-Le diagnostic est une **application par defaut** : le serveur refuse de la supprimer, de la
-configurer et de l'arreter (voir *Cycle de vie d'une application*, point 6). Il n'y avait donc plus
-de suppression volontaire a respecter — un registre sans elle n'est pas un choix, c'est un etat
-casse. Le marqueur n'avait plus rien a garder et a disparu.
+Une base SQLite dans `APP_MANAGER_STATE` (`/DATA/AppData/codelab/app-manager` sur l'hôte).
 
-Ce que le panneau remet en place a chaque demarrage : le dossier, la commande de lancement, la
-commande de build, et le port s'il manque. Ce qu'il ne touche pas : la visibilite, qui se regle
-d'un clic et reste un choix. La seule condition qui subsiste est l'existence du dossier — on ne
-peut pas inscrire un chemin qui n'est pas la, et l'inscription est retentee au demarrage suivant.
+- **Fichier** en `0600`, mode WAL, `secure_delete`.
+- **Écritures** : chacune est une transaction.
+- **Schéma** versionné par `PRAGMA user_version` : une évolution s'ajoute à `MIGRATIONS` dans
+  `stockage.py`.
 
-## Ce que l'interface ne fait pas
-
-Trois habitudes tenues, parce qu'elles se perdent vite :
-
-- **Aucune boite du systeme.** `alert()`, `confirm()` et `prompt()` sortent de l'interface, bloquent
-  la page et proposent un bouton « OK » qui ne dit pas ce qu'il fait. Les questions passent par une
-  confirmation dont le bouton porte le verbe (« Supprimer », « Retirer »), les echecs par une
-  notification en bas a droite.
-- **Aucun intitule qui repete son voisin.** Un titre de groupe « PREFERENCES » au-dessus d'une carte
-  « Apparence » n'apprend rien : dans les onglets des parametres, l'onglet nomme la famille et la
-  carte nomme le reglage.
-- **Un bouton desactive se voit desactive**, et l'anneau de focus ne suit que la navigation au
-  clavier (`:focus-visible`) — un contour apres chaque clic de souris passe pour un defaut.
-
-## Identite visuelle
-
-> **Pour repeindre le panneau, un seul fichier : [`app/theme.css`](app/theme.css).** Il ne contient
-> que des variables -- aucune mise en page, aucun composant. Change `--accent` et tout ce qui se
-> clique change de couleur, dans les deux pages et dans les deux themes, d'un coup.
-
-Les quatre ecrans -- connexion, second facteur, hub et outil de developpement -- partagent une
-seule identite, appelee **Cockpit** : une vue d'exploitation, pas une liste. Elle repond d'abord a
-« est-ce que tout va bien ? », et seulement ensuite a « qu'est-ce que j'ai ? ».
-
-Quatre decisions structurantes, et leurs raisons :
-
-- **Le cadre est clair, le contenu est pose dessus.** Un bandeau sombre en haut et une colonne
-  sombre a gauche encadraient le contenu et pesaient plus que lui. La barre et la colonne sont
-  blanches, le contenu est sur un gris legerement plus soutenu, et ce sont les traits qui separent.
-  Le seul aplat franchement sombre qui reste est le panneau de presentation de la page de
-  connexion : il a son propre jeton (`--vitrine`) et ne suit pas le cadre.
-- **L'accent designe ce qui se clique, et rien d'autre.** Le turquoise est reserve a ce qui est
-  actionnable ou selectionne. Les etats (En ligne, Arretee, Ne repond pas, En erreur, Publique,
-  Privee) ont leurs propres couleurs -- vert, ambre, rouge -- et ne prennent **jamais** l'accent.
-  Sans cette separation, une ligne en panne se confond avec un bouton.
-- **La mesure passe devant la liste.** Les chiffres de la vue d'ensemble sont des **tuiles**
-  cadrees, en grille : c'est ce qu'on regarde en premier, cela doit donc se lire en premier.
-  Aucune courbe n'est dessinee : CodeLab ne conserve aucun historique de charge, et une courbe
-  tracee sur rien serait une decoration qui ment.
-- **Les chiffres s'alignent.** `font-variant-numeric: tabular-nums` partout. C'est la propriete,
-  pas la chasse fixe, qui aligne une colonne de ports ou de pourcentages -- Manrope a des chiffres
-  de largeur egale, et une seule police tient alors toute l'interface. `--mono` ne reste que pour
-  ce qui **est** du code : un extrait de configuration, un chemin.
-- **Chaque ligne porte sa severite sur son bord gauche.** Un bandeau de 3 px : vert en ligne,
-  rouge en panne, gris arrete. Il est **deduit** de la pastille deja presente dans la ligne
-  (selecteur `:has`), donc il n'y a aucune classe a tenir a jour cote JavaScript et l'etat ne peut
-  pas se contredire : il n'existe qu'une fois.
-
-Les surfaces sont des gris **ardoise**, froids, qui laissent le turquoise et les severites
-ressortir. Le contenu est pose sur le gris le plus soutenu et les cartes sont blanches : ce sont
-les cartes qui avancent, pas le fond qui recule.
-
-### La police, servie par le panneau lui-meme
-
-La typographie est **Manrope**, variable, sous-ensemble latin : **un fichier de 25 Ko**, dans
-l'image, servi sur `/polices/manrope-latin.woff2`.
-
-Elle n'est **jamais** demandee a Google. Un serveur auto-heberge qui irait chercher sa police chez
-un tiers ferait fuiter l'adresse IP de chaque visiteur vers ce tiers, et s'afficherait mal des que
-la machine est hors ligne -- c'est-a-dire exactement quand on a besoin du panneau.
-
-`font-display: swap` : le texte s'affiche tout de suite dans la pile systeme, puis bascule. Jamais
-de page blanche en attendant une police. La route ne sert que les fichiers d'une **liste blanche
-explicite** (`POLICES_SERVIES`) : sans elle, ce chemin deviendrait une lecture de fichier
-arbitraire des qu'un nom contient `..`.
-
-Licence SIL OFL 1.1, texte complet dans `app/polices/LICENCE-manrope.txt`.
-
-### Ou vivent les styles
-
-| | |
+| Table | Contenu |
 |---|---|
-| `app/theme.css` | **La police et les variables, et rien d'autre.** Couleurs, formes, tailles, les trois etats de theme. Servi sur `/theme.css`, lie par les deux pages. |
-| `app/polices/` | Manrope (25 Ko) et sa licence. Servie sur `/polices/<nom>`, liste blanche explicite. |
-| `app/dashboard.html` | Les regles propres au panneau, ecrites en fonction des variables. |
-| `app/login.html` | Les regles propres a la page de connexion, idem. |
+| `applications` | dossier, commandes, port, actif, visibilité, catégorie, limite mémoire, titre, description |
+| `comptes` | empreinte du mot de passe et sel, adresse vérifiée, suspension, second facteur |
+| `acces_applications` | qui ouvre quelle application privée |
+| `cles_acces` | clés WebAuthn : clé publique, compteur, nom, dernière utilisation |
+| `categories`, `masquees` | catégories du hub ; ce que chaque compte a rangé hors de son hub |
+| `journal` | accès, refus, ouvertures, changements de compte (50 000 derniers) |
+| `messages`, `taches`, `sous_taches` | messages à l'administrateur, tâches et sous-tâches |
+| `processus` | processus lancés, retrouvés après un redémarrage du panneau |
+| `parametres` | réglages en clair : exposition, VPS |
+| `reglages_chiffres` | réglages sensibles, chiffrés (Fernet) avec `APP_MANAGER_CHIFFREMENT_CLE` |
+| `meta` | compteurs internes |
 
-Ces valeurs etaient auparavant recopiees **six fois** : trois blocs par page (clair, sombre
-automatique, sombre choisi), dans chacun des deux fichiers. Changer un gris demandait six retouches
-identiques, et il suffisait d'en oublier une pour que le theme sombre parte de travers sans que
-rien ne le signale.
+- **Pourquoi SQLite** : le panneau doit démarrer et se réparer même si Postgres est en panne.
+- **Copie dans Postgres** : le journal et les comptes, sans secret, dans la base `codelab`
+  (`APP_MANAGER_PG=0` pour couper).
+- **Diagnostic** : il ouvre la base en lecture seule.
+- **Ancienne version** : les anciens fichiers JSON sont importés au premier démarrage, puis renommés
+  en `.migre`.
 
-## La fiche d'une application
+```sh
+sqlite3 /DATA/AppData/codelab/app-manager/codelab.db ".tables"
+```
 
-Chaque application a **une page**, ouverte en cliquant sa ligne dans le tableau. Avant, son etat,
-ses metriques, son journal et sa configuration vivaient dans trois pop-up differentes qu'il fallait
-ouvrir une par une pour se faire une idee.
+## Sauvegardes
 
-En-tete : l'icone, le nom, la description, les pastilles d'etat et de visibilite, et les actions --
-**Demarrer / Arreter**, **Redemarrer**, **Build** (si une commande de build existe), **Deployer**,
-la bascule de visibilite, et **Ouvrir**. Puis cinq onglets :
+| Archive | Fréquence | Gardées | Réglage |
+|---|---|---|---|
+| `panneau-<date>.tar.gz` : état du panneau, avec un instantané SQLite cohérent ; ni journaux ni `credentials.env` | `APP_MANAGER_SAUVEGARDE_HEURES` (24) | `APP_MANAGER_SAUVEGARDES_GARDEES` (7) | `APP_MANAGER_SAUVEGARDES` (`/sauvegardes`) |
+| `workspace-<date>.tar.gz` : code des projets, sans dépendances, builds, caches ni fichiers de plus de 50 Mo | `APP_MANAGER_WORKSPACE_JOURS` (7 jours) | 4 | — |
 
-| Onglet | Contenu |
+Chaque archive est en `0600` et relue avant d'être gardée. Pour restaurer, voir
+[`postgres/README.md`](../postgres/README.md#restaurer-létat-du-panneau).
+
+## `credentials.env`
+
+Le fichier unique de secrets, partagé par les services. Chaque service écrit **son** bloc entre
+marqueurs (`# ===== <bloc> =====`), sous un verrou `flock`. Le panneau écrit :
+
+- `codelab-app-manager` : `APP_MANAGER_ADMIN_PASSWORD`, `APP_MANAGER_SESSION_SECRET`,
+  `APP_MANAGER_CHIFFREMENT_CLE`, `APP_MANAGER_TOTP_SECRET` ;
+- `codelab-sso` : la clé de signature des assertions ;
+- `codelab-relais-mail` : le serveur d'envoi publié à Mailpit.
+
+Une valeur existante n'est jamais régénérée.
+
+## Variables d'environnement
+
+| Variable | Défaut | Rôle |
+|---|---|---|
+| `APP_MANAGER_STATE` | `/var/lib/codelab/app-manager` | dossier d'état : `codelab.db`, `logs/`, `home/` des applications |
+| `APP_MANAGER_ROOT` | `/workspace` | racine des projets ; tout chemin d'application y est borné |
+| `APP_MANAGER_SHARED_CONFIG` | `/var/lib/codelab/config` | dossier de `credentials.env` |
+| `MANAGER_PORT` | `9001` | port du panneau |
+| `APP_MANAGER_APPS_PORT` | `9002` | port des applications ; `0` = sous le port du panneau |
+| `APP_MANAGER_APPS_URL`, `APP_MANAGER_PANEL_URL` | — | adresses complètes quand un reverse proxy publie autrement |
+| `APP_MANAGER_PUBLIC_URL` | — | adresse publique ; également réglable dans *Paramètres > Serveur* |
+| `APP_MANAGER_HTTPS` | — | `1` force le cookie `Secure` (sinon constaté à chaque requête) |
+| `APP_MANAGER_ADMIN_2FA` | `1` | `0` : marche arrière si le second facteur admin est perdu |
+| `APP_MANAGER_ISOLER` | `1` | isolation du système de fichiers par application |
+| `APP_MANAGER_UID_BASE`, `APP_MANAGER_UID_PLAGE` | `10000`, `5000` | plage des uid par application |
+| `APP_MANAGER_RUN_AS_UID`, `APP_MANAGER_RUN_AS_GID` | `1001`, `2000` | identité de repli et groupe partagé |
+| `APP_MANAGER_THREADS` | `16` | threads de waitress ; les flux de journal en prennent la moitié au plus |
+| `APP_MANAGER_TIMEOUT` | `600` | silence toléré sur une connexion, en secondes |
+| `APP_MANAGER_CORPS_MAX_MO` | `32` | taille maximale d'une requête vers une application |
+| `APP_MANAGER_PG`, `APP_MANAGER_PG_BASE` | `1`, `codelab` | copie du journal et des comptes dans Postgres |
+| `APP_MANAGER_MAIL_PAR_MAILPIT` | `1` | envoi des mails du panneau par Mailpit |
+| `APP_MANAGER_MAILPIT_SMTP_HOTE`, `APP_MANAGER_MAILPIT_SMTP_PORT` | `codelab-mailpit`, `1025` | SMTP de Mailpit |
+| `APP_MANAGER_DAGSTER_*`, `APP_MANAGER_MAILPIT_*` (`_HOTE`, `_PORT`, `_AMONT`) | proxy et services de la stack | où sonder Dagster et Mailpit |
+| `APP_MANAGER_SAUVEGARDES`, `APP_MANAGER_SAUVEGARDE_HEURES`, `APP_MANAGER_SAUVEGARDES_GARDEES`, `APP_MANAGER_WORKSPACE_JOURS` | voir *Sauvegardes* | sauvegardes |
+
+## Volumes
+
+| Montage | Contenu |
 |---|---|
-| General | Adresse, port interne, reponse du port, visibilite, dossier, commandes, limite memoire, CPU et memoire du moment |
-| Metriques | Courbes CPU et memoire sur les deux dernieres minutes |
-| Journal | Le flux en direct, avec filtre |
-| **Acces** | **Qui ouvre cette application : une case a cocher par compte** |
-| Configuration | Description, commandes, limite memoire, visibilite, emplacement, et la suppression |
+| `/var/lib/codelab/app-manager` | `codelab.db`, `logs/`, `home/` |
+| `/workspace` | les projets |
+| `/var/lib/codelab/config` | `credentials.env` (lecture-écriture) |
+| `/sauvegardes` | archives du panneau et du code |
 
-L'onglet **Acces** donne la meme information que la fiche d'un compte, prise par l'autre bout.
-Cocher un compte n'ecrit **que cette application** dans sa fiche : ses autres projets ne sont pas
-touches. Envoyer la liste complete aurait efface en silence ce qu'un autre onglet ouvert venait
-d'accorder.
+## API
 
-Sur une application **publique**, l'onglet le dit : elle s'ouvre sans compte, et ces autorisations
-ne reprendront effet qu'en la repassant en privee. Laisser croire le contraire serait pire que de
-ne rien afficher.
+Toutes les routes ci-dessous exigent une session, sauf mention contraire, et toute route qui modifie
+quelque chose exige le jeton anti-falsification. Les routes marquées **admin** refusent les autres
+comptes (`require_admin`).
 
-Le flux de journal n'est ouvert **que** lorsque l'onglet Journal est affiche, et il est ferme des
-qu'on quitte la fiche : une place de flux est une ressource cote serveur (voir le plafond plus bas),
-la garder ouverte derriere un onglet qu'on ne regarde pas serait du gaspillage.
+| Domaine | Routes |
+|---|---|
+| Santé | `GET /health` (sans session) ; `GET /api/auth-check` (sans session : 200 si la session est admin, interrogé par le proxy Dagster et Mailpit) |
+| Connexion | `GET/POST /login`, `POST /login/second-facteur`, `POST /login/second-facteur/passkey[/options]`, `POST /login/passkey[/options]`, `POST /login/inscription/passkey[/options]`, `POST /logout`, `POST /mot-de-passe/oubli`, `POST /mot-de-passe/reinitialiser` (sans session, sauf `logout`) |
+| Invitations | `GET/POST /api/invitations`, `POST /api/invitations/<id>/renvoyer`, `DELETE /api/invitations/<id>` (admin) ; `GET/POST /invitation/<jeton>`, `GET /api/invitation/<jeton>` (sans session) |
+| Mon compte | `GET /api/mon-compte`, `POST /api/mon-compte/email[/code\|/confirmer]`, `POST /api/compte/mot-de-passe`, `GET/POST/DELETE /api/mon-compte/passkeys[/options\|/<id>]`, `GET /api/passkeys/etat` (sans session), `GET /qr/totp.svg` |
+| Sécurité | `GET /api/securite`, `PUT /api/securite/exposition`, `POST /api/securite/totp/preparer\|activer\|desactiver`, `GET/PUT /api/vps` |
+| Comptes (admin) | `GET/POST /api/utilisateurs`, `PUT/DELETE /api/utilisateurs/<nom>`, `GET/PUT /api/apps/<nom>/acces`, `GET /api/activite`, `GET /api/activite/carte` |
+| Applications (admin) | `GET /api/apps`, `GET /api/browse`, `GET /api/detect`, `POST /api/add`, `PUT/DELETE /api/app/<nom>`, `POST /api/app/<nom>/renommer`, `POST /api/toggle\|restart\|build\|deploy\|visibility/<nom>`, `GET /api/metrics/<nom>`, `GET /api/logs/<nom>[/stream]`, `PUT/DELETE /api/app/<nom>/logo`, `GET /api/app/<nom>/conteneur[.zip]` |
+| Hub | `GET /api/mes-apps`, `POST/DELETE /api/mes-apps/<nom>/masquer`, `GET /api/icon/<nom>`, `GET /api/categories` (tous) ; `PUT /api/categories` (admin) |
+| Messages | `POST /api/messages` (tous) ; `GET /api/messages`, `POST /api/messages/lus`, `PUT/DELETE /api/messages/<id>`, `PUT /api/messages/<id>/lu`, `POST /api/messages/<id>/accepter` (admin) |
+| Tâches (admin) | `GET/POST /api/taches`, `PUT/DELETE /api/taches/<id>`, `POST /api/taches/<id>/sous-taches`, `PUT /api/taches/<id>/ordre`, `PUT/DELETE /api/sous-taches/<id>` |
+| Alertes (admin) | `GET/POST /api/alertes`, `PUT /api/alertes/application/<nom>`, `GET/POST /api/surveillance-externe` |
+| Pages | `/`, `/apercu`, `/applications[/<nom>[/<onglet>]]`, `/utilisateurs`, `/messages[/<vue>]`, `/parametres[/<onglet>]`, `/ouvrir.app/<nom>/<chemin>`, `/deconnexion.html` ; `/espace` redirige vers `/` |
+| Ressources | `/theme.css`, `/polices/<nom>`, `/favicon.*`, `/apple-touch-icon*.png`, `/manifest.webmanifest` (sans session) ; `POST /api/erreur-navigateur` |
+| Proxy | `/<nom>/...` sur le port des applications |
 
-## Serveur HTTP
-
-Le panneau tourne derriere **waitress**, un serveur WSGI de production en Python pur. Ce n'est pas
-un detail cosmetique : le panneau ne sert pas que ses propres pages, il **relaie tout le trafic de
-toutes les applications deployees**, ce pour quoi le serveur de developpement de Flask n'est pas
-dimensionne — il le dit lui-meme au demarrage.
-
-Si `waitress` n'est pas installe, le service retombe sur le serveur de Flask avec un message
-explicite : un depot fraichement clone reste lancable sans rien installer de plus.
-
-### Le plafond de flux de journal
-
-Le suivi d'un journal en direct est un flux SSE, et **un flux occupe un thread tant qu'il est
-ouvert**. Mesure faite sur une instance reelle : avec 16 threads, 20 flux simultanes rendaient le
-panneau entierement muet — `/health` compris, donc le conteneur passait `unhealthy`.
-
-Le panneau plafonne donc les flux simultanes a **la moitie du pool** (8 par defaut). Au-dela, le
-flux de trop recoit un `503` qui nomme la cause, et la fenetre de journal l'affiche au lieu de
-rester sur « Connexion... ». Verifie : avec 8 flux ouverts, le panneau repond toujours en 5 ms.
-
-Deux details qui rendent le mecanisme fiable :
-
-- **un battement toutes les 10 secondes** (un commentaire SSE, ignore par le navigateur). Il tient
-  la connexion ouverte quand le journal est silencieux, et c'est aussi lui qui fait decouvrir au
-  serveur qu'un onglet a ete ferme — donc qui libere la place, dans ce delai au pire ;
-- **une duree de vie de 10 minutes**, apres quoi le flux se termine et `EventSource` se reconnecte
-  tout seul. Un onglet oublie ne monopolise pas une place indefiniment.
-
-## SSO des applications : se connecter avec CodeLab
-
-Une personne connectée à CodeLab entre dans ses applications **sans formulaire** ; les autres visiteurs
-gardent le formulaire habituel de l'application (connexion, création de compte). C'est la « connexion
-silencieuse ».
-
-### Ce que le proxy fournit
-
-Le proxy retire **tout** en-tête `X-CodeLab-*` venu du navigateur, puis ajoute :
-
-- `X-CodeLab-Panneau` : l'adresse du panneau vue du navigateur, toujours (pour construire les liens
-  de connexion et de déconnexion) ;
-- pour une personne connectée : `X-CodeLab-Auth`, une assertion **Ed25519 / EdDSA** au format JWT,
-  valable 60 secondes et liée à l'application (`aud`), avec `iss=codelab`, `sub`,
-  `preferred_username`, `role`, `email` et `email_verified` (adresse confirmée ou non) ; plus,
-  à titre indicatif, `X-CodeLab-User`, `X-CodeLab-Role`, `X-CodeLab-Email`, `X-CodeLab-Authenticated`.
-
-Chaque application reçoit `CODELAB_SSO_PUBLIC_KEY`, `CODELAB_SSO_ISSUER` et `CODELAB_SSO_AUDIENCE` pour
-vérifier l'assertion. La clé privée ne quitte jamais le panneau.
-
-### Les modules prêts à l'emploi
-
-`codelab new` dépose dans chaque projet `codelab_auth.py` et `codelab-auth.js`, sans dépendance (le
-module Python vérifie Ed25519 avec `cryptography` si elle est là, sinon avec l'implémentation de
-référence de la RFC 8032 qu'il embarque). Leur en-tête donne un exemple complet. À chaque requête :
-
-1. une session de l'application existe : on continue ;
-2. sinon, `connexion_silencieuse` / `connexionSilencieuse` vérifie le jeton et appelle la fonction
-   `trouver_ou_creer` du projet (retrouver par `sub`, colonne `codelab_sub`, ou créer le compte local),
-   puis ouvre la session de l'application ;
-3. sinon : le formulaire classique de l'application.
-
-Trois règles, tenues par les modules : ne jamais croire `X-CodeLab-User` seul ; ne relier un compte
-local existant par l'adresse que si `email_verified` est vrai ; après une déconnexion de l'application
-(`deconnecter`), ne pas reconnecter aussitôt — `reprendre` lève cette pause quand la personne clique
-« Se connecter avec CodeLab ».
-
-### Revenir dans l'application, se déconnecter
-
-- **Après la connexion**, le visiteur revient là où il était : une application privée envoie vers
-  `/login?suite=/ouvrir.app/<application>/<chemin>`, et `/ouvrir.app/...` (session requise) ne mène
-  **qu'à une application déclarée**, sur l'origine des applications de ce serveur — jamais vers une
-  adresse quelconque. Déjà connecté, `/login` y renvoie directement. Le lien « Se connecter avec
-  CodeLab » d'une application publique (`lien_connexion`) suit le même chemin.
-- **Se déconnecter de CodeLab depuis une application** : `/deconnexion.html?app=<application>&chemin=...`
-  demande confirmation (une déconnexion par simple lien serait déclenchable par n'importe quel site),
-  envoie `POST /logout` avec le jeton de la session, puis revient dans l'application
-  (`lien_deconnexion`).
-
-Une application **privée** n'a rien à faire : le panneau impose la connexion CodeLab avant la première
-requête. Une application **publique** reconnaît les personnes connectées et laisse entrer les autres.
-
-## Developper / tester localement
+## Développer, tester
 
 ```bash
-docker build -f app-manager/Dockerfile -t codelab-app-manager-test .   # contexte = racine du depot
-docker run --rm -p 9001:9001 \
+python3 -m pytest workspace/diagnostic/test_regressions.py -q     # depuis la racine du dépôt
+
+docker build -f app-manager/Dockerfile -t codelab-app-manager-test .
+docker run --rm -p 9001:9001 -p 9002:9002 \
   -v "$PWD/workspace-test:/workspace" \
   -v codelab-app-manager-test-state:/var/lib/codelab/app-manager \
   codelab-app-manager-test
 ```
 
-Au premier lancement, le mot de passe admin genere apparait dans les logs du conteneur
-(`docker logs codelab-app-manager-test`). Se connecter sur `http://localhost:9001/`, puis tester le cycle
-complet (ajout d'un dossier existant, demarrage, proxy, metriques, logs en direct, edition, arret).
+Au premier lancement, le mot de passe administrateur apparaît dans `docker logs`.
+
+**Conventions de l'interface** :
+- jamais d'`alert()`, `confirm()` ni `prompt()` : une confirmation dont le bouton porte le verbe, et
+  des notifications pour les erreurs ;
+- l'accent de couleur ne désigne que ce qui se clique ; les états ont leurs propres couleurs ;
+- les chiffres s'alignent (`tabular-nums`).

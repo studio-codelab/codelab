@@ -1,104 +1,59 @@
 # codelab-dagster-proxy
 
-Reverse proxy authentifiant devant Dagster, sur le port `3000`.
+Un nginx qui garde deux interfaces sans authentification propre :
 
-## Pourquoi ce service existe
+| Port | Interface | Fichier |
+|---|---|---|
+| `3000` | Dagster | `nginx.conf` |
+| `8025` | Mailpit (interface CodeLab, `mailpit-ui/`) | `mailpit.conf` |
 
-Dagster, en edition open source, **n'a aucune authentification**. Son interface permet de lancer un job,
-c'est-a-dire d'executer du code sur la machine. Publier son port revenait donc a ouvrir cette porte a tout
-le reseau local — Postgres n'est pas expose, `codelab-dev` exige une cle publique, `codelab-app-manager`
-demande un mot de passe : Dagster etait le seul maillon nu de la stack.
+**Pourquoi** : l'interface de Dagster lance des jobs, donc exécute du code, et celle de Mailpit
+montre tous les mails, liens de réinitialisation compris. Ni Dagster ni Mailpit ne publient de port :
+ce proxy est leur seule porte.
 
-Le port `3000` de l'hote arrive maintenant sur ce service. Celui de `codelab-dagster` n'est plus publie :
-il n'est joignable que depuis le reseau interne de la stack, donc uniquement a travers ce proxy.
+## Fonctionnement
 
-## Ce que fait l'image
+- **Avant chaque requête**, nginx demande au panneau `GET /api/auth-check` (`auth_request`). Seule une
+  session d'**administration** passe. Sans elle, le visiteur est redirigé vers la connexion du panneau.
+  Même mot de passe, même second facteur, même déconnexion.
+- **Le cookie du panneau** (`:9001`) est envoyé au `:3000` et au `:8025`, parce que la portée d'un
+  cookie ignore le port.
+- **Si le panneau ne répond pas**, l'accès reste fermé.
+- **Websockets** relayés (suivi des runs Dagster), délais d'une heure et pas de mise en tampon, pour
+  que les journaux arrivent au fil de l'eau.
+- **Le nom amont passe par une variable** et le resolver Docker (`127.0.0.11`). Un
+  `docker restart codelab-dagster` change son adresse IP sans casser le proxy. Le service doit donc
+  rester sur un réseau Docker défini par l'utilisateur, comme celui du compose.
 
-- `nginx` alpine, sans paquet supplementaire.
-- **Authentification par la session du panneau** : avant chaque requete, nginx interroge
-  `codelab-app-manager` (directive `auth_request`). Session valide, la requete passe ; sinon, le visiteur
-  est redirige vers la page de connexion du panneau.
-- Relais des **websockets** : l'interface de Dagster suit les runs par souscription GraphQL. Sans cela, la
-  page s'affiche mais les journaux d'execution restent figes — une panne d'autant plus deroutante que tout
-  le reste fonctionne.
-- Delais longs (1 h) et `proxy_buffering off` : un run peut rester silencieux longtemps, et ses journaux
-  doivent arriver au fil de l'eau.
+## Mailpit
 
-## Pourquoi la session du panneau, et pas un mot de passe a lui
-
-L'authentification precedente etait en HTTP Basic. Elle fonctionnait, mais :
-
-- **elle n'avait aucune session** — ni expiration, ni deconnexion, et le navigateur renvoyait les
-  identifiants a chaque requete jusqu'a sa fermeture complete ;
-- **sa fenetre etait celle du navigateur** — impossible a habiller, et l'interface deja chargee restait
-  visible derriere pendant qu'elle s'affichait ;
-- **elle faisait un deuxieme mot de passe** a retenir pour la meme personne, sans second facteur.
-
-Desormais Dagster herite de la session du panneau : meme mot de passe, meme double authentification si elle
-est activee, meme deconnexion. `DAGSTER_USER` et `DAGSTER_PASSWORD` n'existent plus — l'entrypoint retire
-l'ancien bloc de `credentials.env`, et le sommaire en tete de ce fichier dit qu'il n'y en a plus.
-
-**Le cookie traverse les deux ports** parce que la portee d'un cookie ignore le numero de port : celui pose
-sur `:9001` est envoye a `:3000`. Et `SameSite=Lax` laisse passer une navigation de premier niveau, ce
-qu'est cette redirection.
-
-**En cas de panne du panneau**, la requete d'autorisation echoue et nginx rend une erreur : l'acces reste
-ferme. C'est le bon sens de defaillance — mieux vaut Dagster injoignable qu'ouvert a tous.
-
+- **Mot de passe interne.** Mailpit exige un mot de passe sur toute son API, pour qu'une application
+  du même réseau ne lise pas les mails des autres.
+  - Ce mot de passe est généré par l'entrypoint et publié dans le bloc `codelab-proxy` de
+    `credentials.env`, jamais transmis aux applications.
+  - nginx l'ajoute aux requêtes déjà autorisées par le panneau.
+  - Tant qu'il n'existe pas, `:8025` répond `503`.
+- **Interface au style de CodeLab** (`mailpit-ui/`), bâtie sur l'API publique de Mailpit :
+  - aucun script ni style en ligne ;
+  - le texte d'un mail passe par `textContent` ;
+  - le HTML d'un mail ne s'affiche que dans un cadre isolé, sans script.
 
 ## Fichiers
 
-| Fichier | Role |
+| Fichier | Rôle |
 |---|---|
-| `Dockerfile` | Image (nginx seul) |
-| `entrypoint.sh` | Retire l'ancien bloc d'identifiants de `credentials.env` |
-| `nginx.conf` | Le proxy lui-meme : authentification, websockets, delais |
+| `Dockerfile` | nginx alpine |
+| `entrypoint.sh` | mot de passe interne de Mailpit ; retrait de l'ancien bloc d'identifiants Dagster |
+| `nginx.conf`, `mailpit.conf` | les deux proxys |
 | `map-upgrade.conf` | `Connection: upgrade` seulement quand le client le demande |
+| `indisponible.html` | la page servie quand l'amont ne répond pas |
+| `mailpit-ui/` | l'interface de Mailpit |
 
-Les deux fichiers de configuration atterrissent dans `conf.d/`, donc dans le contexte `http` de nginx :
-c'est le seul endroit ou une directive `map` est acceptee.
-
-## Le nom d'hote amont passe par une variable
-
-`proxy_pass http://$amont:3000;` plutot que `proxy_pass http://codelab-dagster:3000;`, avec un
-`resolver 127.0.0.11` (le DNS interne de Docker). Ce n'est pas un detail de style :
-
-- avec un nom ecrit en clair, nginx resout l'adresse **au chargement de la configuration**, puis la **fige**
-  pour la duree de vie du processus. Un `docker restart codelab-dagster` — le geste meme que la
-  documentation recommande pour recharger le code — change son adresse, et le proxy continuerait de parler
-  dans le vide jusqu'a ce qu'on le redemarre lui aussi ;
-- accessoirement, c'est aussi ce qui permet a `nginx -t` de passer au build, la ou `codelab-dagster`
-  n'existe pas.
-
-**Contrepartie** : la resolution ne consulte plus `/etc/hosts`, uniquement le `resolver`. Ce service doit
-donc tourner sur un reseau Docker **defini par l'utilisateur** — celui du compose en est un — car c'est ce
-qui active le DNS interne sur `127.0.0.11`. Sur le reseau `bridge` par defaut, toutes les requetes
-ressortiraient en `502`.
-
-## Limite connue
-
-La session circule **sur une connexion en clair** tant qu'aucun TLS n'est en place : le cookie est
-interceptable sur le reseau local. C'est le compromis assume d'un service LAN sans TLS — le meme que pour le
-panneau (port `9001`), et la meme reponse : `APP_MANAGER_HTTPS=1` cote panneau des qu'un reverse proxy
-termine du TLS devant.
-
-## Diagnostic
+## Vérifier
 
 ```bash
-curl -I http://<IP-du-serveur>:3000/          # 302 vers /login : l'authentification est en place
-curl -I http://<IP-du-serveur>:3000/_sante    # 200 : nginx est debout (sonde du healthcheck)
-docker logs codelab-dagster-proxy
+curl -I http://<serveur>:3000/          # 302 vers la connexion : l'authentification est en place
+curl -I http://<serveur>:3000/_sante    # 200 : nginx est debout (sonde du healthcheck)
 ```
 
-Un `200` sur `/` sans session signifierait que l'authentification est tombee. Le `healthcheck`, lui, sonde
-`/_sante` : une requete sur `/` redirige desormais, et le client du healthcheck suivrait cette redirection
-vers un hote qui n'existe pas dans ce conteneur.
-
-## Mailpit, sur le port 8025
-
-Le même proxy garde l'interface de Mailpit (`mailpit.conf`), avec la même session d'administration du
-panneau. Mailpit exige de son côté un mot de passe sur toute son API, pour que les applications, qui
-partagent son réseau, ne puissent pas lire les mails de leurs voisines. Ce mot de passe est généré ici au
-démarrage, publié dans `credentials.env` (bloc `codelab-proxy`, jamais transmis aux applications) et
-ajouté par nginx à chaque requête **déjà autorisée** par le panneau. Tant que l'entrypoint ne l'a pas
-écrit, le port 8025 répond 503 : jamais d'accès à Mailpit sans lui.
+Un `200` sur `/` sans session voudrait dire que l'authentification est tombée.

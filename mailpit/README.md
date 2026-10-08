@@ -59,32 +59,17 @@ Sans serveur d'envoi réglé, les mails sont gardés et aucun ne part.
 
 ## Consulter les mails
 
-Par la **tuile Mailpit du hub**, ou directement sur `http://<IP-du-serveur>:8025/`, avec la
-**session d'administration du panneau**, comme Dagster. La tuile se range comme les autres (*Paramètres >
-Compte*), et sa fiche montre si Mailpit répond.
-**L'interface est celle de CodeLab**, construite sur l'API publique de Mailpit (`/api/v1`, et
-`/api/events` pour le direct) : menu, liste, message et détails côte à côte, en clair ou en sombre selon le
-thème choisi dans le panneau. Mailpit garde, relaie et analyse les mails ; sa propre page n'est plus
-servie. Les fichiers vivent dans `dagster/proxy/mailpit-ui/`, servis par le proxy (voir
-`dagster/proxy/mailpit.conf`) :
+Par la **tuile Mailpit du hub**, ou sur `http://<serveur>:8025/`, avec la session d'**administration**
+du panneau. Aucun compte utilisateur n'y accède, puisque l'interface montre tous les mails, liens de
+réinitialisation compris.
 
-- la page n'exécute que ses propres fichiers (politique de sécurité sans script ni style en ligne) ;
-- le contenu d'un mail n'est jamais inséré dans la page : les textes passent par `textContent`, et le HTML
-  ne s'affiche que dans un cadre isolé, sans scripts (`/view/<id>.html`, servi par Mailpit) ;
-- le retour au hub est en haut à gauche ; rien n'est posé en bas à gauche ;
-- l'onglet porte l'icône de Mailpit, à une adresse qui n'est qu'à elle (`/mailpit-onglet.png`) ; les
-  adresses d'icône génériques du port 8025 (`favicon.ico`…) rendent le logo CodeLab. Safari range les
-  icônes par nom d'hôte, sans le port : s'il reprend celle de Mailpit dans l'onglet du panneau, vider
-  `~/Library/Safari/Favicon Cache` (Safari fermé) la remet en place.
+L'interface est celle de CodeLab, servie par `codelab-dagster-proxy` (`dagster/proxy/mailpit-ui/`) sur
+l'API de Mailpit. Le contenu d'un mail n'est jamais inséré dans la page : son HTML ne s'affiche que
+dans un cadre isolé, sans script.
 
-L'interface montre tous les mails, liens de réinitialisation de mot de passe compris. Elle n'est donc
-ouverte à aucun compte utilisateur.
-
-Derrière, Mailpit exige lui-même un mot de passe sur toute son API. Sans cela, une application qui
-partage son réseau pourrait lire les mails de ses voisines. Ce mot de passe est généré par
-`codelab-dagster-proxy`, qui l'ajoute à chaque requête déjà autorisée ; personne n'a à le taper.
-
-Les 500 derniers mails sont conservés, un mois au plus.
+Mailpit exige en plus un mot de passe interne sur son API, ajouté par le proxy : une application du
+même réseau ne peut pas lire les mails des autres. Les 500 derniers mails sont gardés, un mois au
+plus.
 
 ## Le mode test
 
