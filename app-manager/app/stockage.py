@@ -207,6 +207,32 @@ MIGRATIONS = [
     );
     CREATE INDEX sous_taches_tache ON sous_taches(tache, ordre);
     """,
+    # --- version 3 : l'application « Demandes », un gestionnaire de taches ---
+    # Des PROJETS qu'on construit puis qu'on concretise (idee -> en
+    # construction -> realise), et des taches qu'on priorise et qu'on deplace
+    # sur un tableau (a faire -> en cours -> fait). Une tache peut toujours
+    # appartenir a une application ou a « general » : la colonne projet des
+    # taches porte un nom d'application, « general », ou l'id d'un projet
+    # (prefixe « p- », qui ne peut pas etre un nom d'application).
+    """
+    CREATE TABLE projets (
+        id           TEXT PRIMARY KEY,
+        nom          TEXT NOT NULL,
+        description  TEXT NOT NULL DEFAULT '',
+        etape        TEXT NOT NULL DEFAULT 'idee',
+        application  TEXT,
+        message      TEXT,
+        cree         INTEGER NOT NULL,
+        maj          INTEGER NOT NULL,
+        ordre        INTEGER NOT NULL DEFAULT 0
+    );
+    ALTER TABLE taches ADD COLUMN statut TEXT NOT NULL DEFAULT 'a_faire';
+    ALTER TABLE taches ADD COLUMN priorite INTEGER NOT NULL DEFAULT 2;
+    ALTER TABLE taches ADD COLUMN echeance TEXT;
+    ALTER TABLE taches ADD COLUMN notes TEXT NOT NULL DEFAULT '';
+    UPDATE taches SET statut = 'fait' WHERE faite = 1;
+    CREATE INDEX taches_statut ON taches(statut, ordre);
+    """,
 ]
 
 VERSION = len(MIGRATIONS)
