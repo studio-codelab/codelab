@@ -149,7 +149,15 @@ Dagster. Il n'a pas d'identifiants à lui : il utilise la session du panneau, do
 et la même déconnexion.
 
 **Agents** — `codelab agents`, dans un projet, y écrit le mode d'emploi de la stack sous forme d'un
-`AGENTS.md` que `codex` lit avant chaque tâche. Voir [`dev/README.md`](dev/README.md#codex).
+`AGENTS.md` que `codex` lit avant chaque tâche, et un `CLAUDE.md` qui l'importe pour Claude Code : les
+deux agents lisent les mêmes consignes, jusqu'à la liste à vérifier avant de déclarer une application
+prête. Voir [`dev/README.md`](dev/README.md#codex).
+
+**Les applications d'un projet** reçoivent de `codelab new`, en plus de la connexion avec CodeLab, des
+pages d'erreur propres (aucune pile d'appels affichée) et des en-têtes de sécurité prêts à poser
+(`codelab_web`). Leurs dépendances sont **auditées chaque semaine** contre la base OSV, et un job
+Dagster qui a les siennes les déclare dans un `requirements-dagster.txt` pour tourner dans son propre
+environnement. Voir [`workspace/README.md`](workspace/README.md#dependances).
 
 ## Où vit la configuration
 

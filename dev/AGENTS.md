@@ -98,6 +98,20 @@ defs = Definitions(assets=[mon_asset])
 - Un projet qui ne se charge pas est ignore avec sa trace dans
   `docker logs codelab-dagster`, sans empecher les autres de tourner.
 
+**Dependances Dagster.** Le processus commun n'a que `dagster`,
+`dagster-postgres` et `psycopg2`. Un projet qui a besoin d'autre chose (pandas,
+requests...) le declare dans un **`requirements-dagster.txt`** a cote de son
+`definitions.py`, versions figees (`pandas==2.2.3`). Il tourne alors dans **son
+propre environnement Python**, construit au demarrage de `codelab-dagster`, et
+apparait comme un emplacement de code a son nom. Consequences :
+
+- apres avoir cree ou modifie ce fichier : `docker restart codelab-dagster`
+  (le bouton *Reload* ne reconstruit pas l'environnement) ;
+- chaque projet isole coute 200 a 300 Mo de memoire : ne l'isole que s'il a
+  vraiment des dependances, et ne fais jamais `pip install` depuis le code ;
+- l'environnement vit dans `.dagster-venv/`, deja dans le `.gitignore` pose par
+  `codelab new` : ne le versionne pas, ne le modifie pas a la main.
+
 ## Application web servie par l'app-manager
 
 L'app-manager lance la commande du projet dans **son** conteneur et l'expose
@@ -151,6 +165,35 @@ l'application apres la connexion) et `lien_deconnexion` (se deconnecter de
 CodeLab aussi, avec confirmation). Une application **privee** n'a rien a
 faire : le panneau impose la connexion CodeLab avant meme la premiere
 requete.
+
+## Pages d'erreur et en-tetes de securite
+
+Le projet contient aussi `codelab_web.py` (Flask) et `codelab-web.js`
+(Express), poses par `codelab new`. Branche-les **des la premiere route** :
+
+```python
+import codelab_web
+codelab_web.pages_d_erreur(app)        # 404/500 au style CodeLab, trace dans le journal
+codelab_web.entetes_de_securite(app)   # CSP stricte, nosniff, Referrer-Policy
+```
+
+```js
+const codelabWeb = require("./codelab-web");
+app.use(codelabWeb.entetesDeSecurite());
+// ... les routes ...
+codelabWeb.pagesDErreur(app);          // EN DERNIER, apres les routes
+```
+
+- **Jamais de pile d'appels dans une page.** Une exception se journalise
+  (`docker logs`, onglet journaux du panneau) ; le visiteur ne voit qu'une
+  page « Erreur interne ». Ne lance jamais Flask en `debug=True` dans la
+  commande de lancement.
+- **La CSP par defaut interdit les scripts en ligne** (`<script>...</script>`
+  dans le HTML, `onclick=`). Mets le JavaScript dans un fichier. Si une page a
+  besoin d'une ressource externe (carte, police, CDN), elargis la politique en
+  passant `csp=` -- ne la retire pas.
+- N'ajoute pas `frame-ancestors` : le panneau pose le sien, qui autorise
+  l'affichage dans le hub.
 
 ## Le style de CodeLab
 
@@ -232,3 +275,37 @@ cherche pas a la contourner.
 
 Ecris des chemins **relatifs au projet**, jamais de `/workspace/...` en dur : le
 meme code doit fonctionner si le dossier est renomme ou copie.
+
+## Avant de declarer une application prete
+
+Ne dis pas qu'une application est prete a etre deployee sans avoir verifie
+chaque point, et dis lesquels tu n'as pas pu verifier.
+
+**Rendu**
+- [ ] Affichage correct a 375 px, 768 px et 1280 px de large
+- [ ] Theme clair et sombre lisibles (jetons de `/theme.css`, aucune couleur en dur)
+- [ ] `base` / `basePath` regle : aucune page blanche sous `/<projet>/`
+
+**Erreurs**
+- [ ] `codelab_web` branche : 404 et 500 propres, aucune pile d'appels affichee
+- [ ] Les exceptions arrivent dans le journal de l'application
+- [ ] Ecoute sur `$PORT` et `0.0.0.0`, pas de serveur de developpement
+
+**Donnees et securite**
+- [ ] `.env` dans le `.gitignore`, aucune cle ni mot de passe dans le code
+- [ ] Une cle d'API par application chez chaque fournisseur, dans son `.env`
+- [ ] Application privee, ou connexion via `codelab_auth` si elle a des comptes
+- [ ] En-tetes de securite poses (`entetes_de_securite`) ou ecart justifie
+- [ ] Entrees utilisateur validees cote serveur ; requetes SQL parametrees
+- [ ] Cles Redis prefixees par le nom de l'application, cache avec une duree de vie
+- [ ] Versions figees (`requirements.txt` avec `==`, `package-lock.json`
+      versionne) : c'est ce que l'audit hebdomadaire des dependances sait lire
+
+**Performance**
+- [ ] Page principale legere : images compressees, pas de bibliotheque chargee
+      pour une seule fonction
+- [ ] Aucune police ni script charge depuis un tiers sans raison
+
+**Exploitation**
+- [ ] Base creee avec `codelab db` (donc sauvegardee chaque jour)
+- [ ] Section « Projet » du `AGENTS.md` a jour : ce que fait le projet, ses commandes

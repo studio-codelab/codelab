@@ -95,6 +95,9 @@ COPY dagster/entrypoint.sh /opt/dagster/entrypoint.sh
 # voir lancer.sh. L'entrypoint le lance apres la bascule sur l'utilisateur
 # dagster, comme il lancait avant chacun des deux programmes.
 COPY dagster/lancer.sh /opt/dagster/lancer.sh
+# Les projets qui portent un requirements-dagster.txt : leur environnement
+# Python et le workspace.yaml qui les declare. Lance par lancer.sh.
+COPY dagster/isolation.py /opt/dagster/isolation.py
 RUN chmod +x /opt/dagster/entrypoint.sh /opt/dagster/lancer.sh
 
 EXPOSE 3000

@@ -100,7 +100,7 @@ a jour, aucun fichier central a editer : ni `/workspace/definitions.py`, ni le
 `docker-compose.yml`, ni `apps.json` a la main.
 
 ```bash
-codelab new mon-projet          # dossier, depot git, .gitignore, AGENTS.md
+codelab new mon-projet          # dossier, depot git, .gitignore, AGENTS.md, CLAUDE.md
 codelab new mon-projet --db     # ... et sa base de donnees
 codelab new mon-projet --ouvrir # ... et la fenetre VS Code se rouvre dessus
 ```
@@ -108,6 +108,12 @@ codelab new mon-projet --ouvrir # ... et la fenetre VS Code se rouvre dessus
 Le projet recoit aussi `codelab_auth.py` et `codelab-auth.js` : la connexion avec CodeLab, prete a
 brancher (voir leur en-tete, et « SSO des applications » dans `app-manager/README.md`). Une personne
 connectee a CodeLab entre sans formulaire ; les autres gardent celui de l'application.
+
+Et `codelab_web.py` / `codelab-web.js` : des pages 404 et 500 au style de CodeLab, sans pile d'appels
+(la trace part dans le journal de l'application), et des en-tetes de securite a poser si
+l'application le choisit — CSP stricte, `nosniff`, `Referrer-Policy`. Le panneau n'impose pas ces
+en-tetes aux applications, a dessein : une politique imposee casserait la premiere qui charge une
+carte ou un script d'ailleurs. Le module rend le bon choix facile, il ne le fait pas a leur place.
 
 La commande refuse un dossier existant et un nom invalide : elle est sans danger a relancer.
 Elle ne fait **pas** l'echafaudage du framework — `npm create vite@latest .` telecharge, pose des
@@ -133,6 +139,9 @@ Trois choses a ne pas oublier, dans l'ordre ou elles se retournent contre toi :
 2. **`.env` dans le `.gitignore`** : `/workspace` n'est pas chiffre.
 3. **Un nom de module unique** si le projet a du Dagster : tous les projets
    sont charges dans le meme processus, deux `utils.py` se marchent dessus.
+   Un projet qui a des dependances a lui les declare dans un
+   `requirements-dagster.txt` et tourne alors a part (voir
+   [`workspace/README.md`](../workspace/README.md#dependances)).
 
 Le plus rapide reste de copier le projet `diagnostic`, qui montre un asset
 Dagster, une application web et un module partage entre les deux :
@@ -472,6 +481,15 @@ Ce que le manuel dit deja a l'agent, sans que tu aies a le repeter :
   dans `credentials.env`.
 - **Chemins relatifs**, jamais de `/workspace/...` en dur.
 
+**Claude Code** lit `CLAUDE.md`, pas `AGENTS.md`. La meme commande pose donc a cote un `CLAUDE.md`
+d'une ligne, `@AGENTS.md`, qui importe le manuel : les deux agents lisent les memes consignes, ecrites
+a un seul endroit. Un `CLAUDE.md` deja present n'est jamais modifie ; s'il n'importe pas `AGENTS.md`,
+la commande le signale.
+
+Le manuel se termine par une liste **« Avant de declarer une application prete »** — rendu a trois
+largeurs, pages d'erreur, secrets, en-tetes, versions figees, base sauvegardee — que l'agent doit
+parcourir avant d'annoncer qu'une application peut etre deployee.
+
 Le meme manuel est aussi ecrit dans `/workspace/.codex/AGENTS.md` au demarrage
 du conteneur, ou Codex le lit comme instructions globales. Les deux existent a
 dessein : ce niveau global n'est pas honore par toutes les versions de la CLI,
@@ -554,6 +572,7 @@ qu'on lit *pourquoi* un `Permission denied (publickey)` se produit), et il recoi
 | `entrypoint.sh` | Toute la logique de demarrage |
 | `AGENTS.md` | Manuel de l'environnement lu par les agents (perimetre, base, Dagster, app-manager) |
 | `codelab` | Outil de projet installe dans le PATH : `codelab new`, `codelab db`, `codelab agents` |
+| `modeles/` | Modules deposes par `codelab new` : `codelab_auth` (connexion avec CodeLab) et `codelab_web` (pages d'erreur, en-tetes de securite), en Python et en Node |
 
 Le `Dockerfile` et l'`entrypoint.sh` portent l'essentiel. `AGENTS.md` est une **ressource livree par l'image**, pas les instructions du depot CodeLab : il decrit l'environnement des projets, et l'image le recopie dans `$CODEX_HOME/AGENTS.md` puis, via `codelab agents`, dans les projets. `codelab` est sans extension parce que c'est un executable du PATH, pas un fichier a sourcer : l'`entrypoint.sh` reste le seul `.sh` du service, comme dans les trois autres. Les dependances Python sont declarees directement dans le `Dockerfile`
 plutot que dans un `requirements.txt` separe : trois paquets ne justifient pas un fichier de plus, et

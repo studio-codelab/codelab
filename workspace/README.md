@@ -121,9 +121,47 @@ import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor"))
 ```
 
-Cote Dagster, les paquets disponibles sont ceux de l'image (`dagster`, `dagster-postgres`,
-`psycopg2`). Un projet qui a besoin d'autre chose doit pour l'instant l'installer lui-meme au
-demarrage — l'isolation des dependances par projet est prevue mais pas encore en place.
+Cote Dagster, le processus commun n'a que les paquets de l'image (`dagster`, `dagster-postgres`,
+`psycopg2`), et tous les projets y sont charges ensemble. Un projet qui a besoin d'autre chose les
+declare dans un **`requirements-dagster.txt`**, a cote de son `definitions.py`, versions figees :
+
+```
+/workspace/mon-projet/requirements-dagster.txt
+
+    pandas==2.2.3
+    requests==2.32.3
+```
+
+Il tourne alors **dans son propre environnement Python**, sous son propre nom d'emplacement dans
+Dagster : deux projets peuvent demander deux versions de pandas sans se gener. Au demarrage,
+`codelab-dagster` construit l'environnement dans `mon-projet/.dagster-venv/` (seulement s'il manque ou
+si le fichier a change), et le declare a cote de l'emplacement commun. Les paquets de l'image restent
+visibles, apres ceux du projet : `dagster` n'est pas reinstalle.
+
+- **Apres avoir cree ou modifie ce fichier** : `docker restart codelab-dagster`. Le bouton *Reload*
+  recharge le code, il ne reconstruit pas l'environnement. Ce redemarrage-la prend le temps de
+  l'installation (de quelques secondes a quelques minutes) : l'interface de Dagster ne repond
+  qu'ensuite. Les demarrages suivants, fichier inchange, ne reinstallent rien.
+- **Un environnement qui ne se construit pas** (paquet inconnu, pas de reseau) : le projet apparait
+  en erreur dans Dagster, et `docker logs codelab-dagster` dit pourquoi. Les autres projets tournent.
+- **Ce que ca coute** : un processus Python de plus pour l'interface et un pour le daemon, soit 200 a
+  300 Mo par projet isole. C'est pourquoi l'isolation est un choix du projet et non la regle. Au-dela
+  d'un projet isole, remonter le `mem_limit` de `codelab-dagster`.
+- Sans aucun projet isole, rien ne change : Dagster charge `/workspace/definitions.py` comme avant.
+
+Le detail du mecanisme est dans `dagster/README.md`, section « Projets isoles », du depot CodeLab.
+
+## Audit des dependances
+
+Chaque lundi matin, l'asset `audit_dependances` du projet `diagnostic` relit ce que chaque projet fige
+et le confronte a la base publique de vulnerabilites [OSV](https://osv.dev) : les lignes `nom==version`
+des `requirements*.txt`, les paquets de `vendor/` et de `.dagster-venv/`, et le `package-lock.json`.
+Une dependance vulnerable fait **echouer le run**, donc partir le mail d'alerte de Dagster, avec le
+lien vers chaque avis ; le run reste rouge chaque semaine tant que la version n'est pas montee.
+
+Seules les versions **exactes** sont lues : `flask>=2` ne dit pas ce qui est installe. Figer ses
+versions, c'est donc aussi ce qui rend un projet auditable. Pour lancer l'audit sans attendre :
+*Materialize* sur `audit_dependances` dans Dagster.
 
 ## Configuration et secrets
 

@@ -8476,6 +8476,7 @@ def asset_diagnostic(monkeypatch):
     faux.DefaultScheduleStatus = _Statut
     faux.DefaultSensorStatus = _Statut
     faux.MetadataValue = _Metadonnee
+    faux.Failure = type("Failure", (Exception,), {})
     faux.asset = _decorateur
     faux.run_failure_sensor = _decorateur
     monkeypatch.setitem(sys.modules, "dagster", faux)
@@ -13356,3 +13357,426 @@ def test_codelab_new_depose_les_modules_de_connexion(tmp_path):
     assert "COPY dev/modeles/ /usr/local/share/codelab/modeles/" in dockerfile
     manuel = open(os.path.join(_racine_depot(), "dev", "AGENTS.md")).read()
     assert "connexion_silencieuse" in manuel and "email_verified" in manuel
+
+
+# ------------------- pages d'erreur et en-tetes des applications -------------------
+#
+# codelab_web, depose par « codelab new » : une erreur ne montre jamais sa
+# pile d'appels, et les en-tetes de securite sont un choix de l'application
+# que le module rend facile -- sans ecraser ce qu'une route a decide.
+
+def _module_web():
+    chemin = os.path.join(_racine_depot(), "dev", "modeles", "codelab_web.py")
+    spec = importlib.util.spec_from_file_location("codelab_web_test", chemin)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _app_web(entetes=True):
+    from flask import Flask, Response
+    m = _module_web()
+    a = Flask("essai_codelab_web")
+
+    @a.get("/")
+    def accueil():
+        return "accueil"
+
+    @a.get("/factures/<n>/pdf")
+    def casse(n):
+        raise RuntimeError("SECRET-dans-la-trace")
+
+    @a.get("/a-soi")
+    def a_soi():
+        return Response("x", headers={"Content-Security-Policy": "default-src *"})
+
+    m.pages_d_erreur(a)
+    if entetes:
+        m.entetes_de_securite(a)
+    return m, a.test_client()
+
+
+def test_une_exception_est_journalisee_sans_rien_montrer_au_visiteur(caplog):
+    m, c = _app_web()
+    with caplog.at_level("ERROR", logger="codelab_web"):
+        r = c.get("/factures/12/pdf")
+    page = r.get_data(as_text=True)
+    assert r.status_code == 500
+    assert "SECRET-dans-la-trace" not in page and "Traceback" not in page
+    assert "Erreur interne" in page and '/theme.css' in page
+    # La trace, elle, est bien dans le journal.
+    assert "SECRET-dans-la-trace" in caplog.text
+    # Le lien de retour remonte vers la racine de l'APPLICATION (servie sous
+    # /<nom>/ par le panneau), pas vers celle du hub.
+    assert 'href="../../"' in page
+
+
+def test_la_404_et_le_json_pour_une_api():
+    m, c = _app_web()
+    r = c.get("/nulle-part")
+    assert r.status_code == 404 and "Page introuvable" in r.get_data(as_text=True)
+    assert 'href="./"' in r.get_data(as_text=True)
+    r = c.get("/nulle-part", headers={"Accept": "application/json"})
+    assert r.status_code == 404 and r.get_json() == {"erreur": "Page introuvable", "code": 404}
+    r = c.get("/factures/1/pdf", headers={"Accept": "application/json"})
+    assert r.status_code == 500 and r.get_json()["code"] == 500
+
+
+def test_les_en_tetes_de_securite_sont_poses_sans_ecraser_ceux_d_une_route():
+    m, c = _app_web()
+    r = c.get("/")
+    assert r.headers["Content-Security-Policy"] == m.CSP_DEFAUT
+    assert r.headers["X-Content-Type-Options"] == "nosniff"
+    assert r.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
+    # Pas de scripts en ligne, et pas de frame-ancestors : le panneau pose le sien.
+    assert "unsafe-inline" not in m.CSP_DEFAUT.split("script-src")[1]
+    assert "frame-ancestors" not in m.CSP_DEFAUT
+    assert c.get("/a-soi").headers["Content-Security-Policy"] == "default-src *"
+    # Les pages d'erreur aussi les recoivent.
+    assert c.get("/nulle-part").headers["Content-Security-Policy"] == m.CSP_DEFAUT
+    # Sans l'appel : rien n'est impose.
+    m, c = _app_web(entetes=False)
+    assert "Content-Security-Policy" not in c.get("/").headers
+
+
+def test_le_module_node_des_erreurs_et_des_en_tetes(tmp_path):
+    import subprocess
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node absent")
+    module = os.path.join(_racine_depot(), "dev", "modeles", "codelab-web.js")
+    script = tmp_path / "t.js"
+    # Un faux Express : juste ce que le module appelle.
+    script.write_text(
+        "const m = require(" + json.dumps(module) + ");\n"
+        "const pile = []; const app = { use: (f) => pile.push(f) };\n"
+        "m.pagesDErreur(app);\n"
+        "function res() { const r = { h: {}, code: 0, corps: null, type: () => r,\n"
+        "  status: (c) => { r.code = c; return r; }, send: (b) => { r.corps = b; return r; },\n"
+        "  json: (b) => { r.corps = b; return r; },\n"
+        "  setHeader: (k, v) => { r.h[k.toLowerCase()] = v; },\n"
+        "  getHeader: (k) => r.h[k.toLowerCase()] }; return r; }\n"
+        "const req = (accepte, path) => ({ method: 'GET', path, accepts: () => accepte });\n"
+        "const r404 = res(); pile[0](req('html', '/a/b'), r404);\n"
+        "const r500 = res(); const erreurs = [];\n"
+        "console.error = (t) => erreurs.push(String(t));\n"
+        "pile[1](new Error('SECRET-trace'), req('html', '/x'), r500, () => {});\n"
+        "const rjson = res(); pile[1](new Error('e'), req('json', '/x'), rjson, () => {});\n"
+        "const rh = res(); rh.setHeader('Content-Security-Policy', 'default-src *');\n"
+        "m.entetesDeSecurite()(req('html', '/'), rh, () => {});\n"
+        "const rd = res(); m.entetesDeSecurite()(req('html', '/'), rd, () => {});\n"
+        "process.stdout.write(JSON.stringify({ r404, r500, rjson, erreurs, rh: rh.h, rd: rd.h,"
+        " csp: m.CSP_DEFAUT }));\n")
+    r = subprocess.run([node, str(script)], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, r.stderr
+    d = json.loads(r.stdout)
+    assert d["r404"]["code"] == 404 and "Page introuvable" in d["r404"]["corps"]
+    assert 'href="../"' in d["r404"]["corps"]
+    assert d["r500"]["code"] == 500 and "SECRET-trace" not in d["r500"]["corps"]
+    assert any("SECRET-trace" in e for e in d["erreurs"])
+    assert d["rjson"]["corps"] == {"erreur": "Erreur interne", "code": 500}
+    assert d["rh"]["content-security-policy"] == "default-src *"
+    assert d["rd"]["content-security-policy"] == d["csp"]
+    assert d["rd"]["x-content-type-options"] == "nosniff"
+    # Meme politique dans les deux langages.
+    assert d["csp"] == _module_web().CSP_DEFAUT
+
+
+def test_codelab_new_depose_les_modules_web_et_un_claude_md(tmp_path):
+    modeles = os.path.join(_racine_depot(), "dev", "modeles")
+    r, espace = _lancer_codelab(tmp_path, ["new", "atelier"], {"CODELAB_MODELES": modeles})
+    assert r.returncode == 0, r.stdout + r.stderr
+    projet = espace / "atelier"
+    for nom in ("codelab_web.py", "codelab-web.js"):
+        assert (projet / nom).read_text() == open(os.path.join(modeles, nom)).read()
+    assert (projet / "CLAUDE.md").read_text().startswith("@AGENTS.md\n")
+    assert ".dagster-venv/" in (projet / ".gitignore").read_text().splitlines()
+
+
+def test_codelab_agents_ne_touche_pas_un_claude_md_existant(tmp_path):
+    projet = tmp_path / "ws" / "vieux"
+    projet.mkdir(parents=True)
+    (projet / "CLAUDE.md").write_text("mes consignes\n")
+    r, _ = _lancer_codelab(tmp_path, ["agents", str(projet)])
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (projet / "CLAUDE.md").read_text() == "mes consignes\n"
+    assert "n'importe pas AGENTS.md" in r.stdout
+    # Un CLAUDE.md qui l'importe deja : rien a dire.
+    (projet / "CLAUDE.md").write_text("@AGENTS.md\net le reste\n")
+    r, _ = _lancer_codelab(tmp_path, ["agents", str(projet)])
+    assert "CLAUDE.md" not in r.stdout
+
+
+def test_le_manuel_porte_la_liste_avant_mise_en_ligne():
+    manuel = open(os.path.join(_racine_depot(), "dev", "AGENTS.md"), encoding="utf-8").read()
+    assert "## Avant de declarer une application prete" in manuel
+    for attendu in ("375 px", "codelab_web", "entetes_de_securite", "requirements-dagster.txt",
+                    "`.env` dans le `.gitignore`", "codelab db"):
+        assert attendu in manuel, attendu
+    # La liste est la derniere section : c'est ce que l'agent relit en
+    # dernier avant de conclure.
+    assert manuel.rstrip().rsplit("\n## ", 1)[1].startswith("Avant de declarer")
+
+
+# ------------------------- audit des dependances des projets -------------------------
+
+def _projet_a_auditer(racine):
+    app_ = racine / "boutique"
+    (app_ / "vendor" / "Flask-2.0.0.dist-info").mkdir(parents=True)
+    (app_ / "vendor" / "Flask-2.0.0.dist-info" / "METADATA").write_text(
+        "Metadata-Version: 2.1\nName: Flask\nVersion: 2.0.0\n\nName: pas-un-en-tete\n")
+    (app_ / "requirements.txt").write_text(
+        "requests==2.19.0\nJinja2[i18n] == 3.1.2 ; python_version > '3'\n"
+        "flask>=2\n# urllib3==1.0\n-r autre.txt\n")
+    venv = app_ / ".dagster-venv" / "lib" / "python3.13" / "site-packages" / "pandas-1.0.0.dist-info"
+    venv.mkdir(parents=True)
+    (venv / "METADATA").write_text("Name: pandas\nVersion: 1.0.0\n")
+    front = racine / "vitrine"
+    front.mkdir()
+    (front / "package-lock.json").write_text(json.dumps({"lockfileVersion": 3, "packages": {
+        "": {"name": "vitrine", "version": "0.0.1"},
+        "node_modules/lodash": {"version": "4.17.20"},
+        "node_modules/a/node_modules/@scope/b": {"version": "1.0.0"},
+        "node_modules/lien": {"link": True, "resolved": "../x"}}}))
+    ancien = racine / "ancien"
+    ancien.mkdir()
+    (ancien / "package-lock.json").write_text(json.dumps({"lockfileVersion": 1, "dependencies": {
+        "minimist": {"version": "0.0.8", "dependencies": {"sous": {"version": "2.0.0"}}}}}))
+    (racine / "_mis-de-cote").mkdir()
+    (racine / "_mis-de-cote" / "requirements.txt").write_text("django==1.0\n")
+    (racine / ".codelab").mkdir()
+
+
+def test_l_audit_lit_les_versions_figees_de_chaque_projet(tmp_path):
+    _projet_a_auditer(tmp_path)
+    d = checks.dependances_du_workspace(str(tmp_path))
+    assert sorted(d) == ["ancien", "boutique", "vitrine"]
+    assert d["boutique"] == {("PyPI", "flask", "2.0.0"), ("PyPI", "requests", "2.19.0"),
+                             ("PyPI", "jinja2", "3.1.2"), ("PyPI", "pandas", "1.0.0")}
+    assert d["vitrine"] == {("npm", "lodash", "4.17.20"), ("npm", "@scope/b", "1.0.0")}
+    assert d["ancien"] == {("npm", "minimist", "0.0.8"), ("npm", "sous", "2.0.0")}
+
+
+def test_l_audit_rapporte_par_projet(tmp_path):
+    _projet_a_auditer(tmp_path)
+    vus = []
+
+    def faux(paquets):
+        vus.append(set(paquets))
+        return {p: ["GHSA-x"] for p in paquets if p[1] in ("lodash", "flask")}
+    nombre, rapport = checks.audit_dependances(str(tmp_path), interroger=faux)
+    assert len(vus) == 1 and nombre == len(vus[0]) == 8   # une seule interrogation
+    assert rapport == {"boutique": [("PyPI", "flask", "2.0.0", ["GHSA-x"])],
+                       "vitrine": [("npm", "lodash", "4.17.20", ["GHSA-x"])]}
+    # Workspace sans dependance figee : aucune interrogation.
+    vide = tmp_path / "vide"
+    vide.mkdir()
+    assert checks.audit_dependances(str(vide), interroger=lambda p: 1 / 0) == (0, {})
+
+
+def test_l_audit_interroge_osv_par_lots(monkeypatch):
+    lots = []
+
+    class Reponse:
+        def __init__(self, corps):
+            self.corps = corps
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self, *a):
+            return self.corps
+
+    def urlopen(requete, timeout=None):
+        assert requete.full_url == checks.OSV_URL and requete.get_method() == "POST"
+        q = json.loads(requete.data)["queries"]
+        lots.append(len(q))
+        return Reponse(json.dumps({"results": [
+            {"vulns": [{"id": "GHSA-2"}, {"id": "CVE-1"}]} if x["package"]["name"] == "p3" else {}
+            for x in q]}).encode())
+    monkeypatch.setattr(checks.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(checks, "OSV_LOT", 2)
+    paquets = {("PyPI", f"p{i}", "1.0") for i in range(5)}
+    assert checks.interroger_osv(paquets) == {("PyPI", "p3", "1.0"): ["CVE-1", "GHSA-2"]}
+    assert lots == [2, 2, 1]
+
+
+def test_l_audit_est_planifie_et_fait_echouer_le_run(asset_diagnostic, monkeypatch):
+    """Vulnerabilite trouvee, et OSV injoignable : les deux font tomber le
+    run, donc partir le mail du capteur. Rien a signaler : run vert."""
+    d = asset_diagnostic
+    assert d.audit_chaque_semaine["cron_schedule"] == "23 6 * * 1"
+    assert d.audit_dependances in d.defs["assets"]
+    assert d.audit_chaque_semaine in d.defs["schedules"]
+
+    monkeypatch.setattr(checks, "audit_dependances", lambda: (
+        3, {"boutique": [("PyPI", "flask", "2.0.0", ["GHSA-x"])]}))
+    contexte = _ContexteDeTest()
+    with pytest.raises(sys.modules["dagster"].Failure) as e:
+        d.audit_dependances(contexte)
+    assert "https://osv.dev/vulnerability/GHSA-x" in str(e.value)
+    assert contexte.metadonnees["projets_touches"] == 1
+
+    def hors_ligne():
+        raise urllib.error.URLError("pas de reseau")
+    monkeypatch.setattr(checks, "audit_dependances", hors_ligne)
+    with pytest.raises(sys.modules["dagster"].Failure, match="Audit impossible"):
+        d.audit_dependances(_ContexteDeTest())
+
+    monkeypatch.setattr(checks, "audit_dependances", lambda: (3, {}))
+    assert "aucune vulnerabilite" in d.audit_dependances(_ContexteDeTest())
+
+
+# ------------------- isolation des dependances des projets Dagster -------------------
+
+def _isolation():
+    chemin = os.path.join(_racine_depot(), "dagster", "isolation.py")
+    spec = importlib.util.spec_from_file_location("isolation_test", chemin)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _workspace_isole(racine):
+    for nom in ("commun", "lourd", "_cache", "sans-defs"):
+        (racine / nom).mkdir(parents=True)
+    for nom in ("commun", "lourd", "_cache"):
+        (racine / nom / "definitions.py").write_text("defs = None\n")
+    for nom in ("lourd", "_cache", "sans-defs"):
+        (racine / nom / "requirements-dagster.txt").write_text("pandas==2.2.3\n")
+
+
+def test_seuls_les_projets_qui_le_demandent_sont_isoles(tmp_path):
+    iso = _isolation()
+    _workspace_isole(tmp_path)
+    assert iso.projets_isoles(str(tmp_path)) == ["lourd"]
+    contenu = json.loads(iso.workspace_yaml(str(tmp_path), ["lourd"]))
+    commun, lourd = contenu["load_from"]
+    # L'emplacement commun garde la forme de « -m definitions » : meme nom,
+    # donc memes plannings et meme historique.
+    assert commun == {"python_module": "definitions"}
+    assert lourd["python_file"]["location_name"] == "lourd"
+    assert lourd["python_file"]["executable_path"] == str(
+        tmp_path / "lourd" / ".dagster-venv" / "bin" / "python")
+    assert lourd["python_file"]["working_directory"] == str(tmp_path / "lourd")
+
+
+def test_l_environnement_n_est_reconstruit_que_si_le_fichier_change(tmp_path):
+    iso = _isolation()
+    _workspace_isole(tmp_path)
+    projet = str(tmp_path / "lourd")
+    appels = []
+
+    def faux(cmd, **kw):
+        appels.append(cmd)
+        assert kw.get("stdout") is sys.stderr     # rien sur la sortie lue par lancer.sh
+        if "venv" in cmd:
+            bin_ = Path(cmd[-1], "bin")
+            bin_.mkdir(parents=True)
+            (bin_ / "python").write_text("")
+            Path(cmd[-1], "lib", "python3.13", "site-packages").mkdir(parents=True)
+    assert iso.preparer(projet, executer=faux) is True
+    assert len(appels) == 2 and appels[1][-1].endswith("requirements-dagster.txt")
+    pth = tmp_path / "lourd" / ".dagster-venv" / "lib" / "python3.13" / "site-packages" / "_codelab_image.pth"
+    assert pth.exists()
+    # Inchange : rien a refaire.
+    assert iso.preparer(projet, executer=faux) is True and len(appels) == 2
+    # Modifie : reconstruit.
+    (tmp_path / "lourd" / "requirements-dagster.txt").write_text("pandas==2.2.4\n")
+    assert iso.preparer(projet, executer=faux) is True and len(appels) == 4
+
+
+def test_un_environnement_qui_echoue_est_retire(tmp_path):
+    import subprocess
+    iso = _isolation()
+    _workspace_isole(tmp_path)
+
+    def echoue(cmd, **kw):
+        if "venv" in cmd:
+            Path(cmd[-1], "bin").mkdir(parents=True)
+            return
+        raise subprocess.CalledProcessError(1, cmd)
+    assert iso.preparer(str(tmp_path / "lourd"), executer=echoue) is False
+    assert not (tmp_path / "lourd" / ".dagster-venv").exists()
+
+
+def test_sans_projet_isole_le_workspace_yaml_disparait(tmp_path, monkeypatch, capsys):
+    iso = _isolation()
+    ws, home = tmp_path / "ws", tmp_path / "home"
+    (ws / "commun").mkdir(parents=True)
+    (ws / "commun" / "definitions.py").write_text("")
+    home.mkdir()
+    (home / "workspace.yaml").write_text("ancien")
+    monkeypatch.setenv("CODELAB_WORKSPACE", str(ws))
+    monkeypatch.setenv("DAGSTER_HOME", str(home))
+    assert iso.main() == 0
+    assert capsys.readouterr().out == ""
+    assert not (home / "workspace.yaml").exists()
+
+
+def test_lancer_passe_le_workspace_yaml_quand_un_projet_est_isole(tmp_path):
+    import subprocess
+    source = open(os.path.join(_racine_depot(), "dagster", "lancer.sh"),
+                  encoding="utf-8").read().replace("PAUSE_RELANCE=10", "PAUSE_RELANCE=1")
+    script = tmp_path / "lancer.sh"
+    script.write_text(source, encoding="utf-8")
+    yaml_ = tmp_path / "workspace.yaml"
+    yaml_.write_text("{}")
+    faux_iso = tmp_path / "isolation.py"
+    faux_iso.write_text(f"print({str(yaml_)!r})\n")
+    journal = tmp_path / "journal"
+    binaires = tmp_path / "bin"
+    binaires.mkdir()
+    # Le daemon tourne jusqu'a SIGTERM ; l'interface s'arrete d'elle-meme, ce
+    # qui fait sortir lancer.sh apres avoir arrete le daemon.
+    (binaires / "dagster-daemon").write_text(
+        f'#!/bin/sh\necho "dagster-daemon $*" >> {journal}\n'
+        "trap 'exit 0' TERM\nwhile :; do sleep 0.1; done\n")
+    (binaires / "dagster-webserver").write_text(
+        f'#!/bin/sh\necho "dagster-webserver $*" >> {journal}\nsleep 0.3\nexit 3\n')
+    for f in binaires.iterdir():
+        f.chmod(0o755)
+    env = {"PATH": f"{binaires}:{os.path.dirname(sys.executable)}:/usr/bin:/bin",
+           "CODELAB_ISOLATION": str(faux_iso)}
+    assert subprocess.run(["sh", str(script)], env=env, timeout=30).returncode == 3
+    lignes = journal.read_text().splitlines()
+    assert f"dagster-webserver -h 0.0.0.0 -p 3000 -w {yaml_}" in lignes
+    assert f"dagster-daemon run -w {yaml_}" in lignes
+    # Le script ne sort rien (aucun projet isole) : « -m definitions », comme avant.
+    faux_iso.write_text("")
+    journal.write_text("")
+    assert subprocess.run(["sh", str(script)], env=env, timeout=30).returncode == 3
+    assert "dagster-webserver -h 0.0.0.0 -p 3000 -m definitions" in journal.read_text().splitlines()
+    dockerfile = open(os.path.join(_racine_depot(), "dagster", "Dockerfile")).read()
+    assert "COPY dagster/isolation.py /opt/dagster/isolation.py" in dockerfile
+
+
+def test_l_agregateur_ne_charge_pas_un_projet_isole(tmp_path, monkeypatch):
+    """Le definitions.py racine, avec un faux module dagster : un projet isole
+    n'est pas importe une seconde fois dans le processus commun."""
+    import types
+    faux = types.ModuleType("dagster")
+
+    class Definitions:
+        def __init__(self, **kw):
+            self.kw = kw
+
+        @staticmethod
+        def merge(*defs):
+            return list(defs)
+    faux.Definitions = Definitions
+    monkeypatch.setitem(sys.modules, "dagster", faux)
+    _workspace_isole(tmp_path)
+    (tmp_path / "lourd" / "definitions.py").write_text("raise SystemExit('charge a tort')\n")
+    (tmp_path / "commun" / "definitions.py").write_text("defs = 'commun'\n")
+    source = open(os.path.join(_racine_depot(), "workspace", "definitions.py"),
+                  encoding="utf-8").read()
+    agregateur = tmp_path / "definitions.py"
+    agregateur.write_text(source)
+    spec = importlib.util.spec_from_file_location("agregateur_test", agregateur)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.defs == ["commun"]
