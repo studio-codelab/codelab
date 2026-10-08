@@ -1,41 +1,127 @@
 # `/workspace` — tes projets
 
-Ce dossier est le seul endroit ou tu ecris. Il est partage entre les trois services de CodeLab, et
-ce qu'on y depose est visible immediatement par les autres, sans redeployer quoi que ce soit :
+Le seul dossier où tu écris. Il est partagé par trois services, et ce qu'on y dépose est vu aussitôt
+par les autres :
 
 | Service | Ce qu'il fait de `/workspace` |
 |---|---|
-| `codelab-dev` | c'est ton dossier de travail en SSH et dans VS Code Remote-SSH |
-| `codelab-dagster` | charge `definitions.py` et execute les jobs qu'il y trouve |
-| `codelab-app-manager` | lance les applications web que tu declares dans le panneau |
+| `codelab-dev` | ton dossier de travail en SSH et dans VS Code |
+| `codelab-app-manager` | construit et lance les applications déclarées dans le panneau |
+| `codelab-dagster` | charge les `definitions.py` et exécute leurs jobs |
 
-Il survit aux mises a jour d'image et aux reinstallations : il vit sur le disque de l'hote, dans
-`/DATA/AppData/codelab/workspace`.
+Il vit sur l'hôte (`/DATA/AppData/codelab/workspace`) et survit aux mises à jour.
 
-## Anatomie d'un projet
+Les règles complètes qu'un projet doit suivre sont dans le `AGENTS.md` de chaque projet, que pose
+`codelab new`.
 
-Un projet est **un dossier**. Rien de plus — pas de fichier a declarer ailleurs, pas de registre
-central a tenir a jour.
+## Contenu
 
 ```
 /workspace/
-├── README.md            <- ce fichier
-├── definitions.py       <- point d'entree Dagster, tu n'as pas a le modifier
-├── .vscode/tasks.json   <- taches VS Code (nouveau projet, base, AGENTS.md)
-└── mon-projet/
-    ├── README.md        <- a quoi sert ce projet, comment le lancer
-    ├── .env             <- OPTIONNEL : la configuration propre au projet
-    ├── definitions.py   <- OPTIONNEL : tout le cote Dagster (assets, jobs, capteurs)
-    └── app.py           <- OPTIONNEL : une application web
+├── README.md            ce fichier
+├── definitions.py       agrégateur Dagster : découvre les projets, ne pas modifier
+├── .vscode/             tâches VS Code (nouveau projet, base, manuel de l'agent)
+├── .codelab/            marqueurs et configuration git de la stack, ne pas modifier
+├── .codex/              configuration et connexion de Codex
+├── diagnostic/          projet modèle et diagnostic de l'installation
+└── mon-projet/          un projet = un dossier
 ```
 
-Les deux fichiers optionnels sont independants. Un projet peut n'etre qu'un job Dagster, ou qu'une
-application web, ou les deux, ou aucun des deux (un simple dossier de scripts que tu lances a la
-main en SSH).
+Ces fichiers sont déposés au premier démarrage. **Rien n'est jamais écrasé** : un fichier que tu as
+modifié reste tel quel, un fichier intact est mis à jour avec l'image, et un projet supprimé ne
+revient pas.
 
-### `definitions.py` — la seule convention
+## Un projet
 
-Si ton projet a des jobs Dagster, il expose une variable `defs` :
+Un projet est un dossier. Il n'y a rien à déclarer ailleurs. Il peut contenir :
+
+| Fichier | Rôle |
+|---|---|
+| `app.py`, `package.json`… | une application web, à déclarer dans le panneau (*Applications > Ajouter un projet*) |
+| `definitions.py` exposant `defs` | des jobs Dagster, découverts au prochain *Reload* |
+| `requirements-dagster.txt` | les dépendances du côté Dagster ; le projet a alors son propre environnement |
+| `.env` | sa configuration, jamais versionnée |
+| `AGENTS.md`, `CLAUDE.md` | le manuel lu par les agents de code |
+| `codelab_auth.*`, `codelab_web.*` | connexion avec CodeLab ; pages d'erreur et en-têtes |
+
+Créer un projet : `codelab new mon-projet --db` depuis une session SSH, ou **Ctrl+Maj+B** dans
+VS Code ouvert sur `/workspace`. Copier `diagnostic/` donne aussi un projet complet qui fonctionne.
+
+## Configuration
+
+Trois couches, de la plus faible à la plus forte :
+
+1. **l'environnement** : celui du conteneur, et pour une application, ce que le panneau lui passe ;
+2. **`credentials.env`** : les secrets des services ;
+3. **le `.env` du projet**, que le projet lit lui-même. Il l'emporte toujours.
+
+**`credentials.env`** (`/DATA/AppData/codelab/config/credentials.env`, `0600 root`) est découpé en
+blocs. Chaque service réécrit le sien à son démarrage.
+
+| Bloc | Contenu | Transmis aux applications |
+|---|---|---|
+| `codelab-postgres` | `POSTGRES_HOST`, `_PORT`, `_DB` (instance Dagster), `_USER`, `_PASSWORD` | oui |
+| `codelab-redis` | `REDIS_URL`, `REDIS_HOST`, `_PORT`, `_USER`, `_PASSWORD` | oui |
+| `codelab-mailpit` | `MAIL_HOST`, `MAIL_PORT`, `MAIL_URL` | oui |
+| `codelab-sso` | la paire de clés des assertions | la clé publique seule |
+| `codelab-app-manager` | mot de passe admin, clé de session, clé de chiffrement | non |
+| `codelab-alertes` | serveur d'envoi d'origine (`SMTP_*`) | non |
+| `codelab-relais-mail`, `codelab-proxy` | réglages internes entre services | non |
+
+- **Une valeur commune à plusieurs projets** : ajoute **ton propre** bloc à la fin du fichier
+  (`# ===== mon-bloc =====` … `# ===== /mon-bloc =====`). Aucun service ne le réécrit.
+- **Si une clé apparaît plusieurs fois**, c'est la dernière occurrence qui compte.
+- **Une application ne lit pas ce fichier** : le panneau lui passe les valeurs par l'environnement,
+  au lancement comme au build. Un mot de passe changé est pris en compte au redémarrage de
+  l'application.
+
+## Bases de données
+
+Une base **par projet**, nommée comme son dossier, avec un schéma `dagster` sur lequel pointe le
+`search_path`. La base `dagster` ne contient que les tables d'instance de Dagster.
+
+```bash
+codelab db mon-projet      # crée la base (idempotent)
+psql -d mon-projet         # depuis codelab-dev
+```
+
+- Un projet redit le nom de sa base dans son `.env` (`CODELAB_DB=mon-projet`) s'il change de dossier.
+- `pgvector` est disponible dans chaque base.
+- Supprimer un projet proprement : `DROP DATABASE "mon-projet";`.
+
+## Dépendances
+
+**Application web.** Elle est construite par `codelab-app-manager`, qui a Python, Node, npm et
+Flask.
+
+- En Python, le reste s'installe dans `vendor/` par la commande de build
+  (`pip install --target vendor -r requirements.txt`), et `vendor/` s'ajoute au `sys.path`.
+- En Node, `npm ci` avec un lockfile versionné.
+
+**Dagster.** Le processus commun n'a que `dagster`, `dagster-postgres` et `psycopg2`, et tous les
+projets y sont chargés ensemble.
+
+- Un projet qui a besoin d'autre chose écrit un `requirements-dagster.txt`, versions figées.
+- Au démarrage de `codelab-dagster`, son environnement est construit dans `.dagster-venv/`
+  (reconstruit seulement si le fichier change). Le projet apparaît sous son propre nom dans Dagster.
+- **Après modification** : `docker restart codelab-dagster`. *Reload* ne reconstruit pas
+  l'environnement, et ce redémarrage dure le temps de l'installation.
+- **Coût** : 200 à 300 Mo par projet isolé. Au-delà d'un, remonte le `mem_limit` de
+  `codelab-dagster`.
+- **En cas d'échec de construction**, le projet s'affiche en erreur dans Dagster, avec la cause dans
+  `docker logs codelab-dagster`. Les autres projets continuent de tourner.
+
+**Audit.** Chaque lundi, l'asset `audit_dependances` du diagnostic confronte les versions figées de
+chaque projet à la base de vulnérabilités OSV. Il lit :
+
+- les lignes `==` des `requirements*.txt` ;
+- `vendor/` et `.dagster-venv/` ;
+- `package-lock.json`.
+
+Une vulnérabilité fait échouer le run, ce qui envoie un mail. Seules les versions exactes sont lues :
+fige-les.
+
+## Dagster
 
 ```python
 from dagster import Definitions, asset
@@ -47,287 +133,26 @@ def mon_asset(context):
 defs = Definitions(assets=[mon_asset])
 ```
 
-Le `definitions.py` a la racine du workspace decouvre tout seul les dossiers qui en contiennent un,
-les charge, et les fusionne en une interface unique. **Tu n'as jamais a le modifier.** Ton projet
-apparait au prochain rechargement du code (bouton *Reload* dans Dagster, ou
-`docker restart codelab-dagster`).
-
-`group_name` n'est pas obligatoire mais fortement conseille : c'est ce qui regroupe visuellement tes
-assets par projet dans l'interface.
-
-Un projet qui ne se charge pas (erreur de syntaxe, import manquant) est **ignore avec un message
-dans les logs**, les autres continuent de fonctionner :
-
-```bash
-docker logs codelab-dagster | grep workspace
-```
-
-### Imports a l'interieur d'un projet
-
-Le dossier du projet est ajoute au chemin d'import avant chargement. Un module voisin s'importe
-donc directement, sans prefixe :
-
-```python
-import checks          # /workspace/mon-projet/checks.py
-```
-
-C'est ce qui permet d'ecrire un projet comme un simple dossier de scripts.
-
-Attention en revanche a **ce qu'un module partage importe**. Les images n'ont pas les memes paquets :
-Flask n'existe que dans `app-manager`, Dagster que dans `codelab-dagster`. Un module importe des deux
-cotes -- comme `diagnostic/checks.py` -- ne doit donc importer ni l'un ni l'autre, sinon il fera
-planter le service qui n'a pas le paquet. Garde le code commun dans un module neutre, et le code
-specifique dans `definitions.py` (Dagster) ou `app.py` (web).
-
-Autre revers :
-deux projets ne peuvent pas avoir deux modules de meme nom charges en meme temps. Si tu ecris un
-`utils.py` dans deux projets differents, prefixe-les (`utils_facturation.py`) ou regroupe-les dans
-un sous-dossier.
-
-### Application web
-
-Depose un `app.py`, puis dans le panneau `http://<IP-du-serveur>:9001/` → **Ajouter un projet** :
-
-| Champ | Valeur |
-|---|---|
-| Dossier | `/workspace/mon-projet` |
-| Commande de lancement | `python3 app.py` |
-| Commande de build | *(optionnelle, voir ci-dessous)* |
-
-## Sans terminal : les taches VS Code
-
-**Ctrl+Maj+B** cree un projet : la tache « CodeLab : nouveau projet » est declaree tache de build par
-defaut, et VS Code lui reserve ce raccourci. Les autres (`--db`, base d'un projet existant, manuel de
-l'agent) passent par **Terminal > Executer la tache...**. Une boite de dialogue demande le nom,
-puis la fenetre se rouvre directement dans le nouveau projet.
-
-Ces taches appellent l'outil `codelab` du conteneur au lieu de recopier ses commandes : la logique
-reste dans l'image, et ce fichier ne devient pas un deuxieme endroit ou la meme chose est ecrite
-autrement. Elles ne sont proposees que si le dossier ouvert dans VS Code est `/workspace`.
-
-## Dependances
-
-L'image `app-manager` ne contient que Flask, `psutil` et `requests`. Pour tout le reste, la commande
-de build installe dans un dossier `vendor/` **a cote de ton code**, sans modifier le conteneur :
-
-```
-pip install --target vendor "psycopg[binary]"
-```
-
-et en tete de `app.py` :
-
-```python
-import os, sys
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor"))
-```
-
-Cote Dagster, le processus commun n'a que les paquets de l'image (`dagster`, `dagster-postgres`,
-`psycopg2`), et tous les projets y sont charges ensemble. Un projet qui a besoin d'autre chose les
-declare dans un **`requirements-dagster.txt`**, a cote de son `definitions.py`, versions figees :
-
-```
-/workspace/mon-projet/requirements-dagster.txt
-
-    pandas==2.2.3
-    requests==2.32.3
-```
-
-Il tourne alors **dans son propre environnement Python**, sous son propre nom d'emplacement dans
-Dagster : deux projets peuvent demander deux versions de pandas sans se gener. Au demarrage,
-`codelab-dagster` construit l'environnement dans `mon-projet/.dagster-venv/` (seulement s'il manque ou
-si le fichier a change), et le declare a cote de l'emplacement commun. Les paquets de l'image restent
-visibles, apres ceux du projet : `dagster` n'est pas reinstalle.
-
-- **Apres avoir cree ou modifie ce fichier** : `docker restart codelab-dagster`. Le bouton *Reload*
-  recharge le code, il ne reconstruit pas l'environnement. Ce redemarrage-la prend le temps de
-  l'installation (de quelques secondes a quelques minutes) : l'interface de Dagster ne repond
-  qu'ensuite. Les demarrages suivants, fichier inchange, ne reinstallent rien.
-- **Un environnement qui ne se construit pas** (paquet inconnu, pas de reseau) : le projet apparait
-  en erreur dans Dagster, et `docker logs codelab-dagster` dit pourquoi. Les autres projets tournent.
-- **Ce que ca coute** : un processus Python de plus pour l'interface et un pour le daemon, soit 200 a
-  300 Mo par projet isole. C'est pourquoi l'isolation est un choix du projet et non la regle. Au-dela
-  d'un projet isole, remonter le `mem_limit` de `codelab-dagster`.
-- Sans aucun projet isole, rien ne change : Dagster charge `/workspace/definitions.py` comme avant.
-
-Le detail du mecanisme est dans `dagster/README.md`, section « Projets isoles », du depot CodeLab.
-
-## Audit des dependances
-
-Chaque lundi matin, l'asset `audit_dependances` du projet `diagnostic` relit ce que chaque projet fige
-et le confronte a la base publique de vulnerabilites [OSV](https://osv.dev) : les lignes `nom==version`
-des `requirements*.txt`, les paquets de `vendor/` et de `.dagster-venv/`, et le `package-lock.json`.
-Une dependance vulnerable fait **echouer le run**, donc partir le mail d'alerte de Dagster, avec le
-lien vers chaque avis ; le run reste rouge chaque semaine tant que la version n'est pas montee.
-
-Seules les versions **exactes** sont lues : `flask>=2` ne dit pas ce qui est installe. Figer ses
-versions, c'est donc aussi ce qui rend un projet auditable. Pour lancer l'audit sans attendre :
-*Materialize* sur `audit_dependances` dans Dagster.
-
-## Configuration et secrets
-
-**Aucun mot de passe dans le code.** La configuration se lit en trois couches, de la plus faible a
-la plus forte :
-
-| Couche | Contenu | Portee |
-|---|---|---|
-| Environnement du conteneur | pose par le `docker-compose.yml`, **et par le panneau pour les applications qu'il lance** | toute la stack |
-| `credentials.env` | ce qui fait tourner les services : Postgres, SMTP | toute la stack |
-| `<projet>/.env` | ce qui ne concerne que ce projet | ce projet seul |
-
-Le `.env` d'un projet **s'ajoute et remplace** : une cle qu'il redefinit gagne toujours.
-
-```
-/workspace/mon-projet/.env
-
-    API_TOKEN=xxxxxxxx
-    SEUIL_ALERTE=42
-    # pointe ce projet sur une autre base, sans toucher au fichier commun
-    CODELAB_DB=bac-a-sable
-```
-
-La lecture se fait avec `read_env()`, defini dans `checks.py` :
-
-```python
-import checks
-token = checks.read_env("API_TOKEN")
-```
-
-Chaque projet emporte sa propre copie de `checks.py` — c'est ce que tu obtiens en copiant
-`diagnostic/`. Il lit le `.env` situe **a cote de lui**, donc un projet ne peut pas lire par erreur
-la configuration d'un autre. C'est aussi ce qui evite la collision qui existerait avec
-`os.environ` : `codelab-dagster` charge tous les projets dans un seul processus, et deux projets
-definissant la meme cle s'y ecraseraient mutuellement.
-
-Ne versionne pas ton `.env` : il vit dans `/workspace`, qui n'est pas chiffre. Un `.gitignore`
-contenant `.env` est le minimum si tu pousses le projet sur git.
-
-### `credentials.env`
-
-Le fichier commun : `/DATA/AppData/codelab/config/credentials.env` sur l'hote,
-`/var/lib/codelab/config/credentials.env` dans les conteneurs. Un sommaire en
-tete dit a quoi sert chaque bloc :
-
-| Bloc | Sert a | Transmis a ton application |
-|---|---|---|
-| `codelab-postgres` | la base partagee (`POSTGRES_*`) | oui |
-| `codelab-redis` | le Redis partage (`REDIS_URL`, `REDIS_*`) | oui |
-| `codelab-mailpit` | l'envoi de mails (`MAIL_HOST`, `MAIL_PORT`, `MAIL_URL`) | oui |
-| `codelab-relais-mail`, `codelab-proxy` | entre services : le serveur relaye par Mailpit, son acces interne | NON |
-| `codelab-app-manager` | la connexion au panneau | **non** |
-| `codelab-sso` | l'identite des applications | la cle publique seule |
-| `codelab-alertes` | l'envoi des mails d'alerte (`SMTP_*`) | **non** |
-
-Chaque service reecrit **son** bloc a son demarrage : n'y retouche rien. Pour
-une valeur commune a plusieurs projets, ajoute un bloc a toi — aucun service
-ne le reecrit, il survit aux redemarrages et a une reinstallation :
-
-```bash
-sudo tee -a /DATA/AppData/codelab/config/credentials.env > /dev/null <<'FIN'
-# ===== mon-projet =====
-API_TOKEN=xxxxxxxx
-# ===== /mon-projet =====
-FIN
-```
-
-C'est la **derniere** occurrence d'une cle qui fait foi : les blocs sont
-reecrits en fin de fichier.
-
-**Comment ton code y accede.** Le fichier est en `0600 root`. Dagster, qui
-tourne en root, le lit directement. Les applications du panneau tournent sous
-un autre uid et ne peuvent pas le lire : le panneau le lit pour elles et leur
-passe les valeurs **par l'environnement**, au lancement comme au build —
-`read_env()` les y trouve, rien ne change dans ton code. Un mot de passe
-change est pris en compte en redemarrant l'application.
-
-Ne sont jamais transmis : les blocs marques « non » ci-dessus, la cle privee
-SSO, et les cles qui changeraient la maniere dont ton programme s'execute
-(`PATH`, `HOME`, `PORT`, `PYTHONPATH`, `PYTHONHOME`, `LD_PRELOAD`,
-`LD_LIBRARY_PATH`). Si ton application doit envoyer du courrier pour son
-propre compte, mets ses identifiants dans **son** `.env`.
-
-## Base de donnees — une base par projet
-
-Il n'y a **pas de base fourre-tout**. Chaque projet a la sienne, nommee comme son dossier, avec un
-schema `dagster` dedans :
-
-| Base | Contenu |
-|---|---|
-| `dagster` | tables d'instance de Dagster : runs, journal d'evenements, planifications |
-| `diagnostic` | le projet `diagnostic` — ses tables dans le schema `dagster` |
-| `mon-projet` | ton projet — ses tables dans le schema `dagster` |
-
-Deux projets peuvent donc avoir une table `clients` sans se marcher dessus, et supprimer un projet
-se fait proprement, sans risquer d'emporter les donnees du voisin :
-
-```sql
-DROP DATABASE "mon-projet";
-```
-
-Le schema porte le meme nom (`dagster`) dans **toutes** les bases de projet : c'est ce qui permet de
-copier un projet d'une base a l'autre sans toucher a une seule requete. Le `search_path` du role est
-positionne dessus par base, donc un `CREATE TABLE ma_table` dans un asset y atterrit sans prefixe.
-
-La base d'un projet ajoute apres l'installation se cree depuis une session SSH :
-
-```bash
-codelab db mon-projet
-```
-
-Elle est aussi creee automatiquement a la premiere connexion : `checks.connect_pg()`, copie du
-projet `diagnostic`, cree la base puis le schema s'ils manquent. Le projet lit son nom de base dans
-son `.env` :
-
-```
-CODELAB_DB=mon-projet
-CODELAB_SCHEMA=dagster
-```
-
-Sans `CODELAB_DB`, c'est le nom du dossier qui sert — un projet copie sous un autre nom vise donc sa
-propre base sans edition.
-
-En SSH, `psql` fonctionne sans argument (l'entrypoint de `codelab-dev` pre-remplit `PGHOST`,
-`PGUSER`, `PGPASSWORD`, et `PGDATABASE=diagnostic` — la base `postgres`, a laquelle `psql` se
-rabattrait sinon, n'existe plus). Pour aller dans une autre base :
-
-```bash
-psql -d mon-projet
-```
-
-```sql
-\dt          -- le search_path pointe deja sur le schema dagster de cette base
-```
+- **Chargement** : le `definitions.py` racine charge chaque projet qui expose `defs`. Un projet en
+  erreur est ignoré, avec sa trace dans `docker logs codelab-dagster`, sans gêner les autres.
+- **Dossiers ignorés** : ceux qui commencent par `.` ou `_`. Préfixer un dossier par `_` met un
+  projet de côté sans le supprimer.
+- **Imports** : les modules voisins s'importent sans préfixe, mais deux projets ne peuvent pas avoir
+  un module du même nom. Préfixe-les.
+- **Un module partagé** entre l'application et Dagster n'importe ni Flask ni Dagster.
+- **Interface** : `http://<serveur>:3000/`, avec la session d'administration du panneau.
 
 ## Permissions
 
-Les fichiers crees par Dagster ou par une application web appartiennent a `root`, ceux de tes
-sessions SSH a `vscode`. Ils restent modifiables des deux cotes grace a un groupe commun
-(`codelab`) et au bit setgid pose sur `/workspace`.
-
-Si un fichier resiste malgre tout :
+Les fichiers restent modifiables par tous les services grâce au groupe `codelab` (gid 2000), au bit
+setgid sur les dossiers et à l'umask `002`. Si un fichier résiste :
 
 ```bash
-docker exec codelab-dev rm -f /workspace/.codelab/permissions-v1
-docker restart codelab-dev
+docker exec codelab-dev rm -f /workspace/.codelab/permissions-v1 && docker restart codelab-dev
 ```
 
-Le marqueur supprime, les permissions sont reappliquees a tout le workspace au demarrage suivant.
+## Sauvegarde du code
 
-## Le projet `diagnostic`
-
-Il est installe par defaut et **sert de modele**. Il montre, sur un cas reel et fonctionnel, a peu
-pres tout ce qui est decrit ci-dessus : un asset Dagster, une application web, un module partage
-entre les deux, la lecture de `credentials.env`, l'ecriture en base, un capteur d'alerte mail.
-
-Le plus rapide pour demarrer un projet est de le copier :
-
-```bash
-cp -r /workspace/diagnostic /workspace/mon-projet
-cd /workspace/mon-projet
-# puis vider ce qui ne sert pas et renommer l'asset
-```
-
-Il verifie aussi que la stack est saine — utile quand quelque chose ne marche pas et qu'on ne sait
-pas quel maillon accuser. Voir `diagnostic/README.md`.
-
-Tu peux le supprimer si tu n'en veux pas : rien d'autre n'en depend. Il ne sera pas reinstalle,
-sauf si tu supprimes aussi `/workspace/.codelab/workspace-v1`.
+`codelab-app-manager` archive `/workspace` chaque semaine (`workspace-<date>.tar.gz`, quatre gardées).
+L'archive exclut les dépendances, les builds, les caches et les fichiers de plus de 50 Mo. Git reste
+la vraie sauvegarde du code.

@@ -1,175 +1,271 @@
 # CodeLab -- regles de developpement
 
 > Manuel de l'environnement, livre par l'image `codelab-dev` et recopie dans
-> chaque projet par `codelab agents`. Il decrit la stack dans laquelle tournent
-> les projets, jamais le depot CodeLab lui-meme.
+> chaque projet par `codelab agents` (lu par Codex dans `AGENTS.md`, par Claude
+> Code via `CLAUDE.md`). Il decrit la stack ou tournent les projets, pas le
+> depot CodeLab lui-meme. Les consignes propres au projet sont sous ce bloc et
+> dans son `README.md` ; en cas de contradiction, elles l'emportent.
 
-Tu travailles dans le conteneur `codelab-dev` de la stack CodeLab. Ce document
-decrit l'environnement et les conventions qui s'y appliquent. Il est fourni par
-l'environnement, pas par le projet : les specificites du projet courant sont
-dans le `AGENTS.md` et le `README.md` a la racine de ce projet, et ils
-l'emportent sur ce qui suit en cas de contradiction.
+Tu travailles dans le conteneur `codelab-dev` de CodeLab, un environnement
+auto-heberge. Un projet est un dossier de `/workspace`. Il peut etre une
+application web servie dans le **hub** (le panneau), un job Dagster, ou les
+deux. Ce manuel dit tout ce qu'il faut respecter pour qu'un projet s'integre au
+hub sans rien casser.
 
-## Perimetre -- ce que tu peux modifier
+## 1. Perimetre
 
-- **Uniquement le dossier du projet courant.** Un projet CodeLab est un dossier
-  sous `/workspace/`, et c'est ta seule zone d'ecriture.
-- **Ne modifie jamais** `/workspace/definitions.py` (point d'entree Dagster
-  partage, il decouvre les projets tout seul), `/workspace/README.md`, ni le
-  dossier d'un autre projet. Si le travail semble en exiger, dis-le au lieu de
-  le faire.
-- N'ecris rien hors de `/workspace` : `/home`, `/usr/local` et `/etc` sont
-  recrees a partir de l'image a chaque mise a jour, tout y est perdu.
-- Pas de `sudo apt install` : la modification ne survivra pas. Une dependance
-  se declare dans le projet (voir Dependances).
+- **N'ecris que dans le dossier du projet courant.**
+- **Ne modifie jamais** `/workspace/definitions.py`, `/workspace/README.md`,
+  `/workspace/.codelab/`, `/workspace/.codex/` ni le dossier d'un autre projet.
+  Si la tache semble l'exiger, dis-le au lieu de le faire.
+- **Rien hors de `/workspace`** : `/home`, `/usr/local` et `/etc` sont recrees a
+  chaque mise a jour. Pas de `sudo apt install`. Une dependance se declare dans
+  le projet (section 5).
+- **Chemins relatifs au projet**, jamais `/workspace/<projet>/...` en dur : le
+  projet doit marcher renomme ou copie.
+- **Ne lis ni n'ecris jamais** `credentials.env`, ni aucun fichier de
+  configuration de la stack.
 
-## L'environnement
+## 2. Les trois conteneurs
 
-Conteneur Linux, utilisateur `vscode`. Sont deja installes : `python3`,
-`node`/`npm`, `git`, `psql`, `codex`, et cote Python `dagster` et
-`psycopg`. Trois conteneurs distincts se partagent `/workspace` et **n'ont pas
-les memes paquets** :
+Le meme `/workspace` est vu par trois conteneurs qui **n'ont pas les memes
+paquets** :
 
-| Conteneur | Role | Paquets |
+| Conteneur | Role | Ce qui y est installe |
 |---|---|---|
-| `codelab-dev` | ou tu travailles (SSH, VS Code) | python3, node, npm, git, psql, dagster, psycopg |
+| `codelab-dev` | ou tu travailles (SSH, VS Code) | python3, node, npm, git, psql, redis-cli, psycopg, dagster |
+| `codelab-app-manager` | **build et fait tourner les applications web** | python3, node, npm, git, Flask |
 | `codelab-dagster` | execute les jobs Dagster | dagster, dagster-postgres, psycopg2 |
-| `codelab-app-manager` | build et sert les applications web | python3, node, npm, git, flask, psutil, requests |
 
-Consequence directe : un module importe des deux cotes ne doit importer ni
-Flask ni Dagster. Garde le code commun dans un module neutre, le code Dagster
-dans `definitions.py`, le code web dans `app.py`.
+- Un module importe par l'application **et** par Dagster ne doit importer ni
+  Flask ni Dagster : code commun dans un module neutre, code web dans `app.py`,
+  code Dagster dans `definitions.py`.
+- Depuis `codelab-dev`, `127.0.0.1` designe `codelab-dev` lui-meme. Les autres
+  services se joignent par leur nom (`codelab-postgres`, `codelab-redis`,
+  `codelab-mailpit`).
 
-## Verifier avant de conclure
+## 3. Verifier avant de conclure
 
 Ne declare jamais une tache terminee sans avoir execute ce que le projet
-fournit : `npm test`, `npm run build`, ou l'execution directe du script. Si une
-commande echoue, corrige et relance. Un resultat non verifie doit etre annonce
-comme tel.
+fournit : tests, `npm run build`, lancement du script. Si une commande echoue,
+corrige et relance. Ce qui n'a pas pu etre verifie s'annonce comme tel.
 
-## Base de donnees
+## 4. Anatomie d'un projet
 
-Une base **par projet**, nommee comme le dossier, avec un schema `dagster`
-dedans. Il n'y a pas de base fourre-tout, et la base `postgres` n'existe pas.
+```
+mon-projet/
+├── AGENTS.md            manuel CodeLab (bloc gere) + section « Projet » a tenir a jour
+├── CLAUDE.md            importe AGENTS.md pour Claude Code -- ne pas y ecrire
+├── README.md            ce que fait le projet, comment le lancer
+├── .gitignore           .env, node_modules/, vendor/, .dagster-venv/, dist/, build/
+├── .env                 OPTIONNEL : configuration propre au projet, jamais versionnee
+├── codelab_auth.py      connexion avec CodeLab (Python) -- codelab-auth.js en Node
+├── codelab_web.py       pages d'erreur et en-tetes (Python) -- codelab-web.js en Node
+├── app.py | package.json  OPTIONNEL : l'application web
+├── definitions.py       OPTIONNEL : le cote Dagster (variable defs)
+├── requirements-dagster.txt  OPTIONNEL : dependances du cote Dagster
+└── icon.png             OPTIONNEL : l'icone du hub
+```
+
+Les modules `codelab_auth` et `codelab_web` sont fournis par CodeLab : ne les
+modifie pas, pour pouvoir les remplacer par une version plus recente.
+
+## 5. Application web servie par le hub
+
+Le panneau lance la commande de lancement dans **son** conteneur, et la sert sur
+`http://<serveur>:9002/<adresse>/`. Le port `9002` est une origine separee de
+celle du panneau (`9001`). Le hub l'ouvre aussi dans un cadre (`/ouvrir.html`).
+
+### Les regles qui la rendent joignable
+
+1. **Ecoute sur `$PORT`**, fourni par le panneau. Jamais de port en dur.
+2. **Ecoute sur `0.0.0.0`**, pas sur `127.0.0.1` :
+   `app.run(host="0.0.0.0", port=int(os.environ["PORT"]))`.
+3. **Le panneau retire le prefixe `/<adresse>/`** avant de transmettre la
+   requete : l'application recoit `/`, `/factures/12`. Mais le navigateur, lui,
+   est sur `/<adresse>/...`.
+   - Dans le HTML, toutes les adresses sont **relatives** (`href="factures"`,
+     `src="static/app.js"`), jamais `/factures`. Seule exception : `/theme.css`,
+     servi par le panneau sur la meme origine.
+   - Pour un front, regle la base des adresses : `base` (Vite), `basePath`
+     (Next.js), `--base-href` (Angular) ou `homepage` (CRA).
+   - Une redirection serveur vise une adresse relative.
+4. **Front : build puis service statique.** Le build produit `dist/`, le
+   lancement le sert (`python3 -m http.server $PORT --directory dist`). Ne
+   deploie jamais un serveur de developpement (`vite dev`, `npm run dev`,
+   Flask en `debug=True`).
+5. **Il est surveille par le port, pas par une route.** Toutes les 10 s, le
+   panneau tente une connexion TCP sur `$PORT`. Si rien n'ecoute, l'etat devient
+   « Ne repond pas ». Aucune route de sante n'est requise.
+6. **Un crash est relance** 5 fois au plus en 10 minutes, puis l'application
+   reste arretee et une alerte part. Ne fais pas de boucle de relance toi-meme.
+7. **Le journal, c'est la sortie standard et la sortie d'erreur.** Le panneau
+   les ecrit dans le journal de l'application (rotation a 2 Mo). Pas de fichier
+   de log a part. `PYTHONUNBUFFERED=1` est deja pose.
+8. **Limites** : 32 Mo par requete entrante, 600 s de silence au plus sur une
+   connexion. Le long-polling et les SSE passent ; un envoi de fichier plus gros
+   doit etre decoupe.
+
+### Ce qu'elle voit
+
+- **Son propre uid**, jamais root, et le groupe `codelab` (umask `002`).
+- **Une vue du disque reduite a elle-meme** : `/workspace` ne contient que son
+  projet, et `/tmp` lui est propre. Ne compte sur aucun autre projet, aucun
+  fichier commun.
+- **Un `HOME` dedie** (caches npm et pip), non sauvegarde.
+- **Un repertoire de travail** egal au dossier du projet.
+
+### Ses variables d'environnement
+
+| Variable | Contenu |
+|---|---|
+| `PORT` | le port interne a ecouter |
+| `CODELAB_APP` | l'adresse de l'application (`mon-projet`) |
+| `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | le serveur Postgres partage |
+| `POSTGRES_DB` | la base d'instance de **Dagster** : **ne t'en sers pas**, utilise la base du projet (section 6) |
+| `REDIS_URL` (+ `REDIS_HOST`, `REDIS_PORT`, `REDIS_USER`, `REDIS_PASSWORD`) | le Redis partage |
+| `MAIL_HOST`, `MAIL_PORT`, `MAIL_URL` | le SMTP de Mailpit, sans identifiants |
+| `CODELAB_SSO_PUBLIC_KEY`, `CODELAB_SSO_ISSUER`, `CODELAB_SSO_AUDIENCE` | pour verifier l'identite signee (section 9) |
+
+Les memes variables sont passees a la commande de build. Le `.env` du projet
+**n'est pas charge** par le panneau : l'application le lit elle-meme (section 11).
+
+### Dependances
+
+- **Python** : seul Flask est garanti dans l'image. Installe le reste a cote du
+  code, par la commande de build (`pip install --target vendor -r requirements.txt`),
+  puis en tete de `app.py` :
+
+  ```python
+  import os, sys
+  sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor"))
+  ```
+
+- **Node** : `npm ci` avec un `package-lock.json` versionne.
+- **Versions figees** (`==` dans `requirements.txt`, lockfile versionne) :
+  l'audit hebdomadaire des dependances ne lit que les versions exactes.
+
+### Dans le hub
+
+- **Nom et adresse.** Le nom saisi dans le panneau est libre ; l'adresse en est
+  derivee (minuscules, tirets : `Mon Site` donne `/mon-site/`). Un nom qui
+  correspond a une route du panneau est refuse. Un nom de dossier simple sert
+  bien d'adresse.
+- **Icone.** `icon.png` (ou `icon.svg`, `favicon.png`, `favicon.ico`,
+  `logo.png`, `logo.svg`) a la racine du projet, carre, 256 px ou plus. Un logo
+  depose depuis le panneau devient `icon.png`, `icon.jpg` ou `icon.gif`.
+- **Description** : une ligne, saisie dans la fiche de l'application.
+- **Visibilite.** *Privee* : le panneau impose la connexion CodeLab et le droit
+  sur l'application avant la premiere requete. *Publique* : ouverte a tous,
+  possible seulement si une adresse publique est declaree. Ce reglage se fait
+  dans le panneau, **jamais dans le code** : n'ajoute pas ta propre barriere
+  devant une application privee.
+- **Le cadre.** Le panneau pose `frame-ancestors` pour que le hub puisse
+  l'afficher. Ne pose ni `X-Frame-Options` ni ton propre `frame-ancestors`.
+
+## 6. Base de donnees
+
+Une base **par projet**, nommee comme le dossier, avec un schema `dagster` dans
+lequel pointe le `search_path` : un `CREATE TABLE clients` y atterrit sans
+prefixe. Il n'y a ni base fourre-tout ni base `postgres`. L'extension `vector`
+(pgvector) est disponible dans le schema `public`.
 
 ```bash
-psql                  # se connecte sans argument (PGHOST/PGUSER/PGPASSWORD deja poses)
-psql -d mon-projet    # la base d'un autre projet
-codelab db mon-projet        # cree la base et son schema (idempotent)
+codelab db mon-projet     # cree la base et son schema (idempotent) ; elle sera sauvegardee chaque jour
+psql -d mon-projet        # depuis codelab-dev, sans mot de passe a taper
 ```
 
-Le `search_path` pointe deja sur le schema `dagster` de la base : un
-`CREATE TABLE ma_table` y atterrit sans prefixe.
+- **Depuis `codelab-dev`**, `psycopg.connect(dbname="mon-projet")` suffit : les
+  variables `PG*` sont posees.
+- **Depuis l'application ou un job**, les `PG*` n'existent pas. Construis la
+  connexion a partir des `POSTGRES_*` et du nom de la base du projet :
 
-En Python, la connexion ne prend aucun argument -- les variables `PG*` suffisent :
+  ```python
+  import os, psycopg
+  base = os.environ.get("CODELAB_DB") or os.path.basename(os.path.dirname(os.path.abspath(__file__)))
+  conn = psycopg.connect(host=os.environ["POSTGRES_HOST"], port=os.environ["POSTGRES_PORT"],
+                         user=os.environ["POSTGRES_USER"], password=os.environ["POSTGRES_PASSWORD"],
+                         dbname=base)
+  ```
+
+- Le nom de la base se redit dans le `.env` (`CODELAB_DB=mon-projet`) si le
+  dossier change de nom.
+- **Requetes parametrees** uniquement, jamais de SQL construit par
+  concatenation.
+- Ce qui doit durer va dans Postgres, pas dans Redis ni dans des fichiers.
+
+## 7. Redis
+
+Un serveur partage par toutes les applications, avec le meme mot de passe.
+
+- **Prefixe chaque cle** par le nom de l'application (`mon-projet:session:42`).
+- **Jamais** `FLUSHDB` ni `FLUSHALL` : cela vide aussi les donnees des autres.
+- **Une duree de vie a tout cache** (`SET cle valeur EX 300`). Quand Redis est
+  plein (192 Mo), seules les cles a duree de vie sont evincees ; les autres
+  ecritures echouent (`OOM`).
+- Redis n'est **pas sauvegarde** : rien d'irremplacable dedans.
+- Les commandes d'administration (`CONFIG`, `MONITOR`…) sont desactivees.
+
+## 8. Mails
 
 ```python
-import psycopg
-with psycopg.connect() as conn:            # base par defaut de la session
-    conn.execute("SELECT 1")
-psycopg.connect(dbname="mon-projet")       # une base precise
+import os, smtplib
+from email.message import EmailMessage
+msg = EmailMessage()
+msg["From"] = "Mon projet <noreply@exemple.fr>"
+msg["To"] = destinataire
+msg["Subject"] = "Bienvenue"
+msg.set_content("Bonjour")
+with smtplib.SMTP(os.environ["MAIL_HOST"], int(os.environ["MAIL_PORT"])) as s:
+    s.send_message(msg)
 ```
 
-Le nom de base d'un projet se declare dans son `.env` (`CODELAB_DB=mon-projet`) ;
-sans lui, c'est le nom du dossier qui sert.
+- **Ni TLS ni identifiants** : Mailpit garde chaque mail et le relaie par le
+  serveur d'envoi du panneau.
+- **L'expediteur est remplace** par l'adresse du compte d'envoi ; le nom affiche
+  est conserve.
+- **Plafond commun** de 50 mails par heure et 200 par jour, pour toute la stack.
+  Au-dela, les mails sont gardes sans partir. Pas d'envoi en masse.
+- Un service d'envoi propre au projet se configure avec **sa** cle, dans le
+  `.env`.
 
-## Dagster
+## 9. Comptes : se connecter avec CodeLab
 
-Un projet expose ses jobs en deposant un `definitions.py` **dans son dossier**,
-avec une variable `defs`. Le fichier racine le decouvre seul : rien a declarer
-ailleurs.
-
-```python
-from dagster import Definitions, asset
-
-@asset(group_name="mon-projet")     # group_name : regroupe les assets par projet
-def mon_asset(context):
-    context.log.info("bonjour")
-
-defs = Definitions(assets=[mon_asset])
-```
-
-- Les modules voisins s'importent sans prefixe (`import checks`), le dossier du
-  projet etant ajoute au chemin d'import.
-- Deux projets ne peuvent pas exposer deux modules de meme nom : prefixe
-  (`utils_facturation.py`) ou regroupe dans un sous-dossier.
-- Le projet apparait au prochain rechargement du code (bouton *Reload* dans
-  Dagster, ou `docker restart codelab-dagster`).
-- Un projet qui ne se charge pas est ignore avec sa trace dans
-  `docker logs codelab-dagster`, sans empecher les autres de tourner.
-
-**Dependances Dagster.** Le processus commun n'a que `dagster`,
-`dagster-postgres` et `psycopg2`. Un projet qui a besoin d'autre chose (pandas,
-requests...) le declare dans un **`requirements-dagster.txt`** a cote de son
-`definitions.py`, versions figees (`pandas==2.2.3`). Il tourne alors dans **son
-propre environnement Python**, construit au demarrage de `codelab-dagster`, et
-apparait comme un emplacement de code a son nom. Consequences :
-
-- apres avoir cree ou modifie ce fichier : `docker restart codelab-dagster`
-  (le bouton *Reload* ne reconstruit pas l'environnement) ;
-- chaque projet isole coute 200 a 300 Mo de memoire : ne l'isole que s'il a
-  vraiment des dependances, et ne fais jamais `pip install` depuis le code ;
-- l'environnement vit dans `.dagster-venv/`, deja dans le `.gitignore` pose par
-  `codelab new` : ne le versionne pas, ne le modifie pas a la main.
-
-## Application web servie par l'app-manager
-
-L'app-manager lance la commande du projet dans **son** conteneur et l'expose
-sur `http://<serveur>:9001/<nom-du-projet>/`. Cinq regles :
-
-1. **Ecoute sur `$PORT`** — la variable est fournie par l'app-manager. Ne code
-   jamais un numero de port en dur.
-2. **Ecoute sur `0.0.0.0`**, pas sur `127.0.0.1` (Flask :
-   `app.run(host="0.0.0.0", port=int(os.environ["PORT"]))`).
-3. **L'application est servie sous un sous-chemin** `/<nom-du-projet>/`. Un
-   front construit pour la racine y affiche une page blanche : configure
-   `base` (Vite), `basePath` (Next.js), `homepage` (CRA).
-4. **Front : build puis service statique.** La commande de build produit
-   `dist/`, la commande de lancement le sert
-   (`python3 -m http.server $PORT --directory dist`). Ne deploie jamais un
-   serveur de developpement (`vite dev`, `npm run dev`).
-5. **Dependances Python** : l'image app-manager n'a que Flask, `psutil` et
-   `requests`. Le reste s'installe a cote du code par la commande de build,
-   `pip install --target vendor "psycopg[binary]"`, avec en tete de `app.py` :
-
-   ```python
-   import os, sys
-   sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor"))
-   ```
-
-## Comptes et connexion : se connecter avec CodeLab
-
-Ne recode jamais un systeme de connexion de zero. Le projet contient
-`codelab_auth.py` (Python) et `codelab-auth.js` (Node), poses par
-`codelab new` -- leur en-tete donne un exemple complet. La regle, dans cet
-ordre, a chaque requete :
+Ne recode jamais un systeme de connexion de zero. Utilise `codelab_auth.py`
+(Python) ou `codelab-auth.js` (Node) ; leur en-tete donne un exemple complet. A
+chaque requete, dans cet ordre :
 
 1. une session de l'application existe : on continue ;
-2. sinon, la personne est connectee a CodeLab : `connexion_silencieuse`
-   (Python) ou `connexionSilencieuse` (Node) verifie le jeton signe
-   `X-CodeLab-Auth`, et la fonction `trouver_ou_creer` du projet retrouve
-   (colonne `codelab_sub`) ou cree le compte local -- sans formulaire ;
-3. sinon : le formulaire classique de l'application (connexion, creation de
-   compte), pour les visiteurs qui n'ont pas CodeLab.
+2. sinon, la personne est connectee a CodeLab : `connexion_silencieuse` (Python)
+   ou `connexionSilencieuse` (Node) verifie le jeton signe `X-CodeLab-Auth`, puis
+   la fonction `trouver_ou_creer` du projet retrouve le compte local (colonne
+   `codelab_sub`) ou le cree, sans formulaire ;
+3. sinon : le formulaire de l'application, pour les visiteurs sans CodeLab.
 
-Interdits :
-- croire `X-CodeLab-User` ou `X-CodeLab-Role` seuls -- seul le jeton signe,
-  verifie par le module, compte ;
-- relier un compte local existant par l'adresse mail si
-  `email_verified` n'est pas vrai ;
-- deconnecter sans `deconnecter(session)` : sinon CodeLab reconnecte
-  aussitot.
+L'identite contient `sub`, `nom`, `role` (`admin` ou `utilisateur`), `email` et
+`email_verified`.
 
-Les liens : `lien_connexion` (« Se connecter avec CodeLab », retour dans
-l'application apres la connexion) et `lien_deconnexion` (se deconnecter de
-CodeLab aussi, avec confirmation). Une application **privee** n'a rien a
-faire : le panneau impose la connexion CodeLab avant meme la premiere
-requete.
+**Interdits**
 
-## Pages d'erreur et en-tetes de securite
+- croire `X-CodeLab-User`, `X-CodeLab-Role` ou `X-CodeLab-Email` seuls : seul le
+  jeton signe, verifie par le module, compte ;
+- relier un compte local existant par l'adresse mail si `email_verified` n'est
+  pas vrai ;
+- deconnecter autrement que par `deconnecter(session)`, sans quoi CodeLab
+  reconnecte aussitot.
 
-Le projet contient aussi `codelab_web.py` (Flask) et `codelab-web.js`
-(Express), poses par `codelab new`. Branche-les **des la premiere route** :
+**Liens**
+
+- `lien_connexion` / `lienConnexion` : « Se connecter avec CodeLab », puis
+  retour au meme endroit. Appelle `reprendre(session)` juste avant.
+- `lien_deconnexion` / `lienDeconnexion` : se deconnecter de CodeLab aussi, avec
+  confirmation.
+
+Une application privee n'a rien a faire : la connexion est deja imposee.
+
+## 10. Pages d'erreur et en-tetes de securite
+
+Branche `codelab_web` des la premiere route :
 
 ```python
 import codelab_web
@@ -184,30 +280,77 @@ app.use(codelabWeb.entetesDeSecurite());
 codelabWeb.pagesDErreur(app);          // EN DERNIER, apres les routes
 ```
 
-- **Jamais de pile d'appels dans une page.** Une exception se journalise
-  (`docker logs`, onglet journaux du panneau) ; le visiteur ne voit qu'une
-  page « Erreur interne ». Ne lance jamais Flask en `debug=True` dans la
-  commande de lancement.
-- **La CSP par defaut interdit les scripts en ligne** (`<script>...</script>`
-  dans le HTML, `onclick=`). Mets le JavaScript dans un fichier. Si une page a
-  besoin d'une ressource externe (carte, police, CDN), elargis la politique en
-  passant `csp=` -- ne la retire pas.
-- N'ajoute pas `frame-ancestors` : le panneau pose le sien, qui autorise
-  l'affichage dans le hub.
+- **Jamais de pile d'appels dans une page.** Une exception se journalise ; le
+  visiteur ne voit qu'une page « Erreur interne ».
+- **La CSP par defaut interdit les scripts en ligne** (`<script>…</script>` dans
+  le HTML, `onclick=`). Mets le JavaScript dans un fichier. Pour une ressource
+  externe (carte, CDN), elargis la politique en passant `csp=` ; ne la retire
+  pas.
+- **Valide toute entree cote serveur**, et echappe tout ce que tu inseres dans le
+  HTML (gabarits avec echappement automatique).
+- **Formulaires qui modifient des donnees** : `POST` et un jeton anti-CSRF.
 
-## Le style de CodeLab
+## 11. Configuration et secrets
 
-Une application servie par le panneau est vue **dans** CodeLab : elle gagne a
-en porter les couleurs plutot qu'a en inventer d'autres. Le theme est servi par
-le panneau, sur la meme origine que ton application.
+- **Aucun mot de passe, jeton ou cle dans le code**, jamais.
+- **La configuration du projet** va dans `.env`, a cote du code, et
+  l'application le lit elle-meme. `.env` est dans le `.gitignore` : ne le
+  versionne pas. Le `.env` l'emporte sur les variables recues.
+- **Un service externe** (paiement, API tierce) utilise une cle propre a cette
+  application, dans son `.env`, pour pouvoir la revoquer sans toucher aux autres.
+- **Un fichier a soi** (base SQLite, televersements) se cree dans le projet,
+  avec des droits `0600` s'il est sensible, et figure dans le `.gitignore`.
+
+## 12. Dagster
+
+Un projet expose ses jobs par un `definitions.py` dans son dossier, avec une
+variable `defs`. Le fichier racine le decouvre seul.
+
+```python
+from dagster import Definitions, asset
+
+@asset(group_name="mon-projet")     # regroupe les assets du projet dans l'interface
+def mon_asset(context):
+    context.log.info("bonjour")
+
+defs = Definitions(assets=[mon_asset])
+```
+
+- Les modules voisins s'importent sans prefixe (`import outils`), mais **tous
+  les projets partagent un meme processus** : deux modules de meme nom se
+  marchent dessus. Prefixe-les (`outils_facturation.py`).
+- **Noms uniques** : un nom d'asset, de job ou de planning doit etre unique dans
+  toute l'installation. Prefixe-les par le projet.
+- Le projet apparait au prochain *Reload* de Dagster. S'il ne se charge pas, il
+  est ignore, avec sa trace dans `docker logs codelab-dagster`.
+- **Un run en echec envoie un mail** a l'administrateur. N'echoue que pour une
+  vraie panne ; journalise le reste en `warning`.
+- Un planning se declare avec `default_status=DefaultScheduleStatus.RUNNING`,
+  sinon il ne tourne pas tant qu'on ne l'active pas a la main. Evite l'heure
+  pile.
+
+**Dependances Dagster.** Le processus commun n'a que `dagster`,
+`dagster-postgres` et `psycopg2`. Si un job a besoin d'autre chose, declare-le
+dans `requirements-dagster.txt`, versions figees (`pandas==2.2.3`). Le projet
+tourne alors dans son propre environnement Python, a son propre nom dans Dagster.
+
+- Apres creation ou modification du fichier : `docker restart codelab-dagster`.
+  *Reload* ne reconstruit pas l'environnement.
+- Chaque projet isole coute 200 a 300 Mo : ne l'isole que s'il le faut, et ne
+  fais jamais de `pip install` depuis le code.
+- L'environnement vit dans `.dagster-venv/` : ne le versionne pas, ne le modifie
+  pas a la main.
+
+## 13. Le style de CodeLab
+
+Une application du hub est vue **dans** CodeLab : elle en porte les couleurs. Le
+theme est servi sur la meme origine que l'application.
 
 ```html
 <link rel="stylesheet" href="/theme.css">
 ```
 
-Tu disposes alors de ces variables. **Ne recopie jamais leurs valeurs** : une
-palette recopiee est une palette qui divergera le jour ou le panneau changera
-la sienne.
+**Ne recopie jamais les valeurs** des variables : une palette recopiee divergera.
 
 | Variable | Ce que c'est |
 |---|---|
@@ -217,31 +360,19 @@ la sienne.
 | `--accent` `--accent-h` `--accent-soft` | **ce qui se clique**, et rien d'autre |
 | `--ok` `--warn` `--err` (+ `-bg`, `-border`) | les etats : en ligne, a surveiller, en panne |
 | `--r` `--r-s` `--r-xs` | les rayons : carte, bouton, pastille |
-| `--t-xs` a `--t-xl` | l'echelle de tailles de texte |
+| `--t-xs` a `--t-xl`, `--t-b` | l'echelle de tailles de texte |
 | `--sans` `--mono` | les polices : Manrope, et la chasse fixe pour le code |
 
-### Les cinq regles qui font qu'une page ressemble a CodeLab
-
-1. **L'accent ne designe que ce qui se clique.** Les etats ont leurs propres
-   couleurs. Un vert veut dire "en ligne" partout, un rouge "en panne"
-   partout, et le turquoise ne veut jamais dire autre chose que
-   "actionnable". Sans cette separation, une ligne en panne se confond avec
-   un bouton -- et c'est exactement le cas ou il ne faut pas se tromper.
-2. **La severite se lit au bord.** Une ligne de tableau porte un bandeau de
-   3 px sur son bord gauche : `box-shadow:inset 3px 0 0 var(--ok)`. On repere
-   une anomalie sans lire une seule ligne.
-3. **Le trait plutot que l'ombre.** La hierarchie vient des bordures et des
-   fonds. Une carte : `background:var(--surface)`, `border:1px solid
-   var(--line)`, `border-radius:var(--r)`, et une ombre d'un pixel au plus.
-   Rien ne se souleve au survol.
-4. **Les chiffres s'alignent.** `font-variant-numeric:tabular-nums` partout ou
-   des nombres se lisent en colonne. C'est cette propriete qui les aligne, pas
-   la chasse fixe -- `--mono` est reserve a ce qui EST du code.
-5. **Aucune police tierce.** `--sans` suffit. Un serveur auto-heberge qui irait
-   chercher sa police chez Google ferait fuiter l'adresse IP de chaque
-   visiteur, et s'afficherait mal des que la machine est hors ligne.
-
-### Le squelette d'une page
+1. **L'accent ne designe que ce qui se clique.** Les etats ont leurs couleurs :
+   vert en ligne, ambre a surveiller, rouge en panne.
+2. **La severite se lit au bord** : `box-shadow:inset 3px 0 0 var(--ok)` sur une
+   ligne de tableau.
+3. **Le trait plutot que l'ombre.** Une carte : `background:var(--surface)`,
+   `border:1px solid var(--line)`, `border-radius:var(--r)`.
+4. **Les chiffres s'alignent** : `font-variant-numeric:tabular-nums`. `--mono`
+   est reserve a ce qui est du code.
+5. **Aucune police ni script tiers** : un chargement chez Google ferait fuiter
+   l'adresse IP de chaque visiteur.
 
 ```html
 <link rel="stylesheet" href="/theme.css">
@@ -255,49 +386,53 @@ la sienne.
 </style>
 ```
 
-`workspace/diagnostic/app.py` est l'exemple de reference : c'est une
-application comme les tiennes, et elle se lit comme une page du panneau.
+- **Le theme clair ou sombre suit le systeme.** Le choix fait dans le panneau
+  vit dans son origine, illisible depuis l'application : ne cherche pas a le
+  contourner.
+- **Mobile d'abord** : le hub s'ouvre sur telephone. Mets
+  `<meta name="viewport" content="width=device-width,initial-scale=1">`, sans
+  defilement horizontal.
+- **Exemple de reference** : `workspace/diagnostic/app.py`.
 
-**Le theme clair / sombre suit le systeme.** Le choix manuel fait dans le
-panneau vit dans le stockage de SON origine, que ton application ne peut pas
-lire -- c'est cette separation qui l'empeche aussi de lire la session. Ne
-cherche pas a la contourner.
+## 14. Sortir le projet de CodeLab
 
-## Configuration et secrets
-
-- **Aucun mot de passe, jeton ou cle en clair dans le code**, jamais.
-- La configuration propre au projet va dans un `.env` **a cote du code**, lu par
-  le projet lui-meme. Ne le versionne pas : ajoute `.env` au `.gitignore`.
-- N'ecris jamais dans `credentials.env` (secrets de la stack) et ne recopie
-  aucune de ses valeurs dans un fichier du projet.
-
-## Chemins
-
-Ecris des chemins **relatifs au projet**, jamais de `/workspace/...` en dur : le
-meme code doit fonctionner si le dossier est renomme ou copie.
+La fiche de l'application propose des fichiers de conteneurisation
+(`Dockerfile`, `docker-compose.yml`, `.env.exemple`, `.dockerignore`,
+`CONTENEUR.md`) deduits de ses commandes, a telecharger. S'ils sont deposes dans
+le projet, garde-les a jour avec lui. Ils ne remplacent pas le deploiement par
+le panneau.
 
 ## Avant de declarer une application prete
 
 Ne dis pas qu'une application est prete a etre deployee sans avoir verifie
 chaque point, et dis lesquels tu n'as pas pu verifier.
 
+**Integration au hub**
+- [ ] Ecoute sur `$PORT` et `0.0.0.0`, pas de serveur de developpement
+- [ ] Adresses relatives (ou `base` / `basePath` regle) : aucune page blanche ni
+      lien casse sous `/<adresse>/`
+- [ ] Commandes de build et de lancement verifiees ; build reproductible
+      (`npm ci`, `pip install --target vendor`)
+- [ ] Icone `icon.png` carree a la racine ; description d'une ligne prete
+- [ ] Ni `X-Frame-Options` ni `frame-ancestors` poses par l'application
+
 **Rendu**
 - [ ] Affichage correct a 375 px, 768 px et 1280 px de large
 - [ ] Theme clair et sombre lisibles (jetons de `/theme.css`, aucune couleur en dur)
-- [ ] `base` / `basePath` regle : aucune page blanche sous `/<projet>/`
 
 **Erreurs**
 - [ ] `codelab_web` branche : 404 et 500 propres, aucune pile d'appels affichee
-- [ ] Les exceptions arrivent dans le journal de l'application
-- [ ] Ecoute sur `$PORT` et `0.0.0.0`, pas de serveur de developpement
+- [ ] Les exceptions arrivent dans le journal de l'application (sortie standard)
 
 **Donnees et securite**
 - [ ] `.env` dans le `.gitignore`, aucune cle ni mot de passe dans le code
 - [ ] Une cle d'API par application chez chaque fournisseur, dans son `.env`
-- [ ] Application privee, ou connexion via `codelab_auth` si elle a des comptes
+- [ ] Connexion via `codelab_auth` si l'application a des comptes ; aucun
+      en-tete `X-CodeLab-*` cru sans le jeton signe
 - [ ] En-tetes de securite poses (`entetes_de_securite`) ou ecart justifie
 - [ ] Entrees utilisateur validees cote serveur ; requetes SQL parametrees
-- [ ] Cles Redis prefixees par le nom de l'application, cache avec une duree de vie
+- [ ] Base du projet (jamais `POSTGRES_DB`) ; cles Redis prefixees, cache avec
+      une duree de vie
 - [ ] Versions figees (`requirements.txt` avec `==`, `package-lock.json`
       versionne) : c'est ce que l'audit hebdomadaire des dependances sait lire
 
@@ -308,4 +443,6 @@ chaque point, et dis lesquels tu n'as pas pu verifier.
 
 **Exploitation**
 - [ ] Base creee avec `codelab db` (donc sauvegardee chaque jour)
-- [ ] Section « Projet » du `AGENTS.md` a jour : ce que fait le projet, ses commandes
+- [ ] Noms Dagster (assets, jobs, plannings) prefixes par le projet
+- [ ] Section « Projet » du `AGENTS.md` et `README.md` a jour : ce que fait le
+      projet, ses commandes
