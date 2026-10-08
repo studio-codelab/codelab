@@ -13705,6 +13705,19 @@ def test_le_manuel_porte_la_liste_avant_mise_en_ligne():
     assert manuel.rstrip().rsplit("\n## ", 1)[1].startswith("Avant de declarer")
 
 
+
+def test_le_manuel_donne_une_direction_artistique():
+    """Les references visuelles des applications : chacune avec ce qu'on en
+    prend, et la regle qui les garde dans CodeLab -- s'inspirer sans charger
+    de librairie tierce."""
+    manuel = open(os.path.join(_racine_depot(), "dev", "AGENTS.md"), encoding="utf-8").read()
+    style = manuel.split("## 13. Le style de CodeLab")[1].split("\n## 14.")[0]
+    assert "### Direction artistique" in style
+    for site in ("rondesignlab.com", "refero.design", "kokonutui.com",
+                 "ui.aceternity.com", "ui.shadcn.com", "www.usemotion.com"):
+        assert "https://" + site in style, site
+    assert "prefers-reduced-motion" in style and "CDN" in style
+
 # ------------------------- audit des dependances des projets -------------------------
 
 def _projet_a_auditer(racine):
