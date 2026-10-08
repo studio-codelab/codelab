@@ -26,7 +26,7 @@ ses garanties de sécurité dans [`SECURITE.md`](../SECURITE.md).
 | `app/app.py` | le service : authentification, API, cycle de vie des processus, proxy, mails, sauvegardes |
 | `app/stockage.py` | la base SQLite : connexions, schéma versionné (`MIGRATIONS`), sauvegarde cohérente |
 | `app/dashboard.html`, `app/login.html` | les deux pages |
-| `app/theme.css` | **toutes** les couleurs, formes et tailles (thèmes clair et sombre) ; servi aussi aux applications |
+| `app/theme.css` | **toutes** les couleurs, formes et tailles, pour les quatre styles et leurs thèmes clair et sombre ; servi aussi aux applications |
 | `app/polices/` | Manrope et Plus Jakarta Sans, auto-hébergées, servies par liste blanche |
 | `vps/` | exposer le panneau par un VPS ([`vps/README.md`](vps/README.md)) ; ne fait pas partie de l'image |
 
@@ -260,6 +260,11 @@ docker run --rm -p 9001:9001 -p 9002:9002 \
 ```
 
 Au premier lancement, le mot de passe administrateur apparaît dans `docker logs`.
+
+**Styles** : le cookie `codelab-style` (`classique`, `design`, `lanceur`, `bento`) est lu par le
+serveur (`STYLES_PAGE`), qui pose `data-style` et, pour les styles 3 et 4, `data-variante` sur
+`<html>` avant le premier affichage. Les variantes reprennent la mise en page du style 2 et
+n'ajoutent que la leur, sous `:root[data-variante]`.
 
 **Conventions de l'interface** :
 - jamais d'`alert()`, `confirm()` ni `prompt()` : une confirmation dont le bouton porte le verbe, et

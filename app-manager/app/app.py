@@ -10219,15 +10219,27 @@ def login_page(invitation=False):
     return Response(avec_style(page), mimetype="text/html")
 
 
+# Les styles 3 et 4 sont des VARIANTES du style 2 : meme mise en page de
+# base (data-style="design"), plus leurs propres regles sous data-variante.
+# La cle est celle du cookie ; la valeur, ce qui se pose sur <html>.
+STYLES_PAGE = {
+    "design": ' data-style="design"',
+    "lanceur": ' data-style="design" data-variante="lanceur"',
+    "bento": ' data-style="design" data-variante="bento"',
+}
+
+
 def avec_style(page):
     """Pose le style choisi (cookie codelab-style) sur la page servie.
 
     Pose cote serveur, l'attribut est la avant la premiere peinture : la
     page ne passe pas par le style classique le temps que son script le lise.
-    Seule la valeur « design » est reconnue -- le cookie vient du client.
+    Seules les valeurs de STYLES_PAGE sont reconnues -- le cookie vient du
+    client, et rien de ce qu'il porte n'est recopie dans la page.
     """
-    if request.cookies.get("codelab-style") == "design":
-        page = page.replace('<html lang="fr">', '<html lang="fr" data-style="design">', 1)
+    attributs = STYLES_PAGE.get(request.cookies.get("codelab-style", ""))
+    if attributs:
+        page = page.replace('<html lang="fr">', '<html lang="fr"' + attributs + '>', 1)
     return page
 
 

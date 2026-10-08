@@ -5046,12 +5046,19 @@ def test_les_deux_pages_lisent_le_meme_theme():
     # Les jetons structurants y sont, et dans les trois etats de theme.
     for cle in ("--accent:", "--bg:", "--ok:", "--err:", "--warn:", "--mono:", "--r:"):
         assert cle in theme, f"{cle} manque au theme"
-    # Pour chacun des deux styles (classique, puis « Design »).
-    classique, design = theme.split("LE STYLE « DESIGN »", 1)
-    for partie in (classique, design):
-        assert partie.count("--accent:") == 3, (
+    # Pour chacun des styles : classique, « Design », puis ses deux variantes
+    # (lanceur et bento), qui tiennent chacune leurs trois etats.
+    classique, reste = theme.split("LE STYLE « DESIGN »", 1)
+    design, variantes = reste.split("STYLES 3 (« lanceur ») ET 4 (« bento »)", 1)
+    for partie, attendus in ((classique, 3), (design, 3), (variantes, 6)):
+        assert partie.count("--accent:") == attendus, (
             "les trois etats de theme doivent etre tenus : clair, sombre du "
             "systeme, sombre choisi explicitement")
+    for variante in ("lanceur", "bento"):
+        for bloc in (f':root[data-style="design"][data-variante="{variante}"]{{',
+                     f':root[data-style="design"][data-variante="{variante}"]:not([data-theme="light"]):not([data-theme="dark"]){{',
+                     f':root[data-style="design"][data-variante="{variante}"][data-theme="dark"]{{'):
+            assert bloc in variantes, bloc
     assert '[data-theme="dark"]' in theme and "prefers-color-scheme" in theme
 
     for nom in ("dashboard.html", "login.html"):
@@ -10499,7 +10506,8 @@ def _plaques_du_theme():
     """
     feuille = (_racine_app_manager() / "theme.css").read_text(encoding="utf-8")
     valeurs = re.findall(r"--plaque-logo:\s*(#[0-9a-fA-F]{3,6})\s*;", feuille)
-    assert len(valeurs) == 6, (
+    # Quatre styles : classique, « design », et ses variantes lanceur et bento.
+    assert len(valeurs) == 12, (
         f"theme.css definit --plaque-logo {len(valeurs)} fois, trois par style attendues")
     return valeurs
 
@@ -13007,6 +13015,31 @@ def test_le_style_design_ne_change_que_l_habit():
     login = _page_panneau("login.html")
     assert ':root[data-style="design"] #pk-zone{display:none !important}' in login
 
+
+
+def test_les_styles_lanceur_et_bento_se_posent_cote_serveur(deux_espaces):
+    """Styles 3 et 4 : des variantes du style 2. Le serveur pose les deux
+    attributs avant la premiere peinture, et rien d'autre que les valeurs
+    connues -- le cookie vient du client."""
+    c = deux_espaces
+    for variante in ("lanceur", "bento"):
+        c.set_cookie("codelab-style", variante)
+        assert (f'<html lang="fr" data-style="design" data-variante="{variante}">'
+                in c.get("/login").get_data(as_text=True))
+    c.set_cookie("codelab-style", "lanceur\" onload=\"x")
+    assert "data-variante" not in c.get("/login").get_data(as_text=True)[:300]
+    page = _page_panneau("dashboard.html")
+    for cle in ("classique", "design", "lanceur", "bento"):
+        assert f"setStyle('{cle}')" in page, cle
+    assert "const STYLES = ['classique','design','lanceur','bento'];" in page
+    # Le hub change de forme : recherche et dock (lanceur), mosaique (bento).
+    assert 'id="hub-filtre"' in page and 'id="hub-dock"' in page
+    assert "function peindreDock(" in page and "function peindreBento(" in page
+    assert ':root[data-variante="lanceur"] .hub-dock:not(:empty){display:flex' in page
+    assert "#hub-liste.bento{display:grid" in page
+    # Le script ne peint pas le hub avant d'avoir declare ce qu'il lit.
+    debut = page.index("function applyStyle(")
+    assert "peindreHub" not in page[debut:page.index("function setStyle(")]
 
 
 # ---------- connexion en deux etapes ----------
