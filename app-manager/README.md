@@ -14,7 +14,7 @@ Le cœur de CodeLab. Un seul service Flask (servi par waitress) qui :
 | `9001` | le panneau et son API |
 | `9002` | les applications, sous `/<nom>/` (`APP_MANAGER_APPS_PORT`, `0` pour les remettre sur `9001`) |
 
-Ce que l'utilisateur voit du panneau est décrit dans [`docs/FONCTIONNALITES.md`](../docs/FONCTIONNALITES.md) ;
+Ce que l'utilisateur voit du panneau est décrit dans [`FONCTIONNALITES.md`](../FONCTIONNALITES.md) ;
 ses garanties de sécurité dans [`SECURITE.md`](../SECURITE.md).
 
 ## Fichiers

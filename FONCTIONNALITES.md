@@ -1,7 +1,7 @@
 # Fonctionnalités de CodeLab
 
 Le catalogue complet de ce que fait CodeLab : chaque fonctionnalité, où elle se trouve et où elle est
-détaillée. La sécurité a son propre document : [`SECURITE.md`](../SECURITE.md).
+détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
 
 ## Sommaire
 
@@ -21,7 +21,7 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](../SECURITE.m
 
 ## 1. Le panneau
 
-`http://<serveur>:9001/` — détails : [`app-manager/README.md`](../app-manager/README.md).
+`http://<serveur>:9001/` — détails : [`app-manager/README.md`](app-manager/README.md).
 
 | Page | Adresse | Pour qui | Ce qu'on y fait |
 |---|---|---|---|
@@ -84,8 +84,8 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](../SECURITE.m
 
 ## 2. Applications
 
-Détails : [`app-manager/README.md`](../app-manager/README.md) et, côté développeur,
-[`dev/AGENTS.md`](../dev/AGENTS.md).
+Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développeur,
+[`dev/AGENTS.md`](dev/AGENTS.md).
 
 **Déclarer**
 
@@ -151,7 +151,7 @@ Détails : [`app-manager/README.md`](../app-manager/README.md) et, côté dével
 
 ## 3. Comptes et accès
 
-Détails : [`SECURITE.md`](../SECURITE.md) et [`app-manager/README.md`](../app-manager/README.md).
+Détails : [`SECURITE.md`](SECURITE.md) et [`app-manager/README.md`](app-manager/README.md).
 
 - **Deux rôles** : administrateur et utilisateur.
 - **Invitation par mail.** La personne choisit elle-même son nom et son mot de passe. Le lien est
@@ -179,7 +179,7 @@ Détails : [`SECURITE.md`](../SECURITE.md) et [`app-manager/README.md`](../app-m
 
 ## 4. Mails et alertes
 
-Détails : [`mailpit/README.md`](../mailpit/README.md).
+Détails : [`mailpit/README.md`](mailpit/README.md).
 
 **Mailpit**
 
@@ -271,7 +271,7 @@ adresses `/demandes` y mènent.
 
 ## 6. Poste de développement
 
-`ssh vscode@<serveur> -p 2222` — détails : [`dev/README.md`](../dev/README.md).
+`ssh vscode@<serveur> -p 2222` — détails : [`dev/README.md`](dev/README.md).
 
 **Accès**
 
@@ -303,7 +303,7 @@ adresses `/demandes` y mènent.
 
 ## 7. Projets et Dagster
 
-Détails : [`workspace/README.md`](../workspace/README.md) et [`dagster/README.md`](../dagster/README.md).
+Détails : [`workspace/README.md`](workspace/README.md) et [`dagster/README.md`](dagster/README.md).
 
 - **Un projet est un dossier** de `/workspace`. Il n'y a aucun registre central.
 - **Une base Postgres par projet**, nommée comme le dossier, avec un schéma `dagster`. **pgvector** y
@@ -321,7 +321,7 @@ Détails : [`workspace/README.md`](../workspace/README.md) et [`dagster/README.m
 
 ## 8. Données, sauvegardes, restauration
 
-Détails : [`postgres/README.md`](../postgres/README.md).
+Détails : [`postgres/README.md`](postgres/README.md).
 
 | Sauvegarde | Fréquence | Gardées | Écrite par |
 |---|---|---|---|
@@ -337,7 +337,7 @@ Détails : [`postgres/README.md`](../postgres/README.md).
 
 ## 9. Diagnostic
 
-Détails : [`workspace/diagnostic/README.md`](../workspace/diagnostic/README.md).
+Détails : [`workspace/diagnostic/README.md`](workspace/diagnostic/README.md).
 
 - **Page d'état des lieux** (`:9002/diagnostic/`), en lecture seule :
   - les services se parlent-ils ?
@@ -352,7 +352,7 @@ Détails : [`workspace/diagnostic/README.md`](../workspace/diagnostic/README.md)
 
 ## 10. Exposition sur Internet
 
-Détails : [`app-manager/vps/README.md`](../app-manager/vps/README.md).
+Détails : [`app-manager/vps/README.md`](app-manager/vps/README.md).
 
 - **VPS + WireGuard** : le VPS porte le domaine et le certificat, ton serveur compose le tunnel.
 - **Assistant dans le panneau** (*Paramètres > Serveur*) : les fichiers de configuration avec tes
@@ -362,7 +362,7 @@ Détails : [`app-manager/vps/README.md`](../app-manager/vps/README.md).
 
 ## 11. Installation et mise à jour
 
-Détails : [`README.md`](../README.md).
+Détails : [`README.md`](README.md).
 
 - **Un seul fichier compose.** Une variante pour les interfaces de type CasaOS existe :
   `docker-compose-casaos.yml`.
