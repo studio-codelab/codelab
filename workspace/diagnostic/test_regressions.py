@@ -12786,6 +12786,59 @@ def test_un_message_accepte_devient_une_tache(boite):
     assert stockage_lignes("sous_taches") == 0
 
 
+def test_l_utilisateur_suit_ses_messages(boite, deux_espaces):
+    """Qui a ecrit voit ce que son message devient -- lu, a l'etude,
+    planifie, en cours, realise, non retenu -- deduit de ce que fait
+    l'administrateur. Il ne voit que ses messages."""
+    c, _ = boite
+    u = app.flask_app.test_client()
+    _connecte(u, "marie", "mot-de-passe-long")
+
+    def suivi():
+        d = u.get("/api/mes-messages").get_json()
+        return {m["texte"]: m for m in d["messages"]}, d["nouveaux"]
+
+    a = _message(c, "hub", "La page ne charge plus")
+    b = _message(c, "idee", "Un carnet de recettes")
+    autre = _message(c, "hub", "Pas le mien", qui="paul")
+    ms, nouveaux = suivi()
+    assert set(ms) == {"La page ne charge plus", "Un carnet de recettes"} and nouveaux == 0
+    assert ms["La page ne charge plus"]["suivi"]["etape"] == "envoye"
+    # Lu, puis mis a l'etude : du nouveau a annoncer.
+    assert c.put(f"/api/messages/{a}/lu").status_code == 200
+    assert c.put(f"/api/messages/{b}", json={"statut": "a_reflechir"}).status_code == 200
+    ms, nouveaux = suivi()
+    assert ms["La page ne charge plus"]["suivi"]["etape"] == "lu"
+    assert ms["Un carnet de recettes"]["suivi"]["etape"] == "etude" and nouveaux == 2
+    # Vu : les pastilles s'eteignent.
+    assert u.post("/api/mes-messages/vus").status_code == 200
+    assert suivi()[1] == 0
+    # Accepte en tache, avec une date : planifie, puis fait.
+    tache = c.post(f"/api/messages/{a}/accepter", json={"projet": "general", "titre": "Réparer"}
+                   ).get_json()["tache"]
+    assert c.put(f"/api/taches/{tache}", json={"echeance": "2030-01-15"}).status_code == 200
+    ms, nouveaux = suivi()
+    s = ms["La page ne charge plus"]["suivi"]
+    assert s["etape"] == "planifie" and s["prevu"] == "2030-01-15" and nouveaux == 1
+    assert s["taches"] == [{"titre": "Réparer", "faite": False}] and s["total"] == 1
+    assert c.put(f"/api/taches/{tache}", json={"statut": "fait"}).status_code == 200
+    s = suivi()[0]["La page ne charge plus"]["suivi"]
+    assert s["etape"] == "fait" and s["faites"] == 1 and s["fait_le"] and s["prevu"] is None
+    # Devenu un projet : ses taches comptent ; refuse : non retenu.
+    r = c.post(f"/api/messages/{b}/accepter",
+               json={"nouveau_projet": {"nom": "Recettes"}, "taches": ["Maquette", "Base"]})
+    s = suivi()[0]["Un carnet de recettes"]["suivi"]
+    assert s["etape"] == "planifie" and s["projet"] == "Recettes" and s["total"] == 2
+    assert c.put(f"/api/messages/{b}", json={"statut": "refuse"}).status_code == 200
+    assert suivi()[0]["Un carnet de recettes"]["suivi"]["etape"] == "refuse"
+    # L'administrateur ne voit pas les messages de marie dans SON suivi.
+    assert all(m["id"] != autre for m in c.get("/api/mes-messages").get_json()["messages"])
+    assert "suivi" in {w["id"] for w in u.get("/api/hub/disposition").get_json()["catalogue"]}
+    page = _page_panneau("dashboard.html")
+    for trace in ('id="suivi-liste"', "function widgetSuivi(", "/api/mes-messages/vus", 'id="side-count-suivi"'):
+        assert trace in page, trace
+
+
 def stockage_lignes(table):
     return app.stockage.lire(app.DB_FILE, f"SELECT COUNT(*) AS n FROM {table}")[0]["n"]
 

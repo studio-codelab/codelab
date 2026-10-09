@@ -10540,6 +10540,93 @@ def api_message_accepter(identifiant):
     return jsonify({"ok": True, "tache": tache, "projet": projet})
 
 
+# ------------------------- le suivi, cote utilisateur -------------------------
+#
+# Qui a ecrit veut savoir ce que son message est devenu, sans demander. Le
+# suivi se DEDUIT de ce que l'administrateur fait deja dans Messages : lire,
+# mettre a l'etude, accepter, refuser, en faire des taches, les cocher. Rien
+# a remplir de plus de son cote.
+#
+# Un compte ne voit que SES messages, et de leurs taches seulement le titre
+# et si elle est faite : ni les notes, ni le reste du planning.
+ETAPES_SUIVI = ("envoye", "lu", "etude", "planifie", "en_cours", "fait", "refuse")
+
+
+def suivi_message(m, taches, projets):
+    """L'etape d'un message, et ce qui en est ne."""
+    lies = [t for t in taches if t["message"] == m.get("id")]
+    projet = None
+    for p in projets:
+        if p["message"] == m.get("id") or p["id"] == m.get("projet"):
+            projet = p
+            break
+    if projet:
+        deja = {t["id"] for t in lies}
+        lies += [t for t in taches if t["projet"] == projet["id"] and t["id"] not in deja]
+    faites = [t for t in lies if t["statut"] == "fait"]
+    ouvertes = [t for t in lies if t["statut"] != "fait"]
+    statut = m.get("statut") or "en_attente"
+    if statut == "refuse":
+        etape = "refuse"
+    elif (lies and not ouvertes) or (projet and projet["etape"] == "realise"):
+        etape = "fait"
+    elif faites or any(t["statut"] == "en_cours" for t in lies) or (
+            projet and projet["etape"] == "construction"):
+        etape = "en_cours"
+    elif lies or projet or statut == "accepte":
+        etape = "planifie"
+    elif statut == "a_reflechir":
+        etape = "etude"
+    elif m.get("lu"):
+        etape = "lu"
+    else:
+        etape = "envoye"
+    echeances = sorted(t["echeance"] for t in ouvertes if t["echeance"])
+    fins = [t["fait_le"] for t in faites if t["fait_le"]]
+    return {"etape": etape,
+            "taches": [{"titre": t["titre"], "faite": t["statut"] == "fait"} for t in lies],
+            "faites": len(faites), "total": len(lies),
+            "prevu": echeances[-1] if echeances and etape != "fait" else None,
+            "fait_le": max(fins) if fins and etape == "fait" else None,
+            "projet": projet["nom"] if projet else None}
+
+
+def mes_messages():
+    qui = utilisateur_courant() or NOM_ADMIN
+    taches, projets = lire_taches(), lire_projets()
+    vus = lire_preference("suivi_vu", qui) or {}
+    if not isinstance(vus, dict):
+        vus = {}
+    rendus = []
+    for m in lire_messages(limite=MESSAGES_AFFICHES):
+        if m.get("qui") != qui:
+            continue
+        suivi = suivi_message(m, taches, projets)
+        # Nouveau : l'etape a change depuis la derniere visite. Un message
+        # qu'on vient d'envoyer n'a rien de neuf a annoncer.
+        vu = vus.get(m.get("id"), "envoye")
+        rendus.append({"id": m.get("id"), "ts": m.get("ts"), "cible": m.get("cible"),
+                       "app": m.get("app") or "", "texte": m.get("texte") or "",
+                       "suivi": suivi, "nouveau": suivi["etape"] != vu})
+    return rendus
+
+
+@flask_app.get("/api/mes-messages")
+@require_auth
+def api_mes_messages():
+    """Les messages de ce compte, chacun avec son avancement."""
+    rendus = mes_messages()
+    return jsonify({"messages": rendus, "nouveaux": sum(1 for m in rendus if m["nouveau"])})
+
+
+@flask_app.post("/api/mes-messages/vus")
+@require_auth
+def api_mes_messages_vus():
+    """Retient l'etape vue de chaque message : les pastilles s'eteignent."""
+    ecrire_preference("suivi_vu", {m["id"]: m["suivi"]["etape"] for m in mes_messages()})
+    return jsonify({"ok": True})
+
+
 @flask_app.get("/api/taches")
 @require_admin
 def api_taches():
@@ -11005,6 +11092,8 @@ WIDGETS = {
                    "description": "Les applications mises à jour depuis ta dernière visite."},
     "message": {"titre": "Écrire à l'administrateur", "portee": "hub", "tailles": ("moyen", "grand"),
                 "description": "Une idée, un souci, une demande.", "utilisateur": True},
+    "suivi": {"titre": "Mes messages", "portee": "hub", "tailles": ("petit", "moyen"),
+              "description": "Où en sont les messages que tu as envoyés.", "utilisateur": True},
     "apercu": {"titre": "Aperçu", "portee": "app", "tailles": ("moyen", "grand"),
                "description": "La page d'une application, en direct."},
 }
@@ -11097,7 +11186,8 @@ def disposition_du_compte():
             elements = [{"t": "w", "id": "une", "taille": "grand"},
                         {"t": "w", "id": "etat", "taille": "petit"},
                         {"t": "w", "id": "messages", "taille": "petit"},
-                        {"t": "w", "id": "message", "taille": "moyen"}]
+                        {"t": "w", "id": "message", "taille": "moyen"},
+                        {"t": "w", "id": "suivi", "taille": "moyen"}]
     permis = widgets_permis()
     apps, services = apps_du_hub_visibles()
     garde = []

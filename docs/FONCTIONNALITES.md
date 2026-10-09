@@ -54,7 +54,7 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](../SECURITE.m
       ou à une application du hub, chacun avec ses tailles en aperçu :
       - hub : « Dernière ouverte » (aperçu en direct de la dernière application ouverte, avec la
         date), « État des applications » (admin), « Messages » à lire (admin), « Nouvelles
-        versions », « Écrire à l'administrateur » (comptes utilisateurs) ;
+        versions », « Écrire à l'administrateur » et « Mes messages » (comptes utilisateurs) ;
       - applications : « Aperçu » d'une application choisie, en direct, réduit et inerte ; un clic
         l'ouvre.
 - **Indicateur « Nouvelle version »** sur la tuile d'une application qui a changé depuis la dernière
@@ -209,6 +209,16 @@ adresses `/demandes` y mènent.
   l'administrateur » du style Bento), en choisissant le sujet : **améliorer le hub**, **une idée de
   nouveau projet**, ou **améliorer une application existante** (laquelle). Un message qui arrive
   s'annonce dans le coin du panneau de l'administrateur.
+- **Suivre ses messages** (comptes utilisateurs) : *Paramètres > Message > Mes messages* montre où en
+  est chacun, sur une frise **Envoyé → Lu (ou À l'étude) → Planifié → En cours → Réalisé**, ou
+  **Non retenu**. L'étape se déduit de ce que fait l'administrateur dans Messages (lire, mettre à
+  l'étude, accepter, refuser, en faire des tâches ou un projet, les cocher) : rien de plus à remplir.
+  - On y voit le projet, les tâches nées du message (titre et coche seulement), la date prévue s'il
+    y en a une, et la date de réalisation.
+  - Un message qui a avancé depuis la dernière visite est mis en avant, et le menu *Messages* porte
+    leur nombre ; ouvrir la liste les marque vus.
+  - Le widget Bento « Mes messages » résume le tout sur le hub (dans la composition par défaut).
+  - Un compte ne voit que ses propres messages.
 - **Boîte de réception** (`/messages`) : à classer, tous, archivés ; filtre par sujet et recherche.
   - Les messages se rangent à la main (glisser par la poignée, ou flèches ↑ ↓ au clavier) ; un message
     neuf arrive en tête.
