@@ -8980,6 +8980,7 @@ def api_deploy(n):
     # "Deployer" sur une application arretee la met en ligne : c'est le sens
     # attendu du mot, et l'alternative (builder puis ne rien faire) est
     # exactement le geste oublie que cette route supprime.
+    marquer_nouvelle_version(n)
     erreur = restart_app(n) if is_running(n) else start(n)
     if erreur:
         # Le build a reussi, la mise en ligne non : la nuance compte, et elle
@@ -9001,6 +9002,7 @@ def api_build(n):
     ok, msg = run_build(n)
     if not ok:
         return jsonify({"error": msg}), 400
+    marquer_nouvelle_version(n)
     return jsonify({"ok": True})
 
 
@@ -9914,7 +9916,15 @@ def index():
             .replace("__SMTP__", json.dumps(
                 envoi_mail_configure() if role_courant() == "admin" else True))
             .replace("__UTILISATEUR__", json.dumps(utilisateur_courant())))
-    return Response(avec_style(page), mimetype="text/html")
+    r = Response(avec_style(page), mimetype="text/html")
+    # Le widget « A la une » du hub montre un APERCU de la derniere
+    # application ouverte, dans un cadre : la politique du panneau, plus le
+    # droit d'encadrer l'origine des applications -- et elle seule. Les
+    # applications, elles, n'acceptent d'etre encadrees que par le panneau
+    # (proteger_l_encadrement).
+    base = origine_applications() if origines_separees() else ""
+    r.headers["Content-Security-Policy"] = CSP_PANNEAU + "; frame-src " + (base or "'self'")
+    return r
 
 
 # PARCOURIR LES APPLICATIONS SANS QUITTER LE PANNEAU INSTALLE.
@@ -9999,7 +10009,10 @@ def api_mes_apps():
     # courte inquiete plus qu'elle ne simplifie.
     cachees = set(masquees_du_compte())
     liste, masquees = [], []
-    for nom, a in sorted(load().items()):
+    toutes = load()
+    versions = versions_des_apps(toutes)
+    ouvertes = ouvertures_du_compte()
+    for nom, a in sorted(toutes.items()):
         # Une application par defaut ne figure pas dans le hub d'un compte
         # utilisateur. Le proxy la lui refuse deja ; lui montrer une tuile qui
         # ne s'ouvre pas, ce serait promettre une porte fermee -- et il
@@ -10020,6 +10033,11 @@ def api_mes_apps():
             "running": is_running(nom),
             "listening": _listening.get(nom),
             "visibility": visibilite(a),
+            # Jamais ouverte par ce compte : pas d'indicateur. Sinon, une
+            # version plus recente que celle vue a la derniere ouverture.
+            "nouvelle_version": (nom in ouvertes
+                                 and versions.get(nom, 0) > ouvertes[nom]["version"]),
+            "ouverte_le": (ouvertes.get(nom) or {}).get("ts"),
         })
     # Les categories accompagnent la liste : le hub les affiche dans l'ordre
     # voulu, sans avoir a deviner cet ordre a partir des projets.
@@ -10666,6 +10684,207 @@ def api_sous_tache_supprimer(sid):
         n = cx.execute("DELETE FROM sous_taches WHERE id = ?", (sid,)).rowcount
     if not n:
         return jsonify({"error": "Sous-tâche introuvable."}), 404
+    return jsonify({"ok": True})
+
+
+# ------------------- versions des applications, et ouvertures -------------------
+#
+# « Une nouvelle version depuis la derniere fois que je l'ai ouverte. » Deux
+# signaux font une version : un deploiement ou un build reussi depuis le
+# panneau, et un nouveau commit dans le depot du projet (lu dans .git, sans
+# lancer git). Chaque compte garde la version qu'il a vue en ouvrant
+# l'application ; la tuile le dit quand elle a change depuis.
+
+def commit_du_projet(chemin):
+    """Le commit courant du depot du projet, ou None (pas de depot lisible).
+
+    Lu directement dans .git -- HEAD, puis la reference, puis packed-refs --
+    pour ne pas lancer un processus par application a chaque hub affiche.
+    """
+    if not chemin:
+        return None
+    racine = os.path.join(chemin, ".git")
+    try:
+        with open(os.path.join(racine, "HEAD"), encoding="utf-8") as f:
+            tete = f.read().strip()
+        if not tete.startswith("ref:"):
+            return tete[:40] or None
+        ref = tete[4:].strip()
+        if ".." in ref.split("/"):
+            return None
+        chemin_ref = os.path.join(racine, *ref.split("/"))
+        if os.path.isfile(chemin_ref):
+            with open(chemin_ref, encoding="utf-8") as f:
+                return f.read().strip()[:40] or None
+        with open(os.path.join(racine, "packed-refs"), encoding="utf-8") as f:
+            for ligne in f:
+                morceaux = ligne.split()
+                if len(morceaux) == 2 and morceaux[1] == ref:
+                    return morceaux[0][:40]
+    except (OSError, UnicodeDecodeError):
+        return None
+    return None
+
+
+def versions_des_apps(apps):
+    """{nom: horodatage de la version courante}, en notant au passage un
+    commit nouveau. Une application jamais vue prend sa version maintenant :
+    personne ne l'a encore ouverte, rien ne s'affiche."""
+    maintenant = int(time.time())
+    connues = {l["app"]: l for l in stockage.lire(DB_FILE, "SELECT * FROM versions_apps")}
+    resultat, ecrire = {}, []
+    for nom, a in apps.items():
+        commit = commit_du_projet(a.get("path"))
+        ligne = connues.get(nom)
+        if ligne is None:
+            ecrire.append((nom, maintenant, commit))
+            resultat[nom] = maintenant
+        elif commit and commit != ligne["commit_"]:
+            ecrire.append((nom, maintenant, commit))
+            resultat[nom] = maintenant
+        else:
+            resultat[nom] = ligne["ts"]
+    if ecrire:
+        with stockage.transaction(DB_FILE) as cx:
+            cx.executemany("INSERT OR REPLACE INTO versions_apps (app, ts, commit_) "
+                           "VALUES (?, ?, ?)", ecrire)
+    return resultat
+
+
+def marquer_nouvelle_version(nom):
+    """Un deploiement ou un build a reussi : c'est une nouvelle version."""
+    a = load().get(nom) or {}
+    with stockage.transaction(DB_FILE) as cx:
+        cx.execute("INSERT OR REPLACE INTO versions_apps (app, ts, commit_) VALUES (?, ?, ?)",
+                   (nom, int(time.time()), commit_du_projet(a.get("path"))))
+
+
+def ouvertures_du_compte(qui=None):
+    """{application: {ts, version}} : ce que ce compte a ouvert, et quand."""
+    qui = qui or utilisateur_courant() or NOM_ADMIN
+    return {l["app"]: {"ts": l["ts"], "version": l["version"]}
+            for l in stockage.lire(DB_FILE, "SELECT app, ts, version FROM apps_vues "
+                                            "WHERE compte = ?", (qui,))}
+
+
+# ------------------------- les widgets du hub -------------------------
+#
+# Le style Bento compose son hub de widgets. Chaque compte choisit lesquels,
+# dans quel ordre et en quelle taille ; le choix est garde cote serveur pour
+# suivre la personne d'un appareil a l'autre. La liste des widgets est FERMEE :
+# rien de ce que le client envoie ne devient un nom de widget.
+WIDGETS = {
+    "une": "À la une",
+    "etat": "État des applications",
+    "horloge": "Date et heure",
+    "demandes": "Demandes à traiter",
+    "message": "Écrire à l'administrateur",
+    "notes": "Bloc-notes",
+}
+WIDGETS_ADMIN = {"demandes"}
+WIDGETS_UTILISATEUR = {"message"}
+WIDGETS_TAILLES = ("normal", "large")
+WIDGETS_PAR_DEFAUT = [
+    {"id": "une", "taille": "large"}, {"id": "etat", "taille": "normal"},
+    {"id": "demandes", "taille": "normal"}, {"id": "message", "taille": "normal"},
+]
+NOTES_HUB_MAX = 4000
+
+
+def widgets_permis():
+    admin = est_admin()
+    return [w for w in WIDGETS
+            if not (w in WIDGETS_ADMIN and not admin) and not (w in WIDGETS_UTILISATEUR and admin)]
+
+
+def lire_preference(cle, qui=None):
+    qui = qui or utilisateur_courant() or NOM_ADMIN
+    lignes = stockage.lire(DB_FILE, "SELECT valeur FROM preferences WHERE compte = ? AND cle = ?",
+                           (qui, cle))
+    if not lignes:
+        return None
+    try:
+        return json.loads(lignes[0]["valeur"])
+    except ValueError:
+        return None
+
+
+def ecrire_preference(cle, valeur, qui=None):
+    qui = qui or utilisateur_courant() or NOM_ADMIN
+    with stockage.transaction(DB_FILE) as cx:
+        cx.execute("INSERT OR REPLACE INTO preferences (compte, cle, valeur) VALUES (?, ?, ?)",
+                   (qui, cle, json.dumps(valeur, ensure_ascii=False)))
+
+
+def widgets_du_compte():
+    permis = widgets_permis()
+    choisis = lire_preference("widgets")
+    if not isinstance(choisis, list):
+        choisis = WIDGETS_PAR_DEFAUT
+    return [w for w in choisis if isinstance(w, dict) and w.get("id") in permis]
+
+
+@flask_app.get("/api/hub/widgets")
+@require_auth
+def api_widgets():
+    notes = lire_preference("notes")
+    return jsonify({"widgets": widgets_du_compte(),
+                    "disponibles": [{"id": w, "titre": WIDGETS[w]} for w in widgets_permis()],
+                    "notes": notes if isinstance(notes, str) else ""})
+
+
+@flask_app.put("/api/hub/widgets")
+@require_auth
+def api_widgets_modifier():
+    """{widgets: [{id, taille}]} -- dans l'ordre d'affichage. Un widget absent
+    de la liste est masque ; un nom inconnu ou un doublon est refuse."""
+    d = request.get_json(force=True, silent=True) or {}
+    liste = d.get("widgets")
+    permis = widgets_permis()
+    if not isinstance(liste, list) or len(liste) > len(WIDGETS):
+        return jsonify({"error": "Liste de widgets invalide."}), 400
+    propres, vus = [], set()
+    for w in liste:
+        if not isinstance(w, dict) or w.get("id") not in permis or w.get("id") in vus:
+            return jsonify({"error": "Widget inconnu."}), 400
+        taille = w.get("taille") or "normal"
+        if taille not in WIDGETS_TAILLES:
+            return jsonify({"error": "Taille inconnue."}), 400
+        vus.add(w["id"])
+        propres.append({"id": w["id"], "taille": taille})
+    ecrire_preference("widgets", propres)
+    return jsonify({"ok": True, "widgets": propres})
+
+
+@flask_app.put("/api/hub/notes")
+@require_auth
+def api_notes_hub():
+    """Le bloc-notes du hub : un texte libre, propre a chaque compte."""
+    texte = (request.get_json(force=True, silent=True) or {}).get("notes")
+    if not isinstance(texte, str):
+        return jsonify({"error": "Texte attendu."}), 400
+    if len(texte) > NOTES_HUB_MAX:
+        return jsonify({"error": f"{NOTES_HUB_MAX} caractères au maximum."}), 400
+    ecrire_preference("notes", texte)
+    return jsonify({"ok": True})
+
+
+@flask_app.post("/api/mes-apps/<n>/ouverte")
+@require_auth
+def api_app_ouverte(n):
+    """Le hub previent qu'il ouvre une application : on note la version vue.
+
+    Seule une application que ce compte peut ouvrir est notee -- sinon la
+    route dirait l'existence de projets qu'il n'a pas le droit de connaitre.
+    """
+    apps = load()
+    autorises = projets_autorises()
+    if n not in apps or not peut_voir(n) or (autorises is not None and n not in autorises):
+        return jsonify({"error": "Application inconnue."}), 404
+    version = versions_des_apps({n: apps[n]})[n]
+    with stockage.transaction(DB_FILE) as cx:
+        cx.execute("INSERT OR REPLACE INTO apps_vues (compte, app, ts, version) VALUES (?, ?, ?, ?)",
+                   (utilisateur_courant() or NOM_ADMIN, n, int(time.time()), version))
     return jsonify({"ok": True})
 
 

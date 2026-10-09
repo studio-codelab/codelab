@@ -12836,10 +12836,177 @@ def test_les_styles_lanceur_et_bento_se_posent_cote_serveur(deux_espaces):
     assert 'id="hub-filtre"' in page and 'id="hub-dock"' in page
     assert "function peindreDock(" in page and "function peindreBento(" in page
     assert ':root[data-variante="lanceur"] .hub-dock:not(:empty){display:flex' in page
-    assert "#hub-liste.bento{display:grid" in page
+    assert "#hub-liste.bento{--cel:" in page
     # Le script ne peint pas le hub avant d'avoir declare ce qu'il lit.
     debut = page.index("function applyStyle(")
     assert "peindreHub" not in page[debut:page.index("function setStyle(")]
+
+
+
+# ---------- le hub Bento : defilement, widgets, a la une ----------
+
+def test_la_mosaique_defile_a_l_horizontale_et_a_la_verticale_sur_telephone():
+    """Sur un ecran large : trois rangees a la hauteur de la fenetre, les
+    applications s'ajoutent sur la droite, jamais en bas. Sur un telephone :
+    une colonne qu'on fait defiler vers le bas."""
+    page = _page_panneau("dashboard.html")
+    regle = page.split("#hub-liste.bento{--cel:")[1].split("}")[0]
+    for attendu in ("grid-auto-flow:column", "grid-template-rows:repeat(3", "overflow-x:auto",
+                    "overflow-y:hidden", "height:var(--bento-h"):
+        assert attendu in regle, attendu
+    mobile = page.split("@media (max-width:760px){\n  :root[data-variante=\"lanceur\"] .salut")[1]
+    mobile = mobile.split("\n}")[0]
+    assert "grid-auto-flow:row" in mobile and "overflow:visible" in mobile and "height:auto" in mobile
+    # La molette verticale fait defiler de cote ; l'ajout d'application est
+    # la derniere tuile, donc a droite.
+    assert "el.scrollLeft += e.deltaY" in page
+    corps = page.split("function peindreBento(")[1].split("\n}")[0]
+    assert "liste.map(carte).join('') + vide + ajout" in corps
+    assert 'class="bento-ajout" onclick="openAdd()"' in corps
+
+
+def test_a_la_une_montre_un_apercu_de_la_derniere_application_ouverte(deux_espaces):
+    page = _page_panneau("dashboard.html")
+    une = page.split("function widgetUne(")[1].split("\n}")[0]
+    assert "<iframe" in une and "pointer-events" not in une  # inerte par le CSS
+    assert 'sandbox="allow-scripts allow-same-origin allow-forms"' in une
+    assert "a.ouverte_le" in page.split("function appALaUne(")[1].split("\n}")[0]
+    assert ".bw-apercu iframe{" in page and "pointer-events:none" in page.split(".bw-apercu iframe{")[1].split("}")[0]
+    # Le panneau autorise l'encadrement de l'origine des applications, et
+    # elle seule ; il ne s'encadre toujours pas lui-meme.
+    c = deux_espaces
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    r = c.get("/")
+    csp = r.headers["Content-Security-Policy"]
+    assert "frame-src" in csp and "frame-ancestors 'none'" in csp
+    assert r.headers["X-Frame-Options"] == "DENY"
+
+
+def test_les_widgets_se_choisissent_par_compte(deux_espaces):
+    c = deux_espaces
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    d = c.get("/api/hub/widgets").get_json()
+    ids = [w["id"] for w in d["widgets"]]
+    assert ids[0] == "une" and "demandes" in ids and "message" not in ids
+    assert {w["id"] for w in d["disponibles"]} == {"une", "etat", "horloge", "demandes", "notes"}
+    r = c.put("/api/hub/widgets", json={"widgets": [{"id": "horloge", "taille": "large"},
+                                                    {"id": "une"}]})
+    assert r.status_code == 200
+    assert c.get("/api/hub/widgets").get_json()["widgets"] == [
+        {"id": "horloge", "taille": "large"}, {"id": "une", "taille": "normal"}]
+    for mauvais in ([{"id": "inconnu"}], [{"id": "une"}, {"id": "une"}],
+                    [{"id": "une", "taille": "geant"}], "x", [{"id": "message"}]):
+        assert c.put("/api/hub/widgets", json={"widgets": mauvais}).status_code == 400, mauvais
+    assert c.put("/api/hub/notes", json={"notes": "acheter du pain"}).status_code == 200
+    assert c.get("/api/hub/widgets").get_json()["notes"] == "acheter du pain"
+    assert c.put("/api/hub/notes", json={"notes": "x" * 5000}).status_code == 400
+    # Un compte utilisateur a SES widgets, et pas celui des demandes.
+    u = app.flask_app.test_client()
+    _connecte(u, "marie", "mot-de-passe-long")
+    d = u.get("/api/hub/widgets").get_json()
+    assert "demandes" not in [w["id"] for w in d["widgets"]]
+    assert "message" in [w["id"] for w in d["widgets"]]
+    assert u.get("/api/hub/widgets").get_json()["notes"] == ""
+    assert u.put("/api/hub/widgets", json={"widgets": [{"id": "demandes"}]}).status_code == 400
+    page = _page_panneau("dashboard.html")
+    assert 'id="ov-widgets"' in page and "function enregistrerWidgets(" in page
+    assert "hub-personnaliser" in page
+
+
+# ---------- nouvelle version depuis la derniere ouverture ----------
+
+def _depot(chemin, commit):
+    (chemin / ".git" / "refs" / "heads").mkdir(parents=True, exist_ok=True)
+    (chemin / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+    (chemin / ".git" / "refs" / "heads" / "main").write_text(commit + "\n")
+
+
+def test_une_nouvelle_version_se_signale_a_qui_a_deja_ouvert(tmp_path, monkeypatch, deux_espaces):
+    c = deux_espaces
+    projet = tmp_path / "projet"
+    _depot(projet, "a" * 40)
+    apps = app.load()
+    apps["prive-autorise"]["path"] = str(projet)
+    app.save(apps)
+    assert app.commit_du_projet(str(projet)) == "a" * 40
+    u = app.flask_app.test_client()
+    _connecte(u, "marie", "mot-de-passe-long")
+
+    def etat():
+        (a,) = [x for x in u.get("/api/mes-apps").get_json()["apps"] if x["name"] == "prive-autorise"]
+        return a["nouvelle_version"], a["ouverte_le"]
+
+    # Jamais ouverte : pas d'indicateur.
+    assert etat() == (False, None)
+    assert u.post("/api/mes-apps/prive-autorise/ouverte").status_code == 200
+    nouvelle, ouverte = etat()
+    assert nouvelle is False and ouverte
+    # Un nouveau commit, une seconde plus tard : nouvelle version.
+    monkeypatch.setattr(app.time, "time", lambda: ouverte + 5)
+    _depot(projet, "b" * 40)
+    assert etat()[0] is True
+    # La rouvrir l'efface.
+    assert u.post("/api/mes-apps/prive-autorise/ouverte").status_code == 200
+    assert etat()[0] is False
+    # Un deploiement ou un build reussi compte aussi.
+    monkeypatch.setattr(app.time, "time", lambda: ouverte + 10)
+    app.marquer_nouvelle_version("prive-autorise")
+    assert etat()[0] is True
+    # On ne note pas l'ouverture d'une application qu'on ne peut pas voir.
+    assert u.post("/api/mes-apps/prive-refuse/ouverte").status_code == 404
+    assert u.post("/api/mes-apps/inconnue/ouverte").status_code == 404
+
+
+def test_le_commit_se_lit_sans_lancer_git(tmp_path):
+    assert app.commit_du_projet(str(tmp_path)) is None
+    assert app.commit_du_projet(None) is None
+    _depot(tmp_path, "c" * 40)
+    (tmp_path / ".git" / "refs" / "heads" / "main").unlink()
+    (tmp_path / ".git" / "packed-refs").write_text("# pack\n" + "d" * 40 + " refs/heads/main\n")
+    assert app.commit_du_projet(str(tmp_path)) == "d" * 40
+    (tmp_path / ".git" / "HEAD").write_text("ref: refs/../../etc\n")
+    assert app.commit_du_projet(str(tmp_path)) is None
+    page = _page_panneau("dashboard.html")
+    assert "Nouvelle version" in page and "/ouverte'" in page and "keepalive:true" in page
+
+
+# ---------- l'onglet Acces et la liste des applications ----------
+
+def test_aucun_identifiant_du_panneau_n_est_en_double():
+    """Deux elements du meme id : getElementById prend le premier, et la
+    liste des comptes de l'onglet Acces se dessinait dans l'onglet Activite,
+    cache. On ne pouvait plus autoriser personne."""
+    page = _page_panneau("dashboard.html")
+    ids = re.findall(r'\bid="([^"$]+)"', page)
+    doubles = sorted({i for i in ids if ids.count(i) > 1})
+    assert not doubles, doubles
+    acces = page.split('id="onglet-acces"')[1].split('id="onglet-config"')[0]
+    assert 'id="acces-liste"' in acces
+    corps = page.split("async function chargerAcces(")[1].split("\nasync function acBasculer")[0]
+    assert "$('acces-liste')" in corps and 'data-compte="' in corps
+
+
+def test_l_onglet_acces_autorise_un_compte(deux_espaces):
+    c = deux_espaces
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    assert c.put("/api/apps/prive-refuse/acces", json={"utilisateurs": ["marie"]}).status_code == 200
+    comptes = c.get("/api/apps/prive-refuse/acces").get_json()["comptes"]
+    assert comptes == [{"nom": "marie", "acces": True, "email": ""}]
+    assert "prive-autorise" in app.lire_utilisateurs()["marie"]["projets"]
+
+
+def test_la_liste_des_applications_se_cherche_se_filtre_et_se_trie():
+    page = _page_panneau("dashboard.html")
+    for trace in ('id="ap-filtre"', 'id="ap-etats"', 'id="ap-vis"', 'id="ap-cat"', 'id="ap-tri"',
+                  "apVue('cartes')", "apVue('liste')", 'data-agir="ap-trier"', "aria-sort=",
+                  'class="ap-grille"', "'ap-trier':", "'ap-etat':"):
+        assert trace in page, trace
+    # Les outils sont HORS de la zone repeinte toutes les cinq secondes.
+    outils = page.index('id="ap-outils"')
+    assert outils < page.index('<div id="tbl-projets"></div>')
+    corps = page.split("function apListe(){")[1].split("\n}")[0]
+    for colonne in ("vis", "cat", "apEtat", "apTriSens"):
+        assert colonne in corps, colonne
 
 
 # ---------- connexion en deux etapes ----------

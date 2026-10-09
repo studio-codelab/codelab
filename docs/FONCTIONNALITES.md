@@ -25,7 +25,7 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](../SECURITE.m
 
 | Page | Adresse | Pour qui | Ce qu'on y fait |
 |---|---|---|---|
-| Hub | `/` | tous | les applications ouvrables, rangées par catégories ; laisser un message à l'administrateur |
+| Hub | `/` | tous | les applications ouvrables, et (style Bento) des widgets ; laisser un message à l'administrateur |
 | Vue d'ensemble | `/apercu` | admin | compteurs (en ligne, arrêtées, en erreur), charge CPU et mémoire |
 | Applications | `/applications`, `/applications/<nom>[/<onglet>]` | admin | liste, puis fiche d'une application |
 | Utilisateurs | `/utilisateurs` | admin | comptes, invitations, journal des accès, carte d'activité |
@@ -39,7 +39,20 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](../SECURITE.m
   - « Lanceur » : le hub comme un écran d'accueil (trame de points, bonjour en grand, recherche au
     centre, grandes icônes cerclées si l'application ne répond pas, Dagster, Mailpit et Demandes
     dans un dock) ;
-  - « Bento » (par défaut) : le hub en mosaïque — voir plus bas.
+  - « Bento » (par défaut) : le hub en mosaïque.
+    - **Sur un écran large**, elle défile à l'horizontale et jamais à la verticale : trois rangées à
+      la hauteur de la fenêtre, et chaque application ajoute une colonne à droite. La molette fait
+      défiler de côté. La tuile « Ajouter une application » (admin) ferme la marche.
+    - **Sur téléphone**, elle redevient une colonne qu'on fait défiler vers le bas.
+    - **Widgets** (*Personnaliser*, à côté de la recherche) : chaque compte choisit lesquels, leur
+      ordre et leur taille (normal ou grand), gardés côté serveur d'un appareil à l'autre :
+      « À la une », « État des applications », « Date et heure », « Demandes à traiter » (admin),
+      « Écrire à l'administrateur » (comptes utilisateurs) et « Bloc-notes » (enregistré en continu).
+    - **À la une** montre un aperçu en direct, réduit et inerte, de la dernière application ouverte
+      par ce compte, avec la date de l'ouverture ; un clic l'ouvre.
+- **Indicateur « Nouvelle version »** sur la tuile d'une application qui a changé depuis la dernière
+  fois que ce compte l'a ouverte : un déploiement ou un build réussi depuis le panneau, ou un
+  nouveau commit dans son dépôt git. Une application jamais ouverte n'en porte pas.
 - **Thème clair, sombre ou automatique.** Les jetons de couleur vivent dans
   `app-manager/app/theme.css`, aussi servi aux applications sur `/theme.css`.
 - **Installable sur l'écran d'accueil** d'un téléphone (manifeste web et icônes fournis).
@@ -93,19 +106,24 @@ Détails : [`app-manager/README.md`](../app-manager/README.md) et, côté dével
 
 **Observer**
 
-- **Fiche d'une application**, en cinq onglets :
+- **Liste des applications** : une recherche (nom, description, catégorie, port), des filtres par
+  état (en ligne, arrêtées, à surveiller), visibilité et catégorie, un tri par nom, état,
+  visibilité, port, CPU ou mémoire. Deux affichages, retenus par navigateur : des cartes (état,
+  jauges CPU et mémoire, démarrer/arrêter) ou une liste dont chaque colonne se trie d'un clic.
+- **Fiche d'une application**, en six onglets :
 
   | Onglet | Contenu |
   |---|---|
   | Général | état, port, dossier, commandes, ressources du moment |
   | Métriques | CPU et mémoire sur les deux dernières minutes |
   | Journal | flux en direct, avec filtre |
-  | Accès | qui peut ouvrir l'application, une case par compte |
+  | Activité | ouvertures, comptes qui s'en servent, dernières ouvertures |
+  | Accès | autoriser ou retirer chaque compte d'une case (recherche au-delà de six comptes) |
   | Configuration | description, commandes, limite mémoire, visibilité, logo, suppression |
 
 - **Journaux** : rotation à 2 Mo, flux en direct plafonné pour ne pas bloquer le panneau.
 
-**Partager et emporter**
+**Partager**
 
 - **Visibilité** : privée (comptes autorisés) ou publique (lien partageable, possible seulement si une
   adresse publique est déclarée).
