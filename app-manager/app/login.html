@@ -212,14 +212,51 @@ button.principal:disabled{opacity:.6;cursor:default}
 .secondaire:disabled{opacity:.55;cursor:default}
 
 /* STYLE « DESIGN » : une carte blanche centree, sans le panneau de
-   presentation, et sans bouton Face ID -- la cle d'acces se propose d'elle-
-   meme dans le champ du nom, comme le fait une application bancaire. */
+   presentation. Face ID / Touch ID en tete : c'est le chemin le plus court,
+   il ne doit pas se cacher derriere le champ du nom. */
 :root[data-style="design"] .presentation{display:none}
 :root[data-style="design"] .boite{border:0;border-radius:32px;padding:40px 34px 32px;
  box-shadow:0 20px 60px var(--shadow-2)}
-:root[data-style="design"] #pk-zone{display:none !important}
 :root[data-style="design"] button.principal{border-radius:16px;padding:14px}
 :root[data-style="design"] input{border-radius:14px}
+
+/* ---- le bouton du geste (Face ID, Touch ID...) ---- */
+.bouton-geste{width:100%;display:flex;align-items:center;justify-content:center;gap:10px;
+ padding:14px;border:0;border-radius:16px;background:var(--txt);color:var(--surface);
+ font:inherit;font-size:15px;font-weight:650;cursor:pointer;letter-spacing:-.01em;
+ transition:transform .12s ease, opacity .12s}
+.bouton-geste:hover{opacity:.92}
+.bouton-geste:active{transform:scale(.985)}
+.bouton-geste:disabled{opacity:.55;cursor:default}
+.bouton-geste svg{width:22px;height:22px;stroke-width:1.7}
+.pk-indispo{margin:0 0 18px;font-size:12px;color:var(--dim2);text-align:center;line-height:1.5}
+
+/* ---- l'etape 2 ---- */
+.facteur-tete{display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px;
+ margin:4px 0 18px}
+.facteur-ico{width:64px;height:64px;border-radius:20px;display:grid;place-items:center;
+ background:var(--accent-soft);color:var(--accent)}
+.facteur-ico svg{width:34px;height:34px;stroke-width:1.6}
+.facteur-tete p{font-size:13.5px;color:var(--dim);line-height:1.5;max-width:300px}
+.facteur-tete b{color:var(--txt)}
+/* Une case par chiffre : on voit ce qu'on a tape, et ou l'on en est. */
+.code-cases{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) 8px repeat(3,minmax(0,1fr));
+ gap:8px;max-width:340px;margin:0 auto}
+.code-cases input{width:100%;min-width:0;height:58px;padding:0;text-align:center;font-size:24px;font-weight:700;
+ border-radius:14px;border:1.5px solid var(--line2);background:var(--bg-input);color:var(--txt);
+ caret-color:var(--accent);font-variant-numeric:tabular-nums;transition:border-color .12s, box-shadow .12s}
+.code-cases input:focus{border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-ring)}
+.code-cases input.rempli{border-color:var(--accent)}
+.code-cases .sep{width:8px;align-self:center;height:2px;border-radius:2px;background:var(--line2)}
+.code-cases.erreur input{border-color:var(--err);animation:secoue .32s ease}
+@keyframes secoue{20%{transform:translateX(-5px)}40%{transform:translateX(5px)}
+ 60%{transform:translateX(-3px)}80%{transform:translateX(3px)}}
+@media (prefers-reduced-motion:reduce){.code-cases.erreur input{animation:none}}
+@media (max-width:380px){.code-cases{gap:5px}.code-cases input{height:52px;font-size:21px}}
+.code-pied{display:flex;justify-content:center;gap:14px;flex-wrap:wrap;margin-top:16px;
+ font-size:12.5px;color:var(--dim)}
+.code-pied a{color:var(--accent);cursor:pointer;font-weight:600}
+.code-pied a[aria-disabled="true"]{color:var(--dim2);cursor:default;pointer-events:none}
 </style></head><body>
 
 <div class="presentation">
@@ -263,10 +300,14 @@ button.principal:disabled{opacity:.6;cursor:default}
            utiliser (HTTPS, nom de domaine, et la bibliotheque installee) :
            un bouton qui echoue toujours est pire qu'un bouton absent. -->
       <div id="pk-zone" style="display:none">
-        <button class="principal" id="pk-go" onclick="connexionPasskey()" style="margin-top:0">
-          <span id="pk-libelle">Se connecter avec Face ID</span></button>
+        <button class="bouton-geste" id="pk-go" onclick="connexionPasskey()">
+          <span class="geste-ico" aria-hidden="true"></span>
+          <span id="pk-libelle">Continuer avec Face ID</span></button>
         <div class="ou">ou avec ton mot de passe</div>
       </div>
+      <!-- L'appareil sait faire Face ID, mais pas ici : on dit pourquoi,
+           plutot qu'un bouton absent sans explication. -->
+      <div class="pk-indispo" id="pk-indispo" style="display:none"></div>
 
       <!-- INVITATION. La meme page, ouverte par le lien recu par mail : la
            personne choisit son nom et son mot de passe, rien d'autre. -->
@@ -292,18 +333,36 @@ button.principal:disabled{opacity:.6;cursor:default}
       </div>
 
       <div id="totp-bloc" style="display:none">
-        <div class="ok" id="code-info"></div>
-        <div class="field" id="code-champ" style="margin-top:14px"><label id="code-label">Code de vérification</label>
-          <input type="text" id="code" inputmode="numeric" autocomplete="one-time-code"
-                 maxlength="6" placeholder="123456"></div>
+        <div class="facteur-tete">
+          <div class="facteur-ico" id="facteur-ico" aria-hidden="true"></div>
+          <p id="code-info"></p>
+        </div>
+        <!-- LE CODE, UNE CASE PAR CHIFFRE. Le champ cache porte la valeur
+             envoyee ; les cases ne sont que sa forme. Un code colle, ou
+             propose par le clavier (« one-time-code »), remplit tout d'un coup,
+             et le sixieme chiffre valide sans clic. -->
+        <div id="code-champ">
+          <input type="hidden" id="code">
+          <div class="code-cases" id="code-cases" role="group" aria-label="Code à six chiffres">
+            <input inputmode="numeric" autocomplete="one-time-code" aria-label="Chiffre 1">
+            <input inputmode="numeric" autocomplete="off" aria-label="Chiffre 2">
+            <input inputmode="numeric" autocomplete="off" aria-label="Chiffre 3">
+            <span class="sep" aria-hidden="true"></span>
+            <input inputmode="numeric" autocomplete="off" aria-label="Chiffre 4">
+            <input inputmode="numeric" autocomplete="off" aria-label="Chiffre 5">
+            <input inputmode="numeric" autocomplete="off" aria-label="Chiffre 6">
+          </div>
+        </div>
         <!-- ETAPE 2 PAR FACE ID : le mot de passe est juste, l'appareil
-             confirme que c'est bien la personne. Rien a taper. -->
+             confirme que c'est bien la personne. Aucun code a lire ni a
+             taper. -->
         <div id="facteur-pk" style="display:none">
-          <button class="principal" id="facteur-pk-go" onclick="facteurPasskey()" style="margin-top:4px">
-            Confirmer avec <span id="facteur-pk-geste">Face ID</span></button>
+          <button class="bouton-geste" id="facteur-pk-go" onclick="facteurPasskey()">
+            <span class="geste-ico" aria-hidden="true"></span>
+            <span>Confirmer avec <span id="facteur-pk-geste">Face ID</span></span></button>
         </div>
         <!-- Les autres moyens du compte, et « Renvoyer le code ». -->
-        <div class="bascule" id="code-moyens"></div>
+        <div class="code-pied" id="code-moyens"></div>
       </div>
 
       <!-- PREMIERE CONNEXION : le second facteur s'enregistre ici. Rien a
@@ -585,6 +644,22 @@ function nomDuGeste(){
   return 'une clé d\'accès';
 }
 
+/* L'icone du geste, a cote de son nom : le visage pour Face ID,
+   l'empreinte pour Touch ID et Android, une cle ailleurs. */
+const ICONES={
+  visage:'<svg viewBox="0 0 24 24"><path d="M4 8V6a2 2 0 012-2h2M16 4h2a2 2 0 012 2v2M20 16v2a2 2 0 01-2 2h-2M8 20H6a2 2 0 01-2-2v-2"/><path d="M9 9v1.5M15 9v1.5M12 9v3.6h-1"/><path d="M9.2 15.6c1.6 1.2 4 1.2 5.6 0"/></svg>',
+  empreinte:'<svg viewBox="0 0 24 24"><path d="M12 11v2.5a9 9 0 01-1.4 4.8"/><path d="M8.6 9.4A4 4 0 0116 11v1.5c0 1.8-.3 3.5-1 5"/><path d="M5.6 7.2A8 8 0 0120 11v1"/><path d="M4.2 14.5c-.1-.8-.2-1.6-.2-2.5 0-1 .2-2 .5-2.9"/><path d="M8 13c0 2.2-.5 4.2-1.6 5.9"/><path d="M19.7 15.6c-.2 1.2-.5 2.4-1 3.5"/></svg>',
+  cle:'<svg viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l2.5 2.5M14.5 8.5L17 11"/></svg>',
+  mail:'<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3.8 6.6L12 13l8.2-6.4"/></svg>',
+  appli:'<svg viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="2.6"/><path d="M10.5 18.3h3"/><path d="M9.5 9.5l2 2 3-3.5"/></svg>',
+};
+function iconeGeste(){
+  const g=nomDuGeste();
+  return g==='Face ID' ? ICONES.visage : (g==='Touch ID' || g==='ton empreinte') ? ICONES.empreinte : ICONES.cle;
+}
+const esc=t=>String(t??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+document.querySelectorAll('.geste-ico').forEach(n=>{ n.innerHTML=iconeGeste(); });
+
 /* Une demande « conditionnelle » attend en silence que la personne touche
    le champ du nom : le navigateur y propose alors la cle d'acces, comme un
    mot de passe enregistre. Elle doit etre annulee avant toute autre demande,
@@ -595,8 +670,17 @@ let attenteConditionnelle=null;
   if(!window.PublicKeyCredential || jetonInvitation) return;
   try{
     const d=await (await fetch('/api/passkeys/etat')).json();
-    if(!d.possible) return;
-    $$('pk-libelle').textContent='Se connecter avec ' + nomDuGeste();
+    if(!d.possible){
+      /* L'appareil sait faire, le serveur pas encore (HTTP, adresse IP) :
+         la raison, en une ligne, plutot qu'un bouton qui echouerait. */
+      if(d.empechement){
+        $$('pk-indispo').textContent=nomDuGeste()+' sera proposé ici une fois le panneau ouvert '
+          + 'en HTTPS, par son nom de domaine.';
+        $$('pk-indispo').style.display='block';
+      }
+      return;
+    }
+    $$('pk-libelle').textContent='Continuer avec ' + nomDuGeste();
     $$('pk-zone').style.display='block';
     if(PublicKeyCredential.isConditionalMediationAvailable
        && await PublicKeyCredential.isConditionalMediationAvailable()){
@@ -673,31 +757,98 @@ function afficherCode(d){
   moyenCourant=d.moyen;
   LIBELLES_MOYEN.passkey=nomDuGeste();
   $$('totp-bloc').style.display='block';
-  const parCle = d.moyen==='passkey';
+  const parCle = d.moyen==='passkey', parMail = d.moyen==='email';
+  /* FACE ID / TOUCH ID : aucun code. Ni a lire, ni a taper -- l'appareil
+     confirme seul. Le code n'apparait que pour le mail ou l'application. */
   $$('facteur-pk').style.display = parCle ? 'block' : 'none';
   $$('code-champ').style.display = parCle ? 'none' : 'block';
   go.style.display = parCle ? 'none' : '';
+  go.textContent='Valider';
   $$('facteur-pk-geste').textContent = nomDuGeste();
   $$('connexion-champs').style.display='none';
   $$('pk-zone').style.display='none';
+  $$('pk-indispo').style.display='none';
   $$('oubli-lien-zone').style.display='none';
   $$('pied').style.display='none';
-  $$('code-label').textContent = d.moyen==='totp'
-    ? "Code de ton application d'authentification" : 'Code reçu par mail';
-  const info=$$('code-info');
-  info.textContent = d.moyen==='totp' ? '' : (d.error||'');
-  info.style.display = info.textContent ? 'block' : 'none';
-  if(d.envoi_impossible){ info.style.display='none'; err.textContent=d.error; err.style.display='block'; }
+  $$('facteur-ico').innerHTML = parCle ? iconeGeste() : parMail ? ICONES.mail : ICONES.appli;
+  $$('code-info').innerHTML = parCle
+    ? 'Confirme que c’est bien toi avec <b>'+esc(nomDuGeste())+'</b>. Aucun code à saisir.'
+    : parMail
+      ? (d.destination ? 'Saisis le code à six chiffres envoyé à <b>'+esc(d.destination)+'</b>.'
+                       : 'Saisis le code à six chiffres reçu par mail.')
+      : 'Saisis le code à six chiffres affiché par ton application d’authentification.';
+  if(d.envoi_impossible){ err.textContent=d.error; err.style.display='block'; }
   const autres=(d.moyens||[]).filter(m=>m!==d.moyen && LIBELLES_MOYEN[m]);
   const liens=autres.map(m=>`<a onclick="choisirMoyen('${m}')">Utiliser ${LIBELLES_MOYEN[m]||m}</a>`);
-  if(d.moyen==='email') liens.unshift(`<a onclick="choisirMoyen('${d.moyen}')">Renvoyer le code</a>`);
-  $$('code-moyens').innerHTML=liens.join(' · ');
-  code.value='';
-  document.querySelector('.boite h2').textContent='Vérification';
-  document.querySelector('.boite .st').textContent='Une dernière étape pour confirmer que c\'est bien toi.';
+  if(parMail) liens.unshift(`<a id="renvoyer" onclick="choisirMoyen('email')">Renvoyer le code</a>`);
+  $$('code-moyens').innerHTML=liens.join('');
+  viderCases();
+  document.querySelector('.boite h2').textContent = parCle ? nomDuGeste()
+    : parMail ? 'Vérifie tes mails' : 'Code de vérification';
+  document.querySelector('.boite .st').textContent='Dernière étape : confirme que c’est bien toi.';
+  if(parMail && d.envoye) compteARebours(60);
   /* Face ID se lance tout seul ; le bouton reste si le navigateur demande
      un geste de plus. */
-  if(parCle) facteurPasskey(true); else setTimeout(()=>code.focus(), 40);
+  if(parCle) facteurPasskey(true); else setTimeout(()=>cases[0].focus(), 40);
+}
+
+/* ---------------- le code, une case par chiffre ---------------- */
+const cases=[...document.querySelectorAll('#code-cases input')];
+function majCode(){
+  code.value=cases.map(c=>c.value).join('');
+  cases.forEach(c=>c.classList.toggle('rempli', !!c.value));
+  /* Le sixieme chiffre valide : pas de bouton a aller chercher. */
+  if(/^\d{6}$/.test(code.value) && !go.disabled) submit();
+}
+function remplirCases(chiffres, depart){
+  chiffres=String(chiffres).replace(/\D/g,'').slice(0, 6-depart);
+  [...chiffres].forEach((c,k)=>{ cases[depart+k].value=c; });
+  cases[Math.min(depart+chiffres.length, 5)].focus();
+  majCode();
+}
+function viderCases(){
+  cases.forEach(c=>{ c.value=''; c.classList.remove('rempli'); });
+  code.value='';
+}
+function secouerCases(){
+  const g=$$('code-cases');
+  g.classList.remove('erreur'); void g.offsetWidth; g.classList.add('erreur');
+  setTimeout(()=>g.classList.remove('erreur'), 400);
+  viderCases(); cases[0].focus();
+}
+cases.forEach((c,i)=>{
+  c.addEventListener('input',()=>{
+    const v=c.value.replace(/\D/g,'');
+    /* Plusieurs chiffres d'un coup : le clavier propose le code recu, ou
+       un collage. Ils se repartissent dans les cases suivantes. */
+    if(v.length>1){ c.value=''; remplirCases(v, i); return; }
+    c.value=v;
+    if(v && i<5) cases[i+1].focus();
+    majCode();
+  });
+  c.addEventListener('keydown',e=>{
+    if(e.key==='Backspace' && !c.value && i>0){
+      e.preventDefault(); cases[i-1].value=''; cases[i-1].focus(); majCode();
+    }else if(e.key==='ArrowLeft' && i>0){ e.preventDefault(); cases[i-1].focus(); }
+    else if(e.key==='ArrowRight' && i<5){ e.preventDefault(); cases[i+1].focus(); }
+    else if(e.key==='Enter'){ submit(); }
+  });
+  c.addEventListener('paste',e=>{
+    e.preventDefault();
+    remplirCases((e.clipboardData||window.clipboardData).getData('text'), i);
+  });
+  c.addEventListener('focus',()=>c.select());
+});
+
+/* « Renvoyer le code » attend la minute que le serveur impose entre deux
+   envois : le dire vaut mieux qu'un lien qui ne fait rien. */
+let attenteRenvoi=null;
+function compteARebours(sec){
+  clearTimeout(attenteRenvoi);
+  const a=$$('renvoyer'); if(!a) return;
+  if(sec<=0){ a.textContent='Renvoyer le code'; a.removeAttribute('aria-disabled'); return; }
+  a.textContent='Renvoyer dans '+sec+' s'; a.setAttribute('aria-disabled','true');
+  attenteRenvoi=setTimeout(()=>compteARebours(sec-1), 1000);
 }
 
 async function facteurPasskey(auto){
@@ -809,27 +960,27 @@ async function submit(){
        actif), pour un compte utilisateur il apparait apres un premier refus
        -- le serveur seul sait quels comptes existent. */
     const codeVisible=document.getElementById('totp-bloc').style.display!=='none';
-    if(codeVisible) corps.code=code.value;
-    if(codeVisible && moyenCourant && moyenCourant!=='totp' && !code.value.trim()){
-      /* Champ vide : on renvoie un code par le meme moyen plutot que de
-         compter un essai rate. */
-      corps.moyen=moyenCourant;
+    if(codeVisible && !/^\d{6}$/.test(code.value)){
+      /* Code incomplet : rien ne part, aucun essai n'est compte. */
+      err.textContent='Saisis les six chiffres du code.'; err.style.display='block';
+      go.disabled=false; go.textContent='Valider'; secouerCases(); return;
     }
+    if(codeVisible) corps.code=code.value;
     const r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(corps)});
     const d=await r.json();
     if(r.ok && d.inscription){ afficherInscription(d); go.disabled=false; return; }
     if(r.ok){ location.href=SUITE; return; }
-    if(d.moyen && !corps.code){ afficherCode(d); go.disabled=false; go.textContent='Valider le code'; return; }
+    if(d.moyen && !corps.code){ afficherCode(d); go.disabled=false; go.textContent='Valider'; return; }
     err.textContent=d.error||'Erreur.'; err.style.display='block';
+    if(corps.code) secouerCases();
   }catch(e){ err.textContent='Erreur réseau.'; err.style.display='block'; }
-  go.disabled=false; go.textContent = moyenCourant ? 'Valider le code' : 'Se connecter';
+  go.disabled=false; go.textContent = moyenCourant ? 'Valider' : 'Se connecter';
 }
 const valider=e=>{ if(e.key==='Enter') submit(); };
 nom.addEventListener('keydown', valider);
 nom.addEventListener('input', majChamps);
 pw.addEventListener('keydown', valider);
-if(code) code.addEventListener('keydown', valider);
 codeInscription.addEventListener('keydown', valider);
 ['inv-nom','inv-mdp'].forEach(i=>$$(i).addEventListener('keydown', valider));
 majChamps();

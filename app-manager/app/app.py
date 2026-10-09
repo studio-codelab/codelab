@@ -38,6 +38,7 @@ import base64
 import copy
 import datetime
 import fcntl
+import html as _html
 import functools
 import gzip
 import queue
@@ -2194,9 +2195,9 @@ def envoyer_code_reinit(adresse, nom, code):
 # le code ne part que vers l'adresse verifiee du compte -- jamais vers une
 # destination fournie par la requete.
 #
-# Ordre de preference : l'application d'authentification si la personne en a
-# enregistre une (elle l'a choisie, et elle marche hors ligne), puis le mail.
-# La personne peut toujours basculer de l'un a l'autre.
+# Ordre de preference : Face ID / Touch ID (rien a saisir), puis le code par
+# mail, puis l'application d'authentification. La personne peut toujours
+# basculer de l'un a l'autre.
 CODE_CONNEXION_VALIDITE = 600   # 10 minutes
 CODE_CONNEXION_ESSAIS = 5
 MOYEN_TOTP, MOYEN_EMAIL = "totp", "email"
@@ -2220,8 +2221,6 @@ def masquer_destination(moyen, valeur):
 def moyens_second_facteur(compte):
     """Les moyens utilisables pour ce compte, dans l'ordre de preference."""
     moyens = []
-    if compte.get("totp"):
-        moyens.append(MOYEN_TOTP)
     # Apres une reinitialisation du mot de passe PAR MAIL, le mail a deja
     # servi de preuve : le reprendre comme second facteur reviendrait a
     # ouvrir le compte a qui tient la boite. Le code par mail reste suspendu
@@ -2229,6 +2228,10 @@ def moyens_second_facteur(compte):
     if (compte.get("email") and compte.get("email_verifie")
             and not compte.get("code_mail_suspendu") and smtp_utilisable()[1]):
         moyens.append(MOYEN_EMAIL)
+    # Le code par mail d'abord : rien a installer, il arrive la ou l'on
+    # regarde deja. L'application d'authentification reste a un clic.
+    if compte.get("totp"):
+        moyens.append(MOYEN_TOTP)
     return moyens
 
 
@@ -2264,18 +2267,42 @@ def verifier_code_connexion(compte, code):
     return False
 
 
-def envoyer_code_connexion(compte, nom, moyen, code):
-    """Envoie le code par mail, ou leve."""
+def envoyer_code_connexion(compte, nom, moyen, code, destinataires=None):
+    """Envoie le code par mail, ou leve.
+
+    Le texte pour tous les lecteurs de mail ; une version mise en page, le
+    code en grand, pour ceux qui l'affichent.
+    """
     validite = CODE_CONNEXION_VALIDITE // 60
     cfg, _ = smtp_utilisable()
-    envoyer_mail(cfg, "[CodeLab] ton code de connexion",
+    chiffres = "".join(
+        f'<span style="display:inline-block;width:40px;height:52px;line-height:52px;'
+        f'margin:0 3px;border-radius:10px;background:#f1f3f6;font-size:28px;'
+        f'font-weight:700;color:#11151c">{c}</span>' for c in code)
+    page = (
+        '<div style="background:#eef0f3;padding:32px 12px;font-family:-apple-system,'
+        'BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif">'
+        '<div style="max-width:440px;margin:0 auto;background:#fff;border-radius:20px;'
+        'padding:32px 28px;text-align:center;color:#11151c">'
+        '<div style="font-size:15px;font-weight:700;letter-spacing:-.01em">CodeLab</div>'
+        '<h1 style="font-size:21px;margin:22px 0 6px">Ton code de connexion</h1>'
+        f'<p style="margin:0 0 22px;color:#5b6472;font-size:14px">Pour le compte '
+        f'<b>{_html.escape(nom)}</b>. Saisis-le sur la page de connexion.</p>'
+        f'<div style="white-space:nowrap">{chiffres}</div>'
+        f'<p style="margin:22px 0 0;color:#5b6472;font-size:13px">Valable {validite} minutes, '
+        'il ne sert qu\'une fois.</p>'
+        '<p style="margin:18px 0 0;padding-top:16px;border-top:1px solid #e6e8ec;'
+        'color:#8a92a0;font-size:12px">Pas toi ? Ton mot de passe est connu de quelqu\'un '
+        "d'autre : change-le, et préviens ton administrateur.</p>"
+        '</div></div>')
+    envoyer_mail(cfg, f"[CodeLab] {code} est ton code de connexion",
                  f"Code de connexion pour le compte « {nom} » : {code}\n\n"
                  f"Il est valable {validite} minutes, et ne sert qu'une fois.\n\n"
                  "Si tu n'es pas à l'origine de cette connexion, ton mot de passe "
                  "est connu de quelqu'un d'autre : change-le, et préviens ton "
                  "administrateur.\n\n"
                  "-- CodeLab, panneau de gestion des applications",
-                 destinataires=[compte["email"]], sensible=True)
+                 destinataires=destinataires or [compte["email"]], sensible=True, html=page)
 
 
 # ------------------------------ invitations ------------------------------
@@ -5575,10 +5602,11 @@ def _envoyer_par_mailpit(msg):
         s.send_message(msg)
 
 
-def envoyer_mail(cfg, sujet, corps, destinataires=None, sensible=False):
+def envoyer_mail(cfg, sujet, corps, destinataires=None, sensible=False, html=None):
     """Envoie, ou leve. Par Mailpit d'abord, en direct sinon.
 
     sensible=True (mails de securite) : jamais par Mailpit, toujours en direct.
+    html : une version mise en page, en plus du texte.
     """
     msg = EmailMessage()
     msg["Subject"] = sujet
@@ -5586,6 +5614,8 @@ def envoyer_mail(cfg, sujet, corps, destinataires=None, sensible=False):
     msg["To"] = ", ".join(destinataires if destinataires is not None
                           else cfg["destinataires"])
     msg.set_content(corps)
+    if html:
+        msg.add_alternative(html, subtype="html")
 
     if sensible:
         if not cfg.get("host"):
@@ -6605,9 +6635,12 @@ def login_submit():
                                              "panneau en HTTPS, par son nom de domaine."}), 403
                 attendre_second_facteur(NOM_ADMIN)
                 moyen = d.get("moyen") if d.get("moyen") in moyens else moyens[0]
+                if moyen == MOYEN_EMAIL:
+                    return _code_admin_par_mail(moyens)
                 return jsonify({"totp": True, "second_facteur": True,
                                 "moyen": moyen, "moyens": moyens}), 401
-            if not (totp_actif() and totp_verifie(_totp_secret, code)):
+            if not ((totp_actif() and totp_verifie(_totp_secret, code))
+                    or verifier_code_admin(code)):
                 register_failed_attempt()
                 journaliser("echec", qui=NOM_ADMIN, motif="second facteur", ip=_adresse_client())
                 return jsonify({"error": "Code de vérification incorrect.",
@@ -6762,13 +6795,64 @@ def passkey_utilisable():
 
 
 def moyens_admin():
-    """Les seconds facteurs de l'administrateur, Face ID d'abord."""
+    """Les seconds facteurs de l'administrateur : Face ID, le mail, l'application.
+
+    Le code par mail part a l'adresse d'alerte, jamais par Mailpit (un mail
+    de securite) : il faut donc un vrai serveur d'envoi.
+    """
     moyens = []
     if passkeys_du_compte(NOM_ADMIN) and passkey_utilisable():
         moyens.append(MOYEN_PASSKEY)
+    if smtp_utilisable()[1] and smtp_utilisable()[0].get("host") and alertes_admin():
+        moyens.append(MOYEN_EMAIL)
     if totp_actif():
         moyens.append(MOYEN_TOTP)
     return moyens
+
+
+def _code_admin_par_mail(moyens):
+    """Envoie (au plus une fois par minute) le code de l'administrateur.
+
+    Le code vit au coffre, en empreinte, comme celui d'un compte : jamais
+    dans le cookie, ou six chiffres se retrouveraient par force brute.
+    """
+    destinataires = alertes_admin()
+    reponse = {"totp": True, "second_facteur": True, "moyen": MOYEN_EMAIL, "moyens": moyens,
+               "destination": masquer_destination(MOYEN_EMAIL, destinataires[0])}
+    en_cours = reglage("code_connexion_admin") or {}
+    if int(time.time()) - int(en_cours.get("envoye") or 0) >= CODE_EMAIL_DELAI:
+        # Compte comme une tentative : sinon, des mails en boucle.
+        register_failed_attempt()
+        porteur = {}
+        code = poser_code_connexion(porteur, MOYEN_EMAIL)
+        try:
+            # Range d'abord : un code parti mais jamais enregistre ne
+            # pourrait pas etre verifie.
+            ecrire_reglage("code_connexion_admin", porteur["code_connexion"])
+            envoyer_code_connexion(porteur, NOM_ADMIN, MOYEN_EMAIL, code,
+                                   destinataires=destinataires)
+        except Exception as e:                                    # noqa: BLE001
+            journaliser("echec", qui=NOM_ADMIN, motif="envoi du code (email)",
+                        detail=f"{type(e).__name__}", ip=_adresse_client())
+            reponse.update(error="Le code n'a pas pu partir par mail.", envoi_impossible=True)
+            return jsonify(reponse), 401
+    reponse.update(error="Un code vient de t'être envoyé par mail à "
+                         + reponse["destination"] + ".", envoye=True)
+    return jsonify(reponse), 401
+
+
+def verifier_code_admin(code):
+    """Le code par mail de l'administrateur : un essai consomme, le code au succes."""
+    en_cours = reglage("code_connexion_admin")
+    if not en_cours:
+        return False
+    porteur = {"code_connexion": en_cours}
+    ok = verifier_code_connexion(porteur, code)
+    try:
+        ecrire_reglage("code_connexion_admin", porteur.get("code_connexion"))
+    except (OSError, RuntimeError):
+        pass
+    return ok
 
 
 def attendre_second_facteur(nom):
@@ -10540,6 +10624,93 @@ def api_message_accepter(identifiant):
     return jsonify({"ok": True, "tache": tache, "projet": projet})
 
 
+# ------------------------- le suivi, cote utilisateur -------------------------
+#
+# Qui a ecrit veut savoir ce que son message est devenu, sans demander. Le
+# suivi se DEDUIT de ce que l'administrateur fait deja dans Messages : lire,
+# mettre a l'etude, accepter, refuser, en faire des taches, les cocher. Rien
+# a remplir de plus de son cote.
+#
+# Un compte ne voit que SES messages, et de leurs taches seulement le titre
+# et si elle est faite : ni les notes, ni le reste du planning.
+ETAPES_SUIVI = ("envoye", "lu", "etude", "planifie", "en_cours", "fait", "refuse")
+
+
+def suivi_message(m, taches, projets):
+    """L'etape d'un message, et ce qui en est ne."""
+    lies = [t for t in taches if t["message"] == m.get("id")]
+    projet = None
+    for p in projets:
+        if p["message"] == m.get("id") or p["id"] == m.get("projet"):
+            projet = p
+            break
+    if projet:
+        deja = {t["id"] for t in lies}
+        lies += [t for t in taches if t["projet"] == projet["id"] and t["id"] not in deja]
+    faites = [t for t in lies if t["statut"] == "fait"]
+    ouvertes = [t for t in lies if t["statut"] != "fait"]
+    statut = m.get("statut") or "en_attente"
+    if statut == "refuse":
+        etape = "refuse"
+    elif (lies and not ouvertes) or (projet and projet["etape"] == "realise"):
+        etape = "fait"
+    elif faites or any(t["statut"] == "en_cours" for t in lies) or (
+            projet and projet["etape"] == "construction"):
+        etape = "en_cours"
+    elif lies or projet or statut == "accepte":
+        etape = "planifie"
+    elif statut == "a_reflechir":
+        etape = "etude"
+    elif m.get("lu"):
+        etape = "lu"
+    else:
+        etape = "envoye"
+    echeances = sorted(t["echeance"] for t in ouvertes if t["echeance"])
+    fins = [t["fait_le"] for t in faites if t["fait_le"]]
+    return {"etape": etape,
+            "taches": [{"titre": t["titre"], "faite": t["statut"] == "fait"} for t in lies],
+            "faites": len(faites), "total": len(lies),
+            "prevu": echeances[-1] if echeances and etape != "fait" else None,
+            "fait_le": max(fins) if fins and etape == "fait" else None,
+            "projet": projet["nom"] if projet else None}
+
+
+def mes_messages():
+    qui = utilisateur_courant() or NOM_ADMIN
+    taches, projets = lire_taches(), lire_projets()
+    vus = lire_preference("suivi_vu", qui) or {}
+    if not isinstance(vus, dict):
+        vus = {}
+    rendus = []
+    for m in lire_messages(limite=MESSAGES_AFFICHES):
+        if m.get("qui") != qui:
+            continue
+        suivi = suivi_message(m, taches, projets)
+        # Nouveau : l'etape a change depuis la derniere visite. Un message
+        # qu'on vient d'envoyer n'a rien de neuf a annoncer.
+        vu = vus.get(m.get("id"), "envoye")
+        rendus.append({"id": m.get("id"), "ts": m.get("ts"), "cible": m.get("cible"),
+                       "app": m.get("app") or "", "texte": m.get("texte") or "",
+                       "suivi": suivi, "nouveau": suivi["etape"] != vu})
+    return rendus
+
+
+@flask_app.get("/api/mes-messages")
+@require_auth
+def api_mes_messages():
+    """Les messages de ce compte, chacun avec son avancement."""
+    rendus = mes_messages()
+    return jsonify({"messages": rendus, "nouveaux": sum(1 for m in rendus if m["nouveau"])})
+
+
+@flask_app.post("/api/mes-messages/vus")
+@require_auth
+def api_mes_messages_vus():
+    """Retient l'etape vue de chaque message : les pastilles s'eteignent."""
+    ecrire_preference("suivi_vu", {m["id"]: m["suivi"]["etape"] for m in mes_messages()})
+    return jsonify({"ok": True})
+
+
 @flask_app.get("/api/taches")
 @require_admin
 def api_taches():
@@ -10981,34 +11152,46 @@ def ouvertures_du_compte(qui=None):
                                             "WHERE compte = ?", (qui,))}
 
 
-# ------------------------- les widgets du hub -------------------------
+# ------------------------- la composition du hub -------------------------
 #
-# Le style Bento compose son hub de widgets. Chaque compte choisit lesquels,
-# dans quel ordre et en quelle taille ; le choix est garde cote serveur pour
-# suivre la personne d'un appareil a l'autre. La liste des widgets est FERMEE :
-# rien de ce que le client envoie ne devient un nom de widget.
+# Le style Bento se COMPOSE comme un ecran d'accueil : chaque compte range
+# ses tuiles d'application et ses widgets dans l'ordre qu'il veut, et choisit
+# la taille de chaque widget. La disposition est gardee cote serveur, pour
+# suivre la personne d'un appareil a l'autre.
+#
+# Peu de widgets, et seulement ceux qui parlent du hub ou de ses
+# applications : pas d'horloge ni de bloc-notes, que l'ordinateur a deja.
+# Le catalogue est FERME : rien de ce que le client envoie ne devient un nom
+# de widget.
+#   portee « hub »  : un widget sur le hub lui-meme ;
+#   portee « app »  : un widget sur UNE application, a choisir.
 WIDGETS = {
-    "une": "À la une",
-    "etat": "État des applications",
-    "horloge": "Date et heure",
-    "messages": "Messages à lire",
-    "message": "Écrire à l'administrateur",
-    "notes": "Bloc-notes",
+    "une": {"titre": "Dernière ouverte", "portee": "hub", "tailles": ("moyen", "grand"),
+            "description": "L'application ouverte en dernier, en aperçu."},
+    "etat": {"titre": "État des applications", "portee": "hub", "tailles": ("petit", "moyen"),
+             "description": "Combien répondent, et laquelle ne répond pas.", "admin": True},
+    "messages": {"titre": "Messages", "portee": "hub", "tailles": ("petit", "moyen"),
+                 "description": "Les messages à lire et à classer.", "admin": True},
+    "nouveautes": {"titre": "Nouvelles versions", "portee": "hub", "tailles": ("petit", "moyen"),
+                   "description": "Les applications mises à jour depuis ta dernière visite."},
+    "message": {"titre": "Écrire à l'administrateur", "portee": "hub", "tailles": ("moyen", "grand"),
+                "description": "Une idée, un souci, une demande.", "utilisateur": True},
+    "suivi": {"titre": "Mes messages", "portee": "hub", "tailles": ("petit", "moyen"),
+              "description": "Où en sont les messages que tu as envoyés.", "utilisateur": True},
+    "apercu": {"titre": "Aperçu", "portee": "app", "tailles": ("moyen", "grand"),
+               "description": "La page d'une application, en direct."},
 }
-WIDGETS_ADMIN = {"messages"}
-WIDGETS_UTILISATEUR = {"message"}
-WIDGETS_TAILLES = ("normal", "large")
-WIDGETS_PAR_DEFAUT = [
-    {"id": "une", "taille": "large"}, {"id": "etat", "taille": "normal"},
-    {"id": "messages", "taille": "normal"}, {"id": "message", "taille": "normal"},
-]
-NOTES_HUB_MAX = 4000
+TAILLES_WIDGET = ("petit", "moyen", "grand")
+DISPOSITION_MAX = 300
+# Avant la composition, un compte ne choisissait que ses widgets : on en
+# garde ce qui a encore un sens.
+_ANCIENNES_TAILLES = {"large": "grand", "normal": "moyen"}
 
 
 def widgets_permis():
     admin = est_admin()
-    return [w for w in WIDGETS
-            if not (w in WIDGETS_ADMIN and not admin) and not (w in WIDGETS_UTILISATEUR and admin)]
+    return [w for w, d in WIDGETS.items()
+            if not (d.get("admin") and not admin) and not (d.get("utilisateur") and admin)]
 
 
 def lire_preference(cle, qui=None):
@@ -11030,60 +11213,111 @@ def ecrire_preference(cle, valeur, qui=None):
                    (qui, cle, json.dumps(valeur, ensure_ascii=False)))
 
 
-def widgets_du_compte():
+def apps_du_hub_visibles():
+    """Les tuiles qu'un compte peut ranger : ses applications, et les services."""
+    autorises = projets_autorises()
+    noms = {n for n in load() if peut_voir(n) and (autorises is None or n in autorises)}
+    return noms, {s["name"] for s in services_du_hub()}
+
+
+def disposition_propre(elements):
+    """Valide une disposition. Rend (liste propre, erreur)."""
+    if not isinstance(elements, list) or len(elements) > DISPOSITION_MAX:
+        return None, "Disposition invalide."
     permis = widgets_permis()
-    choisis = lire_preference("widgets")
-    if not isinstance(choisis, list):
-        choisis = WIDGETS_PAR_DEFAUT
-    # Le widget « demandes » s'appelle maintenant « messages ».
-    choisis = [dict(w, id="messages") if isinstance(w, dict) and w.get("id") == "demandes" else w
-               for w in choisis]
-    return [w for w in choisis if isinstance(w, dict) and w.get("id") in permis]
-
-
-@flask_app.get("/api/hub/widgets")
-@require_auth
-def api_widgets():
-    notes = lire_preference("notes")
-    return jsonify({"widgets": widgets_du_compte(),
-                    "disponibles": [{"id": w, "titre": WIDGETS[w]} for w in widgets_permis()],
-                    "notes": notes if isinstance(notes, str) else ""})
-
-
-@flask_app.put("/api/hub/widgets")
-@require_auth
-def api_widgets_modifier():
-    """{widgets: [{id, taille}]} -- dans l'ordre d'affichage. Un widget absent
-    de la liste est masque ; un nom inconnu ou un doublon est refuse."""
-    d = request.get_json(force=True, silent=True) or {}
-    liste = d.get("widgets")
-    permis = widgets_permis()
-    if not isinstance(liste, list) or len(liste) > len(WIDGETS):
-        return jsonify({"error": "Liste de widgets invalide."}), 400
+    apps, services = apps_du_hub_visibles()
     propres, vus = [], set()
-    for w in liste:
-        if not isinstance(w, dict) or w.get("id") not in permis or w.get("id") in vus:
-            return jsonify({"error": "Widget inconnu."}), 400
-        taille = w.get("taille") or "normal"
-        if taille not in WIDGETS_TAILLES:
-            return jsonify({"error": "Taille inconnue."}), 400
-        vus.add(w["id"])
-        propres.append({"id": w["id"], "taille": taille})
-    ecrire_preference("widgets", propres)
-    return jsonify({"ok": True, "widgets": propres})
+    for e in elements:
+        if not isinstance(e, dict):
+            return None, "Disposition invalide."
+        if e.get("t") == "a":
+            nom = e.get("id")
+            if nom not in apps and nom not in services:
+                continue        # une application disparue ou retiree : on l'oublie
+            cle = "a:" + nom
+            propre = {"t": "a", "id": nom}
+        elif e.get("t") == "w":
+            wid, taille = e.get("id"), e.get("taille")
+            if wid not in permis:
+                return None, "Widget inconnu."
+            if taille not in WIDGETS[wid]["tailles"]:
+                return None, "Taille inconnue pour ce widget."
+            propre = {"t": "w", "id": wid, "taille": taille}
+            if WIDGETS[wid]["portee"] == "app":
+                if e.get("app") not in apps:
+                    return None, "Application inconnue."
+                propre["app"] = e["app"]
+            cle = "w:" + wid + ":" + (propre.get("app") or "")
+        else:
+            return None, "Disposition invalide."
+        if cle in vus:
+            return None, "Élément en double."
+        vus.add(cle)
+        propres.append(propre)
+    return propres, None
 
 
-@flask_app.put("/api/hub/notes")
+def disposition_du_compte():
+    """La disposition enregistree, ou celle d'avant la composition."""
+    elements = lire_preference("hub_disposition")
+    if not isinstance(elements, list):
+        anciens = lire_preference("widgets")
+        if isinstance(anciens, list):
+            elements = [{"t": "w", "id": "messages" if w.get("id") == "demandes" else w.get("id"),
+                         "taille": _ANCIENNES_TAILLES.get(w.get("taille"), "moyen")}
+                        for w in anciens if isinstance(w, dict)]
+        else:
+            elements = [{"t": "w", "id": "une", "taille": "grand"},
+                        {"t": "w", "id": "etat", "taille": "petit"},
+                        {"t": "w", "id": "messages", "taille": "petit"},
+                        {"t": "w", "id": "message", "taille": "moyen"},
+                        {"t": "w", "id": "suivi", "taille": "moyen"}]
+    permis = widgets_permis()
+    apps, services = apps_du_hub_visibles()
+    garde = []
+    for e in elements:
+        if not isinstance(e, dict):
+            continue
+        if e.get("t") == "w":
+            d = WIDGETS.get(e.get("id"))
+            if not d or e["id"] not in permis:
+                continue
+            if e.get("taille") not in d["tailles"]:
+                e = dict(e, taille=d["tailles"][-1] if e.get("taille") == "grand" else d["tailles"][0])
+            if d["portee"] == "app" and e.get("app") not in apps:
+                continue
+        elif e.get("t") == "a" and e.get("id") not in apps and e.get("id") not in services:
+            continue
+        garde.append(e)
+    return garde
+
+
+@flask_app.get("/api/hub/disposition")
 @require_auth
-def api_notes_hub():
-    """Le bloc-notes du hub : un texte libre, propre a chaque compte."""
-    texte = (request.get_json(force=True, silent=True) or {}).get("notes")
-    if not isinstance(texte, str):
-        return jsonify({"error": "Texte attendu."}), 400
-    if len(texte) > NOTES_HUB_MAX:
-        return jsonify({"error": f"{NOTES_HUB_MAX} caractères au maximum."}), 400
-    ecrire_preference("notes", texte)
-    return jsonify({"ok": True})
+def api_disposition():
+    """La disposition du hub, et le catalogue des widgets que ce compte peut poser.
+
+    Les applications absentes de la disposition (nouvelles, jamais rangees)
+    viennent a la suite : c'est la page qui les y ajoute, dans l'ordre des noms.
+    """
+    return jsonify({"elements": disposition_du_compte(),
+                    "catalogue": [{"id": w, "titre": WIDGETS[w]["titre"],
+                                   "description": WIDGETS[w]["description"],
+                                   "portee": WIDGETS[w]["portee"],
+                                   "tailles": list(WIDGETS[w]["tailles"])}
+                                  for w in widgets_permis()]})
+
+
+@flask_app.put("/api/hub/disposition")
+@require_auth
+def api_disposition_modifier():
+    """{elements: [{t: "a", id} | {t: "w", id, taille, app?}]}, dans l'ordre."""
+    propres, erreur = disposition_propre((request.get_json(force=True, silent=True) or {})
+                                         .get("elements"))
+    if erreur:
+        return jsonify({"error": erreur}), 400
+    ecrire_preference("hub_disposition", propres)
+    return jsonify({"ok": True, "elements": propres})
 
 
 @flask_app.post("/api/mes-apps/<n>/ouverte")

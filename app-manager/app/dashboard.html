@@ -1466,12 +1466,17 @@ table.tbl-journal{min-width:560px}
 /* Sur un ecran large, la page du hub Bento ne defile PAS a la verticale :
    seule la mosaique defile, de cote. */
 @media (min-width:761px){ :root[data-variante="bento"].hub-actif{overflow:hidden} }
-.hub-barre{display:contents}
-.hub-personnaliser{display:none}
-:root[data-variante="bento"] .hub-barre{display:flex;align-items:center;gap:10px;margin:0 0 16px}
-:root[data-variante="bento"] .hub-personnaliser{display:inline-flex;height:46px;border-radius:999px;padding:0 18px}
-:root[data-variante="bento"] .salut{font-size:clamp(36px,4.6vw,60px);max-width:none;margin:6px 0 14px;padding:0}
-:root[data-variante="bento"] .hub-recherche{margin:0;max-width:460px;flex:1;height:46px}
+.hub-tete,.hub-tete-texte,.hub-barre{display:contents}
+.hub-compose{display:none}
+:root[data-variante="bento"] .hub-tete{display:flex;align-items:flex-end;justify-content:space-between;gap:16px 24px;
+ flex-wrap:wrap;margin:6px 0 18px}
+:root[data-variante="bento"] .hub-tete-texte{display:block;min-width:0}
+:root[data-variante="bento"] .hub-barre{display:flex;align-items:center;gap:8px;margin-left:auto}
+:root[data-variante="bento"] .hub-compose{display:inline-flex;height:44px;border-radius:999px;padding:0 18px}
+.hub-compose.actif,.hub-compose.actif:hover{background:var(--accent);border-color:var(--accent);color:var(--sur-accent)}
+:root[data-variante="bento"] #hub-ajouter-widget{width:44px;padding:0;justify-content:center}
+:root[data-variante="bento"] .salut{font-size:clamp(34px,4.2vw,56px);max-width:none;margin:0;padding:0}
+:root[data-variante="bento"] .hub-recherche{margin:0;width:min(340px,40vw);height:44px}
 /* La mosaique deborde jusqu'au bord droit de la fenetre : ce qui defile
    a l'horizontale ne doit pas s'arreter net au milieu de l'ecran. */
 #hub-liste.bento{--cel:clamp(200px,17vw,250px);display:grid;grid-auto-flow:column dense;
@@ -1482,8 +1487,91 @@ table.tbl-journal{min-width:560px}
 #hub-liste.bento > *{scroll-snap-align:start;min-width:0;min-height:0}
 .bw{border-radius:24px;padding:20px;display:flex;flex-direction:column;gap:10px;overflow:hidden;
  background:var(--surface);border:1px solid var(--line);color:var(--txt);text-decoration:none}
-.bw-normal{grid-row:span 2}
-.bw-large{grid-row:span 3;grid-column:span 2}
+.bw-petit{grid-row:span 1}
+.bw-moyen{grid-column:span 2}
+.bw-grand{grid-row:span 2;grid-column:span 2}
+.bw-moyen.bw-une{flex-direction:row}
+.bw-moyen.bw-une .bw-apercu{border-radius:24px 0 0 24px;flex:1.2}
+.bw-moyen.bw-une .bw-une-pied{flex:1;justify-content:flex-end;min-width:0}
+.bw-petit .bento-chiffre{font-size:46px}
+.bw-petit .bento-barres,.bw-petit .bento-pied a,.bw-petit p{font-size:12px}
+.bw-corps{padding:20px;display:flex;flex-direction:column;gap:8px}
+.bw-liste{display:flex;flex-direction:column;gap:6px}
+.bw-liste a{display:flex;align-items:center;gap:10px;color:var(--txt);text-decoration:none;font-weight:700;border-radius:10px;padding:4px}
+.bw-liste a:hover{background:var(--surface2)}
+.bw-liste img{width:28px;height:28px;border-radius:8px}
+.bw-messages .bento-bouton{background:var(--accent);color:var(--sur-accent);text-decoration:none}
+/* ---- le suivi de mes messages ---- */
+.suivi-liste{display:flex;flex-direction:column;gap:12px;margin-top:14px}
+.suivi-item{border:1px solid var(--line);border-radius:16px;padding:14px 16px;background:var(--surface);
+ display:flex;flex-direction:column;gap:10px}
+.suivi-item.nouveau{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.suivi-tete{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.suivi-sujet{font-weight:800}
+.suivi-date{color:var(--dim);font-size:12.5px}
+.suivi-etat{margin-left:auto;font-size:12px;font-weight:800;padding:3px 10px;border-radius:999px;
+ background:var(--surface2);color:var(--dim);white-space:nowrap}
+.suivi-etat.e-planifie,.suivi-etat.e-en_cours{background:var(--accent-soft);color:var(--accent)}
+.suivi-etat.e-fait{background:rgba(34,160,90,.14);color:#1c8a4c}
+.suivi-etat.e-refuse{background:rgba(200,60,60,.12);color:#b23b3b}
+.suivi-nouveau{font-size:11px;font-weight:800;color:var(--accent);text-transform:uppercase;letter-spacing:.06em}
+.suivi-texte{margin:0;color:var(--txt);font-size:13.5px;display:-webkit-box;-webkit-line-clamp:3;
+ -webkit-box-orient:vertical;overflow:hidden;white-space:pre-line}
+.suivi-etapes{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(5,1fr);gap:4px}
+.suivi-etapes li{font-size:11.5px;color:var(--dim);display:flex;flex-direction:column;gap:5px}
+.suivi-etapes li::before{content:"";height:4px;border-radius:999px;background:var(--line2)}
+.suivi-etapes li.passe::before{background:var(--accent)}
+.suivi-etapes li.ici{color:var(--txt);font-weight:800}
+.suivi-etapes li.ici::before{background:var(--accent)}
+.suivi-detail{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px;color:var(--dim)}
+.suivi-detail b{color:var(--txt)}
+.suivi-taches{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;font-size:13px}
+.suivi-taches li{display:flex;gap:8px;align-items:baseline}
+.suivi-taches li.faite{color:var(--dim);text-decoration:line-through}
+.suivi-taches i{font-style:normal;color:var(--accent);font-weight:800}
+.bw-suivi .bw-liste div{display:flex;align-items:center;gap:8px;font-weight:700;font-size:13px;min-width:0}
+.bw-suivi .bw-liste div span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.bw-suivi .suivi-etat{margin-left:0}
+.bw-suivi .bento-bouton{background:var(--accent);color:var(--sur-accent);text-decoration:none;border:0;cursor:pointer;font:inherit}
+/* ---- mode Modifier : les tuiles tremblent, portent leurs gestes ---- */
+#hub-liste.edition > *{position:relative;cursor:grab;touch-action:none;animation:hub-tremble .32s ease-in-out infinite alternate}
+#hub-liste.edition > *:nth-child(2n){animation-delay:-.16s}
+#hub-liste.edition iframe,#hub-liste.edition textarea,#hub-liste.edition .bw-une-pied{pointer-events:none}
+#hub-liste.edition > * > :not(.ed-retirer):not(.ed-barre){opacity:.6}
+#hub-liste.edition > .glissee{animation:none;opacity:.85;box-shadow:0 18px 44px var(--shadow-2);z-index:5;cursor:grabbing}
+@keyframes hub-tremble{from{transform:rotate(-.5deg)}to{transform:rotate(.5deg)}}
+@media (prefers-reduced-motion:reduce){#hub-liste.edition > *{animation:none;outline:2px dashed var(--line2);outline-offset:-2px}}
+.ed-retirer{position:absolute;top:8px;left:8px;z-index:3;width:26px;height:26px;border-radius:999px;border:0;
+ background:var(--txt);color:var(--surface);font:inherit;font-size:18px;font-weight:800;line-height:1;cursor:pointer;
+ display:grid;place-items:center;box-shadow:0 0 0 2px var(--surface),0 2px 6px rgba(0,0,0,.25)}
+.ed-barre{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);z-index:3;display:flex;gap:3px;padding:3px;
+ border-radius:999px;background:var(--surface);border:1px solid var(--line2);box-shadow:0 6px 18px rgba(0,0,0,.18)}
+.ed-barre button{min-width:28px;height:28px;padding:0 8px;border:0;border-radius:999px;background:none;color:var(--dim);
+ font:inherit;font-size:12.5px;font-weight:800;cursor:pointer}
+.ed-barre button:hover{background:var(--surface2);color:var(--txt)}
+.ed-barre button[aria-pressed="true"]{background:var(--accent);color:var(--sur-accent)}
+/* ---- la galerie ---- */
+.galerie-corps{display:grid;grid-template-columns:220px minmax(0,1fr);gap:18px;min-height:340px}
+.galerie-liste{display:flex;flex-direction:column;gap:2px;border-right:1px solid var(--line);padding-right:12px;max-height:60vh;overflow:auto}
+.gl-titre{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--dim2);margin:10px 8px 4px}
+.gl-titre:first-child{margin-top:0}
+.gl-item{display:flex;align-items:center;gap:9px;width:100%;min-height:36px;padding:0 10px;border:0;border-radius:9px;background:none;
+ color:var(--txt);font:inherit;font-weight:650;text-align:left;cursor:pointer}
+.gl-item img{width:22px;height:22px;border-radius:6px}
+.gl-item:hover{background:var(--surface2)}
+.gl-item[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent)}
+.galerie-detail h4{margin:0 0 4px;font-size:17px;font-weight:800}
+.gl-tailles{display:flex;flex-wrap:wrap;align-items:flex-end;gap:18px;margin-top:18px}
+.gl-taille{border:0;background:none;padding:0;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:8px;font:inherit}
+.gl-forme{display:flex;flex-direction:column;justify-content:flex-end;gap:6px;padding:10px;border-radius:18px;
+ background:var(--surface2);border:1px solid var(--line);text-align:left;transition:transform .15s,border-color .15s}
+.gl-forme img{width:26px;height:26px;border-radius:7px}
+.gl-forme b{font-size:12px;line-height:1.2}
+.gl-petit .gl-forme{width:96px;height:96px}
+.gl-moyen .gl-forme{width:204px;height:96px}
+.gl-grand .gl-forme{width:204px;height:204px}
+.gl-taille:hover .gl-forme,.gl-taille:focus-visible .gl-forme{border-color:var(--accent);transform:translateY(-2px)}
+.gl-nom{font-size:12.5px;font-weight:700;color:var(--dim)}
 .bw-titre,.bw-sur{font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
 .bw-vide{margin:auto 0;color:var(--dim)}
 .bw-une{padding:0;background:var(--accent);border:0;color:var(--sur-accent);position:relative}
@@ -1499,28 +1587,19 @@ table.tbl-journal{min-width:560px}
 .bw-une:hover{background:var(--accent-h)}
 .bw-une .bento-bouton{margin-top:4px}
 .bw-une .badge-maj{background:var(--surface);color:var(--accent)}
-.bw-horloge{justify-content:flex-end;background:var(--surface2)}
-.bw-heure{font-size:64px;font-weight:800;letter-spacing:-.05em;line-height:.9;font-variant-numeric:tabular-nums}
-.bw-date{color:var(--dim);font-weight:650;text-transform:capitalize}
 .bw-messages{justify-content:space-between}
 .bw-messages:hover{border-color:var(--accent)}
 .bw-messages p{margin:6px 0 0;color:var(--dim)}
-.bw-message textarea,.bw-notes textarea{flex:1;min-height:0;resize:none;padding:10px 12px;border-radius:14px;
+.bw-message textarea{flex:1;min-height:0;resize:none;padding:10px 12px;border-radius:14px;
  border:1px solid var(--line2);background:var(--bg-input,var(--surface2));font:inherit}
 .bw-sujets{display:flex;flex-wrap:wrap;gap:6px}
 .bw-sujets button{height:30px;padding:0 11px;border-radius:999px;border:1px solid var(--line2);background:var(--surface);
  color:var(--dim);font:inherit;font-size:12px;font-weight:700;cursor:pointer}
 .bw-sujets button[aria-checked="true"]{background:var(--accent);border-color:var(--accent);color:var(--sur-accent)}
-.bw-notes{background:#fff7d6;border-color:#f1e2a6;color:#3a3220}
-.bw-notes .bw-titre{color:#8a7432}
-.bw-notes textarea{background:transparent;border:0;padding:0;color:inherit}
-:root[data-theme="dark"] .bw-notes{background:#2b2717;border-color:#3d3720;color:#efe6c8}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .bw-notes{background:#2b2717;border-color:#3d3720;color:#efe6c8}}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .bento-bouton{align-self:flex-start;display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 20px;
  border-radius:999px;background:var(--surface);color:var(--txt);font-weight:800}
 .bento-bouton svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
-.bw-messages .bento-bouton{background:var(--accent);color:var(--sur-accent)}
 .bento-etat{justify-content:space-between;gap:16px;background:var(--bento-encre);color:var(--bento-sur-encre);border:0}
 .bento-etat h3{margin:0;font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.75}
 .bento-etat p{margin:6px 0 0;opacity:.75}
@@ -1543,25 +1622,12 @@ table.tbl-journal{min-width:560px}
 .bento-carte-nom{font-size:19px;font-weight:800;letter-spacing:-.03em;line-height:1.1;
  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .bento-carte-desc{font-size:12.5px;color:var(--dim);display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
-.bento-ajout{grid-row:span 1;border-radius:24px;border:2px dashed var(--line2);background:transparent;color:var(--dim);
- font:inherit;font-weight:750;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px}
-.bento-ajout svg{width:28px;height:28px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
-.bento-ajout:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
 .bento-vide{grid-row:span 2;grid-column:span 2}
 /* NOUVELLE VERSION depuis la derniere ouverture : une etiquette sur la tuile. */
 .badge-maj{display:inline-flex;align-items:center;gap:5px;align-self:flex-start;padding:2px 9px;border-radius:999px;
  font-size:11px;font-weight:800;background:var(--accent-soft);color:var(--accent);white-space:nowrap}
 .badge-maj::before{content:"";width:6px;height:6px;border-radius:999px;background:currentColor}
 .bento-carte.maj{border-color:var(--accent)}
-/* Fenetre des widgets */
-.wg-ligne{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
-.wg-ligne:first-child{border-top:0}
-.wg-ligne.inactif .wg-nom span{color:var(--dim)}
-.wg-nom{flex:1;display:flex;align-items:center;gap:10px;font-weight:650;margin:0;cursor:pointer}
-.wg-nom input{width:18px;height:18px;accent-color:var(--accent)}
-.wg-ligne .wg-nom{flex:1 1 auto;min-width:0;padding:8px 10px}
-.wg-ligne .dl{flex:0 0 120px;width:120px}
-.wg-ligne .btn{flex:none}
 
 @media (max-width:760px){
   :root[data-variante="lanceur"] .salut{font-size:44px;margin:12px auto 8px}
@@ -1573,12 +1639,19 @@ table.tbl-journal{min-width:560px}
   /* Sur telephone : une colonne, et l'on defile vers le bas. */
   #hub-liste.bento{grid-auto-flow:row;grid-template-rows:none;grid-template-columns:repeat(2,minmax(0,1fr));
    grid-auto-rows:minmax(150px,auto);grid-auto-columns:auto;height:auto;overflow:visible;scroll-snap-type:none}
-  .bw-normal,.bw-large{grid-column:span 2;grid-row:auto;min-height:220px}
+  .bw-petit{grid-column:span 1;grid-row:auto;min-height:150px}
+  .bw-moyen,.bw-grand{grid-column:span 2;grid-row:auto;min-height:220px}
   .bw-une{min-height:400px}
+  .bw-moyen.bw-une{flex-direction:column}
+  .bw-moyen.bw-une .bw-apercu{border-radius:24px 24px 0 0}
   .bw-apercu{min-height:230px}
-  .hub-personnaliser .hub-perso-texte{display:none}
-  :root[data-variante="bento"] .hub-personnaliser{padding:0 14px}
-  .bento-ajout,.bento-vide{grid-column:span 2;min-height:90px}
+  :root[data-variante="bento"] .hub-barre{width:100%;margin-left:0}
+  :root[data-variante="bento"] .hub-recherche{flex:1;width:auto}
+  .bento-vide{grid-column:span 2;min-height:90px}
+  .galerie-corps{grid-template-columns:minmax(0,1fr)}
+  .galerie-liste{border-right:0;padding-right:0;flex-direction:row;flex-wrap:wrap;max-height:none}
+  .gl-titre{width:100%}
+  .gl-item{width:auto}
   .bento-chiffre{font-size:64px}
 }
 </style></head><body>
@@ -1651,7 +1724,8 @@ table.tbl-journal{min-width:560px}
     <div class="side-item utilisateur-seul" data-sec="message-utilisateur"
          onclick="allerA('parametres');paramOnglet('message')">
       <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-      <span>Messages</span></div>
+      <span>Messages</span>
+      <span class="side-count" id="side-count-suivi" style="display:none">0</span></div>
   </div>
 </nav>
 
@@ -1663,18 +1737,25 @@ table.tbl-journal{min-width:560px}
   <div class="toolbar"><h2 id="hub-titre">Mes applications</h2>
     <div class="spacer"></div>
   </div>
+  <!-- Bento : le bonjour a gauche, la recherche et la composition a droite.
+       Lanceur : tout au centre, comme avant. -->
+  <div class="hub-tete">
+  <div class="hub-tete-texte">
   <div class="salut" id="hub-salut"></div>
   <div class="sous" id="hub-sous"></div>
-  <!-- Styles 3 et 4 : une recherche dans le hub. Masquee dans les autres. -->
+  </div>
   <div class="hub-barre">
   <label class="hub-recherche" id="hub-recherche">
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
     <input type="search" id="hub-filtre" placeholder="Ouvrir une application…" aria-label="Rechercher une application"
       autocomplete="off" oninput="peindreHub()">
   </label>
-  <!-- Style Bento : choisir ses widgets. -->
-  <button class="btn btn-default hub-personnaliser" onclick="ouvrirWidgets()" aria-label="Personnaliser le hub">
-    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><path d="M17.5 14v7M14 17.5h7"/></svg><span class="hub-perso-texte">Personnaliser</span></button>
+  <!-- Bento : composer le hub. -->
+  <button class="btn btn-default hub-compose" id="hub-ajouter-widget" onclick="ouvrirGalerie()" style="display:none"
+    aria-label="Ajouter un widget" title="Ajouter un widget">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+  <button class="btn btn-default hub-compose" id="hub-modifier" onclick="basculerEdition()">Modifier</button>
+  </div>
   </div>
   <div class="hint" id="hub-masquees" style="display:none;margin:-8px 0 14px"></div>
   <div id="hub-liste" class="hub-liste"></div>
@@ -2517,7 +2598,7 @@ table.tbl-journal{min-width:560px}
        liste de tuiles ne permet pas. -->
   <div class="zone" id="profil-message">
     <div class="zone-title">Message</div>
-    <div class="card settings-card" id="msg-carte">
+    <div class="card settings-card sans-pli" id="msg-carte">
       <div class="card-top"><div class="card-name">
         <b>Un mot à l'administrateur</b>
         <div class="path">Une gêne, une idée, une application qui manque.</div>
@@ -2544,6 +2625,15 @@ table.tbl-journal{min-width:560px}
         <div class="err" id="msg-err" style="display:none"></div>
         <div class="hint" id="msg-ok" style="display:none"></div>
       </div>
+    </div>
+    <!-- MES MESSAGES : ce que chacun est devenu. Le suivi se deduit de ce que
+         l'administrateur fait dans Messages ; il n'a rien a remplir de plus. -->
+    <div class="card settings-card sans-pli" id="suivi-carte">
+      <div class="card-top"><div class="card-name">
+        <b>Mes messages</b>
+        <div class="path">Où en est chacun : lu, planifié, en cours, réalisé.</div>
+      </div></div>
+      <div class="suivi-liste" id="suivi-liste"><p class="hint">Chargement…</p></div>
     </div>
   </div>
   </div>
@@ -2794,13 +2884,13 @@ table.tbl-journal{min-width:560px}
 </div></div>
 
 <!-- ==================== POP-UP : NOUVELLE APPLICATION ==================== -->
-<!-- LES WIDGETS DU HUB (style Bento) : cocher, ordonner, choisir la taille. -->
-<div class="ov" id="ov-widgets"><div class="modal" style="max-width:520px">
-  <div class="mh"><h3>Personnaliser le hub</h3><p>Les widgets affichés avant tes applications, dans cet ordre.</p></div>
-  <div class="mb"><div id="wg-liste"></div></div>
-  <div class="mf"><div class="spacer"></div>
-    <button class="btn btn-default" onclick="hide('ov-widgets')">Annuler</button>
-    <button class="btn btn-primary" onclick="enregistrerWidgets()">Enregistrer</button></div>
+<!-- LA GALERIE DES WIDGETS (style Bento), comme celle d'un Mac : a gauche ce
+     qu'on peut poser, a droite les tailles ; un clic pose le widget. -->
+<div class="ov" id="ov-galerie"><div class="modal galerie" style="max-width:760px">
+  <div class="mh"><h3>Ajouter un widget</h3><p>Des widgets sur le hub, ou sur une de tes applications.</p></div>
+  <div class="mb galerie-corps"><nav class="galerie-liste" id="galerie-liste" aria-label="Widgets"></nav>
+    <div class="galerie-detail" id="galerie-detail"></div></div>
+  <div class="mf"><div class="spacer"></div><button class="btn btn-default" onclick="hide('ov-galerie')">Fermer</button></div>
 </div></div>
 
 <div class="ov" id="ov-add"><div class="modal">
@@ -2980,6 +3070,11 @@ const ACTIONS = {
   'ap-etat':         n => apChoisirEtat(n),
   'ap-trier':        n => apTrier(n),
   'bw-sujet':        n => { hubMessageCible=n; peindreHub(); },
+  'hub-retirer':     n => hubRetirer(n),
+  'hub-deplacer':    (n,d) => hubDeplacer(n, d.sens),
+  'hub-taille':      (n,d) => hubTailleWidget(n, d.taille),
+  'galerie-choisir': n => { galerieChoix=n; peindreGalerie(); },
+  'galerie-ajouter': (n,d) => galerieAjouter(n, d.taille, d.app),
   'app-redemarrer':  n => restartApp(n),
   'app-build':       n => buildApp(n),
   'app-deployer':    n => deployApp(n),
@@ -3134,7 +3229,8 @@ function showSection(name){
   /* Un flux de journal occupe une place cote serveur : on le ferme des qu'on
      quitte la fiche, sans attendre que le navigateur s'en apercoive. */
   if(name!=='app') fermerLog();
-  if(name==='hub'){ chargerHub(); if(hubWidgets===null) chargerWidgets(); }
+  if(name==='hub'){ chargerHub(); if(hubDisposition===null) chargerDisposition(); }
+  if(name!=='hub') hubEdition=false;
   document.documentElement.classList.toggle('hub-actif', name==='hub');
   if(name==='overview' || name==='apps') refresh();
   if(name==='overview') chargerCarte();
@@ -3422,7 +3518,7 @@ function paramOnglet(o){
   }
   /* La liste des applications vient du hub : on la relit, sinon le choix
      « D'une application » est vide pour qui arrive directement ici. */
-  if(o==='message'){ chargerHub(); $('msg-err').style.display='none';
+  if(o==='message'){ chargerHub(); suiviConsulte(); $('msg-err').style.display='none';
                      $('msg-ok').style.display='none'; }
   if(o==='serveur' && estAdmin){ chargerSecurite(); chargerVps(); }
   if(o==='categories') chargerCategories();
@@ -3594,9 +3690,90 @@ async function msgEnvoyer(){
         : "Message enregistré. Aucun serveur d'envoi n'est configuré : ton "
           + 'administrateur le verra dans le panneau.';
       ok.style.display='block';
+      chargerSuivi(true);
     }
   }catch(err){ e.textContent='Erreur réseau.'; e.style.display='block'; }
   finally{ b.disabled=false; b.textContent='Envoyer'; }
+}
+
+/* ---------------- le suivi de mes messages ----------------
+   Ce que chaque message est devenu, deduit cote serveur de ce que
+   l'administrateur en fait dans Messages. Un message qui a avance depuis la
+   derniere visite porte une pastille ; ouvrir la liste les eteint. */
+let mesMessages=null, mesNouveaux=0, suiviLu=0;
+const NOM_ETAPE={envoye:'Envoyé', lu:'Lu', etude:'À l’étude', planifie:'Planifié',
+                 en_cours:'En cours', fait:'Réalisé', refuse:'Non retenu'};
+const RANG_ETAPE={envoye:0, lu:1, etude:1, planifie:2, en_cours:3, fait:4};
+function sujetSuivi(m){
+  if(m.cible==='application') return 'Application · '+m.app;
+  return m.cible==='idee' ? 'Nouveau projet' : 'Le hub';
+}
+function dateCourte(iso){
+  const d=new Date(typeof iso==='number' ? iso*1000 : iso+'T12:00:00');
+  return isNaN(d) ? '' : d.toLocaleDateString('fr-FR',{day:'numeric', month:'long'});
+}
+async function chargerSuivi(force){
+  if(estAdmin) return;
+  if(!force && Date.now()-suiviLu<60000 && mesMessages) return;
+  suiviLu=Date.now();
+  try{ const d=await (await fetch('/api/mes-messages')).json();
+       mesMessages=d.messages||[]; mesNouveaux=d.nouveaux||0; }catch(e){ return; }
+  peindreSuivi();
+  if(sectionCourante==='hub') peindreHub();
+}
+function etapesSuivi(etape){
+  if(etape==='refuse') return '';
+  const r=RANG_ETAPE[etape]||0;
+  const noms=['Envoyé', etape==='etude' ? 'À l’étude' : 'Lu', 'Planifié', 'En cours', 'Réalisé'];
+  return `<ol class="suivi-etapes" aria-label="Avancement">${noms.map((n,i)=>
+    `<li class="${i<r ? 'passe' : i===r ? 'ici' : ''}" ${i===r ? 'aria-current="step"' : ''}>${n}</li>`).join('')}</ol>`;
+}
+function itemSuivi(m){
+  const s=m.suivi, detail=[];
+  if(s.projet) detail.push(`Projet <b>${esc(s.projet)}</b>`);
+  if(s.total) detail.push(`Tâches faites : <b>${s.faites}/${s.total}</b>`);
+  if(s.prevu) detail.push(`Prévu pour le <b>${dateCourte(s.prevu)}</b>`);
+  if(s.fait_le) detail.push(`Réalisé le <b>${dateCourte(s.fait_le)}</b>`);
+  return `<div class="suivi-item ${m.nouveau?'nouveau':''}">
+    <div class="suivi-tete"><span class="suivi-sujet">${esc(sujetSuivi(m))}</span>
+      <span class="suivi-date">${depuis(m.ts)}</span>
+      ${m.nouveau ? '<span class="suivi-nouveau">Du nouveau</span>' : ''}
+      <span class="suivi-etat e-${s.etape}">${NOM_ETAPE[s.etape]||''}</span></div>
+    <p class="suivi-texte">${esc(m.texte)}</p>
+    ${etapesSuivi(s.etape)}
+    ${detail.length ? `<div class="suivi-detail">${detail.map(x=>`<span>${x}</span>`).join('')}</div>` : ''}
+    ${s.taches.length ? `<ul class="suivi-taches">${s.taches.slice(0,6).map(t=>
+      `<li class="${t.faite?'faite':''}"><i>${t.faite?'✓':'•'}</i>${esc(t.titre)}</li>`).join('')}</ul>` : ''}
+  </div>`;
+}
+function peindreSuivi(){
+  const b=$('side-count-suivi');
+  if(b){ b.textContent=mesNouveaux; b.style.display=mesNouveaux ? '' : 'none'; }
+  if(!mesMessages) return;
+  remplir($('suivi-liste'), mesMessages.length ? mesMessages.map(itemSuivi).join('')
+    : '<p class="hint">Aucun message envoyé pour l’instant.</p>');
+}
+/* La liste est ouverte : ce qu'elle montre est vu. Les cartes gardent leur
+   mise en avant jusqu'a la prochaine visite, la pastille s'eteint. */
+async function suiviConsulte(){
+  await chargerSuivi(true);
+  if(!mesNouveaux) return;
+  try{ await fetch('/api/mes-messages/vus',{method:'POST'}); }catch(e){ return; }
+  mesNouveaux=0;
+  const b=$('side-count-suivi'); if(b) b.style.display='none';
+  if(sectionCourante==='hub') peindreHub();
+}
+function widgetSuivi(taille){
+  const liste=mesMessages||[];
+  const actifs=liste.filter(m=>!['fait','refuse'].includes(m.suivi.etape));
+  const titre='<div class="bw-titre">Mes messages</div>';
+  if(!liste.length) return titre+'<p class="bw-vide">Aucun message envoyé.</p>';
+  const n=mesNouveaux;
+  if(taille==='petit') return titre+`<div><div class="bento-chiffre">${n||actifs.length}</div>
+    <p>${n ? (n>1 ? 'mises à jour' : 'mise à jour') : 'en cours'}</p></div>`;
+  return titre+`<div class="bw-liste">${liste.slice(0,3).map(m=>`<div><span>${esc(sujetSuivi(m))}</span>
+      <span class="suivi-etat e-${m.suivi.etape}">${NOM_ETAPE[m.suivi.etape]||''}</span></div>`).join('')}</div>
+    <button type="button" class="bento-bouton" onclick="allerA('parametres');paramOnglet('message')">${n ? n+' nouveauté'+(n>1?'s':'') : 'Tout voir'} ${SVG_FLECHE}</button>`;
 }
 
 /* ---------------- le hub, en grille et seulement en grille ----------------
@@ -3707,6 +3884,7 @@ async function chargerHub(){
     hubServicesMasques=d.services_masques||[];
     hubMasquees=d.masquees||[];
     peindreMasquees();
+    chargerSuivi();
     msgCible();
     /* Les categories arrivent avec les projets : une seule requete, et le
        hub ne peut pas afficher un rangement decale d'un tour. */
@@ -3739,8 +3917,10 @@ function peindreHub(){
      nom : on vient au hub pour OUVRIR quelque chose, et ce qui l'ouvre ne
      change rien a l'endroit ou l'oeil le cherche. Dagster, Mailpit et
      Messages ont la meme tuile qu'une application, dans tous les styles. */
+  /* Dans l'ordre que le compte a compose (mode Modifier du Bento) ; les
+     applications jamais rangees suivent, par nom. */
   const liste=hubApps.concat(hubServices).filter(correspond)
-    .sort((a,b)=>a.name.localeCompare(b.name,'fr'));
+    .sort((a,b)=>rangDansLeHub(a.name)-rangDansLeHub(b.name) || a.name.localeCompare(b.name,'fr'));
   if(variante==='lanceur'){
     const toutes = hubApps.concat(hubServices);
     const souci = toutes.filter(a=>['err','warn'].includes(etatApp(a)[0])).length;
@@ -3817,21 +3997,39 @@ const pastille = a => a.non_lues
 
 /* STYLE 4 : LA MOSAIQUE. Sur un ecran large, elle DEFILE A L'HORIZONTALE et
    jamais a la verticale : trois rangees qui tiennent dans la hauteur de la
-   fenetre, des colonnes qui s'ajoutent sur la droite -- une application de
-   plus, c'est une colonne de plus, pas une ligne en bas. Sur un telephone,
-   elle redevient une colonne qu'on fait defiler vers le bas.
+   fenetre, des colonnes qui s'ajoutent sur la droite. Sur un telephone, elle
+   redevient une colonne qu'on fait defiler vers le bas.
 
-   D'abord les WIDGETS que le compte a choisis (« Personnaliser »), dans son
-   ordre et sa taille ; puis une carte par application ; puis, pour
-   l'administrateur, la tuile qui en ajoute une. */
-let hubWidgets=null, hubWidgetsDispo=[], hubNotes='', hubMessageBrouillon='';
-async function chargerWidgets(){
+   ELLE SE COMPOSE, comme l'ecran d'accueil d'un telephone ou les widgets d'un
+   Mac : « Modifier » fait trembler les tuiles, qu'on glisse ou qu'on deplace
+   aux fleches ; « + » ouvre la galerie des widgets ; chaque widget change de
+   taille sur place. La disposition est gardee par compte, cote serveur. */
+let hubDisposition=null, hubCatalogue=[], hubEdition=false, hubMessageBrouillon='';
+async function chargerDisposition(){
   try{
-    const d=await (await fetch('/api/hub/widgets')).json();
-    hubWidgets=d.widgets||[]; hubWidgetsDispo=d.disponibles||[];
-    hubNotes=typeof d.notes==='string' ? d.notes : '';
-  }catch(e){ if(hubWidgets===null) hubWidgets=[]; }
+    const d=await (await fetch('/api/hub/disposition')).json();
+    hubDisposition=d.elements||[]; hubCatalogue=d.catalogue||[];
+  }catch(e){ if(hubDisposition===null) hubDisposition=[]; }
   if(hubApps.length || hubServices.length) peindreHub();
+}
+const cleElement = e => e.t==='a' ? 'a:'+e.id : 'w:'+e.id+':'+(e.app||'');
+/* La disposition, completee des applications qu'on n'a pas encore rangees :
+   elles viennent a la suite, par ordre alphabetique. */
+function elementsDuHub(){
+  const toutes=hubApps.concat(hubServices);
+  const rangees=new Set((hubDisposition||[]).filter(e=>e.t==='a').map(e=>e.id));
+  return (hubDisposition||[]).filter(e=>e.t!=='a' || toutes.some(a=>a.name===e.id))
+    .concat(toutes.filter(a=>!rangees.has(a.name))
+      .sort((x,y)=>nomAffiche(x).localeCompare(nomAffiche(y),'fr')).map(a=>({t:'a', id:a.name})));
+}
+/* Le rang d'une application dans la disposition : le lanceur range ses
+   icones dans le meme ordre que la mosaique. */
+function rangDansLeHub(nom){ const i=elementsDuHub().findIndex(e=>e.t==='a' && e.id===nom); return i<0 ? 1e6 : i; }
+async function enregistrerDisposition(elements){
+  hubDisposition=elements; peindreHub();
+  const r=await fetch('/api/hub/disposition',{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({elements})});
+  if(!r.ok){ notifier(await echec(r,'Disposition non enregistrée.'),'err'); chargerDisposition(); }
 }
 
 /* L'application « a la une » : la derniere ouverte par ce compte (le serveur
@@ -3856,58 +4054,47 @@ function depuis(ts){
    un commit depuis la derniere fois que CE compte l'a ouverte. */
 const badgeMaj = a => a.nouvelle_version
   ? '<span class="badge-maj" title="Nouvelle version depuis ta dernière ouverture">Nouvelle version</span>' : '';
-
 const SVG_FLECHE='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
-function widgetUne(apps, taille){
-  const [une, vue] = appALaUne(apps);
-  if(!une) return `<section class="bw bw-${taille} bw-une"><div class="bw-titre">À la une</div>
-    <p class="bw-vide">Ouvre une application : elle s'affichera ici.</p></section>`;
+
+/* ---- les widgets : peu, et tous sur le hub ou ses applications ---- */
+function widgetApercu(a, taille, surtitre){
+  if(!a) return `<div class="bw-corps"><div class="bw-titre">${esc(surtitre)}</div>
+    <p class="bw-vide">Ouvre une application : elle s'affichera ici.</p></div>`;
   /* L'APERCU est la page de l'application elle-meme, reduite et inerte : on
-     la reconnait d'un coup d'oeil, et un clic l'ouvre en grand. Arretee,
-     elle n'a rien a montrer : son icone la remplace. */
-  const apercu = une.running
-    ? `<iframe src="${esc(urlApplication(une.name))}" title="Aperçu de ${esc(nomAffiche(une))}"
+     la reconnait d'un coup d'oeil, et un clic l'ouvre en grand. Arretee, elle
+     n'a rien a montrer : son icone la remplace. */
+  const apercu = a.running && !a.externe && !a.interne
+    ? `<iframe src="${esc(urlApplication(a.name))}" title="Aperçu de ${esc(nomAffiche(a))}"
          loading="lazy" tabindex="-1" aria-hidden="true" referrerpolicy="no-referrer"
          sandbox="allow-scripts allow-same-origin allow-forms"></iframe>`
-    : `<img class="bw-une-icone" src="${icone(une.name)}" alt="">`;
-  return `<section class="bw bw-${taille} bw-une" aria-label="À la une">
-    <div class="bw-apercu" data-garder="apercu-${esc(une.name)}-${une.running?1:0}">${apercu}</div>
-    <a class="bw-une-pied" href="${lienOuverture(une)}" data-app="${esc(une.name)}">
-      <span class="bw-sur">${vue ? 'Dernière ouverte' : 'À la une'}${une.ouverte_le ? ' · '+esc(depuis(une.ouverte_le)) : ''}</span>
-      <span class="bw-une-ligne"><img src="${icone(une.name)}" alt="">
-        <span class="bw-une-nom">${esc(nomAffiche(une))}</span>${badgeMaj(une)}</span>
-      <span class="bento-bouton">Ouvrir ${SVG_FLECHE}</span></a></section>`;
+    : `<img class="bw-une-icone" src="${icone(a.name)}" alt="">`;
+  return `<div class="bw-apercu" data-garder="apercu-${esc(a.name)}-${a.running?1:0}-${taille}">${apercu}</div>
+    <a class="bw-une-pied" href="${lienOuverture(a)}" data-app="${esc(a.name)}">
+      <span class="bw-sur">${esc(surtitre)}</span>
+      <span class="bw-une-ligne"><img src="${icone(a.name)}" alt=""><span class="bw-une-nom">${esc(nomAffiche(a))}</span>${badgeMaj(a)}</span></a>`;
 }
-function widgetEtat(liste, taille){
-  const total = liste.length;
-  const enLigne = liste.filter(a=>etatApp(a)[0]==='on').length;
-  const souci = liste.find(a=>['err','warn'].includes(etatApp(a)[0]));
-  return `<section class="bw bw-${taille} bento-etat" aria-label="État des applications">
-      <h3>État</h3>
-      <div><div class="bento-chiffre">${enLigne}<span>/${total}</span></div><p>en ligne</p></div>
-      <div class="bento-pied"><div class="bento-barres" aria-hidden="true">${liste.map(a=>`<i class="${etatApp(a)[0]}"></i>`).join('')}</div>
-      ${souci ? `<a href="${lienOuverture(souci)}">${esc(nomAffiche(souci))} : ${esc(etatApp(souci)[1].toLowerCase())}</a>` : '<p>Tout répond.</p>'}</div></section>`;
-}
-/* L'heure n'est PAS dans le HTML : elle change chaque minute, et repeindre
-   la mosaique pour elle rechargerait l'apercu. Une minuterie la pose. */
-function widgetHorloge(taille){
-  return `<section class="bw bw-${taille} bw-horloge" aria-label="Date et heure">
-    <div class="bw-heure" data-horloge="heure"></div><div class="bw-date" data-horloge="date"></div></section>`;
-}
-function poserHorloge(){
-  const m=new Date();
-  document.querySelectorAll('[data-horloge="heure"]').forEach(e=>e.textContent=
-    m.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}));
-  document.querySelectorAll('[data-horloge="date"]').forEach(e=>e.textContent=
-    m.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'}));
+function widgetEtat(taille){
+  const liste=hubApps.concat(hubServices);
+  const enLigne=liste.filter(a=>etatApp(a)[0]==='on').length;
+  const souci=liste.find(a=>['err','warn'].includes(etatApp(a)[0]));
+  return `<div class="bw-titre">État</div>
+    <div><div class="bento-chiffre">${enLigne}<span>/${liste.length}</span></div><p>en ligne</p></div>
+    <div class="bento-pied"><div class="bento-barres" aria-hidden="true">${liste.map(a=>`<i class="${etatApp(a)[0]}"></i>`).join('')}</div>
+    ${souci ? `<a href="${lienOuverture(souci)}">${esc(nomAffiche(souci))} : ${esc(etatApp(souci)[1].toLowerCase())}</a>` : '<p>Tout répond.</p>'}</div>`;
 }
 function widgetMessages(taille){
-  const d = hubServices.find(s=>s.name==='messages');
-  const n = d ? (d.non_lues||0) : 0;
-  return `<a class="bw bw-${taille} bw-messages" href="/messages">
-    <div class="bw-titre">Messages</div>
+  const d=hubServices.find(s=>s.name==='messages');
+  const n=d ? (d.non_lues||0) : 0;
+  return `<div class="bw-titre">Messages</div>
     <div><div class="bento-chiffre">${n}</div><p>${n ? (n>1 ? 'nouveaux messages' : 'nouveau message') : 'Rien de nouveau.'}</p></div>
-    <span class="bento-bouton">Ouvrir ${SVG_FLECHE}</span></a>`;
+    ${taille!=='petit' ? `<a class="bento-bouton" href="/messages">Ouvrir ${SVG_FLECHE}</a>` : ''}`;
+}
+function widgetNouveautes(taille){
+  const maj=hubApps.filter(a=>a.nouvelle_version);
+  if(!maj.length) return `<div class="bw-titre">Nouvelles versions</div><p class="bw-vide">Tout est à jour.</p>`;
+  return `<div class="bw-titre">Nouvelles versions</div>
+    ${taille==='petit' ? `<div><div class="bento-chiffre">${maj.length}</div><p>application${maj.length>1?'s':''} à redécouvrir</p></div>`
+      : `<div class="bw-liste">${maj.slice(0,4).map(a=>`<a href="${lienOuverture(a)}" data-app="${esc(a.name)}"><img src="${icone(a.name)}" alt=""><span>${esc(nomAffiche(a))}</span></a>`).join('')}</div>`}`;
 }
 /* Les trois sujets d'un message : ce que l'administrateur en fera depend
    d'abord de cela -- une amelioration du hub, un nouveau projet, ou le
@@ -3917,8 +4104,7 @@ let hubMessageCible='hub', hubMessageApp='';
 function widgetMessage(taille){
   const apps=hubApps.slice().sort((x,y)=>nomAffiche(x).localeCompare(nomAffiche(y),'fr'));
   if(!hubMessageApp && apps.length) hubMessageApp=apps[0].name;
-  return `<section class="bw bw-${taille} bw-message" aria-label="Écrire à l'administrateur">
-    <div class="bw-titre">Un mot à l'admin ?</div>
+  return `<div class="bw-titre">Un mot à l'admin ?</div>
     <div class="bw-sujets" role="radiogroup" aria-label="C'est pour">${SUJETS_MESSAGE.map(([v,t])=>
       `<button type="button" role="radio" aria-checked="${hubMessageCible===v}" data-agir="bw-sujet" data-cible="${v}">${t}</button>`).join('')}</div>
     ${hubMessageCible==='application' ? `<label class="sr" for="bw-message-app">Quelle application</label>
@@ -3926,9 +4112,9 @@ function widgetMessage(taille){
         `<option value="${esc(a.name)}" ${a.name===hubMessageApp?'selected':''}>${esc(nomAffiche(a))}</option>`).join('')}</select>` : ''}
     <label class="sr" for="bw-message-texte">Ton message</label>
     <textarea id="bw-message-texte" data-garder="message" maxlength="2000"
-      placeholder="Une idée, un bug, une demande d'accès."
+      placeholder="Une idée, un souci, une demande d'accès."
       oninput="hubMessageBrouillon=this.value">${esc(hubMessageBrouillon)}</textarea>
-    <button class="btn btn-primary" onclick="bwEnvoyer(this)">Envoyer</button></section>`;
+    <button class="btn btn-primary" onclick="bwEnvoyer(this)">Envoyer</button>`;
 }
 async function bwEnvoyer(b){
   const t=$('bw-message-texte'), texte=(t.value||'').trim();
@@ -3938,51 +4124,63 @@ async function bwEnvoyer(b){
     const r=await fetch('/api/messages',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({cible:hubMessageCible, texte, app: hubMessageCible==='application' ? hubMessageApp : ''})});
     if(!r.ok){ notifier(await echec(r,'Envoi impossible.'),'err'); return; }
-    t.value=''; hubMessageBrouillon=''; notifier('Message envoyé.');
+    t.value=''; hubMessageBrouillon=''; notifier('Message envoyé.'); chargerSuivi(true);
   }finally{ b.disabled=false; }
 }
-let minuterieNotes=null;
-function widgetNotes(taille){
-  return `<section class="bw bw-${taille} bw-notes" aria-label="Bloc-notes">
-    <div class="bw-titre">Bloc-notes</div>
-    <label class="sr" for="bw-notes-texte">Bloc-notes</label>
-    <textarea id="bw-notes-texte" data-garder="notes" maxlength="4000" placeholder="Note ce que tu veux retrouver ici."
-      oninput="bwNotes(this.value)">${esc(hubNotes)}</textarea></section>`;
+const CLASSE_WIDGET={une:'bw-une', apercu:'bw-une', etat:'bento-etat', messages:'bw-messages', nouveautes:'bw-nouveautes', message:'bw-message', suivi:'bw-suivi'};
+function corpsWidget(e){
+  if(e.id==='une'){ const [a, vue]=appALaUne(hubApps); return widgetApercu(a, e.taille, (vue ? 'Dernière ouverte' : 'À la une')+(a && a.ouverte_le ? ' · '+depuis(a.ouverte_le) : '')); }
+  if(e.id==='apercu') return widgetApercu(hubApps.find(a=>a.name===e.app), e.taille, 'Aperçu');
+  if(e.id==='etat') return widgetEtat(e.taille);
+  if(e.id==='messages') return widgetMessages(e.taille);
+  if(e.id==='nouveautes') return widgetNouveautes(e.taille);
+  if(e.id==='message') return widgetMessage(e.taille);
+  if(e.id==='suivi') return widgetSuivi(e.taille);
+  return '';
 }
-/* Enregistree une seconde apres la derniere frappe, pas a chaque touche. */
-function bwNotes(v){
-  hubNotes=v; clearTimeout(minuterieNotes);
-  minuterieNotes=setTimeout(()=>fetch('/api/hub/notes',{method:'PUT',
-    headers:{'Content-Type':'application/json'}, body:JSON.stringify({notes:v})}), 1000);
+const TAILLES_NOM={petit:'Petit', moyen:'Moyen', grand:'Grand'};
+/* En mode Modifier, chaque tuile porte ses gestes : la retirer, la deplacer
+   d'un cran (les fleches valent le glisser, au clavier et au doigt), et pour
+   un widget, changer de taille. */
+function gestesEdition(e, nom){
+  const cle=esc(cleElement(e));
+  const def=e.t==='w' ? hubCatalogue.find(c=>c.id===e.id) : null;
+  return `<button type="button" class="ed-retirer" data-agir="hub-retirer" data-cible="${cle}"
+      aria-label="${e.t==='a' ? 'Masquer' : 'Retirer'} « ${esc(nom)} »" title="${e.t==='a' ? 'Masquer du hub' : 'Retirer le widget'}">−</button>
+    <div class="ed-barre">
+      <button type="button" data-agir="hub-deplacer" data-cible="${cle}" data-sens="-1" aria-label="Avancer « ${esc(nom)} »">←</button>
+      ${def && def.tailles.length>1 ? def.tailles.map(t=>`<button type="button" data-agir="hub-taille" data-cible="${cle}" data-taille="${t}"
+        aria-pressed="${e.taille===t}" title="${TAILLES_NOM[t]}">${TAILLES_NOM[t].charAt(0)}</button>`).join('') : ''}
+      <button type="button" data-agir="hub-deplacer" data-cible="${cle}" data-sens="1" aria-label="Reculer « ${esc(nom)} »">→</button>
+    </div>`;
 }
-
 function peindreBento(liste, filtre){
-  const apps = liste.filter(a=>!a.externe && !a.interne);
-  const toutes = hubApps.concat(hubServices);
-  /* La recherche ne filtre que les applications : les widgets restent. */
-  const widgets = filtre ? [] : (hubWidgets||[]).map(w=>{
-    const t=w.taille==='large' ? 'large' : 'normal';
-    return w.id==='une' ? widgetUne(hubApps, t)
-      : w.id==='etat' ? widgetEtat(toutes, t)
-      : w.id==='horloge' ? widgetHorloge(t)
-      : w.id==='messages' ? widgetMessages(t)
-      : w.id==='message' ? widgetMessage(t)
-      : w.id==='notes' ? widgetNotes(t) : '';
-  });
+  const toutes=hubApps.concat(hubServices);
   const desc = a => esc(a.description || (a.externe ? 'Outil de la stack' : 'Application'));
-  const carte = a => {
-    const [c] = etatApp(a);
-    return `<a class="bento-carte ${c}${a.nouvelle_version?' maj':''}" href="${lienOuverture(a)}" data-app="${esc(a.name)}">
+  const carte = (a, e) => {
+    const [c]=etatApp(a);
+    const balise = hubEdition ? 'div' : 'a';
+    return `<${balise} class="bento-carte ${c}${a.nouvelle_version?' maj':''}" ${hubEdition ? '' : `href="${lienOuverture(a)}"`} data-app="${esc(a.name)}" data-el="${esc(cleElement(e))}">
       <div class="bento-carte-haut"><img src="${icone(a.name)}" alt="">${badgeEtat(a)}</div>
       <div class="bento-carte-nom">${esc(nomAffiche(a))}</div>
-      ${badgeMaj(a)}<div class="bento-carte-desc">${desc(a)}</div>${pastille(a)}</a>`;
+      ${badgeMaj(a)}<div class="bento-carte-desc">${desc(a)}</div>${pastille(a)}${hubEdition ? gestesEdition(e, nomAffiche(a)) : ''}</${balise}>`;
   };
-  const ajout = estAdmin && !filtre ? `<button type="button" class="bento-ajout" onclick="openAdd()">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Ajouter une application</button>` : '';
-  const vide = filtre && !liste.length
-    ? '<div class="hub-vide bento-vide"><b>Aucune application ne correspond</b>Essaie un autre mot.</div>' : '';
+  const widget = e => {
+    const def=hubCatalogue.find(c=>c.id===e.id);
+    const nom=e.id==='apercu' ? 'Aperçu de '+nomAffiche(hubApps.find(a=>a.name===e.app)||{name:e.app}) : (def ? def.titre : e.id);
+    return `<section class="bw bw-${e.taille} ${CLASSE_WIDGET[e.id]||''}" aria-label="${esc(nom)}" data-el="${esc(cleElement(e))}">
+      ${corpsWidget(e)}${hubEdition ? gestesEdition(e, nom) : ''}</section>`;
+  };
+  /* La recherche ne montre que les applications qui correspondent. */
+  const html = filtre
+    ? liste.map(a=>carte(a, {t:'a', id:a.name})).join('')
+      + (liste.length ? '' : '<div class="hub-vide bento-vide"><b>Aucune application ne correspond</b>Essaie un autre mot.</div>')
+    : elementsDuHub().map(e=>{
+        if(e.t==='w') return widget(e);
+        const a=toutes.find(x=>x.name===e.id); return a ? carte(a, e) : '';
+      }).join('');
   const el=$('hub-liste');
-  el.className='bento';
+  el.className='bento'+(hubEdition ? ' edition' : '');
   /* Ce qui doit SURVIVRE au repeint -- l'apercu (sinon il se recharge), le
      texte en cours de frappe -- est mis de cote puis remis a sa place. */
   const gardes={};
@@ -3990,7 +4188,7 @@ function peindreBento(liste, filtre){
   const actif=document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.garder : null;
   const debut=actif && gardes[actif] ? gardes[actif].selectionStart : null;
   const avant=el.innerHTML;
-  remplir(el, widgets.join('') + liste.map(carte).join('') + vide + ajout);
+  remplir(el, html);
   if(el.innerHTML!==avant){
     el.querySelectorAll('[data-garder]').forEach(n=>{
       const ancien=gardes[n.dataset.garder];
@@ -3998,7 +4196,9 @@ function peindreBento(liste, filtre){
     });
     if(actif && gardes[actif]){ gardes[actif].focus(); if(debut!=null) try{ gardes[actif].setSelectionRange(debut, debut); }catch(e){} }
   }
-  poserHorloge();
+  $('hub-modifier').textContent = hubEdition ? 'Terminé' : 'Modifier';
+  $('hub-modifier').classList.toggle('actif', hubEdition);
+  $('hub-ajouter-widget').style.display = hubEdition ? '' : 'none';
   ajusterBento();
 }
 /* Trois rangees qui tiennent dans la fenetre : la hauteur se calcule depuis
@@ -4008,8 +4208,6 @@ function ajusterBento(){
   if(!el.classList.contains('bento')) return;
   const haut=el.getBoundingClientRect().top + window.scrollY;
   el.style.setProperty('--bento-h', Math.max(420, window.innerHeight - haut - 28) + 'px');
-  /* Ce qui reste sous la mosaique (marges de la page) ne doit pas faire
-     defiler la page : on retranche le depassement mesure. */
   const exces=document.documentElement.scrollHeight - window.innerHeight;
   if(exces>0) el.style.setProperty('--bento-h', Math.max(420, el.clientHeight - exces) + 'px');
 }
@@ -4023,39 +4221,98 @@ $('hub-liste').addEventListener('wheel', e=>{
   el.scrollLeft += e.deltaY; e.preventDefault();
 }, {passive:false});
 
-/* PERSONNALISER LES WIDGETS : lesquels, dans quel ordre, en quelle taille. */
-let widgetsBrouillon=[];
-function ouvrirWidgets(){
-  const choisis=(hubWidgets||[]).map(w=>({...w, actif:true}));
-  const autres=hubWidgetsDispo.filter(d=>!choisis.some(w=>w.id===d.id)).map(d=>({id:d.id, taille:'normal', actif:false}));
-  widgetsBrouillon=choisis.concat(autres);
-  peindreWidgetsBrouillon();
-  $('ov-widgets').classList.add('show');
+/* ---- composer : modifier, deplacer, retirer, changer de taille ---- */
+function basculerEdition(){
+  hubEdition=!hubEdition;
+  if(hubEdition) $('hub-filtre').value='';
+  peindreHub();
 }
-function titreWidget(id){ const d=hubWidgetsDispo.find(x=>x.id===id); return d ? d.titre : id; }
-function peindreWidgetsBrouillon(){
-  $('wg-liste').innerHTML=widgetsBrouillon.map((w,i)=>`<div class="wg-ligne${w.actif?'':' inactif'}">
-    <label class="choix-ligne wg-nom"><input type="checkbox" ${w.actif?'checked':''} onchange="widgetsBrouillon[${i}].actif=this.checked;peindreWidgetsBrouillon()">
-      <span>${esc(titreWidget(w.id))}</span></label>
-    <select aria-label="Taille de « ${esc(titreWidget(w.id))} »" onchange="widgetsBrouillon[${i}].taille=this.value" ${w.actif?'':'disabled'}>
-      <option value="normal" ${w.taille!=='large'?'selected':''}>Normal</option>
-      <option value="large" ${w.taille==='large'?'selected':''}>Grand</option></select>
-    <button class="btn btn-quiet btn-sm" aria-label="Monter « ${esc(titreWidget(w.id))} »" onclick="widgetDeplacer(${i},-1)" ${i?'':'disabled'}>↑</button>
-    <button class="btn btn-quiet btn-sm" aria-label="Descendre « ${esc(titreWidget(w.id))} »" onclick="widgetDeplacer(${i},1)" ${i<widgetsBrouillon.length-1?'':'disabled'}>↓</button>
-  </div>`).join('');
+function hubRetirer(cle){
+  const elements=elementsDuHub();
+  const e=elements.find(x=>cleElement(x)===cle); if(!e) return;
+  if(e.t==='a'){
+    /* Une application se MASQUE (elle se retrouve dans Parametres > Compte),
+       elle ne quitte pas le serveur. */
+    fetch('/api/mes-apps/'+encodeURIComponent(e.id)+'/masquer',{method:'POST'}).then(r=>{
+      if(r.ok){ notifier('Masquée du hub — à retrouver dans tes paramètres.'); chargerHub(); }
+    });
+    return;
+  }
+  enregistrerDisposition(elements.filter(x=>x!==e));
 }
-function widgetDeplacer(i, sens){
-  const j=i+sens; if(j<0 || j>=widgetsBrouillon.length) return;
-  [widgetsBrouillon[i], widgetsBrouillon[j]]=[widgetsBrouillon[j], widgetsBrouillon[i]];
-  peindreWidgetsBrouillon();
+function hubDeplacer(cle, sens){
+  const elements=elementsDuHub();
+  const i=elements.findIndex(x=>cleElement(x)===cle), j=i+Number(sens);
+  if(i<0 || j<0 || j>=elements.length) return;
+  [elements[i], elements[j]]=[elements[j], elements[i]];
+  enregistrerDisposition(elements).then(()=>{
+    const b=document.querySelector(`[data-el="${CSS.escape(cle)}"] [data-sens="${sens}"]`); if(b) b.focus(); });
 }
-async function enregistrerWidgets(){
-  const widgets=widgetsBrouillon.filter(w=>w.actif).map(w=>({id:w.id, taille:w.taille}));
-  const r=await fetch('/api/hub/widgets',{method:'PUT',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({widgets})});
-  if(!r.ok){ notifier(await echec(r,'Enregistrement impossible.'),'err'); return; }
-  hubWidgets=(await r.json()).widgets;
-  hide('ov-widgets'); peindreHub(); notifier('Widgets enregistrés.');
+function hubTailleWidget(cle, taille){
+  enregistrerDisposition(elementsDuHub().map(x=>cleElement(x)===cle ? {...x, taille} : x));
+}
+/* Glisser une tuile en mode Modifier : elle prend la place de celle qu'on
+   survole. La disposition part au serveur au lacher. */
+let tuileGlissee=null;
+$('hub-liste').addEventListener('pointerdown', e=>{
+  if(!hubEdition || e.target.closest('button,select,textarea,input')) return;
+  const t=e.target.closest('[data-el]'); if(!t) return;
+  e.preventDefault();
+  tuileGlissee={t, avant:[...$('hub-liste').children].map(x=>x.dataset.el).join('|')};
+  t.classList.add('glissee');
+});
+document.addEventListener('pointermove', e=>{
+  if(!tuileGlissee) return;
+  const sous=document.elementFromPoint(e.clientX, e.clientY);
+  const cible=sous && sous.closest && sous.closest('#hub-liste [data-el]');
+  if(!cible || cible===tuileGlissee.t) return;
+  const enfants=[...$('hub-liste').children];
+  if(enfants.indexOf(tuileGlissee.t) < enfants.indexOf(cible)) cible.after(tuileGlissee.t); else cible.before(tuileGlissee.t);
+});
+document.addEventListener('pointerup', ()=>{
+  if(!tuileGlissee) return;
+  const g=tuileGlissee; tuileGlissee=null; g.t.classList.remove('glissee');
+  const ordre=[...$('hub-liste').children].map(x=>x.dataset.el).filter(Boolean);
+  if(ordre.join('|')===g.avant) return;
+  const parCle=Object.fromEntries(elementsDuHub().map(x=>[cleElement(x), x]));
+  enregistrerDisposition(ordre.map(k=>parCle[k]).filter(Boolean));
+});
+
+/* ---- la galerie des widgets, comme celle d'un Mac : a gauche ce qu'on
+   peut poser (le hub, puis chaque application), a droite les tailles,
+   dessinees a leur proportion ; un clic pose le widget en tete du hub. ---- */
+let galerieChoix='une';
+function ouvrirGalerie(){ peindreGalerie(); $('ov-galerie').classList.add('show'); }
+function peindreGalerie(){
+  const hub=hubCatalogue.filter(c=>c.portee==='hub');
+  const parApp=hubCatalogue.filter(c=>c.portee==='app');
+  const apps=hubApps.slice().sort((x,y)=>nomAffiche(x).localeCompare(nomAffiche(y),'fr'));
+  const items=hub.map(c=>({cle:c.id, titre:c.titre, icone:''}))
+    .concat(parApp.length ? apps.map(a=>({cle:'app:'+a.name, titre:nomAffiche(a), icone:icone(a.name)})) : []);
+  if(!items.some(i=>i.cle===galerieChoix)) galerieChoix=items[0] ? items[0].cle : '';
+  const choisi=items.find(i=>i.cle===galerieChoix);
+  const estApp=galerieChoix.startsWith('app:');
+  const def=estApp ? parApp[0] : hubCatalogue.find(c=>c.id===galerieChoix);
+  const appNom=estApp ? galerieChoix.slice(4) : null;
+  const deja=elementsDuHub().filter(e=>e.t==='w' && e.id===(def&&def.id) && (e.app||null)===appNom);
+  $('galerie-liste').innerHTML=`<div class="gl-titre">Hub</div>`
+    + items.filter(i=>!i.cle.startsWith('app:')).map(i=>`<button type="button" class="gl-item" aria-pressed="${i.cle===galerieChoix}" data-agir="galerie-choisir" data-cible="${esc(i.cle)}">${esc(i.titre)}</button>`).join('')
+    + (items.some(i=>i.cle.startsWith('app:')) ? `<div class="gl-titre">Applications</div>` : '')
+    + items.filter(i=>i.cle.startsWith('app:')).map(i=>`<button type="button" class="gl-item" aria-pressed="${i.cle===galerieChoix}" data-agir="galerie-choisir" data-cible="${esc(i.cle)}"><img src="${i.icone}" alt="">${esc(i.titre)}</button>`).join('');
+  $('galerie-detail').innerHTML = !def ? '' : `<h4>${esc(estApp ? def.titre+' — '+choisi.titre : def.titre)}</h4>
+    <p class="hint">${esc(def.description)}</p>
+    <div class="gl-tailles">${def.tailles.map(t=>`<button type="button" class="gl-taille gl-${t}" data-agir="galerie-ajouter" data-cible="${esc(def.id)}" data-taille="${t}" ${appNom ? `data-app="${esc(appNom)}"` : ''}
+        aria-label="Ajouter « ${esc(def.titre)} » en ${TAILLES_NOM[t].toLowerCase()}">
+        <span class="gl-forme">${estApp ? `<img src="${icone(appNom)}" alt="">` : ''}<b>${esc(estApp ? choisi.titre : def.titre)}</b></span>
+        <span class="gl-nom">${TAILLES_NOM[t]}</span></button>`).join('')}</div>
+    ${deja.length ? '<p class="hint">Déjà sur ton hub : l\'ajouter remplace sa taille.</p>' : ''}`;
+}
+function galerieAjouter(id, taille, app){
+  const nouveau={t:'w', id, taille}; if(app) nouveau.app=app;
+  const cle=cleElement(nouveau);
+  enregistrerDisposition([nouveau].concat(elementsDuHub().filter(e=>cleElement(e)!==cle)));
+  hide('ov-galerie'); notifier('Widget ajouté.');
+  $('hub-liste').scrollLeft=0;
 }
 
 /* L'application ouverte : retenue par ce navigateur, et signalee au serveur
@@ -4063,7 +4320,7 @@ async function enregistrerWidgets(){
    (widget « A la une »). keepalive : la page s'en va aussitot. */
 $('hub-liste').addEventListener('click', e=>{
   const t = e.target.closest('[data-app]');
-  if(!t) return;
+  if(!t || hubEdition) return;
   try{ localStorage.setItem('codelab-hub-derniere', t.dataset.app); }catch(err){}
   if(hubApps.some(a=>a.name===t.dataset.app))
     fetch('/api/mes-apps/'+encodeURIComponent(t.dataset.app)+'/ouverte', {method:'POST', keepalive:true}).catch(()=>{});
@@ -6486,8 +6743,6 @@ document.addEventListener('visibilitychange', ()=>{
     }
   });
 });
-/* L'horloge du widget, posee hors du HTML de la mosaique (voir widgetHorloge). */
-surveiller(poserHorloge, 15000);
 
 if(estAdmin){
   /* « Hub » cote administrateur : il y voit TOUTES les applications, pas

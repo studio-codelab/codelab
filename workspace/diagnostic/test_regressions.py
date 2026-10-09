@@ -12157,6 +12157,67 @@ def _reinitialiser_par_mail(c, partis, nouveau="nouveau-mot-de-passe"):
                   json={"nom": "marie", "code": code, "nouveau": nouveau})
 
 
+def test_le_code_par_mail_passe_avant_l_application(comptes_mail):
+    """Sans Face ID : le code par mail d'abord, l'application a un clic."""
+    c, partis = comptes_mail
+    _compte_avec_adresse(face_id=False)
+    comptes = app.lire_utilisateurs()
+    comptes["marie"]["totp"] = "JBSWY3DPEHPK3PXP"
+    app.ecrire_utilisateurs(comptes)
+    d = c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long"}).get_json()
+    assert d["moyens"] == ["email", "totp"] and d["moyen"] == "email" and d["envoye"]
+    # Le mail porte le code en clair dans le texte, et en grand dans sa version mise en page.
+    assert re.search(r": \d{6}", partis[-1][1])
+
+
+def test_l_administrateur_recoit_aussi_son_code_par_mail(comptes_mail, monkeypatch, tmp_path):
+    c, partis = comptes_mail
+    (tmp_path / "credentials.env").write_text(
+        "SMTP_HOST=smtp.example.com\nSMTP_USER=panneau@example.com\n"
+        "ALERTE_ADMIN=chef@example.com\n")
+    monkeypatch.setenv("APP_MANAGER_ADMIN_2FA", "1")
+    monkeypatch.setattr(app, "_totp_secret", "JBSWY3DPEHPK3PXP")
+    r = c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    d = r.get_json()
+    assert r.status_code == 401 and d["moyen"] == "email" and d["moyens"] == ["email", "totp"]
+    assert d["envoye"] and partis[-1][0] == ["chef@example.com"]
+    assert "chef@example.com" not in json.dumps(d)
+    # Le code est au coffre, en empreinte : jamais en clair, jamais dans le cookie.
+    code = _code_du_dernier_mail(partis)
+    assert code not in json.dumps(app.reglage("code_connexion_admin"))
+    # Un deuxieme appel dans la minute ne renvoie rien.
+    nb = len(partis)
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    assert len(partis) == nb
+    # Un mauvais code est refuse, le bon ouvre la session, une seule fois.
+    app._login_attempts.clear()
+    faux = "000000" if code != "000000" else "111111"
+    assert c.post("/login", json={"nom": "admin", "password": "secret-de-test",
+                                  "code": faux}).status_code == 401
+    assert c.post("/login", json={"nom": "admin", "password": "secret-de-test",
+                                  "code": code}).status_code == 200
+    assert c.get("/api/apps").status_code == 200
+    c.post("/logout")
+    app._login_attempts.clear()
+    assert c.post("/login", json={"nom": "admin", "password": "secret-de-test",
+                                  "code": code}).status_code == 401
+    # L'application d'authentification marche toujours.
+    totp = app.totp_code("JBSWY3DPEHPK3PXP", int(time.time()) // app.TOTP_PAS)
+    assert c.post("/login", json={"nom": "admin", "password": "secret-de-test",
+                                  "code": totp}).status_code == 200
+
+
+def test_la_page_de_connexion_propose_face_id_puis_un_code_en_cases():
+    login = _page_panneau("login.html")
+    for trace in ('class="bouton-geste" id="pk-go"', 'id="code-cases"', 'autocomplete="one-time-code"',
+                  "function remplirCases(", "function compteARebours(", 'id="pk-indispo"',
+                  "Aucun code à saisir."):
+        assert trace in login, trace
+    # Six cases, et un seul champ porte la valeur envoyee.
+    bloc = login.split('id="code-cases"', 1)[1].split("</div>", 1)[0]
+    assert bloc.count("<input") == 6
+
+
 def test_sans_facteur_fort_la_reinitialisation_par_mail_est_fermee(comptes_mail):
     c, partis = comptes_mail
     _compte_avec_adresse(face_id=False)
@@ -12786,6 +12847,59 @@ def test_un_message_accepte_devient_une_tache(boite):
     assert stockage_lignes("sous_taches") == 0
 
 
+def test_l_utilisateur_suit_ses_messages(boite, deux_espaces):
+    """Qui a ecrit voit ce que son message devient -- lu, a l'etude,
+    planifie, en cours, realise, non retenu -- deduit de ce que fait
+    l'administrateur. Il ne voit que ses messages."""
+    c, _ = boite
+    u = app.flask_app.test_client()
+    _connecte(u, "marie", "mot-de-passe-long")
+
+    def suivi():
+        d = u.get("/api/mes-messages").get_json()
+        return {m["texte"]: m for m in d["messages"]}, d["nouveaux"]
+
+    a = _message(c, "hub", "La page ne charge plus")
+    b = _message(c, "idee", "Un carnet de recettes")
+    autre = _message(c, "hub", "Pas le mien", qui="paul")
+    ms, nouveaux = suivi()
+    assert set(ms) == {"La page ne charge plus", "Un carnet de recettes"} and nouveaux == 0
+    assert ms["La page ne charge plus"]["suivi"]["etape"] == "envoye"
+    # Lu, puis mis a l'etude : du nouveau a annoncer.
+    assert c.put(f"/api/messages/{a}/lu").status_code == 200
+    assert c.put(f"/api/messages/{b}", json={"statut": "a_reflechir"}).status_code == 200
+    ms, nouveaux = suivi()
+    assert ms["La page ne charge plus"]["suivi"]["etape"] == "lu"
+    assert ms["Un carnet de recettes"]["suivi"]["etape"] == "etude" and nouveaux == 2
+    # Vu : les pastilles s'eteignent.
+    assert u.post("/api/mes-messages/vus").status_code == 200
+    assert suivi()[1] == 0
+    # Accepte en tache, avec une date : planifie, puis fait.
+    tache = c.post(f"/api/messages/{a}/accepter", json={"projet": "general", "titre": "Réparer"}
+                   ).get_json()["tache"]
+    assert c.put(f"/api/taches/{tache}", json={"echeance": "2030-01-15"}).status_code == 200
+    ms, nouveaux = suivi()
+    s = ms["La page ne charge plus"]["suivi"]
+    assert s["etape"] == "planifie" and s["prevu"] == "2030-01-15" and nouveaux == 1
+    assert s["taches"] == [{"titre": "Réparer", "faite": False}] and s["total"] == 1
+    assert c.put(f"/api/taches/{tache}", json={"statut": "fait"}).status_code == 200
+    s = suivi()[0]["La page ne charge plus"]["suivi"]
+    assert s["etape"] == "fait" and s["faites"] == 1 and s["fait_le"] and s["prevu"] is None
+    # Devenu un projet : ses taches comptent ; refuse : non retenu.
+    r = c.post(f"/api/messages/{b}/accepter",
+               json={"nouveau_projet": {"nom": "Recettes"}, "taches": ["Maquette", "Base"]})
+    s = suivi()[0]["Un carnet de recettes"]["suivi"]
+    assert s["etape"] == "planifie" and s["projet"] == "Recettes" and s["total"] == 2
+    assert c.put(f"/api/messages/{b}", json={"statut": "refuse"}).status_code == 200
+    assert suivi()[0]["Un carnet de recettes"]["suivi"]["etape"] == "refuse"
+    # L'administrateur ne voit pas les messages de marie dans SON suivi.
+    assert all(m["id"] != autre for m in c.get("/api/mes-messages").get_json()["messages"])
+    assert "suivi" in {w["id"] for w in u.get("/api/hub/disposition").get_json()["catalogue"]}
+    page = _page_panneau("dashboard.html")
+    for trace in ('id="suivi-liste"', "function widgetSuivi(", "/api/mes-messages/vus", 'id="side-count-suivi"'):
+        assert trace in page, trace
+
+
 def stockage_lignes(table):
     return app.stockage.lire(app.DB_FILE, f"SELECT COUNT(*) AS n FROM {table}")[0]["n"]
 
@@ -12862,7 +12976,8 @@ def test_le_style_design_ne_change_que_l_habit():
     assert 'class="side-item utilisateur-seul"' in page
     assert "document.body.classList.add('compte-utilisateur')" in page
     login = _page_panneau("login.html")
-    assert ':root[data-style="design"] #pk-zone{display:none !important}' in login
+    # Face ID / Touch ID n'est plus cache dans le style Design : en tete.
+    assert "#pk-zone{display:none" not in login
 
 
 
@@ -12916,14 +13031,15 @@ def test_la_mosaique_defile_a_l_horizontale_et_a_la_verticale_sur_telephone():
     # La molette verticale fait defiler de cote ; l'ajout d'application est
     # la derniere tuile, donc a droite.
     assert "el.scrollLeft += e.deltaY" in page
+    # Plus d'ajout d'application depuis le hub : cela se fait dans
+    # « Applications ».
     corps = page.split("function peindreBento(")[1].split("\n}")[0]
-    assert "liste.map(carte).join('') + vide + ajout" in corps
-    assert 'class="bento-ajout" onclick="openAdd()"' in corps
+    assert "openAdd" not in corps and "bento-ajout" not in page
 
 
 def test_a_la_une_montre_un_apercu_de_la_derniere_application_ouverte(deux_espaces):
     page = _page_panneau("dashboard.html")
-    une = page.split("function widgetUne(")[1].split("\n}")[0]
+    une = page.split("function widgetApercu(")[1].split("\n}")[0]
     assert "<iframe" in une and "pointer-events" not in une  # inerte par le CSS
     assert 'sandbox="allow-scripts allow-same-origin allow-forms"' in une
     assert "a.ouverte_le" in page.split("function appALaUne(")[1].split("\n}")[0]
@@ -12938,35 +13054,55 @@ def test_a_la_une_montre_un_apercu_de_la_derniere_application_ouverte(deux_espac
     assert r.headers["X-Frame-Options"] == "DENY"
 
 
-def test_les_widgets_se_choisissent_par_compte(deux_espaces):
+def test_le_hub_se_compose_par_compte(deux_espaces):
+    """Le hub Bento se compose : tuiles et widgets dans l'ordre voulu, chaque
+    widget a sa taille. Peu de widgets, sur le hub ou sur une application ;
+    le catalogue est ferme et depend du role."""
     c = deux_espaces
     c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
-    d = c.get("/api/hub/widgets").get_json()
-    ids = [w["id"] for w in d["widgets"]]
-    assert ids[0] == "une" and "messages" in ids and "message" not in ids
-    assert {w["id"] for w in d["disponibles"]} == {"une", "etat", "horloge", "messages", "notes"}
-    r = c.put("/api/hub/widgets", json={"widgets": [{"id": "horloge", "taille": "large"},
-                                                    {"id": "une"}]})
-    assert r.status_code == 200
-    assert c.get("/api/hub/widgets").get_json()["widgets"] == [
-        {"id": "horloge", "taille": "large"}, {"id": "une", "taille": "normal"}]
-    for mauvais in ([{"id": "inconnu"}], [{"id": "une"}, {"id": "une"}],
-                    [{"id": "une", "taille": "geant"}], "x", [{"id": "message"}]):
-        assert c.put("/api/hub/widgets", json={"widgets": mauvais}).status_code == 400, mauvais
-    assert c.put("/api/hub/notes", json={"notes": "acheter du pain"}).status_code == 200
-    assert c.get("/api/hub/widgets").get_json()["notes"] == "acheter du pain"
-    assert c.put("/api/hub/notes", json={"notes": "x" * 5000}).status_code == 400
-    # Un compte utilisateur a SES widgets, et pas celui des messages recus.
+    d = c.get("/api/hub/disposition").get_json()
+    catalogue = {w["id"]: w for w in d["catalogue"]}
+    assert set(catalogue) == {"une", "etat", "messages", "nouveautes", "apercu"}
+    assert catalogue["apercu"]["portee"] == "app" and catalogue["etat"]["tailles"] == ["petit", "moyen"]
+    # Ni horloge ni bloc-notes : rien qui ne parle du hub ou de ses applications.
+    assert "horloge" not in catalogue and "notes" not in catalogue
+    assert [e["id"] for e in d["elements"]][0] == "une"
+    elements = [{"t": "a", "id": "public"}, {"t": "w", "id": "apercu", "taille": "grand", "app": "public"},
+                {"t": "w", "id": "etat", "taille": "petit"}, {"t": "a", "id": "prive-autorise"},
+                {"t": "a", "id": "disparue"}]
+    r = c.put("/api/hub/disposition", json={"elements": elements})
+    assert r.status_code == 200, r.data
+    garde = c.get("/api/hub/disposition").get_json()["elements"]
+    # Une application qui n'existe pas est oubliee, l'ordre est garde.
+    assert garde == elements[:4]
+    for mauvais in ([{"t": "w", "id": "horloge", "taille": "petit"}],
+                    [{"t": "w", "id": "etat", "taille": "grand"}],
+                    [{"t": "w", "id": "apercu", "taille": "moyen", "app": "inconnue"}],
+                    [{"t": "w", "id": "etat", "taille": "petit"}, {"t": "w", "id": "etat", "taille": "moyen"}],
+                    [{"t": "x"}], "x"):
+        assert c.put("/api/hub/disposition", json={"elements": mauvais}).status_code == 400, mauvais
+    # Un compte utilisateur : ses propres widgets, et seulement ses applications.
     u = app.flask_app.test_client()
     _connecte(u, "marie", "mot-de-passe-long")
-    d = u.get("/api/hub/widgets").get_json()
-    assert "messages" not in [w["id"] for w in d["widgets"]]
-    assert "message" in [w["id"] for w in d["widgets"]]
-    assert u.get("/api/hub/widgets").get_json()["notes"] == ""
-    assert u.put("/api/hub/widgets", json={"widgets": [{"id": "messages"}]}).status_code == 400
+    catalogue = {w["id"] for w in u.get("/api/hub/disposition").get_json()["catalogue"]}
+    assert "message" in catalogue and "messages" not in catalogue and "etat" not in catalogue
+    assert u.put("/api/hub/disposition", json={"elements": [
+        {"t": "w", "id": "apercu", "taille": "moyen", "app": "prive-refuse"}]}).status_code == 400
+    assert u.put("/api/hub/disposition", json={"elements": [
+        {"t": "w", "id": "apercu", "taille": "moyen", "app": "prive-autorise"}]}).status_code == 200
     page = _page_panneau("dashboard.html")
-    assert 'id="ov-widgets"' in page and "function enregistrerWidgets(" in page
-    assert "hub-personnaliser" in page
+    for trace in ('id="ov-galerie"', "function basculerEdition(", "function galerieAjouter(",
+                  "'hub-deplacer'", "'hub-retirer'", "@keyframes hub-tremble", "prefers-reduced-motion:reduce"):
+        assert trace in page, trace
+
+
+def test_une_ancienne_selection_de_widgets_devient_une_disposition(deux_espaces):
+    c = deux_espaces
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    app.ecrire_preference("widgets", [{"id": "horloge", "taille": "normal"},
+                                      {"id": "demandes", "taille": "large"}], qui="admin")
+    assert c.get("/api/hub/disposition").get_json()["elements"] == [
+        {"t": "w", "id": "messages", "taille": "moyen"}]
 
 
 # ---------- nouvelle version depuis la derniere ouverture ----------

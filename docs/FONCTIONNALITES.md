@@ -25,7 +25,7 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](../SECURITE.m
 
 | Page | Adresse | Pour qui | Ce qu'on y fait |
 |---|---|---|---|
-| Hub | `/` | tous | les applications ouvrables, et (style Bento) des widgets ; laisser un message à l'administrateur |
+| Hub | `/` | tous | les applications ouvrables, et (style Bento) une mosaïque à composer, avec ses widgets ; laisser un message à l'administrateur |
 | Vue d'ensemble | `/apercu` | admin | compteurs (en ligne, arrêtées, en erreur), charge CPU et mémoire |
 | Applications | `/applications`, `/applications/<nom>[/<onglet>]` | admin | liste, puis fiche d'une application |
 | Utilisateurs | `/utilisateurs` | admin | comptes, invitations, journal des accès, carte d'activité |
@@ -42,14 +42,21 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](../SECURITE.m
   - « Bento » (par défaut) : le hub en mosaïque.
     - **Sur un écran large**, elle défile à l'horizontale et jamais à la verticale : trois rangées à
       la hauteur de la fenêtre, et chaque application ajoute une colonne à droite. La molette fait
-      défiler de côté. La tuile « Ajouter une application » (admin) ferme la marche.
+      défiler de côté. La recherche est à droite de l'en-tête. On n'ajoute pas d'application depuis
+      le hub (c'est l'onglet *Applications*).
     - **Sur téléphone**, elle redevient une colonne qu'on fait défiler vers le bas.
-    - **Widgets** (*Personnaliser*, à côté de la recherche) : chaque compte choisit lesquels, leur
-      ordre et leur taille (normal ou grand), gardés côté serveur d'un appareil à l'autre :
-      « À la une », « État des applications », « Date et heure », « Messages à lire » (admin),
-      « Écrire à l'administrateur » (comptes utilisateurs) et « Bloc-notes » (enregistré en continu).
-    - **À la une** montre un aperçu en direct, réduit et inerte, de la dernière application ouverte
-      par ce compte, avec la date de l'ouverture ; un clic l'ouvre.
+    - **Composer le hub** (*Modifier*, à droite de la recherche), comme sur un Mac : les tuiles
+      tremblent, chacune porte un « − » pour la retirer, des flèches pour la déplacer et, pour un
+      widget, ses tailles (petit, moyen, grand). On peut aussi les glisser. *Terminé* referme le mode.
+      Retirer une application la masque du hub (elle revient depuis *Paramètres*). La disposition
+      (applications et widgets mêlés, dans l'ordre) est gardée côté serveur, d'un appareil à l'autre.
+    - **Galerie de widgets** (« + » en mode Modifier) : seulement des widgets utiles, propres au hub
+      ou à une application du hub, chacun avec ses tailles en aperçu :
+      - hub : « Dernière ouverte » (aperçu en direct de la dernière application ouverte, avec la
+        date), « État des applications » (admin), « Messages » à lire (admin), « Nouvelles
+        versions », « Écrire à l'administrateur » et « Mes messages » (comptes utilisateurs) ;
+      - applications : « Aperçu » d'une application choisie, en direct, réduit et inerte ; un clic
+        l'ouvre.
 - **Indicateur « Nouvelle version »** sur la tuile d'une application qui a changé depuis la dernière
   fois que ce compte l'a ouverte : un déploiement ou un build réussi depuis le panneau, ou un
   nouveau commit dans son dépôt git. Une application jamais ouverte n'en porte pas.
@@ -152,7 +159,15 @@ Détails : [`SECURITE.md`](../SECURITE.md) et [`app-manager/README.md`](../app-m
   - remise à zéro du second facteur, retrait des clés d'accès ;
   - suppression, qui emporte les clés d'accès.
 - **Deux filtres sur la liste** : par personne, ou par application (« qui a accès à… »).
-- **Second facteur obligatoire** : clé d'accès, TOTP, ou code par mail.
+- **Connexion par Face ID / Touch ID** (clé d'accès) : un bouton en tête de la page de connexion,
+  qui vaut mot de passe et second facteur ; aucun code à saisir. Il demande le panneau en HTTPS, par
+  son nom de domaine : sinon la page dit pourquoi il n'est pas proposé.
+- **Second facteur obligatoire**, dans cet ordre de préférence :
+  - Face ID / Touch ID si le compte en a une clé : l'appareil confirme, aucun code n'est affiché ;
+  - sinon un **code par mail** (comptes avec adresse vérifiée, et l'administrateur à son adresse
+    d'alerte), saisi dans six cases : un code collé ou proposé par le clavier les remplit d'un coup,
+    le sixième chiffre valide, « Renvoyer le code » attend une minute ; le mail le montre en grand ;
+  - l'application d'authentification (TOTP), à un clic.
 - **Mot de passe oublié** par code mail, si le compte a aussi un autre facteur.
 - **Journal des accès** paginé (25 ou 50 lignes), filtrable, avec une **carte de chaleur** sur un an.
 - **Copie de l'historique dans Postgres** (base `codelab`) pour les requêtes longues.
@@ -202,6 +217,16 @@ adresses `/demandes` y mènent.
   l'administrateur » du style Bento), en choisissant le sujet : **améliorer le hub**, **une idée de
   nouveau projet**, ou **améliorer une application existante** (laquelle). Un message qui arrive
   s'annonce dans le coin du panneau de l'administrateur.
+- **Suivre ses messages** (comptes utilisateurs) : *Paramètres > Message > Mes messages* montre où en
+  est chacun, sur une frise **Envoyé → Lu (ou À l'étude) → Planifié → En cours → Réalisé**, ou
+  **Non retenu**. L'étape se déduit de ce que fait l'administrateur dans Messages (lire, mettre à
+  l'étude, accepter, refuser, en faire des tâches ou un projet, les cocher) : rien de plus à remplir.
+  - On y voit le projet, les tâches nées du message (titre et coche seulement), la date prévue s'il
+    y en a une, et la date de réalisation.
+  - Un message qui a avancé depuis la dernière visite est mis en avant, et le menu *Messages* porte
+    leur nombre ; ouvrir la liste les marque vus.
+  - Le widget Bento « Mes messages » résume le tout sur le hub (dans la composition par défaut).
+  - Un compte ne voit que ses propres messages.
 - **Boîte de réception** (`/messages`) : à classer, tous, archivés ; filtre par sujet et recherche.
   - Les messages se rangent à la main (glisser par la poignée, ou flèches ↑ ↓ au clavier) ; un message
     neuf arrive en tête.
