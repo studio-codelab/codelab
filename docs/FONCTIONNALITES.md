@@ -34,16 +34,12 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](../SECURITE.m
 
 - **Une seule application pour tous les rôles.** Le rôle décide de ce que le menu propose. Chaque
   rubrique a son adresse : recharger y ramène, « Précédent » y revient.
-- **Quatre styles** (*Paramètres > Compte > Apparence*), retenus par navigateur :
-  - Style 1 : menu latéral, cartes compactes ;
-  - Style 2 : menu en pilule, barre du bas sur téléphone, hub en grandes icônes ;
-  - Style 3 « Lanceur » : le hub comme un écran d'accueil (trame de points, bonjour en grand,
-    recherche au centre, grandes icônes cerclées si l'application ne répond pas, Dagster, Mailpit et
-    Demandes dans un dock) ;
-  - Style 4 « Bento » : le hub en mosaïque (l'application ouverte en dernier en grand, une tuile
-    d'état « en ligne / total », une carte par application, recherche).
-
-  Les styles 3 et 4 reprennent la mise en page du style 2 pour le reste du panneau.
+- **Deux styles** (*Paramètres > Compte > Apparence*), retenus par navigateur. Le reste du panneau
+  est le même : menu en pilule, barre du bas sur téléphone, réglages en fenêtre.
+  - « Lanceur » : le hub comme un écran d'accueil (trame de points, bonjour en grand, recherche au
+    centre, grandes icônes cerclées si l'application ne répond pas, Dagster, Mailpit et Demandes
+    dans un dock) ;
+  - « Bento » (par défaut) : le hub en mosaïque — voir plus bas.
 - **Thème clair, sombre ou automatique.** Les jetons de couleur vivent dans
   `app-manager/app/theme.css`, aussi servi aux applications sur `/theme.css`.
 - **Installable sur l'écran d'accueil** d'un téléphone (manifeste web et icônes fournis).

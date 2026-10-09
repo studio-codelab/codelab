@@ -1991,24 +1991,14 @@ table.tbl-journal{min-width:560px}
            choix actif se voit d'un coup d'oeil. -->
       <div class="choix-titre">Style</div>
       <div class="choix-liste" id="style-toggle" style="margin-bottom:14px">
-        <button data-s="classique" onclick="setStyle('classique')">
-          <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
-          <span><b>Style 1</b><i>Menu latéral, cartes compactes.</i></span>
-          <svg class="coche" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
-        </button>
-        <button data-s="design" onclick="setStyle('design')">
-          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2.5"/><rect x="14" y="3" width="7" height="7" rx="2.5"/><rect x="3" y="14" width="7" height="7" rx="2.5"/><rect x="14" y="14" width="7" height="7" rx="2.5"/></svg>
-          <span><b>Style 2</b><i>Grandes icônes, menu en haut, réglages façon Mac.</i></span>
-          <svg class="coche" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
-        </button>
         <button data-s="lanceur" onclick="setStyle('lanceur')">
           <svg viewBox="0 0 24 24"><rect x="4" y="3" width="6" height="6" rx="2"/><rect x="14" y="3" width="6" height="6" rx="2"/><rect x="4" y="11" width="6" height="6" rx="2"/><rect x="14" y="11" width="6" height="6" rx="2"/><path d="M6 21h12"/></svg>
-          <span><b>Style 3 — Lanceur</b><i>Un écran d'accueil : grandes icônes, recherche au centre, outils dans un dock.</i></span>
+          <span><b>Lanceur</b><i>Un écran d'accueil : grandes icônes, recherche au centre, outils dans un dock.</i></span>
           <svg class="coche" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
         </button>
         <button data-s="bento" onclick="setStyle('bento')">
           <svg viewBox="0 0 24 24"><rect x="3" y="3" width="11" height="10" rx="2"/><rect x="16" y="3" width="5" height="10" rx="2"/><rect x="3" y="15" width="5" height="6" rx="2"/><rect x="10" y="15" width="11" height="6" rx="2"/></svg>
-          <span><b>Style 4 — Bento</b><i>Une mosaïque : l'application du moment en grand, l'état d'un coup d'œil.</i></span>
+          <span><b>Bento</b><i>Une mosaïque : l'application du moment en grand, l'état d'un coup d'œil.</i></span>
           <svg class="coche" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
         </button>
       </div>
@@ -2921,27 +2911,23 @@ noterThemePartage(themeChoisi);
    changent (html[data-style="design"] dans theme.css et plus haut). Le
    choix part aussi dans un cookie : le serveur pose l'attribut des le
    premier octet de la page, et rien ne clignote au chargement. */
-/* Quatre styles. Les styles 3 (« lanceur ») et 4 (« bento ») sont des
-   variantes du style 2 : ils en gardent la mise en page de base
-   (data-style="design") et ajoutent la leur sous data-variante. */
-const STYLES = ['classique','design','lanceur','bento'];
-const VARIANTES = ['lanceur','bento'];
+/* Deux styles, « lanceur » et « bento ». Ils partagent la mise en page de
+   base (data-style="design") et ajoutent la leur sous data-variante. */
+const STYLES = ['lanceur','bento'];
+const STYLE_PAR_DEFAUT = 'bento';
 function styleCourant(){
   const v = document.documentElement.getAttribute('data-variante');
-  if(VARIANTES.includes(v)) return v;
-  return document.documentElement.getAttribute('data-style')==='design' ? 'design' : 'classique';
+  return STYLES.includes(v) ? v : STYLE_PAR_DEFAUT;
 }
 function applyStyle(st){
-  if(!STYLES.includes(st)) st='classique';
+  if(!STYLES.includes(st)) st=STYLE_PAR_DEFAUT;
   const racine = document.documentElement;
-  if(st==='classique') racine.removeAttribute('data-style');
-  else racine.setAttribute('data-style','design');
-  if(VARIANTES.includes(st)) racine.setAttribute('data-variante', st);
-  else racine.removeAttribute('data-variante');
+  racine.setAttribute('data-style','design');
+  racine.setAttribute('data-variante', st);
   document.querySelectorAll('#style-toggle button').forEach(b=>b.classList.toggle('active', b.dataset.s===st));
 }
 function setStyle(st){
-  st = STYLES.includes(st) ? st : 'classique';
+  st = STYLES.includes(st) ? st : STYLE_PAR_DEFAUT;
   try{ localStorage.setItem('codelab-style', st); }catch(e){}
   try{ document.cookie='codelab-style='+st+';path=/;max-age=31536000;SameSite=Lax'; }catch(e){}
   applyStyle(st);
@@ -2951,8 +2937,7 @@ function setStyle(st){
      une fois le hub charge, pour ne pas afficher « aucune application ». */
   if(hubApps.length || hubServices.length) peindreHub();
 }
-applyStyle(document.documentElement.hasAttribute('data-style') ? styleCourant()
-  : ((()=>{ try{ return localStorage.getItem('codelab-style'); }catch(e){ return null; } })()||'classique'));
+applyStyle(styleCourant());
 
 /* ---------------- colonne de gauche ---------------- */
 function applySidebar(state){ $('sidebar').classList.toggle('collapsed', state==='collapsed'); }

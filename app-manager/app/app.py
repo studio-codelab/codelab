@@ -9788,28 +9788,28 @@ def login_page(invitation=False):
     return Response(avec_style(page), mimetype="text/html")
 
 
-# Les styles 3 et 4 sont des VARIANTES du style 2 : meme mise en page de
-# base (data-style="design"), plus leurs propres regles sous data-variante.
-# La cle est celle du cookie ; la valeur, ce qui se pose sur <html>.
+# Deux styles : « lanceur » (style 3) et « bento » (style 4). Ils partagent
+# la mise en page de base (data-style="design") et ajoutent la leur sous
+# data-variante. La cle est celle du cookie ; la valeur, ce qui se pose sur
+# <html>. Sans cookie -- ou avec celui d'un ancien style --, c'est le bento.
 STYLES_PAGE = {
-    "design": ' data-style="design"',
     "lanceur": ' data-style="design" data-variante="lanceur"',
     "bento": ' data-style="design" data-variante="bento"',
 }
+STYLE_PAR_DEFAUT = "bento"
 
 
 def avec_style(page):
     """Pose le style choisi (cookie codelab-style) sur la page servie.
 
     Pose cote serveur, l'attribut est la avant la premiere peinture : la
-    page ne passe pas par le style classique le temps que son script le lise.
+    page ne change pas de forme le temps que son script le lise.
     Seules les valeurs de STYLES_PAGE sont reconnues -- le cookie vient du
     client, et rien de ce qu'il porte n'est recopie dans la page.
     """
-    attributs = STYLES_PAGE.get(request.cookies.get("codelab-style", ""))
-    if attributs:
-        page = page.replace('<html lang="fr">', '<html lang="fr"' + attributs + '>', 1)
-    return page
+    attributs = STYLES_PAGE.get(request.cookies.get("codelab-style", ""),
+                                STYLES_PAGE[STYLE_PAR_DEFAUT])
+    return page.replace('<html lang="fr">', '<html lang="fr"' + attributs + '>', 1)
 
 
 # LES PAGES DU PANNEAU ONT CHACUNE LEUR ADRESSE. Recharger les parametres

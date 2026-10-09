@@ -12764,16 +12764,19 @@ def test_l_application_demandes_a_ses_trois_vues():
 
 
 
-# ---------- style « Design » ----------
-def test_le_style_design_se_choisit_et_se_pose_cote_serveur(deux_espaces):
+# ---------- styles : lanceur et bento ----------
+def test_le_style_se_choisit_et_se_pose_cote_serveur(deux_espaces):
     """Le choix vit dans un cookie : le serveur pose l'attribut avant la
-    premiere peinture. Seule la valeur « design » est reconnue."""
+    premiere peinture. Sans cookie, ou avec celui d'un ancien style, c'est
+    le bento."""
     c = deux_espaces
-    assert 'data-style="design"' not in c.get("/login").get_data(as_text=True).split("<head>")[0]
-    c.set_cookie("codelab-style", "design")
-    assert '<html lang="fr" data-style="design">' in c.get("/login").get_data(as_text=True)
+    defaut = '<html lang="fr" data-style="design" data-variante="bento">'
+    assert defaut in c.get("/login").get_data(as_text=True)
+    for ancien in ("design", "classique"):
+        c.set_cookie("codelab-style", ancien)
+        assert defaut in c.get("/login").get_data(as_text=True), ancien
     c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
-    assert '<html lang="fr" data-style="design">' in c.get("/parametres").get_data(as_text=True)
+    assert defaut in c.get("/parametres").get_data(as_text=True)
     c.set_cookie("codelab-style", '"><script>')
     assert "<script>\">" not in c.get("/").get_data(as_text=True)[:200]
     page = _page_panneau("dashboard.html")
@@ -12820,11 +12823,15 @@ def test_les_styles_lanceur_et_bento_se_posent_cote_serveur(deux_espaces):
         assert (f'<html lang="fr" data-style="design" data-variante="{variante}">'
                 in c.get("/login").get_data(as_text=True))
     c.set_cookie("codelab-style", "lanceur\" onload=\"x")
-    assert "data-variante" not in c.get("/login").get_data(as_text=True)[:300]
+    tete = c.get("/login").get_data(as_text=True)[:300]
+    assert "onload" not in tete and 'data-variante="bento"' in tete
     page = _page_panneau("dashboard.html")
-    for cle in ("classique", "design", "lanceur", "bento"):
+    for cle in ("lanceur", "bento"):
         assert f"setStyle('{cle}')" in page, cle
-    assert "const STYLES = ['classique','design','lanceur','bento'];" in page
+    # Les styles 1 et 2 ne se choisissent plus.
+    for ancien in ("classique", "design"):
+        assert f"setStyle('{ancien}')" not in page, ancien
+    assert "const STYLES = ['lanceur','bento'];" in page
     # Le hub change de forme : recherche et dock (lanceur), mosaique (bento).
     assert 'id="hub-filtre"' in page and 'id="hub-dock"' in page
     assert "function peindreDock(" in page and "function peindreBento(" in page
