@@ -45,11 +45,16 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](../SECURITE.m
       défiler de côté. La recherche est à droite de l'en-tête. On n'ajoute pas d'application depuis
       le hub (c'est l'onglet *Applications*).
     - **Sur téléphone**, elle redevient une colonne qu'on fait défiler vers le bas.
-    - **Composer le hub** (*Modifier*, à droite de la recherche), comme sur un Mac : les tuiles
-      tremblent, chacune porte un « − » pour la retirer, des flèches pour la déplacer et, pour un
-      widget, ses tailles (petit, moyen, grand). On peut aussi les glisser. *Terminé* referme le mode.
-      Retirer une application la masque du hub (elle revient depuis *Paramètres*). La disposition
-      (applications et widgets mêlés, dans l'ordre) est gardée côté serveur, d'un appareil à l'autre.
+    - **La mosaïque va d'un bord à l'autre** : au repos, la première tuile s'aligne sur le bonjour ;
+      en défilant, les tuiles passent jusqu'au bord gauche de la fenêtre. La recherche est tout à
+      droite, alignée sur le bouton du compte.
+    - **Réorganiser le hub** (une icône discrète à droite de la recherche ; *Terminé* ou Échap pour
+      sortir) : les tuiles tremblent légèrement ; on en attrape une, elle suit le doigt ou la souris,
+      et les autres glissent pour lui faire place à mesure qu'elle passe ; près d'un bord, la
+      mosaïque défile seule. Chaque tuile porte un « − » (retirer un widget, masquer une
+      application) ; un widget a ses tailles (petit, moyen, grand) ; au clavier, des flèches
+      apparaissent sur la tuile qui a le focus. La disposition (applications et widgets mêlés) est
+      gardée côté serveur, d'un appareil à l'autre.
     - **Galerie de widgets** (« + » en mode Modifier) : seulement des widgets utiles, propres au hub
       ou à une application du hub, chacun avec ses tailles en aperçu :
       - hub : « Dernière ouverte » (aperçu en direct de la dernière application ouverte, avec la

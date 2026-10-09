@@ -13169,7 +13169,13 @@ def test_le_hub_se_compose_par_compte(deux_espaces):
         {"t": "w", "id": "apercu", "taille": "moyen", "app": "prive-autorise"}]}).status_code == 200
     page = _page_panneau("dashboard.html")
     for trace in ('id="ov-galerie"', "function basculerEdition(", "function galerieAjouter(",
-                  "'hub-deplacer'", "'hub-retirer'", "@keyframes hub-tremble", "prefers-reduced-motion:reduce"):
+                  "'hub-deplacer'", "'hub-retirer'", "@keyframes hub-tremble", "prefers-reduced-motion:reduce",
+                  # Glisser comme sur un iPhone : la tuile suit, les autres glissent,
+                  # la mosaique defile pres des bords ; le tremblement laisse
+                  # « transform » libre pour ces glissements.
+                  "function glisserLesAutres(", "function defilerPresDesBords(", "{from{rotate:-",
+                  # Bord a bord, et l'aimant du defilement sur la marge de gauche.
+                  "margin-left:calc(50% - 50vw)", "el.style.scrollPaddingLeft="):
         assert trace in page, trace
 
 
