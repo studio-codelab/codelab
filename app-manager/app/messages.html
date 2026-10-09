@@ -1,0 +1,1150 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Messages — CodeLab</title>
+<link rel="icon" href="/api/icon/messages">
+<link rel="stylesheet" href="/theme.css">
+<!--
+  L'APPLICATION « MESSAGES ». Servie par le panneau sur /messages, reservee a
+  l'administrateur. Ce que les comptes ecrivent depuis le hub, et le travail
+  qu'on en tire :
+
+    Boite de reception   les messages, rangés a sa guise (glisser), rattaches
+                         a un projet, regroupes quand ils parlent de la meme
+                         chose (le panneau le suggere) ;
+    Planning             toutes les taches ouvertes, DANS L'ORDRE ou on veut
+                         les faire : la place est la priorite, pas une
+                         etiquette d'urgence. Une date, une duree en jours :
+                         facultatives. Une tache se scinde ;
+    Feuille de route     le planning pose sur un calendrier -- aujourd'hui,
+                         semaine par semaine, sur plusieurs mois. Elle se
+                         recalcule chaque jour : une tache non cochee glisse
+                         avec le temps ;
+    Projets              un projet rassemble des messages et des taches.
+
+  Les couleurs viennent de theme.css. Aucune donnee n'est gardee ici : tout
+  passe par l'API du panneau, qui verifie le role a chaque appel.
+-->
+<style>
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--txt);font:var(--t-b)/1.5 var(--sans);
+ font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+.cache{display:none !important}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+:root{--sujet-hub:#0e8f8f;--sujet-idee:#7c5cd6;--sujet-app:#c2710c;--ms-ombre:0 1px 2px rgba(15,23,42,.06),0 8px 24px rgba(15,23,42,.06)}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{
+ outline:2px solid var(--accent);outline-offset:2px}
+
+/* ---------- la charpente : une barre laterale, un plan de travail ---------- */
+.app{display:grid;grid-template-columns:260px minmax(0,1fr);min-height:100%}
+.cote{position:sticky;top:0;height:100vh;overflow:auto;background:var(--surface);border-right:1px solid var(--line);
+ display:flex;flex-direction:column;padding:16px 12px;gap:4px}
+.marque{display:flex;align-items:center;gap:10px;padding:4px 8px 14px}
+.marque img{width:36px;height:36px;border-radius:11px}
+.marque b{font-size:18px;font-weight:800;letter-spacing:-.02em}
+.marque a{margin-left:auto;color:var(--dim);font-size:12.5px;font-weight:650;text-decoration:none;padding:6px 8px;border-radius:8px}
+.marque a:hover{background:var(--surface2);color:var(--txt)}
+.nav{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:10px;width:100%;min-height:38px;padding:0 10px;
+ border-radius:10px;color:var(--dim);font-weight:650;cursor:pointer}
+.nav:hover{background:var(--surface2);color:var(--txt)}
+.nav[aria-current="page"]{background:var(--accent-soft);color:var(--accent)}
+.nav svg{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.nav .n{margin-left:auto;font-size:11.5px;font-weight:800;min-width:22px;height:20px;padding:0 6px;border-radius:999px;
+ display:inline-flex;align-items:center;justify-content:center;background:var(--surface2);color:var(--dim)}
+.nav .n.fort{background:var(--accent);color:var(--sur-accent)}
+.nav .n:empty{display:none}
+.cote-titre{display:flex;align-items:center;justify-content:space-between;margin:18px 10px 6px;font-size:11px;font-weight:800;
+ letter-spacing:.08em;text-transform:uppercase;color:var(--dim2)}
+.cote-titre button{all:unset;cursor:pointer;color:var(--dim);font-size:18px;line-height:1;width:24px;height:24px;border-radius:6px;
+ display:grid;place-items:center}
+.cote-titre button:hover{background:var(--surface2);color:var(--accent)}
+.nav-projet .pastille{width:9px;height:9px;border-radius:3px;flex:none}
+.nav-projet span.nom{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cote-vide{color:var(--dim2);font-size:12.5px;padding:4px 10px}
+.plan-travail{min-width:0;padding:28px clamp(16px,3vw,40px) 60px}
+.entete{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px 16px;margin-bottom:22px}
+.entete h1{margin:0;font-size:clamp(26px,3vw,34px);font-weight:800;letter-spacing:-.035em;line-height:1.05}
+.entete .sous{color:var(--dim);margin-top:4px}
+.entete .espace{flex:1}
+.icone-btn.menu-mobile{display:none}
+
+/* ---------- briques ---------- */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:38px;padding:0 15px;border-radius:10px;
+ border:1px solid var(--line2);background:var(--surface);font-weight:700;font-size:13.5px;cursor:pointer;color:var(--txt);white-space:nowrap}
+.btn:hover{border-color:var(--accent)}
+.btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.btn.principal{background:var(--accent);border-color:var(--accent);color:var(--sur-accent)}
+.btn.principal:hover{background:var(--accent-h)}
+.btn.discret{border-color:transparent;background:none;color:var(--dim)}
+.btn.discret:hover{color:var(--txt);background:var(--surface2)}
+.btn.danger{color:var(--err)}
+.btn.petit{min-height:30px;padding:0 10px;font-size:12.5px;border-radius:8px}
+.segment{display:inline-flex;padding:3px;border-radius:11px;background:var(--surface2);border:1px solid var(--line)}
+.segment button{all:unset;cursor:pointer;height:30px;padding:0 13px;border-radius:8px;font-size:13px;font-weight:700;color:var(--dim);
+ display:inline-flex;align-items:center;gap:6px}
+.segment button[aria-pressed="true"]{background:var(--surface);color:var(--txt);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.segment b{font-size:11px;opacity:.65}
+.champ-recherche{display:flex;align-items:center;gap:8px;height:38px;padding:0 12px;border-radius:10px;border:1px solid var(--line2);
+ background:var(--surface);min-width:200px}
+.champ-recherche svg{width:16px;height:16px;fill:none;stroke:var(--dim);stroke-width:2;stroke-linecap:round}
+.champ-recherche input{border:0;outline:0;background:transparent;flex:1;min-width:0;padding:0}
+select.choix{height:38px;border:1px solid var(--line2);border-radius:10px;background:var(--surface);padding:0 10px}
+.outils{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:16px}
+.puce{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 9px;border-radius:999px;font-size:11.5px;font-weight:750;
+ background:var(--surface2);color:var(--dim);white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.puce i{width:7px;height:7px;border-radius:999px;background:currentColor;flex:none}
+.puce.hub{color:var(--sujet-hub);background:color-mix(in srgb,var(--sujet-hub) 12%,transparent)}
+.puce.idee{color:var(--sujet-idee);background:color-mix(in srgb,var(--sujet-idee) 12%,transparent)}
+.puce.application{color:var(--sujet-app);background:color-mix(in srgb,var(--sujet-app) 13%,transparent)}
+.puce.projet{color:var(--txt);background:var(--surface2)}
+.puce.retard{color:var(--err);background:var(--err-bg)}
+.puce.date{color:var(--accent);background:var(--accent-soft)}
+.vide{padding:44px 20px;text-align:center;color:var(--dim);border:1px dashed var(--line2);border-radius:16px;background:var(--surface)}
+.vide b{display:block;color:var(--txt);font-size:15px;margin-bottom:4px}
+.carte{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--ms-ombre)}
+.poignee{flex:none;width:22px;align-self:stretch;border:0;background:none;color:var(--dim2);cursor:grab;border-radius:6px;padding:0;
+ display:flex;align-items:center;justify-content:center;touch-action:none}
+.poignee:hover{color:var(--accent);background:var(--surface2)}
+.poignee svg{width:14px;height:14px;fill:currentColor}
+.glisse{opacity:.95;box-shadow:0 18px 44px rgba(0,0,0,.18) !important;position:relative;z-index:5}
+.icone-btn{width:32px;height:32px;border-radius:8px;border:0;background:none;color:var(--dim);cursor:pointer;
+ display:inline-flex;align-items:center;justify-content:center;flex:none}
+.icone-btn:hover{background:var(--surface2);color:var(--txt)}
+.icone-btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.case{appearance:none;-webkit-appearance:none;width:20px;height:20px;border-radius:7px;border:2px solid var(--line2);background:var(--surface);
+ flex:none;cursor:pointer;display:grid;place-items:center;margin:0}
+.case:checked{background:var(--accent);border-color:var(--accent)}
+.case:checked::after{content:"";width:9px;height:5px;border:solid var(--sur-accent);border-width:0 0 2.4px 2.4px;transform:translateY(-1px) rotate(-45deg)}
+.case.ronde{border-radius:999px}
+
+/* ---------- boite de reception ---------- */
+.suggestions{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
+.suggestion{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;
+ background:color-mix(in srgb,var(--sujet-idee) 8%,var(--surface));border:1px solid color-mix(in srgb,var(--sujet-idee) 25%,var(--line))}
+.suggestion svg{width:20px;height:20px;flex:none;fill:none;stroke:var(--sujet-idee);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.suggestion .txt{flex:1;min-width:0}
+.suggestion .txt span{color:var(--dim);font-size:12.5px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.liste-messages{display:flex;flex-direction:column;gap:10px}
+.message{display:flex;gap:10px;padding:14px 14px 14px 8px;align-items:flex-start}
+.message.non-lu{box-shadow:inset 3px 0 0 var(--accent),var(--ms-ombre)}
+.message.choisi{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 5%,var(--surface))}
+.message .case{margin-top:9px}
+.avatar{flex:none;width:36px;height:36px;border-radius:999px;display:grid;place-items:center;font-weight:800;font-size:14px;
+ background:var(--surface2);color:var(--dim)}
+.message-corps{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.message-tete{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}
+.message-tete b{font-weight:750}
+.message-tete .quand{color:var(--dim2);font-size:12px}
+.message-texte{white-space:pre-wrap;word-break:break-word;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.message-texte.ouvert{display:block}
+.message-actes{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:2px}
+.message-actes select{height:30px;border-radius:8px;border:1px solid var(--line2);background:var(--surface);font-size:12.5px;padding:0 8px;max-width:220px}
+.barre-choix{position:sticky;bottom:16px;z-index:20;display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:16px;padding:10px 12px;
+ border-radius:14px;background:var(--txt);color:var(--surface);box-shadow:0 18px 40px rgba(0,0,0,.25)}
+.barre-choix b{margin-right:auto;padding-left:6px}
+.barre-choix .btn{background:transparent;color:inherit;border-color:rgba(255,255,255,.25)}
+.barre-choix .btn.principal{background:var(--accent);border-color:var(--accent);color:var(--sur-accent)}
+
+/* ---------- taches ---------- */
+.taches{display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--ms-ombre);overflow:hidden}
+.tache{display:flex;align-items:center;gap:10px;min-height:54px;padding:8px 12px 8px 6px;border-top:1px solid var(--line);background:var(--surface)}
+.tache:first-child{border-top:0}
+.tache .rang{flex:none;width:22px;text-align:right;color:var(--dim2);font-size:12px;font-weight:700}
+.tache-titre{all:unset;cursor:pointer;flex:1;min-width:0;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tache-titre:hover{color:var(--accent)}
+.tache.faite .tache-titre{text-decoration:line-through;color:var(--dim)}
+.tache-meta{display:flex;align-items:center;gap:6px;flex:none}
+.ajout{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--line);background:var(--surface2)}
+.ajout input{flex:1;min-width:0;height:36px;border:1px solid var(--line2);border-radius:9px;background:var(--surface);padding:0 11px}
+.ajout select{height:36px;border:1px solid var(--line2);border-radius:9px;background:var(--surface);padding:0 8px;max-width:180px}
+.repli{margin-top:18px}
+.repli summary{cursor:pointer;color:var(--dim);font-weight:700;padding:6px 2px}
+.aide{color:var(--dim);font-size:12.5px}
+
+/* ---------- projet ---------- */
+.projet-grille{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:20px;align-items:start}
+.projet-grille h2{margin:0 0 10px;font-size:13px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}
+.progression{display:flex;align-items:center;gap:10px;color:var(--dim);font-size:13px}
+.progression i{display:block;width:160px;height:8px;border-radius:999px;background:var(--surface2);overflow:hidden}
+.progression i b{display:block;height:100%;background:var(--ok);border-radius:999px}
+.mini-message{padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.mini-message p{margin:0;white-space:pre-wrap;word-break:break-word;font-size:13.5px;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}
+
+/* ---------- feuille de route ---------- */
+.jour-entete{display:flex;align-items:baseline;gap:12px;margin:4px 0 14px}
+.jour-entete b{font-size:22px;font-weight:800;letter-spacing:-.02em}
+.groupe-titre{margin:20px 0 8px;font-size:12px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--dim)}
+.semaines{display:flex;flex-direction:column;gap:12px}
+.semaine{padding:12px 12px 14px}
+.semaine-tete{display:flex;align-items:baseline;gap:10px;margin:0 2px 10px}
+.semaine-tete b{font-weight:800}
+.semaine-tete span{color:var(--dim);font-size:12.5px}
+.semaine-grille{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;grid-auto-rows:minmax(30px,auto);grid-auto-flow:row dense}
+.jour{font-size:11.5px;font-weight:750;color:var(--dim);padding:4px 8px;border-radius:8px;background:var(--surface2);text-transform:capitalize}
+.jour.aujourdhui{background:var(--accent);color:var(--sur-accent)}
+.jour.passe{opacity:.55}
+.barre{all:unset;box-sizing:border-box;cursor:pointer;min-width:0;display:flex;align-items:center;gap:6px;padding:4px 9px;border-radius:8px;
+ font-size:12.5px;font-weight:650;background:var(--c-fond,var(--accent-soft));color:var(--c-txt,var(--txt));
+ box-shadow:inset 3px 0 0 var(--c,var(--accent));overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.barre span{overflow:hidden;text-overflow:ellipsis}
+.barre.faite{opacity:.55;text-decoration:line-through}
+.barre.retard{box-shadow:inset 3px 0 0 var(--err)}
+.barre:hover{filter:brightness(.97)}
+.frise{overflow-x:auto;padding-bottom:6px}
+.frise-int{position:relative;min-width:var(--largeur)}
+.frise-mois{display:flex;height:28px;border-bottom:1px solid var(--line)}
+.frise-mois div{flex:none;font-size:12px;font-weight:800;color:var(--dim);padding:6px 8px;border-left:1px solid var(--line);text-transform:capitalize;
+ white-space:nowrap;overflow:hidden}
+.frise-ligne{position:relative;height:44px;border-bottom:1px solid var(--line)}
+.frise-ligne .etiquette{position:sticky;left:8px;z-index:2;display:inline-flex;align-items:center;gap:6px;height:24px;margin:8px 0 0 8px;padding:0 9px;
+ border-radius:7px;background:var(--surface);border:1px solid var(--line);font-size:12px;font-weight:750;max-width:200px;overflow:hidden;white-space:nowrap}
+.frise-ligne .barre{position:absolute;top:10px;height:24px}
+.frise-aujourdhui{position:absolute;top:0;bottom:0;width:2px;background:var(--accent);z-index:3}
+.frise-aujourdhui::before{content:"Aujourd'hui";position:absolute;top:4px;left:4px;font-size:10.5px;font-weight:800;color:var(--accent);white-space:nowrap}
+.frise-semaine{position:absolute;top:28px;bottom:0;width:1px;background:var(--line);opacity:.6}
+
+/* ---------- fenetres ---------- */
+.voile{position:fixed;inset:0;z-index:50;background:rgba(10,14,20,.45);display:flex;align-items:flex-start;justify-content:center;
+ padding:7vh 16px;overflow:auto;backdrop-filter:blur(2px)}
+.fenetre{width:100%;max-width:560px;background:var(--surface);border:1px solid var(--line);border-radius:20px;
+ box-shadow:0 30px 80px rgba(0,0,0,.35);padding:24px;display:flex;flex-direction:column;gap:14px}
+.fenetre h2{margin:0;font-size:20px;font-weight:800;letter-spacing:-.02em}
+.fenetre .sous{color:var(--dim);margin-top:-8px;font-size:13px}
+.champ{display:flex;flex-direction:column;gap:6px}
+.champ label,.champ .lib{font-size:12.5px;font-weight:750;color:var(--dim)}
+.champ input,.champ select,.champ textarea{width:100%;min-height:40px;border:1px solid var(--line2);border-radius:10px;
+ background:var(--bg-input,var(--surface));padding:8px 11px}
+.champ textarea{min-height:90px;resize:vertical}
+.rangee{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.fenetre-actes{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;margin-top:4px}
+.fenetre-actes .gauche{margin-right:auto}
+.erreur{color:var(--err);font-weight:650;font-size:13px}
+.citation{border-left:3px solid var(--line2);padding:6px 12px;color:var(--dim);white-space:pre-wrap;max-height:150px;overflow:auto;font-size:13px}
+.sous-liste{display:flex;flex-direction:column;gap:2px}
+.sous{display:flex;align-items:center;gap:8px;min-height:36px;padding:0 4px;border-radius:8px}
+.sous:hover{background:var(--surface2)}
+.sous label{flex:1;display:flex;align-items:center;gap:10px;cursor:pointer}
+.sous.faite label span{text-decoration:line-through;color:var(--dim)}
+.choix-mode{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.choix-mode label{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border:1px solid var(--line2);border-radius:12px;cursor:pointer}
+.choix-mode label:has(input:checked){border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset;background:var(--accent-soft)}
+.choix-mode input{position:absolute;opacity:0}
+.choix-mode span{font-size:12px;color:var(--dim)}
+.toast{position:fixed;right:20px;bottom:20px;z-index:60;background:var(--txt);color:var(--surface);padding:12px 16px;border-radius:12px;
+ font-weight:650;box-shadow:0 10px 30px rgba(0,0,0,.3);max-width:380px}
+.toast.err{background:var(--err);color:#fff}
+
+@media (max-width:900px){
+  .app{grid-template-columns:minmax(0,1fr)}
+  .suggestion{flex-wrap:wrap}
+  .entete{flex-wrap:nowrap;align-items:flex-start}
+  #entete-actes{display:none !important}
+  .cote{position:fixed;inset:0 auto 0 0;width:280px;z-index:40;transform:translateX(-100%);transition:transform .2s;box-shadow:0 0 40px rgba(0,0,0,.2)}
+  .app.menu-ouvert .cote{transform:none}
+  .icone-btn.menu-mobile{display:inline-flex}
+  .projet-grille{grid-template-columns:minmax(0,1fr)}
+  .tache-meta .puce.projet{display:none}
+  .semaine-grille{grid-template-columns:minmax(0,1fr)}
+  .semaine-grille .jour{display:none}
+  .semaine-grille .barre{grid-column:1 / -1 !important}
+  .plan-travail{padding:16px}
+}
+@media (prefers-reduced-motion:reduce){ .cote{transition:none} }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <nav class="cote" aria-label="Messages">
+    <div class="marque"><img src="/api/icon/messages" alt=""><b>Messages</b><a href="/">← Hub</a></div>
+    <button class="nav" data-agir="vue" data-cible="boite"><svg viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z"/></svg>Boîte de réception<span class="n" id="n-boite"></span></button>
+    <button class="nav" data-agir="vue" data-cible="planning"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>Planning<span class="n" id="n-planning"></span></button>
+    <button class="nav" data-agir="vue" data-cible="feuille"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>Feuille de route</button>
+    <div class="cote-titre">Projets <button type="button" data-agir="nouveau-projet" aria-label="Nouveau projet" title="Nouveau projet">+</button></div>
+    <div id="liste-projets"></div>
+  </nav>
+
+  <main class="plan-travail" id="plan">
+    <div class="entete">
+      <button class="icone-btn menu-mobile" data-agir="menu" aria-label="Menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+      <div><h1 id="titre"></h1><div class="sous" id="sous-titre"></div></div>
+      <div class="espace"></div>
+      <div id="entete-actes" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+    </div>
+    <div id="vue"></div>
+  </main>
+</div>
+
+<!-- Une tache : creation et fiche -->
+<div class="voile cache" id="fen-tache" role="dialog" aria-modal="true" aria-labelledby="t-fen-titre">
+  <div class="fenetre">
+    <h2 id="t-fen-titre">Tâche</h2>
+    <div class="champ"><label for="t-titre">Titre</label><input id="t-titre" maxlength="200"></div>
+    <div class="rangee">
+      <div class="champ"><label for="t-projet">Projet</label><select id="t-projet"></select></div>
+      <div class="champ"><label for="t-date">Date prévue <span style="font-weight:500">(facultative)</span></label><input id="t-date" type="date"></div>
+      <div class="champ"><label for="t-duree">Durée (jours ouvrés)</label><input id="t-duree" type="number" min="1" max="60" step="1" value="1"></div>
+    </div>
+    <div class="champ"><label for="t-notes">Notes</label><textarea id="t-notes" maxlength="4000"></textarea></div>
+    <div class="champ" id="t-zone-sous">
+      <span class="lib">Sous-tâches</span>
+      <div class="sous-liste" id="t-sous"></div>
+      <input id="t-sous-ajout" placeholder="Ajouter une sous-tâche, puis Entrée" maxlength="200" aria-label="Ajouter une sous-tâche">
+    </div>
+    <div class="citation cache" id="t-source"></div>
+    <div class="erreur cache" id="t-err" role="alert"></div>
+    <div class="fenetre-actes">
+      <button class="btn danger discret gauche" id="t-supprimer" data-agir="tache-supprimer">Supprimer</button>
+      <button class="btn" id="t-scinder" data-agir="tache-scinder">Scinder…</button>
+      <button class="btn discret" data-agir="fermer">Fermer</button>
+      <button class="btn principal" id="t-ok" data-agir="tache-enregistrer">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Scinder une tache -->
+<div class="voile cache" id="fen-scinder" role="dialog" aria-modal="true" aria-labelledby="s-fen-titre">
+  <div class="fenetre">
+    <h2 id="s-fen-titre">Scinder la tâche</h2>
+    <div class="sous">Une ligne par tâche. La première garde la place de celle-ci, les suivantes la suivent dans le planning.</div>
+    <div class="champ"><label for="s-lignes">Tâches</label><textarea id="s-lignes" rows="6"></textarea></div>
+    <label class="aide cache" id="s-zone-retirer" style="display:flex;gap:8px;align-items:center">
+      <input type="checkbox" class="case" id="s-retirer" checked> Retirer les sous-tâches reprises</label>
+    <div class="erreur cache" id="s-err" role="alert"></div>
+    <div class="fenetre-actes">
+      <button class="btn discret" data-agir="fermer">Annuler</button>
+      <button class="btn principal" data-agir="scinder-valider">Scinder</button>
+    </div>
+  </div>
+</div>
+
+<!-- Un projet -->
+<div class="voile cache" id="fen-projet" role="dialog" aria-modal="true" aria-labelledby="p-fen-titre">
+  <div class="fenetre">
+    <h2 id="p-fen-titre">Projet</h2>
+    <div class="champ"><label for="p-nom">Nom</label><input id="p-nom" maxlength="120"></div>
+    <div class="champ"><label for="p-desc">Description</label><textarea id="p-desc" maxlength="4000"></textarea></div>
+    <div class="rangee">
+      <div class="champ"><label for="p-etape">Étape</label><select id="p-etape">
+        <option value="idee">Idée</option><option value="construction">En construction</option><option value="realise">Réalisé</option></select></div>
+      <div class="champ"><label for="p-app">Application liée</label><select id="p-app"></select></div>
+    </div>
+    <div class="erreur cache" id="p-err" role="alert"></div>
+    <div class="fenetre-actes">
+      <button class="btn danger discret gauche" id="p-supprimer" data-agir="projet-supprimer">Supprimer</button>
+      <button class="btn discret" data-agir="fermer">Annuler</button>
+      <button class="btn principal" data-agir="projet-enregistrer">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Regrouper des messages dans un projet -->
+<div class="voile cache" id="fen-grouper" role="dialog" aria-modal="true" aria-labelledby="g-fen-titre">
+  <div class="fenetre">
+    <h2 id="g-fen-titre">Regrouper dans un projet</h2>
+    <div class="sous" id="g-sous"></div>
+    <div class="choix-mode">
+      <label><input type="radio" name="g-mode" value="nouveau" checked data-changer="g-mode"><b>Nouveau projet</b><span>Créé à partir de ces messages.</span></label>
+      <label><input type="radio" name="g-mode" value="existant" data-changer="g-mode"><b>Projet existant</b><span>Les y ranger.</span></label>
+    </div>
+    <div id="g-zone-nouveau">
+      <div class="champ"><label for="g-nom">Nom du projet</label><input id="g-nom" maxlength="120"></div>
+      <div class="champ" style="margin-top:12px"><label for="g-desc">Description</label><textarea id="g-desc"></textarea></div>
+    </div>
+    <div class="champ cache" id="g-zone-existant"><label for="g-projet">Projet</label><select id="g-projet"></select></div>
+    <div class="erreur cache" id="g-err" role="alert"></div>
+    <div class="fenetre-actes">
+      <button class="btn discret" data-agir="fermer">Annuler</button>
+      <button class="btn principal" data-agir="grouper-valider">Regrouper</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirmation : le bouton porte le verbe. -->
+<div class="voile cache" id="fen-confirmer" role="alertdialog" aria-modal="true" aria-labelledby="c-titre">
+  <div class="fenetre" style="max-width:440px">
+    <h2 id="c-titre"></h2>
+    <div id="c-texte" class="aide" style="font-size:14px"></div>
+    <div class="fenetre-actes">
+      <button class="btn discret" id="c-non">Annuler</button>
+      <button class="btn principal" id="c-oui"></button>
+    </div>
+  </div>
+</div>
+
+<script>
+const JETON=__JETON__;
+const $=i=>document.getElementById(i);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+try{ const t=localStorage.getItem('codelab-theme'); if(t && t!=='auto') document.documentElement.setAttribute('data-theme', t); }catch(e){}
+
+/* Le jeton anti-falsification part avec toute requete qui modifie. */
+const fetchNu=window.fetch.bind(window);
+window.fetch=function(cible, options){
+  options=options||{};
+  const m=(options.method||'GET').toUpperCase();
+  if(m==='GET' || m==='HEAD') return fetchNu(cible, options);
+  const h=new Headers(options.headers||{});
+  h.set('X-CodeLab-Jeton', JETON);
+  return fetchNu(cible, Object.assign({}, options, {headers:h}));
+};
+async function echec(r, defaut){
+  let d={}; try{ d=await r.json(); }catch(e){}
+  if(d && d.error) return d.error;
+  if(r.status===401) return 'Session expirée : reconnecte-toi.';
+  if(r.status===403) return 'Action refusée. Recharge la page, puis réessaie.';
+  return defaut+' (réponse '+r.status+')';
+}
+async function appel(url, methode, corps, defaut){
+  const r=await fetch(url, {method:methode||'GET', headers:{'Content-Type':'application/json'},
+                            body: corps===undefined ? undefined : JSON.stringify(corps)});
+  if(!r.ok){ notifier(await echec(r, defaut||'Action impossible.'), true); return null; }
+  try{ return await r.json(); }catch(e){ return {}; }
+}
+let minuterieToast=null;
+function notifier(texte, erreur){
+  let n=document.querySelector('.toast');
+  if(!n){ n=document.createElement('div'); n.setAttribute('role','status'); document.body.appendChild(n); }
+  n.className='toast'+(erreur?' err':''); n.textContent=texte;
+  clearTimeout(minuterieToast); minuterieToast=setTimeout(()=>n.remove(), 3800);
+}
+function ouvrir(id){ $(id).classList.remove('cache'); }
+function fermerTout(){ document.querySelectorAll('.voile:not(.cache)').forEach(v=>v.classList.add('cache')); }
+function demander(titre, texte, verbe){
+  return new Promise(res=>{
+    $('c-titre').textContent=titre; $('c-texte').textContent=texte; $('c-oui').textContent=verbe;
+    const fin=v=>{ $('fen-confirmer').classList.add('cache'); res(v); };
+    $('c-oui').onclick=()=>fin(true); $('c-non').onclick=()=>fin(false);
+    ouvrir('fen-confirmer'); $('c-non').focus();
+  });
+}
+function depuis(ts){
+  const s=Math.max(0, Date.now()/1000-(ts||0));
+  if(s<60) return "à l'instant";
+  if(s<3600) return 'il y a '+Math.floor(s/60)+' min';
+  if(s<86400) return 'il y a '+Math.floor(s/3600)+' h';
+  const j=Math.floor(s/86400); return j===1 ? 'hier' : 'il y a '+j+' jours';
+}
+
+/* ================= les donnees ================= */
+let messages=[], taches=[], projets=[], apps=[];
+async function charger(){
+  const lire=u=>fetch(u).then(r=>r.ok?r.json():null).catch(()=>null);
+  const [m,t,p,a]=await Promise.all([lire('/api/messages'), lire('/api/taches'), lire('/api/projets'),
+    apps.length ? Promise.resolve(null) : lire('/api/apps')]);
+  if(m) messages=m.messages||[];
+  if(t) taches=t.taches||[];
+  if(p) projets=p.projets||[];
+  if(a) apps=(a.apps||[]).filter(x=>!x.externe);
+  peindre();
+}
+/* Une couleur stable par projet, tiree de son identifiant. */
+const TEINTES=['#0e8f8f','#7c5cd6','#c2710c','#2f6fdd','#c2417a','#3d8b37','#8a6d1d','#5b6b84'];
+function teinte(cle){ let h=0; for(const c of String(cle)) h=(h*31+c.charCodeAt(0))>>>0; return TEINTES[h%TEINTES.length]; }
+function nomProjet(cle){
+  if(!cle || cle==='general') return 'Général';
+  const p=projets.find(x=>x.id===cle); if(p) return p.nom;
+  const a=apps.find(x=>x.name===cle); return a ? (a.titre||a.name) : cle;
+}
+function nomApp(n){ const a=apps.find(x=>x.name===n); return a ? (a.titre||a.name) : n; }
+function optionsProjets(choisi, avecGeneral){
+  const o=[];
+  if(avecGeneral) o.push(`<option value="general">Général</option>`);
+  if(projets.length) o.push('<optgroup label="Projets">'+projets.map(p=>`<option value="${esc(p.id)}" ${p.id===choisi?'selected':''}>${esc(p.nom)}</option>`).join('')+'</optgroup>');
+  if(avecGeneral && apps.length) o.push('<optgroup label="Applications">'+apps.slice().sort((x,y)=>(x.titre||x.name).localeCompare(y.titre||y.name,'fr'))
+    .map(x=>`<option value="${esc(x.name)}" ${x.name===choisi?'selected':''}>${esc(x.titre||x.name)}</option>`).join('')+'</optgroup>');
+  return o.join('');
+}
+const ouvertes=()=>taches.filter(t=>t.statut!=='fait').sort((a,b)=>a.ordre-b.ordre);
+const SUJETS={hub:['hub','Améliorer le hub'], idee:['idee','Nouveau projet'], application:['application','Application']};
+function puceSujet(m){
+  const [c,t]=SUJETS[m.cible]||SUJETS.hub;
+  return `<span class="puce ${c}"><i></i>${esc(m.cible==='application' && m.app ? nomApp(m.app) : t)}</span>`;
+}
+function pucheProjet(cle){
+  if(!cle) return '';
+  return `<span class="puce projet" style="color:${teinte(cle)}"><i></i>${esc(nomProjet(cle))}</span>`;
+}
+
+/* ================= les dates et la feuille de route =================
+   Jours ouvres seulement : une tache de trois jours commencee un jeudi
+   finit le mardi. Recalculee a chaque affichage depuis la date du jour --
+   c'est ce qui fait glisser une tache qu'on n'a pas cochee. */
+function jourDe(d){ const x=new Date(d); x.setHours(12,0,0,0); return x; }
+function iso(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function depuisIso(s){ const [y,m,j]=s.split('-').map(Number); return new Date(y, m-1, j, 12); }
+const ouvre=d=>d.getDay()!==0 && d.getDay()!==6;
+function prochainOuvre(d){ const x=jourDe(d); while(!ouvre(x)) x.setDate(x.getDate()+1); return x; }
+function ajouterOuvres(d, n){ const x=jourDe(d); let r=n; while(r>0){ x.setDate(x.getDate()+1); if(ouvre(x)) r--; } return x; }
+function lundi(d){ const x=jourDe(d); const k=(x.getDay()+6)%7; x.setDate(x.getDate()-k); return x; }
+const fmt=(d,o)=>d.toLocaleDateString('fr-FR',o);
+function aujourdhui(){ return jourDe(new Date()); }
+
+/* Le planning pose sur le calendrier. Une tache DATEE se place a sa date --
+   ou aujourd'hui si la date est passee : elle est en retard, et glisse avec
+   le temps tant qu'elle n'est pas cochee. Les taches SANS DATE se suivent
+   dans l'ordre du planning, a partir d'aujourd'hui, chacune sa duree. */
+function planifier(){
+  const auj=aujourdhui(), depart=prochainOuvre(auj);
+  let curseur=depart;
+  const plan=[];
+  for(const t of ouvertes()){
+    const duree=Math.max(1, t.duree||1);
+    let debut, retard=false;
+    if(t.echeance){
+      const d=depuisIso(t.echeance);
+      retard = d < auj;
+      debut = prochainOuvre(retard ? depart : d);
+    }else{
+      debut=curseur;
+    }
+    const fin=ajouterOuvres(debut, duree-1);
+    if(!t.echeance) curseur=ajouterOuvres(fin, 1);
+    plan.push({t, debut, fin, retard});
+  }
+  return plan;
+}
+function datePrevue(t, plan){
+  const p=(plan||planifier()).find(x=>x.t.id===t.id); if(!p) return '';
+  const auj=aujourdhui();
+  if(p.retard) return `<span class="puce retard" title="Prévue le ${esc(fmt(depuisIso(t.echeance),{day:'numeric',month:'long'}))}">En retard</span>`;
+  const txt = iso(p.debut)===iso(auj) ? "Aujourd'hui" : fmt(p.debut,{weekday:'short',day:'numeric',month:'short'});
+  return `<span class="puce ${t.echeance?'date':''}" title="${t.echeance?'Date fixée':'Placée par le planning'}">${t.echeance?'':'≈ '}${esc(txt)}</span>`;
+}
+
+/* ================= les vues et l'adresse ================= */
+let vue='boite', projetCourant=null;
+function lireAdresse(){
+  const m=location.pathname.split('/').filter(Boolean).map(x=>{ try{ return decodeURIComponent(x); }catch(e){ return ''; } });
+  vue = ['boite','planning','feuille','projet'].includes(m[1]) ? m[1] : 'boite';
+  projetCourant = vue==='projet' ? (m[2]||null) : null;
+}
+function aller(v, cle){
+  vue=v; projetCourant = v==='projet' ? cle : null;
+  const adresse = v==='boite' ? '/messages' : '/messages/'+v+(cle ? '/'+encodeURIComponent(cle) : '');
+  if(location.pathname!==adresse) history.pushState(null,'',adresse);
+  $('app').classList.remove('menu-ouvert');
+  choisis.clear();
+  peindre(); window.scrollTo(0,0);
+  if(v==='boite') marquerLus();
+}
+window.addEventListener('popstate', ()=>{ lireAdresse(); peindre(); });
+
+function peindre(){
+  peindreCote();
+  if(vue==='projet' && !projets.some(p=>p.id===projetCourant)) vue='boite';
+  if(vue==='boite') peindreBoite();
+  if(vue==='planning') peindrePlanning();
+  if(vue==='feuille') peindreFeuille();
+  if(vue==='projet') peindreProjet();
+}
+function entete(titre, sous, actes){
+  $('titre').textContent=titre; $('sous-titre').textContent=sous||'';
+  $('entete-actes').innerHTML=actes||'';
+  document.title=titre+' — Messages';
+}
+const BTN_TACHE='<button class="btn principal" data-agir="nouvelle-tache"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Tâche</button>';
+
+function peindreCote(){
+  const aClasser=messages.filter(m=>!m.archive && !m.projet);
+  const nonLus=messages.filter(m=>!m.lu && !m.archive).length;
+  $('n-boite').textContent = aClasser.length || '';
+  $('n-boite').classList.toggle('fort', nonLus>0);
+  $('n-planning').textContent = ouvertes().length || '';
+  document.querySelectorAll('.cote .nav[data-agir="vue"]').forEach(b=>
+    b.setAttribute('aria-current', b.dataset.cible===vue ? 'page' : 'false'));
+  $('liste-projets').innerHTML = projets.length ? projets.map(p=>{
+    const n=taches.filter(t=>t.projet===p.id && t.statut!=='fait').length;
+    return `<button class="nav nav-projet" data-agir="ouvrir-projet" data-cible="${esc(p.id)}" aria-current="${vue==='projet'&&projetCourant===p.id?'page':'false'}">
+      <span class="pastille" style="background:${teinte(p.id)}"></span><span class="nom">${esc(p.nom)}</span><span class="n">${n||''}</span></button>`;
+  }).join('') : '<div class="cote-vide">Aucun projet. Regroupe des messages pour en créer un.</div>';
+}
+
+/* ================= la boite de reception ================= */
+let filtreBoite='classer', filtreSujet='', recherche='';
+const choisis=new Set();
+const ouverts=new Set();
+function ordreMessages(liste){
+  /* Rangés à la main d'abord ? Non : un message NEUF, pas encore rangé, se
+     place en tête -- c'est lui qu'il faut voir. Les autres suivent leur rang. */
+  return liste.slice().sort((a,b)=>{
+    const ra=typeof a.ordre==='number', rb=typeof b.ordre==='number';
+    if(ra!==rb) return ra ? 1 : -1;
+    if(ra && rb) return a.ordre-b.ordre;
+    return (b.ts||0)-(a.ts||0);
+  });
+}
+function messagesVisibles(){
+  const q=recherche.trim().toLowerCase();
+  return ordreMessages(messages).filter(m=>{
+    if(filtreBoite==='classer' && (m.archive || m.projet)) return false;
+    if(filtreBoite==='tous' && m.archive) return false;
+    if(filtreBoite==='archives' && !m.archive) return false;
+    if(filtreSujet && m.cible!==filtreSujet) return false;
+    return !q || ((m.texte||'')+' '+(m.qui||'')+' '+nomApp(m.app||'')).toLowerCase().includes(q);
+  });
+}
+async function marquerLus(){
+  if(!messages.some(m=>!m.lu)) return;
+  if((await fetch('/api/messages/lus',{method:'POST'})).ok)
+    setTimeout(()=>{ messages=messages.map(m=>({...m, lu:true})); if(vue==='boite') peindre(); }, 3500);
+}
+
+/* DES MESSAGES QUI PARLENT DE LA MEME CHOSE : on compare leurs mots
+   porteurs (sans accents, sans les mots outils) ; deux messages qui en
+   partagent assez forment un groupe, qu'on propose de ranger ensemble. */
+const MOTS_VIDES=new Set(('avec aussi avoir bien cela cette comme dans donc elle elles encore etre fait faire leur leurs mais meme nous plus pour quand quel quelle sans sera serait sont tout tous tres vous votre veux voudrais pourrait pourrais peut peux merci bonjour salut alors ainsi apres avant chez entre depuis juste vraiment ceux celle celui sous parce quoi rien chose choses il ils on une des les sur est pas que qui').split(' '));
+function motsDe(texte){
+  return new Set(String(texte||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'')
+    .split(/[^a-z0-9]+/).filter(w=>w.length>=4 && !MOTS_VIDES.has(w)).map(w=>w.replace(/s$/,'')));
+}
+function suggestions(){
+  const libres=messages.filter(m=>!m.archive && !m.projet);
+  const mots=libres.map(m=>motsDe(m.texte));
+  const parent=libres.map((_,i)=>i);
+  const racine=i=>parent[i]===i ? i : (parent[i]=racine(parent[i]));
+  for(let i=0;i<libres.length;i++) for(let j=i+1;j<libres.length;j++){
+    const a=mots[i], b=mots[j]; if(!a.size || !b.size) continue;
+    let communs=0; a.forEach(w=>{ if(b.has(w)) communs++; });
+    const jaccard=communs/(a.size+b.size-communs);
+    if(communs>=2 || (communs>=1 && jaccard>=.25)) parent[racine(i)]=racine(j);
+  }
+  const groupes={};
+  libres.forEach((m,i)=>{ (groupes[racine(i)] ||= []).push(i); });
+  let ignores=[]; try{ ignores=JSON.parse(localStorage.getItem('codelab-messages-ignores')||'[]'); }catch(e){}
+  return Object.values(groupes).filter(g=>g.length>=2).map(g=>{
+    const compte={};
+    g.forEach(i=>mots[i].forEach(w=>{ compte[w]=(compte[w]||0)+1; }));
+    const cle=Object.entries(compte).sort((x,y)=>y[1]-x[1])[0];
+    const ids=g.map(i=>libres[i].id).sort();
+    return {ids, mot: cle ? cle[0] : '', signature: ids.join('|')};
+  }).filter(s=>!ignores.includes(s.signature));
+}
+function peindreBoite(){
+  const nonLus=messages.filter(m=>!m.lu && !m.archive).length;
+  entete('Boîte de réception', nonLus ? nonLus+(nonLus>1?' nouveaux messages':' nouveau message') : 'Les messages laissés depuis le hub.', BTN_TACHE);
+  const compte=f=>messages.filter(m=>f==='classer' ? !m.archive && !m.projet : f==='tous' ? !m.archive : m.archive).length;
+  const liste=messagesVisibles();
+  const rangeable = !filtreSujet && !recherche.trim();
+  const sugg = filtreBoite==='classer' ? suggestions() : [];
+  $('vue').innerHTML=`<div class="outils">
+      <div class="segment" role="group" aria-label="Messages">${[['classer','À classer'],['tous','Tous'],['archives','Archivés']].map(([v,t])=>
+        `<button aria-pressed="${filtreBoite===v}" data-agir="filtre-boite" data-cible="${v}">${t} <b>${compte(v)||''}</b></button>`).join('')}</div>
+      <select class="choix" data-changer="filtre-sujet" aria-label="Sujet">
+        <option value="">Tous les sujets</option>
+        ${Object.entries(SUJETS).map(([v,[,t]])=>`<option value="${v}" ${filtreSujet===v?'selected':''}>${t}</option>`).join('')}</select>
+      <label class="champ-recherche"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input type="search" id="recherche" placeholder="Rechercher" aria-label="Rechercher un message" value="${esc(recherche)}"></label>
+    </div>
+    ${sugg.length ? `<div class="suggestions">${sugg.map(s=>`<div class="suggestion">
+        <svg viewBox="0 0 24 24"><path d="M12 3l2.4 4.9 5.4.8-3.9 3.8.9 5.4L12 15.4 7.2 17.9l.9-5.4L4.2 8.7l5.4-.8z"/></svg>
+        <div class="txt"><b>${s.ids.length} messages semblent parler de la même chose</b>
+          <span>${s.mot ? '« '+esc(s.mot)+' » · ' : ''}${s.ids.map(id=>esc((messages.find(m=>m.id===id)||{}).qui||'?')).join(', ')}</span></div>
+        <button class="btn petit principal" data-agir="suggestion-grouper" data-cible="${esc(s.ids.join(','))}" data-mot="${esc(s.mot)}">Regrouper</button>
+        <button class="btn petit discret" data-agir="suggestion-ignorer" data-cible="${esc(s.signature)}">Ignorer</button></div>`).join('')}</div>` : ''}
+    ${liste.length ? `<div class="liste-messages" id="liste-messages" data-triable="${rangeable?'messages':''}">${liste.map(carteMessage).join('')}</div>`
+      : `<div class="vide"><b>${filtreBoite==='classer' ? 'Tout est classé' : 'Aucun message'}</b>${filtreBoite==='classer' ? 'Les nouveaux messages arriveront ici.' : 'Change de filtre ou de recherche.'}</div>`}
+    ${choisis.size ? `<div class="barre-choix" role="toolbar" aria-label="Messages choisis"><b>${choisis.size} choisi${choisis.size>1?'s':''}</b>
+      <button class="btn petit principal" data-agir="grouper">Regrouper dans un projet</button>
+      <button class="btn petit" data-agir="choix-archiver">Archiver</button>
+      <button class="btn petit discret" data-agir="choix-vider">Annuler</button></div>` : ''}`;
+  if(!rangeable) $('vue').querySelectorAll('.message .poignee').forEach(p=>p.remove());
+}
+const SVG_POIGNEE='<svg viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>';
+const SVG_ARCHIVE='<svg viewBox="0 0 24 24"><path d="M3 4h18v4H3z"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M10 12h4"/></svg>';
+const SVG_POUBELLE='<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>';
+function carteMessage(m){
+  const id=esc(m.id), nees=taches.filter(t=>t.message===m.id).length;
+  return `<article class="carte message${m.lu?'':' non-lu'}${choisis.has(m.id)?' choisi':''}" data-id="${id}">
+    <button class="poignee" aria-label="Déplacer ce message (flèches haut et bas)">${SVG_POIGNEE}</button>
+    <input type="checkbox" class="case" data-changer="choisir" data-cible="${id}" ${choisis.has(m.id)?'checked':''} aria-label="Choisir ce message">
+    <span class="avatar" aria-hidden="true" style="color:${teinte(m.qui||'?')}">${esc((m.qui||'?').slice(0,1).toUpperCase())}</span>
+    <div class="message-corps">
+      <div class="message-tete"><b>${esc(m.qui||'?')}</b>${puceSujet(m)}${pucheProjet(m.projet)}
+        ${m.archive?'<span class="puce">archivé</span>':''}<span class="quand" title="${esc(new Date((m.ts||0)*1000).toLocaleString('fr-FR'))}">${esc(depuis(m.ts))}</span></div>
+      <div class="message-texte${ouverts.has(m.id)?' ouvert':''}" data-agir="deplier" data-cible="${id}">${esc(m.texte||'')}</div>
+      <div class="message-actes">
+        <label class="sr" for="mp-${id}">Projet</label>
+        <select id="mp-${id}" data-changer="message-projet" data-cible="${id}">
+          <option value="">${m.projet ? 'Retirer du projet' : 'Ranger dans un projet…'}</option>
+          ${optionsProjets(m.projet, false)}
+          <option value="__nouveau">+ Nouveau projet…</option></select>
+        <button class="btn petit" data-agir="message-tache" data-cible="${id}"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Tâche</button>
+        ${nees ? `<span class="aide">${nees} tâche${nees>1?'s':''} liée${nees>1?'s':''}</span>` : ''}
+        <span style="flex:1"></span>
+        <button class="icone-btn" title="${m.archive?'Désarchiver':'Archiver'}" aria-label="${m.archive?'Désarchiver':'Archiver'}" data-agir="message-archiver" data-cible="${id}">${SVG_ARCHIVE}</button>
+        <button class="icone-btn" title="Supprimer" aria-label="Supprimer" data-agir="message-supprimer" data-cible="${id}">${SVG_POUBELLE}</button>
+      </div>
+    </div></article>`;
+}
+async function messageModifier(id, corps){ if(await appel('/api/messages/'+encodeURIComponent(id), 'PUT', corps, 'Modification impossible.')) charger(); }
+
+/* ================= le planning ================= */
+let filtreProjetPlanning='', voirFaites=false;
+function ligneTache(t, rang, plan, triable, sansProjet){
+  const total=t.sous_taches.length, faites=t.sous_taches.filter(s=>s.faite).length;
+  return `<div class="tache${t.statut==='fait'?' faite':''}" data-id="${esc(t.id)}">
+    ${triable ? `<button class="poignee" aria-label="Déplacer « ${esc(t.titre)} » (flèches haut et bas)">${SVG_POIGNEE}</button>` : '<span style="width:22px"></span>'}
+    ${rang!=null ? `<span class="rang">${rang}</span>` : ''}
+    <input type="checkbox" class="case ronde" data-changer="tache-faite" data-cible="${esc(t.id)}" ${t.statut==='fait'?'checked':''} aria-label="Marquer « ${esc(t.titre)} » comme faite">
+    <button class="tache-titre" data-agir="ouvrir-tache" data-cible="${esc(t.id)}">${esc(t.titre)}</button>
+    <span class="tache-meta">${total ? `<span class="aide">${faites}/${total}</span>` : ''}
+      ${t.statut==='fait' ? (t.fait_le ? `<span class="aide">fait ${esc(depuis(t.fait_le))}</span>` : '') : `${(t.duree||1)>1 ? `<span class="puce">${t.duree} j</span>` : ''}${datePrevue(t, plan)}`}
+      ${sansProjet ? '' : pucheProjet(t.projet==='general'?'':t.projet)}</span>
+  </div>`;
+}
+function peindrePlanning(){
+  const plan=planifier();
+  entete('Planning', "L'ordre des tâches est leur priorité : glisse-les pour les réordonner.", BTN_TACHE);
+  const liste=ouvertes().filter(t=>!filtreProjetPlanning || t.projet===filtreProjetPlanning);
+  const faites=taches.filter(t=>t.statut==='fait' && (!filtreProjetPlanning || t.projet===filtreProjetPlanning))
+    .sort((a,b)=>(b.fait_le||0)-(a.fait_le||0));
+  const triable=!filtreProjetPlanning;
+  $('vue').innerHTML=`<div class="outils">
+      <select class="choix" data-changer="filtre-planning" aria-label="Projet"><option value="">Tous les projets</option>${optionsProjets(filtreProjetPlanning, true)}</select>
+      ${triable ? '' : '<span class="aide">Filtre actif : retire-le pour réordonner.</span>'}
+    </div>
+    <div class="taches" id="liste-taches" data-triable="${triable?'planning':''}">
+      ${liste.map((t,i)=>ligneTache(t, i+1, plan, triable)).join('') || '<div class="vide" style="border:0;border-radius:0">Aucune tâche ouverte.</div>'}
+      <div class="ajout"><label class="sr" for="ajout-titre">Nouvelle tâche</label>
+        <input id="ajout-titre" placeholder="Ajouter une tâche, puis Entrée" maxlength="200">
+        <label class="sr" for="ajout-projet">Projet</label>
+        <select id="ajout-projet">${optionsProjets(filtreProjetPlanning||'general', true)}</select></div>
+    </div>
+    ${faites.length ? `<details class="repli" ${voirFaites?'open':''} data-changer="voir-faites"><summary>${faites.length} tâche${faites.length>1?'s':''} faite${faites.length>1?'s':''}</summary>
+      <div class="taches" style="margin-top:8px">${faites.slice(0,100).map(t=>ligneTache(t, null, plan, false)).join('')}</div></details>` : ''}`;
+}
+
+/* ================= la feuille de route ================= */
+let echelle='semaines', horizonMois=3;
+function couleurs(t){
+  const c=teinte(t.projet||'general');
+  return `--c:${c};--c-fond:color-mix(in srgb,${c} 14%,var(--surface));`;
+}
+function barre(t, extra, style){
+  return `<button class="barre${t.statut==='fait'?' faite':''}${extra||''}" style="${couleurs(t)}${style||''}" data-agir="ouvrir-tache" data-cible="${esc(t.id)}" title="${esc(t.titre)} — ${esc(nomProjet(t.projet))}"><span>${esc(t.titre)}</span></button>`;
+}
+function peindreFeuille(){
+  const plan=planifier(), auj=aujourdhui();
+  const fin = plan.length ? plan.reduce((m,p)=>p.fin>m?p.fin:m, plan[0].fin) : null;
+  entete('Feuille de route', fin ? 'Le planning actuel se termine le '+fmt(fin,{weekday:'long',day:'numeric',month:'long'})+'.' : 'Aucune tâche planifiée.', BTN_TACHE);
+  let corps='';
+  if(echelle==='jour'){
+    const ajd=plan.filter(p=>p.debut<=prochainOuvre(auj) && p.fin>=prochainOuvre(auj));
+    const retard=ajd.filter(p=>p.retard), reste=ajd.filter(p=>!p.retard);
+    const suite=plan.filter(p=>p.debut>prochainOuvre(auj)).slice(0,6);
+    const faitesAuj=taches.filter(t=>t.statut==='fait' && t.fait_le && iso(jourDe(t.fait_le*1000))===iso(auj));
+    const bloc=(titre, items)=>items.length ? `<div class="groupe-titre">${titre}</div><div class="taches">${items.map(t=>ligneTache(t,null,plan,false)).join('')}</div>` : '';
+    const titreJour=fmt(auj,{weekday:'long',day:'numeric',month:'long'});
+    corps=`<div class="jour-entete"><b>${esc(titreJour.charAt(0).toUpperCase()+titreJour.slice(1))}</b>
+        ${!ouvre(auj) ? '<span class="aide">Week-end : le planning reprend lundi.</span>' : ''}</div>
+      ${bloc('En retard', retard.map(p=>p.t))}${bloc(ouvre(auj)?"Aujourd'hui":'Lundi', reste.map(p=>p.t))}
+      ${!ajd.length ? `<div class="vide"><b>Rien de prévu ${ouvre(auj)?"aujourd'hui":'lundi'}</b>Ajoute une tâche au planning.</div>` : ''}
+      ${bloc('Ensuite', suite.map(p=>p.t))}${bloc('Fait aujourd\'hui', faitesAuj)}`;
+  }
+  if(echelle==='semaines'){
+    const debut=lundi(auj), nb=8;
+    const faites=taches.filter(t=>t.statut==='fait' && t.fait_le);
+    corps='<div class="semaines">'+Array.from({length:nb},(_,k)=>{
+      const l=new Date(debut); l.setDate(l.getDate()+7*k);
+      const v=new Date(l); v.setDate(v.getDate()+4);
+      const jours=Array.from({length:5},(_,i)=>{ const d=new Date(l); d.setDate(d.getDate()+i); return d; });
+      const lignes=[];
+      plan.forEach(p=>{
+        if(p.fin<l || p.debut>v) return;
+        const a=Math.max(0, Math.round((jourDe(p.debut<l?l:p.debut)-l)/864e5));
+        const b=Math.min(4, Math.round((jourDe(p.fin>v?v:p.fin)-l)/864e5));
+        lignes.push(barre(p.t, p.retard?' retard':'', `grid-column:${a+1} / ${b+2}`));
+      });
+      faites.forEach(t=>{ const d=jourDe(t.fait_le*1000); const i=Math.round((d-l)/864e5);
+        if(i>=0 && i<=4) lignes.push(barre(t,'',`grid-column:${i+1} / ${i+2}`)); });
+      const n=plan.filter(p=>!(p.fin<l || p.debut>v)).length;
+      return `<section class="carte semaine" aria-label="Semaine du ${esc(fmt(l,{day:'numeric',month:'long'}))}">
+        <div class="semaine-tete"><b>${k===0?'Cette semaine':k===1?'Semaine prochaine':'Semaine du '+esc(fmt(l,{day:'numeric',month:'long'}))}</b>
+          <span>${esc(fmt(l,{day:'numeric',month:'short'}))} – ${esc(fmt(v,{day:'numeric',month:'short'}))} · ${n ? n+' tâche'+(n>1?'s':'') : 'aucune tâche'}</span></div>
+        <div class="semaine-grille">${jours.map(d=>`<div class="jour${iso(d)===iso(auj)?' aujourdhui':''}${d<auj&&iso(d)!==iso(auj)?' passe':''}">${esc(fmt(d,{weekday:'short',day:'numeric'}))}</div>`).join('')}
+          ${lignes.join('') || '<div class="aide" style="grid-column:1 / -1;padding:4px 2px">Rien de prévu.</div>'}</div></section>`;
+    }).join('')+'</div>';
+  }
+  if(echelle==='mois'){
+    const debut=new Date(auj.getFullYear(), auj.getMonth(), 1, 12);
+    const finH=new Date(auj.getFullYear(), auj.getMonth()+horizonMois, 1, 12);
+    const jours=Math.round((finH-debut)/864e5), px=horizonMois===1 ? 40 : horizonMois<=3 ? 22 : horizonMois<=6 ? 12 : 6;
+    /* Une barre assez large pour lire son titre : sa place VISIBLE (et non
+       sa seule duree) decide de la piste qu'elle prend. */
+    const LARGEUR_MIN=130;
+    const x=d=>Math.round((jourDe(d)-debut)/864e5)*px;
+    const mois=Array.from({length:horizonMois},(_,k)=>{ const a=new Date(debut.getFullYear(), debut.getMonth()+k, 1, 12);
+      const b=new Date(debut.getFullYear(), debut.getMonth()+k+1, 1, 12);
+      return `<div style="width:${(x(b)-x(a))}px">${esc(fmt(a,{month:'long',year: horizonMois>6 || k===0 ? 'numeric' : undefined}))}</div>`; }).join('');
+    const semaines=[]; for(let d=lundi(debut); d<finH; d=new Date(d.getTime()+7*864e5)) if(d>=debut) semaines.push(`<div class="frise-semaine" style="left:${x(d)}px"></div>`);
+    const groupes={};
+    plan.forEach(p=>{ if(p.fin>=debut && p.debut<finH) (groupes[p.t.projet||'general'] ||= []).push(p); });
+    const lignes=Object.entries(groupes).sort((a,b)=>nomProjet(a[0]).localeCompare(nomProjet(b[0]),'fr')).map(([cle, ps])=>{
+      /* Les taches d'un projet sur une seule ligne quand elles se suivent ;
+         celles qui se chevauchent prennent une ligne de plus. */
+      const pistes=[];
+      ps.forEach(p=>{
+        p.g=x(p.debut); p.l=Math.max(LARGEUR_MIN, x(p.fin)-x(p.debut)+px);
+        let i=pistes.findIndex(f=>f+6<=p.g); if(i<0){ i=pistes.length; pistes.push(0); }
+        pistes[i]=p.g+p.l; p.piste=i;
+      });
+      return `<div class="frise-ligne" style="height:${40+pistes.length*30}px">
+        <span class="etiquette" style="color:${teinte(cle)}">${esc(nomProjet(cle))}</span>
+        ${ps.map(p=>barre(p.t, p.retard?' retard':'', `left:${p.g}px;width:${p.l}px;top:${36+p.piste*30}px`)).join('')}</div>`;
+    }).join('');
+    corps=`<div class="carte frise"><div class="frise-int" style="--largeur:${jours*px}px">
+      <div class="frise-mois">${mois}</div>${semaines.join('')}
+      <div class="frise-aujourdhui" style="left:${x(auj)}px"></div>
+      ${lignes || '<div class="vide" style="border:0">Aucune tâche sur cette période.</div>'}</div></div>`;
+  }
+  $('vue').innerHTML=`<div class="outils">
+      <div class="segment" role="group" aria-label="Échelle">${[['jour',"Aujourd'hui"],['semaines','Semaines'],['mois','Mois']].map(([v,t])=>
+        `<button aria-pressed="${echelle===v}" data-agir="echelle" data-cible="${v}">${t}</button>`).join('')}</div>
+      ${echelle==='mois' ? `<div class="segment" role="group" aria-label="Horizon">${[1,3,6,12].map(n=>
+        `<button aria-pressed="${horizonMois===n}" data-agir="horizon" data-cible="${n}">${n} mois</button>`).join('')}</div>` : ''}
+      <span class="aide">Une tâche non cochée glisse avec le temps. Les tâches sans date se suivent dans l'ordre du planning.</span>
+    </div>${corps}`;
+}
+
+/* ================= un projet ================= */
+const ETAPES={idee:'Idée', construction:'En construction', realise:'Réalisé'};
+function peindreProjet(){
+  const p=projets.find(x=>x.id===projetCourant); if(!p) return;
+  const plan=planifier();
+  const ts=ouvertes().filter(t=>t.projet===p.id);
+  const faites=taches.filter(t=>t.projet===p.id && t.statut==='fait');
+  const total=ts.length+faites.length, pc=total ? Math.round(100*faites.length/total) : 0;
+  const msgs=ordreMessages(messages.filter(m=>m.projet===p.id));
+  const app=p.application ? apps.find(a=>a.name===p.application) : null;
+  entete(p.nom, '', `<button class="btn" data-agir="modifier-projet" data-cible="${esc(p.id)}">Modifier</button>${BTN_TACHE}`);
+  $('sous-titre').innerHTML=`<span class="puce projet" style="color:${teinte(p.id)}"><i></i>${esc(ETAPES[p.etape]||p.etape)}</span>
+    ${app ? `<span class="puce" style="margin-left:6px">${esc(app.titre||app.name)}</span>` : ''}`;
+  $('vue').innerHTML=`
+    ${p.description ? `<p style="margin:0 0 16px;color:var(--dim);max-width:70ch;white-space:pre-wrap">${esc(p.description)}</p>` : ''}
+    <div class="outils"><div class="segment" role="group" aria-label="Étape">${Object.entries(ETAPES).map(([v,t])=>
+      `<button aria-pressed="${p.etape===v}" data-agir="projet-etape" data-cible="${v}">${t}</button>`).join('')}</div>
+      <div class="progression"><i><b style="width:${pc}%"></b></i>${faites.length}/${total} tâches faites</div></div>
+    <div class="projet-grille">
+      <section><h2>Tâches</h2>
+        <div class="taches" id="liste-taches" data-triable="projet">
+          ${ts.map((t,i)=>ligneTache(t, i+1, plan, true, true)).join('') || '<div class="vide" style="border:0;border-radius:0">Aucune tâche ouverte.</div>'}
+          <div class="ajout"><label class="sr" for="ajout-titre">Nouvelle tâche</label>
+            <input id="ajout-titre" placeholder="Ajouter une tâche au projet, puis Entrée" maxlength="200">
+            <input type="hidden" id="ajout-projet" value="${esc(p.id)}"></div>
+        </div>
+        ${faites.length ? `<details class="repli"><summary>${faites.length} faite${faites.length>1?'s':''}</summary>
+          <div class="taches" style="margin-top:8px">${faites.map(t=>ligneTache(t,null,plan,false,true)).join('')}</div></details>` : ''}
+      </section>
+      <section><h2>Messages (${msgs.length})</h2>
+        <div style="display:flex;flex-direction:column;gap:10px">${msgs.map(m=>`<div class="carte mini-message">
+          <div class="message-tete"><b>${esc(m.qui||'?')}</b>${puceSujet(m)}<span class="quand">${esc(depuis(m.ts))}</span></div>
+          <p>${esc(m.texte||'')}</p>
+          <div class="message-actes"><button class="btn petit" data-agir="message-tache" data-cible="${esc(m.id)}">Tâche</button>
+            <button class="btn petit discret" data-agir="message-detacher" data-cible="${esc(m.id)}">Retirer du projet</button></div></div>`).join('')
+          || '<div class="vide">Aucun message. Range-en depuis la boîte de réception.</div>'}</div>
+      </section>
+    </div>`;
+}
+
+/* ================= une tache ================= */
+let tacheId=null, tacheMessage=null;
+function ouvrirTache(id, depuisMessage, projetDefaut){
+  tacheId=id; tacheMessage=depuisMessage||null;
+  const t=id ? taches.find(x=>x.id===id) : null;
+  const m=tacheMessage ? messages.find(x=>x.id===tacheMessage) : (t && t.message ? messages.find(x=>x.id===t.message) : null);
+  $('t-fen-titre').textContent = t ? 'Tâche' : (tacheMessage ? 'Tâche depuis un message' : 'Nouvelle tâche');
+  const premiere=m ? String(m.texte||'').split('\n')[0].trim() : '';
+  $('t-titre').value = t ? t.titre : (premiere.length>110 ? premiere.slice(0,107)+'…' : premiere);
+  $('t-projet').innerHTML=optionsProjets(null, true);
+  $('t-projet').value = t ? t.projet : (projetDefaut || (m && m.projet) || (m && m.cible==='application' && apps.some(a=>a.name===m.app) ? m.app : 'general'));
+  if(!$('t-projet').value) $('t-projet').value='general';
+  $('t-date').value = t && t.echeance ? t.echeance : '';
+  $('t-duree').value = t ? (t.duree||1) : 1;
+  $('t-notes').value = t ? (t.notes||'') : '';
+  $('t-zone-sous').classList.toggle('cache', !t);
+  $('t-supprimer').classList.toggle('cache', !t);
+  $('t-scinder').classList.toggle('cache', !t);
+  $('t-ok').textContent = t ? 'Enregistrer' : 'Créer la tâche';
+  $('t-source').classList.toggle('cache', !m);
+  if(m) $('t-source').textContent=(m.qui||'?')+' — '+(m.texte||'');
+  $('t-err').classList.add('cache');
+  if(t) peindreSousTaches();
+  ouvrir('fen-tache'); $('t-titre').focus();
+}
+function peindreSousTaches(){
+  const t=taches.find(x=>x.id===tacheId); if(!t) return;
+  $('t-sous').innerHTML=t.sous_taches.map((s,i)=>`<div class="sous${s.faite?' faite':''}">
+    <label><input type="checkbox" class="case" ${s.faite?'checked':''} data-changer="sous-faite" data-cible="${esc(s.id)}"><span>${esc(s.titre)}</span></label>
+    <button class="icone-btn" aria-label="Monter « ${esc(s.titre)} »" data-agir="sous-monter" data-cible="${i}" ${i?'':'disabled'}><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button>
+    <button class="icone-btn" aria-label="Retirer « ${esc(s.titre)} »" data-agir="sous-retirer" data-cible="${esc(s.id)}"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>`).join('')
+    || '<div class="aide">Aucune sous-tâche.</div>';
+}
+async function tacheEnregistrer(){
+  const err=$('t-err'); err.classList.add('cache');
+  const corps={titre:$('t-titre').value.trim(), projet:$('t-projet').value,
+    echeance:$('t-date').value || null, duree:Number($('t-duree').value)||1, notes:$('t-notes').value};
+  if(!corps.titre){ err.textContent='Donne un titre à la tâche.'; err.classList.remove('cache'); return; }
+  if(!tacheId && tacheMessage) corps.message=tacheMessage;
+  const r=await fetch(tacheId ? '/api/taches/'+encodeURIComponent(tacheId) : '/api/taches',
+    {method:tacheId?'PUT':'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(corps)});
+  if(!r.ok){ err.textContent=await echec(r,'Enregistrement impossible.'); err.classList.remove('cache'); return; }
+  fermerTout(); notifier(tacheId ? 'Tâche enregistrée.' : 'Tâche ajoutée au planning.');
+  await charger();
+}
+function ouvrirScinder(){
+  const t=taches.find(x=>x.id===tacheId); if(!t) return;
+  const sous=t.sous_taches.filter(s=>!s.faite);
+  $('s-lignes').value=[t.titre].concat(sous.map(s=>s.titre)).join('\n') + (sous.length ? '' : '\n');
+  $('s-zone-retirer').classList.toggle('cache', !sous.length);
+  $('s-err').classList.add('cache');
+  fermerTout(); ouvrir('fen-scinder'); $('s-lignes').focus();
+}
+async function scinderValider(){
+  const t=taches.find(x=>x.id===tacheId); if(!t) return;
+  const titres=$('s-lignes').value.split('\n').map(x=>x.trim()).filter(Boolean);
+  if(titres.length<2){ $('s-err').textContent='Il faut au moins deux lignes.'; $('s-err').classList.remove('cache'); return; }
+  if(!await appel('/api/taches/'+encodeURIComponent(t.id)+'/scinder','POST',{titres},'Scission impossible.')) return;
+  if(!$('s-zone-retirer').classList.contains('cache') && $('s-retirer').checked)
+    for(const s of t.sous_taches.filter(s=>!s.faite && titres.includes(s.titre)))
+      await fetch('/api/sous-taches/'+encodeURIComponent(s.id),{method:'DELETE'});
+  fermerTout(); notifier('Tâche scindée en '+titres.length+'.'); charger();
+}
+
+/* ================= projets et regroupements ================= */
+let projetEdite=null;
+function ouvrirProjetFenetre(id){
+  projetEdite=id;
+  const p=id ? projets.find(x=>x.id===id) : null;
+  $('p-fen-titre').textContent = p ? 'Modifier le projet' : 'Nouveau projet';
+  $('p-nom').value=p ? p.nom : ''; $('p-desc').value=p ? (p.description||'') : '';
+  $('p-etape').value=p ? p.etape : 'idee';
+  $('p-app').innerHTML='<option value="">Aucune</option>'+apps.map(a=>`<option value="${esc(a.name)}">${esc(a.titre||a.name)}</option>`).join('');
+  $('p-app').value=p && p.application ? p.application : '';
+  $('p-supprimer').classList.toggle('cache', !p);
+  $('p-err').classList.add('cache');
+  ouvrir('fen-projet'); $('p-nom').focus();
+}
+async function projetEnregistrer(){
+  const err=$('p-err'); err.classList.add('cache');
+  const corps={nom:$('p-nom').value.trim(), description:$('p-desc').value, etape:$('p-etape').value};
+  if(!corps.nom){ err.textContent='Donne un nom au projet.'; err.classList.remove('cache'); return; }
+  const r=await fetch(projetEdite ? '/api/projets/'+encodeURIComponent(projetEdite) : '/api/projets',
+    {method:projetEdite?'PUT':'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(corps)});
+  if(!r.ok){ err.textContent=await echec(r,'Enregistrement impossible.'); err.classList.remove('cache'); return; }
+  const id=projetEdite || (await r.json().catch(()=>({}))).id;
+  if(id) await appel('/api/projets/'+encodeURIComponent(id),'PUT',{application:$('p-app').value});
+  fermerTout(); await charger();
+  if(!projetEdite && id) aller('projet', id);
+}
+async function projetSupprimer(){
+  if(!projetEdite || !await demander('Supprimer ce projet ?', 'Ses tâches passent dans « Général », ses messages redeviennent à classer.', 'Supprimer')) return;
+  if(await appel('/api/projets/'+encodeURIComponent(projetEdite),'DELETE',undefined,'Suppression impossible.')){
+    fermerTout(); notifier('Projet supprimé.'); await charger(); aller('boite');
+  }
+}
+let groupeIds=[];
+function ouvrirGrouper(ids, mot){
+  groupeIds=ids;
+  const ms=ids.map(id=>messages.find(m=>m.id===id)).filter(Boolean);
+  $('g-sous').textContent=ms.length+(ms.length>1?' messages':' message')+' de '+[...new Set(ms.map(m=>m.qui||'?'))].join(', ');
+  $('g-nom').value = mot ? mot.charAt(0).toUpperCase()+mot.slice(1) : (String(ms[0] && ms[0].texte || '').split('\n')[0].slice(0,80));
+  $('g-desc').value = ms.map(m=>'— '+(m.qui||'?')+' : '+(m.texte||'')).join('\n');
+  $('g-projet').innerHTML=optionsProjets(null,false);
+  const aDesProjets=projets.length>0;
+  document.querySelector('input[name="g-mode"][value="existant"]').disabled=!aDesProjets;
+  document.querySelector('input[name="g-mode"][value="nouveau"]').checked=true;
+  modeGroupe();
+  $('g-err').classList.add('cache');
+  ouvrir('fen-grouper'); $('g-nom').focus();
+}
+function modeGroupe(){
+  const existant=document.querySelector('input[name="g-mode"]:checked').value==='existant';
+  $('g-zone-nouveau').classList.toggle('cache', existant);
+  $('g-zone-existant').classList.toggle('cache', !existant);
+}
+async function grouperValider(){
+  const existant=document.querySelector('input[name="g-mode"]:checked').value==='existant';
+  const corps={ids:groupeIds};
+  if(existant) corps.projet=$('g-projet').value;
+  else corps.nouveau_projet={nom:$('g-nom').value.trim(), description:$('g-desc').value};
+  if(!existant && !corps.nouveau_projet.nom){ $('g-err').textContent='Donne un nom au projet.'; $('g-err').classList.remove('cache'); return; }
+  const r=await fetch('/api/messages/grouper',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(corps)});
+  if(!r.ok){ $('g-err').textContent=await echec(r,'Regroupement impossible.'); $('g-err').classList.remove('cache'); return; }
+  const d=await r.json();
+  fermerTout(); choisis.clear(); notifier('Messages regroupés.'); await charger(); aller('projet', d.projet);
+}
+
+/* ================= glisser pour ranger =================
+   Au pointeur (souris, doigt, stylet) par la poignee, et au clavier : les
+   fleches haut et bas sur la poignee deplacent d'un cran. */
+let glisse=null;
+function listeTriable(el){ return el && el.closest('[data-triable]:not([data-triable=""])'); }
+function elements(liste){ return [...liste.children].filter(e=>e.dataset.id); }
+document.addEventListener('pointerdown', e=>{
+  const p=e.target.closest && e.target.closest('.poignee'); if(!p) return;
+  const item=p.closest('[data-id]'), liste=listeTriable(item); if(!liste) return;
+  e.preventDefault();
+  glisse={item, liste, avant:elements(liste).map(x=>x.dataset.id).join('|')};
+  item.classList.add('glisse');
+  try{ p.setPointerCapture(e.pointerId); }catch(_){}
+});
+document.addEventListener('pointermove', e=>{
+  if(!glisse) return;
+  const autres=elements(glisse.liste).filter(x=>x!==glisse.item);
+  const avant=autres.find(x=>{ const r=x.getBoundingClientRect(); return e.clientY < r.top + r.height/2; });
+  glisse.liste.insertBefore(glisse.item, avant || autres[autres.length-1]?.nextSibling || null);
+});
+function finGlisse(){
+  if(!glisse) return;
+  const g=glisse; glisse=null; g.item.classList.remove('glisse');
+  if(elements(g.liste).map(x=>x.dataset.id).join('|')!==g.avant) enregistrerOrdre(g.liste);
+}
+document.addEventListener('pointerup', finGlisse);
+document.addEventListener('pointercancel', finGlisse);
+document.addEventListener('keydown', e=>{
+  if(e.key==='Escape'){ fermerTout(); $('app').classList.remove('menu-ouvert'); return; }
+  const p=e.target.closest && e.target.closest('.poignee');
+  if(!p || !['ArrowUp','ArrowDown'].includes(e.key)) return;
+  const item=p.closest('[data-id]'), liste=listeTriable(item); if(!liste) return;
+  e.preventDefault();
+  const tous=elements(liste), i=tous.indexOf(item), j=e.key==='ArrowUp' ? i-1 : i+1;
+  if(j<0 || j>=tous.length) return;
+  liste.insertBefore(item, e.key==='ArrowUp' ? tous[j] : tous[j].nextSibling);
+  const id=item.dataset.id;
+  enregistrerOrdre(liste).then(()=>{ const q=document.querySelector(`[data-id="${CSS.escape(id)}"] .poignee`); if(q) q.focus(); });
+});
+async function enregistrerOrdre(liste){
+  const ids=elements(liste).map(x=>x.dataset.id);
+  if(liste.dataset.triable==='messages'){
+    /* Les messages visibles prennent leur rang ; les autres gardent le leur,
+       a la suite. */
+    const reste=ordreMessages(messages).map(m=>m.id).filter(id=>!ids.includes(id));
+    if(await appel('/api/messages/ordre','PUT',{ordre:ids.concat(reste)},'Rangement impossible.')) await charger();
+    return;
+  }
+  /* Planning (toutes les taches ouvertes) ou projet (les siennes seulement) :
+     les taches du projet reprennent, dans leur nouvel ordre, les places
+     qu'elles occupaient dans le planning. */
+  let ordre=ouvertes().map(t=>t.id);
+  if(liste.dataset.triable==='projet'){
+    const places=ordre.map((id,i)=>ids.includes(id)?i:-1).filter(i=>i>=0);
+    places.forEach((place,k)=>{ ordre[place]=ids[k]; });
+  }else ordre=ids;
+  if(await appel('/api/taches/plan','PUT',{ordre},'Réorganisation impossible.')) await charger();
+}
+
+/* ================= un seul aiguillage ================= */
+const ACTIONS={
+  'vue': c=>aller(c),
+  'ouvrir-projet': c=>aller('projet', c),
+  'menu': ()=>$('app').classList.toggle('menu-ouvert'),
+  'fermer': ()=>fermerTout(),
+  'nouvelle-tache': ()=>ouvrirTache(null, null, vue==='projet' ? projetCourant : (filtreProjetPlanning||null)),
+  'nouveau-projet': ()=>ouvrirProjetFenetre(null),
+  'modifier-projet': c=>ouvrirProjetFenetre(c),
+  'projet-enregistrer': ()=>projetEnregistrer(),
+  'projet-supprimer': ()=>projetSupprimer(),
+  'projet-etape': async c=>{ if(await appel('/api/projets/'+encodeURIComponent(projetCourant),'PUT',{etape:c},'Changement impossible.')) charger(); },
+  'filtre-boite': c=>{ filtreBoite=c; choisis.clear(); peindre(); },
+  'deplier': c=>{ ouverts.has(c) ? ouverts.delete(c) : ouverts.add(c); peindre(); },
+  'message-tache': c=>ouvrirTache(null, c),
+  'message-archiver': c=>{ const m=messages.find(x=>x.id===c); messageModifier(c,{archive:!(m&&m.archive)}); },
+  'message-detacher': c=>messageModifier(c,{projet:''}),
+  'message-supprimer': async c=>{
+    if(!await demander('Supprimer ce message ?', 'Il disparaît définitivement. Les tâches qui en sont nées restent.', 'Supprimer')) return;
+    if(await appel('/api/messages/'+encodeURIComponent(c),'DELETE',undefined,'Suppression impossible.')){ notifier('Message supprimé.'); charger(); }
+  },
+  'grouper': ()=>ouvrirGrouper([...choisis]),
+  'grouper-valider': ()=>grouperValider(),
+  'choix-archiver': async ()=>{ for(const id of choisis) await fetch('/api/messages/'+encodeURIComponent(id),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({archive:true})});
+    choisis.clear(); notifier('Messages archivés.'); charger(); },
+  'choix-vider': ()=>{ choisis.clear(); peindre(); },
+  'suggestion-grouper': (c,d)=>ouvrirGrouper(c.split(','), d.mot),
+  'suggestion-ignorer': c=>{ try{ const l=JSON.parse(localStorage.getItem('codelab-messages-ignores')||'[]'); l.push(c); localStorage.setItem('codelab-messages-ignores', JSON.stringify(l.slice(-200))); }catch(e){} peindre(); },
+  'ouvrir-tache': c=>ouvrirTache(c),
+  'tache-enregistrer': ()=>tacheEnregistrer(),
+  'tache-supprimer': async ()=>{
+    if(!tacheId || !await demander('Supprimer cette tâche ?', 'Ses sous-tâches partent avec elle.', 'Supprimer')) return;
+    if(await appel('/api/taches/'+encodeURIComponent(tacheId),'DELETE',undefined,'Suppression impossible.')){ fermerTout(); notifier('Tâche supprimée.'); charger(); }
+  },
+  'tache-scinder': ()=>ouvrirScinder(),
+  'scinder-valider': ()=>scinderValider(),
+  'echelle': c=>{ echelle=c; try{ localStorage.setItem('codelab-messages-echelle', c); }catch(e){} peindre(); },
+  'horizon': c=>{ horizonMois=Number(c); try{ localStorage.setItem('codelab-messages-horizon', c); }catch(e){} peindre(); },
+  'sous-retirer': async c=>{ if(await appel('/api/sous-taches/'+encodeURIComponent(c),'DELETE',undefined,'Retrait impossible.')){ await charger(); peindreSousTaches(); } },
+  'sous-monter': async c=>{
+    const t=taches.find(x=>x.id===tacheId), i=Number(c); if(!t || i<1) return;
+    const ids=t.sous_taches.map(s=>s.id); [ids[i-1],ids[i]]=[ids[i],ids[i-1]];
+    if(await appel('/api/taches/'+encodeURIComponent(tacheId)+'/ordre','PUT',{ordre:ids},'Réorganisation impossible.')){ await charger(); peindreSousTaches(); }
+  },
+};
+document.addEventListener('click', e=>{
+  const b=e.target.closest && e.target.closest('[data-agir]'); if(!b) return;
+  const f=ACTIONS[b.dataset.agir]; if(!f) return;
+  e.preventDefault(); f(b.dataset.cible||'', b.dataset);
+});
+document.addEventListener('change', async e=>{
+  const c=e.target, quoi=c.dataset && c.dataset.changer;
+  if(quoi==='choisir'){ c.checked ? choisis.add(c.dataset.cible) : choisis.delete(c.dataset.cible); peindre(); }
+  if(quoi==='filtre-sujet'){ filtreSujet=c.value; peindre(); }
+  if(quoi==='filtre-planning'){ filtreProjetPlanning=c.value; peindre(); }
+  if(quoi==='g-mode') modeGroupe();
+  if(quoi==='tache-faite'){
+    if(await appel('/api/taches/'+encodeURIComponent(c.dataset.cible),'PUT',{statut:c.checked?'fait':'a_faire'},'Modification impossible.')){
+      notifier(c.checked ? 'Bravo, tâche faite.' : 'Tâche rouverte.'); charger(); }
+  }
+  if(quoi==='sous-faite'){
+    if(await appel('/api/sous-taches/'+encodeURIComponent(c.dataset.cible),'PUT',{faite:c.checked},'Modification impossible.')){ await charger(); peindreSousTaches(); }
+  }
+  if(quoi==='message-projet'){
+    const id=c.dataset.cible;
+    if(c.value==='__nouveau'){ ouvrirGrouper([id]); return; }
+    messageModifier(id,{projet:c.value});
+  }
+});
+document.addEventListener('toggle', e=>{ if(e.target.dataset && e.target.dataset.changer==='voir-faites') voirFaites=e.target.open; }, true);
+document.addEventListener('input', e=>{
+  if(e.target.id==='recherche'){
+    recherche=e.target.value; const pos=e.target.selectionStart;
+    peindre(); const n=$('recherche'); if(n){ n.focus(); try{ n.setSelectionRange(pos,pos); }catch(_){} }
+  }
+});
+document.addEventListener('keydown', async e=>{
+  if(e.key!=='Enter') return;
+  if(e.target.id==='ajout-titre'){
+    e.preventDefault();
+    const titre=e.target.value.trim(); if(!titre) return;
+    if(await appel('/api/taches','POST',{titre, projet:$('ajout-projet').value||'general'},'Création impossible.')){
+      await charger(); const n=$('ajout-titre'); if(n) n.focus(); }
+  }
+  if(e.target.id==='t-sous-ajout' && tacheId){
+    e.preventDefault();
+    const titre=e.target.value.trim(); if(!titre) return;
+    if(await appel('/api/taches/'+encodeURIComponent(tacheId)+'/sous-taches','POST',{titre},'Ajout impossible.')){
+      e.target.value=''; await charger(); peindreSousTaches(); }
+  }
+});
+document.querySelectorAll('.voile').forEach(v=>v.addEventListener('click', e=>{ if(e.target===v) v.classList.add('cache'); }));
+
+/* ================= demarrage ================= */
+try{ echelle=localStorage.getItem('codelab-messages-echelle')||echelle; horizonMois=Number(localStorage.getItem('codelab-messages-horizon'))||horizonMois; }catch(e){}
+lireAdresse();
+charger().then(()=>{ if(vue==='boite') marquerLus(); });
+/* Les messages qui arrivent pendant qu'on travaille : un tour toutes les
+   vingt secondes, onglet au premier plan, ni pendant un glisser ni une
+   fenetre ouverte. Et la feuille de route se recalcule au changement de
+   jour, page ouverte. */
+let jourAffiche=iso(aujourdhui());
+setInterval(()=>{
+  if(document.hidden || glisse || document.querySelector('.voile:not(.cache)')) return;
+  if(document.activeElement && ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) return;
+  if(iso(aujourdhui())!==jourAffiche){ jourAffiche=iso(aujourdhui()); }
+  charger();
+}, 20000);
+</script>
+</body>
+</html>

@@ -134,7 +134,7 @@ def _lire_ressource(nom):
 
 
 DASHBOARD_PAGE = _lire_ressource("dashboard.html")
-DEMANDES_PAGE = _lire_ressource("demandes.html")
+MESSAGERIE_PAGE = _lire_ressource("messages.html")
 LOGIN_PAGE = _lire_ressource("login.html")
 # Le theme : un seul fichier de variables, partage par les deux pages. Servi
 # plutot que recopie dans chacune, pour qu'il n'existe qu'un endroit a changer
@@ -897,13 +897,15 @@ APPLICATIONS_PROTEGEES = {DAGSTER_NOM, DIAGNOSTIC_NOM, MAILPIT_NOM}
 # « dagster », « diagnostic » -- et c'est elle qui s'affichait : deux tuiles
 # en minuscules au milieu de projets nommes par leur auteur. Elles n'ont pas
 # de formulaire ou corriger cela, la valeur est donc posee ici.
-# « Demandes » : l'application qui recense les demandes laissees depuis le hub
-# et en fait des taches et des projets. Elle est servie par le panneau
-# lui-meme (/demandes) -- ses donnees sont celles du panneau, et elle est
-# reservee a l'administrateur, comme Dagster et Mailpit.
-DEMANDES_NOM = "demandes"
+# « Messages » : l'application qui recense les messages laisses depuis le hub
+# et en fait des projets, des taches et une feuille de route. Elle est servie
+# par le panneau lui-meme (/messages) -- ses donnees sont celles du panneau,
+# et elle est reservee a l'administrateur, comme Dagster et Mailpit.
+MESSAGERIE_NOM = "messages"
+# L'ancien nom de l'application, garde pour les rangements deja enregistres.
+MESSAGERIE_ANCIEN_NOM = "demandes"
 TITRES_PAR_DEFAUT = {DAGSTER_NOM: "Dagster", DIAGNOSTIC_NOM: "Diagnostic",
-                     MAILPIT_NOM: "Mailpit", DEMANDES_NOM: "Demandes"}
+                     MAILPIT_NOM: "Mailpit", MESSAGERIE_NOM: "Messages"}
 
 # La tuile du diagnostic a besoin d'une phrase, et cette phrase ne peut pas
 # s'ecrire a la main : la fiche d'une application par defaut n'a pas de
@@ -921,7 +923,7 @@ def refus_action_protegee(nom, action):
 
 
 def est_app_par_defaut(nom):
-    return nom in APPS_PAR_DEFAUT or nom in (MAILPIT_NOM, DEMANDES_NOM)
+    return nom in APPS_PAR_DEFAUT or nom in (MAILPIT_NOM, MESSAGERIE_NOM)
 
 
 def refus_configuration(nom):
@@ -1123,7 +1125,7 @@ def journal_du_service(nom, ligne):
 # Les services de la stack qu'un compte peut ranger hors de son hub. Une
 # liste nommee plutot qu'un « tout ce qui n'est pas une application » : ce
 # qui est masquable se decide ici, et se lit d'un coup d'oeil.
-SERVICES_MASQUABLES = frozenset({DAGSTER_NOM, MAILPIT_NOM, DEMANDES_NOM})
+SERVICES_MASQUABLES = frozenset({DAGSTER_NOM, MAILPIT_NOM, MESSAGERIE_NOM})
 
 # La phrase de la tuile Dagster, lue par les deux listes ci-dessous. Deux
 # copies divergeraient, et la tuile rangee ne se decrirait plus comme celle
@@ -1132,8 +1134,8 @@ DESCRIPTION_DAGSTER = ("Orchestration des jobs : plannings, assets, "
                        "exécutions et journaux.")
 DESCRIPTION_MAILPIT = ("Les mails envoyés par les applications : chacun se "
                        "relit ici, avant ou après son départ.")
-DESCRIPTION_DEMANDES = ("Les demandes reçues depuis le hub, et le travail qui en "
-                        "sort : tâches priorisées, projets à construire.")
+DESCRIPTION_MESSAGERIE = ("Les messages laissés depuis le hub, rangés en projets, "
+                          "en tâches et sur une feuille de route.")
 
 
 def services_masques():
@@ -1151,11 +1153,11 @@ def services_masques():
              "description": description, "externe": True}
             for nom, description in ((DAGSTER_NOM, DESCRIPTION_DAGSTER),
                                      (MAILPIT_NOM, DESCRIPTION_MAILPIT),
-                                     (DEMANDES_NOM, DESCRIPTION_DEMANDES))
+                                     (MESSAGERIE_NOM, DESCRIPTION_MESSAGERIE))
             if nom in masquees]
 
 
-def services_du_hub(avec_demandes=True):
+def services_du_hub(avec_messagerie=True):
     """Les tuiles du hub qui ne sont pas des applications declarees.
 
     Dagster est RESERVE A L'ADMINISTRATEUR, et ce n'est pas une politesse :
@@ -1190,15 +1192,15 @@ def services_du_hub(avec_demandes=True):
             debout = mailpit_repond()
             services.append(_tuile_service(MAILPIT_NOM, DESCRIPTION_MAILPIT,
                                            adresse, debout, MAILPIT_PORT))
-    # Demandes : servie par le panneau lui-meme, donc toujours debout. Sa
+    # Messages : servie par le panneau lui-meme, donc toujours debout. Sa
     # phrase dit ce qui attend, comme le compteur d'une boite de reception.
-    if avec_demandes and DEMANDES_NOM not in masquees:
-        tuile = _tuile_service(DEMANDES_NOM, DESCRIPTION_DEMANDES, "/demandes", True, PANEL_PORT)
+    if avec_messagerie and MESSAGERIE_NOM not in masquees:
+        tuile = _tuile_service(MESSAGERIE_NOM, DESCRIPTION_MESSAGERIE, "/messages", True, PANEL_PORT)
         nouvelles = sum(1 for m in lire_messages(limite=MESSAGES_AFFICHES)
                         if not m.get("lu") and not m.get("archive"))
         if nouvelles:
-            tuile["description"] = (f"{nouvelles} nouvelle{'s' if nouvelles > 1 else ''} "
-                                    f"demande{'s' if nouvelles > 1 else ''} à traiter.")
+            tuile["description"] = (f"{nouvelles} nouveau{'x' if nouvelles > 1 else ''} "
+                                    f"message{'s' if nouvelles > 1 else ''} à lire.")
         # Une page du panneau, pas un service a son propre port : la tuile
         # l'ouvre directement, sans passer par le proxy.
         tuile["interne"] = True
@@ -2536,8 +2538,15 @@ def reecrire_messages(messages):
             stockage.inserer(cx, "messages", ligne, options)
 
 
-def modifier_message(identifiant, retenu=None, lu=None, statut=None, archive=None, supprimer=False):
-    """Met à jour l'état d'un message ou le supprime, sous un seul verrou."""
+_INCHANGE = object()
+
+
+def modifier_message(identifiant, retenu=None, lu=None, statut=None, archive=None, supprimer=False,
+                     projet=_INCHANGE):
+    """Met à jour l'état d'un message ou le supprime, sous un seul verrou.
+
+    projet : le projet auquel le message est rattache (None le detache).
+    """
     with _acces_verrou:
         tous = lire_messages(limite=100000)
         vise = next((m for m in tous if m.get("id") == identifiant), None)
@@ -2564,12 +2573,42 @@ def modifier_message(identifiant, retenu=None, lu=None, statut=None, archive=Non
                     vise["archive"] = True
                 else:
                     vise.pop("archive", None)
+            if projet is not _INCHANGE:
+                if projet:
+                    vise["projet"] = projet
+                else:
+                    vise.pop("projet", None)
         reecrire_messages(tous)
     if supprimer:
         _pg_deposer(("message_supprime", identifiant))
     else:
         _pg_deposer(("message_modifie", vise.copy()))
     return True
+
+
+def modifier_messages(changements):
+    """{id: {cle: valeur}} -- plusieurs messages d'un coup, une ecriture.
+
+    Valeur None : la cle est retiree. Rend le nombre de messages trouves.
+    """
+    with _acces_verrou:
+        tous = lire_messages(limite=100000)
+        trouves = 0
+        for m in tous:
+            ch = changements.get(m.get("id"))
+            if ch is None:
+                continue
+            trouves += 1
+            for cle, valeur in ch.items():
+                if valeur is None:
+                    m.pop(cle, None)
+                else:
+                    m[cle] = valeur
+        if trouves:
+            reecrire_messages(tous)
+    if trouves:
+        _pg_deposer(("messages_modifies", list(changements)))
+    return trouves
 
 
 def marquer_messages_lus():
@@ -2645,7 +2684,10 @@ def ecrire_masquees(d):
 def masquees_du_compte(qui=None):
     qui = qui or utilisateur_courant() or NOM_ADMIN
     valeurs = lire_masquees().get(qui) or []
-    return [str(v) for v in valeurs if isinstance(v, str)]
+    # « Demandes » s'appelle maintenant « Messages » : un rangement deja
+    # enregistre sous l'ancien nom vaut pour le nouveau.
+    return [MESSAGERIE_NOM if v == MESSAGERIE_ANCIEN_NOM else str(v)
+            for v in valeurs if isinstance(v, str)]
 
 
 # ------------------------- journal des acces -------------------------
@@ -8656,9 +8698,9 @@ def api_apps():
     # apps.json -- le panneau ne le lance ni ne l'arrete -- mais c'est une
     # application du point de vue de qui s'en sert : elle doit se trouver la
     # ou on cherche les applications, et pas seulement sur le hub.
-    # Demandes n'y figure pas : ce n'est pas un service qui tourne ou tombe,
+    # Messages n'y figure pas : ce n'est pas un service qui tourne ou tombe,
     # c'est une page du panneau, sans journal ni metriques a surveiller.
-    out.extend(services_du_hub(avec_demandes=False))
+    out.extend(services_du_hub(avec_messagerie=False))
     out.sort(key=lambda a: a["name"])
     return jsonify({"apps": out})
 
@@ -9505,19 +9547,25 @@ ICONE_MAILPIT = (
     'linejoin="round"/></svg>'
 )
 
-# Demandes : une pile de cartes cochees, sur l'ardoise de CodeLab -- un
-# tableau de taches, ce que l'application est.
-ICONE_DEMANDES = (
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
-    '<rect width="64" height="64" rx="16" fill="#1f2937"/>'
-    '<rect x="13" y="14" width="38" height="10" rx="3" fill="#5fd4dc"/>'
-    '<rect x="13" y="28" width="38" height="10" rx="3" fill="#ffffff" opacity=".9"/>'
-    '<rect x="13" y="42" width="24" height="10" rx="3" fill="#ffffff" opacity=".55"/>'
-    '<path d="M17 19l3 3 5-5" fill="none" stroke="#0b0f14" stroke-width="2.6" '
-    'stroke-linecap="round" stroke-linejoin="round"/></svg>')
+# Messages : deux bulles de conversation, la premiere qui ecrit (trois
+# points), sur un degrade sarcelle -- l'accent de CodeLab. On y lit d'abord
+# « messages », ce que l'application recoit, avant le travail qu'on en tire.
+ICONE_MESSAGERIE = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs>'
+    '<linearGradient id="cl-ms" x1="0" y1="0" x2="1" y2="1">'
+    '<stop offset="0" stop-color="#2fc7b8"/><stop offset="1" stop-color="#0b6c74"/>'
+    '</linearGradient></defs>'
+    '<rect width="64" height="64" rx="18" fill="url(#cl-ms)"/>'
+    '<path d="M27 13h20a8 8 0 0 1 8 8v10a8 8 0 0 1-8 8h-1v6.5L39.5 39H27a8 8 0 0 1-8-8V21'
+    'a8 8 0 0 1 8-8z" fill="#fff" opacity=".42"/>'
+    '<path d="M17 22h21a8 8 0 0 1 8 8v11a8 8 0 0 1-8 8H26.5L18 56.5V49h-1a8 8 0 0 1-8-8V30'
+    'a8 8 0 0 1 8-8z" fill="#fff"/>'
+    '<circle cx="19.5" cy="35.5" r="2.7" fill="#0b6c74"/>'
+    '<circle cx="27.5" cy="35.5" r="2.7" fill="#0b6c74"/>'
+    '<circle cx="35.5" cy="35.5" r="2.7" fill="#0b6c74"/></svg>')
 
 ICONES_PAR_DEFAUT = {
-    DEMANDES_NOM: ICONE_DEMANDES,
+    MESSAGERIE_NOM: ICONE_MESSAGERIE,
     DAGSTER_NOM: ICONE_DAGSTER,
     DIAGNOSTIC_NOM: ICONE_DIAGNOSTIC,
     MAILPIT_NOM: ICONE_MAILPIT,
@@ -9879,27 +9927,28 @@ def page_du_panneau(**_):
     return index()
 
 
-# L'APPLICATION « DEMANDES ». Les anciennes adresses de la rubrique Messages
-# y menent : elles ont pu etre mises en favori.
-@flask_app.get("/messages")
-@flask_app.get("/messages/<vue>")
-@require_auth
-def anciens_messages(**_):
-    return redirect("/demandes")
-
-
+# L'APPLICATION « MESSAGES ». Elle s'est appelee « Demandes » (/demandes) :
+# ces adresses ont pu etre mises en favori, elles y menent.
 @flask_app.get("/demandes")
 @flask_app.get("/demandes/<vue>")
 @require_auth
-def page_demandes(**_):
-    """La boite de reception et le gestionnaire de taches, sur une page a eux.
+def anciens_messages(**_):
+    return redirect("/messages")
+
+
+@flask_app.get("/messages")
+@flask_app.get("/messages/<vue>")
+@flask_app.get("/messages/<vue>/<cle>")
+@require_auth
+def page_messagerie(**_):
+    """Les messages et la gestion de projet qui en sort, sur une page a eux.
 
     Reservee a l'administrateur, comme toutes les routes qu'elle appelle : un
-    compte utilisateur est renvoye au hub, d'ou il laisse ses demandes.
+    compte utilisateur est renvoye au hub, d'ou il ecrit ses messages.
     """
     if not est_admin():
         return redirect("/")
-    page = (DEMANDES_PAGE
+    page = (MESSAGERIE_PAGE
             .replace("__JETON__", json.dumps(jeton_session()))
             .replace("__UTILISATEUR__", json.dumps(utilisateur_courant())))
     return Response(avec_style(page), mimetype="text/html")
@@ -10210,12 +10259,68 @@ def api_message_modifier(identifiant):
     statut = d.get("statut")
     if statut is not None and statut not in STATUTS_MESSAGE:
         return jsonify({"error": "Statut inconnu."}), 400
+    projet = _INCHANGE
+    if "projet" in d:
+        projet = d.get("projet") or None
+        if projet and (projet == PROJET_GENERAL or not _projet_valide(projet)):
+            return jsonify({"error": "Projet inconnu."}), 400
     if not modifier_message(identifiant,
                             retenu=bool(d["retenu"]) if "retenu" in d else None,
                             statut=statut,
-                            archive=bool(d["archive"]) if "archive" in d else None):
+                            archive=bool(d["archive"]) if "archive" in d else None,
+                            projet=projet):
         return jsonify({"error": "Message introuvable."}), 404
     return jsonify({"ok": True})
+
+
+@flask_app.put("/api/messages/ordre")
+@require_admin
+def api_messages_ordre():
+    """Ranger la boite a sa guise : {ordre: [ids]}, du haut vers le bas.
+
+    Les messages nommes prennent ce rang ; un message qui arrive ensuite,
+    sans rang, se place en tete jusqu'a ce qu'on le range.
+    """
+    ordre = (request.get_json(force=True, silent=True) or {}).get("ordre")
+    if (not isinstance(ordre, list) or not all(isinstance(x, str) for x in ordre)
+            or len(set(ordre)) != len(ordre) or len(ordre) > MESSAGES_MAX):
+        return jsonify({"error": "Ordre invalide."}), 400
+    if modifier_messages({mid: {"ordre": rang} for rang, mid in enumerate(ordre)}) != len(ordre):
+        return jsonify({"error": "La liste nomme un message inconnu."}), 409
+    return jsonify({"ok": True})
+
+
+@flask_app.post("/api/messages/grouper")
+@require_admin
+def api_messages_grouper():
+    """Regroupe des messages dans un projet : {ids, projet} ou {ids, nouveau_projet}.
+
+    Des messages qui parlent de la meme chose forment un projet : on les y
+    range ensemble, dans un projet qui existe ou qu'on cree a l'instant.
+    """
+    d = request.get_json(force=True, silent=True) or {}
+    ids = d.get("ids")
+    if not isinstance(ids, list) or not ids or not all(isinstance(x, str) for x in ids):
+        return jsonify({"error": "Choisis au moins un message."}), 400
+    connus = {m.get("id") for m in lire_messages(limite=100000)}
+    if not set(ids) <= connus:
+        return jsonify({"error": "Message introuvable."}), 404
+    nouveau = d.get("nouveau_projet")
+    try:
+        if isinstance(nouveau, dict):
+            nom = _titre_tache(nouveau.get("nom"))[:PROJET_NOM_MAX]
+            if not nom:
+                return jsonify({"error": "Donne un nom au projet."}), 400
+            projet = creer_projet(nom, _texte_long(nouveau.get("description"),
+                                                  PROJET_DESCRIPTION_MAX), message=ids[0])
+        else:
+            projet = d.get("projet")
+            if not projet or projet == PROJET_GENERAL or not _projet_valide(projet):
+                return jsonify({"error": "Projet inconnu."}), 400
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    modifier_messages({mid: {"projet": projet, "lu": True} for mid in ids})
+    return jsonify({"ok": True, "projet": projet})
 
 
 @flask_app.put("/api/messages/<identifiant>/lu")
@@ -10282,6 +10387,17 @@ def _echeance_valide(brut):
         return False
 
 
+DUREE_MAX = 60                        # jours ouvres
+
+
+def _duree_valide(brut):
+    try:
+        d = int(brut)
+    except (TypeError, ValueError):
+        return None
+    return d if 1 <= d <= DUREE_MAX else None
+
+
 def _priorite_valide(brut):
     try:
         p = int(brut)
@@ -10305,7 +10421,7 @@ def _projet_valide(projet):
 
 
 def lire_taches():
-    """Les taches et leurs sous-taches, dans l'ordre de leur colonne."""
+    """Les taches et leurs sous-taches, dans l'ordre du planning."""
     try:
         taches = stockage.lire(DB_FILE, "SELECT * FROM taches ORDER BY ordre, cree, rowid")
         sous = stockage.lire(DB_FILE, "SELECT * FROM sous_taches ORDER BY ordre, rowid")
@@ -10318,31 +10434,34 @@ def lire_taches():
     return [{"id": t["id"], "projet": t["projet"], "titre": t["titre"],
              "message": t["message"], "cree": t["cree"], "faite": bool(t["faite"]),
              "statut": t["statut"], "priorite": t["priorite"], "echeance": t["echeance"],
-             "notes": t["notes"], "ordre": t["ordre"],
+             "notes": t["notes"], "ordre": t["ordre"], "duree": t["duree"],
+             "fait_le": t["fait_le"],
              "sous_taches": par_tache.get(t["id"], [])} for t in taches]
 
 
 def creer_tache(projet, titre, sous_taches=(), message=None, priorite=PRIORITE_NORMALE,
-                statut="a_faire", echeance=None, notes="", cx=None):
+                statut="a_faire", echeance=None, notes="", duree=1, cx=None):
     """Cree la tache et ses sous-taches. Rend son id.
 
-    En fin de sa colonne : une tache neuve ne passe pas devant ce qu'on a
-    deja priorise a la main. Dans la transaction donnee, ou dans la sienne.
+    En fin de planning : une tache neuve ne passe pas devant ce qu'on a
+    deja ordonne a la main. Dans la transaction donnee, ou dans la sienne.
     """
     if cx is None:
         with stockage.transaction(DB_FILE) as cx:
             return creer_tache(projet, titre, sous_taches, message, priorite,
-                               statut, echeance, notes, cx=cx)
+                               statut, echeance, notes, duree, cx=cx)
     ident = secrets.token_hex(8)
     nombre = cx.execute("SELECT COUNT(*) FROM taches").fetchone()[0]
     if nombre >= TACHES_MAX:
         raise ValueError("Trop de tâches : termine ou supprime les anciennes.")
-    fin = cx.execute("SELECT COALESCE(MAX(ordre), -1) + 1 FROM taches WHERE statut = ?",
-                     (statut,)).fetchone()[0]
+    fin = cx.execute("SELECT COALESCE(MAX(ordre), -1) + 1 FROM taches").fetchone()[0]
+    maintenant = int(time.time())
     cx.execute("INSERT INTO taches (id, projet, titre, message, cree, faite, ordre, statut,"
-               " priorite, echeance, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-               (ident, projet, titre, message, int(time.time()), 1 if statut == "fait" else 0,
-                fin, statut, priorite, echeance, notes))
+               " priorite, echeance, notes, duree, fait_le)"
+               " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+               (ident, projet, titre, message, maintenant, 1 if statut == "fait" else 0,
+                fin, statut, priorite, echeance, notes, duree,
+                maintenant if statut == "fait" else None))
     for ordre, st in enumerate(sous_taches):
         cx.execute("INSERT INTO sous_taches (id, tache, titre, ordre) VALUES (?, ?, ?, ?)",
                    (secrets.token_hex(8), ident, st, ordre))
@@ -10446,10 +10565,18 @@ def api_tache_creer():
         return jsonify({"error": "Statut inconnu."}), 400
     if echeance is False:
         return jsonify({"error": "Échéance invalide (AAAA-MM-JJ)."}), 400
+    duree = _duree_valide(d.get("duree", 1))
+    if duree is None:
+        return jsonify({"error": f"Durée invalide : de 1 à {DUREE_MAX} jours."}), 400
+    # Une tache peut naitre d'un message : elle le garde en reference.
+    message = d.get("message") or None
+    if message and not any(m.get("id") == message for m in lire_messages(limite=100000)):
+        return jsonify({"error": "Message introuvable."}), 404
     try:
         ident = creer_tache(projet, titre, _sous_taches_propres(d.get("sous_taches")),
-                            priorite=priorite, statut=statut, echeance=echeance,
-                            notes=_texte_long(d.get("notes"), NOTES_MAX))
+                            message=message, priorite=priorite, statut=statut,
+                            echeance=echeance, notes=_texte_long(d.get("notes"), NOTES_MAX),
+                            duree=duree)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     return jsonify({"ok": True, "id": ident})
@@ -10458,8 +10585,8 @@ def api_tache_creer():
 @flask_app.put("/api/taches/<ident>")
 @require_admin
 def api_tache_modifier(ident):
-    """Seuls les champs PRESENTS changent. Changer de statut envoie la tache
-    en fin de sa nouvelle colonne, et tient « faite » en accord."""
+    """Seuls les champs PRESENTS changent. Changer de statut tient « faite »
+    et « fait_le » en accord ; la tache garde sa place dans le planning."""
     d = request.get_json(force=True, silent=True) or {}
     champs, valeurs = [], []
     if "titre" in d:
@@ -10491,6 +10618,11 @@ def api_tache_modifier(ident):
         champs.append("echeance = ?"); valeurs.append(echeance)
     if "notes" in d:
         champs.append("notes = ?"); valeurs.append(_texte_long(d.get("notes"), NOTES_MAX))
+    if "duree" in d:
+        duree = _duree_valide(d.get("duree"))
+        if duree is None:
+            return jsonify({"error": f"Durée invalide : de 1 à {DUREE_MAX} jours."}), 400
+        champs.append("duree = ?"); valeurs.append(duree)
     if not champs and statut is None:
         return jsonify({"error": "Rien à modifier."}), 400
     with stockage.transaction(DB_FILE) as cx:
@@ -10498,10 +10630,11 @@ def api_tache_modifier(ident):
         if not ligne:
             return jsonify({"error": "Tâche introuvable."}), 404
         if statut is not None and statut != ligne["statut"]:
-            fin = cx.execute("SELECT COALESCE(MAX(ordre), -1) + 1 FROM taches WHERE statut = ?",
-                             (statut,)).fetchone()[0]
-            champs += ["statut = ?", "faite = ?", "ordre = ?"]
-            valeurs += [statut, 1 if statut == "fait" else 0, fin]
+            # La tache garde sa place dans le planning ; cochee, elle date
+            # sa fin -- la feuille de route l'y affiche.
+            champs += ["statut = ?", "faite = ?", "fait_le = ?"]
+            valeurs += [statut, 1 if statut == "fait" else 0,
+                        int(time.time()) if statut == "fait" else None]
         if champs:
             cx.execute(f"UPDATE taches SET {', '.join(champs)} WHERE id = ?", (*valeurs, ident))
     return jsonify({"ok": True})
@@ -10528,9 +10661,70 @@ def api_taches_ordre():
         if not set(ordre) <= connues:
             return jsonify({"error": "La liste nomme une tâche inconnue."}), 409
         for rang, tid in enumerate(ordre):
-            cx.execute("UPDATE taches SET statut = ?, faite = ?, ordre = ? WHERE id = ?",
-                       (statut, 1 if statut == "fait" else 0, rang, tid))
+            cx.execute("UPDATE taches SET statut = ?, faite = ?, ordre = ?, "
+                       "fait_le = CASE WHEN ? = 'fait' THEN COALESCE(fait_le, ?) ELSE NULL END "
+                       "WHERE id = ?",
+                       (statut, 1 if statut == "fait" else 0, rang, statut, int(time.time()), tid))
     return jsonify({"ok": True})
+
+
+@flask_app.put("/api/taches/plan")
+@require_admin
+def api_taches_plan():
+    """L'ORDRE DU PLANNING : {ordre: [ids]}, la premiere tache d'abord.
+
+    C'est ainsi qu'on priorise -- par la place, pas par une etiquette
+    d'urgence. Les taches sans date se suivent sur la feuille de route dans
+    cet ordre. Le statut n'est pas touche. Chaque id doit exister.
+    """
+    ordre = (request.get_json(force=True, silent=True) or {}).get("ordre")
+    if (not isinstance(ordre, list) or not all(isinstance(x, str) for x in ordre)
+            or len(set(ordre)) != len(ordre) or len(ordre) > TACHES_MAX):
+        return jsonify({"error": "Ordre invalide."}), 400
+    with stockage.transaction(DB_FILE) as cx:
+        connues = {r[0] for r in cx.execute("SELECT id FROM taches")}
+        if not set(ordre) <= connues:
+            return jsonify({"error": "La liste nomme une tâche inconnue."}), 409
+        for rang, tid in enumerate(ordre):
+            cx.execute("UPDATE taches SET ordre = ? WHERE id = ?", (rang, tid))
+    return jsonify({"ok": True})
+
+
+@flask_app.post("/api/taches/<ident>/scinder")
+@require_admin
+def api_tache_scinder(ident):
+    """Scinde une tache : {titres: [...]}, deux au moins.
+
+    La premiere ligne devient le titre de la tache ; les suivantes sont de
+    nouvelles taches du meme projet, nees du meme message, placees juste
+    apres elle dans le planning. La duree se partage entre elles.
+    """
+    titres = [_titre_tache(t) for t in ((request.get_json(force=True, silent=True) or {})
+                                         .get("titres") or []) if _titre_tache(t)]
+    if len(titres) < 2:
+        return jsonify({"error": "Donne au moins deux titres pour scinder."}), 400
+    if len(titres) > SOUS_TACHES_MAX:
+        return jsonify({"error": f"{SOUS_TACHES_MAX} morceaux au plus."}), 400
+    with stockage.transaction(DB_FILE) as cx:
+        t = cx.execute("SELECT * FROM taches WHERE id = ?", (ident,)).fetchone()
+        if not t:
+            return jsonify({"error": "Tâche introuvable."}), 404
+        if cx.execute("SELECT COUNT(*) FROM taches").fetchone()[0] + len(titres) - 1 > TACHES_MAX:
+            return jsonify({"error": "Trop de tâches : termine ou supprime les anciennes."}), 400
+        part = max(1, round((t["duree"] or 1) / len(titres)))
+        cx.execute("UPDATE taches SET ordre = ordre + ? WHERE ordre > ?",
+                   (len(titres) - 1, t["ordre"]))
+        cx.execute("UPDATE taches SET titre = ?, duree = ? WHERE id = ?", (titres[0], part, ident))
+        nouvelles = []
+        for i, titre in enumerate(titres[1:], start=1):
+            nid = secrets.token_hex(8)
+            cx.execute("INSERT INTO taches (id, projet, titre, message, cree, faite, ordre, statut,"
+                       " priorite, echeance, notes, duree) VALUES (?, ?, ?, ?, ?, 0, ?, 'a_faire',"
+                       " ?, NULL, '', ?)",
+                       (nid, t["projet"], titre, t["message"], int(time.time()),
+                        t["ordre"] + i, t["priorite"], part))
+            nouvelles.append(nid)
+    return jsonify({"ok": True, "taches": [ident] + nouvelles})
 
 
 @flask_app.delete("/api/taches/<ident>")
@@ -10626,6 +10820,10 @@ def api_projet_supprimer(ident):
         n = cx.execute("DELETE FROM projets WHERE id = ?", (ident,)).rowcount
         if n:
             cx.execute("UPDATE taches SET projet = ? WHERE projet = ?", (PROJET_GENERAL, ident))
+    if n:
+        # Ses messages redeviennent « a classer ».
+        modifier_messages({m["id"]: {"projet": None} for m in lire_messages(limite=100000)
+                           if m.get("projet") == ident})
     if not n:
         return jsonify({"error": "Projet introuvable."}), 404
     return jsonify({"ok": True})
@@ -10793,16 +10991,16 @@ WIDGETS = {
     "une": "À la une",
     "etat": "État des applications",
     "horloge": "Date et heure",
-    "demandes": "Demandes à traiter",
+    "messages": "Messages à lire",
     "message": "Écrire à l'administrateur",
     "notes": "Bloc-notes",
 }
-WIDGETS_ADMIN = {"demandes"}
+WIDGETS_ADMIN = {"messages"}
 WIDGETS_UTILISATEUR = {"message"}
 WIDGETS_TAILLES = ("normal", "large")
 WIDGETS_PAR_DEFAUT = [
     {"id": "une", "taille": "large"}, {"id": "etat", "taille": "normal"},
-    {"id": "demandes", "taille": "normal"}, {"id": "message", "taille": "normal"},
+    {"id": "messages", "taille": "normal"}, {"id": "message", "taille": "normal"},
 ]
 NOTES_HUB_MAX = 4000
 
@@ -10837,6 +11035,9 @@ def widgets_du_compte():
     choisis = lire_preference("widgets")
     if not isinstance(choisis, list):
         choisis = WIDGETS_PAR_DEFAUT
+    # Le widget « demandes » s'appelle maintenant « messages ».
+    choisis = [dict(w, id="messages") if isinstance(w, dict) and w.get("id") == "demandes" else w
+               for w in choisis]
     return [w for w in choisis if isinstance(w, dict) and w.get("id") in permis]
 
 

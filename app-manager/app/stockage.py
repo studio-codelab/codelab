@@ -259,6 +259,14 @@ MIGRATIONS = [
         PRIMARY KEY (compte, cle)
     );
     """,
+    # --- version 5 : la feuille de route de l'application « Messages » ---
+    # duree : en jours ouvres, pour placer une tache sans date sur la feuille
+    # de route ; fait_le : quand elle a ete cochee.
+    """
+    ALTER TABLE taches ADD COLUMN duree INTEGER NOT NULL DEFAULT 1;
+    ALTER TABLE taches ADD COLUMN fait_le INTEGER;
+    UPDATE taches SET fait_le = cree WHERE statut = 'fait';
+    """,
 ]
 
 VERSION = len(MIGRATIONS)

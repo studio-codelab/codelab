@@ -153,7 +153,7 @@ Une base SQLite dans `APP_MANAGER_STATE` (`/DATA/AppData/codelab/app-manager` su
 | `categories`, `masquees` | catégories du hub ; ce que chaque compte a rangé hors de son hub |
 | `journal` | accès, refus, ouvertures, changements de compte (50 000 derniers) |
 | `versions_apps`, `apps_vues`, `preferences` | dernière version connue de chaque application (déploiement, build, commit), version vue par chaque compte, widgets et bloc-notes du hub |
-| `messages`, `taches`, `sous_taches`, `projets` | demandes à l'administrateur, tâches (statut, priorité, échéance, notes), sous-tâches et projets (idée, construction, réalisé) |
+| `messages`, `taches`, `sous_taches`, `projets` | messages à l'administrateur (rang et projet dans `options`), tâches (ordre du planning, date prévue, durée, fin, notes), sous-tâches et projets (idée, construction, réalisé) |
 | `processus` | processus lancés, retrouvés après un redémarrage du panneau |
 | `parametres` | réglages en clair : exposition, VPS |
 | `reglages_chiffres` | réglages sensibles, chiffrés (Fernet) avec `APP_MANAGER_CHIFFREMENT_CLE` |
@@ -242,11 +242,11 @@ comptes (`require_admin`).
 | Comptes (admin) | `GET/POST /api/utilisateurs`, `PUT/DELETE /api/utilisateurs/<nom>`, `GET/PUT /api/apps/<nom>/acces`, `GET /api/activite`, `GET /api/activite/carte` |
 | Applications (admin) | `GET /api/apps`, `GET /api/browse`, `GET /api/detect`, `POST /api/add`, `PUT/DELETE /api/app/<nom>`, `POST /api/app/<nom>/renommer`, `POST /api/toggle\|restart\|build\|deploy\|visibility/<nom>`, `GET /api/metrics/<nom>`, `GET /api/logs/<nom>[/stream]`, `PUT/DELETE /api/app/<nom>/logo` |
 | Hub | `GET /api/mes-apps` (avec `nouvelle_version` et `ouverte_le` par application), `POST/DELETE /api/mes-apps/<nom>/masquer`, `POST /api/mes-apps/<nom>/ouverte` (note la version vue), `GET/PUT /api/hub/widgets`, `PUT /api/hub/notes`, `GET /api/icon/<nom>`, `GET /api/categories` (tous) ; `PUT /api/categories` (admin) |
-| Messages | `POST /api/messages` (tous) ; `GET /api/messages`, `POST /api/messages/lus`, `PUT/DELETE /api/messages/<id>`, `PUT /api/messages/<id>/lu`, `POST /api/messages/<id>/accepter` (admin : en tâche `{titre, projet, priorite, sous_taches}`, en projet `{nouveau_projet, taches}`, ou `{}` sans suite) |
-| Tâches (admin) | `GET/POST /api/taches`, `PUT/DELETE /api/taches/<id>`, `PUT /api/taches/ordre` (une colonne du tableau : statut et ordre), `POST /api/taches/<id>/sous-taches`, `PUT /api/taches/<id>/ordre`, `PUT/DELETE /api/sous-taches/<id>` |
+| Messages | `POST /api/messages` (tous) ; `GET /api/messages`, `POST /api/messages/lus`, `PUT/DELETE /api/messages/<id>`, `PUT /api/messages/<id>/lu` (`projet` dans le PUT : rattacher), `PUT /api/messages/ordre`, `POST /api/messages/grouper` (`{ids, projet}` ou `{ids, nouveau_projet}`), `POST /api/messages/<id>/accepter` (admin : en tâche `{titre, projet, priorite, sous_taches}`, en projet `{nouveau_projet, taches}`, ou `{}` sans suite) |
+| Tâches (admin) | `GET/POST /api/taches`, `PUT/DELETE /api/taches/<id>`, `PUT /api/taches/plan` (ordre du planning), `POST /api/taches/<id>/scinder` (`{titres}`), `PUT /api/taches/ordre` (statut et ordre d'une liste), champs `duree`, `echeance`, `message`, `POST /api/taches/<id>/sous-taches`, `PUT /api/taches/<id>/ordre`, `PUT/DELETE /api/sous-taches/<id>` |
 | Projets (admin) | `GET/POST /api/projets`, `PUT/DELETE /api/projets/<id>` (supprimer renvoie ses tâches dans « Général »), `PUT /api/projets/ordre` |
 | Alertes (admin) | `GET/POST /api/alertes`, `PUT /api/alertes/application/<nom>`, `GET/POST /api/surveillance-externe` |
-| Pages | `/`, `/apercu`, `/applications[/<nom>[/<onglet>]]`, `/utilisateurs`, `/demandes[/<vue>]` (admin ; `/messages` y redirige), `/parametres[/<onglet>]`, `/ouvrir.app/<nom>/<chemin>`, `/deconnexion.html` ; `/espace` redirige vers `/` |
+| Pages | `/`, `/apercu`, `/applications[/<nom>[/<onglet>]]`, `/utilisateurs`, `/messages[/<vue>[/<id>]]` (admin ; `/demandes` y redirige), `/parametres[/<onglet>]`, `/ouvrir.app/<nom>/<chemin>`, `/deconnexion.html` ; `/espace` redirige vers `/` |
 | Ressources | `/theme.css`, `/polices/<nom>`, `/favicon.*`, `/apple-touch-icon*.png`, `/manifest.webmanifest` (sans session) ; `POST /api/erreur-navigateur` |
 | Proxy | `/<nom>/...` sur le port des applications |
 

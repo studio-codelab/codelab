@@ -4790,7 +4790,7 @@ def _scripts_de_la_page(nom):
 def test_le_script_des_pages_du_panneau_est_analysable():
     import subprocess
     import tempfile
-    for nom in ("dashboard.html", "login.html", "demandes.html"):
+    for nom in ("dashboard.html", "login.html", "messages.html"):
         scripts = _scripts_de_la_page(nom)
         assert scripts, f"{nom} n'a plus de script : la page ne ferait plus rien"
         for i, script in enumerate(scripts):
@@ -9042,8 +9042,8 @@ def test_dagster_parait_dans_le_hub_et_mene_au_port_3000(hub_dagster):
 
     services = d["services"]
     # Trois services dans le hub : l'orchestrateur, le courrier, et les
-    # demandes recues.
-    assert [s["name"] for s in services] == ["dagster", "mailpit", "demandes"]
+    # messages recus.
+    assert [s["name"] for s in services] == ["dagster", "mailpit", "messages"]
     dagster = services[0]
     # L'adresse est celle du NAVIGATEUR : meme hote, autre port.
     assert dagster["url"].endswith(":3000/"), dagster["url"]
@@ -9275,19 +9275,19 @@ def test_un_message_inconnu_ne_fait_pas_semblant(boite):
     assert c.put("/api/messages/jamais-vu", json={"retenu": True}).status_code == 404
 
 
-def test_l_application_demandes_trie_et_confirme():
-    """La boite de reception : des etats, trois gestes, et rien ne se
+def test_l_application_messages_range_et_confirme():
+    """La boite de reception : trier, ranger, regrouper ; et rien ne se
     supprime sans confirmation."""
-    page = _page_panneau("demandes.html")
-    for etat in ("choisirEtat('attente')", "choisirEtat('reflechir')", "choisirEtat('traites')"):
-        assert etat in page, etat
-    for geste in ('data-agir="accepter"', 'data-agir="epingler"', 'data-agir="archiver"',
-                  'data-agir="supprimer-demande"'):
-        assert geste in page, geste
-    for fonction in ("async function demandeSupprimer(", "async function tacheSupprimer(",
-                     "async function projetSupprimer("):
-        corps = page.split(fonction)[1].split("\n}")[0]
-        assert "demander(" in corps, fonction + " supprime sans confirmation"
+    page = _page_panneau("messages.html")
+    for trace in ("'/api/messages/ordre'", "'/api/messages/grouper'", 'data-agir="grouper"',
+                  'data-changer="message-projet"', 'data-agir="message-archiver"',
+                  'data-agir="message-tache"', "function suggestions(", 'data-triable'):
+        assert trace in page, trace
+    for action in ("'message-supprimer'", "'tache-supprimer'"):
+        corps = page.split(action)[1].split("\n  },")[0]
+        assert "demander(" in corps, action + " supprime sans confirmation"
+    corps = page.split("async function projetSupprimer(")[1].split("\n}")[0]
+    assert "demander(" in corps
     # Le jeton anti-falsification part avec toute requete qui modifie.
     assert "X-CodeLab-Jeton" in page and "const JETON=__JETON__;" in page
 
@@ -9295,12 +9295,12 @@ def test_l_application_demandes_trie_et_confirme():
 def test_un_message_recu_se_signale_dans_le_coin():
     """« Ajoute des notifications en bas a droite des qu'un message est
     recu. » La page guette, le dit la ou elle dit tout le reste, et mene a
-    l'application Demandes."""
+    l'application Messages."""
     page = _page_panneau("dashboard.html")
     bloc = page.split("async function guetterMessages(){")[1].split("\n}")[0]
     assert "apres=" in bloc, "le guet retelecharge toute la boite"
     assert "notifier" in bloc
-    assert "location.href='/demandes'" in page.split("function notifierMessage(")[1].split("\n}")[0]
+    assert "location.href='/messages'" in page.split("function notifierMessage(")[1].split("\n}")[0]
     # surveiller() et non setInterval() : les minuteries s'arretent quand
     # l'onglet passe en arriere-plan.
     assert "surveiller(guetterMessages" in page
@@ -10470,7 +10470,7 @@ def test_remettre_dagster_le_ramene_dans_le_hub(hub, monkeypatch):
     c.post("/api/mes-apps/" + app.DAGSTER_NOM + "/masquer")
     assert c.delete("/api/mes-apps/" + app.DAGSTER_NOM + "/masquer").status_code == 200
     d = c.get("/api/mes-apps").get_json()
-    assert [s["name"] for s in d["services"]] == [app.DAGSTER_NOM, app.MAILPIT_NOM, app.DEMANDES_NOM]
+    assert [s["name"] for s in d["services"]] == [app.DAGSTER_NOM, app.MAILPIT_NOM, app.MESSAGERIE_NOM]
     assert d["services_masques"] == []
 
 
@@ -10492,7 +10492,7 @@ def test_seuls_les_services_nommes_passent_par_la_route_de_masquage():
     sinon la route accepterait n'importe quel nom et masquees.json se
     remplirait d'entrees qui ne designent rien."""
     assert app.SERVICES_MASQUABLES == frozenset({app.DAGSTER_NOM, app.MAILPIT_NOM,
-                                                app.DEMANDES_NOM})
+                                                app.MESSAGERIE_NOM})
 
 
 def test_ranger_un_nom_inconnu_reste_un_refus(hub):
@@ -12719,10 +12719,10 @@ def test_chaque_page_du_panneau_a_son_adresse(deux_espaces):
         r = c.get(chemin)
         assert r.status_code == 200, chemin
         assert "routerDepuisAdresse" in r.get_data(as_text=True), chemin
-    # Les anciennes adresses des messages menent a l'application Demandes.
-    for chemin in ("/messages", "/messages/taches"):
+    # Les adresses de l'ancienne application « Demandes » menent a Messages.
+    for chemin in ("/demandes", "/demandes/tableau"):
         r = c.get(chemin)
-        assert r.status_code == 302 and r.headers["Location"].endswith("/demandes"), chemin
+        assert r.status_code == 302 and r.headers["Location"].endswith("/messages"), chemin
     # Ces noms ne peuvent plus servir d'adresse a une application -- ni
     # aucun autre premier segment d'une route du panneau.
     reserves = app.adresses_reservees()
@@ -12739,7 +12739,7 @@ def test_la_page_suit_l_adresse_et_l_historique():
     assert "window.addEventListener('popstate'" in page
     assert "history.pushState(null, '', a)" in page
     assert "'/parametres/'+paramOngletActif" in page
-    # Les messages sont partis dans l'application Demandes.
+    # Les messages sont partis dans l'application Messages.
     assert "'/messages/taches'" not in page
 
 
@@ -12803,15 +12803,17 @@ def test_accepter_sans_tache_et_droits(boite, deux_espaces):
     assert u.post(f"/api/messages/{ident}/accepter", json={}).status_code == 403
 
 
-def test_l_application_demandes_a_ses_trois_vues():
-    page = _page_panneau("demandes.html")
-    for trace in ('id="vue-boite"', 'id="vue-tableau"', 'id="vue-projets"',
-                  'id="fen-accepter"', 'id="fen-tache"', 'id="fen-projet"',
-                  "nouveau_projet", "'/api/taches/ordre'", "history.pushState"):
+def test_l_application_messages_a_ses_vues():
+    page = _page_panneau("messages.html")
+    for trace in ("aller('projet'", "'planning'", "'feuille'", "'boite'", 'id="fen-tache"',
+                  'id="fen-projet"', 'id="fen-grouper"', 'id="fen-scinder"', "history.pushState",
+                  "'/api/taches/plan'", "/scinder'", "function planifier("):
         assert trace in page, trace
-    # Les trois etapes d'un projet, et le geste qui le concretise.
-    for etape in ("'idee'", "'construction'", "'realise'", "Concrétiser"):
-        assert etape in page, etape
+    # Pas d'etiquette d'urgence : la priorite, c'est la place dans le planning.
+    assert "priorite" not in "".join(_scripts_de_la_page("messages.html"))
+    # La feuille de route : aujourd'hui, semaine par semaine, sur des mois.
+    for echelle in ("'jour'", "'semaines'", "'mois'", "[1,3,6,12]"):
+        assert echelle in page, echelle
 
 
 
@@ -12941,8 +12943,8 @@ def test_les_widgets_se_choisissent_par_compte(deux_espaces):
     c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     d = c.get("/api/hub/widgets").get_json()
     ids = [w["id"] for w in d["widgets"]]
-    assert ids[0] == "une" and "demandes" in ids and "message" not in ids
-    assert {w["id"] for w in d["disponibles"]} == {"une", "etat", "horloge", "demandes", "notes"}
+    assert ids[0] == "une" and "messages" in ids and "message" not in ids
+    assert {w["id"] for w in d["disponibles"]} == {"une", "etat", "horloge", "messages", "notes"}
     r = c.put("/api/hub/widgets", json={"widgets": [{"id": "horloge", "taille": "large"},
                                                     {"id": "une"}]})
     assert r.status_code == 200
@@ -12954,14 +12956,14 @@ def test_les_widgets_se_choisissent_par_compte(deux_espaces):
     assert c.put("/api/hub/notes", json={"notes": "acheter du pain"}).status_code == 200
     assert c.get("/api/hub/widgets").get_json()["notes"] == "acheter du pain"
     assert c.put("/api/hub/notes", json={"notes": "x" * 5000}).status_code == 400
-    # Un compte utilisateur a SES widgets, et pas celui des demandes.
+    # Un compte utilisateur a SES widgets, et pas celui des messages recus.
     u = app.flask_app.test_client()
     _connecte(u, "marie", "mot-de-passe-long")
     d = u.get("/api/hub/widgets").get_json()
-    assert "demandes" not in [w["id"] for w in d["widgets"]]
+    assert "messages" not in [w["id"] for w in d["widgets"]]
     assert "message" in [w["id"] for w in d["widgets"]]
     assert u.get("/api/hub/widgets").get_json()["notes"] == ""
-    assert u.put("/api/hub/widgets", json={"widgets": [{"id": "demandes"}]}).status_code == 400
+    assert u.put("/api/hub/widgets", json={"widgets": [{"id": "messages"}]}).status_code == 400
     page = _page_panneau("dashboard.html")
     assert 'id="ov-widgets"' in page and "function enregistrerWidgets(" in page
     assert "hub-personnaliser" in page
@@ -13164,8 +13166,8 @@ def test_les_sous_taches_se_priorisent(boite):
     assert c.put(f"/api/taches/{tache}/ordre", json={"ordre": "abc"}).status_code == 400
     assert c.put("/api/taches/inconnue/ordre", json={"ordre": []}).status_code == 404
     page = _page_panneau("dashboard.html")
-    page = _page_panneau("demandes.html")
-    assert "/ordre', 'PUT'" in page and 'data-agir="sous-monter"' in page
+    page = _page_panneau("messages.html")
+    assert "/ordre','PUT'" in page and 'data-agir="sous-monter"' in page
 
 
 
@@ -13286,38 +13288,109 @@ def test_une_demande_acceptee_devient_un_projet(boite):
     assert t["priorite"] == 1 and t["projet"] == p["id"]
 
 
-def test_l_application_demandes_est_reservee_a_l_administrateur(boite, deux_espaces):
+def test_les_messages_se_rangent_et_se_regroupent(boite):
+    """Ranger la boite a sa guise, rattacher un message a un projet,
+    regrouper ceux qui parlent de la meme chose -- dans un projet neuf ou
+    existant. Supprimer le projet rend ses messages « a classer »."""
     c, _ = boite
-    r = c.get("/demandes/tableau")
+    a = _message(c, "idee", "Un agenda partage")
+    b = _message(c, "idee", "Agenda commun pour les salles")
+    h = _message(c, "hub", "Le hub est lent")
+    assert c.put("/api/messages/ordre", json={"ordre": [h, a, b]}).status_code == 200
+    rangs = {m["id"]: m.get("ordre") for m in c.get("/api/messages").get_json()["messages"]}
+    assert (rangs[h], rangs[a], rangs[b]) == (0, 1, 2)
+    assert c.put("/api/messages/ordre", json={"ordre": [h, "x"]}).status_code == 409
+    assert c.put("/api/messages/ordre", json={"ordre": [h, h]}).status_code == 400
+    r = c.post("/api/messages/grouper", json={"ids": [a, b], "nouveau_projet": {"nom": "Agenda"}})
+    assert r.status_code == 200, r.data
+    projet = r.get_json()["projet"]
+    lus = {m["id"]: m for m in c.get("/api/messages").get_json()["messages"]}
+    assert lus[a]["projet"] == lus[b]["projet"] == projet and lus[a]["lu"]
+    assert c.post("/api/messages/grouper", json={"ids": [h], "projet": projet}).status_code == 200
+    assert c.post("/api/messages/grouper", json={"ids": [h], "projet": "p-inconnu"}).status_code == 400
+    assert c.post("/api/messages/grouper", json={"ids": [], "projet": projet}).status_code == 400
+    assert c.post("/api/messages/grouper", json={"ids": ["x"], "projet": projet}).status_code == 404
+    # Rattacher et detacher un seul message.
+    assert c.put(f"/api/messages/{h}", json={"projet": ""}).status_code == 200
+    assert "projet" not in {m["id"]: m for m in c.get("/api/messages").get_json()["messages"]}[h]
+    assert c.put(f"/api/messages/{h}", json={"projet": "general"}).status_code == 400
+    assert c.put(f"/api/messages/{h}", json={"projet": projet}).status_code == 200
+    assert c.delete(f"/api/projets/{projet}").status_code == 200
+    assert not any(m.get("projet") for m in c.get("/api/messages").get_json()["messages"])
+
+
+def test_le_planning_s_ordonne_et_une_tache_se_scinde(boite):
+    """La priorite est une PLACE : le planning s'ordonne en entier, sans
+    toucher aux statuts. Une tache a une duree, une date facultative, et se
+    scinde en plusieurs, qui la suivent."""
+    c, _ = boite
+    m = _message(c, "hub", "Le hub est lent")
+    ids = [c.post("/api/taches", json={"projet": "general", "titre": t, "duree": d}).get_json()["id"]
+           for t, d in (("a", 1), ("b", 4), ("c", 2))]
+    a, b, cc = ids
+    assert c.put(f"/api/taches/{a}", json={"statut": "en_cours"}).status_code == 200
+    assert c.put("/api/taches/plan", json={"ordre": [cc, a, b]}).status_code == 200
+    taches = sorted(c.get("/api/taches").get_json()["taches"], key=lambda t: t["ordre"])
+    assert [t["titre"] for t in taches] == ["c", "a", "b"]
+    assert {t["titre"]: t["statut"] for t in taches}["a"] == "en_cours"
+    assert c.put("/api/taches/plan", json={"ordre": ["x"]}).status_code == 409
+    for mauvais in ({"duree": 0}, {"duree": 61}, {"duree": "long"}):
+        assert c.put(f"/api/taches/{a}", json=mauvais).status_code == 400, mauvais
+    # Une tache nee d'un message ; un message inconnu est refuse.
+    r = c.post("/api/taches", json={"projet": "general", "titre": "depuis", "message": m})
+    assert r.status_code == 200
+    assert c.post("/api/taches", json={"projet": "general", "titre": "x", "message": "inconnu"}).status_code == 404
+    # Cochee, une tache date sa fin ; rouverte, elle l'oublie.
+    assert c.put(f"/api/taches/{a}", json={"statut": "fait"}).status_code == 200
+    assert {t["id"]: t for t in c.get("/api/taches").get_json()["taches"]}[a]["fait_le"]
+    assert c.put(f"/api/taches/{a}", json={"statut": "a_faire"}).status_code == 200
+    assert {t["id"]: t for t in c.get("/api/taches").get_json()["taches"]}[a]["fait_le"] is None
+    # Scinder « b » (4 jours) en deux : la duree se partage, la suite vient juste apres.
+    r = c.post(f"/api/taches/{b}/scinder", json={"titres": ["b1", "b2"]})
+    assert r.status_code == 200, r.data
+    taches = sorted(c.get("/api/taches").get_json()["taches"], key=lambda t: t["ordre"])
+    titres = [t["titre"] for t in taches]
+    assert titres.index("b2") == titres.index("b1") + 1
+    assert {t["titre"]: t["duree"] for t in taches}["b1"] == 2
+    assert c.post(f"/api/taches/{b}/scinder", json={"titres": ["seul"]}).status_code == 400
+    assert c.post("/api/taches/inconnue/scinder", json={"titres": ["x", "y"]}).status_code == 404
+
+
+def test_l_application_messages_est_reservee_a_l_administrateur(boite, deux_espaces):
+    c, _ = boite
+    r = c.get("/messages/planning")
     assert r.status_code == 200
     page = r.get_data(as_text=True)
-    assert "__JETON__" not in page and 'id="vue-tableau"' in page
+    assert "__JETON__" not in page and "function peindrePlanning(" in page
+    assert c.get("/messages/projet/p-abc").status_code == 200
     # Un compte utilisateur est renvoye au hub ; un anonyme, a la connexion.
     u = app.flask_app.test_client()
     _connecte(u, "marie", "mot-de-passe-long")
-    r = u.get("/demandes")
+    r = u.get("/messages")
     assert r.status_code == 302 and r.headers["Location"].endswith("/")
     for route in ("/api/projets", "/api/taches"):
         assert u.get(route).status_code == 403, route
     assert u.put("/api/taches/ordre", json={"statut": "fait", "ordre": []}).status_code == 403
-    assert app.flask_app.test_client().get("/demandes").status_code == 302
-    assert "demandes" in app.PAGES_DU_PANNEAU and "demandes" in app.adresses_reservees()
+    assert app.flask_app.test_client().get("/messages").status_code == 302
+    for nom in ("messages", "demandes"):
+        assert nom in app.PAGES_DU_PANNEAU and nom in app.adresses_reservees()
 
 
-def test_la_tuile_demandes_compte_les_non_lues(boite):
+def test_la_tuile_messages_compte_les_non_lus(boite):
     """Une tuile du hub au meme rang que le diagnostic, qui dit combien de
     demandes attendent -- et que le panneau ouvre chez lui."""
     c, _ = boite
     _message(c, "hub", "Une")
     _message(c, "hub", "Deux")
     services = c.get("/api/mes-apps").get_json()["services"]
-    tuile = next(s for s in services if s["name"] == app.DEMANDES_NOM)
-    assert tuile["interne"] is True and tuile["url"] == "/demandes" and tuile["non_lues"] == 2
+    tuile = next(s for s in services if s["name"] == app.MESSAGERIE_NOM)
+    assert tuile["interne"] is True and tuile["url"] == "/messages" and tuile["non_lues"] == 2
+    assert tuile["titre"] == "Messages"
     assert c.post("/api/messages/lus").status_code == 200
     services = c.get("/api/mes-apps").get_json()["services"]
-    assert next(s for s in services if s["name"] == app.DEMANDES_NOM)["non_lues"] == 0
+    assert next(s for s in services if s["name"] == app.MESSAGERIE_NOM)["non_lues"] == 0
     # Le tableau des applications, lui, ne la compte pas parmi les siennes.
-    assert app.DEMANDES_NOM not in [a.get("name") for a in c.get("/api/apps").get_json().get("apps", [])]
+    assert app.MESSAGERIE_NOM not in [a.get("name") for a in c.get("/api/apps").get_json().get("apps", [])]
     page = _page_panneau("dashboard.html")
     assert "a.interne ? a.url" in page
 

@@ -1437,7 +1437,7 @@ table.tbl-journal{min-width:560px}
  background:transparent;box-shadow:none;padding:0;font:inherit;font-size:16px;color:var(--txt)}
 
 /* STYLE 3 -- LANCEUR : un ecran d'accueil. Fond trame, bonjour en grand au
-   centre, grandes icones sans carte autour -- Dagster, Mailpit et Demandes
+   centre, grandes icones sans carte autour -- Dagster, Mailpit et Messages
    comprises, comme n'importe quelle application. Une application qui ne
    repond pas est cerclee. */
 :root[data-variante="lanceur"] body{background-image:radial-gradient(var(--trame) 1px,transparent 1px);
@@ -1502,11 +1502,15 @@ table.tbl-journal{min-width:560px}
 .bw-horloge{justify-content:flex-end;background:var(--surface2)}
 .bw-heure{font-size:64px;font-weight:800;letter-spacing:-.05em;line-height:.9;font-variant-numeric:tabular-nums}
 .bw-date{color:var(--dim);font-weight:650;text-transform:capitalize}
-.bw-demandes{justify-content:space-between}
-.bw-demandes:hover{border-color:var(--accent)}
-.bw-demandes p{margin:6px 0 0;color:var(--dim)}
+.bw-messages{justify-content:space-between}
+.bw-messages:hover{border-color:var(--accent)}
+.bw-messages p{margin:6px 0 0;color:var(--dim)}
 .bw-message textarea,.bw-notes textarea{flex:1;min-height:0;resize:none;padding:10px 12px;border-radius:14px;
  border:1px solid var(--line2);background:var(--bg-input,var(--surface2));font:inherit}
+.bw-sujets{display:flex;flex-wrap:wrap;gap:6px}
+.bw-sujets button{height:30px;padding:0 11px;border-radius:999px;border:1px solid var(--line2);background:var(--surface);
+ color:var(--dim);font:inherit;font-size:12px;font-weight:700;cursor:pointer}
+.bw-sujets button[aria-checked="true"]{background:var(--accent);border-color:var(--accent);color:var(--sur-accent)}
 .bw-notes{background:#fff7d6;border-color:#f1e2a6;color:#3a3220}
 .bw-notes .bw-titre{color:#8a7432}
 .bw-notes textarea{background:transparent;border:0;padding:0;color:inherit}
@@ -1516,7 +1520,7 @@ table.tbl-journal{min-width:560px}
 .bento-bouton{align-self:flex-start;display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 20px;
  border-radius:999px;background:var(--surface);color:var(--txt);font-weight:800}
 .bento-bouton svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
-.bw-demandes .bento-bouton{background:var(--accent);color:var(--sur-accent)}
+.bw-messages .bento-bouton{background:var(--accent);color:var(--sur-accent)}
 .bento-etat{justify-content:space-between;gap:16px;background:var(--bento-encre);color:var(--bento-sur-encre);border:0}
 .bento-etat h3{margin:0;font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.75}
 .bento-etat p{margin:6px 0 0;opacity:.75}
@@ -2522,13 +2526,13 @@ table.tbl-journal{min-width:560px}
       <div class="hint">Ton message part à l'administrateur, avec ton nom de compte.</div>
 
       <div id="msg-form" style="margin-top:14px">
-        <div class="field"><label for="msg-cible">De quoi veux-tu parler ?</label>
+        <div class="field"><label for="msg-cible">C'est pour…</label>
           <select id="msg-cible" onchange="msgCible()">
-            <option value="application">D'une application</option>
-            <option value="hub">Du hub lui-même</option>
-            <option value="idee">D'une application qui manque</option>
+            <option value="hub">Améliorer le hub</option>
+            <option value="idee">Une idée de nouveau projet</option>
+            <option value="application">Améliorer une application existante</option>
           </select></div>
-        <div class="field" id="msg-app-zone"><label for="msg-app">Laquelle ?</label>
+        <div class="field" id="msg-app-zone"><label for="msg-app">Quelle application ?</label>
           <select id="msg-app"></select></div>
         <div class="field"><label for="msg-texte">Ton message</label>
           <textarea id="msg-texte" rows="5" maxlength="2000"
@@ -2866,7 +2870,7 @@ const urlApplication = nom => APPS_BASE + '/' + encodeURIComponent(nom) + '/';
 const enModeApp = (window.matchMedia
     && matchMedia('(display-mode: standalone)').matches)
   || window.navigator.standalone === true;
-/* Une tuile « interne » (Demandes) est une page du panneau : elle s'ouvre a
+/* Une tuile « interne » (Messages) est une page du panneau : elle s'ouvre a
    son adresse, sans passer par le sous-domaine d'une application. */
 const lienOuverture = a => a.interne ? a.url
   : a.externe
@@ -2975,6 +2979,7 @@ const ACTIONS = {
   'app-ouvrir':      n => ouvrirFiche(n),
   'ap-etat':         n => apChoisirEtat(n),
   'ap-trier':        n => apTrier(n),
+  'bw-sujet':        n => { hubMessageCible=n; peindreHub(); },
   'app-redemarrer':  n => restartApp(n),
   'app-build':       n => buildApp(n),
   'app-deployer':    n => deployApp(n),
@@ -3516,8 +3521,8 @@ async function catEnregistrer(){
 
 /* ---------------- hub ---------------- */
 let hubApps=[];
-/* ---------------- les demandes recues (administrateur) ----------------
-   Elles se traitent dans l'application « Demandes » (/demandes) : boite de
+/* ---------------- les messages recus (administrateur) ----------------
+   Ils se traitent dans l'application « Messages » (/messages) : boite de
    reception, tableau des taches, projets. Le panneau ne fait plus que les
    GUETTER, pour annoncer dans le coin celles qui arrivent pendant qu'on
    travaille ailleurs. */
@@ -3546,8 +3551,8 @@ async function guetterMessages(){
   const premier=neufs[0];
   notifierMessage(neufs.length===1
     ? 'Nouvelle demande de « ' + (premier.qui||'?') + ' ».'
-    : neufs.length + ' nouvelles demandes.');
-  /* La tuile « Demandes » du hub porte le compte : on la repeint. */
+    : neufs.length + ' nouveaux messages.');
+  /* La tuile « Messages » du hub porte le compte : on la repeint. */
   if(sectionCourante==='hub') chargerHub();
 }
 
@@ -3564,7 +3569,7 @@ function msgCible(){
   zone.style.display = app ? '' : 'none';
   const noms=(hubApps||[]).map(a=>a.name).sort();
   $('msg-app').innerHTML = noms.length
-    ? noms.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')
+    ? noms.map(n=>`<option value="${esc(n)}">${esc(nomAffiche(hubApps.find(a=>a.name===n)))}</option>`).join('')
     : '<option value="">aucune application accessible</option>';
 }
 
@@ -3733,7 +3738,7 @@ function peindreHub(){
   /* Applications et services dans la meme grille, ranges ensemble par leur
      nom : on vient au hub pour OUVRIR quelque chose, et ce qui l'ouvre ne
      change rien a l'endroit ou l'oeil le cherche. Dagster, Mailpit et
-     Demandes ont la meme tuile qu'une application, dans tous les styles. */
+     Messages ont la meme tuile qu'une application, dans tous les styles. */
   const liste=hubApps.concat(hubServices).filter(correspond)
     .sort((a,b)=>a.name.localeCompare(b.name,'fr'));
   if(variante==='lanceur'){
@@ -3806,7 +3811,7 @@ function peindreHub(){
   </div>`).join(''));
 }
 
-/* Le nombre de demandes non lues, sur la tuile « Demandes ». */
+/* Le nombre de messages non lus, sur la tuile « Messages ». */
 const pastille = a => a.non_lues
   ? `<span class="hub-pastille" title="${a.non_lues} nouvelle${a.non_lues>1?'s':''} demande${a.non_lues>1?'s':''}">${a.non_lues}</span>` : '';
 
@@ -3896,17 +3901,29 @@ function poserHorloge(){
   document.querySelectorAll('[data-horloge="date"]').forEach(e=>e.textContent=
     m.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'}));
 }
-function widgetDemandes(taille){
-  const d = hubServices.find(s=>s.name==='demandes');
+function widgetMessages(taille){
+  const d = hubServices.find(s=>s.name==='messages');
   const n = d ? (d.non_lues||0) : 0;
-  return `<a class="bw bw-${taille} bw-demandes" href="/demandes">
-    <div class="bw-titre">Demandes</div>
-    <div><div class="bento-chiffre">${n}</div><p>${n ? (n>1 ? 'nouvelles demandes' : 'nouvelle demande') : 'Rien de nouveau.'}</p></div>
+  return `<a class="bw bw-${taille} bw-messages" href="/messages">
+    <div class="bw-titre">Messages</div>
+    <div><div class="bento-chiffre">${n}</div><p>${n ? (n>1 ? 'nouveaux messages' : 'nouveau message') : 'Rien de nouveau.'}</p></div>
     <span class="bento-bouton">Ouvrir ${SVG_FLECHE}</span></a>`;
 }
+/* Les trois sujets d'un message : ce que l'administrateur en fera depend
+   d'abord de cela -- une amelioration du hub, un nouveau projet, ou le
+   travail sur une application qui existe deja. */
+const SUJETS_MESSAGE=[['hub','Le hub'],['idee','Nouveau projet'],['application','Une application']];
+let hubMessageCible='hub', hubMessageApp='';
 function widgetMessage(taille){
+  const apps=hubApps.slice().sort((x,y)=>nomAffiche(x).localeCompare(nomAffiche(y),'fr'));
+  if(!hubMessageApp && apps.length) hubMessageApp=apps[0].name;
   return `<section class="bw bw-${taille} bw-message" aria-label="Écrire à l'administrateur">
     <div class="bw-titre">Un mot à l'admin ?</div>
+    <div class="bw-sujets" role="radiogroup" aria-label="C'est pour">${SUJETS_MESSAGE.map(([v,t])=>
+      `<button type="button" role="radio" aria-checked="${hubMessageCible===v}" data-agir="bw-sujet" data-cible="${v}">${t}</button>`).join('')}</div>
+    ${hubMessageCible==='application' ? `<label class="sr" for="bw-message-app">Quelle application</label>
+      <select id="bw-message-app" onchange="hubMessageApp=this.value">${apps.map(a=>
+        `<option value="${esc(a.name)}" ${a.name===hubMessageApp?'selected':''}>${esc(nomAffiche(a))}</option>`).join('')}</select>` : ''}
     <label class="sr" for="bw-message-texte">Ton message</label>
     <textarea id="bw-message-texte" data-garder="message" maxlength="2000"
       placeholder="Une idée, un bug, une demande d'accès."
@@ -3919,7 +3936,7 @@ async function bwEnvoyer(b){
   b.disabled=true;
   try{
     const r=await fetch('/api/messages',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({cible:'hub', texte})});
+      body:JSON.stringify({cible:hubMessageCible, texte, app: hubMessageCible==='application' ? hubMessageApp : ''})});
     if(!r.ok){ notifier(await echec(r,'Envoi impossible.'),'err'); return; }
     t.value=''; hubMessageBrouillon=''; notifier('Message envoyé.');
   }finally{ b.disabled=false; }
@@ -3948,7 +3965,7 @@ function peindreBento(liste, filtre){
     return w.id==='une' ? widgetUne(hubApps, t)
       : w.id==='etat' ? widgetEtat(toutes, t)
       : w.id==='horloge' ? widgetHorloge(t)
-      : w.id==='demandes' ? widgetDemandes(t)
+      : w.id==='messages' ? widgetMessages(t)
       : w.id==='message' ? widgetMessage(t)
       : w.id==='notes' ? widgetNotes(t) : '';
   });
@@ -5632,9 +5649,9 @@ function notifierMessage(texte){
   n.id='toast-messages';
   n.className='toast toast-message ok';
   n.innerHTML='<svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>'
-    +'<div style="flex:1"><b>'+esc(texte)+'</b><div class="hint">Clique pour ouvrir Demandes.</div></div>'
+    +'<div style="flex:1"><b>'+esc(texte)+'</b><div class="hint">Clique pour ouvrir Messages.</div></div>'
     +'<button type="button">Voir</button>';
-  n.onclick=()=>{ location.href='/demandes'; };
+  n.onclick=()=>{ location.href='/messages'; };
   $('toasts').appendChild(n);
 }
 

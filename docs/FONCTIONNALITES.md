@@ -9,7 +9,7 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](../SECURITE.m
 2. [Applications](#2-applications)
 3. [Comptes et accès](#3-comptes-et-accès)
 4. [Mails et alertes](#4-mails-et-alertes)
-5. [Demandes : boîte de réception, tâches, projets](#5-demandes--boîte-de-réception-tâches-projets)
+5. [Messages : boîte de réception, projets, planning, feuille de route](#5-messages--boîte-de-réception-projets-planning-feuille-de-route)
 6. [Poste de développement](#6-poste-de-développement)
 7. [Projets et Dagster](#7-projets-et-dagster)
 8. [Données, sauvegardes, restauration](#8-données-sauvegardes-restauration)
@@ -29,7 +29,7 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](../SECURITE.m
 | Vue d'ensemble | `/apercu` | admin | compteurs (en ligne, arrêtées, en erreur), charge CPU et mémoire |
 | Applications | `/applications`, `/applications/<nom>[/<onglet>]` | admin | liste, puis fiche d'une application |
 | Utilisateurs | `/utilisateurs` | admin | comptes, invitations, journal des accès, carte d'activité |
-| Demandes | `/demandes`, `/demandes/tableau`, `/demandes/projets` | admin | application à part, ouverte depuis sa tuile du hub (voir § 5) ; `/messages` y redirige |
+| Messages | `/messages`, `/messages/planning`, `/messages/feuille`, `/messages/projet/<id>` | admin | application à part, ouverte depuis sa tuile du hub (voir § 5) ; `/demandes` y redirige |
 | Paramètres | `/parametres/<onglet>` | tous | onglets selon le rôle (voir plus bas) |
 
 - **Une seule application pour tous les rôles.** Le rôle décide de ce que le menu propose. Chaque
@@ -37,7 +37,7 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](../SECURITE.m
 - **Deux styles** (*Paramètres > Compte > Apparence*), retenus par navigateur. Le reste du panneau
   est le même : menu en pilule, barre du bas sur téléphone, réglages en fenêtre.
   - « Lanceur » : le hub comme un écran d'accueil (trame de points, bonjour en grand, recherche au
-    centre, grandes icônes cerclées si l'application ne répond pas). Dagster, Mailpit et Demandes y
+    centre, grandes icônes cerclées si l'application ne répond pas). Dagster, Mailpit et Messages y
     ont la même tuile que les autres applications ;
   - « Bento » (par défaut) : le hub en mosaïque.
     - **Sur un écran large**, elle défile à l'horizontale et jamais à la verticale : trois rangées à
@@ -46,7 +46,7 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](../SECURITE.m
     - **Sur téléphone**, elle redevient une colonne qu'on fait défiler vers le bas.
     - **Widgets** (*Personnaliser*, à côté de la recherche) : chaque compte choisit lesquels, leur
       ordre et leur taille (normal ou grand), gardés côté serveur d'un appareil à l'autre :
-      « À la une », « État des applications », « Date et heure », « Demandes à traiter » (admin),
+      « À la une », « État des applications », « Date et heure », « Messages à lire » (admin),
       « Écrire à l'administrateur » (comptes utilisateurs) et « Bloc-notes » (enregistré en continu).
     - **À la une** montre un aperçu en direct, réduit et inerte, de la dernière application ouverte
       par ce compte, avec la date de l'ouverture ; un clic l'ouvre.
@@ -132,7 +132,7 @@ Détails : [`app-manager/README.md`](../app-manager/README.md) et, côté dével
 
 **Applications par défaut**
 
-- **Dagster**, **Diagnostic**, **Mailpit** et **Demandes** ont leur tuile, réservée à l'administrateur.
+- **Dagster**, **Diagnostic**, **Mailpit** et **Messages** ont leur tuile, réservée à l'administrateur.
 - Elles ne se configurent pas, ne s'arrêtent pas et ne se suppriment pas : le panneau les remet en
   route à chaque tour.
 - Chaque compte peut les ranger hors de son hub.
@@ -191,33 +191,44 @@ Détails : [`mailpit/README.md`](../mailpit/README.md).
 - Chaque run Dagster en échec (capteur `alerte_mail_echec`), dont l'audit des dépendances.
 - Surveillance externe : un appel à healthchecks.io toutes les 5 minutes.
 
-## 5. Demandes : boîte de réception, tâches, projets
+## 5. Messages : boîte de réception, projets, planning, feuille de route
 
 Une application du hub, au même rang que Dagster, Mailpit et le diagnostic, réservée à
-l'administrateur. Sa tuile porte le nombre de demandes non lues. Servie par le panneau sur
-`/demandes` : même session, mêmes contrôles d'accès, même base.
+l'administrateur. Sa tuile (deux bulles de conversation) porte le nombre de messages non lus. Servie
+par le panneau sur `/messages` : même session, mêmes contrôles d'accès, même base. Les anciennes
+adresses `/demandes` y mènent.
 
-- **Une demande** se laisse depuis le hub (*Paramètres > Message*) : à propos du hub, d'une
-  application, ou une idée d'application. Une demande qui arrive s'annonce dans le coin du panneau.
-- **Boîte de réception** (`/demandes`) : nouvelles, à réfléchir, traitées. Une demande s'accepte,
-  se met de côté, se refuse, s'épingle, s'archive ou se supprime (avec confirmation). L'accepter en
-  fait au choix :
-  - **une tâche**, dans un projet, une application ou « Général », avec sa priorité et ses sous-tâches ;
-  - **un projet**, avec sa description et ses premières tâches ;
-  - rien de plus (acceptée sans suite).
-- **Tableau** (`/demandes/tableau`) : les tâches en trois colonnes, *à faire*, *en cours*, *fait*.
-  - Quatre priorités (urgente, haute, normale, basse), une échéance (en rouge si dépassée), des notes.
-  - Les cartes se glissent d'une colonne à l'autre et se réordonnent (souris, doigt, ou clavier :
-    ↑ ↓ pour l'ordre, ← → pour la colonne). Le haut de la colonne passe en premier.
-  - « Trier par priorité » range une colonne par priorité puis par échéance.
-  - Filtres par projet, priorité et texte. Le glisser est coupé tant qu'un filtre est actif.
-  - Une fiche par tâche : titre, projet, statut, priorité, échéance, notes, sous-tâches (cocher,
-    ajouter, monter, retirer), et la demande d'origine.
-- **Projets** (`/demandes/projets`) : trois étapes, *idée* → *en construction* → *réalisé*.
-  - Chaque projet montre son avancement (tâches faites sur le total).
-  - « Concrétiser » le passe en réalisé et peut le lier à l'application qui le concrétise.
-  - Supprimer un projet ne perd aucune tâche : elles passent dans « Général ».
-  - Les tâches rattachées à une application ou à « Général » ont leur propre carte.
+- **Écrire un message** (tout compte) : depuis le hub (*Paramètres > Message*, ou le widget « Écrire à
+  l'administrateur » du style Bento), en choisissant le sujet : **améliorer le hub**, **une idée de
+  nouveau projet**, ou **améliorer une application existante** (laquelle). Un message qui arrive
+  s'annonce dans le coin du panneau de l'administrateur.
+- **Boîte de réception** (`/messages`) : à classer, tous, archivés ; filtre par sujet et recherche.
+  - Les messages se rangent à la main (glisser par la poignée, ou flèches ↑ ↓ au clavier) ; un message
+    neuf arrive en tête.
+  - Chacun se range dans un projet (existant ou créé à la volée), devient une tâche, s'archive ou se
+    supprime (avec confirmation).
+  - **Regrouper** : plusieurs messages choisis forment un projet, neuf ou existant. Le panneau
+    **suggère** les messages qui semblent parler de la même chose (mots communs) ; une suggestion
+    s'accepte ou s'ignore.
+- **Planning** (`/messages/planning`) : toutes les tâches ouvertes, dans l'ordre où on veut les
+  faire. **La priorité est la place dans la liste**, pas une étiquette d'urgence.
+  - Glisser (ou ↑ ↓) pour réordonner ; filtre par projet ; ajout rapide d'une tâche.
+  - Une tâche a une **date prévue facultative** et une **durée** en jours ouvrés (1 par défaut).
+  - Une fiche par tâche : titre, projet, date, durée, notes, sous-tâches, message d'origine.
+  - **Scinder** une tâche en plusieurs (une ligne par tâche, sous-tâches reprises au besoin) : les
+    nouvelles la suivent dans le planning, la durée se partage.
+  - Cocher une tâche la marque faite et date sa fin ; les tâches faites se replient en bas.
+- **Feuille de route** (`/messages/feuille`) : le planning posé sur un calendrier de jours ouvrés.
+  - *Aujourd'hui* : en retard, aujourd'hui, ensuite, fait aujourd'hui.
+  - *Semaines* : huit semaines, du lundi au vendredi, chaque tâche sur ses jours.
+  - *Mois* : une frise sur 1, 3, 6 ou 12 mois, une ligne par projet.
+  - Une tâche datée se place à sa date ; les tâches sans date se suivent dans l'ordre du planning à
+    partir d'aujourd'hui. **Tant qu'une tâche n'est pas cochée, elle glisse avec le temps** : une
+    date dépassée la ramène à aujourd'hui, marquée « en retard ».
+- **Projets** (`/messages/projet/<id>`, listés dans la barre latérale) : leurs tâches (dans l'ordre du
+  planning, réordonnables), leurs messages, leur avancement, leur étape (*idée*, *en construction*,
+  *réalisé*) et l'application liée. Supprimer un projet ne perd rien : ses tâches passent dans
+  « Général », ses messages redeviennent à classer.
 
 ## 6. Poste de développement
 
