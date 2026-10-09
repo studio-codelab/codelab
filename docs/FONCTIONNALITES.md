@@ -159,7 +159,15 @@ Détails : [`SECURITE.md`](../SECURITE.md) et [`app-manager/README.md`](../app-m
   - remise à zéro du second facteur, retrait des clés d'accès ;
   - suppression, qui emporte les clés d'accès.
 - **Deux filtres sur la liste** : par personne, ou par application (« qui a accès à… »).
-- **Second facteur obligatoire** : clé d'accès, TOTP, ou code par mail.
+- **Connexion par Face ID / Touch ID** (clé d'accès) : un bouton en tête de la page de connexion,
+  qui vaut mot de passe et second facteur ; aucun code à saisir. Il demande le panneau en HTTPS, par
+  son nom de domaine : sinon la page dit pourquoi il n'est pas proposé.
+- **Second facteur obligatoire**, dans cet ordre de préférence :
+  - Face ID / Touch ID si le compte en a une clé : l'appareil confirme, aucun code n'est affiché ;
+  - sinon un **code par mail** (comptes avec adresse vérifiée, et l'administrateur à son adresse
+    d'alerte), saisi dans six cases : un code collé ou proposé par le clavier les remplit d'un coup,
+    le sixième chiffre valide, « Renvoyer le code » attend une minute ; le mail le montre en grand ;
+  - l'application d'authentification (TOTP), à un clic.
 - **Mot de passe oublié** par code mail, si le compte a aussi un autre facteur.
 - **Journal des accès** paginé (25 ou 50 lignes), filtrable, avec une **carte de chaleur** sur un an.
 - **Copie de l'historique dans Postgres** (base `codelab`) pour les requêtes longues.

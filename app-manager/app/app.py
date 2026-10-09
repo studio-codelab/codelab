@@ -38,6 +38,7 @@ import base64
 import copy
 import datetime
 import fcntl
+import html as _html
 import functools
 import gzip
 import queue
@@ -2194,9 +2195,9 @@ def envoyer_code_reinit(adresse, nom, code):
 # le code ne part que vers l'adresse verifiee du compte -- jamais vers une
 # destination fournie par la requete.
 #
-# Ordre de preference : l'application d'authentification si la personne en a
-# enregistre une (elle l'a choisie, et elle marche hors ligne), puis le mail.
-# La personne peut toujours basculer de l'un a l'autre.
+# Ordre de preference : Face ID / Touch ID (rien a saisir), puis le code par
+# mail, puis l'application d'authentification. La personne peut toujours
+# basculer de l'un a l'autre.
 CODE_CONNEXION_VALIDITE = 600   # 10 minutes
 CODE_CONNEXION_ESSAIS = 5
 MOYEN_TOTP, MOYEN_EMAIL = "totp", "email"
@@ -2220,8 +2221,6 @@ def masquer_destination(moyen, valeur):
 def moyens_second_facteur(compte):
     """Les moyens utilisables pour ce compte, dans l'ordre de preference."""
     moyens = []
-    if compte.get("totp"):
-        moyens.append(MOYEN_TOTP)
     # Apres une reinitialisation du mot de passe PAR MAIL, le mail a deja
     # servi de preuve : le reprendre comme second facteur reviendrait a
     # ouvrir le compte a qui tient la boite. Le code par mail reste suspendu
@@ -2229,6 +2228,10 @@ def moyens_second_facteur(compte):
     if (compte.get("email") and compte.get("email_verifie")
             and not compte.get("code_mail_suspendu") and smtp_utilisable()[1]):
         moyens.append(MOYEN_EMAIL)
+    # Le code par mail d'abord : rien a installer, il arrive la ou l'on
+    # regarde deja. L'application d'authentification reste a un clic.
+    if compte.get("totp"):
+        moyens.append(MOYEN_TOTP)
     return moyens
 
 
@@ -2264,18 +2267,42 @@ def verifier_code_connexion(compte, code):
     return False
 
 
-def envoyer_code_connexion(compte, nom, moyen, code):
-    """Envoie le code par mail, ou leve."""
+def envoyer_code_connexion(compte, nom, moyen, code, destinataires=None):
+    """Envoie le code par mail, ou leve.
+
+    Le texte pour tous les lecteurs de mail ; une version mise en page, le
+    code en grand, pour ceux qui l'affichent.
+    """
     validite = CODE_CONNEXION_VALIDITE // 60
     cfg, _ = smtp_utilisable()
-    envoyer_mail(cfg, "[CodeLab] ton code de connexion",
+    chiffres = "".join(
+        f'<span style="display:inline-block;width:40px;height:52px;line-height:52px;'
+        f'margin:0 3px;border-radius:10px;background:#f1f3f6;font-size:28px;'
+        f'font-weight:700;color:#11151c">{c}</span>' for c in code)
+    page = (
+        '<div style="background:#eef0f3;padding:32px 12px;font-family:-apple-system,'
+        'BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif">'
+        '<div style="max-width:440px;margin:0 auto;background:#fff;border-radius:20px;'
+        'padding:32px 28px;text-align:center;color:#11151c">'
+        '<div style="font-size:15px;font-weight:700;letter-spacing:-.01em">CodeLab</div>'
+        '<h1 style="font-size:21px;margin:22px 0 6px">Ton code de connexion</h1>'
+        f'<p style="margin:0 0 22px;color:#5b6472;font-size:14px">Pour le compte '
+        f'<b>{_html.escape(nom)}</b>. Saisis-le sur la page de connexion.</p>'
+        f'<div style="white-space:nowrap">{chiffres}</div>'
+        f'<p style="margin:22px 0 0;color:#5b6472;font-size:13px">Valable {validite} minutes, '
+        'il ne sert qu\'une fois.</p>'
+        '<p style="margin:18px 0 0;padding-top:16px;border-top:1px solid #e6e8ec;'
+        'color:#8a92a0;font-size:12px">Pas toi ? Ton mot de passe est connu de quelqu\'un '
+        "d'autre : change-le, et préviens ton administrateur.</p>"
+        '</div></div>')
+    envoyer_mail(cfg, f"[CodeLab] {code} est ton code de connexion",
                  f"Code de connexion pour le compte « {nom} » : {code}\n\n"
                  f"Il est valable {validite} minutes, et ne sert qu'une fois.\n\n"
                  "Si tu n'es pas à l'origine de cette connexion, ton mot de passe "
                  "est connu de quelqu'un d'autre : change-le, et préviens ton "
                  "administrateur.\n\n"
                  "-- CodeLab, panneau de gestion des applications",
-                 destinataires=[compte["email"]], sensible=True)
+                 destinataires=destinataires or [compte["email"]], sensible=True, html=page)
 
 
 # ------------------------------ invitations ------------------------------
@@ -5575,10 +5602,11 @@ def _envoyer_par_mailpit(msg):
         s.send_message(msg)
 
 
-def envoyer_mail(cfg, sujet, corps, destinataires=None, sensible=False):
+def envoyer_mail(cfg, sujet, corps, destinataires=None, sensible=False, html=None):
     """Envoie, ou leve. Par Mailpit d'abord, en direct sinon.
 
     sensible=True (mails de securite) : jamais par Mailpit, toujours en direct.
+    html : une version mise en page, en plus du texte.
     """
     msg = EmailMessage()
     msg["Subject"] = sujet
@@ -5586,6 +5614,8 @@ def envoyer_mail(cfg, sujet, corps, destinataires=None, sensible=False):
     msg["To"] = ", ".join(destinataires if destinataires is not None
                           else cfg["destinataires"])
     msg.set_content(corps)
+    if html:
+        msg.add_alternative(html, subtype="html")
 
     if sensible:
         if not cfg.get("host"):
@@ -6605,9 +6635,12 @@ def login_submit():
                                              "panneau en HTTPS, par son nom de domaine."}), 403
                 attendre_second_facteur(NOM_ADMIN)
                 moyen = d.get("moyen") if d.get("moyen") in moyens else moyens[0]
+                if moyen == MOYEN_EMAIL:
+                    return _code_admin_par_mail(moyens)
                 return jsonify({"totp": True, "second_facteur": True,
                                 "moyen": moyen, "moyens": moyens}), 401
-            if not (totp_actif() and totp_verifie(_totp_secret, code)):
+            if not ((totp_actif() and totp_verifie(_totp_secret, code))
+                    or verifier_code_admin(code)):
                 register_failed_attempt()
                 journaliser("echec", qui=NOM_ADMIN, motif="second facteur", ip=_adresse_client())
                 return jsonify({"error": "Code de vérification incorrect.",
@@ -6762,13 +6795,64 @@ def passkey_utilisable():
 
 
 def moyens_admin():
-    """Les seconds facteurs de l'administrateur, Face ID d'abord."""
+    """Les seconds facteurs de l'administrateur : Face ID, le mail, l'application.
+
+    Le code par mail part a l'adresse d'alerte, jamais par Mailpit (un mail
+    de securite) : il faut donc un vrai serveur d'envoi.
+    """
     moyens = []
     if passkeys_du_compte(NOM_ADMIN) and passkey_utilisable():
         moyens.append(MOYEN_PASSKEY)
+    if smtp_utilisable()[1] and smtp_utilisable()[0].get("host") and alertes_admin():
+        moyens.append(MOYEN_EMAIL)
     if totp_actif():
         moyens.append(MOYEN_TOTP)
     return moyens
+
+
+def _code_admin_par_mail(moyens):
+    """Envoie (au plus une fois par minute) le code de l'administrateur.
+
+    Le code vit au coffre, en empreinte, comme celui d'un compte : jamais
+    dans le cookie, ou six chiffres se retrouveraient par force brute.
+    """
+    destinataires = alertes_admin()
+    reponse = {"totp": True, "second_facteur": True, "moyen": MOYEN_EMAIL, "moyens": moyens,
+               "destination": masquer_destination(MOYEN_EMAIL, destinataires[0])}
+    en_cours = reglage("code_connexion_admin") or {}
+    if int(time.time()) - int(en_cours.get("envoye") or 0) >= CODE_EMAIL_DELAI:
+        # Compte comme une tentative : sinon, des mails en boucle.
+        register_failed_attempt()
+        porteur = {}
+        code = poser_code_connexion(porteur, MOYEN_EMAIL)
+        try:
+            # Range d'abord : un code parti mais jamais enregistre ne
+            # pourrait pas etre verifie.
+            ecrire_reglage("code_connexion_admin", porteur["code_connexion"])
+            envoyer_code_connexion(porteur, NOM_ADMIN, MOYEN_EMAIL, code,
+                                   destinataires=destinataires)
+        except Exception as e:                                    # noqa: BLE001
+            journaliser("echec", qui=NOM_ADMIN, motif="envoi du code (email)",
+                        detail=f"{type(e).__name__}", ip=_adresse_client())
+            reponse.update(error="Le code n'a pas pu partir par mail.", envoi_impossible=True)
+            return jsonify(reponse), 401
+    reponse.update(error="Un code vient de t'être envoyé par mail à "
+                         + reponse["destination"] + ".", envoye=True)
+    return jsonify(reponse), 401
+
+
+def verifier_code_admin(code):
+    """Le code par mail de l'administrateur : un essai consomme, le code au succes."""
+    en_cours = reglage("code_connexion_admin")
+    if not en_cours:
+        return False
+    porteur = {"code_connexion": en_cours}
+    ok = verifier_code_connexion(porteur, code)
+    try:
+        ecrire_reglage("code_connexion_admin", porteur.get("code_connexion"))
+    except (OSError, RuntimeError):
+        pass
+    return ok
 
 
 def attendre_second_facteur(nom):

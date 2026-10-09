@@ -12157,6 +12157,67 @@ def _reinitialiser_par_mail(c, partis, nouveau="nouveau-mot-de-passe"):
                   json={"nom": "marie", "code": code, "nouveau": nouveau})
 
 
+def test_le_code_par_mail_passe_avant_l_application(comptes_mail):
+    """Sans Face ID : le code par mail d'abord, l'application a un clic."""
+    c, partis = comptes_mail
+    _compte_avec_adresse(face_id=False)
+    comptes = app.lire_utilisateurs()
+    comptes["marie"]["totp"] = "JBSWY3DPEHPK3PXP"
+    app.ecrire_utilisateurs(comptes)
+    d = c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long"}).get_json()
+    assert d["moyens"] == ["email", "totp"] and d["moyen"] == "email" and d["envoye"]
+    # Le mail porte le code en clair dans le texte, et en grand dans sa version mise en page.
+    assert re.search(r": \d{6}", partis[-1][1])
+
+
+def test_l_administrateur_recoit_aussi_son_code_par_mail(comptes_mail, monkeypatch, tmp_path):
+    c, partis = comptes_mail
+    (tmp_path / "credentials.env").write_text(
+        "SMTP_HOST=smtp.example.com\nSMTP_USER=panneau@example.com\n"
+        "ALERTE_ADMIN=chef@example.com\n")
+    monkeypatch.setenv("APP_MANAGER_ADMIN_2FA", "1")
+    monkeypatch.setattr(app, "_totp_secret", "JBSWY3DPEHPK3PXP")
+    r = c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    d = r.get_json()
+    assert r.status_code == 401 and d["moyen"] == "email" and d["moyens"] == ["email", "totp"]
+    assert d["envoye"] and partis[-1][0] == ["chef@example.com"]
+    assert "chef@example.com" not in json.dumps(d)
+    # Le code est au coffre, en empreinte : jamais en clair, jamais dans le cookie.
+    code = _code_du_dernier_mail(partis)
+    assert code not in json.dumps(app.reglage("code_connexion_admin"))
+    # Un deuxieme appel dans la minute ne renvoie rien.
+    nb = len(partis)
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    assert len(partis) == nb
+    # Un mauvais code est refuse, le bon ouvre la session, une seule fois.
+    app._login_attempts.clear()
+    faux = "000000" if code != "000000" else "111111"
+    assert c.post("/login", json={"nom": "admin", "password": "secret-de-test",
+                                  "code": faux}).status_code == 401
+    assert c.post("/login", json={"nom": "admin", "password": "secret-de-test",
+                                  "code": code}).status_code == 200
+    assert c.get("/api/apps").status_code == 200
+    c.post("/logout")
+    app._login_attempts.clear()
+    assert c.post("/login", json={"nom": "admin", "password": "secret-de-test",
+                                  "code": code}).status_code == 401
+    # L'application d'authentification marche toujours.
+    totp = app.totp_code("JBSWY3DPEHPK3PXP", int(time.time()) // app.TOTP_PAS)
+    assert c.post("/login", json={"nom": "admin", "password": "secret-de-test",
+                                  "code": totp}).status_code == 200
+
+
+def test_la_page_de_connexion_propose_face_id_puis_un_code_en_cases():
+    login = _page_panneau("login.html")
+    for trace in ('class="bouton-geste" id="pk-go"', 'id="code-cases"', 'autocomplete="one-time-code"',
+                  "function remplirCases(", "function compteARebours(", 'id="pk-indispo"',
+                  "Aucun code à saisir."):
+        assert trace in login, trace
+    # Six cases, et un seul champ porte la valeur envoyee.
+    bloc = login.split('id="code-cases"', 1)[1].split("</div>", 1)[0]
+    assert bloc.count("<input") == 6
+
+
 def test_sans_facteur_fort_la_reinitialisation_par_mail_est_fermee(comptes_mail):
     c, partis = comptes_mail
     _compte_avec_adresse(face_id=False)
@@ -12915,7 +12976,8 @@ def test_le_style_design_ne_change_que_l_habit():
     assert 'class="side-item utilisateur-seul"' in page
     assert "document.body.classList.add('compte-utilisateur')" in page
     login = _page_panneau("login.html")
-    assert ':root[data-style="design"] #pk-zone{display:none !important}' in login
+    # Face ID / Touch ID n'est plus cache dans le style Design : en tete.
+    assert "#pk-zone{display:none" not in login
 
 
 
