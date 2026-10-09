@@ -1457,7 +1457,7 @@ def alertes(tmp_path, monkeypatch):
                        "port": 9101, "enabled": True}})
     envoyes = []
     monkeypatch.setattr(app, "envoyer_mail",
-                        lambda cfg, sujet, corps, destinataires=None:
+                        lambda cfg, sujet, corps, destinataires=None, **_:
                         envoyes.append(sujet))
     return envoyes
 
@@ -2424,7 +2424,7 @@ def messagerie(tmp_path, monkeypatch):
         "projets": ["compta"], "cree": 0}})
     partis = []
     monkeypatch.setattr(app, "envoyer_mail",
-                        lambda cfg, sujet, corps, destinataires=None:
+                        lambda cfg, sujet, corps, destinataires=None, **_:
                         partis.append((destinataires, sujet, corps)))
     c = app.flask_app.test_client()
     _connecte(c, "marie", "mot-de-passe-long")
@@ -2645,171 +2645,18 @@ def test_masquer_demande_une_session(hub):
     assert anonyme.post("/api/mes-apps/vitrine/masquer").status_code in (401, 403)
 
 
-# ---------- 12 octies. conteneuriser une application ----------
+# ---------- 12 octies. plus de conteneurisation ----------
 #
-# Le panneau PRODUIT les fichiers ; il ne construit aucune image et ne lance
-# rien. Il n'a pas de socket Docker, et lui en donner un reviendrait a lui
-# offrir la machine entiere.
+# La fonction a ete retiree : le panneau ne produit plus de Dockerfile.
 
-@pytest.fixture
-def conteneur(tmp_path, monkeypatch):
-    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
-    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
-    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
-    monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
-    monkeypatch.setattr(app, "under_root", lambda p: True)
-    app.flask_app.secret_key = "cle-de-test"
-    app.flask_app.config["TESTING"] = True
-    app._login_attempts.clear()
-    app._apps_cache["signature"] = None
-    projet = tmp_path / "facturier"
-    projet.mkdir()
-    (projet / "requirements.txt").write_text("flask\npsycopg[binary]\n")
-    (projet / "app.py").write_text("import psycopg, os\nPORT = os.environ['PORT']\n")
-    app.save({"facturier": {"path": str(projet), "command": "python3 app.py",
-                            "port": 9105, "enabled": False, "max_memory_mb": 256}})
-    c = app.flask_app.test_client()
+def test_la_conteneurisation_a_ete_retiree(deux_espaces):
+    c = deux_espaces
     c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
-    return c, projet
-
-
-def test_la_pile_se_devine_sur_les_fichiers_pas_sur_la_commande(conteneur):
-    """« npm start » peut lancer autre chose que du Node, et un script shell
-    peut lancer n'importe quoi. Ce sont les fichiers qui parlent."""
-    c, projet = conteneur
-    d = c.get("/api/app/facturier/conteneur").get_json()
-    assert d["pile"] == "Python"
-    assert d["indices"] == ["requirements.txt"]
-    assert "postgres" in d["services"]
-    noms = [f["nom"] for f in d["fichiers"]]
-    assert noms == ["Dockerfile", "docker-compose.yml", ".env.exemple",
-                    ".dockerignore", "CONTENEUR.md"]
-
-
-def test_le_compose_produit_tient_debout(conteneur):
-    """Un fichier de configuration produit et jamais relu par une machine
-    finit par contenir une faute de frappe.
-
-    PAS DE PyYAML ICI. La regle de ce depot est que la CI installe ce que
-    l'image embarque, et l'image du panneau n'a aucune raison d'embarquer un
-    analyseur YAML. La structure se verifie donc a la main -- c'est moins
-    complet qu'un analyseur, et c'est suffisant pour attraper ce qui casse
-    reellement : une cle au mauvais niveau, un volume declare nulle part.
-    """
-    c, _ = conteneur
-    d = c.get("/api/app/facturier/conteneur").get_json()
-    compose = next(f for f in d["fichiers"] if f["nom"] == "docker-compose.yml")
-    lignes = [l for l in compose["contenu"].splitlines()
-              if l.strip() and not l.lstrip().startswith("#")]
-
-    racines = [l.rstrip(":") for l in lignes if not l.startswith(" ")]
-    assert racines == ["services", "volumes"], racines
-    # Les services sont a deux espaces, leurs reglages plus loin.
-    services = [l.strip().rstrip(":") for l in lignes
-                if l.startswith("  ") and not l.startswith("   ") and l.rstrip().endswith(":")]
-    assert "facturier" in services and "base" in services, services
-    # Le volume monte par la base existe au niveau racine : un volume nomme
-    # nulle part fait echouer « up » avec un message peu parlant.
-    assert "      - base:/var/lib/postgresql/data" in lignes
-    assert "  base:" in lignes[lignes.index("volumes:"):]
-    # Aucune tabulation : YAML les refuse, et elles ne se voient pas.
-    assert "\t" not in compose["contenu"]
-    # La limite de memoire suit celle de CodeLab : le conteneur doit se
-    # comporter comme l'application se comporte ici.
-    assert "          memory: 256M" in lignes
-
-    # Et si un analyseur YAML est la -- c'est le cas en developpement et en
-    # CI, pas forcement dans une image -- on ne s'en prive pas.
-    try:
-        import yaml
-    except ImportError:
-        return
-    charge = yaml.safe_load(compose["contenu"])
-    assert set(charge["services"]) == {"facturier", "base"}
-    assert charge["services"]["facturier"]["deploy"]["resources"]["limits"]["memory"] \
-        == "256M"
-
-
-def test_l_image_produite_ne_tourne_pas_en_root(conteneur):
-    """Un conteneur en root donne root sur ses volumes montes, et rapproche
-    d'une evasion tout ce qui tourne dedans."""
-    c, _ = conteneur
-    d = c.get("/api/app/facturier/conteneur").get_json()
-    dockerfile = next(f for f in d["fichiers"] if f["nom"] == "Dockerfile")["contenu"]
-    # Une LIGNE « USER app », pas la chaine quelque part : commentee, elle
-    # ne bascule rien, et le test passerait quand meme.
-    lignes = [l.strip() for l in dockerfile.splitlines()]
-    assert "USER app" in lignes, dockerfile
-    assert any(l.startswith("RUN useradd") for l in lignes), dockerfile
-    # Le port de CodeLab est repris : c'est le contrat, et c'est ce qui casse
-    # en premier ailleurs.
-    assert "ENV PORT=9105" in dockerfile
-
-
-def test_le_modele_de_variables_n_emporte_aucun_secret(conteneur):
-    """Un modele, pas une copie de credentials.env : il part dans le depot
-    du projet, et il doit pouvoir y rester."""
-    c, _ = conteneur
-    d = c.get("/api/app/facturier/conteneur").get_json()
-    modele = next(f for f in d["fichiers"] if f["nom"] == ".env.exemple")["contenu"]
-    assert "PORT=9105" in modele
-    assert "POSTGRES_PASSWORD=a-changer" in modele
-    ignore = next(f for f in d["fichiers"] if f["nom"] == ".dockerignore")["contenu"]
-    # Le .env rempli, lui, n'entre ni dans l'image ni dans le depot.
-    assert ".env" in ignore and "!.env.exemple" in ignore
-
-
-def test_la_conteneurisation_n_ecrit_plus_dans_le_projet(conteneur):
-    """UNE SEULE SORTIE : l'archive.
-
-    « Deposer dans le projet » ecrivait dans /workspace -- donc dans le
-    travail de quelqu'un -- pour un geste dont le but est justement d'emmener
-    l'application AILLEURS. Il fallait en plus un second bouton pour les
-    fichiers deja presents, et le premier ne devait jamais ecraser. Tout cela
-    disparait avec la porte elle-meme.
-    """
-    c, projet = conteneur
-    avant = sorted(p.name for p in projet.iterdir())
-
-    # La route d'ecriture n'existe plus du tout : 405 si Flask reconnait le
-    # chemin sans la methode, 404 si le catch-all du panneau le prend avant.
-    assert c.post("/api/app/facturier/conteneur", json={}).status_code in (404, 405)
-
-    # Et l'archive, elle, ne touche a rien.
-    r = c.get("/api/app/facturier/conteneur.zip")
-    assert r.status_code == 200 and r.mimetype == "application/zip"
-    assert sorted(p.name for p in projet.iterdir()) == avant
-
+    assert c.get("/api/app/site/conteneur").status_code == 404
+    assert c.get("/api/app/site/conteneur.zip").status_code == 404
+    assert not hasattr(app, "fichiers_conteneur")
     page = _page_panneau("dashboard.html")
-    assert "ctPoser" not in page, "le bouton de depot est revenu"
-    assert 'id="ct-telecharger"' in page
-
-
-def test_le_panneau_ne_construit_ni_ne_lance_aucune_image():
-    """La limite est nette et elle doit le rester : produire des fichiers ne
-    demande aucun acces a Docker, et un panneau qui aurait ce socket
-    donnerait la machine entiere a qui prend sa session."""
-    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
-    # Ce qu'on cherche, c'est une EXECUTION, pas le mot : le mode d'emploi
-    # produit contient « docker compose up », et c'est precisement son role.
-    for ligne in src.splitlines():
-        nue = ligne.strip()
-        if nue.startswith("#") or nue.startswith('"') or nue.startswith("'"):
-            continue
-        assert "docker.sock" not in nue, nue
-        if "docker" in nue:
-            assert not any(appel in nue for appel in
-                           ("subprocess.run", "subprocess.Popen", "os.system",
-                            "check_output")), nue
-
-
-def test_conteneuriser_est_reserve_a_l_administrateur(conteneur):
-    c, _ = conteneur
-    anonyme = app.flask_app.test_client()
-    assert anonyme.get("/api/app/facturier/conteneur").status_code in (401, 403)
-    # L'archive aussi : elle porte le meme contenu, dont un modele de
-    # variables et le mode d'emploi de l'installation.
-    assert anonyme.get("/api/app/facturier/conteneur.zip").status_code in (401, 403)
+    assert "onglet-conteneur" not in page and "ctTelecharger" not in page
 
 
 # ---------- 12 ter. le logo d'une application ----------
@@ -3222,7 +3069,7 @@ def comptes_mail(tmp_path, monkeypatch):
         "SMTP_HOST=smtp.example.com\nSMTP_USER=panneau@example.com\n")
     partis = []
     monkeypatch.setattr(app, "envoyer_mail",
-                        lambda cfg, sujet, corps, destinataires=None:
+                        lambda cfg, sujet, corps, destinataires=None, **_:
                         partis.append((destinataires, corps)))
     return app.flask_app.test_client(), partis
 
@@ -4481,7 +4328,7 @@ def test_l_envoi_repli_sur_l_origine_quand_la_personnalisee_tombe(envoi, monkeyp
                                               "password": "bon"}})
     essais = []
 
-    def _envoi(cfg, sujet, corps, destinataires=None):
+    def _envoi(cfg, sujet, corps, destinataires=None, **_):
         essais.append(cfg["host"])
         if cfg["host"] == "perso.example.com":
             raise OSError("serveur injoignable")
@@ -4943,7 +4790,7 @@ def _scripts_de_la_page(nom):
 def test_le_script_des_pages_du_panneau_est_analysable():
     import subprocess
     import tempfile
-    for nom in ("dashboard.html", "login.html", "demandes.html"):
+    for nom in ("dashboard.html", "login.html", "messages.html"):
         scripts = _scripts_de_la_page(nom)
         assert scripts, f"{nom} n'a plus de script : la page ne ferait plus rien"
         for i, script in enumerate(scripts):
@@ -9028,60 +8875,6 @@ def test_la_fenetre_du_compte_ne_deroule_plus_tout():
     assert 'class="grid2"' in fenetre
 
 
-# ---------- 32. emporter les fichiers de conteneurisation ----------
-#
-# « Sortir cette application de CodeLab » ne savait que DEPOSER les fichiers
-# dans le dossier du projet -- c'est-a-dire supposer que la suite se passe
-# ici. Or sortir une application, c'est l'emmener ailleurs : sur un poste,
-# sur un autre serveur, dans un depot qui n'a rien a voir avec cette machine.
-# Il fallait alors recopier quatre fichiers a la main depuis la page.
-
-def test_l_archive_de_conteneurisation_s_emporte(tmp_path, monkeypatch):
-    import io as flux
-    import zipfile
-    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
-    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
-    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
-    monkeypatch.setattr(app, "under_root", lambda p: True)
-    projet = tmp_path / "projet"
-    projet.mkdir()
-    (projet / "app.py").write_text("print('bonjour')\n")
-    app._apps_cache["signature"] = None
-    app.save({"site": {"path": str(projet), "command": "python3 app.py", "port": 9601}})
-    app.flask_app.secret_key = "cle-de-test"
-    app.flask_app.config["TESTING"] = True
-    app._login_attempts.clear()
-    c = app.flask_app.test_client()
-    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
-
-    r = c.get("/api/app/site/conteneur.zip")
-    assert r.status_code == 200
-    assert r.mimetype == "application/zip"
-    assert "site-conteneur.zip" in r.headers["Content-Disposition"]
-
-    archive = zipfile.ZipFile(flux.BytesIO(r.data))
-    noms = archive.namelist()
-    # UN DOSSIER, pas quatre fichiers en vrac : ouverte sur un bureau, elle
-    # ne doit pas repandre un Dockerfile au milieu du reste.
-    assert noms and all(n.startswith("site/") for n in noms), noms
-    attendus = {f["nom"] for f in app.fichiers_conteneur(
-        dict(app.load()["site"], name="site"))["fichiers"]}
-    assert {n.split("/", 1)[1] for n in noms} == attendus
-    # Et le contenu est bien celui que la page montre.
-    for nom in noms:
-        assert archive.read(nom).decode("utf-8").strip(), nom
-
-    # Rien n'a ete ecrit dans le projet : telecharger n'est pas deposer.
-    assert sorted(p.name for p in projet.iterdir()) == ["app.py"]
-
-
-def test_le_bouton_de_telechargement_existe():
-    page = _page_panneau("dashboard.html")
-    assert 'onclick="ctTelecharger()"' in page
-    bloc = page.split("function ctTelecharger(){")[1].split("\n}")[0]
-    assert "/conteneur.zip" in bloc
-
-
 def test_toutes_les_coches_du_panneau_choisissent_une_ligne():
     """« Pour tout CodeLab » : plus une seule case nue a viser.
 
@@ -9249,8 +9042,8 @@ def test_dagster_parait_dans_le_hub_et_mene_au_port_3000(hub_dagster):
 
     services = d["services"]
     # Trois services dans le hub : l'orchestrateur, le courrier, et les
-    # demandes recues.
-    assert [s["name"] for s in services] == ["dagster", "mailpit", "demandes"]
+    # messages recus.
+    assert [s["name"] for s in services] == ["dagster", "mailpit", "messages"]
     dagster = services[0]
     # L'adresse est celle du NAVIGATEUR : meme hote, autre port.
     assert dagster["url"].endswith(":3000/"), dagster["url"]
@@ -9482,19 +9275,19 @@ def test_un_message_inconnu_ne_fait_pas_semblant(boite):
     assert c.put("/api/messages/jamais-vu", json={"retenu": True}).status_code == 404
 
 
-def test_l_application_demandes_trie_et_confirme():
-    """La boite de reception : des etats, trois gestes, et rien ne se
+def test_l_application_messages_range_et_confirme():
+    """La boite de reception : trier, ranger, regrouper ; et rien ne se
     supprime sans confirmation."""
-    page = _page_panneau("demandes.html")
-    for etat in ("choisirEtat('attente')", "choisirEtat('reflechir')", "choisirEtat('traites')"):
-        assert etat in page, etat
-    for geste in ('data-agir="accepter"', 'data-agir="epingler"', 'data-agir="archiver"',
-                  'data-agir="supprimer-demande"'):
-        assert geste in page, geste
-    for fonction in ("async function demandeSupprimer(", "async function tacheSupprimer(",
-                     "async function projetSupprimer("):
-        corps = page.split(fonction)[1].split("\n}")[0]
-        assert "demander(" in corps, fonction + " supprime sans confirmation"
+    page = _page_panneau("messages.html")
+    for trace in ("'/api/messages/ordre'", "'/api/messages/grouper'", 'data-agir="grouper"',
+                  'data-changer="message-projet"', 'data-agir="message-archiver"',
+                  'data-agir="message-tache"', "function suggestions(", 'data-triable'):
+        assert trace in page, trace
+    for action in ("'message-supprimer'", "'tache-supprimer'"):
+        corps = page.split(action)[1].split("\n  },")[0]
+        assert "demander(" in corps, action + " supprime sans confirmation"
+    corps = page.split("async function projetSupprimer(")[1].split("\n}")[0]
+    assert "demander(" in corps
     # Le jeton anti-falsification part avec toute requete qui modifie.
     assert "X-CodeLab-Jeton" in page and "const JETON=__JETON__;" in page
 
@@ -9502,12 +9295,12 @@ def test_l_application_demandes_trie_et_confirme():
 def test_un_message_recu_se_signale_dans_le_coin():
     """« Ajoute des notifications en bas a droite des qu'un message est
     recu. » La page guette, le dit la ou elle dit tout le reste, et mene a
-    l'application Demandes."""
+    l'application Messages."""
     page = _page_panneau("dashboard.html")
     bloc = page.split("async function guetterMessages(){")[1].split("\n}")[0]
     assert "apres=" in bloc, "le guet retelecharge toute la boite"
     assert "notifier" in bloc
-    assert "location.href='/demandes'" in page.split("function notifierMessage(")[1].split("\n}")[0]
+    assert "location.href='/messages'" in page.split("function notifierMessage(")[1].split("\n}")[0]
     # surveiller() et non setInterval() : les minuteries s'arretent quand
     # l'onglet passe en arriere-plan.
     assert "surveiller(guetterMessages" in page
@@ -10677,7 +10470,7 @@ def test_remettre_dagster_le_ramene_dans_le_hub(hub, monkeypatch):
     c.post("/api/mes-apps/" + app.DAGSTER_NOM + "/masquer")
     assert c.delete("/api/mes-apps/" + app.DAGSTER_NOM + "/masquer").status_code == 200
     d = c.get("/api/mes-apps").get_json()
-    assert [s["name"] for s in d["services"]] == [app.DAGSTER_NOM, app.MAILPIT_NOM, app.DEMANDES_NOM]
+    assert [s["name"] for s in d["services"]] == [app.DAGSTER_NOM, app.MAILPIT_NOM, app.MESSAGERIE_NOM]
     assert d["services_masques"] == []
 
 
@@ -10699,7 +10492,7 @@ def test_seuls_les_services_nommes_passent_par_la_route_de_masquage():
     sinon la route accepterait n'importe quel nom et masquees.json se
     remplirait d'entrees qui ne designent rien."""
     assert app.SERVICES_MASQUABLES == frozenset({app.DAGSTER_NOM, app.MAILPIT_NOM,
-                                                app.DEMANDES_NOM})
+                                                app.MESSAGERIE_NOM})
 
 
 def test_ranger_un_nom_inconnu_reste_un_refus(hub):
@@ -12277,6 +12070,55 @@ def test_les_mails_du_panneau_passent_par_mailpit(monkeypatch):
     assert remis and remis[0]["To"] == "toi@example.com" and not direct
 
 
+def test_un_mail_de_securite_ne_passe_jamais_par_mailpit(monkeypatch):
+    """Codes, liens d'invitation, alerte de connexion : ils partent en
+    direct. Mailpit, que tout administrateur ouvre depuis le hub, n'en garde
+    aucune copie. Les autres mails, eux, s'y relisent."""
+    remis, envois = [], []
+    monkeypatch.setattr(app, "MAIL_PAR_MAILPIT", True)
+    monkeypatch.setattr(app, "_envoyer_par_mailpit", lambda msg: remis.append(msg))
+
+    class FauxSMTP:
+        def __init__(self, *a, **k): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def ehlo(self): pass
+        def starttls(self, **k): pass
+        def login(self, *a): pass
+        def send_message(self, msg): envois.append(msg)
+
+    monkeypatch.setattr(app.smtplib, "SMTP", FauxSMTP)
+    cfg = {"host": "smtp.example.com", "port": 587, "tls": "starttls",
+           "user": "", "password": "", "expediteur": "moi@example.com"}
+    app.envoyer_mail(cfg, "code", "1234", destinataires=["toi@example.com"], sensible=True)
+    assert envois and not remis
+    # Sans serveur d'envoi, un mail de securite ne part pas -- il ne se
+    # rabat pas sur Mailpit.
+    with pytest.raises(RuntimeError):
+        app.envoyer_mail(dict(cfg, host=""), "code", "1234",
+                         destinataires=["toi@example.com"], sensible=True)
+    assert not remis
+    # Les quatre mails qui portent un secret sont marques sensibles.
+    marques = []
+    monkeypatch.setattr(app, "smtp_utilisable", lambda: (cfg, True))
+    monkeypatch.setattr(app, "envoyer_mail",
+                        lambda cfg, sujet, corps, destinataires=None, **kw:
+                        marques.append((sujet, kw.get("sensible"))))
+    app.envoyer_code_email("toi@example.com", "toi", "123456")
+    app.envoyer_code_reinit("toi@example.com", "toi", "123456")
+    app.envoyer_code_connexion({"email": "toi@example.com"}, "toi", "mail", "123456")
+    app.envoyer_invitation("toi@example.com", "https://x/invitation/abc")
+    assert len(marques) == 4 and all(sensible is True for _, sensible in marques), marques
+
+
+def test_les_alertes_dagster_passent_par_mailpit():
+    source = open(os.path.join(_racine_depot(), "workspace", "diagnostic", "definitions.py"),
+                  encoding="utf-8").read()
+    corps = source.split("def envoyer(cfg, sujet, corps):")[1].split("\ndef ")[0]
+    assert "smtplib.SMTP(MAILPIT_SMTP_HOTE, MAILPIT_SMTP_PORT" in corps
+    assert corps.index("MAILPIT_SMTP_HOTE") < corps.index("_login")
+
+
 def test_mailpit_injoignable_l_envoi_repart_en_direct(monkeypatch):
     def refuse(msg):
         raise ConnectionRefusedError("arrete")
@@ -12678,13 +12520,13 @@ def test_une_connexion_admin_depuis_une_adresse_inconnue_est_signalee(journal, m
     envois = []
     monkeypatch.setattr(app, "alertes_admin", lambda: ["moi@example.com"])
     monkeypatch.setattr(app, "envoyer_avec_repli",
-                        lambda sujet, corps, dest: envois.append((sujet, dest)))
+                        lambda sujet, corps, dest, **kw: envois.append((sujet, dest, kw)))
 
     class ThreadImmediat:
-        def __init__(self, target, args=(), daemon=None):
-            self.t, self.a = target, args
+        def __init__(self, target, args=(), kwargs=None, daemon=None):
+            self.t, self.a, self.k = target, args, kwargs or {}
         def start(self):
-            self.t(*self.a)
+            self.t(*self.a, **self.k)
     monkeypatch.setattr(app.threading, "Thread", ThreadImmediat)
     monkeypatch.setattr(app, "trust_proxy", lambda: True)
     c = journal
@@ -12698,6 +12540,8 @@ def test_une_connexion_admin_depuis_une_adresse_inconnue_est_signalee(journal, m
     c.post("/login", json={"nom": "admin", "password": "secret-de-test"},
            headers={"X-Forwarded-For": "192.168.1.77"})       # nouvelle
     assert len(envois) == 1 and envois[0][1] == ["moi@example.com"]
+    # Une alerte de securite : jamais par Mailpit.
+    assert envois[0][2] == {"sensible": True}
 
 
 
@@ -12875,10 +12719,10 @@ def test_chaque_page_du_panneau_a_son_adresse(deux_espaces):
         r = c.get(chemin)
         assert r.status_code == 200, chemin
         assert "routerDepuisAdresse" in r.get_data(as_text=True), chemin
-    # Les anciennes adresses des messages menent a l'application Demandes.
-    for chemin in ("/messages", "/messages/taches"):
+    # Les adresses de l'ancienne application « Demandes » menent a Messages.
+    for chemin in ("/demandes", "/demandes/tableau"):
         r = c.get(chemin)
-        assert r.status_code == 302 and r.headers["Location"].endswith("/demandes"), chemin
+        assert r.status_code == 302 and r.headers["Location"].endswith("/messages"), chemin
     # Ces noms ne peuvent plus servir d'adresse a une application -- ni
     # aucun autre premier segment d'une route du panneau.
     reserves = app.adresses_reservees()
@@ -12895,7 +12739,7 @@ def test_la_page_suit_l_adresse_et_l_historique():
     assert "window.addEventListener('popstate'" in page
     assert "history.pushState(null, '', a)" in page
     assert "'/parametres/'+paramOngletActif" in page
-    # Les messages sont partis dans l'application Demandes.
+    # Les messages sont partis dans l'application Messages.
     assert "'/messages/taches'" not in page
 
 
@@ -12959,28 +12803,33 @@ def test_accepter_sans_tache_et_droits(boite, deux_espaces):
     assert u.post(f"/api/messages/{ident}/accepter", json={}).status_code == 403
 
 
-def test_l_application_demandes_a_ses_trois_vues():
-    page = _page_panneau("demandes.html")
-    for trace in ('id="vue-boite"', 'id="vue-tableau"', 'id="vue-projets"',
-                  'id="fen-accepter"', 'id="fen-tache"', 'id="fen-projet"',
-                  "nouveau_projet", "'/api/taches/ordre'", "history.pushState"):
+def test_l_application_messages_a_ses_vues():
+    page = _page_panneau("messages.html")
+    for trace in ("aller('projet'", "'planning'", "'feuille'", "'boite'", 'id="fen-tache"',
+                  'id="fen-projet"', 'id="fen-grouper"', 'id="fen-scinder"', "history.pushState",
+                  "'/api/taches/plan'", "/scinder'", "function planifier("):
         assert trace in page, trace
-    # Les trois etapes d'un projet, et le geste qui le concretise.
-    for etape in ("'idee'", "'construction'", "'realise'", "Concrétiser"):
-        assert etape in page, etape
+    # Pas d'etiquette d'urgence : la priorite, c'est la place dans le planning.
+    assert "priorite" not in "".join(_scripts_de_la_page("messages.html"))
+    # La feuille de route : aujourd'hui, semaine par semaine, sur des mois.
+    for echelle in ("'jour'", "'semaines'", "'mois'", "[1,3,6,12]"):
+        assert echelle in page, echelle
 
 
 
-# ---------- style « Design » ----------
-def test_le_style_design_se_choisit_et_se_pose_cote_serveur(deux_espaces):
+# ---------- styles : lanceur et bento ----------
+def test_le_style_se_choisit_et_se_pose_cote_serveur(deux_espaces):
     """Le choix vit dans un cookie : le serveur pose l'attribut avant la
-    premiere peinture. Seule la valeur « design » est reconnue."""
+    premiere peinture. Sans cookie, ou avec celui d'un ancien style, c'est
+    le bento."""
     c = deux_espaces
-    assert 'data-style="design"' not in c.get("/login").get_data(as_text=True).split("<head>")[0]
-    c.set_cookie("codelab-style", "design")
-    assert '<html lang="fr" data-style="design">' in c.get("/login").get_data(as_text=True)
+    defaut = '<html lang="fr" data-style="design" data-variante="bento">'
+    assert defaut in c.get("/login").get_data(as_text=True)
+    for ancien in ("design", "classique"):
+        c.set_cookie("codelab-style", ancien)
+        assert defaut in c.get("/login").get_data(as_text=True), ancien
     c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
-    assert '<html lang="fr" data-style="design">' in c.get("/parametres").get_data(as_text=True)
+    assert defaut in c.get("/parametres").get_data(as_text=True)
     c.set_cookie("codelab-style", '"><script>')
     assert "<script>\">" not in c.get("/").get_data(as_text=True)[:200]
     page = _page_panneau("dashboard.html")
@@ -13027,19 +12876,193 @@ def test_les_styles_lanceur_et_bento_se_posent_cote_serveur(deux_espaces):
         assert (f'<html lang="fr" data-style="design" data-variante="{variante}">'
                 in c.get("/login").get_data(as_text=True))
     c.set_cookie("codelab-style", "lanceur\" onload=\"x")
-    assert "data-variante" not in c.get("/login").get_data(as_text=True)[:300]
+    tete = c.get("/login").get_data(as_text=True)[:300]
+    assert "onload" not in tete and 'data-variante="bento"' in tete
     page = _page_panneau("dashboard.html")
-    for cle in ("classique", "design", "lanceur", "bento"):
+    for cle in ("lanceur", "bento"):
         assert f"setStyle('{cle}')" in page, cle
-    assert "const STYLES = ['classique','design','lanceur','bento'];" in page
-    # Le hub change de forme : recherche et dock (lanceur), mosaique (bento).
-    assert 'id="hub-filtre"' in page and 'id="hub-dock"' in page
-    assert "function peindreDock(" in page and "function peindreBento(" in page
-    assert ':root[data-variante="lanceur"] .hub-dock:not(:empty){display:flex' in page
-    assert "#hub-liste.bento{display:grid" in page
+    # Les styles 1 et 2 ne se choisissent plus.
+    for ancien in ("classique", "design"):
+        assert f"setStyle('{ancien}')" not in page, ancien
+    assert "const STYLES = ['lanceur','bento'];" in page
+    # Le hub change de forme : recherche (les deux), mosaique (bento).
+    assert 'id="hub-filtre"' in page and "function peindreBento(" in page
+    # Plus de dock dans le lanceur : Dagster, Mailpit et Demandes ont la
+    # tuile d'une application, dans la meme grille.
+    assert "hub-dock" not in page and "peindreDock" not in page
+    corps = page.split("function peindreHub(){")[1].split("\n}")[0]
+    assert "hubApps.concat(hubServices).filter(correspond)" in corps
+    assert "#hub-liste.bento{--cel:" in page
     # Le script ne peint pas le hub avant d'avoir declare ce qu'il lit.
     debut = page.index("function applyStyle(")
     assert "peindreHub" not in page[debut:page.index("function setStyle(")]
+
+
+
+# ---------- le hub Bento : defilement, widgets, a la une ----------
+
+def test_la_mosaique_defile_a_l_horizontale_et_a_la_verticale_sur_telephone():
+    """Sur un ecran large : trois rangees a la hauteur de la fenetre, les
+    applications s'ajoutent sur la droite, jamais en bas. Sur un telephone :
+    une colonne qu'on fait defiler vers le bas."""
+    page = _page_panneau("dashboard.html")
+    regle = page.split("#hub-liste.bento{--cel:")[1].split("}")[0]
+    for attendu in ("grid-auto-flow:column", "grid-template-rows:repeat(3", "overflow-x:auto",
+                    "overflow-y:hidden", "height:var(--bento-h"):
+        assert attendu in regle, attendu
+    mobile = page.split("@media (max-width:760px){\n  :root[data-variante=\"lanceur\"] .salut")[1]
+    mobile = mobile.split("\n}")[0]
+    assert "grid-auto-flow:row" in mobile and "overflow:visible" in mobile and "height:auto" in mobile
+    # La molette verticale fait defiler de cote ; l'ajout d'application est
+    # la derniere tuile, donc a droite.
+    assert "el.scrollLeft += e.deltaY" in page
+    corps = page.split("function peindreBento(")[1].split("\n}")[0]
+    assert "liste.map(carte).join('') + vide + ajout" in corps
+    assert 'class="bento-ajout" onclick="openAdd()"' in corps
+
+
+def test_a_la_une_montre_un_apercu_de_la_derniere_application_ouverte(deux_espaces):
+    page = _page_panneau("dashboard.html")
+    une = page.split("function widgetUne(")[1].split("\n}")[0]
+    assert "<iframe" in une and "pointer-events" not in une  # inerte par le CSS
+    assert 'sandbox="allow-scripts allow-same-origin allow-forms"' in une
+    assert "a.ouverte_le" in page.split("function appALaUne(")[1].split("\n}")[0]
+    assert ".bw-apercu iframe{" in page and "pointer-events:none" in page.split(".bw-apercu iframe{")[1].split("}")[0]
+    # Le panneau autorise l'encadrement de l'origine des applications, et
+    # elle seule ; il ne s'encadre toujours pas lui-meme.
+    c = deux_espaces
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    r = c.get("/")
+    csp = r.headers["Content-Security-Policy"]
+    assert "frame-src" in csp and "frame-ancestors 'none'" in csp
+    assert r.headers["X-Frame-Options"] == "DENY"
+
+
+def test_les_widgets_se_choisissent_par_compte(deux_espaces):
+    c = deux_espaces
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    d = c.get("/api/hub/widgets").get_json()
+    ids = [w["id"] for w in d["widgets"]]
+    assert ids[0] == "une" and "messages" in ids and "message" not in ids
+    assert {w["id"] for w in d["disponibles"]} == {"une", "etat", "horloge", "messages", "notes"}
+    r = c.put("/api/hub/widgets", json={"widgets": [{"id": "horloge", "taille": "large"},
+                                                    {"id": "une"}]})
+    assert r.status_code == 200
+    assert c.get("/api/hub/widgets").get_json()["widgets"] == [
+        {"id": "horloge", "taille": "large"}, {"id": "une", "taille": "normal"}]
+    for mauvais in ([{"id": "inconnu"}], [{"id": "une"}, {"id": "une"}],
+                    [{"id": "une", "taille": "geant"}], "x", [{"id": "message"}]):
+        assert c.put("/api/hub/widgets", json={"widgets": mauvais}).status_code == 400, mauvais
+    assert c.put("/api/hub/notes", json={"notes": "acheter du pain"}).status_code == 200
+    assert c.get("/api/hub/widgets").get_json()["notes"] == "acheter du pain"
+    assert c.put("/api/hub/notes", json={"notes": "x" * 5000}).status_code == 400
+    # Un compte utilisateur a SES widgets, et pas celui des messages recus.
+    u = app.flask_app.test_client()
+    _connecte(u, "marie", "mot-de-passe-long")
+    d = u.get("/api/hub/widgets").get_json()
+    assert "messages" not in [w["id"] for w in d["widgets"]]
+    assert "message" in [w["id"] for w in d["widgets"]]
+    assert u.get("/api/hub/widgets").get_json()["notes"] == ""
+    assert u.put("/api/hub/widgets", json={"widgets": [{"id": "messages"}]}).status_code == 400
+    page = _page_panneau("dashboard.html")
+    assert 'id="ov-widgets"' in page and "function enregistrerWidgets(" in page
+    assert "hub-personnaliser" in page
+
+
+# ---------- nouvelle version depuis la derniere ouverture ----------
+
+def _depot(chemin, commit):
+    (chemin / ".git" / "refs" / "heads").mkdir(parents=True, exist_ok=True)
+    (chemin / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+    (chemin / ".git" / "refs" / "heads" / "main").write_text(commit + "\n")
+
+
+def test_une_nouvelle_version_se_signale_a_qui_a_deja_ouvert(tmp_path, monkeypatch, deux_espaces):
+    c = deux_espaces
+    projet = tmp_path / "projet"
+    _depot(projet, "a" * 40)
+    apps = app.load()
+    apps["prive-autorise"]["path"] = str(projet)
+    app.save(apps)
+    assert app.commit_du_projet(str(projet)) == "a" * 40
+    u = app.flask_app.test_client()
+    _connecte(u, "marie", "mot-de-passe-long")
+
+    def etat():
+        (a,) = [x for x in u.get("/api/mes-apps").get_json()["apps"] if x["name"] == "prive-autorise"]
+        return a["nouvelle_version"], a["ouverte_le"]
+
+    # Jamais ouverte : pas d'indicateur.
+    assert etat() == (False, None)
+    assert u.post("/api/mes-apps/prive-autorise/ouverte").status_code == 200
+    nouvelle, ouverte = etat()
+    assert nouvelle is False and ouverte
+    # Un nouveau commit, une seconde plus tard : nouvelle version.
+    monkeypatch.setattr(app.time, "time", lambda: ouverte + 5)
+    _depot(projet, "b" * 40)
+    assert etat()[0] is True
+    # La rouvrir l'efface.
+    assert u.post("/api/mes-apps/prive-autorise/ouverte").status_code == 200
+    assert etat()[0] is False
+    # Un deploiement ou un build reussi compte aussi.
+    monkeypatch.setattr(app.time, "time", lambda: ouverte + 10)
+    app.marquer_nouvelle_version("prive-autorise")
+    assert etat()[0] is True
+    # On ne note pas l'ouverture d'une application qu'on ne peut pas voir.
+    assert u.post("/api/mes-apps/prive-refuse/ouverte").status_code == 404
+    assert u.post("/api/mes-apps/inconnue/ouverte").status_code == 404
+
+
+def test_le_commit_se_lit_sans_lancer_git(tmp_path):
+    assert app.commit_du_projet(str(tmp_path)) is None
+    assert app.commit_du_projet(None) is None
+    _depot(tmp_path, "c" * 40)
+    (tmp_path / ".git" / "refs" / "heads" / "main").unlink()
+    (tmp_path / ".git" / "packed-refs").write_text("# pack\n" + "d" * 40 + " refs/heads/main\n")
+    assert app.commit_du_projet(str(tmp_path)) == "d" * 40
+    (tmp_path / ".git" / "HEAD").write_text("ref: refs/../../etc\n")
+    assert app.commit_du_projet(str(tmp_path)) is None
+    page = _page_panneau("dashboard.html")
+    assert "Nouvelle version" in page and "/ouverte'" in page and "keepalive:true" in page
+
+
+# ---------- l'onglet Acces et la liste des applications ----------
+
+def test_aucun_identifiant_du_panneau_n_est_en_double():
+    """Deux elements du meme id : getElementById prend le premier, et la
+    liste des comptes de l'onglet Acces se dessinait dans l'onglet Activite,
+    cache. On ne pouvait plus autoriser personne."""
+    page = _page_panneau("dashboard.html")
+    ids = re.findall(r'\bid="([^"$]+)"', page)
+    doubles = sorted({i for i in ids if ids.count(i) > 1})
+    assert not doubles, doubles
+    acces = page.split('id="onglet-acces"')[1].split('id="onglet-config"')[0]
+    assert 'id="acces-liste"' in acces
+    corps = page.split("async function chargerAcces(")[1].split("\nasync function acBasculer")[0]
+    assert "$('acces-liste')" in corps and 'data-compte="' in corps
+
+
+def test_l_onglet_acces_autorise_un_compte(deux_espaces):
+    c = deux_espaces
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    assert c.put("/api/apps/prive-refuse/acces", json={"utilisateurs": ["marie"]}).status_code == 200
+    comptes = c.get("/api/apps/prive-refuse/acces").get_json()["comptes"]
+    assert comptes == [{"nom": "marie", "acces": True, "email": ""}]
+    assert "prive-autorise" in app.lire_utilisateurs()["marie"]["projets"]
+
+
+def test_la_liste_des_applications_se_cherche_se_filtre_et_se_trie():
+    page = _page_panneau("dashboard.html")
+    for trace in ('id="ap-filtre"', 'id="ap-etats"', 'id="ap-vis"', 'id="ap-cat"', 'id="ap-tri"',
+                  "apVue('cartes')", "apVue('liste')", 'data-agir="ap-trier"', "aria-sort=",
+                  'class="ap-grille"', "'ap-trier':", "'ap-etat':"):
+        assert trace in page, trace
+    # Les outils sont HORS de la zone repeinte toutes les cinq secondes.
+    outils = page.index('id="ap-outils"')
+    assert outils < page.index('<div id="tbl-projets"></div>')
+    corps = page.split("function apListe(){")[1].split("\n}")[0]
+    for colonne in ("vis", "cat", "apEtat", "apTriSens"):
+        assert colonne in corps, colonne
 
 
 # ---------- connexion en deux etapes ----------
@@ -13143,8 +13166,8 @@ def test_les_sous_taches_se_priorisent(boite):
     assert c.put(f"/api/taches/{tache}/ordre", json={"ordre": "abc"}).status_code == 400
     assert c.put("/api/taches/inconnue/ordre", json={"ordre": []}).status_code == 404
     page = _page_panneau("dashboard.html")
-    page = _page_panneau("demandes.html")
-    assert "/ordre', 'PUT'" in page and 'data-agir="sous-monter"' in page
+    page = _page_panneau("messages.html")
+    assert "/ordre','PUT'" in page and 'data-agir="sous-monter"' in page
 
 
 
@@ -13265,38 +13288,109 @@ def test_une_demande_acceptee_devient_un_projet(boite):
     assert t["priorite"] == 1 and t["projet"] == p["id"]
 
 
-def test_l_application_demandes_est_reservee_a_l_administrateur(boite, deux_espaces):
+def test_les_messages_se_rangent_et_se_regroupent(boite):
+    """Ranger la boite a sa guise, rattacher un message a un projet,
+    regrouper ceux qui parlent de la meme chose -- dans un projet neuf ou
+    existant. Supprimer le projet rend ses messages « a classer »."""
     c, _ = boite
-    r = c.get("/demandes/tableau")
+    a = _message(c, "idee", "Un agenda partage")
+    b = _message(c, "idee", "Agenda commun pour les salles")
+    h = _message(c, "hub", "Le hub est lent")
+    assert c.put("/api/messages/ordre", json={"ordre": [h, a, b]}).status_code == 200
+    rangs = {m["id"]: m.get("ordre") for m in c.get("/api/messages").get_json()["messages"]}
+    assert (rangs[h], rangs[a], rangs[b]) == (0, 1, 2)
+    assert c.put("/api/messages/ordre", json={"ordre": [h, "x"]}).status_code == 409
+    assert c.put("/api/messages/ordre", json={"ordre": [h, h]}).status_code == 400
+    r = c.post("/api/messages/grouper", json={"ids": [a, b], "nouveau_projet": {"nom": "Agenda"}})
+    assert r.status_code == 200, r.data
+    projet = r.get_json()["projet"]
+    lus = {m["id"]: m for m in c.get("/api/messages").get_json()["messages"]}
+    assert lus[a]["projet"] == lus[b]["projet"] == projet and lus[a]["lu"]
+    assert c.post("/api/messages/grouper", json={"ids": [h], "projet": projet}).status_code == 200
+    assert c.post("/api/messages/grouper", json={"ids": [h], "projet": "p-inconnu"}).status_code == 400
+    assert c.post("/api/messages/grouper", json={"ids": [], "projet": projet}).status_code == 400
+    assert c.post("/api/messages/grouper", json={"ids": ["x"], "projet": projet}).status_code == 404
+    # Rattacher et detacher un seul message.
+    assert c.put(f"/api/messages/{h}", json={"projet": ""}).status_code == 200
+    assert "projet" not in {m["id"]: m for m in c.get("/api/messages").get_json()["messages"]}[h]
+    assert c.put(f"/api/messages/{h}", json={"projet": "general"}).status_code == 400
+    assert c.put(f"/api/messages/{h}", json={"projet": projet}).status_code == 200
+    assert c.delete(f"/api/projets/{projet}").status_code == 200
+    assert not any(m.get("projet") for m in c.get("/api/messages").get_json()["messages"])
+
+
+def test_le_planning_s_ordonne_et_une_tache_se_scinde(boite):
+    """La priorite est une PLACE : le planning s'ordonne en entier, sans
+    toucher aux statuts. Une tache a une duree, une date facultative, et se
+    scinde en plusieurs, qui la suivent."""
+    c, _ = boite
+    m = _message(c, "hub", "Le hub est lent")
+    ids = [c.post("/api/taches", json={"projet": "general", "titre": t, "duree": d}).get_json()["id"]
+           for t, d in (("a", 1), ("b", 4), ("c", 2))]
+    a, b, cc = ids
+    assert c.put(f"/api/taches/{a}", json={"statut": "en_cours"}).status_code == 200
+    assert c.put("/api/taches/plan", json={"ordre": [cc, a, b]}).status_code == 200
+    taches = sorted(c.get("/api/taches").get_json()["taches"], key=lambda t: t["ordre"])
+    assert [t["titre"] for t in taches] == ["c", "a", "b"]
+    assert {t["titre"]: t["statut"] for t in taches}["a"] == "en_cours"
+    assert c.put("/api/taches/plan", json={"ordre": ["x"]}).status_code == 409
+    for mauvais in ({"duree": 0}, {"duree": 61}, {"duree": "long"}):
+        assert c.put(f"/api/taches/{a}", json=mauvais).status_code == 400, mauvais
+    # Une tache nee d'un message ; un message inconnu est refuse.
+    r = c.post("/api/taches", json={"projet": "general", "titre": "depuis", "message": m})
+    assert r.status_code == 200
+    assert c.post("/api/taches", json={"projet": "general", "titre": "x", "message": "inconnu"}).status_code == 404
+    # Cochee, une tache date sa fin ; rouverte, elle l'oublie.
+    assert c.put(f"/api/taches/{a}", json={"statut": "fait"}).status_code == 200
+    assert {t["id"]: t for t in c.get("/api/taches").get_json()["taches"]}[a]["fait_le"]
+    assert c.put(f"/api/taches/{a}", json={"statut": "a_faire"}).status_code == 200
+    assert {t["id"]: t for t in c.get("/api/taches").get_json()["taches"]}[a]["fait_le"] is None
+    # Scinder « b » (4 jours) en deux : la duree se partage, la suite vient juste apres.
+    r = c.post(f"/api/taches/{b}/scinder", json={"titres": ["b1", "b2"]})
+    assert r.status_code == 200, r.data
+    taches = sorted(c.get("/api/taches").get_json()["taches"], key=lambda t: t["ordre"])
+    titres = [t["titre"] for t in taches]
+    assert titres.index("b2") == titres.index("b1") + 1
+    assert {t["titre"]: t["duree"] for t in taches}["b1"] == 2
+    assert c.post(f"/api/taches/{b}/scinder", json={"titres": ["seul"]}).status_code == 400
+    assert c.post("/api/taches/inconnue/scinder", json={"titres": ["x", "y"]}).status_code == 404
+
+
+def test_l_application_messages_est_reservee_a_l_administrateur(boite, deux_espaces):
+    c, _ = boite
+    r = c.get("/messages/planning")
     assert r.status_code == 200
     page = r.get_data(as_text=True)
-    assert "__JETON__" not in page and 'id="vue-tableau"' in page
+    assert "__JETON__" not in page and "function peindrePlanning(" in page
+    assert c.get("/messages/projet/p-abc").status_code == 200
     # Un compte utilisateur est renvoye au hub ; un anonyme, a la connexion.
     u = app.flask_app.test_client()
     _connecte(u, "marie", "mot-de-passe-long")
-    r = u.get("/demandes")
+    r = u.get("/messages")
     assert r.status_code == 302 and r.headers["Location"].endswith("/")
     for route in ("/api/projets", "/api/taches"):
         assert u.get(route).status_code == 403, route
     assert u.put("/api/taches/ordre", json={"statut": "fait", "ordre": []}).status_code == 403
-    assert app.flask_app.test_client().get("/demandes").status_code == 302
-    assert "demandes" in app.PAGES_DU_PANNEAU and "demandes" in app.adresses_reservees()
+    assert app.flask_app.test_client().get("/messages").status_code == 302
+    for nom in ("messages", "demandes"):
+        assert nom in app.PAGES_DU_PANNEAU and nom in app.adresses_reservees()
 
 
-def test_la_tuile_demandes_compte_les_non_lues(boite):
+def test_la_tuile_messages_compte_les_non_lus(boite):
     """Une tuile du hub au meme rang que le diagnostic, qui dit combien de
     demandes attendent -- et que le panneau ouvre chez lui."""
     c, _ = boite
     _message(c, "hub", "Une")
     _message(c, "hub", "Deux")
     services = c.get("/api/mes-apps").get_json()["services"]
-    tuile = next(s for s in services if s["name"] == app.DEMANDES_NOM)
-    assert tuile["interne"] is True and tuile["url"] == "/demandes" and tuile["non_lues"] == 2
+    tuile = next(s for s in services if s["name"] == app.MESSAGERIE_NOM)
+    assert tuile["interne"] is True and tuile["url"] == "/messages" and tuile["non_lues"] == 2
+    assert tuile["titre"] == "Messages"
     assert c.post("/api/messages/lus").status_code == 200
     services = c.get("/api/mes-apps").get_json()["services"]
-    assert next(s for s in services if s["name"] == app.DEMANDES_NOM)["non_lues"] == 0
+    assert next(s for s in services if s["name"] == app.MESSAGERIE_NOM)["non_lues"] == 0
     # Le tableau des applications, lui, ne la compte pas parmi les siennes.
-    assert app.DEMANDES_NOM not in [a.get("name") for a in c.get("/api/apps").get_json().get("apps", [])]
+    assert app.MESSAGERIE_NOM not in [a.get("name") for a in c.get("/api/apps").get_json().get("apps", [])]
     page = _page_panneau("dashboard.html")
     assert "a.interne ? a.url" in page
 
@@ -13704,6 +13798,19 @@ def test_le_manuel_porte_la_liste_avant_mise_en_ligne():
     # dernier avant de conclure.
     assert manuel.rstrip().rsplit("\n## ", 1)[1].startswith("Avant de declarer")
 
+
+
+def test_le_manuel_donne_une_direction_artistique():
+    """Les references visuelles des applications : chacune avec ce qu'on en
+    prend, et la regle qui les garde dans CodeLab -- s'inspirer sans charger
+    de librairie tierce."""
+    manuel = open(os.path.join(_racine_depot(), "dev", "AGENTS.md"), encoding="utf-8").read()
+    style = manuel.split("## 13. Le style de CodeLab")[1].split("\n## 14.")[0]
+    assert "### Direction artistique" in style
+    for site in ("rondesignlab.com", "refero.design", "kokonutui.com",
+                 "ui.aceternity.com", "ui.shadcn.com", "www.usemotion.com"):
+        assert "https://" + site in style, site
+    assert "prefers-reduced-motion" in style and "CDN" in style
 
 # ------------------------- audit des dependances des projets -------------------------
 

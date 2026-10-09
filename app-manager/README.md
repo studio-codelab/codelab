@@ -26,7 +26,7 @@ ses garanties de sécurité dans [`SECURITE.md`](../SECURITE.md).
 | `app/app.py` | le service : authentification, API, cycle de vie des processus, proxy, mails, sauvegardes |
 | `app/stockage.py` | la base SQLite : connexions, schéma versionné (`MIGRATIONS`), sauvegarde cohérente |
 | `app/dashboard.html`, `app/login.html` | les deux pages |
-| `app/theme.css` | **toutes** les couleurs, formes et tailles, pour les quatre styles et leurs thèmes clair et sombre ; servi aussi aux applications |
+| `app/theme.css` | **toutes** les couleurs, formes et tailles, pour les deux styles et leurs thèmes clair et sombre ; servi aussi aux applications |
 | `app/polices/` | Manrope et Plus Jakarta Sans, auto-hébergées, servies par liste blanche |
 | `vps/` | exposer le panneau par un VPS ([`vps/README.md`](vps/README.md)) ; ne fait pas partie de l'image |
 
@@ -104,7 +104,8 @@ Le fonctionnement des comptes est décrit dans [`SECURITE.md`](../SECURITE.md). 
 
 **Envoi de mails**
 
-- Tous les mails partent par Mailpit (`APP_MANAGER_MAIL_PAR_MAILPIT`).
+- Tous les mails partent par Mailpit (`APP_MANAGER_MAIL_PAR_MAILPIT`), sauf les mails de sécurité
+  (codes, invitations, alerte de connexion admin : `sensible=True`), envoyés en direct sans copie.
 - Si Mailpit ne répond pas, le panneau envoie directement par le serveur d'envoi.
 - Le panneau publie ce serveur à Mailpit dans le bloc `codelab-relais-mail`.
 
@@ -151,7 +152,8 @@ Une base SQLite dans `APP_MANAGER_STATE` (`/DATA/AppData/codelab/app-manager` su
 | `cles_acces` | clés WebAuthn : clé publique, compteur, nom, dernière utilisation |
 | `categories`, `masquees` | catégories du hub ; ce que chaque compte a rangé hors de son hub |
 | `journal` | accès, refus, ouvertures, changements de compte (50 000 derniers) |
-| `messages`, `taches`, `sous_taches`, `projets` | demandes à l'administrateur, tâches (statut, priorité, échéance, notes), sous-tâches et projets (idée, construction, réalisé) |
+| `versions_apps`, `apps_vues`, `preferences` | dernière version connue de chaque application (déploiement, build, commit), version vue par chaque compte, widgets et bloc-notes du hub |
+| `messages`, `taches`, `sous_taches`, `projets` | messages à l'administrateur (rang et projet dans `options`), tâches (ordre du planning, date prévue, durée, fin, notes), sous-tâches et projets (idée, construction, réalisé) |
 | `processus` | processus lancés, retrouvés après un redémarrage du panneau |
 | `parametres` | réglages en clair : exposition, VPS |
 | `reglages_chiffres` | réglages sensibles, chiffrés (Fernet) avec `APP_MANAGER_CHIFFREMENT_CLE` |
@@ -238,13 +240,13 @@ comptes (`require_admin`).
 | Mon compte | `GET /api/mon-compte`, `POST /api/mon-compte/email[/code\|/confirmer]`, `POST /api/compte/mot-de-passe`, `GET/POST/DELETE /api/mon-compte/passkeys[/options\|/<id>]`, `GET /api/passkeys/etat` (sans session), `GET /qr/totp.svg` |
 | Sécurité | `GET /api/securite`, `PUT /api/securite/exposition`, `POST /api/securite/totp/preparer\|activer\|desactiver`, `GET/PUT /api/vps` |
 | Comptes (admin) | `GET/POST /api/utilisateurs`, `PUT/DELETE /api/utilisateurs/<nom>`, `GET/PUT /api/apps/<nom>/acces`, `GET /api/activite`, `GET /api/activite/carte` |
-| Applications (admin) | `GET /api/apps`, `GET /api/browse`, `GET /api/detect`, `POST /api/add`, `PUT/DELETE /api/app/<nom>`, `POST /api/app/<nom>/renommer`, `POST /api/toggle\|restart\|build\|deploy\|visibility/<nom>`, `GET /api/metrics/<nom>`, `GET /api/logs/<nom>[/stream]`, `PUT/DELETE /api/app/<nom>/logo`, `GET /api/app/<nom>/conteneur[.zip]` |
-| Hub | `GET /api/mes-apps`, `POST/DELETE /api/mes-apps/<nom>/masquer`, `GET /api/icon/<nom>`, `GET /api/categories` (tous) ; `PUT /api/categories` (admin) |
-| Messages | `POST /api/messages` (tous) ; `GET /api/messages`, `POST /api/messages/lus`, `PUT/DELETE /api/messages/<id>`, `PUT /api/messages/<id>/lu`, `POST /api/messages/<id>/accepter` (admin : en tâche `{titre, projet, priorite, sous_taches}`, en projet `{nouveau_projet, taches}`, ou `{}` sans suite) |
-| Tâches (admin) | `GET/POST /api/taches`, `PUT/DELETE /api/taches/<id>`, `PUT /api/taches/ordre` (une colonne du tableau : statut et ordre), `POST /api/taches/<id>/sous-taches`, `PUT /api/taches/<id>/ordre`, `PUT/DELETE /api/sous-taches/<id>` |
+| Applications (admin) | `GET /api/apps`, `GET /api/browse`, `GET /api/detect`, `POST /api/add`, `PUT/DELETE /api/app/<nom>`, `POST /api/app/<nom>/renommer`, `POST /api/toggle\|restart\|build\|deploy\|visibility/<nom>`, `GET /api/metrics/<nom>`, `GET /api/logs/<nom>[/stream]`, `PUT/DELETE /api/app/<nom>/logo` |
+| Hub | `GET /api/mes-apps` (avec `nouvelle_version` et `ouverte_le` par application), `POST/DELETE /api/mes-apps/<nom>/masquer`, `POST /api/mes-apps/<nom>/ouverte` (note la version vue), `GET/PUT /api/hub/widgets`, `PUT /api/hub/notes`, `GET /api/icon/<nom>`, `GET /api/categories` (tous) ; `PUT /api/categories` (admin) |
+| Messages | `POST /api/messages` (tous) ; `GET /api/messages`, `POST /api/messages/lus`, `PUT/DELETE /api/messages/<id>`, `PUT /api/messages/<id>/lu` (`projet` dans le PUT : rattacher), `PUT /api/messages/ordre`, `POST /api/messages/grouper` (`{ids, projet}` ou `{ids, nouveau_projet}`), `POST /api/messages/<id>/accepter` (admin : en tâche `{titre, projet, priorite, sous_taches}`, en projet `{nouveau_projet, taches}`, ou `{}` sans suite) |
+| Tâches (admin) | `GET/POST /api/taches`, `PUT/DELETE /api/taches/<id>`, `PUT /api/taches/plan` (ordre du planning), `POST /api/taches/<id>/scinder` (`{titres}`), `PUT /api/taches/ordre` (statut et ordre d'une liste), champs `duree`, `echeance`, `message`, `POST /api/taches/<id>/sous-taches`, `PUT /api/taches/<id>/ordre`, `PUT/DELETE /api/sous-taches/<id>` |
 | Projets (admin) | `GET/POST /api/projets`, `PUT/DELETE /api/projets/<id>` (supprimer renvoie ses tâches dans « Général »), `PUT /api/projets/ordre` |
 | Alertes (admin) | `GET/POST /api/alertes`, `PUT /api/alertes/application/<nom>`, `GET/POST /api/surveillance-externe` |
-| Pages | `/`, `/apercu`, `/applications[/<nom>[/<onglet>]]`, `/utilisateurs`, `/demandes[/<vue>]` (admin ; `/messages` y redirige), `/parametres[/<onglet>]`, `/ouvrir.app/<nom>/<chemin>`, `/deconnexion.html` ; `/espace` redirige vers `/` |
+| Pages | `/`, `/apercu`, `/applications[/<nom>[/<onglet>]]`, `/utilisateurs`, `/messages[/<vue>[/<id>]]` (admin ; `/demandes` y redirige), `/parametres[/<onglet>]`, `/ouvrir.app/<nom>/<chemin>`, `/deconnexion.html` ; `/espace` redirige vers `/` |
 | Ressources | `/theme.css`, `/polices/<nom>`, `/favicon.*`, `/apple-touch-icon*.png`, `/manifest.webmanifest` (sans session) ; `POST /api/erreur-navigateur` |
 | Proxy | `/<nom>/...` sur le port des applications |
 
@@ -262,10 +264,9 @@ docker run --rm -p 9001:9001 -p 9002:9002 \
 
 Au premier lancement, le mot de passe administrateur apparaît dans `docker logs`.
 
-**Styles** : le cookie `codelab-style` (`classique`, `design`, `lanceur`, `bento`) est lu par le
-serveur (`STYLES_PAGE`), qui pose `data-style` et, pour les styles 3 et 4, `data-variante` sur
-`<html>` avant le premier affichage. Les variantes reprennent la mise en page du style 2 et
-n'ajoutent que la leur, sous `:root[data-variante]`.
+**Styles** : le cookie `codelab-style` (`lanceur` ou `bento`) est lu par le serveur
+(`STYLES_PAGE`), qui pose `data-style="design"` et `data-variante` sur `<html>` avant le premier
+affichage. Sans cookie, ou avec celui d'un ancien style, c'est `bento`.
 
 **Conventions de l'interface** :
 - jamais d'`alert()`, `confirm()` ni `prompt()` : une confirmation dont le bouton porte le verbe, et

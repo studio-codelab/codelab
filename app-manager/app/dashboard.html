@@ -623,7 +623,9 @@ label:has(> input[type=checkbox]),label:has(> input[type=radio]){
 .seg-icones{width:auto;flex:none}
 .seg-icones button{flex:none;width:34px;padding:6px 0;display:grid;place-items:center}
 .seg-icones svg{width:15px;height:15px}
-.hub-projet,.dock-item,.bento-carte{position:relative}
+.hub-projet,.bento-carte{position:relative}
+.acces-initiale{flex:none;width:30px;height:30px;border-radius:999px;background:var(--accent-soft);
+ color:var(--accent);display:grid;place-items:center;font-weight:800;font-size:13px}
 .hub-pastille{position:absolute;top:-6px;right:-6px;min-width:22px;height:22px;padding:0 6px;border-radius:999px;
  background:var(--accent);color:var(--sur-accent);font-size:11.5px;font-weight:800;display:inline-flex;
  align-items:center;justify-content:center;box-shadow:0 0 0 3px var(--bg)}
@@ -781,6 +783,55 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
 .tbl tbody tr:hover{background:var(--surface2)}
 .tbl tbody tr,.tbl tbody tr td{transition:background .1s}
 .tbl-nom{display:flex;align-items:center;gap:10px;min-width:0}
+/* ---- les applications : outils, cartes, liste triable ---- */
+.ap-outils{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:16px}
+.ap-recherche{display:flex;align-items:center;gap:8px;height:40px;padding:0 14px;border-radius:999px;
+ background:var(--surface);border:1px solid var(--line2);flex:0 1 300px;min-width:200px}
+.ap-recherche:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-ring)}
+.ap-recherche svg{width:16px;height:16px;fill:none;stroke:var(--dim);stroke-width:2;stroke-linecap:round;flex:none}
+.ap-recherche input{border:0;outline:0;background:transparent;flex:1;min-width:0;font:inherit;color:var(--txt);padding:0}
+.ap-puces{display:flex;flex-wrap:wrap;gap:6px}
+.ap-puces button{height:34px;padding:0 12px;border-radius:999px;border:1px solid var(--line2);background:var(--surface);
+ color:var(--txt);font:inherit;font-size:12.5px;font-weight:650;cursor:pointer}
+.ap-puces button b{font-weight:800;color:var(--dim);margin-left:3px}
+.ap-puces button[aria-pressed="true"]{background:var(--txt);border-color:var(--txt);color:var(--surface)}
+.ap-puces button[aria-pressed="true"] b{color:inherit;opacity:.7}
+.ap-outils select.ap-choix{width:auto;flex:none;height:36px;padding:0 30px 0 12px;border-radius:999px;
+ border:1px solid var(--line2);background-color:var(--surface);font-size:13px;font-weight:600}
+.acces-filtre{max-width:320px;margin-bottom:10px}
+/* Les listes sont habillees (voir .dl) : c'est l'enveloppe qu'on dimensionne. */
+.ap-outils .dl{width:auto;flex:none;min-width:168px}
+.ap-outils .dl-btn{height:36px;border-radius:999px;background:var(--surface);font-weight:600}
+.ap-vues{display:inline-flex;padding:3px;border-radius:10px;background:var(--surface2);border:1px solid var(--line)}
+.ap-vues button{width:34px;height:30px;border:0;background:transparent;border-radius:8px;color:var(--dim);cursor:pointer;display:grid;place-items:center}
+.ap-vues button.active{background:var(--surface);color:var(--txt);box-shadow:0 1px 2px var(--shadow)}
+.ap-vues svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+.ap-grille{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px}
+.ap-carte{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:16px;display:flex;
+ flex-direction:column;gap:12px;cursor:pointer;transition:border-color .15s,transform .15s}
+.ap-carte:hover{border-color:var(--accent);transform:translateY(-1px)}
+.ap-carte.err{box-shadow:inset 3px 0 0 var(--err)}
+.ap-carte.warn{box-shadow:inset 3px 0 0 var(--warn)}
+.ap-carte-haut{display:flex;gap:12px;align-items:center;min-width:0}
+.ap-carte-haut img{width:44px;height:44px;border-radius:13px;flex:none}
+.ap-carte-titre{min-width:0;display:flex;flex-direction:column}
+.ap-carte-titre b{font-size:16px;font-weight:800;letter-spacing:-.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ap-carte-titre span{font-size:12.5px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ap-carte-pills{display:flex;flex-wrap:wrap;gap:6px}
+.pill.neutre{background:var(--surface2);color:var(--dim)}
+.ap-jauges{display:flex;flex-direction:column;gap:8px}
+.ap-jauge span{display:block;font-size:11.5px;color:var(--dim);margin-bottom:4px;font-variant-numeric:tabular-nums}
+.ap-jauge i{display:block;height:6px;border-radius:999px;background:var(--surface2);overflow:hidden}
+.ap-jauge b{display:block;height:100%;border-radius:999px;background:var(--accent)}
+.ap-carte-pied{display:flex;align-items:center;gap:6px;border-top:1px solid var(--line);padding-top:10px;color:var(--dim)}
+.ap-aucune{padding:40px 16px;text-align:center;color:var(--dim);border:1px dashed var(--line2);border-radius:var(--r)}
+.ap-aucune b{display:block;color:var(--txt);margin-bottom:4px}
+.ap-th{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:6px;text-transform:inherit;letter-spacing:inherit}
+.ap-th span{opacity:.5;font-size:9px}
+.ap-th:hover,.ap-th:focus-visible{color:var(--accent)}
+th[aria-sort="ascending"] .ap-th,th[aria-sort="descending"] .ap-th{color:var(--txt)}
+th[aria-sort="ascending"] .ap-th span,th[aria-sort="descending"] .ap-th span{opacity:1;color:var(--accent)}
+@media (max-width:760px){ .ap-recherche{flex:1 1 100%} .ap-grille{grid-template-columns:minmax(0,1fr)} }
 .tbl-nom img{width:26px;height:26px;border-radius:var(--r-xs);flex:none}
 .tbl-nom .n{font-weight:700;letter-spacing:-.012em;overflow:hidden;
  text-overflow:ellipsis;white-space:nowrap}
@@ -1368,8 +1419,8 @@ table.tbl-journal{min-width:560px}
   :root[data-style="design"] .hub-liste.compacte .hub-projet .nom{font-size:13px}
 }
 
-/* La recherche et le dock du hub n'existent que dans les styles 3 et 4. */
-.hub-recherche,.hub-dock{display:none}
+/* La recherche du hub n'existe que dans les styles 3 et 4. */
+.hub-recherche{display:none}
 
 /* =====================================================================
    STYLES 3 ET 4 : variantes du style 2 (data-style="design" reste pose),
@@ -1386,8 +1437,9 @@ table.tbl-journal{min-width:560px}
  background:transparent;box-shadow:none;padding:0;font:inherit;font-size:16px;color:var(--txt)}
 
 /* STYLE 3 -- LANCEUR : un ecran d'accueil. Fond trame, bonjour en grand au
-   centre, grandes icones sans carte autour, outils de la stack dans un
-   dock flottant. Une application qui ne repond pas est cerclee. */
+   centre, grandes icones sans carte autour -- Dagster, Mailpit et Messages
+   comprises, comme n'importe quelle application. Une application qui ne
+   repond pas est cerclee. */
 :root[data-variante="lanceur"] body{background-image:radial-gradient(var(--trame) 1px,transparent 1px);
  background-size:28px 28px}
 :root[data-variante="lanceur"] .salut{text-align:center;font-size:clamp(40px,6vw,76px);max-width:none;margin:32px auto 12px}
@@ -1407,42 +1459,72 @@ table.tbl-journal{min-width:560px}
 :root[data-variante="lanceur"] .hub-liste.compacte .hub-projet .bas .pill{background:none;padding:0;font-size:12px}
 :root[data-variante="lanceur"] .hub-liste.compacte .hub-projet .bas .pill.pub,
 :root[data-variante="lanceur"] .hub-liste.compacte .hub-projet .bas .pill.priv{display:none}
-:root[data-variante="lanceur"] .hub-dock:not(:empty){display:flex;flex-wrap:wrap;justify-content:center;gap:8px;
- position:sticky;bottom:24px;z-index:30;width:max-content;max-width:100%;margin:8px auto 0;padding:8px;
- box-sizing:border-box;border-radius:24px;background:var(--surface);border:1px solid var(--line);
- box-shadow:0 18px 44px var(--shadow-2)}
-.dock-item{display:flex;align-items:center;gap:10px;min-height:52px;padding:0 16px 0 8px;border-radius:16px;
- background:var(--surface2);color:var(--txt);text-decoration:none;font-weight:700}
-.dock-item:hover{background:var(--accent-soft)}
-.dock-item img{width:36px;height:36px;border-radius:11px}
-.dock-item .point{width:8px;height:8px;border-radius:999px;background:var(--dim2)}
-.dock-item .point.on{background:var(--ok)}
-.dock-item .point.warn{background:var(--warn)}
-.dock-item .point.err{background:var(--err)}
 
-/* STYLE 4 -- BENTO : une mosaique. L'application du moment en grand, une
-   tuile d'etat a fort contraste, puis une carte par application. */
-:root[data-variante="bento"] .salut{font-size:clamp(44px,6.5vw,84px);max-width:none;margin:16px 0 20px;padding:0}
-:root[data-variante="bento"] .hub-recherche{margin:0 0 24px;max-width:460px;height:50px}
-#hub-liste.bento{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));grid-auto-rows:minmax(168px,auto);
- grid-auto-flow:dense;gap:14px}
-.bento-une{grid-column:span 6;grid-row:span 2;display:flex;flex-direction:column;gap:12px;padding:28px;
- border-radius:24px;background:var(--accent);color:var(--sur-accent);text-decoration:none}
-.bento-une:hover{background:var(--accent-h)}
-.bento-une-haut{display:flex;align-items:center;justify-content:space-between;gap:10px}
-.bento-sur{font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.85}
-.bento-une .pill{background:rgba(255,255,255,.18);color:inherit}
-.bento-une img{width:64px;height:64px;border-radius:18px;margin-top:auto}
-.bento-une-nom{font-size:clamp(32px,4vw,52px);font-weight:800;letter-spacing:-.045em;line-height:.95}
-.bento-une-desc{font-size:16px;opacity:.9;max-width:44ch}
-.bento-bouton{align-self:flex-start;display:inline-flex;align-items:center;gap:8px;min-height:46px;padding:0 20px;
+/* STYLE 4 -- BENTO : une mosaique qui defile a l'HORIZONTALE sur un ecran
+   large (trois rangees a la hauteur de la fenetre, les colonnes s'ajoutent a
+   droite), et a la verticale sur un telephone. */
+/* Sur un ecran large, la page du hub Bento ne defile PAS a la verticale :
+   seule la mosaique defile, de cote. */
+@media (min-width:761px){ :root[data-variante="bento"].hub-actif{overflow:hidden} }
+.hub-barre{display:contents}
+.hub-personnaliser{display:none}
+:root[data-variante="bento"] .hub-barre{display:flex;align-items:center;gap:10px;margin:0 0 16px}
+:root[data-variante="bento"] .hub-personnaliser{display:inline-flex;height:46px;border-radius:999px;padding:0 18px}
+:root[data-variante="bento"] .salut{font-size:clamp(36px,4.6vw,60px);max-width:none;margin:6px 0 14px;padding:0}
+:root[data-variante="bento"] .hub-recherche{margin:0;max-width:460px;flex:1;height:46px}
+/* La mosaique deborde jusqu'au bord droit de la fenetre : ce qui defile
+   a l'horizontale ne doit pas s'arreter net au milieu de l'ecran. */
+#hub-liste.bento{--cel:clamp(200px,17vw,250px);display:grid;grid-auto-flow:column dense;
+ margin-right:calc(50% - 50vw);padding-right:28px !important;
+ grid-template-rows:repeat(3,minmax(0,1fr));grid-auto-columns:var(--cel);gap:14px;
+ height:var(--bento-h,560px);overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;
+ scroll-snap-type:x proximity;padding:2px 2px 12px;scrollbar-width:thin}
+#hub-liste.bento > *{scroll-snap-align:start;min-width:0;min-height:0}
+.bw{border-radius:24px;padding:20px;display:flex;flex-direction:column;gap:10px;overflow:hidden;
+ background:var(--surface);border:1px solid var(--line);color:var(--txt);text-decoration:none}
+.bw-normal{grid-row:span 2}
+.bw-large{grid-row:span 3;grid-column:span 2}
+.bw-titre,.bw-sur{font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+.bw-vide{margin:auto 0;color:var(--dim)}
+.bw-une{padding:0;background:var(--accent);border:0;color:var(--sur-accent);position:relative}
+.bw-apercu{flex:1;min-height:0;position:relative;overflow:hidden;background:var(--surface2);border-radius:24px 24px 0 0}
+.bw-apercu iframe{position:absolute;inset:0;width:200%;height:200%;border:0;transform:scale(.5);transform-origin:0 0;
+ pointer-events:none;background:#fff}
+.bw-une-icone{position:absolute;inset:0;margin:auto;width:96px;height:96px;border-radius:26px;opacity:.9}
+.bw-une-pied{display:flex;flex-direction:column;gap:8px;padding:16px 20px 20px;color:inherit;text-decoration:none}
+.bw-une .bw-sur{color:inherit;opacity:.8}
+.bw-une-ligne{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.bw-une-ligne img{width:40px;height:40px;border-radius:12px}
+.bw-une-nom{font-size:clamp(24px,2.4vw,34px);font-weight:800;letter-spacing:-.04em;line-height:1}
+.bw-une:hover{background:var(--accent-h)}
+.bw-une .bento-bouton{margin-top:4px}
+.bw-une .badge-maj{background:var(--surface);color:var(--accent)}
+.bw-horloge{justify-content:flex-end;background:var(--surface2)}
+.bw-heure{font-size:64px;font-weight:800;letter-spacing:-.05em;line-height:.9;font-variant-numeric:tabular-nums}
+.bw-date{color:var(--dim);font-weight:650;text-transform:capitalize}
+.bw-messages{justify-content:space-between}
+.bw-messages:hover{border-color:var(--accent)}
+.bw-messages p{margin:6px 0 0;color:var(--dim)}
+.bw-message textarea,.bw-notes textarea{flex:1;min-height:0;resize:none;padding:10px 12px;border-radius:14px;
+ border:1px solid var(--line2);background:var(--bg-input,var(--surface2));font:inherit}
+.bw-sujets{display:flex;flex-wrap:wrap;gap:6px}
+.bw-sujets button{height:30px;padding:0 11px;border-radius:999px;border:1px solid var(--line2);background:var(--surface);
+ color:var(--dim);font:inherit;font-size:12px;font-weight:700;cursor:pointer}
+.bw-sujets button[aria-checked="true"]{background:var(--accent);border-color:var(--accent);color:var(--sur-accent)}
+.bw-notes{background:#fff7d6;border-color:#f1e2a6;color:#3a3220}
+.bw-notes .bw-titre{color:#8a7432}
+.bw-notes textarea{background:transparent;border:0;padding:0;color:inherit}
+:root[data-theme="dark"] .bw-notes{background:#2b2717;border-color:#3d3720;color:#efe6c8}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .bw-notes{background:#2b2717;border-color:#3d3720;color:#efe6c8}}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.bento-bouton{align-self:flex-start;display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 20px;
  border-radius:999px;background:var(--surface);color:var(--txt);font-weight:800}
 .bento-bouton svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
-.bento-etat{grid-column:span 3;grid-row:span 2;display:flex;flex-direction:column;justify-content:space-between;gap:16px;
- padding:24px;border-radius:24px;background:var(--bento-encre);color:var(--bento-sur-encre)}
+.bw-messages .bento-bouton{background:var(--accent);color:var(--sur-accent)}
+.bento-etat{justify-content:space-between;gap:16px;background:var(--bento-encre);color:var(--bento-sur-encre);border:0}
 .bento-etat h3{margin:0;font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.75}
 .bento-etat p{margin:6px 0 0;opacity:.75}
-.bento-chiffre{font-size:96px;font-weight:800;letter-spacing:-.06em;line-height:.85;font-variant-numeric:tabular-nums}
+.bento-chiffre{font-size:84px;font-weight:800;letter-spacing:-.06em;line-height:.85;font-variant-numeric:tabular-nums}
 .bento-chiffre span{opacity:.4}
 .bento-barres{display:flex;gap:5px;margin-bottom:10px}
 .bento-barres i{flex:1;height:8px;border-radius:999px;background:var(--bento-rail)}
@@ -1450,35 +1532,54 @@ table.tbl-journal{min-width:560px}
 .bento-barres i.warn{background:#f2a33a}
 .bento-barres i.err{background:#ef5350}
 .bento-etat a{color:var(--bento-lien);font-weight:700}
-.bento-carte{grid-column:span 3;display:flex;flex-direction:column;gap:8px;padding:20px;border-radius:24px;
+.bento-carte{display:flex;flex-direction:column;gap:6px;padding:18px;border-radius:24px;
  background:var(--surface);border:1px solid var(--line);color:var(--txt);text-decoration:none}
 .bento-carte:hover{border-color:var(--accent)}
 .bento-carte.warn{box-shadow:inset 0 0 0 2px var(--warn)}
 .bento-carte.err{box-shadow:inset 0 0 0 2px var(--err)}
-.bento-carte.off{opacity:.6;pointer-events:none}
+.bento-carte.off{opacity:.6}
 .bento-carte-haut{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:auto}
-.bento-carte img{width:48px;height:48px;border-radius:15px}
-.bento-carte-nom{font-size:21px;font-weight:800;letter-spacing:-.03em;line-height:1.1}
-.bento-carte-desc{font-size:13px;color:var(--dim);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-@media (max-width:1000px){
-  .bento-une{grid-column:span 12}
-  .bento-etat{grid-column:span 6;grid-row:span 1}
-  .bento-carte{grid-column:span 6}
-}
+.bento-carte img{width:44px;height:44px;border-radius:14px}
+.bento-carte-nom{font-size:19px;font-weight:800;letter-spacing:-.03em;line-height:1.1;
+ display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.bento-carte-desc{font-size:12.5px;color:var(--dim);display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+.bento-ajout{grid-row:span 1;border-radius:24px;border:2px dashed var(--line2);background:transparent;color:var(--dim);
+ font:inherit;font-weight:750;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px}
+.bento-ajout svg{width:28px;height:28px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+.bento-ajout:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.bento-vide{grid-row:span 2;grid-column:span 2}
+/* NOUVELLE VERSION depuis la derniere ouverture : une etiquette sur la tuile. */
+.badge-maj{display:inline-flex;align-items:center;gap:5px;align-self:flex-start;padding:2px 9px;border-radius:999px;
+ font-size:11px;font-weight:800;background:var(--accent-soft);color:var(--accent);white-space:nowrap}
+.badge-maj::before{content:"";width:6px;height:6px;border-radius:999px;background:currentColor}
+.bento-carte.maj{border-color:var(--accent)}
+/* Fenetre des widgets */
+.wg-ligne{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
+.wg-ligne:first-child{border-top:0}
+.wg-ligne.inactif .wg-nom span{color:var(--dim)}
+.wg-nom{flex:1;display:flex;align-items:center;gap:10px;font-weight:650;margin:0;cursor:pointer}
+.wg-nom input{width:18px;height:18px;accent-color:var(--accent)}
+.wg-ligne .wg-nom{flex:1 1 auto;min-width:0;padding:8px 10px}
+.wg-ligne .dl{flex:0 0 120px;width:120px}
+.wg-ligne .btn{flex:none}
 
 @media (max-width:760px){
   :root[data-variante="lanceur"] .salut{font-size:44px;margin:12px auto 8px}
   :root[data-variante="lanceur"] .hub-liste.compacte .hub-projet{width:33.333%}
   :root[data-variante="lanceur"] .hub-liste.compacte .hub-projet img{width:72px;height:72px;border-radius:22px}
-  /* La barre du bas tient deja le bas de l'ecran : le dock reprend sa place
-     dans la page, sous les icones. */
-  :root[data-variante="lanceur"] .hub-dock:not(:empty){position:static;margin-top:32px}
   :root[data-variante] .hub-recherche{height:50px;margin-bottom:24px}
-  :root[data-variante="bento"] .salut{font-size:48px}
-  #hub-liste.bento{grid-template-columns:minmax(0,1fr);grid-auto-rows:auto}
-  .bento-une,.bento-etat,.bento-carte{grid-column:auto;grid-row:auto}
-  .bento-une{min-height:300px}
-  .bento-chiffre{font-size:72px}
+  :root[data-variante="bento"] .salut{font-size:40px}
+  #hub-liste.bento{margin-right:0;padding-right:2px !important}
+  /* Sur telephone : une colonne, et l'on defile vers le bas. */
+  #hub-liste.bento{grid-auto-flow:row;grid-template-rows:none;grid-template-columns:repeat(2,minmax(0,1fr));
+   grid-auto-rows:minmax(150px,auto);grid-auto-columns:auto;height:auto;overflow:visible;scroll-snap-type:none}
+  .bw-normal,.bw-large{grid-column:span 2;grid-row:auto;min-height:220px}
+  .bw-une{min-height:400px}
+  .bw-apercu{min-height:230px}
+  .hub-personnaliser .hub-perso-texte{display:none}
+  :root[data-variante="bento"] .hub-personnaliser{padding:0 14px}
+  .bento-ajout,.bento-vide{grid-column:span 2;min-height:90px}
+  .bento-chiffre{font-size:64px}
 }
 </style></head><body>
 <div class="topbar">
@@ -1565,15 +1666,18 @@ table.tbl-journal{min-width:560px}
   <div class="salut" id="hub-salut"></div>
   <div class="sous" id="hub-sous"></div>
   <!-- Styles 3 et 4 : une recherche dans le hub. Masquee dans les autres. -->
+  <div class="hub-barre">
   <label class="hub-recherche" id="hub-recherche">
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
     <input type="search" id="hub-filtre" placeholder="Ouvrir une application…" aria-label="Rechercher une application"
       autocomplete="off" oninput="peindreHub()">
   </label>
+  <!-- Style Bento : choisir ses widgets. -->
+  <button class="btn btn-default hub-personnaliser" onclick="ouvrirWidgets()" aria-label="Personnaliser le hub">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><path d="M17.5 14v7M14 17.5h7"/></svg><span class="hub-perso-texte">Personnaliser</span></button>
+  </div>
   <div class="hint" id="hub-masquees" style="display:none;margin:-8px 0 14px"></div>
   <div id="hub-liste" class="hub-liste"></div>
-  <!-- Style 3 : les services de la stack (Dagster, Mailpit) dans un dock. -->
-  <nav class="hub-dock" id="hub-dock" aria-label="Outils de la stack"></nav>
 
 </div>
 
@@ -1677,6 +1781,31 @@ table.tbl-journal{min-width:560px}
     <button class="btn btn-primary" onclick="openAdd()">
       <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Nouvelle application</button>
   </div>
+  <!-- LES OUTILS RESTENT HORS DU REPEINT : la liste se redessine toutes les
+       cinq secondes, la recherche en cours de frappe ne doit pas s'effacer. -->
+  <div class="ap-outils" id="ap-outils">
+    <label class="ap-recherche">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input type="search" id="ap-filtre" placeholder="Rechercher une application" aria-label="Rechercher une application"
+        autocomplete="off" oninput="apFiltrer()">
+    </label>
+    <div class="ap-puces" id="ap-etats" role="group" aria-label="Filtrer par état"></div>
+    <select class="ap-choix" id="ap-vis" aria-label="Filtrer par visibilité" onchange="apFiltrer()">
+      <option value="">Toutes visibilités</option><option value="privee">Privées</option>
+      <option value="publique">Publiques</option></select>
+    <select class="ap-choix" id="ap-cat" aria-label="Filtrer par catégorie" onchange="apFiltrer()"></select>
+    <select class="ap-choix" id="ap-tri" aria-label="Trier par" onchange="apTrier(this.value)">
+      <option value="nom">Trier par nom</option><option value="etat">Trier par état</option>
+      <option value="visibilite">Trier par visibilité</option><option value="port">Trier par port</option>
+      <option value="cpu">Trier par CPU</option><option value="memoire">Trier par mémoire</option></select>
+    <div class="spacer"></div>
+    <div class="segment ap-vues" role="group" aria-label="Affichage">
+      <button data-v="cartes" onclick="apVue('cartes')" title="Cartes" aria-label="Cartes">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg></button>
+      <button data-v="liste" onclick="apVue('liste')" title="Liste" aria-label="Liste">
+        <svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></button>
+    </div>
+  </div>
   <div id="tbl-projets"></div>
 </div>
 
@@ -1712,7 +1841,6 @@ table.tbl-journal{min-width:560px}
     <button data-o="activite" onclick="ficheOnglet('activite')">Activité</button>
     <button data-o="acces" onclick="ficheOnglet('acces')">Accès</button>
     <button data-o="config" onclick="ficheOnglet('config')">Configuration</button>
-    <button data-o="conteneur" onclick="ficheOnglet('conteneur')">Conteneuriser</button>
   </div>
 
   <div class="onglet actif" id="onglet-general">
@@ -1795,39 +1923,13 @@ table.tbl-journal{min-width:560px}
 
         <div class="hint" id="ac-publique" style="display:none"></div>
 
-        <div id="ac-liste" style="margin-top:14px"></div>
+        <!-- acces-liste, pas ac-liste : ce nom est celui des dernieres
+             ouvertures (onglet Activite). Deux elements du meme id, et la
+             liste des comptes se dessinait dans l'onglet cache. -->
+        <div id="acces-liste" style="margin-top:14px"></div>
         <div class="err" id="ac-err" style="display:none"></div>
         <div class="hint" id="ac-msg" style="display:none"></div>
       </div>
-    </div>
-  </div>
-
-  <div class="onglet" id="onglet-conteneur">
-    <div class="card settings-card card-large">
-      <div class="card-top"><div class="card-name">
-        <b>Sortir cette application de CodeLab</b>
-        <div class="path">Les fichiers pour la faire tourner ailleurs, en conteneur.</div>
-      </div>
-      <span class="pill" id="ct-pile"><i></i>&nbsp;</span></div>
-
-      <div class="hint">Fichiers produits pour faire tourner l'application hors de CodeLab : un point de départ à relire.</div>
-
-      <div id="ct-resume" class="hint" style="margin-top:10px"></div>
-      <div id="ct-fichiers" style="margin-top:14px"></div>
-
-      <!-- UNE SEULE SORTIE : l'archive. « Déposer dans le projet » écrivait
-           dans /workspace -- donc dans le travail de quelqu'un -- pour un
-           geste dont le but est justement d'emmener l'application AILLEURS.
-           Deux boutons pour deux destinations, dont l'une n'était presque
-           jamais la bonne, et celle qui écrit demandait un second bouton
-           pour les fichiers déjà présents. -->
-      <div class="actions">
-        <button class="btn btn-primary" id="ct-telecharger" onclick="ctTelecharger()">
-          <svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/>
-          <path d="M5 21h14"/></svg>Télécharger le dossier (.zip)</button>
-      </div>
-      <div class="err" id="ct-err" style="display:none"></div>
-      <div class="hint" id="ct-msg" style="display:none"></div>
     </div>
   </div>
 
@@ -2021,24 +2123,14 @@ table.tbl-journal{min-width:560px}
            choix actif se voit d'un coup d'oeil. -->
       <div class="choix-titre">Style</div>
       <div class="choix-liste" id="style-toggle" style="margin-bottom:14px">
-        <button data-s="classique" onclick="setStyle('classique')">
-          <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>
-          <span><b>Style 1</b><i>Menu latéral, cartes compactes.</i></span>
-          <svg class="coche" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
-        </button>
-        <button data-s="design" onclick="setStyle('design')">
-          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2.5"/><rect x="14" y="3" width="7" height="7" rx="2.5"/><rect x="3" y="14" width="7" height="7" rx="2.5"/><rect x="14" y="14" width="7" height="7" rx="2.5"/></svg>
-          <span><b>Style 2</b><i>Grandes icônes, menu en haut, réglages façon Mac.</i></span>
-          <svg class="coche" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
-        </button>
         <button data-s="lanceur" onclick="setStyle('lanceur')">
           <svg viewBox="0 0 24 24"><rect x="4" y="3" width="6" height="6" rx="2"/><rect x="14" y="3" width="6" height="6" rx="2"/><rect x="4" y="11" width="6" height="6" rx="2"/><rect x="14" y="11" width="6" height="6" rx="2"/><path d="M6 21h12"/></svg>
-          <span><b>Style 3 — Lanceur</b><i>Un écran d'accueil : grandes icônes, recherche au centre, outils dans un dock.</i></span>
+          <span><b>Lanceur</b><i>Un écran d'accueil : grandes icônes et recherche au centre.</i></span>
           <svg class="coche" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
         </button>
         <button data-s="bento" onclick="setStyle('bento')">
           <svg viewBox="0 0 24 24"><rect x="3" y="3" width="11" height="10" rx="2"/><rect x="16" y="3" width="5" height="10" rx="2"/><rect x="3" y="15" width="5" height="6" rx="2"/><rect x="10" y="15" width="11" height="6" rx="2"/></svg>
-          <span><b>Style 4 — Bento</b><i>Une mosaïque : l'application du moment en grand, l'état d'un coup d'œil.</i></span>
+          <span><b>Bento</b><i>Une mosaïque : l'application du moment en grand, l'état d'un coup d'œil.</i></span>
           <svg class="coche" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
         </button>
       </div>
@@ -2434,13 +2526,13 @@ table.tbl-journal{min-width:560px}
       <div class="hint">Ton message part à l'administrateur, avec ton nom de compte.</div>
 
       <div id="msg-form" style="margin-top:14px">
-        <div class="field"><label for="msg-cible">De quoi veux-tu parler ?</label>
+        <div class="field"><label for="msg-cible">C'est pour…</label>
           <select id="msg-cible" onchange="msgCible()">
-            <option value="application">D'une application</option>
-            <option value="hub">Du hub lui-même</option>
-            <option value="idee">D'une application qui manque</option>
+            <option value="hub">Améliorer le hub</option>
+            <option value="idee">Une idée de nouveau projet</option>
+            <option value="application">Améliorer une application existante</option>
           </select></div>
-        <div class="field" id="msg-app-zone"><label for="msg-app">Laquelle ?</label>
+        <div class="field" id="msg-app-zone"><label for="msg-app">Quelle application ?</label>
           <select id="msg-app"></select></div>
         <div class="field"><label for="msg-texte">Ton message</label>
           <textarea id="msg-texte" rows="5" maxlength="2000"
@@ -2702,6 +2794,15 @@ table.tbl-journal{min-width:560px}
 </div></div>
 
 <!-- ==================== POP-UP : NOUVELLE APPLICATION ==================== -->
+<!-- LES WIDGETS DU HUB (style Bento) : cocher, ordonner, choisir la taille. -->
+<div class="ov" id="ov-widgets"><div class="modal" style="max-width:520px">
+  <div class="mh"><h3>Personnaliser le hub</h3><p>Les widgets affichés avant tes applications, dans cet ordre.</p></div>
+  <div class="mb"><div id="wg-liste"></div></div>
+  <div class="mf"><div class="spacer"></div>
+    <button class="btn btn-default" onclick="hide('ov-widgets')">Annuler</button>
+    <button class="btn btn-primary" onclick="enregistrerWidgets()">Enregistrer</button></div>
+</div></div>
+
 <div class="ov" id="ov-add"><div class="modal">
   <div class="mh"><h3>Nouvelle application</h3>
     <p>Un dossier de <code id="a-s"></code>, une commande de lancement, et c'est en ligne.</p></div>
@@ -2769,7 +2870,7 @@ const urlApplication = nom => APPS_BASE + '/' + encodeURIComponent(nom) + '/';
 const enModeApp = (window.matchMedia
     && matchMedia('(display-mode: standalone)').matches)
   || window.navigator.standalone === true;
-/* Une tuile « interne » (Demandes) est une page du panneau : elle s'ouvre a
+/* Une tuile « interne » (Messages) est une page du panneau : elle s'ouvre a
    son adresse, sans passer par le sous-domaine d'une application. */
 const lienOuverture = a => a.interne ? a.url
   : a.externe
@@ -2876,6 +2977,9 @@ const icone=n=>'/api/icon/'+encodeURIComponent(n);
 const ACTIONS = {
   'app-basculer':    n => tg(n),
   'app-ouvrir':      n => ouvrirFiche(n),
+  'ap-etat':         n => apChoisirEtat(n),
+  'ap-trier':        n => apTrier(n),
+  'bw-sujet':        n => { hubMessageCible=n; peindreHub(); },
   'app-redemarrer':  n => restartApp(n),
   'app-build':       n => buildApp(n),
   'app-deployer':    n => deployApp(n),
@@ -2951,27 +3055,23 @@ noterThemePartage(themeChoisi);
    changent (html[data-style="design"] dans theme.css et plus haut). Le
    choix part aussi dans un cookie : le serveur pose l'attribut des le
    premier octet de la page, et rien ne clignote au chargement. */
-/* Quatre styles. Les styles 3 (« lanceur ») et 4 (« bento ») sont des
-   variantes du style 2 : ils en gardent la mise en page de base
-   (data-style="design") et ajoutent la leur sous data-variante. */
-const STYLES = ['classique','design','lanceur','bento'];
-const VARIANTES = ['lanceur','bento'];
+/* Deux styles, « lanceur » et « bento ». Ils partagent la mise en page de
+   base (data-style="design") et ajoutent la leur sous data-variante. */
+const STYLES = ['lanceur','bento'];
+const STYLE_PAR_DEFAUT = 'bento';
 function styleCourant(){
   const v = document.documentElement.getAttribute('data-variante');
-  if(VARIANTES.includes(v)) return v;
-  return document.documentElement.getAttribute('data-style')==='design' ? 'design' : 'classique';
+  return STYLES.includes(v) ? v : STYLE_PAR_DEFAUT;
 }
 function applyStyle(st){
-  if(!STYLES.includes(st)) st='classique';
+  if(!STYLES.includes(st)) st=STYLE_PAR_DEFAUT;
   const racine = document.documentElement;
-  if(st==='classique') racine.removeAttribute('data-style');
-  else racine.setAttribute('data-style','design');
-  if(VARIANTES.includes(st)) racine.setAttribute('data-variante', st);
-  else racine.removeAttribute('data-variante');
+  racine.setAttribute('data-style','design');
+  racine.setAttribute('data-variante', st);
   document.querySelectorAll('#style-toggle button').forEach(b=>b.classList.toggle('active', b.dataset.s===st));
 }
 function setStyle(st){
-  st = STYLES.includes(st) ? st : 'classique';
+  st = STYLES.includes(st) ? st : STYLE_PAR_DEFAUT;
   try{ localStorage.setItem('codelab-style', st); }catch(e){}
   try{ document.cookie='codelab-style='+st+';path=/;max-age=31536000;SameSite=Lax'; }catch(e){}
   applyStyle(st);
@@ -2981,8 +3081,7 @@ function setStyle(st){
      une fois le hub charge, pour ne pas afficher « aucune application ». */
   if(hubApps.length || hubServices.length) peindreHub();
 }
-applyStyle(document.documentElement.hasAttribute('data-style') ? styleCourant()
-  : ((()=>{ try{ return localStorage.getItem('codelab-style'); }catch(e){ return null; } })()||'classique'));
+applyStyle(styleCourant());
 
 /* ---------------- colonne de gauche ---------------- */
 function applySidebar(state){ $('sidebar').classList.toggle('collapsed', state==='collapsed'); }
@@ -3035,7 +3134,8 @@ function showSection(name){
   /* Un flux de journal occupe une place cote serveur : on le ferme des qu'on
      quitte la fiche, sans attendre que le navigateur s'en apercoive. */
   if(name!=='app') fermerLog();
-  if(name==='hub') chargerHub();
+  if(name==='hub'){ chargerHub(); if(hubWidgets===null) chargerWidgets(); }
+  document.documentElement.classList.toggle('hub-actif', name==='hub');
   if(name==='overview' || name==='apps') refresh();
   if(name==='overview') chargerCarte();
   /* L'etat de securite est relu a chaque ouverture : il peut avoir change
@@ -3421,8 +3521,8 @@ async function catEnregistrer(){
 
 /* ---------------- hub ---------------- */
 let hubApps=[];
-/* ---------------- les demandes recues (administrateur) ----------------
-   Elles se traitent dans l'application « Demandes » (/demandes) : boite de
+/* ---------------- les messages recus (administrateur) ----------------
+   Ils se traitent dans l'application « Messages » (/messages) : boite de
    reception, tableau des taches, projets. Le panneau ne fait plus que les
    GUETTER, pour annoncer dans le coin celles qui arrivent pendant qu'on
    travaille ailleurs. */
@@ -3451,8 +3551,8 @@ async function guetterMessages(){
   const premier=neufs[0];
   notifierMessage(neufs.length===1
     ? 'Nouvelle demande de « ' + (premier.qui||'?') + ' ».'
-    : neufs.length + ' nouvelles demandes.');
-  /* La tuile « Demandes » du hub porte le compte : on la repeint. */
+    : neufs.length + ' nouveaux messages.');
+  /* La tuile « Messages » du hub porte le compte : on la repeint. */
   if(sectionCourante==='hub') chargerHub();
 }
 
@@ -3469,7 +3569,7 @@ function msgCible(){
   zone.style.display = app ? '' : 'none';
   const noms=(hubApps||[]).map(a=>a.name).sort();
   $('msg-app').innerHTML = noms.length
-    ? noms.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')
+    ? noms.map(n=>`<option value="${esc(n)}">${esc(nomAffiche(hubApps.find(a=>a.name===n)))}</option>`).join('')
     : '<option value="">aucune application accessible</option>';
 }
 
@@ -3637,12 +3737,10 @@ function peindreHub(){
 
   /* Applications et services dans la meme grille, ranges ensemble par leur
      nom : on vient au hub pour OUVRIR quelque chose, et ce qui l'ouvre ne
-     change rien a l'endroit ou l'oeil le cherche. Le lanceur fait exception :
-     les services de la stack y vont dans le dock. */
-  const services = variante==='lanceur' ? [] : hubServices;
-  const liste=hubApps.concat(services).filter(correspond)
+     change rien a l'endroit ou l'oeil le cherche. Dagster, Mailpit et
+     Messages ont la meme tuile qu'une application, dans tous les styles. */
+  const liste=hubApps.concat(hubServices).filter(correspond)
     .sort((a,b)=>a.name.localeCompare(b.name,'fr'));
-  peindreDock(variante==='lanceur' ? hubServices : []);
   if(variante==='lanceur'){
     const toutes = hubApps.concat(hubServices);
     const souci = toutes.filter(a=>['err','warn'].includes(etatApp(a)[0])).length;
@@ -3662,6 +3760,7 @@ function peindreHub(){
       + 'paramOnglet(\'compte\')">à décocher dans tes paramètres</a> pour '
       + (nbCaches>1 ? 'les' : 'la') + ' revoir.');
   }
+  if(variante==='bento'){ peindreBento(liste, filtre); return; }
   if(!liste.length && filtre){
     $('hub-liste').className='';
     remplir($('hub-liste'), '<div class="hub-vide"><b>Aucune application ne correspond</b>Essaie un autre mot.</div>');
@@ -3683,13 +3782,12 @@ function peindreHub(){
   /* service-stack = la plaque claire sous le logo : seulement pour un logo
      transparent (Dagster). Mailpit porte son propre fond, comme le
      diagnostic, et une plaque blanche autour l'encadrait pour rien. */
-  if(variante==='bento'){ peindreBento(liste); return; }
   const tuile = a => `<a class="hub-projet${a.externe && a.plaque ? ' service-stack' : ''} ${a.running?'':'arretee'}"
       href="${lienOuverture(a)}" data-app="${esc(a.name)}"
       title="${esc(a.description||a.name)}">
       <img src="${icone(a.name)}" alt="">
       <div class="txt"><div class="nom">${esc(nomAffiche(a))}</div>
-      <div class="bas">${badgeEtat(a)}${badgeVis(a)}</div></div>${pastille(a)}</a>`;
+      <div class="bas">${badgeEtat(a)}${badgeVis(a)}${badgeMaj(a)}</div></div>${pastille(a)}</a>`;
 
   /* Sans categorie declaree, le hub reste ce qu'il etait : une seule liste.
      Un unique titre « Autres » au-dessus de tout serait du bruit. */
@@ -3713,59 +3811,262 @@ function peindreHub(){
   </div>`).join(''));
 }
 
-/* STYLE 3 : le dock. Les services de la stack (Dagster, Mailpit), a part
-   des applications, comme les outils d'un systeme sous ses icones. */
-/* Le nombre de demandes non lues, sur la tuile « Demandes ». */
+/* Le nombre de messages non lus, sur la tuile « Messages ». */
 const pastille = a => a.non_lues
   ? `<span class="hub-pastille" title="${a.non_lues} nouvelle${a.non_lues>1?'s':''} demande${a.non_lues>1?'s':''}">${a.non_lues}</span>` : '';
-function peindreDock(services){
-  remplir($('hub-dock'), services.map(a=>{
-    const [c,t]=etatApp(a);
-    return `<a class="dock-item" href="${lienOuverture(a)}" title="${esc(nomAffiche(a))} — ${esc(t)}">
-      <img src="${icone(a.name)}" alt=""><span>${esc(nomAffiche(a))}</span>
-      <i class="point ${c}" aria-label="${esc(t)}"></i>${pastille(a)}</a>`;
-  }).join(''));
+
+/* STYLE 4 : LA MOSAIQUE. Sur un ecran large, elle DEFILE A L'HORIZONTALE et
+   jamais a la verticale : trois rangees qui tiennent dans la hauteur de la
+   fenetre, des colonnes qui s'ajoutent sur la droite -- une application de
+   plus, c'est une colonne de plus, pas une ligne en bas. Sur un telephone,
+   elle redevient une colonne qu'on fait defiler vers le bas.
+
+   D'abord les WIDGETS que le compte a choisis (« Personnaliser »), dans son
+   ordre et sa taille ; puis une carte par application ; puis, pour
+   l'administrateur, la tuile qui en ajoute une. */
+let hubWidgets=null, hubWidgetsDispo=[], hubNotes='', hubMessageBrouillon='';
+async function chargerWidgets(){
+  try{
+    const d=await (await fetch('/api/hub/widgets')).json();
+    hubWidgets=d.widgets||[]; hubWidgetsDispo=d.disponibles||[];
+    hubNotes=typeof d.notes==='string' ? d.notes : '';
+  }catch(e){ if(hubWidgets===null) hubWidgets=[]; }
+  if(hubApps.length || hubServices.length) peindreHub();
 }
 
-/* STYLE 4 : la mosaique. Une grande tuile pour l'application du moment --
-   la derniere ouverte depuis ce navigateur, sinon la premiere en ligne --,
-   une tuile d'etat, puis une carte par application. Les categories ne
-   decoupent pas la mosaique : elle se lit d'un seul regard. */
-function peindreBento(liste){
-  let derniere=null;
-  try{ derniere=localStorage.getItem('codelab-hub-derniere'); }catch(e){}
-  const apps = liste.filter(a=>!a.externe && !a.interne);
-  const une = apps.find(a=>a.name===derniere) || apps.find(a=>a.running) || apps[0];
+/* L'application « a la une » : la derniere ouverte par ce compte (le serveur
+   le sait, d'un appareil a l'autre), sinon celle retenue par ce navigateur,
+   sinon la premiere en ligne. */
+function appALaUne(apps){
+  const vues = apps.filter(a=>a.ouverte_le).sort((x,y)=>y.ouverte_le-x.ouverte_le);
+  if(vues.length) return [vues[0], true];
+  let d=null; try{ d=localStorage.getItem('codelab-hub-derniere'); }catch(e){}
+  const locale = apps.find(a=>a.name===d);
+  if(locale) return [locale, true];
+  return [apps.find(a=>a.running) || apps[0] || null, false];
+}
+function depuis(ts){
+  const s=Math.max(0, Date.now()/1000-(ts||0));
+  if(s<60) return "à l'instant";
+  if(s<3600) return 'il y a '+Math.floor(s/60)+' min';
+  if(s<86400) return 'il y a '+Math.floor(s/3600)+' h';
+  const j=Math.floor(s/86400); return j===1 ? 'hier' : 'il y a '+j+' jours';
+}
+/* « Nouvelle version » : l'application a ete deployee, rebuildee ou a recu
+   un commit depuis la derniere fois que CE compte l'a ouverte. */
+const badgeMaj = a => a.nouvelle_version
+  ? '<span class="badge-maj" title="Nouvelle version depuis ta dernière ouverture">Nouvelle version</span>' : '';
+
+const SVG_FLECHE='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
+function widgetUne(apps, taille){
+  const [une, vue] = appALaUne(apps);
+  if(!une) return `<section class="bw bw-${taille} bw-une"><div class="bw-titre">À la une</div>
+    <p class="bw-vide">Ouvre une application : elle s'affichera ici.</p></section>`;
+  /* L'APERCU est la page de l'application elle-meme, reduite et inerte : on
+     la reconnait d'un coup d'oeil, et un clic l'ouvre en grand. Arretee,
+     elle n'a rien a montrer : son icone la remplace. */
+  const apercu = une.running
+    ? `<iframe src="${esc(urlApplication(une.name))}" title="Aperçu de ${esc(nomAffiche(une))}"
+         loading="lazy" tabindex="-1" aria-hidden="true" referrerpolicy="no-referrer"
+         sandbox="allow-scripts allow-same-origin allow-forms"></iframe>`
+    : `<img class="bw-une-icone" src="${icone(une.name)}" alt="">`;
+  return `<section class="bw bw-${taille} bw-une" aria-label="À la une">
+    <div class="bw-apercu" data-garder="apercu-${esc(une.name)}-${une.running?1:0}">${apercu}</div>
+    <a class="bw-une-pied" href="${lienOuverture(une)}" data-app="${esc(une.name)}">
+      <span class="bw-sur">${vue ? 'Dernière ouverte' : 'À la une'}${une.ouverte_le ? ' · '+esc(depuis(une.ouverte_le)) : ''}</span>
+      <span class="bw-une-ligne"><img src="${icone(une.name)}" alt="">
+        <span class="bw-une-nom">${esc(nomAffiche(une))}</span>${badgeMaj(une)}</span>
+      <span class="bento-bouton">Ouvrir ${SVG_FLECHE}</span></a></section>`;
+}
+function widgetEtat(liste, taille){
   const total = liste.length;
   const enLigne = liste.filter(a=>etatApp(a)[0]==='on').length;
   const souci = liste.find(a=>['err','warn'].includes(etatApp(a)[0]));
-  const desc = a => esc(a.description || (a.externe ? 'Outil de la stack' : 'Application'));
-  const tuileUne = !une ? '' : `<a class="bento-une" href="${lienOuverture(une)}" data-app="${esc(une.name)}">
-      <div class="bento-une-haut"><span class="bento-sur">${une.name===derniere ? 'Ouverte récemment' : 'À la une'}</span>${badgeEtat(une)}</div>
-      <img src="${icone(une.name)}" alt="">
-      <div class="bento-une-nom">${esc(nomAffiche(une))}</div>
-      <div class="bento-une-desc">${desc(une)}</div>
-      <span class="bento-bouton">Ouvrir <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></a>`;
-  const tuileEtat = `<section class="bento-etat" aria-label="État des applications">
+  return `<section class="bw bw-${taille} bento-etat" aria-label="État des applications">
       <h3>État</h3>
       <div><div class="bento-chiffre">${enLigne}<span>/${total}</span></div><p>en ligne</p></div>
       <div class="bento-pied"><div class="bento-barres" aria-hidden="true">${liste.map(a=>`<i class="${etatApp(a)[0]}"></i>`).join('')}</div>
       ${souci ? `<a href="${lienOuverture(souci)}">${esc(nomAffiche(souci))} : ${esc(etatApp(souci)[1].toLowerCase())}</a>` : '<p>Tout répond.</p>'}</div></section>`;
+}
+/* L'heure n'est PAS dans le HTML : elle change chaque minute, et repeindre
+   la mosaique pour elle rechargerait l'apercu. Une minuterie la pose. */
+function widgetHorloge(taille){
+  return `<section class="bw bw-${taille} bw-horloge" aria-label="Date et heure">
+    <div class="bw-heure" data-horloge="heure"></div><div class="bw-date" data-horloge="date"></div></section>`;
+}
+function poserHorloge(){
+  const m=new Date();
+  document.querySelectorAll('[data-horloge="heure"]').forEach(e=>e.textContent=
+    m.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}));
+  document.querySelectorAll('[data-horloge="date"]').forEach(e=>e.textContent=
+    m.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'}));
+}
+function widgetMessages(taille){
+  const d = hubServices.find(s=>s.name==='messages');
+  const n = d ? (d.non_lues||0) : 0;
+  return `<a class="bw bw-${taille} bw-messages" href="/messages">
+    <div class="bw-titre">Messages</div>
+    <div><div class="bento-chiffre">${n}</div><p>${n ? (n>1 ? 'nouveaux messages' : 'nouveau message') : 'Rien de nouveau.'}</p></div>
+    <span class="bento-bouton">Ouvrir ${SVG_FLECHE}</span></a>`;
+}
+/* Les trois sujets d'un message : ce que l'administrateur en fera depend
+   d'abord de cela -- une amelioration du hub, un nouveau projet, ou le
+   travail sur une application qui existe deja. */
+const SUJETS_MESSAGE=[['hub','Le hub'],['idee','Nouveau projet'],['application','Une application']];
+let hubMessageCible='hub', hubMessageApp='';
+function widgetMessage(taille){
+  const apps=hubApps.slice().sort((x,y)=>nomAffiche(x).localeCompare(nomAffiche(y),'fr'));
+  if(!hubMessageApp && apps.length) hubMessageApp=apps[0].name;
+  return `<section class="bw bw-${taille} bw-message" aria-label="Écrire à l'administrateur">
+    <div class="bw-titre">Un mot à l'admin ?</div>
+    <div class="bw-sujets" role="radiogroup" aria-label="C'est pour">${SUJETS_MESSAGE.map(([v,t])=>
+      `<button type="button" role="radio" aria-checked="${hubMessageCible===v}" data-agir="bw-sujet" data-cible="${v}">${t}</button>`).join('')}</div>
+    ${hubMessageCible==='application' ? `<label class="sr" for="bw-message-app">Quelle application</label>
+      <select id="bw-message-app" onchange="hubMessageApp=this.value">${apps.map(a=>
+        `<option value="${esc(a.name)}" ${a.name===hubMessageApp?'selected':''}>${esc(nomAffiche(a))}</option>`).join('')}</select>` : ''}
+    <label class="sr" for="bw-message-texte">Ton message</label>
+    <textarea id="bw-message-texte" data-garder="message" maxlength="2000"
+      placeholder="Une idée, un bug, une demande d'accès."
+      oninput="hubMessageBrouillon=this.value">${esc(hubMessageBrouillon)}</textarea>
+    <button class="btn btn-primary" onclick="bwEnvoyer(this)">Envoyer</button></section>`;
+}
+async function bwEnvoyer(b){
+  const t=$('bw-message-texte'), texte=(t.value||'').trim();
+  if(!texte){ t.focus(); return; }
+  b.disabled=true;
+  try{
+    const r=await fetch('/api/messages',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({cible:hubMessageCible, texte, app: hubMessageCible==='application' ? hubMessageApp : ''})});
+    if(!r.ok){ notifier(await echec(r,'Envoi impossible.'),'err'); return; }
+    t.value=''; hubMessageBrouillon=''; notifier('Message envoyé.');
+  }finally{ b.disabled=false; }
+}
+let minuterieNotes=null;
+function widgetNotes(taille){
+  return `<section class="bw bw-${taille} bw-notes" aria-label="Bloc-notes">
+    <div class="bw-titre">Bloc-notes</div>
+    <label class="sr" for="bw-notes-texte">Bloc-notes</label>
+    <textarea id="bw-notes-texte" data-garder="notes" maxlength="4000" placeholder="Note ce que tu veux retrouver ici."
+      oninput="bwNotes(this.value)">${esc(hubNotes)}</textarea></section>`;
+}
+/* Enregistree une seconde apres la derniere frappe, pas a chaque touche. */
+function bwNotes(v){
+  hubNotes=v; clearTimeout(minuterieNotes);
+  minuterieNotes=setTimeout(()=>fetch('/api/hub/notes',{method:'PUT',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify({notes:v})}), 1000);
+}
+
+function peindreBento(liste, filtre){
+  const apps = liste.filter(a=>!a.externe && !a.interne);
+  const toutes = hubApps.concat(hubServices);
+  /* La recherche ne filtre que les applications : les widgets restent. */
+  const widgets = filtre ? [] : (hubWidgets||[]).map(w=>{
+    const t=w.taille==='large' ? 'large' : 'normal';
+    return w.id==='une' ? widgetUne(hubApps, t)
+      : w.id==='etat' ? widgetEtat(toutes, t)
+      : w.id==='horloge' ? widgetHorloge(t)
+      : w.id==='messages' ? widgetMessages(t)
+      : w.id==='message' ? widgetMessage(t)
+      : w.id==='notes' ? widgetNotes(t) : '';
+  });
+  const desc = a => esc(a.description || (a.externe ? 'Outil de la stack' : 'Application'));
   const carte = a => {
     const [c] = etatApp(a);
-    return `<a class="bento-carte ${c}" href="${lienOuverture(a)}" data-app="${esc(a.name)}">
+    return `<a class="bento-carte ${c}${a.nouvelle_version?' maj':''}" href="${lienOuverture(a)}" data-app="${esc(a.name)}">
       <div class="bento-carte-haut"><img src="${icone(a.name)}" alt="">${badgeEtat(a)}</div>
       <div class="bento-carte-nom">${esc(nomAffiche(a))}</div>
-      <div class="bento-carte-desc">${desc(a)}</div>${pastille(a)}</a>`;
+      ${badgeMaj(a)}<div class="bento-carte-desc">${desc(a)}</div>${pastille(a)}</a>`;
   };
-  $('hub-liste').className='bento';
-  remplir($('hub-liste'), tuileUne + tuileEtat + liste.filter(a=>a!==une).map(carte).join(''));
+  const ajout = estAdmin && !filtre ? `<button type="button" class="bento-ajout" onclick="openAdd()">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Ajouter une application</button>` : '';
+  const vide = filtre && !liste.length
+    ? '<div class="hub-vide bento-vide"><b>Aucune application ne correspond</b>Essaie un autre mot.</div>' : '';
+  const el=$('hub-liste');
+  el.className='bento';
+  /* Ce qui doit SURVIVRE au repeint -- l'apercu (sinon il se recharge), le
+     texte en cours de frappe -- est mis de cote puis remis a sa place. */
+  const gardes={};
+  el.querySelectorAll('[data-garder]').forEach(n=>{ gardes[n.dataset.garder]=n; });
+  const actif=document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.garder : null;
+  const debut=actif && gardes[actif] ? gardes[actif].selectionStart : null;
+  const avant=el.innerHTML;
+  remplir(el, widgets.join('') + liste.map(carte).join('') + vide + ajout);
+  if(el.innerHTML!==avant){
+    el.querySelectorAll('[data-garder]').forEach(n=>{
+      const ancien=gardes[n.dataset.garder];
+      if(ancien && ancien!==n) n.replaceWith(ancien);
+    });
+    if(actif && gardes[actif]){ gardes[actif].focus(); if(debut!=null) try{ gardes[actif].setSelectionRange(debut, debut); }catch(e){} }
+  }
+  poserHorloge();
+  ajusterBento();
 }
-/* L'application ouverte en dernier, retenue par ce navigateur seulement :
-   c'est elle que la mosaique met en avant. Rien ne part au serveur. */
+/* Trois rangees qui tiennent dans la fenetre : la hauteur se calcule depuis
+   le haut de la mosaique. Sur telephone, CSS reprend la main (une colonne). */
+function ajusterBento(){
+  const el=$('hub-liste');
+  if(!el.classList.contains('bento')) return;
+  const haut=el.getBoundingClientRect().top + window.scrollY;
+  el.style.setProperty('--bento-h', Math.max(420, window.innerHeight - haut - 28) + 'px');
+  /* Ce qui reste sous la mosaique (marges de la page) ne doit pas faire
+     defiler la page : on retranche le depassement mesure. */
+  const exces=document.documentElement.scrollHeight - window.innerHeight;
+  if(exces>0) el.style.setProperty('--bento-h', Math.max(420, el.clientHeight - exces) + 'px');
+}
+window.addEventListener('resize', ajusterBento);
+/* La molette verticale fait defiler la mosaique a l'horizontale : on n'a pas
+   tous une souris qui sait aller de cote. Pas dans un champ de texte. */
+$('hub-liste').addEventListener('wheel', e=>{
+  const el=e.currentTarget;
+  if(!el.classList.contains('bento') || ecranMobile() || e.target.closest('textarea')) return;
+  if(Math.abs(e.deltaY) <= Math.abs(e.deltaX) || el.scrollWidth <= el.clientWidth) return;
+  el.scrollLeft += e.deltaY; e.preventDefault();
+}, {passive:false});
+
+/* PERSONNALISER LES WIDGETS : lesquels, dans quel ordre, en quelle taille. */
+let widgetsBrouillon=[];
+function ouvrirWidgets(){
+  const choisis=(hubWidgets||[]).map(w=>({...w, actif:true}));
+  const autres=hubWidgetsDispo.filter(d=>!choisis.some(w=>w.id===d.id)).map(d=>({id:d.id, taille:'normal', actif:false}));
+  widgetsBrouillon=choisis.concat(autres);
+  peindreWidgetsBrouillon();
+  $('ov-widgets').classList.add('show');
+}
+function titreWidget(id){ const d=hubWidgetsDispo.find(x=>x.id===id); return d ? d.titre : id; }
+function peindreWidgetsBrouillon(){
+  $('wg-liste').innerHTML=widgetsBrouillon.map((w,i)=>`<div class="wg-ligne${w.actif?'':' inactif'}">
+    <label class="choix-ligne wg-nom"><input type="checkbox" ${w.actif?'checked':''} onchange="widgetsBrouillon[${i}].actif=this.checked;peindreWidgetsBrouillon()">
+      <span>${esc(titreWidget(w.id))}</span></label>
+    <select aria-label="Taille de « ${esc(titreWidget(w.id))} »" onchange="widgetsBrouillon[${i}].taille=this.value" ${w.actif?'':'disabled'}>
+      <option value="normal" ${w.taille!=='large'?'selected':''}>Normal</option>
+      <option value="large" ${w.taille==='large'?'selected':''}>Grand</option></select>
+    <button class="btn btn-quiet btn-sm" aria-label="Monter « ${esc(titreWidget(w.id))} »" onclick="widgetDeplacer(${i},-1)" ${i?'':'disabled'}>↑</button>
+    <button class="btn btn-quiet btn-sm" aria-label="Descendre « ${esc(titreWidget(w.id))} »" onclick="widgetDeplacer(${i},1)" ${i<widgetsBrouillon.length-1?'':'disabled'}>↓</button>
+  </div>`).join('');
+}
+function widgetDeplacer(i, sens){
+  const j=i+sens; if(j<0 || j>=widgetsBrouillon.length) return;
+  [widgetsBrouillon[i], widgetsBrouillon[j]]=[widgetsBrouillon[j], widgetsBrouillon[i]];
+  peindreWidgetsBrouillon();
+}
+async function enregistrerWidgets(){
+  const widgets=widgetsBrouillon.filter(w=>w.actif).map(w=>({id:w.id, taille:w.taille}));
+  const r=await fetch('/api/hub/widgets',{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({widgets})});
+  if(!r.ok){ notifier(await echec(r,'Enregistrement impossible.'),'err'); return; }
+  hubWidgets=(await r.json()).widgets;
+  hide('ov-widgets'); peindreHub(); notifier('Widgets enregistrés.');
+}
+
+/* L'application ouverte : retenue par ce navigateur, et signalee au serveur
+   -- qui note la version vue (indicateur « Nouvelle version ») et la date
+   (widget « A la une »). keepalive : la page s'en va aussitot. */
 $('hub-liste').addEventListener('click', e=>{
   const t = e.target.closest('[data-app]');
-  if(t){ try{ localStorage.setItem('codelab-hub-derniere', t.dataset.app); }catch(err){} }
+  if(!t) return;
+  try{ localStorage.setItem('codelab-hub-derniere', t.dataset.app); }catch(err){}
+  if(hubApps.some(a=>a.name===t.dataset.app))
+    fetch('/api/mes-apps/'+encodeURIComponent(t.dataset.app)+'/ouverte', {method:'POST', keepalive:true}).catch(()=>{});
 });
 
 /* ---------------- vue d'ensemble ---------------- */
@@ -3843,24 +4144,124 @@ async function refresh(){
 }
 let dernierNoms='';
 
-/* ---------------- tableau des applications ---------------- */
+/* ---------------- les applications : recherche, filtres, tri ----------------
+   Deux affichages : des CARTES (par defaut), qui montrent l'etat, la charge
+   et les gestes d'un coup d'oeil ; une LISTE dont chaque colonne se trie d'un
+   clic sur son titre. La recherche, les filtres et le tri valent pour les
+   deux, et sont retenus par ce navigateur. */
+const apPrefs=(()=>{ try{ return JSON.parse(localStorage.getItem('codelab-apps-vue')||'{}'); }catch(e){ return {}; } })();
+let apVueCourante = apPrefs.vue==='liste' ? 'liste' : 'cartes';
+let apTriCle = apPrefs.tri || 'nom', apTriSens = apPrefs.sens===-1 ? -1 : 1, apEtat='';
+function apRetenir(){
+  try{ localStorage.setItem('codelab-apps-vue', JSON.stringify({vue:apVueCourante, tri:apTriCle, sens:apTriSens})); }catch(e){}
+}
+const AP_ETATS=[['','Toutes'],['on','En ligne'],['off','Arrêtées'],['souci','À surveiller']];
+const AP_COLONNES=[['nom','Application'],['etat','État'],['visibilite','Visibilité'],['categorie','Catégorie'],
+  ['port','Port'],['cpu','CPU'],['memoire','Mémoire']];
+const RANG_ETAT={err:0, warn:1, on:2, off:3};
+/* Sans categorie : en fin de liste. */
+const FIN_DU_TRI='\uffff';
+function apValeur(a, cle){
+  if(cle==='nom') return nomAffiche(a).toLowerCase();
+  if(cle==='etat') return RANG_ETAT[etatApp(a)[0]] ?? 4;
+  if(cle==='visibilite') return a.visibility||'';
+  if(cle==='categorie') return a.categorie ? a.categorie.toLowerCase() : FIN_DU_TRI;
+  if(cle==='port') return Number(a.port)||0;
+  if(cle==='cpu') return a.externe ? -1 : (a.cpu_percent||0);
+  if(cle==='memoire') return a.externe ? -1 : (a.memory_mb||0);
+  return '';
+}
+function apFiltrer(){ render(); }
+function apTrier(cle){
+  if(apTriCle===cle) apTriSens=-apTriSens; else { apTriCle=cle; apTriSens = ['cpu','memoire'].includes(cle) ? -1 : 1; }
+  apRetenir(); render();
+}
+function apVue(v){ apVueCourante = v==='liste' ? 'liste' : 'cartes'; apRetenir(); render(); }
+function apChoisirEtat(e){ apEtat=e; render(); }
+function apListe(){
+  const q=($('ap-filtre').value||'').trim().toLowerCase();
+  const vis=$('ap-vis').value, cat=$('ap-cat').value;
+  return apps.filter(a=>{
+    const c=etatApp(a)[0];
+    if(apEtat==='on' && c!=='on') return false;
+    if(apEtat==='off' && c!=='off') return false;
+    if(apEtat==='souci' && !['err','warn'].includes(c)) return false;
+    if(vis && (a.visibility||'privee')!==vis) return false;
+    if(cat && (a.categorie||'')!==(cat==='-' ? '' : cat)) return false;
+    return !q || (a.name+' '+nomAffiche(a)+' '+(a.description||'')+' '+(a.categorie||'')+' '+a.port).toLowerCase().includes(q);
+  }).sort((x,y)=>{
+    const a=apValeur(x,apTriCle), b=apValeur(y,apTriCle);
+    const r = typeof a==='number' && typeof b==='number' ? a-b : String(a).localeCompare(String(b),'fr');
+    return r*apTriSens || nomAffiche(x).localeCompare(nomAffiche(y),'fr');
+  });
+}
+function apOutils(){
+  remplir($('ap-etats'), AP_ETATS.map(([v,t])=>{
+    const n = v==='' ? apps.length : apps.filter(a=>{ const c=etatApp(a)[0];
+      return v==='souci' ? ['err','warn'].includes(c) : c===v; }).length;
+    return `<button aria-pressed="${apEtat===v}" data-agir="ap-etat" data-cible="${v}">${t} <b>${n}</b></button>`;
+  }).join(''));
+  const cats=[...new Set(apps.map(a=>a.categorie||''))].sort((a,b)=>a.localeCompare(b,'fr'));
+  const sel=$('ap-cat'), choisi=sel.value;
+  (sel.closest('.dl')||sel).style.display = cats.some(Boolean) ? '' : 'none';
+  remplir(sel, '<option value="">Toutes catégories</option>'
+    + cats.map(c=>`<option value="${c ? esc(c) : '-'}">${c ? esc(c) : 'Sans catégorie'}</option>`).join(''));
+  sel.value=choisi;
+  $('ap-tri').value=apTriCle;
+  document.querySelectorAll('.ap-vues button').forEach(b=>b.classList.toggle('active', b.dataset.v===apVueCourante));
+}
+const SVG_PAUSE='<svg viewBox="0 0 24 24"><rect x="7" y="6" width="3.5" height="12" rx="1"/><rect x="13.5" y="6" width="3.5" height="12" rx="1"/></svg>';
+const SVG_LECTURE='<svg viewBox="0 0 24 24"><path d="M8 5.5l10 6.5-10 6.5z"/></svg>';
+function apBascule(a){
+  return (a.externe || a.name === 'diagnostic') ? '' : `<button class="icon-btn ${a.running?'stop':'ok'}" title="${a.running?'Arrêter':'Démarrer'}"
+    aria-label="${a.running?'Arrêter':'Démarrer'} ${esc(nomAffiche(a))}" data-agir="app-basculer" data-cible="${esc(a.name)}">${a.running?SVG_PAUSE:SVG_LECTURE}</button>`;
+}
+function apJauge(v, max, texte){
+  const pc=Math.max(2, Math.min(100, max ? v/max*100 : 0));
+  return `<div class="ap-jauge"><span>${texte}</span><i><b style="width:${pc}%"></b></i></div>`;
+}
 function render(){
-  const liste=apps;
-  if(!liste.length){
-    $('tbl-projets').innerHTML=`<div class="empty">
+  apOutils();
+  if(!apps.length){
+    remplir($('tbl-projets'), `<div class="empty">
       <div class="empty-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/>
       <rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/>
       <rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></div>
       <h3>Aucune application déclarée</h3>
       <p>Déclare un dossier de /workspace et il sera en ligne en quelques secondes.</p>
       <button class="btn btn-primary" onclick="openAdd()">Nouvelle application</button>
-    </div>`;
+    </div>`);
     return;
   }
-  $('tbl-projets').innerHTML=`<div class="tbl-wrap"><div class="tbl-scroll"><table class="tbl">
-    <thead><tr>
-      <th>Application</th><th>État</th><th>Visibilité</th><th>Port</th>
-      <th>CPU</th><th>Mémoire</th><th></th>
+  const liste=apListe();
+  if(!liste.length){
+    remplir($('tbl-projets'), '<div class="ap-aucune"><b>Aucune application ne correspond</b>Change la recherche ou les filtres.</div>');
+    return;
+  }
+  const memMax=Math.max(256, ...liste.map(a=>a.max_memory_mb||a.memory_mb||0));
+  if(apVueCourante==='cartes'){
+    remplir($('tbl-projets'), `<div class="ap-grille">${liste.map(a=>{
+      const c=etatApp(a)[0];
+      return `<article class="ap-carte ${c}" data-agir="app-ouvrir" data-cible="${esc(a.name)}">
+        <div class="ap-carte-haut"><img src="${icone(a.name)}" alt="">
+          <div class="ap-carte-titre"><b>${esc(nomAffiche(a))}</b><span>${esc(a.description||a.name)}</span></div></div>
+        <div class="ap-carte-pills">${badgeEtat(a)}${badgeVis(a)}${a.categorie?`<span class="pill neutre"><i></i>${esc(a.categorie)}</span>`:''}</div>
+        ${a.externe ? '<div class="hint">Service de la stack : non mesuré.</div>'
+          : `<div class="ap-jauges">${apJauge(a.cpu_percent||0, 100, 'CPU '+(a.cpu_percent||0).toFixed(1)+' %')}
+              ${apJauge(a.memory_mb||0, a.max_memory_mb||memMax, 'Mémoire '+Math.round(a.memory_mb||0)+' Mo')}</div>`}
+        <div class="ap-carte-pied"><span class="tbl-num">:${esc(String(a.port))}</span><div class="spacer"></div>
+          ${apBascule(a)}
+          <button class="icon-btn" title="Ouvrir la fiche" aria-label="Ouvrir la fiche de ${esc(nomAffiche(a))}"
+            data-agir="app-ouvrir" data-cible="${esc(a.name)}"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button></div>
+      </article>`;
+    }).join('')}</div>`);
+    return;
+  }
+  const avecCat=apps.some(a=>a.categorie);
+  const cols=AP_COLONNES.filter(([k])=>k!=='categorie' || avecCat);
+  remplir($('tbl-projets'), `<div class="tbl-wrap"><div class="tbl-scroll"><table class="tbl ap-tbl">
+    <thead><tr>${cols.map(([k,t])=>`<th aria-sort="${apTriCle===k ? (apTriSens>0?'ascending':'descending') : 'none'}">
+      <button class="ap-th" data-agir="ap-trier" data-cible="${k}">${t}<span aria-hidden="true">${apTriCle===k ? (apTriSens>0?'▲':'▼') : '↕'}</span></button></th>`).join('')}<th></th>
     </tr></thead><tbody>
     ${liste.map(a=>`<tr data-agir="app-ouvrir" data-cible="${esc(a.name)}">
       <td><div class="tbl-nom"><img src="${icone(a.name)}" alt="">
@@ -3868,21 +4269,16 @@ function render(){
         ${a.description?`<div class="d">${esc(a.description)}</div>`:''}</div></div></td>
       <td>${badgeEtat(a)}</td>
       <td>${badgeVis(a)}</td>
+      ${avecCat ? `<td>${a.categorie ? esc(a.categorie) : '<span class="hint">—</span>'}</td>` : ''}
       <td class="tbl-num">${a.port}</td>
       <td class="tbl-num">${a.externe ? '—' : (a.cpu_percent||0).toFixed(1)+'%'}</td>
       <td class="tbl-num">${a.externe ? '—' : Math.round(a.memory_mb||0)+' Mo'}</td>
-      <td class="tbl-act"><div>
-        ${(a.externe || a.name === 'diagnostic') ? '' : `<button class="icon-btn ${a.running?'stop':'ok'}" title="${a.running?'Arreter':'Demarrer'}"
-          data-agir="app-basculer" data-cible="${esc(a.name)}">
-          ${a.running
-            ? '<svg viewBox="0 0 24 24"><rect x="7" y="6" width="3.5" height="12" rx="1"/><rect x="13.5" y="6" width="3.5" height="12" rx="1"/></svg>'
-            : '<svg viewBox="0 0 24 24"><path d="M8 5.5l10 6.5-10 6.5z"/></svg>'}
-        </button>`}
+      <td class="tbl-act"><div>${apBascule(a)}
         <button class="icon-btn" title="Ouvrir la fiche"
           data-agir="app-ouvrir" data-cible="${esc(a.name)}">
           <svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
       </div></td></tr>`).join('')}
-    </tbody></table></div></div>`;
+    </tbody></table></div></div>`);
 }
 
 /* ---------------- actions ---------------- */
@@ -4008,7 +4404,6 @@ function ficheOnglet(o){
   if(o==='metriques') chargerMetriques(ficheNom);
   if(o==='activite') chargerActivite().then(peindreActiviteFiche);
   if(o==='acces') chargerAcces(ficheNom);
-  if(o==='conteneur') chargerConteneur();
 }
 
 /* ---------------- acces a une application ---------------- */
@@ -4019,7 +4414,7 @@ let acCourant='';
 
 async function chargerAcces(nom){
   acCourant=nom;
-  const zone=$('ac-liste'); zone.innerHTML='<div class="hint">Chargement...</div>';
+  const zone=$('acces-liste'); zone.innerHTML='<div class="hint">Chargement...</div>';
   $('ac-err').style.display='none'; $('ac-msg').style.display='none';
   let d;
   try{
@@ -4056,18 +4451,30 @@ async function chargerAcces(nom){
   }
   /* Une ligne par compte, choisie ou non : la meme facon de designer que
      partout ailleurs dans le panneau. */
-  zone.innerHTML = comptes.map(c=>
-    `<label class="choix-ligne">
-       <input type="checkbox" id="ac-${esc(c.nom)}" ${c.acces?'checked':''}
+  /* Le compte voyage dans un attribut data-, pas dans l'id : « ac-total »
+     existait deja ailleurs dans la page, et un compte nomme « total » aurait
+     coche la mauvaise case. */
+  zone.innerHTML = (comptes.length>6
+      ? `<input class="acces-filtre" id="acces-filtre" type="search" placeholder="Rechercher un compte"
+           aria-label="Rechercher un compte" oninput="acFiltrer()" style="margin-bottom:10px">` : '')
+    + comptes.map(c=>
+    `<label class="choix-ligne acces-ligne" data-cherche="${esc((c.nom+' '+(c.email||'')).toLowerCase())}">
+       <input type="checkbox" data-compte="${esc(c.nom)}" ${c.acces?'checked':''}
          onchange="acBasculer()">
+       <span class="acces-initiale" aria-hidden="true">${esc((c.nom||'?').slice(0,1).toUpperCase())}</span>
        <div class="proj-txt"><b>${esc(c.nom)}</b>
          ${c.email ? `<span>${esc(c.email)}</span>` : ''}</div>
      </label>`).join('');
 }
+function acFiltrer(){
+  const q=($('acces-filtre').value||'').trim().toLowerCase();
+  document.querySelectorAll('#acces-liste .acces-ligne').forEach(l=>
+    l.style.display = !q || l.dataset.cherche.includes(q) ? '' : 'none');
+}
 
 async function acBasculer(){
-  const cases=[...document.querySelectorAll('#ac-liste input[type=checkbox]')];
-  const choisis=cases.filter(c=>c.checked).map(c=>c.id.slice(3));
+  const cases=[...document.querySelectorAll('#acces-liste input[type=checkbox]')];
+  const choisis=cases.filter(c=>c.checked).map(c=>c.dataset.compte);
   cases.forEach(c=>c.disabled=true);
   const m=$('ac-msg'), e=$('ac-err');
   e.style.display='none';
@@ -4100,7 +4507,7 @@ async function acBasculer(){
 
    Le serveur refuse quand meme, et c'est la vraie garde : masquer un bouton
    ne protege rien, la route reste appelable a la main. */
-const ONGLETS_CONFIG = ['acces', 'config', 'conteneur'];
+const ONGLETS_CONFIG = ['acces', 'config'];
 
 function peindreFiche(){
   const a=appParNom(ficheNom);
@@ -4286,71 +4693,6 @@ async function renommerApp(){
     bouton.disabled=false; bouton.textContent='Renommer';
   }
 }
-/* ---------------- conteneuriser une application ---------------- */
-/* L'archive part du serveur telle qu'il la construit : rien n'est ecrit dans
-   le dossier du projet, et ce qu'on emporte est exactement ce que la page
-   montre -- meme si un fichier du meme nom existe deja a cote. */
-function ctTelecharger(){
-  if(!ficheNom) return;
-  window.location = '/api/app/' + encodeURIComponent(ficheNom) + '/conteneur.zip';
-}
-
-let ctFichiers=[];
-
-async function chargerConteneur(){
-  const zone=$('ct-fichiers');
-  zone.innerHTML='<div class="hint">Lecture du projet...</div>';
-  $('ct-err').style.display='none'; $('ct-msg').style.display='none';
-  let d;
-  try{
-    const r=await fetch('/api/app/'+encodeURIComponent(ficheNom)+'/conteneur');
-    d=await r.json();
-    if(!r.ok) throw new Error(d.error||'');
-  }catch(e){
-    zone.innerHTML='';
-    $('ct-err').textContent=(e && e.message) || 'Lecture impossible.';
-    $('ct-err').style.display='block';
-    return;
-  }
-  ctFichiers=d.fichiers||[];
-  const p=$('ct-pile');
-  p.className='pill '+(d.pile && d.pile!=='inconnue' ? 'on':'off');
-  p.innerHTML='<i></i>'+esc(d.pile||'inconnue');
-
-  /* L'article vit avec le libelle : « besoin de une base » se corrige au
-     bon endroit, pas par une regle de grammaire dans le gabarit. */
-  const services={postgres:"d'une base Postgres", redis:"d'un Redis"};
-  $('ct-resume').innerHTML =
-    (d.indices && d.indices.length
-      ? 'Pile reconnue d\'après <code>'+d.indices.map(esc).join('</code>, <code>')+'</code>. '
-      : "Aucun indice de pile dans le dossier : le Dockerfile est générique, et c'est "
-        + 'à relire de près. ')
-    + ((d.services||[]).length
-      ? 'À côté, l\'application semble avoir besoin '
-        + d.services.map(x=>services[x]||x).join(' et ') + '.'
-      : 'Aucun service voisin détecté.');
-
-  /* Deroules ? Non : cinq fichiers ouverts d'un coup noient la page, et on
-     ne relit qu'un fichier a la fois. */
-  zone.innerHTML = ctFichiers.map((f,i)=>
-    `<details style="margin-bottom:8px">
-       <summary style="cursor:pointer"><b>${esc(f.nom)}</b>
-         <span class="hint" style="display:inline;margin-left:6px">${esc(f.role)}</span>
-         ${f.existe?'<span class="pill off" style="margin-left:8px"><i></i>déjà dans le projet</span>':''}
-       </summary>
-       <div class="actions" style="margin:8px 0">
-         <button class="btn btn-default btn-sm" onclick="ctCopier(${i})">Copier</button>
-       </div>
-       <pre class="pre-conf" id="ct-f${i}">${esc(f.contenu)}</pre>
-     </details>`).join('');
-}
-
-async function ctCopier(i){
-  try{ await navigator.clipboard.writeText(ctFichiers[i].contenu);
-       notifier(ctFichiers[i].nom+' copié.'); }
-  catch(e){ notifier('Copie impossible : sélectionne le texte à la main.','err'); }
-}
-
 /* ---------------- le logo d'une application ---------------- */
 function logoChoisir(){ $('e-logo-fichier').click(); }
 
@@ -4654,7 +4996,7 @@ async function submitAdd(){
      categorie:$('f-cat').value, max_memory_mb,visibility:visAdd})});
   const d=await r.json();
   if(!r.ok) return err(d.error);
-  hide('ov-add'); refresh();
+  hide('ov-add'); refresh(); chargerHub();
 }
 
 
@@ -5307,9 +5649,9 @@ function notifierMessage(texte){
   n.id='toast-messages';
   n.className='toast toast-message ok';
   n.innerHTML='<svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>'
-    +'<div style="flex:1"><b>'+esc(texte)+'</b><div class="hint">Clique pour ouvrir Demandes.</div></div>'
+    +'<div style="flex:1"><b>'+esc(texte)+'</b><div class="hint">Clique pour ouvrir Messages.</div></div>'
     +'<button type="button">Voir</button>';
-  n.onclick=()=>{ location.href='/demandes'; };
+  n.onclick=()=>{ location.href='/messages'; };
   $('toasts').appendChild(n);
 }
 
@@ -6144,6 +6486,8 @@ document.addEventListener('visibilitychange', ()=>{
     }
   });
 });
+/* L'horloge du widget, posee hors du HTML de la mosaique (voir widgetHorloge). */
+surveiller(poserHorloge, 15000);
 
 if(estAdmin){
   /* « Hub » cote administrateur : il y voit TOUTES les applications, pas

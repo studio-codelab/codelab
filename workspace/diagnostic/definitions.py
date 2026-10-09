@@ -230,12 +230,27 @@ def config_smtp():
     return (None, manquants) if manquants else (cfg, [])
 
 
+# Comme les mails du panneau, l'alerte passe d'abord par Mailpit : elle se
+# relit dans son interface, et Mailpit la relaie par le serveur d'envoi de
+# CodeLab. Mailpit injoignable : envoi direct, pour qu'une alerte ne tombe
+# pas avec le service qui devait la porter.
+MAILPIT_SMTP_HOTE = checks.read_env("CODELAB_MAILPIT_SMTP_HOTE") or "codelab-mailpit"
+MAILPIT_SMTP_PORT = int(checks.read_env("CODELAB_MAILPIT_SMTP_PORT") or 1025)
+
+
 def envoyer(cfg, sujet, corps):
     msg = EmailMessage()
     msg["Subject"] = sujet
     msg["From"] = cfg["expediteur"]
     msg["To"] = ", ".join(cfg["destinataires"])
     msg.set_content(corps)
+
+    try:
+        with smtplib.SMTP(MAILPIT_SMTP_HOTE, MAILPIT_SMTP_PORT, timeout=10) as s:
+            s.send_message(msg)
+        return
+    except (OSError, smtplib.SMTPException) as e:
+        print(f"[diagnostic] Mailpit injoignable ({type(e).__name__}: {e}) : envoi direct.")
 
     def _login(s):
         if cfg["user"] and cfg["password"]:

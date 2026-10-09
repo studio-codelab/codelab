@@ -148,7 +148,9 @@ Sans lui, les réglages chiffrés deviennent illisibles.
   - `X-Forwarded-For` n'est jamais cru ;
   - une requête relayée (`X-Forwarded-*`) n'atteint jamais l'administration.
 - **En-têtes du panneau** : CSP stricte (`default-src 'self'`, `frame-ancestors 'none'`,
-  `form-action 'self'`), `nosniff`, `Referrer-Policy: no-referrer`.
+  `form-action 'self'`), `nosniff`, `Referrer-Policy: no-referrer`. La page du hub ajoute
+  `frame-src` pour la seule origine des applications : le widget « À la une » y affiche un aperçu
+  inerte (`sandbox`, sans clic) de la dernière application ouverte.
 - **Exposition recommandée** : un VPS qui porte le domaine et le certificat, et un tunnel WireGuard
   vers ton serveur ([`app-manager/vps/README.md`](app-manager/vps/README.md)). Aucun port n'est
   alors ouvert sur ta box.
@@ -238,8 +240,9 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 - **Les applications partagent le groupe `codelab`** sur `/workspace`, pour que ton code reste
   modifiable en SSH. Sans namespaces utilisateur, une application peut lire les fichiers d'une autre
   par ce groupe.
-- **L'administrateur voit tout** : les applications, le journal, et les mails passés par Mailpit,
-  codes compris. Il ne voit jamais un mot de passe.
+- **L'administrateur voit tout** : les applications, le journal, et les mails passés par Mailpit.
+  Il ne voit jamais un mot de passe, ni un mail de sécurité : codes, liens d'invitation et alertes
+  de connexion partent en direct, sans copie dans Mailpit.
 - **Sans HTTPS**, une session peut être interceptée sur le réseau.
 - **La boîte mail de chaque utilisateur** reçoit ses codes : sa sécurité compte. La clé d'accès reste
   le moyen le plus sûr.

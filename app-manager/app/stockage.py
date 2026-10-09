@@ -233,6 +233,40 @@ MIGRATIONS = [
     UPDATE taches SET statut = 'fait' WHERE faite = 1;
     CREATE INDEX taches_statut ON taches(statut, ordre);
     """,
+    # --- version 4 : versions des applications, ouvertures, preferences ---
+    # versions_apps : la derniere version connue d'une application (un
+    #   deploiement, un build, ou un nouveau commit) ;
+    # apps_vues : la version que chaque compte a vue en l'ouvrant ;
+    # preferences : les reglages d'un compte qui le suivent d'un appareil a
+    #   l'autre (les widgets du hub).
+    """
+    CREATE TABLE versions_apps (
+        app     TEXT PRIMARY KEY,
+        ts      INTEGER NOT NULL,
+        commit_ TEXT
+    );
+    CREATE TABLE apps_vues (
+        compte  TEXT NOT NULL,
+        app     TEXT NOT NULL,
+        ts      INTEGER NOT NULL,
+        version INTEGER NOT NULL,
+        PRIMARY KEY (compte, app)
+    );
+    CREATE TABLE preferences (
+        compte  TEXT NOT NULL,
+        cle     TEXT NOT NULL,
+        valeur  TEXT NOT NULL,
+        PRIMARY KEY (compte, cle)
+    );
+    """,
+    # --- version 5 : la feuille de route de l'application « Messages » ---
+    # duree : en jours ouvres, pour placer une tache sans date sur la feuille
+    # de route ; fait_le : quand elle a ete cochee.
+    """
+    ALTER TABLE taches ADD COLUMN duree INTEGER NOT NULL DEFAULT 1;
+    ALTER TABLE taches ADD COLUMN fait_le INTEGER;
+    UPDATE taches SET fait_le = cree WHERE statut = 'fait';
+    """,
 ]
 
 VERSION = len(MIGRATIONS)

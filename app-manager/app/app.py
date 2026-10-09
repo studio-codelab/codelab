@@ -134,7 +134,7 @@ def _lire_ressource(nom):
 
 
 DASHBOARD_PAGE = _lire_ressource("dashboard.html")
-DEMANDES_PAGE = _lire_ressource("demandes.html")
+MESSAGERIE_PAGE = _lire_ressource("messages.html")
 LOGIN_PAGE = _lire_ressource("login.html")
 # Le theme : un seul fichier de variables, partage par les deux pages. Servi
 # plutot que recopie dans chacune, pour qu'il n'existe qu'un endroit a changer
@@ -897,13 +897,15 @@ APPLICATIONS_PROTEGEES = {DAGSTER_NOM, DIAGNOSTIC_NOM, MAILPIT_NOM}
 # « dagster », « diagnostic » -- et c'est elle qui s'affichait : deux tuiles
 # en minuscules au milieu de projets nommes par leur auteur. Elles n'ont pas
 # de formulaire ou corriger cela, la valeur est donc posee ici.
-# « Demandes » : l'application qui recense les demandes laissees depuis le hub
-# et en fait des taches et des projets. Elle est servie par le panneau
-# lui-meme (/demandes) -- ses donnees sont celles du panneau, et elle est
-# reservee a l'administrateur, comme Dagster et Mailpit.
-DEMANDES_NOM = "demandes"
+# « Messages » : l'application qui recense les messages laisses depuis le hub
+# et en fait des projets, des taches et une feuille de route. Elle est servie
+# par le panneau lui-meme (/messages) -- ses donnees sont celles du panneau,
+# et elle est reservee a l'administrateur, comme Dagster et Mailpit.
+MESSAGERIE_NOM = "messages"
+# L'ancien nom de l'application, garde pour les rangements deja enregistres.
+MESSAGERIE_ANCIEN_NOM = "demandes"
 TITRES_PAR_DEFAUT = {DAGSTER_NOM: "Dagster", DIAGNOSTIC_NOM: "Diagnostic",
-                     MAILPIT_NOM: "Mailpit", DEMANDES_NOM: "Demandes"}
+                     MAILPIT_NOM: "Mailpit", MESSAGERIE_NOM: "Messages"}
 
 # La tuile du diagnostic a besoin d'une phrase, et cette phrase ne peut pas
 # s'ecrire a la main : la fiche d'une application par defaut n'a pas de
@@ -921,7 +923,7 @@ def refus_action_protegee(nom, action):
 
 
 def est_app_par_defaut(nom):
-    return nom in APPS_PAR_DEFAUT or nom in (MAILPIT_NOM, DEMANDES_NOM)
+    return nom in APPS_PAR_DEFAUT or nom in (MAILPIT_NOM, MESSAGERIE_NOM)
 
 
 def refus_configuration(nom):
@@ -1123,7 +1125,7 @@ def journal_du_service(nom, ligne):
 # Les services de la stack qu'un compte peut ranger hors de son hub. Une
 # liste nommee plutot qu'un « tout ce qui n'est pas une application » : ce
 # qui est masquable se decide ici, et se lit d'un coup d'oeil.
-SERVICES_MASQUABLES = frozenset({DAGSTER_NOM, MAILPIT_NOM, DEMANDES_NOM})
+SERVICES_MASQUABLES = frozenset({DAGSTER_NOM, MAILPIT_NOM, MESSAGERIE_NOM})
 
 # La phrase de la tuile Dagster, lue par les deux listes ci-dessous. Deux
 # copies divergeraient, et la tuile rangee ne se decrirait plus comme celle
@@ -1132,8 +1134,8 @@ DESCRIPTION_DAGSTER = ("Orchestration des jobs : plannings, assets, "
                        "exécutions et journaux.")
 DESCRIPTION_MAILPIT = ("Les mails envoyés par les applications : chacun se "
                        "relit ici, avant ou après son départ.")
-DESCRIPTION_DEMANDES = ("Les demandes reçues depuis le hub, et le travail qui en "
-                        "sort : tâches priorisées, projets à construire.")
+DESCRIPTION_MESSAGERIE = ("Les messages laissés depuis le hub, rangés en projets, "
+                          "en tâches et sur une feuille de route.")
 
 
 def services_masques():
@@ -1151,11 +1153,11 @@ def services_masques():
              "description": description, "externe": True}
             for nom, description in ((DAGSTER_NOM, DESCRIPTION_DAGSTER),
                                      (MAILPIT_NOM, DESCRIPTION_MAILPIT),
-                                     (DEMANDES_NOM, DESCRIPTION_DEMANDES))
+                                     (MESSAGERIE_NOM, DESCRIPTION_MESSAGERIE))
             if nom in masquees]
 
 
-def services_du_hub(avec_demandes=True):
+def services_du_hub(avec_messagerie=True):
     """Les tuiles du hub qui ne sont pas des applications declarees.
 
     Dagster est RESERVE A L'ADMINISTRATEUR, et ce n'est pas une politesse :
@@ -1190,15 +1192,15 @@ def services_du_hub(avec_demandes=True):
             debout = mailpit_repond()
             services.append(_tuile_service(MAILPIT_NOM, DESCRIPTION_MAILPIT,
                                            adresse, debout, MAILPIT_PORT))
-    # Demandes : servie par le panneau lui-meme, donc toujours debout. Sa
+    # Messages : servie par le panneau lui-meme, donc toujours debout. Sa
     # phrase dit ce qui attend, comme le compteur d'une boite de reception.
-    if avec_demandes and DEMANDES_NOM not in masquees:
-        tuile = _tuile_service(DEMANDES_NOM, DESCRIPTION_DEMANDES, "/demandes", True, PANEL_PORT)
+    if avec_messagerie and MESSAGERIE_NOM not in masquees:
+        tuile = _tuile_service(MESSAGERIE_NOM, DESCRIPTION_MESSAGERIE, "/messages", True, PANEL_PORT)
         nouvelles = sum(1 for m in lire_messages(limite=MESSAGES_AFFICHES)
                         if not m.get("lu") and not m.get("archive"))
         if nouvelles:
-            tuile["description"] = (f"{nouvelles} nouvelle{'s' if nouvelles > 1 else ''} "
-                                    f"demande{'s' if nouvelles > 1 else ''} à traiter.")
+            tuile["description"] = (f"{nouvelles} nouveau{'x' if nouvelles > 1 else ''} "
+                                    f"message{'s' if nouvelles > 1 else ''} à lire.")
         # Une page du panneau, pas un service a son propre port : la tuile
         # l'ouvre directement, sans passer par le proxy.
         tuile["interne"] = True
@@ -2116,7 +2118,7 @@ def envoyer_code_email(adresse, nom, code):
                  "Si tu n'es pas a l'origine de cette demande, ignore ce "
                  "message : sans ce code, rien ne change.\n\n"
                  "-- CodeLab, panneau de gestion des applications",
-                 destinataires=[adresse])
+                 destinataires=[adresse], sensible=True)
 
 
 # ---------------------- mot de passe oublie ----------------------
@@ -2176,7 +2178,7 @@ def envoyer_code_reinit(adresse, nom, code):
                  "Si tu n'es pas a l'origine de cette demande, ignore ce message : "
                  "sans ce code, ton mot de passe ne change pas.\n\n"
                  "-- CodeLab, panneau de gestion des applications",
-                 destinataires=[adresse])
+                 destinataires=[adresse], sensible=True)
 
 
 # ---------------------- second facteur par code envoye ----------------------
@@ -2273,7 +2275,7 @@ def envoyer_code_connexion(compte, nom, moyen, code):
                  "est connu de quelqu'un d'autre : change-le, et préviens ton "
                  "administrateur.\n\n"
                  "-- CodeLab, panneau de gestion des applications",
-                 destinataires=[compte["email"]])
+                 destinataires=[compte["email"]], sensible=True)
 
 
 # ------------------------------ invitations ------------------------------
@@ -2324,8 +2326,8 @@ def lien_invitation(jeton):
 
 
 def envoyer_invitation(adresse, lien):
-    """Envoie le lien, ou leve. Passe par Mailpit : meme sans serveur
-    d'envoi, le mail se relit dans son interface."""
+    """Envoie le lien, ou leve. En direct, jamais par Mailpit : le lien
+    ouvre la creation d'un compte."""
     cfg, _ = smtp_utilisable()
     envoyer_mail(cfg, "[CodeLab] ton invitation",
                  "Bonjour,\n\n"
@@ -2337,7 +2339,7 @@ def envoyer_invitation(adresse, lien):
                  "Si tu ne t'attendais pas à ce message, ignore-le : sans ce lien, "
                  "aucun compte n'est créé.\n\n"
                  "-- CodeLab, panneau de gestion des applications",
-                 destinataires=[adresse])
+                 destinataires=[adresse], sensible=True)
 
 
 def creer_invitation(adresse, projets):
@@ -2480,407 +2482,6 @@ def _descripteurs(nom):
             for k in passkeys_du_compte(nom)]
 
 
-# ------------------------- conteneuriser une application -------------------------
-#
-# CE QUE CETTE FONCTION FAIT, ET CE QU'ELLE NE FAIT PAS.
-#
-# Elle ECRIT les fichiers qui manquent pour sortir une application de CodeLab
-# et la faire tourner ailleurs : Dockerfile, compose, modele de variables
-# d'environnement, .dockerignore et un mode d'emploi. Elle ne construit
-# aucune image et ne lance rien -- le panneau n'a pas de socket Docker, et
-# lui en donner un reviendrait a lui offrir la machine entiere.
-#
-# Elle DEVINE la pile a partir de ce qui est dans le dossier, puis le DIT :
-# un Dockerfile produit sans qu'on sache sur quoi il se fonde est un
-# Dockerfile qu'on relit entierement de toute facon.
-#
-# Les valeurs viennent de ce que le panneau sait deja de l'application -- sa
-# commande de lancement, sa commande de build, sa limite de memoire, son port
-# -- pour que le conteneur demarre comme elle demarre ici, et pas autrement.
-
-PILES = {
-    "python": {
-        "nom": "Python",
-        "indices": ("requirements.txt", "pyproject.toml", "Pipfile", "setup.py"),
-        "image": "python:3.12-slim",
-        "build": "pip install --no-cache-dir -r requirements.txt",
-        "conseil": "requirements.txt est copie avant le reste du code : "
-                   "l'etape d'installation n'est alors refaite que quand les "
-                   "dependances changent, pas a chaque modification du code.",
-    },
-    "node": {
-        "nom": "Node",
-        "indices": ("package.json", "package-lock.json", "pnpm-lock.yaml"),
-        "image": "node:22-slim",
-        "build": "npm ci --omit=dev || npm install --omit=dev",
-        "conseil": "package.json et son verrou sont copies avant le reste du "
-                   "code, pour la meme raison : l'installation ne se refait "
-                   "que quand les dependances changent.",
-    },
-    "go": {
-        "nom": "Go",
-        "indices": ("go.mod",),
-        "image": "golang:1.23",
-        "build": "go build -o ./app ./...",
-        "conseil": "Le binaire est construit dans l'image ; pour aller plus "
-                   "loin, une seconde etape « FROM debian:stable-slim » qui "
-                   "ne copie que le binaire divise la taille par dix.",
-    },
-    "php": {
-        "nom": "PHP",
-        "indices": ("composer.json", "index.php"),
-        "image": "php:8.3-cli",
-        "build": "",
-        "conseil": "",
-    },
-}
-
-
-def detecter_pile(chemin):
-    """(cle, infos) d'apres ce qui est REELLEMENT dans le dossier.
-
-    On regarde les fichiers, pas la commande de lancement : « npm start »
-    peut lancer autre chose que du Node, et un script shell peut lancer
-    n'importe quoi. Un dossier qu'on ne reconnait pas rend une pile
-    generique -- le mode d'emploi le dit alors franchement.
-    """
-    try:
-        presents = set(os.listdir(chemin))
-    except OSError:
-        presents = set()
-    for cle, infos in PILES.items():
-        if presents & set(infos["indices"]):
-            return cle, dict(infos, trouve=sorted(presents & set(infos["indices"])))
-    return "", {"nom": "inconnue", "image": "debian:stable-slim", "build": "",
-                "conseil": "", "trouve": []}
-
-
-def services_requis(chemin, a):
-    """Ce dont l'application a besoin a cote d'elle, d'apres son code.
-
-    Deviner un service a partir d'un import est grossier -- mais ne rien
-    proposer du tout oblige a tout ecrire a la main, et proposer un compose
-    avec une base dont personne n'a besoin est facile a supprimer. Le
-    deuxieme cas se corrige en trois secondes, pas le premier.
-    """
-    besoins = []
-    motifs = {
-        "postgres": ("psycopg", "asyncpg", "sqlalchemy", "pg8000", "postgres",
-                     "POSTGRES_", "DATABASE_URL"),
-        "redis": ("redis", "REDIS_URL"),
-    }
-    textes = []
-    for racine, dossiers, fichiers in os.walk(chemin):
-        # On ne descend pas dans les dependances : y chercher des indices
-        # trouverait tout et n'importe quoi.
-        dossiers[:] = [d for d in dossiers
-                       if d not in ("node_modules", ".git", "vendor", ".venv",
-                                    "__pycache__", "dist", "build")]
-        for f in fichiers:
-            if f.endswith((".py", ".js", ".ts", ".json", ".txt", ".toml", ".env",
-                           ".yml", ".yaml", ".go", ".php")):
-                try:
-                    with open(os.path.join(racine, f), errors="replace") as fh:
-                        textes.append(fh.read(200000))
-                except OSError:
-                    continue
-        if len(textes) > 200:
-            break
-    tout = "\n".join(textes)
-    for service, mots in motifs.items():
-        if any(m in tout for m in mots):
-            besoins.append(service)
-    return besoins
-
-
-def variables_du_modele(a, besoins):
-    """Le modele de variables d'environnement, commente ligne a ligne.
-
-    PORT y est toujours : c'est le contrat de CodeLab, et c'est la premiere
-    chose qu'on oublie en sortant une application de son panneau.
-    """
-    lignes = [
-        "# Modele de variables d'environnement. Copie-le en .env, remplis les",
-        "# valeurs, et NE LE COMMITTE PAS -- .dockerignore et .gitignore",
-        "# l'ecartent deja.",
-        "",
-        "# Le port sur lequel l'application doit ECOUTER. CodeLab le fournit ;",
-        "# ailleurs, c'est a toi de le poser.",
-        f"PORT={a.get('port') or 8000}",
-    ]
-    if "postgres" in besoins:
-        lignes += [
-            "",
-            "# Base de donnees. Dans le compose ci-joint, l'hote est le nom du",
-            "# service (« base »), pas localhost : chaque conteneur a son",
-            "# propre localhost.",
-            "POSTGRES_HOST=base",
-            "POSTGRES_PORT=5432",
-            "POSTGRES_DB=app",
-            "POSTGRES_USER=app",
-            "POSTGRES_PASSWORD=a-changer",
-        ]
-    if "redis" in besoins:
-        lignes += ["", "REDIS_URL=redis://cache:6379/0"]
-    return "\n".join(lignes) + "\n"
-
-
-def _dockerfile(a, cle, pile, besoins):
-    nom = a["name"]
-    build = (a.get("build_command") or "").strip() or pile.get("build") or ""
-    lancement = (a.get("command") or "").strip() or "echo 'aucune commande'"
-    port = a.get("port") or 8000
-    lignes = [
-        f"# Image de « {nom} », produite par CodeLab.",
-        "#",
-        f"# Pile detectee : {pile['nom']}"
-        + (f" (d'apres {', '.join(pile.get('trouve') or [])})" if pile.get("trouve")
-           else " -- aucun indice trouve dans le dossier, a relire de pres"),
-        "#",
-        "# Relis-la : elle est fondee sur ce que le panneau sait de",
-        "# l'application, pas sur une analyse de son code.",
-        "",
-        f"FROM {pile['image']}",
-        "",
-        "WORKDIR /app",
-        "",
-    ]
-    if cle == "python":
-        lignes += [
-            "# Les dependances avant le code : l'etape d'installation n'est",
-            "# alors refaite que quand requirements.txt change.",
-            "COPY requirements.txt ./",
-            f"RUN {build}" if build else "",
-            "",
-            "COPY . .",
-        ]
-    elif cle == "node":
-        lignes += [
-            "COPY package*.json ./",
-            f"RUN {build}" if build else "",
-            "",
-            "COPY . .",
-        ]
-    else:
-        lignes += ["COPY . ."]
-        if build:
-            lignes += [f"RUN {build}"]
-    lignes += [
-        "",
-        "# JAMAIS EN ROOT. Un conteneur qui tourne en root donne root sur ses",
-        "# volumes montes, et rapproche d'une evasion tout ce qui tourne",
-        "# dedans. L'utilisateur est cree ici, et le dossier lui appartient.",
-        "RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin app \\",
-        " && chown -R app:app /app",
-        "USER app",
-        "",
-        "# Le port n'est qu'une DOCUMENTATION : c'est le compose (ou -p) qui",
-        "# publie reellement.",
-        f"ENV PORT={port}",
-        f"EXPOSE {port}",
-        "",
-        "# Le shell est necessaire : la commande vient de CodeLab et peut",
-        "# contenir des variables, des pipes, un enchainement.",
-        f'CMD ["sh", "-c", "{lancement}"]',
-        "",
-    ]
-    return "\n".join(l for l in lignes if l is not None) + ""
-
-
-def _compose(a, besoins):
-    nom = a["name"]
-    port = a.get("port") or 8000
-    memoire = a.get("max_memory_mb")
-    lignes = [
-        f"# Pile de « {nom} », produite par CodeLab.",
-        "#",
-        "#   docker compose up -d --build",
-        "#",
-        "# Les valeurs sensibles vivent dans .env, a cote de ce fichier (voir",
-        "# .env.exemple). Compose le lit tout seul.",
-        "",
-        "services:",
-        "",
-        f"  {nom}:",
-        "    build: .",
-        f"    container_name: {nom}",
-        "    restart: unless-stopped",
-        "    env_file: [.env]",
-        "    ports:",
-        f'      - "{port}:{port}"',
-        "",
-        "    # Durcissement : tout retirer, ne rien rendre. Une application web",
-        "    # n'a besoin d'aucune capability -- si elle refuse de demarrer,",
-        "    # c'est le message d'erreur qui dira laquelle rendre, et il faudra",
-        "    # une bonne raison.",
-        "    security_opt:",
-        "      - no-new-privileges:true",
-        "    cap_drop:",
-        "      - ALL",
-        "    read_only: false",
-        "",
-        "    healthcheck:",
-        # Le healthcheck utilise python3 : present dans les images python,
-        # absent des images node ou go. Sur ces piles-la, remplace-le par
-        # un "wget -q -O /dev/null" ou supprime le bloc -- un healthcheck
-        # qui echoue toujours vaut moins que pas de healthcheck.
-        '      test: ["CMD-SHELL", "python3 -c \\"import urllib.request;'
-        'urllib.request.urlopen(%s)\\" || exit 1"]' % (            "'http://127.0.0.1:%d/'" % port),
-        "      interval: 30s",
-        "      timeout: 5s",
-        "      retries: 3",
-        "      start_period: 20s",
-    ]
-    if memoire:
-        lignes += [
-            "",
-            "    # La meme limite que dans CodeLab. Depassee, le noyau tue le",
-            "    # processus : c'est brutal, et c'est le but -- une fuite de",
-            "    # memoire ne doit pas emporter la machine avec elle.",
-            "    deploy:",
-            "      resources:",
-            "        limits:",
-            f"          memory: {int(memoire)}M",
-        ]
-    if besoins:
-        lignes += ["", "    depends_on:"]
-        for service in besoins:
-            nom_service = {"postgres": "base", "redis": "cache"}[service]
-            lignes += [f"      {nom_service}:",
-                       "        condition: service_healthy"]
-    if "postgres" in besoins:
-        lignes += [
-            "",
-            "  base:",
-            "    image: postgres:17-alpine",
-            "    restart: unless-stopped",
-            "    environment:",
-            "      POSTGRES_DB: ${POSTGRES_DB}",
-            "      POSTGRES_USER: ${POSTGRES_USER}",
-            "      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}",
-            "    volumes:",
-            "      - base:/var/lib/postgresql/data",
-            "    healthcheck:",
-            '      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]',
-            "      interval: 10s",
-            "      timeout: 5s",
-            "      retries: 5",
-        ]
-    if "redis" in besoins:
-        lignes += [
-            "",
-            "  cache:",
-            "    image: redis:7-alpine",
-            "    restart: unless-stopped",
-            "    healthcheck:",
-            '      test: ["CMD", "redis-cli", "ping"]',
-            "      interval: 10s",
-            "      timeout: 5s",
-            "      retries: 5",
-        ]
-    if "postgres" in besoins:
-        lignes += ["", "volumes:", "  base:"]
-    return "\n".join(lignes) + "\n"
-
-
-def _dockerignore():
-    return "\n".join([
-        "# Ce qui n'a rien a faire dans l'image : des secrets, des dependances",
-        "# qui seront reinstallees dedans, et l'historique du depot.",
-        ".env", ".env.*", "!.env.exemple",
-        ".git", ".gitignore",
-        "node_modules", "__pycache__", "*.pyc", ".venv", "venv",
-        "dist", "build", ".pytest_cache", ".mypy_cache",
-        "*.log", ".DS_Store",
-        "",
-    ])
-
-
-def _mode_d_emploi(a, cle, pile, besoins, fichiers):
-    nom = a["name"]
-    port = a.get("port") or 8000
-    services = {"postgres": "une base Postgres (service « base »)",
-                "redis": "un Redis (service « cache »)"}
-    lignes = [
-        f"# Conteneuriser « {nom} »",
-        "",
-        "Ces fichiers ont ete produits par CodeLab a partir de ce qu'il sait de",
-        "l'application. **Relis-les** : ils sont un point de depart serieux, pas",
-        "une verite.",
-        "",
-        "## Ce qui a ete detecte",
-        "",
-        f"- **Pile** : {pile['nom']}"
-        + (f", d'apres `{'`, `'.join(pile.get('trouve') or [])}`" if pile.get("trouve")
-           else " — aucun indice dans le dossier, le Dockerfile est generique"),
-        f"- **Commande de lancement** : `{(a.get('command') or '').strip()}`",
-        f"- **Commande de build** : "
-        + (f"`{(a.get('build_command') or '').strip()}`"
-           if (a.get("build_command") or "").strip()
-           else f"aucune dans CodeLab, `{pile.get('build') or '(rien)'}` proposee"),
-        f"- **Port** : {port}",
-        "- **Services voisins** : "
-        + (", ".join(services.get(b, b) for b in besoins) if besoins
-           else "aucun detecte"),
-        "",
-        "## Les fichiers",
-        "",
-    ]
-    for f in fichiers:
-        lignes.append(f"- `{f['nom']}` — {f['role']}")
-    lignes += [
-        "",
-        "## Demarrer",
-        "",
-        "```sh",
-        "cp .env.exemple .env      # puis remplis les valeurs",
-        "docker compose up -d --build",
-        f"docker compose logs -f {nom}",
-        "```",
-        "",
-        "## Ce qu'il reste a verifier, toujours",
-        "",
-        f"1. **L'application ecoute-t-elle sur `$PORT` ?** C'est le contrat de",
-        "   CodeLab, et la premiere chose qui casse ailleurs. Une application qui",
-        "   ecoute en dur sur 127.0.0.1 ne repondra pas depuis l'exterieur du",
-        "   conteneur : il lui faut `0.0.0.0`.",
-        "2. **Les fichiers ecrits a l'execution.** Tout ce qui n'est pas dans un",
-        "   volume disparait au prochain `up --build`. Si l'application ecrit des",
-        "   fichiers, ajoute un volume.",
-        "3. **Les secrets.** `.env` n'est ni dans l'image (.dockerignore) ni dans",
-        "   le depot : c'est voulu. Le jour ou tu deploies ailleurs, il faut donc",
-        "   le recreer la-bas.",
-    ]
-    if pile.get("conseil"):
-        lignes += ["", "## Pour aller plus loin", "", pile["conseil"]]
-    return "\n".join(lignes) + "\n"
-
-
-def fichiers_conteneur(a):
-    """Les fichiers a poser dans le projet, dans l'ordre ou on les lit."""
-    cle, pile = detecter_pile(a["path"])
-    besoins = services_requis(a["path"], a)
-    fichiers = [
-        {"nom": "Dockerfile", "role": "comment l'image se construit",
-         "contenu": _dockerfile(a, cle, pile, besoins)},
-        {"nom": "docker-compose.yml",
-         "role": "l'application et ce qui tourne à côté",
-         "contenu": _compose(a, besoins)},
-        {"nom": ".env.exemple",
-         "role": "les variables à remplir, commentées",
-         "contenu": variables_du_modele(a, besoins)},
-        {"nom": ".dockerignore",
-         "role": "ce qui n'entre pas dans l'image",
-         "contenu": _dockerignore()},
-    ]
-    fichiers.append({
-        "nom": "CONTENEUR.md",
-        "role": "le mode d'emploi, et ce qu'il reste à vérifier",
-        "contenu": _mode_d_emploi(a, cle, pile, besoins, fichiers)})
-    return {"pile": pile["nom"], "indices": pile.get("trouve") or [],
-            "services": besoins, "fichiers": fichiers}
-
-
 # ------------------------- messages des utilisateurs -------------------------
 #
 # Un mot laisse depuis le hub : une remarque sur une application, une
@@ -2937,8 +2538,15 @@ def reecrire_messages(messages):
             stockage.inserer(cx, "messages", ligne, options)
 
 
-def modifier_message(identifiant, retenu=None, lu=None, statut=None, archive=None, supprimer=False):
-    """Met à jour l'état d'un message ou le supprime, sous un seul verrou."""
+_INCHANGE = object()
+
+
+def modifier_message(identifiant, retenu=None, lu=None, statut=None, archive=None, supprimer=False,
+                     projet=_INCHANGE):
+    """Met à jour l'état d'un message ou le supprime, sous un seul verrou.
+
+    projet : le projet auquel le message est rattache (None le detache).
+    """
     with _acces_verrou:
         tous = lire_messages(limite=100000)
         vise = next((m for m in tous if m.get("id") == identifiant), None)
@@ -2965,12 +2573,42 @@ def modifier_message(identifiant, retenu=None, lu=None, statut=None, archive=Non
                     vise["archive"] = True
                 else:
                     vise.pop("archive", None)
+            if projet is not _INCHANGE:
+                if projet:
+                    vise["projet"] = projet
+                else:
+                    vise.pop("projet", None)
         reecrire_messages(tous)
     if supprimer:
         _pg_deposer(("message_supprime", identifiant))
     else:
         _pg_deposer(("message_modifie", vise.copy()))
     return True
+
+
+def modifier_messages(changements):
+    """{id: {cle: valeur}} -- plusieurs messages d'un coup, une ecriture.
+
+    Valeur None : la cle est retiree. Rend le nombre de messages trouves.
+    """
+    with _acces_verrou:
+        tous = lire_messages(limite=100000)
+        trouves = 0
+        for m in tous:
+            ch = changements.get(m.get("id"))
+            if ch is None:
+                continue
+            trouves += 1
+            for cle, valeur in ch.items():
+                if valeur is None:
+                    m.pop(cle, None)
+                else:
+                    m[cle] = valeur
+        if trouves:
+            reecrire_messages(tous)
+    if trouves:
+        _pg_deposer(("messages_modifies", list(changements)))
+    return trouves
 
 
 def marquer_messages_lus():
@@ -3046,7 +2684,10 @@ def ecrire_masquees(d):
 def masquees_du_compte(qui=None):
     qui = qui or utilisateur_courant() or NOM_ADMIN
     valeurs = lire_masquees().get(qui) or []
-    return [str(v) for v in valeurs if isinstance(v, str)]
+    # « Demandes » s'appelle maintenant « Messages » : un rangement deja
+    # enregistre sous l'ancien nom vaut pour le nouveau.
+    return [MESSAGERIE_NOM if v == MESSAGERIE_ANCIEN_NOM else str(v)
+            for v in valeurs if isinstance(v, str)]
 
 
 # ------------------------- journal des acces -------------------------
@@ -5911,6 +5552,14 @@ def _refus_sans_smtp():
 # Mailpit injoignable (service arrete, installation sans lui) : repli sur
 # l'envoi direct, pour qu'une alerte ne tombe pas avec le service qui
 # devait la porter.
+#
+# SAUF LES MAILS DE SECURITE. Un code de verification, de connexion ou de
+# reinitialisation, un lien d'invitation, l'alerte d'une connexion
+# administrateur inconnue : ce sont des secrets, ou des signaux qu'un
+# intrus aurait interet a lire et a effacer. Garder leur copie dans Mailpit,
+# que tout administrateur ouvre depuis le hub, ce serait laisser trainer la
+# cle a cote de la porte. Ils partent en DIRECT par le serveur d'envoi, et
+# ne se relisent nulle part dans CodeLab (sensible=True).
 MAILPIT_SMTP_HOTE = os.environ.get("APP_MANAGER_MAILPIT_SMTP_HOTE") or MAILPIT_AMONT
 MAILPIT_SMTP_PORT = int(os.environ.get("APP_MANAGER_MAILPIT_SMTP_PORT", "1025") or 1025)
 MAIL_PAR_MAILPIT = (os.environ.get("APP_MANAGER_MAIL_PAR_MAILPIT", "1").strip().lower()
@@ -5926,8 +5575,11 @@ def _envoyer_par_mailpit(msg):
         s.send_message(msg)
 
 
-def envoyer_mail(cfg, sujet, corps, destinataires=None):
-    """Envoie, ou leve. Par Mailpit d'abord, en direct sinon."""
+def envoyer_mail(cfg, sujet, corps, destinataires=None, sensible=False):
+    """Envoie, ou leve. Par Mailpit d'abord, en direct sinon.
+
+    sensible=True (mails de securite) : jamais par Mailpit, toujours en direct.
+    """
     msg = EmailMessage()
     msg["Subject"] = sujet
     msg["From"] = cfg.get("expediteur") or EXPEDITEUR_DEFAUT
@@ -5935,7 +5587,11 @@ def envoyer_mail(cfg, sujet, corps, destinataires=None):
                           else cfg["destinataires"])
     msg.set_content(corps)
 
-    if MAIL_PAR_MAILPIT:
+    if sensible:
+        if not cfg.get("host"):
+            raise RuntimeError("Aucun serveur d'envoi configuré : un mail de sécurité "
+                               "ne passe pas par Mailpit.")
+    elif MAIL_PAR_MAILPIT:
         try:
             _envoyer_par_mailpit(msg)
             return
@@ -5993,7 +5649,7 @@ def destinataires_alerte(name, apps=None):
     return tout
 
 
-def envoyer_avec_repli(sujet, corps, destinataires):
+def envoyer_avec_repli(sujet, corps, destinataires, sensible=False):
     """Envoie, en repassant sur la configuration d'origine si besoin.
 
     La configuration personnalisee a ete verifiee le jour ou elle a ete
@@ -6018,7 +5674,7 @@ def envoyer_avec_repli(sujet, corps, destinataires):
         if smtp_incomplet(cfg):
             continue
         try:
-            envoyer_mail(cfg, sujet, corps, destinataires=destinataires)
+            envoyer_mail(cfg, sujet, corps, destinataires=destinataires, sensible=sensible)
             if echecs:
                 print(f"[app-manager] envoi repli sur la configuration {nom} "
                       f"apres : {' ; '.join(echecs)}", flush=True)
@@ -6870,7 +6526,8 @@ def signaler_connexion_admin():
         "Si c'est toi, rien a faire. Sinon, change tout de suite le mot de passe "
         "d'administration (credentials.env), retire les cles d'acces inconnues et "
         "regarde le journal des connexions.\n\n"
-        "-- CodeLab, panneau de gestion des applications", destinataires)).start()
+        "-- CodeLab, panneau de gestion des applications", destinataires),
+        kwargs={"sensible": True}).start()
 
 
 @flask_app.post("/login")
@@ -9041,9 +8698,9 @@ def api_apps():
     # apps.json -- le panneau ne le lance ni ne l'arrete -- mais c'est une
     # application du point de vue de qui s'en sert : elle doit se trouver la
     # ou on cherche les applications, et pas seulement sur le hub.
-    # Demandes n'y figure pas : ce n'est pas un service qui tourne ou tombe,
+    # Messages n'y figure pas : ce n'est pas un service qui tourne ou tombe,
     # c'est une page du panneau, sans journal ni metriques a surveiller.
-    out.extend(services_du_hub(avec_demandes=False))
+    out.extend(services_du_hub(avec_messagerie=False))
     out.sort(key=lambda a: a["name"])
     return jsonify({"apps": out})
 
@@ -9381,6 +9038,7 @@ def api_deploy(n):
     # "Deployer" sur une application arretee la met en ligne : c'est le sens
     # attendu du mot, et l'alternative (builder puis ne rien faire) est
     # exactement le geste oublie que cette route supprime.
+    marquer_nouvelle_version(n)
     erreur = restart_app(n) if is_running(n) else start(n)
     if erreur:
         # Le build a reussi, la mise en ligne non : la nuance compte, et elle
@@ -9402,6 +9060,7 @@ def api_build(n):
     ok, msg = run_build(n)
     if not ok:
         return jsonify({"error": msg}), 400
+    marquer_nouvelle_version(n)
     return jsonify({"ok": True})
 
 
@@ -9672,73 +9331,6 @@ def api_logs_stream(n):
     return reponse
 
 
-@flask_app.get("/api/app/<n>/conteneur")
-@require_admin
-def api_conteneur(n):
-    """Les fichiers de conteneurisation, sans rien ecrire.
-
-    On regarde avant de poser : ces fichiers vont dans le dossier du projet,
-    et personne ne doit decouvrir apres coup ce qu'un bouton y a depose.
-    """
-    a = load().get(n)
-    if not a:
-        return jsonify({"error": "Application inconnue."}), 404
-    if not os.path.isdir(a["path"]):
-        return jsonify({"error": "Dossier du projet introuvable : " + a["path"]}), 400
-    resultat = fichiers_conteneur(dict(a, name=n))
-    # Ce qui existe deja compte autant que ce qu'on propose : le bouton
-    # d'ecriture doit pouvoir dire « celui-la, je ne le touche pas ».
-    for f in resultat["fichiers"]:
-        f["existe"] = os.path.isfile(os.path.join(a["path"], f["nom"]))
-    return jsonify(resultat)
-
-
-@flask_app.get("/api/app/<n>/conteneur.zip")
-@require_admin
-def api_conteneur_archive(n):
-    """Les memes fichiers, dans une archive a emporter.
-
-    POURQUOI UN TELECHARGEMENT. « Deposer dans le projet » suppose que la
-    suite se passe ici : on ouvre une session SSH, on lit, on construit
-    depuis /workspace. Or sortir une application de CodeLab, c'est justement
-    l'emmener AILLEURS -- sur un poste, sur un autre serveur, dans un depot
-    git qui n'a rien a voir avec cette machine. Il fallait alors recopier
-    quatre fichiers a la main depuis la page, un par un.
-
-    L'archive ne touche pas au dossier du projet : elle est construite en
-    memoire et part telle quelle. Ce qui est propose ici est donc exactement
-    ce que la page montre, meme si un fichier du meme nom existe deja a cote.
-    """
-    import io as _io
-    import zipfile
-
-    a = load().get(n)
-    if not a:
-        return jsonify({"error": "Application inconnue."}), 404
-    if not os.path.isdir(a["path"]):
-        return jsonify({"error": "Dossier du projet introuvable : " + a["path"]}), 400
-
-    resultat = fichiers_conteneur(dict(a, name=n))
-    memoire = _io.BytesIO()
-    # Un DOSSIER dans l'archive, pas quatre fichiers en vrac : ouverte sur un
-    # bureau, elle ne doit pas repandre un Dockerfile au milieu du reste.
-    with zipfile.ZipFile(memoire, "w", zipfile.ZIP_DEFLATED) as archive:
-        for f in resultat["fichiers"]:
-            archive.writestr(f"{n}/{f['nom']}", f["contenu"])
-    donnees = memoire.getvalue()
-
-    journaliser("conteneur", qui=utilisateur_courant() or NOM_ADMIN, app=n,
-                action="archive telechargee", ip=_adresse_client())
-    return Response(donnees, mimetype="application/zip", headers={
-        # Le nom du fichier vient d'un nom d'application deja valide
-        # (lettres, chiffres, tiret, souligne) : rien a echapper ici, mais on
-        # ne le prend pas pour autant tel quel dans l'en-tete.
-        "Content-Disposition": f'attachment; filename="{valid_name(n)}-conteneur.zip"',
-        "Content-Length": str(len(donnees)),
-        "Cache-Control": "no-store",
-    })
-
-
 @flask_app.put("/api/app/<n>/logo")
 @require_admin
 def api_logo(n):
@@ -9955,19 +9547,25 @@ ICONE_MAILPIT = (
     'linejoin="round"/></svg>'
 )
 
-# Demandes : une pile de cartes cochees, sur l'ardoise de CodeLab -- un
-# tableau de taches, ce que l'application est.
-ICONE_DEMANDES = (
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
-    '<rect width="64" height="64" rx="16" fill="#1f2937"/>'
-    '<rect x="13" y="14" width="38" height="10" rx="3" fill="#5fd4dc"/>'
-    '<rect x="13" y="28" width="38" height="10" rx="3" fill="#ffffff" opacity=".9"/>'
-    '<rect x="13" y="42" width="24" height="10" rx="3" fill="#ffffff" opacity=".55"/>'
-    '<path d="M17 19l3 3 5-5" fill="none" stroke="#0b0f14" stroke-width="2.6" '
-    'stroke-linecap="round" stroke-linejoin="round"/></svg>')
+# Messages : deux bulles de conversation, la premiere qui ecrit (trois
+# points), sur un degrade sarcelle -- l'accent de CodeLab. On y lit d'abord
+# « messages », ce que l'application recoit, avant le travail qu'on en tire.
+ICONE_MESSAGERIE = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs>'
+    '<linearGradient id="cl-ms" x1="0" y1="0" x2="1" y2="1">'
+    '<stop offset="0" stop-color="#2fc7b8"/><stop offset="1" stop-color="#0b6c74"/>'
+    '</linearGradient></defs>'
+    '<rect width="64" height="64" rx="18" fill="url(#cl-ms)"/>'
+    '<path d="M27 13h20a8 8 0 0 1 8 8v10a8 8 0 0 1-8 8h-1v6.5L39.5 39H27a8 8 0 0 1-8-8V21'
+    'a8 8 0 0 1 8-8z" fill="#fff" opacity=".42"/>'
+    '<path d="M17 22h21a8 8 0 0 1 8 8v11a8 8 0 0 1-8 8H26.5L18 56.5V49h-1a8 8 0 0 1-8-8V30'
+    'a8 8 0 0 1 8-8z" fill="#fff"/>'
+    '<circle cx="19.5" cy="35.5" r="2.7" fill="#0b6c74"/>'
+    '<circle cx="27.5" cy="35.5" r="2.7" fill="#0b6c74"/>'
+    '<circle cx="35.5" cy="35.5" r="2.7" fill="#0b6c74"/></svg>')
 
 ICONES_PAR_DEFAUT = {
-    DEMANDES_NOM: ICONE_DEMANDES,
+    MESSAGERIE_NOM: ICONE_MESSAGERIE,
     DAGSTER_NOM: ICONE_DAGSTER,
     DIAGNOSTIC_NOM: ICONE_DIAGNOSTIC,
     MAILPIT_NOM: ICONE_MAILPIT,
@@ -10256,28 +9854,28 @@ def login_page(invitation=False):
     return Response(avec_style(page), mimetype="text/html")
 
 
-# Les styles 3 et 4 sont des VARIANTES du style 2 : meme mise en page de
-# base (data-style="design"), plus leurs propres regles sous data-variante.
-# La cle est celle du cookie ; la valeur, ce qui se pose sur <html>.
+# Deux styles : « lanceur » (style 3) et « bento » (style 4). Ils partagent
+# la mise en page de base (data-style="design") et ajoutent la leur sous
+# data-variante. La cle est celle du cookie ; la valeur, ce qui se pose sur
+# <html>. Sans cookie -- ou avec celui d'un ancien style --, c'est le bento.
 STYLES_PAGE = {
-    "design": ' data-style="design"',
     "lanceur": ' data-style="design" data-variante="lanceur"',
     "bento": ' data-style="design" data-variante="bento"',
 }
+STYLE_PAR_DEFAUT = "bento"
 
 
 def avec_style(page):
     """Pose le style choisi (cookie codelab-style) sur la page servie.
 
     Pose cote serveur, l'attribut est la avant la premiere peinture : la
-    page ne passe pas par le style classique le temps que son script le lise.
+    page ne change pas de forme le temps que son script le lise.
     Seules les valeurs de STYLES_PAGE sont reconnues -- le cookie vient du
     client, et rien de ce qu'il porte n'est recopie dans la page.
     """
-    attributs = STYLES_PAGE.get(request.cookies.get("codelab-style", ""))
-    if attributs:
-        page = page.replace('<html lang="fr">', '<html lang="fr"' + attributs + '>', 1)
-    return page
+    attributs = STYLES_PAGE.get(request.cookies.get("codelab-style", ""),
+                                STYLES_PAGE[STYLE_PAR_DEFAUT])
+    return page.replace('<html lang="fr">', '<html lang="fr"' + attributs + '>', 1)
 
 
 # LES PAGES DU PANNEAU ONT CHACUNE LEUR ADRESSE. Recharger les parametres
@@ -10329,27 +9927,28 @@ def page_du_panneau(**_):
     return index()
 
 
-# L'APPLICATION « DEMANDES ». Les anciennes adresses de la rubrique Messages
-# y menent : elles ont pu etre mises en favori.
-@flask_app.get("/messages")
-@flask_app.get("/messages/<vue>")
-@require_auth
-def anciens_messages(**_):
-    return redirect("/demandes")
-
-
+# L'APPLICATION « MESSAGES ». Elle s'est appelee « Demandes » (/demandes) :
+# ces adresses ont pu etre mises en favori, elles y menent.
 @flask_app.get("/demandes")
 @flask_app.get("/demandes/<vue>")
 @require_auth
-def page_demandes(**_):
-    """La boite de reception et le gestionnaire de taches, sur une page a eux.
+def anciens_messages(**_):
+    return redirect("/messages")
+
+
+@flask_app.get("/messages")
+@flask_app.get("/messages/<vue>")
+@flask_app.get("/messages/<vue>/<cle>")
+@require_auth
+def page_messagerie(**_):
+    """Les messages et la gestion de projet qui en sort, sur une page a eux.
 
     Reservee a l'administrateur, comme toutes les routes qu'elle appelle : un
-    compte utilisateur est renvoye au hub, d'ou il laisse ses demandes.
+    compte utilisateur est renvoye au hub, d'ou il ecrit ses messages.
     """
     if not est_admin():
         return redirect("/")
-    page = (DEMANDES_PAGE
+    page = (MESSAGERIE_PAGE
             .replace("__JETON__", json.dumps(jeton_session()))
             .replace("__UTILISATEUR__", json.dumps(utilisateur_courant())))
     return Response(avec_style(page), mimetype="text/html")
@@ -10382,7 +9981,15 @@ def index():
             .replace("__SMTP__", json.dumps(
                 envoi_mail_configure() if role_courant() == "admin" else True))
             .replace("__UTILISATEUR__", json.dumps(utilisateur_courant())))
-    return Response(avec_style(page), mimetype="text/html")
+    r = Response(avec_style(page), mimetype="text/html")
+    # Le widget « A la une » du hub montre un APERCU de la derniere
+    # application ouverte, dans un cadre : la politique du panneau, plus le
+    # droit d'encadrer l'origine des applications -- et elle seule. Les
+    # applications, elles, n'acceptent d'etre encadrees que par le panneau
+    # (proteger_l_encadrement).
+    base = origine_applications() if origines_separees() else ""
+    r.headers["Content-Security-Policy"] = CSP_PANNEAU + "; frame-src " + (base or "'self'")
+    return r
 
 
 # PARCOURIR LES APPLICATIONS SANS QUITTER LE PANNEAU INSTALLE.
@@ -10467,7 +10074,10 @@ def api_mes_apps():
     # courte inquiete plus qu'elle ne simplifie.
     cachees = set(masquees_du_compte())
     liste, masquees = [], []
-    for nom, a in sorted(load().items()):
+    toutes = load()
+    versions = versions_des_apps(toutes)
+    ouvertes = ouvertures_du_compte()
+    for nom, a in sorted(toutes.items()):
         # Une application par defaut ne figure pas dans le hub d'un compte
         # utilisateur. Le proxy la lui refuse deja ; lui montrer une tuile qui
         # ne s'ouvre pas, ce serait promettre une porte fermee -- et il
@@ -10488,6 +10098,11 @@ def api_mes_apps():
             "running": is_running(nom),
             "listening": _listening.get(nom),
             "visibility": visibilite(a),
+            # Jamais ouverte par ce compte : pas d'indicateur. Sinon, une
+            # version plus recente que celle vue a la derniere ouverture.
+            "nouvelle_version": (nom in ouvertes
+                                 and versions.get(nom, 0) > ouvertes[nom]["version"]),
+            "ouverte_le": (ouvertes.get(nom) or {}).get("ts"),
         })
     # Les categories accompagnent la liste : le hub les affiche dans l'ordre
     # voulu, sans avoir a deviner cet ordre a partir des projets.
@@ -10644,12 +10259,68 @@ def api_message_modifier(identifiant):
     statut = d.get("statut")
     if statut is not None and statut not in STATUTS_MESSAGE:
         return jsonify({"error": "Statut inconnu."}), 400
+    projet = _INCHANGE
+    if "projet" in d:
+        projet = d.get("projet") or None
+        if projet and (projet == PROJET_GENERAL or not _projet_valide(projet)):
+            return jsonify({"error": "Projet inconnu."}), 400
     if not modifier_message(identifiant,
                             retenu=bool(d["retenu"]) if "retenu" in d else None,
                             statut=statut,
-                            archive=bool(d["archive"]) if "archive" in d else None):
+                            archive=bool(d["archive"]) if "archive" in d else None,
+                            projet=projet):
         return jsonify({"error": "Message introuvable."}), 404
     return jsonify({"ok": True})
+
+
+@flask_app.put("/api/messages/ordre")
+@require_admin
+def api_messages_ordre():
+    """Ranger la boite a sa guise : {ordre: [ids]}, du haut vers le bas.
+
+    Les messages nommes prennent ce rang ; un message qui arrive ensuite,
+    sans rang, se place en tete jusqu'a ce qu'on le range.
+    """
+    ordre = (request.get_json(force=True, silent=True) or {}).get("ordre")
+    if (not isinstance(ordre, list) or not all(isinstance(x, str) for x in ordre)
+            or len(set(ordre)) != len(ordre) or len(ordre) > MESSAGES_MAX):
+        return jsonify({"error": "Ordre invalide."}), 400
+    if modifier_messages({mid: {"ordre": rang} for rang, mid in enumerate(ordre)}) != len(ordre):
+        return jsonify({"error": "La liste nomme un message inconnu."}), 409
+    return jsonify({"ok": True})
+
+
+@flask_app.post("/api/messages/grouper")
+@require_admin
+def api_messages_grouper():
+    """Regroupe des messages dans un projet : {ids, projet} ou {ids, nouveau_projet}.
+
+    Des messages qui parlent de la meme chose forment un projet : on les y
+    range ensemble, dans un projet qui existe ou qu'on cree a l'instant.
+    """
+    d = request.get_json(force=True, silent=True) or {}
+    ids = d.get("ids")
+    if not isinstance(ids, list) or not ids or not all(isinstance(x, str) for x in ids):
+        return jsonify({"error": "Choisis au moins un message."}), 400
+    connus = {m.get("id") for m in lire_messages(limite=100000)}
+    if not set(ids) <= connus:
+        return jsonify({"error": "Message introuvable."}), 404
+    nouveau = d.get("nouveau_projet")
+    try:
+        if isinstance(nouveau, dict):
+            nom = _titre_tache(nouveau.get("nom"))[:PROJET_NOM_MAX]
+            if not nom:
+                return jsonify({"error": "Donne un nom au projet."}), 400
+            projet = creer_projet(nom, _texte_long(nouveau.get("description"),
+                                                  PROJET_DESCRIPTION_MAX), message=ids[0])
+        else:
+            projet = d.get("projet")
+            if not projet or projet == PROJET_GENERAL or not _projet_valide(projet):
+                return jsonify({"error": "Projet inconnu."}), 400
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    modifier_messages({mid: {"projet": projet, "lu": True} for mid in ids})
+    return jsonify({"ok": True, "projet": projet})
 
 
 @flask_app.put("/api/messages/<identifiant>/lu")
@@ -10716,6 +10387,17 @@ def _echeance_valide(brut):
         return False
 
 
+DUREE_MAX = 60                        # jours ouvres
+
+
+def _duree_valide(brut):
+    try:
+        d = int(brut)
+    except (TypeError, ValueError):
+        return None
+    return d if 1 <= d <= DUREE_MAX else None
+
+
 def _priorite_valide(brut):
     try:
         p = int(brut)
@@ -10739,7 +10421,7 @@ def _projet_valide(projet):
 
 
 def lire_taches():
-    """Les taches et leurs sous-taches, dans l'ordre de leur colonne."""
+    """Les taches et leurs sous-taches, dans l'ordre du planning."""
     try:
         taches = stockage.lire(DB_FILE, "SELECT * FROM taches ORDER BY ordre, cree, rowid")
         sous = stockage.lire(DB_FILE, "SELECT * FROM sous_taches ORDER BY ordre, rowid")
@@ -10752,31 +10434,34 @@ def lire_taches():
     return [{"id": t["id"], "projet": t["projet"], "titre": t["titre"],
              "message": t["message"], "cree": t["cree"], "faite": bool(t["faite"]),
              "statut": t["statut"], "priorite": t["priorite"], "echeance": t["echeance"],
-             "notes": t["notes"], "ordre": t["ordre"],
+             "notes": t["notes"], "ordre": t["ordre"], "duree": t["duree"],
+             "fait_le": t["fait_le"],
              "sous_taches": par_tache.get(t["id"], [])} for t in taches]
 
 
 def creer_tache(projet, titre, sous_taches=(), message=None, priorite=PRIORITE_NORMALE,
-                statut="a_faire", echeance=None, notes="", cx=None):
+                statut="a_faire", echeance=None, notes="", duree=1, cx=None):
     """Cree la tache et ses sous-taches. Rend son id.
 
-    En fin de sa colonne : une tache neuve ne passe pas devant ce qu'on a
-    deja priorise a la main. Dans la transaction donnee, ou dans la sienne.
+    En fin de planning : une tache neuve ne passe pas devant ce qu'on a
+    deja ordonne a la main. Dans la transaction donnee, ou dans la sienne.
     """
     if cx is None:
         with stockage.transaction(DB_FILE) as cx:
             return creer_tache(projet, titre, sous_taches, message, priorite,
-                               statut, echeance, notes, cx=cx)
+                               statut, echeance, notes, duree, cx=cx)
     ident = secrets.token_hex(8)
     nombre = cx.execute("SELECT COUNT(*) FROM taches").fetchone()[0]
     if nombre >= TACHES_MAX:
         raise ValueError("Trop de tâches : termine ou supprime les anciennes.")
-    fin = cx.execute("SELECT COALESCE(MAX(ordre), -1) + 1 FROM taches WHERE statut = ?",
-                     (statut,)).fetchone()[0]
+    fin = cx.execute("SELECT COALESCE(MAX(ordre), -1) + 1 FROM taches").fetchone()[0]
+    maintenant = int(time.time())
     cx.execute("INSERT INTO taches (id, projet, titre, message, cree, faite, ordre, statut,"
-               " priorite, echeance, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-               (ident, projet, titre, message, int(time.time()), 1 if statut == "fait" else 0,
-                fin, statut, priorite, echeance, notes))
+               " priorite, echeance, notes, duree, fait_le)"
+               " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+               (ident, projet, titre, message, maintenant, 1 if statut == "fait" else 0,
+                fin, statut, priorite, echeance, notes, duree,
+                maintenant if statut == "fait" else None))
     for ordre, st in enumerate(sous_taches):
         cx.execute("INSERT INTO sous_taches (id, tache, titre, ordre) VALUES (?, ?, ?, ?)",
                    (secrets.token_hex(8), ident, st, ordre))
@@ -10880,10 +10565,18 @@ def api_tache_creer():
         return jsonify({"error": "Statut inconnu."}), 400
     if echeance is False:
         return jsonify({"error": "Échéance invalide (AAAA-MM-JJ)."}), 400
+    duree = _duree_valide(d.get("duree", 1))
+    if duree is None:
+        return jsonify({"error": f"Durée invalide : de 1 à {DUREE_MAX} jours."}), 400
+    # Une tache peut naitre d'un message : elle le garde en reference.
+    message = d.get("message") or None
+    if message and not any(m.get("id") == message for m in lire_messages(limite=100000)):
+        return jsonify({"error": "Message introuvable."}), 404
     try:
         ident = creer_tache(projet, titre, _sous_taches_propres(d.get("sous_taches")),
-                            priorite=priorite, statut=statut, echeance=echeance,
-                            notes=_texte_long(d.get("notes"), NOTES_MAX))
+                            message=message, priorite=priorite, statut=statut,
+                            echeance=echeance, notes=_texte_long(d.get("notes"), NOTES_MAX),
+                            duree=duree)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     return jsonify({"ok": True, "id": ident})
@@ -10892,8 +10585,8 @@ def api_tache_creer():
 @flask_app.put("/api/taches/<ident>")
 @require_admin
 def api_tache_modifier(ident):
-    """Seuls les champs PRESENTS changent. Changer de statut envoie la tache
-    en fin de sa nouvelle colonne, et tient « faite » en accord."""
+    """Seuls les champs PRESENTS changent. Changer de statut tient « faite »
+    et « fait_le » en accord ; la tache garde sa place dans le planning."""
     d = request.get_json(force=True, silent=True) or {}
     champs, valeurs = [], []
     if "titre" in d:
@@ -10925,6 +10618,11 @@ def api_tache_modifier(ident):
         champs.append("echeance = ?"); valeurs.append(echeance)
     if "notes" in d:
         champs.append("notes = ?"); valeurs.append(_texte_long(d.get("notes"), NOTES_MAX))
+    if "duree" in d:
+        duree = _duree_valide(d.get("duree"))
+        if duree is None:
+            return jsonify({"error": f"Durée invalide : de 1 à {DUREE_MAX} jours."}), 400
+        champs.append("duree = ?"); valeurs.append(duree)
     if not champs and statut is None:
         return jsonify({"error": "Rien à modifier."}), 400
     with stockage.transaction(DB_FILE) as cx:
@@ -10932,10 +10630,11 @@ def api_tache_modifier(ident):
         if not ligne:
             return jsonify({"error": "Tâche introuvable."}), 404
         if statut is not None and statut != ligne["statut"]:
-            fin = cx.execute("SELECT COALESCE(MAX(ordre), -1) + 1 FROM taches WHERE statut = ?",
-                             (statut,)).fetchone()[0]
-            champs += ["statut = ?", "faite = ?", "ordre = ?"]
-            valeurs += [statut, 1 if statut == "fait" else 0, fin]
+            # La tache garde sa place dans le planning ; cochee, elle date
+            # sa fin -- la feuille de route l'y affiche.
+            champs += ["statut = ?", "faite = ?", "fait_le = ?"]
+            valeurs += [statut, 1 if statut == "fait" else 0,
+                        int(time.time()) if statut == "fait" else None]
         if champs:
             cx.execute(f"UPDATE taches SET {', '.join(champs)} WHERE id = ?", (*valeurs, ident))
     return jsonify({"ok": True})
@@ -10962,9 +10661,70 @@ def api_taches_ordre():
         if not set(ordre) <= connues:
             return jsonify({"error": "La liste nomme une tâche inconnue."}), 409
         for rang, tid in enumerate(ordre):
-            cx.execute("UPDATE taches SET statut = ?, faite = ?, ordre = ? WHERE id = ?",
-                       (statut, 1 if statut == "fait" else 0, rang, tid))
+            cx.execute("UPDATE taches SET statut = ?, faite = ?, ordre = ?, "
+                       "fait_le = CASE WHEN ? = 'fait' THEN COALESCE(fait_le, ?) ELSE NULL END "
+                       "WHERE id = ?",
+                       (statut, 1 if statut == "fait" else 0, rang, statut, int(time.time()), tid))
     return jsonify({"ok": True})
+
+
+@flask_app.put("/api/taches/plan")
+@require_admin
+def api_taches_plan():
+    """L'ORDRE DU PLANNING : {ordre: [ids]}, la premiere tache d'abord.
+
+    C'est ainsi qu'on priorise -- par la place, pas par une etiquette
+    d'urgence. Les taches sans date se suivent sur la feuille de route dans
+    cet ordre. Le statut n'est pas touche. Chaque id doit exister.
+    """
+    ordre = (request.get_json(force=True, silent=True) or {}).get("ordre")
+    if (not isinstance(ordre, list) or not all(isinstance(x, str) for x in ordre)
+            or len(set(ordre)) != len(ordre) or len(ordre) > TACHES_MAX):
+        return jsonify({"error": "Ordre invalide."}), 400
+    with stockage.transaction(DB_FILE) as cx:
+        connues = {r[0] for r in cx.execute("SELECT id FROM taches")}
+        if not set(ordre) <= connues:
+            return jsonify({"error": "La liste nomme une tâche inconnue."}), 409
+        for rang, tid in enumerate(ordre):
+            cx.execute("UPDATE taches SET ordre = ? WHERE id = ?", (rang, tid))
+    return jsonify({"ok": True})
+
+
+@flask_app.post("/api/taches/<ident>/scinder")
+@require_admin
+def api_tache_scinder(ident):
+    """Scinde une tache : {titres: [...]}, deux au moins.
+
+    La premiere ligne devient le titre de la tache ; les suivantes sont de
+    nouvelles taches du meme projet, nees du meme message, placees juste
+    apres elle dans le planning. La duree se partage entre elles.
+    """
+    titres = [_titre_tache(t) for t in ((request.get_json(force=True, silent=True) or {})
+                                         .get("titres") or []) if _titre_tache(t)]
+    if len(titres) < 2:
+        return jsonify({"error": "Donne au moins deux titres pour scinder."}), 400
+    if len(titres) > SOUS_TACHES_MAX:
+        return jsonify({"error": f"{SOUS_TACHES_MAX} morceaux au plus."}), 400
+    with stockage.transaction(DB_FILE) as cx:
+        t = cx.execute("SELECT * FROM taches WHERE id = ?", (ident,)).fetchone()
+        if not t:
+            return jsonify({"error": "Tâche introuvable."}), 404
+        if cx.execute("SELECT COUNT(*) FROM taches").fetchone()[0] + len(titres) - 1 > TACHES_MAX:
+            return jsonify({"error": "Trop de tâches : termine ou supprime les anciennes."}), 400
+        part = max(1, round((t["duree"] or 1) / len(titres)))
+        cx.execute("UPDATE taches SET ordre = ordre + ? WHERE ordre > ?",
+                   (len(titres) - 1, t["ordre"]))
+        cx.execute("UPDATE taches SET titre = ?, duree = ? WHERE id = ?", (titres[0], part, ident))
+        nouvelles = []
+        for i, titre in enumerate(titres[1:], start=1):
+            nid = secrets.token_hex(8)
+            cx.execute("INSERT INTO taches (id, projet, titre, message, cree, faite, ordre, statut,"
+                       " priorite, echeance, notes, duree) VALUES (?, ?, ?, ?, ?, 0, ?, 'a_faire',"
+                       " ?, NULL, '', ?)",
+                       (nid, t["projet"], titre, t["message"], int(time.time()),
+                        t["ordre"] + i, t["priorite"], part))
+            nouvelles.append(nid)
+    return jsonify({"ok": True, "taches": [ident] + nouvelles})
 
 
 @flask_app.delete("/api/taches/<ident>")
@@ -11060,6 +10820,10 @@ def api_projet_supprimer(ident):
         n = cx.execute("DELETE FROM projets WHERE id = ?", (ident,)).rowcount
         if n:
             cx.execute("UPDATE taches SET projet = ? WHERE projet = ?", (PROJET_GENERAL, ident))
+    if n:
+        # Ses messages redeviennent « a classer ».
+        modifier_messages({m["id"]: {"projet": None} for m in lire_messages(limite=100000)
+                           if m.get("projet") == ident})
     if not n:
         return jsonify({"error": "Projet introuvable."}), 404
     return jsonify({"ok": True})
@@ -11134,6 +10898,210 @@ def api_sous_tache_supprimer(sid):
         n = cx.execute("DELETE FROM sous_taches WHERE id = ?", (sid,)).rowcount
     if not n:
         return jsonify({"error": "Sous-tâche introuvable."}), 404
+    return jsonify({"ok": True})
+
+
+# ------------------- versions des applications, et ouvertures -------------------
+#
+# « Une nouvelle version depuis la derniere fois que je l'ai ouverte. » Deux
+# signaux font une version : un deploiement ou un build reussi depuis le
+# panneau, et un nouveau commit dans le depot du projet (lu dans .git, sans
+# lancer git). Chaque compte garde la version qu'il a vue en ouvrant
+# l'application ; la tuile le dit quand elle a change depuis.
+
+def commit_du_projet(chemin):
+    """Le commit courant du depot du projet, ou None (pas de depot lisible).
+
+    Lu directement dans .git -- HEAD, puis la reference, puis packed-refs --
+    pour ne pas lancer un processus par application a chaque hub affiche.
+    """
+    if not chemin:
+        return None
+    racine = os.path.join(chemin, ".git")
+    try:
+        with open(os.path.join(racine, "HEAD"), encoding="utf-8") as f:
+            tete = f.read().strip()
+        if not tete.startswith("ref:"):
+            return tete[:40] or None
+        ref = tete[4:].strip()
+        if ".." in ref.split("/"):
+            return None
+        chemin_ref = os.path.join(racine, *ref.split("/"))
+        if os.path.isfile(chemin_ref):
+            with open(chemin_ref, encoding="utf-8") as f:
+                return f.read().strip()[:40] or None
+        with open(os.path.join(racine, "packed-refs"), encoding="utf-8") as f:
+            for ligne in f:
+                morceaux = ligne.split()
+                if len(morceaux) == 2 and morceaux[1] == ref:
+                    return morceaux[0][:40]
+    except (OSError, UnicodeDecodeError):
+        return None
+    return None
+
+
+def versions_des_apps(apps):
+    """{nom: horodatage de la version courante}, en notant au passage un
+    commit nouveau. Une application jamais vue prend sa version maintenant :
+    personne ne l'a encore ouverte, rien ne s'affiche."""
+    maintenant = int(time.time())
+    connues = {l["app"]: l for l in stockage.lire(DB_FILE, "SELECT * FROM versions_apps")}
+    resultat, ecrire = {}, []
+    for nom, a in apps.items():
+        commit = commit_du_projet(a.get("path"))
+        ligne = connues.get(nom)
+        if ligne is None:
+            ecrire.append((nom, maintenant, commit))
+            resultat[nom] = maintenant
+        elif commit and commit != ligne["commit_"]:
+            ecrire.append((nom, maintenant, commit))
+            resultat[nom] = maintenant
+        else:
+            resultat[nom] = ligne["ts"]
+    if ecrire:
+        with stockage.transaction(DB_FILE) as cx:
+            cx.executemany("INSERT OR REPLACE INTO versions_apps (app, ts, commit_) "
+                           "VALUES (?, ?, ?)", ecrire)
+    return resultat
+
+
+def marquer_nouvelle_version(nom):
+    """Un deploiement ou un build a reussi : c'est une nouvelle version."""
+    a = load().get(nom) or {}
+    with stockage.transaction(DB_FILE) as cx:
+        cx.execute("INSERT OR REPLACE INTO versions_apps (app, ts, commit_) VALUES (?, ?, ?)",
+                   (nom, int(time.time()), commit_du_projet(a.get("path"))))
+
+
+def ouvertures_du_compte(qui=None):
+    """{application: {ts, version}} : ce que ce compte a ouvert, et quand."""
+    qui = qui or utilisateur_courant() or NOM_ADMIN
+    return {l["app"]: {"ts": l["ts"], "version": l["version"]}
+            for l in stockage.lire(DB_FILE, "SELECT app, ts, version FROM apps_vues "
+                                            "WHERE compte = ?", (qui,))}
+
+
+# ------------------------- les widgets du hub -------------------------
+#
+# Le style Bento compose son hub de widgets. Chaque compte choisit lesquels,
+# dans quel ordre et en quelle taille ; le choix est garde cote serveur pour
+# suivre la personne d'un appareil a l'autre. La liste des widgets est FERMEE :
+# rien de ce que le client envoie ne devient un nom de widget.
+WIDGETS = {
+    "une": "À la une",
+    "etat": "État des applications",
+    "horloge": "Date et heure",
+    "messages": "Messages à lire",
+    "message": "Écrire à l'administrateur",
+    "notes": "Bloc-notes",
+}
+WIDGETS_ADMIN = {"messages"}
+WIDGETS_UTILISATEUR = {"message"}
+WIDGETS_TAILLES = ("normal", "large")
+WIDGETS_PAR_DEFAUT = [
+    {"id": "une", "taille": "large"}, {"id": "etat", "taille": "normal"},
+    {"id": "messages", "taille": "normal"}, {"id": "message", "taille": "normal"},
+]
+NOTES_HUB_MAX = 4000
+
+
+def widgets_permis():
+    admin = est_admin()
+    return [w for w in WIDGETS
+            if not (w in WIDGETS_ADMIN and not admin) and not (w in WIDGETS_UTILISATEUR and admin)]
+
+
+def lire_preference(cle, qui=None):
+    qui = qui or utilisateur_courant() or NOM_ADMIN
+    lignes = stockage.lire(DB_FILE, "SELECT valeur FROM preferences WHERE compte = ? AND cle = ?",
+                           (qui, cle))
+    if not lignes:
+        return None
+    try:
+        return json.loads(lignes[0]["valeur"])
+    except ValueError:
+        return None
+
+
+def ecrire_preference(cle, valeur, qui=None):
+    qui = qui or utilisateur_courant() or NOM_ADMIN
+    with stockage.transaction(DB_FILE) as cx:
+        cx.execute("INSERT OR REPLACE INTO preferences (compte, cle, valeur) VALUES (?, ?, ?)",
+                   (qui, cle, json.dumps(valeur, ensure_ascii=False)))
+
+
+def widgets_du_compte():
+    permis = widgets_permis()
+    choisis = lire_preference("widgets")
+    if not isinstance(choisis, list):
+        choisis = WIDGETS_PAR_DEFAUT
+    # Le widget « demandes » s'appelle maintenant « messages ».
+    choisis = [dict(w, id="messages") if isinstance(w, dict) and w.get("id") == "demandes" else w
+               for w in choisis]
+    return [w for w in choisis if isinstance(w, dict) and w.get("id") in permis]
+
+
+@flask_app.get("/api/hub/widgets")
+@require_auth
+def api_widgets():
+    notes = lire_preference("notes")
+    return jsonify({"widgets": widgets_du_compte(),
+                    "disponibles": [{"id": w, "titre": WIDGETS[w]} for w in widgets_permis()],
+                    "notes": notes if isinstance(notes, str) else ""})
+
+
+@flask_app.put("/api/hub/widgets")
+@require_auth
+def api_widgets_modifier():
+    """{widgets: [{id, taille}]} -- dans l'ordre d'affichage. Un widget absent
+    de la liste est masque ; un nom inconnu ou un doublon est refuse."""
+    d = request.get_json(force=True, silent=True) or {}
+    liste = d.get("widgets")
+    permis = widgets_permis()
+    if not isinstance(liste, list) or len(liste) > len(WIDGETS):
+        return jsonify({"error": "Liste de widgets invalide."}), 400
+    propres, vus = [], set()
+    for w in liste:
+        if not isinstance(w, dict) or w.get("id") not in permis or w.get("id") in vus:
+            return jsonify({"error": "Widget inconnu."}), 400
+        taille = w.get("taille") or "normal"
+        if taille not in WIDGETS_TAILLES:
+            return jsonify({"error": "Taille inconnue."}), 400
+        vus.add(w["id"])
+        propres.append({"id": w["id"], "taille": taille})
+    ecrire_preference("widgets", propres)
+    return jsonify({"ok": True, "widgets": propres})
+
+
+@flask_app.put("/api/hub/notes")
+@require_auth
+def api_notes_hub():
+    """Le bloc-notes du hub : un texte libre, propre a chaque compte."""
+    texte = (request.get_json(force=True, silent=True) or {}).get("notes")
+    if not isinstance(texte, str):
+        return jsonify({"error": "Texte attendu."}), 400
+    if len(texte) > NOTES_HUB_MAX:
+        return jsonify({"error": f"{NOTES_HUB_MAX} caractères au maximum."}), 400
+    ecrire_preference("notes", texte)
+    return jsonify({"ok": True})
+
+
+@flask_app.post("/api/mes-apps/<n>/ouverte")
+@require_auth
+def api_app_ouverte(n):
+    """Le hub previent qu'il ouvre une application : on note la version vue.
+
+    Seule une application que ce compte peut ouvrir est notee -- sinon la
+    route dirait l'existence de projets qu'il n'a pas le droit de connaitre.
+    """
+    apps = load()
+    autorises = projets_autorises()
+    if n not in apps or not peut_voir(n) or (autorises is not None and n not in autorises):
+        return jsonify({"error": "Application inconnue."}), 404
+    version = versions_des_apps({n: apps[n]})[n]
+    with stockage.transaction(DB_FILE) as cx:
+        cx.execute("INSERT OR REPLACE INTO apps_vues (compte, app, ts, version) VALUES (?, ?, ?, ?)",
+                   (utilisateur_courant() or NOM_ADMIN, n, int(time.time()), version))
     return jsonify({"ok": True})
 
 

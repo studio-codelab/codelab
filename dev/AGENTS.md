@@ -394,13 +394,54 @@ theme est servi sur la meme origine que l'application.
   defilement horizontal.
 - **Exemple de reference** : `workspace/diagnostic/app.py`.
 
+### Direction artistique
+
+Les variables donnent les couleurs ; la direction dit **quoi en faire**. Le
+cap : une interface d'outil moderne, nette et vivante -- sobre par defaut,
+genereuse la ou elle compte. Six references, chacune pour une raison precise :
+
+| Reference | Ce qu'on en prend |
+|---|---|
+| [shadcn/ui](https://ui.shadcn.com) | **La base.** Composants neutres et accessibles : boutons, champs, dialogues, menus, onglets, tableaux. Espacements reguliers, bordures fines, etats de focus visibles. C'est le niveau de finition attendu partout. |
+| [Refero](https://refero.design) | **La methode.** Avant de dessiner un ecran (connexion, tableau de bord, reglages, liste vide), regarder comment de vraies applications l'ont resolu, et partir du schema qui marche. |
+| [Motion](https://www.usemotion.com) | **La densite utile.** Taches, agenda, priorites : beaucoup d'information lisible d'un coup d'oeil, hierarchie franche, actions au survol, glisser-deposer. Le modele pour les ecrans de travail. |
+| [Kokonut UI](https://kokonutui.com) | **Les details.** Cartes, listes, champs et boutons un cran plus soignes : micro-interactions, etats vides travailles, retours immediats apres une action. |
+| [Aceternity UI](https://ui.aceternity.com) | **Le moment fort.** Grille bento, projecteur au survol, degrade anime : pour l'accueil ou l'ecran vitrine d'une application, une seule fois par page. |
+| [Ron Design Lab](https://rondesignlab.com) | **L'audace visuelle.** Grands titres, compositions affirmees, couleur posee en aplat, illustrations : le ton des pages d'accueil et des ecrans vides. |
+
+**Comment les appliquer dans CodeLab**
+
+1. **On s'inspire, on n'importe pas.** Aucune librairie, police ni script
+   charge depuis un CDN (regle 5 ci-dessus). Un composant shadcn, Kokonut ou
+   Aceternity se **reecrit** dans le projet, avec les variables de
+   `/theme.css`. Un projet React avec etape de build peut installer shadcn/ui
+   (le code est copie dans le projet) et mapper ses variables sur celles de
+   CodeLab ; un projet en HTML simple refait l'effet en CSS.
+2. **Hierarchie d'abord.** Un titre fort par ecran (`--t-xl`, graisse 800,
+   interlettrage resserre), une action principale par zone, le reste en
+   secondaire (`--dim`). La taille et la graisse hierarchisent avant la couleur.
+3. **Ecrans de travail sobres, ecrans d'accueil genereux.** Listes, tableaux et
+   formulaires suivent shadcn et Motion. Les effets d'Aceternity et la
+   composition de Ron Design Lab sont reserves a l'accueil, a l'ecran vide et
+   a la vitrine -- jamais sur un formulaire.
+4. **Le mouvement explique, il ne decore pas.** 150 a 250 ms, sur `transform`
+   et `opacity` uniquement ; une apparition, un deplacement, un retour d'etat.
+   Tout s'arrete sous `@media (prefers-reduced-motion:reduce)`.
+5. **Les effets restent lisibles.** Pas de texte sur un degrade ou un flou sans
+   contraste suffisant (4,5:1), en clair **et** en sombre. Un effet qui ne
+   marche que dans un theme est retire.
+6. **Chaque etat est dessine** : vide, chargement, erreur, succes. Un ecran
+   vide dit quoi faire et porte le bouton pour le faire.
+7. **Les regles du style CodeLab restent prioritaires** : l'accent pour ce qui
+   se clique, les etats en vert, ambre et rouge, le trait plutot que l'ombre
+   sur les ecrans de travail.
+
 ## 14. Sortir le projet de CodeLab
 
-La fiche de l'application propose des fichiers de conteneurisation
-(`Dockerfile`, `docker-compose.yml`, `.env.exemple`, `.dockerignore`,
-`CONTENEUR.md`) deduits de ses commandes, a telecharger. S'ils sont deposes dans
-le projet, garde-les a jour avec lui. Ils ne remplacent pas le deploiement par
-le panneau.
+Le panneau ne produit pas de fichiers de conteneurisation. Si le projet doit
+tourner ailleurs, ses `Dockerfile` et `docker-compose.yml` vivent dans le
+projet, ecrits a la main et tenus a jour avec lui ; ils ne remplacent pas le
+deploiement par le panneau.
 
 ## Avant de declarer une application prete
 
