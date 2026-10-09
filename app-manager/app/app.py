@@ -10981,34 +10981,44 @@ def ouvertures_du_compte(qui=None):
                                             "WHERE compte = ?", (qui,))}
 
 
-# ------------------------- les widgets du hub -------------------------
+# ------------------------- la composition du hub -------------------------
 #
-# Le style Bento compose son hub de widgets. Chaque compte choisit lesquels,
-# dans quel ordre et en quelle taille ; le choix est garde cote serveur pour
-# suivre la personne d'un appareil a l'autre. La liste des widgets est FERMEE :
-# rien de ce que le client envoie ne devient un nom de widget.
+# Le style Bento se COMPOSE comme un ecran d'accueil : chaque compte range
+# ses tuiles d'application et ses widgets dans l'ordre qu'il veut, et choisit
+# la taille de chaque widget. La disposition est gardee cote serveur, pour
+# suivre la personne d'un appareil a l'autre.
+#
+# Peu de widgets, et seulement ceux qui parlent du hub ou de ses
+# applications : pas d'horloge ni de bloc-notes, que l'ordinateur a deja.
+# Le catalogue est FERME : rien de ce que le client envoie ne devient un nom
+# de widget.
+#   portee « hub »  : un widget sur le hub lui-meme ;
+#   portee « app »  : un widget sur UNE application, a choisir.
 WIDGETS = {
-    "une": "À la une",
-    "etat": "État des applications",
-    "horloge": "Date et heure",
-    "messages": "Messages à lire",
-    "message": "Écrire à l'administrateur",
-    "notes": "Bloc-notes",
+    "une": {"titre": "Dernière ouverte", "portee": "hub", "tailles": ("moyen", "grand"),
+            "description": "L'application ouverte en dernier, en aperçu."},
+    "etat": {"titre": "État des applications", "portee": "hub", "tailles": ("petit", "moyen"),
+             "description": "Combien répondent, et laquelle ne répond pas.", "admin": True},
+    "messages": {"titre": "Messages", "portee": "hub", "tailles": ("petit", "moyen"),
+                 "description": "Les messages à lire et à classer.", "admin": True},
+    "nouveautes": {"titre": "Nouvelles versions", "portee": "hub", "tailles": ("petit", "moyen"),
+                   "description": "Les applications mises à jour depuis ta dernière visite."},
+    "message": {"titre": "Écrire à l'administrateur", "portee": "hub", "tailles": ("moyen", "grand"),
+                "description": "Une idée, un souci, une demande.", "utilisateur": True},
+    "apercu": {"titre": "Aperçu", "portee": "app", "tailles": ("moyen", "grand"),
+               "description": "La page d'une application, en direct."},
 }
-WIDGETS_ADMIN = {"messages"}
-WIDGETS_UTILISATEUR = {"message"}
-WIDGETS_TAILLES = ("normal", "large")
-WIDGETS_PAR_DEFAUT = [
-    {"id": "une", "taille": "large"}, {"id": "etat", "taille": "normal"},
-    {"id": "messages", "taille": "normal"}, {"id": "message", "taille": "normal"},
-]
-NOTES_HUB_MAX = 4000
+TAILLES_WIDGET = ("petit", "moyen", "grand")
+DISPOSITION_MAX = 300
+# Avant la composition, un compte ne choisissait que ses widgets : on en
+# garde ce qui a encore un sens.
+_ANCIENNES_TAILLES = {"large": "grand", "normal": "moyen"}
 
 
 def widgets_permis():
     admin = est_admin()
-    return [w for w in WIDGETS
-            if not (w in WIDGETS_ADMIN and not admin) and not (w in WIDGETS_UTILISATEUR and admin)]
+    return [w for w, d in WIDGETS.items()
+            if not (d.get("admin") and not admin) and not (d.get("utilisateur") and admin)]
 
 
 def lire_preference(cle, qui=None):
@@ -11030,60 +11040,110 @@ def ecrire_preference(cle, valeur, qui=None):
                    (qui, cle, json.dumps(valeur, ensure_ascii=False)))
 
 
-def widgets_du_compte():
+def apps_du_hub_visibles():
+    """Les tuiles qu'un compte peut ranger : ses applications, et les services."""
+    autorises = projets_autorises()
+    noms = {n for n in load() if peut_voir(n) and (autorises is None or n in autorises)}
+    return noms, {s["name"] for s in services_du_hub()}
+
+
+def disposition_propre(elements):
+    """Valide une disposition. Rend (liste propre, erreur)."""
+    if not isinstance(elements, list) or len(elements) > DISPOSITION_MAX:
+        return None, "Disposition invalide."
     permis = widgets_permis()
-    choisis = lire_preference("widgets")
-    if not isinstance(choisis, list):
-        choisis = WIDGETS_PAR_DEFAUT
-    # Le widget « demandes » s'appelle maintenant « messages ».
-    choisis = [dict(w, id="messages") if isinstance(w, dict) and w.get("id") == "demandes" else w
-               for w in choisis]
-    return [w for w in choisis if isinstance(w, dict) and w.get("id") in permis]
-
-
-@flask_app.get("/api/hub/widgets")
-@require_auth
-def api_widgets():
-    notes = lire_preference("notes")
-    return jsonify({"widgets": widgets_du_compte(),
-                    "disponibles": [{"id": w, "titre": WIDGETS[w]} for w in widgets_permis()],
-                    "notes": notes if isinstance(notes, str) else ""})
-
-
-@flask_app.put("/api/hub/widgets")
-@require_auth
-def api_widgets_modifier():
-    """{widgets: [{id, taille}]} -- dans l'ordre d'affichage. Un widget absent
-    de la liste est masque ; un nom inconnu ou un doublon est refuse."""
-    d = request.get_json(force=True, silent=True) or {}
-    liste = d.get("widgets")
-    permis = widgets_permis()
-    if not isinstance(liste, list) or len(liste) > len(WIDGETS):
-        return jsonify({"error": "Liste de widgets invalide."}), 400
+    apps, services = apps_du_hub_visibles()
     propres, vus = [], set()
-    for w in liste:
-        if not isinstance(w, dict) or w.get("id") not in permis or w.get("id") in vus:
-            return jsonify({"error": "Widget inconnu."}), 400
-        taille = w.get("taille") or "normal"
-        if taille not in WIDGETS_TAILLES:
-            return jsonify({"error": "Taille inconnue."}), 400
-        vus.add(w["id"])
-        propres.append({"id": w["id"], "taille": taille})
-    ecrire_preference("widgets", propres)
-    return jsonify({"ok": True, "widgets": propres})
+    for e in elements:
+        if not isinstance(e, dict):
+            return None, "Disposition invalide."
+        if e.get("t") == "a":
+            nom = e.get("id")
+            if nom not in apps and nom not in services:
+                continue        # une application disparue ou retiree : on l'oublie
+            cle = "a:" + nom
+            propre = {"t": "a", "id": nom}
+        elif e.get("t") == "w":
+            wid, taille = e.get("id"), e.get("taille")
+            if wid not in permis:
+                return None, "Widget inconnu."
+            if taille not in WIDGETS[wid]["tailles"]:
+                return None, "Taille inconnue pour ce widget."
+            propre = {"t": "w", "id": wid, "taille": taille}
+            if WIDGETS[wid]["portee"] == "app":
+                if e.get("app") not in apps:
+                    return None, "Application inconnue."
+                propre["app"] = e["app"]
+            cle = "w:" + wid + ":" + (propre.get("app") or "")
+        else:
+            return None, "Disposition invalide."
+        if cle in vus:
+            return None, "Élément en double."
+        vus.add(cle)
+        propres.append(propre)
+    return propres, None
 
 
-@flask_app.put("/api/hub/notes")
+def disposition_du_compte():
+    """La disposition enregistree, ou celle d'avant la composition."""
+    elements = lire_preference("hub_disposition")
+    if not isinstance(elements, list):
+        anciens = lire_preference("widgets")
+        if isinstance(anciens, list):
+            elements = [{"t": "w", "id": "messages" if w.get("id") == "demandes" else w.get("id"),
+                         "taille": _ANCIENNES_TAILLES.get(w.get("taille"), "moyen")}
+                        for w in anciens if isinstance(w, dict)]
+        else:
+            elements = [{"t": "w", "id": "une", "taille": "grand"},
+                        {"t": "w", "id": "etat", "taille": "petit"},
+                        {"t": "w", "id": "messages", "taille": "petit"},
+                        {"t": "w", "id": "message", "taille": "moyen"}]
+    permis = widgets_permis()
+    apps, services = apps_du_hub_visibles()
+    garde = []
+    for e in elements:
+        if not isinstance(e, dict):
+            continue
+        if e.get("t") == "w":
+            d = WIDGETS.get(e.get("id"))
+            if not d or e["id"] not in permis:
+                continue
+            if e.get("taille") not in d["tailles"]:
+                e = dict(e, taille=d["tailles"][-1] if e.get("taille") == "grand" else d["tailles"][0])
+            if d["portee"] == "app" and e.get("app") not in apps:
+                continue
+        elif e.get("t") == "a" and e.get("id") not in apps and e.get("id") not in services:
+            continue
+        garde.append(e)
+    return garde
+
+
+@flask_app.get("/api/hub/disposition")
 @require_auth
-def api_notes_hub():
-    """Le bloc-notes du hub : un texte libre, propre a chaque compte."""
-    texte = (request.get_json(force=True, silent=True) or {}).get("notes")
-    if not isinstance(texte, str):
-        return jsonify({"error": "Texte attendu."}), 400
-    if len(texte) > NOTES_HUB_MAX:
-        return jsonify({"error": f"{NOTES_HUB_MAX} caractères au maximum."}), 400
-    ecrire_preference("notes", texte)
-    return jsonify({"ok": True})
+def api_disposition():
+    """La disposition du hub, et le catalogue des widgets que ce compte peut poser.
+
+    Les applications absentes de la disposition (nouvelles, jamais rangees)
+    viennent a la suite : c'est la page qui les y ajoute, dans l'ordre des noms.
+    """
+    return jsonify({"elements": disposition_du_compte(),
+                    "catalogue": [{"id": w, "titre": WIDGETS[w]["titre"],
+                                   "description": WIDGETS[w]["description"],
+                                   "portee": WIDGETS[w]["portee"],
+                                   "tailles": list(WIDGETS[w]["tailles"])}
+                                  for w in widgets_permis()]})
+
+
+@flask_app.put("/api/hub/disposition")
+@require_auth
+def api_disposition_modifier():
+    """{elements: [{t: "a", id} | {t: "w", id, taille, app?}]}, dans l'ordre."""
+    propres, erreur = disposition_propre((request.get_json(force=True, silent=True) or {})
+                                         .get("elements"))
+    if erreur:
+        return jsonify({"error": erreur}), 400
+    ecrire_preference("hub_disposition", propres)
+    return jsonify({"ok": True, "elements": propres})
 
 
 @flask_app.post("/api/mes-apps/<n>/ouverte")

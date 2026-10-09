@@ -12916,14 +12916,15 @@ def test_la_mosaique_defile_a_l_horizontale_et_a_la_verticale_sur_telephone():
     # La molette verticale fait defiler de cote ; l'ajout d'application est
     # la derniere tuile, donc a droite.
     assert "el.scrollLeft += e.deltaY" in page
+    # Plus d'ajout d'application depuis le hub : cela se fait dans
+    # « Applications ».
     corps = page.split("function peindreBento(")[1].split("\n}")[0]
-    assert "liste.map(carte).join('') + vide + ajout" in corps
-    assert 'class="bento-ajout" onclick="openAdd()"' in corps
+    assert "openAdd" not in corps and "bento-ajout" not in page
 
 
 def test_a_la_une_montre_un_apercu_de_la_derniere_application_ouverte(deux_espaces):
     page = _page_panneau("dashboard.html")
-    une = page.split("function widgetUne(")[1].split("\n}")[0]
+    une = page.split("function widgetApercu(")[1].split("\n}")[0]
     assert "<iframe" in une and "pointer-events" not in une  # inerte par le CSS
     assert 'sandbox="allow-scripts allow-same-origin allow-forms"' in une
     assert "a.ouverte_le" in page.split("function appALaUne(")[1].split("\n}")[0]
@@ -12938,35 +12939,55 @@ def test_a_la_une_montre_un_apercu_de_la_derniere_application_ouverte(deux_espac
     assert r.headers["X-Frame-Options"] == "DENY"
 
 
-def test_les_widgets_se_choisissent_par_compte(deux_espaces):
+def test_le_hub_se_compose_par_compte(deux_espaces):
+    """Le hub Bento se compose : tuiles et widgets dans l'ordre voulu, chaque
+    widget a sa taille. Peu de widgets, sur le hub ou sur une application ;
+    le catalogue est ferme et depend du role."""
     c = deux_espaces
     c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
-    d = c.get("/api/hub/widgets").get_json()
-    ids = [w["id"] for w in d["widgets"]]
-    assert ids[0] == "une" and "messages" in ids and "message" not in ids
-    assert {w["id"] for w in d["disponibles"]} == {"une", "etat", "horloge", "messages", "notes"}
-    r = c.put("/api/hub/widgets", json={"widgets": [{"id": "horloge", "taille": "large"},
-                                                    {"id": "une"}]})
-    assert r.status_code == 200
-    assert c.get("/api/hub/widgets").get_json()["widgets"] == [
-        {"id": "horloge", "taille": "large"}, {"id": "une", "taille": "normal"}]
-    for mauvais in ([{"id": "inconnu"}], [{"id": "une"}, {"id": "une"}],
-                    [{"id": "une", "taille": "geant"}], "x", [{"id": "message"}]):
-        assert c.put("/api/hub/widgets", json={"widgets": mauvais}).status_code == 400, mauvais
-    assert c.put("/api/hub/notes", json={"notes": "acheter du pain"}).status_code == 200
-    assert c.get("/api/hub/widgets").get_json()["notes"] == "acheter du pain"
-    assert c.put("/api/hub/notes", json={"notes": "x" * 5000}).status_code == 400
-    # Un compte utilisateur a SES widgets, et pas celui des messages recus.
+    d = c.get("/api/hub/disposition").get_json()
+    catalogue = {w["id"]: w for w in d["catalogue"]}
+    assert set(catalogue) == {"une", "etat", "messages", "nouveautes", "apercu"}
+    assert catalogue["apercu"]["portee"] == "app" and catalogue["etat"]["tailles"] == ["petit", "moyen"]
+    # Ni horloge ni bloc-notes : rien qui ne parle du hub ou de ses applications.
+    assert "horloge" not in catalogue and "notes" not in catalogue
+    assert [e["id"] for e in d["elements"]][0] == "une"
+    elements = [{"t": "a", "id": "public"}, {"t": "w", "id": "apercu", "taille": "grand", "app": "public"},
+                {"t": "w", "id": "etat", "taille": "petit"}, {"t": "a", "id": "prive-autorise"},
+                {"t": "a", "id": "disparue"}]
+    r = c.put("/api/hub/disposition", json={"elements": elements})
+    assert r.status_code == 200, r.data
+    garde = c.get("/api/hub/disposition").get_json()["elements"]
+    # Une application qui n'existe pas est oubliee, l'ordre est garde.
+    assert garde == elements[:4]
+    for mauvais in ([{"t": "w", "id": "horloge", "taille": "petit"}],
+                    [{"t": "w", "id": "etat", "taille": "grand"}],
+                    [{"t": "w", "id": "apercu", "taille": "moyen", "app": "inconnue"}],
+                    [{"t": "w", "id": "etat", "taille": "petit"}, {"t": "w", "id": "etat", "taille": "moyen"}],
+                    [{"t": "x"}], "x"):
+        assert c.put("/api/hub/disposition", json={"elements": mauvais}).status_code == 400, mauvais
+    # Un compte utilisateur : ses propres widgets, et seulement ses applications.
     u = app.flask_app.test_client()
     _connecte(u, "marie", "mot-de-passe-long")
-    d = u.get("/api/hub/widgets").get_json()
-    assert "messages" not in [w["id"] for w in d["widgets"]]
-    assert "message" in [w["id"] for w in d["widgets"]]
-    assert u.get("/api/hub/widgets").get_json()["notes"] == ""
-    assert u.put("/api/hub/widgets", json={"widgets": [{"id": "messages"}]}).status_code == 400
+    catalogue = {w["id"] for w in u.get("/api/hub/disposition").get_json()["catalogue"]}
+    assert "message" in catalogue and "messages" not in catalogue and "etat" not in catalogue
+    assert u.put("/api/hub/disposition", json={"elements": [
+        {"t": "w", "id": "apercu", "taille": "moyen", "app": "prive-refuse"}]}).status_code == 400
+    assert u.put("/api/hub/disposition", json={"elements": [
+        {"t": "w", "id": "apercu", "taille": "moyen", "app": "prive-autorise"}]}).status_code == 200
     page = _page_panneau("dashboard.html")
-    assert 'id="ov-widgets"' in page and "function enregistrerWidgets(" in page
-    assert "hub-personnaliser" in page
+    for trace in ('id="ov-galerie"', "function basculerEdition(", "function galerieAjouter(",
+                  "'hub-deplacer'", "'hub-retirer'", "@keyframes hub-tremble", "prefers-reduced-motion:reduce"):
+        assert trace in page, trace
+
+
+def test_une_ancienne_selection_de_widgets_devient_une_disposition(deux_espaces):
+    c = deux_espaces
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    app.ecrire_preference("widgets", [{"id": "horloge", "taille": "normal"},
+                                      {"id": "demandes", "taille": "large"}], qui="admin")
+    assert c.get("/api/hub/disposition").get_json()["elements"] == [
+        {"t": "w", "id": "messages", "taille": "moyen"}]
 
 
 # ---------- nouvelle version depuis la derniere ouverture ----------
