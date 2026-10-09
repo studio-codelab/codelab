@@ -104,7 +104,8 @@ Le fonctionnement des comptes est décrit dans [`SECURITE.md`](../SECURITE.md). 
 
 **Envoi de mails**
 
-- Tous les mails partent par Mailpit (`APP_MANAGER_MAIL_PAR_MAILPIT`).
+- Tous les mails partent par Mailpit (`APP_MANAGER_MAIL_PAR_MAILPIT`), sauf les mails de sécurité
+  (codes, invitations, alerte de connexion admin : `sensible=True`), envoyés en direct sans copie.
 - Si Mailpit ne répond pas, le panneau envoie directement par le serveur d'envoi.
 - Le panneau publie ce serveur à Mailpit dans le bloc `codelab-relais-mail`.
 

@@ -2116,7 +2116,7 @@ def envoyer_code_email(adresse, nom, code):
                  "Si tu n'es pas a l'origine de cette demande, ignore ce "
                  "message : sans ce code, rien ne change.\n\n"
                  "-- CodeLab, panneau de gestion des applications",
-                 destinataires=[adresse])
+                 destinataires=[adresse], sensible=True)
 
 
 # ---------------------- mot de passe oublie ----------------------
@@ -2176,7 +2176,7 @@ def envoyer_code_reinit(adresse, nom, code):
                  "Si tu n'es pas a l'origine de cette demande, ignore ce message : "
                  "sans ce code, ton mot de passe ne change pas.\n\n"
                  "-- CodeLab, panneau de gestion des applications",
-                 destinataires=[adresse])
+                 destinataires=[adresse], sensible=True)
 
 
 # ---------------------- second facteur par code envoye ----------------------
@@ -2273,7 +2273,7 @@ def envoyer_code_connexion(compte, nom, moyen, code):
                  "est connu de quelqu'un d'autre : change-le, et préviens ton "
                  "administrateur.\n\n"
                  "-- CodeLab, panneau de gestion des applications",
-                 destinataires=[compte["email"]])
+                 destinataires=[compte["email"]], sensible=True)
 
 
 # ------------------------------ invitations ------------------------------
@@ -2324,8 +2324,8 @@ def lien_invitation(jeton):
 
 
 def envoyer_invitation(adresse, lien):
-    """Envoie le lien, ou leve. Passe par Mailpit : meme sans serveur
-    d'envoi, le mail se relit dans son interface."""
+    """Envoie le lien, ou leve. En direct, jamais par Mailpit : le lien
+    ouvre la creation d'un compte."""
     cfg, _ = smtp_utilisable()
     envoyer_mail(cfg, "[CodeLab] ton invitation",
                  "Bonjour,\n\n"
@@ -2337,7 +2337,7 @@ def envoyer_invitation(adresse, lien):
                  "Si tu ne t'attendais pas à ce message, ignore-le : sans ce lien, "
                  "aucun compte n'est créé.\n\n"
                  "-- CodeLab, panneau de gestion des applications",
-                 destinataires=[adresse])
+                 destinataires=[adresse], sensible=True)
 
 
 def creer_invitation(adresse, projets):
@@ -5510,6 +5510,14 @@ def _refus_sans_smtp():
 # Mailpit injoignable (service arrete, installation sans lui) : repli sur
 # l'envoi direct, pour qu'une alerte ne tombe pas avec le service qui
 # devait la porter.
+#
+# SAUF LES MAILS DE SECURITE. Un code de verification, de connexion ou de
+# reinitialisation, un lien d'invitation, l'alerte d'une connexion
+# administrateur inconnue : ce sont des secrets, ou des signaux qu'un
+# intrus aurait interet a lire et a effacer. Garder leur copie dans Mailpit,
+# que tout administrateur ouvre depuis le hub, ce serait laisser trainer la
+# cle a cote de la porte. Ils partent en DIRECT par le serveur d'envoi, et
+# ne se relisent nulle part dans CodeLab (sensible=True).
 MAILPIT_SMTP_HOTE = os.environ.get("APP_MANAGER_MAILPIT_SMTP_HOTE") or MAILPIT_AMONT
 MAILPIT_SMTP_PORT = int(os.environ.get("APP_MANAGER_MAILPIT_SMTP_PORT", "1025") or 1025)
 MAIL_PAR_MAILPIT = (os.environ.get("APP_MANAGER_MAIL_PAR_MAILPIT", "1").strip().lower()
@@ -5525,8 +5533,11 @@ def _envoyer_par_mailpit(msg):
         s.send_message(msg)
 
 
-def envoyer_mail(cfg, sujet, corps, destinataires=None):
-    """Envoie, ou leve. Par Mailpit d'abord, en direct sinon."""
+def envoyer_mail(cfg, sujet, corps, destinataires=None, sensible=False):
+    """Envoie, ou leve. Par Mailpit d'abord, en direct sinon.
+
+    sensible=True (mails de securite) : jamais par Mailpit, toujours en direct.
+    """
     msg = EmailMessage()
     msg["Subject"] = sujet
     msg["From"] = cfg.get("expediteur") or EXPEDITEUR_DEFAUT
@@ -5534,7 +5545,11 @@ def envoyer_mail(cfg, sujet, corps, destinataires=None):
                           else cfg["destinataires"])
     msg.set_content(corps)
 
-    if MAIL_PAR_MAILPIT:
+    if sensible:
+        if not cfg.get("host"):
+            raise RuntimeError("Aucun serveur d'envoi configuré : un mail de sécurité "
+                               "ne passe pas par Mailpit.")
+    elif MAIL_PAR_MAILPIT:
         try:
             _envoyer_par_mailpit(msg)
             return
@@ -5592,7 +5607,7 @@ def destinataires_alerte(name, apps=None):
     return tout
 
 
-def envoyer_avec_repli(sujet, corps, destinataires):
+def envoyer_avec_repli(sujet, corps, destinataires, sensible=False):
     """Envoie, en repassant sur la configuration d'origine si besoin.
 
     La configuration personnalisee a ete verifiee le jour ou elle a ete
@@ -5617,7 +5632,7 @@ def envoyer_avec_repli(sujet, corps, destinataires):
         if smtp_incomplet(cfg):
             continue
         try:
-            envoyer_mail(cfg, sujet, corps, destinataires=destinataires)
+            envoyer_mail(cfg, sujet, corps, destinataires=destinataires, sensible=sensible)
             if echecs:
                 print(f"[app-manager] envoi repli sur la configuration {nom} "
                       f"apres : {' ; '.join(echecs)}", flush=True)
@@ -6469,7 +6484,8 @@ def signaler_connexion_admin():
         "Si c'est toi, rien a faire. Sinon, change tout de suite le mot de passe "
         "d'administration (credentials.env), retire les cles d'acces inconnues et "
         "regarde le journal des connexions.\n\n"
-        "-- CodeLab, panneau de gestion des applications", destinataires)).start()
+        "-- CodeLab, panneau de gestion des applications", destinataires),
+        kwargs={"sensible": True}).start()
 
 
 @flask_app.post("/login")

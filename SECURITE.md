@@ -240,8 +240,9 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 - **Les applications partagent le groupe `codelab`** sur `/workspace`, pour que ton code reste
   modifiable en SSH. Sans namespaces utilisateur, une application peut lire les fichiers d'une autre
   par ce groupe.
-- **L'administrateur voit tout** : les applications, le journal, et les mails passés par Mailpit,
-  codes compris. Il ne voit jamais un mot de passe.
+- **L'administrateur voit tout** : les applications, le journal, et les mails passés par Mailpit.
+  Il ne voit jamais un mot de passe, ni un mail de sécurité : codes, liens d'invitation et alertes
+  de connexion partent en direct, sans copie dans Mailpit.
 - **Sans HTTPS**, une session peut être interceptée sur le réseau.
 - **La boîte mail de chaque utilisateur** reçoit ses codes : sa sécurité compte. La clé d'accès reste
   le moyen le plus sûr.

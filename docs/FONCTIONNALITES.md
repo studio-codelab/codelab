@@ -163,8 +163,12 @@ Détails : [`mailpit/README.md`](../mailpit/README.md).
 
 **Mailpit**
 
-- **Tous les mails passent par Mailpit**, ceux du panneau (codes, invitations, alertes) comme ceux des
-  applications.
+- **Tous les mails passent par Mailpit** et s'y relisent : ceux des applications, ceux du panneau
+  (alertes, messages à l'administrateur) et les alertes d'échec Dagster.
+- **Sauf les mails de sécurité**, envoyés en direct par le serveur d'envoi et jamais gardés dans
+  Mailpit : codes de vérification, de connexion et de réinitialisation du mot de passe, liens
+  d'invitation, alerte de connexion administrateur depuis une adresse inconnue. Sans serveur d'envoi
+  réglé, ils ne partent pas.
 - **Historique** : les 500 derniers mails, un mois au plus, relisibles dans une interface au style de
   CodeLab (`:8025`, administrateur).
 - **Relais** par le serveur d'envoi de *Paramètres > E-mail* (un compte Gmail suffit).

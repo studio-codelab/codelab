@@ -1457,7 +1457,7 @@ def alertes(tmp_path, monkeypatch):
                        "port": 9101, "enabled": True}})
     envoyes = []
     monkeypatch.setattr(app, "envoyer_mail",
-                        lambda cfg, sujet, corps, destinataires=None:
+                        lambda cfg, sujet, corps, destinataires=None, **_:
                         envoyes.append(sujet))
     return envoyes
 
@@ -2424,7 +2424,7 @@ def messagerie(tmp_path, monkeypatch):
         "projets": ["compta"], "cree": 0}})
     partis = []
     monkeypatch.setattr(app, "envoyer_mail",
-                        lambda cfg, sujet, corps, destinataires=None:
+                        lambda cfg, sujet, corps, destinataires=None, **_:
                         partis.append((destinataires, sujet, corps)))
     c = app.flask_app.test_client()
     _connecte(c, "marie", "mot-de-passe-long")
@@ -3069,7 +3069,7 @@ def comptes_mail(tmp_path, monkeypatch):
         "SMTP_HOST=smtp.example.com\nSMTP_USER=panneau@example.com\n")
     partis = []
     monkeypatch.setattr(app, "envoyer_mail",
-                        lambda cfg, sujet, corps, destinataires=None:
+                        lambda cfg, sujet, corps, destinataires=None, **_:
                         partis.append((destinataires, corps)))
     return app.flask_app.test_client(), partis
 
@@ -4328,7 +4328,7 @@ def test_l_envoi_repli_sur_l_origine_quand_la_personnalisee_tombe(envoi, monkeyp
                                               "password": "bon"}})
     essais = []
 
-    def _envoi(cfg, sujet, corps, destinataires=None):
+    def _envoi(cfg, sujet, corps, destinataires=None, **_):
         essais.append(cfg["host"])
         if cfg["host"] == "perso.example.com":
             raise OSError("serveur injoignable")
@@ -12070,6 +12070,55 @@ def test_les_mails_du_panneau_passent_par_mailpit(monkeypatch):
     assert remis and remis[0]["To"] == "toi@example.com" and not direct
 
 
+def test_un_mail_de_securite_ne_passe_jamais_par_mailpit(monkeypatch):
+    """Codes, liens d'invitation, alerte de connexion : ils partent en
+    direct. Mailpit, que tout administrateur ouvre depuis le hub, n'en garde
+    aucune copie. Les autres mails, eux, s'y relisent."""
+    remis, envois = [], []
+    monkeypatch.setattr(app, "MAIL_PAR_MAILPIT", True)
+    monkeypatch.setattr(app, "_envoyer_par_mailpit", lambda msg: remis.append(msg))
+
+    class FauxSMTP:
+        def __init__(self, *a, **k): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def ehlo(self): pass
+        def starttls(self, **k): pass
+        def login(self, *a): pass
+        def send_message(self, msg): envois.append(msg)
+
+    monkeypatch.setattr(app.smtplib, "SMTP", FauxSMTP)
+    cfg = {"host": "smtp.example.com", "port": 587, "tls": "starttls",
+           "user": "", "password": "", "expediteur": "moi@example.com"}
+    app.envoyer_mail(cfg, "code", "1234", destinataires=["toi@example.com"], sensible=True)
+    assert envois and not remis
+    # Sans serveur d'envoi, un mail de securite ne part pas -- il ne se
+    # rabat pas sur Mailpit.
+    with pytest.raises(RuntimeError):
+        app.envoyer_mail(dict(cfg, host=""), "code", "1234",
+                         destinataires=["toi@example.com"], sensible=True)
+    assert not remis
+    # Les quatre mails qui portent un secret sont marques sensibles.
+    marques = []
+    monkeypatch.setattr(app, "smtp_utilisable", lambda: (cfg, True))
+    monkeypatch.setattr(app, "envoyer_mail",
+                        lambda cfg, sujet, corps, destinataires=None, **kw:
+                        marques.append((sujet, kw.get("sensible"))))
+    app.envoyer_code_email("toi@example.com", "toi", "123456")
+    app.envoyer_code_reinit("toi@example.com", "toi", "123456")
+    app.envoyer_code_connexion({"email": "toi@example.com"}, "toi", "mail", "123456")
+    app.envoyer_invitation("toi@example.com", "https://x/invitation/abc")
+    assert len(marques) == 4 and all(sensible is True for _, sensible in marques), marques
+
+
+def test_les_alertes_dagster_passent_par_mailpit():
+    source = open(os.path.join(_racine_depot(), "workspace", "diagnostic", "definitions.py"),
+                  encoding="utf-8").read()
+    corps = source.split("def envoyer(cfg, sujet, corps):")[1].split("\ndef ")[0]
+    assert "smtplib.SMTP(MAILPIT_SMTP_HOTE, MAILPIT_SMTP_PORT" in corps
+    assert corps.index("MAILPIT_SMTP_HOTE") < corps.index("_login")
+
+
 def test_mailpit_injoignable_l_envoi_repart_en_direct(monkeypatch):
     def refuse(msg):
         raise ConnectionRefusedError("arrete")
@@ -12471,13 +12520,13 @@ def test_une_connexion_admin_depuis_une_adresse_inconnue_est_signalee(journal, m
     envois = []
     monkeypatch.setattr(app, "alertes_admin", lambda: ["moi@example.com"])
     monkeypatch.setattr(app, "envoyer_avec_repli",
-                        lambda sujet, corps, dest: envois.append((sujet, dest)))
+                        lambda sujet, corps, dest, **kw: envois.append((sujet, dest, kw)))
 
     class ThreadImmediat:
-        def __init__(self, target, args=(), daemon=None):
-            self.t, self.a = target, args
+        def __init__(self, target, args=(), kwargs=None, daemon=None):
+            self.t, self.a, self.k = target, args, kwargs or {}
         def start(self):
-            self.t(*self.a)
+            self.t(*self.a, **self.k)
     monkeypatch.setattr(app.threading, "Thread", ThreadImmediat)
     monkeypatch.setattr(app, "trust_proxy", lambda: True)
     c = journal
@@ -12491,6 +12540,8 @@ def test_une_connexion_admin_depuis_une_adresse_inconnue_est_signalee(journal, m
     c.post("/login", json={"nom": "admin", "password": "secret-de-test"},
            headers={"X-Forwarded-For": "192.168.1.77"})       # nouvelle
     assert len(envois) == 1 and envois[0][1] == ["moi@example.com"]
+    # Une alerte de securite : jamais par Mailpit.
+    assert envois[0][2] == {"sensible": True}
 
 
 
