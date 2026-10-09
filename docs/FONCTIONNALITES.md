@@ -217,6 +217,15 @@ adresses `/demandes` y mènent.
   l'administrateur » du style Bento), en choisissant le sujet : **améliorer le hub**, **une idée de
   nouveau projet**, ou **améliorer une application existante** (laquelle). Un message qui arrive
   s'annonce dans le coin du panneau de l'administrateur.
+- **Joindre des captures et des maquettes** (jusqu'à 6 par message, 10 Mo chacune) : images (PNG,
+  JPEG, WebP, GIF) ou PDF, reconnus à leur contenu (pas de SVG). Par le sélecteur de fichiers du
+  système (Photos et l'appareil photo sur iPhone), en collant une capture dans le message, ou en la
+  glissant dessus. Un message peut n'être qu'une maquette. Les pièces s'ouvrent dans le navigateur ;
+  seuls l'administrateur et l'auteur y ont accès, et elles partent avec le message.
+- **Exporter un projet** (*Exporter*, en tête d'un projet) : un ZIP avec `projet.md` (description,
+  tâches dans l'ordre du planning avec sous-tâches et notes, messages, maquettes en images),
+  `projet.json`, et les pièces jointes dans `pieces/`. *Tout exporter* (bas du menu) rassemble tous
+  les projets, un dossier chacun, avec un sommaire.
 - **Suivre ses messages** (comptes utilisateurs) : *Paramètres > Message > Mes messages* montre où en
   est chacun, sur une frise **Envoyé → Lu (ou À l'étude) → Planifié → En cours → Réalisé**, ou
   **Non retenu**. L'étape se déduit de ce que fait l'administrateur dans Messages (lire, mettre à

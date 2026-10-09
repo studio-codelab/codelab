@@ -39,6 +39,7 @@ import copy
 import datetime
 import fcntl
 import html as _html
+import io
 import functools
 import gzip
 import queue
@@ -61,10 +62,12 @@ import struct
 import subprocess
 import threading
 import time
+import unicodedata
 import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 from collections import deque
 from email.message import EmailMessage
 
@@ -1660,6 +1663,8 @@ def poser_les_entetes(reponse):
 #                    qu'il borne, c'est la memoire du panneau, qui met le
 #                    corps entier en memoire avant de le transmettre.
 CORPS_MAX_PANNEAU = 2 * 1024 * 1024
+# Une piece jointe (capture, maquette), deposee seule : 10 Mo.
+PIECE_MAX = 10 * 1024 * 1024
 CORPS_MAX_APPLICATION = int(os.environ.get("APP_MANAGER_CORPS_MAX_MO", "32")) * 1024 * 1024
 
 # Le filet de Flask, pour un corps annonce sans taille (Transfer-Encoding:
@@ -1673,8 +1678,9 @@ def borner_le_corps():
     if request.endpoint in ("proxy", "proxy_noslash"):
         return None
     taille = request.content_length
-    if taille is not None and taille > CORPS_MAX_PANNEAU:
-        return _trop_gros(CORPS_MAX_PANNEAU)
+    limite = PIECE_MAX if request.endpoint == "api_piece_deposer" else CORPS_MAX_PANNEAU
+    if taille is not None and taille > limite:
+        return _trop_gros(limite)
     return None
 
 
@@ -1694,6 +1700,7 @@ def trop_gros(e):
     Sans lui, un depot trop gros rendait la page d'erreur par defaut : du
     HTML la ou la page attend du JSON, donc un message illisible."""
     limite = (CORPS_MAX_APPLICATION if request.endpoint in ("proxy", "proxy_noslash")
+              else PIECE_MAX if request.endpoint == "api_piece_deposer"
               else CORPS_MAX_PANNEAU)
     return _trop_gros(limite)
 
@@ -2563,6 +2570,7 @@ def reecrire_messages(messages):
         for m in messages:
             ligne, options = stockage.vers_ligne(m, CHAMPS_MESSAGE)
             stockage.inserer(cx, "messages", ligne, options)
+        _oublier_pieces_orphelines(cx)
 
 
 _INCHANGE = object()
@@ -2653,6 +2661,69 @@ def marquer_messages_lus():
     return changes
 
 
+# ------------------------- les pieces jointes -------------------------
+#
+# Une capture d'ecran, une maquette : ce qu'un message ne sait pas dire en
+# mots. Images (PNG, JPEG, WebP, GIF) et PDF, rien d'autre -- reconnus a
+# leurs premiers octets, pas au nom ni au type annonce. Pas de SVG : c'est
+# du code, qui s'executerait a l'ouverture.
+#
+# Le fichier se depose d'abord, seul (il depasse le plafond des requetes du
+# panneau), puis le message le nomme. Un depot jamais envoye part au bout
+# d'un jour.
+PIECES_PAR_MESSAGE = 6
+PIECES_EN_ATTENTE_MAX = 12
+PIECE_ATTENTE_MAX = 86400
+PIECE_NOM_MAX = 80
+_SIGNATURES_PIECE = (
+    (b"\x89PNG\r\n\x1a\n", "image/png", "png"),
+    (b"\xff\xd8\xff", "image/jpeg", "jpg"),
+    (b"GIF87a", "image/gif", "gif"),
+    (b"GIF89a", "image/gif", "gif"),
+    (b"%PDF-", "application/pdf", "pdf"),
+)
+
+
+def type_de_piece(donnees):
+    """(type, extension) reconnus aux premiers octets, ou (None, None)."""
+    for signature, type_, ext in _SIGNATURES_PIECE:
+        if donnees.startswith(signature):
+            return type_, ext
+    if donnees[:4] == b"RIFF" and donnees[8:12] == b"WEBP":
+        return "image/webp", "webp"
+    return None, None
+
+
+def nom_de_piece(brut, ext):
+    """Un nom lisible et inoffensif, qui finit par la bonne extension."""
+    nom = urllib.parse.unquote(str(brut or ""))
+    nom = re.split(r"[\\/]", nom)[-1]
+    nom = "".join(c for c in nom if c.isprintable() and c not in '<>:"|?*').strip(" .")
+    base = nom.rsplit(".", 1)[0] if "." in nom else nom
+    base = base[:PIECE_NOM_MAX - len(ext) - 1] or "piece"
+    return f"{base}.{ext}"
+
+
+def _oublier_pieces_orphelines(cx):
+    """Les pieces d'un message disparu, et les depots jamais envoyes."""
+    cx.execute("DELETE FROM pieces WHERE message IS NOT NULL "
+               "AND message NOT IN (SELECT id FROM messages)")
+    cx.execute("DELETE FROM pieces WHERE message IS NULL AND ts < ?",
+               (int(time.time()) - PIECE_ATTENTE_MAX,))
+
+
+def pieces_en_attente(qui, ids):
+    """Les depots de « qui » qui attendent un message, dans l'ordre donne."""
+    if not ids:
+        return []
+    lignes = stockage.lire(DB_FILE, f"SELECT id, nom, type, taille FROM pieces "
+                                    f"WHERE message IS NULL AND qui = ? "
+                                    f"AND id IN ({','.join('?' * len(ids))})", (qui, *ids))
+    par_id = {l["id"]: {"id": l["id"], "nom": l["nom"], "type": l["type"],
+                        "taille": l["taille"]} for l in lignes}
+    return [par_id[i] for i in ids if i in par_id]
+
+
 def enregistrer_message(message):
     """Ecrit le message, et n'echoue jamais bruyamment."""
     try:
@@ -2664,6 +2735,13 @@ def enregistrer_message(message):
             cx.execute("DELETE FROM messages WHERE rowid IN (SELECT rowid FROM messages "
                        "WHERE COALESCE(retenu, 0) = 0 ORDER BY ts DESC LIMIT -1 OFFSET ?)",
                        (MESSAGES_MAX,))
+            # Ses pieces deposees l'attendaient : elles lui appartiennent.
+            ids = [p["id"] for p in message.get("pieces") or []]
+            if ids:
+                cx.execute(f"UPDATE pieces SET message = ? WHERE message IS NULL AND qui = ? "
+                           f"AND id IN ({','.join('?' * len(ids))})",
+                           (message["id"], message.get("qui") or "", *ids))
+            _oublier_pieces_orphelines(cx)
     except Exception:                                             # noqa: BLE001
         return False
     _pg_deposer(("message", message))
@@ -10226,7 +10304,15 @@ def api_message():
 
     if cible not in MESSAGE_CIBLES:
         return jsonify({"error": "Choisis de quoi tu veux parler."}), 400
-    if not texte:
+    ids_pieces = d.get("pieces") or []
+    if (not isinstance(ids_pieces, list) or len(ids_pieces) > PIECES_PAR_MESSAGE
+            or not all(isinstance(x, str) for x in ids_pieces)):
+        return jsonify({"error": f"{PIECES_PAR_MESSAGE} pièces jointes au plus."}), 400
+    pieces = pieces_en_attente(qui, list(dict.fromkeys(ids_pieces)))
+    if len(pieces) != len(set(ids_pieces)):
+        return jsonify({"error": "Une pièce jointe a expiré : ajoute-la de nouveau."}), 400
+    # Une maquette peut se passer de mots ; un message sans rien, non.
+    if not texte and not pieces:
         return jsonify({"error": "Écris ton message."}), 400
     if len(texte) > MESSAGE_LONGUEUR_MAX:
         return jsonify({"error": "Message trop long : %d caractères pour %d au maximum."
@@ -10249,6 +10335,8 @@ def api_message():
     message = {"id": secrets.token_hex(12), "ts": int(maintenant), "qui": qui,
                "cible": cible, "app": nom_app, "texte": texte, "lu": False,
                "statut": "en_attente", "archive": False}
+    if pieces:
+        message["pieces"] = pieces
     if not enregistrer_message(message):
         return jsonify({"error": "Message non enregistré : le disque n'a pas "
                                  "accepté l'écriture."}), 500
@@ -10286,15 +10374,69 @@ def corps_message(message):
              "hub": "Sujet      : le hub",
              "idee": "Sujet      : une idee d'application"}.get(
                  message.get("cible"), "Sujet      : ?")
+    pieces = message.get("pieces") or []
+    jointes = ([f"Joint      : {', '.join(p['nom'] for p in pieces)} (a voir dans Messages)"]
+               if pieces else [])
     return "\n".join([
         f"De         : {message.get('qui')}",
         sujet,
         f"Le         : {quand}",
+        *jointes,
         "",
         (message.get("texte") or "").strip(),
         "",
         "-- CodeLab, message laisse depuis le hub",
     ])
+
+
+@flask_app.post("/api/pieces")
+@require_auth
+def api_piece_deposer():
+    """Depose une piece jointe : le corps EST le fichier, son nom dans X-Nom-Fichier.
+
+    Rend son identifiant, que le message nommera a l'envoi.
+    """
+    donnees = request.get_data(cache=False)
+    if not donnees:
+        return jsonify({"error": "Fichier vide."}), 400
+    if len(donnees) > PIECE_MAX:
+        return _trop_gros(PIECE_MAX)
+    type_, ext = type_de_piece(donnees)
+    if not type_:
+        return jsonify({"error": "Une image (PNG, JPEG, WebP, GIF) ou un PDF seulement."}), 415
+    qui = utilisateur_courant() or NOM_ADMIN
+    piece = {"id": secrets.token_hex(12), "nom": nom_de_piece(request.headers.get("X-Nom-Fichier"), ext),
+             "type": type_, "taille": len(donnees)}
+    with stockage.transaction(DB_FILE) as cx:
+        _oublier_pieces_orphelines(cx)
+        n = cx.execute("SELECT COUNT(*) FROM pieces WHERE message IS NULL AND qui = ?",
+                       (qui,)).fetchone()[0]
+        if n >= PIECES_EN_ATTENTE_MAX:
+            return jsonify({"error": "Trop de pièces en attente : envoie ton message d'abord."}), 429
+        cx.execute("INSERT INTO pieces (id, message, qui, nom, type, taille, ts, donnees) "
+                   "VALUES (?, NULL, ?, ?, ?, ?, ?, ?)",
+                   (piece["id"], qui, piece["nom"], type_, len(donnees), int(time.time()),
+                    donnees))
+    return jsonify(piece)
+
+
+@flask_app.get("/api/pieces/<ident>")
+@require_auth
+def api_piece_lire(ident):
+    """Une piece jointe : a l'administrateur, ou a qui l'a deposee."""
+    lignes = stockage.lire(DB_FILE, "SELECT * FROM pieces WHERE id = ?", (ident,))
+    if not lignes or (not est_admin() and lignes[0]["qui"] != utilisateur_courant()):
+        return jsonify({"error": "Pièce introuvable."}), 404
+    p = lignes[0]
+    reponse = Response(bytes(p["donnees"]), mimetype=p["type"])
+    reponse.headers["Content-Disposition"] = (
+        "inline; filename*=UTF-8''" + urllib.parse.quote(p["nom"]))
+    reponse.headers["X-Content-Type-Options"] = "nosniff"
+    reponse.headers["Cache-Control"] = "private, max-age=86400"
+    if p["type"].startswith("image/"):
+        # Une image n'execute rien ; on le dit quand meme au navigateur.
+        reponse.headers["Content-Security-Policy"] = "default-src 'none'; img-src 'self'; sandbox"
+    return reponse
 
 
 @flask_app.get("/api/messages")
@@ -10691,6 +10833,7 @@ def mes_messages():
         vu = vus.get(m.get("id"), "envoye")
         rendus.append({"id": m.get("id"), "ts": m.get("ts"), "cible": m.get("cible"),
                        "app": m.get("app") or "", "texte": m.get("texte") or "",
+                       "pieces": m.get("pieces") or [],
                        "suivi": suivi, "nouveau": suivi["etape"] != vu})
     return rendus
 
@@ -10912,6 +11055,183 @@ def api_tache_supprimer(ident):
 @require_admin
 def api_projets():
     return jsonify({"projets": lire_projets()})
+
+
+# ------------------------- exporter un projet -------------------------
+#
+# TOUT LE PROJET, D'UN COUP : sa description, ses taches dans l'ordre du
+# planning, les messages qui l'ont fait naitre et leurs pieces jointes. Un
+# fichier ZIP, que le systeme ouvre tout seul : un « projet.md » a lire (ou a
+# donner tel quel a qui va le construire), un « projet.json » pour un
+# programme, et les pieces dans « pieces/ ».
+ETAPES_NOMS = {"idee": "Idée", "construction": "En construction", "realise": "Réalisé"}
+STATUTS_NOMS = {"a_faire": "À faire", "en_cours": "En cours", "fait": "Fait"}
+PRIORITES_NOMS = {0: "urgente", 1: "haute", 2: "normale", 3: "basse"}
+SUJETS_NOMS = {"hub": "Améliorer le hub", "idee": "Nouveau projet", "application": "Application"}
+
+
+def _slug(texte):
+    t = unicodedata.normalize("NFKD", str(texte or "")).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]+", "-", t.lower()).strip("-")[:60] or "projet"
+
+
+def _cles_de_projets(taches, projets):
+    """Toutes les cles qui portent du travail : projets, applications, general."""
+    cles = [p["id"] for p in projets]
+    for t in taches:
+        if t["projet"] not in cles:
+            cles.append(t["projet"])
+    return cles
+
+
+def _contenu_projet(cle, taches, projets, messages):
+    projet = next((p for p in projets if p["id"] == cle), None)
+    if projet:
+        nom = projet["nom"]
+    elif cle == PROJET_GENERAL:
+        nom = "Général"
+    else:
+        nom = (load().get(cle) or {}).get("titre") or cle
+    siennes = [t for t in taches if t["projet"] == cle]
+    lies = {t["message"] for t in siennes if t["message"]}
+    if projet and projet["message"]:
+        lies.add(projet["message"])
+    msgs = sorted((m for m in messages if m.get("projet") == cle or m.get("id") in lies),
+                  key=lambda m: m.get("ts") or 0)
+    return {"cle": cle, "nom": nom, "projet": projet, "taches": siennes, "messages": msgs}
+
+
+def _date(ts):
+    return datetime.datetime.fromtimestamp(ts or 0).strftime("%d/%m/%Y")
+
+
+def _markdown_projet(c, chemins):
+    p = c["projet"] or {}
+    ouvertes = [t for t in c["taches"] if t["statut"] != "fait"]
+    faites = [t for t in c["taches"] if t["statut"] == "fait"]
+    lignes = [f"# {c['nom']}", ""]
+    meta = []
+    if p.get("etape"):
+        meta.append("Étape : " + ETAPES_NOMS.get(p["etape"], p["etape"]))
+    if p.get("application"):
+        meta.append("Application : " + p["application"])
+    meta.append(f"{len(faites)}/{len(c['taches'])} tâches faites")
+    meta.append("Exporté le " + datetime.datetime.now().strftime("%d/%m/%Y à %H:%M"))
+    lignes += [" · ".join(meta), ""]
+    if p.get("description"):
+        lignes += ["## Description", "", p["description"].strip(), ""]
+
+    def tache(t):
+        coche = "x" if t["statut"] == "fait" else " "
+        details = [STATUTS_NOMS.get(t["statut"], t["statut"]),
+                   "priorité " + PRIORITES_NOMS.get(t["priorite"], str(t["priorite"]))]
+        if t["echeance"]:
+            details.append("pour le " + t["echeance"])
+        if t["duree"] and t["duree"] != 1:
+            details.append(f"{t['duree']} jours")
+        if t["fait_le"]:
+            details.append("fait le " + _date(t["fait_le"]))
+        out = [f"- [{coche}] **{t['titre']}** — {', '.join(details)}"]
+        out += [f"  - [{'x' if st['faite'] else ' '}] {st['titre']}" for st in t["sous_taches"]]
+        if t["notes"].strip():
+            out += ["", *("  > " + l for l in t["notes"].strip().splitlines()), ""]
+        return out
+
+    if ouvertes:
+        lignes += ["## Tâches, dans l'ordre du planning", ""]
+        for t in ouvertes:
+            lignes += tache(t)
+        lignes.append("")
+    if faites:
+        lignes += ["## Tâches faites", ""]
+        for t in faites:
+            lignes += tache(t)
+        lignes.append("")
+    if c["messages"]:
+        lignes += [f"## Messages ({len(c['messages'])})", ""]
+        for m in c["messages"]:
+            sujet = SUJETS_NOMS.get(m.get("cible"), "")
+            if m.get("cible") == "application" and m.get("app"):
+                sujet += " · " + m["app"]
+            lignes += [f"### {m.get('qui') or '?'} — {_date(m.get('ts'))} — {sujet}", ""]
+            if (m.get("texte") or "").strip():
+                lignes += [m["texte"].strip(), ""]
+            for piece in m.get("pieces") or []:
+                chemin = chemins.get(piece["id"])
+                if not chemin:
+                    continue
+                lien = urllib.parse.quote(chemin)
+                lignes += [f"![{piece['nom']}]({lien})" if piece["type"].startswith("image/")
+                           else f"[{piece['nom']}]({lien})", ""]
+    return "\n".join(lignes).rstrip() + "\n"
+
+
+def _ecrire_projet(z, dossier, c):
+    """Ecrit un projet dans l'archive, sous « dossier » (vide : a la racine)."""
+    chemins, pris = {}, set()
+    for m in c["messages"]:
+        for piece in m.get("pieces") or []:
+            lignes = stockage.lire(DB_FILE, "SELECT donnees FROM pieces WHERE id = ?", (piece["id"],))
+            if not lignes:
+                continue
+            base = datetime.datetime.fromtimestamp(m.get("ts") or 0).strftime("%Y-%m-%d") + "-" + piece["nom"]
+            nom, k = base, 2
+            while nom in pris:
+                racine, _, ext = base.rpartition(".")
+                nom, k = f"{racine}-{k}.{ext}", k + 1
+            pris.add(nom)
+            chemins[piece["id"]] = "pieces/" + nom
+            z.writestr(dossier + "pieces/" + nom, bytes(lignes[0]["donnees"]))
+    z.writestr(dossier + "projet.md", _markdown_projet(c, chemins))
+    donnees = {"nom": c["nom"], "cle": c["cle"], "projet": c["projet"], "taches": c["taches"],
+               "messages": [dict(m, pieces=[dict(p, fichier=chemins.get(p["id"]))
+                                            for p in m.get("pieces") or []])
+                            for m in c["messages"]]}
+    z.writestr(dossier + "projet.json", json.dumps(donnees, ensure_ascii=False, indent=2))
+
+
+def _envoyer_zip(tampon, nom):
+    tampon.seek(0)
+    return send_file(tampon, mimetype="application/zip", as_attachment=True, download_name=nom)
+
+
+@flask_app.get("/api/projets/<cle>/export")
+@require_admin
+def api_projet_export(cle):
+    taches, projets = lire_taches(), lire_projets()
+    if cle not in _cles_de_projets(taches, projets) and cle != PROJET_GENERAL:
+        return jsonify({"error": "Projet introuvable."}), 404
+    c = _contenu_projet(cle, taches, projets, lire_messages(limite=100000))
+    tampon = io.BytesIO()
+    with zipfile.ZipFile(tampon, "w", zipfile.ZIP_DEFLATED) as z:
+        _ecrire_projet(z, "", c)
+    return _envoyer_zip(tampon, f"{_slug(c['nom'])}-{time.strftime('%Y-%m-%d')}.zip")
+
+
+@flask_app.get("/api/projets-export")
+@require_admin
+def api_projets_export():
+    """Tous les projets, un dossier chacun, et un sommaire."""
+    taches, projets = lire_taches(), lire_projets()
+    messages = lire_messages(limite=100000)
+    tampon = io.BytesIO()
+    sommaire = ["# Projets CodeLab", "",
+                "Exporté le " + datetime.datetime.now().strftime("%d/%m/%Y à %H:%M"), ""]
+    with zipfile.ZipFile(tampon, "w", zipfile.ZIP_DEFLATED) as z:
+        pris = set()
+        for cle in _cles_de_projets(taches, projets):
+            c = _contenu_projet(cle, taches, projets, messages)
+            dossier, k = _slug(c["nom"]), 2
+            while dossier in pris:
+                dossier, k = f"{_slug(c['nom'])}-{k}", k + 1
+            pris.add(dossier)
+            _ecrire_projet(z, dossier + "/", c)
+            ouvertes = sum(1 for t in c["taches"] if t["statut"] != "fait")
+            sommaire.append(f"- [{c['nom']}]({dossier}/projet.md) — {ouvertes} tâche"
+                            f"{'s' if ouvertes > 1 else ''} ouverte{'s' if ouvertes > 1 else ''}, "
+                            f"{len(c['messages'])} message{'s' if len(c['messages']) > 1 else ''}")
+        z.writestr("LISEZMOI.md", "\n".join(sommaire) + "\n")
+    return _envoyer_zip(tampon, f"projets-codelab-{time.strftime('%Y-%m-%d')}.zip")
 
 
 @flask_app.post("/api/projets")

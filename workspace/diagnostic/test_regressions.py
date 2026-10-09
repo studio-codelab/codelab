@@ -29,7 +29,9 @@ import datetime
 import enum
 import importlib.util
 import inspect
+import io
 import json
+import zipfile
 import os
 from pathlib import Path
 import queue
@@ -12898,6 +12900,81 @@ def test_l_utilisateur_suit_ses_messages(boite, deux_espaces):
     page = _page_panneau("dashboard.html")
     for trace in ('id="suivi-liste"', "function widgetSuivi(", "/api/mes-messages/vus", 'id="side-count-suivi"'):
         assert trace in page, trace
+
+
+PNG_1PX = bytes.fromhex("89504e470d0a1a0a0000000d4948445200000001000000010806000000"
+                        "1f15c4890000000d49444154789c63000100000500010d0a2db40000000049454e44ae426082")
+
+
+def test_un_message_porte_des_captures_et_des_maquettes(boite, deux_espaces):
+    """Images et PDF, reconnus a leurs octets ; lus par l'administrateur et
+    par qui les a deposes, par personne d'autre."""
+    c, _ = boite
+    app._dernier_message.clear()
+    u = app.flask_app.test_client()
+    _connecte(u, "marie", "mot-de-passe-long")
+    h = {}
+    r = u.post("/api/pieces", data=PNG_1PX, headers=dict(h, **{"X-Nom-Fichier": "Capture%20%C3%A9cran.png"}))
+    assert r.status_code == 200, r.data
+    capture = r.get_json()
+    assert capture["type"] == "image/png" and capture["nom"] == "Capture écran.png"
+    maquette = u.post("/api/pieces", data=b"%PDF-1.4\n...", headers=dict(h, **{"X-Nom-Fichier": "maquette"})).get_json()
+    assert maquette["nom"] == "maquette.pdf"
+    # Un SVG (du code), ou un faux PNG : refuses.
+    assert u.post("/api/pieces", data=b"<svg onload=alert(1)>", headers=h).status_code == 415
+    assert u.post("/api/pieces", data=b"pas une image", headers=dict(h, **{"X-Nom-Fichier": "x.png"})).status_code == 415
+    r = u.post("/api/messages", json={"cible": "idee", "texte": "",
+                                      "pieces": [capture["id"], maquette["id"]]}, headers=h)
+    assert r.status_code == 200, r.data
+    (m,) = [x for x in c.get("/api/messages").get_json()["messages"] if x["qui"] == "marie"]
+    assert [p["nom"] for p in m["pieces"]] == ["Capture écran.png", "maquette.pdf"]
+    lu = c.get("/api/pieces/" + capture["id"])
+    assert lu.status_code == 200 and lu.data == PNG_1PX and lu.mimetype == "image/png"
+    assert lu.headers["X-Content-Type-Options"] == "nosniff"
+    assert u.get("/api/pieces/" + capture["id"]).status_code == 200
+    # Le suivi de marie montre ses pieces.
+    assert u.get("/api/mes-messages").get_json()["messages"][0]["pieces"][0]["id"] == capture["id"]
+    # Un autre compte ne lit rien ; une piece deja envoyee ne se rattache pas deux fois.
+    app._dernier_message.clear()
+    assert u.post("/api/messages", json={"cible": "hub", "texte": "x", "pieces": [capture["id"]]},
+                  headers=h).status_code == 400
+    # Supprimer le message emporte ses pieces.
+    assert c.delete("/api/messages/" + m["id"]).status_code == 200
+    assert c.get("/api/pieces/" + capture["id"]).status_code == 404
+    assert stockage_lignes("pieces") == 0
+
+
+def test_un_projet_s_exporte_en_entier(boite):
+    c, _ = boite
+    ident = _message(c, "idee", "Un carnet de recettes")
+    with app.stockage.transaction(app.DB_FILE) as cx:
+        cx.execute("INSERT INTO pieces VALUES ('p1', ?, 'marie', 'maquette.png', 'image/png', ?, ?, ?)",
+                   (ident, len(PNG_1PX), int(time.time()), PNG_1PX))
+    app.modifier_messages({ident: {"pieces": [{"id": "p1", "nom": "maquette.png",
+                                               "type": "image/png", "taille": len(PNG_1PX)}]}})
+    projet = c.post(f"/api/messages/{ident}/accepter",
+                    json={"nouveau_projet": {"nom": "Recettes", "description": "Partager nos recettes."},
+                          "taches": ["Maquette", "Base"]}).get_json()["projet"]
+    r = c.get(f"/api/projets/{projet}/export")
+    assert r.status_code == 200 and r.mimetype == "application/zip"
+    assert "recettes-" in r.headers["Content-Disposition"]
+    z = zipfile.ZipFile(io.BytesIO(r.data))
+    noms = set(z.namelist())
+    assert {"projet.md", "projet.json"} <= noms
+    (piece,) = [n for n in noms if n.startswith("pieces/")]
+    assert z.read(piece) == PNG_1PX
+    md = z.read("projet.md").decode()
+    assert md.startswith("# Recettes") and "Partager nos recettes." in md
+    assert "- [ ] **Maquette**" in md and "Un carnet de recettes" in md and f"]({piece})" in md
+    assert json.loads(z.read("projet.json"))["nom"] == "Recettes"
+    # Tout exporter : un dossier par projet, et un sommaire.
+    r = c.get("/api/projets-export")
+    z = zipfile.ZipFile(io.BytesIO(r.data))
+    assert "LISEZMOI.md" in z.namelist() and "recettes/projet.md" in z.namelist()
+    assert c.get("/api/projets/p-inconnu/export").status_code == 404
+    # Reserve a l'administrateur.
+    u = app.flask_app.test_client()
+    assert u.get(f"/api/projets/{projet}/export").status_code == 401
 
 
 def stockage_lignes(table):

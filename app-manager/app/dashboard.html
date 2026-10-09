@@ -1593,6 +1593,37 @@ table.tbl-journal{min-width:560px}
 .bw-message textarea{flex:1;min-height:0;resize:none;padding:10px 12px;border-radius:14px;
  border:1px solid var(--line2);background:var(--bg-input,var(--surface2));font:inherit}
 .bw-sujets{display:flex;flex-wrap:wrap;gap:6px}
+/* ---- pieces jointes : captures et maquettes ---- */
+.pj-liste{display:flex;flex-wrap:wrap;gap:8px}
+.pj-liste:empty{display:none}
+.pj{position:relative;display:flex;align-items:center;gap:8px;max-width:220px;padding:5px 30px 5px 5px;
+ border:1px solid var(--line2);border-radius:12px;background:var(--surface);font-size:12.5px;font-weight:600;color:var(--txt);
+ text-decoration:none}
+.pj img,.pj .pj-doc{width:38px;height:38px;border-radius:8px;object-fit:cover;flex:none;background:var(--surface2)}
+.pj .pj-doc{display:grid;place-items:center;font-size:10px;font-weight:800;color:var(--dim)}
+.pj span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pj.envoi{opacity:.55}
+.pj button{position:absolute;right:5px;top:50%;transform:translateY(-50%);width:22px;height:22px;border:0;
+ border-radius:999px;background:var(--surface2);color:var(--dim);font:inherit;font-size:15px;line-height:1;cursor:pointer}
+.pj button:hover{color:var(--txt)}
+a.pj{padding-right:8px}
+a.pj:hover{border-color:var(--accent)}
+.joindre{display:inline-flex;align-items:center;gap:7px;cursor:pointer}
+.joindre svg{width:15px;height:15px}
+.joindre input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.msg-pied{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}
+.depot-survol{outline:2px dashed var(--accent);outline-offset:3px}
+.bw-message .bw-bas{display:flex;gap:8px;align-items:center}
+.bw-message .bw-bas .btn-primary{flex:1;height:40px;min-height:40px}
+.bw-message .joindre{width:40px;height:40px;justify-content:center;border-radius:12px;border:1px solid var(--line2);
+ background:var(--surface);color:var(--dim);flex:none;position:relative}
+.bw-message .joindre:hover{color:var(--accent);border-color:var(--accent)}
+.bw-message .bw-bas .pj-liste{flex:1;min-width:0;flex-wrap:nowrap;overflow-x:auto;gap:6px}
+.bw-message .bw-bas:has(.pj) .btn-primary{flex:none;padding:0 18px}
+/* Dans le widget, la vignette suffit : le nom est dans son infobulle. */
+.bw-message .pj{flex:none;padding:3px 26px 3px 3px}
+.bw-message .pj span{display:none}
+.bw-message .pj img,.bw-message .pj .pj-doc{width:32px;height:32px}
 .bw-sujets button{height:30px;padding:0 11px;border-radius:999px;border:1px solid var(--line2);background:var(--surface);
  color:var(--dim);font:inherit;font-size:12px;font-weight:700;cursor:pointer}
 .bw-sujets button[aria-checked="true"]{background:var(--accent);border-color:var(--accent);color:var(--sur-accent)}
@@ -2616,9 +2647,20 @@ table.tbl-journal{min-width:560px}
         <div class="field" id="msg-app-zone"><label for="msg-app">Quelle application ?</label>
           <select id="msg-app"></select></div>
         <div class="field"><label for="msg-texte">Ton message</label>
-          <textarea id="msg-texte" rows="5" maxlength="2000"
+          <textarea id="msg-texte" rows="5" maxlength="2000" data-pieces="form"
             placeholder="Ce qui te gêne, ce qui te manque, ce que tu voudrais."></textarea>
-          <div class="hint" id="msg-reste">2000 caractères au maximum.</div></div>
+          <div class="hint" id="msg-reste">2000 caractères au maximum.</div>
+          <!-- Une capture, une maquette : le selecteur du systeme (Photos et
+               l'appareil photo sur un iPhone), un collage, ou un glisser. -->
+          <div class="msg-pied">
+            <label class="btn btn-default joindre">
+              <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf" multiple
+                     onchange="deposerPieces('form', this.files); this.value=''">
+              <svg viewBox="0 0 24 24"><path d="M21 11.5l-8.6 8.6a5 5 0 01-7.1-7.1l8.6-8.6a3.3 3.3 0 014.7 4.7l-8.6 8.6a1.7 1.7 0 01-2.4-2.4l7.9-7.9"/></svg>
+              Joindre une image ou un PDF</label>
+            <span class="hint" style="margin:0">ou colle une capture dans le message.</span>
+          </div>
+          <div class="pj-liste" id="pj-form" style="margin-top:10px"></div></div>
         <div class="actions">
           <button class="btn btn-primary" id="msg-envoyer" onclick="msgEnvoyer()">Envoyer</button>
         </div>
@@ -3070,6 +3112,9 @@ const ACTIONS = {
   'ap-etat':         n => apChoisirEtat(n),
   'ap-trier':        n => apTrier(n),
   'bw-sujet':        n => { hubMessageCible=n; peindreHub(); },
+  'pj-retirer':      (cle, d) => { const p=piecesBrouillon[cle] && piecesBrouillon[cle][Number(d.rang)];
+                                   if(!p) return;
+                                   piecesBrouillon[cle].splice(Number(d.rang),1); peindrePieces(cle); },
   'hub-retirer':     n => hubRetirer(n),
   'hub-deplacer':    (n,d) => hubDeplacer(n, d.sens),
   'hub-taille':      (n,d) => hubTailleWidget(n, d.taille),
@@ -3672,9 +3717,10 @@ function msgCible(){
 async function msgEnvoyer(){
   const b=$('msg-envoyer'), e=$('msg-err'), ok=$('msg-ok');
   e.style.display='none'; ok.style.display='none';
+  const pieces=piecesPretes('form'); if(pieces===null) return;
   const corps={cible:$('msg-cible').value, texte:$('msg-texte').value.trim(),
-               app:$('msg-app').value||''};
-  if(!corps.texte){ e.textContent='Écris ton message.'; e.style.display='block'; return; }
+               app:$('msg-app').value||'', pieces};
+  if(!corps.texte && !pieces.length){ e.textContent='Écris ton message.'; e.style.display='block'; return; }
   b.disabled=true; b.textContent='Envoi...';
   try{
     const r=await fetch('/api/messages',{method:'POST',
@@ -3682,7 +3728,7 @@ async function msgEnvoyer(){
     const d=await r.json();
     if(!r.ok){ e.textContent=d.error||'Envoi impossible.'; e.style.display='block'; }
     else{
-      $('msg-texte').value='';
+      $('msg-texte').value=''; viderPieces('form');
       /* On dit ce qui s'est REELLEMENT passe : le message est range dans
          tous les cas, le mail depend d'un serveur d'envoi configure. */
       ok.textContent = d.envoye
@@ -3695,6 +3741,75 @@ async function msgEnvoyer(){
   }catch(err){ e.textContent='Erreur réseau.'; e.style.display='block'; }
   finally{ b.disabled=false; b.textContent='Envoyer'; }
 }
+
+/* ---------------- les pieces jointes ----------------
+   Une capture ou une maquette part avec le message. Rien a apprendre : le
+   selecteur de fichiers du systeme, un collage (une capture d'ecran), ou un
+   glisser sur le message. Chaque fichier se depose aussitot ; le message
+   n'emporte que leurs identifiants. */
+const PIECES_MAX=6, PIECE_MAX_OCTETS=10*1024*1024;
+const piecesBrouillon={form:[], widget:[]};
+const SVG_TROMBONE='<svg viewBox="0 0 24 24"><path d="M21 11.5l-8.6 8.6a5 5 0 01-7.1-7.1l8.6-8.6a3.3 3.3 0 014.7 4.7l-8.6 8.6a1.7 1.7 0 01-2.4-2.4l7.9-7.9"/></svg>';
+function vignettePiece(p){
+  const image=(p.type||'').startsWith('image/');
+  /* La vignette vient du serveur une fois le fichier depose : la page
+     n'affiche que des images de sa propre origine (CSP). */
+  const src=p.id ? '/api/pieces/'+encodeURIComponent(p.id) : '';
+  return image && src ? `<img src="${esc(src)}" alt="" loading="lazy">`
+    : `<i class="pj-doc">${esc(((p.nom||'').split('.').pop()||'').toUpperCase().slice(0,4))}</i>`;
+}
+function piecesHtml(cle){
+  return piecesBrouillon[cle].map((p,i)=>`<div class="pj${p.etat==='envoi'?' envoi':''}" title="${esc(p.nom)}">${vignettePiece(p)}
+    <span title="${esc(p.nom)}">${esc(p.nom)}</span>
+    <button type="button" aria-label="Retirer ${esc(p.nom)}" data-agir="pj-retirer" data-cible="${cle}" data-rang="${i}">×</button></div>`).join('');
+}
+function peindrePieces(cle){
+  if(cle==='form') remplir($('pj-form'), piecesHtml('form'));
+  else if(sectionCourante==='hub') peindreHub();
+}
+async function deposerPieces(cle, fichiers){
+  for(const f of [...(fichiers||[])]){
+    if(piecesBrouillon[cle].length>=PIECES_MAX){ notifier(PIECES_MAX+' pièces jointes au plus.','err'); break; }
+    if(f.size>PIECE_MAX_OCTETS){ notifier(f.name+' : 10 Mo au maximum.','err'); continue; }
+    const p={nom: f.name || 'capture.png', type: f.type};
+    p.etat = 'envoi';
+    piecesBrouillon[cle].push(p); peindrePieces(cle);
+    try{
+      const r=await fetch('/api/pieces',{method:'POST', body:f,
+        headers:{'X-Nom-Fichier':encodeURIComponent(p.nom), 'Content-Type':f.type||'application/octet-stream'}});
+      if(r.ok) Object.assign(p, await r.json(), {etat:'ok'});
+      else{ notifier(await echec(r,'Pièce refusée.'),'err'); piecesBrouillon[cle]=piecesBrouillon[cle].filter(x=>x!==p); }
+    }catch(e){ notifier('Envoi de la pièce impossible.','err'); piecesBrouillon[cle]=piecesBrouillon[cle].filter(x=>x!==p); }
+    peindrePieces(cle);
+  }
+}
+/* Ce qui part avec le message : null tant qu'un depot n'est pas fini. */
+function piecesPretes(cle){
+  if(piecesBrouillon[cle].some(p=>p.etat!=='ok')){ notifier('Une pièce est encore en cours d’envoi.','err'); return null; }
+  return piecesBrouillon[cle].map(p=>p.id);
+}
+function viderPieces(cle){
+  piecesBrouillon[cle]=[]; peindrePieces(cle);
+}
+/* Coller une capture, ou glisser des fichiers, sur le texte d'un message. */
+document.addEventListener('paste', e=>{
+  const cle=e.target && e.target.dataset && e.target.dataset.pieces; if(!cle) return;
+  const fichiers=[...(e.clipboardData && e.clipboardData.files || [])];
+  if(!fichiers.length) return;
+  e.preventDefault(); deposerPieces(cle, fichiers);
+});
+document.addEventListener('dragover', e=>{
+  const t=e.target && e.target.closest && e.target.closest('[data-pieces]'); if(!t) return;
+  e.preventDefault(); t.classList.add('depot-survol');
+});
+document.addEventListener('dragleave', e=>{
+  const t=e.target && e.target.closest && e.target.closest('[data-pieces]'); if(t) t.classList.remove('depot-survol');
+});
+document.addEventListener('drop', e=>{
+  const t=e.target && e.target.closest && e.target.closest('[data-pieces]'); if(!t) return;
+  e.preventDefault(); t.classList.remove('depot-survol');
+  deposerPieces(t.dataset.pieces, e.dataTransfer && e.dataTransfer.files);
+});
 
 /* ---------------- le suivi de mes messages ----------------
    Ce que chaque message est devenu, deduit cote serveur de ce que
@@ -3739,7 +3854,8 @@ function itemSuivi(m){
       <span class="suivi-date">${depuis(m.ts)}</span>
       ${m.nouveau ? '<span class="suivi-nouveau">Du nouveau</span>' : ''}
       <span class="suivi-etat e-${s.etape}">${NOM_ETAPE[s.etape]||''}</span></div>
-    <p class="suivi-texte">${esc(m.texte)}</p>
+    ${m.texte ? `<p class="suivi-texte">${esc(m.texte)}</p>` : ''}
+    ${(m.pieces||[]).length ? `<div class="pj-liste">${m.pieces.map(p=>`<a class="pj" href="/api/pieces/${encodeURIComponent(p.id)}">${vignettePiece(p)}<span>${esc(p.nom)}</span></a>`).join('')}</div>` : ''}
     ${etapesSuivi(s.etape)}
     ${detail.length ? `<div class="suivi-detail">${detail.map(x=>`<span>${x}</span>`).join('')}</div>` : ''}
     ${s.taches.length ? `<ul class="suivi-taches">${s.taches.slice(0,6).map(t=>
@@ -4111,20 +4227,26 @@ function widgetMessage(taille){
       <select id="bw-message-app" onchange="hubMessageApp=this.value">${apps.map(a=>
         `<option value="${esc(a.name)}" ${a.name===hubMessageApp?'selected':''}>${esc(nomAffiche(a))}</option>`).join('')}</select>` : ''}
     <label class="sr" for="bw-message-texte">Ton message</label>
-    <textarea id="bw-message-texte" data-garder="message" maxlength="2000"
+    <textarea id="bw-message-texte" data-garder="message" data-pieces="widget" maxlength="2000"
       placeholder="Une idée, un souci, une demande d'accès."
       oninput="hubMessageBrouillon=this.value">${esc(hubMessageBrouillon)}</textarea>
-    <button class="btn btn-primary" onclick="bwEnvoyer(this)">Envoyer</button>`;
+    <div class="bw-bas">
+      <label class="joindre" title="Joindre une image ou un PDF"><span class="sr">Joindre une image ou un PDF</span>
+        <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf" multiple
+               onchange="deposerPieces('widget', this.files); this.value=''">${SVG_TROMBONE}</label>
+      <div class="pj-liste">${piecesHtml('widget')}</div>
+      <button class="btn btn-primary" onclick="bwEnvoyer(this)">Envoyer</button></div>`;
 }
 async function bwEnvoyer(b){
   const t=$('bw-message-texte'), texte=(t.value||'').trim();
-  if(!texte){ t.focus(); return; }
+  const pieces=piecesPretes('widget'); if(pieces===null) return;
+  if(!texte && !pieces.length){ t.focus(); return; }
   b.disabled=true;
   try{
     const r=await fetch('/api/messages',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({cible:hubMessageCible, texte, app: hubMessageCible==='application' ? hubMessageApp : ''})});
+      body:JSON.stringify({cible:hubMessageCible, texte, pieces, app: hubMessageCible==='application' ? hubMessageApp : ''})});
     if(!r.ok){ notifier(await echec(r,'Envoi impossible.'),'err'); return; }
-    t.value=''; hubMessageBrouillon=''; notifier('Message envoyé.'); chargerSuivi(true);
+    t.value=''; hubMessageBrouillon=''; viderPieces('widget'); notifier('Message envoyé.'); chargerSuivi(true);
   }finally{ b.disabled=false; }
 }
 const CLASSE_WIDGET={une:'bw-une', apercu:'bw-une', etat:'bento-etat', messages:'bw-messages', nouveautes:'bw-nouveautes', message:'bw-message', suivi:'bw-suivi'};
