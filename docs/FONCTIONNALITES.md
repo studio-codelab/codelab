@@ -115,9 +115,6 @@ Détails : [`app-manager/README.md`](../app-manager/README.md) et, côté dével
   adresse publique est déclarée).
 - **Se connecter avec CodeLab** (SSO) : l'application reconnaît la personne sans formulaire, grâce
   aux modules `codelab_auth.py` et `codelab-auth.js`.
-- **Conteneuriser** : le panneau propose un `Dockerfile`, un `docker-compose.yml`, un `.env.exemple`,
-  un `.dockerignore` et un `CONTENEUR.md` adaptés à l'application. On les télécharge en archive pour
-  la faire tourner ailleurs.
 
 **Applications par défaut**
 

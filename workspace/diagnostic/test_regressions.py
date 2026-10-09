@@ -2645,171 +2645,18 @@ def test_masquer_demande_une_session(hub):
     assert anonyme.post("/api/mes-apps/vitrine/masquer").status_code in (401, 403)
 
 
-# ---------- 12 octies. conteneuriser une application ----------
+# ---------- 12 octies. plus de conteneurisation ----------
 #
-# Le panneau PRODUIT les fichiers ; il ne construit aucune image et ne lance
-# rien. Il n'a pas de socket Docker, et lui en donner un reviendrait a lui
-# offrir la machine entiere.
+# La fonction a ete retiree : le panneau ne produit plus de Dockerfile.
 
-@pytest.fixture
-def conteneur(tmp_path, monkeypatch):
-    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
-    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
-    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
-    monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
-    monkeypatch.setattr(app, "under_root", lambda p: True)
-    app.flask_app.secret_key = "cle-de-test"
-    app.flask_app.config["TESTING"] = True
-    app._login_attempts.clear()
-    app._apps_cache["signature"] = None
-    projet = tmp_path / "facturier"
-    projet.mkdir()
-    (projet / "requirements.txt").write_text("flask\npsycopg[binary]\n")
-    (projet / "app.py").write_text("import psycopg, os\nPORT = os.environ['PORT']\n")
-    app.save({"facturier": {"path": str(projet), "command": "python3 app.py",
-                            "port": 9105, "enabled": False, "max_memory_mb": 256}})
-    c = app.flask_app.test_client()
+def test_la_conteneurisation_a_ete_retiree(deux_espaces):
+    c = deux_espaces
     c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
-    return c, projet
-
-
-def test_la_pile_se_devine_sur_les_fichiers_pas_sur_la_commande(conteneur):
-    """« npm start » peut lancer autre chose que du Node, et un script shell
-    peut lancer n'importe quoi. Ce sont les fichiers qui parlent."""
-    c, projet = conteneur
-    d = c.get("/api/app/facturier/conteneur").get_json()
-    assert d["pile"] == "Python"
-    assert d["indices"] == ["requirements.txt"]
-    assert "postgres" in d["services"]
-    noms = [f["nom"] for f in d["fichiers"]]
-    assert noms == ["Dockerfile", "docker-compose.yml", ".env.exemple",
-                    ".dockerignore", "CONTENEUR.md"]
-
-
-def test_le_compose_produit_tient_debout(conteneur):
-    """Un fichier de configuration produit et jamais relu par une machine
-    finit par contenir une faute de frappe.
-
-    PAS DE PyYAML ICI. La regle de ce depot est que la CI installe ce que
-    l'image embarque, et l'image du panneau n'a aucune raison d'embarquer un
-    analyseur YAML. La structure se verifie donc a la main -- c'est moins
-    complet qu'un analyseur, et c'est suffisant pour attraper ce qui casse
-    reellement : une cle au mauvais niveau, un volume declare nulle part.
-    """
-    c, _ = conteneur
-    d = c.get("/api/app/facturier/conteneur").get_json()
-    compose = next(f for f in d["fichiers"] if f["nom"] == "docker-compose.yml")
-    lignes = [l for l in compose["contenu"].splitlines()
-              if l.strip() and not l.lstrip().startswith("#")]
-
-    racines = [l.rstrip(":") for l in lignes if not l.startswith(" ")]
-    assert racines == ["services", "volumes"], racines
-    # Les services sont a deux espaces, leurs reglages plus loin.
-    services = [l.strip().rstrip(":") for l in lignes
-                if l.startswith("  ") and not l.startswith("   ") and l.rstrip().endswith(":")]
-    assert "facturier" in services and "base" in services, services
-    # Le volume monte par la base existe au niveau racine : un volume nomme
-    # nulle part fait echouer « up » avec un message peu parlant.
-    assert "      - base:/var/lib/postgresql/data" in lignes
-    assert "  base:" in lignes[lignes.index("volumes:"):]
-    # Aucune tabulation : YAML les refuse, et elles ne se voient pas.
-    assert "\t" not in compose["contenu"]
-    # La limite de memoire suit celle de CodeLab : le conteneur doit se
-    # comporter comme l'application se comporte ici.
-    assert "          memory: 256M" in lignes
-
-    # Et si un analyseur YAML est la -- c'est le cas en developpement et en
-    # CI, pas forcement dans une image -- on ne s'en prive pas.
-    try:
-        import yaml
-    except ImportError:
-        return
-    charge = yaml.safe_load(compose["contenu"])
-    assert set(charge["services"]) == {"facturier", "base"}
-    assert charge["services"]["facturier"]["deploy"]["resources"]["limits"]["memory"] \
-        == "256M"
-
-
-def test_l_image_produite_ne_tourne_pas_en_root(conteneur):
-    """Un conteneur en root donne root sur ses volumes montes, et rapproche
-    d'une evasion tout ce qui tourne dedans."""
-    c, _ = conteneur
-    d = c.get("/api/app/facturier/conteneur").get_json()
-    dockerfile = next(f for f in d["fichiers"] if f["nom"] == "Dockerfile")["contenu"]
-    # Une LIGNE « USER app », pas la chaine quelque part : commentee, elle
-    # ne bascule rien, et le test passerait quand meme.
-    lignes = [l.strip() for l in dockerfile.splitlines()]
-    assert "USER app" in lignes, dockerfile
-    assert any(l.startswith("RUN useradd") for l in lignes), dockerfile
-    # Le port de CodeLab est repris : c'est le contrat, et c'est ce qui casse
-    # en premier ailleurs.
-    assert "ENV PORT=9105" in dockerfile
-
-
-def test_le_modele_de_variables_n_emporte_aucun_secret(conteneur):
-    """Un modele, pas une copie de credentials.env : il part dans le depot
-    du projet, et il doit pouvoir y rester."""
-    c, _ = conteneur
-    d = c.get("/api/app/facturier/conteneur").get_json()
-    modele = next(f for f in d["fichiers"] if f["nom"] == ".env.exemple")["contenu"]
-    assert "PORT=9105" in modele
-    assert "POSTGRES_PASSWORD=a-changer" in modele
-    ignore = next(f for f in d["fichiers"] if f["nom"] == ".dockerignore")["contenu"]
-    # Le .env rempli, lui, n'entre ni dans l'image ni dans le depot.
-    assert ".env" in ignore and "!.env.exemple" in ignore
-
-
-def test_la_conteneurisation_n_ecrit_plus_dans_le_projet(conteneur):
-    """UNE SEULE SORTIE : l'archive.
-
-    « Deposer dans le projet » ecrivait dans /workspace -- donc dans le
-    travail de quelqu'un -- pour un geste dont le but est justement d'emmener
-    l'application AILLEURS. Il fallait en plus un second bouton pour les
-    fichiers deja presents, et le premier ne devait jamais ecraser. Tout cela
-    disparait avec la porte elle-meme.
-    """
-    c, projet = conteneur
-    avant = sorted(p.name for p in projet.iterdir())
-
-    # La route d'ecriture n'existe plus du tout : 405 si Flask reconnait le
-    # chemin sans la methode, 404 si le catch-all du panneau le prend avant.
-    assert c.post("/api/app/facturier/conteneur", json={}).status_code in (404, 405)
-
-    # Et l'archive, elle, ne touche a rien.
-    r = c.get("/api/app/facturier/conteneur.zip")
-    assert r.status_code == 200 and r.mimetype == "application/zip"
-    assert sorted(p.name for p in projet.iterdir()) == avant
-
+    assert c.get("/api/app/site/conteneur").status_code == 404
+    assert c.get("/api/app/site/conteneur.zip").status_code == 404
+    assert not hasattr(app, "fichiers_conteneur")
     page = _page_panneau("dashboard.html")
-    assert "ctPoser" not in page, "le bouton de depot est revenu"
-    assert 'id="ct-telecharger"' in page
-
-
-def test_le_panneau_ne_construit_ni_ne_lance_aucune_image():
-    """La limite est nette et elle doit le rester : produire des fichiers ne
-    demande aucun acces a Docker, et un panneau qui aurait ce socket
-    donnerait la machine entiere a qui prend sa session."""
-    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
-    # Ce qu'on cherche, c'est une EXECUTION, pas le mot : le mode d'emploi
-    # produit contient « docker compose up », et c'est precisement son role.
-    for ligne in src.splitlines():
-        nue = ligne.strip()
-        if nue.startswith("#") or nue.startswith('"') or nue.startswith("'"):
-            continue
-        assert "docker.sock" not in nue, nue
-        if "docker" in nue:
-            assert not any(appel in nue for appel in
-                           ("subprocess.run", "subprocess.Popen", "os.system",
-                            "check_output")), nue
-
-
-def test_conteneuriser_est_reserve_a_l_administrateur(conteneur):
-    c, _ = conteneur
-    anonyme = app.flask_app.test_client()
-    assert anonyme.get("/api/app/facturier/conteneur").status_code in (401, 403)
-    # L'archive aussi : elle porte le meme contenu, dont un modele de
-    # variables et le mode d'emploi de l'installation.
-    assert anonyme.get("/api/app/facturier/conteneur.zip").status_code in (401, 403)
+    assert "onglet-conteneur" not in page and "ctTelecharger" not in page
 
 
 # ---------- 12 ter. le logo d'une application ----------
@@ -9026,60 +8873,6 @@ def test_la_fenetre_du_compte_ne_deroule_plus_tout():
         "les explications sont de nouveau deroulees d'office")
     # Les deux champs d'identite tiennent sur une ligne.
     assert 'class="grid2"' in fenetre
-
-
-# ---------- 32. emporter les fichiers de conteneurisation ----------
-#
-# « Sortir cette application de CodeLab » ne savait que DEPOSER les fichiers
-# dans le dossier du projet -- c'est-a-dire supposer que la suite se passe
-# ici. Or sortir une application, c'est l'emmener ailleurs : sur un poste,
-# sur un autre serveur, dans un depot qui n'a rien a voir avec cette machine.
-# Il fallait alors recopier quatre fichiers a la main depuis la page.
-
-def test_l_archive_de_conteneurisation_s_emporte(tmp_path, monkeypatch):
-    import io as flux
-    import zipfile
-    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
-    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
-    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
-    monkeypatch.setattr(app, "under_root", lambda p: True)
-    projet = tmp_path / "projet"
-    projet.mkdir()
-    (projet / "app.py").write_text("print('bonjour')\n")
-    app._apps_cache["signature"] = None
-    app.save({"site": {"path": str(projet), "command": "python3 app.py", "port": 9601}})
-    app.flask_app.secret_key = "cle-de-test"
-    app.flask_app.config["TESTING"] = True
-    app._login_attempts.clear()
-    c = app.flask_app.test_client()
-    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
-
-    r = c.get("/api/app/site/conteneur.zip")
-    assert r.status_code == 200
-    assert r.mimetype == "application/zip"
-    assert "site-conteneur.zip" in r.headers["Content-Disposition"]
-
-    archive = zipfile.ZipFile(flux.BytesIO(r.data))
-    noms = archive.namelist()
-    # UN DOSSIER, pas quatre fichiers en vrac : ouverte sur un bureau, elle
-    # ne doit pas repandre un Dockerfile au milieu du reste.
-    assert noms and all(n.startswith("site/") for n in noms), noms
-    attendus = {f["nom"] for f in app.fichiers_conteneur(
-        dict(app.load()["site"], name="site"))["fichiers"]}
-    assert {n.split("/", 1)[1] for n in noms} == attendus
-    # Et le contenu est bien celui que la page montre.
-    for nom in noms:
-        assert archive.read(nom).decode("utf-8").strip(), nom
-
-    # Rien n'a ete ecrit dans le projet : telecharger n'est pas deposer.
-    assert sorted(p.name for p in projet.iterdir()) == ["app.py"]
-
-
-def test_le_bouton_de_telechargement_existe():
-    page = _page_panneau("dashboard.html")
-    assert 'onclick="ctTelecharger()"' in page
-    bloc = page.split("function ctTelecharger(){")[1].split("\n}")[0]
-    assert "/conteneur.zip" in bloc
 
 
 def test_toutes_les_coches_du_panneau_choisissent_une_ligne():

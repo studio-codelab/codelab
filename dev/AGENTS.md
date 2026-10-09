@@ -438,11 +438,10 @@ genereuse la ou elle compte. Six references, chacune pour une raison precise :
 
 ## 14. Sortir le projet de CodeLab
 
-La fiche de l'application propose des fichiers de conteneurisation
-(`Dockerfile`, `docker-compose.yml`, `.env.exemple`, `.dockerignore`,
-`CONTENEUR.md`) deduits de ses commandes, a telecharger. S'ils sont deposes dans
-le projet, garde-les a jour avec lui. Ils ne remplacent pas le deploiement par
-le panneau.
+Le panneau ne produit pas de fichiers de conteneurisation. Si le projet doit
+tourner ailleurs, ses `Dockerfile` et `docker-compose.yml` vivent dans le
+projet, ecrits a la main et tenus a jour avec lui ; ils ne remplacent pas le
+deploiement par le panneau.
 
 ## Avant de declarer une application prete
 
