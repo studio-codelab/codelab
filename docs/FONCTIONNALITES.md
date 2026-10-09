@@ -37,8 +37,8 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](../SECURITE.m
 - **Deux styles** (*Paramètres > Compte > Apparence*), retenus par navigateur. Le reste du panneau
   est le même : menu en pilule, barre du bas sur téléphone, réglages en fenêtre.
   - « Lanceur » : le hub comme un écran d'accueil (trame de points, bonjour en grand, recherche au
-    centre, grandes icônes cerclées si l'application ne répond pas, Dagster, Mailpit et Demandes
-    dans un dock) ;
+    centre, grandes icônes cerclées si l'application ne répond pas). Dagster, Mailpit et Demandes y
+    ont la même tuile que les autres applications ;
   - « Bento » (par défaut) : le hub en mosaïque.
     - **Sur un écran large**, elle défile à l'horizontale et jamais à la verticale : trois rangées à
       la hauteur de la fenêtre, et chaque application ajoute une colonne à droite. La molette fait

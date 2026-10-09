@@ -12832,10 +12832,13 @@ def test_les_styles_lanceur_et_bento_se_posent_cote_serveur(deux_espaces):
     for ancien in ("classique", "design"):
         assert f"setStyle('{ancien}')" not in page, ancien
     assert "const STYLES = ['lanceur','bento'];" in page
-    # Le hub change de forme : recherche et dock (lanceur), mosaique (bento).
-    assert 'id="hub-filtre"' in page and 'id="hub-dock"' in page
-    assert "function peindreDock(" in page and "function peindreBento(" in page
-    assert ':root[data-variante="lanceur"] .hub-dock:not(:empty){display:flex' in page
+    # Le hub change de forme : recherche (les deux), mosaique (bento).
+    assert 'id="hub-filtre"' in page and "function peindreBento(" in page
+    # Plus de dock dans le lanceur : Dagster, Mailpit et Demandes ont la
+    # tuile d'une application, dans la meme grille.
+    assert "hub-dock" not in page and "peindreDock" not in page
+    corps = page.split("function peindreHub(){")[1].split("\n}")[0]
+    assert "hubApps.concat(hubServices).filter(correspond)" in corps
     assert "#hub-liste.bento{--cel:" in page
     # Le script ne peint pas le hub avant d'avoir declare ce qu'il lit.
     debut = page.index("function applyStyle(")
