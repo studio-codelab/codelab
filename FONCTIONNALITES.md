@@ -277,8 +277,12 @@ adresses `/demandes` y mènent.
 
 - **SSH par clé uniquement.** Un fichier de clé publique par machine dans `config/ssh/authorized_keys.d/`.
 - **Empreinte stable** : les clés hôte survivent aux mises à jour d'image.
-- **VS Code Remote-SSH** : le serveur VS Code et ses extensions sont conservés. Database Client
-  (Postgres, Redis) est installé d'office ; d'autres extensions s'ajoutent dans le compose.
+- **VS Code Remote-SSH** : le serveur VS Code et ses extensions sont conservés. D'autres
+  extensions s'ajoutent dans le compose.
+- **Les bases dans VS Code, sans rien créer** : SQLTools est installé d'office, et chaque base du
+  serveur y apparaît déjà (groupe « CodeLab »), pour n'importe quel projet ouvert ; une base créée
+  par `codelab db` s'y ajoute aussitôt. Database Client (Postgres, Redis) reste installé, avec des
+  connexions à créer à la main.
 
 **Prêt à l'emploi**
 

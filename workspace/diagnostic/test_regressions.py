@@ -11426,8 +11426,8 @@ def test_l_extension_postgresql_est_recommandee_sans_ecraser_le_reste(tmp_path):
     for _ in range(2):   # idempotent : pas de doublon au redemarrage
         subprocess.run(["bash", "-c", script], check=True, timeout=30)
     contenu = json.loads(fichier.read_text())
-    assert contenu == {"recommendations": ["ms-python.python", "cweijan.vscode-database-client2",
-                                           "cweijan.dbclient-jdbc"],
+    assert contenu == {"recommendations": ["ms-python.python", "mtxr.sqltools", "mtxr.sqltools-driver-pg",
+                                           "cweijan.vscode-database-client2", "cweijan.dbclient-jdbc"],
                        "autre": 1}
     # Un fichier JSONC (avec commentaires) est laisse tel quel.
     fichier.write_text('// a moi\n{"recommendations": []}')
@@ -11443,9 +11443,46 @@ def test_l_extension_postgresql_s_installe_une_fois_sous_le_compte_vscode():
     assert 'ls -d "$VSCODE_SERVER_DIR/extensions/$ext_min-"*' in source
     assert "-mmin -60" in source
     for chemin in _composes():
-        assert ('CODELAB_VSCODE_EXTENSIONS: '
-                '"cweijan.vscode-database-client2 cweijan.dbclient-jdbc"') in open(
+        assert ('CODELAB_VSCODE_EXTENSIONS: "mtxr.sqltools mtxr.sqltools-driver-pg '
+                'cweijan.vscode-database-client2 cweijan.dbclient-jdbc"') in open(
             chemin, encoding="utf-8").read(), chemin
+
+
+def test_chaque_base_apparait_dans_sqltools_sans_rien_creer(tmp_path):
+    """SQLTools lit ses connexions dans les reglages : « codelab vscode-bases »
+    y declare chaque base du serveur (groupe CodeLab), garde les connexions
+    ajoutees a la main, et ne touche pas un fichier a commentaires."""
+    import subprocess
+    outils = tmp_path / "bin"
+    outils.mkdir()
+    (outils / "psql").write_text("#!/bin/sh\nprintf 'dagster\\nrecettes\\n'\n")
+    (outils / "psql").chmod(0o755)
+    reglages = tmp_path / "Machine" / "settings.json"
+    reglages.parent.mkdir()
+    reglages.write_text(json.dumps({"editor.fontSize": 14, "sqltools.connections": [
+        {"name": "perso", "driver": "PostgreSQL"},
+        {"name": "ancienne", "group": "CodeLab", "driver": "PostgreSQL"}]}))
+    env = {"PATH": f"{outils}:/usr/bin:/bin", "HOME": str(tmp_path), "PGPASSWORD": "s3cret",
+           "CODELAB_VSCODE_REGLAGES": str(reglages)}
+    commande = ["sh", os.path.join(_racine_depot(), "dev", "codelab"), "vscode-bases"]
+    subprocess.run(commande, env=env, check=True, timeout=30)
+    d = json.loads(reglages.read_text())
+    assert d["editor.fontSize"] == 14
+    assert [(c["name"], c.get("group")) for c in d["sqltools.connections"]] == [
+        ("dagster", "CodeLab"), ("recettes", "CodeLab"), ("perso", None)]
+    c = d["sqltools.connections"][1]
+    assert c["driver"] == "PostgreSQL" and c["server"] == "codelab-postgres" and c["database"] == "recettes"
+    assert c["username"] == "codelab" and c["password"] == "s3cret"
+    assert stat.S_IMODE(os.stat(reglages).st_mode) == 0o600
+    # Un fichier avec des commentaires reste tel quel.
+    reglages.write_text("// a moi\n{}")
+    r = subprocess.run(commande, env=env, timeout=30, capture_output=True, text=True)
+    assert r.returncode != 0 and reglages.read_text() == "// a moi\n{}"
+    # Le poste les tient a jour, et « codelab db » aussitot.
+    source = open(os.path.join(_racine_depot(), "dev", "entrypoint.sh"), encoding="utf-8").read()
+    assert "codelab vscode-bases --discret" in source
+    assert "cmd_vscode_bases --discret || true" in open(
+        os.path.join(_racine_depot(), "dev", "codelab"), encoding="utf-8").read()
 
 
 # ---------- le coffre : reglages et adresses chiffres, en base et en local ----

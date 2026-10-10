@@ -279,10 +279,15 @@ fi
 
 # ------------------ les extensions VS Code du poste ------------------
 #
-# Deux extensions font partie du poste : parcourir les bases, lancer une
+# Des extensions font partie du poste : parcourir les bases, lancer une
 # requete, lire un schema, sans quitter VS Code.
+#   - SQLTools et son pilote PostgreSQL (mtxr.sqltools,
+#     mtxr.sqltools-driver-pg) : ses connexions vivent dans les reglages,
+#     on les y declare donc d'office -- chaque base du serveur, sans rien
+#     creer a la main (voir « les bases dans SQLTools », plus bas) ;
 #   - Database Client (cweijan.vscode-database-client2), qui parle
-#     nativement a Postgres et Redis ;
+#     nativement a Postgres et Redis, mais range ses connexions sur le poste
+#     de travail : elles se creent a la main ;
 #   - Database Client JDBC (cweijan.dbclient-jdbc), pour les autres bases.
 # D'autres s'ajoutent ici, separees par des espaces (CODELAB_VSCODE_EXTENSIONS
 # dans le compose ; vide pour n'en installer aucune).
@@ -298,7 +303,7 @@ fi
 #   2. la RECOMMANDATION dans /workspace/.vscode/extensions.json, pour
 #      qu'un poste qui ouvre le dossier la propose meme si l'installation
 #      automatique n'a pas pu se faire (pas de reseau, serveur neuf).
-VSCODE_EXTENSIONS="${CODELAB_VSCODE_EXTENSIONS-cweijan.vscode-database-client2 cweijan.dbclient-jdbc}"
+VSCODE_EXTENSIONS="${CODELAB_VSCODE_EXTENSIONS-mtxr.sqltools mtxr.sqltools-driver-pg cweijan.vscode-database-client2 cweijan.dbclient-jdbc}"
 # Recommandees par une version precedente et remplacees depuis : retirees de
 # extensions.json. Rien n'est desinstalle -- une extension deja installee se
 # retire d'un clic, et c'est a son utilisateur de le decider.
@@ -379,6 +384,28 @@ installer_les_extensions() {
 if [ -n "$VSCODE_EXTENSIONS" ]; then
     ( while :; do installer_les_extensions || true; sleep 60; done ) &
 fi
+
+# ------------------- les bases dans SQLTools -------------------
+#
+# « codelab vscode-bases » declare chaque base du serveur dans les reglages
+# machine du serveur VS Code (onglet « Remote ») : SQLTools les montre
+# toutes, groupe « CodeLab », pour n'importe quel projet ouvert ici. Au
+# demarrage (des que Postgres repond), puis toutes les cinq minutes pour
+# suivre les bases creees ailleurs ; « codelab db » le fait aussitot pour la
+# sienne. Rien n'est ecrit quand rien n'a change. Sous le compte vscode : le
+# fichier est a lui, en 0600 (il porte le mot de passe, comme PGPASSWORD).
+case " $VSCODE_EXTENSIONS " in
+    *" mtxr.sqltools "*)
+        ( while :; do
+              runuser -u "$SSH_USER" -- env HOME="/home/$SSH_USER" \
+                  PGHOST="${PGHOST:-codelab-postgres}" PGPORT="${PGPORT:-5432}" \
+                  PGUSER="${PGUSER:-codelab}" CODELAB_ENV_FILE="$ENV_FILE" \
+                  CODELAB_INSTANCE_DB="${CODELAB_INSTANCE_DB:-dagster}" \
+                  codelab vscode-bases --discret >/dev/null 2>&1 || true
+              sleep 300
+          done ) &
+        ;;
+esac
 
 
 # ------------------------------- git -------------------------------

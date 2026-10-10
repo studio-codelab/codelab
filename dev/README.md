@@ -130,8 +130,19 @@ Les règles complètes d'intégration au hub sont dans [`AGENTS.md`](AGENTS.md).
 
 - **Extensions conservées** : `~/.vscode-server` est monté depuis l'hôte. Supprime-le de temps en
   temps, il garde une copie par version.
-- **Database Client** (`cweijan.vscode-database-client2`) est installé d'office. Pour s'y connecter :
-  hôte `codelab-postgres`, utilisateur `codelab`, mot de passe donné par `echo $PGPASSWORD`.
+- **SQLTools** (`mtxr.sqltools` et son pilote PostgreSQL) est installé d'office, **connexions
+  comprises** : chaque base du serveur y apparaît, dans le groupe « CodeLab », pour n'importe quel
+  projet ouvert. Rien à créer à la main.
+  - Les connexions sont déclarées dans les réglages *Remote* du serveur VS Code
+    (`~/.vscode-server/data/Machine/settings.json`, en `0600`), au démarrage puis toutes les cinq
+    minutes, et aussitôt après `codelab db` ou `codelab new --db`. `codelab vscode-bases` les met
+    à jour à la demande.
+  - Seul le groupe « CodeLab » est réécrit : une connexion ajoutée à la main reste. Un fichier de
+    réglages avec des commentaires n'est pas touché (la commande le signale).
+  - Au premier usage, SQLTools propose d'installer la bibliothèque `pg` : accepte.
+- **Database Client** (`cweijan.vscode-database-client2`) reste installé, pour Redis notamment. Il
+  range ses connexions sur ton poste, hors de portée du serveur : elles se créent à la main (hôte
+  `codelab-postgres`, utilisateur `codelab`, mot de passe donné par `echo $PGPASSWORD`).
 - **D'autres extensions** : `CODELAB_VSCODE_EXTENSIONS` dans le compose, séparées par des espaces.
 - **Codex**
   - Connexion avec un compte ChatGPT : `codex login`, ou `printenv OPENAI_API_KEY | codex login --with-api-key`.
