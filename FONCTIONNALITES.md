@@ -1,7 +1,7 @@
 # Fonctionnalités de CodeLab
 
 Le catalogue complet de ce que fait CodeLab : chaque fonctionnalité, où elle se trouve et où elle est
-détaillée. La sécurité a son propre document : [`SECURITE.md`](../SECURITE.md).
+détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
 
 ## Sommaire
 
@@ -21,7 +21,7 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](../SECURITE.m
 
 ## 1. Le panneau
 
-`http://<serveur>:9001/` — détails : [`app-manager/README.md`](../app-manager/README.md).
+`http://<serveur>:9001/` — détails : [`app-manager/README.md`](app-manager/README.md).
 
 | Page | Adresse | Pour qui | Ce qu'on y fait |
 |---|---|---|---|
@@ -45,11 +45,16 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](../SECURITE.m
       défiler de côté. La recherche est à droite de l'en-tête. On n'ajoute pas d'application depuis
       le hub (c'est l'onglet *Applications*).
     - **Sur téléphone**, elle redevient une colonne qu'on fait défiler vers le bas.
-    - **Composer le hub** (*Modifier*, à droite de la recherche), comme sur un Mac : les tuiles
-      tremblent, chacune porte un « − » pour la retirer, des flèches pour la déplacer et, pour un
-      widget, ses tailles (petit, moyen, grand). On peut aussi les glisser. *Terminé* referme le mode.
-      Retirer une application la masque du hub (elle revient depuis *Paramètres*). La disposition
-      (applications et widgets mêlés, dans l'ordre) est gardée côté serveur, d'un appareil à l'autre.
+    - **La mosaïque va d'un bord à l'autre** : au repos, la première tuile s'aligne sur le bonjour ;
+      en défilant, les tuiles passent jusqu'au bord gauche de la fenêtre. La recherche est tout à
+      droite, alignée sur le bouton du compte.
+    - **Réorganiser le hub** (une icône discrète à droite de la recherche ; *Terminé* ou Échap pour
+      sortir) : les tuiles tremblent légèrement ; on en attrape une, elle suit le doigt ou la souris,
+      et les autres glissent pour lui faire place à mesure qu'elle passe ; près d'un bord, la
+      mosaïque défile seule. Chaque tuile porte un « − » (retirer un widget, masquer une
+      application) ; un widget a ses tailles (petit, moyen, grand) ; au clavier, des flèches
+      apparaissent sur la tuile qui a le focus. La disposition (applications et widgets mêlés) est
+      gardée côté serveur, d'un appareil à l'autre.
     - **Galerie de widgets** (« + » en mode Modifier) : seulement des widgets utiles, propres au hub
       ou à une application du hub, chacun avec ses tailles en aperçu :
       - hub : « Dernière ouverte » (aperçu en direct de la dernière application ouverte, avec la
@@ -79,8 +84,8 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](../SECURITE.m
 
 ## 2. Applications
 
-Détails : [`app-manager/README.md`](../app-manager/README.md) et, côté développeur,
-[`dev/AGENTS.md`](../dev/AGENTS.md).
+Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développeur,
+[`dev/AGENTS.md`](dev/AGENTS.md).
 
 **Déclarer**
 
@@ -146,7 +151,7 @@ Détails : [`app-manager/README.md`](../app-manager/README.md) et, côté dével
 
 ## 3. Comptes et accès
 
-Détails : [`SECURITE.md`](../SECURITE.md) et [`app-manager/README.md`](../app-manager/README.md).
+Détails : [`SECURITE.md`](SECURITE.md) et [`app-manager/README.md`](app-manager/README.md).
 
 - **Deux rôles** : administrateur et utilisateur.
 - **Invitation par mail.** La personne choisit elle-même son nom et son mot de passe. Le lien est
@@ -174,7 +179,7 @@ Détails : [`SECURITE.md`](../SECURITE.md) et [`app-manager/README.md`](../app-m
 
 ## 4. Mails et alertes
 
-Détails : [`mailpit/README.md`](../mailpit/README.md).
+Détails : [`mailpit/README.md`](mailpit/README.md).
 
 **Mailpit**
 
@@ -217,6 +222,15 @@ adresses `/demandes` y mènent.
   l'administrateur » du style Bento), en choisissant le sujet : **améliorer le hub**, **une idée de
   nouveau projet**, ou **améliorer une application existante** (laquelle). Un message qui arrive
   s'annonce dans le coin du panneau de l'administrateur.
+- **Joindre des captures et des maquettes** (jusqu'à 6 par message, 10 Mo chacune) : images (PNG,
+  JPEG, WebP, GIF) ou PDF, reconnus à leur contenu (pas de SVG). Par le sélecteur de fichiers du
+  système (Photos et l'appareil photo sur iPhone), en collant une capture dans le message, ou en la
+  glissant dessus. Un message peut n'être qu'une maquette. Les pièces s'ouvrent dans le navigateur ;
+  seuls l'administrateur et l'auteur y ont accès, et elles partent avec le message.
+- **Exporter un projet** (*Exporter*, en tête d'un projet) : un ZIP avec `projet.md` (description,
+  tâches dans l'ordre du planning avec sous-tâches et notes, messages, maquettes en images),
+  `projet.json`, et les pièces jointes dans `pieces/`. *Tout exporter* (bas du menu) rassemble tous
+  les projets, un dossier chacun, avec un sommaire.
 - **Suivre ses messages** (comptes utilisateurs) : *Paramètres > Message > Mes messages* montre où en
   est chacun, sur une frise **Envoyé → Lu (ou À l'étude) → Planifié → En cours → Réalisé**, ou
   **Non retenu**. L'étape se déduit de ce que fait l'administrateur dans Messages (lire, mettre à
@@ -257,14 +271,21 @@ adresses `/demandes` y mènent.
 
 ## 6. Poste de développement
 
-`ssh vscode@<serveur> -p 2222` — détails : [`dev/README.md`](../dev/README.md).
+`ssh vscode@<serveur> -p 2222` — détails : [`dev/README.md`](dev/README.md).
 
 **Accès**
 
 - **SSH par clé uniquement.** Un fichier de clé publique par machine dans `config/ssh/authorized_keys.d/`.
 - **Empreinte stable** : les clés hôte survivent aux mises à jour d'image.
-- **VS Code Remote-SSH** : le serveur VS Code et ses extensions sont conservés. Database Client
-  (Postgres, Redis) est installé d'office ; d'autres extensions s'ajoutent dans le compose.
+- **VS Code Remote-SSH** : le serveur VS Code et ses extensions sont conservés. D'autres
+  extensions s'ajoutent dans le compose.
+- **Les bases dans VS Code, sans rien créer** : SQLTools est installé d'office, et chaque base du
+  serveur y apparaît déjà (groupe « CodeLab »), chacune avec son propre compte, pour n'importe quel
+  projet ouvert ; une base créée par `codelab db` s'y ajoute aussitôt.
+- **Une base, un compte** : le poste n'a pas le compte administrateur de Postgres. Dans le dossier
+  d'un projet, le terminal (et donc un agent de code) a le compte de sa base, et lui seul ; les
+  autres bases et celles de la stack le refusent. Database Client (Postgres, Redis) reste installé, avec des
+  connexions à créer à la main.
 
 **Prêt à l'emploi**
 
@@ -278,7 +299,7 @@ adresses `/demandes` y mènent.
 | Commande | Effet |
 |---|---|
 | `codelab new <nom> [--db] [--ouvrir]` | crée le projet : dossier, git, `.gitignore`, `README.md`, `AGENTS.md`, `CLAUDE.md` et les modules `codelab_auth` et `codelab_web` |
-| `codelab db <nom>` | crée la base du projet et son schéma `dagster` |
+| `codelab db <nom>` | crée la base du projet, son compte et son schéma `dagster` |
 | `codelab agents [dossier]` | écrit ou met à jour le manuel CodeLab dans `AGENTS.md`, et pose un `CLAUDE.md` qui l'importe |
 
 **Raccourcis et agents**
@@ -289,7 +310,7 @@ adresses `/demandes` y mènent.
 
 ## 7. Projets et Dagster
 
-Détails : [`workspace/README.md`](../workspace/README.md) et [`dagster/README.md`](../dagster/README.md).
+Détails : [`workspace/README.md`](workspace/README.md) et [`dagster/README.md`](dagster/README.md).
 
 - **Un projet est un dossier** de `/workspace`. Il n'y a aucun registre central.
 - **Une base Postgres par projet**, nommée comme le dossier, avec un schéma `dagster`. **pgvector** y
@@ -307,7 +328,12 @@ Détails : [`workspace/README.md`](../workspace/README.md) et [`dagster/README.m
 
 ## 8. Données, sauvegardes, restauration
 
-Détails : [`postgres/README.md`](../postgres/README.md).
+Détails : [`postgres/README.md`](postgres/README.md).
+
+- **Une base, un compte.** Chaque base de projet a son propre compte Postgres, seul (avec
+  l'administrateur) à pouvoir s'y connecter ; une application ne reçoit que le compte de sa base,
+  et le panneau la crée au lancement si elle manque. Les bases de la stack (`dagster`, `codelab`)
+  sont réservées à l'administrateur. Limite : Dagster garde le compte administrateur.
 
 | Sauvegarde | Fréquence | Gardées | Écrite par |
 |---|---|---|---|
@@ -323,7 +349,7 @@ Détails : [`postgres/README.md`](../postgres/README.md).
 
 ## 9. Diagnostic
 
-Détails : [`workspace/diagnostic/README.md`](../workspace/diagnostic/README.md).
+Détails : [`workspace/diagnostic/README.md`](workspace/diagnostic/README.md).
 
 - **Page d'état des lieux** (`:9002/diagnostic/`), en lecture seule :
   - les services se parlent-ils ?
@@ -338,7 +364,7 @@ Détails : [`workspace/diagnostic/README.md`](../workspace/diagnostic/README.md)
 
 ## 10. Exposition sur Internet
 
-Détails : [`app-manager/vps/README.md`](../app-manager/vps/README.md).
+Détails : [`app-manager/vps/README.md`](app-manager/vps/README.md).
 
 - **VPS + WireGuard** : le VPS porte le domaine et le certificat, ton serveur compose le tunnel.
 - **Assistant dans le panneau** (*Paramètres > Serveur*) : les fichiers de configuration avec tes
@@ -348,7 +374,7 @@ Détails : [`app-manager/vps/README.md`](../app-manager/vps/README.md).
 
 ## 11. Installation et mise à jour
 
-Détails : [`README.md`](../README.md).
+Détails : [`README.md`](README.md).
 
 - **Un seul fichier compose.** Une variante pour les interfaces de type CasaOS existe :
   `docker-compose-casaos.yml`.

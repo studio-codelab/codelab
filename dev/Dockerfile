@@ -104,6 +104,11 @@ COPY dev/modeles/ /usr/local/share/codelab/modeles/
 # les projets ajoutes apres l'installation de la stack) et "codelab agents".
 # Dans le PATH de toutes les sessions SSH, d'ou /usr/local/bin. Sans
 # extension : c'est un executable, pas un fichier a sourcer.
+# Une base, un compte : le script partage avec codelab-postgres et le
+# panneau, et le crochet qui donne a chaque shell le compte du projet ou il
+# se trouve (voir dev/entrypoint.sh, « le gardien des bases »).
+COPY postgres/proteger-base.sql /usr/local/share/codelab/proteger-base.sql
+COPY dev/bases-du-dossier.sh /usr/local/share/codelab/bases-du-dossier.sh
 COPY dev/codelab /usr/local/bin/codelab
 RUN chmod +x /usr/local/bin/codelab
 

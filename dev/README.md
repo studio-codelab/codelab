@@ -40,7 +40,8 @@ leur nom (`codelab-postgres`, `codelab-app-manager`…).
 
 | Variables | Effet |
 |---|---|
-| `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE=diagnostic` | `psql` et `psycopg.connect()` sans argument ; `psql -d mon-projet` pour une autre base |
+| `PGHOST`, `PGPORT` | le serveur Postgres |
+| `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `CODELAB_DB` | **dans le dossier d'un projet seulement** : le compte de SA base (voir « Une base, un compte ») ; `psql` et `psycopg.connect()` sans argument |
 | `REDIS_URL`, `REDISCLI_AUTH` | `redis-cli -h codelab-redis` sans mot de passe à taper |
 | `CODEX_HOME=/workspace/.codex` | la connexion et la configuration de Codex survivent aux mises à jour |
 
@@ -51,7 +52,7 @@ leur nom (`codelab-postgres`, `codelab-app-manager`…).
 | `codelab new <nom>` | crée `/workspace/<nom>` : `git init`, `.gitignore` (`.env`, `node_modules/`, `vendor/`, `.dagster-venv/`, `dist/`, `build/`…), `README.md`, `AGENTS.md`, `CLAUDE.md`, `codelab_auth.py`, `codelab-auth.js`, `codelab_web.py`, `codelab-web.js` |
 | `… --db` | crée aussi la base du projet |
 | `… --ouvrir` | rouvre la fenêtre VS Code sur le projet |
-| `codelab db <nom>` | crée la base `<nom>`, son schéma `dagster` et le `search_path` (idempotent) |
+| `codelab db <nom>` | crée la base `<nom>`, son compte, son schéma `dagster` et le `search_path` (idempotent), par le gardien des bases |
 | `codelab agents [dossier]` | écrit le manuel CodeLab entre deux marqueurs dans `AGENTS.md`, sans toucher au reste ; pose un `CLAUDE.md` qui l'importe |
 
 Le nom d'un projet : des lettres, des chiffres, `-` et `_`, en commençant par une lettre. La commande
@@ -126,12 +127,43 @@ Les règles complètes d'intégration au hub sont dans [`AGENTS.md`](AGENTS.md).
 - **Jamais de jeton ni de clé dans `/workspace`** : le dossier est lisible par l'agent de code,
   Dagster et le panneau.
 
+## Une base, un compte
+
+Le poste n'a **pas** le compte administrateur de Postgres : il entre dans toutes les bases, et le
+code (le tien, ou celui d'un agent) n'a pas à pouvoir le faire.
+
+- **Dans le dossier d'un projet** (`/workspace/<projet>`), le shell reçoit le compte de la base de
+  ce projet, et lui seul : `psql`, `psycopg.connect()` et le code lancé à la main s'y connectent sans
+  rien saisir. La base : `CODELAB_DB` dans le `.env` du projet, sinon le nom du dossier. Un `cd`
+  vers un autre projet change de compte ; hors d'un projet, aucun.
+- **Les autres bases** refusent ce compte, celles de la stack (`dagster`, `codelab`) comprises.
+- **`codelab db <nom>`** demande la base au **gardien des bases** : un processus root du poste, seul à
+  détenir le mot de passe administrateur, que les sessions ne peuvent pas lire. Il crée la base et
+  son compte, puis met à jour `~/.codelab-bases` (le compte de chaque base de projet, lu par le
+  shell et SQLTools), au démarrage, toutes les cinq minutes et après chaque création.
+- **Pour explorer une base de la stack**, passe par le serveur (`docker exec codelab-postgres psql -U
+  codelab -d dagster`), pas par le poste.
+
 ## VS Code et agents de code
 
 - **Extensions conservées** : `~/.vscode-server` est monté depuis l'hôte. Supprime-le de temps en
   temps, il garde une copie par version.
-- **Database Client** (`cweijan.vscode-database-client2`) est installé d'office. Pour s'y connecter :
-  hôte `codelab-postgres`, utilisateur `codelab`, mot de passe donné par `echo $PGPASSWORD`.
+- **SQLTools** (`mtxr.sqltools` et son pilote PostgreSQL) est installé d'office, **connexions
+  comprises** : chaque base du serveur y apparaît, dans le groupe « CodeLab », pour n'importe quel
+  projet ouvert. Rien à créer à la main.
+  - Chaque connexion utilise le **compte de sa base**, jamais l'administrateur ; les bases de la
+    stack (`dagster`, `codelab`) n'y sont pas.
+  - Les connexions sont déclarées dans les réglages *Remote* du serveur VS Code
+    (`~/.vscode-server/data/Machine/settings.json`, en `0600`), au démarrage puis toutes les cinq
+    minutes, et aussitôt après `codelab db` ou `codelab new --db`. `codelab vscode-bases` les met
+    à jour à la demande.
+  - Seul le groupe « CodeLab » est réécrit : une connexion ajoutée à la main reste. Un fichier de
+    réglages avec des commentaires n'est pas touché (la commande le signale).
+  - Au premier usage, SQLTools propose d'installer la bibliothèque `pg` : accepte.
+- **Database Client** (`cweijan.vscode-database-client2`) reste installé, pour Redis notamment. Il
+  range ses connexions sur ton poste, hors de portée du serveur : elles se créent à la main (hôte
+  `codelab-postgres` ; depuis le dossier du projet, utilisateur `echo $PGUSER`, mot de passe
+  `echo $PGPASSWORD`).
 - **D'autres extensions** : `CODELAB_VSCODE_EXTENSIONS` dans le compose, séparées par des espaces.
 - **Codex**
   - Connexion avec un compte ChatGPT : `codex login`, ou `printenv OPENAI_API_KEY | codex login --with-api-key`.
@@ -167,7 +199,7 @@ Les règles complètes d'intégration au hub sont dans [`AGENTS.md`](AGENTS.md).
 | Variable (compose) | Rôle |
 |---|---|
 | `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` | connexion Postgres des sessions |
-| `CODELAB_ENV_FILE` | `credentials.env`, d'où sont lus `PGPASSWORD` et Redis |
+| `CODELAB_ENV_FILE` | `credentials.env` (lu en root) : le mot de passe administrateur, gardé par le gardien des bases, et Redis |
 | `CODELAB_SSH_DIR` | dossier des clés (`authorized_keys.d/`, `host_keys/`) |
 | `CODELAB_VSCODE_EXTENSIONS` | extensions installées d'office |
 

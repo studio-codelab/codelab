@@ -83,6 +83,25 @@ dernières vues.
 | Codes (connexion, vérification, réinitialisation), jetons d'invitation | `codelab.db` | empreinte seulement, usage unique, expiration |
 | Secrets des services, mot de passe admin, clé de chiffrement, clé privée SSO | `credentials.env` | `0600 root`, jamais transmis aux applications |
 | Historique long (journal, copie des comptes) | Postgres, base `codelab` | ni empreinte de mot de passe, ni adresse en clair |
+| Données des projets | Postgres, une base par projet | **un compte Postgres par base** : seul ce compte (et l'administrateur) peut s'y connecter |
+
+**Une base, un compte.** Le compte administrateur de Postgres (`codelab`, super-utilisateur) n'est
+plus distribué : seuls `codelab-postgres`, le panneau, Dagster et le gardien des bases du poste de
+développement l'ont.
+
+- **Chaque base de projet** a son propre compte, du même nom, propriétaire de la base. `PUBLIC`
+  n'a plus le droit de connexion : un compte n'entre que dans sa base.
+- **Les bases de la stack** (`dagster`, `codelab`) sont réservées à l'administrateur.
+- **Une application** reçoit le compte de sa base (`POSTGRES_USER` / `POSTGRES_PASSWORD`), jamais
+  celui de l'administrateur. Sa base est `CODELAB_DB` dans le `.env` du projet, sinon le nom de son
+  dossier ; le panneau la crée au lancement si elle manque.
+- **Le poste de développement** n'a plus le compte administrateur. Le terminal reçoit le compte du
+  projet où il se trouve, et lui seul ; `codelab db` passe par le gardien des bases.
+- **Les mots de passe des comptes** ne sont stockés nulle part : chacun se dérive du mot de passe
+  administrateur et du nom de la base (`sha256`). Ils changent tous si ce mot de passe change, et
+  `codelab-postgres` les réaligne au démarrage.
+- **Le script** `postgres/proteger-base.sql` fait ce travail, le même pour les trois services. Il
+  rattrape aussi les bases d'avant ce mécanisme : leurs tables passent au compte du projet.
 
 **Conservation.**
 
@@ -227,8 +246,11 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 
 **Applications**
 
-19. Les applications ne reçoivent jamais le cookie du panneau, son mot de passe, sa clé privée ni le
-    mot de passe d'envoi des mails.
+19. Les applications ne reçoivent jamais le cookie du panneau, son mot de passe, sa clé privée, le
+    mot de passe d'envoi des mails ni le compte administrateur de Postgres : seulement le compte de
+    leur base.
+22. Une base de projet n'accepte que son propre compte (et l'administrateur) ; les bases `dagster`
+    et `codelab`, que l'administrateur. Le poste de développement n'a pas le compte administrateur.
 20. Les applications et leurs builds ne tournent jamais en root.
 21. Un nom d'application ne peut pas prendre celui d'une route du panneau : la liste est tirée de la
     table des routes elle-même.
@@ -247,6 +269,13 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 - **La boîte mail de chaque utilisateur** reçoit ses codes : sa sécurité compte. La clé d'accès reste
   le moyen le plus sûr.
 - **Le serveur lui-même** (système, mises à jour, accès physique) est sous ta responsabilité.
+- **Dagster garde le compte administrateur de Postgres.** Il charge les `definitions.py` de tous
+  les projets dans un même processus : le code d'un job peut donc atteindre toutes les bases. C'est
+  la limite du cloisonnement des bases ; Dagster reste réservé à l'administrateur.
+- **Dans le poste de développement, tu peux écrire le code de tous les projets.** Le terminal n'a
+  que le compte du projet ouvert, et SQLTools ouvre chaque base avec son propre compte ; mais rien
+  n'empêche de lire volontairement le compte d'un autre projet (`~/.codelab-bases`). Le cloisonnement
+  y est un garde-fou contre l'erreur, pas une barrière contre toi-même.
 
 ## Mise en production
 

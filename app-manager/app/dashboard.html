@@ -1472,15 +1472,26 @@ table.tbl-journal{min-width:560px}
  flex-wrap:wrap;margin:6px 0 18px}
 :root[data-variante="bento"] .hub-tete-texte{display:block;min-width:0}
 :root[data-variante="bento"] .hub-barre{display:flex;align-items:center;gap:8px;margin-left:auto}
+/* La recherche tout a droite, alignee sur le bouton du compte. */
+@media (min-width:761px){ :root[data-variante="bento"] .hub-tete{margin-right:calc(50% - 50vw + 28px)} }
 :root[data-variante="bento"] .hub-compose{display:inline-flex;height:44px;border-radius:999px;padding:0 18px}
 .hub-compose.actif,.hub-compose.actif:hover{background:var(--accent);border-color:var(--accent);color:var(--sur-accent)}
 :root[data-variante="bento"] #hub-ajouter-widget{width:44px;padding:0;justify-content:center}
+/* Reorganiser : une icone discrete a cote de la recherche ; « Termine »
+   n'apparait que le temps de l'edition. */
+:root[data-variante="bento"] #hub-modifier:not(.actif){width:44px;padding:0;justify-content:center;border-color:transparent;
+ background:none;color:var(--dim)}
+:root[data-variante="bento"] #hub-modifier:not(.actif):hover{color:var(--txt);background:var(--surface)}
+#hub-modifier svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 :root[data-variante="bento"] .salut{font-size:clamp(34px,4.2vw,56px);max-width:none;margin:0;padding:0}
 :root[data-variante="bento"] .hub-recherche{margin:0;width:min(340px,40vw);height:44px}
-/* La mosaique deborde jusqu'au bord droit de la fenetre : ce qui defile
-   a l'horizontale ne doit pas s'arreter net au milieu de l'ecran. */
-#hub-liste.bento{--cel:clamp(200px,17vw,250px);display:grid;grid-auto-flow:column dense;
- margin-right:calc(50% - 50vw);padding-right:28px !important;
+/* La mosaique va d'un bord a l'autre de la fenetre : ce qui defile a
+   l'horizontale ne s'arrete net ni a gauche ni a droite. Au repos, la
+   marge de gauche aligne la premiere tuile sur le bonjour ; en defilant,
+   les tuiles passent dessous jusqu'au bord. */
+#hub-liste.bento{--cel:clamp(200px,17vw,250px);--gouttiere:calc(50vw - 50%);display:grid;grid-auto-flow:column dense;
+ margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw);
+ padding-left:var(--gouttiere) !important;padding-right:28px !important;
  grid-template-rows:repeat(3,minmax(0,1fr));grid-auto-columns:var(--cel);gap:14px;
  height:var(--bento-h,560px);overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;
  scroll-snap-type:x proximity;padding:2px 2px 12px;scrollbar-width:thin}
@@ -1534,12 +1545,20 @@ table.tbl-journal{min-width:560px}
 .bw-suivi .suivi-etat{margin-left:0}
 .bw-suivi .bento-bouton{background:var(--accent);color:var(--sur-accent);text-decoration:none;border:0;cursor:pointer;font:inherit}
 /* ---- mode Modifier : les tuiles tremblent, portent leurs gestes ---- */
-#hub-liste.edition > *{position:relative;cursor:grab;touch-action:none;animation:hub-tremble .32s ease-in-out infinite alternate}
+#hub-liste.edition > *{position:relative;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;
+ animation:hub-tremble .34s ease-in-out infinite alternate}
 #hub-liste.edition > *:nth-child(2n){animation-delay:-.16s}
 #hub-liste.edition iframe,#hub-liste.edition textarea,#hub-liste.edition .bw-une-pied{pointer-events:none}
-#hub-liste.edition > * > :not(.ed-retirer):not(.ed-barre){opacity:.6}
-#hub-liste.edition > .glissee{animation:none;opacity:.85;box-shadow:0 18px 44px var(--shadow-2);z-index:5;cursor:grabbing}
-@keyframes hub-tremble{from{transform:rotate(-.5deg)}to{transform:rotate(.5deg)}}
+#hub-liste.edition > * > :not(.ed-retirer):not(.ed-barre){opacity:.85}
+/* La tuile qu'on tient suit le pointeur, au-dessus des autres, un peu
+   soulevee ; les autres glissent pour lui faire place. */
+#hub-liste.edition > .glissee{animation:none;z-index:20;cursor:grabbing;pointer-events:none;
+ box-shadow:0 22px 50px var(--shadow-2);scale:1.04;transition:scale .15s, box-shadow .15s}
+#hub-liste.en-glisse{cursor:grabbing}
+/* Les fleches restent pour le clavier : on ne les voit qu'en y arrivant. */
+#hub-liste.edition > :not(:focus-within) .ed-barre [data-agir="hub-deplacer"]{display:none}
+#hub-liste.edition > .bento-carte:not(:focus-within) .ed-barre{display:none}
+@keyframes hub-tremble{from{rotate:-.3deg}to{rotate:.3deg}}
 @media (prefers-reduced-motion:reduce){#hub-liste.edition > *{animation:none;outline:2px dashed var(--line2);outline-offset:-2px}}
 .ed-retirer{position:absolute;top:8px;left:8px;z-index:3;width:26px;height:26px;border-radius:999px;border:0;
  background:var(--txt);color:var(--surface);font:inherit;font-size:18px;font-weight:800;line-height:1;cursor:pointer;
@@ -1593,6 +1612,37 @@ table.tbl-journal{min-width:560px}
 .bw-message textarea{flex:1;min-height:0;resize:none;padding:10px 12px;border-radius:14px;
  border:1px solid var(--line2);background:var(--bg-input,var(--surface2));font:inherit}
 .bw-sujets{display:flex;flex-wrap:wrap;gap:6px}
+/* ---- pieces jointes : captures et maquettes ---- */
+.pj-liste{display:flex;flex-wrap:wrap;gap:8px}
+.pj-liste:empty{display:none}
+.pj{position:relative;display:flex;align-items:center;gap:8px;max-width:220px;padding:5px 30px 5px 5px;
+ border:1px solid var(--line2);border-radius:12px;background:var(--surface);font-size:12.5px;font-weight:600;color:var(--txt);
+ text-decoration:none}
+.pj img,.pj .pj-doc{width:38px;height:38px;border-radius:8px;object-fit:cover;flex:none;background:var(--surface2)}
+.pj .pj-doc{display:grid;place-items:center;font-size:10px;font-weight:800;color:var(--dim)}
+.pj span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pj.envoi{opacity:.55}
+.pj button{position:absolute;right:5px;top:50%;transform:translateY(-50%);width:22px;height:22px;border:0;
+ border-radius:999px;background:var(--surface2);color:var(--dim);font:inherit;font-size:15px;line-height:1;cursor:pointer}
+.pj button:hover{color:var(--txt)}
+a.pj{padding-right:8px}
+a.pj:hover{border-color:var(--accent)}
+.joindre{display:inline-flex;align-items:center;gap:7px;cursor:pointer}
+.joindre svg{width:15px;height:15px}
+.joindre input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.msg-pied{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}
+.depot-survol{outline:2px dashed var(--accent);outline-offset:3px}
+.bw-message .bw-bas{display:flex;gap:8px;align-items:center}
+.bw-message .bw-bas .btn-primary{flex:1;height:40px;min-height:40px}
+.bw-message .joindre{width:40px;height:40px;justify-content:center;border-radius:12px;border:1px solid var(--line2);
+ background:var(--surface);color:var(--dim);flex:none;position:relative}
+.bw-message .joindre:hover{color:var(--accent);border-color:var(--accent)}
+.bw-message .bw-bas .pj-liste{flex:1;min-width:0;flex-wrap:nowrap;overflow-x:auto;gap:6px}
+.bw-message .bw-bas:has(.pj) .btn-primary{flex:none;padding:0 18px}
+/* Dans le widget, la vignette suffit : le nom est dans son infobulle. */
+.bw-message .pj{flex:none;padding:3px 26px 3px 3px}
+.bw-message .pj span{display:none}
+.bw-message .pj img,.bw-message .pj .pj-doc{width:32px;height:32px}
 .bw-sujets button{height:30px;padding:0 11px;border-radius:999px;border:1px solid var(--line2);background:var(--surface);
  color:var(--dim);font:inherit;font-size:12px;font-weight:700;cursor:pointer}
 .bw-sujets button[aria-checked="true"]{background:var(--accent);border-color:var(--accent);color:var(--sur-accent)}
@@ -1635,7 +1685,7 @@ table.tbl-journal{min-width:560px}
   :root[data-variante="lanceur"] .hub-liste.compacte .hub-projet img{width:72px;height:72px;border-radius:22px}
   :root[data-variante] .hub-recherche{height:50px;margin-bottom:24px}
   :root[data-variante="bento"] .salut{font-size:40px}
-  #hub-liste.bento{margin-right:0;padding-right:2px !important}
+  #hub-liste.bento{margin-left:0;margin-right:0;padding-left:2px !important;padding-right:2px !important}
   /* Sur telephone : une colonne, et l'on defile vers le bas. */
   #hub-liste.bento{grid-auto-flow:row;grid-template-rows:none;grid-template-columns:repeat(2,minmax(0,1fr));
    grid-auto-rows:minmax(150px,auto);grid-auto-columns:auto;height:auto;overflow:visible;scroll-snap-type:none}
@@ -1754,7 +1804,8 @@ table.tbl-journal{min-width:560px}
   <button class="btn btn-default hub-compose" id="hub-ajouter-widget" onclick="ouvrirGalerie()" style="display:none"
     aria-label="Ajouter un widget" title="Ajouter un widget">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
-  <button class="btn btn-default hub-compose" id="hub-modifier" onclick="basculerEdition()">Modifier</button>
+  <button class="btn btn-default hub-compose" id="hub-modifier" onclick="basculerEdition()"
+    title="Réorganiser le hub" aria-label="Réorganiser le hub"></button>
   </div>
   </div>
   <div class="hint" id="hub-masquees" style="display:none;margin:-8px 0 14px"></div>
@@ -2616,9 +2667,20 @@ table.tbl-journal{min-width:560px}
         <div class="field" id="msg-app-zone"><label for="msg-app">Quelle application ?</label>
           <select id="msg-app"></select></div>
         <div class="field"><label for="msg-texte">Ton message</label>
-          <textarea id="msg-texte" rows="5" maxlength="2000"
+          <textarea id="msg-texte" rows="5" maxlength="2000" data-pieces="form"
             placeholder="Ce qui te gêne, ce qui te manque, ce que tu voudrais."></textarea>
-          <div class="hint" id="msg-reste">2000 caractères au maximum.</div></div>
+          <div class="hint" id="msg-reste">2000 caractères au maximum.</div>
+          <!-- Une capture, une maquette : le selecteur du systeme (Photos et
+               l'appareil photo sur un iPhone), un collage, ou un glisser. -->
+          <div class="msg-pied">
+            <label class="btn btn-default joindre">
+              <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf" multiple
+                     onchange="deposerPieces('form', this.files); this.value=''">
+              <svg viewBox="0 0 24 24"><path d="M21 11.5l-8.6 8.6a5 5 0 01-7.1-7.1l8.6-8.6a3.3 3.3 0 014.7 4.7l-8.6 8.6a1.7 1.7 0 01-2.4-2.4l7.9-7.9"/></svg>
+              Joindre une image ou un PDF</label>
+            <span class="hint" style="margin:0">ou colle une capture dans le message.</span>
+          </div>
+          <div class="pj-liste" id="pj-form" style="margin-top:10px"></div></div>
         <div class="actions">
           <button class="btn btn-primary" id="msg-envoyer" onclick="msgEnvoyer()">Envoyer</button>
         </div>
@@ -3070,6 +3132,9 @@ const ACTIONS = {
   'ap-etat':         n => apChoisirEtat(n),
   'ap-trier':        n => apTrier(n),
   'bw-sujet':        n => { hubMessageCible=n; peindreHub(); },
+  'pj-retirer':      (cle, d) => { const p=piecesBrouillon[cle] && piecesBrouillon[cle][Number(d.rang)];
+                                   if(!p) return;
+                                   piecesBrouillon[cle].splice(Number(d.rang),1); peindrePieces(cle); },
   'hub-retirer':     n => hubRetirer(n),
   'hub-deplacer':    (n,d) => hubDeplacer(n, d.sens),
   'hub-taille':      (n,d) => hubTailleWidget(n, d.taille),
@@ -3672,9 +3737,10 @@ function msgCible(){
 async function msgEnvoyer(){
   const b=$('msg-envoyer'), e=$('msg-err'), ok=$('msg-ok');
   e.style.display='none'; ok.style.display='none';
+  const pieces=piecesPretes('form'); if(pieces===null) return;
   const corps={cible:$('msg-cible').value, texte:$('msg-texte').value.trim(),
-               app:$('msg-app').value||''};
-  if(!corps.texte){ e.textContent='Écris ton message.'; e.style.display='block'; return; }
+               app:$('msg-app').value||'', pieces};
+  if(!corps.texte && !pieces.length){ e.textContent='Écris ton message.'; e.style.display='block'; return; }
   b.disabled=true; b.textContent='Envoi...';
   try{
     const r=await fetch('/api/messages',{method:'POST',
@@ -3682,7 +3748,7 @@ async function msgEnvoyer(){
     const d=await r.json();
     if(!r.ok){ e.textContent=d.error||'Envoi impossible.'; e.style.display='block'; }
     else{
-      $('msg-texte').value='';
+      $('msg-texte').value=''; viderPieces('form');
       /* On dit ce qui s'est REELLEMENT passe : le message est range dans
          tous les cas, le mail depend d'un serveur d'envoi configure. */
       ok.textContent = d.envoye
@@ -3695,6 +3761,75 @@ async function msgEnvoyer(){
   }catch(err){ e.textContent='Erreur réseau.'; e.style.display='block'; }
   finally{ b.disabled=false; b.textContent='Envoyer'; }
 }
+
+/* ---------------- les pieces jointes ----------------
+   Une capture ou une maquette part avec le message. Rien a apprendre : le
+   selecteur de fichiers du systeme, un collage (une capture d'ecran), ou un
+   glisser sur le message. Chaque fichier se depose aussitot ; le message
+   n'emporte que leurs identifiants. */
+const PIECES_MAX=6, PIECE_MAX_OCTETS=10*1024*1024;
+const piecesBrouillon={form:[], widget:[]};
+const SVG_TROMBONE='<svg viewBox="0 0 24 24"><path d="M21 11.5l-8.6 8.6a5 5 0 01-7.1-7.1l8.6-8.6a3.3 3.3 0 014.7 4.7l-8.6 8.6a1.7 1.7 0 01-2.4-2.4l7.9-7.9"/></svg>';
+function vignettePiece(p){
+  const image=(p.type||'').startsWith('image/');
+  /* La vignette vient du serveur une fois le fichier depose : la page
+     n'affiche que des images de sa propre origine (CSP). */
+  const src=p.id ? '/api/pieces/'+encodeURIComponent(p.id) : '';
+  return image && src ? `<img src="${esc(src)}" alt="" loading="lazy">`
+    : `<i class="pj-doc">${esc(((p.nom||'').split('.').pop()||'').toUpperCase().slice(0,4))}</i>`;
+}
+function piecesHtml(cle){
+  return piecesBrouillon[cle].map((p,i)=>`<div class="pj${p.etat==='envoi'?' envoi':''}" title="${esc(p.nom)}">${vignettePiece(p)}
+    <span title="${esc(p.nom)}">${esc(p.nom)}</span>
+    <button type="button" aria-label="Retirer ${esc(p.nom)}" data-agir="pj-retirer" data-cible="${cle}" data-rang="${i}">×</button></div>`).join('');
+}
+function peindrePieces(cle){
+  if(cle==='form') remplir($('pj-form'), piecesHtml('form'));
+  else if(sectionCourante==='hub') peindreHub();
+}
+async function deposerPieces(cle, fichiers){
+  for(const f of [...(fichiers||[])]){
+    if(piecesBrouillon[cle].length>=PIECES_MAX){ notifier(PIECES_MAX+' pièces jointes au plus.','err'); break; }
+    if(f.size>PIECE_MAX_OCTETS){ notifier(f.name+' : 10 Mo au maximum.','err'); continue; }
+    const p={nom: f.name || 'capture.png', type: f.type};
+    p.etat = 'envoi';
+    piecesBrouillon[cle].push(p); peindrePieces(cle);
+    try{
+      const r=await fetch('/api/pieces',{method:'POST', body:f,
+        headers:{'X-Nom-Fichier':encodeURIComponent(p.nom), 'Content-Type':f.type||'application/octet-stream'}});
+      if(r.ok) Object.assign(p, await r.json(), {etat:'ok'});
+      else{ notifier(await echec(r,'Pièce refusée.'),'err'); piecesBrouillon[cle]=piecesBrouillon[cle].filter(x=>x!==p); }
+    }catch(e){ notifier('Envoi de la pièce impossible.','err'); piecesBrouillon[cle]=piecesBrouillon[cle].filter(x=>x!==p); }
+    peindrePieces(cle);
+  }
+}
+/* Ce qui part avec le message : null tant qu'un depot n'est pas fini. */
+function piecesPretes(cle){
+  if(piecesBrouillon[cle].some(p=>p.etat!=='ok')){ notifier('Une pièce est encore en cours d’envoi.','err'); return null; }
+  return piecesBrouillon[cle].map(p=>p.id);
+}
+function viderPieces(cle){
+  piecesBrouillon[cle]=[]; peindrePieces(cle);
+}
+/* Coller une capture, ou glisser des fichiers, sur le texte d'un message. */
+document.addEventListener('paste', e=>{
+  const cle=e.target && e.target.dataset && e.target.dataset.pieces; if(!cle) return;
+  const fichiers=[...(e.clipboardData && e.clipboardData.files || [])];
+  if(!fichiers.length) return;
+  e.preventDefault(); deposerPieces(cle, fichiers);
+});
+document.addEventListener('dragover', e=>{
+  const t=e.target && e.target.closest && e.target.closest('[data-pieces]'); if(!t) return;
+  e.preventDefault(); t.classList.add('depot-survol');
+});
+document.addEventListener('dragleave', e=>{
+  const t=e.target && e.target.closest && e.target.closest('[data-pieces]'); if(t) t.classList.remove('depot-survol');
+});
+document.addEventListener('drop', e=>{
+  const t=e.target && e.target.closest && e.target.closest('[data-pieces]'); if(!t) return;
+  e.preventDefault(); t.classList.remove('depot-survol');
+  deposerPieces(t.dataset.pieces, e.dataTransfer && e.dataTransfer.files);
+});
 
 /* ---------------- le suivi de mes messages ----------------
    Ce que chaque message est devenu, deduit cote serveur de ce que
@@ -3739,7 +3874,8 @@ function itemSuivi(m){
       <span class="suivi-date">${depuis(m.ts)}</span>
       ${m.nouveau ? '<span class="suivi-nouveau">Du nouveau</span>' : ''}
       <span class="suivi-etat e-${s.etape}">${NOM_ETAPE[s.etape]||''}</span></div>
-    <p class="suivi-texte">${esc(m.texte)}</p>
+    ${m.texte ? `<p class="suivi-texte">${esc(m.texte)}</p>` : ''}
+    ${(m.pieces||[]).length ? `<div class="pj-liste">${m.pieces.map(p=>`<a class="pj" href="/api/pieces/${encodeURIComponent(p.id)}">${vignettePiece(p)}<span>${esc(p.nom)}</span></a>`).join('')}</div>` : ''}
     ${etapesSuivi(s.etape)}
     ${detail.length ? `<div class="suivi-detail">${detail.map(x=>`<span>${x}</span>`).join('')}</div>` : ''}
     ${s.taches.length ? `<ul class="suivi-taches">${s.taches.slice(0,6).map(t=>
@@ -4111,20 +4247,26 @@ function widgetMessage(taille){
       <select id="bw-message-app" onchange="hubMessageApp=this.value">${apps.map(a=>
         `<option value="${esc(a.name)}" ${a.name===hubMessageApp?'selected':''}>${esc(nomAffiche(a))}</option>`).join('')}</select>` : ''}
     <label class="sr" for="bw-message-texte">Ton message</label>
-    <textarea id="bw-message-texte" data-garder="message" maxlength="2000"
+    <textarea id="bw-message-texte" data-garder="message" data-pieces="widget" maxlength="2000"
       placeholder="Une idée, un souci, une demande d'accès."
       oninput="hubMessageBrouillon=this.value">${esc(hubMessageBrouillon)}</textarea>
-    <button class="btn btn-primary" onclick="bwEnvoyer(this)">Envoyer</button>`;
+    <div class="bw-bas">
+      <label class="joindre" title="Joindre une image ou un PDF"><span class="sr">Joindre une image ou un PDF</span>
+        <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf" multiple
+               onchange="deposerPieces('widget', this.files); this.value=''">${SVG_TROMBONE}</label>
+      <div class="pj-liste">${piecesHtml('widget')}</div>
+      <button class="btn btn-primary" onclick="bwEnvoyer(this)">Envoyer</button></div>`;
 }
 async function bwEnvoyer(b){
   const t=$('bw-message-texte'), texte=(t.value||'').trim();
-  if(!texte){ t.focus(); return; }
+  const pieces=piecesPretes('widget'); if(pieces===null) return;
+  if(!texte && !pieces.length){ t.focus(); return; }
   b.disabled=true;
   try{
     const r=await fetch('/api/messages',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({cible:hubMessageCible, texte, app: hubMessageCible==='application' ? hubMessageApp : ''})});
+      body:JSON.stringify({cible:hubMessageCible, texte, pieces, app: hubMessageCible==='application' ? hubMessageApp : ''})});
     if(!r.ok){ notifier(await echec(r,'Envoi impossible.'),'err'); return; }
-    t.value=''; hubMessageBrouillon=''; notifier('Message envoyé.'); chargerSuivi(true);
+    t.value=''; hubMessageBrouillon=''; viderPieces('widget'); notifier('Message envoyé.'); chargerSuivi(true);
   }finally{ b.disabled=false; }
 }
 const CLASSE_WIDGET={une:'bw-une', apercu:'bw-une', etat:'bento-etat', messages:'bw-messages', nouveautes:'bw-nouveautes', message:'bw-message', suivi:'bw-suivi'};
@@ -4180,6 +4322,8 @@ function peindreBento(liste, filtre){
         const a=toutes.find(x=>x.name===e.id); return a ? carte(a, e) : '';
       }).join('');
   const el=$('hub-liste');
+  /* Pas de repeint sous la main : le rechargement periodique attendra. */
+  if(glisse && glisse.parti) return;
   el.className='bento'+(hubEdition ? ' edition' : '');
   /* Ce qui doit SURVIVRE au repeint -- l'apercu (sinon il se recharge), le
      texte en cours de frappe -- est mis de cote puis remis a sa place. */
@@ -4196,7 +4340,7 @@ function peindreBento(liste, filtre){
     });
     if(actif && gardes[actif]){ gardes[actif].focus(); if(debut!=null) try{ gardes[actif].setSelectionRange(debut, debut); }catch(e){} }
   }
-  $('hub-modifier').textContent = hubEdition ? 'Terminé' : 'Modifier';
+  $('hub-modifier').innerHTML = hubEdition ? 'Terminé' : SVG_REORGANISER;
   $('hub-modifier').classList.toggle('actif', hubEdition);
   $('hub-ajouter-widget').style.display = hubEdition ? '' : 'none';
   ajusterBento();
@@ -4206,6 +4350,10 @@ function peindreBento(liste, filtre){
 function ajusterBento(){
   const el=$('hub-liste');
   if(!el.classList.contains('bento')) return;
+  /* L'aimant du defilement s'arrete sur la marge de gauche, pas contre le
+     bord : en pixels, parce qu'un pourcentage s'y mesurerait sur la
+     mosaique elle-meme, et vaudrait zero. */
+  el.style.scrollPaddingLeft=getComputedStyle(el).paddingLeft;
   const haut=el.getBoundingClientRect().top + window.scrollY;
   el.style.setProperty('--bento-h', Math.max(420, window.innerHeight - haut - 28) + 'px');
   const exces=document.documentElement.scrollHeight - window.innerHeight;
@@ -4251,31 +4399,102 @@ function hubDeplacer(cle, sens){
 function hubTailleWidget(cle, taille){
   enregistrerDisposition(elementsDuHub().map(x=>cleElement(x)===cle ? {...x, taille} : x));
 }
-/* Glisser une tuile en mode Modifier : elle prend la place de celle qu'on
-   survole. La disposition part au serveur au lacher. */
-let tuileGlissee=null;
+/* GLISSER UNE TUILE, COMME SUR UN IPHONE. En mode edition, on attrape une
+   tuile : elle suit le pointeur (souris ou doigt), et les autres glissent
+   pour lui faire place a mesure qu'elle passe sur elles. Pres d'un bord,
+   la mosaique defile toute seule. Au lacher, la tuile se pose a sa place et
+   la disposition part au serveur. */
+const SVG_REORGANISER='<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><path d="M17 14v6M14 17h6"/></svg>';
+var glisse=null;   // var : lu par peindreBento, qui peut tourner avant cette ligne
+function positionsTuiles(){
+  const m=new Map();
+  [...$('hub-liste').children].forEach(n=>{ if(n.dataset.el) m.set(n, n.getBoundingClientRect()); });
+  return m;
+}
+/* Les tuiles qui ont change de place partent de l'ancienne et glissent vers
+   la nouvelle (FLIP). Le tremblement passe par « rotate » : « transform »
+   reste libre pour ce glissement. */
+function glisserLesAutres(avant, sauf){
+  for(const [n, r] of avant){
+    if(n===sauf || !n.isConnected) continue;
+    const r2=n.getBoundingClientRect(), dx=r.left-r2.left, dy=r.top-r2.top;
+    if(!dx && !dy) continue;
+    n.style.transition='none'; n.style.transform=`translate(${dx}px,${dy}px)`;
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+      n.style.transition='transform .24s cubic-bezier(.2,.8,.2,1)'; n.style.transform=''; }));
+  }
+}
+function suivrePointeur(){
+  const g=glisse; if(!g || !g.parti) return;
+  g.t.style.transform='none';
+  const r=g.t.getBoundingClientRect();
+  g.t.style.transform=`translate(${g.x-g.dx-r.left}px,${g.y-g.dy-r.top}px)`;
+}
+function chercherPlace(){
+  const g=glisse; if(!g || !g.parti || performance.now()<g.calme) return;
+  const sous=document.elementFromPoint(g.x, g.y);
+  const cible=sous && sous.closest && sous.closest('#hub-liste > [data-el]');
+  if(!cible || cible===g.t) return;
+  const enfants=[...$('hub-liste').children];
+  const avant=positionsTuiles();
+  if(enfants.indexOf(g.t) < enfants.indexOf(cible)) cible.after(g.t); else cible.before(g.t);
+  glisserLesAutres(avant, g.t);
+  /* Le temps que les autres se posent : sinon la tuile survolee, qui vient
+     de bouger, serait aussitot reprise pour cible, et tout oscillerait. */
+  g.calme=performance.now()+200;
+  suivrePointeur();
+}
+function defilerPresDesBords(){
+  const g=glisse; if(!g || !g.parti) return;
+  const liste=$('hub-liste'), r=liste.getBoundingClientRect(), bord=70;
+  let v=0;
+  if(g.x < r.left+bord) v=-Math.ceil((r.left+bord-g.x)/5);
+  else if(g.x > r.right-bord) v=Math.ceil((g.x-(r.right-bord))/5);
+  if(v && !ecranMobile()){ liste.scrollLeft+=v; suivrePointeur(); chercherPlace(); }
+  g.raf=requestAnimationFrame(defilerPresDesBords);
+}
 $('hub-liste').addEventListener('pointerdown', e=>{
-  if(!hubEdition || e.target.closest('button,select,textarea,input')) return;
-  const t=e.target.closest('[data-el]'); if(!t) return;
-  e.preventDefault();
-  tuileGlissee={t, avant:[...$('hub-liste').children].map(x=>x.dataset.el).join('|')};
-  t.classList.add('glissee');
+  if(!hubEdition || e.button>0 || e.target.closest('button,select,textarea,input,label')) return;
+  const t=e.target.closest('#hub-liste > [data-el]'); if(!t) return;
+  const r=t.getBoundingClientRect();
+  glisse={t, x:e.clientX, y:e.clientY, x0:e.clientX, y0:e.clientY, dx:e.clientX-r.left, dy:e.clientY-r.top,
+          parti:false, calme:0, raf:0, avant:[...$('hub-liste').children].map(x=>x.dataset.el).join('|')};
 });
 document.addEventListener('pointermove', e=>{
-  if(!tuileGlissee) return;
-  const sous=document.elementFromPoint(e.clientX, e.clientY);
-  const cible=sous && sous.closest && sous.closest('#hub-liste [data-el]');
-  if(!cible || cible===tuileGlissee.t) return;
-  const enfants=[...$('hub-liste').children];
-  if(enfants.indexOf(tuileGlissee.t) < enfants.indexOf(cible)) cible.after(tuileGlissee.t); else cible.before(tuileGlissee.t);
-});
-document.addEventListener('pointerup', ()=>{
-  if(!tuileGlissee) return;
-  const g=tuileGlissee; tuileGlissee=null; g.t.classList.remove('glissee');
+  const g=glisse; if(!g) return;
+  g.x=e.clientX; g.y=e.clientY;
+  if(!g.parti){
+    /* Quelques pixels avant de partir : un simple appui reste un appui. */
+    if(Math.hypot(g.x-g.x0, g.y-g.y0) < 6) return;
+    g.parti=true;
+    g.t.classList.add('glissee'); $('hub-liste').classList.add('en-glisse');
+    g.raf=requestAnimationFrame(defilerPresDesBords);
+  }
+  e.preventDefault();
+  suivrePointeur(); chercherPlace();
+}, {passive:false});
+function finirGlisse(){
+  const g=glisse; glisse=null; if(!g) return;
+  cancelAnimationFrame(g.raf);
+  $('hub-liste').classList.remove('en-glisse');
+  if(!g.parti) return;
+  /* La tuile se pose a sa place, puis la disposition est enregistree. */
+  g.t.style.transition='transform .2s cubic-bezier(.2,.8,.2,1)';
+  g.t.classList.remove('glissee');
+  g.t.style.transform='';
   const ordre=[...$('hub-liste').children].map(x=>x.dataset.el).filter(Boolean);
-  if(ordre.join('|')===g.avant) return;
-  const parCle=Object.fromEntries(elementsDuHub().map(x=>[cleElement(x), x]));
-  enregistrerDisposition(ordre.map(k=>parCle[k]).filter(Boolean));
+  setTimeout(()=>{
+    g.t.style.transition='';
+    if(ordre.join('|')===g.avant) return;
+    const parCle=Object.fromEntries(elementsDuHub().map(x=>[cleElement(x), x]));
+    enregistrerDisposition(ordre.map(k=>parCle[k]).filter(Boolean));
+  }, 220);
+}
+document.addEventListener('pointerup', finirGlisse);
+document.addEventListener('pointercancel', finirGlisse);
+/* Echap termine la reorganisation. */
+document.addEventListener('keydown', e=>{
+  if(e.key==='Escape' && hubEdition && !document.querySelector('.ov.show')) basculerEdition();
 });
 
 /* ---- la galerie des widgets, comme celle d'un Mac : a gauche ce qu'on

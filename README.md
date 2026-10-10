@@ -1,80 +1,60 @@
 # CodeLab
 
-**Un environnement de développement auto-hébergé, en un seul `docker-compose.yml`.** Il installe sur
-ton serveur tout ce qu'il faut pour écrire, faire tourner et partager des applications :
+**Ton atelier de développement, chez toi, en un seul `docker-compose.yml`.** CodeLab installe sur ton
+serveur de quoi écrire une application, la mettre en ligne et la partager — sans rien configurer à la
+main.
 
-- une base de données ;
-- un cache ;
-- un service de mails ;
-- un accès SSH et VS Code ;
-- un orchestrateur de tâches ;
-- un **panneau** qui déploie, surveille et ouvre tes applications.
+- **Tu codes** dans VS Code, connecté au serveur.
+- **Tu mets en ligne** d'un clic, depuis un hub qui ressemble à un écran d'accueil.
+- **Tu partages** : une invitation par mail, et chacun n'ouvre que ce que tu lui autorises.
+- **Ils te répondent** : un message, une capture ou une maquette, que tu ranges en projets et en
+  tâches, jusqu'à la feuille de route.
 
-On écrit son code dans `/workspace`, on le déclare dans le panneau, il est en ligne. On peut ensuite
-le partager : une invitation par mail, et la personne n'ouvre que ce que tu lui autorises.
+## En un coup d'œil
+
+```mermaid
+flowchart LR
+    Toi(["👤 Toi<br/>VS Code et navigateur"])
+    Invites(["👥 Tes invités<br/>navigateur"])
+    subgraph Serveur["🖥️ Ton serveur, avec CodeLab"]
+        direction TB
+        Hub["🏠 Le hub<br/>ouvrir, déployer, partager"]
+        Atelier["💻 L'atelier<br/>le code de tes projets"]
+        Apps["🚀 Tes applications<br/>en ligne"]
+        Donnees[("🗄️ Les données<br/>bases, mails, tâches planifiées")]
+    end
+    Toi -- "écrit le code" --> Atelier
+    Toi -- "pilote" --> Hub
+    Invites -- "se connectent" --> Hub
+    Hub -- "met en ligne" --> Apps
+    Atelier --> Apps
+    Apps --> Donnees
+```
+
+Tout reste sur ton serveur : le code, les bases, les mails, les sauvegardes.
 
 ## Ce que fait CodeLab
 
 | Besoin | Ce que CodeLab fournit |
 |---|---|
-| Écrire du code | un conteneur SSH prêt pour VS Code Remote, avec Python, Node, git, `psql`, Codex, et l'outil `codelab` qui crée un projet en une commande |
-| Le mettre en ligne | le panneau détecte les commandes de build et de lancement, construit, lance, relance après un crash, et sert l'application sur sa propre adresse |
-| Stocker | Postgres (une base par projet, pgvector inclus) et Redis, déjà configurés partout |
-| Envoyer des mails | Mailpit garde chaque mail consultable et le relaie par ton serveur d'envoi ; les applications n'ont aucun identifiant à connaître |
-| Planifier des tâches | Dagster charge tout `definitions.py` des projets, sans fichier central |
-| Partager | comptes invités, second facteur obligatoire, applications privées ou publiques, connexion avec CodeLab (SSO) |
-| Surveiller | alertes par mail, journal des accès, diagnostic de l'installation, audit hebdomadaire des dépendances |
-| Ne rien perdre | sauvegardes quotidiennes des bases et du panneau, archive hebdomadaire du code, restauration d'essai |
+| Écrire du code | VS Code relié au serveur, avec Python, Node, git, Codex, et `codelab new` qui crée un projet en une commande |
+| Le mettre en ligne | le hub détecte comment construire et lancer le projet, le relance s'il plante, et lui donne sa propre adresse |
+| Stocker | une base Postgres par projet (et un cache Redis), déjà branchées |
+| Envoyer des mails | les applications envoient sans identifiant à connaître ; chaque mail reste consultable |
+| Planifier des tâches | un fichier `definitions.py` dans le projet, et Dagster le fait tourner |
+| Partager | invitations par mail, Face ID / Touch ID ou code par mail, applications privées ou publiques |
+| Échanger | messages avec captures et maquettes, projets, planning, feuille de route, export complet |
+| Surveiller | alertes par mail, journal des accès, diagnostic de l'installation |
+| Ne rien perdre | sauvegardes quotidiennes, archive hebdomadaire du code, restauration d'essai |
 
-Le détail de chaque fonctionnalité : **[`docs/FONCTIONNALITES.md`](docs/FONCTIONNALITES.md)**.
-
-## Comment
-
-```mermaid
-flowchart LR
-    Nav(["Navigateur"])
-    subgraph Serveur["Ton serveur — réseau Docker « codelab »"]
-        Panneau["app-manager<br/>panneau :9001<br/>applications :9002"]
-        Proxy["dagster-proxy<br/>:3000 :8025"]
-        Dagster["dagster"]
-        Mailpit["mailpit"]
-        PG[("postgres")]
-        Redis[("redis")]
-        Dev["dev<br/>SSH :2222"]
-        WS[["/workspace"]]
-    end
-    Nav --> Panneau
-    Nav --> Proxy
-    Proxy -- "session admin ?" --> Panneau
-    Proxy --> Dagster
-    Proxy --> Mailpit
-    Panneau --> PG
-    Panneau --> Mailpit
-    Dagster --> PG
-    Dev --> PG
-    Dev --> Redis
-    Panneau -. lance .-> WS
-    Dagster -. charge .-> WS
-    Dev -. édite .-> WS
-```
-
-| Service | Rôle | Port publié |
-|---|---|---|
-| **app-manager** | Le panneau : comptes, déploiement, supervision. Il sert aussi les applications, sur une autre origine | `9001` (panneau), `9002` (applications) |
-| **dagster-proxy** | Exige la session d'administration du panneau devant Dagster et Mailpit | `3000`, `8025` |
-| **dagster** | Orchestrateur : interface et daemon (plannings, capteurs) | aucun |
-| **mailpit** | Garde et relaie tous les mails | aucun (interface par le proxy) |
-| **postgres** | Une base par projet, pgvector, sauvegardes quotidiennes | aucun |
-| **redis** | Cache, sessions, files de tâches partagés | aucun |
-| **dev** | Poste de développement SSH et VS Code | `2222` |
+Le détail de chaque fonctionnalité : **[`FONCTIONNALITES.md`](FONCTIONNALITES.md)**.
 
 Quatre principes :
 
-- **`/workspace` est le seul dossier de travail.** Les trois services qui en ont besoin le partagent.
-- **Rien n'est à configurer.** Mots de passe, clés et connexions sont générés au premier démarrage
-  dans `credentials.env`.
-- **Toutes les données vivent hors des conteneurs**, dans `/DATA/AppData/codelab/`. Elles survivent
-  aux mises à jour.
+- **Un seul dossier de travail**, `/workspace` : le code de tous tes projets.
+- **Rien à configurer.** Mots de passe, clés et connexions sont créés au premier démarrage.
+- **Les données vivent hors des conteneurs**, dans `/DATA/AppData/codelab/` : elles survivent aux
+  mises à jour.
 - **La sécurité est au plus strict par défaut.** Voir [`SECURITE.md`](SECURITE.md).
 
 ## Installer
@@ -88,7 +68,8 @@ docker compose up -d
 ```
 
 1. **Mot de passe administrateur** : `sudo grep APP_MANAGER_ADMIN_PASSWORD /DATA/AppData/codelab/config/credentials.env`.
-2. **Panneau** : `http://<serveur>:9001/`. Identifiant `admin`, puis enregistrement du second facteur.
+2. **Panneau** : `http://<serveur>:9001/`. Identifiant `admin`, puis Face ID / Touch ID ou une
+   application de codes pour le second facteur.
 3. **SSH** : dépose ta clé publique dans `/DATA/AppData/codelab/config/ssh/authorized_keys.d/` (un
    fichier par machine), puis `ssh vscode@<serveur> -p 2222`.
 4. **Serveur d'envoi** : *Paramètres > E-mail* (un compte Gmail avec mot de passe d'application suffit).
@@ -138,11 +119,29 @@ cd /workspace/mon-projet         # puis coder (codex, ou VS Code)
 **Sauvegarde `credentials.env` à part.** Il contient `APP_MANAGER_CHIFFREMENT_CLE`, sans laquelle
 les réglages chiffrés sont illisibles.
 
+## Sous le capot
+
+Sept services Docker, sur un réseau privé `codelab`. Seuls le panneau, Dagster/Mailpit (derrière la
+session d'administration) et SSH sont publiés.
+
+| Service | Rôle | Port publié |
+|---|---|---|
+| **app-manager** | Le panneau : comptes, déploiement, supervision. Il sert aussi les applications, sur une autre origine | `9001` (panneau), `9002` (applications) |
+| **dagster-proxy** | Exige la session d'administration du panneau devant Dagster et Mailpit | `3000`, `8025` |
+| **dagster** | Orchestrateur : interface et daemon (plannings, capteurs) | aucun |
+| **mailpit** | Garde et relaie tous les mails | aucun (interface par le proxy) |
+| **postgres** | Une base par projet, pgvector, sauvegardes quotidiennes | aucun |
+| **redis** | Cache, sessions, files de tâches partagés | aucun |
+| **dev** | Poste de développement SSH et VS Code | `2222` |
+
+Le panneau, Dagster et le poste de développement partagent `/workspace` : le poste y écrit le code,
+le panneau y lance les applications, Dagster y charge les `definitions.py`.
+
 ## Documentation
 
 | Document | Pour |
 |---|---|
-| [`docs/FONCTIONNALITES.md`](docs/FONCTIONNALITES.md) | toutes les fonctionnalités, et où elles sont détaillées |
+| [`FONCTIONNALITES.md`](FONCTIONNALITES.md) | toutes les fonctionnalités, et où elles sont détaillées |
 | [`SECURITE.md`](SECURITE.md) | ce que CodeLab garantit, comment, ses limites ; la liste de mise en production |
 | [`dev/README.md`](dev/README.md) | le poste de développement : SSH, VS Code, `codelab`, git, Codex |
 | [`dev/AGENTS.md`](dev/AGENTS.md) | les règles qu'un projet doit suivre pour s'intégrer au hub ; lu par les agents de code |

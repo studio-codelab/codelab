@@ -29,7 +29,10 @@ import datetime
 import enum
 import importlib.util
 import inspect
+import hashlib
+import io
 import json
+import zipfile
 import os
 from pathlib import Path
 import queue
@@ -1341,7 +1344,9 @@ def test_le_mot_de_passe_du_panneau_n_est_pas_transmis_aux_applications(tmp_path
         "APP_MANAGER_TOTP_SECRET=second-facteur",
     ]))
     partages = app.secrets_partages()
-    assert partages["POSTGRES_PASSWORD"] == "mdp-postgres"
+    # Ni le mot de passe du panneau, ni le compte administrateur de Postgres :
+    # chaque application recoit celui de SA base (identifiants_base).
+    assert "POSTGRES_PASSWORD" not in partages
     assert not [c for c in partages if c.startswith("APP_MANAGER_")]
 
 
@@ -1359,7 +1364,7 @@ def test_le_bloc_d_alertes_du_panneau_n_est_pas_transmis_aux_applications(tmp_pa
     partent les alertes.
     """
     _credentials(tmp_path, monkeypatch, "\n".join([
-        "POSTGRES_PASSWORD=mdp-postgres",
+        "REDIS_PASSWORD=mdp-redis",
         "SMTP_HOST=smtp.example.com",
         "SMTP_PORT=587",
         "SMTP_TLS=starttls",
@@ -1370,7 +1375,7 @@ def test_le_bloc_d_alertes_du_panneau_n_est_pas_transmis_aux_applications(tmp_pa
         "API_TOKEN=jeton-metier",
     ]))
     partages = app.secrets_partages()
-    assert partages == {"POSTGRES_PASSWORD": "mdp-postgres",
+    assert partages == {"REDIS_PASSWORD": "mdp-redis",
                         "API_TOKEN": "jeton-metier"}
     # Nomme la cle la plus grave separement : si la liste d'exclusion venait a
     # etre reduite un jour, l'echec doit designer ce qui a fuite.
@@ -1422,10 +1427,10 @@ def test_la_derniere_occurrence_gagne_et_les_guillemets_sautent(tmp_path, monkey
         "# commentaire",
         "",
         "ligne malformee sans egal",
-        'POSTGRES_PASSWORD="perime"',
-        "POSTGRES_PASSWORD='a-jour'",
+        'REDIS_PASSWORD="perime"',
+        "REDIS_PASSWORD='a-jour'",
     ]))
-    assert app.secrets_partages() == {"POSTGRES_PASSWORD": "a-jour"}
+    assert app.secrets_partages() == {"REDIS_PASSWORD": "a-jour"}
 
 
 def test_un_fichier_illisible_ne_empeche_pas_de_lancer(tmp_path, monkeypatch):
@@ -3501,7 +3506,10 @@ def _semer_ouvertures(monkeypatch, tmp_path, evenements):
 def test_la_carte_compte_par_jour_et_pas_par_evenement(journal, tmp_path, monkeypatch):
     """Une case par jour : trois ouvertures le meme jour font une case a
     trois, pas trois cases."""
-    hier = time.time() - 86400
+    # Hier a midi : quatre evenements a une minute d'ecart ne doivent pas
+    # tomber de part et d'autre de minuit (le test echouait vers 23 h 58).
+    hier = (datetime.datetime.now().replace(hour=12, minute=0, second=0, microsecond=0)
+            - datetime.timedelta(days=1)).timestamp()
     _semer_ouvertures(monkeypatch, tmp_path, [
         {"id": "a", "ts": int(hier), "genre": "ouverture", "qui": "marie", "app": "prive"},
         {"id": "b", "ts": int(hier) + 60, "genre": "ouverture", "qui": "marie", "app": "prive"},
@@ -11424,8 +11432,8 @@ def test_l_extension_postgresql_est_recommandee_sans_ecraser_le_reste(tmp_path):
     for _ in range(2):   # idempotent : pas de doublon au redemarrage
         subprocess.run(["bash", "-c", script], check=True, timeout=30)
     contenu = json.loads(fichier.read_text())
-    assert contenu == {"recommendations": ["ms-python.python", "cweijan.vscode-database-client2",
-                                           "cweijan.dbclient-jdbc"],
+    assert contenu == {"recommendations": ["ms-python.python", "mtxr.sqltools", "mtxr.sqltools-driver-pg",
+                                           "cweijan.vscode-database-client2", "cweijan.dbclient-jdbc"],
                        "autre": 1}
     # Un fichier JSONC (avec commentaires) est laisse tel quel.
     fichier.write_text('// a moi\n{"recommendations": []}')
@@ -11441,9 +11449,248 @@ def test_l_extension_postgresql_s_installe_une_fois_sous_le_compte_vscode():
     assert 'ls -d "$VSCODE_SERVER_DIR/extensions/$ext_min-"*' in source
     assert "-mmin -60" in source
     for chemin in _composes():
-        assert ('CODELAB_VSCODE_EXTENSIONS: '
-                '"cweijan.vscode-database-client2 cweijan.dbclient-jdbc"') in open(
+        assert ('CODELAB_VSCODE_EXTENSIONS: "mtxr.sqltools mtxr.sqltools-driver-pg '
+                'cweijan.vscode-database-client2 cweijan.dbclient-jdbc"') in open(
             chemin, encoding="utf-8").read(), chemin
+
+
+def test_chaque_base_apparait_dans_sqltools_sans_rien_creer(tmp_path):
+    """SQLTools lit ses connexions dans les reglages : « codelab vscode-bases »
+    y declare chaque base de projet (groupe CodeLab), CHACUNE AVEC SON COMPTE
+    (~/.codelab-bases, tenu par le gardien des bases), garde les connexions
+    ajoutees a la main, et ne touche pas un fichier a commentaires."""
+    import subprocess
+    bases = tmp_path / "bases"
+    bases.write_text("recettes mdpR\ncarnet mdpC\n")
+    reglages = tmp_path / "Machine" / "settings.json"
+    reglages.parent.mkdir()
+    reglages.write_text(json.dumps({"editor.fontSize": 14, "sqltools.connections": [
+        {"name": "perso", "driver": "PostgreSQL"},
+        {"name": "ancienne", "group": "CodeLab", "driver": "PostgreSQL"}]}))
+    env = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path),
+           "CODELAB_VSCODE_REGLAGES": str(reglages), "CODELAB_BASES_FICHIER": str(bases)}
+    commande = ["sh", os.path.join(_racine_depot(), "dev", "codelab"), "vscode-bases"]
+    subprocess.run(commande, env=env, check=True, timeout=30)
+    d = json.loads(reglages.read_text())
+    assert d["editor.fontSize"] == 14
+    assert [(c["name"], c.get("group")) for c in d["sqltools.connections"]] == [
+        ("recettes", "CodeLab"), ("carnet", "CodeLab"), ("perso", None)]
+    c = d["sqltools.connections"][1]
+    assert c["driver"] == "PostgreSQL" and c["server"] == "codelab-postgres" and c["database"] == "carnet"
+    # Le compte de la base, jamais l'administrateur.
+    assert c["username"] == "carnet" and c["password"] == "mdpC"
+    assert stat.S_IMODE(os.stat(reglages).st_mode) == 0o600
+    assert not (tmp_path / ".pgpass").exists(), "le terminal n'a que le compte du projet ouvert"
+    # Un fichier avec des commentaires reste tel quel.
+    reglages.write_text("// a moi\n{}")
+    r = subprocess.run(commande, env=env, timeout=30, capture_output=True, text=True)
+    assert r.returncode != 0 and reglages.read_text() == "// a moi\n{}"
+    # Le gardien des bases du poste les tient a jour, et apres « codelab db ».
+    source = open(os.path.join(_racine_depot(), "dev", "entrypoint.sh"), encoding="utf-8").read()
+    assert "codelab vscode-bases --discret" in source and "ecrire_les_bases_du_poste || true" in source
+
+
+# ---------- une base, un compte ----------
+
+def _initdb():
+    import glob
+    for chemin in sorted(glob.glob("/usr/lib/postgresql/*/bin/initdb"), reverse=True) + [
+            shutil.which("initdb") or ""]:
+        if chemin and os.path.exists(chemin):
+            return os.path.dirname(chemin)
+    return None
+
+
+@pytest.fixture
+def pg_reel(tmp_path):
+    """Un vrai PostgreSQL, ephemere, monte comme celui de CodeLab : un
+    super-utilisateur « codelab », les bases dagster et codelab. Ignore si la
+    machine n'a pas de serveur Postgres (les runners GitHub en ont un)."""
+    import subprocess, socket
+    binaires = _initdb()
+    if not binaires or not shutil.which("psql"):
+        pytest.skip("serveur PostgreSQL absent")
+    dossier = tmp_path / "pg"
+    dossier.mkdir()
+    en_root = os.geteuid() == 0
+    prefixe = ["runuser", "-u", "postgres", "--"] if en_root else []
+    if en_root:
+        shutil.chown(dossier, "postgres")
+        os.chmod(tmp_path, 0o755)
+        for parent in tmp_path.parents:
+            try:
+                os.chmod(parent, os.stat(parent).st_mode | 0o001)
+            except OSError:
+                pass
+    with socket.socket() as so:
+        so.bind(("127.0.0.1", 0))
+        port = so.getsockname()[1]
+    r = subprocess.run(prefixe + [f"{binaires}/initdb", "-D", str(dossier / "data"), "-U", "codelab",
+                                  "--auth-local=trust", "--auth-host=scram-sha-256"],
+                       capture_output=True, text=True, timeout=120)
+    if r.returncode != 0:
+        pytest.skip(f"initdb impossible : {r.stderr[:200]}")
+    subprocess.run(prefixe + [f"{binaires}/pg_ctl", "-D", str(dossier / "data"), "-w", "-l",
+                              str(dossier / "log"), "-o",
+                              f"-p {port} -k {dossier} -c listen_addresses=127.0.0.1", "start"],
+                   check=True, capture_output=True, timeout=120)
+    env = dict(os.environ, PGHOST="127.0.0.1", PGPORT=str(port), PGUSER="codelab")
+    env.pop("PGPASSWORD", None)
+
+    def psql(*args, utilisateur="codelab", mdp=None, base="dagster", entree=None, extra=None):
+        e = dict(env, PGHOST=str(dossier) if mdp is None and utilisateur == "codelab" else "127.0.0.1",
+                 PGUSER=utilisateur, **(extra or {}))
+        if mdp is not None:
+            e["PGPASSWORD"] = mdp
+        return subprocess.run(["psql", "-X", "-v", "ON_ERROR_STOP=1", "-Atq", "-d", base, *args],
+                              env=e, capture_output=True, text=True, timeout=60, input=entree)
+    psql("-c", "ALTER ROLE codelab PASSWORD 'cle-admin'", base="postgres")
+    for b in ("dagster", "codelab"):
+        psql("-c", f"CREATE DATABASE {b}", base="postgres")
+    yield {"port": port, "socket": str(dossier), "psql": psql, "cle": "cle-admin"}
+    subprocess.run(prefixe + [f"{binaires}/pg_ctl", "-D", str(dossier / "data"), "-m", "fast", "stop"],
+                   capture_output=True, timeout=120)
+
+
+def _sql_proteger():
+    return os.path.join(_racine_depot(), "postgres", "proteger-base.sql")
+
+
+def test_le_mot_de_passe_d_une_base_se_derive_pareil_partout():
+    """Panneau (Python), poste (sha256sum) et Postgres (SQL) : une seule
+    formule, ecrite trois fois -- elles doivent donner la meme chose."""
+    import subprocess
+    attendu = app.mot_de_passe_base("recettes", "cle-admin")
+    shell = subprocess.run(["sh", "-c", "printf '%s' 'cle-admin:codelab-base:recettes' | sha256sum | cut -c1-64"],
+                           capture_output=True, text=True, check=True).stdout.strip()
+    assert attendu == shell == hashlib.sha256(b"cle-admin:codelab-base:recettes").hexdigest()
+    sql = open(_sql_proteger(), encoding="utf-8").read()
+    assert "sha256(convert_to(:'cle' || ':codelab-base:' || :'base', 'UTF8'))" in sql
+    entree = open(os.path.join(_racine_depot(), "dev", "entrypoint.sh"), encoding="utf-8").read()
+    assert '"$PG_PASSWORD:codelab-base:$b" | sha256sum | cut -c1-64' in entree
+
+
+def test_chaque_application_ne_recoit_que_le_compte_de_sa_base(tmp_path, monkeypatch):
+    projet = tmp_path / "recettes"
+    projet.mkdir()
+    monkeypatch.setattr(app, "read_shared_value",
+                        lambda k: {"POSTGRES_PASSWORD": "cle-admin", "POSTGRES_USER": "codelab"}.get(k))
+    vues = []
+    monkeypatch.setattr(app, "assurer_base", lambda b: vues.append(b) or True)
+    a = {"path": str(projet)}
+    assert app.identifiants_base(a) == {"POSTGRES_USER": "recettes", "CODELAB_DB": "recettes",
+                                        "POSTGRES_PASSWORD": app.mot_de_passe_base("recettes", "cle-admin")}
+    assert vues == ["recettes"], "la base est preparee avant le lancement"
+    # CODELAB_DB dans le .env du projet l'emporte sur le nom du dossier.
+    (projet / ".env").write_text("# config\nexport CODELAB_DB='carnet'\n")
+    assert app.identifiants_base(a)["POSTGRES_USER"] == "carnet"
+    # Une base de la stack, ou un nom qui n'en est pas un : aucun compte.
+    for nom in ("dagster", "codelab", "1projet", "a b"):
+        (projet / ".env").write_text(f"CODELAB_DB={nom}\n")
+        assert app.identifiants_base(a) == {}, nom
+    # Le compte administrateur ne part plus vers les applications.
+    config = tmp_path / "credentials.env"
+    config.write_text("POSTGRES_USER=codelab\nPOSTGRES_PASSWORD=cle-admin\nREDIS_URL=redis://x\n")
+    monkeypatch.setattr(app, "SHARED_ENV_FILE", str(config))
+    partages = app.secrets_partages()
+    assert "POSTGRES_PASSWORD" not in partages and "POSTGRES_USER" not in partages
+    assert partages["REDIS_URL"] == "redis://x"
+    source = open(os.path.join(_racine_depot(), "app-manager", "app", "app.py"), encoding="utf-8").read()
+    assert source.count("**identifiants_base(a)") == 2, "lancement ET build"
+
+
+def test_une_base_un_compte_dans_un_vrai_postgres(pg_reel, tmp_path, monkeypatch):
+    """De bout en bout : le panneau prepare la base d'une application, son
+    compte y fait tout, n'entre nulle part ailleurs ; ce que l'administrateur
+    (Dagster) y ecrit lui reste accessible ; au demarrage, codelab-postgres
+    reprend une base d'avant ce mecanisme et ferme celles de la stack."""
+    import subprocess
+    psql, cle = pg_reel["psql"], pg_reel["cle"]
+    monkeypatch.setattr(app, "PROTEGER_SQL", _sql_proteger())
+    monkeypatch.setattr(app, "_bases_assurees", {})
+    monkeypatch.setattr(app, "read_shared_value", lambda k: {
+        "POSTGRES_PASSWORD": cle, "POSTGRES_USER": "codelab", "POSTGRES_HOST": "127.0.0.1",
+        "POSTGRES_PORT": str(pg_reel["port"]), "POSTGRES_DB": "dagster"}.get(k))
+    for nom in ("alpha", "beta"):
+        (tmp_path / nom).mkdir()
+        ids = app.identifiants_base({"path": str(tmp_path / nom)})
+        assert ids["POSTGRES_USER"] == nom
+    mdp_alpha = app.mot_de_passe_base("alpha", cle)
+    r = psql("-c", "CREATE TABLE notes(t text); INSERT INTO notes VALUES ('x'); "
+                   "SELECT current_schema(), count(*) FROM notes",
+             utilisateur="alpha", mdp=mdp_alpha, base="alpha")
+    assert r.returncode == 0 and r.stdout.strip() == "dagster|1", r.stderr
+    for autre in ("beta", "dagster", "codelab"):
+        r = psql("-c", "SELECT 1", utilisateur="alpha", mdp=mdp_alpha, base=autre)
+        assert r.returncode != 0, f"alpha entre dans {autre}"
+    # Le compte n'a aucun pouvoir de plus.
+    r = psql("-c", "CREATE DATABASE pirate", utilisateur="alpha", mdp=mdp_alpha, base="alpha")
+    assert r.returncode != 0
+    # Ce que l'administrateur cree ensuite (Dagster) reste au projet.
+    assert psql("-c", "CREATE TABLE dagster.par_dagster(x int)", base="alpha").returncode == 0
+    r = psql("-c", "INSERT INTO par_dagster VALUES (1); SELECT count(*) FROM par_dagster",
+             utilisateur="alpha", mdp=mdp_alpha, base="alpha")
+    assert r.returncode == 0 and r.stdout.strip() == "1", r.stderr
+
+    # Une base d'avant : creee par l'administrateur, tables a lui.
+    assert psql("-c", "CREATE DATABASE ancien", base="dagster").returncode == 0
+    assert psql("-c", "CREATE SCHEMA dagster; CREATE TABLE dagster.mesures(id serial, v int); "
+                      "INSERT INTO dagster.mesures(v) VALUES (7); "
+                      "CREATE VIEW dagster.vue AS SELECT v FROM dagster.mesures",
+                base="ancien").returncode == 0
+    # Le bloc de codelab-postgres, tel quel, contre ce serveur.
+    entree = open(os.path.join(_racine_depot(), "postgres", "entrypoint.sh"), encoding="utf-8").read()
+    debut = entree.index("PROTEGER_SQL=/usr/local/share/codelab/proteger-base.sql")
+    fin = entree.index("\n}\n", entree.index("proteger_les_bases() {")) + 3
+    script = (f"PROTEGER_SQL={_sql_proteger()}\n" + entree[debut:fin].split("\n", 1)[1]
+              + "\nproteger_les_bases\n")
+    r = subprocess.run(["sh", "-c", script], capture_output=True, text=True, timeout=120, env=dict(
+        os.environ, PGHOST=pg_reel["socket"], PGPORT=str(pg_reel["port"]), POSTGRES_USER="codelab",
+        CODELAB_INSTANCE_DB="dagster", BASE_ESSAI="codelab_essai_restauration", PG_PASSWORD=cle,
+        CODELAB_PROJECT_SCHEMA="dagster"))
+    assert r.returncode == 0 and "base(s) de projet sous leur propre compte" in r.stdout, r.stderr
+    mdp_ancien = app.mot_de_passe_base("ancien", cle)
+    r = psql("-c", "SELECT count(*) FROM vue; INSERT INTO mesures(v) VALUES (8)",
+             utilisateur="ancien", mdp=mdp_ancien, base="ancien")
+    assert r.returncode == 0 and r.stdout.strip().startswith("1"), r.stderr
+    for pile in ("dagster", "codelab"):
+        r = psql("-c", "SELECT 1", utilisateur="ancien", mdp=mdp_ancien, base=pile)
+        assert r.returncode != 0, f"la base de la stack {pile} est restee ouverte"
+    # Rejouer ne casse rien.
+    r = subprocess.run(["sh", "-c", script], capture_output=True, text=True, timeout=120, env=dict(
+        os.environ, PGHOST=pg_reel["socket"], PGPORT=str(pg_reel["port"]), POSTGRES_USER="codelab",
+        CODELAB_INSTANCE_DB="dagster", BASE_ESSAI="codelab_essai_restauration", PG_PASSWORD=cle,
+        CODELAB_PROJECT_SCHEMA="dagster"))
+    assert r.returncode == 0, r.stderr
+
+
+def test_le_terminal_a_le_compte_du_projet_ou_il_se_trouve(tmp_path):
+    import subprocess
+    ws = tmp_path / "ws"
+    (ws / "recettes" / "src").mkdir(parents=True)
+    (ws / "autre").mkdir()
+    (ws / "nomdiff").mkdir()
+    (ws / "nomdiff" / ".env").write_text("CODELAB_DB='carnet'\n")
+    (tmp_path / ".codelab-bases").write_text("recettes mdpR\ncarnet mdpC\n")
+    crochet = os.path.join(_racine_depot(), "dev", "bases-du-dossier.sh")
+    script = f""". {crochet}
+for d in {ws}/recettes/src {ws}/autre {ws}/nomdiff {tmp_path}; do
+  cd "$d"; codelab_base_du_dossier
+  echo "${{PGUSER:-}}|${{PGPASSWORD:-}}|${{POSTGRES_USER:-}}|${{CODELAB_DB:-}}"
+done
+echo "$PROMPT_COMMAND"
+"""
+    r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30,
+                       env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "CODELAB_WORKSPACE": str(ws)})
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.splitlines() == ["recettes|mdpR|recettes|recettes", "|||", "carnet|mdpC|carnet|carnet",
+                                     "|||", "codelab_base_du_dossier"]
+    # Le profil des sessions n'exporte plus le compte administrateur.
+    entree = open(os.path.join(_racine_depot(), "dev", "entrypoint.sh"), encoding="utf-8").read()
+    bloc = entree[entree.index("echo '# Genere par codelab-dev au demarrage"):entree.index('} > "$PROFILE"')]
+    assert "PG_PASSWORD" not in bloc and "PGUSER" not in bloc and ". $BASES_DU_DOSSIER" in bloc
+    assert "export PGPASSWORD" not in open(os.path.join(_racine_depot(), "dev", "codelab"),
+                                           encoding="utf-8").read()
 
 
 # ---------- le coffre : reglages et adresses chiffres, en base et en local ----
@@ -12900,6 +13147,81 @@ def test_l_utilisateur_suit_ses_messages(boite, deux_espaces):
         assert trace in page, trace
 
 
+PNG_1PX = bytes.fromhex("89504e470d0a1a0a0000000d4948445200000001000000010806000000"
+                        "1f15c4890000000d49444154789c63000100000500010d0a2db40000000049454e44ae426082")
+
+
+def test_un_message_porte_des_captures_et_des_maquettes(boite, deux_espaces):
+    """Images et PDF, reconnus a leurs octets ; lus par l'administrateur et
+    par qui les a deposes, par personne d'autre."""
+    c, _ = boite
+    app._dernier_message.clear()
+    u = app.flask_app.test_client()
+    _connecte(u, "marie", "mot-de-passe-long")
+    h = {}
+    r = u.post("/api/pieces", data=PNG_1PX, headers=dict(h, **{"X-Nom-Fichier": "Capture%20%C3%A9cran.png"}))
+    assert r.status_code == 200, r.data
+    capture = r.get_json()
+    assert capture["type"] == "image/png" and capture["nom"] == "Capture écran.png"
+    maquette = u.post("/api/pieces", data=b"%PDF-1.4\n...", headers=dict(h, **{"X-Nom-Fichier": "maquette"})).get_json()
+    assert maquette["nom"] == "maquette.pdf"
+    # Un SVG (du code), ou un faux PNG : refuses.
+    assert u.post("/api/pieces", data=b"<svg onload=alert(1)>", headers=h).status_code == 415
+    assert u.post("/api/pieces", data=b"pas une image", headers=dict(h, **{"X-Nom-Fichier": "x.png"})).status_code == 415
+    r = u.post("/api/messages", json={"cible": "idee", "texte": "",
+                                      "pieces": [capture["id"], maquette["id"]]}, headers=h)
+    assert r.status_code == 200, r.data
+    (m,) = [x for x in c.get("/api/messages").get_json()["messages"] if x["qui"] == "marie"]
+    assert [p["nom"] for p in m["pieces"]] == ["Capture écran.png", "maquette.pdf"]
+    lu = c.get("/api/pieces/" + capture["id"])
+    assert lu.status_code == 200 and lu.data == PNG_1PX and lu.mimetype == "image/png"
+    assert lu.headers["X-Content-Type-Options"] == "nosniff"
+    assert u.get("/api/pieces/" + capture["id"]).status_code == 200
+    # Le suivi de marie montre ses pieces.
+    assert u.get("/api/mes-messages").get_json()["messages"][0]["pieces"][0]["id"] == capture["id"]
+    # Un autre compte ne lit rien ; une piece deja envoyee ne se rattache pas deux fois.
+    app._dernier_message.clear()
+    assert u.post("/api/messages", json={"cible": "hub", "texte": "x", "pieces": [capture["id"]]},
+                  headers=h).status_code == 400
+    # Supprimer le message emporte ses pieces.
+    assert c.delete("/api/messages/" + m["id"]).status_code == 200
+    assert c.get("/api/pieces/" + capture["id"]).status_code == 404
+    assert stockage_lignes("pieces") == 0
+
+
+def test_un_projet_s_exporte_en_entier(boite):
+    c, _ = boite
+    ident = _message(c, "idee", "Un carnet de recettes")
+    with app.stockage.transaction(app.DB_FILE) as cx:
+        cx.execute("INSERT INTO pieces VALUES ('p1', ?, 'marie', 'maquette.png', 'image/png', ?, ?, ?)",
+                   (ident, len(PNG_1PX), int(time.time()), PNG_1PX))
+    app.modifier_messages({ident: {"pieces": [{"id": "p1", "nom": "maquette.png",
+                                               "type": "image/png", "taille": len(PNG_1PX)}]}})
+    projet = c.post(f"/api/messages/{ident}/accepter",
+                    json={"nouveau_projet": {"nom": "Recettes", "description": "Partager nos recettes."},
+                          "taches": ["Maquette", "Base"]}).get_json()["projet"]
+    r = c.get(f"/api/projets/{projet}/export")
+    assert r.status_code == 200 and r.mimetype == "application/zip"
+    assert "recettes-" in r.headers["Content-Disposition"]
+    z = zipfile.ZipFile(io.BytesIO(r.data))
+    noms = set(z.namelist())
+    assert {"projet.md", "projet.json"} <= noms
+    (piece,) = [n for n in noms if n.startswith("pieces/")]
+    assert z.read(piece) == PNG_1PX
+    md = z.read("projet.md").decode()
+    assert md.startswith("# Recettes") and "Partager nos recettes." in md
+    assert "- [ ] **Maquette**" in md and "Un carnet de recettes" in md and f"]({piece})" in md
+    assert json.loads(z.read("projet.json"))["nom"] == "Recettes"
+    # Tout exporter : un dossier par projet, et un sommaire.
+    r = c.get("/api/projets-export")
+    z = zipfile.ZipFile(io.BytesIO(r.data))
+    assert "LISEZMOI.md" in z.namelist() and "recettes/projet.md" in z.namelist()
+    assert c.get("/api/projets/p-inconnu/export").status_code == 404
+    # Reserve a l'administrateur.
+    u = app.flask_app.test_client()
+    assert u.get(f"/api/projets/{projet}/export").status_code == 401
+
+
 def stockage_lignes(table):
     return app.stockage.lire(app.DB_FILE, f"SELECT COUNT(*) AS n FROM {table}")[0]["n"]
 
@@ -13092,7 +13414,13 @@ def test_le_hub_se_compose_par_compte(deux_espaces):
         {"t": "w", "id": "apercu", "taille": "moyen", "app": "prive-autorise"}]}).status_code == 200
     page = _page_panneau("dashboard.html")
     for trace in ('id="ov-galerie"', "function basculerEdition(", "function galerieAjouter(",
-                  "'hub-deplacer'", "'hub-retirer'", "@keyframes hub-tremble", "prefers-reduced-motion:reduce"):
+                  "'hub-deplacer'", "'hub-retirer'", "@keyframes hub-tremble", "prefers-reduced-motion:reduce",
+                  # Glisser comme sur un iPhone : la tuile suit, les autres glissent,
+                  # la mosaique defile pres des bords ; le tremblement laisse
+                  # « transform » libre pour ces glissements.
+                  "function glisserLesAutres(", "function defilerPresDesBords(", "{from{rotate:-",
+                  # Bord a bord, et l'aimant du defilement sur la marge de gauche.
+                  "margin-left:calc(50% - 50vw)", "el.style.scrollPaddingLeft="):
         assert trace in page, trace
 
 

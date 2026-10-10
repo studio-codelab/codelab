@@ -267,6 +267,25 @@ MIGRATIONS = [
     ALTER TABLE taches ADD COLUMN fait_le INTEGER;
     UPDATE taches SET fait_le = cree WHERE statut = 'fait';
     """,
+    # --- version 6 : les pieces jointes des messages ---
+    # Une capture, une maquette (image ou PDF) jointe a un message. Le
+    # fichier vit dans la base, avec le message : il part avec lui dans les
+    # sauvegardes, et disparait avec lui. message est vide le temps qu'un
+    # depot attende l'envoi de son message.
+    """
+    CREATE TABLE pieces (
+        id       TEXT PRIMARY KEY,
+        message  TEXT,
+        qui      TEXT NOT NULL,
+        nom      TEXT NOT NULL,
+        type     TEXT NOT NULL,
+        taille   INTEGER NOT NULL,
+        ts       INTEGER NOT NULL,
+        donnees  BLOB NOT NULL
+    );
+    CREATE INDEX pieces_message ON pieces(message);
+    CREATE INDEX pieces_qui ON pieces(qui, message);
+    """,
 ]
 
 VERSION = len(MIGRATIONS)
