@@ -78,12 +78,17 @@ blocs. Chaque service réécrit le sien à son démarrage.
 ## Bases de données
 
 Une base **par projet**, nommée comme son dossier, avec un schéma `dagster` sur lequel pointe le
-`search_path`. La base `dagster` ne contient que les tables d'instance de Dagster.
+`search_path`, et **son propre compte** : seul ce compte (et l'administrateur) peut s'y connecter.
+La base `dagster` ne contient que les tables d'instance de Dagster.
 
 ```bash
-codelab db mon-projet      # crée la base (idempotent)
-psql -d mon-projet         # depuis codelab-dev
+codelab db mon-projet      # crée la base et son compte (idempotent)
+cd /workspace/mon-projet && psql   # le shell a le compte de la base du projet
 ```
+
+- L'application reçoit le compte de sa base dans `POSTGRES_USER` / `POSTGRES_PASSWORD` (et
+  `CODELAB_DB`) ; le panneau crée la base au lancement si elle manque. Elle n'a accès à aucune
+  autre base.
 
 - Un projet redit le nom de sa base dans son `.env` (`CODELAB_DB=mon-projet`) s'il change de dossier.
 - `pgvector` est disponible dans chaque base.

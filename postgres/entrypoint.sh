@@ -128,7 +128,7 @@ header_block "# credentials.env -- les identifiants des services CodeLab.
 # Fichier 0600 root : ne pas le copier, il porte plusieurs secrets.
 #
 #   bloc                 ecrit par          sert a                     transmis aux apps
-#   codelab-postgres     codelab-postgres   base partagee (Postgres)   oui
+#   codelab-postgres     codelab-postgres   base partagee (Postgres)   non : chacune recoit le compte de SA base
 #   codelab-redis        codelab-redis      cache et files (Redis)     oui
 #   codelab-mailpit      codelab-mailpit    envoi de mails (SMTP)      oui
 #   codelab-relais-mail  panneau            serveur relaye par Mailpit NON
@@ -361,9 +361,61 @@ SQL
     fi
   done
 
+  # Chaque base de projet a son compte, et seules ses applications y
+  # entrent. Apres la creation des bases ci-dessus, avant le menage.
+  proteger_les_bases
+
   # En dernier : les bases de la stack existent, plus rien n'a besoin de la
   # base livree par initdb.
   drop_maintenance_db
+}
+
+# ----------------------- UNE BASE, UN COMPTE -----------------------
+#
+# Le role « codelab » (POSTGRES_USER) est super-utilisateur : avec lui, on
+# entre partout. Il reste celui de la stack -- le panneau, Dagster, les
+# sauvegardes --, mais plus celui des projets : chaque base de projet a son
+# propre role, du meme nom, seul (avec l'administrateur) a pouvoir s'y
+# connecter. Le panneau donne a chaque application le compte de SA base ;
+# le poste de developpement n'a plus que ceux des projets.
+#
+# Le travail sur une base est dans proteger-base.sql, partage avec le panneau
+# et le poste. Ici, au demarrage : toutes les bases qui ne sont pas celles de
+# la stack, ce qui rattrape aussi une installation d'avant ce mecanisme (les
+# tables existantes passent au role du projet), et realigne les mots de
+# passe si la cle a change. Les bases de la stack, elles, sont fermees a
+# tout autre compte que l'administrateur.
+PROTEGER_SQL=/usr/local/share/codelab/proteger-base.sql
+
+proteger_les_bases() {
+  [ -r "$PROTEGER_SQL" ] || { echo "[codelab-postgres] $PROTEGER_SQL absent :" \
+      "bases non protegees." >&2; return 0; }
+  bases=$(psql -U "$POSTGRES_USER" -d "$CODELAB_INSTANCE_DB" -Atc \
+    "SELECT datname FROM pg_database
+      WHERE NOT datistemplate AND datallowconn
+        AND datname NOT IN ('$CODELAB_INSTANCE_DB', 'codelab', 'postgres', '$BASE_ESSAI')
+      ORDER BY datname" 2>/dev/null) || return 0
+  n=0
+  for db in $bases; do
+    if CODELAB_BASE="$db" CODELAB_CLE_BASES="$PG_PASSWORD" \
+       CODELAB_SCHEMA="$CODELAB_PROJECT_SCHEMA" \
+       psql -U "$POSTGRES_USER" -d "$CODELAB_INSTANCE_DB" -q -f "$PROTEGER_SQL" \
+         >/dev/null 2>"${TMPDIR:-/tmp}/codelab-proteger.err"; then
+      n=$((n + 1))
+    else
+      echo "[codelab-postgres] base \"$db\" non protegee :" \
+           "$(head -c 300 "${TMPDIR:-/tmp}/codelab-proteger.err")" >&2
+    fi
+  done
+  rm -f "${TMPDIR:-/tmp}/codelab-proteger.err"
+  # Les bases de la stack : l'administrateur seul (il est super-utilisateur,
+  # ce retrait ne le concerne pas).
+  for db in "$CODELAB_INSTANCE_DB" codelab; do
+    psql -U "$POSTGRES_USER" -d "$CODELAB_INSTANCE_DB" -qc \
+      "REVOKE ALL ON DATABASE \"$db\" FROM PUBLIC" >/dev/null 2>&1 || true
+  done
+  echo "[codelab-postgres] $n base(s) de projet sous leur propre compte ;" \
+       "bases de la stack reservees a l'administrateur."
 }
 
 # --------------------------- LES SAUVEGARDES ---------------------------

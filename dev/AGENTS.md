@@ -121,7 +121,8 @@ celle du panneau (`9001`). Le hub l'ouvre aussi dans un cadre (`/ouvrir.html`).
 |---|---|
 | `PORT` | le port interne a ecouter |
 | `CODELAB_APP` | l'adresse de l'application (`mon-projet`) |
-| `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | le serveur Postgres partage |
+| `POSTGRES_HOST`, `POSTGRES_PORT` | le serveur Postgres partage |
+| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `CODELAB_DB` | le compte de la base du projet, et son nom : ce compte n'entre que dans cette base |
 | `POSTGRES_DB` | la base d'instance de **Dagster** : **ne t'en sers pas**, utilise la base du projet (section 6) |
 | `REDIS_URL` (+ `REDIS_HOST`, `REDIS_PORT`, `REDIS_USER`, `REDIS_PASSWORD`) | le Redis partage |
 | `MAIL_HOST`, `MAIL_PORT`, `MAIL_URL` | le SMTP de Mailpit, sans identifiants |
@@ -171,12 +172,15 @@ prefixe. Il n'y a ni base fourre-tout ni base `postgres`. L'extension `vector`
 (pgvector) est disponible dans le schema `public`.
 
 ```bash
-codelab db mon-projet     # cree la base et son schema (idempotent) ; elle sera sauvegardee chaque jour
-psql -d mon-projet        # depuis codelab-dev, sans mot de passe a taper
+codelab db mon-projet     # cree la base, son compte et son schema (idempotent) ; sauvegardee chaque jour
+cd /workspace/mon-projet && psql   # le shell a le compte de la base du projet
 ```
 
-- **Depuis `codelab-dev`**, `psycopg.connect(dbname="mon-projet")` suffit : les
-  variables `PG*` sont posees.
+- **Une base, un compte.** Chaque base a son propre compte Postgres, du meme
+  nom : il n'entre que dans sa base. N'essaie pas d'atteindre une autre base
+  (d'un autre projet, ou `dagster` / `codelab`) : c'est refuse, et voulu.
+- **Depuis `codelab-dev`**, dans le dossier du projet, `psycopg.connect()` suffit :
+  les variables `PG*` y portent le compte de sa base.
 - **Depuis l'application ou un job**, les `PG*` n'existent pas. Construis la
   connexion a partir des `POSTGRES_*` et du nom de la base du projet :
 

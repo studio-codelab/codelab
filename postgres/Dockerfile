@@ -33,6 +33,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends postgresql-18-pgvector \
     && rm -rf /var/lib/apt/lists/*
 
+# Une base, un compte : le script partage avec le panneau et le poste.
+COPY postgres/proteger-base.sql /usr/local/share/codelab/proteger-base.sql
 COPY postgres/entrypoint.sh /usr/local/bin/codelab-entrypoint.sh
 RUN chmod +x /usr/local/bin/codelab-entrypoint.sh
 

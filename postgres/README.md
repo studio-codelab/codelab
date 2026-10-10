@@ -11,8 +11,12 @@ par toute la stack. Il n'a **aucun port publié** : seul le réseau `codelab` le
    tête du fichier. Le fichier est en `0600`, et chaque écriture se fait sous verrou `flock`.
 3. **Bases de projet**, une fois le serveur à l'écoute : celles de `CODELAB_PROJECT_DBS` sont créées,
    chacune avec son schéma `dagster`, son `search_path` et l'extension `vector`.
-4. **Base `postgres`.** Celle livrée par `initdb` est supprimée, sauf si elle contient des données.
-5. **Sauvegardes** quotidiennes, chacune relue puis restaurée à l'essai (voir plus bas).
+4. **Une base, un compte.** Chaque base de projet reçoit son propre compte, du même nom, seul
+   (avec l'administrateur) à pouvoir s'y connecter. Les tables existantes passent à ce compte, et
+   les bases `dagster` et `codelab` sont fermées à tout autre compte que l'administrateur. Le travail
+   est dans `proteger-base.sql`, joué aussi par le panneau et par le poste de développement.
+5. **Base `postgres`.** Celle livrée par `initdb` est supprimée, sauf si elle contient des données.
+6. **Sauvegardes** quotidiennes, chacune relue puis restaurée à l'essai (voir plus bas).
 
 **Aucune logique shell dans le compose** : un script inline y était réécrit par Compose et par les
 interfaces d'import (CasaOS). Il vit donc dans l'image.
@@ -25,7 +29,14 @@ interfaces d'import (CasaOS). Il vit donc dans l'image.
 | `codelab` | copie de l'historique du panneau (journal, comptes sans secret) |
 | `diagnostic`, `<projet>` | une base par projet, tables dans son schéma `dagster` |
 
-- **Une base de projet** se crée sans redémarrer : `codelab db mon-projet`, depuis `codelab-dev`.
+- **Une base de projet** se crée sans redémarrer : `codelab db mon-projet`, depuis `codelab-dev`,
+  ou d'elle-même au lancement de l'application par le panneau.
+- **Son compte** porte son nom. Son mot de passe se dérive du mot de passe administrateur
+  (`POSTGRES_PASSWORD`) : `sha256(<mot de passe>:codelab-base:<base>)`, en hexadécimal. Le panneau le
+  donne à l'application, le poste au terminal du projet.
+- **Les comptes** n'ont aucun privilège de plus : ni créer de base, ni de compte, ni contourner les
+  droits. Ce que l'administrateur (Dagster) écrit ensuite dans une base de projet reste accessible à
+  son compte (privilèges par défaut).
 - **Un outil qui vise `postgres` par défaut** (pgAdmin, `createdb`) doit nommer une base, par exemple
   `-d dagster`.
 - **pgvector** : l'extension `vector` est créée dans le schéma `public` de chaque base de projet.
@@ -40,7 +51,7 @@ SELECT texte FROM documents ORDER BY plonge <=> $1 LIMIT 5;
 
 | Variable | Rôle |
 |---|---|
-| `POSTGRES_DB`, `POSTGRES_USER` | base d'instance (`dagster`) et utilisateur (`codelab`) |
+| `POSTGRES_DB`, `POSTGRES_USER` | base d'instance (`dagster`) et administrateur (`codelab`, réservé à la stack) |
 | `CODELAB_PROJECT_DBS` | bases de projet à créer au démarrage (défaut `diagnostic`) |
 | `CODELAB_PROJECT_SCHEMA` | schéma posé dans chaque base (défaut `dagster`) |
 | `CODELAB_CONFIG_DIR` | dossier de `credentials.env` |
@@ -99,6 +110,10 @@ docker exec -i codelab-postgres pg_restore -U codelab -d diagnostic \
 docker exec codelab-postgres createdb -U codelab diagnostic_restaure
 docker exec codelab-postgres pg_restore -U codelab -d diagnostic_restaure \
   /sauvegardes/base-diagnostic-20260115-030000.dump
+
+# Restaurer ailleurs que sur ce serveur (un compte de projet peut y manquer) :
+# ajoute --no-owner ; au démarrage suivant, codelab-postgres rend les tables
+# au compte du projet.
 
 # Voir le contenu sans rien écrire :
 docker exec codelab-postgres pg_restore --list /sauvegardes/base-diagnostic-20260115-030000.dump

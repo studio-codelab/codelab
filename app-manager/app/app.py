@@ -3696,6 +3696,11 @@ CLES_SSO = {"CODELAB_SSO_PRIVATE_KEY", "CODELAB_SSO_PUBLIC_KEY"}
 # mot de passe compris) et le mot de passe interne entre le proxy et Mailpit.
 # Une application qui l'aurait lirait tous les mails de ses voisines.
 PREFIXE_INTERNE = "CODELAB_INTERNE_"
+# Le compte ADMINISTRATEUR de Postgres (super-utilisateur : il entre dans
+# toutes les bases). Il ne part plus vers les applications : chacune recoit
+# a la place le compte de SA base, sous les memes noms -- voir
+# identifiants_base().
+CLES_BASE_ADMIN = {"POSTGRES_USER", "POSTGRES_PASSWORD"}
 
 # Le bloc d'alertes du panneau (serveur d'envoi, identifiant, mot de passe,
 # adresse de l'administrateur). Defini plus bas, avec CHAMPS_SMTP dont il
@@ -3733,7 +3738,7 @@ def secrets_partages():
                 if (not cle or cle.startswith(PREFIXE_PRIVE)
                         or cle.startswith(PREFIXE_INTERNE)
                         or cle in CLES_RESERVEES or cle in CLES_PANNEAU
-                        or cle in CLES_SSO):
+                        or cle in CLES_SSO or cle in CLES_BASE_ADMIN):
                     continue
                 if len(valeur) >= 2 and valeur[0] == valeur[-1] and valeur[0] in "\"'":
                     valeur = valeur[1:-1]
@@ -3743,6 +3748,105 @@ def secrets_partages():
         # applications se debrouillent avec leur propre .env, comme avant.
         pass
     return valeurs
+
+
+# ------------------------ une base, un compte ------------------------
+#
+# Chaque projet a sa base ET son compte Postgres, du meme nom : seul ce
+# compte (et l'administrateur) peut s'y connecter. Une application recoit
+# donc POSTGRES_USER / POSTGRES_PASSWORD -- les memes noms qu'avant, rien a
+# changer dans son code -- mais ceux de SA base : les autres, et celles de
+# la stack (dagster, codelab), lui sont fermees par Postgres lui-meme.
+#
+# Sa base : CODELAB_DB dans le .env du projet, sinon le nom de son dossier
+# (la regle que suivent deja les projets, voir dev/AGENTS.md). Au lancement,
+# le panneau la cree si elle manque, avec son compte : un projet copie tourne
+# sans preparation, comme quand il avait le compte administrateur.
+#
+# Le mot de passe du compte n'est rangé nulle part : il se derive du mot de
+# passe administrateur et du nom de la base -- meme formule que
+# postgres/proteger-base.sql, qui fait le travail cote Postgres.
+PROTEGER_SQL = os.environ.get("CODELAB_PROTEGER_SQL",
+                              "/usr/local/share/codelab/proteger-base.sql")
+BASES_DE_LA_STACK = {"dagster", "codelab", "postgres", "codelab_essai_restauration"}
+NOM_BASE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,62}$")
+BASE_ASSUREE_DUREE = 600
+_bases_assurees = {}
+
+
+def mot_de_passe_base(base, cle):
+    return hashlib.sha256(f"{cle}:codelab-base:{base}".encode("utf-8")).hexdigest()
+
+
+def _valeur_env_projet(chemin, cle):
+    """La derniere valeur de « cle » dans le .env d'un projet, ou None."""
+    valeur = None
+    try:
+        with open(os.path.join(chemin, ".env"), encoding="utf-8", errors="replace") as f:
+            for ligne in f:
+                ligne = ligne.strip()
+                if ligne.startswith("export "):
+                    ligne = ligne[7:].lstrip()
+                if ligne.startswith("#") or "=" not in ligne:
+                    continue
+                k, _, v = ligne.partition("=")
+                if k.strip() == cle:
+                    v = v.strip()
+                    if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+                        v = v[1:-1]
+                    valeur = v
+    except OSError:
+        return None
+    return valeur
+
+
+def base_de_l_app(a):
+    """Le nom de la base d'une application, ou None s'il n'en est pas un."""
+    chemin = (a or {}).get("path") or ""
+    nom = _valeur_env_projet(chemin, "CODELAB_DB") or os.path.basename(chemin.rstrip("/"))
+    if not NOM_BASE_RE.match(nom or "") or nom in BASES_DE_LA_STACK:
+        return None
+    return nom
+
+
+def assurer_base(base):
+    """Cree la base et son compte s'il le faut, et realigne leurs droits.
+
+    Rend True si c'est fait (ou fait il y a peu). Jamais d'exception : une
+    base injoignable ne doit pas empecher une application de demarrer --
+    elle echouerait a s'y connecter, comme avant.
+    """
+    if time.time() - _bases_assurees.get(base, 0) < BASE_ASSUREE_DUREE:
+        return True
+    r = _pg_reglages()
+    if not r["password"] or not os.path.exists(PROTEGER_SQL):
+        return False
+    env = dict(os.environ, PGPASSWORD=r["password"], CODELAB_BASE=base,
+               CODELAB_CLE_BASES=r["password"], PGCONNECT_TIMEOUT="5",
+               CODELAB_SCHEMA=read_shared_value("CODELAB_PROJECT_SCHEMA") or "dagster")
+    try:
+        p = subprocess.run(["psql", "-h", r["host"], "-p", str(r["port"]), "-U", r["user"],
+                            "-d", r["instance"], "-q", "-f", PROTEGER_SQL],
+                           env=env, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"[app-manager] base {base} : {type(e).__name__}: {e}", flush=True)
+        return False
+    if p.returncode != 0:
+        print(f"[app-manager] base {base} non preparee : {p.stderr.strip()[:300]}", flush=True)
+        return False
+    _bases_assurees[base] = time.time()
+    return True
+
+
+def identifiants_base(a):
+    """Ce qu'une application recoit pour SA base : son compte, pas celui de tous."""
+    base = base_de_l_app(a)
+    cle = read_shared_value("POSTGRES_PASSWORD") or ""
+    if not base or not cle:
+        return {}
+    assurer_base(base)
+    return {"POSTGRES_USER": base, "POSTGRES_PASSWORD": mot_de_passe_base(base, cle),
+            "CODELAB_DB": base}
 
 
 def ensure_child_home(nom=None):
@@ -4202,7 +4306,7 @@ def start(name, attendre=True):
         out = open(os.path.join(LOG_DIR, name + ".log"), "ab", buffering=0)
     except OSError as e:
         return f"Journal impossible a ouvrir : {e}"
-    env = dict(os.environ, **secrets_partages())
+    env = dict(os.environ, **secrets_partages(), **identifiants_base(a))
     env.update(PORT=str(a["port"]), PYTHONUNBUFFERED="1",
                HOME=ensure_child_home(name),
                CODELAB_SSO_PUBLIC_KEY=_sso_public_key,
@@ -5912,7 +6016,8 @@ def run_build(name):
     if not cmd:
         return False, "Aucune commande de build definie pour cette application."
     os.makedirs(LOG_DIR, exist_ok=True)
-    env = dict(os.environ, **secrets_partages(), HOME=ensure_child_home(name))
+    env = dict(os.environ, **secrets_partages(), **identifiants_base(a),
+               HOME=ensure_child_home(name))
     logf = os.path.join(LOG_DIR, name + ".log")
     with open(logf, "ab") as out:
         out.write(f"\n$ {cmd}\n".encode())

@@ -348,10 +348,10 @@ services:
     environment:
       PGHOST: codelab-postgres
       PGPORT: "5432"
-      # Une session SSH atterrit dans la base du projet modele, pas dans la
-      # base d'instance de Dagster ni dans la base de maintenance "postgres" :
-      # c'est la ou se trouvent les tables qu'on vient regarder. Pour en
-      # changer le temps d'une commande : psql -d autre-projet.
+      # Le compte administrateur, pour le seul gardien des bases (un processus
+      # root du poste) : les sessions SSH ne l'ont pas. Dans le dossier d'un
+      # projet, elles recoivent le compte de SA base (voir dev/README.md,
+      # « Une base, un compte »).
       PGDATABASE: diagnostic
       PGUSER: codelab
       # Le mot de passe est lu dans credentials.env, comme partout ailleurs.

@@ -26,7 +26,13 @@ RUN apt-get update \
         git \
         nodejs \
         npm \
+        postgresql-client \
     && rm -rf /var/lib/apt/lists/*
+
+# Une base, un compte : au lancement d'une application, le panneau prepare
+# sa base et son compte Postgres avec ce script, le meme que codelab-postgres
+# et le poste (psql : postgresql-client, juste au-dessus).
+COPY postgres/proteger-base.sql /usr/local/share/codelab/proteger-base.sql
 
 # Meme groupe et meme GID que codelab-dev et codelab-dagster : c'est le
 # numero, pas le nom, qui donne les droits communs sur le bind mount.

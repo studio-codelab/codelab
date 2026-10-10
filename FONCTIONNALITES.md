@@ -280,8 +280,11 @@ adresses `/demandes` y mènent.
 - **VS Code Remote-SSH** : le serveur VS Code et ses extensions sont conservés. D'autres
   extensions s'ajoutent dans le compose.
 - **Les bases dans VS Code, sans rien créer** : SQLTools est installé d'office, et chaque base du
-  serveur y apparaît déjà (groupe « CodeLab »), pour n'importe quel projet ouvert ; une base créée
-  par `codelab db` s'y ajoute aussitôt. Database Client (Postgres, Redis) reste installé, avec des
+  serveur y apparaît déjà (groupe « CodeLab »), chacune avec son propre compte, pour n'importe quel
+  projet ouvert ; une base créée par `codelab db` s'y ajoute aussitôt.
+- **Une base, un compte** : le poste n'a pas le compte administrateur de Postgres. Dans le dossier
+  d'un projet, le terminal (et donc un agent de code) a le compte de sa base, et lui seul ; les
+  autres bases et celles de la stack le refusent. Database Client (Postgres, Redis) reste installé, avec des
   connexions à créer à la main.
 
 **Prêt à l'emploi**
@@ -296,7 +299,7 @@ adresses `/demandes` y mènent.
 | Commande | Effet |
 |---|---|
 | `codelab new <nom> [--db] [--ouvrir]` | crée le projet : dossier, git, `.gitignore`, `README.md`, `AGENTS.md`, `CLAUDE.md` et les modules `codelab_auth` et `codelab_web` |
-| `codelab db <nom>` | crée la base du projet et son schéma `dagster` |
+| `codelab db <nom>` | crée la base du projet, son compte et son schéma `dagster` |
 | `codelab agents [dossier]` | écrit ou met à jour le manuel CodeLab dans `AGENTS.md`, et pose un `CLAUDE.md` qui l'importe |
 
 **Raccourcis et agents**
@@ -326,6 +329,11 @@ Détails : [`workspace/README.md`](workspace/README.md) et [`dagster/README.md`]
 ## 8. Données, sauvegardes, restauration
 
 Détails : [`postgres/README.md`](postgres/README.md).
+
+- **Une base, un compte.** Chaque base de projet a son propre compte Postgres, seul (avec
+  l'administrateur) à pouvoir s'y connecter ; une application ne reçoit que le compte de sa base,
+  et le panneau la crée au lancement si elle manque. Les bases de la stack (`dagster`, `codelab`)
+  sont réservées à l'administrateur. Limite : Dagster garde le compte administrateur.
 
 | Sauvegarde | Fréquence | Gardées | Écrite par |
 |---|---|---|---|
