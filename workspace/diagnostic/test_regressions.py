@@ -3503,7 +3503,10 @@ def _semer_ouvertures(monkeypatch, tmp_path, evenements):
 def test_la_carte_compte_par_jour_et_pas_par_evenement(journal, tmp_path, monkeypatch):
     """Une case par jour : trois ouvertures le meme jour font une case a
     trois, pas trois cases."""
-    hier = time.time() - 86400
+    # Hier a midi : quatre evenements a une minute d'ecart ne doivent pas
+    # tomber de part et d'autre de minuit (le test echouait vers 23 h 58).
+    hier = (datetime.datetime.now().replace(hour=12, minute=0, second=0, microsecond=0)
+            - datetime.timedelta(days=1)).timestamp()
     _semer_ouvertures(monkeypatch, tmp_path, [
         {"id": "a", "ts": int(hier), "genre": "ouverture", "qui": "marie", "app": "prive"},
         {"id": "b", "ts": int(hier) + 60, "genre": "ouverture", "qui": "marie", "app": "prive"},
