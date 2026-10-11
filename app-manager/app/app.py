@@ -1243,7 +1243,7 @@ def _tuile_service(nom, description, adresse, debout, port):
         # d'affichage de plus a prevoir, et il finit toujours par passer.
         "path": "", "command": "", "port": port,
         "port_listeners": _ecouteurs_port(port),
-        "failed": False, "crash_looping": False, "has_build": False,
+        "failed": False, "crash_looping": False, "has_build": False, "dernier_echec": None,
         "build_command": "", "max_memory_mb": None, "alertes": [],
         "cpu_percent": 0.0, "memory_mb": 0.0,
         "presentation": None, "presentation_masquee": False,
@@ -1622,6 +1622,44 @@ def compresser(reponse):
     reponse.headers["Content-Encoding"] = "gzip"
     reponse.headers["Content-Length"] = str(len(reponse.get_data()))
     reponse.vary.add("Accept-Encoding")
+    return reponse
+
+
+# ------------------- une reference pour chaque panne -------------------
+#
+# « (reponse 500) » ne disait ni quoi faire ni ou chercher. Chaque reponse
+# 5xx du panneau porte desormais une REFERENCE courte (X-CodeLab-Ref), que
+# la page affiche et que le journal du conteneur ecrit sur la meme ligne
+# que la route : « docker logs codelab-app-manager | grep 7F3A2C » retrouve
+# la panne. Rien de sensible dans la reference : six caracteres au hasard.
+
+def nouvelle_reference():
+    return secrets.token_hex(3).upper()
+
+
+@flask_app.errorhandler(500)
+def erreur_inattendue(e):
+    """Une exception non prevue : sa pile part au journal, avec la
+    reference ; la page recoit une phrase et la reference, jamais la pile."""
+    ref = nouvelle_reference()
+    origine = getattr(e, "original_exception", None) or e
+    print(f"[codelab] erreur {ref} : {request.method} {request.path}\n"
+          + "".join(traceback.format_exception(type(origine), origine, origine.__traceback__)),
+          flush=True)
+    reponse = jsonify({"error": "Erreur inattendue du panneau.", "ref": ref})
+    reponse.status_code = 500
+    reponse.headers["X-CodeLab-Ref"] = ref
+    return reponse
+
+
+@flask_app.after_request
+def referencer_les_pannes(reponse):
+    if (reponse.status_code >= 500 and request.endpoint not in ("proxy", "proxy_noslash")
+            and "X-CodeLab-Ref" not in reponse.headers):
+        ref = nouvelle_reference()
+        reponse.headers["X-CodeLab-Ref"] = ref
+        print(f"[codelab] erreur {ref} : {request.method} {request.path} -> "
+              f"{reponse.status_code}", flush=True)
     return reponse
 
 
@@ -4360,10 +4398,16 @@ def start(name, attendre=True):
             apps = load()
             if name in apps:
                 apps[name]["enabled"] = False
+                # Retenu pour la fiche : « Arretee » seul ne dit pas qu'elle a
+                # plante au lancement. Efface au prochain demarrage reussi.
+                apps[name]["dernier_echec"] = {"quand": int(time.time()), "code": code}
                 save(apps)
             return (f"L'application s'est arrêtée aussitôt (code {code}). "
                     + derniere_ligne_utile(name))
         time.sleep(0.05)
+    apps = load()
+    if name in apps and apps[name].pop("dernier_echec", None) is not None:
+        save(apps)
     return None
 
 
@@ -5123,6 +5167,104 @@ def api_surveillance_ecrire():
                 action="surveillance externe " + ("activee" if url else "retiree"),
                 ip=_adresse_client())
     return jsonify({"ok": True, "url": url})
+
+
+# ------------------- les sauvegardes, vues du panneau -------------------
+#
+# Elles ne sortaient jamais du serveur, et rien ne le disait : un disque qui
+# lache emportait le panneau ET ses sauvegardes. Parametres > Securite les
+# montre, permet de telecharger la derniere, et ALERTE tant qu'aucune copie
+# n'est partie ailleurs depuis une semaine -- sauf si l'administrateur dit
+# qu'il copie deja le dossier par ses propres moyens (NAS, rsync, restic).
+
+SAUVEGARDES_SUIVI_FILE = os.path.join(STATE_DIR, "sauvegardes-suivi.json")
+SAUVEGARDE_NOM = re.compile(r"^(panneau|workspace)-\d{8}-\d{6}\.tar\.gz$")
+SAUVEGARDE_COPIE_JOURS = 7
+
+
+def lire_suivi_sauvegardes():
+    try:
+        with open(SAUVEGARDES_SUIVI_FILE, encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def ecrire_suivi_sauvegardes(d):
+    tmp = SAUVEGARDES_SUIVI_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(d, f)
+    os.replace(tmp, SAUVEGARDES_SUIVI_FILE)
+
+
+def archives_de_sauvegarde():
+    """Les archives du dossier, la plus recente d'abord."""
+    if not os.path.isdir(SAUVEGARDES_DIR):
+        return []
+    liste = []
+    for nom in os.listdir(SAUVEGARDES_DIR):
+        chemin = os.path.join(SAUVEGARDES_DIR, nom)
+        if SAUVEGARDE_NOM.match(nom) and os.path.isfile(chemin):
+            st = os.stat(chemin)
+            liste.append({"nom": nom, "genre": nom.split("-", 1)[0],
+                          "taille": st.st_size, "date": int(st.st_mtime)})
+    return sorted(liste, key=lambda a: a["date"], reverse=True)
+
+
+def etat_des_sauvegardes():
+    archives = archives_de_sauvegarde()
+    suivi = lire_suivi_sauvegardes()
+    copie = suivi.get("derniere_copie")
+    externe = bool(suivi.get("copie_externe"))
+    maintenant = time.time()
+    # L'alerte : des archives existent, et aucune n'est sortie du serveur
+    # depuis une semaine (ou jamais), sans copie declaree ailleurs.
+    alerte = bool(archives) and not externe and (
+        not copie or maintenant - copie > SAUVEGARDE_COPIE_JOURS * 86400)
+    return {"actives": sauvegardes_actives(), "toutes_les_heures": SAUVEGARDE_HEURES,
+            "gardees": SAUVEGARDES_GARDEES, "archives": archives[:12],
+            "derniere_copie": copie, "copie_externe": externe,
+            "alerte_hors_serveur": alerte, "jours": SAUVEGARDE_COPIE_JOURS}
+
+
+@flask_app.get("/api/sauvegardes")
+@require_admin
+def api_sauvegardes():
+    return jsonify(etat_des_sauvegardes())
+
+
+@flask_app.get("/api/sauvegardes/<nom>")
+@require_admin
+def api_sauvegarde_telecharger(nom):
+    """Une archive, en piece jointe. Seuls les noms produits par le panneau
+    passent : ni chemin, ni autre fichier du dossier."""
+    if not SAUVEGARDE_NOM.match(nom):
+        return jsonify({"error": "Sauvegarde introuvable."}), 404
+    chemin = os.path.join(SAUVEGARDES_DIR, nom)
+    if not os.path.isfile(chemin):
+        return jsonify({"error": "Sauvegarde introuvable."}), 404
+    suivi = lire_suivi_sauvegardes()
+    suivi["derniere_copie"] = int(time.time())
+    try:
+        ecrire_suivi_sauvegardes(suivi)
+    except OSError:
+        pass
+    journaliser("sauvegarde", qui=utilisateur_courant() or NOM_ADMIN, action="telechargee",
+                fichier=nom, ip=_adresse_client())
+    return send_file(chemin, mimetype="application/gzip", as_attachment=True,
+                     download_name=nom, max_age=0)
+
+
+@flask_app.put("/api/sauvegardes/copie")
+@require_admin
+def api_sauvegardes_copie():
+    """{externe: bool} -- l'administrateur copie deja le dossier ailleurs."""
+    d = request.get_json(force=True, silent=True) or {}
+    suivi = lire_suivi_sauvegardes()
+    suivi["copie_externe"] = bool(d.get("externe"))
+    ecrire_suivi_sauvegardes(suivi)
+    return jsonify(etat_des_sauvegardes())
 
 
 def demarrer_les_sauvegardes():
@@ -8941,6 +9083,8 @@ def api_apps():
             "port": a["port"], "port_listeners": _ecouteurs_port(a["port"]),
             "running": run,
             "failed": bool(a.get("enabled")) and not run,
+            # Plantee au lancement (voir start) : la fiche en montre la cause.
+            "dernier_echec": None if run else a.get("dernier_echec"),
             "crash_looping": is_crash_looping(name),
             # None tant que la sonde n'est pas passee (app tout juste
             # demarree) : l'interface ne signale "ne repond pas" que sur un

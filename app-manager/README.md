@@ -232,13 +232,18 @@ Toutes les routes ci-dessous exigent une session, sauf mention contraire, et tou
 quelque chose exige le jeton anti-falsification. Les routes marquées **admin** refusent les autres
 comptes (`require_admin`).
 
+Toute réponse 5xx du panneau porte un en-tête **`X-CodeLab-Ref`** : six caractères, écrits aussi
+dans le journal du conteneur avec la méthode et la route (`docker logs codelab-app-manager | grep
+<réf>`). Une exception imprévue y laisse sa pile ; la page ne reçoit que
+`{"error": …, "ref": …}`.
+
 | Domaine | Routes |
 |---|---|
 | Santé | `GET /health` (sans session) ; `GET /api/auth-check` (sans session : 200 si la session est admin, interrogé par le proxy Dagster et Mailpit) |
 | Connexion | `GET/POST /login`, `POST /login/second-facteur`, `POST /login/second-facteur/passkey[/options]`, `POST /login/passkey[/options]`, `POST /login/inscription/passkey[/options]`, `POST /logout`, `POST /mot-de-passe/oubli`, `POST /mot-de-passe/reinitialiser` (sans session, sauf `logout`) |
 | Invitations | `GET/POST /api/invitations`, `POST /api/invitations/<id>/renvoyer`, `DELETE /api/invitations/<id>` (admin) ; `GET/POST /invitation/<jeton>`, `GET /api/invitation/<jeton>` (sans session) |
 | Mon compte | `GET /api/mon-compte`, `POST /api/mon-compte/email[/code\|/confirmer]`, `POST /api/compte/mot-de-passe`, `GET/POST/DELETE /api/mon-compte/passkeys[/options\|/<id>]`, `GET /api/passkeys/etat` (sans session), `GET /qr/totp.svg` |
-| Sécurité | `GET /api/securite`, `PUT /api/securite/exposition`, `POST /api/securite/totp/preparer\|activer\|desactiver`, `GET/PUT /api/vps` |
+| Sécurité | `GET /api/securite`, `PUT /api/securite/exposition`, `POST /api/securite/totp/preparer\|activer\|desactiver`, `GET/PUT /api/vps` ; `GET /api/sauvegardes` (dernières archives, alerte hors serveur), `GET /api/sauvegardes/<nom>` (télécharge, note la copie), `PUT /api/sauvegardes/copie` (`{externe}`) — admin |
 | Comptes (admin) | `GET/POST /api/utilisateurs`, `PUT/DELETE /api/utilisateurs/<nom>`, `GET/PUT /api/apps/<nom>/acces`, `GET /api/activite`, `GET /api/activite/carte` |
 | Applications (admin) | `GET /api/apps`, `GET /api/browse`, `GET /api/detect`, `POST /api/add`, `PUT/DELETE /api/app/<nom>`, `POST /api/app/<nom>/renommer`, `POST /api/toggle\|restart\|build\|deploy\|visibility/<nom>`, `GET /api/metrics/<nom>`, `GET /api/logs/<nom>[/stream]`, `PUT/DELETE /api/app/<nom>/logo` |
 | Hub | `GET /api/mes-apps` (avec `nouvelle_version`, `ouverte_le` et `presentation` par application), `POST/DELETE /api/mes-apps/<nom>/masquer`, `POST /api/mes-apps/<nom>/ouverte` (note la version vue), `GET/PUT /api/hub/disposition` (la composition du hub et le catalogue des widgets permis), `GET /api/icon/<nom>`, `GET /api/presentations/<nom>/video\|affiche` (la vidéo du projet, avec les droits de l'application, requêtes `Range` acceptées), `GET /api/categories` (tous) ; `PUT /api/apps/<nom>/presentation` (admin : `{visible}`, la montrer dans le hub ou non), `PUT /api/categories` (admin) |

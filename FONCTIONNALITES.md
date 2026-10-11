@@ -36,6 +36,13 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
   rubrique a son adresse : recharger y ramène, « Précédent » y revient.
 - **Deux styles** (*Paramètres > Compte > Apparence*), retenus par navigateur. Le reste du panneau
   est le même : menu en pilule, barre du bas sur téléphone, réglages en fenêtre.
+  - **Erreurs** : chaque message dit quoi faire ensuite. Une panne du serveur porte une
+    **référence** courte (« 7F3A2C »), écrite aussi dans `docker logs codelab-app-manager` ; un
+    message d'erreur reste affiché jusqu'à ce qu'on le ferme.
+  - **Annuler** : masquer une application ou retirer un widget se rattrape depuis le message de
+    confirmation.
+  - **Serveur injoignable** : un bandeau le dit, la page garde ce qu'elle affiche, retente toutes les
+    5 s et se remet à jour au retour.
   - « Lanceur » : le hub comme un écran d'accueil (trame de points, bonjour en grand, recherche au
     centre, grandes icônes cerclées si l'application ne répond pas). Dagster, Mailpit et Messages y
     ont la même tuile que les autres applications. **Des widgets** au-dessus des icônes : les mêmes
@@ -147,6 +154,11 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
   | Configuration | description, commandes, limite mémoire, visibilité, logo, suppression |
 
 - **Journaux** : rotation à 2 Mo, flux en direct plafonné pour ne pas bloquer le panneau.
+- **La cause d'une panne, en clair** : une application qui plante au lancement, redémarre en boucle,
+  s'arrête seule ou ne répond pas sur son port montre en tête de sa fiche les dernières lignes de son
+  journal (les lignes d'erreur en rouge) et quoi faire.
+- **En-tête de fiche collé en haut** sur grand écran : Démarrer, Arrêter et Redémarrer restent à
+  portée pendant qu'on fait défiler.
 
 **Partager**
 
@@ -364,6 +376,10 @@ Détails : [`postgres/README.md`](postgres/README.md).
 - **Procédures de restauration** écrites, commandes comprises.
 - **Toutes les données vivent hors des conteneurs**, dans `/DATA/AppData/codelab/` : elles survivent
   aux mises à jour.
+- **Sauvegardes dans le panneau** (*Paramètres > Sécurité*, administrateur) : la date de la dernière,
+  le téléchargement de la plus récente du panneau et des projets, et une **alerte tant qu'aucune copie
+  n'est sortie du serveur depuis 7 jours** (un disque qui lâche emporterait tout). Télécharger une
+  archive l'éteint, comme la case « Je copie déjà ce dossier ailleurs ».
 
 ## 9. Diagnostic
 

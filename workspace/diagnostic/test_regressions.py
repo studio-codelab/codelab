@@ -110,7 +110,7 @@ CHEMINS_ETAT = [
     "CATEGORIES_FILE", "SURVEILLANCE_FILE", "COFFRE_FILE",
     "EXPOSITION_FILE", "SHARED_CONFIG_DIR",
     "SHARED_ENV_FILE", "LEGACY_ADMIN_PASSWORD_FILE", "LEGACY_SECRET_KEY_FILE",
-    "SSO_PRIVATE_FILE", "DB_FILE",
+    "SSO_PRIVATE_FILE", "DB_FILE", "SAUVEGARDES_SUIVI_FILE",
 ]
 
 
@@ -150,6 +150,7 @@ def _bac_a_sable(tmp_path, monkeypatch):
         "LEGACY_SECRET_KEY_FILE": str(etat / "flask_secret_key"),
         "SSO_PRIVATE_FILE": str(etat / "codelab_sso_private.key"),
         "DB_FILE": str(etat / "codelab.db"),
+        "SAUVEGARDES_SUIVI_FILE": str(etat / "sauvegardes-suivi.json"),
     }
     for nom in CHEMINS_ETAT:
         assert hasattr(app, nom), (
@@ -14821,3 +14822,181 @@ def test_deployer_a_quitte_la_fiche():
     assert ">Déployer<" not in page.replace("${svgUp}", "")
     readme = open(os.path.join(_racine_depot(), "dev", "README.md"), encoding="utf-8").read()
     assert "## Déployer" not in readme
+
+
+# ------------- Erreurs, pannes, annuler, hors ligne, sauvegardes -------------
+#
+# Vecu : une liste d'ameliorations relue ensemble, puis « OK » pour le premier
+# lot -- toujours dire quoi faire apres une erreur, garder le message, montrer
+# la cause d'une panne, pouvoir annuler, rester utilisable quand le serveur
+# se tait, et signaler des sauvegardes restees sur le seul serveur.
+
+def test_une_exception_donne_une_reference_et_jamais_la_pile(hub, monkeypatch, capsys):
+    monkeypatch.setitem(app.flask_app.config, "PROPAGATE_EXCEPTIONS", False)
+    def casse():
+        raise RuntimeError("detail interne a ne pas montrer")
+    monkeypatch.setattr(app, "lire_categories", casse)
+    admin = app.flask_app.test_client()
+    admin.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    r = admin.get("/api/categories")
+    assert r.status_code == 500
+    ref = r.headers["X-CodeLab-Ref"]
+    assert re.fullmatch(r"[0-9A-F]{6}", ref)
+    d = r.get_json()
+    assert d["ref"] == ref and "detail interne" not in r.get_data(as_text=True)
+    sortie = capsys.readouterr().out
+    assert f"erreur {ref} : GET /api/categories" in sortie and "detail interne" in sortie
+
+
+def test_toute_reponse_5xx_du_panneau_porte_une_reference(hub, monkeypatch, capsys):
+    def plein(_):
+        raise OSError("disque plein")
+    monkeypatch.setattr(app, "ecrire_exposition", plein)
+    admin = app.flask_app.test_client()
+    admin.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    r = admin.put("/api/securite/exposition", json={"adresse_publique": ""})
+    assert r.status_code == 500 and r.headers.get("X-CodeLab-Ref")
+    assert f"erreur {r.headers['X-CodeLab-Ref']}" in capsys.readouterr().out
+    # Une reponse qui marche n'en porte pas.
+    assert "X-CodeLab-Ref" not in admin.get("/api/categories").headers
+
+
+def test_un_echec_dit_quoi_faire_et_donne_la_reference():
+    page = _page_panneau("dashboard.html")
+    aide = page.split("async function echec(r, defaut){")[1].split("\n}")[0]
+    assert "(réponse" not in aide
+    assert "X-CodeLab-Ref" in aide and "docker logs codelab-app-manager" in aide
+    assert "donne-la à l'administrateur" in aide
+    assert "Réessaie dans un instant." in aide
+
+
+def test_une_erreur_reste_jusqu_a_ce_qu_on_la_ferme():
+    page = _page_panneau("dashboard.html")
+    notif = page.split("function notifier(texte, genre, action){")[1].split("\n}")[0]
+    assert "if(!err) setTimeout(" in notif           # seuls les succes s'en vont
+    assert "toast-fermer" in notif and "Fermer le message" in notif
+    assert "erreurs.length>=3" in notif              # pas un mur d'erreurs
+    assert "toast-action" in notif                   # le bouton « Annuler »
+
+
+def test_masquer_ou_retirer_se_rattrape():
+    page = _page_panneau("dashboard.html")
+    masquage = page.split("async function basculerMasquage(nom, masquer){")[1].split("\n}")[0]
+    assert "libelle:'Annuler', faire:()=>basculerMasquage(nom, false)" in masquage
+    retirer = page.split("function hubRetirer(cle){")[1].split("\n}")[0]
+    assert "basculerMasquage(e.id, false)" in retirer
+    assert "faire:()=>enregistrerDisposition(elements)" in retirer
+
+
+def test_la_fiche_montre_la_cause_d_une_panne():
+    page = _page_panneau("dashboard.html")
+    assert 'id="fa-cause"' in page and 'id="fa-cause-lignes"' in page
+    cause = page.split("async function peindreCauseFiche(a){")[1].split("\n}")[0]
+    for etat in ("a.crash_looping", "a.failed", "a.listening===false"):
+        assert etat in cause, etat
+    assert "/api/logs/" in cause and ".slice(-15)" in cause
+    assert "a.externe || a.par_defaut ? ''" in cause   # rien pour un service
+    assert "peindreCauseFiche(a);" in page.split("function peindreFiche(){")[1].split("\n}")[0]
+
+
+def test_l_en_tete_de_la_fiche_reste_en_haut_sur_grand_ecran():
+    page = _page_panneau("dashboard.html")
+    regle = page.split("@media (min-width:761px){\n  #sec-app .fiche-tete{")[1].split("}")[0]
+    assert "position:sticky" in regle and "top:52px" in regle
+
+
+def test_un_serveur_injoignable_allume_un_bandeau_et_retente():
+    page = _page_panneau("dashboard.html")
+    assert 'id="hors-ligne"' in page
+    enveloppe = page.split("const fetchAvecJeton = window.fetch;")[1].split("function passerHorsLigne")[0]
+    assert "e.name!=='AbortError'" in enveloppe
+    assert "!r.headers.get('X-CodeLab-Ref')" in enveloppe   # une panne du panneau n'est pas une coupure
+    assert "horsLigneCompte=5;" in page
+    essai = page.split("async function essayerConnexion(){")[1].split("\n}")[0]
+    assert "fetchNu('/health'" in essai
+    assert "window.addEventListener('offline', passerHorsLigne);" in page
+
+
+@pytest.fixture
+def archives_sauvegarde(hub, tmp_path, monkeypatch):
+    dossier = tmp_path / "sauvegardes"
+    dossier.mkdir()
+    monkeypatch.setattr(app, "SAUVEGARDES_DIR", str(dossier))
+    monkeypatch.setattr(app, "SAUVEGARDES_SUIVI_FILE", str(tmp_path / "suivi.json"))
+    (dossier / "panneau-20261010-030000.tar.gz").write_bytes(b"ancienne")
+    os.utime(dossier / "panneau-20261010-030000.tar.gz", (1, 1))
+    (dossier / "panneau-20261011-030000.tar.gz").write_bytes(b"x" * 2048)
+    (dossier / "workspace-20261011-031000.tar.gz").write_bytes(b"w" * 4096)
+    (dossier / "notes.txt").write_text("pas une sauvegarde")
+    admin = app.flask_app.test_client()
+    admin.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    return admin, dossier
+
+
+def test_les_sauvegardes_restees_sur_le_serveur_sont_signalees(archives_sauvegarde):
+    admin, _ = archives_sauvegarde
+    d = admin.get("/api/sauvegardes").get_json()
+    assert [a["nom"] for a in d["archives"]][0] in ("panneau-20261011-030000.tar.gz",
+                                                   "workspace-20261011-031000.tar.gz")
+    assert "notes.txt" not in [a["nom"] for a in d["archives"]]
+    assert d["alerte_hors_serveur"] is True and d["derniere_copie"] is None
+
+
+def test_telecharger_une_sauvegarde_la_sort_du_serveur(archives_sauvegarde):
+    admin, _ = archives_sauvegarde
+    r = admin.get("/api/sauvegardes/workspace-20261011-031000.tar.gz")
+    assert r.status_code == 200 and r.data == b"w" * 4096
+    assert "attachment" in r.headers["Content-Disposition"]
+    d = admin.get("/api/sauvegardes").get_json()
+    assert d["derniere_copie"] and d["alerte_hors_serveur"] is False
+    assert any(e.get("genre") == "sauvegarde" and e.get("action") == "telechargee"
+               for e in app.lire_acces())
+
+
+def test_seuls_les_fichiers_de_sauvegarde_se_telechargent(archives_sauvegarde):
+    admin, _ = archives_sauvegarde
+    for nom in ("notes.txt", "..%2Fsuivi.json", "panneau-x.tar.gz",
+                "panneau-20991231-000000.tar.gz"):
+        assert admin.get(f"/api/sauvegardes/{nom}").status_code == 404, nom
+
+
+def test_une_copie_declaree_ailleurs_eteint_l_alerte(archives_sauvegarde):
+    admin, _ = archives_sauvegarde
+    d = admin.put("/api/sauvegardes/copie", json={"externe": True}).get_json()
+    assert d["copie_externe"] is True and d["alerte_hors_serveur"] is False
+    d = admin.put("/api/sauvegardes/copie", json={"externe": False}).get_json()
+    assert d["alerte_hors_serveur"] is True
+
+
+def test_les_sauvegardes_sont_reservees_a_l_administrateur(archives_sauvegarde):
+    admin, _ = archives_sauvegarde
+    marie = _connexion_marie(app.flask_app.test_client())
+    assert marie.get("/api/sauvegardes").status_code in (401, 403)
+    assert marie.get("/api/sauvegardes/panneau-20261011-030000.tar.gz").status_code in (401, 403)
+    assert marie.put("/api/sauvegardes/copie", json={"externe": True}).status_code in (401, 403)
+
+
+def test_la_securite_montre_les_sauvegardes_a_l_administrateur():
+    page = _page_panneau("dashboard.html")
+    securite = page.split('<div class="onglet-p" id="param-securite">')[1].split('<div class="onglet-p"')[0]
+    assert 'id="zone-sauvegardes" hidden' in securite
+    assert "Elles ne sont que sur ce serveur." in securite
+    assert "if(estAdmin) chargerSauvegardes();" in page
+
+
+def test_un_plantage_au_lancement_reste_visible_dans_la_fiche(survivants):
+    """« Arretee » seul ne disait pas qu'elle avait plante : le lancement
+    rate est retenu (et la fiche en montre la cause), puis oublie au premier
+    demarrage reussi."""
+    apps = app.load()
+    apps["site"]["command"] = "echo 'ModuleNotFoundError: flask' && exit 3"
+    app.save(apps)
+    erreur = app.start("site")
+    assert erreur and "aussitôt (code 3)" in erreur
+    echec = app.load()["site"]["dernier_echec"]
+    assert echec["code"] == 3 and echec["quand"] > 0
+    apps = app.load()
+    apps["site"]["command"] = "sleep 120"
+    app.save(apps)
+    assert app.start("site") is None
+    assert "dernier_echec" not in app.load()["site"]
