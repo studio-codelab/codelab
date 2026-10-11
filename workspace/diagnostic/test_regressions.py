@@ -14660,7 +14660,9 @@ def test_seul_l_administrateur_retire_une_video(presentation):
 def test_le_hub_porte_le_lecteur_de_video():
     page = _page_panneau("dashboard.html")
     assert 'id="ov-presentation"' in page
-    assert "function boutonPresentation(" in page
+    # Depuis le menu de l'application, seulement si le projet a une video.
+    menu = page.split("function ouvrirMenuApp(")[1].split("\n}")[0]
+    assert "a.presentation ? item('menu-presentation'" in menu
     assert "function peindrePresentationFiche(" in page
     assert "/api/presentations/" in page
     # Le lecteur natif du navigateur, et l'application a un clic.
@@ -14709,3 +14711,52 @@ def test_l_image_du_poste_a_les_outils_de_la_video():
     assert "COPY dev/video/fabriquer.mjs dev/video/scenario-modele.mjs" in dockerfile
     assert "## 14. Video de presentation" in open(
         os.path.join(_racine_depot(), "dev", "AGENTS.md"), encoding="utf-8").read()
+
+
+# ------------------------ Le menu d'une application ------------------------
+#
+# Vecu : « je ne veux pas avoir le visuel de l'app dans le widget de derniere
+# app ouverte. Je veux pouvoir maintenir appuye sur une app sur la version
+# mobile, et avoir plusieurs options dont visionner la video. Sur pc, je veux
+# 3 petits points dans le coin de l'app. »
+
+def test_la_derniere_ouverte_n_affiche_plus_l_application():
+    page = _page_panneau("dashboard.html")
+    corps = page.split("function corpsWidget(")[1].split("\n}")[0]
+    une = [l for l in corps.splitlines() if "e.id==='une'" in l][0]
+    assert une.rstrip().endswith("false); }")
+    # Le widget « Apercu » d'une application choisie, lui, reste en direct.
+    assert "widgetApercu(hubApps.find(a=>a.name===e.app), e.taille, 'Aperçu')" in corps
+    apercu = page.split("function widgetApercu(")[1].split("\n}")[0]
+    assert "enDirect && a.running" in apercu
+
+
+def test_chaque_tuile_porte_trois_points_qui_ouvrent_son_menu():
+    page = _page_panneau("dashboard.html")
+    assert page.count("boutonMenuApp(a)") >= 2      # bento et lanceur
+    bouton = page.split("function boutonMenuApp(")[1].split("\n}")[0]
+    assert 'aria-haspopup="menu"' in bouton and 'data-agir="menu-app"' in bouton
+    # Au doigt, pas de points : l'appui long les remplace.
+    assert "@media (hover:none) and (pointer:coarse){ .btn-menu-app{display:none} }" in page
+    menu = page.split("function ouvrirMenuApp(")[1].split("\n}")[0]
+    for option in ('"Ouvrir"', "'Voir la présentation'", "'Copier le lien'", "'Masquer du hub'",
+                   "\"Réglages de l'application\""):
+        assert option in menu, option
+    # Les reglages : administrateur, et pas pour un service de la stack.
+    assert "estAdmin && !a.externe && !a.interne ? item('menu-reglages'" in menu
+    # Ouvrir le menu n'ouvre pas l'application.
+    clic = page.split("/* Les trois points sont DANS la tuile")[1].split("\n")[1]
+    assert "e.target.closest('.btn-menu-app')" in clic
+
+
+def test_un_appui_long_ouvre_le_menu_en_feuille():
+    page = _page_panneau("dashboard.html")
+    appui = page.split("let appuiLong=null, appuiLongFait=false;")[1].split("/* Le clic droit")[0]
+    assert "document.addEventListener('click', e=>{\n  if(!appuiLongFait)" in appui
+    assert "e.pointerType!=='touch' || hubEdition" in appui
+    assert "ouvrirMenuApp(t.dataset.app, 'feuille')" in appui
+    # Le doigt qui defile annule ; le relachement n'ouvre pas l'application.
+    assert "> 10" in appui and "clearTimeout" in appui
+    assert "e.stopImmediatePropagation()" in appui
+    assert "#hub-liste [data-app]{-webkit-touch-callout:none}" in page
+    assert "$('hub-liste').addEventListener('contextmenu'" in page

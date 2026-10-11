@@ -1663,16 +1663,44 @@ a.pj:hover{border-color:var(--accent)}
 .bento-etat a{color:var(--bento-lien);font-weight:700}
 .bento-carte{position:relative;display:flex;flex-direction:column;gap:6px;padding:18px;border-radius:24px;
  background:var(--surface);border:1px solid var(--line);color:var(--txt);text-decoration:none}
-/* ---- la video de presentation : un bouton rond sur la tuile, une feuille
-   avec le lecteur du navigateur ---- */
-.btn-presentation{position:absolute;right:14px;bottom:14px;width:38px;height:38px;border-radius:999px;border:0;
- display:grid;place-items:center;background:var(--txt);color:var(--surface);cursor:pointer;opacity:.88;
- box-shadow:0 4px 14px rgba(0,0,0,.18);transition:transform .12s, opacity .12s}
-.btn-presentation:hover{opacity:1;transform:scale(1.06)}
-.btn-presentation svg{width:15px;height:15px;fill:currentColor;stroke:none;margin-left:2px}
+/* ---- le menu d'une application : trois points dans le coin de la tuile
+   (souris), un appui long (doigt), ou le clic droit ---- */
+.btn-menu-app{position:absolute;right:10px;bottom:10px;width:32px;height:32px;border-radius:10px;border:0;
+ display:grid;place-items:center;background:transparent;color:var(--dim);cursor:pointer;
+ transition:background .12s,color .12s,opacity .12s}
+.btn-menu-app svg{width:18px;height:18px;fill:currentColor;stroke:none}
+.btn-menu-app:hover,.btn-menu-app[aria-expanded="true"]{background:var(--surface2);color:var(--txt)}
+.btn-menu-app:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .hub-projet{position:relative}
-.hub-projet .btn-presentation{width:30px;height:30px;right:6px;bottom:auto;top:6px}
-.hub-projet .btn-presentation svg{width:12px;height:12px}
+.hub-projet .btn-menu-app{width:28px;height:28px;right:2px;bottom:auto;top:-8px;border-radius:999px;
+ background:var(--surface);color:var(--txt);border:1px solid var(--line2);box-shadow:0 2px 8px rgba(0,0,0,.12);opacity:0}
+.hub-projet:hover .btn-menu-app,.hub-projet:focus-within .btn-menu-app,
+.hub-projet .btn-menu-app[aria-expanded="true"]{opacity:1}
+.hub-projet .btn-menu-app svg{width:15px;height:15px}
+/* Au doigt, pas de points : l'appui long ouvre le menu. */
+@media (hover:none) and (pointer:coarse){ .btn-menu-app{display:none} }
+#hub-liste [data-app]{-webkit-touch-callout:none}
+.menu-app{position:fixed;inset:0;z-index:300}
+.menu-app[hidden]{display:none}
+.menu-app-fond{position:absolute;inset:0}
+.menu-app-panneau{position:absolute;min-width:232px;padding:6px;border-radius:14px;background:var(--surface);
+ border:1px solid var(--line2);box-shadow:0 18px 48px rgba(0,0,0,.22);animation:menu-app-entree .14s ease-out}
+.menu-app-tete{display:flex;align-items:center;gap:10px;padding:8px 10px 10px;border-bottom:1px solid var(--line);margin-bottom:4px}
+.menu-app-tete img{width:28px;height:28px;border-radius:8px}
+.menu-app-tete b{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.menu-app-item{display:flex;align-items:center;gap:12px;width:100%;padding:10px 10px;border:0;border-radius:9px;
+ background:none;color:var(--txt);font:inherit;font-size:14px;text-align:left;text-decoration:none;cursor:pointer}
+.menu-app-item svg{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;color:var(--dim)}
+.menu-app-item:hover,.menu-app-item:focus-visible{background:var(--surface2);outline:none}
+/* Ouvert au doigt : une feuille en bas de l'ecran, sous le pouce. */
+.menu-app.feuille .menu-app-fond{background:rgba(0,0,0,.35)}
+.menu-app.feuille .menu-app-panneau{left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom));top:auto;
+ border-radius:20px;padding:8px;animation-name:menu-app-feuille}
+.menu-app.feuille .menu-app-item{padding:14px 12px;font-size:16px}
+@keyframes menu-app-entree{from{opacity:0;transform:scale(.97)}}
+@keyframes menu-app-feuille{from{transform:translateY(24px);opacity:0}}
+@media (prefers-reduced-motion:reduce){ .menu-app-panneau{animation:none} }
+.bw-apercu.sans-direct{background:rgba(255,255,255,.1)}
 .modal.presentation{max-width:min(1100px,94vw);overflow:hidden}
 .presentation-video{display:block;width:100%;max-height:68vh;background:#000;aspect-ratio:16/9}
 .presentation-pied{display:flex;align-items:center;gap:14px;padding:16px 20px;flex-wrap:wrap}
@@ -1689,7 +1717,7 @@ a.pj:hover{border-color:var(--accent)}
 .bento-carte img{width:44px;height:44px;border-radius:14px}
 .bento-carte-nom{font-size:19px;font-weight:800;letter-spacing:-.03em;line-height:1.1;
  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.bento-carte-desc{font-size:12.5px;color:var(--dim);display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+.bento-carte-desc{font-size:12.5px;color:var(--dim);display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden;padding-right:30px}
 .bento-vide{grid-row:span 2;grid-column:span 2}
 /* NOUVELLE VERSION depuis la derniere ouverture : une etiquette sur la tuile. */
 .badge-maj{display:inline-flex;align-items:center;gap:5px;align-self:flex-start;padding:2px 9px;border-radius:999px;
@@ -2982,6 +3010,12 @@ a.pj:hover{border-color:var(--accent)}
 
 <!-- La video de presentation d'une application : le lecteur du navigateur
      (plein ecran, son, Picture-in-Picture), et de quoi ouvrir l'application. -->
+<!-- Le menu d'une application du hub (trois points, appui long, clic droit). -->
+<div class="menu-app" id="menu-app" hidden>
+  <div class="menu-app-fond" data-agir="menu-fermer"></div>
+  <div class="menu-app-panneau" id="menu-app-panneau" role="menu" aria-labelledby="menu-app-nom"></div>
+</div>
+
 <div class="ov" id="ov-presentation"><div class="modal presentation" role="dialog" aria-labelledby="pr-nom">
   <video class="presentation-video" id="pr-video" controls playsinline preload="metadata"></video>
   <div class="presentation-pied">
@@ -3170,6 +3204,13 @@ const ACTIONS = {
   'ap-trier':        n => apTrier(n),
   'bw-sujet':        n => { hubMessageCible=n; peindreHub(); },
   'presentation':    n => ouvrirPresentation(n),
+  'menu-app':        (n, d, bouton) => ouvrirMenuApp(n, bouton),
+  'menu-fermer':     () => fermerMenuApp(false),
+  'menu-ouvrir':     n => actionMenuApp('ouvrir', n),
+  'menu-presentation': n => actionMenuApp('presentation', n),
+  'menu-copier':     n => actionMenuApp('copier', n),
+  'menu-reglages':   n => actionMenuApp('reglages', n),
+  'menu-ranger':     n => actionMenuApp('ranger', n),
   'pj-retirer':      (cle, d) => { const p=piecesBrouillon[cle] && piecesBrouillon[cle][Number(d.rang)];
                                    if(!p) return;
                                    piecesBrouillon[cle].splice(Number(d.rang),1); peindrePieces(cle); },
@@ -3198,7 +3239,7 @@ document.addEventListener('click', e => {
   const agir = n && ACTIONS[n.dataset.agir];
   if(!agir) return;
   e.preventDefault();
-  agir(n.dataset.cible || '', n.dataset);
+  agir(n.dataset.cible || '', n.dataset, n);
 });
 
 /* Une ligne cliquable (role="button") repond aussi au clavier. */
@@ -4143,7 +4184,7 @@ function peindreHub(){
       title="${esc(a.description||a.name)}">
       <img src="${icone(a.name)}" alt="">
       <div class="txt"><div class="nom">${esc(nomAffiche(a))}</div>
-      <div class="bas">${badgeEtat(a)}${badgeVis(a)}${badgeMaj(a)}</div></div>${pastille(a)}${boutonPresentation(a)}</a>`;
+      <div class="bas">${badgeEtat(a)}${badgeVis(a)}${badgeMaj(a)}</div></div>${pastille(a)}${boutonMenuApp(a)}</a>`;
 
   /* Sans categorie declaree, le hub reste ce qu'il etait : une seule liste.
      Un unique titre « Autres » au-dessus de tout serait du bruit. */
@@ -4233,18 +4274,18 @@ const badgeMaj = a => a.nouvelle_version
 const SVG_FLECHE='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
 
 /* ---- les widgets : peu, et tous sur le hub ou ses applications ---- */
-function widgetApercu(a, taille, surtitre){
+function widgetApercu(a, taille, surtitre, enDirect=true){
   if(!a) return `<div class="bw-corps"><div class="bw-titre">${esc(surtitre)}</div>
     <p class="bw-vide">Ouvre une application : elle s'affichera ici.</p></div>`;
   /* L'APERCU est la page de l'application elle-meme, reduite et inerte : on
      la reconnait d'un coup d'oeil, et un clic l'ouvre en grand. Arretee, elle
      n'a rien a montrer : son icone la remplace. */
-  const apercu = a.running && !a.externe && !a.interne
+  const apercu = enDirect && a.running && !a.externe && !a.interne
     ? `<iframe src="${esc(urlApplication(a.name))}" title="Aperçu de ${esc(nomAffiche(a))}"
          loading="lazy" tabindex="-1" aria-hidden="true" referrerpolicy="no-referrer"
          sandbox="allow-scripts allow-same-origin allow-forms"></iframe>`
     : `<img class="bw-une-icone" src="${icone(a.name)}" alt="">`;
-  return `<div class="bw-apercu" data-garder="apercu-${esc(a.name)}-${a.running?1:0}-${taille}">${apercu}</div>
+  return `<div class="bw-apercu${enDirect ? '' : ' sans-direct'}" data-garder="apercu-${esc(a.name)}-${a.running?1:0}-${taille}-${enDirect?1:0}">${apercu}</div>
     <a class="bw-une-pied" href="${lienOuverture(a)}" data-app="${esc(a.name)}">
       <span class="bw-sur">${esc(surtitre)}</span>
       <span class="bw-une-ligne"><img src="${icone(a.name)}" alt=""><span class="bw-une-nom">${esc(nomAffiche(a))}</span>${badgeMaj(a)}</span></a>`;
@@ -4309,17 +4350,132 @@ async function bwEnvoyer(b){
     t.value=''; hubMessageBrouillon=''; viderPieces('widget'); notifier('Message envoyé.'); chargerSuivi(true);
   }finally{ b.disabled=false; }
 }
-/* ---------------- la video de presentation ----------------
-   Un bouton rond sur la tuile quand le projet a une video
-   (video/presentation.mp4, produite par « codelab video ») ; un clic ouvre
-   une feuille avec le lecteur du navigateur. La tuile, elle, ouvre toujours
-   l'application. */
-const SVG_PRESENTATION='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>';
-function boutonPresentation(a){
-  if(!a || !a.presentation) return '';
-  return `<button type="button" class="btn-presentation" data-agir="presentation" data-cible="${esc(a.name)}"
-    aria-label="Voir la présentation de ${esc(nomAffiche(a))}" title="Présentation">${SVG_PRESENTATION}</button>`;
+/* ---------------- le menu d'une application ----------------
+   La tuile ouvre l'application, et rien d'autre. Le reste -- la video de
+   presentation, copier le lien, ranger hors du hub, les reglages -- passe
+   par un menu : trois points dans le coin de la tuile a la souris, un appui
+   long au doigt (comme sur l'ecran d'accueil d'un telephone), ou le clic
+   droit. */
+const SVG_POINTS='<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>';
+const SVG_MENU={
+  ouvrir:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>',
+  video:'<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M10 8.5v7l6-3.5z"/></svg>',
+  lien:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>',
+  ranger:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10.6 5.1A9.8 9.8 0 0 1 12 5c6 0 9.5 7 9.5 7a17 17 0 0 1-2.7 3.6M6.3 6.3C3.8 8 2.5 12 2.5 12S6 19 12 19a9 9 0 0 0 4.2-1"/></svg>',
+  reglages:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>',
+};
+function boutonMenuApp(a){
+  if(!a) return '';
+  return `<button type="button" class="btn-menu-app" data-agir="menu-app" data-cible="${esc(a.name)}"
+    aria-haspopup="menu" aria-expanded="false" aria-label="Options de ${esc(nomAffiche(a))}" title="Options">${SVG_POINTS}</button>`;
 }
+const appDuHub = nom => hubApps.find(x=>x.name===nom) || hubServices.find(x=>x.name===nom);
+let menuAppAncre=null;
+/* ou : le bouton (menu sous lui), {x, y} (clic droit : menu au pointeur), ou
+   'feuille' (appui long : en bas de l'ecran). */
+function ouvrirMenuApp(nom, ou){
+  const a=appDuHub(nom); if(!a) return;
+  const item=(agir, svg, texte, extra='') =>
+    `<button type="button" role="menuitem" class="menu-app-item" data-agir="${agir}" data-cible="${esc(a.name)}" ${extra}>${svg}<span>${texte}</span></button>`;
+  remplir($('menu-app-panneau'), `<div class="menu-app-tete"><img src="${icone(a.name)}" alt=""><b id="menu-app-nom">${esc(nomAffiche(a))}</b></div>
+    ${item('menu-ouvrir', SVG_MENU.ouvrir, "Ouvrir")}
+    ${a.presentation ? item('menu-presentation', SVG_MENU.video, 'Voir la présentation') : ''}
+    ${item('menu-copier', SVG_MENU.lien, 'Copier le lien')}
+    ${estAdmin && !a.externe && !a.interne ? item('menu-reglages', SVG_MENU.reglages, "Réglages de l'application") : ''}
+    ${item('menu-ranger', SVG_MENU.ranger, 'Masquer du hub')}`);
+  const menu=$('menu-app'), panneau=$('menu-app-panneau');
+  menu.classList.toggle('feuille', ou==='feuille');
+  panneau.style.left=panneau.style.top='';
+  menu.hidden=false;
+  if(menuAppAncre) menuAppAncre.setAttribute('aria-expanded','false');
+  menuAppAncre = ou instanceof Element ? ou : null;
+  if(ou!=='feuille'){
+    /* Sous le bouton, aligne sur son bord droit ; au pointeur pour le clic
+       droit. Retourne au-dessus, ou vers la gauche, s'il deborderait. */
+    const r = ou instanceof Element ? ou.getBoundingClientRect()
+      : {left:ou.x, right:ou.x, top:ou.y, bottom:ou.y};
+    const w=panneau.offsetWidth, h=panneau.offsetHeight, marge=8;
+    let x = ou instanceof Element ? r.right-w : r.left;
+    let y = r.bottom+6;
+    if(x+w > innerWidth-marge) x=innerWidth-marge-w;
+    if(y+h > innerHeight-marge) y=Math.max(marge, r.top-6-h);
+    panneau.style.left=Math.max(marge, x)+'px'; panneau.style.top=y+'px';
+  }
+  if(menuAppAncre) menuAppAncre.setAttribute('aria-expanded','true');
+  const premier=panneau.querySelector('.menu-app-item'); if(premier) premier.focus({preventScroll:true});
+}
+function fermerMenuApp(rendreFocus){
+  const menu=$('menu-app'); if(menu.hidden) return;
+  menu.hidden=true;
+  if(menuAppAncre){ menuAppAncre.setAttribute('aria-expanded','false'); if(rendreFocus) menuAppAncre.focus(); }
+  menuAppAncre=null;
+}
+function actionMenuApp(quoi, nom){
+  fermerMenuApp(false);
+  const a=appDuHub(nom); if(!a) return;
+  if(quoi==='ouvrir'){
+    try{ localStorage.setItem('codelab-hub-derniere', nom); }catch(err){}
+    if(hubApps.some(x=>x.name===nom))
+      fetch('/api/mes-apps/'+encodeURIComponent(nom)+'/ouverte', {method:'POST', keepalive:true}).catch(()=>{});
+    location.href=lienOuverture(a);
+  }
+  if(quoi==='presentation') ouvrirPresentation(nom);
+  if(quoi==='copier') copierLien(new URL(lienOuverture(a), location.href).href);
+  if(quoi==='reglages') location.href='/applications/'+encodeURIComponent(nom);
+  if(quoi==='ranger') basculerMasquage(nom, true);
+}
+document.addEventListener('keydown', e=>{
+  const menu=$('menu-app'); if(menu.hidden) return;
+  if(e.key==='Escape'){ e.preventDefault(); e.stopImmediatePropagation(); fermerMenuApp(true); return; }
+  if(e.key==='Tab'){ fermerMenuApp(false); return; }
+  if(e.key!=='ArrowDown' && e.key!=='ArrowUp') return;
+  e.preventDefault();
+  const items=[...menu.querySelectorAll('.menu-app-item')], i=items.indexOf(document.activeElement);
+  const j=(i + (e.key==='ArrowDown' ? 1 : -1) + items.length) % items.length;
+  items[j].focus();
+}, true);
+window.addEventListener('resize', ()=>fermerMenuApp(false));
+$('hub-liste').addEventListener('scroll', ()=>fermerMenuApp(false), {passive:true});
+
+/* L'appui long, au doigt : 450 ms sans bouger. Le relachement qui suit ne
+   doit pas ouvrir l'application, d'ou appuiLongFait, qui avale le clic. Un
+   doigt qui glisse (le defilement du hub) annule tout. */
+let appuiLong=null, appuiLongFait=false;
+$('hub-liste').addEventListener('pointerdown', e=>{
+  if(e.pointerType!=='touch' || hubEdition) return;
+  const t=e.target.closest('[data-app]'); if(!t || !appDuHub(t.dataset.app)) return;
+  appuiLongFait=false;
+  appuiLong={x:e.clientX, y:e.clientY, minuterie:setTimeout(()=>{
+    appuiLong=null; appuiLongFait=true;
+    if(navigator.vibrate) try{ navigator.vibrate(10); }catch(err){}
+    ouvrirMenuApp(t.dataset.app, 'feuille');
+  }, 450)};
+});
+document.addEventListener('pointermove', e=>{
+  if(appuiLong && Math.hypot(e.clientX-appuiLong.x, e.clientY-appuiLong.y) > 10){
+    clearTimeout(appuiLong.minuterie); appuiLong=null; }
+});
+['pointerup','pointercancel'].forEach(t=>document.addEventListener(t, ()=>{
+  if(appuiLong){ clearTimeout(appuiLong.minuterie); appuiLong=null; } }));
+/* Sur le document : au relachement, le doigt est sur le fond du menu qui
+   vient de s'ouvrir, plus sur la tuile -- ce clic-la le refermerait. */
+document.addEventListener('click', e=>{
+  if(!appuiLongFait) return;
+  appuiLongFait=false; e.preventDefault(); e.stopImmediatePropagation();
+}, true);
+/* Le clic droit (et l'appui long d'Android, qui le declenche aussi). */
+$('hub-liste').addEventListener('contextmenu', e=>{
+  if(hubEdition) return;
+  const t=e.target.closest('[data-app]'); if(!t || !appDuHub(t.dataset.app)) return;
+  e.preventDefault();
+  if(!$('menu-app').hidden) return;
+  ouvrirMenuApp(t.dataset.app, e.pointerType==='touch' || appuiLongFait ? 'feuille' : {x:e.clientX, y:e.clientY});
+});
+
+/* ---------------- la video de presentation ----------------
+   Ouverte depuis le menu de l'application (« Voir la présentation ») quand
+   le projet a une video (video/presentation.mp4, produite par « codelab
+   video ») : une feuille avec le lecteur du navigateur. */
 function ouvrirPresentation(nom){
   const a=hubApps.find(x=>x.name===nom) || (typeof appParNom==='function' && appParNom(nom));
   if(!a || !a.presentation) return;
@@ -4370,7 +4526,7 @@ document.addEventListener('keydown', e=>{
 
 const CLASSE_WIDGET={une:'bw-une', apercu:'bw-une', etat:'bento-etat', messages:'bw-messages', nouveautes:'bw-nouveautes', message:'bw-message', suivi:'bw-suivi'};
 function corpsWidget(e){
-  if(e.id==='une'){ const [a, vue]=appALaUne(hubApps); return widgetApercu(a, e.taille, (vue ? 'Dernière ouverte' : 'À la une')+(a && a.ouverte_le ? ' · '+depuis(a.ouverte_le) : '')); }
+  if(e.id==='une'){ const [a, vue]=appALaUne(hubApps); return widgetApercu(a, e.taille, (vue ? 'Dernière ouverte' : 'À la une')+(a && a.ouverte_le ? ' · '+depuis(a.ouverte_le) : ''), false); }
   if(e.id==='apercu') return widgetApercu(hubApps.find(a=>a.name===e.app), e.taille, 'Aperçu');
   if(e.id==='etat') return widgetEtat(e.taille);
   if(e.id==='messages') return widgetMessages(e.taille);
@@ -4404,7 +4560,7 @@ function peindreBento(liste, filtre){
     return `<${balise} class="bento-carte ${c}${a.nouvelle_version?' maj':''}" ${hubEdition ? '' : `href="${lienOuverture(a)}"`} data-app="${esc(a.name)}" data-el="${esc(cleElement(e))}">
       <div class="bento-carte-haut"><img src="${icone(a.name)}" alt="">${badgeEtat(a)}</div>
       <div class="bento-carte-nom">${esc(nomAffiche(a))}</div>
-      ${badgeMaj(a)}<div class="bento-carte-desc">${desc(a)}</div>${pastille(a)}${hubEdition ? gestesEdition(e, nomAffiche(a)) : boutonPresentation(a)}</${balise}>`;
+      ${badgeMaj(a)}<div class="bento-carte-desc">${desc(a)}</div>${pastille(a)}${hubEdition ? gestesEdition(e, nomAffiche(a)) : boutonMenuApp(a)}</${balise}>`;
   };
   const widget = e => {
     const def=hubCatalogue.find(c=>c.id===e.id);
@@ -4638,7 +4794,8 @@ function galerieAjouter(id, taille, app){
    (widget « A la une »). keepalive : la page s'en va aussitot. */
 $('hub-liste').addEventListener('click', e=>{
   const t = e.target.closest('[data-app]');
-  if(!t || hubEdition) return;
+  /* Les trois points sont DANS la tuile : les ouvrir n'ouvre pas l'application. */
+  if(!t || hubEdition || e.target.closest('.btn-menu-app')) return;
   try{ localStorage.setItem('codelab-hub-derniere', t.dataset.app); }catch(err){}
   if(hubApps.some(a=>a.name===t.dataset.app))
     fetch('/api/mes-apps/'+encodeURIComponent(t.dataset.app)+'/ouverte', {method:'POST', keepalive:true}).catch(()=>{});

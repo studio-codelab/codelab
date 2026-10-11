@@ -39,6 +39,11 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
   - « Lanceur » : le hub comme un écran d'accueil (trame de points, bonjour en grand, recherche au
     centre, grandes icônes cerclées si l'application ne répond pas). Dagster, Mailpit et Messages y
     ont la même tuile que les autres applications ;
+  - **Le menu d'une application**, dans les deux styles : trois petits points dans le coin de la
+    tuile à la souris (au survol de l'icône dans le style Lanceur), un appui long au doigt (le menu
+    s'ouvre alors en bas de l'écran), ou le clic droit. Il propose : Ouvrir, Voir la présentation
+    (si le projet a une vidéo), Copier le lien, Réglages de l'application (admin) et Masquer du hub.
+    Un simple clic ou un simple toucher sur la tuile ouvre toujours l'application.
   - « Bento » (par défaut) : le hub en mosaïque.
     - **Sur un écran large**, elle défile à l'horizontale et jamais à la verticale : trois rangées à
       la hauteur de la fenêtre, et chaque application ajoute une colonne à droite. La molette fait
@@ -57,8 +62,8 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
       gardée côté serveur, d'un appareil à l'autre.
     - **Galerie de widgets** (« + » en mode Modifier) : seulement des widgets utiles, propres au hub
       ou à une application du hub, chacun avec ses tailles en aperçu :
-      - hub : « Dernière ouverte » (aperçu en direct de la dernière application ouverte, avec la
-        date), « État des applications » (admin), « Messages » à lire (admin), « Nouvelles
+      - hub : « Dernière ouverte » (la dernière application ouverte, son icône et la date, sans
+        aperçu de la page), « État des applications » (admin), « Messages » à lire (admin), « Nouvelles
         versions », « Écrire à l'administrateur » et « Mes messages » (comptes utilisateurs) ;
       - applications : « Aperçu » d'une application choisie, en direct, réduit et inerte ; un clic
         l'ouvre.
@@ -100,7 +105,7 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
   (`icon.png`, `favicon.png`, `logo.png`…). À défaut, un avatar est généré.
 - **Catégorie** pour ranger le hub.
 - **Vidéo de présentation** : si le projet a une `video/presentation.mp4` (faite par `codelab video`,
-  voir § 6), sa tuile du hub porte un bouton ▶ qui la lit dans une fenêtre, avec « Ouvrir
+  voir § 6), « Voir la présentation » dans le menu de sa tuile la lit dans une fenêtre, avec « Ouvrir
   l'application » en dessous. Servie avec les droits de l'application : un compte qui ne la voit pas
   ne voit pas sa vidéo. La fiche la montre (carte « Présentation ») et l'admin peut la masquer du hub.
 
