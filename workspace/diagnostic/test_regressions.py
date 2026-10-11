@@ -5320,7 +5320,7 @@ def test_aucune_action_ne_se_rabat_sur_une_phrase_vide():
     aide = page.split("async function echec(r, defaut){")[1].split("\n}")[0]
     assert "r.status" in aide and "401" in aide and "403" in aide
     for action in ("async function tg(n){", "async function restartApp(n){",
-                   "async function deployApp(n){", "async function buildApp(n){"):
+                   "async function buildApp(n){"):
         bloc = page.split(action)[1].split("\n}")[0]
         assert "await echec(r," in bloc, f"{action} ne rend pas compte de l'echec"
 
@@ -5526,17 +5526,20 @@ def test_le_mot_a_l_administrateur_a_sa_propre_rubrique():
     permet pas."""
     page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
                 encoding="utf-8").read()
-    # L'onglet existe, et pour TOUT LE MONDE : data-admin le reserverait a
-    # l'administrateur, qui est justement celui a qui l'on ecrit.
-    onglet = page.split('<button data-p="message"')[1].split(">")[0]
-    assert "data-admin" not in onglet, onglet
-    assert 'id="param-message"' in page
+    # Vecu ensuite : « sur telephone, la partie messages ne doit pas etre
+    # dans les parametres mais doit etre une partie a part ». Une rubrique
+    # du panneau, plus un onglet des parametres.
+    assert '<button data-p="message"' not in page and 'id="param-message"' not in page
+    assert '<div id="sec-message" class="section"' in page
+    entree = page.split('data-sec="message"')[1].split(">")[0]
+    assert "allerA('message')" in entree
+    assert "message:'/messages'" in page
 
-    # Le formulaire est DANS cet onglet, et plus dans le hub.
+    # Le formulaire est DANS cette rubrique, et plus dans le hub.
     hub = page.split('<div id="sec-hub"')[1].split('<!-- ==================== VUE')[0]
     assert "msg-carte" not in hub, "le formulaire traine encore dans le hub"
-    message = page.split('<div class="onglet-p" id="param-message">')[1] \
-                  .split('<div class="onglet-p"')[0]
+    message = page.split('<div id="sec-message" class="section"')[1] \
+                  .split('<!-- ==================== ')[0]
     for champ in ('id="msg-cible"', 'id="msg-app"', 'id="msg-texte"', 'id="msg-envoyer"'):
         assert champ in message, champ
 
@@ -5795,13 +5798,13 @@ def test_la_fiche_d_un_compte_attend_la_liste_des_applications():
 
 def test_la_rubrique_message_ferme_la_marche():
     """On ne vient pas dans les parametres pour ecrire, on y vient pour
-    regler : le mot a l'administrateur passe en dernier."""
+    regler : le mot a l'administrateur a quitte les onglets."""
     page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
                 encoding="utf-8").read()
     onglets = page.split('<div class="fiche-onglets" id="param-onglets">')[1]
     onglets = onglets.split("</div>")[0]
     noms = re.findall(r'data-p="([a-z]+)"', onglets)
-    assert noms[-1] == "message", f"ordre des onglets : {noms}"
+    assert "message" not in noms, f"ordre des onglets : {noms}"
     assert noms[0] == "compte", "le compte reste la premiere rubrique"
 
 
@@ -13827,11 +13830,16 @@ def test_l_application_messages_est_reservee_a_l_administrateur(boite, deux_espa
     page = r.get_data(as_text=True)
     assert "__JETON__" not in page and "function peindrePlanning(" in page
     assert c.get("/messages/projet/p-abc").status_code == 200
-    # Un compte utilisateur est renvoye au hub ; un anonyme, a la connexion.
+    # Un compte utilisateur a, a la meme adresse, SA rubrique Messages du
+    # panneau (et jamais la page de l'administrateur) ; un anonyme va a la
+    # connexion.
     u = app.flask_app.test_client()
     _connecte(u, "marie", "mot-de-passe-long")
     r = u.get("/messages")
-    assert r.status_code == 302 and r.headers["Location"].endswith("/")
+    assert r.status_code == 200
+    page_u = r.get_data(as_text=True)
+    assert '<div id="sec-message" class="section"' in page_u
+    assert "function peindrePlanning(" not in page_u
     for route in ("/api/projets", "/api/taches"):
         assert u.get(route).status_code == 403, route
     assert u.put("/api/taches/ordre", json={"statut": "fait", "ordre": []}).status_code == 403
@@ -14783,3 +14791,33 @@ def test_le_lanceur_montre_les_widgets_du_compte():
     assert ':root[data-variante="lanceur"] .hub-compose{display:inline-flex' in page
     deplacer = page.split("function hubDeplacer(")[1].split("\n}")[0]
     assert "styleCourant()==='lanceur'" in deplacer and "elements[j].t!=='w'" in deplacer
+
+
+# ------------- Au telephone : on tient avant de deplacer -------------
+#
+# Vecu : « Sur telephone, ameliorer la reorganisation des app. Il faut
+# selectionner un minimum de temps l'app pour la deplacer, sinon ca
+# m'empeche de scroller. »
+
+def test_au_doigt_une_tuile_se_saisit_par_un_appui_long():
+    page = _page_panneau("dashboard.html")
+    assert "const SAISIE_TACTILE_MS = 350;" in page
+    bas = page.split("$('hub-liste').addEventListener('pointerdown', e=>{\n  if(!hubEdition")[1].split("\n});")[0]
+    assert "tactile, saisie:!tactile" in bas          # la souris attrape tout de suite
+    assert "setTimeout(" in bas and "SAISIE_TACTILE_MS" in bas
+    deplacement = page.split("document.addEventListener('pointermove', e=>{\n  const g=glisse;")[1].split("\n});")[0]
+    # Avant la saisie, un doigt qui bouge fait defiler : la tuile est lachee.
+    assert "if(!g.saisie){" in deplacement and "glisse=null" in deplacement
+    # Le defilement reste permis au doigt tant que rien n'est saisi...
+    assert "#hub-liste.edition > *{touch-action:pan-x pan-y" in page
+    # ... et s'arrete une fois la tuile saisie.
+    assert "if(glisse && glisse.tactile && glisse.saisie) e.preventDefault();" in page
+    assert "}, {passive:false});" in page
+
+
+def test_deployer_a_quitte_la_fiche():
+    page = _page_panneau("dashboard.html")
+    assert "app-deployer" not in page and "deployApp" not in page
+    assert ">Déployer<" not in page.replace("${svgUp}", "")
+    readme = open(os.path.join(_racine_depot(), "dev", "README.md"), encoding="utf-8").read()
+    assert "## Déployer" not in readme

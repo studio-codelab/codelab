@@ -1581,6 +1581,11 @@ table.tbl-journal{min-width:560px}
 #hub-liste.edition > .glissee{animation:none;z-index:20;cursor:grabbing;pointer-events:none;
  box-shadow:0 22px 50px var(--shadow-2);scale:1.04;transition:scale .15s, box-shadow .15s}
 #hub-liste.en-glisse{cursor:grabbing}
+/* Au doigt : le hub defile tant qu'aucune tuile n'est saisie (appui long). */
+@media (pointer:coarse){
+  #hub-liste.edition > *{touch-action:pan-x pan-y;-webkit-touch-callout:none}
+}
+#hub-liste.edition > .saisie{animation:none;scale:1.04;box-shadow:0 22px 50px var(--shadow-2);transition:scale .15s, box-shadow .15s}
 /* Les fleches restent pour le clavier : on ne les voit qu'en y arrivant. */
 #hub-liste.edition > :not(:focus-within) .ed-barre [data-agir="hub-deplacer"]{display:none}
 #hub-liste.edition > .bento-carte:not(:focus-within) .ed-barre{display:none}
@@ -1772,7 +1777,7 @@ a.pj:hover{border-color:var(--accent)}
   .bw-moyen.bw-une .bw-apercu{border-radius:24px 24px 0 0}
   .bw-apercu{min-height:230px}
   :root[data-variante="bento"] .hub-barre{width:100%;margin-left:0}
-  :root[data-variante="bento"] .hub-recherche{flex:1;width:auto}
+  :root[data-variante="bento"] .hub-recherche{flex:1;width:auto;margin:0}
   .bento-vide{grid-column:span 2;min-height:90px}
   .galerie-corps{grid-template-columns:minmax(0,1fr)}
   .galerie-liste{border-right:0;padding-right:0;flex-direction:row;flex-wrap:wrap;max-height:none}
@@ -1845,10 +1850,10 @@ a.pj:hover{border-color:var(--accent)}
       <path d="M16.5 5.2a3.4 3.4 0 010 6.1"/><path d="M18 13.9c2.1.7 3.5 2.6 3.5 4.9"/></svg>
       <span>Utilisateurs</span>
       <span class="side-count" id="side-count-users">0</span></div>
-    <!-- Un compte utilisateur ecrit a l'administrateur depuis Parametres >
-         Message : le style Design lui en donne l'entree dans le menu. -->
-    <div class="side-item utilisateur-seul" data-sec="message-utilisateur"
-         onclick="allerA('parametres');paramOnglet('message')">
+    <!-- Un compte utilisateur ecrit a l'administrateur dans sa rubrique
+         Messages, une entree du menu (de la barre du bas au telephone). -->
+    <div class="side-item utilisateur-seul" data-sec="message"
+         onclick="allerA('message')">
       <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
       <span>Messages</span>
       <span class="side-count" id="side-count-suivi" style="display:none">0</span></div>
@@ -2322,9 +2327,6 @@ a.pj:hover{border-color:var(--accent)}
     <button data-p="serveur" onclick="paramOnglet('serveur')" data-admin="1">Serveur</button>
     <button data-p="categories" onclick="paramOnglet('categories')" data-admin="1">Catégories</button>
     <button data-p="email" onclick="paramOnglet('email')" data-admin="1">E-mail et alertes</button>
-    <!-- Le mot a l'administrateur ferme la marche : on ne vient pas dans les
-         parametres pour ecrire, on y vient pour regler. -->
-    <button data-p="message" onclick="paramOnglet('message')">Message</button>
   </div>
 
   <div class="onglet-p" id="param-compte">
@@ -2727,7 +2729,15 @@ a.pj:hover{border-color:var(--accent)}
   </div>
   </div>
 
-  <div class="onglet-p" id="param-message">
+</div>
+
+<!-- ==================== MESSAGES (compte utilisateur) ==================== -->
+<!-- Une rubrique a part, et non plus un onglet des parametres : on vient
+     ici pour ECRIRE et suivre ce qu'on a demande, pas pour regler son
+     compte. Au telephone, c'est une entree de la barre du bas. Meme adresse
+     que l'application Messages de l'administrateur (/messages). -->
+<div id="sec-message" class="section" style="display:none">
+  <div class="toolbar"><h2>Messages</h2></div>
   <!-- UN MOT A L'ADMINISTRATEUR, dans sa propre rubrique.
        Il vivait au bas du hub, replie sous les applications : la ou tout le
        monde passe, mais aussi la ou personne ne vient pour ecrire. Les
@@ -2735,7 +2745,6 @@ a.pj:hover{border-color:var(--accent)}
        et un onglet se trouve par son nom -- ce qu'une carte au bas d'une
        liste de tuiles ne permet pas. -->
   <div class="zone" id="profil-message">
-    <div class="zone-title">Message</div>
     <div class="card settings-card sans-pli" id="msg-carte">
       <div class="card-top"><div class="card-name">
         <b>Un mot à l'administrateur</b>
@@ -2785,8 +2794,6 @@ a.pj:hover{border-color:var(--accent)}
       <div class="suivi-liste" id="suivi-liste"><p class="hint">Chargement…</p></div>
     </div>
   </div>
-  </div>
-
 </div>
 
 <!-- ==================== UTILISATEURS ==================== -->
@@ -3255,7 +3262,6 @@ const ACTIONS = {
   'galerie-ajouter': (n,d) => galerieAjouter(n, d.taille, d.app),
   'app-redemarrer':  n => restartApp(n),
   'app-build':       n => buildApp(n),
-  'app-deployer':    n => deployApp(n),
   'app-visibilite':  n => basculerVisibilite(n),
   'passkey-retirer': id => pkSupprimer(id),
   'compte-ouvrir':   n => usOuvrir(n),
@@ -3397,7 +3403,9 @@ function showSection(name){
      garde-fou n'est pas une protection -- les routes verifient le role de leur
      cote -- c'est ce qui evite qu'un clic egare mene a une page vide et a des
      appels refuses. */
-  if(!estAdmin && name!=='hub' && name!=='parametres') name='hub';
+  if(!estAdmin && name!=='hub' && name!=='parametres' && name!=='message') name='hub';
+  /* L'administrateur lit les messages dans l'application Messages. */
+  if(estAdmin && name==='message'){ location.href='/messages'; return; }
   fermerMenuMobile();
   document.querySelectorAll('.section').forEach(s=>{ s.style.display = (s.id==='sec-'+name) ? '' : 'none'; });
   /* La fiche d'une application appartient a "Applications" : l'entree du menu
@@ -3421,6 +3429,10 @@ function showSection(name){
      etats changent depuis un autre onglet du navigateur, ou au redemarrage du
      service. On ne recharge que l'onglet regarde. */
   if(name==='parametres') paramOnglet(paramOngletActif);
+  /* La liste des applications vient du hub : on la relit, sinon le choix
+     « D'une application » est vide pour qui arrive directement ici. */
+  if(name==='message'){ chargerHub(); suiviConsulte(); $('msg-err').style.display='none';
+                        $('msg-ok').style.display='none'; plierLesCartes(); }
   sectionCourante=name;
   majAdresse();
 }
@@ -3432,7 +3444,7 @@ function showSection(name){
    (page_du_panneau) ; c'est ici qu'on lit l'adresse et qu'on ouvre la bonne
    rubrique. */
 const ADRESSES={hub:'/', overview:'/apercu', apps:'/applications', users:'/utilisateurs',
-                parametres:'/parametres'};
+                parametres:'/parametres', message:'/messages'};
 let sectionCourante='hub', routageEnCours=false;
 
 function adresseCourante(){
@@ -3453,7 +3465,10 @@ async function routerDepuisAdresse(){
     const m=location.pathname.split('/').filter(Boolean).map(x=>{
       try{ return decodeURIComponent(x); }catch(e){ return ''; }
     });
-    if(m[0]==='parametres'){
+    if(m[0]==='parametres' && m[1]==='message'){
+      /* L'ancien onglet « Message » : c'est maintenant une rubrique. */
+      showSection('message');
+    }else if(m[0]==='parametres'){
       if(m[1]) paramOngletActif=m[1];
       showSection('parametres');
     }else if(m[0]==='applications' && m[1] && estAdmin){
@@ -3670,15 +3685,14 @@ function paramOnglet(o){
      n'en listait que deux : cliquer sur « Message » ramenait aux reglages du
      compte, sans un mot, et l'onglet passait pour casse. Ce qu'il protege
      est un confort d'affichage ; chaque route verifie le role de son cote. */
-  if(!estAdmin && o!=='compte' && o!=='securite' && o!=='message') o='compte';
+  if(!estAdmin && o!=='compte' && o!=='securite') o='compte';
+  if(o==='message') o='compte';      // devenu la rubrique « Messages »
   /* Un onglet retire peut encore etre demande par un lien garde : on ouvre
      le compte plutot qu'une page vide. */
   if(o==='alertes') o='email';        // ancien onglet, fusionne
   if(!$('param-'+o) || $('param-onglets').querySelector('[data-p="'+o+'"]')?.style.display==='none') o='compte';
   paramOngletActif=o;
   if(sectionCourante==='parametres') majAdresse();
-  document.querySelectorAll('.side-item.utilisateur-seul')
-    .forEach(t=>t.classList.toggle('active', o==='message'));
   document.querySelectorAll('#param-onglets button')
     .forEach(b=>b.classList.toggle('active', b.dataset.p===o));
   document.querySelectorAll('.onglet-p')
@@ -3698,8 +3712,6 @@ function paramOnglet(o){
   }
   /* La liste des applications vient du hub : on la relit, sinon le choix
      « D'une application » est vide pour qui arrive directement ici. */
-  if(o==='message'){ chargerHub(); suiviConsulte(); $('msg-err').style.display='none';
-                     $('msg-ok').style.display='none'; }
   if(o==='serveur' && estAdmin){ chargerSecurite(); chargerVps(); }
   if(o==='categories') chargerCategories();
   /* Les deux onglets lisent la meme reponse : le serveur d'envoi et les
@@ -4024,7 +4036,7 @@ function widgetSuivi(taille){
     <p>${n ? (n>1 ? 'mises à jour' : 'mise à jour') : 'en cours'}</p></div>`;
   return titre+`<div class="bw-liste">${liste.slice(0,3).map(m=>`<div><span>${esc(sujetSuivi(m))}</span>
       <span class="suivi-etat e-${m.suivi.etape}">${NOM_ETAPE[m.suivi.etape]||''}</span></div>`).join('')}</div>
-    <button type="button" class="bento-bouton" onclick="allerA('parametres');paramOnglet('message')">${n ? n+' nouveauté'+(n>1?'s':'') : 'Tout voir'} ${SVG_FLECHE}</button>`;
+    <button type="button" class="bento-bouton" onclick="allerA('message')">${n ? n+' nouveauté'+(n>1?'s':'') : 'Tout voir'} ${SVG_FLECHE}</button>`;
 }
 
 /* ---------------- le hub, en grille et seulement en grille ----------------
@@ -4500,7 +4512,9 @@ document.addEventListener('click', e=>{
 }, true);
 /* Le clic droit (et l'appui long d'Android, qui le declenche aussi). */
 $('hub-liste').addEventListener('contextmenu', e=>{
-  if(hubEdition) return;
+  /* En mode Modifier, l'appui long saisit la tuile : pas de menu du
+     navigateur par-dessus. */
+  if(hubEdition){ e.preventDefault(); return; }
   const t=e.target.closest('[data-app]'); if(!t || !appDuHub(t.dataset.app)) return;
   e.preventDefault();
   if(!$('menu-app').hidden) return;
@@ -4767,16 +4781,40 @@ function defilerPresDesBords(){
   if(v && !ecranMobile()){ liste.scrollLeft+=v; suivrePointeur(); chercherPlace(); }
   g.raf=requestAnimationFrame(defilerPresDesBords);
 }
+/* AU DOIGT, on tient avant de deplacer : un appui de 350 ms « saisit » la
+   tuile (elle se souleve, le telephone vibre), et seulement alors elle suit
+   le doigt. Un doigt qui glisse tout de suite fait defiler la page, comme
+   partout ailleurs -- sans cela, le mode Modifier empechait de faire
+   defiler le hub. A la souris, rien ne change : on attrape et on tire. */
+const SAISIE_TACTILE_MS = 350;
 $('hub-liste').addEventListener('pointerdown', e=>{
   if(!hubEdition || e.button>0 || e.target.closest('button,select,textarea,input,label')) return;
   const t=e.target.closest('#hub-liste > [data-el]'); if(!t) return;
   const r=t.getBoundingClientRect();
+  const tactile = e.pointerType==='touch';
   glisse={t, x:e.clientX, y:e.clientY, x0:e.clientX, y0:e.clientY, dx:e.clientX-r.left, dy:e.clientY-r.top,
-          parti:false, calme:0, raf:0, avant:[...$('hub-liste').children].map(x=>x.dataset.el).join('|')};
+          parti:false, calme:0, raf:0, avant:[...$('hub-liste').children].map(x=>x.dataset.el).join('|'),
+          tactile, saisie:!tactile, minuterie:0};
+  if(tactile) glisse.minuterie=setTimeout(()=>{
+    const g=glisse; if(!g || g.t!==t) return;
+    g.saisie=true; t.classList.add('saisie');
+    if(navigator.vibrate) try{ navigator.vibrate(12); }catch(err){}
+  }, SAISIE_TACTILE_MS);
 });
+/* Une fois la tuile saisie, le doigt ne fait plus defiler : c'est le
+   premier touchmove annule qui l'empeche (touch-action laisse defiler tant
+   que rien n'est saisi). */
+document.addEventListener('touchmove', e=>{
+  if(glisse && glisse.tactile && glisse.saisie) e.preventDefault();
+}, {passive:false});
 document.addEventListener('pointermove', e=>{
   const g=glisse; if(!g) return;
   g.x=e.clientX; g.y=e.clientY;
+  if(!g.saisie){
+    /* Le doigt a bouge avant la saisie : il fait defiler, on le laisse. */
+    if(Math.hypot(g.x-g.x0, g.y-g.y0) > 8){ clearTimeout(g.minuterie); glisse=null; }
+    return;
+  }
   if(!g.parti){
     /* Quelques pixels avant de partir : un simple appui reste un appui. */
     if(Math.hypot(g.x-g.x0, g.y-g.y0) < 6) return;
@@ -4789,6 +4827,7 @@ document.addEventListener('pointermove', e=>{
 }, {passive:false});
 function finirGlisse(){
   const g=glisse; glisse=null; if(!g) return;
+  clearTimeout(g.minuterie); g.t.classList.remove('saisie');
   cancelAnimationFrame(g.raf);
   $('hub-liste').classList.remove('en-glisse');
   if(!g.parti) return;
@@ -5134,14 +5173,6 @@ async function restartApp(n){ return uneAction(n, async()=>{
   else notifier('« '+n+' » a redémarré.');
   setTimeout(refresh,500);
 }); }
-async function deployApp(n){ return uneAction(n, async()=>{
-  /* Le journal s'ouvre tout de suite : un build dure, et c'est la qu'on le
-     suit. Avant, il ne s'ouvrait qu'a la fin. */
-  ouvrirFiche(n); ficheOnglet('journal');
-  const r=await fetch('/api/deploy/'+n,{method:'POST'});
-  if(!r.ok) notifier(await echec(r, 'Le déploiement a échoué.'), 'err');
-  setTimeout(refresh,600);
-}); }
 async function buildApp(n){ return uneAction(n, async()=>{
   ouvrirFiche(n); ficheOnglet('journal');
   const r=await fetch('/api/build/'+n,{method:'POST'});
@@ -5360,7 +5391,6 @@ function peindreFiche(){
   const svgStop='<svg viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2"/></svg>';
   const svgRe='<svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 10-2.3 5.7"/><path d="M20 5v6h-6"/></svg>';
   const svgBuild='<svg viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 01-5.4 5.4L4 17v3h3l5.3-5.3a4 4 0 015.4-5.4z"/></svg>';
-  const svgUp='<svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>';
   const svgOuvrir='<svg viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 13v6a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h6"/></svg>';
 
   const b=[];
@@ -5382,9 +5412,6 @@ function peindreFiche(){
   b.push(`<button class="btn btn-refaire" data-agir="app-redemarrer" data-cible="${esc(a.name)}" ${a.running?'':'disabled'}>
     ${svgRe}Redémarrer</button>`);
   if(a.has_build) b.push(`<button class="btn btn-refaire" data-agir="app-build" data-cible="${esc(a.name)}">${svgBuild}Build</button>`);
-  /* Deployer met du code en ligne : c'est l'action principale de cette
-     barre, et la seule qui garde l'accent. */
-  b.push(`<button class="btn btn-primary" data-agir="app-deployer" data-cible="${esc(a.name)}">${svgUp}Déployer</button>`);
   /* « Rendre publique » n'est propose que si le serveur a une adresse
      publique declaree. Sinon le mot promet un partage qui n'existe pas :
      cela ne ferait que retirer l'authentification. Le chemin qui REFERME,

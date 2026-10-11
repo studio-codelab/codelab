@@ -58,7 +58,9 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
       en défilant, les tuiles passent jusqu'au bord gauche de la fenêtre. La recherche est tout à
       droite, alignée sur le bouton du compte.
     - **Réorganiser le hub** (une icône discrète à droite de la recherche ; *Terminé* ou Échap pour
-      sortir) : les tuiles tremblent légèrement ; on en attrape une, elle suit le doigt ou la souris,
+      sortir) : les tuiles tremblent légèrement ; on en attrape une (au doigt, après un appui de
+      0,35 s : elle se soulève, le téléphone vibre ; un doigt qui glisse tout de suite fait défiler
+      la page), elle suit le doigt ou la souris,
       et les autres glissent pour lui faire place à mesure qu'elle passe ; près d'un bord, la
       mosaïque défile seule. Chaque tuile porte un « − » (retirer un widget, masquer une
       application) ; un widget a ses tailles (petit, moyen, grand) ; au clavier, des flèches
@@ -117,8 +119,6 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
 
 - **Démarrer, arrêter, redémarrer.**
 - **Build** à la demande.
-- **Déployer** : build puis redémarrage, seulement si le build réussit. L'ancienne version reste
-  servie pendant le build.
 - **Port interne attribué** automatiquement (`9101`–`9140`), passé à l'application dans `$PORT`.
 - **Reprise au redémarrage** du panneau : une application active est relancée.
 - **Redémarrage automatique** après un crash, 5 fois au plus en 10 minutes. Au-delà, la pastille
@@ -231,8 +231,9 @@ l'administrateur. Sa tuile (deux bulles de conversation) porte le nombre de mess
 par le panneau sur `/messages` : même session, mêmes contrôles d'accès, même base. Les anciennes
 adresses `/demandes` y mènent.
 
-- **Écrire un message** (tout compte) : depuis le hub (*Paramètres > Message*, ou le widget « Écrire à
-  l'administrateur » du style Bento), en choisissant le sujet : **améliorer le hub**, **une idée de
+- **Écrire un message** (tout compte) : dans sa rubrique **Messages** (`/messages`, une entrée du menu, de la
+  barre du bas au téléphone ; ce n'est plus un onglet des paramètres), ou le widget « Écrire à
+  l'administrateur », en choisissant le sujet : **améliorer le hub**, **une idée de
   nouveau projet**, ou **améliorer une application existante** (laquelle). Un message qui arrive
   s'annonce dans le coin du panneau de l'administrateur.
 - **Joindre des captures et des maquettes** (jusqu'à 6 par message, 10 Mo chacune) : images (PNG,
@@ -244,7 +245,7 @@ adresses `/demandes` y mènent.
   tâches dans l'ordre du planning avec sous-tâches et notes, messages, maquettes en images),
   `projet.json`, et les pièces jointes dans `pieces/`. *Tout exporter* (bas du menu) rassemble tous
   les projets, un dossier chacun, avec un sommaire.
-- **Suivre ses messages** (comptes utilisateurs) : *Paramètres > Message > Mes messages* montre où en
+- **Suivre ses messages** (comptes utilisateurs) : *Messages > Mes messages* montre où en
   est chacun, sur une frise **Envoyé → Lu (ou À l'étude) → Planifié → En cours → Réalisé**, ou
   **Non retenu**. L'étape se déduit de ce que fait l'administrateur dans Messages (lire, mettre à
   l'étude, accepter, refuser, en faire des tâches ou un projet, les cocher) : rien de plus à remplir.

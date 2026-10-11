@@ -35,8 +35,8 @@ ses garanties de sécurité dans [`SECURITE.md`](../SECURITE.md).
 Le panneau ne crée jamais de projet : il **déclare** un dossier existant de `/workspace`.
 
 1. **Ajout** :
-   - le dossier est inspecté et les commandes de build et de lancement sont proposées (tableau dans
-     [`dev/README.md`](../dev/README.md#déployer)) ;
+   - le dossier est inspecté et les commandes de build et de lancement sont proposées (Vite, Astro, Parcel,
+     CRA, Angular, Next.js, Django, Flask, `Procfile`, page statique) ;
    - un port libre est attribué dans `9101`–`9140`.
 2. **Nom et adresse.** Le nom saisi est libre. L'adresse en est dérivée : minuscules, espaces et
    caractères interdits changés en tirets (`Mon Site` → `/mon-site/`).
@@ -58,7 +58,6 @@ Le panneau ne crée jamais de projet : il **déclare** un dossier existant de `/
    - **jamais** : `APP_MANAGER_*`, le bloc `codelab-alertes`, la clé privée SSO, ni `PATH`, `HOME`,
      `PYTHONPATH`, `PYTHONHOME`, `LD_PRELOAD` ou `LD_LIBRARY_PATH` lus dans le fichier.
 5. **Build** : même identité et même environnement, délai de 10 minutes, sortie dans le journal.
-   **Déployer** enchaîne build puis redémarrage, seulement si le build réussit.
 6. **Surveillance** (`monitor_tick`, toutes les 10 s) :
    - un crash est relancé, 5 fois au plus en 10 minutes ; au-delà, « boucle de crash » et alerte ;
    - une sonde TCP sur le port interne donne l'état « Ne répond pas » ;

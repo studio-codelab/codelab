@@ -10213,11 +10213,12 @@ def anciens_messages(**_):
 def page_messagerie(**_):
     """Les messages et la gestion de projet qui en sort, sur une page a eux.
 
-    Reservee a l'administrateur, comme toutes les routes qu'elle appelle : un
-    compte utilisateur est renvoye au hub, d'ou il ecrit ses messages.
+    Pour l'administrateur. Un compte utilisateur a, a la meme adresse, SA
+    rubrique « Messages » du panneau : ecrire a l'administrateur et suivre
+    ce que chaque message est devenu (la page le route sur sa section).
     """
     if not est_admin():
-        return redirect("/")
+        return index()
     page = (MESSAGERIE_PAGE
             .replace("__JETON__", json.dumps(jeton_session()))
             .replace("__UTILISATEUR__", json.dumps(utilisateur_courant())))
