@@ -1460,13 +1460,34 @@ table.tbl-journal{min-width:560px}
 :root[data-variante="lanceur"] .hub-liste.compacte .hub-projet .bas .pill.pub,
 :root[data-variante="lanceur"] .hub-liste.compacte .hub-projet .bas .pill.priv{display:none}
 
+/* Les widgets du lanceur : les memes que ceux du Bento (la disposition est
+   celle du compte, d'un style a l'autre), dans une grille centree entre la
+   recherche et les icones. Reorganiser et « + », discrets, a droite de la
+   recherche. */
+:root[data-variante="lanceur"] .hub-barre{display:flex;align-items:center;gap:8px;position:relative;
+ max-width:600px;margin:0 auto 32px}
+:root[data-variante="lanceur"] .hub-recherche{flex:1;margin:0}
+:root[data-variante="lanceur"] .hub-compose-groupe{display:flex;gap:8px;position:absolute;left:calc(100% + 10px)}
+:root[data-variante="lanceur"] .hub-compose{display:inline-flex;height:44px;border-radius:999px;padding:0 18px}
+:root[data-variante="lanceur"] #hub-ajouter-widget{width:44px;padding:0;justify-content:center}
+:root[data-variante="lanceur"] #hub-modifier:not(.actif){width:44px;padding:0;justify-content:center;border-color:transparent;
+ background:none;color:var(--dim)}
+:root[data-variante="lanceur"] #hub-modifier:not(.actif):hover{color:var(--txt);background:var(--surface)}
+.hub-widgets{display:grid;grid-template-columns:repeat(4,210px);grid-auto-rows:210px;grid-auto-flow:row dense;
+ gap:16px;justify-content:center;margin:0 auto 48px}
+@media (max-width:980px){ .hub-widgets{grid-template-columns:repeat(2,210px)} }
+.hub-widgets[hidden]{display:none}
+.hub-widgets > .bw{box-shadow:0 14px 30px var(--shadow-2)}
+.hub-widgets-vide{grid-column:1/-1;text-align:center;color:var(--dim);font-size:14px;padding:18px;
+ border:1px dashed var(--line2);border-radius:24px}
+
 /* STYLE 4 -- BENTO : une mosaique qui defile a l'HORIZONTALE sur un ecran
    large (trois rangees a la hauteur de la fenetre, les colonnes s'ajoutent a
    droite), et a la verticale sur un telephone. */
 /* Sur un ecran large, la page du hub Bento ne defile PAS a la verticale :
    seule la mosaique defile, de cote. */
 @media (min-width:761px){ :root[data-variante="bento"].hub-actif{overflow:hidden} }
-.hub-tete,.hub-tete-texte,.hub-barre{display:contents}
+.hub-tete,.hub-tete-texte,.hub-barre,.hub-compose-groupe{display:contents}
 .hub-compose{display:none}
 :root[data-variante="bento"] .hub-tete{display:flex;align-items:flex-end;justify-content:space-between;gap:16px 24px;
  flex-wrap:wrap;margin:6px 0 18px}
@@ -1545,6 +1566,11 @@ table.tbl-journal{min-width:560px}
 .bw-suivi .suivi-etat{margin-left:0}
 .bw-suivi .bento-bouton{background:var(--accent);color:var(--sur-accent);text-decoration:none;border:0;cursor:pointer;font:inherit}
 /* ---- mode Modifier : les tuiles tremblent, portent leurs gestes ---- */
+#hub-widgets.edition > .bw{position:relative;user-select:none;-webkit-user-select:none;
+ animation:hub-tremble .34s ease-in-out infinite alternate}
+#hub-widgets.edition > .bw:nth-child(2n){animation-delay:-.16s}
+#hub-widgets.edition iframe,#hub-widgets.edition textarea,#hub-widgets.edition a,#hub-widgets.edition .bw-sujets{pointer-events:none}
+#hub-widgets.edition > * > :not(.ed-retirer):not(.ed-barre){opacity:.85}
 #hub-liste.edition > *{position:relative;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;
  animation:hub-tremble .34s ease-in-out infinite alternate}
 #hub-liste.edition > *:nth-child(2n){animation-delay:-.16s}
@@ -1559,7 +1585,7 @@ table.tbl-journal{min-width:560px}
 #hub-liste.edition > :not(:focus-within) .ed-barre [data-agir="hub-deplacer"]{display:none}
 #hub-liste.edition > .bento-carte:not(:focus-within) .ed-barre{display:none}
 @keyframes hub-tremble{from{rotate:-.3deg}to{rotate:.3deg}}
-@media (prefers-reduced-motion:reduce){#hub-liste.edition > *{animation:none;outline:2px dashed var(--line2);outline-offset:-2px}}
+@media (prefers-reduced-motion:reduce){#hub-liste.edition > *,#hub-widgets.edition > .bw{animation:none;outline:2px dashed var(--line2);outline-offset:-2px}}
 .ed-retirer{position:absolute;top:8px;left:8px;z-index:3;width:26px;height:26px;border-radius:999px;border:0;
  background:var(--txt);color:var(--surface);font:inherit;font-size:18px;font-weight:800;line-height:1;cursor:pointer;
  display:grid;place-items:center;box-shadow:0 0 0 2px var(--surface),0 2px 6px rgba(0,0,0,.25)}
@@ -1661,8 +1687,54 @@ a.pj:hover{border-color:var(--accent)}
 .bento-barres i.warn{background:#f2a33a}
 .bento-barres i.err{background:#ef5350}
 .bento-etat a{color:var(--bento-lien);font-weight:700}
-.bento-carte{display:flex;flex-direction:column;gap:6px;padding:18px;border-radius:24px;
+.bento-carte{position:relative;display:flex;flex-direction:column;gap:6px;padding:18px;border-radius:24px;
  background:var(--surface);border:1px solid var(--line);color:var(--txt);text-decoration:none}
+/* ---- le menu d'une application : trois points dans le coin de la tuile
+   (souris), un appui long (doigt), ou le clic droit ---- */
+.btn-menu-app{position:absolute;right:10px;bottom:10px;width:32px;height:32px;border-radius:10px;border:0;
+ display:grid;place-items:center;background:transparent;color:var(--dim);cursor:pointer;
+ transition:background .12s,color .12s,opacity .12s}
+.btn-menu-app svg{width:18px;height:18px;fill:currentColor;stroke:none}
+.btn-menu-app:hover,.btn-menu-app[aria-expanded="true"]{background:var(--surface2);color:var(--txt)}
+.btn-menu-app:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.hub-projet{position:relative}
+.hub-projet .btn-menu-app{width:28px;height:28px;right:2px;bottom:auto;top:-8px;border-radius:999px;
+ background:var(--surface);color:var(--txt);border:1px solid var(--line2);box-shadow:0 2px 8px rgba(0,0,0,.12);opacity:0}
+.hub-projet:hover .btn-menu-app,.hub-projet:focus-within .btn-menu-app,
+.hub-projet .btn-menu-app[aria-expanded="true"]{opacity:1}
+.hub-projet .btn-menu-app svg{width:15px;height:15px}
+/* Au doigt, pas de points : l'appui long ouvre le menu. */
+@media (hover:none) and (pointer:coarse){ .btn-menu-app{display:none} }
+#hub-liste [data-app]{-webkit-touch-callout:none}
+.menu-app{position:fixed;inset:0;z-index:300}
+.menu-app[hidden]{display:none}
+.menu-app-fond{position:absolute;inset:0}
+.menu-app-panneau{position:absolute;min-width:232px;padding:6px;border-radius:14px;background:var(--surface);
+ border:1px solid var(--line2);box-shadow:0 18px 48px rgba(0,0,0,.22);animation:menu-app-entree .14s ease-out}
+.menu-app-tete{display:flex;align-items:center;gap:10px;padding:8px 10px 10px;border-bottom:1px solid var(--line);margin-bottom:4px}
+.menu-app-tete img{width:28px;height:28px;border-radius:8px}
+.menu-app-tete b{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.menu-app-item{display:flex;align-items:center;gap:12px;width:100%;padding:10px 10px;border:0;border-radius:9px;
+ background:none;color:var(--txt);font:inherit;font-size:14px;text-align:left;text-decoration:none;cursor:pointer}
+.menu-app-item svg{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;color:var(--dim)}
+.menu-app-item:hover,.menu-app-item:focus-visible{background:var(--surface2);outline:none}
+/* Ouvert au doigt : une feuille en bas de l'ecran, sous le pouce. */
+.menu-app.feuille .menu-app-fond{background:rgba(0,0,0,.35)}
+.menu-app.feuille .menu-app-panneau{left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom));top:auto;
+ border-radius:20px;padding:8px;animation-name:menu-app-feuille}
+.menu-app.feuille .menu-app-item{padding:14px 12px;font-size:16px}
+@keyframes menu-app-entree{from{opacity:0;transform:scale(.97)}}
+@keyframes menu-app-feuille{from{transform:translateY(24px);opacity:0}}
+@media (prefers-reduced-motion:reduce){ .menu-app-panneau{animation:none} }
+.bw-apercu.sans-direct{background:rgba(255,255,255,.1)}
+.modal.presentation{max-width:min(1100px,94vw);overflow:hidden}
+.presentation-video{display:block;width:100%;max-height:68vh;background:#000;aspect-ratio:16/9}
+.presentation-pied{display:flex;align-items:center;gap:14px;padding:16px 20px;flex-wrap:wrap}
+.presentation-pied img{width:44px;height:44px;border-radius:12px;flex:none}
+.presentation-pied .txt{flex:1;min-width:0}
+.presentation-pied b{display:block;font-size:17px;letter-spacing:-.02em}
+.presentation-pied span{display:block;color:var(--dim);font-size:13px;margin-top:2px}
+.fiche-video{display:block;width:100%;max-width:640px;border-radius:12px;background:#000;margin-top:10px;aspect-ratio:16/9}
 .bento-carte:hover{border-color:var(--accent)}
 .bento-carte.warn{box-shadow:inset 0 0 0 2px var(--warn)}
 .bento-carte.err{box-shadow:inset 0 0 0 2px var(--err)}
@@ -1671,7 +1743,7 @@ a.pj:hover{border-color:var(--accent)}
 .bento-carte img{width:44px;height:44px;border-radius:14px}
 .bento-carte-nom{font-size:19px;font-weight:800;letter-spacing:-.03em;line-height:1.1;
  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.bento-carte-desc{font-size:12.5px;color:var(--dim);display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+.bento-carte-desc{font-size:12.5px;color:var(--dim);display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden;padding-right:30px}
 .bento-vide{grid-row:span 2;grid-column:span 2}
 /* NOUVELLE VERSION depuis la derniere ouverture : une etiquette sur la tuile. */
 .badge-maj{display:inline-flex;align-items:center;gap:5px;align-self:flex-start;padding:2px 9px;border-radius:999px;
@@ -1685,6 +1757,10 @@ a.pj:hover{border-color:var(--accent)}
   :root[data-variante="lanceur"] .hub-liste.compacte .hub-projet img{width:72px;height:72px;border-radius:22px}
   :root[data-variante] .hub-recherche{height:50px;margin-bottom:24px}
   :root[data-variante="bento"] .salut{font-size:40px}
+  :root[data-variante="lanceur"] .hub-barre{margin-bottom:24px}
+  :root[data-variante="lanceur"] .hub-compose-groupe{position:static}
+  :root[data-variante="lanceur"] .hub-recherche{margin:0}
+  .hub-widgets{grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:auto;gap:12px;margin-bottom:32px}
   #hub-liste.bento{margin-left:0;margin-right:0;padding-left:2px !important;padding-right:2px !important}
   /* Sur telephone : une colonne, et l'on defile vers le bas. */
   #hub-liste.bento{grid-auto-flow:row;grid-template-rows:none;grid-template-columns:repeat(2,minmax(0,1fr));
@@ -1800,15 +1876,19 @@ a.pj:hover{border-color:var(--accent)}
     <input type="search" id="hub-filtre" placeholder="Ouvrir une application…" aria-label="Rechercher une application"
       autocomplete="off" oninput="peindreHub()">
   </label>
-  <!-- Bento : composer le hub. -->
+  <!-- Composer le hub : ses widgets (et, dans le Bento, l'ordre des tuiles). -->
+  <span class="hub-compose-groupe">
   <button class="btn btn-default hub-compose" id="hub-ajouter-widget" onclick="ouvrirGalerie()" style="display:none"
     aria-label="Ajouter un widget" title="Ajouter un widget">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
   <button class="btn btn-default hub-compose" id="hub-modifier" onclick="basculerEdition()"
     title="Réorganiser le hub" aria-label="Réorganiser le hub"></button>
+  </span>
   </div>
   </div>
   <div class="hint" id="hub-masquees" style="display:none;margin:-8px 0 14px"></div>
+  <!-- Lanceur : les widgets, au-dessus des icones. -->
+  <div id="hub-widgets" class="hub-widgets" hidden></div>
   <div id="hub-liste" class="hub-liste"></div>
 
 </div>
@@ -1991,6 +2071,13 @@ a.pj:hover{border-color:var(--accent)}
         <div class="kv"><span class="k">Build</span><span class="v"><code id="fa-build">—</code></span></div>
         <div class="kv"><span class="k">Limite mémoire</span><span class="v" id="fa-mem">—</span></div>
       </div>
+    </div>
+    <!-- La video de presentation (video/presentation.mp4 du projet) : la
+         voir, et choisir si le hub la montre. -->
+    <div class="card zone" id="fa-presentation">
+      <div class="card-top"><div class="card-name"><b>Présentation</b>
+        <div class="path" id="fa-pr-sous"></div></div></div>
+      <div id="fa-pr-corps"></div>
     </div>
     <div class="cartes c2" id="fa-mesures">
       <div class="card"><div class="metrique"><b id="fa-cpu">0%</b><span>CPU</span></div></div>
@@ -2955,6 +3042,24 @@ a.pj:hover{border-color:var(--accent)}
   <div class="mf"><div class="spacer"></div><button class="btn btn-default" onclick="hide('ov-galerie')">Fermer</button></div>
 </div></div>
 
+<!-- La video de presentation d'une application : le lecteur du navigateur
+     (plein ecran, son, Picture-in-Picture), et de quoi ouvrir l'application. -->
+<!-- Le menu d'une application du hub (trois points, appui long, clic droit). -->
+<div class="menu-app" id="menu-app" hidden>
+  <div class="menu-app-fond" data-agir="menu-fermer"></div>
+  <div class="menu-app-panneau" id="menu-app-panneau" role="menu" aria-labelledby="menu-app-nom"></div>
+</div>
+
+<div class="ov" id="ov-presentation"><div class="modal presentation" role="dialog" aria-labelledby="pr-nom">
+  <video class="presentation-video" id="pr-video" controls playsinline preload="metadata"></video>
+  <div class="presentation-pied">
+    <img id="pr-icone" alt="">
+    <div class="txt"><b id="pr-nom"></b><span id="pr-desc"></span></div>
+    <button class="btn btn-default" onclick="fermerPresentation()">Fermer</button>
+    <a class="btn btn-primary" id="pr-ouvrir" href="#">Ouvrir l'application</a>
+  </div>
+</div></div>
+
 <div class="ov" id="ov-add"><div class="modal">
   <div class="mh"><h3>Nouvelle application</h3>
     <p>Un dossier de <code id="a-s"></code>, une commande de lancement, et c'est en ligne.</p></div>
@@ -3132,6 +3237,14 @@ const ACTIONS = {
   'ap-etat':         n => apChoisirEtat(n),
   'ap-trier':        n => apTrier(n),
   'bw-sujet':        n => { hubMessageCible=n; peindreHub(); },
+  'presentation':    n => ouvrirPresentation(n),
+  'menu-app':        (n, d, bouton) => ouvrirMenuApp(n, bouton),
+  'menu-fermer':     () => fermerMenuApp(false),
+  'menu-ouvrir':     n => actionMenuApp('ouvrir', n),
+  'menu-presentation': n => actionMenuApp('presentation', n),
+  'menu-copier':     n => actionMenuApp('copier', n),
+  'menu-reglages':   n => actionMenuApp('reglages', n),
+  'menu-ranger':     n => actionMenuApp('ranger', n),
   'pj-retirer':      (cle, d) => { const p=piecesBrouillon[cle] && piecesBrouillon[cle][Number(d.rang)];
                                    if(!p) return;
                                    piecesBrouillon[cle].splice(Number(d.rang),1); peindrePieces(cle); },
@@ -3160,7 +3273,7 @@ document.addEventListener('click', e => {
   const agir = n && ACTIONS[n.dataset.agir];
   if(!agir) return;
   e.preventDefault();
-  agir(n.dataset.cible || '', n.dataset);
+  agir(n.dataset.cible || '', n.dataset, n);
 });
 
 /* Une ligne cliquable (role="button") repond aussi au clavier. */
@@ -3175,6 +3288,8 @@ document.addEventListener('change', e => {
   const n = e.target.closest('[data-changer]');
   if(n && n.dataset.changer === 'app-masquer')
     basculerMasquage(n.dataset.cible, !e.target.checked);
+  if(n && n.dataset.changer === 'presentation-visible')
+    basculerPresentation(n.dataset.cible, e.target.checked);
 });
 
 /* ---------------- theme ---------------- */
@@ -4076,7 +4191,8 @@ function peindreHub(){
       + 'paramOnglet(\'compte\')">à décocher dans tes paramètres</a> pour '
       + (nbCaches>1 ? 'les' : 'la') + ' revoir.');
   }
-  if(variante==='bento'){ peindreBento(liste, filtre); return; }
+  if(variante==='bento'){ $('hub-widgets').hidden=true; peindreBento(liste, filtre); return; }
+  peindreWidgetsLanceur(filtre);
   if(!liste.length && filtre){
     $('hub-liste').className='';
     remplir($('hub-liste'), '<div class="hub-vide"><b>Aucune application ne correspond</b>Essaie un autre mot.</div>');
@@ -4103,7 +4219,7 @@ function peindreHub(){
       title="${esc(a.description||a.name)}">
       <img src="${icone(a.name)}" alt="">
       <div class="txt"><div class="nom">${esc(nomAffiche(a))}</div>
-      <div class="bas">${badgeEtat(a)}${badgeVis(a)}${badgeMaj(a)}</div></div>${pastille(a)}</a>`;
+      <div class="bas">${badgeEtat(a)}${badgeVis(a)}${badgeMaj(a)}</div></div>${pastille(a)}${boutonMenuApp(a)}</a>`;
 
   /* Sans categorie declaree, le hub reste ce qu'il etait : une seule liste.
      Un unique titre « Autres » au-dessus de tout serait du bruit. */
@@ -4193,18 +4309,18 @@ const badgeMaj = a => a.nouvelle_version
 const SVG_FLECHE='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
 
 /* ---- les widgets : peu, et tous sur le hub ou ses applications ---- */
-function widgetApercu(a, taille, surtitre){
+function widgetApercu(a, taille, surtitre, enDirect=true){
   if(!a) return `<div class="bw-corps"><div class="bw-titre">${esc(surtitre)}</div>
     <p class="bw-vide">Ouvre une application : elle s'affichera ici.</p></div>`;
   /* L'APERCU est la page de l'application elle-meme, reduite et inerte : on
      la reconnait d'un coup d'oeil, et un clic l'ouvre en grand. Arretee, elle
      n'a rien a montrer : son icone la remplace. */
-  const apercu = a.running && !a.externe && !a.interne
+  const apercu = enDirect && a.running && !a.externe && !a.interne
     ? `<iframe src="${esc(urlApplication(a.name))}" title="Aperçu de ${esc(nomAffiche(a))}"
          loading="lazy" tabindex="-1" aria-hidden="true" referrerpolicy="no-referrer"
          sandbox="allow-scripts allow-same-origin allow-forms"></iframe>`
     : `<img class="bw-une-icone" src="${icone(a.name)}" alt="">`;
-  return `<div class="bw-apercu" data-garder="apercu-${esc(a.name)}-${a.running?1:0}-${taille}">${apercu}</div>
+  return `<div class="bw-apercu${enDirect ? '' : ' sans-direct'}" data-garder="apercu-${esc(a.name)}-${a.running?1:0}-${taille}-${enDirect?1:0}">${apercu}</div>
     <a class="bw-une-pied" href="${lienOuverture(a)}" data-app="${esc(a.name)}">
       <span class="bw-sur">${esc(surtitre)}</span>
       <span class="bw-une-ligne"><img src="${icone(a.name)}" alt=""><span class="bw-une-nom">${esc(nomAffiche(a))}</span>${badgeMaj(a)}</span></a>`;
@@ -4269,9 +4385,183 @@ async function bwEnvoyer(b){
     t.value=''; hubMessageBrouillon=''; viderPieces('widget'); notifier('Message envoyé.'); chargerSuivi(true);
   }finally{ b.disabled=false; }
 }
+/* ---------------- le menu d'une application ----------------
+   La tuile ouvre l'application, et rien d'autre. Le reste -- la video de
+   presentation, copier le lien, ranger hors du hub, les reglages -- passe
+   par un menu : trois points dans le coin de la tuile a la souris, un appui
+   long au doigt (comme sur l'ecran d'accueil d'un telephone), ou le clic
+   droit. */
+const SVG_POINTS='<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>';
+const SVG_MENU={
+  ouvrir:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>',
+  video:'<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M10 8.5v7l6-3.5z"/></svg>',
+  lien:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>',
+  ranger:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10.6 5.1A9.8 9.8 0 0 1 12 5c6 0 9.5 7 9.5 7a17 17 0 0 1-2.7 3.6M6.3 6.3C3.8 8 2.5 12 2.5 12S6 19 12 19a9 9 0 0 0 4.2-1"/></svg>',
+  reglages:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>',
+};
+function boutonMenuApp(a){
+  if(!a) return '';
+  return `<button type="button" class="btn-menu-app" data-agir="menu-app" data-cible="${esc(a.name)}"
+    aria-haspopup="menu" aria-expanded="false" aria-label="Options de ${esc(nomAffiche(a))}" title="Options">${SVG_POINTS}</button>`;
+}
+const appDuHub = nom => hubApps.find(x=>x.name===nom) || hubServices.find(x=>x.name===nom);
+let menuAppAncre=null;
+/* ou : le bouton (menu sous lui), {x, y} (clic droit : menu au pointeur), ou
+   'feuille' (appui long : en bas de l'ecran). */
+function ouvrirMenuApp(nom, ou){
+  const a=appDuHub(nom); if(!a) return;
+  const item=(agir, svg, texte, extra='') =>
+    `<button type="button" role="menuitem" class="menu-app-item" data-agir="${agir}" data-cible="${esc(a.name)}" ${extra}>${svg}<span>${texte}</span></button>`;
+  remplir($('menu-app-panneau'), `<div class="menu-app-tete"><img src="${icone(a.name)}" alt=""><b id="menu-app-nom">${esc(nomAffiche(a))}</b></div>
+    ${item('menu-ouvrir', SVG_MENU.ouvrir, "Ouvrir")}
+    ${a.presentation ? item('menu-presentation', SVG_MENU.video, 'Voir la présentation') : ''}
+    ${item('menu-copier', SVG_MENU.lien, 'Copier le lien')}
+    ${estAdmin && !a.externe && !a.interne ? item('menu-reglages', SVG_MENU.reglages, "Réglages de l'application") : ''}
+    ${item('menu-ranger', SVG_MENU.ranger, 'Masquer du hub')}`);
+  const menu=$('menu-app'), panneau=$('menu-app-panneau');
+  menu.classList.toggle('feuille', ou==='feuille');
+  panneau.style.left=panneau.style.top='';
+  menu.hidden=false;
+  if(menuAppAncre) menuAppAncre.setAttribute('aria-expanded','false');
+  menuAppAncre = ou instanceof Element ? ou : null;
+  if(ou!=='feuille'){
+    /* Sous le bouton, aligne sur son bord droit ; au pointeur pour le clic
+       droit. Retourne au-dessus, ou vers la gauche, s'il deborderait. */
+    const r = ou instanceof Element ? ou.getBoundingClientRect()
+      : {left:ou.x, right:ou.x, top:ou.y, bottom:ou.y};
+    const w=panneau.offsetWidth, h=panneau.offsetHeight, marge=8;
+    let x = ou instanceof Element ? r.right-w : r.left;
+    let y = r.bottom+6;
+    if(x+w > innerWidth-marge) x=innerWidth-marge-w;
+    if(y+h > innerHeight-marge) y=Math.max(marge, r.top-6-h);
+    panneau.style.left=Math.max(marge, x)+'px'; panneau.style.top=y+'px';
+  }
+  if(menuAppAncre) menuAppAncre.setAttribute('aria-expanded','true');
+  const premier=panneau.querySelector('.menu-app-item'); if(premier) premier.focus({preventScroll:true});
+}
+function fermerMenuApp(rendreFocus){
+  const menu=$('menu-app'); if(menu.hidden) return;
+  menu.hidden=true;
+  if(menuAppAncre){ menuAppAncre.setAttribute('aria-expanded','false'); if(rendreFocus) menuAppAncre.focus(); }
+  menuAppAncre=null;
+}
+function actionMenuApp(quoi, nom){
+  fermerMenuApp(false);
+  const a=appDuHub(nom); if(!a) return;
+  if(quoi==='ouvrir'){
+    try{ localStorage.setItem('codelab-hub-derniere', nom); }catch(err){}
+    if(hubApps.some(x=>x.name===nom))
+      fetch('/api/mes-apps/'+encodeURIComponent(nom)+'/ouverte', {method:'POST', keepalive:true}).catch(()=>{});
+    location.href=lienOuverture(a);
+  }
+  if(quoi==='presentation') ouvrirPresentation(nom);
+  if(quoi==='copier') copierLien(new URL(lienOuverture(a), location.href).href);
+  if(quoi==='reglages') location.href='/applications/'+encodeURIComponent(nom);
+  if(quoi==='ranger') basculerMasquage(nom, true);
+}
+document.addEventListener('keydown', e=>{
+  const menu=$('menu-app'); if(menu.hidden) return;
+  if(e.key==='Escape'){ e.preventDefault(); e.stopImmediatePropagation(); fermerMenuApp(true); return; }
+  if(e.key==='Tab'){ fermerMenuApp(false); return; }
+  if(e.key!=='ArrowDown' && e.key!=='ArrowUp') return;
+  e.preventDefault();
+  const items=[...menu.querySelectorAll('.menu-app-item')], i=items.indexOf(document.activeElement);
+  const j=(i + (e.key==='ArrowDown' ? 1 : -1) + items.length) % items.length;
+  items[j].focus();
+}, true);
+window.addEventListener('resize', ()=>fermerMenuApp(false));
+$('hub-liste').addEventListener('scroll', ()=>fermerMenuApp(false), {passive:true});
+
+/* L'appui long, au doigt : 450 ms sans bouger. Le relachement qui suit ne
+   doit pas ouvrir l'application, d'ou appuiLongFait, qui avale le clic. Un
+   doigt qui glisse (le defilement du hub) annule tout. */
+let appuiLong=null, appuiLongFait=false;
+$('hub-liste').addEventListener('pointerdown', e=>{
+  if(e.pointerType!=='touch' || hubEdition) return;
+  const t=e.target.closest('[data-app]'); if(!t || !appDuHub(t.dataset.app)) return;
+  appuiLongFait=false;
+  appuiLong={x:e.clientX, y:e.clientY, minuterie:setTimeout(()=>{
+    appuiLong=null; appuiLongFait=true;
+    if(navigator.vibrate) try{ navigator.vibrate(10); }catch(err){}
+    ouvrirMenuApp(t.dataset.app, 'feuille');
+  }, 450)};
+});
+document.addEventListener('pointermove', e=>{
+  if(appuiLong && Math.hypot(e.clientX-appuiLong.x, e.clientY-appuiLong.y) > 10){
+    clearTimeout(appuiLong.minuterie); appuiLong=null; }
+});
+['pointerup','pointercancel'].forEach(t=>document.addEventListener(t, ()=>{
+  if(appuiLong){ clearTimeout(appuiLong.minuterie); appuiLong=null; } }));
+/* Sur le document : au relachement, le doigt est sur le fond du menu qui
+   vient de s'ouvrir, plus sur la tuile -- ce clic-la le refermerait. */
+document.addEventListener('click', e=>{
+  if(!appuiLongFait) return;
+  appuiLongFait=false; e.preventDefault(); e.stopImmediatePropagation();
+}, true);
+/* Le clic droit (et l'appui long d'Android, qui le declenche aussi). */
+$('hub-liste').addEventListener('contextmenu', e=>{
+  if(hubEdition) return;
+  const t=e.target.closest('[data-app]'); if(!t || !appDuHub(t.dataset.app)) return;
+  e.preventDefault();
+  if(!$('menu-app').hidden) return;
+  ouvrirMenuApp(t.dataset.app, e.pointerType==='touch' || appuiLongFait ? 'feuille' : {x:e.clientX, y:e.clientY});
+});
+
+/* ---------------- la video de presentation ----------------
+   Ouverte depuis le menu de l'application (« Voir la présentation ») quand
+   le projet a une video (video/presentation.mp4, produite par « codelab
+   video ») : une feuille avec le lecteur du navigateur. */
+function ouvrirPresentation(nom){
+  const a=hubApps.find(x=>x.name===nom) || (typeof appParNom==='function' && appParNom(nom));
+  if(!a || !a.presentation) return;
+  const v=a.presentation.maj, base='/api/presentations/'+encodeURIComponent(nom)+'/';
+  const video=$('pr-video');
+  video.poster = a.presentation.affiche ? base+'affiche?v='+v : '';
+  video.src = base+'video?v='+v;
+  $('pr-icone').src=icone(nom);
+  $('pr-nom').textContent=nomAffiche(a);
+  $('pr-desc').textContent=a.description||'';
+  $('pr-ouvrir').href=lienOuverture(a);
+  $('pr-ouvrir').style.display = a.externe ? 'none' : '';
+  $('ov-presentation').classList.add('show');
+  video.play().catch(()=>{});
+}
+function peindrePresentationFiche(a){
+  const carte=$('fa-presentation'); if(!carte) return;
+  carte.style.display = a.externe ? 'none' : '';
+  const p=a.presentation;
+  $('fa-pr-sous').textContent = p
+    ? 'Générée le '+new Date(p.maj*1000).toLocaleString('fr-FR',{dateStyle:'long', timeStyle:'short'})
+    : 'Aucune vidéo pour l’instant.';
+  const base='/api/presentations/'+encodeURIComponent(a.name)+'/';
+  remplir($('fa-pr-corps'), p
+    ? `<video class="fiche-video" controls playsinline preload="metadata" src="${base}video?v=${p.maj}"
+         ${p.affiche ? `poster="${base}affiche?v=${p.maj}"` : ''}></video>
+       <label class="choix-ligne" style="margin-top:12px"><input type="checkbox" data-changer="presentation-visible"
+         data-cible="${esc(a.name)}" ${a.presentation_masquee ? '' : 'checked'}> Visible dans le hub</label>`
+    : `<p class="hint" style="margin:6px 0 0">Dans le terminal du poste : <code>codelab video ${esc(a.name)}</code>.
+       La vidéo apparaît ici, et sur la tuile du hub, dès qu’elle est produite.</p>`);
+}
+async function basculerPresentation(nom, visible){
+  const r=await fetch('/api/apps/'+encodeURIComponent(nom)+'/presentation',{method:'PUT',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify({visible})});
+  if(!r.ok){ notifier(await echec(r,'Modification impossible.'),'err'); return; }
+  notifier(visible ? 'Présentation visible dans le hub.' : 'Présentation retirée du hub.');
+  refresh(); chargerHub();
+}
+function fermerPresentation(){
+  const video=$('pr-video');
+  video.pause(); video.removeAttribute('src'); video.load();
+  $('ov-presentation').classList.remove('show');
+}
+$('ov-presentation').addEventListener('click', e=>{ if(e.target===e.currentTarget) fermerPresentation(); });
+document.addEventListener('keydown', e=>{
+  if(e.key==='Escape' && $('ov-presentation').classList.contains('show')) fermerPresentation();
+});
+
 const CLASSE_WIDGET={une:'bw-une', apercu:'bw-une', etat:'bento-etat', messages:'bw-messages', nouveautes:'bw-nouveautes', message:'bw-message', suivi:'bw-suivi'};
 function corpsWidget(e){
-  if(e.id==='une'){ const [a, vue]=appALaUne(hubApps); return widgetApercu(a, e.taille, (vue ? 'Dernière ouverte' : 'À la une')+(a && a.ouverte_le ? ' · '+depuis(a.ouverte_le) : '')); }
+  if(e.id==='une'){ const [a, vue]=appALaUne(hubApps); return widgetApercu(a, e.taille, (vue ? 'Dernière ouverte' : 'À la une')+(a && a.ouverte_le ? ' · '+depuis(a.ouverte_le) : ''), false); }
   if(e.id==='apercu') return widgetApercu(hubApps.find(a=>a.name===e.app), e.taille, 'Aperçu');
   if(e.id==='etat') return widgetEtat(e.taille);
   if(e.id==='messages') return widgetMessages(e.taille);
@@ -4305,14 +4595,9 @@ function peindreBento(liste, filtre){
     return `<${balise} class="bento-carte ${c}${a.nouvelle_version?' maj':''}" ${hubEdition ? '' : `href="${lienOuverture(a)}"`} data-app="${esc(a.name)}" data-el="${esc(cleElement(e))}">
       <div class="bento-carte-haut"><img src="${icone(a.name)}" alt="">${badgeEtat(a)}</div>
       <div class="bento-carte-nom">${esc(nomAffiche(a))}</div>
-      ${badgeMaj(a)}<div class="bento-carte-desc">${desc(a)}</div>${pastille(a)}${hubEdition ? gestesEdition(e, nomAffiche(a)) : ''}</${balise}>`;
+      ${badgeMaj(a)}<div class="bento-carte-desc">${desc(a)}</div>${pastille(a)}${hubEdition ? gestesEdition(e, nomAffiche(a)) : boutonMenuApp(a)}</${balise}>`;
   };
-  const widget = e => {
-    const def=hubCatalogue.find(c=>c.id===e.id);
-    const nom=e.id==='apercu' ? 'Aperçu de '+nomAffiche(hubApps.find(a=>a.name===e.app)||{name:e.app}) : (def ? def.titre : e.id);
-    return `<section class="bw bw-${e.taille} ${CLASSE_WIDGET[e.id]||''}" aria-label="${esc(nom)}" data-el="${esc(cleElement(e))}">
-      ${corpsWidget(e)}${hubEdition ? gestesEdition(e, nom) : ''}</section>`;
-  };
+  const widget = widgetDuHub;
   /* La recherche ne montre que les applications qui correspondent. */
   const html = filtre
     ? liste.map(a=>carte(a, {t:'a', id:a.name})).join('')
@@ -4325,8 +4610,24 @@ function peindreBento(liste, filtre){
   /* Pas de repeint sous la main : le rechargement periodique attendra. */
   if(glisse && glisse.parti) return;
   el.className='bento'+(hubEdition ? ' edition' : '');
-  /* Ce qui doit SURVIVRE au repeint -- l'apercu (sinon il se recharge), le
-     texte en cours de frappe -- est mis de cote puis remis a sa place. */
+  remplirEnGardant(el, html);
+  majBoutonsComposer();
+  ajusterBento();
+}
+function widgetDuHub(e){
+  const def=hubCatalogue.find(c=>c.id===e.id);
+  const nom=e.id==='apercu' ? 'Aperçu de '+nomAffiche(hubApps.find(a=>a.name===e.app)||{name:e.app}) : (def ? def.titre : e.id);
+  return `<section class="bw bw-${e.taille} ${CLASSE_WIDGET[e.id]||''}" aria-label="${esc(nom)}" data-el="${esc(cleElement(e))}">
+    ${corpsWidget(e)}${hubEdition ? gestesEdition(e, nom) : ''}</section>`;
+}
+function majBoutonsComposer(){
+  $('hub-modifier').innerHTML = hubEdition ? 'Terminé' : SVG_REORGANISER;
+  $('hub-modifier').classList.toggle('actif', hubEdition);
+  $('hub-ajouter-widget').style.display = hubEdition ? '' : 'none';
+}
+/* Ce qui doit SURVIVRE au repeint -- l'apercu (sinon il se recharge), le
+   texte en cours de frappe -- est mis de cote puis remis a sa place. */
+function remplirEnGardant(el, html){
   const gardes={};
   el.querySelectorAll('[data-garder]').forEach(n=>{ gardes[n.dataset.garder]=n; });
   const actif=document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.garder : null;
@@ -4340,10 +4641,18 @@ function peindreBento(liste, filtre){
     });
     if(actif && gardes[actif]){ gardes[actif].focus(); if(debut!=null) try{ gardes[actif].setSelectionRange(debut, debut); }catch(e){} }
   }
-  $('hub-modifier').innerHTML = hubEdition ? 'Terminé' : SVG_REORGANISER;
-  $('hub-modifier').classList.toggle('actif', hubEdition);
-  $('hub-ajouter-widget').style.display = hubEdition ? '' : 'none';
-  ajusterBento();
+}
+/* Les widgets du lanceur : ceux de la disposition du compte, dans son ordre.
+   Pendant une recherche, ils s'effacent -- on cherche une application. */
+function peindreWidgetsLanceur(filtre){
+  const el=$('hub-widgets');
+  const widgets=elementsDuHub().filter(e=>e.t==='w');
+  el.hidden = !!filtre || (!widgets.length && !hubEdition);
+  el.className='hub-widgets'+(hubEdition ? ' edition' : '');
+  majBoutonsComposer();
+  if(el.hidden){ remplir(el, ''); return; }
+  remplirEnGardant(el, widgets.map(widgetDuHub).join('')
+    || '<div class="hub-widgets-vide">Aucun widget. « + » en ajoute un.</div>');
 }
 /* Trois rangees qui tiennent dans la fenetre : la hauteur se calcule depuis
    le haut de la mosaique. Sur telephone, CSS reprend la main (une colonne). */
@@ -4390,7 +4699,12 @@ function hubRetirer(cle){
 }
 function hubDeplacer(cle, sens){
   const elements=elementsDuHub();
-  const i=elements.findIndex(x=>cleElement(x)===cle), j=i+Number(sens);
+  const i=elements.findIndex(x=>cleElement(x)===cle);
+  let j=i+Number(sens);
+  /* Dans le lanceur, seuls les widgets se voient en grille : on saute les
+     applications pour passer au widget voisin. */
+  if(styleCourant()==='lanceur')
+    while(j>=0 && j<elements.length && elements[j].t!=='w') j+=Number(sens);
   if(i<0 || j<0 || j>=elements.length) return;
   [elements[i], elements[j]]=[elements[j], elements[i]];
   enregistrerDisposition(elements).then(()=>{
@@ -4539,7 +4853,8 @@ function galerieAjouter(id, taille, app){
    (widget « A la une »). keepalive : la page s'en va aussitot. */
 $('hub-liste').addEventListener('click', e=>{
   const t = e.target.closest('[data-app]');
-  if(!t || hubEdition) return;
+  /* Les trois points sont DANS la tuile : les ouvrir n'ouvre pas l'application. */
+  if(!t || hubEdition || e.target.closest('.btn-menu-app')) return;
   try{ localStorage.setItem('codelab-hub-derniere', t.dataset.app); }catch(err){}
   if(hubApps.some(a=>a.name===t.dataset.app))
     fetch('/api/mes-apps/'+encodeURIComponent(t.dataset.app)+'/ouverte', {method:'POST', keepalive:true}).catch(()=>{});
@@ -5037,6 +5352,7 @@ function peindreFiche(){
   $('fa-build').textContent=a.build_command || '—';
   $('fa-mem').textContent=a.max_memory_mb ? a.max_memory_mb+' Mo' : 'aucune';
   $('fa-mesures').style.display = externe ? 'none' : '';
+  peindrePresentationFiche(a);
   $('fa-cpu').textContent=(a.cpu_percent||0).toFixed(1)+'%';
   $('fa-ram').textContent=Math.round(a.memory_mb||0)+' Mo';
 

@@ -36,6 +36,7 @@ leur nom (`codelab-postgres`, `codelab-app-manager`…).
 
 - **Langages** : Python 3.13 avec `psycopg` et `dagster` ; Node et npm.
 - **Ligne de commande** : git, curl, `psql`, `redis-cli`, `codex`.
+- **Vidéo** : Chromium (Playwright), `piper` et sa voix française `fr_FR-siwis-medium`, `ffmpeg` — pour `codelab video`.
 - **Connexions prêtes** dans chaque session (`/etc/profile.d/`) :
 
 | Variables | Effet |
@@ -54,6 +55,7 @@ leur nom (`codelab-postgres`, `codelab-app-manager`…).
 | `… --ouvrir` | rouvre la fenêtre VS Code sur le projet |
 | `codelab db <nom>` | crée la base `<nom>`, son compte, son schéma `dagster` et le `search_path` (idempotent), par le gardien des bases |
 | `codelab agents [dossier]` | écrit le manuel CodeLab entre deux marqueurs dans `AGENTS.md`, sans toucher au reste ; pose un `CLAUDE.md` qui l'importe |
+| `codelab video [projet]` | la vidéo de présentation : pose `video/scenario.mjs` s'il manque, sinon le joue dans Chromium, ajoute la voix off (Piper, en français, hors ligne) et monte `video/presentation.mp4` et `video/affiche.jpg` avec ffmpeg ; voir la section 14 du manuel |
 
 Le nom d'un projet : des lettres, des chiffres, `-` et `_`, en commençant par une lettre. La commande
 refuse un dossier existant. Elle ne génère pas de squelette de framework : pour un front, lance
@@ -190,11 +192,12 @@ code (le tien, ou celui d'un agent) n'a pas à pouvoir le faire.
 
 | Fichier | Rôle |
 |---|---|
-| `Dockerfile` | `python:3.13-slim`, openssh, git, Node, `postgresql-client`, `codex` ; utilisateur `vscode` (uid 1000), groupe `codelab` (gid 2000) |
+| `Dockerfile` | `python:3.13-slim`, openssh, git, Node, `postgresql-client`, `codex`, Chromium, Piper, ffmpeg ; utilisateur `vscode` (uid 1000), groupe `codelab` (gid 2000) |
 | `entrypoint.sh` | au démarrage : permissions de `/workspace`, `CODEX_HOME` et manuel, clés hôte, `authorized_keys` reconstruit depuis `authorized_keys.d/`, variables de session, gitconfig, extensions VS Code ; puis `sshd -D -e` en processus principal |
 | `codelab` | l'outil de projet |
 | `AGENTS.md` | le manuel des projets, livré dans l'image |
 | `modeles/` | les modules déposés par `codelab new` |
+| `video/` | `fabriquer.mjs` (le tournage et le montage de `codelab video`) et le modèle de scénario |
 
 | Variable (compose) | Rôle |
 |---|---|

@@ -1246,6 +1246,7 @@ def _tuile_service(nom, description, adresse, debout, port):
         "failed": False, "crash_looping": False, "has_build": False,
         "build_command": "", "max_memory_mb": None, "alertes": [],
         "cpu_percent": 0.0, "memory_mb": 0.0,
+        "presentation": None, "presentation_masquee": False,
     }
 
 
@@ -8959,6 +8960,8 @@ def api_apps():
             # Ce qui n'est pas configurable, la page doit le savoir : c'est
             # elle qui retire les onglets et les boutons correspondants.
             "par_defaut": est_app_par_defaut(name),
+            "presentation": presentation_de(a),
+            "presentation_masquee": bool(a.get("presentation_masquee")),
             **stats,
         })
     # Dagster figure ici comme les autres. Il n'est pas declare dans
@@ -10324,6 +10327,85 @@ def espace():
     return redirect("/")
 
 
+# ------------------------ les videos de presentation ------------------------
+#
+# Une application peut porter sa video de presentation : video/presentation.mp4
+# dans son dossier, et son image d'affiche video/affiche.jpg -- ce que
+# produit « codelab video » dans le poste de developpement. Le panneau ne
+# fabrique rien et n'appelle aucun modele : il montre un fichier s'il existe.
+#
+# Memes droits que l'application : qui ne peut pas l'ouvrir ne voit pas sa
+# video. L'administrateur peut la retirer du hub sans supprimer le fichier
+# (« presentation_masquee »).
+PRESENTATION = {"video": ("video/presentation.mp4", "video/mp4"),
+                "affiche": ("video/affiche.jpg", "image/jpeg")}
+
+
+def fichier_presentation(a, quoi="video"):
+    """Le chemin du fichier, s'il existe DANS le dossier du projet."""
+    dossier = (a or {}).get("path") or ""
+    if not dossier or quoi not in PRESENTATION:
+        return None
+    base = os.path.realpath(dossier)
+    cible = os.path.realpath(os.path.join(base, PRESENTATION[quoi][0]))
+    # Un lien qui sortirait du projet ne mene a rien.
+    if not cible.startswith(base + os.sep) or not os.path.isfile(cible):
+        return None
+    return cible
+
+
+def presentation_de(a):
+    """{maj, affiche} si la video existe, sinon None. maj sert a renouveler
+    le cache du navigateur quand la video est regeneree."""
+    video = fichier_presentation(a, "video")
+    if not video:
+        return None
+    try:
+        maj = int(os.path.getmtime(video))
+    except OSError:
+        return None
+    return {"maj": maj, "affiche": bool(fichier_presentation(a, "affiche"))}
+
+
+@flask_app.get("/api/presentations/<nom>/<quoi>")
+@require_auth
+def api_presentation(nom, quoi):
+    """La video (ou l'affiche) d'une application, a qui peut l'ouvrir.
+
+    conditional=True : le navigateur demande des morceaux (Range), et peut
+    avancer dans la video sans tout telecharger.
+    """
+    a = load().get(nom)
+    autorises = projets_autorises()
+    if (quoi not in PRESENTATION or not a or not peut_voir(nom)
+            or (autorises is not None and nom not in autorises)
+            or (a.get("presentation_masquee") and not est_admin())):
+        return jsonify({"error": "Présentation introuvable."}), 404
+    chemin = fichier_presentation(a, quoi)
+    if not chemin:
+        return jsonify({"error": "Présentation introuvable."}), 404
+    reponse = send_file(chemin, mimetype=PRESENTATION[quoi][1], conditional=True, max_age=0)
+    reponse.headers["Cache-Control"] = "private, no-cache"
+    reponse.headers["X-Content-Type-Options"] = "nosniff"
+    return reponse
+
+
+@flask_app.put("/api/apps/<nom>/presentation")
+@require_admin
+def api_presentation_visibilite(nom):
+    """Montrer ou retirer la video du hub ({visible}), sans toucher au fichier."""
+    d = request.get_json(force=True, silent=True) or {}
+    apps = load()
+    if nom not in apps:
+        return jsonify({"error": "Application inconnue."}), 404
+    if d.get("visible", True):
+        apps[nom].pop("presentation_masquee", None)
+    else:
+        apps[nom]["presentation_masquee"] = True
+    save(apps)
+    return jsonify({"ok": True, "visible": not apps[nom].get("presentation_masquee")})
+
+
 @flask_app.get("/api/mes-apps")
 @require_auth
 def api_mes_apps():
@@ -10370,6 +10452,9 @@ def api_mes_apps():
             "nouvelle_version": (nom in ouvertes
                                  and versions.get(nom, 0) > ouvertes[nom]["version"]),
             "ouverte_le": (ouvertes.get(nom) or {}).get("ts"),
+            # La video de presentation, si le projet en a une et qu'elle
+            # n'est pas retiree du hub.
+            "presentation": (None if a.get("presentation_masquee") else presentation_de(a)),
         })
     # Les categories accompagnent la liste : le hub les affiche dans l'ordre
     # voulu, sans avoir a deviner cet ordre a partir des projets.

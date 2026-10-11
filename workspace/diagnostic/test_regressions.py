@@ -14538,3 +14538,248 @@ def test_l_agregateur_ne_charge_pas_un_projet_isole(tmp_path, monkeypatch):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     assert module.defs == ["commun"]
+
+
+# ------------------------ La video de presentation ------------------------
+#
+# Vecu : « propose moi une maniere de voir les videos de presentation dans
+# le hub » -- puis « oui, developpe mais pas le widget ».
+#
+# La video vit dans le projet (video/presentation.mp4, faite par
+# « codelab video ») ; le panneau ne fait que la servir, AVEC LES DROITS DE
+# L'APPLICATION : un compte qui ne voit pas l'application ne voit pas sa
+# video, et l'administrateur peut la retirer du hub sans toucher au fichier.
+
+@pytest.fixture
+def presentation(hub, tmp_path):
+    dossiers = {}
+    apps = app.load()
+    for nom in ("compta", "secret"):
+        d = tmp_path / nom
+        (d / "video").mkdir(parents=True)
+        (d / "video" / "presentation.mp4").write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"v" * 4000)
+        apps[nom]["path"] = str(d)
+        dossiers[nom] = d
+    (dossiers["compta"] / "video" / "affiche.jpg").write_bytes(b"\xff\xd8\xff\xe0jpeg")
+    app.save(apps)
+    return hub, dossiers
+
+
+def _admin_presentation():
+    c = app.flask_app.test_client()
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    return c
+
+
+def test_la_video_est_servie_a_qui_voit_l_application(presentation):
+    c, _ = presentation
+    c = _connexion_marie(c)
+    r = c.get("/api/presentations/compta/video")
+    assert r.status_code == 200
+    assert r.mimetype == "video/mp4"
+    assert r.headers["X-Content-Type-Options"] == "nosniff"
+    assert "private" in r.headers["Cache-Control"]
+    assert c.get("/api/presentations/compta/affiche").mimetype == "image/jpeg"
+
+
+def test_la_video_d_une_application_non_autorisee_n_existe_pas(presentation):
+    """404 et pas 403 : on ne confirme pas l'existence d'un projet ferme."""
+    c, _ = presentation
+    c = _connexion_marie(c)
+    assert c.get("/api/presentations/secret/video").status_code == 404
+    assert c.get("/api/presentations/inconnue/video").status_code == 404
+    assert app.flask_app.test_client().get(
+        "/api/presentations/compta/video").status_code in (401, 302, 404)
+
+
+def test_la_video_se_lit_par_morceaux(presentation):
+    """Le lecteur du navigateur demande des plages (Range) pour avancer
+    dans la video sans tout telecharger."""
+    c, _ = presentation
+    r = _connexion_marie(c).get("/api/presentations/compta/video",
+                                headers={"Range": "bytes=0-99"})
+    assert r.status_code == 206
+    assert len(r.data) == 100
+
+
+def test_seuls_les_deux_fichiers_de_la_video_sont_servis(presentation):
+    c, dossiers = presentation
+    (dossiers["compta"] / ".env").write_text("SECRET=1")
+    admin = _admin_presentation()
+    for quoi in (".env", "..%2F.env", "scenario", "presentation.mp4"):
+        assert admin.get(f"/api/presentations/compta/{quoi}").status_code == 404
+
+
+def test_un_lien_qui_sort_du_projet_ne_mene_a_rien(presentation, tmp_path):
+    _, dossiers = presentation
+    dehors = tmp_path / "dehors.mp4"
+    dehors.write_bytes(b"x")
+    video = dossiers["secret"] / "video" / "presentation.mp4"
+    video.unlink()
+    video.symlink_to(dehors)
+    assert app.fichier_presentation(app.load()["secret"]) is None
+    assert _admin_presentation().get("/api/presentations/secret/video").status_code == 404
+
+
+def test_le_hub_annonce_la_video(presentation):
+    c, _ = presentation
+    apps = {a["name"]: a for a in _connexion_marie(c).get("/api/mes-apps").get_json()["apps"]}
+    assert apps["compta"]["presentation"]["affiche"] is True
+    assert isinstance(apps["compta"]["presentation"]["maj"], int)
+    admin = {a["name"]: a for a in _admin_presentation().get("/api/mes-apps").get_json()["apps"]}
+    assert admin["vitrine"]["presentation"] is None
+
+
+def test_l_administrateur_retire_la_video_du_hub(presentation):
+    c, dossiers = presentation
+    admin = _admin_presentation()
+    r = admin.put("/api/apps/compta/presentation", json={"visible": False})
+    assert r.status_code == 200 and r.get_json()["visible"] is False
+    # Le fichier reste ; la fiche le montre encore a l'administrateur.
+    assert (dossiers["compta"] / "video" / "presentation.mp4").exists()
+    fiche = {a["name"]: a for a in admin.get("/api/apps").get_json()["apps"]}["compta"]
+    assert fiche["presentation_masquee"] is True and fiche["presentation"]
+    assert admin.get("/api/presentations/compta/video").status_code == 200
+
+    marie = _connexion_marie(c)
+    apps = {a["name"]: a for a in marie.get("/api/mes-apps").get_json()["apps"]}
+    assert apps["compta"]["presentation"] is None
+    assert marie.get("/api/presentations/compta/video").status_code == 404
+
+    admin.put("/api/apps/compta/presentation", json={"visible": True})
+    assert marie.get("/api/presentations/compta/video").status_code == 200
+
+
+def test_seul_l_administrateur_retire_une_video(presentation):
+    c, _ = presentation
+    r = _connexion_marie(c).put("/api/apps/compta/presentation", json={"visible": False})
+    assert r.status_code in (401, 403)
+    assert not app.load()["compta"].get("presentation_masquee")
+
+
+def test_le_hub_porte_le_lecteur_de_video():
+    page = _page_panneau("dashboard.html")
+    assert 'id="ov-presentation"' in page
+    # Depuis le menu de l'application, seulement si le projet a une video.
+    menu = page.split("function ouvrirMenuApp(")[1].split("\n}")[0]
+    assert "a.presentation ? item('menu-presentation'" in menu
+    assert "function peindrePresentationFiche(" in page
+    assert "/api/presentations/" in page
+    # Le lecteur natif du navigateur, et l'application a un clic.
+    assert '<video class="presentation-video"' in page
+    assert "Ouvrir l'application" in page
+
+
+def test_codelab_video_pose_un_scenario_a_completer(tmp_path):
+    outils = os.path.join(_racine_depot(), "dev", "video")
+    (tmp_path / "ws" / "mon-site").mkdir(parents=True)
+    r, espace = _lancer_codelab(tmp_path, ["video", "mon-site"],
+                                {"CODELAB_VIDEO_OUTILS": outils})
+    assert r.returncode == 0, r.stderr
+    scenario = (espace / "mon-site" / "video" / "scenario.mjs").read_text(encoding="utf-8")
+    assert "__" not in scenario
+    assert 'titre: "mon-site"' in scenario
+    assert "/mon-site/" in scenario
+    # Relancee sans scenario modifie, la commande ne l'ecrase pas : elle tourne.
+    (espace / "mon-site" / "video" / "scenario.mjs").write_text("// a moi\n")
+    _lancer_codelab(tmp_path, ["video", "mon-site"],
+                    {"CODELAB_VIDEO_OUTILS": str(tmp_path / "rien")})
+    assert (espace / "mon-site" / "video" / "scenario.mjs").read_text() == "// a moi\n"
+
+
+def test_codelab_video_refuse_un_chemin(tmp_path):
+    r, _ = _lancer_codelab(tmp_path, ["video", "../etc"])
+    assert r.returncode == 2
+
+
+def test_les_scripts_video_sont_du_javascript_valide():
+    import shutil
+    import subprocess
+    if not shutil.which("node"):
+        pytest.skip("node absent")
+    for f in ("fabriquer.mjs", "scenario-modele.mjs"):
+        r = subprocess.run(["node", "--check", os.path.join(_racine_depot(), "dev", "video", f)],
+                           capture_output=True, text=True, timeout=30)
+        assert r.returncode == 0, r.stderr
+
+
+def test_l_image_du_poste_a_les_outils_de_la_video():
+    dockerfile = open(os.path.join(_racine_depot(), "dev", "Dockerfile"), encoding="utf-8").read()
+    assert "ffmpeg" in dockerfile
+    assert "playwright install --with-deps chromium" in dockerfile
+    assert "piper-tts==" in dockerfile and "fr_FR-siwis-medium.onnx.json" in dockerfile
+    assert "COPY dev/video/fabriquer.mjs dev/video/scenario-modele.mjs" in dockerfile
+    assert "## 14. Video de presentation" in open(
+        os.path.join(_racine_depot(), "dev", "AGENTS.md"), encoding="utf-8").read()
+
+
+# ------------------------ Le menu d'une application ------------------------
+#
+# Vecu : « je ne veux pas avoir le visuel de l'app dans le widget de derniere
+# app ouverte. Je veux pouvoir maintenir appuye sur une app sur la version
+# mobile, et avoir plusieurs options dont visionner la video. Sur pc, je veux
+# 3 petits points dans le coin de l'app. »
+
+def test_la_derniere_ouverte_n_affiche_plus_l_application():
+    page = _page_panneau("dashboard.html")
+    corps = page.split("function corpsWidget(")[1].split("\n}")[0]
+    une = [l for l in corps.splitlines() if "e.id==='une'" in l][0]
+    assert une.rstrip().endswith("false); }")
+    # Le widget « Apercu » d'une application choisie, lui, reste en direct.
+    assert "widgetApercu(hubApps.find(a=>a.name===e.app), e.taille, 'Aperçu')" in corps
+    apercu = page.split("function widgetApercu(")[1].split("\n}")[0]
+    assert "enDirect && a.running" in apercu
+
+
+def test_chaque_tuile_porte_trois_points_qui_ouvrent_son_menu():
+    page = _page_panneau("dashboard.html")
+    assert page.count("boutonMenuApp(a)") >= 2      # bento et lanceur
+    bouton = page.split("function boutonMenuApp(")[1].split("\n}")[0]
+    assert 'aria-haspopup="menu"' in bouton and 'data-agir="menu-app"' in bouton
+    # Au doigt, pas de points : l'appui long les remplace.
+    assert "@media (hover:none) and (pointer:coarse){ .btn-menu-app{display:none} }" in page
+    menu = page.split("function ouvrirMenuApp(")[1].split("\n}")[0]
+    for option in ('"Ouvrir"', "'Voir la présentation'", "'Copier le lien'", "'Masquer du hub'",
+                   "\"Réglages de l'application\""):
+        assert option in menu, option
+    # Les reglages : administrateur, et pas pour un service de la stack.
+    assert "estAdmin && !a.externe && !a.interne ? item('menu-reglages'" in menu
+    # Ouvrir le menu n'ouvre pas l'application.
+    clic = page.split("/* Les trois points sont DANS la tuile")[1].split("\n")[1]
+    assert "e.target.closest('.btn-menu-app')" in clic
+
+
+def test_un_appui_long_ouvre_le_menu_en_feuille():
+    page = _page_panneau("dashboard.html")
+    appui = page.split("let appuiLong=null, appuiLongFait=false;")[1].split("/* Le clic droit")[0]
+    assert "document.addEventListener('click', e=>{\n  if(!appuiLongFait)" in appui
+    assert "e.pointerType!=='touch' || hubEdition" in appui
+    assert "ouvrirMenuApp(t.dataset.app, 'feuille')" in appui
+    # Le doigt qui defile annule ; le relachement n'ouvre pas l'application.
+    assert "> 10" in appui and "clearTimeout" in appui
+    assert "e.stopImmediatePropagation()" in appui
+    assert "#hub-liste [data-app]{-webkit-touch-callout:none}" in page
+    assert "$('hub-liste').addEventListener('contextmenu'" in page
+
+
+# ------------------------ Des widgets dans le lanceur ------------------------
+#
+# Vecu : « ajoute des widget dans le style Lanceur ».
+
+def test_le_lanceur_montre_les_widgets_du_compte():
+    page = _page_panneau("dashboard.html")
+    assert '<div id="hub-widgets" class="hub-widgets" hidden></div>' in page
+    hub = page.split("function peindreHub(")[1].split("\n}")[0]
+    # Le bento les garde dans sa mosaique ; le lanceur les peint au-dessus des icones.
+    assert "if(variante==='bento'){ $('hub-widgets').hidden=true; peindreBento(liste, filtre); return; }" in hub
+    assert "peindreWidgetsLanceur(filtre);" in hub
+    lanceur = page.split("function peindreWidgetsLanceur(")[1].split("\n}")[0]
+    # La meme disposition que le bento, et le meme rendu de widget.
+    assert "elementsDuHub().filter(e=>e.t==='w')" in lanceur
+    assert "widgets.map(widgetDuHub)" in lanceur
+    # Une recherche les efface : on cherche une application.
+    assert "el.hidden = !!filtre" in lanceur
+    # Composer depuis le lanceur aussi : reorganiser et « + ».
+    assert ':root[data-variante="lanceur"] .hub-compose{display:inline-flex' in page
+    deplacer = page.split("function hubDeplacer(")[1].split("\n}")[0]
+    assert "styleCourant()==='lanceur'" in deplacer and "elements[j].t!=='w'" in deplacer
