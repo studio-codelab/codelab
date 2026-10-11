@@ -7,6 +7,7 @@
 #   codelab agents [dossier]  ecrit le manuel CodeLab dans le AGENTS.md du projet
 #                             (et un CLAUDE.md qui l'importe, pour Claude Code)
 #   codelab vscode-bases      declare chaque base du serveur dans SQLTools (VS Code)
+#   codelab video [projet]    la video de presentation du projet (video/presentation.mp4)
 #
 # Une seule commande pour tout ce qui touche a un projet, plutot qu'un
 # executable par geste : la liste des sous-commandes se decouvre avec
@@ -35,6 +36,10 @@ usage: codelab <commande> [argument]
                       et un CLAUDE.md qui l'importe (defaut : le dossier courant)
   vscode-bases        declare chaque base du serveur dans SQLTools (VS Code) :
                       rien a creer a la main, meme pour un nouveau projet
+  video [projet]      la video de presentation du projet : la premiere fois,
+                      cree video/scenario.mjs a completer ; ensuite, filme
+                      l'application et produit video/presentation.mp4
+                      (defaut : le projet du dossier courant)
 AIDE
 }
 
@@ -419,6 +424,45 @@ CLAUDE
   fi
 }
 
+# ------------------------------- video -------------------------------
+#
+# La video de presentation d'un projet, fabriquee dans le poste, sans IA :
+# un navigateur joue video/scenario.mjs en filmant, la voix off est
+# synthetisee en local (Piper), ffmpeg monte le tout. Le scenario, lui, est
+# du code du projet : on l'ecrit, ou on demande a son agent de l'ecrire (le
+# manuel AGENTS.md explique comment). Le hub montre ensuite la video sur la
+# tuile de l'application.
+VIDEO_OUTILS="${CODELAB_VIDEO_OUTILS:-/usr/local/share/codelab/video}"
+
+cmd_video() {
+  WS="${CODELAB_WORKSPACE:-/workspace}"
+  if [ "$#" -ge 1 ]; then
+    case "$1" in
+      */* | "" | .*) echo "codelab video: nom de projet invalide \"$1\"." >&2; exit 2 ;;
+    esac
+    projet="$WS/$1"
+  else
+    # Sans argument : le projet du dossier courant.
+    case "$PWD/" in
+      "$WS"/?*/*) p=${PWD#"$WS"/}; projet="$WS/${p%%/*}" ;;
+      *) echo "codelab video: donne un projet (codelab video mon-projet), ou lance-la" \
+              "depuis son dossier." >&2; exit 2 ;;
+    esac
+  fi
+  [ -d "$projet" ] || { echo "codelab video: $projet n'existe pas." >&2; exit 1; }
+  nom=$(basename "$projet")
+  if [ ! -f "$projet/video/scenario.mjs" ]; then
+    mkdir -p "$projet/video"
+    sed -e "s/__TITRE__/$nom/g" -e "s#__ADRESSE__#${CODELAB_VIDEO_ADRESSE:-http://codelab-app-manager:9002}/$nom/#g" \
+        "$VIDEO_OUTILS/scenario-modele.mjs" > "$projet/video/scenario.mjs"
+    echo "[codelab] $projet/video/scenario.mjs cree : decris-y ce que la video montre"
+    echo "[codelab] (ou demande-le a ton agent), puis relance « codelab video $nom »."
+    return 0
+  fi
+  echo "[codelab] video de $nom : tournage et montage (une a deux minutes)..."
+  node "$VIDEO_OUTILS/fabriquer.mjs" "$projet"
+}
+
 # ------------------------------ dispatch ------------------------------
 
 case "${1:-}" in
@@ -426,6 +470,7 @@ case "${1:-}" in
   db)          shift; cmd_db "$@" ;;
   agents)      shift; cmd_agents "$@" ;;
   vscode-bases) shift; cmd_vscode_bases "$@" ;;
+  video)       shift; cmd_video "$@" ;;
   -h|--help|help|"") usage; [ "${1:-}" = "" ] && exit 2 || exit 0 ;;
   *)
     echo "codelab: commande inconnue \"$1\"." >&2

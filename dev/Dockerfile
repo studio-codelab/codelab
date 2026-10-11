@@ -86,6 +86,37 @@ RUN pip install --no-cache-dir \
 RUN npm install -g @openai/codex \
     && npm cache clean --force
 
+# LA VIDEO DE PRESENTATION D'UN PROJET (« codelab video »), sans IA ni
+# service en ligne : Chromium (par Playwright) filme l'application, Piper
+# synthetise la voix off en francais sur le processeur, ffmpeg monte le tout.
+# Le scenario est du code du projet (video/scenario.mjs) ; le hub montre
+# ensuite video/presentation.mp4 sur la tuile de l'application.
+#
+# Environ 400 Mo de plus dans l'image (Chromium et ses bibliotheques, ffmpeg,
+# onnxruntime et la voix). Des couches a part, AVANT la copie des scripts :
+# modifier fabriquer.mjs ne retelecharge pas Chromium.
+ENV PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/codelab/video/navigateurs
+ARG PLAYWRIGHT_VERSION=1.56.1
+ARG PIPER_VERSION=1.8.0
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && mkdir -p /usr/local/share/codelab/video \
+    && cd /usr/local/share/codelab/video \
+    && npm install --no-audit --no-fund --omit=dev "playwright@${PLAYWRIGHT_VERSION}" \
+    && npx playwright install --with-deps chromium \
+    && npm cache clean --force \
+    && rm -rf /var/lib/apt/lists/*
+# La voix : « siwis », francaise, qualite moyenne (60 Mo), sous licence
+# libre. Piper attend sa configuration a cote du modele (.onnx.json).
+RUN pip install --no-cache-dir "piper-tts==${PIPER_VERSION}" \
+    && mkdir -p /usr/local/share/codelab/voix \
+    && for f in fr_FR-siwis-medium.onnx fr_FR-siwis-medium.onnx.json; do \
+         curl -fsSL -o "/usr/local/share/codelab/voix/$f" \
+           "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/siwis/medium/$f"; \
+       done \
+    && piper --help >/dev/null
+COPY dev/video/fabriquer.mjs dev/video/scenario-modele.mjs /usr/local/share/codelab/video/
+
 COPY dev/entrypoint.sh /opt/codelab/dev/entrypoint.sh
 RUN chmod +x /opt/codelab/dev/entrypoint.sh
 

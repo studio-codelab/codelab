@@ -64,6 +64,7 @@ mon-projet/
 ├── app.py | package.json  OPTIONNEL : l'application web
 ├── definitions.py       OPTIONNEL : le cote Dagster (variable defs)
 ├── requirements-dagster.txt  OPTIONNEL : dependances du cote Dagster
+├── video/               OPTIONNEL : scenario.mjs et la video du hub (codelab video)
 └── icon.png             OPTIONNEL : l'icone du hub
 ```
 
@@ -440,7 +441,66 @@ genereuse la ou elle compte. Six references, chacune pour une raison precise :
    se clique, les etats en vert, ambre et rouge, le trait plutot que l'ombre
    sur les ecrans de travail.
 
-## 14. Sortir le projet de CodeLab
+## 14. Video de presentation
+
+Une video courte (30 s a 2 min) qui montre l'application en marche : le hub
+la propose sur la tuile du projet (bouton lecture) et dans sa fiche. Elle
+est FABRIQUEE, pas filmee a la main ni generee par une IA :
+
+```bash
+codelab video            # dans le projet : pose video/scenario.mjs s'il manque
+codelab video            # une fois le scenario ecrit : tourne et monte la video
+```
+
+`codelab video` joue `video/scenario.mjs` dans Chromium, filme, synthetise
+la voix off en francais (Piper, sur le processeur du poste) et monte le tout
+avec ffmpeg : carton titre, demonstration, carton de fin. Resultat :
+`video/presentation.mp4` et `video/affiche.jpg`, a versionner avec le projet.
+Rien ne part sur Internet.
+
+**Le scenario est du code du projet**, a ecrire et tenir a jour comme le
+reste. Le format :
+
+```js
+export default {
+  titre: "Nom affiche",
+  accroche: "Une phrase : a quoi sert l'application.",
+  adresse: "http://codelab-app-manager:9002/<adresse>/",
+  taille: { largeur: 1600, hauteur: 900 },     // 16:9
+  etapes: [
+    { voix: "Voici le tableau de bord.",
+      geste: async ({ page }) => { await page.goto("./"); }, duree: 3 },
+    { voix: "On ajoute une tache en une ligne.",
+      geste: async ({ taper, cliquer }) => {
+        await taper("#nouvelle", "Relire le contrat");
+        await cliquer("button[type=submit]");
+      } },
+  ],
+  fin: { titre: "Nom affiche", texte: "Disponible sur ton hub CodeLab." },
+};
+```
+
+- Chaque etape dure au moins le temps de sa phrase (`duree` en secondes pour
+  la prolonger). Une phrase courte par etape, au present, qui dit ce que
+  l'utilisateur y gagne -- pas ce que fait le code.
+- Outils du geste : `page` (Playwright), `cliquer(selecteur)`,
+  `taper(selecteur, texte)`, `survoler(selecteur)`, `defiler(pixels)`,
+  `pause(secondes)`. Le curseur est dessine et se deplace jusqu'a chaque
+  element avant le clic.
+- Des selecteurs stables (`#id`, `[data-...]`, roles) ; jamais de clic par
+  coordonnees.
+- Des donnees de demonstration credibles, jamais de vraies donnees
+  personnelles ni de secret a l'ecran.
+- `voix: false` a la racine : video muette. `video/musique.mp3` : une musique
+  libre de droits passe doucement sous la voix.
+- **Application privee** (le hub demande une connexion) : lance-la dans le
+  terminal du poste et mets son adresse locale (`http://localhost:8000/`)
+  dans `adresse`.
+
+Relance `codelab video` apres chaque changement visible de l'application.
+Dans sa fiche, l'administrateur peut masquer la video du hub.
+
+## 15. Sortir le projet de CodeLab
 
 Le panneau ne produit pas de fichiers de conteneurisation. Si le projet doit
 tourner ailleurs, ses `Dockerfile` et `docker-compose.yml` vivent dans le

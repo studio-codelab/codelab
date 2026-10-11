@@ -1661,8 +1661,26 @@ a.pj:hover{border-color:var(--accent)}
 .bento-barres i.warn{background:#f2a33a}
 .bento-barres i.err{background:#ef5350}
 .bento-etat a{color:var(--bento-lien);font-weight:700}
-.bento-carte{display:flex;flex-direction:column;gap:6px;padding:18px;border-radius:24px;
+.bento-carte{position:relative;display:flex;flex-direction:column;gap:6px;padding:18px;border-radius:24px;
  background:var(--surface);border:1px solid var(--line);color:var(--txt);text-decoration:none}
+/* ---- la video de presentation : un bouton rond sur la tuile, une feuille
+   avec le lecteur du navigateur ---- */
+.btn-presentation{position:absolute;right:14px;bottom:14px;width:38px;height:38px;border-radius:999px;border:0;
+ display:grid;place-items:center;background:var(--txt);color:var(--surface);cursor:pointer;opacity:.88;
+ box-shadow:0 4px 14px rgba(0,0,0,.18);transition:transform .12s, opacity .12s}
+.btn-presentation:hover{opacity:1;transform:scale(1.06)}
+.btn-presentation svg{width:15px;height:15px;fill:currentColor;stroke:none;margin-left:2px}
+.hub-projet{position:relative}
+.hub-projet .btn-presentation{width:30px;height:30px;right:6px;bottom:auto;top:6px}
+.hub-projet .btn-presentation svg{width:12px;height:12px}
+.modal.presentation{max-width:min(1100px,94vw);overflow:hidden}
+.presentation-video{display:block;width:100%;max-height:68vh;background:#000;aspect-ratio:16/9}
+.presentation-pied{display:flex;align-items:center;gap:14px;padding:16px 20px;flex-wrap:wrap}
+.presentation-pied img{width:44px;height:44px;border-radius:12px;flex:none}
+.presentation-pied .txt{flex:1;min-width:0}
+.presentation-pied b{display:block;font-size:17px;letter-spacing:-.02em}
+.presentation-pied span{display:block;color:var(--dim);font-size:13px;margin-top:2px}
+.fiche-video{display:block;width:100%;max-width:640px;border-radius:12px;background:#000;margin-top:10px;aspect-ratio:16/9}
 .bento-carte:hover{border-color:var(--accent)}
 .bento-carte.warn{box-shadow:inset 0 0 0 2px var(--warn)}
 .bento-carte.err{box-shadow:inset 0 0 0 2px var(--err)}
@@ -1991,6 +2009,13 @@ a.pj:hover{border-color:var(--accent)}
         <div class="kv"><span class="k">Build</span><span class="v"><code id="fa-build">—</code></span></div>
         <div class="kv"><span class="k">Limite mémoire</span><span class="v" id="fa-mem">—</span></div>
       </div>
+    </div>
+    <!-- La video de presentation (video/presentation.mp4 du projet) : la
+         voir, et choisir si le hub la montre. -->
+    <div class="card zone" id="fa-presentation">
+      <div class="card-top"><div class="card-name"><b>Présentation</b>
+        <div class="path" id="fa-pr-sous"></div></div></div>
+      <div id="fa-pr-corps"></div>
     </div>
     <div class="cartes c2" id="fa-mesures">
       <div class="card"><div class="metrique"><b id="fa-cpu">0%</b><span>CPU</span></div></div>
@@ -2955,6 +2980,18 @@ a.pj:hover{border-color:var(--accent)}
   <div class="mf"><div class="spacer"></div><button class="btn btn-default" onclick="hide('ov-galerie')">Fermer</button></div>
 </div></div>
 
+<!-- La video de presentation d'une application : le lecteur du navigateur
+     (plein ecran, son, Picture-in-Picture), et de quoi ouvrir l'application. -->
+<div class="ov" id="ov-presentation"><div class="modal presentation" role="dialog" aria-labelledby="pr-nom">
+  <video class="presentation-video" id="pr-video" controls playsinline preload="metadata"></video>
+  <div class="presentation-pied">
+    <img id="pr-icone" alt="">
+    <div class="txt"><b id="pr-nom"></b><span id="pr-desc"></span></div>
+    <button class="btn btn-default" onclick="fermerPresentation()">Fermer</button>
+    <a class="btn btn-primary" id="pr-ouvrir" href="#">Ouvrir l'application</a>
+  </div>
+</div></div>
+
 <div class="ov" id="ov-add"><div class="modal">
   <div class="mh"><h3>Nouvelle application</h3>
     <p>Un dossier de <code id="a-s"></code>, une commande de lancement, et c'est en ligne.</p></div>
@@ -3132,6 +3169,7 @@ const ACTIONS = {
   'ap-etat':         n => apChoisirEtat(n),
   'ap-trier':        n => apTrier(n),
   'bw-sujet':        n => { hubMessageCible=n; peindreHub(); },
+  'presentation':    n => ouvrirPresentation(n),
   'pj-retirer':      (cle, d) => { const p=piecesBrouillon[cle] && piecesBrouillon[cle][Number(d.rang)];
                                    if(!p) return;
                                    piecesBrouillon[cle].splice(Number(d.rang),1); peindrePieces(cle); },
@@ -3175,6 +3213,8 @@ document.addEventListener('change', e => {
   const n = e.target.closest('[data-changer]');
   if(n && n.dataset.changer === 'app-masquer')
     basculerMasquage(n.dataset.cible, !e.target.checked);
+  if(n && n.dataset.changer === 'presentation-visible')
+    basculerPresentation(n.dataset.cible, e.target.checked);
 });
 
 /* ---------------- theme ---------------- */
@@ -4103,7 +4143,7 @@ function peindreHub(){
       title="${esc(a.description||a.name)}">
       <img src="${icone(a.name)}" alt="">
       <div class="txt"><div class="nom">${esc(nomAffiche(a))}</div>
-      <div class="bas">${badgeEtat(a)}${badgeVis(a)}${badgeMaj(a)}</div></div>${pastille(a)}</a>`;
+      <div class="bas">${badgeEtat(a)}${badgeVis(a)}${badgeMaj(a)}</div></div>${pastille(a)}${boutonPresentation(a)}</a>`;
 
   /* Sans categorie declaree, le hub reste ce qu'il etait : une seule liste.
      Un unique titre « Autres » au-dessus de tout serait du bruit. */
@@ -4269,6 +4309,65 @@ async function bwEnvoyer(b){
     t.value=''; hubMessageBrouillon=''; viderPieces('widget'); notifier('Message envoyé.'); chargerSuivi(true);
   }finally{ b.disabled=false; }
 }
+/* ---------------- la video de presentation ----------------
+   Un bouton rond sur la tuile quand le projet a une video
+   (video/presentation.mp4, produite par « codelab video ») ; un clic ouvre
+   une feuille avec le lecteur du navigateur. La tuile, elle, ouvre toujours
+   l'application. */
+const SVG_PRESENTATION='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>';
+function boutonPresentation(a){
+  if(!a || !a.presentation) return '';
+  return `<button type="button" class="btn-presentation" data-agir="presentation" data-cible="${esc(a.name)}"
+    aria-label="Voir la présentation de ${esc(nomAffiche(a))}" title="Présentation">${SVG_PRESENTATION}</button>`;
+}
+function ouvrirPresentation(nom){
+  const a=hubApps.find(x=>x.name===nom) || (typeof appParNom==='function' && appParNom(nom));
+  if(!a || !a.presentation) return;
+  const v=a.presentation.maj, base='/api/presentations/'+encodeURIComponent(nom)+'/';
+  const video=$('pr-video');
+  video.poster = a.presentation.affiche ? base+'affiche?v='+v : '';
+  video.src = base+'video?v='+v;
+  $('pr-icone').src=icone(nom);
+  $('pr-nom').textContent=nomAffiche(a);
+  $('pr-desc').textContent=a.description||'';
+  $('pr-ouvrir').href=lienOuverture(a);
+  $('pr-ouvrir').style.display = a.externe ? 'none' : '';
+  $('ov-presentation').classList.add('show');
+  video.play().catch(()=>{});
+}
+function peindrePresentationFiche(a){
+  const carte=$('fa-presentation'); if(!carte) return;
+  carte.style.display = a.externe ? 'none' : '';
+  const p=a.presentation;
+  $('fa-pr-sous').textContent = p
+    ? 'Générée le '+new Date(p.maj*1000).toLocaleString('fr-FR',{dateStyle:'long', timeStyle:'short'})
+    : 'Aucune vidéo pour l’instant.';
+  const base='/api/presentations/'+encodeURIComponent(a.name)+'/';
+  remplir($('fa-pr-corps'), p
+    ? `<video class="fiche-video" controls playsinline preload="metadata" src="${base}video?v=${p.maj}"
+         ${p.affiche ? `poster="${base}affiche?v=${p.maj}"` : ''}></video>
+       <label class="choix-ligne" style="margin-top:12px"><input type="checkbox" data-changer="presentation-visible"
+         data-cible="${esc(a.name)}" ${a.presentation_masquee ? '' : 'checked'}> Visible dans le hub</label>`
+    : `<p class="hint" style="margin:6px 0 0">Dans le terminal du poste : <code>codelab video ${esc(a.name)}</code>.
+       La vidéo apparaît ici, et sur la tuile du hub, dès qu’elle est produite.</p>`);
+}
+async function basculerPresentation(nom, visible){
+  const r=await fetch('/api/apps/'+encodeURIComponent(nom)+'/presentation',{method:'PUT',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify({visible})});
+  if(!r.ok){ notifier(await echec(r,'Modification impossible.'),'err'); return; }
+  notifier(visible ? 'Présentation visible dans le hub.' : 'Présentation retirée du hub.');
+  refresh(); chargerHub();
+}
+function fermerPresentation(){
+  const video=$('pr-video');
+  video.pause(); video.removeAttribute('src'); video.load();
+  $('ov-presentation').classList.remove('show');
+}
+$('ov-presentation').addEventListener('click', e=>{ if(e.target===e.currentTarget) fermerPresentation(); });
+document.addEventListener('keydown', e=>{
+  if(e.key==='Escape' && $('ov-presentation').classList.contains('show')) fermerPresentation();
+});
+
 const CLASSE_WIDGET={une:'bw-une', apercu:'bw-une', etat:'bento-etat', messages:'bw-messages', nouveautes:'bw-nouveautes', message:'bw-message', suivi:'bw-suivi'};
 function corpsWidget(e){
   if(e.id==='une'){ const [a, vue]=appALaUne(hubApps); return widgetApercu(a, e.taille, (vue ? 'Dernière ouverte' : 'À la une')+(a && a.ouverte_le ? ' · '+depuis(a.ouverte_le) : '')); }
@@ -4305,7 +4404,7 @@ function peindreBento(liste, filtre){
     return `<${balise} class="bento-carte ${c}${a.nouvelle_version?' maj':''}" ${hubEdition ? '' : `href="${lienOuverture(a)}"`} data-app="${esc(a.name)}" data-el="${esc(cleElement(e))}">
       <div class="bento-carte-haut"><img src="${icone(a.name)}" alt="">${badgeEtat(a)}</div>
       <div class="bento-carte-nom">${esc(nomAffiche(a))}</div>
-      ${badgeMaj(a)}<div class="bento-carte-desc">${desc(a)}</div>${pastille(a)}${hubEdition ? gestesEdition(e, nomAffiche(a)) : ''}</${balise}>`;
+      ${badgeMaj(a)}<div class="bento-carte-desc">${desc(a)}</div>${pastille(a)}${hubEdition ? gestesEdition(e, nomAffiche(a)) : boutonPresentation(a)}</${balise}>`;
   };
   const widget = e => {
     const def=hubCatalogue.find(c=>c.id===e.id);
@@ -5037,6 +5136,7 @@ function peindreFiche(){
   $('fa-build').textContent=a.build_command || '—';
   $('fa-mem').textContent=a.max_memory_mb ? a.max_memory_mb+' Mo' : 'aucune';
   $('fa-mesures').style.display = externe ? 'none' : '';
+  peindrePresentationFiche(a);
   $('fa-cpu').textContent=(a.cpu_percent||0).toFixed(1)+'%';
   $('fa-ram').textContent=Math.round(a.memory_mb||0)+' Mo';
 

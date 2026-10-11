@@ -99,6 +99,10 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
 - **Logo** déposé depuis la fiche (PNG, JPEG ou GIF, 512 Ko au plus), ou détecté dans le dossier
   (`icon.png`, `favicon.png`, `logo.png`…). À défaut, un avatar est généré.
 - **Catégorie** pour ranger le hub.
+- **Vidéo de présentation** : si le projet a une `video/presentation.mp4` (faite par `codelab video`,
+  voir § 6), sa tuile du hub porte un bouton ▶ qui la lit dans une fenêtre, avec « Ouvrir
+  l'application » en dessous. Servie avec les droits de l'application : un compte qui ne la voit pas
+  ne voit pas sa vidéo. La fiche la montre (carte « Présentation ») et l'admin peut la masquer du hub.
 
 **Faire tourner**
 
@@ -126,7 +130,7 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
 
   | Onglet | Contenu |
   |---|---|
-  | Général | état, port, dossier, commandes, ressources du moment |
+  | Général | état, port, dossier, commandes, ressources du moment, vidéo de présentation |
   | Métriques | CPU et mémoire sur les deux dernières minutes |
   | Journal | flux en direct, avec filtre |
   | Activité | ouvertures, comptes qui s'en servent, dernières ouvertures |
@@ -289,7 +293,8 @@ adresses `/demandes` y mènent.
 
 **Prêt à l'emploi**
 
-- **Outils installés** : Python 3.13, Node et npm, git, `psql`, `codex`, `dagster`.
+- **Outils installés** : Python 3.13, Node et npm, git, `psql`, `codex`, `dagster` ; Chromium, Piper
+  (voix française) et ffmpeg pour les vidéos.
 - **Connexions déjà configurées** : `psql`, `psycopg.connect()` et `redis-cli -h codelab-redis`
   marchent sans argument.
 - **Git** : la configuration globale survit aux mises à jour. Les clés restent sur ton poste (`ssh -A`).
@@ -301,12 +306,15 @@ adresses `/demandes` y mènent.
 | `codelab new <nom> [--db] [--ouvrir]` | crée le projet : dossier, git, `.gitignore`, `README.md`, `AGENTS.md`, `CLAUDE.md` et les modules `codelab_auth` et `codelab_web` |
 | `codelab db <nom>` | crée la base du projet, son compte et son schéma `dagster` |
 | `codelab agents [dossier]` | écrit ou met à jour le manuel CodeLab dans `AGENTS.md`, et pose un `CLAUDE.md` qui l'importe |
+| `codelab video [projet]` | la vidéo de présentation : pose un scénario (`video/scenario.mjs`), puis le joue dans Chromium, ajoute une voix off française et monte `video/presentation.mp4` |
 
 **Raccourcis et agents**
 
 - **Tâches VS Code** : Ctrl+Maj+B crée un projet et rouvre la fenêtre dessus. Les autres commandes
   sont dans *Terminal > Exécuter la tâche*.
 - **Agents de code** : Codex (compte ChatGPT) et Claude Code lisent le même manuel, `AGENTS.md`.
+- **Vidéos sans IA côté CodeLab** : le scénario est du code du projet, qu'un agent de code peut
+  écrire ; le tournage, la voix (Piper) et le montage (ffmpeg) tournent sur le poste, hors ligne.
 
 ## 7. Projets et Dagster
 
