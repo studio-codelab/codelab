@@ -18,7 +18,7 @@ flowchart LR
     Invites(["👥 Tes invités<br/>navigateur"])
     subgraph Serveur["🖥️ Ton serveur, avec CodeLab"]
         direction TB
-        Hub["🏠 Le hub<br/>ouvrir, déployer, partager"]
+        Hub["🏠 Le hub<br/>ouvrir, mettre à jour, partager"]
         Atelier["💻 L'atelier<br/>le code de tes projets"]
         Apps["🚀 Tes applications<br/>en ligne"]
         Donnees[("🗄️ Les données<br/>bases, mails, tâches planifiées")]
@@ -98,7 +98,7 @@ cd /workspace/mon-projet         # puis coder (codex, ou VS Code)
 1. Dans le panneau : *Applications > Ajouter un projet*, choisir le dossier. Les commandes sont
    proposées.
 2. Activer l'application. Elle est servie sur `http://<serveur>:9002/mon-projet/`.
-3. À chaque modification : **Déployer**, qui fait le build puis la remise en ligne.
+3. À chaque modification : **Build** puis **Redémarrer**, dans la fiche de l'application.
 
 **Partager** : *Utilisateurs > Inviter quelqu'un*, puis cocher les applications dans sa fiche.
 

@@ -82,34 +82,8 @@ Puis, dans le panneau :
 2. choisir le dossier, accepter les commandes proposées ;
 3. activer l'application. Elle est servie sur `http://<serveur>:9002/mon-projet/`.
 
-À chaque modification : **Déployer**, qui fait le build puis le redémarrage, seulement si le build
-réussit.
-
-## Déployer
-
-Le formulaire d'ajout propose deux commandes d'après le contenu du dossier :
-
-| Le dossier contient | Build | Lancement |
-|---|---|---|
-| Vite, Astro, Parcel, CRA, Angular (script `build`) | `npm ci && npm run build` | `python3 -m http.server $PORT --directory dist` |
-| Next.js | `npm ci && npm run build` | `npx next start --port $PORT` |
-| `package.json` avec `start` | `npm ci` (+ `npm run build` s'il existe) | `npm start` |
-| `manage.py` (Django) | `pip install -r requirements.txt` | `python3 manage.py runserver 0.0.0.0:$PORT` |
-| `app.py` / `main.py` | `pip install -r requirements.txt` | `python3 app.py` |
-| `Procfile` avec `web:` | — | la ligne `web:` |
-| `index.html` seul | — | `python3 -m http.server $PORT` |
-
-- **Le build s'exécute dans `codelab-app-manager`**, qui a Python, Node, npm et git.
-- **En Python**, installe dans `vendor/` (`pip install --target vendor -r requirements.txt`) et ajoute
-  ce dossier au chemin d'import.
-- **Sous-chemin** : l'application est servie sous `/<nom>/`. Pour un front, il faut régler la base des
-  adresses, sinon la page reste blanche :
-  - Vite : `base: '/mon-projet/'` ;
-  - Next.js : `basePath` ;
-  - Angular : `--base-href` ;
-  - CRA : `homepage`.
-
-Les règles complètes d'intégration au hub sont dans [`AGENTS.md`](AGENTS.md).
+À chaque modification : **Build** (s'il y en a un), puis **Redémarrer**, dans la fiche de
+l'application. Les règles d'intégration au hub (sous-chemin, port) sont dans [`AGENTS.md`](AGENTS.md).
 
 ## Git et GitHub
 
@@ -181,7 +155,7 @@ code (le tien, ou celui d'un agent) n'a pas à pouvoir le faire.
 
 | Symptôme | Cause habituelle |
 |---|---|
-| Page blanche, 404 sur les assets | base des adresses non réglée (voir *Déployer*) |
+| Page blanche, 404 sur les assets | base des adresses non réglée (voir [`AGENTS.md`](AGENTS.md), section 5) |
 | « Ne répond pas » | port en dur au lieu de `$PORT`, écoute sur `127.0.0.1`, ou plantage après le démarrage ; voir le journal |
 | Pastille rouge clignotante | 5 crashs en 10 minutes : relance automatique suspendue |
 | Build en échec | journal de l'application, dans sa fiche |
