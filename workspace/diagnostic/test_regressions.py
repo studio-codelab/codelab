@@ -14760,3 +14760,26 @@ def test_un_appui_long_ouvre_le_menu_en_feuille():
     assert "e.stopImmediatePropagation()" in appui
     assert "#hub-liste [data-app]{-webkit-touch-callout:none}" in page
     assert "$('hub-liste').addEventListener('contextmenu'" in page
+
+
+# ------------------------ Des widgets dans le lanceur ------------------------
+#
+# Vecu : « ajoute des widget dans le style Lanceur ».
+
+def test_le_lanceur_montre_les_widgets_du_compte():
+    page = _page_panneau("dashboard.html")
+    assert '<div id="hub-widgets" class="hub-widgets" hidden></div>' in page
+    hub = page.split("function peindreHub(")[1].split("\n}")[0]
+    # Le bento les garde dans sa mosaique ; le lanceur les peint au-dessus des icones.
+    assert "if(variante==='bento'){ $('hub-widgets').hidden=true; peindreBento(liste, filtre); return; }" in hub
+    assert "peindreWidgetsLanceur(filtre);" in hub
+    lanceur = page.split("function peindreWidgetsLanceur(")[1].split("\n}")[0]
+    # La meme disposition que le bento, et le meme rendu de widget.
+    assert "elementsDuHub().filter(e=>e.t==='w')" in lanceur
+    assert "widgets.map(widgetDuHub)" in lanceur
+    # Une recherche les efface : on cherche une application.
+    assert "el.hidden = !!filtre" in lanceur
+    # Composer depuis le lanceur aussi : reorganiser et « + ».
+    assert ':root[data-variante="lanceur"] .hub-compose{display:inline-flex' in page
+    deplacer = page.split("function hubDeplacer(")[1].split("\n}")[0]
+    assert "styleCourant()==='lanceur'" in deplacer and "elements[j].t!=='w'" in deplacer

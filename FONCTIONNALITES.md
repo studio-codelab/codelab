@@ -38,7 +38,11 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
   est le même : menu en pilule, barre du bas sur téléphone, réglages en fenêtre.
   - « Lanceur » : le hub comme un écran d'accueil (trame de points, bonjour en grand, recherche au
     centre, grandes icônes cerclées si l'application ne répond pas). Dagster, Mailpit et Messages y
-    ont la même tuile que les autres applications ;
+    ont la même tuile que les autres applications. **Des widgets** au-dessus des icônes : les mêmes
+    que ceux du Bento (la disposition suit le compte d'un style à l'autre), dans une grille centrée
+    (une colonne de deux sur téléphone), et masqués pendant une recherche. L'icône discrète à droite
+    de la recherche passe en mode Modifier : « + » ouvre la galerie, chaque widget porte « − », ses
+    tailles et ses flèches pour changer de place ;
   - **Le menu d'une application**, dans les deux styles : trois petits points dans le coin de la
     tuile à la souris (au survol de l'icône dans le style Lanceur), un appui long au doigt (le menu
     s'ouvre alors en bas de l'écran), ou le clic droit. Il propose : Ouvrir, Voir la présentation

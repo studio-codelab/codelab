@@ -1460,13 +1460,34 @@ table.tbl-journal{min-width:560px}
 :root[data-variante="lanceur"] .hub-liste.compacte .hub-projet .bas .pill.pub,
 :root[data-variante="lanceur"] .hub-liste.compacte .hub-projet .bas .pill.priv{display:none}
 
+/* Les widgets du lanceur : les memes que ceux du Bento (la disposition est
+   celle du compte, d'un style a l'autre), dans une grille centree entre la
+   recherche et les icones. Reorganiser et « + », discrets, a droite de la
+   recherche. */
+:root[data-variante="lanceur"] .hub-barre{display:flex;align-items:center;gap:8px;position:relative;
+ max-width:600px;margin:0 auto 32px}
+:root[data-variante="lanceur"] .hub-recherche{flex:1;margin:0}
+:root[data-variante="lanceur"] .hub-compose-groupe{display:flex;gap:8px;position:absolute;left:calc(100% + 10px)}
+:root[data-variante="lanceur"] .hub-compose{display:inline-flex;height:44px;border-radius:999px;padding:0 18px}
+:root[data-variante="lanceur"] #hub-ajouter-widget{width:44px;padding:0;justify-content:center}
+:root[data-variante="lanceur"] #hub-modifier:not(.actif){width:44px;padding:0;justify-content:center;border-color:transparent;
+ background:none;color:var(--dim)}
+:root[data-variante="lanceur"] #hub-modifier:not(.actif):hover{color:var(--txt);background:var(--surface)}
+.hub-widgets{display:grid;grid-template-columns:repeat(4,210px);grid-auto-rows:210px;grid-auto-flow:row dense;
+ gap:16px;justify-content:center;margin:0 auto 48px}
+@media (max-width:980px){ .hub-widgets{grid-template-columns:repeat(2,210px)} }
+.hub-widgets[hidden]{display:none}
+.hub-widgets > .bw{box-shadow:0 14px 30px var(--shadow-2)}
+.hub-widgets-vide{grid-column:1/-1;text-align:center;color:var(--dim);font-size:14px;padding:18px;
+ border:1px dashed var(--line2);border-radius:24px}
+
 /* STYLE 4 -- BENTO : une mosaique qui defile a l'HORIZONTALE sur un ecran
    large (trois rangees a la hauteur de la fenetre, les colonnes s'ajoutent a
    droite), et a la verticale sur un telephone. */
 /* Sur un ecran large, la page du hub Bento ne defile PAS a la verticale :
    seule la mosaique defile, de cote. */
 @media (min-width:761px){ :root[data-variante="bento"].hub-actif{overflow:hidden} }
-.hub-tete,.hub-tete-texte,.hub-barre{display:contents}
+.hub-tete,.hub-tete-texte,.hub-barre,.hub-compose-groupe{display:contents}
 .hub-compose{display:none}
 :root[data-variante="bento"] .hub-tete{display:flex;align-items:flex-end;justify-content:space-between;gap:16px 24px;
  flex-wrap:wrap;margin:6px 0 18px}
@@ -1545,6 +1566,11 @@ table.tbl-journal{min-width:560px}
 .bw-suivi .suivi-etat{margin-left:0}
 .bw-suivi .bento-bouton{background:var(--accent);color:var(--sur-accent);text-decoration:none;border:0;cursor:pointer;font:inherit}
 /* ---- mode Modifier : les tuiles tremblent, portent leurs gestes ---- */
+#hub-widgets.edition > .bw{position:relative;user-select:none;-webkit-user-select:none;
+ animation:hub-tremble .34s ease-in-out infinite alternate}
+#hub-widgets.edition > .bw:nth-child(2n){animation-delay:-.16s}
+#hub-widgets.edition iframe,#hub-widgets.edition textarea,#hub-widgets.edition a,#hub-widgets.edition .bw-sujets{pointer-events:none}
+#hub-widgets.edition > * > :not(.ed-retirer):not(.ed-barre){opacity:.85}
 #hub-liste.edition > *{position:relative;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;
  animation:hub-tremble .34s ease-in-out infinite alternate}
 #hub-liste.edition > *:nth-child(2n){animation-delay:-.16s}
@@ -1559,7 +1585,7 @@ table.tbl-journal{min-width:560px}
 #hub-liste.edition > :not(:focus-within) .ed-barre [data-agir="hub-deplacer"]{display:none}
 #hub-liste.edition > .bento-carte:not(:focus-within) .ed-barre{display:none}
 @keyframes hub-tremble{from{rotate:-.3deg}to{rotate:.3deg}}
-@media (prefers-reduced-motion:reduce){#hub-liste.edition > *{animation:none;outline:2px dashed var(--line2);outline-offset:-2px}}
+@media (prefers-reduced-motion:reduce){#hub-liste.edition > *,#hub-widgets.edition > .bw{animation:none;outline:2px dashed var(--line2);outline-offset:-2px}}
 .ed-retirer{position:absolute;top:8px;left:8px;z-index:3;width:26px;height:26px;border-radius:999px;border:0;
  background:var(--txt);color:var(--surface);font:inherit;font-size:18px;font-weight:800;line-height:1;cursor:pointer;
  display:grid;place-items:center;box-shadow:0 0 0 2px var(--surface),0 2px 6px rgba(0,0,0,.25)}
@@ -1731,6 +1757,10 @@ a.pj:hover{border-color:var(--accent)}
   :root[data-variante="lanceur"] .hub-liste.compacte .hub-projet img{width:72px;height:72px;border-radius:22px}
   :root[data-variante] .hub-recherche{height:50px;margin-bottom:24px}
   :root[data-variante="bento"] .salut{font-size:40px}
+  :root[data-variante="lanceur"] .hub-barre{margin-bottom:24px}
+  :root[data-variante="lanceur"] .hub-compose-groupe{position:static}
+  :root[data-variante="lanceur"] .hub-recherche{margin:0}
+  .hub-widgets{grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:auto;gap:12px;margin-bottom:32px}
   #hub-liste.bento{margin-left:0;margin-right:0;padding-left:2px !important;padding-right:2px !important}
   /* Sur telephone : une colonne, et l'on defile vers le bas. */
   #hub-liste.bento{grid-auto-flow:row;grid-template-rows:none;grid-template-columns:repeat(2,minmax(0,1fr));
@@ -1846,15 +1876,19 @@ a.pj:hover{border-color:var(--accent)}
     <input type="search" id="hub-filtre" placeholder="Ouvrir une application…" aria-label="Rechercher une application"
       autocomplete="off" oninput="peindreHub()">
   </label>
-  <!-- Bento : composer le hub. -->
+  <!-- Composer le hub : ses widgets (et, dans le Bento, l'ordre des tuiles). -->
+  <span class="hub-compose-groupe">
   <button class="btn btn-default hub-compose" id="hub-ajouter-widget" onclick="ouvrirGalerie()" style="display:none"
     aria-label="Ajouter un widget" title="Ajouter un widget">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
   <button class="btn btn-default hub-compose" id="hub-modifier" onclick="basculerEdition()"
     title="Réorganiser le hub" aria-label="Réorganiser le hub"></button>
+  </span>
   </div>
   </div>
   <div class="hint" id="hub-masquees" style="display:none;margin:-8px 0 14px"></div>
+  <!-- Lanceur : les widgets, au-dessus des icones. -->
+  <div id="hub-widgets" class="hub-widgets" hidden></div>
   <div id="hub-liste" class="hub-liste"></div>
 
 </div>
@@ -4157,7 +4191,8 @@ function peindreHub(){
       + 'paramOnglet(\'compte\')">à décocher dans tes paramètres</a> pour '
       + (nbCaches>1 ? 'les' : 'la') + ' revoir.');
   }
-  if(variante==='bento'){ peindreBento(liste, filtre); return; }
+  if(variante==='bento'){ $('hub-widgets').hidden=true; peindreBento(liste, filtre); return; }
+  peindreWidgetsLanceur(filtre);
   if(!liste.length && filtre){
     $('hub-liste').className='';
     remplir($('hub-liste'), '<div class="hub-vide"><b>Aucune application ne correspond</b>Essaie un autre mot.</div>');
@@ -4562,12 +4597,7 @@ function peindreBento(liste, filtre){
       <div class="bento-carte-nom">${esc(nomAffiche(a))}</div>
       ${badgeMaj(a)}<div class="bento-carte-desc">${desc(a)}</div>${pastille(a)}${hubEdition ? gestesEdition(e, nomAffiche(a)) : boutonMenuApp(a)}</${balise}>`;
   };
-  const widget = e => {
-    const def=hubCatalogue.find(c=>c.id===e.id);
-    const nom=e.id==='apercu' ? 'Aperçu de '+nomAffiche(hubApps.find(a=>a.name===e.app)||{name:e.app}) : (def ? def.titre : e.id);
-    return `<section class="bw bw-${e.taille} ${CLASSE_WIDGET[e.id]||''}" aria-label="${esc(nom)}" data-el="${esc(cleElement(e))}">
-      ${corpsWidget(e)}${hubEdition ? gestesEdition(e, nom) : ''}</section>`;
-  };
+  const widget = widgetDuHub;
   /* La recherche ne montre que les applications qui correspondent. */
   const html = filtre
     ? liste.map(a=>carte(a, {t:'a', id:a.name})).join('')
@@ -4580,8 +4610,24 @@ function peindreBento(liste, filtre){
   /* Pas de repeint sous la main : le rechargement periodique attendra. */
   if(glisse && glisse.parti) return;
   el.className='bento'+(hubEdition ? ' edition' : '');
-  /* Ce qui doit SURVIVRE au repeint -- l'apercu (sinon il se recharge), le
-     texte en cours de frappe -- est mis de cote puis remis a sa place. */
+  remplirEnGardant(el, html);
+  majBoutonsComposer();
+  ajusterBento();
+}
+function widgetDuHub(e){
+  const def=hubCatalogue.find(c=>c.id===e.id);
+  const nom=e.id==='apercu' ? 'Aperçu de '+nomAffiche(hubApps.find(a=>a.name===e.app)||{name:e.app}) : (def ? def.titre : e.id);
+  return `<section class="bw bw-${e.taille} ${CLASSE_WIDGET[e.id]||''}" aria-label="${esc(nom)}" data-el="${esc(cleElement(e))}">
+    ${corpsWidget(e)}${hubEdition ? gestesEdition(e, nom) : ''}</section>`;
+}
+function majBoutonsComposer(){
+  $('hub-modifier').innerHTML = hubEdition ? 'Terminé' : SVG_REORGANISER;
+  $('hub-modifier').classList.toggle('actif', hubEdition);
+  $('hub-ajouter-widget').style.display = hubEdition ? '' : 'none';
+}
+/* Ce qui doit SURVIVRE au repeint -- l'apercu (sinon il se recharge), le
+   texte en cours de frappe -- est mis de cote puis remis a sa place. */
+function remplirEnGardant(el, html){
   const gardes={};
   el.querySelectorAll('[data-garder]').forEach(n=>{ gardes[n.dataset.garder]=n; });
   const actif=document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.garder : null;
@@ -4595,10 +4641,18 @@ function peindreBento(liste, filtre){
     });
     if(actif && gardes[actif]){ gardes[actif].focus(); if(debut!=null) try{ gardes[actif].setSelectionRange(debut, debut); }catch(e){} }
   }
-  $('hub-modifier').innerHTML = hubEdition ? 'Terminé' : SVG_REORGANISER;
-  $('hub-modifier').classList.toggle('actif', hubEdition);
-  $('hub-ajouter-widget').style.display = hubEdition ? '' : 'none';
-  ajusterBento();
+}
+/* Les widgets du lanceur : ceux de la disposition du compte, dans son ordre.
+   Pendant une recherche, ils s'effacent -- on cherche une application. */
+function peindreWidgetsLanceur(filtre){
+  const el=$('hub-widgets');
+  const widgets=elementsDuHub().filter(e=>e.t==='w');
+  el.hidden = !!filtre || (!widgets.length && !hubEdition);
+  el.className='hub-widgets'+(hubEdition ? ' edition' : '');
+  majBoutonsComposer();
+  if(el.hidden){ remplir(el, ''); return; }
+  remplirEnGardant(el, widgets.map(widgetDuHub).join('')
+    || '<div class="hub-widgets-vide">Aucun widget. « + » en ajoute un.</div>');
 }
 /* Trois rangees qui tiennent dans la fenetre : la hauteur se calcule depuis
    le haut de la mosaique. Sur telephone, CSS reprend la main (une colonne). */
@@ -4645,7 +4699,12 @@ function hubRetirer(cle){
 }
 function hubDeplacer(cle, sens){
   const elements=elementsDuHub();
-  const i=elements.findIndex(x=>cleElement(x)===cle), j=i+Number(sens);
+  const i=elements.findIndex(x=>cleElement(x)===cle);
+  let j=i+Number(sens);
+  /* Dans le lanceur, seuls les widgets se voient en grille : on saute les
+     applications pour passer au widget voisin. */
+  if(styleCourant()==='lanceur')
+    while(j>=0 && j<elements.length && elements[j].t!=='w') j+=Number(sens);
   if(i<0 || j<0 || j>=elements.length) return;
   [elements[i], elements[j]]=[elements[j], elements[i]];
   enregistrerDisposition(elements).then(()=>{
