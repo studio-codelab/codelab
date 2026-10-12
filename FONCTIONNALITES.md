@@ -94,7 +94,7 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
 | Onglet | Pour qui | Contenu |
 |---|---|---|
 | Compte | tous | apparence, style, adresse mail (vérifiée par code), mot de passe, taille de pages du journal, applications affichées dans *son* hub |
-| Sécurité | tous | second facteur (TOTP), clés d'accès ; bilan de sécurité pour l'admin |
+| Sécurité | tous | second facteur (TOTP), clés d'accès, appareils connectés ; bilan de sécurité pour l'admin |
 | Serveur | admin | adresse publique, liaison avec un VPS (fichiers prêts à copier), constat sur la requête en cours |
 | Catégories | admin | les tiroirs du hub, dans l'ordre voulu |
 | E-mail | admin | serveur d'envoi, adresse d'alerte de l'administrateur |
@@ -179,6 +179,10 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
 Détails : [`SECURITE.md`](SECURITE.md) et [`app-manager/README.md`](app-manager/README.md).
 
 - **Deux rôles** : administrateur et utilisateur.
+- **Appareils connectés** (*Paramètres > Sécurité*, chaque compte) : où le compte est ouvert (« Safari
+  sur iPhone », adresse, dernière activité, « Cet appareil »), un bouton pour déconnecter chacun, et
+  « Déconnecter les autres appareils ». Téléphone perdu : on le coupe sans changer de mot de passe.
+  Changer de mot de passe ferme aussi les autres appareils.
 - **Invitation par mail.** La personne choisit elle-même son nom et son mot de passe. Le lien est
   aussi affiché à l'administrateur ; il peut être renvoyé ou annulé.
 - **Création directe** d'un compte par l'administrateur.
@@ -187,6 +191,7 @@ Détails : [`SECURITE.md`](SECURITE.md) et [`app-manager/README.md`](app-manager
   - applications autorisées ;
   - suspension ;
   - remise à zéro du second facteur, retrait des clés d'accès ;
+  - ses appareils connectés, et « Déconnecter tous ses appareils » (sans toucher au mot de passe) ;
   - suppression, qui emporte les clés d'accès.
 - **Deux filtres sur la liste** : par personne, ou par application (« qui a accès à… »).
 - **Connexion par Face ID / Touch ID** (clé d'accès) : un bouton en tête de la page de connexion,

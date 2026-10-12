@@ -1169,6 +1169,13 @@ table.tbl-journal{min-width:560px}
 .hors-ligne svg{width:18px;height:18px;flex:none;fill:none;stroke:var(--warn);stroke-width:2;stroke-linecap:round}
 .hors-ligne button{border:1px solid var(--line2);background:var(--surface);color:var(--txt);border-radius:999px;
  padding:5px 12px;font:inherit;font-size:12.5px;cursor:pointer;white-space:nowrap}
+/* Les appareils connectes, dans Securite. */
+.ap-liste{display:flex;flex-direction:column;margin-top:10px}
+.ap-ligne{display:flex;align-items:center;gap:12px;padding:10px 4px;border-bottom:1px solid var(--line);font-size:13.5px}
+.ap-ligne:last-child{border-bottom:0}
+.ap-quoi{flex:1;min-width:0}
+.ap-quoi small{display:block;color:var(--dim);font-size:12px;margin-top:2px}
+.ap-quoi .pill{margin-left:6px;vertical-align:1px}
 /* Les sauvegardes, dans Securite. */
 .alerte-sauvegarde{margin-top:12px;padding:12px 14px;border-radius:10px;background:var(--warn-bg);
  border:1px solid var(--warn-border);font-size:13.5px;line-height:1.5}
@@ -2565,6 +2572,23 @@ a.pj:hover{border-color:var(--accent)}
     </div>
   </div>
 
+  <!-- LES APPAREILS CONNECTES : ou ce compte est ouvert, et le moyen d'en
+       couper un (telephone perdu, ordinateur prete) sans changer de mot de
+       passe. -->
+  <div class="zone">
+    <div class="zone-title">Appareils connectés</div>
+    <div class="card settings-card sans-pli" id="ap-carte">
+      <div class="card-top"><div class="card-name">
+        <b>Appareils connectés</b>
+        <div class="path">Là où ton compte est ouvert en ce moment.</div>
+      </div></div>
+      <div class="ap-liste" id="ap-liste"><p class="hint">Chargement…</p></div>
+      <div class="actions" style="margin-top:12px">
+        <button class="btn btn-default btn-sm" id="ap-autres" onclick="apDeconnecterAutres()">Déconnecter les autres appareils</button>
+      </div>
+    </div>
+  </div>
+
   <div class="zone">
     <div class="zone-title">Clés d'accès</div>
     <div class="card settings-card sans-pli" id="pk-carte">
@@ -3111,6 +3135,14 @@ a.pj:hover{border-color:var(--accent)}
       </div>
     </div>
 
+    <div class="mb-groupe">
+      <div class="mb-titre">Appareils connectés</div>
+      <div class="hint" id="us-f-appareils">—</div>
+      <div class="actions">
+        <button class="btn btn-default btn-sm" id="us-f-deconnecter" onclick="usDeconnecterAppareils()">Déconnecter tous ses appareils</button>
+      </div>
+    </div>
+
     <!-- SUSPENDRE PLUTOT QUE SUPPRIMER. Un depart, un doute, un appareil
          perdu : on veut fermer l'acces tout de suite et decider plus tard.
          Supprimer efface les projets autorises, l'adresse et les cles -- il
@@ -3431,6 +3463,7 @@ const ACTIONS = {
   'invitation-annuler':  id => invAnnuler(id),
   'invitation-copier':   (_, d) => copierLien(d.lien),
   'param-onglet':    o => paramOnglet(o),
+  'appareil-deconnecter': (id, d) => apDeconnecter(id, d.courant==='1'),
   'ver-copier':      () => copierLien(COMMANDES_MAJ, 'Commandes copiées.'),
 };
 
@@ -3871,6 +3904,7 @@ function paramOnglet(o){
   }
   if(o==='securite'){
     chargerPasskeys();
+    chargerAppareils();
     if(estAdmin) chargerSauvegardes();
     if(estAdmin) chargerSecurite();
   }
@@ -6164,7 +6198,7 @@ let activite={evenements:[], resume:{comptes:{}, apps:{}, echecs:0}};
 function ilYA(ts){
   if(!ts) return 'jamais';
   const s=Math.max(0, Math.floor(Date.now()/1000)-ts);
-  if(s<60) return "a l'instant";
+  if(s<60) return "à l'instant";
   if(s<3600) return 'il y a '+Math.floor(s/60)+' min';
   if(s<86400) return 'il y a '+Math.floor(s/3600)+' h';
   if(s<2592000) return 'il y a '+Math.floor(s/86400)+' j';
@@ -6780,6 +6814,7 @@ function usPeindreFiche(){
   $('us-f-facteurs').textContent = morceaux.join(' ');
   $('us-f-totp').disabled = !c.totp;
   $('us-f-cles').disabled = !c.passkeys;
+  usChargerAppareils(c.nom);
 
   /* L'etat de l'acces, dit en une phrase, et le bouton qui le change. */
   $('us-f-suspendu-etat').innerHTML = c.suspendu
@@ -7054,6 +7089,29 @@ async function usReinitTotp(){
     notifier('Second facteur remis a zero pour « ' + nom + ' ».');
 }
 
+/* Les appareils d'un compte, vus par l'administrateur. */
+async function usChargerAppareils(nom){
+  $('us-f-appareils').textContent='…'; $('us-f-deconnecter').disabled=true;
+  let liste=[];
+  try{ const r=await fetch('/api/utilisateurs/'+encodeURIComponent(nom)+'/appareils');
+       if(r.ok) liste=(await r.json()).appareils||[]; }catch(e){}
+  if(usCourant!==nom) return;
+  $('us-f-appareils').textContent = liste.length
+    ? liste.map(a=>a.appareil+' ('+ilYA(a.vue)+')').join(' · ')
+    : 'Aucun appareil connecté.';
+  $('us-f-deconnecter').disabled=!liste.length;
+}
+async function usDeconnecterAppareils(){
+  const nom=usCourant;
+  if(!await demander('Déconnecter « '+nom+' » partout ?',
+    "Ses appareils devront se reconnecter. Son mot de passe et ses clés d'accès ne changent pas.",
+    'Déconnecter')) return;
+  const r=await fetch('/api/utilisateurs/'+encodeURIComponent(nom)+'/appareils',{method:'DELETE'});
+  if(!r.ok){ notifier(await echec(r,'Déconnexion impossible.'),'err'); return; }
+  notifier('« '+nom+' » est déconnecté de tous ses appareils.');
+  usChargerAppareils(nom);
+}
+
 async function usRetirerCles(){
   const nom=usCourant;
   if(!await demander("Retirer les clés d'accès ?",
@@ -7255,6 +7313,40 @@ async function alBasculer(){
 }
 
 /* ---------------- securite : double authentification ---------------- */
+/* ---------------- les appareils connectes ---------------- */
+function peindreAppareils(liste){
+  remplir($('ap-liste'), liste.length ? liste.map(a=>`<div class="ap-ligne">
+      <div class="ap-quoi"><b>${esc(a.appareil)}</b>${a.courant ? ' <span class="pill on"><i></i>Cet appareil</span>' : ''}
+        <small>${a.courant ? 'Actif maintenant' : 'Actif '+ilYA(a.vue)}${a.ip ? ' · '+esc(a.ip) : ''} · connecté ${ilYA(a.ouverte)}</small></div>
+      <button class="btn btn-default btn-sm" data-agir="appareil-deconnecter" data-cible="${esc(a.id)}"
+        ${a.courant ? 'data-courant="1"' : ''}>${a.courant ? 'Me déconnecter' : 'Déconnecter'}</button></div>`).join('')
+    : '<p class="hint">Aucun appareil.</p>');
+  $('ap-autres').disabled = !liste.some(a=>!a.courant);
+}
+async function chargerAppareils(){
+  try{
+    const r=await fetch('/api/mon-compte/appareils'); if(!r.ok) return;
+    peindreAppareils((await r.json()).appareils||[]);
+  }catch(e){}
+}
+async function apDeconnecter(id, courant){
+  if(courant){ doLogout(); return; }
+  const r=await fetch('/api/mon-compte/appareils/'+encodeURIComponent(id),{method:'DELETE'});
+  if(!r.ok){ notifier(await echec(r,'Déconnexion impossible.'),'err'); return; }
+  notifier('Appareil déconnecté.');
+  chargerAppareils();
+}
+async function apDeconnecterAutres(){
+  if(!await demander('Déconnecter les autres appareils ?',
+    "Ils devront se reconnecter. Celui-ci reste connecté, et ton mot de passe ne change pas.",
+    'Déconnecter')) return;
+  const r=await fetch('/api/mon-compte/appareils/deconnecter-autres',{method:'POST'});
+  if(!r.ok){ notifier(await echec(r,'Déconnexion impossible.'),'err'); return; }
+  const n=(await r.json()).deconnectes;
+  notifier(n ? n+' appareil'+(n>1?'s':'')+' déconnecté'+(n>1?'s':'')+'.' : 'Aucun autre appareil.');
+  chargerAppareils();
+}
+
 /* ---------------- les sauvegardes ---------------- */
 const tailleLisible = o => o>=1e9 ? (o/1e9).toFixed(1).replace('.',',')+' Go'
   : o>=1e6 ? (o/1e6).toFixed(1).replace('.',',')+' Mo' : Math.max(1, Math.round(o/1e3))+' Ko';

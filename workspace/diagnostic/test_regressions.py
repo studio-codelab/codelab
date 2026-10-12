@@ -15056,3 +15056,129 @@ def test_les_parametres_montrent_la_version_et_comment_mettre_a_jour():
     assert "/compare/${esc(d.sha)}...main" in peint
     assert "COMMANDES_MAJ" in peint and "ver-copier" in peint
     assert "chargerVersion();" in page.split("if(o==='serveur' && estAdmin)")[1].split("\n")[0]
+
+
+# ------------------------ Les appareils connectes ------------------------
+#
+# Vecu : la liste d'ameliorations -- « Liste des appareils et bouton
+# Deconnecter les autres ». Une session etait un cookie signe : le serveur
+# ne pouvait ni la lister, ni la rappeler sans changer le mot de passe.
+
+@pytest.fixture
+def appareils(hub, monkeypatch):
+    app._sid_revoques.clear()
+    app._sid_controles.clear()
+    yield hub
+    app._sid_revoques.clear()
+    app._sid_controles.clear()
+
+
+def _marie_sur(agent):
+    c = app.flask_app.test_client()
+    c.environ_base["HTTP_USER_AGENT"] = agent
+    _connecte(c, "marie", "mot-de-passe-long")
+    assert c.get("/api/mes-apps").status_code == 200
+    return c
+
+
+IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1"
+MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 Chrome/130.0 Safari/537.36"
+
+
+def test_chaque_session_est_un_appareil_de_la_liste(appareils):
+    tel = _marie_sur(IPHONE)
+    pc = _marie_sur(MAC)
+    liste = pc.get("/api/mon-compte/appareils").get_json()["appareils"]
+    assert sorted(a["appareil"] for a in liste) == ["Chrome sur Mac", "Safari sur iPhone"]
+    assert [a["appareil"] for a in liste if a["courant"]] == ["Chrome sur Mac"]
+    # Jamais l'identifiant de session lui-meme.
+    sids = {r["sid"] for r in app.stockage.lire(app.DB_FILE, "SELECT sid FROM appareils")}
+    assert not any(a["id"] in sids for a in liste)
+    assert tel.get("/api/mon-compte/appareils").status_code == 200
+
+
+def test_deconnecter_les_autres_ferme_le_telephone_perdu(appareils):
+    tel = _marie_sur(IPHONE)
+    pc = _marie_sur(MAC)
+    d = pc.post("/api/mon-compte/appareils/deconnecter-autres").get_json()
+    assert d["deconnectes"] == 1
+    assert tel.get("/api/mes-apps").status_code == 401      # tout de suite
+    assert pc.get("/api/mes-apps").status_code == 200       # celui-ci reste
+    assert len(pc.get("/api/mon-compte/appareils").get_json()["appareils"]) == 1
+
+
+def test_deconnecter_un_appareil_par_son_identifiant(appareils):
+    tel = _marie_sur(IPHONE)
+    pc = _marie_sur(MAC)
+    autre = [a for a in pc.get("/api/mon-compte/appareils").get_json()["appareils"]
+             if not a["courant"]][0]
+    assert pc.delete(f"/api/mon-compte/appareils/{autre['id']}").status_code == 200
+    assert tel.get("/api/mes-apps").status_code == 401
+    assert pc.delete(f"/api/mon-compte/appareils/{autre['id']}").status_code == 404
+
+
+def test_un_appareil_retire_tombe_meme_apres_un_redemarrage(appareils, monkeypatch):
+    """Le registre fait foi : sans la memoire du processus (redemarrage),
+    une ligne retiree de la base deconnecte l'appareil au controle suivant."""
+    tel = _marie_sur(IPHONE)
+    with app.stockage.transaction(app.DB_FILE) as cx:
+        cx.execute("DELETE FROM appareils")
+    app._sid_controles.clear()          # le panneau redemarre
+    monkeypatch.setattr(app, "APPAREIL_CONTROLE", 0)
+    assert tel.get("/api/mes-apps").status_code == 401
+
+
+def test_se_deconnecter_retire_l_appareil(appareils):
+    tel = _marie_sur(IPHONE)
+    pc = _marie_sur(MAC)
+    tel.post("/logout")
+    assert [a["appareil"] for a in pc.get("/api/mon-compte/appareils").get_json()["appareils"]] \
+        == ["Chrome sur Mac"]
+
+
+def test_l_administrateur_deconnecte_un_compte_partout(appareils):
+    tel = _marie_sur(IPHONE)
+    admin = app.flask_app.test_client()
+    admin.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    liste = admin.get("/api/utilisateurs/marie/appareils").get_json()["appareils"]
+    assert [a["appareil"] for a in liste] == ["Safari sur iPhone"]
+    assert admin.delete("/api/utilisateurs/marie/appareils").get_json()["deconnectes"] == 1
+    assert tel.get("/api/mes-apps").status_code == 401
+    assert admin.get("/api/utilisateurs/personne/appareils").status_code == 404
+    # Et un compte utilisateur n'a pas cette porte.
+    autre = _marie_sur(MAC)
+    assert autre.get("/api/utilisateurs/marie/appareils").status_code in (401, 403)
+    assert autre.delete("/api/utilisateurs/marie/appareils").status_code in (401, 403)
+
+
+def test_le_registre_survit_aux_comptes_et_aux_mots_de_passe(appareils):
+    """Changer de mot de passe fermait deja les autres sessions : la liste
+    le reflete aussitot."""
+    tel = _marie_sur(IPHONE)
+    pc = _marie_sur(MAC)
+    r = pc.post("/api/compte/mot-de-passe", json={"ancien": "mot-de-passe-long",
+                                                  "nouveau": "un-tout-nouveau-mot-de-passe"})
+    assert r.status_code == 200, r.data
+    liste = pc.get("/api/mon-compte/appareils").get_json()["appareils"]
+    assert [a["appareil"] for a in liste] == ["Chrome sur Mac"]
+    assert tel.get("/api/mes-apps").status_code == 401
+
+
+@pytest.mark.parametrize("agent,attendu", [
+    (IPHONE, "Safari sur iPhone"), (MAC, "Chrome sur Mac"),
+    ("Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 Chrome/130.0 Safari/537.36 Edg/130.0", "Edge sur Windows"),
+    ("Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101 Firefox/131.0", "Firefox sur Linux"),
+    ("Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/130.0 Mobile Safari/537.36", "Chrome sur Android"),
+    ("", "Navigateur"),
+])
+def test_un_appareil_se_lit_en_clair(agent, attendu):
+    assert app.decrire_agent(agent) == attendu
+
+
+def test_la_securite_montre_les_appareils():
+    page = _page_panneau("dashboard.html")
+    securite = page.split('<div class="onglet-p" id="param-securite">')[1].split('<div class="onglet-p"')[0]
+    assert 'id="ap-liste"' in securite and "Déconnecter les autres appareils" in securite
+    assert "chargerAppareils();" in page.split("if(o==='securite'){")[1].split("}")[0]
+    fiche = page.split('<div class="ov" id="ov-user">')[1].split('<div class="ov"')[0]
+    assert "Déconnecter tous ses appareils" in fiche

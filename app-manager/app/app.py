@@ -1438,13 +1438,20 @@ def refus_authentification_ancienne():
                     "reconnexion": True}), 403
 
 
-def fermer_les_autres_sessions(compte, garder_celle_ci=False):
+def fermer_les_autres_sessions(compte, garder_celle_ci=False, nom=None):
     """Invalide les sessions ouvertes de ce compte (a ecrire ensuite)."""
     maintenant = int(time.time())
     compte["sessions_depuis"] = maintenant
     if garder_celle_ci:
         # Celle qui vient de prouver le mot de passe reste ouverte.
         session["ouverte"] = maintenant
+    if nom:
+        # Et la liste des appareils le reflete aussitot.
+        try:
+            garder = session.get("sid") if garder_celle_ci else None
+            revoquer_appareils([l["sid"] for l in appareils_du_compte(nom) if l["sid"] != garder])
+        except Exception:                                         # noqa: BLE001
+            pass
 
 
 @flask_app.before_request
@@ -1478,6 +1485,102 @@ def expirer_les_sessions_trop_vieilles():
         journaliser("session", qui=qui, action="expiree (" + (
                         "12 heures" if limite == SESSION_ADMIN_ABSOLUE else "30 jours") + ")",
                     ip=_adresse_client())
+    return None
+
+
+# ------------------------- les appareils connectes -------------------------
+#
+# Une session est un cookie signe : le serveur ne pouvait ni dire ou l'on
+# etait connecte, ni couper un appareil perdu sans changer le mot de passe.
+# Chaque session recoit desormais un identifiant (session["sid"]) et une
+# ligne dans la table appareils ; la retirer deconnecte l'appareil a sa
+# requete suivante.
+#
+# Le registre n'est pas relu a chaque requete -- le proxy en sert des
+# dizaines par page. Une deconnexion faite ici est connue tout de suite
+# (_sid_revoques) ; la base est relue au plus toutes les minutes par
+# session, ce qui suffit apres un redemarrage du panneau.
+
+APPAREIL_CONTROLE = 60
+_sid_controles = {}
+_sid_revoques = set()
+_appareils_verrou = threading.Lock()
+
+
+def id_public_appareil(sid):
+    """Ce que la page voit : jamais le sid lui-meme."""
+    return hashlib.sha256(("appareil:" + sid).encode()).hexdigest()[:16]
+
+
+def _agent_court():
+    return (request.headers.get("User-Agent") or "")[:300]
+
+
+def revoquer_appareils(sids):
+    sids = [x for x in sids if x]
+    if not sids:
+        return 0
+    with _appareils_verrou:
+        _sid_revoques.update(sids)
+        for x in sids:
+            _sid_controles.pop(x, None)
+    with stockage.transaction(DB_FILE) as cx:
+        n = 0
+        for x in sids:
+            n += cx.execute("DELETE FROM appareils WHERE sid = ?", (x,)).rowcount
+    return n
+
+
+def appareils_du_compte(compte):
+    """Les sessions ouvertes de ce compte, la plus recente d'abord. Les
+    lignes plus vieilles que la duree maximale d'une session sont oubliees."""
+    limite = int(time.time() - SESSION_ABSOLUE.total_seconds())
+    with stockage.transaction(DB_FILE) as cx:
+        cx.execute("DELETE FROM appareils WHERE vue < ?", (limite,))
+    return stockage.lire(DB_FILE, "SELECT * FROM appareils WHERE compte = ? ORDER BY vue DESC",
+                         (compte,))
+
+
+@flask_app.before_request
+def suivre_l_appareil():
+    if session.get("authed") is not True:
+        return None
+    qui = utilisateur_courant() or NOM_ADMIN
+    sid = session.get("sid")
+    maintenant = int(time.time())
+    if not sid:
+        # Premiere requete d'une session (ou session ouverte avant le
+        # registre) : elle s'inscrit.
+        sid = secrets.token_hex(16)
+        session["sid"] = sid
+        try:
+            with stockage.transaction(DB_FILE) as cx:
+                cx.execute("INSERT OR REPLACE INTO appareils (sid, compte, ouverte, vue, ip, agent) "
+                           "VALUES (?, ?, ?, ?, ?, ?)",
+                           (sid, qui, int(session.get("ouverte") or maintenant), maintenant,
+                            _adresse_client() or "", _agent_court()))
+        except Exception:                                         # noqa: BLE001
+            return None
+        _sid_controles[sid] = maintenant
+        return None
+    if sid in _sid_revoques:
+        session.clear()
+        return None
+    if maintenant - _sid_controles.get(sid, 0) < APPAREIL_CONTROLE:
+        return None
+    _sid_controles[sid] = maintenant
+    try:
+        with stockage.transaction(DB_FILE) as cx:
+            vu = cx.execute("UPDATE appareils SET vue = ?, ip = ?, agent = ? WHERE sid = ? AND compte = ?",
+                            (maintenant, _adresse_client() or "", _agent_court(), sid, qui)).rowcount
+    except Exception:                                             # noqa: BLE001
+        # Base momentanement illisible : on ne deconnecte personne pour ca.
+        return None
+    if not vu:
+        # La ligne a ete retiree (ou appartient a un autre compte) : cet
+        # appareil a ete deconnecte.
+        _sid_revoques.add(sid)
+        session.clear()
     return None
 
 
@@ -8031,7 +8134,7 @@ def mot_de_passe_reinitialiser():
     compte["hash"] = derive_mot_de_passe(nouveau, sel)
     # Le mail vient de servir : il ne sera pas, en plus, le second facteur.
     compte["code_mail_suspendu"] = True
-    fermer_les_autres_sessions(compte)
+    fermer_les_autres_sessions(compte, nom=nom)
     compte.pop("code_connexion", None)
     try:
         ecrire_utilisateurs(comptes)
@@ -8573,7 +8676,7 @@ def api_changer_mot_de_passe():
         return jsonify({"error": "Ancien mot de passe incorrect."}), 403
     compte["sel"] = secrets.token_hex(16)
     compte["hash"] = derive_mot_de_passe(nouveau, compte["sel"])
-    fermer_les_autres_sessions(compte, garder_celle_ci=True)
+    fermer_les_autres_sessions(compte, garder_celle_ci=True, nom=nom)
     try:
         ecrire_utilisateurs(comptes)
     except OSError as e:
@@ -8895,7 +8998,7 @@ def api_utilisateur_modifier(nom):
             return jsonify({"error": f"Mot de passe : {MDP_MIN} caractères au minimum."}), 400
         compte["sel"] = secrets.token_hex(16)
         compte["hash"] = derive_mot_de_passe(mdp, compte["sel"])
-        fermer_les_autres_sessions(compte)
+        fermer_les_autres_sessions(compte, nom=nom)
 
     # Telephone perdu ou remplace : on efface le secret, et la personne
     # s'inscrit de nouveau a sa prochaine connexion. C'est le seul moyen de
@@ -8922,7 +9025,7 @@ def api_utilisateur_modifier(nom):
     # ouvrable par un telephone egare. Meme geste, meme raison.
     if d.get("retirer_passkeys"):
         # Appareil perdu : la session qu'il porte peut-etre tombe aussi.
-        fermer_les_autres_sessions(compte)
+        fermer_les_autres_sessions(compte, nom=nom)
         tout = lire_passkeys()
         if tout.pop(nom, None) is not None:
             try:
@@ -9027,8 +9130,104 @@ def api_utilisateur_supprimer(nom):
     return jsonify({"ok": True})
 
 
+def decrire_agent(agent):
+    """« Safari sur iPhone » plutot qu'une chaine User-Agent de 200 signes."""
+    a = agent or ""
+    if "Edg/" in a:
+        nav = "Edge"
+    elif "OPR/" in a or "Opera" in a:
+        nav = "Opera"
+    elif "Firefox/" in a or "FxiOS" in a:
+        nav = "Firefox"
+    elif "Chrome/" in a or "CriOS" in a:
+        nav = "Chrome"
+    elif "Safari/" in a:
+        nav = "Safari"
+    else:
+        nav = "Navigateur"
+    if "iPhone" in a:
+        os_ = "iPhone"
+    elif "iPad" in a:
+        os_ = "iPad"
+    elif "Android" in a:
+        os_ = "Android"
+    elif "Mac OS X" in a or "Macintosh" in a:
+        os_ = "Mac"
+    elif "Windows" in a:
+        os_ = "Windows"
+    elif "Linux" in a:
+        os_ = "Linux"
+    else:
+        os_ = ""
+    return nav + (" sur " + os_ if os_ else "")
+
+
+def liste_des_appareils(compte, sid_courant=None):
+    return [{"id": id_public_appareil(l["sid"]), "appareil": decrire_agent(l["agent"]),
+             "ip": l["ip"], "ouverte": l["ouverte"], "vue": l["vue"],
+             "courant": l["sid"] == sid_courant}
+            for l in appareils_du_compte(compte)]
+
+
+@flask_app.get("/api/mon-compte/appareils")
+@require_auth
+def api_mes_appareils():
+    qui = utilisateur_courant() or NOM_ADMIN
+    return jsonify({"appareils": liste_des_appareils(qui, session.get("sid"))})
+
+
+@flask_app.delete("/api/mon-compte/appareils/<ident>")
+@require_auth
+def api_deconnecter_un_appareil(ident):
+    qui = utilisateur_courant() or NOM_ADMIN
+    cible = [l["sid"] for l in appareils_du_compte(qui) if id_public_appareil(l["sid"]) == ident]
+    if not cible:
+        return jsonify({"error": "Cet appareil n'est plus connecté."}), 404
+    revoquer_appareils(cible)
+    journaliser("session", qui=qui, action="appareil déconnecté", ip=_adresse_client())
+    if cible[0] == session.get("sid"):
+        session.clear()
+    return jsonify({"ok": True})
+
+
+@flask_app.post("/api/mon-compte/appareils/deconnecter-autres")
+@require_auth
+def api_deconnecter_les_autres():
+    qui = utilisateur_courant() or NOM_ADMIN
+    courant = session.get("sid")
+    n = revoquer_appareils([l["sid"] for l in appareils_du_compte(qui) if l["sid"] != courant])
+    journaliser("session", qui=qui, action=f"autres appareils déconnectés ({n})",
+                ip=_adresse_client())
+    return jsonify({"ok": True, "deconnectes": n})
+
+
+@flask_app.get("/api/utilisateurs/<nom>/appareils")
+@require_admin
+def api_appareils_d_un_compte(nom):
+    if nom not in lire_utilisateurs():
+        return jsonify({"error": "Compte inconnu."}), 404
+    return jsonify({"appareils": liste_des_appareils(nom)})
+
+
+@flask_app.delete("/api/utilisateurs/<nom>/appareils")
+@require_admin
+def api_deconnecter_un_compte(nom):
+    """L'administrateur deconnecte tous les appareils d'un compte, sans
+    toucher a son mot de passe ni a ses cles."""
+    if nom not in lire_utilisateurs():
+        return jsonify({"error": "Compte inconnu."}), 404
+    n = revoquer_appareils([l["sid"] for l in appareils_du_compte(nom)])
+    journaliser("session", qui=utilisateur_courant() or NOM_ADMIN, cible=nom,
+                action=f"appareils déconnectés par l'administrateur ({n})", ip=_adresse_client())
+    return jsonify({"ok": True, "deconnectes": n})
+
+
 @flask_app.post("/logout")
 def logout():
+    try:
+        revoquer_appareils([session.get("sid")])
+    except Exception:                                             # noqa: BLE001
+        pass
     session.clear()
     return jsonify({"ok": True})
 
