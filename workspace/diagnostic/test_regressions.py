@@ -2275,8 +2275,7 @@ def test_les_parametres_tiennent_en_un_seul_endroit(deux_espaces):
     # defaut (CSS) et n'apparaissent que si le role injecte est admin.
     assert '.fiche-onglets button[data-admin]{display:none}' in page
     assert "if(estAdmin) document.querySelectorAll('#param-onglets button[data-admin]')" in page
-    for onglet in ("param-compte", "param-securite", "param-serveur",
-                   "param-categories", "param-email"):
+    for onglet in ("param-compte", "param-securite", "param-serveur", "param-email"):
         assert f'id="{onglet}"' in page
     # Les alertes vivent avec le serveur d'envoi, dans un seul onglet.
     assert 'id="param-alertes"' not in page
@@ -15754,3 +15753,34 @@ def test_les_minuteries_ne_repeignent_pas_pendant_un_defilement():
     surveiller = page.split("function surveiller(fn, delai){")[1].split("\n}")[0]
     assert "quandImmobile(()=>{ enAttente=false; fn(); })" in surveiller
     assert "setInterval(tour, delai)" in surveiller
+
+
+# ------------- Les parametres au telephone -------------
+#
+# Vecu : « Sur telephone, garde ce systeme d'onglet mais repartis bien les
+# parametrages en 2, 3 ou 4 onglets dedies de taille homogene. »
+
+def test_les_parametres_tiennent_en_quatre_onglets_de_meme_largeur():
+    page = _page_panneau("dashboard.html")
+    onglets = page.split('<div class="fiche-onglets" id="param-onglets">')[1].split("</div>")[0]
+    assert onglets.count("<button") == 4
+    for p in ("compte", "securite", "serveur", "email"):
+        assert f'data-p="{p}"' in onglets, p
+    # Les categories rejoignent les applications du hub, dans « Compte » --
+    # et seulement pour l'administrateur.
+    compte = page.split('<div class="onglet-p" id="param-compte">')[1].split('<div class="onglet-p"')[0]
+    assert 'id="zone-categories"' in compte and 'id="cat-liste"' in compte
+    assert "$('zone-categories').remove();" in page
+    assert "if(estAdmin) chargerCategories();" in page
+    # Au telephone : une grille de colonnes egales, sans defilement.
+    assert ("#sec-parametres:not(.reglages-unifies) #param-onglets{display:grid;grid-auto-flow:column;"
+            "grid-auto-columns:1fr;") in page
+    assert "#param-onglets .onglet-suite{display:none}" in page
+
+
+def test_les_boutons_des_parametres_sont_des_pilules_au_pouce():
+    page = _page_panneau("dashboard.html")
+    assert "#sec-parametres .btn{border-radius:999px;font-weight:650;min-height:40px;padding:0 18px}" in page
+    tel = page.split("#sec-parametres .actions{gap:10px}")[1].split("\n}")[0]
+    assert "#sec-parametres .btn{min-height:46px;font-size:15px}" in tel
+    assert "flex:1 1 100%;align-self:stretch" in tel

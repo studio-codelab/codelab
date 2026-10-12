@@ -1095,12 +1095,36 @@ th[aria-sort="ascending"] .ap-th span,th[aria-sort="descending"] .ap-th span{opa
 .settings-card.pliable.ouverte>.card-top{margin-bottom:0}
 .settings-card.pliable>.card-corps{margin-top:18px}
 @media (max-width:760px){
-  /* Les onglets defilent sur une ligne plutot que de casser « E-mail et
-     alertes » sur trois. */
-  #sec-parametres .fiche-onglets{overflow-x:auto}
-  #sec-parametres .fiche-onglets button{white-space:nowrap;flex:none}
   .onglet-p .settings-card{padding:15px 16px}
   .settings-card.pliable>.card-top{margin:-15px -16px;padding:15px 16px}
+}
+/* LES BOUTONS DES REGLAGES : des pilules, comme le reste du panneau, assez
+   hautes pour le doigt. Au telephone, ils prennent la largeur : on les
+   atteint du pouce sans viser. */
+#sec-parametres .btn{border-radius:999px;font-weight:650;min-height:40px;padding:0 18px}
+#sec-parametres .btn-default{background:var(--surface);border-color:var(--line2)}
+#sec-parametres .btn-default:not(:disabled):hover{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+#sec-parametres .actions{gap:10px}
+@media (max-width:760px){
+  #sec-parametres .btn{min-height:46px;font-size:15px}
+  #sec-parametres .actions>.btn,#sec-parametres .onglet-p .settings-card>.btn,
+  #sec-parametres .card-corps>.btn{flex:1 1 100%;align-self:stretch}
+  /* QUATRE ONGLETS DE MEME LARGEUR, en pastille : tout tient, rien ne
+     defile, et l'onglet actif se detache comme un bouton enfonce. */
+  #sec-parametres:not(.reglages-unifies) #param-onglets{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;
+   gap:4px;padding:4px;margin:0 0 16px;border:0;border-radius:999px;background:var(--surface2)}
+  #sec-parametres:not(.reglages-unifies) #param-onglets button{margin:0;padding:10px 4px;border:0;border-radius:999px;
+   text-align:center;font-size:14px;font-weight:700;color:var(--dim);white-space:nowrap;
+   transition:background .15s,color .15s}
+  #sec-parametres:not(.reglages-unifies) #param-onglets button.active{background:var(--surface);color:var(--txt);
+   box-shadow:0 1px 3px var(--shadow-2)}
+  #param-onglets .onglet-suite{display:none}
+  /* Les reglages d'un onglet : une liste groupee, un filet entre deux
+     reglages, sans carte posee dans la carte ni grand blanc entre elles. */
+  :root[data-style="design"] #sec-parametres:not(.reglages-unifies) .onglet-p .zone{margin:0}
+  :root[data-style="design"] #sec-parametres:not(.reglages-unifies) .onglet-p .settings-card{border:0;border-radius:0;
+   box-shadow:none;border-bottom:1px solid var(--line)}
+  :root[data-style="design"] #sec-parametres:not(.reglages-unifies) .onglet-p .zone:last-child .settings-card:last-child{border-bottom:0}
 }
 .us-compte{border:1px solid var(--line);border-radius:var(--r-s);padding:12px 14px;
  margin-bottom:8px}
@@ -1458,7 +1482,6 @@ table.tbl-journal{min-width:560px}
   :root[data-style="design"] #param-onglets button[data-p="compte"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='8' r='4'/%3E%3Cpath d='M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8'/%3E%3C/svg%3E")}
   :root[data-style="design"] #param-onglets button[data-p="securite"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z'/%3E%3Cpath d='M9 12l2 2 4-4'/%3E%3C/svg%3E")}
   :root[data-style="design"] #param-onglets button[data-p="serveur"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='7' rx='2'/%3E%3Crect x='3' y='13' width='18' height='7' rx='2'/%3E%3Cpath d='M7 7.5h.01M7 16.5h.01'/%3E%3C/svg%3E")}
-  :root[data-style="design"] #param-onglets button[data-p="categories"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/%3E%3C/svg%3E")}
   :root[data-style="design"] #param-onglets button[data-p="email"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='14' rx='2'/%3E%3Cpath d='M3 7l9 6 9-6'/%3E%3C/svg%3E")}
   :root[data-style="design"] #param-onglets button[data-p="message"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12a8 8 0 0 1-11.6 7.1L4 21l1.9-5.4A8 8 0 1 1 21 12z'/%3E%3C/svg%3E")}
   :root[data-style="design"] #param-onglets button.active{background:var(--accent);color:var(--sur-accent);border:0}
@@ -1476,7 +1499,7 @@ table.tbl-journal{min-width:560px}
   :root[data-style="design"] #sec-parametres .settings-card.pliable>.card-corps{margin-top:14px}
   :root[data-style="design"] #sec-parametres .settings-card .card-name b{font-size:13px;font-weight:600}
   :root[data-style="design"] #sec-parametres .settings-card .card-name .path{font-size:11.5px}
-  :root[data-style="design"] #sec-parametres .btn{border-radius:7px;padding:4px 12px;font-size:13px}
+  :root[data-style="design"] #sec-parametres .btn{min-height:36px;padding:0 16px;font-size:13px}
   :root[data-style="design"] #sec-parametres .interrupteur{width:38px;height:22px}
   :root[data-style="design"] #sec-parametres .interrupteur span::after{width:18px;height:18px;top:2px;left:2px}
   :root[data-style="design"] #sec-parametres .interrupteur input:checked+span::after{transform:translateX(16px)}
@@ -2501,8 +2524,7 @@ a.pj:hover{border-color:var(--accent)}
     <button data-p="compte" onclick="paramOnglet('compte')" class="active">Compte</button>
     <button data-p="securite" onclick="paramOnglet('securite')">Sécurité</button>
     <button data-p="serveur" onclick="paramOnglet('serveur')" data-admin="1">Serveur</button>
-    <button data-p="categories" onclick="paramOnglet('categories')" data-admin="1">Catégories</button>
-    <button data-p="email" onclick="paramOnglet('email')" data-admin="1">E-mail et alertes</button>
+    <button data-p="email" onclick="paramOnglet('email')" data-admin="1">E-mail<span class="onglet-suite"> et alertes</span></button>
   </div>
 
   <div class="onglet-p" id="param-compte">
@@ -2627,6 +2649,32 @@ a.pj:hover{border-color:var(--accent)}
       </div></div>
       <div class="hint"><b>Cochée, elle est affichée.</b> Décocher, c'est du rangement : l'application reste en ligne.</div>
       <div id="masquees-liste" style="margin-top:14px"></div>
+    </div>
+  </div>
+
+  <div class="zone" id="zone-categories">
+    <div class="zone-title">Catégories</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Catégories du hub</b>
+        <div class="path">Des tiroirs pour ranger les projets sur la page d'accueil.</div>
+      </div></div>
+
+      <div class="hint">Regroupe les applications dans le hub, dans l'ordre de cette liste.</div>
+
+      <div id="cat-liste" style="margin-top:14px"></div>
+
+      <div class="cat-ligne">
+        <input id="cat-neuve" placeholder="Outils" autocomplete="off" maxlength="30"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();catAjouter()}">
+        <button class="btn btn-default" onclick="catAjouter()">Ajouter</button>
+      </div>
+
+      <div class="actions">
+        <button class="btn btn-primary" id="cat-save" onclick="catEnregistrer()">Enregistrer</button>
+      </div>
+      <div class="err" id="cat-err" style="display:none"></div>
+      <div class="hint" id="cat-msg" style="display:none"></div>
     </div>
   </div>
 
@@ -2856,35 +2904,6 @@ a.pj:hover{border-color:var(--accent)}
         cookie de session devient sécurisé dès que le panneau arrive en HTTPS.</div>
     </div>
   </div>
-  </div>
-
-  <div class="onglet-p" id="param-categories">
-  <div class="zone">
-    <div class="zone-title">Catégories</div>
-    <div class="card settings-card">
-      <div class="card-top"><div class="card-name">
-        <b>Catégories du hub</b>
-        <div class="path">Des tiroirs pour ranger les projets sur la page d'accueil.</div>
-      </div></div>
-
-      <div class="hint">Regroupe les applications dans le hub, dans l'ordre de cette liste.</div>
-
-      <div id="cat-liste" style="margin-top:14px"></div>
-
-      <div class="cat-ligne">
-        <input id="cat-neuve" placeholder="Outils" autocomplete="off" maxlength="30"
-          onkeydown="if(event.key==='Enter'){event.preventDefault();catAjouter()}">
-        <button class="btn btn-default" onclick="catAjouter()">Ajouter</button>
-      </div>
-
-      <div class="actions">
-        <button class="btn btn-primary" id="cat-save" onclick="catEnregistrer()">Enregistrer</button>
-      </div>
-      <div class="err" id="cat-err" style="display:none"></div>
-      <div class="hint" id="cat-msg" style="display:none"></div>
-    </div>
-  </div>
-
   </div>
 
   <!-- LE SERVEUR D'ENVOI ET LES ALERTES SONT DEUX CHOSES. Le premier est une
@@ -4066,6 +4085,7 @@ function paramOnglet(o){
        celle d'un chargement precedent -- ou rien du tout si l'on arrive
        directement sur les reglages. */
     chargerHub();
+    if(estAdmin) chargerCategories();
     $('mdp-err').style.display='none'; $('mdp-msg').style.display='none';
   }
   if(o==='securite'){
@@ -4077,7 +4097,6 @@ function paramOnglet(o){
   /* La liste des applications vient du hub : on la relit, sinon le choix
      « D'une application » est vide pour qui arrive directement ici. */
   if(o==='serveur' && estAdmin){ chargerSecurite(); chargerVps(); chargerVersion(); }
-  if(o==='categories') chargerCategories();
   /* Les deux onglets lisent la meme reponse : le serveur d'envoi et les
      alertes vivent au meme endroit, le coffre chiffre du panneau. */
   if(o==='email' || o==='alertes') chargerAlertes();
@@ -8047,6 +8066,8 @@ if(estAdmin){
      sans etat ni bouton -- une case vide de plus a se demander. */
   $('profil-securite').style.display='none';
   document.body.classList.add('compte-utilisateur');
+  /* Les categories du hub sont celles de l'administrateur. */
+  $('zone-categories').remove();
   $('sec-parametres').classList.add('reglages-unifies');
 }
 majOngletsParametres();

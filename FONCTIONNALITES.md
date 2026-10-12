@@ -136,16 +136,14 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
 sections nommées — Profil (adresse mail), Apparence (thème, réglages du hub), Mon hub (applications
 affichées), Connexion et sécurité (mot de passe, clés d'accès, appareils connectés) — puis Session.
 
-**Onglets des paramètres** (administrateur)
+**Onglets des paramètres** (administrateur) : quatre, de même largeur au téléphone
 
 | Onglet | Pour qui | Contenu |
 |---|---|---|
-| Compte | tous | apparence, réglages du hub, adresse mail (vérifiée par code), applications affichées dans *son* hub |
+| Compte | tous | apparence, réglages du hub, adresse mail (vérifiée par code), applications affichées dans *son* hub ; catégories du hub (les tiroirs, dans l'ordre voulu) pour l'admin |
 | Sécurité | tous | mot de passe, second facteur (TOTP), clés d'accès, appareils connectés ; sauvegardes et bilan de sécurité pour l'admin |
 | Serveur | admin | adresse publique, liaison avec un VPS (fichiers prêts à copier), constat sur la requête en cours |
-| Catégories | admin | les tiroirs du hub, dans l'ordre voulu |
-| E-mail | admin | serveur d'envoi, adresse d'alerte de l'administrateur |
-| Alertes | admin | interrupteur, destinataires par application, surveillance externe |
+| E-mail et alertes | admin | serveur d'envoi, alertes par application, surveillance externe |
 
 ## 2. Applications
 
