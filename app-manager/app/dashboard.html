@@ -100,6 +100,14 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
  transition:background .12s,color .12s,border-color .12s}
 .acct-btn svg{width:17px;height:17px}
 .acct-btn:hover{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+/* Une mise a jour de CodeLab attend : un point sur l'avatar (administrateur). */
+.acct-btn{position:relative}
+.acct-btn.maj-dispo::after{content:"";position:absolute;top:-2px;right:-2px;width:10px;height:10px;border-radius:50%;
+ background:var(--accent);box-shadow:0 0 0 2px var(--nav)}
+.ver-nouveautes{margin:12px 0 0;padding:0 0 0 18px;font-size:13.5px;line-height:1.6;max-height:260px;overflow:auto}
+.ver-nouveautes a{color:var(--txt)}
+.ver-commandes{margin:12px 0 0;padding:12px 14px;border-radius:10px;background:var(--surface2);border:1px solid var(--line);
+ font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
 .acct-menu{position:absolute;right:0;top:40px;min-width:190px;background:var(--surface);
  border:1px solid var(--line);border-radius:var(--r);
  box-shadow:0 1px 2px var(--shadow),0 12px 28px var(--shadow-2);
@@ -2619,6 +2627,23 @@ a.pj:hover{border-color:var(--accent)}
        regler une. On ne voit d'abord que l'adresse ; le VPS et les cases
        techniques se deplient quand on en a besoin. -->
   <div class="onglet-p" id="param-serveur">
+  <!-- LA VERSION. Celle qui tourne, la derniere publiee, et ce qui a change
+       entre les deux. Le panneau ne se met pas a jour lui-meme (il lui
+       faudrait les droits root du serveur) : il dit quoi lancer. -->
+  <div class="zone">
+    <div class="zone-title">Version</div>
+    <div class="card settings-card sans-pli" id="ver-carte">
+      <div class="card-top"><div class="card-name">
+        <b>Version de CodeLab</b>
+        <div class="path" id="ver-resume">Chargement…</div>
+      </div>
+      <span class="pill" id="ver-etat"><i></i>&nbsp;</span></div>
+      <div id="ver-corps"></div>
+      <div class="actions" style="margin-top:12px">
+        <button class="btn btn-default btn-sm" id="ver-verifier" onclick="verifierVersion()">Vérifier maintenant</button>
+      </div>
+    </div>
+  </div>
   <div class="zone">
     <div class="zone-title">Accès depuis internet</div>
     <div class="card settings-card">
@@ -3414,6 +3439,7 @@ const ACTIONS = {
   'invitation-annuler':  id => invAnnuler(id),
   'invitation-copier':   (_, d) => copierLien(d.lien),
   'param-onglet':    o => paramOnglet(o),
+  'ver-copier':      () => copierLien(COMMANDES_MAJ, 'Commandes copiées.'),
 };
 
 document.addEventListener('click', e => {
@@ -3858,7 +3884,7 @@ function paramOnglet(o){
   }
   /* La liste des applications vient du hub : on la relit, sinon le choix
      « D'une application » est vide pour qui arrive directement ici. */
-  if(o==='serveur' && estAdmin){ chargerSecurite(); chargerVps(); }
+  if(o==='serveur' && estAdmin){ chargerSecurite(); chargerVps(); chargerVersion(); }
   if(o==='categories') chargerCategories();
   /* Les deux onglets lisent la meme reponse : le serveur d'envoi et les
      alertes vivent au meme endroit, le coffre chiffre du panneau. */
@@ -6893,8 +6919,8 @@ async function invAnnuler(id){
   chargerInvitations();
 }
 
-function copierLien(lien){
-  navigator.clipboard?.writeText(lien).then(()=>notifier('Lien copié.'))
+function copierLien(lien, message='Lien copié.'){
+  navigator.clipboard?.writeText(lien).then(()=>notifier(message))
     .catch(()=>notifier('Copie impossible : sélectionne le lien à la main.', 'err'));
 }
 
@@ -7277,6 +7303,64 @@ async function sgCopieExterne(oui){
   peindreSauvegardes(await r.json());
 }
 
+/* ---------------- la version de CodeLab ---------------- */
+const COMMANDES_MAJ = `for i in app-manager dev postgres redis mailpit dagster dagster-proxy; do
+  docker pull ghcr.io/studio-codelab/codelab-$i:latest
+done
+docker compose up -d --force-recreate`;
+function dateCourte(iso){
+  if(!iso) return '';
+  const d=new Date(iso); if(isNaN(d)) return '';
+  return d.toLocaleDateString('fr-FR',{day:'numeric', month:'long', year:'numeric'});
+}
+function peindreVersion(d){
+  $('acct-btn').classList.toggle('maj-dispo', !!d.mise_a_jour);
+  if(!$('ver-carte')) return;
+  const pill=$('ver-etat'), i=d.installee;
+  const nom = i.dev ? 'une version de développement' : 'la version '+i.court+(i.date ? ' du '+dateCourte(i.date) : '');
+  let corps='';
+  if(i.dev){
+    pill.className='pill off'; pill.innerHTML='<i></i>Inconnue';
+    $('ver-resume').textContent="Cette image a été construite à la main : elle ne porte pas de numéro de version, et ne se compare pas à la dernière publiée.";
+  }else if(d.mise_a_jour){
+    pill.className='pill warn'; pill.innerHTML='<i></i>Mise à jour disponible';
+    $('ver-resume').textContent='Installée : '+nom+'. '+d.retard+' changement'+(d.retard>1?'s':'')
+      +' depuis, publié'+(d.retard>1?'s':'')+(d.disponible && d.disponible.date ? ' le '+dateCourte(d.disponible.date) : '')+'.';
+    corps = (d.nouveautes.length ? '<b style="display:block;margin-top:12px">Nouveautés</b><ul class="ver-nouveautes">'
+        + d.nouveautes.map(n=>'<li>'+(n.numero ? `<a href="https://github.com/${esc(d.depot)}/pull/${n.numero}" rel="noopener noreferrer">${esc(n.titre)}</a>` : esc(n.titre))+'</li>').join('')
+        + '</ul>' : '')
+      + '<b style="display:block;margin-top:14px">Pour mettre à jour</b>'
+      + '<div class="hint">Dans le dossier du <code>docker-compose.yml</code>, sur le serveur (avec CasaOS : « Mettre à jour » sur l\'application) :</div>'
+      + `<pre class="ver-commandes">${esc(COMMANDES_MAJ)}</pre>`
+      + `<div class="actions" style="margin-top:8px"><button class="btn btn-default btn-sm" data-agir="ver-copier">Copier les commandes</button></div>`;
+  }else if(d.a_jour){
+    pill.className='pill on'; pill.innerHTML='<i></i>À jour';
+    $('ver-resume').textContent='Installée : '+nom+'. C\'est la dernière publiée.';
+  }else{
+    pill.className='pill off'; pill.innerHTML='<i></i>Pas encore vérifiée';
+    $('ver-resume').textContent='Installée : '+nom+'.';
+  }
+  const pied = !d.verification ? 'La vérification est coupée (APP_MANAGER_VERIFIER_MAJ=0).'
+    : d.erreur ? d.erreur+' Nouvel essai demain, ou maintenant.'
+    : d.verifie_le ? 'Vérifiée '+ilYA(d.verifie_le)+' auprès de GitHub.' : 'Première vérification une minute après le démarrage.';
+  remplir($('ver-corps'), corps + `<div class="hint" style="margin-top:12px">${esc(pied)}</div>`);
+  $('ver-verifier').style.display = d.verification ? '' : 'none';
+}
+async function chargerVersion(){
+  try{
+    const r=await fetch('/api/version'); if(!r.ok) return;
+    peindreVersion(await r.json());
+  }catch(e){}
+}
+async function verifierVersion(){
+  const b=$('ver-verifier'); b.disabled=true;
+  try{
+    const r=await fetch('/api/version/verifier',{method:'POST'});
+    if(!r.ok){ notifier(await echec(r,'Vérification impossible.'),'err'); return; }
+    peindreVersion(await r.json());
+  }finally{ b.disabled=false; }
+}
+
 async function chargerSecurite(){
   let d;
   try{ d=await (await fetch('/api/securite')).json(); }catch(e){ return; }
@@ -7514,6 +7598,8 @@ if(estAdmin) document.querySelectorAll('#param-onglets button[data-admin]')
 /* Rien a regler ici pour l'administrateur : son mot de passe est celui de
    credentials.env, et le mot a l'administrateur lui serait adresse. */
 if(estAdmin){ $('profil-mdp').style.display='none'; $('profil-message').style.display='none'; }
+/* Le point sur l'avatar : une mise a jour de CodeLab attend. */
+if(estAdmin) chargerVersion();
 
 /* AUCUN ONGLET VIDE. Un onglet dont toutes les rubriques sont masquees pour
    ce compte ne s'affiche pas : on n'ouvre pas une page pour n'y rien

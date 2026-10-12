@@ -172,6 +172,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # La version gravee dans l'image : le commit construit et sa date. Le
+      # panneau la compare a la derniere image publiee (Parametres > Serveur).
+      - name: Version
+        id: version
+        run: echo "date=$(git log -1 --format=%cI)" >> "$GITHUB_OUTPUT"
+
       - name: Metadonnees / tags
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
@@ -197,5 +203,8 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            CODELAB_VERSION=${{ github.sha }}
+            CODELAB_VERSION_DATE=${{ steps.version.outputs.date }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}

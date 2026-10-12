@@ -78,7 +78,10 @@ docker compose up -d
 **Avec CasaOS ou une interface d'import de compose** : utilise `docker-compose-casaos.yml`. C'est le
 même fichier sans commentaires ; colle-le en remplaçant **tout** le contenu de la zone.
 
-**Mettre à jour** : `docker compose pull && docker compose up -d`. Le nom du projet Compose est fixé à
+**Mettre à jour** : *Paramètres > Serveur* dit si une version plus récente est publiée, ce qu'elle
+apporte, et donne les commandes à copier ; un point sur l'avatar le signale. En bref :
+`docker compose pull && docker compose up -d` (si `pull` saute des images, tire-les une à une avec
+`docker pull`). Le nom du projet Compose est fixé à
 `codelab`. Si une installation existe sous un autre nom, fais `docker compose down` avant.
 
 **Taille de la machine** : aucun service ne dépasse le tiers de la mémoire, pour que le panneau reste

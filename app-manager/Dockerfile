@@ -120,6 +120,13 @@ COPY app-manager/vps /opt/codelab/app-manager/vps
 COPY app-manager/entrypoint.sh /opt/codelab/app-manager/entrypoint.sh
 RUN chmod +x /opt/codelab/app-manager/entrypoint.sh
 
+# LA VERSION, en dernier : elle change a chaque build, et une couche plus
+# haut invaliderait le cache de tout ce qui suit. Posee par la CI (le commit
+# construit et sa date) ; « dev » pour une image construite a la main.
+ARG CODELAB_VERSION=dev
+ARG CODELAB_VERSION_DATE=
+ENV CODELAB_VERSION=${CODELAB_VERSION} CODELAB_VERSION_DATE=${CODELAB_VERSION_DATE}
+
 EXPOSE 9001
 
 ENTRYPOINT ["/opt/codelab/app-manager/entrypoint.sh"]
