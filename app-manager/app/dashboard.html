@@ -179,7 +179,10 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
     moment-la. */
  min-width:24px;text-align:center}
 .side-item.active .side-count{background:var(--accent);color:var(--sur-accent)}
-.main-area{flex:1;min-width:0;overflow-x:hidden}
+/* clip et non hidden : hidden fait de la colonne un conteneur de defilement,
+   et plus rien dedans ne peut rester colle en haut (l'en-tete de la fiche).
+   hidden reste en repli pour un navigateur qui ignore clip. */
+.main-area{flex:1;min-width:0;overflow-x:hidden;overflow-x:clip}
 .wrap{max-width:1240px;margin:0 auto;padding:24px 24px 56px}
 @media (max-width:640px){.wrap{padding:18px 14px 40px}}
 
@@ -848,6 +851,14 @@ th[aria-sort="ascending"] .ap-th span,th[aria-sort="descending"] .ap-th span{opa
 
 /* ------------------------------ fiche d'une application ------------------------------ */
 .fiche-tete{display:flex;align-items:center;gap:14px;margin-bottom:20px;flex-wrap:wrap}
+/* Sur un ecran large, l'en-tete de la fiche -- nom, etat, Demarrer, Arreter,
+   Redemarrer -- reste en haut pendant qu'on fait defiler. Au telephone il
+   prendrait la moitie de l'ecran : il defile avec la page. */
+@media (min-width:761px){
+  #sec-app .fiche-tete{position:sticky;top:52px;z-index:30;background:var(--bg);margin:0 -8px 20px;padding:10px 8px;
+   border-bottom:1px solid transparent;transition:border-color .15s}
+  #sec-app .fiche-tete.collee{border-bottom-color:var(--line)}
+}
 .fiche-tete img{width:42px;height:42px;border-radius:var(--r-s);flex:none}
 .fiche-tete h2{font-size:var(--t-xl);font-weight:800;letter-spacing:-.03em}
 .fiche-tete .sous-titre{font-size:12.5px;color:var(--dim);margin-top:2px}
@@ -1147,6 +1158,31 @@ table.tbl-journal{min-width:560px}
    mais impossible a cliquer. */
 #ov-confirm{z-index:140}
 
+/* Serveur injoignable : un bandeau en haut, la page reste telle quelle. */
+.hors-ligne{position:fixed;top:62px;left:50%;transform:translateX(-50%);z-index:160;display:flex;align-items:center;gap:10px;
+ max-width:calc(100vw - 32px);padding:9px 10px 9px 14px;border-radius:999px;background:var(--warn-bg);
+ border:1px solid var(--warn-border);color:var(--txt);font-size:13.5px;font-weight:650;box-shadow:0 10px 30px var(--shadow-2)}
+.hors-ligne[hidden]{display:none}
+.hors-ligne svg{width:18px;height:18px;flex:none;fill:none;stroke:var(--warn);stroke-width:2;stroke-linecap:round}
+.hors-ligne button{border:1px solid var(--line2);background:var(--surface);color:var(--txt);border-radius:999px;
+ padding:5px 12px;font:inherit;font-size:12.5px;cursor:pointer;white-space:nowrap}
+/* Les sauvegardes, dans Securite. */
+.alerte-sauvegarde{margin-top:12px;padding:12px 14px;border-radius:10px;background:var(--warn-bg);
+ border:1px solid var(--warn-border);font-size:13.5px;line-height:1.5}
+.alerte-sauvegarde[hidden]{display:none}
+.sg-liste{display:flex;flex-direction:column;gap:2px;margin-top:12px}
+.sg-ligne{display:flex;align-items:center;gap:12px;padding:8px 4px;border-bottom:1px solid var(--line);font-size:13.5px}
+.sg-ligne:last-child{border-bottom:0}
+.sg-ligne .sg-quoi{flex:1;min-width:0}
+.sg-ligne .sg-quoi small{display:block;color:var(--dim);font-size:12px}
+/* La cause d'une panne, dans la fiche. */
+.cause{border-color:var(--err-border)}
+.cause .card-top{align-items:flex-start;gap:12px}
+.cause .card-top > .btn{margin-left:auto;flex:none}
+.cause #fa-cause-titre{color:var(--err-txt)}
+.cause-lignes{margin:12px 0 0;padding:12px 14px;border-radius:10px;background:var(--surface2);border:1px solid var(--line);
+ font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere;max-height:300px;overflow:auto}
+.cause-lignes .grave{color:var(--err-txt);font-weight:700}
 /* ------------------------------ notifications ------------------------------ */
 /* Les echecs passaient par alert() : une boite grise du systeme, hors de
    l'interface, qui bloque la page tant qu'on n'a pas clique. Un bandeau
@@ -1160,6 +1196,13 @@ table.tbl-journal{min-width:560px}
 .toast.err{border-color:var(--err-border);color:var(--err-txt)}
 .toast.err svg{color:var(--err)}
 .toast.ok svg{color:var(--ok)}
+.toast-texte{flex:1;min-width:0;overflow-wrap:anywhere}
+.toast-action{margin-left:4px;border:1px solid var(--line2);background:var(--surface2);color:var(--txt);border-radius:8px;
+ padding:4px 10px;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap}
+.toast-action:hover{border-color:var(--accent);color:var(--accent)}
+.toast-fermer{margin:-4px -6px -4px 0;width:26px;height:26px;border:0;border-radius:8px;background:none;color:inherit;
+ font-size:18px;line-height:1;cursor:pointer;opacity:.7}
+.toast-fermer:hover{opacity:1;background:var(--surface2)}
 @keyframes toast-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
 /* ------------------------------ cles d'acces ------------------------------ */
@@ -2061,6 +2104,15 @@ a.pj:hover{border-color:var(--accent)}
   </div>
 
   <div class="onglet actif" id="onglet-general">
+    <!-- POURQUOI ELLE NE MARCHE PAS : en erreur, arretee sans qu'on l'ait
+         voulu ou muette sur son port, la fiche montre la fin du journal,
+         la ou la cause est ecrite, sans avoir a aller la chercher. -->
+    <div class="card zone cause" id="fa-cause" style="display:none" role="status">
+      <div class="card-top"><div class="card-name"><b id="fa-cause-titre"></b>
+        <div class="path" id="fa-cause-conseil"></div></div>
+        <button class="btn btn-default btn-sm" onclick="ficheOnglet('journal')">Tout le journal</button></div>
+      <pre class="cause-lignes" id="fa-cause-lignes"></pre>
+    </div>
     <div class="cartes c2 zone">
       <div class="card">
         <div class="card-top"><div class="card-name"><b>État</b></div></div>
@@ -2538,6 +2590,27 @@ a.pj:hover{border-color:var(--accent)}
     </div>
   </div>
 
+  <!-- LES SAUVEGARDES. Faites chaque jour, mais sur le meme disque que ce
+       qu'elles protegent : la carte le dit, et alerte tant qu'aucune copie
+       n'est partie ailleurs. Administrateur seulement. -->
+  <div class="zone" id="zone-sauvegardes" hidden>
+    <div class="zone-title">Sauvegardes</div>
+    <div class="card settings-card sans-pli" id="sg-carte">
+      <div class="card-top"><div class="card-name">
+        <b>Sauvegardes</b>
+        <div class="path" id="sg-resume">Chargement…</div>
+      </div>
+      <span class="pill" id="sg-etat"><i></i>&nbsp;</span></div>
+      <div class="alerte-sauvegarde" id="sg-alerte" hidden>
+        <b>Elles ne sont que sur ce serveur.</b> Si son disque lâche, elles partent avec lui.
+        Télécharge la dernière, ou copie le dossier des sauvegardes ailleurs (un autre disque,
+        un NAS, un service de stockage).
+      </div>
+      <div class="sg-liste" id="sg-liste"></div>
+      <label class="choix-ligne" style="margin-top:12px"><input type="checkbox" id="sg-externe"
+        onchange="sgCopieExterne(this.checked)"> Je copie déjà ce dossier ailleurs, par mes propres moyens</label>
+    </div>
+  </div>
   </div>
 
   <!-- SERVEUR : UNE SEULE CARTE. Trois cartes (proxy et HTTPS, VPS, adresse
@@ -2968,6 +3041,13 @@ a.pj:hover{border-color:var(--accent)}
 </div></div>
 
 <div class="toasts" id="toasts"></div>
+<!-- Le serveur ne repond plus : la page le dit, garde ce qu'elle montrait,
+     et retente seule. -->
+<div class="hors-ligne" id="hors-ligne" role="status" hidden>
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 8.8a15 15 0 0 1 20 0M5 12.6a10 10 0 0 1 14 0M8.5 16.3a5 5 0 0 1 7 0M12 20h.01"/><path d="M3 3l18 18"/></svg>
+  <span id="hors-ligne-texte">Serveur injoignable.</span>
+  <button type="button" onclick="essayerConnexion()">Réessayer</button>
+</div>
 
 <!-- ==================== POP-UP : FICHE D'UN COMPTE ==================== -->
 <!-- Tout ce qui se regle sur un compte, au meme endroit. Avant, c'etait
@@ -3172,6 +3252,71 @@ window.fetch = function(cible, options){
   h.set('X-CodeLab-Jeton', JETON);
   return fetchNu(cible, Object.assign({}, options, {headers: h}));
 };
+
+/* SERVEUR INJOIGNABLE. Rien ne reagissait a une perte de connexion : les
+   boutons echouaient un par un, sans dire pourquoi. Une requete du panneau
+   qui n'aboutit pas (reseau coupe, serveur arrete, 502/504 d'un relais
+   sans reference du panneau) allume un bandeau ; la page garde ce qu'elle
+   affiche, retente toutes les 5 s, et se remet a jour quand le serveur
+   revient. */
+const fetchAvecJeton = window.fetch;
+let horsLigneDepuis=0, horsLigneMinuterie=0, horsLigneCompte=0;
+window.fetch = function(cible, options){
+  const p = fetchAvecJeton(cible, options);
+  if(!memeOrigine(cible)) return p;
+  return p.then(r=>{
+    if((r.status===502 || r.status===504) && !r.headers.get('X-CodeLab-Ref')) passerHorsLigne();
+    else if(horsLigneDepuis) revenirEnLigne();
+    return r;
+  }, e=>{
+    if(!e || e.name!=='AbortError') passerHorsLigne();
+    throw e;
+  });
+};
+function passerHorsLigne(){
+  if(horsLigneDepuis) return;
+  horsLigneDepuis=Date.now();
+  $('hors-ligne').hidden=false;
+  compterAvantEssai();
+}
+function compterAvantEssai(){
+  clearTimeout(horsLigneMinuterie);
+  horsLigneCompte=5;
+  const tic=()=>{
+    if(!horsLigneDepuis) return;
+    if(horsLigneCompte<=0){ essayerConnexion(); return; }
+    $('hors-ligne-texte').textContent='Serveur injoignable, nouvel essai dans '+horsLigneCompte+' s.';
+    horsLigneCompte--;
+    horsLigneMinuterie=setTimeout(tic, 1000);
+  };
+  tic();
+}
+async function essayerConnexion(){
+  clearTimeout(horsLigneMinuterie);
+  $('hors-ligne-texte').textContent='Connexion…';
+  try{
+    const r=await fetchNu('/health', {cache:'no-store'});
+    if(r.ok){ revenirEnLigne(); return; }
+  }catch(e){}
+  compterAvantEssai();
+}
+function revenirEnLigne(){
+  if(!horsLigneDepuis) return;
+  horsLigneDepuis=0; clearTimeout(horsLigneMinuterie);
+  $('hors-ligne').hidden=true;
+  notifier('Connexion rétablie.');
+  /* Ce qui a pu changer pendant la coupure : on relit la vue affichee. */
+  if(sectionCourante==='hub') chargerHub();
+  else if(estAdmin && ['overview','apps','app'].includes(sectionCourante)) refresh();
+}
+/* L'en-tete colle de la fiche prend un trait quand le contenu passe dessous. */
+window.addEventListener('scroll', ()=>{
+  if(sectionCourante!=='app') return;
+  const t=document.querySelector('#sec-app .fiche-tete');
+  if(t) t.classList.toggle('collee', t.getBoundingClientRect().top<=53 && scrollY>0);
+}, {passive:true});
+window.addEventListener('offline', passerHorsLigne);
+window.addEventListener('online', ()=>{ if(horsLigneDepuis) essayerConnexion(); });
 
 /* LES ERREURS DU NAVIGATEUR. Une exception JavaScript dans cette page ne se
    voyait nulle part : ni dans les journaux du panneau, ni ailleurs -- un
@@ -3708,6 +3853,7 @@ function paramOnglet(o){
   }
   if(o==='securite'){
     chargerPasskeys();
+    if(estAdmin) chargerSauvegardes();
     if(estAdmin) chargerSecurite();
   }
   /* La liste des applications vient du hub : on la relit, sinon le choix
@@ -4061,9 +4207,9 @@ async function basculerMasquage(nom, masquer){
       {method: masquer ? 'POST' : 'DELETE'});
     if(!r.ok) throw new Error();
     await chargerHub();
-    notifier(masquer
-      ? '« '+nom+' » masquée de ton hub.'
-      : '« '+nom+' » est de retour dans ton hub.');
+    if(masquer) notifier('« '+nom+' » masquée de ton hub.', 'ok',
+                         {libelle:'Annuler', faire:()=>basculerMasquage(nom, false)});
+    else notifier('« '+nom+' » est de retour dans ton hub.');
   }catch(e){
     notifier("Impossible de changer l'affichage de cette application.",'err');
     /* La case a deja bouge sous le doigt : on redessine depuis le serveur
@@ -4705,11 +4851,14 @@ function hubRetirer(cle){
     /* Une application se MASQUE (elle se retrouve dans Parametres > Compte),
        elle ne quitte pas le serveur. */
     fetch('/api/mes-apps/'+encodeURIComponent(e.id)+'/masquer',{method:'POST'}).then(r=>{
-      if(r.ok){ notifier('Masquée du hub — à retrouver dans tes paramètres.'); chargerHub(); }
+      if(r.ok){ notifier('Masquée du hub — à retrouver dans tes paramètres.', 'ok',
+                         {libelle:'Annuler', faire:()=>basculerMasquage(e.id, false)}); chargerHub(); }
     });
     return;
   }
-  enregistrerDisposition(elements.filter(x=>x!==e));
+  /* Retirer un widget se rattrape : la disposition d'avant est remise. */
+  enregistrerDisposition(elements.filter(x=>x!==e)).then(()=>
+    notifier('Widget retiré.', 'ok', {libelle:'Annuler', faire:()=>enregistrerDisposition(elements)}));
 }
 function hubDeplacer(cle, sens){
   const elements=elementsDuHub();
@@ -5119,12 +5268,24 @@ function render(){
    ne dit rien du tout -- panneau redemarre en plein clic, reponse qui n'est
    pas du JSON -- on rend au moins le code HTTP, qui distingue un refus (403)
    d'une panne (500) et vaut mieux qu'un haussement d'epaules. */
+/* TOUJOURS DIRE QUOI FAIRE ENSUITE. « (reponse 500) » n'apprenait rien.
+   Une panne du serveur porte une reference (en-tete X-CodeLab-Ref), ecrite
+   aussi dans le journal du conteneur : l'administrateur la cherche dans
+   « docker logs », un compte utilisateur la lui transmet. */
 async function echec(r, defaut){
   let d={}; try{ d=await r.json(); }catch(e){}
-  if(d && d.error) return d.error;
+  const ref = r.headers && r.headers.get('X-CodeLab-Ref');
+  const suite = !ref ? '' : estAdmin
+    ? ` Référence ${ref} : cherche-la avec « docker logs codelab-app-manager ».`
+    : ` Référence ${ref} : donne-la à l'administrateur.`;
+  if(d && d.error) return d.error + (r.status>=500 ? ' Réessaie dans un instant.' : '') + suite;
   if(r.status===401) return 'Session expirée : reconnecte-toi.';
   if(r.status===403) return "Action refusée. Recharge la page, puis réessaie.";
-  return defaut + ' (réponse ' + r.status + ')';
+  if(r.status===404) return defaut + ' Introuvable : recharge la page.';
+  if(r.status===413) return defaut + ' Le fichier est trop lourd.';
+  if(r.status===429) return defaut + ' Trop de tentatives : patiente une minute, puis réessaie.';
+  if(r.status>=500) return defaut + ' Réessaie dans un instant.' + suite;
+  return defaut + ' Recharge la page, puis réessaie.';
 }
 
 /* ET LE REPLI DIT LE BON SENS. Celui d'echec() est ecrit pour le demarrage :
@@ -5331,6 +5492,41 @@ async function acBasculer(){
    ne protege rien, la route reste appelable a la main. */
 const ONGLETS_CONFIG = ['acces', 'config'];
 
+/* La cause, en clair : les dernieres lignes du journal, celles qui disent
+   pourquoi, avec un conseil selon l'etat. Relue au plus toutes les 10 s
+   (la fiche se repeint souvent), et aussitot que l'etat change. */
+const LIGNE_GRAVE=/error|erreur|exception|traceback|fatal|refused|denied|not found|introuvable|cannot|impossible|eaddrinuse|killed/i;
+let causeVue={cle:'', quand:0};
+async function peindreCauseFiche(a){
+  const carte=$('fa-cause'); if(!carte) return;
+  const etat = a.externe || a.par_defaut ? ''
+    : a.crash_looping ? 'boucle'
+    : a.failed ? 'arretee'
+    : (!a.running && a.dernier_echec) ? 'lancement'
+    : (a.running && a.listening===false) ? 'muette' : '';
+  if(!etat){ carte.style.display='none'; causeVue={cle:'', quand:0}; return; }
+  const TITRES={
+    boucle:['Elle redémarre en boucle', "Elle plante à chaque lancement : la cause est en général dans les dernières lignes ci-dessous. Corrige-la dans le code, puis Redémarrer."],
+    lancement:['Elle a planté au lancement', "Elle s'est arrêtée aussitôt lancée (code "+((a.dernier_echec||{}).code)+"). La cause est dans les dernières lignes ci-dessous ; une fois corrigée, Démarrer."],
+    arretee:["Elle s'est arrêtée", "Elle devait tourner et s'est arrêtée. Les dernières lignes du journal disent pourquoi ; une fois corrigé, Démarrer."],
+    muette:['Elle ne répond pas', "Elle tourne, mais rien n'écoute sur son port : elle doit écouter sur $PORT et 0.0.0.0. Si elle démarre encore, patiente quelques secondes."],
+  };
+  $('fa-cause-titre').textContent=TITRES[etat][0];
+  $('fa-cause-conseil').textContent=TITRES[etat][1];
+  carte.style.display='';
+  const cle=a.name+':'+etat;
+  if(cle===causeVue.cle && Date.now()-causeVue.quand<10000) return;
+  causeVue={cle, quand:Date.now()};
+  let lignes=[];
+  try{
+    const r=await fetch('/api/logs/'+encodeURIComponent(a.name));
+    if(r.ok) lignes=((await r.json()).lines||[]).filter(l=>l.trim()).slice(-15);
+  }catch(e){}
+  if(ficheNom!==a.name) return;
+  remplir($('fa-cause-lignes'), lignes.length
+    ? lignes.map(l=>`<span${LIGNE_GRAVE.test(l) ? ' class="grave"' : ''}>${esc(l)}</span>`).join('\n')
+    : 'Le journal est vide : l\'application n\'a rien écrit avant de s\'arrêter.');
+}
 function peindreFiche(){
   const a=appParNom(ficheNom);
   if(!a) return;
@@ -5352,6 +5548,7 @@ function peindreFiche(){
       + "et le temps qu'elle met à revenir. Le panneau ne voit ni le processeur "
       + "ni la mémoire d'un autre conteneur."
     : 'Sur les deux dernières minutes environ, relevé toutes les 5 secondes.';
+  peindreCauseFiche(a);
   $('fa-icone').src=icone(a.name);
   $('fa-nom').textContent=a.name;
   $('fa-sous').textContent=a.description || 'Aucune description';
@@ -6449,15 +6646,29 @@ function confirmerReponse(reponse){
   if(r) r(reponse);
 }
 
-function notifier(texte, genre){
+/* UNE ERREUR RESTE jusqu'a ce qu'on la ferme : elle disparaissait au bout
+   de 7 s, souvent avant d'avoir ete lue -- et avec elle la reference a
+   transmettre. Un succes, lui, s'en va seul.
+   action : {libelle, faire} -- un bouton dans le message (« Annuler »),
+   le temps de changer d'avis (8 s). */
+function notifier(texte, genre, action){
+  const err = genre==='err';
   const n=document.createElement('div');
   n.className='toast ' + (genre||'ok');
-  const icone = genre==='err'
+  n.setAttribute('role', err ? 'alert' : 'status');
+  const icone = err
     ? '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/></svg>'
     : '<svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>';
-  n.innerHTML = icone + '<div>' + esc(texte) + '</div>';
+  n.innerHTML = icone + '<div class="toast-texte">' + esc(texte) + '</div>'
+    + (action ? '<button type="button" class="toast-action">' + esc(action.libelle) + '</button>' : '')
+    + (err ? '<button type="button" class="toast-fermer" aria-label="Fermer le message">×</button>' : '');
+  if(action) n.querySelector('.toast-action').onclick=()=>{ n.remove(); action.faire(); };
+  if(err) n.querySelector('.toast-fermer').onclick=()=>n.remove();
+  /* Trois erreurs a l'ecran au plus : la plus ancienne laisse sa place. */
+  const erreurs=$('toasts').querySelectorAll('.toast.err');
+  if(err && erreurs.length>=3) erreurs[0].remove();
   $('toasts').appendChild(n);
-  setTimeout(()=>n.remove(), genre==='err' ? 7000 : 4000);
+  if(!err) setTimeout(()=>n.remove(), action ? 8000 : 4000);
 }
 
 
@@ -7026,6 +7237,46 @@ async function alBasculer(){
 }
 
 /* ---------------- securite : double authentification ---------------- */
+/* ---------------- les sauvegardes ---------------- */
+const tailleLisible = o => o>=1e9 ? (o/1e9).toFixed(1).replace('.',',')+' Go'
+  : o>=1e6 ? (o/1e6).toFixed(1).replace('.',',')+' Mo' : Math.max(1, Math.round(o/1e3))+' Ko';
+function peindreSauvegardes(d){
+  $('zone-sauvegardes').hidden=false;
+  const pill=$('sg-etat');
+  const derniere=d.archives[0];
+  if(!d.actives){
+    pill.className='pill err'; pill.innerHTML='<i></i>Désactivées';
+    $('sg-resume').textContent="Le dossier des sauvegardes n'est pas monté : rien n'est sauvegardé. Ajoute le volume /sauvegardes dans le compose.";
+  }else{
+    pill.className='pill '+(d.alerte_hors_serveur ? 'warn' : 'on');
+    pill.innerHTML='<i></i>'+(d.alerte_hors_serveur ? 'Sur ce serveur seulement' : 'Actives');
+    $('sg-resume').textContent='Toutes les '+d.toutes_les_heures+' h, les '+d.gardees+' dernières gardées. '
+      + (derniere ? 'Dernière : '+ilYA(derniere.date)+'.' : 'Aucune pour le moment.')
+      + (d.derniere_copie ? ' Copiée hors du serveur '+ilYA(d.derniere_copie)+'.' : '');
+  }
+  $('sg-alerte').hidden=!d.alerte_hors_serveur;
+  $('sg-externe').checked=!!d.copie_externe;
+  /* La plus recente de chaque genre : c'est elle qu'on emporte. */
+  const vues=new Set(), lignes=[];
+  for(const a of d.archives){ if(vues.has(a.genre)) continue; vues.add(a.genre); lignes.push(a); }
+  remplir($('sg-liste'), lignes.map(a=>`<div class="sg-ligne"><div class="sg-quoi"><b>${a.genre==='panneau'
+      ? 'Le panneau' : 'Les projets'}</b><small>${esc(a.nom)} · ${tailleLisible(a.taille)} · ${ilYA(a.date)}</small></div>
+    <a class="btn btn-default btn-sm" href="/api/sauvegardes/${encodeURIComponent(a.nom)}" download
+       onclick="setTimeout(chargerSauvegardes, 1500)">Télécharger</a></div>`).join(''));
+}
+async function chargerSauvegardes(){
+  try{
+    const r=await fetch('/api/sauvegardes'); if(!r.ok) return;
+    peindreSauvegardes(await r.json());
+  }catch(e){}
+}
+async function sgCopieExterne(oui){
+  const r=await fetch('/api/sauvegardes/copie',{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({externe:oui})});
+  if(!r.ok){ notifier(await echec(r,'Réglage non enregistré.'),'err'); chargerSauvegardes(); return; }
+  peindreSauvegardes(await r.json());
+}
+
 async function chargerSecurite(){
   let d;
   try{ d=await (await fetch('/api/securite')).json(); }catch(e){ return; }
