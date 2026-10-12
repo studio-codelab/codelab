@@ -1247,7 +1247,7 @@ def _tuile_service(nom, description, adresse, debout, port):
         "failed": False, "crash_looping": False, "has_build": False, "dernier_echec": None,
         "build_command": "", "max_memory_mb": None, "alertes": [],
         "cpu_percent": 0.0, "memory_mb": 0.0,
-        "presentation": None, "presentation_masquee": False,
+        "presentation": None, "presentation_masquee": False, "presentation_fichier": "",
     }
 
 
@@ -9337,6 +9337,7 @@ def api_apps():
             "par_defaut": est_app_par_defaut(name),
             "presentation": presentation_de(a),
             "presentation_masquee": bool(a.get("presentation_masquee")),
+            "presentation_fichier": a.get("presentation_fichier", ""),
             **stats,
         })
     # Dagster figure ici comme les autres. Il n'est pas declare dans
@@ -10993,9 +10994,37 @@ def espace():
 #
 # Memes droits que l'application : qui ne peut pas l'ouvrir ne voit pas sa
 # video. L'administrateur peut la retirer du hub sans supprimer le fichier
-# (« presentation_masquee »).
+# (« presentation_masquee »), et choisir une AUTRE video du projet -- celle
+# d'un rendu Remotion, d'un montage fait ailleurs (« presentation_fichier »,
+# un chemin relatif au projet). L'affiche ne va qu'avec la video par defaut.
 PRESENTATION = {"video": ("video/presentation.mp4", "video/mp4"),
                 "affiche": ("video/affiche.jpg", "image/jpeg")}
+TYPES_VIDEO = {".mp4": "video/mp4", ".m4v": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime"}
+# Ce qu'on ne fouille pas en cherchant les videos d'un projet : dependances,
+# environnements, caches. Les dossiers caches non plus.
+DOSSIERS_SANS_VIDEO = {"node_modules", "venv", "__pycache__", "vendor", "site-packages"}
+
+
+def videos_du_projet(a, profondeur=6, limite=200):
+    """Les videos du dossier du projet, en chemins relatifs tries.
+
+    Sans suivre les liens symboliques : rien hors du projet n'est propose.
+    """
+    dossier = (a or {}).get("path") or ""
+    if not dossier or not os.path.isdir(dossier):
+        return []
+    base = os.path.realpath(dossier)
+    trouvees = []
+    for racine, dossiers, fichiers in os.walk(base):
+        niveau = os.path.relpath(racine, base).count(os.sep) + (racine != base)
+        dossiers[:] = sorted(d for d in dossiers if not d.startswith(".")
+                             and d not in DOSSIERS_SANS_VIDEO and niveau < profondeur)
+        for f in sorted(fichiers):
+            if os.path.splitext(f)[1].lower() in TYPES_VIDEO and not os.path.islink(os.path.join(racine, f)):
+                trouvees.append(os.path.relpath(os.path.join(racine, f), base).replace(os.sep, "/"))
+                if len(trouvees) >= limite:
+                    return sorted(trouvees)
+    return sorted(trouvees)
 
 
 def fichier_presentation(a, quoi="video"):
@@ -11003,8 +11032,14 @@ def fichier_presentation(a, quoi="video"):
     dossier = (a or {}).get("path") or ""
     if not dossier or quoi not in PRESENTATION:
         return None
+    relatif = PRESENTATION[quoi][0]
+    choisi = (a or {}).get("presentation_fichier")
+    if choisi:
+        if quoi == "affiche":
+            return None
+        relatif = choisi
     base = os.path.realpath(dossier)
-    cible = os.path.realpath(os.path.join(base, PRESENTATION[quoi][0]))
+    cible = os.path.realpath(os.path.join(base, relatif))
     # Un lien qui sortirait du projet ne mene a rien.
     if not cible.startswith(base + os.sep) or not os.path.isfile(cible):
         return None
@@ -11041,7 +11076,9 @@ def api_presentation(nom, quoi):
     chemin = fichier_presentation(a, quoi)
     if not chemin:
         return jsonify({"error": "Présentation introuvable."}), 404
-    reponse = send_file(chemin, mimetype=PRESENTATION[quoi][1], conditional=True, max_age=0)
+    type_mime = (TYPES_VIDEO.get(os.path.splitext(chemin)[1].lower(), "video/mp4")
+                 if quoi == "video" else PRESENTATION[quoi][1])
+    reponse = send_file(chemin, mimetype=type_mime, conditional=True, max_age=0)
     reponse.headers["Cache-Control"] = "private, no-cache"
     reponse.headers["X-Content-Type-Options"] = "nosniff"
     return reponse
@@ -11050,17 +11087,40 @@ def api_presentation(nom, quoi):
 @flask_app.put("/api/apps/<nom>/presentation")
 @require_admin
 def api_presentation_visibilite(nom):
-    """Montrer ou retirer la video du hub ({visible}), sans toucher au fichier."""
+    """Montrer ou retirer la video du hub ({visible}), sans toucher au
+    fichier ; ou choisir la video a montrer ({fichier}, un chemin relatif
+    parmi ceux de videos_du_projet ; vide : video/presentation.mp4)."""
     d = request.get_json(force=True, silent=True) or {}
     apps = load()
     if nom not in apps:
         return jsonify({"error": "Application inconnue."}), 404
-    if d.get("visible", True):
-        apps[nom].pop("presentation_masquee", None)
-    else:
-        apps[nom]["presentation_masquee"] = True
+    if "fichier" in d:
+        fichier = d.get("fichier") or ""
+        if not isinstance(fichier, str) or (fichier and fichier not in videos_du_projet(apps[nom])):
+            return jsonify({"error": "Cette vidéo n'est pas dans le dossier du projet."}), 400
+        if fichier:
+            apps[nom]["presentation_fichier"] = fichier
+        else:
+            apps[nom].pop("presentation_fichier", None)
+    if "visible" in d:
+        if d.get("visible"):
+            apps[nom].pop("presentation_masquee", None)
+        else:
+            apps[nom]["presentation_masquee"] = True
     save(apps)
-    return jsonify({"ok": True, "visible": not apps[nom].get("presentation_masquee")})
+    return jsonify({"ok": True, "visible": not apps[nom].get("presentation_masquee"),
+                    "fichier": apps[nom].get("presentation_fichier", "")})
+
+
+@flask_app.get("/api/apps/<nom>/videos")
+@require_admin
+def api_videos_du_projet(nom):
+    """Les videos qu'on peut choisir pour la presentation de l'application."""
+    a = load().get(nom)
+    if not a:
+        return jsonify({"error": "Application inconnue."}), 404
+    return jsonify({"fichiers": videos_du_projet(a), "choisi": a.get("presentation_fichier", ""),
+                    "defaut": PRESENTATION["video"][0]})
 
 
 @flask_app.get("/api/mes-apps")

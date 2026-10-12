@@ -1877,6 +1877,8 @@ a.pj:hover{border-color:var(--accent)}
 .presentation-pied .txt{flex:1;min-width:0}
 .presentation-pied b{display:block;font-size:17px;letter-spacing:-.02em}
 .presentation-pied span{display:block;color:var(--dim);font-size:13px;margin-top:2px}
+.fa-pr-choix{display:flex;flex-direction:column;gap:6px;margin-top:14px;font-size:12.5px;font-weight:700;color:var(--dim)}
+.fa-pr-choix select{max-width:420px}
 .fiche-video{display:block;width:100%;max-width:640px;border-radius:12px;background:#000;margin-top:10px;aspect-ratio:16/9}
 .bento-carte:hover{border-color:var(--accent)}
 .bento-carte.warn{box-shadow:inset 0 0 0 2px var(--warn)}
@@ -3593,6 +3595,8 @@ document.addEventListener('change', e => {
     basculerMasquage(n.dataset.cible, !e.target.checked);
   if(n && n.dataset.changer === 'presentation-visible')
     basculerPresentation(n.dataset.cible, e.target.checked);
+  if(n && n.dataset.changer === 'presentation-fichier')
+    choisirVideo(n.dataset.cible, e.target.value);
 });
 
 /* ---------------- theme ---------------- */
@@ -4789,16 +4793,49 @@ function peindrePresentationFiche(a){
   carte.style.display = a.externe ? 'none' : '';
   const p=a.presentation;
   $('fa-pr-sous').textContent = p
-    ? 'Générée le '+new Date(p.maj*1000).toLocaleString('fr-FR',{dateStyle:'long', timeStyle:'short'})
+    ? (a.presentation_fichier ? a.presentation_fichier+' · ' : '')
+      + 'modifiée le '+new Date(p.maj*1000).toLocaleString('fr-FR',{dateStyle:'long', timeStyle:'short'})
     : 'Aucune vidéo pour l’instant.';
   const base='/api/presentations/'+encodeURIComponent(a.name)+'/';
-  remplir($('fa-pr-corps'), p
+  remplir($('fa-pr-corps'), (p
     ? `<video class="fiche-video" controls playsinline preload="metadata" src="${base}video?v=${p.maj}"
          ${p.affiche ? `poster="${base}affiche?v=${p.maj}"` : ''}></video>
        <label class="choix-ligne" style="margin-top:12px"><input type="checkbox" data-changer="presentation-visible"
          data-cible="${esc(a.name)}" ${a.presentation_masquee ? '' : 'checked'}> Visible dans le hub</label>`
-    : `<p class="hint" style="margin:6px 0 0">Dans le terminal du poste : <code>codelab video ${esc(a.name)}</code>.
-       La vidéo apparaît ici, et sur la tuile du hub, dès qu’elle est produite.</p>`);
+    : `<p class="hint" style="margin:6px 0 0">Dans le terminal du poste : <code>codelab video ${esc(a.name)}</code>,
+       ou choisis ci-dessous une vidéo déjà dans le projet (un rendu Remotion, par exemple).</p>`)
+    + `<label class="fa-pr-choix">Fichier vidéo
+       <select data-changer="presentation-fichier" data-cible="${esc(a.name)}">${optionsVideos(a)}</select></label>`);
+  chargerVideosProjet(a.name);
+}
+/* LE FICHIER DE LA PRESENTATION : video/presentation.mp4 par defaut, ou
+   toute autre video du dossier du projet (le serveur en dresse la liste,
+   et refuse ce qui n'y est pas). La liste se charge a l'ouverture de la
+   fiche, une fois par application. */
+const videosProjet={};
+function optionsVideos(a){
+  const v=videosProjet[a.name];
+  const choisi=a.presentation_fichier||'';
+  const autres=(v ? v.fichiers : (choisi ? [choisi] : [])).filter(f=>f!==(v ? v.defaut : 'video/presentation.mp4'));
+  return `<option value="">video/presentation.mp4 (par défaut)</option>`
+    + autres.map(f=>`<option value="${esc(f)}" ${f===choisi ? 'selected' : ''}>${esc(f)}</option>`).join('')
+    + (v ? '' : '<option disabled>Recherche des vidéos…</option>');
+}
+async function chargerVideosProjet(nom, forcer){
+  if(videosProjet[nom] && !forcer) return;
+  try{
+    const r=await fetch('/api/apps/'+encodeURIComponent(nom)+'/videos');
+    if(!r.ok) return;
+    videosProjet[nom]=await r.json();
+  }catch(e){ return; }
+  const a=appParNom(nom); if(a) peindrePresentationFiche(a);
+}
+async function choisirVideo(nom, fichier){
+  const r=await fetch('/api/apps/'+encodeURIComponent(nom)+'/presentation',{method:'PUT',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify({fichier})});
+  if(!r.ok){ notifier(await echec(r,'Vidéo non retenue.'),'err'); return; }
+  notifier(fichier ? 'La présentation montre '+fichier+'.' : 'La présentation reprend video/presentation.mp4.');
+  refresh(); chargerHub();
 }
 async function basculerPresentation(nom, visible){
   const r=await fetch('/api/apps/'+encodeURIComponent(nom)+'/presentation',{method:'PUT',

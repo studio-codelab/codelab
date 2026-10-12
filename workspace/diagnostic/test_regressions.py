@@ -14789,6 +14789,65 @@ def test_seul_l_administrateur_retire_une_video(presentation):
     assert not app.load()["compta"].get("presentation_masquee")
 
 
+# Vecu : « Je souhaiterai pouvoir selectionner dans les configuration de
+# l'app le fichier video a utiliser. » -- un rendu Remotion, un montage fait
+# ailleurs : toute video du dossier du projet.
+
+def test_l_administrateur_choisit_une_autre_video_du_projet(presentation, tmp_path):
+    c, dossiers = presentation
+    d = dossiers["compta"]
+    (d / "out").mkdir()
+    (d / "out" / "demo.webm").write_bytes(b"\x1aE\xdf\xa3webm" + b"w" * 500)
+    (d / "node_modules" / "x").mkdir(parents=True)
+    (d / "node_modules" / "x" / "cache.mp4").write_bytes(b"x")
+    (d / ".cache").mkdir()
+    (d / ".cache" / "rendu.mp4").write_bytes(b"x")
+    (d / "README.md").write_text("ici")
+    dehors = tmp_path / "dehors.mp4"
+    dehors.write_bytes(b"x")
+    (d / "lien.mp4").symlink_to(dehors)
+    admin = _admin_presentation()
+    liste = admin.get("/api/apps/compta/videos").get_json()
+    # Les videos du projet, sans dependances, caches ni liens vers dehors.
+    assert liste["fichiers"] == ["out/demo.webm", "video/presentation.mp4"]
+    assert liste["choisi"] == "" and liste["defaut"] == "video/presentation.mp4"
+
+    r = admin.put("/api/apps/compta/presentation", json={"fichier": "out/demo.webm"})
+    assert r.status_code == 200 and r.get_json()["fichier"] == "out/demo.webm"
+    # La visibilite ne bouge pas quand on choisit le fichier.
+    assert not app.load()["compta"].get("presentation_masquee")
+    video = _connexion_marie(c).get("/api/presentations/compta/video")
+    assert video.status_code == 200 and video.mimetype == "video/webm"
+    assert video.data.startswith(b"\x1aE\xdf\xa3")
+    # L'affiche de « codelab video » n'irait pas avec une autre video.
+    apps = {a["name"]: a for a in _connexion_marie(c).get("/api/mes-apps").get_json()["apps"]}
+    assert apps["compta"]["presentation"]["affiche"] is False
+    fiche = {a["name"]: a for a in admin.get("/api/apps").get_json()["apps"]}["compta"]
+    assert fiche["presentation_fichier"] == "out/demo.webm"
+
+    # Rien hors de la liste : ni chemin qui sort, ni fichier qui n'est pas
+    # une video, ni dossier ignore.
+    for mauvais in ("../dehors.mp4", "README.md", "lien.mp4", "node_modules/x/cache.mp4", "/etc/passwd", 3):
+        assert admin.put("/api/apps/compta/presentation", json={"fichier": mauvais}).status_code == 400, mauvais
+    assert app.load()["compta"]["presentation_fichier"] == "out/demo.webm"
+    # Vide : retour a video/presentation.mp4.
+    assert admin.put("/api/apps/compta/presentation", json={"fichier": ""}).status_code == 200
+    assert "presentation_fichier" not in app.load()["compta"]
+    assert _connexion_marie(c).get("/api/presentations/compta/video").mimetype == "video/mp4"
+    # Reserve a l'administrateur.
+    marie = _connexion_marie(c)
+    assert marie.get("/api/apps/compta/videos").status_code in (401, 403)
+    assert marie.put("/api/apps/compta/presentation", json={"fichier": "out/demo.webm"}).status_code in (401, 403)
+
+
+def test_la_fiche_propose_les_videos_du_projet():
+    page = _page_panneau("dashboard.html")
+    fiche = page.split("function peindrePresentationFiche(")[1].split("\n}")[0]
+    assert 'data-changer="presentation-fichier"' in fiche and "optionsVideos(a)" in fiche
+    assert "if(n && n.dataset.changer === 'presentation-fichier')" in page
+    assert "JSON.stringify({fichier})" in page.split("async function choisirVideo(")[1].split("\n}")[0]
+
+
 def test_le_hub_porte_le_lecteur_de_video():
     page = _page_panneau("dashboard.html")
     assert 'id="ov-presentation"' in page

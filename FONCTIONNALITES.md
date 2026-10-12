@@ -141,6 +141,9 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
   voir § 6), « Voir la présentation » dans le menu de sa tuile la lit dans une fenêtre, avec « Ouvrir
   l'application » en dessous. Servie avec les droits de l'application : un compte qui ne la voit pas
   ne voit pas sa vidéo. La fiche la montre (carte « Présentation ») et l'admin peut la masquer du hub.
+  L'admin peut aussi **choisir le fichier** dans la fiche (« Fichier vidéo ») : toute vidéo du dossier
+  du projet (`.mp4`, `.webm`, `.m4v`, `.mov` ; ni `node_modules`, ni dossiers cachés, ni liens qui
+  sortent du projet), par exemple un rendu Remotion dans `out/`. Vide : `video/presentation.mp4`.
 
 **Faire tourner**
 
