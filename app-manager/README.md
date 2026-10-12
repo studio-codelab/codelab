@@ -216,8 +216,6 @@ Une valeur existante n'est jamais régénérée.
 | `APP_MANAGER_MAILPIT_SMTP_HOTE`, `APP_MANAGER_MAILPIT_SMTP_PORT` | `codelab-mailpit`, `1025` | SMTP de Mailpit |
 | `APP_MANAGER_DAGSTER_*`, `APP_MANAGER_MAILPIT_*` (`_HOTE`, `_PORT`, `_AMONT`) | proxy et services de la stack | où sonder Dagster et Mailpit |
 | `APP_MANAGER_SAUVEGARDES`, `APP_MANAGER_SAUVEGARDE_HEURES`, `APP_MANAGER_SAUVEGARDES_GARDEES`, `APP_MANAGER_WORKSPACE_JOURS` | voir *Sauvegardes* | sauvegardes |
-| `APP_MANAGER_VERIFIER_MAJ` | `1` | `0` : ne jamais interroger GitHub sur la dernière version publiée |
-| `APP_MANAGER_DEPOT` | `studio-codelab/codelab` | dépôt dont les images sont comparées à la version installée |
 | `CODELAB_VERSION`, `CODELAB_VERSION_DATE` | posés au build | le commit de l'image et sa date (`dev` pour une image construite à la main) |
 
 ## Volumes
@@ -246,7 +244,7 @@ dans le journal du conteneur avec la méthode et la route (`docker logs codelab-
 | Connexion | `GET/POST /login`, `POST /login/second-facteur`, `POST /login/second-facteur/passkey[/options]`, `POST /login/passkey[/options]`, `POST /login/inscription/passkey[/options]`, `POST /logout`, `POST /mot-de-passe/oubli`, `POST /mot-de-passe/reinitialiser` (sans session, sauf `logout`) |
 | Invitations | `GET/POST /api/invitations`, `POST /api/invitations/<id>/renvoyer`, `DELETE /api/invitations/<id>` (admin) ; `GET/POST /invitation/<jeton>`, `GET /api/invitation/<jeton>` (sans session) |
 | Mon compte | `GET /api/mon-compte`, `POST /api/mon-compte/email[/code\|/confirmer]`, `POST /api/compte/mot-de-passe`, `GET/POST/DELETE /api/mon-compte/passkeys[/options\|/<id>]`, `GET /api/passkeys/etat` (sans session), `GET /qr/totp.svg` |
-| Version (admin) | `GET /api/version` (installée, publiée, nouveautés), `POST /api/version/verifier` (une fois par minute au plus) |
+| Version (admin) | `GET /api/version` : le commit de l'image et sa date (aucun appel sortant) |
 | Sécurité | `GET /api/securite`, `PUT /api/securite/exposition`, `POST /api/securite/totp/preparer\|activer\|desactiver`, `GET/PUT /api/vps` ; `GET /api/sauvegardes` (dernières archives, alerte hors serveur), `GET /api/sauvegardes/<nom>` (télécharge, note la copie), `PUT /api/sauvegardes/copie` (`{externe}`) — admin |
 | Comptes (admin) | `GET/POST /api/utilisateurs`, `PUT/DELETE /api/utilisateurs/<nom>`, `GET/PUT /api/apps/<nom>/acces`, `GET /api/activite`, `GET /api/activite/carte` |
 | Applications (admin) | `GET /api/apps`, `GET /api/browse`, `GET /api/detect`, `POST /api/add`, `PUT/DELETE /api/app/<nom>`, `POST /api/app/<nom>/renommer`, `POST /api/toggle\|restart\|build\|deploy\|visibility/<nom>`, `GET /api/metrics/<nom>`, `GET /api/logs/<nom>[/stream]`, `PUT/DELETE /api/app/<nom>/logo` |

@@ -15005,112 +15005,34 @@ def test_un_plantage_au_lancement_reste_visible_dans_la_fiche(survivants):
 # ------------------------ La version de CodeLab ------------------------
 #
 # Vecu : « je ne vois pas les modifs » -- l'image n'avait pas ete retiree,
-# et rien dans le panneau ne le disait. Puis « OK » pour : version installee,
-# version disponible, nouveautes, et les commandes a lancer.
+# et rien dans le panneau ne le disait. Puis, la verification aupres de
+# GitHub ecrite : « annule la possibilite alors. C'est un risque a prendre
+# inutile ». Le panneau affiche la version qu'il porte, et ne contacte rien.
 
-INSTALLEE = "a" * 40
-PUBLIEE = "b" * 40
-
-
-def _faux_github(compare=None, runs=None, panne=False):
-    appels = []
-
-    def faux(chemin):
-        appels.append(chemin)
-        if panne:
-            raise OSError("reseau coupe")
-        if "/actions/workflows/build-images.yml/runs" in chemin:
-            return runs if runs is not None else {"workflow_runs": [
-                {"head_sha": PUBLIEE, "updated_at": "2026-10-12T07:26:11Z"}]}
-        if "/compare/" in chemin:
-            return compare
-        raise AssertionError(chemin)
-    return faux, appels
-
-
-def _commit(message):
-    return {"commit": {"message": message}}
-
-
-@pytest.fixture
-def version(hub, monkeypatch):
-    monkeypatch.setattr(app, "CODELAB_VERSION", INSTALLEE)
-    monkeypatch.setattr(app, "CODELAB_VERSION_DATE", "2026-10-01T10:00:00+02:00")
-    monkeypatch.setattr(app, "VERIFIER_MAJ", True)
-    monkeypatch.setattr(app, "_maj", {"verifie_le": 0, "disponible": None, "statut": "",
-                                      "retard": 0, "nouveautes": [], "erreur": ""})
+def test_le_panneau_dit_quelle_version_tourne(hub, monkeypatch):
+    monkeypatch.setattr(app, "CODELAB_VERSION", "a" * 40)
+    monkeypatch.setattr(app, "CODELAB_VERSION_DATE", "2026-10-12T09:00:00+02:00")
     admin = app.flask_app.test_client()
     admin.post("/login", json={"nom": "admin", "password": "secret-de-test"})
-    return admin
-
-
-def test_une_mise_a_jour_publiee_s_annonce_avec_ses_nouveautes(version, monkeypatch):
-    faux, appels = _faux_github(compare={"status": "ahead", "ahead_by": 4, "commits": [
-        _commit("Travail en cours"),
-        _commit("Merge pull request #150 from x/y\n\nHub au téléphone, rubrique Messages"),
-        _commit("Autre commit de branche"),
-        _commit("Merge pull request #151 from x/y\n\nErreurs claires, cause des pannes"),
-    ]})
-    monkeypatch.setattr(app, "_github", faux)
-    d = version.post("/api/version/verifier").get_json()
-    # Deux pull requests fusionnees : deux changements, pas quatre commits.
-    assert d["mise_a_jour"] is True and d["a_jour"] is False and d["retard"] == 2
-    # Les pull requests fusionnees, la plus recente d'abord ; pas les commits de branche.
-    assert d["nouveautes"] == [{"numero": 151, "titre": "Erreurs claires, cause des pannes"},
-                               {"numero": 150, "titre": "Hub au téléphone, rubrique Messages"}]
-    assert d["installee"]["court"] == "aaaaaaa" and d["disponible"]["sha"] == PUBLIEE
-    # On compare a la derniere IMAGE publiee (build reussi sur main), pas au dernier commit.
-    assert "status=success" in appels[0] and "branch=main" in appels[0]
-    assert appels[1].endswith(f"/compare/{INSTALLEE}...{PUBLIEE}")
-
-
-def test_la_derniere_image_installee_est_a_jour(version, monkeypatch):
-    faux, appels = _faux_github(runs={"workflow_runs": [{"head_sha": INSTALLEE, "updated_at": ""}]})
-    monkeypatch.setattr(app, "_github", faux)
-    d = version.post("/api/version/verifier").get_json()
-    assert d["a_jour"] is True and d["mise_a_jour"] is False
-    assert len(appels) == 1          # identique : pas besoin de comparer
-
-
-def test_github_injoignable_ne_casse_rien(version, monkeypatch):
-    faux, _ = _faux_github(panne=True)
-    monkeypatch.setattr(app, "_github", faux)
-    r = version.post("/api/version/verifier")
-    assert r.status_code == 200
-    d = r.get_json()
-    assert d["erreur"].startswith("GitHub injoignable") and d["mise_a_jour"] is False
-
-
-def test_une_image_construite_a_la_main_ne_se_compare_pas(version, monkeypatch):
+    d = admin.get("/api/version").get_json()
+    assert d["court"] == "aaaaaaa" and d["dev"] is False and d["date"].startswith("2026-10-12")
     monkeypatch.setattr(app, "CODELAB_VERSION", "dev")
-    faux, appels = _faux_github()
-    monkeypatch.setattr(app, "_github", faux)
-    d = version.post("/api/version/verifier").get_json()
-    assert d["installee"]["dev"] is True and d["mise_a_jour"] is False and d["a_jour"] is False
-    assert not any("/compare/" in a for a in appels)
-
-
-def test_on_ne_verifie_pas_plus_d_une_fois_par_minute(version, monkeypatch):
-    faux, appels = _faux_github(runs={"workflow_runs": [{"head_sha": INSTALLEE, "updated_at": ""}]})
-    monkeypatch.setattr(app, "_github", faux)
-    version.post("/api/version/verifier")
-    version.post("/api/version/verifier")
-    assert len(appels) == 1
-
-
-def test_la_verification_se_coupe(version, monkeypatch):
-    monkeypatch.setattr(app, "VERIFIER_MAJ", False)
-    faux, appels = _faux_github()
-    monkeypatch.setattr(app, "_github", faux)
-    assert version.post("/api/version/verifier").status_code == 400
-    assert version.get("/api/version").get_json()["verification"] is False
-    assert not appels
-
-
-def test_la_version_est_reservee_a_l_administrateur(version):
+    d = admin.get("/api/version").get_json()
+    assert d["dev"] is True and d["sha"] == "" and d["court"] == ""
     marie = _connexion_marie(app.flask_app.test_client())
     assert marie.get("/api/version").status_code in (401, 403)
-    assert marie.post("/api/version/verifier").status_code in (401, 403)
+
+
+def test_le_panneau_ne_contacte_jamais_github():
+    """Aucun appel sortant pour la version : ni fonction qui interroge
+    l'API, ni boucle de verification, ni route pour la declencher."""
+    source = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    assert "api.github.com" not in source
+    for trace in ("def verifier_mise_a_jour", "_github(", "/api/version/verifier",
+                  "APP_MANAGER_VERIFIER_MAJ"):
+        assert trace not in source, trace
+    page = _page_panneau("dashboard.html")
+    assert "/api/version/verifier" not in page and "maj-dispo" not in page
 
 
 def test_l_image_porte_sa_version_et_la_ci_la_pose():
@@ -15125,12 +15047,12 @@ def test_l_image_porte_sa_version_et_la_ci_la_pose():
     assert "CODELAB_VERSION_DATE=${{ steps.version.outputs.date }}" in ci
 
 
-def test_le_panneau_montre_la_version_et_le_point_sur_l_avatar():
+def test_les_parametres_montrent_la_version_et_comment_mettre_a_jour():
     page = _page_panneau("dashboard.html")
     serveur = page.split('<div class="onglet-p" id="param-serveur">')[1].split('<div class="onglet-p"')[0]
-    assert 'id="ver-carte"' in serveur and "Vérifier maintenant" in serveur
+    assert 'id="ver-carte"' in serveur
     peint = page.split("function peindreVersion(d){")[1].split("\n}")[0]
-    assert "$('acct-btn').classList.toggle('maj-dispo', !!d.mise_a_jour);" in peint
-    assert "COMMANDES_MAJ" in peint and "Nouveautés" in peint
-    assert "if(estAdmin) chargerVersion();" in page
-    assert ".acct-btn.maj-dispo::after{" in page
+    # Le lien des nouveautes : c'est le navigateur qui l'ouvre, sur un clic.
+    assert "/compare/${esc(d.sha)}...main" in peint
+    assert "COMMANDES_MAJ" in peint and "ver-copier" in peint
+    assert "chargerVersion();" in page.split("if(o==='serveur' && estAdmin)")[1].split("\n")[0]

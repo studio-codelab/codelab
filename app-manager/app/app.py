@@ -5267,131 +5267,35 @@ def api_sauvegardes_copie():
     return jsonify(etat_des_sauvegardes())
 
 
-# ------------------- la version de CodeLab, et la suivante -------------------
+# ------------------------- la version de CodeLab -------------------------
 #
-# Rien ne disait quelle version tournait, ni qu'une plus recente existait :
-# « je ne vois pas les modifs » voulait souvent dire « l'image n'a pas ete
-# retiree ». L'image porte son commit (CODELAB_VERSION, pose par la CI au
-# build) ; une fois par jour, le panneau demande a GitHub quelle est la
-# derniere image PUBLIEE -- le dernier build reussi sur main, pas le dernier
-# commit, qui peut n'avoir rien reconstruit -- et ce qui a ete fusionne
-# entre les deux.
+# Rien ne disait quelle version tournait : « je ne vois pas les modifs »
+# voulait souvent dire « l'image n'a pas ete retiree ». L'image porte son
+# commit et sa date (CODELAB_VERSION, CODELAB_VERSION_DATE, poses par la CI
+# au build) ; Parametres > Serveur les affiche.
 #
-# Le panneau ne se met PAS a jour lui-meme : il lui faudrait le socket
-# Docker, c'est-a-dire les droits root sur le serveur. Il dit quoi lancer.
-# APP_MANAGER_VERIFIER_MAJ=0 coupe la verification (aucun appel sortant).
+# AUCUN APPEL SORTANT : le panneau ne demande pas a GitHub s'il existe plus
+# recent. C'est un choix -- un serveur qui contacte l'exterieur de lui-meme
+# est un risque a prendre sans necessite. La page propose un lien vers les
+# nouveautes ; c'est le navigateur de l'administrateur qui l'ouvre, s'il le
+# veut.
 
 CODELAB_VERSION = os.environ.get("CODELAB_VERSION", "").strip()
 CODELAB_VERSION_DATE = os.environ.get("CODELAB_VERSION_DATE", "").strip()
-DEPOT_CODELAB = os.environ.get("APP_MANAGER_DEPOT", "studio-codelab/codelab").strip()
-VERIFIER_MAJ = os.environ.get("APP_MANAGER_VERIFIER_MAJ", "1") != "0"
-MAJ_INTERVALLE = 24 * 3600
-_maj = {"verifie_le": 0, "disponible": None, "statut": "", "retard": 0,
-        "nouveautes": [], "erreur": ""}
-_maj_verrou = threading.Lock()
+DEPOT_CODELAB = "studio-codelab/codelab"
 SHA_VALIDE = re.compile(r"^[0-9a-f]{40}$")
 
 
-def _github(chemin):
-    req = urllib.request.Request(
-        "https://api.github.com" + chemin,
-        headers={"Accept": "application/vnd.github+json", "User-Agent": "CodeLab"})
-    with urllib.request.urlopen(req, timeout=10) as r:
-        return json.loads(r.read().decode("utf-8"))
-
-
-def nouveautes_entre(commits):
-    """Les pull requests fusionnees, par leur titre ; a defaut (commits
-    poses directement sur main), la premiere ligne de chaque commit."""
-    fusions = []
-    for c in commits:
-        message = (c.get("commit") or {}).get("message") or ""
-        m = re.match(r"Merge pull request #(\d+)", message)
-        if m:
-            titre = (message.split("\n\n", 1) + [""])[1].strip().splitlines()
-            fusions.append({"numero": int(m.group(1)),
-                            "titre": (titre[0] if titre else message.splitlines()[0])[:200]})
-    if fusions:
-        return list(reversed(fusions))
-    return [{"numero": None, "titre": ((c.get("commit") or {}).get("message") or "").splitlines()[0][:200]}
-            for c in reversed(commits) if (c.get("commit") or {}).get("message")]
-
-
-def verifier_mise_a_jour():
-    """Interroge GitHub et met _maj a jour. Ne leve jamais."""
-    etat = {"verifie_le": int(time.time()), "disponible": None, "statut": "",
-            "retard": 0, "nouveautes": [], "erreur": ""}
-    try:
-        runs = _github(f"/repos/{DEPOT_CODELAB}/actions/workflows/build-images.yml/runs"
-                       "?branch=main&status=success&event=push&per_page=1")
-        run = (runs.get("workflow_runs") or [None])[0]
-        if not run:
-            raise ValueError("aucune image publiée trouvée")
-        etat["disponible"] = {"sha": run["head_sha"], "date": run.get("updated_at") or ""}
-        if SHA_VALIDE.match(CODELAB_VERSION):
-            if CODELAB_VERSION == run["head_sha"]:
-                etat["statut"] = "identical"
-            else:
-                cmp = _github(f"/repos/{DEPOT_CODELAB}/compare/{CODELAB_VERSION}...{run['head_sha']}")
-                etat["statut"] = cmp.get("status") or ""
-                if etat["statut"] in ("ahead", "diverged"):
-                    # Le retard se compte en CHANGEMENTS (une pull request
-                    # fusionnee = un), pas en commits : une PR en porte souvent
-                    # plusieurs, plus celui de la fusion.
-                    nouveautes = nouveautes_entre(cmp.get("commits") or [])
-                    etat["retard"] = len(nouveautes) or int(cmp.get("ahead_by") or 0)
-                    etat["nouveautes"] = nouveautes[:30]
-    except Exception as e:                                        # noqa: BLE001
-        etat["erreur"] = f"GitHub injoignable ({type(e).__name__})."
-    with _maj_verrou:
-        _maj.update(etat)
-    return etat
-
-
 def etat_de_la_version():
-    with _maj_verrou:
-        maj = dict(_maj)
     dev = not SHA_VALIDE.match(CODELAB_VERSION)
-    return {
-        "installee": {"sha": CODELAB_VERSION, "court": CODELAB_VERSION[:7] if not dev else "",
-                      "date": CODELAB_VERSION_DATE, "dev": dev},
-        "disponible": maj["disponible"],
-        "a_jour": (not dev and maj["statut"] in ("identical", "behind")),
-        "mise_a_jour": (not dev and maj["statut"] in ("ahead", "diverged") and maj["retard"] > 0),
-        "retard": maj["retard"], "nouveautes": maj["nouveautes"],
-        "verifie_le": maj["verifie_le"], "erreur": maj["erreur"],
-        "verification": VERIFIER_MAJ, "depot": DEPOT_CODELAB,
-    }
+    return {"sha": "" if dev else CODELAB_VERSION, "court": "" if dev else CODELAB_VERSION[:7],
+            "date": CODELAB_VERSION_DATE, "dev": dev, "depot": DEPOT_CODELAB}
 
 
 @flask_app.get("/api/version")
 @require_admin
 def api_version():
     return jsonify(etat_de_la_version())
-
-
-@flask_app.post("/api/version/verifier")
-@require_admin
-def api_version_verifier():
-    """Verifier maintenant. Une fois par minute au plus : l'API de GitHub
-    limite les appels anonymes a soixante par heure."""
-    if not VERIFIER_MAJ:
-        return jsonify({"error": "La vérification est coupée (APP_MANAGER_VERIFIER_MAJ=0)."}), 400
-    if time.time() - _maj["verifie_le"] >= 60:
-        verifier_mise_a_jour()
-    return jsonify(etat_de_la_version())
-
-
-def demarrer_la_verification_des_mises_a_jour():
-    if not VERIFIER_MAJ:
-        return
-
-    def _boucle():
-        time.sleep(60)          # le panneau d'abord, GitHub ensuite
-        while True:
-            verifier_mise_a_jour()
-            time.sleep(MAJ_INTERVALLE)
-    threading.Thread(target=_boucle, daemon=True).start()
 
 
 def demarrer_les_sauvegardes():
@@ -12895,5 +12799,4 @@ if __name__ == "__main__":
     demarrer_miroir_pg()
     demarrer_les_sauvegardes()
     demarrer_la_surveillance_externe()
-    demarrer_la_verification_des_mises_a_jour()
     servir(int(os.environ.get("MANAGER_PORT", "9001")))

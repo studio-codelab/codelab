@@ -415,10 +415,9 @@ Détails : [`README.md`](README.md).
 - **Secrets générés au premier démarrage** dans `credentials.env`, un bloc par service.
 - **Images publiées sur GHCR** : `latest` à chaque fusion, version `X.Y.Z` à chaque tag `vX.Y.Z`,
   reconstruction hebdomadaire.
-- **Version et mises à jour** (*Paramètres > Serveur*, administrateur) : la version installée (le commit
-  de l'image et sa date), la dernière publiée, les nouveautés entre les deux (les pull requests
-  fusionnées) et les commandes à lancer, à copier d'un clic. Vérifié chaque jour auprès de GitHub, ou
-  à la demande ; un point sur l'avatar signale une mise à jour. Le panneau ne se met pas à jour lui-même
-  (il lui faudrait les droits root du serveur). `APP_MANAGER_VERIFIER_MAJ=0` coupe la vérification.
+- **Version installée** (*Paramètres > Serveur*, administrateur) : le commit de l'image et sa date, un
+  lien vers les nouveautés depuis cette version sur GitHub, et les commandes de mise à jour à copier
+  d'un clic. **Le panneau ne contacte jamais GitHub** de lui-même (aucun appel sortant) : le lien
+  s'ouvre dans le navigateur, si on le choisit. Il ne se met pas non plus à jour tout seul.
 - **Squelette de `/workspace`** déposé au premier démarrage. Ses fichiers non modifiés sont mis à jour
   automatiquement.
