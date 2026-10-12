@@ -6,12 +6,6 @@
    ci-dessous change la couleur, l'arrondi ou la taille correspondante dans les
    deux pages -- connexion et panneau -- d'un coup.
 
-   Avant, ces memes valeurs etaient recopiees SIX fois : trois blocs par page
-   (clair, sombre automatique, sombre choisi), dans dashboard.html et dans
-   login.html. Changer un gris demandait six retouches identiques, et il
-   suffisait d'en oublier une pour que le theme sombre parte de travers sans
-   que rien ne le signale.
-
    COMMENT REPEINDRE LE PANNEAU
    ---------------------------
    1. La couleur d'action  -> --accent (et --accent-h, --accent-soft).
@@ -326,6 +320,14 @@
   :root[data-variante="bento"][data-couleurs="ardoise"]:not([data-theme="light"]):not([data-theme="dark"]){--accent:#CBD5E1; --accent-h:#E2E8F0; --accent-soft:rgba(203,213,225,.14); --accent-ring:rgba(203,213,225,.3); --sur-accent:#0F172A; --bento-lien:#334155;}
 }
 :root[data-variante="bento"][data-couleurs="ardoise"][data-theme="dark"]{--accent:#CBD5E1; --accent-h:#E2E8F0; --accent-soft:rgba(203,213,225,.14); --accent-ring:rgba(203,213,225,.3); --sur-accent:#0F172A; --bento-lien:#334155;}
+
+
+/* ------------------------- aucune barre de defilement -------------------------
+   Sur ordinateur, tablette et telephone : on defile a la molette, au pave
+   tactile ou au doigt, et la page ne porte jamais de gouttiere grise. Ce qui
+   defile reste defilable -- seule la barre disparait. */
+*{scrollbar-width:none}
+*::-webkit-scrollbar{display:none}
 
 
 /* ------------------------------ mode application ------------------------------

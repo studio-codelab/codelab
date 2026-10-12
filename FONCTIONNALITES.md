@@ -95,13 +95,18 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
   nouveau commit dans son dépôt git. Une application jamais ouverte n'en porte pas.
 - **Thème clair, sombre ou automatique.** Les jetons de couleur vivent dans
   `app-manager/app/theme.css`, aussi servi aux applications sur `/theme.css`.
-- **Installable sur l'écran d'accueil** d'un téléphone (manifeste web et icônes fournis).
+- **Installable sur l'écran d'accueil** d'un téléphone ou d'une tablette (manifeste web et icônes fournis).
 - **Comportement d'application** une fois ouvert depuis l'icône : pas de zoom (ni pince, ni double
   tape, ni zoom à la saisie), pas de rebond en bout de page, pas de surlignage au toucher ni de
   sélection de texte sur l'interface (les champs et les messages restent copiables), et la barre d'état
   prend la couleur du bandeau, thème clair ou sombre, au lieu d'une bande blanche.
   - **Écran de démarrage** : fond de la couleur du bandeau et logo, au lieu d'un écran blanc ; une
-    image par taille d'iPhone, clair et sombre, fabriquée par le panneau.
+    image par taille d'iPhone et d'iPad (l'iPad debout comme couché), clair et sombre, fabriquée par
+    le panneau.
+  - **Tablette** : en portrait, le hub défile vers le bas comme un écran d'accueil ; en paysage, il
+    suit le réglage « Défilement ».
+  - **Aucune barre de défilement visible**, sur ordinateur, tablette et téléphone : on défile à la
+    molette, au pavé ou au doigt.
   - **Hors ligne** : l'application s'ouvre quand même, sur « Serveur injoignable », retente toutes les
     5 s et revient d'elle-même. Rien n'est mis en cache que cette page (ni pages du panneau, ni
     données). Il faut une adresse en `https` (ou `localhost`) : c'est une exigence des navigateurs.

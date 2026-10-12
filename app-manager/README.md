@@ -276,8 +276,8 @@ Au premier lancement, le mot de passe administrateur apparaît dans `docker logs
 **Style et réglages** : un seul style (`data-style="design" data-variante="bento"`). Le cookie
 `codelab-hub` (valeurs séparées par des points, ex. `icones.vertical.prune`) est lu par le serveur
 (`REGLAGES_HUB`), qui pose `data-tuiles`, `data-defilement`, `data-widgets` et `data-couleurs` sur
-`<html>` avant le premier affichage ; rien d'inconnu n'est recopié. Sans ce cookie, l'ancien
-`codelab-style=lanceur` donne icônes, vertical, widgets en haut.
+`<html>` avant le premier affichage ; rien d'inconnu n'est recopié. Un écran en portrait (tablette
+debout) défile toujours vers le bas : la page pose alors la classe `hub-vertical`.
 
 **Conventions de l'interface** :
 - jamais d'`alert()`, `confirm()` ni `prompt()` : une confirmation dont le bouton porte le verbe, et

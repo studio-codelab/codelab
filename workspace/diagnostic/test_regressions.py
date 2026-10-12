@@ -13346,13 +13346,10 @@ def test_le_hub_se_regle_et_le_serveur_ne_pose_que_des_valeurs_connues(deux_espa
     assert 'data-tuiles="cartes"' in tete
     c.set_cookie("codelab-hub", "")
     assert DEFAUT_HTML in c.get("/login").get_data(as_text=True)
-    # Qui avait choisi l'ancien lanceur le retrouve tel quel, tant qu'il n'a
-    # rien regle depuis.
+    # L'ancien cookie codelab-style n'est plus lu : les reglages par defaut.
     c.delete_cookie("codelab-hub")
     c.set_cookie("codelab-style", "lanceur")
-    tete = c.get("/login").get_data(as_text=True)[:400]
-    for cle, valeur in app.REGLAGES_LANCEUR.items():
-        assert f'data-{cle}="{valeur}"' in tete, cle
+    assert DEFAUT_HTML in c.get("/login").get_data(as_text=True)
     c.set_cookie("codelab-hub", "cartes")
     assert 'data-tuiles="cartes"' in c.get("/login").get_data(as_text=True)[:400]
 
@@ -13427,15 +13424,19 @@ def test_les_widgets_en_haut_ont_leur_grille():
 
 
 def test_le_defilement_vertical_laisse_la_page_defiler():
-    """Defilement VERTICAL sur un grand ecran : la grille remplit la
+    """Defilement VERTICAL sur un grand ecran -- choisi, ou impose par un
+    ecran en portrait (une tablette tenue droite) : la grille remplit la
     largeur et la page defile vers le bas ; pas de hauteur imposee, pas de
     molette detournee, et pres du bas la page defile pendant un glisser."""
     page = _page_panneau("dashboard.html")
-    assert ':root[data-variante="bento"]:not([data-defilement="vertical"]).hub-actif{overflow:hidden}' in page
-    regle = page.split(':root[data-defilement="vertical"] .hub-grille{')[1].split("}")[0]
-    assert "grid-auto-flow:row" in regle and "repeat(auto-fill,var(--cel))" in regle
-    assert ':root[data-defilement="vertical"] #hub-liste.bento{height:auto;overflow:visible' in page
-    assert "function horizontal(){ return !ecranMobile() && reglageHub('defilement')==='horizontal'; }" in page
+    sens = page.split("function majSensDuHub(){")[1].split("\n}")[0]
+    assert "r.getAttribute('data-defilement') === 'vertical'" in sens
+    assert "matchMedia('(orientation: portrait)').matches" in sens
+    assert ':root[data-variante="bento"]:not(.hub-vertical).hub-actif{overflow:hidden}' in page
+    regle = page.split(':root.hub-vertical .hub-grille{')[1].split("}")[0]
+    assert "grid-auto-flow:row" in regle and "repeat(auto-fill,minmax(var(--cel),1fr))" in regle
+    assert ':root.hub-vertical #hub-liste.bento{height:auto;overflow:visible' in page
+    assert "function horizontal(){ return !ecranMobile() && !document.documentElement.classList.contains('hub-vertical'); }" in page
     ajuster = page.split("function ajusterBento(")[1].split("\n}")[0]
     assert "if(!horizontal()){ el.style.removeProperty('--bento-h')" in ajuster
     bords = page.split("function defilerPresDesBords(")[1].split("\n}")[0]
@@ -14946,14 +14947,24 @@ def test_chaque_tuile_porte_trois_points_qui_ouvrent_son_menu():
 
 def test_un_appui_long_ouvre_le_menu_en_feuille():
     page = _page_panneau("dashboard.html")
-    appui = page.split("let appuiLong=null, appuiLongFait=false;")[1].split("/* Le clic droit")[0]
-    assert "document.addEventListener('click', e=>{\n  if(!appuiLongFait)" in appui
+    appui = page.split("let appuiLong=null, avalerClicJusqua=0;")[1].split("/* Le clic droit")[0]
+    # Vecu : « je dois cliquer plusieurs fois en dehors pour sortir de la pop
+    # up ». Le clic du relachement n'arrive pas toujours : un drapeau qui
+    # l'attendait avalait le toucher suivant. Seul un clic DANS L'INSTANT
+    # qui suit le relachement est avale.
+    assert "if(appuiLong.fait) avalerClicJusqua=performance.now()+400;" in appui
+    assert "if(performance.now() > avalerClicJusqua) return;" in appui
+    assert "appuiLongFait" not in page
+    # Le fond du menu a son propre ecouteur (Safari iOS ne remonte pas le
+    # toucher d'un simple <div> jusqu'au document).
+    assert "document.querySelector('#menu-app .menu-app-fond').addEventListener('click'" in appui
+    assert 'class="menu-app-fond" data-agir' not in page
     assert "e.pointerType!=='touch' || hubEdition" in appui
     assert "ouvrirMenuApp(t.dataset.app, 'feuille')" in appui
     # Le doigt qui defile annule ; le relachement n'ouvre pas l'application.
     assert "> 10" in appui and "clearTimeout" in appui
     assert "e.stopImmediatePropagation()" in appui
-    assert "#hub-liste [data-app]{-webkit-touch-callout:none}" in page
+    assert "#hub-liste [data-app]{-webkit-touch-callout:none;" in page
     assert "$('hub-liste').addEventListener('contextmenu'" in page
 
 
@@ -15418,10 +15429,29 @@ def test_l_ecran_de_demarrage_est_fabrique_au_pixel_pres(hub):
 @pytest.mark.parametrize("page", ["dashboard.html", "login.html", "messages.html"])
 def test_chaque_page_declare_ses_ecrans_de_demarrage(page):
     html = _page_panneau(page)
-    for w, h, d in app.ECRANS_DEMARRAGE:
+    # Posees par le serveur : la page source n'en porte que la marque.
+    assert "__ECRANS_DEMARRAGE__" in html and 'rel="apple-touch-startup-image"' not in html
+    with app.flask_app.test_request_context("/"):
+        servie = app.avec_style(html)
+    for w, h in app.IMAGES_DEMARRAGE:
         for theme in ("clair", "sombre"):
-            assert f'href="/ecran-demarrage/{w * d}x{h * d}-{theme}.png"' in html, (w, h, d, theme)
-    assert html.count('rel="apple-touch-startup-image"') == 2 * len(app.ECRANS_DEMARRAGE)
+            assert f'href="/ecran-demarrage/{w}x{h}-{theme}.png"' in servie, (w, h, theme)
+    assert servie.count('rel="apple-touch-startup-image"') == 2 * len(app.IMAGES_DEMARRAGE)
+
+
+def test_l_ipad_a_ses_ecrans_de_demarrage_dans_les_deux_sens():
+    """Vecu : « Assure-toi que le rendu fonctionne bien comme une app sur
+    tablette aussi. » Un iPad ouvre l'application debout ou couche : une
+    image pour chaque sens, au pixel pres."""
+    images = app.IMAGES_DEMARRAGE
+    assert (1640, 2360) in images and (2360, 1640) in images        # iPad Air 11 pouces
+    assert "(orientation: landscape)" in images[(2360, 1640)][1]
+    assert (2752, 2064) in images                                    # iPad Pro 13 pouces
+    # Un iPhone, lui, ne demarre qu'en portrait.
+    assert (2796, 1290) not in images
+    import struct
+    png = app.ecran_de_demarrage(2360, 1640, "sombre")
+    assert struct.unpack(">II", png[16:24]) == (2360, 1640)
 
 
 def test_hors_ligne_l_application_s_ouvre_sur_une_page_de_reserve(hub):

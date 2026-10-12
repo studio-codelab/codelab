@@ -10447,11 +10447,35 @@ def ecran_accueil_icone():
 # pixel pres, en Python pur -- fond de la couleur du bandeau, logo au centre
 # -- et les garde en memoire. Clair et sombre.
 ECRANS_DEMARRAGE = {
-    # (largeur, hauteur) en points, densite : les iPhone depuis le SE.
+    # (largeur, hauteur) en points, portrait, densite. Les iPhone depuis le
+    # SE...
     (320, 568, 2), (375, 667, 2), (414, 896, 2), (375, 812, 3), (414, 896, 3),
     (390, 844, 3), (428, 926, 3), (393, 852, 3), (430, 932, 3), (402, 874, 3),
     (440, 956, 3), (360, 780, 3),
+    # ... et les iPad, du mini au Pro 13 pouces.
+    (744, 1133, 2), (768, 1024, 2), (810, 1080, 2), (820, 1180, 2),
+    (834, 1112, 2), (834, 1194, 2), (834, 1210, 2), (1024, 1366, 2),
+    (1032, 1376, 2),
 }
+# Une tablette s'ouvre aussi bien couchee : les iPad ont aussi leur image en
+# paysage. Un iPhone, lui, demarre toujours en portrait.
+def _orientations(largeur):
+    return ("portrait", "landscape") if largeur >= 744 else ("portrait",)
+
+
+def _images_de_demarrage():
+    """{(largeur, hauteur) en pixels: (densite, orientation, media)}."""
+    images = {}
+    for w, h, d in ECRANS_DEMARRAGE:
+        for orientation in _orientations(w):
+            taille = (w * d, h * d) if orientation == "portrait" else (h * d, w * d)
+            media = (f"screen and (device-width: {w}px) and (device-height: {h}px) and "
+                     f"(-webkit-device-pixel-ratio: {d}) and (orientation: {orientation})")
+            images[taille] = (d, media)
+    return images
+
+
+IMAGES_DEMARRAGE = _images_de_demarrage()
 FONDS_DEMARRAGE = {"clair": (0xE9, 0xEB, 0xEE), "sombre": (0x0D, 0x10, 0x15)}
 _ecrans_faits = {}
 
@@ -10526,7 +10550,8 @@ def ecran_de_demarrage(largeur, hauteur, theme):
         fond = FONDS_DEMARRAGE[theme]
         lw, lh, logo = _png_lire_rgba(ICONE_CODELAB_PNG)
         # Le logo fait environ 90 points de large, quelle que soit la densite.
-        facteur = max(1, round(largeur / 1290 * 3 * 90 / lw * 10) / 10)
+        densite = IMAGES_DEMARRAGE[(largeur, hauteur)][0]
+        facteur = max(1, round(densite * 90 / lw * 10) / 10)
         lw, lh, logo = _agrandir(lw, lh, logo, facteur)
         ligne_fond = bytes(fond) * largeur
         x0, y0 = (largeur - lw) // 2, (hauteur - lh) // 2
@@ -10550,8 +10575,7 @@ def ecran_de_demarrage(largeur, hauteur, theme):
 
 @flask_app.get("/ecran-demarrage/<int:largeur>x<int:hauteur>-<theme>.png")
 def ecran_demarrage(largeur, hauteur, theme):
-    tailles = {(w * d, h * d) for w, h, d in ECRANS_DEMARRAGE}
-    if (largeur, hauteur) not in tailles or theme not in FONDS_DEMARRAGE:
+    if (largeur, hauteur) not in IMAGES_DEMARRAGE or theme not in FONDS_DEMARRAGE:
         return Response("Inconnu", status=404, mimetype="text/plain")
     r = Response(ecran_de_demarrage(largeur, hauteur, theme), mimetype="image/png")
     r.headers["Cache-Control"] = "public, max-age=86400"
@@ -10560,15 +10584,14 @@ def ecran_demarrage(largeur, hauteur, theme):
 
 def balises_ecran_de_demarrage():
     """Les <link rel="apple-touch-startup-image"> des pages du panneau."""
-    liens = []
-    for w, h, d in sorted(ECRANS_DEMARRAGE):
-        for theme, schema in (("clair", "light"), ("sombre", "dark")):
-            liens.append(
-                f'<link rel="apple-touch-startup-image" media="screen and (device-width: {w}px) '
-                f'and (device-height: {h}px) and (-webkit-device-pixel-ratio: {d}) and '
-                f'(orientation: portrait) and (prefers-color-scheme: {schema})" '
-                f'href="/ecran-demarrage/{w * d}x{h * d}-{theme}.png">')
-    return "".join(liens)
+    return "\n".join(
+        f'<link rel="apple-touch-startup-image" media="{media} and '
+        f'(prefers-color-scheme: {schema})" href="/ecran-demarrage/{w}x{h}-{theme}.png">'
+        for (w, h), (_, media) in sorted(IMAGES_DEMARRAGE.items())
+        for theme, schema in (("clair", "light"), ("sombre", "dark")))
+
+
+BALISES_ECRAN_DE_DEMARRAGE = balises_ecran_de_demarrage()
 
 
 # HORS LIGNE, L'APPLICATION S'OUVRE QUAND MEME. Sans serveur (ou sans
@@ -10786,11 +10809,10 @@ def login_page(invitation=False):
     return Response(avec_style(page), mimetype="text/html")
 
 
-# UN SEUL STYLE, QUI SE REGLE. Les anciens « lanceur » et « bento » ne
-# differaient que par quelques choix ; chacun est desormais un reglage,
-# pose en attribut sur <html> (data-tuiles, data-defilement...). La
-# premiere valeur de chaque reglage est celle par defaut. Le fond et les
-# surfaces restent ceux du bento (data-variante="bento", theme.css).
+# LES REGLAGES DU HUB, poses en attribut sur <html> (data-tuiles,
+# data-defilement...). La premiere valeur de chaque reglage est celle par
+# defaut. Le fond et les surfaces sont ceux de data-variante="bento"
+# (theme.css).
 REGLAGES_HUB = {
     "tuiles": ("cartes", "icones"),
     "defilement": ("horizontal", "vertical"),
@@ -10799,8 +10821,6 @@ REGLAGES_HUB = {
     # actif), en clair comme en sombre. Jetons dans theme.css.
     "couleurs": ("lagon", "ocean", "foret", "prune", "corail", "ardoise"),
 }
-# Qui avait choisi l'ancien lanceur le retrouve tel quel.
-REGLAGES_LANCEUR = {"tuiles": "icones", "defilement": "vertical", "widgets": "haut"}
 
 
 def reglages_du_hub():
@@ -10810,14 +10830,10 @@ def reglages_du_hub():
     (« icones.vertical.haut ») : chaque valeur n'appartient qu'a un
     reglage, l'ordre est libre. Rien d'inconnu n'est retenu -- le cookie
     vient du client, et seules les valeurs de REGLAGES_HUB arrivent dans
-    la page. Sans cookie, l'ancien codelab-style=lanceur est repris.
+    la page.
     """
     reglages = {cle: valeurs[0] for cle, valeurs in REGLAGES_HUB.items()}
-    brut = request.cookies.get("codelab-hub")
-    if brut is None:
-        if request.cookies.get("codelab-style") == "lanceur":
-            reglages.update(REGLAGES_LANCEUR)
-        return reglages
+    brut = request.cookies.get("codelab-hub") or ""
     for valeur in brut.split(".")[:len(REGLAGES_HUB)]:
         for cle, valeurs in REGLAGES_HUB.items():
             if valeur in valeurs:
@@ -10826,14 +10842,16 @@ def reglages_du_hub():
 
 
 def avec_style(page):
-    """Pose le style et les reglages du hub sur la page servie.
+    """Pose le style, les reglages du hub et les ecrans de demarrage sur la
+    page servie.
 
     Pose cote serveur, l'attribut est la avant la premiere peinture : la
     page ne change pas de forme le temps que son script le lise.
     """
     attributs = ' data-style="design" data-variante="bento"' + "".join(
         f' data-{cle}="{valeur}"' for cle, valeur in reglages_du_hub().items())
-    return page.replace('<html lang="fr">', '<html lang="fr"' + attributs + '>', 1)
+    return (page.replace('<html lang="fr">', '<html lang="fr"' + attributs + '>', 1)
+            .replace("__ECRANS_DEMARRAGE__", BALISES_ECRAN_DE_DEMARRAGE, 1))
 
 
 # LES PAGES DU PANNEAU ONT CHACUNE LEUR ADRESSE. Recharger les parametres
@@ -11762,7 +11780,6 @@ def api_message_accepter(identifiant):
 #
 # Un compte ne voit que SES messages, et de leurs taches seulement le titre
 # et si elle est faite : ni les notes, ni le reste du planning.
-ETAPES_SUIVI = ("envoye", "lu", "etude", "planifie", "en_cours", "fait", "refuse")
 
 
 def suivi_message(m, taches, projets):
@@ -12491,7 +12508,6 @@ WIDGETS = {
     "apercu": {"titre": "Aperçu", "portee": "app", "tailles": ("moyen", "grand"),
                "description": "La page d'une application, en direct."},
 }
-TAILLES_WIDGET = ("petit", "moyen", "grand")
 DISPOSITION_MAX = 300
 # Avant la composition, un compte ne choisissait que ses widgets : on en
 # garde ce qui a encore un sens.
