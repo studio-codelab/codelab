@@ -273,9 +273,11 @@ docker run --rm -p 9001:9001 -p 9002:9002 \
 
 Au premier lancement, le mot de passe administrateur apparaît dans `docker logs`.
 
-**Styles** : le cookie `codelab-style` (`lanceur` ou `bento`) est lu par le serveur
-(`STYLES_PAGE`), qui pose `data-style="design"` et `data-variante` sur `<html>` avant le premier
-affichage. Sans cookie, ou avec celui d'un ancien style, c'est `bento`.
+**Style et réglages** : un seul style (`data-style="design" data-variante="bento"`). Le cookie
+`codelab-hub` (valeurs séparées par des points, ex. `icones.vertical.prune`) est lu par le serveur
+(`REGLAGES_HUB`), qui pose `data-tuiles`, `data-defilement`, `data-widgets` et `data-couleurs` sur
+`<html>` avant le premier affichage ; rien d'inconnu n'est recopié. Sans ce cookie, l'ancien
+`codelab-style=lanceur` donne icônes, vertical, widgets en haut.
 
 **Conventions de l'interface** :
 - jamais d'`alert()`, `confirm()` ni `prompt()` : une confirmation dont le bouton porte le verbe, et

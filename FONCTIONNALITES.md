@@ -25,7 +25,7 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
 
 | Page | Adresse | Pour qui | Ce qu'on y fait |
 |---|---|---|---|
-| Hub | `/` | tous | les applications ouvrables, et (style Bento) une mosaïque à composer, avec ses widgets ; laisser un message à l'administrateur |
+| Hub | `/` | tous | les applications ouvrables, une mosaïque à composer, avec ses widgets ; laisser un message à l'administrateur |
 | Vue d'ensemble | `/apercu` | admin | compteurs (en ligne, arrêtées, en erreur), charge CPU et mémoire |
 | Applications | `/applications`, `/applications/<nom>[/<onglet>]` | admin | liste, puis fiche d'une application |
 | Utilisateurs | `/utilisateurs` | admin | comptes, invitations, journal des accès, carte d'activité |
@@ -43,20 +43,25 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
     confirmation.
   - **Serveur injoignable** : un bandeau le dit, la page garde ce qu'elle affiche, retente toutes les
     5 s et se remet à jour au retour.
-  - « Lanceur » : le hub comme un écran d'accueil (trame de points, bonjour en grand, recherche au
-    centre, grandes icônes cerclées si l'application ne répond pas). Dagster, Mailpit et Messages y
-    ont la même tuile que les autres applications. **Des widgets** au-dessus des icônes : les mêmes
-    que ceux du Bento (la disposition suit le compte d'un style à l'autre), dans une grille centrée
-    (une colonne de deux sur téléphone), et masqués pendant une recherche. L'icône discrète à droite
-    de la recherche passe en mode Modifier : « + » ouvre la galerie, chaque widget porte « − », ses
-    tailles et ses flèches pour changer de place ;
-  - **Le menu d'une application**, dans les deux styles : trois petits points dans le coin de la
-    tuile à la souris (au survol de l'icône dans le style Lanceur), un appui long au doigt (le menu
+  - **Un seul style, qui se règle** (Paramètres › Compte › Apparence) — les anciens « Lanceur » et
+    « Bento » n'en diffèrent que par ces réglages, gardés dans un cookie et posés par le serveur avant
+    le premier affichage :
+    - **Applications** : en *cartes* (nom, état, description) ou en *icônes* seules, comme un écran
+      d'accueil (cerclées si l'application ne répond pas ; un widget y prend 2×2, 4×2 ou 4×4 cases) ;
+    - **Défilement** (grand écran) : *horizontal* (la mosaïque défile de côté, la page jamais vers
+      le bas) ou *vertical* (la grille remplit la largeur, la page défile) ; le téléphone défile
+      toujours vers le bas ;
+    - **Widgets** : *mêlés* aux applications, ou *en haut*, dans leur propre grille ;
+    - **Couleurs** : un nuancier pour la couleur d'accent (Lagon, Océan, Forêt, Prune, Corail,
+      Ardoise), en clair comme en sombre.
+    Qui avait choisi le Lanceur retrouve icônes, défilement vertical et widgets en haut.
+  - **Le menu d'une application** : trois petits points dans le coin de la
+    tuile à la souris (au survol de l'icône en mode icônes), un appui long au doigt (le menu
     s'ouvre alors en bas de l'écran), ou le clic droit. Il propose : Ouvrir, Voir la présentation
     (si le projet a une vidéo), Copier le lien, Réglages de l'application (admin) et Masquer du hub.
     Un simple clic ou un simple toucher sur la tuile ouvre toujours l'application.
-  - « Bento » (par défaut) : le hub en mosaïque.
-    - **Sur un écran large**, elle défile à l'horizontale et jamais à la verticale : trois rangées à
+  - La mosaïque :
+    - **Sur un écran large** (défilement horizontal), elle défile de côté et jamais à la verticale : trois rangées à
       la hauteur de la fenêtre, et chaque application ajoute une colonne à droite. La molette fait
       défiler de côté. La recherche est à droite de l'en-tête. On n'ajoute pas d'application depuis
       le hub (c'est l'onglet *Applications*).
@@ -67,12 +72,13 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
     - **Réorganiser le hub** (une icône discrète à droite de la recherche ; *Terminé* ou Échap pour
       sortir) : les tuiles tremblent légèrement ; on en attrape une (au doigt, après un appui de
       0,35 s : elle se soulève, le téléphone vibre ; un doigt qui glisse tout de suite fait défiler
-      la page), elle suit le doigt ou la souris,
+      la page), elle suit le doigt ou la souris, en cartes comme en icônes,
       et les autres glissent pour lui faire place à mesure qu'elle passe ; près d'un bord, la
       mosaïque défile seule. Chaque tuile porte un « − » (retirer un widget, masquer une
       application) ; un widget a ses tailles (petit, moyen, grand) ; au clavier, des flèches
       apparaissent sur la tuile qui a le focus. La disposition (applications et widgets mêlés) est
-      gardée côté serveur, d'un appareil à l'autre.
+      gardée côté serveur, d'un appareil à l'autre. Widgets en haut, chaque tuile reste dans sa
+      grille.
     - **Galerie de widgets** (« + » en mode Modifier) : seulement des widgets utiles, propres au hub
       ou à une application du hub, chacun avec ses tailles en aperçu :
       - hub : « Dernière ouverte » (la dernière application ouverte, son icône et la date, sans
@@ -86,6 +92,20 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
 - **Thème clair, sombre ou automatique.** Les jetons de couleur vivent dans
   `app-manager/app/theme.css`, aussi servi aux applications sur `/theme.css`.
 - **Installable sur l'écran d'accueil** d'un téléphone (manifeste web et icônes fournis).
+- **Comportement d'application** une fois ouvert depuis l'icône : pas de zoom (ni pince, ni double
+  tape, ni zoom à la saisie), pas de rebond en bout de page, pas de surlignage au toucher ni de
+  sélection de texte sur l'interface (les champs et les messages restent copiables), et la barre d'état
+  prend la couleur du bandeau, thème clair ou sombre, au lieu d'une bande blanche.
+  - **Écran de démarrage** : fond de la couleur du bandeau et logo, au lieu d'un écran blanc ; une
+    image par taille d'iPhone, clair et sombre, fabriquée par le panneau.
+  - **Hors ligne** : l'application s'ouvre quand même, sur « Serveur injoignable », retente toutes les
+    5 s et revient d'elle-même. Rien n'est mis en cache que cette page (ni pages du panneau, ni
+    données). Il faut une adresse en `https` (ou `localhost`) : c'est une exigence des navigateurs.
+  - **Applications ouvertes depuis le hub** : même comportement (pas de zoom, pas de rebond), la barre
+    d'état prend la couleur de l'application, et un glissement depuis le bord gauche ramène au hub.
+  - **Dans le navigateur**, CodeLab reste un site, adapté au téléphone : zoom permis, pas de page de
+    réserve, applications ouvertes directement.
+  - Après la mise à jour, supprimer l'icône puis la rajouter : iOS relit ces réglages à l'ajout.
 - **Police auto-hébergée** (Manrope) : aucune requête vers un service tiers.
 - **Erreurs JavaScript** de la page envoyées dans les journaux du panneau.
 
@@ -121,6 +141,9 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
   voir § 6), « Voir la présentation » dans le menu de sa tuile la lit dans une fenêtre, avec « Ouvrir
   l'application » en dessous. Servie avec les droits de l'application : un compte qui ne la voit pas
   ne voit pas sa vidéo. La fiche la montre (carte « Présentation ») et l'admin peut la masquer du hub.
+  L'admin peut aussi **choisir le fichier** dans la fiche (« Fichier vidéo ») : toute vidéo du dossier
+  du projet (`.mp4`, `.webm`, `.m4v`, `.mov` ; ni `node_modules`, ni dossiers cachés, ni liens qui
+  sortent du projet), par exemple un rendu Remotion dans `out/`. Vide : `video/presentation.mp4`.
 
 **Faire tourner**
 
