@@ -82,8 +82,12 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
     - **Galerie de widgets** (« + » en mode Modifier) : seulement des widgets utiles, propres au hub
       ou à une application du hub, chacun avec ses tailles en aperçu :
       - hub : « Dernière ouverte » (la dernière application ouverte, son icône et la date, sans
-        aperçu de la page), « État des applications » (admin), « Messages » à lire (admin), « Nouvelles
-        versions », « Écrire à l'administrateur » et « Mes messages » (comptes utilisateurs) ;
+        aperçu de la page), « État des applications » (admin : en ligne, arrêtées, et le compte de ce
+        qui est en erreur ou à surveiller), « Messages » à lire (admin), « Sauvegardes » (admin : la
+        dernière, sa taille, et l'alerte tant qu'aucune copie n'est sortie du serveur), « Nouvelles
+        versions », « Écrire à l'administrateur » et « Mes messages » (comptes utilisateurs). Le
+        serveur ne propose et n'accepte que les widgets du rôle : un compte utilisateur ne peut pas
+        poser un widget d'administration, même en appelant la route à la main ;
       - applications : « Aperçu » d'une application choisie, en direct, réduit et inerte ; un clic
         l'ouvre.
 - **Indicateur « Nouvelle version »** sur la tuile d'une application qui a changé depuis la dernière
@@ -106,15 +110,32 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
   - **Dans le navigateur**, CodeLab reste un site, adapté au téléphone : zoom permis, pas de page de
     réserve, applications ouvertes directement.
   - Après la mise à jour, supprimer l'icône puis la rajouter : iOS relit ces réglages à l'ajout.
+- **Ce qu'un compte utilisateur ne voit jamais** : l'état des applications (ni pastille, ni cadre
+  de couleur, ni compteur ; le serveur ne l'envoie pas) et le détail des erreurs techniques (une
+  erreur serveur lui dit seulement de réessayer, avec une référence à donner à l'administrateur).
+- **Une application qui ne s'ouvre pas** (arrêtée, muette sur son port, ou dont la page plante) :
+  - un compte utilisateur, ou un visiteur d'une application publique, arrive sur « *Nom* est
+    momentanément inaccessible », avec « Retour au hub » et « Réessayer », sans un mot sur la cause ;
+    l'administrateur est prévenu par mail (une fois par heure et par application, si les alertes sont
+    réglées), et la page le dit seulement dans ce cas ;
+  - l'administrateur voit la cause (arrêtée, plantée au lancement, ne répond pas encore) et
+    « Ouvrir sa fiche ».
+- **Connexion refusée** : à partir de trois essais restants, le message dit combien il en reste avant
+  la pause de 5 minutes.
+- **Chargement** : des lignes grises à la forme du contenu à la place de « Chargement… ».
 - **Police auto-hébergée** (Manrope) : aucune requête vers un service tiers.
 - **Erreurs JavaScript** de la page envoyées dans les journaux du panneau.
 
-**Onglets des paramètres**
+**Paramètres d'un compte utilisateur** : une seule page, sans onglets, avec un sommaire et quatre
+sections nommées — Profil (adresse mail), Apparence (thème, réglages du hub), Mon hub (applications
+affichées), Connexion et sécurité (mot de passe, clés d'accès, appareils connectés) — puis Session.
+
+**Onglets des paramètres** (administrateur)
 
 | Onglet | Pour qui | Contenu |
 |---|---|---|
-| Compte | tous | apparence, style, adresse mail (vérifiée par code), mot de passe, taille de pages du journal, applications affichées dans *son* hub |
-| Sécurité | tous | second facteur (TOTP), clés d'accès, appareils connectés ; bilan de sécurité pour l'admin |
+| Compte | tous | apparence, réglages du hub, adresse mail (vérifiée par code), applications affichées dans *son* hub |
+| Sécurité | tous | mot de passe, second facteur (TOTP), clés d'accès, appareils connectés ; sauvegardes et bilan de sécurité pour l'admin |
 | Serveur | admin | adresse publique, liaison avec un VPS (fichiers prêts à copier), constat sur la requête en cours |
 | Catégories | admin | les tiroirs du hub, dans l'ordre voulu |
 | E-mail | admin | serveur d'envoi, adresse d'alerte de l'administrateur |
@@ -193,6 +214,9 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
 **Applications par défaut**
 
 - **Dagster**, **Diagnostic**, **Mailpit** et **Messages** ont leur tuile, réservée à l'administrateur.
+- **Elles ne s'accordent pas** : dans la fiche d'un compte, leur case est grisée (« Réservée à
+  l'administrateur ») ; le serveur ne garde pas ce droit, ni depuis la fiche, ni dans une invitation,
+  et ignore celui qu'une version plus ancienne aurait enregistré.
 - Elles ne se configurent pas, ne s'arrêtent pas et ne se suppriment pas : le panneau les remet en
   route à chaque tour.
 - Chaque compte peut les ranger hors de son hub.

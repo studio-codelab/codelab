@@ -796,6 +796,7 @@ textarea{resize:vertical;min-height:72px;line-height:1.5}
  background:var(--bg-input);border:1px solid var(--line);font-family:var(--mono);
  font-size:var(--t-s);word-break:break-all;user-select:all}
 
+.proj-ligne.reservee{opacity:.6;cursor:default}
 /* Les projets autorises d'un compte, dans sa fiche. Meme dessin que la liste
    ci-dessus : une ligne par application, son icone, son nom, sa visibilite.
    Une rangee de cases a cocher nues ne disait ni de quoi il s'agissait, ni
@@ -1529,6 +1530,68 @@ table.tbl-journal{min-width:560px}
   :root[data-style="design"] #sec-parametres .interrupteur input:checked+span::after{transform:translateX(16px)}
 }
 
+/* LES REGLAGES D'UN COMPTE UTILISATEUR : UNE PAGE, DES SECTIONS. Deux
+   onglets dans une colonne laissaient une fenetre a moitie vide, et le
+   reglage cherche etait toujours dans l'autre. Les deux onglets deviennent
+   une seule colonne (display:contents), rangee par l'ordre ci-dessous, avec
+   un sommaire en tete et un titre par section. L'administrateur garde ses
+   onglets : il en a cinq. */
+/* EN ATTENDANT LA REPONSE : la forme de ce qui arrive, pas un mot. Des
+   lignes grises a la place de « Chargement… », pour que la page ne saute
+   pas quand le contenu arrive. Sans animation si on l'a demande. */
+.squelette{display:flex;flex-direction:column;gap:10px;padding:4px 0}
+.squelette i{display:block;height:44px;border-radius:var(--r-s);background:var(--surface2);
+ animation:squelette 1.2s ease-in-out infinite alternate}
+.squelette i:nth-child(2){width:86%}
+.squelette i:nth-child(3){width:64%}
+.squelette-ligne{display:inline-block;width:220px;max-width:100%;height:.9em;border-radius:6px;
+ background:var(--surface2);vertical-align:middle;animation:squelette 1.2s ease-in-out infinite alternate}
+@keyframes squelette{from{opacity:1}to{opacity:.45}}
+@media (prefers-reduced-motion:reduce){.squelette i,.squelette-ligne{animation:none}}
+.groupe-reglages,.reglages-sommaire{display:none}
+#sec-parametres.reglages-unifies,
+:root[data-style="design"] #sec-parametres.reglages-unifies{display:flex;flex-direction:column;
+ max-width:760px;margin:6px auto 0;background:none;border:0;border-radius:0;box-shadow:none;overflow:visible;
+ font-family:var(--sans);font-size:var(--t-b)}
+#sec-parametres.reglages-unifies>.toolbar,
+:root[data-style="design"] #sec-parametres.reglages-unifies>.toolbar{order:0;background:none;border:0;
+ padding:0;margin:0 0 14px;justify-content:flex-start}
+:root[data-style="design"] #sec-parametres.reglages-unifies>.toolbar h2{font-size:30px;font-weight:800;letter-spacing:-.035em}
+#sec-parametres.reglages-unifies #param-onglets{display:none}
+/* Seuls Compte et Securite s'ouvrent : les onglets d'administration
+   restent fermes, meme s'ils sont dans la page. */
+#sec-parametres.reglages-unifies .onglet-p{display:none}
+#sec-parametres.reglages-unifies #param-compte,
+#sec-parametres.reglages-unifies #param-securite{display:contents}
+#sec-parametres.reglages-unifies .reglages-sommaire{order:1;display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;
+ position:sticky;top:0;z-index:5;padding:8px 0;background:var(--bg)}
+#sec-parametres.reglages-unifies .reglages-sommaire button{min-height:40px;padding:0 16px;border-radius:999px;
+ border:1px solid var(--line2);background:var(--surface);color:var(--txt);font:inherit;font-size:13.5px;
+ font-weight:700;cursor:pointer}
+#sec-parametres.reglages-unifies .reglages-sommaire button:hover{border-color:var(--accent);color:var(--accent)}
+#sec-parametres.reglages-unifies .groupe-reglages{display:block;margin:26px 4px 10px;font-size:19px;font-weight:800;
+ letter-spacing:-.025em;scroll-margin-top:72px}
+#sec-parametres.reglages-unifies .groupe-reglages small{display:block;margin-top:3px;font-size:13px;font-weight:500;
+ letter-spacing:0;color:var(--dim)}
+#sec-parametres.reglages-unifies .zone-title{display:none}
+#sec-parametres.reglages-unifies .zone,
+:root[data-style="design"] #sec-parametres.reglages-unifies .onglet-p .zone{margin:0 0 10px}
+#sec-parametres.reglages-unifies .settings-card,
+:root[data-style="design"] #sec-parametres.reglages-unifies .onglet-p .settings-card{background:var(--surface);
+ border:0;border-radius:var(--r-s);box-shadow:0 1px 3px var(--shadow);padding:16px 20px}
+#sec-parametres.reglages-unifies [data-ordre="profil"]{order:10}
+#sec-parametres.reglages-unifies #profil-mail{order:11}
+#sec-parametres.reglages-unifies [data-ordre="apparence"]{order:20}
+#sec-parametres.reglages-unifies #zone-apparence{order:21}
+#sec-parametres.reglages-unifies [data-ordre="hub"]{order:30}
+#sec-parametres.reglages-unifies #zone-hub{order:31}
+#sec-parametres.reglages-unifies [data-ordre="securite"]{order:40}
+#sec-parametres.reglages-unifies #profil-mdp{order:41}
+#sec-parametres.reglages-unifies #profil-securite{order:42}
+#sec-parametres.reglages-unifies #zone-cles{order:43}
+#sec-parametres.reglages-unifies #zone-appareils{order:44}
+#sec-parametres.reglages-unifies #zone-session{order:50;margin-top:18px}
+
 /* Telephone : le menu devient la barre du bas, comme une application. */
 @media (max-width:760px){
   :root[data-style="design"] .topbar{height:60px;padding:0 16px}
@@ -1776,6 +1839,10 @@ table.tbl-journal{min-width:560px}
 .bw-une .bento-bouton{margin-top:4px}
 .bw-une .badge-maj{background:var(--surface);color:var(--accent)}
 .bw-messages{justify-content:space-between}
+.bw-sauvegardes{justify-content:space-between}
+.bw-sauvegardes p{margin:6px 0 0;color:var(--dim)}
+.sg-widget-quand{font-size:22px;font-weight:800;letter-spacing:-.03em;line-height:1.1}
+.sg-widget-alerte{color:var(--warn);font-weight:700}
 .bw-messages:hover{border-color:var(--accent)}
 .bw-messages p{margin:6px 0 0;color:var(--dim)}
 .bw-message textarea{flex:1;min-height:0;resize:none;padding:10px 12px;border-radius:14px;
@@ -2481,7 +2548,21 @@ a.pj:hover{border-color:var(--accent)}
   </div>
 
   <div class="onglet-p" id="param-compte">
-  <div class="zone">
+  <!-- UN COMPTE UTILISATEUR N'A QUE DEUX ONGLETS : une colonne d'onglets pour
+       deux entrees laissait une fenetre a moitie vide. Il a donc une seule
+       page, en sections nommees, avec un sommaire (classe reglages-unifies
+       sur #sec-parametres). Les titres et le sommaire ne servent qu'a lui. -->
+  <nav class="reglages-sommaire" aria-label="Sections des réglages">
+    <button type="button" onclick="allerReglage('reglages-profil')">Profil</button>
+    <button type="button" onclick="allerReglage('reglages-apparence')">Apparence</button>
+    <button type="button" onclick="allerReglage('reglages-hub')">Mon hub</button>
+    <button type="button" onclick="allerReglage('reglages-securite')">Connexion et sécurité</button>
+  </nav>
+  <h3 class="groupe-reglages" id="reglages-profil" data-ordre="profil">Profil<small>L'adresse où arrivent tes codes de connexion.</small></h3>
+  <h3 class="groupe-reglages" id="reglages-apparence" data-ordre="apparence">Apparence<small>Le thème, les couleurs et la forme de ton hub, sur cet appareil.</small></h3>
+  <h3 class="groupe-reglages" id="reglages-hub" data-ordre="hub">Mon hub<small>Les applications que ton hub affiche.</small></h3>
+  <h3 class="groupe-reglages" id="reglages-securite" data-ordre="securite">Connexion et sécurité<small>Ce qui protège ton compte, et là où il est ouvert.</small></h3>
+  <div class="zone" id="zone-apparence">
     <div class="zone-title">Préférences</div>
     <div class="card settings-card">
       <div class="card-top"><div class="card-name">
@@ -2579,6 +2660,36 @@ a.pj:hover{border-color:var(--accent)}
     </div>
   </div>
 
+  <div class="zone" id="zone-hub">
+    <div class="zone-title">Hub</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Applications du hub</b>
+        <div class="path">Ce que ton hub affiche, et ce qu'il n'affiche pas.</div>
+      </div></div>
+      <div class="hint"><b>Cochée, elle est affichée.</b> Décocher, c'est du rangement : l'application reste en ligne.</div>
+      <div id="masquees-liste" style="margin-top:14px"></div>
+    </div>
+  </div>
+
+  <div class="zone" id="zone-session">
+    <div class="zone-title">Session</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Session</b>
+        <div class="path">Déconnecte cette session du panneau CodeLab.</div>
+      </div></div>
+      <button class="btn btn-danger-quiet" onclick="doLogout()">
+        <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+        <path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>Déconnexion</button>
+    </div>
+  </div>
+
+  </div>
+
+  <div class="onglet-p" id="param-securite">
+  <!-- Le mot de passe vit avec ce qui protege le compte : second facteur,
+       cles d'acces, appareils. -->
   <div class="zone" id="profil-mdp">
     <div class="zone-title">Mot de passe</div>
     <div class="card settings-card">
@@ -2605,34 +2716,6 @@ a.pj:hover{border-color:var(--accent)}
     </div>
   </div>
 
-  <div class="zone">
-    <div class="zone-title">Hub</div>
-    <div class="card settings-card">
-      <div class="card-top"><div class="card-name">
-        <b>Applications du hub</b>
-        <div class="path">Ce que ton hub affiche, et ce qu'il n'affiche pas.</div>
-      </div></div>
-      <div class="hint"><b>Cochée, elle est affichée.</b> Décocher, c'est du rangement : l'application reste en ligne.</div>
-      <div id="masquees-liste" style="margin-top:14px"></div>
-    </div>
-  </div>
-
-  <div class="zone">
-    <div class="zone-title">Session</div>
-    <div class="card settings-card">
-      <div class="card-top"><div class="card-name">
-        <b>Session</b>
-        <div class="path">Déconnecte cette session du panneau CodeLab.</div>
-      </div></div>
-      <button class="btn btn-danger-quiet" onclick="doLogout()">
-        <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-        <path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>Déconnexion</button>
-    </div>
-  </div>
-
-  </div>
-
-  <div class="onglet-p" id="param-securite">
   <div class="zone" id="profil-securite">
     <div class="zone-title">Ton compte</div>
 
@@ -2678,21 +2761,21 @@ a.pj:hover{border-color:var(--accent)}
   <!-- LES APPAREILS CONNECTES : ou ce compte est ouvert, et le moyen d'en
        couper un (telephone perdu, ordinateur prete) sans changer de mot de
        passe. -->
-  <div class="zone">
+  <div class="zone" id="zone-appareils">
     <div class="zone-title">Appareils connectés</div>
     <div class="card settings-card sans-pli" id="ap-carte">
       <div class="card-top"><div class="card-name">
         <b>Appareils connectés</b>
         <div class="path">Là où ton compte est ouvert en ce moment.</div>
       </div></div>
-      <div class="ap-liste" id="ap-liste"><p class="hint">Chargement…</p></div>
+      <div class="ap-liste" id="ap-liste"><div class="squelette" role="status" aria-label="Chargement"><i></i><i></i><i></i></div></div>
       <div class="actions" style="margin-top:12px">
         <button class="btn btn-default btn-sm" id="ap-autres" onclick="apDeconnecterAutres()">Déconnecter les autres appareils</button>
       </div>
     </div>
   </div>
 
-  <div class="zone">
+  <div class="zone" id="zone-cles">
     <div class="zone-title">Clés d'accès</div>
     <div class="card settings-card sans-pli" id="pk-carte">
       <div class="card-top"><div class="card-name">
@@ -2728,7 +2811,7 @@ a.pj:hover{border-color:var(--accent)}
     <div class="card settings-card sans-pli" id="sg-carte">
       <div class="card-top"><div class="card-name">
         <b>Sauvegardes</b>
-        <div class="path" id="sg-resume">Chargement…</div>
+        <div class="path" id="sg-resume"><span class="squelette-ligne" role="status" aria-label="Chargement"></span></div>
       </div>
       <span class="pill" id="sg-etat"><i></i>&nbsp;</span></div>
       <div class="alerte-sauvegarde" id="sg-alerte" hidden>
@@ -2757,7 +2840,7 @@ a.pj:hover{border-color:var(--accent)}
     <div class="card settings-card sans-pli" id="ver-carte">
       <div class="card-top"><div class="card-name">
         <b>Version de CodeLab</b>
-        <div class="path" id="ver-resume">Chargement…</div>
+        <div class="path" id="ver-resume"><span class="squelette-ligne" role="status" aria-label="Chargement"></span></div>
       </div>
       </div>
       <div id="ver-corps"></div>
@@ -3008,7 +3091,7 @@ a.pj:hover{border-color:var(--accent)}
         <b>Mes messages</b>
         <div class="path">Où en est chacun : lu, planifié, en cours, réalisé.</div>
       </div></div>
-      <div class="suivi-liste" id="suivi-liste"><p class="hint">Chargement…</p></div>
+      <div class="suivi-liste" id="suivi-liste"><div class="squelette" role="status" aria-label="Chargement"><i></i><i></i><i></i></div></div>
     </div>
   </div>
 </div>
@@ -3988,7 +4071,27 @@ habillerLesListes(document);
 
 /* ---------------- onglets des parametres ---------------- */
 let paramOngletActif='compte';
+/* Le sommaire des reglages d'un compte utilisateur : on descend jusqu'a la
+   section, sans toucher a l'adresse. */
+function allerReglage(id){
+  const el=$(id); if(!el) return;
+  const reduit=window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  el.scrollIntoView({behavior: reduit ? 'auto' : 'smooth', block:'start'});
+}
 function paramOnglet(o){
+  /* Un compte utilisateur : une seule page, toutes ses sections chargees
+     ensemble. « Securite » dans l'adresse descend jusqu'a la section. */
+  if(!estAdmin){
+    paramOngletActif = o==='securite' ? 'securite' : 'compte';
+    if(sectionCourante==='parametres') majAdresse();
+    document.querySelectorAll('.onglet-p')
+      .forEach(n=>n.classList.toggle('actif', n.id==='param-compte' || n.id==='param-securite'));
+    plierLesCartes();
+    chargerMonCompte(); chargerHub(); chargerPasskeys(); chargerAppareils();
+    $('mdp-err').style.display='none'; $('mdp-msg').style.display='none';
+    if(o==='securite') setTimeout(()=>allerReglage('reglages-securite'), 0);
+    return;
+  }
   /* Un compte utilisateur a Compte, Securite et Message -- les trois
      onglets sans data-admin, ceux que le bandeau lui montre. Le garde-fou
      n'en listait que deux : cliquer sur « Message » ramenait aux reglages du
@@ -4034,14 +4137,21 @@ function paramOnglet(o){
 /* Trois etats distincts : en ligne, demarree mais qui ne repond pas encore, et
    arretee. Les confondre ferait cliquer sur un lien qui ne mene nulle part. */
 function etatApp(a){
+  /* L'ETAT NE REGARDE QUE L'ADMINISTRATEUR. Un compte utilisateur ne sait
+     jamais ce qui marche ou non : le serveur ne lui envoie pas l'etat, et
+     la page ne le devine pas. Une application en panne s'ouvre sur une page
+     « momentanement inaccessible ». */
+  if(!estAdmin) return ['', ''];
   if(a.crash_looping) return ['err','En erreur'];
   /* « Arretee » supposerait qu'on l'a arretee : un service de la stack ne se
-     demarre pas depuis ici, il repond ou il ne repond pas. */
-  if(!a.running) return ['off', a.externe ? 'Injoignable' : 'Arrêtée'];
+     demarre pas depuis ici, il repond ou il ne repond pas. Et un service qui
+     ne repond pas est un souci (ambre), pas un arret volontaire (gris) :
+     sinon le widget « Etat » le comptait parmi ce qui va bien. */
+  if(!a.running) return a.externe ? ['warn','Injoignable'] : ['off','Arrêtée'];
   if(a.listening === false) return ['warn','Ne répond pas'];
   return ['on','En ligne'];
 }
-function badgeEtat(a){ const [c,t]=etatApp(a); return `<span class="pill ${c}"><i></i>${t}</span>`; }
+function badgeEtat(a){ const [c,t]=etatApp(a); return t ? `<span class="pill ${c}"><i></i>${t}</span>` : ''; }
 function badgeVis(a){
   return a.visibility==='privee'
     ? '<span class="pill priv"><i></i>Privé</span>'
@@ -4463,6 +4573,7 @@ async function chargerHub(){
     /* Les categories arrivent avec les projets : une seule requete, et le
        hub ne peut pas afficher un rangement decale d'un tour. */
     if(Array.isArray(d.categories)) categories=d.categories;
+    hubSauvegardes=d.sauvegardes||null;
   }catch(e){ return; }
   peindreHub();
 }
@@ -4575,7 +4686,9 @@ function widgetApercu(a, taille, surtitre, enDirect=true){
   /* L'APERCU est la page de l'application elle-meme, reduite et inerte : on
      la reconnait d'un coup d'oeil, et un clic l'ouvre en grand. Arretee, elle
      n'a rien a montrer : son icone la remplace. */
-  const apercu = enDirect && a.running && !a.externe && !a.interne
+  /* Un compte utilisateur ne connait pas l'etat : l'apercu montre toujours
+     la page (la page neutre si l'application ne repond pas). */
+  const apercu = enDirect && (a.running || !estAdmin) && !a.externe && !a.interne
     ? `<iframe src="${esc(urlApplication(a.name))}" title="Aperçu de ${esc(nomAffiche(a))}"
          loading="lazy" tabindex="-1" aria-hidden="true" referrerpolicy="no-referrer"
          sandbox="allow-scripts allow-same-origin allow-forms"></iframe>`
@@ -4587,12 +4700,34 @@ function widgetApercu(a, taille, surtitre, enDirect=true){
 }
 function widgetEtat(taille){
   const liste=hubApps.concat(hubServices);
-  const enLigne=liste.filter(a=>etatApp(a)[0]==='on').length;
-  const souci=liste.find(a=>['err','warn'].includes(etatApp(a)[0]));
+  const compte=c=>liste.filter(a=>etatApp(a)[0]===c).length;
+  const enLigne=compte('on'), arretees=compte('off');
+  /* LE BILAN DIT TOUT CE QUI NE VA PAS, pas seulement le premier souci :
+     « Tout répond » s'affichait alors que deux services ne repondaient pas. */
+  const soucis=liste.filter(a=>['err','warn'].includes(etatApp(a)[0]));
+  const nErr=compte('err'), nWarn=soucis.length-nErr;
+  const bilan=[nErr ? `${nErr} en erreur` : '', nWarn ? `${nWarn} à surveiller` : ''].filter(Boolean).join(' · ');
+  const lien = soucis.length===1
+    ? `<a href="${lienOuverture(soucis[0])}">${esc(nomAffiche(soucis[0]))} : ${esc(etatApp(soucis[0])[1].toLowerCase())}</a>`
+    : soucis.length ? `<a href="/applications">${esc(bilan)}</a>` : '';
   return `<div class="bw-titre">État</div>
-    <div><div class="bento-chiffre">${enLigne}<span>/${liste.length}</span></div><p>en ligne</p></div>
+    <div><div class="bento-chiffre">${enLigne}<span>/${liste.length}</span></div><p>en ligne${arretees ? ` · ${arretees} arrêtée${arretees>1?'s':''}` : ''}</p></div>
     <div class="bento-pied"><div class="bento-barres" aria-hidden="true">${liste.map(a=>`<i class="${etatApp(a)[0]}"></i>`).join('')}</div>
-    ${souci ? `<a href="${lienOuverture(souci)}">${esc(nomAffiche(souci))} : ${esc(etatApp(souci)[1].toLowerCase())}</a>` : '<p>Tout répond.</p>'}</div>`;
+    ${lien || '<p>Tout répond.</p>'}</div>`;
+}
+/* Les sauvegardes, pour l'administrateur : la derniere, et l'alerte tant
+   qu'aucune copie n'est sortie du serveur. Le detail est dans Parametres >
+   Securite. */
+let hubSauvegardes=null;
+function widgetSauvegardes(taille){
+  const d=hubSauvegardes;
+  const lien=`<a class="bento-bouton" href="/parametres/securite">Voir ${SVG_FLECHE}</a>`;
+  if(!d || !d.actives) return `<div class="bw-titre">Sauvegardes</div><p class="bw-vide">Désactivées sur ce serveur.</p>${taille!=='petit' ? lien : ''}`;
+  if(!d.derniere) return `<div class="bw-titre">Sauvegardes</div><p class="bw-vide">Aucune pour le moment : la première arrive bientôt.</p>`;
+  return `<div class="bw-titre">Sauvegardes</div>
+    <div><div class="sg-widget-quand">${esc(ilYA(d.derniere.date))}</div>
+    <p>${esc(tailleLisible(d.derniere.taille))}${d.alerte_hors_serveur ? ' · <b class="sg-widget-alerte">sur ce serveur seulement</b>' : ''}</p></div>
+    ${taille!=='petit' ? lien : ''}`;
 }
 function widgetMessages(taille){
   const d=hubServices.find(s=>s.name==='messages');
@@ -4854,13 +4989,14 @@ document.addEventListener('keydown', e=>{
   if(e.key==='Escape' && $('ov-presentation').classList.contains('show')) fermerPresentation();
 });
 
-const CLASSE_WIDGET={une:'bw-une', apercu:'bw-une', etat:'bento-etat', messages:'bw-messages', nouveautes:'bw-nouveautes', message:'bw-message', suivi:'bw-suivi'};
+const CLASSE_WIDGET={une:'bw-une', apercu:'bw-une', etat:'bento-etat', messages:'bw-messages', nouveautes:'bw-nouveautes', message:'bw-message', suivi:'bw-suivi', sauvegardes:'bw-sauvegardes'};
 function corpsWidget(e){
   if(e.id==='une'){ const [a, vue]=appALaUne(hubApps); return widgetApercu(a, e.taille, (vue ? 'Dernière ouverte' : 'À la une')+(a && a.ouverte_le ? ' · '+depuis(a.ouverte_le) : ''), false); }
   if(e.id==='apercu') return widgetApercu(hubApps.find(a=>a.name===e.app), e.taille, 'Aperçu');
   if(e.id==='etat') return widgetEtat(e.taille);
   if(e.id==='messages') return widgetMessages(e.taille);
   if(e.id==='nouveautes') return widgetNouveautes(e.taille);
+  if(e.id==='sauvegardes') return widgetSauvegardes(e.taille);
   if(e.id==='message') return widgetMessage(e.taille);
   if(e.id==='suivi') return widgetSuivi(e.taille);
   return '';
@@ -5438,6 +5574,10 @@ async function echec(r, defaut){
   const suite = !ref ? '' : estAdmin
     ? ` Référence ${ref} : cherche-la avec « docker logs codelab-app-manager ».`
     : ` Référence ${ref} : donne-la à l'administrateur.`;
+  /* Une erreur 5xx est technique : son texte ne regarde que
+     l'administrateur. Un compte utilisateur lit la phrase simple, et la
+     reference a transmettre. */
+  if(r.status>=500 && !estAdmin) return defaut + ' Réessaie dans un instant.' + suite;
   if(d && d.error) return d.error + (r.status>=500 ? ' Réessaie dans un instant.' : '') + suite;
   if(r.status===401) return 'Session expirée : reconnecte-toi.';
   if(r.status===403) return "Action refusée. Recharge la page, puis réessaie.";
@@ -5557,7 +5697,7 @@ let acCourant='';
 
 async function chargerAcces(nom){
   acCourant=nom;
-  const zone=$('acces-liste'); zone.innerHTML='<div class="hint">Chargement...</div>';
+  const zone=$('acces-liste'); zone.innerHTML='<div class="squelette" role="status" aria-label="Chargement"><i></i><i></i><i></i></div>';
   $('ac-err').style.display='none'; $('ac-msg').style.display='none';
   let d;
   try{
@@ -6897,14 +7037,18 @@ function usPeindreFiche(){
      lesquelles cocher ne changeait rien. */
   const declares = apps.slice().sort((a,b)=>nomAffiche(a).localeCompare(nomAffiche(b),'fr'));
   $('us-f-projets').innerHTML = declares.length ? declares.map(a=>{
-    const coche = c.projets.includes(a.name) ? ' checked' : '';
+    /* Une application reservee a l'administrateur (Diagnostic...) reste
+       dans la liste, pour qu'on sache pourquoi elle manque, mais sa case
+       est grisee : le serveur refuserait de toute facon de l'accorder. */
+    const reservee = !!a.par_defaut;
+    const coche = !reservee && c.projets.includes(a.name) ? ' checked' : '';
     const prive = a.visibility==='privee';
-    return `<label class="choix-ligne proj-ligne${prive?'':' publique'}">
-      <input type="checkbox" value="${esc(a.name)}"${coche}>
+    return `<label class="choix-ligne proj-ligne${prive?'':' publique'}${reservee?' reservee':''}">
+      <input type="checkbox" value="${esc(a.name)}"${coche}${reservee?' disabled':''}>
       <img src="${icone(a.name)}" alt="">
       <div class="proj-txt"><b>${esc(nomAffiche(a))}</b>
         ${a.description?`<span>${esc(a.description)}</span>`:''}</div>
-      ${badgeVis(a)}</label>`;
+      ${reservee ? '<span class="pill priv"><i></i>Réservée à l\'administrateur</span>' : badgeVis(a)}</label>`;
   }).join('') : '<div class="hint">Aucun projet déclaré.</div>';
 
   const morceaux=[];
@@ -7830,6 +7974,7 @@ if(estAdmin){
      sans etat ni bouton -- une case vide de plus a se demander. */
   $('profil-securite').style.display='none';
   document.body.classList.add('compte-utilisateur');
+  $('sec-parametres').classList.add('reglages-unifies');
 }
 majOngletsParametres();
 /* Le hub est l'accueil de tout le monde. Laisse ouvert il reste juste : les

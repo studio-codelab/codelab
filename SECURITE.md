@@ -231,7 +231,11 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 
 11. Dagster et Mailpit ne s'ouvrent qu'à une session d'administration.
 12. Une application privée ne s'ouvre qu'à un compte autorisé. Les applications par défaut sont
-    réservées à l'administrateur.
+    réservées à l'administrateur, et ce droit ne peut être accordé à aucun compte (fiche, invitation
+    ou droit ancien : il est ignoré).
+12 bis. Un compte utilisateur ne reçoit ni l'état des applications ni le détail des erreurs
+    techniques ; une application qui ne s'ouvre pas lui montre une page neutre. Les widgets
+    d'administration ne se posent que pour l'administrateur, contrôlé côté serveur.
 13. Toute route qui modifie quelque chose exige le jeton anti-falsification de la session, sauf les
     routes de connexion et d'invitation.
 14. Pas d'inscription libre.
