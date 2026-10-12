@@ -73,7 +73,7 @@ from collections import deque
 from email.message import EmailMessage
 
 import psutil
-from flask import (Flask, Response, has_request_context, jsonify, redirect,
+from flask import (Flask, Response, g, has_request_context, jsonify, redirect,
                    request, session, send_file, stream_with_context)
 
 # Le module de stockage vit a cote de ce fichier, et se charge PAR SON
@@ -827,17 +827,9 @@ def require_auth(view):
 # avertissement qu'une stack a moitie morte apres une mise a jour.
 APPS_PORT = int(os.environ.get("APP_MANAGER_APPS_PORT", "9002") or 0)
 
-# Derriere un reverse proxy, un second PORT n'est pas forcement joignable de
-# l'exterieur : on declare alors l'adresse complete (un sous-domaine, par
-# exemple https://apps.tondomaine.fr). Elle prend le pas sur le port.
-APPS_URL = (os.environ.get("APP_MANAGER_APPS_URL") or "").rstrip("/")
-
-# Le port du panneau, et son adresse complete quand un reverse proxy le publie
-# ailleurs (symetrique de APP_MANAGER_APPS_URL). Servent a une seule chose,
-# mais elle compte : ecrire, DANS une page servie sur le port des
-# applications, un lien qui ramene au hub.
+# Le port du panneau. Sert a une seule chose, mais elle compte : ecrire, DANS
+# une page servie sur le port des applications, un lien qui ramene au hub.
 PANEL_PORT = int(os.environ.get("MANAGER_PORT", "9001") or 9001)
-PANEL_URL = (os.environ.get("APP_MANAGER_PANEL_URL") or "").rstrip("/")
 
 # Pose par servir() une fois le second ecouteur reellement ouvert. Tant qu'il
 # est faux, rien ne change : ni redirection, ni restriction.
@@ -846,6 +838,13 @@ _origines_separees = {"actif": False}
 
 def origines_separees():
     return _origines_separees["actif"]
+
+
+def requete_d_application():
+    """Cette requete est-elle pour une application (le proxy, ou un
+    sous-domaine) plutot que pour le panneau ?"""
+    return (request.endpoint in ("proxy", "proxy_noslash")
+            or bool(getattr(g, "sous_domaine", "")))
 
 
 # Un nom d'hote ordinaire, et rien d'autre. Ce qui suit n'est pas de la
@@ -880,17 +879,100 @@ def hote_demande():
 
 
 def origine_applications():
-    """L'adresse ou vivent les applications, vue depuis le navigateur.
+    """Le port des applications, vu depuis le navigateur (en local).
 
     Chaine vide quand le nom d'hote n'est pas exploitable : l'appelant
     renonce alors a separer plutot que d'ecrire une adresse douteuse.
     """
-    if APPS_URL:
-        return APPS_URL
     hote = hote_demande()
     if not hote:
         return ""
     return f"{request.scheme}://{hote}:{APPS_PORT}"
+
+
+# UNE APPLICATION, UN SOUS-DOMAINE. Ouvert par un nom de domaine depuis
+# internet (relaye par le VPS), le panneau sert chaque application sous son
+# propre nom : « blog » sur https://blog.toi.duckdns.org quand le panneau est
+# a https://toi.duckdns.org. Rien a declarer : le nom de l'application EST
+# son adresse. Chaque sous-domaine est une origine a lui, la separation tient
+# comme avec le port. En local -- une adresse IP, un nom sans point ou du
+# reseau domestique --, rien ne change : le port des applications, /<nom>/.
+_SUFFIXES_LOCAUX = (".local", ".lan", ".home", ".internal", ".localhost", ".arpa")
+
+
+def sur_le_port_des_apps():
+    return (origines_separees() and has_request_context()
+            and str(request.environ.get("SERVER_PORT", "")) == str(APPS_PORT))
+
+
+def schema_vu():
+    """http ou https, tel que le navigateur le voit (derriere le VPS, nginx
+    l'annonce dans X-Forwarded-Proto)."""
+    annonce = (request.headers.get("X-Forwarded-Proto") or "").lower()
+    return "https" if annonce == "https" or request.scheme == "https" else "http"
+
+
+def _nom_de_domaine(hote):
+    if "." not in hote or hote.endswith(_SUFFIXES_LOCAUX):
+        return False
+    try:
+        ipaddress.ip_address(hote)
+        return False
+    except ValueError:
+        return True
+
+
+def domaine_des_applications():
+    """Le domaine sous lequel chaque application prend son sous-domaine, ou "".
+
+    Seulement pour une requete RELAYEE (le VPS pose X-Forwarded-*) qui arrive
+    par un nom de domaine. Sur le port du panneau, c'est son nom d'hote ; sur
+    celui des applications, ce nom d'hote moins l'application.
+    """
+    if not origines_separees() or not has_request_context():
+        return ""
+    if not (request.headers.get("X-Forwarded-Proto") or request.headers.get("X-Forwarded-For")):
+        return ""
+    hote = hote_demande().lower()
+    if not _nom_de_domaine(hote):
+        return ""
+    if sur_le_port_des_apps():
+        nom, _, reste = hote.partition(".")
+        return reste if nom in load() and _nom_de_domaine(reste) else ""
+    return hote
+
+
+def application_du_sous_domaine():
+    """Sur le port des applications : l'application que nomme le sous-domaine."""
+    if not sur_le_port_des_apps() or not domaine_des_applications():
+        return ""
+    return hote_demande().lower().partition(".")[0]
+
+
+def modele_adresse_application():
+    """L'adresse d'une application, « {nom} » a remplacer : la page en fait
+    les liens de toutes ses tuiles sans redemander au serveur."""
+    domaine = domaine_des_applications()
+    if domaine:
+        return f"{schema_vu()}://{{nom}}.{domaine}/"
+    base = origine_applications() if origines_separees() else ""
+    return base + "/{nom}/"
+
+
+def origine_de_l_application(nom):
+    """L'origine (schema, hote, port) d'une application, ou "" si c'est
+    celle du panneau."""
+    adresse = modele_adresse_application().replace("{nom}", nom)
+    m = re.match(r"^[a-z]+://[^/]+", adresse)
+    return m.group(0) if m else ""
+
+
+def cadres_permis():
+    """La source frame-src des pages du panneau qui encadrent une application."""
+    domaine = domaine_des_applications()
+    if domaine:
+        return f"{schema_vu()}://*.{domaine}"
+    return (origine_applications() if origines_separees() else "") or "'self'"
 
 
 # ------------------------- Dagster, dans le hub -------------------------
@@ -1303,12 +1385,12 @@ def lien_panneau():
     reste juste et reste relatif -- donc valable quel que soit le nom d'hote
     par lequel on est arrive.
     """
-    if not origines_separees() or not has_request_context():
+    if not sur_le_port_des_apps():
         return "/"
-    if str(request.environ.get("SERVER_PORT", "")) != str(APPS_PORT):
-        return "/"
-    if PANEL_URL:
-        return PANEL_URL + "/"
+    # Sous un sous-domaine (blog.toi.duckdns.org), le panneau est au domaine.
+    domaine = domaine_des_applications()
+    if domaine:
+        return f"{schema_vu()}://{domaine}/"
     hote = hote_demande()
     if not hote:
         return "/"
@@ -1350,8 +1432,7 @@ def chemin_dans_app(brut):
 
 def adresse_application(nom, chemin=""):
     """L'adresse d'une page d'application, vue depuis le navigateur."""
-    base = origine_applications() if origines_separees() else ""
-    return (base + "/" + urllib.parse.quote(nom, safe="") + "/"
+    return (modele_adresse_application().replace("{nom}", urllib.parse.quote(nom, safe=""))
             + urllib.parse.quote(chemin_dans_app(chemin), safe="/%~"))
 
 
@@ -1643,8 +1724,13 @@ def separer_les_origines():
     """
     if not origines_separees():
         return None
-    sur_le_port_des_apps = str(request.environ.get("SERVER_PORT", "")) == str(APPS_PORT)
-    if sur_le_port_des_apps:
+    if sur_le_port_des_apps():
+        # blog.toi.duckdns.org : tout le chemin appartient a l'application,
+        # « / » et « /theme.css » compris.
+        nom = application_du_sous_domaine()
+        if nom:
+            g.sous_domaine = nom
+            return _proxy(nom, request.path.lstrip("/"))
         if request.endpoint in ROUTES_APPLICATIONS or request.endpoint is None:
             return None
         # Le panneau ne s'affiche pas ici, et ses API n'y repondent pas : ce
@@ -1663,18 +1749,16 @@ def separer_les_origines():
     # Sur le port du panneau : une application demandee ici est renvoyee chez
     # elle. Les favoris et les liens deja partages continuent de marcher.
     if request.endpoint in ("proxy", "proxy_noslash"):
-        origine = origine_applications()
         # Sans adresse utilisable, on ne redirige pas : une cible relative
         # renverrait vers la page elle-meme, et le navigateur tournerait en
         # rond. Le panneau sert alors l'application, comme avant la
         # separation -- degrade, mais joignable.
-        if not origine:
+        if not (domaine_des_applications() or origine_applications()):
             return None
         nom = request.view_args.get("n", "") if request.view_args else ""
         sous = request.view_args.get("sub", "") if request.view_args else ""
-        cible = origine + "/" + urllib.parse.quote(nom) + "/"
-        if sous:
-            cible += sous
+        cible = (modele_adresse_application().replace("{nom}", urllib.parse.quote(nom))
+                 + sous)
         if request.query_string:
             cible += "?" + request.query_string.decode("latin-1")
         return redirect(cible, 302)
@@ -1751,7 +1835,7 @@ COMPRESSIBLES = {"text/html", "application/json", "text/css",
 @flask_app.after_request
 def compresser(reponse):
     if (request.method != "GET" or request.query_string
-            or request.endpoint in ("proxy", "proxy_noslash")
+            or requete_d_application()
             or "gzip" not in request.headers.get("Accept-Encoding", "")
             or reponse.status_code != 200 or reponse.direct_passthrough
             or reponse.is_streamed or "Content-Encoding" in reponse.headers
@@ -1796,7 +1880,7 @@ def erreur_inattendue(e):
 
 @flask_app.after_request
 def referencer_les_pannes(reponse):
-    if (reponse.status_code >= 500 and request.endpoint not in ("proxy", "proxy_noslash")
+    if (reponse.status_code >= 500 and not requete_d_application()
             and "X-CodeLab-Ref" not in reponse.headers):
         ref = nouvelle_reference()
         reponse.headers["X-CodeLab-Ref"] = ref
@@ -1808,7 +1892,7 @@ def referencer_les_pannes(reponse):
 @flask_app.after_request
 def poser_les_entetes(reponse):
     reponse.headers.setdefault("X-Content-Type-Options", "nosniff")
-    if request.endpoint in ("proxy", "proxy_noslash"):
+    if requete_d_application():
         # Toute reponse d'application, page d'erreur et redirection
         # comprises : seul le panneau peut l'encadrer.
         entetes = proteger_l_encadrement(list(reponse.headers.items()))
@@ -1856,7 +1940,7 @@ flask_app.config["MAX_CONTENT_LENGTH"] = CORPS_MAX_APPLICATION
 @flask_app.before_request
 def borner_le_corps():
     """Refuse AVANT de lire : le Content-Length suffit a decider."""
-    if request.endpoint in ("proxy", "proxy_noslash"):
+    if requete_d_application():
         return None
     taille = request.content_length
     limite = PIECE_MAX if request.endpoint == "api_piece_deposer" else CORPS_MAX_PANNEAU
@@ -1880,7 +1964,7 @@ def trop_gros(e):
 
     Sans lui, un depot trop gros rendait la page d'erreur par defaut : du
     HTML la ou la page attend du JSON, donc un message illisible."""
-    limite = (CORPS_MAX_APPLICATION if request.endpoint in ("proxy", "proxy_noslash")
+    limite = (CORPS_MAX_APPLICATION if requete_d_application()
               else PIECE_MAX if request.endpoint == "api_piece_deposer"
               else CORPS_MAX_PANNEAU)
     return _trop_gros(limite)
@@ -5428,7 +5512,7 @@ def api_sauvegardes_copie():
 # Rien ne disait quelle version tournait : « je ne vois pas les modifs »
 # voulait souvent dire « l'image n'a pas ete retiree ». L'image porte son
 # commit et sa date (CODELAB_VERSION, CODELAB_VERSION_DATE, poses par la CI
-# au build) ; Parametres > Serveur les affiche.
+# au build) ; Parametres > Compte les affiche.
 #
 # AUCUN APPEL SORTANT : le panneau ne demande pas a GitHub s'il existe plus
 # recent. C'est un choix -- un serveur qui contacte l'exterieur de lui-meme
@@ -6716,31 +6800,14 @@ def categorie_valide(brute, connues=None):
 #
 # « Publique » veut dire : accessible sans compte. Tant que ce serveur n'est
 # joignable que depuis le salon, cela ne partage rien -- le mot promet une
-# ouverture qui n'existe pas. Tant qu'aucune adresse publique n'est declaree,
+# ouverture qui n'existe pas. Tant qu'aucune adresse publique n'est connue,
 # le panneau ne propose donc pas de rendre une application publique.
 #
-# L'adresse est declaree a la main plutot que devinee : le panneau ne peut pas
-# savoir si le port 443 de la box est ouvert, si le tunnel tourne, ni quel nom
-# de domaine y mene. La declarer, c'est dire « j'ai fait le necessaire ».
+# RIEN A SAISIR. L'adresse publique est le nom de domaine par lequel le
+# panneau a ete ouvert depuis internet, relaye par le VPS (voir
+# noter_l_adresse_publique). APP_MANAGER_PUBLIC_URL, dans le compose,
+# l'emporte : c'est la marche arriere qui ne depend pas du panneau.
 EXPOSITION_FILE = os.path.join(STATE_DIR, "exposition.json")
-
-# Les trois reglages qui changent quand la stack sort du reseau local, et la
-# variable d'environnement qui l'emporte sur chacun.
-#
-# POURQUOI L'ENVIRONNEMENT GAGNE TOUJOURS. Une stack dont le compose fixe
-# deja le nom de domaine ne doit pas le voir change depuis une page ; et
-# surtout, c'est la seule marche arriere qui ne depend pas du panneau. Si un
-# reglage pose ici rendait le panneau inatteignable, il resterait le compose
-# pour reprendre la main.
-#
-# Seule l'adresse publique reste un reglage. APP_MANAGER_TRUST_PROXY et
-# APP_MANAGER_ADMIN_LAN_ONLY sont ignorees : proxy jamais cru,
-# administration toujours locale. APP_MANAGER_HTTPS=1 peut seulement forcer
-# le cookie Secure, jamais le retirer.
-REGLAGES_EXPOSITION = {
-    "adresse_publique": "APP_MANAGER_PUBLIC_URL",
-    "https": "APP_MANAGER_HTTPS",
-}
 
 
 def _vrai(valeur):
@@ -6774,17 +6841,35 @@ def ecrire_exposition(reglages):
     ecrire_parametre("exposition", reglages)
 
 
-def fixe_par_environnement(nom):
-    """Le compose impose-t-il ce reglage ?"""
-    return bool((os.environ.get(REGLAGES_EXPOSITION[nom]) or "").strip())
+@flask_app.before_request
+def noter_l_adresse_publique():
+    """Retient le domaine par lequel le panneau est ouvert depuis internet.
+
+    La premiere fois pour n'importe quelle requete relayee ; ensuite, seule
+    une session ouverte peut la changer : un visiteur du reseau local qui
+    imiterait les en-tetes du VPS ne detourne pas les liens d'invitation.
+    """
+    if sur_le_port_des_apps():
+        return None
+    domaine = domaine_des_applications()
+    if not domaine:
+        return None
+    vue = f"{schema_vu()}://{domaine}"
+    connue = str(lire_exposition().get("adresse_publique") or "")
+    if vue == connue or (connue and not is_authed()):
+        return None
+    try:
+        ecrire_exposition({**lire_exposition(), "adresse_publique": vue})
+    except Exception:                                             # noqa: BLE001
+        pass
+    return None
 
 
 def adresse_publique():
     """L'adresse publique du serveur, ou "".
 
-    La variable d'environnement l'emporte : dans une stack ou le nom de
-    domaine est deja connu du compose, on ne veut pas le ressaisir dans une
-    page.
+    La variable d'environnement l'emporte ; sinon, la derniere adresse
+    constatee (noter_l_adresse_publique).
     """
     depuis_env = (os.environ.get("APP_MANAGER_PUBLIC_URL") or "").strip()
     if depuis_env:
@@ -6947,10 +7032,21 @@ from flask.sessions import SecureCookieSessionInterface  # noqa: E402
 
 
 class SessionSelonLaConnexion(SecureCookieSessionInterface):
-    """« Secure » des que la requete arrive en HTTPS, sans reglage."""
+    """« Secure » des que la requete arrive en HTTPS, sans reglage.
+
+    Et valable pour les sous-domaines quand le panneau est ouvert par son
+    nom de domaine : une application privee (blog.toi.duckdns.org) doit
+    reconnaitre la session ouverte sur toi.duckdns.org. Le cookie reste
+    HttpOnly, et le proxy le retire avant de relayer : l'application ne le
+    voit jamais -- exactement comme avec le port des applications, ou le
+    navigateur l'envoyait deja (un cookie ne tient pas compte du port).
+    """
 
     def get_cookie_secure(self, app):
         return https_actif()
+
+    def get_cookie_domain(self, app):
+        return domaine_des_applications() or None
 
 
 flask_app.session_interface = SessionSelonLaConnexion()
@@ -8456,9 +8552,6 @@ def api_securite():
         "https": https_actif(),
         "cookie_secure": https_actif(),
         "adresse_publique": adresse_publique(),
-        # Fige par l'environnement : la page n'offre pas de modifier ce
-        # qu'un redemarrage remettrait comme avant.
-        "adresse_figee": fixe_par_environnement("adresse_publique"),
         # Toujours vrai : plus un reglage. Garde pour la page et le diagnostic.
         "admin_reseau_local": admin_limite_au_reseau_local(),
         "client_local": client_est_local(),
@@ -8470,223 +8563,9 @@ def api_securite():
         # en a besoin, et un second appel pour un entier serait du gaspillage.
         "passkeys": len(passkeys_du_compte(utilisateur_courant() or NOM_ADMIN)),
         "origines_separees": origines_separees(),
-        "origine_applications": origine_applications() if origines_separees() else "",
+        "adresse_applications": modele_adresse_application(),
         "port_applications": APPS_PORT,
     })
-
-
-@flask_app.put("/api/securite/exposition")
-@require_admin
-def api_exposition():
-    """L'adresse publique, seul reglage d'exposition qui reste.
-
-    HTTPS, proxy de confiance et administration locale etaient des cases.
-    Ils ne le sont plus : la configuration est toujours la plus stricte --
-    cookie Secure et HSTS des que la connexion est en https, X-Forwarded-For
-    jamais cru, administration reservee au reseau local en connexion directe.
-    """
-    demande = request.get_json(force=True, silent=True) or {}
-    for cle in ("trust_proxy", "https", "admin_reseau_local"):
-        if cle in demande:
-            return jsonify({"error": "Ce réglage n'existe plus : la sécurité réseau est "
-                                     "toujours au plus strict."}), 400
-    reglages = lire_exposition()
-    for ancienne in ("trust_proxy", "https", "admin_reseau_local"):
-        reglages.pop(ancienne, None)
-
-    # ------------------------------------------------ adresse publique
-    if "adresse_publique" in demande:
-        if fixe_par_environnement("adresse_publique"):
-            return jsonify({"error": "L'adresse est fixee par APP_MANAGER_PUBLIC_URL "
-                                     "dans le compose : modifie-la là-bas."}), 400
-        brute = demande.get("adresse_publique")
-        adresse = adresse_publique_valide(brute)
-        if brute and not adresse:
-            return jsonify({"error": "Adresse invalide : elle doit commencer par "
-                                     "http:// ou https://."}), 400
-        reglages["adresse_publique"] = adresse
-
-    try:
-        ecrire_exposition(reglages)
-    except OSError as e:
-        return jsonify({"error": f"Réglages non enregistrés : {e}"}), 500
-
-    return jsonify({"ok": True, "adresse_publique": adresse_publique(),
-                    "https": https_actif(), "admin_reseau_local": True})
-
-
-# ------------------- assistant de liaison avec un VPS -------------------
-#
-# CE QU'IL FAIT, ET CE QU'IL NE FAIT PAS. Il prend un domaine et l'adresse
-# publique d'un VPS, et rend les fichiers de configuration prets a copier --
-# ceux-la memes que documente app-manager/vps/README.md, avec les valeurs
-# substituees. Puis il dit ou en est la liaison, d'apres ce qu'il constate
-# sur les requetes qui lui arrivent.
-#
-# Il ne se connecte PAS au VPS. Lui donner une cle SSH avec les droits qui
-# vont avec reviendrait a confier a ce panneau l'administration d'une machine
-# exposee sur internet -- c'est-a-dire a faire de lui la cible la plus
-# interessante de l'installation. Recopier trois fichiers a la main coute
-# quelques minutes, une fois.
-VPS_MODELES = os.environ.get(
-    "APP_MANAGER_VPS_DIR",
-    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "vps"))
-
-# Les valeurs des modeles livres, et ce par quoi les remplacer. Substituer
-# plutot que reecrire : les modeles sont la source de verite, et un assistant
-# qui regenere son propre texte finit toujours par decrire autre chose que ce
-# que dit le README.
-# La seule question qu'on se pose devant un fichier de configuration est :
-# "je le colle OU ?". Le cote est donc porte par la donnee, et non devine
-# dans la page a partir du texte d'un chemin.
-#
-# L'ordre compte aussi : le tunnel d'abord (sans lui, nginx n'a personne a
-# joindre), nginx ensuite. C'est l'ordre dans lequel on fait les choses.
-COTE_VPS = "Sur le VPS"
-COTE_LOCAL = "Sur cette machine"
-
-VPS_FICHIERS = {
-    "wireguard_vps": ("wireguard/wg0-vps.conf.exemple",
-                      "/etc/wireguard/wg0.conf", COTE_VPS,
-                      "Le tunnel, cote VPS."),
-    "wireguard_local": ("wireguard/wg0-zimablade.conf.exemple",
-                        "/etc/wireguard/wg0.conf", COTE_LOCAL,
-                        "Le tunnel, cote ZimaBlade. A poser sur l'HOTE, pas dans un conteneur."),
-    "nginx": ("nginx/codelab.conf",
-              "/etc/nginx/sites-available/codelab.conf", COTE_VPS,
-              "Le domaine, le certificat, et le renvoi dans le tunnel."),
-    "nginx_upgrade": ("nginx/00-codelab-upgrade.conf",
-                      "/etc/nginx/conf.d/00-codelab-upgrade.conf", COTE_VPS,
-                      "Laisse passer les websockets. Une ligne, mais sans elle le terminal "
-                      "de Dagster reste muet."),
-}
-
-
-def lire_vps():
-    d = lire_exposition().get("vps") or {}
-    return {
-        "domaine": str(d.get("domaine") or "").strip(),
-        "ip": str(d.get("ip") or "").strip(),
-        "reseau": str(d.get("reseau") or "10.8.0").strip(),
-    }
-
-
-def _ip_publique_valide(brute):
-    """Une adresse IP qui a un sens comme point de rendez-vous du tunnel.
-
-    Refuse ce qui n'est pas une adresse, et refuse aussi une adresse LOCALE :
-    un VPS joignable de partout n'a pas une adresse privee, et saisir celle
-    de sa propre machine donnerait une configuration qui ne peut pas marcher
-    -- autant le dire tout de suite plutot qu'apres trois copies de fichiers.
-    """
-    texte = str(brute or "").strip()
-    try:
-        adresse = ipaddress.ip_address(texte)
-    except ValueError:
-        return ""
-    return "" if adresse_est_locale(texte) else texte
-
-
-def vps_configuration(reglages):
-    """Les fichiers a copier, valeurs substituees."""
-    domaine = reglages["domaine"] or "codelab.exemple.fr"
-    reseau = reglages["reseau"] or "10.8.0"
-    sorties = {}
-    for cle, (relatif, destination, cote, role) in VPS_FICHIERS.items():
-        chemin = os.path.join(VPS_MODELES, relatif)
-        try:
-            with open(chemin, encoding="utf-8") as f:
-                texte = f.read()
-        except OSError:
-            # Modeles absents de l'image : on le dit plutot que de rendre un
-            # fichier invente qui n'aurait jamais ete relu par personne.
-            continue
-        texte = texte.replace("codelab.exemple.fr", domaine)
-        texte = texte.replace("10.8.0.1", reseau + ".1").replace("10.8.0.2", reseau + ".2")
-        texte = texte.replace("10.8.0.0/24", reseau + ".0/24")
-        if reglages["ip"]:
-            texte = texte.replace("203.0.113.10", reglages["ip"])
-        sorties[cle] = {"destination": destination, "contenu": texte,
-                        "cote": cote, "role": role}
-    return sorties
-
-
-def vps_diagnostic(reglages):
-    """Ou en est la liaison, d'apres ce qu'on CONSTATE sur cette requete.
-
-    Aucune de ces lignes n'est une supposition : le panneau regarde la
-    requete qu'il est en train de traiter. C'est la seule chose qu'il puisse
-    honnetement affirmer sans se connecter au VPS.
-    """
-    annonce = (request.headers.get("X-Forwarded-Proto") or "").lower()
-    devant = bool(request.headers.get("X-Forwarded-For") or annonce)
-    publique = adresse_publique()
-    # Ces libelles et ces conseils sont LUS : ils portent leurs accents, a la
-    # difference du code qui les entoure.
-    etapes = [
-        ("Domaine et adresse du VPS déclarés",
-         bool(reglages["domaine"] and reglages["ip"]),
-         "Saisis-les ci-dessus : ils servent à produire les fichiers de configuration."),
-        ("Un intermédiaire relaie cette requête", devant,
-         "Aucun en-tête X-Forwarded-* sur cette requête. Soit tu regardes cette page "
-         "directement depuis le réseau local — c'est normal — soit nginx n'est pas "
-         "encore en place sur le VPS."),
-        ("La requête arrive en HTTPS", annonce == "https" or request.is_secure,
-         "Le certificat se pose sur le VPS (certbot), pas ici. Voir l'étape 3 du README."),
-        ("Adresse publique déclarée dans le panneau", bool(publique),
-         "Carte « Adresse publique », plus bas. Tant qu'elle manque, aucune application "
-         "ne peut être rendue publique."),
-    ]
-    return [{"etape": nom, "ok": bool(ok), "aide": aide} for nom, ok, aide in etapes]
-
-
-@flask_app.get("/api/vps")
-@require_admin
-def api_vps():
-    reglages = lire_vps()
-    config = vps_configuration(reglages)
-    return jsonify({
-        "reglages": reglages,
-        "diagnostic": vps_diagnostic(reglages),
-        # cote et role partent avec : c'est la page qui les affiche, mais
-        # c'est ici qu'ils sont connus. Les deviner cote navigateur a partir
-        # d'un chemin serait une regle de plus a tenir a jour ailleurs.
-        "fichiers": [{"cle": cle, "destination": v["destination"],
-                      "contenu": v["contenu"], "cote": v["cote"],
-                      "role": v["role"]}
-                     for cle, v in config.items()],
-        "modeles_absents": not config,
-    })
-
-
-@flask_app.put("/api/vps")
-@require_admin
-def api_vps_enregistrer():
-    d = request.get_json(force=True, silent=True) or {}
-    domaine = re.sub(r"[^a-zA-Z0-9.-]", "", str(d.get("domaine") or "").strip())[:200]
-    ip = str(d.get("ip") or "").strip()
-    reseau = str(d.get("reseau") or "").strip() or "10.8.0"
-
-    if ip and not _ip_publique_valide(ip):
-        return jsonify({"error": "Ce n'est pas une adresse publique. Un VPS joignable "
-                                 "depuis internet n'a pas une adresse privée -- vérifié "
-                                 "que tu n'as pas saisi celle de ta propre machine."}), 400
-    if not re.fullmatch(r"(\d{1,3}\.){2}\d{1,3}", reseau):
-        return jsonify({"error": "Réseau du tunnel : trois nombres, par exemple 10.8.0."}), 400
-
-    reglages = lire_exposition()
-    reglages["vps"] = {"domaine": domaine, "ip": ip, "reseau": reseau}
-    # Le domaine du VPS EST l'adresse publique, dans ce montage : la faire
-    # ressaisir dans un autre champ etait une etape de plus pour rien. Une
-    # adresse deja declaree (ou fixee par le compose) n'est pas touchee.
-    if (domaine and not adresse_publique()
-            and not fixe_par_environnement("adresse_publique")):
-        reglages["adresse_publique"] = f"https://{domaine}"
-    try:
-        ecrire_exposition(reglages)
-    except OSError as e:
-        return jsonify({"error": f"Réglages non enregistrés : {e}"}), 500
-    return jsonify({"ok": True, "reglages": lire_vps()})
 
 
 @flask_app.post("/api/compte/mot-de-passe")
@@ -9703,10 +9582,10 @@ def api_visibility(n):
     # Une application DEJA publique reste modifiable dans l'autre sens --
     # on ne bloque jamais le chemin qui referme.
     if vis == VISIBILITE_PUBLIQUE and not adresse_publique():
-        return jsonify({"error": "Aucune adresse publique n'est déclarée pour ce "
-                                 "serveur : rendre une application publique ne "
-                                 "ferait que retirer l'authentification. "
-                                 "Déclare-la dans Configuration > Serveur."}), 400
+        return jsonify({"error": "Ce serveur n'a encore jamais été ouvert depuis "
+                                 "internet : rendre une application publique ne "
+                                 "ferait que retirer l'authentification. Ouvre le "
+                                 "panneau une fois par ton nom de domaine."}), 400
     apps[n]["visibility"] = vis
     save(apps)
     return jsonify({"ok": True, "visibility": vis})
@@ -10949,8 +10828,7 @@ def index():
     """
     page = (DASHBOARD_PAGE
             .replace("__JETON__", json.dumps(jeton_session()))
-            .replace("__APPS_BASE__", json.dumps(
-                origine_applications() if origines_separees() else ""))
+            .replace("__APPS_MODELE__", json.dumps(modele_adresse_application()))
             .replace("__ROOT__", json.dumps(ROOT))
             .replace("__ROLE__", json.dumps(role_courant() or ""))
             # Seul l'admin en a besoin : la page lui propose de regler l'envoi
@@ -10964,8 +10842,7 @@ def index():
     # droit d'encadrer l'origine des applications -- et elle seule. Les
     # applications, elles, n'acceptent d'etre encadrees que par le panneau
     # (proteger_l_encadrement).
-    base = origine_applications() if origines_separees() else ""
-    r.headers["Content-Security-Policy"] = CSP_PANNEAU + "; frame-src " + (base or "'self'")
+    r.headers["Content-Security-Policy"] = CSP_PANNEAU + "; frame-src " + cadres_permis()
     return r
 
 
@@ -10995,14 +10872,13 @@ def ouvrir_dans_le_panneau():
     if not a or not peut_voir(nom) or a.get("externe"):
         return Response(_page("Introuvable", "Aucune application \u00ab " + nom + " \u00bb."),
                         404, mimetype="text/html")
-    base = origine_applications() if origines_separees() else ""
-    cible = base + "/" + urllib.parse.quote(nom, safe="") + "/"
+    cible = adresse_application(nom)
     titre = titre_de(nom, a)
 
     def esc(x):
         return (str(x).replace("&", "&amp;").replace("<", "&lt;")
                 .replace(">", "&gt;").replace('"', "&quot;"))
-    origine_app = base or ""
+    origine_app = origine_de_l_application(nom)
     page = ('<!doctype html><html lang="fr"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width,initial-scale=1,'
             'maximum-scale=1,user-scalable=no,viewport-fit=cover">'
@@ -11054,8 +10930,7 @@ def ouvrir_dans_le_panneau():
     r = Response(page, mimetype="text/html")
     # La politique du panneau, plus le droit d'encadrer l'origine des
     # applications -- et elle seule.
-    r.headers["Content-Security-Policy"] = (
-        CSP_PANNEAU + "; frame-src " + (base or "'self'"))
+    r.headers["Content-Security-Policy"] = CSP_PANNEAU + "; frame-src " + cadres_permis()
     r.headers["Cache-Control"] = "no-store"
     return r
 
@@ -12989,8 +12864,9 @@ def origines_encadrantes():
     if not origines_separees():
         return "'self'"
     sources = []
-    if PANEL_URL:
-        sources.append(PANEL_URL)
+    domaine = domaine_des_applications()
+    if domaine:
+        sources.append(f"{schema_vu()}://{domaine}")
     hote = hote_demande()
     if hote and has_request_context():
         sources.append(f"{request.scheme}://{hote}:{PANEL_PORT}")
@@ -13536,7 +13412,7 @@ def _ouvrir_port_des_applications(servir_sur):
     S'il ne s'ouvre pas -- port deja pris, non publie par le compose -- on ne
     separe rien et les applications restent servies par le panneau, comme
     avant. Une stack qui marche moins bien vaut mieux qu'une stack morte, et
-    le panneau le dit dans Parametres > Serveur.
+    le panneau le dit dans le diagnostic.
     """
     if not APPS_PORT:
         print("[app-manager] APP_MANAGER_APPS_PORT=0 : les applications "

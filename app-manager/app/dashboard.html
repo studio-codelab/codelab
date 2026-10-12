@@ -903,12 +903,6 @@ th[aria-sort="ascending"] .ap-th span,th[aria-sort="descending"] .ap-th span{opa
 .us-pages{display:flex;gap:12px;align-items:center;justify-content:center;
   margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
 .us-pages .hint{margin:0}
-/* Les fichiers de configuration du VPS : du texte a copier tel quel, donc
-   monospace et defilement horizontal plutot qu'un retour a la ligne qui
-   casserait une directive nginx. */
-.pre-conf{background:var(--surface);border:1px solid var(--line);border-radius:8px;
-  padding:12px;overflow-x:auto;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
-  font-size:12px;line-height:1.5;max-height:340px;overflow-y:auto;margin:0}
 .onglet-p{display:none}
 .onglet-p.actif{display:block}
 .fiche-onglets button[data-admin]{display:none}
@@ -1095,12 +1089,36 @@ th[aria-sort="ascending"] .ap-th span,th[aria-sort="descending"] .ap-th span{opa
 .settings-card.pliable.ouverte>.card-top{margin-bottom:0}
 .settings-card.pliable>.card-corps{margin-top:18px}
 @media (max-width:760px){
-  /* Les onglets defilent sur une ligne plutot que de casser « E-mail et
-     alertes » sur trois. */
-  #sec-parametres .fiche-onglets{overflow-x:auto}
-  #sec-parametres .fiche-onglets button{white-space:nowrap;flex:none}
   .onglet-p .settings-card{padding:15px 16px}
   .settings-card.pliable>.card-top{margin:-15px -16px;padding:15px 16px}
+}
+/* LES BOUTONS DES REGLAGES : des pilules, comme le reste du panneau, assez
+   hautes pour le doigt. Au telephone, ils prennent la largeur : on les
+   atteint du pouce sans viser. */
+#sec-parametres .btn{border-radius:999px;font-weight:650;min-height:40px;padding:0 18px}
+#sec-parametres .btn-default{background:var(--surface);border-color:var(--line2)}
+#sec-parametres .btn-default:not(:disabled):hover{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+#sec-parametres .actions{gap:10px}
+@media (max-width:760px){
+  #sec-parametres .btn{min-height:46px;font-size:15px}
+  #sec-parametres .actions>.btn,#sec-parametres .onglet-p .settings-card>.btn,
+  #sec-parametres .card-corps>.btn{flex:1 1 100%;align-self:stretch}
+  /* QUATRE ONGLETS DE MEME LARGEUR, en pastille : tout tient, rien ne
+     defile, et l'onglet actif se detache comme un bouton enfonce. */
+  #sec-parametres:not(.reglages-unifies) #param-onglets{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;
+   gap:4px;padding:4px;margin:0 0 16px;border:0;border-radius:999px;background:var(--surface2)}
+  #sec-parametres:not(.reglages-unifies) #param-onglets button{margin:0;padding:10px 4px;border:0;border-radius:999px;
+   text-align:center;font-size:14px;font-weight:700;color:var(--dim);white-space:nowrap;
+   transition:background .15s,color .15s}
+  #sec-parametres:not(.reglages-unifies) #param-onglets button.active{background:var(--surface);color:var(--txt);
+   box-shadow:0 1px 3px var(--shadow-2)}
+  #param-onglets .onglet-suite{display:none}
+  /* Les reglages d'un onglet : une liste groupee, un filet entre deux
+     reglages, sans carte posee dans la carte ni grand blanc entre elles. */
+  :root[data-style="design"] #sec-parametres:not(.reglages-unifies) .onglet-p .zone{margin:0}
+  :root[data-style="design"] #sec-parametres:not(.reglages-unifies) .onglet-p .settings-card{border:0;border-radius:0;
+   box-shadow:none;border-bottom:1px solid var(--line)}
+  :root[data-style="design"] #sec-parametres:not(.reglages-unifies) .onglet-p .zone:last-child .settings-card:last-child{border-bottom:0}
 }
 .us-compte{border:1px solid var(--line);border-radius:var(--r-s);padding:12px 14px;
  margin-bottom:8px}
@@ -1457,8 +1475,6 @@ table.tbl-journal{min-width:560px}
   :root[data-style="design"] #param-onglets button.active::before{opacity:1}
   :root[data-style="design"] #param-onglets button[data-p="compte"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='8' r='4'/%3E%3Cpath d='M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8'/%3E%3C/svg%3E")}
   :root[data-style="design"] #param-onglets button[data-p="securite"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z'/%3E%3Cpath d='M9 12l2 2 4-4'/%3E%3C/svg%3E")}
-  :root[data-style="design"] #param-onglets button[data-p="serveur"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='7' rx='2'/%3E%3Crect x='3' y='13' width='18' height='7' rx='2'/%3E%3Cpath d='M7 7.5h.01M7 16.5h.01'/%3E%3C/svg%3E")}
-  :root[data-style="design"] #param-onglets button[data-p="categories"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/%3E%3C/svg%3E")}
   :root[data-style="design"] #param-onglets button[data-p="email"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='14' rx='2'/%3E%3Cpath d='M3 7l9 6 9-6'/%3E%3C/svg%3E")}
   :root[data-style="design"] #param-onglets button[data-p="message"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12a8 8 0 0 1-11.6 7.1L4 21l1.9-5.4A8 8 0 1 1 21 12z'/%3E%3C/svg%3E")}
   :root[data-style="design"] #param-onglets button.active{background:var(--accent);color:var(--sur-accent);border:0}
@@ -1476,7 +1492,7 @@ table.tbl-journal{min-width:560px}
   :root[data-style="design"] #sec-parametres .settings-card.pliable>.card-corps{margin-top:14px}
   :root[data-style="design"] #sec-parametres .settings-card .card-name b{font-size:13px;font-weight:600}
   :root[data-style="design"] #sec-parametres .settings-card .card-name .path{font-size:11.5px}
-  :root[data-style="design"] #sec-parametres .btn{border-radius:7px;padding:4px 12px;font-size:13px}
+  :root[data-style="design"] #sec-parametres .btn{min-height:36px;padding:0 16px;font-size:13px}
   :root[data-style="design"] #sec-parametres .interrupteur{width:38px;height:22px}
   :root[data-style="design"] #sec-parametres .interrupteur span::after{width:18px;height:18px;top:2px;left:2px}
   :root[data-style="design"] #sec-parametres .interrupteur input:checked+span::after{transform:translateX(16px)}
@@ -1631,12 +1647,12 @@ table.tbl-journal{min-width:560px}
  margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw);
  padding-left:var(--gouttiere) !important;padding-right:28px !important;
  height:var(--bento-h,560px);overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;
- scroll-snap-type:x proximity;padding:2px 2px 12px}
+ padding:2px 2px 12px}
 .hub-grille{display:grid;grid-auto-flow:column dense;grid-template-rows:repeat(3,minmax(0,1fr));
  grid-auto-columns:var(--cel);gap:14px}
 #hub-liste.zones{display:flex;gap:44px;align-items:stretch}
 #hub-liste.zones > .hub-grille{flex:none;height:100%}
-.hub-grille > *{scroll-snap-align:start;min-width:0;min-height:0}
+.hub-grille > *{min-width:0;min-height:0}
 .bw{border-radius:24px;padding:20px;display:flex;flex-direction:column;gap:10px;overflow:hidden;
  background:var(--surface);border:1px solid var(--line);color:var(--txt);text-decoration:none}
 .bw-petit{grid-row:span 1}
@@ -1653,7 +1669,7 @@ table.tbl-journal{min-width:560px}
   /* Defilement VERTICAL : la grille remplit la largeur, la page defile
      vers le bas. */
   :root.hub-vertical #hub-liste.bento{height:auto;overflow:visible;margin-left:0;margin-right:0;
-   padding:2px 2px 40px !important;scroll-snap-type:none}
+   padding:2px 2px 40px !important}
   :root.hub-vertical #hub-liste.zones{display:block}
   :root.hub-vertical #hub-liste.zones > .hub-grille{height:auto;margin-bottom:40px}
   :root.hub-vertical .hub-grille{grid-auto-flow:row dense;grid-template-rows:none;
@@ -1926,7 +1942,7 @@ a.pj:hover{border-color:var(--accent)}
   /* Sur telephone : on defile toujours vers le bas, quel que soit le
      reglage. Deux colonnes de cartes, ou quatre d'icones. */
   #hub-liste.bento{margin-left:0;margin-right:0;padding-left:2px !important;padding-right:2px !important;
-   height:auto;overflow:visible;scroll-snap-type:none}
+   height:auto;overflow:visible}
   #hub-liste.zones{display:block}
   #hub-liste.zones > .hub-grille{height:auto;margin-bottom:28px}
   .hub-grille{grid-auto-flow:row dense;grid-template-rows:none;grid-template-columns:repeat(2,minmax(0,1fr));
@@ -2500,9 +2516,7 @@ a.pj:hover{border-color:var(--accent)}
   <div class="fiche-onglets" id="param-onglets">
     <button data-p="compte" onclick="paramOnglet('compte')" class="active">Compte</button>
     <button data-p="securite" onclick="paramOnglet('securite')">Sécurité</button>
-    <button data-p="serveur" onclick="paramOnglet('serveur')" data-admin="1">Serveur</button>
-    <button data-p="categories" onclick="paramOnglet('categories')" data-admin="1">Catégories</button>
-    <button data-p="email" onclick="paramOnglet('email')" data-admin="1">E-mail et alertes</button>
+    <button data-p="email" onclick="paramOnglet('email')" data-admin="1">E-mail<span class="onglet-suite"> et alertes</span></button>
   </div>
 
   <div class="onglet-p" id="param-compte">
@@ -2630,6 +2644,46 @@ a.pj:hover{border-color:var(--accent)}
     </div>
   </div>
 
+  <div class="zone" id="zone-categories">
+    <div class="zone-title">Catégories</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Catégories du hub</b>
+        <div class="path">Des tiroirs pour ranger les projets sur la page d'accueil.</div>
+      </div></div>
+
+      <div class="hint">Regroupe les applications dans le hub, dans l'ordre de cette liste.</div>
+
+      <div id="cat-liste" style="margin-top:14px"></div>
+
+      <div class="cat-ligne">
+        <input id="cat-neuve" placeholder="Outils" autocomplete="off" maxlength="30"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();catAjouter()}">
+        <button class="btn btn-default" onclick="catAjouter()">Ajouter</button>
+      </div>
+
+      <div class="actions">
+        <button class="btn btn-primary" id="cat-save" onclick="catEnregistrer()">Enregistrer</button>
+      </div>
+      <div class="err" id="cat-err" style="display:none"></div>
+      <div class="hint" id="cat-msg" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- LA VERSION qui tourne, lue dans l'image. Le panneau ne contacte pas
+       GitHub pour savoir s'il existe plus recent (aucun appel sortant) : le
+       lien des nouveautes s'ouvre dans le navigateur, si on le choisit. -->
+  <div class="zone" id="zone-version">
+    <div class="zone-title">Version</div>
+    <div class="card settings-card" id="ver-carte">
+      <div class="card-top"><div class="card-name">
+        <b>Version de CodeLab</b>
+        <div class="path" id="ver-resume"><span class="squelette-ligne" role="status" aria-label="Chargement"></span></div>
+      </div>
+      </div>
+      <div id="ver-corps"></div>
+    </div>
+  </div>
   <div class="zone" id="zone-session">
     <div class="zone-title">Session</div>
     <div class="card settings-card">
@@ -2789,104 +2843,6 @@ a.pj:hover{border-color:var(--accent)}
        depuis internet -- et obligeaient a comprendre les trois pour en
        regler une. On ne voit d'abord que l'adresse ; le VPS et les cases
        techniques se deplient quand on en a besoin. -->
-  <div class="onglet-p" id="param-serveur">
-  <!-- LA VERSION qui tourne, lue dans l'image. Le panneau ne contacte pas
-       GitHub pour savoir s'il existe plus recent (aucun appel sortant) : le
-       lien des nouveautes s'ouvre dans le navigateur, si on le choisit. -->
-  <div class="zone">
-    <div class="zone-title">Version</div>
-    <div class="card settings-card sans-pli" id="ver-carte">
-      <div class="card-top"><div class="card-name">
-        <b>Version de CodeLab</b>
-        <div class="path" id="ver-resume"><span class="squelette-ligne" role="status" aria-label="Chargement"></span></div>
-      </div>
-      </div>
-      <div id="ver-corps"></div>
-    </div>
-  </div>
-  <div class="zone">
-    <div class="zone-title">Accès depuis internet</div>
-    <div class="card settings-card">
-      <div class="card-top"><div class="card-name">
-        <b>Accès depuis internet</b>
-        <div class="path">L'adresse par laquelle ce serveur est joignable depuis internet.</div>
-      </div>
-      <span class="pill" id="pub-etat"><i></i>&nbsp;</span></div>
-      <div class="field" style="margin-top:14px">
-        <label>Adresse publique</label>
-        <input id="pub-adresse" placeholder="https://codelab.mondomaine.fr" autocomplete="off">
-        <div class="hint">Vide = serveur privé, joignable seulement depuis ton réseau.</div>
-      </div>
-      <button class="btn btn-primary" id="pub-save" onclick="pubEnregistrer()">Enregistrer</button>
-      <div class="err" id="pub-err" style="display:none"></div>
-      <div class="hint" id="pub-fige" style="display:none">Cette adresse est fixée par
-        <code>APP_MANAGER_PUBLIC_URL</code> dans le compose : elle se modifie là-bas.</div>
-
-      <details class="repli"><summary>Passer par un VPS (sans rien ouvrir sur ta box)</summary>
-        <div class="hint" style="margin-top:8px">Le VPS porte le domaine et le certificat ; ta box reste fermée. Le panneau produit les fichiers à copier, sans jamais se connecter au VPS. <span class="pill" id="vps-etat"><i></i>&nbsp;</span></div>
-      <div class="grid2" style="margin-top:14px">
-        <div class="field"><label>Nom de domaine</label>
-          <input id="vps-domaine" placeholder="codelab.tondomaine.fr" autocomplete="off"></div>
-        <div class="field"><label>Adresse publique du VPS</label>
-          <input id="vps-ip" placeholder="203.0.113.10" autocomplete="off"></div>
-      </div>
-      <div class="field"><label>Réseau du tunnel</label>
-        <input id="vps-reseau" placeholder="10.8.0" autocomplete="off">
-        <div class="hint">Trois nombres. N'importe quel réseau privé inutilisé chez toi convient ;
-          garde 10.8.0 si tu n'as pas de raison d'en changer.</div>
-      </div>
-      <div class="actions">
-        <button class="btn btn-primary" id="vps-save" onclick="vpsEnregistrer()">Enregistrer</button>
-      </div>
-      <div class="err" id="vps-err" style="display:none"></div>
-      <div class="hint" id="vps-msg" style="display:none"></div>
-
-      <div class="mb-titre" style="margin-top:18px">Où en est la liaison</div>
-      <div class="hint">Ce que le panneau <b>constate</b> sur la requête qu'il traite en ce moment.
-        Aucune de ces lignes n'est une supposition.</div>
-      <div id="vps-diagnostic" style="margin-top:10px"></div>
-
-      <div class="mb-titre" style="margin-top:18px">Fichiers à copier</div>
-      <div id="vps-fichiers"></div>
-      </details>
-
-      <!-- Plus de reglage ici : la securite reseau est toujours au plus
-           strict (voir securite_reseau dans app.py). -->
-      <div class="hint" style="margin-top:12px">L'administration ne répond qu'au réseau local, et le
-        cookie de session devient sécurisé dès que le panneau arrive en HTTPS.</div>
-    </div>
-  </div>
-  </div>
-
-  <div class="onglet-p" id="param-categories">
-  <div class="zone">
-    <div class="zone-title">Catégories</div>
-    <div class="card settings-card">
-      <div class="card-top"><div class="card-name">
-        <b>Catégories du hub</b>
-        <div class="path">Des tiroirs pour ranger les projets sur la page d'accueil.</div>
-      </div></div>
-
-      <div class="hint">Regroupe les applications dans le hub, dans l'ordre de cette liste.</div>
-
-      <div id="cat-liste" style="margin-top:14px"></div>
-
-      <div class="cat-ligne">
-        <input id="cat-neuve" placeholder="Outils" autocomplete="off" maxlength="30"
-          onkeydown="if(event.key==='Enter'){event.preventDefault();catAjouter()}">
-        <button class="btn btn-default" onclick="catAjouter()">Ajouter</button>
-      </div>
-
-      <div class="actions">
-        <button class="btn btn-primary" id="cat-save" onclick="catEnregistrer()">Enregistrer</button>
-      </div>
-      <div class="err" id="cat-err" style="display:none"></div>
-      <div class="hint" id="cat-msg" style="display:none"></div>
-    </div>
-  </div>
-
-  </div>
-
   <!-- LE SERVEUR D'ENVOI ET LES ALERTES SONT DEUX CHOSES. Le premier est une
        fourniture partagee : il porte les alertes, mais aussi les codes de
        verification d'adresse et les invitations. Les secondes n'en sont
@@ -3383,12 +3339,12 @@ a.pj:hover{border-color:var(--accent)}
    la ligne que trace le serveur. */
 const JETON=__JETON__;
 
-/* Ou vivent les applications. Vide = elles sont servies par le panneau
-   lui-meme (separation des origines inactive), et un chemin relatif suffit.
-   Sinon c'est une autre origine, et il faut l'adresse complete : c'est tout
-   l'interet, le navigateur doit les traiter comme un site different. */
-const APPS_BASE=__APPS_BASE__;
-const urlApplication = nom => APPS_BASE + '/' + encodeURIComponent(nom) + '/';
+/* Ou vivent les applications, « {nom} » a remplacer : un sous-domaine
+   (https://blog.toi.duckdns.org/) quand le panneau est ouvert par son nom de
+   domaine, le port des applications en local, ou un chemin du panneau.
+   Pose par le serveur (modele_adresse_application). */
+const APPS_MODELE=__APPS_MODELE__;
+const urlApplication = nom => APPS_MODELE.replace('{nom}', encodeURIComponent(nom));
 
 /* OUVRIR UNE APPLICATION : une seule adresse, pour tout le panneau.
    La tuile du hub, le bouton « Ouvrir » de la fiche et la ligne « Adresse »
@@ -4066,6 +4022,7 @@ function paramOnglet(o){
        celle d'un chargement precedent -- ou rien du tout si l'on arrive
        directement sur les reglages. */
     chargerHub();
+    if(estAdmin){ chargerCategories(); chargerVersion(); }
     $('mdp-err').style.display='none'; $('mdp-msg').style.display='none';
   }
   if(o==='securite'){
@@ -4076,8 +4033,6 @@ function paramOnglet(o){
   }
   /* La liste des applications vient du hub : on la relit, sinon le choix
      « D'une application » est vide pour qui arrive directement ici. */
-  if(o==='serveur' && estAdmin){ chargerSecurite(); chargerVps(); chargerVersion(); }
-  if(o==='categories') chargerCategories();
   /* Les deux onglets lisent la meme reponse : le serveur d'envoi et les
      alertes vivent au meme endroit, le coffre chiffre du panneau. */
   if(o==='email' || o==='alertes') chargerAlertes();
@@ -5134,10 +5089,6 @@ function ajusterBento(){
   const el=$('hub-liste');
   if(!el.classList.contains('bento')) return;
   if(!horizontal()){ el.style.removeProperty('--bento-h'); el.style.removeProperty('--rangees'); return; }
-  /* L'aimant du defilement s'arrete sur la marge de gauche, pas contre le
-     bord : en pixels, parce qu'un pourcentage s'y mesurerait sur la
-     mosaique elle-meme, et vaudrait zero. */
-  el.style.scrollPaddingLeft=getComputedStyle(el).paddingLeft;
   const d=defileur();
   const haut=el.getBoundingClientRect().top + d.scrollTop;
   el.style.setProperty('--bento-h', Math.max(420, window.innerHeight - haut - 28) + 'px');
@@ -5149,13 +5100,41 @@ function ajusterBento(){
 }
 window.addEventListener('resize', ()=>{ majSensDuHub(); ajusterBento(); });
 /* La molette verticale fait defiler la mosaique a l'horizontale : on n'a pas
-   tous une souris qui sait aller de cote. Pas dans un champ de texte. */
+   tous une souris qui sait aller de cote. Pas dans un champ de texte.
+   SANS A-COUP : un cran de molette (100 px d'un coup, ou des lignes) ne
+   saute pas, il glisse -- une cible, que la mosaique rejoint en quelques
+   images -- et ne va qu'aux deux tiers d'un cran vertical. Un pave tactile
+   envoie deja un flot de petits pas : ils passent tels quels. Aucun aimant
+   (scroll-snap) : la mosaique s'arrete la ou on la lache. */
+const MOLETTE_PAS=2/3;
+let molette=null;
+function glisserMolette(){
+  const m=molette, el=$('hub-liste');
+  const avant=el.scrollLeft, reste=m.cible-avant;
+  /* Au moins un pixel par image : le navigateur arrondit scrollLeft, et un
+     pas plus petit ne bougerait plus rien. */
+  el.scrollLeft = Math.abs(reste)<=1 ? m.cible : avant + Math.sign(reste)*Math.max(1, Math.abs(reste)*.2);
+  if(Math.abs(reste)<=1 || el.scrollLeft===avant){ molette=null; return; }
+  m.raf=requestAnimationFrame(glisserMolette);
+}
 $('hub-liste').addEventListener('wheel', e=>{
   const el=e.currentTarget;
   if(!el.classList.contains('bento') || !horizontal() || e.target.closest('textarea')) return;
   if(Math.abs(e.deltaY) <= Math.abs(e.deltaX) || el.scrollWidth <= el.clientWidth) return;
-  el.scrollLeft += e.deltaY; e.preventDefault();
+  e.preventDefault();
+  const pas = e.deltaMode===1 ? e.deltaY*40 : e.deltaMode===2 ? e.deltaY*el.clientWidth : e.deltaY;
+  const cran = e.deltaMode!==0 || (Math.abs(pas)>=50 && Number.isInteger(pas));
+  if(!cran && !molette){ el.scrollLeft += pas; return; }
+  const max=el.scrollWidth-el.clientWidth;
+  const depart = molette ? molette.cible : el.scrollLeft;
+  const cible=Math.max(0, Math.min(max, depart + pas*(cran ? MOLETTE_PAS : 1)));
+  if(molette){ molette.cible=cible; return; }
+  molette={cible}; molette.raf=requestAnimationFrame(glisserMolette);
 }, {passive:false});
+/* Un doigt ou une barre qui reprend la main arrete le glissement. */
+['pointerdown','touchstart'].forEach(t=>$('hub-liste').addEventListener(t, ()=>{
+  if(molette){ cancelAnimationFrame(molette.raf); molette=null; }
+}, {passive:true}));
 
 /* ---- composer : modifier, deplacer, retirer, changer de taille ---- */
 function basculerEdition(){
@@ -7710,126 +7689,20 @@ async function chargerSecurite(){
   $('totp-etape-2').style.display = 'none';
 
   adressePublique = d.adresse_publique || '';
-  $('pub-adresse').value = adressePublique;
-  $('pub-adresse').disabled = !!d.adresse_figee;
-  $('pub-save').disabled = !!d.adresse_figee;
-  $('pub-fige').style.display = d.adresse_figee ? 'block' : 'none';
-  const pp=$('pub-etat');
-  pp.className='pill ' + (adressePublique ? 'on' : 'off');
-  pp.innerHTML='<i></i>' + (adressePublique ? 'Declaree' : 'Serveur privé');
   /* La fiche ouverte et le formulaire d'ajout suivent : ce qu'ils proposent
      depend de cette reponse. */
   if(ficheNom) peindreFiche();
 }
 
-/* L'adresse publique du serveur. "" = ce serveur n'est joignable que depuis
-   le reseau local, et « publique » n'y voudrait rien dire. */
+/* L'adresse publique du serveur, apprise par le serveur la premiere fois
+   qu'on ouvre le panneau par son nom de domaine. "" = jamais ouvert depuis
+   internet, et « publique » n'y voudrait rien dire. */
 let adressePublique='';
 async function chargerAdressePublique(){
   try{
     const d=await (await fetch('/api/securite')).json();
     adressePublique = d.adresse_publique || '';
   }catch(e){}
-}
-
-async function pubEnregistrer(){
-  const e=$('pub-err'); e.style.display='none';
-  const r=await fetch('/api/securite/exposition',{method:'PUT',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({adresse_publique:$('pub-adresse').value.trim()})});
-  const d=await r.json();
-  if(!r.ok){ e.textContent=d.error||'Enregistrement impossible.'; e.style.display='block'; return; }
-  chargerSecurite();
-}
-
-/* ---------------- liaison avec un VPS ---------------- */
-async function chargerVps(){
-  let d;
-  try{
-    const r=await fetch('/api/vps'); d=await r.json();
-    if(!r.ok) return;
-  }catch(e){ return; }
-
-  $('vps-domaine').value=d.reglages.domaine||'';
-  $('vps-ip').value=d.reglages.ip||'';
-  $('vps-reseau').value=d.reglages.reseau||'10.8.0';
-
-  const etapes=d.diagnostic||[];
-  const faites=etapes.filter(e=>e.ok).length;
-  const p=$('vps-etat');
-  p.className='pill '+(faites===etapes.length ? 'on' : (faites ? 'off' : 'off'));
-  p.innerHTML='<i></i>'+faites+' sur '+etapes.length;
-
-  $('vps-diagnostic').innerHTML = etapes.map(e=>
-    `<div class="kv"><span class="k">${esc(e.etape)}</span>
-     <span class="v"><span class="pill ${e.ok?'on':'off'}"><i></i>${e.ok?'fait':'non'}</span></span></div>`
-    + (e.ok ? '' : `<div class="hint" style="margin:-2px 0 10px">${esc(e.aide)}</div>`)).join('');
-
-  const zone=$('vps-fichiers');
-  if(d.modeles_absents){
-    zone.innerHTML='<div class="hint">Les modèles de configuration ne sont pas présents dans '
-      + 'cette image. Ils vivent dans <code>app-manager/vps/</code> du depot.</div>';
-    return;
-  }
-  /* GROUPES PAR MACHINE. La seule question qu'on se pose devant un fichier
-     de configuration est "je le colle ou ?" : la reponse passe donc avant le
-     fichier, et non dans une note a cote.
-
-     Replies par defaut : quatre fichiers deroules d'un coup noient la page,
-     et on n'en copie qu'un a la fois. */
-  const fichiers=d.fichiers||[];
-  const cotes=[...new Set(fichiers.map(f=>f.cote||''))];
-  zone.innerHTML = cotes.map(cote=>{
-    const siens=fichiers.map((f,i)=>[f,i]).filter(([f])=>(f.cote||'')===cote);
-    return `<div class="mb-titre" style="margin:14px 0 8px">${esc(cote)}</div>`
-      + siens.map(([f,i])=>
-    `<details style="margin-bottom:8px">
-       <summary style="cursor:pointer"><b>${esc(f.destination)}</b>${
-         f.role ? `<div class="hint" style="margin:2px 0 0 0">${esc(f.role)}</div>` : ''}</summary>
-       <div class="actions" style="margin:8px 0">
-         <button class="btn btn-default btn-sm" onclick="vpsCopier(${i})">Copier</button>
-       </div>
-       <pre class="pre-conf" id="vps-f${i}">${esc(f.contenu)}</pre>
-     </details>`).join('');
-  }).join('');
-}
-
-async function vpsCopier(i){
-  const bloc=$('vps-f'+i); if(!bloc) return;
-  try{
-    await navigator.clipboard.writeText(bloc.textContent);
-    notifier('Configuration copiee.');
-  }catch(e){
-    /* Le presse-papier est refuse hors contexte securise : on selectionne
-       le texte pour que Ctrl+C reste possible plutot que d'echouer sans
-       rien proposer. */
-    const sel=window.getSelection(); const r=document.createRange();
-    r.selectNodeContents(bloc); sel.removeAllRanges(); sel.addRange(r);
-    notifier('Presse-papier indisponible : le texte est sélectionné, fais Ctrl+C.', 'err');
-  }
-}
-
-async function vpsEnregistrer(){
-  const e=$('vps-err'), m=$('vps-msg');
-  e.style.display='none'; m.style.display='none';
-  const b=$('vps-save'); b.disabled=true;
-  try{
-    const r=await fetch('/api/vps',{method:'PUT',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({domaine:$('vps-domaine').value.trim(),
-                           ip:$('vps-ip').value.trim(),
-                           reseau:$('vps-reseau').value.trim()})});
-    const d=await r.json();
-    if(!r.ok){ e.textContent=d.error||'Enregistrement impossible.'; e.style.display='block'; }
-    else{
-      m.textContent='Enregistré. Les fichiers ci-dessous portent tes valeurs.';
-      m.style.display='block';
-      await chargerVps();
-      /* Le domaine a pu devenir l'adresse publique : on la relit. */
-      await chargerAdressePublique();
-    }
-  }catch(err){ e.textContent='Erreur réseau.'; e.style.display='block'; }
-  finally{ b.disabled=false; }
 }
 
 /* ---------------- mot de passe et preferences ---------------- */
@@ -7962,10 +7835,28 @@ const visible = id => $(id).style.display!=='none';
    immediatement au retour -- c'est ce retour immediat qui permet de couper
    sans rien perdre : la page est a jour avant meme d'etre relue. */
 const _minuteries = [];
+/* PAS DE SAUT EN DEFILANT. Un tour de minuterie redessine sa page (le hub
+   toutes les dix secondes) : tombe en plein defilement, il remplace ce qui
+   passe sous le doigt et l'elan s'arrete net, ou la page saute. Tant qu'un
+   doigt est pose ou qu'on a defile il y a moins de 700 ms, le tour attend
+   que tout soit immobile. */
+let defileLe=0, doigtsPoses=0;
+document.addEventListener('scroll', ()=>{ defileLe=performance.now(); }, {capture:true, passive:true});
+document.addEventListener('wheel', ()=>{ defileLe=performance.now(); }, {capture:true, passive:true});
+document.addEventListener('touchstart', e=>{ doigtsPoses=e.touches.length; }, {capture:true, passive:true});
+['touchend','touchcancel'].forEach(t=>document.addEventListener(t, e=>{
+  doigtsPoses=e.touches.length; defileLe=performance.now(); }, {capture:true, passive:true}));
+const enDefilement = () => doigtsPoses>0 || performance.now()-defileLe < 700;
+function quandImmobile(fn){
+  if(!enDefilement()) return fn();
+  setTimeout(()=>quandImmobile(fn), 250);
+}
 function surveiller(fn, delai){
-  const t = {fn: fn, delai: delai, id: null};
+  let enAttente=false;
+  const tour=()=>{ if(enAttente) return; enAttente=true; quandImmobile(()=>{ enAttente=false; fn(); }); };
+  const t = {fn: tour, delai: delai, id: null};
   _minuteries.push(t);
-  if(!document.hidden) t.id = setInterval(fn, delai);
+  if(!document.hidden) t.id = setInterval(tour, delai);
   return t;
 }
 document.addEventListener('visibilitychange', ()=>{
@@ -8005,6 +7896,8 @@ if(estAdmin){
      sans etat ni bouton -- une case vide de plus a se demander. */
   $('profil-securite').style.display='none';
   document.body.classList.add('compte-utilisateur');
+  /* Les categories du hub et la version : l'affaire de l'administrateur. */
+  $('zone-categories').remove(); $('zone-version').remove();
   $('sec-parametres').classList.add('reglages-unifies');
 }
 majOngletsParametres();

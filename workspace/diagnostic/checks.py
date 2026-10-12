@@ -869,8 +869,8 @@ def check_origine_applications():
     hote, info = _joindre_panneau(port)
     if hote is None:
         # Rang 2 : rien n'est CONSTATE ici. Ou le port n'est pas publie -- et
-        # le panneau sert alors les applications dans sa propre origine, ce
-        # qu'il dit lui-meme dans Parametres > Serveur -- ou l'on regarde
+        # le panneau sert alors les applications dans sa propre origine -- ou
+        # l'on regarde
         # depuis un conteneur qui n'a pas ce port. Dans les deux cas, il n'y
         # a pas de faille prouvee, donc pas de quoi faire tomber un run.
         return (Etat.ALERTE, "origine des applications",

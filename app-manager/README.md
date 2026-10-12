@@ -202,8 +202,7 @@ Une valeur existante n'est jamais régénérée.
 | `APP_MANAGER_SHARED_CONFIG` | `/var/lib/codelab/config` | dossier de `credentials.env` |
 | `MANAGER_PORT` | `9001` | port du panneau |
 | `APP_MANAGER_APPS_PORT` | `9002` | port des applications ; `0` = sous le port du panneau |
-| `APP_MANAGER_APPS_URL`, `APP_MANAGER_PANEL_URL` | — | adresses complètes quand un reverse proxy publie autrement |
-| `APP_MANAGER_PUBLIC_URL` | — | adresse publique ; également réglable dans *Paramètres > Serveur* |
+| `APP_MANAGER_PUBLIC_URL` | — | adresse publique ; sinon, le domaine par lequel le panneau a été ouvert depuis internet |
 | `APP_MANAGER_HTTPS` | — | `1` force le cookie `Secure` (sinon constaté à chaque requête) |
 | `APP_MANAGER_ADMIN_2FA` | `1` | `0` : marche arrière si le second facteur admin est perdu |
 | `APP_MANAGER_ISOLER` | `1` | isolation du système de fichiers par application |

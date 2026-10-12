@@ -20,6 +20,7 @@ indisponibles.
 | `wireguard/wg0-vps.conf.exemple` | VPS, `/etc/wireguard/wg0.conf` |
 | `wireguard/wg0-zimablade.conf.exemple` | ZimaBlade (l'**hote**, pas un conteneur), `/etc/wireguard/wg0.conf` |
 | `nginx/00-codelab-upgrade.conf` | VPS, `/etc/nginx/conf.d/` |
+| `nginx/codelab-relais.conf` | VPS, `/etc/nginx/snippets/` |
 | `nginx/codelab.conf` | VPS, `/etc/nginx/sites-available/`, puis un lien dans `sites-enabled/` |
 
 ## Dans l'ordre
@@ -36,22 +37,32 @@ ping -c3 10.8.0.2
 curl -s http://10.8.0.2:9001/health     # doit repondre "ok"
 ```
 
-**2. Le DNS.** Fais pointer `codelab.tondomaine.fr` vers l'adresse publique du **VPS**.
+**2. Le DNS.** Fais pointer ton domaine (`toi.duckdns.org`) vers l'adresse publique du **VPS**.
+Les sous-domaines suivent d'eux-memes : chez DuckDNS, `blog.toi.duckdns.org` mene deja au meme
+endroit que `toi.duckdns.org`. Ailleurs, ajoute un enregistrement `*.tondomaine.fr`.
 
-**3. Le certificat.** Sur le VPS : `apt install certbot python3-certbot-nginx`, puis
-`certbot --nginx -d codelab.tondomaine.fr`. Le renouvellement est automatique.
+**3. Le certificat.** Un seul, pour le domaine et tous ses sous-domaines (`*.toi.duckdns.org`). Un
+certificat « joker » se prouve par le DNS ; avec DuckDNS, ton jeton suffit :
 
-**4. nginx.** Recopie les deux fichiers, remplace `codelab.exemple.fr` par ton domaine et `10.8.0.2`
-par l'adresse WireGuard de la ZimaBlade si tu as choisi un autre reseau. Puis
+```bash
+apt install certbot python3-pip && pip install certbot-dns-duckdns
+certbot certonly --authenticator dns-duckdns --dns-duckdns-token <ton-jeton> \
+  --dns-duckdns-propagation-seconds 60 -d toi.duckdns.org -d '*.toi.duckdns.org'
+```
+
+Le renouvellement est automatique.
+
+**4. nginx.** Recopie les trois fichiers, remplace `exemple.duckdns.org` par ton domaine et
+`10.8.0.2` par l'adresse WireGuard de la ZimaBlade si tu as choisi un autre reseau. Puis
 `nginx -t && systemctl reload nginx`.
 
 > `nginx -t` est la seule etape ou une faute de frappe se voit tout de suite. Fais-la avant chaque
 > `reload`.
 
-**5. Le dire a CodeLab.** Depuis le panneau, ouvert par ton nouveau domaine :
-*Parametres > Serveur*. Rien a editer, rien a redemarrer.
-
-1. **Adresse publique** — `https://codelab.tondomaine.fr`.
+**5. Rien a dire a CodeLab.** Ouvre le panneau une fois par ton domaine : il retient cette adresse
+(pour les liens d'invitation, et pour permettre de rendre une application publique), et chaque
+application est servie a `https://<son-nom>.toi.duckdns.org` — le nom de l'application, celui de
+sa fiche. Aucune variable a poser, aucun champ a remplir.
 
 C'est tout : il n'y a plus de case a cocher. La securite reseau est toujours au plus strict :
 
@@ -66,8 +77,8 @@ C'est tout : il n'y a plus de case a cocher. La securite reseau est toujours au 
 
 ## Verifier
 
-1. `https://codelab.tondomaine.fr` : cadenas, pas d'avertissement.
-2. *Parametres > Serveur* : les lignes en vert, et l'adresse publique declaree.
+1. `https://toi.duckdns.org` : cadenas, pas d'avertissement.
+2. `https://<une-application>.toi.duckdns.org` : l'application, avec le meme cadenas.
 3. Un compte nomme se connecte par le domaine ; l'administration, elle, y repond « reseau local
    uniquement » — c'est voulu.
 4. *Parametres > Securite* : « Ajouter une cle » est actif. S'il ne l'est pas, la page dit
@@ -81,16 +92,9 @@ C'est tout : il n'y a plus de case a cocher. La securite reseau est toujours au 
   plus courant — la box qui oublie la connexion apres une periode de calme.
 - **Les applications deployees heritent du TLS**, puisqu'elles passent par le meme panneau. Une
   application *publique* devient donc accessible a tout internet : c'est le but, et c'est la raison
-  pour laquelle CodeLab ne le propose pas tant que l'adresse publique n'est pas declaree.
-- **Les applications ont leur propre origine, et `codelab.conf` ne la publie pas.** Le panneau sert
-  les applications sur le port `9002`, que la configuration livree ne relaie pas. Pour les ouvrir
-  depuis internet :
-  1. ajoute un sous-domaine (`apps.tondomaine.fr`) et son certificat ;
-  2. ajoute un bloc `server` sur le modele du bloc Dagster en fin de `codelab.conf`, avec
-     `proxy_pass http://10.8.0.2:9002;` ;
-  3. declare `APP_MANAGER_APPS_URL: "https://apps.tondomaine.fr"` dans le compose.
-
-  Ne remets pas les applications sous le port du panneau (`APP_MANAGER_APPS_PORT: "0"`) : une
-  faille XSS dans une application deviendrait une faille du panneau.
+  pour laquelle CodeLab ne le propose pas tant que le panneau n'a jamais ete ouvert par son domaine.
+- **Chaque application est sa propre origine.** Un sous-domaine par application, servi par le port
+  `9002` : une faille XSS dans une application n'atteint pas le panneau. Ne remets pas les
+  applications sous le port du panneau (`APP_MANAGER_APPS_PORT: "0"`).
 - **Le trafic passe par ton VPS.** Debit et volume mensuel sont ceux de l'offre, pas ceux de ta
   fibre.
