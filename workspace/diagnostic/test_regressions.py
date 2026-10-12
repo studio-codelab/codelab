@@ -15643,6 +15643,26 @@ def test_le_hub_anime_ses_chiffres_et_dessine_ses_graphiques():
     assert "if(sobre || avant===fin){ poserAnim(n, fin); return; }" in page
 
 
+def test_les_parametres_n_ont_plus_d_erreurs_d_affichage():
+    """Vecu : un titre qui passe au vert et des coins qui depassent au survol,
+    une fenetre de cartes dans une carte, des gelules vertes en colonne, des
+    tuiles du hub penchees en trapeze."""
+    page = _page_panneau("dashboard.html")
+    bloc = page.split("LES PARAMETRES, DANS LE STYLE DU PANNEAU.")[1].split("LES REGLAGES D'UN COMPTE UTILISATEUR")[0]
+    # Les cartes coupent ce qui deborde ; le titre ne change plus de couleur.
+    assert "border-radius:20px;padding:20px 24px;overflow:hidden" in bloc
+    assert ".settings-card.pliable>.card-top:hover .card-name b{color:inherit}" in bloc
+    # Plus de fenetre dans la page : ni fond, ni cadre, la police du panneau.
+    assert "background:none;border:0;border-radius:0;box-shadow:none;\n   overflow:visible;font-family:var(--sans)" in bloc
+    # Une coche suffit : pas de ligne cerclee d'accent.
+    assert "#sec-parametres .choix-ligne:has(>input:checked){background:none;border-color:transparent}" in bloc
+    # Quatre appareils, le reste derriere un bouton ; cet appareil toujours en tete.
+    assert "const AP_VISIBLES=4;" in page and "Afficher les ${caches} autres" in page
+    assert "(y.courant?1:0)-(x.courant?1:0)" in page
+    # Le hub ne penche plus ses tuiles.
+    assert "rotateX(var(--rx" not in page and "--ry" not in page
+
+
 # ------------------------- Connexion et reglages -------------------------
 
 def test_le_refus_de_connexion_dit_combien_d_essais_il_reste(deux_espaces):
