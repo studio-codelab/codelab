@@ -13432,7 +13432,7 @@ def test_le_defilement_vertical_laisse_la_page_defiler():
     sens = page.split("function majSensDuHub(){")[1].split("\n}")[0]
     assert "r.getAttribute('data-defilement') === 'vertical'" in sens
     assert "matchMedia('(orientation: portrait)').matches" in sens
-    assert ':root[data-variante="bento"]:not(.hub-vertical).hub-actif{overflow:hidden}' in page
+    assert ':root[data-variante="bento"]:not(.hub-vertical).hub-actif :is(body,#defile){overflow:hidden}' in page
     regle = page.split(':root.hub-vertical .hub-grille{')[1].split("}")[0]
     assert "grid-auto-flow:row" in regle and "repeat(auto-fill,minmax(var(--cel),1fr))" in regle
     assert ':root.hub-vertical #hub-liste.bento{height:auto;overflow:visible' in page
@@ -13440,7 +13440,7 @@ def test_le_defilement_vertical_laisse_la_page_defiler():
     ajuster = page.split("function ajusterBento(")[1].split("\n}")[0]
     assert "if(!horizontal()){ el.style.removeProperty('--bento-h')" in ajuster
     bords = page.split("function defilerPresDesBords(")[1].split("\n}")[0]
-    assert "window.scrollBy(0, w)" in bords
+    assert "defileur().scrollBy(0, w)" in bords
 
 
 def test_le_nuancier_change_la_couleur_d_accent():
@@ -15663,3 +15663,64 @@ def test_un_apercu_encadre_ne_previent_pas_l_administrateur(deux_espaces, monkey
     assert r.status_code == 503 and appels == []
     c.get("/prive-autorise/", headers={"Sec-Fetch-Dest": "document"})
     assert len(appels) == 1
+
+
+# ------------- Aucune barre de defilement, iPhone compris -------------
+#
+# Vecu : « J'ai toujours la barre de scroll visible sur telephone !!! » iOS
+# ne laisse masquer que celle d'un bloc interieur, jamais celle de la page :
+# au doigt, c'est #defile qui defile.
+
+@pytest.mark.parametrize("page", ["dashboard.html", "login.html", "messages.html"])
+def test_au_doigt_un_bloc_interieur_defile_a_la_place_de_la_page(page):
+    html = _page_panneau(page)
+    corps = html.split("<body>", 1)[1]
+    assert corps.lstrip().startswith('<div id="defile">'), page
+    assert corps.rstrip().endswith("</div>\n</body></html>") or corps.rstrip().endswith("</div>\n</body>\n</html>"), page
+    theme = _page_panneau("theme.css")
+    regle = theme.split("@media (pointer:coarse){")[1].split("\n}")[0]
+    assert "html:has(> body > #defile),html:has(> body > #defile) > body{height:100%;overflow:hidden}" in regle
+    assert "#defile{height:100%;overflow-x:hidden;overflow-y:auto" in regle
+    assert "*::-webkit-scrollbar{display:none}" in theme
+
+
+def test_ce_qui_defile_suit_le_pointeur():
+    page = _page_panneau("dashboard.html")
+    assert "const defileur=()=>DEFILE_INTERNE.matches ? $('defile') : document.scrollingElement;" in page
+    ajuster = page.split("function ajusterBento(")[1].split("\n}")[0]
+    assert "const exces=d.scrollHeight - d.clientHeight;" in ajuster
+    assert "defileur().scrollBy(0, w)" in page and "window.scrollBy(" not in page
+    assert "document.getElementById('defile').addEventListener('scroll', majEnteteCollee" in page
+
+
+# ------------- « A la une » : la bande-annonce et les couleurs -------------
+#
+# Vecu : « Fais le 4 et le 1 » -- la video de presentation en boucle, sans
+# le son, et le widget aux couleurs de l'icone de l'application.
+
+def test_a_la_une_joue_la_video_de_presentation_en_boucle():
+    page = _page_panneau("dashboard.html")
+    video = page.split("function videoALaUne(")[1].split("\n}")[0]
+    for attendu in ("muted loop autoplay playsinline", "prefers-reduced-motion: reduce",
+                    "navigator.connection.saveData", "if(!a.presentation) return '';"):
+        assert attendu in video, attendu
+    apercu = page.split("function widgetApercu(")[1].split("\n}")[0]
+    # Seulement « a la une » (pas l'apercu en direct), et l'icone reste dessous.
+    assert "const video = !enDirect && videoALaUne(a);" in apercu
+    assert '<img class="bw-une-icone" src="${icone(a.name)}" alt="">${video}' in apercu
+    # La video survit aux repeints du hub : elle ne recommence pas.
+    assert "-${video ? a.presentation.maj : 0}" in apercu
+
+
+def test_a_la_une_prend_les_couleurs_de_son_icone():
+    page = _page_panneau("dashboard.html")
+    assert "background:var(--une-fond,var(--accent))" in page
+    assert "color:var(--une-txt,var(--sur-accent))" in page
+    assert ".bw-une:hover{background:var(--une-fond-h,var(--accent-h))}" in page
+    teinte = page.split("function teinteDominante(")[1].split("\n}")[0]
+    assert "if(sat<.25 || max<40) continue;" in teinte        # ni blanc, ni gris, ni noir
+    assert "return null;" in teinte                           # icone grise : l'accent reste
+    poser = page.split("function poserTeinte(")[1].split("\n}")[0]
+    assert "'#ffffff' : '#10141a'" in poser                   # le texte qui contraste le plus
+    bento = page.split("function peindreBento(")[1].split("\n}")[0]
+    assert "remplirEnGardant(el, html);\n  teinterALaUne(el);" in bento

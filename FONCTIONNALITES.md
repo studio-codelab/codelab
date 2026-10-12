@@ -82,7 +82,8 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
     - **Galerie de widgets** (« + » en mode Modifier) : seulement des widgets utiles, propres au hub
       ou à une application du hub, chacun avec ses tailles en aperçu :
       - hub : « Dernière ouverte » (la dernière application ouverte, son icône et la date, sans
-        aperçu de la page), « État des applications » (admin : en ligne, arrêtées, et le compte de ce
+        aperçu de la page ; aux couleurs de son icône, et sa vidéo de présentation en boucle, sans le
+        son, quand elle en a une), « État des applications » (admin : en ligne, arrêtées, et le compte de ce
         qui est en erreur ou à surveiller), « Messages » à lire (admin), « Sauvegardes » (admin : la
         dernière, sa taille, et l'alerte tant qu'aucune copie n'est sortie du serveur), « Nouvelles
         versions », « Écrire à l'administrateur » et « Mes messages » (comptes utilisateurs). Le
@@ -105,8 +106,8 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
     le panneau.
   - **Tablette** : en portrait, le hub défile vers le bas comme un écran d'accueil ; en paysage, il
     suit le réglage « Défilement ».
-  - **Aucune barre de défilement visible**, sur ordinateur, tablette et téléphone : on défile à la
-    molette, au pavé ou au doigt.
+  - **Aucune barre de défilement visible**, sur ordinateur, tablette et téléphone, iPhone compris
+    (au doigt, c'est un bloc intérieur qui défile : iOS ne laisse pas masquer celle de la page).
   - **Hors ligne** : l'application s'ouvre quand même, sur « Serveur injoignable », retente toutes les
     5 s et revient d'elle-même. Rien n'est mis en cache que cette page (ni pages du panneau, ni
     données). Il faut une adresse en `https` (ou `localhost`) : c'est une exigence des navigateurs.
