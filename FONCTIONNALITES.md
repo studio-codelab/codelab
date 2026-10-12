@@ -83,7 +83,7 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
       ou à une application du hub, chacun avec ses tailles en aperçu :
       - hub : « Dernière ouverte » (la dernière application ouverte, son icône et la date, sans
         aperçu de la page ; aux couleurs de son icône, et sa vidéo de présentation en boucle, sans le
-        son, quand elle en a une), « État des applications » (admin : en ligne, arrêtées, et le compte de ce
+        son, quand elle en a une ; sinon une lueur qui dérive dans sa couleur et l'icône qui respire), « État des applications » (admin : en ligne, arrêtées, et le compte de ce
         qui est en erreur ou à surveiller), « Messages » à lire (admin), « Sauvegardes » (admin : la
         dernière, sa taille, et l'alerte tant qu'aucune copie n'est sortie du serveur), « Nouvelles
         versions », « Écrire à l'administrateur » et « Mes messages » (comptes utilisateurs). Le

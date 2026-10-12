@@ -1092,7 +1092,7 @@ document.addEventListener('keydown', e=>{
   if(j<0 || j>=tous.length) return;
   liste.insertBefore(item, e.key==='ArrowUp' ? tous[j] : tous[j].nextSibling);
   const id=item.dataset.id;
-  enregistrerOrdre(liste).then(()=>{ const q=document.querySelector(`[data-id="${CSS.escape(id)}"] .poignee`); if(q) q.focus(); });
+  enregistrerOrdre(liste).then(()=>{ const q=document.querySelector(`[data-id="${CSS.escape(id)}"] .poignee`); if(q) q.focus({preventScroll:true}); });
 });
 async function enregistrerOrdre(liste){
   const ids=elements(liste).map(x=>x.dataset.id);
@@ -1187,7 +1187,7 @@ document.addEventListener('toggle', e=>{ if(e.target.dataset && e.target.dataset
 document.addEventListener('input', e=>{
   if(e.target.id==='recherche'){
     recherche=e.target.value; const pos=e.target.selectionStart;
-    peindre(); const n=$('recherche'); if(n){ n.focus(); try{ n.setSelectionRange(pos,pos); }catch(_){} }
+    peindre(); const n=$('recherche'); if(n){ n.focus({preventScroll:true}); try{ n.setSelectionRange(pos,pos); }catch(_){} }
   }
 });
 document.addEventListener('keydown', async e=>{
@@ -1196,7 +1196,7 @@ document.addEventListener('keydown', async e=>{
     e.preventDefault();
     const titre=e.target.value.trim(); if(!titre) return;
     if(await appel('/api/taches','POST',{titre, projet:$('ajout-projet').value||'general'},'Création impossible.')){
-      await charger(); const n=$('ajout-titre'); if(n) n.focus(); }
+      await charger(); const n=$('ajout-titre'); if(n) n.focus({preventScroll:true}); }
   }
   if(e.target.id==='t-sous-ajout' && tacheId){
     e.preventDefault();
@@ -1216,8 +1216,14 @@ charger().then(()=>{ if(vue==='boite') marquerLus(); });
    fenetre ouverte. Et la feuille de route se recalcule au changement de
    jour, page ouverte. */
 let jourAffiche=iso(aujourdhui());
+/* Ni pendant un defilement : repeindre sous le doigt coupe l'elan et fait
+   sauter la page. Le tour suivant rattrape. */
+let defileLe=0;
+document.addEventListener('scroll', ()=>{ defileLe=performance.now(); }, {capture:true, passive:true});
+document.addEventListener('touchmove', ()=>{ defileLe=performance.now(); }, {capture:true, passive:true});
 setInterval(()=>{
   if(document.hidden || glisse || document.querySelector('.voile:not(.cache)')) return;
+  if(performance.now()-defileLe < 1500) return;
   if(document.activeElement && ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) return;
   if(iso(aujourdhui())!==jourAffiche){ jourAffiche=iso(aujourdhui()); }
   charger();

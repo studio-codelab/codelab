@@ -31,7 +31,9 @@ même commit.
 | Dagster, Mailpit | oui | **jamais** |
 
 **Mots de passe.** 12 caractères au minimum. Stockés sous forme d'empreinte PBKDF2-HMAC-SHA256,
-200 000 itérations, avec un sel par compte. Le mot de passe administrateur vit dans `credentials.env`.
+600 000 itérations (recommandation OWASP), avec un sel par compte ; une empreinte plus ancienne
+est recalculée à la connexion suivante. Un nom inconnu coûte le même calcul qu'un vrai compte : la
+durée de la réponse ne trahit pas quels comptes existent. Le mot de passe administrateur vit dans `credentials.env`.
 Pour le changer, il faut redonner l'ancien, même avec une session déjà ouverte.
 
 **Connexion.** L'identifiant et le mot de passe sont demandés d'abord, puis le second facteur sur un

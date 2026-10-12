@@ -15727,3 +15727,69 @@ def test_les_boutons_des_parametres_sont_des_pilules_au_pouce():
     tel = page.split("#sec-parametres .actions{gap:10px}")[1].split("\n}")[0]
     assert "#sec-parametres .btn{min-height:46px;font-size:15px}" in tel
     assert "flex:1 1 100%;align-self:stretch" in tel
+
+
+def test_sans_video_l_icone_a_la_une_respire():
+    """Vecu : « Fais l'idee 2 pour le widget sans video » -- une lueur qui
+    derive dans la couleur de l'icone, et l'icone qui se souleve a peine."""
+    page = _page_panneau("dashboard.html")
+    assert ".bw-apercu.sans-direct:not(.en-video){" in page
+    assert "animation:une-lueur 14s ease-in-out infinite alternate" in page
+    assert "animation:une-souffle 4.5s ease-in-out infinite" in page
+    # Immobile quand l'appareil demande moins de mouvement, ou en edition.
+    assert "@media (prefers-reduced-motion:reduce){ .bw-apercu.sans-direct,.bw-une-icone{animation:none} }" in page
+    assert "#hub-liste.edition .bw-apercu,#hub-liste.edition .bw-une-icone{animation:none}" in page
+
+
+# ------------- Audit : la liste des 20 points de securite -------------
+
+def test_les_mots_de_passe_passent_a_600000_iterations_sans_rien_casser():
+    """OWASP : 600 000 iterations pour PBKDF2-SHA256. Une empreinte d'avant
+    (200 000, sans prefixe) se verifie toujours, et se recalcule a la
+    connexion suivante."""
+    sel = "ab" * 16
+    neuf = {"sel": sel, "hash": app.derive_mot_de_passe("un-mot-de-passe", sel)}
+    assert neuf["hash"].startswith("pbkdf2-sha256$600000$")
+    assert app.verifie_mot_de_passe(neuf, "un-mot-de-passe")
+    assert not app.verifie_mot_de_passe(neuf, "un-autre")
+    assert app.empreinte_a_jour(neuf)
+    ancien = {"sel": sel, "hash": app._pbkdf2("un-mot-de-passe", sel, 200_000)}
+    assert app.verifie_mot_de_passe(ancien, "un-mot-de-passe")
+    assert not app.empreinte_a_jour(ancien)
+    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    connexion = src.split("def login_submit():")[1].split("\n@flask_app")[0]
+    # Un nom inconnu coute le meme calcul qu'un vrai compte.
+    assert "verifie_mot_de_passe(compte or _COMPTE_FANTOME, pw or \"\")" in connexion
+    assert "if not empreinte_a_jour(compte):" in connexion
+
+
+def test_les_dependances_du_panneau_sont_lisibles_par_le_scan_et_dependabot():
+    req = open(os.path.join(DOSSIER_PANNEAU, "requirements.txt"), encoding="utf-8").read()
+    lignes = [l for l in req.splitlines() if l and not l.startswith("#")]
+    assert lignes and all("==" in l for l in lignes)
+    docker = open(os.path.join(DOSSIER_PANNEAU, "Dockerfile"), encoding="utf-8").read()
+    assert "pip install --no-cache-dir -r /tmp/requirements.txt" in docker
+    racine = os.path.dirname(DOSSIER_PANNEAU)
+    dependabot = open(os.path.join(racine, ".github", "dependabot.yml"), encoding="utf-8").read()
+    assert "package-ecosystem: pip" in dependabot and "directory: /app-manager" in dependabot
+
+
+def test_le_bandeau_hors_ligne_est_opaque_et_sous_la_barre():
+    """Vecu : « le message d'erreur de connexion est transparent et a moitie
+    en arriere-plan »."""
+    page = _page_panneau("dashboard.html")
+    bandeau = page.split(".hors-ligne{")[1].split("}")[0]
+    assert "background:color-mix(in srgb,var(--warn) 16%,var(--surface))" in bandeau
+    assert "top:calc(var(--haut-barre,68px) + 10px" in bandeau
+    assert "@media (max-width:760px){ .toasts{left:12px;right:12px;max-width:none;bottom:calc(84px" in page
+
+
+def test_rendre_le_focus_ne_fait_pas_sauter_la_page():
+    """Vecu : « ne pas forcer a ramener le scroll, ce qui cree des sauts ». Le
+    repeint du hub rendait le focus au champ du widget Message et la page
+    defilait jusqu'a lui."""
+    page = _page_panneau("dashboard.html")
+    assert "gardes[actif].focus({preventScroll:true})" in page
+    messages = _page_panneau("messages.html")
+    assert "if(performance.now()-defileLe < 1500) return;" in messages
+    assert "n.focus({preventScroll:true}); try{" in messages
