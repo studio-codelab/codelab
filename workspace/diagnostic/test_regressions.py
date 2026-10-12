@@ -7253,7 +7253,9 @@ def test_le_chemin_se_tire_du_nom():
         ("SITE", "site"),
         ("Mon  --  Site", "mon-site"),      # ni doubles tirets ni doubles espaces
         ("  Site  ", "site"),               # les bords se taillent
-        ("Café", "caf"),                    # l'accent ne passe pas dans l'adresse
+        ("Café", "cafe"),                   # l'accent se retire, la lettre reste
+        ("API Météo", "api-meteo"),         # et non plus « api-m-t-o »
+        ("Œuvre", "oeuvre"),                # les ligatures se deplient
         ("site_2", "site_2"),               # le tiret bas reste
         ("---", ""),                        # rien d'utilisable : pas de chemin
         ("", ""),
@@ -13511,7 +13513,7 @@ def test_le_hub_se_compose_par_compte(deux_espaces):
     c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     d = c.get("/api/hub/disposition").get_json()
     catalogue = {w["id"]: w for w in d["catalogue"]}
-    assert set(catalogue) == {"une", "etat", "messages", "nouveautes", "apercu"}
+    assert set(catalogue) == {"une", "etat", "messages", "nouveautes", "sauvegardes", "apercu"}
     assert catalogue["apercu"]["portee"] == "app" and catalogue["etat"]["tailles"] == ["petit", "moyen"]
     # Ni horloge ni bloc-notes : rien qui ne parle du hub ou de ses applications.
     assert "horloge" not in catalogue and "notes" not in catalogue
@@ -14919,7 +14921,9 @@ def test_la_derniere_ouverte_n_affiche_plus_l_application():
     # Le widget « Apercu » d'une application choisie, lui, reste en direct.
     assert "widgetApercu(hubApps.find(a=>a.name===e.app), e.taille, 'Aperçu')" in corps
     apercu = page.split("function widgetApercu(")[1].split("\n}")[0]
-    assert "enDirect && a.running" in apercu
+    # En direct quand l'application tourne -- et toujours pour un compte
+    # utilisateur, qui ne connait pas l'etat (la page neutre s'y affiche).
+    assert "enDirect && (a.running || !estAdmin)" in apercu
 
 
 def test_chaque_tuile_porte_trois_points_qui_ouvrent_son_menu():
@@ -15461,3 +15465,171 @@ def test_le_ruban_rend_l_application_encadree_sans_zoom_et_annonce_sa_couleur():
     # Ouverte seule (dans un navigateur), l'application n'est pas touchee.
     assert script.index("if(window.top===window)return;") < script.index("maximum-scale=1")
     assert 'parent.postMessage({codelab:"couleur",valeur:c},"*")' in script
+
+
+# ------------- Ce qu'un compte utilisateur sait (et ne sait pas) -------------
+#
+# Demande : « Les erreurs techniques ne remontent qu'a l'admin, les etats
+# d'application ne sont visibles que par l'admin. L'utilisateur ne doit
+# jamais savoir ce qui marche ou non. Quand il lance une application en
+# erreur, il atterrit sur une page disant qu'elle est momentanement
+# inaccessible. »
+
+def test_le_hub_d_un_utilisateur_ne_porte_aucun_etat(deux_espaces):
+    """L'etat n'est pas cache dans la page : il n'est pas envoye. Un outil de
+    developpement ne doit pas pouvoir le lire non plus."""
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    d = c.get("/api/mes-apps").get_json()
+    assert d["apps"], d
+    for a in d["apps"]:
+        assert "running" not in a and "listening" not in a, a
+    assert d.get("sauvegardes") is None
+
+    admin = app.flask_app.test_client()
+    admin.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    for a in admin.get("/api/mes-apps").get_json()["apps"]:
+        assert a["running"] is True
+
+
+def test_une_application_arretee_est_momentanement_inaccessible(deux_espaces, monkeypatch):
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    monkeypatch.setattr(app, "is_running", lambda n: False)
+    r = c.get("/prive-autorise/")
+    page = r.get_data(as_text=True)
+    assert r.status_code == 503
+    assert "momentanément inaccessible" in page
+    assert "Retour au hub" in page
+    # Pas un mot sur la cause : ni arretee, ni erreur, ni port. On lit le
+    # TEXTE de la page, pas son code (viewport contient « port »).
+    texte = re.sub(r"<[^>]+>", " ", page.split("<main>")[1]).lower()
+    for mot in ("arrêt", "arret", "erreur", "port", "panneau", "journal", "9101"):
+        assert mot not in texte, mot
+    assert "<script" not in page
+
+
+def test_l_administrateur_voit_la_cause_et_le_chemin_de_la_fiche(deux_espaces, monkeypatch):
+    c = deux_espaces
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    monkeypatch.setattr(app, "is_running", lambda n: False)
+    page = c.get("/prive-autorise/").get_data(as_text=True)
+    assert "est arrêtée" in page
+    assert "applications/prive-autorise" in page and "Ouvrir sa fiche" in page
+
+
+def test_une_page_qui_plante_reste_neutre_pour_un_utilisateur(deux_espaces, monkeypatch):
+    """La trace d'une application qui plante ne s'affiche pas a un compte
+    utilisateur ; un appel d'API de l'application, lui, garde sa reponse."""
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+
+    def plante(req, timeout=None):
+        raise app.urllib.error.HTTPError(req.full_url, 500, "x", {"Content-Type": "text/html"},
+                                         io.BytesIO(b"Traceback (most recent call last)"))
+    monkeypatch.setattr(app.urllib.request, "urlopen", plante)
+    r = c.get("/prive-autorise/", headers={"Sec-Fetch-Mode": "navigate"})
+    assert r.status_code == 503 and b"Traceback" not in r.data
+    assert "momentanément inaccessible" in r.get_data(as_text=True)
+    r = c.get("/prive-autorise/api/meteo", headers={"Sec-Fetch-Mode": "cors"})
+    assert r.status_code == 500
+
+
+def test_les_erreurs_5xx_restent_simples_pour_un_utilisateur():
+    page = _page_panneau("dashboard.html")
+    echec = page.split("async function echec(")[1].split("\n}")[0]
+    assert "if(r.status>=500 && !estAdmin) return defaut" in echec
+    etat = page.split("function etatApp(")[1].split("\n}")[0]
+    assert "if(!estAdmin) return ['', '']" in etat
+
+
+def test_une_exception_technique_ne_remonte_qu_a_l_admin(deux_espaces):
+    with app.flask_app.test_request_context("/"):
+        assert app.detail_pour_admin("Clé refusée.", ValueError("signature")) == "Clé refusée."
+    c = deux_espaces
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    with c.application.test_request_context("/"):
+        from flask import session
+        session["authed"] = True
+        session["role"] = app.ROLE_ADMIN
+        session["utilisateur"] = app.NOM_ADMIN
+        assert "ValueError: signature" in app.detail_pour_admin("Clé refusée.", ValueError("signature"))
+
+
+# ------------- Ce qui est reserve a l'administrateur le reste -------------
+#
+# Demande : « certaines applications ne sont pas partageables selon le type
+# de compte. Pourtant je peux les autoriser dans l'onglet Utilisateurs. Idem
+# pour les widgets admin, seul un admin peut les ajouter. »
+
+def test_une_application_reservee_ne_s_accorde_pas_depuis_la_fiche_d_un_compte(deux_espaces):
+    c = deux_espaces
+    app.save(dict(app.load(), diagnostic={"path": "/w/d", "command": "x", "port": 9109,
+                                          "enabled": True, "visibility": "privee"}))
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    r = c.put("/api/utilisateurs/marie", json={"projets": ["prive-autorise", "diagnostic"]})
+    assert r.status_code == 200, r.data
+    assert app.lire_utilisateurs()["marie"]["projets"] == ["prive-autorise"]
+    # Un droit ecrit par une version plus ancienne ne vaut rien non plus.
+    comptes = app.lire_utilisateurs()
+    comptes["marie"]["projets"] = ["prive-autorise", "diagnostic"]
+    app.ecrire_utilisateurs(comptes)
+    liste = c.get("/api/utilisateurs").get_json()
+    marie = [u for u in liste["utilisateurs"] if u["nom"] == "marie"][0]
+    assert "diagnostic" not in marie["projets"]
+    # La fiche grise la case, avec la raison.
+    page = _page_panneau("dashboard.html")
+    assert "Réservée à l\\'administrateur" in page and "reservee?' disabled':''" in page
+
+
+def test_un_utilisateur_ne_pose_pas_de_widget_d_administration(deux_espaces):
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    d = c.get("/api/hub/disposition").get_json()
+    ids = {w["id"] for w in d["catalogue"]}
+    assert not ids & {"etat", "messages", "sauvegardes"}, ids
+    assert not {e["id"] for e in d["elements"] if e["t"] == "w"} & {"etat", "messages", "sauvegardes"}
+    for wid in ("etat", "messages", "sauvegardes"):
+        r = c.put("/api/hub/disposition", json={"elements": [{"t": "w", "id": wid, "taille": "petit"}]})
+        assert r.status_code == 400, wid
+
+
+# ------------------------- Connexion et reglages -------------------------
+
+def test_le_refus_de_connexion_dit_combien_d_essais_il_reste(deux_espaces):
+    c = deux_espaces
+    messages = [c.post("/login", json={"nom": "marie", "password": "faux"}).get_json()["error"]
+                for _ in range(app.RATE_LIMIT_MAX)]
+    assert messages[0] == "Identifiants incorrects."
+    assert "Encore 2 essais" in messages[2]
+    assert "Encore 1 essai " in messages[3]
+    assert "Trop d'essais" in messages[4]
+
+
+def test_les_reglages_d_un_utilisateur_tiennent_en_une_page_a_sections():
+    page = _page_panneau("dashboard.html")
+    for section in ("reglages-profil", "reglages-apparence", "reglages-hub", "reglages-securite"):
+        assert f'id="{section}"' in page
+    assert "$('sec-parametres').classList.add('reglages-unifies');" in page
+    # Seuls Compte et Securite s'ouvrent : les onglets d'administration
+    # (Serveur, Categories, E-mail) restent fermes.
+    assert "#sec-parametres.reglages-unifies .onglet-p{display:none}" in page
+    assert ("#sec-parametres.reglages-unifies #param-compte,\n"
+            "#sec-parametres.reglages-unifies #param-securite{display:contents}") in page
+    # Le mot de passe vit avec ce qui protege le compte.
+    securite = page.split('id="param-securite"')[1].split('id="param-serveur"')[0]
+    assert 'id="profil-mdp"' in securite
+
+
+def test_un_apercu_encadre_ne_previent_pas_l_administrateur(deux_espaces, monkeypatch):
+    """Le widget « Apercu » encadre l'application : l'afficher n'est pas
+    l'ouvrir, et ne doit ni journaliser ni envoyer de mail."""
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    monkeypatch.setattr(app, "is_running", lambda n: False)
+    appels = []
+    monkeypatch.setattr(app, "prevenir_admin_inaccessible", lambda *a: appels.append(a) or True)
+    r = c.get("/prive-autorise/", headers={"Sec-Fetch-Dest": "iframe"})
+    assert r.status_code == 503 and appels == []
+    c.get("/prive-autorise/", headers={"Sec-Fetch-Dest": "document"})
+    assert len(appels) == 1

@@ -732,6 +732,44 @@ def register_failed_attempt():
     _login_attempts.setdefault(ip, []).append(time.time())
 
 
+def detail_pour_admin(message, e):
+    """Le message d'une erreur technique, selon qui le lit.
+
+    L'administrateur recoit le detail (le type et le texte de l'exception) :
+    c'est lui qui repare. Un compte utilisateur, ou une page de connexion,
+    ne recoit que la phrase simple -- les erreurs techniques ne remontent
+    qu'a l'administrateur. Le detail part toujours dans le journal du
+    conteneur, pour qu'il ne soit pas perdu.
+    """
+    detail = f"{type(e).__name__}: {e}"
+    print(f"[app-manager] {message} ({detail})", flush=True)
+    if is_authed() and est_admin():
+        return f"{message} ({detail})"
+    return message
+
+
+def avec_essais_restants(message):
+    """Le refus dit combien d'essais il reste avant la pause.
+
+    « Identifiants incorrects. » seul laissait taper au hasard jusqu'au
+    blocage, puis decouvrir une attente de cinq minutes sans l'avoir vue
+    venir. A appeler APRES register_failed_attempt() : le compte inclut
+    l'essai qu'on vient de rater. Rien n'est dit tant qu'il en reste plus de
+    trois -- un mot de passe mal tape une fois n'appelle pas d'avertissement.
+    """
+    ip = _client_ip()
+    now = time.time()
+    faits = len([t for t in _login_attempts.get(ip, []) if now - t < RATE_LIMIT_WINDOW])
+    restants = RATE_LIMIT_MAX - faits
+    pause = f"{RATE_LIMIT_WINDOW // 60} minutes"
+    if restants <= 0:
+        return f"{message} Trop d'essais : patiente {pause} avant de réessayer."
+    if restants <= 3:
+        return (f"{message} Encore {restants} essai{'s' if restants > 1 else ''} "
+                f"avant une pause de {pause}.")
+    return message
+
+
 def is_authed():
     return session.get("authed") is True
 
@@ -3631,7 +3669,9 @@ def projets_autorises():
     # a la reactivation est tout l'interet.
     if not compte or compte_suspendu(compte):
         return set()
-    return set(compte.get("projets", []))
+    # Une application reservee ne compte jamais, meme cochee par une version
+    # plus ancienne du panneau : le droit ecrit dans la fiche ne vaut rien.
+    return {p for p in compte.get("projets", []) if not est_app_par_defaut(p)}
 
 
 def peut_voir(name):
@@ -5332,6 +5372,18 @@ def etat_des_sauvegardes():
             "alerte_hors_serveur": alerte, "jours": SAUVEGARDE_COPIE_JOURS}
 
 
+def resume_sauvegardes():
+    """Ce que le widget du hub affiche : la derniere archive, et l'alerte
+    tant qu'aucune copie n'est sortie du serveur."""
+    try:
+        etat = etat_des_sauvegardes()
+    except OSError:
+        return None
+    derniere = etat["archives"][0] if etat["archives"] else None
+    return {"actives": etat["actives"], "derniere": derniere,
+            "alerte_hors_serveur": etat["alerte_hors_serveur"]}
+
+
 @flask_app.get("/api/sauvegardes")
 @require_admin
 def api_sauvegardes():
@@ -6572,6 +6624,15 @@ def valid_name(raw):
     d'application.
     """
     value = str(raw or "").strip().lower()
+    # LES ACCENTS SE RETIRENT, ILS NE SE REMPLACENT PAS. « API Météo » donnait
+    # « /api-m-t-o/ » : chaque lettre accentuee devenait un tiret, et
+    # l'adresse ne se lisait plus. On garde la lettre de base (é -> e), et
+    # les ligatures se deplient (œ -> oe) ; ce que l'ASCII ne sait pas
+    # porter du tout reste traite comme avant, plus bas.
+    for lig, rempl in (("œ", "oe"), ("æ", "ae"), ("ß", "ss")):
+        value = value.replace(lig, rempl)
+    value = "".join(c for c in unicodedata.normalize("NFKD", value)
+                    if not unicodedata.combining(c))
     # Les espaces deviennent des tirets, explicitement. Le remplacement
     # general ci-dessous le ferait aussi, mais c'est la regle annoncee a
     # l'utilisateur : elle doit se lire dans le code.
@@ -7056,7 +7117,7 @@ def login_submit():
         if not (real and pw and secrets.compare_digest(pw, real)):
             register_failed_attempt()
             journaliser("echec", qui=NOM_ADMIN, motif="mot de passe", ip=_adresse_client())
-            return jsonify({"error": "Identifiants incorrects."}), 401
+            return jsonify({"error": avec_essais_restants("Identifiants incorrects.")}), 401
 
         # Le code a six chiffres, quand la double authentification est active.
         # Une tentative ratee ici compte comme une tentative ratee tout court :
@@ -7104,7 +7165,7 @@ def login_submit():
                     or verifier_code_admin(code)):
                 register_failed_attempt()
                 journaliser("echec", qui=NOM_ADMIN, motif="second facteur", ip=_adresse_client())
-                return jsonify({"error": "Code de vérification incorrect.",
+                return jsonify({"error": avec_essais_restants("Code de vérification incorrect."),
                                 "totp": True, "moyens": moyens}), 401
 
         session.permanent = True
@@ -7128,7 +7189,7 @@ def login_submit():
         # Le nom tel qu'il a ete tape, meme s'il ne correspond a aucun
         # compte : c'est ce qui distingue une faute de frappe d'un balayage.
         journaliser("echec", qui=nom, motif="mot de passe", ip=_adresse_client())
-        return jsonify({"error": "Identifiants incorrects."}), 401
+        return jsonify({"error": avec_essais_restants("Identifiants incorrects.")}), 401
 
     # Le second facteur n'est pas optionnel pour un compte utilisateur. Ces
     # comptes existent pour etre distribues -- a un collegue, a un client --
@@ -7173,7 +7234,7 @@ def login_submit():
         if not ok:
             register_failed_attempt()
             journaliser("echec", qui=nom, motif="second facteur", ip=_adresse_client())
-            return jsonify({"error": "Code de vérification incorrect.",
+            return jsonify({"error": avec_essais_restants("Code de vérification incorrect."),
                             "totp": True, "moyens": moyens}), 401
         _lever_suspension_code_mail(nom)
         return _ouvrir_session_utilisateur(nom)
@@ -7248,7 +7309,7 @@ def login_submit():
     # Inatteignable : un compte qui a un secret a au moins le moyen TOTP,
     # et la branche "moyens" ci-dessus a deja repondu. Garde par prudence.
     register_failed_attempt()
-    return jsonify({"error": "Code de vérification incorrect.", "totp": True}), 401
+    return jsonify({"error": avec_essais_restants("Code de vérification incorrect."), "totp": True}), 401
 
 
 def passkey_utilisable():
@@ -7571,7 +7632,7 @@ def _enregistrer_cle(nom):
             require_user_verification=True,
         )
     except Exception as e:
-        return jsonify({"error": f"Clé refusée : {type(e).__name__}: {e}"}), 400
+        return jsonify({"error": detail_pour_admin("Clé refusée. Réessaie depuis cet appareil.", e)}), 400
 
     tout = lire_passkeys()
     liste = tout.setdefault(nom, [])
@@ -7810,7 +7871,8 @@ def _verifier_cle(nom_attendu=None):
     except Exception as e:
         register_failed_attempt()
         journaliser("echec", qui=proprietaire, motif="cle d'acces", ip=_adresse_client())
-        return None, (jsonify({"error": f"Clé refusée : {type(e).__name__}: {e}"}), 401)
+        return None, (jsonify({"error": detail_pour_admin(
+            "Clé refusée. Réessaie, ou connecte-toi avec ton mot de passe.", e)}), 401)
 
     # Le compteur ne doit jamais reculer : une cle clonee se trahit la.
     tout = lire_passkeys()
@@ -7993,8 +8055,8 @@ def api_mon_email():
     except Exception as e:
         # L'adresse est enregistree, le mail n'est pas parti : le dire tel
         # quel, plutot que de laisser attendre un code qui ne viendra pas.
-        return jsonify({"error": f"Adresse enregistrée, mais le mail n'est pas "
-                                 f"parti : {type(e).__name__}: {e}"}), 502
+        return jsonify({"error": detail_pour_admin(
+            "Adresse enregistrée, mais le mail n'est pas parti. Réessaie dans un instant.", e)}), 502
     return jsonify({"ok": True, "envoye": True})
 
 
@@ -8023,7 +8085,8 @@ def api_mon_email_code():
     try:
         envoyer_code_email(comptes[nom]["email"], nom, code)
     except Exception as e:
-        return jsonify({"error": f"{type(e).__name__}: {e}"}), 502
+        return jsonify({"error": detail_pour_admin(
+            "Le mail n'est pas parti. Réessaie dans un instant.", e)}), 502
     return jsonify({"ok": True})
 
 
@@ -8895,7 +8958,7 @@ def api_utilisateurs():
     comptes = lire_utilisateurs()
     return jsonify({"utilisateurs": [
         {"nom": nom,
-         "projets": sorted(c.get("projets", [])),
+         "projets": sorted(p for p in c.get("projets", []) if not est_app_par_defaut(p)),
          # Pas le secret, seulement le fait qu'il existe : "en attente"
          # signale un compte cree mais jamais utilise, ce qui se voit d'un
          # coup d'oeil et se corrige en relancant la personne.
@@ -8921,7 +8984,12 @@ def _projets_valides(brut, apps):
     Un projet supprime puis recree sous le meme nom rendrait sinon un droit
     qu'on croyait perdu -- et la liste se remplirait de noms morts.
     """
-    return sorted({p for p in (brut or []) if isinstance(p, str) and p in apps})
+    # LES APPLICATIONS RESERVEES NE S'ACCORDENT PAS. Le proxy les refusait
+    # deja a un compte utilisateur, mais la fiche du compte les laissait
+    # cocher et enregistrait le droit : l'administrateur croyait avoir
+    # partage ce qui restait ferme. On ne garde que ce qui peut l'etre.
+    return sorted({p for p in (brut or []) if isinstance(p, str) and p in apps
+                   and not est_app_par_defaut(p)})
 
 
 @flask_app.post("/api/utilisateurs")
@@ -11143,6 +11211,7 @@ def api_mes_apps():
     toutes = load()
     versions = versions_des_apps(toutes)
     ouvertes = ouvertures_du_compte()
+    admin = est_admin()
     for nom, a in sorted(toutes.items()):
         # Une application par defaut ne figure pas dans le hub d'un compte
         # utilisateur. Le proxy la lui refuse deja ; lui montrer une tuile qui
@@ -11156,13 +11225,11 @@ def api_mes_apps():
             masquees.append({"name": nom, "titre": titre_de(nom, a),
                              "description": a.get("description") or ""})
             continue
-        liste.append({
+        tuile = {
             "name": nom,
             "titre": titre_de(nom, a),
             "description": a.get("description") or "",
             "categorie": categorie_valide(a.get("categorie"), connues),
-            "running": is_running(nom),
-            "listening": _listening.get(nom),
             "visibility": visibilite(a),
             # Jamais ouverte par ce compte : pas d'indicateur. Sinon, une
             # version plus recente que celle vue a la derniere ouverture.
@@ -11172,7 +11239,17 @@ def api_mes_apps():
             # La video de presentation, si le projet en a une et qu'elle
             # n'est pas retiree du hub.
             "presentation": (None if a.get("presentation_masquee") else presentation_de(a)),
-        })
+        }
+        # L'ETAT NE REGARDE QUE L'ADMINISTRATEUR. Un compte utilisateur ne
+        # doit jamais savoir ce qui marche ou non : ni pastille, ni compteur,
+        # ni aperçu qui trahirait une panne. La reponse ne porte donc pas
+        # l'etat -- le cacher dans la page seulement le laisserait lisible
+        # dans l'outil de developpement. Une application en panne, il la
+        # decouvre en l'ouvrant, sur une page neutre (page_inaccessible).
+        if admin:
+            tuile["running"] = is_running(nom)
+            tuile["listening"] = _listening.get(nom)
+        liste.append(tuile)
     # Les categories accompagnent la liste : le hub les affiche dans l'ordre
     # voulu, sans avoir a deviner cet ordre a partir des projets.
     return jsonify({"apps": liste,
@@ -11189,6 +11266,9 @@ def api_mes_apps():
                     "services_masques": services_masques(),
                     "masquees": masquees,
                     "categories": connues,
+                    # Le widget Sauvegardes de l'administrateur : le resume,
+                    # pas la liste (elle est dans Parametres > Securite).
+                    "sauvegardes": resume_sauvegardes() if admin else None,
                     "utilisateur": utilisateur_courant(),
                     "role": role_courant()})
 
@@ -12399,6 +12479,9 @@ WIDGETS = {
              "description": "Combien répondent, et laquelle ne répond pas.", "admin": True},
     "messages": {"titre": "Messages", "portee": "hub", "tailles": ("petit", "moyen"),
                  "description": "Les messages à lire et à classer.", "admin": True},
+    "sauvegardes": {"titre": "Sauvegardes", "portee": "hub", "tailles": ("petit", "moyen"),
+                    "description": "La dernière sauvegarde, et si une copie existe ailleurs.",
+                    "admin": True},
     "nouveautes": {"titre": "Nouvelles versions", "portee": "hub", "tailles": ("petit", "moyen"),
                    "description": "Les applications mises à jour depuis ta dernière visite."},
     "message": {"titre": "Écrire à l'administrateur", "portee": "hub", "tailles": ("moyen", "grand"),
@@ -12960,9 +13043,7 @@ def _proxy(name, sub):
     # visite, et le journal servirait mal s'il melangeait les deux.
     journaliser_ouverture(name)
     if not is_running(name):
-        return Response(_page("Application arretee",
-                              "\u00ab " + name + " \u00bb n'est pas demarree.",
-                              "Active-la depuis le panneau."), 503, mimetype="text/html")
+        return page_application_fermee(name, a)
     url = ("http://127.0.0.1:" + str(a["port"]) + "/"
            + urllib.parse.quote(sub, safe="/"))
     if request.query_string:
@@ -13022,9 +13103,14 @@ def _proxy(name, sub):
     except urllib.error.HTTPError as e:
         data, status, headers = e.read(), e.code, e.headers
     except Exception:
-        return Response(_page("Demarrage en cours",
-                              "\u00ab " + name + " \u00bb ne repond pas encore.",
-                              "Reessaie dans quelques secondes."), 502, mimetype="text/html")
+        return page_application_fermee(name, a, muette=True)
+    # UNE PAGE QUI PLANTE, VUE PAR UN UTILISATEUR : la page neutre plutot que
+    # la trace de l'application. Seulement pour une page qu'on OUVRE (une
+    # navigation) : un appel d'API de l'application garde sa reponse, que
+    # son propre code sait lire. L'administrateur voit la vraie reponse.
+    if (status >= 500 and request.method == "GET" and not est_admin()
+            and request.headers.get("Sec-Fetch-Mode") == "navigate"):
+        return page_inaccessible(name, a)
     sortants = [(k, v) for k, v in headers.items() if k.lower() not in HOP]
     # Le ruban n'est pose que pour quelqu'un de CONNECTE. Une application
     # publique vue par un visiteur anonyme ne doit pas lui annoncer qu'un
@@ -13102,6 +13188,159 @@ def _page(title, msg, extra=""):
             # port des applications, ou "/" ne mene pas au hub.
             "<div style=\"margin-top:22px\"><a href=\"" + lien_panneau() + "\" style=\"color:#4c8eff;"
             "text-decoration:none;font-size:14px\">Retour au panneau</a></div></div>")
+
+
+# ------------------- une application qu'on ne peut pas ouvrir -------------------
+#
+# DEUX PAGES, SELON QUI REGARDE. L'administrateur a besoin de la cause --
+# arretee, plantee, muette sur son port -- et du chemin vers la fiche ou il
+# la reparera. Un compte utilisateur, lui, ne doit JAMAIS savoir ce qui
+# marche ou non : il apprend seulement que l'application est momentanement
+# inaccessible, et qu'il peut revenir au hub. Pas un mot technique, pas de
+# code, pas de port. Un visiteur anonyme d'une application publique est
+# traite comme un utilisateur, sans lien vers le hub qu'il n'a pas.
+
+def _echapper(x):
+    return (str(x).replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;"))
+
+
+def _page_application(titre, texte, initiale, boutons, pied=""):
+    """La mise en page commune : une carte au centre, dans les couleurs du
+    panneau, claires ou sombres selon le systeme. Aucun script : la page
+    sort sur l'origine des applications, ou rien ne doit s'executer."""
+    return ("<!doctype html><html lang=fr><meta charset=utf-8>"
+            "<meta name=viewport content=\"width=device-width,initial-scale=1\">"
+            "<title>" + titre + "</title><style>"
+            ":root{--bg:#E9EBEE;--carte:#fff;--txt:#12161C;--dim:#525C67;--ligne:#DADEE3;"
+            "--accent:#0E7C86;--accent-h:#0B646C;--sur:#fff}"
+            "@media(prefers-color-scheme:dark){:root{--bg:#0D1015;--carte:#161B22;--txt:#EEF1F4;"
+            "--dim:#A0AAB5;--ligne:#262E38;--accent:#5FD4DC;--accent-h:#8FE3E9;--sur:#04161A}}"
+            "body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);"
+            "color:var(--txt);font:15px/1.55 Manrope,-apple-system,BlinkMacSystemFont,'Segoe UI',"
+            "Roboto,sans-serif;padding:24px;box-sizing:border-box}"
+            "main{width:100%;max-width:520px;background:var(--carte);border-radius:28px;"
+            "padding:40px 36px 30px;box-shadow:0 20px 50px rgba(18,22,28,.10);text-align:center}"
+            ".ini{width:76px;height:76px;margin:0 auto 18px;border-radius:24px;background:var(--accent);"
+            "color:var(--sur);display:grid;place-items:center;font-size:32px;font-weight:700}"
+            "h1{margin:0;font-size:24px;line-height:1.2;letter-spacing:-.03em}"
+            "p{margin:12px 0 0;color:var(--dim)}"
+            ".actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:24px}"
+            ".b{display:inline-flex;align-items:center;min-height:46px;padding:0 20px;border-radius:14px;"
+            "border:1px solid var(--ligne);background:var(--carte);color:var(--txt);font-weight:700;"
+            "text-decoration:none}.b:hover{border-color:var(--accent);color:var(--accent)}"
+            ".p{background:var(--accent);border-color:var(--accent);color:var(--sur)}"
+            ".p:hover{background:var(--accent-h);color:var(--sur)}"
+            ".pied{margin-top:22px;padding-top:16px;border-top:1px solid var(--ligne);font-size:13px}"
+            ".pied a{color:var(--accent);font-weight:700;text-decoration:none}"
+            "</style><main><div class=ini aria-hidden=true>" + initiale + "</div>"
+            "<h1>" + titre + "</h1><p>" + texte + "</p>"
+            "<div class=actions>" + boutons + "</div>"
+            + (("<div class=pied>" + pied + "</div>") if pied else "") + "</main></html>")
+
+
+# Le dernier signalement, par application : un utilisateur qui recharge la
+# page dix fois ne doit pas envoyer dix mails. Une heure entre deux.
+_inaccessibles_signales = {}
+INACCESSIBLE_RAPPEL = 3600
+
+
+def prevenir_admin_inaccessible(name, titre):
+    """Note qu'un compte n'a pas pu ouvrir l'application, et previent
+    l'administrateur (au plus une fois par heure et par application).
+
+    Renvoie True quand l'administrateur EST prevenu -- par ce signalement ou
+    par l'alerte de chute deja partie -- et seulement alors : la page ne
+    doit pas promettre un mail qui ne partira pas faute de destinataire.
+    """
+    qui = utilisateur_courant() if is_authed() else "visiteur"
+    journaliser("inaccessible", app=name, qui=qui, ip=_adresse_client())
+    try:
+        joignable = bool(lire_alertes()["actif"] and alertes_admin())
+    except Exception:
+        joignable = False
+    if not joignable:
+        return False
+    if name in _alertes_en_cours:
+        return True
+    maintenant = time.time()
+    if maintenant - _inaccessibles_signales.get(name, 0) < INACCESSIBLE_RAPPEL:
+        return True
+    _inaccessibles_signales[name] = maintenant
+    corps = "\n".join([
+        f"Quelqu'un a voulu ouvrir « {titre} » et ne l'a pas pu.",
+        "",
+        f"Compte    : {qui}",
+        f"Panneau   : {lien_panneau()}applications/{name}",
+        "",
+        "Il a vu une page « momentanément inaccessible », sans détail.",
+        "",
+        "-- CodeLab, panneau de gestion des applications",
+    ])
+    # En arriere-plan : un serveur d'envoi lent ne doit pas faire attendre
+    # la page.
+    threading.Thread(target=alerter, args=(f"[CodeLab] {titre} : ouverture impossible", corps),
+                     daemon=True).start()
+    return True
+
+
+def page_inaccessible(name, a, code=503):
+    """Ce que voit un compte utilisateur (ou un visiteur) quand
+    l'application ne peut pas s'ouvrir. Aucune cause, aucun etat."""
+    titre = titre_de(name, a)
+    # Un APERCU (le widget du hub l'encadre) n'est pas une ouverture : sans
+    # ce tri, chaque affichage du hub d'un compte enverrait un mail.
+    encadre = request.headers.get("Sec-Fetch-Dest") in ("iframe", "frame")
+    prevenu = False if encadre else prevenir_admin_inaccessible(name, titre)
+    t = _echapper(titre)
+    boutons = '<a class="b" href="">Réessayer</a>'
+    pied = ""
+    if is_authed():
+        boutons = ('<a class="b p" href="' + _echapper(lien_panneau()) + '">Retour au hub</a>'
+                   + boutons)
+        pied = (("L'administrateur est prévenu. " if prevenu else "")
+                + '<a href="' + _echapper(lien_panneau()) + 'messages">Lui laisser un message</a>')
+    html = _page_application(t + " est momentanément inaccessible",
+                             "Elle revient très vite. Réessaie dans quelques minutes.",
+                             _echapper(titre[:1].upper() or "?"), boutons, pied)
+    r = Response(html, code, mimetype="text/html")
+    r.headers["Retry-After"] = "60"
+    r.headers["Cache-Control"] = "no-store"
+    return r
+
+
+def page_panne_admin(name, a, cause, detail="", code=503):
+    """Ce que voit l'administrateur : la cause, et le chemin vers la fiche."""
+    titre = _echapper(titre_de(name, a))
+    fiche = _echapper(lien_panneau() + "applications/" + name)
+    boutons = ('<a class="b p" href="' + fiche + '">Ouvrir sa fiche</a>'
+               '<a class="b" href="">Réessayer</a>')
+    pied = "Un compte utilisateur voit seulement « momentanément inaccessible »."
+    html = _page_application(titre + " " + _echapper(cause), _echapper(detail),
+                             _echapper(titre_de(name, a)[:1].upper() or "?"), boutons, pied)
+    r = Response(html, code, mimetype="text/html")
+    r.headers["Cache-Control"] = "no-store"
+    return r
+
+
+def page_application_fermee(name, a, muette=False):
+    """L'application ne repond pas : la page qui convient a qui regarde.
+
+    502 quand le processus tourne mais que son port ne repond pas (la
+    passerelle n'a rien obtenu), 503 quand il n'y a pas de processus."""
+    code = 502 if muette else 503
+    if not est_admin():
+        return page_inaccessible(name, a, code)
+    if muette:
+        return page_panne_admin(name, a, "ne répond pas encore",
+                                "Elle est lancée mais n'écoute pas encore sur son port. "
+                                "Réessaie dans quelques secondes.", code)
+    if is_crash_looping(name) or a.get("dernier_echec"):
+        return page_panne_admin(name, a, "s'est arrêtée",
+                                "Elle a planté au lancement. La cause est dans sa fiche, "
+                                "avec la fin du journal.")
+    return page_panne_admin(name, a, "est arrêtée",
+                            "Démarre-la depuis sa fiche.")
 
 
 # --------------------- inscription du projet de diagnostic ---------------------
