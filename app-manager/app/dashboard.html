@@ -140,7 +140,7 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 /* ------------------------------ colonne de gauche ------------------------------ */
 /* align-items:flex-start : sans lui, la colonne est etiree a la hauteur du
    contenu, et "position:sticky" n'a plus rien a quoi se coller. */
-.page-body{display:flex;min-height:calc(100vh - 52px);align-items:flex-start}
+.page-body{display:flex;min-height:calc(100vh - var(--haut-barre,52px) - env(safe-area-inset-top));align-items:flex-start}
 /* LA COLONNE SE REDUIT SANS RIEN FAIRE SAUTER.
    Avant, replier la colonne posait display:none sur les libelles et
    recentrait les items : le texte disparaissait d'un coup, et les icones
@@ -1089,8 +1089,9 @@ th[aria-sort="ascending"] .ap-th span,th[aria-sort="descending"] .ap-th span{opa
 .settings-card.pliable.ouverte>.card-top{margin-bottom:0}
 .settings-card.pliable>.card-corps{margin-top:18px}
 @media (max-width:760px){
-  .onglet-p .settings-card{padding:15px 16px}
-  .settings-card.pliable>.card-top{margin:-15px -16px;padding:15px 16px}
+  .onglet-p .settings-card{padding:16px}
+  .settings-card.pliable>.card-top{margin:-16px;padding:16px}
+  .settings-card.pliable>.card-corps{margin-top:16px}
 }
 /* LES BOUTONS DES REGLAGES : des pilules, comme le reste du panneau, assez
    hautes pour le doigt. Au telephone, ils prennent la largeur : on les
@@ -1220,7 +1221,7 @@ table.tbl-journal{min-width:560px}
 /* Serveur injoignable : un bandeau en haut, la page reste telle quelle. */
 /* Sous la barre du haut, jamais dessus ; et un fond PLEIN : --warn-bg est
    translucide en sombre, la barre se voyait au travers. */
-.hors-ligne{position:fixed;top:calc(var(--haut-barre,68px) + 10px + env(safe-area-inset-top));left:50%;
+.hors-ligne{position:fixed;top:calc(var(--haut-barre,52px) + 10px + env(safe-area-inset-top));left:50%;
  transform:translateX(-50%);z-index:160;display:flex;align-items:center;gap:10px;
  max-width:calc(100vw - 32px);padding:9px 10px 9px 14px;border-radius:999px;
  background:color-mix(in srgb,var(--warn) 16%,var(--surface));
@@ -1390,7 +1391,11 @@ table.tbl-journal{min-width:560px}
    entre deux zones, 32 ; le bord d'une grande carte, 32 (24 au telephone).
    ===================================================================== */
 :root[data-style="design"] body{letter-spacing:-.01em}
-:root[data-style="design"] .topbar{height:68px;padding:0 28px;background:var(--bg);border-bottom:0}
+/* LA BARRE DU HAUT RESPIRE : 12 px au-dessus du logo, en plus de l'encoche
+   de l'appareil. Sans eux, le logo touchait le bord de l'ecran. */
+:root[data-style="design"]{--haut-barre:80px}
+:root[data-style="design"] .topbar{height:calc(var(--haut-barre) + env(safe-area-inset-top));
+ padding:calc(12px + env(safe-area-inset-top)) 28px 0;background:var(--bg);border-bottom:0}
 :root[data-style="design"] .topbar-brand img{width:38px;height:38px;border-radius:12px}
 :root[data-style="design"] .topbar-brand b{font-size:18px;font-weight:800}
 :root[data-style="design"] .topbar-brand:hover{background:none}
@@ -1458,8 +1463,13 @@ table.tbl-journal{min-width:560px}
 :root[data-style="design"] .hub-vide{border-radius:32px;max-width:640px;margin:0 auto}
 :root[data-style="design"] #hub-masquees{text-align:center}
 
-/* Les reglages : une fenetre facon Mac, la liste des rubriques a gauche. */
+/* Les reglages : une fenetre facon Mac, la liste des rubriques a gauche.
+   LA FENETRE TIENT DANS L'ECRAN : la colonne des rubriques ne bouge pas,
+   seul le contenu de l'onglet defile, dans la fenetre -- pas la page. */
 @media (min-width:761px){
+  :root[data-style="design"] .wrap:has(> #sec-parametres:not(.reglages-unifies):not([style*="none"])){padding-bottom:24px}
+  :root[data-style="design"] #sec-parametres:not(.reglages-unifies){grid-template-rows:auto minmax(0,1fr);
+   height:calc(100dvh - var(--haut-barre,68px) - 50px - env(safe-area-inset-top));min-height:420px}
   :root[data-style="design"] #sec-parametres{display:grid;grid-template-columns:240px minmax(0,1fr);max-width:1000px;
    margin:6px auto 0;background:var(--surface);border:1px solid var(--line);border-radius:14px;
    overflow:hidden;box-shadow:0 24px 60px var(--shadow-2);
@@ -1485,17 +1495,23 @@ table.tbl-journal{min-width:560px}
   :root[data-style="design"] #param-onglets button[data-p="message"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12a8 8 0 0 1-11.6 7.1L4 21l1.9-5.4A8 8 0 1 1 21 12z'/%3E%3C/svg%3E")}
   :root[data-style="design"] #param-onglets button.active{background:var(--accent);color:var(--sur-accent);border:0}
   :root[data-style="design"] #sec-parametres .onglet-p.actif{grid-column:2;grid-row:2;max-width:none;border:0;
-   border-radius:0;box-shadow:none;padding:24px 32px 32px;background:var(--surface)}
-  :root[data-style="design"] #sec-parametres .onglet-p .zone{margin-bottom:24px}
+   border-radius:0;box-shadow:none;padding:32px;background:var(--surface);
+   overflow-y:auto;overscroll-behavior:contain}
+  /* UN SEUL RYTHME : 16 dans une carte et entre ses elements, 12 entre deux
+     cartes, qu'elles soient ou non de la meme zone (les titres de zone sont
+     caches ici : la carte porte son nom). Les marges negatives de l'en-tete
+     pliable sont exactement le rembourrage de la carte. */
+  :root[data-style="design"] #sec-parametres .onglet-p .zone{margin-bottom:12px}
   :root[data-style="design"] #sec-parametres .onglet-p .zone:last-child{margin-bottom:0}
-  :root[data-style="design"] #sec-parametres .onglet-p .zone-title{margin:0 0 8px 4px}
-  :root[data-style="design"] #sec-parametres .onglet-p .settings-card + .settings-card{margin-top:8px}
+  :root[data-style="design"] #sec-parametres .onglet-p .settings-card + .settings-card{margin-top:12px}
   :root[data-style="design"] #sec-parametres .onglet-p .settings-card{background:var(--surface2);border:1px solid var(--line);
-   border-radius:10px;padding:14px 16px}
+   border-radius:12px;padding:16px}
   :root[data-style="design"] #sec-parametres .onglet-p .zone:last-child .settings-card:last-child{border-bottom:1px solid var(--line)}
-  :root[data-style="design"] #sec-parametres .settings-card.pliable>.card-top{margin:-12px -16px;padding:12px 16px}
+  :root[data-style="design"] #sec-parametres .settings-card.pliable>.card-top{margin:-16px;padding:16px}
   :root[data-style="design"] #sec-parametres .settings-card.pliable>.card-top:hover{background:var(--line)}
-  :root[data-style="design"] #sec-parametres .settings-card.pliable>.card-corps{margin-top:14px}
+  :root[data-style="design"] #sec-parametres .settings-card.pliable>.card-corps,
+  :root[data-style="design"] #sec-parametres .onglet-p .settings-card>.field+.btn,
+  :root[data-style="design"] #sec-parametres .onglet-p .card-corps>.field+.btn{margin-top:16px}
   :root[data-style="design"] #sec-parametres .settings-card .card-name b{font-size:13px;font-weight:600}
   :root[data-style="design"] #sec-parametres .settings-card .card-name .path{font-size:11.5px}
   :root[data-style="design"] #sec-parametres .btn{min-height:36px;padding:0 16px;font-size:13px}
@@ -1568,8 +1584,8 @@ table.tbl-journal{min-width:560px}
 
 /* Telephone : le menu devient la barre du bas, comme une application. */
 @media (max-width:760px){
-  :root[data-style="design"] .topbar{height:60px;padding:0 16px}
-  :root{--haut-barre:60px}
+  :root[data-style="design"]{--haut-barre:72px}
+  :root[data-style="design"] .topbar{padding-left:16px;padding-right:16px}
   :root[data-style="design"] .sidebar{top:auto;bottom:0;left:0;right:0;transform:none;width:auto;height:auto;
    border-radius:0;padding:6px 6px calc(8px + env(safe-area-inset-bottom));
    box-shadow:0 -1px 0 var(--line);background:var(--surface)}
@@ -4037,6 +4053,7 @@ function paramOnglet(o){
     .forEach(b=>b.classList.toggle('active', b.dataset.p===o));
   document.querySelectorAll('.onglet-p')
     .forEach(n=>n.classList.toggle('actif', n.id==='param-'+o));
+  $('param-'+o).scrollTop=0;
   plierLesCartes();
   if(o==='compte'){
     chargerMonCompte();

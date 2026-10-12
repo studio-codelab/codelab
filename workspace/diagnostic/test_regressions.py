@@ -15419,20 +15419,23 @@ def test_une_application_ouverte_dans_le_panneau_installe_se_comporte_en_app(hub
     c = _connexion_marie(hub)
     page = c.get("/ouvrir.html?app=compta").get_data(as_text=True)
     assert "maximum-scale=1,user-scalable=no" in page
-    assert '<meta name="theme-color" content="#ffffff">' in page
-    # La couleur annoncee par l'application, de SON origine, et une couleur.
-    assert 'e.origin!==origine' in page and 'e.data.codelab!=="couleur"' in page
+    # La meme barre du haut que le hub : retour, icone, nom, sous l'encoche.
+    assert '<a id="retour" href="/" aria-label="Revenir au hub">' in page
+    assert "height:calc(72px + env(safe-area-inset-top))" in page
+    assert '<link rel="stylesheet" href="/theme.css">' in page
     # Le geste retour : un glissement depuis le bord gauche ramene au hub.
     assert 'id="bord"' in page and 'if(d>70){location.href="/";}' in page
 
 
-def test_le_ruban_rend_l_application_encadree_sans_zoom_et_annonce_sa_couleur():
+def test_le_ruban_rend_l_application_encadree_sans_zoom_et_s_efface():
     ruban = app.ruban_retour().decode()
     script = app.SCRIPT_APP_ENCADREE
     assert script in ruban
     # Ouverte seule (dans un navigateur), l'application n'est pas touchee.
     assert script.index("if(window.top===window)return;") < script.index("maximum-scale=1")
-    assert 'parent.postMessage({codelab:"couleur",valeur:c},"*")' in script
+    # Encadree, la barre du haut de la page ramene deja au hub : pas de ruban.
+    assert 'getElementById("codelab-retour-hub");if(r)r.remove();' in script
+    assert "postMessage" not in script
 
 
 # ------------- Ce qu'un compte utilisateur sait (et ne sait pas) -------------
@@ -15780,7 +15783,7 @@ def test_le_bandeau_hors_ligne_est_opaque_et_sous_la_barre():
     page = _page_panneau("dashboard.html")
     bandeau = page.split(".hors-ligne{")[1].split("}")[0]
     assert "background:color-mix(in srgb,var(--warn) 16%,var(--surface))" in bandeau
-    assert "top:calc(var(--haut-barre,68px) + 10px" in bandeau
+    assert "top:calc(var(--haut-barre,52px) + 10px" in bandeau
     assert "@media (max-width:760px){ .toasts{left:12px;right:12px;max-width:none;bottom:calc(84px" in page
 
 

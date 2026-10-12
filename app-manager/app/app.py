@@ -959,14 +959,6 @@ def modele_adresse_application():
     return base + "/{nom}/"
 
 
-def origine_de_l_application(nom):
-    """L'origine (schema, hote, port) d'une application, ou "" si c'est
-    celle du panneau."""
-    adresse = modele_adresse_application().replace("{nom}", nom)
-    m = re.match(r"^[a-z]+://[^/]+", adresse)
-    return m.group(0) if m else ""
-
-
 def cadres_permis():
     """La source frame-src des pages du panneau qui encadrent une application."""
     domaine = domaine_des_applications()
@@ -10911,45 +10903,61 @@ def ouvrir_dans_le_panneau():
     def esc(x):
         return (str(x).replace("&", "&amp;").replace("<", "&lt;")
                 .replace(">", "&gt;").replace('"', "&quot;"))
-    origine_app = origine_de_l_application(nom)
-    page = ('<!doctype html><html lang="fr"><head><meta charset="utf-8">'
+    icone = "/api/icon/" + urllib.parse.quote(nom, safe="")
+    page = ('<!doctype html><html lang="fr" data-style="design"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width,initial-scale=1,'
             'maximum-scale=1,user-scalable=no,viewport-fit=cover">'
             '<title>' + esc(titre) + '</title>'
             # L'onglet porte l'icone de L'APPLICATION ouverte : c'est elle
             # qu'on regarde. Le panneau, lui, garde toujours la sienne.
-            '<link rel="icon" href="/api/icon/' + urllib.parse.quote(nom, safe="") + '">'
+            '<link rel="icon" href="' + icone + '">'
             '<link rel="manifest" href="/manifest.webmanifest">'
+            '<link rel="stylesheet" href="/theme.css">'
             '<meta name="apple-mobile-web-app-capable" content="yes">'
-            # La barre d'etat : blanche d'abord, puis la couleur que
-            # l'application annonce (voir le script du ruban).
-            '<meta name="theme-color" content="#ffffff">'
-            '<style>html,body{margin:0;height:100%;background:#fff;overscroll-behavior:none;'
+            '<meta name="theme-color" content="#F1F2F7">'
+            # Le theme choisi dans le panneau (clair, sombre), avant la
+            # premiere peinture.
+            '<script>try{var t=localStorage.getItem("codelab-theme");'
+            'if(t==="light"||t==="dark")document.documentElement.dataset.theme=t;}catch(e){}</script>'
+            # LA MEME BARRE QUE LE HUB : meme hauteur, meme marge sous
+            # l'encoche, memes boutons ronds. L'application s'affiche dessous,
+            # dans une carte, comme le reste du panneau.
+            '<style>html,body{margin:0;height:100%;overscroll-behavior:none;'
             '-webkit-tap-highlight-color:transparent;touch-action:pan-x pan-y}'
-            'iframe{display:block;border:0;width:100%;height:100%;height:100dvh}'
-            # LE GESTE RETOUR. En mode application, iOS n'a ni bouton ni
-            # geste pour revenir : un glissement depuis le bord gauche ramene
-            # au hub, comme dans une app native. Une bande de 14 px seulement,
-            # pour ne pas prendre de place a l'application.
+            'body{display:flex;flex-direction:column;background:var(--bg);color:var(--txt);'
+            'font-family:var(--sans);letter-spacing:-.01em}'
+            'header{flex:none;display:flex;align-items:center;gap:12px;box-sizing:border-box;'
+            'height:calc(72px + env(safe-area-inset-top));'
+            'padding:calc(12px + env(safe-area-inset-top)) 16px 0}'
+            '#retour{width:40px;height:40px;flex:none;border-radius:999px;border:1px solid var(--line);'
+            'background:var(--surface);color:var(--txt);display:grid;place-items:center}'
+            'header img{width:36px;height:36px;flex:none;border-radius:11px}'
+            'header b{flex:1;min-width:0;font-size:18px;font-weight:800;letter-spacing:-.02em;'
+            'white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'
+            'iframe{display:block;flex:1;min-height:0;width:auto;border:1px solid var(--line);'
+            'border-radius:22px;background:#fff;'
+            'margin:12px 10px calc(10px + env(safe-area-inset-bottom))}'
+            # LE GESTE RETOUR. En mode application, iOS n'a pas de geste pour
+            # revenir : un glissement depuis le bord gauche ramene au hub,
+            # comme dans une app native. Une bande de 14 px seulement.
             '#bord{position:fixed;left:0;top:0;bottom:0;width:14px;z-index:2;touch-action:none}'
             '#fleche{position:fixed;left:-44px;top:50%;width:40px;height:40px;margin-top:-20px;'
             'border-radius:50%;background:rgba(20,26,33,.86);color:#fff;z-index:3;display:grid;'
             'place-items:center;font:600 20px/1 sans-serif;transition:opacity .15s;opacity:0}'
             '</style>'
-            '</head><body><iframe src="' + esc(cible) + '" title="' + esc(titre) + '" '
+            '</head><body>'
+            '<header><a id="retour" href="/" aria-label="Revenir au hub">'
+            '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+            'stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+            '<path d="M15 5l-7 7 7 7"/></svg></a>'
+            '<img src="' + icone + '" alt=""><b>' + esc(titre) + '</b></header>'
+            '<iframe src="' + esc(cible) + '" title="' + esc(titre) + '" '
             'allow="clipboard-read; clipboard-write; fullscreen"></iframe>'
             '<div id="bord" aria-hidden="true"></div><div id="fleche" aria-hidden="true">&#8592;</div>'
             '<script>(function(){'
-            # Couleur annoncee par l'application encadree (postMessage depuis
-            # le script du ruban), acceptee de SON origine seulement, et
-            # seulement si c'est une couleur.
-            'var origine=' + json.dumps(origine_app) + '||location.origin;'
-            'addEventListener("message",function(e){'
-            'if(e.origin!==origine||!e.data||e.data.codelab!=="couleur")return;'
-            'var c=String(e.data.valeur||"");'
-            'if(!/^(#[0-9a-fA-F]{3,8}|rgba?\\([0-9.,\\s%]+\\))$/.test(c))return;'
-            'document.querySelector("meta[name=theme-color]").setAttribute("content",c);'
-            'document.body.style.background=c;});'
+            # La barre d'etat prend la couleur de la barre du haut.
+            'document.querySelector("meta[name=theme-color]").setAttribute("content",'
+            'getComputedStyle(document.body).backgroundColor);'
             'var b=document.getElementById("bord"),f=document.getElementById("fleche"),x0=null;'
             'b.addEventListener("touchstart",function(e){x0=e.touches[0].clientX;},{passive:true});'
             'b.addEventListener("touchmove",function(e){if(x0===null)return;'
@@ -12673,8 +12681,8 @@ def ruban_retour():
 # ouvre une application dans un cadre (voir ouvrir_dans_le_panneau) ; c'est le
 # seul cas ou une page d'application est encadree par le panneau. Elle se
 # comporte alors comme le reste de l'app : pas de zoom, pas de rebond, pas de
-# surlignage au toucher -- et elle annonce sa couleur (sa theme-color, sinon
-# le fond de sa page) pour que la barre d'etat la prenne. Ouverte seule, dans
+# surlignage au toucher -- et sans le ruban : la barre du haut de la page
+# qui l'encadre ramene deja au hub. Ouverte seule, dans
 # un navigateur, l'application n'est pas touchee. Bloque par une politique
 # de securite stricte de l'application : rien ne casse, l'effet manque.
 SCRIPT_APP_ENCADREE = (
@@ -12686,10 +12694,7 @@ SCRIPT_APP_ENCADREE = (
     'document.addEventListener(t,function(e){e.preventDefault();},{passive:false});});'
     'var s=document.documentElement.style;s.touchAction="pan-x pan-y";s.overscrollBehavior="none";'
     's.webkitTapHighlightColor="transparent";'
-    'var m=document.querySelector("meta[name=theme-color]");'
-    'var c=(m&&m.getAttribute("content"))||getComputedStyle(document.body).backgroundColor;'
-    'if(c&&c!=="rgba(0, 0, 0, 0)"&&c!=="transparent")'
-    'parent.postMessage({codelab:"couleur",valeur:c},"*");'
+    'var r=document.getElementById("codelab-retour-hub");if(r)r.remove();'
     '}catch(e){}})();</script>'
 )
 
