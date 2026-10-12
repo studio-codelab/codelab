@@ -153,6 +153,7 @@ Une base SQLite dans `APP_MANAGER_STATE` (`/DATA/AppData/codelab/app-manager` su
 | `journal` | accès, refus, ouvertures, changements de compte (50 000 derniers) |
 | `versions_apps`, `apps_vues`, `preferences` | dernière version connue de chaque application (déploiement, build, commit), version vue par chaque compte, disposition du hub (applications et widgets), étapes de suivi déjà vues |
 | `pieces` | captures et maquettes jointes aux messages (images et PDF, le fichier dans la base) ; supprimées avec leur message, ou au bout d'un jour si le message n'est jamais parti |
+| `appareils` | une ligne par session ouverte (compte, ouverture, dernière activité, adresse, navigateur) ; la retirer déconnecte l'appareil |
 | `messages`, `taches`, `sous_taches`, `projets` | messages à l'administrateur (rang et projet dans `options`), tâches (ordre du planning, date prévue, durée, fin, notes), sous-tâches et projets (idée, construction, réalisé) |
 | `processus` | processus lancés, retrouvés après un redémarrage du panneau |
 | `parametres` | réglages en clair : exposition, VPS |
@@ -243,6 +244,7 @@ dans le journal du conteneur avec la méthode et la route (`docker logs codelab-
 | Santé | `GET /health` (sans session) ; `GET /api/auth-check` (sans session : 200 si la session est admin, interrogé par le proxy Dagster et Mailpit) |
 | Connexion | `GET/POST /login`, `POST /login/second-facteur`, `POST /login/second-facteur/passkey[/options]`, `POST /login/passkey[/options]`, `POST /login/inscription/passkey[/options]`, `POST /logout`, `POST /mot-de-passe/oubli`, `POST /mot-de-passe/reinitialiser` (sans session, sauf `logout`) |
 | Invitations | `GET/POST /api/invitations`, `POST /api/invitations/<id>/renvoyer`, `DELETE /api/invitations/<id>` (admin) ; `GET/POST /invitation/<jeton>`, `GET /api/invitation/<jeton>` (sans session) |
+| Appareils | `GET /api/mon-compte/appareils`, `DELETE /api/mon-compte/appareils/<id>`, `POST /api/mon-compte/appareils/deconnecter-autres` ; `GET/DELETE /api/utilisateurs/<nom>/appareils` (admin) |
 | Mon compte | `GET /api/mon-compte`, `POST /api/mon-compte/email[/code\|/confirmer]`, `POST /api/compte/mot-de-passe`, `GET/POST/DELETE /api/mon-compte/passkeys[/options\|/<id>]`, `GET /api/passkeys/etat` (sans session), `GET /qr/totp.svg` |
 | Version (admin) | `GET /api/version` : le commit de l'image et sa date (aucun appel sortant) |
 | Sécurité | `GET /api/securite`, `PUT /api/securite/exposition`, `POST /api/securite/totp/preparer\|activer\|desactiver`, `GET/PUT /api/vps` ; `GET /api/sauvegardes` (dernières archives, alerte hors serveur), `GET /api/sauvegardes/<nom>` (télécharge, note la copie), `PUT /api/sauvegardes/copie` (`{externe}`) — admin |

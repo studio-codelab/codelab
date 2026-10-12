@@ -286,6 +286,21 @@ MIGRATIONS = [
     CREATE INDEX pieces_message ON pieces(message);
     CREATE INDEX pieces_qui ON pieces(qui, message);
     """,
+    # --- version 7 : les appareils connectes ---
+    # Une ligne par session ouverte. Une session est un cookie signe, que le
+    # serveur ne peut ni lister ni rappeler : ce registre le peut. Retirer
+    # la ligne deconnecte l'appareil a sa requete suivante.
+    """
+    CREATE TABLE appareils (
+        sid     TEXT PRIMARY KEY,
+        compte  TEXT NOT NULL,
+        ouverte INTEGER NOT NULL,
+        vue     INTEGER NOT NULL,
+        ip      TEXT NOT NULL DEFAULT '',
+        agent   TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX appareils_compte ON appareils(compte, vue);
+    """,
 ]
 
 VERSION = len(MIGRATIONS)
