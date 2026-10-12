@@ -1504,6 +1504,82 @@ table.tbl-journal{min-width:560px}
   :root[data-style="design"] #sec-parametres .interrupteur input:checked+span::after{transform:translateX(16px)}
 }
 
+/* =====================================================================
+   LES PARAMETRES, DANS LE STYLE DU PANNEAU. Plus de fenetre facon Mac posee
+   au milieu de la page, avec sa barre de titre, sa colonne grise et ses
+   cartes dans une carte : un grand titre comme le bonjour du hub, la liste
+   des rubriques a gauche, et a droite des cartes arrondies comme les tuiles
+   du hub, dans la police du panneau.
+
+   AUCUN FOND QUI DEBORDE. La tete d'une carte pliable se colorait au survol
+   par un aplat carre plus large que la carte : ses coins depassaient des
+   coins arrondis. La carte coupe desormais ce qui deborde (overflow), et le
+   titre ne passe plus a l'accent au survol -- seul le chevron reagit.
+   ===================================================================== */
+@media (min-width:761px){
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies){grid-template-columns:220px minmax(0,1fr);
+   column-gap:40px;max-width:1080px;margin:8px auto 0;background:none;border:0;border-radius:0;box-shadow:none;
+   overflow:visible;font-family:var(--sans);font-size:14px}
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies)>.toolbar{grid-column:1/-1;margin:0 0 28px;padding:0;
+   justify-content:flex-start;background:none;border:0}
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies)>.toolbar h2{font-size:clamp(34px,4vw,48px);
+   font-weight:800;letter-spacing:-.05em;line-height:1}
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) #param-onglets{position:sticky;top:96px;align-self:start;
+   gap:4px;padding:0;border:0;background:none}
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) #param-onglets button{padding:11px 14px;border-radius:14px;
+   font-size:14px;font-weight:650;color:var(--dim);transition:background .15s,color .15s}
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) #param-onglets button:hover{background:var(--surface);color:var(--txt)}
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) #param-onglets button.active{background:var(--accent-soft);
+   color:var(--accent)}
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .onglet-p.actif{padding:0;background:none;border:0;
+   border-radius:0;box-shadow:none;overflow:visible}
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .onglet-p .zone{margin-bottom:12px}
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .onglet-p .settings-card,
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .onglet-p .zone:last-child .settings-card:last-child{
+   background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:20px 24px;overflow:hidden;
+   box-shadow:0 1px 2px var(--shadow)}
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .onglet-p .settings-card + .settings-card{margin-top:12px}
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .settings-card.pliable>.card-top{margin:-20px -24px;padding:20px 24px}
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .settings-card.pliable>.card-top:hover{background:var(--surface2)}
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .settings-card.pliable>.card-corps{margin-top:20px}
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .settings-card .card-name b{font-size:15px;font-weight:750;
+   letter-spacing:-.01em}
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .settings-card .card-name .path{font-size:13px;margin-top:3px}
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .btn{min-height:40px;padding:0 18px;font-size:14px}
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .interrupteur{width:44px;height:26px}
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .interrupteur span::after{width:20px;height:20px;top:3px;left:3px}
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .interrupteur input:checked+span::after{transform:translateX(18px)}
+}
+:root[data-variante="bento"] #sec-parametres .settings-card.pliable>.card-top:hover .card-name b{color:inherit}
+:root[data-variante="bento"] #sec-parametres .settings-card.pliable .chevron{transition:transform .15s ease,color .15s}
+:root[data-variante="bento"] #sec-parametres .settings-card.pliable>.card-top:hover .chevron{color:var(--accent)}
+/* LES PASTILLES D'ETAT : une seule taille, une seule forme, partout. */
+:root[data-variante="bento"] #sec-parametres .pill{border:0;padding:4px 10px;font-size:12px;font-weight:700;box-shadow:none}
+/* UN REGLAGE SEUL DANS SA CARTE (« Je copie déjà ce dossier ailleurs ») :
+   une ligne de la carte, separee par un filet, le libelle a gauche et la
+   coche a droite -- pas une grosse gelule cerclee d'accent qui avait l'air
+   d'un bouton. */
+#sec-parametres .settings-card > .choix-ligne{justify-content:space-between;margin:16px 0 0 !important;padding:16px 0 0;
+ border:0;border-radius:0;background:none;box-shadow:0 -1px 0 var(--line);color:var(--txt);font-weight:600}
+#sec-parametres .settings-card > .choix-ligne:hover,
+#sec-parametres .settings-card > .choix-ligne:has(>input:checked){background:none}
+#sec-parametres .settings-card > .choix-ligne:focus-within{outline:2px solid var(--accent-ring);outline-offset:4px}
+/* LES LISTES A COCHER DES REGLAGES (applications du hub, acces...) : des
+   lignes separees par un filet. Cochee, la ligne garde son fond : c'est la
+   coche d'accent, a droite, qui dit qu'elle est retenue. Six gelules
+   cerclees de vert, l'une sous l'autre, faisaient une colonne de boutons. */
+#sec-parametres .choix-ligne{border-radius:12px}
+#sec-parametres .choix-ligne:has(>input:checked){background:none;border-color:transparent}
+#sec-parametres .choix-ligne:hover{background:var(--surface2)}
+#sec-parametres .choix-ligne:focus-within{border-color:transparent;outline:2px solid var(--accent-ring);outline-offset:-2px}
+#sec-parametres .choix-ligne+.choix-ligne{margin-top:0;box-shadow:0 -1px 0 var(--line)}
+#sec-parametres .choix-ligne:hover+.choix-ligne,#sec-parametres .choix-ligne+.choix-ligne:hover{box-shadow:none}
+/* Les appareils connectes : au-dela de quatre, les plus anciens attendent
+   derriere un bouton. Quinze lignes « Chrome sur Linux » noyaient le reste. */
+#sec-parametres .ap-plus{align-self:flex-start;min-height:0;margin:10px 0 2px 4px;padding:0;border:0;background:none;
+ color:var(--accent);font-weight:700}
+#sec-parametres .ap-plus:not(:disabled):hover{background:none;color:var(--accent-h);text-decoration:underline}
+
 /* LES REGLAGES D'UN COMPTE UTILISATEUR : UNE PAGE, DES SECTIONS. Deux
    onglets dans une colonne laissaient une fenetre a moitie vide, et le
    reglage cherche etait toujours dans l'autre. Les deux onglets deviennent
@@ -1998,14 +2074,14 @@ a.pj:hover{border-color:var(--accent)}
 /* -- le relief au survol (souris) : inclinaison et reflet qui suit. */
 .bw{position:relative}
 @media (hover:hover) and (pointer:fine){
-  #hub-liste:not(.edition) :is(.bw,.bento-carte){transform:perspective(1000px) rotateX(0) rotateY(0);
+  #hub-liste:not(.edition) :is(.bw,.bento-carte){transform:translateY(0);
    transition:transform .6s cubic-bezier(.2,.7,.2,1),box-shadow .6s,border-color .2s,background-color .4s}
   #hub-liste:not(.edition) :is(.bw,.bento-carte).survol{transition-duration:.18s,.6s,.2s,.4s;
-   transform:perspective(1000px) rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg)) translateY(-3px);
+   transform:translateY(-3px);
    box-shadow:0 26px 50px -22px var(--shadow-2),0 2px 6px var(--shadow)}
   #hub-liste:not(.edition) :is(.bw,.bento-carte)::after{content:"";position:absolute;inset:0;border-radius:inherit;
    pointer-events:none;z-index:2;opacity:0;transition:opacity .4s;
-   background:radial-gradient(360px circle at var(--mx,50%) var(--my,50%),color-mix(in srgb,var(--accent) 14%,rgba(255,255,255,.12)),transparent 60%)}
+   background:radial-gradient(420px circle at var(--mx,50%) var(--my,50%),rgba(255,255,255,.06),transparent 65%)}
   #hub-liste:not(.edition) :is(.bw,.bento-carte).survol::after{opacity:1}
 }
 
@@ -5462,24 +5538,22 @@ function peindreResumeHub(){
   remplir(r, morceaux.filter(Boolean).map(m=>`<span>${m}</span>`).join('<i aria-hidden="true">·</i>'));
   animerChiffres(r);
 }
-/* LE RELIEF AU SURVOL, a la souris seulement : la tuile s'incline a peine
-   vers le pointeur et un reflet le suit. Ni au doigt, ni en mode Modifier,
+/* LE RELIEF AU SURVOL, a la souris seulement : la tuile se souleve et un
+   reflet discret suit le pointeur. Plus d'inclinaison : en perspective, une
+   tuile devenait un trapeze, ses bords penchaient, et l'oeil y lisait un
+   defaut d'affichage. Ni au doigt, ni en mode Modifier,
    ni quand l'appareil demande moins de mouvement. */
 (()=>{
   let fine=false; try{ fine=matchMedia('(hover:hover) and (pointer:fine)').matches; }catch(e){}
   if(!fine) return;
   let tuile=null;
-  const lacher=()=>{ if(tuile){ tuile.classList.remove('survol'); tuile.style.removeProperty('--rx'); tuile.style.removeProperty('--ry'); } tuile=null; };
+  const lacher=()=>{ if(tuile) tuile.classList.remove('survol'); tuile=null; };
   $('hub-liste').addEventListener('pointermove', e=>{
     if(hubEdition || moinsDeMouvement() || e.pointerType!=='mouse'){ lacher(); return; }
     const t=e.target.closest('.bw, .bento-carte');
     if(t!==tuile){ lacher(); tuile=t; }
     if(!t) return;
     const r=t.getBoundingClientRect(), px=(e.clientX-r.left)/r.width, py=(e.clientY-r.top)/r.height;
-    /* Moins d'inclinaison pour une grande tuile : 4 degres au plus. */
-    const amp = r.width>320 ? 2 : 4;
-    t.style.setProperty('--rx', ((.5-py)*amp).toFixed(2)+'deg');
-    t.style.setProperty('--ry', ((px-.5)*amp).toFixed(2)+'deg');
     t.style.setProperty('--mx', (px*100).toFixed(1)+'%');
     t.style.setProperty('--my', (py*100).toFixed(1)+'%');
     t.classList.add('survol');
@@ -8012,13 +8086,21 @@ async function alBasculer(){
 
 /* ---------------- securite : double authentification ---------------- */
 /* ---------------- les appareils connectes ---------------- */
+let apTout=false, apDerniers=[];
+const AP_VISIBLES=4;
 function peindreAppareils(liste){
-  remplir($('ap-liste'), liste.length ? liste.map(a=>`<div class="ap-ligne">
+  /* Cet appareil en tete : c'est lui qu'on cherche, il ne doit jamais
+     tomber dans les lignes cachees. */
+  liste=[...liste].sort((x,y)=>(y.courant?1:0)-(x.courant?1:0));
+  apDerniers=liste;
+  const caches = apTout ? 0 : Math.max(0, liste.length-AP_VISIBLES);
+  remplir($('ap-liste'), (liste.length ? liste.slice(0, liste.length-caches).map(a=>`<div class="ap-ligne">
       <div class="ap-quoi"><b>${esc(a.appareil)}</b>${a.courant ? ' <span class="pill on"><i></i>Cet appareil</span>' : ''}
         <small>${a.courant ? 'Actif maintenant' : 'Actif '+ilYA(a.vue)}${a.ip ? ' · '+esc(a.ip) : ''} · connecté ${ilYA(a.ouverte)}</small></div>
       <button class="btn btn-default btn-sm" data-agir="appareil-deconnecter" data-cible="${esc(a.id)}"
         ${a.courant ? 'data-courant="1"' : ''}>${a.courant ? 'Me déconnecter' : 'Déconnecter'}</button></div>`).join('')
-    : '<p class="hint">Aucun appareil.</p>');
+    : '<p class="hint">Aucun appareil.</p>')
+    + (caches ? `<button type="button" class="btn btn-default btn-sm ap-plus" onclick="apTout=true;peindreAppareils(apDerniers)">Afficher les ${caches} autres</button>` : ''));
   $('ap-autres').disabled = !liste.some(a=>!a.courant);
 }
 async function chargerAppareils(){
