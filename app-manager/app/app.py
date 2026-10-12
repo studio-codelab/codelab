@@ -10378,8 +10378,12 @@ def ecran_accueil_manifeste():
         "start_url": "/",
         "scope": "/",
         "display": "standalone",
-        "background_color": "#ffffff",
-        "theme_color": "#ffffff",
+        # La couleur du fond et du bandeau (style par defaut, clair) : c'est
+        # celle de l'ecran de lancement et de la barre d'etat d'Android. Une
+        # barre blanche au-dessus d'un bandeau gris cassait l'effet
+        # d'application ; la page l'ajuste ensuite au theme choisi.
+        "background_color": "#E9EBEE",
+        "theme_color": "#E9EBEE",
         "icons": [{"src": "/apple-touch-icon.png", "sizes": "180x180",
                    "type": "image/png", "purpose": "any"}],
     }
@@ -12456,8 +12460,12 @@ def webapp_manifeste(nom, titre):
         "start_url": racine,
         "scope": racine,
         "display": "standalone",
-        "background_color": "#ffffff",
-        "theme_color": "#ffffff",
+        # La couleur du fond et du bandeau (style par defaut, clair) : c'est
+        # celle de l'ecran de lancement et de la barre d'etat d'Android. Une
+        # barre blanche au-dessus d'un bandeau gris cassait l'effet
+        # d'application ; la page l'ajuste ensuite au theme choisi.
+        "background_color": "#E9EBEE",
+        "theme_color": "#E9EBEE",
         "icons": [{"src": racine + PREFIXE_CODELAB + "icone.png",
                    "sizes": "180x180", "purpose": "any"}],
     }

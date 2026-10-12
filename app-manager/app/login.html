@@ -16,6 +16,43 @@
 <meta name="apple-mobile-web-app-title" content="CodeLab">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="stylesheet" href="/theme.css">
+<meta name="theme-color" content="#E9EBEE" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0D1015" media="(prefers-color-scheme: dark)">
+<!-- LE MODE APPLICATION. Ouvert depuis l'icone de l'ecran d'accueil, le
+     panneau se comporte comme une application installee : pas de zoom (ni
+     pince, ni double tape), pas de rebond en haut et en bas de la page, pas
+     de surlignage au toucher ni de selection de texte sur l'interface, et la
+     barre d'etat (l'heure, la batterie) prend la couleur du bandeau au lieu
+     d'une bande blanche. Dans Safari, rien ne change : le zoom reste permis,
+     c'est un reglage d'accessibilite. -->
+<script>
+(function(){
+  var app = (window.matchMedia && matchMedia('(display-mode: standalone)').matches)
+            || window.navigator.standalone === true;
+  if(!app) return;
+  document.documentElement.classList.add('mode-app');
+  var v = document.querySelector('meta[name="viewport"]');
+  if(v) v.setAttribute('content', 'width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover');
+  /* iOS ne tient plus compte de user-scalable=no : la pince se bloque ici. */
+  ['gesturestart','gesturechange','gestureend'].forEach(function(t){
+    document.addEventListener(t, function(e){ e.preventDefault(); }, {passive:false});
+  });
+})();
+/* La barre d'etat prend la couleur du bandeau (ou du fond), theme et style
+   compris : relue au chargement et a chaque changement de theme. */
+function majBarreEtat(){
+  var el = document.querySelector('.topbar') || document.body;
+  if(!el) return;
+  var c = getComputedStyle(el).backgroundColor;
+  if(!c || c === 'rgba(0, 0, 0, 0)' || c === 'transparent') c = getComputedStyle(document.body).backgroundColor;
+  document.querySelectorAll('meta[name="theme-color"]').forEach(function(m){
+    m.setAttribute('content', c); m.removeAttribute('media');
+  });
+}
+document.addEventListener('DOMContentLoaded', majBarreEtat);
+if(window.matchMedia) matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(){ setTimeout(majBarreEtat, 0); });
+</script>
+
 <style>
 /* Le THEME (couleurs, formes, tailles) vit dans theme.css, servi par le
    panneau et partage avec l'autre page. Ici ne restent que les regles

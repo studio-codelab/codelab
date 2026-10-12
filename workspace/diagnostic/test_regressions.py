@@ -15182,3 +15182,52 @@ def test_la_securite_montre_les_appareils():
     assert "chargerAppareils();" in page.split("if(o==='securite'){")[1].split("}")[0]
     fiche = page.split('<div class="ov" id="ov-user">')[1].split('<div class="ov"')[0]
     assert "Déconnecter tous ses appareils" in fiche
+
+
+# ------------------------ Le mode application ------------------------
+#
+# Vecu : « Comment faire en sorte que la version mobile (webapp avec
+# raccourci) se comporte comme une vraie application, pas de possibilite de
+# zoom [...] Je ne veux pas la barre blanche au dessus qui casse l'effet
+# application ».
+
+@pytest.mark.parametrize("page", ["dashboard.html", "login.html", "messages.html"])
+def test_chaque_page_du_panneau_se_comporte_en_application(page):
+    html = _page_panneau(page)
+    tete = html.split("</head>")[0]
+    # Installable, ouverte en plein ecran.
+    assert '<link rel="manifest" href="/manifest.webmanifest">' in tete
+    assert '<meta name="apple-mobile-web-app-capable" content="yes">' in tete
+    # La barre d'etat prend la couleur du bandeau, plus de bande blanche.
+    assert '<meta name="theme-color" content="#E9EBEE" media="(prefers-color-scheme: light)">' in tete
+    assert "function majBarreEtat(){" in tete
+    # Seulement depuis l'icone : dans Safari, le zoom reste permis.
+    mode = tete.split("(function(){")[1].split("})();")[0]
+    assert "display-mode: standalone" in mode and "navigator.standalone === true" in mode
+    assert "if(!app) return;" in mode
+    assert "maximum-scale=1,user-scalable=no,viewport-fit=cover" in mode
+    assert "'gesturestart'" in mode and "e.preventDefault()" in mode
+
+
+def test_le_theme_fige_l_interface_en_mode_application():
+    theme = open(os.path.join(DOSSIER_PANNEAU, "app", "theme.css"), encoding="utf-8").read()
+    regle = theme.split("html.mode-app{")[1].split("}")[0]
+    for attendu in ("touch-action:pan-x pan-y", "overscroll-behavior:none",
+                    "-webkit-tap-highlight-color:transparent"):
+        assert attendu in regle, attendu
+    assert "html.mode-app body{-webkit-user-select:none;user-select:none" in theme
+    # Ce qu'on saisit ou copie reste selectionnable, et iOS ne zoome pas a la saisie.
+    assert "html.mode-app :is(input,textarea,select,[contenteditable],pre,code,.selectionnable)" in theme
+    assert "font-size:max(16px,1em)" in theme
+
+
+def test_le_manifeste_n_a_plus_de_barre_blanche(hub):
+    m = hub.get("/manifest.webmanifest").get_json()
+    assert m["display"] == "standalone"
+    assert m["theme_color"] == m["background_color"] == "#E9EBEE"
+
+
+def test_la_barre_suit_le_theme_choisi():
+    page = _page_panneau("dashboard.html")
+    for fonction in ("function applyTheme(t){", "function applyStyle(st){"):
+        assert "setTimeout(majBarreEtat, 0);" in page.split(fonction)[1].split("\n}")[0], fonction

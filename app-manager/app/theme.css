@@ -334,3 +334,19 @@
   --shadow:rgba(0,0,0,.4); --shadow-2:rgba(0,0,0,.6);
   --bento-encre:#EEF1F4; --bento-sur-encre:#12161C; --bento-lien:#0B646C; --bento-rail:rgba(18,22,28,.14);
 }
+
+
+/* ------------------------------ mode application ------------------------------
+   Le panneau ouvert depuis l'icone de l'ecran d'accueil (classe mode-app,
+   posee par la page). Une application installee ne zoome pas, ne rebondit
+   pas en bout de page, ne surligne pas ce qu'on touche, et ne laisse pas
+   selectionner son interface comme un texte. Les champs, les messages et les
+   journaux restent selectionnables : on y copie et on y colle. */
+html.mode-app{touch-action:pan-x pan-y;overscroll-behavior:none;-webkit-text-size-adjust:100%;
+ -webkit-tap-highlight-color:transparent}
+html.mode-app body{overscroll-behavior:none}
+html.mode-app body{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+html.mode-app :is(input,textarea,select,[contenteditable],pre,code,.selectionnable){
+ -webkit-user-select:text;user-select:text;-webkit-touch-callout:default}
+/* Un champ de moins de 16 px fait zoomer iOS a la saisie. */
+html.mode-app :is(input,textarea,select){font-size:max(16px,1em)}
