@@ -55,6 +55,13 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
     - **Couleurs** : un nuancier pour la couleur d'accent (Lagon, Océan, Forêt, Prune, Corail,
       Ardoise), en clair comme en sombre.
     Qui avait choisi le Lanceur retrouve icônes, défilement vertical et widgets en haut.
+  - **Un hub vivant** : sous le bonjour (le nom en dégradé d'accent, traversé d'un reflet à
+    l'arrivée), la journée en une ligne (« 4 sur 6 en ligne · 2 messages à lire ») ; les tuiles
+    montent en cascade à l'ouverture ; les chiffres défilent jusqu'à leur valeur et repartent de
+    l'ancienne quand elle change ; jauges, barres et courbes se dessinent à leur première
+    apparition seulement (le rechargement toutes les dix secondes ne les rejoue pas) ; à la
+    souris, une tuile s'incline à peine vers le pointeur et un reflet le suit. Rien ne bouge quand
+    l'appareil demande moins d'animations.
   - **Le menu d'une application** : trois petits points dans le coin de la
     tuile à la souris (au survol de l'icône en mode icônes), un appui long au doigt (le menu
     s'ouvre alors en bas de l'écran), ou le clic droit. Il propose : Ouvrir, Voir la présentation
@@ -85,7 +92,12 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
         aperçu de la page ; aux couleurs de son icône, et sa vidéo de présentation en boucle, sans le
         son, quand elle en a une ; sinon une lueur qui dérive dans sa couleur et l'icône qui respire), « État des applications » (admin : en ligne, arrêtées, et le compte de ce
         qui est en erreur ou à surveiller), « Messages » à lire (admin), « Sauvegardes » (admin : la
-        dernière, sa taille, et l'alerte tant qu'aucune copie n'est sortie du serveur), « Nouvelles
+        dernière, sa taille, et l'alerte tant qu'aucune copie n'est sortie du serveur), « Serveur »
+        (admin : processeur, mémoire et disque en jauges ; en grand, la courbe des dix dernières
+        minutes, la valeur exacte au survol ; « élevé » au-delà de 80 %, « saturé » au-delà de 92 %),
+        « Activité » (admin : les ouvertures des quatorze derniers jours en barres, le total, la
+        tendance par rapport aux quatorze jours d'avant ; en grand, les applications les plus
+        ouvertes), « Nouvelles
         versions », « Écrire à l'administrateur » et « Mes messages » (comptes utilisateurs). Le
         serveur ne propose et n'accepte que les widgets du rôle : un compte utilisateur ne peut pas
         poser un widget d'administration, même en appelant la route à la main ;
