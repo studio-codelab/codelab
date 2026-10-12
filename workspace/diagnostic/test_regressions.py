@@ -4902,19 +4902,21 @@ def test_les_deux_pages_lisent_le_meme_theme():
     # Les jetons structurants y sont, et dans les trois etats de theme.
     for cle in ("--accent:", "--bg:", "--ok:", "--err:", "--warn:", "--mono:", "--r:"):
         assert cle in theme, f"{cle} manque au theme"
-    # Pour chacun des styles : classique, « Design », puis ses deux variantes
-    # (lanceur et bento), qui tiennent chacune leurs trois etats.
+    # Pour chacun des styles : classique, « Design », puis le style du
+    # panneau (data-variante="bento"), qui tiennent chacun leurs trois etats.
     classique, reste = theme.split("LE STYLE « DESIGN »", 1)
-    design, variantes = reste.split("STYLES 3 (« lanceur ») ET 4 (« bento »)", 1)
-    for partie, attendus in ((classique, 3), (design, 3), (variantes, 6)):
+    design, variantes = reste.split("LE STYLE DU PANNEAU.", 1)
+    variantes, nuancier = variantes.split("le nuancier ---", 1)
+    for partie, attendus in ((classique, 3), (design, 3), (variantes, 3)):
         assert partie.count("--accent:") == attendus, (
             "les trois etats de theme doivent etre tenus : clair, sombre du "
             "systeme, sombre choisi explicitement")
-    for variante in ("lanceur", "bento"):
-        for bloc in (f':root[data-style="design"][data-variante="{variante}"]{{',
-                     f':root[data-style="design"][data-variante="{variante}"]:not([data-theme="light"]):not([data-theme="dark"]){{',
-                     f':root[data-style="design"][data-variante="{variante}"][data-theme="dark"]{{'):
-            assert bloc in variantes, bloc
+    for bloc in (':root[data-style="design"][data-variante="bento"]{',
+                 ':root[data-style="design"][data-variante="bento"]:not([data-theme="light"]):not([data-theme="dark"]){',
+                 ':root[data-style="design"][data-variante="bento"][data-theme="dark"]{'):
+        assert bloc in variantes, bloc
+    # Plus de style « lanceur » : il est devenu un jeu de reglages du hub.
+    assert 'data-variante="lanceur"' not in theme
     assert '[data-theme="dark"]' in theme and "prefers-color-scheme" in theme
 
     for nom in ("dashboard.html", "login.html"):
@@ -5569,8 +5571,9 @@ def test_le_hub_ne_garde_que_sa_grille():
     assert "codelab.hub.taille" not in page, (
         "le reglage de taille est revenu dans le stockage du navigateur")
     assert "id=\"hub-taille\"" not in page, "le selecteur de taille est revenu"
-    # La grille est posee sans condition : plus rien ne peut la faire varier.
-    assert "const classeListe = 'hub-liste compacte';" in page
+    # La forme des tuiles ne se regle plus qu'avec les autres reglages du hub
+    # (Parametres > Compte > Apparence), garde cote serveur dans un cookie.
+    assert "reglageHub('tuiles')==='icones'" in page
     # Ce qu'on accepte de perdre en grille : l'etat et la visibilite sous le
     # nom. C'est le prix pour voir trente projets d'un coup.
     assert ".hub-liste.compacte .hub-projet .bas{display:none}" in page \
@@ -5734,8 +5737,8 @@ def test_le_masquage_ne_se_regle_que_dans_les_parametres():
                 encoding="utf-8").read()
     assert "hub-masquer" not in page, (
         "le bouton de masquage est revenu sur la tuile du hub")
-    # La tuile n'est plus qu'un lien.
-    tuile = page.split("const tuile = a =>")[1].split("`;")[0]
+    # La tuile n'est plus qu'un lien (et ses trois points de menu).
+    tuile = page.split("function peindreBento(")[1].split("const tuile = e =>")[0]
     assert "<button" not in tuile, "la tuile du hub porte de nouveau un bouton"
     # Et le reglage est bien une case a cocher, dans les deux sens.
     assert "function basculerMasquage(" in page
@@ -7340,7 +7343,8 @@ def test_la_page_affiche_le_nom_et_designe_par_la_cle():
     page = _page_panneau("dashboard.html")
     assert "const nomAffiche" in page
     # La tuile du hub et la ligne du tableau LISENT le nom.
-    assert '<div class="nom">${esc(nomAffiche(a))}</div>' in page
+    assert '<span class="hub-icone-nom">${esc(nomAffiche(a))}</span>' in page
+    assert '<div class="bento-carte-nom">${esc(nomAffiche(a))}</div>' in page
     assert '<div class="n">${esc(nomAffiche(a))}</div>' in page
     # Et tout ce qui DESIGNE garde la cle.
     assert 'data-cible="${esc(a.name)}"' in page
@@ -9094,7 +9098,7 @@ def test_la_tuile_de_dagster_revient_par_le_panneau():
     laisserait vider lienOuverture() sans que rien ne rougisse.
     """
     page = _page_panneau("dashboard.html")
-    bloc = page.split("const tuile = a =>")[1].split("`;")[0]
+    bloc = page.split("function peindreBento(")[1].split("const tuile = e =>")[0]
     assert "lienOuverture(a)" in bloc
     assert 'target="_blank"' not in bloc
     assert "hubApps.concat(hubServices)" in page
@@ -10304,8 +10308,8 @@ def _plaques_du_theme():
     """
     feuille = (_racine_app_manager() / "theme.css").read_text(encoding="utf-8")
     valeurs = re.findall(r"--plaque-logo:\s*(#[0-9a-fA-F]{3,6})\s*;", feuille)
-    # Quatre styles : classique, « design », et ses variantes lanceur et bento.
-    assert len(valeurs) == 12, (
+    # Trois styles : classique, « design », et celui du panneau (bento).
+    assert len(valeurs) == 9, (
         f"theme.css definit --plaque-logo {len(valeurs)} fois, trois par style attendues")
     return valeurs
 
@@ -13257,13 +13261,17 @@ def test_l_application_messages_a_ses_vues():
 
 
 
-# ---------- styles : lanceur et bento ----------
+# ---------- un seul style, dont le hub se regle ----------
+DEFAUT_HTML = ('<html lang="fr" data-style="design" data-variante="bento" data-tuiles="cartes" '
+               'data-defilement="horizontal" data-widgets="melanges" data-couleurs="lagon">')
+
+
 def test_le_style_se_choisit_et_se_pose_cote_serveur(deux_espaces):
-    """Le choix vit dans un cookie : le serveur pose l'attribut avant la
-    premiere peinture. Sans cookie, ou avec celui d'un ancien style, c'est
-    le bento."""
+    """Le choix vit dans un cookie : le serveur pose les attributs avant la
+    premiere peinture. Sans cookie, ou avec celui d'un ancien style, ce sont
+    les reglages par defaut."""
     c = deux_espaces
-    defaut = '<html lang="fr" data-style="design" data-variante="bento">'
+    defaut = DEFAUT_HTML
     assert defaut in c.get("/login").get_data(as_text=True)
     for ancien in ("design", "classique"):
         c.set_cookie("codelab-style", ancien)
@@ -13273,8 +13281,10 @@ def test_le_style_se_choisit_et_se_pose_cote_serveur(deux_espaces):
     c.set_cookie("codelab-style", '"><script>')
     assert "<script>\">" not in c.get("/").get_data(as_text=True)[:200]
     page = _page_panneau("dashboard.html")
-    assert "function setStyle(" in page and 'id="style-toggle"' in page
-    assert "codelab-style=" in page
+    assert "function setHub(" in page and 'id="hub-reglages"' in page
+    assert "codelab-hub=" in page
+    # Plus de choix de style : un seul, qui se regle.
+    assert "function setStyle(" not in page and 'id="style-toggle"' not in page
 
 
 def test_le_style_design_ne_change_que_l_habit():
@@ -13307,36 +13317,147 @@ def test_le_style_design_ne_change_que_l_habit():
 
 
 
-def test_les_styles_lanceur_et_bento_se_posent_cote_serveur(deux_espaces):
-    """Styles 3 et 4 : des variantes du style 2. Le serveur pose les deux
-    attributs avant la premiere peinture, et rien d'autre que les valeurs
-    connues -- le cookie vient du client."""
+def test_le_hub_se_regle_et_le_serveur_ne_pose_que_des_valeurs_connues(deux_espaces):
+    """Vecu : « Ne laisse plus qu'un style en rendant personnalisable
+    certains parametres comme le scroll horizontal ou vertical, mettre tous
+    les widgets en haut, afficher les app avec juste l'icone ou avec la
+    description. »
+
+    Les reglages vivent dans le cookie codelab-hub, des valeurs separees par
+    des points, dans n'importe quel ordre. Le serveur les pose sur <html> --
+    et rien d'autre que les valeurs connues : le cookie vient du client."""
     c = deux_espaces
-    for variante in ("lanceur", "bento"):
-        c.set_cookie("codelab-style", variante)
-        assert (f'<html lang="fr" data-style="design" data-variante="{variante}">'
-                in c.get("/login").get_data(as_text=True))
-    c.set_cookie("codelab-style", "lanceur\" onload=\"x")
-    tete = c.get("/login").get_data(as_text=True)[:300]
-    assert "onload" not in tete and 'data-variante="bento"' in tete
+    assert set(app.REGLAGES_HUB) == {"tuiles", "defilement", "widgets", "couleurs"}
+    c.set_cookie("codelab-hub", "haut.icones.prune.vertical")
+    tete = c.get("/login").get_data(as_text=True)[:400]
+    for attendu in ('data-tuiles="icones"', 'data-defilement="vertical"', 'data-widgets="haut"',
+                    'data-couleurs="prune"', 'data-variante="bento"'):
+        assert attendu in tete, attendu
+    # Une partie seulement : le reste garde sa valeur par defaut.
+    c.set_cookie("codelab-hub", "icones")
+    tete = c.get("/login").get_data(as_text=True)[:400]
+    assert 'data-tuiles="icones"' in tete and 'data-defilement="horizontal"' in tete
+    # Rien d'inconnu n'arrive dans la page.
+    c.set_cookie("codelab-hub", 'icones" onload="x.vertical')
+    tete = c.get("/login").get_data(as_text=True)[:400]
+    assert "onload" not in tete and 'data-defilement="vertical"' in tete
+    assert 'data-tuiles="cartes"' in tete
+    c.set_cookie("codelab-hub", "")
+    assert DEFAUT_HTML in c.get("/login").get_data(as_text=True)
+    # Qui avait choisi l'ancien lanceur le retrouve tel quel, tant qu'il n'a
+    # rien regle depuis.
+    c.delete_cookie("codelab-hub")
+    c.set_cookie("codelab-style", "lanceur")
+    tete = c.get("/login").get_data(as_text=True)[:400]
+    for cle, valeur in app.REGLAGES_LANCEUR.items():
+        assert f'data-{cle}="{valeur}"' in tete, cle
+    c.set_cookie("codelab-hub", "cartes")
+    assert 'data-tuiles="cartes"' in c.get("/login").get_data(as_text=True)[:400]
+
     page = _page_panneau("dashboard.html")
-    for cle in ("lanceur", "bento"):
-        assert f"setStyle('{cle}')" in page, cle
-    # Les styles 1 et 2 ne se choisissent plus.
-    for ancien in ("classique", "design"):
-        assert f"setStyle('{ancien}')" not in page, ancien
-    assert "const STYLES = ['lanceur','bento'];" in page
-    # Le hub change de forme : recherche (les deux), mosaique (bento).
-    assert 'id="hub-filtre"' in page and "function peindreBento(" in page
-    # Plus de dock dans le lanceur : Dagster, Mailpit et Demandes ont la
-    # tuile d'une application, dans la meme grille.
+    # Les memes reglages des deux cotes, dans le meme ordre (premiere valeur
+    # = defaut).
+    regles = page.split("const REGLAGES_HUB = {")[1].split("};")[0]
+    for cle, valeurs in app.REGLAGES_HUB.items():
+        assert f"{cle}:[" + ",".join(f"'{v}'" for v in valeurs) + "]" in regles, cle
+    for cle, valeurs in app.REGLAGES_HUB.items():
+        for v in valeurs:
+            assert f"setHub('{cle}','{v}')" in page, (cle, v)
+    # Plus de modeles, d'en-tete centre ni de fond trame : retires a la
+    # demande.
+    for trace in ("modeleHub", "data-entete", "data-fond", "--trame"):
+        assert trace not in page, trace
+    # Plus de style « lanceur » ni de chemin a part pour lui.
+    for trace in ("data-variante=\"lanceur\"", "peindreWidgetsLanceur", "styleCourant", 'id="hub-widgets"',
+                  "const STYLES = "):
+        assert trace not in page, trace
+    # Dagster, Mailpit et Messages ont la tuile d'une application, dans la
+    # meme grille.
     assert "hub-dock" not in page and "peindreDock" not in page
     corps = page.split("function peindreHub(){")[1].split("\n}")[0]
-    assert "hubApps.concat(hubServices).filter(correspond)" in corps
-    assert "#hub-liste.bento{--cel:" in page
-    # Le script ne peint pas le hub avant d'avoir declare ce qu'il lit.
-    debut = page.index("function applyStyle(")
-    assert "peindreHub" not in page[debut:page.index("function setStyle(")]
+    assert "toutes.filter(correspond)" in corps and "peindreBento(liste, filtre);" in corps
+    # Le script ne peint pas le hub avant que les donnees soient la.
+    regler = page.split("function appliquerReglagesHub(")[1].split("\n}")[0]
+    assert "if(hubApps.length || hubServices.length) peindreHub();" in regler
+
+
+def test_les_applications_en_icones_ou_en_cartes():
+    """Une application : sa carte (nom, etat, description) ou son icone
+    seule. Les deux portent le meme lien, le meme menu et les memes gestes
+    en mode Modifier -- l'icone se reorganise comme la carte."""
+    page = _page_panneau("dashboard.html")
+    corps = page.split("function peindreBento(")[1].split("\n}")[0]
+    assert "reglageHub('tuiles')==='icones'" in corps
+    icone, carte = corps.split("class=\"hub-icone ")[1], corps.split("class=\"bento-carte ")[1]
+    for partie in (icone.split("</${balise}>")[0], carte.split("</${balise}>")[0]):
+        assert 'data-el="${esc(cleElement(e))}"' in partie
+        assert "hubEdition ? gestesEdition(e, nomAffiche(a)) : boutonMenuApp(a)" in partie
+        assert "${pastille(a)}" in partie
+    assert "bento-carte-desc" not in icone.split("</${balise}>")[0]
+    # En icones, un widget prend 2x2, 4x2 ou 4x4 cases, comme sur un
+    # telephone ; une application, une case.
+    assert ':root[data-tuiles="icones"] .bw-petit{grid-row:span 2;grid-column:span 2}' in page
+    assert ':root[data-tuiles="icones"] .bw-moyen{grid-row:span 2;grid-column:span 4}' in page
+    assert ':root[data-tuiles="icones"] .bw-grand{grid-row:span 4;grid-column:span 4}' in page
+    # Une application qui ne repond pas est cerclee.
+    assert ".hub-icone.err img{box-shadow:" in page and ".hub-icone.warn img{box-shadow:" in page
+    # En mode Modifier, l'icone tremble et se saisit comme une carte.
+    assert "#hub-liste.edition [data-el]{position:relative;cursor:grab" in page
+
+
+def test_les_widgets_en_haut_ont_leur_grille():
+    """Widgets EN HAUT : deux grilles dans la mosaique, une pour les
+    widgets, une pour les applications. Chaque tuile se reorganise dans la
+    sienne -- au glisser comme aux fleches."""
+    page = _page_panneau("dashboard.html")
+    corps = page.split("function peindreBento(")[1].split("\n}")[0]
+    assert "const enZones = !filtre && reglageHub('widgets')==='haut';" in corps
+    assert 'class="hub-grille hub-zone-widgets"' in corps and 'class="hub-grille hub-zone-apps"' in corps
+    assert "el.className='bento '+(enZones ? 'zones' : 'hub-grille')" in corps
+    place = page.split("function chercherPlace(")[1].split("\n}")[0]
+    assert "cible.parentNode!==g.t.parentNode" in place
+    deplacer = page.split("function hubDeplacer(")[1].split("\n}")[0]
+    assert "reglageHub('widgets')==='haut'" in deplacer and "elements[j].t!==elements[i].t" in deplacer
+    # L'ordre enregistre est celui des tuiles a l'ecran, des deux grilles.
+    assert "const ordreDesTuiles = () => [...$('hub-liste').querySelectorAll('[data-el]')]" in page
+    fin = page.split("function finirGlisse(")[1].split("\n}")[0]
+    assert "const ordre=ordreDesTuiles();" in fin
+
+
+def test_le_defilement_vertical_laisse_la_page_defiler():
+    """Defilement VERTICAL sur un grand ecran : la grille remplit la
+    largeur et la page defile vers le bas ; pas de hauteur imposee, pas de
+    molette detournee, et pres du bas la page defile pendant un glisser."""
+    page = _page_panneau("dashboard.html")
+    assert ':root[data-variante="bento"]:not([data-defilement="vertical"]).hub-actif{overflow:hidden}' in page
+    regle = page.split(':root[data-defilement="vertical"] .hub-grille{')[1].split("}")[0]
+    assert "grid-auto-flow:row" in regle and "repeat(auto-fill,var(--cel))" in regle
+    assert ':root[data-defilement="vertical"] #hub-liste.bento{height:auto;overflow:visible' in page
+    assert "function horizontal(){ return !ecranMobile() && reglageHub('defilement')==='horizontal'; }" in page
+    ajuster = page.split("function ajusterBento(")[1].split("\n}")[0]
+    assert "if(!horizontal()){ el.style.removeProperty('--bento-h')" in ajuster
+    bords = page.split("function defilerPresDesBords(")[1].split("\n}")[0]
+    assert "window.scrollBy(0, w)" in bords
+
+
+def test_le_nuancier_change_la_couleur_d_accent():
+    """Vecu : « ajoute un parametrage des couleurs de l'app avec des
+    nuanciers differents proposes. » Chaque nuancier remplace la couleur
+    d'accent dans les trois etats du theme (clair, sombre du systeme, sombre
+    choisi), avec une specificite au moins egale au bloc qu'il remplace."""
+    theme = _page_panneau("theme.css")
+    nuancier = theme.split("le nuancier ---", 1)[1].split("mode application", 1)[0]
+    for nom in app.REGLAGES_HUB["couleurs"][1:]:
+        r = f':root[data-variante="bento"][data-couleurs="{nom}"]'
+        for bloc in (r + "{--accent:", r + ':not([data-theme="light"]):not([data-theme="dark"]){--accent:',
+                     r + '[data-theme="dark"]{--accent:'):
+            assert bloc in nuancier, bloc
+    assert nuancier.count("--sur-accent:") == 3 * (len(app.REGLAGES_HUB["couleurs"]) - 1)
+    # « lagon » est la couleur de toujours : pas de bloc a lui.
+    assert 'data-couleurs="lagon"' not in theme
+    page = _page_panneau("dashboard.html")
+    for nom in app.REGLAGES_HUB["couleurs"]:
+        assert f"setHub('couleurs','{nom}')" in page, nom
 
 
 
@@ -13348,10 +13469,12 @@ def test_la_mosaique_defile_a_l_horizontale_et_a_la_verticale_sur_telephone():
     une colonne qu'on fait defiler vers le bas."""
     page = _page_panneau("dashboard.html")
     regle = page.split("#hub-liste.bento{--cel:")[1].split("}")[0]
-    for attendu in ("grid-auto-flow:column", "grid-template-rows:repeat(3", "overflow-x:auto",
-                    "overflow-y:hidden", "height:var(--bento-h"):
+    for attendu in ("overflow-x:auto", "overflow-y:hidden", "height:var(--bento-h"):
         assert attendu in regle, attendu
-    mobile = page.split("@media (max-width:760px){\n  :root[data-variante=\"lanceur\"] .salut")[1]
+    grille = page.split(".hub-grille{display:grid;")[1].split("}")[0]
+    for attendu in ("grid-auto-flow:column", "grid-template-rows:repeat(3"):
+        assert attendu in grille, attendu
+    mobile = page.split("@media (max-width:760px){\n  :root[data-variante] .hub-recherche{height:50px")[1]
     mobile = mobile.split("\n}")[0]
     assert "grid-auto-flow:row" in mobile and "overflow:visible" in mobile and "height:auto" in mobile
     # La molette verticale fait defiler de cote ; l'ajout d'application est
@@ -14742,7 +14865,7 @@ def test_la_derniere_ouverte_n_affiche_plus_l_application():
 
 def test_chaque_tuile_porte_trois_points_qui_ouvrent_son_menu():
     page = _page_panneau("dashboard.html")
-    assert page.count("boutonMenuApp(a)") >= 2      # bento et lanceur
+    assert page.count("boutonMenuApp(a)") >= 2      # cartes et icones
     bouton = page.split("function boutonMenuApp(")[1].split("\n}")[0]
     assert 'aria-haspopup="menu"' in bouton and 'data-agir="menu-app"' in bouton
     # Au doigt, pas de points : l'appui long les remplace.
@@ -14771,29 +14894,6 @@ def test_un_appui_long_ouvre_le_menu_en_feuille():
     assert "$('hub-liste').addEventListener('contextmenu'" in page
 
 
-# ------------------------ Des widgets dans le lanceur ------------------------
-#
-# Vecu : « ajoute des widget dans le style Lanceur ».
-
-def test_le_lanceur_montre_les_widgets_du_compte():
-    page = _page_panneau("dashboard.html")
-    assert '<div id="hub-widgets" class="hub-widgets" hidden></div>' in page
-    hub = page.split("function peindreHub(")[1].split("\n}")[0]
-    # Le bento les garde dans sa mosaique ; le lanceur les peint au-dessus des icones.
-    assert "if(variante==='bento'){ $('hub-widgets').hidden=true; peindreBento(liste, filtre); return; }" in hub
-    assert "peindreWidgetsLanceur(filtre);" in hub
-    lanceur = page.split("function peindreWidgetsLanceur(")[1].split("\n}")[0]
-    # La meme disposition que le bento, et le meme rendu de widget.
-    assert "elementsDuHub().filter(e=>e.t==='w')" in lanceur
-    assert "widgets.map(widgetDuHub)" in lanceur
-    # Une recherche les efface : on cherche une application.
-    assert "el.hidden = !!filtre" in lanceur
-    # Composer depuis le lanceur aussi : reorganiser et « + ».
-    assert ':root[data-variante="lanceur"] .hub-compose{display:inline-flex' in page
-    deplacer = page.split("function hubDeplacer(")[1].split("\n}")[0]
-    assert "styleCourant()==='lanceur'" in deplacer and "elements[j].t!=='w'" in deplacer
-
-
 # ------------- Au telephone : on tient avant de deplacer -------------
 #
 # Vecu : « Sur telephone, ameliorer la reorganisation des app. Il faut
@@ -14810,7 +14910,7 @@ def test_au_doigt_une_tuile_se_saisit_par_un_appui_long():
     # Avant la saisie, un doigt qui bouge fait defiler : la tuile est lachee.
     assert "if(!g.saisie){" in deplacement and "glisse=null" in deplacement
     # Le defilement reste permis au doigt tant que rien n'est saisi...
-    assert "#hub-liste.edition > *{touch-action:pan-x pan-y" in page
+    assert "#hub-liste.edition [data-el]{touch-action:pan-x pan-y" in page
     # ... et s'arrete une fois la tuile saisie.
     assert "if(glisse && glisse.tactile && glisse.saisie) e.preventDefault();" in page
     assert "}, {passive:false});" in page
@@ -15229,7 +15329,7 @@ def test_le_manifeste_n_a_plus_de_barre_blanche(hub):
 
 def test_la_barre_suit_le_theme_choisi():
     page = _page_panneau("dashboard.html")
-    for fonction in ("function applyTheme(t){", "function applyStyle(st){"):
+    for fonction in ("function applyTheme(t){", "function appliquerReglagesHub(reglages){"):
         assert "setTimeout(majBarreEtat, 0);" in page.split(fonction)[1].split("\n}")[0], fonction
 
 

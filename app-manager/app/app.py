@@ -10717,27 +10717,53 @@ def login_page(invitation=False):
     return Response(avec_style(page), mimetype="text/html")
 
 
-# Deux styles : « lanceur » (style 3) et « bento » (style 4). Ils partagent
-# la mise en page de base (data-style="design") et ajoutent la leur sous
-# data-variante. La cle est celle du cookie ; la valeur, ce qui se pose sur
-# <html>. Sans cookie -- ou avec celui d'un ancien style --, c'est le bento.
-STYLES_PAGE = {
-    "lanceur": ' data-style="design" data-variante="lanceur"',
-    "bento": ' data-style="design" data-variante="bento"',
+# UN SEUL STYLE, QUI SE REGLE. Les anciens « lanceur » et « bento » ne
+# differaient que par quelques choix ; chacun est desormais un reglage,
+# pose en attribut sur <html> (data-tuiles, data-defilement...). La
+# premiere valeur de chaque reglage est celle par defaut. Le fond et les
+# surfaces restent ceux du bento (data-variante="bento", theme.css).
+REGLAGES_HUB = {
+    "tuiles": ("cartes", "icones"),
+    "defilement": ("horizontal", "vertical"),
+    "widgets": ("melanges", "haut"),
+    # Le nuancier : la couleur d'accent du panneau (boutons, liens, onglet
+    # actif), en clair comme en sombre. Jetons dans theme.css.
+    "couleurs": ("lagon", "ocean", "foret", "prune", "corail", "ardoise"),
 }
-STYLE_PAR_DEFAUT = "bento"
+# Qui avait choisi l'ancien lanceur le retrouve tel quel.
+REGLAGES_LANCEUR = {"tuiles": "icones", "defilement": "vertical", "widgets": "haut"}
+
+
+def reglages_du_hub():
+    """Les reglages du hub, lus dans le cookie codelab-hub.
+
+    Le cookie liste des valeurs separees par des points
+    (« icones.vertical.haut ») : chaque valeur n'appartient qu'a un
+    reglage, l'ordre est libre. Rien d'inconnu n'est retenu -- le cookie
+    vient du client, et seules les valeurs de REGLAGES_HUB arrivent dans
+    la page. Sans cookie, l'ancien codelab-style=lanceur est repris.
+    """
+    reglages = {cle: valeurs[0] for cle, valeurs in REGLAGES_HUB.items()}
+    brut = request.cookies.get("codelab-hub")
+    if brut is None:
+        if request.cookies.get("codelab-style") == "lanceur":
+            reglages.update(REGLAGES_LANCEUR)
+        return reglages
+    for valeur in brut.split(".")[:len(REGLAGES_HUB)]:
+        for cle, valeurs in REGLAGES_HUB.items():
+            if valeur in valeurs:
+                reglages[cle] = valeur
+    return reglages
 
 
 def avec_style(page):
-    """Pose le style choisi (cookie codelab-style) sur la page servie.
+    """Pose le style et les reglages du hub sur la page servie.
 
     Pose cote serveur, l'attribut est la avant la premiere peinture : la
     page ne change pas de forme le temps que son script le lise.
-    Seules les valeurs de STYLES_PAGE sont reconnues -- le cookie vient du
-    client, et rien de ce qu'il porte n'est recopie dans la page.
     """
-    attributs = STYLES_PAGE.get(request.cookies.get("codelab-style", ""),
-                                STYLES_PAGE[STYLE_PAR_DEFAUT])
+    attributs = ' data-style="design" data-variante="bento"' + "".join(
+        f' data-{cle}="{valeur}"' for cle, valeur in reglages_du_hub().items())
     return page.replace('<html lang="fr">', '<html lang="fr"' + attributs + '>', 1)
 
 

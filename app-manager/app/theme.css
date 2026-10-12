@@ -250,53 +250,15 @@
 
 
 /* =====================================================================
-   STYLES 3 (« lanceur ») ET 4 (« bento »). Variantes du style 2 : la page
-   porte data-style="design" ET data-variante. Seuls les JETONS sont ici ;
-   la mise en page vit dans dashboard.html, sous :root[data-variante].
-   Police : Manrope, en graisse 800 pour les titres.
+   LE STYLE DU PANNEAU. Une variante du style 2 : la page porte
+   data-style="design" ET data-variante="bento". Seuls les JETONS sont ici ;
+   la mise en page (et les reglages du hub : data-tuiles...) vit dans
+   dashboard.html ; le nuancier (data-couleurs) suit les trois blocs. Police : Manrope, en graisse 800 pour les titres.
 
-   Specificites : chaque bloc d'une variante pese une classe de plus que le
-   bloc du style 2 qu'il remplace (clair 0,3,0 > 0,2,0 ; sombre du systeme
-   0,5,0 > 0,4,0 ; sombre choisi 0,4,0 > 0,3,0).
+   Specificites : chaque bloc pese une classe de plus que le bloc du style 2
+   qu'il remplace (clair 0,3,0 > 0,2,0 ; sombre du systeme 0,5,0 > 0,4,0 ;
+   sombre choisi 0,4,0 > 0,3,0).
    ===================================================================== */
-:root[data-style="design"][data-variante="lanceur"]{
-  --bg:#EEF1F5; --surface:#FFFFFF; --surface2:#F3F5F8; --bg-input:#FFFFFF;
-  --line:#DFE4EA; --line2:#C9D1DA; --plaque-logo:#FFFFFF;
-  --txt:#0B0F14; --dim:#566273; --dim2:#7A8696;
-  --nav:#EEF1F5; --nav2:#FFFFFF; --nav-line:#DFE4EA;
-  --nav-txt:#0B0F14; --nav-dim:#566273; --nav-hover:#E3E8EE;
-  --accent:#0E7C86; --accent-h:#0B646C; --accent-soft:#DFF1F2;
-  --accent-ring:rgba(14,124,134,.22); --sur-accent:#FFFFFF;
-  --shadow:rgba(11,15,20,.06); --shadow-2:rgba(11,15,20,.16);
-  --trame:rgba(11,15,20,.09);
-  --r:22px; --r-s:14px; --r-xs:8px;
-  --sans:"Manrope",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-}
-@media (prefers-color-scheme: dark){
-  :root[data-style="design"][data-variante="lanceur"]:not([data-theme="light"]):not([data-theme="dark"]){
-    --bg:#0B0F14; --surface:#121821; --surface2:#1A222D; --bg-input:#0F141B;
-    --line:#222C38; --line2:#2E3A48; --plaque-logo:#E8EDF3;
-    --txt:#E8EDF3; --dim:#9AA6B4; --dim2:#7D8998;
-    --nav:#0B0F14; --nav2:#121821; --nav-line:#222C38;
-    --nav-txt:#E8EDF3; --nav-dim:#9AA6B4; --nav-hover:#1A222D;
-    --accent:#5FD4DC; --accent-h:#8FE3E9; --accent-soft:rgba(95,212,220,.14);
-    --accent-ring:rgba(95,212,220,.3); --sur-accent:#04161A;
-    --shadow:rgba(0,0,0,.4); --shadow-2:rgba(0,0,0,.6);
-    --trame:rgba(255,255,255,.07);
-  }
-}
-:root[data-style="design"][data-variante="lanceur"][data-theme="dark"]{
-  --bg:#0B0F14; --surface:#121821; --surface2:#1A222D; --bg-input:#0F141B;
-  --line:#222C38; --line2:#2E3A48; --plaque-logo:#E8EDF3;
-  --txt:#E8EDF3; --dim:#9AA6B4; --dim2:#7D8998;
-  --nav:#0B0F14; --nav2:#121821; --nav-line:#222C38;
-  --nav-txt:#E8EDF3; --nav-dim:#9AA6B4; --nav-hover:#1A222D;
-  --accent:#5FD4DC; --accent-h:#8FE3E9; --accent-soft:rgba(95,212,220,.14);
-  --accent-ring:rgba(95,212,220,.3); --sur-accent:#04161A;
-  --shadow:rgba(0,0,0,.4); --shadow-2:rgba(0,0,0,.6);
-  --trame:rgba(255,255,255,.07);
-}
-
 :root[data-style="design"][data-variante="bento"]{
   --bg:#E9EBEE; --surface:#FFFFFF; --surface2:#F4F5F7; --bg-input:#FFFFFF;
   --line:#DADEE3; --line2:#C6CCD3; --plaque-logo:#FFFFFF;
@@ -334,6 +296,36 @@
   --shadow:rgba(0,0,0,.4); --shadow-2:rgba(0,0,0,.6);
   --bento-encre:#EEF1F4; --bento-sur-encre:#12161C; --bento-lien:#0B646C; --bento-rail:rgba(18,22,28,.14);
 }
+
+/* ------------------------------ le nuancier ------------------------------
+   Reglage « Couleurs » (data-couleurs) : la couleur d'accent du panneau.
+   « lagon » est celle des blocs ci-dessus. Chaque nuancier tient les trois
+   etats, a la meme specificite que le bloc qu'il remplace, et vient apres. */
+:root[data-variante="bento"][data-couleurs="ocean"]{--accent:#2563EB; --accent-h:#1D4ED8; --accent-soft:#E0EAFF; --accent-ring:rgba(37,99,235,.22); --sur-accent:#FFFFFF; --bento-lien:#A5C3FF;}
+@media (prefers-color-scheme: dark){
+  :root[data-variante="bento"][data-couleurs="ocean"]:not([data-theme="light"]):not([data-theme="dark"]){--accent:#7AA7FF; --accent-h:#A5C3FF; --accent-soft:rgba(122,167,255,.15); --accent-ring:rgba(122,167,255,.3); --sur-accent:#06142E; --bento-lien:#1D4ED8;}
+}
+:root[data-variante="bento"][data-couleurs="ocean"][data-theme="dark"]{--accent:#7AA7FF; --accent-h:#A5C3FF; --accent-soft:rgba(122,167,255,.15); --accent-ring:rgba(122,167,255,.3); --sur-accent:#06142E; --bento-lien:#1D4ED8;}
+:root[data-variante="bento"][data-couleurs="foret"]{--accent:#2F7D4F; --accent-h:#23633D; --accent-soft:#E2F2E8; --accent-ring:rgba(47,125,79,.22); --sur-accent:#FFFFFF; --bento-lien:#9BE3B9;}
+@media (prefers-color-scheme: dark){
+  :root[data-variante="bento"][data-couleurs="foret"]:not([data-theme="light"]):not([data-theme="dark"]){--accent:#6FD39A; --accent-h:#9BE3B9; --accent-soft:rgba(111,211,154,.14); --accent-ring:rgba(111,211,154,.3); --sur-accent:#04190D; --bento-lien:#23633D;}
+}
+:root[data-variante="bento"][data-couleurs="foret"][data-theme="dark"]{--accent:#6FD39A; --accent-h:#9BE3B9; --accent-soft:rgba(111,211,154,.14); --accent-ring:rgba(111,211,154,.3); --sur-accent:#04190D; --bento-lien:#23633D;}
+:root[data-variante="bento"][data-couleurs="prune"]{--accent:#7C3AED; --accent-h:#6427CC; --accent-soft:#EFE7FF; --accent-ring:rgba(124,58,237,.22); --sur-accent:#FFFFFF; --bento-lien:#CDBBFF;}
+@media (prefers-color-scheme: dark){
+  :root[data-variante="bento"][data-couleurs="prune"]:not([data-theme="light"]):not([data-theme="dark"]){--accent:#B69CFF; --accent-h:#CDBBFF; --accent-soft:rgba(182,156,255,.15); --accent-ring:rgba(182,156,255,.3); --sur-accent:#1A0B33; --bento-lien:#6427CC;}
+}
+:root[data-variante="bento"][data-couleurs="prune"][data-theme="dark"]{--accent:#B69CFF; --accent-h:#CDBBFF; --accent-soft:rgba(182,156,255,.15); --accent-ring:rgba(182,156,255,.3); --sur-accent:#1A0B33; --bento-lien:#6427CC;}
+:root[data-variante="bento"][data-couleurs="corail"]{--accent:#D9480F; --accent-h:#B83A0B; --accent-soft:#FDE9DF; --accent-ring:rgba(217,72,15,.22); --sur-accent:#FFFFFF; --bento-lien:#FFB590;}
+@media (prefers-color-scheme: dark){
+  :root[data-variante="bento"][data-couleurs="corail"]:not([data-theme="light"]):not([data-theme="dark"]){--accent:#FF9466; --accent-h:#FFB590; --accent-soft:rgba(255,148,102,.15); --accent-ring:rgba(255,148,102,.3); --sur-accent:#2A0E02; --bento-lien:#B83A0B;}
+}
+:root[data-variante="bento"][data-couleurs="corail"][data-theme="dark"]{--accent:#FF9466; --accent-h:#FFB590; --accent-soft:rgba(255,148,102,.15); --accent-ring:rgba(255,148,102,.3); --sur-accent:#2A0E02; --bento-lien:#B83A0B;}
+:root[data-variante="bento"][data-couleurs="ardoise"]{--accent:#334155; --accent-h:#1E293B; --accent-soft:#E5E9EF; --accent-ring:rgba(51,65,85,.22); --sur-accent:#FFFFFF; --bento-lien:#CBD5E1;}
+@media (prefers-color-scheme: dark){
+  :root[data-variante="bento"][data-couleurs="ardoise"]:not([data-theme="light"]):not([data-theme="dark"]){--accent:#CBD5E1; --accent-h:#E2E8F0; --accent-soft:rgba(203,213,225,.14); --accent-ring:rgba(203,213,225,.3); --sur-accent:#0F172A; --bento-lien:#334155;}
+}
+:root[data-variante="bento"][data-couleurs="ardoise"][data-theme="dark"]{--accent:#CBD5E1; --accent-h:#E2E8F0; --accent-soft:rgba(203,213,225,.14); --accent-ring:rgba(203,213,225,.3); --sur-accent:#0F172A; --bento-lien:#334155;}
 
 
 /* ------------------------------ mode application ------------------------------
