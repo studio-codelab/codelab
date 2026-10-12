@@ -7,7 +7,7 @@
 # La PR passe par la CI comme une autre : les tests d'abord, puis la
 # construction des sept images sans publication.
 #
-# Deux ecosystemes seulement, et c'est deliberé :
+# Trois ecosystemes, et c'est delibere :
 #
 #   github-actions  ce qui s'execute dans la CI avec un jeton d'ecriture sur
 #                   le registre. C'est le seul endroit ou du code tiers
@@ -19,11 +19,21 @@
 #                   ici les montees de version majeures, celles qu'un tag ne
 #                   donne pas.
 #
-# Pas d'ecosysteme "pip" : les dependances pip vivent dans les Dockerfiles,
-# en versions exactes. Dependabot ne sait pas les y lire -- c'est une revue
-# a la main, au moment de monter une version.
+#   pip             les dependances du panneau (app-manager/requirements.txt),
+#                   celui qui detient les secrets : une faille corrigee en
+#                   amont doit arriver jusqu'ici sans attendre qu'on y pense.
 version: 2
 updates:
+  - package-ecosystem: pip
+    directory: /app-manager
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "Panneau"
+    labels:
+      - dependances
+
   - package-ecosystem: github-actions
     directory: /
     schedule:

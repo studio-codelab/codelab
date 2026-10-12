@@ -2223,9 +2223,13 @@ ROLE_UTILISATEUR = "utilisateur"
 
 # PBKDF2-HMAC-SHA256. Pas de dependance a ajouter (hashlib est dans la
 # bibliotheque standard), et un cout de calcul qui rend une liste de mots de
-# passe voles inexploitable en pratique. 200 000 iterations : quelques
-# dizaines de millisecondes ici, des annees pour qui essaie un dictionnaire.
-PBKDF2_ITERATIONS = 200_000
+# passe voles inexploitable en pratique. 600 000 iterations : la valeur que
+# recommande l'OWASP pour cet algorithme. L'empreinte porte son nombre
+# d'iterations (« pbkdf2-sha256$600000$... ») : le jour ou il monte encore,
+# chaque compte est recalcule a sa connexion suivante, sans rien casser. Une
+# empreinte sans prefixe date de l'epoque des 200 000.
+PBKDF2_ITERATIONS = 600_000
+PBKDF2_ANCIEN = 200_000
 
 # Le meme minimum partout ou un mot de passe nait : invitation, inscription,
 # reinitialisation, administrateur, changement. Il etait de 8 a la creation
@@ -2300,18 +2304,37 @@ def ecrire_utilisateurs(comptes):
     _pg_deposer(("utilisateurs", None))
 
 
-def derive_mot_de_passe(mot_de_passe, sel):
+def _pbkdf2(mot_de_passe, sel, iterations):
     return hashlib.pbkdf2_hmac("sha256", mot_de_passe.encode(),
-                               bytes.fromhex(sel), PBKDF2_ITERATIONS).hex()
+                               bytes.fromhex(sel), iterations).hex()
+
+
+def derive_mot_de_passe(mot_de_passe, sel):
+    return f"pbkdf2-sha256${PBKDF2_ITERATIONS}${_pbkdf2(mot_de_passe, sel, PBKDF2_ITERATIONS)}"
 
 
 def verifie_mot_de_passe(compte, mot_de_passe):
     try:
         attendu = compte["hash"]
-        calcule = derive_mot_de_passe(mot_de_passe, compte["sel"])
+        if attendu.startswith("pbkdf2-sha256$"):
+            _, iterations, empreinte = attendu.split("$")
+            calcule = _pbkdf2(mot_de_passe, compte["sel"], int(iterations))
+        else:
+            empreinte = attendu
+            calcule = _pbkdf2(mot_de_passe, compte["sel"], PBKDF2_ANCIEN)
     except (KeyError, TypeError, ValueError):
         return False
-    return secrets.compare_digest(calcule, attendu)
+    return secrets.compare_digest(calcule, empreinte)
+
+
+def empreinte_a_jour(compte):
+    return str((compte or {}).get("hash") or "").startswith(f"pbkdf2-sha256${PBKDF2_ITERATIONS}$")
+
+
+# Le meme calcul qu'un vrai compte, quand le nom n'existe pas : sinon la
+# reponse arrivait plus vite pour un nom inconnu, et la duree seule donnait la
+# liste des comptes valides.
+_COMPTE_FANTOME = {"sel": "00" * 16, "hash": "pbkdf2-sha256$%d$00" % PBKDF2_ITERATIONS}
 
 
 # ---------------------- adresse mail d'un compte ----------------------
@@ -7276,16 +7299,26 @@ def login_submit():
         signaler_connexion_admin()
         return jsonify({"ok": True, "role": ROLE_ADMIN})
 
-    compte = lire_utilisateurs().get(nom)
+    comptes = lire_utilisateurs()
+    compte = comptes.get(nom)
     # Meme message et meme chemin qu'un mot de passe faux : distinguer
     # "ce compte n'existe pas" de "mauvais mot de passe" donne la liste des
-    # comptes valides a qui essaie.
-    if not (compte and pw and verifie_mot_de_passe(compte, pw)):
+    # comptes valides a qui essaie. Meme duree aussi (_COMPTE_FANTOME).
+    reconnu = verifie_mot_de_passe(compte or _COMPTE_FANTOME, pw or "")
+    if not (compte and pw and reconnu):
         register_failed_attempt()
         # Le nom tel qu'il a ete tape, meme s'il ne correspond a aucun
         # compte : c'est ce qui distingue une faute de frappe d'un balayage.
         journaliser("echec", qui=nom, motif="mot de passe", ip=_adresse_client())
         return jsonify({"error": avec_essais_restants("Identifiants incorrects.")}), 401
+    # Le mot de passe vient d'etre reconnu : c'est le seul moment ou l'on
+    # peut recalculer une empreinte d'avant les 600 000 iterations.
+    if not empreinte_a_jour(compte):
+        try:
+            compte["hash"] = derive_mot_de_passe(pw, compte["sel"])
+            ecrire_utilisateurs(comptes)
+        except Exception:                                         # noqa: BLE001
+            pass
 
     # Le second facteur n'est pas optionnel pour un compte utilisateur. Ces
     # comptes existent pour etre distribues -- a un collegue, a un client --

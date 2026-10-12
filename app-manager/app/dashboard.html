@@ -1218,8 +1218,12 @@ table.tbl-journal{min-width:560px}
 #ov-confirm{z-index:140}
 
 /* Serveur injoignable : un bandeau en haut, la page reste telle quelle. */
-.hors-ligne{position:fixed;top:62px;left:50%;transform:translateX(-50%);z-index:160;display:flex;align-items:center;gap:10px;
- max-width:calc(100vw - 32px);padding:9px 10px 9px 14px;border-radius:999px;background:var(--warn-bg);
+/* Sous la barre du haut, jamais dessus ; et un fond PLEIN : --warn-bg est
+   translucide en sombre, la barre se voyait au travers. */
+.hors-ligne{position:fixed;top:calc(var(--haut-barre,68px) + 10px + env(safe-area-inset-top));left:50%;
+ transform:translateX(-50%);z-index:160;display:flex;align-items:center;gap:10px;
+ max-width:calc(100vw - 32px);padding:9px 10px 9px 14px;border-radius:999px;
+ background:color-mix(in srgb,var(--warn) 16%,var(--surface));
  border:1px solid var(--warn-border);color:var(--txt);font-size:13.5px;font-weight:650;box-shadow:0 10px 30px var(--shadow-2)}
 .hors-ligne[hidden]{display:none}
 .hors-ligne svg{width:18px;height:18px;flex:none;fill:none;stroke:var(--warn);stroke-width:2;stroke-linecap:round}
@@ -1253,8 +1257,10 @@ table.tbl-journal{min-width:560px}
 /* Les echecs passaient par alert() : une boite grise du systeme, hors de
    l'interface, qui bloque la page tant qu'on n'a pas clique. Un bandeau
    discret dit la meme chose sans arreter le travail. */
-.toasts{position:fixed;right:18px;bottom:18px;z-index:150;display:flex;flex-direction:column;
+.toasts{position:fixed;right:18px;bottom:calc(18px + env(safe-area-inset-bottom));z-index:150;display:flex;flex-direction:column;
  gap:8px;max-width:min(380px,calc(100vw - 36px))}
+/* Au telephone, au-dessus de la barre d'onglets du bas, pas posees dessus. */
+@media (max-width:760px){ .toasts{left:12px;right:12px;max-width:none;bottom:calc(84px + env(safe-area-inset-bottom))} }
 .toast{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-radius:10px;
  background:var(--surface);border:1px solid var(--line);box-shadow:0 10px 30px var(--shadow-2);
  font-size:13px;line-height:1.5;animation:toast-in .16s ease}
@@ -1563,6 +1569,7 @@ table.tbl-journal{min-width:560px}
 /* Telephone : le menu devient la barre du bas, comme une application. */
 @media (max-width:760px){
   :root[data-style="design"] .topbar{height:60px;padding:0 16px}
+  :root{--haut-barre:60px}
   :root[data-style="design"] .sidebar{top:auto;bottom:0;left:0;right:0;transform:none;width:auto;height:auto;
    border-radius:0;padding:6px 6px calc(8px + env(safe-area-inset-bottom));
    box-shadow:0 -1px 0 var(--line);background:var(--surface)}
@@ -5092,7 +5099,9 @@ function remplirEnGardant(el, html){
       const ancien=gardes[n.dataset.garder];
       if(ancien && ancien!==n) n.replaceWith(ancien);
     });
-    if(actif && gardes[actif]){ gardes[actif].focus(); if(debut!=null) try{ gardes[actif].setSelectionRange(debut, debut); }catch(e){} }
+    /* preventScroll : rendre le focus au champ ne doit pas ramener la page
+       jusqu'a lui -- c'etait un saut a chaque repeint, ou qu'on soit. */
+    if(actif && gardes[actif]){ gardes[actif].focus({preventScroll:true}); if(debut!=null) try{ gardes[actif].setSelectionRange(debut, debut); }catch(e){} }
   }
 }
 /* A l'horizontale, la mosaique tient dans la fenetre : sa hauteur se

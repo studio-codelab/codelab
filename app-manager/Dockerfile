@@ -91,19 +91,13 @@ RUN useradd -u 1001 -g 2000 -M -s /usr/sbin/nologin codelab-app
 # reconstructions coute le plus cher. Une reconstruction ne doit rien changer
 # que personne n'a demande.
 #
-# La montee de version est une decision, prise en editant cette ligne. Le
-# scan hebdomadaire (.github/workflows/securite.yml) dit quand elle s'impose.
-# Les tests de la CI, eux, installent volontairement les versions du jour :
-# c'est ce qui fait remonter une incompatibilite AVANT qu'on epingle dessus.
-RUN pip install --no-cache-dir \
-        flask==3.1.3 \
-        waitress==3.0.2 \
-        psutil==7.2.2 \
-        qrcode==8.2 \
-        webauthn==3.0.0 \
-        "psycopg[binary]==3.3.5" \
-        pytest==9.1.1 \
-        cryptography==50.0.1
+# Les versions vivent dans requirements.txt, pas dans cette ligne : c'est
+# le fichier que lisent le scan de securite (Trivy, chaque semaine) et
+# Dependabot, qui propose la montee de version quand une faille est corrigee.
+# Ecrites ici, aucun des deux ne les voyait. La montee reste une decision :
+# une PR, la CI, puis la fusion.
+COPY app-manager/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt && rm /tmp/requirements.txt
 
 
 # L'application entiere -- app.py et les deux pages HTML qu'il sert -- vit
