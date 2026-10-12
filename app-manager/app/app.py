@@ -5096,6 +5096,10 @@ def start_monitor_thread():
                 monitor_tick()
             except Exception as e:
                 print(f"[app-manager] erreur dans le moniteur de redemarrage : {e}", flush=True)
+            try:
+                serveur_tick()
+            except Exception as e:
+                print(f"[app-manager] erreur dans la mesure du serveur : {e}", flush=True)
             # Sonde a la suite du redemarrage automatique, dans le meme
             # thread : une app qui vient d'etre relancee n'ecoute pas encore,
             # et la sonder au tour suivant evite un faux "ne repond pas" a
@@ -6486,6 +6490,105 @@ def record_metrics(name, cpu_percent, memory_mb):
 
 def get_metrics_history(name):
     return list(_metrics_history.get(name, []))
+
+
+# ------------------------- le pouls du serveur ----------------------------
+#
+# Le widget « Serveur » du hub montre la machine elle-meme, pas une
+# application : processeur, memoire, disque, et la courbe des dix dernieres
+# minutes. La mesure se prend dans le moniteur (un point toutes les dix
+# secondes), pas a la demande : deux onglets ouverts ne doublent pas la
+# frequence, et la courbe est deja la quand on arrive sur le hub.
+SERVEUR_HISTORIQUE_LEN = 60      # 10 min a un point toutes les 10 s
+_serveur_historique = deque(maxlen=SERVEUR_HISTORIQUE_LEN)
+
+
+def serveur_tick():
+    """Un point de mesure : (horodatage, processeur %, memoire %)."""
+    # cpu_percent(None) mesure depuis l'appel precedent : le premier appel
+    # rend 0.0 et ne sert que d'amorce.
+    cpu = psutil.cpu_percent(interval=None)
+    mem = psutil.virtual_memory().percent
+    _serveur_historique.append((time.time(), round(cpu, 1), round(mem, 1)))
+
+
+def etat_serveur():
+    """Ce que montre le widget « Serveur ». Rien de secret : des pourcentages."""
+    mem = psutil.virtual_memory()
+    try:
+        disque = psutil.disk_usage(ROOT if os.path.isdir(ROOT) else "/")
+        disque = {"pct": round(disque.percent, 1), "utilise": disque.used, "total": disque.total}
+    except OSError:
+        disque = None
+    hist = list(_serveur_historique)
+    try:
+        allume = int(time.time() - psutil.boot_time())
+    except Exception:                                             # noqa: BLE001
+        allume = None
+    return {
+        "cpu": hist[-1][1] if hist else round(psutil.cpu_percent(interval=None), 1),
+        "coeurs": psutil.cpu_count() or 1,
+        "memoire": {"pct": round(mem.percent, 1), "utilise": mem.total - mem.available,
+                    "total": mem.total},
+        "disque": disque,
+        "allume_depuis": allume,
+        "historique": [{"t": int(t), "cpu": c, "mem": m} for t, c, m in hist],
+    }
+
+
+ACTIVITE_JOURS = 14
+
+
+def activite_recente(jours=ACTIVITE_JOURS):
+    """Les ouvertures des derniers jours, jour par jour, et la periode d'avant.
+
+    Pour le widget « Activité » : la courbe dit le rythme, le total se
+    compare a la meme duree juste avant (la tendance), et les applications
+    les plus ouvertes disent ou va le temps.
+    """
+    aujourd_hui = datetime.datetime.now(_fuseau()).date()
+    debut = aujourd_hui - datetime.timedelta(days=jours - 1)
+    debut_avant = debut - datetime.timedelta(days=jours)
+    par_jour, par_app, avant = {}, {}, 0
+    lignes = None
+    if pg_disponible():
+        try:
+            with _pg_connexion(PG_BASE) as cx:
+                lignes = [(j.isoformat(), a or "", int(n)) for j, a, n in cx.execute(
+                    "SELECT (ts AT TIME ZONE %s)::date AS jour, application, count(*)"
+                    "  FROM acces WHERE genre = 'ouverture'"
+                    "   AND (ts AT TIME ZONE %s)::date >= %s"
+                    " GROUP BY 1, 2", [FUSEAU_JOURNAL, FUSEAU_JOURNAL, debut_avant]).fetchall()]
+        except Exception as e:                                    # noqa: BLE001
+            _pg_etat["erreur"] = f"{type(e).__name__}: {e}"
+            lignes = None
+    if lignes is None:
+        borne = debut_avant.isoformat()
+        compte = {}
+        for e in lire_acces(limite=100000):
+            if e.get("genre") != "ouverture":
+                continue
+            j = _jour(e.get("ts"))
+            if j < borne:
+                continue
+            cle = (j, e.get("app") or "")
+            compte[cle] = compte.get(cle, 0) + 1
+        lignes = [(j, a, n) for (j, a), n in compte.items()]
+    debut_iso = debut.isoformat()
+    for j, a, n in lignes:
+        if j < debut_iso:
+            avant += n
+            continue
+        par_jour[j] = par_jour.get(j, 0) + n
+        par_app[a] = par_app.get(a, 0) + n
+    serie = [{"jour": (debut + datetime.timedelta(days=i)).isoformat(),
+              "ouvertures": par_jour.get((debut + datetime.timedelta(days=i)).isoformat(), 0)}
+             for i in range(jours)]
+    apps = load()
+    top = sorted(((n, a) for a, n in par_app.items() if a), reverse=True)[:4]
+    return {"jours": serie, "total": sum(par_jour.values()), "precedent": avant,
+            "apps": [{"name": a, "titre": titre_de(a, apps[a]) if a in apps else a,
+                      "ouvertures": n} for n, a in top]}
 
 
 # ------------------------- metriques ----------------------------
@@ -12407,6 +12510,10 @@ WIDGETS = {
     "sauvegardes": {"titre": "Sauvegardes", "portee": "hub", "tailles": ("petit", "moyen"),
                     "description": "La dernière sauvegarde, et si une copie existe ailleurs.",
                     "admin": True},
+    "serveur": {"titre": "Serveur", "portee": "hub", "tailles": ("petit", "moyen", "grand"),
+                "description": "Processeur, mémoire et disque, en direct.", "admin": True},
+    "activite": {"titre": "Activité", "portee": "hub", "tailles": ("moyen", "grand"),
+                 "description": "Les ouvertures des deux dernières semaines.", "admin": True},
     "nouveautes": {"titre": "Nouvelles versions", "portee": "hub", "tailles": ("petit", "moyen"),
                    "description": "Les applications mises à jour depuis ta dernière visite."},
     "message": {"titre": "Écrire à l'administrateur", "portee": "hub", "tailles": ("moyen", "grand"),
@@ -12501,7 +12608,11 @@ def disposition_du_compte():
                          "taille": _ANCIENNES_TAILLES.get(w.get("taille"), "moyen")}
                         for w in anciens if isinstance(w, dict)]
         else:
+            # Serveur et Activite ne tiennent que chez l'administrateur ; le
+            # filtre des widgets permis ci-dessous les retire pour les autres.
             elements = [{"t": "w", "id": "une", "taille": "grand"},
+                        {"t": "w", "id": "serveur", "taille": "moyen"},
+                        {"t": "w", "id": "activite", "taille": "moyen"},
                         {"t": "w", "id": "etat", "taille": "petit"},
                         {"t": "w", "id": "messages", "taille": "petit"},
                         {"t": "w", "id": "message", "taille": "moyen"},
@@ -12540,6 +12651,24 @@ def api_disposition():
                                    "portee": WIDGETS[w]["portee"],
                                    "tailles": list(WIDGETS[w]["tailles"])}
                                   for w in widgets_permis()]})
+
+
+@flask_app.get("/api/hub/pouls")
+@require_admin
+def api_hub_pouls():
+    """Les chiffres des widgets « Serveur » et « Activité ».
+
+    Reserve a l'administrateur : la charge de la machine et le rythme des
+    ouvertures ne regardent que lui, comme le journal des acces dont le
+    second est tire.
+    """
+    quoi = set((request.args.get("quoi") or "serveur,activite").split(","))
+    out = {}
+    if "serveur" in quoi:
+        out["serveur"] = etat_serveur()
+    if "activite" in quoi:
+        out["activite"] = activite_recente()
+    return jsonify(out)
 
 
 @flask_app.put("/api/hub/disposition")

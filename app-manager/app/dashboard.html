@@ -1869,7 +1869,9 @@ a.pj:hover{border-color:var(--accent)}
 .bento-etat h3{margin:0;font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.75}
 .bento-etat p{margin:6px 0 0;opacity:.75}
 .bento-chiffre{font-size:84px;font-weight:800;letter-spacing:-.06em;line-height:.85;font-variant-numeric:tabular-nums}
-.bento-chiffre span{opacity:.4}
+/* Le « /6 » s'efface a 40 %. Pas d'opacity : un enfant en opacite peint a
+   part, et le texte decoupe dans le degrade du parent disparaitrait. */
+.bento-chiffre > span:not([data-anim]){-webkit-text-fill-color:color-mix(in srgb,currentColor 40%,transparent)}
 .bento-barres{display:flex;gap:5px;margin-bottom:10px}
 .bento-barres i{flex:1;height:8px;border-radius:999px;background:var(--bento-rail)}
 .bento-barres i.on{background:#3ccf7a}
@@ -1957,6 +1959,158 @@ a.pj:hover{border-color:var(--accent)}
  font-size:11px;font-weight:800;background:var(--accent-soft);color:var(--accent);white-space:nowrap}
 .badge-maj::before{content:"";width:6px;height:6px;border-radius:999px;background:currentColor}
 .bento-carte.maj{border-color:var(--accent)}
+
+/* =====================================================================
+   LE MOUVEMENT ET LE RELIEF. Des chiffres qui defilent, des graphiques qui
+   se dessinent, des tuiles qui montent en cascade et s'inclinent sous la
+   souris, un bonjour qui s'eclaire. Tout s'arrete net quand l'appareil
+   demande moins de mouvement (bloc en fin de section).
+   ===================================================================== */
+/* -- le bonjour : il monte, se defloute, puis un reflet le traverse ; le
+   nom garde l'accent, en degrade. */
+:root[data-variante="bento"] .salut{animation:salut-entree .9s cubic-bezier(.2,.7,.2,1) both}
+:root[data-variante="bento"] .salut-nom{
+ background:linear-gradient(100deg,var(--accent) 0%,var(--accent) 35%,color-mix(in srgb,var(--accent) 35%,#fff) 50%,var(--accent) 65%,var(--accent-h) 100%);
+ background-size:260% 100%;background-position:100% 0;-webkit-background-clip:text;background-clip:text;
+ -webkit-text-fill-color:transparent;color:var(--accent);
+ filter:drop-shadow(0 1px 0 color-mix(in srgb,var(--accent) 22%,transparent)) drop-shadow(0 10px 24px color-mix(in srgb,var(--accent) 22%,transparent));
+ animation:salut-reflet 2.6s .6s cubic-bezier(.4,0,.2,1) both}
+@keyframes salut-entree{from{opacity:0;translate:0 16px;filter:blur(10px)}}
+@keyframes salut-reflet{from{background-position:100% 0}to{background-position:0 0}}
+.hub-resume{display:none}
+:root[data-variante="bento"] .hub-resume{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin:12px 0 0;
+ color:var(--dim);font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;animation:salut-entree .9s .15s cubic-bezier(.2,.7,.2,1) both}
+.hub-resume:empty{display:none !important}
+.hub-resume b{color:var(--txt);font-weight:800;font-size:17px}
+.hub-resume b.resume-souci{color:var(--warn)}
+.hub-resume > i{font-style:normal;color:var(--dim2)}
+
+/* -- les grands chiffres : un degrade de haut en bas et une ombre portee
+   douce, pour qu'ils sortent de la tuile au lieu d'y etre imprimes. */
+.bento-chiffre{background:linear-gradient(180deg,currentColor 35%,color-mix(in srgb,currentColor 58%,transparent) 100%);
+ -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+ filter:drop-shadow(0 8px 18px var(--shadow-2));padding-bottom:.06em}
+
+/* -- l'entree du hub : les tuiles montent en cascade. */
+#hub-liste.entree [data-el]{animation:tuile-entree .75s cubic-bezier(.2,.75,.2,1) both;animation-delay:calc(var(--i,0)*55ms)}
+@keyframes tuile-entree{from{opacity:0;translate:0 22px;scale:.96;filter:blur(6px)}}
+
+/* -- le relief au survol (souris) : inclinaison et reflet qui suit. */
+.bw{position:relative}
+@media (hover:hover) and (pointer:fine){
+  #hub-liste:not(.edition) :is(.bw,.bento-carte){transform:perspective(1000px) rotateX(0) rotateY(0);
+   transition:transform .6s cubic-bezier(.2,.7,.2,1),box-shadow .6s,border-color .2s,background-color .4s}
+  #hub-liste:not(.edition) :is(.bw,.bento-carte).survol{transition-duration:.18s,.6s,.2s,.4s;
+   transform:perspective(1000px) rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg)) translateY(-3px);
+   box-shadow:0 26px 50px -22px var(--shadow-2),0 2px 6px var(--shadow)}
+  #hub-liste:not(.edition) :is(.bw,.bento-carte)::after{content:"";position:absolute;inset:0;border-radius:inherit;
+   pointer-events:none;z-index:2;opacity:0;transition:opacity .4s;
+   background:radial-gradient(360px circle at var(--mx,50%) var(--my,50%),color-mix(in srgb,var(--accent) 14%,rgba(255,255,255,.12)),transparent 60%)}
+  #hub-liste:not(.edition) :is(.bw,.bento-carte).survol::after{opacity:1}
+}
+
+/* -- l'etat : les barres s'allument une a une. */
+.bento-barres.apparait i{animation:barre-allume .5s cubic-bezier(.2,.7,.2,1) both;animation-delay:calc(var(--i,0)*60ms + .2s)}
+@keyframes barre-allume{from{opacity:.2;scale:.2 1}}
+
+/* -- le pouls : Serveur et Activite. */
+.bw-pouls{display:contents}
+.bw-serveur,.bw-activite{justify-content:space-between}
+.bw-tete{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0}
+.bw-tete .bw-titre{display:flex;align-items:center;gap:8px}
+.bw-sous{font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bw-ligne{margin:4px 0 0;color:var(--dim);font-size:13px;font-variant-numeric:tabular-nums}
+.bw-ligne b{color:var(--txt)}
+/* Le point qui bat : la mesure est vivante. */
+.pouls-point{width:8px;height:8px;border-radius:999px;background:var(--accent);position:relative;flex:none}
+.pouls-point::after{content:"";position:absolute;inset:0;border-radius:inherit;background:inherit;animation:pouls 2s ease-out infinite}
+@keyframes pouls{from{opacity:.6;scale:1}to{opacity:0;scale:3}}
+.jauges{display:flex;gap:10px;justify-content:space-around;flex:1;align-items:center;min-height:0}
+.jauge{display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0;text-align:center;--arc:var(--accent)}
+.jauge.warn{--arc:var(--warn)}
+.jauge.err{--arc:var(--err)}
+.jauge-cadran{position:relative;width:clamp(76px,7vw,96px);aspect-ratio:1}
+.bw-petit .jauge-cadran{width:clamp(64px,5.4vw,80px)}
+.bw-petit.bw-serveur{gap:6px}
+.bw-moyen .jauge-cadran{width:clamp(68px,5.6vw,84px)}
+.jauge-cadran svg{width:100%;height:100%;rotate:-90deg;overflow:visible}
+.jauge-rail{fill:none;stroke:var(--line);stroke-width:5}
+.jauge-arc{fill:none;stroke:var(--arc);stroke-width:5;stroke-linecap:round;
+ filter:drop-shadow(0 0 5px color-mix(in srgb,var(--arc) 45%,transparent))}
+.jauge-val{position:absolute;inset:0;display:grid;place-content:center;grid-auto-flow:column;align-items:baseline;
+ font-size:clamp(20px,1.9vw,26px);font-weight:800;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
+.jauge-val small{font-size:.5em;font-weight:700;color:var(--dim);margin-left:1px}
+.jauge-nom{font-size:12.5px;font-weight:800}
+.jauge-nom b{font-size:11px;font-weight:800;color:var(--arc);text-transform:uppercase;letter-spacing:.04em}
+.jauge-detail{font-size:11.5px;color:var(--dim);font-variant-numeric:tabular-nums;white-space:nowrap}
+.bw-petit.bw-serveur .jauge{flex:1;justify-content:center}
+/* La courbe. */
+.courbe{position:relative;display:flex;flex-direction:column;gap:6px;min-height:0;flex:1}
+.courbe svg{width:100%;flex:1;min-height:60px;overflow:visible}
+.courbe-legende{display:flex;gap:14px;font-size:11.5px;color:var(--dim);font-weight:700;align-items:center}
+.courbe-legende span{display:inline-flex;align-items:center;gap:6px}
+.courbe-duree{margin-left:auto;font-weight:600}
+.l-cpu,.l-mem{display:inline-block;width:12px;height:3px;border-radius:2px;background:var(--accent)}
+.l-mem{background:var(--dim2)}
+.courbe-grille{stroke:var(--line);stroke-width:1;stroke-dasharray:3 4;vector-effect:non-scaling-stroke}
+.courbe-aire{fill:url(#courbe-degrade);stroke:none}
+.courbe-cpu,.courbe-mem{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}
+.courbe-cpu{stroke:var(--accent)}
+.courbe-mem{stroke:var(--dim2)}
+.courbe-curseur{stroke:var(--line2);stroke-width:1;vector-effect:non-scaling-stroke;opacity:0}
+.courbe.survolee .courbe-curseur{opacity:1}
+/* Les traits se dessinent de gauche a droite (un rideau qui s'ouvre), puis
+   l'aire se remplit. */
+.courbe.apparait .courbe-traits{animation:rideau 1.6s cubic-bezier(.4,0,.2,1) both}
+.courbe.apparait .courbe-aire{animation:fondu 1s .9s both}
+@keyframes rideau{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}
+@keyframes fondu{from{opacity:0}}
+.courbe-bulle{position:absolute;bottom:calc(100% - 18px);z-index:4;display:flex;flex-direction:column;gap:2px;padding:8px 10px;
+ border-radius:10px;background:var(--surface);border:1px solid var(--line2);box-shadow:0 10px 24px var(--shadow-2);
+ font-size:12px;white-space:nowrap;pointer-events:none;font-variant-numeric:tabular-nums}
+.courbe-bulle[hidden]{display:none}
+.courbe-bulle span{display:flex;align-items:center;gap:6px;color:var(--dim)}
+/* L'activite. */
+.tendance{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:800;
+ background:var(--accent-soft);color:var(--accent);font-variant-numeric:tabular-nums;white-space:nowrap}
+.tendance.baisse{background:var(--surface2);color:var(--dim)}
+.act-chiffre{font-size:64px}
+.barres-jours{display:flex;align-items:flex-end;gap:4px;height:clamp(54px,7vh,84px);flex:none}
+.bw-grand .barres-jours{flex:1;height:auto;min-height:80px;max-height:180px}
+.barres-jours i{flex:1;min-width:0;height:max(4px,calc(var(--h)*100%));border-radius:4px 4px 2px 2px;
+ background:color-mix(in srgb,var(--accent) 45%,var(--surface2));transform-origin:50% 100%;transition:background-color .2s}
+.barres-jours i.nul{background:var(--surface2)}
+.barres-jours i.auj{background:var(--accent);box-shadow:0 0 14px color-mix(in srgb,var(--accent) 40%,transparent)}
+.barres-jours i:hover{background:var(--accent-h)}
+.barres-jours.apparait i{animation:barre-pousse .9s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--i,0)*45ms + .15s)}
+@keyframes barre-pousse{from{scale:1 0;opacity:.3}}
+.barres-axe{display:flex;justify-content:space-between;font-size:11px;color:var(--dim2);font-weight:700;margin-top:-4px}
+/* En moyen, la place manque en hauteur : le total a gauche, les barres a
+   droite. Au telephone, la tuile grandit et tout s'empile. */
+@media (min-width:761px){
+  .bw-moyen.bw-activite{display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto;
+   column-gap:24px;row-gap:6px}
+  .bw-moyen.bw-activite .bw-tete{grid-column:1 / -1}
+  .bw-moyen.bw-activite .bw-tete + div{grid-column:1;grid-row:2 / span 2;align-self:end}
+  .bw-moyen.bw-activite :is(.barres-jours,.bw-vide){grid-column:2;grid-row:2;height:auto;align-self:stretch}
+  .bw-moyen.bw-activite .barres-axe{grid-column:2;grid-row:3;margin-top:0}
+}
+.act-apps{display:flex;flex-direction:column;gap:8px}
+.act-app{display:grid;grid-template-columns:24px minmax(0,1fr) auto;grid-template-rows:auto 4px;column-gap:10px;row-gap:4px;
+ align-items:center;color:var(--txt);text-decoration:none;font-size:13px;font-weight:700}
+.act-app img{grid-row:span 2;width:24px;height:24px;border-radius:7px}
+.act-app-nom{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.act-app b{font-variant-numeric:tabular-nums}
+.act-app-rail{grid-column:2 / span 2;height:4px;border-radius:999px;background:var(--surface2);overflow:hidden}
+.act-app-rail i{display:block;height:100%;border-radius:inherit;background:var(--accent)}
+.act-app:hover .act-app-nom{color:var(--accent)}
+
+@media (prefers-reduced-motion:reduce){
+  :root[data-variante="bento"] :is(.salut,.salut-nom,.hub-resume),#hub-liste.entree [data-el],
+  .bento-barres.apparait i,.barres-jours.apparait i,.courbe.apparait *,.pouls-point::after{animation:none}
+  :root[data-variante="bento"] .salut-nom{background-position:0 0}
+  #hub-liste :is(.bw,.bento-carte){transform:none !important}
+}
 
 @media (max-width:760px){
   :root[data-variante] .hub-recherche{height:50px;margin-bottom:24px}
@@ -2081,6 +2235,7 @@ a.pj:hover{border-color:var(--accent)}
   <div class="hub-tete">
   <div class="hub-tete-texte">
   <div class="salut" id="hub-salut"></div>
+  <p class="hub-resume" id="hub-resume"></p>
   </div>
   <div class="hub-barre">
   <label class="hub-recherche" id="hub-recherche">
@@ -4503,6 +4658,7 @@ async function chargerHub(){
     hubSauvegardes=d.sauvegardes||null;
   }catch(e){ return; }
   peindreHub();
+  chargerPouls();
 }
 /* NE REPEINDRE QUE CE QUI CHANGE. Le hub se recharge toutes les dix secondes ;
    remplacer le HTML a chaque tour, meme identique, recreait toutes les tuiles
@@ -4712,8 +4868,8 @@ function widgetEtat(taille){
     ? `<a href="${lienOuverture(soucis[0])}">${esc(nomAffiche(soucis[0]))} : ${esc(etatApp(soucis[0])[1].toLowerCase())}</a>`
     : soucis.length ? `<a href="/applications">${esc(bilan)}</a>` : '';
   return `<div class="bw-titre">État</div>
-    <div><div class="bento-chiffre">${enLigne}<span>/${liste.length}</span></div><p>en ligne${arretees ? ` · ${arretees} arrêtée${arretees>1?'s':''}` : ''}</p></div>
-    <div class="bento-pied"><div class="bento-barres" aria-hidden="true">${liste.map(a=>`<i class="${etatApp(a)[0]}"></i>`).join('')}</div>
+    <div><div class="bento-chiffre">${chiffre('etat-en-ligne', enLigne)}<span>/${liste.length}</span></div><p>en ligne${arretees ? ` · ${arretees} arrêtée${arretees>1?'s':''}` : ''}</p></div>
+    <div class="bento-pied"><div class="bento-barres" aria-hidden="true" data-apparait="etat-barres">${liste.map((a,i)=>`<i class="${etatApp(a)[0]}" style="--i:${i}"></i>`).join('')}</div>
     ${lien || '<p>Tout répond.</p>'}</div>`;
 }
 /* Les sauvegardes, pour l'administrateur : la derniere, et l'alerte tant
@@ -4730,18 +4886,211 @@ function widgetSauvegardes(taille){
     <p>${esc(tailleLisible(d.derniere.taille))}${d.alerte_hors_serveur ? ' · <b class="sg-widget-alerte">sur ce serveur seulement</b>' : ''}</p></div>
     ${taille!=='petit' ? lien : ''}`;
 }
+/* ---------------- le mouvement ----------------
+   LES CHIFFRES DEFILENT, LES GRAPHIQUES SE DESSINENT. Un nombre porte
+   data-anim="nombre", une jauge data-anim="anneau" : chacun a sa cle
+   (data-cle) et sa valeur finale (data-val), deja ecrite dans le HTML --
+   sans script, ou quand l'appareil demande moins de mouvement, la valeur
+   juste s'affiche d'emblee. La page retient la derniere valeur montree pour
+   chaque cle : un repeint qui ne change rien ne rejoue rien, et une valeur
+   qui change part de l'ancienne, pas de zero.
+   Un bloc data-apparait (barres, courbe) ne joue son entree qu'a sa
+   premiere apparition : le hub se repeint toutes les dix secondes, et un
+   graphique qui se redessinerait a chaque tour fatiguerait l'oeil. */
+const moinsDeMouvement = () => { try{ return matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){ return false; } };
+const valeursVues=new Map(), dejaApparus=new Set();
+const nombreFr = (v, dec=0) => Number(v).toLocaleString('fr-FR', {minimumFractionDigits:dec, maximumFractionDigits:dec});
+const chiffre = (cle, v, dec=0) =>
+  `<span data-anim="nombre" data-cle="${esc(cle)}" data-val="${Number(v)||0}" data-dec="${dec}">${nombreFr(Number(v)||0, dec)}</span>`;
+function poserAnim(n, v){
+  if(n.dataset.anim==='nombre') n.textContent=nombreFr(v, +(n.dataset.dec||0));
+  else if(n.dataset.anim==='anneau') n.style.strokeDashoffset=String(1 - Math.max(0, Math.min(100, v))/100);
+  else if(n.dataset.anim==='largeur') n.style.width=Math.max(0, Math.min(100, v))+'%';
+}
+function animerChiffres(racine){
+  if(!racine) return;
+  const sobre=moinsDeMouvement();
+  racine.querySelectorAll('[data-apparait]').forEach(n=>{
+    const cle=n.dataset.apparait;
+    if(dejaApparus.has(cle)) return;
+    dejaApparus.add(cle);
+    if(!sobre) n.classList.add('apparait');
+  });
+  racine.querySelectorAll('[data-anim]').forEach(n=>{
+    const cle=n.dataset.cle, fin=parseFloat(n.dataset.val);
+    if(!cle || !isFinite(fin)) return;
+    const avant = valeursVues.has(cle) ? valeursVues.get(cle) : 0;
+    valeursVues.set(cle, fin);
+    /* Deja en route vers cette valeur : on ne coupe pas son elan. */
+    if(n._vers===fin) return;
+    if(sobre || avant===fin){ poserAnim(n, fin); return; }
+    n._vers=fin;
+    const debut=performance.now(), duree=n.dataset.anim==='nombre' ? 1200 : 1400;
+    poserAnim(n, avant);
+    const pas=t=>{
+      if(n._vers!==fin) return;
+      const k=Math.min(1, (t-debut)/duree), e=1-Math.pow(1-k, 4);
+      poserAnim(n, avant+(fin-avant)*e);
+      if(k<1) requestAnimationFrame(pas); else n._vers=undefined;
+    };
+    requestAnimationFrame(pas);
+  });
+}
+
+/* ---------------- le pouls : Serveur et Activite ----------------
+   Deux widgets de l'administrateur, nourris par /api/hub/pouls. Leur corps
+   n'est PAS dans le HTML du hub : la tuile n'y porte qu'un emplacement
+   garde (data-garder), rempli a part. Sans cela, le processeur qui change
+   d'un point toutes les dix secondes repeignait le hub entier. */
+let hubPouls={}, poulsEnCours=false, poulsActiviteLe=0, poulsEssaiLe=0;
+function widgetsPoses(){ return new Set((hubDisposition||[]).filter(e=>e.t==='w').map(e=>e.id)); }
+async function chargerPouls(){
+  if(!estAdmin || poulsEnCours) return;
+  const poses=widgetsPoses(), quoi=[];
+  if(poses.has('serveur')) quoi.push('serveur');
+  if(poses.has('activite') && Date.now()-poulsActiviteLe > 60000) quoi.push('activite');
+  if(!quoi.length) return;
+  poulsEnCours=true; poulsEssaiLe=Date.now();
+  try{
+    const r=await fetch('/api/hub/pouls?quoi='+quoi.join(','));
+    if(!r.ok) return;
+    const d=await r.json();
+    if(d.activite) poulsActiviteLe=Date.now();
+    Object.assign(hubPouls, d);
+  }catch(e){ return; }
+  finally{ poulsEnCours=false; }
+  peindrePouls();
+}
+const emplacementPouls = (id, taille) =>
+  `<div class="bw-pouls" data-pouls="${id}" data-taille="${taille}" data-garder="pouls-${id}-${taille}"></div>`;
+function peindrePouls(){
+  let manque=false;
+  document.querySelectorAll('#hub-liste [data-pouls]').forEach(n=>{
+    const id=n.dataset.pouls, taille=n.dataset.taille, d=hubPouls[id];
+    if(!d){ manque=true; remplir(n, `<div class="bw-titre">${id==='serveur' ? 'Serveur' : 'Activité'}</div><p class="bw-vide">Mesure en cours…</p>`); return; }
+    remplir(n, id==='serveur' ? corpsServeur(d, taille) : corpsActivite(d, taille));
+    animerChiffres(n);
+  });
+  if(manque && Date.now()-poulsEssaiLe > 10000) chargerPouls();
+}
+/* AU-DELA DE 80 %, A SURVEILLER ; AU-DELA DE 92 %, SATURE. La jauge change
+   de couleur ET le dit en toutes lettres : jamais la couleur seule. */
+const niveauCharge = v => v>=92 ? ['err','saturé'] : v>=80 ? ['warn','élevé'] : ['',''];
+function jauge(cle, v, nom, detail){
+  const p=Math.round(Math.max(0, Math.min(100, v||0)));
+  const [c, mot]=niveauCharge(p);
+  return `<div class="jauge ${c}" role="img" aria-label="${esc(nom)} : ${p} %${mot ? ', '+mot : ''}">
+    <div class="jauge-cadran"><svg viewBox="0 0 48 48" aria-hidden="true"><circle class="jauge-rail" cx="24" cy="24" r="20"/>
+      <circle class="jauge-arc" cx="24" cy="24" r="20" pathLength="1" stroke-dasharray="1"
+        stroke-dashoffset="${1-p/100}" data-anim="anneau" data-cle="${esc(cle)}-arc" data-val="${p}"/></svg>
+      <div class="jauge-val">${chiffre(cle, p)}<small>%</small></div></div>
+    <div class="jauge-nom">${esc(nom)}${mot ? ` <b>${mot}</b>` : ''}</div>
+    ${detail ? `<div class="jauge-detail">${esc(detail)}</div>` : ''}</div>`;
+}
+function dureeCourte(s){
+  if(s==null) return '';
+  const j=Math.floor(s/86400), h=Math.floor(s%86400/3600), m=Math.floor(s%3600/60);
+  return j ? j+' j '+h+' h' : h ? h+' h '+m+' min' : m+' min';
+}
+function corpsServeur(d, taille){
+  const mem=d.memoire||{}, dq=d.disque;
+  const allume=d.allume_depuis!=null ? `<span class="bw-sous">allumé depuis ${dureeCourte(d.allume_depuis)}</span>` : '';
+  const tete=`<div class="bw-tete"><div class="bw-titre"><i class="pouls-point" aria-hidden="true"></i>Serveur</div>${taille!=='petit' ? allume : ''}</div>`;
+  if(taille==='petit'){
+    return tete + jauge('srv-cpu', d.cpu, 'Processeur')
+      + `<p class="bw-ligne">Mémoire <b>${chiffre('srv-mem-p', Math.round(mem.pct||0))} %</b>${dq ? ` · Disque <b>${chiffre('srv-dq-p', Math.round(dq.pct))} %</b>` : ''}</p>`;
+  }
+  const jauges=`<div class="jauges">${jauge('srv-cpu', d.cpu, 'Processeur', d.coeurs+' cœur'+(d.coeurs>1?'s':''))}
+    ${jauge('srv-mem', mem.pct, 'Mémoire', mem.total ? tailleLisible(mem.utilise)+' / '+tailleLisible(mem.total) : '')}
+    ${dq ? jauge('srv-dq', dq.pct, 'Disque', tailleLisible(dq.utilise)+' / '+tailleLisible(dq.total)) : ''}</div>`;
+  return tete + jauges + (taille==='grand' ? courbeServeur(d.historique||[]) : '');
+}
+/* LA COURBE DES DIX DERNIERES MINUTES : processeur et memoire sur la meme
+   echelle (0 a 100 %), donc un seul axe. Le processeur porte l'accent et
+   une aire ; la memoire, un trait neutre. Une legende nomme les deux, et le
+   survol donne la valeur exacte. */
+function courbeServeur(h){
+  if(h.length<2) return `<p class="bw-vide">La courbe se dessine : un point toutes les dix secondes.</p>`;
+  const W=300, H=90, n=h.length;
+  const x=i=>(i/(n-1))*W, y=v=>H-2-(Math.max(0, Math.min(100, v))/100)*(H-4);
+  const ligne=k=>h.map((p,i)=>(i?'L':'M')+x(i).toFixed(1)+' '+y(p[k]).toFixed(1)).join('');
+  const aire=ligne('cpu')+`L${W} ${H}L0 ${H}Z`;
+  const pts=esc(JSON.stringify(h.map(p=>[p.t, p.cpu, p.mem])));
+  return `<div class="courbe" data-points="${pts}" data-apparait="srv-courbe">
+    <div class="courbe-legende"><span><i class="l-cpu"></i>Processeur</span><span><i class="l-mem"></i>Mémoire</span>
+      <span class="courbe-duree">${Math.round((h[n-1].t-h[0].t)/60)||1} dernières min</span></div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+      <defs><linearGradient id="courbe-degrade" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="var(--accent)" stop-opacity=".32"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
+      <line class="courbe-grille" x1="0" x2="${W}" y1="${y(50)}" y2="${y(50)}"/>
+      <g class="courbe-traits"><path class="courbe-aire" d="${aire}"/>
+      <path class="courbe-mem" d="${ligne('mem')}"/>
+      <path class="courbe-cpu" d="${ligne('cpu')}"/></g>
+      <line class="courbe-curseur" x1="0" x2="0" y1="0" y2="${H}"/>
+    </svg><div class="courbe-bulle" hidden></div></div>`;
+}
+const JOURS_COURTS=['dim.','lun.','mar.','mer.','jeu.','ven.','sam.'];
+function corpsActivite(d, taille){
+  const jours=d.jours||[], total=d.total||0, avant=d.precedent||0;
+  const max=Math.max(1, ...jours.map(j=>j.ouvertures));
+  const tendance = avant ? Math.round((total-avant)/avant*100) : null;
+  const badge = tendance===null ? '' : `<span class="tendance ${tendance>=0 ? 'hausse' : 'baisse'}"
+      title="Par rapport aux ${jours.length} jours d'avant (${avant})">${tendance>=0 ? '▲' : '▼'} ${chiffre('act-tendance', Math.abs(tendance))} %</span>`;
+  const barres=jours.map((j,i)=>{
+    const dt=new Date(j.jour+'T12:00:00');
+    const nom=JOURS_COURTS[dt.getDay()]+' '+dt.getDate();
+    return `<i style="--h:${(j.ouvertures/max).toFixed(3)};--i:${i}" class="${i===jours.length-1 ? 'auj' : ''}${j.ouvertures ? '' : ' nul'}"
+      title="${esc(nom)} : ${j.ouvertures} ouverture${j.ouvertures>1?'s':''}"></i>`;
+  }).join('');
+  const debut=jours[0] ? new Date(jours[0].jour+'T12:00:00') : null;
+  const axe = debut ? `<div class="barres-axe"><span>${debut.getDate()} ${debut.toLocaleDateString('fr-FR',{month:'short'})}</span><span>aujourd'hui</span></div>` : '';
+  const apps = taille==='grand' && (d.apps||[]).length ? `<div class="act-apps">${d.apps.map((a,i)=>`
+      <a class="act-app" href="${appDuHub(a.name) ? lienOuverture(appDuHub(a.name)) : '/applications/'+encodeURIComponent(a.name)}" data-app="${esc(a.name)}"><img src="${icone(a.name)}" alt="">
+        <span class="act-app-nom">${esc(a.titre||a.name)}</span><b>${chiffre('act-app-'+a.name, a.ouvertures)}</b>
+        <span class="act-app-rail"><i data-anim="largeur" data-cle="act-rail-${esc(a.name)}" data-val="${Math.round(a.ouvertures/d.apps[0].ouvertures*100)}"
+          style="width:${Math.round(a.ouvertures/d.apps[0].ouvertures*100)}%"></i></span></a>`).join('')}</div>` : '';
+  return `<div class="bw-tete"><div class="bw-titre">Activité</div>${badge}</div>
+    <div><div class="bento-chiffre act-chiffre">${chiffre('act-total', total)}</div>
+      <p class="bw-ligne">ouverture${total>1?'s':''} en ${jours.length} jours</p></div>
+    ${total ? `<div class="barres-jours" data-apparait="act-barres" role="img"
+      aria-label="Ouvertures par jour, sur ${jours.length} jours : jusqu'à ${max} par jour">${barres}</div>${axe}` : '<p class="bw-vide">Aucune ouverture ces deux dernières semaines.</p>'}
+    ${apps}`;
+}
+/* Le survol de la courbe : un curseur vertical et la valeur du point le
+   plus proche. */
+document.addEventListener('pointermove', e=>{
+  const c=e.target.closest && e.target.closest('.courbe');
+  if(!c) return;
+  const svg=c.querySelector('svg'), bulle=c.querySelector('.courbe-bulle'), curseur=c.querySelector('.courbe-curseur');
+  let pts; try{ pts=JSON.parse(c.dataset.points); }catch(err){ return; }
+  const r=svg.getBoundingClientRect(); if(!r.width || pts.length<2) return;
+  const k=Math.max(0, Math.min(1, (e.clientX-r.left)/r.width)), i=Math.round(k*(pts.length-1)), p=pts[i];
+  const xs=i/(pts.length-1)*300;
+  curseur.setAttribute('x1', xs); curseur.setAttribute('x2', xs); c.classList.add('survolee');
+  bulle.hidden=false;
+  bulle.innerHTML=`<b>${new Date(p[0]*1000).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</b>
+    <span><i class="l-cpu"></i>Processeur ${nombreFr(p[1],1)} %</span><span><i class="l-mem"></i>Mémoire ${nombreFr(p[2],1)} %</span>`;
+  const bx=Math.min(r.width-bulle.offsetWidth, Math.max(0, e.clientX-r.left-bulle.offsetWidth/2));
+  bulle.style.left=bx+'px';
+});
+document.addEventListener('pointerout', e=>{
+  const c=e.target.closest && e.target.closest('.courbe');
+  if(!c || (e.relatedTarget && c.contains(e.relatedTarget))) return;
+  c.classList.remove('survolee'); const b=c.querySelector('.courbe-bulle'); if(b) b.hidden=true;
+});
+
 function widgetMessages(taille){
   const d=hubServices.find(s=>s.name==='messages');
   const n=d ? (d.non_lues||0) : 0;
   return `<div class="bw-titre">Messages</div>
-    <div><div class="bento-chiffre">${n}</div><p>${n ? (n>1 ? 'nouveaux messages' : 'nouveau message') : 'Rien de nouveau.'}</p></div>
+    <div><div class="bento-chiffre">${chiffre('messages', n)}</div><p>${n ? (n>1 ? 'nouveaux messages' : 'nouveau message') : 'Rien de nouveau.'}</p></div>
     ${taille!=='petit' ? `<a class="bento-bouton" href="/messages">Ouvrir ${SVG_FLECHE}</a>` : ''}`;
 }
 function widgetNouveautes(taille){
   const maj=hubApps.filter(a=>a.nouvelle_version);
   if(!maj.length) return `<div class="bw-titre">Nouvelles versions</div><p class="bw-vide">Tout est à jour.</p>`;
   return `<div class="bw-titre">Nouvelles versions</div>
-    ${taille==='petit' ? `<div><div class="bento-chiffre">${maj.length}</div><p>application${maj.length>1?'s':''} à redécouvrir</p></div>`
+    ${taille==='petit' ? `<div><div class="bento-chiffre">${chiffre('nouveautes', maj.length)}</div><p>application${maj.length>1?'s':''} à redécouvrir</p></div>`
       : `<div class="bw-liste">${maj.slice(0,4).map(a=>`<a href="${lienOuverture(a)}" data-app="${esc(a.name)}"><img src="${icone(a.name)}" alt=""><span>${esc(nomAffiche(a))}</span></a>`).join('')}</div>`}`;
 }
 /* Les trois sujets d'un message : ce que l'administrateur en fera depend
@@ -4997,7 +5346,7 @@ document.addEventListener('keydown', e=>{
   if(e.key==='Escape' && $('ov-presentation').classList.contains('show')) fermerPresentation();
 });
 
-const CLASSE_WIDGET={une:'bw-une', apercu:'bw-une', etat:'bento-etat', messages:'bw-messages', nouveautes:'bw-nouveautes', message:'bw-message', suivi:'bw-suivi', sauvegardes:'bw-sauvegardes'};
+const CLASSE_WIDGET={serveur:'bw-serveur', activite:'bw-activite', une:'bw-une', apercu:'bw-une', etat:'bento-etat', messages:'bw-messages', nouveautes:'bw-nouveautes', message:'bw-message', suivi:'bw-suivi', sauvegardes:'bw-sauvegardes'};
 function corpsWidget(e){
   if(e.id==='une'){ const [a, vue]=appALaUne(hubApps); return widgetApercu(a, e.taille, (vue ? 'Dernière ouverte' : 'À la une')+(a && a.ouverte_le ? ' · '+depuis(a.ouverte_le) : ''), false); }
   if(e.id==='apercu') return widgetApercu(hubApps.find(a=>a.name===e.app), e.taille, 'Aperçu');
@@ -5007,6 +5356,7 @@ function corpsWidget(e){
   if(e.id==='sauvegardes') return widgetSauvegardes(e.taille);
   if(e.id==='message') return widgetMessage(e.taille);
   if(e.id==='suivi') return widgetSuivi(e.taille);
+  if(e.id==='serveur' || e.id==='activite') return emplacementPouls(e.id, e.taille);
   return '';
 }
 const TAILLES_NOM={petit:'Petit', moyen:'Moyen', grand:'Grand'};
@@ -5071,9 +5421,71 @@ function peindreBento(liste, filtre){
   el.className='bento '+(enZones ? 'zones' : 'hub-grille')+(hubEdition ? ' edition' : '');
   remplirEnGardant(el, html);
   teinterALaUne(el);
+  animerChiffres(el);
+  peindrePouls();
+  entreeDuHub(el);
+  peindreResumeHub();
   majBoutonsComposer();
   ajusterBento();
 }
+/* L'ENTREE DU HUB : a la premiere peinture, les tuiles montent l'une apres
+   l'autre, en cascade. Une seule fois par visite de la page -- le repeint
+   periodique ne la rejoue pas. */
+let hubEntre=false;
+function entreeDuHub(el){
+  if(hubEntre || !el.querySelector('[data-el]')) return;
+  hubEntre=true;
+  if(moinsDeMouvement()) return;
+  el.querySelectorAll('[data-el]').forEach((n,i)=>n.style.setProperty('--i', Math.min(i, 16)));
+  el.classList.add('entree');
+  setTimeout(()=>el.classList.remove('entree'), 1800);
+}
+/* SOUS LE BONJOUR, LA JOURNEE EN UNE LIGNE : ce qui tourne, ce qui attend.
+   Les chiffres defilent comme ceux des widgets. */
+function peindreResumeHub(){
+  const r=$('hub-resume'); if(!r) return;
+  const toutes=hubApps.concat(hubServices);
+  if(!toutes.length){ remplir(r, ''); return; }
+  let morceaux;
+  if(estAdmin){
+    const enLigne=toutes.filter(a=>etatApp(a)[0]==='on').length;
+    const soucis=toutes.filter(a=>['err','warn'].includes(etatApp(a)[0])).length;
+    const msg=(hubServices.find(s=>s.name==='messages')||{}).non_lues||0;
+    morceaux=[`<b>${chiffre('resume-en-ligne', enLigne)}</b> sur ${toutes.length} en ligne`,
+      soucis ? `<b class="resume-souci">${chiffre('resume-soucis', soucis)}</b> à regarder` : '',
+      msg ? `<b>${chiffre('resume-msg', msg)}</b> message${msg>1?'s':''} à lire` : ''];
+  }else{
+    const maj=hubApps.filter(a=>a.nouvelle_version).length;
+    morceaux=[`<b>${chiffre('resume-apps', hubApps.length)}</b> application${hubApps.length>1?'s':''} pour toi`,
+      maj ? `<b>${chiffre('resume-maj', maj)}</b> mise${maj>1?'s':''} à jour` : ''];
+  }
+  remplir(r, morceaux.filter(Boolean).map(m=>`<span>${m}</span>`).join('<i aria-hidden="true">·</i>'));
+  animerChiffres(r);
+}
+/* LE RELIEF AU SURVOL, a la souris seulement : la tuile s'incline a peine
+   vers le pointeur et un reflet le suit. Ni au doigt, ni en mode Modifier,
+   ni quand l'appareil demande moins de mouvement. */
+(()=>{
+  let fine=false; try{ fine=matchMedia('(hover:hover) and (pointer:fine)').matches; }catch(e){}
+  if(!fine) return;
+  let tuile=null;
+  const lacher=()=>{ if(tuile){ tuile.classList.remove('survol'); tuile.style.removeProperty('--rx'); tuile.style.removeProperty('--ry'); } tuile=null; };
+  $('hub-liste').addEventListener('pointermove', e=>{
+    if(hubEdition || moinsDeMouvement() || e.pointerType!=='mouse'){ lacher(); return; }
+    const t=e.target.closest('.bw, .bento-carte');
+    if(t!==tuile){ lacher(); tuile=t; }
+    if(!t) return;
+    const r=t.getBoundingClientRect(), px=(e.clientX-r.left)/r.width, py=(e.clientY-r.top)/r.height;
+    /* Moins d'inclinaison pour une grande tuile : 4 degres au plus. */
+    const amp = r.width>320 ? 2 : 4;
+    t.style.setProperty('--rx', ((.5-py)*amp).toFixed(2)+'deg');
+    t.style.setProperty('--ry', ((px-.5)*amp).toFixed(2)+'deg');
+    t.style.setProperty('--mx', (px*100).toFixed(1)+'%');
+    t.style.setProperty('--my', (py*100).toFixed(1)+'%');
+    t.classList.add('survol');
+  });
+  $('hub-liste').addEventListener('pointerleave', lacher);
+})();
 function widgetDuHub(e){
   const def=hubCatalogue.find(c=>c.id===e.id);
   const nom=e.id==='apercu' ? 'Aperçu de '+nomAffiche(hubApps.find(a=>a.name===e.app)||{name:e.app}) : (def ? def.titre : e.id);
@@ -7825,7 +8237,7 @@ const estAdmin = ROLE==='admin';
 let SMTP_OK = __SMTP__;
 
 $('qui-nom').textContent = UTILISATEUR || '';
-$('hub-salut').textContent = 'Bonjour, ' + (UTILISATEUR || 'admin');
+$('hub-salut').innerHTML = 'Bonjour, <span class="salut-nom">' + esc(UTILISATEUR || 'admin') + '</span>';
 $('qui-role').textContent = estAdmin ? 'Administrateur' : 'Utilisateur';
 /* Les onglets d'administration n'apparaissent que pour l'administrateur. */
 if(estAdmin) document.querySelectorAll('#param-onglets button[data-admin]')

@@ -13449,7 +13449,8 @@ def test_le_hub_se_compose_par_compte(deux_espaces):
     c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     d = c.get("/api/hub/disposition").get_json()
     catalogue = {w["id"]: w for w in d["catalogue"]}
-    assert set(catalogue) == {"une", "etat", "messages", "nouveautes", "sauvegardes", "apercu"}
+    assert set(catalogue) == {"une", "etat", "messages", "nouveautes", "sauvegardes", "apercu",
+                              "serveur", "activite"}
     assert catalogue["apercu"]["portee"] == "app" and catalogue["etat"]["tailles"] == ["petit", "moyen"]
     # Ni horloge ni bloc-notes : rien qui ne parle du hub ou de ses applications.
     assert "horloge" not in catalogue and "notes" not in catalogue
@@ -15560,6 +15561,86 @@ def test_un_utilisateur_ne_pose_pas_de_widget_d_administration(deux_espaces):
     for wid in ("etat", "messages", "sauvegardes"):
         r = c.put("/api/hub/disposition", json={"elements": [{"t": "w", "id": wid, "taille": "petit"}]})
         assert r.status_code == 400, wid
+
+
+# ---------------- Le pouls du hub : Serveur et Activite ----------------
+#
+# Vecu : « je veux une nouvelle version un peu plus dynamique, des chiffres,
+# des graphiques qui s'affichent progressivement, des reliefs ou des effets
+# sur le texte ».
+
+def test_le_pouls_du_serveur_est_reserve_a_l_administrateur(deux_espaces):
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    assert c.get("/api/hub/pouls").status_code in (401, 403)
+    d = c.get("/api/hub/disposition").get_json()
+    assert not {w["id"] for w in d["catalogue"]} & {"serveur", "activite"}
+    for wid, taille in (("serveur", "petit"), ("activite", "moyen")):
+        r = c.put("/api/hub/disposition", json={"elements": [{"t": "w", "id": wid, "taille": taille}]})
+        assert r.status_code == 400, wid
+
+
+def test_le_pouls_donne_la_machine_et_les_ouvertures_recentes(deux_espaces, monkeypatch):
+    c = deux_espaces
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    monkeypatch.setattr(app, "pg_disponible", lambda: False)
+    app._serveur_historique.clear()
+    app.serveur_tick()
+    app.serveur_tick()
+    maintenant = app.time.time()
+    journal = [{"genre": "ouverture", "ts": maintenant, "app": "prive-autorise"},
+               {"genre": "ouverture", "ts": maintenant - 3600, "app": "prive-autorise"},
+               {"genre": "ouverture", "ts": maintenant - 3 * 86400, "app": "autre"},
+               # La quinzaine d'avant : comptee pour la tendance seulement.
+               {"genre": "ouverture", "ts": maintenant - 20 * 86400, "app": "autre"},
+               # Ni trop vieux, ni une connexion, ne comptent.
+               {"genre": "ouverture", "ts": maintenant - 60 * 86400, "app": "autre"},
+               {"genre": "connexion", "ts": maintenant, "qui": "marie"}]
+    monkeypatch.setattr(app, "lire_acces", lambda **k: journal)
+    d = c.get("/api/hub/pouls").get_json()
+    s = d["serveur"]
+    assert 0 <= s["cpu"] <= 100 * s["coeurs"]
+    assert 0 < s["memoire"]["pct"] <= 100 and s["memoire"]["total"] > 0
+    assert len(s["historique"]) == 2 and set(s["historique"][0]) == {"t", "cpu", "mem"}
+    a = d["activite"]
+    assert len(a["jours"]) == app.ACTIVITE_JOURS
+    assert a["jours"][-1]["ouvertures"] == sum(1 for e in journal[:2]
+                                               if app._jour(e["ts"]) == a["jours"][-1]["jour"])
+    assert a["total"] == 3 and a["precedent"] == 1
+    assert a["apps"][0] == {"name": "prive-autorise", "titre": a["apps"][0]["titre"], "ouvertures": 2}
+    # On ne demande que ce qu'on affiche.
+    assert set(c.get("/api/hub/pouls?quoi=serveur").get_json()) == {"serveur"}
+
+
+def test_le_serveur_se_mesure_dans_le_moniteur_et_garde_dix_minutes():
+    source = open(app.__file__, encoding="utf-8").read()
+    boucle = source.split("def start_monitor_thread():")[1].split("t = threading.Thread")[0]
+    assert "serveur_tick()" in boucle
+    assert app.SERVEUR_HISTORIQUE_LEN * 10 == 600
+
+
+def test_le_hub_anime_ses_chiffres_et_dessine_ses_graphiques():
+    page = _page_panneau("dashboard.html")
+    for trace in (
+            # Les deux widgets, branches sur leur emplacement garde.
+            "if(e.id==='serveur' || e.id==='activite') return emplacementPouls(e.id, e.taille);",
+            'data-garder="pouls-${id}-${taille}"', "/api/hub/pouls?quoi=",
+            # Les chiffres defilent depuis la derniere valeur montree.
+            "function animerChiffres(", "valeursVues", "data-anim=\"nombre\"",
+            "chiffre('etat-en-ligne', enLigne)", "chiffre('messages', n)",
+            # Les graphiques ne jouent leur entree qu'une fois.
+            "dejaApparus", "@keyframes rideau", "@keyframes barre-pousse",
+            # Le relief : cascade d'entree, inclinaison, bonjour qui s'eclaire.
+            "function entreeDuHub(", "@keyframes tuile-entree", ".survol::after",
+            'class="salut-nom"', "@keyframes salut-reflet", 'id="hub-resume"',
+            # Jamais la couleur seule pour dire « sature ».
+            "const niveauCharge = v => v>=92 ? ['err','saturé'] : v>=80 ? ['warn','élevé'] : ['',''];"):
+        assert trace in page, trace
+    # Moins de mouvement demande : tout s'arrete.
+    sobre = page.split("@media (prefers-reduced-motion:reduce){\n  :root[data-variante=\"bento\"] :is(.salut")[1].split("}\n}")[0]
+    for cible in ("#hub-liste.entree [data-el]", ".barres-jours.apparait i", ".courbe.apparait *"):
+        assert cible in sobre, cible
+    assert "if(sobre || avant===fin){ poserAnim(n, fin); return; }" in page
 
 
 # ------------------------- Connexion et reglages -------------------------
