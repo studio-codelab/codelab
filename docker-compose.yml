@@ -523,8 +523,9 @@ services:
       # dans une origine differente de celle du panneau. C'est ce qui empeche
       # une faille dans une application d'atteindre le panneau : le navigateur
       # traite deux ports comme deux sites, et refuse a l'un de lire l'autre.
-      # Sans ce port publie, le panneau s'en apercoit, le dit dans
-      # Parametres > Serveur, et continue de servir les applications lui-meme.
+      # Sans ce port publie, le panneau s'en apercoit et continue de servir
+      # les applications lui-meme. Derriere un VPS, c'est aussi ce port qui
+      # sert chaque application sur son sous-domaine (app-manager/vps/).
       - "9002:9002"
 
     volumes:
@@ -552,31 +553,16 @@ services:
       APP_MANAGER_SHARED_CONFIG: /var/lib/codelab/config
 
       # --- Le jour ou ce panneau sort de ton reseau ---------------------
-      # RIEN A DECOMMENTER ICI dans le cas courant : ces quatre reglages se
-      # posent depuis le panneau, Parametres > Serveur. Marche a suivre
-      # complete dans le README, section « Sortir de chez toi » (et
-      # app-manager/vps/ pour la variante avec un VPS devant).
-      #
-      # Les cases de la page refusent de s'activer tant que la situation ne
-      # les justifie pas -- HTTPS seulement depuis une page deja en https,
-      # le proxy seulement si un en-tete X-Forwarded-* est reellement la,
-      # et l'administration-sur-le-reseau-local seulement depuis une requete
-      # qui vient elle-meme du reseau local. C'est ce qui evite les pieges
-      # d'autrefois : un cookie "Secure" pose trop tot, que le navigateur
-      # cesse d'envoyer en clair et qui faisait tomber la session sans
-      # retour ; un X-Forwarded-For cru sur un panneau publie en direct, ou
-      # n'importe quel client annonce l'adresse qu'il veut et contourne la
-      # limite de tentatives ; et un verrou d'administration active depuis
-      # l'exterieur, qui se refermerait sur son auteur dans la seconde.
-      #
-      # Aujourd'hui, plus rien de cela n'est reglable : X-Forwarded-For
-      # n'est jamais cru, l'administration ne repond qu'au reseau local en
-      # connexion directe, et le cookie devient Secure des que la requete
-      # arrive en https. APP_MANAGER_TRUST_PROXY et APP_MANAGER_ADMIN_LAN_ONLY
-      # sont ignorees ; APP_MANAGER_HTTPS=1 peut seulement forcer Secure.
+      # RIEN A REGLER ICI : ouvert par son nom de domaine (app-manager/vps/),
+      # le panneau retient cette adresse et sert chaque application sur
+      # https://<son-nom>.<domaine>. X-Forwarded-For n'est jamais cru,
+      # l'administration ne repond qu'au reseau local en connexion directe,
+      # et le cookie devient Secure des que la requete arrive en https.
+      # APP_MANAGER_HTTPS=1 peut seulement forcer Secure ;
+      # APP_MANAGER_PUBLIC_URL impose l'adresse publique.
       #
       # APP_MANAGER_HTTPS: "1"
-      # APP_MANAGER_PUBLIC_URL: "https://codelab.tondomaine.fr"
+      # APP_MANAGER_PUBLIC_URL: "https://toi.duckdns.org"
       # Second facteur OBLIGATOIRE pour le compte d'administration. Marche
       # arriere en cas de telephone perdu : decommenter, relancer, se
       # reconnecter, enregistrer un nouveau facteur, puis recommenter.

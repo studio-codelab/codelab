@@ -1617,7 +1617,7 @@ def test_un_utilisateur_ne_peut_rien_administrer(deux_espaces):
                            ("get", "/api/apps/public/acces"),
                            ("put", "/api/apps/public/acces"),
                            ("put", "/api/alertes/application/public"),
-                           ("get", "/api/vps"), ("put", "/api/vps"),
+                           ("get", "/api/securite"),
                            ("get", "/api/browse")]:
         r = getattr(c, methode)(route, json={})
         assert r.status_code == 403, f"{methode.upper()} {route} a repondu {r.status_code}"
@@ -1708,131 +1708,20 @@ def test_un_droit_sur_un_projet_inexistant_n_est_pas_enregistre(deux_espaces):
     assert app.lire_utilisateurs()["marie"]["projets"] == ["public"]
 
 
-# ---------- assistant de liaison avec un VPS ----------
-#
-# Il rend les fichiers de app-manager/vps/ avec les valeurs substituees, et
-# dit ce qu'il CONSTATE sur la requete en cours. Il ne se connecte jamais au
-# VPS : lui confier une cle SSH avec les droits qui vont avec ferait de ce
-# panneau la cible la plus interessante de l'installation.
+# ---------- l'administration ne passe pas par le VPS ----------
 
-@pytest.fixture
-def vps(tmp_path, monkeypatch):
+def test_l_administration_ne_passe_pas_par_le_proxy(tmp_path, monkeypatch):
+    """L'administration ne repond qu'en connexion directe depuis le reseau
+    local : une requete relayee (X-Forwarded-*) est refusee, VPS compris."""
     monkeypatch.setattr(app, "_admin_password", "secret-de-test")
-    monkeypatch.setattr(app, "EXPOSITION_FILE", str(tmp_path / "exposition.json"))
-    monkeypatch.delenv("APP_MANAGER_PUBLIC_URL", raising=False)
     app.flask_app.secret_key = "cle-de-test"
     app.flask_app.config["TESTING"] = True
     app._login_attempts.clear()
     c = app.flask_app.test_client()
     c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
-    return c
-
-
-def test_les_valeurs_sont_substituees_dans_les_vrais_modeles(vps):
-    """Substituer plutot que reecrire : les modeles sont la source de verite.
-    Un assistant qui regenere son propre texte finit par decrire autre chose
-    que ce que dit le README, et c'est toujours celui qu'on ne relit pas qui
-    se trompe."""
-    r = vps.put("/api/vps", json={"domaine": "codelab.chezmoi.fr",
-                                  "ip": "203.0.113.10", "reseau": "10.9.0"})
-    assert r.status_code == 200, r.data
-    d = vps.get("/api/vps").get_json()
-    if d["modeles_absents"]:
-        pytest.skip("modeles vps absents de cette image")
-    tout = "\n".join(f["contenu"] for f in d["fichiers"])
-    assert "codelab.chezmoi.fr" in tout
-    assert "codelab.exemple.fr" not in tout, "le domaine d'exemple traine encore"
-    assert "10.9.0.2" in tout and "10.8.0.2" not in tout
-    assert "203.0.113.10" in tout
-    # Et chaque fichier dit ou il va : un contenu sans destination oblige a
-    # retourner lire le README, ce que l'assistant est cense eviter.
-    assert all(f["destination"] for f in d["fichiers"])
-
-
-def test_chaque_fichier_dit_sur_quelle_machine_il_va(vps):
-    """La seule question devant un fichier de configuration est "je le colle
-    OU ?". Le cote voyage donc avec la donnee. Le deviner dans la page a
-    partir du texte d'un chemin serait une regle de plus a tenir a jour
-    ailleurs -- et c'est toujours celle-la qu'on oublie."""
-    for cle, entree in app.VPS_FICHIERS.items():
-        relatif, destination, cote, role = entree
-        assert cote in (app.COTE_VPS, app.COTE_LOCAL), cle
-        assert role, cle
-    d = vps.get("/api/vps").get_json()
-    if d["modeles_absents"]:
-        pytest.skip("modeles vps absents de cette image")
-    assert all(f["cote"] and f["role"] for f in d["fichiers"])
-    # Les deux machines sont representees : un assistant qui n'en montrerait
-    # qu'une laisserait le tunnel a moitie pose.
-    assert {f["cote"] for f in d["fichiers"]} == {app.COTE_VPS, app.COTE_LOCAL}
-
-
-def test_le_tunnel_est_propose_avant_nginx(vps):
-    """Sans tunnel, nginx n'a personne a joindre. L'ordre des fichiers est
-    l'ordre dans lequel on les pose."""
-    cles = list(app.VPS_FICHIERS)
-    assert cles.index("wireguard_vps") < cles.index("nginx")
-    assert cles.index("wireguard_local") < cles.index("nginx")
-    d = vps.get("/api/vps").get_json()
-    if d["modeles_absents"]:
-        pytest.skip("modeles vps absents de cette image")
-    rendus = [f["cle"] for f in d["fichiers"]]
-    assert rendus.index("wireguard_vps") < rendus.index("nginx")
-
-
-def test_la_destination_ne_repete_pas_la_machine(vps):
-    """La destination est un chemin a coller dans un terminal. Y glisser
-    "(sur le VPS)" donnait une commande fausse des qu'on la copiait."""
-    for cle, (_, destination, _, _) in app.VPS_FICHIERS.items():
-        assert "(" not in destination, cle
-        assert destination.startswith("/"), cle
-
-
-def test_une_adresse_privee_est_refusee(vps):
-    """Un VPS joignable depuis internet n'a pas une adresse privee. Saisir
-    celle de sa propre machine donnerait une configuration qui ne peut pas
-    marcher -- autant le dire tout de suite qu'apres trois copies."""
-    r = vps.put("/api/vps", json={"domaine": "x.fr", "ip": "192.168.1.50"})
-    assert r.status_code == 400, r.data
-    # Fragment sans accent : ce fichier est du code, et le code de ce depot
-    # s'ecrit sans accents. Le message, lui, en porte -- il est lu par un humain.
-    assert "adresse publique" in r.get_json()["error"]
-    assert app.lire_vps()["ip"] == ""
-
-
-def test_un_reseau_de_tunnel_mal_forme_est_refuse(vps):
-    r = vps.put("/api/vps", json={"reseau": "pas-un-reseau"})
-    assert r.status_code == 400, r.data
-
-
-def test_le_diagnostic_ne_dit_que_ce_qu_il_constate(vps):
-    """Sans proxy devant, rien n'est annonce : le panneau doit le dire au lieu
-    de supposer que le tunnel est en place."""
-    d = vps.get("/api/vps").get_json()
-    etapes = {e["etape"]: e["ok"] for e in d["diagnostic"]}
-    assert etapes["Un interm\u00e9diaire relaie cette requ\u00eate"] is False
-    assert etapes["La requ\u00eate arrive en HTTPS"] is False
-    # Toute etape non faite doit porter la marche a suivre : un diagnostic qui
-    # dit "non" sans dire quoi faire ne sert qu'a inquieter.
-    assert all(e["aide"] for e in d["diagnostic"] if not e["ok"])
-
-
-def test_l_administration_ne_passe_pas_par_le_proxy(vps):
-    """L'administration ne repond qu'en connexion directe depuis le reseau
-    local : une requete relayee (X-Forwarded-*) est refusee, VPS compris."""
-    r = vps.get("/api/vps", headers={"X-Forwarded-For": "203.0.113.7",
-                                     "X-Forwarded-Proto": "https"})
+    r = c.get("/api/securite", headers={"X-Forwarded-For": "203.0.113.7",
+                                        "X-Forwarded-Proto": "https"})
     assert r.status_code == 403
-
-
-def test_enregistrer_le_vps_n_efface_pas_les_autres_reglages(vps):
-    """exposition.json porte desormais quatre reglages ET le bloc VPS. Le
-    reecrire en entier a chaque enregistrement effacerait le reste."""
-    vps.put("/api/securite/exposition", json={"adresse_publique": "https://codelab.chezmoi.fr"})
-    vps.put("/api/vps", json={"domaine": "codelab.chezmoi.fr", "ip": "203.0.113.10"})
-    assert app.adresse_publique() == "https://codelab.chezmoi.fr", (
-        "l'adresse publique a ete effacee par l'enregistrement du VPS")
-    assert app.lire_vps()["domaine"] == "codelab.chezmoi.fr"
 
 
 # ---------- changer son propre mot de passe ----------
@@ -2275,7 +2164,7 @@ def test_les_parametres_tiennent_en_un_seul_endroit(deux_espaces):
     # defaut (CSS) et n'apparaissent que si le role injecte est admin.
     assert '.fiche-onglets button[data-admin]{display:none}' in page
     assert "if(estAdmin) document.querySelectorAll('#param-onglets button[data-admin]')" in page
-    for onglet in ("param-compte", "param-securite", "param-serveur", "param-email"):
+    for onglet in ("param-compte", "param-securite", "param-email"):
         assert f'id="{onglet}"' in page
     # Les alertes vivent avec le serveur d'envoi, dans un seul onglet.
     assert 'id="param-alertes"' not in page
@@ -3792,7 +3681,7 @@ def test_sans_adresse_publique_on_ne_peut_pas_ouvrir_une_application(exposition)
     c = exposition
     r = c.post("/api/visibility/prive", json={"visibility": "publique"})
     assert r.status_code == 400
-    assert "adresse publique" in r.get_json()["error"]
+    assert "jamais été ouvert depuis internet" in r.get_json()["error"]
     assert app.load()["prive"]["visibility"] == "privee"
 
     # Le chemin qui REFERME n'est jamais bloque : une application deja
@@ -3813,17 +3702,17 @@ def test_une_application_neuve_nait_privee_sur_un_serveur_prive(exposition):
     assert app.load()["neuf"]["visibility"] == "privee"
 
 
-def test_une_fois_l_adresse_declaree_le_partage_redevient_possible(exposition):
+def test_une_fois_l_adresse_connue_le_partage_redevient_possible(exposition):
+    """Plus de champ a remplir : l'adresse vient du domaine par lequel le
+    panneau a ete ouvert depuis internet (ou du compose)."""
     c = exposition
-    assert c.put("/api/securite/exposition",
-                 json={"adresse_publique": "pas une adresse"}).status_code == 400
-    r = c.put("/api/securite/exposition",
-              json={"adresse_publique": "https://codelab.example.com/"})
-    assert r.status_code == 200, r.data
-    # L'adresse est rangee sans sa barre finale : elle sert de prefixe.
+    app.ecrire_exposition({"adresse_publique": "https://codelab.example.com"})
     assert app.adresse_publique() == "https://codelab.example.com"
     assert c.get("/api/securite").get_json()["adresse_publique"] == "https://codelab.example.com"
     assert c.post("/api/visibility/prive", json={"visibility": "publique"}).status_code == 200
+    # La route qui la faisait saisir n'existe plus.
+    assert c.put("/api/securite/exposition",
+                 json={"adresse_publique": "https://autre.example"}).status_code in (404, 405)
 
 
 # ---------- HTTPS et proxy de confiance, regles depuis la page ------------
@@ -3868,10 +3757,6 @@ def test_le_cookie_est_securise_des_que_la_connexion_l_est():
 def test_les_reglages_d_exposition_ne_sont_plus_reglables(exposition):
     """Proxy, HTTPS et administration locale ne sont plus des options : la
     configuration est toujours la plus stricte."""
-    c = exposition
-    for cle, valeur in (("trust_proxy", True), ("https", False), ("admin_reseau_local", False)):
-        r = c.put("/api/securite/exposition", json={cle: valeur})
-        assert r.status_code == 400, cle
     assert app.trust_proxy() is False
     assert app.admin_limite_au_reseau_local() is True
     page = _page_panneau("dashboard.html")
@@ -4059,10 +3944,7 @@ def test_l_adresse_du_compose_l_emporte_sur_celle_de_la_page(exposition, monkeyp
     c = exposition
     monkeypatch.setenv("APP_MANAGER_PUBLIC_URL", "https://depuis-le-compose.example/")
     assert app.adresse_publique() == "https://depuis-le-compose.example"
-    etat = c.get("/api/securite").get_json()
-    assert etat["adresse_figee"] is True
-    assert c.put("/api/securite/exposition",
-                 json={"adresse_publique": "https://autre.example"}).status_code == 400
+    assert c.get("/api/securite").get_json()["adresse_publique"] == "https://depuis-le-compose.example"
 
 
 # ---------- 18. cles d'acces (passkeys) ----------
@@ -5373,7 +5255,6 @@ def test_le_ruban_ramene_au_hub_et_pas_a_la_racine_des_applications(monkeypatch)
     monkeypatch.setitem(app._origines_separees, "actif", True)
     monkeypatch.setattr(app, "APPS_PORT", 9002)
     monkeypatch.setattr(app, "PANEL_PORT", 9001)
-    monkeypatch.setattr(app, "PANEL_URL", "")
 
     with app.flask_app.test_request_context(
             "/appli/", base_url="http://machine:9002"):
@@ -5390,22 +5271,24 @@ def test_le_ruban_ramene_au_hub_et_pas_a_la_racine_des_applications(monkeypatch)
         assert app.lien_panneau() == "/"
 
 
-def test_le_lien_du_hub_suit_l_adresse_declaree_derriere_un_reverse_proxy():
-    """Un second PORT n'est pas joignable de partout : quand le panneau est
-    publie sous une adresse a lui, c'est elle qu'il faut ecrire."""
-    with app.flask_app.test_request_context("/appli/", base_url="http://machine:9002"):
-        ancien_actif = app._origines_separees["actif"]
-        app._origines_separees["actif"] = True
-        ancien_url, ancien_apps = app.PANEL_URL, app.APPS_PORT
-        app.PANEL_URL, app.APPS_PORT = "https://codelab.exemple.fr", 9002
-        try:
-            assert app.lien_panneau() == "https://codelab.exemple.fr/"
-            # Separation inactive : rien ne change, le lien reste relatif.
-            app._origines_separees["actif"] = False
-            assert app.lien_panneau() == "/"
-        finally:
-            app._origines_separees["actif"] = ancien_actif
-            app.PANEL_URL, app.APPS_PORT = ancien_url, ancien_apps
+def test_sous_un_sous_domaine_le_lien_du_hub_mene_au_domaine(monkeypatch):
+    """blog.toi.duckdns.org ramene a toi.duckdns.org : le panneau est au
+    domaine, chaque application a un sous-domaine a son nom."""
+    monkeypatch.setitem(app._origines_separees, "actif", True)
+    monkeypatch.setattr(app, "APPS_PORT", 9002)
+    monkeypatch.setattr(app, "load", lambda: {"blog": {"port": 8100}})
+    entetes = {"X-Forwarded-Proto": "https", "X-Forwarded-For": "203.0.113.5"}
+    with app.flask_app.test_request_context(
+            "/", environ_overrides={"HTTP_HOST": "blog.toi.duckdns.org", "SERVER_PORT": "9002"},
+            headers=entetes):
+        assert app.application_du_sous_domaine() == "blog"
+        assert app.lien_panneau() == "https://toi.duckdns.org/"
+    # Separation inactive : rien ne change, le lien reste relatif.
+    monkeypatch.setitem(app._origines_separees, "actif", False)
+    with app.flask_app.test_request_context(
+            "/", environ_overrides={"HTTP_HOST": "blog.toi.duckdns.org", "SERVER_PORT": "9002"},
+            headers=entetes):
+        assert app.lien_panneau() == "/"
 
 
 def test_un_nom_d_hote_hostile_ne_se_recopie_pas_dans_la_page():
@@ -5424,9 +5307,9 @@ def test_un_nom_d_hote_hostile_ne_se_recopie_pas_dans_la_page():
     # adresse douteuse. (Werkzeug ecarte deja ces Host de son cote -- la
     # garde ci-dessus ne depend pas de lui pour autant.)
     ancien = app._origines_separees["actif"]
-    ancien_url, ancien_apps = app.PANEL_URL, app.APPS_PORT
+    ancien_apps = app.APPS_PORT
     app._origines_separees["actif"] = True
-    app.PANEL_URL, app.APPS_PORT = "", 9002
+    app.APPS_PORT = 9002
     try:
         with app.flask_app.test_request_context(
                 "/appli/", environ_overrides={"HTTP_HOST": 'x" onmouseover="1',
@@ -5439,7 +5322,7 @@ def test_un_nom_d_hote_hostile_ne_se_recopie_pas_dans_la_page():
             assert app.lien_panneau() == f"http://codelab.local:{app.PANEL_PORT}/"
     finally:
         app._origines_separees["actif"] = ancien
-        app.PANEL_URL, app.APPS_PORT = ancien_url, ancien_apps
+        app.APPS_PORT = ancien_apps
 
 
 def test_sans_adresse_utilisable_on_ne_redirige_pas_en_rond():
@@ -5447,7 +5330,8 @@ def test_sans_adresse_utilisable_on_ne_redirige_pas_en_rond():
     navigateur tournerait en rond jusqu'a abandonner."""
     src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
     bloc = src.split("def separer_les_origines():")[1].split("\n\n\n")[0]
-    assert "if not origine:" in bloc and "return None" in bloc
+    assert "if not (domaine_des_applications() or origine_applications()):" in bloc
+    assert "return None" in bloc
 
 
 def test_le_ruban_est_construit_a_chaque_page():
@@ -7649,7 +7533,6 @@ def test_l_application_travaille_quand_meme_chez_elle(tmp_path, monkeypatch):
 @pytest.fixture
 def deux_origines(deux_espaces, monkeypatch):
     monkeypatch.setattr(app, "APPS_PORT", 9302)
-    monkeypatch.setattr(app, "APPS_URL", "")
     monkeypatch.setitem(app._origines_separees, "actif", True)
     return deux_espaces
 
@@ -7824,13 +7707,67 @@ def test_sans_separation_rien_ne_change(deux_espaces, monkeypatch):
     assert c.get("/login").status_code == 200
 
 
-def test_l_adresse_declaree_prend_le_pas_sur_le_port(deux_origines, monkeypatch):
-    """Derriere un reverse proxy, un second PORT n'est pas joignable de
-    l'exterieur : on declare alors un sous-domaine."""
-    monkeypatch.setattr(app, "APPS_URL", "https://apps.exemple.fr")
+# Vecu : « il faut utiliser le nom de l'app simplement comme sous domaine,
+# celui parametre dans la configuration, comme ca pas la peine de renseigner
+# quoi que ce soit dans APP_MANAGER_APPS_URL ».
+
+_PAR_LE_VPS = {"X-Forwarded-Proto": "https", "X-Forwarded-For": "203.0.113.5"}
+
+
+def test_par_le_domaine_une_application_est_renvoyee_a_son_sous_domaine(deux_origines):
+    """Le panneau ouvert par son nom de domaine (relaye par le VPS) envoie
+    chaque application a <nom>.<domaine> : rien a declarer."""
     c = deux_origines
-    r = c.get("/public/", **_sur_port(9301))
-    assert r.headers["Location"] == "https://apps.exemple.fr/public/"
+    r = c.get("/public/page?x=1", base_url="http://toi.duckdns.org:9301", headers=_PAR_LE_VPS)
+    assert r.headers["Location"] == "https://public.toi.duckdns.org/page?x=1"
+    # En local (une adresse IP, sans le VPS) : le port des applications.
+    r = c.get("/public/", base_url="http://192.168.1.10:9301")
+    assert r.headers["Location"] == "http://192.168.1.10:9302/public/"
+    # Un nom du reseau domestique n'a pas de sous-domaines.
+    r = c.get("/public/", base_url="http://zimablade.local:9301", headers=_PAR_LE_VPS)
+    assert r.headers["Location"] == "https://zimablade.local:9302/public/" \
+        or r.headers["Location"] == "http://zimablade.local:9302/public/"
+
+
+def test_le_sous_domaine_sert_toute_l_application(deux_origines, monkeypatch):
+    """Sur le port des applications, blog.<domaine> sert « blog » : tout le
+    chemin lui appartient, la racine et /theme.css compris."""
+    vus = []
+    monkeypatch.setattr(app, "_proxy", lambda nom, sous: (vus.append((nom, sous)) or ("ok", 200)))
+    c = deux_origines
+    for chemin, attendu in (("/", ""), ("/theme.css", "theme.css"), ("/a/b?q=1", "a/b")):
+        r = c.get(chemin, base_url="http://public.toi.duckdns.org:9302", headers=_PAR_LE_VPS)
+        assert r.status_code == 200 and vus[-1] == ("public", attendu), chemin
+    # Un sous-domaine qui ne nomme aucune application : la garde habituelle.
+    r = c.get("/", base_url="http://inconnue.toi.duckdns.org:9302", headers=_PAR_LE_VPS)
+    assert "Ce n'est pas le panneau" in r.get_data(as_text=True)
+    # Sans le VPS devant, pas de sous-domaine.
+    vus.clear()
+    c.get("/", base_url="http://public.toi.duckdns.org:9302")
+    assert vus == []
+
+
+def test_la_session_vaut_pour_les_sous_domaines(deux_origines):
+    """Une application privee sur blog.<domaine> doit reconnaitre la session
+    ouverte sur <domaine> : le cookie porte Domain=<domaine>. En local, il
+    reste attache a l'hote."""
+    with app.flask_app.test_request_context(
+            "/", base_url="http://toi.duckdns.org:9301", headers=_PAR_LE_VPS):
+        assert app.flask_app.session_interface.get_cookie_domain(app.flask_app) == "toi.duckdns.org"
+    with app.flask_app.test_request_context("/", base_url="http://192.168.1.10:9301"):
+        assert app.flask_app.session_interface.get_cookie_domain(app.flask_app) is None
+
+
+def test_l_adresse_publique_s_apprend_par_le_domaine(deux_origines):
+    """Plus de champ « Adresse publique » : c'est le domaine par lequel le
+    panneau a ete ouvert depuis internet. Ensuite, seule une session peut la
+    changer -- pas un visiteur qui imiterait les en-tetes du VPS."""
+    c = deux_origines
+    app.ecrire_exposition({})
+    c.get("/login", base_url="http://toi.duckdns.org:9301", headers=_PAR_LE_VPS)
+    assert app.adresse_publique() == "https://toi.duckdns.org"
+    c.get("/login", base_url="http://pirate.example.org:9301", headers=_PAR_LE_VPS)
+    assert app.adresse_publique() == "https://toi.duckdns.org"
 
 
 # ---------- 26. isolation du systeme de fichiers ----------
@@ -12001,13 +11938,12 @@ def test_seul_le_panneau_peut_encadrer_une_application(monkeypatch):
     Et le panneau installe, qui l'encadre, n'est plus bloque par un
     X-Frame-Options pose d'office par le framework de l'application."""
     monkeypatch.setattr(app, "origines_separees", lambda: True)
-    monkeypatch.setattr(app, "PANEL_URL", "https://codelab.exemple.fr")
     with app.flask_app.test_request_context("/site/", base_url="http://10.126.126.1:9002"):
         sortants = app.proteger_l_encadrement(
             [("Content-Type", "text/html"), ("X-Frame-Options", "SAMEORIGIN")])
     assert not [k for k, _ in sortants if k.lower() == "x-frame-options"]
     csp = dict(sortants)["Content-Security-Policy"]
-    assert csp == ("frame-ancestors https://codelab.exemple.fr http://10.126.126.1:9001 "
+    assert csp == ("frame-ancestors http://10.126.126.1:9001 "
                    "http://localhost:9001 http://127.0.0.1:9001")
 
     # Une application qui a SA regle frame-ancestors la garde.
@@ -15024,10 +14960,10 @@ def test_une_exception_donne_une_reference_et_jamais_la_pile(hub, monkeypatch, c
 def test_toute_reponse_5xx_du_panneau_porte_une_reference(hub, monkeypatch, capsys):
     def plein(_):
         raise OSError("disque plein")
-    monkeypatch.setattr(app, "ecrire_exposition", plein)
+    monkeypatch.setattr(app, "ecrire_categories", plein)
     admin = app.flask_app.test_client()
     admin.post("/login", json={"nom": "admin", "password": "secret-de-test"})
-    r = admin.put("/api/securite/exposition", json={"adresse_publique": ""})
+    r = admin.put("/api/categories", json={"categories": ["Outils"]})
     assert r.status_code == 500 and r.headers.get("X-CodeLab-Ref")
     assert f"erreur {r.headers['X-CodeLab-Ref']}" in capsys.readouterr().out
     # Une reponse qui marche n'en porte pas.
@@ -15222,13 +15158,16 @@ def test_l_image_porte_sa_version_et_la_ci_la_pose():
 
 def test_les_parametres_montrent_la_version_et_comment_mettre_a_jour():
     page = _page_panneau("dashboard.html")
-    serveur = page.split('<div class="onglet-p" id="param-serveur">')[1].split('<div class="onglet-p"')[0]
-    assert 'id="ver-carte"' in serveur
+    # Plus d'onglet « Serveur » : la version est dans « Compte », pour
+    # l'administrateur seulement.
+    compte = page.split('<div class="onglet-p" id="param-compte">')[1].split('<div class="onglet-p"')[0]
+    assert 'id="zone-version"' in compte and 'id="ver-carte"' in compte
+    assert "$('zone-version').remove();" in page
     peint = page.split("function peindreVersion(d){")[1].split("\n}")[0]
     # Le lien des nouveautes : c'est le navigateur qui l'ouvre, sur un clic.
     assert "/compare/${esc(d.sha)}...main" in peint
     assert "COMMANDES_MAJ" in peint and "ver-copier" in peint
-    assert "chargerVersion();" in page.split("if(o==='serveur' && estAdmin)")[1].split("\n")[0]
+    assert "if(estAdmin){ chargerCategories(); chargerVersion(); }" in page
 
 
 # ------------------------ Les appareils connectes ------------------------
@@ -15760,18 +15699,22 @@ def test_les_minuteries_ne_repeignent_pas_pendant_un_defilement():
 # Vecu : « Sur telephone, garde ce systeme d'onglet mais repartis bien les
 # parametrages en 2, 3 ou 4 onglets dedies de taille homogene. »
 
-def test_les_parametres_tiennent_en_quatre_onglets_de_meme_largeur():
+def test_les_parametres_tiennent_en_trois_onglets_de_meme_largeur():
     page = _page_panneau("dashboard.html")
     onglets = page.split('<div class="fiche-onglets" id="param-onglets">')[1].split("</div>")[0]
-    assert onglets.count("<button") == 4
-    for p in ("compte", "securite", "serveur", "email"):
+    assert onglets.count("<button") == 3
+    for p in ("compte", "securite", "email"):
         assert f'data-p="{p}"' in onglets, p
+    # Vecu : « Je ne veux pas avoir Acces depuis internet qui ne me sert a
+    # rien. Tu peux retirer la partie Serveur. »
+    assert 'data-p="serveur"' not in onglets and 'id="param-serveur"' not in page
+    assert "pubEnregistrer" not in page and "chargerVps" not in page
     # Les categories rejoignent les applications du hub, dans « Compte » --
     # et seulement pour l'administrateur.
     compte = page.split('<div class="onglet-p" id="param-compte">')[1].split('<div class="onglet-p"')[0]
     assert 'id="zone-categories"' in compte and 'id="cat-liste"' in compte
     assert "$('zone-categories').remove();" in page
-    assert "if(estAdmin) chargerCategories();" in page
+    assert "if(estAdmin){ chargerCategories(); chargerVersion(); }" in page
     # Au telephone : une grille de colonnes egales, sans defilement.
     assert ("#sec-parametres:not(.reglages-unifies) #param-onglets{display:grid;grid-auto-flow:column;"
             "grid-auto-columns:1fr;") in page

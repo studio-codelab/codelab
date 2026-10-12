@@ -173,7 +173,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # La version gravee dans l'image : le commit construit et sa date. Le
-      # panneau la compare a la derniere image publiee (Parametres > Serveur).
+      # panneau la compare a la derniere image publiee (Parametres > Compte).
       - name: Version
         id: version
         run: echo "date=$(git log -1 --format=%cI)" >> "$GITHUB_OUTPUT"

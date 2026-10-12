@@ -457,10 +457,11 @@ Détails : [`workspace/diagnostic/README.md`](workspace/diagnostic/README.md).
 Détails : [`app-manager/vps/README.md`](app-manager/vps/README.md).
 
 - **VPS + WireGuard** : le VPS porte le domaine et le certificat, ton serveur compose le tunnel.
-- **Assistant dans le panneau** (*Paramètres > Serveur*) : les fichiers de configuration avec tes
-  valeurs, prêts à copier.
-- **Clés d'accès et applications publiques** deviennent disponibles une fois l'adresse publique
-  déclarée.
+- **Une application, un sous-domaine** : ouvert par `toi.duckdns.org`, le panneau sert chaque
+  application à `https://<son-nom>.toi.duckdns.org` — le nom de sa fiche. Rien à déclarer : ni
+  variable, ni champ. En local, rien ne change (le port des applications).
+- **L'adresse publique s'apprend** : c'est le domaine par lequel le panneau a été ouvert depuis
+  internet. Elle sert aux liens d'invitation et permet de rendre une application publique.
 
 ## 11. Installation et mise à jour
 
@@ -471,7 +472,7 @@ Détails : [`README.md`](README.md).
 - **Secrets générés au premier démarrage** dans `credentials.env`, un bloc par service.
 - **Images publiées sur GHCR** : `latest` à chaque fusion, version `X.Y.Z` à chaque tag `vX.Y.Z`,
   reconstruction hebdomadaire.
-- **Version installée** (*Paramètres > Serveur*, administrateur) : le commit de l'image et sa date, un
+- **Version installée** (*Paramètres > Compte*, administrateur) : le commit de l'image et sa date, un
   lien vers les nouveautés depuis cette version sur GitHub, et les commandes de mise à jour à copier
   d'un clic. **Le panneau ne contacte jamais GitHub** de lui-même (aucun appel sortant) : le lien
   s'ouvre dans le navigateur, si on le choisit. Il ne se met pas non plus à jour tout seul.
