@@ -15000,3 +15000,59 @@ def test_un_plantage_au_lancement_reste_visible_dans_la_fiche(survivants):
     app.save(apps)
     assert app.start("site") is None
     assert "dernier_echec" not in app.load()["site"]
+
+
+# ------------------------ La version de CodeLab ------------------------
+#
+# Vecu : « je ne vois pas les modifs » -- l'image n'avait pas ete retiree,
+# et rien dans le panneau ne le disait. Puis, la verification aupres de
+# GitHub ecrite : « annule la possibilite alors. C'est un risque a prendre
+# inutile ». Le panneau affiche la version qu'il porte, et ne contacte rien.
+
+def test_le_panneau_dit_quelle_version_tourne(hub, monkeypatch):
+    monkeypatch.setattr(app, "CODELAB_VERSION", "a" * 40)
+    monkeypatch.setattr(app, "CODELAB_VERSION_DATE", "2026-10-12T09:00:00+02:00")
+    admin = app.flask_app.test_client()
+    admin.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    d = admin.get("/api/version").get_json()
+    assert d["court"] == "aaaaaaa" and d["dev"] is False and d["date"].startswith("2026-10-12")
+    monkeypatch.setattr(app, "CODELAB_VERSION", "dev")
+    d = admin.get("/api/version").get_json()
+    assert d["dev"] is True and d["sha"] == "" and d["court"] == ""
+    marie = _connexion_marie(app.flask_app.test_client())
+    assert marie.get("/api/version").status_code in (401, 403)
+
+
+def test_le_panneau_ne_contacte_jamais_github():
+    """Aucun appel sortant pour la version : ni fonction qui interroge
+    l'API, ni boucle de verification, ni route pour la declencher."""
+    source = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    assert "api.github.com" not in source
+    for trace in ("def verifier_mise_a_jour", "_github(", "/api/version/verifier",
+                  "APP_MANAGER_VERIFIER_MAJ"):
+        assert trace not in source, trace
+    page = _page_panneau("dashboard.html")
+    assert "/api/version/verifier" not in page and "maj-dispo" not in page
+
+
+def test_l_image_porte_sa_version_et_la_ci_la_pose():
+    racine = _racine_depot()
+    docker = open(os.path.join(racine, "app-manager", "Dockerfile"), encoding="utf-8").read()
+    assert "ARG CODELAB_VERSION=dev" in docker
+    assert "ENV CODELAB_VERSION=${CODELAB_VERSION} CODELAB_VERSION_DATE=${CODELAB_VERSION_DATE}" in docker
+    # En dernier : la version change a chaque build et ne doit pas casser le cache.
+    assert docker.index("ARG CODELAB_VERSION=dev") > docker.index("COPY app-manager/app ")
+    ci = open(os.path.join(racine, ".github", "workflows", "build-images.yml"), encoding="utf-8").read()
+    assert "CODELAB_VERSION=${{ github.sha }}" in ci
+    assert "CODELAB_VERSION_DATE=${{ steps.version.outputs.date }}" in ci
+
+
+def test_les_parametres_montrent_la_version_et_comment_mettre_a_jour():
+    page = _page_panneau("dashboard.html")
+    serveur = page.split('<div class="onglet-p" id="param-serveur">')[1].split('<div class="onglet-p"')[0]
+    assert 'id="ver-carte"' in serveur
+    peint = page.split("function peindreVersion(d){")[1].split("\n}")[0]
+    # Le lien des nouveautes : c'est le navigateur qui l'ouvre, sur un clic.
+    assert "/compare/${esc(d.sha)}...main" in peint
+    assert "COMMANDES_MAJ" in peint and "ver-copier" in peint
+    assert "chargerVersion();" in page.split("if(o==='serveur' && estAdmin)")[1].split("\n")[0]

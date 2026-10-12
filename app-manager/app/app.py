@@ -5267,6 +5267,37 @@ def api_sauvegardes_copie():
     return jsonify(etat_des_sauvegardes())
 
 
+# ------------------------- la version de CodeLab -------------------------
+#
+# Rien ne disait quelle version tournait : « je ne vois pas les modifs »
+# voulait souvent dire « l'image n'a pas ete retiree ». L'image porte son
+# commit et sa date (CODELAB_VERSION, CODELAB_VERSION_DATE, poses par la CI
+# au build) ; Parametres > Serveur les affiche.
+#
+# AUCUN APPEL SORTANT : le panneau ne demande pas a GitHub s'il existe plus
+# recent. C'est un choix -- un serveur qui contacte l'exterieur de lui-meme
+# est un risque a prendre sans necessite. La page propose un lien vers les
+# nouveautes ; c'est le navigateur de l'administrateur qui l'ouvre, s'il le
+# veut.
+
+CODELAB_VERSION = os.environ.get("CODELAB_VERSION", "").strip()
+CODELAB_VERSION_DATE = os.environ.get("CODELAB_VERSION_DATE", "").strip()
+DEPOT_CODELAB = "studio-codelab/codelab"
+SHA_VALIDE = re.compile(r"^[0-9a-f]{40}$")
+
+
+def etat_de_la_version():
+    dev = not SHA_VALIDE.match(CODELAB_VERSION)
+    return {"sha": "" if dev else CODELAB_VERSION, "court": "" if dev else CODELAB_VERSION[:7],
+            "date": CODELAB_VERSION_DATE, "dev": dev, "depot": DEPOT_CODELAB}
+
+
+@flask_app.get("/api/version")
+@require_admin
+def api_version():
+    return jsonify(etat_de_la_version())
+
+
 def demarrer_les_sauvegardes():
     if not sauvegardes_actives():
         if SAUVEGARDE_HEURES <= 0:

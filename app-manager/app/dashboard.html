@@ -100,6 +100,9 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
  transition:background .12s,color .12s,border-color .12s}
 .acct-btn svg{width:17px;height:17px}
 .acct-btn:hover{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+.ver-lien{color:var(--accent);font-weight:650;text-decoration:underline;text-underline-offset:2px}
+.ver-commandes{margin:12px 0 0;padding:12px 14px;border-radius:10px;background:var(--surface2);border:1px solid var(--line);
+ font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
 .acct-menu{position:absolute;right:0;top:40px;min-width:190px;background:var(--surface);
  border:1px solid var(--line);border-radius:var(--r);
  box-shadow:0 1px 2px var(--shadow),0 12px 28px var(--shadow-2);
@@ -2619,6 +2622,20 @@ a.pj:hover{border-color:var(--accent)}
        regler une. On ne voit d'abord que l'adresse ; le VPS et les cases
        techniques se deplient quand on en a besoin. -->
   <div class="onglet-p" id="param-serveur">
+  <!-- LA VERSION qui tourne, lue dans l'image. Le panneau ne contacte pas
+       GitHub pour savoir s'il existe plus recent (aucun appel sortant) : le
+       lien des nouveautes s'ouvre dans le navigateur, si on le choisit. -->
+  <div class="zone">
+    <div class="zone-title">Version</div>
+    <div class="card settings-card sans-pli" id="ver-carte">
+      <div class="card-top"><div class="card-name">
+        <b>Version de CodeLab</b>
+        <div class="path" id="ver-resume">Chargement…</div>
+      </div>
+      </div>
+      <div id="ver-corps"></div>
+    </div>
+  </div>
   <div class="zone">
     <div class="zone-title">Accès depuis internet</div>
     <div class="card settings-card">
@@ -3414,6 +3431,7 @@ const ACTIONS = {
   'invitation-annuler':  id => invAnnuler(id),
   'invitation-copier':   (_, d) => copierLien(d.lien),
   'param-onglet':    o => paramOnglet(o),
+  'ver-copier':      () => copierLien(COMMANDES_MAJ, 'Commandes copiées.'),
 };
 
 document.addEventListener('click', e => {
@@ -3858,7 +3876,7 @@ function paramOnglet(o){
   }
   /* La liste des applications vient du hub : on la relit, sinon le choix
      « D'une application » est vide pour qui arrive directement ici. */
-  if(o==='serveur' && estAdmin){ chargerSecurite(); chargerVps(); }
+  if(o==='serveur' && estAdmin){ chargerSecurite(); chargerVps(); chargerVersion(); }
   if(o==='categories') chargerCategories();
   /* Les deux onglets lisent la meme reponse : le serveur d'envoi et les
      alertes vivent au meme endroit, le coffre chiffre du panneau. */
@@ -6893,8 +6911,8 @@ async function invAnnuler(id){
   chargerInvitations();
 }
 
-function copierLien(lien){
-  navigator.clipboard?.writeText(lien).then(()=>notifier('Lien copié.'))
+function copierLien(lien, message='Lien copié.'){
+  navigator.clipboard?.writeText(lien).then(()=>notifier(message))
     .catch(()=>notifier('Copie impossible : sélectionne le lien à la main.', 'err'));
 }
 
@@ -7275,6 +7293,35 @@ async function sgCopieExterne(oui){
     body:JSON.stringify({externe:oui})});
   if(!r.ok){ notifier(await echec(r,'Réglage non enregistré.'),'err'); chargerSauvegardes(); return; }
   peindreSauvegardes(await r.json());
+}
+
+/* ---------------- la version de CodeLab ---------------- */
+const COMMANDES_MAJ = `for i in app-manager dev postgres redis mailpit dagster dagster-proxy; do
+  docker pull ghcr.io/studio-codelab/codelab-$i:latest
+done
+docker compose up -d --force-recreate`;
+function dateCourte(iso){
+  if(!iso) return '';
+  const d=new Date(iso); if(isNaN(d)) return '';
+  return d.toLocaleDateString('fr-FR',{day:'numeric', month:'long', year:'numeric'});
+}
+function peindreVersion(d){
+  const nom = d.dev ? 'Une version de développement, construite à la main : elle ne porte pas de numéro.'
+    : 'Installée : la version '+d.court+(d.date ? ' du '+dateCourte(d.date) : '')+'.';
+  $('ver-resume').textContent=nom;
+  remplir($('ver-corps'), (d.dev ? '' : `<div class="hint" style="margin-top:10px">Le panneau ne contacte pas GitHub pour savoir s'il existe plus récent.
+      Pour voir ce qui a changé depuis ta version : <a href="https://github.com/${esc(d.depot)}/compare/${esc(d.sha)}...main"
+      rel="noopener noreferrer" class="ver-lien">les nouveautés sur GitHub</a>.</div>`)
+    + '<b style="display:block;margin-top:14px">Pour mettre à jour</b>'
+    + '<div class="hint">Dans le dossier du <code>docker-compose.yml</code>, sur le serveur (avec CasaOS : « Mettre à jour » sur l\'application) :</div>'
+    + `<pre class="ver-commandes">${esc(COMMANDES_MAJ)}</pre>`
+    + `<div class="actions" style="margin-top:8px"><button class="btn btn-default btn-sm" data-agir="ver-copier">Copier les commandes</button></div>`);
+}
+async function chargerVersion(){
+  try{
+    const r=await fetch('/api/version'); if(!r.ok) return;
+    peindreVersion(await r.json());
+  }catch(e){}
 }
 
 async function chargerSecurite(){
