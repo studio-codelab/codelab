@@ -328,6 +328,14 @@
    defile reste defilable -- seule la barre disparait. */
 *{scrollbar-width:none}
 *::-webkit-scrollbar{display:none}
+/* Sauf celle de la page entiere sur iOS, qu'aucune regle n'atteint : au
+   doigt, la page ne defile donc pas, c'est #defile -- un bloc qui enveloppe
+   tout le <body> des pages du panneau -- qui defile a sa place. A la souris,
+   rien ne change. */
+@media (pointer:coarse){
+  html:has(> body > #defile),html:has(> body > #defile) > body{height:100%;overflow:hidden}
+  #defile{height:100%;overflow-x:hidden;overflow-y:auto;overscroll-behavior-y:contain}
+}
 
 
 /* ------------------------------ mode application ------------------------------
@@ -338,7 +346,7 @@
    journaux restent selectionnables : on y copie et on y colle. */
 html.mode-app{touch-action:pan-x pan-y;overscroll-behavior:none;-webkit-text-size-adjust:100%;
  -webkit-tap-highlight-color:transparent}
-html.mode-app body{overscroll-behavior:none}
+html.mode-app :is(body,#defile){overscroll-behavior:none}
 html.mode-app body{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 html.mode-app :is(input,textarea,select,[contenteditable],pre,code,.selectionnable){
  -webkit-user-select:text;user-select:text;-webkit-touch-callout:default}

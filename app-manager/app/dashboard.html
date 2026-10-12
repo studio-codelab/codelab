@@ -1603,7 +1603,7 @@ table.tbl-journal{min-width:560px}
    dedans, une pour les widgets, une pour les applications. */
 /* Sur un ecran large, defilant a l'horizontale, la page du hub ne defile
    PAS a la verticale : seule la mosaique defile, de cote. */
-@media (min-width:761px){ :root[data-variante="bento"]:not(.hub-vertical).hub-actif{overflow:hidden} }
+@media (min-width:761px){ :root[data-variante="bento"]:not(.hub-vertical).hub-actif :is(body,#defile){overflow:hidden} }
 .hub-tete,.hub-tete-texte,.hub-barre,.hub-compose-groupe{display:contents}
 .hub-compose{display:none}
 :root[data-variante="bento"] .hub-tete{display:flex;align-items:flex-end;justify-content:space-between;gap:16px 24px;
@@ -1778,7 +1778,8 @@ table.tbl-journal{min-width:560px}
 .gl-nom{font-size:12.5px;font-weight:700;color:var(--dim)}
 .bw-titre,.bw-sur{font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
 .bw-vide{margin:auto 0;color:var(--dim)}
-.bw-une{padding:0;background:var(--accent);border:0;color:var(--sur-accent);position:relative}
+.bw-une{padding:0;background:var(--une-fond,var(--accent));border:0;color:var(--une-txt,var(--sur-accent));position:relative;
+ transition:background-color .4s,color .4s}
 .bw-apercu{flex:1;min-height:0;position:relative;overflow:hidden;background:var(--surface2);border-radius:24px 24px 0 0}
 .bw-apercu iframe{position:absolute;inset:0;width:200%;height:200%;border:0;transform:scale(.5);transform-origin:0 0;
  pointer-events:none;background:#fff}
@@ -1788,9 +1789,11 @@ table.tbl-journal{min-width:560px}
 .bw-une-ligne{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .bw-une-ligne img{width:40px;height:40px;border-radius:12px}
 .bw-une-nom{font-size:clamp(24px,2.4vw,34px);font-weight:800;letter-spacing:-.04em;line-height:1}
-.bw-une:hover{background:var(--accent-h)}
+.bw-une:hover{background:var(--une-fond-h,var(--accent-h))}
 .bw-une .bento-bouton{margin-top:4px}
-.bw-une .badge-maj{background:var(--surface);color:var(--accent)}
+.bw-une .badge-maj{background:var(--surface);color:var(--txt)}
+/* La bande-annonce remplit l'apercu ; l'icone attend dessous qu'elle charge. */
+.bw-une-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:transparent}
 .bw-messages{justify-content:space-between}
 .bw-sauvegardes{justify-content:space-between}
 .bw-sauvegardes p{margin:6px 0 0;color:var(--dim)}
@@ -1952,6 +1955,7 @@ a.pj:hover{border-color:var(--accent)}
   .bento-chiffre{font-size:64px}
 }
 </style></head><body>
+<div id="defile">
 <div class="topbar">
   <div class="topbar-gauche">
   <button class="side-toggle-btn" id="btn-menu" onclick="toggleSidebar()" title="Réduire / étendre le menu">
@@ -3499,11 +3503,13 @@ function revenirEnLigne(){
   else if(estAdmin && ['overview','apps','app'].includes(sectionCourante)) refresh();
 }
 /* L'en-tete colle de la fiche prend un trait quand le contenu passe dessous. */
-window.addEventListener('scroll', ()=>{
+function majEnteteCollee(){
   if(sectionCourante!=='app') return;
   const t=document.querySelector('#sec-app .fiche-tete');
-  if(t) t.classList.toggle('collee', t.getBoundingClientRect().top<=53 && scrollY>0);
-}, {passive:true});
+  if(t) t.classList.toggle('collee', t.getBoundingClientRect().top<=53 && defileur().scrollTop>0);
+}
+window.addEventListener('scroll', majEnteteCollee, {passive:true});
+document.getElementById('defile').addEventListener('scroll', majEnteteCollee, {passive:true});
 window.addEventListener('offline', passerHorsLigne);
 window.addEventListener('online', ()=>{ if(horsLigneDepuis) essayerConnexion(); });
 
@@ -3536,6 +3542,11 @@ window.addEventListener('unhandledrejection', ev=>{
 });
 
 const $=i=>document.getElementById(i), hide=i=>$(i).classList.remove("show");
+/* CE QUI DEFILE. Au doigt, c'est #defile, pas la page : iOS ne laisse
+   masquer la barre de defilement que d'un bloc interieur, jamais celle de la
+   page entiere (theme.css). A la souris, la page, comme d'habitude. */
+const DEFILE_INTERNE=matchMedia('(pointer:coarse)');
+const defileur=()=>DEFILE_INTERNE.matches ? $('defile') : document.scrollingElement;
 /* Echappe le TEXTE et les VALEURS D'ATTRIBUT, et rien d'autre.
    L'apostrophe est ajoutee pour les attributs ecrits entre apostrophes.
 
@@ -4627,15 +4638,89 @@ function widgetApercu(a, taille, surtitre, enDirect=true){
      n'a rien a montrer : son icone la remplace. */
   /* Un compte utilisateur ne connait pas l'etat : l'apercu montre toujours
      la page (la page neutre si l'application ne repond pas). */
+  /* « A la une », l'application qui a une video de presentation la joue en
+     boucle, sans le son, comme une bande-annonce (videoALaUne). */
+  const video = !enDirect && videoALaUne(a);
   const apercu = enDirect && (a.running || !estAdmin) && !a.externe && !a.interne
     ? `<iframe src="${esc(urlApplication(a.name))}" title="Aperçu de ${esc(nomAffiche(a))}"
          loading="lazy" tabindex="-1" aria-hidden="true" referrerpolicy="no-referrer"
          sandbox="allow-scripts allow-same-origin allow-forms"></iframe>`
-    : `<img class="bw-une-icone" src="${icone(a.name)}" alt="">`;
-  return `<div class="bw-apercu${enDirect ? '' : ' sans-direct'}" data-garder="apercu-${esc(a.name)}-${a.running?1:0}-${taille}-${enDirect?1:0}">${apercu}</div>
+    : `<img class="bw-une-icone" src="${icone(a.name)}" alt="">${video}`;
+  return `<div class="bw-apercu${enDirect ? '' : ' sans-direct'}${video ? ' en-video' : ''}"${enDirect ? '' : ` data-teinte="${esc(a.name)}"`}
+      data-garder="apercu-${esc(a.name)}-${a.running?1:0}-${taille}-${enDirect?1:0}-${video ? a.presentation.maj : 0}">${apercu}</div>
     <a class="bw-une-pied" href="${lienOuverture(a)}" data-app="${esc(a.name)}">
       <span class="bw-sur">${esc(surtitre)}</span>
       <span class="bw-une-ligne"><img src="${icone(a.name)}" alt=""><span class="bw-une-nom">${esc(nomAffiche(a))}</span>${badgeMaj(a)}</span></a>`;
+}
+/* La bande-annonce : la video de presentation, muette, en boucle, lancee
+   seule (muted + playsinline : iOS l'accepte). Pas quand l'appareil demande
+   moins d'animations ou economise ses donnees : l'icone reste. */
+function videoALaUne(a){
+  if(!a.presentation) return '';
+  try{
+    if(matchMedia('(prefers-reduced-motion: reduce)').matches) return '';
+    if(navigator.connection && navigator.connection.saveData) return '';
+  }catch(e){}
+  const base='/api/presentations/'+encodeURIComponent(a.name)+'/', v=a.presentation.maj;
+  return `<video class="bw-une-video" src="${base}video?v=${v}"${a.presentation.affiche ? ` poster="${base}affiche?v=${v}"` : ''}
+    muted loop autoplay playsinline preload="metadata" disablepictureinpicture tabindex="-1" aria-hidden="true"></video>`;
+}
+/* LES COULEURS DE L'APPLICATION. Le widget « a la une » prend la couleur
+   dominante de son icone au lieu de l'accent du panneau : chaque application
+   a son ambiance. Mesuree une fois par icone (un canevas de 32 px), puis
+   gardee : chaque repeint la repose sans attendre. Le texte passe au blanc ou
+   au presque-noir, celui des deux qui contraste le plus. */
+const teintesIcones=new Map();
+function luminance([r,g,b]){
+  const c=v=>{ v/=255; return v<=.03928 ? v/12.92 : Math.pow((v+.055)/1.055, 2.4); };
+  return .2126*c(r)+.7152*c(g)+.0722*c(b);
+}
+function teinteDominante(img){
+  const n=32, cv=document.createElement('canvas'); cv.width=cv.height=n;
+  const cx=cv.getContext('2d', {willReadFrequently:true});
+  cx.drawImage(img, 0, 0, n, n);
+  const px=cx.getImageData(0, 0, n, n).data;
+  /* Douze familles de teinte, chaque pixel pese sa saturation : un fond
+     blanc ou un contour noir ne l'emporte pas sur la couleur du logo. */
+  const familles=Array.from({length:12}, ()=>({poids:0, r:0, g:0, b:0}));
+  for(let i=0; i<px.length; i+=4){
+    if(px[i+3]<200) continue;
+    const r=px[i], g=px[i+1], b=px[i+2], max=Math.max(r,g,b), min=Math.min(r,g,b);
+    const sat = max ? (max-min)/max : 0;
+    if(sat<.25 || max<40) continue;
+    let h = max===min ? 0 : max===r ? (g-b)/(max-min) : max===g ? 2+(b-r)/(max-min) : 4+(r-g)/(max-min);
+    h=((h*60)+360)%360;
+    const f=familles[Math.floor(h/30)%12], w=sat*sat;
+    f.poids+=w; f.r+=r*w; f.g+=g*w; f.b+=b*w;
+  }
+  const f=familles.reduce((x,y)=>y.poids>x.poids ? y : x);
+  if(f.poids<1) return null;               // une icone en gris : l'accent reste
+  return [f.r/f.poids, f.g/f.poids, f.b/f.poids].map(Math.round);
+}
+function poserTeinte(bloc, t){
+  if(!t){ bloc.style.removeProperty('--une-fond'); bloc.style.removeProperty('--une-fond-h'); bloc.style.removeProperty('--une-txt'); return; }
+  const [r,g,b]=t, L=luminance(t);
+  const clair = (1.05)/(L+.05) >= (L+.05)/(luminance([16,20,26])+.05);
+  const h=t.map(v=>Math.round(v*.88));
+  bloc.style.setProperty('--une-fond', `rgb(${r},${g},${b})`);
+  bloc.style.setProperty('--une-fond-h', `rgb(${h.join(',')})`);
+  bloc.style.setProperty('--une-txt', clair ? '#ffffff' : '#10141a');
+}
+function teinterALaUne(racine){
+  racine.querySelectorAll('[data-teinte]').forEach(n=>{
+    const bloc=n.closest('.bw'), nom=n.dataset.teinte;
+    if(!bloc) return;
+    if(teintesIcones.has(nom)){ poserTeinte(bloc, teintesIcones.get(nom)); return; }
+    const img=new Image();
+    img.onload=()=>{
+      let t=null; try{ t=teinteDominante(img); }catch(e){}
+      teintesIcones.set(nom, t);
+      const ici=racine.querySelector(`[data-teinte="${CSS.escape(nom)}"]`);
+      if(ici && ici.closest('.bw')) poserTeinte(ici.closest('.bw'), t);
+    };
+    img.onerror=()=>teintesIcones.set(nom, null);
+    img.src=icone(nom);
+  });
 }
 function widgetEtat(taille){
   const liste=hubApps.concat(hubServices);
@@ -5008,6 +5093,7 @@ function peindreBento(liste, filtre){
   if(glisse && glisse.parti) return;
   el.className='bento '+(enZones ? 'zones' : 'hub-grille')+(hubEdition ? ' edition' : '');
   remplirEnGardant(el, html);
+  teinterALaUne(el);
   majBoutonsComposer();
   ajusterBento();
 }
@@ -5052,9 +5138,10 @@ function ajusterBento(){
      bord : en pixels, parce qu'un pourcentage s'y mesurerait sur la
      mosaique elle-meme, et vaudrait zero. */
   el.style.scrollPaddingLeft=getComputedStyle(el).paddingLeft;
-  const haut=el.getBoundingClientRect().top + window.scrollY;
+  const d=defileur();
+  const haut=el.getBoundingClientRect().top + d.scrollTop;
   el.style.setProperty('--bento-h', Math.max(420, window.innerHeight - haut - 28) + 'px');
-  const exces=document.documentElement.scrollHeight - window.innerHeight;
+  const exces=d.scrollHeight - d.clientHeight;
   if(exces>0) el.style.setProperty('--bento-h', Math.max(420, el.clientHeight - exces) + 'px');
   const interieur=el.clientHeight - 14;
   /* 112 px la case, 22 px entre deux rangees (CSS, mode icones). */
@@ -5168,7 +5255,7 @@ function defilerPresDesBords(){
   if(!horizontal()){
     const h=window.innerHeight; let w=0;
     if(g.y < bord) w=-Math.ceil((bord-g.y)/5); else if(g.y > h-bord) w=Math.ceil((g.y-(h-bord))/5);
-    if(w){ window.scrollBy(0, w); suivrePointeur(); chercherPlace(); }
+    if(w){ defileur().scrollBy(0, w); suivrePointeur(); chercherPlace(); }
   }
   g.raf=requestAnimationFrame(defilerPresDesBords);
 }
@@ -7941,4 +8028,5 @@ function reposerIcone(){
 window.addEventListener('pageshow', reposerIcone);
 document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) reposerIcone(); });
 </script>
+</div>
 </body></html>
