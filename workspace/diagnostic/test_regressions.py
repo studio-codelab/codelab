@@ -13482,7 +13482,7 @@ def test_la_mosaique_defile_a_l_horizontale_et_a_la_verticale_sur_telephone():
     assert "grid-auto-flow:row" in mobile and "overflow:visible" in mobile and "height:auto" in mobile
     # La molette verticale fait defiler de cote ; l'ajout d'application est
     # la derniere tuile, donc a droite.
-    assert "el.scrollLeft += e.deltaY" in page
+    assert "$('hub-liste').addEventListener('wheel'" in page
     # Plus d'ajout d'application depuis le hub : cela se fait dans
     # « Applications ».
     corps = page.split("function peindreBento(")[1].split("\n}")[0]
@@ -13549,8 +13549,8 @@ def test_le_hub_se_compose_par_compte(deux_espaces):
                   # la mosaique defile pres des bords ; le tremblement laisse
                   # « transform » libre pour ces glissements.
                   "function glisserLesAutres(", "function defilerPresDesBords(", "{from{rotate:-",
-                  # Bord a bord, et l'aimant du defilement sur la marge de gauche.
-                  "margin-left:calc(50% - 50vw)", "el.style.scrollPaddingLeft="):
+                  # Bord a bord.
+                  "margin-left:calc(50% - 50vw)"):
         assert trace in page, trace
 
 
@@ -15724,3 +15724,33 @@ def test_a_la_une_prend_les_couleurs_de_son_icone():
     assert "'#ffffff' : '#10141a'" in poser                   # le texte qui contraste le plus
     bento = page.split("function peindreBento(")[1].split("\n}")[0]
     assert "remplirEnGardant(el, html);\n  teinterALaUne(el);" in bento
+
+
+# ------------- Un defilement sans saut -------------
+#
+# Vecu : « Fluidifie le scroll qui doit etre parfait. Pas de saut, pas de
+# scroll trop rapide a l'horizontal » ; « l'app "saute" de temps en temps
+# lorsque je scroll ».
+
+def test_la_mosaique_n_a_plus_d_aimant_et_la_molette_glisse():
+    page = _page_panneau("dashboard.html")
+    # L'aimant ramenait la mosaique sur une colonne apres chaque cran.
+    assert "scroll-snap-type" not in page and "scroll-snap-align" not in page
+    molette = page.split("$('hub-liste').addEventListener('wheel', e=>{")[1].split("\n}, {passive:false});")[0]
+    # Un cran de molette va moins loin, et glisse jusqu'a sa cible.
+    assert "const cible=Math.max(0, Math.min(max, depart + pas*(cran ? MOLETTE_PAS : 1)));" in molette
+    assert "const MOLETTE_PAS=2/3;" in page
+    # Un pave tactile passe tel quel.
+    assert "if(!cran && !molette){ el.scrollLeft += pas; return; }" in molette
+    glisser = page.split("function glisserMolette(){")[1].split("\n}")[0]
+    # Au moins un pixel par image : sinon l'arrondi de scrollLeft bloque.
+    assert "Math.max(1, Math.abs(reste)*.2)" in glisser and "el.scrollLeft===avant" in glisser
+
+
+def test_les_minuteries_ne_repeignent_pas_pendant_un_defilement():
+    page = _page_panneau("dashboard.html")
+    assert "const enDefilement = () => doigtsPoses>0 || performance.now()-defileLe < 700;" in page
+    assert "document.addEventListener('scroll', ()=>{ defileLe=performance.now(); }, {capture:true, passive:true});" in page
+    surveiller = page.split("function surveiller(fn, delai){")[1].split("\n}")[0]
+    assert "quandImmobile(()=>{ enAttente=false; fn(); })" in surveiller
+    assert "setInterval(tour, delai)" in surveiller
