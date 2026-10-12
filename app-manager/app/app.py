@@ -63,6 +63,7 @@ import subprocess
 import threading
 import time
 import unicodedata
+import zlib
 import traceback
 import urllib.error
 import urllib.parse
@@ -10370,6 +10371,220 @@ def ecran_accueil_icone():
     return r
 
 
+# L'ECRAN DE DEMARRAGE. Ouverte depuis l'icone, une application web iOS
+# affichait un ecran BLANC le temps de charger : une vraie app montre son fond
+# et son logo. iOS exige une image par taille d'ecran (apple-touch-startup-
+# image, choisie par media query) : le panneau les fabrique a la demande, au
+# pixel pres, en Python pur -- fond de la couleur du bandeau, logo au centre
+# -- et les garde en memoire. Clair et sombre.
+ECRANS_DEMARRAGE = {
+    # (largeur, hauteur) en points, densite : les iPhone depuis le SE.
+    (320, 568, 2), (375, 667, 2), (414, 896, 2), (375, 812, 3), (414, 896, 3),
+    (390, 844, 3), (428, 926, 3), (393, 852, 3), (430, 932, 3), (402, 874, 3),
+    (440, 956, 3), (360, 780, 3),
+}
+FONDS_DEMARRAGE = {"clair": (0xE9, 0xEB, 0xEE), "sombre": (0x0D, 0x10, 0x15)}
+_ecrans_faits = {}
+
+
+def _png_lire_rgba(donnees):
+    """Decode un PNG 8 bits RGBA non entrelace (le logo du panneau)."""
+    largeur, hauteur, prof, couleur = struct.unpack(">IIBB", donnees[16:26])
+    if prof != 8 or couleur != 6:
+        raise ValueError("PNG RGBA 8 bits attendu")
+    idat, i = b"", 8
+    while i < len(donnees):
+        n = struct.unpack(">I", donnees[i:i + 4])[0]
+        if donnees[i + 4:i + 8] == b"IDAT":
+            idat += donnees[i + 8:i + 8 + n]
+        i += 12 + n
+    brut, ligne, pas = zlib.decompress(idat), largeur * 4, 4
+    pixels, prec, j = [], bytearray(ligne), 0
+    for _ in range(hauteur):
+        filtre, cur = brut[j], bytearray(brut[j + 1:j + 1 + ligne])
+        j += 1 + ligne
+        for x in range(ligne):
+            a = cur[x - pas] if x >= pas else 0
+            b = prec[x]
+            c = prec[x - pas] if x >= pas else 0
+            if filtre == 1:
+                cur[x] = (cur[x] + a) & 255
+            elif filtre == 2:
+                cur[x] = (cur[x] + b) & 255
+            elif filtre == 3:
+                cur[x] = (cur[x] + ((a + b) >> 1)) & 255
+            elif filtre == 4:
+                p = a + b - c
+                pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+                cur[x] = (cur[x] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+        pixels.append(bytes(cur))
+        prec = cur
+    return largeur, hauteur, pixels
+
+
+def _agrandir(largeur, hauteur, pixels, facteur):
+    """Agrandissement bilineaire, pour un logo net sur un ecran Retina."""
+    if facteur == 1:
+        return largeur, hauteur, pixels
+    nl, nh = int(largeur * facteur), int(hauteur * facteur)
+    sortie = []
+    for y in range(nh):
+        fy = min(max((y + .5) / facteur - .5, 0), hauteur - 1)
+        y0 = int(fy); y1 = min(y0 + 1, hauteur - 1); dy = fy - y0
+        r0, r1, ligne = pixels[y0], pixels[y1], bytearray(nl * 4)
+        for x in range(nl):
+            fx = min(max((x + .5) / facteur - .5, 0), largeur - 1)
+            x0 = int(fx); x1 = min(x0 + 1, largeur - 1); dx = fx - x0
+            for k in range(4):
+                v = (r0[x0 * 4 + k] * (1 - dx) + r0[x1 * 4 + k] * dx) * (1 - dy) \
+                    + (r1[x0 * 4 + k] * (1 - dx) + r1[x1 * 4 + k] * dx) * dy
+                ligne[x * 4 + k] = int(v + .5)
+        sortie.append(bytes(ligne))
+    return nl, nh, sortie
+
+
+def _png_ecrire_rgb(largeur, hauteur, lignes):
+    def bloc(t, d):
+        return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
+    brut = b"".join(b"\x00" + l for l in lignes)
+    return (b"\x89PNG\r\n\x1a\n" + bloc(b"IHDR", struct.pack(">IIBBBBB", largeur, hauteur, 8, 2, 0, 0, 0))
+            + bloc(b"IDAT", zlib.compress(brut, 6)) + bloc(b"IEND", b""))
+
+
+def ecran_de_demarrage(largeur, hauteur, theme):
+    cle = (largeur, hauteur, theme)
+    if cle not in _ecrans_faits:
+        fond = FONDS_DEMARRAGE[theme]
+        lw, lh, logo = _png_lire_rgba(ICONE_CODELAB_PNG)
+        # Le logo fait environ 90 points de large, quelle que soit la densite.
+        facteur = max(1, round(largeur / 1290 * 3 * 90 / lw * 10) / 10)
+        lw, lh, logo = _agrandir(lw, lh, logo, facteur)
+        ligne_fond = bytes(fond) * largeur
+        x0, y0 = (largeur - lw) // 2, (hauteur - lh) // 2
+        lignes = []
+        for y in range(hauteur):
+            if y0 <= y < y0 + lh:
+                ligne = bytearray(ligne_fond)
+                src = logo[y - y0]
+                for x in range(lw):
+                    a = src[x * 4 + 3]
+                    if a:
+                        o = (x0 + x) * 3
+                        for k in range(3):
+                            ligne[o + k] = (src[x * 4 + k] * a + fond[k] * (255 - a)) // 255
+                lignes.append(bytes(ligne))
+            else:
+                lignes.append(ligne_fond)
+        _ecrans_faits[cle] = _png_ecrire_rgb(largeur, hauteur, lignes)
+    return _ecrans_faits[cle]
+
+
+@flask_app.get("/ecran-demarrage/<int:largeur>x<int:hauteur>-<theme>.png")
+def ecran_demarrage(largeur, hauteur, theme):
+    tailles = {(w * d, h * d) for w, h, d in ECRANS_DEMARRAGE}
+    if (largeur, hauteur) not in tailles or theme not in FONDS_DEMARRAGE:
+        return Response("Inconnu", status=404, mimetype="text/plain")
+    r = Response(ecran_de_demarrage(largeur, hauteur, theme), mimetype="image/png")
+    r.headers["Cache-Control"] = "public, max-age=86400"
+    return r
+
+
+def balises_ecran_de_demarrage():
+    """Les <link rel="apple-touch-startup-image"> des pages du panneau."""
+    liens = []
+    for w, h, d in sorted(ECRANS_DEMARRAGE):
+        for theme, schema in (("clair", "light"), ("sombre", "dark")):
+            liens.append(
+                f'<link rel="apple-touch-startup-image" media="screen and (device-width: {w}px) '
+                f'and (device-height: {h}px) and (-webkit-device-pixel-ratio: {d}) and '
+                f'(orientation: portrait) and (prefers-color-scheme: {schema})" '
+                f'href="/ecran-demarrage/{w * d}x{h * d}-{theme}.png">')
+    return "".join(liens)
+
+
+# HORS LIGNE, L'APPLICATION S'OUVRE QUAND MEME. Sans serveur (ou sans
+# reseau), une application web installee affichait la page d'erreur de
+# Safari : plus rien d'une app. Un service worker -- enregistre seulement en
+# mode application, pas dans le navigateur, ou le panneau reste un site --
+# garde UNE page en reserve, /hors-ligne.html, et la montre quand une page du
+# panneau ne repond pas. Il ne met en cache ni les pages du panneau (elles
+# portent la session) ni aucune donnee, et laisse passer tout le reste.
+PAGE_HORS_LIGNE = """<!doctype html><html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#E9EBEE" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0D1015" media="(prefers-color-scheme: dark)">
+<title>CodeLab</title>
+<style>
+:root{--bg:#E9EBEE;--txt:#14181d;--dim:#5b6470;--carte:#fff;--ligne:#dadee3}
+@media (prefers-color-scheme: dark){:root{--bg:#0D1015;--txt:#e8ebef;--dim:#98a2ae;--carte:#161B22;--ligne:#262E38}}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
+ font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+ -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;overscroll-behavior:none}
+main{min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+ padding:24px;box-sizing:border-box;text-align:center}
+img{width:72px;height:72px}
+h1{font-size:20px;margin:6px 0 0}
+p{margin:0;color:var(--dim);max-width:320px}
+button{margin-top:8px;font:inherit;font-weight:650;padding:10px 20px;border-radius:999px;border:1px solid var(--ligne);
+ background:var(--carte);color:var(--txt)}
+</style></head><body><main>
+<img src="data:image/png;base64,__LOGO__" alt="">
+<h1>Serveur injoignable</h1>
+<p>CodeLab ne répond pas : le serveur est arrêté, ou ton téléphone n'a pas de réseau.</p>
+<p id="etat">Nouvel essai dans 5 s.</p>
+<button type="button" onclick="essayer()">Réessayer</button>
+</main><script>
+var n=5;
+function essayer(){
+  document.getElementById('etat').textContent='Connexion…';
+  fetch('/health',{cache:'no-store'}).then(function(r){ if(r.ok) location.reload(); else attendre(); }, attendre);
+}
+function attendre(){ n=5; tic(); }
+function tic(){
+  if(n<=0){ essayer(); return; }
+  document.getElementById('etat').textContent='Nouvel essai dans '+n+' s.';
+  n--; setTimeout(tic,1000);
+}
+tic();
+window.addEventListener('online', essayer);
+</script></body></html>"""
+
+SERVICE_WORKER = """// CodeLab, mode application : une page de reserve quand le serveur se tait.
+const CACHE = 'codelab-hors-ligne-v2';
+const RESERVE = ['/hors-ligne.html'];
+self.addEventListener('install', e => {
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(RESERVE)).then(() => self.skipWaiting()));
+});
+self.addEventListener('activate', e => {
+  e.waitUntil(caches.keys().then(cles => Promise.all(cles.filter(c => c !== CACHE).map(c => caches.delete(c))))
+    .then(() => self.clients.claim()));
+});
+// Seules les PAGES passent par ici, et seulement en cas d'echec : le reste
+// (API, images, applications) va au reseau sans detour.
+self.addEventListener('fetch', e => {
+  if (e.request.mode !== 'navigate') return;
+  e.respondWith(fetch(e.request).catch(() => caches.match('/hors-ligne.html')));
+});
+"""
+
+
+@flask_app.get("/hors-ligne.html")
+def page_hors_ligne():
+    # Le logo est DANS la page : hors ligne, rien d'autre ne se charge.
+    r = Response(PAGE_HORS_LIGNE.replace("__LOGO__", base64.b64encode(ICONE_CODELAB_PNG).decode()),
+                 mimetype="text/html")
+    r.headers["Cache-Control"] = "no-cache"
+    return r
+
+
+@flask_app.get("/sw.js")
+def service_worker():
+    r = Response(SERVICE_WORKER, mimetype="text/javascript")
+    # Toujours relu : une nouvelle version du panneau remplace l'ancienne.
+    r.headers["Cache-Control"] = "no-cache"
+    return r
+
+
 @flask_app.get("/manifest.webmanifest")
 def ecran_accueil_manifeste():
     manifeste = {
@@ -10674,18 +10889,55 @@ def ouvrir_dans_le_panneau():
     def esc(x):
         return (str(x).replace("&", "&amp;").replace("<", "&lt;")
                 .replace(">", "&gt;").replace('"', "&quot;"))
+    origine_app = base or ""
     page = ('<!doctype html><html lang="fr"><head><meta charset="utf-8">'
-            '<meta name="viewport" content="width=device-width,initial-scale=1">'
+            '<meta name="viewport" content="width=device-width,initial-scale=1,'
+            'maximum-scale=1,user-scalable=no,viewport-fit=cover">'
             '<title>' + esc(titre) + '</title>'
             # L'onglet porte l'icone de L'APPLICATION ouverte : c'est elle
             # qu'on regarde. Le panneau, lui, garde toujours la sienne.
             '<link rel="icon" href="/api/icon/' + urllib.parse.quote(nom, safe="") + '">'
             '<link rel="manifest" href="/manifest.webmanifest">'
             '<meta name="apple-mobile-web-app-capable" content="yes">'
-            '<style>html,body{margin:0;height:100%;background:#fff}'
-            'iframe{display:block;border:0;width:100%;height:100%;height:100dvh}</style>'
+            # La barre d'etat : blanche d'abord, puis la couleur que
+            # l'application annonce (voir le script du ruban).
+            '<meta name="theme-color" content="#ffffff">'
+            '<style>html,body{margin:0;height:100%;background:#fff;overscroll-behavior:none;'
+            '-webkit-tap-highlight-color:transparent;touch-action:pan-x pan-y}'
+            'iframe{display:block;border:0;width:100%;height:100%;height:100dvh}'
+            # LE GESTE RETOUR. En mode application, iOS n'a ni bouton ni
+            # geste pour revenir : un glissement depuis le bord gauche ramene
+            # au hub, comme dans une app native. Une bande de 14 px seulement,
+            # pour ne pas prendre de place a l'application.
+            '#bord{position:fixed;left:0;top:0;bottom:0;width:14px;z-index:2;touch-action:none}'
+            '#fleche{position:fixed;left:-44px;top:50%;width:40px;height:40px;margin-top:-20px;'
+            'border-radius:50%;background:rgba(20,26,33,.86);color:#fff;z-index:3;display:grid;'
+            'place-items:center;font:600 20px/1 sans-serif;transition:opacity .15s;opacity:0}'
+            '</style>'
             '</head><body><iframe src="' + esc(cible) + '" title="' + esc(titre) + '" '
-            'allow="clipboard-read; clipboard-write; fullscreen"></iframe></body></html>')
+            'allow="clipboard-read; clipboard-write; fullscreen"></iframe>'
+            '<div id="bord" aria-hidden="true"></div><div id="fleche" aria-hidden="true">&#8592;</div>'
+            '<script>(function(){'
+            # Couleur annoncee par l'application encadree (postMessage depuis
+            # le script du ruban), acceptee de SON origine seulement, et
+            # seulement si c'est une couleur.
+            'var origine=' + json.dumps(origine_app) + '||location.origin;'
+            'addEventListener("message",function(e){'
+            'if(e.origin!==origine||!e.data||e.data.codelab!=="couleur")return;'
+            'var c=String(e.data.valeur||"");'
+            'if(!/^(#[0-9a-fA-F]{3,8}|rgba?\\([0-9.,\\s%]+\\))$/.test(c))return;'
+            'document.querySelector("meta[name=theme-color]").setAttribute("content",c);'
+            'document.body.style.background=c;});'
+            'var b=document.getElementById("bord"),f=document.getElementById("fleche"),x0=null;'
+            'b.addEventListener("touchstart",function(e){x0=e.touches[0].clientX;},{passive:true});'
+            'b.addEventListener("touchmove",function(e){if(x0===null)return;'
+            'var d=Math.max(0,Math.min(90,e.touches[0].clientX-x0));'
+            'f.style.left=(d-44)+"px";f.style.opacity=Math.min(1,d/60);},{passive:true});'
+            'b.addEventListener("touchend",function(e){if(x0===null)return;'
+            'var d=e.changedTouches[0].clientX-x0;x0=null;'
+            'if(d>70){location.href="/";}else{f.style.left="-44px";f.style.opacity=0;}});'
+            '})();</script>'
+            '</body></html>')
     r = Response(page, mimetype="text/html")
     # La politique du panneau, plus le droit d'encadrer l'origine des
     # applications -- et elle seule.
@@ -12320,7 +12572,33 @@ def ruban_retour():
         '<span style="all:initial;color:#fff;font:600 15px/1 sans-serif">&#8592;</span>'
         '<span style="all:initial;color:#fff;font:600 13px/1 -apple-system,'
         'BlinkMacSystemFont,sans-serif">CodeLab</span></a>'
+        + SCRIPT_APP_ENCADREE
     ).encode()
+
+
+# L'APPLICATION OUVERTE DANS LE PANNEAU INSTALLE. Le hub en mode application
+# ouvre une application dans un cadre (voir ouvrir_dans_le_panneau) ; c'est le
+# seul cas ou une page d'application est encadree par le panneau. Elle se
+# comporte alors comme le reste de l'app : pas de zoom, pas de rebond, pas de
+# surlignage au toucher -- et elle annonce sa couleur (sa theme-color, sinon
+# le fond de sa page) pour que la barre d'etat la prenne. Ouverte seule, dans
+# un navigateur, l'application n'est pas touchee. Bloque par une politique
+# de securite stricte de l'application : rien ne casse, l'effet manque.
+SCRIPT_APP_ENCADREE = (
+    '<script>(function(){try{if(window.top===window)return;'
+    'var v=document.querySelector("meta[name=viewport]");'
+    'if(!v){v=document.createElement("meta");v.name="viewport";document.head.appendChild(v);}'
+    'v.setAttribute("content","width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no");'
+    '["gesturestart","gesturechange","gestureend"].forEach(function(t){'
+    'document.addEventListener(t,function(e){e.preventDefault();},{passive:false});});'
+    'var s=document.documentElement.style;s.touchAction="pan-x pan-y";s.overscrollBehavior="none";'
+    's.webkitTapHighlightColor="transparent";'
+    'var m=document.querySelector("meta[name=theme-color]");'
+    'var c=(m&&m.getAttribute("content"))||getComputedStyle(document.body).backgroundColor;'
+    'if(c&&c!=="rgba(0, 0, 0, 0)"&&c!=="transparent")'
+    'parent.postMessage({codelab:"couleur",valeur:c},"*");'
+    '}catch(e){}})();</script>'
+)
 
 
 def _entete(entetes, nom):

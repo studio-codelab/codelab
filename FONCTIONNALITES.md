@@ -89,9 +89,17 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
 - **Comportement d'application** une fois ouvert depuis l'icône : pas de zoom (ni pince, ni double
   tape, ni zoom à la saisie), pas de rebond en bout de page, pas de surlignage au toucher ni de
   sélection de texte sur l'interface (les champs et les messages restent copiables), et la barre d'état
-  prend la couleur du bandeau, thème clair ou sombre, au lieu d'une bande blanche. Dans Safari, rien
-  ne change : le zoom reste permis. Après la mise à jour, supprimer l'icône puis la rajouter : iOS
-  relit ces réglages à l'ajout.
+  prend la couleur du bandeau, thème clair ou sombre, au lieu d'une bande blanche.
+  - **Écran de démarrage** : fond de la couleur du bandeau et logo, au lieu d'un écran blanc ; une
+    image par taille d'iPhone, clair et sombre, fabriquée par le panneau.
+  - **Hors ligne** : l'application s'ouvre quand même, sur « Serveur injoignable », retente toutes les
+    5 s et revient d'elle-même. Rien n'est mis en cache que cette page (ni pages du panneau, ni
+    données). Il faut une adresse en `https` (ou `localhost`) : c'est une exigence des navigateurs.
+  - **Applications ouvertes depuis le hub** : même comportement (pas de zoom, pas de rebond), la barre
+    d'état prend la couleur de l'application, et un glissement depuis le bord gauche ramène au hub.
+  - **Dans le navigateur**, CodeLab reste un site, adapté au téléphone : zoom permis, pas de page de
+    réserve, applications ouvertes directement.
+  - Après la mise à jour, supprimer l'icône puis la rajouter : iOS relit ces réglages à l'ajout.
 - **Police auto-hébergée** (Manrope) : aucune requête vers un service tiers.
 - **Erreurs JavaScript** de la page envoyées dans les journaux du panneau.
 

@@ -15231,3 +15231,74 @@ def test_la_barre_suit_le_theme_choisi():
     page = _page_panneau("dashboard.html")
     for fonction in ("function applyTheme(t){", "function applyStyle(st){"):
         assert "setTimeout(majBarreEtat, 0);" in page.split(fonction)[1].split("\n}")[0], fonction
+
+
+# ---- Mode application, suite : demarrage, hors ligne, applications encadrees ----
+#
+# Vecu : « ajoute les points 1, 2 et 3 dans la PR » -- l'ecran blanc au
+# lancement, l'app qui ne s'ouvre pas sans serveur, les applications ouvertes
+# depuis le hub. Et : « en tant qu'app codelab reagit comme une application,
+# mais si je l'ouvre dans mon navigateur, comme un site ».
+
+def test_l_ecran_de_demarrage_est_fabrique_au_pixel_pres(hub):
+    import struct
+    r = hub.get("/ecran-demarrage/1290x2796-clair.png")
+    assert r.status_code == 200 and r.mimetype == "image/png"
+    assert r.data[:8] == b"\x89PNG\r\n\x1a\n"
+    assert struct.unpack(">II", r.data[16:24]) == (1290, 2796)
+    assert hub.get("/ecran-demarrage/750x1334-sombre.png").status_code == 200
+    # Seulement les tailles d'iPhone connues, et les deux themes.
+    assert hub.get("/ecran-demarrage/5000x5000-clair.png").status_code == 404
+    assert hub.get("/ecran-demarrage/1290x2796-rose.png").status_code == 404
+
+
+@pytest.mark.parametrize("page", ["dashboard.html", "login.html", "messages.html"])
+def test_chaque_page_declare_ses_ecrans_de_demarrage(page):
+    html = _page_panneau(page)
+    for w, h, d in app.ECRANS_DEMARRAGE:
+        for theme in ("clair", "sombre"):
+            assert f'href="/ecran-demarrage/{w * d}x{h * d}-{theme}.png"' in html, (w, h, d, theme)
+    assert html.count('rel="apple-touch-startup-image"') == 2 * len(app.ECRANS_DEMARRAGE)
+
+
+def test_hors_ligne_l_application_s_ouvre_sur_une_page_de_reserve(hub):
+    page = hub.get("/hors-ligne.html")
+    assert page.status_code == 200
+    corps = page.get_data(as_text=True)
+    assert "Serveur injoignable" in corps and "fetch('/health'" in corps
+    assert 'src="data:image/png;base64,' in corps      # rien a charger hors ligne
+    sw = hub.get("/sw.js")
+    assert sw.status_code == 200 and "javascript" in sw.mimetype
+    code = sw.get_data(as_text=True)
+    # Seules les pages, et seulement en cas d'echec ; aucune donnee en cache.
+    assert "if (e.request.mode !== 'navigate') return;" in code
+    assert "fetch(e.request).catch(() => caches.match('/hors-ligne.html'))" in code
+    assert "const RESERVE = ['/hors-ligne.html'];" in code
+
+
+@pytest.mark.parametrize("page", ["dashboard.html", "login.html", "messages.html"])
+def test_le_service_worker_n_existe_qu_en_mode_application(page):
+    mode = _page_panneau(page).split("(function(){")[1].split("})();")[0]
+    avant, apres = mode.split("if(!app) return;")
+    assert "serviceWorker" not in avant
+    assert "navigator.serviceWorker.register('/sw.js')" in apres
+
+
+def test_une_application_ouverte_dans_le_panneau_installe_se_comporte_en_app(hub):
+    c = _connexion_marie(hub)
+    page = c.get("/ouvrir.html?app=compta").get_data(as_text=True)
+    assert "maximum-scale=1,user-scalable=no" in page
+    assert '<meta name="theme-color" content="#ffffff">' in page
+    # La couleur annoncee par l'application, de SON origine, et une couleur.
+    assert 'e.origin!==origine' in page and 'e.data.codelab!=="couleur"' in page
+    # Le geste retour : un glissement depuis le bord gauche ramene au hub.
+    assert 'id="bord"' in page and 'if(d>70){location.href="/";}' in page
+
+
+def test_le_ruban_rend_l_application_encadree_sans_zoom_et_annonce_sa_couleur():
+    ruban = app.ruban_retour().decode()
+    script = app.SCRIPT_APP_ENCADREE
+    assert script in ruban
+    # Ouverte seule (dans un navigateur), l'application n'est pas touchee.
+    assert script.index("if(window.top===window)return;") < script.index("maximum-scale=1")
+    assert 'parent.postMessage({codelab:"couleur",valeur:c},"*")' in script
