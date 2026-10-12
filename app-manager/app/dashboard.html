@@ -1910,6 +1910,21 @@ a.pj:hover{border-color:var(--accent)}
 @keyframes menu-app-feuille{from{transform:translateY(24px);opacity:0}}
 @media (prefers-reduced-motion:reduce){ .menu-app-panneau{animation:none} }
 .bw-apercu.sans-direct{background:rgba(255,255,255,.1)}
+/* SANS VIDEO, L'ICONE RESPIRE. Une lueur claire et une ombre derivent
+   lentement dans la couleur du widget (celle de l'icone, voir
+   teinterALaUne), et l'icone se souleve a peine, au rythme d'un souffle.
+   Rien a charger, rien a calculer : deux animations CSS, a l'arret quand
+   l'appareil demande moins de mouvement ou que le hub se reorganise. */
+.bw-apercu.sans-direct:not(.en-video){
+ background:radial-gradient(circle at 30% 25%,rgba(255,255,255,.32),transparent 55%),
+  radial-gradient(circle at 75% 85%,rgba(0,0,0,.22),transparent 60%),rgba(255,255,255,.06);
+ background-size:200% 200%;animation:une-lueur 14s ease-in-out infinite alternate}
+.bw-apercu.sans-direct:not(.en-video) .bw-une-icone{opacity:1;box-shadow:0 18px 40px rgba(0,0,0,.22);
+ animation:une-souffle 4.5s ease-in-out infinite}
+@keyframes une-lueur{from{background-position:0% 0%}to{background-position:100% 100%}}
+@keyframes une-souffle{50%{transform:translateY(-6px) scale(1.04);box-shadow:0 26px 50px rgba(0,0,0,.18)}}
+#hub-liste.edition .bw-apercu,#hub-liste.edition .bw-une-icone{animation:none}
+@media (prefers-reduced-motion:reduce){ .bw-apercu.sans-direct,.bw-une-icone{animation:none} }
 .modal.presentation{max-width:min(1100px,94vw);overflow:hidden}
 .presentation-video{display:block;width:100%;max-height:68vh;background:#000;aspect-ratio:16/9}
 .presentation-pied{display:flex;align-items:center;gap:14px;padding:16px 20px;flex-wrap:wrap}

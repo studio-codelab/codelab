@@ -15727,3 +15727,15 @@ def test_les_boutons_des_parametres_sont_des_pilules_au_pouce():
     tel = page.split("#sec-parametres .actions{gap:10px}")[1].split("\n}")[0]
     assert "#sec-parametres .btn{min-height:46px;font-size:15px}" in tel
     assert "flex:1 1 100%;align-self:stretch" in tel
+
+
+def test_sans_video_l_icone_a_la_une_respire():
+    """Vecu : « Fais l'idee 2 pour le widget sans video » -- une lueur qui
+    derive dans la couleur de l'icone, et l'icone qui se souleve a peine."""
+    page = _page_panneau("dashboard.html")
+    assert ".bw-apercu.sans-direct:not(.en-video){" in page
+    assert "animation:une-lueur 14s ease-in-out infinite alternate" in page
+    assert "animation:une-souffle 4.5s ease-in-out infinite" in page
+    # Immobile quand l'appareil demande moins de mouvement, ou en edition.
+    assert "@media (prefers-reduced-motion:reduce){ .bw-apercu.sans-direct,.bw-une-icone{animation:none} }" in page
+    assert "#hub-liste.edition .bw-apercu,#hub-liste.edition .bw-une-icone{animation:none}" in page
