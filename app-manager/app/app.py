@@ -1345,7 +1345,7 @@ def _tuile_service(nom, description, adresse, debout, port):
         "name": nom,
         "titre": TITRES_PAR_DEFAUT[nom],
         "description": description,
-        "categorie": "",
+        "categorie": CATEGORIE_CODELAB,
         "running": debout,
         "listening": debout,
         "visibility": VISIBILITE_PRIVEE,
@@ -6896,6 +6896,31 @@ CATEGORIE_MAX = 30      # un intitule, pas une phrase
 CATEGORIES_MAX = 20     # au-dela, ce n'est plus un rangement mais une liste
 
 
+# LA CATEGORIE « CodeLab ». Les applications de la stack, reservees a
+# l'administrateur -- Dagster, Mailpit, Messages, le Diagnostic -- se rangent
+# d'office ensemble, en tete de liste. Elle ne se renomme pas, ne se supprime
+# pas, et ne se donne pas a un projet : ce qu'elle annonce (« reserve a
+# l'administrateur, fourni par CodeLab ») doit rester vrai.
+CATEGORIE_CODELAB = "CodeLab"
+
+
+def est_categorie_codelab(nom):
+    return categorie_propre(nom).lower() == CATEGORIE_CODELAB.lower()
+
+
+def categorie_de(nom, a=None):
+    """La categorie affichee d'une application : CodeLab pour celles de la
+    stack, sinon celle qu'on lui a donnee (si elle existe encore)."""
+    if est_app_par_defaut(nom):
+        return CATEGORIE_CODELAB
+    return categorie_valide((a or {}).get("categorie"))
+
+
+def categories_affichees():
+    """CodeLab d'abord, puis les categories de l'administrateur."""
+    return [CATEGORIE_CODELAB] + lire_categories()
+
+
 def categorie_propre(brute):
     """Un intitule sur une ligne, borne en longueur."""
     return re.sub(r"\s+", " ", str(brute or "")).strip()[:CATEGORIE_MAX]
@@ -6911,7 +6936,8 @@ def lire_categories():
         lignes = stockage.lire(DB_FILE, "SELECT nom FROM categories ORDER BY position")
     except Exception:                                             # noqa: BLE001
         return []
-    return [c for c in (categorie_propre(l["nom"]) for l in lignes) if c][:CATEGORIES_MAX]
+    return [c for c in (categorie_propre(l["nom"]) for l in lignes)
+            if c and not est_categorie_codelab(c)][:CATEGORIES_MAX]
 
 
 def ecrire_categories(liste):
@@ -8636,8 +8662,11 @@ def qr_totp():
 @flask_app.get("/api/categories")
 @require_auth
 def api_categories():
-    """Lisible par tous les comptes : le hub s'en sert pour se ranger."""
-    return jsonify({"categories": lire_categories()})
+    """Lisible par tous les comptes : le hub s'en sert pour se ranger.
+
+    « verrouillees » : celles que la page montre sans les laisser modifier.
+    """
+    return jsonify({"categories": categories_affichees(), "verrouillees": [CATEGORIE_CODELAB]})
 
 
 @flask_app.put("/api/categories")
@@ -8656,6 +8685,10 @@ def api_categories_enregistrer():
     propres, vues = [], set()
     for x in brut:
         c = categorie_propre(x)
+        # CodeLab revient tel quel avec la liste (la page l'affiche) : il
+        # n'est pas enregistre, il est pose d'office.
+        if est_categorie_codelab(c):
+            continue
         # Insensible a la casse pour les doublons : "Outils" et "outils"
         # seraient deux tiroirs pour la meme chose.
         if c and c.lower() not in vues:
@@ -8679,7 +8712,8 @@ def api_categories_enregistrer():
         for n in orphelins:
             apps[n]["categorie"] = ""
         save(apps)
-    return jsonify({"ok": True, "categories": propres, "declasses": len(orphelins)})
+    return jsonify({"ok": True, "categories": [CATEGORIE_CODELAB] + propres,
+                    "verrouillees": [CATEGORIE_CODELAB], "declasses": len(orphelins)})
 
 
 @flask_app.get("/api/securite")
@@ -9728,7 +9762,7 @@ def api_apps():
             "build_command": a.get("build_command") or "",
             "max_memory_mb": a.get("max_memory_mb"),
             "description": a.get("description") or "",
-            "categorie": a.get("categorie") or "",
+            "categorie": categorie_de(name, a),
             # Les destinataires d'alerte se reglent dans la fiche de
             # l'application : la liste doit donc arriver avec elle. Aucun
             # secret ici -- une adresse de destination n'en est pas un, et
@@ -9800,6 +9834,8 @@ def api_add():
     # qu'une application ouverte par megarde ne se referme qu'apres coup.
     if not adresse_publique():
         vis = VISIBILITE_PRIVEE
+    if est_categorie_codelab(d.get("categorie")):
+        return jsonify({"error": f"« {CATEGORIE_CODELAB} » est réservée aux applications de CodeLab."}), 400
     apps = load()
 
     if not titre:
@@ -9875,6 +9911,8 @@ def api_edit(n):
     if n not in apps:
         return jsonify({"error": "Application inconnue."}), 404
     d = request.get_json(force=True)
+    if est_categorie_codelab(d.get("categorie")):
+        return jsonify({"error": f"« {CATEGORIE_CODELAB} » est réservée aux applications de CodeLab."}), 400
     path = (d.get("path") or "").strip()
     command = (d.get("command") or "").strip()
     if not os.path.isdir(path):
@@ -11713,7 +11751,8 @@ def api_mes_apps():
             "name": nom,
             "titre": titre_de(nom, a),
             "description": a.get("description") or "",
-            "categorie": categorie_valide(a.get("categorie"), connues),
+            "categorie": (CATEGORIE_CODELAB if est_app_par_defaut(nom)
+                          else categorie_valide(a.get("categorie"), connues)),
             "visibility": visibilite(a),
             # Jamais ouverte par ce compte : pas d'indicateur. Sinon, une
             # version plus recente que celle vue a la derniere ouverture.
@@ -11749,7 +11788,7 @@ def api_mes_apps():
                     # veux-tu parler » ne doit toujours pas les voir.
                     "services_masques": services_masques(),
                     "masquees": masquees,
-                    "categories": connues,
+                    "categories": [CATEGORIE_CODELAB] + connues,
                     # Le widget Sauvegardes de l'administrateur : le resume,
                     # pas la liste (elle est dans Parametres > Securite).
                     "sauvegardes": resume_sauvegardes() if admin else None,

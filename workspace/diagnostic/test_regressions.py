@@ -2837,7 +2837,7 @@ def test_une_categorie_supprimee_ne_reste_pas_collee_a_un_projet(categorise):
     assert app.load()["site"]["categorie"] == ""
     hub = categorise.get("/api/mes-apps").get_json()
     assert hub["apps"][0]["categorie"] == ""
-    assert hub["categories"] == ["Donnees"]
+    assert hub["categories"] == ["CodeLab", "Donnees"]   # CodeLab, pose d'office
 
 
 def test_un_projet_ne_prend_pas_une_categorie_inventee(categorise):
@@ -2861,7 +2861,7 @@ def test_deux_tiroirs_pour_la_meme_chose_sont_refuses(categorise):
     """« Outils » et « outils » rangeraient les projets a deux endroits."""
     r = categorise.put("/api/categories", json={"categories": ["Outils", "outils", " Outils "]})
     assert r.status_code == 200, r.data
-    assert r.get_json()["categories"] == ["Outils"]
+    assert r.get_json()["categories"] == ["CodeLab", "Outils"]
 
 
 def test_un_utilisateur_lit_les_categories_mais_n_en_cree_pas(categorise):
@@ -7229,7 +7229,7 @@ def test_la_page_affiche_le_nom_et_designe_par_la_cle():
     assert "const nomAffiche" in page
     # La tuile du hub et la ligne du tableau LISENT le nom.
     assert '<span class="hub-icone-nom">${esc(nomAffiche(a))}</span>' in page
-    assert '<div class="bento-carte-nom">${esc(nomAffiche(a))}</div>' in page
+    assert '<div class="bento-carte-nom${classeNomLong(nomAffiche(a))}">${esc(nomAffiche(a))}</div>' in page
     assert '<div class="n">${esc(nomAffiche(a))}</div>' in page
     # Et tout ce qui DESIGNE garde la cle.
     assert 'data-cible="${esc(a.name)}"' in page
@@ -15172,7 +15172,7 @@ def test_les_parametres_montrent_la_version_et_comment_mettre_a_jour():
     # Le lien des nouveautes : c'est le navigateur qui l'ouvre, sur un clic.
     assert "/compare/${esc(d.sha)}...main" in peint
     assert "COMMANDES_MAJ" in peint and "ver-copier" in peint
-    assert "if(estAdmin){ chargerCategories(); chargerVersion(); }" in page
+    assert "if(estAdmin) chargerVersion();" in page and "if(estAdmin) chargerCategories();" in page
 
 
 # ------------------------ Les appareils connectes ------------------------
@@ -15800,20 +15800,26 @@ def test_le_refus_de_connexion_dit_combien_d_essais_il_reste(deux_espaces):
     assert "Trop d'essais" in messages[4]
 
 
-def test_les_reglages_d_un_utilisateur_tiennent_en_une_page_a_sections():
+def test_les_reglages_ont_un_onglet_par_categorie_pour_tout_le_monde():
+    """Vecu : « Met un systeme d'onglet pour chaque categorie de parametre. »
+    La longue page a sections des comptes utilisateurs est remplacee par les
+    memes onglets que ceux de l'administrateur."""
     page = _page_panneau("dashboard.html")
-    for section in ("reglages-profil", "reglages-apparence", "reglages-hub", "reglages-securite"):
-        assert f'id="{section}"' in page
-    assert "$('sec-parametres').classList.add('reglages-unifies');" in page
-    # Seuls Compte et Securite s'ouvrent : les onglets d'administration
-    # (Serveur, Categories, E-mail) restent fermes.
-    assert "#sec-parametres.reglages-unifies .onglet-p{display:none}" in page
-    assert ("#sec-parametres.reglages-unifies #param-compte,\n"
-            "#sec-parametres.reglages-unifies #param-securite{display:contents}") in page
+    onglets = page.split('<div class="fiche-onglets" id="param-onglets">')[1].split("</div>")[0]
+    assert re.findall(r'data-p="([a-z]+)"', onglets) == ["compte", "apparence", "hub", "securite", "email"]
+    def onglet(nom):
+        return page.split(f'<div class="onglet-p" id="param-{nom}">')[1].split('<div class="onglet-p"')[0]
+    for nom, zones in (("compte", ("profil-mail", "zone-version", "zone-session")),
+                       ("apparence", ("zone-apparence", "zone-notifications", "zone-installer")),
+                       ("hub", ("zone-hub", "zone-categories")),
+                       ("securite", ("profil-mdp", "zone-appareils", "zone-cles"))):
+        for z in zones:
+            assert f'id="{z}"' in onglet(nom), (nom, z)
+    # Un compte utilisateur a ses quatre onglets, et rien d'autre.
+    assert "const ONGLETS_UTILISATEUR=['compte','apparence','hub','securite'];" in page
+    assert "classList.add('reglages-unifies')" not in page and "reglages-sommaire" not in page
     # Le mot de passe vit avec ce qui protege le compte.
-    securite = page.split('id="param-securite"')[1].split('id="param-serveur"')[0]
-    assert 'id="profil-mdp"' in securite
-
+    assert 'id="profil-mdp"' in onglet("securite")
 
 def test_un_apercu_encadre_ne_previent_pas_l_administrateur(deux_espaces, monkeypatch):
     """Le widget « Apercu » encadre l'application : l'afficher n'est pas
@@ -15925,22 +15931,22 @@ def test_les_minuteries_ne_repeignent_pas_pendant_un_defilement():
 # Vecu : « Sur telephone, garde ce systeme d'onglet mais repartis bien les
 # parametrages en 2, 3 ou 4 onglets dedies de taille homogene. »
 
-def test_les_parametres_tiennent_en_trois_onglets_de_meme_largeur():
+def test_les_parametres_tiennent_en_cinq_onglets_de_meme_largeur():
     page = _page_panneau("dashboard.html")
     onglets = page.split('<div class="fiche-onglets" id="param-onglets">')[1].split("</div>")[0]
-    assert onglets.count("<button") == 3
-    for p in ("compte", "securite", "email"):
+    assert onglets.count("<button") == 5
+    for p in ("compte", "apparence", "hub", "securite", "email"):
         assert f'data-p="{p}"' in onglets, p
     # Vecu : « Je ne veux pas avoir Acces depuis internet qui ne me sert a
     # rien. Tu peux retirer la partie Serveur. »
     assert 'data-p="serveur"' not in onglets and 'id="param-serveur"' not in page
     assert "pubEnregistrer" not in page and "chargerVps" not in page
-    # Les categories rejoignent les applications du hub, dans « Compte » --
+    # Les categories rejoignent les applications du hub, dans « Mon hub » --
     # et seulement pour l'administrateur.
-    compte = page.split('<div class="onglet-p" id="param-compte">')[1].split('<div class="onglet-p"')[0]
-    assert 'id="zone-categories"' in compte and 'id="cat-liste"' in compte
+    hub = page.split('<div class="onglet-p" id="param-hub">')[1].split('<div class="onglet-p"')[0]
+    assert 'id="zone-categories"' in hub and 'id="cat-liste"' in hub
     assert "$('zone-categories').remove();" in page
-    assert "if(estAdmin){ chargerCategories(); chargerVersion(); }" in page
+    assert "if(estAdmin) chargerVersion();" in page and "if(estAdmin) chargerCategories();" in page
     # Au telephone : une grille de colonnes egales, sans defilement.
     assert ("#sec-parametres:not(.reglages-unifies) #param-onglets{display:grid;grid-auto-flow:column;"
             "grid-auto-columns:1fr;") in page
@@ -16259,10 +16265,72 @@ def test_les_parametres_proposent_notifications_et_installation():
                   "Notification.requestPermission()", "pushManager.subscribe({userVisibleOnly:true",
                   "navigator.serviceWorker.register('/sw.js')", "function majPastilleIcone(){",
                   "navigator.setAppBadge(n)", "invite.prompt();",
-                  "#sec-parametres.reglages-unifies #zone-notifications{order:22}"):
+                  "<div class=\"onglet-p\" id=\"param-apparence\">"):
         assert trace in page, trace
     # La permission se demande dans le geste : rien n'est attendu avant.
     bascule = page.split("async function notifBasculer(b){")[1].split("\n}")[0]
     assert bascule.index("Notification.requestPermission()") < bascule.index("fetch(")
     mode = _page_panneau("mode.js")
     assert "window.addEventListener('beforeinstallprompt'" in mode
+
+
+# ---------------- La categorie CodeLab, les tuiles, les onglets ----------------
+#
+# Vecu : « Cree une categorie non modifiable CodeLab et regroupe toutes les
+# apps restreintes a l'admin. » -- « Attention au nom des apps qui peuvent
+# etre coupe par leur description ; afficher plus de caracteres dans la
+# description, preciser la limite visible dans les configurations. »
+
+def test_la_categorie_codelab_regroupe_les_applications_de_l_administrateur(deux_espaces):
+    c = deux_espaces
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    d = c.get("/api/categories").get_json()
+    assert d["categories"][0] == "CodeLab" and d["verrouillees"] == ["CodeLab"]
+    # Elle ne se supprime ni ne se renomme : elle revient d'office, une fois.
+    r = c.put("/api/categories", json={"categories": ["codelab", "Outils", "CODELAB"]}).get_json()
+    assert r["categories"] == ["CodeLab", "Outils"]
+    assert app.lire_categories() == ["Outils"]
+    r = c.put("/api/categories", json={"categories": []}).get_json()
+    assert r["categories"] == ["CodeLab"]
+    # Les applications de la stack y sont rangees d'office, les autres non.
+    apps = {a["name"]: a for a in c.get("/api/apps").get_json()["apps"]}
+    for nom in apps:
+        attendu = "CodeLab" if app.est_app_par_defaut(nom) else ""
+        assert apps[nom]["categorie"] == attendu, nom
+    assert app.categorie_de(app.DIAGNOSTIC_NOM) == "CodeLab"
+    # Un projet ne la recoit pas.
+    a = app.load()["public"]
+    r = c.put("/api/app/public", json={"path": a["path"], "command": a["command"], "categorie": "CodeLab"})
+    assert r.status_code == 400 and "réservée" in r.get_json()["error"]
+
+
+def test_la_page_montre_codelab_sans_le_laisser_modifier():
+    page = _page_panneau("dashboard.html")
+    peindre = page.split("function peindreCategories(){")[1].split("\n}")[0]
+    assert "cat-verrou" in peindre
+    # Pas de champ pour CodeLab : la ligne verrouillee n'a qu'un texte.
+    verrou = peindre.split("categoriesVerrouillees.map(")[1].split(".join('')")[0]
+    assert "<input" not in verrou and "catRetirer" not in verrou
+    assert ".cat-ligne:not(.cat-verrou) input" in page
+    # Elle n'est jamais proposee pour un projet.
+    assert "const libres=categoriesLibres();" in page.split("function optionsCategorie(")[1].split("\n}")[0]
+
+
+def test_le_nom_d_une_tuile_passe_avant_sa_description():
+    page = _page_panneau("dashboard.html")
+    assert ".bento-carte-nom{flex:none;" in page
+    assert ".bento-carte-desc{flex:0 1 auto;min-height:0;" in page and "-webkit-line-clamp:2;" in page
+    assert "@media (hover:none) and (pointer:coarse){ .bento-carte-desc{padding-right:0} }" in page
+    assert "const classeNomLong = n => n.length > 34 ? ' tres-long' : n.length > 20 ? ' long' : '';" in page
+    # La fiche dit ce que la tuile montre, compteur compris.
+    assert "const DESCRIPTION_VISIBLE=45, DESCRIPTION_MAX=140;" in page
+    for champ in ("e-desc", "f-desc"):
+        assert f'id="{champ}-compte"' in page and f'id="{champ}"' in page
+    assert page.count('oninput="compterDescription(this)"') == 2
+
+
+def test_au_doigt_la_carte_touchee_ne_reste_pas_selectionnee():
+    page = _page_panneau("dashboard.html")
+    bloc = page.split("AU DOIGT, PAS DE SURVOL QUI RESTE.")[1].split("/* LES PASTILLES")[0]
+    assert "@media (hover:none){" in bloc and ".card-top:hover{background:none}" in bloc
+    assert ".card-top:active{background:var(--surface2)}" in bloc
