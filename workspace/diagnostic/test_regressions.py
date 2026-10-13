@@ -12019,7 +12019,10 @@ def test_mailpit_a_l_interface_de_codelab():
     css = _mailpit_ui("app.css")
     regle = css.split("#codelab-retour-hub {", 1)[1].split("}", 1)[0]
     ruban = app.ruban_retour().decode()
-    for propriete in ("position:fixed", "left:14px", "bottom:14px", "gap:7px", "padding:8px 13px",
+    # 14 px des bords -- plus les bords de l'ecran, que pose l'environnement
+    # (0 hors du hub installe, ou Mailpit et Dagster vivent).
+    for propriete in ("position:fixed", "left:calc(14px + var(--codelab-bord-gauche, 0px))",
+                      "bottom:calc(14px + var(--codelab-bord-bas, 0px))", "gap:7px", "padding:8px 13px",
                       "color:#fff", "background:#141a21", "border-radius:999px",
                       "box-shadow:0 2px 10px rgba(0,0,0,.28)"):
         assert propriete in ruban, propriete
@@ -15345,7 +15348,10 @@ def test_le_manuel_distingue_le_site_et_l_application():
     section = manuel.split("### Site web et mode application")[1].split("\n## ")[0]
     assert "toujours\ndistinguer les deux" in section
     assert "Les deux modes sont responsives, sur les trois appareils." in section
-    assert "window.name === 'codelab-app'" in section
+    # Le hub pose l'environnement lui-meme : ce que l'application lit.
+    for cle in ("window.CODELAB.environnement", "var(--codelab-bord-haut)", "data-appareil",
+                "viewport-fit=cover", "Ecris donc **pour iOS, une seule fois**"):
+        assert cle in section, cle
     assert "env(safe-area-inset-top)" in section and "scrollbar-width:none" in section
     liste = manuel.split("## Avant de declarer une application prete")[1]
     assert "en mode\n      site web **et** en mode application" in liste
@@ -15450,18 +15456,100 @@ def test_une_application_ouverte_dans_le_panneau_installe_se_comporte_en_app(hub
     assert "maximum-scale=1,user-scalable=no" in page
     assert '<meta name="theme-color" content="#ffffff">' in page
     # La couleur annoncee par l'application, de SON origine, et une couleur.
-    assert 'e.origin!==origine' in page and 'e.data.codelab!=="couleur"' in page
+    assert 'if(e.origin!==origine||!e.data)return;' in page and 'e.data.codelab!=="couleur"' in page
     # Le geste retour : un glissement depuis le bord gauche ramene au hub.
     assert 'id="bord"' in page and 'if(d>70){location.href="/";}' in page
 
 
-def test_le_ruban_rend_l_application_encadree_sans_zoom_et_annonce_sa_couleur():
-    ruban = app.ruban_retour().decode()
-    script = app.SCRIPT_APP_ENCADREE
-    assert script in ruban
-    # Ouverte seule (dans un navigateur), l'application n'est pas touchee.
-    assert script.index("if(window.top===window)return;") < script.index("maximum-scale=1")
-    assert 'parent.postMessage({codelab:"couleur",valeur:c},"*")' in script
+def test_le_ruban_ne_porte_plus_le_script_d_environnement():
+    # Le script vit desormais EN TETE de page (injecter_environnement) : en
+    # bas, il arrivait apres les scripts de l'application.
+    assert b"<script>" not in app.ruban_retour()
+
+
+# ---------------- Les applications du hub, de vraies applications ----------------
+#
+# Vecu : « Fais en sorte que les applications de mon hub puissent etre de
+# vraies applications et que le hub simule iOS pour renvoyer les memes
+# informations, pour adapter au mieux l'affichage. »
+
+def _page_injectee(connecte, page=b"<!doctype html><html><head><script src=app.js></script></head><body>ok</body></html>"):
+    entetes = [("Content-Type", "text/html; charset=utf-8"), ("Content-Length", str(len(page)))]
+    with app.flask_app.test_request_context("/site/"):
+        return app.injecter_environnement(page, 200, entetes, connecte)
+
+
+def test_l_environnement_passe_avant_les_scripts_de_l_application(monkeypatch):
+    monkeypatch.setattr(app, "lien_panneau", lambda: "https://hub.exemple.org/")
+    data, entetes = _page_injectee(True)
+    tete = data.split(b"</head>")[0]
+    # Juste apres <head> : avant le premier script de l'application.
+    assert tete.index(b"window.CODELAB") < tete.index(b"src=app.js")
+    assert b'var PANNEAU = "https://hub.exemple.org";' in tete
+    assert dict(entetes)["Content-Length"] == str(len(data))
+    # Un visiteur anonyme n'apprend pas l'adresse du panneau.
+    data, _ = _page_injectee(False)
+    assert b'var PANNEAU = "";' in data and b"hub.exemple.org" not in data
+    # Panneau et applications sur la meme adresse : le lien est relatif,
+    # l'origine est celle de la requete.
+    monkeypatch.setattr(app, "lien_panneau", lambda: "/")
+    data, _ = _page_injectee(True)
+    assert b'var PANNEAU = "http://localhost";' in data
+    # Ni autre chose que du HTML, ni une page en erreur, ni un corps compresse.
+    page = b"<html><head></head></html>"
+    for code, entetes in ((200, [("Content-Type", "application/json")]),
+                          (404, [("Content-Type", "text/html")]),
+                          (200, [("Content-Type", "text/html"), ("Content-Encoding", "gzip")])):
+        assert app.injecter_environnement(page, code, entetes, True)[0] == page
+
+
+def test_l_environnement_ne_ferme_jamais_sa_balise():
+    """Un « </script> » dans le script, meme en commentaire, couperait la page."""
+    source = (_racine_app_manager() / "environnement-app.js").read_text(encoding="utf-8")
+    assert "</" not in source
+    assert source.count("__PANNEAU__") == 1
+
+
+def test_encadree_par_le_hub_une_application_se_croit_installee():
+    source = (_racine_app_manager() / "environnement-app.js").read_text(encoding="utf-8")
+    # Encadree par LE panneau seulement : le nom du cadre, et une origine connue.
+    assert "encadree = window.top !== window && window.name === 'codelab-app' && !!PANNEAU;" in source
+    # Ce qu'iOS dirait d'une app installee.
+    assert "Object.defineProperty(navigator, 'standalone'" in source
+    assert "if(/display-mode\\s*:\\s*standalone/.test(t)) return faux(t, true);" in source
+    # Comme iOS : viewport-fit=cover decide, et env() est reecrit pour la page qui s'etend.
+    assert "if(/viewport-fit\\s*=\\s*cover/.test(l[i].getAttribute('content') || '')) cover = true;" in source
+    # Lu quand la page est prete : le script passe avant la balise viewport.
+    assert source.index("function pret(){\n    regarderViewport();") > 0
+    assert "'var(--codelab-bord-' + NOMS[cote]" in source and "if(!cover) return;" in source
+    # Les messages ne partent qu'au panneau, et ne s'acceptent que de lui.
+    assert '"*"' not in source and "'*'" not in source
+    assert "e.source !== window.parent || e.origin !== PANNEAU" in source
+    # Les memes cles partout, ouverte seule ou encadree.
+    for cle in ("'--codelab-bord-haut'", "'data-appareil'", "'data-plateforme'", "'codelab-environnement'"):
+        assert cle in source, cle
+
+
+def test_le_cadre_pose_l_application_dans_la_zone_sure_comme_ios(hub):
+    c = _connexion_marie(hub)
+    page = c.get("/ouvrir.html?app=compta").get_data(as_text=True)
+    assert "height:calc(100% - env(safe-area-inset-top) - env(safe-area-inset-bottom))" in page
+    assert "iframe.plein{top:0;left:0;width:100%;height:100%}" in page
+    # « pret » : la page dit si elle s'etend ; le panneau repond par l'environnement.
+    assert 'if(e.data.codelab==="pret"){plein=!!e.data.pleinEcran;' in page
+    assert 'cadre.contentWindow.postMessage({codelab:"environnement",bords:b,' in page
+
+
+def test_sur_son_sous_domaine_l_application_installee_s_ouvre_chez_elle():
+    page = b"<html><head><title>x</title></head><body>ok</body></html>"
+    entetes = [("Content-Type", "text/html")]
+    with app.flask_app.test_request_context("/"):
+        app.g.sous_domaine = "blog"
+        data, _ = app.injecter_webapp(page, 200, entetes, "blog", "Blog")
+        manifeste = json.loads(app.webapp_manifeste("blog", "Blog").get_data(as_text=True))
+    assert b'<link rel="manifest" href="/__codelab/manifest.webmanifest">' in data
+    assert manifeste["start_url"] == manifeste["scope"] == "/"
+    assert manifeste["icons"][0]["src"] == "/__codelab/icone.png"
 
 
 # ------------- Ce qu'un compte utilisateur sait (et ne sait pas) -------------

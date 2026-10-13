@@ -11452,7 +11452,20 @@ def ouvrir_dans_le_panneau():
             '<meta name="theme-color" content="#ffffff">'
             '<style>html,body{margin:0;height:100%;background:#fff;overscroll-behavior:none;'
             '-webkit-tap-highlight-color:transparent;touch-action:pan-x pan-y}'
-            'iframe{display:block;border:0;width:100%;height:100%;height:100dvh}'
+            # COMME iOS : une page qui ne declare pas viewport-fit=cover
+            # reste dans la zone sure (sous la barre d'etat, au-dessus de la
+            # barre de geste), et le fond -- la couleur de l'application --
+            # remplit le reste. Une page qui le declare s'etend partout et
+            # recoit les bords (classe « plein », voir environnement-app.js).
+            # Une hauteur explicite : une iframe fixee entre top et bottom
+            # ne s'etire pas, elle garde ses 150 px par defaut.
+            'iframe{position:fixed;display:block;border:0;'
+            'top:env(safe-area-inset-top);left:env(safe-area-inset-left);'
+            'width:calc(100% - env(safe-area-inset-left) - env(safe-area-inset-right));'
+            'height:calc(100% - env(safe-area-inset-top) - env(safe-area-inset-bottom))}'
+            'iframe.plein{top:0;left:0;width:100%;height:100%}'
+            '#sonde{position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) '
+            'env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}'
             # LE GESTE RETOUR. En mode application, iOS n'a ni bouton ni
             # geste pour revenir : un glissement depuis le bord gauche ramene
             # au hub, comme dans une app native. Une bande de 14 px seulement,
@@ -11465,17 +11478,36 @@ def ouvrir_dans_le_panneau():
             '</head><body><iframe name="codelab-app" src="' + esc(cible) + '" title="' + esc(titre) + '" '
             'allow="clipboard-read; clipboard-write; fullscreen"></iframe>'
             '<div id="bord" aria-hidden="true"></div><div id="fleche" aria-hidden="true">&#8592;</div>'
+            '<div id="sonde" aria-hidden="true"></div>'
             '<script>(function(){'
-            # Couleur annoncee par l'application encadree (postMessage depuis
-            # le script du ruban), acceptee de SON origine seulement, et
-            # seulement si c'est une couleur.
             'var origine=' + json.dumps(origine_app) + '||location.origin;'
+            'var cadre=document.querySelector("iframe"),sonde=document.getElementById("sonde"),plein=false;'
+            # Ce que l'ecran dit au panneau, et que le cadre ne voit pas : les
+            # bords (encoche, barre de geste), la plateforme, la largeur, le
+            # theme. Envoye a l'application quand elle se dit prete, et a
+            # chaque rotation ou changement de theme -- a SON origine seule.
+            'function envoyer(){var c=getComputedStyle(sonde),ua=navigator.userAgent,l=innerWidth,'
+            'ios=/iP(hone|ad|od)/.test(ua)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);'
+            'var b=plein?{haut:parseFloat(c.paddingTop)||0,droite:parseFloat(c.paddingRight)||0,'
+            'bas:parseFloat(c.paddingBottom)||0,gauche:parseFloat(c.paddingLeft)||0}:{haut:0,droite:0,bas:0,gauche:0};'
+            'cadre.contentWindow.postMessage({codelab:"environnement",bords:b,'
+            'plateforme:ios?"ios":/Android/.test(ua)?"android":/Mac OS X/.test(ua)?"mac":/Windows/.test(ua)?"windows":"autre",'
+            'appareil:l<=760?"telephone":l<=1180?"tablette":"ordinateur",'
+            'orientation:innerWidth>innerHeight?"paysage":"portrait",'
+            'theme:matchMedia("(prefers-color-scheme: dark)").matches?"sombre":"clair"},origine);}'
+            # Ce que l'application annonce, accepte de SON origine seulement :
+            # qu'elle est prete (et si elle s'etend sous l'encoche), et sa
+            # couleur -- si c'en est une.
             'addEventListener("message",function(e){'
-            'if(e.origin!==origine||!e.data||e.data.codelab!=="couleur")return;'
+            'if(e.origin!==origine||!e.data)return;'
+            'if(e.data.codelab==="pret"){plein=!!e.data.pleinEcran;cadre.classList.toggle("plein",plein);envoyer();return;}'
+            'if(e.data.codelab!=="couleur")return;'
             'var c=String(e.data.valeur||"");'
             'if(!/^(#[0-9a-fA-F]{3,8}|rgba?\\([0-9.,\\s%]+\\))$/.test(c))return;'
             'document.querySelector("meta[name=theme-color]").setAttribute("content",c);'
             'document.body.style.background=c;});'
+            'addEventListener("resize",function(){setTimeout(envoyer,50);});'
+            'matchMedia("(prefers-color-scheme: dark)").addEventListener("change",envoyer);'
             'var b=document.getElementById("bord"),f=document.getElementById("fleche"),x0=null;'
             'b.addEventListener("touchstart",function(e){x0=e.touches[0].clientX;},{passive:true});'
             'b.addEventListener("touchmove",function(e){if(x0===null)return;'
@@ -13212,7 +13244,10 @@ def ruban_retour():
         # le cadre, un panneau dans le panneau.
         '<a href="' + lien_panneau() + '" target="_top" id="codelab-retour-hub" '
         'title="Revenir au hub CodeLab" '
-        'style="all:initial;position:fixed;left:14px;bottom:14px;z-index:2147483647;'
+        # Au-dessus de la barre de geste et a cote de l'encoche : les bords
+        # que pose environnement-app.js (0 hors du hub installe).
+        'style="all:initial;position:fixed;left:calc(14px + var(--codelab-bord-gauche, 0px));'
+        'bottom:calc(14px + var(--codelab-bord-bas, 0px));z-index:2147483647;'
         'display:inline-flex;align-items:center;gap:7px;padding:8px 13px;'
         'font:600 13px/1 -apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;'
         'color:#fff;background:#141a21;border-radius:999px;cursor:pointer;'
@@ -13220,33 +13255,49 @@ def ruban_retour():
         '<span style="all:initial;color:#fff;font:600 15px/1 sans-serif">&#8592;</span>'
         '<span style="all:initial;color:#fff;font:600 13px/1 -apple-system,'
         'BlinkMacSystemFont,sans-serif">CodeLab</span></a>'
-        + SCRIPT_APP_ENCADREE
     ).encode()
 
 
-# L'APPLICATION OUVERTE DANS LE PANNEAU INSTALLE. Le hub en mode application
-# ouvre une application dans un cadre (voir ouvrir_dans_le_panneau) ; c'est le
-# seul cas ou une page d'application est encadree par le panneau. Elle se
-# comporte alors comme le reste de l'app : pas de zoom, pas de rebond, pas de
-# surlignage au toucher -- et elle annonce sa couleur (sa theme-color, sinon
-# le fond de sa page) pour que la barre d'etat la prenne. Ouverte seule, dans
-# un navigateur, l'application n'est pas touchee. Bloque par une politique
-# de securite stricte de l'application : rien ne casse, l'effet manque.
-SCRIPT_APP_ENCADREE = (
-    '<script>(function(){try{if(window.top===window)return;'
-    'var v=document.querySelector("meta[name=viewport]");'
-    'if(!v){v=document.createElement("meta");v.name="viewport";document.head.appendChild(v);}'
-    'v.setAttribute("content","width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no");'
-    '["gesturestart","gesturechange","gestureend"].forEach(function(t){'
-    'document.addEventListener(t,function(e){e.preventDefault();},{passive:false});});'
-    'var s=document.documentElement.style;s.touchAction="pan-x pan-y";s.overscrollBehavior="none";'
-    's.webkitTapHighlightColor="transparent";'
-    'var m=document.querySelector("meta[name=theme-color]");'
-    'var c=(m&&m.getAttribute("content"))||getComputedStyle(document.body).backgroundColor;'
-    'if(c&&c!=="rgba(0, 0, 0, 0)"&&c!=="transparent")'
-    'parent.postMessage({codelab:"couleur",valeur:c},"*");'
-    '}catch(e){}})();</script>'
-)
+# L'ENVIRONNEMENT D'UNE APPLICATION : ce qui l'entoure (site ou app, appareil,
+# plateforme, bords de l'ecran), lu ou simule, et pose sur sa page avant ses
+# propres scripts. Le detail est dans environnement-app.js. Glisse EN TETE :
+# un script qui demande navigator.standalone doit deja avoir la reponse.
+ENVIRONNEMENT_APP_JS = _lire_ressource("environnement-app.js")
+
+
+def script_environnement(connecte):
+    """Le script, avec l'origine du panneau pour qui est connecte.
+
+    Un visiteur anonyme n'a pas a lire l'adresse du panneau : il recoit le
+    script sans elle, qui lit l'environnement sans rien simuler -- il n'est
+    de toute facon jamais encadre par le panneau.
+    """
+    panneau = ""
+    if connecte:
+        # Relatif (« / ») quand panneau et applications partagent l'adresse :
+        # l'origine est alors celle de la requete.
+        u = urllib.parse.urlsplit(urllib.parse.urljoin(request.host_url, lien_panneau()))
+        if u.scheme and u.netloc:
+            panneau = u.scheme + "://" + u.netloc
+    return ("<script>" + ENVIRONNEMENT_APP_JS.replace("__PANNEAU__", json.dumps(panneau))
+            + "</script>").encode()
+
+
+def injecter_environnement(data, status, entetes, connecte):
+    """Glisse le script juste apres <head>, avant tout ce que la page charge."""
+    if status != 200:
+        return data, entetes
+    if "text/html" not in _entete(entetes, "content-type").lower():
+        return data, entetes
+    if _entete(entetes, "content-encoding"):
+        return data, entetes
+    m = re.search(rb"<head(\s[^>]*)?>", data[:65536], re.I)
+    if not m:
+        return data, entetes
+    data = data[:m.end()] + script_environnement(connecte) + data[m.end():]
+    entetes = [(k, v) for k, v in entetes if k.lower() != "content-length"]
+    entetes.append(("Content-Length", str(len(data))))
+    return data, entetes
 
 
 def _entete(entetes, nom):
@@ -13343,6 +13394,19 @@ def injecter_icone(data, status, entetes, nom):
 PREFIXE_CODELAB = "__codelab/"
 
 
+def racine_application(nom):
+    """Le chemin ou commence l'application, vu de son navigateur.
+
+    « / » sur son sous-domaine (blog.toi.duckdns.org), « /<nom>/ » sur
+    l'adresse partagee. Le manifeste, son icone et sa portee en dependent :
+    ecrits « /blog/ » sur le sous-domaine, ils pointaient vers une page que
+    l'application n'a pas, et l'app installee s'ouvrait sur une erreur.
+    """
+    if getattr(g, "sous_domaine", ""):
+        return "/"
+    return "/" + urllib.parse.quote(nom, safe="") + "/"
+
+
 def injecter_webapp(data, status, entetes, nom, titre):
     """Ajoute avant </head> ce qui fait de la page une app installable."""
     if status != 200:
@@ -13356,7 +13420,7 @@ def injecter_webapp(data, status, entetes, nom, titre):
     if i < 0:
         return data, entetes
     tete = bas[:i]
-    base = "/" + urllib.parse.quote(nom, safe="") + "/" + PREFIXE_CODELAB
+    base = racine_application(nom) + PREFIXE_CODELAB
     titre_html = (titre.replace("&", "&amp;").replace("<", "&lt;")
                   .replace(">", "&gt;").replace('"', "&quot;"))
     ajout = ""
@@ -13379,7 +13443,7 @@ def injecter_webapp(data, status, entetes, nom, titre):
 
 def webapp_manifeste(nom, titre):
     """Le manifeste d'une application : sa portee, son nom, son icone."""
-    racine = "/" + urllib.parse.quote(nom, safe="") + "/"
+    racine = racine_application(nom)
     manifeste = {
         "name": titre,
         "short_name": titre,
@@ -13607,6 +13671,7 @@ def _proxy(name, sub):
     # apple-touch-icon -- et celle-ci en ajoute une.
     data, sortants = injecter_webapp(data, status, sortants, name,
                                      titre_de(name, a))
+    data, sortants = injecter_environnement(data, status, sortants, is_authed())
     return Response(data, status, sortants)
 
 
