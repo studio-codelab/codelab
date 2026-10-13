@@ -145,6 +145,7 @@ LOGIN_PAGE = _lire_ressource("login.html")
 # plutot que recopie dans chacune, pour qu'il n'existe qu'un endroit a changer
 # et qu'aucune des deux ne puisse deriver de l'autre.
 THEME_CSS = _lire_ressource("theme.css")
+MODE_JS = _lire_ressource("mode.js")
 # Le logo CodeLab : celui de la barre du haut, relu dans la page plutot que
 # recopie ici -- un seul dessin, qu'on ne peut pas changer a un endroit et
 # oublier a l'autre. C'est aussi l'icone des onglets, servie a une VRAIE
@@ -10809,6 +10810,18 @@ def theme_css():
                     headers={"Cache-Control": "public, max-age=60"})
 
 
+@flask_app.get("/mode.js")
+def mode_js():
+    """Le mode -- site web ou application --, lu une fois pour les trois pages.
+
+    Public sans session pour la meme raison que le theme : la page de
+    connexion en a besoin, et il n'y a la qu'une detection d'affichage. Meme
+    cache court.
+    """
+    return Response(MODE_JS, mimetype="text/javascript",
+                    headers={"Cache-Control": "public, max-age=60"})
+
+
 @flask_app.get("/login")
 def login_page(invitation=False):
     # Une invitation s'ouvre meme avec une session en cours : c'est souvent
@@ -11039,7 +11052,7 @@ def ouvrir_dans_le_panneau():
             'border-radius:50%;background:rgba(20,26,33,.86);color:#fff;z-index:3;display:grid;'
             'place-items:center;font:600 20px/1 sans-serif;transition:opacity .15s;opacity:0}'
             '</style>'
-            '</head><body><iframe src="' + esc(cible) + '" title="' + esc(titre) + '" '
+            '</head><body><iframe name="codelab-app" src="' + esc(cible) + '" title="' + esc(titre) + '" '
             'allow="clipboard-read; clipboard-write; fullscreen"></iframe>'
             '<div id="bord" aria-hidden="true"></div><div id="fleche" aria-hidden="true">&#8592;</div>'
             '<script>(function(){'

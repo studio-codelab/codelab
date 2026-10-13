@@ -15,6 +15,27 @@
    5. Les formes           -> --r, --r-s, --r-xs.
    6. Les tailles de texte -> --t-xs a --t-xl.
 
+   ---------------------------------------------------------------------------
+   DEUX MODES, TROIS LARGEURS -- DEUX QUESTIONS DIFFERENTES
+
+   LE MODE : site web (un onglet du navigateur) ou application (l'icone de
+   l'ecran d'accueil). mode.js le lit et pose sur <html> la classe
+   « mode-app » ou « mode-site ». Une regle de mode s'ecrit
+   html.mode-app ... -- voir le bloc « mode application » en fin de fichier.
+
+   LA LARGEUR : trois appareils, deux seuils, les memes partout.
+     telephone   jusqu'a 760 px      @media (max-width:760px)
+     tablette    de 761 a 1180 px    @media (min-width:761px) and (max-width:1180px)
+     ordinateur  au-dela             @media (min-width:761px) suffit le plus souvent
+   Une variable CSS ne vaut pas dans une media query : les seuils s'ecrivent
+   en chiffres, et ce sont ceux-la. Un composant peut avoir son propre seuil
+   (une grille a 900 px) ; une MISE EN PAGE, jamais.
+
+   Les deux se croisent : l'application s'ouvre sur telephone et sur tablette,
+   le site aussi. Chaque ecran est verifie dans les SIX cas -- site et
+   application, sur les trois largeurs. Une regle de mode ne teste pas une
+   largeur, une regle de largeur ne teste pas le mode.
+
    Les trois etats de theme sont tenus separement, et c'est necessaire :
      :root                          le theme clair complet ;
      @media (prefers-color-scheme)  le sombre du systeme, quand l'utilisateur
@@ -340,7 +361,7 @@
 
 /* ------------------------------ mode application ------------------------------
    Le panneau ouvert depuis l'icone de l'ecran d'accueil (classe mode-app,
-   posee par la page). Une application installee ne zoome pas, ne rebondit
+   posee par mode.js). Une application installee ne zoome pas, ne rebondit
    pas en bout de page, ne surligne pas ce qu'on touche, et ne laisse pas
    selectionner son interface comme un texte. Les champs, les messages et les
    journaux restent selectionnables : on y copie et on y colle. */

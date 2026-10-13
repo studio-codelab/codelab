@@ -395,9 +395,79 @@ theme est servi sur la meme origine que l'application.
   vit dans son origine, illisible depuis l'application : ne cherche pas a le
   contourner.
 - **Mobile d'abord** : le hub s'ouvre sur telephone. Mets
-  `<meta name="viewport" content="width=device-width,initial-scale=1">`, sans
-  defilement horizontal.
+  `<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">`,
+  sans defilement horizontal. Voir aussi « Site web et mode application »
+  ci-dessous.
 - **Exemple de reference** : `workspace/diagnostic/app.py`.
+
+### Site web et mode application
+
+Une application du hub s'ouvre de **deux facons**, et il faut **toujours
+distinguer les deux** :
+
+| | Mode site web | Mode application |
+|---|---|---|
+| Comment | un onglet de Safari, Chrome, Firefox... | le panneau installe sur l'ecran d'accueil (icone CodeLab) |
+| Ce qui l'entoure | la barre d'adresse et les boutons du navigateur | rien : l'application occupe tout l'ecran, sous la barre d'etat (l'heure, la batterie) |
+| Ou elle vit | a sa propre adresse | encadree dans une page du panneau (`/ouvrir.html`) |
+| Le zoom | permis (c'est un reglage d'accessibilite) | bloque : une application installee ne zoome pas |
+| Le defilement | celui de la page | sans rebond en bout de page, et **aucune barre de defilement visible** |
+
+**Les deux modes sont responsives, sur les trois appareils.** Telephone
+(375 px), tablette en portrait et en paysage (768 et 1024 px) et ordinateur
+(1280 px et plus) : le site et l'application s'affichent correctement partout.
+Le mode application n'est pas un « site mobile » : on l'ouvre aussi sur une
+tablette, et un site web s'ouvre aussi sur un telephone. Ne confonds jamais
+**la largeur** (une media query `max-width`) et **le mode** (la classe
+`mode-app`) : ce sont deux questions differentes, et chacune a sa regle.
+
+**Reconnaitre le mode application.** En tete de page, avant tout affichage :
+
+```html
+<script>
+(function(){
+  var app = (window.matchMedia && matchMedia('(display-mode: standalone)').matches)
+            || navigator.standalone === true
+            || window.name === 'codelab-app';      // encadree par le panneau installe
+  if(app) document.documentElement.classList.add('mode-app');
+})();
+</script>
+```
+
+`window.name === 'codelab-app'` est indispensable : en mode application, le
+panneau affiche l'application dans un cadre, et les deux premiers tests y
+repondent faux.
+
+**Ce que le mode application change**, et seulement sous `html.mode-app` :
+
+```css
+html.mode-app{overscroll-behavior:none;-webkit-tap-highlight-color:transparent;
+ -webkit-text-size-adjust:100%;touch-action:pan-x pan-y}
+html.mode-app body{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+/* On copie et on colle dans les champs et le contenu : ils restent selectionnables. */
+html.mode-app :is(input,textarea,select,[contenteditable],pre,code){-webkit-user-select:text;user-select:text}
+/* Un champ de moins de 16 px fait zoomer iOS a la saisie. */
+html.mode-app :is(input,textarea,select){font-size:max(16px,1em)}
+/* Les bords de l'ecran : encoche, barre d'etat, barre de geste. */
+html.mode-app body{padding:env(safe-area-inset-top) env(safe-area-inset-right)
+ env(safe-area-inset-bottom) env(safe-area-inset-left)}
+```
+
+- **Aucune barre de defilement visible, dans les deux modes** : ce qui defile
+  reste defilable, seule la barre disparait
+  (`*{scrollbar-width:none} *::-webkit-scrollbar{display:none}`). Jamais de
+  defilement horizontal de la page.
+- **Une barre d'actions fixee en bas** (onglets, bouton principal) laisse la
+  place de la barre de geste : `padding-bottom:calc(8px + env(safe-area-inset-bottom))`.
+- **Pas de lien qui sort de l'application** en mode application : un lien vers
+  une autre origine s'ouvre dans un nouvel onglet (`target="_blank"`), sinon
+  il remplace l'application dans le cadre sans moyen d'en revenir.
+- **La couleur de la barre d'etat** suit l'application si elle l'annonce au
+  panneau : `parent.postMessage({codelab:'couleur', valeur:'#0d1015'}, '*')`
+  (une couleur `#rrggbb` ou `rgb(...)`), par exemple au changement de theme.
+- **Au toucher, pas de survol** : une action qui n'apparait qu'au survol doit
+  avoir un autre chemin au doigt (`@media (hover:none)` : bouton visible, appui
+  long ou menu).
 
 ### Direction artistique
 
@@ -522,7 +592,12 @@ chaque point, et dis lesquels tu n'as pas pu verifier.
 - [ ] Ni `X-Frame-Options` ni `frame-ancestors` poses par l'application
 
 **Rendu**
-- [ ] Affichage correct a 375 px, 768 px et 1280 px de large
+- [ ] Affichage correct a 375 px, 768 px, 1024 px et 1280 px de large, en mode
+      site web **et** en mode application (`html.mode-app`)
+- [ ] Mode application reconnu (`display-mode`, `navigator.standalone` et
+      `window.name === 'codelab-app'`) : sans zoom, sans rebond, bords de
+      l'ecran respectes (`env(safe-area-inset-*)`)
+- [ ] Aucune barre de defilement visible, aucun defilement horizontal de la page
 - [ ] Theme clair et sombre lisibles (jetons de `/theme.css`, aucune couleur en dur)
 
 **Erreurs**

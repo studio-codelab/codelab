@@ -21,41 +21,10 @@ __ECRANS_DEMARRAGE__
 <link rel="stylesheet" href="/theme.css">
 <meta name="theme-color" content="#E9EBEE" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0D1015" media="(prefers-color-scheme: dark)">
-<!-- LE MODE APPLICATION. Ouvert depuis l'icone de l'ecran d'accueil, le
-     panneau se comporte comme une application installee : pas de zoom (ni
-     pince, ni double tape), pas de rebond en haut et en bas de la page, pas
-     de surlignage au toucher ni de selection de texte sur l'interface, et la
-     barre d'etat (l'heure, la batterie) prend la couleur du bandeau au lieu
-     d'une bande blanche. Dans Safari, rien ne change : le zoom reste permis,
-     c'est un reglage d'accessibilite. -->
+<!-- LE MODE (site web ou application) : mode.js le lit et le pose sur
+     <html>, avant tout affichage. Une seule copie pour les trois pages. -->
+<script src="/mode.js"></script>
 <script>
-(function(){
-  var app = (window.matchMedia && matchMedia('(display-mode: standalone)').matches)
-            || window.navigator.standalone === true;
-  if(!app) return;
-  document.documentElement.classList.add('mode-app');
-  var v = document.querySelector('meta[name="viewport"]');
-  if(v) v.setAttribute('content', 'width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover');
-  /* iOS ne tient plus compte de user-scalable=no : la pince se bloque ici. */
-  ['gesturestart','gesturechange','gestureend'].forEach(function(t){
-    document.addEventListener(t, function(e){ e.preventDefault(); }, {passive:false});
-  });
-  /* La page de reserve hors ligne : en mode application seulement. Dans le
-     navigateur, le panneau reste un site (et Safari garde sa page d'erreur). */
-  if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(function(){});
-})();
-/* La barre d'etat prend la couleur du bandeau (ou du fond), theme et style
-   compris : relue au chargement et a chaque changement de theme. */
-function majBarreEtat(){
-  var el = document.querySelector('.topbar') || document.body;
-  if(!el) return;
-  var c = getComputedStyle(el).backgroundColor;
-  if(!c || c === 'rgba(0, 0, 0, 0)' || c === 'transparent') c = getComputedStyle(document.body).backgroundColor;
-  document.querySelectorAll('meta[name="theme-color"]').forEach(function(m){
-    m.setAttribute('content', c); m.removeAttribute('media');
-  });
-}
-document.addEventListener('DOMContentLoaded', majBarreEtat);
 /* Le sens du defilement du hub. L'horizontale ne vaut qu'en paysage : une
    tablette tenue en portrait defile vers le bas, comme son ecran d'accueil,
    au lieu d'etirer trois rangees de tuiles sur toute la hauteur. Pose avant
@@ -66,7 +35,6 @@ function majSensDuHub(){
     || matchMedia('(orientation: portrait)').matches);
 }
 majSensDuHub();
-if(window.matchMedia) matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(){ setTimeout(majBarreEtat, 0); });
 </script>
 
 <style>
@@ -3633,9 +3601,8 @@ const urlApplication = nom => APPS_MODELE.replace('{nom}', encodeURIComponent(no
    directement sortirait de l'app : elle vit sur une autre origine, et iOS
    l'afficherait dans son navigateur integre. Elle s'ouvre donc encadree dans
    une page du panneau (/ouvrir.html, voir ouvrir_dans_le_panneau). */
-const enModeApp = (window.matchMedia
-    && matchMedia('(display-mode: standalone)').matches)
-  || window.navigator.standalone === true;
+/* Le mode a ete lu une fois, en tete de page (mode.js) : on ne le redevine pas. */
+const enModeApp = window.CODELAB_MODE_APP === true;
 /* Une tuile « interne » (Messages) est une page du panneau : elle s'ouvre a
    son adresse, sans passer par le sous-domaine d'une application. */
 const lienOuverture = a => a.interne ? a.url
