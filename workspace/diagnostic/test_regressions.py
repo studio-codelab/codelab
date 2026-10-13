@@ -15604,6 +15604,33 @@ def test_hors_ligne_l_application_s_ouvre_sur_une_page_de_reserve(hub):
     assert "const RESERVE = ['/hors-ligne.html'];" in code
 
 
+def test_la_page_redressee_garde_sa_place_du_portrait():
+    """Vecu (video d'un iPhone) : « le blocage vertical fait quelque chose de
+    bizarre ». En paysage, iOS masque la barre d'etat et donne a la page
+    toute la longueur de l'ecran : redressee, la page remontait d'environ
+    55 px sous l'encoche, puis redescendait au retour. Elle garde desormais
+    la hauteur et la place du portrait (simule dans Chromium : 430 x 873 en
+    portrait et dans les deux sens du paysage, 59 px de retrait, appuis
+    reels sur les tuiles justes)."""
+    mode = _page_panneau("mode.js").split("(function(){")[1].split("})();")[0]
+    apres = mode.split("if(!app) return;")[1]
+    # La hauteur du portrait, retenue (et gardee d'une ouverture a l'autre,
+    # pour une application ouverte d'emblee en paysage).
+    assert "localStorage.setItem(CLE_PORTRAIT" in apres and "localStorage.getItem(CLE_PORTRAIT)" in apres
+    # Le retrait entre partout ou l'ecran et la page se convertissent : sans
+    # lui, un doigt tomberait 59 px a cote de ce qu'il vise.
+    assert "'height', (W - decale) + 'px'" in apres
+    assert "'translate(' + decale + 'px,' + H + 'px) rotate(-90deg)'" in apres
+    assert "'translate(' + (W - decale) + 'px,0) rotate(90deg)'" in apres
+    assert "X - decale" in apres and "y + decale" in apres and "r.left - decale" in apres
+    assert "vraiW() - decale : vraiH()" in apres, "innerHeight vaut la hauteur de la page redressee"
+    # Rien ne glisse pendant le quart de tour, sans rejouer les animations.
+    assert "html.classList.add('pivote')" in apres
+    theme = _page_panneau("theme.css")
+    regle = theme.split("html.telephone.pivote *,")[1].split("}")[0]
+    assert "transition:none!important" in regle and "animation" not in regle
+
+
 def test_le_service_worker_n_existe_qu_en_mode_application():
     mode = _page_panneau("mode.js").split("(function(){")[1].split("})();")[0]
     avant, apres = mode.split("if(!app) return;")

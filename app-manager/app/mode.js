@@ -74,12 +74,43 @@
     };
     var lireW = acces(window, 'innerWidth'), lireH = acces(window, 'innerHeight');
     var vraiW = function(){ return lireW.call(window); }, vraiH = function(){ return lireH.call(window); };
+    /* LA PAGE NE SAUTE PAS AU PAYSAGE. Vecu (video d'un iPhone) : en
+       portrait, la page commence sous la barre d'etat ; en paysage, iOS
+       masque la barre d'etat et donne a la page toute la longueur de
+       l'ecran. Redressee, la page remontait d'environ 55 px, sous l'encoche,
+       puis redescendait au retour en portrait. On retient donc la hauteur
+       de la page en portrait (la plus grande vue : le clavier la reduit), et
+       la page redressee garde cette hauteur et cette place : le haut de
+       l'ecran reste vide, comme sous la barre d'etat. « decale » est ce
+       retrait, en pixels, du cote du haut du telephone.
+       ESSAYE ET ECARTE : viewport-fit=cover et une barre d'etat
+       translucide. Ils changent la mise en page de tout le panneau en
+       portrait, pour un defaut qui ne se voit qu'en paysage. */
+    /* Ouverte d'emblee en paysage, la page n'a jamais vu le portrait : la
+       hauteur se garde d'une ouverture a l'autre (par taille d'ecran). Un
+       stockage refuse (navigation privee) ne fait que la perdre. */
+    var CLE_PORTRAIT = 'codelab-haut-portrait-' + Math.max(screen.width, screen.height);
+    var hautPortrait = 0, decale = 0;
+    try{ hautPortrait = parseInt(localStorage.getItem(CLE_PORTRAIT), 10) || 0; }catch(e){}
+    var retenirPortrait = function(){
+      if(sens || vraiH() <= hautPortrait) return;
+      hautPortrait = vraiH();
+      try{ localStorage.setItem(CLE_PORTRAIT, String(hautPortrait)); }catch(e){}
+    };
+    var calculerDecale = function(){
+      var long = Math.max(screen.width, screen.height), W = vraiW();
+      if(!sens || !hautPortrait || hautPortrait >= W){ decale = 0; return; }
+      /* Ce qu'iOS retire deja du cote du haut, en paysage (une marge de
+         chaque cote quand il y en a), ote de ce que la barre d'etat
+         prenait en portrait. */
+      decale = Math.max(0, Math.min(W - hautPortrait, (long - hautPortrait) - (long - W) / 2));
+    };
     /* Ecran (X, Y) -> page (x, y), et retour. */
-    var versPage = function(X, Y){ return sens < 0 ? [vraiH() - Y, X] : [Y, vraiW() - X]; };
-    var versEcran = function(x, y){ return sens < 0 ? [y, vraiH() - x] : [vraiW() - y, x]; };
+    var versPage = function(X, Y){ return sens < 0 ? [vraiH() - Y, X - decale] : [Y, vraiW() - decale - X]; };
+    var versEcran = function(x, y){ return sens < 0 ? [y + decale, vraiH() - x] : [vraiW() - decale - y, x]; };
     if(lireW && lireH){
       Object.defineProperty(window, 'innerWidth', {configurable:true, get:function(){ return sens ? vraiH() : vraiW(); }});
-      Object.defineProperty(window, 'innerHeight', {configurable:true, get:function(){ return sens ? vraiW() : vraiH(); }});
+      Object.defineProperty(window, 'innerHeight', {configurable:true, get:function(){ return sens ? vraiW() - decale : vraiH(); }});
     }
     var PERMUTE = {width:'height', height:'width', portrait:'landscape', landscape:'portrait'};
     var permuterMedia = function(t){ return String(t).replace(/width|height|portrait|landscape/g, function(m){ return PERMUTE[m]; }); };
@@ -89,8 +120,8 @@
     Element.prototype.getBoundingClientRect = function(){
       var r = rect.call(this);
       if(!sens) return r;
-      return sens < 0 ? new DOMRect(vraiH() - r.bottom, r.left, r.height, r.width)
-                      : new DOMRect(r.top, vraiW() - r.right, r.height, r.width);
+      return sens < 0 ? new DOMRect(vraiH() - r.bottom, r.left - decale, r.height, r.width)
+                      : new DOMRect(r.top, vraiW() - decale - r.right, r.height, r.width);
     };
     var sous = document.elementFromPoint;
     document.elementFromPoint = function(x, y){
@@ -143,18 +174,20 @@
       var b = document.body;
       defaire();
       html.classList.toggle('contre-rotation', !!sens);
+      calculerDecale();
       if(!b) return;
       if(!sens){ b.style.removeProperty('width'); b.style.removeProperty('height'); b.style.removeProperty('transform'); return; }
       var W = vraiW(), H = vraiH();
       b.style.setProperty('width', H + 'px', 'important');
-      b.style.setProperty('height', W + 'px', 'important');
-      b.style.setProperty('transform', sens < 0 ? 'translateY(' + H + 'px) rotate(-90deg)'
-                                                : 'translateX(' + W + 'px) rotate(90deg)', 'important');
+      b.style.setProperty('height', (W - decale) + 'px', 'important');
+      b.style.setProperty('transform', sens < 0 ? 'translate(' + decale + 'px,' + H + 'px) rotate(-90deg)'
+                                                : 'translate(' + (W - decale) + 'px,0) rotate(90deg)', 'important');
       for(var i = 0; i < document.styleSheets.length; i++){
         try{ parcourir(document.styleSheets[i].cssRules); }catch(e){ /* feuille d'une autre origine */ }
       }
     };
     var enCours = false;
+    var finPivot = function(){ html.classList.remove('pivote'); };
     var lireSens = function(e){
       if(enCours) return;
       var t = o && o.type, a = window.orientation, nouveau = 0;
@@ -164,7 +197,18 @@
         else nouveau = (o && o.angle === 270) ? 90 : -90;
       }
       var change = nouveau !== sens, redimension = !!(e && e.type === 'resize');
+      retenirPortrait();
       sens = nouveau;
+      retenirPortrait();
+      /* Rien ne glisse pendant le quart de tour : une largeur, une couleur
+         en transition se verraient filer d'un bord a l'autre pendant que la
+         page se redresse. Les transitions seulement : couper les animations
+         les rejouerait toutes (la cascade des tuiles) a leur retour. */
+      if(change){
+        html.classList.add('pivote');
+        clearTimeout(lireSens.fin);
+        lireSens.fin = setTimeout(finPivot, 700);
+      }
       /* iOS annonce parfois la rotation avant d'avoir change la taille de
          la fenetre : la taille se reprend a chaque redimensionnement. */
       if(change || (redimension && sens)) poser();

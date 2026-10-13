@@ -144,7 +144,10 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
     le panneau.
   - **Téléphone : affichage bloqué à la verticale**. Android verrouille l'écran ; sur iPhone (qui ne
     permet pas de verrouiller une page), la page tourne en sens inverse quand on couche le téléphone et
-    reste verticale, mise en page comprise. La tablette, l'ordinateur et le site web tournent librement,
+    reste verticale, mise en page comprise. Elle garde alors sa place et sa hauteur du portrait (iOS
+    masque la barre d'état en paysage : la page ne remonte plus sous l'encoche), et rien ne glisse
+    pendant le quart de tour. L'animation de rotation d'iOS elle-même reste visible un instant : une
+    page web ne peut pas l'empêcher. La tablette, l'ordinateur et le site web tournent librement,
     tout comme les applications du hub ouvertes dans CodeLab.
   - **Barre d'état et barre de geste des applications du hub** : elles prennent la couleur réellement
     affichée en haut et en bas de l'application (comme Safari), et la suivent au défilement : plus de
