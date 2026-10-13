@@ -447,8 +447,9 @@ du panneau, ou iOS ne lui dit rien :
 - dans une page qui s'etend, `env(safe-area-inset-*)` est reecrit dans ses
   feuilles de style (celles de son origine) : la regle ecrite pour iOS donne
   les memes marges dans le cadre ;
-- sa `theme-color` (sinon le fond de la page) colore la barre d'etat, et la
-  recolore quand elle change.
+- la couleur **reellement peinte** en haut de la page colore la barre d'etat,
+  celle du bas la barre de geste (comme Safari) ; elles suivent le defilement
+  et les changements de la page. La `theme-color` ne sert que si rien ne se lit.
 
 Ecris donc **pour iOS, une seule fois** : `viewport-fit=cover` si la page va
 jusqu'aux bords, `env(safe-area-inset-*)` pour les marges, `html.mode-app` pour
@@ -494,8 +495,9 @@ html.mode-app body{padding:env(safe-area-inset-top) env(safe-area-inset-right)
 - **Pas de lien qui sort de l'application** en mode application : un lien vers
   une autre origine s'ouvre dans un nouvel onglet (`target="_blank"`), sinon
   il remplace l'application dans le cadre sans moyen d'en revenir.
-- **La couleur de la barre d'etat** suit la `<meta name="theme-color">` de la
-  page (sinon son fond) : change-la avec le theme, le hub suit.
+- **La couleur de la barre d'etat** est celle du haut de ta page, lue a l'ecran :
+  rien a declarer. Un bandeau colle en haut (`position:sticky`) la donne quand
+  on defile ; un pied fixe donne celle de la barre de geste.
 - **Au toucher, pas de survol** : une action qui n'apparait qu'au survol doit
   avoir un autre chemin au doigt (`@media (hover:none)` : bouton visible, appui
   long ou menu).

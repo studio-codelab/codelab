@@ -40,14 +40,22 @@
   ['gesturestart','gesturechange','gestureend'].forEach(function(t){
     document.addEventListener(t, function(e){ e.preventDefault(); }, {passive:false});
   });
-  /* PAS DE ROTATION SUR TELEPHONE. L'application installee reste droite sur
-     un telephone (le petit cote de l'ecran sous 600 px) : la tablette et
-     l'ordinateur tournent librement. Android et Chrome verrouillent pour de
-     bon (screen.orientation.lock) ; iOS n'a pas de verrou pour une page :
-     tenu en paysage, l'ecran se couvre d'une invitation a le redresser
-     (classe « a-redresser », habillee dans theme.css). C'est le SENS DE
-     L'APPAREIL qui compte, jamais la hauteur de la fenetre : sur Android, le
-     clavier ouvert rend la page plus large que haute sans rien tourner. */
+  /* PAS DE ROTATION SUR TELEPHONE. L'application installee reste verticale
+     sur un telephone (le petit cote de l'ecran sous 600 px, au doigt) ; la
+     tablette et l'ordinateur tournent librement.
+       Android, Chrome : le systeme verrouille (screen.orientation.lock).
+       iOS : aucun verrou pour une page web. Quand le telephone est tenu en
+         paysage, iOS tourne l'ecran ; la page tourne alors d'un quart de
+         tour en sens inverse (classe « contre-rotation ») et reste verticale
+         par rapport au telephone. Pour que la mise en page ne voie rien, ce
+         que la page lit de l'ecran est redresse le temps du paysage : les
+         media queries (largeur <-> hauteur, portrait <-> paysage), les unites
+         vw/vh, les bords env(safe-area-inset-*), innerWidth/innerHeight,
+         matchMedia, getBoundingClientRect, elementFromPoint et les
+         coordonnees des doigts et de la souris.
+     C'est le SENS DE L'APPAREIL qui compte, jamais la hauteur de la
+     fenetre : sur Android, le clavier ouvert rend la page plus large que
+     haute sans rien tourner. */
   var html = document.documentElement;
   var telephone = Math.min(screen.width, screen.height) < 600
                   && !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
@@ -55,14 +63,121 @@
     html.classList.add('telephone');
     var o = screen.orientation;
     if(o && o.lock) o.lock('portrait').catch(function(e){});
-    var lireSens = function(){
-      var t = o && o.type;
-      var paysage = t ? t.indexOf('landscape') === 0 : Math.abs(window.orientation || 0) === 90;
-      html.classList.toggle('a-redresser', paysage);
+    /* sens : 0 droit ; -90 telephone tourne vers la gauche (la page tourne
+       d'un quart de tour a gauche) ; 90 vers la droite. */
+    var sens = 0;
+    var acces = function(objet, nom){
+      for(var x = objet; x; x = Object.getPrototypeOf(x)){
+        var d = Object.getOwnPropertyDescriptor(x, nom);
+        if(d && d.get) return d.get;
+      }
+    };
+    var lireW = acces(window, 'innerWidth'), lireH = acces(window, 'innerHeight');
+    var vraiW = function(){ return lireW.call(window); }, vraiH = function(){ return lireH.call(window); };
+    /* Ecran (X, Y) -> page (x, y), et retour. */
+    var versPage = function(X, Y){ return sens < 0 ? [vraiH() - Y, X] : [Y, vraiW() - X]; };
+    var versEcran = function(x, y){ return sens < 0 ? [y, vraiH() - x] : [vraiW() - y, x]; };
+    if(lireW && lireH){
+      Object.defineProperty(window, 'innerWidth', {configurable:true, get:function(){ return sens ? vraiH() : vraiW(); }});
+      Object.defineProperty(window, 'innerHeight', {configurable:true, get:function(){ return sens ? vraiW() : vraiH(); }});
+    }
+    var PERMUTE = {width:'height', height:'width', portrait:'landscape', landscape:'portrait'};
+    var permuterMedia = function(t){ return String(t).replace(/width|height|portrait|landscape/g, function(m){ return PERMUTE[m]; }); };
+    var mm = window.matchMedia;
+    window.matchMedia = function(q){ return mm.call(window, sens ? permuterMedia(q) : q); };
+    var rect = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function(){
+      var r = rect.call(this);
+      if(!sens) return r;
+      return sens < 0 ? new DOMRect(vraiH() - r.bottom, r.left, r.height, r.width)
+                      : new DOMRect(r.top, vraiW() - r.right, r.height, r.width);
+    };
+    var sous = document.elementFromPoint;
+    document.elementFromPoint = function(x, y){
+      if(!sens) return sous.call(document, x, y);
+      var e = versEcran(x, y); return sous.call(document, e[0], e[1]);
+    };
+    [window.MouseEvent && MouseEvent.prototype, window.Touch && Touch.prototype].forEach(function(proto){
+      if(!proto) return;
+      var gx = acces(proto, 'clientX'), gy = acces(proto, 'clientY');
+      if(!gx || !gy) return;
+      Object.defineProperty(proto, 'clientX', {configurable:true, get:function(){
+        var X = gx.call(this); return sens ? versPage(X, gy.call(this))[0] : X; }});
+      Object.defineProperty(proto, 'clientY', {configurable:true, get:function(){
+        var Y = gy.call(this); return sens ? versPage(gx.call(this), Y)[1] : Y; }});
+    });
+    /* Les feuilles de style : chaque retouche garde l'original, rendu au
+       retour en portrait (ou avant de tourner dans l'autre sens). */
+    var retouches = [];
+    var BORDS = {'-90':{top:'left', right:'top', bottom:'right', left:'bottom'},
+                 '90':{top:'right', right:'bottom', bottom:'left', left:'top'}};
+    var retoucherValeur = function(v){
+      var b = BORDS[sens];
+      return v.replace(/(\d)([dsl]?v)(w|h)\b/g, function(m, c, u, a){ return c + u + (a === 'w' ? 'h' : 'w'); })
+              .replace(/safe-area-inset-(top|right|bottom|left)/g, function(m, cote){ return 'safe-area-inset-' + b[cote]; });
+    };
+    var parcourir = function(regles){
+      for(var i = 0; i < regles.length; i++){
+        var r = regles[i];
+        if(r.media && r.cssRules && r.media.mediaText){
+          retouches.push([r.media, 'mediaText', r.media.mediaText]);
+          r.media.mediaText = permuterMedia(r.media.mediaText);
+        }
+        if(r.style) for(var j = 0; j < r.style.length; j++){
+          var nom = r.style[j], v = r.style.getPropertyValue(nom);
+          if(!/\dv[wh]\b|\d[dsl]v[wh]\b|safe-area-inset/.test(v)) continue;
+          var prio = r.style.getPropertyPriority(nom);
+          retouches.push([r.style, nom, v, prio]);
+          r.style.setProperty(nom, retoucherValeur(v), prio);
+        }
+        if(r.cssRules) parcourir(r.cssRules);
+      }
+    };
+    var defaire = function(){
+      while(retouches.length){
+        var t = retouches.pop();
+        if(t[1] === 'mediaText') t[0].mediaText = t[2]; else t[0].setProperty(t[1], t[2], t[3]);
+      }
+    };
+    var poser = function(){
+      var b = document.body;
+      defaire();
+      html.classList.toggle('contre-rotation', !!sens);
+      if(!b) return;
+      if(!sens){ b.style.removeProperty('width'); b.style.removeProperty('height'); b.style.removeProperty('transform'); return; }
+      var W = vraiW(), H = vraiH();
+      b.style.setProperty('width', H + 'px', 'important');
+      b.style.setProperty('height', W + 'px', 'important');
+      b.style.setProperty('transform', sens < 0 ? 'translateY(' + H + 'px) rotate(-90deg)'
+                                                : 'translateX(' + W + 'px) rotate(90deg)', 'important');
+      for(var i = 0; i < document.styleSheets.length; i++){
+        try{ parcourir(document.styleSheets[i].cssRules); }catch(e){ /* feuille d'une autre origine */ }
+      }
+    };
+    var enCours = false;
+    var lireSens = function(e){
+      if(enCours) return;
+      var t = o && o.type, a = window.orientation, nouveau = 0;
+      var paysage = t ? t.indexOf('landscape') === 0 : Math.abs(a || 0) === 90;
+      if(paysage){
+        if(typeof a === 'number') nouveau = a === -90 ? 90 : -90;
+        else nouveau = (o && o.angle === 270) ? 90 : -90;
+      }
+      var change = nouveau !== sens, redimension = !!(e && e.type === 'resize');
+      sens = nouveau;
+      /* iOS annonce parfois la rotation avant d'avoir change la taille de
+         la fenetre : la taille se reprend a chaque redimensionnement. */
+      if(change || (redimension && sens)) poser();
+      if(change && !redimension){
+        enCours = true;
+        try{ window.dispatchEvent(new Event('resize')); } finally { enCours = false; }
+      }
     };
     lireSens();
+    document.addEventListener('DOMContentLoaded', poser);
     if(o && o.addEventListener) o.addEventListener('change', lireSens);
     window.addEventListener('orientationchange', lireSens);
+    window.addEventListener('resize', lireSens);
     window.addEventListener('pageshow', lireSens);
   }
   /* La page de reserve hors ligne : en mode application seulement. Dans le

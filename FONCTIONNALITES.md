@@ -137,10 +137,15 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
   - **Écran de démarrage** : fond de la couleur du bandeau et logo, au lieu d'un écran blanc ; une
     image par taille d'iPhone et d'iPad (l'iPad debout comme couché), clair et sombre, fabriquée par
     le panneau.
-  - **Téléphone : pas de rotation**. L'application reste droite ; verrouillée par le système sur
-    Android, et sur iPhone (qui ne permet pas de verrouiller une page) un écran invite à redresser le
-    téléphone. La tablette, l'ordinateur et le site web tournent librement, tout comme les
-    applications du hub ouvertes dans CodeLab.
+  - **Téléphone : affichage bloqué à la verticale**. Android verrouille l'écran ; sur iPhone (qui ne
+    permet pas de verrouiller une page), la page tourne en sens inverse quand on couche le téléphone et
+    reste verticale, mise en page comprise. La tablette, l'ordinateur et le site web tournent librement,
+    tout comme les applications du hub ouvertes dans CodeLab.
+  - **Barre d'état et barre de geste des applications du hub** : elles prennent la couleur réellement
+    affichée en haut et en bas de l'application (comme Safari), et la suivent au défilement : plus de
+    bandeau d'une autre couleur au-dessus de la page.
+  - **Descriptions des applications de CodeLab** (Dagster, Mailpit, Messages, Diagnostic) : courtes,
+    lisibles en entier sur leur tuile.
   - **Tablette** : en portrait, le hub défile vers le bas comme un écran d'accueil ; en paysage, il
     suit le réglage « Défilement ».
   - **Aucune barre de défilement visible**, sur ordinateur, tablette et téléphone, iPhone compris

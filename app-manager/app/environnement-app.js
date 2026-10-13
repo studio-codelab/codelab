@@ -29,8 +29,10 @@
      - pour une page qui s'etend, env(safe-area-inset-*) est reecrit dans ses
        feuilles de style en var(--codelab-bord-*) : la regle CSS ecrite pour
        iOS donne les memes marges dans le cadre ;
-     - sa couleur (theme-color, sinon le fond de la page) part au panneau, qui
-       en peint la barre d'etat, et la repeint quand elle change.
+     - la couleur reellement peinte en haut et en bas de la page (comme
+       Safari, et non la theme-color declaree) part au panneau, qui en peint
+       la barre d'etat et la barre de geste, et les repeint quand la page
+       defile ou change.
 
    Ouverte seule (onglet, ou installee elle-meme sur l'ecran d'accueil),
    l'application garde ce que le navigateur lui donne : le script ne fait
@@ -178,19 +180,77 @@
     }
   }
 
-  /* La couleur de la barre d'etat : celle que la page annonce. */
+  /* La couleur de la barre d'etat, et celle de la barre de geste : comme
+     Safari, celle qui est REELLEMENT PEINTE en haut (et en bas) de la page,
+     pas la theme-color declaree -- une theme-color qui ne colle pas au haut
+     de la page faisait un bandeau a part, qui ne faisait pas application.
+     Le point est lu a travers les couches (un bandeau translucide sur le
+     fond), et relu quand la page defile ou change. La theme-color ne sert
+     que si rien ne se lit. */
+  function rgba(c){
+    var m = /rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,\/]\s*([\d.]+)(%?))?\s*\)/.exec(c || '');
+    if(!m) return null;
+    var a = m[4] === undefined ? 1 : (+m[4] / (m[5] ? 100 : 1));
+    return [+m[1], +m[2], +m[3], a];
+  }
+  function couches(el){
+    var l = [];
+    for(var n = el; n && n.nodeType === 1; n = n.parentElement){
+      var cs = getComputedStyle(n), c = rgba(cs.backgroundColor);
+      if((!c || c[3] === 0) && /gradient/.test(cs.backgroundImage)) c = rgba(cs.backgroundImage);
+      if(c && c[3] > 0) l.push(c);
+      if(c && c[3] >= 1) break;
+    }
+    return l;
+  }
+  function couleurA(y){
+    var x = Math.round((window.innerWidth || 0) / 2), el = null;
+    try { el = document.elementFromPoint(x, y); } catch(e){}
+    var l = couches(el || document.body || racine);
+    /* Le fond du body peint toute la fenetre quand celui de <html> est vide
+       (meme hors du body, par exemple au-dessus d'une marge qui deborde). */
+    if((!l.length || l[l.length - 1][3] < 1) && document.body && el !== document.body
+       && !(document.body.contains(el))){
+      var fond = couches(document.body);
+      l = l.concat(fond.slice(-1));
+    }
+    if(!l.length || l[l.length - 1][3] < 1){
+      var sombre = /dark/.test(getComputedStyle(racine).colorScheme || '');
+      l.push(sombre ? [18, 18, 18, 1] : [255, 255, 255, 1]);
+    }
+    var r = l[l.length - 1].slice(0, 3);
+    for(var i = l.length - 2; i >= 0; i--){
+      var c = l[i];
+      for(var k = 0; k < 3; k++) r[k] = c[k] * c[3] + r[k] * (1 - c[3]);
+    }
+    return 'rgb(' + Math.round(r[0]) + ', ' + Math.round(r[1]) + ', ' + Math.round(r[2]) + ')';
+  }
+  function couleurDeclaree(){
+    var m = document.querySelector('meta[name=theme-color]:not([media])');
+    if(!m){
+      var l = document.querySelectorAll('meta[name=theme-color][media]');
+      for(var k = 0; k < l.length; k++) if(mmNatif(l[k].getAttribute('media')).matches){ m = l[k]; break; }
+    }
+    return (m && m.getAttribute('content')) || '';
+  }
   var derniereCouleur = '';
   function annoncerCouleur(){
     try {
-      var m = document.querySelector('meta[name=theme-color]:not([media])')
-        || (function(){ var l = document.querySelectorAll('meta[name=theme-color][media]');
-             for(var k = 0; k < l.length; k++) if(mmNatif(l[k].getAttribute('media')).matches) return l[k]; return null; })();
-      var c = (m && m.getAttribute('content')) || (document.body && getComputedStyle(document.body).backgroundColor) || '';
-      if(!c || c === 'rgba(0, 0, 0, 0)' || c === 'transparent' || c === derniereCouleur) return;
-      derniereCouleur = c;
-      parent.postMessage({ codelab: 'couleur', valeur: c }, PANNEAU);
+      var haut = '', bas = '';
+      if(document.body){ haut = couleurA(1); bas = couleurA(Math.max(1, (window.innerHeight || 2) - 2)); }
+      if(!haut) haut = bas = couleurDeclaree();
+      if(!haut || haut + bas === derniereCouleur) return;
+      derniereCouleur = haut + bas;
+      parent.postMessage({ codelab: 'couleur', valeur: haut, bas: bas || haut }, PANNEAU);
     } catch(e){}
   }
+  var relecture = null;
+  function relireBientot(){
+    if(relecture) return;
+    relecture = setTimeout(function(){ relecture = null; annoncerCouleur(); }, 120);
+  }
+  window.addEventListener('scroll', relireBientot, { capture: true, passive: true });
+  window.addEventListener('resize', relireBientot);
 
   /* Le panneau connait l'ecran, la page dans son cadre ne le connait pas :
      il repond a « pret » par l'environnement, et le renvoie quand l'appareil
@@ -211,6 +271,10 @@
     poser();
     reecrireTout();
     annoncerCouleur();
+    /* Une application a page unique change d'ecran sans recharger : la
+       couleur se relit quand la page change. */
+    try { new MutationObserver(relireBientot).observe(document.body || racine,
+      { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style'] }); } catch(e){}
     try { parent.postMessage({ codelab: 'pret', pleinEcran: cover }, PANNEAU); } catch(e){}
   }
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', pret);
