@@ -15583,6 +15583,23 @@ def test_encadree_par_le_hub_une_application_se_croit_installee():
         assert cle in source, cle
 
 
+def test_le_cadre_remplace_ses_marqueurs_en_un_seul_passage(hub, monkeypatch):
+    """ouvrir.html est un fichier a marqueurs : une valeur remplacee n'est
+    jamais relue (un titre qui contient un marqueur reste du texte), et
+    l'origine, ecrite dans le script, ne peut pas fermer la balise."""
+    page = app._lire_ressource("ouvrir.html")
+    for marqueur in ("__TITRE__", "__ICONE__", "__CIBLE__", "__ORIGINE__"):
+        assert marqueur in page, marqueur
+    monkeypatch.setattr(app, "titre_de", lambda nom, a: "__CIBLE__ <b>")
+    monkeypatch.setattr(app, "origine_de_l_application", lambda nom: "http://x</script>")
+    c = _connexion_marie(hub)
+    rendu = c.get("/ouvrir.html?app=compta").get_data(as_text=True)
+    assert "<title>__CIBLE__ &lt;b&gt;</title>" in rendu
+    assert "</script>\"" not in rendu and "http://x\\u003c/script>" in rendu
+    # Hors du titre (balise et attribut), plus aucun marqueur.
+    assert not re.search(r"__(TITRE|ICONE|CIBLE|ORIGINE)__", rendu.replace("__CIBLE__ &lt;b&gt;", ""))
+
+
 def test_le_cadre_pose_l_application_dans_la_zone_sure_comme_ios(hub):
     c = _connexion_marie(hub)
     page = c.get("/ouvrir.html?app=compta").get_data(as_text=True)

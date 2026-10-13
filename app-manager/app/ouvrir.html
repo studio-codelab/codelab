@@ -1,0 +1,150 @@
+<!doctype html>
+<!-- =========================================================================
+  CodeLab -- LE CADRE D'UNE APPLICATION, EN MODE APPLICATION (/ouvrir.html)
+  ---------------------------------------------------------------------------
+  ROLE        Depuis le hub installe sur l'ecran d'accueil, une application
+              s'ouvre ICI, encadree, au lieu de quitter l'application CodeLab
+              pour Safari. Ce cadre lui donne ce qu'iOS donnerait a une app
+              installee : les bords de l'ecran, la plateforme, le theme
+              (message « environnement »), et il peint la barre d'etat et la
+              barre de geste des couleurs de la page.
+  SERVI PAR   ouvrir_dans_le_panneau() (app.py), qui remplace les quatre
+              marqueurs (TITRE, ICONE, CIBLE, ORIGINE, entre doubles
+              soulignes), chacun echappe pour son contexte : texte HTML, nom
+              en URL, attribut HTML, JSON dans le script.
+  DIALOGUE    avec environnement-app.js, injecte dans l'application par le
+              proxy : « pret » et « couleur » montent, « environnement »
+              descend. CHAQUE COTE VERIFIE L'ORIGINE EXACTE de l'autre
+              (ici : e.origin !== origine), et toute valeur recue est
+              validee avant usage (couleurs : expression rationnelle).
+  SECURITE    La CSP de la page est celle du panneau, plus frame-src
+              cadres_permis() -- l'origine des applications, et elle seule.
+              frame-ancestors 'none' : ce cadre ne s'encadre pas lui-meme.
+  A AMELIORER - Le geste retour (bord gauche) ne suit pas l'animation iOS :
+                il pourrait faire glisser le cadre avec le doigt.
+========================================================================== -->
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>__TITRE__</title>
+<!-- L'onglet porte l'icone de L'APPLICATION ouverte : c'est elle qu'on
+     regarde. Le panneau, lui, garde toujours la sienne. -->
+<link rel="icon" href="/api/icon/__ICONE__">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<!-- La barre d'etat : blanche d'abord, puis la couleur peinte en haut de
+     l'application (message « couleur »). -->
+<meta name="theme-color" content="#ffffff">
+<style>
+html,body{margin:0;height:100%;background:#fff;overscroll-behavior:none;
+ -webkit-tap-highlight-color:transparent;touch-action:pan-x pan-y}
+body{transition:background-color .2s}
+
+/* COMME iOS : une page qui ne declare pas viewport-fit=cover reste dans la
+   zone sure (sous la barre d'etat, au-dessus de la barre de geste), et le
+   fond -- la couleur de l'application -- remplit le reste. Une page qui le
+   declare s'etend partout et recoit les bords (classe « plein », voir
+   environnement-app.js).
+   Une hauteur explicite : une iframe fixee entre top et bottom ne s'etire
+   pas, elle garde ses 150 px par defaut. */
+iframe{position:fixed;display:block;border:0;
+ top:env(safe-area-inset-top);left:env(safe-area-inset-left);
+ width:calc(100% - env(safe-area-inset-left) - env(safe-area-inset-right));
+ height:calc(100% - env(safe-area-inset-top) - env(safe-area-inset-bottom))}
+iframe.plein{top:0;left:0;width:100%;height:100%}
+
+/* La barre de geste (en bas) prend la couleur du bas de la page, la barre
+   d'etat celle du haut : chacune la sienne. Une page plein ecran dessine la
+   sienne elle-meme. */
+#bas{position:fixed;left:0;right:0;bottom:0;height:env(safe-area-inset-bottom);
+ background:#fff;transition:background-color .2s}
+iframe.plein~#bas{display:none}
+
+/* La sonde : env() ne se lit qu'a travers un element. */
+#sonde{position:fixed;visibility:hidden;pointer-events:none;
+ padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+
+/* LE GESTE RETOUR. En mode application, iOS n'a ni bouton ni geste pour
+   revenir : un glissement depuis le bord gauche ramene au hub, comme dans
+   une app native. Une bande de 14 px seulement, pour ne pas prendre de
+   place a l'application. */
+#bord{position:fixed;left:0;top:0;bottom:0;width:14px;z-index:2;touch-action:none}
+#fleche{position:fixed;left:-44px;top:50%;width:40px;height:40px;margin-top:-20px;
+ border-radius:50%;background:rgba(20,26,33,.86);color:#fff;z-index:3;display:grid;
+ place-items:center;font:600 20px/1 sans-serif;transition:opacity .15s;opacity:0}
+</style>
+</head>
+<body>
+<iframe name="codelab-app" src="__CIBLE__" title="__TITRE__" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
+<div id="bord" aria-hidden="true"></div>
+<div id="fleche" aria-hidden="true">&#8592;</div>
+<div id="sonde" aria-hidden="true"></div>
+<div id="bas" aria-hidden="true"></div>
+<script>
+(function(){
+  /* L'origine de l'application, et elle seule : c'est a elle qu'on parle,
+     et c'est d'elle seule qu'on ecoute. Vide quand les applications sont
+     servies sur l'origine du panneau. */
+  var origine = __ORIGINE__ || location.origin;
+  var cadre = document.querySelector("iframe"), sonde = document.getElementById("sonde"), plein = false;
+
+  /* Ce que l'ecran dit au panneau, et que le cadre ne voit pas : les bords
+     (encoche, barre de geste), la plateforme, la largeur, le theme. Envoye a
+     l'application quand elle se dit prete, et a chaque rotation ou
+     changement de theme. Les seuils de largeur sont ceux du panneau
+     (760 et 1180 px, voir theme.css). */
+  function envoyer(){
+    var c = getComputedStyle(sonde), ua = navigator.userAgent, l = innerWidth,
+        ios = /iP(hone|ad|od)/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    var b = plein ? {haut: parseFloat(c.paddingTop) || 0, droite: parseFloat(c.paddingRight) || 0,
+                     bas: parseFloat(c.paddingBottom) || 0, gauche: parseFloat(c.paddingLeft) || 0}
+                  : {haut: 0, droite: 0, bas: 0, gauche: 0};
+    cadre.contentWindow.postMessage({codelab:"environnement",bords:b,
+      plateforme: ios ? "ios" : /Android/.test(ua) ? "android" : /Mac OS X/.test(ua) ? "mac"
+                : /Windows/.test(ua) ? "windows" : "autre",
+      appareil: l <= 760 ? "telephone" : l <= 1180 ? "tablette" : "ordinateur",
+      orientation: innerWidth > innerHeight ? "paysage" : "portrait",
+      theme: matchMedia("(prefers-color-scheme: dark)").matches ? "sombre" : "clair"}, origine);
+  }
+
+  /* Ce que l'application annonce, accepte de SON origine seulement : qu'elle
+     est prete (et si elle s'etend sous l'encoche), et les couleurs peintes
+     en haut et en bas de sa page -- si ce sont bien des couleurs. Une valeur
+     qui n'en est pas une est ignoree : elle finirait dans un attribut et
+     dans le style de la page. */
+  var estUneCouleur = function(c){ return /^(#[0-9a-fA-F]{3,8}|rgba?\([0-9.,\s%]+\))$/.test(c); };
+  addEventListener("message", function(e){
+    if(e.origin!==origine||!e.data)return;
+    if(e.data.codelab==="pret"){plein=!!e.data.pleinEcran;cadre.classList.toggle("plein",plein);envoyer();return;}
+    if(e.data.codelab!=="couleur")return;
+    var haut = String(e.data.valeur || ""), bas = String(e.data.bas || haut);
+    if(!estUneCouleur(haut)) return;
+    if(!estUneCouleur(bas)) bas = haut;
+    document.querySelector("meta[name=theme-color]").setAttribute("content", haut);
+    document.body.style.backgroundColor = haut;
+    document.getElementById("bas").style.backgroundColor = bas;
+  });
+  addEventListener("resize", function(){ setTimeout(envoyer, 50); });
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", envoyer);
+
+  /* Le geste retour : la fleche suit le doigt, et au-dela de 70 px le hub
+     revient. En deca, elle repart. */
+  var bord = document.getElementById("bord"), fleche = document.getElementById("fleche"), x0 = null;
+  bord.addEventListener("touchstart", function(e){ x0 = e.touches[0].clientX; }, {passive: true});
+  bord.addEventListener("touchmove", function(e){
+    if(x0 === null) return;
+    var d = Math.max(0, Math.min(90, e.touches[0].clientX - x0));
+    fleche.style.left = (d - 44) + "px";
+    fleche.style.opacity = Math.min(1, d / 60);
+  }, {passive: true});
+  bord.addEventListener("touchend", function(e){
+    if(x0 === null) return;
+    var d = e.changedTouches[0].clientX - x0;
+    x0 = null;
+    if(d>70){location.href="/";}else{fleche.style.left = "-44px"; fleche.style.opacity = 0;}
+  });
+})();
+</script>
+</body>
+</html>

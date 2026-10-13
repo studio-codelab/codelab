@@ -32,14 +32,24 @@ STRUCTURE   Sections titrees « # ---- titre ---- », dans cet ordre :
             surveillance, sauvegardes, alertes et envoi, metriques, icones,
             categories, routes (auth, API, pages), notifications Web Push,
             taches et suivi, composition du hub, proxy, serveur HTTP, main.
-CHOIX       - Un seul fichier : les tests et les sondes du diagnostic
+CHOIX       - Le cadre /ouvrir.html est un fichier a marqueurs, rempli en un
+              seul passage (ouvrir_dans_le_panneau) : sa page et son script,
+              ecrits en chaines Python, ne se relisaient plus.
+            - Un seul fichier : les tests et les sondes du diagnostic
               importent les fonctions de app ; un decoupage doit les
               reexporter (voir A AMELIORER).
             - Les processus des applications survivent a un redemarrage du
               panneau (section « les processus survivent au panneau »).
             - Les applications sur une origine distincte du panneau : un
               script d'application ne lit pas le cookie de session.
-A AMELIORER - Decouper en modules (auth, proxy, notifications, cycle de vie)
+            Les pages et scripts servis vivent a cote, lus une fois a
+            l'import (_lire_ressource) : dashboard.html, login.html,
+            messages.html, ouvrir.html (a marqueurs), mode.js, theme.css,
+            environnement-app.js (injecte par le proxy).
+A AMELIORER - Fonctions encore longues (60 a 75 lignes de code), a decouper
+              avec la meme prudence que login_submit : _proxy,
+              _verifier_cle, api_message, _pg_preparer.
+            - Decouper en modules (auth, proxy, notifications, cycle de vie)
               avec un app.py qui reexporte les noms : relecture et tests plus
               cibles, sans changer l'API vue par les tests.
             - Generer la table de STRUCTURE ci-dessus depuis les titres de
@@ -152,6 +162,8 @@ def _lire_ressource(nom):
 DASHBOARD_PAGE = _lire_ressource("dashboard.html")
 MESSAGERIE_PAGE = _lire_ressource("messages.html")
 LOGIN_PAGE = _lire_ressource("login.html")
+# Le cadre d'une application ouverte depuis le hub installe (ouvrir_dans_le_panneau).
+OUVRIR_PAGE = _lire_ressource("ouvrir.html")
 # Le theme : un seul fichier de variables, partage par les deux pages. Servi
 # plutot que recopie dans chacune, pour qu'il n'existe qu'un endroit a changer
 # et qu'aucune des deux ne puisse deriver de l'autre.
@@ -4611,16 +4623,7 @@ def start(name, attendre=True):
         out = open(os.path.join(LOG_DIR, name + ".log"), "ab", buffering=0)
     except OSError as e:
         return f"Journal impossible a ouvrir : {e}"
-    env = dict(os.environ, **secrets_partages(), **identifiants_base(a))
-    env.update(PORT=str(a["port"]), PYTHONUNBUFFERED="1",
-               HOME=ensure_child_home(name),
-               CODELAB_SSO_PUBLIC_KEY=_sso_public_key,
-               CODELAB_SSO_ISSUER=SSO_ISSUER,
-               CODELAB_SSO_AUDIENCE=name,
-               # La marque qui permettra de reconnaitre ce processus apres un
-               # redemarrage du panneau. Le noyau fige l'environnement a
-               # l'exec : l'application ne peut pas l'effacer.
-               CODELAB_APP=name)
+    env = _environnement_de_lancement(name, a)
     argv, env_isolement = commande_isolee(name, a["path"], a["command"], apps)
     env.update(env_isolement)
 
@@ -4652,9 +4655,42 @@ def start(name, attendre=True):
     if not attendre:
         return None
 
-    # On regarde l'application vivre un instant. Sans cela, "demarree" veut
-    # seulement dire "Popen n'a pas leve d'exception" -- ce qui reste vrai
-    # d'une commande qui meurt a la ligne suivante.
+    return _surveiller_le_demarrage(name)
+
+
+def _environnement_de_lancement(name, a):
+    """L'environnement d'une application : celui du panneau, plus ses
+    secrets a elle, son port, son HOME et de quoi verifier le SSO.
+
+    SECURITE (regle 19 de SECURITE.md) : secrets_partages() ne transmet que
+    ce qu'une application a le droit de lire -- jamais le bloc du panneau
+    (mot de passe, cle de session, secret de double authentification), voir
+    « secrets transmis aux applications ». identifiants_base() ne donne que
+    le compte de SA base (« une base, un compte »). Ajouter une variable
+    ici, c'est la donner a du code arbitraire : verifier qu'elle n'ouvre
+    rien.
+    """
+    env = dict(os.environ, **secrets_partages(), **identifiants_base(a))
+    env.update(PORT=str(a["port"]), PYTHONUNBUFFERED="1",
+               HOME=ensure_child_home(name),
+               CODELAB_SSO_PUBLIC_KEY=_sso_public_key,
+               CODELAB_SSO_ISSUER=SSO_ISSUER,
+               CODELAB_SSO_AUDIENCE=name,
+               # La marque qui permettra de reconnaitre ce processus apres un
+               # redemarrage du panneau. Le noyau fige l'environnement a
+               # l'exec : l'application ne peut pas l'effacer.
+               CODELAB_APP=name)
+    return env
+
+
+def _surveiller_le_demarrage(name):
+    """Regarde l'application vivre DELAI_DEMARRAGE secondes ; rend None si
+    elle tient, sinon pourquoi elle est tombee.
+
+    Sans cela, « demarree » veut seulement dire « Popen n'a pas leve
+    d'exception » -- ce qui reste vrai d'une commande qui meurt a la ligne
+    suivante.
+    """
     fin = time.time() + DELAI_DEMARRAGE
     while time.time() < fin:
         if procs[name].poll() is not None:
@@ -5933,78 +5969,117 @@ def _table_vide(table):
     return not stockage.lire(DB_FILE, f"SELECT 1 FROM {table} LIMIT 1")
 
 
+def _verser_si_vide(fichier, table, defaut, verser, libelle, faits):
+    """Un ancien fichier JSON verse dans sa table, si elle est encore vide.
+
+    Une table deja remplie gagne toujours : le fichier n'est alors qu'un
+    reste d'une installation deja migree. Dans les deux cas il est mis de
+    cote (« .migre »), jamais supprime.
+    """
+    if not os.path.exists(fichier):
+        return
+    if _table_vide(table):
+        verser(_lire_fichier_json(fichier, defaut))
+        if libelle:
+            faits.append(libelle)
+    _mettre_de_cote(fichier)
+
+
+def _importer_coffre(faits):
+    """L'ancien coffre chiffre, cle par cle : une cle deja dans la base gagne."""
+    if not (os.path.exists(COFFRE_FILE) and _cle_chiffrement):
+        return
+    try:
+        with open(COFFRE_FILE, "rb") as f:
+            ancien = dechiffrer(f.read())
+        with _coffre_verrou:
+            presentes = set(_coffre_donnees())
+            for cle, valeur in (ancien or {}).items():
+                if cle not in presentes:
+                    _coffre_ecrire(cle, valeur)
+            _coffre["donnees"] = None
+        _mettre_de_cote(COFFRE_FILE)
+        faits.append("reglages chiffres")
+    except Exception as e:                                        # noqa: BLE001
+        print(f"[app-manager] import du coffre impossible ({type(e).__name__}) : "
+              f"le fichier reste en place.", flush=True)
+
+
+def _importer_comptes(faits):
+    """Les comptes, et leurs adresses gardees a part par une version
+    intermediaire. Rend False si l'ecriture echoue : la suite de l'import
+    attend alors le prochain demarrage."""
+    if not os.path.exists(UTILISATEURS_FILE):
+        return True
+    if _table_vide("comptes"):
+        comptes = _lire_fichier_json(UTILISATEURS_FILE, {})
+        emails = reglage("emails_comptes", {}) or {}
+        for nom, c in comptes.items():
+            if isinstance(c, dict) and emails.get(nom) and not c.get("email"):
+                c["email"] = emails[nom]
+        try:
+            ecrire_utilisateurs({n: c for n, c in comptes.items() if isinstance(c, dict)})
+            faits.append("comptes")
+        except (OSError, RuntimeError) as e:
+            print(f"[app-manager] import des comptes impossible : {e}", flush=True)
+            return False
+    # La copie gardee ne doit pas garder ce que la base chiffre : une tres
+    # ancienne installation avait les adresses en clair dans ce fichier
+    # (regle 16 de SECURITE.md : aucune adresse en clair sur le disque).
+    try:
+        brut = _lire_fichier_json(UTILISATEURS_FILE, {})
+        for c in brut.values():
+            if isinstance(c, dict):
+                c.pop("email", None)
+        with open(UTILISATEURS_FILE, "w") as f:
+            json.dump(brut, f, indent=2)
+        os.chmod(UTILISATEURS_FILE, 0o600)
+    except OSError:
+        pass
+    _mettre_de_cote(UTILISATEURS_FILE)
+    return True
+
+
+def _importer_journal(faits):
+    """Le journal des acces, ligne par ligne (fichier courant et sa rotation
+    « .1 ») ; INSERT OR IGNORE sur l'identifiant : un import repris apres une
+    coupure ne double rien."""
+    if not (os.path.exists(ACCES_FILE) or os.path.exists(ACCES_FILE + ".1")):
+        return
+    evenements = _lire_fichier_lignes(ACCES_FILE)
+    with stockage.transaction(DB_FILE) as cx:
+        for e in evenements:
+            reste = {k: v for k, v in e.items()
+                     if k not in ("id", "ts", "genre", "qui", "app", "ip")}
+            cx.execute("INSERT OR IGNORE INTO journal (id, ts, genre, qui, app, ip, "
+                       "details) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                       (e.get("id") or secrets.token_hex(12), int(e.get("ts") or 0),
+                        e.get("genre") or "", e.get("qui"), e.get("app"), e.get("ip"),
+                        json.dumps(reste, ensure_ascii=False)))
+    _mettre_de_cote(ACCES_FILE)
+    faits.append(f"journal ({len(evenements)} evenements)")
+
+
 def importer_anciens_fichiers():
-    """Verse les anciens fichiers JSON dans la base. Rend la liste importee."""
+    """Verse les anciens fichiers JSON dans la base. Rend la liste importee.
+
+    RETROCOMPATIBILITE : les installations d'avant codelab.db gardaient leur
+    etat en fichiers JSON. L'import tourne a chaque demarrage et ne fait rien
+    quand il n'y a plus de fichier. Il pourra partir quand plus aucune
+    installation ne demarre d'une version anterieure a la base.
+    L'ORDRE COMPTE : le coffre d'abord (les adresses des comptes y sont), et
+    un echec sur les comptes arrete la suite jusqu'au prochain demarrage.
+    """
     faits = []
-
-    # Le coffre d'abord : les adresses des comptes y sont.
-    if os.path.exists(COFFRE_FILE) and _cle_chiffrement:
-        try:
-            with open(COFFRE_FILE, "rb") as f:
-                ancien = dechiffrer(f.read())
-            with _coffre_verrou:
-                presentes = set(_coffre_donnees())
-                for cle, valeur in (ancien or {}).items():
-                    if cle not in presentes:
-                        _coffre_ecrire(cle, valeur)
-                _coffre["donnees"] = None
-            _mettre_de_cote(COFFRE_FILE)
-            faits.append("reglages chiffres")
-        except Exception as e:                                    # noqa: BLE001
-            print(f"[app-manager] import du coffre impossible ({type(e).__name__}) : "
-                  f"le fichier reste en place.", flush=True)
-
-    if os.path.exists(APPS_FILE):
-        if _table_vide("applications"):
-            save(_lire_fichier_json(APPS_FILE, {}))
-            faits.append("applications")
-        _mettre_de_cote(APPS_FILE)
-
-    if os.path.exists(UTILISATEURS_FILE):
-        if _table_vide("comptes"):
-            comptes = _lire_fichier_json(UTILISATEURS_FILE, {})
-            emails = reglage("emails_comptes", {}) or {}
-            for nom, c in comptes.items():
-                if isinstance(c, dict) and emails.get(nom) and not c.get("email"):
-                    c["email"] = emails[nom]
-            try:
-                ecrire_utilisateurs({n: c for n, c in comptes.items() if isinstance(c, dict)})
-                faits.append("comptes")
-            except (OSError, RuntimeError) as e:
-                print(f"[app-manager] import des comptes impossible : {e}", flush=True)
-                return faits
-        # La copie gardee ne doit pas garder ce que la base chiffre : une tres
-        # ancienne installation avait les adresses en clair dans ce fichier.
-        try:
-            brut = _lire_fichier_json(UTILISATEURS_FILE, {})
-            for c in brut.values():
-                if isinstance(c, dict):
-                    c.pop("email", None)
-            with open(UTILISATEURS_FILE, "w") as f:
-                json.dump(brut, f, indent=2)
-            os.chmod(UTILISATEURS_FILE, 0o600)
-        except OSError:
-            pass
-        _mettre_de_cote(UTILISATEURS_FILE)
-
-    if os.path.exists(PASSKEYS_FILE):
-        if _table_vide("cles_acces"):
-            ecrire_passkeys(_lire_fichier_json(PASSKEYS_FILE, {}))
-            faits.append("cles d'acces")
-        _mettre_de_cote(PASSKEYS_FILE)
-
-    if os.path.exists(CATEGORIES_FILE):
-        if _table_vide("categories"):
-            ecrire_categories([c for c in (categorie_propre(x) for x in
-                               _lire_fichier_json(CATEGORIES_FILE, [])) if c])
-            faits.append("categories")
-        _mettre_de_cote(CATEGORIES_FILE)
-
-    if os.path.exists(MASQUEES_FILE):
-        if _table_vide("masquees"):
-            ecrire_masquees(_lire_fichier_json(MASQUEES_FILE, {}))
-            faits.append("rangements du hub")
-        _mettre_de_cote(MASQUEES_FILE)
+    _importer_coffre(faits)
+    _verser_si_vide(APPS_FILE, "applications", {}, save, "applications", faits)
+    if not _importer_comptes(faits):
+        return faits
+    _verser_si_vide(PASSKEYS_FILE, "cles_acces", {}, ecrire_passkeys, "cles d'acces", faits)
+    _verser_si_vide(CATEGORIES_FILE, "categories", [],
+                    lambda brut: ecrire_categories([c for c in map(categorie_propre, brut) if c]),
+                    "categories", faits)
+    _verser_si_vide(MASQUEES_FILE, "masquees", {}, ecrire_masquees, "rangements du hub", faits)
 
     if os.path.exists(EXPOSITION_FILE):
         if lire_parametre("exposition") is None:
@@ -6012,24 +6087,8 @@ def importer_anciens_fichiers():
             faits.append("exposition")
         _mettre_de_cote(EXPOSITION_FILE)
 
-    if os.path.exists(PROCESSUS_FILE):
-        if _table_vide("processus"):
-            _ecrire_processus(_lire_fichier_json(PROCESSUS_FILE, {}))
-        _mettre_de_cote(PROCESSUS_FILE)
-
-    if os.path.exists(ACCES_FILE) or os.path.exists(ACCES_FILE + ".1"):
-        evenements = _lire_fichier_lignes(ACCES_FILE)
-        with stockage.transaction(DB_FILE) as cx:
-            for e in evenements:
-                reste = {k: v for k, v in e.items()
-                         if k not in ("id", "ts", "genre", "qui", "app", "ip")}
-                cx.execute("INSERT OR IGNORE INTO journal (id, ts, genre, qui, app, ip, "
-                           "details) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                           (e.get("id") or secrets.token_hex(12), int(e.get("ts") or 0),
-                            e.get("genre") or "", e.get("qui"), e.get("app"), e.get("ip"),
-                            json.dumps(reste, ensure_ascii=False)))
-        _mettre_de_cote(ACCES_FILE)
-        faits.append(f"journal ({len(evenements)} evenements)")
+    _verser_si_vide(PROCESSUS_FILE, "processus", {}, _ecrire_processus, None, faits)
+    _importer_journal(faits)
 
     if os.path.exists(MESSAGES_FILE) or os.path.exists(MESSAGES_FILE + ".1"):
         if _table_vide("messages"):
@@ -7230,12 +7289,6 @@ class SessionSelonLaConnexion(SecureCookieSessionInterface):
 flask_app.session_interface = SessionSelonLaConnexion()
 
 
-def adresse_publique_valide(brute):
-    """Une adresse http(s) plausible, ou ""."""
-    adresse = re.sub(r"\s+", "", str(brute or ""))[:200].rstrip("/")
-    return adresse if re.fullmatch(r"https?://[^/\s]+(/[^\s]*)?", adresse) else ""
-
-
 # ------------------------- visibilite d'une application -------------------------
 #
 # Le reverse proxy sert les applications SANS authentification : c'est ce qui
@@ -7358,6 +7411,20 @@ def signaler_connexion_admin():
 
 @flask_app.post("/login")
 def login_submit():
+    """La connexion par mot de passe, puis le second facteur.
+
+    Une seule route pour toutes les etapes : la page renvoie le meme
+    formulaire, complete du code ou du moyen choisi, jusqu'a ce que la
+    reponse porte « ok ». Les deux parcours different trop pour se partager
+    le code : l'administrateur (_connexion_admin) n'existe pas dans la table
+    des comptes et ne se connecte que du reseau local ; un compte utilisateur
+    (_connexion_utilisateur, puis _second_facteur_utilisateur) a toujours un
+    second facteur.
+
+    REGLES (SECURITE.md) : 1 et 5 (jamais sur le seul mot de passe), 6 (tout
+    echec passe par register_failed_attempt, que rate_limited lit ici), 9
+    (compte suspendu), 10 (meme reponse pour un compte inconnu).
+    """
     if rate_limited():
         return jsonify({"error": "Trop de tentatives. Réessaie dans quelques minutes."}), 429
     d = request.get_json(force=True, silent=True) or request.form
@@ -7370,90 +7437,100 @@ def login_submit():
     if not nom:
         return jsonify({"error": "Renseigne ton identifiant."}), 400
     if nom == NOM_ADMIN:
-        # Avant meme de regarder le mot de passe : rien ne sert de laisser
-        # essayer -- et surtout, aucune session d'administration ne doit
-        # naitre hors du reseau local, pas meme une seconde.
-        hors = refus_admin_hors_reseau()
-        if hors:
-            # Compte comme une tentative ratee, au meme titre qu'un mot de
-            # passe faux. Sans cela le refus serait gratuit : on pourrait le
-            # marteler sans jamais etre limite, et chaque appel ecrivant une
-            # ligne de journal, la rotation finirait par chasser l'historique
-            # reel -- une facon discrete d'effacer ses traces.
+        return _connexion_admin(d, pw)
+    return _connexion_utilisateur(d, nom, pw)
+
+
+def _connexion_admin(d, pw):
+    """Le compte administrateur : mot de passe de credentials.env, reseau
+    local seulement, second facteur obligatoire (sauf APP_MANAGER_ADMIN_2FA=0)."""
+    # Avant meme de regarder le mot de passe : rien ne sert de laisser
+    # essayer -- et surtout, aucune session d'administration ne doit
+    # naitre hors du reseau local, pas meme une seconde.
+    hors = refus_admin_hors_reseau()
+    if hors:
+        # Compte comme une tentative ratee, au meme titre qu'un mot de
+        # passe faux. Sans cela le refus serait gratuit : on pourrait le
+        # marteler sans jamais etre limite, et chaque appel ecrivant une
+        # ligne de journal, la rotation finirait par chasser l'historique
+        # reel -- une facon discrete d'effacer ses traces.
+        register_failed_attempt()
+        journaliser("refus", qui=NOM_ADMIN, motif="hors reseau local",
+                    ip=_adresse_client())
+        return jsonify({"error": hors}), 403
+    real = admin_password()
+    # compare_digest plutot que "==" : la comparaison de chaines s'arrete
+    # au premier caractere different, et la duree de la reponse renseigne
+    # alors sur la longueur du prefixe correct.
+    if not (real and pw and secrets.compare_digest(pw, real)):
+        register_failed_attempt()
+        journaliser("echec", qui=NOM_ADMIN, motif="mot de passe", ip=_adresse_client())
+        return jsonify({"error": avec_essais_restants("Identifiants incorrects.")}), 401
+
+    # Le code a six chiffres, quand la double authentification est active.
+    # Une tentative ratee ici compte comme une tentative ratee tout court :
+    # sinon le second facteur serait forcable sans limite une fois le mot
+    # de passe connu, ce qui le viderait de son sens.
+    # SECOND FACTEUR OBLIGATOIRE pour l'administrateur : son compte
+    # ouvre tout, Dagster (donc l'execution de code) et Mailpit (donc
+    # tous les codes et liens envoyes) compris. Sans facteur enregistre,
+    # le mot de passe juste mene a l'inscription d'une application, pas a
+    # une session. Avec Face ID seulement, le mot de passe seul est
+    # refuse : l'inscription d'une application le contournerait.
+    cles_admin = passkeys_du_compte(NOM_ADMIN)
+    if admin_2fa_obligatoire() and not totp_actif() and not cles_admin:
+        candidat = totp_nouveau_secret()
+        session["totp_candidat"] = candidat
+        session["totp_inscription"] = NOM_ADMIN
+        session["totp_uri"] = totp_uri(candidat)
+        session["inscription_depuis"] = int(time.time())
+        # Face ID d'abord quand le serveur le permet : un geste, rien a
+        # recopier. Le code a six chiffres reste propose a cote.
+        return jsonify({"inscription": True, "secret": candidat,
+                        "uri": session["totp_uri"], "compte": NOM_ADMIN,
+                        "qr": "/qr/totp.svg",
+                        "passkey": passkeys_disponibles()
+                        and not passkey_contexte()[2]})
+
+    # LE SECOND FACTEUR, SUR UNE ETAPE A PART. Le mot de passe est juste :
+    # la page passe a l'etape suivante -- Face ID si une cle existe, sinon
+    # le code de l'application. Le code n'est plus demande a cote du mot
+    # de passe.
+    if totp_actif() or (admin_2fa_obligatoire() and cles_admin):
+        moyens = moyens_admin()
+        code = d.get("code")
+        if not code:
+            if not moyens:
+                return jsonify({"error": "Face ID n'est pas utilisable ici : ouvre le "
+                                         "panneau en HTTPS, par son nom de domaine."}), 403
+            attendre_second_facteur(NOM_ADMIN)
+            moyen = d.get("moyen") if d.get("moyen") in moyens else moyens[0]
+            if moyen == MOYEN_EMAIL:
+                return _code_admin_par_mail(moyens)
+            return jsonify({"totp": True, "second_facteur": True,
+                            "moyen": moyen, "moyens": moyens}), 401
+        if not ((totp_actif() and totp_verifie(_totp_secret, code))
+                or verifier_code_admin(code)):
             register_failed_attempt()
-            journaliser("refus", qui=NOM_ADMIN, motif="hors reseau local",
-                        ip=_adresse_client())
-            return jsonify({"error": hors}), 403
-        real = admin_password()
-        # compare_digest plutot que "==" : la comparaison de chaines s'arrete
-        # au premier caractere different, et la duree de la reponse renseigne
-        # alors sur la longueur du prefixe correct.
-        if not (real and pw and secrets.compare_digest(pw, real)):
-            register_failed_attempt()
-            journaliser("echec", qui=NOM_ADMIN, motif="mot de passe", ip=_adresse_client())
-            return jsonify({"error": avec_essais_restants("Identifiants incorrects.")}), 401
+            journaliser("echec", qui=NOM_ADMIN, motif="second facteur", ip=_adresse_client())
+            return jsonify({"error": avec_essais_restants("Code de vérification incorrect."),
+                            "totp": True, "moyens": moyens}), 401
 
-        # Le code a six chiffres, quand la double authentification est active.
-        # Une tentative ratee ici compte comme une tentative ratee tout court :
-        # sinon le second facteur serait forcable sans limite une fois le mot
-        # de passe connu, ce qui le viderait de son sens.
-        # SECOND FACTEUR OBLIGATOIRE pour l'administrateur : son compte
-        # ouvre tout, Dagster (donc l'execution de code) et Mailpit (donc
-        # tous les codes et liens envoyes) compris. Sans facteur enregistre,
-        # le mot de passe juste mene a l'inscription d'une application, pas a
-        # une session. Avec Face ID seulement, le mot de passe seul est
-        # refuse : l'inscription d'une application le contournerait.
-        cles_admin = passkeys_du_compte(NOM_ADMIN)
-        if admin_2fa_obligatoire() and not totp_actif() and not cles_admin:
-            candidat = totp_nouveau_secret()
-            session["totp_candidat"] = candidat
-            session["totp_inscription"] = NOM_ADMIN
-            session["totp_uri"] = totp_uri(candidat)
-            session["inscription_depuis"] = int(time.time())
-            # Face ID d'abord quand le serveur le permet : un geste, rien a
-            # recopier. Le code a six chiffres reste propose a cote.
-            return jsonify({"inscription": True, "secret": candidat,
-                            "uri": session["totp_uri"], "compte": NOM_ADMIN,
-                            "qr": "/qr/totp.svg",
-                            "passkey": passkeys_disponibles()
-                            and not passkey_contexte()[2]})
+    session.permanent = True
+    session["authed"] = True
+    session["ouverte"] = int(time.time())
+    # Le jeton nait avec la session, jamais apres : une session
+    # authentifiee sans jeton ferait de verifier_jeton une passoire.
+    jeton_session()
+    session["role"] = ROLE_ADMIN
+    session["utilisateur"] = NOM_ADMIN
+    journaliser("connexion", qui=NOM_ADMIN, role=ROLE_ADMIN, ip=_adresse_client())
+    signaler_connexion_admin()
+    return jsonify({"ok": True, "role": ROLE_ADMIN})
 
-        # LE SECOND FACTEUR, SUR UNE ETAPE A PART. Le mot de passe est juste :
-        # la page passe a l'etape suivante -- Face ID si une cle existe, sinon
-        # le code de l'application. Le code n'est plus demande a cote du mot
-        # de passe.
-        if totp_actif() or (admin_2fa_obligatoire() and cles_admin):
-            moyens = moyens_admin()
-            code = d.get("code")
-            if not code:
-                if not moyens:
-                    return jsonify({"error": "Face ID n'est pas utilisable ici : ouvre le "
-                                             "panneau en HTTPS, par son nom de domaine."}), 403
-                attendre_second_facteur(NOM_ADMIN)
-                moyen = d.get("moyen") if d.get("moyen") in moyens else moyens[0]
-                if moyen == MOYEN_EMAIL:
-                    return _code_admin_par_mail(moyens)
-                return jsonify({"totp": True, "second_facteur": True,
-                                "moyen": moyen, "moyens": moyens}), 401
-            if not ((totp_actif() and totp_verifie(_totp_secret, code))
-                    or verifier_code_admin(code)):
-                register_failed_attempt()
-                journaliser("echec", qui=NOM_ADMIN, motif="second facteur", ip=_adresse_client())
-                return jsonify({"error": avec_essais_restants("Code de vérification incorrect."),
-                                "totp": True, "moyens": moyens}), 401
 
-        session.permanent = True
-        session["authed"] = True
-        session["ouverte"] = int(time.time())
-        # Le jeton nait avec la session, jamais apres : une session
-        # authentifiee sans jeton ferait de verifier_jeton une passoire.
-        jeton_session()
-        session["role"] = ROLE_ADMIN
-        session["utilisateur"] = NOM_ADMIN
-        journaliser("connexion", qui=NOM_ADMIN, role=ROLE_ADMIN, ip=_adresse_client())
-        signaler_connexion_admin()
-        return jsonify({"ok": True, "role": ROLE_ADMIN})
-
+def _connexion_utilisateur(d, nom, pw):
+    """Un compte de la table : mot de passe, puis etat du compte."""
     comptes = lire_utilisateurs()
     compte = comptes.get(nom)
     # Meme message et meme chemin qu'un mot de passe faux : distinguer
@@ -7475,15 +7552,6 @@ def login_submit():
         except Exception:                                         # noqa: BLE001
             pass
 
-    # Le second facteur n'est pas optionnel pour un compte utilisateur. Ces
-    # comptes existent pour etre distribues -- a un collegue, a un client --
-    # donc leur mot de passe circule par un canal qu'on ne maitrise pas, et
-    # sera reutilise ailleurs. C'est exactement le cas ou un seul secret ne
-    # suffit pas. L'administrateur, lui, garde le choix : lui imposer le
-    # second facteur d'office pourrait l'enfermer hors de son propre panneau.
-    # Compte cree librement dont l'adresse n'a jamais ete confirmee. Le
-    # message est explicite : ici, il ne revele rien qu'on ne sache deja --
-    # le mot de passe vient d'etre reconnu.
     # Suspendu : le mot de passe vient d'etre reconnu, donc le dire ne
     # revele rien -- et se taire enverrait chercher une panne la ou il y a
     # une decision.
@@ -7492,11 +7560,28 @@ def login_submit():
         return jsonify({"error": "Ce compte est suspendu. Demande à "
                                  "l'administrateur de le réactiver."}), 403
 
+    # Compte cree librement dont l'adresse n'a jamais ete confirmee. Le
+    # message est explicite : ici, il ne revele rien qu'on ne sache deja --
+    # le mot de passe vient d'etre reconnu.
     if compte.get("attente_email"):
         return jsonify({"error": "Confirme d'abord ton adresse mail : un code "
                                  "t'a été envoyé à l'inscription.",
                         "attente_email": True}), 403
 
+    return _second_facteur_utilisateur(d, nom, compte)
+
+
+def _second_facteur_utilisateur(d, nom, compte):
+    """Le mot de passe d'un compte utilisateur est juste : verifier le code,
+    ou dire lequel attendre (et l'envoyer), ou faire inscrire un facteur.
+
+    Le second facteur n'est pas optionnel pour un compte utilisateur. Ces
+    comptes existent pour etre distribues -- a un collegue, a un client --
+    donc leur mot de passe circule par un canal qu'on ne maitrise pas, et
+    sera reutilise ailleurs. C'est exactement le cas ou un seul secret ne
+    suffit pas. L'administrateur, lui, garde le choix : lui imposer le
+    second facteur d'office pourrait l'enfermer hors de son propre panneau.
+    """
     secret = compte.get("totp") or ""
     moyens = moyens_second_facteur(compte)
     if passkeys_du_compte(nom) and passkey_utilisable():
@@ -9343,10 +9428,6 @@ SERVICES_PUSH = ("push.apple.com", "fcm.googleapis.com", "push.services.mozilla.
                  "notify.windows.com", "updates.push.services.mozilla.com")
 PUSH_ABONNEMENTS_MAX = 20          # par compte : au-dela, le plus ancien s'en va
 PUSH_SUJET_VAPID = "https://github.com/studio-codelab/codelab"
-
-
-def _b64url(octets):
-    return base64.urlsafe_b64encode(octets).rstrip(b"=").decode()
 
 
 def _de_b64url(texte):
@@ -11489,94 +11570,15 @@ def ouvrir_dans_le_panneau():
     def esc(x):
         return (str(x).replace("&", "&amp;").replace("<", "&lt;")
                 .replace(">", "&gt;").replace('"', "&quot;"))
-    origine_app = origine_de_l_application(nom)
-    page = ('<!doctype html><html lang="fr"><head><meta charset="utf-8">'
-            '<meta name="viewport" content="width=device-width,initial-scale=1,'
-            'maximum-scale=1,user-scalable=no,viewport-fit=cover">'
-            '<title>' + esc(titre) + '</title>'
-            # L'onglet porte l'icone de L'APPLICATION ouverte : c'est elle
-            # qu'on regarde. Le panneau, lui, garde toujours la sienne.
-            '<link rel="icon" href="/api/icon/' + urllib.parse.quote(nom, safe="") + '">'
-            '<link rel="manifest" href="/manifest.webmanifest">'
-            '<meta name="apple-mobile-web-app-capable" content="yes">'
-            # La barre d'etat : blanche d'abord, puis la couleur que
-            # l'application annonce (voir le script du ruban).
-            '<meta name="theme-color" content="#ffffff">'
-            '<style>html,body{margin:0;height:100%;background:#fff;overscroll-behavior:none;'
-            '-webkit-tap-highlight-color:transparent;touch-action:pan-x pan-y}'
-            # COMME iOS : une page qui ne declare pas viewport-fit=cover
-            # reste dans la zone sure (sous la barre d'etat, au-dessus de la
-            # barre de geste), et le fond -- la couleur de l'application --
-            # remplit le reste. Une page qui le declare s'etend partout et
-            # recoit les bords (classe « plein », voir environnement-app.js).
-            # Une hauteur explicite : une iframe fixee entre top et bottom
-            # ne s'etire pas, elle garde ses 150 px par defaut.
-            'iframe{position:fixed;display:block;border:0;'
-            'top:env(safe-area-inset-top);left:env(safe-area-inset-left);'
-            'width:calc(100% - env(safe-area-inset-left) - env(safe-area-inset-right));'
-            'height:calc(100% - env(safe-area-inset-top) - env(safe-area-inset-bottom))}'
-            'iframe.plein{top:0;left:0;width:100%;height:100%}'
-            'iframe.plein~#bas{display:none}'
-            # La barre de geste (en bas) prend la couleur du bas de la page,
-            # la barre d'etat celle du haut : chacune la sienne.
-            '#bas{position:fixed;left:0;right:0;bottom:0;height:env(safe-area-inset-bottom);'
-            'background:#fff;transition:background-color .2s}'
-            'body{transition:background-color .2s}'
-            '#sonde{position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) '
-            'env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}'
-            # LE GESTE RETOUR. En mode application, iOS n'a ni bouton ni
-            # geste pour revenir : un glissement depuis le bord gauche ramene
-            # au hub, comme dans une app native. Une bande de 14 px seulement,
-            # pour ne pas prendre de place a l'application.
-            '#bord{position:fixed;left:0;top:0;bottom:0;width:14px;z-index:2;touch-action:none}'
-            '#fleche{position:fixed;left:-44px;top:50%;width:40px;height:40px;margin-top:-20px;'
-            'border-radius:50%;background:rgba(20,26,33,.86);color:#fff;z-index:3;display:grid;'
-            'place-items:center;font:600 20px/1 sans-serif;transition:opacity .15s;opacity:0}'
-            '</style>'
-            '</head><body><iframe name="codelab-app" src="' + esc(cible) + '" title="' + esc(titre) + '" '
-            'allow="clipboard-read; clipboard-write; fullscreen"></iframe>'
-            '<div id="bord" aria-hidden="true"></div><div id="fleche" aria-hidden="true">&#8592;</div>'
-            '<div id="sonde" aria-hidden="true"></div><div id="bas" aria-hidden="true"></div>'
-            '<script>(function(){'
-            'var origine=' + json.dumps(origine_app) + '||location.origin;'
-            'var cadre=document.querySelector("iframe"),sonde=document.getElementById("sonde"),plein=false;'
-            # Ce que l'ecran dit au panneau, et que le cadre ne voit pas : les
-            # bords (encoche, barre de geste), la plateforme, la largeur, le
-            # theme. Envoye a l'application quand elle se dit prete, et a
-            # chaque rotation ou changement de theme -- a SON origine seule.
-            'function envoyer(){var c=getComputedStyle(sonde),ua=navigator.userAgent,l=innerWidth,'
-            'ios=/iP(hone|ad|od)/.test(ua)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);'
-            'var b=plein?{haut:parseFloat(c.paddingTop)||0,droite:parseFloat(c.paddingRight)||0,'
-            'bas:parseFloat(c.paddingBottom)||0,gauche:parseFloat(c.paddingLeft)||0}:{haut:0,droite:0,bas:0,gauche:0};'
-            'cadre.contentWindow.postMessage({codelab:"environnement",bords:b,'
-            'plateforme:ios?"ios":/Android/.test(ua)?"android":/Mac OS X/.test(ua)?"mac":/Windows/.test(ua)?"windows":"autre",'
-            'appareil:l<=760?"telephone":l<=1180?"tablette":"ordinateur",'
-            'orientation:innerWidth>innerHeight?"paysage":"portrait",'
-            'theme:matchMedia("(prefers-color-scheme: dark)").matches?"sombre":"clair"},origine);}'
-            # Ce que l'application annonce, accepte de SON origine seulement :
-            # qu'elle est prete (et si elle s'etend sous l'encoche), et les
-            # couleurs peintes en haut et en bas de sa page -- si c'en sont.
-            'addEventListener("message",function(e){'
-            'if(e.origin!==origine||!e.data)return;'
-            'if(e.data.codelab==="pret"){plein=!!e.data.pleinEcran;cadre.classList.toggle("plein",plein);envoyer();return;}'
-            'if(e.data.codelab!=="couleur")return;'
-            'var ok=function(c){return /^(#[0-9a-fA-F]{3,8}|rgba?\\([0-9.,\\s%]+\\))$/.test(c);};'
-            'var c=String(e.data.valeur||""),cb=String(e.data.bas||c);'
-            'if(!ok(c))return;if(!ok(cb))cb=c;'
-            'document.querySelector("meta[name=theme-color]").setAttribute("content",c);'
-            'document.body.style.backgroundColor=c;document.getElementById("bas").style.backgroundColor=cb;});'
-            'addEventListener("resize",function(){setTimeout(envoyer,50);});'
-            'matchMedia("(prefers-color-scheme: dark)").addEventListener("change",envoyer);'
-            'var b=document.getElementById("bord"),f=document.getElementById("fleche"),x0=null;'
-            'b.addEventListener("touchstart",function(e){x0=e.touches[0].clientX;},{passive:true});'
-            'b.addEventListener("touchmove",function(e){if(x0===null)return;'
-            'var d=Math.max(0,Math.min(90,e.touches[0].clientX-x0));'
-            'f.style.left=(d-44)+"px";f.style.opacity=Math.min(1,d/60);},{passive:true});'
-            'b.addEventListener("touchend",function(e){if(x0===null)return;'
-            'var d=e.changedTouches[0].clientX-x0;x0=null;'
-            'if(d>70){location.href="/";}else{f.style.left="-44px";f.style.opacity=0;}});'
-            '})();</script>'
-            '</body></html>')
+    # Un seul passage : une valeur remplacee n'est jamais relue, donc un
+    # titre qui contiendrait « __CIBLE__ » reste du texte. Chaque valeur est
+    # echappee pour SON contexte (texte, URL, attribut, script) ; dans le
+    # script, « < » s'ecrit \u003c pour qu'aucune valeur ne ferme la balise.
+    valeurs = {"TITRE": esc(titre),
+               "ICONE": urllib.parse.quote(nom, safe=""),
+               "CIBLE": esc(cible),
+               "ORIGINE": json.dumps(origine_de_l_application(nom)).replace("<", "\\u003c")}
+    page = re.sub(r"__(TITRE|ICONE|CIBLE|ORIGINE)__", lambda m: valeurs[m.group(1)], OUVRIR_PAGE)
     r = Response(page, mimetype="text/html")
     # La politique du panneau, plus le droit d'encadrer l'origine des
     # applications -- et elle seule.
