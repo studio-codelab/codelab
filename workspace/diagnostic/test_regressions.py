@@ -3553,6 +3553,97 @@ def test_les_annees_proposees_vont_de_la_premiere_a_aujourd_hui(journal, tmp_pat
     assert app.annees_proposees(None, None) == [cette_annee]
 
 
+def test_le_journal_ne_garde_que_la_duree_choisie(journal, tmp_path, monkeypatch):
+    """Vecu : « limiter la duree de conservation du journal ». Il note les
+    adresses IP, des donnees personnelles (RGPD) : Postgres gardait tout, le
+    fichier local 50 000 evenements quel que soit leur age. Douze mois par
+    defaut ; « sans limite » reste un choix possible."""
+    monkeypatch.setattr(app, "pg_disponible", lambda: False)
+    maintenant = time.time()
+    _semer_ouvertures(monkeypatch, tmp_path, [
+        {"id": "vieux", "ts": int(maintenant - 400 * 86400), "genre": "connexion",
+         "qui": "marie", "ip": "203.0.113.7"},
+        {"id": "an", "ts": int(maintenant - 200 * 86400), "genre": "ouverture",
+         "qui": "marie", "app": "prive"},
+        {"id": "hier", "ts": int(maintenant - 86400), "genre": "ouverture",
+         "qui": "marie", "app": "prive"},
+    ])
+    ids = lambda: sorted(e["id"] for e in app.lire_acces(limite=100))
+    # Par defaut : douze mois.
+    assert app.lire_conservation() == 12
+    assert app.purger_le_journal(maintenant) == (1, None)
+    assert ids() == ["an", "hier"]
+    # Sans limite : rien ne part.
+    app.ecrire_conservation(0)
+    assert app.purger_le_journal(maintenant) == (0, 0) and ids() == ["an", "hier"]
+    # Trois mois : ce qui a deux cents jours part aussi.
+    app.ecrire_conservation(3)
+    app.purger_le_journal(maintenant)
+    assert ids() == ["hier"]
+    # Une valeur inconnue dans le coffre retombe sur le defaut : ni tout
+    # garder, ni tout effacer.
+    for abimee in ({"mois": 7}, {"mois": True}, {"mois": "12"}, "12", None):
+        app.ecrire_reglage("conservation_journal", abimee)
+        assert app.lire_conservation() == 12, abimee
+    # Un an fait bien douze mois, pas 360 jours.
+    assert abs((maintenant - app.seuil_conservation(12, maintenant)) - 365.25 * 86400) < 1
+    assert app.seuil_conservation(0, maintenant) is None
+
+
+def test_la_conservation_se_regle_par_l_administrateur_seul(journal):
+    """Le reglage efface des donnees : il est reserve a l'administrateur,
+    passe par le jeton (comme toute ecriture) et n'accepte que les durees
+    proposees -- un booleen n'est pas « 1 mois »."""
+    c = journal
+    assert c.get("/api/journal/conservation").status_code in (401, 403)
+    assert c.put("/api/journal/conservation", json={"mois": 3}).status_code in (401, 403)
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    d = c.get("/api/journal/conservation").get_json()
+    assert d["mois"] == 12 and d["choix"] == [3, 6, 12, 24, 0]
+    for mauvais in (5, -1, "12", True, None, 12.5):
+        assert c.put("/api/journal/conservation", json={"mois": mauvais}).status_code == 400, mauvais
+    r = c.put("/api/journal/conservation", json={"mois": 6})
+    assert r.status_code == 200 and r.get_json()["mois"] == 6
+    assert app.lire_conservation() == 6
+    # Le changement se lit dans le journal, comme les autres reglages.
+    assert any(e.get("action") == "conservation du journal : 6 mois"
+               for e in app.lire_acces(limite=20))
+    # Sans le bon jeton de la session, l'ecriture est refusee.
+    r = c.put("/api/journal/conservation", json={"mois": 3},
+              headers={app.JETON_ENTETE: "faux"})
+    assert r.status_code == 403 and app.lire_conservation() == 6
+
+
+def test_une_liste_habillee_suit_la_valeur_posee_par_le_script():
+    """Vecu : la duree de conservation, reglee a 12 mois, affichait « 3 mois »
+    -- la premiere option -- tant qu'on n'ouvrait pas la liste. Le navigateur
+    ne signale pas un .value pose par le script : l'habillage redefinit
+    value et selectedIndex sur chaque select pour repeindre son etiquette."""
+    page = _page_panneau("dashboard.html")
+    habiller = page.split("function dlHabiller(select){")[1].split("\nfunction ")[0]
+    assert "for(const nom of ['value', 'selectedIndex'])" in habiller
+    assert "set(v){ d.set.call(this, v); dlPeindre(enveloppe); }" in habiller
+    assert "observe(select, {childList:true})" in habiller
+
+
+def test_la_purge_vaut_pour_postgres_et_pour_le_journal_local():
+    """Purger Postgres seul ne suffit pas : au demarrage, le panneau recopie
+    le journal local dans la base (_pg_rattraper), et les lignes effacees
+    reviendraient. La purge touche les deux, chaque jour, et des que le
+    reglage change."""
+    src = _lire_source("app-manager/app/app.py")
+    purge = src.split("def purger_le_journal(")[1].split("\ndef ")[0]
+    assert "DELETE FROM journal WHERE ts < ?" in purge
+    assert "DELETE FROM acces WHERE ts < to_timestamp(%s)" in purge
+    route = src.split("def api_conservation_ecrire(")[1].split("\n@flask_app")[0]
+    assert "purger_le_journal()" in route
+    assert "    demarrer_la_purge_du_journal()\n    servir(" in src
+    page = _page_panneau("dashboard.html")
+    # Raccourcir efface tout de suite : une confirmation, bouton au verbe.
+    changer = page.split("async function cjChanger(sel){")[1].split("\n}")[0]
+    assert "demander(" in changer and "'Effacer', true" in changer
+
+
 def test_la_carte_est_reservee_a_l_administrateur(journal):
     """Elle dit qui a ouvert quoi et quand : c'est le meme secret que le
     journal, elle se garde comme lui."""
@@ -6888,6 +6979,42 @@ def test_la_sauvegarde_des_bases_est_verifiee_avant_d_etre_gardee():
         "un dump illisible ou rate doit etre ecarte, jamais garde")
     # Et la rotation, par base.
     assert "SAUVEGARDES_GARDEES" in bloc
+
+
+def test_la_procedure_d_incident_ne_cite_que_ce_qui_existe():
+    """Vecu : « une procedure d'incident ». Une page qu'on lit le jour ou tout
+    va mal ne doit pas citer un conteneur renomme, une variable disparue ou
+    un lien casse : ce jour-la, on n'a pas le temps de deviner. Chaque nom
+    qu'elle cite est verifie contre le compose et le code."""
+    racine = os.path.join(os.path.dirname(DOSSIER_PANNEAU))
+    page = open(os.path.join(racine, "INCIDENTS.md"), encoding="utf-8").read()
+    compose = open(os.path.join(racine, "docker-compose.yml"), encoding="utf-8").read()
+    source = _lire_source(os.path.join(DOSSIER_PANNEAU, "app", "app.py"))
+    # Les conteneurs nommes dans une commande (docker logs, restart...).
+    conteneurs = set(re.findall(r"(?:docker logs[^\n]*?|restart |up -d |exec -i |exec )(codelab-[a-z-]+)", page))
+    assert {"codelab-app-manager"} <= conteneurs
+    for conteneur in conteneurs:
+        assert f"container_name: {conteneur}" in compose, conteneur
+    for variable in set(re.findall(r"\bAPP_MANAGER_[A-Z0-9_]+\b", page)):
+        assert variable in source or variable in compose, variable
+    assert 'APP_MANAGER_ADMIN_2FA: "0"' in compose, "la marche arriere du second facteur"
+    for chemin in set(re.findall(r"/DATA/AppData/codelab/([a-z-]+)", page)):
+        assert f"/DATA/AppData/codelab/{chemin}" in compose or chemin == "config", chemin
+    # Les liens internes visent des titres qui existent.
+    def ancres(texte):
+        out = set()
+        for t in re.findall(r"^#+ (.+)$", texte, re.M):
+            a = re.sub(r"[^\w\- ]", "", t.lower()).replace(" ", "-")
+            out.add(a)
+        return out
+    liens = re.findall(r"\]\(([A-Za-z/._-]*)#([^)]+)\)", page)
+    assert len(liens) >= 10, "les renvois de la table et des sections"
+    for cible, ancre_lien in liens:
+        fichier = os.path.join(racine, cible) if cible else os.path.join(racine, "INCIDENTS.md")
+        assert ancre_lien in ancres(open(fichier, encoding="utf-8").read()), (cible, ancre_lien)
+    # On la trouve depuis le README, et la liste de mise en production y renvoie.
+    assert "(INCIDENTS.md)" in open(os.path.join(racine, "README.md"), encoding="utf-8").read()
+    assert "(INCIDENTS.md)" in open(os.path.join(racine, "SECURITE.md"), encoding="utf-8").read()
 
 
 def test_la_restauration_est_documentee():

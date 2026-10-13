@@ -370,6 +370,35 @@ async function sgCopieExterne(oui){
   peindreSauvegardes(await r.json());
 }
 
+/* ---------------- la conservation du journal ----------------
+   Raccourcir la duree efface des lignes, tout de suite et pour de bon : le
+   choix se confirme, bouton au verbe. L'allonger n'efface rien : il passe
+   sans question. */
+let cjMois=null;
+async function chargerConservation(){
+  try{
+    const r=await fetch('/api/journal/conservation'); if(!r.ok) return;
+    cjMois=(await r.json()).mois;
+  }catch(e){ return; }
+  $('cj-mois').value=String(cjMois);
+  $('zone-conservation').hidden=false;
+}
+const cjDuree = m => m ? m+' mois' : 'sans limite';
+async function cjChanger(sel){
+  const mois=+sel.value;
+  const raccourcit = mois && (!cjMois || mois<cjMois);
+  if(raccourcit && !await demander('Effacer le journal au-delà de '+mois+' mois ?',
+      'Les connexions et ouvertures plus anciennes seront effacées tout de suite, ici et dans Postgres. On ne pourra pas les retrouver.',
+      'Effacer', true)){
+    sel.value=String(cjMois); return;
+  }
+  const r=await fetch('/api/journal/conservation',{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({mois})});
+  if(!r.ok){ notifier(await echec(r,'Réglage non enregistré.'),'err'); sel.value=String(cjMois); return; }
+  const d=await r.json(); cjMois=d.mois;
+  notifier('Journal gardé '+cjDuree(cjMois)+(d.retirees ? ' — '+d.retirees+' ligne'+(d.retirees>1?'s':'')+' effacée'+(d.retirees>1?'s':'')+'.' : '.'));
+}
+
 /* ---------------- la version de CodeLab ---------------- */
 const COMMANDES_MAJ = `for i in app-manager dev postgres redis mailpit dagster dagster-proxy; do
   docker pull ghcr.io/studio-codelab/codelab-$i:latest

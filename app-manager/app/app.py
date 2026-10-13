@@ -3202,6 +3202,111 @@ def journaliser_ouverture(name):
     journaliser("ouverture", qui=qui, app=name, ip=_adresse_client())
 
 
+# LA DUREE DE CONSERVATION. Le journal note les adresses IP, et une adresse IP
+# est une donnee personnelle (RGPD) : on ne la garde pas plus longtemps que
+# son usage -- retrouver qui s'est connecte, comprendre un incident.
+# Postgres gardait tout, sans limite ; le fichier local, 50 000 evenements
+# quel que soit leur age. Une duree, reglee par l'administrateur, vaut
+# desormais pour les DEUX : purger Postgres seul ne suffit pas, le
+# rattrapage du demarrage (_pg_rattraper) y recopierait le journal local.
+# Vecu : « limiter la duree de conservation du journal ». Douze mois par
+# defaut, l'ordre de grandeur que recommande la CNIL pour des journaux de
+# connexion ; « sans limite » reste possible, c'est un choix assume.
+# Les sauvegardes, elles, gardent le journal du jour ou elles ont ete
+# faites, et partent avec leur rotation.
+CONSERVATION_CHOIX = (3, 6, 12, 24, 0)     # en mois ; 0 = sans limite
+CONSERVATION_DEFAUT = 12
+PURGE_INTERVALLE = 86400                   # une fois par jour
+PURGE_PREMIERE = 120                       # apres le demarrage : Postgres a eu le temps de repondre
+
+
+def lire_conservation():
+    """La duree choisie, en mois (0 = sans limite). Une valeur inconnue,
+    venue d'une ancienne version ou d'un coffre abime, retombe sur le
+    defaut plutot que de tout garder -- ou de tout effacer."""
+    d = reglage("conservation_journal", {}) or {}
+    mois = d.get("mois") if isinstance(d, dict) else None
+    return mois if mois in CONSERVATION_CHOIX and not isinstance(mois, bool) else CONSERVATION_DEFAUT
+
+
+def ecrire_conservation(mois):
+    ecrire_reglage("conservation_journal", {"mois": mois})
+
+
+def seuil_conservation(mois, maintenant=None):
+    """L'instant (epoch) avant lequel un evenement est trop vieux, ou None
+    sans limite. Un mois vaut 365,25 / 12 jours : douze mois font un an."""
+    if not mois:
+        return None
+    maintenant = time.time() if maintenant is None else maintenant
+    return int(maintenant - mois * (365.25 / 12) * 86400)
+
+
+def purger_le_journal(maintenant=None):
+    """Retire du journal local ET de Postgres ce qui depasse la duree choisie.
+
+    Rend (local, base) : le nombre de lignes retirees de chaque cote, base
+    valant None quand Postgres ne repond pas (il sera purge au prochain
+    passage). Ne leve jamais : une purge ratee ne doit pas arreter le fil.
+    """
+    seuil = seuil_conservation(lire_conservation(), maintenant)
+    if seuil is None:
+        return 0, 0
+    local = 0
+    try:
+        with stockage.transaction(DB_FILE) as cx:
+            local = cx.execute("DELETE FROM journal WHERE ts < ?", (seuil,)).rowcount
+    except Exception as e:                                        # noqa: BLE001
+        print(f"[app-manager] purge du journal local impossible : {e}", flush=True)
+    base = None
+    if pg_disponible():
+        try:
+            with _pg_connexion(PG_BASE) as cx:
+                base = cx.execute("DELETE FROM acces WHERE ts < to_timestamp(%s)",
+                                  (seuil,)).rowcount
+        except Exception as e:                                    # noqa: BLE001
+            _pg_etat["erreur"] = f"{type(e).__name__}: {e}"
+    if local or base:
+        print(f"[app-manager] journal purge : {local} ligne(s) locale(s), "
+              f"{base or 0} dans la base.", flush=True)
+    return local, base
+
+
+def demarrer_la_purge_du_journal():
+    def _boucle():
+        time.sleep(PURGE_PREMIERE)
+        while True:
+            purger_le_journal()
+            time.sleep(PURGE_INTERVALLE)
+    threading.Thread(target=_boucle, daemon=True).start()
+
+
+@flask_app.get("/api/journal/conservation")
+@require_admin
+def api_conservation_lire():
+    return jsonify({"mois": lire_conservation(), "choix": list(CONSERVATION_CHOIX)})
+
+
+@flask_app.put("/api/journal/conservation")
+@require_admin
+def api_conservation_ecrire():
+    """Enregistre la duree et purge AUSSITOT : raccourcir la duree, c'est
+    vouloir que les vieilles lignes partent maintenant, pas demain."""
+    mois = (request.get_json(silent=True) or {}).get("mois")
+    # bool est un int en Python : True ne doit pas passer pour « 1 mois ».
+    if isinstance(mois, bool) or mois not in CONSERVATION_CHOIX:
+        return jsonify({"error": "Durée invalide."}), 400
+    try:
+        ecrire_conservation(mois)
+    except (OSError, RuntimeError) as e:
+        return jsonify({"error": f"Réglage non enregistré : {e}"}), 500
+    journaliser("reglage", qui=utilisateur_courant() or NOM_ADMIN,
+                action=f"conservation du journal : {mois} mois" if mois
+                else "conservation du journal : sans limite", ip=_adresse_client())
+    local, base = purger_le_journal()
+    return jsonify({"ok": True, "mois": mois, "retirees": local + (base or 0)})
+
+
 # ------------------------- miroir Postgres -------------------------
 #
 # Le fichier reste la source de verite : il tient sans base, se lit depuis
@@ -14307,4 +14412,5 @@ if __name__ == "__main__":
     demarrer_miroir_pg()
     demarrer_les_sauvegardes()
     demarrer_la_surveillance_externe()
+    demarrer_la_purge_du_journal()
     servir(int(os.environ.get("MANAGER_PORT", "9001")))
