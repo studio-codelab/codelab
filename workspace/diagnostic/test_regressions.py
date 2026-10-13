@@ -4642,7 +4642,8 @@ def test_l_enveloppe_de_fetch_regarde_l_origine():
 def _page_panneau(nom):
     """Un fichier du panneau, tel que les tests le lisent.
 
-    dashboard.html charge son script depuis panneau.js (mis en cache) : pour
+    dashboard.html charge son script depuis /panneau.js (les modules de
+    panneau/, assembles par app.py, mis en cache) : pour
     les tests, la page est RECONSTITUEE, le script remis a la place de sa
     balise. Ce qu'un test verifie du script (presence, ordre, corps d'une
     fonction) se lit donc la ou il le lisait quand il etait en ligne.
@@ -4651,7 +4652,7 @@ def _page_panneau(nom):
     if nom == "dashboard.html":
         balise = '<script src="/panneau.js?v=__PANNEAU_VERSION__"></script>'
         assert texte.count(balise) == 1, "dashboard.html ne charge plus panneau.js"
-        script = open(os.path.join(DOSSIER_PANNEAU, "app", "panneau.js"), encoding="utf-8").read()
+        script = app.PANNEAU_JS     # les modules de panneau/, assembles dans l'ordre
         texte = texte.replace(balise, "<script>\n" + script + "</script>")
     return texte
 
@@ -7112,10 +7113,10 @@ def test_le_menu_ne_defile_pas_avec_la_page():
     # sur un telephone) : il ne peut pas partir avec la page. La colonne
     # collante d'avant (position:sticky sous le bandeau) a disparu avec le
     # style « design », qui est toujours pose.
-    regle = page.split(':root[data-style="design"] .sidebar{')[1].split("}")[0]
-    assert "position:fixed" in regle, regle
+    regles = [r.split("}")[0] for r in page.split("\n.sidebar{")[1:]]
+    assert any("position:fixed" in r for r in regles), regles
     telephone = page.split("@media (max-width:760px)")
-    assert any(':root[data-style="design"] .sidebar{top:auto;bottom:0' in bloc for bloc in telephone), (
+    assert any('.sidebar{top:auto;bottom:0' in bloc for bloc in telephone), (
         "sur telephone, le menu doit rester colle au bas de l'ecran")
 
 
@@ -12982,6 +12983,24 @@ def test_la_page_de_connexion_ne_montre_pas_credentials_sur_telephone():
 
 # ---------- adresses propres ----------
 
+@pytest.mark.skipif(shutil.which("node") is None,
+                    reason="node absent de cette image (present dans app-manager et en CI)")
+def test_le_script_du_panneau_est_l_assemblage_de_ses_modules():
+    """Le script du panneau est range en modules (panneau/*.js), assembles dans
+    l'ordre de PANNEAU_MODULES. Chaque fichier du dossier est dans la liste --
+    un module oublie disparaitrait sans bruit -- et chacun s'analyse SEUL :
+    une frontiere de module ne coupe donc jamais une fonction en deux."""
+    import subprocess
+    dossier = os.path.join(DOSSIER_PANNEAU, "app", "panneau")
+    assert sorted(os.listdir(dossier)) == sorted(app.PANNEAU_MODULES)
+    assert list(app.PANNEAU_MODULES) == sorted(app.PANNEAU_MODULES), "l'ordre suit les numeros"
+    for nom in app.PANNEAU_MODULES:
+        r = subprocess.run(["node", "--check", os.path.join(dossier, nom)],
+                           capture_output=True, text=True)
+        assert r.returncode == 0, nom + " : " + r.stderr[:300]
+    assert not os.path.exists(os.path.join(DOSSIER_PANNEAU, "app", "panneau.js"))
+
+
 def test_la_feuille_de_style_du_panneau_est_equilibree():
     """Vecu, pendant la fusion du CSS : la fin d'un commentaire est partie
     avec une regle vide ; le « /* » reste ouvert a englouti la regle suivante
@@ -13303,8 +13322,8 @@ def test_le_style_design_ne_change_que_l_habit():
     # Pas de roue crantee : les parametres s'ouvrent depuis le menu du compte.
     assert "reglages-btn" not in page
     assert 'id="acct-parametres" onclick="allerA(\'parametres\')"' in page
-    assert ':root[data-style="design"] #sec-parametres{display:grid' in page
-    assert ':root[data-style="design"] .sidebar{top:auto;bottom:0' in page
+    assert '#sec-parametres{display:grid' in page
+    assert '.sidebar{top:auto;bottom:0' in page
     # Un compte utilisateur garde ses entrees : le hub et ses messages.
     assert 'class="side-item utilisateur-seul"' in page
     assert "document.body.classList.add('compte-utilisateur')" in page
@@ -13427,7 +13446,7 @@ def test_le_defilement_vertical_laisse_la_page_defiler():
     sens = page.split("function majSensDuHub(){")[1].split("\n}")[0]
     assert "r.getAttribute('data-defilement') === 'vertical'" in sens
     assert "matchMedia('(orientation: portrait)').matches" in sens
-    assert ':root[data-variante="bento"]:not(.hub-vertical).hub-actif :is(body,#defile){overflow:hidden}' in page
+    assert ':root:not(.hub-vertical).hub-actif :is(body,#defile){overflow:hidden}' in page
     regle = page.split(':root.hub-vertical .hub-grille{')[1].split("}")[0]
     assert "grid-auto-flow:row" in regle and "repeat(auto-fill,minmax(var(--cel),1fr))" in regle
     assert ':root.hub-vertical #hub-liste.bento{height:auto;overflow:visible' in page
@@ -13472,7 +13491,7 @@ def test_la_mosaique_defile_a_l_horizontale_et_a_la_verticale_sur_telephone():
     grille = page.split(".hub-grille{display:grid;")[1].split("}")[0]
     for attendu in ("grid-auto-flow:column", "grid-template-rows:repeat(3"):
         assert attendu in grille, attendu
-    mobile = page.split("@media (max-width:760px){\n  :root[data-variante] .hub-recherche{height:50px")[1]
+    mobile = page.split("@media (max-width:760px){\n  .hub-recherche{height:50px")[1]
     mobile = mobile.split("\n}")[0]
     assert "grid-auto-flow:row" in mobile and "overflow:visible" in mobile and "height:auto" in mobile
     # La molette verticale fait defiler de cote ; l'ajout d'application est
@@ -15854,7 +15873,7 @@ def test_le_hub_anime_ses_chiffres_et_dessine_ses_graphiques():
             "const niveauCharge = v => v>=92 ? ['err','saturé'] : v>=80 ? ['warn','élevé'] : ['',''];"):
         assert trace in page, trace
     # Moins de mouvement demande : tout s'arrete.
-    sobre = page.split("@media (prefers-reduced-motion:reduce){\n  :root[data-variante=\"bento\"] :is(.salut")[1].split("}\n}")[0]
+    sobre = page.split("@media (prefers-reduced-motion:reduce){\n  :is(.salut")[1].split("}\n}")[0]
     for cible in ("#hub-liste.entree [data-el]", ".barres-jours.apparait i", ".courbe.apparait *"):
         assert cible in sobre, cible
     assert "if(sobre || avant===fin){ poserAnim(n, fin); return; }" in page

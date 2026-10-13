@@ -26,9 +26,9 @@
   STRUCTURE   1. La feuille de style : base, barre du haut, colonne de gauche, titres,
                  cartes, pastilles, boutons, champs, hub, tableaux, fiche,
                  pop-up, parametres, categories, journal, notifications,
-                 cles d'acces ; puis MOBILE ; puis le style « design » et sa
-                 variante « bento » (celle qui est servie) ; puis le
-                 mouvement et le relief.
+                 cles d'acces ; puis MOBILE ; puis la mise en page du panneau
+                 et sa suite (le hub et ses reglages) ; puis le mouvement et
+                 le relief.
               2. Le balisage des rubriques (HUB, VUE D'ENSEMBLE, APPLICATIONS,
                  FICHE, PARAMETRES, MESSAGES, UTILISATEURS) et des pop-up.
               3. Le script : theme, navigation, listes deroulantes, onglets,
@@ -38,19 +38,22 @@
                  version, preferences.
   CHOIX       - Une seule page : la navigation ne recharge rien, et l'etat
                 (fiche ouverte, onglet) suit l'adresse.
-              - Le script vit dans panneau.js (mis en cache, a une session) ;
-                la page ne garde en ligne que window.CODELAB_PAGE, les six
-                valeurs que le serveur ecrit a chaque affichage.
-              - Un seul style est servi (data-style="design",
-                data-variante="bento", toujours poses par avec_style). Les
-                regles sans prefixe sont la base que ce style complete ; une
-                propriete de base que la regle prefixee redefinit pour les
-                memes elements ne s'applique jamais, et elle a ete retiree.
-  A AMELIORER - Retirer le prefixe :root[data-style="design"] lui-meme, en
-                fondant chaque regle dans sa base : demande de recalculer la
-                specificite de chaque regle (le prefixe compte) et une
-                comparaison pixel des six cas, rubrique par rubrique.
-              - Decouper panneau.js en modules (voir son en-tete).
+              - Le script vit dans panneau/ (modules assembles, mis en cache,
+                a une session) ; la page ne garde en ligne que
+                window.CODELAB_PAGE, les six valeurs que le serveur ecrit a
+                chaque affichage.
+              - UN SEUL STYLE, sans prefixe. Les regles du style servi
+                portaient :root[data-style="design"] ou
+                :root[data-variante="bento"], toujours vrais : le prefixe
+                ne faisait que leur donner la priorite sur la base. Il est
+                retire ; la base n'y redefinit plus ce que le style ecrase,
+                et quand une regle de base l'emportait a son tour, c'est elle
+                qui a ete corrigee (voir :where() sur l'anneau de focus).
+                ESSAYE ET ECARTE : des @layer (base, puis style) -- theme.css,
+                hors couche, aurait alors battu tout le panneau.
+  A AMELIORER - Les sections « style 2 » et « style du panneau » melangent
+                encore des regles de rubriques differentes : les ranger par
+                rubrique (hub, fiche, reglages) avec la base.
 ========================================================================== -->
 <html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -133,7 +136,6 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
  cursor:pointer;display:grid;place-items:center;
  transition:background .12s,color .12s,border-color .12s}
 .acct-btn svg{width:17px;height:17px}
-.acct-btn:hover{border-color:var(--accent)}
 .ver-lien{color:var(--accent);font-weight:650;text-decoration:underline;text-underline-offset:2px}
 .ver-commandes{margin:12px 0 0;padding:12px 14px;border-radius:10px;background:var(--surface2);border:1px solid var(--line);
  font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
@@ -154,8 +156,8 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 
 /* ------------------------------ colonne de gauche ------------------------------ */
 /* LE MENU : une pilule au centre du bandeau, une barre en bas sur un
-   telephone. Sa forme vient du style « design » (plus bas, :root[data-style=
-   "design"] .sidebar) ; ici ne reste que ce qu'il ne redefinit pas.
+   telephone. Sa forme vient de la section du style, plus bas (.sidebar,
+   position fixe) ; ici ne reste que ce qu'elle ne redefinit pas.
    ESSAYE ET ECARTE : une colonne a gauche, collante sous le bandeau et
    repliable (.collapsed) -- elle prenait la moitie d'un telephone. La classe
    collapsed (posee par applySidebar) ne change plus la largeur : le style
@@ -371,8 +373,11 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 /* L'anneau ne suit que la navigation au clavier (:focus-visible), pas le
    clic a la souris -- un contour apres chaque clic passe pour un defaut. */
 .btn:focus-visible,.icon-btn:focus-visible,.side-item:focus-visible,
-.fiche-onglets button:focus-visible{outline:2px solid var(--accent);outline-offset:2px;
- border-radius:var(--r-s)}
+.fiche-onglets button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* Le coin arrondi de l'anneau, pour ce qui n'en a pas : :where() le rend
+   plus faible que toute regle qui donne son propre rayon a l'element (un
+   bouton garde le sien au focus). */
+:where(.btn,.icon-btn,.side-item,.fiche-onglets button):focus-visible{border-radius:var(--r-s)}
 .btn-primary{background:var(--accent);color:#fff}
 .btn-primary:hover{background:var(--accent-h)}
 .btn-primary:disabled:hover{background:var(--accent)}
@@ -716,7 +721,7 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
 .ap-puces button b{font-weight:800;color:var(--dim);margin-left:3px}
 .ap-puces button[aria-pressed="true"]{background:var(--txt);border-color:var(--txt);color:var(--surface)}
 .ap-puces button[aria-pressed="true"] b{color:inherit;opacity:.7}
-.ap-outils select.ap-choix{width:auto;flex:none;height:36px;padding:0 30px 0 12px;border-radius:999px;
+.ap-outils select.ap-choix{width:auto;flex:none;height:36px;padding:0 30px 0 12px;
  border:1px solid var(--line2);background-color:var(--surface);font-size:13px;font-weight:600}
 .acces-filtre{max-width:320px;margin-bottom:10px}
 /* Les listes sont habillees (voir .dl) : c'est l'enveloppe qu'on dimensionne. */
@@ -967,7 +972,6 @@ th[aria-sort="ascending"] .ap-th span,th[aria-sort="descending"] .ap-th span{opa
    de reglages de telephone : une liste, des filets entre les lignes, la
    pastille d'etat alignee a droite contre le chevron. 820 px au plus : au
    dela, le titre et sa pastille se retrouvaient a un ecran l'un de l'autre. */
-#sec-parametres .fiche-onglets{max-width:820px}
 .onglet-p.actif{max-width:820px;background:var(--surface);border:1px solid var(--line);
  border-radius:var(--r);box-shadow:0 1px 2px var(--shadow);overflow:hidden}
 .onglet-p .zone{margin-bottom:0}
@@ -1013,10 +1017,10 @@ th[aria-sort="ascending"] .ap-th span,th[aria-sort="descending"] .ap-th span{opa
   #param-onglets .onglet-court{display:inline}
   /* Les reglages d'un onglet : une liste groupee, un filet entre deux
      reglages, sans carte posee dans la carte ni grand blanc entre elles. */
-  :root[data-style="design"] #sec-parametres .onglet-p .zone{margin:0}
-  :root[data-style="design"] #sec-parametres .onglet-p .settings-card{border:0;border-radius:0;
+  #sec-parametres .onglet-p .zone{margin:0}
+  #sec-parametres .onglet-p .settings-card{border:0;border-radius:0;
    box-shadow:none;border-bottom:1px solid var(--line)}
-  :root[data-style="design"] #sec-parametres .onglet-p .zone:last-child .settings-card:last-child{border-bottom:0}
+  #sec-parametres .onglet-p .zone:last-child .settings-card:last-child{border-bottom:0}
 }
 .us-compte{border:1px solid var(--line);border-radius:var(--r-s);padding:12px 14px;
  margin-bottom:8px}
@@ -1257,117 +1261,116 @@ table.tbl-journal{min-width:560px}
  color:var(--dim2);margin:4px 0 8px}
 
 /* =====================================================================
-   STYLE 2 (cle interne « design »). Les couleurs et la police sont dans
-   theme.css ; ici, la MISE EN PAGE : menu en pilule au centre du bandeau
-   (barre du bas sur un telephone), hub en grandes icones dans une carte
-   blanche, reglages en fenetre facon Mac. Le HTML et les fonctions sont
-   ceux du style 1.
+   LA MISE EN PAGE DU PANNEAU. Les couleurs et la police sont dans
+   theme.css ; ici : menu en pilule au centre du bandeau (barre du bas sur
+   un telephone), hub en grandes icones dans une carte blanche, reglages.
+   Ces regles portaient autrefois un prefixe (:root[data-style="design"]),
+   du temps ou deux styles coexistaient ; il n'en reste qu'un.
 
    UN SEUL RYTHME D'ESPACEMENT : 8 / 16 / 24 / 32. Dedans une zone, 16 ;
    entre deux zones, 32 ; le bord d'une grande carte, 32 (24 au telephone).
    ===================================================================== */
-:root[data-style="design"] body{letter-spacing:-.01em}
-:root[data-style="design"] .topbar{height:68px;padding:0 28px;background:var(--bg);border-bottom:0}
-:root[data-style="design"] .topbar-brand img{width:38px;height:38px;border-radius:12px}
-:root[data-style="design"] .topbar-brand b{font-size:18px;font-weight:800}
-:root[data-style="design"] .topbar-brand:hover{background:none}
-:root[data-style="design"] #btn-menu,:root[data-style="design"] .qui{display:none}
-:root[data-style="design"] .acct-btn{width:44px;height:44px;border:0;background:var(--accent);color:var(--sur-accent)}
-:root[data-style="design"] .acct-btn:hover,:root[data-style="design"] .acct-btn.active{background:var(--accent-h);color:var(--sur-accent)}
-:root[data-style="design"] .acct-menu{top:52px;border-radius:16px;padding:6px}
-:root[data-style="design"] .page-body{display:block}
-:root[data-style="design"] .wrap{max-width:1120px;padding:20px 28px 64px}
-:root[data-style="design"] .toolbar h2{font-size:30px;letter-spacing:-.035em}
-:root[data-style="design"] .toolbar{margin-bottom:16px}
-:root[data-style="design"] .zone{margin-bottom:32px}
-:root[data-style="design"] .zone-title{margin-bottom:12px}
-:root[data-style="design"] .card{padding:20px 24px}
+body{letter-spacing:-.01em}
+.topbar{height:68px;padding:0 28px;background:var(--bg);border-bottom:0}
+.topbar-brand img{width:38px;height:38px;border-radius:12px}
+.topbar-brand b{font-size:18px;font-weight:800}
+.topbar-brand:hover{background:none}
+#btn-menu,.qui{display:none}
+.acct-btn{width:44px;height:44px;border:0;background:var(--accent);color:var(--sur-accent)}
+.acct-btn:hover,.acct-btn.active{background:var(--accent-h);color:var(--sur-accent)}
+.acct-menu{top:52px;border-radius:16px;padding:6px}
+.page-body{display:block}
+.wrap{max-width:1120px;padding:20px 28px 64px}
+.toolbar h2{font-size:30px;letter-spacing:-.035em}
+.toolbar{margin-bottom:16px}
+.zone{margin-bottom:32px}
+.zone-title{margin-bottom:12px}
+.card{padding:20px 24px}
 
 /* Le menu : une pilule au centre du bandeau. */
-:root[data-style="design"] .sidebar{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:45;
+.sidebar{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:45;
  width:auto;height:auto;padding:5px;border:0;border-radius:999px;background:var(--surface);
  box-shadow:0 1px 3px var(--shadow-2);overflow:visible;flex-direction:row;transition:none}
-:root[data-style="design"] .sidebar.collapsed{width:auto}
-:root[data-style="design"] .side-nav{display:flex;align-items:center;gap:2px}
-:root[data-style="design"] .side-label,:root[data-style="design"] .side-sep{display:none}
-:root[data-style="design"] .side-item{padding:9px 16px;border-radius:999px;font-size:14px;font-weight:600;
+.sidebar.collapsed{width:auto}
+.side-nav{display:flex;align-items:center;gap:2px}
+.side-label,.side-sep{display:none}
+.side-item{padding:9px 16px;border-radius:999px;font-size:14px;font-weight:600;
  color:var(--dim);gap:7px;white-space:nowrap}
-:root[data-style="design"] .side-item svg{display:none}
-:root[data-style="design"] .sidebar .side-item span{opacity:1}
-:root[data-style="design"] .side-item:hover{background:var(--surface2);color:var(--txt)}
-:root[data-style="design"] .side-item.active{background:var(--txt);color:var(--surface);font-weight:700}
-:root[data-style="design"] .side-count{margin-left:0;padding:0 6px;background:var(--accent-soft);color:var(--accent)}
-:root[data-style="design"] .side-item.active .side-count{background:rgba(255,255,255,.22);color:inherit}
-:root[data-style="design"] .compte-utilisateur #sidebar{display:flex}
+.side-item svg{display:none}
+.sidebar .side-item span{opacity:1}
+.side-item:hover{background:var(--surface2);color:var(--txt)}
+.side-item.active{background:var(--txt);color:var(--surface);font-weight:700}
+.side-count{margin-left:0;padding:0 6px;background:var(--accent-soft);color:var(--accent)}
+.side-item.active .side-count{background:rgba(255,255,255,.22);color:inherit}
+.compte-utilisateur #sidebar{display:flex}
 @media (max-width:1180px) and (min-width:761px){
-  :root[data-style="design"] .side-item span:not(.side-count){display:none}
-  :root[data-style="design"] .side-item svg{display:block;width:18px;height:18px}
-  :root[data-style="design"] .side-item{padding:9px 13px}
+  .side-item span:not(.side-count){display:none}
+  .side-item svg{display:block;width:18px;height:18px}
+  .side-item{padding:9px 13px}
 }
 
 /* Les cartes, plus rondes et plus douces. */
-:root[data-style="design"] .card{border-color:transparent;box-shadow:0 1px 3px var(--shadow);border-radius:var(--r)}
-:root[data-style="design"] .btn{border-radius:12px}
-:root[data-style="design"] input,:root[data-style="design"] select,:root[data-style="design"] textarea{border-radius:12px}
-:root[data-style="design"] .modal{border-radius:24px}
+.card{border-color:transparent;box-shadow:0 1px 3px var(--shadow);border-radius:var(--r)}
+.btn{border-radius:12px}
+input,select,textarea{border-radius:12px}
+.modal{border-radius:24px}
 
 /* Le hub : un bonjour, puis les icones dans une carte blanche. */
-:root[data-style="design"] #sec-hub>.toolbar{display:none}
+#sec-hub>.toolbar{display:none}
 /* Le bonjour s'aligne a GAUCHE, sur le bord de la carte qu'il annonce :
    meme largeur maximale, meme marge automatique. */
-:root[data-style="design"] .salut{display:block;text-align:left;font-size:38px;font-weight:800;letter-spacing:-.04em;
+.salut{display:block;text-align:left;font-size:38px;font-weight:800;letter-spacing:-.04em;
  max-width:920px;margin:24px auto 24px;padding:0 8px;line-height:1.1}
-:root[data-style="design"] #hub-liste.hub-liste{background:var(--surface);border-radius:32px;
+#hub-liste.hub-liste{background:var(--surface);border-radius:32px;
  padding:32px;box-shadow:0 10px 40px var(--shadow);max-width:920px;margin:0 auto 24px}
-:root[data-style="design"] .hub-vide{border-radius:32px;max-width:640px;margin:0 auto}
-:root[data-style="design"] #hub-masquees{text-align:center}
+.hub-vide{border-radius:32px;max-width:640px;margin:0 auto}
+#hub-masquees{text-align:center}
 
 /* Les reglages : une fenetre facon Mac, la liste des rubriques a gauche. */
 @media (min-width:761px){
-  :root[data-style="design"] #sec-parametres{display:grid;grid-template-columns:240px minmax(0,1fr);max-width:1000px;
+  #sec-parametres{display:grid;grid-template-columns:240px minmax(0,1fr);max-width:1000px;
    margin:6px auto 0;background:var(--surface);border:1px solid var(--line);border-radius:14px;
    overflow:hidden;box-shadow:0 24px 60px var(--shadow-2);
    font-family:-apple-system,BlinkMacSystemFont,var(--sans);font-size:13px}
-  :root[data-style="design"] #sec-parametres>.toolbar{grid-column:1/-1;margin:0;padding:12px 18px;justify-content:center;
+  #sec-parametres>.toolbar{grid-column:1/-1;margin:0;padding:12px 18px;justify-content:center;
    background:var(--surface2);border-bottom:1px solid var(--line)}
-  :root[data-style="design"] #sec-parametres>.toolbar h2{font-size:13.5px;font-weight:700;letter-spacing:0}
-  :root[data-style="design"] #param-onglets{grid-column:1;grid-row:2;flex-direction:column;align-items:stretch;gap:2px;
-   margin:0;padding:12px 10px;border:0;border-right:1px solid var(--line);background:var(--surface2);
-   max-width:none}
-  :root[data-style="design"] #param-onglets button{display:flex;align-items:center;gap:10px;text-align:left;
+  #sec-parametres>.toolbar h2{font-size:13.5px;font-weight:700;letter-spacing:0}
+  #param-onglets{grid-column:1;grid-row:2;flex-direction:column;align-items:stretch;gap:2px;
+   margin:0;padding:12px 10px;border:0;border-right:1px solid var(--line);background:var(--surface2)}
+  #param-onglets button{display:flex;align-items:center;gap:10px;text-align:left;
    padding:8px 10px;border:0;border-radius:8px;font-size:13px;font-weight:500;color:var(--txt);
    margin:0}
   /* Une icone au trait, dans la couleur du texte : neutre, comme le reste
      de l'interface. Un masque SVG (data:) plutot qu'une balise par onglet :
-     le HTML reste celui du style 1. */
-  :root[data-style="design"] #param-onglets button::before{content:"";display:inline-block;width:18px;height:18px;flex:none;
+     le balisage ne change pas. */
+  #param-onglets button::before{content:"";display:inline-block;width:18px;height:18px;flex:none;
    vertical-align:-4px;margin-right:10px;background-color:currentColor;opacity:.72;-webkit-mask:var(--icone) center/contain no-repeat;mask:var(--icone) center/contain no-repeat}
-  :root[data-style="design"] #param-onglets button.active::before{opacity:1}
-  :root[data-style="design"] #param-onglets button[data-p="compte"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='8' r='4'/%3E%3Cpath d='M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8'/%3E%3C/svg%3E")}
-  :root[data-style="design"] #param-onglets button[data-p="securite"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z'/%3E%3Cpath d='M9 12l2 2 4-4'/%3E%3C/svg%3E")}
-  :root[data-style="design"] #param-onglets button[data-p="email"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='14' rx='2'/%3E%3Cpath d='M3 7l9 6 9-6'/%3E%3C/svg%3E")}
-  :root[data-style="design"] #param-onglets button[data-p="apparence"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='4'/%3E%3Cpath d='M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4'/%3E%3C/svg%3E")}
-  :root[data-style="design"] #param-onglets button[data-p="hub"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='7' height='7' rx='2'/%3E%3Crect x='14' y='3' width='7' height='7' rx='2'/%3E%3Crect x='3' y='14' width='7' height='7' rx='2'/%3E%3Crect x='14' y='14' width='7' height='7' rx='2'/%3E%3C/svg%3E")}
-  :root[data-style="design"] #param-onglets button[data-p="message"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12a8 8 0 0 1-11.6 7.1L4 21l1.9-5.4A8 8 0 1 1 21 12z'/%3E%3C/svg%3E")}
-  :root[data-style="design"] #param-onglets button.active{background:var(--accent);color:var(--sur-accent);border:0}
-  :root[data-style="design"] #sec-parametres .onglet-p.actif{grid-column:2;grid-row:2;max-width:none;border:0;
+  #param-onglets button.active::before{opacity:1}
+  #param-onglets button[data-p="compte"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='8' r='4'/%3E%3Cpath d='M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8'/%3E%3C/svg%3E")}
+  #param-onglets button[data-p="securite"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z'/%3E%3Cpath d='M9 12l2 2 4-4'/%3E%3C/svg%3E")}
+  #param-onglets button[data-p="email"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='14' rx='2'/%3E%3Cpath d='M3 7l9 6 9-6'/%3E%3C/svg%3E")}
+  #param-onglets button[data-p="apparence"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='4'/%3E%3Cpath d='M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4'/%3E%3C/svg%3E")}
+  #param-onglets button[data-p="hub"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='7' height='7' rx='2'/%3E%3Crect x='14' y='3' width='7' height='7' rx='2'/%3E%3Crect x='3' y='14' width='7' height='7' rx='2'/%3E%3Crect x='14' y='14' width='7' height='7' rx='2'/%3E%3C/svg%3E")}
+  #param-onglets button[data-p="message"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12a8 8 0 0 1-11.6 7.1L4 21l1.9-5.4A8 8 0 1 1 21 12z'/%3E%3C/svg%3E")}
+  #param-onglets button.active{background:var(--accent);color:var(--sur-accent);border:0}
+  #sec-parametres .onglet-p.actif{grid-column:2;grid-row:2;max-width:none;border:0;
    border-radius:0;box-shadow:none;padding:24px 32px 32px;background:var(--surface)}
-  :root[data-style="design"] #sec-parametres .onglet-p .zone{margin-bottom:24px}
-  :root[data-style="design"] #sec-parametres .onglet-p .zone:last-child{margin-bottom:0}
-  :root[data-style="design"] #sec-parametres .onglet-p .zone-title{margin:0 0 8px 4px}
-  :root[data-style="design"] #sec-parametres .onglet-p .settings-card + .settings-card{margin-top:8px}
-  :root[data-style="design"] #sec-parametres .onglet-p .settings-card{background:var(--surface2);border:1px solid var(--line);
+  #sec-parametres .onglet-p .zone{margin-bottom:24px}
+  #sec-parametres .onglet-p .zone:last-child{margin-bottom:0}
+  #sec-parametres .onglet-p .zone-title{margin:0 0 8px 4px}
+  #sec-parametres .onglet-p .settings-card + .settings-card{margin-top:8px}
+  #sec-parametres .onglet-p .settings-card{background:var(--surface2);border:1px solid var(--line);
    border-radius:10px;padding:14px 16px}
-  :root[data-style="design"] #sec-parametres .onglet-p .zone:last-child .settings-card:last-child{border-bottom:1px solid var(--line)}
-  :root[data-style="design"] #sec-parametres .settings-card.pliable>.card-top{margin:-12px -16px;padding:12px 16px}
-  :root[data-style="design"] #sec-parametres .settings-card.pliable>.card-top:hover{background:var(--line)}
-  :root[data-style="design"] #sec-parametres .settings-card.pliable>.card-corps{margin-top:14px}
-  :root[data-style="design"] #sec-parametres .settings-card .card-name b{font-size:13px;font-weight:600}
-  :root[data-style="design"] #sec-parametres .settings-card .card-name .path{font-size:11.5px}
-  :root[data-style="design"] #sec-parametres .btn{min-height:36px;padding:0 16px;font-size:13px}
-  :root[data-style="design"] #sec-parametres .interrupteur{width:38px;height:22px}
-  :root[data-style="design"] #sec-parametres .interrupteur span::after{width:18px;height:18px;top:2px;left:2px}
-  :root[data-style="design"] #sec-parametres .interrupteur input:checked+span::after{transform:translateX(16px)}
+  #sec-parametres .onglet-p .zone:last-child .settings-card:last-child{border-bottom:1px solid var(--line)}
+  #sec-parametres .settings-card.pliable>.card-top{margin:-12px -16px;padding:12px 16px}
+  #sec-parametres .settings-card.pliable>.card-top:hover{background:var(--line)}
+  #sec-parametres .settings-card.pliable>.card-corps{margin-top:14px}
+  #sec-parametres .settings-card .card-name b{font-size:13px;font-weight:600}
+  #sec-parametres .settings-card .card-name .path{font-size:11.5px}
+  #sec-parametres .btn{min-height:36px;padding:0 16px;font-size:13px}
+  #sec-parametres .interrupteur{width:38px;height:22px}
+  #sec-parametres .interrupteur span::after{width:18px;height:18px;top:2px;left:2px}
+  #sec-parametres .interrupteur input:checked+span::after{transform:translateX(16px)}
 }
 
 /* =====================================================================
@@ -1383,61 +1386,61 @@ table.tbl-journal{min-width:560px}
    titre ne passe plus a l'accent au survol -- seul le chevron reagit.
    ===================================================================== */
 @media (min-width:761px){
-  :root[data-variante="bento"] #sec-parametres{grid-template-columns:220px minmax(0,1fr);
+  #sec-parametres{grid-template-columns:220px minmax(0,1fr);
    column-gap:40px;max-width:1080px;margin:8px auto 0;background:none;border:0;border-radius:0;box-shadow:none;
    overflow:visible;font-family:var(--sans);font-size:14px}
-  :root[data-variante="bento"] #sec-parametres>.toolbar{grid-column:1/-1;margin:0 0 28px;padding:0;
+  #sec-parametres>.toolbar{grid-column:1/-1;margin:0 0 28px;padding:0;
    justify-content:flex-start;background:none;border:0}
-  :root[data-variante="bento"] #sec-parametres>.toolbar h2{font-size:clamp(34px,4vw,48px);
+  #sec-parametres>.toolbar h2{font-size:clamp(34px,4vw,48px);
    font-weight:800;letter-spacing:-.05em;line-height:1}
-  :root[data-variante="bento"] #sec-parametres #param-onglets{position:sticky;top:96px;align-self:start;
+  #sec-parametres #param-onglets{position:sticky;top:96px;align-self:start;
    gap:4px;padding:0;border:0;background:none}
-  :root[data-variante="bento"] #sec-parametres #param-onglets button{padding:11px 14px;border-radius:14px;
+  #sec-parametres #param-onglets button{padding:11px 14px;border-radius:14px;
    font-size:14px;font-weight:650;color:var(--dim);transition:background .15s,color .15s}
-  :root[data-variante="bento"] #sec-parametres #param-onglets button:hover{background:var(--surface);color:var(--txt)}
-  :root[data-variante="bento"] #sec-parametres #param-onglets button.active{background:var(--accent-soft);
+  #sec-parametres #param-onglets button:hover{background:var(--surface);color:var(--txt)}
+  #sec-parametres #param-onglets button.active{background:var(--accent-soft);
    color:var(--accent)}
-  :root[data-variante="bento"] #sec-parametres .btn{min-height:40px;padding:0 18px;font-size:14px}
-  :root[data-variante="bento"] #sec-parametres .interrupteur{width:44px;height:26px}
-  :root[data-variante="bento"] #sec-parametres .interrupteur span::after{width:20px;height:20px;top:3px;left:3px}
-  :root[data-variante="bento"] #sec-parametres .interrupteur input:checked+span::after{transform:translateX(18px)}
+  #sec-parametres .btn{min-height:40px;padding:0 18px;font-size:14px}
+  #sec-parametres .interrupteur{width:44px;height:26px}
+  #sec-parametres .interrupteur span::after{width:20px;height:20px;top:3px;left:3px}
+  #sec-parametres .interrupteur input:checked+span::after{transform:translateX(18px)}
 }
 /* LES CARTES, A TOUTES LES TAILLES. Le telephone et la tablette en mode
    application heritent du meme habit que l'ordinateur : une carte arrondie
    par rubrique, plus une liste groupee dans un seul panneau. */
-:root[data-variante="bento"] #sec-parametres .onglet-p.actif{padding:0;background:none;border:0;
+#sec-parametres .onglet-p.actif{padding:0;background:none;border:0;
  border-radius:0;box-shadow:none;overflow:visible}
-:root[data-variante="bento"] #sec-parametres .onglet-p .zone{margin-bottom:12px}
-:root[data-variante="bento"] #sec-parametres .onglet-p .settings-card,
-:root[data-variante="bento"] #sec-parametres .onglet-p .zone:last-child .settings-card:last-child{
+#sec-parametres .onglet-p .zone{margin-bottom:12px}
+#sec-parametres .onglet-p .settings-card,
+#sec-parametres .onglet-p .zone:last-child .settings-card:last-child{
  background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:20px 24px;overflow:hidden;
  box-shadow:0 1px 2px var(--shadow)}
-:root[data-variante="bento"] #sec-parametres .onglet-p .settings-card + .settings-card{margin-top:12px}
-:root[data-variante="bento"] #sec-parametres .settings-card.pliable>.card-top{margin:-20px -24px;padding:20px 24px}
-:root[data-variante="bento"] #sec-parametres .settings-card.pliable>.card-top:hover{background:var(--surface2)}
-:root[data-variante="bento"] #sec-parametres .settings-card.pliable>.card-corps{margin-top:20px}
-:root[data-variante="bento"] #sec-parametres .settings-card .card-name b{font-size:15px;font-weight:750;
+#sec-parametres .onglet-p .settings-card + .settings-card{margin-top:12px}
+#sec-parametres .settings-card.pliable>.card-top{margin:-20px -24px;padding:20px 24px}
+#sec-parametres .settings-card.pliable>.card-top:hover{background:var(--surface2)}
+#sec-parametres .settings-card.pliable>.card-corps{margin-top:20px}
+#sec-parametres .settings-card .card-name b{font-size:15px;font-weight:750;
  letter-spacing:-.01em}
-:root[data-variante="bento"] #sec-parametres .settings-card .card-name .path{font-size:13px;margin-top:3px}
+#sec-parametres .settings-card .card-name .path{font-size:13px;margin-top:3px}
 @media (max-width:760px){
-  :root[data-variante="bento"] #sec-parametres .onglet-p .settings-card,
-  :root[data-variante="bento"] #sec-parametres .onglet-p .zone:last-child .settings-card:last-child{
+  #sec-parametres .onglet-p .settings-card,
+  #sec-parametres .onglet-p .zone:last-child .settings-card:last-child{
    padding:16px 18px;border-radius:18px}
-  :root[data-variante="bento"] #sec-parametres .settings-card.pliable>.card-top{margin:-16px -18px;padding:16px 18px}
-  :root[data-variante="bento"] #sec-parametres .settings-card.pliable>.card-corps{margin-top:16px}
-  :root[data-variante="bento"] #sec-parametres .onglet-p .zone{margin-bottom:10px}
-  :root[data-variante="bento"] #sec-parametres .onglet-p .settings-card + .settings-card{margin-top:10px}
+  #sec-parametres .settings-card.pliable>.card-top{margin:-16px -18px;padding:16px 18px}
+  #sec-parametres .settings-card.pliable>.card-corps{margin-top:16px}
+  #sec-parametres .onglet-p .zone{margin-bottom:10px}
+  #sec-parametres .onglet-p .settings-card + .settings-card{margin-top:10px}
   /* Les onglets restent une pastille segmentee (le pouce l'atteint), dans
      les couleurs de la colonne de l'ordinateur. */
-  :root[data-variante="bento"] #sec-parametres #param-onglets{background:var(--surface);
+  #sec-parametres #param-onglets{background:var(--surface);
    box-shadow:inset 0 0 0 1px var(--line)}
-  :root[data-variante="bento"] #sec-parametres #param-onglets button.active{background:var(--accent-soft);
+  #sec-parametres #param-onglets button.active{background:var(--accent-soft);
    color:var(--accent);box-shadow:none}
-  :root[data-variante="bento"] #sec-parametres>.toolbar h2{font-size:34px;font-weight:800;letter-spacing:-.045em}
+  #sec-parametres>.toolbar h2{font-size:34px;font-weight:800;letter-spacing:-.045em}
 }
-:root[data-variante="bento"] #sec-parametres .settings-card.pliable>.card-top:hover .card-name b{color:inherit}
-:root[data-variante="bento"] #sec-parametres .settings-card.pliable .chevron{transition:transform .15s ease,color .15s}
-:root[data-variante="bento"] #sec-parametres .settings-card.pliable>.card-top:hover .chevron{color:var(--accent)}
+#sec-parametres .settings-card.pliable>.card-top:hover .card-name b{color:inherit}
+#sec-parametres .settings-card.pliable .chevron{transition:transform .15s ease,color .15s}
+#sec-parametres .settings-card.pliable>.card-top:hover .chevron{color:var(--accent)}
 .onglet-court{display:none}
 /* La categorie CodeLab, en tete de la liste : lue, pas modifiee. */
 .cat-ligne.cat-verrou{display:flex;align-items:flex-start;gap:10px;padding:10px 4px 12px;border-bottom:1px solid var(--line);margin-bottom:6px}
@@ -1451,14 +1454,14 @@ table.tbl-journal{min-width:560px}
    sa tete gardait un aplat gris, comme selectionnee, jusqu'au toucher
    suivant. Au doigt, l'aplat ne vit que le temps de l'appui. */
 @media (hover:none){
-  :root[data-variante="bento"] #sec-parametres .settings-card.pliable>.card-top:hover,
+  #sec-parametres .settings-card.pliable>.card-top:hover,
   #sec-parametres .settings-card.pliable>.card-top:hover{background:none}
-  :root[data-variante="bento"] #sec-parametres .settings-card.pliable>.card-top:active,
+  #sec-parametres .settings-card.pliable>.card-top:active,
   #sec-parametres .settings-card.pliable>.card-top:active{background:var(--surface2)}
-  :root[data-variante="bento"] #sec-parametres .settings-card.pliable>.card-top:hover .chevron{color:var(--dim)}
+  #sec-parametres .settings-card.pliable>.card-top:hover .chevron{color:var(--dim)}
 }
 /* LES PASTILLES D'ETAT : une seule taille, une seule forme, partout. */
-:root[data-variante="bento"] #sec-parametres .pill{border:0;padding:4px 10px;font-size:12px;font-weight:700;box-shadow:none}
+#sec-parametres .pill{border:0;padding:4px 10px;font-size:12px;font-weight:700;box-shadow:none}
 /* UN REGLAGE SEUL DANS SA CARTE (« Je copie déjà ce dossier ailleurs ») :
    une ligne de la carte, separee par un filet, le libelle a gauche et la
    coche a droite -- pas une grosse gelule cerclee d'accent qui avait l'air
@@ -1485,6 +1488,11 @@ table.tbl-journal{min-width:560px}
 #sec-parametres .ap-plus{align-self:flex-start;min-height:0;margin:10px 0 2px 4px;padding:0;border:0;background:none;
  color:var(--accent);font-weight:700}
 #sec-parametres .ap-plus:not(:disabled):hover{background:none;color:var(--accent-h);text-decoration:underline}
+/* Sur tablette et ordinateur, « Afficher les N autres » garde le gabarit des
+   boutons des reglages (40 px de haut, 18 px de cote) : c'etait le rendu
+   quand la regle des boutons portait le prefixe du style, plus fort que
+   celle-ci. Au doigt (telephone), le lien reste nu. */
+@media (min-width:761px){ #sec-parametres .ap-plus{min-height:40px;padding:0 18px} }
 
 /* EN ATTENDANT LA REPONSE : la forme de ce qui arrive, pas un mot. Des
    lignes grises a la place de « Chargement… », pour que la page ne saute
@@ -1501,41 +1509,40 @@ table.tbl-journal{min-width:560px}
 
 /* Telephone : le menu devient la barre du bas, comme une application. */
 @media (max-width:760px){
-  :root[data-style="design"] .topbar{height:60px;padding:0 16px}
+  .topbar{height:60px;padding:0 16px}
   :root{--haut-barre:60px}
-  :root[data-style="design"] .sidebar{top:auto;bottom:0;left:0;right:0;transform:none;width:auto;height:auto;
+  .sidebar{top:auto;bottom:0;left:0;right:0;transform:none;width:auto;height:auto;
    border-radius:0;padding:6px 6px calc(8px + env(safe-area-inset-bottom));
    box-shadow:0 -1px 0 var(--line);background:var(--surface)}
-  :root[data-style="design"] .sidebar.collapsed{width:auto}
-  :root[data-style="design"] .side-nav{width:100%;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:0}
-  :root[data-style="design"] .side-item{flex-direction:column;gap:3px;padding:6px 2px;border-radius:12px;font-size:10.5px;
+  .sidebar.collapsed{width:auto}
+  .side-nav{width:100%;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:0}
+  .side-item{flex-direction:column;gap:3px;padding:6px 2px;border-radius:12px;font-size:10.5px;
    position:relative;background:none}
-  :root[data-style="design"] .side-item span:not(.side-count){display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis}
-  :root[data-style="design"] .side-item svg{display:block;width:22px;height:22px}
-  :root[data-style="design"] .side-item.active,:root[data-style="design"] .side-item:hover{background:none;color:var(--accent)}
-  :root[data-style="design"] .side-count{position:absolute;top:0;left:calc(50% + 6px);font-size:10px;padding:0 5px}
-  :root[data-style="design"] .voile-menu.show{display:none}
-  :root[data-style="design"] .main-area{padding-bottom:84px}
-  :root[data-style="design"] .wrap{padding:12px 16px 40px}
-  :root[data-style="design"] .salut{font-size:30px;margin:8px auto 16px;padding:0 4px}
-  :root[data-style="design"] #hub-liste.hub-liste{padding:24px 12px;border-radius:26px;margin-bottom:16px}
-  :root[data-style="design"] .zone{margin-bottom:24px}
-  :root[data-style="design"] .card{padding:16px}
+  .side-item span:not(.side-count){display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+  .side-item svg{display:block;width:22px;height:22px}
+  .side-item.active,.side-item:hover{background:none;color:var(--accent)}
+  .side-count{position:absolute;top:0;left:calc(50% + 6px);font-size:10px;padding:0 5px}
+  .voile-menu.show{display:none}
+  .main-area{padding-bottom:84px}
+  .wrap{padding:12px 16px 40px}
+  .salut{font-size:30px;margin:8px auto 16px;padding:0 4px}
+  #hub-liste.hub-liste{padding:24px 12px;border-radius:26px;margin-bottom:16px}
+  .zone{margin-bottom:24px}
+  .card{padding:16px}
 }
 
 
 /* =====================================================================
-   LE STYLE DU PANNEAU : une variante du style 2 (data-style="design" reste
-   pose), habillee par data-variante. Les jetons sont dans theme.css ; ici,
-   ce qui change dans la mise en page -- surtout le hub, et ses reglages.
+   LE STYLE DU PANNEAU, SUITE : le hub et ses reglages (ces regles portaient
+   le prefixe :root[data-variante="bento"]). Les jetons sont dans theme.css.
    ===================================================================== */
-:root[data-variante] .salut{font-weight:800;letter-spacing:-.05em;line-height:.95}
-:root[data-variante] .hub-recherche{display:flex;align-items:center;gap:12px;max-width:600px;height:56px;
+.salut{font-weight:800;letter-spacing:-.05em;line-height:.95}
+.hub-recherche{display:flex;align-items:center;gap:12px;max-width:600px;height:56px;
  padding:0 20px;margin:0 auto 32px;box-sizing:border-box;border-radius:999px;background:var(--surface);
  border:1px solid var(--line2)}
-:root[data-variante] .hub-recherche:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-ring)}
-:root[data-variante] .hub-recherche svg{width:20px;height:20px;flex:none;fill:none;stroke:var(--dim);stroke-width:2;stroke-linecap:round}
-:root[data-variante] .hub-recherche input{flex:1;min-width:0;height:auto;border:0;border-radius:0;outline:none;
+.hub-recherche:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-ring)}
+.hub-recherche svg{width:20px;height:20px;flex:none;fill:none;stroke:var(--dim);stroke-width:2;stroke-linecap:round}
+.hub-recherche input{flex:1;min-width:0;height:auto;border:0;border-radius:0;outline:none;
  background:transparent;box-shadow:none;padding:0;font:inherit;font-size:16px;color:var(--txt)}
 
 /* LE HUB : UN SEUL STYLE, QUI SE REGLE (Parametres > Compte > Apparence).
@@ -1552,25 +1559,25 @@ table.tbl-journal{min-width:560px}
    dedans, une pour les widgets, une pour les applications. */
 /* Sur un ecran large, defilant a l'horizontale, la page du hub ne defile
    PAS a la verticale : seule la mosaique defile, de cote. */
-@media (min-width:761px){ :root[data-variante="bento"]:not(.hub-vertical).hub-actif :is(body,#defile){overflow:hidden} }
+@media (min-width:761px){ :root:not(.hub-vertical).hub-actif :is(body,#defile){overflow:hidden} }
 .hub-tete,.hub-tete-texte,.hub-barre,.hub-compose-groupe{display:contents}
-:root[data-variante="bento"] .hub-tete{display:flex;align-items:flex-end;justify-content:space-between;gap:16px 24px;
+.hub-tete{display:flex;align-items:flex-end;justify-content:space-between;gap:16px 24px;
  flex-wrap:wrap;margin:6px 0 18px}
-:root[data-variante="bento"] .hub-tete-texte{display:block;min-width:0}
-:root[data-variante="bento"] .hub-barre{display:flex;align-items:center;gap:8px;margin-left:auto}
+.hub-tete-texte{display:block;min-width:0}
+.hub-barre{display:flex;align-items:center;gap:8px;margin-left:auto}
 /* La recherche tout a droite, alignee sur le bouton du compte. */
-@media (min-width:761px){ :root[data-variante="bento"] .hub-tete{margin-right:calc(50% - 50vw + 28px)} }
-:root[data-variante="bento"] .hub-compose{display:inline-flex;height:44px;border-radius:999px;padding:0 18px}
+@media (min-width:761px){ .hub-tete{margin-right:calc(50% - 50vw + 28px)} }
+.hub-compose{display:inline-flex;height:44px;border-radius:999px;padding:0 18px}
 .hub-compose.actif,.hub-compose.actif:hover{background:var(--accent);border-color:var(--accent);color:var(--sur-accent)}
-:root[data-variante="bento"] #hub-ajouter-widget{width:44px;padding:0;justify-content:center}
+#hub-ajouter-widget{width:44px;padding:0;justify-content:center}
 /* Reorganiser : une icone discrete a cote de la recherche ; « Termine »
    n'apparait que le temps de l'edition. */
-:root[data-variante="bento"] #hub-modifier:not(.actif){width:44px;padding:0;justify-content:center;border-color:transparent;
+#hub-modifier:not(.actif){width:44px;padding:0;justify-content:center;border-color:transparent;
  background:none;color:var(--dim)}
-:root[data-variante="bento"] #hub-modifier:not(.actif):hover{color:var(--txt);background:var(--surface)}
+#hub-modifier:not(.actif):hover{color:var(--txt);background:var(--surface)}
 #hub-modifier svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
-:root[data-variante="bento"] .salut{font-size:clamp(34px,4.2vw,56px);max-width:none;margin:0;padding:0}
-:root[data-variante="bento"] .hub-recherche{margin:0;width:min(340px,40vw);height:44px}
+.salut{font-size:clamp(34px,4.2vw,56px);max-width:none;margin:0;padding:0}
+.hub-recherche{margin:0;width:min(340px,40vw);height:44px}
 /* La mosaique va d'un bord a l'autre de la fenetre : ce qui defile a
    l'horizontale ne s'arrete net ni a gauche ni a droite. Au repos, la
    marge de gauche aligne la premiere tuile sur le bonjour ; en defilant,
@@ -1760,7 +1767,7 @@ table.tbl-journal{min-width:560px}
 .sg-widget-alerte{color:var(--warn);font-weight:700}
 .bw-messages:hover{border-color:var(--accent)}
 .bw-messages p{margin:6px 0 0;color:var(--dim)}
-.bw-message textarea{flex:1;min-height:0;resize:none;padding:10px 12px;border-radius:14px;
+.bw-message textarea{flex:1;min-height:0;resize:none;padding:10px 12px;
  border:1px solid var(--line2);background:var(--bg-input,var(--surface2));font:inherit}
 .bw-sujets{display:flex;flex-wrap:wrap;gap:6px}
 /* ---- pieces jointes : captures et maquettes ---- */
@@ -1908,8 +1915,8 @@ a.pj:hover{border-color:var(--accent)}
    ===================================================================== */
 /* -- le bonjour : il monte, se defloute, puis un reflet le traverse ; le
    nom garde l'accent, en degrade. */
-:root[data-variante="bento"] .salut{animation:salut-entree .9s cubic-bezier(.2,.7,.2,1) both}
-:root[data-variante="bento"] .salut-nom{
+.salut{animation:salut-entree .9s cubic-bezier(.2,.7,.2,1) both}
+.salut-nom{
  background:linear-gradient(100deg,var(--accent) 0%,var(--accent) 35%,color-mix(in srgb,var(--accent) 35%,#fff) 50%,var(--accent) 65%,var(--accent-h) 100%);
  background-size:260% 100%;background-position:100% 0;-webkit-background-clip:text;background-clip:text;
  -webkit-text-fill-color:transparent;color:var(--accent);
@@ -1917,7 +1924,7 @@ a.pj:hover{border-color:var(--accent)}
  animation:salut-reflet 2.6s .6s cubic-bezier(.4,0,.2,1) both}
 @keyframes salut-entree{from{opacity:0;translate:0 16px;filter:blur(10px)}}
 @keyframes salut-reflet{from{background-position:100% 0}to{background-position:0 0}}
-:root[data-variante="bento"] .hub-resume{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin:12px 0 0;
+.hub-resume{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin:12px 0 0;
  color:var(--dim);font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;animation:salut-entree .9s .15s cubic-bezier(.2,.7,.2,1) both}
 .hub-resume:empty{display:none !important}
 .hub-resume b{color:var(--txt);font-weight:800;font-size:17px}
@@ -2046,15 +2053,15 @@ a.pj:hover{border-color:var(--accent)}
 .act-app:hover .act-app-nom{color:var(--accent)}
 
 @media (prefers-reduced-motion:reduce){
-  :root[data-variante="bento"] :is(.salut,.salut-nom,.hub-resume),#hub-liste.entree [data-el],
+  :is(.salut,.salut-nom,.hub-resume),#hub-liste.entree [data-el],
   .bento-barres.apparait i,.barres-jours.apparait i,.courbe.apparait *,.pouls-point::after{animation:none}
-  :root[data-variante="bento"] .salut-nom{background-position:0 0}
+  .salut-nom{background-position:0 0}
   #hub-liste :is(.bw,.bento-carte){transform:none !important}
 }
 
 @media (max-width:760px){
-  :root[data-variante] .hub-recherche{height:50px;margin-bottom:24px}
-  :root[data-variante="bento"] .salut{font-size:40px}
+  .hub-recherche{height:50px;margin-bottom:24px}
+  .salut{font-size:40px}
   /* Sur telephone : on defile toujours vers le bas, quel que soit le
      reglage. Deux colonnes de cartes, ou quatre d'icones. */
   #hub-liste.bento{margin-left:0;margin-right:0;padding-left:2px !important;padding-right:2px !important;
@@ -2077,8 +2084,8 @@ a.pj:hover{border-color:var(--accent)}
   .bw-moyen.bw-une{flex-direction:column}
   .bw-moyen.bw-une .bw-apercu{border-radius:24px 24px 0 0}
   .bw-apercu{min-height:230px}
-  :root[data-variante="bento"] .hub-barre{width:100%;margin-left:0}
-  :root[data-variante="bento"] .hub-recherche{flex:1;width:auto;margin:0}
+  .hub-barre{width:100%;margin-left:0}
+  .hub-recherche{flex:1;width:auto;margin:0}
   .bento-vide{grid-column:span 2;min-height:90px}
   .galerie-corps{grid-template-columns:minmax(0,1fr)}
   .galerie-liste{border-right:0;padding-right:0;flex-direction:row;flex-wrap:wrap;max-height:none}

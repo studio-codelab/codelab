@@ -26,7 +26,7 @@ ses garanties de sécurité dans [`SECURITE.md`](../SECURITE.md).
 | `app/app.py` | le service : authentification, API, cycle de vie des processus, proxy, mails, sauvegardes |
 | `app/stockage.py` | la base SQLite : connexions, schéma versionné (`MIGRATIONS`), sauvegarde cohérente |
 | `app/dashboard.html`, `app/login.html`, `app/messages.html` | les pages du panneau |
-| `app/panneau.js` | le script de `dashboard.html`, servi à une session par `/panneau.js?v=<empreinte>` et mis en cache jusqu'au déploiement suivant ; la page ne garde en ligne que `window.CODELAB_PAGE` (jeton, rôle, compte…) |
+| `app/panneau/` | le script de `dashboard.html`, en modules par sujet (`00-socle.js` à `08-reglages.js`), assemblés dans l'ordre de `PANNEAU_MODULES` en un seul script, servi à une session par `/panneau.js?v=<empreinte>` et mis en cache jusqu'au déploiement suivant ; la page ne garde en ligne que `window.CODELAB_PAGE` (jeton, rôle, compte…) |
 | `app/theme.css` | **toutes** les couleurs, formes et tailles, pour les deux styles et leurs thèmes clair et sombre ; servi aussi aux applications |
 | `app/ouvrir.html` | le cadre d'une application ouverte depuis le hub installé (`/ouvrir.html`) : bords de l'écran, barre d'état et barre de geste, geste retour ; page à marqueurs remplie par `ouvrir_dans_le_panneau` |
 | `app/environnement-app.js` | injecté par le proxy en tête de chaque page d'application : mode, appareil, plateforme, bords ; simule iOS dans le cadre |
