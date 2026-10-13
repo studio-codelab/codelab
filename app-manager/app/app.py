@@ -1,38 +1,49 @@
 """
-CodeLab app-manager -- panneau de controle + reverse proxy, sur un port unique.
-
-  http://<IP>:9001/            panneau CodeLab (protege par mot de passe)
-  http://<IP>:9001/login       page de connexion
-  http://<IP>:9001/<projet>/   le projet, servi via proxy interne (pas protege)
-  http://<IP>:9001/health      sonde du HEALTHCHECK Docker (pas protege)
-
-Autonome : aucune dependance a Supervisor. Les processus sont geres ici.
-Dependances externes : Flask, psutil.
-
-Les chemins sont pilotes par variables d'environnement pour rester alignes
-sur les points de montage declares dans docker-compose.yml :
-  data/app-manager   -> /var/lib/codelab/app-manager  (APP_MANAGER_STATE)
-  workspace          -> /workspace                    (APP_MANAGER_ROOT)
-  config (partage)   -> /var/lib/codelab/config       (APP_MANAGER_SHARED_CONFIG)
-Le code est en lecture seule ; apps.json et les journaux vivent dans
-STATE_DIR. Aucun secret n'y est stocke : le mot de passe admin et la cle
-de session sont lus et ecrits dans credentials.env, le fichier unique
-d'identifiants CodeLab, consultable directement depuis le disque de
-l'hote. Les anciens fichiers admin_password / flask_secret_key sont
-repris puis supprimes au premier demarrage.
-
-Fonctionnalites de fiabilite/observabilite/deploiement ajoutees :
-  - redemarrage automatique en cas de crash (plafonne, voir monitor_tick)
-  - rotation des journaux (2 Mo, un seul fichier .1 conserve)
-  - vrai bouton "Redemarrer" (stop puis start), distinct du toggle
-  - historique de metriques en memoire (~2.5 min) + mini-graphiques SVG
-  - recherche dans les logs en direct (filtre cote client)
-  - "Lancer le build" (commande optionnelle, separee du lancement)
-  - limite memoire optionnelle par app (RLIMIT_AS via preexec_fn)
-
-Le panneau n'ecrit jamais dans /workspace : il n'y cree aucun projet et
-n'y depose aucun fichier. Les dossiers sont crees par l'utilisateur (SSH,
-VS Code, git clone) puis simplement declares ici.
+CodeLab -- LE PANNEAU : authentification, hub, applications, proxy, mails.
+---------------------------------------------------------------------------
+ROLE        Un seul service Flask, servi par waitress (voir « serveur HTTP ») :
+              :9001  le panneau, son API, /login, /health (sonde Docker) ;
+              :9002  les applications, sous /<nom>/, sur une ORIGINE A PART
+                     (APP_MANAGER_APPS_PORT ; 0 les remet sur 9001).
+            Il authentifie (mot de passe, second facteur, cles d'acces),
+            declare, construit, lance et surveille les applications de
+            /workspace, les sert par reverse proxy, envoie mails et
+            notifications, et sauvegarde son etat.
+            Il n'ECRIT JAMAIS dans /workspace : un projet est cree par
+            l'utilisateur (SSH, VS Code, git), puis declare ici.
+CHARGE PAR  le conteneur codelab-app-manager (entrypoint.sh) ; importe par la
+            suite de tests (workspace/diagnostic/test_regressions.py), qui
+            appelle les fonctions par leur nom : un renommage se reporte dans
+            les tests.
+CONTRAINTES Les regles numerotees de SECURITE.md, et la carte des dependances
+            d'AGENTS.md (racine du depot). En particulier : le controle des
+            droits est ici, jamais seulement dans la page ; une route qui
+            modifie passe par verifier_jeton() ; une application ne recoit
+            jamais le cookie ni les secrets du panneau.
+            Chemins par variables d'environnement, alignes sur
+            docker-compose.yml : APP_MANAGER_STATE (etat), APP_MANAGER_ROOT
+            (/workspace), APP_MANAGER_SHARED_CONFIG (credentials.env, 0600).
+STRUCTURE   Sections titrees « # ---- titre ---- », dans cet ordre :
+            pages servies, secrets, SSO des applications, double
+            authentification, origine des applications, Dagster, connexion
+            et appareils, en-tetes et CSP, jeton CSRF, comptes et coffre,
+            invitations, cles d'acces, messages, journal et miroir Postgres,
+            persistance, privileges et isolation, cycle de vie et
+            surveillance, sauvegardes, alertes et envoi, metriques, icones,
+            categories, routes (auth, API, pages), notifications Web Push,
+            taches et suivi, composition du hub, proxy, serveur HTTP, main.
+CHOIX       - Un seul fichier : les tests et les sondes du diagnostic
+              importent les fonctions de app ; un decoupage doit les
+              reexporter (voir A AMELIORER).
+            - Les processus des applications survivent a un redemarrage du
+              panneau (section « les processus survivent au panneau »).
+            - Les applications sur une origine distincte du panneau : un
+              script d'application ne lit pas le cookie de session.
+A AMELIORER - Decouper en modules (auth, proxy, notifications, cycle de vie)
+              avec un app.py qui reexporte les noms : relecture et tests plus
+              cibles, sans changer l'API vue par les tests.
+            - Generer la table de STRUCTURE ci-dessus depuis les titres de
+              section, pour qu'elle ne vieillisse plus.
 """
 import base64
 import copy
