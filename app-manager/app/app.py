@@ -169,10 +169,17 @@ OUVRIR_PAGE = _lire_ressource("ouvrir.html")
 # et qu'aucune des deux ne puisse deriver de l'autre.
 THEME_CSS = _lire_ressource("theme.css")
 MODE_JS = _lire_ressource("mode.js")
-# Le script du panneau, sorti de dashboard.html pour se mettre en cache. Son
+# Le script du panneau (dossier panneau/), sorti de dashboard.html pour se
+# mettre en cache. Son
 # empreinte entre dans l'adresse (/panneau.js?v=...) : un deploiement change
 # l'adresse, donc le navigateur ne garde jamais une version perimee.
-PANNEAU_JS = _lire_ressource("panneau.js")
+# Les modules du script, DANS L'ORDRE : assembles en un seul script (une
+# seule portee, une seule requete, un seul cache), comme lorsqu'il tenait en
+# un fichier. Un module nouveau s'ajoute ici, a sa place.
+PANNEAU_MODULES = ("00-socle.js", "01-navigation.js", "02-hub.js", "03-widgets.js",
+                   "04-apercu.js", "05-fiche.js", "06-acces.js", "07-comptes.js",
+                   "08-reglages.js")
+PANNEAU_JS = "\n".join(_lire_ressource(os.path.join("panneau", nom)) for nom in PANNEAU_MODULES)
 PANNEAU_JS_VERSION = hashlib.sha256(PANNEAU_JS.encode("utf-8")).hexdigest()[:12]
 # Le logo CodeLab : celui de la barre du haut, relu dans la page plutot que
 # recopie ici -- un seul dessin, qu'on ne peut pas changer a un endroit et
