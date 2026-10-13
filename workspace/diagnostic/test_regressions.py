@@ -11915,7 +11915,7 @@ def test_le_panneau_installe_ouvre_les_applications_sans_en_sortir(client, monke
     r = client.get("/ouvrir.html?app=site")
     assert r.status_code == 200
     corps = r.get_data(as_text=True)
-    assert '<iframe src="http://hote:9002/site/"' in corps
+    assert '<iframe name="codelab-app" src="http://hote:9002/site/"' in corps
     assert "Mon &lt;site&gt;" in corps and "Mon <site>" not in corps
     # L'onglet porte l'icone de l'application ouverte, pas celle du panneau.
     assert '<link rel="icon" href="/api/icon/site">' in corps
@@ -11930,7 +11930,7 @@ def test_le_panneau_installe_ouvre_les_applications_sans_en_sortir(client, monke
 
     # Le hub n'y passe qu'en mode app.
     html = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
-    assert "display-mode: standalone" in html and "/ouvrir.html?app=" in html
+    assert "window.CODELAB_MODE_APP === true" in html and "/ouvrir.html?app=" in html
 
 
 def test_seul_le_panneau_peut_encadrer_une_application(monkeypatch):
@@ -15313,13 +15313,41 @@ def test_chaque_page_du_panneau_se_comporte_en_application(page):
     assert '<meta name="apple-mobile-web-app-capable" content="yes">' in tete
     # La barre d'etat prend la couleur du bandeau, plus de bande blanche.
     assert '<meta name="theme-color" content="#E9EBEE" media="(prefers-color-scheme: light)">' in tete
-    assert "function majBarreEtat(){" in tete
+    # Le mode se lit dans UN fichier, partage, avant tout affichage : plus
+    # une copie par page.
+    assert '<script src="/mode.js"></script>' in tete
+    assert "display-mode: standalone" not in html and "function majBarreEtat(){" not in html
+
+
+def test_le_mode_se_lit_une_fois_pour_tout_le_panneau(client):
+    r = client.get("/mode.js")
+    assert r.status_code == 200 and "javascript" in r.headers["Content-Type"]
+    source = r.get_data(as_text=True)
+    assert "function majBarreEtat(){" in source
     # Seulement depuis l'icone : dans Safari, le zoom reste permis.
-    mode = tete.split("(function(){")[1].split("})();")[0]
+    mode = source.split("(function(){")[1].split("})();")[0]
     assert "display-mode: standalone" in mode and "navigator.standalone === true" in mode
+    assert "classList.add(app ? 'mode-app' : 'mode-site')" in mode
     assert "if(!app) return;" in mode
     assert "maximum-scale=1,user-scalable=no,viewport-fit=cover" in mode
     assert "'gesturestart'" in mode and "e.preventDefault()" in mode
+    # Le hub ne redevine pas le mode : il lit celui que mode.js a pose.
+    assert "const enModeApp = window.CODELAB_MODE_APP === true;" in _page_panneau("dashboard.html")
+    # Le theme dit les deux questions, et les deux seuils de largeur.
+    theme = _page_panneau("theme.css")
+    assert "DEUX MODES, TROIS LARGEURS" in theme
+    assert "@media (max-width:760px)" in theme and "(max-width:1180px)" in theme
+
+
+def test_le_manuel_distingue_le_site_et_l_application():
+    manuel = open(os.path.join(_racine_depot(), "dev", "AGENTS.md"), encoding="utf-8").read()
+    section = manuel.split("### Site web et mode application")[1].split("\n## ")[0]
+    assert "toujours\ndistinguer les deux" in section
+    assert "Les deux modes sont responsives, sur les trois appareils." in section
+    assert "window.name === 'codelab-app'" in section
+    assert "env(safe-area-inset-top)" in section and "scrollbar-width:none" in section
+    liste = manuel.split("## Avant de declarer une application prete")[1]
+    assert "en mode\n      site web **et** en mode application" in liste
 
 
 def test_le_theme_fige_l_interface_en_mode_application():
@@ -15408,9 +15436,8 @@ def test_hors_ligne_l_application_s_ouvre_sur_une_page_de_reserve(hub):
     assert "const RESERVE = ['/hors-ligne.html'];" in code
 
 
-@pytest.mark.parametrize("page", ["dashboard.html", "login.html", "messages.html"])
-def test_le_service_worker_n_existe_qu_en_mode_application(page):
-    mode = _page_panneau(page).split("(function(){")[1].split("})();")[0]
+def test_le_service_worker_n_existe_qu_en_mode_application():
+    mode = _page_panneau("mode.js").split("(function(){")[1].split("})();")[0]
     avant, apres = mode.split("if(!app) return;")
     assert "serviceWorker" not in avant
     assert "navigator.serviceWorker.register('/sw.js')" in apres
@@ -15659,8 +15686,17 @@ def test_les_parametres_n_ont_plus_d_erreurs_d_affichage():
     # Quatre appareils, le reste derriere un bouton ; cet appareil toujours en tete.
     assert "const AP_VISIBLES=4;" in page and "Afficher les ${caches} autres" in page
     assert "(y.courant?1:0)-(x.courant?1:0)" in page
+    # Le telephone et la tablette (mode application compris) heritent des
+    # memes cartes : la regle n'est plus reservee aux grands ecrans.
+    cartes = bloc.split("LES CARTES, A TOUTES LES TAILLES.")[1]
+    avant_media = cartes.split("@media (max-width:760px)")[0]
+    assert "border-radius:20px;padding:20px 24px;overflow:hidden" in avant_media
     # Le hub ne penche plus ses tuiles.
     assert "rotateX(var(--rx" not in page and "--ry" not in page
+    # Ni ne les souleve : la mosaique coupe ce qui depasse, le haut d'une
+    # tuile de la premiere rangee paraissait tranche.
+    survol = page.split("/* -- le relief au survol (souris)")[1].split("/* -- l'etat")[0]
+    assert "translate" not in survol.split("*/", 1)[1]
 
 
 # ------------------------- Connexion et reglages -------------------------
