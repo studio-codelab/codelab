@@ -43,6 +43,9 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
     confirmation.
   - **Serveur injoignable** : un bandeau le dit, la page garde ce qu'elle affiche, retente toutes les
     5 s et se remet à jour au retour.
+  - **Bandeau du haut fondu** : il reste collé en haut, au-dessus des applications ; quand la page
+    défile, ce qui passe dessous se voit flouté et s'estompe vers le bas, au lieu d'être coupé net.
+    En haut de page, rien ne change.
   - **Un seul style, qui se règle** (Paramètres › Apparence) — les anciens « Lanceur » et
     « Bento » n'en diffèrent que par ces réglages, gardés dans un cookie et posés par le serveur avant
     le premier affichage :
@@ -62,6 +65,8 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
     apparition seulement (le rechargement toutes les dix secondes ne les rejoue pas) ; à la
     souris, une tuile s'incline à peine vers le pointeur et un reflet le suit. Rien ne bouge quand
     l'appareil demande moins d'animations.
+  - **Icônes stables** : le hub se met à jour toutes les dix secondes sans faire clignoter les
+    icônes. Une image déjà affichée est gardée telle quelle, même quand la tuile change.
   - **Le menu d'une application** : trois petits points dans le coin de la
     tuile à la souris (au survol de l'icône en mode icônes), un appui long au doigt (le menu
     s'ouvre alors en bas de l'écran), ou le clic droit. Il propose : Ouvrir, Voir la présentation
@@ -313,7 +318,11 @@ Détails : [`SECURITE.md`](SECURITE.md) et [`app-manager/README.md`](app-manager
     le sixième chiffre valide, « Renvoyer le code » attend une minute ; le mail le montre en grand ;
   - l'application d'authentification (TOTP), à un clic.
 - **Mot de passe oublié** par code mail, si le compte a aussi un autre facteur.
-- **Journal des accès** paginé (25 ou 50 lignes), filtrable, avec une **carte de chaleur** sur un an.
+- **Journal des accès** paginé (25 ou 50 lignes), filtrable, avec une **carte de chaleur** sur un an
+  (*Ouvertures d'applications*). Survoler une case, ou l'appuyer au doigt, ouvre son détail en
+  chiffres : le jour en toutes lettres, le total, puis les ouvertures **par utilisateur** et **par
+  application**, de la plus grande à la plus petite (cinq lignes, puis « N autres »). Les visiteurs
+  sans compte apparaissent comme « Visiteur anonyme ».
 - **Copie de l'historique dans Postgres** (base `codelab`) pour les requêtes longues.
 
 ## 4. Mails et alertes

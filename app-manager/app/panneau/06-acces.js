@@ -323,13 +323,16 @@ function carteColonnes(annee, parJour, sommet){
         /* A VENIR. Une case grise dirait « aucune ouverture » d'un jour qui
            n'est pas arrive : c'est un mensonge, et il peint la fin de
            l'annee en creux. */
-        colonne.push(`<div class="carte-case avenir" title="${esc(d0.toLocaleDateString())} — à venir"></div>`);
+        colonne.push(`<div class="carte-case avenir" data-jour="${cle}" aria-label="${esc(d0.toLocaleDateString())} — à venir"></div>`);
       }else{
         const titre = n
           ? `${n} ouverture${n>1?'s':''} le ${d0.toLocaleDateString()}`
             + (e.apps>1 ? ` — ${e.apps} applications` : '')
           : `Aucune ouverture le ${d0.toLocaleDateString()}`;
-        colonne.push(`<div class="carte-case n${carteNiveau(n,sommet)}" title="${esc(titre)}"></div>`);
+        /* Le detail du jour vient au survol (voir montrerBulleCarte) : un
+           title natif doublerait la bulle. Le resume reste pour un lecteur
+           d'ecran. */
+        colonne.push(`<div class="carte-case n${carteNiveau(n,sommet)}" data-jour="${cle}" aria-label="${esc(titre)}"></div>`);
       }
     }
     if(colonne.length===7){
@@ -415,6 +418,7 @@ function peindreCarte(d){
   const gabarit=`gap:${ecart}px;grid-template-columns:repeat(${colonnes},${cote}px);`
     + `grid-template-rows:repeat(7,${cote}px)`;
   const gabaritMois=`gap:${ecart}px;grid-template-columns:repeat(${colonnes},${cote}px)`;
+  cacherBulleCarte();
   $('carte-zone').innerHTML =
     `<div class="carte-mois" style="${gabaritMois}">`
     + mois.map(x=>`<span style="grid-column:span ${x.n}">${CARTE_MOIS[x.m]}</span>`).join('')
@@ -440,6 +444,80 @@ function peindreCarte(d){
       + "simplement avoir été oubliés. Postgres garde tout.";
   }
 }
+
+/* ---------------- le detail d'une case, au survol ----------------
+   Vecu : « Ajoute la possibilite d'avoir du detail pour chaque case ». Le
+   title natif ne disait que « 12 ouvertures -- 3 applications », apres une
+   seconde d'attente, et jamais au doigt. La bulle dit le jour en toutes
+   lettres, puis, en chiffres, qui a ouvert et quoi : par utilisateur et
+   par application, du plus grand au plus petit.
+   Elle est en position fixe, hors de la carte : la carte coupe ce qui
+   deborde, et une case du bord la laisserait a moitie cachee. Au doigt, un
+   appui sur une case l'ouvre ; un appui ailleurs ou un defilement la
+   ferme. */
+const CARTE_BULLE_LIGNES=5;
+/* Une liste de la bulle : ses premieres lignes, nom et chiffre, puis le
+   reste additionne. Des chiffres et pas des barres : on vient lire combien,
+   pas comparer des longueurs. */
+function listeBulleCarte(titre, lignes, nom){
+  if(!lignes || !lignes.length) return '';
+  const vues=lignes.slice(0, CARTE_BULLE_LIGNES), reste=lignes.slice(CARTE_BULLE_LIGNES);
+  const nReste=reste.reduce((t,d)=>t+d.ouvertures, 0);
+  return `<span class="cb-titre">${titre}</span><span class="cb-liste">`
+    + vues.map(d=>`<span class="cb-ligne"><span class="cb-nom">${esc(nom(d))}</span><span class="cb-n">${d.ouvertures}</span></span>`).join('')
+    + (reste.length ? `<span class="cb-ligne cb-reste"><span class="cb-nom">${reste.length} autre${reste.length>1?'s':''}</span><span class="cb-n">${nReste}</span></span>` : '')
+    + '</span>';
+}
+function contenuBulleCarte(cle){
+  const [a, m, j]=cle.split('-').map(Number);
+  const date=new Date(a, m-1, j, 12);
+  const titre=date.toLocaleDateString('fr-FR', {weekday:'long', day:'numeric', month:'long', year:'numeric'});
+  const aujourdhui=new Date(); aujourdhui.setHours(23,59,59,999);
+  if(date>aujourdhui) return `<b>${esc(titre)}</b><span class="cb-vide">À venir</span>`;
+  const e=((derniereCarte && derniereCarte.jours) || []).find(x=>x.jour===cle);
+  if(!e || !e.ouvertures) return `<b>${esc(titre)}</b><span class="cb-vide">Aucune ouverture</span>`;
+  const nomApp=d=>{ const x=(apps||[]).find(y=>y.name===d.app); return d.app ? (x ? nomAffiche(x) : d.app) : 'Sans nom'; };
+  const nomQui=d=>d.qui || 'Visiteur anonyme';
+  return `<b>${esc(titre)}</b>
+    <span class="cb-total">${e.ouvertures} ouverture${e.ouvertures>1?'s':''}</span>
+    ${listeBulleCarte('Par utilisateur', e.par_qui, nomQui)}
+    ${listeBulleCarte('Par application', e.par_app, nomApp)}`;
+}
+function montrerBulleCarte(c){
+  let bulle=$('carte-bulle');
+  if(!bulle){
+    bulle=document.createElement('div'); bulle.id='carte-bulle'; bulle.className='carte-bulle';
+    bulle.setAttribute('role', 'tooltip'); document.body.appendChild(bulle);
+  }
+  remplir(bulle, contenuBulleCarte(c.dataset.jour));
+  bulle.hidden=false;
+  /* Au-dessus de la case, centree, sans sortir de la fenetre ; en dessous
+     quand il n'y a pas la place en haut. */
+  const r=c.getBoundingClientRect(), l=bulle.offsetWidth, h=bulle.offsetHeight, marge=8;
+  const x=Math.min(innerWidth-l-marge, Math.max(marge, r.left+r.width/2-l/2));
+  const y=r.top-h-8 >= marge ? r.top-h-8 : r.bottom+8;
+  bulle.style.left=Math.round(x)+'px'; bulle.style.top=Math.round(y)+'px';
+  document.querySelectorAll('.carte-case.pointee').forEach(n=>n.classList.remove('pointee'));
+  c.classList.add('pointee');
+}
+function cacherBulleCarte(){
+  const bulle=$('carte-bulle'); if(bulle) bulle.hidden=true;
+  document.querySelectorAll('.carte-case.pointee').forEach(n=>n.classList.remove('pointee'));
+}
+$('carte-zone').addEventListener('pointerover', e=>{
+  const c=e.target.closest('.carte-case[data-jour]');
+  if(c) montrerBulleCarte(c);
+});
+$('carte-zone').addEventListener('pointerout', e=>{
+  if(e.pointerType!=='mouse') return;
+  const c=e.target.closest('.carte-case[data-jour]');
+  const vers=e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('.carte-case[data-jour]');
+  if(c && !vers) cacherBulleCarte();
+});
+document.addEventListener('pointerdown', e=>{
+  if(!e.target.closest || !e.target.closest('.carte-case[data-jour]')) cacherBulleCarte();
+});
+addEventListener('scroll', cacherBulleCarte, {capture:true, passive:true});
 
 /* La derniere reponse, gardee pour repeindre a l'identique : la taille des
    cases depend de la largeur de la fenetre, et une carte calculee pour 1400

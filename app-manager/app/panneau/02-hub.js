@@ -348,7 +348,10 @@ async function basculerMasquage(nom, masquer){
   }catch(e){
     notifier("Impossible de changer l'affichage de cette application.",'err');
     /* La case a deja bouge sous le doigt : on redessine depuis le serveur
-       plutot que de laisser un reglage affiche qui n'existe pas. */
+       plutot que de laisser un reglage affiche qui n'existe pas. Le HTML
+       retenu par remplir() est oublie : identique a celui du serveur, il ne
+       serait pas repose, et la case garderait l'etat refuse. */
+    _dernierHtml.delete($('masquees-liste'));
     chargerHub();
   }
 }
@@ -369,7 +372,7 @@ function peindreMasquees(){
     .concat(hubServices||[]).concat(hubServicesMasques||[])
     .slice().sort((a,b)=>nomAffiche(a).localeCompare(nomAffiche(b),'fr'));
   if(!toutes.length){
-    zone.innerHTML='<div class="hint">Aucune application à ranger pour le moment.</div>';
+    remplir(zone, '<div class="hint">Aucune application à ranger pour le moment.</div>');
     return;
   }
   /* RETENUE VEUT DIRE AFFICHEE, et pas l'inverse. La case cochee signifiait
@@ -398,7 +401,7 @@ function peindreMasquees(){
      masquees. En dessous de huit, dérouler n'economise rien et ajoute un
      clic. */
   if(toutes.length <= MASQUAGE_SEUIL_DEROULANT){
-    zone.innerHTML = lignes;
+    remplir(zone, lignes);
     return;
   }
   const nb = cachees.size;
@@ -409,10 +412,10 @@ function peindreMasquees(){
      est redessinee a chaque changement de case, et elle se refermerait sous
      le doigt a chaque clic. */
   const ouverte = zone.querySelector('details') ? zone.querySelector('details').open : false;
-  zone.innerHTML = `<details class="masquee-repli"${ouverte?' open':''}>
+  remplir(zone, `<details class="masquee-repli"${ouverte?' open':''}>
     <summary><span>${esc(resume)}</span>
       <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></summary>
-    <div class="masquee-corps">${lignes}</div></details>`;
+    <div class="masquee-corps">${lignes}</div></details>`);
 }
 
 async function chargerHub(){
@@ -440,12 +443,54 @@ async function chargerHub(){
 }
 /* NE REPEINDRE QUE CE QUI CHANGE. Le hub se recharge toutes les dix secondes ;
    remplacer le HTML a chaque tour, meme identique, recreait toutes les tuiles
-   et leurs images : l'ecran clignotait. On compare au dernier HTML pose. */
+   et leurs images : l'ecran clignotait. On compare au dernier HTML pose.
+   ET QUAND IL CHANGE, LES IMAGES RESTENT. Une pastille, un etat, le « il y a
+   3 min » d'un widget suffisent a changer le HTML du hub entier : chaque
+   <img> etait recree, et une image neuve, meme en cache, se decode a part --
+   une image vide le temps d'un affichage, sur toutes les tuiles a la fois.
+   Les images deja chargees sont donc remises a la place des neuves de meme
+   adresse : le navigateur n'a rien a redessiner.
+   ESSAYE ET ECARTE : un cache plus long de /api/icon. Il evitait la requete,
+   pas le decodage d'une image neuve : le clignotement restait. */
 const _dernierHtml = new WeakMap();
 function remplir(el, html){
   if(!el || _dernierHtml.get(el) === html) return;
   _dernierHtml.set(el, html);
+  const images = imagesChargees(el);
   el.innerHTML = html;
+  reposerImages(el, images);
+}
+/* Les images affichees de el, par adresse (une meme icone peut y etre deux
+   fois : sur sa tuile et dans le widget « a la une »). */
+function imagesChargees(el){
+  const parSource = new Map();
+  el.querySelectorAll('img[src]').forEach(i=>{
+    if(!i.complete || !i.naturalWidth) return;
+    const s = i.getAttribute('src');
+    if(!parSource.has(s)) parSource.set(s, []);
+    parSource.get(s).push(i);
+  });
+  return parSource;
+}
+/* Chaque image neuve cede la place a l'ancienne de meme adresse, qui prend
+   ses attributs -- sauf src, inchange : le reposer relancerait le
+   chargement. */
+function reposerImages(el, parSource){
+  if(!parSource.size) return;
+  el.querySelectorAll('img[src]').forEach(neuve=>{
+    const vieille = (parSource.get(neuve.getAttribute('src')) || []).shift();
+    if(!vieille) return;
+    [...vieille.attributes].forEach(({name})=>{ if(!neuve.hasAttribute(name)) vieille.removeAttribute(name); });
+    [...neuve.attributes].forEach(({name, value})=>{
+      if(name!=='src' && vieille.getAttribute(name)!==value) vieille.setAttribute(name, value);
+    });
+    neuve.replaceWith(vieille);
+  });
+}
+/* Une image seule (la fiche, la presentation) : son adresse ne se repose que
+   si elle change, pour la meme raison. */
+function poserSource(img, src){
+  if(img && img.getAttribute('src')!==src) img.src = src;
 }
 
 function peindreHub(){

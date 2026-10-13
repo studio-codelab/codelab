@@ -511,7 +511,7 @@ function ouvrirPresentation(nom){
   const video=$('pr-video');
   video.poster = a.presentation.affiche ? base+'affiche?v='+v : '';
   video.src = base+'video?v='+v;
-  $('pr-icone').src=icone(nom);
+  poserSource($('pr-icone'), icone(nom));
   $('pr-nom').textContent=nomAffiche(a);
   $('pr-desc').textContent=a.description||'';
   $('pr-ouvrir').href=lienOuverture(a);

@@ -3587,11 +3587,14 @@ def annee_courante():
 
 
 def pg_carte_activite(annee=None, qui=None, app=None):
-    """Une ligne par jour de l'annee : ouvertures, et nombre d'applications.
+    """Une ligne par jour de l'annee : ouvertures, applications, et le detail
+    par personne et par application (voir detail_du_jour).
 
     Le comptage se fait DANS la base : ramener une annee d'evenements pour
     les additionner ici marcherait aujourd'hui et s'ecroulerait le jour ou
-    l'historique compte pour de bon.
+    l'historique compte pour de bon. Une seule requete, groupee par jour, par
+    application et par personne : quelques lignes par jour, d'ou se deduisent
+    les totaux et les deux details.
 
     UNE ANNEE CIVILE, ET PLUS UNE FENETRE GLISSANTE. La fenetre de 366 jours
     repondait a « ces douze derniers mois » et a rien d'autre : impossible de
@@ -3612,12 +3615,39 @@ def pg_carte_activite(annee=None, qui=None, app=None):
     valeurs.insert(0, FUSEAU_JOURNAL)
     with _pg_connexion(PG_BASE) as cx:
         lignes = cx.execute(
-            "SELECT (ts AT TIME ZONE %s)::date AS jour, count(*),"
-            "       count(DISTINCT application)"
+            "SELECT (ts AT TIME ZONE %s)::date AS jour, COALESCE(application, ''),"
+            "       COALESCE(qui, ''), count(*)"
             "  FROM acces WHERE " + " AND ".join(conditions) +
-            " GROUP BY 1 ORDER BY 1", valeurs).fetchall()
-    return [{"jour": j.isoformat(), "ouvertures": int(n), "apps": int(a)}
-            for j, n, a in lignes]
+            " GROUP BY 1, 2, 3 ORDER BY 1", valeurs).fetchall()
+    par_jour = {}
+    for j, application, personne, n in lignes:
+        par_jour.setdefault(j.isoformat(), {})[(application, personne)] = int(n)
+    return [detail_du_jour(j, v) for j, v in sorted(par_jour.items())]
+
+
+def detail_du_jour(jour, comptes):
+    """La case d'un jour, telle que la carte la survole. comptes associe a
+    chaque couple (application, personne) son nombre d'ouvertures.
+
+    Rend le total, le nombre d'applications distinctes, et deux details en
+    chiffres, du plus grand au plus petit : par personne et par application.
+
+    Vecu : « Ajoute la possibilite d'avoir du detail pour chaque case »,
+    puis « je veux le detail par utilisateur, en chiffre et pas en
+    graphique ». La case ne disait que « 12 ouvertures -- 3 applications » :
+    qui, et ou, il fallait le chercher dans le journal. Un visiteur anonyme
+    (qui vide) garde son nom vide : la page l'ecrit « visiteur anonyme ».
+    """
+    par_app, par_qui = {}, {}
+    for (application, personne), n in comptes.items():
+        par_app[application] = par_app.get(application, 0) + n
+        par_qui[personne] = par_qui.get(personne, 0) + n
+
+    def classer(table, cle):
+        return [{cle: k, "ouvertures": n}
+                for k, n in sorted(table.items(), key=lambda kv: (-kv[1], kv[0]))]
+    return {"jour": jour, "ouvertures": sum(comptes.values()), "apps": len(par_app),
+            "par_app": classer(par_app, "app"), "par_qui": classer(par_qui, "qui")}
 
 
 def carte_activite(annee=None, qui=None, app=None):
@@ -3634,11 +3664,10 @@ def carte_activite(annee=None, qui=None, app=None):
             continue
         if app is not None and (e.get("app") or "") != app:
             continue
-        j = par_jour.setdefault(_jour(e.get("ts")), {"ouvertures": 0, "apps": set()})
-        j["ouvertures"] += 1
-        j["apps"].add(e.get("app") or "")
-    return [{"jour": j, "ouvertures": v["ouvertures"], "apps": len(v["apps"])}
-            for j, v in sorted(par_jour.items())]
+        comptes = par_jour.setdefault(_jour(e.get("ts")), {})
+        cle = (e.get("app") or "", e.get("qui") or "")
+        comptes[cle] = comptes.get(cle, 0) + 1
+    return [detail_du_jour(j, v) for j, v in sorted(par_jour.items())]
 
 
 def pg_annees_activite():

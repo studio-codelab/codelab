@@ -3414,6 +3414,90 @@ def test_la_carte_compte_par_jour_et_pas_par_evenement(journal, tmp_path, monkey
     assert jours[0]["apps"] == 2
 
 
+def test_la_case_de_la_carte_detaille_le_jour_par_utilisateur_et_par_application(
+        journal, tmp_path, monkeypatch):
+    """Vecu : « ajoute du detail pour chaque case », puis « je veux le detail
+    par utilisateur, en chiffre ». La case ne disait que le total et le
+    nombre d'applications : qui, et ou, il fallait le chercher dans le
+    journal. Les deux details sont classes du plus grand au plus petit, et un
+    visiteur anonyme garde son nom vide (la page ecrit « visiteur anonyme »)."""
+    hier = (datetime.datetime.now().replace(hour=12, minute=0, second=0, microsecond=0)
+            - datetime.timedelta(days=1)).timestamp()
+    _semer_ouvertures(monkeypatch, tmp_path, [
+        {"id": "a", "ts": int(hier), "genre": "ouverture", "qui": "marie", "app": "prive"},
+        {"id": "b", "ts": int(hier) + 60, "genre": "ouverture", "qui": "marie", "app": "prive"},
+        {"id": "c", "ts": int(hier) + 120, "genre": "ouverture", "qui": "jean", "app": "public"},
+        {"id": "d", "ts": int(hier) + 180, "genre": "ouverture", "app": "public"},
+        {"id": "e", "ts": int(hier) + 240, "genre": "ouverture", "qui": "marie", "app": "public"},
+    ])
+    [jour] = app.carte_activite()
+    assert jour["ouvertures"] == 5 and jour["apps"] == 2
+    assert jour["par_qui"] == [{"qui": "marie", "ouvertures": 3},
+                               {"qui": "", "ouvertures": 1},
+                               {"qui": "jean", "ouvertures": 1}], jour["par_qui"]
+    assert jour["par_app"] == [{"app": "public", "ouvertures": 3},
+                               {"app": "prive", "ouvertures": 2}], jour["par_app"]
+    # Postgres compte de meme, dans la base, et passe par la meme mise en
+    # forme : les deux sources rendent la meme case.
+    src = _lire_source("app-manager/app/app.py")
+    carte = src.split("def pg_carte_activite(")[1].split("\ndef ")[0]
+    assert "GROUP BY 1, 2, 3" in carte and "detail_du_jour(" in carte
+    # La page les montre EN CHIFFRES dans une bulle, au survol et a l'appui,
+    # et le title natif (qui doublait la bulle, et jamais au doigt) a cede.
+    page = _page_panneau("dashboard.html")
+    bloc = page.split("function contenuBulleCarte(cle){")[1].split("\nfunction ")[0]
+    assert "'Par utilisateur'" in bloc and "'Par application'" in bloc
+    assert "Visiteur anonyme" in bloc
+    liste = page.split("function listeBulleCarte(")[1].split("\nfunction ")[0]
+    assert "cb-n" in liste and "--part" not in liste, "des chiffres, pas des barres"
+    colonnes = page.split("function carteColonnes(annee, parJour, sommet){")[1].split("\nfunction ")[0]
+    assert "data-jour=" in colonnes and 'title="${esc(titre)}"' not in colonnes
+    assert "addEventListener('pointerover'" in page.split("function cacherBulleCarte(){")[1]
+
+
+def test_le_repeint_garde_les_images_deja_chargees():
+    """Vecu : « fais en sorte que les icones des applications ne clignotent
+    pas ». Le moindre changement du hub (une pastille, un etat, le « il y a
+    3 min » d'un widget) repeignait toute la grille : chaque <img> etait
+    recree, et une image neuve, meme en cache, se decode a part -- toutes les
+    icones vides le temps d'un affichage. Mesure dans Chromium : 6 a 24
+    images recreees par repeint avant, 0 apres."""
+    page = _page_panneau("dashboard.html")
+    remplir = page.split("function remplir(el, html){")[1].split("\n}")[0]
+    assert "imagesChargees(el)" in remplir and "reposerImages(el, images)" in remplir
+    assert remplir.index("imagesChargees(el)") < remplir.index("el.innerHTML = html")
+    reposer = page.split("function reposerImages(el, parSource){")[1].split("\nfunction ")[0]
+    assert "neuve.replaceWith(vieille)" in reposer
+    # src n'est jamais repose sur l'image gardee : le reposer relancerait le
+    # chargement, et c'est le clignotement qu'on retirait.
+    assert "name!=='src'" in reposer
+    # Les autres peintures d'icones passent par le meme chemin.
+    masquees = page.split("function peindreMasquees(){")[1].split("\n}\n")[0]
+    assert "zone.innerHTML" not in masquees and "remplir(zone," in masquees
+    assert "$('fa-icone').src=" not in page and "poserSource($('fa-icone')" in page
+    assert "$('pr-icone').src=" not in page and "poserSource($('pr-icone')" in page
+
+
+def test_le_bandeau_se_fond_sur_ce_qui_defile_dessous():
+    """Vecu : « le header doit etre fondu lorsque je scroll en vertical et
+    rester au-dessus des apps ». Un bandeau opaque coupait les tuiles net.
+    Le voile (flou, fond en partie transparent, bord estompe) n'apparait que
+    la page defilee : en haut, le rendu est identique a l'ancien au pixel
+    pres (10 rendus compares). Le bandeau lui-meme reste transparent : mode.js
+    lit sa couleur pour la barre d'etat, qui serait sinon delavee."""
+    page = _page_panneau("dashboard.html")
+    assert ".topbar{height:68px;padding:0 28px;background:transparent;" in page
+    voile = page.split(".topbar::before{")[1].split("}")[0]
+    assert "backdrop-filter:blur(" in voile and "mask-image:linear-gradient(" in voile
+    assert "z-index:-1" in voile and "opacity:0" in voile
+    assert ":root.page-defilee .topbar::before{opacity:1}" in page
+    assert "position:sticky;top:0;z-index:40" in page, "le bandeau reste au-dessus des tuiles"
+    socle = page.split("function majPageDefilee(){")[1].split("\n}")[0]
+    assert "'page-defilee'" in socle and "defileur().scrollTop" in socle
+    mode = _lire_source("app-manager/app/mode.js")
+    assert "c === 'rgba(0, 0, 0, 0)'" in mode, "la barre d'etat retombe sur le fond de la page"
+
+
 def test_la_carte_se_filtre_par_personne_et_par_application(journal, tmp_path, monkeypatch):
     hier = int(time.time() - 86400)
     _semer_ouvertures(monkeypatch, tmp_path, [
