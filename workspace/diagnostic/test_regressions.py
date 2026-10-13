@@ -10339,13 +10339,14 @@ def test_le_panneau_s_ajoute_a_l_ecran_d_accueil_d_un_iphone(client):
     assert m["display"] == "standalone" and m["start_url"] == "/"
     assert m["short_name"] == "CodeLab"
 
-    for adresse in ["/apple-touch-icon.png"] + [i["src"] for i in m["icons"]]:
+    tailles = {"/apple-touch-icon.png": "180x180", **{i["src"]: i["sizes"] for i in m["icons"]}}
+    for adresse, taille in tailles.items():
         r = client.get(adresse)
         assert r.status_code == 200 and r.mimetype == "image/png"
         png = r.get_data()
         assert png[:8] == b"\x89PNG\r\n\x1a\n"
         largeur, hauteur, _, type_couleur = struct.unpack(">IIBB", png[16:26])
-        assert (largeur, hauteur) == (180, 180)
+        assert f"{largeur}x{hauteur}" == taille
         # 2 = RVB sans canal alpha. iOS peint en NOIR la transparence d'une
         # apple-touch-icon : l'icone doit etre opaque.
         assert type_couleur == 2, "l'icone de l'ecran d'accueil a un canal alpha"
@@ -15930,3 +15931,250 @@ def test_rendre_le_focus_ne_fait_pas_sauter_la_page():
     messages = _page_panneau("messages.html")
     assert "if(performance.now()-defileLe < 1500) return;" in messages
     assert "n.focus({preventScroll:true}); try{" in messages
+
+
+# ------------------------ Les notifications (Web Push) ------------------------
+#
+# Vecu : « PWA suffit, complete-la ». Le panneau installe recoit des
+# notifications -- messages, applications en panne, avancement d'un message --
+# et le chiffrement est celui du standard, verifie sur le vecteur de la RFC.
+
+def test_le_chiffrement_des_notifications_suit_la_rfc_8291():
+    from cryptography.hazmat.primitives.asymmetric import ec
+    d = app._de_b64url
+    serveur = ec.derive_private_key(int.from_bytes(d("yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw"), "big"),
+                                    ec.SECP256R1())
+    corps = app.chiffrer_push(
+        b"When I grow up, I want to be a watermelon",
+        "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4",
+        "BTBZMqHH6r4Tts7J_aSIgg", _ephemere=serveur, _sel=d("DGv6ra1nlYgDCS1FRnbzlw"))
+    assert app._b64url(corps) == (
+        "DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wE"
+        "qKK6PBru3jl7A_yl95bQpu6cVPTpK4Mqgkf1CXztLVBSt2Ks3oZwbuwXPXLWyouBWLVWGNWQexSgSxsj_Qulcy4a-fN")
+
+
+@pytest.mark.parametrize("adresse, permise", [
+    ("https://web.push.apple.com/QGuQyavXut", True),
+    ("https://fcm.googleapis.com/fcm/send/abc", True),
+    ("https://updates.push.services.mozilla.com/wpush/v2/x", True),
+    ("https://wns2-par02p.notify.windows.com/w/?token=x", True),
+    ("http://web.push.apple.com/x", False),              # jamais en clair
+    ("https://push.apple.com.exemple.org/x", False),     # un suffixe, pas un prefixe
+    ("https://127.0.0.1/x", False),
+    ("https://codelab-postgres:5432/x", False),
+    ("https://web.push.apple.com:8443/x", False),
+    ("file:///etc/passwd", False),
+    ("", False),
+])
+def test_le_panneau_ne_contacte_que_les_services_de_notification(adresse, permise):
+    """Sans cette liste, l'adresse fournie par le navigateur ferait du panneau
+    un relais vers le reseau local."""
+    assert app.service_push_permis(adresse) is permise
+
+
+class _Navigateur:
+    """Ce que fait un navigateur abonne : une paire de cles, un secret, et le
+    dechiffrement de ce qu'il recoit (RFC 8291, cote destinataire)."""
+
+    def __init__(self):
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+        self.prive = ec.generate_private_key(ec.SECP256R1())
+        self.public = self.prive.public_key().public_bytes(
+            serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+        self.auth = secrets.token_bytes(16)
+
+    def abonnement(self, endpoint="https://web.push.apple.com/abc"):
+        return {"endpoint": endpoint, "keys": {"p256dh": app._b64url(self.public),
+                                               "auth": app._b64url(self.auth)}}
+
+    def lire(self, corps):
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+        sel, n = corps[:16], corps[20]
+        cle_serveur, chiffre = corps[21:21 + n], corps[21 + n:]
+        partage = self.prive.exchange(ec.ECDH(), ec.EllipticCurvePublicKey.from_encoded_point(
+            ec.SECP256R1(), cle_serveur))
+        ikm = HKDF(algorithm=hashes.SHA256(), length=32, salt=self.auth,
+                   info=b"WebPush: info\x00" + self.public + cle_serveur).derive(partage)
+        cek = HKDF(algorithm=hashes.SHA256(), length=16, salt=sel,
+                   info=b"Content-Encoding: aes128gcm\x00").derive(ikm)
+        nonce = HKDF(algorithm=hashes.SHA256(), length=12, salt=sel,
+                     info=b"Content-Encoding: nonce\x00").derive(ikm)
+        clair = AESGCM(cek).decrypt(nonce, chiffre, None)
+        assert clair.endswith(b"\x02")
+        return json.loads(clair[:-1])
+
+
+class _Envois(list):
+    pass
+
+
+@pytest.fixture
+def envois_push(monkeypatch):
+    envois = _Envois()
+    envois.code = 201
+
+    class _Immediat:
+        def __init__(self, target=None, daemon=None, args=(), **k):
+            self.f, self.a = target, args
+
+        def start(self):
+            self.f(*self.a)
+
+    class _Reponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b""
+
+    def urlopen(req, timeout=None):
+        envois.append(req)
+        if envois.code >= 400:
+            raise urllib.error.HTTPError(req.full_url, envois.code, "refus", {}, None)
+        return _Reponse()
+
+    monkeypatch.setattr(app.threading, "Thread", _Immediat)
+    monkeypatch.setattr(app.urllib.request, "urlopen", urlopen)
+    return envois
+
+
+def test_un_appareil_s_abonne_et_recoit_une_notification_chiffree(deux_espaces, envois_push):
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    etat = c.get("/api/notifications").get_json()
+    assert etat["disponible"] and not etat["abonne"] and len(app._de_b64url(etat["cle"])) == 65
+    nav = _Navigateur()
+    assert c.post("/api/notifications/abonnement", json=nav.abonnement()).status_code == 200
+    assert c.get("/api/notifications").get_json()["abonne"]
+    assert c.post("/api/notifications/essai").status_code == 200
+    (req,) = envois_push
+    assert req.full_url == "https://web.push.apple.com/abc"
+    assert req.get_header("Content-encoding") == "aes128gcm" and req.get_header("Ttl") == "86400"
+    jeton, cle = req.get_header("Authorization")[len("vapid t="):].split(", k=")
+    assert cle == etat["cle"]
+    # Le jeton VAPID est signe par la cle annoncee, pour ce service-la.
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import ec, utils
+    tete, corps, signature = jeton.split(".")
+    revendique = json.loads(app._de_b64url(corps))
+    assert revendique["aud"] == "https://web.push.apple.com" and revendique["sub"].startswith("https://")
+    sig = app._de_b64url(signature)
+    ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), app._de_b64url(cle)).verify(
+        utils.encode_dss_signature(int.from_bytes(sig[:32], "big"), int.from_bytes(sig[32:], "big")),
+        (tete + "." + corps).encode(), ec.ECDSA(hashes.SHA256()))
+    # Seul l'appareil abonne lit le contenu.
+    assert nav.lire(req.data)["titre"] == "CodeLab"
+    # Couper : plus rien n'arrive.
+    assert c.delete("/api/notifications/abonnement").status_code == 200
+    assert c.post("/api/notifications/essai").status_code == 404
+
+
+def test_un_abonnement_douteux_est_refuse(deux_espaces):
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    nav = _Navigateur()
+    assert c.post("/api/notifications/abonnement",
+                  json=nav.abonnement("http://192.168.1.10/x")).status_code == 400
+    mauvais = nav.abonnement()
+    mauvais["keys"]["auth"] = "court"
+    assert c.post("/api/notifications/abonnement", json=mauvais).status_code == 400
+    assert app.abonnements_push("marie") == []
+
+
+def test_un_appareil_deconnecte_ou_desabonne_ne_recoit_plus_rien(deux_espaces, envois_push):
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    c.post("/api/notifications/abonnement", json=_Navigateur().abonnement())
+    # Le service dit que l'abonnement n'existe plus : il est oublie.
+    envois_push.code = 410
+    app.notifier_compte("marie", "t", "x")
+    assert len(envois_push) == 1 and app.abonnements_push("marie") == []
+    # Deconnecte depuis Securite : rien ne part, l'abonnement s'en va.
+    envois_push.code = 201
+    c.post("/api/notifications/abonnement", json=_Navigateur().abonnement("https://web.push.apple.com/b"))
+    with app.stockage.transaction(app.DB_FILE) as cx:
+        cx.execute("DELETE FROM appareils WHERE compte = 'marie'")
+    app.notifier_compte("marie", "t", "x")
+    assert len(envois_push) == 1 and app.abonnements_push("marie") == []
+
+
+def test_l_administrateur_est_prevenu_d_un_nouveau_message(deux_espaces, envois_push, monkeypatch):
+    c = deux_espaces
+    admin = app.flask_app.test_client()
+    admin.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    nav = _Navigateur()
+    assert admin.post("/api/notifications/abonnement", json=nav.abonnement()).status_code == 200
+    _connecte(c, "marie", "mot-de-passe-long")
+    monkeypatch.setattr(app, "smtp_utilisable", lambda: ({}, False))
+    monkeypatch.setattr(app, "_dernier_message", {})
+    assert c.post("/api/messages", json={"cible": "hub", "texte": "Le hub est super"}).status_code == 200
+    (req,) = envois_push
+    recu = nav.lire(req.data)
+    assert recu["titre"] == "Message de marie" and recu["texte"] == "Le hub est super"
+    assert recu["url"] == "/messages"
+
+
+def test_l_auteur_d_un_message_suit_son_avancement(deux_espaces, envois_push, monkeypatch):
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    nav = _Navigateur()
+    c.post("/api/notifications/abonnement", json=nav.abonnement())
+    monkeypatch.setattr(app, "smtp_utilisable", lambda: ({}, False))
+    monkeypatch.setattr(app, "_dernier_message", {})        # un message par minute
+    assert c.post("/api/messages", json={"cible": "hub", "texte": "Une idee"}).status_code == 200
+    (m,) = [x for x in app.lire_messages() if x["qui"] == "marie"]
+    # Premier passage : on retient l'etat, on ne rejoue rien.
+    app.suivi_push_tick(maintenant=1e10)
+    assert envois_push == []
+    app.modifier_message(m["id"], statut="refuse")
+    app.suivi_push_tick(maintenant=1e10 + 120)
+    (req,) = envois_push
+    assert nav.lire(req.data)["titre"] == "Ton message n'est pas retenu"
+    # Une fois annonce, plus rien tant que rien ne change.
+    app.suivi_push_tick(maintenant=1e10 + 240)
+    assert len(envois_push) == 1
+
+
+def test_le_manifeste_est_complet(hub):
+    m = hub.get("/manifest.webmanifest").get_json()
+    assert m["id"] == "/" and m["lang"] == "fr"
+    tailles = {(i["sizes"], i["purpose"]) for i in m["icons"]}
+    assert {("192x192", "any"), ("512x512", "any"), ("512x512", "maskable")} <= tailles
+    assert [r["url"] for r in m["shortcuts"]] == ["/", "/messages", "/parametres"]
+    for icone in m["icons"]:
+        r = hub.get(icone["src"])
+        assert r.status_code == 200 and r.mimetype == "image/png", icone["src"]
+        cote = int(icone["sizes"].split("x")[0])
+        assert int.from_bytes(r.data[16:20], "big") == int.from_bytes(r.data[20:24], "big") == cote
+    assert hub.get("/icone-1024.png").status_code == 404
+
+
+def test_le_service_worker_affiche_et_ouvre_les_notifications(hub):
+    code = hub.get("/sw.js").get_data(as_text=True)
+    assert "self.addEventListener('push'" in code and "showNotification(" in code
+    clic = code.split("self.addEventListener('notificationclick'")[1]
+    # Jamais une adresse d'ailleurs.
+    assert "if (u.origin === self.location.origin) cible = u;" in clic
+    assert "self.clients.openWindow(cible.href)" in clic
+
+
+def test_les_parametres_proposent_notifications_et_installation():
+    page = _page_panneau("dashboard.html")
+    for trace in ('id="zone-notifications"', 'id="notif-bascule"', 'id="zone-installer"',
+                  "Notification.requestPermission()", "pushManager.subscribe({userVisibleOnly:true",
+                  "navigator.serviceWorker.register('/sw.js')", "function majPastilleIcone(){",
+                  "navigator.setAppBadge(n)", "invite.prompt();",
+                  "#sec-parametres.reglages-unifies #zone-notifications{order:22}"):
+        assert trace in page, trace
+    # La permission se demande dans le geste : rien n'est attendu avant.
+    bascule = page.split("async function notifBasculer(b){")[1].split("\n}")[0]
+    assert bascule.index("Notification.requestPermission()") < bascule.index("fetch(")
+    mode = _page_panneau("mode.js")
+    assert "window.addEventListener('beforeinstallprompt'" in mode

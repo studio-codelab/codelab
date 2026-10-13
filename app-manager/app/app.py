@@ -5126,6 +5126,10 @@ def start_monitor_thread():
                 alerte_tick()
             except Exception as e:
                 print(f"[app-manager] erreur dans les alertes : {e}", flush=True)
+            try:
+                suivi_push_tick()
+            except Exception as e:
+                print(f"[app-manager] erreur dans les notifications de suivi : {e}", flush=True)
     t = threading.Thread(target=_loop, daemon=True)
     t.start()
 
@@ -6438,6 +6442,9 @@ def alerte_tick():
             _alertes_en_cours.discard(name)
             alerter(f"[CodeLab] {name} est revenue", corps_alerte_retour(name),
                     name=name, apps=apps)
+            notifier_compte(NOM_ADMIN, f"{titre_de(name, apps.get(name))} est revenue",
+                            "L'application répond de nouveau.",
+                            url="/applications/" + urllib.parse.quote(name), etiquette="app-" + name)
 
     for name, a in apps.items():
         if (a.get("enabled") and not is_running(name) and is_crash_looping(name)
@@ -6445,6 +6452,10 @@ def alerte_tick():
             _alertes_en_cours.add(name)
             alerter(f"[CodeLab] {name} est tombee", corps_alerte_chute(name, a),
                     name=name, apps=apps)
+            notifier_compte(NOM_ADMIN, f"{titre_de(name, a)} est tombée",
+                            f"Arrêtée après {RESTART_MAX_ATTEMPTS} tentatives de redémarrage.",
+                            url="/applications/" + urllib.parse.quote(name),
+                            etiquette="app-" + name, urgence="high")
 
 
 # ------------------------------- build ---------------------------------
@@ -9254,6 +9265,313 @@ def liste_des_appareils(compte, sid_courant=None):
             for l in appareils_du_compte(compte)]
 
 
+# ------------------------ les notifications (Web Push) ------------------------
+#
+# Une notification sur le telephone, la tablette ou l'ordinateur, meme
+# CodeLab ferme : un nouveau message (administrateur), une application qui
+# tombe et qui revient (administrateur), l'avancement d'un message qu'on a
+# envoye (compte utilisateur). Le mail continue de partir comme avant : la
+# notification s'y ajoute, elle ne le remplace pas.
+#
+# LE STANDARD, ET RIEN D'AUTRE. Web Push (RFC 8030), chiffre de bout en bout
+# (RFC 8291) et signe par le serveur (VAPID, RFC 8292) : le service d'Apple,
+# de Google ou de Mozilla transporte un message qu'il ne peut pas lire.
+# Aucun compte chez eux, aucune bibliotheque de plus : cryptography, deja la
+# pour le coffre, suffit.
+#
+# Ou ca marche : Chrome, Edge et Firefox (ordinateur et Android), Safari sur
+# Mac, et sur iPhone et iPad le panneau INSTALLE sur l'ecran d'accueil
+# (iOS 16.4 et plus). Toujours en HTTPS : le navigateur refuse en clair.
+#
+# QUI RECOIT QUOI. Un abonnement appartient a un compte ET a une session
+# (l'appareil connecte) : deconnecter l'appareil, depuis Securite, coupe ses
+# notifications, et un compte ne recoit jamais celles d'un autre.
+#
+# PAS D'ADRESSE ARBITRAIRE. Le navigateur fournit l'adresse ou envoyer
+# (endpoint) ; le serveur la contacte. N'importe quelle URL ferait du
+# panneau un relais vers le reseau local (SSRF) : seuls les services de
+# notification connus, en HTTPS, sont acceptes.
+SERVICES_PUSH = ("push.apple.com", "fcm.googleapis.com", "push.services.mozilla.com",
+                 "notify.windows.com", "updates.push.services.mozilla.com")
+PUSH_ABONNEMENTS_MAX = 20          # par compte : au-dela, le plus ancien s'en va
+PUSH_SUJET_VAPID = "https://github.com/studio-codelab/codelab"
+
+
+def _b64url(octets):
+    return base64.urlsafe_b64encode(octets).rstrip(b"=").decode()
+
+
+def _de_b64url(texte):
+    texte = str(texte or "")
+    return base64.urlsafe_b64decode(texte + "=" * (-len(texte) % 4))
+
+
+def service_push_permis(endpoint):
+    """Une adresse d'envoi d'un service de notification connu, en HTTPS."""
+    try:
+        u = urllib.parse.urlsplit(str(endpoint or ""))
+    except ValueError:
+        return False
+    hote = (u.hostname or "").lower()
+    return (u.scheme == "https" and len(str(endpoint)) <= 1024 and u.port in (None, 443)
+            and any(hote == s or hote.endswith("." + s) for s in SERVICES_PUSH))
+
+
+def cle_vapid():
+    """La cle de signature du serveur, creee au premier besoin, gardee au coffre.
+
+    None quand le coffre n'a pas de cle de chiffrement : sans elle, la cle
+    privee ne pourrait pas etre rangee ailleurs qu'en clair, et elle ne l'est
+    jamais.
+    """
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    pem = reglage("vapid_prive")
+    if not pem:
+        if not _cle_chiffrement:
+            return None
+        cle = ec.generate_private_key(ec.SECP256R1())
+        pem = cle.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                serialization.NoEncryption()).decode()
+        try:
+            ecrire_reglage("vapid_prive", pem)
+        except OSError as e:
+            print(f"[app-manager] cle de notification non enregistree : {e}", flush=True)
+            return None
+    return serialization.load_pem_private_key(pem.encode(), password=None)
+
+
+def cle_publique_vapid():
+    from cryptography.hazmat.primitives import serialization
+    cle = cle_vapid()
+    if cle is None:
+        return ""
+    return _b64url(cle.public_key().public_bytes(serialization.Encoding.X962,
+                                                 serialization.PublicFormat.UncompressedPoint))
+
+
+def _jeton_vapid(endpoint, cle):
+    """Le JWT ES256 qui prouve au service que l'envoi vient de ce serveur."""
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import ec, utils
+    u = urllib.parse.urlsplit(endpoint)
+    tete = _b64url(json.dumps({"typ": "JWT", "alg": "ES256"}).encode())
+    corps = _b64url(json.dumps({"aud": f"{u.scheme}://{u.netloc}",
+                                "exp": int(time.time()) + 12 * 3600,
+                                "sub": PUSH_SUJET_VAPID}).encode())
+    signe = (tete + "." + corps).encode()
+    r, s = utils.decode_dss_signature(cle.sign(signe, ec.ECDSA(hashes.SHA256())))
+    return tete + "." + corps + "." + _b64url(r.to_bytes(32, "big") + s.to_bytes(32, "big"))
+
+
+def chiffrer_push(contenu, p256dh, auth, _ephemere=None, _sel=None):
+    """Le corps chiffre d'une notification (RFC 8291, « aes128gcm »).
+
+    _ephemere et _sel ne servent qu'aux tests (le vecteur de la RFC)."""
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+    cle_client = _de_b64url(p256dh)
+    secret_auth = _de_b64url(auth)
+    public_client = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), cle_client)
+    ephemere = _ephemere or ec.generate_private_key(ec.SECP256R1())
+    public_serveur = ephemere.public_key().public_bytes(
+        serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+    partage = ephemere.exchange(ec.ECDH(), public_client)
+    ikm = HKDF(algorithm=hashes.SHA256(), length=32, salt=secret_auth,
+               info=b"WebPush: info\x00" + cle_client + public_serveur).derive(partage)
+    sel = _sel or secrets.token_bytes(16)
+    cek = HKDF(algorithm=hashes.SHA256(), length=16, salt=sel,
+               info=b"Content-Encoding: aes128gcm\x00").derive(ikm)
+    nonce = HKDF(algorithm=hashes.SHA256(), length=12, salt=sel,
+                 info=b"Content-Encoding: nonce\x00").derive(ikm)
+    chiffre = AESGCM(cek).encrypt(nonce, contenu + b"\x02", None)
+    return sel + (4096).to_bytes(4, "big") + bytes([len(public_serveur)]) + public_serveur + chiffre
+
+
+def abonnements_push(compte):
+    return stockage.lire(DB_FILE, "SELECT * FROM abonnements_push WHERE compte = ? "
+                                  "ORDER BY cree DESC", (compte,))
+
+
+def retirer_abonnement_push(ident):
+    with stockage.transaction(DB_FILE) as cx:
+        cx.execute("DELETE FROM abonnements_push WHERE id = ?", (ident,))
+
+
+def _envoyer_un_push(ab, contenu, cle, urgence):
+    """Un envoi. Rend False quand l'abonnement est mort (a retirer)."""
+    try:
+        corps = chiffrer_push(contenu, ab["p256dh"], ab["auth"])
+    except Exception:                                             # noqa: BLE001
+        return False                 # cles de l'abonnement illisibles : on l'oublie
+    req = urllib.request.Request(ab["endpoint"], data=corps, method="POST", headers={
+        "TTL": "86400", "Urgency": urgence, "Content-Encoding": "aes128gcm",
+        "Content-Type": "application/octet-stream",
+        "Authorization": "vapid t=" + _jeton_vapid(ab["endpoint"], cle)
+                         + ", k=" + cle_publique_vapid()})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            r.read()
+        return True
+    except urllib.error.HTTPError as e:
+        # 404 et 410 : l'abonnement n'existe plus (notifications coupees,
+        # application desinstallee). Le reste est passager.
+        if e.code in (404, 410):
+            return False
+        print(f"[app-manager] notification refusee ({e.code}) par "
+              f"{urllib.parse.urlsplit(ab['endpoint']).hostname}", flush=True)
+        return True
+    except (urllib.error.URLError, OSError) as e:
+        print(f"[app-manager] notification non envoyee : {e}", flush=True)
+        return True
+
+
+def notifier_compte(compte, titre, texte, url="/", etiquette=None, urgence="normal"):
+    """Une notification sur chaque appareil abonne du compte. Ne leve jamais.
+
+    Envoyee dans un thread : le service de notification peut mettre des
+    secondes a repondre, et ni une requete ni le moniteur ne l'attendent.
+    """
+    try:
+        abonnes = abonnements_push(compte)
+        if not abonnes:
+            return 0
+        cle = cle_vapid()
+        if cle is None:
+            return 0
+        sessions = {l["sid"] for l in appareils_du_compte(compte)}
+    except Exception as e:                                        # noqa: BLE001
+        print(f"[app-manager] notifications indisponibles : {e}", flush=True)
+        return 0
+    contenu = json.dumps({"titre": titre[:120], "texte": texte[:240], "url": url,
+                          "etiquette": etiquette or ""}, ensure_ascii=False).encode()
+
+    def _envoyer():
+        for ab in abonnes:
+            # Appareil deconnecte depuis : son abonnement part avec lui.
+            if ab["sid"] not in sessions or not _envoyer_un_push(ab, contenu, cle, urgence):
+                try:
+                    retirer_abonnement_push(ab["id"])
+                except Exception:                                 # noqa: BLE001
+                    pass
+    threading.Thread(target=_envoyer, daemon=True).start()
+    return len(abonnes)
+
+
+@flask_app.get("/api/notifications")
+@require_auth
+def api_notifications():
+    """La cle publique du serveur, et si CET appareil est deja abonne."""
+    qui = utilisateur_courant() or NOM_ADMIN
+    sid = session.get("sid")
+    try:
+        cle = cle_publique_vapid()
+    except Exception:                                             # noqa: BLE001
+        cle = ""
+    abonne = any(a["sid"] == sid for a in abonnements_push(qui))
+    return jsonify({"disponible": bool(cle), "cle": cle, "abonne": abonne})
+
+
+@flask_app.post("/api/notifications/abonnement")
+@require_auth
+def api_notifications_abonner():
+    """{endpoint, keys: {p256dh, auth}}, tel que le rend pushManager.subscribe()."""
+    qui = utilisateur_courant() or NOM_ADMIN
+    d = request.get_json(force=True, silent=True) or {}
+    endpoint = d.get("endpoint")
+    cles = d.get("keys") if isinstance(d.get("keys"), dict) else {}
+    p256dh, auth = str(cles.get("p256dh") or ""), str(cles.get("auth") or "")
+    if not service_push_permis(endpoint):
+        return jsonify({"error": "Ce service de notification n'est pas reconnu."}), 400
+    try:
+        if len(_de_b64url(p256dh)) != 65 or len(_de_b64url(auth)) != 16:
+            raise ValueError
+    except (ValueError, TypeError):
+        return jsonify({"error": "Abonnement illisible."}), 400
+    if cle_vapid() is None:
+        return jsonify({"error": "Notifications indisponibles sur ce serveur."}), 503
+    ident = hashlib.sha256(endpoint.encode()).hexdigest()
+    with stockage.transaction(DB_FILE) as cx:
+        cx.execute("DELETE FROM abonnements_push WHERE id = ?", (ident,))
+        cx.execute("INSERT INTO abonnements_push (id, compte, sid, endpoint, p256dh, auth, cree, agent) "
+                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                   (ident, qui, session.get("sid") or "", endpoint, p256dh, auth, int(time.time()),
+                    (request.headers.get("User-Agent") or "")[:300]))
+        anciens = [l["id"] for l in cx.execute(
+            "SELECT id FROM abonnements_push WHERE compte = ? ORDER BY cree DESC LIMIT -1 OFFSET ?",
+            (qui, PUSH_ABONNEMENTS_MAX)).fetchall()]
+        for x in anciens:
+            cx.execute("DELETE FROM abonnements_push WHERE id = ?", (x,))
+    return jsonify({"ok": True})
+
+
+@flask_app.delete("/api/notifications/abonnement")
+@require_auth
+def api_notifications_desabonner():
+    """Coupe les notifications de CET appareil (session courante)."""
+    qui = utilisateur_courant() or NOM_ADMIN
+    with stockage.transaction(DB_FILE) as cx:
+        cx.execute("DELETE FROM abonnements_push WHERE compte = ? AND sid = ?",
+                   (qui, session.get("sid") or ""))
+    return jsonify({"ok": True})
+
+
+@flask_app.post("/api/notifications/essai")
+@require_auth
+def api_notifications_essai():
+    qui = utilisateur_courant() or NOM_ADMIN
+    if not notifier_compte(qui, "CodeLab", "Les notifications arrivent bien sur cet appareil.",
+                           url="/parametres", etiquette="essai"):
+        return jsonify({"error": "Aucun appareil abonné pour ce compte."}), 404
+    return jsonify({"ok": True})
+
+
+# L'avancement d'un message, pousse a son auteur : la meme etape que la
+# pastille du hub (suivi_message), annoncee quand elle change. Le moniteur
+# compare chaque minute, et seulement pour les comptes abonnes. Ce qui a
+# deja ete annonce est retenu (preference « suivi_notifie ») : un
+# redemarrage du panneau ne rejoue rien.
+ETAPES_ANNONCEES = {"etude": "est à l'étude", "planifie": "est planifié",
+                    "en_cours": "est en cours", "fait": "est fait",
+                    "refuse": "n'est pas retenu"}
+_suivi_push = {"dernier": 0}
+
+
+def suivi_push_tick(maintenant=None):
+    maintenant = time.time() if maintenant is None else maintenant
+    if maintenant - _suivi_push["dernier"] < 60:
+        return
+    _suivi_push["dernier"] = maintenant
+    comptes = {l["compte"] for l in stockage.lire(DB_FILE, "SELECT DISTINCT compte FROM abonnements_push")}
+    comptes.discard(NOM_ADMIN)
+    if not comptes:
+        return
+    taches, projets = lire_taches(), lire_projets()
+    par_compte = {}
+    for m in lire_messages(limite=MESSAGES_AFFICHES):
+        if m.get("qui") in comptes:
+            par_compte.setdefault(m["qui"], []).append(m)
+    for qui in comptes:
+        connues = lire_preference("suivi_notifie", qui)
+        premiere = not isinstance(connues, dict)
+        connues = connues if isinstance(connues, dict) else {}
+        nouvelles = dict(connues)
+        for m in par_compte.get(qui, []):
+            etape = suivi_message(m, taches, projets)["etape"]
+            avant = connues.get(m["id"])
+            nouvelles[m["id"]] = etape
+            if premiere or avant == etape or etape not in ETAPES_ANNONCEES:
+                continue
+            extrait = (m.get("texte") or "").strip().replace("\n", " ")
+            notifier_compte(qui, "Ton message " + ETAPES_ANNONCEES[etape],
+                            extrait[:120] or "Ouvre CodeLab pour voir son avancement.",
+                            url="/messages", etiquette="suivi-" + m["id"])
+        if nouvelles != connues or premiere:
+            ecrire_preference("suivi_notifie", nouvelles, qui)
+
+
 @flask_app.get("/api/mon-compte/appareils")
 @require_auth
 def api_mes_appareils():
@@ -10589,6 +10907,48 @@ def ecran_de_demarrage(largeur, hauteur, theme):
     return _ecrans_faits[cle]
 
 
+# LES ICONES DU MANIFESTE. Android et Chrome demandent du 192 et du 512 px ;
+# l'icone d'ecran d'accueil d'iOS (180 px) etait etiree jusque-la, floue.
+# « maskable » : Android decoupe l'icone en cercle ou en goutte, le logo se
+# tient donc dans la zone sure (les 80 % du centre). Meme fabrication que
+# l'ecran de demarrage, fond blanc comme l'icone d'iOS, gardee en memoire.
+ICONES_MANIFESTE = {"192": (192, .62), "512": (512, .62), "512-maskable": (512, .46)}
+_icones_faites = {}
+
+
+def icone_manifeste(nom):
+    if nom not in _icones_faites:
+        cote, part = ICONES_MANIFESTE[nom]
+        fond = (255, 255, 255)
+        lw, lh, logo = _png_lire_rgba(ICONE_CODELAB_PNG)
+        lw, lh, logo = _agrandir(lw, lh, logo, cote * part / lw)
+        x0, y0 = (cote - lw) // 2, (cote - lh) // 2
+        ligne_fond, lignes = bytes(fond) * cote, []
+        for y in range(cote):
+            if not y0 <= y < y0 + lh:
+                lignes.append(ligne_fond)
+                continue
+            ligne, src = bytearray(ligne_fond), logo[y - y0]
+            for x in range(lw):
+                a = src[x * 4 + 3]
+                if a:
+                    o = (x0 + x) * 3
+                    for k in range(3):
+                        ligne[o + k] = (src[x * 4 + k] * a + fond[k] * (255 - a)) // 255
+            lignes.append(bytes(ligne))
+        _icones_faites[nom] = _png_ecrire_rgb(cote, cote, lignes)
+    return _icones_faites[nom]
+
+
+@flask_app.get("/icone-<nom>.png")
+def icone_du_manifeste(nom):
+    if nom not in ICONES_MANIFESTE:
+        return Response("Inconnu", status=404, mimetype="text/plain")
+    r = Response(icone_manifeste(nom), mimetype="image/png")
+    r.headers["Cache-Control"] = "public, max-age=86400"
+    return r
+
+
 @flask_app.get("/ecran-demarrage/<int:largeur>x<int:hauteur>-<theme>.png")
 def ecran_demarrage(largeur, hauteur, theme):
     if (largeur, hauteur) not in IMAGES_DEMARRAGE or theme not in FONDS_DEMARRAGE:
@@ -10673,6 +11033,36 @@ self.addEventListener('fetch', e => {
   if (e.request.mode !== 'navigate') return;
   e.respondWith(fetch(e.request).catch(() => caches.match('/hors-ligne.html')));
 });
+// Les notifications : le panneau pousse {titre, texte, url, etiquette},
+// chiffre de bout en bout. Une meme etiquette remplace la precedente (une
+// application tombee puis revenue ne laisse qu'une notification).
+self.addEventListener('push', e => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (err) {}
+  e.waitUntil(self.registration.showNotification(d.titre || 'CodeLab', {
+    body: d.texte || '', icon: '/apple-touch-icon.png?v=4',
+    tag: d.etiquette || undefined, renotify: !!d.etiquette,
+    data: { url: d.url || '/' }
+  }));
+});
+// Toucher la notification ouvre CodeLab a la bonne page : la fenetre deja
+// ouverte si elle existe, sinon une nouvelle. Jamais une adresse d'ailleurs.
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  let cible = new URL('/', self.location.origin);
+  try {
+    const u = new URL((e.notification.data && e.notification.data.url) || '/', self.location.origin);
+    if (u.origin === self.location.origin) cible = u;
+  } catch (err) {}
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(fenetres => {
+    for (const f of fenetres) {
+      if (new URL(f.url).origin === self.location.origin && 'focus' in f) {
+        return f.focus().then(g => (g || f).navigate ? (g || f).navigate(cible.href) : null);
+      }
+    }
+    return self.clients.openWindow(cible.href);
+  }));
+});
 """
 
 
@@ -10707,8 +11097,28 @@ def ecran_accueil_manifeste():
         # d'application ; la page l'ajuste ensuite au theme choisi.
         "background_color": "#E9EBEE",
         "theme_color": "#E9EBEE",
+        # Un identifiant stable : l'application installee reste la meme si
+        # start_url change un jour.
+        "id": "/",
+        "lang": "fr",
+        "description": "Ton atelier de développement : ouvrir, mettre en ligne et partager tes applications.",
+        "orientation": "any",
+        "categories": ["developer", "productivity"],
         "icons": [{"src": "/apple-touch-icon.png", "sizes": "180x180",
-                   "type": "image/png", "purpose": "any"}],
+                   "type": "image/png", "purpose": "any"},
+                  {"src": "/icone-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+                  {"src": "/icone-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+                  {"src": "/icone-512-maskable.png", "sizes": "512x512", "type": "image/png",
+                   "purpose": "maskable"}],
+        # L'appui long sur l'icone (Android, Windows, Dock du Mac) : aller
+        # droit ou l'on va le plus souvent.
+        "shortcuts": [
+            {"name": "Hub", "url": "/", "icons": [{"src": "/icone-192.png", "sizes": "192x192"}]},
+            {"name": "Messages", "url": "/messages",
+             "icons": [{"src": "/icone-192.png", "sizes": "192x192"}]},
+            {"name": "Paramètres", "url": "/parametres",
+             "icons": [{"src": "/icone-192.png", "sizes": "192x192"}]},
+        ],
     }
     r = Response(json.dumps(manifeste), mimetype="application/manifest+json")
     r.headers["Cache-Control"] = "no-cache"
@@ -11383,6 +11793,9 @@ def api_message():
             envoye = True
         except Exception as e:                                    # noqa: BLE001
             souci = f"{type(e).__name__}: {e}"
+    extrait = texte.replace("\n", " ")[:140] or "Une pièce jointe."
+    notifier_compte(NOM_ADMIN, f"Message de {qui}", extrait, url="/messages",
+                    etiquette="message-" + message["id"])
     journaliser("message", qui=qui, app=nom_app or None,
                 action=("envoye" if envoye else "enregistre sans mail"),
                 ip=_adresse_client())

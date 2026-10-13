@@ -204,6 +204,11 @@ Sans lui, les réglages chiffrés deviennent illisibles.
   - une application tombée qui ne redémarre plus, puis son retour ;
   - une connexion administrateur depuis une adresse inconnue ;
   - un run Dagster en échec.
+- **Notifications sur l'appareil** (Web Push) : chiffrées de bout en bout (RFC 8291) et signées par
+  le serveur (VAPID, RFC 8292) ; la clé de signature vit chiffrée dans le coffre, jamais en clair.
+  Le serveur n'envoie qu'aux services de notification connus (Apple, Google, Mozilla, Microsoft), en
+  HTTPS : l'adresse fournie par le navigateur ne peut pas faire de lui un relais vers le réseau
+  local. Un abonnement appartient à une session : déconnecter l'appareil le supprime.
 - **Surveillance externe** : le panneau appelle une adresse healthchecks.io toutes les 5 minutes. Si
   le serveur entier tombe, c'est ce service qui prévient.
 - **Diagnostic** : des sondes en lecture seule vérifient ce qui doit marcher et ce qui doit être
