@@ -421,22 +421,53 @@ tablette, et un site web s'ouvre aussi sur un telephone. Ne confonds jamais
 **la largeur** (une media query `max-width`) et **le mode** (la classe
 `mode-app`) : ce sont deux questions differentes, et chacune a sa regle.
 
-**Reconnaitre le mode application.** En tete de page, avant tout affichage :
+**Ce que le hub te dit, sans rien installer.** Le panneau glisse en tete de
+chaque page HTML de l'application un petit script, avant les tiens. Il pose :
+
+| Ou | Ce que c'est |
+|---|---|
+| `<html class="mode-app">` / `"mode-site"` | le mode |
+| `<html data-appareil="telephone">` (`tablette`, `ordinateur`) | la largeur, aux seuils du panneau (760 et 1180 px) |
+| `<html data-plateforme="ios">` (`android`, `mac`, `windows`, `autre`) | le systeme |
+| `var(--codelab-bord-haut)`, `-droite`, `-bas`, `-gauche` | les bords de l'ecran (encoche, barre d'etat, barre de geste), en px |
+| `window.CODELAB.environnement` | le tout en objet : `mode`, `encadree`, `plateforme`, `appareil`, `orientation`, `theme`, `bords`, `pleinEcran` |
+| evenement `codelab-environnement` | a chaque changement (rotation, theme) |
+
+**Ouverte depuis le hub installe, l'application recoit ce qu'iOS donnerait a
+une vraie application installee** -- alors qu'elle est affichee dans un cadre
+du panneau, ou iOS ne lui dit rien :
+
+- `navigator.standalone` vaut `true` et `matchMedia('(display-mode: standalone)')`
+  repond oui, des le premier script de la page : le code ecrit pour une app
+  installee marche tel quel ;
+- **comme iOS**, une page qui declare `viewport-fit=cover` s'etend sous
+  l'encoche et recoit les bords ; sans lui, le panneau la pose dans la zone
+  sure et peint autour sa couleur ;
+- dans une page qui s'etend, `env(safe-area-inset-*)` est reecrit dans ses
+  feuilles de style (celles de son origine) : la regle ecrite pour iOS donne
+  les memes marges dans le cadre ;
+- sa `theme-color` (sinon le fond de la page) colore la barre d'etat, et la
+  recolore quand elle change.
+
+Ecris donc **pour iOS, une seule fois** : `viewport-fit=cover` si la page va
+jusqu'aux bords, `env(safe-area-inset-*)` pour les marges, `html.mode-app` pour
+ce qui change en application. Le meme code marche ouverte seule dans Safari,
+installee seule sur l'ecran d'accueil (le panneau lui fournit manifeste et
+icone) et ouverte depuis le hub. Pour un calcul en JavaScript, lis
+`window.CODELAB.environnement` plutot que de redeviner.
+
+**Hors du hub** (un serveur sans le proxy CodeLab, une politique de securite
+qui bloque les scripts en ligne), la detection reste a ta charge :
 
 ```html
 <script>
 (function(){
   var app = (window.matchMedia && matchMedia('(display-mode: standalone)').matches)
-            || navigator.standalone === true
-            || window.name === 'codelab-app';      // encadree par le panneau installe
+            || navigator.standalone === true;
   if(app) document.documentElement.classList.add('mode-app');
 })();
 </script>
 ```
-
-`window.name === 'codelab-app'` est indispensable : en mode application, le
-panneau affiche l'application dans un cadre, et les deux premiers tests y
-repondent faux.
 
 **Ce que le mode application change**, et seulement sous `html.mode-app` :
 
@@ -462,9 +493,8 @@ html.mode-app body{padding:env(safe-area-inset-top) env(safe-area-inset-right)
 - **Pas de lien qui sort de l'application** en mode application : un lien vers
   une autre origine s'ouvre dans un nouvel onglet (`target="_blank"`), sinon
   il remplace l'application dans le cadre sans moyen d'en revenir.
-- **La couleur de la barre d'etat** suit l'application si elle l'annonce au
-  panneau : `parent.postMessage({codelab:'couleur', valeur:'#0d1015'}, '*')`
-  (une couleur `#rrggbb` ou `rgb(...)`), par exemple au changement de theme.
+- **La couleur de la barre d'etat** suit la `<meta name="theme-color">` de la
+  page (sinon son fond) : change-la avec le theme, le hub suit.
 - **Au toucher, pas de survol** : une action qui n'apparait qu'au survol doit
   avoir un autre chemin au doigt (`@media (hover:none)` : bouton visible, appui
   long ou menu).
@@ -594,9 +624,9 @@ chaque point, et dis lesquels tu n'as pas pu verifier.
 **Rendu**
 - [ ] Affichage correct a 375 px, 768 px, 1024 px et 1280 px de large, en mode
       site web **et** en mode application (`html.mode-app`)
-- [ ] Mode application reconnu (`display-mode`, `navigator.standalone` et
-      `window.name === 'codelab-app'`) : sans zoom, sans rebond, bords de
-      l'ecran respectes (`env(safe-area-inset-*)`)
+- [ ] Mode application pris en compte (`html.mode-app`) : sans zoom, sans
+      rebond, bords de l'ecran respectes (`env(safe-area-inset-*)`, et
+      `viewport-fit=cover` si la page va jusqu'aux bords)
 - [ ] Aucune barre de defilement visible, aucun defilement horizontal de la page
 - [ ] Theme clair et sombre lisibles (jetons de `/theme.css`, aucune couleur en dur)
 

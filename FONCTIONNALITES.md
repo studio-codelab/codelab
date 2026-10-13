@@ -146,6 +146,16 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
     données). Il faut une adresse en `https` (ou `localhost`) : c'est une exigence des navigateurs.
   - **Applications ouvertes depuis le hub** : même comportement (pas de zoom, pas de rebond), la barre
     d'état prend la couleur de l'application, et un glissement depuis le bord gauche ramène au hub.
+    Le hub **simule iOS** pour elles : elles se croient installées (`navigator.standalone`,
+    `display-mode: standalone`) ; comme sur iOS, une page en `viewport-fit=cover` s'étend sous
+    l'encoche et reçoit les bords de l'écran (ses `env(safe-area-inset-*)` sont réécrits), les autres
+    sont posées dans la zone sûre avec leur couleur autour.
+  - **Chaque application est une vraie application** : elle s'installe seule sur l'écran d'accueil
+    (manifeste, icône, nom, fournis par le panneau), y compris sur son sous-domaine.
+  - **L'environnement, posé sur chaque page d'application** : `html.mode-app` ou `mode-site`,
+    `data-appareil` (téléphone, tablette, ordinateur), `data-plateforme`, les bords de l'écran en
+    variables CSS (`--codelab-bord-haut`…), et `window.CODELAB.environnement` pour le script. Les mêmes
+    clés partout : ouverte seule, installée seule ou depuis le hub.
   - **Dans le navigateur**, CodeLab reste un site, adapté au téléphone : zoom permis, applications
     ouvertes directement, pas de page de réserve -- sauf une fois les notifications activées, que
     porte le même service worker.
