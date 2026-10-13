@@ -15661,6 +15661,10 @@ def test_les_parametres_n_ont_plus_d_erreurs_d_affichage():
     assert "(y.courant?1:0)-(x.courant?1:0)" in page
     # Le hub ne penche plus ses tuiles.
     assert "rotateX(var(--rx" not in page and "--ry" not in page
+    # Ni ne les souleve : la mosaique coupe ce qui depasse, le haut d'une
+    # tuile de la premiere rangee paraissait tranche.
+    survol = page.split("/* -- le relief au survol (souris)")[1].split("/* -- l'etat")[0]
+    assert "translate" not in survol.split("*/", 1)[1]
 
 
 # ------------------------- Connexion et reglages -------------------------

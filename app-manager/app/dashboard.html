@@ -2071,14 +2071,15 @@ a.pj:hover{border-color:var(--accent)}
 #hub-liste.entree [data-el]{animation:tuile-entree .75s cubic-bezier(.2,.75,.2,1) both;animation-delay:calc(var(--i,0)*55ms)}
 @keyframes tuile-entree{from{opacity:0;translate:0 22px;scale:.96;filter:blur(6px)}}
 
-/* -- le relief au survol (souris) : inclinaison et reflet qui suit. */
+/* -- le relief au survol (souris) : une ombre et un reflet qui suit le
+   pointeur. LA TUILE NE BOUGE PAS : soulevee de 3 px, celle de la premiere
+   rangee sortait par le haut de la mosaique -- qui coupe ce qui depasse,
+   puisqu'elle defile de cote -- et son bord superieur paraissait tranche. */
 .bw{position:relative}
 @media (hover:hover) and (pointer:fine){
-  #hub-liste:not(.edition) :is(.bw,.bento-carte){transform:translateY(0);
-   transition:transform .6s cubic-bezier(.2,.7,.2,1),box-shadow .6s,border-color .2s,background-color .4s}
-  #hub-liste:not(.edition) :is(.bw,.bento-carte).survol{transition-duration:.18s,.6s,.2s,.4s;
-   transform:translateY(-3px);
-   box-shadow:0 26px 50px -22px var(--shadow-2),0 2px 6px var(--shadow)}
+  #hub-liste:not(.edition) :is(.bw,.bento-carte){transition:box-shadow .5s,border-color .2s,background-color .4s}
+  #hub-liste:not(.edition) :is(.bw,.bento-carte).survol{transition-duration:.18s,.2s,.4s;
+   box-shadow:0 10px 24px -14px var(--shadow-2)}
   #hub-liste:not(.edition) :is(.bw,.bento-carte)::after{content:"";position:absolute;inset:0;border-radius:inherit;
    pointer-events:none;z-index:2;opacity:0;transition:opacity .4s;
    background:radial-gradient(420px circle at var(--mx,50%) var(--my,50%),rgba(255,255,255,.06),transparent 65%)}
