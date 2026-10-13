@@ -11527,6 +11527,75 @@ def test_le_panneau_compresse_sans_exposer_le_jeton(client):
     assert "Content-Encoding" not in client.get("/").headers
 
 
+def test_le_script_du_panneau_part_compresse_meme_avec_sa_version(client):
+    """Vecu (test de charge) : le navigateur charge /panneau.js?v=<empreinte>,
+    et compresser() saute toute requete a parametres (parade a BREACH) : le
+    script partait en clair, 269 Ko au lieu de 87. Sans ?v=, il etait
+    recompresse a chaque requete (12 ms). Il est compresse une fois, au
+    demarrage : il ne porte aucun secret et ne recopie rien de la requete."""
+    import gzip as gz
+    client.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    for adresse in ("/panneau.js?v=" + app.PANNEAU_JS_VERSION, "/panneau.js"):
+        r = client.get(adresse, headers={"Accept-Encoding": "gzip, deflate, br"})
+        assert r.status_code == 200, adresse
+        assert r.headers.get("Content-Encoding") == "gzip", adresse
+        assert "Accept-Encoding" in r.headers.get("Vary", "")
+        assert gz.decompress(r.data).decode("utf-8") == app.PANNEAU_JS
+        assert r.data == app.PANNEAU_JS_GZIP, "les octets compresses au demarrage, pas recompresses"
+    assert len(app.PANNEAU_JS_GZIP) < len(app.PANNEAU_JS.encode()) / 2
+    # Sans gzip annonce : le script en clair.
+    r = client.get("/panneau.js?v=" + app.PANNEAU_JS_VERSION)
+    assert "Content-Encoding" not in r.headers and r.get_data(as_text=True) == app.PANNEAU_JS
+    # La parade a BREACH tient toujours pour ce qui porte un secret : la page
+    # (et son jeton) n'est jamais compressee quand la requete a des
+    # parametres.
+    r = client.get("/?x=1", headers={"Accept-Encoding": "gzip"})
+    assert "Content-Encoding" not in r.headers
+    # Et le script ne porte toujours aucune valeur de session : le jeton de
+    # la session n'y est pas.
+    with client.session_transaction() as sess:
+        jeton = sess.get("jeton")
+    assert jeton and jeton not in app.PANNEAU_JS and "__JETON__" not in app.PANNEAU_JS
+
+
+def test_une_liste_ne_releve_les_ports_qu_une_fois(client, monkeypatch):
+    """Vecu (test de charge) : psutil.net_connections() passe en revue tout le
+    conteneur. /api/mes-apps le faisait trois fois par appel, /api/apps une
+    fois par application, next_port une fois par port essaye : 96 %
+    du temps du hub, qui tombait de 46 a 11 requetes par seconde des dix
+    clients. Une liste fait un releve, une tuile de service aucun."""
+    appels = []
+    vrai = app.psutil.net_connections
+    def compte(*a, **k):
+        appels.append(1)
+        return vrai(*a, **k)
+    monkeypatch.setattr(app.psutil, "net_connections", compte)
+    monkeypatch.setattr(app, "is_running", lambda n: False)
+    app.save({f"p{i}": {"path": f"/w/p{i}", "command": "x", "port": 9101 + i, "enabled": False}
+              for i in range(6)})
+    client.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    appels.clear()
+    assert client.get("/api/mes-apps").status_code == 200
+    assert len(appels) == 0, "les tuiles de service ne relevent rien"
+    assert client.get("/api/apps").status_code == 200
+    assert len(appels) == 1, f"un releve pour toute la liste, pas {len(appels)}"
+    appels.clear()
+    assert app.next_port(app.load()) is not None
+    assert len(appels) == 1, "un releve neuf pour toute la plage de ports"
+
+
+def test_le_panneau_accepte_plus_de_cent_connexions():
+    """Vecu (test de charge) : waitress refuse au-dela de 100 connexions
+    ouvertes, et une connexion inactive reste ouverte jusqu'a 600 s. Des 100
+    a 200 clients, des requetes de 12 s sur tous les ecrans, healthcheck
+    compris. Mille par defaut, reglable."""
+    src = _lire_source(os.path.join(DOSSIER_PANNEAU, "app", "app.py"))
+    assert 'WSGI_CONNEXIONS = int(os.environ.get("APP_MANAGER_CONNEXIONS", "1000"))' in src
+    serveur = src.split("def servir(port):")[1].split("\ndef ")[0]
+    assert "connection_limit=WSGI_CONNEXIONS" in serveur
+    assert app.WSGI_CONNEXIONS >= 1000
+
+
 def test_les_erreurs_du_navigateur_arrivent_dans_les_journaux(client, capsys):
     client.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     r = client.post("/api/erreur-navigateur", json={
