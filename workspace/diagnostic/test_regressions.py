@@ -15660,8 +15660,30 @@ def test_l_application_ne_tourne_pas_sur_un_telephone():
     theme = _page_panneau("theme.css")
     assert "a-redresser" not in theme
     assert "html.mode-app.contre-rotation body{" in theme
-    # Le manifeste laisse tourner : c'est la tablette qui en a besoin.
-    assert '"orientation": "any"' in _page_panneau("app.py")
+    # Le manifeste : portrait au telephone, libre ailleurs (voir
+    # test_le_manifeste_demande_le_portrait_au_telephone_seulement).
+    assert "est_un_telephone(request.headers.get(\"User-Agent\"))" in _page_panneau("app.py")
+
+
+def test_le_manifeste_demande_le_portrait_au_telephone_seulement(client):
+    """Vecu : « je ne veux pas que la rotation soit autorisee tout court ».
+    Le telephone recoit un manifeste en portrait (Android le verrouille) ; la
+    tablette et l'ordinateur gardent l'orientation libre, ils se tiennent
+    dans les deux sens. La reponse varie selon l'appareil : un cache ne doit
+    pas servir l'une a l'autre."""
+    agents = {
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15": "portrait",
+        "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36": "portrait",
+        "Mozilla/5.0 (Linux; Android 14; SM-X710) AppleWebKit/537.36 Chrome/126 Safari/537.36": "any",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15": "any",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/126 Safari/537.36": "any",
+        "": "any",
+    }
+    for agent, attendu in agents.items():
+        r = client.get("/manifest.webmanifest", headers={"User-Agent": agent})
+        assert r.status_code == 200
+        assert json.loads(r.get_data(as_text=True))["orientation"] == attendu, agent
+        assert "User-Agent" in r.headers.get("Vary", ""), "la reponse depend de l'appareil"
 
 
 def test_une_application_ouverte_dans_le_panneau_installe_se_comporte_en_app(hub):

@@ -146,8 +146,11 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
     permet pas de verrouiller une page), la page tourne en sens inverse quand on couche le téléphone et
     reste verticale, mise en page comprise. Elle garde alors sa place et sa hauteur du portrait (iOS
     masque la barre d'état en paysage : la page ne remonte plus sous l'encoche), et rien ne glisse
-    pendant le quart de tour. L'animation de rotation d'iOS elle-même reste visible un instant : une
-    page web ne peut pas l'empêcher. La tablette, l'ordinateur et le site web tournent librement,
+    pendant le quart de tour. Le manifeste demande aussi le portrait au téléphone (et laisse tourner
+    la tablette et l'ordinateur) : il compte à l'installation, il faut donc rajouter l'icône à
+    l'écran d'accueil. Si iOS l'ignore, son animation de rotation reste visible un instant : une page
+    web ne peut pas l'empêcher, seul le verrou d'orientation de l'iPhone (Centre de contrôle) la
+    supprime. La tablette, l'ordinateur et le site web tournent librement,
     tout comme les applications du hub ouvertes dans CodeLab.
   - **Barre d'état et barre de geste des applications du hub** : elles prennent la couleur réellement
     affichée en haut et en bas de l'application (comme Safari), et la suivent au défilement : plus de
