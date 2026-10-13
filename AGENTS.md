@@ -81,7 +81,7 @@ modification touche une case de gauche, vérifie chaque point de droite.
 | Si tu modifies… | Alors… |
 |---|---|
 | **`theme.css`** | Il est servi aux applications (`/theme.css`, liste `ROUTES_APPLICATIONS`) et repris dans `dagster/proxy/mailpit-ui/`. Une variable renommée casse leur affichage. Les seuils de largeur sont **760** et **1180 px**, écrits en chiffres (une variable CSS ne vaut pas dans une media query), et les mêmes partout : `theme.css`, `dashboard.html`, `environnement-app.js` (`appareil()`) et `/ouvrir.html`. |
-| **`mode.js`** | Il est chargé **avant tout affichage** par `dashboard.html`, `login.html` et `messages.html`, et il remplace des fonctions globales en mode application sur téléphone (`innerWidth`, `matchMedia`, `getBoundingClientRect`, `clientX`…, voir « PAS DE ROTATION »). Les tests découpent le fichier sur les marqueurs `(function(){`, `})();` et `if(!app) return;` : n'écris pas `(function(){` ailleurs dans le bloc (écris `function(e){`). |
+| **`mode.js`** | Il est chargé **avant tout affichage** par `dashboard.html`, `login.html` et `messages.html`, et il verrouille le portrait sur un téléphone Android (voir « PAS DE ROTATION »). Il ne retourne plus la page sur iPhone : la contre-rotation a été retirée à la demande de l'utilisateur, ne la remets pas. Les tests découpent le fichier sur les marqueurs `(function(){`, `})();` et `if(!app) return;` : n'écris pas `(function(){` ailleurs dans le bloc (écris `function(e){`). |
 | **`environnement-app.js`** | Le proxy le glisse **dans une balise `<script>` de pages qu'on ne contrôle pas**. Quatre contraintes en découlent. Pas de `</` dans le fichier, commentaires compris : il fermerait la balise. Un seul `__PANNEAU__`, remplacé par l'origine du panneau. Du **ES5**, puisqu'il tourne avant tout, sur n'importe quel navigateur. Et il ne doit **jamais** casser l'application : tout ce qui peut échouer passe par `try`, et une CSP stricte de l'application le bloque sans rien casser. Il simule iOS pour une application encadrée ; toute nouvelle simulation est documentée dans `dev/AGENTS.md` (« Ce que le hub te dit »). |
 | **`ouvrir.html`** (servi par `ouvrir_dans_le_panneau`, `app.py`) | C'est une page à marqueurs (`__TITRE__`, `__ICONE__`, `__CIBLE__`, `__ORIGINE__`), remplie **en un seul passage**, chaque valeur étant échappée pour son contexte. N'écris pas de marqueur ailleurs, commentaires compris. Elle dialogue avec `environnement-app.js` par `postMessage`. **Les deux côtés vérifient l'origine exacte** (`e.origin !== origine`, `e.origin !== PANNEAU`) et valident chaque valeur reçue (expression rationnelle des couleurs). Son `frame-src` vient de `cadres_permis()` : ne l'élargis jamais à `*`. |
 | **`panneau/*.js`** | Les modules s'assemblent en UN script, dans l'ordre de `PANNEAU_MODULES` (`app.py`) : une seule portée, et un nouveau fichier n'est servi que s'il est ajouté à la liste (un test le vérifie). Chaque module s'analyse seul : une frontière ne coupe jamais une fonction. Le script est le même pour toutes les sessions et se met en cache : aucune valeur propre à la session n'y entre. Elles passent par `window.CODELAB_PAGE`, que `page_du_panneau` écrit dans la page avec `_json_dans_un_script` (« < » échappé). Les tests le lisent remis en ligne dans la page (`_page_panneau`, `_page_servie`). |
@@ -158,8 +158,9 @@ rapporte le cas vécu.
 - **En mode application** :
   - ni zoom, ni rebond, ni barre de défilement visible ;
   - la barre d'état prend la couleur du bandeau ;
-  - sur téléphone, l'affichage reste vertical. Android le verrouille ; sur iPhone, une
-    contre-rotation s'en charge (voir `mode.js`) ;
+  - sur téléphone, l'affichage reste vertical, par deux verrous seulement : le manifeste en
+    portrait (`est_un_telephone`, `app.py`) et `screen.orientation.lock` sur Android. Sur iPhone,
+    c'est le verrou d'orientation du Centre de contrôle ;
   - les applications du hub, encadrées par `/ouvrir.html`, reçoivent la simulation iOS
     d'`environnement-app.js`.
 - **Au doigt, pas de survol** : ce qui n'apparaît qu'au survol a un autre chemin

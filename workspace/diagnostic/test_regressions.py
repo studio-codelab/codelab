@@ -15604,33 +15604,6 @@ def test_hors_ligne_l_application_s_ouvre_sur_une_page_de_reserve(hub):
     assert "const RESERVE = ['/hors-ligne.html'];" in code
 
 
-def test_la_page_redressee_garde_sa_place_du_portrait():
-    """Vecu (video d'un iPhone) : « le blocage vertical fait quelque chose de
-    bizarre ». En paysage, iOS masque la barre d'etat et donne a la page
-    toute la longueur de l'ecran : redressee, la page remontait d'environ
-    55 px sous l'encoche, puis redescendait au retour. Elle garde desormais
-    la hauteur et la place du portrait (simule dans Chromium : 430 x 873 en
-    portrait et dans les deux sens du paysage, 59 px de retrait, appuis
-    reels sur les tuiles justes)."""
-    mode = _page_panneau("mode.js").split("(function(){")[1].split("})();")[0]
-    apres = mode.split("if(!app) return;")[1]
-    # La hauteur du portrait, retenue (et gardee d'une ouverture a l'autre,
-    # pour une application ouverte d'emblee en paysage).
-    assert "localStorage.setItem(CLE_PORTRAIT" in apres and "localStorage.getItem(CLE_PORTRAIT)" in apres
-    # Le retrait entre partout ou l'ecran et la page se convertissent : sans
-    # lui, un doigt tomberait 59 px a cote de ce qu'il vise.
-    assert "'height', (W - decale) + 'px'" in apres
-    assert "'translate(' + decale + 'px,' + H + 'px) rotate(-90deg)'" in apres
-    assert "'translate(' + (W - decale) + 'px,0) rotate(90deg)'" in apres
-    assert "X - decale" in apres and "y + decale" in apres and "r.left - decale" in apres
-    assert "vraiW() - decale : vraiH()" in apres, "innerHeight vaut la hauteur de la page redressee"
-    # Rien ne glisse pendant le quart de tour, sans rejouer les animations.
-    assert "html.classList.add('pivote')" in apres
-    theme = _page_panneau("theme.css")
-    regle = theme.split("html.telephone.pivote *,")[1].split("}")[0]
-    assert "transition:none!important" in regle and "animation" not in regle
-
-
 def test_le_service_worker_n_existe_qu_en_mode_application():
     mode = _page_panneau("mode.js").split("(function(){")[1].split("})();")[0]
     avant, apres = mode.split("if(!app) return;")
@@ -15639,27 +15612,26 @@ def test_le_service_worker_n_existe_qu_en_mode_application():
 
 
 def test_l_application_ne_tourne_pas_sur_un_telephone():
+    """Vecu : « je ne veux pas que la rotation soit autorisee tout court ».
+    Deux verrous et rien d'autre : le manifeste en portrait au telephone, et
+    screen.orientation.lock sur Android. La contre-rotation (la page tournee
+    en sens inverse sur iPhone) est retiree : iOS jouait d'abord sa propre
+    animation, on voyait la page tourner puis revenir."""
     mode = _page_panneau("mode.js").split("(function(){")[1].split("})();")[0]
     avant, apres = mode.split("if(!app) return;")
     # En mode application seulement, et sur un telephone seulement : le petit
     # cote de l'ECRAN, au doigt. La tablette et l'ordinateur tournent.
-    assert "lock('portrait')" not in avant and "a-redresser" not in avant
+    assert "lock('portrait')" not in avant
     assert "Math.min(screen.width, screen.height) < 600" in apres
     assert "matchMedia('(pointer: coarse)')" in apres
-    assert "o.lock('portrait').catch(function(e){})" in apres
-    # Le sens de l'appareil, jamais la hauteur de la fenetre : le clavier
-    # d'Android rendrait la page « en paysage » sans rien tourner.
-    assert "innerHeight" not in apres.split("var lireSens")[1].split("};")[0]
-    # iOS ne verrouille pas : la page tourne en sens inverse, et ce qu'elle
-    # lit de l'ecran est redresse (mise en page, mesures, doigts).
-    assert "a-redresser" not in apres and "html.classList.toggle('contre-rotation', !!sens)" in apres
-    for redresse in ("permuterMedia(r.media.mediaText)", "'innerWidth'", "window.matchMedia = function(q)",
-                     "Element.prototype.getBoundingClientRect = function()", "document.elementFromPoint = function(x, y)",
-                     "'clientX'", "safe-area-inset-", "rotate(-90deg)", "rotate(90deg)"):
-        assert redresse in apres, redresse
+    assert "if(telephone && o && o.lock) o.lock('portrait').catch(function(e){})" in apres
+    # Plus rien ne retourne la page ni ne redresse l'ecran.
+    for retire in ("contre-rotation", "rotate(", "Object.defineProperty(window, 'innerWidth'",
+                   "window.matchMedia = function", "Element.prototype.getBoundingClientRect =",
+                   "document.elementFromPoint =", "'pivote'"):
+        assert retire not in apres, retire
     theme = _page_panneau("theme.css")
-    assert "a-redresser" not in theme
-    assert "html.mode-app.contre-rotation body{" in theme
+    assert "contre-rotation" not in theme and "pivote" not in theme
     # Le manifeste : portrait au telephone, libre ailleurs (voir
     # test_le_manifeste_demande_le_portrait_au_telephone_seulement).
     assert "est_un_telephone(request.headers.get(\"User-Agent\"))" in _page_panneau("app.py")

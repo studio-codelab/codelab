@@ -373,11 +373,3 @@ html.mode-app :is(input,textarea,select,[contenteditable],pre,code,.selectionnab
  -webkit-user-select:text;user-select:text;-webkit-touch-callout:default}
 /* Un champ de moins de 16 px fait zoomer iOS a la saisie. */
 html.mode-app :is(input,textarea,select){font-size:max(16px,1em)}
-/* PAS DE ROTATION SUR TELEPHONE (classe « contre-rotation », posee par
-   mode.js quand un iPhone en mode application est tenu en paysage : iOS ne
-   sait pas verrouiller). La page tourne d'un quart de tour en sens inverse et
-   reste verticale ; sa taille et son sens sont poses par mode.js. */
-html.mode-app.contre-rotation{overflow:hidden;background:var(--bg)}
-html.mode-app.contre-rotation body{position:fixed;top:0;left:0;margin:0;transform-origin:0 0;overflow:hidden}
-/* Pendant le quart de tour (classe « pivote », 0,7 s), rien ne glisse. */
-html.telephone.pivote *,html.telephone.pivote *::before,html.telephone.pivote *::after{transition:none!important}
