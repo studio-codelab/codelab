@@ -216,6 +216,17 @@ const $=i=>document.getElementById(i), hide=i=>$(i).classList.remove("show");
    page entiere (theme.css). A la souris, la page, comme d'habitude. */
 const DEFILE_INTERNE=matchMedia('(pointer:coarse)');
 const defileur=()=>DEFILE_INTERNE.matches ? $('defile') : document.scrollingElement;
+/* La page a-t-elle quitte son haut ? Le bandeau se fond alors sur ce qui
+   passe dessous (.topbar::before, dashboard.html). Seul le defilement
+   vertical de la page compte : la mosaique qui glisse de cote, une liste
+   interieure qui defile, ne touchent pas au bandeau. */
+function majPageDefilee(){
+  document.documentElement.classList.toggle('page-defilee', defileur().scrollTop > 2);
+}
+addEventListener('scroll', e=>{
+  const t = e.target === document ? document.scrollingElement : e.target;
+  if(t === defileur()) majPageDefilee();
+}, {capture:true, passive:true});
 /* Echappe le TEXTE et les VALEURS D'ATTRIBUT, et rien d'autre.
    L'apostrophe est ajoutee pour les attributs ecrits entre apostrophes.
 

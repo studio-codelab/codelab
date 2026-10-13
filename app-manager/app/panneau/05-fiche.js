@@ -189,7 +189,7 @@ function peindreFiche(){
       + "ni la mémoire d'un autre conteneur."
     : 'Sur les deux dernières minutes environ, relevé toutes les 5 secondes.';
   peindreCauseFiche(a);
-  $('fa-icone').src=icone(a.name);
+  poserSource($('fa-icone'), icone(a.name));
   $('fa-nom').textContent=a.name;
   $('fa-sous').textContent=a.description || 'Aucune description';
   const [cl,txt]=etatApp(a);

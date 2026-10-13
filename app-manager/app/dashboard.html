@@ -256,6 +256,25 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
 .carte-legende i.n2{background:color-mix(in srgb,var(--accent) 45%,transparent)}
 .carte-legende i.n3{background:color-mix(in srgb,var(--accent) 72%,transparent)}
 .carte-legende i.n4{background:var(--accent)}
+/* LE DETAIL D'UNE CASE, au survol ou a l'appui (voir montrerBulleCarte) : le
+   jour, le total, puis le detail par utilisateur et par application, en
+   chiffres. En position fixe :
+   la carte coupe ce qui deborde. La case pointee se cerne, pour qu'on voie
+   de quel jour parle la bulle. */
+.carte-case.pointee{outline:2px solid var(--txt);outline-offset:1px}
+.carte-bulle{position:fixed;z-index:60;display:flex;flex-direction:column;gap:4px;min-width:190px;max-width:min(280px,calc(100vw - 16px));
+ padding:10px 12px;border-radius:var(--r-s);background:var(--surface);border:1px solid var(--line2);
+ box-shadow:0 10px 24px var(--shadow-2);font-size:12px;pointer-events:none;font-variant-numeric:tabular-nums}
+.carte-bulle[hidden]{display:none}
+.carte-bulle b{font-size:12.5px}
+.carte-bulle b::first-letter{text-transform:uppercase}
+.carte-bulle .cb-total,.carte-bulle .cb-vide{color:var(--dim)}
+.carte-bulle .cb-titre{margin-top:6px;font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--dim2)}
+.carte-bulle .cb-liste{display:flex;flex-direction:column;gap:3px}
+.carte-bulle .cb-ligne{display:flex;align-items:baseline;gap:12px}
+.carte-bulle .cb-nom{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.carte-bulle .cb-n{font-weight:700}
+.carte-bulle .cb-reste{color:var(--dim)}
 
 /* ------------------------------ cartes ------------------------------ */
 .card{background:var(--surface);border:1px solid var(--line)}
@@ -1271,7 +1290,25 @@ table.tbl-journal{min-width:560px}
    entre deux zones, 32 ; le bord d'une grande carte, 32 (24 au telephone).
    ===================================================================== */
 body{letter-spacing:-.01em}
-.topbar{height:68px;padding:0 28px;background:var(--bg);border-bottom:0}
+.topbar{height:68px;padding:0 28px;background:transparent;border-bottom:0}
+/* LE BANDEAU FONDU. Vecu : « le header doit etre fondu lorsque je scroll en
+   vertical, et rester au-dessus des apps ». Un bandeau opaque coupait les
+   tuiles net, a la regle. Le voile est un calque sous le bandeau (::before,
+   z-index -1 dans son contexte d'empilement) : le fond de la page, en partie
+   transparent, et un flou de ce qui passe dessous ; il deborde de 28 px et
+   s'efface vers le bas (mask-image), si bien qu'une tuile s'estompe au lieu
+   d'etre tranchee. Il n'apparait que la page defilee (classe page-defilee,
+   posee par 00-socle.js) : en haut de page, rien ne passe dessous, et un
+   flou sous le bandeau voilerait le debut du contenu.
+   Le bandeau lui-meme reste transparent : mode.js lit sa couleur pour la
+   barre d'etat, et retombe alors sur celle du fond -- la meme, mais opaque.
+   Une couleur semi-transparente y donnerait une barre d'etat delavee. */
+.topbar::before{content:"";position:absolute;inset:0 0 -28px;z-index:-1;pointer-events:none;
+ background:color-mix(in srgb,var(--bg) 82%,transparent);
+ -webkit-backdrop-filter:blur(16px) saturate(1.4);backdrop-filter:blur(16px) saturate(1.4);
+ -webkit-mask-image:linear-gradient(#000 calc(100% - 40px),transparent);mask-image:linear-gradient(#000 calc(100% - 40px),transparent);
+ opacity:0;transition:opacity .2s}
+:root.page-defilee .topbar::before{opacity:1}
 .topbar-brand img{width:38px;height:38px;border-radius:12px}
 .topbar-brand b{font-size:18px;font-weight:800}
 .topbar-brand:hover{background:none}
