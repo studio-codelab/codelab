@@ -1040,7 +1040,7 @@ TITRES_PAR_DEFAUT = {DAGSTER_NOM: "Dagster", DIAGNOSTIC_NOM: "Diagnostic",
 # Les descriptions des applications par defaut tiennent ENTIERES sur leur
 # tuile du hub (DESCRIPTION_VISIBLE dans dashboard.html, environ 45
 # caracteres sur deux lignes) : 40 au plus, verifie par les tests.
-DIAGNOSTIC_DESCRIPTION = "La santé de l'installation, en direct."
+DIAGNOSTIC_DESCRIPTION = "L'état de santé de CodeLab"
 # Les descriptions qu'une version precedente a enregistrees : reconnues, et
 # remplacees par la courte (une description reecrite a la main est gardee).
 DIAGNOSTIC_DESCRIPTIONS_ANCIENNES = (
