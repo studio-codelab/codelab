@@ -146,6 +146,7 @@ le panneau y lance les applications, Dagster y charge les `definitions.py`.
 |---|---|
 | [`FONCTIONNALITES.md`](FONCTIONNALITES.md) | toutes les fonctionnalités, et où elles sont détaillées |
 | [`SECURITE.md`](SECURITE.md) | ce que CodeLab garantit, comment, ses limites ; la liste de mise en production |
+| [`INCIDENTS.md`](INCIDENTS.md) | que faire si le panneau ou le serveur tombe, un compte est piraté, le disque est plein ; restaurer |
 | [`dev/README.md`](dev/README.md) | le poste de développement : SSH, VS Code, `codelab`, git, Codex |
 | [`dev/AGENTS.md`](dev/AGENTS.md) | les règles qu'un projet doit suivre pour s'intégrer au hub ; lu par les agents de code |
 | [`workspace/README.md`](workspace/README.md) | anatomie d'un projet, configuration, base, dépendances |

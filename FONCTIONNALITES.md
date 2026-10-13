@@ -324,6 +324,9 @@ Détails : [`SECURITE.md`](SECURITE.md) et [`app-manager/README.md`](app-manager
   chiffres : le jour en toutes lettres, le total, puis les ouvertures **par utilisateur** et **par
   application**, de la plus grande à la plus petite (cinq lignes, puis « N autres »). Les visiteurs
   sans compte apparaissent comme « Visiteur anonyme ».
+- **Durée de conservation du journal** (*Paramètres › Sécurité*) : 3, 6, 12 (par défaut) ou 24 mois,
+  ou sans limite. Ce qui dépasse s'efface chaque jour, ici et dans Postgres ; raccourcir la durée
+  demande confirmation et efface tout de suite.
 - **Copie de l'historique dans Postgres** (base `codelab`) pour les requêtes longues.
 
 ## 4. Mails et alertes

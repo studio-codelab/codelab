@@ -68,8 +68,9 @@ Ce qu'un agent ne fait **jamais** sans demande explicite :
 
 Documentation de référence : [`README.md`](README.md) (installation),
 [`FONCTIONNALITES.md`](FONCTIONNALITES.md) (ce que voit l'utilisateur),
-[`SECURITE.md`](SECURITE.md) (garanties et **règles à ne jamais casser**), et le `README.md` de
-chaque service.
+[`SECURITE.md`](SECURITE.md) (garanties et **règles à ne jamais casser**),
+[`INCIDENTS.md`](INCIDENTS.md) (que faire en cas de panne, chaque commande vérifiée), et le
+`README.md` de chaque service.
 
 ---
 
@@ -305,6 +306,7 @@ Mets à jour dans le même commit :
 | Si tu changes… | Mets à jour |
 |---|---|
 | ce que voit ou fait l'utilisateur | `FONCTIONNALITES.md` |
+| un chemin, un nom de conteneur, une commande de dépannage ou de restauration | `INCIDENTS.md` |
 | une garantie, un contrôle, une exposition | `SECURITE.md` (et une règle numérotée si c'est un invariant) |
 | un fichier, une route, une variable d'environnement, un volume | le `README.md` du service |
 | ce qu'une application reçoit du hub (environnement, simulation iOS, couleurs, bords) | `dev/AGENTS.md` |

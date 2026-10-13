@@ -109,7 +109,7 @@ développement l'ont.
 
 | Donnée | Durée |
 |---|---|
-| Journal des accès local | 50 000 derniers événements ; Postgres garde tout |
+| Journal des accès (local et Postgres) | 12 mois par défaut, réglable (3, 6, 12, 24 mois ou sans limite, *Paramètres › Sécurité*) ; purgé chaque jour, et dès que la durée change. Le fichier local garde en plus au plus 50 000 événements |
 | Messages à l'administrateur | 5 000 derniers |
 | Mails dans Mailpit | 500 derniers, un mois au plus |
 | Sauvegardes quotidiennes (bases, panneau) | 7 par base et pour le panneau |
@@ -199,7 +199,8 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 ## Surveillance
 
 - **Journal des accès** : connexions, refus, ouvertures d'applications, changements de compte, avec
-  l'adresse IP. Une carte de chaleur montre l'activité sur l'année.
+  l'adresse IP. Une carte de chaleur montre l'activité sur l'année. Une adresse IP est une donnée
+  personnelle : le journal ne la garde que la durée choisie (voir *Conservation*).
 - **Alertes par mail** :
   - une application tombée qui ne redémarre plus, puis son retour ;
   - une connexion administrateur depuis une adresse inconnue ;
@@ -299,6 +300,8 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 - [ ] Sauvegardes copiées ailleurs (`rsync` du dossier `sauvegardes/`).
 - [ ] Ports `3000`, `8025` et `2222` non publiés sur Internet.
 - [ ] Diagnostic au vert, et bilan de sécurité lu.
+- [ ] [`INCIDENTS.md`](INCIDENTS.md) lu une fois, au calme : `credentials.env` et les sauvegardes
+      sont bien là où il dit de les chercher.
 
 ## Signaler une faille
 

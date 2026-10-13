@@ -3030,6 +3030,33 @@ a.pj:hover{border-color:var(--accent)}
         onchange="sgCopieExterne(this.checked)"> Je copie déjà ce dossier ailleurs, par mes propres moyens</label>
     </div>
   </div>
+
+  <!-- LA CONSERVATION DU JOURNAL. Le journal des acces note les adresses IP,
+       des donnees personnelles : il ne les garde que le temps choisi ici, en
+       local comme dans Postgres (purge chaque jour, et aussitot le reglage
+       change). Administrateur seulement. -->
+  <div class="zone" id="zone-conservation" hidden>
+    <div class="zone-title">Journal des accès</div>
+    <div class="card settings-card sans-pli">
+      <div class="card-top"><div class="card-name">
+        <b>Durée de conservation</b>
+        <div class="path">Les connexions et ouvertures, avec leur adresse IP, s'effacent passé ce délai.</div>
+      </div></div>
+      <div class="field" style="margin-top:12px">
+        <label for="cj-mois">Garder le journal</label>
+        <select id="cj-mois" onchange="cjChanger(this)">
+          <option value="3">3 mois</option>
+          <option value="6">6 mois</option>
+          <option value="12">12 mois (recommandé)</option>
+          <option value="24">24 mois</option>
+          <option value="0">Sans limite</option>
+        </select>
+        <div class="hint">Une adresse IP est une donnée personnelle : le RGPD demande de ne pas la
+          garder plus longtemps que nécessaire. Les sauvegardes gardent le journal du jour où elles
+          ont été faites.</div>
+      </div>
+    </div>
+  </div>
   </div>
 
   <!-- SERVEUR : UNE SEULE CARTE. Trois cartes (proxy et HTTPS, VPS, adresse

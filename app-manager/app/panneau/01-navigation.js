@@ -352,8 +352,19 @@ function dlHabiller(select){
     }
   });
   /* Le script remplit souvent les options apres coup, ou pose .value a la
-     main : l'etiquette doit suivre sans que chaque appel ait a y penser. */
+     main : l'etiquette doit suivre sans que chaque appel ait a y penser.
+     Les options, par l'observateur ; la valeur, par ses deux proprietes,
+     redefinies sur CE select (le navigateur ne signale pas un .value pose
+     par le script : ni « change », ni mutation).
+     Vecu : la duree de conservation du journal, reglee a 12 mois, affichait
+     « 3 mois » -- la premiere option -- tant qu'on n'ouvrait pas la liste. */
   new MutationObserver(()=>dlPeindre(enveloppe)).observe(select, {childList:true});
+  for(const nom of ['value', 'selectedIndex']){
+    const d = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, nom);
+    Object.defineProperty(select, nom, {configurable:true,
+      get(){ return d.get.call(this); },
+      set(v){ d.set.call(this, v); dlPeindre(enveloppe); }});
+  }
   select.addEventListener('change', ()=>dlPeindre(enveloppe));
   dlPeindre(enveloppe);
 }
@@ -414,6 +425,7 @@ function paramOnglet(o){
     chargerPasskeys();
     chargerAppareils();
     if(estAdmin) chargerSauvegardes();
+    if(estAdmin) chargerConservation();
     if(estAdmin) chargerSecurite();
   }
   /* La liste des applications vient du hub : on la relit, sinon le choix
