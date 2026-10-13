@@ -1037,9 +1037,15 @@ TITRES_PAR_DEFAUT = {DAGSTER_NOM: "Dagster", DIAGNOSTIC_NOM: "Diagnostic",
 # s'ecrire a la main : la fiche d'une application par defaut n'a pas de
 # formulaire. Elle est donc posee ici, et le panneau la met en place au
 # demarrage si elle manque (voir tenir_les_applications_par_defaut).
-DIAGNOSTIC_DESCRIPTION = ("État de santé de l'installation : les services se "
-                          "parlent-ils, la base répond-elle, et qu'est-ce qui "
-                          "est ouvert ?")
+# Les descriptions des applications par defaut tiennent ENTIERES sur leur
+# tuile du hub (DESCRIPTION_VISIBLE dans dashboard.html, environ 45
+# caracteres sur deux lignes) : 40 au plus, verifie par les tests.
+DIAGNOSTIC_DESCRIPTION = "La santé de l'installation, en direct."
+# Les descriptions qu'une version precedente a enregistrees : reconnues, et
+# remplacees par la courte (une description reecrite a la main est gardee).
+DIAGNOSTIC_DESCRIPTIONS_ANCIENNES = (
+    "État de santé de l'installation : les services se parlent-ils, la base "
+    "répond-elle, et qu'est-ce qui est ouvert ?",)
 
 
 def refus_action_protegee(nom, action):
@@ -1256,12 +1262,9 @@ SERVICES_MASQUABLES = frozenset({DAGSTER_NOM, MAILPIT_NOM, MESSAGERIE_NOM})
 # La phrase de la tuile Dagster, lue par les deux listes ci-dessous. Deux
 # copies divergeraient, et la tuile rangee ne se decrirait plus comme celle
 # qu'on retrouve en la remettant.
-DESCRIPTION_DAGSTER = ("Orchestration des jobs : plannings, assets, "
-                       "exécutions et journaux.")
-DESCRIPTION_MAILPIT = ("Les mails envoyés par les applications : chacun se "
-                       "relit ici, avant ou après son départ.")
-DESCRIPTION_MESSAGERIE = ("Les messages laissés depuis le hub, rangés en projets, "
-                          "en tâches et sur une feuille de route.")
+DESCRIPTION_DAGSTER = "Les jobs de données et leurs plannings."
+DESCRIPTION_MAILPIT = "Les mails envoyés par tes applications."
+DESCRIPTION_MESSAGERIE = "Les messages du hub, rangés en projets."
 
 
 def services_masques():
@@ -4940,7 +4943,7 @@ def tenir_les_applications_par_defaut():
         if not (a.get("titre") or "").strip():
             a["titre"] = TITRES_PAR_DEFAUT[nom]
             change = True
-        if nom == DIAGNOSTIC_NOM and not (a.get("description") or "").strip():
+        if nom == DIAGNOSTIC_NOM and ((a.get("description") or "").strip() in ("",) + DIAGNOSTIC_DESCRIPTIONS_ANCIENNES):
             a["description"] = DIAGNOSTIC_DESCRIPTION
             change = True
     if change:
@@ -11502,6 +11505,12 @@ def ouvrir_dans_le_panneau():
             'width:calc(100% - env(safe-area-inset-left) - env(safe-area-inset-right));'
             'height:calc(100% - env(safe-area-inset-top) - env(safe-area-inset-bottom))}'
             'iframe.plein{top:0;left:0;width:100%;height:100%}'
+            'iframe.plein~#bas{display:none}'
+            # La barre de geste (en bas) prend la couleur du bas de la page,
+            # la barre d'etat celle du haut : chacune la sienne.
+            '#bas{position:fixed;left:0;right:0;bottom:0;height:env(safe-area-inset-bottom);'
+            'background:#fff;transition:background-color .2s}'
+            'body{transition:background-color .2s}'
             '#sonde{position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) '
             'env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}'
             # LE GESTE RETOUR. En mode application, iOS n'a ni bouton ni
@@ -11516,7 +11525,7 @@ def ouvrir_dans_le_panneau():
             '</head><body><iframe name="codelab-app" src="' + esc(cible) + '" title="' + esc(titre) + '" '
             'allow="clipboard-read; clipboard-write; fullscreen"></iframe>'
             '<div id="bord" aria-hidden="true"></div><div id="fleche" aria-hidden="true">&#8592;</div>'
-            '<div id="sonde" aria-hidden="true"></div>'
+            '<div id="sonde" aria-hidden="true"></div><div id="bas" aria-hidden="true"></div>'
             '<script>(function(){'
             'var origine=' + json.dumps(origine_app) + '||location.origin;'
             'var cadre=document.querySelector("iframe"),sonde=document.getElementById("sonde"),plein=false;'
@@ -11534,16 +11543,17 @@ def ouvrir_dans_le_panneau():
             'orientation:innerWidth>innerHeight?"paysage":"portrait",'
             'theme:matchMedia("(prefers-color-scheme: dark)").matches?"sombre":"clair"},origine);}'
             # Ce que l'application annonce, accepte de SON origine seulement :
-            # qu'elle est prete (et si elle s'etend sous l'encoche), et sa
-            # couleur -- si c'en est une.
+            # qu'elle est prete (et si elle s'etend sous l'encoche), et les
+            # couleurs peintes en haut et en bas de sa page -- si c'en sont.
             'addEventListener("message",function(e){'
             'if(e.origin!==origine||!e.data)return;'
             'if(e.data.codelab==="pret"){plein=!!e.data.pleinEcran;cadre.classList.toggle("plein",plein);envoyer();return;}'
             'if(e.data.codelab!=="couleur")return;'
-            'var c=String(e.data.valeur||"");'
-            'if(!/^(#[0-9a-fA-F]{3,8}|rgba?\\([0-9.,\\s%]+\\))$/.test(c))return;'
+            'var ok=function(c){return /^(#[0-9a-fA-F]{3,8}|rgba?\\([0-9.,\\s%]+\\))$/.test(c);};'
+            'var c=String(e.data.valeur||""),cb=String(e.data.bas||c);'
+            'if(!ok(c))return;if(!ok(cb))cb=c;'
             'document.querySelector("meta[name=theme-color]").setAttribute("content",c);'
-            'document.body.style.background=c;});'
+            'document.body.style.backgroundColor=c;document.getElementById("bas").style.backgroundColor=cb;});'
             'addEventListener("resize",function(){setTimeout(envoyer,50);});'
             'matchMedia("(prefers-color-scheme: dark)").addEventListener("change",envoyer);'
             'var b=document.getElementById("bord"),f=document.getElementById("fleche"),x0=null;'

@@ -6997,6 +6997,33 @@ def test_une_application_par_defaut_ne_s_arrete_pas_a_la_main(hub_dagster):
     assert app.refus_action_protegee("site", "arrêt/redémarrage") is None
 
 
+def test_les_descriptions_par_defaut_tiennent_entieres_sur_leur_tuile():
+    """Vecu : « synthetise les descriptions des applications par defaut du
+    hub pour qu'elles soient visibles entierement. » Une tuile en montre
+    environ 45 caracteres (DESCRIPTION_VISIBLE) : 40 au plus, avec de la
+    marge pour les lettres larges."""
+    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"), encoding="utf-8").read()
+    assert "DESCRIPTION_VISIBLE=45" in page
+    for d in (app.DIAGNOSTIC_DESCRIPTION, app.DESCRIPTION_DAGSTER,
+              app.DESCRIPTION_MAILPIT, app.DESCRIPTION_MESSAGERIE):
+        assert 0 < len(d) <= 40, d
+
+
+def test_l_ancienne_description_du_diagnostic_est_remplacee(hub_dagster):
+    apps = app.load()
+    apps[app.DIAGNOSTIC_NOM] = {"path": "/w/diag", "command": "python3 app.py", "port": 9109,
+                                "enabled": True, "description": app.DIAGNOSTIC_DESCRIPTIONS_ANCIENNES[0]}
+    app.save(apps)
+    app.tenir_les_applications_par_defaut()
+    assert app.load()[app.DIAGNOSTIC_NOM]["description"] == app.DIAGNOSTIC_DESCRIPTION
+    # Une description reecrite a la main, elle, reste.
+    apps = app.load()
+    apps[app.DIAGNOSTIC_NOM]["description"] = "La mienne."
+    app.save(apps)
+    app.tenir_les_applications_par_defaut()
+    assert app.load()[app.DIAGNOSTIC_NOM]["description"] == "La mienne."
+
+
 def test_le_panneau_tient_ses_applications_par_defaut_debout(hub_dagster):
     """Le chemin qui mene a l'etat mort, et ce qui en sort.
 
