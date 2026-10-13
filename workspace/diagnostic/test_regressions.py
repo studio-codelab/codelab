@@ -15462,10 +15462,16 @@ def test_l_application_ne_tourne_pas_sur_un_telephone():
     # Le sens de l'appareil, jamais la hauteur de la fenetre : le clavier
     # d'Android rendrait la page « en paysage » sans rien tourner.
     assert "innerHeight" not in apres.split("var lireSens")[1].split("};")[0]
-    assert "html.classList.toggle('a-redresser', paysage)" in apres
+    # iOS ne verrouille pas : la page tourne en sens inverse, et ce qu'elle
+    # lit de l'ecran est redresse (mise en page, mesures, doigts).
+    assert "a-redresser" not in apres and "html.classList.toggle('contre-rotation', !!sens)" in apres
+    for redresse in ("permuterMedia(r.media.mediaText)", "'innerWidth'", "window.matchMedia = function(q)",
+                     "Element.prototype.getBoundingClientRect = function()", "document.elementFromPoint = function(x, y)",
+                     "'clientX'", "safe-area-inset-", "rotate(-90deg)", "rotate(90deg)"):
+        assert redresse in apres, redresse
     theme = _page_panneau("theme.css")
-    assert "html.mode-app.a-redresser body::after{" in theme
-    assert "html.mode-app.a-redresser body::before{" in theme
+    assert "a-redresser" not in theme
+    assert "html.mode-app.contre-rotation body{" in theme
     # Le manifeste laisse tourner : c'est la tablette qui en a besoin.
     assert '"orientation": "any"' in open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
 
