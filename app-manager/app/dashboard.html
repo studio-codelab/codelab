@@ -1620,6 +1620,8 @@ table.tbl-journal{min-width:560px}
 #sec-parametres.reglages-unifies #profil-mail{order:11}
 #sec-parametres.reglages-unifies [data-ordre="apparence"]{order:20}
 #sec-parametres.reglages-unifies #zone-apparence{order:21}
+#sec-parametres.reglages-unifies #zone-notifications{order:22}
+#sec-parametres.reglages-unifies #zone-installer{order:23}
 #sec-parametres.reglages-unifies [data-ordre="hub"]{order:30}
 #sec-parametres.reglages-unifies #zone-hub{order:31}
 #sec-parametres.reglages-unifies [data-ordre="securite"]{order:40}
@@ -2870,6 +2872,41 @@ a.pj:hover{border-color:var(--accent)}
       <div class="hint" id="mail-msg" style="display:none"></div>
       <div class="hint" id="mail-sans-smtp" style="display:none">Aucun serveur d'envoi n'est
         configuré sur ce serveur : la vérification par mail est indisponible pour le moment.</div>
+    </div>
+  </div>
+
+  <!-- LES NOTIFICATIONS DE CET APPAREIL : un interrupteur, comme Face ID.
+       Allume, le navigateur (ou l'application installee) recoit ce que le
+       panneau pousse, meme ferme. Le pourquoi, quand c'est impossible ici,
+       s'ecrit en dessous. -->
+  <div class="zone" id="zone-notifications">
+    <div class="zone-title">Notifications</div>
+    <div class="card settings-card sans-pli" id="notif-carte">
+      <div class="card-top"><div class="card-name">
+        <b id="notif-titre">Notifications</b>
+        <div class="path" id="notif-quoi">Sur cet appareil, même CodeLab fermé.</div>
+      </div>
+      <label class="interrupteur" onclick="event.stopPropagation()" title="Activer ou désactiver">
+        <input type="checkbox" id="notif-bascule" onchange="notifBasculer(this)"
+               aria-labelledby="notif-titre"><span></span></label></div>
+      <div class="hint" id="notif-empechement" style="display:none"></div>
+      <button class="btn btn-default" id="notif-essai" onclick="notifEssai(this)"
+              style="display:none;margin-top:12px;align-self:flex-start">Envoyer une notification d'essai</button>
+    </div>
+  </div>
+
+  <!-- INSTALLER CODELAB : seulement dans le navigateur (mode site web). Une
+       fois installe, l'icone de l'ecran d'accueil ouvre le mode application
+       -- et cette carte disparait. -->
+  <div class="zone" id="zone-installer" hidden>
+    <div class="zone-title">Application</div>
+    <div class="card settings-card sans-pli" id="inst-carte">
+      <div class="card-top"><div class="card-name">
+        <b>Installer CodeLab</b>
+        <div class="path">Une icône sur l'écran d'accueil ou dans le Dock : CodeLab s'ouvre en plein écran, comme une application.</div>
+      </div>
+      <button class="btn btn-primary" id="inst-bouton" onclick="installerCodelab()" style="display:none">Installer</button></div>
+      <div class="hint" id="inst-consigne" style="display:none;margin-top:12px"></div>
     </div>
   </div>
 
@@ -4236,6 +4273,7 @@ function paramOnglet(o){
       .forEach(n=>n.classList.toggle('actif', n.id==='param-compte' || n.id==='param-securite'));
     plierLesCartes();
     chargerMonCompte(); chargerHub(); chargerPasskeys(); chargerAppareils();
+    chargerNotifications(); peindreInstallation();
     $('mdp-err').style.display='none'; $('mdp-msg').style.display='none';
     if(o==='securite') setTimeout(()=>allerReglage('reglages-securite'), 0);
     return;
@@ -4263,6 +4301,7 @@ function paramOnglet(o){
        directement sur les reglages. */
     chargerHub();
     if(estAdmin){ chargerCategories(); chargerVersion(); }
+    chargerNotifications(); peindreInstallation();
     $('mdp-err').style.display='none'; $('mdp-msg').style.display='none';
   }
   if(o==='securite'){
@@ -4576,6 +4615,7 @@ function itemSuivi(m){
   </div>`;
 }
 function peindreSuivi(){
+  majPastilleIcone();
   const b=$('side-count-suivi');
   if(b){ b.textContent=mesNouveaux; b.style.display=mesNouveaux ? '' : 'none'; }
   if(!mesMessages) return;
@@ -5506,6 +5546,7 @@ function entreeDuHub(el){
 /* SOUS LE BONJOUR, LA JOURNEE EN UNE LIGNE : ce qui tourne, ce qui attend.
    Les chiffres defilent comme ceux des widgets. */
 function peindreResumeHub(){
+  majPastilleIcone();
   const r=$('hub-resume'); if(!r) return;
   const toutes=hubApps.concat(hubServices);
   if(!toutes.length){ remplir(r, ''); return; }
@@ -6832,6 +6873,125 @@ const b64urlVersOctets = s => Uint8Array.from(
   atob(s.replace(/-/g,'+').replace(/_/g,'/')), c=>c.charCodeAt(0));
 const octetsVersB64url = b => btoa(String.fromCharCode(...new Uint8Array(b)))
   .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+
+/* ---------------- notifications et installation ----------------
+   LES NOTIFICATIONS DE CET APPAREIL (Web Push). Le serveur donne sa cle
+   publique ; le navigateur s'abonne aupres de son service de notification
+   (Apple, Google, Mozilla) et rend une adresse, que le panneau garde pour
+   CE compte et CETTE session. La permission se demande DANS le geste
+   (l'interrupteur) : Safari refuse une demande qui n'en vient pas, d'ou la
+   cle chargee a l'avance. */
+let notifEtat=null;
+const surIOS = () => /iP(hone|ad|od)/.test(navigator.userAgent)
+  || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+function notifEmpechement(){
+  if(!window.isSecureContext) return "Les notifications exigent une connexion HTTPS : le navigateur les refuse en clair. Mets le TLS en place, puis reviens ici.";
+  if(!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window))
+    return surIOS() && !enModeApp
+      ? "Sur iPhone et iPad, installe d'abord CodeLab sur l'écran d'accueil (carte « Installer CodeLab »), puis active-les depuis l'icône."
+      : "Ce navigateur ne sait pas recevoir de notifications.";
+  if(Notification.permission==='denied') return "Bloquées pour ce site dans les réglages du navigateur : autorise-les, puis reviens ici.";
+  if(notifEtat && !notifEtat.disponible) return "Le serveur n'a pas de clé de chiffrement (APP_MANAGER_CHIFFREMENT_CLE) : il ne peut pas signer ses notifications.";
+  return '';
+}
+async function chargerNotifications(){
+  try{ notifEtat=await (await fetch('/api/notifications')).json(); }catch(e){ return; }
+  peindreNotifications();
+}
+function peindreNotifications(){
+  const b=$('notif-bascule'); if(!b || !notifEtat) return;
+  $('notif-quoi').textContent = estAdmin
+    ? 'Sur cet appareil : les nouveaux messages, les applications qui tombent et reviennent.'
+    : 'Sur cet appareil : l’avancement des messages que tu envoies.';
+  const pourquoi=notifEmpechement();
+  b.checked = !!notifEtat.abonne;
+  b.disabled = !notifEtat.abonne && !!pourquoi;
+  $('notif-empechement').style.display = pourquoi && !notifEtat.abonne ? 'block' : 'none';
+  $('notif-empechement').innerHTML = pourquoi ? '<b>Indisponible ici.</b> '+esc(pourquoi) : '';
+  $('notif-essai').style.display = notifEtat.abonne ? '' : 'none';
+}
+const octetsDeB64 = t => Uint8Array.from(atob(t.replace(/-/g,'+').replace(/_/g,'/') + '='.repeat((4-t.length%4)%4)), c=>c.charCodeAt(0));
+async function notifBasculer(b){
+  b.disabled=true;
+  try{
+    if(b.checked){
+      const perm=await Notification.requestPermission();
+      if(perm!=='granted'){ notifier("Notifications refusées par l'appareil.",'err'); return; }
+      const reg=await navigator.serviceWorker.register('/sw.js');
+      await navigator.serviceWorker.ready;
+      let ab=await reg.pushManager.getSubscription();
+      /* Un abonnement fait pour une autre cle (serveur reinstalle) ne
+         recevrait rien : on le remplace. */
+      const cle=octetsDeB64(notifEtat.cle);
+      const sienne=ab && ab.options && ab.options.applicationServerKey;
+      if(ab && sienne && new Uint8Array(sienne).join() !== cle.join()){ await ab.unsubscribe(); ab=null; }
+      /* Le service de notification de l'appareil (Apple, Google, Mozilla)
+         peut ne jamais repondre -- reseau filtre, navigateur sans ce service :
+         au bout de 20 s, on le dit au lieu de laisser l'interrupteur fige. */
+      ab = ab || await Promise.race([
+        reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey:cle}),
+        new Promise((_, non)=>setTimeout(()=>non(new Error('delai')), 20000))]);
+      const r=await fetch('/api/notifications/abonnement',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(ab.toJSON())});
+      if(!r.ok){ notifier(await echec(r,'Abonnement refusé.'),'err'); return; }
+      notifier('Notifications activées sur cet appareil.');
+    }else{
+      await fetch('/api/notifications/abonnement',{method:'DELETE'});
+      const reg=await navigator.serviceWorker.getRegistration();
+      const ab=reg && await reg.pushManager.getSubscription();
+      if(ab) await ab.unsubscribe().catch(()=>{});
+      notifier('Notifications coupées sur cet appareil.');
+    }
+  }catch(e){
+    notifier(e && e.message==='delai'
+      ? "Le service de notification de cet appareil ne répond pas : réessaie plus tard, ou depuis un autre réseau."
+      : "Les notifications n'ont pas pu être réglées sur cet appareil.",'err');
+  }finally{
+    await chargerNotifications();
+  }
+}
+async function notifEssai(bouton){
+  bouton.disabled=true;
+  try{
+    const r=await fetch('/api/notifications/essai',{method:'POST'});
+    notifier(r.ok ? 'Notification envoyée : elle arrive dans quelques secondes.' : await echec(r,'Envoi impossible.'), r.ok ? undefined : 'err');
+  }finally{ bouton.disabled=false; }
+}
+/* LA PASTILLE SUR L'ICONE de l'application installee (et du Dock) : ce qui
+   attend -- les messages a lire pour l'administrateur, les nouvelles d'un
+   message pour un compte. Rien la ou le navigateur ne la connait pas. */
+function majPastilleIcone(){
+  if(!('setAppBadge' in navigator)) return;
+  const n = estAdmin ? ((hubServices.find(s=>s.name==='messages')||{}).non_lues||0) : (mesNouveaux||0);
+  try{ (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(()=>{}); }catch(e){}
+}
+/* INSTALLER CODELAB, depuis le navigateur. Chrome, Edge et Android le
+   proposent eux-memes (l'evenement est garde par mode.js) ; Safari ne
+   l'expose pas : la carte dit le geste. Installe, rien a proposer. */
+function peindreInstallation(){
+  const zone=$('zone-installer'); if(!zone) return;
+  const proposee=!!window.CODELAB_INSTALLATION;
+  const safari=/Safari/.test(navigator.userAgent) && !/Chrome|Chromium|CriOS|FxiOS|EdgiOS|Edg\//.test(navigator.userAgent);
+  const consigne = proposee ? ''
+    : surIOS() ? (safari ? 'Touche le bouton Partager <b>⬆︎</b>, puis « Sur l’écran d’accueil ».'
+                         : 'Ouvre cette page dans Safari, puis Partager <b>⬆︎</b> › « Sur l’écran d’accueil ».')
+    : safari ? 'Dans la barre des menus : Fichier › « Ajouter au Dock ».'
+    : '';
+  zone.hidden = enModeApp || (!proposee && !consigne);
+  $('inst-bouton').style.display = proposee ? '' : 'none';
+  $('inst-consigne').style.display = consigne ? '' : 'none';
+  $('inst-consigne').innerHTML = consigne;
+}
+async function installerCodelab(){
+  const invite=window.CODELAB_INSTALLATION; if(!invite) return;
+  invite.prompt();
+  try{ await invite.userChoice; }catch(e){}
+  window.CODELAB_INSTALLATION=null;
+  peindreInstallation();
+}
+window.addEventListener('codelab-installable', peindreInstallation);
+window.addEventListener('appinstalled', ()=>{ window.CODELAB_INSTALLATION=null; peindreInstallation();
+  notifier('CodeLab est installé : ouvre-le depuis son icône.'); });
 
 async function chargerPasskeys(){
   let etat={}, liste={};

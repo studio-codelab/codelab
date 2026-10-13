@@ -108,7 +108,28 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
   nouveau commit dans son dépôt git. Une application jamais ouverte n'en porte pas.
 - **Thème clair, sombre ou automatique.** Les jetons de couleur vivent dans
   `app-manager/app/theme.css`, aussi servi aux applications sur `/theme.css`.
-- **Installable sur l'écran d'accueil** d'un téléphone ou d'une tablette (manifeste web et icônes fournis).
+- **Installable sur l'écran d'accueil** d'un téléphone ou d'une tablette (manifeste web et icônes fournis),
+  et comme application sur ordinateur (Chrome, Edge, Dock du Mac).
+  - **« Installer CodeLab »** (*Paramètres › Compte*, dans le navigateur seulement) : un bouton là où
+    le navigateur le propose (Chrome, Edge, Android), sinon le geste à faire (iPhone et iPad :
+    Partager › « Sur l'écran d'accueil » ; Mac : Fichier › « Ajouter au Dock »). La carte disparaît
+    une fois CodeLab installé.
+  - **Icônes** 192 et 512 px, dont une découpable par Android (« maskable ») ; **raccourcis** par appui
+    long sur l'icône : Hub, Messages, Paramètres.
+  - **Pastille sur l'icône** : les messages à lire (administrateur), les nouvelles d'un message
+    envoyé (compte utilisateur), là où l'appareil la connaît.
+- **Notifications** (*Paramètres › Compte*, un interrupteur par appareil), même CodeLab fermé :
+  - l'administrateur : un nouveau message, une application qui tombe (et ne redémarre plus), puis son
+    retour ;
+  - un compte utilisateur : l'avancement d'un message qu'il a envoyé (à l'étude, planifié, en cours,
+    fait, non retenu) ;
+  - un bouton « Envoyer une notification d'essai » ; toucher une notification ouvre la bonne page ;
+  - les mails partent toujours : la notification s'y ajoute ;
+  - chiffrées de bout en bout (standard Web Push) : Apple, Google ou Mozilla les transportent sans
+    pouvoir les lire. Aucun compte chez eux ;
+  - partout en HTTPS : Chrome, Edge, Firefox, Safari sur Mac, et sur iPhone et iPad le panneau
+    **installé** sur l'écran d'accueil (iOS 16.4 et plus). Sinon, la carte dit pourquoi ;
+  - attachées à l'appareil connecté : le déconnecter depuis *Sécurité* coupe aussi ses notifications.
 - **Comportement d'application** une fois ouvert depuis l'icône : pas de zoom (ni pince, ni double
   tape, ni zoom à la saisie), pas de rebond en bout de page, pas de surlignage au toucher ni de
   sélection de texte sur l'interface (les champs et les messages restent copiables), et la barre d'état
@@ -125,8 +146,9 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
     données). Il faut une adresse en `https` (ou `localhost`) : c'est une exigence des navigateurs.
   - **Applications ouvertes depuis le hub** : même comportement (pas de zoom, pas de rebond), la barre
     d'état prend la couleur de l'application, et un glissement depuis le bord gauche ramène au hub.
-  - **Dans le navigateur**, CodeLab reste un site, adapté au téléphone : zoom permis, pas de page de
-    réserve, applications ouvertes directement.
+  - **Dans le navigateur**, CodeLab reste un site, adapté au téléphone : zoom permis, applications
+    ouvertes directement, pas de page de réserve -- sauf une fois les notifications activées, que
+    porte le même service worker.
   - Après la mise à jour, supprimer l'icône puis la rajouter : iOS relit ces réglages à l'ajout.
 - **Ce qu'un compte utilisateur ne voit jamais** : l'état des applications (ni pastille, ni cadre
   de couleur, ni compteur ; le serveur ne l'envoie pas) et le détail des erreurs techniques (une

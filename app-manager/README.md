@@ -155,6 +155,7 @@ Une base SQLite dans `APP_MANAGER_STATE` (`/DATA/AppData/codelab/app-manager` su
 | `versions_apps`, `apps_vues`, `preferences` | dernière version connue de chaque application (déploiement, build, commit), version vue par chaque compte, disposition du hub (applications et widgets), étapes de suivi déjà vues |
 | `pieces` | captures et maquettes jointes aux messages (images et PDF, le fichier dans la base) ; supprimées avec leur message, ou au bout d'un jour si le message n'est jamais parti |
 | `appareils` | une ligne par session ouverte (compte, ouverture, dernière activité, adresse, navigateur) ; la retirer déconnecte l'appareil |
+| `abonnements_push` | une ligne par appareil abonné aux notifications (compte, session, adresse du service de notification, clés du navigateur) ; supprimée avec la session ou quand le service la dit morte |
 | `messages`, `taches`, `sous_taches`, `projets` | messages à l'administrateur (rang et projet dans `options`), tâches (ordre du planning, date prévue, durée, fin, notes), sous-tâches et projets (idée, construction, réalisé) |
 | `processus` | processus lancés, retrouvés après un redémarrage du panneau |
 | `parametres` | réglages en clair : exposition, VPS |
@@ -244,6 +245,7 @@ dans le journal du conteneur avec la méthode et la route (`docker logs codelab-
 | Santé | `GET /health` (sans session) ; `GET /api/auth-check` (sans session : 200 si la session est admin, interrogé par le proxy Dagster et Mailpit) |
 | Connexion | `GET/POST /login`, `POST /login/second-facteur`, `POST /login/second-facteur/passkey[/options]`, `POST /login/passkey[/options]`, `POST /login/inscription/passkey[/options]`, `POST /logout`, `POST /mot-de-passe/oubli`, `POST /mot-de-passe/reinitialiser` (sans session, sauf `logout`) |
 | Invitations | `GET/POST /api/invitations`, `POST /api/invitations/<id>/renvoyer`, `DELETE /api/invitations/<id>` (admin) ; `GET/POST /invitation/<jeton>`, `GET /api/invitation/<jeton>` (sans session) |
+| Notifications | `GET /api/notifications` (clé publique VAPID, cet appareil est-il abonné), `POST/DELETE /api/notifications/abonnement`, `POST /api/notifications/essai` |
 | Appareils | `GET /api/mon-compte/appareils`, `DELETE /api/mon-compte/appareils/<id>`, `POST /api/mon-compte/appareils/deconnecter-autres` ; `GET/DELETE /api/utilisateurs/<nom>/appareils` (admin) |
 | Mon compte | `GET /api/mon-compte`, `POST /api/mon-compte/email[/code\|/confirmer]`, `POST /api/compte/mot-de-passe`, `GET/POST/DELETE /api/mon-compte/passkeys[/options\|/<id>]`, `GET /api/passkeys/etat` (sans session), `GET /qr/totp.svg` |
 | Version (admin) | `GET /api/version` : le commit de l'image et sa date (aucun appel sortant) |
@@ -256,7 +258,7 @@ dans le journal du conteneur avec la méthode et la route (`docker logs codelab-
 | Projets (admin) | `GET/POST /api/projets`, `PUT/DELETE /api/projets/<id>` (supprimer renvoie ses tâches dans « Général »), `PUT /api/projets/ordre` |
 | Alertes (admin) | `GET/POST /api/alertes`, `PUT /api/alertes/application/<nom>`, `GET/POST /api/surveillance-externe` |
 | Pages | `/`, `/apercu`, `/applications[/<nom>[/<onglet>]]`, `/utilisateurs`, `/messages[/<vue>[/<id>]]` (admin ; `/demandes` y redirige), `/parametres[/<onglet>]`, `/ouvrir.app/<nom>/<chemin>`, `/deconnexion.html` ; `/espace` redirige vers `/` |
-| Ressources | `/theme.css`, `/mode.js`, `/polices/<nom>`, `/favicon.*`, `/apple-touch-icon*.png`, `/manifest.webmanifest` (sans session) ; `POST /api/erreur-navigateur` |
+| Ressources | `/theme.css`, `/mode.js`, `/icone-192.png`, `/icone-512.png`, `/icone-512-maskable.png`, `/polices/<nom>`, `/favicon.*`, `/apple-touch-icon*.png`, `/manifest.webmanifest` (sans session) ; `POST /api/erreur-navigateur` |
 | Proxy | `/<nom>/...` sur le port des applications |
 
 ## Développer, tester

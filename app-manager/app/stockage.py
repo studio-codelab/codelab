@@ -301,6 +301,23 @@ MIGRATIONS = [
     );
     CREATE INDEX appareils_compte ON appareils(compte, vue);
     """,
+    # --- version 8 : les notifications sur l'appareil (Web Push) ---
+    # Un abonnement par navigateur ou application installee, attache a la
+    # session qui l'a demande (sid) : deconnecter l'appareil coupe aussi ses
+    # notifications. id = empreinte de l'adresse d'envoi (endpoint).
+    """
+    CREATE TABLE abonnements_push (
+        id        TEXT PRIMARY KEY,
+        compte    TEXT NOT NULL,
+        sid       TEXT NOT NULL,
+        endpoint  TEXT NOT NULL,
+        p256dh    TEXT NOT NULL,
+        auth      TEXT NOT NULL,
+        cree      INTEGER NOT NULL,
+        agent     TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX abonnements_push_compte ON abonnements_push(compte);
+    """,
 ]
 
 VERSION = len(MIGRATIONS)

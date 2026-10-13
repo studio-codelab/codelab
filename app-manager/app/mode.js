@@ -44,6 +44,14 @@
      navigateur, le panneau reste un site (et Safari garde sa page d'erreur). */
   if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(function(){});
 })();
+/* L'INVITATION A INSTALLER (Chrome, Edge, Android). Le navigateur la
+   propose une fois, tot, avant que la page ait fini de se construire : elle
+   est gardee ici, et les parametres la montrent quand on y va. */
+window.addEventListener('beforeinstallprompt', function(e){
+  e.preventDefault();
+  window.CODELAB_INSTALLATION = e;
+  window.dispatchEvent(new Event('codelab-installable'));
+});
 /* La barre d'etat prend la couleur du bandeau (ou du fond), theme et style
    compris : relue au chargement et a chaque changement de theme. */
 function majBarreEtat(){
