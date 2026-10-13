@@ -808,8 +808,12 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
 .ap-carte-haut{display:flex;gap:12px;align-items:center;min-width:0}
 .ap-carte-haut img{width:44px;height:44px;border-radius:13px;flex:none}
 .ap-carte-titre{min-width:0;display:flex;flex-direction:column}
-.ap-carte-titre b{font-size:16px;font-weight:800;letter-spacing:-.02em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ap-carte-titre span{font-size:12.5px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Le nom sur deux lignes avant d'etre coupe, la description sur deux aussi :
+   un nom long n'est jamais tronque au profit de sa description. */
+.ap-carte-titre b{font-size:16px;font-weight:800;letter-spacing:-.02em;line-height:1.2;overflow:hidden;
+ display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.ap-carte-titre span{font-size:12.5px;color:var(--dim);line-height:1.35;overflow:hidden;
+ display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .ap-carte-pills{display:flex;flex-wrap:wrap;gap:6px}
 .pill.neutre{background:var(--surface2);color:var(--dim)}
 .ap-jauges{display:flex;flex-direction:column;gap:8px}
@@ -1081,6 +1085,7 @@ th[aria-sort="ascending"] .ap-th span,th[aria-sort="descending"] .ap-th span{opa
   #sec-parametres:not(.reglages-unifies) #param-onglets button.active{background:var(--surface);color:var(--txt);
    box-shadow:0 1px 3px var(--shadow-2)}
   #param-onglets .onglet-suite{display:none}
+  #param-onglets .onglet-court{display:inline}
   /* Les reglages d'un onglet : une liste groupee, un filet entre deux
      reglages, sans carte posee dans la carte ni grand blanc entre elles. */
   :root[data-style="design"] #sec-parametres:not(.reglages-unifies) .onglet-p .zone{margin:0}
@@ -1450,6 +1455,8 @@ table.tbl-journal{min-width:560px}
   :root[data-style="design"] #param-onglets button[data-p="compte"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='8' r='4'/%3E%3Cpath d='M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8'/%3E%3C/svg%3E")}
   :root[data-style="design"] #param-onglets button[data-p="securite"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z'/%3E%3Cpath d='M9 12l2 2 4-4'/%3E%3C/svg%3E")}
   :root[data-style="design"] #param-onglets button[data-p="email"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='14' rx='2'/%3E%3Cpath d='M3 7l9 6 9-6'/%3E%3C/svg%3E")}
+  :root[data-style="design"] #param-onglets button[data-p="apparence"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='4'/%3E%3Cpath d='M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4'/%3E%3C/svg%3E")}
+  :root[data-style="design"] #param-onglets button[data-p="hub"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='7' height='7' rx='2'/%3E%3Crect x='14' y='3' width='7' height='7' rx='2'/%3E%3Crect x='3' y='14' width='7' height='7' rx='2'/%3E%3Crect x='14' y='14' width='7' height='7' rx='2'/%3E%3C/svg%3E")}
   :root[data-style="design"] #param-onglets button[data-p="message"]{--icone:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12a8 8 0 0 1-11.6 7.1L4 21l1.9-5.4A8 8 0 1 1 21 12z'/%3E%3C/svg%3E")}
   :root[data-style="design"] #param-onglets button.active{background:var(--accent);color:var(--sur-accent);border:0}
   :root[data-style="design"] #sec-parametres .onglet-p.actif{grid-column:2;grid-row:2;max-width:none;border:0;
@@ -1540,6 +1547,25 @@ table.tbl-journal{min-width:560px}
 :root[data-variante="bento"] #sec-parametres .settings-card.pliable>.card-top:hover .card-name b{color:inherit}
 :root[data-variante="bento"] #sec-parametres .settings-card.pliable .chevron{transition:transform .15s ease,color .15s}
 :root[data-variante="bento"] #sec-parametres .settings-card.pliable>.card-top:hover .chevron{color:var(--accent)}
+.onglet-court{display:none}
+/* La categorie CodeLab, en tete de la liste : lue, pas modifiee. */
+.cat-ligne.cat-verrou{display:flex;align-items:flex-start;gap:10px;padding:10px 4px 12px;border-bottom:1px solid var(--line);margin-bottom:6px}
+.cat-cadenas{width:18px;height:18px;flex:none;margin-top:2px;fill:none;stroke:var(--dim);stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.cat-verrou-txt{display:flex;flex-direction:column;gap:2px;min-width:0}
+.cat-verrou-txt b{font-weight:750}
+.cat-verrou-txt span{font-size:12.5px;color:var(--dim)}
+.hint.desc-au-dela{color:var(--warn)}
+/* AU DOIGT, PAS DE SURVOL QUI RESTE. Sur un ecran tactile (l'application
+   installee surtout), :hover reste pose sur la carte qu'on vient de toucher :
+   sa tete gardait un aplat gris, comme selectionnee, jusqu'au toucher
+   suivant. Au doigt, l'aplat ne vit que le temps de l'appui. */
+@media (hover:none){
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .settings-card.pliable>.card-top:hover,
+  #sec-parametres .settings-card.pliable>.card-top:hover{background:none}
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .settings-card.pliable>.card-top:active,
+  #sec-parametres .settings-card.pliable>.card-top:active{background:var(--surface2)}
+  :root[data-variante="bento"] #sec-parametres .settings-card.pliable>.card-top:hover .chevron{color:var(--dim)}
+}
 /* LES PASTILLES D'ETAT : une seule taille, une seule forme, partout. */
 :root[data-variante="bento"] #sec-parametres .pill{border:0;padding:4px 10px;font-size:12px;font-weight:700;box-shadow:none}
 /* UN REGLAGE SEUL DANS SA CARTE (« Je copie déjà ce dossier ailleurs ») :
@@ -1555,7 +1581,9 @@ table.tbl-journal{min-width:560px}
    lignes separees par un filet. Cochee, la ligne garde son fond : c'est la
    coche d'accent, a droite, qui dit qu'elle est retenue. Six gelules
    cerclees de vert, l'une sous l'autre, faisaient une colonne de boutons. */
-#sec-parametres .choix-ligne{border-radius:12px}
+/* Pas d'arrondi : le filet entre deux lignes suivrait la courbe et se
+   relèverait aux deux bouts. */
+#sec-parametres .choix-ligne{border-radius:0}
 #sec-parametres .choix-ligne:has(>input:checked){background:none;border-color:transparent}
 #sec-parametres .choix-ligne:hover{background:var(--surface2)}
 #sec-parametres .choix-ligne:focus-within{border-color:transparent;outline:2px solid var(--accent-ring);outline-offset:-2px}
@@ -1567,12 +1595,6 @@ table.tbl-journal{min-width:560px}
  color:var(--accent);font-weight:700}
 #sec-parametres .ap-plus:not(:disabled):hover{background:none;color:var(--accent-h);text-decoration:underline}
 
-/* LES REGLAGES D'UN COMPTE UTILISATEUR : UNE PAGE, DES SECTIONS. Deux
-   onglets dans une colonne laissaient une fenetre a moitie vide, et le
-   reglage cherche etait toujours dans l'autre. Les deux onglets deviennent
-   une seule colonne (display:contents), rangee par l'ordre ci-dessous, avec
-   un sommaire en tete et un titre par section. L'administrateur garde ses
-   onglets : il en a cinq. */
 /* EN ATTENDANT LA REPONSE : la forme de ce qui arrive, pas un mot. Des
    lignes grises a la place de « Chargement… », pour que la page ne saute
    pas quand le contenu arrive. Sans animation si on l'a demande. */
@@ -1585,51 +1607,6 @@ table.tbl-journal{min-width:560px}
  background:var(--surface2);vertical-align:middle;animation:squelette 1.2s ease-in-out infinite alternate}
 @keyframes squelette{from{opacity:1}to{opacity:.45}}
 @media (prefers-reduced-motion:reduce){.squelette i,.squelette-ligne{animation:none}}
-.groupe-reglages,.reglages-sommaire{display:none}
-#sec-parametres.reglages-unifies,
-:root[data-style="design"] #sec-parametres.reglages-unifies{display:flex;flex-direction:column;
- max-width:760px;margin:6px auto 0;background:none;border:0;border-radius:0;box-shadow:none;overflow:visible;
- font-family:var(--sans);font-size:var(--t-b)}
-#sec-parametres.reglages-unifies>.toolbar,
-:root[data-style="design"] #sec-parametres.reglages-unifies>.toolbar{order:0;background:none;border:0;
- padding:0;margin:0 0 14px;justify-content:flex-start}
-:root[data-style="design"] #sec-parametres.reglages-unifies>.toolbar h2{font-size:30px;font-weight:800;letter-spacing:-.035em}
-#sec-parametres.reglages-unifies #param-onglets{display:none}
-/* Seuls Compte et Securite s'ouvrent : les onglets d'administration
-   restent fermes, meme s'ils sont dans la page. */
-#sec-parametres.reglages-unifies .onglet-p{display:none}
-#sec-parametres.reglages-unifies #param-compte,
-#sec-parametres.reglages-unifies #param-securite{display:contents}
-#sec-parametres.reglages-unifies .reglages-sommaire{order:1;display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;
- position:sticky;top:0;z-index:5;padding:8px 0;background:var(--bg)}
-#sec-parametres.reglages-unifies .reglages-sommaire button{min-height:40px;padding:0 16px;border-radius:999px;
- border:1px solid var(--line2);background:var(--surface);color:var(--txt);font:inherit;font-size:13.5px;
- font-weight:700;cursor:pointer}
-#sec-parametres.reglages-unifies .reglages-sommaire button:hover{border-color:var(--accent);color:var(--accent)}
-#sec-parametres.reglages-unifies .groupe-reglages{display:block;margin:26px 4px 10px;font-size:19px;font-weight:800;
- letter-spacing:-.025em;scroll-margin-top:72px}
-#sec-parametres.reglages-unifies .groupe-reglages small{display:block;margin-top:3px;font-size:13px;font-weight:500;
- letter-spacing:0;color:var(--dim)}
-#sec-parametres.reglages-unifies .zone-title{display:none}
-#sec-parametres.reglages-unifies .zone,
-:root[data-style="design"] #sec-parametres.reglages-unifies .onglet-p .zone{margin:0 0 10px}
-#sec-parametres.reglages-unifies .settings-card,
-:root[data-style="design"] #sec-parametres.reglages-unifies .onglet-p .settings-card{background:var(--surface);
- border:0;border-radius:var(--r-s);box-shadow:0 1px 3px var(--shadow);padding:16px 20px}
-#sec-parametres.reglages-unifies [data-ordre="profil"]{order:10}
-#sec-parametres.reglages-unifies #profil-mail{order:11}
-#sec-parametres.reglages-unifies [data-ordre="apparence"]{order:20}
-#sec-parametres.reglages-unifies #zone-apparence{order:21}
-#sec-parametres.reglages-unifies #zone-notifications{order:22}
-#sec-parametres.reglages-unifies #zone-installer{order:23}
-#sec-parametres.reglages-unifies [data-ordre="hub"]{order:30}
-#sec-parametres.reglages-unifies #zone-hub{order:31}
-#sec-parametres.reglages-unifies [data-ordre="securite"]{order:40}
-#sec-parametres.reglages-unifies #profil-mdp{order:41}
-#sec-parametres.reglages-unifies #profil-securite{order:42}
-#sec-parametres.reglages-unifies #zone-cles{order:43}
-#sec-parametres.reglages-unifies #zone-appareils{order:44}
-#sec-parametres.reglages-unifies #zone-session{order:50;margin-top:18px}
 
 /* Telephone : le menu devient la barre du bas, comme une application. */
 @media (max-width:760px){
@@ -2015,9 +1992,19 @@ a.pj:hover{border-color:var(--accent)}
 .bento-carte.off{opacity:.6}
 .bento-carte-haut{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:auto}
 .bento-carte img{width:44px;height:44px;border-radius:14px}
-.bento-carte-nom{font-size:19px;font-weight:800;letter-spacing:-.03em;line-height:1.1;
+/* LE NOM PASSE AVANT LA DESCRIPTION. Il ne cede jamais sa place (flex:none) :
+   c'est la description qui se resserre quand la tuile manque de hauteur. Un
+   nom long prend un corps plus petit plutot que d'etre coupe a deux mots. */
+.bento-carte-nom{flex:none;font-size:19px;font-weight:800;letter-spacing:-.03em;line-height:1.1;
  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.bento-carte-desc{font-size:12.5px;color:var(--dim);display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden;padding-right:30px}
+.bento-carte-nom.long{font-size:16px;letter-spacing:-.02em}
+.bento-carte-nom.tres-long{font-size:14.5px;letter-spacing:-.01em;-webkit-line-clamp:3}
+/* La description : deux lignes (une seule avant), le reste au survol. La
+   marge de droite laisse la place des « … » du menu -- qui n'existent pas au
+   doigt, ou elle est rendue au texte. */
+.bento-carte-desc{flex:0 1 auto;min-height:0;font-size:12.5px;line-height:1.35;color:var(--dim);display:-webkit-box;
+ -webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;padding-right:30px}
+@media (hover:none) and (pointer:coarse){ .bento-carte-desc{padding-right:0} }
 .bento-vide{grid-row:span 2;grid-column:span 2}
 /* NOUVELLE VERSION depuis la derniere ouverture : une etiquette sur la tuile. */
 .badge-maj{display:inline-flex;align-items:center;gap:5px;align-self:flex-start;padding:2px 9px;border-radius:999px;
@@ -2658,8 +2645,8 @@ a.pj:hover{border-color:var(--accent)}
       <div class="fset">
         <div class="fset-title">Présentation</div>
         <div class="field"><label>Description <span class="opt">facultatif</span></label>
-          <input id="e-desc" autocomplete="off" maxlength="140" placeholder="Mon site personnel">
-          <div class="hint">Une ligne, affichée sous le nom du projet dans le hub.</div></div>
+          <input id="e-desc" autocomplete="off" maxlength="140" placeholder="Mon site personnel" oninput="compterDescription(this)">
+          <div class="hint" id="e-desc-compte">Deux lignes sous le nom, dans le hub : environ 45 caractères se voient, 140 au plus.</div></div>
         <div class="field"><label>Catégorie <span class="opt">facultatif</span></label>
           <select id="e-cat"></select>
           <div class="hint">Le groupe sous lequel le projet apparaît dans le hub.</div></div>
@@ -2758,25 +2745,84 @@ a.pj:hover{border-color:var(--accent)}
        ici ne faisait que reciter leurs noms. -->
   <div class="fiche-onglets" id="param-onglets">
     <button data-p="compte" onclick="paramOnglet('compte')" class="active">Compte</button>
+    <button data-p="apparence" onclick="paramOnglet('apparence')">Apparence</button>
+    <button data-p="hub" onclick="paramOnglet('hub')"><span class="onglet-suite">Mon hub</span><span class="onglet-court">Hub</span></button>
     <button data-p="securite" onclick="paramOnglet('securite')">Sécurité</button>
     <button data-p="email" onclick="paramOnglet('email')" data-admin="1">E-mail<span class="onglet-suite"> et alertes</span></button>
   </div>
 
+  <!-- UN ONGLET PAR CATEGORIE, pour tout le monde. Le compte d'administration
+       et les comptes utilisateurs ont les memes onglets ; ceux qui ne
+       regardent que l'administrateur (E-mail et alertes) sont caches aux
+       autres, et un onglet sans rubrique visible ne s'affiche pas. -->
   <div class="onglet-p" id="param-compte">
-  <!-- UN COMPTE UTILISATEUR N'A QUE DEUX ONGLETS : une colonne d'onglets pour
-       deux entrees laissait une fenetre a moitie vide. Il a donc une seule
-       page, en sections nommees, avec un sommaire (classe reglages-unifies
-       sur #sec-parametres). Les titres et le sommaire ne servent qu'a lui. -->
-  <nav class="reglages-sommaire" aria-label="Sections des réglages">
-    <button type="button" onclick="allerReglage('reglages-profil')">Profil</button>
-    <button type="button" onclick="allerReglage('reglages-apparence')">Apparence</button>
-    <button type="button" onclick="allerReglage('reglages-hub')">Mon hub</button>
-    <button type="button" onclick="allerReglage('reglages-securite')">Connexion et sécurité</button>
-  </nav>
-  <h3 class="groupe-reglages" id="reglages-profil" data-ordre="profil">Profil<small>L'adresse où arrivent tes codes de connexion.</small></h3>
-  <h3 class="groupe-reglages" id="reglages-apparence" data-ordre="apparence">Apparence<small>Le thème, les couleurs et la forme de ton hub, sur cet appareil.</small></h3>
-  <h3 class="groupe-reglages" id="reglages-hub" data-ordre="hub">Mon hub<small>Les applications que ton hub affiche.</small></h3>
-  <h3 class="groupe-reglages" id="reglages-securite" data-ordre="securite">Connexion et sécurité<small>Ce qui protège ton compte, et là où il est ouvert.</small></h3>
+
+  <!-- Masquee jusqu'a ce qu'on sache qui regarde : le compte
+       d'administration n'a pas d'adresse propre. -->
+  <div class="zone" id="profil-mail" style="display:none">
+    <div class="zone-title">Adresse mail</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Adresse mail</b>
+        <div class="path">L'adresse rattachée à ton compte.</div>
+      </div>
+      <span class="pill" id="mail-etat"><i></i>&nbsp;</span></div>
+
+      <div class="hint">Un code de vérification part à cette adresse.</div>
+
+      <div class="field" style="margin-top:14px">
+        <label>Adresse</label>
+        <input id="mail-adresse" type="email" placeholder="moi@example.com" autocomplete="email">
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" id="mail-save" onclick="mailEnregistrer()">Enregistrer et vérifier</button>
+        <button class="btn btn-default" id="mail-renvoyer" onclick="mailRenvoyer()"
+          style="display:none">Renvoyer le code</button>
+      </div>
+
+      <div id="mail-confirmation" style="display:none">
+        <div class="field" style="margin-top:14px"><label>Code reçu par mail</label>
+          <input id="mail-code" inputmode="numeric" maxlength="6" placeholder="123456"></div>
+        <button class="btn btn-primary" onclick="mailConfirmer()">Confirmer</button>
+      </div>
+
+      <div class="err" id="mail-err" style="display:none"></div>
+      <div class="hint" id="mail-msg" style="display:none"></div>
+      <div class="hint" id="mail-sans-smtp" style="display:none">Aucun serveur d'envoi n'est
+        configuré sur ce serveur : la vérification par mail est indisponible pour le moment.</div>
+    </div>
+  </div>
+
+  <!-- LA VERSION qui tourne, lue dans l'image. Le panneau ne contacte pas
+       GitHub pour savoir s'il existe plus recent (aucun appel sortant) : le
+       lien des nouveautes s'ouvre dans le navigateur, si on le choisit. -->
+  <div class="zone" id="zone-version">
+    <div class="zone-title">Version</div>
+    <div class="card settings-card" id="ver-carte">
+      <div class="card-top"><div class="card-name">
+        <b>Version de CodeLab</b>
+        <div class="path" id="ver-resume"><span class="squelette-ligne" role="status" aria-label="Chargement"></span></div>
+      </div>
+      </div>
+      <div id="ver-corps"></div>
+    </div>
+  </div>
+  <div class="zone" id="zone-session">
+    <div class="zone-title">Session</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Session</b>
+        <div class="path">Déconnecte cette session du panneau CodeLab.</div>
+      </div></div>
+      <button class="btn btn-danger-quiet" onclick="doLogout()">
+        <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+        <path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>Déconnexion</button>
+    </div>
+  </div>
+
+  </div>
+
+  <div class="onglet-p" id="param-apparence">
   <div class="zone" id="zone-apparence">
     <div class="zone-title">Préférences</div>
     <div class="card settings-card">
@@ -2839,42 +2885,6 @@ a.pj:hover{border-color:var(--accent)}
     </div>
   </div>
 
-  <!-- Masquee jusqu'a ce qu'on sache qui regarde : le compte
-       d'administration n'a pas d'adresse propre. -->
-  <div class="zone" id="profil-mail" style="display:none">
-    <div class="zone-title">Adresse mail</div>
-    <div class="card settings-card">
-      <div class="card-top"><div class="card-name">
-        <b>Adresse mail</b>
-        <div class="path">L'adresse rattachée à ton compte.</div>
-      </div>
-      <span class="pill" id="mail-etat"><i></i>&nbsp;</span></div>
-
-      <div class="hint">Un code de vérification part à cette adresse.</div>
-
-      <div class="field" style="margin-top:14px">
-        <label>Adresse</label>
-        <input id="mail-adresse" type="email" placeholder="moi@example.com" autocomplete="email">
-      </div>
-      <div class="actions">
-        <button class="btn btn-primary" id="mail-save" onclick="mailEnregistrer()">Enregistrer et vérifier</button>
-        <button class="btn btn-default" id="mail-renvoyer" onclick="mailRenvoyer()"
-          style="display:none">Renvoyer le code</button>
-      </div>
-
-      <div id="mail-confirmation" style="display:none">
-        <div class="field" style="margin-top:14px"><label>Code reçu par mail</label>
-          <input id="mail-code" inputmode="numeric" maxlength="6" placeholder="123456"></div>
-        <button class="btn btn-primary" onclick="mailConfirmer()">Confirmer</button>
-      </div>
-
-      <div class="err" id="mail-err" style="display:none"></div>
-      <div class="hint" id="mail-msg" style="display:none"></div>
-      <div class="hint" id="mail-sans-smtp" style="display:none">Aucun serveur d'envoi n'est
-        configuré sur ce serveur : la vérification par mail est indisponible pour le moment.</div>
-    </div>
-  </div>
-
   <!-- LES NOTIFICATIONS DE CET APPAREIL : un interrupteur, comme Face ID.
        Allume, le navigateur (ou l'application installee) recoit ce que le
        panneau pousse, meme ferme. Le pourquoi, quand c'est impossible ici,
@@ -2909,6 +2919,9 @@ a.pj:hover{border-color:var(--accent)}
       <div class="hint" id="inst-consigne" style="display:none;margin-top:12px"></div>
     </div>
   </div>
+  </div>
+
+  <div class="onglet-p" id="param-hub">
 
   <div class="zone" id="zone-hub">
     <div class="zone-title">Hub</div>
@@ -2947,34 +2960,6 @@ a.pj:hover{border-color:var(--accent)}
       <div class="hint" id="cat-msg" style="display:none"></div>
     </div>
   </div>
-
-  <!-- LA VERSION qui tourne, lue dans l'image. Le panneau ne contacte pas
-       GitHub pour savoir s'il existe plus recent (aucun appel sortant) : le
-       lien des nouveautes s'ouvre dans le navigateur, si on le choisit. -->
-  <div class="zone" id="zone-version">
-    <div class="zone-title">Version</div>
-    <div class="card settings-card" id="ver-carte">
-      <div class="card-top"><div class="card-name">
-        <b>Version de CodeLab</b>
-        <div class="path" id="ver-resume"><span class="squelette-ligne" role="status" aria-label="Chargement"></span></div>
-      </div>
-      </div>
-      <div id="ver-corps"></div>
-    </div>
-  </div>
-  <div class="zone" id="zone-session">
-    <div class="zone-title">Session</div>
-    <div class="card settings-card">
-      <div class="card-top"><div class="card-name">
-        <b>Session</b>
-        <div class="path">Déconnecte cette session du panneau CodeLab.</div>
-      </div></div>
-      <button class="btn btn-danger-quiet" onclick="doLogout()">
-        <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-        <path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>Déconnexion</button>
-    </div>
-  </div>
-
   </div>
 
   <div class="onglet-p" id="param-securite">
@@ -3582,8 +3567,8 @@ a.pj:hover{border-color:var(--accent)}
       <input id="f-name" placeholder="portfolio" autocomplete="off">
       <div class="hint">Accessible sur <code id="f-url">/nom/</code></div></div>
     <div class="field"><label>Description <span class="opt">facultatif</span></label>
-      <input id="f-desc" placeholder="Mon site personnel" autocomplete="off" maxlength="140">
-      <div class="hint">Une ligne, affichée sous le nom du projet dans le hub.</div></div>
+      <input id="f-desc" placeholder="Mon site personnel" autocomplete="off" maxlength="140" oninput="compterDescription(this)">
+      <div class="hint" id="f-desc-compte">Deux lignes sous le nom, dans le hub : environ 45 caractères se voient, 140 au plus.</div></div>
     <div class="field"><label>Dossier du projet</label>
       <div class="fb"><div class="fb-cur" id="fb-c">/</div><div class="fb-l" id="fb-l"></div></div>
       <div class="suggest" id="suggest" style="display:none" onclick="applySuggestion()"></div></div>
@@ -4258,32 +4243,13 @@ habillerLesListes(document);
 let paramOngletActif='compte';
 /* Le sommaire des reglages d'un compte utilisateur : on descend jusqu'a la
    section, sans toucher a l'adresse. */
-function allerReglage(id){
-  const el=$(id); if(!el) return;
-  const reduit=window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  el.scrollIntoView({behavior: reduit ? 'auto' : 'smooth', block:'start'});
-}
+/* UN ONGLET PAR CATEGORIE, les memes pour tout le monde : Compte,
+   Apparence, Mon hub, Securite -- et E-mail et alertes pour
+   l'administrateur. Un compte utilisateur avait une longue page a sections,
+   ou l'on cherchait sa rubrique en faisant defiler. */
+const ONGLETS_UTILISATEUR=['compte','apparence','hub','securite'];
 function paramOnglet(o){
-  /* Un compte utilisateur : une seule page, toutes ses sections chargees
-     ensemble. « Securite » dans l'adresse descend jusqu'a la section. */
-  if(!estAdmin){
-    paramOngletActif = o==='securite' ? 'securite' : 'compte';
-    if(sectionCourante==='parametres') majAdresse();
-    document.querySelectorAll('.onglet-p')
-      .forEach(n=>n.classList.toggle('actif', n.id==='param-compte' || n.id==='param-securite'));
-    plierLesCartes();
-    chargerMonCompte(); chargerHub(); chargerPasskeys(); chargerAppareils();
-    chargerNotifications(); peindreInstallation();
-    $('mdp-err').style.display='none'; $('mdp-msg').style.display='none';
-    if(o==='securite') setTimeout(()=>allerReglage('reglages-securite'), 0);
-    return;
-  }
-  /* Un compte utilisateur a Compte, Securite et Message -- les trois
-     onglets sans data-admin, ceux que le bandeau lui montre. Le garde-fou
-     n'en listait que deux : cliquer sur « Message » ramenait aux reglages du
-     compte, sans un mot, et l'onglet passait pour casse. Ce qu'il protege
-     est un confort d'affichage ; chaque route verifie le role de son cote. */
-  if(!estAdmin && o!=='compte' && o!=='securite') o='compte';
+  if(!estAdmin && !ONGLETS_UTILISATEUR.includes(o)) o='compte';
   /* Un onglet inconnu (un lien garde, une faute de frappe) ouvre le
      compte plutot qu'une page vide. */
   if(!$('param-'+o) || $('param-onglets').querySelector('[data-p="'+o+'"]')?.style.display==='none') o='compte';
@@ -4296,15 +4262,18 @@ function paramOnglet(o){
   plierLesCartes();
   if(o==='compte'){
     chargerMonCompte();
+    if(estAdmin) chargerVersion();
+  }
+  if(o==='apparence'){ chargerNotifications(); peindreInstallation(); }
+  if(o==='hub'){
     /* La liste des masquees vient du hub : on la relit, sinon on affiche
        celle d'un chargement precedent -- ou rien du tout si l'on arrive
        directement sur les reglages. */
     chargerHub();
-    if(estAdmin){ chargerCategories(); chargerVersion(); }
-    chargerNotifications(); peindreInstallation();
-    $('mdp-err').style.display='none'; $('mdp-msg').style.display='none';
+    if(estAdmin) chargerCategories();
   }
   if(o==='securite'){
+    $('mdp-err').style.display='none'; $('mdp-msg').style.display='none';
     chargerPasskeys();
     chargerAppareils();
     if(estAdmin) chargerSauvegardes();
@@ -4349,10 +4318,18 @@ function badgeVis(a){
    est gardee en memoire pour peupler les deux menus deroulants (ajout et
    fiche) sans un aller-retour reseau a chaque ouverture. */
 let categories=[];
+/* « CodeLab » : la categorie des applications de la stack (Dagster, Mailpit,
+   Messages, le Diagnostic), posee par le serveur. Montree en tete, jamais
+   modifiable ni proposee pour un projet. */
+let categoriesVerrouillees=['CodeLab'];
+const categoriesLibres = () => categories.filter(c=>!categoriesVerrouillees.includes(c));
 
 async function chargerCategories(){
-  try{ categories=(await (await fetch('/api/categories')).json()).categories||[]; }
-  catch(e){ return; }
+  try{
+    const d=await (await fetch('/api/categories')).json();
+    categories=d.categories||[];
+    if(Array.isArray(d.verrouillees)) categoriesVerrouillees=d.verrouillees;
+  }catch(e){ return; }
   peindreCategories();
 }
 
@@ -4360,7 +4337,9 @@ async function chargerCategories(){
    proposee meme si elle vient de disparaitre de la liste : on ne veut pas
    qu'un simple passage sur la fiche la remplace en douce. */
 function optionsCategorie(id, valeur){
-  const liste = valeur && !categories.includes(valeur) ? categories.concat([valeur]) : categories;
+  const libres=categoriesLibres();
+  const liste = valeur && !libres.includes(valeur) && !categoriesVerrouillees.includes(valeur)
+    ? libres.concat([valeur]) : libres;
   $(id).innerHTML = '<option value="">Sans catégorie</option>'
     + liste.map(c=>`<option value="${esc(c)}"${c===valeur?' selected':''}>${esc(c)}</option>`).join('');
 }
@@ -4368,27 +4347,34 @@ function optionsCategorie(id, valeur){
 /* La liste editable de Configuration. Elle vit dans le DOM : ce qu'on lit au
    moment d'enregistrer est exactement ce qui est affiche, ordre compris. */
 function peindreCategories(){
-  $('cat-liste').innerHTML = categories.length
-    ? categories.map((c,i)=>`<div class="cat-ligne">
+  const libres=categoriesLibres();
+  $('cat-liste').innerHTML = categoriesVerrouillees.map(c=>`<div class="cat-ligne cat-verrou">
+        <svg class="cat-cadenas" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+        <div class="cat-verrou-txt"><b>${esc(c)}</b><span>Les applications de CodeLab réservées à l'administrateur : Dagster, Mailpit, Messages, Diagnostic. Posée d'office, non modifiable.</span></div>
+      </div>`).join('')
+    + (libres.length
+    ? libres.map((c,i)=>`<div class="cat-ligne">
         <input value="${esc(c)}" maxlength="30" aria-label="Catégorie ${i+1}">
         <button class="icon-btn" title="Retirer" onclick="catRetirer(${i})">
           <svg viewBox="0 0 24 24"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg></button>
       </div>`).join('')
-    : '<div class="cat-vide">Aucune catégorie. Le hub affiché alors une seule liste.</div>';
+    : '<div class="cat-vide">Aucune autre catégorie pour l’instant.</div>');
 }
 function catLues(){
-  return Array.from(document.querySelectorAll('#cat-liste input'))
+  return Array.from(document.querySelectorAll('#cat-liste .cat-ligne:not(.cat-verrou) input'))
     .map(i=>i.value.trim()).filter(Boolean);
 }
 function catAjouter(){
   const v=$('cat-neuve').value.trim();
   if(!v) return;
-  categories = catLues().concat([v]);
+  if(categoriesVerrouillees.some(c=>c.toLowerCase()===v.toLowerCase())){
+    notifier('« '+v+' » est réservée aux applications de CodeLab.','err'); return; }
+  categories = categoriesVerrouillees.concat(catLues(), [v]);
   $('cat-neuve').value='';
   peindreCategories();
 }
 function catRetirer(i){
-  const l=catLues(); l.splice(i,1); categories=l; peindreCategories();
+  const l=catLues(); l.splice(i,1); categories=categoriesVerrouillees.concat(l); peindreCategories();
 }
 async function catEnregistrer(){
   const e=$('cat-err'), m=$('cat-msg');
@@ -4401,6 +4387,7 @@ async function catEnregistrer(){
     const d=await r.json();
     if(!r.ok){ e.textContent=d.error||'Enregistrement impossible.'; e.style.display='block'; return; }
     categories=d.categories||[];
+    if(Array.isArray(d.verrouillees)) categoriesVerrouillees=d.verrouillees;
     peindreCategories();
     /* Supprimer une categorie deplace des projets : le dire, plutot que de
        laisser decouvrir le changement au prochain passage sur le hub. */
@@ -5478,6 +5465,20 @@ function gestesEdition(e, nom){
       <button type="button" data-agir="hub-deplacer" data-cible="${cle}" data-sens="1" aria-label="Reculer « ${esc(nom)} »">→</button>
     </div>`;
 }
+/* Un nom long prend un corps plus petit (voir .bento-carte-nom.long). */
+const classeNomLong = n => n.length > 34 ? ' tres-long' : n.length > 20 ? ' long' : '';
+/* Ce que montre la tuile du hub : deux lignes de description, soit environ
+   DESCRIPTION_VISIBLE caracteres sur un ordinateur (moins au telephone). La
+   fiche le dit sous le champ, compteur compris. */
+const DESCRIPTION_VISIBLE=45, DESCRIPTION_MAX=140;
+function compterDescription(champ){
+  const aide=$(champ.id+'-compte'); if(!aide) return;
+  const n=champ.value.trim().length;
+  aide.textContent = n
+    ? `${n} / ${DESCRIPTION_MAX} caractères — ${n<=DESCRIPTION_VISIBLE ? 'tout se voit sur la tuile.' : `les ${DESCRIPTION_VISIBLE} premiers environ se voient sur la tuile, le reste au survol.`}`
+    : `Deux lignes sous le nom, dans le hub : environ ${DESCRIPTION_VISIBLE} caractères se voient, ${DESCRIPTION_MAX} au plus.`;
+  aide.classList.toggle('desc-au-dela', n>DESCRIPTION_VISIBLE);
+}
 function peindreBento(liste, filtre){
   const toutes=hubApps.concat(hubServices);
   const desc = a => esc(a.description || (a.externe ? 'Outil de la stack' : 'Application'));
@@ -5495,8 +5496,8 @@ function peindreBento(liste, filtre){
     : (a, e) => { const [c]=etatApp(a);
         return `<${balise} class="bento-carte ${c}${a.nouvelle_version?' maj':''}" ${lien(a)} data-app="${esc(a.name)}" data-el="${esc(cleElement(e))}">
           <div class="bento-carte-haut"><img src="${icone(a.name)}" alt="">${badgeEtat(a)}</div>
-          <div class="bento-carte-nom">${esc(nomAffiche(a))}</div>
-          ${badgeMaj(a)}<div class="bento-carte-desc">${desc(a)}</div>${pastille(a)}${hubEdition ? gestesEdition(e, nomAffiche(a)) : boutonMenuApp(a)}</${balise}>`; };
+          <div class="bento-carte-nom${classeNomLong(nomAffiche(a))}">${esc(nomAffiche(a))}</div>
+          ${badgeMaj(a)}<div class="bento-carte-desc" title="${desc(a)}">${desc(a)}</div>${pastille(a)}${hubEdition ? gestesEdition(e, nomAffiche(a)) : boutonMenuApp(a)}</${balise}>`; };
   const tuile = e => {
     if(e.t==='w') return widgetDuHub(e);
     const a=toutes.find(x=>x.name===e.id); return a ? carte(a, e) : '';
@@ -6481,7 +6482,7 @@ function chargerConfigFiche(){
   const a=appParNom(ficheNom);
   if(!a) return;
   editCur=a.path;
-  $('e-desc').value=a.description||'';
+  $('e-desc').value=a.description||''; compterDescription($('e-desc'));
   optionsCategorie('e-cat', a.categorie||'');
   $('e-cmd').value=a.command||'';
   $('e-build').value=a.build_command||'';
@@ -8563,7 +8564,6 @@ if(estAdmin){
   document.body.classList.add('compte-utilisateur');
   /* Les categories du hub et la version : l'affaire de l'administrateur. */
   $('zone-categories').remove(); $('zone-version').remove();
-  $('sec-parametres').classList.add('reglages-unifies');
 }
 majOngletsParametres();
 /* Le hub est l'accueil de tout le monde. Laisse ouvert il reste juste : les

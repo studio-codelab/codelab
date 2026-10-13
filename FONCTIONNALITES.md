@@ -34,7 +34,7 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
 
 - **Une seule application pour tous les rôles.** Le rôle décide de ce que le menu propose. Chaque
   rubrique a son adresse : recharger y ramène, « Précédent » y revient.
-- **Deux styles** (*Paramètres > Compte > Apparence*), retenus par navigateur. Le reste du panneau
+- **Deux styles** (*Paramètres > Apparence*), retenus par navigateur. Le reste du panneau
   est le même : menu en pilule, barre du bas sur téléphone, réglages en fenêtre.
   - **Erreurs** : chaque message dit quoi faire ensuite. Une panne du serveur porte une
     **référence** courte (« 7F3A2C »), écrite aussi dans `docker logs codelab-app-manager` ; un
@@ -43,7 +43,7 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
     confirmation.
   - **Serveur injoignable** : un bandeau le dit, la page garde ce qu'elle affiche, retente toutes les
     5 s et se remet à jour au retour.
-  - **Un seul style, qui se règle** (Paramètres › Compte › Apparence) — les anciens « Lanceur » et
+  - **Un seul style, qui se règle** (Paramètres › Apparence) — les anciens « Lanceur » et
     « Bento » n'en diffèrent que par ces réglages, gardés dans un cookie et posés par le serveur avant
     le premier affichage :
     - **Applications** : en *cartes* (nom, état, description) ou en *icônes* seules, comme un écran
@@ -110,7 +110,7 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
   `app-manager/app/theme.css`, aussi servi aux applications sur `/theme.css`.
 - **Installable sur l'écran d'accueil** d'un téléphone ou d'une tablette (manifeste web et icônes fournis),
   et comme application sur ordinateur (Chrome, Edge, Dock du Mac).
-  - **« Installer CodeLab »** (*Paramètres › Compte*, dans le navigateur seulement) : un bouton là où
+  - **« Installer CodeLab »** (*Paramètres › Apparence*, dans le navigateur seulement) : un bouton là où
     le navigateur le propose (Chrome, Edge, Android), sinon le geste à faire (iPhone et iPad :
     Partager › « Sur l'écran d'accueil » ; Mac : Fichier › « Ajouter au Dock »). La carte disparaît
     une fois CodeLab installé.
@@ -118,7 +118,7 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
     long sur l'icône : Hub, Messages, Paramètres.
   - **Pastille sur l'icône** : les messages à lire (administrateur), les nouvelles d'un message
     envoyé (compte utilisateur), là où l'appareil la connaît.
-- **Notifications** (*Paramètres › Compte*, un interrupteur par appareil), même CodeLab fermé :
+- **Notifications** (*Paramètres › Apparence*, un interrupteur par appareil), même CodeLab fermé :
   - l'administrateur : un nouveau message, une application qui tombe (et ne redémarre plus), puis son
     retour ;
   - un compte utilisateur : l'avancement d'un message qu'il a envoyé (à l'étude, planifié, en cours,
@@ -176,17 +176,17 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
 - **Police auto-hébergée** (Manrope) : aucune requête vers un service tiers.
 - **Erreurs JavaScript** de la page envoyées dans les journaux du panneau.
 
-**Paramètres d'un compte utilisateur** : une seule page, sans onglets, avec un sommaire et quatre
-sections nommées — Profil (adresse mail), Apparence (thème, réglages du hub), Mon hub (applications
-affichées), Connexion et sécurité (mot de passe, clés d'accès, appareils connectés) — puis Session.
-
-**Onglets des paramètres** (administrateur) : quatre, de même largeur au téléphone
+**Onglets des paramètres** : un par catégorie, les mêmes pour tous les comptes (l'administrateur a
+en plus *E-mail et alertes*). Sur ordinateur, une colonne à gauche ; au téléphone, une pastille
+segmentée de cinq onglets de même largeur. Au doigt, une carte touchée ne reste pas grisée comme
+sélectionnée.
 
 | Onglet | Pour qui | Contenu |
 |---|---|---|
-| Compte | tous | apparence, réglages du hub, adresse mail (vérifiée par code), applications affichées dans *son* hub ; catégories du hub (les tiroirs, dans l'ordre voulu) pour l'admin |
+| Compte | tous | adresse mail (vérifiée par code), session ; version de CodeLab pour l'admin |
+| Apparence | tous | thème, réglages du hub, notifications de cet appareil, « Installer CodeLab » |
+| Mon hub | tous | applications affichées dans *son* hub ; catégories pour l'admin |
 | Sécurité | tous | mot de passe, second facteur (TOTP), clés d'accès, appareils connectés ; sauvegardes et bilan de sécurité pour l'admin |
-| Serveur | admin | adresse publique, liaison avec un VPS (fichiers prêts à copier), constat sur la requête en cours |
 | E-mail et alertes | admin | serveur d'envoi, alertes par application, surveillance externe |
 
 ## 2. Applications
@@ -202,10 +202,15 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
 - **Nom libre, adresse dérivée** : `Mon Site` est servi sous `/mon-site/`. Un nom réservé par une
   route du panneau est refusé.
 - **Renommer** une application : son adresse, ses droits et ses fichiers suivent.
-- **Description** d'une ligne, affichée sous la tuile du hub.
+- **Description**, affichée sous le nom dans la tuile du hub, sur deux lignes : environ 45 caractères
+  s'y voient, le reste au survol (140 au plus). La fiche le dit sous le champ, avec un compteur. Le
+  nom passe toujours avant la description : un nom long prend un corps plus petit plutôt que d'être
+  coupé.
 - **Logo** déposé depuis la fiche (PNG, JPEG ou GIF, 512 Ko au plus), ou détecté dans le dossier
   (`icon.png`, `favicon.png`, `logo.png`…). À défaut, un avatar est généré.
-- **Catégorie** pour ranger le hub.
+- **Catégorie** pour ranger le hub. La catégorie **CodeLab**, posée d'office et non modifiable,
+  regroupe les applications de la stack réservées à l'administrateur (Dagster, Mailpit, Messages,
+  Diagnostic) ; elle ne se renomme pas, ne se supprime pas et ne se donne pas à un projet.
 - **Vidéo de présentation** : si le projet a une `video/presentation.mp4` (faite par `codelab video`,
   voir § 6), « Voir la présentation » dans le menu de sa tuile la lit dans une fenêtre, avec « Ouvrir
   l'application » en dessous. Servie avec les droits de l'application : un compte qui ne la voit pas
