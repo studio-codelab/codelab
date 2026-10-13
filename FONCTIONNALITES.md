@@ -142,13 +142,11 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
   - **Écran de démarrage** : fond de la couleur du bandeau et logo, au lieu d'un écran blanc ; une
     image par taille d'iPhone et d'iPad (l'iPad debout comme couché), clair et sombre, fabriquée par
     le panneau.
-  - **Téléphone : affichage bloqué à la verticale**. Android verrouille l'écran ; sur iPhone (qui ne
-    permet pas de verrouiller une page), la page tourne en sens inverse quand on couche le téléphone et
-    reste verticale, mise en page comprise. Elle garde alors sa place et sa hauteur du portrait (iOS
-    masque la barre d'état en paysage : la page ne remonte plus sous l'encoche), et rien ne glisse
-    pendant le quart de tour. L'animation de rotation d'iOS elle-même reste visible un instant : une
-    page web ne peut pas l'empêcher. La tablette, l'ordinateur et le site web tournent librement,
-    tout comme les applications du hub ouvertes dans CodeLab.
+  - **Téléphone : affichage bloqué à la verticale**. Le manifeste demande le portrait au téléphone,
+    et Android verrouille l'écran. Il compte à l'installation : après une mise à jour, il faut
+    rajouter l'icône à l'écran d'accueil. iOS ne laisse pas une page web se verrouiller : sur
+    iPhone, active le verrou d'orientation (Centre de contrôle). La tablette, l'ordinateur et le site
+    web tournent librement, tout comme les applications du hub ouvertes dans CodeLab.
   - **Barre d'état et barre de geste des applications du hub** : elles prennent la couleur réellement
     affichée en haut et en bas de l'application (comme Safari), et la suivent au défilement : plus de
     bandeau d'une autre couleur au-dessus de la page.

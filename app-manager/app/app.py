@@ -11257,6 +11257,17 @@ def service_worker():
     return r
 
 
+def est_un_telephone(agent):
+    """Le manifeste est-il demande par un telephone ? Lu dans l'en-tete
+    User-Agent : un iPhone, ou un Android qui se dit « Mobile » (une
+    tablette Android ne le dit pas, un iPad se presente comme un Mac).
+
+    Ce n'est pas un controle : une erreur de lecture ne donne que
+    l'orientation d'un autre appareil, rien de plus."""
+    agent = agent or ""
+    return "iPhone" in agent or "iPod" in agent or ("Android" in agent and "Mobile" in agent)
+
+
 @flask_app.get("/manifest.webmanifest")
 def ecran_accueil_manifeste():
     manifeste = {
@@ -11276,7 +11287,16 @@ def ecran_accueil_manifeste():
         "id": "/",
         "lang": "fr",
         "description": "Ton atelier de développement : ouvrir, mettre en ligne et partager tes applications.",
-        "orientation": "any",
+        # TELEPHONE : TOUJOURS DROIT. Vecu : « je ne veux pas que la rotation
+        # soit autorisee tout court ». Le manifeste demande le portrait au
+        # telephone, l'orientation libre aux tablettes et aux ordinateurs
+        # (une tablette se tient dans les deux sens). Android le respecte ;
+        # iOS ne verrouille pas une page web -- il peut lire ce champ, sans
+        # garantie --, et mode.js redresse alors la page (« PAS DE
+        # ROTATION »). Le manifeste est lu a l'installation : il faut
+        # rajouter l'icone a l'ecran d'accueil pour qu'il compte.
+        "orientation": ("portrait" if est_un_telephone(request.headers.get("User-Agent"))
+                        else "any"),
         "categories": ["developer", "productivity"],
         "icons": [{"src": "/apple-touch-icon.png", "sizes": "180x180",
                    "type": "image/png", "purpose": "any"},
@@ -11296,6 +11316,9 @@ def ecran_accueil_manifeste():
     }
     r = Response(json.dumps(manifeste), mimetype="application/manifest+json")
     r.headers["Cache-Control"] = "no-cache"
+    # La reponse depend de l'appareil : un cache intermediaire ne doit pas
+    # servir au telephone le manifeste de la tablette.
+    r.headers["Vary"] = "User-Agent"
     return r
 
 
@@ -13588,6 +13611,9 @@ def webapp_manifeste(nom, titre):
     }
     r = Response(json.dumps(manifeste), mimetype="application/manifest+json")
     r.headers["Cache-Control"] = "no-cache"
+    # La reponse depend de l'appareil : un cache intermediaire ne doit pas
+    # servir au telephone le manifeste de la tablette.
+    r.headers["Vary"] = "User-Agent"
     return r
 
 
