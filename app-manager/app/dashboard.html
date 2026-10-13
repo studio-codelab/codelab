@@ -1531,24 +1531,43 @@ table.tbl-journal{min-width:560px}
   :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) #param-onglets button:hover{background:var(--surface);color:var(--txt)}
   :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) #param-onglets button.active{background:var(--accent-soft);
    color:var(--accent)}
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .onglet-p.actif{padding:0;background:none;border:0;
-   border-radius:0;box-shadow:none;overflow:visible}
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .onglet-p .zone{margin-bottom:12px}
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .onglet-p .settings-card,
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .onglet-p .zone:last-child .settings-card:last-child{
-   background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:20px 24px;overflow:hidden;
-   box-shadow:0 1px 2px var(--shadow)}
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .onglet-p .settings-card + .settings-card{margin-top:12px}
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .settings-card.pliable>.card-top{margin:-20px -24px;padding:20px 24px}
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .settings-card.pliable>.card-top:hover{background:var(--surface2)}
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .settings-card.pliable>.card-corps{margin-top:20px}
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .settings-card .card-name b{font-size:15px;font-weight:750;
-   letter-spacing:-.01em}
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .settings-card .card-name .path{font-size:13px;margin-top:3px}
   :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .btn{min-height:40px;padding:0 18px;font-size:14px}
   :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .interrupteur{width:44px;height:26px}
   :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .interrupteur span::after{width:20px;height:20px;top:3px;left:3px}
   :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .interrupteur input:checked+span::after{transform:translateX(18px)}
+}
+/* LES CARTES, A TOUTES LES TAILLES. Le telephone et la tablette en mode
+   application heritent du meme habit que l'ordinateur : une carte arrondie
+   par rubrique, plus une liste groupee dans un seul panneau. */
+:root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .onglet-p.actif{padding:0;background:none;border:0;
+ border-radius:0;box-shadow:none;overflow:visible}
+:root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .onglet-p .zone{margin-bottom:12px}
+:root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .onglet-p .settings-card,
+:root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .onglet-p .zone:last-child .settings-card:last-child{
+ background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:20px 24px;overflow:hidden;
+ box-shadow:0 1px 2px var(--shadow)}
+:root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .onglet-p .settings-card + .settings-card{margin-top:12px}
+:root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .settings-card.pliable>.card-top{margin:-20px -24px;padding:20px 24px}
+:root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .settings-card.pliable>.card-top:hover{background:var(--surface2)}
+:root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .settings-card.pliable>.card-corps{margin-top:20px}
+:root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .settings-card .card-name b{font-size:15px;font-weight:750;
+ letter-spacing:-.01em}
+:root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .settings-card .card-name .path{font-size:13px;margin-top:3px}
+@media (max-width:760px){
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .onglet-p .settings-card,
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .onglet-p .zone:last-child .settings-card:last-child{
+   padding:16px 18px;border-radius:18px}
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .settings-card.pliable>.card-top{margin:-16px -18px;padding:16px 18px}
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .settings-card.pliable>.card-corps{margin-top:16px}
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .onglet-p .zone{margin-bottom:10px}
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .onglet-p .settings-card + .settings-card{margin-top:10px}
+  /* Les onglets restent une pastille segmentee (le pouce l'atteint), dans
+     les couleurs de la colonne de l'ordinateur. */
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) #param-onglets{background:var(--surface);
+   box-shadow:inset 0 0 0 1px var(--line)}
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) #param-onglets button.active{background:var(--accent-soft);
+   color:var(--accent);box-shadow:none}
+  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies)>.toolbar h2{font-size:34px;font-weight:800;letter-spacing:-.045em}
 }
 :root[data-variante="bento"] #sec-parametres .settings-card.pliable>.card-top:hover .card-name b{color:inherit}
 :root[data-variante="bento"] #sec-parametres .settings-card.pliable .chevron{transition:transform .15s ease,color .15s}

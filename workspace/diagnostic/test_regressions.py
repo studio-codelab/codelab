@@ -15659,6 +15659,11 @@ def test_les_parametres_n_ont_plus_d_erreurs_d_affichage():
     # Quatre appareils, le reste derriere un bouton ; cet appareil toujours en tete.
     assert "const AP_VISIBLES=4;" in page and "Afficher les ${caches} autres" in page
     assert "(y.courant?1:0)-(x.courant?1:0)" in page
+    # Le telephone et la tablette (mode application compris) heritent des
+    # memes cartes : la regle n'est plus reservee aux grands ecrans.
+    cartes = bloc.split("LES CARTES, A TOUTES LES TAILLES.")[1]
+    avant_media = cartes.split("@media (max-width:760px)")[0]
+    assert "border-radius:20px;padding:20px 24px;overflow:hidden" in avant_media
     # Le hub ne penche plus ses tuiles.
     assert "rotateX(var(--rx" not in page and "--ry" not in page
     # Ni ne les souleve : la mosaique coupe ce qui depasse, le haut d'une
