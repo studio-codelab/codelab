@@ -2119,7 +2119,7 @@ def test_le_hub_est_l_accueil_des_deux_roles(deux_espaces):
     """
     c = deux_espaces
     c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
-    page = c.get("/").get_data(as_text=True)
+    page = _page_servie(c)
     # En debut de ligne : l'appel du demarrage, pas un onclick de menu. Il
     # lit l'adresse, et « / » est le hub.
     assert "\nrouterDepuisAdresse();\n" in page
@@ -2157,7 +2157,7 @@ def test_les_parametres_tiennent_en_un_seul_endroit(deux_espaces):
     """
     c = deux_espaces
     _connecte(c, "marie", "mot-de-passe-long")
-    page = c.get("/").get_data(as_text=True)
+    page = _page_servie(c)
     assert 'id="sec-parametres"' in page
     assert "acct-configuration" not in page   # l'entree en double a disparu
     # Les onglets d'administration sont dans la page, mais masques par
@@ -2417,7 +2417,7 @@ def test_seul_l_administrateur_lit_les_messages(messagerie):
 def test_les_messages_partent_aussi_vers_la_base():
     """Le fichier tient sans base et se lit en SSH ; la base garde tout et
     s'interroge en SQL. Le meme couple que pour le journal des acces."""
-    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    src = _page_panneau("app.py")
     assert "CREATE TABLE IF NOT EXISTS messages" in src
     assert "_pg_deposer((\"message\"" in src
     # Et le rattrapage les rejoue apres une coupure de la base.
@@ -2784,8 +2784,7 @@ def test_la_liste_des_champs_qui_attendent_vit_du_cote_serveur():
     """Une copie dans le navigateur aurait diverge a la premiere evolution :
     c'est le serveur qui sait ce qu'il relit, et quand."""
     assert app.CHAMPS_AU_DEMARRAGE == ("path", "command", "max_memory_mb")
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     # La page lit la reponse du serveur, elle ne rejoue pas la regle.
     assert "d.redemarrage_requis" in page
     assert "champs_en_attente" in page
@@ -3139,7 +3138,7 @@ def test_la_base_ne_recoit_aucune_empreinte_de_mot_de_passe():
     empreintes leur offrirait une attaque hors ligne sur les mots de passe
     du panneau : le miroir ne porte que ce qui se lit deja dans l'interface.
     """
-    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    src = _page_panneau("app.py")
     table = src.split("CREATE TABLE IF NOT EXISTS utilisateurs")[1].split(")\"\"\"")[0]
     for interdit in ("hash", "sel", "mot_de_passe", "password", "totp"):
         assert interdit not in table, f"{interdit} n'a rien a faire dans cette table"
@@ -3358,7 +3357,7 @@ def test_la_marque_est_posee_dans_l_environnement_du_processus(survivants):
 def test_l_adoption_passe_avant_la_reprise_automatique():
     """Ordre imperatif : resume() relancerait par-dessus une application deja
     en vie, et la nouvelle mourrait sur un port occupe."""
-    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    src = _page_panneau("app.py")
     demarrage = src.split('if __name__ == "__main__":')[1]
     # Les commentaires citent les deux noms : on ne regarde que les appels.
     lignes = [l.strip() for l in demarrage.splitlines()
@@ -3502,7 +3501,7 @@ def test_une_annee_farfelue_ne_fait_pas_tomber_la_carte(journal):
 def test_les_analyses_preferent_la_base_au_fichier_plafonne():
     """Le resume etait calcule sur le fichier : le total d'ouvertures d'un
     projet DIMINUAIT tout seul a mesure que le journal tournait."""
-    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    src = _page_panneau("app.py")
     bloc = src.split("def api_activite(")[1].split("@flask_app")[0]
     assert "pg_resume_acces()" in bloc, "le resume doit venir de la base quand elle repond"
     assert "resume_acces()" in bloc, "et le fichier doit rester le repli"
@@ -3517,8 +3516,7 @@ def test_la_carte_couvre_l_annee_de_janvier_a_decembre():
     """Une fenetre glissante commencait un jour quelconque : les mois se
     decalaient d'un cran chaque jour, et deux cartes prises a deux dates ne
     se comparaient pas."""
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     # Les colonnes se batissent dans carteColonnes, appelee par peindreCarte.
     assert "carteColonnes(annee, parJour, sommet)" in page.split("function peindreCarte(d){")[1].split("\nfunction ")[0]
     bloc = page.split("function carteColonnes(annee, parJour, sommet){")[1].split("\nfunction ")[0]
@@ -3533,8 +3531,7 @@ def test_la_carte_couvre_l_annee_de_janvier_a_decembre():
 def test_la_ligne_des_mois_couvre_toute_la_largeur_de_la_carte():
     """Une etiquette par colonne laissait onze mois muets et un mot de dix
     pixels de large : on ne lisait rien."""
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     bloc = page.split("function peindreCarte(d){")[1].split("\nfunction ")[0]
     assert "grid-column:span" in bloc, (
         "chaque mois doit couvrir ses colonnes, pas une seule")
@@ -3550,8 +3547,7 @@ def test_la_ligne_des_mois_couvre_toute_la_largeur_de_la_carte():
 def test_l_annee_de_la_carte_se_choisit():
     """« Et l'an dernier ? » n'avait aucune reponse : la carte ne montrait
     que les douze derniers mois, sans moyen de remonter."""
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     assert 'id="carte-annee"' in page
     bloc = page.split("async function chargerCarte(){")[1].split("\n}")[0]
     assert "p.set('annee'" in bloc, "le choix doit partir au serveur"
@@ -3565,8 +3561,7 @@ def test_les_paliers_de_la_carte_sont_relatifs_au_plus_charge():
     """Un seuil absolu afficherait une carte toute pale sur une installation
     calme, et toute sombre sur une installation chargee. Ce qu'on lit dans
     une carte de chaleur, c'est le relief."""
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     bloc = page.split("function carteNiveau(")[1].split("\n}")[0]
     assert "sommet" in bloc and "/ sommet" in bloc
     # Cinq paliers, comme le calendrier de GitHub.
@@ -4620,8 +4615,7 @@ def test_l_enveloppe_de_fetch_regarde_l_origine():
     verification au navigateur contre un vrai serveur tiers -- elle ne tient
     pas dans pytest.
     """
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     debut = page.index("window.fetch = function")
     enveloppe = page[debut:debut + 600]
     assert "memeOrigine(cible)" in enveloppe, (
@@ -4646,7 +4640,46 @@ def test_l_enveloppe_de_fetch_regarde_l_origine():
 # fichier de theme, et les pages n'en redefinissent aucun.
 
 def _page_panneau(nom):
-    return open(os.path.join(DOSSIER_PANNEAU, "app", nom), encoding="utf-8").read()
+    """Un fichier du panneau, tel que les tests le lisent.
+
+    dashboard.html charge son script depuis panneau.js (mis en cache) : pour
+    les tests, la page est RECONSTITUEE, le script remis a la place de sa
+    balise. Ce qu'un test verifie du script (presence, ordre, corps d'une
+    fonction) se lit donc la ou il le lisait quand il etait en ligne.
+    """
+    texte = open(os.path.join(DOSSIER_PANNEAU, "app", nom), encoding="utf-8").read()
+    if nom == "dashboard.html":
+        balise = '<script src="/panneau.js?v=__PANNEAU_VERSION__"></script>'
+        assert texte.count(balise) == 1, "dashboard.html ne charge plus panneau.js"
+        script = open(os.path.join(DOSSIER_PANNEAU, "app", "panneau.js"), encoding="utf-8").read()
+        texte = texte.replace(balise, "<script>\n" + script + "</script>")
+    return texte
+
+
+def _lire_source(chemin):
+    """Un fichier par son chemin ; dashboard.html reconstitue avec son script
+    (voir _page_panneau)."""
+    if os.path.abspath(chemin) == os.path.abspath(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html")):
+        return _page_panneau("dashboard.html")
+    return open(chemin, encoding="utf-8").read()
+
+
+def _page_servie(client, chemin="/"):
+    """La page du panneau telle qu'une session la recoit, script compris.
+
+    La page ne porte plus son script : elle le charge depuis
+    /panneau.js?v=<empreinte>. On verifie qu'elle reference bien la version
+    courante, on le demande AVEC LA MEME SESSION, et on le remet en ligne :
+    ce qu'un test cherche « dans la page servie » est alors ce que le
+    navigateur execute vraiment.
+    """
+    page = client.get(chemin).get_data(as_text=True)
+    adresse = f"/panneau.js?v={app.PANNEAU_JS_VERSION}"
+    balise = f'<script src="{adresse}"></script>'
+    assert balise in page, "la page servie ne charge pas la version courante du script"
+    script = client.get(adresse)
+    assert script.status_code == 200, script.status_code
+    return page.replace(balise, "<script>\n" + script.get_data(as_text=True) + "</script>")
 
 
 # ---------------- le script des pages doit s'ANALYSER ----------------
@@ -5100,7 +5133,7 @@ def test_aucun_identifiant_javascript_n_est_accentue():
 # l'application, en supposant qu'on sache qu'il existe.
 
 def test_demarrer_verifie_que_l_application_vit_encore():
-    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    src = _page_panneau("app.py")
     assert "def start(name, attendre=True):" in src, (
         "start() ne prend plus le temps de regarder l'application vivre")
     assert "DELAI_DEMARRAGE" in src
@@ -5115,7 +5148,7 @@ def test_demarrer_verifie_que_l_application_vit_encore():
 
 
 def test_l_api_toggle_rend_compte_de_l_echec():
-    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    src = _page_panneau("app.py")
     bloc = src[src.index("def api_toggle("):]
     bloc = bloc[:bloc.index("\n@flask_app", 10)]
     assert "stop(n) if action" in bloc and "else start(n)" in bloc, (
@@ -5164,7 +5197,7 @@ def test_un_port_libere_a_l_instant_ne_bloque_pas_le_redemarrage():
     """Un port fraichement ferme reste en TIME_WAIT. Sans SO_REUSEADDR sur la
     sonde, on refuserait de redemarrer ce qu'on vient d'arreter -- le geste
     le plus courant du panneau."""
-    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    src = _page_panneau("app.py")
     bloc = src.split("def port_occupe_par(")[1].split("\ndef ")[0]
     assert "SO_REUSEADDR" in bloc
     # Sur 127.0.0.1 : c'est l'adresse que le proxy contacte, et une sonde sur
@@ -5177,7 +5210,7 @@ def test_un_lancement_impossible_ne_devient_pas_une_erreur_500():
     """Popen leve pour tout ce qui empeche le lancement avant la commande.
     L'exception remontait a Flask : 500, page HTML, aucun message pour
     l'interface -- qui affichait alors son texte par defaut."""
-    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    src = _page_panneau("app.py")
     bloc = src[src.index("def start(name, attendre=True):"):src.index("def port_occupe_par(")]
     assert "except (OSError, ValueError)" in bloc
     assert 'return f"Lancement impossible' in bloc
@@ -5186,7 +5219,7 @@ def test_un_lancement_impossible_ne_devient_pas_une_erreur_500():
 def test_le_redemarrage_rend_compte_de_son_echec():
     """restart_app() jetait l'erreur de start() : la route repondait « ok »,
     et le bouton laissait une application arretee sans un mot."""
-    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    src = _page_panneau("app.py")
     bloc = src.split("def restart_app(n):")[1].split("\n\n\n")[0]
     assert "return start(n)" in bloc, "l'erreur de start() repart a la poubelle"
     route = src.split("def api_restart(n):")[1].split("\n\n\n")[0]
@@ -5201,8 +5234,7 @@ def test_le_redemarrage_rend_compte_de_son_echec():
 def test_aucune_action_ne_se_rabat_sur_une_phrase_vide():
     """« L'application n'a pas demarre » n'apprend rien. Quand le serveur ne
     dit rien du tout, le code HTTP distingue au moins un refus d'une panne."""
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     aide = page.split("async function echec(r, defaut){")[1].split("\n}")[0]
     assert "r.status" in aide and "401" in aide and "403" in aide
     for action in ("async function tg(n){", "async function restartApp(n){",
@@ -5230,7 +5262,7 @@ def test_le_ruban_de_retour_refuse_les_cas_risques():
     200, autre chose que du HTML, un corps COMPRESSE (les octets ne
     contiennent alors pas "</body>"), et l'absence de </body>.
     """
-    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    src = _page_panneau("app.py")
     bloc = src[src.index("def injecter_ruban("):src.index("def _proxy(")]
     for garde in ("status != 200", "text/html", "content-encoding", "rfind"):
         assert garde in bloc, f"le refus sur {garde} a disparu"
@@ -5330,7 +5362,7 @@ def test_un_nom_d_hote_hostile_ne_se_recopie_pas_dans_la_page():
 def test_sans_adresse_utilisable_on_ne_redirige_pas_en_rond():
     """Une cible relative renverrait la requete vers elle-meme, et le
     navigateur tournerait en rond jusqu'a abandonner."""
-    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    src = _page_panneau("app.py")
     bloc = src.split("def separer_les_origines():")[1].split("\n\n\n")[0]
     assert "if not (domaine_des_applications() or origine_applications()):" in bloc
     assert "return None" in bloc
@@ -5339,7 +5371,7 @@ def test_sans_adresse_utilisable_on_ne_redirige_pas_en_rond():
 def test_le_ruban_est_construit_a_chaque_page():
     """Une constante d'octets ne peut pas porter un lien qui depend de
     l'origine : le ruban doit etre fabrique au moment de l'injection."""
-    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    src = _page_panneau("app.py")
     assert "RUBAN_RETOUR" not in src, (
         "le ruban est redevenu une constante : son lien ne peut plus suivre "
         "l'origine qui sert la page")
@@ -5412,8 +5444,7 @@ def test_le_mot_a_l_administrateur_a_sa_propre_rubrique():
     reglages sont l'endroit ou l'on va pour AGIR sur son compte, et un onglet
     se trouve par son nom -- ce qu'une carte au bas d'une liste de tuiles ne
     permet pas."""
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     # Vecu ensuite : « sur telephone, la partie messages ne doit pas etre
     # dans les parametres mais doit etre une partie a part ». Une rubrique
     # du panneau, plus un onglet des parametres.
@@ -5437,8 +5468,7 @@ def test_une_carte_seule_dans_son_onglet_ne_se_replie_pas():
     a rien d'autre dans l'onglet, il ne fait que cacher la seule chose de la
     page derriere un clic -- vu sur la rubrique Message, ou le formulaire
     disparaissait entierement."""
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     bloc = page.split("function plierLesCartes(){")[1].split("\n}")[0]
     assert "closest('.onglet-p')" in bloc
     assert "querySelectorAll('.settings-card').length < 2" in bloc
@@ -5450,8 +5480,7 @@ def test_le_hub_ne_garde_que_sa_grille():
     vient que pour ouvrir une application. L'etat d'une application se lit
     dans « Applications » ; ici, la grille d'icones dit « c'est la », et
     c'est tout ce qu'on lui demande."""
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     assert "hubTaille(" not in page, "la bascule de taille est revenue"
     assert "codelab.hub.taille" not in page, (
         "le reglage de taille est revenu dans le stockage du navigateur")
@@ -5476,8 +5505,7 @@ def test_la_tuile_en_mode_icone_n_a_ni_fond_ni_cadre():
     """En mode icone, la carte devenait un carre gris autour d'une petite
     image : trente carres gris alignes font une grille de cases, pas un
     bureau. Ce qu'on vient voir, c'est l'icone."""
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     regle = page.split(".hub-icone{")[1].split("}")[0]
     assert "background" not in regle, "la tuile en icone porte un fond"
     assert "border:" not in regle and "box-shadow" not in regle, "la tuile en icone porte un cadre"
@@ -5491,8 +5519,7 @@ def test_les_trois_cartes_de_la_vue_d_ensemble_font_la_meme_hauteur():
     cadrees : elles commencaient plus bas et finissaient plus haut que
     « Sante » et « Ressources », et les trois colonnes ne s'alignaient sur
     rien."""
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     assert ".card:has(> .ov-nums){background:transparent" not in page, (
         "la carte des chiffres redevient un cadre transparent, et ses tuiles "
         "ne s'alignent plus sur les deux voisines")
@@ -5510,8 +5537,7 @@ def test_la_carte_de_chaleur_ne_defile_pas():
     """Une carte de chaleur se lit d'un coup d'oeil -- c'est sa seule raison
     d'etre. La moitie cachee derriere un glissement horizontal ne se lit
     jamais."""
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     zone = page.split(".carte-zone{")[1].split("}")[0]
     assert "overflow" not in zone, "la barre de defilement est revenue"
     # La taille d'une case se CALCULE depuis la place disponible : ni 11 px
@@ -5540,8 +5566,7 @@ def test_la_carte_de_chaleur_ne_defile_pas():
 def test_les_tuiles_du_hub_sont_deux_fois_plus_grandes():
     """A 44 px, on ne distinguait plus une application d'une autre. Une
     grille d'icones sert justement a reconnaitre d'un coup d'oeil."""
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     icone = page.split(".hub-icone img{")[1].split("}")[0]
     assert "width:88px" in icone and "height:88px" in icone
     # Au telephone, 62 px : quatre par ligne, sans que les noms se touchent.
@@ -5551,8 +5576,7 @@ def test_les_tuiles_du_hub_sont_deux_fois_plus_grandes():
 def test_les_controles_du_navigateur_suivent_le_theme():
     """Une case cochee en bleu Windows et une fleche grise systeme suffisent
     a faire passer la page pour un formulaire pose sur un theme soigne."""
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     assert "accent-color:var(--accent)" in page, (
         "sans accent-color, les cases et les boutons radio gardent le bleu du "
         "systeme")
@@ -5568,8 +5592,7 @@ def test_les_controles_du_navigateur_suivent_le_theme():
 def test_les_zones_des_parametres_ne_sont_plus_des_boites():
     """Six boites blanches empilees dans un onglet donnaient six rectangles
     qui se disputaient l'attention -- alors qu'aucun n'est un objet."""
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     bloc = page.split(".settings-card{")[1].split("}")[0]
     assert "background:transparent" in bloc and "border:0" in bloc
     assert "box-shadow:none" in bloc
@@ -5580,8 +5603,7 @@ def test_les_zones_des_parametres_ne_sont_plus_des_boites():
 def test_le_reglage_d_affichage_se_deroule_quand_il_y_a_trop_d_applications():
     """Quinze applications faisaient de ce reglage la moitie de la page, pour
     une liste qu'on ouvre trois fois par an."""
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     assert "MASQUAGE_SEUIL_DEROULANT" in page
     bloc = page.split("function peindreMasquees(){")[1].split("\n}")[0]
     assert "<details" in bloc, "la liste longue doit se replier"
@@ -5595,8 +5617,7 @@ def test_les_destinataires_d_alerte_vivent_dans_la_fiche_de_l_application():
     """Ils etaient dans les parametres globaux, en une liste de champs ou il
     fallait retrouver la bonne ligne -- et rien, depuis la fiche d'une
     application, ne disait qui serait prevenu si elle tombait."""
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     assert 'id="al-par-app"' not in page, (
         "la liste globale des destinataires est revenue")
     assert "peindreAlertesParApp" not in page
@@ -5610,7 +5631,7 @@ def test_les_destinataires_d_alerte_vivent_dans_la_fiche_de_l_application():
     # Et relu a l'ouverture de la fiche, sinon le champ parait toujours vide.
     lecture = page.split("function chargerConfigFiche(){")[1].split("\n}")[0]
     assert "$('e-alertes').value" in lecture
-    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    src = _page_panneau("app.py")
     bloc = src.split("def api_apps():")[1].split("\n\n\n")[0]
     assert '"alertes": _adresses(par_app.get(name))' in bloc, (
         "la liste doit arriver avec l'application")
@@ -5619,8 +5640,7 @@ def test_les_destinataires_d_alerte_vivent_dans_la_fiche_de_l_application():
 def test_le_masquage_ne_se_regle_que_dans_les_parametres():
     """La croix posee sur chaque tuile transformait le hub en liste a trier,
     et se cliquait par accident. Le reglage vit la ou vivent les reglages."""
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     assert "hub-masquer" not in page, (
         "le bouton de masquage est revenu sur la tuile du hub")
     # La tuile n'est plus qu'un lien (et ses trois points de menu).
@@ -5637,8 +5657,7 @@ def test_le_masquage_ne_se_regle_que_dans_les_parametres():
 def test_les_parametres_listent_toutes_les_applications_a_cocher():
     """N'afficher que les masquees obligeait a en retirer une depuis le hub
     avant de pouvoir la retrouver ici : la liste doit etre complete."""
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     bloc = page.split("function peindreMasquees(){")[1].split("\n}")[0]
     assert "(hubApps||[]).concat(hubMasquees||[])" in bloc, (
         "la liste des reglages doit reunir les affichees ET les masquees")
@@ -5659,8 +5678,7 @@ def test_les_projets_autorises_forment_une_liste_lisible():
     """Une rangee de cases nues ne disait ni de quelle application il
     s'agissait, ni lesquelles etaient publiques -- donc lesquelles cocher ne
     changeait rien."""
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     bloc = page.split("$('us-f-projets').innerHTML =")[1].split("</label>`;")[0]
     assert "proj-ligne" in bloc
     assert "icone(a.name)" in bloc, "une ligne sans icone ne se reconnait pas"
@@ -5678,8 +5696,7 @@ def test_les_projets_autorises_forment_une_liste_lisible():
 def test_la_fiche_d_un_compte_attend_la_liste_des_applications():
     """Ouverte avant que /api/apps ne reponde, la rubrique « Projets
     autorises » restait vide sans rien dire."""
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     bloc = page.split("async function usOuvrir(nom){")[1].split("\n}")[0]
     assert "if(!apps.length)" in bloc and "await refresh()" in bloc
     assert "usPeindreFiche()" in bloc.split("await refresh()")[1], (
@@ -5689,8 +5706,7 @@ def test_la_fiche_d_un_compte_attend_la_liste_des_applications():
 def test_la_rubrique_message_ferme_la_marche():
     """On ne vient pas dans les parametres pour ecrire, on y vient pour
     regler : le mot a l'administrateur a quitte les onglets."""
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     onglets = page.split('<div class="fiche-onglets" id="param-onglets">')[1]
     onglets = onglets.split("</div>")[0]
     noms = re.findall(r'data-p="([a-z]+)"', onglets)
@@ -5702,8 +5718,7 @@ def test_le_bandeau_n_a_plus_de_recherche():
     """Le menu et la marque a gauche, le compte a droite : la barre de
     recherche de l'entete est retiree, et rien ne filtre plus en silence le
     hub ou la liste des applications."""
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     barre = page.split('<div class="topbar">')[1].split('<div class="acct-wrap">')[0]
     groupe = barre.split('<div class="topbar-gauche">')[1]
     assert "side-toggle-btn" in groupe[:400] and "topbar-brand" in groupe[:2000]
@@ -5759,8 +5774,7 @@ def test_aucun_texte_du_hub_n_a_perdu_ses_accents():
     par la page elle-meme, et un test qui l'ignore laisse passer « limitee a
     ce que tu leur autorisés » -- vu sur la page d'accueil.
     """
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     fautes = []
     for texte in _textes_visibles(page) + _phrases_du_script(page):
         for mot in MOTIF_SANS_ACCENT.findall(texte):
@@ -5784,7 +5798,7 @@ def test_aucun_imperatif_n_est_ecrit_au_participe_passe():
                    os.path.join(DOSSIER_PANNEAU, "app", "login.html"),
                    os.path.join(DOSSIER_PANNEAU, "app", "app.py"),
                    os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.py")):
-        src = open(chemin, encoding="utf-8").read()
+        src = _lire_source(chemin)
         for faute in motif.findall(src):
             fautes.append(f"{os.path.basename(chemin)} : {faute}")
     assert not fautes, "imperatifs au participe passe :\n" + "\n".join(fautes)
@@ -5802,7 +5816,7 @@ def test_les_phrases_qui_donnent_un_ordre_le_donnent_en_francais():
     for chemin in (os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
                    os.path.join(DOSSIER_PANNEAU, "app", "login.html"),
                    os.path.join(DOSSIER_PANNEAU, "app", "app.py")):
-        src = open(chemin, encoding="utf-8").read()
+        src = _lire_source(chemin)
         for faute in fautives:
             if faute in src:
                 fautes.append(f"{os.path.basename(chemin)} : « {faute} »")
@@ -5844,7 +5858,7 @@ def test_les_etiquettes_d_un_seul_mot_portent_leurs_accents():
     fautes = []
     for chemin in (os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
                    os.path.join(DOSSIER_PANNEAU, "app", "login.html")):
-        page = open(chemin, encoding="utf-8").read()
+        page = _lire_source(chemin)
         for faute in motif.findall(page):
             fautes.append(f"{os.path.basename(chemin)} : « {faute} »")
     assert not fautes, "etiquettes sans accents :\n" + "\n".join(fautes)
@@ -5857,7 +5871,7 @@ def test_la_preposition_a_garde_son_accent_devant_un_infinitif():
     fautes = []
     for chemin in (os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
                    os.path.join(DOSSIER_PANNEAU, "app", "login.html")):
-        page = open(chemin, encoding="utf-8").read()
+        page = _lire_source(chemin)
         for texte in _textes_visibles(page) + _phrases_du_script(page):
             texte = " ".join(texte.split())
             for faute in MOTIF_A_INFINITIF.findall(texte):
@@ -5872,7 +5886,7 @@ def test_aucun_participe_passe_ne_tient_lieu_de_verbe_conjugue():
     fautes = []
     for chemin in (os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
                    os.path.join(DOSSIER_PANNEAU, "app", "login.html")):
-        page = open(chemin, encoding="utf-8").read()
+        page = _lire_source(chemin)
         for texte in _textes_visibles(page) + _phrases_du_script(page):
             texte = " ".join(texte.split())
             for faute in MOTIF_PARTICIPE_SANS_AUXILIAIRE.findall(texte):
@@ -5885,8 +5899,7 @@ def test_aucun_texte_de_la_page_de_connexion_n_a_perdu_ses_accents():
     « Applications centralisees », « Heberge chez toi », « Accede a tes
     applications », « Connexion chiffree cote serveur ». C'est pourtant la
     PREMIERE page que voit quelqu'un a qui l'on partage une application."""
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "login.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("login.html")
     fautes = []
     for texte in _textes_visibles(page) + _phrases_du_script(page):
         for mot in MOTIF_SANS_ACCENT.findall(texte):
@@ -6180,8 +6193,7 @@ def test_le_diagnostic_suit_le_theme_du_panneau():
     # autre origine, et n'est pas lisible d'ici -- il ne doit pas l'etre.
     assert "document.cookie.match" in src, (
         "sans le cookie, le diagnostic retombe sur le reglage du systeme")
-    panneau = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                   encoding="utf-8").read()
+    panneau = _page_panneau("dashboard.html")
     assert "function noterThemePartage(t){" in panneau, (
         "le panneau ne partage pas son choix : personne ne pose le cookie")
     bloc = panneau.split("function setTheme(t){")[1].split("\n}")[0]
@@ -6341,8 +6353,7 @@ def test_aucun_gestionnaire_en_ligne_ne_porte_de_donnee():
     donnee. Un argument numerique -- (i) sans apostrophes -- reste permis :
     un entier ne peut pas refermer quoi que ce soit.
     """
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     fautes = [l.strip() for l in page.split("\n") if "'${" in l]
     assert not fautes, (
         "une donnee est interpolee dans une chaine JavaScript ecrite en "
@@ -6360,8 +6371,7 @@ def test_le_navigateur_de_dossiers_construit_du_dom():
     C'est ce qui rend la regle tenable : il n'y a plus d'echappement a poser
     correctement, donc plus d'echappement a oublier.
     """
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     bloc = page.split("function peuplerDossiers(")[1].split("\n}")[0]
     assert "n.textContent = libelle" in bloc, (
         "le nom du dossier repasse par du HTML : textContent n'interprete "
@@ -6397,8 +6407,7 @@ def test_le_navigateur_de_dossiers_lit_ce_que_le_serveur_envoie(
     assert all(isinstance(x, str) for x in d["dirs"])
 
     # Et la page les consomme comme des chaines.
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     bloc = page.split("function peuplerDossiers(")[1].split("\n}")[0]
     assert "(d.dirs || []).forEach(nom =>" in bloc, (
         "la page relit un objet la ou le serveur envoie un nom")
@@ -7005,7 +7014,7 @@ def test_les_descriptions_par_defaut_tiennent_entieres_sur_leur_tuile():
     hub pour qu'elles soient visibles entierement. » Une tuile en montre
     environ 45 caracteres (DESCRIPTION_VISIBLE) : 40 au plus, avec de la
     marge pour les lettres larges."""
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"), encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     assert "DESCRIPTION_VISIBLE=45" in page
     for d in (app.DIAGNOSTIC_DESCRIPTION, app.DESCRIPTION_DAGSTER,
               app.DESCRIPTION_MAILPIT, app.DESCRIPTION_MESSAGERIE):
@@ -7099,20 +7108,15 @@ def test_le_menu_ne_defile_pas_avec_la_page():
     remonter d'abord -- le menu etait reste tout en haut.
     """
     page = _page_panneau("dashboard.html")
-    debut = page.index(".sidebar{")
-    regle = page[debut:page.index("}", debut)]
-    assert "position:sticky" in regle, regle
-    assert "top:52px" in regle, regle
-    # Sa propre hauteur, donc son propre defilement : un menu plus long que
-    # l'ecran doit rester entierement atteignable.
-    assert "overflow-y:auto" in regle, regle
-    # Et le rognage horizontal SURVIT : c'est lui qui decoupe les libelles
-    # pendant que la colonne se replie. Un "overflow:auto" pour les deux axes
-    # ferait apparaitre une barre de defilement pendant l'animation.
-    assert "overflow-x:hidden" in regle, regle
-    # Sans cela, le parent etire la colonne et "sticky" n'a plus de prise.
-    debut_corps = page.index(".page-body{")
-    assert "align-items:flex-start" in page[debut_corps:page.index("}", debut_corps)]
+    # Le menu est une pilule FIXE en haut de l'ecran (une barre fixe en bas
+    # sur un telephone) : il ne peut pas partir avec la page. La colonne
+    # collante d'avant (position:sticky sous le bandeau) a disparu avec le
+    # style « design », qui est toujours pose.
+    regle = page.split(':root[data-style="design"] .sidebar{')[1].split("}")[0]
+    assert "position:fixed" in regle, regle
+    telephone = page.split("@media (max-width:760px)")
+    assert any(':root[data-style="design"] .sidebar{top:auto;bottom:0' in bloc for bloc in telephone), (
+        "sur telephone, le menu doit rester colle au bas de l'ecran")
 
 
 def test_le_moniteur_rallume_une_application_par_defaut_eteinte(hub_dagster, monkeypatch):
@@ -7349,8 +7353,7 @@ def test_la_vue_d_ensemble_ne_double_plus_les_messages():
     """Deux endroits ou lire la meme chose, c'est deux endroits ou croire les
     avoir traites. Les demandes vivent dans leur application, et nulle part
     ailleurs dans le panneau."""
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     ensemble = page.split('<div id="sec-overview"')[1].split('<div id="sec-apps"')[0]
     assert "zone-messages" not in ensemble
     assert "msg-liste" not in ensemble
@@ -7360,8 +7363,7 @@ def test_la_vue_d_ensemble_ne_double_plus_les_messages():
 def test_les_demandes_ont_quitte_le_menu():
     """Les demandes sont une application du hub, au meme rang que le
     diagnostic : le menu du panneau n'en a plus l'entree."""
-    page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
-                encoding="utf-8").read()
+    page = _page_panneau("dashboard.html")
     menu = page.split('<nav class="sidebar"')[1].split("</nav>")[0]
     rubriques = re.findall(r'data-sec="([a-z]+)"', menu)
     assert "messages" not in rubriques, rubriques
@@ -8738,8 +8740,9 @@ def test_sans_serveur_d_envoi_aucun_compte_ne_se_cree(deux_comptes, monkeypatch)
     r = c.post("/api/invitations", json={"email": "paul@example.com"})
     assert r.status_code == 409 and r.get_json()["smtp_requis"] is True
     assert not app.lire_invitations()
-    page = c.get("/").get_data(as_text=True)
-    assert "let SMTP_OK = false;" in page and 'id="ov-smtp"' in page
+    page = _page_servie(c)
+    assert "smtp: false}" in page and "let SMTP_OK = CODELAB_PAGE.smtp;" in page
+    assert 'id="ov-smtp"' in page
 
     monkeypatch.setattr(app, "lire_smtp_personnalise", lambda: {
         "host": "smtp.example.com", "port": 587, "tls": "starttls",
@@ -8747,7 +8750,7 @@ def test_sans_serveur_d_envoi_aucun_compte_ne_se_cree(deux_comptes, monkeypatch)
     assert app.envoi_mail_configure() is True
     r = c.post("/api/utilisateurs", json={"nom": "paul", "mot_de_passe": "x" * 16})
     assert r.status_code == 200, r.get_json()
-    assert "let SMTP_OK = true;" in c.get("/").get_data(as_text=True)
+    assert "smtp: true}" in c.get("/").get_data(as_text=True)
 
 
 def test_suspendre_garde_le_compte_et_ses_droits(deux_comptes):
@@ -9463,7 +9466,7 @@ def test_l_ancienne_application_aichat_quitte_le_registre(monkeypatch, tmp_path)
     assert m.retirer_aichat() is None
     assert arretees == ["aichat"]
 
-    source = (_racine_app_manager() / "app.py").read_text(encoding="utf-8")
+    source = _page_panneau("app.py")
     assert "shutil.rmtree" not in source.split("def retirer_aichat")[1].split("\ndef ")[0]
 
 
@@ -9474,7 +9477,7 @@ def test_le_panneau_cesse_de_sonder_quand_l_onglet_n_est_plus_regarde():
     interrogeait la machine toutes les cinq secondes meme sans personne
     devant. Sur une ZimaBlade, cela se voit.
     """
-    page = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
+    page = _page_panneau("dashboard.html")
     assert "function surveiller(" in page
     assert "visibilitychange" in page
     assert "document.hidden" in page
@@ -9595,7 +9598,7 @@ def test_les_graphiques_ecartent_les_services_que_le_panneau_ne_mesure_pas():
     Une barre a 0.0 % a cote des applications qu'il mesure vraiment se lit
     comme « ce service ne consomme rien ». C'est faux -- on ne sait pas.
     """
-    page = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
+    page = _page_panneau("dashboard.html")
     bloc = page.split("function barChart(")[1].split("\n}")[0]
     assert "!a.externe" in bloc, (
         "les graphiques CPU et mémoire doivent ecarter les services externes")
@@ -10263,7 +10266,7 @@ def _plaques_du_theme():
     d'eux ne se voit qu'en basculant le theme a la main -- ce qui n'arrive
     jamais au moment ou l'on ecrit la regle.
     """
-    feuille = (_racine_app_manager() / "theme.css").read_text(encoding="utf-8")
+    feuille = _page_panneau("theme.css")
     valeurs = re.findall(r"--plaque-logo:\s*(#[0-9a-fA-F]{3,6})\s*;", feuille)
     # Trois styles : classique, « design », et celui du panneau (bento).
     assert len(valeurs) == 9, (
@@ -10344,7 +10347,7 @@ def test_le_panneau_s_ajoute_a_l_ecran_d_accueil_d_un_iphone(client):
     """
     import struct
     for page in ("dashboard.html", "login.html"):
-        html = (_racine_app_manager() / page).read_text(encoding="utf-8")
+        html = _page_panneau(page)
         for balise in ('rel="manifest" href="/manifest.webmanifest"',
                        'rel="apple-touch-icon" href="/apple-touch-icon.png',
                        'name="apple-mobile-web-app-capable" content="yes"',
@@ -10386,7 +10389,7 @@ def test_le_panneau_ne_telecharge_plus_le_logo_de_dagster():
     # parmi les logos qu'un projet depose dans son dossier. Ce qu'on
     # interdit, c'est de le chercher CHEZ DAGSTER -- donc les deux mots
     # ensemble, dans la meme ligne ou le meme appel.
-    source = (_racine_app_manager() / "app.py").read_text(encoding="utf-8")
+    source = _page_panneau("app.py")
     # Les COMMENTAIRES sont hors sujet : celui qui explique le retrait cite
     # forcement les deux mots, et ce test le faisait tomber sur sa propre
     # justification. C'est du code qu'on parle.
@@ -10477,7 +10480,7 @@ def test_ranger_un_nom_inconnu_reste_un_refus(hub):
 # ------------------------- la liste des reglages -----------------------
 
 def _bloc_liste_rangement():
-    page = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
+    page = _page_panneau("dashboard.html")
     debut = page.index("const lignes = toutes.map(a=>{")
     return page[debut:page.index("}).join('');", debut)]
 
@@ -10509,7 +10512,7 @@ def test_la_liste_du_rangement_est_batie_sur_les_quatre_sources():
     ailleurs -- dans le commentaire au-dessus et dans le calcul des cochees --
     et passait au travers. C'est ce mutant qui a ecrit ce test-ci.
     """
-    page = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
+    page = _page_panneau("dashboard.html")
     debut = page.index("function peindreMasquees(){")
     fin = page.index("}", page.index("const lignes", debut))
     corps = page[debut:fin]
@@ -10528,7 +10531,7 @@ def test_la_carte_du_rangement_ne_dit_plus_l_inverse_de_ce_qu_elle_fait():
     et la phrase etait restee. Sur un reglage dont tout l'interet est le sens
     de la case, c'est la seule phrase qu'il fallait avoir juste.
     """
-    page = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
+    page = _page_panneau("dashboard.html")
     debut = page.index('<b>Applications du hub</b>')
     carte = page[debut:debut + 900]
     assert "Cochée, elle est affichée" in carte
@@ -11274,7 +11277,7 @@ def test_un_second_clic_sur_demarrer_n_arrete_pas(hub, monkeypatch):
     r = c.post("/api/toggle/compta", json={"action": "demarrage"})
     assert r.status_code == 200 and r.get_json()["deja"] is True
     assert arrets == []
-    page = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
+    page = _page_panneau("dashboard.html")
     assert "actionsEnCours" in page and "body:JSON.stringify({action:" in page
 
 
@@ -11324,7 +11327,7 @@ def test_les_erreurs_du_navigateur_arrivent_dans_les_journaux(client, capsys):
     for _ in range(40):
         r = client.post("/api/erreur-navigateur", json={"message": "boucle"})
     assert r.status_code == 429
-    page = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
+    page = _page_panneau("dashboard.html")
     assert "addEventListener('unhandledrejection'" in page
 
 
@@ -11831,7 +11834,7 @@ def test_l_onglet_d_une_application_prend_son_logo_si_elle_n_en_a_pas():
         data, _ = app.injecter_icone(propre, 200, entetes, "site")
     assert data == propre
     # Le panneau garde le logo CodeLab dans ses onglets.
-    panneau = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
+    panneau = _page_panneau("dashboard.html")
     assert panneau.count('rel="icon"') == 1
 
 
@@ -11949,7 +11952,7 @@ def test_le_panneau_installe_ouvre_les_applications_sans_en_sortir(client, monke
         assert b'target="_top"' in app.ruban_retour()
 
     # Le hub n'y passe qu'en mode app.
-    html = (_racine_app_manager() / "dashboard.html").read_text(encoding="utf-8")
+    html = _page_panneau("dashboard.html")
     assert "window.CODELAB_MODE_APP === true" in html and "/ouvrir.html?app=" in html
 
 
@@ -12538,7 +12541,7 @@ def test_changer_son_mot_de_passe_garde_sa_session_et_ferme_les_autres(deux_espa
     _connecte(autre, "marie", "mot-de-passe-long")
     time.sleep(1.1)
     jeton = c.get("/").get_data(as_text=True)
-    jeton = re.search(r"const JETON=(\"[^\"]+\")", jeton).group(1).strip('"')
+    jeton = re.search(r"jeton: (\"[^\"]+\")", jeton).group(1).strip('"')
     r = c.post("/api/compte/mot-de-passe",
                json={"ancien": "mot-de-passe-long", "nouveau": "un-tout-nouveau-mot-de-passe"},
                headers={app.JETON_ENTETE: jeton})
@@ -12627,7 +12630,7 @@ def test_dagster_et_mailpit_ne_s_accordent_a_aucun_compte(hub_dagster):
     for service in (app.DAGSTER_NOM, app.MAILPIT_NOM):
         r = c.put(f"/api/apps/{service}/acces", json={"utilisateurs": ["marie"]},
                   headers={app.JETON_ENTETE: c.get("/").get_data(as_text=True)
-                           .split("const JETON=\"")[1].split("\"")[0]})
+                           .split("jeton: \"")[1].split("\"")[0]})
         assert r.status_code in (403, 404), (service, r.data)
     assert app.lire_utilisateurs()["marie"]["projets"] == ["site"]
 
@@ -12979,6 +12982,39 @@ def test_la_page_de_connexion_ne_montre_pas_credentials_sur_telephone():
 
 # ---------- adresses propres ----------
 
+def test_la_feuille_de_style_du_panneau_est_equilibree():
+    """Vecu, pendant la fusion du CSS : la fin d'un commentaire est partie
+    avec une regle vide ; le « /* » reste ouvert a englouti la regle suivante
+    (le compteur du menu a perdu ses coins arrondis), et aucun autre test ne
+    l'a vu. Un commentaire ou une accolade desequilibres font disparaitre des
+    regles EN SILENCE : le navigateur ne signale rien."""
+    for nom in ("dashboard.html", "login.html", "messages.html"):
+        page = _page_panneau(nom)
+        for css in re.findall(r"<style[^>]*>(.*?)</style>", page, re.S):
+            assert css.count("/*") == css.count("*/"), f"{nom} : commentaire non ferme"
+            sans = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+            assert "/*" not in sans and "*/" not in sans, f"{nom} : commentaire imbrique ou orphelin"
+            assert sans.count("{") == sans.count("}"), f"{nom} : accolades desequilibrees"
+
+
+def test_le_script_du_panneau_se_met_en_cache_et_reste_derriere_la_session(deux_espaces):
+    """Le script du panneau (panneau.js) est sorti de la page pour se mettre
+    en cache. Il ne se sert qu'a une session, garde un an a la bonne
+    empreinte, se revalide sinon ; et les valeurs de la session restent dans
+    la page, ecrites sans « < » brut."""
+    c = deux_espaces
+    adresse = f"/panneau.js?v={app.PANNEAU_JS_VERSION}"
+    assert c.get(adresse).status_code in (302, 401)
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    r = c.get(adresse)
+    assert r.status_code == 200 and r.mimetype == "text/javascript"
+    assert r.headers["Cache-Control"] == "private, max-age=31536000, immutable"
+    assert c.get("/panneau.js?v=ancienne").headers["Cache-Control"] == "private, no-cache"
+    # Le meme fichier pour tous : aucune valeur de session dedans.
+    assert "__JETON__" not in r.get_data(as_text=True) and "CODELAB_PAGE.jeton" in r.get_data(as_text=True)
+    assert app._json_dans_un_script("</script>") == '"\\u003c/script>"'
+
+
 def test_chaque_page_du_panneau_a_son_adresse(deux_espaces):
     """Recharger /parametres/securite laisse sur les parametres : le serveur
     sert le panneau a ces adresses, et renvoie a la connexion sans session,
@@ -12994,7 +13030,7 @@ def test_chaque_page_du_panneau_a_son_adresse(deux_espaces):
                    "/parametres/securite"):
         r = c.get(chemin)
         assert r.status_code == 200, chemin
-        assert "routerDepuisAdresse" in r.get_data(as_text=True), chemin
+        assert "routerDepuisAdresse" in _page_servie(c, chemin), chemin
     # Les adresses de l'ancienne application « Demandes » menent a Messages.
     for chemin in ("/demandes", "/demandes/tableau"):
         r = c.get(chemin)
@@ -15159,7 +15195,7 @@ def test_le_panneau_dit_quelle_version_tourne(hub, monkeypatch):
 def test_le_panneau_ne_contacte_jamais_github():
     """Aucun appel sortant pour la version : ni fonction qui interroge
     l'API, ni boucle de verification, ni route pour la declencher."""
-    source = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    source = _page_panneau("app.py")
     assert "api.github.com" not in source
     for trace in ("def verifier_mise_a_jour", "_github(", "/api/version/verifier",
                   "APP_MANAGER_VERIFIER_MAJ"):
@@ -15377,7 +15413,7 @@ def test_le_manuel_distingue_le_site_et_l_application():
 
 
 def test_le_theme_fige_l_interface_en_mode_application():
-    theme = open(os.path.join(DOSSIER_PANNEAU, "app", "theme.css"), encoding="utf-8").read()
+    theme = _page_panneau("theme.css")
     regle = theme.split("html.mode-app{")[1].split("}")[0]
     for attendu in ("touch-action:pan-x pan-y", "overscroll-behavior:none",
                     "-webkit-tap-highlight-color:transparent"):
@@ -15492,7 +15528,7 @@ def test_l_application_ne_tourne_pas_sur_un_telephone():
     assert "a-redresser" not in theme
     assert "html.mode-app.contre-rotation body{" in theme
     # Le manifeste laisse tourner : c'est la tablette qui en a besoin.
-    assert '"orientation": "any"' in open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    assert '"orientation": "any"' in _page_panneau("app.py")
 
 
 def test_une_application_ouverte_dans_le_panneau_installe_se_comporte_en_app(hub):
@@ -15550,13 +15586,13 @@ def test_l_environnement_passe_avant_les_scripts_de_l_application(monkeypatch):
 
 def test_l_environnement_ne_ferme_jamais_sa_balise():
     """Un « </script> » dans le script, meme en commentaire, couperait la page."""
-    source = (_racine_app_manager() / "environnement-app.js").read_text(encoding="utf-8")
+    source = _page_panneau("environnement-app.js")
     assert "</" not in source
     assert source.count("__PANNEAU__") == 1
 
 
 def test_encadree_par_le_hub_une_application_se_croit_installee():
-    source = (_racine_app_manager() / "environnement-app.js").read_text(encoding="utf-8")
+    source = _page_panneau("environnement-app.js")
     # Encadree par LE panneau seulement : le nom du cadre, et une origine connue.
     assert "encadree = window.top !== window && window.name === 'codelab-app' && !!PANNEAU;" in source
     # Ce qu'iOS dirait d'une app installee.
@@ -16050,7 +16086,7 @@ def test_les_mots_de_passe_passent_a_600000_iterations_sans_rien_casser():
     ancien = {"sel": sel, "hash": app._pbkdf2("un-mot-de-passe", sel, 200_000)}
     assert app.verifie_mot_de_passe(ancien, "un-mot-de-passe")
     assert not app.empreinte_a_jour(ancien)
-    src = open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+    src = _page_panneau("app.py")
     connexion = src.split("def login_submit():")[1].split("\n@flask_app")[0]
     # Un nom inconnu coute le meme calcul qu'un vrai compte.
     assert "verifie_mot_de_passe(compte or _COMPTE_FANTOME, pw or \"\")" in connexion

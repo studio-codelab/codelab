@@ -169,6 +169,11 @@ OUVRIR_PAGE = _lire_ressource("ouvrir.html")
 # et qu'aucune des deux ne puisse deriver de l'autre.
 THEME_CSS = _lire_ressource("theme.css")
 MODE_JS = _lire_ressource("mode.js")
+# Le script du panneau, sorti de dashboard.html pour se mettre en cache. Son
+# empreinte entre dans l'adresse (/panneau.js?v=...) : un deploiement change
+# l'adresse, donc le navigateur ne garde jamais une version perimee.
+PANNEAU_JS = _lire_ressource("panneau.js")
+PANNEAU_JS_VERSION = hashlib.sha256(PANNEAU_JS.encode("utf-8")).hexdigest()[:12]
 # Le logo CodeLab : celui de la barre du haut, relu dans la page plutot que
 # recopie ici -- un seul dessin, qu'on ne peut pas changer a un endroit et
 # oublier a l'autre. C'est aussi l'icone des onglets, servie a une VRAIE
@@ -11365,6 +11370,32 @@ def mode_js():
                     headers={"Cache-Control": "public, max-age=60"})
 
 
+def _json_dans_un_script(valeur):
+    """Une valeur en JSON, prete a entrer dans une balise script : « < »
+    s'ecrit \\u003c (le meme caractere pour JavaScript), et rien ne peut
+    donc y ecrire « </script> »."""
+    return json.dumps(valeur).replace("<", "\\u003c")
+
+
+@flask_app.get("/panneau.js")
+@require_auth
+def panneau_js():
+    """Le script de la page du panneau (dashboard.html).
+
+    A une session seulement : il ne porte aucun secret (chaque valeur propre
+    a la session est dans la page, window.CODELAB_PAGE), mais il n'a rien a
+    faire chez un visiteur, et la page qui le charge exige deja la session.
+    CACHE : l'adresse porte l'empreinte du fichier (PANNEAU_JS_VERSION). A la
+    bonne empreinte, le navigateur le garde un an sans redemander ; sinon
+    (ancienne page, adresse tapee a la main), il le revalide a chaque fois.
+    « private » : il passe par une session, aucun cache partage ne le garde.
+    """
+    garder = request.args.get("v") == PANNEAU_JS_VERSION
+    return Response(PANNEAU_JS, mimetype="text/javascript",
+                    headers={"Cache-Control": "private, max-age=31536000, immutable"
+                             if garder else "private, no-cache"})
+
+
 @flask_app.get("/login")
 def login_page(invitation=False):
     # Une invitation s'ouvre meme avec une session en cours : c'est souvent
@@ -11518,16 +11549,20 @@ def index():
     verifie le role de son cote (require_admin), et une page bricolee ne
     donne donc aucun droit supplementaire.
     """
+    # Les valeurs entrent dans un script en ligne (window.CODELAB_PAGE) :
+    # _json_dans_un_script les ecrit en JSON ET y echappe « < », pour qu'aucune
+    # ne puisse fermer la balise (un nom de compte, une racine, une adresse).
     page = (DASHBOARD_PAGE
-            .replace("__JETON__", json.dumps(jeton_session()))
-            .replace("__APPS_MODELE__", json.dumps(modele_adresse_application()))
-            .replace("__ROOT__", json.dumps(ROOT))
-            .replace("__ROLE__", json.dumps(role_courant() or ""))
+            .replace("__JETON__", _json_dans_un_script(jeton_session()))
+            .replace("__APPS_MODELE__", _json_dans_un_script(modele_adresse_application()))
+            .replace("__ROOT__", _json_dans_un_script(ROOT))
+            .replace("__ROLE__", _json_dans_un_script(role_courant() or ""))
             # Seul l'admin en a besoin : la page lui propose de regler l'envoi
             # tant qu'il manque, et grise la creation de comptes.
-            .replace("__SMTP__", json.dumps(
+            .replace("__SMTP__", _json_dans_un_script(
                 envoi_mail_configure() if role_courant() == "admin" else True))
-            .replace("__UTILISATEUR__", json.dumps(utilisateur_courant())))
+            .replace("__UTILISATEUR__", _json_dans_un_script(utilisateur_courant()))
+            .replace("__PANNEAU_VERSION__", PANNEAU_JS_VERSION))
     r = Response(avec_style(page), mimetype="text/html")
     # Le widget « A la une » du hub montre un APERCU de la derniere
     # application ouverte, dans un cadre : la politique du panneau, plus le
