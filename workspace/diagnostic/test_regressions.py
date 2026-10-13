@@ -15450,6 +15450,26 @@ def test_le_service_worker_n_existe_qu_en_mode_application():
     assert "navigator.serviceWorker.register('/sw.js')" in apres
 
 
+def test_l_application_ne_tourne_pas_sur_un_telephone():
+    mode = _page_panneau("mode.js").split("(function(){")[1].split("})();")[0]
+    avant, apres = mode.split("if(!app) return;")
+    # En mode application seulement, et sur un telephone seulement : le petit
+    # cote de l'ECRAN, au doigt. La tablette et l'ordinateur tournent.
+    assert "lock('portrait')" not in avant and "a-redresser" not in avant
+    assert "Math.min(screen.width, screen.height) < 600" in apres
+    assert "matchMedia('(pointer: coarse)')" in apres
+    assert "o.lock('portrait').catch(function(e){})" in apres
+    # Le sens de l'appareil, jamais la hauteur de la fenetre : le clavier
+    # d'Android rendrait la page « en paysage » sans rien tourner.
+    assert "innerHeight" not in apres.split("var lireSens")[1].split("};")[0]
+    assert "html.classList.toggle('a-redresser', paysage)" in apres
+    theme = _page_panneau("theme.css")
+    assert "html.mode-app.a-redresser body::after{" in theme
+    assert "html.mode-app.a-redresser body::before{" in theme
+    # Le manifeste laisse tourner : c'est la tablette qui en a besoin.
+    assert '"orientation": "any"' in open(os.path.join(DOSSIER_PANNEAU, "app", "app.py"), encoding="utf-8").read()
+
+
 def test_une_application_ouverte_dans_le_panneau_installe_se_comporte_en_app(hub):
     c = _connexion_marie(hub)
     page = c.get("/ouvrir.html?app=compta").get_data(as_text=True)

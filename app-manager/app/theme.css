@@ -373,3 +373,14 @@ html.mode-app :is(input,textarea,select,[contenteditable],pre,code,.selectionnab
  -webkit-user-select:text;user-select:text;-webkit-touch-callout:default}
 /* Un champ de moins de 16 px fait zoomer iOS a la saisie. */
 html.mode-app :is(input,textarea,select){font-size:max(16px,1em)}
+/* PAS DE ROTATION SUR TELEPHONE (classe « a-redresser », posee par mode.js
+   quand un telephone en mode application est tenu en paysage, la ou le
+   systeme ne sait pas verrouiller -- iOS). La page reste dessous, intacte :
+   redresse, on la retrouve telle quelle. */
+html.mode-app.a-redresser,html.mode-app.a-redresser body{overflow:hidden}
+html.mode-app.a-redresser body::before{content:"";position:fixed;inset:0;z-index:2147483646;background:var(--bg)}
+html.mode-app.a-redresser body::after{content:"Tiens ton téléphone droit\A CodeLab s'utilise en portrait.";
+ white-space:pre-line;
+ position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:2147483647;
+ width:min(80vw,360px);padding-top:64px;text-align:center;color:var(--txt);font:600 var(--t-l)/1.5 var(--sans);
+ background:no-repeat top center/44px 44px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='7' y='2.5' width='10' height='19' rx='2.2'/%3E%3Cpath d='M10.5 18.5h3'/%3E%3C/svg%3E")}

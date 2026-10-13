@@ -40,6 +40,31 @@
   ['gesturestart','gesturechange','gestureend'].forEach(function(t){
     document.addEventListener(t, function(e){ e.preventDefault(); }, {passive:false});
   });
+  /* PAS DE ROTATION SUR TELEPHONE. L'application installee reste droite sur
+     un telephone (le petit cote de l'ecran sous 600 px) : la tablette et
+     l'ordinateur tournent librement. Android et Chrome verrouillent pour de
+     bon (screen.orientation.lock) ; iOS n'a pas de verrou pour une page :
+     tenu en paysage, l'ecran se couvre d'une invitation a le redresser
+     (classe « a-redresser », habillee dans theme.css). C'est le SENS DE
+     L'APPAREIL qui compte, jamais la hauteur de la fenetre : sur Android, le
+     clavier ouvert rend la page plus large que haute sans rien tourner. */
+  var html = document.documentElement;
+  var telephone = Math.min(screen.width, screen.height) < 600
+                  && !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
+  if(telephone){
+    html.classList.add('telephone');
+    var o = screen.orientation;
+    if(o && o.lock) o.lock('portrait').catch(function(e){});
+    var lireSens = function(){
+      var t = o && o.type;
+      var paysage = t ? t.indexOf('landscape') === 0 : Math.abs(window.orientation || 0) === 90;
+      html.classList.toggle('a-redresser', paysage);
+    };
+    lireSens();
+    if(o && o.addEventListener) o.addEventListener('change', lireSens);
+    window.addEventListener('orientationchange', lireSens);
+    window.addEventListener('pageshow', lireSens);
+  }
   /* La page de reserve hors ligne : en mode application seulement. Dans le
      navigateur, le panneau reste un site (et Safari garde sa page d'erreur). */
   if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(function(){});

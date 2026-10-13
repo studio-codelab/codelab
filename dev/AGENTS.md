@@ -412,6 +412,7 @@ distinguer les deux** :
 | Ou elle vit | a sa propre adresse | encadree dans une page du panneau (`/ouvrir.html`) |
 | Le zoom | permis (c'est un reglage d'accessibilite) | bloque : une application installee ne zoome pas |
 | Le defilement | celui de la page | sans rebond en bout de page, et **aucune barre de defilement visible** |
+| La rotation | libre | libre aussi : ton application tourne, prevois le paysage du telephone (seul le panneau CodeLab reste droit sur telephone) |
 
 **Les deux modes sont responsives, sur les trois appareils.** Telephone
 (375 px), tablette en portrait et en paysage (768 et 1024 px) et ordinateur
