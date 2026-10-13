@@ -11404,11 +11404,7 @@ def login_page(invitation=False):
         # Deja connecte : « Se connecter avec CodeLab » depuis une
         # application ramene directement dedans, sans formulaire.
         return redirect(suite_locale(request.args.get("suite")))
-    # __TOTP__ vaut "1" quand la double authentification est active : la page
-    # affiche alors le champ du code. Substitue au moment de servir, comme
-    # __ROOT__ dans le tableau de bord.
-    page = LOGIN_PAGE.replace("__TOTP__", "1" if totp_actif() else "0")
-    return Response(avec_style(page), mimetype="text/html")
+    return Response(avec_style(LOGIN_PAGE), mimetype="text/html")
 
 
 # LES REGLAGES DU HUB, poses en attribut sur <html> (data-tuiles,
@@ -11527,9 +11523,7 @@ def page_messagerie(**_):
     """
     if not est_admin():
         return index()
-    page = (MESSAGERIE_PAGE
-            .replace("__JETON__", json.dumps(jeton_session()))
-            .replace("__UTILISATEUR__", json.dumps(utilisateur_courant())))
+    page = MESSAGERIE_PAGE.replace("__JETON__", _json_dans_un_script(jeton_session()))
     return Response(avec_style(page), mimetype="text/html")
 
 

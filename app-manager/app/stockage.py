@@ -1,4 +1,27 @@
-"""Le stockage du panneau : une seule base SQLite, codelab.db.
+"""CodeLab -- LE STOCKAGE DU PANNEAU : une seule base SQLite, codelab.db.
+---------------------------------------------------------------------------
+ROLE        Ouvrir la base, la mettre au schema courant (MIGRATIONS), y lire
+            et y ecrire en transactions, la sauvegarder de facon coherente.
+            Ce fichier ne sait RIEN des comptes ni des applications : c'est
+            app.py qui decide quoi ecrire, et qui chiffre ce qui doit l'etre
+            avant d'arriver ici (le coffre, chiffrer/dechiffrer).
+CHARGE PAR  app.py (import stockage). Le diagnostic (checks.py) ouvre la meme
+            base en LECTURE SEULE, sans passer par ce module.
+CONTRAINTES - MIGRATIONS : on AJOUTE a la fin, on ne modifie ni ne reordonne
+              jamais une etape deja publiee -- elle a tourne chez
+              l'utilisateur, et user_version dit combien en ont ete jouees.
+              Chaque etape est testee sur une base de la version precedente.
+            - Le fichier reste en 0600 (SECURITE.md, regle 17) : il porte
+              les empreintes des mots de passe.
+            - Une ecriture passe par transaction() : complete ou absente.
+STRUCTURE   MIGRATIONS et VERSION ; ouverture (_preparer, connexion,
+            transaction, lire) ; d'un dictionnaire a une ligne et retour
+            (vers_ligne, depuis_ligne, inserer) ; generations (detecter
+            qu'une autre ecriture est passee) ; journal WAL et sauvegarde.
+A AMELIORER - Une migration ne sait pas revenir en arriere : une version
+              plus ancienne du panneau refuserait une base plus recente.
+              Un garde-fou (refuser user_version > VERSION avec un message
+              clair) eviterait de l'ouvrir a moitie.
 
 POURQUOI SQLITE, ET PAS DES FICHIERS JSON NI POSTGRES.
 

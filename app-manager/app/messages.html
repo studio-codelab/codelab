@@ -21,28 +21,44 @@ __ECRANS_DEMARRAGE__
      <html>, avant tout affichage. Une seule copie pour les trois pages. -->
 <script src="/mode.js"></script>
 
-<!--
-  L'APPLICATION « MESSAGES ». Servie par le panneau sur /messages, reservee a
-  l'administrateur. Ce que les comptes ecrivent depuis le hub, et le travail
-  qu'on en tire :
-
-    Boite de reception   les messages, rangés a sa guise (glisser), rattaches
-                         a un projet, regroupes quand ils parlent de la meme
-                         chose (le panneau le suggere) ;
-    Planning             toutes les taches ouvertes, DANS L'ORDRE ou on veut
-                         les faire : la place est la priorite, pas une
-                         etiquette d'urgence. Une date, une duree en jours :
-                         facultatives. Une tache se scinde ;
-    Feuille de route     le planning pose sur un calendrier -- aujourd'hui,
-                         semaine par semaine, sur plusieurs mois. Elle se
-                         recalcule chaque jour : une tache non cochee glisse
-                         avec le temps ;
-    Projets              un projet rassemble des messages et des taches.
-
-  Les couleurs viennent de theme.css. Aucune donnee n'est gardee ici : tout
-  passe par l'API du panneau, qui verifie le role a chaque appel.
--->
-<style>
+<!-- =========================================================================
+  CodeLab -- L'APPLICATION « MESSAGES » : boite de reception et projets
+  ---------------------------------------------------------------------------
+  ROLE        Ce que les comptes ecrivent depuis le hub, et le travail qu'on
+              en tire :
+                Boite de reception   les messages, ranges a sa guise
+                                     (glisser), rattaches a un projet,
+                                     regroupes quand ils parlent de la meme
+                                     chose (le panneau le suggere) ;
+                Planning             toutes les taches ouvertes, DANS L'ORDRE
+                                     ou on veut les faire : la place est la
+                                     priorite, pas une etiquette d'urgence.
+                                     Une date, une duree en jours :
+                                     facultatives. Une tache se scinde ;
+                Feuille de route     le planning pose sur un calendrier --
+                                     aujourd'hui, semaine par semaine, sur
+                                     plusieurs mois. Elle se recalcule chaque
+                                     jour : une tache non cochee glisse avec
+                                     le temps ;
+                Projets              un projet rassemble des messages et des
+                                     taches.
+  SERVIE PAR  page_messagerie (app.py), sur /messages, a l'administrateur
+              seulement (un compte utilisateur a, a la meme adresse, sa
+              rubrique « Messages » du panneau). Le serveur y ecrit le jeton
+              anti-falsification et pose les ecrans de demarrage.
+  CONTRAINTES - Aucune donnee n'est gardee ici : tout passe par l'API du
+                panneau, qui verifie le role a chaque appel.
+              - Les couleurs viennent de theme.css ; mode et largeur restent
+                separes (AGENTS.md, section 4).
+              - Rien ne se supprime sans demander() : les tests le verifient.
+  STRUCTURE   La feuille de style, le balisage, puis le script : les donnees,
+              les vues et l'adresse, la boite de reception, le planning, la
+              feuille de route (une fonction par echelle : feuilleJour,
+              feuilleSemaines, feuilleMois), un projet, une tache, projets
+              et regroupements, un seul aiguillage (data-agir), demarrage.
+  A AMELIORER - Sortir le script dans un fichier mis en cache, comme
+                panneau.js, avec le jeton passe par la page.
+========================================================================== --><style>
 *{box-sizing:border-box}
 html,body{height:100%}
 body{margin:0;background:var(--bg);color:var(--txt);font:var(--t-b)/1.5 var(--sans);
@@ -770,76 +786,8 @@ function peindreFeuille(){
   const plan=planifier(), auj=aujourdhui();
   const fin = plan.length ? plan.reduce((m,p)=>p.fin>m?p.fin:m, plan[0].fin) : null;
   entete('Feuille de route', fin ? 'Le planning actuel se termine le '+fmt(fin,{weekday:'long',day:'numeric',month:'long'})+'.' : 'Aucune tâche planifiée.', BTN_TACHE);
-  let corps='';
-  if(echelle==='jour'){
-    const ajd=plan.filter(p=>p.debut<=prochainOuvre(auj) && p.fin>=prochainOuvre(auj));
-    const retard=ajd.filter(p=>p.retard), reste=ajd.filter(p=>!p.retard);
-    const suite=plan.filter(p=>p.debut>prochainOuvre(auj)).slice(0,6);
-    const faitesAuj=taches.filter(t=>t.statut==='fait' && t.fait_le && iso(jourDe(t.fait_le*1000))===iso(auj));
-    const bloc=(titre, items)=>items.length ? `<div class="groupe-titre">${titre}</div><div class="taches">${items.map(t=>ligneTache(t,null,plan,false)).join('')}</div>` : '';
-    const titreJour=fmt(auj,{weekday:'long',day:'numeric',month:'long'});
-    corps=`<div class="jour-entete"><b>${esc(titreJour.charAt(0).toUpperCase()+titreJour.slice(1))}</b>
-        ${!ouvre(auj) ? '<span class="aide">Week-end : le planning reprend lundi.</span>' : ''}</div>
-      ${bloc('En retard', retard.map(p=>p.t))}${bloc(ouvre(auj)?"Aujourd'hui":'Lundi', reste.map(p=>p.t))}
-      ${!ajd.length ? `<div class="vide"><b>Rien de prévu ${ouvre(auj)?"aujourd'hui":'lundi'}</b>Ajoute une tâche au planning.</div>` : ''}
-      ${bloc('Ensuite', suite.map(p=>p.t))}${bloc('Fait aujourd\'hui', faitesAuj)}`;
-  }
-  if(echelle==='semaines'){
-    const debut=lundi(auj), nb=8;
-    const faites=taches.filter(t=>t.statut==='fait' && t.fait_le);
-    corps='<div class="semaines">'+Array.from({length:nb},(_,k)=>{
-      const l=new Date(debut); l.setDate(l.getDate()+7*k);
-      const v=new Date(l); v.setDate(v.getDate()+4);
-      const jours=Array.from({length:5},(_,i)=>{ const d=new Date(l); d.setDate(d.getDate()+i); return d; });
-      const lignes=[];
-      plan.forEach(p=>{
-        if(p.fin<l || p.debut>v) return;
-        const a=Math.max(0, Math.round((jourDe(p.debut<l?l:p.debut)-l)/864e5));
-        const b=Math.min(4, Math.round((jourDe(p.fin>v?v:p.fin)-l)/864e5));
-        lignes.push(barre(p.t, p.retard?' retard':'', `grid-column:${a+1} / ${b+2}`));
-      });
-      faites.forEach(t=>{ const d=jourDe(t.fait_le*1000); const i=Math.round((d-l)/864e5);
-        if(i>=0 && i<=4) lignes.push(barre(t,'',`grid-column:${i+1} / ${i+2}`)); });
-      const n=plan.filter(p=>!(p.fin<l || p.debut>v)).length;
-      return `<section class="carte semaine" aria-label="Semaine du ${esc(fmt(l,{day:'numeric',month:'long'}))}">
-        <div class="semaine-tete"><b>${k===0?'Cette semaine':k===1?'Semaine prochaine':'Semaine du '+esc(fmt(l,{day:'numeric',month:'long'}))}</b>
-          <span>${esc(fmt(l,{day:'numeric',month:'short'}))} – ${esc(fmt(v,{day:'numeric',month:'short'}))} · ${n ? n+' tâche'+(n>1?'s':'') : 'aucune tâche'}</span></div>
-        <div class="semaine-grille">${jours.map(d=>`<div class="jour${iso(d)===iso(auj)?' aujourdhui':''}${d<auj&&iso(d)!==iso(auj)?' passe':''}">${esc(fmt(d,{weekday:'short',day:'numeric'}))}</div>`).join('')}
-          ${lignes.join('') || '<div class="aide" style="grid-column:1 / -1;padding:4px 2px">Rien de prévu.</div>'}</div></section>`;
-    }).join('')+'</div>';
-  }
-  if(echelle==='mois'){
-    const debut=new Date(auj.getFullYear(), auj.getMonth(), 1, 12);
-    const finH=new Date(auj.getFullYear(), auj.getMonth()+horizonMois, 1, 12);
-    const jours=Math.round((finH-debut)/864e5), px=horizonMois===1 ? 40 : horizonMois<=3 ? 22 : horizonMois<=6 ? 12 : 6;
-    /* Une barre assez large pour lire son titre : sa place VISIBLE (et non
-       sa seule duree) decide de la piste qu'elle prend. */
-    const LARGEUR_MIN=130;
-    const x=d=>Math.round((jourDe(d)-debut)/864e5)*px;
-    const mois=Array.from({length:horizonMois},(_,k)=>{ const a=new Date(debut.getFullYear(), debut.getMonth()+k, 1, 12);
-      const b=new Date(debut.getFullYear(), debut.getMonth()+k+1, 1, 12);
-      return `<div style="width:${(x(b)-x(a))}px">${esc(fmt(a,{month:'long',year: horizonMois>6 || k===0 ? 'numeric' : undefined}))}</div>`; }).join('');
-    const semaines=[]; for(let d=lundi(debut); d<finH; d=new Date(d.getTime()+7*864e5)) if(d>=debut) semaines.push(`<div class="frise-semaine" style="left:${x(d)}px"></div>`);
-    const groupes={};
-    plan.forEach(p=>{ if(p.fin>=debut && p.debut<finH) (groupes[p.t.projet||'general'] ||= []).push(p); });
-    const lignes=Object.entries(groupes).sort((a,b)=>nomProjet(a[0]).localeCompare(nomProjet(b[0]),'fr')).map(([cle, ps])=>{
-      /* Les taches d'un projet sur une seule ligne quand elles se suivent ;
-         celles qui se chevauchent prennent une ligne de plus. */
-      const pistes=[];
-      ps.forEach(p=>{
-        p.g=x(p.debut); p.l=Math.max(LARGEUR_MIN, x(p.fin)-x(p.debut)+px);
-        let i=pistes.findIndex(f=>f+6<=p.g); if(i<0){ i=pistes.length; pistes.push(0); }
-        pistes[i]=p.g+p.l; p.piste=i;
-      });
-      return `<div class="frise-ligne" style="height:${40+pistes.length*30}px">
-        <span class="etiquette" style="color:${teinte(cle)}">${esc(nomProjet(cle))}</span>
-        ${ps.map(p=>barre(p.t, p.retard?' retard':'', `left:${p.g}px;width:${p.l}px;top:${36+p.piste*30}px`)).join('')}</div>`;
-    }).join('');
-    corps=`<div class="carte frise"><div class="frise-int" style="--largeur:${jours*px}px">
-      <div class="frise-mois">${mois}</div>${semaines.join('')}
-      <div class="frise-aujourdhui" style="left:${x(auj)}px"></div>
-      ${lignes || '<div class="vide" style="border:0">Aucune tâche sur cette période.</div>'}</div></div>`;
-  }
+  const peintre={jour:feuilleJour, semaines:feuilleSemaines, mois:feuilleMois}[echelle];
+  const corps=peintre ? peintre(plan, auj) : '';
   $('vue').innerHTML=`<div class="outils">
       <div class="segment" role="group" aria-label="Échelle">${[['jour',"Aujourd'hui"],['semaines','Semaines'],['mois','Mois']].map(([v,t])=>
         `<button aria-pressed="${echelle===v}" data-agir="echelle" data-cible="${v}">${t}</button>`).join('')}</div>
@@ -847,6 +795,84 @@ function peindreFeuille(){
         `<button aria-pressed="${horizonMois===n}" data-agir="horizon" data-cible="${n}">${n} mois</button>`).join('')}</div>` : ''}
       <span class="aide">Une tâche non cochée glisse avec le temps. Les tâches sans date se suivent dans l'ordre du planning.</span>
     </div>${corps}`;
+}
+
+/* Aujourd'hui : le retard d'abord, puis ce qui est prevu, la suite, et ce
+   qui est deja fait dans la journee. */
+function feuilleJour(plan, auj){
+  const ajd=plan.filter(p=>p.debut<=prochainOuvre(auj) && p.fin>=prochainOuvre(auj));
+  const retard=ajd.filter(p=>p.retard), reste=ajd.filter(p=>!p.retard);
+  const suite=plan.filter(p=>p.debut>prochainOuvre(auj)).slice(0,6);
+  const faitesAuj=taches.filter(t=>t.statut==='fait' && t.fait_le && iso(jourDe(t.fait_le*1000))===iso(auj));
+  const bloc=(titre, items)=>items.length ? `<div class="groupe-titre">${titre}</div><div class="taches">${items.map(t=>ligneTache(t,null,plan,false)).join('')}</div>` : '';
+  const titreJour=fmt(auj,{weekday:'long',day:'numeric',month:'long'});
+  return `<div class="jour-entete"><b>${esc(titreJour.charAt(0).toUpperCase()+titreJour.slice(1))}</b>
+      ${!ouvre(auj) ? '<span class="aide">Week-end : le planning reprend lundi.</span>' : ''}</div>
+    ${bloc('En retard', retard.map(p=>p.t))}${bloc(ouvre(auj)?"Aujourd'hui":'Lundi', reste.map(p=>p.t))}
+    ${!ajd.length ? `<div class="vide"><b>Rien de prévu ${ouvre(auj)?"aujourd'hui":'lundi'}</b>Ajoute une tâche au planning.</div>` : ''}
+    ${bloc('Ensuite', suite.map(p=>p.t))}${bloc('Fait aujourd\'hui', faitesAuj)}`;
+}
+
+/* Huit semaines, une carte chacune : les cinq jours ouvres en colonnes, une
+   barre par tache sur les jours qu'elle couvre. */
+function feuilleSemaines(plan, auj){
+  const debut=lundi(auj), nb=8;
+  const faites=taches.filter(t=>t.statut==='fait' && t.fait_le);
+  return '<div class="semaines">'+Array.from({length:nb},(_,k)=>{
+    const l=new Date(debut); l.setDate(l.getDate()+7*k);
+    const v=new Date(l); v.setDate(v.getDate()+4);
+    const jours=Array.from({length:5},(_,i)=>{ const d=new Date(l); d.setDate(d.getDate()+i); return d; });
+    const lignes=[];
+    plan.forEach(p=>{
+      if(p.fin<l || p.debut>v) return;
+      const a=Math.max(0, Math.round((jourDe(p.debut<l?l:p.debut)-l)/864e5));
+      const b=Math.min(4, Math.round((jourDe(p.fin>v?v:p.fin)-l)/864e5));
+      lignes.push(barre(p.t, p.retard?' retard':'', `grid-column:${a+1} / ${b+2}`));
+    });
+    faites.forEach(t=>{ const d=jourDe(t.fait_le*1000); const i=Math.round((d-l)/864e5);
+      if(i>=0 && i<=4) lignes.push(barre(t,'',`grid-column:${i+1} / ${i+2}`)); });
+    const n=plan.filter(p=>!(p.fin<l || p.debut>v)).length;
+    return `<section class="carte semaine" aria-label="Semaine du ${esc(fmt(l,{day:'numeric',month:'long'}))}">
+      <div class="semaine-tete"><b>${k===0?'Cette semaine':k===1?'Semaine prochaine':'Semaine du '+esc(fmt(l,{day:'numeric',month:'long'}))}</b>
+        <span>${esc(fmt(l,{day:'numeric',month:'short'}))} – ${esc(fmt(v,{day:'numeric',month:'short'}))} · ${n ? n+' tâche'+(n>1?'s':'') : 'aucune tâche'}</span></div>
+      <div class="semaine-grille">${jours.map(d=>`<div class="jour${iso(d)===iso(auj)?' aujourdhui':''}${d<auj&&iso(d)!==iso(auj)?' passe':''}">${esc(fmt(d,{weekday:'short',day:'numeric'}))}</div>`).join('')}
+        ${lignes.join('') || '<div class="aide" style="grid-column:1 / -1;padding:4px 2px">Rien de prévu.</div>'}</div></section>`;
+  }).join('')+'</div>';
+}
+
+/* La frise sur horizonMois mois : une ligne par projet, et une piste de plus
+   pour chaque tache qui en chevauche une autre. */
+function feuilleMois(plan, auj){
+  const debut=new Date(auj.getFullYear(), auj.getMonth(), 1, 12);
+  const finH=new Date(auj.getFullYear(), auj.getMonth()+horizonMois, 1, 12);
+  const jours=Math.round((finH-debut)/864e5), px=horizonMois===1 ? 40 : horizonMois<=3 ? 22 : horizonMois<=6 ? 12 : 6;
+  /* Une barre assez large pour lire son titre : sa place VISIBLE (et non
+     sa seule duree) decide de la piste qu'elle prend. */
+  const LARGEUR_MIN=130;
+  const x=d=>Math.round((jourDe(d)-debut)/864e5)*px;
+  const mois=Array.from({length:horizonMois},(_,k)=>{ const a=new Date(debut.getFullYear(), debut.getMonth()+k, 1, 12);
+    const b=new Date(debut.getFullYear(), debut.getMonth()+k+1, 1, 12);
+    return `<div style="width:${(x(b)-x(a))}px">${esc(fmt(a,{month:'long',year: horizonMois>6 || k===0 ? 'numeric' : undefined}))}</div>`; }).join('');
+  const semaines=[]; for(let d=lundi(debut); d<finH; d=new Date(d.getTime()+7*864e5)) if(d>=debut) semaines.push(`<div class="frise-semaine" style="left:${x(d)}px"></div>`);
+  const groupes={};
+  plan.forEach(p=>{ if(p.fin>=debut && p.debut<finH) (groupes[p.t.projet||'general'] ||= []).push(p); });
+  const lignes=Object.entries(groupes).sort((a,b)=>nomProjet(a[0]).localeCompare(nomProjet(b[0]),'fr')).map(([cle, ps])=>{
+    /* Les taches d'un projet sur une seule ligne quand elles se suivent ;
+       celles qui se chevauchent prennent une ligne de plus. */
+    const pistes=[];
+    ps.forEach(p=>{
+      p.g=x(p.debut); p.l=Math.max(LARGEUR_MIN, x(p.fin)-x(p.debut)+px);
+      let i=pistes.findIndex(f=>f+6<=p.g); if(i<0){ i=pistes.length; pistes.push(0); }
+      pistes[i]=p.g+p.l; p.piste=i;
+    });
+    return `<div class="frise-ligne" style="height:${40+pistes.length*30}px">
+      <span class="etiquette" style="color:${teinte(cle)}">${esc(nomProjet(cle))}</span>
+      ${ps.map(p=>barre(p.t, p.retard?' retard':'', `left:${p.g}px;width:${p.l}px;top:${36+p.piste*30}px`)).join('')}</div>`;
+  }).join('');
+  return `<div class="carte frise"><div class="frise-int" style="--largeur:${jours*px}px">
+    <div class="frise-mois">${mois}</div>${semaines.join('')}
+    <div class="frise-aujourdhui" style="left:${x(auj)}px"></div>
+    ${lignes || '<div class="vide" style="border:0">Aucune tâche sur cette période.</div>'}</div></div>`;
 }
 
 /* ================= un projet ================= */

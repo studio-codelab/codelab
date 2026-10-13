@@ -13275,7 +13275,8 @@ def test_le_style_se_choisit_et_se_pose_cote_serveur(deux_espaces):
     c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     assert defaut in c.get("/parametres").get_data(as_text=True)
     c.set_cookie("codelab-style", '"><script>')
-    assert "<script>\">" not in c.get("/").get_data(as_text=True)[:200]
+    racine = re.search(r"<html[^>]*>", c.get("/").get_data(as_text=True)).group(0)
+    assert "script" not in racine and "codelab-style" not in racine, racine
     page = _page_panneau("dashboard.html")
     assert "function setHub(" in page and 'id="hub-reglages"' in page
     assert "codelab-hub=" in page
@@ -13325,17 +13326,17 @@ def test_le_hub_se_regle_et_le_serveur_ne_pose_que_des_valeurs_connues(deux_espa
     c = deux_espaces
     assert set(app.REGLAGES_HUB) == {"tuiles", "defilement", "widgets", "couleurs"}
     c.set_cookie("codelab-hub", "haut.icones.prune.vertical")
-    tete = c.get("/login").get_data(as_text=True)[:400]
+    tete = re.search(r"<html[^>]*>", c.get("/login").get_data(as_text=True)).group(0)
     for attendu in ('data-tuiles="icones"', 'data-defilement="vertical"', 'data-widgets="haut"',
                     'data-couleurs="prune"', 'data-variante="bento"'):
         assert attendu in tete, attendu
     # Une partie seulement : le reste garde sa valeur par defaut.
     c.set_cookie("codelab-hub", "icones")
-    tete = c.get("/login").get_data(as_text=True)[:400]
+    tete = re.search(r"<html[^>]*>", c.get("/login").get_data(as_text=True)).group(0)
     assert 'data-tuiles="icones"' in tete and 'data-defilement="horizontal"' in tete
     # Rien d'inconnu n'arrive dans la page.
     c.set_cookie("codelab-hub", 'icones" onload="x.vertical')
-    tete = c.get("/login").get_data(as_text=True)[:400]
+    tete = re.search(r"<html[^>]*>", c.get("/login").get_data(as_text=True)).group(0)
     assert "onload" not in tete and 'data-defilement="vertical"' in tete
     assert 'data-tuiles="cartes"' in tete
     c.set_cookie("codelab-hub", "")
@@ -13345,7 +13346,7 @@ def test_le_hub_se_regle_et_le_serveur_ne_pose_que_des_valeurs_connues(deux_espa
     c.set_cookie("codelab-style", "lanceur")
     assert DEFAUT_HTML in c.get("/login").get_data(as_text=True)
     c.set_cookie("codelab-hub", "cartes")
-    assert 'data-tuiles="cartes"' in c.get("/login").get_data(as_text=True)[:400]
+    assert 'data-tuiles="cartes"' in re.search(r"<html[^>]*>", c.get("/login").get_data(as_text=True)).group(0)
 
     page = _page_panneau("dashboard.html")
     # Les memes reglages des deux cotes, dans le meme ordre (premiere valeur
@@ -13722,7 +13723,9 @@ def test_l_etape_2_expire(admin_2fa, monkeypatch):
 
 def test_la_page_de_connexion_separe_les_deux_etapes():
     page = _page_panneau("login.html")
-    assert "function majChamps(){}" in page
+    # Plus de champ de code pose sous le mot de passe : ni la fonction qui
+    # le montrait, ni le marqueur que le serveur remplissait pour elle.
+    assert "majChamps" not in page and "__TOTP__" not in page
     assert "/login/second-facteur/passkey/options" in page
     assert 'id="facteur-pk"' in page and 'id="code-champ"' in page
 
