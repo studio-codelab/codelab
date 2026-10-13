@@ -3519,7 +3519,9 @@ def test_la_carte_couvre_l_annee_de_janvier_a_decembre():
     se comparaient pas."""
     page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
                 encoding="utf-8").read()
-    bloc = page.split("function peindreCarte(d){")[1].split("\nfunction ")[0]
+    # Les colonnes se batissent dans carteColonnes, appelee par peindreCarte.
+    assert "carteColonnes(annee, parJour, sommet)" in page.split("function peindreCarte(d){")[1].split("\nfunction ")[0]
+    bloc = page.split("function carteColonnes(annee, parJour, sommet){")[1].split("\nfunction ")[0]
     assert "new Date(annee,0,1)" in bloc, "la carte doit commencer au 1er janvier"
     assert "new Date(annee,11,31)" in bloc, "et finir au 31 decembre"
     assert "d.fenetre" not in bloc, "la fenetre glissante n'a plus cours"
@@ -5457,13 +5459,17 @@ def test_le_hub_ne_garde_que_sa_grille():
     # La forme des tuiles ne se regle plus qu'avec les autres reglages du hub
     # (Parametres > Compte > Apparence), garde cote serveur dans un cookie.
     assert "reglageHub('tuiles')==='icones'" in page
-    # Ce qu'on accepte de perdre en grille : l'etat et la visibilite sous le
-    # nom. C'est le prix pour voir trente projets d'un coup.
-    assert ".hub-liste.compacte .hub-projet .bas{display:none}" in page \
-        or ".hub-liste.compacte .hub-projet .desc,\n.hub-liste.compacte .hub-projet .bas{display:none}" in page
-    # Une application arretee reste grisee et non cliquable : sans cela on
-    # cliquerait dans le vide.
-    assert ".hub-projet.arretee{opacity:.6;pointer-events:none}" in page
+    # Ce qu'on accepte de perdre en icone : la description et l'etat sous le
+    # nom. C'est le prix pour voir trente projets d'un coup. (Les tuiles
+    # sont rendues par la fonction « carte » du hub : hub-icone en icones,
+    # bento-carte en cartes.)
+    icone = page.split("? (a, e) => { const [c]=etatApp(a);")[1].split(": (a, e) =>")[0]
+    assert 'class="hub-icone-nom"' in icone
+    assert "bento-carte-desc" not in icone and "badgeEtat(" not in icone
+    # Une application arretee reste grisee. Elle reste cliquable : son lien
+    # mene a une page qui dit qu'elle est fermee (page_application_fermee),
+    # plus a une erreur.
+    assert ".hub-icone.off img{opacity:.55" in page
 
 
 def test_la_tuile_en_mode_icone_n_a_ni_fond_ni_cadre():
@@ -5472,15 +5478,12 @@ def test_la_tuile_en_mode_icone_n_a_ni_fond_ni_cadre():
     bureau. Ce qu'on vient voir, c'est l'icone."""
     page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
                 encoding="utf-8").read()
-    regle = page.split(".hub-liste.compacte .hub-projet{")[1].split("}")[0]
-    assert "background:none" in regle, "le fond de la tuile reste en mode icone"
-    assert "border-color:transparent" in regle, "le cadre reste en mode icone"
-    # Le survol aussi : sans cela, le fond revient des qu'on approche la
-    # souris, et c'est justement la qu'on le voit.
-    survol = page.split(".hub-liste.compacte .hub-projet:hover{")[1].split("}")[0]
-    assert "background:none" in survol and "border-color:transparent" in survol
-    # Il reste quelque chose a survoler : le nom prend l'accent.
-    assert ".hub-liste.compacte .hub-projet:hover .nom{color:var(--accent)}" in page
+    regle = page.split(".hub-icone{")[1].split("}")[0]
+    assert "background" not in regle, "la tuile en icone porte un fond"
+    assert "border:" not in regle and "box-shadow" not in regle, "la tuile en icone porte un cadre"
+    # Le survol aussi : aucune regle ne lui rend un fond des qu'on approche
+    # la souris, et c'est justement la qu'on le verrait.
+    assert ".hub-icone:hover{" not in page
 
 
 def test_les_trois_cartes_de_la_vue_d_ensemble_font_la_meme_hauteur():
@@ -5520,12 +5523,15 @@ def test_la_carte_de_chaleur_ne_defile_pas():
         "la carte doit mesurer la place dont elle dispose")
     assert "grid-template-rows:repeat(7,${cote}px)" in bloc, (
         "les lignes suivent la meme taille, sinon les cases ne sont pas carrees")
+    # Le cote et l'ecart se calculent dans carteTaille, depuis la largeur mesuree.
+    assert "carteTaille(large, colonnes)" in bloc
+    bloc = page.split("function carteTaille(large, colonnes){")[1].split("\nfunction ")[0]
     # L'ecart entre les cases se resserre avant que la case ne rapetisse :
     # 52 ecarts de 3 px font 156 px, qui debordent a eux seuls d'une carte
     # etroite.
     assert "for(const e of [3,2,1,0])" in bloc, (
         "sans resserrer l'ecart, la grille deborde meme avec des cases minuscules")
-    assert "gap:${ecart}px" in bloc
+    assert "gap:${ecart}px" in page.split("function peindreCarte(d){")[1].split("\nfunction ")[0]
     # Et elle se repeint quand la fenetre change : une carte calculee pour
     # 1400 px deborde a 900.
     assert "addEventListener('resize'" in page and "peindreCarte(derniereCarte)" in page
@@ -5536,13 +5542,10 @@ def test_les_tuiles_du_hub_sont_deux_fois_plus_grandes():
     grille d'icones sert justement a reconnaitre d'un coup d'oeil."""
     page = open(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html"),
                 encoding="utf-8").read()
-    icone = page.split(".hub-liste.compacte .hub-projet img{")[1].split("}")[0]
+    icone = page.split(".hub-icone img{")[1].split("}")[0]
     assert "width:88px" in icone and "height:88px" in icone
-    # La colonne laisse respirer l'icone et son nom, sans plus : 148 px pour
-    # 88 px d'icone, et 10 px entre deux tuiles. Resserrer davantage ferait
-    # se toucher les noms ; relacher rendrait la grille clairsemee.
-    grille = page.split(".hub-liste.compacte{")[1].split("}")[0]
-    assert "minmax(148px" in grille and "gap:10px" in grille
+    # Au telephone, 62 px : quatre par ligne, sans que les noms se touchent.
+    assert ':root[data-tuiles="icones"] .hub-icone img{width:62px;height:62px' in page
 
 
 def test_les_controles_du_navigateur_suivent_le_theme():
@@ -7299,40 +7302,29 @@ def test_aucune_tuile_ne_porte_de_cadre_a_part():
 
     # LA TUILE elle-meme n'a rien de particulier : c'est la vignette cerclee
     # de blanc qu'on a retiree, et c'est elle qui ne doit pas revenir.
-    debut = page.index(".hub-liste.compacte .hub-projet{")
-    tuile = page[debut:page.index("}", debut)]
-    assert "background:none" in tuile, tuile
-    assert "border-color:transparent" in tuile, tuile
-    for regle_de_service in (".hub-liste.compacte .hub-projet.service-stack{",
-                             ".hub-projet.service-stack{"):
-        assert regle_de_service not in page, (
-            f"{regle_de_service} habille la tuile, pas l'icone")
+    # (Les tuiles en icone sont rendues par .hub-icone.)
+    tuile = page.split(".hub-icone{")[1].split("}")[0]
+    assert "background" not in tuile and "border:" not in tuile, tuile
+    assert ".hub-icone.service-stack{" not in page, "la regle habille la tuile, pas l'icone"
 
-    # L'ICONE d'un service, elle, a son cadre : son logo est transparent, et
-    # sans cadre il flotte sans forme au milieu d'icones pleines.
-    debut = page.index(".hub-liste.compacte .hub-projet.service-stack img{")
-    icone = page[debut:page.index("}", debut)]
-    assert "border:1px solid var(--line)" in icone, icone
-    # LES TROIS ENSEMBLE, et c'est la MARGE qui fait la difference. Un fond
-    # sans marge donne un carre gris derriere un dessin qui touche les bords ;
-    # avec la marge, c'est une plaque d'icone et un logo centre.
+    # L'ICONE d'un service, elle, a sa plaque. LA MARGE fait la difference :
+    # un fond sans marge donne un carre gris derriere un dessin qui touche
+    # les bords ; avec la marge, c'est une plaque d'icone et un logo centre.
     # Un jeton A PART, et pas --surface : en theme sombre celui-ci vaut
     # #141b23 sur un fond #0d1218, soit 1,08:1 -- la plaque y etait
     # invisible. Voir --plaque-logo dans theme.css.
+    icone = page.split(".hub-icone.service-stack img{")[1].split("}")[0]
     assert "background:var(--plaque-logo)" in icone, icone
     assert "padding:" in icone, icone
+    # box-sizing:border-box fait tenir la marge DEDANS : sans lui, l'icone du
+    # service serait plus grande que celle du diagnostic.
+    assert "box-sizing:border-box" in icone, icone
 
-    # Les 88 px sont la mesure commune. box-sizing:border-box fait tenir
-    # bordure ET marge DEDANS : sans lui, la tuile du service serait plus
-    # grande que celle du diagnostic, ce qu'on cherche justement a eviter.
-    debut = page.index(".hub-liste.compacte .hub-projet img{")
-    commune = page[debut:page.index("}", debut)]
+    # Les 88 px sont la mesure commune. "border:" et non "border" :
+    # border-radius est legitime ici, c'est le coin arrondi commun.
+    commune = page.split(".hub-icone img{")[1].split("}")[0]
     assert "width:88px;height:88px" in commune, commune
-    assert "object-fit:contain" in commune, commune
-    # "border:" et non "border" : border-radius est legitime ici, c'est le
-    # coin arrondi commun a toutes les icones.
     assert "border:" not in commune, commune
-    assert "box-sizing:border-box" in page
 
 
 # ---------- 31. une page d'erreur n'affiche pas ce qu'on lui envoie ----------
@@ -12977,7 +12969,7 @@ def test_sur_telephone_le_menu_est_ferme_et_s_ouvre_par_dessus():
 
 def test_sur_telephone_le_hub_est_une_grille_d_icones():
     page = _page_panneau("dashboard.html")
-    assert ".hub-liste.compacte{grid-template-columns:repeat(4,minmax(0,1fr))" in page
+    assert ':root[data-tuiles="icones"] .hub-grille{grid-template-columns:repeat(4,minmax(0,1fr))' in page
 
 
 def test_la_page_de_connexion_ne_montre_pas_credentials_sur_telephone():
@@ -16018,7 +16010,7 @@ def test_les_parametres_tiennent_en_cinq_onglets_de_meme_largeur():
     assert "$('zone-categories').remove();" in page
     assert "if(estAdmin) chargerVersion();" in page and "if(estAdmin) chargerCategories();" in page
     # Au telephone : une grille de colonnes egales, sans defilement.
-    assert ("#sec-parametres:not(.reglages-unifies) #param-onglets{display:grid;grid-auto-flow:column;"
+    assert ("#sec-parametres #param-onglets{display:grid;grid-auto-flow:column;"
             "grid-auto-columns:1fr;") in page
     assert "#param-onglets .onglet-suite{display:none}" in page
 

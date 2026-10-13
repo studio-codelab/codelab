@@ -1,4 +1,53 @@
 <!doctype html>
+<!-- =========================================================================
+  CodeLab -- LE PANNEAU : hub, vue d'ensemble, applications, comptes, reglages
+  ---------------------------------------------------------------------------
+  ROLE        La page unique du panneau, pour l'administrateur comme pour un
+              compte utilisateur : chaque rubrique est une section montree
+              par showSection(), a sa propre adresse (/, /apercu,
+              /applications, /utilisateurs, /parametres/onglet...).
+              Elle n'AUTORISE rien : chaque action passe par l'API, qui
+              verifie le droit (SECURITE.md, regle 15). Masquer un bouton a
+              un compte n'est qu'un confort.
+  SERVIE PAR  app.py (page_du_panneau), qui pose les ecrans de demarrage et
+              pose data-style, data-variante et les reglages du hub sur
+              la racine avant le premier affichage (REGLAGES_HUB).
+  CHARGE      /theme.css (couleurs, formes, tailles : jamais ici) et
+              /mode.js (site ou application), avant tout le reste.
+  CONTRAINTES - Mode et largeur sont deux questions separees (AGENTS.md,
+                section 4) : seuils 760 et 1180 px, les memes partout.
+              - Jamais d'alert(), confirm() ni prompt() : demander(), et
+                des notifications pour les erreurs.
+              - Tout texte venu du serveur passe par esc() avant d'entrer
+                dans du HTML.
+              - Les tests lisent ce fichier (marqueurs, regles CSS, corps de
+                fonctions) : un renommage se reporte dans
+                workspace/diagnostic/test_regressions.py.
+  STRUCTURE   1. La feuille de style : base, barre du haut, colonne de gauche, titres,
+                 cartes, pastilles, boutons, champs, hub, tableaux, fiche,
+                 pop-up, parametres, categories, journal, notifications,
+                 cles d'acces ; puis MOBILE ; puis le style « design » et sa
+                 variante « bento » (celle qui est servie) ; puis le
+                 mouvement et le relief.
+              2. Le balisage des rubriques (HUB, VUE D'ENSEMBLE, APPLICATIONS,
+                 FICHE, PARAMETRES, MESSAGES, UTILISATEURS) et des pop-up.
+              3. Le script : theme, navigation, listes deroulantes, onglets,
+                 hub et widgets, vue d'ensemble, donnees, actions, fiche,
+                 cles d'acces, journal et carte de chaleur, comptes,
+                 invitations, adresse mail, alertes, securite, sauvegardes,
+                 version, preferences.
+  CHOIX       - Une seule page et un seul script : la navigation ne recharge
+                rien, et l'etat (fiche ouverte, onglet) suit l'adresse.
+              - Un seul style est servi (data-style="design",
+                data-variante="bento") ; les regles sans prefixe sont la base
+                que ce style complete (voir A AMELIORER).
+  A AMELIORER - Fondre les regles de base et celles du style « design »
+                (toujours pose) : beaucoup de proprietes sont ecrites deux
+                fois, la seconde l'emportant. A faire avec une comparaison
+                pixel des six cas, rubrique par rubrique.
+              - Sortir le script (environ 5 000 lignes) dans un fichier servi a
+                part : mise en cache, coloration, node --check direct.
+========================================================================== -->
 <html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>CodeLab</title>
@@ -534,88 +583,7 @@ label:has(> input[type=checkbox]),label:has(> input[type=radio]){
 
 /* ------------------------------ hub ------------------------------ */
 .hub-liste{display:grid;grid-template-columns:repeat(auto-fill,minmax(258px,1fr));gap:14px}
-.hub-projet{display:flex;align-items:flex-start;gap:12px;padding:14px;background:var(--surface);
- border:1px solid var(--line);border-radius:var(--r);
- transition:border-color .12s,background .12s}
-/* Ni ombre ni deplacement au survol : une carte qui bouge sous le curseur
-   est une mode, et elle fait vibrer une grille entiere. La bordure d'accent
-   et le fond leger disent la meme chose sans rien agiter. */
-.hub-projet:hover{border-color:var(--accent);background:var(--accent-soft)}
-.hub-projet img{width:36px;height:36px;border-radius:var(--r-s);flex:none;
- object-fit:contain}
-.hub-projet.service-stack img{
- background:var(--plaque-logo);border:1px solid var(--line);padding:5px}
-.hub-projet .txt{min-width:0;flex:1}
-.hub-projet .nom{font-weight:620;font-size:14.5px;letter-spacing:-.01em}
-.hub-projet .desc{font-size:12.5px;color:var(--dim);margin-top:3px;line-height:1.45;
- display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.hub-projet .bas{display:flex;align-items:center;gap:7px;margin-top:10px}
-/* Une application arretee n'est pas cliquable : le lien ne menerait qu'a une
-   page d'erreur. */
-.hub-projet.arretee{opacity:.6;pointer-events:none}
-/* ---- la tuile reduite : l'icone, le nom, rien d'autre ----
-   Pas d'etat ni de visibilite ici : c'est precisement ce qu'on accepte de
-   perdre en echange de voir trente projets d'un coup. Le lien reste le
-   meme, et une application arretee reste grisee -- sans quoi on cliquerait
-   dans le vide.
-
-   NI FOND NI CADRE : en mode icone, la carte devenait un carre gris autour
-   d'une petite image, et trente carres gris alignes font une grille de
-   cases, pas un bureau. Ce qu'on veut voir, c'est l'icone -- elle porte
-   deja sa propre forme et ses propres couleurs. Le survol se dit alors
-   autrement : l'icone se leve d'un cheveu et le nom prend l'accent. */
-/* DEUX FOIS PLUS GRANDES. L'icone etait posee a 44 px : de loin, sur un
-   ecran de bureau, on ne distinguait plus une application d'une autre. Une
-   grille d'icones sert justement a reconnaitre d'un coup d'oeil -- c'est
-   l'icone qui porte ce travail, pas le nom en dessous. */
-.hub-liste.compacte{grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:10px}
-.hub-liste.compacte .hub-projet{flex-direction:column;align-items:center;gap:11px;
- padding:16px 8px;text-align:center;background:none;border-color:transparent}
-/* PAS DE CADRE AUTOUR DE LA TUILE D'UN SERVICE. Dagster en portait un --
-   fond et bordure -- pour se detacher du hub, et le resultat etait une tuile
-   cerclee de blanc au milieu de projets qui n'en ont pas. Ce qui manquait
-   n'etait pas un cadre : c'etait un FOND SOUS LE LOGO. Dagster sert une
-   icone transparente, les projets une image pleine ; la plaque ci-dessous
-   la leur donne a toutes, et les tuiles redeviennent identiques. */
-.hub-liste.compacte .hub-projet:hover{background:none;border-color:transparent}
-.hub-liste.compacte .hub-projet:hover img{transform:translateY(-2px)}
-.hub-liste.compacte .hub-projet:hover .nom{color:var(--accent)}
-.hub-liste.compacte .hub-projet img{width:88px;height:88px;border-radius:22px;
- object-fit:contain;transition:transform .12s}
-/* ---- L'ICONE QUI NE REMPLIT PAS SON CARRE ----
-   Les projets deposent un logo plein : il couvre les 88 px, porte sa propre
-   couleur et son propre bord arrondi. Dagster sert le sien en transparent,
-   et il flottait donc sans forme au milieu de la grille.
-
-   Quatre essais, et ce qui les separe n'est pas le fond mais la MARGE :
-
-     - un fond et une bordure sur la TUILE : une vignette cerclee de blanc au
-       milieu de projets qui n'en ont pas. La tuile est plus large que
-       l'icone, et le nom tombait en dehors de la plaque ;
-     - un fond plein sous l'image, sans marge : le logo touchait les bords,
-       et la plaque se lisait comme un carre gris derriere un dessin ;
-     - bordure et marge, sans fond : le logo respirait mais flottait, la ou
-       les projets posent un aplat de couleur ;
-     - les trois ensemble, ci-dessous : une plaque de la taille exacte des
-       autres icones, un logo centre qui ne touche pas le bord. C'est la
-       forme d'une icone d'application.
-
-   La regle vise l'IMAGE et pas la tuile : c'est l'icone qui differe, pas
-   l'application. box-sizing:border-box est global, donc bordure et marge se
-   prennent DANS les 88 px : la tuile garde exactement la taille des autres. */
-.hub-liste.compacte .hub-projet.service-stack img{
- background:var(--plaque-logo);border:1px solid var(--line);padding:14px}
-.hub-liste.compacte .hub-projet .txt{width:100%}
-.hub-liste.compacte .hub-projet .nom{font-size:14px;font-weight:600;
- white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.hub-liste.compacte .hub-projet .desc,
-.hub-liste.compacte .hub-projet .bas{display:none}
-/* Un interrupteur segmente qui ne porte que des icones : les boutons sont
-   carres, sinon deux pictogrammes flottent dans deux grands rectangles. */
-.seg-icones{width:auto;flex:none}
-.seg-icones button{flex:none;width:34px;padding:6px 0;display:grid;place-items:center}
-.seg-icones svg{width:15px;height:15px}
-.hub-projet,.bento-carte{position:relative}
+.bento-carte{position:relative}
 .acces-initiale{flex:none;width:30px;height:30px;border-radius:999px;background:var(--accent-soft);
  color:var(--accent);display:grid;place-items:center;font-weight:800;font-size:13px}
 .hub-pastille{position:absolute;top:-6px;right:-6px;min-width:22px;height:22px;padding:0 6px;border-radius:999px;
@@ -709,13 +677,6 @@ textarea{resize:vertical;min-height:72px;line-height:1.5}
  font-variant-numeric:tabular-nums;line-height:1.15}
 .chiffre span{display:block;font-size:var(--t-s);color:var(--dim);margin-top:2px}
 
-/* La cle affichee une seule fois. Encadree en accent : cette boite demande
-   une action tout de suite, et ne reviendra pas. */
-.cle-neuve{margin-top:14px;border:1px solid var(--accent);border-radius:var(--r-s);
- padding:13px;background:var(--accent-soft)}
-.cle-brute{display:block;margin-top:10px;padding:10px;border-radius:var(--r-xs);
- background:var(--bg-input);border:1px solid var(--line);font-family:var(--mono);
- font-size:var(--t-s);word-break:break-all;user-select:all}
 
 .proj-ligne.reservee{opacity:.6;cursor:default}
 /* Les projets autorises d'un compte, dans sa fiche. Meme dessin que la liste
@@ -1077,26 +1038,24 @@ th[aria-sort="ascending"] .ap-th span,th[aria-sort="descending"] .ap-th span{opa
   #sec-parametres .card-corps>.btn{flex:1 1 100%;align-self:stretch}
   /* QUATRE ONGLETS DE MEME LARGEUR, en pastille : tout tient, rien ne
      defile, et l'onglet actif se detache comme un bouton enfonce. */
-  #sec-parametres:not(.reglages-unifies) #param-onglets{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;
+  #sec-parametres #param-onglets{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;
    gap:4px;padding:4px;margin:0 0 16px;border:0;border-radius:999px;background:var(--surface2)}
-  #sec-parametres:not(.reglages-unifies) #param-onglets button{margin:0;padding:10px 4px;border:0;border-radius:999px;
+  #sec-parametres #param-onglets button{margin:0;padding:10px 4px;border:0;border-radius:999px;
    text-align:center;font-size:14px;font-weight:700;color:var(--dim);white-space:nowrap;
    transition:background .15s,color .15s}
-  #sec-parametres:not(.reglages-unifies) #param-onglets button.active{background:var(--surface);color:var(--txt);
+  #sec-parametres #param-onglets button.active{background:var(--surface);color:var(--txt);
    box-shadow:0 1px 3px var(--shadow-2)}
   #param-onglets .onglet-suite{display:none}
   #param-onglets .onglet-court{display:inline}
   /* Les reglages d'un onglet : une liste groupee, un filet entre deux
      reglages, sans carte posee dans la carte ni grand blanc entre elles. */
-  :root[data-style="design"] #sec-parametres:not(.reglages-unifies) .onglet-p .zone{margin:0}
-  :root[data-style="design"] #sec-parametres:not(.reglages-unifies) .onglet-p .settings-card{border:0;border-radius:0;
+  :root[data-style="design"] #sec-parametres .onglet-p .zone{margin:0}
+  :root[data-style="design"] #sec-parametres .onglet-p .settings-card{border:0;border-radius:0;
    box-shadow:none;border-bottom:1px solid var(--line)}
-  :root[data-style="design"] #sec-parametres:not(.reglages-unifies) .onglet-p .zone:last-child .settings-card:last-child{border-bottom:0}
+  :root[data-style="design"] #sec-parametres .onglet-p .zone:last-child .settings-card:last-child{border-bottom:0}
 }
 .us-compte{border:1px solid var(--line);border-radius:var(--r-s);padding:12px 14px;
  margin-bottom:8px}
-.us-tete{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
-.us-tete .spacer{flex:1}
 
 /* ------------------------------ categories ------------------------------ */
 .cat-ligne{display:flex;align-items:center;gap:8px;margin-bottom:8px}
@@ -1133,7 +1092,6 @@ table.tbl-journal{min-width:560px}
 /* Un vide explique vaut mieux qu'un vide : il dit ce qui le remplira. */
 .vide{text-align:center;padding:26px 18px;color:var(--dim)}
 .vide b{display:block;color:var(--txt);font-size:14px;font-weight:620;margin-bottom:4px}
-.us-activite{font-size:12px;color:var(--dim2);margin-top:6px}
 
 /* Une ligne par compte : l'initiale, le nom, ce qu'il faut savoir d'un coup
    d'oeil, et un seul bouton. Les reglages vivent dans la fiche du compte --
@@ -1271,13 +1229,6 @@ table.tbl-journal{min-width:560px}
 .pk-ligne b{font-size:13.5px;font-weight:600}
 .pk-ligne .pk-quand{font-size:12px;color:var(--dim2)}
 .pk-ligne .spacer{flex:1}
-/* Titre d'un groupe dans le hub. Discret : ce sont les projets qu'on vient
-   chercher, le rangement ne doit pas leur voler la vedette. */
-.hub-groupe{margin-bottom:26px}
-.hub-groupe-titre{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
- color:var(--dim2);margin-bottom:10px;display:flex;align-items:center;gap:8px}
-.hub-groupe-titre span{font-size:11px;font-weight:600;padding:1px 7px;border-radius:20px;
- background:var(--surface);border:1px solid var(--line);color:var(--dim);letter-spacing:0}
 
 /* ================================ MOBILE ================================
    Sur un telephone, la colonne de gauche prenait la moitie de l'ecran et
@@ -1296,13 +1247,6 @@ table.tbl-journal{min-width:560px}
   .voile-menu.show{display:block;position:fixed;inset:52px 0 0 0;z-index:55;
    background:rgba(0,0,0,.28)}
 
-  /* Le hub : 4 icones par ligne. */
-  .hub-liste.compacte{grid-template-columns:repeat(4,minmax(0,1fr));gap:2px}
-  .hub-liste.compacte .hub-projet{padding:10px 2px;gap:7px}
-  .hub-liste.compacte .hub-projet img{width:58px;height:58px;border-radius:15px}
-  .hub-liste.compacte .hub-projet .nom{font-size:11.5px;font-weight:560;
-   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .hub-liste.compacte .hub-projet .bas{display:none}
 
   /* Les tableaux : une carte par ligne, sans en-tete. */
   table.tbl,table.tbl-journal{min-width:0}
@@ -1414,20 +1358,8 @@ table.tbl-journal{min-width:560px}
    meme largeur maximale, meme marge automatique. */
 :root[data-style="design"] .salut{display:block;text-align:left;font-size:38px;font-weight:800;letter-spacing:-.04em;
  max-width:920px;margin:24px auto 24px;padding:0 8px;line-height:1.1}
-:root[data-style="design"] #hub-liste.hub-liste,:root[data-style="design"] .hub-groupe{background:var(--surface);border-radius:32px;
+:root[data-style="design"] #hub-liste.hub-liste{background:var(--surface);border-radius:32px;
  padding:32px;box-shadow:0 10px 40px var(--shadow);max-width:920px;margin:0 auto 24px}
-:root[data-style="design"] .hub-groupe-titre{font-size:14px;letter-spacing:0;text-transform:none;color:var(--dim);
- margin:0 0 24px;text-align:center}
-/* Les icones au CENTRE de la carte. Une grille auto-fill laisse ses pistes
-   vides a droite : trois applications se tassaient a gauche d'une carte
-   large. Un flex centre les repartit au milieu, a largeur fixe. */
-:root[data-style="design"] .hub-liste.compacte{display:flex;flex-wrap:wrap;justify-content:center;gap:24px 16px}
-:root[data-style="design"] .hub-liste.compacte .hub-projet{padding:4px;width:124px;flex:none}
-:root[data-style="design"] .hub-groupe .hub-liste.compacte{background:none;box-shadow:none;padding:0;margin:0;max-width:none}
-:root[data-style="design"] .hub-liste.compacte .hub-projet img{width:84px;height:84px;border-radius:26px;
- box-shadow:0 6px 16px var(--shadow-2)}
-:root[data-style="design"] .hub-liste.compacte .hub-projet .nom{font-size:15px;font-weight:700}
-:root[data-style="design"] .hub-liste.compacte .hub-projet:hover .nom{color:var(--txt)}
 :root[data-style="design"] .hub-vide{border-radius:32px;max-width:640px;margin:0 auto}
 :root[data-style="design"] #hub-masquees{text-align:center}
 
@@ -1492,57 +1424,57 @@ table.tbl-journal{min-width:560px}
    titre ne passe plus a l'accent au survol -- seul le chevron reagit.
    ===================================================================== */
 @media (min-width:761px){
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies){grid-template-columns:220px minmax(0,1fr);
+  :root[data-variante="bento"] #sec-parametres{grid-template-columns:220px minmax(0,1fr);
    column-gap:40px;max-width:1080px;margin:8px auto 0;background:none;border:0;border-radius:0;box-shadow:none;
    overflow:visible;font-family:var(--sans);font-size:14px}
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies)>.toolbar{grid-column:1/-1;margin:0 0 28px;padding:0;
+  :root[data-variante="bento"] #sec-parametres>.toolbar{grid-column:1/-1;margin:0 0 28px;padding:0;
    justify-content:flex-start;background:none;border:0}
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies)>.toolbar h2{font-size:clamp(34px,4vw,48px);
+  :root[data-variante="bento"] #sec-parametres>.toolbar h2{font-size:clamp(34px,4vw,48px);
    font-weight:800;letter-spacing:-.05em;line-height:1}
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) #param-onglets{position:sticky;top:96px;align-self:start;
+  :root[data-variante="bento"] #sec-parametres #param-onglets{position:sticky;top:96px;align-self:start;
    gap:4px;padding:0;border:0;background:none}
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) #param-onglets button{padding:11px 14px;border-radius:14px;
+  :root[data-variante="bento"] #sec-parametres #param-onglets button{padding:11px 14px;border-radius:14px;
    font-size:14px;font-weight:650;color:var(--dim);transition:background .15s,color .15s}
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) #param-onglets button:hover{background:var(--surface);color:var(--txt)}
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) #param-onglets button.active{background:var(--accent-soft);
+  :root[data-variante="bento"] #sec-parametres #param-onglets button:hover{background:var(--surface);color:var(--txt)}
+  :root[data-variante="bento"] #sec-parametres #param-onglets button.active{background:var(--accent-soft);
    color:var(--accent)}
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .btn{min-height:40px;padding:0 18px;font-size:14px}
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .interrupteur{width:44px;height:26px}
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .interrupteur span::after{width:20px;height:20px;top:3px;left:3px}
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .interrupteur input:checked+span::after{transform:translateX(18px)}
+  :root[data-variante="bento"] #sec-parametres .btn{min-height:40px;padding:0 18px;font-size:14px}
+  :root[data-variante="bento"] #sec-parametres .interrupteur{width:44px;height:26px}
+  :root[data-variante="bento"] #sec-parametres .interrupteur span::after{width:20px;height:20px;top:3px;left:3px}
+  :root[data-variante="bento"] #sec-parametres .interrupteur input:checked+span::after{transform:translateX(18px)}
 }
 /* LES CARTES, A TOUTES LES TAILLES. Le telephone et la tablette en mode
    application heritent du meme habit que l'ordinateur : une carte arrondie
    par rubrique, plus une liste groupee dans un seul panneau. */
-:root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .onglet-p.actif{padding:0;background:none;border:0;
+:root[data-variante="bento"] #sec-parametres .onglet-p.actif{padding:0;background:none;border:0;
  border-radius:0;box-shadow:none;overflow:visible}
-:root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .onglet-p .zone{margin-bottom:12px}
-:root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .onglet-p .settings-card,
-:root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .onglet-p .zone:last-child .settings-card:last-child{
+:root[data-variante="bento"] #sec-parametres .onglet-p .zone{margin-bottom:12px}
+:root[data-variante="bento"] #sec-parametres .onglet-p .settings-card,
+:root[data-variante="bento"] #sec-parametres .onglet-p .zone:last-child .settings-card:last-child{
  background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:20px 24px;overflow:hidden;
  box-shadow:0 1px 2px var(--shadow)}
-:root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .onglet-p .settings-card + .settings-card{margin-top:12px}
-:root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .settings-card.pliable>.card-top{margin:-20px -24px;padding:20px 24px}
-:root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .settings-card.pliable>.card-top:hover{background:var(--surface2)}
-:root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .settings-card.pliable>.card-corps{margin-top:20px}
-:root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .settings-card .card-name b{font-size:15px;font-weight:750;
+:root[data-variante="bento"] #sec-parametres .onglet-p .settings-card + .settings-card{margin-top:12px}
+:root[data-variante="bento"] #sec-parametres .settings-card.pliable>.card-top{margin:-20px -24px;padding:20px 24px}
+:root[data-variante="bento"] #sec-parametres .settings-card.pliable>.card-top:hover{background:var(--surface2)}
+:root[data-variante="bento"] #sec-parametres .settings-card.pliable>.card-corps{margin-top:20px}
+:root[data-variante="bento"] #sec-parametres .settings-card .card-name b{font-size:15px;font-weight:750;
  letter-spacing:-.01em}
-:root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .settings-card .card-name .path{font-size:13px;margin-top:3px}
+:root[data-variante="bento"] #sec-parametres .settings-card .card-name .path{font-size:13px;margin-top:3px}
 @media (max-width:760px){
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .onglet-p .settings-card,
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .onglet-p .zone:last-child .settings-card:last-child{
+  :root[data-variante="bento"] #sec-parametres .onglet-p .settings-card,
+  :root[data-variante="bento"] #sec-parametres .onglet-p .zone:last-child .settings-card:last-child{
    padding:16px 18px;border-radius:18px}
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .settings-card.pliable>.card-top{margin:-16px -18px;padding:16px 18px}
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .settings-card.pliable>.card-corps{margin-top:16px}
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .onglet-p .zone{margin-bottom:10px}
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .onglet-p .settings-card + .settings-card{margin-top:10px}
+  :root[data-variante="bento"] #sec-parametres .settings-card.pliable>.card-top{margin:-16px -18px;padding:16px 18px}
+  :root[data-variante="bento"] #sec-parametres .settings-card.pliable>.card-corps{margin-top:16px}
+  :root[data-variante="bento"] #sec-parametres .onglet-p .zone{margin-bottom:10px}
+  :root[data-variante="bento"] #sec-parametres .onglet-p .settings-card + .settings-card{margin-top:10px}
   /* Les onglets restent une pastille segmentee (le pouce l'atteint), dans
      les couleurs de la colonne de l'ordinateur. */
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) #param-onglets{background:var(--surface);
+  :root[data-variante="bento"] #sec-parametres #param-onglets{background:var(--surface);
    box-shadow:inset 0 0 0 1px var(--line)}
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) #param-onglets button.active{background:var(--accent-soft);
+  :root[data-variante="bento"] #sec-parametres #param-onglets button.active{background:var(--accent-soft);
    color:var(--accent);box-shadow:none}
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies)>.toolbar h2{font-size:34px;font-weight:800;letter-spacing:-.045em}
+  :root[data-variante="bento"] #sec-parametres>.toolbar h2{font-size:34px;font-weight:800;letter-spacing:-.045em}
 }
 :root[data-variante="bento"] #sec-parametres .settings-card.pliable>.card-top:hover .card-name b{color:inherit}
 :root[data-variante="bento"] #sec-parametres .settings-card.pliable .chevron{transition:transform .15s ease,color .15s}
@@ -1560,9 +1492,9 @@ table.tbl-journal{min-width:560px}
    sa tete gardait un aplat gris, comme selectionnee, jusqu'au toucher
    suivant. Au doigt, l'aplat ne vit que le temps de l'appui. */
 @media (hover:none){
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .settings-card.pliable>.card-top:hover,
+  :root[data-variante="bento"] #sec-parametres .settings-card.pliable>.card-top:hover,
   #sec-parametres .settings-card.pliable>.card-top:hover{background:none}
-  :root[data-variante="bento"] #sec-parametres:not(.reglages-unifies) .settings-card.pliable>.card-top:active,
+  :root[data-variante="bento"] #sec-parametres .settings-card.pliable>.card-top:active,
   #sec-parametres .settings-card.pliable>.card-top:active{background:var(--surface2)}
   :root[data-variante="bento"] #sec-parametres .settings-card.pliable>.card-top:hover .chevron{color:var(--dim)}
 }
@@ -1627,14 +1559,9 @@ table.tbl-journal{min-width:560px}
   :root[data-style="design"] .main-area{padding-bottom:84px}
   :root[data-style="design"] .wrap{padding:12px 16px 40px}
   :root[data-style="design"] .salut{font-size:30px;margin:8px auto 16px;padding:0 4px}
-  :root[data-style="design"] #hub-liste.hub-liste,:root[data-style="design"] .hub-groupe{padding:24px 12px;border-radius:26px;margin-bottom:16px}
-  :root[data-style="design"] .hub-groupe-titre{margin-bottom:16px}
-  :root[data-style="design"] .hub-liste.compacte{gap:16px 0}
-  :root[data-style="design"] .hub-liste.compacte .hub-projet{width:33.333%}
+  :root[data-style="design"] #hub-liste.hub-liste{padding:24px 12px;border-radius:26px;margin-bottom:16px}
   :root[data-style="design"] .zone{margin-bottom:24px}
   :root[data-style="design"] .card{padding:16px}
-  :root[data-style="design"] .hub-liste.compacte .hub-projet img{width:66px;height:66px;border-radius:21px}
-  :root[data-style="design"] .hub-liste.compacte .hub-projet .nom{font-size:13px}
 }
 
 /* La recherche du hub n'existe que dans le style du panneau (data-variante). */
@@ -1726,7 +1653,18 @@ table.tbl-journal{min-width:560px}
   :root.hub-vertical[data-tuiles="icones"] .hub-grille{grid-auto-rows:var(--cel)}
 }
 /* L'application en icone : pas de carte autour. Une application qui ne
-   repond pas est cerclee ; une nouvelle version, un point avant le nom. */
+   repond pas est cerclee ; une nouvelle version, un point avant le nom.
+   NI FOND NI CADRE : trente carres gris alignes font une grille de cases,
+   pas un bureau ; l'icone porte deja sa forme et ses couleurs.
+   88 PX : a 44 px, de loin, on ne distinguait plus une application d'une
+   autre (62 px sur telephone, quatre par ligne).
+   LA PLAQUE D'UN SERVICE (service-stack) : Dagster sert un logo
+   transparent, qui flottait sans forme au milieu d'images pleines.
+   ESSAYE ET ECARTE : un fond et un cadre sur la TUILE (une vignette
+   cerclee, le nom hors de la plaque) ; un fond sans marge (un carre gris
+   derriere un dessin qui touche les bords) ; une marge sans fond (le logo
+   flotte encore). Retenu : fond et marge sur l'IMAGE, dans les 88 px
+   (box-sizing:border-box) -- la tuile garde la taille des autres. */
 .hub-icone{position:relative;display:flex;flex-direction:column;align-items:center;gap:8px;min-width:0;
  color:var(--txt);text-decoration:none;border-radius:20px}
 .hub-icone img{display:block;width:88px;height:88px;border-radius:26px;box-shadow:0 10px 24px var(--shadow-2)}
@@ -1930,12 +1868,6 @@ a.pj:hover{border-color:var(--accent)}
 .btn-menu-app svg{width:18px;height:18px;fill:currentColor;stroke:none}
 .btn-menu-app:hover,.btn-menu-app[aria-expanded="true"]{background:var(--surface2);color:var(--txt)}
 .btn-menu-app:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-.hub-projet{position:relative}
-.hub-projet .btn-menu-app{width:28px;height:28px;right:2px;bottom:auto;top:-8px;border-radius:999px;
- background:var(--surface);color:var(--txt);border:1px solid var(--line2);box-shadow:0 2px 8px rgba(0,0,0,.12);opacity:0}
-.hub-projet:hover .btn-menu-app,.hub-projet:focus-within .btn-menu-app,
-.hub-projet .btn-menu-app[aria-expanded="true"]{opacity:1}
-.hub-projet .btn-menu-app svg{width:15px;height:15px}
 /* Au doigt, pas de points : l'appui long ouvre le menu -- et lui seul, ni
    l'apercu du lien de Safari ni une selection de texte. */
 @media (hover:none) and (pointer:coarse){ .btn-menu-app{display:none} }
@@ -6435,6 +6367,14 @@ function peindreFiche(){
   $('fa-cpu').textContent=(a.cpu_percent||0).toFixed(1)+'%';
   $('fa-ram').textContent=Math.round(a.memory_mb||0)+' Mo';
 
+  peindreActionsFiche(a, prive, parDefaut);
+}
+
+/* Les boutons de la fiche, selon ce que l'application permet : un service
+   externe s'ouvre seulement, le diagnostic se demarre et s'ouvre, une
+   application se pilote. */
+function peindreActionsFiche(a, prive, parDefaut){
+  const externe = !!a.externe;
   const svgPlay='<svg viewBox="0 0 24 24"><path d="M8 5.5l10 6.5-10 6.5z"/></svg>';
   const svgStop='<svg viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2"/></svg>';
   const svgRe='<svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 10-2.3 5.7"/><path d="M20 5v6h-6"/></svg>';
@@ -7162,18 +7102,10 @@ function carteJourCle(d){
   return d.getFullYear()+'-'+m+'-'+j;
 }
 
-function peindreCarte(d){
-  derniereCarte=d;
-  const parJour={}; let total=0, sommet=0;
-  for(const j of (d.jours||[])){
-    parJour[j.jour]=j; total+=j.ouvertures;
-    if(j.ouvertures>sommet) sommet=j.ouvertures;
-  }
-  /* UNE ANNEE CIVILE, du 1er janvier au 31 decembre. La fenetre glissante de
-     366 jours commencait un jour quelconque : les mois se decalaient d'un
-     cran chaque jour, et deux cartes prises a deux dates ne se comparaient
-     pas. Une annee est fixe -- et elle se choisit. */
-  const annee = d.annee || (new Date()).getFullYear();
+/* Les colonnes de la carte : une par semaine, du lundi qui precede le
+   1er janvier au 31 decembre, chaque case portant son niveau et son titre.
+   Rend aussi, pour chaque colonne, le mois auquel elle appartient. */
+function carteColonnes(annee, parJour, sommet){
   const premierJanvier=new Date(annee,0,1); premierJanvier.setHours(12,0,0,0);
   const trenteEtUnDecembre=new Date(annee,11,31); trenteEtUnDecembre.setHours(12,0,0,0);
   const aujourdhui=new Date(); aujourdhui.setHours(12,0,0,0);
@@ -7220,6 +7152,48 @@ function peindreCarte(d){
     while(colonne.length<7) colonne.push('<div class="carte-case vide"></div>');
     cases.push(colonne.join('')); moisParColonne.push(dernier);
   }
+  return {cases, moisParColonne};
+}
+
+/* Le cote d'une case et l'ecart entre deux cases, pour que les colonnes
+   tiennent dans la largeur mesuree (voir peindreCarte). */
+function carteTaille(large, colonnes){
+  /* L'ECART COMPTE AUTANT QUE LA CASE. Cinquante-deux ecarts de 3 px font
+     156 px a eux seuls : sur une carte etroite, ils mangent toute la place
+     et la grille deborde meme avec des cases minuscules. On resserre donc
+     l'ecart avant de rapetisser la case, et on s'arrete au premier couple
+     qui tient -- en visant six pixels de cote, en dessous desquels une case
+     ne se distingue plus de son voisin. */
+  let cote = 11, ecart = 3;
+  if(large > 0){
+    let trouve = false;
+    for(const e of [3,2,1,0]){
+      const c = Math.floor((large - (colonnes-1)*e) / colonnes);
+      if(c >= 6){ cote = c; ecart = e; trouve = true; break; }
+    }
+    if(!trouve){
+      /* Vraiment trop etroit : on prend ce qui rentre, jusqu'a deux pixels.
+         Une carte reduite se lit encore ; une carte coupee, non. */
+      ecart = 0;
+      cote = Math.max(2, Math.floor(large / colonnes));
+    }
+  }
+  return {cote, ecart};
+}
+
+function peindreCarte(d){
+  derniereCarte=d;
+  const parJour={}; let total=0, sommet=0;
+  for(const j of (d.jours||[])){
+    parJour[j.jour]=j; total+=j.ouvertures;
+    if(j.ouvertures>sommet) sommet=j.ouvertures;
+  }
+  /* UNE ANNEE CIVILE, du 1er janvier au 31 decembre. La fenetre glissante de
+     366 jours commencait un jour quelconque : les mois se decalaient d'un
+     cran chaque jour, et deux cartes prises a deux dates ne se comparaient
+     pas. Une annee est fixe -- et elle se choisit. */
+  const annee = d.annee || (new Date()).getFullYear();
+  const {cases, moisParColonne} = carteColonnes(annee, parJour, sommet);
 
   /* LA LIGNE DES MOIS PREND TOUTE LA LARGEUR DE LA CARTE. Une etiquette par
      colonne laissait onze mois muets et un mot de dix pixels de large : on
@@ -7243,26 +7217,7 @@ function peindreCarte(d){
      pose sur les colonnes ET sur les lignes. */
   const large = $('carte-zone').clientWidth
     || $('carte-zone').getBoundingClientRect().width;
-  /* L'ECART COMPTE AUTANT QUE LA CASE. Cinquante-deux ecarts de 3 px font
-     156 px a eux seuls : sur une carte etroite, ils mangent toute la place
-     et la grille deborde meme avec des cases minuscules. On resserre donc
-     l'ecart avant de rapetisser la case, et on s'arrete au premier couple
-     qui tient -- en visant six pixels de cote, en dessous desquels une case
-     ne se distingue plus de son voisin. */
-  let cote = 11, ecart = 3;
-  if(large > 0){
-    let trouve = false;
-    for(const e of [3,2,1,0]){
-      const c = Math.floor((large - (colonnes-1)*e) / colonnes);
-      if(c >= 6){ cote = c; ecart = e; trouve = true; break; }
-    }
-    if(!trouve){
-      /* Vraiment trop etroit : on prend ce qui rentre, jusqu'a deux pixels.
-         Une carte reduite se lit encore ; une carte coupee, non. */
-      ecart = 0;
-      cote = Math.max(2, Math.floor(large / colonnes));
-    }
-  }
+  const {cote, ecart} = carteTaille(large, colonnes);
   const gabarit=`gap:${ecart}px;grid-template-columns:repeat(${colonnes},${cote}px);`
     + `grid-template-rows:repeat(7,${cote}px)`;
   const gabaritMois=`gap:${ecart}px;grid-template-columns:repeat(${colonnes},${cote}px)`;
