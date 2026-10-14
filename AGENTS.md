@@ -161,7 +161,10 @@ rapporte le cas vécu.
   - la barre d'état prend la couleur du bandeau ;
   - sur téléphone, l'affichage reste vertical, par deux verrous seulement : le manifeste en
     portrait (`est_un_telephone`, `app.py`) et `screen.orientation.lock` sur Android. Sur iPhone,
-    c'est le verrou d'orientation du Centre de contrôle ;
+    c'est le verrou d'orientation du Centre de contrôle. Couché malgré tout, un téléphone garde un
+    panneau lisible : `@media (max-height:500px) and (orientation:landscape)` compacte le bandeau,
+    le hub défile vers le bas (`majSensDuHub`), et les marges latérales prennent l'encoche
+    (`env(safe-area-inset-left|right)`) ;
   - les applications du hub, encadrées par `/ouvrir.html`, reçoivent la simulation iOS
     d'`environnement-app.js`.
 - **Au doigt, pas de survol** : ce qui n'apparaît qu'au survol a un autre chemin

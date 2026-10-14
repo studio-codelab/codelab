@@ -3441,7 +3441,8 @@ def test_le_bandeau_se_fond_sur_ce_qui_defile_dessous():
     pres (10 rendus compares). Le bandeau lui-meme reste transparent : mode.js
     lit sa couleur pour la barre d'etat, qui serait sinon delavee."""
     page = _page_panneau("dashboard.html")
-    assert ".topbar{height:68px;padding:0 28px;background:transparent;" in page
+    barre = page.split(".topbar{height:68px;")[1].split("}")[0]
+    assert "background:transparent" in barre
     voile = page.split(".topbar::before{")[1].split("}")[0]
     assert "backdrop-filter:blur(" in voile and "mask-image:linear-gradient(" in voile
     assert "z-index:-1" in voile and "opacity:0" in voile
@@ -16225,6 +16226,24 @@ def test_le_bandeau_hors_ligne_est_opaque_et_sous_la_barre():
     # sa hauteur (--barre-bas) et le bord de la barre de geste compris.
     assert ("@media (max-width:760px){ .toasts{left:12px;right:12px;max-width:none;"
             "bottom:calc(var(--barre-bas) + 20px + env(safe-area-inset-bottom))} }") in page
+
+
+def test_le_telephone_couche_garde_un_panneau_lisible():
+    """Vecu : iOS ne laisse pas une page web verrouiller l'orientation, et
+    l'utilisateur a choisi de « soigner le paysage ». Couche (844 x 390), le
+    hub passait en mosaique horizontale et coupait la seconde rangee sans
+    moyen de l'atteindre ; en mode application, le logo et le contenu
+    passaient sous l'encoche. Mesure Chromium apres : la page defile (879 px
+    de haut), le bandeau fait 56 px, le contenu commence apres les 59 px de
+    l'encoche."""
+    page = _page_panneau("dashboard.html")
+    sens = page.split("function majSensDuHub(){")[1].split("\n}")[0]
+    assert "matchMedia('(max-height: 500px)').matches" in sens
+    couche = page.split("@media (max-height:500px) and (orientation:landscape){")[1].split("\n}")[0]
+    assert ".topbar{height:56px}" in couche and "--haut-barre:56px" in couche
+    # Les bords lateraux de l'ecran : l'encoche d'un iPhone couche.
+    assert "padding:0 max(28px,env(safe-area-inset-right)) 0 max(28px,env(safe-area-inset-left))" in page
+    assert ".wrap{max-width:1120px;padding:20px max(28px,env(safe-area-inset-right)) 64px max(28px,env(safe-area-inset-left))}" in page
 
 
 def test_la_barre_du_bas_a_la_hauteur_d_une_barre_d_onglets_ios():

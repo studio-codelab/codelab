@@ -147,6 +147,8 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
     rajouter l'icône à l'écran d'accueil. iOS ne laisse pas une page web se verrouiller : sur
     iPhone, active le verrou d'orientation (Centre de contrôle). La tablette, l'ordinateur et le site
     web tournent librement, tout comme les applications du hub ouvertes dans CodeLab.
+  - **Téléphone couché** : si l'iPhone tourne quand même, le panneau reste lisible. Le hub défile vers
+    le bas, le bandeau se compacte (56 px), et en mode application le contenu s'écarte de l'encoche.
   - **Barre d'état et barre de geste des applications du hub** : elles prennent la couleur réellement
     affichée en haut et en bas de l'application (comme Safari), et la suivent au défilement : plus de
     bandeau d'une autre couleur au-dessus de la page.
