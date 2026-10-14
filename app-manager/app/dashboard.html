@@ -1178,7 +1178,7 @@ table.tbl-journal{min-width:560px}
 .toasts{position:fixed;right:18px;bottom:calc(18px + env(safe-area-inset-bottom));z-index:150;display:flex;flex-direction:column;
  gap:8px;max-width:min(380px,calc(100vw - 36px))}
 /* Au telephone, au-dessus de la barre d'onglets du bas, pas posees dessus. */
-@media (max-width:760px){ .toasts{left:12px;right:12px;max-width:none;bottom:calc(84px + env(safe-area-inset-bottom))} }
+@media (max-width:760px){ .toasts{left:12px;right:12px;max-width:none;bottom:calc(var(--barre-bas) + 20px + env(safe-area-inset-bottom))} }
 .toast{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-radius:10px;
  background:var(--surface);border:1px solid var(--line);box-shadow:0 10px 30px var(--shadow-2);
  font-size:13px;line-height:1.5;animation:toast-in .16s ease}
@@ -1544,23 +1544,30 @@ input,select,textarea{border-radius:12px}
 @keyframes squelette{from{opacity:1}to{opacity:.45}}
 @media (prefers-reduced-motion:reduce){.squelette i,.squelette-ligne{animation:none}}
 
-/* Telephone : le menu devient la barre du bas, comme une application. */
+/* Telephone : le menu devient la barre du bas, comme une application.
+   LA HAUTEUR D'UNE BARRE D'ONGLETS iOS : 49 px, plus le bord de la barre de
+   geste (env(safe-area-inset-bottom), 34 px sur un iPhone sans bouton).
+   Vecu : « reduire la hauteur du footer sur app » -- elle faisait 102 px en
+   mode application (68 + 34), 19 de plus qu'une app native. --barre-bas la
+   donne au reste de la page : la marge sous le contenu et la place des
+   messages en dependent, et la recopier en chiffres les faisait diverger. */
 @media (max-width:760px){
   .topbar{height:60px;padding:0 16px}
-  :root{--haut-barre:60px}
+  :root{--haut-barre:60px;--barre-bas:49px}
   .sidebar{top:auto;bottom:0;left:0;right:0;transform:none;width:auto;height:auto;
-   border-radius:0;padding:6px 6px calc(8px + env(safe-area-inset-bottom));
+   border-radius:0;padding:3px 6px max(env(safe-area-inset-bottom),4px);
    box-shadow:0 -1px 0 var(--line);background:var(--surface)}
   .sidebar.collapsed{width:auto}
   .side-nav{width:100%;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:0}
-  .side-item{flex-direction:column;gap:3px;padding:6px 2px;border-radius:12px;font-size:10.5px;
+  .side-item{flex-direction:column;gap:2px;height:calc(var(--barre-bas) - 3px);padding:0 2px;
+   justify-content:center;border-radius:12px;font-size:10.5px;
    position:relative;background:none}
   .side-item span:not(.side-count){display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis}
   .side-item svg{display:block;width:22px;height:22px}
   .side-item.active,.side-item:hover{background:none;color:var(--accent)}
   .side-count{position:absolute;top:0;left:calc(50% + 6px);font-size:10px;padding:0 5px}
   .voile-menu.show{display:none}
-  .main-area{padding-bottom:84px}
+  .main-area{padding-bottom:calc(var(--barre-bas) + env(safe-area-inset-bottom) + 20px)}
   .wrap{padding:12px 16px 40px}
   .salut{font-size:30px;margin:8px auto 16px;padding:0 4px}
   #hub-liste.hub-liste{padding:24px 12px;border-radius:26px;margin-bottom:16px}

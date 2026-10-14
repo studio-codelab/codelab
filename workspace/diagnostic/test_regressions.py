@@ -105,12 +105,16 @@ _ENVOI_MAIL_REEL = app.envoi_mail_configure
 # panneau en gagne un et qu'on oublie de l'ajouter ici, le test qui suit
 # echoue au lieu de laisser passer une ecriture reelle.
 CHEMINS_ETAT = [
-    "STATE_DIR", "APPS_FILE", "LOG_DIR", "UTILISATEURS_FILE", "PASSKEYS_FILE",
-    "ACCES_FILE", "PROCESSUS_FILE", "MASQUEES_FILE", "MESSAGES_FILE", "CHILD_HOME", "ALERTES_FILE", "SMTP_FILE",
-    "CATEGORIES_FILE", "SURVEILLANCE_FILE", "COFFRE_FILE",
-    "EXPOSITION_FILE", "SHARED_CONFIG_DIR",
-    "SHARED_ENV_FILE", "LEGACY_ADMIN_PASSWORD_FILE", "LEGACY_SECRET_KEY_FILE",
-    "SSO_PRIVATE_FILE", "DB_FILE", "SAUVEGARDES_SUIVI_FILE",
+    "STATE_DIR",
+    "LOG_DIR",
+    "CHILD_HOME",
+    "SHARED_CONFIG_DIR",
+    "SHARED_ENV_FILE",
+    "REPLI_ADMIN_PASSWORD_FILE",
+    "REPLI_SECRET_KEY_FILE",
+    "SSO_PRIVATE_FILE",
+    "DB_FILE",
+    "SAUVEGARDES_SUIVI_FILE",
 ]
 
 
@@ -129,25 +133,12 @@ def _bac_a_sable(tmp_path, monkeypatch):
     travail.mkdir()
     remplacements = {
         "STATE_DIR": str(etat),
-        "APPS_FILE": str(etat / "apps.json"),
         "LOG_DIR": str(etat / "logs"),
-        "UTILISATEURS_FILE": str(etat / "utilisateurs.json"),
-        "PASSKEYS_FILE": str(etat / "passkeys.json"),
-        "ACCES_FILE": str(etat / "acces.jsonl"),
-        "PROCESSUS_FILE": str(etat / "processus.json"),
-        "MASQUEES_FILE": str(etat / "masquees.json"),
-        "MESSAGES_FILE": str(etat / "messages.jsonl"),
         "CHILD_HOME": str(etat / "home"),
-        "ALERTES_FILE": str(etat / "alertes.json"),
-        "SMTP_FILE": str(etat / "smtp.json"),
-        "SURVEILLANCE_FILE": str(etat / "surveillance.json"),
-        "COFFRE_FILE": str(etat / "reglages.chiffres"),
-        "CATEGORIES_FILE": str(etat / "categories.json"),
-        "EXPOSITION_FILE": str(etat / "exposition.json"),
         "SHARED_CONFIG_DIR": str(partage),
         "SHARED_ENV_FILE": str(partage / "credentials.env"),
-        "LEGACY_ADMIN_PASSWORD_FILE": str(etat / "admin_password"),
-        "LEGACY_SECRET_KEY_FILE": str(etat / "flask_secret_key"),
+        "REPLI_ADMIN_PASSWORD_FILE": str(etat / "admin_password"),
+        "REPLI_SECRET_KEY_FILE": str(etat / "flask_secret_key"),
         "SSO_PRIVATE_FILE": str(etat / "codelab_sso_private.key"),
         "DB_FILE": str(etat / "codelab.db"),
         "SAUVEGARDES_SUIVI_FILE": str(etat / "sauvegardes-suivi.json"),
@@ -949,7 +940,6 @@ def test_modifier_le_registre_recu_ne_corrompt_pas_le_cache(tmp_path, monkeypatc
     save() : sans copie, ces modifications apparaitraient dans le cache avant
     l'ecriture -- et y resteraient meme si elle echouait."""
     fichier = tmp_path / "apps.json"
-    monkeypatch.setattr(app, "APPS_FILE", str(fichier))
     app._apps_cache["signature"] = None
     app.save({"un": {"port": 9101, "enabled": True}})
 
@@ -1082,7 +1072,6 @@ def test_une_application_privee_exige_la_session(client, monkeypatch, tmp_path):
     """Le controle vit dans le proxy, pas dans l'interface : un lien qui
     circule ne doit pas suffire a ouvrir une application privee."""
     fichier = tmp_path / "apps.json"
-    monkeypatch.setattr(app, "APPS_FILE", str(fichier))
     app._apps_cache["signature"] = None
     app.save({"prive": {"path": str(tmp_path), "command": "x", "port": 9101,
                         "enabled": True, "visibility": "privee"}})
@@ -1207,7 +1196,6 @@ def _amorcage(tmp_path, monkeypatch, avec_projet=True):
     if avec_projet:
         (racine / "diagnostic").mkdir()
         (racine / "diagnostic" / "app.py").write_text("")
-    monkeypatch.setattr(app, "APPS_FILE", str(etat / "apps.json"))
     monkeypatch.setattr(app, "ROOT", str(racine))
     app._apps_cache["signature"] = None
     return racine
@@ -1450,8 +1438,6 @@ def test_un_fichier_illisible_ne_empeche_pas_de_lancer(tmp_path, monkeypatch):
 @pytest.fixture
 def alertes(tmp_path, monkeypatch):
     """Un panneau avec une application declaree et les alertes actives."""
-    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
-    monkeypatch.setattr(app, "ALERTES_FILE", str(tmp_path / "alertes.json"))
     monkeypatch.setattr(app, "SHARED_CONFIG_DIR", str(tmp_path))
     monkeypatch.setattr(app, "SHARED_ENV_FILE", str(tmp_path / "credentials.env"))
     app._apps_cache["signature"] = None
@@ -1524,7 +1510,6 @@ def test_l_interrupteur_coupe_vraiment_les_alertes(alertes, monkeypatch):
 def test_la_configuration_incomplete_est_dite_champ_par_champ(tmp_path, monkeypatch):
     """"Ca ne marche pas" est inutilisable ; le nom de la cle manquante se
     corrige en dix secondes."""
-    monkeypatch.setattr(app, "ALERTES_FILE", str(tmp_path / "alertes.json"))
     monkeypatch.setattr(app, "SHARED_CONFIG_DIR", str(tmp_path))
     monkeypatch.setattr(app, "SHARED_ENV_FILE", str(tmp_path / "credentials.env"))
     (tmp_path / "credentials.env").write_text("")
@@ -1551,8 +1536,6 @@ def test_les_adresses_saisies_sont_nettoyees():
 @pytest.fixture
 def deux_espaces(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "_admin_password", "secret-de-test")
-    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
-    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
     monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)   # 200 000 par test, c'est long
     monkeypatch.setattr(app, "is_running", lambda n: True)
     app.flask_app.secret_key = "cle-de-test"
@@ -1737,7 +1720,6 @@ def compte_admin(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "_totp_secret", "")
     monkeypatch.setattr(app, "SHARED_CONFIG_DIR", str(tmp_path))
     monkeypatch.setattr(app, "SHARED_ENV_FILE", str(tmp_path / "credentials.env"))
-    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
     app.flask_app.secret_key = "cle-de-test"
     app.flask_app.config["TESTING"] = True
     app._login_attempts.clear()
@@ -1823,8 +1805,6 @@ def test_un_compte_nomme_doit_donner_son_ancien_mot_de_passe(deux_espaces):
 @pytest.fixture
 def acces(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "_admin_password", "secret-de-test")
-    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
-    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
     app.flask_app.secret_key = "cle-de-test"
     app.flask_app.config["TESTING"] = True
     app._login_attempts.clear()
@@ -2293,10 +2273,6 @@ def test_l_expiration_est_journalisee(journal):
 @pytest.fixture
 def messagerie(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "_admin_password", "secret-de-test")
-    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
-    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
-    monkeypatch.setattr(app, "MESSAGES_FILE", str(tmp_path / "messages.jsonl"))
-    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
     monkeypatch.setattr(app, "SHARED_CONFIG_DIR", str(tmp_path))
     monkeypatch.setattr(app, "SHARED_ENV_FILE", str(tmp_path / "credentials.env"))
     monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
@@ -2435,10 +2411,6 @@ def test_les_messages_partent_aussi_vers_la_base():
 @pytest.fixture
 def hub(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "_admin_password", "secret-de-test")
-    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
-    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
-    monkeypatch.setattr(app, "MASQUEES_FILE", str(tmp_path / "masquees.json"))
-    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
     monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
     monkeypatch.setattr(app, "is_running", lambda n: True)
     app.flask_app.secret_key = "cle-de-test"
@@ -2577,8 +2549,6 @@ def _png(octets=64):
 @pytest.fixture
 def logo(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "_admin_password", "secret-de-test")
-    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
-    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
     monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
     monkeypatch.setattr(app, "under_root", lambda p: True)
     app.flask_app.secret_key = "cle-de-test"
@@ -2706,9 +2676,6 @@ def test_seul_l_administrateur_depose_un_logo(logo, monkeypatch):
 def en_marche(tmp_path, monkeypatch):
     """Une application qui tourne, et dont on peut editer la configuration."""
     monkeypatch.setattr(app, "_admin_password", "secret-de-test")
-    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
-    monkeypatch.setattr(app, "CATEGORIES_FILE", str(tmp_path / "categories.json"))
-    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
     monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
     monkeypatch.setattr(app, "is_running", lambda n: True)
     monkeypatch.setattr(app, "under_root", lambda p: True)
@@ -2803,9 +2770,6 @@ def test_la_liste_des_champs_qui_attendent_vit_du_cote_serveur():
 @pytest.fixture
 def categorise(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "_admin_password", "secret-de-test")
-    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
-    monkeypatch.setattr(app, "CATEGORIES_FILE", str(tmp_path / "categories.json"))
-    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
     monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
     # Arretee : ces tests-la ne parlent pas du redemarrage, et une
     # application a l'arret repond sans bandeau.
@@ -2946,9 +2910,6 @@ def test_sans_la_bibliotheque_qr_l_inscription_marche_encore(client, monkeypatch
 @pytest.fixture
 def comptes_mail(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "_admin_password", "secret-de-test")
-    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
-    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
-    monkeypatch.setattr(app, "ALERTES_FILE", str(tmp_path / "alertes.json"))
     monkeypatch.setattr(app, "SHARED_CONFIG_DIR", str(tmp_path))
     monkeypatch.setattr(app, "SHARED_ENV_FILE", str(tmp_path / "credentials.env"))
     monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
@@ -3100,7 +3061,6 @@ def test_un_second_envoi_immediat_ne_part_pas(comptes_mail):
 
 
 def test_la_reinitialisation_est_journalisee(comptes_mail, tmp_path, monkeypatch):
-    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
     c, partis = comptes_mail
     _compte_avec_adresse()
     c.post("/mot-de-passe/oubli", json={"nom": "marie"})
@@ -3240,9 +3200,6 @@ def test_il_n_y_a_plus_d_inscription_libre(comptes_mail):
 @pytest.fixture
 def journal(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "_admin_password", "secret-de-test")
-    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
-    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
-    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
     monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
     monkeypatch.setattr(app, "is_running", lambda n: False)
     app.flask_app.secret_key = "cle-de-test"
@@ -3278,8 +3235,6 @@ def journal(tmp_path, monkeypatch):
 
 @pytest.fixture
 def survivants(tmp_path, monkeypatch):
-    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
-    monkeypatch.setattr(app, "PROCESSUS_FILE", str(tmp_path / "processus.json"))
     monkeypatch.setattr(app, "LOG_DIR", str(tmp_path / "logs"))
     monkeypatch.setattr(app, "CHILD_HOME", str(tmp_path / "home"))
     monkeypatch.setattr(app, "STATE_DIR", str(tmp_path))
@@ -3806,7 +3761,6 @@ def test_journaliser_ne_fait_jamais_tomber_le_service(journal, monkeypatch):
     Faire echouer une connexion pour proteger son journal reviendrait a
     eteindre le service au moment ou on veut justement l'observer.
     """
-    monkeypatch.setattr(app, "ACCES_FILE", "/proc/interdit/acces.jsonl")
     app.journaliser("connexion", qui="marie")          # ne leve pas
     assert journal.get("/public/").status_code in (200, 502, 503)
     assert journal.post("/login", json={"nom": "admin", "password": "secret-de-test"}).status_code == 200
@@ -3830,8 +3784,6 @@ def test_le_journal_est_reserve_a_l_administrateur(journal):
 @pytest.fixture
 def exposition(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "_admin_password", "secret-de-test")
-    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
-    monkeypatch.setattr(app, "EXPOSITION_FILE", str(tmp_path / "exposition.json"))
     monkeypatch.delenv("APP_MANAGER_PUBLIC_URL", raising=False)
     monkeypatch.setattr(app, "is_running", lambda n: False)
     monkeypatch.setattr(app, "under_root", lambda p: True)
@@ -4133,9 +4085,6 @@ def test_l_adresse_du_compose_l_emporte_sur_celle_de_la_page(exposition, monkeyp
 @pytest.fixture
 def cles(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "_admin_password", "secret-de-test")
-    monkeypatch.setattr(app, "PASSKEYS_FILE", str(tmp_path / "passkeys.json"))
-    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
-    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
     monkeypatch.setattr(app, "trust_proxy", lambda: False)
     app.flask_app.secret_key = "cle-de-test"
     app.flask_app.config["TESTING"] = True
@@ -4282,9 +4231,6 @@ def envoi(tmp_path, monkeypatch):
     """Un panneau connecte, avec une configuration d'envoi D'ORIGINE posee
     dans credentials.env -- celle qui doit survivre a tout."""
     monkeypatch.setattr(app, "_admin_password", "secret-de-test")
-    monkeypatch.setattr(app, "ALERTES_FILE", str(tmp_path / "alertes.json"))
-    monkeypatch.setattr(app, "SMTP_FILE", str(tmp_path / "smtp.json"))
-    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
     monkeypatch.setattr(app, "SHARED_CONFIG_DIR", str(tmp_path))
     monkeypatch.setattr(app, "SHARED_ENV_FILE", str(tmp_path / "credentials.env"))
     app.flask_app.secret_key = "cle-de-test"
@@ -4446,7 +4392,6 @@ def test_journaliser_ne_depend_jamais_de_la_base(tmp_path, monkeypatch):
     """Une base eteinte, lente, ou une file pleine : la connexion passe quand
     meme. C'est la seule propriete qui compte -- le reste n'est que du
     journal."""
-    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
     monkeypatch.setattr(app, "PG_ACTIF", True)
     # File pleine : chaque depot est perdu, sans exception ni attente.
     pleine = queue.Queue(maxsize=1)
@@ -4469,7 +4414,6 @@ def test_chaque_evenement_porte_un_identifiant(tmp_path, monkeypatch):
     Sans identifiant, un rejeu apres une coupure de la base reinsererait les
     memes lignes -- et l'historique compterait double.
     """
-    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
     monkeypatch.setattr(app, "PG_ACTIF", False)
     app.journaliser("connexion", qui="marie")
     app.journaliser("connexion", qui="marie")
@@ -4506,9 +4450,6 @@ def test_le_miroir_ecrit_vraiment_dans_postgres(tmp_path, monkeypatch):
     reglages = psycopg.conninfo.conninfo_to_dict(dsn)
     monkeypatch.setattr(app, "PG_BASE", "codelab_test_" + secrets.token_hex(4))
     monkeypatch.setattr(app, "PG_ACTIF", True)
-    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
-    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
-    monkeypatch.setattr(app, "PASSKEYS_FILE", str(tmp_path / "passkeys.json"))
     monkeypatch.setattr(app, "_pg_reglages", lambda: {
         "host": reglages.get("host", "127.0.0.1"), "port": reglages.get("port", "5432"),
         "user": reglages.get("user", "codelab"), "password": reglages.get("password", ""),
@@ -4744,7 +4685,6 @@ def test_le_nom_arrive_bien_jusqu_au_preexec(tmp_path, monkeypatch):
     silence : sans ce test, les deux applications repartent sous l'uid
     partage et tous les autres tests restent verts."""
     recu = {}
-    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
     monkeypatch.setattr(app, "LOG_DIR", str(tmp_path / "logs"))
     monkeypatch.setattr(app, "CHILD_HOME", str(tmp_path / "home"))
     monkeypatch.setattr(app, "STATE_DIR", str(tmp_path))
@@ -7138,7 +7078,6 @@ def test_les_applications_par_defaut_suivent_la_frontiere_de_l_administration(
     montre. Elle s'arrete donc ou l'administration s'arrete -- meme reglage,
     meme frontiere, y compris au milieu d'une session deja ouverte.
     """
-    monkeypatch.setattr(app, "EXPOSITION_FILE", str(tmp_path / "exposition.json"))
     monkeypatch.setattr(app, "admin_limite_au_reseau_local", lambda: True)
     apps = app.load()
     apps[app.DIAGNOSTIC_NOM] = {"path": "/w/diag", "command": "x", "port": 9109,
@@ -7167,7 +7106,6 @@ def test_l_administrateur_du_reseau_local_reste_connecte(client, tmp_path, monke
     session qui n'a pas bouge. Tailscale (100.64/10) compte comme local --
     c'est ainsi qu'on administre depuis l'exterieur sans rien ouvrir.
     """
-    monkeypatch.setattr(app, "EXPOSITION_FILE", str(tmp_path / "exposition.json"))
     monkeypatch.setattr(app, "admin_limite_au_reseau_local", lambda: True)
     locales = ("192.168.1.42", "10.8.0.5", "172.20.0.3", "127.0.0.1",
                "100.101.102.103")
@@ -7232,20 +7170,6 @@ def test_les_descriptions_par_defaut_tiennent_entieres_sur_leur_tuile():
               app.DESCRIPTION_MAILPIT, app.DESCRIPTION_MESSAGERIE):
         assert 0 < len(d) <= 40, d
 
-
-def test_l_ancienne_description_du_diagnostic_est_remplacee(hub_dagster):
-    apps = app.load()
-    apps[app.DIAGNOSTIC_NOM] = {"path": "/w/diag", "command": "python3 app.py", "port": 9109,
-                                "enabled": True, "description": app.DIAGNOSTIC_DESCRIPTIONS_ANCIENNES[0]}
-    app.save(apps)
-    app.tenir_les_applications_par_defaut()
-    assert app.load()[app.DIAGNOSTIC_NOM]["description"] == app.DIAGNOSTIC_DESCRIPTION
-    # Une description reecrite a la main, elle, reste.
-    apps = app.load()
-    apps[app.DIAGNOSTIC_NOM]["description"] = "La mienne."
-    app.save(apps)
-    app.tenir_les_applications_par_defaut()
-    assert app.load()[app.DIAGNOSTIC_NOM]["description"] == "La mienne."
 
 
 def test_le_panneau_tient_ses_applications_par_defaut_debout(hub_dagster):
@@ -8750,10 +8674,6 @@ def test_le_bouton_ne_se_trompe_plus_de_sens():
 def a_renommer(tmp_path, monkeypatch):
     """Un panneau avec une application, un compte qui y a droit, un journal."""
     monkeypatch.setattr(app, "_admin_password", "secret-de-test")
-    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
-    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
-    monkeypatch.setattr(app, "MASQUEES_FILE", str(tmp_path / "masquees.json"))
-    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
     monkeypatch.setattr(app, "LOG_DIR", str(tmp_path / "logs"))
     monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
     monkeypatch.setattr(app, "is_running", lambda n: False)
@@ -8913,10 +8833,6 @@ def test_la_page_offre_le_renommage(a_renommer):
 @pytest.fixture
 def deux_comptes(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "_admin_password", "secret-de-test")
-    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
-    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
-    monkeypatch.setattr(app, "PASSKEYS_FILE", str(tmp_path / "passkeys.json"))
-    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
     monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
     monkeypatch.setattr(app, "under_root", lambda p: True)
     app._apps_cache["signature"] = None
@@ -9203,10 +9119,6 @@ def test_un_refus_qui_persiste_est_dit_avec_son_remede(survivants, monkeypatch):
 @pytest.fixture
 def hub_dagster(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "_admin_password", "secret-de-test")
-    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
-    monkeypatch.setattr(app, "UTILISATEURS_FILE", str(tmp_path / "utilisateurs.json"))
-    monkeypatch.setattr(app, "MASQUEES_FILE", str(tmp_path / "masquees.json"))
-    monkeypatch.setattr(app, "CATEGORIES_FILE", str(tmp_path / "categories.json"))
     monkeypatch.setattr(app, "PBKDF2_ITERATIONS", 1000)
     monkeypatch.setattr(app, "is_running", lambda n: False)
     # Le port de Dagster est sonde pour de vrai : on repond a sa place.
@@ -9359,9 +9271,6 @@ def test_les_applications_par_defaut_ont_leur_icone(hub_dagster, tmp_path):
 @pytest.fixture
 def boite(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "_admin_password", "secret-de-test")
-    monkeypatch.setattr(app, "MESSAGES_FILE", str(tmp_path / "messages.jsonl"))
-    monkeypatch.setattr(app, "ACCES_FILE", str(tmp_path / "acces.jsonl"))
-    monkeypatch.setattr(app, "APPS_FILE", str(tmp_path / "apps.json"))
     app._apps_cache["signature"] = None
     app.save({})
     app.flask_app.secret_key = "cle-de-test"
@@ -9417,21 +9326,6 @@ def test_supprimer_un_message_le_retire_du_fichier(boite):
     assert "message" in genres
 
 
-def test_les_anciens_messages_sont_importes_puis_supprimables(boite):
-    """Les messages d'avant la base (fichier courant ET sa rotation) entrent
-    dans la table a l'import, et s'y suppriment comme les autres."""
-    c, tmp_path = boite
-    ancien = {"id": secrets.token_hex(12), "ts": int(time.time()) - 10000,
-              "qui": "marie", "cible": "hub", "app": "", "texte": "d'avant la rotation"}
-    with open(app.MESSAGES_FILE + ".1", "w") as f:
-        f.write(json.dumps(ancien, ensure_ascii=False) + "\n")
-    app.importer_anciens_fichiers()
-    recent = _message(c, "hub", "récent")
-
-    assert c.delete("/api/messages/" + ancien["id"]).status_code == 200
-    restants = [m["id"] for m in c.get("/api/messages").get_json()["messages"]]
-    assert restants == [recent]
-    assert not os.path.exists(app.MESSAGES_FILE + ".1")
 
 def test_le_guet_ne_redemande_que_ce_qui_est_arrive_depuis(boite):
     """La page interroge toutes les vingt secondes : lui renvoyer trois cents
@@ -9654,32 +9548,6 @@ def test_le_logo_dagster_est_vectoriel_et_net():
 # choses doivent rester vraies : l'ancienne application disparait du registre
 # sans perte de code, et le panneau cesse de travailler quand l'onglet n'est
 # pas regarde.
-
-def test_l_ancienne_application_aichat_quitte_le_registre(monkeypatch, tmp_path):
-    """Le registre est nettoye, le code de l'utilisateur ne l'est pas.
-
-    Supprimer /workspace/aichat serait une perte de donnees silencieuse : le
-    dossier appartient a l'utilisateur. Seule l'inscription disparait, parce
-    que la tuile pointait vers une application qui ne peut plus rien faire.
-    """
-    m = _charger_app_manager(monkeypatch, tmp_path)
-    arretees = []
-    enregistre = {}
-    monkeypatch.setattr(m, "load", lambda: dict(enregistre))
-    monkeypatch.setattr(m, "save", lambda apps: enregistre.clear() or enregistre.update(apps))
-    monkeypatch.setattr(m, "stop", lambda nom: arretees.append(nom))
-
-    enregistre.update({"aichat": {"port": 9100}, "facturier": {"port": 9101}})
-    assert m.retirer_aichat() == "aichat"
-    assert arretees == ["aichat"]
-    assert sorted(enregistre) == ["facturier"]
-
-    # Deuxieme passage : plus rien a faire, et rien d'arrete au passage.
-    assert m.retirer_aichat() is None
-    assert arretees == ["aichat"]
-
-    source = _page_panneau("app.py")
-    assert "shutil.rmtree" not in source.split("def retirer_aichat")[1].split("\ndef ")[0]
 
 
 def test_le_panneau_cesse_de_sonder_quand_l_onglet_n_est_plus_regarde():
@@ -11993,35 +11861,6 @@ def test_une_cle_perdue_ne_casse_rien_et_ne_detruit_rien():
     assert app.reglage("alertes_admin") == ["moi@exemple.fr"]
 
 
-def test_les_anciens_fichiers_en_clair_migrent_au_coffre():
-    etat = app.STATE_DIR
-    json.dump({"host": "smtp.x.fr", "password": "ancien-mdp"}, open(app.SMTP_FILE, "w"))
-    json.dump({"actif": True, "destinataires": ["a@x.fr"]}, open(app.ALERTES_FILE, "w"))
-    json.dump({"url": "https://hc-ping.com/abc"}, open(app.SURVEILLANCE_FILE, "w"))
-    json.dump({"paul": {"sel": "aa", "hash": "bb", "email": "paul@x.fr"}},
-              open(app.UTILISATEURS_FILE, "w"))
-    app.save({"site": {"path": "/w/s", "command": "x", "port": 9101,
-                       "alertes": ["ops@x.fr"]}})
-    app.upsert_shared_block("codelab-alertes", [], {"SMTP_HOST": "smtp.origine.fr",
-                                                    "ALERTE_ADMIN": "chef@x.fr"})
-    app.importer_anciens_fichiers()
-    app.migrer_vers_le_coffre()
-
-    for chemin in (app.SMTP_FILE, app.ALERTES_FILE, app.SURVEILLANCE_FILE):
-        assert not os.path.exists(chemin), chemin
-    assert app.lire_smtp_personnalise()["password"] == "ancien-mdp"
-    assert app.lire_alertes()["actif"] is True
-    assert app.lire_surveillance() == "https://hc-ping.com/abc"
-    assert app.alertes_admin() == ["chef@x.fr"]
-    assert app.destinataires_alerte("site") == ["chef@x.fr", "ops@x.fr"]
-    assert "alertes" not in app.load()["site"]
-    assert app.lire_utilisateurs()["paul"]["email"] == "paul@x.fr"
-    env = open(app.SHARED_ENV_FILE).read()
-    assert "ALERTE_ADMIN=" not in env and "SMTP_HOST=smtp.origine.fr" in env
-    for clair in (b"ancien-mdp", b"chef@x.fr", b"ops@x.fr", b"paul@x.fr", b"hc-ping.com"):
-        assert clair not in _octets_de_l_etat(), clair
-    assert os.path.isdir(etat)
-
 
 def test_les_destinataires_suivent_un_renommage_et_partent_avec_l_application():
     app.ecrire_reglage("alertes_par_app", {"vieux": ["a@x.fr"]})
@@ -12163,7 +12002,6 @@ def test_le_manifeste_d_une_application_reste_dans_son_projet(client, monkeypatc
     repondent meme application arretee."""
     import struct
     fichier = tmp_path / "apps.json"
-    monkeypatch.setattr(app, "APPS_FILE", str(fichier))
     app._apps_cache["signature"] = None
     projet = tmp_path / "projet"
     projet.mkdir()
@@ -12205,7 +12043,6 @@ def test_le_panneau_installe_ouvre_les_applications_sans_en_sortir(client, monke
     dans une page du panneau, qui n'autorise a encadrer QUE l'origine des
     applications."""
     fichier = tmp_path / "apps.json"
-    monkeypatch.setattr(app, "APPS_FILE", str(fichier))
     app._apps_cache["signature"] = None
     app.save({"site": {"path": str(tmp_path), "command": "x", "port": 9101,
                        "enabled": True, "titre": "Mon <site>"}})
@@ -12268,7 +12105,6 @@ def test_la_protection_d_encadrement_couvre_toute_reponse_d_application(
     """Pages d'erreur et redirections comprises, pas seulement les pages
     relayees depuis l'application."""
     fichier = tmp_path / "apps.json"
-    monkeypatch.setattr(app, "APPS_FILE", str(fichier))
     app._apps_cache["signature"] = None
     app.save({"site": {"path": str(tmp_path), "command": "x", "port": 9101,
                        "enabled": True}})
@@ -13133,44 +12969,7 @@ def _anciens_fichiers():
                     "ip": "10.0.0.1", "moyen": "mot de passe"}) + "\n")
 
 
-def test_l_import_verse_chaque_ancien_fichier_dans_sa_table():
-    _anciens_fichiers()
-    faits = app.importer_anciens_fichiers()
-    assert faits
-    apps = app.load()
-    assert list(apps) == ["site", "blog"]
-    assert apps["site"]["enabled"] is True and apps["site"]["visibility"] == "privee"
-    marie = app.lire_utilisateurs()["marie"]
-    assert marie["projets"] == ["site"] and marie["totp"] == "SECRET"
-    assert marie["email"] == "marie@x.fr" and marie["email_verifie"] is True
-    assert app.lire_passkeys()["marie"][0]["compteur"] == 3
-    assert app.lire_categories() == ["Outils", "Sites"]
-    assert app.lire_masquees() == {"marie": ["blog"]}
-    assert app.lire_exposition()["adresse_publique"] == "https://x.fr"
-    e = app.lire_acces()[0]
-    assert e["qui"] == "marie" and e["moyen"] == "mot de passe"
 
-
-def test_l_import_garde_les_originaux_sans_adresse_en_clair():
-    _anciens_fichiers()
-    app.importer_anciens_fichiers()
-    etat = app.STATE_DIR
-    assert not os.path.exists(os.path.join(etat, "apps.json"))
-    assert os.path.exists(os.path.join(etat, "apps.json.migre"))
-    garde = open(os.path.join(etat, "utilisateurs.json.migre")).read()
-    assert "marie@x.fr" not in garde and "bb" in garde
-    assert b"marie@x.fr" not in _octets_de_l_etat()
-
-
-def test_un_import_rejoue_n_ecrase_rien():
-    _anciens_fichiers()
-    app.importer_anciens_fichiers()
-    app.save({"nouvelle": {"path": "/w/n", "command": "z", "port": 9103}})
-    # Un vieux fichier reapparu (restauration partielle) ne remplace pas ce
-    # que la base porte deja.
-    open(os.path.join(app.STATE_DIR, "apps.json"), "w").write('{"vieille": {}}')
-    app.importer_anciens_fichiers()
-    assert list(app.load()) == ["nouvelle"]
 
 
 def test_le_schema_est_versionne_et_la_base_reservee_au_panneau():
@@ -13330,10 +13129,6 @@ def test_chaque_page_du_panneau_a_son_adresse(deux_espaces):
         r = c.get(chemin)
         assert r.status_code == 200, chemin
         assert "routerDepuisAdresse" in _page_servie(c, chemin), chemin
-    # Les adresses de l'ancienne application « Demandes » menent a Messages.
-    for chemin in ("/demandes", "/demandes/tableau"):
-        r = c.get(chemin)
-        assert r.status_code == 302 and r.headers["Location"].endswith("/messages"), chemin
     # Ces noms ne peuvent plus servir d'adresse a une application -- ni
     # aucun autre premier segment d'une route du panneau.
     reserves = app.adresses_reservees()
@@ -13848,14 +13643,6 @@ def test_le_hub_se_compose_par_compte(deux_espaces):
                   "margin-left:calc(50% - 50vw)"):
         assert trace in page, trace
 
-
-def test_une_ancienne_selection_de_widgets_devient_une_disposition(deux_espaces):
-    c = deux_espaces
-    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
-    app.ecrire_preference("widgets", [{"id": "horloge", "taille": "normal"},
-                                      {"id": "demandes", "taille": "large"}], qui="admin")
-    assert c.get("/api/hub/disposition").get_json()["elements"] == [
-        {"t": "w", "id": "messages", "taille": "moyen"}]
 
 
 # ---------- nouvelle version depuis la derniere ouverture ----------
@@ -16434,7 +16221,25 @@ def test_le_bandeau_hors_ligne_est_opaque_et_sous_la_barre():
     bandeau = page.split(".hors-ligne{")[1].split("}")[0]
     assert "background:color-mix(in srgb,var(--warn) 16%,var(--surface))" in bandeau
     assert "top:calc(var(--haut-barre,68px) + 10px" in bandeau
-    assert "@media (max-width:760px){ .toasts{left:12px;right:12px;max-width:none;bottom:calc(84px" in page
+    # Au telephone, les messages se posent AU-DESSUS de la barre du bas :
+    # sa hauteur (--barre-bas) et le bord de la barre de geste compris.
+    assert ("@media (max-width:760px){ .toasts{left:12px;right:12px;max-width:none;"
+            "bottom:calc(var(--barre-bas) + 20px + env(safe-area-inset-bottom))} }") in page
+
+
+def test_la_barre_du_bas_a_la_hauteur_d_une_barre_d_onglets_ios():
+    """Vecu : « reduire la hauteur du footer sur app ». Elle faisait 102 px en
+    mode application sur iPhone (68 + 34 de barre de geste), 19 de plus
+    qu'une app native ; 84 desormais (mesure Chromium, bords emules). Une
+    seule hauteur, --barre-bas, que la marge du contenu et les messages
+    reprennent : recopiee en chiffres, elle divergeait."""
+    page = _page_panneau("dashboard.html")
+    tel = page.split("/* Telephone : le menu devient la barre du bas")[1].split("\n}\n")[0]
+    assert "--barre-bas:49px" in tel
+    assert "padding:3px 6px max(env(safe-area-inset-bottom),4px)" in tel
+    assert "height:calc(var(--barre-bas) - 3px)" in tel
+    assert ".main-area{padding-bottom:calc(var(--barre-bas) + env(safe-area-inset-bottom) + 20px)}" in tel
+    assert "84px" not in tel
 
 
 def test_rendre_le_focus_ne_fait_pas_sauter_la_page():
