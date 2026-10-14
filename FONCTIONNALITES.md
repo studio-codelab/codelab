@@ -29,7 +29,7 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
 | Vue d'ensemble | `/apercu` | admin | compteurs (en ligne, arrêtées, en erreur), charge CPU et mémoire |
 | Applications | `/applications`, `/applications/<nom>[/<onglet>]` | admin | liste, puis fiche d'une application |
 | Utilisateurs | `/utilisateurs` | admin | comptes, invitations, journal des accès, carte d'activité |
-| Messages | `/messages`, `/messages/planning`, `/messages/feuille`, `/messages/projet/<id>` | admin | application à part, ouverte depuis sa tuile du hub (voir § 5) ; `/demandes` y redirige |
+| Messages | `/messages`, `/messages/planning`, `/messages/feuille`, `/messages/projet/<id>` | admin | application à part, ouverte depuis sa tuile du hub (voir § 5) |
 | Paramètres | `/parametres/<onglet>` | tous | onglets selon le rôle (voir plus bas) |
 
 - **Une seule application pour tous les rôles.** Le rôle décide de ce que le menu propose. Chaque
@@ -147,6 +147,8 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
     rajouter l'icône à l'écran d'accueil. iOS ne laisse pas une page web se verrouiller : sur
     iPhone, active le verrou d'orientation (Centre de contrôle). La tablette, l'ordinateur et le site
     web tournent librement, tout comme les applications du hub ouvertes dans CodeLab.
+  - **Téléphone couché** : si l'iPhone tourne quand même, le panneau reste lisible. Le hub défile vers
+    le bas, le bandeau se compacte (56 px), et en mode application le contenu s'écarte de l'encoche.
   - **Barre d'état et barre de geste des applications du hub** : elles prennent la couleur réellement
     affichée en haut et en bas de l'application (comme Safari), et la suivent au défilement : plus de
     bandeau d'une autre couleur au-dessus de la page.
@@ -367,8 +369,7 @@ Détails : [`mailpit/README.md`](mailpit/README.md).
 
 Une application du hub, au même rang que Dagster, Mailpit et le diagnostic, réservée à
 l'administrateur. Sa tuile (deux bulles de conversation) porte le nombre de messages non lus. Servie
-par le panneau sur `/messages` : même session, mêmes contrôles d'accès, même base. Les anciennes
-adresses `/demandes` y mènent.
+par le panneau sur `/messages` : même session, mêmes contrôles d'accès, même base.
 
 - **Écrire un message** (tout compte) : dans sa rubrique **Messages** (`/messages`, une entrée du menu, de la
   barre du bas au téléphone ; ce n'est plus un onglet des paramètres), ou le widget « Écrire à

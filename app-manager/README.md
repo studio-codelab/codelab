@@ -169,8 +169,9 @@ Une base SQLite dans `APP_MANAGER_STATE` (`/DATA/AppData/codelab/app-manager` su
 - **Copie dans Postgres** : le journal et les comptes, sans secret, dans la base `codelab`
   (`APP_MANAGER_PG=0` pour couper).
 - **Diagnostic** : il ouvre la base en lecture seule.
-- **Ancienne version** : les anciens fichiers JSON sont importés au premier démarrage, puis renommés
-  en `.migre`.
+- **Très ancienne version** : une installation d'avant `codelab.db` (ses données en fichiers JSON)
+  passe d'abord par la version `610e04b`, qui les importe au démarrage. La version actuelle ne lit
+  plus ces fichiers.
 
 ```sh
 sqlite3 /DATA/AppData/codelab/app-manager/codelab.db ".tables"
@@ -280,7 +281,7 @@ dans le journal du conteneur avec la méthode et la route (`docker logs codelab-
 | Tâches (admin) | `GET/POST /api/taches`, `PUT/DELETE /api/taches/<id>`, `PUT /api/taches/plan` (ordre du planning), `POST /api/taches/<id>/scinder` (`{titres}`), `PUT /api/taches/ordre` (statut et ordre d'une liste), champs `duree`, `echeance`, `message`, `POST /api/taches/<id>/sous-taches`, `PUT /api/taches/<id>/ordre`, `PUT/DELETE /api/sous-taches/<id>` |
 | Projets (admin) | `GET/POST /api/projets`, `PUT/DELETE /api/projets/<id>` (supprimer renvoie ses tâches dans « Général »), `PUT /api/projets/ordre` |
 | Alertes (admin) | `GET/POST /api/alertes`, `PUT /api/alertes/application/<nom>`, `GET/POST /api/surveillance-externe` |
-| Pages | `/`, `/apercu`, `/applications[/<nom>[/<onglet>]]`, `/utilisateurs`, `/messages[/<vue>[/<id>]]` (admin ; `/demandes` y redirige), `/parametres[/<onglet>]`, `/ouvrir.app/<nom>/<chemin>`, `/deconnexion.html` ; `/espace` redirige vers `/` |
+| Pages | `/`, `/apercu`, `/applications[/<nom>[/<onglet>]]`, `/utilisateurs`, `/messages[/<vue>[/<id>]]` (admin), `/parametres[/<onglet>]`, `/ouvrir.app/<nom>/<chemin>`, `/deconnexion.html` ; `/espace` redirige vers `/` |
 | Ressources | `/theme.css`, `/mode.js`, `/icone-192.png`, `/icone-512.png`, `/icone-512-maskable.png`, `/polices/<nom>`, `/favicon.*`, `/apple-touch-icon*.png`, `/manifest.webmanifest` (sans session) ; `POST /api/erreur-navigateur` |
 | Proxy | `/<nom>/...` sur le port des applications |
 

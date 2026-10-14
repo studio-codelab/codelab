@@ -113,11 +113,8 @@ if "codelab_stockage" not in sys.modules:
 STATE_DIR = os.environ.get("APP_MANAGER_STATE", "/var/lib/codelab/app-manager")
 # LA BASE DU PANNEAU. Applications, comptes, droits, cles d'acces, journal,
 # messages et reglages y vivent, chacun dans sa table -- voir stockage.py et
-# la section « Donnees » du README. Les anciens fichiers JSON ci-dessous ne
-# servent plus qu'a l'import automatique, une fois, au premier demarrage
-# apres la mise a jour (voir importer_anciens_fichiers).
+# la section « Donnees » du README.
 DB_FILE = os.path.join(STATE_DIR, "codelab.db")
-APPS_FILE = os.path.join(STATE_DIR, "apps.json")
 LOG_DIR = os.path.join(STATE_DIR, "logs")
 ROOT = os.environ.get("APP_MANAGER_ROOT", "/workspace")
 PORT_MIN, PORT_MAX = 9101, 9140
@@ -130,11 +127,12 @@ SHARED_CONFIG_DIR = os.environ.get("APP_MANAGER_SHARED_CONFIG", "/var/lib/codela
 # tous une option pour les afficher.
 SHARED_ENV_FILE = os.path.join(SHARED_CONFIG_DIR, "credentials.env")
 
-# Anciens fichiers dedies, un par secret. Conserves uniquement pour la
-# migration (leur valeur est reprise puis le fichier est supprime) et comme
-# repli si credentials.env n'est pas accessible en ecriture.
-LEGACY_ADMIN_PASSWORD_FILE = os.path.join(STATE_DIR, "admin_password")
-LEGACY_SECRET_KEY_FILE = os.path.join(STATE_DIR, "flask_secret_key")
+# LE REPLI DES SECRETS : un fichier par secret, ecrit SEULEMENT quand
+# credentials.env n'est pas accessible en ecriture -- sinon un redemarrage
+# regenererait un mot de passe administrateur different. Supprimes des que
+# credentials.env s'ecrit de nouveau (voir bootstrap_secrets).
+REPLI_ADMIN_PASSWORD_FILE = os.path.join(STATE_DIR, "admin_password")
+REPLI_SECRET_KEY_FILE = os.path.join(STATE_DIR, "flask_secret_key")
 SSO_PRIVATE_FILE = os.path.join(STATE_DIR, "codelab_sso_private.key")
 
 _admin_password = None   # valeur courante, chargee par bootstrap_secrets()
@@ -293,8 +291,8 @@ def read_shared_value(key):
     return valeur
 
 
-def read_legacy_file(path):
-    """Lit un ancien fichier mono-secret. Renvoie None s'il est absent ou vide."""
+def lire_fichier_de_repli(path):
+    """Lit un fichier de repli d'un secret. Renvoie None s'il est absent ou vide."""
     try:
         with open(path) as f:
             return f.read().strip() or None
@@ -403,8 +401,7 @@ def ecrire_bloc_panneau(pw, key, totp):
 
 def bootstrap_secrets():
     """Charge les secrets du panneau. credentials.env fait autorite ; a
-    defaut on reprend les anciens fichiers dedies (migration) ; a defaut on
-    genere. Ne leve jamais : un secret illisible est regenere plutot que
+    defaut on reprend les fichiers de repli ; a defaut on genere. Ne leve jamais : un secret illisible est regenere plutot que
     d'empecher le service de demarrer."""
     global _admin_password
     os.makedirs(STATE_DIR, exist_ok=True)
@@ -413,16 +410,16 @@ def bootstrap_secrets():
     key = read_shared_value("APP_MANAGER_SESSION_SECRET")
 
     if not pw:
-        pw = read_legacy_file(LEGACY_ADMIN_PASSWORD_FILE)
+        pw = lire_fichier_de_repli(REPLI_ADMIN_PASSWORD_FILE)
         if pw:
             print("[app-manager] mot de passe admin repris de "
-                  f"{LEGACY_ADMIN_PASSWORD_FILE} (migration).", flush=True)
+                  f"{REPLI_ADMIN_PASSWORD_FILE} (repli).", flush=True)
         else:
             pw = secrets.token_urlsafe(18)
             print("[app-manager] mot de passe admin genere.", flush=True)
 
     if not key:
-        key = read_legacy_file(LEGACY_SECRET_KEY_FILE) or secrets.token_hex(32)
+        key = lire_fichier_de_repli(REPLI_SECRET_KEY_FILE) or secrets.token_hex(32)
 
     _admin_password = pw
     flask_app.secret_key = key
@@ -449,22 +446,22 @@ def bootstrap_secrets():
     written = ecrire_bloc_panneau(pw, key, _totp_secret)
 
     if written:
-        # Les valeurs sont desormais dans credentials.env : les anciens
-        # fichiers mono-secret n'ont plus de raison d'exister. Supprimes
-        # seulement apres une ecriture reussie, jamais avant.
-        for path in (LEGACY_ADMIN_PASSWORD_FILE, LEGACY_SECRET_KEY_FILE):
+        # Les valeurs sont dans credentials.env : les fichiers de repli
+        # n'ont plus de raison d'exister. Supprimes seulement apres une
+        # ecriture reussie, jamais avant.
+        for path in (REPLI_ADMIN_PASSWORD_FILE, REPLI_SECRET_KEY_FILE):
             try:
                 if os.path.exists(path):
                     os.remove(path)
-                    print(f"[app-manager] {path} supprime (valeur migree vers "
+                    print(f"[app-manager] {path} supprime (valeur reprise dans "
                           f"{SHARED_ENV_FILE}).", flush=True)
             except OSError:
                 pass
     else:
         # credentials.env inaccessible : on retombe sur les fichiers dedies,
         # sinon un redemarrage regenererait un mot de passe different.
-        for path, value in ((LEGACY_ADMIN_PASSWORD_FILE, pw),
-                            (LEGACY_SECRET_KEY_FILE, key)):
+        for path, value in ((REPLI_ADMIN_PASSWORD_FILE, pw),
+                            (REPLI_SECRET_KEY_FILE, key)):
             try:
                 with open(path, "w") as f:
                     f.write(value)
@@ -1065,8 +1062,6 @@ APPLICATIONS_PROTEGEES = {DAGSTER_NOM, DIAGNOSTIC_NOM, MAILPIT_NOM}
 # par le panneau lui-meme (/messages) -- ses donnees sont celles du panneau,
 # et elle est reservee a l'administrateur, comme Dagster et Mailpit.
 MESSAGERIE_NOM = "messages"
-# L'ancien nom de l'application, garde pour les rangements deja enregistres.
-MESSAGERIE_ANCIEN_NOM = "demandes"
 TITRES_PAR_DEFAUT = {DAGSTER_NOM: "Dagster", DIAGNOSTIC_NOM: "Diagnostic",
                      MAILPIT_NOM: "Mailpit", MESSAGERIE_NOM: "Messages"}
 
@@ -1078,11 +1073,6 @@ TITRES_PAR_DEFAUT = {DAGSTER_NOM: "Dagster", DIAGNOSTIC_NOM: "Diagnostic",
 # tuile du hub (DESCRIPTION_VISIBLE dans dashboard.html, environ 45
 # caracteres sur deux lignes) : 40 au plus, verifie par les tests.
 DIAGNOSTIC_DESCRIPTION = "L'état de santé de CodeLab"
-# Les descriptions qu'une version precedente a enregistrees : reconnues, et
-# remplacees par la courte (une description reecrite a la main est gardee).
-DIAGNOSTIC_DESCRIPTIONS_ANCIENNES = (
-    "État de santé de l'installation : les services se parlent-ils, la base "
-    "répond-elle, et qu'est-ce qui est ouvert ?",)
 
 
 def refus_action_protegee(nom, action):
@@ -2164,10 +2154,6 @@ def require_admin(view):
 # de la base ou une archive de sauvegarde ne livrent aucune adresse. La
 # perdre, c'est perdre ces reglages (pas les comptes, pas les applications) :
 # elle se sauvegarde avec credentials.env.
-#
-# Ancien emplacement (un fichier chiffre d'un seul bloc) : lu une fois par
-# l'import automatique, puis mis de cote.
-COFFRE_FILE = os.path.join(STATE_DIR, "reglages.chiffres")
 _cle_chiffrement = ""
 _coffre = {"donnees": None}
 _coffre_verrou = threading.RLock()
@@ -2256,9 +2242,7 @@ def ecrire_reglage(cle, valeur):
     _pg_deposer(("reglage", cle))
 
 
-UTILISATEURS_FILE = os.path.join(STATE_DIR, "utilisateurs.json")
-
-# Nom reserve : le compte d'administration n'est pas dans ce fichier, son mot
+# Nom reserve : le compte d'administration n'est pas dans la table des comptes, son mot
 # de passe vit dans credentials.env. Laisser creer un utilisateur "admin"
 # donnerait deux comptes pour un seul nom, et l'un masquerait l'autre.
 NOM_ADMIN = "admin"
@@ -2749,7 +2733,6 @@ def creer_invitation(adresse, projets):
 # c'est exactement le genre de code ou une erreur discrete ne se voit jamais
 # -- sauf de celui qui la cherche. Import optionnel, comme le QR code : sans
 # elle, les cles d'acces sont simplement indisponibles.
-PASSKEYS_FILE = os.path.join(STATE_DIR, "passkeys.json")
 PASSKEY_NOM_MAX = 40
 
 
@@ -2855,11 +2838,10 @@ def _descripteurs(nom):
 # remarque sur le hub lui-meme, ou l'idee d'une application qui manque.
 #
 # Deux ecritures, comme pour le journal des acces, et pour la meme raison :
-# le FICHIER d'abord, qui tient sans base et se lit depuis une session SSH,
-# puis la base, qui garde tout et s'interroge en SQL. Un message perdu parce
-# que Postgres redemarrait serait un message que personne ne saura jamais
-# avoir ete ecrit.
-MESSAGES_FILE = os.path.join(STATE_DIR, "messages.jsonl")
+# la base LOCALE d'abord (codelab.db), qui tient sans Postgres et se lit
+# depuis une session SSH, puis Postgres, qui garde tout et s'interroge en
+# SQL. Un message perdu parce que Postgres redemarrait serait un message que
+# personne ne saura jamais avoir ete ecrit.
 MESSAGES_MAX = 5000          # au-dela, les plus anciens non retenus partent
 MESSAGE_LONGUEUR_MAX = 2000
 # Une minute entre deux messages du meme compte : de quoi corriger une faute
@@ -3089,10 +3071,9 @@ def enregistrer_message(message):
 # c'est du RANGEMENT, pas une protection. La page le dit, pour que personne
 # ne croie avoir ferme quelque chose.
 #
-# Un fichier a part plutot qu'un champ dans le registre des comptes : le
+# Une table a part plutot qu'un champ dans le registre des comptes : le
 # compte d'administration n'y figure pas, et il a le droit de ranger son hub
 # comme les autres.
-MASQUEES_FILE = os.path.join(STATE_DIR, "masquees.json")
 
 
 def lire_masquees():
@@ -3122,10 +3103,7 @@ def ecrire_masquees(d):
 def masquees_du_compte(qui=None):
     qui = qui or utilisateur_courant() or NOM_ADMIN
     valeurs = lire_masquees().get(qui) or []
-    # « Demandes » s'appelle maintenant « Messages » : un rangement deja
-    # enregistre sous l'ancien nom vaut pour le nouveau.
-    return [MESSAGERIE_NOM if v == MESSAGERIE_ANCIEN_NOM else str(v)
-            for v in valeurs if isinstance(v, str)]
+    return [str(v) for v in valeurs if isinstance(v, str)]
 
 
 # ------------------------- journal des acces -------------------------
@@ -3135,12 +3113,11 @@ def masquees_du_compte(qui=None):
 # connexion en rafale, une connexion a 4 h du matin), et savoir si un projet
 # sert encore a quelqu'un avant de l'arreter.
 #
-# Un fichier de lignes JSON, ajoutees a la fin. Pas de base : ce sont des
-# evenements, jamais modifies, et un fichier texte se lit depuis une session
-# SSH le jour ou le panneau ne repond plus. Il est plafonne et tourne comme
-# les journaux d'application -- un journal qui remplit le disque transforme
-# une curiosite en panne.
-ACCES_FILE = os.path.join(STATE_DIR, "acces.jsonl")
+# Une table de la base locale (journal), ajoutee a la fin : des evenements,
+# jamais modifies, qui se lisent depuis une session SSH (sqlite3) le jour ou
+# le panneau ne repond plus. Elle est plafonnee, et ne garde que la duree
+# choisie (voir purger_le_journal) -- un journal qui remplit le disque
+# transforme une curiosite en panne.
 JOURNAL_MAX = 50000                 # evenements gardes en local (Postgres garde tout)
 _journal_ecrits = [0]
 ACCES_LIGNES_LUES = 400             # ce que l'interface affiche au plus
@@ -4645,7 +4622,6 @@ DELAI_DEMARRAGE = 1.0
 # defaut qu'on corrige. On verifie donc que le processus porte bien la
 # marque que le panneau lui a posee -- son environnement contient
 # CODELAB_APP=<nom>.
-PROCESSUS_FILE = os.path.join(STATE_DIR, "processus.json")
 
 
 def _ecrire_processus(d):
@@ -5164,7 +5140,7 @@ def tenir_les_applications_par_defaut():
         if not (a.get("titre") or "").strip():
             a["titre"] = TITRES_PAR_DEFAUT[nom]
             change = True
-        if nom == DIAGNOSTIC_NOM and ((a.get("description") or "").strip() in ("",) + DIAGNOSTIC_DESCRIPTIONS_ANCIENNES):
+        if nom == DIAGNOSTIC_NOM and not (a.get("description") or "").strip():
             a["description"] = DIAGNOSTIC_DESCRIPTION
             change = True
     if change:
@@ -5573,7 +5549,6 @@ def sauvegarder_le_workspace():
 # gratuit jusqu'a 20 surveillances, ou tout service compatible) envoie un
 # mail quand les appels cessent. Aucun port a ouvrir : c'est la machine qui
 # appelle.
-SURVEILLANCE_FILE = os.path.join(STATE_DIR, "surveillance.json")
 SURVEILLANCE_INTERVALLE = 300
 _surveillance_etat = {"quand": None, "ok": None, "detail": ""}
 
@@ -5847,18 +5822,16 @@ def demarrer_les_sauvegardes():
 # ce qu'on pense a regarder. Un mail transforme cette surveillance passive en
 # alerte.
 #
-# Deux fichiers, pour une seule raison : les secrets ne vont pas au meme
-# endroit que le reste.
+# Deux endroits, pour une seule raison : le serveur d'envoi d'origine est
+# partage avec Dagster, le reste est propre au panneau.
 #
 #   credentials.env, bloc "codelab-alertes" : le serveur SMTP et son mot de
 #     passe. C'est le fichier en 0600, et c'est DEJA le bloc que lit le
 #     capteur d'alerte de Dagster -- une seule configuration SMTP pour toute
 #     la stack, pas deux a tenir a jour.
-#   alertes.json, dans le dossier d'etat : l'interrupteur et les
-#     destinataires. Une adresse de destination n'est pas un secret, et la
-#     garder hors du fichier de secrets evite de le reecrire pour un
-#     changement anodin.
-ALERTES_FILE = os.path.join(STATE_DIR, "alertes.json")
+#   le coffre (reglages chiffres de la base) : l'interrupteur et les
+#     destinataires. Une adresse n'est pas un secret, mais c'est une donnee
+#     personnelle, et rien n'est en clair sur le disque (regle 16).
 BLOC_ALERTES = "codelab-alertes"
 
 # Nombre de lignes de journal jointes au mail. Assez pour reconnaitre une
@@ -5944,8 +5917,6 @@ def ecrire_bloc_alertes(valeurs):
 # Vingt secondes : au-dela, ce n'est plus une lenteur mais une panne, et ni
 # le moniteur ni une page ne doivent rester suspendus a un serveur muet.
 SMTP_DELAI = 20
-
-SMTP_FILE = os.path.join(STATE_DIR, "smtp.json")
 
 # Les champs d'une configuration d'envoi, et la variable de credentials.env
 # qui porte chacun. Une seule liste : ajouter un champ ici le fait exister
@@ -6040,253 +6011,6 @@ def effacer_smtp_personnalise():
 
 
 BLOC_RELAIS_MAIL = "codelab-relais-mail"
-
-
-def migrer_vers_le_coffre():
-    """Range au coffre ce que les versions precedentes gardaient en clair.
-
-    Chaque source n'est supprimee qu'APRES une ecriture reussie au coffre :
-    une migration qui echoue laisse tout en place, et reessaie au prochain
-    demarrage.
-    """
-    if not _cle_chiffrement:
-        return
-
-    def _json(chemin):
-        try:
-            with open(chemin) as f:
-                return json.load(f)
-        except (OSError, ValueError):
-            return None
-
-    for chemin, cle in ((SMTP_FILE, "smtp"), (ALERTES_FILE, "alertes"),
-                        (SURVEILLANCE_FILE, "surveillance")):
-        if not os.path.exists(chemin):
-            continue
-        valeur = _json(chemin)
-        try:
-            if isinstance(valeur, dict) and reglage(cle) is None:
-                ecrire_reglage(cle, valeur)
-            os.remove(chemin)
-            print(f"[app-manager] {os.path.basename(chemin)} range au coffre "
-                  f"(chiffre) puis supprime.", flush=True)
-        except (OSError, RuntimeError) as e:
-            print(f"[app-manager] {chemin} non migre : {e}", flush=True)
-
-    # L'adresse d'administration, que le panneau ecrivait dans credentials.env.
-    admin = _adresses(read_shared_value("ALERTE_ADMIN") or "")
-    if admin:
-        try:
-            if not reglage("alertes_admin"):
-                ecrire_reglage("alertes_admin", admin)
-            ecrire_bloc_alertes({"ALERTE_ADMIN": ""})
-            print("[app-manager] adresse d'alerte rangee au coffre.", flush=True)
-        except (OSError, RuntimeError) as e:
-            print(f"[app-manager] adresse d'alerte non migree : {e}", flush=True)
-
-    # Les destinataires propres a chaque application, gardes dans apps.json.
-    apps = load()
-    anciens = {n: _adresses(a.get("alertes")) for n, a in apps.items()
-               if isinstance(a, dict) and "alertes" in a}
-    if anciens:
-        try:
-            par_app = reglage("alertes_par_app", {}) or {}
-            for n, adresses in anciens.items():
-                if adresses and n not in par_app:
-                    par_app[n] = adresses
-            ecrire_reglage("alertes_par_app", par_app or None)
-            for n in anciens:
-                apps[n].pop("alertes", None)
-            save(apps)
-            print("[app-manager] destinataires d'alerte ranges au coffre.", flush=True)
-        except (OSError, RuntimeError) as e:
-            print(f"[app-manager] destinataires d'alerte non migres : {e}", flush=True)
-    # Ce qui vient d'etre retire en clair ne doit pas survivre dans le
-    # journal d'ecriture de la base.
-    stockage.vider_le_journal(DB_FILE)
-
-
-# ------------------ import des anciens fichiers (une fois) ------------------
-#
-# Avant la base, chaque donnee avait son fichier. Au premier demarrage apres
-# la mise a jour, chacun est lu, verse dans sa table, puis RENOMME en
-# « .migre » -- jamais supprime : c'est la sauvegarde de l'etat d'avant, et le
-# moyen de revenir en arriere. Une table deja remplie n'est pas ecrasee : un
-# import joue deux fois ne fait rien de plus.
-
-def _lire_fichier_json(chemin, defaut):
-    try:
-        with open(chemin) as f:
-            d = json.load(f)
-        return d if isinstance(d, type(defaut)) else defaut
-    except (OSError, ValueError):
-        return defaut
-
-
-def _lire_fichier_lignes(chemin):
-    lignes = []
-    for c in (chemin + ".1", chemin):
-        try:
-            with open(c, errors="replace") as f:
-                for ligne in f:
-                    try:
-                        e = json.loads(ligne)
-                    except ValueError:
-                        continue
-                    if isinstance(e, dict):
-                        lignes.append(e)
-        except OSError:
-            continue
-    return lignes
-
-
-def _mettre_de_cote(*chemins):
-    for chemin in chemins:
-        for c in (chemin, chemin + ".1"):
-            if os.path.exists(c):
-                try:
-                    os.replace(c, c + ".migre")
-                except OSError:
-                    pass
-
-
-def _table_vide(table):
-    return not stockage.lire(DB_FILE, f"SELECT 1 FROM {table} LIMIT 1")
-
-
-def _verser_si_vide(fichier, table, defaut, verser, libelle, faits):
-    """Un ancien fichier JSON verse dans sa table, si elle est encore vide.
-
-    Une table deja remplie gagne toujours : le fichier n'est alors qu'un
-    reste d'une installation deja migree. Dans les deux cas il est mis de
-    cote (« .migre »), jamais supprime.
-    """
-    if not os.path.exists(fichier):
-        return
-    if _table_vide(table):
-        verser(_lire_fichier_json(fichier, defaut))
-        if libelle:
-            faits.append(libelle)
-    _mettre_de_cote(fichier)
-
-
-def _importer_coffre(faits):
-    """L'ancien coffre chiffre, cle par cle : une cle deja dans la base gagne."""
-    if not (os.path.exists(COFFRE_FILE) and _cle_chiffrement):
-        return
-    try:
-        with open(COFFRE_FILE, "rb") as f:
-            ancien = dechiffrer(f.read())
-        with _coffre_verrou:
-            presentes = set(_coffre_donnees())
-            for cle, valeur in (ancien or {}).items():
-                if cle not in presentes:
-                    _coffre_ecrire(cle, valeur)
-            _coffre["donnees"] = None
-        _mettre_de_cote(COFFRE_FILE)
-        faits.append("reglages chiffres")
-    except Exception as e:                                        # noqa: BLE001
-        print(f"[app-manager] import du coffre impossible ({type(e).__name__}) : "
-              f"le fichier reste en place.", flush=True)
-
-
-def _importer_comptes(faits):
-    """Les comptes, et leurs adresses gardees a part par une version
-    intermediaire. Rend False si l'ecriture echoue : la suite de l'import
-    attend alors le prochain demarrage."""
-    if not os.path.exists(UTILISATEURS_FILE):
-        return True
-    if _table_vide("comptes"):
-        comptes = _lire_fichier_json(UTILISATEURS_FILE, {})
-        emails = reglage("emails_comptes", {}) or {}
-        for nom, c in comptes.items():
-            if isinstance(c, dict) and emails.get(nom) and not c.get("email"):
-                c["email"] = emails[nom]
-        try:
-            ecrire_utilisateurs({n: c for n, c in comptes.items() if isinstance(c, dict)})
-            faits.append("comptes")
-        except (OSError, RuntimeError) as e:
-            print(f"[app-manager] import des comptes impossible : {e}", flush=True)
-            return False
-    # La copie gardee ne doit pas garder ce que la base chiffre : une tres
-    # ancienne installation avait les adresses en clair dans ce fichier
-    # (regle 16 de SECURITE.md : aucune adresse en clair sur le disque).
-    try:
-        brut = _lire_fichier_json(UTILISATEURS_FILE, {})
-        for c in brut.values():
-            if isinstance(c, dict):
-                c.pop("email", None)
-        with open(UTILISATEURS_FILE, "w") as f:
-            json.dump(brut, f, indent=2)
-        os.chmod(UTILISATEURS_FILE, 0o600)
-    except OSError:
-        pass
-    _mettre_de_cote(UTILISATEURS_FILE)
-    return True
-
-
-def _importer_journal(faits):
-    """Le journal des acces, ligne par ligne (fichier courant et sa rotation
-    « .1 ») ; INSERT OR IGNORE sur l'identifiant : un import repris apres une
-    coupure ne double rien."""
-    if not (os.path.exists(ACCES_FILE) or os.path.exists(ACCES_FILE + ".1")):
-        return
-    evenements = _lire_fichier_lignes(ACCES_FILE)
-    with stockage.transaction(DB_FILE) as cx:
-        for e in evenements:
-            reste = {k: v for k, v in e.items()
-                     if k not in ("id", "ts", "genre", "qui", "app", "ip")}
-            cx.execute("INSERT OR IGNORE INTO journal (id, ts, genre, qui, app, ip, "
-                       "details) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                       (e.get("id") or secrets.token_hex(12), int(e.get("ts") or 0),
-                        e.get("genre") or "", e.get("qui"), e.get("app"), e.get("ip"),
-                        json.dumps(reste, ensure_ascii=False)))
-    _mettre_de_cote(ACCES_FILE)
-    faits.append(f"journal ({len(evenements)} evenements)")
-
-
-def importer_anciens_fichiers():
-    """Verse les anciens fichiers JSON dans la base. Rend la liste importee.
-
-    RETROCOMPATIBILITE : les installations d'avant codelab.db gardaient leur
-    etat en fichiers JSON. L'import tourne a chaque demarrage et ne fait rien
-    quand il n'y a plus de fichier. Il pourra partir quand plus aucune
-    installation ne demarre d'une version anterieure a la base.
-    L'ORDRE COMPTE : le coffre d'abord (les adresses des comptes y sont), et
-    un echec sur les comptes arrete la suite jusqu'au prochain demarrage.
-    """
-    faits = []
-    _importer_coffre(faits)
-    _verser_si_vide(APPS_FILE, "applications", {}, save, "applications", faits)
-    if not _importer_comptes(faits):
-        return faits
-    _verser_si_vide(PASSKEYS_FILE, "cles_acces", {}, ecrire_passkeys, "cles d'acces", faits)
-    _verser_si_vide(CATEGORIES_FILE, "categories", [],
-                    lambda brut: ecrire_categories([c for c in map(categorie_propre, brut) if c]),
-                    "categories", faits)
-    _verser_si_vide(MASQUEES_FILE, "masquees", {}, ecrire_masquees, "rangements du hub", faits)
-
-    if os.path.exists(EXPOSITION_FILE):
-        if lire_parametre("exposition") is None:
-            ecrire_exposition(_lire_fichier_json(EXPOSITION_FILE, {}))
-            faits.append("exposition")
-        _mettre_de_cote(EXPOSITION_FILE)
-
-    _verser_si_vide(PROCESSUS_FILE, "processus", {}, _ecrire_processus, None, faits)
-    _importer_journal(faits)
-
-    if os.path.exists(MESSAGES_FILE) or os.path.exists(MESSAGES_FILE + ".1"):
-        if _table_vide("messages"):
-            reecrire_messages(_lire_fichier_lignes(MESSAGES_FILE))
-            faits.append("messages")
-        _mettre_de_cote(MESSAGES_FILE)
-
-    stockage.vider_le_journal(DB_FILE)
-    if faits:
-        print("[app-manager] anciens fichiers importes dans codelab.db : "
-              + ", ".join(faits) + ". Les originaux sont gardes en « .migre ».",
-              flush=True)
-    return faits
 
 
 def publier_relais_mail():
@@ -7145,11 +6869,11 @@ def description_propre(brute):
 # qui regroupe les projets dans le hub. Elle ne donne aucun droit et ne
 # change rien au deploiement : c'est du rangement, et rien d'autre.
 #
-# La liste vit dans un fichier a part plutot que dans apps.json : une
-# categorie existe avant qu'un projet la porte (on la cree pour ranger
-# ensuite), et elle survit a la suppression du dernier projet qui l'utilisait.
+# La liste vit dans sa propre table plutot que dans le registre des
+# applications : une categorie existe avant qu'un projet la porte (on la cree
+# pour ranger ensuite), et elle survit a la suppression du dernier projet qui
+# l'utilisait.
 # Un champ libre par projet aurait produit "Outils", "outils" et "Outil ".
-CATEGORIES_FILE = os.path.join(STATE_DIR, "categories.json")
 CATEGORIE_MAX = 30      # un intitule, pas une phrase
 CATEGORIES_MAX = 20     # au-dela, ce n'est plus un rangement mais une liste
 
@@ -7229,7 +6953,6 @@ def categorie_valide(brute, connues=None):
 # panneau a ete ouvert depuis internet, relaye par le VPS (voir
 # noter_l_adresse_publique). APP_MANAGER_PUBLIC_URL, dans le compose,
 # l'emporte : c'est la marche arriere qui ne depend pas du panneau.
-EXPOSITION_FILE = os.path.join(STATE_DIR, "exposition.json")
 
 
 def _vrai(valeur):
@@ -11719,15 +11442,6 @@ def page_du_panneau(**_):
     return index()
 
 
-# L'APPLICATION « MESSAGES ». Elle s'est appelee « Demandes » (/demandes) :
-# ces adresses ont pu etre mises en favori, elles y menent.
-@flask_app.get("/demandes")
-@flask_app.get("/demandes/<vue>")
-@require_auth
-def anciens_messages(**_):
-    return redirect("/messages")
-
-
 @flask_app.get("/messages")
 @flask_app.get("/messages/<vue>")
 @flask_app.get("/messages/<vue>/<cle>")
@@ -13291,9 +13005,6 @@ WIDGETS = {
                "description": "La page d'une application, en direct."},
 }
 DISPOSITION_MAX = 300
-# Avant la composition, un compte ne choisissait que ses widgets : on en
-# garde ce qui a encore un sens.
-_ANCIENNES_TAILLES = {"large": "grand", "normal": "moyen"}
 
 
 def widgets_permis():
@@ -13366,24 +13077,18 @@ def disposition_propre(elements):
 
 
 def disposition_du_compte():
-    """La disposition enregistree, ou celle d'avant la composition."""
+    """La disposition enregistree, ou celle de depart."""
     elements = lire_preference("hub_disposition")
     if not isinstance(elements, list):
-        anciens = lire_preference("widgets")
-        if isinstance(anciens, list):
-            elements = [{"t": "w", "id": "messages" if w.get("id") == "demandes" else w.get("id"),
-                         "taille": _ANCIENNES_TAILLES.get(w.get("taille"), "moyen")}
-                        for w in anciens if isinstance(w, dict)]
-        else:
-            # Serveur et Activite ne tiennent que chez l'administrateur ; le
-            # filtre des widgets permis ci-dessous les retire pour les autres.
-            elements = [{"t": "w", "id": "une", "taille": "grand"},
-                        {"t": "w", "id": "serveur", "taille": "moyen"},
-                        {"t": "w", "id": "activite", "taille": "moyen"},
-                        {"t": "w", "id": "etat", "taille": "petit"},
-                        {"t": "w", "id": "messages", "taille": "petit"},
-                        {"t": "w", "id": "message", "taille": "moyen"},
-                        {"t": "w", "id": "suivi", "taille": "moyen"}]
+        # Serveur et Activite ne tiennent que chez l'administrateur ; le
+        # filtre des widgets permis ci-dessous les retire pour les autres.
+        elements = [{"t": "w", "id": "une", "taille": "grand"},
+                    {"t": "w", "id": "serveur", "taille": "moyen"},
+                    {"t": "w", "id": "activite", "taille": "moyen"},
+                    {"t": "w", "id": "etat", "taille": "petit"},
+                    {"t": "w", "id": "messages", "taille": "petit"},
+                    {"t": "w", "id": "message", "taille": "moyen"},
+                    {"t": "w", "id": "suivi", "taille": "moyen"}]
     permis = widgets_permis()
     apps, services = apps_du_hub_visibles()
     garde = []
@@ -14221,35 +13926,6 @@ def page_application_fermee(name, a, muette=False):
 # pas), et l'application demarrerait sans pilote Postgres.
 DIAGNOSTIC_COMMANDE = "python3 app.py"
 DIAGNOSTIC_BUILD = 'pip install --target vendor "psycopg[binary]"'
-# L'ANCIENNE APPLICATION AICHAT. Elle etait inscrite ici, copiee dans
-# /workspace et lancee par le panneau. CodeLab n'heberge plus d'interface de
-# chat du tout : plus rien a inscrire, plus rien a copier, plus de port a
-# attribuer. Les installations qui la portent encore la voient retiree du
-# registre au demarrage -- voir retirer_aichat().
-AICHAT_ANCIEN_NOM = "aichat"
-
-
-def retirer_aichat():
-    """Retire l'ancienne application AIChat du registre, une fois.
-
-    Le dossier /workspace/aichat, lui, n'est PAS touche : c'est du code, il
-    appartient a l'utilisateur, et le supprimer serait une perte de donnees
-    silencieuse. Seule l'inscription disparait -- la tuile pointait vers une
-    application qui ne peut plus rien faire.
-    """
-    apps = load()
-    if AICHAT_ANCIEN_NOM not in apps:
-        return None
-    stop(AICHAT_ANCIEN_NOM)
-    apps = load()
-    apps.pop(AICHAT_ANCIEN_NOM, None)
-    save(apps)
-    print("[app-manager] AIChat retire du registre : CodeLab n'heberge plus "
-          "d'interface de chat. Le dossier /workspace/aichat n'a pas ete "
-          "touche.", flush=True)
-    return AICHAT_ANCIEN_NOM
-
-
 def amorcer_diagnostic():
     """Inscrit le projet de diagnostic et le configure. A CHAQUE demarrage.
 
@@ -14448,8 +14124,6 @@ def servir(port):
 if __name__ == "__main__":
     bootstrap_secrets()
     bootstrap_sso()
-    importer_anciens_fichiers()
-    migrer_vers_le_coffre()
     signaler_adresses_en_conflit()
     publier_relais_mail()
     os.makedirs(LOG_DIR, exist_ok=True)
@@ -14459,7 +14133,6 @@ if __name__ == "__main__":
     # nouvelle sur un port occupe -- sans que personne ne comprenne pourquoi.
     adopter_processus_survivants()
     resume()
-    retirer_aichat()
     if inscrit:
         threading.Thread(target=_preparer_diagnostic, args=(inscrit,),
                          daemon=True).start()

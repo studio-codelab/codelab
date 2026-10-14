@@ -90,7 +90,7 @@ modification touche une case de gauche, vérifie chaque point de droite.
 | **Un nom de route Flask** | Les noms d'application ne peuvent pas prendre celui d'une route (règle 21 de `SECURITE.md`) : la liste est tirée de la table des routes. Une route que les applications doivent atteindre va dans `ROUTES_APPLICATIONS`, avec sa justification. |
 | **`stockage.MIGRATIONS`** | **Ajoute seulement à la fin**, ne modifie ni ne réordonne jamais une migration passée : elle a déjà tourné chez l'utilisateur. Une migration est idempotente, et elle est testée sur une base de la version précédente. |
 | **Le cookie `codelab-hub` / `REGLAGES_HUB`** | Seules les valeurs de la liste blanche sont recopiées sur `<html>` : une nouvelle valeur s'ajoute à `REGLAGES_HUB`, sinon elle est ignorée en silence. |
-| **Les applications par défaut** (`APPS_PAR_DEFAUT`, `est_app_par_defaut`, `CATEGORIE_CODELAB`, `categorie_de`) | Elles sont réservées à l'administrateur, et ce droit ne peut être accordé à personne (règle 12). Leur catégorie « CodeLab » n'est ni enregistrée, ni renommable, ni attribuable à un projet. Leurs descriptions (`DESCRIPTION_*`, `DIAGNOSTIC_DESCRIPTION`) tiennent en **40 caractères**, parce qu'une tuile en montre environ 45 (`DESCRIPTION_VISIBLE` dans `dashboard.html`). Une ancienne description déjà enregistrée sur une installation se remplace par une liste d'anciennes valeurs (`DIAGNOSTIC_DESCRIPTIONS_ANCIENNES`), jamais en écrasant un texte personnalisé. |
+| **Les applications par défaut** (`APPS_PAR_DEFAUT`, `est_app_par_defaut`, `CATEGORIE_CODELAB`, `categorie_de`) | Elles sont réservées à l'administrateur, et ce droit ne peut être accordé à personne (règle 12). Leur catégorie « CodeLab » n'est ni enregistrée, ni renommable, ni attribuable à un projet. Leurs descriptions (`DESCRIPTION_*`, `DIAGNOSTIC_DESCRIPTION`) tiennent en **40 caractères**, parce qu'une tuile en montre environ 45 (`DESCRIPTION_VISIBLE` dans `dashboard.html`). Une description vide est complétée au démarrage ; un texte personnalisé n'est jamais écrasé. |
 | **Les notifications** (`SERVICES_PUSH`, `chiffrer_push`, `cle_vapid`) | `SERVICES_PUSH` est une **liste blanche anti-SSRF** : le panneau n'envoie de requête qu'aux services de push connus. Le chiffrement suit RFC 8291 (aes128gcm) et RFC 8292 (VAPID) ; une modification se vérifie contre les vecteurs de test des RFC (tests existants). |
 | **Le proxy** (`proxy`, `injecter_*`) | Il ne réécrit que le `text/html` et recalcule la longueur. Il ne transmet **jamais** le cookie du panneau à une application (règle 19). L'ordre des injections compte : environnement d'abord, avant les scripts de la page. |
 | **Les secrets transmis aux applications** (section « secrets transmis aux applications ») | Une application est du code arbitraire. Elle ne reçoit que le compte de **sa** base : ni le bloc du panneau, ni la clé de session, ni le mot de passe d'envoi des mails, ni l'administrateur Postgres. |
@@ -161,7 +161,10 @@ rapporte le cas vécu.
   - la barre d'état prend la couleur du bandeau ;
   - sur téléphone, l'affichage reste vertical, par deux verrous seulement : le manifeste en
     portrait (`est_un_telephone`, `app.py`) et `screen.orientation.lock` sur Android. Sur iPhone,
-    c'est le verrou d'orientation du Centre de contrôle ;
+    c'est le verrou d'orientation du Centre de contrôle. Couché malgré tout, un téléphone garde un
+    panneau lisible : `@media (max-height:500px) and (orientation:landscape)` compacte le bandeau,
+    le hub défile vers le bas (`majSensDuHub`), et les marges latérales prennent l'encoche
+    (`env(safe-area-inset-left|right)`) ;
   - les applications du hub, encadrées par `/ouvrir.html`, reçoivent la simulation iOS
     d'`environnement-app.js`.
 - **Au doigt, pas de survol** : ce qui n'apparaît qu'au survol a un autre chemin
@@ -242,8 +245,10 @@ A AMELIORER les ameliorations envisagees, par ordre d'interet, avec ce
   **tout** le dépôt, pages HTML, tests et documentation compris (un nom peut être construit, comme
   `'param-' + o`).
 - **Une rétrocompatibilité garde son code tant que des installations en ont besoin**, par exemple
-  la reprise d'anciens fichiers ou de vieilles migrations. Elle porte alors un commentaire qui dit
-  ce qu'elle reprend, et à partir de quand elle pourra partir.
+  la reprise d'anciens fichiers. Elle porte alors un commentaire qui dit ce qu'elle reprend, et à
+  partir de quand elle pourra partir. Quand elle part, le `README.md` du service nomme la dernière
+  version qui la portait, pour qu'une installation en retard y passe d'abord. Les migrations de
+  `stockage.MIGRATIONS` ne partent jamais (section 2).
 - **Optimiser, c'est mesurer.** Avant de réécrire pour la vitesse, mesure (temps, taille servie,
   requêtes). Après, mesure encore, et note les chiffres dans le commentaire ou le commit. La
   lisibilité ne se sacrifie que pour un gain mesuré.

@@ -85,10 +85,15 @@ __ECRANS_DEMARRAGE__
    tablette tenue en portrait defile vers le bas, comme son ecran d'accueil,
    au lieu d'etirer trois rangees de tuiles sur toute la hauteur. Pose avant
    la premiere peinture, et repris quand l'appareil tourne. */
+/* Le telephone COUCHE defile aussi vers le bas : 390 px de haut ne tiennent
+   pas trois rangees de tuiles, et la mosaique horizontale coupait la
+   seconde sans moyen de l'atteindre (la page ne defile pas a l'horizontale).
+   500 px : le petit cote d'un telephone, jamais celui d'une tablette. */
 function majSensDuHub(){
   var r = document.documentElement;
   r.classList.toggle('hub-vertical', r.getAttribute('data-defilement') === 'vertical'
-    || matchMedia('(orientation: portrait)').matches);
+    || matchMedia('(orientation: portrait)').matches
+    || matchMedia('(max-height: 500px)').matches);
 }
 majSensDuHub();
 </script>
@@ -1178,7 +1183,7 @@ table.tbl-journal{min-width:560px}
 .toasts{position:fixed;right:18px;bottom:calc(18px + env(safe-area-inset-bottom));z-index:150;display:flex;flex-direction:column;
  gap:8px;max-width:min(380px,calc(100vw - 36px))}
 /* Au telephone, au-dessus de la barre d'onglets du bas, pas posees dessus. */
-@media (max-width:760px){ .toasts{left:12px;right:12px;max-width:none;bottom:calc(84px + env(safe-area-inset-bottom))} }
+@media (max-width:760px){ .toasts{left:12px;right:12px;max-width:none;bottom:calc(var(--barre-bas) + 20px + env(safe-area-inset-bottom))} }
 .toast{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-radius:10px;
  background:var(--surface);border:1px solid var(--line);box-shadow:0 10px 30px var(--shadow-2);
  font-size:13px;line-height:1.5;animation:toast-in .16s ease}
@@ -1290,7 +1295,11 @@ table.tbl-journal{min-width:560px}
    entre deux zones, 32 ; le bord d'une grande carte, 32 (24 au telephone).
    ===================================================================== */
 body{letter-spacing:-.01em}
-.topbar{height:68px;padding:0 28px;background:transparent;border-bottom:0}
+/* Les bords lateraux de l'ecran (env(safe-area-inset-*)) : l'encoche d'un
+   iPhone couche, en mode application. Ailleurs, ils valent 0 et le max()
+   rend la marge habituelle. */
+.topbar{height:68px;padding:0 max(28px,env(safe-area-inset-right)) 0 max(28px,env(safe-area-inset-left));
+ background:transparent;border-bottom:0}
 /* LE BANDEAU FONDU. Vecu : « le header doit etre fondu lorsque je scroll en
    vertical, et rester au-dessus des apps ». Un bandeau opaque coupait les
    tuiles net, a la regle. Le voile est un calque sous le bandeau (::before,
@@ -1317,7 +1326,7 @@ body{letter-spacing:-.01em}
 .acct-btn:hover,.acct-btn.active{background:var(--accent-h);color:var(--sur-accent)}
 .acct-menu{top:52px;border-radius:16px;padding:6px}
 .page-body{display:block}
-.wrap{max-width:1120px;padding:20px 28px 64px}
+.wrap{max-width:1120px;padding:20px max(28px,env(safe-area-inset-right)) 64px max(28px,env(safe-area-inset-left))}
 .toolbar h2{font-size:30px;letter-spacing:-.035em}
 .toolbar{margin-bottom:16px}
 .zone{margin-bottom:32px}
@@ -1544,23 +1553,30 @@ input,select,textarea{border-radius:12px}
 @keyframes squelette{from{opacity:1}to{opacity:.45}}
 @media (prefers-reduced-motion:reduce){.squelette i,.squelette-ligne{animation:none}}
 
-/* Telephone : le menu devient la barre du bas, comme une application. */
+/* Telephone : le menu devient la barre du bas, comme une application.
+   LA HAUTEUR D'UNE BARRE D'ONGLETS iOS : 49 px, plus le bord de la barre de
+   geste (env(safe-area-inset-bottom), 34 px sur un iPhone sans bouton).
+   Vecu : « reduire la hauteur du footer sur app » -- elle faisait 102 px en
+   mode application (68 + 34), 19 de plus qu'une app native. --barre-bas la
+   donne au reste de la page : la marge sous le contenu et la place des
+   messages en dependent, et la recopier en chiffres les faisait diverger. */
 @media (max-width:760px){
   .topbar{height:60px;padding:0 16px}
-  :root{--haut-barre:60px}
+  :root{--haut-barre:60px;--barre-bas:49px}
   .sidebar{top:auto;bottom:0;left:0;right:0;transform:none;width:auto;height:auto;
-   border-radius:0;padding:6px 6px calc(8px + env(safe-area-inset-bottom));
+   border-radius:0;padding:3px 6px max(env(safe-area-inset-bottom),4px);
    box-shadow:0 -1px 0 var(--line);background:var(--surface)}
   .sidebar.collapsed{width:auto}
   .side-nav{width:100%;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:0}
-  .side-item{flex-direction:column;gap:3px;padding:6px 2px;border-radius:12px;font-size:10.5px;
+  .side-item{flex-direction:column;gap:2px;height:calc(var(--barre-bas) - 3px);padding:0 2px;
+   justify-content:center;border-radius:12px;font-size:10.5px;
    position:relative;background:none}
   .side-item span:not(.side-count){display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis}
   .side-item svg{display:block;width:22px;height:22px}
   .side-item.active,.side-item:hover{background:none;color:var(--accent)}
   .side-count{position:absolute;top:0;left:calc(50% + 6px);font-size:10px;padding:0 5px}
   .voile-menu.show{display:none}
-  .main-area{padding-bottom:84px}
+  .main-area{padding-bottom:calc(var(--barre-bas) + env(safe-area-inset-bottom) + 20px)}
   .wrap{padding:12px 16px 40px}
   .salut{font-size:30px;margin:8px auto 16px;padding:0 4px}
   #hub-liste.hub-liste{padding:24px 12px;border-radius:26px;margin-bottom:16px}
@@ -2094,6 +2110,24 @@ a.pj:hover{border-color:var(--accent)}
   .bento-barres.apparait i,.barres-jours.apparait i,.courbe.apparait *,.pouls-point::after{animation:none}
   .salut-nom{background-position:0 0}
   #hub-liste :is(.bw,.bento-carte){transform:none !important}
+}
+
+/* LE TELEPHONE COUCHE. Vecu : iOS ne laisse pas une page web verrouiller
+   l'orientation, et l'utilisateur a choisi de « soigner le paysage » plutot
+   que de voir la page se redresser. Plus de 760 px de large, mais 390 de
+   haut : la mise en page de tablette, compactee en hauteur. Le hub y defile
+   vers le bas (majSensDuHub) ; le bandeau et le bonjour rendent la place
+   qu'ils prenaient -- un tiers de l'ecran.
+   (max-height:500px) : la hauteur, pas le mode -- le site couche en profite
+   autant que l'application. */
+@media (max-height:500px) and (orientation:landscape){
+  .topbar{height:56px}
+  :root{--haut-barre:56px}
+  .sidebar{top:6px}
+  .wrap{padding-top:8px;padding-bottom:max(32px,calc(16px + env(safe-area-inset-bottom)))}
+  .salut{font-size:30px}
+  .hub-tete{margin:0 0 12px}
+  .toolbar h2{font-size:24px}
 }
 
 @media (max-width:760px){
