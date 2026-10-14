@@ -181,6 +181,8 @@ PANNEAU_MODULES = ("00-socle.js", "01-navigation.js", "02-hub.js", "03-widgets.j
                    "08-reglages.js")
 PANNEAU_JS = "\n".join(_lire_ressource(os.path.join("panneau", nom)) for nom in PANNEAU_MODULES)
 PANNEAU_JS_VERSION = hashlib.sha256(PANNEAU_JS.encode("utf-8")).hexdigest()[:12]
+# Compresse UNE fois, au demarrage : 269 Ko, 87 en gzip. Voir panneau_js.
+PANNEAU_JS_GZIP = gzip.compress(PANNEAU_JS.encode("utf-8"), compresslevel=9, mtime=0)
 # Le logo CodeLab : celui de la barre du haut, relu dans la page plutot que
 # recopie ici -- un seul dessin, qu'on ne peut pas changer a un endroit et
 # oublier a l'autre. C'est aussi l'icone des onglets, servie a une VRAIE
@@ -1402,7 +1404,11 @@ def _tuile_service(nom, description, adresse, debout, port):
         # affaire a un service. Un « undefined » dans une fiche est un defaut
         # d'affichage de plus a prevoir, et il finit toujours par passer.
         "path": "", "command": "", "port": port,
-        "port_listeners": _ecouteurs_port(port),
+        # Vide : un service vit dans son propre conteneur, et le releve des
+        # ports ne voit que celui du panneau. Le calculer coutait un releve
+        # complet par tuile, a chaque rafraichissement du hub, pour une
+        # valeur que rien ne lit (voir _ports_ecoutes).
+        "port_listeners": [],
         "failed": False, "crash_looping": False, "has_build": False, "dernier_echec": None,
         "build_command": "", "max_memory_mb": None, "alertes": [],
         "cpu_percent": 0.0, "memory_mb": 0.0,
@@ -4053,10 +4059,13 @@ def next_port(apps):
     pas decouvert apres coup.
     """
     used = {a["port"] for a in apps.values()}
+    # Un releve neuf, mais un seul pour toute la plage : il en faisait un
+    # par port essaye (voir _ports_ecoutes).
+    releve = _ports_ecoutes()
     for p in range(PORT_MIN, PORT_MAX + 1):
         if p in used:
             continue
-        if _ecouteurs_port(p):
+        if _ecouteurs_port(p, releve):
             continue
         return p
     return None
@@ -4859,28 +4868,47 @@ def _surveiller_le_demarrage(name):
     return None
 
 
-def _ecouteurs_port(port):
+def _ports_ecoutes():
+    """Les ports TCP en ecoute, avec les PID qui les tiennent : {port: [pid]}.
+
+    UN RELEVE, ET UN SEUL PAR REQUETE. psutil.net_connections() passe en
+    revue toutes les connexions et tous les descripteurs de tous les
+    processus du conteneur -- applications comprises -- : c'est cher, et ce
+    cout grandit avec chaque application. Vecu (test de charge) :
+    /api/mes-apps le faisait trois fois par appel, une par tuile de service,
+    et /api/apps une fois par application ; 96 % du temps de la requete y
+    passait, et le hub tombait de 46 a 11 requetes par seconde des dix
+    clients. Une liste demande donc ce releve une fois et le lit pour chaque
+    ligne.
+    ESSAYE ET ECARTE : un releve garde deux secondes pour toutes les
+    requetes. Il servait aussi next_port et le demarrage, ou un
+    port pris depuis une seconde doit se voir.
+    """
+    ports = {}
+    try:
+        for conn in psutil.net_connections(kind="tcp"):
+            if conn.status != psutil.CONN_LISTEN or not conn.laddr or not conn.pid:
+                continue
+            ports.setdefault(int(conn.laddr.port), set()).add(int(conn.pid))
+    except (psutil.Error, OSError):
+        pass
+    return {p: sorted(pids) for p, pids in ports.items()}
+
+
+def _ecouteurs_port(port, releve=None):
     """Retourne les PID qui ecoutent reellement sur le port TCP.
 
     Le simple bind sur 127.0.0.1 ne voit pas proprement tous les cas
     (IPv6, adresse specifique, socket deja publie). psutil donne ici le meme
     niveau d'information que « ss -ltnp », sans dependre d'un binaire
-    externe.
+    externe. Sans releve fourni, un releve neuf : c'est ce que veulent le
+    demarrage et le choix d'un port libre.
     """
     try:
         port = int(port)
     except (TypeError, ValueError):
         return []
-    pids = set()
-    try:
-        for conn in psutil.net_connections(kind="tcp"):
-            if conn.status != psutil.CONN_LISTEN or not conn.laddr:
-                continue
-            if int(conn.laddr.port) == port and conn.pid:
-                pids.add(int(conn.pid))
-    except (psutil.Error, OSError):
-        pass
-    return sorted(pids)
+    return (_ports_ecoutes() if releve is None else releve).get(port, [])
 
 
 def _description_processus(pid):
@@ -5224,6 +5252,17 @@ WSGI_THREADS = int(os.environ.get("APP_MANAGER_THREADS", "16"))
 # long-polling ou son propre flux d'evenements ne doit pas etre coupee par le
 # proxy.
 WSGI_TIMEOUT = int(os.environ.get("APP_MANAGER_TIMEOUT", "600"))
+
+# Connexions ouvertes en meme temps, actives ou inactives. Le defaut de
+# waitress (100) se remplit vite : une connexion inactive reste ouverte
+# jusqu'a WSGI_TIMEOUT, un navigateur en garde jusqu'a six, et un flux de
+# journal en tient une. Au-dela, la connexion suivante attend dans la file
+# du systeme sans qu'on lui reponde. Vecu (test de charge) : des 100 a 200
+# clients, des requetes de 12 secondes sur tous les ecrans, healthcheck
+# compris ; a 1 000, le debit reste stable et le 99e centile tombe sous
+# 1,5 s. Mille sockets restent tres loin de la limite de descripteurs
+# d'un conteneur.
+WSGI_CONNEXIONS = int(os.environ.get("APP_MANAGER_CONNEXIONS", "1000"))
 
 # Un flux de journal occupe un thread tant qu'il est ouvert. Sans plafond,
 # assez d'onglets ouverts sur des journaux consomment tout le pool et le
@@ -9978,6 +10017,7 @@ def health():
 def api_apps():
     apps = load()
     out = []
+    releve = _ports_ecoutes()           # un seul pour toute la liste
     par_app = reglage("alertes_par_app", {}) or {}
     for name in sorted(apps):
         a = apps[name]
@@ -9988,7 +10028,7 @@ def api_apps():
         out.append({
             "name": name, "titre": titre_de(name, a),
             "path": a["path"], "command": a["command"],
-            "port": a["port"], "port_listeners": _ecouteurs_port(a["port"]),
+            "port": a["port"], "port_listeners": _ecouteurs_port(a["port"], releve),
             "running": run,
             "failed": bool(a.get("enabled")) and not run,
             # Plantee au lancement (voir start) : la fiche en montre la cause.
@@ -11555,9 +11595,23 @@ def panneau_js():
     « private » : il passe par une session, aucun cache partage ne le garde.
     """
     garder = request.args.get("v") == PANNEAU_JS_VERSION
-    return Response(PANNEAU_JS, mimetype="text/javascript",
-                    headers={"Cache-Control": "private, max-age=31536000, immutable"
-                             if garder else "private, no-cache"})
+    entetes = {"Cache-Control": "private, max-age=31536000, immutable"
+               if garder else "private, no-cache", "Vary": "Accept-Encoding"}
+    # COMPRESSE, MEME AVEC ?v=. compresser() saute toute requete a
+    # parametres, parade a BREACH (deviner un secret a la taille d'une
+    # reponse compressee ou l'attaquant fait refleter son texte). Le
+    # script ne porte AUCUN secret -- les valeurs de session sont dans la
+    # page -- et n'echo rien de la requete : v est compare, jamais recopie.
+    # Vecu (test de charge) : servi par ?v=, il partait donc en clair
+    # (269 Ko au lieu de 87), et sans ?v= il etait recompresse a chaque
+    # requete (12 ms).
+    # DEPEND DE : la regle « aucune valeur propre a la session dans le
+    # script » (AGENTS.md, panneau/*.js). Si elle tombait, cette
+    # compression redeviendrait une prise pour BREACH.
+    if "gzip" in request.headers.get("Accept-Encoding", ""):
+        entetes["Content-Encoding"] = "gzip"
+        return Response(PANNEAU_JS_GZIP, mimetype="text/javascript", headers=entetes)
+    return Response(PANNEAU_JS, mimetype="text/javascript", headers=entetes)
 
 
 @flask_app.get("/login")
@@ -14371,7 +14425,8 @@ def servir(port):
             # exacte de waitress, qui ne renseigne que celui qui cherche une
             # faille connue.
             serve(flask_app, host="0.0.0.0", port=p, threads=WSGI_THREADS,
-                  channel_timeout=WSGI_TIMEOUT, ident="CodeLab")
+                  channel_timeout=WSGI_TIMEOUT, connection_limit=WSGI_CONNEXIONS,
+                  ident="CodeLab")
     except ImportError:
         print("[app-manager] waitress absent : repli sur le serveur de "
               "developpement de Flask (a eviter en service).", flush=True)

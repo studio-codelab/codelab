@@ -176,6 +176,25 @@ Une base SQLite dans `APP_MANAGER_STATE` (`/DATA/AppData/codelab/app-manager` su
 sqlite3 /DATA/AppData/codelab/app-manager/codelab.db ".tables"
 ```
 
+## Tenue en charge
+
+Mesurée sur 4 cœurs, avec waitress et 16 fils, de 1 à 200 clients simultanés, et deux applications
+derrière le proxy. Les deux origines étaient séparées.
+
+| Requête | 1 client | 200 clients |
+|---|---|---|
+| `/health` | 716 req/s, 1 ms | 1 113 req/s, p99 1,7 s |
+| `/api/mes-apps` (le hub, toutes les 10 s) | 282 req/s, 3 ms | 112 req/s, p99 2,9 s |
+| Proxy, page HTML de 20 Ko (avec injection) | 284 req/s, 3 ms | 323 req/s, p99 3,3 s |
+| Proxy, JSON | 365 req/s, 3 ms | 416 req/s, p99 6,4 s |
+
+Le panneau occupe 50 à 100 Mo en mémoire. Ce qui coûte cher, et ce qu'il ne faut pas remettre :
+
+- **un relevé des ports par ligne** (`psutil.net_connections()`) : une liste en fait un seul
+  (`_ports_ecoutes`), une tuile de service aucun ;
+- **la limite de connexions de waitress** : 100 par défaut, relevée à `APP_MANAGER_CONNEXIONS` ;
+- **une compression à chaque requête** : le script du panneau est compressé une fois, au démarrage.
+
 ## Sauvegardes
 
 | Archive | Fréquence | Gardées | Réglage |
@@ -215,6 +234,7 @@ Une valeur existante n'est jamais régénérée.
 | `APP_MANAGER_RUN_AS_UID`, `APP_MANAGER_RUN_AS_GID` | `1001`, `2000` | identité de repli et groupe partagé |
 | `APP_MANAGER_THREADS` | `16` | threads de waitress ; les flux de journal en prennent la moitié au plus |
 | `APP_MANAGER_TIMEOUT` | `600` | silence toléré sur une connexion, en secondes |
+| `APP_MANAGER_CONNEXIONS` | `1000` | connexions ouvertes en même temps, inactives comprises (waitress en accepte 100 par défaut, et au-delà les suivantes attendaient jusqu'à 12 s) |
 | `APP_MANAGER_CORPS_MAX_MO` | `32` | taille maximale d'une requête vers une application |
 | `APP_MANAGER_PG`, `APP_MANAGER_PG_BASE` | `1`, `codelab` | copie du journal et des comptes dans Postgres |
 | `APP_MANAGER_MAIL_PAR_MAILPIT` | `1` | envoi des mails du panneau par Mailpit |
