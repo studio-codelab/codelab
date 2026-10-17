@@ -21,17 +21,18 @@ ses garanties de sécurité dans [`SECURITE.md`](../SECURITE.md).
 
 | Fichier | Rôle |
 |---|---|
-| `Dockerfile` | Python 3.13, Node, npm, git ; Flask, waitress, psutil, qrcode, webauthn, psycopg, cryptography |
+| `Dockerfile` | Python 3.13, Node 24 et npm (binaires officiels, la même branche que `codelab-dev`), git ; Flask, waitress, psutil, qrcode, webauthn, psycopg, cryptography |
 | `entrypoint.sh` | permissions partagées sur `/workspace`, puis démarrage |
-| `app/app.py` | le service : authentification, API, cycle de vie des processus, proxy, mails, sauvegardes |
+| `app/app.py` | le service : imports et constantes partagés, chargeur de `serveur/`, `main` |
+| `app/serveur/` | le reste du service (authentification, API, cycle de vie, proxy, mails, sauvegardes), en morceaux exécutés dans la portée d'`app.py`, dans l'ordre de `MODULES_DU_SERVEUR` |
 | `app/stockage.py` | la base SQLite : connexions, schéma versionné (`MIGRATIONS`), sauvegarde cohérente |
-| `app/dashboard.html`, `app/login.html`, `app/messages.html` | les pages du panneau |
+| `app/dashboard.html`, `app/login.html`, `app/messages.html`, `app/suppression.html` | les pages du panneau (la dernière : celle d'un compte en attente de suppression) |
 | `app/panneau/` | le script de `dashboard.html`, en modules par sujet (`00-socle.js` à `08-reglages.js`), assemblés dans l'ordre de `PANNEAU_MODULES` en un seul script, servi à une session par `/panneau.js?v=<empreinte>` et mis en cache jusqu'au déploiement suivant ; la page ne garde en ligne que `window.CODELAB_PAGE` (jeton, rôle, compte…) |
-| `app/theme.css` | **toutes** les couleurs, formes et tailles, pour les deux styles et leurs thèmes clair et sombre ; servi aussi aux applications |
+| `app/theme.css` | **toutes** les couleurs, formes et tailles, pour les deux styles et leurs thèmes clair et sombre, et les teintes du nuancier ; servi aussi aux applications |
 | `app/ouvrir.html` | le cadre d'une application ouverte depuis le hub installé (`/ouvrir.html`) : bords de l'écran, barre d'état et barre de geste, geste retour ; page à marqueurs remplie par `ouvrir_dans_le_panneau` |
 | `app/environnement-app.js` | injecté par le proxy en tête de chaque page d'application : mode, appareil, plateforme, bords ; simule iOS dans le cadre |
 | `app/mode.js` | le **mode** : site web ou application (icône de l'écran d'accueil), lu une fois et posé sur `<html>` (`mode-app` / `mode-site`) pour les trois pages ; la **largeur** (téléphone, tablette, ordinateur) se règle en CSS, avec les seuils décrits en tête de `theme.css` |
-| `app/polices/` | Manrope et Plus Jakarta Sans, auto-hébergées, servies par liste blanche |
+| `app/polices/` | Manrope, auto-hébergée, servie par liste blanche ; Plus Jakarta Sans, que seule l'interface Mailpit recopie à sa construction |
 | `vps/` | exposer le panneau par un VPS ([`vps/README.md`](vps/README.md)) ; ne fait pas partie de l'image |
 
 ## Cycle de vie d'une application
@@ -89,6 +90,11 @@ Le panneau ne crée jamais de projet : il **déclare** un dossier existant de `/
 - **Visibilité** : une application privée exige une session autorisée pour elle. Sans session, la
   personne passe par `/login?suite=/ouvrir.app/<nom>/<chemin>`. Une application ne peut devenir
   publique que si une adresse publique est déclarée.
+- **Connexions** : le proxy garde ses connexions vers chaque application (au plus une par fil, 4 s
+  d'inactivité). `GET` et `HEAD` se rejouent une fois si l'application avait fermé la connexion ;
+  les autres méthodes partent toujours sur une connexion neuve et ne sont jamais rejouées.
+- **Redirections** : celles qui restent dans l'application sont suivies par le proxy (règles
+  d'urllib) ; celles vers une autre adresse repartent au navigateur.
 - **Cadre** : `frame-ancestors` est ajouté si l'application ne le pose pas. `nosniff` est toujours
   posé.
 - **Limites** :
@@ -271,7 +277,7 @@ dans le journal du conteneur avec la méthode et la route (`docker logs codelab-
 | Invitations | `GET/POST /api/invitations`, `POST /api/invitations/<id>/renvoyer`, `DELETE /api/invitations/<id>` (admin) ; `GET/POST /invitation/<jeton>`, `GET /api/invitation/<jeton>` (sans session) |
 | Notifications | `GET /api/notifications` (clé publique VAPID, cet appareil est-il abonné), `POST/DELETE /api/notifications/abonnement`, `POST /api/notifications/essai` |
 | Appareils | `GET /api/mon-compte/appareils`, `DELETE /api/mon-compte/appareils/<id>`, `POST /api/mon-compte/appareils/deconnecter-autres` ; `GET/DELETE /api/utilisateurs/<nom>/appareils` (admin) |
-| Mon compte | `GET /api/mon-compte`, `POST /api/mon-compte/email[/code\|/confirmer]`, `POST /api/compte/mot-de-passe`, `GET/POST/DELETE /api/mon-compte/passkeys[/options\|/<id>]`, `GET /api/passkeys/etat` (sans session), `GET /qr/totp.svg` |
+| Mon compte | `GET /api/mon-compte`, `POST/DELETE /api/mon-compte/suppression` (demander, annuler), `PUT /api/mon-compte/profil` (prénom, nom), `POST /api/mon-compte/email[/code\|/confirmer]`, `POST /api/compte/mot-de-passe`, `GET/POST/DELETE /api/mon-compte/passkeys[/options\|/<id>]`, `GET /api/passkeys/etat` (sans session), `GET /qr/totp.svg` |
 | Version (admin) | `GET /api/version` : le commit de l'image et sa date (aucun appel sortant) |
 | Sécurité | `GET /api/securite`, `PUT /api/securite/exposition`, `POST /api/securite/totp/preparer\|activer\|desactiver`, `GET/PUT /api/vps` ; `GET /api/sauvegardes` (dernières archives, alerte hors serveur), `GET /api/sauvegardes/<nom>` (télécharge, note la copie), `PUT /api/sauvegardes/copie` (`{externe}`), `GET/PUT /api/journal/conservation` (`{mois}` : 3, 6, 12, 24 ou 0) — admin |
 | Comptes (admin) | `GET/POST /api/utilisateurs`, `PUT/DELETE /api/utilisateurs/<nom>`, `GET/PUT /api/apps/<nom>/acces`, `GET /api/activite`, `GET /api/activite/carte` |
@@ -282,13 +288,13 @@ dans le journal du conteneur avec la méthode et la route (`docker logs codelab-
 | Projets (admin) | `GET/POST /api/projets`, `PUT/DELETE /api/projets/<id>` (supprimer renvoie ses tâches dans « Général »), `PUT /api/projets/ordre` |
 | Alertes (admin) | `GET/POST /api/alertes`, `PUT /api/alertes/application/<nom>`, `GET/POST /api/surveillance-externe` |
 | Pages | `/`, `/apercu`, `/applications[/<nom>[/<onglet>]]`, `/utilisateurs`, `/messages[/<vue>[/<id>]]` (admin), `/parametres[/<onglet>]`, `/ouvrir.app/<nom>/<chemin>`, `/deconnexion.html` ; `/espace` redirige vers `/` |
-| Ressources | `/theme.css`, `/mode.js`, `/icone-192.png`, `/icone-512.png`, `/icone-512-maskable.png`, `/polices/<nom>`, `/favicon.*`, `/apple-touch-icon*.png`, `/manifest.webmanifest` (sans session) ; `POST /api/erreur-navigateur` |
+| Ressources | `/theme.css`, `/couleur.css?c=<6 chiffres hexadécimaux>` (la couleur personnalisée), `/mode.js`, `/icone-192.png`, `/icone-512.png`, `/icone-512-maskable.png`, `/polices/<nom>`, `/favicon.*`, `/apple-touch-icon*.png`, `/manifest.webmanifest` (sans session) ; `POST /api/erreur-navigateur` |
 | Proxy | `/<nom>/...` sur le port des applications |
 
 ## Développer, tester
 
 ```bash
-python3 -m pytest workspace/diagnostic/test_regressions.py -q     # depuis la racine du dépôt
+python3 -m pytest workspace/diagnostic/tests -q     # depuis la racine du dépôt
 
 docker build -f app-manager/Dockerfile -t codelab-app-manager-test .
 docker run --rm -p 9001:9001 -p 9002:9002 \

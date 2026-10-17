@@ -2,7 +2,7 @@
 
 Ce que CodeLab garantit, comment, et ce qu'il ne couvre pas. Chaque règle de la section
 [« Règles à ne jamais casser »](#règles-à-ne-jamais-casser) est vérifiée par la suite de tests
-(`workspace/diagnostic/test_regressions.py`). Une règle modifiée dans le code se modifie ici dans le
+(`workspace/diagnostic/tests`). Une règle modifiée dans le code se modifie ici dans le
 même commit.
 
 ## En bref
@@ -63,6 +63,15 @@ permet donc jamais de prendre un compte.
 - Changer de mot de passe ou retirer ses clés d'accès **ferme les autres sessions**.
 - Ajouter une clé d'accès ou changer d'adresse exige une connexion de **moins de 15 minutes**.
 - Un compte suspendu perd sa session ouverte à la requête suivante.
+
+**Supprimer son compte.** Un compte utilisateur peut demander sa suppression, avec son mot de passe
+(la même limite d'essais que la connexion) : une session volée ne suffit pas. Toutes ses sessions
+tombent aussitôt. Pendant 30 jours, une reconnexion ne sert que sa page de suppression : le contrôle
+est fait avant chaque requête, et l'API comme les applications privées lui sont refusées. Passé ce
+délai, la purge quotidienne efface le compte et ses données, ici et dans Postgres ; une ligne du
+journal garde seulement qu'il a été effacé. Annuler à la reconnexion est un geste explicite : une
+connexion par habitude n'annule rien, et la page de connexion ne dit pas qu'un compte est en cours
+de suppression (règle 10). Le compte d'administration ne se supprime pas.
 
 **Limite d'essais.** Au plus 5 échecs par 5 minutes et par adresse IP, sur toutes les routes de
 connexion. L'en-tête `X-Forwarded-For` n'est jamais cru.
@@ -233,6 +242,8 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 7. Changer de mot de passe ou retirer ses clés d'accès ferme les autres sessions.
 8. Ajouter une clé d'accès ou changer d'adresse exige une connexion de moins de 15 minutes.
 9. Un compte suspendu n'entre plus, par aucun moyen.
+9 bis. Un compte ne demande sa suppression qu'avec son mot de passe ; pendant le délai, il n'ouvre
+    que sa page de suppression. Le compte d'administration ne se supprime pas.
 10. Les réponses ne révèlent pas si un compte existe.
 
 **Accès**

@@ -22,7 +22,7 @@
                  meme pour tous, et il est mis en cache. Une valeur nouvelle
                  passe par CODELAB_PAGE.
                - Les tests lisent ce fichier comme s'il etait encore dans la
-                 page (voir _page_panneau dans test_regressions.py).
+                 page (voir _page_panneau dans workspace/diagnostic/tests/commun.py).
    STRUCTURE   theme, colonne de gauche, menu du compte, navigation, listes
                deroulantes, onglets des parametres, etats, categories, hub et
                widgets, vue d'ensemble, donnees, actions, fiche (acces,

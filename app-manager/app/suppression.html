@@ -1,0 +1,83 @@
+<!doctype html>
+<!-- =========================================================================
+  CodeLab -- LA PAGE D'UN COMPTE EN ATTENTE DE SUPPRESSION
+  ---------------------------------------------------------------------------
+  ROLE        Ce que voit un compte qui a demande sa suppression et se
+              reconnecte avant la date : la date, « Annuler la suppression »
+              ou « Me deconnecter ». Rien d'autre du panneau n'est servi a ce
+              compte pendant le delai (refuser_un_compte_en_suppression).
+  SERVIE PAR  refuser_un_compte_en_suppression (serveur/10), avec
+              avec_style, a la place de toute page du panneau.
+  CHARGE      /theme.css et /mode.js, comme les autres pages.
+  CONTRAINTES Page a marqueurs, remplis en un passage : le jeton de la
+              session (JSON, « < » echappe) et la date (HTML echappe).
+              N'ecris ces marqueurs nulle part ailleurs, commentaires
+              compris. Ni alert(), ni confirm().
+========================================================================== -->
+<html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CodeLab &middot; Suppression du compte</title>
+<link rel="icon" type="image/png" sizes="128x128" href="/codelab-onglet.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=4">
+<link rel="manifest" href="/manifest.webmanifest">
+__ECRANS_DEMARRAGE__
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="CodeLab">
+<link rel="stylesheet" href="/theme.css">
+<meta name="theme-color" content="#E9EBEE" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0D1015" media="(prefers-color-scheme: dark)">
+<script src="/mode.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--txt);font:var(--t-b)/1.5 var(--sans);
+ -webkit-font-smoothing:antialiased;min-height:100vh;display:flex;align-items:center;
+ justify-content:center;padding:24px max(16px,env(safe-area-inset-right)) 24px max(16px,env(safe-area-inset-left))}
+.boite{width:100%;max-width:440px;background:var(--surface);border:1px solid var(--line);
+ border-radius:var(--r);padding:32px 28px 26px}
+h1{font-size:var(--t-xl);font-weight:800;letter-spacing:-.02em;margin-bottom:10px}
+p{color:var(--dim);margin-bottom:10px}
+.date{color:var(--txt);font-weight:700}
+.actions{display:flex;flex-direction:column;gap:10px;margin-top:22px}
+button{font:inherit;font-weight:650;border-radius:var(--r-s);padding:13px 16px;cursor:pointer;
+ border:1px solid var(--line2);background:var(--surface);color:var(--txt)}
+button.principal{background:var(--accent);border-color:var(--accent);color:var(--sur-accent)}
+button.principal:hover{background:var(--accent-h)}
+button:disabled{opacity:.6;cursor:default}
+.err{color:var(--err-txt);background:var(--err-bg);border:1px solid var(--err-border);
+ border-radius:var(--r-xs);padding:9px 12px;margin-top:14px;display:none}
+@media (hover:hover){button:not(.principal):hover{background:var(--surface2)}}
+</style>
+</head><body>
+<main class="boite">
+  <h1>Ton compte va être supprimé</h1>
+  <p>Il sera effacé le <span class="date">__DATE__</span>, avec ses données : messages,
+    pièces jointes, clés d'accès, préférences et historique de connexion.</p>
+  <p>D'ici là, tu peux changer d'avis : ton compte reprendra là où il en était, avec
+    les mêmes accès.</p>
+  <div class="actions">
+    <button class="principal" id="garder" onclick="garder()">Annuler la suppression</button>
+    <button id="sortir" onclick="sortir()">Me déconnecter</button>
+  </div>
+  <div class="err" id="err" role="alert"></div>
+</main>
+<script>
+const JETON = __JETON__;
+function erreur(t){ const e=document.getElementById('err'); e.textContent=t; e.style.display='block'; }
+async function garder(){
+  const b=document.getElementById('garder'); b.disabled=true;
+  try{
+    const r=await fetch('/api/mon-compte/suppression',{method:'DELETE',
+      headers:{'X-CodeLab-Jeton':JETON}});
+    if(r.ok){ location.href='/'; return; }
+    const d=await r.json().catch(()=>({}));
+    erreur(d.error || "L'annulation n'a pas pu être enregistrée. Réessaie.");
+  }catch(e){ erreur('Le panneau ne répond pas. Réessaie dans un instant.'); }
+  b.disabled=false;
+}
+async function sortir(){
+  try{ await fetch('/logout',{method:'POST',headers:{'X-CodeLab-Jeton':JETON}}); }catch(e){}
+  location.href='/login';
+}
+</script>
+</body></html>

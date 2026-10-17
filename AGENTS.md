@@ -50,7 +50,8 @@ Ce qu'un agent ne fait **jamais** sans demande explicite :
 | Dossier | Ce que c'est | Lu par |
 |---|---|---|
 | `app-manager/` | **le panneau** : Flask + waitress, authentification, hub, proxy des applications, mails, sauvegardes | tout le monde |
-| `app-manager/app/app.py` | le service entier (≈ 14 000 lignes, découpé en sections `# ---- titre ----`) | — |
+| `app-manager/app/app.py` | le service : imports, chemins et constantes partagés, le chargeur de `serveur/`, puis `main` | — |
+| `app-manager/app/serveur/` | le reste du service, en 14 morceaux de sections `# ---- titre ----`, exécutés dans la portée d'`app` (`MODULES_DU_SERVEUR`) | `app.py` |
 | `app-manager/app/stockage.py` | SQLite : connexions, `MIGRATIONS` versionnées, sauvegarde cohérente | `app.py` |
 | `app-manager/app/dashboard.html` | le panneau (hub, applications, paramètres…), page unique : balisage et CSS | navigateur |
 | `app-manager/app/panneau/` | le script de `dashboard.html`, en modules assemblés dans l'ordre (`PANNEAU_MODULES`), mis en cache | navigateur |
@@ -63,7 +64,7 @@ Ce qu'un agent ne fait **jamais** sans demande explicite :
 | `dagster/` | Dagster et le proxy nginx devant Dagster et Mailpit (`proxy/`, dont l'interface `mailpit-ui/`) | — |
 | `dev/` | l'image du poste de développement, l'outil `codelab`, les modèles, **le manuel des projets** `dev/AGENTS.md` | les projets |
 | `postgres/`, `redis/`, `mailpit/` | les services de données, avec leurs scripts d'entrée et de santé | — |
-| `workspace/` | ce qui est copié dans `/workspace` ; `workspace/diagnostic/` est l'application de diagnostic **et** la suite de tests du dépôt | — |
+| `workspace/` | ce qui est copié dans `/workspace` ; `workspace/diagnostic/` est l'application de diagnostic, et `workspace/diagnostic/tests/` la suite de tests du dépôt | — |
 | `.github/workflows/` | `build-images.yml` (images, actions épinglées par SHA), `securite.yml` (Trivy) | CI |
 
 Documentation de référence : [`README.md`](README.md) (installation),
@@ -85,11 +86,13 @@ modification touche une case de gauche, vérifie chaque point de droite.
 | **`mode.js`** | Il est chargé **avant tout affichage** par `dashboard.html`, `login.html` et `messages.html`, et il verrouille le portrait sur un téléphone Android (voir « PAS DE ROTATION »). Il ne retourne plus la page sur iPhone : la contre-rotation a été retirée à la demande de l'utilisateur, ne la remets pas. Les tests découpent le fichier sur les marqueurs `(function(){`, `})();` et `if(!app) return;` : n'écris pas `(function(){` ailleurs dans le bloc (écris `function(e){`). |
 | **`environnement-app.js`** | Le proxy le glisse **dans une balise `<script>` de pages qu'on ne contrôle pas**. Quatre contraintes en découlent. Pas de `</` dans le fichier, commentaires compris : il fermerait la balise. Un seul `__PANNEAU__`, remplacé par l'origine du panneau. Du **ES5**, puisqu'il tourne avant tout, sur n'importe quel navigateur. Et il ne doit **jamais** casser l'application : tout ce qui peut échouer passe par `try`, et une CSP stricte de l'application le bloque sans rien casser. Il simule iOS pour une application encadrée ; toute nouvelle simulation est documentée dans `dev/AGENTS.md` (« Ce que le hub te dit »). |
 | **`ouvrir.html`** (servi par `ouvrir_dans_le_panneau`, `app.py`) | C'est une page à marqueurs (`__TITRE__`, `__ICONE__`, `__CIBLE__`, `__ORIGINE__`), remplie **en un seul passage**, chaque valeur étant échappée pour son contexte. N'écris pas de marqueur ailleurs, commentaires compris. Elle dialogue avec `environnement-app.js` par `postMessage`. **Les deux côtés vérifient l'origine exacte** (`e.origin !== origine`, `e.origin !== PANNEAU`) et valident chaque valeur reçue (expression rationnelle des couleurs). Son `frame-src` vient de `cadres_permis()` : ne l'élargis jamais à `*`. |
+| **`serveur/*.py`** | Ce ne sont pas des modules : `app.py` les exécute dans **sa** portée, dans l'ordre de `MODULES_DU_SERVEUR`. Ils partagent donc les globales, et `monkeypatch.setattr(app, …)` atteint leurs appels. Un nouveau fichier ne tourne que s'il est ajouté à la liste (un test le vérifie). Chaque morceau s'analyse seul : une frontière ne coupe jamais une fonction. N'importe jamais un morceau. Les tests lisent le source réassemblé (`_source_du_panneau`), jamais `app.py` seul. |
 | **`panneau/*.js`** | Les modules s'assemblent en UN script, dans l'ordre de `PANNEAU_MODULES` (`app.py`) : une seule portée, et un nouveau fichier n'est servi que s'il est ajouté à la liste (un test le vérifie). Chaque module s'analyse seul : une frontière ne coupe jamais une fonction. Le script est le même pour toutes les sessions et se met en cache : aucune valeur propre à la session n'y entre. Elles passent par `window.CODELAB_PAGE`, que `page_du_panneau` écrit dans la page avec `_json_dans_un_script` (« < » échappé). Les tests le lisent remis en ligne dans la page (`_page_panneau`, `_page_servie`). |
 | **Le CSS de `dashboard.html`** | `data-style="design"` et `data-variante="bento"` sont toujours posés : une propriété de base que la règle préfixée redéfinit ne sert à rien, ne l'y remets pas. Un commentaire ou une accolade déséquilibrés effacent des règles sans aucun message : un test le vérifie. |
 | **Un nom de route Flask** | Les noms d'application ne peuvent pas prendre celui d'une route (règle 21 de `SECURITE.md`) : la liste est tirée de la table des routes. Une route que les applications doivent atteindre va dans `ROUTES_APPLICATIONS`, avec sa justification. |
 | **`stockage.MIGRATIONS`** | **Ajoute seulement à la fin**, ne modifie ni ne réordonne jamais une migration passée : elle a déjà tourné chez l'utilisateur. Une migration est idempotente, et elle est testée sur une base de la version précédente. |
-| **Le cookie `codelab-hub` / `REGLAGES_HUB`** | Seules les valeurs de la liste blanche sont recopiées sur `<html>` : une nouvelle valeur s'ajoute à `REGLAGES_HUB`, sinon elle est ignorée en silence. |
+| **Le cookie `codelab-hub` / `REGLAGES_HUB`** | Seules les valeurs de la liste blanche sont recopiées sur `<html>` : une nouvelle valeur s'ajoute à `REGLAGES_HUB`, sinon elle est ignorée en silence. Seule exception, la couleur personnalisée : un jeton `x` suivi de six chiffres hexadécimaux (`COULEUR_PERSO`), vérifié avant d'entrer dans `data-couleur-perso` et dans l'adresse de `/couleur.css`. Une teinte nouvelle du nuancier se calcule par `palette_accent` (jamais à la main), puis se recopie dans `theme.css`. |
+| **Le ruban « ← CodeLab »** (`RUBAN_CSS`, `ruban_retour`) | La même feuille vit dans `dagster/proxy/mailpit-ui/app.css` et dans le `sub_filter` de `dagster/proxy/nginx.conf` : une modification se recopie dans les trois (un test le vérifie). Pas d'apostrophe dans `RUBAN_CSS` : la chaîne de nginx en est délimitée. |
 | **Les applications par défaut** (`APPS_PAR_DEFAUT`, `est_app_par_defaut`, `CATEGORIE_CODELAB`, `categorie_de`) | Elles sont réservées à l'administrateur, et ce droit ne peut être accordé à personne (règle 12). Leur catégorie « CodeLab » n'est ni enregistrée, ni renommable, ni attribuable à un projet. Leurs descriptions (`DESCRIPTION_*`, `DIAGNOSTIC_DESCRIPTION`) tiennent en **40 caractères**, parce qu'une tuile en montre environ 45 (`DESCRIPTION_VISIBLE` dans `dashboard.html`). Une description vide est complétée au démarrage ; un texte personnalisé n'est jamais écrasé. |
 | **Les notifications** (`SERVICES_PUSH`, `chiffrer_push`, `cle_vapid`) | `SERVICES_PUSH` est une **liste blanche anti-SSRF** : le panneau n'envoie de requête qu'aux services de push connus. Le chiffrement suit RFC 8291 (aes128gcm) et RFC 8292 (VAPID) ; une modification se vérifie contre les vecteurs de test des RFC (tests existants). |
 | **Le proxy** (`proxy`, `injecter_*`) | Il ne réécrit que le `text/html` et recalcule la longueur. Il ne transmet **jamais** le cookie du panneau à une application (règle 19). L'ordre des injections compte : environnement d'abord, avant les scripts de la page. |
@@ -177,8 +180,8 @@ rapporte le cas vécu.
 
 ### 5.1 Structure
 
-- **Un fichier, un rôle**, annoncé dans son en-tête (5.4). Dans un gros fichier comme `app.py` ou
-  `dashboard.html`, le code se range en **sections titrées**
+- **Un fichier, un rôle**, annoncé dans son en-tête (5.4). Dans un gros fichier comme un morceau de
+  `serveur/` ou `dashboard.html`, le code se range en **sections titrées**
   (`# ------------------------------ titre ------------------------------`), dans l'ordre où l'on
   en a besoin. Une fonction nouvelle va dans la section de son sujet, pas en fin de fichier.
 - **Une fonction fait une chose.** Au-delà d'environ 60 lignes, ou de trois niveaux d'imbrication,
@@ -263,10 +266,14 @@ A AMELIORER les ameliorations envisagees, par ordre d'interet, avec ce
 ### 6.1 La suite
 
 ```bash
-python3 -m pytest workspace/diagnostic/test_regressions.py -q        # depuis la racine
+python3 -m pytest workspace/diagnostic/tests -q        # depuis la racine
 ```
 
-- Elle tourne en ≈ 70 s. Elle passe **entièrement** avant chaque push, et la CI la relance.
+- Elle tourne en ≈ 50 s. Elle passe **entièrement** avant chaque push, et la CI la relance.
+- **Un fichier par sujet** dans `workspace/diagnostic/tests/` (`test_securite.py`, `test_comptes.py`,
+  `test_affichage.py`…). Les aides et constantes vont dans `commun.py`, que chaque fichier importe ;
+  les fixtures, dont le filet qui détourne les chemins d'état, dans `conftest.py`. Un test nouveau
+  va dans le fichier de son sujet.
 - **Beaucoup de tests lisent le source** : ils vérifient qu'une chaîne, un marqueur ou une règle CSS
   est présent ou absent. C'est voulu. Ils figent une garantie (sécurité, affichage) que rien
   d'autre ne vérifierait. Quand un tel test échoue après ta modification, deux cas :
@@ -344,7 +351,7 @@ servent pour ce qui se compare.
 4. Le code mort que j'ai rendu mort est retiré ; les commentaires et l'en-tête du fichier sont
    justes.
 5. `node --check` passe ; `environnement-app.js` ne contient ni `</` ni deux `__PANNEAU__`.
-6. `python3 -m pytest workspace/diagnostic/test_regressions.py -q` : tout passe, aucun test
+6. `python3 -m pytest workspace/diagnostic/tests -q` : tout passe, aucun test
    affaibli.
 7. La documentation de la section 7 est à jour.
 8. Le message de commit dit pourquoi ; la PR est en brouillon et dit ce qui a été vérifié.

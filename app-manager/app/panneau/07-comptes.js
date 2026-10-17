@@ -30,6 +30,12 @@ function usRetenus(){
   });
 }
 
+/* Le prenom et le nom qu'un compte s'est donnes (Parametres > Compte), ou "". */
+function nomComplet(c){
+  const p = c.profil || {};
+  return [p.prenom, p.nom].filter(Boolean).join(' ');
+}
+
 function usLigne(c){
   /* Ce qui empeche quelqu'un d'entrer passe en premier, et en rouge : un
      compte qui n'a jamais confirme son adresse ne se connecte pas. */
@@ -37,6 +43,8 @@ function usLigne(c){
   /* Suspendu passe avant tout le reste : c'est la seule chose a savoir sur
      ce compte tant qu'il l'est. */
   if(c.suspendu) badges.push('<span class="pill err"><i></i>Suspendu</span>');
+  if(c.suppression) badges.push('<span class="pill warn"><i></i>Suppression le '
+    + new Date(c.suppression*1000).toLocaleDateString('fr-FR',{day:'numeric',month:'long'}) + '</span>');
   if(c.attente_email) badges.push('<span class="pill err"><i></i>Inscription a confirmer</span>');
   /* Une adresse verifiee suffit desormais : le code arrive par mail. Le
      second facteur n'est en attente que sans adresse, sans application et
@@ -56,7 +64,8 @@ function usLigne(c){
     data-cible="${esc(c.nom)}" role="button" tabindex="0" title="Ouvrir le compte">
     <div class="us-rond">${esc((c.nom||'?').slice(0,1))}</div>
     <div class="us-corps">
-      <div class="us-nom"><b>${esc(c.nom)}</b>${badges.join('')}</div>
+      <div class="us-nom"><b>${esc(nomComplet(c) || c.nom)}</b>${nomComplet(c)
+        ? `<span class="us-id">${esc(c.nom)}</span>` : ''}${badges.join('')}</div>
       <div class="us-meta">${adresse} — ${projets}<span data-activite="${esc(c.nom)}"></span></div>
     </div>
     <span class="us-chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"

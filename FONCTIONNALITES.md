@@ -44,8 +44,8 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
   - **Serveur injoignable** : un bandeau le dit, la page garde ce qu'elle affiche, retente toutes les
     5 s et se remet à jour au retour.
   - **Bandeau du haut fondu** : il reste collé en haut, au-dessus des applications ; quand la page
-    défile, ce qui passe dessous se voit flouté et s'estompe vers le bas, au lieu d'être coupé net.
-    En haut de page, rien ne change.
+    défile, ce qui passe dessous s'estompe dans le fond de la page, au lieu d'être coupé net. En haut
+    de page, rien ne change.
   - **Un seul style, qui se règle** (Paramètres › Apparence) — les anciens « Lanceur » et
     « Bento » n'en diffèrent que par ces réglages, gardés dans un cookie et posés par le serveur avant
     le premier affichage :
@@ -56,7 +56,9 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
       toujours vers le bas ;
     - **Widgets** : *mêlés* aux applications, ou *en haut*, dans leur propre grille ;
     - **Couleurs** : un nuancier pour la couleur d'accent (Lagon, Océan, Forêt, Prune, Corail,
-      Ardoise), en clair comme en sombre.
+      Ardoise, Framboise, Ambre, Indigo, Olive), en clair comme en sombre, et **Personnalisée** :
+      n'importe quelle teinte, dont le panneau calcule la version claire et la sombre, toujours
+      lisibles (texte blanc dessus en clair, 7:1 sur le fond sombre).
     Qui avait choisi le Lanceur retrouve icônes, défilement vertical et widgets en haut.
   - **Un hub vivant** : sous le bonjour (le nom en dégradé d'accent, traversé d'un reflet à
     l'arrivée), la journée en une ligne (« 4 sur 6 en ligne · 2 messages à lire ») ; les tuiles
@@ -281,6 +283,17 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
 - **Se connecter avec CodeLab** (SSO) : l'application reconnaît la personne sans formulaire, grâce
   aux modules `codelab_auth.py` et `codelab-auth.js`.
 
+**Comme une vraie application**
+
+- **Le bouton « ← CodeLab »**, posé sur chaque page, est replié par défaut : une petite flèche au
+  bord gauche de l'écran, en bas. Un appui le déplie, un autre le replie ; l'application garde sa
+  place.
+- **Ouverte depuis le hub installé**, l'application suit **son manifeste**, comme le ferait le
+  système : son fond et sa barre peignent l'écran avant sa première image, et son orientation
+  (paysage, libre) tourne l'écran sur Android. Sur iPhone, l'écran suit le verrou du Centre de
+  contrôle : iOS ne laisse aucune page web le tourner. Sans manifeste à elle, celui que le panneau
+  lui fournit sert.
+
 **Applications par défaut**
 
 - **Dagster**, **Diagnostic**, **Mailpit** et **Messages** ont leur tuile, réservée à l'administrateur.
@@ -300,6 +313,16 @@ Détails : [`SECURITE.md`](SECURITE.md) et [`app-manager/README.md`](app-manager
   sur iPhone », adresse, dernière activité, « Cet appareil »), un bouton pour déconnecter chacun, et
   « Déconnecter les autres appareils ». Téléphone perdu : on le coupe sans changer de mot de passe.
   Changer de mot de passe ferme aussi les autres appareils.
+- **Profil** (*Paramètres > Compte*, tous les comptes) : prénom et nom (facultatif). Le prénom
+  remplace l'identifiant dans le bonjour du hub, le nom complet dans l'en-tête et dans la liste des
+  comptes de l'administrateur ; on se connecte toujours avec son identifiant.
+- **Session** (*Paramètres > Compte*, carte toujours dépliée) : « Déconnexion », et pour un compte
+  utilisateur « Supprimer mon compte ». La suppression demande le mot de passe, ferme le compte tout
+  de suite sur tous ses appareils et prévient par mail (adresse vérifiée). Les données sont effacées
+  30 jours plus tard : fiche, adresse, clés d'accès, appareils, notifications, préférences, messages
+  et pièces jointes, lignes du journal. D'ici là, se reconnecter ne montre qu'une page, avec la date,
+  « Annuler la suppression » et « Me déconnecter ». L'administrateur voit « Suppression le … » dans
+  la liste des comptes. Le compte d'administration ne se supprime pas.
 - **Invitation par mail.** La personne choisit elle-même son nom et son mot de passe. Le lien est
   aussi affiché à l'administrateur ; il peut être renvoyé ou annulé.
 - **Création directe** d'un compte par l'administrateur.

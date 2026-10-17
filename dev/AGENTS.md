@@ -90,7 +90,10 @@ celle du panneau (`9001`). Le hub l'ouvre aussi dans un cadre (`/ouvrir.html`).
      servi par le panneau sur la meme origine.
    - Pour un front, regle la base des adresses : `base` (Vite), `basePath`
      (Next.js), `--base-href` (Angular) ou `homepage` (CRA).
-   - Une redirection serveur vise une adresse relative.
+   - Une redirection serveur vise une adresse relative. Le panneau suit
+     lui-meme celle qui reste dans l'application (y compris `/login`) ; une
+     redirection vers un autre site (connexion Google, paiement) part au
+     navigateur telle quelle.
 4. **Front : build puis service statique.** Le build produit `dist/`, le
    lancement le sert (`python3 -m http.server $PORT --directory dist`). Ne
    deploie jamais un serveur de developpement (`vite dev`, `npm run dev`,
@@ -449,7 +452,20 @@ du panneau, ou iOS ne lui dit rien :
   les memes marges dans le cadre ;
 - la couleur **reellement peinte** en haut de la page colore la barre d'etat,
   celle du bas la barre de geste (comme Safari) ; elles suivent le defilement
-  et les changements de la page. La `theme-color` ne sert que si rien ne se lit.
+  et les changements de la page. La `theme-color` ne sert que si rien ne se lit ;
+- **ton manifeste fait foi** : declare le tien (`<link rel="manifest">`) et le
+  hub le suit comme le ferait le systeme. `background_color` et `theme_color`
+  peignent l'ecran avant ta premiere peinture ; `orientation` (`landscape`,
+  `any`...) tourne l'ecran sur Android (iOS ne le permet a aucune page web :
+  sur iPhone, l'ecran suit le verrou du Centre de controle). Sans manifeste a
+  toi, celui que le panneau te fournit sert (portee `/<adresse>/`, ton nom, ton
+  icone).
+
+**Le bouton « ← CodeLab »** que le panneau pose sur chaque page est replie
+par defaut : une languette de 22 px au bord gauche de l'ecran, en bas. Un
+appui le deplie, un autre le replie, et chaque page repart repliee. Laisse
+libre ce coin-la (environ 22 × 34 px, au-dessus de `var(--codelab-bord-bas)`)
+ou accepte qu'il le recouvre.
 
 Ecris donc **pour iOS, une seule fois** : `viewport-fit=cover` si la page va
 jusqu'aux bords, `env(safe-area-inset-*)` pour les marges, `html.mode-app` pour

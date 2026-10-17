@@ -22,7 +22,7 @@
                 dans du HTML.
               - Les tests lisent ce fichier (marqueurs, regles CSS, corps de
                 fonctions) : un renommage se reporte dans
-                workspace/diagnostic/test_regressions.py.
+                workspace/diagnostic/tests.
   STRUCTURE   1. La feuille de style : base, barre du haut, colonne de gauche, titres,
                  cartes, pastilles, boutons, champs, hub, tableaux, fiche,
                  pop-up, parametres, categories, journal, notifications,
@@ -961,7 +961,17 @@ th[aria-sort="ascending"] .ap-th span,th[aria-sort="descending"] .ap-th span{opa
  border:1px solid var(--line2);background:var(--surface);color:var(--txt);font:inherit;font-size:13px;font-weight:700;cursor:pointer}
 .nuancier button i{width:16px;height:16px;border-radius:999px;flex:none}
 .nuancier button:hover{border-color:var(--dim2)}
-.nuancier button[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-ring)}
+.nuancier :is(button,label)[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-ring)}
+/* La pastille personnalisee : la meme forme que les autres, un arc-en-ciel
+   tant qu'aucune couleur n'est choisie. Le champ couvre la pastille, invisible :
+   un appui ouvre le selecteur du systeme. */
+.nuancier-perso{position:relative;display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 12px 0 8px;
+ border-radius:999px;border:1px solid var(--line2);background:var(--surface);color:var(--txt);font:inherit;
+ font-size:13px;font-weight:700;cursor:pointer}
+.nuancier-perso:hover{border-color:var(--dim2)}
+.nuancier-perso i{width:16px;height:16px;border-radius:999px;flex:none;
+ background:conic-gradient(#E5484D,#F5A524,#46A758,#0E7C86,#3E63DD,#8E4EC6,#E5484D)}
+.nuancier-perso input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;border:0;padding:0}
 .choix-liste .coche{width:16px;height:16px;flex:none;color:var(--accent);opacity:0}
 .choix-liste button.active{background:var(--accent-soft)}
 .choix-liste button.active>svg:first-child{color:var(--accent)}
@@ -1278,6 +1288,18 @@ table.tbl-journal{min-width:560px}
 
 /* ---------------- reperes communs aux deux styles ---------------- */
 .side-item.utilisateur-seul{display:none}
+/* La carte Session : la suppression du compte n'existe que pour un compte
+   utilisateur (body.compte-utilisateur, pose par le script). */
+.session-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
+/* Le profil : deux champs cote a cote, l'un sous l'autre au telephone. */
+.profil-champs{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.profil-champs .field{margin:0}
+.facultatif{font-weight:400;color:var(--dim2)}
+.us-id{font-size:var(--t-s);color:var(--dim2);font-weight:500}
+@media (max-width:760px){.profil-champs{grid-template-columns:1fr}}
+#zone-session .utilisateur-seul{display:none}
+.compte-utilisateur #zone-session .btn.utilisateur-seul{display:inline-flex}
+.compte-utilisateur #zone-session .hint.utilisateur-seul{display:block;margin-top:12px}
 .compte-utilisateur #sidebar,.compte-utilisateur #btn-menu{display:none}
 .compte-utilisateur .side-item.admin-seul{display:none}
 .compte-utilisateur .side-item.utilisateur-seul{display:flex}
@@ -1303,19 +1325,21 @@ body{letter-spacing:-.01em}
 /* LE BANDEAU FONDU. Vecu : « le header doit etre fondu lorsque je scroll en
    vertical, et rester au-dessus des apps ». Un bandeau opaque coupait les
    tuiles net, a la regle. Le voile est un calque sous le bandeau (::before,
-   z-index -1 dans son contexte d'empilement) : le fond de la page, en partie
-   transparent, et un flou de ce qui passe dessous ; il deborde de 28 px et
-   s'efface vers le bas (mask-image), si bien qu'une tuile s'estompe au lieu
-   d'etre tranchee. Il n'apparait que la page defilee (classe page-defilee,
-   posee par 00-socle.js) : en haut de page, rien ne passe dessous, et un
-   flou sous le bandeau voilerait le debut du contenu.
+   z-index -1 dans son contexte d'empilement) : le fond de la page, plein
+   sous le bandeau puis en degrade sur 28 px, si bien qu'une tuile s'estompe
+   au lieu d'etre tranchee. Il n'apparait que la page defilee (classe
+   page-defilee, posee par 00-socle.js) : en haut de page, rien ne passe
+   dessous.
    Le bandeau lui-meme reste transparent : mode.js lit sa couleur pour la
    barre d'etat, et retombe alors sur celle du fond -- la meme, mais opaque.
-   Une couleur semi-transparente y donnerait une barre d'etat delavee. */
+   Une couleur semi-transparente y donnerait une barre d'etat delavee.
+   ESSAYE ET ECARTE : un flou (backdrop-filter) et un masque (mask-image).
+   Vecu : « je ne peux pas scroll avec mon telephone en vertical ». Sur
+   iPhone, ce calque compose vit a l'interieur de #defile, le bloc qui
+   defile, et WebKit y bloquait le defilement au doigt ; Chromium, lui,
+   defilait. Un simple degrade ne demande aucune composition. */
 .topbar::before{content:"";position:absolute;inset:0 0 -28px;z-index:-1;pointer-events:none;
- background:color-mix(in srgb,var(--bg) 82%,transparent);
- -webkit-backdrop-filter:blur(16px) saturate(1.4);backdrop-filter:blur(16px) saturate(1.4);
- -webkit-mask-image:linear-gradient(#000 calc(100% - 40px),transparent);mask-image:linear-gradient(#000 calc(100% - 40px),transparent);
+ background:linear-gradient(var(--bg) calc(100% - 28px),transparent);
  opacity:0;transition:opacity .2s}
 :root.page-defilee .topbar::before{opacity:1}
 .topbar-brand img{width:38px;height:38px;border-radius:12px}
@@ -2722,6 +2746,28 @@ a.pj:hover{border-color:var(--accent)}
        autres, et un onglet sans rubrique visible ne s'affiche pas. -->
   <div class="onglet-p" id="param-compte">
 
+  <!-- LE PROFIL : prenom et nom, pour tous les comptes. L'identifiant de
+       connexion ne change pas ; le prenom remplace seulement ce que la page
+       affiche (bonjour, en-tete). -->
+  <div class="zone" id="zone-profil">
+    <div class="zone-title">Profil</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Prénom et nom</b>
+        <div class="path" id="profil-resume">Ce que le panneau affiche à la place de ton identifiant.</div>
+      </div></div>
+      <div class="profil-champs">
+        <div class="field"><label for="profil-prenom">Prénom</label>
+          <input id="profil-prenom" maxlength="40" autocomplete="given-name"></div>
+        <div class="field"><label for="profil-nom">Nom <span class="facultatif">(facultatif)</span></label>
+          <input id="profil-nom" maxlength="40" autocomplete="family-name"></div>
+      </div>
+      <div class="hint">Tu te connectes toujours avec ton identifiant, <b id="profil-identifiant"></b>.</div>
+      <div class="actions"><button class="btn btn-primary" onclick="profilEnregistrer()">Enregistrer</button></div>
+      <div class="err" id="profil-err" style="display:none"></div>
+    </div>
+  </div>
+
   <!-- Masquee jusqu'a ce qu'on sache qui regarde : le compte
        d'administration n'a pas d'adresse propre. -->
   <div class="zone" id="profil-mail" style="display:none">
@@ -2772,16 +2818,27 @@ a.pj:hover{border-color:var(--accent)}
       <div id="ver-corps"></div>
     </div>
   </div>
+  <!-- TOUJOURS DEPLIEE (sans-pli) : se deconnecter ne doit jamais demander
+       d'ouvrir une carte d'abord. La suppression du compte vit dans la meme
+       carte, pour un compte utilisateur seulement : le compte
+       d'administration ne se supprime pas (le serveur le refuse aussi). -->
   <div class="zone" id="zone-session">
     <div class="zone-title">Session</div>
-    <div class="card settings-card">
+    <div class="card settings-card sans-pli">
       <div class="card-top"><div class="card-name">
         <b>Session</b>
         <div class="path">Déconnecte cette session du panneau CodeLab.</div>
       </div></div>
-      <button class="btn btn-danger-quiet" onclick="doLogout()">
-        <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-        <path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>Déconnexion</button>
+      <div class="session-actions">
+        <button class="btn btn-danger-quiet" onclick="doLogout()">
+          <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+          <path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>Déconnexion</button>
+        <button class="btn btn-default utilisateur-seul" id="compte-supprimer"
+          onclick="ouvrirSuppressionCompte()">Supprimer mon compte</button>
+      </div>
+      <div class="hint utilisateur-seul">Supprimer ton compte le ferme tout de suite. Ses
+        données sont effacées 30 jours plus tard : d'ici là, il suffit de te reconnecter
+        pour changer d'avis.</div>
     </div>
   </div>
 
@@ -2825,6 +2882,18 @@ a.pj:hover{border-color:var(--accent)}
             <button type="button" data-r="couleurs" data-v="prune" onclick="setHub('couleurs','prune')" title="Prune"><i style="background:#7C3AED"></i>Prune</button>
             <button type="button" data-r="couleurs" data-v="corail" onclick="setHub('couleurs','corail')" title="Corail"><i style="background:#D9480F"></i>Corail</button>
             <button type="button" data-r="couleurs" data-v="ardoise" onclick="setHub('couleurs','ardoise')" title="Ardoise"><i style="background:#334155"></i>Ardoise</button>
+            <button type="button" data-r="couleurs" data-v="framboise" onclick="setHub('couleurs','framboise')" title="Framboise"><i style="background:#C2255C"></i>Framboise</button>
+            <button type="button" data-r="couleurs" data-v="ambre" onclick="setHub('couleurs','ambre')" title="Ambre"><i style="background:#B45309"></i>Ambre</button>
+            <button type="button" data-r="couleurs" data-v="indigo" onclick="setHub('couleurs','indigo')" title="Indigo"><i style="background:#4F46E5"></i>Indigo</button>
+            <button type="button" data-r="couleurs" data-v="olive" onclick="setHub('couleurs','olive')" title="Olive"><i style="background:#4D7C0F"></i>Olive</button>
+            <!-- LA COULEUR PERSONNALISEE : le selecteur du systeme, sous la
+                 pastille. La palette (clair, sombre, survol, texte dessus) est
+                 calculee par le serveur (/couleur.css). -->
+            <label class="nuancier-perso" data-r="couleurs" data-v="perso" title="Personnalisée">
+              <i id="couleur-perso-pastille"></i>Personnalisée
+              <input type="color" id="couleur-perso-choix" value="#0E7C86"
+                oninput="choisirCouleurPerso(this.value)" onclick="revenirCouleurPerso()"
+                aria-label="Choisir une couleur"></label>
           </div></div>
       </div>
       <div class="choix-titre">Thème</div>
@@ -3408,6 +3477,25 @@ a.pj:hover{border-color:var(--accent)}
   </div>
 </div></div>
 
+<!-- SUPPRIMER SON COMPTE : le mot de passe est exige, comme pour en
+     changer -- une session volee ne doit pas pouvoir effacer un compte. -->
+<div class="ov" id="ov-suppression"><div class="modal" style="max-width:440px">
+  <div class="mh"><h3>Supprimer ton compte ?</h3>
+    <p>Ton compte se ferme tout de suite, sur tous tes appareils. Ses données (messages,
+      pièces jointes, clés d'accès, préférences, historique de connexion) sont effacées
+      30 jours plus tard. D'ici là, reconnecte-toi pour annuler.</p></div>
+  <div class="mb">
+    <div class="field"><label for="sup-mdp">Ton mot de passe</label>
+      <input id="sup-mdp" type="password" autocomplete="current-password"
+        onkeydown="if(event.key==='Enter') confirmerSuppressionCompte()"></div>
+    <div class="err" id="sup-err" style="display:none"></div>
+  </div>
+  <div class="mf">
+    <button class="btn btn-default" onclick="hide('ov-suppression')">Annuler</button>
+    <button class="btn btn-default danger" id="sup-ok" onclick="confirmerSuppressionCompte()">Supprimer mon compte</button>
+  </div>
+</div></div>
+
 <!-- FACE ID, PROPOSE AU BON MOMENT : juste apres une connexion par mot de
      passe, sur un appareil qui sait le faire. Dans les parametres, personne
      n'allait le chercher. -->
@@ -3589,7 +3677,8 @@ a.pj:hover{border-color:var(--accent)}
      qui se met en cache. -->
 <script>
 window.CODELAB_PAGE = {jeton: __JETON__, appsModele: __APPS_MODELE__, root: __ROOT__,
-                       role: __ROLE__, utilisateur: __UTILISATEUR__, smtp: __SMTP__};
+                       role: __ROLE__, utilisateur: __UTILISATEUR__, smtp: __SMTP__,
+                       profil: __PROFIL__};
 </script>
 <script src="/panneau.js?v=__PANNEAU_VERSION__"></script>
 </div>

@@ -532,10 +532,36 @@ async function totpDesactiver(){
 
 async function doLogout(){ await fetch('/logout',{method:'POST'}); location.href='/login'; }
 
+/* Supprimer son compte (voir « supprimer son propre compte », serveur/10) :
+   le serveur ferme toutes les sessions, celle-ci comprise, et rend la date
+   d'effacement. On l'annonce sur la page de connexion, ou l'on revient. */
+function ouvrirSuppressionCompte(){
+  $('sup-mdp').value=''; $('sup-err').style.display='none';
+  $('ov-suppression').classList.add('show');
+  setTimeout(()=>$('sup-mdp').focus(), 40);
+}
+async function confirmerSuppressionCompte(){
+  const ok=$('sup-ok'); ok.disabled=true;
+  try{
+    const r=await fetch('/api/mon-compte/suppression',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({mot_de_passe:$('sup-mdp').value})});
+    if(r.ok){
+      const d=await r.json();
+      hide('ov-suppression');
+      notifier('Ton compte sera supprimé le '+d.date+'. Reconnecte-toi d\'ici là pour annuler.');
+      setTimeout(()=>{ location.href='/login'; }, 2500);
+      return;
+    }
+    $('sup-err').textContent=await echec(r,'La suppression n\'a pas pu être demandée.');
+    $('sup-err').style.display='block';
+  }finally{ ok.disabled=false; }
+}
+
 
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){
-    hide('ov-add'); hide('ov-user');
+    hide('ov-add'); hide('ov-user'); hide('ov-suppression');
     if(confirmerResoudre) confirmerReponse(false);
     $('acct-menu').classList.remove('show');
   }
@@ -550,8 +576,28 @@ const ROLE=CODELAB_PAGE.role, UTILISATEUR=CODELAB_PAGE.utilisateur;
 const estAdmin = ROLE==='admin';
 let SMTP_OK = CODELAB_PAGE.smtp;
 
-$('qui-nom').textContent = UTILISATEUR || '';
-$('hub-salut').innerHTML = 'Bonjour, <span class="salut-nom">' + esc(UTILISATEUR || 'admin') + '</span>';
+/* LE PROFIL : le prenom remplace l'identifiant la ou la page parle a la
+   personne ; l'identifiant reste celui de la connexion. */
+let PROFIL = CODELAB_PAGE.profil || {prenom:'', nom:''};
+function peindreProfil(){
+  const complet = [PROFIL.prenom, PROFIL.nom].filter(Boolean).join(' ');
+  $('qui-nom').textContent = complet || UTILISATEUR || '';
+  $('hub-salut').innerHTML = 'Bonjour, <span class="salut-nom">'
+    + esc(PROFIL.prenom || PROFIL.nom || UTILISATEUR || 'admin') + '</span>';
+  $('profil-prenom').value = PROFIL.prenom || '';
+  $('profil-nom').value = PROFIL.nom || '';
+  $('profil-identifiant').textContent = UTILISATEUR || 'admin';
+}
+async function profilEnregistrer(){
+  $('profil-err').style.display='none';
+  const r=await fetch('/api/mon-compte/profil',{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({prenom:$('profil-prenom').value, nom:$('profil-nom').value})});
+  if(!r.ok){ $('profil-err').textContent=await echec(r,'Profil non enregistré.');
+    $('profil-err').style.display='block'; return; }
+  const d=await r.json(); PROFIL={prenom:d.prenom, nom:d.nom};
+  peindreProfil(); notifier('Profil enregistré.');
+}
+peindreProfil();
 $('qui-role').textContent = estAdmin ? 'Administrateur' : 'Utilisateur';
 /* Les onglets d'administration n'apparaissent que pour l'administrateur. */
 if(estAdmin) document.querySelectorAll('#param-onglets button[data-admin]')

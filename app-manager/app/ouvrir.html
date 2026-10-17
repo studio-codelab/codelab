@@ -13,8 +13,8 @@
               soulignes), chacun echappe pour son contexte : texte HTML, nom
               en URL, attribut HTML, JSON dans le script.
   DIALOGUE    avec environnement-app.js, injecte dans l'application par le
-              proxy : « pret » et « couleur » montent, « environnement »
-              descend. CHAQUE COTE VERIFIE L'ORIGINE EXACTE de l'autre
+              proxy : « pret », « manifeste » et « couleur » montent,
+              « environnement » descend. CHAQUE COTE VERIFIE L'ORIGINE EXACTE de l'autre
               (ici : e.origin !== origine), et toute valeur recue est
               validee avant usage (couleurs : expression rationnelle).
   SECURITE    La CSP de la page est celle du panneau, plus frame-src
@@ -114,13 +114,35 @@ iframe.plein~#bas{display:none}
      qui n'en est pas une est ignoree : elle finirait dans un attribut et
      dans le style de la page. */
   var estUneCouleur = function(c){ return /^(#[0-9a-fA-F]{3,8}|rgba?\([0-9.,\s%]+\))$/.test(c); };
+  /* LE MANIFESTE DE L'APPLICATION (message « manifeste ») : ce que le systeme
+     ferait d'une app installee seule, le cadre le fait pour elle. Son fond et
+     sa barre peignent l'ecran en attendant sa premiere couleur reelle ; son
+     orientation tourne l'ecran sur Android (screen.orientation.lock) --
+     iOS ne le permet a aucune page web. Une orientation hors de la liste du
+     standard est ignoree, comme une couleur qui n'en est pas une. */
+  var ORIENTATIONS = ["any", "natural", "portrait", "portrait-primary", "portrait-secondary",
+                      "landscape", "landscape-primary", "landscape-secondary"];
+  var peinte = false;
+  function suivreManifeste(d){
+    var fond = String(d.fond || ""), barre = String(d.barre || ""), sens = String(d.orientation || "");
+    if(!peinte && estUneCouleur(fond)){
+      document.body.style.backgroundColor = fond;
+      document.getElementById("bas").style.backgroundColor = fond;
+    }
+    if(!peinte && estUneCouleur(barre)) document.querySelector("meta[name=theme-color]").setAttribute("content", barre);
+    if(ORIENTATIONS.indexOf(sens) >= 0 && screen.orientation && screen.orientation.lock){
+      try { screen.orientation.lock(sens).catch(function(){}); } catch(err){}
+    }
+  }
   addEventListener("message", function(e){
     if(e.origin!==origine||!e.data)return;
     if(e.data.codelab==="pret"){plein=!!e.data.pleinEcran;cadre.classList.toggle("plein",plein);envoyer();return;}
+    if(e.data.codelab==="manifeste"){suivreManifeste(e.data);return;}
     if(e.data.codelab!=="couleur")return;
     var haut = String(e.data.valeur || ""), bas = String(e.data.bas || haut);
     if(!estUneCouleur(haut)) return;
     if(!estUneCouleur(bas)) bas = haut;
+    peinte = true;
     document.querySelector("meta[name=theme-color]").setAttribute("content", haut);
     document.body.style.backgroundColor = haut;
     document.getElementById("bas").style.backgroundColor = bas;
