@@ -12,7 +12,7 @@ ROLE        Un seul service Flask, servi par waitress (voir « serveur HTTP ») 
             Il n'ECRIT JAMAIS dans /workspace : un projet est cree par
             l'utilisateur (SSH, VS Code, git), puis declare ici.
 CHARGE PAR  le conteneur codelab-app-manager (entrypoint.sh) ; importe par la
-            suite de tests (workspace/diagnostic/test_regressions.py), qui
+            suite de tests (workspace/diagnostic/tests), qui
             appelle les fonctions par leur nom : un renommage se reporte dans
             les tests.
 CONTRAINTES Les regles numerotees de SECURITE.md, et la carte des dependances

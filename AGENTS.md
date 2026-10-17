@@ -64,7 +64,7 @@ Ce qu'un agent ne fait **jamais** sans demande explicite :
 | `dagster/` | Dagster et le proxy nginx devant Dagster et Mailpit (`proxy/`, dont l'interface `mailpit-ui/`) | — |
 | `dev/` | l'image du poste de développement, l'outil `codelab`, les modèles, **le manuel des projets** `dev/AGENTS.md` | les projets |
 | `postgres/`, `redis/`, `mailpit/` | les services de données, avec leurs scripts d'entrée et de santé | — |
-| `workspace/` | ce qui est copié dans `/workspace` ; `workspace/diagnostic/` est l'application de diagnostic **et** la suite de tests du dépôt | — |
+| `workspace/` | ce qui est copié dans `/workspace` ; `workspace/diagnostic/` est l'application de diagnostic, et `workspace/diagnostic/tests/` la suite de tests du dépôt | — |
 | `.github/workflows/` | `build-images.yml` (images, actions épinglées par SHA), `securite.yml` (Trivy) | CI |
 
 Documentation de référence : [`README.md`](README.md) (installation),
@@ -265,10 +265,14 @@ A AMELIORER les ameliorations envisagees, par ordre d'interet, avec ce
 ### 6.1 La suite
 
 ```bash
-python3 -m pytest workspace/diagnostic/test_regressions.py -q        # depuis la racine
+python3 -m pytest workspace/diagnostic/tests -q        # depuis la racine
 ```
 
-- Elle tourne en ≈ 70 s. Elle passe **entièrement** avant chaque push, et la CI la relance.
+- Elle tourne en ≈ 50 s. Elle passe **entièrement** avant chaque push, et la CI la relance.
+- **Un fichier par sujet** dans `workspace/diagnostic/tests/` (`test_securite.py`, `test_comptes.py`,
+  `test_affichage.py`…). Les aides et constantes vont dans `commun.py`, que chaque fichier importe ;
+  les fixtures, dont le filet qui détourne les chemins d'état, dans `conftest.py`. Un test nouveau
+  va dans le fichier de son sujet.
 - **Beaucoup de tests lisent le source** : ils vérifient qu'une chaîne, un marqueur ou une règle CSS
   est présent ou absent. C'est voulu. Ils figent une garantie (sécurité, affichage) que rien
   d'autre ne vérifierait. Quand un tel test échoue après ta modification, deux cas :
@@ -346,7 +350,7 @@ servent pour ce qui se compare.
 4. Le code mort que j'ai rendu mort est retiré ; les commentaires et l'en-tête du fichier sont
    justes.
 5. `node --check` passe ; `environnement-app.js` ne contient ni `</` ni deux `__PANNEAU__`.
-6. `python3 -m pytest workspace/diagnostic/test_regressions.py -q` : tout passe, aucun test
+6. `python3 -m pytest workspace/diagnostic/tests -q` : tout passe, aucun test
    affaibli.
 7. La documentation de la section 7 est à jour.
 8. Le message de commit dit pourquoi ; la PR est en brouillon et dit ce qui a été vérifié.

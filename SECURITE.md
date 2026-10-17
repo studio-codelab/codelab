@@ -2,7 +2,7 @@
 
 Ce que CodeLab garantit, comment, et ce qu'il ne couvre pas. Chaque règle de la section
 [« Règles à ne jamais casser »](#règles-à-ne-jamais-casser) est vérifiée par la suite de tests
-(`workspace/diagnostic/test_regressions.py`). Une règle modifiée dans le code se modifie ici dans le
+(`workspace/diagnostic/tests`). Une règle modifiée dans le code se modifie ici dans le
 même commit.
 
 ## En bref

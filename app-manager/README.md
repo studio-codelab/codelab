@@ -294,7 +294,7 @@ dans le journal du conteneur avec la méthode et la route (`docker logs codelab-
 ## Développer, tester
 
 ```bash
-python3 -m pytest workspace/diagnostic/test_regressions.py -q     # depuis la racine du dépôt
+python3 -m pytest workspace/diagnostic/tests -q     # depuis la racine du dépôt
 
 docker build -f app-manager/Dockerfile -t codelab-app-manager-test .
 docker run --rm -p 9001:9001 -p 9002:9002 \

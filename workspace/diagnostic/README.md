@@ -20,7 +20,7 @@ l'installation n'aurait plus aucun moyen de se contrôler.
 | `checks.py` | les sondes et l'audit des dépendances ; bibliothèque standard seulement, importé par `app.py` et par Dagster |
 | `app.py` | la page web, servie sur `http://<serveur>:9002/diagnostic/` |
 | `definitions.py` | le côté Dagster : assets, plannings, capteur d'alerte mail |
-| `test_regressions.py` | la suite de régression de tout CodeLab (CI, et `/tests`) |
+| `tests/` | la suite de régression de tout CodeLab (CI, et `/tests`) : un fichier par sujet (`test_securite.py`, `test_comptes.py`…), les aides partagées dans `commun.py`, les fixtures et le filet des chemins d'état dans `conftest.py` |
 | `.env` | sa configuration (`CODELAB_DB`, `CODELAB_SCHEMA`, `CODELAB_DAGSTER_URL`) ; versionné car il ne porte aucun secret |
 
 Le build installe le pilote Postgres dans `vendor/` : `pip install --target vendor "psycopg[binary]"`.
@@ -124,7 +124,7 @@ dans la minute.
 ## Lancer la suite de régression
 
 ```bash
-python3 -m pytest workspace/diagnostic/test_regressions.py -q -rs
+python3 -m pytest workspace/diagnostic/tests -q -rs
 ```
 
 Avant chaque test, tous les chemins d'état du panneau sont détournés vers un dossier jetable : un

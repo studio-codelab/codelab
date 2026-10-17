@@ -3,7 +3,7 @@ Sondes de diagnostic CodeLab -- partagees entre l'application web et l'asset
 Dagster, pour que les deux racontent exactement la meme chose.
 
 Uniquement la bibliotheque standard ici, et c'est vrai au pied de la lettre
-depuis que la suite de tests a ete detachee dans test_regressions.py : ce
+depuis que la suite de tests a ete detachee dans tests/ : ce
 fichier n'importe plus pytest du tout. Il a longtemps fallu un faux module
 pytest pour que les decorateurs de la suite s'evaluent a l'import dans les
 images qui ne l'embarquent pas -- l'image Dagster, l'image dev. Ce repli n'a
@@ -1742,8 +1742,7 @@ def lancer_suite_du_panneau(timeout=180):
     sert le diagnostic les appliquerait a l'application vivante. Un process a
     part n'a aucun de ces effets et meurt avec son resultat.
 
-    (La suite vit dans test_regressions.py depuis qu'elle a ete detachee
-    d'ici. Avant cela, pytest reimportait ce fichier-meme, en train de
+    (La suite vit dans tests/ depuis qu'elle a ete detachee d'ici. Avant cela, pytest reimportait ce fichier-meme, en train de
     s'executer -- une raison de plus pour le sous-process.)
 
     Rien de ce qu'ils ecrivent ne touche l'installation : le filet detourne
@@ -1752,8 +1751,7 @@ def lancer_suite_du_panneau(timeout=180):
     vrais fichiers -- aucun n'a bouge, aucun n'est apparu.
     """
     import subprocess
-    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                         "test_regressions.py")
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tests")
     if not os.path.exists(suite):
         # Image sans la suite : ce n'est pas un echec, il n'y a rien a lancer.
         return (Etat.SANS_OBJET, "suite de régressions du panneau",

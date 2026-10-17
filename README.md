@@ -161,7 +161,7 @@ le panneau y lance les applications, Dagster y charge les `definitions.py`.
 - **Consignes** : [`AGENTS.md`](AGENTS.md), pour un agent comme pour un humain. Il donne la méthode,
   la carte des dépendances, les règles de sécurité, les standards de code, les tests et la liste de
   contrôle avant de pousser.
-- **Tests** : `python3 -m pytest workspace/diagnostic/test_regressions.py -q`. Ils ont besoin de
+- **Tests** : `python3 -m pytest workspace/diagnostic/tests -q`. Ils ont besoin de
   `flask psutil pytest webauthn qrcode cryptography pyyaml`.
 - **CI** : à chaque pull request, les tests puis la construction des sept images. À chaque fusion sur
   `main`, publication sur GHCR en `latest`. Un tag `vX.Y.Z` publie une version.
