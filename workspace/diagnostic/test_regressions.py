@@ -6076,7 +6076,10 @@ def _messages_des_sondes():
     controle des accents deviendrait une loterie.
     """
     import ast as _ast
-    src = open(os.path.abspath(__file__), encoding="utf-8").read()
+    # checks.py, ou vivent les sondes. Vecu : depuis que les tests en ont ete
+    # detaches, ce controle lisait CE fichier, qui n'a pas une sonde -- il
+    # ne trouvait aucun message et passait toujours, sans rien verifier.
+    src = open(checks.__file__, encoding="utf-8").read()
     messages = []
     for f in _ast.walk(_ast.parse(src)):
         if not isinstance(f, _ast.FunctionDef):
@@ -6091,6 +6094,7 @@ def _messages_des_sondes():
                     messages += [x.value for x in _ast.walk(e)
                                  if isinstance(x, _ast.Constant)
                                  and isinstance(x.value, str)]
+    assert messages, "aucun message de sonde trouve : le controle ne verifierait rien"
     return messages
 
 
