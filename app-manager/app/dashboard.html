@@ -1303,19 +1303,21 @@ body{letter-spacing:-.01em}
 /* LE BANDEAU FONDU. Vecu : « le header doit etre fondu lorsque je scroll en
    vertical, et rester au-dessus des apps ». Un bandeau opaque coupait les
    tuiles net, a la regle. Le voile est un calque sous le bandeau (::before,
-   z-index -1 dans son contexte d'empilement) : le fond de la page, en partie
-   transparent, et un flou de ce qui passe dessous ; il deborde de 28 px et
-   s'efface vers le bas (mask-image), si bien qu'une tuile s'estompe au lieu
-   d'etre tranchee. Il n'apparait que la page defilee (classe page-defilee,
-   posee par 00-socle.js) : en haut de page, rien ne passe dessous, et un
-   flou sous le bandeau voilerait le debut du contenu.
+   z-index -1 dans son contexte d'empilement) : le fond de la page, plein
+   sous le bandeau puis en degrade sur 28 px, si bien qu'une tuile s'estompe
+   au lieu d'etre tranchee. Il n'apparait que la page defilee (classe
+   page-defilee, posee par 00-socle.js) : en haut de page, rien ne passe
+   dessous.
    Le bandeau lui-meme reste transparent : mode.js lit sa couleur pour la
    barre d'etat, et retombe alors sur celle du fond -- la meme, mais opaque.
-   Une couleur semi-transparente y donnerait une barre d'etat delavee. */
+   Une couleur semi-transparente y donnerait une barre d'etat delavee.
+   ESSAYE ET ECARTE : un flou (backdrop-filter) et un masque (mask-image).
+   Vecu : « je ne peux pas scroll avec mon telephone en vertical ». Sur
+   iPhone, ce calque compose vit a l'interieur de #defile, le bloc qui
+   defile, et WebKit y bloquait le defilement au doigt ; Chromium, lui,
+   defilait. Un simple degrade ne demande aucune composition. */
 .topbar::before{content:"";position:absolute;inset:0 0 -28px;z-index:-1;pointer-events:none;
- background:color-mix(in srgb,var(--bg) 82%,transparent);
- -webkit-backdrop-filter:blur(16px) saturate(1.4);backdrop-filter:blur(16px) saturate(1.4);
- -webkit-mask-image:linear-gradient(#000 calc(100% - 40px),transparent);mask-image:linear-gradient(#000 calc(100% - 40px),transparent);
+ background:linear-gradient(var(--bg) calc(100% - 28px),transparent);
  opacity:0;transition:opacity .2s}
 :root.page-defilee .topbar::before{opacity:1}
 .topbar-brand img{width:38px;height:38px;border-radius:12px}

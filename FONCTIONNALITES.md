@@ -44,8 +44,8 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
   - **Serveur injoignable** : un bandeau le dit, la page garde ce qu'elle affiche, retente toutes les
     5 s et se remet à jour au retour.
   - **Bandeau du haut fondu** : il reste collé en haut, au-dessus des applications ; quand la page
-    défile, ce qui passe dessous se voit flouté et s'estompe vers le bas, au lieu d'être coupé net.
-    En haut de page, rien ne change.
+    défile, ce qui passe dessous s'estompe dans le fond de la page, au lieu d'être coupé net. En haut
+    de page, rien ne change.
   - **Un seul style, qui se règle** (Paramètres › Apparence) — les anciens « Lanceur » et
     « Bento » n'en diffèrent que par ces réglages, gardés dans un cookie et posés par le serveur avant
     le premier affichage :

@@ -3436,7 +3436,7 @@ def test_le_repeint_garde_les_images_deja_chargees():
 def test_le_bandeau_se_fond_sur_ce_qui_defile_dessous():
     """Vecu : « le header doit etre fondu lorsque je scroll en vertical et
     rester au-dessus des apps ». Un bandeau opaque coupait les tuiles net.
-    Le voile (flou, fond en partie transparent, bord estompe) n'apparait que
+    Le voile (le fond de la page, estompe vers le bas) n'apparait que
     la page defilee : en haut, le rendu est identique a l'ancien au pixel
     pres (10 rendus compares). Le bandeau lui-meme reste transparent : mode.js
     lit sa couleur pour la barre d'etat, qui serait sinon delavee."""
@@ -3444,7 +3444,11 @@ def test_le_bandeau_se_fond_sur_ce_qui_defile_dessous():
     barre = page.split(".topbar{height:68px;")[1].split("}")[0]
     assert "background:transparent" in barre
     voile = page.split(".topbar::before{")[1].split("}")[0]
-    assert "backdrop-filter:blur(" in voile and "mask-image:linear-gradient(" in voile
+    # Un fondu en degrade, sans filtre compose. Vecu : « je ne peux pas scroll
+    # avec mon telephone en vertical » -- sur iPhone, le flou (backdrop-filter)
+    # et le masque d'un calque place DANS #defile bloquaient le defilement.
+    assert "background:linear-gradient(var(--bg) calc(100% - 28px),transparent)" in voile
+    assert "backdrop-filter" not in voile and "mask-image" not in voile
     assert "z-index:-1" in voile and "opacity:0" in voile
     assert ":root.page-defilee .topbar::before{opacity:1}" in page
     assert "position:sticky;top:0;z-index:40" in page, "le bandeau reste au-dessus des tuiles"
