@@ -32,7 +32,9 @@
      - la couleur reellement peinte en haut et en bas de la page (comme
        Safari, et non la theme-color declaree) part au panneau, qui en peint
        la barre d'etat et la barre de geste, et les repeint quand la page
-       defile ou change.
+       defile ou change ;
+     - son manifeste part aussi au panneau, qui en suit le fond, la barre et
+       l'orientation (voir annoncerManifeste).
 
    Ouverte seule (onglet, ou installee elle-meme sur l'ecran d'accueil),
    l'application garde ce que le navigateur lui donne : le script ne fait
@@ -266,10 +268,35 @@
                               bas: +d.bords.bas || 0, gauche: +d.bords.gauche || 0 };
     poser();
   });
+  /* LE MANIFESTE DE L'APPLICATION : celui qu'elle declare, ou celui que le
+     proxy lui donne. Installee seule, le systeme le lirait ; encadree, c'est
+     le panneau qui le suit -- son fond et sa barre en attendant la premiere
+     peinture, et son orientation (Android : iOS ne laisse pas une page web
+     tourner l'ecran). Lu sur l'origine de l'application ; une CSP qui
+     l'interdit ne casse rien, le panneau garde ses reglages. */
+  function annoncerManifeste(){
+    try {
+      var lien = document.querySelector('link[rel~="manifest"]');
+      if(!lien || !lien.href || !window.XMLHttpRequest) return;
+      var x = new XMLHttpRequest();
+      x.open('GET', lien.href, true);
+      x.onload = function(){
+        try {
+          if(x.status !== 200) return;
+          var m = JSON.parse(x.responseText) || {};
+          parent.postMessage({ codelab: 'manifeste', fond: String(m.background_color || ''),
+                               barre: String(m.theme_color || ''),
+                               orientation: String(m.orientation || '') }, PANNEAU);
+        } catch(e){}
+      };
+      x.send();
+    } catch(e){}
+  }
   function pret(){
     regarderViewport();
     poser();
     reecrireTout();
+    annoncerManifeste();
     annoncerCouleur();
     /* Une application a page unique change d'ecran sans recharger : la
        couleur se relit quand la page change. */

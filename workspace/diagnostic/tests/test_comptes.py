@@ -959,7 +959,7 @@ def test_sans_serveur_d_envoi_aucun_compte_ne_se_cree(deux_comptes, monkeypatch)
     assert r.status_code == 409 and r.get_json()["smtp_requis"] is True
     assert not app.lire_invitations()
     page = _page_servie(c)
-    assert "smtp: false}" in page and "let SMTP_OK = CODELAB_PAGE.smtp;" in page
+    assert "smtp: false," in page and "let SMTP_OK = CODELAB_PAGE.smtp;" in page
     assert 'id="ov-smtp"' in page
 
     monkeypatch.setattr(app, "lire_smtp_personnalise", lambda: {
@@ -968,7 +968,7 @@ def test_sans_serveur_d_envoi_aucun_compte_ne_se_cree(deux_comptes, monkeypatch)
     assert app.envoi_mail_configure() is True
     r = c.post("/api/utilisateurs", json={"nom": "paul", "mot_de_passe": "x" * 16})
     assert r.status_code == 200, r.get_json()
-    assert "smtp: true}" in c.get("/").get_data(as_text=True)
+    assert "smtp: true," in c.get("/").get_data(as_text=True)
 
 
 
@@ -2340,3 +2340,41 @@ def test_trente_jours_apres_le_compte_et_ses_donnees_sont_effaces(deux_espaces):
         assert not app.stockage.lire(app.DB_FILE, f"SELECT 1 FROM {table} WHERE {colonne} = 'marie'"), table
     # Une trace reste : qu'un compte a ete efface, a sa demande.
     assert app.stockage.lire(app.DB_FILE, "SELECT 1 FROM journal WHERE genre = 'compte'")
+
+
+# ----------------------------- le profil d'un compte -----------------------------
+
+def test_chaque_compte_regle_son_prenom_et_son_nom(deux_espaces):
+    """Vecu : « Rend parametrable le nom (facultatif) et prenom du compte ».
+    Le prenom remplace l'identifiant la ou la page parle a la personne ;
+    l'identifiant reste celui de la connexion. Le texte est nettoye : court,
+    sans caractere de controle."""
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    r = c.put("/api/mon-compte/profil", json={"prenom": "  Marie\u0007 ", "nom": "x" * 80})
+    assert r.status_code == 200, r.data
+    d = r.get_json()
+    assert d["prenom"] == "Marie" and d["nom"] == "x" * app.PROFIL_MAX
+    assert c.get("/api/mon-compte").get_json()["profil"]["prenom"] == "Marie"
+    page = _page_servie(c)
+    assert '"prenom": "Marie"' in page.split("window.CODELAB_PAGE = {")[1].split("</script>")[0]
+    # Le nom est facultatif, et rien ne se perd a le vider.
+    assert c.put("/api/mon-compte/profil", json={"prenom": "Marie", "nom": ""}).get_json()["nom"] == ""
+    # L'administrateur aussi, et il le voit dans la liste des comptes.
+    admin = app.flask_app.test_client()
+    admin.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    assert admin.put("/api/mon-compte/profil", json={"prenom": "Lucas"}).status_code == 200
+    assert '"prenom": "Lucas"' in _page_servie(admin)
+    liste = {u["nom"]: u for u in admin.get("/api/utilisateurs").get_json()["utilisateurs"]}
+    assert liste["marie"]["profil"] == {"prenom": "Marie", "nom": ""}
+    # Un type inattendu ne passe pas pour du texte.
+    assert c.put("/api/mon-compte/profil", json={"prenom": {"x": 1}}).get_json()["prenom"] == ""
+
+
+def test_la_carte_session_espace_ses_boutons_du_texte():
+    """Vecu : « Le bouton doit etre espace correctement avec le texte ». La
+    carte ne se replie plus, et sa tete n'a plus de marge : l'espace est
+    porte par les boutons, comme le corps d'une carte depliee (18 px)."""
+    page = _page_panneau("dashboard.html")
+    assert ".session-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}" in page
+    assert ".settings-card.pliable>.card-corps{margin-top:18px}" in page

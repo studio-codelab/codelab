@@ -576,8 +576,28 @@ const ROLE=CODELAB_PAGE.role, UTILISATEUR=CODELAB_PAGE.utilisateur;
 const estAdmin = ROLE==='admin';
 let SMTP_OK = CODELAB_PAGE.smtp;
 
-$('qui-nom').textContent = UTILISATEUR || '';
-$('hub-salut').innerHTML = 'Bonjour, <span class="salut-nom">' + esc(UTILISATEUR || 'admin') + '</span>';
+/* LE PROFIL : le prenom remplace l'identifiant la ou la page parle a la
+   personne ; l'identifiant reste celui de la connexion. */
+let PROFIL = CODELAB_PAGE.profil || {prenom:'', nom:''};
+function peindreProfil(){
+  const complet = [PROFIL.prenom, PROFIL.nom].filter(Boolean).join(' ');
+  $('qui-nom').textContent = complet || UTILISATEUR || '';
+  $('hub-salut').innerHTML = 'Bonjour, <span class="salut-nom">'
+    + esc(PROFIL.prenom || PROFIL.nom || UTILISATEUR || 'admin') + '</span>';
+  $('profil-prenom').value = PROFIL.prenom || '';
+  $('profil-nom').value = PROFIL.nom || '';
+  $('profil-identifiant').textContent = UTILISATEUR || 'admin';
+}
+async function profilEnregistrer(){
+  $('profil-err').style.display='none';
+  const r=await fetch('/api/mon-compte/profil',{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({prenom:$('profil-prenom').value, nom:$('profil-nom').value})});
+  if(!r.ok){ $('profil-err').textContent=await echec(r,'Profil non enregistré.');
+    $('profil-err').style.display='block'; return; }
+  const d=await r.json(); PROFIL={prenom:d.prenom, nom:d.nom};
+  peindreProfil(); notifier('Profil enregistré.');
+}
+peindreProfil();
 $('qui-role').textContent = estAdmin ? 'Administrateur' : 'Utilisateur';
 /* Les onglets d'administration n'apparaissent que pour l'administrateur. */
 if(estAdmin) document.querySelectorAll('#param-onglets button[data-admin]')

@@ -2533,23 +2533,45 @@ def test_mailpit_a_l_interface_de_codelab():
     assert "<style" not in index and ' style="' not in index
     assert re.search(r"\son[a-z]+=", index) is None, "gestionnaire en ligne"
     # Le retour au hub est LE MEME ruban que sur les autres applications :
-    # meme id, meme place, memes valeurs que ruban_retour().
+    # meme balisage, et la meme feuille, regle pour regle (RUBAN_CSS).
+    assert '<details id="codelab-ruban">' in index
     assert 'id="codelab-retour-hub" title="Revenir au hub CodeLab"' in index
     assert 'target="_top"' in index.split('id="codelab-retour-hub"', 1)[0].rsplit("<a ", 1)[1]
-    css = _mailpit_ui("app.css")
-    regle = css.split("#codelab-retour-hub {", 1)[1].split("}", 1)[0]
-    ruban = app.ruban_retour().decode()
-    # 14 px des bords -- plus les bords de l'ecran, que pose l'environnement
-    # (0 hors du hub installe, ou Mailpit et Dagster vivent).
-    for propriete in ("position:fixed", "left:calc(14px + var(--codelab-bord-gauche, 0px))",
-                      "bottom:calc(14px + var(--codelab-bord-bas, 0px))", "gap:7px", "padding:8px 13px",
-                      "color:#fff", "background:#141a21", "border-radius:999px",
-                      "box-shadow:0 2px 10px rgba(0,0,0,.28)"):
-        assert propriete in ruban, propriete
-        assert propriete.replace(":", ": ").replace(",", ", ").replace(", .", ", .") in regle \
-            or propriete.replace(":", ": ") in regle, propriete
+    assert _regles_css(_mailpit_ui("app.css"), "#codelab-r") == _regles_css(app.RUBAN_CSS, "#codelab-r")
 
 
+def _regles_css(feuille, prefixe):
+    """Les regles dont le selecteur commence par prefixe, sans espaces :
+    {selecteur: [declarations]}. Pour comparer deux copies d'une feuille,
+    l'une ecrite sur une ligne, l'autre aeree."""
+    sans_commentaires = re.sub(r"/\*.*?\*/", "", feuille, flags=re.S)
+    regles = {}
+    for selecteur, corps in re.findall(r"([^{}]+)\{([^{}]*)\}", sans_commentaires):
+        selecteur = re.sub(r"\s+", "", selecteur)
+        if selecteur.startswith(prefixe):
+            regles[selecteur] = [re.sub(r"\s+", "", d) for d in re.split(r";(?![^(]*\))", corps)
+                                 if d.strip()]
+    return regles
+
+
+def test_le_ruban_est_replie_par_defaut_et_le_meme_partout():
+    """Vecu : « Le bouton codelab dans les applications doit pouvoir se
+    developper et reduire (petite fleche au bord de l'ecran) pour laisser la
+    place a l'app par defaut ». Un <details> ferme : la languette au bord, le
+    bouton a cote une fois deplie -- sans script, et la meme feuille dans les
+    applications, Mailpit et Dagster."""
+    with app.flask_app.test_request_context("/"):
+        ruban = app.ruban_retour().decode()
+    assert '<details id="codelab-ruban">' in ruban and "<details open" not in ruban
+    assert "<summary" in ruban and 'aria-label="Afficher le bouton CodeLab"' in ruban
+    assert "<script" not in ruban and " on" not in ruban.split("<style>")[0]
+    regles = _regles_css(app.RUBAN_CSS, "#codelab")
+    assert "left:var(--codelab-bord-gauche,0px)" in regles["#codelab-ruban"]
+    assert "bottom:calc(14px+var(--codelab-bord-bas,0px))" in regles["#codelab-ruban"]
+    assert "transform:rotate(180deg)" in regles["#codelab-ruban[open]>summary>span"]
+    assert "'" not in app.RUBAN_CSS, "la chaine de nginx est delimitee par des apostrophes"
+    nginx = open(os.path.join(_racine_depot(), "dagster", "proxy", "nginx.conf"), encoding="utf-8").read()
+    assert "<style>" + app.RUBAN_CSS + "</style><details id=\"codelab-ruban\">" in nginx
 
 
 def test_le_contenu_d_un_mail_ne_touche_jamais_la_page():

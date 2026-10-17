@@ -288,6 +288,28 @@
   :root[data-variante="bento"][data-couleurs="ardoise"]:not([data-theme="light"]):not([data-theme="dark"]){--accent:#CBD5E1; --accent-h:#E2E8F0; --accent-soft:rgba(203,213,225,.14); --accent-ring:rgba(203,213,225,.3); --sur-accent:#0F172A; --bento-lien:#334155;}
 }
 :root[data-variante="bento"][data-couleurs="ardoise"][data-theme="dark"]{--accent:#CBD5E1; --accent-h:#E2E8F0; --accent-soft:rgba(203,213,225,.14); --accent-ring:rgba(203,213,225,.3); --sur-accent:#0F172A; --bento-lien:#334155;}
+/* Framboise, Ambre, Indigo et Olive : calculees par palette_accent (serveur/12),
+   la fonction de la couleur personnalisee, puis recopiees ici. */
+:root[data-variante="bento"][data-couleurs="framboise"]{--accent:#C2255C; --accent-h:#A01E4C; --accent-soft:#F8E5EB; --accent-ring:rgba(194,37,92,.22); --sur-accent:#FFFFFF; --bento-lien:#E49DB6;}
+@media (prefers-color-scheme: dark){
+  :root[data-variante="bento"][data-couleurs="framboise"]:not([data-theme="light"]):not([data-theme="dark"]){--accent:#E981A0; --accent-h:#EFA4BA; --accent-soft:rgba(233,129,160,.15); --accent-ring:rgba(233,129,160,.3); --sur-accent:#23060F; --bento-lien:#A01E4C;}
+}
+:root[data-variante="bento"][data-couleurs="framboise"][data-theme="dark"]{--accent:#E981A0; --accent-h:#EFA4BA; --accent-soft:rgba(233,129,160,.15); --accent-ring:rgba(233,129,160,.3); --sur-accent:#23060F; --bento-lien:#A01E4C;}
+:root[data-variante="bento"][data-couleurs="ambre"]{--accent:#B45309; --accent-h:#8D4107; --accent-soft:#F6EAE1; --accent-ring:rgba(180,83,9,.22); --sur-accent:#FFFFFF; --bento-lien:#DDB290;}
+@media (prefers-color-scheme: dark){
+  :root[data-variante="bento"][data-couleurs="ambre"]:not([data-theme="light"]):not([data-theme="dark"]){--accent:#F67C21; --accent-h:#F89348; --accent-soft:rgba(246,124,33,.15); --accent-ring:rgba(246,124,33,.3); --sur-accent:#251204; --bento-lien:#8D4107;}
+}
+:root[data-variante="bento"][data-couleurs="ambre"][data-theme="dark"]{--accent:#F67C21; --accent-h:#F89348; --accent-soft:rgba(246,124,33,.15); --accent-ring:rgba(246,124,33,.3); --sur-accent:#251204; --bento-lien:#8D4107;}
+:root[data-variante="bento"][data-couleurs="indigo"]{--accent:#4F46E5; --accent-h:#2D22E0; --accent-soft:#EAE9FC; --accent-ring:rgba(79,70,229,.22); --sur-accent:#FFFFFF; --bento-lien:#B0ACF3;}
+@media (prefers-color-scheme: dark){
+  :root[data-variante="bento"][data-couleurs="indigo"]:not([data-theme="light"]):not([data-theme="dark"]){--accent:#9A97EE; --accent-h:#BCBAF4; --accent-soft:rgba(154,151,238,.15); --accent-ring:rgba(154,151,238,.3); --sur-accent:#070623; --bento-lien:#2D22E0;}
+}
+:root[data-variante="bento"][data-couleurs="indigo"][data-theme="dark"]{--accent:#9A97EE; --accent-h:#BCBAF4; --accent-soft:rgba(154,151,238,.15); --accent-ring:rgba(154,151,238,.3); --sur-accent:#070623; --bento-lien:#2D22E0;}
+:root[data-variante="bento"][data-couleurs="olive"]{--accent:#4D7C0F; --accent-h:#36580B; --accent-soft:#EAEFE2; --accent-ring:rgba(77,124,15,.22); --sur-accent:#FFFFFF; --bento-lien:#AFC493;}
+@media (prefers-color-scheme: dark){
+  :root[data-variante="bento"][data-couleurs="olive"]:not([data-theme="light"]):not([data-theme="dark"]){--accent:#71B215; --accent-h:#88D619; --accent-soft:rgba(113,178,21,.15); --accent-ring:rgba(113,178,21,.3); --sur-accent:#172404; --bento-lien:#36580B;}
+}
+:root[data-variante="bento"][data-couleurs="olive"][data-theme="dark"]{--accent:#71B215; --accent-h:#88D619; --accent-soft:rgba(113,178,21,.15); --accent-ring:rgba(113,178,21,.3); --sur-accent:#172404; --bento-lien:#36580B;}
 
 
 /* ------------------------- aucune barre de defilement -------------------------

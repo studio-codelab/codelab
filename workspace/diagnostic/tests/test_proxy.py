@@ -536,3 +536,26 @@ def test_sur_son_sous_domaine_l_application_installee_s_ouvre_chez_elle():
     assert b'<link rel="manifest" href="/__codelab/manifest.webmanifest">' in data
     assert manifeste["start_url"] == manifeste["scope"] == "/"
     assert manifeste["icons"][0]["src"] == "/__codelab/icone.png"
+
+
+def test_le_cadre_suit_le_manifeste_de_l_application():
+    """Vecu : « Assure toi que les applications beneficient et heritent d'un
+    vrai comportement d'application. Utiliser le manifest ». Encadree, la page
+    lit le manifeste qu'elle declare et l'envoie au panneau ; le cadre en suit
+    le fond, la barre et l'orientation -- apres avoir verifie l'origine et
+    chaque valeur."""
+    env = _page_panneau("environnement-app.js")
+    assert "</" not in env and env.count("__PANNEAU__") == 1
+    lecture = env.split("function annoncerManifeste(){")[1].split("\n  }\n")[0]
+    assert "link[rel~=\"manifest\"]" in lecture and "XMLHttpRequest" in lecture
+    assert "codelab: 'manifeste'" in lecture and "}, PANNEAU);" in lecture
+    assert "annoncerManifeste();" in env.split("function pret(){")[1].split("\n  }")[0]
+    cadre = _page_panneau("ouvrir.html")
+    ecoute = cadre.split('addEventListener("message", function(e){')[1].split("});")[0]
+    assert ecoute.lstrip().startswith("if(e.origin!==origine||!e.data)return;")
+    assert 'e.data.codelab==="manifeste"' in ecoute
+    suivre = cadre.split("function suivreManifeste(d){")[1].split("\n  }\n")[0]
+    assert "estUneCouleur(fond)" in suivre and "estUneCouleur(barre)" in suivre
+    assert "ORIENTATIONS.indexOf(sens) >= 0" in suivre and "screen.orientation.lock(sens)" in suivre
+    # La couleur reellement peinte gagne sur celle du manifeste.
+    assert "if(!peinte && estUneCouleur(fond))" in suivre and "peinte = true;" in cadre

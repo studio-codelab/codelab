@@ -1708,7 +1708,9 @@ def test_le_hub_se_regle_et_le_serveur_ne_pose_que_des_valeurs_connues(deux_espa
         assert f"{cle}:[" + ",".join(f"'{v}'" for v in valeurs) + "]" in regles, cle
     for cle, valeurs in app.REGLAGES_HUB.items():
         for v in valeurs:
-            assert f"setHub('{cle}','{v}')" in page, (cle, v)
+            # La couleur personnalisee passe par son selecteur.
+            attendu = "choisirCouleurPerso(" if (cle, v) == ("couleurs", "perso") else f"setHub('{cle}','{v}')"
+            assert attendu in page, (cle, v)
     # Plus de modeles, d'en-tete centre ni de fond trame : retires a la
     # demande.
     for trace in ("modeleHub", "data-entete", "data-fond", "--trame"):
@@ -1805,17 +1807,52 @@ def test_le_nuancier_change_la_couleur_d_accent():
     choisi), avec une specificite au moins egale au bloc qu'il remplace."""
     theme = _page_panneau("theme.css")
     nuancier = theme.split("le nuancier ---", 1)[1].split("mode application", 1)[0]
-    for nom in app.REGLAGES_HUB["couleurs"][1:]:
+    # « perso » n'a pas de bloc ici : sa feuille est calculee (/couleur.css),
+    # avec les memes trois regles -- verifie a part.
+    teintes = [n for n in app.REGLAGES_HUB["couleurs"][1:] if n != "perso"]
+    for nom in teintes:
         r = f':root[data-variante="bento"][data-couleurs="{nom}"]'
         for bloc in (r + "{--accent:", r + ':not([data-theme="light"]):not([data-theme="dark"]){--accent:',
                      r + '[data-theme="dark"]{--accent:'):
             assert bloc in nuancier, bloc
-    assert nuancier.count("--sur-accent:") == 3 * (len(app.REGLAGES_HUB["couleurs"]) - 1)
+    assert nuancier.count("--sur-accent:") == 3 * len(teintes)
     # « lagon » est la couleur de toujours : pas de bloc a lui.
     assert 'data-couleurs="lagon"' not in theme
     page = _page_panneau("dashboard.html")
-    for nom in app.REGLAGES_HUB["couleurs"]:
+    for nom in teintes:
         assert f"setHub('couleurs','{nom}')" in page, nom
+    assert 'data-v="perso"' in page and 'oninput="choisirCouleurPerso(this.value)"' in page
+
+
+def test_la_couleur_personnalisee_est_lisible_en_clair_et_en_sombre(deux_espaces):
+    """Vecu : « Ajoute des choix de couleur + choix personnalise ». Une teinte
+    quelconque -- un jaune pur, un noir -- donne un accent lisible : texte
+    blanc dessus en clair (4,5:1), accent sur le fond sombre (7:1). Le cookie
+    ne fait entrer que six chiffres hexadecimaux dans la page."""
+    for teinte in ("#FFFF00", "#000000", "#0E7C86", "#C2255C"):
+        p = app.palette_accent(teinte)
+        assert app.contraste(p["clair"]["--accent"], "#FFFFFF") >= 4.5, teinte
+        assert app.contraste(p["sombre"]["--accent"], app.FOND_SOMBRE) >= 7, teinte
+        assert app.contraste(p["sombre"]["--accent"], p["sombre"]["--sur-accent"]) >= 4.5, teinte
+    c = deux_espaces
+    feuille = c.get("/couleur.css?c=ff8800")
+    assert feuille.status_code == 200 and feuille.mimetype == "text/css"
+    texte = feuille.get_data(as_text=True)
+    assert texte.count('[data-couleurs="perso"]') == 3 and "--sur-accent:" in texte
+    for mauvais in ("ff88", "ff8800;}", "red", "<x>"):
+        assert c.get("/couleur.css", query_string={"c": mauvais}).status_code == 400, mauvais
+    c.set_cookie("codelab-hub", "perso.xff8800")
+    page = c.get("/login").get_data(as_text=True)
+    assert 'data-couleurs="perso"' in page and 'data-couleur-perso="FF8800"' in page
+    assert '<link rel="stylesheet" id="couleur-perso" href="/couleur.css?c=FF8800"></head>' in page
+    # Rien d'autre qu'une couleur n'entre : le reglage retombe sur Lagon.
+    c.set_cookie("codelab-hub", 'perso.x"><script>')
+    page = c.get("/login").get_data(as_text=True)
+    assert 'data-couleurs="lagon"' in page and "couleur-perso" not in page and "<script>\"" not in page
+    # Une autre teinte choisie : la couleur reste notee, sans sa feuille.
+    c.set_cookie("codelab-hub", "prune.xff8800")
+    page = c.get("/login").get_data(as_text=True)
+    assert 'data-couleur-perso="FF8800"' in page and 'id="couleur-perso"' not in page
 
 
 

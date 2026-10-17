@@ -961,7 +961,17 @@ th[aria-sort="ascending"] .ap-th span,th[aria-sort="descending"] .ap-th span{opa
  border:1px solid var(--line2);background:var(--surface);color:var(--txt);font:inherit;font-size:13px;font-weight:700;cursor:pointer}
 .nuancier button i{width:16px;height:16px;border-radius:999px;flex:none}
 .nuancier button:hover{border-color:var(--dim2)}
-.nuancier button[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-ring)}
+.nuancier :is(button,label)[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-ring)}
+/* La pastille personnalisee : la meme forme que les autres, un arc-en-ciel
+   tant qu'aucune couleur n'est choisie. Le champ couvre la pastille, invisible :
+   un appui ouvre le selecteur du systeme. */
+.nuancier-perso{position:relative;display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 12px 0 8px;
+ border-radius:999px;border:1px solid var(--line2);background:var(--surface);color:var(--txt);font:inherit;
+ font-size:13px;font-weight:700;cursor:pointer}
+.nuancier-perso:hover{border-color:var(--dim2)}
+.nuancier-perso i{width:16px;height:16px;border-radius:999px;flex:none;
+ background:conic-gradient(#E5484D,#F5A524,#46A758,#0E7C86,#3E63DD,#8E4EC6,#E5484D)}
+.nuancier-perso input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;border:0;padding:0}
 .choix-liste .coche{width:16px;height:16px;flex:none;color:var(--accent);opacity:0}
 .choix-liste button.active{background:var(--accent-soft)}
 .choix-liste button.active>svg:first-child{color:var(--accent)}
@@ -1280,7 +1290,13 @@ table.tbl-journal{min-width:560px}
 .side-item.utilisateur-seul{display:none}
 /* La carte Session : la suppression du compte n'existe que pour un compte
    utilisateur (body.compte-utilisateur, pose par le script). */
-.session-actions{display:flex;flex-wrap:wrap;gap:10px}
+.session-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
+/* Le profil : deux champs cote a cote, l'un sous l'autre au telephone. */
+.profil-champs{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.profil-champs .field{margin:0}
+.facultatif{font-weight:400;color:var(--dim2)}
+.us-id{font-size:var(--t-s);color:var(--dim2);font-weight:500}
+@media (max-width:760px){.profil-champs{grid-template-columns:1fr}}
 #zone-session .utilisateur-seul{display:none}
 .compte-utilisateur #zone-session .btn.utilisateur-seul{display:inline-flex}
 .compte-utilisateur #zone-session .hint.utilisateur-seul{display:block;margin-top:12px}
@@ -2730,6 +2746,28 @@ a.pj:hover{border-color:var(--accent)}
        autres, et un onglet sans rubrique visible ne s'affiche pas. -->
   <div class="onglet-p" id="param-compte">
 
+  <!-- LE PROFIL : prenom et nom, pour tous les comptes. L'identifiant de
+       connexion ne change pas ; le prenom remplace seulement ce que la page
+       affiche (bonjour, en-tete). -->
+  <div class="zone" id="zone-profil">
+    <div class="zone-title">Profil</div>
+    <div class="card settings-card">
+      <div class="card-top"><div class="card-name">
+        <b>Prénom et nom</b>
+        <div class="path" id="profil-resume">Ce que le panneau affiche à la place de ton identifiant.</div>
+      </div></div>
+      <div class="profil-champs">
+        <div class="field"><label for="profil-prenom">Prénom</label>
+          <input id="profil-prenom" maxlength="40" autocomplete="given-name"></div>
+        <div class="field"><label for="profil-nom">Nom <span class="facultatif">(facultatif)</span></label>
+          <input id="profil-nom" maxlength="40" autocomplete="family-name"></div>
+      </div>
+      <div class="hint">Tu te connectes toujours avec ton identifiant, <b id="profil-identifiant"></b>.</div>
+      <div class="actions"><button class="btn btn-primary" onclick="profilEnregistrer()">Enregistrer</button></div>
+      <div class="err" id="profil-err" style="display:none"></div>
+    </div>
+  </div>
+
   <!-- Masquee jusqu'a ce qu'on sache qui regarde : le compte
        d'administration n'a pas d'adresse propre. -->
   <div class="zone" id="profil-mail" style="display:none">
@@ -2844,6 +2882,18 @@ a.pj:hover{border-color:var(--accent)}
             <button type="button" data-r="couleurs" data-v="prune" onclick="setHub('couleurs','prune')" title="Prune"><i style="background:#7C3AED"></i>Prune</button>
             <button type="button" data-r="couleurs" data-v="corail" onclick="setHub('couleurs','corail')" title="Corail"><i style="background:#D9480F"></i>Corail</button>
             <button type="button" data-r="couleurs" data-v="ardoise" onclick="setHub('couleurs','ardoise')" title="Ardoise"><i style="background:#334155"></i>Ardoise</button>
+            <button type="button" data-r="couleurs" data-v="framboise" onclick="setHub('couleurs','framboise')" title="Framboise"><i style="background:#C2255C"></i>Framboise</button>
+            <button type="button" data-r="couleurs" data-v="ambre" onclick="setHub('couleurs','ambre')" title="Ambre"><i style="background:#B45309"></i>Ambre</button>
+            <button type="button" data-r="couleurs" data-v="indigo" onclick="setHub('couleurs','indigo')" title="Indigo"><i style="background:#4F46E5"></i>Indigo</button>
+            <button type="button" data-r="couleurs" data-v="olive" onclick="setHub('couleurs','olive')" title="Olive"><i style="background:#4D7C0F"></i>Olive</button>
+            <!-- LA COULEUR PERSONNALISEE : le selecteur du systeme, sous la
+                 pastille. La palette (clair, sombre, survol, texte dessus) est
+                 calculee par le serveur (/couleur.css). -->
+            <label class="nuancier-perso" data-r="couleurs" data-v="perso" title="Personnalisée">
+              <i id="couleur-perso-pastille"></i>Personnalisée
+              <input type="color" id="couleur-perso-choix" value="#0E7C86"
+                oninput="choisirCouleurPerso(this.value)" onclick="revenirCouleurPerso()"
+                aria-label="Choisir une couleur"></label>
           </div></div>
       </div>
       <div class="choix-titre">Thème</div>
@@ -3627,7 +3677,8 @@ a.pj:hover{border-color:var(--accent)}
      qui se met en cache. -->
 <script>
 window.CODELAB_PAGE = {jeton: __JETON__, appsModele: __APPS_MODELE__, root: __ROOT__,
-                       role: __ROLE__, utilisateur: __UTILISATEUR__, smtp: __SMTP__};
+                       role: __ROLE__, utilisateur: __UTILISATEUR__, smtp: __SMTP__,
+                       profil: __PROFIL__};
 </script>
 <script src="/panneau.js?v=__PANNEAU_VERSION__"></script>
 </div>

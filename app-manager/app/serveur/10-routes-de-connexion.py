@@ -1071,9 +1071,57 @@ def api_mon_compte():
         "email": (compte or {}).get("email") or "",
         "email_verifie": bool((compte or {}).get("email_verifie")),
         "passkeys": len(passkeys_du_compte(utilisateur_courant())),
+        "profil": lire_profil(),
         # Sans serveur d'envoi, la page n'affiche pas un bouton qui echouera.
         "smtp": smtp_ok,
     })
+
+
+# ----------------------------- le profil d'un compte -----------------------------
+#
+# Vecu : « Rend parametrable le nom (facultatif) et prenom du compte ». Le
+# bonjour du hub et le nom en haut a droite disaient l'identifiant de
+# connexion (« admin », « marie ») ; le prenom le remplace des qu'il est
+# donne. L'identifiant, lui, ne change pas : c'est lui qui designe le compte
+# partout (droits, journal, applications).
+#
+# Range dans les PREFERENCES du compte (table preferences), pour
+# l'administrateur comme pour les autres : le compte d'administration n'a pas
+# de fiche dans le registre. La suppression d'un compte les emporte.
+PROFIL_MAX = 40
+
+
+def nom_affiche_propre(valeur):
+    """Un prenom ou un nom tel qu'on l'affiche : texte seul, espaces resserres,
+    sans caractere de controle, PROFIL_MAX signes au plus. "" sinon.
+
+    POURQUOI : il est rendu dans la page (bonjour, en-tete, liste des
+    comptes). Les pages l'ecrivent en texte ; ce nettoyage garde en plus la
+    valeur courte et lisible, quoi que le client envoie.
+    """
+    if not isinstance(valeur, str):
+        return ""
+    v = "".join(c for c in valeur if unicodedata.category(c)[0] != "C")
+    return " ".join(v.split())[:PROFIL_MAX].strip()
+
+
+def lire_profil(qui=None):
+    p = lire_preference("profil", qui) or {}
+    return {"prenom": nom_affiche_propre(p.get("prenom")),
+            "nom": nom_affiche_propre(p.get("nom"))}
+
+
+@flask_app.put("/api/mon-compte/profil")
+@require_auth
+def api_mon_profil():
+    d = request.get_json(force=True, silent=True) or {}
+    profil = {"prenom": nom_affiche_propre(d.get("prenom")),
+              "nom": nom_affiche_propre(d.get("nom"))}
+    try:
+        ecrire_preference("profil", profil if profil["prenom"] or profil["nom"] else None)
+    except Exception as e:                                        # noqa: BLE001
+        return jsonify({"error": detail_pour_admin("Profil non enregistré.", e)}), 500
+    return jsonify({"ok": True, **profil})
 
 
 @flask_app.post("/api/mon-compte/email")
@@ -1826,6 +1874,7 @@ def api_utilisateurs():
          # efface. L'administrateur le voit, et ne peut ni l'avancer ni
          # l'annuler a sa place -- c'est la decision de la personne.
          "suppression": suppression_prevue(c),
+         "profil": lire_profil(nom),
          "cree": c.get("cree")}
         for nom, c in sorted(comptes.items())]})
 

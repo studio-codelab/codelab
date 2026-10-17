@@ -118,6 +118,120 @@ def login_page(invitation=False):
     return Response(avec_style(LOGIN_PAGE), mimetype="text/html")
 
 
+# ------------------------------ le nuancier ------------------------------
+#
+# Une couleur d'accent ne se pose pas telle quelle : il en faut une version
+# claire et une sombre, chacune lisible sur son fond, avec sa teinte de survol,
+# son aplat doux, son halo et la couleur du texte ecrit dessus. palette_accent
+# les calcule depuis UNE teinte. Elle sert la couleur personnalisee
+# (/couleur.css) ; les teintes Framboise, Ambre, Indigo et Olive de theme.css
+# en sont sorties, recopiees une fois (voir regles_nuancier).
+#
+# Les seuils : 4,5:1 (texte blanc sur l'accent clair, et l'accent sur fond
+# blanc) et 7:1 pour l'accent sombre sur le fond du theme sombre (#0D1015),
+# ceux que tiennent deja Lagon et Ocean.
+FOND_SOMBRE = "#0D1015"
+
+
+def _rvb(hexa):
+    h = hexa.lstrip("#")
+    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _hexa(rvb):
+    return "#" + "".join(f"{max(0, min(255, round(c))):02X}" for c in rvb)
+
+
+def _luminance(hexa):
+    canaux = []
+    for c in _rvb(hexa):
+        c /= 255
+        canaux.append(c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4)
+    return 0.2126 * canaux[0] + 0.7152 * canaux[1] + 0.0722 * canaux[2]
+
+
+def contraste(a, b):
+    la, lb = sorted((_luminance(a), _luminance(b)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+def _clarte(hexa, delta):
+    t, c, s = colorsys.rgb_to_hls(*(x / 255 for x in _rvb(hexa)))
+    return _hexa(x * 255 for x in colorsys.hls_to_rgb(t, max(0.0, min(1.0, c + delta)), s))
+
+
+def _melange(hexa, vers, part):
+    a, b = _rvb(hexa), _rvb(vers)
+    return _hexa(x + (y - x) * part for x, y in zip(a, b))
+
+
+def _halo(hexa, opacite):
+    r, v, b = _rvb(hexa)
+    return f"rgba({r},{v},{b},{opacite})"
+
+
+def palette_accent(hexa):
+    """Les jetons d'accent d'une teinte, {"clair": {...}, "sombre": {...}}."""
+    clair = hexa.upper()
+    for _ in range(60):
+        if contraste(clair, "#FFFFFF") >= 4.5:
+            break
+        clair = _clarte(clair, -0.02)
+    sombre = hexa.upper()
+    for _ in range(60):
+        if contraste(sombre, FOND_SOMBRE) >= 7:
+            break
+        sombre = _clarte(sombre, 0.02)
+    clair_survol = _clarte(clair, -0.08)
+    t, _c, s = colorsys.rgb_to_hls(*(x / 255 for x in _rvb(sombre)))
+    return {
+        "clair": {"--accent": clair, "--accent-h": clair_survol,
+                  "--accent-soft": _melange(clair, "#FFFFFF", 0.88),
+                  "--accent-ring": _halo(clair, ".22"), "--sur-accent": "#FFFFFF",
+                  "--bento-lien": _melange(clair, "#FFFFFF", 0.55)},
+        "sombre": {"--accent": sombre, "--accent-h": _clarte(sombre, 0.08),
+                   "--accent-soft": _halo(sombre, ".15"),
+                   "--accent-ring": _halo(sombre, ".3"),
+                   "--sur-accent": _hexa(x * 255 for x in colorsys.hls_to_rgb(t, 0.08, min(s, 0.8))),
+                   "--bento-lien": clair_survol},
+    }
+
+
+def regles_nuancier(nom, hexa):
+    """Les trois regles d'une teinte, comme celles de theme.css : clair,
+    sombre du systeme, sombre choisi."""
+    p = palette_accent(hexa)
+    corps = {k: "{" + " ".join(f"{j}:{v};" for j, v in p[k].items()) + "}" for k in p}
+    racine = f':root[data-variante="bento"][data-couleurs="{nom}"]'
+    return (f"{racine}{corps['clair']}\n"
+            f"@media (prefers-color-scheme: dark){{\n"
+            f'  {racine}:not([data-theme="light"]):not([data-theme="dark"]){corps["sombre"]}\n'
+            f"}}\n"
+            f'{racine}[data-theme="dark"]{corps["sombre"]}\n')
+
+
+# LA COULEUR PERSONNALISEE : six chiffres hexadecimaux, et rien d'autre.
+# POURQUOI : la valeur vient du cookie du client et finit dans une adresse
+#   (/couleur.css?c=...) et dans un attribut de <html>. L'expression la tient
+#   a ce qu'une couleur peut etre ; tout le reste est ignore.
+# DEPEND DE / PROTEGE AUSSI : reglages_du_hub (le cookie), avec_style
+#   (l'attribut et le lien), couleur_css (la feuille).
+COULEUR_PERSO = re.compile(r"[0-9a-fA-F]{6}")
+
+
+@flask_app.get("/couleur.css")
+def couleur_css():
+    """La feuille de la couleur personnalisee. Sans session : elle ne dit rien
+    de personne, et la page de connexion la charge aussi."""
+    c = request.args.get("c", "")
+    if not COULEUR_PERSO.fullmatch(c):
+        return Response("/* couleur invalide */", 400, mimetype="text/css")
+    r = Response(regles_nuancier("perso", "#" + c), mimetype="text/css")
+    # La meme couleur rend toujours la meme feuille : elle se garde.
+    r.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return r
+
+
 # LES REGLAGES DU HUB, poses en attribut sur <html> (data-tuiles,
 # data-defilement...). La premiere valeur de chaque reglage est celle par
 # defaut. Le fond et les surfaces sont ceux de data-variante="bento"
@@ -128,7 +242,10 @@ REGLAGES_HUB = {
     "widgets": ("melanges", "haut"),
     # Le nuancier : la couleur d'accent du panneau (boutons, liens, onglet
     # actif), en clair comme en sombre. Jetons dans theme.css.
-    "couleurs": ("lagon", "ocean", "foret", "prune", "corail", "ardoise"),
+    # « perso » : la teinte choisie librement, portee par un jeton « x » suivi
+    # de six chiffres hexadecimaux dans le meme cookie (voir couleur_perso).
+    "couleurs": ("lagon", "ocean", "foret", "prune", "corail", "ardoise",
+                 "framboise", "ambre", "indigo", "olive", "perso"),
 }
 
 
@@ -143,11 +260,24 @@ def reglages_du_hub():
     """
     reglages = {cle: valeurs[0] for cle, valeurs in REGLAGES_HUB.items()}
     brut = request.cookies.get("codelab-hub") or ""
-    for valeur in brut.split(".")[:len(REGLAGES_HUB)]:
+    # Un jeton de plus que de reglages : la couleur personnalisee.
+    for valeur in brut.split(".")[:len(REGLAGES_HUB) + 1]:
         for cle, valeurs in REGLAGES_HUB.items():
             if valeur in valeurs:
                 reglages[cle] = valeur
+    # « perso » sans couleur lisible : la teinte par defaut, plutot qu'un
+    # accent qui ne serait defini nulle part.
+    if reglages["couleurs"] == "perso" and not couleur_perso():
+        reglages["couleurs"] = REGLAGES_HUB["couleurs"][0]
     return reglages
+
+
+def couleur_perso():
+    """La couleur personnalisee du cookie (six chiffres hexadecimaux), ou ""."""
+    for valeur in (request.cookies.get("codelab-hub") or "").split(".")[:len(REGLAGES_HUB) + 1]:
+        if valeur.startswith("x") and COULEUR_PERSO.fullmatch(valeur[1:]):
+            return valeur[1:].upper()
+    return ""
 
 
 def avec_style(page):
@@ -157,10 +287,22 @@ def avec_style(page):
     Pose cote serveur, l'attribut est la avant la premiere peinture : la
     page ne change pas de forme le temps que son script le lise.
     """
+    reglages = reglages_du_hub()
     attributs = ' data-style="design" data-variante="bento"' + "".join(
-        f' data-{cle}="{valeur}"' for cle, valeur in reglages_du_hub().items())
-    return (page.replace('<html lang="fr">', '<html lang="fr"' + attributs + '>', 1)
-            .replace("__ECRANS_DEMARRAGE__", BALISES_ECRAN_DE_DEMARRAGE, 1))
+        f' data-{cle}="{valeur}"' for cle, valeur in reglages.items())
+    page = page.replace('<html lang="fr">', '<html lang="fr"' + attributs + '>', 1)
+    # La couleur personnalisee : sa feuille, juste avant </head> -- donc apres
+    # theme.css, dont elle remplace l'accent a specificite egale. Six chiffres
+    # hexadecimaux verifies (COULEUR_PERSO) : rien d'autre n'entre ici.
+    # L'attribut garde la couleur meme quand une autre teinte est choisie :
+    # y revenir la retrouve.
+    perso = couleur_perso()
+    if perso:
+        page = page.replace("<html lang=\"fr\"", f'<html lang="fr" data-couleur-perso="{perso}"', 1)
+    if perso and reglages["couleurs"] == "perso":
+        page = page.replace("</head>", '<link rel="stylesheet" id="couleur-perso" '
+                            f'href="/couleur.css?c={perso}"></head>', 1)
+    return page.replace("__ECRANS_DEMARRAGE__", BALISES_ECRAN_DE_DEMARRAGE, 1)
 
 
 # LES PAGES DU PANNEAU ONT CHACUNE LEUR ADRESSE. Recharger les parametres
@@ -258,6 +400,9 @@ def index():
             .replace("__SMTP__", _json_dans_un_script(
                 envoi_mail_configure() if role_courant() == "admin" else True))
             .replace("__UTILISATEUR__", _json_dans_un_script(utilisateur_courant()))
+            # Le prenom et le nom choisis : le bonjour et l'en-tete les
+            # disent des la premiere peinture.
+            .replace("__PROFIL__", _json_dans_un_script(lire_profil()))
             .replace("__PANNEAU_VERSION__", PANNEAU_JS_VERSION))
     r = Response(avec_style(page), mimetype="text/html")
     # Le widget « A la une » du hub montre un APERCU de la derniere

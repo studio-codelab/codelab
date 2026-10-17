@@ -61,6 +61,7 @@ A AMELIORER - Fonctions encore longues (60 a 75 lignes de code), a decouper
               section, pour qu'elle ne vieillisse plus.
 """
 import base64
+import colorsys
 import copy
 import datetime
 import fcntl

@@ -41,7 +41,15 @@ noterThemePartage(themeChoisi);
    clignote au chargement. La premiere valeur de chaque reglage est celle
    par defaut. */
 const REGLAGES_HUB = {tuiles:['cartes','icones'], defilement:['horizontal','vertical'],
-  widgets:['melanges','haut'], couleurs:['lagon','ocean','foret','prune','corail','ardoise']};
+  widgets:['melanges','haut'],
+  couleurs:['lagon','ocean','foret','prune','corail','ardoise','framboise','ambre','indigo','olive','perso']};
+/* La couleur personnalisee : six chiffres hexadecimaux, portes par le jeton
+   « x… » du meme cookie (voir couleur_perso dans le serveur). */
+const COULEUR_PERSO = /^[0-9a-fA-F]{6}$/;
+function couleurPerso(){
+  const v=document.documentElement.getAttribute('data-couleur-perso')||'';
+  return COULEUR_PERSO.test(v) ? v.toUpperCase() : '';
+}
 function reglageHub(cle){
   const v = document.documentElement.getAttribute('data-'+cle);
   return REGLAGES_HUB[cle].includes(v) ? v : REGLAGES_HUB[cle][0];
@@ -49,12 +57,17 @@ function reglageHub(cle){
 function majReglagesHub(){
   document.querySelectorAll('#hub-reglages [data-r]').forEach(b=>
     b.setAttribute('aria-pressed', reglageHub(b.dataset.r)===b.dataset.v));
+  /* La pastille personnalisee prend sa couleur une fois choisie. */
+  const perso=couleurPerso(), pastille=document.getElementById('couleur-perso-pastille');
+  if(perso && pastille){ pastille.style.background='#'+perso;
+    document.getElementById('couleur-perso-choix').value='#'+perso.toLowerCase(); }
 }
 function appliquerReglagesHub(reglages){
   const racine = document.documentElement;
   for(const [cle, v] of Object.entries(reglages))
     if(REGLAGES_HUB[cle] && REGLAGES_HUB[cle].includes(v)) racine.setAttribute('data-'+cle, v);
-  const valeurs = Object.keys(REGLAGES_HUB).map(reglageHub).join('.');
+  const perso = couleurPerso();
+  const valeurs = Object.keys(REGLAGES_HUB).map(reglageHub).concat(perso ? ['x'+perso] : []).join('.');
   try{ document.cookie='codelab-hub='+valeurs+';path=/;max-age=31536000;SameSite=Lax'; }catch(e){}
   majSensDuHub();
   majReglagesHub();
@@ -64,6 +77,22 @@ function appliquerReglagesHub(reglages){
   if(hubApps.length || hubServices.length) peindreHub();
 }
 function setHub(cle, valeur){ appliquerReglagesHub({[cle]: valeur}); }
+/* Choisir sa couleur : la feuille calculee par le serveur remplace celle
+   d'avant (ou se pose), puis le reglage passe a « perso ». La couleur reste
+   dans le cookie meme si l'on repasse a une teinte du nuancier : y revenir
+   la retrouve. */
+/* Un appui sur la pastille reprend la couleur deja choisie, avant meme d'en
+   choisir une autre dans le selecteur qui s'ouvre. */
+function revenirCouleurPerso(){ const c=couleurPerso(); if(c) choisirCouleurPerso(c); }
+function choisirCouleurPerso(valeur){
+  const hexa=String(valeur||'').replace('#','');
+  if(!COULEUR_PERSO.test(hexa)) return;
+  let l=document.getElementById('couleur-perso');
+  if(!l){ l=document.createElement('link'); l.rel='stylesheet'; l.id='couleur-perso'; document.head.appendChild(l); }
+  l.href='/couleur.css?c='+hexa.toUpperCase();
+  document.documentElement.setAttribute('data-couleur-perso', hexa.toUpperCase());
+  appliquerReglagesHub({couleurs:'perso'});
+}
 majReglagesHub();
 
 /* ---------------- colonne de gauche ---------------- */
