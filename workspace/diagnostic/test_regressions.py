@@ -4939,19 +4939,21 @@ def test_les_deux_pages_lisent_le_meme_theme():
     # Les jetons structurants y sont, et dans les trois etats de theme.
     for cle in ("--accent:", "--bg:", "--ok:", "--err:", "--warn:", "--mono:", "--r:"):
         assert cle in theme, f"{cle} manque au theme"
-    # Pour chacun des styles : classique, « Design », puis le style du
-    # panneau (data-variante="bento"), qui tiennent chacun leurs trois etats.
-    classique, reste = theme.split("LE STYLE « DESIGN »", 1)
-    design, variantes = reste.split("LE STYLE DU PANNEAU.", 1)
+    # Pour chacun des styles : celui des applications (:root nu), puis celui
+    # du panneau (data-variante="bento"), qui tiennent chacun leurs trois
+    # etats. Le style « Design », que le panneau redefinissait en entier et
+    # que les applications ne portent pas, est parti.
+    classique, variantes = theme.split("LE STYLE DU PANNEAU.", 1)
     variantes, nuancier = variantes.split("le nuancier ---", 1)
-    for partie, attendus in ((classique, 3), (design, 3), (variantes, 3)):
+    for partie, attendus in ((classique, 3), (variantes, 3)):
         assert partie.count("--accent:") == attendus, (
             "les trois etats de theme doivent etre tenus : clair, sombre du "
             "systeme, sombre choisi explicitement")
-    for bloc in (':root[data-style="design"][data-variante="bento"]{',
-                 ':root[data-style="design"][data-variante="bento"]:not([data-theme="light"]):not([data-theme="dark"]){',
-                 ':root[data-style="design"][data-variante="bento"][data-theme="dark"]{'):
+    for bloc in (':root[data-variante="bento"]{',
+                 ':root[data-variante="bento"]:not([data-theme="light"]):not([data-theme="dark"]){',
+                 ':root[data-variante="bento"][data-theme="dark"]{'):
         assert bloc in variantes, bloc
+    assert ':root[data-style="design"]' not in theme and "Jakarta" not in theme
     # Plus de style « lanceur » : il est devenu un jeu de reglages du hub.
     assert 'data-variante="lanceur"' not in theme
     assert '[data-theme="dark"]' in theme and "prefers-color-scheme" in theme
@@ -10353,8 +10355,8 @@ def _plaques_du_theme():
     """
     feuille = _page_panneau("theme.css")
     valeurs = re.findall(r"--plaque-logo:\s*(#[0-9a-fA-F]{3,6})\s*;", feuille)
-    # Trois styles : classique, « design », et celui du panneau (bento).
-    assert len(valeurs) == 9, (
+    # Deux styles : celui des applications (:root) et celui du panneau (bento).
+    assert len(valeurs) == 6, (
         f"theme.css definit --plaque-logo {len(valeurs)} fois, trois par style attendues")
     return valeurs
 
@@ -13385,16 +13387,15 @@ def test_le_style_se_choisit_et_se_pose_cote_serveur(deux_espaces):
     assert "function setStyle(" not in page and 'id="style-toggle"' not in page
 
 
-def test_le_style_design_ne_change_que_l_habit():
-    """Memes fonctions : le style Design est une surcouche CSS sous
-    html[data-style="design"], jetons dans theme.css, mise en page dans les
-    pages."""
+def test_les_parametres_s_ouvrent_depuis_le_menu_du_compte():
+    """Le style Design a laisse sa mise en page au panneau : parametres
+    depuis le menu du compte, menu en barre du bas sur un telephone.
+
+    Ses jetons sont partis de theme.css, et la police Plus Jakarta Sans
+    n'est plus servie par le panneau : plus rien ne la demandait. Le fichier
+    reste, l'interface Mailpit le recopie a la construction."""
     racine = _racine_depot()
-    theme = open(os.path.join(racine, "app-manager", "app", "theme.css"), encoding="utf-8").read()
-    assert ':root[data-style="design"]{' in theme
-    assert ':root[data-style="design"][data-theme="dark"]{' in theme
-    assert '"/polices/jakarta-latin.woff2"' in theme
-    assert "jakarta-latin.woff2" in app.POLICES_SERVIES
+    assert "jakarta-latin.woff2" not in app.POLICES_SERVIES
     police = os.path.join(racine, "app-manager", "app", "polices", "jakarta-latin.woff2")
     assert open(police, "rb").read(4) == b"wOF2"
     assert os.path.exists(os.path.join(racine, "app-manager", "app", "polices", "LICENCE-jakarta.txt"))

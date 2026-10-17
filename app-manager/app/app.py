@@ -200,7 +200,7 @@ with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
     ICONE_ECRAN_ACCUEIL_PNG = _f.read()
 
 # Les seuls fichiers que /polices/<nom> accepte de servir.
-POLICES_SERVIES = {"manrope-latin.woff2", "jakarta-latin.woff2"}
+POLICES_SERVIES = {"manrope-latin.woff2"}
 
 
 flask_app = Flask(__name__)

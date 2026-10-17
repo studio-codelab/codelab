@@ -31,7 +31,7 @@ ses garanties de sécurité dans [`SECURITE.md`](../SECURITE.md).
 | `app/ouvrir.html` | le cadre d'une application ouverte depuis le hub installé (`/ouvrir.html`) : bords de l'écran, barre d'état et barre de geste, geste retour ; page à marqueurs remplie par `ouvrir_dans_le_panneau` |
 | `app/environnement-app.js` | injecté par le proxy en tête de chaque page d'application : mode, appareil, plateforme, bords ; simule iOS dans le cadre |
 | `app/mode.js` | le **mode** : site web ou application (icône de l'écran d'accueil), lu une fois et posé sur `<html>` (`mode-app` / `mode-site`) pour les trois pages ; la **largeur** (téléphone, tablette, ordinateur) se règle en CSS, avec les seuils décrits en tête de `theme.css` |
-| `app/polices/` | Manrope et Plus Jakarta Sans, auto-hébergées, servies par liste blanche |
+| `app/polices/` | Manrope, auto-hébergée, servie par liste blanche ; Plus Jakarta Sans, que seule l'interface Mailpit recopie à sa construction |
 | `vps/` | exposer le panneau par un VPS ([`vps/README.md`](vps/README.md)) ; ne fait pas partie de l'image |
 
 ## Cycle de vie d'une application

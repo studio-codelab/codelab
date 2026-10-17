@@ -73,17 +73,6 @@
    ligne. Licence SIL OFL 1.1, texte complet dans polices/LICENCE-manrope.txt.
    font-display:swap : le texte s'affiche tout de suite dans la pile systeme,
    puis bascule. Jamais de page blanche en attendant une police. */
-/* La police du style Design (Plus Jakarta Sans, SIL OFL 1.1, texte complet
-   dans polices/LICENCE-jakarta.txt), servie par le panneau lui-meme pour la
-   meme raison que Manrope. Elle n'est telechargee que si une page du style
-   Design la demande. */
-@font-face{
-  font-family:"Plus Jakarta Sans";
-  font-style:normal;
-  font-weight:400 800;
-  font-display:swap;
-  src:url("/polices/jakarta-latin.woff2") format("woff2");
-}
 @font-face{
   font-family:"Manrope";
   font-style:normal;
@@ -217,64 +206,22 @@
 
 
 /* =====================================================================
-   LE STYLE « DESIGN » (Parametres > Compte > Apparence).
-   Memes fonctions, autre habit : fond gris-lavande, cartes blanches tres
-   arrondies, accent indigo, Plus Jakarta Sans. Seuls les JETONS changent
-   ici ; la mise en page propre au style vit dans dashboard.html et
-   login.html, sous html[data-style="design"].
+   LE STYLE DU PANNEAU. Toute page du panneau porte data-variante="bento"
+   (avec_style, app.py) ; une APPLICATION ne le porte pas et garde les
+   jetons ci-dessus. Seuls les JETONS sont ici ; la mise en page (et les
+   reglages du hub : data-tuiles...) vit dans dashboard.html ; le nuancier
+   (data-couleurs) suit les trois blocs. Police : Manrope, en graisse 800
+   pour les titres.
 
-   Specificites : le sombre du systeme du theme classique pese (0,3,0) ; les
-   blocs sombres ci-dessous pesent davantage, et le clair (0,2,0) l'emporte
-   sur la base (0,1,0).
+   Specificites : chaque bloc pese une classe de plus que celui qu'il
+   remplace (clair 0,2,0 > 0,1,0 ; sombre du systeme 0,4,0 > 0,3,0 ;
+   sombre choisi 0,3,0 > 0,2,0). Les jetons qu'il ne redefinit pas (etats,
+   vitrine, tailles) restent ceux du dessus, dans chacun des trois etats.
+   ESSAYE ET ECARTE : garder le style « Design » (data-style="design") en
+   couche intermediaire. Le panneau en redefinissait chaque jeton ici, et
+   les applications ne le portent pas : 45 lignes que personne ne voyait.
    ===================================================================== */
-:root[data-style="design"]{
-  --bg:#F1F2F7; --surface:#FFFFFF; --surface2:#F5F6FA; --bg-input:#F7F8FB;
-  --line:#E6E8F0; --line2:#D9DCE7;
-  --plaque-logo:#FFFFFF;
-  --txt:#15172A; --dim:#5E6280; --dim2:#7E829C;
-  --nav:#F1F2F7; --nav2:#FFFFFF; --nav-line:#E6E8F0;
-  --nav-txt:#15172A; --nav-dim:#5E6280; --nav-hover:#E6E8F0;
-  --accent:#3B3FD8; --accent-h:#2E32C2; --accent-soft:#ECEDFD;
-  --accent-ring:rgba(59,63,216,.22); --sur-accent:#ffffff;
-  --shadow:rgba(21,23,42,.06); --shadow-2:rgba(21,23,42,.14);
-  --r:22px; --r-s:14px; --r-xs:8px;
-  --sans:"Plus Jakarta Sans","Manrope",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-}
-@media (prefers-color-scheme: dark){
-  :root[data-style="design"]:not([data-theme="light"]):not([data-theme="dark"]){
-    --bg:#0F1117; --surface:#1A1D27; --surface2:#222634; --bg-input:#151821;
-    --line:#2A2F3E; --line2:#3A3F52; --plaque-logo:#EEF0F7;
-    --txt:#F2F3F8; --dim:#A2A7BE; --dim2:#7C819A;
-    --nav:#0F1117; --nav2:#1A1D27; --nav-line:#2A2F3E;
-    --nav-txt:#F2F3F8; --nav-dim:#A2A7BE; --nav-hover:#222634;
-    --accent:#8C90FF; --accent-h:#A3A6FF; --accent-soft:rgba(140,144,255,.16);
-    --accent-ring:rgba(140,144,255,.3); --sur-accent:#0F1117;
-    --shadow:rgba(0,0,0,.35); --shadow-2:rgba(0,0,0,.55);
-  }
-}
-:root[data-style="design"][data-theme="dark"]{
-  --bg:#0F1117; --surface:#1A1D27; --surface2:#222634; --bg-input:#151821;
-  --line:#2A2F3E; --line2:#3A3F52; --plaque-logo:#EEF0F7;
-  --txt:#F2F3F8; --dim:#A2A7BE; --dim2:#7C819A;
-  --nav:#0F1117; --nav2:#1A1D27; --nav-line:#2A2F3E;
-  --nav-txt:#F2F3F8; --nav-dim:#A2A7BE; --nav-hover:#222634;
-  --accent:#8C90FF; --accent-h:#A3A6FF; --accent-soft:rgba(140,144,255,.16);
-  --accent-ring:rgba(140,144,255,.3); --sur-accent:#0F1117;
-  --shadow:rgba(0,0,0,.35); --shadow-2:rgba(0,0,0,.55);
-}
-
-
-/* =====================================================================
-   LE STYLE DU PANNEAU. Une variante du style 2 : la page porte
-   data-style="design" ET data-variante="bento". Seuls les JETONS sont ici ;
-   la mise en page (et les reglages du hub : data-tuiles...) vit dans
-   dashboard.html ; le nuancier (data-couleurs) suit les trois blocs. Police : Manrope, en graisse 800 pour les titres.
-
-   Specificites : chaque bloc pese une classe de plus que le bloc du style 2
-   qu'il remplace (clair 0,3,0 > 0,2,0 ; sombre du systeme 0,5,0 > 0,4,0 ;
-   sombre choisi 0,4,0 > 0,3,0).
-   ===================================================================== */
-:root[data-style="design"][data-variante="bento"]{
+:root[data-variante="bento"]{
   --bg:#E9EBEE; --surface:#FFFFFF; --surface2:#F4F5F7; --bg-input:#FFFFFF;
   --line:#DADEE3; --line2:#C6CCD3; --plaque-logo:#FFFFFF;
   --txt:#12161C; --dim:#525C67; --dim2:#76808B;
@@ -288,7 +235,7 @@
   --sans:"Manrope",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
 }
 @media (prefers-color-scheme: dark){
-  :root[data-style="design"][data-variante="bento"]:not([data-theme="light"]):not([data-theme="dark"]){
+  :root[data-variante="bento"]:not([data-theme="light"]):not([data-theme="dark"]){
     --bg:#0D1015; --surface:#161B22; --surface2:#1D232C; --bg-input:#12171D;
     --line:#262E38; --line2:#333D49; --plaque-logo:#EEF1F4;
     --txt:#EEF1F4; --dim:#A0AAB5; --dim2:#7D8793;
@@ -300,7 +247,7 @@
     --bento-encre:#EEF1F4; --bento-sur-encre:#12161C; --bento-lien:#0B646C; --bento-rail:rgba(18,22,28,.14);
   }
 }
-:root[data-style="design"][data-variante="bento"][data-theme="dark"]{
+:root[data-variante="bento"][data-theme="dark"]{
   --bg:#0D1015; --surface:#161B22; --surface2:#1D232C; --bg-input:#12171D;
   --line:#262E38; --line2:#333D49; --plaque-logo:#EEF1F4;
   --txt:#EEF1F4; --dim:#A0AAB5; --dim2:#7D8793;

@@ -10,7 +10,7 @@ COPY dagster/proxy/map-upgrade.conf /etc/nginx/conf.d/00-map-upgrade.conf
 COPY dagster/proxy/nginx.conf /etc/nginx/conf.d/default.conf
 COPY dagster/proxy/mailpit.conf /etc/nginx/conf.d/mailpit.conf
 # L'interface Mailpit de CodeLab (page, script, style, logos) et la police
-# du Style 2 du panneau (Plus Jakarta Sans, licence OFL jointe), recopiee ici
+# Plus Jakarta Sans (licence OFL jointe), rangee avec les polices du panneau, recopiee ici
 # pour etre servie de la meme origine.
 COPY dagster/proxy/mailpit-ui/ /usr/share/nginx/codelab/mailpit/
 COPY app-manager/app/polices/jakarta-latin.woff2 /usr/share/nginx/codelab/mailpit/jakarta.woff2
