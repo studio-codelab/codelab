@@ -89,6 +89,11 @@ Le panneau ne crée jamais de projet : il **déclare** un dossier existant de `/
 - **Visibilité** : une application privée exige une session autorisée pour elle. Sans session, la
   personne passe par `/login?suite=/ouvrir.app/<nom>/<chemin>`. Une application ne peut devenir
   publique que si une adresse publique est déclarée.
+- **Connexions** : le proxy garde ses connexions vers chaque application (au plus une par fil, 4 s
+  d'inactivité). `GET` et `HEAD` se rejouent une fois si l'application avait fermé la connexion ;
+  les autres méthodes partent toujours sur une connexion neuve et ne sont jamais rejouées.
+- **Redirections** : celles qui restent dans l'application sont suivies par le proxy (règles
+  d'urllib) ; celles vers une autre adresse repartent au navigateur.
 - **Cadre** : `frame-ancestors` est ajouté si l'application ne le pose pas. `nosniff` est toujours
   posé.
 - **Limites** :

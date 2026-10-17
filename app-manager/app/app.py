@@ -66,12 +66,14 @@ import gzip
 import queue
 import hashlib
 import hmac
+import http.client
 import ipaddress
 import json
 import os
 import re
 import resource
 import secrets
+import select
 import shutil
 import signal
 import smtplib
@@ -13553,6 +13555,167 @@ def proteger_l_encadrement(entetes):
     return entetes
 
 
+# Les connexions vers les applications. Le proxy gardait UNE connexion TCP par
+# requete (urllib.request.urlopen) : poignee de main, puis souvent un fil neuf
+# cote application (http.server, Flask en developpement), pour chaque image,
+# chaque script, chaque appel d'API d'une page.
+# Une connexion se rend apres usage et resert a la requete suivante vers le
+# meme port. Mesure (banc de charge sous waitress, application http.server) :
+# page de 20 Ko 378 -> 457 req/s a un client, 487 -> 521 a 200 ; JSON
+# 455 -> 586 et 555 -> 626. Seul, sans waitress : 1255 -> 4670 req/s.
+# Deux pieges mesures, expliques sur place : l'acquittement differe
+# (_accuser_reception_sans_attendre) et le verrou tenu pendant un appel
+# systeme (_connexion_vers).
+#
+# CE QUI NE CHANGE PAS, et que le proxy decide avant d'arriver ici : quels
+# en-tetes partent (regle 19, en-tetes X-CodeLab-*), le delai de 30 s, la
+# page neutre d'une application muette.
+#
+# UNE REQUETE N'EST JAMAIS ENVOYEE DEUX FOIS. Une connexion gardee peut avoir
+# ete fermee par l'application entre deux requetes (Node la ferme apres 5 s,
+# un redemarrage la coupe) : on ne le sait qu'en l'utilisant. Une requete
+# qui ne modifie rien (GET, HEAD) se rejoue alors une fois sur une connexion
+# neuve. Toute autre methode part sur une connexion neuve : rejouer un
+# paiement, un envoi de formulaire ou une suppression, faute de savoir s'il
+# avait ete recu, est pire que la poignee de main economisee. (PUT et DELETE
+# sont idempotents selon HTTP, pas forcement dans le code d'une application.)
+#
+# LES REDIRECTIONS. urllib suivait toute redirection cote serveur, y compris
+# vers un autre site : le panneau allait chercher la page a la place du
+# navigateur, et la servait sous l'adresse de l'application (une connexion
+# « avec Google » ne pouvait pas marcher). On garde ce que l'application
+# attend vers ELLE-MEME -- un « /login » absolu, que le navigateur aurait
+# envoye a la racine de l'origine des applications, sans le /<nom>/ -- avec
+# les regles de methode d'urllib. Une redirection vers une autre adresse
+# repart au navigateur telle quelle.
+# ESSAYE ET ECARTE : renvoyer toutes les redirections au navigateur. Un
+#   Location « /login » sortirait du prefixe de l'application, et c'est ce
+#   qu'ecrivent la plupart des cadriciels.
+# Autant que de fils servant des requetes : chacun peut en tenir une.
+CONNEXIONS_LIBRES_PAR_PORT = WSGI_THREADS
+CONNEXION_LIBRE_MAX_S = 4         # sous les 5 s de Node (keepAliveTimeout)
+REDIRECTIONS_SUIVIES = 10         # comme urllib (max_redirections)
+METHODES_REJOUABLES = ("GET", "HEAD")
+_connexions_libres = {}           # port -> [(connexion, instant ou elle a ete rendue)]
+_connexions_verrou = threading.Lock()
+
+
+def _connexion_vers(port, reutilisable):
+    """Une connexion libre et encore ouverte vers ce port, sinon une neuve.
+    Rend (connexion, reutilisee)."""
+    while reutilisable:
+        # Rien sous le verrou qui rende la main a Python (appel systeme,
+        # fermeture) : le fil qui le tient attendrait le GIL jusqu'a 5 ms,
+        # et les 15 autres derriere lui. Vecu : a 200 clients, la moitie du
+        # temps se passait a attendre ce verrou, et le debit tombait de moitie.
+        with _connexions_verrou:
+            libres = _connexions_libres.get(port)
+            if not libres:
+                break
+            conn, rendue = libres.pop()
+        # Lisible sans rien avoir demande : l'application a ferme (ou
+        # envoye un reste). Elle ne resservira pas.
+        if (time.monotonic() - rendue < CONNEXION_LIBRE_MAX_S and conn.sock
+                and not select.select([conn.sock], [], [], 0)[0]):
+            return conn, True
+        conn.close()
+    return http.client.HTTPConnection("127.0.0.1", port, timeout=30), False
+
+
+def _rendre_connexion(port, conn):
+    rendue = time.monotonic()
+    with _connexions_verrou:
+        libres = _connexions_libres.setdefault(port, [])
+        if len(libres) < CONNEXIONS_LIBRES_PAR_PORT:
+            libres.append((conn, rendue))
+            return
+    conn.close()
+
+
+def _accuser_reception_sans_attendre(conn):
+    """Accuse reception de chaque segment de la reponse sans le delai de 40 ms.
+
+    Vecu : connexions gardees, une page de 20 Ko passait de 2,5 a 44 ms. Une
+    application ecrite sur http.server (Flask en developpement compris)
+    envoie l'en-tete, puis le corps : Nagle retient le corps tant que
+    l'en-tete n'est pas acquitte, et Linux, sur une connexion qui dure,
+    differe cet acquittement de 40 ms. Une connexion neuve ne le voyait pas
+    (Linux acquitte tout de suite ses premiers segments).
+    TCP_QUICKACK ne dure pas : Linux le retire de lui-meme, d'ou un appel par
+    requete, juste avant d'attendre la reponse.
+    ESSAYE ET ECARTE : TCP_NODELAY de notre cote. Il regle nos envois, pas
+      ceux de l'application, qui sont ceux qui attendent.
+    """
+    try:
+        conn.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_QUICKACK, 1)
+    except (AttributeError, OSError):
+        pass
+
+
+def _envoyer(port, methode, chemin, entetes, corps):
+    rejouable = methode in METHODES_REJOUABLES
+    for essai in (1, 2):
+        conn, reutilisee = _connexion_vers(port, rejouable)
+        try:
+            conn.request(methode, chemin, body=corps, headers=entetes)
+            _accuser_reception_sans_attendre(conn)
+            r = conn.getresponse()
+            data = r.read()
+        except (http.client.RemoteDisconnected, ConnectionResetError,
+                BrokenPipeError, ConnectionAbortedError):
+            conn.close()
+            if reutilisee and essai == 1:
+                continue
+            raise
+        except BaseException:
+            conn.close()
+            raise
+        if r.will_close:
+            conn.close()
+        else:
+            _rendre_connexion(port, conn)
+        return r.status, r.getheaders(), data
+
+
+def _redirection_interne(port, chemin, location):
+    """Le chemin d'une redirection qui vise l'application elle-meme, sinon None."""
+    base = "http://127.0.0.1:" + str(port)
+    cible = urllib.parse.urlsplit(urllib.parse.urljoin(base + chemin,
+                                                        location.replace(" ", "%20")))
+    try:
+        port_cible = cible.port or 80
+    except ValueError:
+        return None
+    if (cible.scheme != "http" or port_cible != port
+            or cible.hostname not in ("127.0.0.1", "localhost")):
+        return None
+    return (cible.path or "/") + ("?" + cible.query if cible.query else "")
+
+
+def demander_a_l_application(port, methode, chemin, entetes, corps):
+    """Envoie la requete a l'application et rend (statut, en-tetes, corps).
+    Une application injoignable leve OSError (ou HTTPException)."""
+    entetes = dict(entetes)
+    if corps is not None and not any(k.lower() == "content-type" for k in entetes):
+        entetes["Content-Type"] = "application/x-www-form-urlencoded"
+    for _ in range(REDIRECTIONS_SUIVIES + 1):
+        statut, recus, data = _envoyer(port, methode, chemin, entetes, corps)
+        # Les regles d'urllib (HTTPRedirectHandler.redirect_request) : un
+        # POST redirige par 301/302/303 devient un GET sans corps, 307 et 308
+        # ne se suivent qu'en GET ou HEAD.
+        suivie = (statut in (301, 302, 303, 307, 308) and methode in ("GET", "HEAD")
+                  or statut in (301, 302, 303) and methode == "POST")
+        location = next((v for k, v in recus if k.lower() == "location"), None)
+        interne = location and suivie and _redirection_interne(port, chemin, location)
+        if not interne:
+            return statut, recus, data
+        chemin, corps = interne, None
+        methode = "HEAD" if methode == "HEAD" else "GET"
+        entetes = {k: v for k, v in entetes.items()
+                   if k.lower() not in ("content-length", "content-type")}
+    return statut, recus, data
+
+
 def _proxy(name, sub):
     a = load().get(name)
     if not a:
@@ -13605,12 +13768,11 @@ def _proxy(name, sub):
     journaliser_ouverture(name)
     if not is_running(name):
         return page_application_fermee(name, a)
-    url = ("http://127.0.0.1:" + str(a["port"]) + "/"
-           + urllib.parse.quote(sub, safe="/"))
+    chemin = "/" + urllib.parse.quote(sub, safe="/")
     if request.query_string:
-        url += "?" + request.query_string.decode()
+        chemin += "?" + request.query_string.decode()
     body = request.get_data() if request.method in ("POST", "PUT", "PATCH") else None
-    req = urllib.request.Request(url, data=body, method=request.method)
+    entetes = {}
     # Les en-tetes SSO sont controles par le proxy. Ceux fournis par le
     # navigateur sont TOUJOURS supprimes avant injection : une application
     # publique ne doit pas pouvoir s'attribuer une identite, et une application
@@ -13638,7 +13800,7 @@ def _proxy(name, sub):
             v = strip_session_cookie(v)
             if not v:
                 continue
-        req.add_header(k, v)
+        entetes[k] = v
 
     # Assertion signee courte : l'application ne connait ni le cookie Flask
     # ni le secret de session. Pour un visiteur anonyme, aucune identite n'est
@@ -13646,23 +13808,21 @@ def _proxy(name, sub):
     # L'adresse du panneau, vue du navigateur : les liens « Se connecter avec
     # CodeLab » et « Se deconnecter » de l'application en ont besoin, et
     # l'application ne peut pas la deviner (autre port, autre nom public).
-    req.add_header("X-CodeLab-Panneau", lien_panneau())
+    entetes["X-CodeLab-Panneau"] = lien_panneau()
     token = jeton_sso(name)
     if token:
-        req.add_header("X-CodeLab-Auth", token)
-        req.add_header("X-CodeLab-User", utilisateur_courant())
-        req.add_header("X-CodeLab-Role", role_courant() or "")
-        req.add_header("X-CodeLab-Authenticated", "true")
+        entetes["X-CodeLab-Auth"] = token
+        entetes["X-CodeLab-User"] = utilisateur_courant()
+        entetes["X-CodeLab-Role"] = role_courant() or ""
+        entetes["X-CodeLab-Authenticated"] = "true"
         compte = None if est_admin() else lire_utilisateurs().get(utilisateur_courant())
         email = (compte or {}).get("email", "") if compte else ""
         if email:
-            req.add_header("X-CodeLab-Email", email)
+            entetes["X-CodeLab-Email"] = email
 
     try:
-        r = urllib.request.urlopen(req, timeout=30)
-        data, status, headers = r.read(), r.status, r.headers
-    except urllib.error.HTTPError as e:
-        data, status, headers = e.read(), e.code, e.headers
+        status, headers, data = demander_a_l_application(a["port"], request.method, chemin,
+                                                         entetes, body)
     except Exception:
         return page_application_fermee(name, a, muette=True)
     # UNE PAGE QUI PLANTE, VUE PAR UN UTILISATEUR : la page neutre plutot que
@@ -13672,7 +13832,7 @@ def _proxy(name, sub):
     if (status >= 500 and request.method == "GET" and not est_admin()
             and request.headers.get("Sec-Fetch-Mode") == "navigate"):
         return page_inaccessible(name, a)
-    sortants = [(k, v) for k, v in headers.items() if k.lower() not in HOP]
+    sortants = [(k, v) for k, v in headers if k.lower() not in HOP]
     # Le ruban n'est pose que pour quelqu'un de CONNECTE. Une application
     # publique vue par un visiteur anonyme ne doit pas lui annoncer qu'un
     # panneau existe derriere, ni lui offrir un lien qui le renverrait a une

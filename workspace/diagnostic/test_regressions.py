@@ -5394,7 +5394,7 @@ def test_le_ruban_de_retour_refuse_les_cas_risques():
     # Et il ne se pose que pour quelqu'un de connecte : une application
     # publique vue par un visiteur anonyme n'a pas a lui annoncer qu'un
     # panneau existe derriere.
-    pose = src[src.index("sortants = [(k, v) for k, v in headers.items()"):]
+    pose = src[src.index("sortants = [(k, v) for k, v in headers if"):]
     pose = pose[:pose.index("return Response")]
     assert "if is_authed():" in pose
 
@@ -7836,7 +7836,7 @@ def test_les_applications_repondent_sur_leur_port(deux_origines, monkeypatch):
     # test accusait la separation des origines.
     def ne_repond_pas(*a, **kw):
         raise OSError("connexion refusee")
-    monkeypatch.setattr(app.urllib.request, "urlopen", ne_repond_pas)
+    monkeypatch.setattr(app, "demander_a_l_application", ne_repond_pas)
 
     r = c.get("/public/", **_sur_port(9302))
     # 502 : la route du proxy est bien atteinte, et c'est la connexion a
@@ -14297,23 +14297,140 @@ def test_le_proxy_pose_l_adresse_du_panneau_et_jette_les_en_tetes_du_client(deux
     c = deux_origines
     vus = {}
 
-    class Reponse:
-        status = 200
-        headers = {"Content-Type": "text/plain"}
-
-        def read(self):
-            return b"ok"
-
-    def amont(req, timeout=30):
-        vus.update({k.lower(): v for k, v in req.header_items()})
-        return Reponse()
-    monkeypatch.setattr(app.urllib.request, "urlopen", amont)
+    def amont(port, methode, chemin, entetes, corps):
+        vus.update({k.lower(): v for k, v in entetes.items()})
+        return 200, [("Content-Type", "text/plain")], b"ok"
+    monkeypatch.setattr(app, "demander_a_l_application", amont)
     r = c.get("/public/", headers={"X-CodeLab-Panneau": "http://evil/",
                                    "X-CodeLab-Nouveau": "faux", "X-CodeLab-User": "admin"},
               **_sur_port(9302))
     assert r.status_code == 200
     assert vus["x-codelab-panneau"] == "http://serveur:9001/"
     assert "x-codelab-nouveau" not in vus and "x-codelab-user" not in vus
+
+
+# ------------------- connexions du proxy vers les applications -------------------
+#
+# Une vraie application locale, sur un port libre : le proxy y garde ses
+# connexions ouvertes, ne rejoue jamais un POST, et ne suit que les
+# redirections vers l'application elle-meme.
+
+@pytest.fixture
+def appli_locale():
+    import threading
+    from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+    vu = {"connexions": set(), "requetes": []}
+
+    class Gestion(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def _repondre(self):
+            n = int(self.headers.get("Content-Length") or 0)
+            corps = self.rfile.read(n) if n else b""
+            vu["connexions"].add(self.client_address)
+            vu["requetes"].append((self.command, self.path, corps))
+            cible = {"/interne": "/arrivee", "/dehors": "https://accounts.example/o",
+                     "/absolue": "http://127.0.0.1:%d/arrivee" % self.server.server_port,
+                     "/temporaire": "/arrivee"}.get(self.path.split("?")[0])
+            if cible:
+                self.send_response(307 if self.path == "/temporaire" else 302)
+                self.send_header("Location", cible)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            reponse = (self.command + " " + self.path).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(reponse)))
+            self.end_headers()
+            self.wfile.write(reponse)
+            if self.path == "/ferme":
+                # Annonce une connexion gardee, puis la coupe : ce que fait
+                # une application qui redemarre entre deux requetes.
+                self.close_connection = True
+
+        do_GET = do_POST = do_HEAD = _repondre
+
+        def log_message(self, *a):
+            pass
+
+    serveur = ThreadingHTTPServer(("127.0.0.1", 0), Gestion)
+    serveur.daemon_threads = True
+    threading.Thread(target=serveur.serve_forever, daemon=True).start()
+    vu["port"] = serveur.server_port
+    yield vu
+    serveur.shutdown()
+    serveur.server_close()
+    app._connexions_libres.pop(vu["port"], None)
+
+
+def test_le_proxy_garde_sa_connexion_vers_l_application(appli_locale):
+    """Une connexion TCP par requete coutait une poignee de main, et souvent
+    un fil neuf cote application, pour chaque image et chaque appel d'API."""
+    port = appli_locale["port"]
+    for _ in range(3):
+        statut, _e, data = app.demander_a_l_application(port, "GET", "/a", {}, None)
+        assert statut == 200 and data == b"GET /a"
+    assert len(appli_locale["connexions"]) == 1
+
+
+def test_une_connexion_gardee_ne_coute_pas_40_ms_par_requete(appli_locale):
+    """Vecu : connexions gardees, une page passait de 2,5 a 44 ms. http.server
+    ecrit l'en-tete puis le corps, Nagle retient le corps, et Linux differe
+    l'acquittement de 40 ms sur une connexion qui dure (TCP_QUICKACK)."""
+    port = appli_locale["port"]
+    app.demander_a_l_application(port, "GET", "/a", {}, None)
+    debut = time.monotonic()
+    for _ in range(20):
+        app.demander_a_l_application(port, "GET", "/a", {}, None)
+    assert time.monotonic() - debut < 0.4, "le delai d'acquittement est revenu"
+    assert len(appli_locale["connexions"]) == 1
+
+
+def test_le_proxy_n_envoie_jamais_un_post_sur_une_connexion_gardee(appli_locale):
+    """Une connexion gardee peut avoir ete fermee par l'application : un POST
+    qu'il faudrait rejouer, faute de savoir s'il a ete recu, part donc sur
+    une connexion neuve, et une seule fois."""
+    port = appli_locale["port"]
+    app.demander_a_l_application(port, "GET", "/a", {}, None)
+    statut, _e, data = app.demander_a_l_application(port, "POST", "/paye", {}, b"x=1")
+    assert statut == 200 and data == b"POST /paye"
+    assert len(appli_locale["connexions"]) == 2
+    assert [r for r in appli_locale["requetes"] if r[0] == "POST"] == [("POST", "/paye", b"x=1")]
+
+
+def test_une_connexion_coupee_par_l_application_ne_fait_pas_d_erreur(appli_locale):
+    port = appli_locale["port"]
+    assert app.demander_a_l_application(port, "GET", "/ferme", {}, None)[0] == 200
+    time.sleep(0.1)
+    statut, _e, data = app.demander_a_l_application(port, "GET", "/apres", {}, None)
+    assert statut == 200 and data == b"GET /apres"
+
+
+def test_le_proxy_ne_suit_que_les_redirections_vers_l_application(appli_locale):
+    """Un « /login » absolu reste dans l'application (le navigateur l'aurait
+    envoye hors du /<nom>/) ; une redirection vers un autre site repart au
+    navigateur : le panneau allait chercher la page de Google a sa place."""
+    port = appli_locale["port"]
+    for chemin in ("/interne", "/absolue"):
+        statut, _e, data = app.demander_a_l_application(port, "GET", chemin, {}, None)
+        assert (statut, data) == (200, b"GET /arrivee"), chemin
+    statut, entetes, _d = app.demander_a_l_application(port, "GET", "/dehors", {}, None)
+    assert statut == 302 and dict(entetes)["Location"] == "https://accounts.example/o"
+    assert not any(r[1] == "/o" for r in appli_locale["requetes"])
+    # Les regles d'urllib : un POST redirige par 302 devient un GET sans
+    # corps, un 307 ne se suit pas.
+    statut, _e, data = app.demander_a_l_application(port, "POST", "/interne", {}, b"x=1")
+    assert (statut, data) == (200, b"GET /arrivee")
+    assert app.demander_a_l_application(port, "POST", "/temporaire", {}, b"x=1")[0] == 307
+
+
+def test_une_application_injoignable_leve_une_erreur_de_connexion():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    with pytest.raises(OSError):
+        app.demander_a_l_application(port, "GET", "/", {}, None)
 
 
 def test_codelab_new_depose_les_modules_de_connexion(tmp_path):
@@ -15822,10 +15939,9 @@ def test_une_page_qui_plante_reste_neutre_pour_un_utilisateur(deux_espaces, monk
     c = deux_espaces
     _connecte(c, "marie", "mot-de-passe-long")
 
-    def plante(req, timeout=None):
-        raise app.urllib.error.HTTPError(req.full_url, 500, "x", {"Content-Type": "text/html"},
-                                         io.BytesIO(b"Traceback (most recent call last)"))
-    monkeypatch.setattr(app.urllib.request, "urlopen", plante)
+    def plante(port, methode, chemin, entetes, corps):
+        return 500, [("Content-Type", "text/html")], b"Traceback (most recent call last)"
+    monkeypatch.setattr(app, "demander_a_l_application", plante)
     r = c.get("/prive-autorise/", headers={"Sec-Fetch-Mode": "navigate"})
     assert r.status_code == 503 and b"Traceback" not in r.data
     assert "momentanément inaccessible" in r.get_data(as_text=True)

@@ -90,7 +90,10 @@ celle du panneau (`9001`). Le hub l'ouvre aussi dans un cadre (`/ouvrir.html`).
      servi par le panneau sur la meme origine.
    - Pour un front, regle la base des adresses : `base` (Vite), `basePath`
      (Next.js), `--base-href` (Angular) ou `homepage` (CRA).
-   - Une redirection serveur vise une adresse relative.
+   - Une redirection serveur vise une adresse relative. Le panneau suit
+     lui-meme celle qui reste dans l'application (y compris `/login`) ; une
+     redirection vers un autre site (connexion Google, paiement) part au
+     navigateur telle quelle.
 4. **Front : build puis service statique.** Le build produit `dist/`, le
    lancement le sert (`python3 -m http.server $PORT --directory dist`). Ne
    deploie jamais un serveur de developpement (`vite dev`, `npm run dev`,
