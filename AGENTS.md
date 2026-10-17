@@ -50,7 +50,8 @@ Ce qu'un agent ne fait **jamais** sans demande explicite :
 | Dossier | Ce que c'est | Lu par |
 |---|---|---|
 | `app-manager/` | **le panneau** : Flask + waitress, authentification, hub, proxy des applications, mails, sauvegardes | tout le monde |
-| `app-manager/app/app.py` | le service entier (≈ 14 000 lignes, découpé en sections `# ---- titre ----`) | — |
+| `app-manager/app/app.py` | le service : imports, chemins et constantes partagés, le chargeur de `serveur/`, puis `main` | — |
+| `app-manager/app/serveur/` | le reste du service, en 14 morceaux de sections `# ---- titre ----`, exécutés dans la portée d'`app` (`MODULES_DU_SERVEUR`) | `app.py` |
 | `app-manager/app/stockage.py` | SQLite : connexions, `MIGRATIONS` versionnées, sauvegarde cohérente | `app.py` |
 | `app-manager/app/dashboard.html` | le panneau (hub, applications, paramètres…), page unique : balisage et CSS | navigateur |
 | `app-manager/app/panneau/` | le script de `dashboard.html`, en modules assemblés dans l'ordre (`PANNEAU_MODULES`), mis en cache | navigateur |
@@ -85,6 +86,7 @@ modification touche une case de gauche, vérifie chaque point de droite.
 | **`mode.js`** | Il est chargé **avant tout affichage** par `dashboard.html`, `login.html` et `messages.html`, et il verrouille le portrait sur un téléphone Android (voir « PAS DE ROTATION »). Il ne retourne plus la page sur iPhone : la contre-rotation a été retirée à la demande de l'utilisateur, ne la remets pas. Les tests découpent le fichier sur les marqueurs `(function(){`, `})();` et `if(!app) return;` : n'écris pas `(function(){` ailleurs dans le bloc (écris `function(e){`). |
 | **`environnement-app.js`** | Le proxy le glisse **dans une balise `<script>` de pages qu'on ne contrôle pas**. Quatre contraintes en découlent. Pas de `</` dans le fichier, commentaires compris : il fermerait la balise. Un seul `__PANNEAU__`, remplacé par l'origine du panneau. Du **ES5**, puisqu'il tourne avant tout, sur n'importe quel navigateur. Et il ne doit **jamais** casser l'application : tout ce qui peut échouer passe par `try`, et une CSP stricte de l'application le bloque sans rien casser. Il simule iOS pour une application encadrée ; toute nouvelle simulation est documentée dans `dev/AGENTS.md` (« Ce que le hub te dit »). |
 | **`ouvrir.html`** (servi par `ouvrir_dans_le_panneau`, `app.py`) | C'est une page à marqueurs (`__TITRE__`, `__ICONE__`, `__CIBLE__`, `__ORIGINE__`), remplie **en un seul passage**, chaque valeur étant échappée pour son contexte. N'écris pas de marqueur ailleurs, commentaires compris. Elle dialogue avec `environnement-app.js` par `postMessage`. **Les deux côtés vérifient l'origine exacte** (`e.origin !== origine`, `e.origin !== PANNEAU`) et valident chaque valeur reçue (expression rationnelle des couleurs). Son `frame-src` vient de `cadres_permis()` : ne l'élargis jamais à `*`. |
+| **`serveur/*.py`** | Ce ne sont pas des modules : `app.py` les exécute dans **sa** portée, dans l'ordre de `MODULES_DU_SERVEUR`. Ils partagent donc les globales, et `monkeypatch.setattr(app, …)` atteint leurs appels. Un nouveau fichier ne tourne que s'il est ajouté à la liste (un test le vérifie). Chaque morceau s'analyse seul : une frontière ne coupe jamais une fonction. N'importe jamais un morceau. Les tests lisent le source réassemblé (`_source_du_panneau`), jamais `app.py` seul. |
 | **`panneau/*.js`** | Les modules s'assemblent en UN script, dans l'ordre de `PANNEAU_MODULES` (`app.py`) : une seule portée, et un nouveau fichier n'est servi que s'il est ajouté à la liste (un test le vérifie). Chaque module s'analyse seul : une frontière ne coupe jamais une fonction. Le script est le même pour toutes les sessions et se met en cache : aucune valeur propre à la session n'y entre. Elles passent par `window.CODELAB_PAGE`, que `page_du_panneau` écrit dans la page avec `_json_dans_un_script` (« < » échappé). Les tests le lisent remis en ligne dans la page (`_page_panneau`, `_page_servie`). |
 | **Le CSS de `dashboard.html`** | `data-style="design"` et `data-variante="bento"` sont toujours posés : une propriété de base que la règle préfixée redéfinit ne sert à rien, ne l'y remets pas. Un commentaire ou une accolade déséquilibrés effacent des règles sans aucun message : un test le vérifie. |
 | **Un nom de route Flask** | Les noms d'application ne peuvent pas prendre celui d'une route (règle 21 de `SECURITE.md`) : la liste est tirée de la table des routes. Une route que les applications doivent atteindre va dans `ROUTES_APPLICATIONS`, avec sa justification. |
@@ -177,8 +179,8 @@ rapporte le cas vécu.
 
 ### 5.1 Structure
 
-- **Un fichier, un rôle**, annoncé dans son en-tête (5.4). Dans un gros fichier comme `app.py` ou
-  `dashboard.html`, le code se range en **sections titrées**
+- **Un fichier, un rôle**, annoncé dans son en-tête (5.4). Dans un gros fichier comme un morceau de
+  `serveur/` ou `dashboard.html`, le code se range en **sections titrées**
   (`# ------------------------------ titre ------------------------------`), dans l'ordre où l'on
   en a besoin. Une fonction nouvelle va dans la section de son sujet, pas en fin de fichier.
 - **Une fonction fait une chose.** Au-delà d'environ 60 lignes, ou de trois niveaux d'imbrication,

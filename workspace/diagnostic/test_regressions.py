@@ -185,7 +185,7 @@ def test_le_filet_detourne_bien_tous_les_chemins():
     """Le filet se teste lui-meme : si un chemin d'etat lui echappait, ce
     test le dirait avant qu'une ecriture n'atteigne une vraie installation."""
     import inspect
-    source = inspect.getsource(app)
+    source = _source_du_panneau()
     # Tout ce qui ressemble a un chemin construit sous STATE_DIR,
     # SHARED_CONFIG_DIR ou ROOT doit figurer dans CHEMINS_ETAT.
     #
@@ -4759,6 +4759,40 @@ def test_l_enveloppe_de_fetch_regarde_l_origine():
 # Ces deux tests tiennent la propriete, pas la mise en forme : il y a un
 # fichier de theme, et les pages n'en redefinissent aucun.
 
+def _source_du_panneau():
+    """app.py tel qu'il s'execute : les morceaux de serveur/ remis a la place
+    de leur chargeur, dans l'ordre de MODULES_DU_SERVEUR. Ce qu'un test
+    cherche dans le source du panneau (une chaine, l'ordre de deux
+    fonctions, le corps d'une route) se lit donc la ou il le lisait quand
+    tout tenait en un fichier."""
+    dossier = os.path.join(DOSSIER_PANNEAU, "app")
+    texte = open(os.path.join(dossier, "app.py"), encoding="utf-8").read()
+    appel = "\n_charger_le_serveur()\n"
+    assert texte.count(appel) == 1, "app.py ne charge plus ses morceaux"
+    morceaux = "".join(open(os.path.join(dossier, "serveur", nom), encoding="utf-8").read()
+                       for nom in app.MODULES_DU_SERVEUR)
+    return texte.replace(appel, "\n" + morceaux + appel)
+
+
+def test_chaque_morceau_du_serveur_est_charge_et_s_analyse_seul():
+    """Vecu : « Decoupe app.py ». Le panneau vit dans serveur/, execute dans
+    l'ordre de MODULES_DU_SERVEUR : un fichier absent de la liste ne
+    tournerait jamais, sans un mot. Et chaque morceau s'analyse seul -- une
+    frontiere qui couperait une fonction en deux ne s'executerait pas."""
+    dossier = os.path.join(DOSSIER_PANNEAU, "app", "serveur")
+    presents = sorted(n for n in os.listdir(dossier) if n.endswith(".py"))
+    assert list(app.MODULES_DU_SERVEUR) == presents, (
+        "serveur/ et MODULES_DU_SERVEUR divergent")
+    for nom in presents:
+        source = open(os.path.join(dossier, nom), encoding="utf-8").read()
+        ast.parse(source, nom)
+        assert source.startswith("# CodeLab -- LE PANNEAU, "), f"{nom} sans en-tete"
+    # Les fonctions viennent de leur vrai fichier, et vivent dans app : un
+    # remplacement par monkeypatch.setattr(app, ...) atteint leurs appels.
+    assert inspect.getsourcefile(app._proxy).endswith(os.path.join("serveur", "13-hub-et-proxy.py"))
+    assert app._proxy.__globals__ is vars(app)
+
+
 def _page_panneau(nom):
     """Un fichier du panneau, tel que les tests le lisent.
 
@@ -4768,6 +4802,8 @@ def _page_panneau(nom):
     balise. Ce qu'un test verifie du script (presence, ordre, corps d'une
     fonction) se lit donc la ou il le lisait quand il etait en ligne.
     """
+    if nom == "app.py":
+        return _source_du_panneau()
     texte = open(os.path.join(DOSSIER_PANNEAU, "app", nom), encoding="utf-8").read()
     if nom == "dashboard.html":
         balise = '<script src="/panneau.js?v=__PANNEAU_VERSION__"></script>'
@@ -4778,10 +4814,11 @@ def _page_panneau(nom):
 
 
 def _lire_source(chemin):
-    """Un fichier par son chemin ; dashboard.html reconstitue avec son script
-    (voir _page_panneau)."""
-    if os.path.abspath(chemin) == os.path.abspath(os.path.join(DOSSIER_PANNEAU, "app", "dashboard.html")):
-        return _page_panneau("dashboard.html")
+    """Un fichier par son chemin ; dashboard.html reconstitue avec son script,
+    app.py avec ses morceaux (voir _page_panneau)."""
+    for nom in ("dashboard.html", "app.py"):
+        if os.path.abspath(chemin) == os.path.abspath(os.path.join(DOSSIER_PANNEAU, "app", nom)):
+            return _page_panneau(nom)
     return open(chemin, encoding="utf-8").read()
 
 
@@ -6134,7 +6171,9 @@ def test_aucun_texte_du_diagnostic_n_a_perdu_ses_accents():
 # d'evaluer la ligne -- sauf qu'ici on le sait avant de livrer.
 
 def _noms_jamais_definis(chemin):
-    arbre = ast.parse(open(chemin, encoding="utf-8").read())
+    # Le panneau se lit ENTIER, morceaux de serveur/ compris : un nom
+    # defini dans un morceau et appele par main est bien defini.
+    arbre = ast.parse(_lire_source(chemin))
     definis = set()
     for n in ast.walk(arbre):
         if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
@@ -11265,7 +11304,7 @@ def test_le_panneau_publie_le_relais_mais_ne_le_transmet_pas(tmp_path, monkeypat
     assert transmis.get("MAIL_HOST") == "codelab-mailpit"
     assert not [c for c in transmis if c.startswith("CODELAB_INTERNE_")], transmis
     # Et il suit un enregistrement depuis Parametres > E-mail.
-    assert "publier_relais_mail()" in inspect.getsource(app)
+    assert "publier_relais_mail()" in _source_du_panneau()
 
 
 # ---------- la tuile Mailpit ----------
@@ -11722,7 +11761,7 @@ def test_chaque_application_ne_recoit_que_le_compte_de_sa_base(tmp_path, monkeyp
     partages = app.secrets_partages()
     assert "POSTGRES_PASSWORD" not in partages and "POSTGRES_USER" not in partages
     assert partages["REDIS_URL"] == "redis://x"
-    source = open(os.path.join(_racine_depot(), "app-manager", "app", "app.py"), encoding="utf-8").read()
+    source = _source_du_panneau()
     assert source.count("**identifiants_base(a)") == 2, "lancement ET build"
 
 
@@ -16080,7 +16119,7 @@ def test_le_pouls_donne_la_machine_et_les_ouvertures_recentes(deux_espaces, monk
 
 
 def test_le_serveur_se_mesure_dans_le_moniteur_et_garde_dix_minutes():
-    source = open(app.__file__, encoding="utf-8").read()
+    source = _source_du_panneau()
     boucle = source.split("def start_monitor_thread():")[1].split("t = threading.Thread")[0]
     assert "serveur_tick()" in boucle
     assert app.SERVEUR_HISTORIQUE_LEN * 10 == 600
