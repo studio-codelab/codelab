@@ -4,6 +4,20 @@
 # 3.14, en portait une copie a elle (environ 120 Mo) sur un serveur dont
 # l'eMMC a deborde. Et les applications, developpees sous 3.13 dans
 # codelab-dev, tournent ici sous la meme version.
+#
+# NODE : le binaire officiel, recopie de l'image node de la meme branche
+# Debian (trixie, comme python:3.13-slim : meme libc, meme libstdc++). Une
+# etape nommee, pour que Dependabot et la reconstruction hebdomadaire la
+# suivent comme une image de base.
+# ESSAYE ET ECARTE : nodejs et npm de Debian. Node 20, quand codelab-dev
+#   developpe sous Node 24 : un projet qui marchait dans le poste pouvait ne
+#   plus se construire ici. Et npm empaquete par Debian tire pres de 400
+#   paquets (node-*, libnode-dev, un second python3) : environ 220 Mo
+#   mesures, contre 146 Mo pour node et npm officiels.
+# ESSAYE ET ECARTE : NodeSource, comme codelab-dev. Un depot apt et sa cle en
+#   plus, pour le meme binaire, et gnupg a installer puis retirer.
+FROM node:24-trixie-slim AS node
+
 FROM python:3.13-slim
 
 WORKDIR /opt/codelab/app-manager 
@@ -11,11 +25,6 @@ WORKDIR /opt/codelab/app-manager
 ENV PYTHONUNBUFFERED=1 
 ENV PYTHONDONTWRITEBYTECODE=1 
 
-# node/npm : ce service BUILD les applications qu'il deploie. Sans eux, tout
-# projet front (Vite, React, Astro...) echouait en "npm: command not found"
-# alors que la meme commande marchait en SSH -- et la seule parade etait de
-# rajouter a la main un PATH vers le node installe dans /workspace, avec un
-# numero de version fige dans la commande de build.
 # git : plus aucun bouton du panneau ne l'appelle -- il reste parce que "npm ci"
 # en a besoin des qu'une dependance est declaree par une adresse git, ce qui
 # arrive sans prevenir dans un arbre de dependances. Le retirer ferait echouer
@@ -24,10 +33,20 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         acl \
         git \
-        nodejs \
-        npm \
         postgresql-client \
     && rm -rf /var/lib/apt/lists/*
+
+# node/npm : ce service BUILD les applications qu'il deploie. Sans eux, tout
+# projet front (Vite, React, Astro...) echouait en "npm: command not found"
+# alors que la meme commande marchait en SSH -- et la seule parade etait de
+# rajouter a la main un PATH vers le node installe dans /workspace, avec un
+# numero de version fige dans la commande de build.
+# Les memes liens que l'image node : npm et npx sont des scripts de npm.
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+    && node --version && npm --version
 
 # Une base, un compte : au lancement d'une application, le panneau prepare
 # sa base et son compte Postgres avec ce script, le meme que codelab-postgres

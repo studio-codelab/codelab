@@ -10784,7 +10784,9 @@ def test_les_images_python_partagent_la_meme_base():
     bases = {}
     for service in ("app-manager", "dev", "dagster"):
         source = open(os.path.join(racine, service, "Dockerfile"), encoding="utf-8").read()
-        bases[service] = re.search(r"^FROM (\S+)", source, re.M).group(1)
+        # La DERNIERE etape : c'est elle qui est livree. Une etape d'avant
+        # (le Node recopie dans le panneau) ne laisse que ce qu'on en copie.
+        bases[service] = re.findall(r"^FROM (\S+)", source, re.M)[-1]
     assert len(set(bases.values())) == 1, bases
     version = re.search(r"python:(\d+\.\d+)", bases["app-manager"]).group(1)
     ci = open(os.path.join(racine, ".github", "workflows", "build-images.yml"),
@@ -15413,6 +15415,25 @@ def test_le_panneau_ne_contacte_jamais_github():
         assert trace not in source, trace
     page = _page_panneau("dashboard.html")
     assert "/api/version/verifier" not in page and "maj-dispo" not in page
+
+
+def test_le_panneau_construit_avec_le_node_du_poste_de_developpement():
+    """Vecu : le panneau prenait nodejs et npm de Debian (Node 20) quand
+    codelab-dev developpe sous Node 24 -- un projet qui se construisait
+    dans le poste pouvait echouer au Build. Et npm de Debian tirait pres de
+    400 paquets, un second python3 compris : environ 75 Mo de plus que le
+    binaire officiel."""
+    racine = _racine_depot()
+    docker = open(os.path.join(racine, "app-manager", "Dockerfile"), encoding="utf-8").read()
+    assert "FROM node:24-trixie-slim AS node" in docker
+    assert "COPY --from=node /usr/local/bin/node /usr/local/bin/node" in docker
+    paquets = docker.split("RUN apt-get update")[1].split("rm -rf /var/lib/apt/lists")[0]
+    for retire in ("nodejs", "npm"):
+        assert retire not in paquets.split(), f"{retire} revient depuis apt"
+    assert "deb.nodesource.com/setup_24.x" in _dockerfile_dev(), (
+        "le poste a change de branche de Node : le panneau doit suivre")
+    # Meme distribution que la base Python : meme libc, meme libstdc++.
+    assert "FROM python:3.13-slim" in docker and "trixie" in docker
 
 
 def test_l_image_porte_sa_version_et_la_ci_la_pose():

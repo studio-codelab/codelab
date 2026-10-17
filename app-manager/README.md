@@ -21,7 +21,7 @@ ses garanties de sécurité dans [`SECURITE.md`](../SECURITE.md).
 
 | Fichier | Rôle |
 |---|---|
-| `Dockerfile` | Python 3.13, Node, npm, git ; Flask, waitress, psutil, qrcode, webauthn, psycopg, cryptography |
+| `Dockerfile` | Python 3.13, Node 24 et npm (binaires officiels, la même branche que `codelab-dev`), git ; Flask, waitress, psutil, qrcode, webauthn, psycopg, cryptography |
 | `entrypoint.sh` | permissions partagées sur `/workspace`, puis démarrage |
 | `app/app.py` | le service : authentification, API, cycle de vie des processus, proxy, mails, sauvegardes |
 | `app/stockage.py` | la base SQLite : connexions, schéma versionné (`MIGRATIONS`), sauvegarde cohérente |
