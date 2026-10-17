@@ -37,6 +37,8 @@ function usLigne(c){
   /* Suspendu passe avant tout le reste : c'est la seule chose a savoir sur
      ce compte tant qu'il l'est. */
   if(c.suspendu) badges.push('<span class="pill err"><i></i>Suspendu</span>');
+  if(c.suppression) badges.push('<span class="pill warn"><i></i>Suppression le '
+    + new Date(c.suppression*1000).toLocaleDateString('fr-FR',{day:'numeric',month:'long'}) + '</span>');
   if(c.attente_email) badges.push('<span class="pill err"><i></i>Inscription a confirmer</span>');
   /* Une adresse verifiee suffit desormais : le code arrive par mail. Le
      second facteur n'est en attente que sans adresse, sans application et

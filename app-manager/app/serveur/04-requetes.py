@@ -149,6 +149,9 @@ def fermer_les_sessions_suspendues():
     depuis = compte.get("sessions_depuis") or 0
     if (session.get("ouverte") or 0) < depuis:
         session.clear()
+        return None
+    # Relu une fois par requete : refuser_un_compte_en_suppression s'en sert.
+    g.compte_de_la_session = compte
     return None
 
 

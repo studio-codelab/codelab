@@ -300,6 +300,13 @@ Détails : [`SECURITE.md`](SECURITE.md) et [`app-manager/README.md`](app-manager
   sur iPhone », adresse, dernière activité, « Cet appareil »), un bouton pour déconnecter chacun, et
   « Déconnecter les autres appareils ». Téléphone perdu : on le coupe sans changer de mot de passe.
   Changer de mot de passe ferme aussi les autres appareils.
+- **Session** (*Paramètres > Compte*, carte toujours dépliée) : « Déconnexion », et pour un compte
+  utilisateur « Supprimer mon compte ». La suppression demande le mot de passe, ferme le compte tout
+  de suite sur tous ses appareils et prévient par mail (adresse vérifiée). Les données sont effacées
+  30 jours plus tard : fiche, adresse, clés d'accès, appareils, notifications, préférences, messages
+  et pièces jointes, lignes du journal. D'ici là, se reconnecter ne montre qu'une page, avec la date,
+  « Annuler la suppression » et « Me déconnecter ». L'administrateur voit « Suppression le … » dans
+  la liste des comptes. Le compte d'administration ne se supprime pas.
 - **Invitation par mail.** La personne choisit elle-même son nom et son mot de passe. Le lien est
   aussi affiché à l'administrateur ; il peut être renvoyé ou annulé.
 - **Création directe** d'un compte par l'administrateur.

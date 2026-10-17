@@ -1278,6 +1278,12 @@ table.tbl-journal{min-width:560px}
 
 /* ---------------- reperes communs aux deux styles ---------------- */
 .side-item.utilisateur-seul{display:none}
+/* La carte Session : la suppression du compte n'existe que pour un compte
+   utilisateur (body.compte-utilisateur, pose par le script). */
+.session-actions{display:flex;flex-wrap:wrap;gap:10px}
+#zone-session .utilisateur-seul{display:none}
+.compte-utilisateur #zone-session .btn.utilisateur-seul{display:inline-flex}
+.compte-utilisateur #zone-session .hint.utilisateur-seul{display:block;margin-top:12px}
 .compte-utilisateur #sidebar,.compte-utilisateur #btn-menu{display:none}
 .compte-utilisateur .side-item.admin-seul{display:none}
 .compte-utilisateur .side-item.utilisateur-seul{display:flex}
@@ -2774,16 +2780,27 @@ a.pj:hover{border-color:var(--accent)}
       <div id="ver-corps"></div>
     </div>
   </div>
+  <!-- TOUJOURS DEPLIEE (sans-pli) : se deconnecter ne doit jamais demander
+       d'ouvrir une carte d'abord. La suppression du compte vit dans la meme
+       carte, pour un compte utilisateur seulement : le compte
+       d'administration ne se supprime pas (le serveur le refuse aussi). -->
   <div class="zone" id="zone-session">
     <div class="zone-title">Session</div>
-    <div class="card settings-card">
+    <div class="card settings-card sans-pli">
       <div class="card-top"><div class="card-name">
         <b>Session</b>
         <div class="path">Déconnecte cette session du panneau CodeLab.</div>
       </div></div>
-      <button class="btn btn-danger-quiet" onclick="doLogout()">
-        <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-        <path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>Déconnexion</button>
+      <div class="session-actions">
+        <button class="btn btn-danger-quiet" onclick="doLogout()">
+          <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+          <path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>Déconnexion</button>
+        <button class="btn btn-default utilisateur-seul" id="compte-supprimer"
+          onclick="ouvrirSuppressionCompte()">Supprimer mon compte</button>
+      </div>
+      <div class="hint utilisateur-seul">Supprimer ton compte le ferme tout de suite. Ses
+        données sont effacées 30 jours plus tard : d'ici là, il suffit de te reconnecter
+        pour changer d'avis.</div>
     </div>
   </div>
 
@@ -3407,6 +3424,25 @@ a.pj:hover{border-color:var(--accent)}
   <div class="mf">
     <button class="btn btn-default" onclick="confirmerReponse(false)">Annuler</button>
     <button class="btn btn-primary" id="cf-ok" onclick="confirmerReponse(true)">Confirmer</button>
+  </div>
+</div></div>
+
+<!-- SUPPRIMER SON COMPTE : le mot de passe est exige, comme pour en
+     changer -- une session volee ne doit pas pouvoir effacer un compte. -->
+<div class="ov" id="ov-suppression"><div class="modal" style="max-width:440px">
+  <div class="mh"><h3>Supprimer ton compte ?</h3>
+    <p>Ton compte se ferme tout de suite, sur tous tes appareils. Ses données (messages,
+      pièces jointes, clés d'accès, préférences, historique de connexion) sont effacées
+      30 jours plus tard. D'ici là, reconnecte-toi pour annuler.</p></div>
+  <div class="mb">
+    <div class="field"><label for="sup-mdp">Ton mot de passe</label>
+      <input id="sup-mdp" type="password" autocomplete="current-password"
+        onkeydown="if(event.key==='Enter') confirmerSuppressionCompte()"></div>
+    <div class="err" id="sup-err" style="display:none"></div>
+  </div>
+  <div class="mf">
+    <button class="btn btn-default" onclick="hide('ov-suppression')">Annuler</button>
+    <button class="btn btn-default danger" id="sup-ok" onclick="confirmerSuppressionCompte()">Supprimer mon compte</button>
   </div>
 </div></div>
 

@@ -1822,6 +1822,10 @@ def api_utilisateurs():
          "attente_email": bool(c.get("attente_email")),
          # Suspendu : le compte existe, garde tout, et n'ouvre plus rien.
          "suspendu": compte_suspendu(c),
+         # Suppression demandee par le compte lui-meme : la date ou il sera
+         # efface. L'administrateur le voit, et ne peut ni l'avancer ni
+         # l'annuler a sa place -- c'est la decision de la personne.
+         "suppression": suppression_prevue(c),
          "cree": c.get("cree")}
         for nom, c in sorted(comptes.items())]})
 
@@ -2045,6 +2049,232 @@ def api_utilisateur_supprimer(nom):
     # La session de ce compte, si elle existe, tombera d'elle-meme : chaque
     # controle relit le registre, et un compte absent n'autorise plus rien.
     return jsonify({"ok": True})
+
+
+# ---------------------- supprimer son propre compte ----------------------
+#
+# Vecu : « proposer de supprimer le compte, avec suppression des donnees au
+# bout de 30 jours si pas de changement d'avis (bien sur, l'admin n'a pas le
+# droit de supprimer ce compte) ».
+#
+# TROIS TEMPS. La demande ferme tout de suite toutes les sessions du compte et
+# n'efface rien. Pendant 30 jours, se reconnecter ne mene qu'a une page : la
+# date, « Annuler la suppression » ou « Me deconnecter » (le panneau, les
+# projets et l'API restent fermes). Passe ce delai, la purge quotidienne
+# efface le compte et ses donnees.
+#
+# POURQUOI : une suppression immediate ne laisse aucun retour sur un clic de
+#   trop, et une session volee pourrait effacer le compte de son
+#   proprietaire. D'ou le mot de passe exige, comme pour en changer, et le
+#   delai.
+# REGLE : le compte d'administration ne se supprime pas (il vit dans
+#   credentials.env, et sans lui personne n'administre plus rien). Refuse
+#   ici, cote serveur ; la page ne fait que ne pas proposer le bouton.
+# DEPEND DE / PROTEGE AUSSI : projets_autorises() (plus aucun projet pendant
+#   le delai), refuser_un_compte_en_suppression() (avant chaque requete),
+#   et la purge du journal (demarrer_la_purge_du_journal), qui appelle
+#   purger_les_comptes_supprimes().
+# ECARTE : annuler la suppression a la simple reconnexion. Une connexion par
+#   habitude (cle d'acces enregistree) l'annulerait sans que la personne l'ait
+#   voulu ; et prevenir sur la page de connexion dirait qu'un compte existe
+#   (regle 10).
+DELAI_SUPPRESSION_COMPTE = 30 * 86400
+
+
+def suppression_prevue(compte):
+    """L'instant ou le compte sera efface (secondes), ou None."""
+    demande = (compte or {}).get("suppression_demandee")
+    if not isinstance(demande, (int, float)) or isinstance(demande, bool):
+        return None
+    return int(demande) + DELAI_SUPPRESSION_COMPTE
+
+
+def compte_en_suppression(compte):
+    return suppression_prevue(compte) is not None
+
+
+def _date_lisible(ts):
+    mois = ("janvier", "février", "mars", "avril", "mai", "juin", "juillet",
+            "août", "septembre", "octobre", "novembre", "décembre")
+    d = datetime.datetime.fromtimestamp(ts)
+    return f"{d.day} {mois[d.month - 1]} {d.year}"
+
+
+def prevenir_de_la_suppression(compte, nom, prevue):
+    """Un mail a l'adresse verifiee du compte, si l'envoi est regle. Jamais
+    d'exception : la demande est enregistree, le mail n'est qu'un avis."""
+    adresse = compte.get("email") if compte.get("email_verifie") else ""
+    if not adresse:
+        return
+    try:
+        cfg, ok = smtp_utilisable()
+        if not ok:
+            return
+        envoyer_mail(cfg, "[CodeLab] suppression de ton compte",
+                     f"La suppression du compte « {nom} » a ete demandee.\n\n"
+                     f"Il sera efface le {_date_lisible(prevue)}, avec ses donnees. "
+                     "D'ici la, reconnecte-toi au panneau pour annuler.\n\n"
+                     "Si tu n'es pas a l'origine de cette demande, reconnecte-toi, "
+                     "annule, puis change ton mot de passe.\n\n"
+                     "-- CodeLab, panneau de gestion des applications",
+                     destinataires=[adresse], sensible=True)
+    except Exception as e:                                        # noqa: BLE001
+        print(f"[app-manager] avis de suppression non envoye ({type(e).__name__}).",
+              flush=True)
+
+
+@flask_app.post("/api/mon-compte/suppression")
+@require_auth
+def api_mon_compte_supprimer():
+    if est_admin():
+        return jsonify({"error": "Le compte d'administration ne se supprime pas."}), 403
+    d = request.get_json(force=True, silent=True) or {}
+    mot_de_passe = (d.get("mot_de_passe") or "").strip()
+    nom = utilisateur_courant()
+    comptes = lire_utilisateurs()
+    compte = comptes.get(nom)
+    if not compte:
+        return jsonify({"error": "Compte introuvable."}), 404
+    # Le meme verrou que la connexion : un mot de passe devine ici serait un
+    # mot de passe devine tout court.
+    if rate_limited():
+        return jsonify({"error": "Trop de tentatives. Réessaie dans quelques minutes."}), 429
+    if not verifie_mot_de_passe(compte, mot_de_passe):
+        register_failed_attempt()
+        journaliser("echec", qui=nom, motif="suppression du compte", ip=_adresse_client())
+        return jsonify({"error": "Mot de passe incorrect."}), 403
+    compte["suppression_demandee"] = int(time.time())
+    # Toutes les sessions tombent, celle-ci comprise : le compte se ferme
+    # maintenant, sur chaque appareil.
+    fermer_les_autres_sessions(compte, nom=nom)
+    try:
+        ecrire_utilisateurs(comptes)
+    except OSError as e:
+        return jsonify({"error": f"Demande non enregistrée : {e}"}), 500
+    prevue = suppression_prevue(compte)
+    journaliser("compte", qui=nom, action="suppression demandée", ip=_adresse_client())
+    prevenir_de_la_suppression(compte, nom, prevue)
+    session.clear()
+    return jsonify({"ok": True, "le": prevue, "date": _date_lisible(prevue)})
+
+
+@flask_app.delete("/api/mon-compte/suppression")
+@require_auth
+def api_mon_compte_garder():
+    """Annule la demande : le compte reprend la ou il etait, droits compris."""
+    if est_admin():
+        return jsonify({"ok": True})
+    nom = utilisateur_courant()
+    comptes = lire_utilisateurs()
+    compte = comptes.get(nom)
+    if not compte:
+        return jsonify({"error": "Compte introuvable."}), 404
+    if compte.pop("suppression_demandee", None) is not None:
+        try:
+            ecrire_utilisateurs(comptes)
+        except OSError as e:
+            return jsonify({"error": f"Annulation non enregistrée : {e}"}), 500
+        journaliser("compte", qui=nom, action="suppression annulée", ip=_adresse_client())
+    return jsonify({"ok": True})
+
+
+# Ce qu'un compte en attente de suppression peut encore faire : lire son
+# etat, annuler. /logout n'est pas sous /api et reste ouvert.
+API_PENDANT_LA_SUPPRESSION = {"api_mon_compte", "api_mon_compte_garder"}
+PAGES_DU_COMPTE = {"index", "page_du_panneau", "page_messagerie", "ouvrir_dans_le_panneau"}
+
+
+@flask_app.before_request
+def refuser_un_compte_en_suppression():
+    """Pendant le delai, le compte ne voit que sa page de suppression.
+
+    Le controle est ICI, avant chaque requete, et pas dans la page : une
+    session reprise sur un autre onglet, un appel d'API garde en memoire,
+    tout passe par la. Voir « supprimer son propre compte ».
+    """
+    if session.get("authed") is not True or est_admin():
+        return None
+    # Le compte lu par fermer_les_sessions_suspendues, juste avant.
+    compte = g.get("compte_de_la_session")
+    prevue = suppression_prevue(compte)
+    if prevue is None:
+        return None
+    if request.endpoint in PAGES_DU_COMPTE:
+        page = (SUPPRESSION_PAGE
+                .replace("__JETON__", _json_dans_un_script(jeton_session()))
+                .replace("__DATE__", _html.escape(_date_lisible(prevue))))
+        return Response(avec_style(page), mimetype="text/html")
+    if request.path.startswith("/api/") and request.endpoint not in API_PENDANT_LA_SUPPRESSION:
+        return jsonify({"error": "Ton compte est en cours de suppression.",
+                        "suppression": prevue}), 403
+    return None
+
+
+def effacer_le_compte(nom):
+    """Efface le compte et tout ce qui le designe, ici et dans Postgres.
+
+    Ce qui part : la fiche et ses droits, l'adresse (coffre), les cles
+    d'acces, les appareils, les abonnements aux notifications, les
+    preferences, les applications masquees et vues, les messages envoyes ou
+    recus et leurs pieces jointes, et ses lignes du journal. Ce qui reste :
+    les taches et projets nes d'un de ses messages (le travail de
+    l'administrateur), et une ligne de journal qui dit que le compte a ete
+    efface.
+    """
+    comptes = lire_utilisateurs()
+    if comptes.pop(nom, None) is not None:
+        ecrire_utilisateurs(comptes)
+    cles = lire_passkeys()
+    if cles.pop(nom, None) is not None:
+        ecrire_passkeys(cles)
+    with stockage.transaction(DB_FILE) as cx:
+        for table in ("masquees", "apps_vues", "preferences", "appareils", "abonnements_push"):
+            cx.execute(f"DELETE FROM {table} WHERE compte = ?", (nom,))
+        cx.execute("DELETE FROM pieces WHERE qui = ?", (nom,))
+        cx.execute("DELETE FROM messages WHERE qui = ? OR cible = ?", (nom, nom))
+        cx.execute("DELETE FROM journal WHERE qui = ?", (nom,))
+    # Postgres peut ne pas repondre : le nom attend dans le coffre, et chaque
+    # purge quotidienne retente jusqu'a ce que la base soit nettoyee.
+    attente = set(reglage("comptes_a_effacer_pg", []) or [])
+    attente.add(nom)
+    ecrire_reglage("comptes_a_effacer_pg", sorted(attente))
+    _effacer_dans_postgres()
+    journaliser("compte", qui="", action=f"compte « {nom} » effacé à sa demande")
+
+
+def _effacer_dans_postgres():
+    attente = reglage("comptes_a_effacer_pg", []) or []
+    if not attente or not pg_disponible():
+        return
+    try:
+        with _pg_connexion(PG_BASE) as cx:
+            cx.execute("DELETE FROM acces WHERE qui = ANY(%s)", (attente,))
+            cx.execute("DELETE FROM messages WHERE qui = ANY(%s) OR cible = ANY(%s)",
+                       (attente, attente))
+    except Exception as e:                                        # noqa: BLE001
+        _pg_etat["erreur"] = f"{type(e).__name__}: {e}"
+        return
+    ecrire_reglage("comptes_a_effacer_pg", None)
+
+
+def purger_les_comptes_supprimes(maintenant=None):
+    """Efface les comptes dont le delai est passe. Rend leurs noms ; ne leve
+    jamais, comme la purge du journal qui l'appelle."""
+    maintenant = time.time() if maintenant is None else maintenant
+    effaces = []
+    for nom, compte in lire_utilisateurs().items():
+        prevue = suppression_prevue(compte)
+        if prevue is not None and prevue <= maintenant:
+            try:
+                effacer_le_compte(nom)
+                effaces.append(nom)
+            except Exception as e:                                # noqa: BLE001
+                print(f"[app-manager] compte {nom} non efface : {e}", flush=True)
+    try:
+        _effacer_dans_postgres()
+    except Exception:                                             # noqa: BLE001
+        pass
+    return effaces
 
 
 def decrire_agent(agent):

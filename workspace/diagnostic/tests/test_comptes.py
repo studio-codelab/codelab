@@ -2237,3 +2237,106 @@ def test_un_apercu_encadre_ne_previent_pas_l_administrateur(deux_espaces, monkey
     assert r.status_code == 503 and appels == []
     c.get("/prive-autorise/", headers={"Sec-Fetch-Dest": "document"})
     assert len(appels) == 1
+
+
+# ---------------------- supprimer son propre compte ----------------------
+#
+# Vecu : « Le bouton deconnexion doit etre toujours present, dans la meme
+# zone, proposer de supprimer le compte, avec suppression des donnees au bout
+# de 30 jours si pas de changement d'avis (bien sur, l'admin n'a pas le droit
+# de supprimer ce compte) ».
+
+def _demander_la_suppression(c, mdp="mot-de-passe-long"):
+    return c.post("/api/mon-compte/suppression", json={"mot_de_passe": mdp})
+
+
+def test_supprimer_son_compte_exige_le_mot_de_passe_et_ferme_toutes_les_sessions(deux_espaces):
+    """Une session volee ne doit pas pouvoir effacer le compte : le mot de
+    passe est exige. Accepte, la demande ferme le compte tout de suite, sur
+    chaque appareil, et n'efface encore rien."""
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    autre = app.flask_app.test_client()
+    _connecte(autre, "marie", "mot-de-passe-long")
+    # Les sessions se comparent a la seconde pres (sessions_depuis) : celles
+    # qu'on veut voir tomber sont ouvertes avant.
+    time.sleep(1.05)
+    r = _demander_la_suppression(c, "pas-le-bon")
+    assert r.status_code == 403 and "suppression_demandee" not in app.lire_utilisateurs()["marie"]
+    avant = int(time.time())
+    r = _demander_la_suppression(c)
+    assert r.status_code == 200, r.data
+    d = r.get_json()
+    assert avant + 30 * 86400 <= d["le"] <= int(time.time()) + 30 * 86400 and d["date"]
+    compte = app.lire_utilisateurs()["marie"]
+    assert compte["projets"] == ["prive-autorise"], "rien n'est efface pendant le delai"
+    for client in (c, autre):
+        assert client.get("/api/mon-compte").status_code == 401
+
+
+def test_pendant_le_delai_le_compte_ne_voit_que_sa_page_de_suppression(deux_espaces):
+    """Reconnecte avant la date, le compte voit la date et deux boutons ; le
+    panneau, son API et ses projets restent fermes, cote serveur. Annuler
+    rend le compte tel qu'il etait."""
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    assert _demander_la_suppression(c).status_code == 200
+    _connecte(c, "marie", "mot-de-passe-long")
+    for chemin in ("/", "/parametres", "/messages"):
+        page = c.get(chemin).get_data(as_text=True)
+        assert "Annuler la suppression" in page and "Me déconnecter" in page, chemin
+        assert "__DATE__" not in page and "__JETON__" not in page
+    assert c.get("/api/mes-apps").status_code == 403
+    assert c.post("/api/messages", json={"texte": "bonjour"}).status_code == 403
+    with app.flask_app.test_request_context("/"):
+        from flask import session
+        session.update(authed=True, role="utilisateur", utilisateur="marie")
+        assert app.projets_autorises() == set()
+    # Changer d'avis : tout revient.
+    assert c.delete("/api/mon-compte/suppression").status_code == 200
+    assert "suppression_demandee" not in app.lire_utilisateurs()["marie"]
+    assert c.get("/api/mes-apps").status_code == 200
+    assert "Annuler la suppression" not in c.get("/").get_data(as_text=True)
+
+
+def test_le_compte_d_administration_ne_se_supprime_pas(deux_espaces):
+    c = deux_espaces
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    r = _demander_la_suppression(c, "secret-de-test")
+    assert r.status_code == 403
+    assert "administration" in r.get_json()["error"]
+    page = _page_panneau("dashboard.html")
+    session_ = page.split('id="zone-session"')[1].split('<div class="zone"')[0]
+    # Toujours la, jamais repliee, et la suppression pour un compte
+    # utilisateur seulement.
+    assert "settings-card sans-pli" in session_ and "doLogout()" in session_
+    assert 'class="btn btn-default utilisateur-seul" id="compte-supprimer"' in session_
+    assert "#zone-session .utilisateur-seul{display:none}" in page
+    assert "confirm(" not in page.split("function confirmerSuppressionCompte")[1].split("\n}")[0]
+
+
+def test_trente_jours_apres_le_compte_et_ses_donnees_sont_effaces(deux_espaces):
+    """Le delai passe, la purge quotidienne efface la fiche, l'adresse, les
+    cles d'acces, les messages et le journal du compte. Avant, elle n'y
+    touche pas."""
+    c = deux_espaces
+    comptes = app.lire_utilisateurs()
+    comptes["marie"]["email"] = "marie@example.com"
+    demande = int(time.time()) - 10
+    comptes["marie"]["suppression_demandee"] = demande
+    app.ecrire_utilisateurs(comptes)
+    app.ecrire_passkeys({"marie": [{"id": "k1", "cle_publique": "x"}]})
+    with app.stockage.transaction(app.DB_FILE) as cx:
+        cx.execute("INSERT INTO masquees (compte, application) VALUES ('marie', 'public')")
+        cx.execute("INSERT INTO preferences (compte, cle, valeur) VALUES ('marie', 'k', 'v')")
+    app.journaliser("connexion", qui="marie", ip="1.2.3.4")
+    assert app.purger_les_comptes_supprimes(demande + 29 * 86400) == []
+    assert "marie" in app.lire_utilisateurs()
+    assert app.purger_les_comptes_supprimes(demande + 30 * 86400) == ["marie"]
+    assert "marie" not in app.lire_utilisateurs()
+    assert "marie" not in app.lire_passkeys()
+    assert "marie" not in (app.reglage("emails_comptes", {}) or {})
+    for table, colonne in (("masquees", "compte"), ("preferences", "compte"), ("journal", "qui")):
+        assert not app.stockage.lire(app.DB_FILE, f"SELECT 1 FROM {table} WHERE {colonne} = 'marie'"), table
+    # Une trace reste : qu'un compte a ete efface, a sa demande.
+    assert app.stockage.lire(app.DB_FILE, "SELECT 1 FROM journal WHERE genre = 'compte'")

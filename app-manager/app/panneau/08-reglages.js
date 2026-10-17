@@ -532,10 +532,36 @@ async function totpDesactiver(){
 
 async function doLogout(){ await fetch('/logout',{method:'POST'}); location.href='/login'; }
 
+/* Supprimer son compte (voir « supprimer son propre compte », serveur/10) :
+   le serveur ferme toutes les sessions, celle-ci comprise, et rend la date
+   d'effacement. On l'annonce sur la page de connexion, ou l'on revient. */
+function ouvrirSuppressionCompte(){
+  $('sup-mdp').value=''; $('sup-err').style.display='none';
+  $('ov-suppression').classList.add('show');
+  setTimeout(()=>$('sup-mdp').focus(), 40);
+}
+async function confirmerSuppressionCompte(){
+  const ok=$('sup-ok'); ok.disabled=true;
+  try{
+    const r=await fetch('/api/mon-compte/suppression',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({mot_de_passe:$('sup-mdp').value})});
+    if(r.ok){
+      const d=await r.json();
+      hide('ov-suppression');
+      notifier('Ton compte sera supprimé le '+d.date+'. Reconnecte-toi d\'ici là pour annuler.');
+      setTimeout(()=>{ location.href='/login'; }, 2500);
+      return;
+    }
+    $('sup-err').textContent=await echec(r,'La suppression n\'a pas pu être demandée.');
+    $('sup-err').style.display='block';
+  }finally{ ok.disabled=false; }
+}
+
 
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){
-    hide('ov-add'); hide('ov-user');
+    hide('ov-add'); hide('ov-user'); hide('ov-suppression');
     if(confirmerResoudre) confirmerReponse(false);
     $('acct-menu').classList.remove('show');
   }

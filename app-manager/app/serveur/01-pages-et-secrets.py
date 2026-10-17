@@ -31,6 +31,9 @@ def _lire_ressource(nom):
 
 DASHBOARD_PAGE = _lire_ressource("dashboard.html")
 MESSAGERIE_PAGE = _lire_ressource("messages.html")
+# La seule page d'un compte en attente de suppression (voir « supprimer son
+# propre compte »), a marqueurs : __JETON__, __DATE__.
+SUPPRESSION_PAGE = _lire_ressource("suppression.html")
 LOGIN_PAGE = _lire_ressource("login.html")
 # Le cadre d'une application ouverte depuis le hub installe (ouvrir_dans_le_panneau).
 OUVRIR_PAGE = _lire_ressource("ouvrir.html")

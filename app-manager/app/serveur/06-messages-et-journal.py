@@ -439,6 +439,9 @@ def demarrer_la_purge_du_journal():
         time.sleep(PURGE_PREMIERE)
         while True:
             purger_le_journal()
+            # Les comptes dont le delai de suppression est passe : le meme
+            # rythme, une fois par jour (voir « supprimer son propre compte »).
+            purger_les_comptes_supprimes()
             time.sleep(PURGE_INTERVALLE)
     threading.Thread(target=_boucle, daemon=True).start()
 
@@ -1109,7 +1112,8 @@ def projets_autorises():
     # Suspendu : plus aucun projet, meme ceux qui restent coches dans sa
     # fiche. On ne retire pas ses droits, on ferme la porte -- les retrouver
     # a la reactivation est tout l'interet.
-    if not compte or compte_suspendu(compte):
+    # En attente de suppression : de meme, plus rien pendant le delai.
+    if not compte or compte_suspendu(compte) or compte_en_suppression(compte):
         return set()
     # Une application reservee ne compte jamais, meme cochee par une version
     # plus ancienne du panneau : le droit ecrit dans la fiche ne vaut rien.
