@@ -176,9 +176,9 @@ SEED_MARKER=/workspace/.codelab/workspace-v1
 
 if [ ! -f "$SEED_MARKER" ] && [ -d "$WORKSPACE_SEED" ]; then
   echo "[codelab] amorcage de /workspace depuis le squelette de l'image..."
-  # Les trois motifs couvrent aussi les entrees cachees : le squelette livre
-  # un dossier .vscode (taches CodeLab), et un simple "*" ne l'aurait jamais
-  # copie -- le glob du shell ignore les noms commencant par un point. Le
+  # Les trois motifs couvrent aussi les entrees cachees : un simple "*" ne
+  # copierait jamais un dossier comme .vscode -- le glob du shell ignore les
+  # noms commencant par un point. Le
   # motif ".[!.]*" prend tout ce qui commence par un point sans etre "." ni
   # "..", et "..?*" rattrape le cas rare d'un nom commencant par deux points.
   # Pas de recouvrement entre les deux, donc pas d'entree traitee deux fois.
@@ -221,7 +221,8 @@ fi
 #
 #   ne cree jamais un fichier absent -- un projet supprime expres ne doit pas
 #     reapparaitre, c'est la raison d'etre du marqueur ci-dessus ;
-#   ne supprime jamais rien ;
+#   ne supprime que ce que l'image a retire de son squelette, et seulement
+#     intact (voir « les fichiers retires du squelette », plus bas) ;
 #   ne remplace un fichier que s'il est prouve INTACT, c'est-a-dire si son
 #     contenu est exactement celui que CodeLab y a ecrit la derniere fois.
 #
@@ -357,7 +358,40 @@ if [ -d "$WORKSPACE_SEED" ] && [ -f "$SEED_MARKER" ]; then
       gardes=$((gardes + 1))
     fi
   done < "$liste"
+
+  # LES FICHIERS RETIRES DU SQUELETTE. Vecu : les taches VS Code
+  # (.vscode/tasks.json) sont parties de l'image, mais restaient dans
+  # /workspace et appelaient d'anciennes commandes. Un fichier dont CodeLab a
+  # note l'empreinte, que l'image ne livre plus, et qui n'a pas bouge depuis
+  # est a CodeLab : il part, et son dossier aussi s'il reste vide. Modifie,
+  # il appartient a l'utilisateur et reste. Memes interdits qu'au-dessus :
+  # jamais a travers un lien, la preuve par le contenu.
+  retires=0
+  if [ -f "$EMPREINTES" ] && [ ! -L "$EMPREINTES" ]; then
+    while read -r notee relatif; do
+      [ -n "$relatif" ] || continue
+      grep -qxF "$relatif" "$liste" && continue
+      cible="$WORKSPACE_DIR/$relatif"
+      if [ -L "$cible" ]; then continue; fi
+      if [ -f "$cible" ]; then
+        [ "$(sha256sum < "$cible" | cut -d' ' -f1)" = "$notee" ] || continue
+        rm -f "$cible"
+        rmdir "$(dirname "$cible")" 2>/dev/null || true
+        echo "[codelab]   $relatif retire (n'est plus dans le squelette, non modifie)."
+        retires=$((retires + 1))
+      fi
+      # Parti ou retire : la note n'a plus d'objet.
+      n=$(mktemp "$(dirname "$EMPREINTES")/.empreintes-XXXXXX" 2>/dev/null) || continue
+      awk -v r="$relatif" '$2 != r' "$EMPREINTES" > "$n" 2>/dev/null || true
+      chgrp "$CODELAB_GROUP" "$n" 2>/dev/null || true
+      chmod 644 "$n" 2>/dev/null || true
+      mv "$n" "$EMPREINTES" 2>/dev/null || rm -f "$n"
+    done < "$EMPREINTES"
+  fi
   rm -f "$liste"
+  if [ "$retires" -gt 0 ]; then
+    echo "[codelab] squelette : $retires fichier(s) retire(s), plus livres par l'image."
+  fi
 
   if [ "$majs" -gt 0 ]; then
     echo "[codelab] squelette : $majs fichier(s) mis a jour depuis l'image."

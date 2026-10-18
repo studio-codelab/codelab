@@ -251,7 +251,7 @@ def test_l_adresse_d_alerte_d_une_installation_existante_est_reprise(envoi):
     """Avant les alertes par application, tous les destinataires vivaient dans
     alertes.json. Sans repli sur cette liste, une installation existante aurait
     cesse d'etre prevenue a la mise a jour -- silencieusement."""
-    app.ecrire_bloc_alertes({"ALERTE_ADMIN": ""})
+    _ecrire_bloc_alertes({"ALERTE_ADMIN": ""})
     app.ecrire_alertes(True, ["ancien@example.com"])
     assert app.alertes_admin() == ["ancien@example.com"]
 

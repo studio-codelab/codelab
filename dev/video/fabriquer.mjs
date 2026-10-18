@@ -34,7 +34,20 @@ function echouer(texte) { console.error(`codelab video: ${texte}`); process.exit
 function lancer(cmd, args, options = {}) {
   const r = spawnSync(cmd, args, { encoding: "utf-8", ...options });
   if (r.error) throw new Error(`${cmd} : ${r.error.message}`);
-  if (r.status !== 0) throw new Error(`${cmd} a echoue :\n${(r.stderr || "").slice(-1500)}`);
+  // UN PROCESSUS TUE NE DIT RIEN. Vecu : « ffmpeg a echoue : » suivi de
+  // rien. Tue par un signal, il n'ecrit rien sur stderr : on nomme le
+  // signal, et pour SIGKILL la cause presque toujours en jeu, la limite de
+  // memoire du conteneur (mem_limit de codelab-dev).
+  if (r.signal) {
+    throw new Error(`${cmd} a ete arrete par ${r.signal}` + (r.signal === "SIGKILL"
+      ? " : memoire du conteneur epuisee, le plus souvent. Ferme ce qui en prend (onglets VS Code, " +
+        "autres agents) puis relance."
+      : "."));
+  }
+  if (r.status !== 0) {
+    const message = (r.stderr || "").trim().slice(-1500) || `aucun message (code ${r.status})`;
+    throw new Error(`${cmd} a echoue :\n${message}`);
+  }
   return r.stdout;
 }
 function duree(fichier) {
@@ -326,9 +339,15 @@ try {
   if (!sansSon) filtres.push(`${pistes.join("")}amix=inputs=${pistes.length}:normalize=0,` +
                              `apad,atrim=0:${total}[a]`);
   const fichierMp4 = join(travail, "presentation.mp4");
-  lancer("ffmpeg", ["-y", "-loglevel", "error", ...entrees,
+  // DEUX FILS, PAS UN PAR COEUR. Vecu : « ffmpeg a echoue : », sans un mot.
+  // ffmpeg compte les coeurs de l'HOTE, pas les 1,5 CPU du conteneur, et
+  // x264 garde des images en memoire pour chaque fil : mesure sur ce
+  // montage, 391 Mo a 2 fils, 687 Mo a 16, 998 Mo a 32. Sur un gros
+  // serveur, il depassait le mem_limit de codelab-dev (1280 Mo) et le noyau
+  // le tuait. Deux fils suffisent a 1,5 CPU : rien de plus lent.
+  lancer("ffmpeg", ["-y", "-loglevel", "error", "-filter_complex_threads", "2", ...entrees,
     "-filter_complex", filtres.join(";"), "-map", "[v]", ...(sansSon ? [] : ["-map", "[a]"]),
-    "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p",
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p", "-threads", "2",
     ...(sansSon ? [] : ["-c:a", "aac", "-b:a", "160k"]),
     "-movflags", "+faststart", "-t", String(total), fichierMp4]);
   // L'affiche : une image de la demonstration, pas l'ecran titre.

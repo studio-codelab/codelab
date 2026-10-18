@@ -216,7 +216,7 @@ chmod 644 "$CODEX_PROFILE"
 # dans le AGENTS.md du projet, jamais ici.
 #
 # Toutes les versions de la CLI n'honorent pas ce niveau global : la commande
-# "codelab agents" recopie le meme manuel dans le AGENTS.md d'un projet, ou il
+# "codelab create" et "codelab update" recopient le meme manuel dans le AGENTS.md d'un projet, ou il
 # est lu a coup sur.
 AGENTS_SOURCE=/usr/local/share/codelab/AGENTS.md
 if [ -r "$AGENTS_SOURCE" ]; then
@@ -363,9 +363,9 @@ fi
 # sa configuration, pour la meme raison. git suit le lien en ecriture comme
 # en lecture : « git config --global » continue de marcher tel quel.
 #
-# Un .gitconfig ordinaire trouve dans /home (conteneur pas encore recree
-# depuis l'ancienne version) est repris s'il n'y a rien encore dans
-# /workspace, et mis de cote sinon -- jamais efface.
+# Un .gitconfig ordinaire trouve dans /home (un conteneur redemarre dont le
+# lien a ete remplace) est repris s'il n'y a rien encore dans /workspace, et
+# mis de cote sinon -- jamais efface : « ln -sfn » l'ecraserait sans un mot.
 #
 # Le fichier d'amorce est ecrit UNE SEULE FOIS : comme le config.toml de
 # Codex, il n'est jamais reecrit ensuite.

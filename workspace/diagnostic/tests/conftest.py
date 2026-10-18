@@ -470,7 +470,7 @@ def envoi(tmp_path, monkeypatch):
     app._login_attempts.clear()
     app._apps_cache["signature"] = None
     app._alertes_en_cours.clear()
-    app.ecrire_bloc_alertes({"SMTP_HOST": "origine.example.com",
+    _ecrire_bloc_alertes({"SMTP_HOST": "origine.example.com",
                              "SMTP_USER": "origine@example.com",
                              "SMTP_PASSWORD": "mot-de-passe-origine"})
     app.ecrire_alertes(False, [])

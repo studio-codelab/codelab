@@ -1483,12 +1483,14 @@ def test_la_sonde_des_applications_nomme_ce_qui_cloche(tmp_path, monkeypatch):
     """Elle ne dit pas "il y a un probleme" : elle dit lequel, et ou."""
     etat = tmp_path / "etat"
     etat.mkdir()
-    (etat / "apps.json").write_text(json.dumps({
+    # La base du panneau, telle que la sonde la lit (en lecture seule).
+    monkeypatch.setattr(app, "DB_FILE", str(etat / "codelab.db"))
+    app.save({
         "disparue": {"path": "/n-existe-pas", "command": "python3 a.py",
                      "port": 9201, "enabled": False},
         "muette": {"path": str(tmp_path), "command": "python3 -V",
                    "port": 9204, "enabled": True},
-    }))
+    })
     monkeypatch.setenv("APP_MANAGER_STATE", str(etat))
     ok, _, detail = check_applications()
     # Rang 2 : une application tombee n'est pas la stack tombee.

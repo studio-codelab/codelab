@@ -20,7 +20,6 @@ Les règles complètes qu'un projet doit suivre sont dans le `AGENTS.md` de chaq
 /workspace/
 ├── README.md            ce fichier
 ├── definitions.py       agrégateur Dagster : découvre les projets, ne pas modifier
-├── .vscode/             tâches VS Code (nouveau projet, base, manuel de l'agent)
 ├── .codelab/            marqueurs et configuration git de la stack, ne pas modifier
 ├── .codex/              configuration et connexion de Codex
 ├── diagnostic/          projet modèle et diagnostic de l'installation
@@ -44,8 +43,8 @@ Un projet est un dossier. Il n'y a rien à déclarer ailleurs. Il peut contenir 
 | `AGENTS.md`, `CLAUDE.md` | le manuel lu par les agents de code |
 | `codelab_auth.*`, `codelab_web.*` | connexion avec CodeLab ; pages d'erreur et en-têtes |
 
-Créer un projet : `codelab create mon-projet` depuis une session SSH, ou **Ctrl+Maj+B** dans
-VS Code ouvert sur `/workspace`. Copier `diagnostic/` donne aussi un projet complet qui fonctionne.
+Créer un projet : `codelab create mon-projet` dans un terminal du poste (SSH, ou celui de VS Code).
+Copier `diagnostic/` donne aussi un projet complet qui fonctionne.
 
 ## Configuration
 

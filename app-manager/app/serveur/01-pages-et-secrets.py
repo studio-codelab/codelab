@@ -114,7 +114,6 @@ flask_app.config.update(
     PERMANENT_SESSION_LIFETIME=datetime.timedelta(days=3),
 )
 
-SESSION_INACTIVITE = flask_app.config["PERMANENT_SESSION_LIFETIME"]
 SESSION_ABSOLUE = datetime.timedelta(days=30)
 # L'administrateur ouvre tout, Dagster et Mailpit compris : sa session tombe
 # au bout de douze heures, quoi qu'il arrive. Une journee de travail, pas un

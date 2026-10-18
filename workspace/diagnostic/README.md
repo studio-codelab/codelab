@@ -26,6 +26,15 @@ l'installation n'aurait plus aucun moyen de se contrôler.
 Le build installe le pilote Postgres dans `vendor/` : `pip install --target vendor "psycopg[binary]"`.
 S'il a échoué, la ligne `Postgres (pilote)` le dit ; relance le build depuis la fiche.
 
+## La page
+
+Elle reprend la forme de CleanMyMac : à gauche, « Analyse intelligente » puis une entrée par
+rubrique, avec un point à la couleur de sa pire sonde ; au centre, une seule vue à la fois.
+L'analyse montre l'anneau des sondes vertes, le verdict et le bouton rond **Analyser** (la
+vérification approfondie) ; une rubrique montre ses sondes et son bouton **Vérifier**. Le fond est
+un dégradé de l'accent de `theme.css`, sans aucune couleur écrite en dur. Sur téléphone, la colonne
+devient une rangée horizontale qui défile.
+
 ## Deux niveaux de vérification
 
 | | Quand | Ce que ça fait |

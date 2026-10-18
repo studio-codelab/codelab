@@ -133,21 +133,30 @@ try{var m=document.cookie.match(/(?:^|;\s*)codelab-theme=([^;]*)/);
 # seuls replis qui restent sont des TAILLES : un repli de taille degrade la
 # mise en page, un repli de couleur mentirait sur un etat.
 CSS = """
-/* Les memes composants que le panneau, ecrits avec ses jetons : barre du
-   haut, cartes posees sur un fond plus soutenu, pastilles teintees, bandeau
-   de severite au bord, chiffres alignes. Le diagnostic est une PAGE DE PLUS
-   de CodeLab, pas une application invitee -- il doit se lire comme le reste.
+/* A LA MANIERE DE CLEANMYMAC. Vecu : « Mettre a jour l'application
+   Diagnostic pour qu'elle reprenne le style de CleanMyMac ». Une barre
+   laterale vitree qui range les rubriques, une scene au fond degrade, un
+   grand anneau au centre, et un seul bouton rond pour tout analyser.
+   Toujours les jetons du panneau : le degrade part de la couleur d'accent
+   choisie dans le nuancier, en clair comme en sombre, et aucune couleur
+   n'est ecrite en dur (un test le verifie).
 
    La page repond dans cet ordre, et la mise en page suit :
-     1. est-ce que tout va bien ?   -> le cockpit, en haut, seul sur sa ligne
-     2. qu'est-ce qui cloche ?      -> la rubrique qui porte la couleur
-     3. qu'est-ce que je fais ?     -> le bouton de cette rubrique */
+     1. est-ce que tout va bien ?   -> l'accueil : l'anneau et le verdict
+     2. qu'est-ce qui cloche ?      -> la rubrique dont le point a la couleur
+     3. qu'est-ce que je fais ?     -> « Analyser », ou « Vérifier » sur elle */
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--txt);
+body{color:var(--txt);min-height:100vh;
+ background:linear-gradient(165deg,color-mix(in srgb,var(--accent) 34%,var(--bg)) 0%,
+  color-mix(in srgb,var(--accent) 12%,var(--bg)) 55%,var(--bg) 100%) fixed;
  font:var(--t-b,14px)/1.55 var(--sans,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif);
  -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums;
- letter-spacing:-.006em;accent-color:var(--accent);padding-bottom:64px}
+ letter-spacing:-.006em;accent-color:var(--accent)}
 .wrap{max-width:1180px;margin:0 auto;padding:0 22px}
+/* Un verre : la surface du theme, a moitie transparente, floutee. */
+.verre{background:color-mix(in srgb,var(--surface) 62%,transparent);
+ border:1px solid color-mix(in srgb,var(--line) 70%,transparent);
+ -webkit-backdrop-filter:blur(18px) saturate(1.2);backdrop-filter:blur(18px) saturate(1.2)}
 svg{fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 em{font-style:normal}
 
@@ -155,55 +164,111 @@ em{font-style:normal}
    Celle du panneau, a l'identique : meme hauteur, meme fond, meme filet, et
    aucun trait vertical. Une application ouverte depuis le hub ne doit pas
    donner l'impression d'avoir quitte CodeLab. */
-.barre{background:var(--nav);color:var(--nav-txt);border-bottom:1px solid var(--nav-line);
- position:sticky;top:0;z-index:30}
+.barre{color:var(--txt);position:sticky;top:0;z-index:30;
+ background:color-mix(in srgb,var(--bg) 35%,transparent);
+ -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px)}
 .barre .wrap{display:flex;align-items:center;gap:12px;height:52px}
 .marque{display:flex;align-items:center;gap:10px;font-size:var(--t-l,16px);
  font-weight:700;letter-spacing:-.015em}
 .marque .jeton{width:26px;height:26px;border-radius:7px;background:var(--accent);
  color:var(--sur-accent);display:grid;place-items:center;flex:none}
 .marque .jeton svg{width:15px;height:15px;stroke-width:2.2}
-.marque em{font-weight:600;color:var(--nav-dim)}
+.marque em{font-weight:600;color:var(--dim)}
 .barre .spacer{flex:1}
-.barre .quand{color:var(--nav-dim);font-size:var(--t-s,12px)}
+.barre .quand{color:var(--dim);font-size:var(--t-s,12px)}
+.barre .wrap{max-width:1280px}
+@media (max-width:760px){ .barre .wrap{padding:0 16px} .barre .quand{display:none} }
 
-/* ------------------------------- le cockpit -------------------------------
-   Une seule carte, et elle repond a la seule question qu'on se pose en
-   arrivant. L'anneau donne la proportion de sondes vertes, sa couleur donne
-   le PIRE rang -- les deux ensemble, parce qu'aucun des deux ne suffit :
-   quinze sondes sur seize, ce n'est pas la meme chose selon que la seizieme
-   soit une alerte de disque ou Postgres a terre. */
-.cockpit{display:flex;align-items:center;gap:28px;flex-wrap:wrap;
- background:var(--surface);border:1px solid var(--line);
- border-left:3px solid var(--line2);border-radius:var(--r,8px);
- box-shadow:0 1px 2px var(--shadow);padding:22px 26px;margin:24px 0 26px}
-.cockpit.ok{border-left-color:var(--ok)}
-.cockpit.warn{border-left-color:var(--warn)}
-.cockpit.ko{border-left-color:var(--err)}
-.cockpit .colonne{flex:1;min-width:300px}
-.cockpit h1{font-size:var(--t-xl,22px);font-weight:800;letter-spacing:-.03em;
- line-height:1.2;margin:9px 0 7px}
-.cockpit .phrase{color:var(--dim);font-size:var(--t-m,13px);max-width:68ch}
+/* ------------------------- la barre laterale et la scene -------------------------
+   A gauche, ce qu'on peut regarder : l'accueil (« Analyse intelligente »)
+   puis une entree par rubrique, avec un point a la couleur de son pire
+   rang. A droite, la scene : une seule chose a la fois. Sans JavaScript,
+   tout reste affiche l'un sous l'autre : rien ne se perd. */
+.app{display:grid;grid-template-columns:262px minmax(0,1fr);gap:22px;
+ max-width:1280px;margin:0 auto;padding:18px 22px 64px;align-items:start}
+.cote{position:sticky;top:70px;border-radius:18px;padding:10px;
+ display:flex;flex-direction:column;gap:2px}
+.cote .groupe{font-size:var(--t-s,12px);font-weight:650;color:var(--dim);
+ padding:12px 12px 4px}
+.cote button{display:flex;align-items:center;gap:11px;width:100%;padding:9px 12px;
+ border:0;border-radius:11px;background:none;color:var(--txt);cursor:pointer;
+ font:inherit;font-size:var(--t-b,14px);font-weight:600;text-align:left}
+.cote button svg{width:19px;height:19px;flex:none;color:var(--dim)}
+.cote button .point{width:8px;height:8px;border-radius:50%;margin-left:auto;flex:none;
+ background:var(--line2)}
+.cote button .point.ok{background:var(--ok)}
+.cote button .point.warn{background:var(--warn)}
+.cote button .point.ko{background:var(--err)}
+.cote button:hover{background:color-mix(in srgb,var(--txt) 6%,transparent)}
+.cote button.actif{background:color-mix(in srgb,var(--accent) 22%,transparent)}
+.cote button.actif svg{color:var(--accent)}
+.cote button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.scene{min-width:0}
+.scene [hidden]{display:none !important}
+@media (max-width:760px){
+ .app{grid-template-columns:1fr;gap:14px;padding:12px 16px 48px}
+ /* Au telephone, la barre laterale devient une rangee qui defile de cote,
+    sous le pouce, et la page, elle, ne deborde jamais. */
+ .cote{position:static;flex-direction:row;overflow-x:auto;scrollbar-width:none;
+  padding:6px;border-radius:14px}
+ .cote::-webkit-scrollbar{display:none}
+ .cote .groupe{display:none}
+ .cote button{width:auto;flex:none;white-space:nowrap;padding:8px 12px}
+ .cote button .point{margin-left:2px}
+}
+
+/* ------------------------------- l'accueil -------------------------------
+   La scene de CleanMyMac : tout au centre, sans carte autour. L'anneau
+   donne la proportion de sondes vertes, sa couleur le PIRE rang -- les deux
+   ensemble, parce qu'aucun des deux ne suffit : quinze sondes sur seize, ce
+   n'est pas la meme chose selon que la seizieme soit une alerte de disque
+   ou Postgres a terre. */
+.cockpit{display:flex;flex-direction:column;align-items:center;text-align:center;
+ padding:34px 12px 18px;min-height:calc(100vh - 150px);justify-content:center;gap:6px}
+.cockpit .colonne{display:flex;flex-direction:column;align-items:center;max-width:640px}
+.cockpit h1{font-size:clamp(26px,4.2vw,40px);font-weight:800;letter-spacing:-.035em;
+ line-height:1.15;margin:16px 0 10px}
+.cockpit .phrase{color:var(--dim);font-size:var(--t-l,16px);max-width:60ch}
 .cockpit .phrase b{color:var(--txt);font-weight:700}
-.cockpit .actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:16px}
-.cockpit .actions .sep{color:var(--dim2);font-size:var(--t-s,12px)}
+.cockpit .actions{display:flex;flex-direction:column;align-items:center;gap:12px;margin-top:30px}
+.cockpit .actions .sep{color:var(--dim);font-size:var(--t-s,12px)}
 
-/* L'ANNEAU. Le trait se remplit a la proportion de sondes vertes ; sa
-   couleur est celle du pire rang. Statique : rien ne tourne ici, il n'y a
-   rien a attendre. */
-.anneau{position:relative;width:128px;height:128px;flex:none}
-.anneau svg{width:128px;height:128px;transform:rotate(-90deg)}
+/* LE BOUTON ROND, celui de CleanMyMac : un disque de verre cercle de la
+   couleur d'accent, qui luit. Un seul : il lance toute la verification. */
+.analyser{width:132px;height:132px;border-radius:50%;cursor:pointer;
+ font:inherit;font-size:var(--t-l,16px);font-weight:700;color:var(--txt);
+ background:color-mix(in srgb,var(--surface) 45%,transparent);
+ border:3px solid var(--accent);
+ box-shadow:0 0 0 6px color-mix(in srgb,var(--accent) 18%,transparent),
+  0 10px 44px color-mix(in srgb,var(--accent) 40%,transparent);
+ -webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);
+ transition:transform .15s,box-shadow .15s}
+.analyser:hover{transform:scale(1.04);
+ box-shadow:0 0 0 8px color-mix(in srgb,var(--accent) 24%,transparent),
+  0 12px 54px color-mix(in srgb,var(--accent) 52%,transparent)}
+.analyser:active{transform:scale(.98)}
+.analyser:focus-visible{outline:2px solid var(--txt);outline-offset:6px}
+
+/* L'ANNEAU, grand et lumineux : c'est l'image de la page. Le trait se
+   remplit a la proportion de sondes vertes ; sa couleur est celle du pire
+   rang. Statique : rien ne tourne ici, il n'y a rien a attendre. */
+.anneau{position:relative;width:220px;height:220px;flex:none;border-radius:50%;
+ background:radial-gradient(circle,color-mix(in srgb,var(--surface) 70%,transparent) 55%,transparent 72%)}
+.anneau svg{width:220px;height:220px;transform:rotate(-90deg)}
 .anneau circle{fill:none;stroke-width:9;stroke-linecap:round}
-.anneau .fond{stroke:var(--surface2)}
+.anneau .fond{stroke:color-mix(in srgb,var(--txt) 10%,transparent)}
 .anneau.ok .part{stroke:var(--ok)}
 .anneau.warn .part{stroke:var(--warn)}
 .anneau.ko .part{stroke:var(--err)}
 .anneau.neutre .part{stroke:var(--line2)}
+.anneau.ok{filter:drop-shadow(0 0 22px color-mix(in srgb,var(--ok) 45%,transparent))}
+.anneau.warn{filter:drop-shadow(0 0 22px color-mix(in srgb,var(--warn) 45%,transparent))}
+.anneau.ko{filter:drop-shadow(0 0 22px color-mix(in srgb,var(--err) 45%,transparent))}
 .anneau .dedans{position:absolute;inset:0;display:grid;place-items:center;
  text-align:center;line-height:1.15}
-.anneau .dedans b{display:block;font-size:27px;font-weight:800;letter-spacing:-.035em}
-.anneau .dedans span{display:block;font-size:var(--t-xs,11px);color:var(--dim);
- margin-top:4px;letter-spacing:.02em}
+.anneau .dedans b{display:block;font-size:46px;font-weight:800;letter-spacing:-.04em}
+.anneau .dedans span{display:block;font-size:var(--t-s,12px);color:var(--dim);
+ margin-top:6px;letter-spacing:.02em}
 
 /* Le mot d'etat : OK, ATTENTION, ERREUR. Les memes trois mots que les
    pastilles des lignes, pour que l'oeil fasse le lien sans effort. */
@@ -219,11 +284,10 @@ em{font-style:normal}
 /* Les quatre compteurs. Un rang a zero s'efface au lieu de disparaitre :
    "aucune erreur" est une information, et une colonne qui change de largeur
    d'une visite a l'autre se relit a chaque fois. */
-.compteurs{display:grid;grid-template-columns:repeat(2,minmax(122px,1fr));
- gap:9px;flex:none;width:min(292px,100%)}
-.compteur{display:flex;align-items:baseline;gap:8px;padding:9px 13px;
- border-radius:var(--r-s,6px);border:1px solid var(--line);
- background:var(--surface2);min-width:124px}
+.compteurs{display:flex;flex-wrap:wrap;justify-content:center;gap:9px;margin-top:26px}
+.compteur{display:flex;align-items:baseline;gap:8px;padding:9px 14px;
+ border-radius:999px;border:1px solid color-mix(in srgb,var(--line) 70%,transparent);
+ background:color-mix(in srgb,var(--surface) 55%,transparent)}
 .compteur b{font-size:var(--t-l,16px);font-weight:800;letter-spacing:-.02em}
 .compteur span{font-size:var(--t-xs,11px);color:var(--dim);font-weight:700;
  letter-spacing:.06em;text-transform:uppercase}
@@ -233,7 +297,7 @@ em{font-style:normal}
 .compteur.neutre b{color:var(--dim2)}
 .compteur.warn{border-color:var(--warn-border);background:var(--warn-bg)}
 .compteur.ko{border-color:var(--err-border);background:var(--err-bg)}
-.compteur.vide{opacity:.5;border-color:var(--line);background:var(--surface2)}
+.compteur.vide{opacity:.55}
 .compteur.vide b{color:var(--dim2)}
 
 h2{font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
@@ -252,9 +316,13 @@ h2{font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
 .grille{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(440px,1fr));
  grid-auto-flow:row dense;align-items:start}
 @media (max-width:820px){.grille{grid-template-columns:1fr}}
-.rubrique{background:var(--surface);border:1px solid var(--line);
- border-left:3px solid var(--line2);border-radius:var(--r,8px);
- box-shadow:0 1px 2px var(--shadow);overflow:hidden}
+/* Une rubrique seule a l'ecran (sa vue) prend toute la scene. */
+.avec-vues .grille{grid-template-columns:1fr}
+.rubrique{background:color-mix(in srgb,var(--surface) 78%,transparent);
+ border:1px solid color-mix(in srgb,var(--line) 70%,transparent);
+ border-left:3px solid var(--line2);border-radius:16px;
+ -webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);
+ box-shadow:0 8px 30px color-mix(in srgb,var(--txt) 7%,transparent);overflow:hidden}
 /* Le bandeau de severite au bord de la carte : on repere la rubrique en
    cause sans lire une seule ligne. Quatre rangs, quatre bandeaux -- "disque
    a 87 pour cent" ne doit pas porter le rouge de "Postgres ne repond pas". */
@@ -265,10 +333,10 @@ h2{font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
 /* La rubrique qui porte ses propres tableaux prend la largeur : ses colonnes
    ne tiennent pas dans une demi-page. */
 .rubrique.large{grid-column:1/-1}
-.rub-tete{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 16px;
+.rub-tete{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:16px 18px;
  border-bottom:1px solid var(--line)}
 .rub-titre{min-width:0;flex:1}
-.rub-titre b{font-size:var(--t-b,14px);font-weight:700;letter-spacing:-.015em;display:block}
+.rub-titre b{font-size:var(--t-l,16px);font-weight:750;letter-spacing:-.02em;display:block}
 .rub-titre span{font-size:var(--t-s,12px);color:var(--dim);display:block;margin-top:2px}
 
 /* Une sonde par bloc, pas par cellule de tableau : le detail d'une sonde est
@@ -320,8 +388,8 @@ code{font-family:var(--mono,ui-monospace,Menlo,monospace);background:var(--surfa
 .note{color:var(--dim);font-size:var(--t-s,12px);line-height:1.6}
 .rub-corps .note{margin-top:10px}
 .mod-corps .note{margin-top:13px}
-.pied{margin-top:18px;color:var(--dim);font-size:var(--t-s,12px);line-height:1.6;
- max-width:88ch}
+.pied{margin:18px auto 0;color:var(--dim);font-size:var(--t-s,12px);line-height:1.6;
+ max-width:88ch;text-align:center}
 .err{background:var(--err-bg);border:1px solid var(--err-border);color:var(--err-txt);
  padding:12px 14px;border-radius:var(--r-s,6px);
  font-family:var(--mono,ui-monospace,Menlo,monospace);font-size:var(--t-s,12px);
@@ -345,8 +413,6 @@ code{font-family:var(--mono,ui-monospace,Menlo,monospace);background:var(--surfa
  border-radius:var(--r-s,6px);border:1px solid transparent;cursor:pointer;
  font:inherit;font-size:var(--t-m,13px);font-weight:650;white-space:nowrap}
 .btn svg{width:15px;height:15px}
-.btn-primaire{background:var(--accent);color:var(--sur-accent)}
-.btn-primaire:hover{background:var(--accent-h)}
 .btn-simple{background:var(--surface);color:var(--txt);border-color:var(--line2)}
 .btn-simple:hover{border-color:var(--accent);color:var(--accent)}
 .btn-sm{padding:5px 10px;font-size:var(--t-s,12px)}
@@ -519,7 +585,21 @@ async function lancer(cle){
   $('relancer').dataset.cle = cle === null ? '' : cle;
 }
 
+/* LES VUES. Une seule chose a la fois dans la scene, comme CleanMyMac :
+   l'accueil, ou une rubrique. Sans ce script, tout reste affiche l'un sous
+   l'autre -- la page ne depend pas de lui pour se lire. */
+function vue(cle){
+  document.documentElement.classList.add('avec-vues');
+  document.querySelectorAll('[data-vue-de]').forEach(s => { s.hidden = s.dataset.vueDe !== cle; });
+  document.querySelectorAll('[data-vue]').forEach(b =>
+    b.classList.toggle('actif', b.dataset.vue === cle));
+  window.scrollTo(0, 0);
+}
+vue('accueil');
+
 document.addEventListener('click', e => {
+  const v = e.target.closest('[data-vue]');
+  if(v){ vue(v.dataset.vue); return; }
   const b = e.target.closest('[data-verifier]');
   if(b) ouvrir(b.dataset.verifier || null);
 });
@@ -597,18 +677,44 @@ def _barre(quand):
             f'<div class="quand">{esc(quand)}</div></div></div>')
 
 
-def page(titre, corps, script_final="", quand=""):
+# Les icones de la barre laterale, une par rubrique (traits de 24 px, comme
+# le panneau). Une rubrique sans icone propre prend le cercle.
+ICONES = {
+    "accueil": "M4 13a8 8 0 0 1 16 0M12 13l4-4M4 17h16",
+    "services": "M4 5h16v6H4zM4 13h16v6H4zM8 8h.01M8 16h.01",
+    "donnees": "M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3",
+    "securite": "M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6zM9 12l2 2 4-4",
+    "applications": "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z",
+    "ressources": "M3 15h18v5H3zM5 15l2-9h10l2 9M7 18h.01",
+}
+CERCLE = "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z"
+
+
+def _entree(vue, libelle, rang=""):
+    """Une entree de la barre laterale : son icone, son nom, le point de son
+    pire rang (absent pour l'accueil)."""
+    point = f'<span class="point {esc(rang)}"></span>' if rang else ""
+    return (f'<button type="button" data-vue="{esc(vue)}">'
+            f'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="{ICONES.get(vue, CERCLE)}"/></svg>'
+            f'{esc(libelle)}{point}</button>')
+
+
+def page(titre, corps, script_final="", quand="", cote=""):
     """Le gabarit commun : theme du panneau, meme police, meme fond.
 
     Un seul gabarit pour toute l'application -- deux divergent au premier
     changement, et le diagnostic se mettrait a ressembler a deux applications
-    differentes selon la page ouverte.
+    differentes selon la page ouverte. cote : la barre laterale, quand la
+    page en a une.
     """
+    cadre = (f'<div class="app"><nav class="cote verre" aria-label="Rubriques">{cote}</nav>'
+             f'<main class="scene">{corps}</main></div>' if cote
+             else f'<div class="wrap">{corps}</div>')
     return ("<!doctype html><html lang=\"fr\"><head><meta charset=\"utf-8\">"
             + THEME + FAVICON + SUIVRE_LE_THEME
             + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
             + f"<title>{esc(titre)}</title><style>{CSS}</style></head><body>"
-            + _barre(quand) + f"<div class=\"wrap\">{corps}</div>{MODALE}"
+            + _barre(quand) + cadre + MODALE
             + f"<script>{script_final}</script>"
             + f"<script>{SCRIPT}</script></body></html>")
 
@@ -744,7 +850,7 @@ def _rubrique(cle, titre, description, resultats, extra=""):
     bouton = (f'<button class="btn btn-simple btn-sm" data-verifier="{esc(cle)}">'
               f'Vérifier</button>')
     large = " large" if extra else ""
-    return (f'<section class="rubrique {rang}{large}" id="rub-{esc(cle)}">'
+    return (f'<section class="rubrique {rang}{large}" id="rub-{esc(cle)}" data-vue-de="{esc(cle)}">'
             f'<div class="rub-tete"><div class="rub-titre"><b>{esc(titre)}</b>'
             f'<span>{esc(description)}</span></div>'
             f'{pastille}{bouton}</div>'
@@ -856,15 +962,14 @@ def index(ouvrir_verification=False):
 
     applicables = len(resultats) - len(sans_objet)
     cockpit = (
-        f'<section class="cockpit {rang.classe}">'
+        f'<section class="cockpit {rang.classe}" data-vue-de="accueil">'
         + _anneau(len(verts), applicables, rang.classe)
         + f'<div class="colonne">'
         f'<span class="etat-mot {rang.classe}">{rang.libelle}</span>'
         f'<h1>{esc(titre)}</h1><div class="phrase">{phrase}</div>'
         '<div class="actions">'
-        '<button class="btn btn-primaire" data-verifier="">'
-        '<svg viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></svg>'
-        'Lancer la vérification approfondie</button>'
+        '<button class="analyser" data-verifier="" '
+        'title="Lancer la vérification approfondie, sur tout">Analyser</button>'
         + (f'<span class="sep">{esc(ecriture)}</span>' if ecriture else '')
         + '</div></div>'
         '<div class="compteurs">'
@@ -916,21 +1021,27 @@ def index(ouvrir_verification=False):
         f'<code>diagnostic_codelab</code> de <code>/workspace/definitions.py</code>.</div>'
         f'</div>')
 
+    themes = checks.sondes_par_theme(resultats)
     rubriques = "".join(
         _rubrique(cle, titre, desc, sondes,
                   detail_donnees if cle == "donnees" else "")
-        for cle, titre, desc, sondes in checks.sondes_par_theme(resultats))
+        for cle, titre, desc, sondes in themes)
+    # La barre laterale : l'accueil, puis une entree par rubrique avec le
+    # point de son pire rang -- on voit ou regarder avant d'ouvrir.
+    cote = (_entree("accueil", "Analyse intelligente")
+            + '<div class="groupe">Rubriques</div>'
+            + "".join(_entree(cle, titre, checks.pire(sondes).classe)
+                      for cle, titre, _desc, sondes in themes))
 
     quand = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M:%S")
     corps = (
         cockpit
-        + '<h2>Rubriques</h2>'
         + f'<div class="grille">{rubriques}</div>'
-        + '<div class="pied">Ces sondes ne font que <b>regarder</b>, et tournent à chaque '
+        + '<div class="pied" data-vue-de="accueil">Ces sondes ne font que <b>regarder</b>, et tournent à chaque '
           'affichage. La vérification approfondie, elle, <b>agit</b> : elle écrit en base, '
-          'traverse le proxy et vérifie que le journal enregistre. Lance-la sur tout depuis '
-          'le bouton du haut, ou sur la seule rubrique qui cloche depuis son propre '
-          'bouton.</div>')
+          'traverse le proxy et vérifie que le journal enregistre. Lance-la sur tout avec '
+          '<b>Analyser</b>, ou sur la seule rubrique qui cloche depuis son bouton '
+          '<b>Vérifier</b>.</div>')
 
     # Le rang des tests et leur rubrique, poses pour la fenetre. Ecrits en
     # JSON par le serveur : la page ne devine rien de ce que le module sait.
@@ -948,7 +1059,7 @@ def index(ouvrir_verification=False):
         # Le lien /tests ouvre la fenetre de lui-meme, sur tout.
         donnees += "window.addEventListener('load',function(){ouvrir(null);});"
     return page("CodeLab · état de santé", corps, donnees,
-                quand=f"Exécuté dans codelab-app-manager · {quand}")
+                quand=f"Exécuté dans codelab-app-manager · {quand}", cote=cote)
 
 
 if __name__ == "__main__":

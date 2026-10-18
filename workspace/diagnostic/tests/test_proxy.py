@@ -235,17 +235,17 @@ def test_codelab_create_depose_les_modules_web_et_un_claude_md(tmp_path):
 
 
 
-def test_codelab_agents_ne_touche_pas_un_claude_md_existant(tmp_path):
+def test_codelab_update_ne_touche_pas_un_claude_md_existant(tmp_path):
     projet = tmp_path / "ws" / "vieux"
     projet.mkdir(parents=True)
     (projet / "CLAUDE.md").write_text("mes consignes\n")
-    r, _ = _lancer_codelab(tmp_path, ["agents", str(projet)])
+    r, _ = _lancer_codelab(tmp_path, ["update", str(projet), "--sans-db"])
     assert r.returncode == 0, r.stdout + r.stderr
     assert (projet / "CLAUDE.md").read_text() == "mes consignes\n"
     assert "n'importe pas AGENTS.md" in r.stdout
     # Un CLAUDE.md qui l'importe deja : rien a dire.
     (projet / "CLAUDE.md").write_text("@AGENTS.md\net le reste\n")
-    r, _ = _lancer_codelab(tmp_path, ["agents", str(projet)])
+    r, _ = _lancer_codelab(tmp_path, ["update", str(projet), "--sans-db"])
     assert "CLAUDE.md" not in r.stdout
 
 
