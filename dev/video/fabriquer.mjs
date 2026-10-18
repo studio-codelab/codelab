@@ -54,6 +54,24 @@ if (!existsSync(fichierScenario)) echouer(`${fichierScenario} introuvable.`);
 const scenario = (await import(pathToFileURL(fichierScenario).href + `?t=${Date.now()}`)).default;
 if (!scenario || !Array.isArray(scenario.etapes) || !scenario.etapes.length)
   echouer("le scenario doit exporter par defaut { titre, adresse, etapes: [...] }.");
+// L'ADRESSE, AVANT TOUT LE RESTE. Vecu : « apiRequestContext.post: connect
+// ECONNREFUSED ::1:8000 ». Deux causes, chacune a dire clairement :
+//  - « localhost » : Node le resout d'abord en IPv6 (::1), alors que les
+//    applications ecoutent en IPv4 (127.0.0.1 ou 0.0.0.0, comme uvicorn par
+//    defaut). On vise donc 127.0.0.1, ce que « localhost » voulait dire ;
+//  - l'application arretee : on le verifie ici, en quelques secondes,
+//    plutot qu'apres la voix off et au milieu de la premiere etape.
+if (scenario.adresse) {
+  const url = new URL(scenario.adresse);
+  if (url.hostname === "localhost") url.hostname = "127.0.0.1";
+  scenario.adresse = url.href;
+  try {
+    await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(5000) });
+  } catch {
+    echouer(`l'application ne repond pas sur ${url.href} : lance-la dans un autre terminal ` +
+            "(ou demarre-la dans le panneau), laisse-la tourner, puis relance « codelab video ».");
+  }
+}
 const taille = { width: scenario.taille?.largeur || 1600, height: scenario.taille?.hauteur || 900 };
 const travail = mkdtempSync(join(tmpdir(), "codelab-video-"));
 const sortie = join(dossier, "video");

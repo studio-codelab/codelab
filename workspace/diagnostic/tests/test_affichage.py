@@ -2224,6 +2224,35 @@ def test_codelab_video_pose_un_scenario_a_completer(tmp_path):
 
 
 
+def test_codelab_video_dit_que_l_application_ne_repond_pas(tmp_path):
+    """Vecu : « apiRequestContext.post: connect ECONNREFUSED ::1:8000 » --
+    l'application etait arretee, et « localhost » visait l'IPv6. Le tournage
+    verifie l'adresse d'abord, la lit en 127.0.0.1, et le dit en clair."""
+    import shutil
+    import socket
+    import subprocess
+    if not shutil.which("node"):
+        pytest.skip("node absent")
+    env = dict(os.environ)
+    env["NODE_PATH"] = os.pathsep.join(filter(None, [env.get("NODE_PATH"), "/opt/node-tools/node_modules"]))
+    sonde = subprocess.run(["node", "-e", "require('playwright')"], env=env, capture_output=True)
+    if sonde.returncode != 0:
+        pytest.skip("playwright absent")
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]          # libre, donc personne n'y repond
+    (tmp_path / "video").mkdir()
+    (tmp_path / "video" / "scenario.mjs").write_text(
+        'export default { titre: "t", adresse: "http://localhost:%d/", etapes: [{ voix: "x" }] };\n' % port)
+    r = subprocess.run(["node", os.path.join(_racine_depot(), "dev", "video", "fabriquer.mjs"),
+                        str(tmp_path)], env=env, capture_output=True, text=True, timeout=60)
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert f"ne repond pas sur http://127.0.0.1:{port}/" in r.stderr, r.stderr
+    assert "autre terminal" in r.stderr
+
+
+
+
 def test_codelab_video_trouve_le_chromium_de_l_image_depuis_une_session_ssh(tmp_path):
     """Vecu : « Executable doesn't exist at ~/.cache/ms-playwright/... ».
     L'ENV du Dockerfile n'atteint pas une session SSH : l'outil pose lui-meme

@@ -641,9 +641,16 @@ export default {
   personnelles ni de secret a l'ecran.
 - `voix: false` a la racine : video muette. `video/musique.mp3` : une musique
   libre de droits passe doucement sous la voix.
-- **Application privee** (le hub demande une connexion) : lance-la dans le
-  terminal du poste et mets son adresse locale (`http://localhost:8000/`)
-  dans `adresse`.
+- **Application privee** (le hub demande une connexion) : lance-la dans un
+  AUTRE terminal du poste, laisse-la tourner pendant tout le tournage, et
+  mets son adresse locale (`http://127.0.0.1:8000/`) dans `adresse`.
+  `codelab video` verifie d'abord qu'elle repond, et lit `localhost` comme
+  `127.0.0.1` (Node viserait sinon l'IPv6, ou l'application n'ecoute pas).
+- **Une connexion dans le scenario** : un compte de demonstration DEDIE,
+  cree pour la video, dont les identifiants arrivent par variables
+  d'environnement (jamais ecrits dans le scenario). Ne reinitialise jamais
+  le mot de passe d'un vrai compte, administrateur encore moins, pour
+  filmer.
 
 Relance `codelab video` apres chaque changement visible de l'application.
 Dans sa fiche, l'administrateur peut masquer la video du hub.
