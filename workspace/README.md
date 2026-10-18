@@ -12,7 +12,7 @@ par les autres :
 Il vit sur l'hôte (`/DATA/AppData/codelab/workspace`) et survit aux mises à jour.
 
 Les règles complètes qu'un projet doit suivre sont dans le `AGENTS.md` de chaque projet, que pose
-`codelab new`.
+`codelab create` et que `codelab update` tient à jour.
 
 ## Contenu
 
@@ -44,7 +44,7 @@ Un projet est un dossier. Il n'y a rien à déclarer ailleurs. Il peut contenir 
 | `AGENTS.md`, `CLAUDE.md` | le manuel lu par les agents de code |
 | `codelab_auth.*`, `codelab_web.*` | connexion avec CodeLab ; pages d'erreur et en-têtes |
 
-Créer un projet : `codelab new mon-projet --db` depuis une session SSH, ou **Ctrl+Maj+B** dans
+Créer un projet : `codelab create mon-projet` depuis une session SSH, ou **Ctrl+Maj+B** dans
 VS Code ouvert sur `/workspace`. Copier `diagnostic/` donne aussi un projet complet qui fonctionne.
 
 ## Configuration
@@ -82,7 +82,7 @@ Une base **par projet**, nommée comme son dossier, avec un schéma `dagster` su
 La base `dagster` ne contient que les tables d'instance de Dagster.
 
 ```bash
-codelab db mon-projet      # crée la base et son compte (idempotent)
+codelab update mon-projet  # crée la base et son compte s'ils manquent (idempotent)
 cd /workspace/mon-projet && psql   # le shell a le compte de la base du projet
 ```
 

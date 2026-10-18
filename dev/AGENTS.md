@@ -1,7 +1,7 @@
 # CodeLab -- regles de developpement
 
 > Manuel de l'environnement, livre par l'image `codelab-dev` et recopie dans
-> chaque projet par `codelab agents` (lu par Codex dans `AGENTS.md`, par Claude
+> chaque projet par `codelab create` et `codelab update` (lu par Codex dans `AGENTS.md`, par Claude
 > Code via `CLAUDE.md`). Il decrit la stack ou tournent les projets, pas le
 > depot CodeLab lui-meme. Les consignes propres au projet sont sous ce bloc et
 > dans son `README.md` ; en cas de contradiction, elles l'emportent.
@@ -70,6 +70,13 @@ mon-projet/
 
 Les modules `codelab_auth` et `codelab_web` sont fournis par CodeLab : ne les
 modifie pas, pour pouvoir les remplacer par une version plus recente.
+
+Tout cela est pose par `codelab create <nom>`, et remis au niveau de la stack
+par `codelab update` (lance depuis le dossier du projet) : le bloc de ce
+manuel, `CLAUDE.md`, les modules intacts, le `.gitignore` et la base. Rien de
+ce que le projet a ecrit n'est efface. Si une consigne de ce manuel semble
+manquer ou dater, propose de lancer `codelab update`. `codelab aide` liste
+toutes les commandes.
 
 ## 5. Application web servie par le hub
 
@@ -187,7 +194,7 @@ prefixe. Il n'y a ni base fourre-tout ni base `postgres`. L'extension `vector`
 (pgvector) est disponible dans le schema `public`.
 
 ```bash
-codelab db mon-projet     # cree la base, son compte et son schema (idempotent) ; sauvegardee chaque jour
+codelab update mon-projet # cree la base, son compte et son schema s'ils manquent ; sauvegardee chaque jour
 cd /workspace/mon-projet && psql   # le shell a le compte de la base du projet
 ```
 
@@ -693,7 +700,7 @@ chaque point, et dis lesquels tu n'as pas pu verifier.
 - [ ] Aucune police ni script charge depuis un tiers sans raison
 
 **Exploitation**
-- [ ] Base creee avec `codelab db` (donc sauvegardee chaque jour)
+- [ ] Base creee par `codelab create` ou `codelab update` (ou `codelab db`), donc sauvegardee chaque jour
 - [ ] Noms Dagster (assets, jobs, plannings) prefixes par le projet
 - [ ] Section « Projet » du `AGENTS.md` et `README.md` a jour : ce que fait le
       projet, ses commandes

@@ -16,37 +16,46 @@
   "tasks": [
     {
       "label": "CodeLab : nouveau projet",
-      "detail": "Dossier, depot git, .gitignore, AGENTS.md — puis la fenetre se rouvre sur le projet (Ctrl+Maj+B)",
+      "detail": "codelab create — dossier, git, AGENTS.md + CLAUDE.md, modules, base ; puis la fenetre se rouvre sur le projet (Ctrl+Maj+B)",
       "type": "shell",
-      "command": "codelab new '${input:projet}' --ouvrir",
+      "command": "codelab create '${input:projet}' --ouvrir",
       "options": { "cwd": "${workspaceFolder}" },
       "group": { "kind": "build", "isDefault": true },
       "problemMatcher": [],
       "presentation": { "reveal": "always", "panel": "shared", "clear": true }
     },
     {
-      "label": "CodeLab : nouveau projet + base de donnees",
-      "detail": "Comme ci-dessus, avec la base du projet et son schema dagster ; la fenetre se rouvre sur le projet",
+      "label": "CodeLab : nouveau projet sans base de donnees",
+      "detail": "Comme ci-dessus, sans la base (codelab update la creera plus tard)",
       "type": "shell",
-      "command": "codelab new '${input:projet}' --db --ouvrir",
+      "command": "codelab create '${input:projet}' --sans-db --ouvrir",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": [],
       "presentation": { "reveal": "always", "panel": "shared", "clear": true }
     },
     {
-      "label": "CodeLab : creer la base d'un projet existant",
-      "detail": "codelab db — base, schema et search_path (sans effet si elle existe deja)",
+      "label": "CodeLab : mettre a jour un projet",
+      "detail": "codelab update — manuel de l'agent, CLAUDE.md, modules, .gitignore, base ; rien de ce que le projet a ecrit n'est efface",
       "type": "shell",
-      "command": "codelab db '${input:projet}'",
+      "command": "codelab update '${input:projet}'",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": [],
       "presentation": { "reveal": "always", "panel": "shared", "clear": true }
     },
     {
-      "label": "CodeLab : mettre a jour le manuel de l'agent",
-      "detail": "Rafraichit le bloc CodeLab du AGENTS.md ; ce qui est ecrit autour est conserve",
+      "label": "CodeLab : mettre a jour tous les projets",
+      "detail": "codelab update --tous — a lancer apres chaque mise a jour de CodeLab",
       "type": "shell",
-      "command": "codelab agents '${input:projet}'",
+      "command": "codelab update --tous",
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "shared", "clear": true }
+    },
+    {
+      "label": "CodeLab : aide",
+      "detail": "codelab aide — toutes les commandes (codelab help : en anglais)",
+      "type": "shell",
+      "command": "codelab aide",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": [],
       "presentation": { "reveal": "always", "panel": "shared", "clear": true }

@@ -31,7 +31,7 @@ interfaces d'import (CasaOS). Il vit donc dans l'image.
 | `codelab` | copie de l'historique du panneau (journal, comptes sans secret) |
 | `diagnostic`, `<projet>` | une base par projet, tables dans son schéma `dagster` |
 
-- **Une base de projet** se crée sans redémarrer : `codelab db mon-projet`, depuis `codelab-dev`,
+- **Une base de projet** se crée sans redémarrer : `codelab create mon-projet` ou `codelab update mon-projet` (ou `codelab db mon-projet`, la base seule), depuis `codelab-dev`,
   ou d'elle-même au lancement de l'application par le panneau.
 - **Son compte** porte son nom. Son mot de passe se dérive du mot de passe administrateur
   (`POSTGRES_PASSWORD`) : `sha256(<mot de passe>:codelab-base:<base>)`, en hexadécimal. Le panneau le

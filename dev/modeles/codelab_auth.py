@@ -1,6 +1,6 @@
 """codelab_auth -- se connecter avec CodeLab, sans connexions dans tous les sens.
 
-Depose par « codelab new ». Aucune dependance : la signature Ed25519 est
+Depose par « codelab create », tenu a jour par « codelab update ». Aucune dependance : la signature Ed25519 est
 verifiee par la bibliotheque « cryptography » si elle est installee, sinon
 par l'implementation de reference (RFC 8032) incluse plus bas.
 

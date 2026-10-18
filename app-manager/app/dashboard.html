@@ -885,6 +885,11 @@ th[aria-sort="ascending"] .ap-th span,th[aria-sort="descending"] .ap-th span{opa
 .mh h3{font-size:16px;font-weight:640}
 .mh p{font-size:12.5px;color:var(--dim);margin-top:3px}
 .mb{padding:20px 22px;overflow:auto}
+/* Les commandes codelab : une ligne par commande, la commande au-dessus de
+   ce qu'elle fait (une colonne de code trop etroite couperait la commande). */
+.cmd-liste{display:flex;flex-direction:column;gap:12px;margin:0}
+.cmd-liste dt code{font-size:13px}
+.cmd-liste dd{margin:3px 0 0;color:var(--dim);font-size:13.5px;line-height:1.45}
 .mf{padding:14px 22px;display:flex;gap:8px;justify-content:flex-end;border-top:1px solid var(--line);
  background:var(--surface2)}
 .mf .spacer{flex:1}
@@ -1288,6 +1293,8 @@ table.tbl-journal{min-width:560px}
   .card-top{flex-wrap:wrap}
   .card-top>.btn{flex:1 1 100%;justify-content:center}
   .toolbar>.btn{flex:1 1 100%;justify-content:center}
+  /* Commandes reste a cote du titre : seule Nouvelle application passe dessous. */
+  .toolbar>.btn.btn-commandes{flex:0 0 auto}
   .us-pages{flex-wrap:wrap}
   .us-pages .hint{flex:1 1 100%;text-align:center;order:-1}
   .us-filtres .field{flex:1 1 100% !important}
@@ -2412,6 +2419,8 @@ a.pj:hover{border-color:var(--accent)}
   <div class="toolbar">
     <h2>Applications</h2>
     <div class="spacer"></div>
+    <button class="btn btn-default btn-commandes" onclick="ouvrirCommandes()" title="Les commandes codelab du poste de développement">
+      <svg viewBox="0 0 24 24"><path d="M4 17l6-5-6-5M12 19h8"/></svg>Commandes</button>
     <button class="btn btn-primary" onclick="openAdd()">
       <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Nouvelle application</button>
   </div>
@@ -2716,7 +2725,7 @@ a.pj:hover{border-color:var(--accent)}
         <div class="hint">L'application reçoit l'identité signée des personnes connectées
           (<code>X-CodeLab-Auth</code>, vérifiable avec <code>CODELAB_SSO_PUBLIC_KEY</code>). Les modules
           <code>codelab_auth.py</code> et <code>codelab-auth.js</code>, posés par
-          <code>codelab new</code>, font la connexion silencieuse : session de l'application, sinon
+          <code>codelab create</code> (et tenus à jour par <code>codelab update</code>), font la connexion silencieuse : session de l'application, sinon
           CodeLab, sinon son formulaire habituel. Après la connexion, le visiteur revient dans
           l'application.</div>
       </div>
@@ -3667,9 +3676,45 @@ a.pj:hover{border-color:var(--accent)}
   </div>
 </div></div>
 
+<!-- LES COMMANDES CODELAB, pour l'administrateur : la meme liste que
+     « codelab aide » (et « codelab help », en anglais) dans un terminal du
+     poste de developpement, et que FONCTIONNALITES.md. Un test verifie que
+     chaque commande de l'outil y figure. -->
+<div class="ov" id="ov-commandes"><div class="modal" role="dialog" aria-labelledby="cmd-titre">
+  <div class="mh"><h3 id="cmd-titre">Commandes du poste de développement</h3>
+    <p>À taper dans un terminal de <code>codelab-dev</code> (VS Code ou SSH).
+      <code>codelab aide</code> les rappelle en français, <code>codelab help</code> en anglais.</p></div>
+  <div class="mb">
+    <dl class="cmd-liste">
+      <div><dt><code>codelab create &lt;nom&gt;</code></dt>
+        <dd>Crée un projet complet dans <code>/workspace</code> : dépôt git, <code>.gitignore</code>,
+          <code>README.md</code>, manuel de l'agent (<code>AGENTS.md</code> et <code>CLAUDE.md</code>),
+          modules de connexion et d'erreurs CodeLab, base de données. <code>--sans-db</code> : sans
+          base ; <code>--ouvrir</code> : rouvre VS Code sur le projet.</dd></div>
+      <div><dt><code>codelab update [projet]</code></dt>
+        <dd>Met un projet existant à jour après une mise à jour de CodeLab : manuel de l'agent,
+          <code>CLAUDE.md</code>, modules, <code>.gitignore</code>, base. Rien de ce que le projet a écrit
+          n'est effacé. Sans nom : le projet du dossier courant ; <code>--tous</code> : chaque projet.</dd></div>
+      <div><dt><code>codelab video [projet]</code></dt>
+        <dd>La vidéo de présentation montrée sur la fiche : la première fois, pose
+          <code>video/scenario.mjs</code> à compléter (ou à faire écrire par l'agent) ; ensuite, filme
+          l'application, ajoute la voix off et monte la vidéo dans <code>video/</code>.</dd></div>
+      <div><dt><code>codelab aide [commande]</code> · <code>codelab help [command]</code></dt>
+        <dd>L'aide, en français ou en anglais, avec le détail d'une commande.</dd></div>
+      <div><dt><code>codelab db &lt;nom&gt;</code> · <code>codelab vscode-bases</code></dt>
+        <dd>Outils plus fins, appelés par <code>create</code> et <code>update</code> : la base seule,
+          et les connexions des bases dans SQLTools (VS Code).</dd></div>
+    </dl>
+  </div>
+  <div class="mf"><div class="spacer"></div>
+    <button class="btn btn-primary" onclick="hide('ov-commandes')">Fermer</button></div>
+</div></div>
+
 <div class="ov" id="ov-add"><div class="modal">
   <div class="mh"><h3>Nouvelle application</h3>
-    <p>Un dossier de <code id="a-s"></code>, une commande de lancement, et c'est en ligne.</p></div>
+    <p>Un dossier de <code id="a-s"></code>, une commande de lancement, et c'est en ligne.
+      Pas encore de dossier ? <code>codelab create &lt;nom&gt;</code> dans le poste de développement
+      (<a href="#" onclick="hide('ov-add');ouvrirCommandes();return false">les commandes</a>).</p></div>
   <div class="mb"><div class="alert" id="a-e"></div>
     <div class="field"><label>Nom</label>
       <input id="f-name" placeholder="portfolio" autocomplete="off">
