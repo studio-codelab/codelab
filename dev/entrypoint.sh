@@ -696,6 +696,23 @@ ecrire_les_bases_du_poste() {
         PGPORT="${PGPORT:-5432}" codelab vscode-bases --discret >/dev/null 2>&1 || true
 }
 
+# LA CLE DES LAISSEZ-PASSER DE TOURNAGE (« codelab video », voir « le
+# laissez-passer de tournage » dans le proxy du panneau). Recopiee pour la
+# session, comme les comptes des bases : elle n'ouvre qu'une application a
+# la fois, dix minutes, et jamais le panneau -- moins que ~/.codelab-bases,
+# qui donne deja les donnees de chaque projet. Ecrite sous le compte de
+# l'utilisateur (runuser), en 0600 ; retiree si le panneau n'en a plus.
+ecrire_la_cle_de_tournage() {
+    cle="$(sed -n 's/^APP_MANAGER_TOURNAGE_CLE=//p' "$ENV_FILE" 2>/dev/null | tail -n 1)"
+    if [ -z "$cle" ]; then
+        runuser -u "$SSH_USER" -- sh -c 'rm -f "$HOME/.codelab-tournage"' 2>/dev/null || true
+        return 0
+    fi
+    printf '%s\n' "$cle" | runuser -u "$SSH_USER" -- sh -c 'umask 077
+        cat > "$HOME/.codelab-tournage.tmp" && mv -f "$HOME/.codelab-tournage.tmp" "$HOME/.codelab-tournage"' \
+        || return 1
+}
+
 repondre_demande() {
     nom="$1"; verdict="$2"; texte="$3"
     tmp=$(mktemp "$BASES_REPONSES/r.XXXXXX") || return 0
@@ -743,12 +760,16 @@ gardien_des_bases() {
         done
         maintenant=$(date +%s)
         if [ $((maintenant - dernier)) -ge 300 ]; then
+            # La cle aussi : le panneau la cree a son premier demarrage, qui
+            # peut suivre celui du poste.
+            ecrire_la_cle_de_tournage || true
             ecrire_les_bases_du_poste && dernier=$maintenant
         fi
         sleep 2
     done
 }
 
+ecrire_la_cle_de_tournage || true
 if [ -n "${PG_PASSWORD:-}" ] && [ -r "$PROTEGER_SQL" ]; then
     gardien_des_bases &
 fi

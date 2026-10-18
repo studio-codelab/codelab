@@ -343,12 +343,13 @@
    ESSAYE ET ECARTE : une image SVG en background -- sa couleur ne peut pas
    suivre une variable CSS. Le SVG sert donc de masque, la couleur vient de
    --motif. L'etoile a quatre branches de la premiere version : remplacee par
-   la croix, a la demande. */
-:root{--motif:color-mix(in srgb,var(--txt) 11%,transparent);--motif-pas:28px}
+   la croix, a la demande. Puis « espace les croix et rend les plus
+   discretes » : 44 px au lieu de 28, 6 % du texte au lieu de 11. */
+:root{--motif:color-mix(in srgb,var(--txt) 6%,transparent);--motif-pas:44px}
 body.fond-motif::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
  background:var(--motif);
- -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28'%3E%3Cpath d='M14 10.5v7M10.5 14h7' stroke='black' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") 0 0/var(--motif-pas) var(--motif-pas) repeat;
- mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28'%3E%3Cpath d='M14 10.5v7M10.5 14h7' stroke='black' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") 0 0/var(--motif-pas) var(--motif-pas) repeat}
+ -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44'%3E%3Cpath d='M22 18.5v7M18.5 22h7' stroke='black' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") 0 0/var(--motif-pas) var(--motif-pas) repeat;
+ mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44'%3E%3Cpath d='M22 18.5v7M18.5 22h7' stroke='black' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") 0 0/var(--motif-pas) var(--motif-pas) repeat}
 html[data-motif="uni"] body.fond-motif::before{display:none}
 
 /* ------------------------------ mode application ------------------------------

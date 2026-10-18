@@ -220,7 +220,8 @@ Le fichier unique de secrets, partagé par les services. Chaque service écrit *
 marqueurs (`# ===== <bloc> =====`), sous un verrou `flock`. Le panneau écrit :
 
 - `codelab-app-manager` : `APP_MANAGER_ADMIN_PASSWORD`, `APP_MANAGER_SESSION_SECRET`,
-  `APP_MANAGER_CHIFFREMENT_CLE`, `APP_MANAGER_TOTP_SECRET` ;
+  `APP_MANAGER_CHIFFREMENT_CLE`, `APP_MANAGER_TOTP_SECRET`, `APP_MANAGER_TOURNAGE_CLE` (les
+  laissez-passer de `codelab video`, recopiée par `codelab-dev` dans `~/.codelab-tournage`) ;
 - `codelab-sso` : la clé de signature des assertions ;
 - `codelab-relais-mail` : le serveur d'envoi publié à Mailpit.
 
@@ -277,6 +278,7 @@ dans le journal du conteneur avec la méthode et la route (`docker logs codelab-
 | Santé | `GET /health` (sans session) ; `GET /api/auth-check` (sans session : 200 si la session est admin, interrogé par le proxy Dagster et Mailpit) |
 | Connexion | `GET/POST /login`, `POST /login/second-facteur`, `POST /login/second-facteur/passkey[/options]`, `POST /login/passkey[/options]`, `POST /login/inscription/passkey[/options]`, `POST /logout`, `POST /mot-de-passe/oubli`, `POST /mot-de-passe/reinitialiser` (sans session, sauf `logout`) |
 | Invitations | `GET/POST /api/invitations`, `POST /api/invitations/<id>/renvoyer`, `DELETE /api/invitations/<id>` (admin) ; `GET/POST /invitation/<jeton>`, `GET /api/invitation/<jeton>` (sans session) |
+| Tournage | `POST /api/tournage/<app>` (sans session, réseau local, en-tête `X-CodeLab-Tournage` : la clé de tournage) rend un ticket à usage unique d'une minute ; `GET /<app>/?codelab-tournage=<ticket>` l'échange contre le cookie `codelab-tournage` (dix minutes, cette application seule). Voir la règle 12 ter de `SECURITE.md` |
 | Notifications | `GET /api/notifications` (clé publique VAPID, cet appareil est-il abonné), `POST/DELETE /api/notifications/abonnement`, `POST /api/notifications/essai` |
 | Appareils | `GET /api/mon-compte/appareils`, `DELETE /api/mon-compte/appareils/<id>`, `POST /api/mon-compte/appareils/deconnecter-autres` ; `GET/DELETE /api/utilisateurs/<nom>/appareils` (admin) |
 | Mon compte | `GET /api/mon-compte`, `POST/DELETE /api/mon-compte/suppression` (demander, annuler), `PUT /api/mon-compte/profil` (prénom, nom), `POST /api/mon-compte/email[/code\|/confirmer]`, `POST /api/compte/mot-de-passe`, `GET/POST/DELETE /api/mon-compte/passkeys[/options\|/<id>]`, `GET /api/passkeys/etat` (sans session), `GET /qr/totp.svg`, `GET /api/mon-compte/totp`, `POST /api/mon-compte/totp/preparer\|activer\|retirer` (application d'authentification d'un compte) |

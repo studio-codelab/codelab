@@ -55,7 +55,7 @@ leur nom (`codelab-postgres`, `codelab-app-manager`…).
 | `… --ouvrir` (`--open`) | rouvre la fenêtre VS Code sur le projet |
 | `codelab update [projet]` | remet un projet existant au niveau de la stack, sans rien effacer : réécrit le bloc du manuel dans `AGENTS.md`, pose `CLAUDE.md` s'il manque, ajoute les modules manquants et remplace ceux que git garde intacts (une copie modifiée reste), ajoute `.env` et `.dagster-venv/` au `.gitignore`, crée la base si elle manque. Sans nom : le projet du dossier courant |
 | `… --tous` (`--all`) | chaque projet de `/workspace` qui porte le manuel CodeLab |
-| `codelab video [projet]` | la vidéo de présentation : pose `video/scenario.mjs` s'il manque, sinon le joue dans Chromium, ajoute la voix off (Piper, en français, hors ligne) et monte `video/presentation.mp4` et `video/affiche.jpg` avec ffmpeg ; voir la section 14 du manuel |
+| `codelab video [projet]` | la vidéo de présentation : pose `video/scenario.mjs` s'il manque, sinon le joue dans Chromium, ajoute la voix off (Piper, en français, hors ligne) et monte `video/presentation.mp4` et `video/affiche.jpg` avec ffmpeg. Filmée par le hub, une application privée s'ouvre sans connexion : un laissez-passer de tournage obtenu avec `~/.codelab-tournage` (la clé que le poste recopie du panneau, `0600`). Voir la section 14 du manuel |
 | `codelab help [commande]` | l'aide, en français puis en anglais ; avec un nom, le détail de la commande ; `codelab` seul l'affiche aussi |
 | `codelab db <nom>` | la base seule : `<nom>`, son compte, son schéma `dagster` et le `search_path` (idempotent), par le gardien des bases ; appelée par `create` et `update` |
 | `codelab vscode-bases` | les connexions SQLTools (voir plus bas) ; appelée par `create`, `update` et le poste |

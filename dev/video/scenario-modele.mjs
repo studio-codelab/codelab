@@ -16,8 +16,9 @@ export default {
   titre: "__TITRE__",
   accroche: "Une phrase qui dit à quoi sert l’application.",
   // L'adresse a filmer. Pour une application publique, celle du hub ; pour
-  // une application privee, lance-la dans le terminal du poste et mets son
-  // adresse locale (par exemple http://localhost:8000/).
+  // une application privee, lance-la dans un AUTRE terminal du poste, laisse-
+  // la tourner pendant le tournage, et mets son adresse locale (par exemple
+  // http://127.0.0.1:8000/ ; « localhost » est compris comme 127.0.0.1).
   adresse: "__ADRESSE__",
   taille: { largeur: 1600, hauteur: 900 },   // 16:9, comme la vidéo
   etapes: [

@@ -271,8 +271,16 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 12 bis. Un compte utilisateur ne reçoit ni l'état des applications ni le détail des erreurs
     techniques ; une application qui ne s'ouvre pas lui montre une page neutre. Les widgets
     d'administration ne se posent que pour l'administrateur, contrôlé côté serveur.
+12 ter. Seule exception à la règle 12 : le laissez-passer de tournage de `codelab video`. Il
+    s'obtient avec la clé du poste de développement (`APP_MANAGER_TOURNAGE_CLE`), depuis le réseau
+    local, sous la limite de la règle 6. Il vaut pour UNE application, ni par défaut ni archivée :
+    un ticket à usage unique d'une minute, puis un cookie de dix minutes. Il donne à cette
+    application l'identité de l'administrateur (marquée `tournage`), jamais une session du panneau.
+    La session du poste a déjà le compte de chaque base de projet : le laissez-passer ne lui donne
+    pas plus.
 13. Toute route qui modifie quelque chose exige le jeton anti-falsification de la session, sauf les
-    routes de connexion et d'invitation.
+    routes de connexion et d'invitation, et celle du tournage, qui n'a pas de session et se prouve
+    par la clé en en-tête (12 ter).
 14. Pas d'inscription libre.
 15. Le contrôle des droits se fait côté serveur, jamais seulement dans l'interface.
 
@@ -285,9 +293,9 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 
 **Applications**
 
-19. Les applications ne reçoivent jamais le cookie du panneau, son mot de passe, sa clé privée, le
-    mot de passe d'envoi des mails ni le compte administrateur de Postgres : seulement le compte de
-    leur base.
+19. Les applications ne reçoivent jamais le cookie du panneau, ni celui de tournage, ni la clé de
+    tournage, ni son mot de passe, sa clé privée, le mot de passe d'envoi des mails ou le compte
+    administrateur de Postgres : seulement le compte de leur base.
 22. Une base de projet n'accepte que son propre compte (et l'administrateur) ; les bases `dagster`
     et `codelab`, que l'administrateur. Le poste de développement n'a pas le compte administrateur.
 20. Les applications et leurs builds ne tournent jamais en root.
@@ -313,7 +321,8 @@ Sans lui, les réglages chiffrés deviennent illisibles.
   la limite du cloisonnement des bases ; Dagster reste réservé à l'administrateur.
 - **Dans le poste de développement, tu peux écrire le code de tous les projets.** Le terminal n'a
   que le compte du projet ouvert, et SQLTools ouvre chaque base avec son propre compte ; mais rien
-  n'empêche de lire volontairement le compte d'un autre projet (`~/.codelab-bases`). Le cloisonnement
+  n'empêche de lire volontairement le compte d'un autre projet (`~/.codelab-bases`), ni
+  d'utiliser la clé de tournage (`~/.codelab-tournage`) pour filmer une application privée. Le cloisonnement
   y est un garde-fou contre l'erreur, pas une barrière contre toi-même.
 
 ## Mise en production

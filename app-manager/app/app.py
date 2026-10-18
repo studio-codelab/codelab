@@ -147,6 +147,7 @@ SSO_PRIVATE_FILE = os.path.join(STATE_DIR, "codelab_sso_private.key")
 
 _admin_password = None   # valeur courante, chargee par bootstrap_secrets()
 _totp_secret = ""        # vide = double authentification desactivee
+_cle_tournage = ""       # la cle des laissez-passer de « codelab video » (voir le proxy)
 TOTP_COMPTE = "admin"    # le nom affiche dans l'application d'authentification
 
 

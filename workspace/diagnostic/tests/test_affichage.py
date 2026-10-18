@@ -2224,6 +2224,35 @@ def test_codelab_video_pose_un_scenario_a_completer(tmp_path):
 
 
 
+def test_codelab_video_dit_que_l_application_ne_repond_pas(tmp_path):
+    """Vecu : « apiRequestContext.post: connect ECONNREFUSED ::1:8000 » --
+    l'application etait arretee, et « localhost » visait l'IPv6. Le tournage
+    verifie l'adresse d'abord, la lit en 127.0.0.1, et le dit en clair."""
+    import shutil
+    import socket
+    import subprocess
+    if not shutil.which("node"):
+        pytest.skip("node absent")
+    env = dict(os.environ)
+    env["NODE_PATH"] = os.pathsep.join(filter(None, [env.get("NODE_PATH"), "/opt/node-tools/node_modules"]))
+    sonde = subprocess.run(["node", "-e", "require('playwright')"], env=env, capture_output=True)
+    if sonde.returncode != 0:
+        pytest.skip("playwright absent")
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]          # libre, donc personne n'y repond
+    (tmp_path / "video").mkdir()
+    (tmp_path / "video" / "scenario.mjs").write_text(
+        'export default { titre: "t", adresse: "http://localhost:%d/", etapes: [{ voix: "x" }] };\n' % port)
+    r = subprocess.run(["node", os.path.join(_racine_depot(), "dev", "video", "fabriquer.mjs"),
+                        str(tmp_path)], env=env, capture_output=True, text=True, timeout=60)
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert f"ne repond pas sur http://127.0.0.1:{port}/" in r.stderr, r.stderr
+    assert "autre terminal" in r.stderr
+
+
+
+
 def test_codelab_video_trouve_le_chromium_de_l_image_depuis_une_session_ssh(tmp_path):
     """Vecu : « Executable doesn't exist at ~/.cache/ms-playwright/... ».
     L'ENV du Dockerfile n'atteint pas une session SSH : l'outil pose lui-meme
@@ -2654,7 +2683,10 @@ def test_le_fond_d_ecran_se_choisit_croix_ou_uni(deux_espaces):
     assert app.REGLAGES_HUB["motif"] == ("croix", "uni")
     theme = _page_panneau("theme.css")
     masque = theme.split("body.fond-motif::before{")[1].split("}")[0]
-    assert "M14 10.5v7M10.5 14h7" in masque, "le motif est une petite croix"
+    assert "M22 18.5v7M18.5 22h7" in masque, "le motif est une petite croix"
+    # « espace les croix et rend les plus discretes » : une croix tous les
+    # 44 px, a 6 % du texte.
+    assert "--motif:color-mix(in srgb,var(--txt) 6%,transparent);--motif-pas:44px" in theme
     assert 'html[data-motif="uni"] body.fond-motif::before{display:none}' in theme
     c = deux_espaces
     c.set_cookie("codelab-hub", "uni.prune")

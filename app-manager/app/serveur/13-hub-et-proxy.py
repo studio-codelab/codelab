@@ -1,6 +1,6 @@
 # CodeLab -- LE PANNEAU, HUB ET PROXY
 # ---------------------------------------------------------------------------
-# ROLE        les versions et ouvertures, la composition du hub, le proxy, les pages d'une application fermee, le diagnostic.
+# ROLE        les versions et ouvertures, la composition du hub, le proxy (et son laissez-passer de tournage), les pages d'une application fermee, le diagnostic.
 # CHARGE PAR  app.py (MODULES_DU_SERVEUR), dans SA portee : ce fichier n'est
 #             pas un module. Ses noms sont ceux de app, il lit et definit
 #             les memes globales que le reste du panneau.
@@ -8,7 +8,7 @@
 #             rang, apres les morceaux qui le precedent. Une frontiere ne
 #             coupe jamais une fonction ; une section nouvelle va dans le
 #             morceau de son sujet.
-# STRUCTURE   versions et ouvertures, composition du hub, proxy, application qu'on ne peut pas ouvrir, inscription du diagnostic.
+# STRUCTURE   versions et ouvertures, composition du hub, proxy, laissez-passer de tournage, application qu'on ne peut pas ouvrir, inscription du diagnostic.
 #
 
 # ------------------- versions des applications, et ouvertures -------------------
@@ -373,10 +373,12 @@ def api_afficher(n):
 # ------------------------------ proxy --------------------------------
 
 def strip_session_cookie(raw):
-    """Retire le cookie de session du panneau d'un en-tete Cookie."""
-    nom = flask_app.config.get("SESSION_COOKIE_NAME") or "session"
+    """Retire d'un en-tete Cookie ceux du panneau : la session, et le cookie
+    de tournage (voir « le laissez-passer de tournage ») -- l'un comme
+    l'autre ouvrirait une porte a qui le lirait (regle 19)."""
+    noms = {flask_app.config.get("SESSION_COOKIE_NAME") or "session", TOURNAGE_COOKIE}
     gardes = [c.strip() for c in raw.split(";")
-              if c.strip() and c.split("=", 1)[0].strip() != nom]
+              if c.strip() and c.split("=", 1)[0].strip() not in noms]
     return "; ".join(gardes)
 
 
@@ -900,6 +902,115 @@ def demander_a_l_application(port, methode, chemin, entetes, corps):
     return statut, recus, data
 
 
+# --------------------- le laissez-passer de tournage ---------------------
+#
+# Vecu : « je ne veux pas avoir a me connecter » pour filmer la video de
+# presentation d'une application privee (« codelab video »). Le tournage
+# passe par le hub, comme un visiteur ; l'application reconnait alors
+# l'administrateur par « Se connecter avec CodeLab », sans formulaire.
+#
+# LE CHEMIN, EN TROIS TEMPS :
+#   1. « codelab video » presente la cle APP_MANAGER_TOURNAGE_CLE (que le
+#      poste de developpement recopie pour sa session, ~/.codelab-tournage)
+#      a POST /api/tournage/<app>, sur le PANNEAU, depuis le reseau local ;
+#   2. il recoit un ticket a usage unique, valable une minute, pour cette
+#      application et elle seule ;
+#   3. le navigateur du tournage ouvre /<app>/?codelab-tournage=<ticket> :
+#      le proxy l'echange contre le cookie « codelab-tournage », dix minutes,
+#      et l'identite de l'administrateur est injectee comme pour sa session.
+#
+# POURQUOI : une demonstration a besoin des vraies pages, donc d'une
+# identite ; demander un mot de passe a un script, c'est l'ecrire quelque
+# part (vecu : un mot de passe administrateur reinitialise pour filmer).
+# REGLE : 12 ter de SECURITE.md. La regle 19 s'etend au cookie et a la cle :
+#   ni l'un ni l'autre n'arrive jamais a une application.
+# CE QUE LA CLE NE DONNE PAS : aucune session du panneau (le cookie n'est lu
+#   que par _proxy, jamais par is_authed), aucune application par defaut
+#   (diagnostic, Dagster), aucune application archivee, et rien depuis
+#   Internet (client_est_local). Le cookie ne vaut que pour l'application du
+#   ticket.
+# POURQUOI CE N'EST PAS UN ELARGISSEMENT : la session du poste a deja le
+#   compte de chaque base de projet (~/.codelab-bases) et le code de toutes
+#   les applications : elle peut deja lire et ecrire leurs donnees. Le
+#   laissez-passer lui donne une page, pas un pouvoir de plus.
+# DEPEND DE : jeton_sso (identite signee, avec « tournage »: true),
+#   strip_session_cookie (retire aussi ce cookie), dev/entrypoint.sh (la
+#   copie de la cle), dev/video/fabriquer.mjs (le client).
+# ECARTE : une vraie session admin pour le tournage -- elle ouvrirait le
+#   panneau, donc l'execution de commandes, a tout code du poste ; un compte
+#   de demonstration -- l'application demarre vide, sans ses pages reelles.
+TOURNAGE_ENTETE = "X-CodeLab-Tournage"
+TOURNAGE_PARAMETRE = "codelab-tournage"
+TOURNAGE_COOKIE = "codelab-tournage"
+TOURNAGE_TICKET_TTL = 60
+TOURNAGE_DUREE = 600
+_tournage_tickets = {}      # ticket -> (application, expiration)
+_tournage_sessions = {}     # cookie -> (application, expiration)
+
+
+def _oublier_les_tournages_finis():
+    maintenant = time.time()
+    for table in (_tournage_tickets, _tournage_sessions):
+        for cle, (_n, fin) in list(table.items()):
+            if fin <= maintenant:
+                table.pop(cle, None)
+
+
+def application_filmable(nom):
+    """Une application qu'un laissez-passer peut ouvrir : declaree, ni
+    archivee, ni par defaut (reservees a l'administrateur, regle 12)."""
+    a = load().get(nom)
+    return bool(a) and not est_archivee(a) and not est_app_par_defaut(nom)
+
+
+@flask_app.route("/api/tournage/<n>", methods=["POST"])
+def api_tournage(n):
+    """Un ticket de tournage pour une application (voir plus haut)."""
+    # Meme reponse pour tout refus d'acces : rien ne dit ce qui manquait.
+    refus = (jsonify({"error": "Laissez-passer refusé."}), 403)
+    if not client_est_local():
+        return refus
+    if rate_limited():
+        return jsonify({"error": "Trop d'essais. Réessaie dans quelques minutes."}), 429
+    fourni = request.headers.get(TOURNAGE_ENTETE, "")
+    if not _cle_tournage or not secrets.compare_digest(fourni.encode(), _cle_tournage.encode()):
+        register_failed_attempt()
+        return refus
+    if not application_filmable(n):
+        return jsonify({"error": "Application introuvable."}), 404
+    _oublier_les_tournages_finis()
+    ticket = secrets.token_urlsafe(32)
+    _tournage_tickets[ticket] = (n, time.time() + TOURNAGE_TICKET_TTL)
+    journaliser("tournage", app=n, ip=_adresse_client())
+    return jsonify({"ticket": ticket, "duree": TOURNAGE_DUREE})
+
+
+def echanger_le_ticket(name, sub):
+    """/<app>/?codelab-tournage=<ticket> : le ticket, une seule fois, contre
+    le cookie de tournage ; puis la meme page, sans le ticket dans l'adresse."""
+    ticket = request.args.get(TOURNAGE_PARAMETRE, "")
+    entree = _tournage_tickets.pop(ticket, None)
+    if not entree or entree[0] != name or entree[1] <= time.time() or not application_filmable(name):
+        return Response(_page("Laissez-passer refusé",
+                              "Ce laissez-passer de tournage est expiré ou déjà utilisé.",
+                              "Relance « codelab video »."), 403, mimetype="text/html")
+    jeton = secrets.token_urlsafe(32)
+    _tournage_sessions[jeton] = (name, time.time() + TOURNAGE_DUREE)
+    reste = [(k, v) for k, v in request.args.items(multi=True) if k != TOURNAGE_PARAMETRE]
+    cible = request.path + ("?" + urllib.parse.urlencode(reste) if reste else "")
+    r = redirect(cible, 302)
+    r.set_cookie(TOURNAGE_COOKIE, jeton, max_age=TOURNAGE_DUREE, path="/",
+                 httponly=True, samesite="Lax", secure=request.is_secure)
+    return r
+
+
+def tournage_en_cours(name):
+    """Le cookie de tournage de cette requete vaut-il pour cette application ?"""
+    entree = _tournage_sessions.get(request.cookies.get(TOURNAGE_COOKIE) or "")
+    return bool(entree) and entree[0] == name and entree[1] > time.time() \
+        and application_filmable(name)
+
+
 def _proxy(name, sub):
     a = load().get(name)
     # Archivee : la meme reponse qu'une adresse inconnue. Le nom reste
@@ -926,7 +1037,13 @@ def _proxy(name, sub):
                         ip=_adresse_client())
             return Response(_page("Accès refusé", hors), 403,
                             mimetype="text/html")
-    if visibilite(a) == VISIBILITE_PRIVEE:
+    # Le laissez-passer de tournage (voir plus haut) : l'echange d'abord,
+    # puis le cookie, qui ouvre l'application privee de son ticket, et elle
+    # seule. Une session ouverte garde la priorite (et son identite).
+    if request.method == "GET" and TOURNAGE_PARAMETRE in request.args:
+        return echanger_le_ticket(name, sub)
+    tournage = not is_authed() and tournage_en_cours(name)
+    if visibilite(a) == VISIBILITE_PRIVEE and not tournage:
         if not is_authed():
             # La connexion vit sur l'origine du PANNEAU : un "/login" relatif
             # tombait, sur le port des applications, sur « Ce n'est pas le
@@ -951,7 +1068,10 @@ def _proxy(name, sub):
         return webapp_icone(a)
     # Note l'ouverture APRES les controles d'acces : un refus n'est pas une
     # visite, et le journal servirait mal s'il melangeait les deux.
-    journaliser_ouverture(name)
+    # Un tournage n'est pas une visite : il ne compte ni dans les ouvertures
+    # ni dans « derniere ouverte ».
+    if not tournage:
+        journaliser_ouverture(name)
     if not is_running(name):
         return page_application_fermee(name, a)
     chemin = "/" + urllib.parse.quote(sub, safe="/")
@@ -995,8 +1115,13 @@ def _proxy(name, sub):
     # CodeLab » et « Se deconnecter » de l'application en ont besoin, et
     # l'application ne peut pas la deviner (autre port, autre nom public).
     entetes["X-CodeLab-Panneau"] = lien_panneau()
-    token = jeton_sso(name)
-    if token:
+    token = jeton_sso(name, tournage=tournage)
+    if token and tournage:
+        entetes["X-CodeLab-Auth"] = token
+        entetes["X-CodeLab-User"] = NOM_ADMIN
+        entetes["X-CodeLab-Role"] = "admin"
+        entetes["X-CodeLab-Authenticated"] = "true"
+    elif token:
         entetes["X-CodeLab-Auth"] = token
         entetes["X-CodeLab-User"] = utilisateur_courant()
         entetes["X-CodeLab-Role"] = role_courant() or ""
