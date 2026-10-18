@@ -364,11 +364,10 @@ def test_sans_l_obligation_l_administrateur_entre_au_mot_de_passe(deux_espaces):
 # ABSOLUE de trente jours, comptee par le serveur depuis l'ouverture.
 
 def test_les_deux_limites_de_session_sont_posees():
-    assert app.SESSION_INACTIVITE == datetime.timedelta(days=3)
-    assert app.SESSION_ABSOLUE == datetime.timedelta(days=30)
     # Le cookie porte la limite d'inactivite : c'est lui qui la fait
     # respecter, y compris sur un navigateur qui ne revient jamais.
-    assert app.flask_app.config["PERMANENT_SESSION_LIFETIME"] == app.SESSION_INACTIVITE
+    assert app.flask_app.config["PERMANENT_SESSION_LIFETIME"] == datetime.timedelta(days=3)
+    assert app.SESSION_ABSOLUE == datetime.timedelta(days=30)
 
 
 

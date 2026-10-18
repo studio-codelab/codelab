@@ -509,7 +509,7 @@ par le panneau sur `/messages` : même session, mêmes contrôles d'accès, mêm
 
 | Commande | Effet |
 |---|---|
-| `codelab create <nom> [--sans-db] [--ouvrir]` | crée le projet complet : dossier, git, `.gitignore`, `README.md`, `AGENTS.md`, `CLAUDE.md`, les modules `codelab_auth` et `codelab_web`, et sa base de données |
+| `codelab create <nom> [--sans-db]` | crée le projet complet : dossier, git, `.gitignore`, `README.md`, `AGENTS.md`, `CLAUDE.md`, les modules `codelab_auth` et `codelab_web`, et sa base de données |
 | `codelab update [projet] [--tous]` | met un projet existant à jour (manuel de l'agent, `CLAUDE.md`, modules, `.gitignore`, base) sans rien effacer ; `--tous` pour chaque projet, à lancer après une mise à jour de CodeLab |
 | `codelab video [projet]` | la vidéo de présentation : pose un scénario (`video/scenario.mjs`), puis le joue dans Chromium, ajoute une voix off française et monte `video/presentation.mp4` |
 | `codelab help [commande]` | toutes les commandes (aide en anglais) ; aussi dans *Paramètres > Aide*, pour l'administrateur |
@@ -517,8 +517,6 @@ par le panneau sur `/messages` : même session, mêmes contrôles d'accès, mêm
 
 **Raccourcis et agents**
 
-- **Tâches VS Code** : Ctrl+Maj+B crée un projet et rouvre la fenêtre dessus. Les autres commandes
-  sont dans *Terminal > Exécuter la tâche*.
 - **Agents de code** : Codex (compte ChatGPT) et Claude Code lisent le même manuel, `AGENTS.md`.
 - **Vidéos sans IA côté CodeLab** : le scénario est du code du projet, qu'un agent de code peut
   écrire ; le tournage, la voix (Piper) et le montage (ffmpeg) tournent sur le poste, hors ligne.

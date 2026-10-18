@@ -210,31 +210,12 @@ def _lancer_codelab(tmp_path, args, env_sup=None):
     env.update({"CODELAB_WORKSPACE": str(espace),
                 "CODELAB_AGENTS_SOURCE": str(manuel),
                 "HOME": str(tmp_path / "home")})
-    env.pop("VSCODE_IPC_HOOK_CLI", None)
     env.update(env_sup or {})
     (tmp_path / "home").mkdir(exist_ok=True)
 
     r = subprocess.run(["sh", outil] + args, capture_output=True, text=True,
                        env=env, timeout=120)
     return r, espace
-
-
-
-
-def _faux_code(tmp_path, code=0):
-    """Un faux "code" qui ecrit ce qu'on lui demande dans un fichier."""
-    dossier = tmp_path / "_faux-vscode"
-    dossier.mkdir(exist_ok=True)
-    trace = tmp_path / "appel-code.txt"
-    outil = dossier / "code"
-    # Ecrit sans %-formatage : le script shell contient lui-meme des "%s"
-    # (ceux de printf), et les melanger donnait un TypeError obscur.
-    outil.write_text("#!/bin/sh\n"
-                     'printf "%s\\n" "$*" >> ' + '"' + str(trace) + '"\n'
-                     "exit " + str(code) + "\n")
-    outil.chmod(0o755)
-    return str(dossier), trace
-
 
 
 
@@ -273,6 +254,21 @@ def _bloc_reconciliation():
 def _somme_texte(contenu):
     import hashlib
     return hashlib.sha256(contenu.encode()).hexdigest()
+
+
+
+
+def _ecrire_bloc_alertes(valeurs):
+    """Le bloc SMTP « d'origine » de credentials.env, tel qu'une installation
+    le pose a la main : le panneau ne l'ecrit jamais (il le garde en repli).
+    Fusionne avec ce qui y est deja, comme on editerait le fichier."""
+    cles = list(app.CHAMPS_SMTP.values()) + ["ALERTE_ADMIN"]
+    fusion = {}
+    for cle in cles:
+        valeur = valeurs.get(cle) if cle in valeurs else app.read_shared_value(cle)
+        if str(valeur or "").strip():
+            fusion[cle] = valeur
+    return app.upsert_shared_block(app.BLOC_ALERTES, [], fusion)
 
 
 

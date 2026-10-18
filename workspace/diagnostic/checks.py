@@ -1068,7 +1068,7 @@ def _apps_panneau():
     lignes = _requete_panneau("SELECT nom, dossier, commande, port, actif, visibilite, options "
                               "FROM applications")
     if lignes is None:
-        return _lire_json(os.path.join(_etat_panneau(), "apps.json"), {})
+        return {}
     apps = {}
     for l in lignes:
         try:
@@ -1087,14 +1087,14 @@ def _apps_panneau():
 def _comptes_panneau():
     lignes = _requete_panneau("SELECT nom, totp FROM comptes")
     if lignes is None:
-        return _lire_json(os.path.join(_etat_panneau(), "utilisateurs.json"), {})
+        return {}
     return {l["nom"]: ({"totp": l["totp"]} if l["totp"] else {}) for l in lignes}
 
 
 def _exposition_panneau():
     lignes = _requete_panneau("SELECT valeur FROM parametres WHERE cle = 'exposition'")
     if lignes is None:
-        return _lire_json(os.path.join(_etat_panneau(), "exposition.json"), {})
+        return {}
     try:
         return json.loads(lignes[0]["valeur"]) if lignes else {}
     except ValueError:
@@ -1104,44 +1104,17 @@ def _exposition_panneau():
 def _ips_du_journal(nombre=2000):
     """Les adresses des derniers evenements, ou None si le journal est
     illisible ici."""
-    lignes = _requete_panneau("SELECT ip FROM journal ORDER BY ts DESC LIMIT ?", (nombre,))
-    if lignes is not None:
-        return [l["ip"] or "" for l in lignes]
-    journal = os.path.join(_etat_panneau(), "acces.jsonl")
-    if not os.path.exists(journal):
+    # Pas encore de base : rien d'enregistre, ce n'est pas un journal illisible.
+    if not os.path.exists(_base_panneau()):
         return []
-    try:
-        with open(journal, errors="replace") as f:
-            brutes = f.readlines()[-nombre:]
-    except OSError:
-        return None
-    ips = []
-    for ligne in brutes:
-        try:
-            ips.append(json.loads(ligne).get("ip") or "")
-        except ValueError:
-            continue
-    return ips
+    lignes = _requete_panneau("SELECT ip FROM journal ORDER BY ts DESC LIMIT ?", (nombre,))
+    return None if lignes is None else [l["ip"] or "" for l in lignes]
 
 
 def _taille_du_journal():
-    """Le nombre d'evenements (ou la taille de l'ancien fichier), -1 si
-    illisible."""
+    """Le nombre d'evenements, -1 si le journal est illisible ici."""
     lignes = _requete_panneau("SELECT COUNT(*) AS n FROM journal")
-    if lignes is not None:
-        return lignes[0]["n"]
-    try:
-        return os.path.getsize(os.path.join(_etat_panneau(), "acces.jsonl"))
-    except OSError:
-        return -1
-
-
-def _lire_json(chemin, defaut):
-    try:
-        with open(chemin) as f:
-            return json.load(f) or defaut
-    except (OSError, ValueError):
-        return defaut
+    return -1 if lignes is None else lignes[0]["n"]
 
 
 def check_applications():
@@ -1938,11 +1911,6 @@ def run_test(indice, avec_suite=True):
     # donne : la page annonce ses lignes avant de les remplir, et une ligne
     # qui change d'intitule en cours de route n'est plus la meme ligne.
     return etat, nom, detail
-
-
-def run_tests():
-    """Les tests a la demande, dans l'ordre ou on veut les lire."""
-    return [_essai(nom, fn) for nom, fn in TESTS_APPROFONDIS]
 
 
 def check_panneau_joignable():

@@ -52,7 +52,6 @@ leur nom (`codelab-postgres`, `codelab-app-manager`…).
 |---|---|
 | `codelab create <nom>` | crée `/workspace/<nom>` : `git init`, `.gitignore` (`.env`, `node_modules/`, `vendor/`, `.dagster-venv/`, `dist/`, `build/`…), `README.md`, `AGENTS.md`, `CLAUDE.md`, `codelab_auth.py`, `codelab-auth.js`, `codelab_web.py`, `codelab-web.js`, et la base du projet |
 | `… --sans-db` (`--no-db`) | sans la base |
-| `… --ouvrir` (`--open`) | rouvre la fenêtre VS Code sur le projet |
 | `codelab update [projet]` | remet un projet existant au niveau de la stack, sans rien effacer : réécrit le bloc du manuel dans `AGENTS.md`, pose `CLAUDE.md` s'il manque, ajoute les modules manquants et remplace ceux que git garde intacts (une copie modifiée reste), ajoute `.env` et `.dagster-venv/` au `.gitignore`, crée la base si elle manque. Sans nom : le projet du dossier courant |
 | `… --tous` (`--all`) | chaque projet de `/workspace` qui porte le manuel CodeLab |
 | `codelab video [projet]` | la vidéo de présentation : pose `video/scenario.mjs` s'il manque, sinon le joue dans Chromium, ajoute la voix off (Piper, en français, hors ligne) et monte `video/presentation.mp4` et `video/affiche.jpg` avec ffmpeg. Filmée par le hub, une application privée s'ouvre sans connexion, et démarre si elle est arrêtée (une adresse locale muette passe d'elle-même par le hub, et le panneau retrouve l'application par le dossier du projet, quel que soit son nom) : un laissez-passer de tournage obtenu avec `~/.codelab-tournage` (la clé que le poste recopie du panneau, `0600`). Voir la section 14 du manuel |
@@ -60,9 +59,8 @@ leur nom (`codelab-postgres`, `codelab-app-manager`…).
 | `codelab db <nom>` | la base seule : `<nom>`, son compte, son schéma `dagster` et le `search_path` (idempotent), par le gardien des bases ; appelée par `create` et `update` |
 | `codelab vscode-bases` | les connexions SQLTools (voir plus bas) ; appelée par `create`, `update` et le poste |
 
-Anciens noms, gardés pour les tâches VS Code déjà copiées dans `/workspace` : `codelab new` (=
-`create`, `--db` accepté) et `codelab agents [dossier]` (le manuel et `CLAUDE.md` seuls). Le hub
-reprend la liste dans *Paramètres > Aide* (administrateur).
+Toutes les commandes passent par le terminal (SSH, ou celui de VS Code). Le hub reprend la liste dans
+*Paramètres > Aide* (administrateur).
 
 **Après chaque mise à jour de CodeLab**, lance `codelab update --tous` : les projets reçoivent le
 manuel du jour, que l'agent (Codex ou Claude Code) lit avant chaque tâche.
@@ -71,16 +69,10 @@ Le nom d'un projet : des lettres, des chiffres, `-` et `_`, en commençant par u
 refuse un dossier existant. Elle ne génère pas de squelette de framework : pour un front, lance
 ensuite `npm create vite@latest .`.
 
-**Sans terminal**, depuis VS Code ouvert sur `/workspace` :
-
-- **Ctrl+Maj+B** lance « CodeLab : nouveau projet », qui demande un nom et rouvre la fenêtre dessus ;
-- *Terminal > Exécuter la tâche* propose les autres commandes : nouveau projet sans base, mise à jour
-  d'un projet ou de tous, aide.
-
 ## Le cycle complet
 
 ```bash
-codelab create mon-projet --ouvrir
+codelab create mon-projet
 cd /workspace/mon-projet
 codex                         # ou Claude Code, ou VS Code
 npm run build                 # vérifier que le build passe

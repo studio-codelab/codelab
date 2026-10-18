@@ -17,143 +17,6 @@ CONTRAINTES Les aides, constantes et modules viennent de commun.py ; les
 from commun import *  # noqa: F401,F403 -- aides, constantes, modules
 
 
-# ----------- "codelab create --ouvrir" rouvre la fenetre VS Code -----------
-#
-# La tache VS Code « CodeLab : nouveau projet » cree le projet PUIS demande a
-# la fenetre de se rouvrir dessus. Ce qui se teste ici, c'est la partie
-# fragile : la fenetre ne repond pas toujours, et surtout elle n'existe pas
-# toujours -- une session SSH ordinaire n'en a aucune. Dans tous ces cas le
-# projet doit rester cree et la commande sortir sans erreur : ouvrir est un
-# confort, pas une etape du travail.
-#
-# Le vrai "code" du serveur VS Code ne peut pas tourner ici. On le remplace
-# par un script qui note ce qu'on lui a demande : ce qu'on verifie, c'est
-# l'appel emis, la ou le reste (la socket, la fenetre) appartient a VS Code.
-
-
-
-
-def test_nouveau_projet_avec_ouvrir_demande_la_reouverture(tmp_path):
-    chemin, trace = _faux_code(tmp_path)
-    r, espace = _lancer_codelab(
-        tmp_path, ["create", "facturier", "--ouvrir"],
-        {"PATH": chemin + os.pathsep + os.environ["PATH"],
-         "VSCODE_IPC_HOOK_CLI": "/tmp/une-socket-vscode.sock"})
-
-    assert r.returncode == 0, r.stdout + r.stderr
-    assert (espace / "facturier").is_dir(), "le projet doit exister"
-    assert trace.exists(), ("aucune demande d'ouverture : " + r.stdout + r.stderr)
-    demande = trace.read_text().strip()
-    assert "--reuse-window" in demande, demande
-    assert str(espace / "facturier") in demande, demande
-
-
-
-
-def test_sans_ouvrir_la_fenetre_ne_bouge_pas(tmp_path):
-    """Le drapeau doit etre la seule chose qui declenche l'ouverture : lancer
-    la commande a la main dans un terminal ne doit pas faire sauter la vue."""
-    chemin, trace = _faux_code(tmp_path)
-    r, espace = _lancer_codelab(
-        tmp_path, ["create", "facturier"],
-        {"PATH": chemin + os.pathsep + os.environ["PATH"],
-         "VSCODE_IPC_HOOK_CLI": "/tmp/une-socket-vscode.sock"})
-
-    assert r.returncode == 0, r.stdout + r.stderr
-    assert (espace / "facturier").is_dir()
-    assert not trace.exists(), "la fenetre a bouge alors qu'on ne l'a pas demande"
-
-
-
-
-def test_sans_fenetre_vscode_le_projet_est_quand_meme_cree(tmp_path):
-    """Session SSH ordinaire : il n'y a aucune fenetre a qui parler. Ce n'est
-    pas une erreur, et cela doit se dire."""
-    chemin, trace = _faux_code(tmp_path)
-    r, espace = _lancer_codelab(
-        tmp_path, ["create", "facturier", "--ouvrir"],
-        {"PATH": chemin + os.pathsep + os.environ["PATH"]})
-
-    assert r.returncode == 0, r.stdout + r.stderr
-    assert (espace / "facturier").is_dir()
-    assert not trace.exists(), "rien ne devait etre demande sans socket"
-    assert "session SSH simple" in r.stdout, r.stdout
-
-
-
-
-def test_une_fenetre_qui_ne_repond_pas_ne_casse_pas_la_creation(tmp_path):
-    """Le cas qui compte : le projet est deja sur le disque quand on tente
-    d'ouvrir. Une commande qui sortirait en erreur ici laisserait croire que
-    la creation a echoue."""
-    chemin, trace = _faux_code(tmp_path, code=1)
-    r, espace = _lancer_codelab(
-        tmp_path, ["create", "facturier", "--ouvrir"],
-        {"PATH": chemin + os.pathsep + os.environ["PATH"],
-         "VSCODE_IPC_HOOK_CLI": "/tmp/une-socket-vscode.sock"})
-
-    assert r.returncode == 0, (
-        "le projet est cree : un echec d'ouverture ne doit pas faire echouer "
-        "la commande\n" + r.stdout + r.stderr)
-    assert (espace / "facturier").is_dir()
-    assert trace.exists(), "l'ouverture devait avoir ete tentee"
-    assert "a la main" in r.stdout, r.stdout
-
-
-
-
-def test_code_est_retrouve_sous_vscode_server_hors_du_path(tmp_path):
-    """Selon comment la tache est lancee, "code" n'est pas toujours dans le
-    PATH. Le serveur VS Code le pose sous un dossier qui porte l'empreinte de
-    sa version -- elle change a chaque mise a jour, donc on cherche le plus
-    recent au lieu d'en figer un."""
-    maison = tmp_path / "home"
-    maison.mkdir(exist_ok=True)
-    trace = tmp_path / "appel-code.txt"
-    for empreinte, age in (("vieux0000", 100000), ("recent1111", 0)):
-        d = maison / ".vscode-server" / "bin" / empreinte / "bin" / "remote-cli"
-        d.mkdir(parents=True)
-        outil = d / "code"
-        outil.write_text("#!/bin/sh\n"
-                         'printf "%s %s\\n" ' + '"' + empreinte + '" "$*" >> '
-                         + '"' + str(trace) + '"\n' + "exit 0\n")
-        outil.chmod(0o755)
-        os.utime(outil, (time.time() - age, time.time() - age))
-
-    # PATH volontairement ampute de "code" : c'est tout l'objet du test.
-    vide = tmp_path / "_path-sans-code"
-    vide.mkdir(exist_ok=True)
-    r, espace = _lancer_codelab(
-        tmp_path, ["create", "facturier", "--ouvrir"],
-        {"PATH": str(vide) + os.pathsep + "/usr/bin" + os.pathsep + "/bin",
-         "VSCODE_IPC_HOOK_CLI": "/tmp/une-socket-vscode.sock"})
-
-    assert r.returncode == 0, r.stdout + r.stderr
-    assert (espace / "facturier").is_dir()
-    assert trace.exists(), ("le code de .vscode-server n'a pas ete trouve : "
-                            + r.stdout + r.stderr)
-    assert "recent1111" in trace.read_text(), (
-        "c'est le plus RECENT qu'il faut prendre : " + trace.read_text())
-
-
-
-
-def test_les_taches_vscode_passent_bien_le_drapeau():
-    """Le drapeau peut etre parfait et ne servir a rien si la tache ne le
-    passe pas. C'est la jointure qui casse en silence."""
-    taches = os.path.join(DOSSIER_DIAGNOSTIC,
-                          os.pardir, ".vscode", "tasks.json")
-    if not os.path.exists(taches):
-        pytest.skip("tasks.json absent de cette image")
-    contenu = open(taches, encoding="utf-8").read()
-    lignes = [l for l in contenu.splitlines() if '"command"' in l
-              and "codelab create" in l]
-    assert lignes, "aucune tache de creation de projet trouvee"
-    for ligne in lignes:
-        assert "--ouvrir" in ligne, (
-            "cette tache cree le projet sans rouvrir la fenetre : " + ligne)
-
-
 # --------------- codelab create / update : deux gestes, rien d'efface ---------------
 #
 # Vecu : « mon agent Claude ne fonctionne pas de maniere continue sur
@@ -263,16 +126,6 @@ def test_codelab_update_refuse_un_projet_absent_et_sans_dossier_courant(tmp_path
     assert r.returncode == 2 and "dossier d'un projet" in r.stderr
 
 
-def test_les_anciens_noms_de_commande_marchent_encore(tmp_path):
-    """Les taches VS Code deja copiees dans /workspace appellent encore
-    « codelab new --db » et « codelab agents <dossier> »."""
-    r, espace = _lancer_codelab(tmp_path, ["new", "ancien", "--db"], _SANS_GARDIEN)
-    assert r.returncode == 0, r.stdout + r.stderr
-    assert (espace / "ancien" / "CLAUDE.md").exists()
-    r, _ = _lancer_codelab(tmp_path, ["agents", str(espace / "ancien")])
-    assert r.returncode == 0 and "manuel mis a jour" in r.stdout
-
-
 def _commandes_de_l_outil():
     """Les commandes du dispatch de dev/codelab, anciens noms et options d'aide exclus."""
     import re
@@ -281,7 +134,7 @@ def _commandes_de_l_outil():
     noms = set()
     for etiquette in re.findall(r"^  ([a-z|\-\"]+)\)", dispatch, re.M):
         noms.update(n for n in etiquette.split("|") if re.fullmatch(r"[a-z][a-z-]*", n))
-    return noms - {"new", "agents"}
+    return noms
 
 
 def test_l_aide_liste_chaque_commande_et_le_hub_aussi(tmp_path):
@@ -401,6 +254,36 @@ def test_un_fichier_supprime_expres_ne_ressuscite_pas(tmp_path):
     a.noter("ancienne")
     a.demarrer()
     assert a.sur_disque() is None, "un fichier supprime a ete recree"
+
+
+
+
+def test_un_fichier_retire_du_squelette_part_s_il_est_intact(tmp_path):
+    """Vecu : les taches VS Code (.vscode/tasks.json) sont parties de
+    l'image mais restaient dans /workspace, et appelaient d'anciennes
+    commandes. Note par CodeLab, absent de l'image et intact : il part, son
+    dossier vide aussi. Modifie : il reste, il est a l'utilisateur."""
+    a = _Atelier(tmp_path)
+    a.livre.write_text("v1", encoding="utf-8")
+    a.cible.write_text("v1", encoding="utf-8")
+    ws = tmp_path / "ws"
+    (ws / ".vscode").mkdir()
+    (ws / ".vscode" / "tasks.json").write_text("taches", encoding="utf-8")
+    (ws / "ancien").mkdir()
+    (ws / "ancien" / "a-moi.txt").write_text("retouche", encoding="utf-8")
+    a.empreintes.write_text(
+        _somme_texte("v1") + " diagnostic/checks.py\n"
+        + _somme_texte("taches") + " .vscode/tasks.json\n"
+        + _somme_texte("original") + " ancien/a-moi.txt\n"
+        + _somme_texte("parti") + " ancien/deja-parti.txt\n", encoding="utf-8")
+    journal = a.demarrer()
+    assert not (ws / ".vscode").exists(), journal
+    assert ".vscode/tasks.json retire" in journal
+    assert (ws / "ancien" / "a-moi.txt").read_text(encoding="utf-8") == "retouche"
+    assert a.sur_disque() == "v1"
+    notes = a.empreintes.read_text(encoding="utf-8")
+    assert ".vscode/tasks.json" not in notes and "deja-parti" not in notes
+    assert "diagnostic/checks.py" in notes
 
 
 

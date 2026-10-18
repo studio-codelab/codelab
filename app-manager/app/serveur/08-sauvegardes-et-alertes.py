@@ -522,40 +522,6 @@ def ecrire_alertes(actif, destinataires):
                                "destinataires": list(destinataires)})
 
 
-def ecrire_bloc_alertes(valeurs):
-    """Met a jour le bloc SMTP de credentials.env, SANS perdre le reste.
-
-    Le piege, et il est serieux : upsert_shared_block REMPLACE le bloc en
-    entier. Lui passer la seule cle qu'on veut changer effacerait toutes les
-    autres -- dont le serveur d'envoi et son mot de passe, c'est-a-dire la
-    configuration d'origine qui sert de repli. On relit donc les valeurs
-    presentes et l'on n'ecrase que celles fournies.
-
-    Meme bloc que celui documente pour le capteur Dagster : configurer les
-    alertes depuis le panneau configure donc aussi celles de Dagster.
-    """
-    commentaires = [
-        "# Serveur d'envoi des alertes CodeLab, partage par le panneau",
-        "# (application tombee) et par le capteur Dagster (run en echec).",
-        "# C'est la configuration D'ORIGINE : le panneau ne l'ecrase jamais,",
-        "#   il la garde en repli si celle saisie dans l'interface echoue.",
-        "# Modifiable depuis le panneau : Parametres > E-mail.",
-        "# SMTP_TLS : starttls (defaut, port 587) | ssl (port 465) | none.",
-        "# SMTP_USER et SMTP_PASSWORD sont optionnels : un relais interne peut",
-        "#   ne pas demander d'authentification.",
-        "# ALERTE_ADMIN : l'adresse qui recoit TOUTES les alertes, posee ici a",
-        "#   l'installation. Celle reglee dans le panneau l'emporte : elle est",
-        "#   en base, chiffree, et n'est jamais recopiee dans ce fichier.",
-    ]
-    cles = list(CHAMPS_SMTP.values()) + ["ALERTE_ADMIN"]
-    fusion = {}
-    for cle in cles:
-        valeur = valeurs.get(cle) if cle in valeurs else read_shared_value(cle)
-        if str(valeur or "").strip():
-            fusion[cle] = valeur
-    return upsert_shared_block(BLOC_ALERTES, commentaires, fusion)
-
-
 # --------------------- deux configurations d'envoi ---------------------
 #
 # POURQUOI DEUX. credentials.env porte la configuration d'ORIGINE : celle
