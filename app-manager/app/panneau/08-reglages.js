@@ -404,14 +404,16 @@ const COMMANDES_MAJ = `for i in app-manager dev postgres redis mailpit dagster d
   docker pull ghcr.io/studio-codelab/codelab-$i:latest
 done
 docker compose up -d --force-recreate`;
-function dateCourte(iso){
+/* Distincte de dateCourte (02-hub.js) : les modules partagent une portee,
+   et une seconde declaration du meme nom remplacait l'autre en silence. */
+function dateDeVersion(iso){
   if(!iso) return '';
   const d=new Date(iso); if(isNaN(d)) return '';
   return d.toLocaleDateString('fr-FR',{day:'numeric', month:'long', year:'numeric'});
 }
 function peindreVersion(d){
   const nom = d.dev ? 'Une version de développement, construite à la main : elle ne porte pas de numéro.'
-    : 'Installée : la version '+d.court+(d.date ? ' du '+dateCourte(d.date) : '')+'.';
+    : 'Installée : la version '+d.court+(d.date ? ' du '+dateDeVersion(d.date) : '')+'.';
   $('ver-resume').textContent=nom;
   remplir($('ver-corps'), (d.dev ? '' : `<div class="hint" style="margin-top:10px">Le panneau ne contacte pas GitHub pour savoir s'il existe plus récent.
       Pour voir ce qui a changé depuis ta version : <a href="https://github.com/${esc(d.depot)}/compare/${esc(d.sha)}...main"
