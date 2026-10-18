@@ -582,6 +582,8 @@ function ligneActivite(e){
   /* Les cles d'acces ajoutees ou retirees passaient par la branche des
      ouvertures : le journal affichait « a ouvert » suivi de rien. */
   else if(e.genre==='passkey') quoi = "clé d'accès — " + esc(e.action||'');
+  /* Archivee, desarchivee, effacee des archives. */
+  else if(e.genre==='application') quoi = 'application <b>' + esc(e.app||'') + '</b> — ' + esc(e.action||'');
   else quoi = esc(e.genre||'');
   return `<tr>
     <td class="act-quand" title="${esc(quandPrecis(e.ts))}">${esc(ilYA(e.ts))}</td>

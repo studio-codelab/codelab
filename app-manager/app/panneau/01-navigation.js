@@ -484,6 +484,7 @@ function paramOnglet(o){
   /* Les deux onglets lisent la meme reponse : le serveur d'envoi et les
      alertes vivent au meme endroit, le coffre chiffre du panneau. */
   if(o==='email' || o==='alertes') chargerAlertes();
+  if(o==='archives') chargerArchives();
 }
 
 /* ---------------- etats ---------------- */

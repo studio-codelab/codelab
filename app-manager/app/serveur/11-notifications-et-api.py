@@ -443,7 +443,8 @@ def health():
 @flask_app.get("/api/apps")
 @require_admin
 def api_apps():
-    apps = load()
+    # Les archivees ont leur propre liste (/api/apps/archivees).
+    apps = apps_actives()
     out = []
     releve = _ports_ecoutes()           # un seul pour toute la liste
     par_app = reglage("alertes_par_app", {}) or {}
@@ -562,6 +563,9 @@ def api_add():
     if name in adresses_reservees():
         return jsonify({"error": f"L'adresse « /{name}/ » est réservée."}), 400
     if name in apps:
+        if est_archivee(apps[name]):
+            return jsonify({"error": f"L'adresse « /{name}/ » est gardée par une application "
+                                     f"aux archives : désarchive-la, ou supprime-la."}), 400
         return jsonify({"error": f"L'adresse « /{name}/ » est déjà prise par "
                                  f"une autre application."}), 400
     if not os.path.isdir(path):
@@ -900,6 +904,14 @@ def api_delete(n):
         return jsonify({"error": f"« {n} » est une application par défaut de "
                                  f"CodeLab : elle est gérée par CodeLab et ne "
                                  f"se modifie ni ne se supprime à la main."}), 403
+    supprimer_application(n)
+    return jsonify({"ok": True})
+
+
+def supprimer_application(n):
+    """Arrete l'application et efface sa declaration : la fiche, et les
+    destinataires de ses alertes. Le code, dans /workspace, n'est jamais
+    touche (le panneau n'ecrit pas dans /workspace)."""
     stop(n)
     apps = load()
     apps.pop(n, None)
@@ -910,7 +922,108 @@ def api_delete(n):
             ecrire_reglage("alertes_par_app", par_app or None)
         except (OSError, RuntimeError):
             pass
+
+
+# ------------------------ l'archivage d'une application ------------------------
+#
+# Vecu : « donner la possibilite d'archiver une app. La configuration
+# disparait au bout de 30 jours si elle n'est pas desarchivee. Un espace
+# dedie dans les configurations avec toutes les app archivees. »
+#
+# Archivee, une application est arretee et sort de partout -- liste des
+# applications, hub, proxy (elle repond comme une adresse inconnue) -- mais
+# sa fiche reste entiere : commandes, port, visibilite, droits des comptes,
+# alertes. Desarchivee, elle revient telle quelle, arretee. Trente jours
+# plus tard, purger_les_apps_archivees l'efface comme une suppression.
+#
+# Le nom et le port restent reserves tant qu'elle est archivee : elle est
+# toujours dans load(), seulement marquee (archivee_le, dans les options de
+# la fiche : aucune migration).
+DELAI_ARCHIVE = 30 * 86400
+
+
+def est_archivee(a):
+    """La fiche (dict) d'une application archivee ? Un booleen ne compte
+    pas : seule une date d'archivage en est une."""
+    quand = (a or {}).get("archivee_le")
+    return isinstance(quand, int) and not isinstance(quand, bool)
+
+
+def apps_actives(apps=None):
+    """Les applications declarees, sans les archivees."""
+    apps = load() if apps is None else apps
+    return {n: a for n, a in apps.items() if not est_archivee(a)}
+
+
+def suppression_de_l_archive(a):
+    return int(a["archivee_le"]) + DELAI_ARCHIVE if est_archivee(a) else None
+
+
+@flask_app.post("/api/app/<n>/archiver")
+@require_admin
+def api_archiver(n):
+    """Arrete l'application et la range aux archives."""
+    if est_app_par_defaut(n):
+        return jsonify({"error": refus_configuration(n)}), 403
+    apps = load()
+    if n not in apps:
+        return jsonify({"error": "Application inconnue."}), 404
+    if est_archivee(apps[n]):
+        return jsonify({"ok": True})
+    raison = stop(n)
+    if raison:
+        return jsonify({"error": f"« {n} » ne s'arrête pas : {raison}"}), 409
+    apps = load()
+    apps[n]["enabled"] = False
+    apps[n]["archivee_le"] = int(time.time())
+    save(apps)
+    journaliser("application", qui=utilisateur_courant(), app=n, action="archivée",
+                ip=_adresse_client())
+    return jsonify({"ok": True, "suppression_le": suppression_de_l_archive(apps[n])})
+
+
+@flask_app.post("/api/app/<n>/desarchiver")
+@require_admin
+def api_desarchiver(n):
+    """La ressort des archives, arretee : la redemarrer reste un geste."""
+    apps = load()
+    if n not in apps or not est_archivee(apps[n]):
+        return jsonify({"error": "Cette application n'est pas aux archives."}), 404
+    apps[n].pop("archivee_le", None)
+    save(apps)
+    journaliser("application", qui=utilisateur_courant(), app=n, action="désarchivée",
+                ip=_adresse_client())
     return jsonify({"ok": True})
+
+
+@flask_app.get("/api/apps/archivees")
+@require_admin
+def api_apps_archivees():
+    """Les applications aux archives, la plus recente d'abord, avec la date
+    a laquelle leur fiche sera effacee."""
+    liste = [{"name": n, "titre": titre_de(n, a), "path": a.get("path") or "",
+              "archivee_le": a["archivee_le"], "suppression_le": suppression_de_l_archive(a)}
+             for n, a in load().items() if est_archivee(a)]
+    liste.sort(key=lambda x: -x["archivee_le"])
+    return jsonify({"apps": liste, "delai_jours": DELAI_ARCHIVE // 86400})
+
+
+def purger_les_apps_archivees(maintenant=None):
+    """Efface les applications archivees depuis DELAI_ARCHIVE ; rend leurs
+    noms. Ne leve jamais : la purge quotidienne ne doit pas tomber."""
+    maintenant = time.time() if maintenant is None else maintenant
+    effacees = []
+    for n, a in list(load().items()):
+        fin = suppression_de_l_archive(a)
+        if fin is None or maintenant < fin:
+            continue
+        try:
+            supprimer_application(n)
+            journaliser("application", app=n, action="effacée après trente jours aux archives")
+            effacees.append(n)
+        except Exception as e:                                    # noqa: BLE001
+            print(f"[app-manager] archive de {n} non effacee : {e}", flush=True)
+    return effacees
 
 
 # ---------------------- renommer une application ----------------------
@@ -1031,6 +1144,9 @@ def api_renommer(n):
     if nouveau in adresses_reservees():
         return jsonify({"error": f"L'adresse « /{nouveau}/ » est réservée."}), 400
     if nouveau in apps:
+        if est_archivee(apps[nouveau]):
+            return jsonify({"error": f"L'adresse « /{nouveau}/ » est gardée par une application "
+                                     f"aux archives : désarchive-la, ou supprime-la."}), 400
         return jsonify({"error": f"L'adresse « /{nouveau}/ » est déjà prise par "
                                  f"une autre application."}), 400
 

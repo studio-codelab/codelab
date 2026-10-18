@@ -158,7 +158,7 @@ def ecrire_preference(cle, valeur, qui=None):
 def apps_du_hub_visibles():
     """Les tuiles qu'un compte peut ranger : ses applications, et les services."""
     autorises = projets_autorises()
-    noms = {n for n in load() if peut_voir(n) and (autorises is None or n in autorises)}
+    noms = {n for n in apps_actives() if peut_voir(n) and (autorises is None or n in autorises)}
     return noms, {s["name"] for s in services_du_hub()}
 
 
@@ -900,7 +900,9 @@ def demander_a_l_application(port, methode, chemin, entetes, corps):
 
 def _proxy(name, sub):
     a = load().get(name)
-    if not a:
+    # Archivee : la meme reponse qu'une adresse inconnue. Le nom reste
+    # reserve, mais rien ne dit qu'il existe.
+    if not a or est_archivee(a):
         return Response(_page("Introuvable", "Aucune application \u00ab " + name + " \u00bb."),
                         404, mimetype="text/html")
     # Application privee : il faut une session, ET le droit sur ce projet

@@ -2140,7 +2140,12 @@ def api_utilisateur_modifier(nom):
     # de passe sont separes : envoyer l'un ne doit pas remettre l'autre a
     # zero.
     if "projets" in d:
-        compte["projets"] = _projets_valides(d.get("projets"), load())
+        # Les droits sur une application archivee ne se voient pas dans la
+        # fiche (elle n'est plus listee) : ils sont gardes tels quels, pour
+        # revenir avec elle si elle est desarchivee.
+        apps = load()
+        archivees = [p for p in compte.get("projets") or [] if est_archivee(apps.get(p))]
+        compte["projets"] = _projets_valides(list(d.get("projets") or []) + archivees, apps)
     # Suspendre / reactiver. Un booleen, et rien d'autre : les projets
     # autorises, l'adresse et les cles d'acces restent en place, c'est ce qui
     # distingue une suspension d'une suppression.

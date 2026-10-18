@@ -2054,3 +2054,64 @@ def test_un_appui_long_ouvre_le_menu_en_feuille():
     assert "e.stopImmediatePropagation()" in appui
     assert "#hub-liste [data-app]{-webkit-touch-callout:none;" in page
     assert "$('hub-liste').addEventListener('contextmenu'" in page
+
+
+# ---------- l'archivage d'une application ----------
+
+def test_une_application_archivee_disparait_puis_revient_telle_quelle(hub, monkeypatch):
+    """Vecu : « donner la possibilite d'archiver une app. La configuration
+    disparait au bout de 30 jours si elle n'est pas desarchivee. Un espace
+    dedie dans les configurations avec toutes les app archivees. »
+    Archivee : hors de la liste, du hub et du proxy, jamais redemarree, sa
+    fiche et les droits des comptes gardes. Desarchivee : de retour, arretee."""
+    c = hub
+    monkeypatch.setattr(app, "stop", lambda n: None)
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    r = c.post("/api/app/compta/archiver")
+    assert r.status_code == 200 and r.get_json()["suppression_le"]
+    assert "compta" not in [a["name"] for a in c.get("/api/apps").get_json()["apps"]]
+    archivees = c.get("/api/apps/archivees").get_json()
+    assert [a["name"] for a in archivees["apps"]] == ["compta"] and archivees["delai_jours"] == 30
+    assert app.load()["compta"]["enabled"] is False
+    # Ni le proxy, ni un demarrage, ni un build.
+    assert c.get("/compta/").status_code == 404
+    monkeypatch.setattr(app, "is_running", lambda n: False)
+    assert "archives" in app.start("compta")
+    assert app.run_build("compta")[0] is False
+    # Le nom reste reserve.
+    r = c.post("/api/add", json={"name": "compta", "path": "/w/a"})
+    assert r.status_code == 400 and "archives" in r.get_json()["error"]
+    # La fiche de marie, enregistree sans compta (qu'elle ne voit plus), garde le droit.
+    assert c.put("/api/utilisateurs/marie", json={"projets": ["vitrine"]}).status_code == 200
+    assert app.lire_utilisateurs()["marie"]["projets"] == ["compta", "vitrine"]
+    u = app.flask_app.test_client()
+    _connecte(u, "marie", "mot-de-passe-long")
+    assert "compta" not in [a["name"] for a in u.get("/api/mes-apps").get_json()["apps"]]
+    # Desarchivee : de retour, arretee, avec ses droits.
+    assert c.post("/api/app/compta/desarchiver").status_code == 200
+    assert "compta" in [a["name"] for a in c.get("/api/apps").get_json()["apps"]]
+    assert "compta" in [a["name"] for a in u.get("/api/mes-apps").get_json()["apps"]]
+    assert app.load()["compta"]["enabled"] is False
+    assert c.post("/api/app/compta/desarchiver").status_code == 404
+
+
+def test_trente_jours_apres_l_archive_la_configuration_est_effacee(hub, monkeypatch):
+    c = hub
+    monkeypatch.setattr(app, "stop", lambda n: None)
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    assert c.post("/api/app/secret/archiver").status_code == 200
+    quand = app.load()["secret"]["archivee_le"]
+    assert app.purger_les_apps_archivees(quand + 29 * 86400) == []
+    assert "secret" in app.load()
+    assert app.purger_les_apps_archivees(quand + 30 * 86400) == ["secret"]
+    assert "secret" not in app.load() and "compta" in app.load()
+
+
+def test_une_application_par_defaut_ne_s_archive_pas(hub):
+    c = hub
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    assert c.post(f"/api/app/{app.DIAGNOSTIC_NOM}/archiver").status_code == 403
+    assert c.post("/api/app/inconnue/archiver").status_code == 404
+    page = _page_panneau("dashboard.html")
+    assert 'id="e-archiver"' in page and 'id="param-archives"' in page
+    assert 'data-p="archives" onclick="paramOnglet(\'archives\')" data-admin="1"' in page

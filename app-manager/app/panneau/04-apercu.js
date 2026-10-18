@@ -304,7 +304,7 @@ async function basculerVisibilite(n){
 }
 async function rm(n){
   if(!await demander('Supprimer « ' + n + ' » ?',
-    "L'application disparait du panneau. Le dossier du projet dans /workspace n'est pas touche.",
+    "L'application disparaît du panneau. Le dossier du projet dans /workspace n'est pas touché.",
     'Supprimer', true)) return;
   const r=await fetch('/api/app/'+n,{method:'DELETE'});
   if(!r.ok){
@@ -315,5 +315,18 @@ async function rm(n){
     notifier(d.error || 'Suppression impossible.', 'err');
     return;
   }
+  ficheNom=null; showSection('apps'); refresh();
+}
+/* L'archive : arretee et rangee, sa fiche gardee trente jours (voir
+   « l'archivage d'une application » cote serveur). */
+async function archiver(n){
+  if(!await demander('Archiver « ' + n + ' » ?',
+    "Elle s'arrête et quitte le hub et la liste des applications. Sa configuration est gardée "
+    + "30 jours dans Paramètres › Archives : tu peux la désarchiver d'ici là. Ensuite, elle est "
+    + "effacée. Le dossier du projet dans /workspace n'est pas touché.",
+    'Archiver', false)) return;
+  const r=await fetch('/api/app/'+encodeURIComponent(n)+'/archiver',{method:'POST'});
+  if(!r.ok){ notifier(await echec(r, 'Archivage impossible.'), 'err'); return; }
+  notifier('« '+n+' » est aux archives.');
   ficheNom=null; showSection('apps'); refresh();
 }

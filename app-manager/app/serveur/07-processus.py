@@ -807,6 +807,8 @@ def start(name, attendre=True):
     a = apps.get(name)
     if not a or is_running(name):
         return None
+    if est_archivee(a):
+        return f"« {name} » est aux archives : désarchive-la avant de la démarrer."
 
     # Le dossier de l'app peut avoir disparu (supprime depuis /workspace,
     # volume non monte, renomme). Sans ce garde-fou, subprocess.Popen leve

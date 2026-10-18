@@ -305,6 +305,7 @@ function chargerConfigFiche(){
      c'est le serveur qui refuse vraiment, la route reste appelable a la
      main. */
   $('e-supprimer').style.display = (a.name === 'diagnostic') ? 'none' : '';
+  $('e-archiver').style.display = (a.name === 'diagnostic') ? 'none' : '';
   /* Le nom, et ce qu'il change : l'adresse de l'application en fait partie. */
   $('e-nom').value = a.name;
   $('e-nom-url').textContent = urlApplication(a.name);

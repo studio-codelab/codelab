@@ -196,8 +196,8 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
 - **Erreurs JavaScript** de la page envoyées dans les journaux du panneau.
 
 **Onglets des paramètres** : un par catégorie, les mêmes pour tous les comptes (l'administrateur a
-en plus *E-mail et alertes*). Sur ordinateur, une colonne à gauche ; au téléphone, une pastille
-segmentée de cinq onglets de même largeur. Au doigt, une carte touchée ne reste pas grisée comme
+en plus *E-mail et alertes* et *Archives*). Sur ordinateur, une colonne à gauche ; au téléphone, une
+pastille segmentée d'onglets de même largeur, sur deux rangées de trois au-delà de cinq. Au doigt, une carte touchée ne reste pas grisée comme
 sélectionnée.
 
 | Onglet | Pour qui | Contenu |
@@ -207,6 +207,7 @@ sélectionnée.
 | Mon hub | tous | applications affichées dans *son* hub ; catégories pour l'admin |
 | Sécurité | tous | mot de passe, second facteur (TOTP), clés d'accès, appareils connectés ; sauvegardes et bilan de sécurité pour l'admin |
 | E-mail et alertes | admin | serveur d'envoi, alertes par application, surveillance externe |
+| Archives | admin | applications archivées, date d'effacement, « Désarchiver », « Supprimer » |
 
 ## 2. Applications
 
@@ -221,6 +222,11 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
 - **Nom libre, adresse dérivée** : `Mon Site` est servi sous `/mon-site/`. Un nom réservé par une
   route du panneau est refusé.
 - **Renommer** une application : son adresse, ses droits et ses fichiers suivent.
+- **Archiver** une application (fiche, onglet *Configuration*) : elle s'arrête et quitte le hub, la
+  liste des applications et son adresse (qui répond comme une adresse inconnue). Sa configuration
+  est gardée 30 jours dans *Paramètres > Archives* : commandes, port, droits des comptes, alertes.
+  Désarchivée, elle revient telle quelle, arrêtée ; sinon elle est effacée au bout de 30 jours. Son
+  nom reste réservé d'ici là. Le dossier du projet dans `/workspace` n'est jamais touché.
 - **Description**, affichée sous le nom dans la tuile du hub, sur deux lignes : environ 45 caractères
   s'y voient, le reste au survol (140 au plus). La fiche le dit sous le champ, avec un compteur. Le
   nom passe toujours avant la description : un nom long prend un corps plus petit plutôt que d'être

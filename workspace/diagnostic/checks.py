@@ -1062,12 +1062,20 @@ def _requete_panneau(requete, parametres=()):
 
 
 def _apps_panneau():
-    lignes = _requete_panneau("SELECT nom, dossier, commande, port, actif, visibilite "
+    """Les applications declarees, sans celles rangees aux archives : une
+    application archivee est arretee expres, et son dossier peut avoir ete
+    retire de /workspace -- ni l'un ni l'autre n'est une panne."""
+    lignes = _requete_panneau("SELECT nom, dossier, commande, port, actif, visibilite, options "
                               "FROM applications")
     if lignes is None:
         return _lire_json(os.path.join(_etat_panneau(), "apps.json"), {})
     apps = {}
     for l in lignes:
+        try:
+            if json.loads(l["options"] or "{}").get("archivee_le"):
+                continue
+        except (ValueError, AttributeError):
+            pass
         a = {"path": l["dossier"] or "", "command": l["commande"] or "",
              "port": l["port"], "enabled": bool(l["actif"])}
         if l["visibilite"]:

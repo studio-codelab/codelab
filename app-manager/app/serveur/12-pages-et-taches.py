@@ -629,7 +629,7 @@ def api_mes_apps():
     # courte inquiete plus qu'elle ne simplifie.
     cachees = set(masquees_du_compte())
     liste, masquees = [], []
-    toutes = load()
+    toutes = apps_actives()
     versions = versions_des_apps(toutes)
     ouvertes = ouvertures_du_compte()
     admin = est_admin()
