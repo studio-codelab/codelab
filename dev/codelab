@@ -11,7 +11,7 @@
 #                             base -- sans toucher a ce que le projet a ecrit
 #     ... --tous               tous les projets CodeLab de /workspace (--all)
 #   codelab video [projet]    la video de presentation du projet (video/presentation.mp4)
-#   codelab help [commande]   l'aide, en francais puis en anglais
+#   codelab help [commande]   l'aide (en anglais)
 #
 #   Outils plus fins, appeles par les precedents : db <nom> (la base seule),
 #   vscode-bases (les connexions SQLTools). Anciens noms, gardes pour les
@@ -42,97 +42,14 @@ FIN='<!-- codelab:fin -->'
 
 # ------------------------------- help -------------------------------
 #
-# L'aide en deux langues, sous une seule commande : « codelab help » ecrit le
-# francais puis l'anglais (« codelab help <commande> » : le detail). Vecu :
-# « retire codelab aide, ne garde que codelab help » -- un seul nom a retenir.
+# L'aide, en anglais, sous une seule commande : « codelab help » (et
+# « codelab help <commande> » : le detail). Vecu : « retire codelab aide, ne
+# garde que codelab help », puis « garde que la version anglaise de codelab
+# help ». Les messages des commandes, eux, restent en francais.
 # La meme liste vit dans le hub (Applications > Commandes) et dans
 # FONCTIONNALITES.md : un test verifie que chaque commande du dispatch y est.
 
-aide_fr() {
-  case "${1:-}" in
-    create|new) cat <<'AIDE'
-codelab create <nom> [--sans-db] [--ouvrir]
-
-  Cree /workspace/<nom>, pret a travailler :
-    - un depot git, un .gitignore (.env en tete) et un README.md ;
-    - AGENTS.md (le manuel CodeLab, lu par Codex) et CLAUDE.md (qui
-      l'importe, pour Claude Code) ;
-    - codelab_auth.py / codelab-auth.js : se connecter avec CodeLab ;
-    - codelab_web.py / codelab-web.js : pages d'erreur et en-tetes ;
-    - la base de donnees du projet (meme nom), sauvegardee chaque jour.
-
-  --sans-db   pas de base de donnees (update ou db la creeront plus tard)
-  --ouvrir    rouvre la fenetre VS Code sur le projet
-
-  Le nom : lettres, chiffres, tirets et soulignes, en commencant par une
-  lettre. Il sert de dossier, d'adresse (/nom/) et de nom de base.
-AIDE
-    ;;
-    update) cat <<'AIDE'
-codelab update [projet] [--sans-db]
-codelab update --tous
-
-  Met un projet existant au niveau de la stack, sans rien effacer :
-    - reecrit le bloc CodeLab de AGENTS.md (le reste du fichier est garde) ;
-    - pose CLAUDE.md s'il manque (un CLAUDE.md existant n'est pas touche) ;
-    - ajoute les modules codelab_auth / codelab_web qui manquent, et met a
-      jour ceux que git garde intacts (une copie modifiee reste telle quelle) ;
-    - ajoute .env et .dagster-venv/ au .gitignore s'ils n'y sont pas ;
-    - cree la base du projet si elle manque (--sans-db pour s'en passer).
-
-  Sans argument : le projet du dossier courant. --tous : chaque projet de
-  /workspace qui porte deja le manuel CodeLab.
-  A relancer apres chaque mise a jour de CodeLab.
-AIDE
-    ;;
-    video) cat <<'AIDE'
-codelab video [projet]
-
-  La video de presentation du projet, montree par le hub sur sa fiche.
-  1re fois : pose video/scenario.mjs, a completer (ou a faire ecrire par
-             ton agent : section 14 du manuel AGENTS.md).
-  Ensuite  : joue le scenario dans Chromium, ajoute la voix off francaise
-             et produit video/presentation.mp4 et video/affiche.jpg.
-AIDE
-    ;;
-    db) cat <<'AIDE'
-codelab db <nom>
-
-  La base seule : la cree avec son compte, son schema "dagster" et son
-  search_path (sans effet si elle existe). create et update l'appellent.
-AIDE
-    ;;
-    vscode-bases) cat <<'AIDE'
-codelab vscode-bases
-
-  Declare chaque base de projet dans SQLTools (VS Code), avec son propre
-  compte. Le poste le fait seul toutes les quelques minutes.
-AIDE
-    ;;
-    *) cat <<'AIDE'
-codelab -- l'outil de projet de CodeLab
-
-  codelab create <nom>     cree un projet complet (git, manuel de l'agent,
-                           CLAUDE.md, modules CodeLab, base de donnees)
-      --sans-db            sans base de donnees
-      --ouvrir             rouvre VS Code sur le projet
-  codelab update [projet]  met un projet existant a jour (manuel, CLAUDE.md,
-                           modules, .gitignore, base), sans rien effacer
-      --tous               tous les projets CodeLab de /workspace
-  codelab video [projet]   la video de presentation du projet
-  codelab help [commande]  cette aide, en francais puis en anglais
-
-  Outils plus fins : codelab db <nom> (la base seule),
-                     codelab vscode-bases (connexions SQLTools).
-  Anciens noms     : new = create ; agents = le manuel seul (update fait plus).
-
-  Detail d'une commande : codelab help create
-AIDE
-    ;;
-  esac
-}
-
-aide_en() {
+aide() {
   case "${1:-}" in
     create|new) cat <<'HELP'
 codelab create <name> [--no-db] [--open]
@@ -205,7 +122,7 @@ codelab -- the CodeLab project tool
                             modules, .gitignore, database), deleting nothing
       --all                 every CodeLab project in /workspace
   codelab video [project]   the project's presentation video
-  codelab help [command]    this help, in French then in English
+  codelab help [command]    this help
 
   Finer tools : codelab db <name> (the database only),
                 codelab vscode-bases (SQLTools connections).
@@ -215,12 +132,6 @@ codelab -- the CodeLab project tool
 HELP
     ;;
   esac
-}
-
-aide() {
-  aide_fr "${1:-}"
-  echo "------------------------------------------------------------------------"
-  aide_en "${1:-}"
 }
 
 usage() { aide >&2; }

@@ -284,12 +284,11 @@ def _commandes_de_l_outil():
     return noms - {"new", "agents"}
 
 
-def test_l_aide_liste_chaque_commande_en_deux_langues_et_dans_le_hub(tmp_path):
+def test_l_aide_liste_chaque_commande_et_le_hub_aussi(tmp_path):
     """Une commande ajoutee a l'outil doit apparaitre dans « codelab help »,
-    en francais ET en anglais, dans la fenetre Commandes du hub et dans
-    FONCTIONNALITES.md : sinon personne ne la trouve. Vecu : « retire
-    codelab aide, ne garde que codelab help » -- une seule commande d'aide,
-    qui porte les deux langues."""
+    dans la fenetre Commandes du hub et dans FONCTIONNALITES.md : sinon
+    personne ne la trouve. Vecu : « retire codelab aide, ne garde que codelab
+    help », puis « garde que la version anglaise de codelab help »."""
     commandes = _commandes_de_l_outil()
     assert {"create", "update", "video", "help", "db", "vscode-bases"} <= commandes
     assert "aide" not in commandes
@@ -297,8 +296,8 @@ def test_l_aide_liste_chaque_commande_en_deux_langues_et_dans_le_hub(tmp_path):
     seul, _ = _lancer_codelab(tmp_path, [])
     assert aide.returncode == seul.returncode == 0
     assert seul.stdout == aide.stdout
-    fr, en = aide.stdout.split("-" * 72)
-    assert "cree un projet complet" in fr and "creates a complete project" in en
+    assert "creates a complete project" in aide.stdout
+    assert "cree un projet complet" not in aide.stdout, "l'aide est en anglais seulement"
     r, _ = _lancer_codelab(tmp_path, ["aide"])
     assert r.returncode == 2, "codelab aide est retiree"
     page = open(os.path.join(_racine_depot(), "app-manager", "app", "dashboard.html"),
@@ -307,13 +306,12 @@ def test_l_aide_liste_chaque_commande_en_deux_langues_et_dans_le_hub(tmp_path):
     assert "codelab aide" not in fenetre
     fonctionnalites = open(os.path.join(_racine_depot(), "FONCTIONNALITES.md"), encoding="utf-8").read()
     for c in commandes:
-        assert f"codelab {c}" in fr, ("aide francaise", c)
-        assert f"codelab {c}" in en, ("aide anglaise", c)
+        assert f"codelab {c}" in aide.stdout, ("help", c)
         assert f"codelab {c}" in fenetre, ("hub", c)
         assert f"`codelab {c}" in fonctionnalites, ("FONCTIONNALITES.md", c)
-    # Le detail d'une commande, dans les deux langues a la fois.
+    # Le detail d'une commande.
     r, _ = _lancer_codelab(tmp_path, ["help", "update"])
-    assert "sans rien effacer" in r.stdout and "deleting nothing" in r.stdout
+    assert "deleting nothing" in r.stdout and "sans rien effacer" not in r.stdout
 
 
 def test_le_hub_ouvre_les_commandes_depuis_la_page_applications():

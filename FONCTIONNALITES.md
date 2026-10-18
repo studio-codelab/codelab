@@ -515,7 +515,7 @@ par le panneau sur `/messages` : même session, mêmes contrôles d'accès, mêm
 | `codelab create <nom> [--sans-db] [--ouvrir]` | crée le projet complet : dossier, git, `.gitignore`, `README.md`, `AGENTS.md`, `CLAUDE.md`, les modules `codelab_auth` et `codelab_web`, et sa base de données |
 | `codelab update [projet] [--tous]` | met un projet existant à jour (manuel de l'agent, `CLAUDE.md`, modules, `.gitignore`, base) sans rien effacer ; `--tous` pour chaque projet, à lancer après une mise à jour de CodeLab |
 | `codelab video [projet]` | la vidéo de présentation : pose un scénario (`video/scenario.mjs`), puis le joue dans Chromium, ajoute une voix off française et monte `video/presentation.mp4` |
-| `codelab help [commande]` | toutes les commandes, en français puis en anglais ; aussi dans le hub, *Applications > Commandes* |
+| `codelab help [commande]` | toutes les commandes (aide en anglais) ; aussi dans le hub, *Applications > Commandes* |
 | `codelab db <nom>`, `codelab vscode-bases` | outils plus fins appelés par `create` et `update` : la base seule, les connexions SQLTools |
 
 **Raccourcis et agents**
