@@ -514,6 +514,11 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
 .dl.ouvert .dl-btn svg{transform:rotate(180deg)}
 .dl.ouvert .dl-btn{border-color:var(--accent)}
 .dl[data-fige="1"] .dl-btn{opacity:.55;cursor:default}
+/* Ouverte, la liste passe en position:fixed, posee par le script contre son
+   bouton (dlPlacer) : les cartes des parametres rognent ce qui depasse
+   (overflow:hidden, pour leurs coins), et une liste ouverte vers le haut s'y
+   faisait couper. Vecu : la duree de conservation du journal, liste tronquee
+   en haut de sa carte. */
 .dl-liste{position:absolute;z-index:60;left:0;right:0;top:calc(100% + 4px);
  max-height:264px;overflow:auto;padding:4px;border-radius:var(--r-s);
  background:var(--surface);border:1px solid var(--line2);
@@ -522,6 +527,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
 /* Vers le haut quand il n'y a plus de place en dessous : une liste qui sort
    de l'ecran ne se deroule pas, elle se devine. */
 .dl.vers-le-haut .dl-liste{top:auto;bottom:calc(100% + 4px)}
+.dl.ouvert .dl-liste{position:fixed;z-index:300}
 .dl-opt{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:var(--r-xs);
  cursor:pointer;font-size:var(--t-m);color:var(--txt);white-space:nowrap;
  overflow:hidden;text-overflow:ellipsis}
@@ -1291,12 +1297,11 @@ table.tbl-journal{min-width:560px}
 /* La carte Session : la suppression du compte n'existe que pour un compte
    utilisateur (body.compte-utilisateur, pose par le script). */
 .session-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
-/* Le profil : deux champs cote a cote, l'un sous l'autre au telephone. */
-.profil-champs{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.profil-champs .field{margin:0}
+/* Le profil : deux champs cote a cote (.grid2), l'un sous l'autre au
+   telephone. Vecu : « Les zones de modification du prenom et du nom ne sont
+   pas alignees » -- le second champ prenait la marge de .field+.field. */
 .facultatif{font-weight:400;color:var(--dim2)}
 .us-id{font-size:var(--t-s);color:var(--dim2);font-weight:500}
-@media (max-width:760px){.profil-champs{grid-template-columns:1fr}}
 #zone-session .utilisateur-seul{display:none}
 .compte-utilisateur #zone-session .btn.utilisateur-seul{display:inline-flex}
 .compte-utilisateur #zone-session .hint.utilisateur-seul{display:block;margin-top:12px}
@@ -2756,7 +2761,7 @@ a.pj:hover{border-color:var(--accent)}
         <b>Prénom et nom</b>
         <div class="path" id="profil-resume">Ce que le panneau affiche à la place de ton identifiant.</div>
       </div></div>
-      <div class="profil-champs">
+      <div class="grid2 profil-champs">
         <div class="field"><label for="profil-prenom">Prénom</label>
           <input id="profil-prenom" maxlength="40" autocomplete="given-name"></div>
         <div class="field"><label for="profil-nom">Nom <span class="facultatif">(facultatif)</span></label>
@@ -3058,11 +3063,17 @@ a.pj:hover{border-color:var(--accent)}
       </div>
 
       <div id="totp-etape-3" style="display:none">
-        <div class="hint">Pour désactiver, saisis un code valide : une session volée ne doit pas
-          pouvoir retirer le second facteur.</div>
-        <div class="field"><input id="totp-code-off" inputmode="numeric" maxlength="6" placeholder="123456"></div>
-        <button class="btn btn-default" onclick="totpDesactiver()">Désactiver</button>
-        <div class="err" id="totp-err-off" style="display:none"></div>
+        <!-- Masque quand l'application est le seul second facteur d'un
+             compte : le serveur refuserait le retrait. -->
+        <div id="totp-retrait">
+          <div class="hint">Pour désactiver, saisis un code valide : une session volée ne doit pas
+            pouvoir retirer le second facteur.</div>
+          <div class="ligne-champ"><input id="totp-code-off" inputmode="numeric" maxlength="6" placeholder="123456">
+            <button class="btn btn-default" onclick="totpDesactiver()">Désactiver</button></div>
+          <div class="err" id="totp-err-off" style="display:none"></div>
+        </div>
+        <div class="hint" id="totp-retrait-impossible" style="display:none">C'est ton seul second
+          facteur : vérifie d'abord ton adresse mail, ou ajoute Face ID, pour pouvoir le retirer.</div>
       </div>
     </div>
   </div>

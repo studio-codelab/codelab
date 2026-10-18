@@ -462,10 +462,10 @@ du panneau, ou iOS ne lui dit rien :
   icone).
 
 **Le bouton « ← CodeLab »** que le panneau pose sur chaque page est replie
-par defaut : une languette de 22 px au bord gauche de l'ecran, en bas. Un
-appui le deplie, un autre le replie, et chaque page repart repliee. Laisse
-libre ce coin-la (environ 22 × 34 px, au-dessus de `var(--codelab-bord-bas)`)
-ou accepte qu'il le recouvre.
+par defaut : une languette de 30 × 46 px au bord gauche de l'ecran, en bas.
+Un appui le deplie ; il se replie seul au bout de 10 secondes, et chaque page
+repart repliee. Laisse libre ce coin-la (environ 30 × 46 px, 14 px au-dessus
+de `var(--codelab-bord-bas)`) ou accepte qu'il le recouvre.
 
 Ecris donc **pour iOS, une seule fois** : `viewport-fit=cover` si la page va
 jusqu'aux bords, `env(safe-area-inset-*)` pour les marges, `html.mode-app` pour

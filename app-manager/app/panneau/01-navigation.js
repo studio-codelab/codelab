@@ -329,6 +329,27 @@ function dlChoisir(enveloppe, i){
   enveloppe.querySelector('.dl-btn').focus();
 }
 
+/* La liste ouverte est en position:fixed (voir .dl.ouvert .dl-liste) : elle
+   se pose ici contre son bouton, au-dessous ou au-dessus. Le moindre
+   defilement la referme -- elle ne suivrait pas son bouton. */
+function dlPlacer(enveloppe){
+  const r = enveloppe.querySelector('.dl-btn').getBoundingClientRect();
+  const liste = enveloppe.querySelector('.dl-liste');
+  liste.style.left = r.left + 'px';
+  liste.style.width = r.width + 'px';
+  if(enveloppe.classList.contains('vers-le-haut')){
+    liste.style.top = 'auto';
+    liste.style.bottom = (window.innerHeight - r.top + 4) + 'px';
+  }else{
+    liste.style.bottom = 'auto';
+    liste.style.top = (r.bottom + 4) + 'px';
+  }
+}
+addEventListener('scroll', e=>{
+  if(!(e.target instanceof Element && e.target.closest('.dl-liste'))) dlFermerTout();
+}, true);
+addEventListener('resize', ()=>dlFermerTout());
+
 function dlHabiller(select){
   if(select.dataset.dl==='1' || select.multiple) return;
   select.dataset.dl='1';
@@ -353,6 +374,7 @@ function dlHabiller(select){
     const bas = enveloppe.getBoundingClientRect().bottom;
     enveloppe.classList.toggle('vers-le-haut',
       ouvrir && window.innerHeight - bas < 200 && bas > 260);
+    if(ouvrir) dlPlacer(enveloppe);
   });
   enveloppe.querySelector('.dl-liste').addEventListener('click', e=>{
     const opt = e.target.closest('.dl-opt');
@@ -455,7 +477,7 @@ function paramOnglet(o){
     chargerAppareils();
     if(estAdmin) chargerSauvegardes();
     if(estAdmin) chargerConservation();
-    if(estAdmin) chargerSecurite();
+    if(estAdmin) chargerSecurite(); else chargerTotpCompte();
   }
   /* La liste des applications vient du hub : on la relit, sinon le choix
      « D'une application » est vide pour qui arrive directement ici. */

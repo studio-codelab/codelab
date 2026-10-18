@@ -46,6 +46,14 @@ Pour le changer, il faut redonner l'ancien, même avec une session déjà ouvert
 - un **code par mail** (comptes utilisateurs seulement). Il vaut 10 minutes, sert une fois, tolère
   5 essais et ne part que vers l'adresse vérifiée du compte, après un mot de passe juste.
 
+Les méthodes sont indépendantes : choisir l'une n'envoie ni ne prépare rien pour une autre. La page
+propose la dernière utilisée (retenue sur la fiche du compte, réglage `dernier_moyen_admin` pour
+l'administrateur) ; ce choix ne change que l'ordre, jamais la liste des méthodes permises. Chaque
+envoi de mail compte comme un essai de la limite de connexion, le choix de l'application non (rien
+ne part). Un compte utilisateur ajoute son application TOTP avec une connexion de moins de
+15 minutes (règle 8) et la retire avec un code valide ; le serveur refuse de retirer son dernier
+second facteur.
+
 **Invitation.** Le lien contient un jeton aléatoire de 256 bits, dont seule l'empreinte est gardée,
 chiffrée. Il ne sert qu'une fois et expire au bout de 7 jours. On peut le renvoyer (l'ancien lien
 meurt) ou l'annuler. Ouvrir le lien prouve que l'adresse est la bonne : le compte naît avec une

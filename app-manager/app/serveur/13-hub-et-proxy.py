@@ -372,44 +372,56 @@ def strip_session_cookie(raw):
 #
 # REDUIT PAR DEFAUT. Vecu : « Le bouton codelab dans les applications doit
 # pouvoir se developper et reduire (petite fleche au bord de l'ecran) pour
-# laisser la place a l'app par defaut ». Une languette de 22 px au bord gauche
-# de l'ecran ; un appui deplie le bouton « ← CodeLab » a cote, un autre le
-# replie. Chaque page repart repliee : l'application garde sa place.
-# <details> et non un script : ni JavaScript a injecter, ni etat a garder, et
-# le clavier (Entree, Espace) marche d'office.
+# laisser la place a l'app par defaut », puis « plus gros, lorsque je
+# developpe, pas de bouton pour reduire, il reste developpe que 10 secondes
+# si je ne clique pas ». Une languette de 30 x 46 px au bord gauche de
+# l'ecran ; un appui la remplace par le bouton « ← CodeLab », qui se replie
+# tout seul au bout de 10 s. Chaque page repart repliee.
+# <details> pour l'ouverture : elle marche sans script, au clavier aussi. Le
+# script (RUBAN_JS) ne fait que replier apres 10 s ; bloque par la CSP de
+# l'application, le bouton reste deplie jusqu'a la page suivante, sans rien
+# casser.
 #
 # Une feuille a part, aux identifiants improbables, et all:initial : la page
 # de l'application a ses propres regles, et le ruban ne doit ni les subir ni
-# les changer. Une CSP stricte de l'application bloque la feuille : le ruban
-# reste un lien, sans habillage, et rien ne casse.
-# La meme feuille vit dans l'interface Mailpit (mailpit-ui/app.css), dont la
-# politique interdit tout style en ligne, et dans le sub_filter de Dagster
-# (dagster/proxy/nginx.conf) : un test les tient identiques. Pas d'apostrophe
-# dedans : la chaine de nginx en est delimitee.
+# les changer.
+# La meme feuille et le meme script vivent dans l'interface Mailpit
+# (mailpit-ui/app.css et app.js, sa politique interdit tout code en ligne) et
+# dans le sub_filter de Dagster (dagster/proxy/nginx.conf) : un test les
+# tient identiques. Pas d'apostrophe dedans : la chaine de nginx en est
+# delimitee.
 RUBAN_CSS = (
     # Au-dessus de la barre de geste et a cote de l'encoche : les bords que
     # pose environnement-app.js (0 hors du hub installe).
     "#codelab-ruban{all:initial;position:fixed;left:var(--codelab-bord-gauche, 0px);"
     "bottom:calc(14px + var(--codelab-bord-bas, 0px));z-index:2147483647;"
-    "display:flex;align-items:center;gap:8px}"
+    "display:flex;align-items:center}"
     "#codelab-ruban>summary{all:initial;display:flex;align-items:center;justify-content:center;"
-    "width:22px;height:34px;color:#fff;background:#141a21;border-radius:0 999px 999px 0;"
+    "width:30px;height:46px;color:#fff;background:#141a21;border-radius:0 999px 999px 0;"
     "cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.28);list-style:none}"
     "#codelab-ruban>summary::-webkit-details-marker{display:none}"
     "#codelab-ruban>summary::marker{content:\"\"}"
-    "#codelab-ruban>summary>span{all:initial;display:inline-block;color:#fff;"
-    "font:600 15px/1 sans-serif;cursor:pointer;transition:transform .2s}"
-    "#codelab-ruban[open]>summary>span{transform:rotate(180deg)}"
-    "#codelab-retour-hub{all:initial;display:inline-flex;align-items:center;gap:7px;"
-    "padding:8px 13px;font:600 13px/1 -apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;"
+    "#codelab-ruban>summary>span{all:initial;color:#fff;font:600 26px/1 sans-serif;cursor:pointer}"
+    # Deplie : plus de languette, le bouton seul. Il se replie tout seul.
+    "#codelab-ruban[open]>summary{display:none}"
+    "#codelab-retour-hub{all:initial;display:inline-flex;align-items:center;gap:8px;"
+    "margin-left:14px;padding:11px 16px;"
+    "font:600 14px/1 -apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;"
     "color:#fff;background:#141a21;border-radius:999px;cursor:pointer;"
     "box-shadow:0 2px 10px rgba(0,0,0,.28);text-decoration:none}"
     "#codelab-retour-hub>span{all:initial;color:#fff;cursor:pointer;"
-    "font:600 13px/1 -apple-system,BlinkMacSystemFont,sans-serif}"
-    "#codelab-retour-hub>span:first-child{font:600 15px/1 sans-serif}"
+    "font:600 14px/1 -apple-system,BlinkMacSystemFont,sans-serif}"
+    "#codelab-retour-hub>span:first-child{font:600 17px/1 sans-serif}"
     # Au clavier, la languette et le bouton se voient quand on les atteint.
     "#codelab-ruban>summary:focus-visible,#codelab-retour-hub:focus-visible"
     "{outline:2px solid #4c8eff;outline-offset:2px}"
+)
+# Replie le bouton 10 s apres l'avoir deplie. ES5, dans un try : il tourne
+# dans des pages qu'on ne controle pas.
+RUBAN_JS = (
+    "(function(){try{var d=document.getElementById(\"codelab-ruban\"),t=null;"
+    "d.addEventListener(\"toggle\",function(){clearTimeout(t);"
+    "if(d.open){t=setTimeout(function(){d.open=false;},10000);}});}catch(e){}})();"
 )
 
 
@@ -424,7 +436,7 @@ def ruban_retour():
         # le cadre, un panneau dans le panneau.
         '<a href="' + lien_panneau() + '" target="_top" id="codelab-retour-hub" '
         'title="Revenir au hub CodeLab"><span>&#8592;</span><span>CodeLab</span></a>'
-        "</details>"
+        "</details><script>" + RUBAN_JS + "</script>"
     ).encode()
 
 

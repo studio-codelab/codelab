@@ -216,6 +216,15 @@ button.principal:disabled{opacity:.6;cursor:default}
  font-size:12.5px;color:var(--dim)}
 .code-pied a{color:var(--accent);cursor:pointer;font-weight:600}
 .code-pied a[aria-disabled="true"]{color:var(--dim2);cursor:default;pointer-events:none}
+/* « Essayer une autre methode » : la liste se deplie sous le lien, une
+   methode par ligne, chacune avec son icone. */
+.autres-moyens{display:none;flex-direction:column;gap:8px;margin-top:14px}
+.autres-moyens.ouvert{display:flex}
+.autres-moyens button{display:flex;align-items:center;gap:10px;width:100%;padding:12px 14px;
+ border:1px solid var(--line2);border-radius:var(--r-s);background:var(--surface);color:var(--txt);
+ font:inherit;font-weight:600;cursor:pointer;text-align:left}
+.autres-moyens button svg{width:18px;height:18px;flex:none}
+@media (hover:hover){.autres-moyens button:hover{border-color:var(--accent)}}
 </style></head><body>
 <div id="defile">
 
@@ -323,6 +332,7 @@ button.principal:disabled{opacity:.6;cursor:default}
         </div>
         <!-- Les autres moyens du compte, et « Renvoyer le code ». -->
         <div class="code-pied" id="code-moyens"></div>
+        <div class="autres-moyens" id="autres-moyens"></div>
       </div>
 
       <!-- PREMIERE CONNEXION : le second facteur s'enregistre ici. Rien a
@@ -712,8 +722,8 @@ function copierSecret(){
 /* Le serveur dit quel code il attend (application ou mail) et quels
    autres moyens ce compte possede. La page n'en devine rien. */
 let moyenCourant='';
-const LIBELLES_MOYEN={totp:"mon application d'authentification", email:'un code par mail',
-                      passkey:'Face ID'};
+const LIBELLES_MOYEN={totp:"Code de mon application d'authentification",
+                      email:'Recevoir un code par mail', passkey:'Face ID'};
 function afficherCode(d){
   moyenCourant=d.moyen;
   LIBELLES_MOYEN.passkey=nomDuGeste();
@@ -739,10 +749,18 @@ function afficherCode(d){
                        : 'Saisis le code à six chiffres reçu par mail.')
       : 'Saisis le code à six chiffres affiché par ton application d’authentification.';
   if(d.envoi_impossible){ err.textContent=d.error; err.style.display='block'; }
+  /* LA METHODE PROPOSEE EST LA DERNIERE UTILISEE (le serveur la met en
+     tete). Les autres attendent derriere « Essayer une autre methode » :
+     rien ne part, rien ne se demande, tant qu'on ne les choisit pas. */
   const autres=(d.moyens||[]).filter(m=>m!==d.moyen && LIBELLES_MOYEN[m]);
-  const liens=autres.map(m=>`<a onclick="choisirMoyen('${m}')">Utiliser ${LIBELLES_MOYEN[m]||m}</a>`);
-  if(parMail) liens.unshift(`<a id="renvoyer" onclick="choisirMoyen('email')">Renvoyer le code</a>`);
+  const liens=[];
+  if(parMail) liens.push(`<a id="renvoyer" onclick="choisirMoyen('email')">Renvoyer le code</a>`);
+  if(autres.length) liens.push(`<a id="autre-moyen" onclick="basculerAutresMoyens()">Essayer une autre méthode</a>`);
   $$('code-moyens').innerHTML=liens.join('');
+  const icone = m => m==='passkey' ? iconeGeste() : m==='email' ? ICONES.mail : ICONES.appli;
+  $$('autres-moyens').innerHTML=autres.map(m=>
+    `<button type="button" onclick="choisirMoyen('${m}')">${icone(m)}<span>${esc(LIBELLES_MOYEN[m])}</span></button>`).join('');
+  $$('autres-moyens').classList.remove('ouvert');
   viderCases();
   document.querySelector('.boite h2').textContent = parCle ? nomDuGeste()
     : parMail ? 'Vérifie tes mails' : 'Code de vérification';
@@ -846,6 +864,7 @@ async function facteurPasskey(auto){
     err.style.display='block';
   }finally{ b.disabled=false; }
 }
+function basculerAutresMoyens(){ $$('autres-moyens').classList.toggle('ouvert'); }
 async function choisirMoyen(m){
   err.style.display='none';
   try{

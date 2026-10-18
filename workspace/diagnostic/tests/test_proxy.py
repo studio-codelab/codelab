@@ -425,8 +425,12 @@ def test_une_application_ouverte_dans_le_panneau_installe_se_comporte_en_app(hub
 
 def test_le_ruban_ne_porte_plus_le_script_d_environnement():
     # Le script vit desormais EN TETE de page (injecter_environnement) : en
-    # bas, il arrivait apres les scripts de l'application.
-    assert b"<script>" not in app.ruban_retour()
+    # bas, il arrivait apres les scripts de l'application. Le ruban ne porte
+    # que le sien (RUBAN_JS, qui le replie apres 10 s).
+    with app.flask_app.test_request_context("/"):
+        ruban = app.ruban_retour().decode()
+    assert app.ENVIRONNEMENT_APP_JS[:300] not in ruban and "CODELAB.environnement" not in ruban
+    assert re.findall(r"<script>(.*?)</script>", ruban, re.S) == [app.RUBAN_JS]
 
 
 # ---------------- Les applications du hub, de vraies applications ----------------

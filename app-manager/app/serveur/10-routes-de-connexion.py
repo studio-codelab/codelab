@@ -197,12 +197,13 @@ def _connexion_admin(d, pw):
                 return _code_admin_par_mail(moyens)
             return jsonify({"totp": True, "second_facteur": True,
                             "moyen": moyen, "moyens": moyens}), 401
-        if not ((totp_actif() and totp_verifie(_totp_secret, code))
-                or verifier_code_admin(code)):
+        par_appli = totp_actif() and totp_verifie(_totp_secret, code)
+        if not (par_appli or verifier_code_admin(code)):
             register_failed_attempt()
             journaliser("echec", qui=NOM_ADMIN, motif="second facteur", ip=_adresse_client())
             return jsonify({"error": avec_essais_restants("Code de vérification incorrect."),
                             "totp": True, "moyens": moyens}), 401
+        noter_dernier_moyen(NOM_ADMIN, MOYEN_TOTP if par_appli else MOYEN_EMAIL)
 
     session.permanent = True
     session["authed"] = True
@@ -272,13 +273,17 @@ def _second_facteur_utilisateur(d, nom, compte):
     """
     secret = compte.get("totp") or ""
     moyens = moyens_second_facteur(compte)
+    # Face ID en dernier : il n'existe qu'en HTTPS, derriere « Essayer une
+    # autre methode » -- sauf s'il est le dernier moyen utilise.
     if passkeys_du_compte(nom) and passkey_utilisable():
-        moyens = [MOYEN_PASSKEY] + moyens
+        moyens = moyens + [MOYEN_PASSKEY]
+    moyens = dernier_moyen_en_tete(moyens, compte.get("dernier_moyen"))
     code = d.get("code")
     # Sans aucun moyen (ni secret, ni code envoye), un code tape ne prouve
     # rien : on passe a l'inscription du facteur, plus bas.
     if code and (moyens or compte.get("code_connexion")):
         ok = bool(secret) and totp_verifie(secret, code)
+        moyen_utilise = MOYEN_TOTP if ok else MOYEN_EMAIL
         if not ok and compte.get("code_connexion"):
             comptes = lire_utilisateurs()
             ok = verifier_code_connexion(comptes[nom], code)
@@ -294,6 +299,7 @@ def _second_facteur_utilisateur(d, nom, compte):
             return jsonify({"error": avec_essais_restants("Code de vérification incorrect."),
                             "totp": True, "moyens": moyens}), 401
         _lever_suspension_code_mail(nom)
+        noter_dernier_moyen(nom, moyen_utilise)
         return _ouvrir_session_utilisateur(nom)
 
     if moyens:
@@ -307,13 +313,16 @@ def _second_facteur_utilisateur(d, nom, compte):
             attendre_second_facteur(nom)
             return jsonify({"totp": True, "second_facteur": True,
                             "moyen": moyen, "moyens": moyens}), 401
+        reponse = {"totp": True, "moyen": moyen, "moyens": moyens}
+        if moyen == MOYEN_TOTP:
+            # Rien ne part : choisir l'application ne coute pas d'essai. Vecu :
+            # « Essayer une autre methode » apres un code par mail consommait
+            # un second essai sur cinq sans rien envoyer.
+            reponse["error"] = "Saisis le code de ton application d'authentification."
+            return jsonify(reponse), 401
         # Compte comme une tentative : sans cela, ce formulaire enverrait
         # des mails en boucle a qui connait un mot de passe.
         register_failed_attempt()
-        reponse = {"totp": True, "moyen": moyen, "moyens": moyens}
-        if moyen == MOYEN_TOTP:
-            reponse["error"] = "Saisis le code de ton application d'authentification."
-            return jsonify(reponse), 401
         comptes = lire_utilisateurs()
         cible = comptes[nom]
         en_cours = cible.get("code_connexion") or {}
@@ -373,6 +382,40 @@ def passkey_utilisable():
     return passkeys_disponibles() and not passkey_contexte()[2]
 
 
+# LA METHODE PROPOSEE D'OFFICE : LA DERNIERE UTILISEE. Vecu : « retenir la
+# derniere methode utilisee pour l'utilisateur comme methode par defaut (pas
+# parametrable). Possibilite de cliquer sur Essayer une autre methode ». Les
+# methodes restent decorrelees : chacune se suffit, et en choisir une
+# n'envoie ni ne demande rien a l'autre (un code ne part par mail que si le
+# mail est choisi).
+# POURQUOI la liste reste celle du compte : la methode retenue ne fait que
+#   passer devant. Une methode retiree depuis (adresse non verifiee, Face ID
+#   hors HTTPS) n'est jamais proposee pour autant.
+def dernier_moyen_en_tete(moyens, dernier):
+    if dernier in moyens:
+        return [dernier] + [m for m in moyens if m != dernier]
+    return moyens
+
+
+def noter_dernier_moyen(qui, moyen):
+    """Retient la methode qui vient d'ouvrir la session. Jamais d'exception :
+    la connexion est faite, le souvenir n'est qu'un confort."""
+    if moyen not in (MOYEN_EMAIL, MOYEN_TOTP, MOYEN_PASSKEY):
+        return
+    try:
+        if qui == NOM_ADMIN:
+            if reglage("dernier_moyen_admin") != moyen:
+                ecrire_reglage("dernier_moyen_admin", moyen)
+            return
+        comptes = lire_utilisateurs()
+        compte = comptes.get(qui)
+        if compte is not None and compte.get("dernier_moyen") != moyen:
+            compte["dernier_moyen"] = moyen
+            ecrire_utilisateurs(comptes)
+    except Exception:                                             # noqa: BLE001
+        pass
+
+
 def moyens_admin():
     """Les seconds facteurs de l'administrateur : Face ID, le mail, l'application.
 
@@ -380,13 +423,15 @@ def moyens_admin():
     de securite) : il faut donc un vrai serveur d'envoi.
     """
     moyens = []
-    if passkeys_du_compte(NOM_ADMIN) and passkey_utilisable():
-        moyens.append(MOYEN_PASSKEY)
     if smtp_utilisable()[1] and smtp_utilisable()[0].get("host") and alertes_admin():
         moyens.append(MOYEN_EMAIL)
     if totp_actif():
         moyens.append(MOYEN_TOTP)
-    return moyens
+    # Face ID en dernier : il n'existe qu'en HTTPS, derriere « Essayer une
+    # autre methode » -- sauf s'il est le dernier moyen utilise.
+    if passkeys_du_compte(NOM_ADMIN) and passkey_utilisable():
+        moyens.append(MOYEN_PASSKEY)
+    return dernier_moyen_en_tete(moyens, reglage("dernier_moyen_admin"))
 
 
 def _code_admin_par_mail(moyens):
@@ -554,6 +599,7 @@ def login_second_facteur():
         return jsonify({"error": "Un second facteur a déjà été enregistré. "
                                  "Recommence la connexion."}), 409
     compte["totp"] = candidat
+    compte["dernier_moyen"] = MOYEN_TOTP
     try:
         ecrire_utilisateurs(comptes)
     except OSError as e:
@@ -975,6 +1021,7 @@ def _ouvrir_session_par_cle(proprietaire):
     session["utilisateur"] = proprietaire
     journaliser("connexion", qui=proprietaire, role=session["role"],
                 moyen="cle d'acces", ip=_adresse_client())
+    noter_dernier_moyen(proprietaire, MOYEN_PASSKEY)
     if est_administrateur:
         signaler_connexion_admin()
     return jsonify({"ok": True, "role": session["role"]})
@@ -1077,6 +1124,111 @@ def api_mon_compte():
     })
 
 
+# ------------------ l'application d'authentification d'un compte ------------------
+#
+# Vecu : deux methodes au choix, le code par mail ou celui de l'application
+# d'authentification, decorrelees. Un compte qui a son adresse n'avait
+# aucun moyen d'ajouter l'application : elle ne s'inscrivait qu'au premier
+# acces, sans adresse. Il la gere desormais ici (Parametres > Securite).
+#
+# POURQUOI la connexion recente : ajouter un facteur, c'est installer un
+#   acces durable au compte. Un cookie de session vole ne doit pas y
+#   suffire (regle 8, comme une cle d'acces ou une adresse).
+# POURQUOI un code pour retirer : comme pour l'administrateur, une session
+#   volee ne doit pas pouvoir retirer le facteur. Et le dernier ne se retire
+#   pas : un compte garde toujours un second facteur (regle 1).
+# DEPEND DE : moyens_second_facteur (05-comptes), qui propose l'application
+#   des qu'un secret est enregistre ; qr_totp, qui lit totp_uri en session.
+def _autre_facteur(nom, compte):
+    """Le compte garde-t-il un facteur sans son application ?"""
+    return bool((compte.get("email") and compte.get("email_verifie"))
+                or passkeys_du_compte(nom))
+
+
+@flask_app.get("/api/mon-compte/totp")
+@require_auth
+def api_mon_totp():
+    compte = _mon_compte()
+    if compte is None:
+        return jsonify({"error": "Le compte d'administration règle son application "
+                                 "dans « Second facteur »."}), 400
+    return jsonify({"actif": bool(compte.get("totp")),
+                    "retirable": _autre_facteur(utilisateur_courant(), compte)})
+
+
+@flask_app.post("/api/mon-compte/totp/preparer")
+@require_auth
+def api_mon_totp_preparer():
+    compte = _mon_compte()
+    if compte is None:
+        return jsonify({"error": "Réservé aux comptes utilisateurs."}), 400
+    refus = refus_authentification_ancienne()
+    if refus:
+        return refus
+    if compte.get("totp"):
+        return jsonify({"error": "Ton application d'authentification est déjà enregistrée."}), 400
+    nom = utilisateur_courant()
+    candidat = totp_nouveau_secret()
+    session["totp_candidat"] = candidat
+    session["totp_uri"] = totp_uri(candidat, nom)
+    return jsonify({"secret": candidat, "uri": session["totp_uri"], "compte": nom,
+                    "qr": "/qr/totp.svg"})
+
+
+@flask_app.post("/api/mon-compte/totp/activer")
+@require_auth
+def api_mon_totp_activer():
+    nom = utilisateur_courant()
+    comptes = lire_utilisateurs()
+    compte = None if est_admin() else comptes.get(nom)
+    candidat = session.get("totp_candidat")
+    if compte is None or not candidat:
+        return jsonify({"error": "Recommence : aucune inscription en attente."}), 400
+    refus = refus_authentification_ancienne()
+    if refus:
+        return refus
+    code = (request.get_json(force=True, silent=True) or {}).get("code")
+    if not totp_verifie(candidat, code):
+        return jsonify({"error": "Code incorrect. Vérifie l'heure de ton téléphone."}), 400
+    compte["totp"] = candidat
+    try:
+        ecrire_utilisateurs(comptes)
+    except OSError as e:
+        return jsonify({"error": f"Non enregistré : {e}"}), 500
+    session.pop("totp_candidat", None)
+    session.pop("totp_uri", None)
+    journaliser("compte", qui=nom, action="application d'authentification ajoutée",
+                ip=_adresse_client())
+    return jsonify({"ok": True})
+
+
+@flask_app.post("/api/mon-compte/totp/retirer")
+@require_auth
+def api_mon_totp_retirer():
+    nom = utilisateur_courant()
+    comptes = lire_utilisateurs()
+    compte = None if est_admin() else comptes.get(nom)
+    if compte is None or not compte.get("totp"):
+        return jsonify({"ok": True})
+    if not _autre_facteur(nom, compte):
+        return jsonify({"error": "C'est ton seul second facteur : vérifie d'abord ton "
+                                 "adresse mail, ou ajoute Face ID."}), 400
+    code = (request.get_json(force=True, silent=True) or {}).get("code")
+    if not totp_verifie(compte["totp"], code):
+        register_failed_attempt()
+        return jsonify({"error": "Code incorrect."}), 400
+    compte.pop("totp", None)
+    if compte.get("dernier_moyen") == MOYEN_TOTP:
+        compte.pop("dernier_moyen", None)
+    try:
+        ecrire_utilisateurs(comptes)
+    except OSError as e:
+        return jsonify({"error": f"Non enregistré : {e}"}), 500
+    journaliser("compte", qui=nom, action="application d'authentification retirée",
+                ip=_adresse_client())
+    return jsonify({"ok": True})
+
+
 # ----------------------------- le profil d'un compte -----------------------------
 #
 # Vecu : « Rend parametrable le nom (facultatif) et prenom du compte ». Le
@@ -1085,9 +1237,11 @@ def api_mon_compte():
 # donne. L'identifiant, lui, ne change pas : c'est lui qui designe le compte
 # partout (droits, journal, applications).
 #
-# Range dans les PREFERENCES du compte (table preferences), pour
-# l'administrateur comme pour les autres : le compte d'administration n'a pas
-# de fiche dans le registre. La suppression d'un compte les emporte.
+# Range dans les PREFERENCES du compte (table preferences). La suppression
+# d'un compte les emporte.
+# PAS POUR L'ADMINISTRATEUR. Vecu : « Pas de modification du nom/prenom pour
+# l'admin ». Le compte d'administration reste « admin » partout : la route le
+# refuse, lire_profil ne lui rend rien, et la page ne montre pas la carte.
 PROFIL_MAX = 40
 
 
@@ -1106,6 +1260,8 @@ def nom_affiche_propre(valeur):
 
 
 def lire_profil(qui=None):
+    if (qui or utilisateur_courant() or NOM_ADMIN) == NOM_ADMIN:
+        return {"prenom": "", "nom": ""}
     p = lire_preference("profil", qui) or {}
     return {"prenom": nom_affiche_propre(p.get("prenom")),
             "nom": nom_affiche_propre(p.get("nom"))}
@@ -1114,6 +1270,8 @@ def lire_profil(qui=None):
 @flask_app.put("/api/mon-compte/profil")
 @require_auth
 def api_mon_profil():
+    if est_admin():
+        return jsonify({"error": "Le compte d'administration garde son nom."}), 403
     d = request.get_json(force=True, silent=True) or {}
     profil = {"prenom": nom_affiche_propre(d.get("prenom")),
               "nom": nom_affiche_propre(d.get("nom"))}

@@ -285,9 +285,9 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
 
 **Comme une vraie application**
 
-- **Le bouton « ← CodeLab »**, posé sur chaque page, est replié par défaut : une petite flèche au
-  bord gauche de l'écran, en bas. Un appui le déplie, un autre le replie ; l'application garde sa
-  place.
+- **Le bouton « ← CodeLab »**, posé sur chaque page, est replié par défaut : une flèche au bord
+  gauche de l'écran, en bas (30 × 46 px). Un appui le déplie ; il n'a pas de bouton pour se
+  replier : faute d'appui, il se replie seul au bout de 10 secondes. L'application garde sa place.
 - **Ouverte depuis le hub installé**, l'application suit **son manifeste**, comme le ferait le
   système : son fond et sa barre peignent l'écran avant sa première image, et son orientation
   (paysage, libre) tourne l'écran sur Android. Sur iPhone, l'écran suit le verrou du Centre de
@@ -313,7 +313,8 @@ Détails : [`SECURITE.md`](SECURITE.md) et [`app-manager/README.md`](app-manager
   sur iPhone », adresse, dernière activité, « Cet appareil »), un bouton pour déconnecter chacun, et
   « Déconnecter les autres appareils ». Téléphone perdu : on le coupe sans changer de mot de passe.
   Changer de mot de passe ferme aussi les autres appareils.
-- **Profil** (*Paramètres > Compte*, tous les comptes) : prénom et nom (facultatif). Le prénom
+- **Profil** (*Paramètres > Compte*, comptes utilisateurs) : prénom et nom (facultatif), côte à
+  côte sur ordinateur. Le compte d'administration garde son nom et n'a pas cette carte. Le prénom
   remplace l'identifiant dans le bonjour du hub, le nom complet dans l'en-tête et dans la liste des
   comptes de l'administrateur ; on se connecte toujours avec son identifiant.
 - **Session** (*Paramètres > Compte*, carte toujours dépliée) : « Déconnexion », et pour un compte
@@ -337,12 +338,18 @@ Détails : [`SECURITE.md`](SECURITE.md) et [`app-manager/README.md`](app-manager
 - **Connexion par Face ID / Touch ID** (clé d'accès) : un bouton en tête de la page de connexion,
   qui vaut mot de passe et second facteur ; aucun code à saisir. Il demande le panneau en HTTPS, par
   son nom de domaine : sinon la page dit pourquoi il n'est pas proposé.
-- **Second facteur obligatoire**, dans cet ordre de préférence :
-  - Face ID / Touch ID si le compte en a une clé : l'appareil confirme, aucun code n'est affiché ;
-  - sinon un **code par mail** (comptes avec adresse vérifiée, et l'administrateur à son adresse
+- **Second facteur obligatoire**, deux méthodes indépendantes, sans HTTPS :
+  - un **code par mail** (comptes avec adresse vérifiée, et l'administrateur à son adresse
     d'alerte), saisi dans six cases : un code collé ou proposé par le clavier les remplit d'un coup,
     le sixième chiffre valide, « Renvoyer le code » attend une minute ; le mail le montre en grand ;
-  - l'application d'authentification (TOTP), à un clic.
+  - le code de l'**application d'authentification** (TOTP). Chaque compte l'ajoute ou la retire
+    lui-même dans *Paramètres > Sécurité* (retrait par un code valide, jamais s'il est le seul
+    second facteur) ;
+  - en HTTPS, **Face ID / Touch ID** en plus, si le compte en a une clé.
+
+  La méthode proposée est **la dernière utilisée** par le compte (le mail sans historique) ; ce
+  n'est pas un réglage. « Essayer une autre méthode » déplie les autres : choisir l'application
+  n'envoie aucun mail.
 - **Mot de passe oublié** par code mail, si le compte a aussi un autre facteur.
 - **Journal des accès** paginé (25 ou 50 lignes), filtrable, avec une **carte de chaleur** sur un an
   (*Ouvertures d'applications*). Survoler une case, ou l'appuyer au doigt, ouvre son détail en
