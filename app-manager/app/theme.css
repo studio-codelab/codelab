@@ -328,30 +328,6 @@
 }
 
 
-/* ------------------------------ le fond d'ecran ------------------------------
-   Vecu : « un fond d'ecran texture, uni avec les memes couleurs, mais avec
-   des petites etoiles a intervalle regulier », puis « refais le fond
-   d'ecran, ajoute la possibilite [...] les petites croix ou le fond uni ».
-   Une petite croix tous les --motif-pas, dans une teinte tiree du texte :
-   discrete en clair comme en sombre, et elle suit tout changement de theme.
-   Le reglage « motif » du hub (REGLAGES_HUB, cookie codelab-hub) la retire :
-   data-motif="uni" sur <html>, pose par le serveur avant la premiere peinture.
-   Seules les pages qui portent la classe fond-motif sur <body> l'ont : ce
-   fichier est aussi servi aux applications, qui n'en veulent pas d'office.
-   Un calque fixe derriere la page (z-index -1) : il ne defile pas avec le
-   contenu et ne capte aucun appui.
-   ESSAYE ET ECARTE : une image SVG en background -- sa couleur ne peut pas
-   suivre une variable CSS. Le SVG sert donc de masque, la couleur vient de
-   --motif. L'etoile a quatre branches de la premiere version : remplacee par
-   la croix, a la demande. Puis « espace les croix et rend les plus
-   discretes » : 44 px au lieu de 28, 6 % du texte au lieu de 11. */
-:root{--motif:color-mix(in srgb,var(--txt) 6%,transparent);--motif-pas:44px}
-body.fond-motif::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
- background:var(--motif);
- -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44'%3E%3Cpath d='M22 18.5v7M18.5 22h7' stroke='black' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") 0 0/var(--motif-pas) var(--motif-pas) repeat;
- mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44'%3E%3Cpath d='M22 18.5v7M18.5 22h7' stroke='black' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") 0 0/var(--motif-pas) var(--motif-pas) repeat}
-html[data-motif="uni"] body.fond-motif::before{display:none}
-
 /* ------------------------------ mode application ------------------------------
    Le panneau ouvert depuis l'icone de l'ecran d'accueil (classe mode-app,
    posee par mode.js). Une application installee ne zoome pas, ne rebondit

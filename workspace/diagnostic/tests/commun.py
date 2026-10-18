@@ -1505,8 +1505,7 @@ def stockage_lignes(table):
 
 
 DEFAUT_HTML = ('<html lang="fr" data-style="design" data-variante="bento" data-tuiles="cartes" '
-               'data-defilement="horizontal" data-widgets="melanges" data-couleurs="lagon" '
-               'data-motif="croix">')
+               'data-defilement="horizontal" data-widgets="melanges" data-couleurs="lagon">')
 
 
 

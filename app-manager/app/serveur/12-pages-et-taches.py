@@ -246,9 +246,6 @@ REGLAGES_HUB = {
     # de six chiffres hexadecimaux dans le meme cookie (voir couleur_perso).
     "couleurs": ("lagon", "ocean", "foret", "prune", "corail", "ardoise",
                  "framboise", "ambre", "indigo", "olive", "perso"),
-    # Le fond d'ecran des pages du panneau : de petites croix, ou uni
-    # (body.fond-motif dans theme.css).
-    "motif": ("croix", "uni"),
 }
 
 
