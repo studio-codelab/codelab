@@ -607,8 +607,8 @@ function fermerLog(){
 let cur='', ROOT='';
 function slug(s){ return (s||'').trim().toLowerCase().replace(/[^a-z0-9_-]/g,'-'); }
 
-/* Les commandes codelab du poste (liste fixe dans dashboard.html). */
-function ouvrirCommandes(){ $('ov-commandes').classList.add('show'); }
+/* Les commandes codelab du poste : l'onglet Aide des parametres. */
+function ouvrirAide(){ showSection('parametres'); paramOnglet('aide'); }
 
 function openAdd(){
   $('a-e').style.display='none';

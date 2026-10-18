@@ -302,7 +302,7 @@ def test_l_aide_liste_chaque_commande_et_le_hub_aussi(tmp_path):
     assert r.returncode == 2, "codelab aide est retiree"
     page = open(os.path.join(_racine_depot(), "app-manager", "app", "dashboard.html"),
                 encoding="utf-8").read()
-    fenetre = page.split('id="ov-commandes"')[1].split('id="ov-add"')[0]
+    fenetre = page.split('id="param-aide"')[1].split('<!-- ====')[0]
     assert "codelab aide" not in fenetre
     fonctionnalites = open(os.path.join(_racine_depot(), "FONCTIONNALITES.md"), encoding="utf-8").read()
     for c in commandes:
@@ -314,12 +314,22 @@ def test_l_aide_liste_chaque_commande_et_le_hub_aussi(tmp_path):
     assert "deleting nothing" in r.stdout and "sans rien effacer" not in r.stdout
 
 
-def test_le_hub_ouvre_les_commandes_depuis_la_page_applications():
-    page = open(os.path.join(_racine_depot(), "app-manager", "app", "dashboard.html"),
-                encoding="utf-8").read()
+def test_l_aide_est_un_onglet_des_parametres_reserve_a_l_administrateur():
+    """Vecu : « le helper doit etre disponible dans les reglages, un onglet
+    dedie pour l'admin seulement ». L'onglet porte data-admin (cache aux
+    comptes utilisateurs, comme E-mail et alertes) et paramOnglet le refuse
+    a un compte utilisateur ; la page Applications n'a plus sa fenetre."""
+    page = _page_panneau("dashboard.html")
+    onglets = page.split('id="param-onglets"')[1].split("</div>")[0]
+    assert """<button data-p="aide" onclick="paramOnglet('aide')" data-admin="1">Aide</button>""" in onglets
+    assert 'id="param-aide"' in page
+    utilisateur = re.search(r"const ONGLETS_UTILISATEUR=\[([^\]]*)\]", page).group(1)
+    assert "aide" not in utilisateur
     outils = page.split('<div id="sec-apps"')[1].split('id="ap-outils"')[0]
-    assert 'onclick="ouvrirCommandes()"' in outils
-    assert "function ouvrirCommandes()" in _page_panneau("dashboard.html")
+    assert "Commandes" not in outils and 'id="ov-commandes"' not in page
+    # Depuis « Nouvelle application », le lien mene a l'onglet.
+    assert "ouvrirAide()" in page.split('id="ov-add"')[1][:1500]
+    assert "function ouvrirAide(){ showSection('parametres'); paramOnglet('aide'); }" in page
 
 
 # ---------- le squelette se met a jour sans ecraser le travail ----------

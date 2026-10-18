@@ -46,7 +46,7 @@ FIN='<!-- codelab:fin -->'
 # « codelab help <commande> » : le detail). Vecu : « retire codelab aide, ne
 # garde que codelab help », puis « garde que la version anglaise de codelab
 # help ». Les messages des commandes, eux, restent en francais.
-# La meme liste vit dans le hub (Applications > Commandes) et dans
+# La meme liste vit dans le hub (Parametres > Aide, administrateur) et dans
 # FONCTIONNALITES.md : un test verifie que chaque commande du dispatch y est.
 
 aide() {

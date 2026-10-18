@@ -201,8 +201,8 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
 - **Erreurs JavaScript** de la page envoyées dans les journaux du panneau.
 
 **Onglets des paramètres** : un par catégorie, les mêmes pour tous les comptes (l'administrateur a
-en plus *E-mail et alertes*). Sur ordinateur, une colonne à gauche ; au téléphone, une pastille
-segmentée de cinq onglets de même largeur. Au doigt, une carte touchée ne reste pas grisée comme
+en plus *E-mail et alertes* et *Aide*). Sur ordinateur, une colonne à gauche ; au téléphone, une
+pastille segmentée d'onglets de même largeur. Au doigt, une carte touchée ne reste pas grisée comme
 sélectionnée.
 
 | Onglet | Pour qui | Contenu |
@@ -212,6 +212,7 @@ sélectionnée.
 | Mon hub | tous | applications affichées dans *son* hub ; catégories pour l'admin |
 | Sécurité | tous | mot de passe, second facteur (TOTP), clés d'accès, appareils connectés ; sauvegardes et bilan de sécurité pour l'admin |
 | E-mail et alertes | admin | serveur d'envoi, alertes par application, surveillance externe |
+| Aide | admin | les commandes `codelab` du poste de développement, comme `codelab help` |
 
 ## 2. Applications
 
@@ -511,7 +512,7 @@ par le panneau sur `/messages` : même session, mêmes contrôles d'accès, mêm
 | `codelab create <nom> [--sans-db] [--ouvrir]` | crée le projet complet : dossier, git, `.gitignore`, `README.md`, `AGENTS.md`, `CLAUDE.md`, les modules `codelab_auth` et `codelab_web`, et sa base de données |
 | `codelab update [projet] [--tous]` | met un projet existant à jour (manuel de l'agent, `CLAUDE.md`, modules, `.gitignore`, base) sans rien effacer ; `--tous` pour chaque projet, à lancer après une mise à jour de CodeLab |
 | `codelab video [projet]` | la vidéo de présentation : pose un scénario (`video/scenario.mjs`), puis le joue dans Chromium, ajoute une voix off française et monte `video/presentation.mp4` |
-| `codelab help [commande]` | toutes les commandes (aide en anglais) ; aussi dans le hub, *Applications > Commandes* |
+| `codelab help [commande]` | toutes les commandes (aide en anglais) ; aussi dans *Paramètres > Aide*, pour l'administrateur |
 | `codelab db <nom>`, `codelab vscode-bases` | outils plus fins appelés par `create` et `update` : la base seule, les connexions SQLTools |
 
 **Raccourcis et agents**

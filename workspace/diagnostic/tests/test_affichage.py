@@ -2544,11 +2544,13 @@ def test_les_minuteries_ne_repeignent_pas_pendant_un_defilement():
 # Vecu : « Sur telephone, garde ce systeme d'onglet mais repartis bien les
 # parametrages en 2, 3 ou 4 onglets dedies de taille homogene. »
 
-def test_les_parametres_tiennent_en_cinq_onglets_de_meme_largeur():
+def test_les_parametres_tiennent_en_six_onglets_de_meme_largeur():
+    """Six depuis l'onglet Aide de l'administrateur (« un onglet dedie pour
+    l'admin seulement ») ; un compte utilisateur en voit quatre."""
     page = _page_panneau("dashboard.html")
     onglets = page.split('<div class="fiche-onglets" id="param-onglets">')[1].split("</div>")[0]
-    assert onglets.count("<button") == 5
-    for p in ("compte", "apparence", "hub", "securite", "email"):
+    assert onglets.count("<button") == 6
+    for p in ("compte", "apparence", "hub", "securite", "email", "aide"):
         assert f'data-p="{p}"' in onglets, p
     # Vecu : « Je ne veux pas avoir Acces depuis internet qui ne me sert a
     # rien. Tu peux retirer la partie Serveur. »

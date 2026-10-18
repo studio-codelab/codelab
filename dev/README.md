@@ -62,7 +62,7 @@ leur nom (`codelab-postgres`, `codelab-app-manager`…).
 
 Anciens noms, gardés pour les tâches VS Code déjà copiées dans `/workspace` : `codelab new` (=
 `create`, `--db` accepté) et `codelab agents [dossier]` (le manuel et `CLAUDE.md` seuls). Le hub
-reprend la liste dans *Applications > Commandes*.
+reprend la liste dans *Paramètres > Aide* (administrateur).
 
 **Après chaque mise à jour de CodeLab**, lance `codelab update --tous` : les projets reçoivent le
 manuel du jour, que l'agent (Codex ou Claude Code) lit avant chaque tâche.
