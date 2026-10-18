@@ -18,7 +18,7 @@
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 
@@ -61,15 +61,26 @@ if (!scenario || !Array.isArray(scenario.etapes) || !scenario.etapes.length)
 //    defaut). On vise donc 127.0.0.1, ce que « localhost » voulait dire ;
 //  - l'application arretee : on le verifie ici, en quelques secondes,
 //    plutot qu'apres la voix off et au milieu de la premiere etape.
+const HUB_INTERNE = process.env.CODELAB_VIDEO_HUB || "codelab-app-manager:9002";
+async function repond(url) {
+  try { await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(5000) }); return true; }
+  catch { return false; }
+}
+// RIEN A L'ADRESSE LOCALE : LE HUB. Vecu : « Rien sur le port en question.
+// je ne veux pas avoir a ouvrir le navigateur ». Une adresse locale muette
+// passe par le hub (http://codelab-app-manager:9002/<projet>/) : le
+// laissez-passer y demarre l'application et y connecte l'administrateur.
+let parLeHub = false;
 if (scenario.adresse) {
   const url = new URL(scenario.adresse);
   if (url.hostname === "localhost") url.hostname = "127.0.0.1";
   scenario.adresse = url.href;
-  try {
-    await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(5000) });
-  } catch {
-    echouer(`l'application ne repond pas sur ${url.href} : lance-la dans un autre terminal ` +
-            "(ou demarre-la dans le panneau), laisse-la tourner, puis relance « codelab video ».");
+  if (!(await repond(url))) {
+    if (url.host === HUB_INTERNE)
+      echouer(`le hub ne repond pas sur ${url.href} : codelab-app-manager tourne-t-il ?`);
+    parLeHub = true;
+    scenario.adresse = `http://${HUB_INTERNE}/${basename(dossier)}/`;
+    dire(`rien sur ${url.href} : tournage par le hub, ${scenario.adresse}`);
   }
 }
 const taille = { width: scenario.taille?.largeur || 1600, height: scenario.taille?.hauteur || 900 };
@@ -83,7 +94,6 @@ const taille = { width: scenario.taille?.largeur || 1600, height: scenario.taill
 // « le laissez-passer de tournage » dans le proxy du panneau, et la regle
 // 12 ter de SECURITE.md. Sans laissez-passer, le tournage continue : une
 // application publique n'en a pas besoin.
-const HUB_INTERNE = process.env.CODELAB_VIDEO_HUB || "codelab-app-manager:9002";
 const PANNEAU_INTERNE = process.env.CODELAB_PANNEAU_INTERNE || "http://codelab-app-manager:9001";
 const FICHIER_CLE = process.env.CODELAB_TOURNAGE_FICHIER || join(homedir(), ".codelab-tournage");
 
@@ -108,6 +118,7 @@ async function demanderLaissezPasser(adresse) {
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok || !d.ticket) { dire(`pas de laissez-passer : ${d.error || "HTTP " + r.status}`); return null; }
+    if (d.demarree) dire("application demarree par le panneau pour le tournage.");
     return d.ticket;
   } catch (e) {
     dire(`pas de laissez-passer : le panneau ne repond pas (${e.message}).`);
@@ -115,6 +126,9 @@ async function demanderLaissezPasser(adresse) {
   }
 }
 const ticket = await demanderLaissezPasser(scenario.adresse);
+if (parLeHub && !ticket)
+  echouer(`l'application ne repond pas, et le hub ne la filme pas sans laissez-passer : ` +
+          "demarre-la (panneau, ou un autre terminal), puis relance « codelab video ».");
 const travail = mkdtempSync(join(tmpdir(), "codelab-video-"));
 const sortie = join(dossier, "video");
 mkdirSync(sortie, { recursive: true });

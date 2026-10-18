@@ -2244,11 +2244,16 @@ def test_codelab_video_dit_que_l_application_ne_repond_pas(tmp_path):
     (tmp_path / "video").mkdir()
     (tmp_path / "video" / "scenario.mjs").write_text(
         'export default { titre: "t", adresse: "http://localhost:%d/", etapes: [{ voix: "x" }] };\n' % port)
+    # Sans laissez-passer (pas de cle), le hub ne peut pas prendre le relais.
+    env["CODELAB_TOURNAGE_FICHIER"] = str(tmp_path / "pas-de-cle")
     r = subprocess.run(["node", os.path.join(_racine_depot(), "dev", "video", "fabriquer.mjs"),
                         str(tmp_path)], env=env, capture_output=True, text=True, timeout=60)
     assert r.returncode == 1, r.stdout + r.stderr
-    assert f"ne repond pas sur http://127.0.0.1:{port}/" in r.stderr, r.stderr
-    assert "autre terminal" in r.stderr
+    # L'adresse locale muette, lue en 127.0.0.1, passe la main au hub (vecu :
+    # « je ne veux pas avoir a ouvrir le navigateur ») ; sans laissez-passer,
+    # le refus le dit en clair.
+    assert f"rien sur http://127.0.0.1:{port}/ : tournage par le hub" in r.stdout, r.stdout
+    assert "ne repond pas" in r.stderr and "autre terminal" in r.stderr, r.stderr
 
 
 

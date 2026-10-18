@@ -914,7 +914,8 @@ def demander_a_l_application(port, methode, chemin, entetes, corps):
 #      poste de developpement recopie pour sa session, ~/.codelab-tournage)
 #      a POST /api/tournage/<app>, sur le PANNEAU, depuis le reseau local ;
 #   2. il recoit un ticket a usage unique, valable une minute, pour cette
-#      application et elle seule ;
+#      application et elle seule -- et le panneau la demarre si elle est
+#      arretee ;
 #   3. le navigateur du tournage ouvre /<app>/?codelab-tournage=<ticket> :
 #      le proxy l'echange contre le cookie « codelab-tournage », dix minutes,
 #      et l'identite de l'administrateur est injectee comme pour sa session.
@@ -978,11 +979,23 @@ def api_tournage(n):
         return refus
     if not application_filmable(n):
         return jsonify({"error": "Application introuvable."}), 404
+    # ARRETEE, ELLE DEMARRE. Vecu : « Rien sur le port en question. je ne
+    # veux pas avoir a ouvrir le navigateur ». Le tournage filme une
+    # application qui tourne : le laissez-passer la demarre, comme le bouton
+    # du panneau (start, avec ses controles), et la laisse tourner ensuite.
+    # Une application deja declaree, jamais une commande nouvelle : la cle ne
+    # lance rien que l'administrateur n'ait enregistre.
+    demarree = False
+    if not is_running(n):
+        erreur = start(n)
+        if erreur:
+            return jsonify({"error": erreur}), 409
+        demarree = True
     _oublier_les_tournages_finis()
     ticket = secrets.token_urlsafe(32)
     _tournage_tickets[ticket] = (n, time.time() + TOURNAGE_TICKET_TTL)
     journaliser("tournage", app=n, ip=_adresse_client())
-    return jsonify({"ticket": ticket, "duree": TOURNAGE_DUREE})
+    return jsonify({"ticket": ticket, "duree": TOURNAGE_DUREE, "demarree": demarree})
 
 
 def echanger_le_ticket(name, sub):
