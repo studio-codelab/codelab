@@ -1984,8 +1984,12 @@ a.pj:hover{border-color:var(--accent)}
 .bento-carte img{width:44px;height:44px;border-radius:14px}
 /* LE NOM PASSE AVANT LA DESCRIPTION. Il ne cede jamais sa place (flex:none) :
    c'est la description qui se resserre quand la tuile manque de hauteur. Un
-   nom long prend un corps plus petit plutot que d'etre coupe a deux mots. */
-.bento-carte-nom{flex:none;font-size:19px;font-weight:800;letter-spacing:-.03em;line-height:1.1;
+   nom long prend un corps plus petit plutot que d'etre coupe a deux mots.
+   Vecu : « les titres des apps sont coupes par la description » -- a 1.1,
+   la ligne est plus basse que les jambages du Manrope gras, et le
+   overflow:hidden du coupage a deux lignes rognait g, j, p, y. 1.25 leur
+   rend leur place. */
+.bento-carte-nom{flex:none;font-size:19px;font-weight:800;letter-spacing:-.03em;line-height:1.25;
  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .bento-carte-nom.long{font-size:16px;letter-spacing:-.02em}
 .bento-carte-nom.tres-long{font-size:14.5px;letter-spacing:-.01em;-webkit-line-clamp:3}

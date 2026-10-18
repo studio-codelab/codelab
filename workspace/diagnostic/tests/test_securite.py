@@ -3150,3 +3150,22 @@ def test_la_cle_de_tournage_vit_dans_credentials_env_et_le_poste_la_recopie():
     entree = open(os.path.join(_racine_depot(), "dev", "entrypoint.sh"), encoding="utf-8").read()
     fonction = entree.split("ecrire_la_cle_de_tournage() {")[1].split("\n}")[0]
     assert "umask 077" in fonction and "runuser -u" in fonction and ".codelab-tournage" in fonction
+
+
+def test_le_laissez_passer_demarre_une_application_arretee(tournage, monkeypatch):
+    """Vecu : « Rien sur le port en question. je ne veux pas avoir a ouvrir
+    le navigateur ». Arretee, l'application demarre par le panneau (start et
+    ses controles) ; un demarrage refuse ne donne pas de ticket."""
+    c, _vus = tournage
+    monkeypatch.setattr(app, "is_running", lambda n: False)
+    lances = []
+    monkeypatch.setattr(app, "start", lambda n, attendre=True: lances.append(n))
+    r = _ticket(c)
+    assert r.status_code == 200 and r.get_json()["demarree"] is True and lances == ["prive-refuse"]
+    monkeypatch.setattr(app, "start", lambda n, attendre=True: "Dossier introuvable : /w/b")
+    r = _ticket(c)
+    assert r.status_code == 409 and "Dossier introuvable" in r.get_json()["error"]
+    # Sans la cle, rien ne demarre.
+    lances.clear()
+    monkeypatch.setattr(app, "start", lambda n, attendre=True: lances.append(n))
+    assert _ticket(c, cle="fausse").status_code == 403 and lances == []

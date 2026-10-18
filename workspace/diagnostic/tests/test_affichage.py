@@ -2244,11 +2244,16 @@ def test_codelab_video_dit_que_l_application_ne_repond_pas(tmp_path):
     (tmp_path / "video").mkdir()
     (tmp_path / "video" / "scenario.mjs").write_text(
         'export default { titre: "t", adresse: "http://localhost:%d/", etapes: [{ voix: "x" }] };\n' % port)
+    # Sans laissez-passer (pas de cle), le hub ne peut pas prendre le relais.
+    env["CODELAB_TOURNAGE_FICHIER"] = str(tmp_path / "pas-de-cle")
     r = subprocess.run(["node", os.path.join(_racine_depot(), "dev", "video", "fabriquer.mjs"),
                         str(tmp_path)], env=env, capture_output=True, text=True, timeout=60)
     assert r.returncode == 1, r.stdout + r.stderr
-    assert f"ne repond pas sur http://127.0.0.1:{port}/" in r.stderr, r.stderr
-    assert "autre terminal" in r.stderr
+    # L'adresse locale muette, lue en 127.0.0.1, passe la main au hub (vecu :
+    # « je ne veux pas avoir a ouvrir le navigateur ») ; sans laissez-passer,
+    # le refus le dit en clair.
+    assert f"rien sur http://127.0.0.1:{port}/ : tournage par le hub" in r.stdout, r.stdout
+    assert "ne repond pas" in r.stderr and "autre terminal" in r.stderr, r.stderr
 
 
 
@@ -2678,3 +2683,20 @@ def test_le_fond_des_pages_est_uni_sans_motif_ni_reglage(page):
         reglages = texte.split('id="hub-reglages"')[1].split('<div class="choix-titre">')[0]
         assert "Fond d'écran" not in reglages and "setHub('motif'" not in texte
 
+
+
+
+
+def test_le_nom_d_une_tuile_garde_ses_jambages():
+    """Vecu : « Attention, les titres des apps sont coupes par la
+    description » -- le bas du « g » de TradingBot manquait. Le nom est coupe
+    a deux lignes (overflow:hidden) : sous 1.2, la ligne est plus basse que
+    les jambages du Manrope gras, et g, j, p, y sont rognes."""
+    import re as _re
+    page = _page_panneau("dashboard.html")
+    regle = page.split(".bento-carte-nom{")[1].split("}")[0]
+    assert "overflow:hidden" in regle
+    hauteur = float(_re.search(r"line-height:([0-9.]+)", regle).group(1))
+    assert hauteur >= 1.2, hauteur
+    for variante in (".bento-carte-nom.long{", ".bento-carte-nom.tres-long{"):
+        assert "line-height" not in page.split(variante)[1].split("}")[0], variante
