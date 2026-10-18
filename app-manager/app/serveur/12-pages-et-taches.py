@@ -657,6 +657,10 @@ def api_mes_apps():
             # version plus recente que celle vue a la derniere ouverture.
             "nouvelle_version": (nom in ouvertes
                                  and versions.get(nom, 0) > ouvertes[nom]["version"]),
+            # Jamais ouverte depuis le hub par ce compte : une application
+            # qu'il ne connait pas encore (badge « Nouveau », widget
+            # Nouveautes). Pas pour l'administrateur : il les a declarees.
+            "nouvelle": not admin and nom not in ouvertes,
             "ouverte_le": (ouvertes.get(nom) or {}).get("ts"),
             # La video de presentation, si le projet en a une et qu'elle
             # n'est pas retiree du hub.

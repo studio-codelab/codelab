@@ -2135,6 +2135,7 @@ def api_utilisateur_modifier(nom):
     compte = comptes.get(nom)
     if not compte:
         return jsonify({"error": "Compte inconnu."}), 404
+    avant = {nom: set(compte.get("projets") or [])}
 
     # Champs absents = inchanges. Le formulaire des projets et celui du mot
     # de passe sont separes : envoyer l'un ne doit pas remettre l'autre a
@@ -2204,6 +2205,7 @@ def api_utilisateur_modifier(nom):
         ecrire_utilisateurs(comptes)
     except OSError as e:
         return jsonify({"error": f"Compte non enregistré : {e}"}), 500
+    annoncer_les_nouvelles_apps(avant, {nom: compte})
     return jsonify({"ok": True})
 
 
@@ -2256,6 +2258,7 @@ def api_app_acces_modifier(name):
     if inconnus:
         return jsonify({"error": "Compte inconnu : " + ", ".join(inconnus)}), 400
 
+    avant = {nom: set(c.get("projets") or []) for nom, c in comptes.items()}
     for nom, compte in comptes.items():
         projets = [p for p in (compte.get("projets") or []) if p != name]
         if nom in voulus:
@@ -2265,7 +2268,35 @@ def api_app_acces_modifier(name):
         ecrire_utilisateurs(comptes)
     except OSError as e:
         return jsonify({"error": f"Non enregistré : {e}"}), 500
+    annoncer_les_nouvelles_apps(avant, comptes)
     return jsonify({"ok": True, "utilisateurs": sorted(voulus)})
+
+
+def annoncer_les_nouvelles_apps(avant, comptes):
+    """Previent chaque compte des applications qu'il vient de recevoir.
+
+    Vecu : « un systeme de notifications pour avertir un utilisateur qu'une
+    nouvelle application est disponible lorsqu'il a acces a une app qu'il ne
+    connait pas ». Une notification par application accordee, sur les
+    appareils ou le compte les a activees ; le hub montre en plus le badge
+    « Nouveau » et le widget Nouveautes. Un compte suspendu, ou en cours de
+    suppression, n'est pas prevenu. Ne leve jamais : l'acces est deja
+    enregistre.
+    """
+    try:
+        apps = load()
+        for nom, compte in comptes.items():
+            if compte.get("suspendu") or compte.get("suppression_demandee"):
+                continue
+            for app_nom in sorted(set(compte.get("projets") or []) - avant.get(nom, set())):
+                a = apps.get(app_nom)
+                if not a or est_archivee(a) or est_app_par_defaut(app_nom):
+                    continue
+                notifier_compte(nom, "Nouvelle application",
+                                f"« {titre_de(app_nom, a)} » est disponible dans ton hub.",
+                                url="/", etiquette="app-" + app_nom)
+    except Exception as e:                                        # noqa: BLE001
+        print(f"[app-manager] annonce des nouvelles applications : {e}", flush=True)
 
 
 @flask_app.delete("/api/utilisateurs/<nom>")

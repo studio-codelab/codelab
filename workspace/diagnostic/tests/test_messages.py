@@ -917,3 +917,43 @@ def test_les_parametres_proposent_notifications_et_installation():
     assert bascule.index("Notification.requestPermission()") < bascule.index("fetch(")
     mode = _page_panneau("mode.js")
     assert "window.addEventListener('beforeinstallprompt'" in mode
+
+
+def test_un_compte_est_prevenu_d_une_application_qu_il_ne_connait_pas(deux_espaces, envois_push,
+                                                                      monkeypatch):
+    """Vecu : « un widget nouveautes ou un systeme de notifications pour
+    avertir un utilisateur qu'une nouvelle application est disponible
+    lorsqu'il a acces a une app qu'il ne connait pas ». Chaque acces accorde
+    envoie une notification, une seule fois ; la tuile porte « nouvelle »
+    tant que le compte ne l'a pas ouverte."""
+    c = deux_espaces
+    _connecte(c, "marie", "mot-de-passe-long")
+    nav = _Navigateur()
+    c.post("/api/notifications/abonnement", json=nav.abonnement())
+
+    def nouvelles():
+        return {a["name"]: a["nouvelle"] for a in c.get("/api/mes-apps").get_json()["apps"]}
+    assert nouvelles() == {"prive-autorise": True}
+    admin = app.flask_app.test_client()
+    admin.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    # Par la fiche de l'application.
+    assert admin.put("/api/apps/prive-refuse/acces",
+                     json={"utilisateurs": ["marie"]}).status_code == 200
+    (req,) = envois_push
+    message = nav.lire(req.data)
+    assert message["titre"] == "Nouvelle application" and "prive-refuse" in message["texte"]
+    # Le meme acces, redonne : rien de plus.
+    admin.put("/api/apps/prive-refuse/acces", json={"utilisateurs": ["marie"]})
+    assert len(envois_push) == 1
+    # Par la fiche du compte.
+    assert admin.put("/api/utilisateurs/marie",
+                     json={"projets": ["prive-autorise", "prive-refuse", "public"]}).status_code == 200
+    assert len(envois_push) == 2 and "public" in nav.lire(envois_push[1].data)["texte"]
+    # L'ouvrir l'eteint.
+    assert nouvelles() == {"prive-autorise": True, "prive-refuse": True, "public": True}
+    monkeypatch.setattr(app, "is_running", lambda n: True)
+    monkeypatch.setattr(app, "_listening", {})
+    c.post("/api/mes-apps/public/ouverte")
+    assert nouvelles()["public"] is False
+    # L'administrateur ne voit pas « nouvelle » : il les a declarees.
+    assert not any(a["nouvelle"] for a in admin.get("/api/mes-apps").get_json()["apps"])

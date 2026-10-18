@@ -118,8 +118,9 @@ WIDGETS = {
                 "description": "Processeur, mémoire et disque, en direct.", "admin": True},
     "activite": {"titre": "Activité", "portee": "hub", "tailles": ("moyen", "grand"),
                  "description": "Les ouvertures des deux dernières semaines.", "admin": True},
-    "nouveautes": {"titre": "Nouvelles versions", "portee": "hub", "tailles": ("petit", "moyen"),
-                   "description": "Les applications mises à jour depuis ta dernière visite."},
+    "nouveautes": {"titre": "Nouveautés", "portee": "hub", "tailles": ("petit", "moyen"),
+                   "description": "Les applications que tu n'as pas encore ouvertes, et celles "
+                                  "mises à jour depuis ta dernière visite."},
     "message": {"titre": "Écrire à l'administrateur", "portee": "hub", "tailles": ("moyen", "grand"),
                 "description": "Une idée, un souci, une demande.", "utilisateur": True},
     "suivi": {"titre": "Mes messages", "portee": "hub", "tailles": ("petit", "moyen"),
@@ -206,6 +207,7 @@ def disposition_du_compte():
         # Serveur et Activite ne tiennent que chez l'administrateur ; le
         # filtre des widgets permis ci-dessous les retire pour les autres.
         elements = [{"t": "w", "id": "une", "taille": "grand"},
+                    {"t": "w", "id": "nouveautes", "taille": "moyen"},
                     {"t": "w", "id": "serveur", "taille": "moyen"},
                     {"t": "w", "id": "activite", "taille": "moyen"},
                     {"t": "w", "id": "etat", "taille": "petit"},

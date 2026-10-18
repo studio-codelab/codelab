@@ -37,7 +37,7 @@ function peindreNotifications(){
   const b=$('notif-bascule'); if(!b || !notifEtat) return;
   $('notif-quoi').textContent = estAdmin
     ? 'Sur cet appareil : les nouveaux messages, les applications qui tombent et reviennent.'
-    : 'Sur cet appareil : l’avancement des messages que tu envoies.';
+    : 'Sur cet appareil : les nouvelles applications auxquelles tu as accès, et l’avancement des messages que tu envoies.';
   const pourquoi=notifEmpechement();
   b.checked = !!notifEtat.abonne;
   b.disabled = !notifEtat.abonne && !!pourquoi;

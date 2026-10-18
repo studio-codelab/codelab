@@ -104,8 +104,9 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
         minutes, la valeur exacte au survol ; « élevé » au-delà de 80 %, « saturé » au-delà de 92 %),
         « Activité » (admin : les ouvertures des quatorze derniers jours en barres, le total, la
         tendance par rapport aux quatorze jours d'avant ; en grand, les applications les plus
-        ouvertes), « Nouvelles
-        versions », « Écrire à l'administrateur » et « Mes messages » (comptes utilisateurs). Le
+        ouvertes), « Nouveautés » (les applications pas encore ouvertes, puis celles mises à jour ;
+        dans le hub de départ), « Écrire à l'administrateur » et « Mes messages » (comptes
+        utilisateurs). Le
         serveur ne propose et n'accepte que les widgets du rôle : un compte utilisateur ne peut pas
         poser un widget d'administration, même en appelant la route à la main ;
       - applications : « Aperçu » d'une application choisie, en direct, réduit et inerte ; un clic
@@ -113,6 +114,9 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
 - **Indicateur « Nouvelle version »** sur la tuile d'une application qui a changé depuis la dernière
   fois que ce compte l'a ouverte : un déploiement ou un build réussi depuis le panneau, ou un
   nouveau commit dans son dépôt git. Une application jamais ouverte n'en porte pas.
+- **Indicateur « Nouveau »** (comptes utilisateurs) sur la tuile d'une application à laquelle le
+  compte a accès et qu'il n'a encore jamais ouverte depuis le hub ; le résumé du hub les compte
+  (« 2 nouvelles »). L'ouvrir l'éteint.
 - **Thème clair, sombre ou automatique.** Les jetons de couleur vivent dans
   `app-manager/app/theme.css`, aussi servi aux applications sur `/theme.css`.
 - **Installable sur l'écran d'accueil** d'un téléphone ou d'une tablette (manifeste web et icônes fournis),
@@ -128,7 +132,8 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
 - **Notifications** (*Paramètres › Apparence*, un interrupteur par appareil), même CodeLab fermé :
   - l'administrateur : un nouveau message, une application qui tombe (et ne redémarre plus), puis son
     retour ;
-  - un compte utilisateur : l'avancement d'un message qu'il a envoyé (à l'étude, planifié, en cours,
+  - un compte utilisateur : une nouvelle application à laquelle il a désormais accès (une fois par
+    accès accordé), et l'avancement d'un message qu'il a envoyé (à l'étude, planifié, en cours,
     fait, non retenu) ;
   - un bouton « Envoyer une notification d'essai » ; toucher une notification ouvre la bonne page ;
   - les mails partent toujours : la notification s'y ajoute ;

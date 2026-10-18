@@ -581,6 +581,12 @@ function depuis(ts){
 }
 /* « Nouvelle version » : l'application a ete deployee, rebuildee ou a recu
    un commit depuis la derniere fois que CE compte l'a ouverte. */
-const badgeMaj = a => a.nouvelle_version
+/* « Nouveau » : une application a laquelle ce compte a acces, et qu'il n'a
+   encore jamais ouverte -- elle passe avant « Nouvelle version ». */
+const badgeMaj = a => a.nouvelle
+  ? '<span class="badge-maj" title="Tu n’as pas encore ouvert cette application">Nouveau</span>'
+  : a.nouvelle_version
   ? '<span class="badge-maj" title="Nouvelle version depuis ta dernière ouverture">Nouvelle version</span>' : '';
+/* La tuile se detache (bordure, point) pour l'un comme pour l'autre. */
+const aDuNouveau = a => !!(a.nouvelle || a.nouvelle_version);
 const SVG_FLECHE='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
