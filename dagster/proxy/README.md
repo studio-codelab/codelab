@@ -56,3 +56,9 @@ curl -I http://<serveur>:3000/_sante    # 200 : nginx est debout (sonde du healt
 ```
 
 Un `200` sur `/` sans session voudrait dire que l'authentification est tombée.
+
+## Retiré
+
+Le retrait de l'ancien bloc `codelab-dagster-proxy` de `credentials.env` (l'identifiant HTTP
+Basic d'avant la session du panneau). Dernière version qui le portait : le commit `f9caf52`. Une installation qui n'a pas démarré depuis
+longtemps passe d'abord par celle-là, puis par la version courante.

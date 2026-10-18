@@ -196,3 +196,9 @@ docker build -f dev/Dockerfile -t codelab-dev-test .
 mkdir -p essai-ssh/authorized_keys.d && cp ~/.ssh/id_ed25519.pub essai-ssh/authorized_keys.d/
 docker run --rm -it -v "$PWD/essai-ssh:/var/lib/codelab/ssh" -p 2222:22 codelab-dev-test
 ```
+
+## Retiré
+
+Le nettoyage des restes d'OpenClaw dans `/workspace` (`.openclaw/`, et les réglages VS Code écrits
+pour lui). Dernière version qui le portait : le commit `f9caf52`. Une installation qui n'a pas démarré depuis
+longtemps passe d'abord par celle-là, puis par la version courante.

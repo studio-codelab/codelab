@@ -81,15 +81,7 @@ RUN useradd -u 1002 -g 2000 -m -d /home/dagster -s /usr/sbin/nologin dagster \
 # deploie que si /workspace (volume utilisateur) ou DAGSTER_HOME (volume
 # d'etat) sont vides, au tout premier demarrage.
 COPY workspace /opt/dagster/workspace.default
-# Liste FIGEE des versions du squelette livrees avant que l'entrypoint ne note
-# lui-meme ce qu'il ecrit. Elle ne sert qu'a rattraper les installations
-# anterieures a ce mecanisme, et n'a jamais a etre regeneree.
-COPY dagster/squelette.sums /opt/dagster/workspace.sums
 COPY dagster/dagster.yaml /opt/dagster/dagster.yaml.default
-# Empreintes des versions livrees autrefois : elles permettent de reconnaitre
-# un dagster.yaml intact sur une installation anterieure a la mise a jour
-# automatique. Liste figee, voir l'entrypoint.
-COPY dagster/dagster.yaml.sums /opt/dagster/dagster.yaml.sums
 COPY dagster/entrypoint.sh /opt/dagster/entrypoint.sh
 # L'interface web ET le daemon (plannings, capteurs) dans ce seul conteneur :
 # voir lancer.sh. L'entrypoint le lance apres la bascule sur l'utilisateur

@@ -112,12 +112,11 @@ mkdir -p "${DAGSTER_HOME}"
 # Meme discipline que pour le squelette du workspace, et pour les memes
 # raisons : la preuve porte sur le CONTENU (une date de conteneur ne veut
 # rien dire), on ne remplace QUE ce qui est intact, et ce que CodeLab ecrit
-# il le note pour le reconnaitre au demarrage suivant. Les installations
-# anterieures a ce mecanisme n'ont rien de note : la liste figee
-# dagster.yaml.sums les rattrape.
+# il le note pour le reconnaitre au demarrage suivant. Sans note, le fichier
+# est tenu pour modifie (la liste figee dagster.yaml.sums, qui rattrapait les
+# installations anterieures, est partie : voir dagster/README.md).
 DAGSTER_YAML="${DAGSTER_HOME}/dagster.yaml"
 DAGSTER_YAML_NOTE="${DAGSTER_HOME}/.codelab-dagster-yaml"
-DAGSTER_YAML_SUMS=/opt/dagster/dagster.yaml.sums
 
 if [ ! -f "$DAGSTER_YAML" ]; then
   cp /opt/dagster/dagster.yaml.default "$DAGSTER_YAML"
@@ -135,9 +134,7 @@ else
     notee=""
     [ -f "$DAGSTER_YAML_NOTE" ] && [ ! -L "$DAGSTER_YAML_NOTE" ] \
       && notee=$(head -n 1 "$DAGSTER_YAML_NOTE" 2>/dev/null)
-    if [ -n "$notee" ]; then
-      [ "$notee" = "$somme_disque" ] && intact=oui || intact=non
-    elif [ -f "$DAGSTER_YAML_SUMS" ] && grep -q "^$somme_disque\$" "$DAGSTER_YAML_SUMS"; then
+    if [ -n "$notee" ] && [ "$notee" = "$somme_disque" ]; then
       intact=oui
     else
       intact=non
@@ -241,12 +238,11 @@ fi
 # l'utilisateur. Aucun catalogue a tenir a jour, aucune etape a ne pas
 # oublier avant de committer : le mecanisme s'entretient tout seul.
 #
-# Reste le cas des installations anterieures a ce mecanisme, qui n'ont encore
-# rien de note -- et ce sont precisement celles qu'il faut rattraper.
-# workspace.sums porte, pour elles seules, la liste des versions livrees
-# avant. Cette liste est FIGEE : elle ne decrit que le passe, et n'a donc
-# jamais a etre regeneree.
-SEED_SUMS=/opt/dagster/workspace.sums
+# Une installation anterieure a ce mecanisme n'a rien de note : ses fichiers
+# sont tenus pour modifies et laisses tels quels. Une liste figee des
+# anciennes versions (workspace.sums) les rattrapait ; elle est partie, toute
+# installation mise a jour depuis ayant note ses propres empreintes. La
+# derniere version qui la portait : voir dagster/README.md.
 EMPREINTES="$WORKSPACE_DIR/.codelab/empreintes"
 
 # Format d'une ligne, dans les deux fichiers : "<sha256> <chemin relatif>".
@@ -325,13 +321,10 @@ if [ -d "$WORKSPACE_SEED" ] && [ -f "$SEED_MARKER" ]; then
       continue
     fi
 
-    # Intact ? Ce que nous avons note pour ce fichier fait foi. A defaut de
-    # note -- installation anterieure au mecanisme -- on se rabat sur la
-    # liste figee des versions livrees autrefois.
+    # Intact ? Ce que nous avons note pour ce fichier fait foi ; sans note,
+    # le fichier est tenu pour modifie.
     notee=$(empreinte_notee "$relatif")
-    if [ -n "$notee" ]; then
-      [ "$notee" = "$somme_disque" ] && intact=oui || intact=non
-    elif [ -f "$SEED_SUMS" ] && grep -q "^$somme_disque $relatif\$" "$SEED_SUMS"; then
+    if [ -n "$notee" ] && [ "$notee" = "$somme_disque" ]; then
       intact=oui
     else
       intact=non

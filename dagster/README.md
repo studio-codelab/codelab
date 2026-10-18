@@ -19,7 +19,11 @@ panneau.
 | `lancer.sh` | lance le daemon et l'interface, transmet l'arrêt aux deux |
 | `isolation.py` | environnements des projets isolés et `workspace.yaml` |
 | `dagster.yaml` | stockage des runs, événements et plannings dans la base Postgres `dagster` ; télémétrie coupée |
-| `dagster.yaml.sums`, `squelette.sums` | empreintes figées des versions anciennes, pour reconnaître un fichier non modifié |
+
+**Retiré : les empreintes figées des anciennes versions** (`dagster.yaml.sums`, `squelette.sums`).
+Elles rattrapaient les installations antérieures au mécanisme qui note ce que CodeLab écrit. Sans
+empreinte notée, un fichier est désormais tenu pour modifié et laissé tel quel. Dernière version qui la portait : le commit `f9caf52`. Une installation qui n'a pas démarré depuis
+longtemps passe d'abord par celle-là, puis par la version courante.
 
 ## Au démarrage
 
