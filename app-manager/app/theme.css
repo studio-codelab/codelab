@@ -328,6 +328,24 @@
 }
 
 
+/* ------------------------------ le fond etoile ------------------------------
+   Vecu : « un fond d'ecran texture, uni avec les memes couleurs, mais avec
+   des petites etoiles a intervalle regulier ». Une petite etoile a quatre
+   branches tous les --motif-pas, dans une teinte tiree du texte : discrete
+   en clair comme en sombre, et elle suit tout changement de theme.
+   Seules les pages qui portent la classe fond-motif sur <body> l'ont : ce
+   fichier est aussi servi aux applications, qui n'en veulent pas d'office.
+   Un calque fixe derriere la page (z-index -1) : il ne defile pas avec le
+   contenu et ne capte aucun appui.
+   ESSAYE ET ECARTE : une image SVG en background -- sa couleur ne peut pas
+   suivre une variable CSS. Le SVG sert donc de masque, la couleur vient de
+   --motif. */
+:root{--motif:color-mix(in srgb,var(--txt) 9%,transparent);--motif-pas:34px}
+body.fond-motif::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+ background:var(--motif);
+ -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='34' height='34'%3E%3Cpath d='M17 12.2l1.2 3.6 3.6 1.2-3.6 1.2-1.2 3.6-1.2-3.6-3.6-1.2 3.6-1.2z'/%3E%3C/svg%3E") 0 0/var(--motif-pas) var(--motif-pas) repeat;
+ mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='34' height='34'%3E%3Cpath d='M17 12.2l1.2 3.6 3.6 1.2-3.6 1.2-1.2 3.6-1.2-3.6-3.6-1.2 3.6-1.2z'/%3E%3C/svg%3E") 0 0/var(--motif-pas) var(--motif-pas) repeat}
+
 /* ------------------------------ mode application ------------------------------
    Le panneau ouvert depuis l'icone de l'ecran d'accueil (classe mode-app,
    posee par mode.js). Une application installee ne zoome pas, ne rebondit
