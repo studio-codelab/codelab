@@ -964,10 +964,10 @@ def application_filmable(nom):
     return bool(a) and not est_archivee(a) and not est_app_par_defaut(nom)
 
 
-@flask_app.route("/api/tournage/<n>", methods=["POST"])
-def api_tournage(n):
-    """Un ticket de tournage pour une application (voir plus haut)."""
-    # Meme reponse pour tout refus d'acces : rien ne dit ce qui manquait.
+def _cle_de_tournage_refusee():
+    """La reponse de refus, ou None si la requete presente la bonne cle depuis
+    le reseau local, dans la limite des essais (regle 6). Meme reponse pour
+    tout refus d'acces : rien ne dit ce qui manquait."""
     refus = (jsonify({"error": "Laissez-passer refusé."}), 403)
     if not client_est_local():
         return refus
@@ -977,8 +977,44 @@ def api_tournage(n):
     if not _cle_tournage or not secrets.compare_digest(fourni.encode(), _cle_tournage.encode()):
         register_failed_attempt()
         return refus
-    if not application_filmable(n):
-        return jsonify({"error": "Application introuvable."}), 404
+    return None
+
+
+def application_du_dossier(dossier):
+    """L'application filmable declaree sur ce dossier de projet : (nom, None),
+    ou (None, motif). Le panneau et le poste voient le meme /workspace.
+
+    Vecu : « pas de laissez-passer : Application introuvable » -- le projet
+    wine-manager etait declare sous un autre nom. Le dossier, lui, ne ment
+    pas : l'application dont le dossier EST celui du projet, a defaut la
+    seule declaree dans l'un de ses sous-dossiers."""
+    if not isinstance(dossier, str) or not dossier or len(dossier) > 4096:
+        return None, "Dossier de projet invalide."
+    racine = os.path.realpath(ROOT)
+    cible = os.path.realpath(dossier)
+    if cible != racine and not cible.startswith(racine + os.sep):
+        return None, "Dossier hors de " + ROOT + "."
+    exactes, dedans = [], []
+    for nom, a in load().items():
+        if not application_filmable(nom) or not a.get("path"):
+            continue
+        chemin = os.path.realpath(a["path"])
+        if chemin == cible:
+            exactes.append(nom)
+        elif chemin.startswith(cible + os.sep):
+            dedans.append(nom)
+    candidates = exactes or dedans
+    if len(candidates) == 1:
+        return candidates[0], None
+    if not candidates:
+        return None, ("Aucune application du panneau n'a pour dossier " + dossier
+                      + " : déclare-la (Applications > Nouvelle application).")
+    return None, ("Plusieurs applications dans " + dossier + " (" + ", ".join(sorted(candidates))
+                  + ") : mets l'adresse du hub de celle à filmer dans le scénario.")
+
+
+def _delivrer_un_ticket(n):
+    """Le ticket d'une application filmable, demarree si besoin."""
     # ARRETEE, ELLE DEMARRE. Vecu : « Rien sur le port en question. je ne
     # veux pas avoir a ouvrir le navigateur ». Le tournage filme une
     # application qui tourne : le laissez-passer la demarre, comme le bouton
@@ -995,7 +1031,34 @@ def api_tournage(n):
     ticket = secrets.token_urlsafe(32)
     _tournage_tickets[ticket] = (n, time.time() + TOURNAGE_TICKET_TTL)
     journaliser("tournage", app=n, ip=_adresse_client())
-    return jsonify({"ticket": ticket, "duree": TOURNAGE_DUREE, "demarree": demarree})
+    # Le nom affiche (casse et espaces), pour les cartons de la video :
+    # « wine-manager » est une adresse, « Wine Manager » un nom.
+    return jsonify({"ticket": ticket, "duree": TOURNAGE_DUREE, "demarree": demarree, "app": n,
+                    "titre": titre_de(n, load().get(n))})
+
+
+@flask_app.route("/api/tournage/<n>", methods=["POST"])
+def api_tournage(n):
+    """Un ticket de tournage pour une application, par son nom."""
+    refus = _cle_de_tournage_refusee()
+    if refus:
+        return refus
+    if not application_filmable(n):
+        return jsonify({"error": "Application introuvable."}), 404
+    return _delivrer_un_ticket(n)
+
+
+@flask_app.route("/api/tournage", methods=["POST"])
+def api_tournage_du_dossier():
+    """Un ticket de tournage pour l'application d'un dossier de projet
+    ({"dossier": "/workspace/<projet>"}), quel que soit son nom au panneau."""
+    refus = _cle_de_tournage_refusee()
+    if refus:
+        return refus
+    nom, motif = application_du_dossier((request.get_json(silent=True) or {}).get("dossier"))
+    if not nom:
+        return jsonify({"error": motif}), 404
+    return _delivrer_un_ticket(nom)
 
 
 def echanger_le_ticket(name, sub):

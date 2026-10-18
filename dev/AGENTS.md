@@ -653,7 +653,11 @@ export default {
   un AUTRE terminal et laissee tournant) ne recoit pas d'identite : a
   reserver aux applications publiques. `codelab video` lit `localhost` comme
   `127.0.0.1` ; si rien n'y repond, il filme par le hub
-  (`/<nom du dossier>/`), en demarrant l'application.
+  (`/<nom du dossier>/`), en demarrant l'application. Le panneau retrouve
+  l'application par le DOSSIER du projet, meme declaree sous un autre nom,
+  et donne son nom affiche : le nom du dossier ecrit dans le titre, le
+  carton de fin ou la voix devient ce nom (« Wine Manager », pas
+  « wine-manager »). Un titre choisi a la main reste.
 - Ne reinitialise jamais le mot de passe d'un vrai compte pour filmer.
 
 Relance `codelab video` apres chaque changement visible de l'application.
