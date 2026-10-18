@@ -1367,15 +1367,56 @@ def probe_port(port):
         return False
 
 
+# nom -> True si l'application ecoute sur toutes les interfaces (0.0.0.0,
+# ::) plutot que sur 127.0.0.1. Meme convention que _listening.
+_ecoute_large = {}
+
+# Les adresses qui ouvrent le port a tout le reseau du conteneur.
+ADRESSES_TOUT_RESEAU = {"0.0.0.0", "::", "::ffff:0.0.0.0"}
+
+
+def ports_ouverts_au_reseau():
+    """Les ports TCP ecoutes sur toutes les interfaces du conteneur.
+
+    POURQUOI : une application qui ecoute sur 0.0.0.0 est joignable depuis
+      les autres conteneurs du reseau codelab (codelab-dev, codelab-dagster)
+      sans passer par le proxy, donc sans connexion ni droit : une
+      application privee y perd sa protection. Le panneau ne peut pas
+      l'interdire (le code de l'application choisit son adresse), il le dit
+      dans la fiche.
+    DEPEND DE : ECOUTE_LOCALE (09-applications.py), l'adresse des commandes
+      proposees.
+    ECARTE : un pare-feu dans le conteneur (il faudrait NET_ADMIN, une
+      permission de plus pour le panneau) ; un espace reseau par
+      application (le proxy ne la joindrait plus par 127.0.0.1).
+    Un releve par tour de sonde (toutes les 10 s), pas par requete : voir
+    le cout de psutil.net_connections dans _ports_ecoutes.
+    """
+    ports = set()
+    try:
+        for conn in psutil.net_connections(kind="tcp"):
+            if (conn.status == psutil.CONN_LISTEN and conn.laddr
+                    and conn.laddr.ip in ADRESSES_TOUT_RESEAU):
+                ports.add(int(conn.laddr.port))
+    except (psutil.Error, OSError):
+        pass
+    return ports
+
+
 def probe_tick():
     """Un tour de sonde sur les applications en cours d'execution."""
     apps = load()
     for name in list(_listening):
         if name not in apps or not is_running(name):
             _listening.pop(name, None)
+            _ecoute_large.pop(name, None)
+    ouverts = None
     for name, a in apps.items():
         if is_running(name):
             _listening[name] = probe_port(a["port"])
+            if ouverts is None:
+                ouverts = ports_ouverts_au_reseau()
+            _ecoute_large[name] = int(a["port"]) in ouverts
 
 
 def is_crash_looping(name):

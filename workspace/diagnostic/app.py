@@ -952,4 +952,6 @@ def index(ouvrir_verification=False):
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), threaded=True)
+    # 127.0.0.1 : le panneau relaie depuis le meme conteneur, et rien d'autre
+    # ne doit joindre le port interne (voir ECOUTE_LOCALE dans le panneau).
+    app.run(host="127.0.0.1", port=int(os.environ.get("PORT", 8000)), threaded=True)

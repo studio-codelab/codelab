@@ -149,7 +149,7 @@ async function peindreCauseFiche(a){
     boucle:['Elle redémarre en boucle', "Elle plante à chaque lancement : la cause est en général dans les dernières lignes ci-dessous. Corrige-la dans le code, puis Redémarrer."],
     lancement:['Elle a planté au lancement', "Elle s'est arrêtée aussitôt lancée (code "+((a.dernier_echec||{}).code)+"). La cause est dans les dernières lignes ci-dessous ; une fois corrigée, Démarrer."],
     arretee:["Elle s'est arrêtée", "Elle devait tourner et s'est arrêtée. Les dernières lignes du journal disent pourquoi ; une fois corrigé, Démarrer."],
-    muette:['Elle ne répond pas', "Elle tourne, mais rien n'écoute sur son port : elle doit écouter sur $PORT et 0.0.0.0. Si elle démarre encore, patiente quelques secondes."],
+    muette:['Elle ne répond pas', "Elle tourne, mais rien n'écoute sur son port : elle doit écouter sur $PORT et 127.0.0.1. Si elle démarre encore, patiente quelques secondes."],
   };
   $('fa-cause-titre').textContent=TITRES[etat][0];
   $('fa-cause-conseil').textContent=TITRES[etat][1];
@@ -209,6 +209,7 @@ function peindreFiche(){
     ? (a.running ? 'Le port répond' : 'Le port ne répond pas')
     : (!a.running ? 'Arrêtée'
        : (a.listening===false ? 'Le port ne répond pas' : 'Le port répond'));
+  $('fa-ecoute-large').style.display = (!externe && a.running && a.ecoute_large) ? '' : 'none';
   $('fa-vis-txt').textContent = prive
     ? 'Privée — session requise' : 'Publique — ouverte a tous';
   /* Un service externe n'a ni dossier ni commande : le panneau ne le lance

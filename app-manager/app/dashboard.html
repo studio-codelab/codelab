@@ -581,6 +581,7 @@ label:has(> input[type=checkbox]),label:has(> input[type=radio]){
 .kv{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:7px 0}
 .kv .k{font-size:12.5px;color:var(--dim)}
 .kv .v{font-size:12.5px;font-weight:560}
+.hint.ecoute-large{color:var(--warn)}
 
 /* ------------------------------ hub ------------------------------ */
 .hub-liste{display:grid;grid-template-columns:repeat(auto-fill,minmax(258px,1fr));gap:14px}
@@ -2483,6 +2484,11 @@ a.pj:hover{border-color:var(--accent)}
         <div class="kv"><span class="k">Adresse</span><span class="v"><a id="fa-url" href="#"></a></span></div>
         <div class="kv"><span class="k">Port interne</span><span class="v" id="fa-port">—</span></div>
         <div class="kv"><span class="k">Réponse</span><span class="v" id="fa-ecoute">—</span></div>
+        <!-- Une application qui ecoute sur 0.0.0.0 se joint sans le panneau,
+             depuis les autres conteneurs (ports_ouverts_au_reseau). -->
+        <div class="hint ecoute-large" id="fa-ecoute-large" style="display:none">Elle écoute sur
+          toutes les interfaces : les autres conteneurs du serveur la joignent sans passer par le
+          panneau, donc sans connexion. Fais-la écouter sur <b>127.0.0.1</b> et <b>$PORT</b>.</div>
         <div class="kv"><span class="k">Visibilité</span><span class="v" id="fa-vis-txt">—</span></div>
       </div>
       <div class="card" id="fa-carte-exec">

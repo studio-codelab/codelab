@@ -157,7 +157,8 @@ code (le tien, ou celui d'un agent) n'a pas à pouvoir le faire.
 | Symptôme | Cause habituelle |
 |---|---|
 | Page blanche, 404 sur les assets | base des adresses non réglée (voir [`AGENTS.md`](AGENTS.md), section 5) |
-| « Ne répond pas » | port en dur au lieu de `$PORT`, écoute sur `127.0.0.1`, ou plantage après le démarrage ; voir le journal |
+| « Ne répond pas » | port en dur au lieu de `$PORT`, écoute sur `localhost` en IPv6 seulement (`::1`), ou plantage après le démarrage ; voir le journal |
+| « Elle écoute sur toutes les interfaces » | écoute sur `0.0.0.0` : passe à `127.0.0.1`, sinon les autres conteneurs la joignent sans connexion |
 | Pastille rouge clignotante | 5 crashs en 10 minutes : relance automatique suspendue |
 | Build en échec | journal de l'application, dans sa fiche |
 | Fichier non modifiable | `rm /workspace/.codelab/permissions-v1`, puis redémarrer la stack |

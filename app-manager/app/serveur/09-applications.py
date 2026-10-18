@@ -205,6 +205,18 @@ def proc_stats(pid):
 # Python plutot que le serveur de developpement du framework : le build a
 # besoin de node, le service n'en a pas besoin, et un "vite dev" deploye est
 # un serveur de developpement expose en continu.
+#
+# Chaque commande proposee ecoute sur 127.0.0.1 (ECOUTE_LOCALE) : le panneau
+# relaie depuis le meme conteneur, et rien d'autre n'a a joindre le port
+# interne. POURQUOI : ecoutee sur toutes les interfaces, une application
+# privee etait joignable depuis les autres conteneurs du reseau codelab
+# (codelab-dev, codelab-dagster...) sans passer par le panneau, donc sans
+# connexion ni droit. Vecu : python3 -m http.server et next start ecoutent
+# partout par defaut, et la commande Django portait 0.0.0.0 en dur.
+# DEPEND DE : probe_port et le proxy (13-hub-et-proxy.py), qui joignent
+# l'application par 127.0.0.1 ; ports_ouverts_au_reseau signale dans la
+# fiche une application qui ecoute encore partout.
+ECOUTE_LOCALE = "127.0.0.1"
 
 # Frameworks front dont le build produit un dossier statique, et nom de ce
 # dossier. La cle est cherchee dans dependencies + devDependencies.
@@ -253,11 +265,12 @@ def detect_project(path):
         # Next.js a son propre serveur : il se build, puis se lance -- pas de
         # dossier statique a servir (sauf export, non detectable d'ici).
         if "next" in deps:
-            return "npx next start --port $PORT", build
+            return f"npx next start --port $PORT --hostname {ECOUTE_LOCALE}", build
 
         for dep, outdir in STATIC_BUILDERS.items():
             if dep in deps and "build" in scripts:
-                return f"python3 -m http.server $PORT --directory {outdir}", build
+                return (f"python3 -m http.server $PORT --bind {ECOUTE_LOCALE} "
+                        f"--directory {outdir}"), build
 
         if "start" in scripts:
             return "npm start", build
@@ -266,7 +279,7 @@ def detect_project(path):
         return "npm start", build
 
     if exists("manage.py"):
-        return "python3 manage.py runserver 0.0.0.0:$PORT", _python_install(path)
+        return f"python3 manage.py runserver {ECOUTE_LOCALE}:$PORT", _python_install(path)
 
     if exists("app.py"):
         return "python3 app.py", _python_install(path)
@@ -280,7 +293,7 @@ def detect_project(path):
                 return line.split(":", 1)[1].strip(), ""
 
     if exists("index.html"):
-        return "python3 -m http.server $PORT", ""
+        return f"python3 -m http.server $PORT --bind {ECOUTE_LOCALE}", ""
 
     return "", ""
 
