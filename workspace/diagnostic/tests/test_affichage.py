@@ -2654,7 +2654,10 @@ def test_le_fond_d_ecran_se_choisit_croix_ou_uni(deux_espaces):
     assert app.REGLAGES_HUB["motif"] == ("croix", "uni")
     theme = _page_panneau("theme.css")
     masque = theme.split("body.fond-motif::before{")[1].split("}")[0]
-    assert "M14 10.5v7M10.5 14h7" in masque, "le motif est une petite croix"
+    assert "M22 18.5v7M18.5 22h7" in masque, "le motif est une petite croix"
+    # « espace les croix et rend les plus discretes » : une croix tous les
+    # 44 px, a 6 % du texte.
+    assert "--motif:color-mix(in srgb,var(--txt) 6%,transparent);--motif-pas:44px" in theme
     assert 'html[data-motif="uni"] body.fond-motif::before{display:none}' in theme
     c = deux_espaces
     c.set_cookie("codelab-hub", "uni.prune")
