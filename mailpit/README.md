@@ -29,6 +29,13 @@ Le panneau transmet :
 | `MAIL_HOST` | `codelab-mailpit` |
 | `MAIL_PORT` | `1025` |
 | `MAIL_URL` | `smtp://codelab-mailpit:1025` |
+| `SMTP_HOST`, `EMAIL_HOST`, `MAIL_SERVER` | `codelab-mailpit` (les mêmes, sous d'autres noms) |
+| `SMTP_PORT`, `EMAIL_PORT` | `1025` |
+| `SMTP_URL` | `smtp://codelab-mailpit:1025` |
+
+Une application sans serveur d'envoi à elle passe donc par le hub. Jamais d'identifiant : le mot de
+passe du serveur d'envoi ne vit que dans Mailpit. Un serveur propre au projet se règle dans son
+`.env`, qui l'emporte.
 
 ```python
 import os, smtplib

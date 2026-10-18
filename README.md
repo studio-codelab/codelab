@@ -14,21 +14,39 @@ main.
 
 ```mermaid
 flowchart LR
-    Toi(["👤 Toi<br/>VS Code et navigateur"])
-    Invites(["👥 Tes invités<br/>navigateur"])
-    subgraph Serveur["🖥️ Ton serveur, avec CodeLab"]
-        direction TB
-        Hub["🏠 Le hub<br/>ouvrir, mettre à jour, partager"]
-        Atelier["💻 L'atelier<br/>le code de tes projets"]
-        Apps["🚀 Tes applications<br/>en ligne"]
-        Donnees[("🗄️ Les données<br/>bases, mails, tâches planifiées")]
+    Toi(["👤 Toi"])
+    Invites(["👥 Tes invités"])
+
+    subgraph Serveur["🖥️ Ton serveur"]
+        direction LR
+        Atelier["💻 <b>L'atelier</b><br/>VS Code, ton code<br/><i>SSH :2222</i>"]
+        Hub["🏠 <b>Le hub</b><br/>comptes, mise en ligne<br/><i>:9001</i>"]
+        Apps["🚀 <b>Tes applications</b><br/>une adresse chacune<br/><i>:9002</i>"]
+        subgraph Services["Services partagés"]
+            direction TB
+            Base[("🗄️ Postgres · Redis")]
+            Mails["✉️ Mailpit<br/>relaie les mails"]
+            Taches["⏱️ Dagster<br/>tâches planifiées"]
+        end
     end
-    Toi -- "écrit le code" --> Atelier
-    Toi -- "pilote" --> Hub
-    Invites -- "se connectent" --> Hub
-    Hub -- "met en ligne" --> Apps
-    Atelier --> Apps
-    Apps --> Donnees
+
+    Toi -->|écrit le code| Atelier
+    Toi -->|pilote| Hub
+    Invites -->|se connectent| Hub
+    Atelier -.->|/workspace| Apps
+    Hub -->|lance et protège| Apps
+    Apps --> Base
+    Apps --> Mails
+    Atelier -.->|definitions.py| Taches
+
+    classDef personne fill:#eef4ff,stroke:#3b6fd8,color:#11151c
+    classDef coeur fill:#e9f7f1,stroke:#14866d,color:#11151c
+    classDef service fill:#f6f7f9,stroke:#8a94a6,color:#11151c
+    class Toi,Invites personne
+    class Atelier,Hub,Apps coeur
+    class Base,Mails,Taches service
+    style Serveur fill:none,stroke:#8a94a6,stroke-width:1.5px
+    style Services fill:none,stroke:#8a94a6,stroke-dasharray:4 3
 ```
 
 Tout reste sur ton serveur : le code, les bases, les mails, les sauvegardes.
@@ -100,7 +118,8 @@ cd /workspace/mon-projet         # puis coder (codex, ou VS Code)
 
 1. Dans le panneau : *Applications > Ajouter un projet*, choisir le dossier. Les commandes sont
    proposées.
-2. Activer l'application. Elle est servie sur `http://<serveur>:9002/mon-projet/`.
+2. Activer l'application. Elle est servie sur `http://<serveur>:9002/mon-projet/`, ou sur
+   `https://mon-projet.<domaine>/` derrière un VPS (voir [Les ports](#les-ports)).
 3. À chaque modification : **Build** puis **Redémarrer**, dans la fiche de l'application.
 
 **Partager** : *Utilisateurs > Inviter quelqu'un*, puis cocher les applications dans sa fiche.
@@ -129,7 +148,7 @@ session d'administration) et SSH sont publiés.
 
 | Service | Rôle | Port publié |
 |---|---|---|
-| **app-manager** | Le panneau : comptes, déploiement, supervision. Il sert aussi les applications, sur une autre origine | `9001` (panneau), `9002` (applications) |
+| **app-manager** | Le panneau : comptes, déploiement, supervision. Il sert aussi les applications, sur une autre origine | `9001` (panneau), `9002` (toutes les applications) |
 | **dagster-proxy** | Exige la session d'administration du panneau devant Dagster et Mailpit | `3000`, `8025` |
 | **dagster** | Orchestrateur : interface et daemon (plannings, capteurs) | aucun |
 | **mailpit** | Garde et relaie tous les mails | aucun (interface par le proxy) |
@@ -139,6 +158,17 @@ session d'administration) et SSH sont publiés.
 
 Le panneau, Dagster et le poste de développement partagent `/workspace` : le poste y écrit le code,
 le panneau y lance les applications, Dagster y charge les `definitions.py`.
+
+### Les ports
+
+- **Toutes les applications passent par le `9002`**, chacune sous `/<nom>/` (derrière un VPS : un
+  sous-domaine par application, `<nom>.<domaine>`). C'est une autre origine que le panneau.
+- Derrière, chacune écoute sur un **port interne** (`$PORT`, de `9101` à `9140`) que le panneau
+  relaie ; ces ports ne sont pas publiés.
+- Si le `9002` ne s'ouvre pas, ou si `APP_MANAGER_APPS_PORT` vaut `0`, les applications reviennent
+  sous `:9001/<nom>/`, dans l'origine du panneau, et le diagnostic le signale.
+- **Dagster (`3000`) et Mailpit (`8025`)** ne sont pas des applications du hub : ils ont leur port,
+  derrière la session d'administration, et restent sur le réseau local.
 
 ## Documentation
 

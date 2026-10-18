@@ -20,13 +20,16 @@ nouveau projet finit toujours par etre oublie, et le projet reste invisible
 sans qu'on comprenne pourquoi.
 
 Regle de nommage : chaque projet expose une variable "defs" de type
-Definitions. Un dossier qui n'a pas de definitions.py est ignore (une
+Definitions. Ses assets sont ranges sous son nom (groupe et etiquette
+codelab/projet, voir _marquer) : rien a declarer pour les distinguer. Un dossier qui n'a pas de definitions.py est ignore (une
 application web sans job Dagster, par exemple) -- c'est parfaitement normal.
 """
 import importlib.util
 import os
+import re
 import sys
 import traceback
+import warnings
 
 from dagster import Definitions
 
@@ -42,6 +45,10 @@ WORKSPACE = os.path.dirname(os.path.abspath(__file__))
 # CodeLab). Le charger ici aussi l'importerait sans ses paquets -- et en
 # double.
 ISOLE = "requirements-dagster.txt"
+
+# L'etiquette posee sur chaque asset, avec le nom exact du projet : le
+# catalogue d'assets de Dagster filtre dessus (codelab/projet=mon-projet).
+ETIQUETTE_PROJET = "codelab/projet"
 
 
 def _dossiers_de_projet():
@@ -82,10 +89,58 @@ def _charger(nom, chemin):
     return defs
 
 
+def groupe_du_projet(nom):
+    """Le nom de groupe Dagster d'un projet : Dagster n'accepte que
+    [A-Za-z0-9_], donc mon-projet devient mon_projet."""
+    return re.sub(r"[^A-Za-z0-9_]", "_", nom)
+
+
+def _marquer(nom, defs):
+    """Range chaque asset du projet sous son nom.
+
+    Vecu : « possible d'identifier et separer les taches sur Dagster par
+    projet ? ». Tous les projets partagent un seul emplacement de code
+    ("definitions") ; seul un group_name pose a la main les distinguait, et
+    l'exemple de la documentation (group_name="mon-projet") etait refuse
+    par Dagster a cause du tiret.
+
+    Un asset sans groupe (ou dans "default") prend le groupe du projet ; un
+    groupe choisi par le projet est garde. Tous recoivent l'etiquette
+    ETIQUETTE_PROJET.
+
+    ESSAYE ET ECARTE : un emplacement de code par projet (ce que fait deja
+    dagster/isolation.py pour les projets isoles). Separation plus nette,
+    mais 200 a 300 Mo par projet, un redemarrage au lieu de *Reload* pour
+    voir un nouveau projet, et l'historique des plannings coupe en deux.
+    """
+    groupe = groupe_du_projet(nom)
+
+    def ranger(spec):
+        changements = {"tags": {**spec.tags, ETIQUETTE_PROJET: nom}}
+        if spec.group_name in (None, "default"):
+            changements["group_name"] = groupe
+        return spec.replace_attributes(**changements)
+
+    try:
+        # map_asset_specs est marquee « preview » par Dagster : sans danger
+        # ici, la version est figee (dagster/Dockerfile) et un echec retombe
+        # sur les definitions telles quelles. L'avertissement, repete pour
+        # chaque projet, noierait le journal.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return defs.map_asset_specs(func=ranger)
+    except Exception:
+        # Le rangement est un confort : un projet dont les assets ne s'y
+        # pretent pas se charge quand meme, tel quel.
+        print(f"[workspace] projet '{nom}' : assets laisses sans etiquette.", file=sys.stderr)
+        traceback.print_exc()
+        return defs
+
+
 chargees = []
 for nom, chemin in _dossiers_de_projet():
     try:
-        chargees.append(_charger(nom, chemin))
+        chargees.append(_marquer(nom, _charger(nom, chemin)))
         print(f"[workspace] projet '{nom}' charge.", file=sys.stderr)
     except Exception:
         # Volontairement non fatal. Une erreur de syntaxe dans un projet ne

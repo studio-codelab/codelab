@@ -133,7 +133,7 @@ ARG CODELAB_VERSION=dev
 ARG CODELAB_VERSION_DATE=
 ENV CODELAB_VERSION=${CODELAB_VERSION} CODELAB_VERSION_DATE=${CODELAB_VERSION_DATE}
 
-EXPOSE 9001
+EXPOSE 9001 9002
 
 ENTRYPOINT ["/opt/codelab/app-manager/entrypoint.sh"]
 CMD ["python", "/opt/codelab/app-manager/app/app.py"]

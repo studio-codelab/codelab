@@ -12,7 +12,8 @@ Le cœur de CodeLab. Un seul service Flask (servi par waitress) qui :
 | Port | Sert |
 |---|---|
 | `9001` | le panneau et son API |
-| `9002` | les applications, sous `/<nom>/` (`APP_MANAGER_APPS_PORT`, `0` pour les remettre sur `9001`) |
+| `9002` | toutes les applications, sous `/<nom>/`, ou sous `<nom>.<domaine>` derrière un VPS (`APP_MANAGER_APPS_PORT`, `0` pour les remettre sur `9001` ; s'il ne s'ouvre pas, même repli) |
+| `9101`–`9140` | le port interne de chaque application (`$PORT`), non publié : le `9002` le relaie |
 
 Ce que l'utilisateur voit du panneau est décrit dans [`FONCTIONNALITES.md`](../FONCTIONNALITES.md) ;
 ses garanties de sécurité dans [`SECURITE.md`](../SECURITE.md).
@@ -77,7 +78,8 @@ Le panneau ne crée jamais de projet : il **déclare** un dossier existant de `/
 
 ## Le proxy
 
-- `/<nom>/...` sur `9002` est relayé vers `127.0.0.1:<port interne>/...`, **sans** le préfixe.
+- `/<nom>/...` sur `9002` (ou tout chemin de `<nom>.<domaine>`) est relayé vers
+  `127.0.0.1:<port interne>/...`, **sans** le préfixe. `:9001/<nom>/` redirige vers cette adresse.
 - Réponses quand l'application n'est pas prête :
   - `503` (avec une page) si elle est arrêtée ;
   - `502` si elle démarre encore.

@@ -40,7 +40,9 @@ panneau.
 ## Chargement du code
 
 `PYTHONPATH=/workspace` : le module `definitions` est `/workspace/definitions.py`, l'agrégateur. Il
-importe le `definitions.py` de chaque projet qui expose `defs`, puis fusionne le tout.
+importe le `definitions.py` de chaque projet qui expose `defs`, puis fusionne le tout. Avant la
+fusion, il range les assets de chaque projet sous son nom : groupe (`mon_projet`) et étiquette
+`codelab/projet=mon-projet`.
 
 - Un projet en erreur est ignoré, avec sa trace dans les journaux.
 - Les dossiers qui commencent par `.` ou `_` sont ignorés.

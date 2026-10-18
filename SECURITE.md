@@ -12,7 +12,8 @@ même commit.
 - **Second facteur obligatoire** pour tous les comptes, administrateur compris.
 - **Aucun secret en clair** : mots de passe hachés, réglages sensibles chiffrés, secrets générés au
   premier démarrage. Il n'existe aucun mot de passe par défaut.
-- **Applications cloisonnées** : elles sont servies sur une autre origine (`:9002`), chacune tourne
+- **Applications cloisonnées** : elles sont servies sur une autre origine (`:9002`, ou un sous-domaine
+  derrière un VPS), chacune tourne
   sous son propre uid et ne voit que son propre dossier.
 - **Rien n'est exposé sans raison** : Postgres, Redis et le SMTP ne sont pas publiés, l'administration
   ne répond qu'au réseau local.
@@ -140,8 +141,11 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 
 ## Applications hébergées
 
-- **Une autre origine.** Les applications sont servies sur le port `9002`, le panneau sur le `9001`.
-  Un script d'une application ne peut donc lire ni les pages du panneau ni son jeton.
+- **Une autre origine.** Les applications sont servies sur le port `9002` (un sous-domaine par
+  application derrière un VPS), le panneau sur le `9001`. Un script d'une application ne peut donc
+  lire ni les pages du panneau ni son jeton. Si le port `9002` ne s'ouvre pas, ou si
+  `APP_MANAGER_APPS_PORT` vaut `0`, la séparation tombe : les applications reviennent dans l'origine
+  du panneau, et le diagnostic le signale.
 - **Le cookie du panneau ne leur parvient jamais.** Le proxy le retire de chaque requête.
 - **Un uid par application.** Chaque application et son build tournent sous un uid propre (dérivé de
   son nom, à partir de 10000), jamais en root. Elles ne peuvent pas lire `credentials.env`.
@@ -150,7 +154,9 @@ Sans lui, les réglages chiffrés deviennent illisibles.
   diagnostic le signale et l'uid par application continue d'isoler les processus.
 - **Des secrets au strict nécessaire.** Une application reçoit Postgres, Redis, Mailpit et la clé
   *publique* SSO. Elle ne reçoit jamais le mot de passe du panneau, sa clé privée, le mot de passe
-  d'envoi des mails ni les variables qui changent l'exécution (`PATH`, `LD_PRELOAD`…).
+  d'envoi des mails ni les variables qui changent l'exécution (`PATH`, `LD_PRELOAD`…). Les
+  `SMTP_HOST`, `SMTP_PORT` et `EMAIL_HOST` qu'elle reçoit désignent Mailpit, jamais le serveur
+  d'envoi du panneau, et aucun identifiant ne les accompagne.
 - **Une identité signée.** Une application sait qui la consulte grâce à une assertion Ed25519
   (`X-CodeLab-Auth`), valable 60 s et liée à cette application (`aud`). Le proxy retire tout en-tête
   `X-CodeLab-*` envoyé par le navigateur avant d'ajouter les vrais.
@@ -174,7 +180,8 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 | Port | Service | Protection |
 |---|---|---|
 | `9001` | panneau | connexion + second facteur ; administration réservée au réseau local |
-| `9002` | applications | selon chaque application : publique, ou privée (compte autorisé) |
+| `9002` | applications, toutes | selon chaque application : publique, ou privée (compte autorisé) |
+| `9101`–`9140` | port interne de chaque application (`$PORT`) | non publiés ; relayés par le `9002` |
 | `3000` | Dagster (par `codelab-dagster-proxy`) | session d'**administration** du panneau, vérifiée à chaque requête |
 | `8025` | Mailpit (par le même proxy) | idem ; Mailpit exige en plus son propre mot de passe interne |
 | `2222` | SSH (`codelab-dev`) | **clé publique uniquement**, ni mot de passe ni root |
