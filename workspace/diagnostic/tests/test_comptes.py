@@ -2210,15 +2210,13 @@ def test_les_reglages_ont_un_onglet_par_categorie_pour_tout_le_monde():
     memes onglets que ceux de l'administrateur."""
     page = _page_panneau("dashboard.html")
     onglets = page.split('<div class="fiche-onglets" id="param-onglets">')[1].split("</div>")[0]
-    assert re.findall(r'data-p="([a-z]+)"', onglets) == ["compte", "apparence", "hub", "securite",
-                                                         "email", "archives"]
+    assert re.findall(r'data-p="([a-z]+)"', onglets) == ["compte", "apparence", "hub", "securite", "email"]
     def onglet(nom):
         return page.split(f'<div class="onglet-p" id="param-{nom}">')[1].split('<div class="onglet-p"')[0]
     for nom, zones in (("compte", ("profil-mail", "zone-version", "zone-session")),
                        ("apparence", ("zone-apparence", "zone-notifications", "zone-installer")),
                        ("hub", ("zone-hub", "zone-categories")),
-                       ("securite", ("profil-mdp", "zone-appareils", "zone-cles")),
-                       ("archives", ("zone-archives",))):
+                       ("securite", ("profil-mdp", "zone-appareils", "zone-cles"))):
         for z in zones:
             assert f'id="{z}"' in onglet(nom), (nom, z)
     # Un compte utilisateur a ses quatre onglets, et rien d'autre.

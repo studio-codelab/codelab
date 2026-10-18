@@ -633,8 +633,9 @@ if(estAdmin) document.querySelectorAll('#param-onglets button[data-admin]')
    credentials.env, et le mot a l'administrateur lui serait adresse. */
 if(estAdmin){ $('profil-mdp').style.display='none'; $('profil-message').style.display='none'; }
 
-/* LES ARCHIVES. La liste vient du serveur a chaque ouverture de l'onglet :
-   une archive peut avoir ete effacee par la purge quotidienne entre-temps. */
+/* LES ARCHIVES, sous la liste des applications. Relues a chaque ouverture
+   de la page : une archive peut avoir ete effacee par la purge quotidienne
+   entre-temps. */
 function dansCombienDeJours(ts){
   const j=Math.max(0, Math.ceil((ts-Date.now()/1000)/86400));
   return j===0 ? "aujourd'hui" : j===1 ? 'demain' : 'dans '+j+' jours';
@@ -643,9 +644,10 @@ async function chargerArchives(){
   let d;
   try{ d=await (await fetch('/api/apps/archivees')).json(); }catch(e){ return; }
   const liste=d.apps||[];
-  $('arch-resume').textContent = liste.length
-    ? liste.length+' application'+(liste.length>1?'s':'')+' aux archives.'
-    : 'Aucune application aux archives.';
+  $('arch-resume').textContent = (liste.length
+    ? liste.length+' application'+(liste.length>1?'s':'')+' aux archives. '
+    : 'Aucune application aux archives. ')
+    + 'Une application archivée garde sa configuration 30 jours, puis elle est effacée.';
   remplir($('arch-liste'), liste.length ? liste.map(a=>`<div class="arch-ligne">
       <div class="arch-nom"><b>${esc(a.titre||a.name)}</b>
         <span>/${esc(a.name)}/ · archivée le ${esc(dateDeVersion(new Date(a.archivee_le*1000).toISOString()))}
@@ -654,7 +656,7 @@ async function chargerArchives(){
         <button class="btn btn-default btn-sm" data-agir="archive-ressortir" data-cible="${esc(a.name)}">Désarchiver</button>
         <button class="btn btn-danger-quiet btn-sm" data-agir="archive-effacer" data-cible="${esc(a.name)}">Supprimer</button>
       </div></div>`).join('')
-    : `<div class="arch-vide">Archiver une application se fait depuis sa fiche, onglet Configuration.</div>`);
+    : `<div class="arch-vide">Pour archiver une application : sa fiche, onglet Configuration.</div>`);
 }
 async function desarchiver(n){
   const r=await fetch('/api/app/'+encodeURIComponent(n)+'/desarchiver',{method:'POST'});
@@ -675,18 +677,13 @@ async function effacerArchive(n){
    ce compte ne s'affiche pas : on n'ouvre pas une page pour n'y rien
    trouver a regler. Relance quand une rubrique apparait ou disparait. */
 function majOngletsParametres(){
-  let nombre=0;
   document.querySelectorAll('#param-onglets button').forEach(b=>{
     const panneau=$('param-'+b.dataset.p);
     const autorise = !b.hasAttribute('data-admin') || estAdmin;
     const plein = !!panneau && [...panneau.querySelectorAll(':scope > .zone')]
       .some(z=>z.style.display!=='none');
     b.style.display = (autorise && plein) ? 'block' : 'none';
-    if(autorise && plein) nombre++;
   });
-  /* Le nombre d'onglets visibles : au telephone, au-dela de cinq, la
-     pastille passe sur deux rangees (voir le CSS). */
-  $('param-onglets').dataset.nombre=nombre;
 }
 majOngletsParametres();
 

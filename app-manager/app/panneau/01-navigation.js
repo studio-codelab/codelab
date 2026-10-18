@@ -152,6 +152,7 @@ function showSection(name){
   if(name!=='hub') hubEdition=false;
   document.documentElement.classList.toggle('hub-actif', name==='hub');
   if(name==='overview' || name==='apps') refresh();
+  if(name==='apps') chargerArchives();
   if(name==='overview') chargerCarte();
   /* L'etat de securite est relu a chaque ouverture : il peut avoir change
      depuis un autre onglet, ou au redemarrage du service. */
@@ -484,7 +485,6 @@ function paramOnglet(o){
   /* Les deux onglets lisent la meme reponse : le serveur d'envoi et les
      alertes vivent au meme endroit, le coffre chiffre du panneau. */
   if(o==='email' || o==='alertes') chargerAlertes();
-  if(o==='archives') chargerArchives();
 }
 
 /* ---------------- etats ---------------- */

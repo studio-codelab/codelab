@@ -322,7 +322,7 @@ async function rm(n){
 async function archiver(n){
   if(!await demander('Archiver « ' + n + ' » ?',
     "Elle s'arrête et quitte le hub et la liste des applications. Sa configuration est gardée "
-    + "30 jours dans Paramètres › Archives : tu peux la désarchiver d'ici là. Ensuite, elle est "
+    + "30 jours dans les Archives, sous la liste : tu peux la désarchiver d'ici là. Ensuite, elle est "
     + "effacée. Le dossier du projet dans /workspace n'est pas touché.",
     'Archiver', false)) return;
   const r=await fetch('/api/app/'+encodeURIComponent(n)+'/archiver',{method:'POST'});

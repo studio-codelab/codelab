@@ -2112,6 +2112,9 @@ def test_une_application_par_defaut_ne_s_archive_pas(hub):
     c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     assert c.post(f"/api/app/{app.DIAGNOSTIC_NOM}/archiver").status_code == 403
     assert c.post("/api/app/inconnue/archiver").status_code == 404
+    # Les archives vivent dans la page des applications, sous la liste.
     page = _page_panneau("dashboard.html")
-    assert 'id="e-archiver"' in page and 'id="param-archives"' in page
-    assert 'data-p="archives" onclick="paramOnglet(\'archives\')" data-admin="1"' in page
+    assert 'id="e-archiver"' in page
+    apps = page.split('<div id="sec-apps"')[1].split('<div id="sec-app"')[0]
+    assert 'id="zone-archives"' in apps and 'id="arch-liste"' in apps
+    assert "if(name==='apps') chargerArchives();" in page

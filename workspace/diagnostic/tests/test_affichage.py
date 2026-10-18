@@ -2490,17 +2490,12 @@ def test_les_minuteries_ne_repeignent_pas_pendant_un_defilement():
 # Vecu : « Sur telephone, garde ce systeme d'onglet mais repartis bien les
 # parametrages en 2, 3 ou 4 onglets dedies de taille homogene. »
 
-def test_les_parametres_tiennent_en_onglets_de_meme_largeur():
-    """Cinq onglets pour un compte (quatre) ou l'administrateur, six avec
-    les Archives : au telephone, au-dela de cinq, deux rangees de trois --
-    six colonnes de 60 px coupaient « Apparence » et « Archives »."""
+def test_les_parametres_tiennent_en_cinq_onglets_de_meme_largeur():
     page = _page_panneau("dashboard.html")
     onglets = page.split('<div class="fiche-onglets" id="param-onglets">')[1].split("</div>")[0]
-    assert onglets.count("<button") == 6
-    for p in ("compte", "apparence", "hub", "securite", "email", "archives"):
+    assert onglets.count("<button") == 5
+    for p in ("compte", "apparence", "hub", "securite", "email"):
         assert f'data-p="{p}"' in onglets, p
-    assert '#sec-parametres #param-onglets[data-nombre="6"]{grid-auto-flow:row;' in page
-    assert "$('param-onglets').dataset.nombre=nombre;" in page
     # Vecu : « Je ne veux pas avoir Acces depuis internet qui ne me sert a
     # rien. Tu peux retirer la partie Serveur. »
     assert 'data-p="serveur"' not in onglets and 'id="param-serveur"' not in page
