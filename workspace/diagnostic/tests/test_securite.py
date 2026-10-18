@@ -2557,21 +2557,28 @@ def _regles_css(feuille, prefixe):
 def test_le_ruban_est_replie_par_defaut_et_le_meme_partout():
     """Vecu : « Le bouton codelab dans les applications doit pouvoir se
     developper et reduire (petite fleche au bord de l'ecran) pour laisser la
-    place a l'app par defaut ». Un <details> ferme : la languette au bord, le
-    bouton a cote une fois deplie -- sans script, et la meme feuille dans les
-    applications, Mailpit et Dagster."""
+    place a l'app par defaut », puis « plus gros, lorsque je developpe, pas
+    de bouton pour reduire, il reste developpe que 10 secondes si je ne
+    clique pas ». La meme feuille et le meme script dans les applications,
+    Mailpit et Dagster."""
     with app.flask_app.test_request_context("/"):
         ruban = app.ruban_retour().decode()
     assert '<details id="codelab-ruban">' in ruban and "<details open" not in ruban
     assert "<summary" in ruban and 'aria-label="Afficher le bouton CodeLab"' in ruban
-    assert "<script" not in ruban and " on" not in ruban.split("<style>")[0]
     regles = _regles_css(app.RUBAN_CSS, "#codelab")
     assert "left:var(--codelab-bord-gauche,0px)" in regles["#codelab-ruban"]
     assert "bottom:calc(14px+var(--codelab-bord-bas,0px))" in regles["#codelab-ruban"]
-    assert "transform:rotate(180deg)" in regles["#codelab-ruban[open]>summary>span"]
-    assert "'" not in app.RUBAN_CSS, "la chaine de nginx est delimitee par des apostrophes"
+    # Plus grosse languette ; depliee, elle disparait (pas de bouton pour
+    # reduire) et le script replie au bout de 10 s.
+    assert {"width:30px", "height:46px"} <= set(regles["#codelab-ruban>summary"])
+    assert regles["#codelab-ruban[open]>summary"] == ["display:none"]
+    assert "setTimeout(function(){d.open=false;},10000)" in app.RUBAN_JS
+    assert "try{" in app.RUBAN_JS and "</" not in app.RUBAN_JS
+    assert "'" not in app.RUBAN_CSS + app.RUBAN_JS, "la chaine de nginx est delimitee par des apostrophes"
     nginx = open(os.path.join(_racine_depot(), "dagster", "proxy", "nginx.conf"), encoding="utf-8").read()
     assert "<style>" + app.RUBAN_CSS + "</style><details id=\"codelab-ruban\">" in nginx
+    assert "</details><script>" + app.RUBAN_JS + "</script></body>" in nginx
+    assert app.RUBAN_JS in _mailpit_ui("app.js")
 
 
 def test_le_contenu_d_un_mail_ne_touche_jamais_la_page():

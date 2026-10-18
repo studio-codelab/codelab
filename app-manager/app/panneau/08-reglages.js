@@ -485,8 +485,32 @@ async function mdpChanger(){
   finally{ b.disabled=false; }
 }
 
+/* LA MEME CARTE POUR TOUS LES COMPTES. L'application d'authentification de
+   l'administrateur vit dans credentials.env (/api/securite/totp/...) ; celle
+   d'un compte, dans sa fiche (/api/mon-compte/totp/...). */
+const TOTP_ROUTES = () => estAdmin
+  ? {preparer:'/api/securite/totp/preparer', activer:'/api/securite/totp/activer',
+     retirer:'/api/securite/totp/desactiver'}
+  : {preparer:'/api/mon-compte/totp/preparer', activer:'/api/mon-compte/totp/activer',
+     retirer:'/api/mon-compte/totp/retirer'};
+function rechargerTotp(){ if(estAdmin) chargerSecurite(); else chargerTotpCompte(); }
+async function chargerTotpCompte(){
+  let d;
+  try{ d=await (await fetch('/api/mon-compte/totp')).json(); }catch(e){ return; }
+  const pill=$('totp-etat');
+  pill.className = 'pill ' + (d.actif ? 'on' : 'off');
+  pill.innerHTML = '<i></i>' + (d.actif ? 'Activée' : 'Désactivée');
+  $('totp-etape-1').style.display = d.actif ? 'none' : 'block';
+  $('totp-etape-3').style.display = d.actif ? 'block' : 'none';
+  $('totp-etape-2').style.display = 'none';
+  /* Le dernier second facteur ne se retire pas : le serveur le refuse, la
+     carte le dit avant. */
+  const seul = d.actif && !d.retirable;
+  $('totp-retrait-impossible').style.display = seul ? 'block' : 'none';
+  $('totp-retrait').style.display = seul ? 'none' : 'block';
+}
 async function totpPreparer(){
-  const r=await fetch('/api/securite/totp/preparer',{method:'POST'});
+  const r=await fetch(TOTP_ROUTES().preparer,{method:'POST'});
   const d=await r.json();
   if(!r.ok){ notifier(d.error||'Préparation impossible.', 'err'); return; }
   $('totp-secret').value=d.secret;
@@ -495,7 +519,7 @@ async function totpPreparer(){
   $('totp-etape-2').style.display='block';
   $('totp-code').value=''; $('totp-code').focus();
 }
-function totpAnnuler(){ $('totp-etape-2').style.display='none'; chargerSecurite(); }
+function totpAnnuler(){ $('totp-etape-2').style.display='none'; rechargerTotp(); }
 
 /* Le QR code est servi par le serveur a partir de la session : le secret ne
    passe jamais par l'adresse, donc ni par l'historique du navigateur ni par
@@ -511,23 +535,23 @@ function montrerQr(adresse){
 
 async function totpActiver(){
   const e=$('totp-err'); e.style.display='none';
-  const r=await fetch('/api/securite/totp/activer',{method:'POST',
+  const r=await fetch(TOTP_ROUTES().activer,{method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({code:$('totp-code').value})});
   const d=await r.json();
   if(!r.ok){ e.textContent=d.error||'Echec.'; e.style.display='block'; return; }
-  chargerSecurite();
+  rechargerTotp();
 }
 
 async function totpDesactiver(){
   const e=$('totp-err-off'); e.style.display='none';
-  const r=await fetch('/api/securite/totp/desactiver',{method:'POST',
+  const r=await fetch(TOTP_ROUTES().retirer,{method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({code:$('totp-code-off').value})});
   const d=await r.json();
   if(!r.ok){ e.textContent=d.error||'Echec.'; e.style.display='block'; return; }
   $('totp-code-off').value='';
-  chargerSecurite();
+  rechargerTotp();
 }
 
 async function doLogout(){ await fetch('/logout',{method:'POST'}); location.href='/login'; }
@@ -584,6 +608,7 @@ function peindreProfil(){
   $('qui-nom').textContent = complet || UTILISATEUR || '';
   $('hub-salut').innerHTML = 'Bonjour, <span class="salut-nom">'
     + esc(PROFIL.prenom || PROFIL.nom || UTILISATEUR || 'admin') + '</span>';
+  if(!$('profil-prenom')) return;            // administrateur : pas de carte
   $('profil-prenom').value = PROFIL.prenom || '';
   $('profil-nom').value = PROFIL.nom || '';
   $('profil-identifiant').textContent = UTILISATEUR || 'admin';
@@ -687,13 +712,19 @@ if(estAdmin){
 }else{
   /* Compte utilisateur : pas de menu lateral, pas de configuration. Il garde
      ses parametres personnels, eux, dans le menu du compte. */
-  /* Le second facteur est celui du compte d'ADMINISTRATION (un seul secret,
-     cote serveur) : cette carte n'a rien a regler ici, et elle s'affichait
-     sans etat ni bouton -- une case vide de plus a se demander. */
-  $('profil-securite').style.display='none';
+  /* La carte de l'application d'authentification sert aussi aux comptes :
+     c'est l'une des deux methodes au choix a la connexion, avec le code par
+     mail. Ses routes sont celles du compte (TOTP_ROUTES). */
+  $('totp-pourquoi').textContent = "À chaque connexion, tu choisis : le code reçu par mail "
+    + "ou celui de cette application. La dernière méthode utilisée est proposée d'office.";
   document.body.classList.add('compte-utilisateur');
   /* Les categories du hub et la version : l'affaire de l'administrateur. */
   $('zone-categories').remove(); $('zone-version').remove();
+}
+/* Le compte d'administration garde son nom (voir « le profil d'un compte »,
+   serveur/10) : pas de carte Profil. */
+if(estAdmin){
+  $('zone-profil').remove();
 }
 majOngletsParametres();
 /* Le hub est l'accueil de tout le monde. Laisse ouvert il reste juste : les

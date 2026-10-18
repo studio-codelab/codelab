@@ -1427,7 +1427,9 @@ def test_un_facteur_fort_rend_le_code_par_mail(comptes_mail):
     assert app.lire_utilisateurs()["marie"]["code_mail_suspendu"] is True
     app._login_attempts.clear()
     d = c.post("/login", json={"nom": "marie", "password": "nouveau-mot-de-passe"}).get_json()
-    assert d["moyens"] == ["passkey", "totp"]
+    # Le mail reste exclu ; Face ID vient apres l'application (il n'existe
+    # qu'en HTTPS, derriere « Essayer une autre methode »).
+    assert d["moyens"] == ["totp", "passkey"]
     code = app.totp_code("JBSWY3DPEHPK3PXP", int(time.time()) // app.TOTP_PAS)
     assert c.post("/login", json={"nom": "marie", "password": "nouveau-mot-de-passe",
                                   "code": code}).status_code == 200
@@ -2360,11 +2362,14 @@ def test_chaque_compte_regle_son_prenom_et_son_nom(deux_espaces):
     assert '"prenom": "Marie"' in page.split("window.CODELAB_PAGE = {")[1].split("</script>")[0]
     # Le nom est facultatif, et rien ne se perd a le vider.
     assert c.put("/api/mon-compte/profil", json={"prenom": "Marie", "nom": ""}).get_json()["nom"] == ""
-    # L'administrateur aussi, et il le voit dans la liste des comptes.
+    # L'administrateur garde son nom (« Pas de modification du nom/prenom
+    # pour l'admin ») : refuse cote serveur, pas de carte dans la page. Il
+    # voit en revanche celui des comptes dans leur liste.
     admin = app.flask_app.test_client()
     admin.post("/login", json={"nom": "admin", "password": "secret-de-test"})
-    assert admin.put("/api/mon-compte/profil", json={"prenom": "Lucas"}).status_code == 200
-    assert '"prenom": "Lucas"' in _page_servie(admin)
+    assert admin.put("/api/mon-compte/profil", json={"prenom": "Lucas"}).status_code == 403
+    assert '"prenom": ""' in _page_servie(admin)
+    assert "$('zone-profil').remove();" in _page_panneau("dashboard.html")
     liste = {u["nom"]: u for u in admin.get("/api/utilisateurs").get_json()["utilisateurs"]}
     assert liste["marie"]["profil"] == {"prenom": "Marie", "nom": ""}
     # Un type inattendu ne passe pas pour du texte.
@@ -2378,3 +2383,97 @@ def test_la_carte_session_espace_ses_boutons_du_texte():
     page = _page_panneau("dashboard.html")
     assert ".session-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}" in page
     assert ".settings-card.pliable>.card-corps{margin-top:18px}" in page
+
+
+# ---------------------- deux methodes au choix, la derniere d'office ----------------------
+#
+# Vecu : « je veux 2 methodes de 2Auth au choix sans https : un code par mail
+# ou [...] retenir la derniere methode utilisee pour l'utilisateur comme
+# methode par defaut (pas parametrable). Possibilite de cliquer sur Essayer
+# une autre methode ». Choisi ensuite : le mail et l'application
+# d'authentification, Face ID en plus en HTTPS.
+
+def test_la_derniere_methode_utilisee_est_proposee_d_office(comptes_mail):
+    """Sans historique, le code par mail vient en tete ; une connexion par
+    l'application la fait passer devant, sans qu'aucun mail ne parte."""
+    c, partis = comptes_mail
+    _compte_avec_adresse(face_id=False)
+    comptes = app.lire_utilisateurs()
+    comptes["marie"]["totp"] = "JBSWY3DPEHPK3PXP"
+    app.ecrire_utilisateurs(comptes)
+    d = c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long"}).get_json()
+    assert d["moyens"] == ["email", "totp"] and d["moyen"] == "email"
+    app._login_attempts.clear()
+    # Choisir l'application n'envoie rien : les methodes sont decorrelees.
+    partis.clear()
+    d = c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long",
+                               "moyen": "totp"}).get_json()
+    assert d["moyen"] == "totp" and partis == []
+    code = app.totp_code("JBSWY3DPEHPK3PXP", int(time.time()) // app.TOTP_PAS)
+    assert c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long",
+                                  "code": code}).status_code == 200
+    assert app.lire_utilisateurs()["marie"]["dernier_moyen"] == "totp"
+    # La fois suivante, l'application est proposee d'office.
+    autre = app.flask_app.test_client()
+    app._login_attempts.clear()
+    d = autre.post("/login", json={"nom": "marie", "password": "mot-de-passe-long"}).get_json()
+    assert d["moyens"] == ["totp", "email"] and d["moyen"] == "totp"
+    page = _page_panneau("login.html")
+    assert "Essayer une autre méthode" in page and "function basculerAutresMoyens()" in page
+
+
+def test_choisir_l_application_ne_coute_pas_d_essai(comptes_mail):
+    """Vecu : passer du code par mail a l'application (« Essayer une autre
+    methode ») consommait un essai sur cinq sans rien envoyer. Le mail, lui,
+    compte toujours : sans cela, le formulaire enverrait des mails en boucle."""
+    c, partis = comptes_mail
+    _compte_avec_adresse(face_id=False)
+    comptes = app.lire_utilisateurs()
+    comptes["marie"]["totp"] = "JBSWY3DPEHPK3PXP"
+    app.ecrire_utilisateurs(comptes)
+    app._login_attempts.clear()
+    for _ in range(8):
+        r = c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long",
+                                   "moyen": "totp"})
+        assert r.status_code == 401 and r.get_json()["moyen"] == "totp"
+    assert not any(app._login_attempts.values())
+    c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long", "moyen": "email"})
+    assert any(app._login_attempts.values())
+
+
+def test_un_compte_ajoute_et_retire_son_application_d_authentification(comptes_mail):
+    """Le compte qui a son adresse peut ajouter l'application, avec une
+    connexion recente (regle 8) ; il la retire avec un code valide, et jamais
+    s'il n'a plus d'autre facteur."""
+    c, partis = comptes_mail
+    _compte_avec_adresse(face_id=False)
+    partis.clear()
+    c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long"})
+    code = re.search(r"\b(\d{6})\b", partis[-1][1]).group(1)
+    assert c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long",
+                                  "code": code}).status_code == 200
+    assert app.lire_utilisateurs()["marie"]["dernier_moyen"] == "email"
+    assert c.get("/api/mon-compte/totp").get_json() == {"actif": False, "retirable": True}
+    d = c.post("/api/mon-compte/totp/preparer").get_json()
+    secret = d["secret"]
+    assert c.post("/api/mon-compte/totp/activer", json={"code": "000000"}).status_code == 400
+    bon = app.totp_code(secret, int(time.time()) // app.TOTP_PAS)
+    assert c.post("/api/mon-compte/totp/activer", json={"code": bon}).status_code == 200
+    assert app.lire_utilisateurs()["marie"]["totp"] == secret
+    # Retirer exige un code de l'application.
+    assert c.post("/api/mon-compte/totp/retirer", json={"code": "000000"}).status_code == 400
+    assert c.post("/api/mon-compte/totp/retirer", json={"code": bon}).status_code == 200
+    assert not app.lire_utilisateurs()["marie"].get("totp")
+    # Le dernier facteur ne se retire pas.
+    comptes = app.lire_utilisateurs()
+    comptes["marie"].update(totp=secret, email_verifie=False)
+    app.ecrire_utilisateurs(comptes)
+    r = c.post("/api/mon-compte/totp/retirer", json={"code": bon})
+    assert r.status_code == 400 and "seul second facteur" in r.get_json()["error"]
+    # Une connexion trop ancienne ne suffit pas pour ajouter un facteur.
+    comptes["marie"].pop("totp")
+    app.ecrire_utilisateurs(comptes)
+    with c.session_transaction() as s:
+        s["ouverte"] = int(time.time()) - 3600
+    r = c.post("/api/mon-compte/totp/preparer")
+    assert r.status_code == 403 and r.get_json().get("reconnexion")
