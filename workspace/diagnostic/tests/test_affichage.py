@@ -2683,3 +2683,20 @@ def test_le_fond_des_pages_est_uni_sans_motif_ni_reglage(page):
         reglages = texte.split('id="hub-reglages"')[1].split('<div class="choix-titre">')[0]
         assert "Fond d'écran" not in reglages and "setHub('motif'" not in texte
 
+
+
+
+
+def test_le_nom_d_une_tuile_garde_ses_jambages():
+    """Vecu : « Attention, les titres des apps sont coupes par la
+    description » -- le bas du « g » de TradingBot manquait. Le nom est coupe
+    a deux lignes (overflow:hidden) : sous 1.2, la ligne est plus basse que
+    les jambages du Manrope gras, et g, j, p, y sont rognes."""
+    import re as _re
+    page = _page_panneau("dashboard.html")
+    regle = page.split(".bento-carte-nom{")[1].split("}")[0]
+    assert "overflow:hidden" in regle
+    hauteur = float(_re.search(r"line-height:([0-9.]+)", regle).group(1))
+    assert hauteur >= 1.2, hauteur
+    for variante in (".bento-carte-nom.long{", ".bento-carte-nom.tres-long{"):
+        assert "line-height" not in page.split(variante)[1].split("}")[0], variante
