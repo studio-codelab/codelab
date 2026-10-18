@@ -47,7 +47,8 @@ Pour le changer, il faut redonner l'ancien, même avec une session déjà ouvert
 - un **code par mail** (comptes utilisateurs seulement). Il vaut 10 minutes, sert une fois, tolère
   5 essais et ne part que vers l'adresse vérifiée du compte, après un mot de passe juste.
 
-Les méthodes sont indépendantes : choisir l'une n'envoie ni ne prépare rien pour une autre. La page
+Les méthodes sont indépendantes : choisir l'une n'envoie ni ne prépare rien pour une autre, et seul
+le code de la méthode affichée est accepté (retenue dans le cookie signé, avec le compte). La page
 propose la dernière utilisée (retenue sur la fiche du compte, réglage `dernier_moyen_admin` pour
 l'administrateur) ; ce choix ne change que l'ordre, jamais la liste des méthodes permises. Chaque
 envoi de mail compte comme un essai de la limite de connexion, le choix de l'application non (rien

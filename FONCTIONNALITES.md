@@ -352,7 +352,11 @@ Détails : [`SECURITE.md`](SECURITE.md) et [`app-manager/README.md`](app-manager
 
   La méthode proposée est **la dernière utilisée** par le compte (le mail sans historique) ; ce
   n'est pas un réglage. « Essayer une autre méthode » déplie les autres : choisir l'application
-  n'envoie aucun mail.
+  n'envoie aucun mail. **Seul le code de la méthode affichée est accepté** : celui du mail ne passe
+  pas sur l'écran de l'application, et inversement.
+- **Remplissage automatique sur iPhone** : la page de connexion est un vrai formulaire. Safari
+  propose d'enregistrer le mot de passe, le remplit, et suggère le code reçu par mail ou le code de
+  validation gardé dans Mots de passe.
 - **Mot de passe oublié** par code mail, si le compte a aussi un autre facteur.
 - **Journal des accès** paginé (25 ou 50 lignes), filtrable, avec une **carte de chaleur** sur un an
   (*Ouvertures d'applications*). Survoler une case, ou l'appuyer au doigt, ouvre son détail en

@@ -193,17 +193,23 @@ def _connexion_admin(d, pw):
                                          "panneau en HTTPS, par son nom de domaine."}), 403
             attendre_second_facteur(NOM_ADMIN)
             moyen = d.get("moyen") if d.get("moyen") in moyens else moyens[0]
+            retenir_moyen_presente(NOM_ADMIN, moyen)
             if moyen == MOYEN_EMAIL:
                 return _code_admin_par_mail(moyens)
             return jsonify({"totp": True, "second_facteur": True,
                             "moyen": moyen, "moyens": moyens}), 401
-        par_appli = totp_actif() and totp_verifie(_totp_secret, code)
-        if not (par_appli or verifier_code_admin(code)):
+        presente = moyen_presente(NOM_ADMIN)
+        par_appli = (presente in (None, MOYEN_TOTP)
+                     and totp_actif() and totp_verifie(_totp_secret, code))
+        par_mail = (not par_appli and presente in (None, MOYEN_EMAIL)
+                    and verifier_code_admin(code))
+        if not (par_appli or par_mail):
             register_failed_attempt()
             journaliser("echec", qui=NOM_ADMIN, motif="second facteur", ip=_adresse_client())
             return jsonify({"error": avec_essais_restants("Code de vérification incorrect."),
                             "totp": True, "moyens": moyens}), 401
         noter_dernier_moyen(NOM_ADMIN, MOYEN_TOTP if par_appli else MOYEN_EMAIL)
+        session.pop("moyen_presente", None)
 
     session.permanent = True
     session["authed"] = True
@@ -282,9 +288,10 @@ def _second_facteur_utilisateur(d, nom, compte):
     # Sans aucun moyen (ni secret, ni code envoye), un code tape ne prouve
     # rien : on passe a l'inscription du facteur, plus bas.
     if code and (moyens or compte.get("code_connexion")):
-        ok = bool(secret) and totp_verifie(secret, code)
+        presente = moyen_presente(nom)
+        ok = presente in (None, MOYEN_TOTP) and bool(secret) and totp_verifie(secret, code)
         moyen_utilise = MOYEN_TOTP if ok else MOYEN_EMAIL
-        if not ok and compte.get("code_connexion"):
+        if not ok and presente in (None, MOYEN_EMAIL) and compte.get("code_connexion"):
             comptes = lire_utilisateurs()
             ok = verifier_code_connexion(comptes[nom], code)
             try:
@@ -300,6 +307,7 @@ def _second_facteur_utilisateur(d, nom, compte):
                             "totp": True, "moyens": moyens}), 401
         _lever_suspension_code_mail(nom)
         noter_dernier_moyen(nom, moyen_utilise)
+        session.pop("moyen_presente", None)
         return _ouvrir_session_utilisateur(nom)
 
     if moyens:
@@ -308,6 +316,7 @@ def _second_facteur_utilisateur(d, nom, compte):
         # s'il est dans la liste du compte -- la destination, elle, ne vient
         # jamais de la requete.
         moyen = d.get("moyen") if d.get("moyen") in moyens else moyens[0]
+        retenir_moyen_presente(nom, moyen)
         if moyen == MOYEN_PASSKEY:
             # Rien ne part : la page demande Face ID a l'appareil.
             attendre_second_facteur(nom)
@@ -376,6 +385,29 @@ def _second_facteur_utilisateur(d, nom, compte):
     # et la branche "moyens" ci-dessus a deja repondu. Garde par prudence.
     register_failed_attempt()
     return jsonify({"error": avec_essais_restants("Code de vérification incorrect."), "totp": True}), 401
+
+
+def retenir_moyen_presente(qui, moyen):
+    """La methode que la page montre : seul son code sera accepte.
+
+    Vecu : « 2 codes fonctionnent : celui de l'email et celui du code de
+    verification qui provient de mon telephone. Separe les 2 comme 2
+    methodes differentes. » Le code tape etait essaye contre l'application
+    PUIS contre le mail, quelle que soit la methode affichee. Retenue dans
+    le cookie signe, avec le compte : « Essayer une autre methode » la
+    remplace.
+    """
+    session["moyen_presente"] = {"qui": qui, "moyen": moyen}
+
+
+def moyen_presente(qui):
+    """La methode montree a ce compte, ou None si aucune ne l'a ete dans
+    cette session (appel direct de l'API) : les deux codes valent alors,
+    comme avant -- chacun est un second facteur a part entiere."""
+    retenu = session.get("moyen_presente")
+    if isinstance(retenu, dict) and retenu.get("qui") == qui:
+        return retenu.get("moyen")
+    return None
 
 
 def passkey_utilisable():
