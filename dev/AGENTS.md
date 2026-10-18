@@ -75,7 +75,7 @@ Tout cela est pose par `codelab create <nom>`, et remis au niveau de la stack
 par `codelab update` (lance depuis le dossier du projet) : le bloc de ce
 manuel, `CLAUDE.md`, les modules intacts, le `.gitignore` et la base. Rien de
 ce que le projet a ecrit n'est efface. Si une consigne de ce manuel semble
-manquer ou dater, propose de lancer `codelab update`. `codelab aide` liste
+manquer ou dater, propose de lancer `codelab update`. `codelab help` liste
 toutes les commandes.
 
 ## 5. Application web servie par le hub

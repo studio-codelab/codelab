@@ -11,7 +11,7 @@
 #                             base -- sans toucher a ce que le projet a ecrit
 #     ... --tous               tous les projets CodeLab de /workspace (--all)
 #   codelab video [projet]    la video de presentation du projet (video/presentation.mp4)
-#   codelab aide | help       l'aide, en francais ou en anglais (aide <commande>)
+#   codelab help [commande]   l'aide, en francais puis en anglais
 #
 #   Outils plus fins, appeles par les precedents : db <nom> (la base seule),
 #   vscode-bases (les connexions SQLTools). Anciens noms, gardes pour les
@@ -40,10 +40,12 @@ MODELES="${CODELAB_MODELES:-/usr/local/share/codelab/modeles}"
 DEBUT='<!-- codelab:debut -- bloc gere par "codelab agents", ne pas editer a la main -->'
 FIN='<!-- codelab:fin -->'
 
-# ------------------------------- aide -------------------------------
+# ------------------------------- help -------------------------------
 #
-# L'aide en deux langues : « codelab aide » en francais, « codelab help » en
-# anglais. La meme liste vit dans le hub (Applications > Commandes) et dans
+# L'aide en deux langues, sous une seule commande : « codelab help » ecrit le
+# francais puis l'anglais (« codelab help <commande> » : le detail). Vecu :
+# « retire codelab aide, ne garde que codelab help » -- un seul nom a retenir.
+# La meme liste vit dans le hub (Applications > Commandes) et dans
 # FONCTIONNALITES.md : un test verifie que chaque commande du dispatch y est.
 
 aide_fr() {
@@ -118,13 +120,13 @@ codelab -- l'outil de projet de CodeLab
                            modules, .gitignore, base), sans rien effacer
       --tous               tous les projets CodeLab de /workspace
   codelab video [projet]   la video de presentation du projet
-  codelab aide [commande]  cette aide (codelab help : en anglais)
+  codelab help [commande]  cette aide, en francais puis en anglais
 
   Outils plus fins : codelab db <nom> (la base seule),
                      codelab vscode-bases (connexions SQLTools).
   Anciens noms     : new = create ; agents = le manuel seul (update fait plus).
 
-  Detail d'une commande : codelab aide create
+  Detail d'une commande : codelab help create
 AIDE
     ;;
   esac
@@ -203,7 +205,7 @@ codelab -- the CodeLab project tool
                             modules, .gitignore, database), deleting nothing
       --all                 every CodeLab project in /workspace
   codelab video [project]   the project's presentation video
-  codelab help [command]    this help (codelab aide: in French)
+  codelab help [command]    this help, in French then in English
 
   Finer tools : codelab db <name> (the database only),
                 codelab vscode-bases (SQLTools connections).
@@ -215,7 +217,13 @@ HELP
   esac
 }
 
-usage() { aide_fr >&2; }
+aide() {
+  aide_fr "${1:-}"
+  echo "------------------------------------------------------------------------"
+  aide_en "${1:-}"
+}
+
+usage() { aide >&2; }
 
 # --------------------------------- new ---------------------------------
 #
@@ -799,8 +807,7 @@ case "${1:-}" in
   create)       shift; cmd_create "$@" ;;
   update)       shift; cmd_update "$@" ;;
   video)        shift; cmd_video "$@" ;;
-  aide|"")      aide_fr "${2:-}" ;;
-  help|-h|--help) aide_en "${2:-}" ;;
+  help|-h|--help|"") aide "${2:-}" ;;
   db)           shift; cmd_db "$@" ;;
   vscode-bases) shift; cmd_vscode_bases "$@" ;;
   # Anciens noms. new garde ses options (--db, --ouvrir) ; agents ne fait

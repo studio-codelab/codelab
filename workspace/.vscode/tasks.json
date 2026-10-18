@@ -53,9 +53,9 @@
     },
     {
       "label": "CodeLab : aide",
-      "detail": "codelab aide — toutes les commandes (codelab help : en anglais)",
+      "detail": "codelab help — toutes les commandes, en francais puis en anglais",
       "type": "shell",
-      "command": "codelab aide",
+      "command": "codelab help",
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": [],
       "presentation": { "reveal": "always", "panel": "shared", "clear": true }

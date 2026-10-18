@@ -2905,6 +2905,10 @@ a.pj:hover{border-color:var(--accent)}
           <div class="seg-hub" role="group" aria-label="Widgets">
             <button type="button" data-r="widgets" data-v="melanges" onclick="setHub('widgets','melanges')">Mêlés</button>
             <button type="button" data-r="widgets" data-v="haut" onclick="setHub('widgets','haut')">En haut</button></div></div>
+        <div class="reglage-ligne"><span><b>Fond d'écran</b><i>De petites croix à intervalle régulier, ou un fond uni.</i></span>
+          <div class="seg-hub" role="group" aria-label="Fond d'écran">
+            <button type="button" data-r="motif" data-v="croix" onclick="setHub('motif','croix')">Croix</button>
+            <button type="button" data-r="motif" data-v="uni" onclick="setHub('motif','uni')">Uni</button></div></div>
         <div class="reglage-ligne reglage-couleurs"><span><b>Couleurs</b><i>La teinte des boutons, des liens et de l'onglet actif, en clair comme en sombre.</i></span>
           <div class="nuancier" role="group" aria-label="Couleurs">
             <button type="button" data-r="couleurs" data-v="lagon" onclick="setHub('couleurs','lagon')" title="Lagon"><i style="background:#0E7C86"></i>Lagon</button>
@@ -3677,13 +3681,13 @@ a.pj:hover{border-color:var(--accent)}
 </div></div>
 
 <!-- LES COMMANDES CODELAB, pour l'administrateur : la meme liste que
-     « codelab aide » (et « codelab help », en anglais) dans un terminal du
+     « codelab help » (en francais puis en anglais) dans un terminal du
      poste de developpement, et que FONCTIONNALITES.md. Un test verifie que
      chaque commande de l'outil y figure. -->
 <div class="ov" id="ov-commandes"><div class="modal" role="dialog" aria-labelledby="cmd-titre">
   <div class="mh"><h3 id="cmd-titre">Commandes du poste de développement</h3>
     <p>À taper dans un terminal de <code>codelab-dev</code> (VS Code ou SSH).
-      <code>codelab aide</code> les rappelle en français, <code>codelab help</code> en anglais.</p></div>
+      <code>codelab help</code> les rappelle, en français et en anglais.</p></div>
   <div class="mb">
     <dl class="cmd-liste">
       <div><dt><code>codelab create &lt;nom&gt;</code></dt>
@@ -3699,8 +3703,8 @@ a.pj:hover{border-color:var(--accent)}
         <dd>La vidéo de présentation montrée sur la fiche : la première fois, pose
           <code>video/scenario.mjs</code> à compléter (ou à faire écrire par l'agent) ; ensuite, filme
           l'application, ajoute la voix off et monte la vidéo dans <code>video/</code>.</dd></div>
-      <div><dt><code>codelab aide [commande]</code> · <code>codelab help [command]</code></dt>
-        <dd>L'aide, en français ou en anglais, avec le détail d'une commande.</dd></div>
+      <div><dt><code>codelab help [commande]</code></dt>
+        <dd>L'aide, en français puis en anglais, avec le détail d'une commande.</dd></div>
       <div><dt><code>codelab db &lt;nom&gt;</code> · <code>codelab vscode-bases</code></dt>
         <dd>Outils plus fins, appelés par <code>create</code> et <code>update</code> : la base seule,
           et les connexions des bases dans SQLTools (VS Code).</dd></div>

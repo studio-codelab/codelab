@@ -42,7 +42,8 @@ noterThemePartage(themeChoisi);
    par defaut. */
 const REGLAGES_HUB = {tuiles:['cartes','icones'], defilement:['horizontal','vertical'],
   widgets:['melanges','haut'],
-  couleurs:['lagon','ocean','foret','prune','corail','ardoise','framboise','ambre','indigo','olive','perso']};
+  couleurs:['lagon','ocean','foret','prune','corail','ardoise','framboise','ambre','indigo','olive','perso'],
+  motif:['croix','uni']};
 /* La couleur personnalisee : six chiffres hexadecimaux, portes par le jeton
    « x… » du meme cookie (voir couleur_perso dans le serveur). */
 const COULEUR_PERSO = /^[0-9a-fA-F]{6}$/;

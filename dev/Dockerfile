@@ -132,7 +132,7 @@ COPY dev/AGENTS.md /usr/local/share/codelab/AGENTS.md
 COPY dev/modeles/ /usr/local/share/codelab/modeles/
 
 # Outil de projet : "codelab create" (un projet complet), "codelab update"
-# (le remettre au niveau de la stack), "codelab video" et "codelab aide".
+# (le remettre au niveau de la stack), "codelab video" et "codelab help".
 # Dans le PATH de toutes les sessions SSH, d'ou /usr/local/bin. Sans
 # extension : c'est un executable, pas un fichier a sourcer.
 # Une base, un compte : le script partage avec codelab-postgres et le
