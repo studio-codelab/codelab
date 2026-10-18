@@ -3169,3 +3169,41 @@ def test_le_laissez_passer_demarre_une_application_arretee(tournage, monkeypatch
     lances.clear()
     monkeypatch.setattr(app, "start", lambda n, attendre=True: lances.append(n))
     assert _ticket(c, cle="fausse").status_code == 403 and lances == []
+
+
+def test_le_laissez_passer_retrouve_l_application_par_son_dossier(tournage, monkeypatch):
+    """Vecu : « pas de laissez-passer : Application introuvable » -- le
+    projet wine-manager etait declare sous un autre nom. Le dossier du projet
+    designe l'application, quel que soit son nom au panneau."""
+    c, _vus = tournage
+    monkeypatch.setattr(app, "ROOT", "/w")
+
+    def par_dossier(dossier, cle=CLE_TOURNAGE):
+        return c.post("/api/tournage", json={"dossier": dossier},
+                      headers={"X-CodeLab-Tournage": cle})
+    a = app.load()
+    a["prive-refuse"]["titre"] = "Cave Privée"
+    app.save(a)
+    r = par_dossier("/w/b")
+    assert r.status_code == 200 and r.get_json()["app"] == "prive-refuse", r.get_json()
+    # Le nom affiche, pour les cartons de la video.
+    assert r.get_json()["titre"] == "Cave Privée"
+    assert c.get(f"/prive-refuse/?codelab-tournage={r.get_json()['ticket']}").status_code == 302
+    # Le projet au-dessus d'une seule application declaree dans un sous-dossier.
+    a = app.load()
+    a["prive-refuse"]["path"] = "/w/cave/site"
+    app.save(a)
+    assert par_dossier("/w/cave").get_json()["app"] == "prive-refuse"
+    # Rien, ou trop : refuse, et le dit.
+    r = par_dossier("/w/rien")
+    assert r.status_code == 404 and "déclare-la" in r.get_json()["error"]
+    a["prive-autorise"]["path"] = "/w/cave/api"
+    app.save(a)
+    r = par_dossier("/w/cave")
+    assert r.status_code == 404 and "prive-autorise, prive-refuse" in r.get_json()["error"]
+    # Hors de /workspace, ou sans la cle : rien.
+    assert par_dossier("/etc").status_code == 404
+    assert par_dossier("/w/../etc").status_code == 404
+    assert par_dossier({"x": 1}).status_code == 404
+    r = par_dossier("/w/b", cle="fausse")
+    assert r.status_code == 403 and "cave" not in r.get_data(as_text=True)

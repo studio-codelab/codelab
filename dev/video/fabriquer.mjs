@@ -97,6 +97,40 @@ const taille = { width: scenario.taille?.largeur || 1600, height: scenario.taill
 const PANNEAU_INTERNE = process.env.CODELAB_PANNEAU_INTERNE || "http://codelab-app-manager:9001";
 const FICHIER_CLE = process.env.CODELAB_TOURNAGE_FICHIER || join(homedir(), ".codelab-tournage");
 
+// LE VRAI NOM. Vecu : « Prend le vrai nom de l'app avec les majuscules, pas
+// le nom dans l'url ». Le modele de scenario met le nom du dossier
+// (« wine-manager ») dans le titre, le carton de fin et la voix ; le panneau,
+// lui, connait le nom affiche (« Wine Manager »). Seuls les noms techniques
+// sont remplaces : un titre choisi a la main reste tel quel.
+function prendreLeVraiNom(titre, techniques) {
+  if (!titre) return;
+  const noms = [...new Set(techniques.filter(n => n && n !== titre))];
+  if (!noms.length) return;
+  const motif = new RegExp(`(^|[^\\w-])(${noms.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})(?![\\w-])`, "g");
+  const remplacer = t => typeof t === "string" ? t.replace(motif, (_m, avant) => avant + titre) : t;
+  const avant = scenario.titre;
+  scenario.titre = noms.includes(scenario.titre) || !scenario.titre ? titre : remplacer(scenario.titre);
+  if (scenario.fin) scenario.fin.titre = noms.includes(scenario.fin.titre) ? titre : remplacer(scenario.fin.titre);
+  for (const e of scenario.etapes) e.voix = remplacer(e.voix);
+  if (scenario.titre !== avant) dire(`titre : « ${scenario.titre} » (le nom de l'application au panneau).`);
+}
+
+async function demanderAuPanneau(chemin, corps) {
+  const r = await fetch(`${PANNEAU_INTERNE}${chemin}`, {
+    method: "POST",
+    headers: { "X-CodeLab-Tournage": readFileSync(FICHIER_CLE, "utf-8").trim(),
+               "Content-Type": "application/json" },
+    body: JSON.stringify(corps || {}), signal: AbortSignal.timeout(60000),
+  });
+  const d = await r.json().catch(() => ({}));
+  return r.ok && d.ticket ? d : { error: d.error || `HTTP ${r.status}` };
+}
+
+// Le ticket, d'abord par le DOSSIER du projet (vecu : « Application
+// introuvable » -- l'application etait declaree sous un autre nom que son
+// dossier), sinon par le nom ecrit dans l'adresse. L'adresse filmee devient
+// celle que le panneau donne a l'application, le reste du chemin garde.
+// 60 s d'attente : le panneau peut avoir a demarrer l'application.
 async function demanderLaissezPasser(adresse) {
   if (!adresse) return null;
   const url = new URL(adresse);
@@ -105,20 +139,25 @@ async function demanderLaissezPasser(adresse) {
          `filme-la par le hub (http://${HUB_INTERNE}/<app>/) : tu y seras connecte d'office.`);
     return null;
   }
-  const nom = url.pathname.split("/").filter(Boolean)[0];
-  if (!nom) return null;
+  const [nom, ...reste] = url.pathname.split("/").filter(Boolean);
   if (!existsSync(FICHIER_CLE)) {
     dire(`pas de laissez-passer : ${FICHIER_CLE} absent (redemarre codelab-dev apres la mise a jour).`);
     return null;
   }
   try {
-    const r = await fetch(`${PANNEAU_INTERNE}/api/tournage/${encodeURIComponent(nom)}`, {
-      method: "POST", headers: { "X-CodeLab-Tournage": readFileSync(FICHIER_CLE, "utf-8").trim() },
-      signal: AbortSignal.timeout(5000),
-    });
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok || !d.ticket) { dire(`pas de laissez-passer : ${d.error || "HTTP " + r.status}`); return null; }
+    let d = await demanderAuPanneau("/api/tournage", { dossier: dossier });
+    if (d.error && nom) {
+      const parNom = await demanderAuPanneau(`/api/tournage/${encodeURIComponent(nom)}`);
+      d = parNom.error ? d : parNom;
+    }
+    if (d.error) { dire(`pas de laissez-passer : ${d.error}`); return null; }
+    if (d.app !== nom) {
+      url.pathname = `/${d.app}/` + (reste.length ? reste.join("/") + (url.pathname.endsWith("/") ? "/" : "") : "");
+      scenario.adresse = url.href;
+      dire(`application « ${d.app} » au panneau : tournage sur ${scenario.adresse}`);
+    }
     if (d.demarree) dire("application demarree par le panneau pour le tournage.");
+    prendreLeVraiNom(d.titre, [nom, d.app, basename(dossier)]);
     return d.ticket;
   } catch (e) {
     dire(`pas de laissez-passer : le panneau ne repond pas (${e.message}).`);

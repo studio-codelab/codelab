@@ -277,7 +277,8 @@ Sans lui, les réglages chiffrés deviennent illisibles.
     un ticket à usage unique d'une minute, puis un cookie de dix minutes. Il donne à cette
     application l'identité de l'administrateur (marquée `tournage`), jamais une session du panneau.
     Arrêtée, l'application démarre, par le même chemin que le bouton du panneau : seulement sa
-    commande déjà enregistrée, jamais une nouvelle.
+    commande déjà enregistrée, jamais une nouvelle. Elle peut se désigner par son dossier de projet,
+    dans `/workspace` seulement.
     La session du poste a déjà le compte de chaque base de projet : le laissez-passer ne lui donne
     pas plus.
 13. Toute route qui modifie quelque chose exige le jeton anti-falsification de la session, sauf les

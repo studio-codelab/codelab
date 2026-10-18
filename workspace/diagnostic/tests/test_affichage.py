@@ -2700,3 +2700,38 @@ def test_le_nom_d_une_tuile_garde_ses_jambages():
     assert hauteur >= 1.2, hauteur
     for variante in (".bento-carte-nom.long{", ".bento-carte-nom.tres-long{"):
         assert "line-height" not in page.split(variante)[1].split("}")[0], variante
+
+
+
+
+def test_la_video_prend_le_vrai_nom_de_l_application(tmp_path):
+    """Vecu : « Prend le vrai nom de l'app avec les majuscules, pas le nom
+    dans l'url ». Les noms techniques (dossier, adresse) du titre, du carton
+    de fin et de la voix deviennent le nom affiche par le panneau ; un titre
+    choisi a la main reste."""
+    import shutil
+    import subprocess
+    if not shutil.which("node"):
+        pytest.skip("node absent")
+    source = open(os.path.join(_racine_depot(), "dev", "video", "fabriquer.mjs"), encoding="utf-8").read()
+    fonction = source[source.index("function prendreLeVraiNom"):source.index("async function demanderAuPanneau")]
+    essai = tmp_path / "essai.mjs"
+    essai.write_text("const dire = () => {};\nlet scenario;\n" + fonction + """
+const sorties = [];
+scenario = {titre: "wine-manager", fin: {titre: "wine-manager"},
+            etapes: [{voix: "Voici wine-manager, ta cave."}, {voix: "Le wine-manager-bis reste."}]};
+prendreLeVraiNom("Wine Manager", ["wine-manager", "wine-manager"]);
+sorties.push(scenario);
+scenario = {titre: "Ma cave", etapes: [{voix: "Bienvenue"}]};
+prendreLeVraiNom("Wine Manager", ["wine-manager"]);
+sorties.push(scenario);
+console.log(JSON.stringify(sorties));
+""", encoding="utf-8")
+    r = subprocess.run(["node", str(essai)], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, r.stderr
+    import json as _json
+    remplace, garde = _json.loads(r.stdout)
+    assert remplace["titre"] == remplace["fin"]["titre"] == "Wine Manager"
+    assert remplace["etapes"][0]["voix"] == "Voici Wine Manager, ta cave."
+    assert remplace["etapes"][1]["voix"] == "Le wine-manager-bis reste."
+    assert garde["titre"] == "Ma cave"
