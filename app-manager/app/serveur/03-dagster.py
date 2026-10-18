@@ -403,6 +403,9 @@ def _tuile_service(nom, description, adresse, debout, port):
         # Le panneau ne lance pas ce service : son adresse d'ecoute n'est pas
         # la sienne a surveiller.
         "ecoute_large": False,
+        # Un service de la stack ne s'archive pas.
+        "archivee": False, "archivee_le": None, "effacement_le": None,
+        "configuration_effacee": False,
         "failed": False, "crash_looping": False, "has_build": False, "dernier_echec": None,
         "build_command": "", "max_memory_mb": None, "alertes": [],
         "cpu_percent": 0.0, "memory_mb": 0.0,

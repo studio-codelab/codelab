@@ -104,8 +104,9 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
         minutes, la valeur exacte au survol ; « élevé » au-delà de 80 %, « saturé » au-delà de 92 %),
         « Activité » (admin : les ouvertures des quatorze derniers jours en barres, le total, la
         tendance par rapport aux quatorze jours d'avant ; en grand, les applications les plus
-        ouvertes), « Nouvelles
-        versions », « Écrire à l'administrateur » et « Mes messages » (comptes utilisateurs). Le
+        ouvertes), « Nouveautés » (les applications pas encore ouvertes, puis celles mises à jour ;
+        dans le hub de départ), « Écrire à l'administrateur » et « Mes messages » (comptes
+        utilisateurs). Le
         serveur ne propose et n'accepte que les widgets du rôle : un compte utilisateur ne peut pas
         poser un widget d'administration, même en appelant la route à la main ;
       - applications : « Aperçu » d'une application choisie, en direct, réduit et inerte ; un clic
@@ -113,6 +114,9 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
 - **Indicateur « Nouvelle version »** sur la tuile d'une application qui a changé depuis la dernière
   fois que ce compte l'a ouverte : un déploiement ou un build réussi depuis le panneau, ou un
   nouveau commit dans son dépôt git. Une application jamais ouverte n'en porte pas.
+- **Indicateur « Nouveau »** (comptes utilisateurs) sur la tuile d'une application à laquelle le
+  compte a accès et qu'il n'a encore jamais ouverte depuis le hub ; le résumé du hub les compte
+  (« 2 nouvelles »). L'ouvrir l'éteint.
 - **Thème clair, sombre ou automatique.** Les jetons de couleur vivent dans
   `app-manager/app/theme.css`, aussi servi aux applications sur `/theme.css`.
 - **Installable sur l'écran d'accueil** d'un téléphone ou d'une tablette (manifeste web et icônes fournis),
@@ -128,7 +132,8 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
 - **Notifications** (*Paramètres › Apparence*, un interrupteur par appareil), même CodeLab fermé :
   - l'administrateur : un nouveau message, une application qui tombe (et ne redémarre plus), puis son
     retour ;
-  - un compte utilisateur : l'avancement d'un message qu'il a envoyé (à l'étude, planifié, en cours,
+  - un compte utilisateur : une nouvelle application à laquelle il a désormais accès (une fois par
+    accès accordé), et l'avancement d'un message qu'il a envoyé (à l'étude, planifié, en cours,
     fait, non retenu) ;
   - un bouton « Envoyer une notification d'essai » ; toucher une notification ouvre la bonne page ;
   - les mails partent toujours : la notification s'y ajoute ;
@@ -221,6 +226,16 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
 - **Nom libre, adresse dérivée** : `Mon Site` est servi sous `/mon-site/`. Un nom réservé par une
   route du panneau est refusé.
 - **Renommer** une application : son adresse, ses droits et ses fichiers suivent.
+- **Archiver** une application (fiche, onglet *Configuration*) : elle s'arrête, quitte le hub et son
+  adresse (qui répond comme une adresse inconnue), et prend le statut **« Archivée »**, au même rang
+  que « En ligne » ou « Arrêtée » : la liste des applications la garde, et le filtre « Archivées »
+  la retrouve. Sa fiche dit quand elle a été archivée ; « Désarchiver » la ramène telle quelle,
+  arrêtée.
+  - Au bout de 30 jours, **seule sa configuration est effacée** : commandes, port, visibilité,
+    mémoire, droits des comptes, alertes. L'application reste, archivée, avec son nom, son dossier et
+    sa description. Désarchivée ensuite, elle revient privée, avec un port et des commandes
+    redétectées, à vérifier avant de la démarrer.
+  - Le dossier du projet dans `/workspace` n'est jamais touché.
 - **Description**, affichée sous le nom dans la tuile du hub, sur deux lignes : environ 45 caractères
   s'y voient, le reste au survol (140 au plus). La fiche le dit sous le champ, avec un compteur. Le
   nom passe toujours avant la description : un nom long prend un corps plus petit plutôt que d'être
@@ -285,6 +300,9 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
   adresse publique est déclarée).
 - **Se connecter avec CodeLab** (SSO) : l'application reconnaît la personne sans formulaire, grâce
   aux modules `codelab_auth.py` et `codelab-auth.js`.
+
+**Le fond** : uni, dans les couleurs du thème, semé de petites étoiles à intervalle régulier,
+discrètes en clair comme en sombre (panneau, connexion, messagerie).
 
 **Comme une vraie application**
 
@@ -352,7 +370,11 @@ Détails : [`SECURITE.md`](SECURITE.md) et [`app-manager/README.md`](app-manager
 
   La méthode proposée est **la dernière utilisée** par le compte (le mail sans historique) ; ce
   n'est pas un réglage. « Essayer une autre méthode » déplie les autres : choisir l'application
-  n'envoie aucun mail.
+  n'envoie aucun mail. **Seul le code de la méthode affichée est accepté** : celui du mail ne passe
+  pas sur l'écran de l'application, et inversement.
+- **Remplissage automatique sur iPhone** : la page de connexion est un vrai formulaire. Safari
+  propose d'enregistrer le mot de passe, le remplit, et suggère le code reçu par mail ou le code de
+  validation gardé dans Mots de passe.
 - **Mot de passe oublié** par code mail, si le compte a aussi un autre facteur.
 - **Journal des accès** paginé (25 ou 50 lignes), filtrable, avec une **carte de chaleur** sur un an
   (*Ouvertures d'applications*). Survoler une case, ou l'appuyer au doigt, ouvre son détail en

@@ -1821,6 +1821,9 @@ def test_une_nouvelle_version_se_signale_a_qui_a_deja_ouvert(tmp_path, monkeypat
     apps["prive-autorise"]["path"] = str(projet)
     app.save(apps)
     assert app.commit_du_projet(str(projet)) == "a" * 40
+    # Une application qui fonctionne : seule elle compte comme ouverte.
+    monkeypatch.setattr(app, "is_running", lambda n: True)
+    monkeypatch.setattr(app, "_listening", {})
     u = app.flask_app.test_client()
     _connecte(u, "marie", "mot-de-passe-long")
 
@@ -1847,6 +1850,34 @@ def test_une_nouvelle_version_se_signale_a_qui_a_deja_ouvert(tmp_path, monkeypat
     # On ne note pas l'ouverture d'une application qu'on ne peut pas voir.
     assert u.post("/api/mes-apps/prive-refuse/ouverte").status_code == 404
     assert u.post("/api/mes-apps/inconnue/ouverte").status_code == 404
+
+
+def test_une_application_en_panne_ne_compte_pas_comme_derniere_ouverte(monkeypatch, deux_espaces):
+    """Vecu : « une application qui ne fonctionne pas ne doit pas compter
+    comme une derniere application ouverte dans le widget ». Arretee, ou
+    lancee mais muette sur son port : rien n'est note, et la reponse est la
+    meme que pour une application qui marche (l'etat ne regarde pas un
+    compte utilisateur)."""
+    u = app.flask_app.test_client()
+    _connecte(u, "marie", "mot-de-passe-long")
+
+    def ouverte_le():
+        (a,) = [x for x in u.get("/api/mes-apps").get_json()["apps"] if x["name"] == "prive-autorise"]
+        return a["ouverte_le"]
+    monkeypatch.setattr(app, "is_running", lambda n: False)
+    r = u.post("/api/mes-apps/prive-autorise/ouverte")
+    assert r.status_code == 200 and r.get_json() == {"ok": True}
+    assert ouverte_le() is None
+    monkeypatch.setattr(app, "is_running", lambda n: True)
+    monkeypatch.setattr(app, "_listening", {"prive-autorise": False})
+    assert u.post("/api/mes-apps/prive-autorise/ouverte").get_json() == {"ok": True}
+    assert ouverte_le() is None
+    # Elle repond : la voila derniere ouverte.
+    monkeypatch.setattr(app, "_listening", {"prive-autorise": True})
+    u.post("/api/mes-apps/prive-autorise/ouverte")
+    assert ouverte_le()
+    page = _page_panneau("dashboard.html")
+    assert "codelab-hub-derniere" not in page
 
 
 
@@ -2023,3 +2054,92 @@ def test_un_appui_long_ouvre_le_menu_en_feuille():
     assert "e.stopImmediatePropagation()" in appui
     assert "#hub-liste [data-app]{-webkit-touch-callout:none;" in page
     assert "$('hub-liste').addEventListener('contextmenu'" in page
+
+
+# ---------- l'archivage d'une application ----------
+
+def test_une_application_archivee_garde_sa_place_avec_le_statut_archivee(hub, monkeypatch):
+    """Vecu : « donner la possibilite d'archiver une app », puis « les archives
+    ont un statut d'archive, qui est un statut de meme niveau que en ligne,
+    arrete, etc. Il faut pouvoir les filtrer comme ceci ».
+    Archivee : hors du hub et du proxy, jamais redemarree, mais toujours dans
+    la page des applications (liste « archivees » de /api/apps), sa fiche et
+    les droits des comptes gardes. Desarchivee : de retour, arretee."""
+    c = hub
+    monkeypatch.setattr(app, "stop", lambda n: None)
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    r = c.post("/api/app/compta/archiver")
+    assert r.status_code == 200 and r.get_json()["effacement_le"]
+    d = c.get("/api/apps").get_json()
+    assert "compta" not in [a["name"] for a in d["apps"]]
+    (arch,) = d["archivees"]
+    assert arch["name"] == "compta" and arch["archivee"] is True and arch["command"] == "x"
+    assert arch["effacement_le"] == arch["archivee_le"] + 30 * 86400
+    assert app.load()["compta"]["enabled"] is False
+    # Ni le proxy, ni un demarrage, ni un build.
+    assert c.get("/compta/").status_code == 404
+    monkeypatch.setattr(app, "is_running", lambda n: False)
+    assert "archives" in app.start("compta")
+    assert app.run_build("compta")[0] is False
+    # Le nom reste reserve.
+    r = c.post("/api/add", json={"name": "compta", "path": "/w/a"})
+    assert r.status_code == 400 and "archives" in r.get_json()["error"]
+    # La fiche de marie, enregistree sans compta (qu'elle ne voit plus), garde le droit.
+    assert c.put("/api/utilisateurs/marie", json={"projets": ["vitrine"]}).status_code == 200
+    assert app.lire_utilisateurs()["marie"]["projets"] == ["compta", "vitrine"]
+    u = app.flask_app.test_client()
+    _connecte(u, "marie", "mot-de-passe-long")
+    assert "compta" not in [a["name"] for a in u.get("/api/mes-apps").get_json()["apps"]]
+    # Desarchivee : de retour, arretee, avec ses droits et sa configuration.
+    r = c.post("/api/app/compta/desarchiver")
+    assert r.status_code == 200 and r.get_json()["a_reconfigurer"] is False
+    d = c.get("/api/apps").get_json()
+    assert "compta" in [a["name"] for a in d["apps"]] and d["archivees"] == []
+    assert "compta" in [a["name"] for a in u.get("/api/mes-apps").get_json()["apps"]]
+    assert app.load()["compta"]["enabled"] is False and app.load()["compta"]["port"] == 9101
+    assert c.post("/api/app/compta/desarchiver").status_code == 404
+    page = _page_panneau("dashboard.html")
+    assert "['arch','Archivées']" in page and "if(a.archivee) return ['arch','Archivée'];" in page
+
+
+def test_trente_jours_apres_seule_la_configuration_est_effacee(hub, monkeypatch, tmp_path):
+    """Vecu : « Une application archivee depuis trop longtemps n'est pas
+    supprimee. Seule sa configuration l'est. » Au bout de 30 jours : plus de
+    commandes, de port, de droits ni d'alertes ; l'application reste,
+    archivee. Desarchivee ensuite, elle revient privee, avec un port et des
+    commandes redetectees."""
+    c = hub
+    monkeypatch.setattr(app, "stop", lambda n: None)
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    projet = tmp_path / "compta"
+    projet.mkdir()
+    (projet / "index.html").write_text("<html>")
+    apps = app.load()
+    apps["compta"]["path"] = str(projet)
+    app.save(apps)
+    assert c.post("/api/app/compta/archiver").status_code == 200
+    quand = app.load()["compta"]["archivee_le"]
+    assert app.purger_les_apps_archivees(quand + 29 * 86400) == []
+    assert app.purger_les_apps_archivees(quand + 30 * 86400) == ["compta"]
+    a = app.load()["compta"]
+    assert app.est_archivee(a) and a["path"] == str(projet)
+    for cle in ("command", "port", "visibility"):
+        assert cle not in a, cle
+    assert "compta" not in app.lire_utilisateurs()["marie"]["projets"]
+    (arch,) = c.get("/api/apps").get_json()["archivees"]
+    assert arch["configuration_effacee"] is True and arch["effacement_le"] is None
+    # Une seule fois.
+    assert app.purger_les_apps_archivees(quand + 60 * 86400) == []
+    r = c.post("/api/app/compta/desarchiver")
+    assert r.get_json()["a_reconfigurer"] is True
+    a = app.load()["compta"]
+    assert a["visibility"] == "privee" and a["port"] and "http.server" in a["command"]
+
+
+def test_une_application_par_defaut_ne_s_archive_pas(hub):
+    c = hub
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    assert c.post(f"/api/app/{app.DIAGNOSTIC_NOM}/archiver").status_code == 403
+    assert c.post("/api/app/inconnue/archiver").status_code == 404
+    page = _page_panneau("dashboard.html")
+    assert 'id="e-archiver"' in page and 'id="zone-archives"' not in page

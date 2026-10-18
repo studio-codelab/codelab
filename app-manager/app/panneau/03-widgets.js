@@ -325,12 +325,20 @@ function widgetMessages(taille){
     <div><div class="bento-chiffre">${chiffre('messages', n)}</div><p>${n ? (n>1 ? 'nouveaux messages' : 'nouveau message') : 'Rien de nouveau.'}</p></div>
     ${taille!=='petit' ? `<a class="bento-bouton" href="/messages">Ouvrir ${SVG_FLECHE}</a>` : ''}`;
 }
+/* NOUVEAUTES : les applications que ce compte n'a pas encore ouvertes
+   (« Nouvelle »), puis celles mises a jour depuis sa derniere visite.
+   Vecu : « un widget nouveautes [...] pour avertir un utilisateur qu'une
+   nouvelle application est disponible ». L'ouvrir l'eteint. */
 function widgetNouveautes(taille){
-  const maj=hubApps.filter(a=>a.nouvelle_version);
-  if(!maj.length) return `<div class="bw-titre">Nouvelles versions</div><p class="bw-vide">Tout est à jour.</p>`;
-  return `<div class="bw-titre">Nouvelles versions</div>
-    ${taille==='petit' ? `<div><div class="bento-chiffre">${chiffre('nouveautes', maj.length)}</div><p>application${maj.length>1?'s':''} à redécouvrir</p></div>`
-      : `<div class="bw-liste">${maj.slice(0,4).map(a=>`<a href="${lienOuverture(a)}" data-app="${esc(a.name)}"><img src="${icone(a.name)}" alt=""><span>${esc(nomAffiche(a))}</span></a>`).join('')}</div>`}`;
+  const neuves=hubApps.filter(a=>a.nouvelle), maj=hubApps.filter(a=>!a.nouvelle && a.nouvelle_version);
+  const toutes=[...neuves, ...maj];
+  if(!toutes.length) return `<div class="bw-titre">Nouveautés</div><p class="bw-vide">Rien de nouveau : tout est à jour.</p>`;
+  const ligne=a=>`<a href="${lienOuverture(a)}" data-app="${esc(a.name)}"><img src="${icone(a.name)}" alt=""><span>${esc(nomAffiche(a))}</span>
+    <em class="bw-quoi">${a.nouvelle ? 'Nouvelle' : 'Mise à jour'}</em></a>`;
+  return `<div class="bw-titre">Nouveautés</div>
+    ${taille==='petit' ? `<div><div class="bento-chiffre">${chiffre('nouveautes', toutes.length)}</div><p>${neuves.length
+        ? (neuves.length>1 ? 'nouvelles applications' : 'nouvelle application') : 'mise'+(maj.length>1?'s':'')+' à jour'}</p></div>`
+      : `<div class="bw-liste">${toutes.slice(0,4).map(ligne).join('')}</div>`}`;
 }
 /* Les trois sujets d'un message : ce que l'administrateur en fera depend
    d'abord de cela -- une amelioration du hub, un nouveau projet, ou le
@@ -433,7 +441,6 @@ function actionMenuApp(quoi, nom){
   fermerMenuApp(false);
   const a=appDuHub(nom); if(!a) return;
   if(quoi==='ouvrir'){
-    try{ localStorage.setItem('codelab-hub-derniere', nom); }catch(err){}
     if(hubApps.some(x=>x.name===nom))
       fetch('/api/mes-apps/'+encodeURIComponent(nom)+'/ouverte', {method:'POST', keepalive:true}).catch(()=>{});
     location.href=lienOuverture(a);
@@ -639,11 +646,11 @@ function peindreBento(liste, filtre){
      claire sous un logo transparent (Dagster). */
   const carte = reglageHub('tuiles')==='icones'
     ? (a, e) => { const [c]=etatApp(a);
-        return `<${balise} class="hub-icone ${c}${a.nouvelle_version?' maj':''}${a.externe && a.plaque ? ' service-stack' : ''}" ${lien(a)} data-app="${esc(a.name)}" data-el="${esc(cleElement(e))}"
+        return `<${balise} class="hub-icone ${c}${aDuNouveau(a)?' maj':''}${a.externe && a.plaque ? ' service-stack' : ''}" ${lien(a)} data-app="${esc(a.name)}" data-el="${esc(cleElement(e))}"
           title="${esc(nomAffiche(a))}${a.description ? ' — '+esc(a.description) : ''}">
           <img src="${icone(a.name)}" alt=""><span class="hub-icone-nom">${esc(nomAffiche(a))}</span>${pastille(a)}${hubEdition ? gestesEdition(e, nomAffiche(a)) : boutonMenuApp(a)}</${balise}>`; }
     : (a, e) => { const [c]=etatApp(a);
-        return `<${balise} class="bento-carte ${c}${a.nouvelle_version?' maj':''}" ${lien(a)} data-app="${esc(a.name)}" data-el="${esc(cleElement(e))}">
+        return `<${balise} class="bento-carte ${c}${aDuNouveau(a)?' maj':''}" ${lien(a)} data-app="${esc(a.name)}" data-el="${esc(cleElement(e))}">
           <div class="bento-carte-haut"><img src="${icone(a.name)}" alt="">${badgeEtat(a)}</div>
           <div class="bento-carte-nom${classeNomLong(nomAffiche(a))}">${esc(nomAffiche(a))}</div>
           ${badgeMaj(a)}<div class="bento-carte-desc" title="${desc(a)}">${desc(a)}</div>${pastille(a)}${hubEdition ? gestesEdition(e, nomAffiche(a)) : boutonMenuApp(a)}</${balise}>`; };
@@ -709,8 +716,10 @@ function peindreResumeHub(){
       soucis ? `<b class="resume-souci">${chiffre('resume-soucis', soucis)}</b> à regarder` : '',
       msg ? `<b>${chiffre('resume-msg', msg)}</b> message${msg>1?'s':''} à lire` : ''];
   }else{
-    const maj=hubApps.filter(a=>a.nouvelle_version).length;
+    const neuves=hubApps.filter(a=>a.nouvelle).length;
+    const maj=hubApps.filter(a=>!a.nouvelle && a.nouvelle_version).length;
     morceaux=[`<b>${chiffre('resume-apps', hubApps.length)}</b> application${hubApps.length>1?'s':''} pour toi`,
+      neuves ? `<b>${chiffre('resume-neuves', neuves)}</b> nouvelle${neuves>1?'s':''}` : '',
       maj ? `<b>${chiffre('resume-maj', maj)}</b> mise${maj>1?'s':''} à jour` : ''];
   }
   remplir(r, morceaux.filter(Boolean).map(m=>`<span>${m}</span>`).join('<i aria-hidden="true">·</i>'));
@@ -1032,14 +1041,13 @@ function galerieAjouter(id, taille, app){
   $('hub-liste').scrollLeft=0;
 }
 
-/* L'application ouverte : retenue par ce navigateur, et signalee au serveur
-   -- qui note la version vue (indicateur « Nouvelle version ») et la date
-   (widget « A la une »). keepalive : la page s'en va aussitot. */
+/* L'application ouverte, signalee au serveur -- qui note la version vue
+   (indicateur « Nouvelle version ») et la date (widget « A la une »), si
+   elle fonctionne. keepalive : la page s'en va aussitot. */
 $('hub-liste').addEventListener('click', e=>{
   const t = e.target.closest('[data-app]');
   /* Les trois points sont DANS la tuile : les ouvrir n'ouvre pas l'application. */
   if(!t || hubEdition || e.target.closest('.btn-menu-app')) return;
-  try{ localStorage.setItem('codelab-hub-derniere', t.dataset.app); }catch(err){}
   if(hubApps.some(a=>a.name===t.dataset.app))
     fetch('/api/mes-apps/'+encodeURIComponent(t.dataset.app)+'/ouverte', {method:'POST', keepalive:true}).catch(()=>{});
 });

@@ -495,6 +495,9 @@ function etatApp(a){
      la page ne le devine pas. Une application en panne s'ouvre sur une page
      « momentanement inaccessible ». */
   if(!estAdmin) return ['', ''];
+  /* Archivee : un statut a part entiere, au meme rang qu'« En ligne » ou
+     « Arretee » (voir « l'archivage d'une application » cote serveur). */
+  if(a.archivee) return ['arch','Archivée'];
   if(a.crash_looping) return ['err','En erreur'];
   /* « Arretee » supposerait qu'on l'a arretee : un service de la stack ne se
      demarre pas depuis ici, il repond ou il ne repond pas. Et un service qui

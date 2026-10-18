@@ -44,6 +44,10 @@ function renderOverview(){
 
 /* ---------------- donnees ---------------- */
 let apps=[];
+/* Les archivees : seule la page des applications les montre (statut
+   « Archivee »). « apps » reste la liste des applications actives, celle que
+   lisent la vue d'ensemble, les widgets et les droits des comptes. */
+let appsArchivees=[];
 async function refresh(){
   /* Reservee a l'administrateur : /api/apps repond 403 a un compte
      utilisateur, et l'appeler en boucle ne produirait que des refus. */
@@ -55,6 +59,7 @@ async function refresh(){
     const d=await r.json();
     if(!Array.isArray(d.apps)) throw new Error('Réponse /api/apps invalide.');
     apps=d.apps;
+    appsArchivees=Array.isArray(d.archivees) ? d.archivees : [];
     $('side-count').textContent=apps.length;
   }catch(e){
     /* Une coupure réseau ne doit pas casser la fiche ni produire une
@@ -87,15 +92,15 @@ let apTriCle = apPrefs.tri || 'nom', apTriSens = apPrefs.sens===-1 ? -1 : 1, apE
 function apRetenir(){
   try{ localStorage.setItem('codelab-apps-vue', JSON.stringify({vue:apVueCourante, tri:apTriCle, sens:apTriSens})); }catch(e){}
 }
-const AP_ETATS=[['','Toutes'],['on','En ligne'],['off','Arrêtées'],['souci','À surveiller']];
+const AP_ETATS=[['','Toutes'],['on','En ligne'],['off','Arrêtées'],['souci','À surveiller'],['arch','Archivées']];
 const AP_COLONNES=[['nom','Application'],['etat','État'],['visibilite','Visibilité'],['categorie','Catégorie'],
   ['port','Port'],['cpu','CPU'],['memoire','Mémoire']];
-const RANG_ETAT={err:0, warn:1, on:2, off:3};
+const RANG_ETAT={err:0, warn:1, on:2, off:3, arch:4};
 /* Sans categorie : en fin de liste. */
 const FIN_DU_TRI='\uffff';
 function apValeur(a, cle){
   if(cle==='nom') return nomAffiche(a).toLowerCase();
-  if(cle==='etat') return RANG_ETAT[etatApp(a)[0]] ?? 4;
+  if(cle==='etat') return RANG_ETAT[etatApp(a)[0]] ?? 5;
   if(cle==='visibilite') return a.visibility||'';
   if(cle==='categorie') return a.categorie ? a.categorie.toLowerCase() : FIN_DU_TRI;
   if(cle==='port') return Number(a.port)||0;
@@ -113,11 +118,12 @@ function apChoisirEtat(e){ apEtat=e; render(); }
 function apListe(){
   const q=($('ap-filtre').value||'').trim().toLowerCase();
   const vis=$('ap-vis').value, cat=$('ap-cat').value;
-  return apps.filter(a=>{
+  return toutesLesApps().filter(a=>{
     const c=etatApp(a)[0];
     if(apEtat==='on' && c!=='on') return false;
     if(apEtat==='off' && c!=='off') return false;
     if(apEtat==='souci' && !['err','warn'].includes(c)) return false;
+    if(apEtat==='arch' && c!=='arch') return false;
     if(vis && (a.visibility||'privee')!==vis) return false;
     if(cat && (a.categorie||'')!==(cat==='-' ? '' : cat)) return false;
     return !q || (a.name+' '+nomAffiche(a)+' '+(a.description||'')+' '+(a.categorie||'')+' '+a.port).toLowerCase().includes(q);
@@ -127,13 +133,17 @@ function apListe(){
     return r*apTriSens || nomAffiche(x).localeCompare(nomAffiche(y),'fr');
   });
 }
+function toutesLesApps(){ return apps.concat(appsArchivees); }
 function apOutils(){
+  const toutes=toutesLesApps();
   remplir($('ap-etats'), AP_ETATS.map(([v,t])=>{
-    const n = v==='' ? apps.length : apps.filter(a=>{ const c=etatApp(a)[0];
+    /* Pas de puce « Archivees » a zero : rien a filtrer. */
+    if(v==='arch' && !appsArchivees.length && apEtat!=='arch') return '';
+    const n = v==='' ? toutes.length : toutes.filter(a=>{ const c=etatApp(a)[0];
       return v==='souci' ? ['err','warn'].includes(c) : c===v; }).length;
     return `<button aria-pressed="${apEtat===v}" data-agir="ap-etat" data-cible="${v}">${t} <b>${n}</b></button>`;
   }).join(''));
-  const cats=[...new Set(apps.map(a=>a.categorie||''))].sort((a,b)=>a.localeCompare(b,'fr'));
+  const cats=[...new Set(toutes.map(a=>a.categorie||''))].sort((a,b)=>a.localeCompare(b,'fr'));
   const sel=$('ap-cat'), choisi=sel.value;
   (sel.closest('.dl')||sel).style.display = cats.some(Boolean) ? '' : 'none';
   remplir(sel, '<option value="">Toutes catégories</option>'
@@ -145,7 +155,7 @@ function apOutils(){
 const SVG_PAUSE='<svg viewBox="0 0 24 24"><rect x="7" y="6" width="3.5" height="12" rx="1"/><rect x="13.5" y="6" width="3.5" height="12" rx="1"/></svg>';
 const SVG_LECTURE='<svg viewBox="0 0 24 24"><path d="M8 5.5l10 6.5-10 6.5z"/></svg>';
 function apBascule(a){
-  return (a.externe || a.name === 'diagnostic') ? '' : `<button class="icon-btn ${a.running?'stop':'ok'}" title="${a.running?'Arrêter':'Démarrer'}"
+  return (a.externe || a.archivee || a.name === 'diagnostic') ? '' : `<button class="icon-btn ${a.running?'stop':'ok'}" title="${a.running?'Arrêter':'Démarrer'}"
     aria-label="${a.running?'Arrêter':'Démarrer'} ${esc(nomAffiche(a))}" data-agir="app-basculer" data-cible="${esc(a.name)}">${a.running?SVG_PAUSE:SVG_LECTURE}</button>`;
 }
 function apJauge(v, max, texte){
@@ -154,7 +164,7 @@ function apJauge(v, max, texte){
 }
 function render(){
   apOutils();
-  if(!apps.length){
+  if(!toutesLesApps().length){
     remplir($('tbl-projets'), `<div class="empty">
       <div class="empty-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/>
       <rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/>
@@ -179,9 +189,10 @@ function render(){
           <div class="ap-carte-titre"><b>${esc(nomAffiche(a))}</b><span>${esc(a.description||a.name)}</span></div></div>
         <div class="ap-carte-pills">${badgeEtat(a)}${badgeVis(a)}${a.categorie?`<span class="pill neutre"><i></i>${esc(a.categorie)}</span>`:''}</div>
         ${a.externe ? '<div class="hint">Service de la stack : non mesuré.</div>'
+          : a.archivee ? `<div class="hint">${esc(texteArchive(a))}</div>`
           : `<div class="ap-jauges">${apJauge(a.cpu_percent||0, 100, 'CPU '+(a.cpu_percent||0).toFixed(1)+' %')}
               ${apJauge(a.memory_mb||0, a.max_memory_mb||memMax, 'Mémoire '+Math.round(a.memory_mb||0)+' Mo')}</div>`}
-        <div class="ap-carte-pied"><span class="tbl-num">:${esc(String(a.port))}</span><div class="spacer"></div>
+        <div class="ap-carte-pied"><span class="tbl-num">${a.port ? ':'+esc(String(a.port)) : '—'}</span><div class="spacer"></div>
           ${apBascule(a)}
           <button class="icon-btn" title="Ouvrir la fiche" aria-label="Ouvrir la fiche de ${esc(nomAffiche(a))}"
             data-agir="app-ouvrir" data-cible="${esc(a.name)}"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button></div>
@@ -189,7 +200,7 @@ function render(){
     }).join('')}</div>`);
     return;
   }
-  const avecCat=apps.some(a=>a.categorie);
+  const avecCat=toutesLesApps().some(a=>a.categorie);
   const cols=AP_COLONNES.filter(([k])=>k!=='categorie' || avecCat);
   remplir($('tbl-projets'), `<div class="tbl-wrap"><div class="tbl-scroll"><table class="tbl ap-tbl">
     <thead><tr>${cols.map(([k,t])=>`<th aria-sort="${apTriCle===k ? (apTriSens>0?'ascending':'descending') : 'none'}">
@@ -202,7 +213,7 @@ function render(){
       <td>${badgeEtat(a)}</td>
       <td>${badgeVis(a)}</td>
       ${avecCat ? `<td>${a.categorie ? esc(a.categorie) : '<span class="hint">—</span>'}</td>` : ''}
-      <td class="tbl-num">${a.port}</td>
+      <td class="tbl-num">${a.port ? esc(String(a.port)) : '—'}</td>
       <td class="tbl-num">${a.externe ? '—' : (a.cpu_percent||0).toFixed(1)+'%'}</td>
       <td class="tbl-num">${a.externe ? '—' : Math.round(a.memory_mb||0)+' Mo'}</td>
       <td class="tbl-act"><div>${apBascule(a)}
@@ -304,7 +315,7 @@ async function basculerVisibilite(n){
 }
 async function rm(n){
   if(!await demander('Supprimer « ' + n + ' » ?',
-    "L'application disparait du panneau. Le dossier du projet dans /workspace n'est pas touche.",
+    "L'application disparaît du panneau. Le dossier du projet dans /workspace n'est pas touché.",
     'Supprimer', true)) return;
   const r=await fetch('/api/app/'+n,{method:'DELETE'});
   if(!r.ok){
@@ -316,4 +327,34 @@ async function rm(n){
     return;
   }
   ficheNom=null; showSection('apps'); refresh();
+}
+/* « Archivee le 18 octobre · configuration effacee dans 30 jours », ou
+   « configuration effacee » une fois le delai passe. */
+function texteArchive(a){
+  const le = a.archivee_le ? 'Archivée le '+new Date(a.archivee_le*1000).toLocaleDateString('fr-FR',{day:'numeric',month:'long'}) : 'Archivée';
+  if(a.configuration_effacee) return le+' · configuration effacée';
+  if(!a.effacement_le) return le;
+  const j=Math.max(0, Math.ceil((a.effacement_le-Date.now()/1000)/86400));
+  return le+' · configuration effacée '+(j===0 ? "aujourd'hui" : j===1 ? 'demain' : 'dans '+j+' jours');
+}
+/* L'archive : arretee, hors du hub, et sa configuration gardee trente jours
+   (voir « l'archivage d'une application » cote serveur). */
+async function archiver(n){
+  if(!await demander('Archiver « ' + n + ' » ?',
+    "Elle s'arrête, quitte le hub et passe au statut « Archivée ». Sa configuration est gardée "
+    + "30 jours : tu peux la désarchiver d'ici là. Ensuite, sa configuration est effacée ; "
+    + "l'application reste, archivée. Le dossier du projet dans /workspace n'est pas touché.",
+    'Archiver', false)) return;
+  const r=await fetch('/api/app/'+encodeURIComponent(n)+'/archiver',{method:'POST'});
+  if(!r.ok){ notifier(await echec(r, 'Archivage impossible.'), 'err'); return; }
+  notifier('« '+n+' » est archivée.');
+  await refresh();
+}
+async function desarchiver(n){
+  const r=await fetch('/api/app/'+encodeURIComponent(n)+'/desarchiver',{method:'POST'});
+  if(!r.ok){ notifier(await echec(r, 'Désarchivage impossible.'), 'err'); return; }
+  const d=await r.json().catch(()=>({}));
+  notifier(d.a_reconfigurer ? '« '+n+' » est de retour : vérifie ses commandes avant de la démarrer.'
+    : '« '+n+' » est de retour, arrêtée.');
+  await refresh();
 }

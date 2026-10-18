@@ -118,8 +118,9 @@ WIDGETS = {
                 "description": "Processeur, mémoire et disque, en direct.", "admin": True},
     "activite": {"titre": "Activité", "portee": "hub", "tailles": ("moyen", "grand"),
                  "description": "Les ouvertures des deux dernières semaines.", "admin": True},
-    "nouveautes": {"titre": "Nouvelles versions", "portee": "hub", "tailles": ("petit", "moyen"),
-                   "description": "Les applications mises à jour depuis ta dernière visite."},
+    "nouveautes": {"titre": "Nouveautés", "portee": "hub", "tailles": ("petit", "moyen"),
+                   "description": "Les applications que tu n'as pas encore ouvertes, et celles "
+                                  "mises à jour depuis ta dernière visite."},
     "message": {"titre": "Écrire à l'administrateur", "portee": "hub", "tailles": ("moyen", "grand"),
                 "description": "Une idée, un souci, une demande.", "utilisateur": True},
     "suivi": {"titre": "Mes messages", "portee": "hub", "tailles": ("petit", "moyen"),
@@ -158,7 +159,7 @@ def ecrire_preference(cle, valeur, qui=None):
 def apps_du_hub_visibles():
     """Les tuiles qu'un compte peut ranger : ses applications, et les services."""
     autorises = projets_autorises()
-    noms = {n for n in load() if peut_voir(n) and (autorises is None or n in autorises)}
+    noms = {n for n in apps_actives() if peut_voir(n) and (autorises is None or n in autorises)}
     return noms, {s["name"] for s in services_du_hub()}
 
 
@@ -206,6 +207,7 @@ def disposition_du_compte():
         # Serveur et Activite ne tiennent que chez l'administrateur ; le
         # filtre des widgets permis ci-dessous les retire pour les autres.
         elements = [{"t": "w", "id": "une", "taille": "grand"},
+                    {"t": "w", "id": "nouveautes", "taille": "moyen"},
                     {"t": "w", "id": "serveur", "taille": "moyen"},
                     {"t": "w", "id": "activite", "taille": "moyen"},
                     {"t": "w", "id": "etat", "taille": "petit"},
@@ -278,6 +280,13 @@ def api_disposition_modifier():
     return jsonify({"ok": True, "elements": propres})
 
 
+def application_fonctionne(nom):
+    """Lancee, et son port repond -- ou pas encore sonde (None), ce qui
+    arrive juste apres un demarrage : on ne la tient pas pour en panne sur
+    une absence de mesure."""
+    return is_running(nom) and _listening.get(nom) is not False
+
+
 @flask_app.post("/api/mes-apps/<n>/ouverte")
 @require_auth
 def api_app_ouverte(n):
@@ -285,11 +294,20 @@ def api_app_ouverte(n):
 
     Seule une application que ce compte peut ouvrir est notee -- sinon la
     route dirait l'existence de projets qu'il n'a pas le droit de connaitre.
+
+    Vecu : « une application qui ne fonctionne pas ne doit pas compter comme
+    une derniere application ouverte dans le widget ». Arretee, ou lancee
+    mais muette sur son port, elle n'est pas notee : le widget « Derniere
+    ouverte » garde la precedente, et sa version n'est pas « vue ». La
+    reponse est la meme dans les deux cas : un compte utilisateur ne doit
+    pas lire l'etat des applications par ce biais.
     """
     apps = load()
     autorises = projets_autorises()
     if n not in apps or not peut_voir(n) or (autorises is not None and n not in autorises):
         return jsonify({"error": "Application inconnue."}), 404
+    if not application_fonctionne(n):
+        return jsonify({"ok": True})
     version = versions_des_apps({n: apps[n]})[n]
     with stockage.transaction(DB_FILE) as cx:
         cx.execute("INSERT OR REPLACE INTO apps_vues (compte, app, ts, version) VALUES (?, ?, ?, ?)",
@@ -884,7 +902,9 @@ def demander_a_l_application(port, methode, chemin, entetes, corps):
 
 def _proxy(name, sub):
     a = load().get(name)
-    if not a:
+    # Archivee : la meme reponse qu'une adresse inconnue. Le nom reste
+    # reserve, mais rien ne dit qu'il existe.
+    if not a or est_archivee(a):
         return Response(_page("Introuvable", "Aucune application \u00ab " + name + " \u00bb."),
                         404, mimetype="text/html")
     # Application privee : il faut une session, ET le droit sur ce projet

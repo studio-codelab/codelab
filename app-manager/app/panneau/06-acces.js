@@ -37,7 +37,7 @@ function peindreNotifications(){
   const b=$('notif-bascule'); if(!b || !notifEtat) return;
   $('notif-quoi').textContent = estAdmin
     ? 'Sur cet appareil : les nouveaux messages, les applications qui tombent et reviennent.'
-    : 'Sur cet appareil : l’avancement des messages que tu envoies.';
+    : 'Sur cet appareil : les nouvelles applications auxquelles tu as accès, et l’avancement des messages que tu envoies.';
   const pourquoi=notifEmpechement();
   b.checked = !!notifEtat.abonne;
   b.disabled = !notifEtat.abonne && !!pourquoi;
@@ -582,6 +582,8 @@ function ligneActivite(e){
   /* Les cles d'acces ajoutees ou retirees passaient par la branche des
      ouvertures : le journal affichait « a ouvert » suivi de rien. */
   else if(e.genre==='passkey') quoi = "clé d'accès — " + esc(e.action||'');
+  /* Archivee, desarchivee, effacee des archives. */
+  else if(e.genre==='application') quoi = 'application <b>' + esc(e.app||'') + '</b> — ' + esc(e.action||'');
   else quoi = esc(e.genre||'');
   return `<tr>
     <td class="act-quand" title="${esc(quandPrecis(e.ts))}">${esc(ilYA(e.ts))}</td>

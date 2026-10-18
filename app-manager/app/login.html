@@ -225,7 +225,7 @@ button.principal:disabled{opacity:.6;cursor:default}
  font:inherit;font-weight:600;cursor:pointer;text-align:left}
 .autres-moyens button svg{width:18px;height:18px;flex:none}
 @media (hover:hover){.autres-moyens button:hover{border-color:var(--accent)}}
-</style></head><body>
+</style></head><body class="fond-motif">
 <div id="defile">
 
 <div class="presentation">
@@ -278,6 +278,13 @@ button.principal:disabled{opacity:.6;cursor:default}
            plutot qu'un bouton absent sans explication. -->
       <div class="pk-indispo" id="pk-indispo" style="display:none"></div>
 
+      <!-- UN VRAI FORMULAIRE. Vecu : « Rend possible la detection
+           automatique du mot de passe ». Sans <form>, Safari ne reconnait ni
+           l'identifiant ni le mot de passe : il ne propose ni de les
+           enregistrer, ni de les remplir, ni le code de validation garde
+           avec eux dans Mots de passe. L'envoi reste en JavaScript
+           (submit()) ; Entree passe par le formulaire, une seule fois. -->
+      <form id="formulaire" autocomplete="on" novalidate>
       <!-- INVITATION. La meme page, ouverte par le lien recu par mail : la
            personne choisit son nom et son mot de passe, rien d'autre. -->
       <div id="invitation" style="display:none">
@@ -326,7 +333,7 @@ button.principal:disabled{opacity:.6;cursor:default}
              confirme que c'est bien la personne. Aucun code a lire ni a
              taper. -->
         <div id="facteur-pk" style="display:none">
-          <button class="bouton-geste" id="facteur-pk-go" onclick="facteurPasskey()">
+          <button type="button" class="bouton-geste" id="facteur-pk-go" onclick="facteurPasskey()">
             <span class="geste-ico" aria-hidden="true"></span>
             <span>Confirmer avec <span id="facteur-pk-geste">Face ID</span></span></button>
         </div>
@@ -343,7 +350,7 @@ button.principal:disabled{opacity:.6;cursor:default}
         <div class="etape">Dernière étape : protège ton compte.</div>
 
         <div id="ins-pk" style="display:none">
-          <button class="principal" id="ins-pk-go" onclick="inscrirePasskey()">
+          <button type="button" class="principal" id="ins-pk-go" onclick="inscrirePasskey()">
             <span id="ins-pk-libelle">Activer Face ID</span></button>
           <div class="etape-num">Un geste, rien à recopier. La prochaine fois, il suffira.</div>
           <div class="bascule"><a onclick="montrerCodeApp()">Utiliser plutôt une application de codes</a></div>
@@ -366,7 +373,8 @@ button.principal:disabled{opacity:.6;cursor:default}
         </div>
       </div>
 
-      <button class="principal" id="go" onclick="submit()">Se connecter</button>
+      <button type="submit" class="principal" id="go">Se connecter</button>
+      </form>
       <div class="err" id="err"></div>
 
       <!-- MOT DE PASSE OUBLIE. Deux chemins, parce qu'aucun des deux ne
@@ -810,7 +818,6 @@ cases.forEach((c,i)=>{
       e.preventDefault(); cases[i-1].value=''; cases[i-1].focus(); majCode();
     }else if(e.key==='ArrowLeft' && i>0){ e.preventDefault(); cases[i-1].focus(); }
     else if(e.key==='ArrowRight' && i<5){ e.preventDefault(); cases[i+1].focus(); }
-    else if(e.key==='Enter'){ submit(); }
   });
   c.addEventListener('paste',e=>{
     e.preventDefault();
@@ -957,11 +964,10 @@ async function submit(){
   }catch(e){ err.textContent='Erreur réseau.'; err.style.display='block'; }
   go.disabled=false; go.textContent = moyenCourant ? 'Valider' : 'Se connecter';
 }
-const valider=e=>{ if(e.key==='Enter') submit(); };
-nom.addEventListener('keydown', valider);
-pw.addEventListener('keydown', valider);
-codeInscription.addEventListener('keydown', valider);
-['inv-nom','inv-mdp'].forEach(i=>$$(i).addEventListener('keydown', valider));
+/* Entree, dans n'importe quel champ, passe par le formulaire : un seul
+   envoi, et Safari voit une vraie soumission. Pas d'attribut onsubmit :
+   dans sa portee, « submit » designerait form.submit(). */
+$$('formulaire').addEventListener('submit', e=>{ e.preventDefault(); submit(); });
 
 /* Au retour sur l'onglet (page restauree par « Precedent », onglet repris),
    le navigateur peut garder l'icone vue en dernier sur ce nom d'hote --

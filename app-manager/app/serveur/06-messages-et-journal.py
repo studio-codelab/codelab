@@ -442,6 +442,9 @@ def demarrer_la_purge_du_journal():
             # Les comptes dont le delai de suppression est passe : le meme
             # rythme, une fois par jour (voir « supprimer son propre compte »).
             purger_les_comptes_supprimes()
+            # Et les applications archivees depuis trente jours (voir
+            # « l'archivage d'une application »).
+            purger_les_apps_archivees()
             time.sleep(PURGE_INTERVALLE)
     threading.Thread(target=_boucle, daemon=True).start()
 
@@ -1135,5 +1138,9 @@ def peut_voir(name):
     """
     if est_app_par_defaut(name):
         return est_admin()
+    # Archivee : personne ne l'ouvre, administrateur compris, jusqu'a ce
+    # qu'elle soit desarchivee (voir « l'archivage d'une application »).
+    if est_archivee(load().get(name)):
+        return False
     autorises = projets_autorises()
     return autorises is None or name in autorises

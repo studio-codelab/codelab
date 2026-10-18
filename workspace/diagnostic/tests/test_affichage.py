@@ -2391,7 +2391,7 @@ def test_la_barre_suit_le_theme_choisi():
 @pytest.mark.parametrize("page", ["dashboard.html", "login.html", "messages.html"])
 def test_au_doigt_un_bloc_interieur_defile_a_la_place_de_la_page(page):
     html = _page_panneau(page)
-    corps = html.split("<body>", 1)[1]
+    corps = re.split(r"<body[^>]*>", html, maxsplit=1)[1]
     assert corps.lstrip().startswith('<div id="defile">'), page
     assert corps.rstrip().endswith("</div>\n</body></html>") or corps.rstrip().endswith("</div>\n</body>\n</html>"), page
     theme = _page_panneau("theme.css")
@@ -2604,3 +2604,18 @@ def test_au_doigt_la_carte_touchee_ne_reste_pas_selectionnee():
     bloc = page.split("AU DOIGT, PAS DE SURVOL QUI RESTE.")[1].split("/* LES PASTILLES")[0]
     assert "@media (hover:none){" in bloc and ".card-top:hover{background:none}" in bloc
     assert ".card-top:active{background:var(--surface2)}" in bloc
+
+
+@pytest.mark.parametrize("page", ["dashboard.html", "login.html", "messages.html"])
+def test_les_pages_du_panneau_ont_le_fond_etoile(page):
+    """Vecu : « un fond d'ecran texture, uni avec les memes couleurs, mais avec
+    des petites etoiles a intervalle regulier ». Les trois pages le portent ;
+    la teinte vient du texte du theme (clair comme sombre), et le motif est un
+    masque : une image SVG en fond ne suivrait pas le theme."""
+    assert '<body class="fond-motif">' in _page_panneau(page)
+    theme = _page_panneau("theme.css")
+    regle = theme.split("body.fond-motif::before{")[1].split("}")[0]
+    assert "position:fixed" in regle and "pointer-events:none" in regle
+    assert "-webkit-mask:" in regle and "background:var(--motif)" in regle
+    assert "--motif:color-mix(in srgb,var(--txt)" in theme
+

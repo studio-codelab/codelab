@@ -283,6 +283,7 @@ const ACTIONS = {
   'hub-deplacer':    (n,d) => hubDeplacer(n, d.sens),
   'hub-taille':      (n,d) => hubTailleWidget(n, d.taille),
   'galerie-choisir': n => { galerieChoix=n; peindreGalerie(); },
+  'app-desarchiver':  n => desarchiver(n),
   'galerie-ajouter': (n,d) => galerieAjouter(n, d.taille, d.app),
   'app-redemarrer':  n => restartApp(n),
   'app-build':       n => buildApp(n),

@@ -443,8 +443,11 @@ def health():
 @flask_app.get("/api/apps")
 @require_admin
 def api_apps():
+    # Les archivees partent dans leur propre liste (« archivees ») : seule la
+    # page des applications les montre, avec le statut « Archivee ». La vue
+    # d'ensemble, les widgets et les droits des comptes ne lisent que « apps ».
     apps = load()
-    out = []
+    out, archivees = [], []
     releve = _ports_ecoutes()           # un seul pour toute la liste
     par_app = reglage("alertes_par_app", {}) or {}
     for name in sorted(apps):
@@ -453,10 +456,10 @@ def api_apps():
         stats = proc_stats(procs[name].pid) if run and name in procs else {"cpu_percent": 0.0, "memory_mb": 0.0}
         if run:
             record_metrics(name, stats["cpu_percent"], stats["memory_mb"])
-        out.append({
+        (archivees if est_archivee(a) else out).append({
             "name": name, "titre": titre_de(name, a),
-            "path": a["path"], "command": a["command"],
-            "port": a["port"], "port_listeners": _ecouteurs_port(a["port"], releve),
+            "path": a.get("path") or "", "command": a.get("command") or "",
+            "port": a.get("port"), "port_listeners": _ecouteurs_port(a.get("port"), releve),
             "running": run,
             "failed": bool(a.get("enabled")) and not run,
             # Plantee au lancement (voir start) : la fiche en montre la cause.
@@ -487,6 +490,10 @@ def api_apps():
             "presentation": presentation_de(a),
             "presentation_masquee": bool(a.get("presentation_masquee")),
             "presentation_fichier": a.get("presentation_fichier", ""),
+            "archivee": est_archivee(a),
+            "archivee_le": a.get("archivee_le") if est_archivee(a) else None,
+            "effacement_le": suppression_de_l_archive(a),
+            "configuration_effacee": bool(a.get("configuration_effacee_le")),
             **stats,
         })
     # Dagster figure ici comme les autres. Il n'est pas declare dans
@@ -497,7 +504,7 @@ def api_apps():
     # c'est une page du panneau, sans journal ni metriques a surveiller.
     out.extend(services_du_hub(avec_messagerie=False))
     out.sort(key=lambda a: a["name"])
-    return jsonify({"apps": out})
+    return jsonify({"apps": out, "archivees": archivees})
 
 
 @flask_app.get("/api/browse")
@@ -562,6 +569,9 @@ def api_add():
     if name in adresses_reservees():
         return jsonify({"error": f"L'adresse « /{name}/ » est réservée."}), 400
     if name in apps:
+        if est_archivee(apps[name]):
+            return jsonify({"error": f"L'adresse « /{name}/ » est gardée par une application "
+                                     f"aux archives : désarchive-la, ou supprime-la."}), 400
         return jsonify({"error": f"L'adresse « /{name}/ » est déjà prise par "
                                  f"une autre application."}), 400
     if not os.path.isdir(path):
@@ -900,6 +910,14 @@ def api_delete(n):
         return jsonify({"error": f"« {n} » est une application par défaut de "
                                  f"CodeLab : elle est gérée par CodeLab et ne "
                                  f"se modifie ni ne se supprime à la main."}), 403
+    supprimer_application(n)
+    return jsonify({"ok": True})
+
+
+def supprimer_application(n):
+    """Arrete l'application et efface sa declaration : la fiche, et les
+    destinataires de ses alertes. Le code, dans /workspace, n'est jamais
+    touche (le panneau n'ecrit pas dans /workspace)."""
     stop(n)
     apps = load()
     apps.pop(n, None)
@@ -910,7 +928,149 @@ def api_delete(n):
             ecrire_reglage("alertes_par_app", par_app or None)
         except (OSError, RuntimeError):
             pass
-    return jsonify({"ok": True})
+
+
+# ------------------------ l'archivage d'une application ------------------------
+#
+# Vecu : « donner la possibilite d'archiver une app. La configuration
+# disparait au bout de 30 jours si elle n'est pas desarchivee », puis « les
+# archives ont un statut d'archive, qui est un statut de meme niveau que en
+# ligne, arrete [...]. Une application archivee depuis trop longtemps n'est
+# pas supprimee. Seule sa configuration l'est. »
+#
+# Archivee, une application est arretee et sort du hub et du proxy (son
+# adresse repond comme une adresse inconnue). Elle reste dans la page des
+# applications, avec le statut « Archivee » (/api/apps, liste « archivees »).
+# Desarchivee, elle revient telle quelle, arretee.
+#
+# Trente jours plus tard, effacer_la_configuration retire ce qui la fait
+# tourner : commandes, port, visibilite, memoire, droits des comptes,
+# alertes. Restent son nom, son dossier, son titre, sa description, sa
+# categorie : elle est toujours la, archivee, a reconfigurer si on la
+# desarchive (les commandes sont alors redetectees, un port lui est rendu).
+#
+# Le nom reste reserve tant qu'elle existe ; la fiche porte archivee_le (et
+# configuration_effacee_le) dans ses options : aucune migration.
+DELAI_ARCHIVE = 30 * 86400
+
+# Ce que l'effacement retire de la fiche. Tout le reste est garde.
+CONFIGURATION_EFFACEE = ("command", "build_command", "port", "visibility", "max_memory_mb",
+                         "presentation_masquee", "presentation_fichier", "dernier_echec")
+
+
+def est_archivee(a):
+    """La fiche (dict) d'une application archivee ? Un booleen ne compte
+    pas : seule une date d'archivage en est une."""
+    quand = (a or {}).get("archivee_le")
+    return isinstance(quand, int) and not isinstance(quand, bool)
+
+
+def apps_actives(apps=None):
+    """Les applications declarees, sans les archivees."""
+    apps = load() if apps is None else apps
+    return {n: a for n, a in apps.items() if not est_archivee(a)}
+
+
+def suppression_de_l_archive(a):
+    """Quand la configuration sera effacee, ou None (pas archivee, ou deja
+    effacee)."""
+    if not est_archivee(a) or a.get("configuration_effacee_le"):
+        return None
+    return int(a["archivee_le"]) + DELAI_ARCHIVE
+
+
+@flask_app.post("/api/app/<n>/archiver")
+@require_admin
+def api_archiver(n):
+    """Arrete l'application et la passe au statut « Archivee »."""
+    if est_app_par_defaut(n):
+        return jsonify({"error": refus_configuration(n)}), 403
+    apps = load()
+    if n not in apps:
+        return jsonify({"error": "Application inconnue."}), 404
+    if est_archivee(apps[n]):
+        return jsonify({"ok": True})
+    raison = stop(n)
+    if raison:
+        return jsonify({"error": f"« {n} » ne s'arrête pas : {raison}"}), 409
+    apps = load()
+    apps[n]["enabled"] = False
+    apps[n]["archivee_le"] = int(time.time())
+    save(apps)
+    journaliser("application", qui=utilisateur_courant(), app=n, action="archivée",
+                ip=_adresse_client())
+    return jsonify({"ok": True, "effacement_le": suppression_de_l_archive(apps[n])})
+
+
+@flask_app.post("/api/app/<n>/desarchiver")
+@require_admin
+def api_desarchiver(n):
+    """La ressort des archives, arretee : la redemarrer reste un geste. Si sa
+    configuration a ete effacee, un port lui est rendu et ses commandes sont
+    redetectees -- a verifier dans sa fiche avant de la demarrer."""
+    apps = load()
+    if n not in apps or not est_archivee(apps[n]):
+        return jsonify({"error": "Cette application n'est pas archivée."}), 404
+    a = apps[n]
+    a.pop("archivee_le", None)
+    a_reconfigurer = bool(a.pop("configuration_effacee_le", None))
+    if a_reconfigurer:
+        # Privee : sa visibilite a ete effacee, et la valeur par defaut
+        # (publique) l'ouvrirait a tous des son premier demarrage.
+        a["visibility"] = VISIBILITE_PRIVEE
+        a["port"] = next_port(apps)
+        commande, build = detect_project(a.get("path") or "") if os.path.isdir(a.get("path") or "") \
+            else ("", "")
+        a["command"], a["build_command"] = commande, build
+    save(apps)
+    journaliser("application", qui=utilisateur_courant(), app=n, action="désarchivée",
+                ip=_adresse_client())
+    return jsonify({"ok": True, "a_reconfigurer": a_reconfigurer})
+
+
+def effacer_la_configuration(n):
+    """Retire de la fiche ce qui fait tourner l'application, et les droits et
+    alertes qui la designent. L'application reste, archivee."""
+    apps = load()
+    a = apps.get(n)
+    if not a:
+        return
+    for cle in CONFIGURATION_EFFACEE:
+        a.pop(cle, None)
+    a["enabled"] = False
+    a["configuration_effacee_le"] = int(time.time())
+    save(apps)
+    comptes = lire_utilisateurs()
+    touche = False
+    for compte in comptes.values():
+        if n in (compte.get("projets") or []):
+            compte["projets"] = [p for p in compte["projets"] if p != n]
+            touche = True
+    if touche:
+        ecrire_utilisateurs(comptes)
+    par_app = reglage("alertes_par_app", {}) or {}
+    if par_app.pop(n, None) is not None:
+        ecrire_reglage("alertes_par_app", par_app or None)
+
+
+def purger_les_apps_archivees(maintenant=None):
+    """Efface la configuration des applications archivees depuis
+    DELAI_ARCHIVE ; rend leurs noms. Les applications restent. Ne leve
+    jamais : la purge quotidienne ne doit pas tomber."""
+    maintenant = time.time() if maintenant is None else maintenant
+    effacees = []
+    for n, a in list(load().items()):
+        fin = suppression_de_l_archive(a)
+        if fin is None or maintenant < fin:
+            continue
+        try:
+            effacer_la_configuration(n)
+            journaliser("application", app=n,
+                        action="configuration effacée après trente jours d'archive")
+            effacees.append(n)
+        except Exception as e:                                    # noqa: BLE001
+            print(f"[app-manager] configuration de {n} non effacee : {e}", flush=True)
+    return effacees
 
 
 # ---------------------- renommer une application ----------------------
@@ -1031,6 +1191,9 @@ def api_renommer(n):
     if nouveau in adresses_reservees():
         return jsonify({"error": f"L'adresse « /{nouveau}/ » est réservée."}), 400
     if nouveau in apps:
+        if est_archivee(apps[nouveau]):
+            return jsonify({"error": f"L'adresse « /{nouveau}/ » est gardée par une application "
+                                     f"aux archives : désarchive-la, ou supprime-la."}), 400
         return jsonify({"error": f"L'adresse « /{nouveau}/ » est déjà prise par "
                                  f"une autre application."}), 400
 

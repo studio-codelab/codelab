@@ -193,17 +193,23 @@ def _connexion_admin(d, pw):
                                          "panneau en HTTPS, par son nom de domaine."}), 403
             attendre_second_facteur(NOM_ADMIN)
             moyen = d.get("moyen") if d.get("moyen") in moyens else moyens[0]
+            retenir_moyen_presente(NOM_ADMIN, moyen)
             if moyen == MOYEN_EMAIL:
                 return _code_admin_par_mail(moyens)
             return jsonify({"totp": True, "second_facteur": True,
                             "moyen": moyen, "moyens": moyens}), 401
-        par_appli = totp_actif() and totp_verifie(_totp_secret, code)
-        if not (par_appli or verifier_code_admin(code)):
+        presente = moyen_presente(NOM_ADMIN)
+        par_appli = (presente in (None, MOYEN_TOTP)
+                     and totp_actif() and totp_verifie(_totp_secret, code))
+        par_mail = (not par_appli and presente in (None, MOYEN_EMAIL)
+                    and verifier_code_admin(code))
+        if not (par_appli or par_mail):
             register_failed_attempt()
             journaliser("echec", qui=NOM_ADMIN, motif="second facteur", ip=_adresse_client())
             return jsonify({"error": avec_essais_restants("Code de vérification incorrect."),
                             "totp": True, "moyens": moyens}), 401
         noter_dernier_moyen(NOM_ADMIN, MOYEN_TOTP if par_appli else MOYEN_EMAIL)
+        session.pop("moyen_presente", None)
 
     session.permanent = True
     session["authed"] = True
@@ -282,9 +288,10 @@ def _second_facteur_utilisateur(d, nom, compte):
     # Sans aucun moyen (ni secret, ni code envoye), un code tape ne prouve
     # rien : on passe a l'inscription du facteur, plus bas.
     if code and (moyens or compte.get("code_connexion")):
-        ok = bool(secret) and totp_verifie(secret, code)
+        presente = moyen_presente(nom)
+        ok = presente in (None, MOYEN_TOTP) and bool(secret) and totp_verifie(secret, code)
         moyen_utilise = MOYEN_TOTP if ok else MOYEN_EMAIL
-        if not ok and compte.get("code_connexion"):
+        if not ok and presente in (None, MOYEN_EMAIL) and compte.get("code_connexion"):
             comptes = lire_utilisateurs()
             ok = verifier_code_connexion(comptes[nom], code)
             try:
@@ -300,6 +307,7 @@ def _second_facteur_utilisateur(d, nom, compte):
                             "totp": True, "moyens": moyens}), 401
         _lever_suspension_code_mail(nom)
         noter_dernier_moyen(nom, moyen_utilise)
+        session.pop("moyen_presente", None)
         return _ouvrir_session_utilisateur(nom)
 
     if moyens:
@@ -308,6 +316,7 @@ def _second_facteur_utilisateur(d, nom, compte):
         # s'il est dans la liste du compte -- la destination, elle, ne vient
         # jamais de la requete.
         moyen = d.get("moyen") if d.get("moyen") in moyens else moyens[0]
+        retenir_moyen_presente(nom, moyen)
         if moyen == MOYEN_PASSKEY:
             # Rien ne part : la page demande Face ID a l'appareil.
             attendre_second_facteur(nom)
@@ -376,6 +385,29 @@ def _second_facteur_utilisateur(d, nom, compte):
     # et la branche "moyens" ci-dessus a deja repondu. Garde par prudence.
     register_failed_attempt()
     return jsonify({"error": avec_essais_restants("Code de vérification incorrect."), "totp": True}), 401
+
+
+def retenir_moyen_presente(qui, moyen):
+    """La methode que la page montre : seul son code sera accepte.
+
+    Vecu : « 2 codes fonctionnent : celui de l'email et celui du code de
+    verification qui provient de mon telephone. Separe les 2 comme 2
+    methodes differentes. » Le code tape etait essaye contre l'application
+    PUIS contre le mail, quelle que soit la methode affichee. Retenue dans
+    le cookie signe, avec le compte : « Essayer une autre methode » la
+    remplace.
+    """
+    session["moyen_presente"] = {"qui": qui, "moyen": moyen}
+
+
+def moyen_presente(qui):
+    """La methode montree a ce compte, ou None si aucune ne l'a ete dans
+    cette session (appel direct de l'API) : les deux codes valent alors,
+    comme avant -- chacun est un second facteur a part entiere."""
+    retenu = session.get("moyen_presente")
+    if isinstance(retenu, dict) and retenu.get("qui") == qui:
+        return retenu.get("moyen")
+    return None
 
 
 def passkey_utilisable():
@@ -2103,12 +2135,18 @@ def api_utilisateur_modifier(nom):
     compte = comptes.get(nom)
     if not compte:
         return jsonify({"error": "Compte inconnu."}), 404
+    avant = {nom: set(compte.get("projets") or [])}
 
     # Champs absents = inchanges. Le formulaire des projets et celui du mot
     # de passe sont separes : envoyer l'un ne doit pas remettre l'autre a
     # zero.
     if "projets" in d:
-        compte["projets"] = _projets_valides(d.get("projets"), load())
+        # Les droits sur une application archivee ne se voient pas dans la
+        # fiche (elle n'est plus listee) : ils sont gardes tels quels, pour
+        # revenir avec elle si elle est desarchivee.
+        apps = load()
+        archivees = [p for p in compte.get("projets") or [] if est_archivee(apps.get(p))]
+        compte["projets"] = _projets_valides(list(d.get("projets") or []) + archivees, apps)
     # Suspendre / reactiver. Un booleen, et rien d'autre : les projets
     # autorises, l'adresse et les cles d'acces restent en place, c'est ce qui
     # distingue une suspension d'une suppression.
@@ -2167,6 +2205,7 @@ def api_utilisateur_modifier(nom):
         ecrire_utilisateurs(comptes)
     except OSError as e:
         return jsonify({"error": f"Compte non enregistré : {e}"}), 500
+    annoncer_les_nouvelles_apps(avant, {nom: compte})
     return jsonify({"ok": True})
 
 
@@ -2219,6 +2258,7 @@ def api_app_acces_modifier(name):
     if inconnus:
         return jsonify({"error": "Compte inconnu : " + ", ".join(inconnus)}), 400
 
+    avant = {nom: set(c.get("projets") or []) for nom, c in comptes.items()}
     for nom, compte in comptes.items():
         projets = [p for p in (compte.get("projets") or []) if p != name]
         if nom in voulus:
@@ -2228,7 +2268,35 @@ def api_app_acces_modifier(name):
         ecrire_utilisateurs(comptes)
     except OSError as e:
         return jsonify({"error": f"Non enregistré : {e}"}), 500
+    annoncer_les_nouvelles_apps(avant, comptes)
     return jsonify({"ok": True, "utilisateurs": sorted(voulus)})
+
+
+def annoncer_les_nouvelles_apps(avant, comptes):
+    """Previent chaque compte des applications qu'il vient de recevoir.
+
+    Vecu : « un systeme de notifications pour avertir un utilisateur qu'une
+    nouvelle application est disponible lorsqu'il a acces a une app qu'il ne
+    connait pas ». Une notification par application accordee, sur les
+    appareils ou le compte les a activees ; le hub montre en plus le badge
+    « Nouveau » et le widget Nouveautes. Un compte suspendu, ou en cours de
+    suppression, n'est pas prevenu. Ne leve jamais : l'acces est deja
+    enregistre.
+    """
+    try:
+        apps = load()
+        for nom, compte in comptes.items():
+            if compte.get("suspendu") or compte.get("suppression_demandee"):
+                continue
+            for app_nom in sorted(set(compte.get("projets") or []) - avant.get(nom, set())):
+                a = apps.get(app_nom)
+                if not a or est_archivee(a) or est_app_par_defaut(app_nom):
+                    continue
+                notifier_compte(nom, "Nouvelle application",
+                                f"« {titre_de(app_nom, a)} » est disponible dans ton hub.",
+                                url="/", etiquette="app-" + app_nom)
+    except Exception as e:                                        # noqa: BLE001
+        print(f"[app-manager] annonce des nouvelles applications : {e}", flush=True)
 
 
 @flask_app.delete("/api/utilisateurs/<nom>")

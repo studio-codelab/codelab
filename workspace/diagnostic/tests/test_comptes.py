@@ -2393,6 +2393,37 @@ def test_la_carte_session_espace_ses_boutons_du_texte():
 # une autre methode ». Choisi ensuite : le mail et l'application
 # d'authentification, Face ID en plus en HTTPS.
 
+def test_seul_le_code_de_la_methode_affichee_est_accepte(comptes_mail):
+    """Vecu : « Lorsque je me connecte [...] 2 codes fonctionnent : celui de
+    l'email et celui du code de verification qui provient de mon telephone.
+    Separe les 2 comme 2 methodes differentes. » La page montre une methode :
+    le code de l'autre est refuse, jusqu'a « Essayer une autre methode »."""
+    c, partis = comptes_mail
+    _compte_avec_adresse(face_id=False)
+    comptes = app.lire_utilisateurs()
+    comptes["marie"]["totp"] = "JBSWY3DPEHPK3PXP"
+    app.ecrire_utilisateurs(comptes)
+    mdp = {"nom": "marie", "password": "mot-de-passe-long"}
+    app._login_attempts.clear()
+    partis.clear()
+    # Le mail est montre : le code de l'application ne passe pas.
+    assert c.post("/login", json=mdp).get_json()["moyen"] == "email"
+    code_mail = re.search(r"\b(\d{6})\b", partis[-1][1]).group(1)
+    appli = app.totp_code("JBSWY3DPEHPK3PXP", int(time.time()) // app.TOTP_PAS)
+    if appli != code_mail:
+        assert c.post("/login", json={**mdp, "code": appli}).status_code == 401
+    # « Essayer une autre methode » : l'application. Le code du mail, encore
+    # valable, ne passe plus ; celui de l'application, oui.
+    app._login_attempts.clear()
+    assert c.post("/login", json={**mdp, "moyen": "totp"}).get_json()["moyen"] == "totp"
+    if appli != code_mail:
+        assert c.post("/login", json={**mdp, "code": code_mail}).status_code == 401
+    app._login_attempts.clear()
+    assert c.post("/login", json={**mdp, "code": appli}).status_code == 200
+    page = _page_panneau("login.html")
+    assert '<form id="formulaire"' in page and 'type="submit"' in page
+
+
 def test_la_derniere_methode_utilisee_est_proposee_d_office(comptes_mail):
     """Sans historique, le code par mail vient en tete ; une connexion par
     l'application la fait passer devant, sans qu'aucun mail ne parte."""

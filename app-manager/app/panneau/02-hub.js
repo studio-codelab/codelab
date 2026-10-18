@@ -562,14 +562,14 @@ async function enregistrerDisposition(elements){
 }
 
 /* L'application « a la une » : la derniere ouverte par ce compte (le serveur
-   le sait, d'un appareil a l'autre), sinon celle retenue par ce navigateur,
-   sinon la premiere en ligne. */
+   le sait, d'un appareil a l'autre, et ne note qu'une application qui
+   fonctionne), sinon la premiere en ligne.
+   ESSAYE ET ECARTE : retenir aussi le dernier appui dans ce navigateur
+   (localStorage). Il notait l'appui, pas l'ouverture : une application en
+   panne passait « a la une ». */
 function appALaUne(apps){
   const vues = apps.filter(a=>a.ouverte_le).sort((x,y)=>y.ouverte_le-x.ouverte_le);
   if(vues.length) return [vues[0], true];
-  let d=null; try{ d=localStorage.getItem('codelab-hub-derniere'); }catch(e){}
-  const locale = apps.find(a=>a.name===d);
-  if(locale) return [locale, true];
   return [apps.find(a=>a.running) || apps[0] || null, false];
 }
 function depuis(ts){
@@ -581,6 +581,12 @@ function depuis(ts){
 }
 /* « Nouvelle version » : l'application a ete deployee, rebuildee ou a recu
    un commit depuis la derniere fois que CE compte l'a ouverte. */
-const badgeMaj = a => a.nouvelle_version
+/* « Nouveau » : une application a laquelle ce compte a acces, et qu'il n'a
+   encore jamais ouverte -- elle passe avant « Nouvelle version ». */
+const badgeMaj = a => a.nouvelle
+  ? '<span class="badge-maj" title="Tu n’as pas encore ouvert cette application">Nouveau</span>'
+  : a.nouvelle_version
   ? '<span class="badge-maj" title="Nouvelle version depuis ta dernière ouverture">Nouvelle version</span>' : '';
+/* La tuile se detache (bordure, point) pour l'un comme pour l'autre. */
+const aDuNouveau = a => !!(a.nouvelle || a.nouvelle_version);
 const SVG_FLECHE='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';

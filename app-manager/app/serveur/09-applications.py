@@ -18,6 +18,8 @@ def run_build(name):
     a = apps.get(name)
     if not a:
         return False, "Application inconnue."
+    if est_archivee(a):
+        return False, f"« {name} » est aux archives : désarchive-la avant de la construire."
     cmd = (a.get("build_command") or "").strip()
     if not cmd:
         return False, "Aucune commande de build definie pour cette application."
