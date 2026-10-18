@@ -265,6 +265,7 @@ function peindreActionsFiche(a, prive, parDefaut){
   b.push(`<button class="btn btn-refaire" data-agir="app-redemarrer" data-cible="${esc(a.name)}" ${a.running?'':'disabled'}>
     ${svgRe}Redémarrer</button>`);
   if(a.has_build) b.push(`<button class="btn btn-refaire" data-agir="app-build" data-cible="${esc(a.name)}">${svgBuild}Build</button>`);
+  if(!a.par_defaut) b.push(`<button class="btn btn-refaire" data-agir="app-archiver" data-cible="${esc(a.name)}">Archiver</button>`);
   /* « Rendre publique » n'est propose que si le serveur a une adresse
      publique declaree. Sinon le mot promet un partage qui n'existe pas :
      cela ne ferait que retirer l'authentification. Le chemin qui REFERME,

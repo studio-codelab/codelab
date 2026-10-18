@@ -158,6 +158,24 @@ function apBascule(a){
   return (a.externe || a.archivee || a.name === 'diagnostic') ? '' : `<button class="icon-btn ${a.running?'stop':'ok'}" title="${a.running?'Arrêter':'Démarrer'}"
     aria-label="${a.running?'Arrêter':'Démarrer'} ${esc(nomAffiche(a))}" data-agir="app-basculer" data-cible="${esc(a.name)}">${a.running?SVG_PAUSE:SVG_LECTURE}</button>`;
 }
+/* Les gestes de gestion, sur la carte et la ligne : tout se gere depuis la
+   page des applications (vecu : « Je ne vois pas de bouton pour archiver. Je
+   veux tout pouvoir gerer depuis l'onglet Applications »). Une application
+   active s'archive ; une archivee se desarchive ou se supprime. Rien pour
+   un service de la stack ni pour le diagnostic, qui ne s'archivent pas. */
+const SVG_ARCHIVER='<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9M10 13h4"/></svg>';
+const SVG_RESSORTIR='<svg viewBox="0 0 24 24"><path d="M9 14l-4-4 4-4"/><path d="M5 10h9a5 5 0 0 1 0 10h-2"/></svg>';
+const SVG_SUPPRIMER='<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>';
+function apGestes(a){
+  if(a.externe || a.par_defaut || a.name === 'diagnostic') return '';
+  const nom=esc(nomAffiche(a)), cible=esc(a.name);
+  if(a.archivee) return `<button class="icon-btn" title="Désarchiver" aria-label="Désarchiver ${nom}"
+      data-agir="app-desarchiver" data-cible="${cible}">${SVG_RESSORTIR}</button>
+    <button class="icon-btn danger" title="Supprimer" aria-label="Supprimer ${nom}"
+      data-agir="app-supprimer" data-cible="${cible}">${SVG_SUPPRIMER}</button>`;
+  return `<button class="icon-btn" title="Archiver" aria-label="Archiver ${nom}"
+      data-agir="app-archiver" data-cible="${cible}">${SVG_ARCHIVER}</button>`;
+}
 function apJauge(v, max, texte){
   const pc=Math.max(2, Math.min(100, max ? v/max*100 : 0));
   return `<div class="ap-jauge"><span>${texte}</span><i><b style="width:${pc}%"></b></i></div>`;
@@ -193,7 +211,7 @@ function render(){
           : `<div class="ap-jauges">${apJauge(a.cpu_percent||0, 100, 'CPU '+(a.cpu_percent||0).toFixed(1)+' %')}
               ${apJauge(a.memory_mb||0, a.max_memory_mb||memMax, 'Mémoire '+Math.round(a.memory_mb||0)+' Mo')}</div>`}
         <div class="ap-carte-pied"><span class="tbl-num">${a.port ? ':'+esc(String(a.port)) : '—'}</span><div class="spacer"></div>
-          ${apBascule(a)}
+          ${apBascule(a)}${apGestes(a)}
           <button class="icon-btn" title="Ouvrir la fiche" aria-label="Ouvrir la fiche de ${esc(nomAffiche(a))}"
             data-agir="app-ouvrir" data-cible="${esc(a.name)}"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button></div>
       </article>`;
@@ -216,7 +234,7 @@ function render(){
       <td class="tbl-num">${a.port ? esc(String(a.port)) : '—'}</td>
       <td class="tbl-num">${a.externe ? '—' : (a.cpu_percent||0).toFixed(1)+'%'}</td>
       <td class="tbl-num">${a.externe ? '—' : Math.round(a.memory_mb||0)+' Mo'}</td>
-      <td class="tbl-act"><div>${apBascule(a)}
+      <td class="tbl-act"><div>${apBascule(a)}${apGestes(a)}
         <button class="icon-btn" title="Ouvrir la fiche"
           data-agir="app-ouvrir" data-cible="${esc(a.name)}">
           <svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
@@ -326,7 +344,8 @@ async function rm(n){
     notifier(d.error || 'Suppression impossible.', 'err');
     return;
   }
-  ficheNom=null; showSection('apps'); refresh();
+  if(ficheNom===n){ ficheNom=null; showSection('apps'); }
+  refresh();
 }
 /* « Archivee le 18 octobre · configuration effacee dans 30 jours », ou
    « configuration effacee » une fois le delai passe. */

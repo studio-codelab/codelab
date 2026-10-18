@@ -226,11 +226,11 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
 - **Nom libre, adresse dérivée** : `Mon Site` est servi sous `/mon-site/`. Un nom réservé par une
   route du panneau est refusé.
 - **Renommer** une application : son adresse, ses droits et ses fichiers suivent.
-- **Archiver** une application (fiche, onglet *Configuration*) : elle s'arrête, quitte le hub et son
+- **Archiver** une application, depuis sa carte dans la page *Applications* (ou sa fiche) : elle s'arrête, quitte le hub et son
   adresse (qui répond comme une adresse inconnue), et prend le statut **« Archivée »**, au même rang
   que « En ligne » ou « Arrêtée » : la liste des applications la garde, et le filtre « Archivées »
-  la retrouve. Sa fiche dit quand elle a été archivée ; « Désarchiver » la ramène telle quelle,
-  arrêtée.
+  la retrouve. Sa carte porte « Désarchiver » (elle revient telle quelle, arrêtée) et « Supprimer » ;
+  sa fiche dit quand elle a été archivée.
   - Au bout de 30 jours, **seule sa configuration est effacée** : commandes, port, visibilité,
     mémoire, droits des comptes, alertes. L'application reste, archivée, avec son nom, son dossier et
     sa description. Désarchivée ensuite, elle revient privée, avec un port et des commandes
