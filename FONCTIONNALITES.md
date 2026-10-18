@@ -376,7 +376,9 @@ Détails : [`mailpit/README.md`](mailpit/README.md).
 - **Historique** : les 500 derniers mails, un mois au plus, relisibles dans une interface au style de
   CodeLab (`:8025`, administrateur).
 - **Relais** par le serveur d'envoi de *Paramètres > E-mail* (un compte Gmail suffit).
-- **Les applications envoient sans identifiants** : `MAIL_HOST`, `MAIL_PORT`.
+- **Les applications envoient par le hub par défaut**, sans identifiants : `MAIL_HOST`, `MAIL_PORT`, et
+  les mêmes sous les noms usuels (`SMTP_HOST`, `EMAIL_HOST`…). Un serveur propre au projet se règle
+  dans son `.env`, qui l'emporte.
 - **Plafond d'envoi** : au-delà de 50 mails par heure ou 200 par jour, les mails sont gardés sans être
   envoyés.
 - **Mode test** : tout est gardé, rien ne part.
@@ -561,7 +563,8 @@ Détails : [`app-manager/vps/README.md`](app-manager/vps/README.md).
 - **VPS + WireGuard** : le VPS porte le domaine et le certificat, ton serveur compose le tunnel.
 - **Une application, un sous-domaine** : ouvert par `toi.duckdns.org`, le panneau sert chaque
   application à `https://<son-nom>.toi.duckdns.org` — le nom de sa fiche. Rien à déclarer : ni
-  variable, ni champ. En local, rien ne change (le port des applications).
+  variable, ni champ. En local, rien ne change (le port des applications). Il faut seulement que le
+  port `9002` soit ouvert : sans lui, les applications restent sous `https://toi.duckdns.org/<nom>/`.
 - **L'adresse publique s'apprend** : c'est le domaine par lequel le panneau a été ouvert depuis
   internet. Elle sert aux liens d'invitation et permet de rendre une application publique.
 

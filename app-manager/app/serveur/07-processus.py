@@ -251,7 +251,35 @@ def secrets_partages():
         # Volume config non monte, ou fichier pas encore ecrit : les
         # applications se debrouillent avec leur propre .env, comme avant.
         pass
+    valeurs.update(alias_du_relais_mail(valeurs))
     return valeurs
+
+
+# Les noms sous lesquels les cadriciels cherchent leur serveur d'envoi :
+# SMTP_* (Nodemailer, la plupart des exemples), EMAIL_* (Django),
+# MAIL_SERVER (Flask-Mail). Vecu : « une nouvelle app doit prendre le SMTP du
+# hub par defaut si je n'en parametre pas dans l'app » -- une application qui
+# lisait SMTP_HOST ne trouvait rien, alors que Mailpit l'attendait.
+ALIAS_MAIL = {"SMTP_HOST": "MAIL_HOST", "SMTP_PORT": "MAIL_PORT", "SMTP_URL": "MAIL_URL",
+              "EMAIL_HOST": "MAIL_HOST", "EMAIL_PORT": "MAIL_PORT",
+              "MAIL_SERVER": "MAIL_HOST"}
+
+
+def alias_du_relais_mail(valeurs):
+    """Les autres noms du SMTP de Mailpit, recopies de MAIL_*.
+
+    POURQUOI : une application sans serveur d'envoi a elle doit passer par
+      le relais du hub (Mailpit, qui relaie par Parametres > E-mail) sans
+      jamais recevoir de quoi s'identifier aupres du vrai serveur.
+    REGLE : 19 de SECURITE.md. Seuls l'hote, le port et l'URL de Mailpit
+      sont recopies : jamais SMTP_USER, SMTP_PASSWORD ni SMTP_TLS, et la
+      valeur vient de MAIL_* (le bloc codelab-mailpit), jamais des SMTP_* du
+      panneau, que CLES_PANNEAU retire plus haut.
+    DEPEND DE : mailpit/entrypoint.sh (ecrire_bloc), qui publie MAIL_*.
+    Le .env du projet l'emporte : l'application le lit elle-meme apres coup.
+    """
+    return {alias: valeurs[source] for alias, source in ALIAS_MAIL.items()
+            if valeurs.get(source)}
 
 
 # ------------------------ une base, un compte ------------------------

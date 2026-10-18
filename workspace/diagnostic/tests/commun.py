@@ -271,14 +271,6 @@ def _bloc_reconciliation():
 
 
 
-def _somme(chemin):
-    import hashlib
-    with open(chemin, "rb") as f:
-        return hashlib.sha256(f.read()).hexdigest()
-
-
-
-
 def _somme_texte(contenu):
     import hashlib
     return hashlib.sha256(contenu.encode()).hexdigest()
@@ -540,14 +532,6 @@ def _semer_ouvertures(monkeypatch, tmp_path, evenements):
                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
                        (e["id"], e["ts"], e["genre"], e.get("qui"), e.get("app"),
                         e.get("ip"), json.dumps(reste)))
-
-
-
-
-
-def _cookie_de_session(reponse):
-    return next((v for k, v in reponse.headers.items()
-                 if k == "Set-Cookie" and v.startswith("session=")), "")
 
 
 
@@ -1183,34 +1167,6 @@ def _entrypoint_postgres():
 
 
 
-def _reseaux_du_compose(chemin):
-    """Les reseaux de chaque service, lus sans PyYAML.
-
-    Deux espaces par service, quatre pour « networks: », six pour chaque
-    entree de la liste -- la meme indentation reguliere que partout ailleurs
-    dans ces deux fichiers.
-    """
-    par_service, courant, dans_reseaux, dans_services = {}, None, False, False
-    for ligne in open(chemin, encoding="utf-8"):
-        if ligne[:1] not in (" ", "\n", "#", ""):
-            dans_services = ligne.rstrip() == "services:"
-            courant = None
-            continue
-        if not dans_services:
-            continue
-        if ligne.startswith("  ") and not ligne.startswith("   ") and ligne.rstrip().endswith(":"):
-            courant, dans_reseaux = ligne.strip().rstrip(":"), False
-            par_service.setdefault(courant, [])
-        elif courant and ligne.startswith("    ") and not ligne.startswith("     "):
-            dans_reseaux = ligne.strip() == "networks:"
-        elif courant and dans_reseaux and ligne.strip().startswith("- "):
-            par_service[courant].append(ligne.strip()[2:].strip())
-    return par_service
-
-
-
-
-
 def _dockerfile_dev():
     chemin = os.path.join(_racine_depot(), "dev", "Dockerfile")
     if not os.path.exists(chemin):
@@ -1536,28 +1492,6 @@ def _inscription_face_id(monkeypatch):
     monkeypatch.setattr(webauthn, "verify_registration_response", lambda **k: Verifiee())
 
 
-
-
-
-
-def _anciens_fichiers():
-    etat = app.STATE_DIR
-    ecrire = lambda nom, donnee: open(os.path.join(etat, nom), "w").write(
-        json.dumps(donnee, ensure_ascii=False))
-    ecrire("apps.json", {"site": {"path": "/w/s", "command": "x", "port": 9101,
-                                  "enabled": True, "visibility": "privee"},
-                         "blog": {"path": "/w/b", "command": "y", "port": 9102}})
-    ecrire("utilisateurs.json", {"marie": {"sel": "aa", "hash": "bb", "projets": ["site"],
-                                           "email": "marie@x.fr", "email_verifie": True,
-                                           "totp": "SECRET"}})
-    ecrire("passkeys.json", {"marie": [{"id": "K1", "cle_publique": "AAAA", "compteur": 3,
-                                        "nom": "Face ID", "cree": 1, "dernier": 2}]})
-    ecrire("categories.json", ["Outils", "Sites"])
-    ecrire("masquees.json", {"marie": ["blog"]})
-    ecrire("exposition.json", {"adresse_publique": "https://x.fr"})
-    open(os.path.join(etat, "acces.jsonl"), "w").write(
-        json.dumps({"id": "e1", "ts": 100, "genre": "connexion", "qui": "marie",
-                    "ip": "10.0.0.1", "moyen": "mot de passe"}) + "\n")
 
 
 

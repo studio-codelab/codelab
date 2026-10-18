@@ -5,8 +5,8 @@ FROM nginx:1.31-alpine
 # a plus de fichier .htpasswd a fabriquer ni de mot de passe a tirer.
 
 # Les deux fichiers atterrissent dans conf.d, donc dans le contexte "http"
-# de nginx : c'est le seul endroit ou une directive "map" est acceptee.
-COPY dagster/proxy/map-upgrade.conf /etc/nginx/conf.d/00-map-upgrade.conf
+# de nginx : c'est le seul endroit ou une directive "map" est acceptee (celle
+# de $connection_upgrade est en tete de nginx.conf).
 COPY dagster/proxy/nginx.conf /etc/nginx/conf.d/default.conf
 COPY dagster/proxy/mailpit.conf /etc/nginx/conf.d/mailpit.conf
 # L'interface Mailpit de CodeLab (page, script, style, logos) et la police

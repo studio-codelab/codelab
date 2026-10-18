@@ -1,7 +1,9 @@
 # CodeLab derriere un VPS
 
 ```
-navigateur --HTTPS--> VPS (nginx + certificat) --WireGuard--> ZimaBlade :9001
+navigateur --HTTPS--> VPS (nginx + certificat) --WireGuard--> ZimaBlade
+                         <domaine>          -> :9001  (le panneau)
+                         <nom>.<domaine>    -> :9002  (une application par sous-domaine)
 ```
 
 Le VPS porte le nom de domaine et le certificat ; la ZimaBlade ne publie rien sur internet et reste
@@ -35,6 +37,7 @@ Verifie depuis le VPS — c'est le seul test qui compte a cette etape :
 ```bash
 ping -c3 10.8.0.2
 curl -s http://10.8.0.2:9001/health     # doit repondre "ok"
+curl -s http://10.8.0.2:9002/health     # les applications : "ok" aussi
 ```
 
 **2. Le DNS.** Fais pointer ton domaine (`toi.duckdns.org`) vers l'adresse publique du **VPS**.
@@ -95,6 +98,9 @@ C'est tout : il n'y a plus de case a cocher. La securite reseau est toujours au 
   pour laquelle CodeLab ne le propose pas tant que le panneau n'a jamais ete ouvert par son domaine.
 - **Chaque application est sa propre origine.** Un sous-domaine par application, servi par le port
   `9002` : une faille XSS dans une application n'atteint pas le panneau. Ne remets pas les
-  applications sous le port du panneau (`APP_MANAGER_APPS_PORT: "0"`).
+  applications sous le port du panneau (`APP_MANAGER_APPS_PORT: "0"`) : sans le `9002`, il n'y a
+  plus de sous-domaines, et les applications reviennent sous `https://<domaine>/<nom>/`.
+- **Dagster et Mailpit ne passent pas par le VPS** par defaut : ils restent sur le reseau local
+  (`:3000`, `:8025`).
 - **Le trafic passe par ton VPS.** Debit et volume mensuel sont ceux de l'offre, pas ceux de ta
   fibre.

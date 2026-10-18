@@ -74,8 +74,13 @@ modifie pas, pour pouvoir les remplacer par une version plus recente.
 ## 5. Application web servie par le hub
 
 Le panneau lance la commande de lancement dans **son** conteneur, et la sert sur
-`http://<serveur>:9002/<adresse>/`. Le port `9002` est une origine separee de
-celle du panneau (`9001`). Le hub l'ouvre aussi dans un cadre (`/ouvrir.html`).
+`http://<serveur>:9002/<adresse>/` (derriere un VPS : `https://<adresse>.<domaine>/`).
+Le port `9002` est une origine separee de celle du panneau (`9001`). Toutes les
+applications passent par lui : chacune ecoute sur un port interne (`$PORT`, de
+`9101` a `9140`), que le panneau relaie. Si le `9002` ne s'ouvre pas, ou vaut `0`
+(`APP_MANAGER_APPS_PORT`), les applications reviennent sous `:9001/<adresse>/`,
+dans l'origine du panneau, et le diagnostic le signale. Le hub l'ouvre aussi dans
+un cadre (`/ouvrir.html`).
 
 ### Les regles qui la rendent joignable
 
@@ -130,6 +135,7 @@ celle du panneau (`9001`). Le hub l'ouvre aussi dans un cadre (`/ouvrir.html`).
 | `POSTGRES_DB` | la base d'instance de **Dagster** : **ne t'en sers pas**, utilise la base du projet (section 6) |
 | `REDIS_URL` (+ `REDIS_HOST`, `REDIS_PORT`, `REDIS_USER`, `REDIS_PASSWORD`) | le Redis partage |
 | `MAIL_HOST`, `MAIL_PORT`, `MAIL_URL` | le SMTP de Mailpit, sans identifiants |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_URL`, `EMAIL_HOST`, `EMAIL_PORT`, `MAIL_SERVER` | le meme SMTP de Mailpit, sous les noms que lisent Nodemailer, Django et Flask-Mail (jamais d'identifiant) |
 | `CODELAB_SSO_PUBLIC_KEY`, `CODELAB_SSO_ISSUER`, `CODELAB_SSO_AUDIENCE` | pour verifier l'identite signee (section 9) |
 
 Les memes variables sont passees a la commande de build. Le `.env` du projet
@@ -228,14 +234,19 @@ with smtplib.SMTP(os.environ["MAIL_HOST"], int(os.environ["MAIL_PORT"])) as s:
     s.send_message(msg)
 ```
 
-- **Ni TLS ni identifiants** : Mailpit garde chaque mail et le relaie par le
-  serveur d'envoi du panneau.
+- **Le SMTP du hub par defaut** : sans serveur d'envoi a elle, une application
+  passe par Mailpit, qui garde chaque mail et le relaie par le serveur d'envoi
+  du panneau (*Parametres > E-mail*). Ni TLS ni identifiants : ne pose ni
+  `SMTP_USER` ni `SMTP_PASSWORD`.
+- Le cadriciel lit souvent `SMTP_HOST` ou `EMAIL_HOST` plutot que `MAIL_HOST` :
+  le panneau les fournit aussi, avec la meme valeur.
 - **L'expediteur est remplace** par l'adresse du compte d'envoi ; le nom affiche
   est conserve.
 - **Plafond commun** de 50 mails par heure et 200 par jour, pour toute la stack.
   Au-dela, les mails sont gardes sans partir. Pas d'envoi en masse.
-- Un service d'envoi propre au projet se configure avec **sa** cle, dans le
-  `.env`.
+- **Un serveur d'envoi propre au projet** se configure dans son `.env`, avec
+  **sa** cle : le `.env` l'emporte sur les variables recues, et le projet ne
+  passe plus par le hub.
 
 ## 9. Comptes : se connecter avec CodeLab
 
@@ -317,12 +328,18 @@ variable `defs`. Le fichier racine le decouvre seul.
 ```python
 from dagster import Definitions, asset
 
-@asset(group_name="mon-projet")     # regroupe les assets du projet dans l'interface
-def mon_asset(context):
+@asset
+def mon_projet_bonjour(context):
     context.log.info("bonjour")
 
-defs = Definitions(assets=[mon_asset])
+defs = Definitions(assets=[mon_projet_bonjour])
 ```
+
+- **Chaque projet est range sous son nom**, sans rien declarer : ses assets
+  prennent le groupe du projet (`mon_projet` : Dagster n'accepte pas le tiret)
+  et l'etiquette `codelab/projet=mon-projet`, sur laquelle filtre le catalogue
+  d'assets. Un `group_name` choisi par le projet est garde ; l'etiquette, elle,
+  est toujours posee.
 
 - Les modules voisins s'importent sans prefixe (`import outils`), mais **tous
   les projets partagent un meme processus** : deux modules de meme nom se

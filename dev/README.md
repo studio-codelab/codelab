@@ -80,7 +80,8 @@ Puis, dans le panneau :
 
 1. *Applications > Ajouter un projet* ;
 2. choisir le dossier, accepter les commandes proposées ;
-3. activer l'application. Elle est servie sur `http://<serveur>:9002/mon-projet/`.
+3. activer l'application. Elle est servie sur `http://<serveur>:9002/mon-projet/` (derrière un
+   VPS : `https://mon-projet.<domaine>/`).
 
 À chaque modification : **Build** (s'il y en a un), puis **Redémarrer**, dans la fiche de
 l'application. Les règles d'intégration au hub (sous-chemin, port) sont dans [`AGENTS.md`](AGENTS.md).

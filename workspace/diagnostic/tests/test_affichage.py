@@ -1529,6 +1529,20 @@ def test_le_script_du_panneau_est_l_assemblage_de_ses_modules():
     assert not os.path.exists(os.path.join(DOSSIER_PANNEAU, "app", "panneau.js"))
 
 
+def test_aucune_fonction_du_panneau_n_est_declaree_deux_fois():
+    """Vecu : dateCourte existait dans 02-hub.js ET dans 08-reglages.js. Les
+    modules partagent une portee : la seconde declaration remplacait la
+    premiere sans bruit, et le suivi d'une demande affichait « Realise le »
+    une date de janvier 1970 (des secondes lues comme des millisecondes)."""
+    dossier = os.path.join(DOSSIER_PANNEAU, "app", "panneau")
+    vues = {}
+    for nom in app.PANNEAU_MODULES:
+        source = open(os.path.join(dossier, nom), encoding="utf-8").read()
+        for fonction in re.findall(r"^(?:async\s+)?function\s+(\w+)\s*\(", source, re.M):
+            assert fonction not in vues, f"{fonction} : dans {vues[fonction]} et {nom}"
+            vues[fonction] = nom
+
+
 
 
 def test_la_feuille_de_style_du_panneau_est_equilibree():

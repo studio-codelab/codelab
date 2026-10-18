@@ -131,12 +131,16 @@ fige-les.
 ```python
 from dagster import Definitions, asset
 
-@asset(group_name="mon-projet")
-def mon_asset(context):
+@asset
+def mon_projet_bonjour(context):
     context.log.info("bonjour")
 
-defs = Definitions(assets=[mon_asset])
+defs = Definitions(assets=[mon_projet_bonjour])
 ```
+
+- **Par projet** : ses assets sont rangés sous son nom, sans rien déclarer. Groupe `mon_projet`
+  (Dagster refuse le tiret), étiquette `codelab/projet=mon-projet` pour filtrer le catalogue
+  d'assets. Un `group_name` choisi par le projet est gardé.
 
 - **Chargement** : le `definitions.py` racine charge chaque projet qui expose `defs`. Un projet en
   erreur est ignoré, avec sa trace dans `docker logs codelab-dagster`, sans gêner les autres.

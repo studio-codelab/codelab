@@ -804,7 +804,7 @@ def _joindre_panneau(port, chemin="/health", timeout=4):
 
 
 # Le port des applications quand rien ne le dit : c'est le defaut du panneau
-# (voir APPS_PORT dans app-manager/app/app.py), et c'est celui que publie
+# (voir APPS_PORT dans app-manager/app/serveur/02-sessions.py), et c'est celui que publie
 # docker-compose.yml.
 PORT_APPS_DEFAUT = 9002
 

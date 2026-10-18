@@ -45,7 +45,6 @@ ce proxy est leur seule porte.
 | `Dockerfile` | nginx alpine |
 | `entrypoint.sh` | mot de passe interne de Mailpit ; retrait de l'ancien bloc d'identifiants Dagster |
 | `nginx.conf`, `mailpit.conf` | les deux proxys |
-| `map-upgrade.conf` | `Connection: upgrade` seulement quand le client le demande |
 | `indisponible.html` | la page servie quand l'amont ne répond pas |
 | `mailpit-ui/` | l'interface de Mailpit |
 

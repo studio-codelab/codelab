@@ -2,7 +2,8 @@
 #   systemctl enable --now wg-quick@wg0
 #
 # A installer sur l'HOTE, pas dans un conteneur : le tunnel doit exister
-# avant Docker, et les ports 9001 et 3000 sont publies par l'hote.
+# avant Docker, et les ports 9001 et 9002 (et 3000 si Dagster est relaye)
+# sont publies par l'hote.
 
 [Interface]
 Address = 10.8.0.2/24

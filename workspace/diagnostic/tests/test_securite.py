@@ -202,6 +202,32 @@ def test_le_bloc_d_alertes_du_panneau_n_est_pas_transmis_aux_applications(tmp_pa
     assert "SMTP_PASSWORD" not in partages
 
 
+def test_une_application_sans_smtp_a_elle_prend_le_relais_du_hub(tmp_path, monkeypatch):
+    """Vecu : « une nouvelle app doit prendre le SMTP du hub par defaut si je
+    n'en parametre pas dans l'app ». Une application qui lisait SMTP_HOST
+    (Nodemailer) ou EMAIL_HOST (Django) ne trouvait rien. Elle recoit
+    desormais ces noms, pointes sur Mailpit -- qui relaie par le serveur du
+    panneau -- et jamais l'hote, l'identifiant ni le mot de passe du panneau."""
+    _credentials(tmp_path, monkeypatch, "\n".join([
+        "SMTP_HOST=smtp.example.com",
+        "SMTP_PORT=587",
+        "SMTP_TLS=starttls",
+        "SMTP_USER=panneau@example.com",
+        "SMTP_PASSWORD=mot-de-passe-d-application",
+        "MAIL_HOST=codelab-mailpit",
+        "MAIL_PORT=1025",
+        "MAIL_URL=smtp://codelab-mailpit:1025",
+    ]))
+    partages = app.secrets_partages()
+    assert partages["SMTP_HOST"] == partages["EMAIL_HOST"] == "codelab-mailpit"
+    assert partages["MAIL_SERVER"] == "codelab-mailpit"
+    assert partages["SMTP_PORT"] == partages["EMAIL_PORT"] == "1025"
+    assert partages["SMTP_URL"] == "smtp://codelab-mailpit:1025"
+    for cle in ("SMTP_USER", "SMTP_PASSWORD", "SMTP_TLS"):
+        assert cle not in partages
+    assert not any("example.com" in v or "mot-de-passe" in v for v in partages.values())
+
+
 
 
 def test_le_panneau_lit_toujours_son_propre_bloc_d_alertes(tmp_path, monkeypatch):

@@ -1811,3 +1811,47 @@ def test_l_agregateur_ne_charge_pas_un_projet_isole(tmp_path, monkeypatch):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     assert module.defs == ["commun"]
+
+
+def test_l_agregateur_range_chaque_projet_sous_son_nom(tmp_path, monkeypatch):
+    """Vecu : « possible d'identifier et separer les taches sur Dagster par
+    projet ? ». Chaque asset recoit l'etiquette codelab/projet et, s'il n'a
+    pas de groupe a lui, le groupe du projet -- sans tiret, que Dagster
+    refuse dans un nom de groupe."""
+    import types
+    faux = types.ModuleType("dagster")
+
+    class Spec:
+        def __init__(self, groupe, tags=None):
+            self.group_name, self.tags = groupe, tags or {}
+
+        def replace_attributes(self, **kw):
+            return Spec(kw.get("group_name", self.group_name), kw.get("tags", self.tags))
+
+    class Definitions:
+        def __init__(self, specs=()):
+            self.specs = list(specs)
+
+        def map_asset_specs(self, func):
+            return Definitions(func(s) for s in self.specs)
+
+        @staticmethod
+        def merge(*defs):
+            return [s for d in defs for s in d.specs]
+    faux.Definitions = Definitions
+    faux.Spec = Spec
+    monkeypatch.setitem(sys.modules, "dagster", faux)
+    (tmp_path / "mon-projet").mkdir()
+    (tmp_path / "mon-projet" / "definitions.py").write_text(
+        "from dagster import Definitions, Spec\n"
+        "defs = Definitions([Spec(None), Spec('default'), Spec('choisi', {'k': 'v'})])\n")
+    source = open(os.path.join(_racine_depot(), "workspace", "definitions.py"),
+                  encoding="utf-8").read()
+    agregateur = tmp_path / "definitions.py"
+    agregateur.write_text(source)
+    spec = importlib.util.spec_from_file_location("agregateur_range", agregateur)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert [s.group_name for s in module.defs] == ["mon_projet", "mon_projet", "choisi"]
+    assert all(s.tags["codelab/projet"] == "mon-projet" for s in module.defs)
+    assert module.defs[2].tags["k"] == "v"

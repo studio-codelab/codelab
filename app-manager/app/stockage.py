@@ -507,15 +507,6 @@ def avancer_generation(cx, sujet):
                (f"gen:{sujet}",))
 
 
-def vider_le_journal(chemin):
-    """Reverse le journal d'ecriture (-wal) dans la base et le remet a zero :
-    les anciennes versions des pages qu'il gardait disparaissent avec lui."""
-    try:
-        connexion(chemin).execute("PRAGMA wal_checkpoint(TRUNCATE)")
-    except sqlite3.Error:
-        pass
-
-
 def sauvegarder_vers(chemin, destination):
     """Copie coherente de la base, meme pendant des ecritures (API backup de
     SQLite). Copier le fichier a la main pourrait saisir une ecriture a

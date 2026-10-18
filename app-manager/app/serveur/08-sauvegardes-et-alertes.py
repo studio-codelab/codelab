@@ -610,6 +610,9 @@ CHAMPS_SMTP = {
 # La regle existait deja pour le prefixe APP_MANAGER_ ; ce bloc lui avait
 # echappe, faute de porter ce prefixe. Le renommer n'etait pas possible : le
 # capteur Dagster et la documentation lisent ces noms-la.
+#
+# Une application recoit bien un SMTP_HOST et un SMTP_PORT, mais ce sont ceux
+# de Mailpit (alias_du_relais_mail), jamais ceux-ci.
 CLES_PANNEAU = set(CHAMPS_SMTP.values()) | {"ALERTE_ADMIN"}
 
 
