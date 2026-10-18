@@ -2224,6 +2224,31 @@ def test_codelab_video_pose_un_scenario_a_completer(tmp_path):
 
 
 
+def test_codelab_video_trouve_le_chromium_de_l_image_depuis_une_session_ssh(tmp_path):
+    """Vecu : « Executable doesn't exist at ~/.cache/ms-playwright/... ».
+    L'ENV du Dockerfile n'atteint pas une session SSH : l'outil pose lui-meme
+    le dossier des navigateurs de l'image."""
+    faux = tmp_path / "faux-node"
+    faux.mkdir()
+    trace = tmp_path / "env.txt"
+    (faux / "node").write_text('#!/bin/sh\necho "$PLAYWRIGHT_BROWSERS_PATH" > "' + str(trace) + '"\n')
+    (faux / "node").chmod(0o755)
+    outils = tmp_path / "outils"
+    outils.mkdir()
+    (tmp_path / "ws" / "cave" / "video").mkdir(parents=True)
+    (tmp_path / "ws" / "cave" / "video" / "scenario.mjs").write_text("// scenario\n")
+    env = {"CODELAB_VIDEO_OUTILS": str(outils), "PATH": f"{faux}{os.pathsep}{os.environ['PATH']}"}
+    # Vide comme dans une session SSH (l'environnement de ce test peut en avoir un).
+    r, _ = _lancer_codelab(tmp_path, ["video", "cave"], dict(env, PLAYWRIGHT_BROWSERS_PATH=""))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert trace.read_text().strip() == f"{outils}/navigateurs"
+    # Un chemin deja pose (le conteneur lui-meme) est respecte.
+    r, _ = _lancer_codelab(tmp_path, ["video", "cave"], dict(env, PLAYWRIGHT_BROWSERS_PATH="/ailleurs"))
+    assert trace.read_text().strip() == "/ailleurs"
+
+
+
+
 def test_codelab_video_refuse_un_chemin(tmp_path):
     r, _ = _lancer_codelab(tmp_path, ["video", "../etc"])
     assert r.returncode == 2

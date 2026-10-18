@@ -784,7 +784,13 @@ cmd_video() {
     return 0
   fi
   echo "[codelab] video de $nom : tournage et montage (une a deux minutes)..."
-  node "$VIDEO_OUTILS/fabriquer.mjs" "$projet"
+  # Chromium est installe dans l'image, a cote de Playwright. Le Dockerfile
+  # le dit par « ENV PLAYWRIGHT_BROWSERS_PATH », mais une session SSH (et
+  # donc le terminal de VS Code) ne recoit pas l'environnement du conteneur.
+  # Vecu : Playwright cherchait alors Chromium dans ~/.cache/ms-playwright
+  # et demandait « npx playwright install ». Le chemin se pose donc ici.
+  PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$VIDEO_OUTILS/navigateurs}" \
+    node "$VIDEO_OUTILS/fabriquer.mjs" "$projet"
 }
 
 # ------------------------------ dispatch ------------------------------
