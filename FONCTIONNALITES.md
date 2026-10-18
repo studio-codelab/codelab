@@ -572,6 +572,11 @@ Détails : [`workspace/diagnostic/README.md`](workspace/diagnostic/README.md).
   - les services se parlent-ils ?
   - ce qui doit être fermé l'est-il ?
   - sauvegardes, disque, applications, exposition.
+- **À la manière de CleanMyMac** : une colonne de rubriques (Services, Données, Sécurité,
+  Applications, Ressources), chacune marquée d'un point de couleur selon son pire état, un grand
+  anneau du nombre de sondes vertes et un bouton rond « Analyser » qui lance la vérification
+  approfondie. Une rubrique s'ouvre seule, à la place de l'analyse ; sur téléphone, la colonne
+  devient une rangée qui défile.
 - **Trois rangs** : échec, alerte, sans objet. Seul l'échec fait tomber le run Dagster, donc partir un
   mail.
 - **Vérification approfondie** (`/tests`) : écrit puis relit en base, traverse le proxy, lance la

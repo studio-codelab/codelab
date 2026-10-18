@@ -432,6 +432,31 @@ def test_la_page_d_accueil_est_un_cockpit():
 
 
 
+def test_la_page_suit_la_forme_de_cleanmymac():
+    """« Mettre a jour l'application Diagnostic pour qu'elle reprenne le style
+    de CleanMyMac » : une colonne de rubriques a gauche, chacune marquee de
+    son pire etat, et une seule vue a la fois au centre.
+
+    Chaque entree de la colonne doit designer une vue qui existe : une
+    entree sans vue ne montrerait rien au clic.
+    """
+    import re
+    import app as diag
+    html = diag.app.test_client().get("/").data.decode()
+    assert 'class="cote verre"' in html and 'class="scene"' in html
+    assert 'class="analyser"' in html and 'data-verifier=""' in html
+    vues = re.findall(r'data-vue="([a-z]+)"', html)
+    assert vues[0] == "accueil" and len(vues) > 1, vues
+    for cle in vues:
+        assert f'data-vue-de="{cle}"' in html, f"la vue {cle} n'existe pas"
+    # Le point de chaque rubrique porte un rang connu, jamais une couleur.
+    points = re.findall(r'class="point ([a-z]+)"', html)
+    assert len(points) == len(vues) - 1
+    assert set(points) <= {"ok", "warn", "ko", "neutre"}, points
+
+
+
+
 def test_le_detail_d_une_sonde_n_est_plus_en_chasse_fixe():
     """Une phrase entiere en monospace se lit deux fois moins vite.
 
