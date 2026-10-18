@@ -562,14 +562,14 @@ async function enregistrerDisposition(elements){
 }
 
 /* L'application « a la une » : la derniere ouverte par ce compte (le serveur
-   le sait, d'un appareil a l'autre), sinon celle retenue par ce navigateur,
-   sinon la premiere en ligne. */
+   le sait, d'un appareil a l'autre, et ne note qu'une application qui
+   fonctionne), sinon la premiere en ligne.
+   ESSAYE ET ECARTE : retenir aussi le dernier appui dans ce navigateur
+   (localStorage). Il notait l'appui, pas l'ouverture : une application en
+   panne passait « a la une ». */
 function appALaUne(apps){
   const vues = apps.filter(a=>a.ouverte_le).sort((x,y)=>y.ouverte_le-x.ouverte_le);
   if(vues.length) return [vues[0], true];
-  let d=null; try{ d=localStorage.getItem('codelab-hub-derniere'); }catch(e){}
-  const locale = apps.find(a=>a.name===d);
-  if(locale) return [locale, true];
   return [apps.find(a=>a.running) || apps[0] || null, false];
 }
 function depuis(ts){

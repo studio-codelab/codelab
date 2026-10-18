@@ -1821,6 +1821,9 @@ def test_une_nouvelle_version_se_signale_a_qui_a_deja_ouvert(tmp_path, monkeypat
     apps["prive-autorise"]["path"] = str(projet)
     app.save(apps)
     assert app.commit_du_projet(str(projet)) == "a" * 40
+    # Une application qui fonctionne : seule elle compte comme ouverte.
+    monkeypatch.setattr(app, "is_running", lambda n: True)
+    monkeypatch.setattr(app, "_listening", {})
     u = app.flask_app.test_client()
     _connecte(u, "marie", "mot-de-passe-long")
 
@@ -1847,6 +1850,34 @@ def test_une_nouvelle_version_se_signale_a_qui_a_deja_ouvert(tmp_path, monkeypat
     # On ne note pas l'ouverture d'une application qu'on ne peut pas voir.
     assert u.post("/api/mes-apps/prive-refuse/ouverte").status_code == 404
     assert u.post("/api/mes-apps/inconnue/ouverte").status_code == 404
+
+
+def test_une_application_en_panne_ne_compte_pas_comme_derniere_ouverte(monkeypatch, deux_espaces):
+    """Vecu : « une application qui ne fonctionne pas ne doit pas compter
+    comme une derniere application ouverte dans le widget ». Arretee, ou
+    lancee mais muette sur son port : rien n'est note, et la reponse est la
+    meme que pour une application qui marche (l'etat ne regarde pas un
+    compte utilisateur)."""
+    u = app.flask_app.test_client()
+    _connecte(u, "marie", "mot-de-passe-long")
+
+    def ouverte_le():
+        (a,) = [x for x in u.get("/api/mes-apps").get_json()["apps"] if x["name"] == "prive-autorise"]
+        return a["ouverte_le"]
+    monkeypatch.setattr(app, "is_running", lambda n: False)
+    r = u.post("/api/mes-apps/prive-autorise/ouverte")
+    assert r.status_code == 200 and r.get_json() == {"ok": True}
+    assert ouverte_le() is None
+    monkeypatch.setattr(app, "is_running", lambda n: True)
+    monkeypatch.setattr(app, "_listening", {"prive-autorise": False})
+    assert u.post("/api/mes-apps/prive-autorise/ouverte").get_json() == {"ok": True}
+    assert ouverte_le() is None
+    # Elle repond : la voila derniere ouverte.
+    monkeypatch.setattr(app, "_listening", {"prive-autorise": True})
+    u.post("/api/mes-apps/prive-autorise/ouverte")
+    assert ouverte_le()
+    page = _page_panneau("dashboard.html")
+    assert "codelab-hub-derniere" not in page
 
 
 

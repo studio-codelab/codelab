@@ -433,7 +433,6 @@ function actionMenuApp(quoi, nom){
   fermerMenuApp(false);
   const a=appDuHub(nom); if(!a) return;
   if(quoi==='ouvrir'){
-    try{ localStorage.setItem('codelab-hub-derniere', nom); }catch(err){}
     if(hubApps.some(x=>x.name===nom))
       fetch('/api/mes-apps/'+encodeURIComponent(nom)+'/ouverte', {method:'POST', keepalive:true}).catch(()=>{});
     location.href=lienOuverture(a);
@@ -1032,14 +1031,13 @@ function galerieAjouter(id, taille, app){
   $('hub-liste').scrollLeft=0;
 }
 
-/* L'application ouverte : retenue par ce navigateur, et signalee au serveur
-   -- qui note la version vue (indicateur « Nouvelle version ») et la date
-   (widget « A la une »). keepalive : la page s'en va aussitot. */
+/* L'application ouverte, signalee au serveur -- qui note la version vue
+   (indicateur « Nouvelle version ») et la date (widget « A la une »), si
+   elle fonctionne. keepalive : la page s'en va aussitot. */
 $('hub-liste').addEventListener('click', e=>{
   const t = e.target.closest('[data-app]');
   /* Les trois points sont DANS la tuile : les ouvrir n'ouvre pas l'application. */
   if(!t || hubEdition || e.target.closest('.btn-menu-app')) return;
-  try{ localStorage.setItem('codelab-hub-derniere', t.dataset.app); }catch(err){}
   if(hubApps.some(a=>a.name===t.dataset.app))
     fetch('/api/mes-apps/'+encodeURIComponent(t.dataset.app)+'/ouverte', {method:'POST', keepalive:true}).catch(()=>{});
 });
