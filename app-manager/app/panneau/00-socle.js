@@ -284,6 +284,8 @@ const ACTIONS = {
   'hub-taille':      (n,d) => hubTailleWidget(n, d.taille),
   'galerie-choisir': n => { galerieChoix=n; peindreGalerie(); },
   'app-desarchiver':  n => desarchiver(n),
+  'app-archiver':     n => archiver(n),
+  'app-supprimer':    n => rm(n),
   'galerie-ajouter': (n,d) => galerieAjouter(n, d.taille, d.app),
   'app-redemarrer':  n => restartApp(n),
   'app-build':       n => buildApp(n),

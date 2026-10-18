@@ -2143,3 +2143,10 @@ def test_une_application_par_defaut_ne_s_archive_pas(hub):
     assert c.post("/api/app/inconnue/archiver").status_code == 404
     page = _page_panneau("dashboard.html")
     assert 'id="e-archiver"' in page and 'id="zone-archives"' not in page
+    # Vecu : « Je ne vois pas de bouton pour archiver. Je veux tout pouvoir
+    # gerer depuis l'onglet Applications. » Les gestes sont sur la carte et
+    # la ligne de chaque application, et en tete de sa fiche.
+    assert page.count("${apBascule(a)}${apGestes(a)}") == 2
+    for action in ("'app-archiver':", "'app-desarchiver':", "'app-supprimer':"):
+        assert action in page, action
+    assert 'data-agir="app-archiver"' in page
