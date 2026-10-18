@@ -1690,7 +1690,7 @@ def test_le_hub_se_regle_et_le_serveur_ne_pose_que_des_valeurs_connues(deux_espa
     des points, dans n'importe quel ordre. Le serveur les pose sur <html> --
     et rien d'autre que les valeurs connues : le cookie vient du client."""
     c = deux_espaces
-    assert set(app.REGLAGES_HUB) == {"tuiles", "defilement", "widgets", "couleurs", "motif"}
+    assert set(app.REGLAGES_HUB) == {"tuiles", "defilement", "widgets", "couleurs"}
     c.set_cookie("codelab-hub", "haut.icones.prune.vertical")
     tete = re.search(r"<html[^>]*>", c.get("/login").get_data(as_text=True)).group(0)
     for attendu in ('data-tuiles="icones"', 'data-defilement="vertical"', 'data-widgets="haut"',
@@ -2661,38 +2661,18 @@ def test_au_doigt_la_carte_touchee_ne_reste_pas_selectionnee():
 
 
 @pytest.mark.parametrize("page", ["dashboard.html", "login.html", "messages.html"])
-def test_les_pages_du_panneau_ont_le_fond_etoile(page):
-    """Vecu : « un fond d'ecran texture, uni avec les memes couleurs, mais avec
-    des petites etoiles a intervalle regulier ». Les trois pages le portent ;
-    la teinte vient du texte du theme (clair comme sombre), et le motif est un
-    masque : une image SVG en fond ne suivrait pas le theme."""
-    assert '<body class="fond-motif">' in _page_panneau(page)
+def test_le_fond_des_pages_est_uni_sans_motif_ni_reglage(page):
+    """Vecu : des etoiles, puis des croix, puis « retire completement les
+    croix dans le fond d'ecran, ainsi que le reglage ». Le fond est la
+    couleur du theme, sans calque ni masque, et le hub n'a plus de reglage
+    de fond."""
+    texte = _page_panneau(page)
+    assert "fond-motif" not in texte and "data-motif" not in texte
     theme = _page_panneau("theme.css")
-    regle = theme.split("body.fond-motif::before{")[1].split("}")[0]
-    assert "position:fixed" in regle and "pointer-events:none" in regle
-    assert "-webkit-mask:" in regle and "background:var(--motif)" in regle
-    assert "--motif:color-mix(in srgb,var(--txt)" in theme
-
-
-
-def test_le_fond_d_ecran_se_choisit_croix_ou_uni(deux_espaces):
-    """Vecu : « refais le fond d'ecran, ajoute la possibilite [...] les
-    petites croix ou le fond uni ». Le reglage « motif » du hub : des croix
-    par defaut, uni sur demande, pose par le serveur sur <html> avant la
-    premiere peinture -- la page de connexion comprise."""
-    assert app.REGLAGES_HUB["motif"] == ("croix", "uni")
-    theme = _page_panneau("theme.css")
-    masque = theme.split("body.fond-motif::before{")[1].split("}")[0]
-    assert "M22 18.5v7M18.5 22h7" in masque, "le motif est une petite croix"
-    # « espace les croix et rend les plus discretes » : une croix tous les
-    # 44 px, a 6 % du texte.
-    assert "--motif:color-mix(in srgb,var(--txt) 6%,transparent);--motif-pas:44px" in theme
-    assert 'html[data-motif="uni"] body.fond-motif::before{display:none}' in theme
-    c = deux_espaces
-    c.set_cookie("codelab-hub", "uni.prune")
-    tete = re.search(r"<html[^>]*>", c.get("/login").get_data(as_text=True)).group(0)
-    assert 'data-motif="uni"' in tete and 'data-couleurs="prune"' in tete
-    page = _page_panneau("dashboard.html")
-    reglages = page.split('id="hub-reglages"')[1].split('<div class="choix-titre">')[0]
-    assert "Fond d'écran" in reglages
+    for trace in ("fond-motif", "--motif", "data-motif"):
+        assert trace not in theme, trace
+    assert "motif" not in app.REGLAGES_HUB
+    if page == "dashboard.html":
+        reglages = texte.split('id="hub-reglages"')[1].split('<div class="choix-titre">')[0]
+        assert "Fond d'écran" not in reglages and "setHub('motif'" not in texte
 

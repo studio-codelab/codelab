@@ -302,10 +302,6 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
 - **Se connecter avec CodeLab** (SSO) : l'application reconnaît la personne sans formulaire, grâce
   aux modules `codelab_auth.py` et `codelab-auth.js`.
 
-**Le fond** : dans les couleurs du thème, semé de petites croix à intervalle régulier, discrètes
-en clair comme en sombre (panneau, connexion, messagerie). *Paramètres > Apparence > Fond d'écran*
-le passe en uni.
-
 **Comme une vraie application**
 
 - **Le bouton « ← CodeLab »**, posé sur chaque page, est replié par défaut : une flèche au bord
