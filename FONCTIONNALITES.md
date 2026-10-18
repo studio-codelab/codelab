@@ -301,8 +301,9 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
 - **Se connecter avec CodeLab** (SSO) : l'application reconnaît la personne sans formulaire, grâce
   aux modules `codelab_auth.py` et `codelab-auth.js`.
 
-**Le fond** : uni, dans les couleurs du thème, semé de petites étoiles à intervalle régulier,
-discrètes en clair comme en sombre (panneau, connexion, messagerie).
+**Le fond** : dans les couleurs du thème, semé de petites croix à intervalle régulier, discrètes
+en clair comme en sombre (panneau, connexion, messagerie). *Paramètres > Apparence > Fond d'écran*
+le passe en uni.
 
 **Comme une vraie application**
 
@@ -492,7 +493,7 @@ par le panneau sur `/messages` : même session, mêmes contrôles d'accès, mêm
   extensions s'ajoutent dans le compose.
 - **Les bases dans VS Code, sans rien créer** : SQLTools est installé d'office, et chaque base du
   serveur y apparaît déjà (groupe « CodeLab »), chacune avec son propre compte, pour n'importe quel
-  projet ouvert ; une base créée par `codelab db` s'y ajoute aussitôt.
+  projet ouvert ; une base créée par `codelab create` ou `codelab update` s'y ajoute aussitôt.
 - **Une base, un compte** : le poste n'a pas le compte administrateur de Postgres. Dans le dossier
   d'un projet, le terminal (et donc un agent de code) a le compte de sa base, et lui seul ; les
   autres bases et celles de la stack le refusent. Database Client (Postgres, Redis) reste installé, avec des
@@ -510,10 +511,11 @@ par le panneau sur `/messages` : même session, mêmes contrôles d'accès, mêm
 
 | Commande | Effet |
 |---|---|
-| `codelab new <nom> [--db] [--ouvrir]` | crée le projet : dossier, git, `.gitignore`, `README.md`, `AGENTS.md`, `CLAUDE.md` et les modules `codelab_auth` et `codelab_web` |
-| `codelab db <nom>` | crée la base du projet, son compte et son schéma `dagster` |
-| `codelab agents [dossier]` | écrit ou met à jour le manuel CodeLab dans `AGENTS.md`, et pose un `CLAUDE.md` qui l'importe |
+| `codelab create <nom> [--sans-db] [--ouvrir]` | crée le projet complet : dossier, git, `.gitignore`, `README.md`, `AGENTS.md`, `CLAUDE.md`, les modules `codelab_auth` et `codelab_web`, et sa base de données |
+| `codelab update [projet] [--tous]` | met un projet existant à jour (manuel de l'agent, `CLAUDE.md`, modules, `.gitignore`, base) sans rien effacer ; `--tous` pour chaque projet, à lancer après une mise à jour de CodeLab |
 | `codelab video [projet]` | la vidéo de présentation : pose un scénario (`video/scenario.mjs`), puis le joue dans Chromium, ajoute une voix off française et monte `video/presentation.mp4` |
+| `codelab help [commande]` | toutes les commandes, en français puis en anglais ; aussi dans le hub, *Applications > Commandes* |
+| `codelab db <nom>`, `codelab vscode-bases` | outils plus fins appelés par `create` et `update` : la base seule, les connexions SQLTools |
 
 **Raccourcis et agents**
 

@@ -169,7 +169,7 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 - **Des ressources bornées.** Les corps de requête sont limités (32 Mo vers une application, 2 Mo vers
   le panneau). Une limite mémoire optionnelle peut être posée par application, et un redémarrage
   automatique est tenté au plus 5 fois en 10 minutes.
-- **Des modules sûrs par défaut** déposés par `codelab new` :
+- **Des modules sûrs par défaut** déposés par `codelab create` (et tenus à jour par `codelab update`, qui ne remplace jamais une copie modifiée) :
   - `codelab_auth` : connexion avec CodeLab, sans faire confiance aux en-têtes non signés ;
   - `codelab_web` : pages d'erreur sans pile d'appels, et en-têtes optionnels (CSP stricte, `nosniff`,
     `Referrer-Policy`, `Permissions-Policy`).

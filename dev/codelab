@@ -1,17 +1,32 @@
 #!/bin/sh
 # codelab -- outil de projet du conteneur codelab-dev.
 #
-#   codelab new <nom>         cree un projet pret a travailler
-#     ... --ouvrir             et rouvre la fenetre VS Code dessus
-#   codelab db <nom>          cree la base du projet et son schema "dagster"
-#   codelab agents [dossier]  ecrit le manuel CodeLab dans le AGENTS.md du projet
-#                             (et un CLAUDE.md qui l'importe, pour Claude Code)
-#   codelab vscode-bases      declare chaque base du serveur dans SQLTools (VS Code)
+#   codelab create <nom>      cree un projet pret a travailler : dossier, git,
+#                             .gitignore, README, AGENTS.md + CLAUDE.md, modules
+#                             codelab_auth / codelab_web, base de donnees
+#     ... --sans-db            sans la base (--no-db)
+#     ... --ouvrir             et rouvre la fenetre VS Code dessus (--open)
+#   codelab update [projet]   met un projet existant au niveau de la stack :
+#                             manuel de l'agent, CLAUDE.md, modules, .gitignore,
+#                             base -- sans toucher a ce que le projet a ecrit
+#     ... --tous               tous les projets CodeLab de /workspace (--all)
 #   codelab video [projet]    la video de presentation du projet (video/presentation.mp4)
+#   codelab help [commande]   l'aide, en francais puis en anglais
+#
+#   Outils plus fins, appeles par les precedents : db <nom> (la base seule),
+#   vscode-bases (les connexions SQLTools). Anciens noms, gardes pour les
+#   taches VS Code et les habitudes deja prises : new = create, agents = le
+#   manuel seul.
 #
 # Une seule commande pour tout ce qui touche a un projet, plutot qu'un
 # executable par geste : la liste des sous-commandes se decouvre avec
 # "codelab" seul, et il n'y a qu'un nom a retenir.
+#
+# Vecu : « mon agent Claude ne fonctionne pas de maniere continue sur
+# l'app ». Les projets crees avant une mise a jour gardaient un vieux manuel,
+# parfois sans CLAUDE.md : l'agent n'avait pas les consignes du jour. Deux
+# gestes au lieu de cinq (new, db, agents, vscode-bases, copie des modules) :
+# create au debut, update apres chaque mise a jour de la stack.
 set -eu
 
 MANUEL="${CODELAB_AGENTS_SOURCE:-/usr/local/share/codelab/AGENTS.md}"
@@ -20,28 +35,195 @@ MANUEL="${CODELAB_AGENTS_SOURCE:-/usr/local/share/codelab/AGENTS.md}"
 # prete des la premiere seconde, comme la base de donnees ; et les pages
 # d'erreur et en-tetes de securite (codelab_web).
 MODELES="${CODELAB_MODELES:-/usr/local/share/codelab/modeles}"
+# Le marqueur garde son ancien texte (« codelab agents ») : les AGENTS.md
+# deja poses le portent, et c'est lui qu'update cherche pour remplacer le bloc.
 DEBUT='<!-- codelab:debut -- bloc gere par "codelab agents", ne pas editer a la main -->'
 FIN='<!-- codelab:fin -->'
 
-usage() {
-  cat >&2 <<'AIDE'
-usage: codelab <commande> [argument]
+# ------------------------------- help -------------------------------
+#
+# L'aide en deux langues, sous une seule commande : « codelab help » ecrit le
+# francais puis l'anglais (« codelab help <commande> » : le detail). Vecu :
+# « retire codelab aide, ne garde que codelab help » -- un seul nom a retenir.
+# La meme liste vit dans le hub (Applications > Commandes) et dans
+# FONCTIONNALITES.md : un test verifie que chaque commande du dispatch y est.
 
-  new <nom> [--db]    cree le projet : dossier, git, .gitignore, AGENTS.md,
-                      CLAUDE.md
-       [--ouvrir]     (--db cree aussi sa base de donnees ; --ouvrir rouvre la
-                      fenetre VS Code sur le nouveau projet)
-  db <nom>            cree la base "<nom>" et son schema "dagster" (idempotent)
-  agents [dossier]    ecrit le manuel CodeLab dans le AGENTS.md du projet,
-                      et un CLAUDE.md qui l'importe (defaut : le dossier courant)
-  vscode-bases        declare chaque base du serveur dans SQLTools (VS Code) :
-                      rien a creer a la main, meme pour un nouveau projet
-  video [projet]      la video de presentation du projet : la premiere fois,
-                      cree video/scenario.mjs a completer ; ensuite, filme
-                      l'application et produit video/presentation.mp4
-                      (defaut : le projet du dossier courant)
+aide_fr() {
+  case "${1:-}" in
+    create|new) cat <<'AIDE'
+codelab create <nom> [--sans-db] [--ouvrir]
+
+  Cree /workspace/<nom>, pret a travailler :
+    - un depot git, un .gitignore (.env en tete) et un README.md ;
+    - AGENTS.md (le manuel CodeLab, lu par Codex) et CLAUDE.md (qui
+      l'importe, pour Claude Code) ;
+    - codelab_auth.py / codelab-auth.js : se connecter avec CodeLab ;
+    - codelab_web.py / codelab-web.js : pages d'erreur et en-tetes ;
+    - la base de donnees du projet (meme nom), sauvegardee chaque jour.
+
+  --sans-db   pas de base de donnees (update ou db la creeront plus tard)
+  --ouvrir    rouvre la fenetre VS Code sur le projet
+
+  Le nom : lettres, chiffres, tirets et soulignes, en commencant par une
+  lettre. Il sert de dossier, d'adresse (/nom/) et de nom de base.
 AIDE
+    ;;
+    update) cat <<'AIDE'
+codelab update [projet] [--sans-db]
+codelab update --tous
+
+  Met un projet existant au niveau de la stack, sans rien effacer :
+    - reecrit le bloc CodeLab de AGENTS.md (le reste du fichier est garde) ;
+    - pose CLAUDE.md s'il manque (un CLAUDE.md existant n'est pas touche) ;
+    - ajoute les modules codelab_auth / codelab_web qui manquent, et met a
+      jour ceux que git garde intacts (une copie modifiee reste telle quelle) ;
+    - ajoute .env et .dagster-venv/ au .gitignore s'ils n'y sont pas ;
+    - cree la base du projet si elle manque (--sans-db pour s'en passer).
+
+  Sans argument : le projet du dossier courant. --tous : chaque projet de
+  /workspace qui porte deja le manuel CodeLab.
+  A relancer apres chaque mise a jour de CodeLab.
+AIDE
+    ;;
+    video) cat <<'AIDE'
+codelab video [projet]
+
+  La video de presentation du projet, montree par le hub sur sa fiche.
+  1re fois : pose video/scenario.mjs, a completer (ou a faire ecrire par
+             ton agent : section 14 du manuel AGENTS.md).
+  Ensuite  : joue le scenario dans Chromium, ajoute la voix off francaise
+             et produit video/presentation.mp4 et video/affiche.jpg.
+AIDE
+    ;;
+    db) cat <<'AIDE'
+codelab db <nom>
+
+  La base seule : la cree avec son compte, son schema "dagster" et son
+  search_path (sans effet si elle existe). create et update l'appellent.
+AIDE
+    ;;
+    vscode-bases) cat <<'AIDE'
+codelab vscode-bases
+
+  Declare chaque base de projet dans SQLTools (VS Code), avec son propre
+  compte. Le poste le fait seul toutes les quelques minutes.
+AIDE
+    ;;
+    *) cat <<'AIDE'
+codelab -- l'outil de projet de CodeLab
+
+  codelab create <nom>     cree un projet complet (git, manuel de l'agent,
+                           CLAUDE.md, modules CodeLab, base de donnees)
+      --sans-db            sans base de donnees
+      --ouvrir             rouvre VS Code sur le projet
+  codelab update [projet]  met un projet existant a jour (manuel, CLAUDE.md,
+                           modules, .gitignore, base), sans rien effacer
+      --tous               tous les projets CodeLab de /workspace
+  codelab video [projet]   la video de presentation du projet
+  codelab help [commande]  cette aide, en francais puis en anglais
+
+  Outils plus fins : codelab db <nom> (la base seule),
+                     codelab vscode-bases (connexions SQLTools).
+  Anciens noms     : new = create ; agents = le manuel seul (update fait plus).
+
+  Detail d'une commande : codelab help create
+AIDE
+    ;;
+  esac
 }
+
+aide_en() {
+  case "${1:-}" in
+    create|new) cat <<'HELP'
+codelab create <name> [--no-db] [--open]
+
+  Creates /workspace/<name>, ready to work on:
+    - a git repository, a .gitignore (.env first) and a README.md;
+    - AGENTS.md (the CodeLab manual, read by Codex) and CLAUDE.md (which
+      imports it, for Claude Code);
+    - codelab_auth.py / codelab-auth.js: sign in with CodeLab;
+    - codelab_web.py / codelab-web.js: error pages and security headers;
+    - the project database (same name), backed up every day.
+
+  --no-db     no database (update or db can create it later)
+  --open      reopen the VS Code window on the project
+  (French spellings work too: --sans-db, --ouvrir)
+
+  The name: letters, digits, dashes and underscores, starting with a
+  letter. It is the folder, the address (/name/) and the database name.
+HELP
+    ;;
+    update) cat <<'HELP'
+codelab update [project] [--no-db]
+codelab update --all
+
+  Brings an existing project up to the current stack, deleting nothing:
+    - rewrites the CodeLab block of AGENTS.md (the rest of the file stays);
+    - adds CLAUDE.md if missing (an existing CLAUDE.md is left alone);
+    - adds the missing codelab_auth / codelab_web modules, and updates the
+      ones git keeps unchanged (a modified copy is left as it is);
+    - adds .env and .dagster-venv/ to .gitignore if they are missing;
+    - creates the project database if missing (--no-db to skip it).
+
+  No argument: the project of the current folder. --all: every
+  project in /workspace that already carries the CodeLab manual.
+  Run it again after every CodeLab update.
+HELP
+    ;;
+    video) cat <<'HELP'
+codelab video [project]
+
+  The project's presentation video, shown by the hub on its page.
+  First run: writes video/scenario.mjs, to fill in (or to have your agent
+             write: section 14 of the AGENTS.md manual).
+  Then     : plays the scenario in Chromium, adds the French voice-over
+             and produces video/presentation.mp4 and video/affiche.jpg.
+HELP
+    ;;
+    db) cat <<'HELP'
+codelab db <name>
+
+  The database only: creates it with its account, its "dagster" schema and
+  its search_path (no effect if it exists). create and update call it.
+HELP
+    ;;
+    vscode-bases) cat <<'HELP'
+codelab vscode-bases
+
+  Declares every project database in SQLTools (VS Code), each with its own
+  account. The workstation does it by itself every few minutes.
+HELP
+    ;;
+    *) cat <<'HELP'
+codelab -- the CodeLab project tool
+
+  codelab create <name>     creates a complete project (git, agent manual,
+                            CLAUDE.md, CodeLab modules, database)
+      --no-db               without a database
+      --open                reopens VS Code on the project
+  codelab update [project]  updates an existing project (manual, CLAUDE.md,
+                            modules, .gitignore, database), deleting nothing
+      --all                 every CodeLab project in /workspace
+  codelab video [project]   the project's presentation video
+  codelab help [command]    this help, in French then in English
+
+  Finer tools : codelab db <name> (the database only),
+                codelab vscode-bases (SQLTools connections).
+  Former names: new = create; agents = the manual only (update does more).
+
+  Details of a command: codelab help create
+HELP
+    ;;
+  esac
+}
+
+aide() {
+  aide_fr "${1:-}"
+  echo "------------------------------------------------------------------------"
+  aide_en "${1:-}"
+}
+
+usage() { aide >&2; }
 
 # --------------------------------- new ---------------------------------
 #
@@ -64,7 +246,7 @@ AIDE
 #
 # RIEN ICI NE DOIT FAIRE ECHOUER LA COMMANDE. Le projet est deja cree quand
 # on arrive : ouvrir la fenetre est un confort. Un echec se raconte, il ne
-# se propage pas -- sinon "codelab new" sortirait en erreur sur un projet
+# se propage pas -- sinon "codelab create" sortirait en erreur sur un projet
 # parfaitement valide, et la prochaine fois on ne saurait plus si le projet
 # a ete cree ou non.
 ouvrir_dans_vscode() {
@@ -100,35 +282,102 @@ ouvrir_dans_vscode() {
 }
 
 
-cmd_new() {
+# Le nom d'un projet sert de dossier, d'adresse web sous le panneau et
+# d'identifiant SQL : la meme regle partout, verifiee avant d'agir.
+nom_valide() {
+  case "$1" in
+    *[!a-zA-Z0-9_-]* | "" | [!a-zA-Z]*) return 1 ;;
+  esac
+  return 0
+}
+
+# Les quatre modules CodeLab d'un projet. A la creation, on les copie. A la
+# mise a jour (« maj »), on ajoute ceux qui manquent et on remplace ceux que
+# git garde intacts -- l'ancienne version reste dans l'historique. Une copie
+# modifiee ou non versionnee n'est jamais ecrasee : ce serait perdre le
+# travail de quelqu'un sans retour possible.
+deposer_modules() {
+  dossier="$1"; mode="${2:-}"
+  for modele in codelab_auth.py codelab-auth.js codelab_web.py codelab-web.js; do
+    source_m="$MODELES/$modele"; cible="$dossier/$modele"
+    [ -f "$source_m" ] || continue
+    if [ ! -e "$cible" ]; then
+      cp "$source_m" "$cible"
+      [ -z "$mode" ] || echo "[codelab]   $modele ajoute."
+    elif cmp -s "$source_m" "$cible"; then
+      :
+    elif git -C "$dossier" ls-files --error-unmatch "$modele" >/dev/null 2>&1 \
+         && git -C "$dossier" diff --quiet HEAD -- "$modele" 2>/dev/null; then
+      cp "$source_m" "$cible"
+      echo "[codelab]   $modele mis a jour (l'ancienne version reste dans git)."
+    else
+      echo "[codelab]   $modele differe du modele et n'est pas intact dans git :" \
+           "laisse tel quel (le modele : $source_m)."
+    fi
+  done
+}
+
+# Ce qu'un .gitignore de projet CodeLab doit au moins contenir. .env en
+# tete : /workspace n'est pas chiffre, et un secret pousse sur un depot
+# distant ne se rattrape pas. .dagster-venv/ : l'environnement que Dagster
+# construit dans le projet. Le reste (dist/, build/...) depend du projet :
+# update ne l'impose pas a un projet existant, qui versionne peut-etre dist/.
+GITIGNORE_REQUIS=".env .dagster-venv/"
+
+completer_gitignore() {
+  fichier="$1/.gitignore"
+  for motif in $GITIGNORE_REQUIS; do
+    if [ ! -f "$fichier" ] || ! grep -qxF "$motif" "$fichier"; then
+      # Une derniere ligne sans fin de ligne collerait le motif a elle.
+      if [ -s "$fichier" ] && [ -n "$(tail -c 1 "$fichier")" ]; then echo >> "$fichier"; fi
+      echo "$motif" >> "$fichier"
+      echo "[codelab]   .gitignore : $motif ajoute."
+    fi
+  done
+}
+
+# La base du projet et ses connexions SQLTools. Un echec ici ne fait pas
+# echouer create ni update : le projet est la, et la base se rattrape par
+# « codelab update » quand Postgres repond. Le sous-shell est voulu :
+# cmd_db sort par exit, qui arreterait sinon tout le script.
+assurer_la_base() {
+  if ( cmd_db "$1" ); then
+    ( cmd_vscode_bases --discret ) >/dev/null 2>&1 || true
+  else
+    echo "[codelab]   base \"$1\" non creee -- relance « codelab update » plus tard."
+  fi
+}
+
+cmd_create() {
   projet=""
-  avec_db=0
+  avec_db=1
   ouvrir=0
   for arg in "$@"; do
     case "$arg" in
+      --sans-db|--no-db) avec_db=0 ;;
+      # --db : l'ancien drapeau de « codelab new », la base etant desormais
+      # creee par defaut. Garde pour les taches VS Code deja copiees.
       --db) avec_db=1 ;;
-      --ouvrir) ouvrir=1 ;;
-      -*)   echo "codelab new: option inconnue \"$arg\"." >&2; exit 2 ;;
+      --ouvrir|--open) ouvrir=1 ;;
+      -*)   echo "codelab create: option inconnue \"$arg\"." >&2; exit 2 ;;
       *)    [ -z "$projet" ] || { usage; exit 2; }; projet="$arg" ;;
     esac
   done
   [ -n "$projet" ] || { usage; exit 2; }
 
-  # Meme regle de nommage que pour la base : le nom sert de dossier, d'adresse
-  # web sous le panneau, et eventuellement d'identifiant SQL.
-  case "$projet" in
-    *[!a-zA-Z0-9_-]* | "" | [!a-zA-Z]*)
-      echo "codelab new: nom invalide \"$projet\" -- lettres, chiffres," \
-           "tirets et soulignes, en commencant par une lettre." >&2
-      exit 2 ;;
-  esac
+  nom_valide "$projet" || {
+    echo "codelab create: nom invalide \"$projet\" -- lettres, chiffres," \
+         "tirets et soulignes, en commencant par une lettre." >&2
+    exit 2
+  }
 
   RACINE="${CODELAB_WORKSPACE:-/workspace}"
   DOSSIER="$RACINE/$projet"
   # Jamais par-dessus un dossier existant : la commande doit rester sans
-  # danger a lancer deux fois par erreur.
+  # danger a lancer deux fois par erreur. Un projet existant se met a jour.
   [ ! -e "$DOSSIER" ] || {
-    echo "codelab new: $DOSSIER existe deja." >&2
+    echo "codelab create: $DOSSIER existe deja -- pour le mettre a jour :" \
+         "codelab update $projet" >&2
     exit 1
   }
 
@@ -137,8 +386,6 @@ cmd_new() {
 
   git init -q 2>/dev/null || echo "[codelab] git indisponible : depot non initialise."
 
-  # .env en tete : /workspace n'est pas chiffre, et un secret pousse sur un
-  # depot distant ne se rattrape pas.
   cat > .gitignore <<'IGNORE'
 .env
 node_modules/
@@ -156,24 +403,21 @@ IGNORE
 README
 
   cmd_agents "$DOSSIER" >/dev/null
-  for modele in codelab_auth.py codelab-auth.js codelab_web.py codelab-web.js; do
-    if [ -f "$MODELES/$modele" ]; then
-      cp "$MODELES/$modele" "$DOSSIER/$modele"
-    fi
-  done
+  deposer_modules "$DOSSIER"
   # Un "[ ... ] && cmd" ici sortirait du script sous "set -e" quand le test
   # echoue : la forme longue evite ce piege classique.
   if [ "$avec_db" -eq 1 ]; then
-    cmd_db "$projet"
+    assurer_la_base "$projet"
   fi
 
   echo "[codelab] projet cree : $DOSSIER"
-  echo "[codelab]   AGENTS.md pose -- complete la section \"Projet $projet\""
+  echo "[codelab]   AGENTS.md + CLAUDE.md poses -- complete la section \"Projet $projet\""
   echo "[codelab]   connexion CodeLab : codelab_auth.py / codelab-auth.js (voir leur en-tete)"
   echo "[codelab]   erreurs et en-tetes : codelab_web.py / codelab-web.js"
-  [ "$avec_db" -eq 1 ] || echo "[codelab]   base de donnees : codelab db $projet"
+  [ "$avec_db" -eq 1 ] || echo "[codelab]   base de donnees : codelab update $projet"
   echo "[codelab]   projet web    : cd $DOSSIER && npm create vite@latest ."
-  echo "[codelab]   puis declare-le dans le panneau (port 9001)."
+  echo "[codelab]   puis declare-le dans le panneau (Applications > Nouvelle application)."
+  echo "[codelab]   apres une mise a jour de CodeLab : codelab update $projet"
 
   # En dernier, volontairement : rouvrir la fenetre remplace la vue courante,
   # et les lignes ci-dessus doivent avoir ete ecrites avant.
@@ -191,12 +435,11 @@ cmd_db() {
   # Le nom sert d'identifiant SQL, de nom de compte et de nom de dossier. On
   # refuse tout de suite ce qui n'est ni l'un ni l'autre plutot que de
   # laisser Postgres renvoyer une erreur de syntaxe a rallonge.
-  case "$projet" in
-    *[!a-zA-Z0-9_-]* | "" | [!a-zA-Z]*)
-      echo "codelab db: nom invalide \"$projet\" -- lettres, chiffres," \
-           "tirets et soulignes, en commencant par une lettre." >&2
-      exit 2 ;;
-  esac
+  nom_valide "$projet" || {
+    echo "codelab db: nom invalide \"$projet\" -- lettres, chiffres," \
+         "tirets et soulignes, en commencant par une lettre." >&2
+    exit 2
+  }
   if [ "${#projet}" -gt 63 ]; then
     echo "codelab db: nom trop long (63 caracteres au plus)." >&2
     exit 2
@@ -395,6 +638,9 @@ SQUELETTE
     echo "[codelab] $CIBLE cree -- complete la section \"Projet $NOM\"."
   fi
 
+  # Supprime ici et pas seulement par le trap : « update --tous » appelle
+  # cette fonction pour chaque projet, et le trap ne voit que le dernier.
+  rm -f "$TMP"
   chmod g+rw "$CIBLE" 2>/dev/null || true
   claude_md "$PROJET"
 }
@@ -424,6 +670,92 @@ CLAUDE
   fi
 }
 
+# ------------------------------- update -------------------------------
+#
+# Met un projet existant au niveau de la stack. Chaque geste est sans
+# danger a rejouer, et aucun n'efface ce que le projet a ecrit lui-meme :
+# le bloc du manuel est remplace, le reste de AGENTS.md garde ; un CLAUDE.md
+# existant n'est pas touche ; un module modifie reste tel quel ; le
+# .gitignore ne recoit que des lignes en plus ; la base n'est creee que si
+# elle manque.
+
+# Le projet du dossier courant : /workspace/<projet>/... -> /workspace/<projet>.
+projet_courant() {
+  case "$PWD/" in
+    "$WS"/?*/*) p=${PWD#"$WS"/}; echo "$WS/${p%%/*}" ;;
+    *) return 1 ;;
+  esac
+}
+
+mettre_a_jour() {
+  dossier="$1"; avec_db="$2"
+  nom=$(basename "$dossier")
+  echo "[codelab] mise a jour de $dossier"
+  if [ ! -e "$dossier/.git" ]; then
+    if git -C "$dossier" init -q 2>/dev/null; then
+      echo "[codelab]   depot git initialise."
+    fi
+  fi
+  completer_gitignore "$dossier"
+  cmd_agents "$dossier"
+  deposer_modules "$dossier" maj
+  if [ "$avec_db" -eq 1 ]; then
+    if nom_valide "$nom"; then
+      assurer_la_base "$nom"
+    else
+      echo "[codelab]   pas de base : \"$nom\" n'est pas un nom de base valide" \
+           "(lettres, chiffres, tirets, soulignes, une lettre en tete)."
+    fi
+  fi
+}
+
+cmd_update() {
+  WS="${CODELAB_WORKSPACE:-/workspace}"
+  cible=""; tous=0; avec_db=1
+  for arg in "$@"; do
+    case "$arg" in
+      --tous|--all) tous=1 ;;
+      --sans-db|--no-db) avec_db=0 ;;
+      -*) echo "codelab update: option inconnue \"$arg\"." >&2; exit 2 ;;
+      *)  [ -z "$cible" ] || { usage; exit 2; }; cible="$arg" ;;
+    esac
+  done
+
+  if [ "$tous" -eq 1 ]; then
+    [ -z "$cible" ] || { echo "codelab update: --tous ou un projet, pas les deux." >&2; exit 2; }
+    # Seuls les dossiers qui portent deja le manuel sont des projets CodeLab :
+    # /workspace contient aussi des clones et des essais qui n'en sont pas.
+    n=0
+    for d in "$WS"/*/; do
+      d=${d%/}
+      [ -f "$d/AGENTS.md" ] && grep -qF "$DEBUT" "$d/AGENTS.md" || continue
+      mettre_a_jour "$d" "$avec_db"
+      n=$((n + 1))
+    done
+    echo "[codelab] $n projet(s) mis a jour."
+    return 0
+  fi
+
+  case "$cible" in
+    "") dossier=$(projet_courant) || {
+          echo "codelab update: lance-la depuis le dossier d'un projet, ou donne-le" \
+               "(codelab update mon-projet, ou --tous)." >&2
+          exit 2
+        } ;;
+    # Un chemin (ancienne forme de « codelab agents <dossier> ») : pris tel quel.
+    */* | .*) dossier="$(cd "$cible" 2>/dev/null && pwd)" || {
+          echo "codelab update: dossier introuvable : $cible" >&2
+          exit 1
+        } ;;
+    *)  dossier="$WS/$cible" ;;
+  esac
+  [ -d "$dossier" ] || {
+    echo "codelab update: $dossier n'existe pas -- pour le creer : codelab create $cible" >&2
+    exit 1
+  }
+  mettre_a_jour "$dossier" "$avec_db"
+}
+
 # ------------------------------- video -------------------------------
 #
 # La video de presentation d'un projet, fabriquee dans le poste, sans IA :
@@ -443,11 +775,11 @@ cmd_video() {
     projet="$WS/$1"
   else
     # Sans argument : le projet du dossier courant.
-    case "$PWD/" in
-      "$WS"/?*/*) p=${PWD#"$WS"/}; projet="$WS/${p%%/*}" ;;
-      *) echo "codelab video: donne un projet (codelab video mon-projet), ou lance-la" \
-              "depuis son dossier." >&2; exit 2 ;;
-    esac
+    projet=$(projet_courant) || {
+      echo "codelab video: donne un projet (codelab video mon-projet), ou lance-la" \
+           "depuis son dossier." >&2
+      exit 2
+    }
   fi
   [ -d "$projet" ] || { echo "codelab video: $projet n'existe pas." >&2; exit 1; }
   nom=$(basename "$projet")
@@ -460,18 +792,31 @@ cmd_video() {
     return 0
   fi
   echo "[codelab] video de $nom : tournage et montage (une a deux minutes)..."
-  node "$VIDEO_OUTILS/fabriquer.mjs" "$projet"
+  # Chromium est installe dans l'image, a cote de Playwright. Le Dockerfile
+  # le dit par « ENV PLAYWRIGHT_BROWSERS_PATH », mais une session SSH (et
+  # donc le terminal de VS Code) ne recoit pas l'environnement du conteneur.
+  # Vecu : Playwright cherchait alors Chromium dans ~/.cache/ms-playwright
+  # et demandait « npx playwright install ». Le chemin se pose donc ici.
+  PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$VIDEO_OUTILS/navigateurs}" \
+    node "$VIDEO_OUTILS/fabriquer.mjs" "$projet"
 }
 
 # ------------------------------ dispatch ------------------------------
 
 case "${1:-}" in
-  new)         shift; cmd_new "$@" ;;
-  db)          shift; cmd_db "$@" ;;
-  agents)      shift; cmd_agents "$@" ;;
+  create)       shift; cmd_create "$@" ;;
+  update)       shift; cmd_update "$@" ;;
+  video)        shift; cmd_video "$@" ;;
+  help|-h|--help|"") aide "${2:-}" ;;
+  db)           shift; cmd_db "$@" ;;
   vscode-bases) shift; cmd_vscode_bases "$@" ;;
-  video)       shift; cmd_video "$@" ;;
-  -h|--help|help|"") usage; [ "${1:-}" = "" ] && exit 2 || exit 0 ;;
+  # Anciens noms. new garde ses options (--db, --ouvrir) ; agents ne fait
+  # que le manuel et CLAUDE.md, comme avant. Les taches VS Code deja copiees
+  # dans /workspace les appellent encore : ils restent tant que des
+  # installations ont ces taches -- le squelette du jour appelle create et
+  # update.
+  new)          shift; cmd_create "$@" ;;
+  agents)       shift; cmd_agents "$@" ;;
   *)
     echo "codelab: commande inconnue \"$1\"." >&2
     usage

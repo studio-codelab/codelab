@@ -1,6 +1,6 @@
 /* codelab-auth -- se connecter avec CodeLab, sans connexions dans tous les sens.
 
-   Depose par « codelab new ». Aucune dependance : Node verifie Ed25519 de
+   Depose par « codelab create », tenu a jour par « codelab update ». Aucune dependance : Node verifie Ed25519 de
    lui-meme (module crypto).
 
    LA CONNEXION SILENCIEUSE, dans cet ordre, a chaque requete :

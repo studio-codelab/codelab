@@ -1690,7 +1690,7 @@ def test_le_hub_se_regle_et_le_serveur_ne_pose_que_des_valeurs_connues(deux_espa
     des points, dans n'importe quel ordre. Le serveur les pose sur <html> --
     et rien d'autre que les valeurs connues : le cookie vient du client."""
     c = deux_espaces
-    assert set(app.REGLAGES_HUB) == {"tuiles", "defilement", "widgets", "couleurs"}
+    assert set(app.REGLAGES_HUB) == {"tuiles", "defilement", "widgets", "couleurs", "motif"}
     c.set_cookie("codelab-hub", "haut.icones.prune.vertical")
     tete = re.search(r"<html[^>]*>", c.get("/login").get_data(as_text=True)).group(0)
     for attendu in ('data-tuiles="icones"', 'data-defilement="vertical"', 'data-widgets="haut"',
@@ -2224,6 +2224,31 @@ def test_codelab_video_pose_un_scenario_a_completer(tmp_path):
 
 
 
+def test_codelab_video_trouve_le_chromium_de_l_image_depuis_une_session_ssh(tmp_path):
+    """Vecu : « Executable doesn't exist at ~/.cache/ms-playwright/... ».
+    L'ENV du Dockerfile n'atteint pas une session SSH : l'outil pose lui-meme
+    le dossier des navigateurs de l'image."""
+    faux = tmp_path / "faux-node"
+    faux.mkdir()
+    trace = tmp_path / "env.txt"
+    (faux / "node").write_text('#!/bin/sh\necho "$PLAYWRIGHT_BROWSERS_PATH" > "' + str(trace) + '"\n')
+    (faux / "node").chmod(0o755)
+    outils = tmp_path / "outils"
+    outils.mkdir()
+    (tmp_path / "ws" / "cave" / "video").mkdir(parents=True)
+    (tmp_path / "ws" / "cave" / "video" / "scenario.mjs").write_text("// scenario\n")
+    env = {"CODELAB_VIDEO_OUTILS": str(outils), "PATH": f"{faux}{os.pathsep}{os.environ['PATH']}"}
+    # Vide comme dans une session SSH (l'environnement de ce test peut en avoir un).
+    r, _ = _lancer_codelab(tmp_path, ["video", "cave"], dict(env, PLAYWRIGHT_BROWSERS_PATH=""))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert trace.read_text().strip() == f"{outils}/navigateurs"
+    # Un chemin deja pose (le conteneur lui-meme) est respecte.
+    r, _ = _lancer_codelab(tmp_path, ["video", "cave"], dict(env, PLAYWRIGHT_BROWSERS_PATH="/ailleurs"))
+    assert trace.read_text().strip() == "/ailleurs"
+
+
+
+
 def test_codelab_video_refuse_un_chemin(tmp_path):
     r, _ = _lancer_codelab(tmp_path, ["video", "../etc"])
     assert r.returncode == 2
@@ -2618,4 +2643,24 @@ def test_les_pages_du_panneau_ont_le_fond_etoile(page):
     assert "position:fixed" in regle and "pointer-events:none" in regle
     assert "-webkit-mask:" in regle and "background:var(--motif)" in regle
     assert "--motif:color-mix(in srgb,var(--txt)" in theme
+
+
+
+def test_le_fond_d_ecran_se_choisit_croix_ou_uni(deux_espaces):
+    """Vecu : « refais le fond d'ecran, ajoute la possibilite [...] les
+    petites croix ou le fond uni ». Le reglage « motif » du hub : des croix
+    par defaut, uni sur demande, pose par le serveur sur <html> avant la
+    premiere peinture -- la page de connexion comprise."""
+    assert app.REGLAGES_HUB["motif"] == ("croix", "uni")
+    theme = _page_panneau("theme.css")
+    masque = theme.split("body.fond-motif::before{")[1].split("}")[0]
+    assert "M14 10.5v7M10.5 14h7" in masque, "le motif est une petite croix"
+    assert 'html[data-motif="uni"] body.fond-motif::before{display:none}' in theme
+    c = deux_espaces
+    c.set_cookie("codelab-hub", "uni.prune")
+    tete = re.search(r"<html[^>]*>", c.get("/login").get_data(as_text=True)).group(0)
+    assert 'data-motif="uni"' in tete and 'data-couleurs="prune"' in tete
+    page = _page_panneau("dashboard.html")
+    reglages = page.split('id="hub-reglages"')[1].split('<div class="choix-titre">')[0]
+    assert "Fond d'écran" in reglages
 

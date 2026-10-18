@@ -50,12 +50,22 @@ leur nom (`codelab-postgres`, `codelab-app-manager`…).
 
 | Commande | Effet |
 |---|---|
-| `codelab new <nom>` | crée `/workspace/<nom>` : `git init`, `.gitignore` (`.env`, `node_modules/`, `vendor/`, `.dagster-venv/`, `dist/`, `build/`…), `README.md`, `AGENTS.md`, `CLAUDE.md`, `codelab_auth.py`, `codelab-auth.js`, `codelab_web.py`, `codelab-web.js` |
-| `… --db` | crée aussi la base du projet |
-| `… --ouvrir` | rouvre la fenêtre VS Code sur le projet |
-| `codelab db <nom>` | crée la base `<nom>`, son compte, son schéma `dagster` et le `search_path` (idempotent), par le gardien des bases |
-| `codelab agents [dossier]` | écrit le manuel CodeLab entre deux marqueurs dans `AGENTS.md`, sans toucher au reste ; pose un `CLAUDE.md` qui l'importe |
+| `codelab create <nom>` | crée `/workspace/<nom>` : `git init`, `.gitignore` (`.env`, `node_modules/`, `vendor/`, `.dagster-venv/`, `dist/`, `build/`…), `README.md`, `AGENTS.md`, `CLAUDE.md`, `codelab_auth.py`, `codelab-auth.js`, `codelab_web.py`, `codelab-web.js`, et la base du projet |
+| `… --sans-db` (`--no-db`) | sans la base |
+| `… --ouvrir` (`--open`) | rouvre la fenêtre VS Code sur le projet |
+| `codelab update [projet]` | remet un projet existant au niveau de la stack, sans rien effacer : réécrit le bloc du manuel dans `AGENTS.md`, pose `CLAUDE.md` s'il manque, ajoute les modules manquants et remplace ceux que git garde intacts (une copie modifiée reste), ajoute `.env` et `.dagster-venv/` au `.gitignore`, crée la base si elle manque. Sans nom : le projet du dossier courant |
+| `… --tous` (`--all`) | chaque projet de `/workspace` qui porte le manuel CodeLab |
 | `codelab video [projet]` | la vidéo de présentation : pose `video/scenario.mjs` s'il manque, sinon le joue dans Chromium, ajoute la voix off (Piper, en français, hors ligne) et monte `video/presentation.mp4` et `video/affiche.jpg` avec ffmpeg ; voir la section 14 du manuel |
+| `codelab help [commande]` | l'aide, en français puis en anglais ; avec un nom, le détail de la commande ; `codelab` seul l'affiche aussi |
+| `codelab db <nom>` | la base seule : `<nom>`, son compte, son schéma `dagster` et le `search_path` (idempotent), par le gardien des bases ; appelée par `create` et `update` |
+| `codelab vscode-bases` | les connexions SQLTools (voir plus bas) ; appelée par `create`, `update` et le poste |
+
+Anciens noms, gardés pour les tâches VS Code déjà copiées dans `/workspace` : `codelab new` (=
+`create`, `--db` accepté) et `codelab agents [dossier]` (le manuel et `CLAUDE.md` seuls). Le hub
+reprend la liste dans *Applications > Commandes*.
+
+**Après chaque mise à jour de CodeLab**, lance `codelab update --tous` : les projets reçoivent le
+manuel du jour, que l'agent (Codex ou Claude Code) lit avant chaque tâche.
 
 Le nom d'un projet : des lettres, des chiffres, `-` et `_`, en commençant par une lettre. La commande
 refuse un dossier existant. Elle ne génère pas de squelette de framework : pour un front, lance
@@ -64,13 +74,13 @@ ensuite `npm create vite@latest .`.
 **Sans terminal**, depuis VS Code ouvert sur `/workspace` :
 
 - **Ctrl+Maj+B** lance « CodeLab : nouveau projet », qui demande un nom et rouvre la fenêtre dessus ;
-- *Terminal > Exécuter la tâche* propose les autres commandes : nouveau projet avec base, base d'un
-  projet existant, mise à jour du manuel.
+- *Terminal > Exécuter la tâche* propose les autres commandes : nouveau projet sans base, mise à jour
+  d'un projet ou de tous, aide.
 
 ## Le cycle complet
 
 ```bash
-codelab new mon-projet --db --ouvrir
+codelab create mon-projet --ouvrir
 cd /workspace/mon-projet
 codex                         # ou Claude Code, ou VS Code
 npm run build                 # vérifier que le build passe
@@ -132,7 +142,7 @@ code (le tien, ou celui d'un agent) n'a pas à pouvoir le faire.
     stack (`dagster`, `codelab`) n'y sont pas.
   - Les connexions sont déclarées dans les réglages *Remote* du serveur VS Code
     (`~/.vscode-server/data/Machine/settings.json`, en `0600`), au démarrage puis toutes les cinq
-    minutes, et aussitôt après `codelab db` ou `codelab new --db`. `codelab vscode-bases` les met
+    minutes, et aussitôt après `codelab create`, `codelab update` ou `codelab db`. `codelab vscode-bases` les met
     à jour à la demande.
   - Seul le groupe « CodeLab » est réécrit : une connexion ajoutée à la main reste. Un fichier de
     réglages avec des commentaires n'est pas touché (la commande le signale).
@@ -172,7 +182,7 @@ code (le tien, ou celui d'un agent) n'a pas à pouvoir le faire.
 | `entrypoint.sh` | au démarrage : permissions de `/workspace`, `CODEX_HOME` et manuel, clés hôte, `authorized_keys` reconstruit depuis `authorized_keys.d/`, variables de session, gitconfig, extensions VS Code ; puis `sshd -D -e` en processus principal |
 | `codelab` | l'outil de projet |
 | `AGENTS.md` | le manuel des projets, livré dans l'image |
-| `modeles/` | les modules déposés par `codelab new` |
+| `modeles/` | les modules déposés par `codelab create` et tenus à jour par `codelab update` |
 | `video/` | `fabriquer.mjs` (le tournage et le montage de `codelab video`) et le modèle de scénario |
 
 | Variable (compose) | Rôle |

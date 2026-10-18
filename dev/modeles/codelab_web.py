@@ -1,6 +1,6 @@
 """codelab_web -- pages d'erreur, journal des exceptions et en-tetes de securite.
 
-Depose par « codelab new ». Pour Flask, sans autre dependance.
+Depose par « codelab create », tenu a jour par « codelab update ». Pour Flask, sans autre dependance.
 
     from flask import Flask
     import codelab_web

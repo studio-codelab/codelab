@@ -17,7 +17,7 @@ CONTRAINTES Les aides, constantes et modules viennent de commun.py ; les
 from commun import *  # noqa: F401,F403 -- aides, constantes, modules
 
 
-# ------------- "codelab new --ouvrir" rouvre la fenetre VS Code -----------
+# ----------- "codelab create --ouvrir" rouvre la fenetre VS Code -----------
 #
 # La tache VS Code « CodeLab : nouveau projet » cree le projet PUIS demande a
 # la fenetre de se rouvrir dessus. Ce qui se teste ici, c'est la partie
@@ -36,7 +36,7 @@ from commun import *  # noqa: F401,F403 -- aides, constantes, modules
 def test_nouveau_projet_avec_ouvrir_demande_la_reouverture(tmp_path):
     chemin, trace = _faux_code(tmp_path)
     r, espace = _lancer_codelab(
-        tmp_path, ["new", "facturier", "--ouvrir"],
+        tmp_path, ["create", "facturier", "--ouvrir"],
         {"PATH": chemin + os.pathsep + os.environ["PATH"],
          "VSCODE_IPC_HOOK_CLI": "/tmp/une-socket-vscode.sock"})
 
@@ -55,7 +55,7 @@ def test_sans_ouvrir_la_fenetre_ne_bouge_pas(tmp_path):
     la commande a la main dans un terminal ne doit pas faire sauter la vue."""
     chemin, trace = _faux_code(tmp_path)
     r, espace = _lancer_codelab(
-        tmp_path, ["new", "facturier"],
+        tmp_path, ["create", "facturier"],
         {"PATH": chemin + os.pathsep + os.environ["PATH"],
          "VSCODE_IPC_HOOK_CLI": "/tmp/une-socket-vscode.sock"})
 
@@ -71,7 +71,7 @@ def test_sans_fenetre_vscode_le_projet_est_quand_meme_cree(tmp_path):
     pas une erreur, et cela doit se dire."""
     chemin, trace = _faux_code(tmp_path)
     r, espace = _lancer_codelab(
-        tmp_path, ["new", "facturier", "--ouvrir"],
+        tmp_path, ["create", "facturier", "--ouvrir"],
         {"PATH": chemin + os.pathsep + os.environ["PATH"]})
 
     assert r.returncode == 0, r.stdout + r.stderr
@@ -88,7 +88,7 @@ def test_une_fenetre_qui_ne_repond_pas_ne_casse_pas_la_creation(tmp_path):
     la creation a echoue."""
     chemin, trace = _faux_code(tmp_path, code=1)
     r, espace = _lancer_codelab(
-        tmp_path, ["new", "facturier", "--ouvrir"],
+        tmp_path, ["create", "facturier", "--ouvrir"],
         {"PATH": chemin + os.pathsep + os.environ["PATH"],
          "VSCODE_IPC_HOOK_CLI": "/tmp/une-socket-vscode.sock"})
 
@@ -124,7 +124,7 @@ def test_code_est_retrouve_sous_vscode_server_hors_du_path(tmp_path):
     vide = tmp_path / "_path-sans-code"
     vide.mkdir(exist_ok=True)
     r, espace = _lancer_codelab(
-        tmp_path, ["new", "facturier", "--ouvrir"],
+        tmp_path, ["create", "facturier", "--ouvrir"],
         {"PATH": str(vide) + os.pathsep + "/usr/bin" + os.pathsep + "/bin",
          "VSCODE_IPC_HOOK_CLI": "/tmp/une-socket-vscode.sock"})
 
@@ -147,11 +147,181 @@ def test_les_taches_vscode_passent_bien_le_drapeau():
         pytest.skip("tasks.json absent de cette image")
     contenu = open(taches, encoding="utf-8").read()
     lignes = [l for l in contenu.splitlines() if '"command"' in l
-              and "codelab new" in l]
+              and "codelab create" in l]
     assert lignes, "aucune tache de creation de projet trouvee"
     for ligne in lignes:
         assert "--ouvrir" in ligne, (
             "cette tache cree le projet sans rouvrir la fenetre : " + ligne)
+
+
+# --------------- codelab create / update : deux gestes, rien d'efface ---------------
+#
+# Vecu : « mon agent Claude ne fonctionne pas de maniere continue sur
+# l'app ». Les projets crees avant une mise a jour gardaient un vieux manuel,
+# parfois sans CLAUDE.md. create pose tout, update remet un projet existant
+# au niveau de la stack -- sans jamais effacer ce que le projet a ecrit.
+
+_SANS_GARDIEN = {"CODELAB_BASES_DEMANDES": "/nulle-part/codelab-bases"}
+
+
+def _git(dossier, *args):
+    import subprocess
+    subprocess.run(["git", "-C", str(dossier), "-c", "user.email=t@t", "-c", "user.name=t", *args],
+                   check=True, capture_output=True)
+
+
+def test_create_sans_gardien_des_bases_cree_quand_meme_le_projet(tmp_path):
+    """La base est creee par defaut, mais un Postgres injoignable ne fait pas
+    echouer la creation : le projet est la, et update rattrapera la base."""
+    modeles = os.path.join(_racine_depot(), "dev", "modeles")
+    r, espace = _lancer_codelab(tmp_path, ["create", "carnet"],
+                                dict(_SANS_GARDIEN, CODELAB_MODELES=modeles))
+    assert r.returncode == 0, r.stdout + r.stderr
+    projet = espace / "carnet"
+    for nom in ("AGENTS.md", "CLAUDE.md", "README.md", ".gitignore", "codelab_auth.py",
+                "codelab-web.js"):
+        assert (projet / nom).exists(), nom
+    assert "relance « codelab update »" in r.stdout
+    # Deux fois de suite : refuse, et dit quoi faire a la place.
+    r, _ = _lancer_codelab(tmp_path, ["create", "carnet"], _SANS_GARDIEN)
+    assert r.returncode == 1 and "codelab update carnet" in r.stderr
+
+
+def test_codelab_update_met_a_jour_sans_rien_effacer(tmp_path):
+    """Un vieux projet : son AGENTS.md sans bloc, son CLAUDE.md, un module
+    modifie a la main, un .gitignore sans .env. Tout ce qu'il a ecrit reste ;
+    ce qui manque arrive."""
+    modeles = os.path.join(_racine_depot(), "dev", "modeles")
+    projet = tmp_path / "ws" / "vieux"
+    projet.mkdir(parents=True)
+    (projet / "AGENTS.md").write_text("mes regles\n")
+    (projet / "CLAUDE.md").write_text("mes consignes\n")
+    (projet / ".gitignore").write_text("node_modules/")  # sans fin de ligne
+    (projet / "codelab_web.py").write_text("# ma version\n")
+    r, _ = _lancer_codelab(tmp_path, ["update", "vieux", "--sans-db"],
+                           {"CODELAB_MODELES": modeles})
+    assert r.returncode == 0, r.stdout + r.stderr
+    agents = (projet / "AGENTS.md").read_text()
+    assert agents.startswith("<!-- codelab:debut") and "# Manuel CodeLab" in agents
+    assert agents.rstrip().endswith("mes regles")
+    assert (projet / "CLAUDE.md").read_text() == "mes consignes\n"
+    assert (projet / "codelab_web.py").read_text() == "# ma version\n"
+    assert (projet / "codelab_auth.py").read_text() == open(os.path.join(modeles, "codelab_auth.py")).read()
+    assert (projet / ".gitignore").read_text().splitlines() == ["node_modules/", ".env", ".dagster-venv/"]
+    assert (projet / ".git").exists()
+    # Relancee : rien de plus, et pas de fichier temporaire laisse derriere.
+    r, _ = _lancer_codelab(tmp_path, ["update", "vieux", "--sans-db"], {"CODELAB_MODELES": modeles})
+    assert r.returncode == 0 and ".gitignore" not in r.stdout
+    assert agents == (projet / "AGENTS.md").read_text()
+    assert not list(projet.glob("*.tmp*"))
+
+
+def test_codelab_update_remplace_un_module_intact_dans_git(tmp_path):
+    """Un module tel que CodeLab l'a pose, versionne et intact : update le
+    remplace par la version du jour -- l'ancienne reste dans git. Modifie
+    sans etre versionne, il n'est jamais touche."""
+    import shutil
+    modeles = tmp_path / "modeles"
+    shutil.copytree(os.path.join(_racine_depot(), "dev", "modeles"), modeles)
+    r, espace = _lancer_codelab(tmp_path, ["create", "atelier", "--sans-db"],
+                                {"CODELAB_MODELES": str(modeles)})
+    assert r.returncode == 0, r.stdout + r.stderr
+    projet = espace / "atelier"
+    _git(projet, "add", "-A")
+    _git(projet, "commit", "-qm", "depart")
+    (modeles / "codelab_auth.py").write_text("# version du jour\n")
+    (modeles / "codelab_web.py").write_text("# version du jour\n")
+    (projet / "codelab_web.py").write_text("# retouche locale\n")
+    r, _ = _lancer_codelab(tmp_path, ["update", "atelier", "--sans-db"],
+                           {"CODELAB_MODELES": str(modeles)})
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (projet / "codelab_auth.py").read_text() == "# version du jour\n"
+    assert (projet / "codelab_web.py").read_text() == "# retouche locale\n"
+    assert "laisse tel quel" in r.stdout
+
+
+def test_codelab_update_tous_ne_touche_que_les_projets_codelab(tmp_path):
+    """/workspace contient aussi des clones et des essais : --tous ne visite
+    que les dossiers qui portent deja le manuel."""
+    for nom in ("un", "deux"):
+        r, espace = _lancer_codelab(tmp_path, ["create", nom, "--sans-db"])
+        assert r.returncode == 0, r.stdout + r.stderr
+    (espace / "clone").mkdir()
+    (espace / "clone" / "AGENTS.md").write_text("pas CodeLab\n")
+    r, _ = _lancer_codelab(tmp_path, ["update", "--tous", "--sans-db"])
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "2 projet(s) mis a jour" in r.stdout
+    assert (espace / "clone" / "AGENTS.md").read_text() == "pas CodeLab\n"
+    assert not (espace / "clone" / "CLAUDE.md").exists()
+    assert not list(espace.glob("*/*.tmp*"))
+
+
+def test_codelab_update_refuse_un_projet_absent_et_sans_dossier_courant(tmp_path):
+    r, _ = _lancer_codelab(tmp_path, ["update", "fantome", "--sans-db"])
+    assert r.returncode == 1 and "codelab create fantome" in r.stderr
+    r, _ = _lancer_codelab(tmp_path, ["update"])
+    assert r.returncode == 2 and "dossier d'un projet" in r.stderr
+
+
+def test_les_anciens_noms_de_commande_marchent_encore(tmp_path):
+    """Les taches VS Code deja copiees dans /workspace appellent encore
+    « codelab new --db » et « codelab agents <dossier> »."""
+    r, espace = _lancer_codelab(tmp_path, ["new", "ancien", "--db"], _SANS_GARDIEN)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (espace / "ancien" / "CLAUDE.md").exists()
+    r, _ = _lancer_codelab(tmp_path, ["agents", str(espace / "ancien")])
+    assert r.returncode == 0 and "manuel mis a jour" in r.stdout
+
+
+def _commandes_de_l_outil():
+    """Les commandes du dispatch de dev/codelab, anciens noms et options d'aide exclus."""
+    import re
+    source = open(os.path.join(_racine_depot(), "dev", "codelab"), encoding="utf-8").read()
+    dispatch = source.split("# ------------------------------ dispatch")[1]
+    noms = set()
+    for etiquette in re.findall(r"^  ([a-z|\-\"]+)\)", dispatch, re.M):
+        noms.update(n for n in etiquette.split("|") if re.fullmatch(r"[a-z][a-z-]*", n))
+    return noms - {"new", "agents"}
+
+
+def test_l_aide_liste_chaque_commande_en_deux_langues_et_dans_le_hub(tmp_path):
+    """Une commande ajoutee a l'outil doit apparaitre dans « codelab help »,
+    en francais ET en anglais, dans la fenetre Commandes du hub et dans
+    FONCTIONNALITES.md : sinon personne ne la trouve. Vecu : « retire
+    codelab aide, ne garde que codelab help » -- une seule commande d'aide,
+    qui porte les deux langues."""
+    commandes = _commandes_de_l_outil()
+    assert {"create", "update", "video", "help", "db", "vscode-bases"} <= commandes
+    assert "aide" not in commandes
+    aide, _ = _lancer_codelab(tmp_path, ["help"])
+    seul, _ = _lancer_codelab(tmp_path, [])
+    assert aide.returncode == seul.returncode == 0
+    assert seul.stdout == aide.stdout
+    fr, en = aide.stdout.split("-" * 72)
+    assert "cree un projet complet" in fr and "creates a complete project" in en
+    r, _ = _lancer_codelab(tmp_path, ["aide"])
+    assert r.returncode == 2, "codelab aide est retiree"
+    page = open(os.path.join(_racine_depot(), "app-manager", "app", "dashboard.html"),
+                encoding="utf-8").read()
+    fenetre = page.split('id="ov-commandes"')[1].split('id="ov-add"')[0]
+    assert "codelab aide" not in fenetre
+    fonctionnalites = open(os.path.join(_racine_depot(), "FONCTIONNALITES.md"), encoding="utf-8").read()
+    for c in commandes:
+        assert f"codelab {c}" in fr, ("aide francaise", c)
+        assert f"codelab {c}" in en, ("aide anglaise", c)
+        assert f"codelab {c}" in fenetre, ("hub", c)
+        assert f"`codelab {c}" in fonctionnalites, ("FONCTIONNALITES.md", c)
+    # Le detail d'une commande, dans les deux langues a la fois.
+    r, _ = _lancer_codelab(tmp_path, ["help", "update"])
+    assert "sans rien effacer" in r.stdout and "deleting nothing" in r.stdout
+
+
+def test_le_hub_ouvre_les_commandes_depuis_la_page_applications():
+    page = open(os.path.join(_racine_depot(), "app-manager", "app", "dashboard.html"),
+                encoding="utf-8").read()
+    outils = page.split('<div id="sec-apps"')[1].split('id="ap-outils"')[0]
+    assert 'onclick="ouvrirCommandes()"' in outils
+    assert "function ouvrirCommandes()" in _page_panneau("dashboard.html")
 
 
 # ---------- le squelette se met a jour sans ecraser le travail ----------

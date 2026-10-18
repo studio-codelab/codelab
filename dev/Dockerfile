@@ -125,14 +125,14 @@ RUN chmod +x /opt/codelab/dev/entrypoint.sh
 # plutot que dans /workspace : c'est de la documentation de l'ENVIRONNEMENT,
 # elle doit suivre la version des images, pas rester figee dans le volume.
 # L'entrypoint le recopie en AGENTS.md global au demarrage, et
-# "codelab agents" l'installe dans un projet.
+# "codelab create" et "codelab update" l'installent dans un projet.
 COPY dev/AGENTS.md /usr/local/share/codelab/AGENTS.md
-# « Se connecter avec CodeLab » : les modules que « codelab new » depose
+# « Se connecter avec CodeLab » : les modules que « codelab create » depose
 # dans chaque projet (Python et Node, sans dependance).
 COPY dev/modeles/ /usr/local/share/codelab/modeles/
 
-# Outil de projet : "codelab db" (base + schema "dagster" + search_path, pour
-# les projets ajoutes apres l'installation de la stack) et "codelab agents".
+# Outil de projet : "codelab create" (un projet complet), "codelab update"
+# (le remettre au niveau de la stack), "codelab video" et "codelab help".
 # Dans le PATH de toutes les sessions SSH, d'ou /usr/local/bin. Sans
 # extension : c'est un executable, pas un fichier a sourcer.
 # Une base, un compte : le script partage avec codelab-postgres et le

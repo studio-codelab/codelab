@@ -1,6 +1,6 @@
 /* codelab-web -- pages d'erreur, journal des exceptions et en-tetes de securite.
 
-   Depose par « codelab new ». Pour Express, sans autre dependance.
+   Depose par « codelab create », tenu a jour par « codelab update ». Pour Express, sans autre dependance.
 
      const codelabWeb = require("./codelab-web");
      app.use(codelabWeb.entetesDeSecurite());   // facultatif : voir plus bas

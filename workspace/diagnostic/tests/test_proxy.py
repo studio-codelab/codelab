@@ -107,9 +107,9 @@ def test_une_application_injoignable_leve_une_erreur_de_connexion():
 
 
 
-def test_codelab_new_depose_les_modules_de_connexion(tmp_path):
+def test_codelab_create_depose_les_modules_de_connexion(tmp_path):
     modeles = os.path.join(_racine_depot(), "dev", "modeles")
-    r, espace = _lancer_codelab(tmp_path, ["new", "boutique"], {"CODELAB_MODELES": modeles})
+    r, espace = _lancer_codelab(tmp_path, ["create", "boutique"], {"CODELAB_MODELES": modeles})
     assert r.returncode == 0, r.stdout + r.stderr
     for nom in ("codelab_auth.py", "codelab-auth.js"):
         assert (espace / "boutique" / nom).read_text() == open(os.path.join(modeles, nom)).read()
@@ -121,7 +121,7 @@ def test_codelab_new_depose_les_modules_de_connexion(tmp_path):
 
 # ------------------- pages d'erreur et en-tetes des applications -------------------
 #
-# codelab_web, depose par « codelab new » : une erreur ne montre jamais sa
+# codelab_web, depose par « codelab create » : une erreur ne montre jamais sa
 # pile d'appels, et les en-tetes de securite sont un choix de l'application
 # que le module rend facile -- sans ecraser ce qu'une route a decide.
 
@@ -222,9 +222,9 @@ def test_le_module_node_des_erreurs_et_des_en_tetes(tmp_path):
 
 
 
-def test_codelab_new_depose_les_modules_web_et_un_claude_md(tmp_path):
+def test_codelab_create_depose_les_modules_web_et_un_claude_md(tmp_path):
     modeles = os.path.join(_racine_depot(), "dev", "modeles")
-    r, espace = _lancer_codelab(tmp_path, ["new", "atelier"], {"CODELAB_MODELES": modeles})
+    r, espace = _lancer_codelab(tmp_path, ["create", "atelier"], {"CODELAB_MODELES": modeles})
     assert r.returncode == 0, r.stdout + r.stderr
     projet = espace / "atelier"
     for nom in ("codelab_web.py", "codelab-web.js"):

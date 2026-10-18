@@ -55,7 +55,7 @@ Tout reste sur ton serveur : le code, les bases, les mails, les sauvegardes.
 
 | Besoin | Ce que CodeLab fournit |
 |---|---|
-| Écrire du code | VS Code relié au serveur, avec Python, Node, git, Codex, et `codelab new` qui crée un projet en une commande |
+| Écrire du code | VS Code relié au serveur, avec Python, Node, git, Codex, et `codelab create` qui crée un projet en une commande (`codelab update` le tient à jour) |
 | Le mettre en ligne | le hub détecte comment construire et lancer le projet, le relance s'il plante, et lui donne sa propre adresse |
 | Stocker | une base Postgres par projet (et un cache Redis), déjà branchées |
 | Envoyer des mails | les applications envoient sans identifiant à connaître ; chaque mail reste consultable |
@@ -112,7 +112,7 @@ deux fichiers compose, ainsi que `RAM_CIBLE_MO` dans `workspace/diagnostic/check
 
 ```bash
 ssh vscode@<serveur> -p 2222
-codelab new mon-projet --db      # dossier, git, base, manuel de l'agent, modules SSO et erreurs
+codelab create mon-projet       # dossier, git, base, manuel de l'agent, modules SSO et erreurs
 cd /workspace/mon-projet         # puis coder (codex, ou VS Code)
 ```
 
