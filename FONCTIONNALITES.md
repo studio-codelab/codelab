@@ -226,12 +226,16 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
 - **Nom libre, adresse dérivée** : `Mon Site` est servi sous `/mon-site/`. Un nom réservé par une
   route du panneau est refusé.
 - **Renommer** une application : son adresse, ses droits et ses fichiers suivent.
-- **Archiver** une application (fiche, onglet *Configuration*) : elle s'arrête et quitte le hub, la
-  liste des applications et son adresse (qui répond comme une adresse inconnue). Sa configuration
-  est gardée 30 jours dans les **Archives**, sous la liste de la page *Applications* (avec leur date
-  d'effacement, « Désarchiver » et « Supprimer ») : commandes, port, droits des comptes, alertes.
-  Désarchivée, elle revient telle quelle, arrêtée ; sinon elle est effacée au bout de 30 jours. Son
-  nom reste réservé d'ici là. Le dossier du projet dans `/workspace` n'est jamais touché.
+- **Archiver** une application (fiche, onglet *Configuration*) : elle s'arrête, quitte le hub et son
+  adresse (qui répond comme une adresse inconnue), et prend le statut **« Archivée »**, au même rang
+  que « En ligne » ou « Arrêtée » : la liste des applications la garde, et le filtre « Archivées »
+  la retrouve. Sa fiche dit quand elle a été archivée ; « Désarchiver » la ramène telle quelle,
+  arrêtée.
+  - Au bout de 30 jours, **seule sa configuration est effacée** : commandes, port, visibilité,
+    mémoire, droits des comptes, alertes. L'application reste, archivée, avec son nom, son dossier et
+    sa description. Désarchivée ensuite, elle revient privée, avec un port et des commandes
+    redétectées, à vérifier avant de la démarrer.
+  - Le dossier du projet dans `/workspace` n'est jamais touché.
 - **Description**, affichée sous le nom dans la tuile du hub, sur deux lignes : environ 45 caractères
   s'y voient, le reste au survol (140 au plus). La fiche le dit sous le champ, avec un compteur. Le
   nom passe toujours avant la description : un nom long prend un corps plus petit plutôt que d'être

@@ -90,7 +90,9 @@ def next_port(apps):
     demarrage echouait. Le conflit doit etre evite au moment de l'attribution,
     pas decouvert apres coup.
     """
-    used = {a["port"] for a in apps.values()}
+    # .get : une application archivee dont la configuration est effacee n'a
+    # plus de port.
+    used = {a.get("port") for a in apps.values()}
     # Un releve neuf, mais un seul pour toute la plage : il en faisait un
     # par port essaye (voir _ports_ecoutes).
     releve = _ports_ecoutes()

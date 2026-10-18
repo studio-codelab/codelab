@@ -633,46 +633,6 @@ if(estAdmin) document.querySelectorAll('#param-onglets button[data-admin]')
    credentials.env, et le mot a l'administrateur lui serait adresse. */
 if(estAdmin){ $('profil-mdp').style.display='none'; $('profil-message').style.display='none'; }
 
-/* LES ARCHIVES, sous la liste des applications. Relues a chaque ouverture
-   de la page : une archive peut avoir ete effacee par la purge quotidienne
-   entre-temps. */
-function dansCombienDeJours(ts){
-  const j=Math.max(0, Math.ceil((ts-Date.now()/1000)/86400));
-  return j===0 ? "aujourd'hui" : j===1 ? 'demain' : 'dans '+j+' jours';
-}
-async function chargerArchives(){
-  let d;
-  try{ d=await (await fetch('/api/apps/archivees')).json(); }catch(e){ return; }
-  const liste=d.apps||[];
-  $('arch-resume').textContent = (liste.length
-    ? liste.length+' application'+(liste.length>1?'s':'')+' aux archives. '
-    : 'Aucune application aux archives. ')
-    + 'Une application archivée garde sa configuration 30 jours, puis elle est effacée.';
-  remplir($('arch-liste'), liste.length ? liste.map(a=>`<div class="arch-ligne">
-      <div class="arch-nom"><b>${esc(a.titre||a.name)}</b>
-        <span>/${esc(a.name)}/ · archivée le ${esc(dateDeVersion(new Date(a.archivee_le*1000).toISOString()))}
-          · effacée ${esc(dansCombienDeJours(a.suppression_le))}</span></div>
-      <div class="arch-gestes">
-        <button class="btn btn-default btn-sm" data-agir="archive-ressortir" data-cible="${esc(a.name)}">Désarchiver</button>
-        <button class="btn btn-danger-quiet btn-sm" data-agir="archive-effacer" data-cible="${esc(a.name)}">Supprimer</button>
-      </div></div>`).join('')
-    : `<div class="arch-vide">Pour archiver une application : sa fiche, onglet Configuration.</div>`);
-}
-async function desarchiver(n){
-  const r=await fetch('/api/app/'+encodeURIComponent(n)+'/desarchiver',{method:'POST'});
-  if(!r.ok){ notifier(await echec(r, 'Désarchivage impossible.'), 'err'); return; }
-  notifier('« '+n+' » est de retour, arrêtée.');
-  chargerArchives(); refresh();
-}
-async function effacerArchive(n){
-  if(!await demander('Supprimer « ' + n + ' » maintenant ?',
-    "Sa configuration est effacée tout de suite, sans attendre les 30 jours. Le dossier du projet "
-    + "dans /workspace n'est pas touché.", 'Supprimer', true)) return;
-  const r=await fetch('/api/app/'+encodeURIComponent(n),{method:'DELETE'});
-  if(!r.ok){ notifier(await echec(r, 'Suppression impossible.'), 'err'); return; }
-  chargerArchives();
-}
-
 /* AUCUN ONGLET VIDE. Un onglet dont toutes les rubriques sont masquees pour
    ce compte ne s'affiche pas : on n'ouvre pas une page pour n'y rien
    trouver a regler. Relance quand une rubrique apparait ou disparait. */

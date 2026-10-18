@@ -152,7 +152,6 @@ function showSection(name){
   if(name!=='hub') hubEdition=false;
   document.documentElement.classList.toggle('hub-actif', name==='hub');
   if(name==='overview' || name==='apps') refresh();
-  if(name==='apps') chargerArchives();
   if(name==='overview') chargerCarte();
   /* L'etat de securite est relu a chaque ouverture : il peut avoir change
      depuis un autre onglet, ou au redemarrage du service. */
@@ -496,6 +495,9 @@ function etatApp(a){
      la page ne le devine pas. Une application en panne s'ouvre sur une page
      « momentanement inaccessible ». */
   if(!estAdmin) return ['', ''];
+  /* Archivee : un statut a part entiere, au meme rang qu'« En ligne » ou
+     « Arretee » (voir « l'archivage d'une application » cote serveur). */
+  if(a.archivee) return ['arch','Archivée'];
   if(a.crash_looping) return ['err','En erreur'];
   /* « Arretee » supposerait qu'on l'a arretee : un service de la stack ne se
      demarre pas depuis ici, il repond ou il ne repond pas. Et un service qui

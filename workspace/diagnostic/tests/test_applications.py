@@ -2058,20 +2058,23 @@ def test_un_appui_long_ouvre_le_menu_en_feuille():
 
 # ---------- l'archivage d'une application ----------
 
-def test_une_application_archivee_disparait_puis_revient_telle_quelle(hub, monkeypatch):
-    """Vecu : « donner la possibilite d'archiver une app. La configuration
-    disparait au bout de 30 jours si elle n'est pas desarchivee. Un espace
-    dedie dans les configurations avec toutes les app archivees. »
-    Archivee : hors de la liste, du hub et du proxy, jamais redemarree, sa
-    fiche et les droits des comptes gardes. Desarchivee : de retour, arretee."""
+def test_une_application_archivee_garde_sa_place_avec_le_statut_archivee(hub, monkeypatch):
+    """Vecu : « donner la possibilite d'archiver une app », puis « les archives
+    ont un statut d'archive, qui est un statut de meme niveau que en ligne,
+    arrete, etc. Il faut pouvoir les filtrer comme ceci ».
+    Archivee : hors du hub et du proxy, jamais redemarree, mais toujours dans
+    la page des applications (liste « archivees » de /api/apps), sa fiche et
+    les droits des comptes gardes. Desarchivee : de retour, arretee."""
     c = hub
     monkeypatch.setattr(app, "stop", lambda n: None)
     c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     r = c.post("/api/app/compta/archiver")
-    assert r.status_code == 200 and r.get_json()["suppression_le"]
-    assert "compta" not in [a["name"] for a in c.get("/api/apps").get_json()["apps"]]
-    archivees = c.get("/api/apps/archivees").get_json()
-    assert [a["name"] for a in archivees["apps"]] == ["compta"] and archivees["delai_jours"] == 30
+    assert r.status_code == 200 and r.get_json()["effacement_le"]
+    d = c.get("/api/apps").get_json()
+    assert "compta" not in [a["name"] for a in d["apps"]]
+    (arch,) = d["archivees"]
+    assert arch["name"] == "compta" and arch["archivee"] is True and arch["command"] == "x"
+    assert arch["effacement_le"] == arch["archivee_le"] + 30 * 86400
     assert app.load()["compta"]["enabled"] is False
     # Ni le proxy, ni un demarrage, ni un build.
     assert c.get("/compta/").status_code == 404
@@ -2087,24 +2090,50 @@ def test_une_application_archivee_disparait_puis_revient_telle_quelle(hub, monke
     u = app.flask_app.test_client()
     _connecte(u, "marie", "mot-de-passe-long")
     assert "compta" not in [a["name"] for a in u.get("/api/mes-apps").get_json()["apps"]]
-    # Desarchivee : de retour, arretee, avec ses droits.
-    assert c.post("/api/app/compta/desarchiver").status_code == 200
-    assert "compta" in [a["name"] for a in c.get("/api/apps").get_json()["apps"]]
+    # Desarchivee : de retour, arretee, avec ses droits et sa configuration.
+    r = c.post("/api/app/compta/desarchiver")
+    assert r.status_code == 200 and r.get_json()["a_reconfigurer"] is False
+    d = c.get("/api/apps").get_json()
+    assert "compta" in [a["name"] for a in d["apps"]] and d["archivees"] == []
     assert "compta" in [a["name"] for a in u.get("/api/mes-apps").get_json()["apps"]]
-    assert app.load()["compta"]["enabled"] is False
+    assert app.load()["compta"]["enabled"] is False and app.load()["compta"]["port"] == 9101
     assert c.post("/api/app/compta/desarchiver").status_code == 404
+    page = _page_panneau("dashboard.html")
+    assert "['arch','Archivées']" in page and "if(a.archivee) return ['arch','Archivée'];" in page
 
 
-def test_trente_jours_apres_l_archive_la_configuration_est_effacee(hub, monkeypatch):
+def test_trente_jours_apres_seule_la_configuration_est_effacee(hub, monkeypatch, tmp_path):
+    """Vecu : « Une application archivee depuis trop longtemps n'est pas
+    supprimee. Seule sa configuration l'est. » Au bout de 30 jours : plus de
+    commandes, de port, de droits ni d'alertes ; l'application reste,
+    archivee. Desarchivee ensuite, elle revient privee, avec un port et des
+    commandes redetectees."""
     c = hub
     monkeypatch.setattr(app, "stop", lambda n: None)
     c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
-    assert c.post("/api/app/secret/archiver").status_code == 200
-    quand = app.load()["secret"]["archivee_le"]
+    projet = tmp_path / "compta"
+    projet.mkdir()
+    (projet / "index.html").write_text("<html>")
+    apps = app.load()
+    apps["compta"]["path"] = str(projet)
+    app.save(apps)
+    assert c.post("/api/app/compta/archiver").status_code == 200
+    quand = app.load()["compta"]["archivee_le"]
     assert app.purger_les_apps_archivees(quand + 29 * 86400) == []
-    assert "secret" in app.load()
-    assert app.purger_les_apps_archivees(quand + 30 * 86400) == ["secret"]
-    assert "secret" not in app.load() and "compta" in app.load()
+    assert app.purger_les_apps_archivees(quand + 30 * 86400) == ["compta"]
+    a = app.load()["compta"]
+    assert app.est_archivee(a) and a["path"] == str(projet)
+    for cle in ("command", "port", "visibility"):
+        assert cle not in a, cle
+    assert "compta" not in app.lire_utilisateurs()["marie"]["projets"]
+    (arch,) = c.get("/api/apps").get_json()["archivees"]
+    assert arch["configuration_effacee"] is True and arch["effacement_le"] is None
+    # Une seule fois.
+    assert app.purger_les_apps_archivees(quand + 60 * 86400) == []
+    r = c.post("/api/app/compta/desarchiver")
+    assert r.get_json()["a_reconfigurer"] is True
+    a = app.load()["compta"]
+    assert a["visibility"] == "privee" and a["port"] and "http.server" in a["command"]
 
 
 def test_une_application_par_defaut_ne_s_archive_pas(hub):
@@ -2112,9 +2141,5 @@ def test_une_application_par_defaut_ne_s_archive_pas(hub):
     c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
     assert c.post(f"/api/app/{app.DIAGNOSTIC_NOM}/archiver").status_code == 403
     assert c.post("/api/app/inconnue/archiver").status_code == 404
-    # Les archives vivent dans la page des applications, sous la liste.
     page = _page_panneau("dashboard.html")
-    assert 'id="e-archiver"' in page
-    apps = page.split('<div id="sec-apps"')[1].split('<div id="sec-app"')[0]
-    assert 'id="zone-archives"' in apps and 'id="arch-liste"' in apps
-    assert "if(name==='apps') chargerArchives();" in page
+    assert 'id="e-archiver"' in page and 'id="zone-archives"' not in page

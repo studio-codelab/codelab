@@ -378,6 +378,9 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:
    regard sans etre une panne. */
 .pill.on{color:var(--ok);background:var(--ok-bg)}
 .pill.off{color:var(--dim);background:var(--surface2)}
+/* Archivee : grise, et le point en creux -- elle ne tourne plus du tout. */
+.pill.arch{color:var(--dim);background:transparent;box-shadow:inset 0 0 0 1px var(--line)}
+.pill.arch i{background:transparent;box-shadow:inset 0 0 0 1.5px currentColor}
 .pill.err{color:var(--err);background:var(--err-bg)}
 .pill.warn{color:var(--warn);background:var(--warn-bg)}
 .pill.pub{color:var(--warn);background:var(--warn-bg)}
@@ -582,20 +585,6 @@ label:has(> input[type=checkbox]),label:has(> input[type=radio]){
 .kv .k{font-size:12.5px;color:var(--dim)}
 .kv .v{font-size:12.5px;font-weight:560}
 .hint.ecoute-large{color:var(--warn)}
-/* Les archives : une ligne par application, ses dates, ses deux gestes. */
-.arch-zone{margin-top:28px}
-.arch-liste{margin-top:12px;display:flex;flex-direction:column;gap:8px}
-.arch-ligne{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 14px;
- border:1px solid var(--line);border-radius:var(--r-s);background:var(--surface2)}
-.arch-ligne .arch-nom{flex:1 1 220px;min-width:0}
-.arch-ligne .arch-nom b{display:block;font-size:var(--t-m)}
-.arch-ligne .arch-nom span{font-size:12.5px;color:var(--dim)}
-.arch-ligne .arch-gestes{display:flex;gap:8px;flex-wrap:wrap}
-@media (max-width:760px){
- .arch-ligne .arch-gestes{width:100%}
- .arch-ligne .arch-gestes .btn{flex:1 1 0;min-width:0;white-space:normal}
-}
-.arch-vide{font-size:12.5px;color:var(--dim)}
 
 /* ------------------------------ hub ------------------------------ */
 .hub-liste{display:grid;grid-template-columns:repeat(auto-fill,minmax(258px,1fr));gap:14px}
@@ -2450,15 +2439,6 @@ a.pj:hover{border-color:var(--accent)}
   </div>
   <div id="tbl-projets"></div>
 
-  <!-- LES ARCHIVES : sous la liste, dans la meme page. Les applications
-       archivees, leur date d'effacement, et de quoi les ressortir ou les
-       effacer tout de suite. Voir « l'archivage d'une application » cote
-       serveur. -->
-  <div class="zone arch-zone" id="zone-archives">
-    <div class="zone-title">Archives</div>
-    <div class="hint" id="arch-resume">Une application archivée garde sa configuration 30 jours.</div>
-    <div id="arch-liste" class="arch-liste"></div>
-  </div>
 </div>
 
 <!-- ==================== FICHE D'UNE APPLICATION ==================== -->

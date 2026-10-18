@@ -8,7 +8,7 @@
    une pour se faire une idee. */
 let ficheNom=null, ficheOngletActif='general';
 
-function appParNom(n){ return apps.find(a=>a.name===n); }
+function appParNom(n){ return apps.find(a=>a.name===n) || appsArchivees.find(a=>a.name===n); }
 
 function ouvrirFiche(n){
   ficheNom=n;
@@ -205,7 +205,7 @@ function peindreFiche(){
   $('fa-port').textContent=a.port;
   /* Un service externe n'est jamais « arrêtée » : le panneau ne l'arrete
      pas, il constate seulement si le port repond. */
-  $('fa-ecoute').textContent = externe
+  $('fa-ecoute').textContent = a.archivee ? texteArchive(a) : externe
     ? (a.running ? 'Le port répond' : 'Le port ne répond pas')
     : (!a.running ? 'Arrêtée'
        : (a.listening===false ? 'Le port ne répond pas' : 'Le port répond'));
@@ -244,6 +244,13 @@ function peindreActionsFiche(a, prive, parDefaut){
      le deploie pas. Il ouvre, et c'est tout. */
   if(externe){
     b.push(`<a class="btn btn-primary" href="${lienOuverture(a)}">${svgOuvrir}Ouvrir</a>`);
+    $('fa-actions').innerHTML=b.join('');
+    return;
+  }
+  /* Archivee : un seul geste, la ressortir. Supprimer reste en bas de
+     l'onglet Configuration. */
+  if(a.archivee){
+    b.push(`<button class="btn btn-demarrer" data-agir="app-desarchiver" data-cible="${esc(a.name)}">Désarchiver</button>`);
     $('fa-actions').innerHTML=b.join('');
     return;
   }
@@ -305,7 +312,7 @@ function chargerConfigFiche(){
      c'est le serveur qui refuse vraiment, la route reste appelable a la
      main. */
   $('e-supprimer').style.display = (a.name === 'diagnostic') ? 'none' : '';
-  $('e-archiver').style.display = (a.name === 'diagnostic') ? 'none' : '';
+  $('e-archiver').style.display = (a.name === 'diagnostic' || a.archivee) ? 'none' : '';
   /* Le nom, et ce qu'il change : l'adresse de l'application en fait partie. */
   $('e-nom').value = a.name;
   $('e-nom-url').textContent = urlApplication(a.name);
