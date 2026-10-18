@@ -112,15 +112,23 @@ def bootstrap_sso():
     return True
 
 
-def jeton_sso(nom_app):
-    """Construit une assertion JWT-like EdDSA valable 60 secondes pour une app."""
-    if _sso_private_key is None or not is_authed():
+def jeton_sso(nom_app, tournage=False):
+    """Construit une assertion JWT-like EdDSA valable 60 secondes pour une app.
+
+    tournage : l'identite de l'administrateur, pour un laissez-passer de
+    « codelab video » deja verifie par le proxy (voir « le laissez-passer de
+    tournage »), avec « tournage »: true pour que l'application le sache.
+    """
+    if _sso_private_key is None or not (is_authed() or tournage):
         return ""
 
     maintenant = int(time.time())
-    utilisateur = utilisateur_courant()
-    role = role_courant() or ""
-    compte = None if est_admin() else lire_utilisateurs().get(utilisateur)
+    if tournage:
+        utilisateur, role, compte = NOM_ADMIN, "admin", None
+    else:
+        utilisateur = utilisateur_courant()
+        role = role_courant() or ""
+        compte = None if est_admin() else lire_utilisateurs().get(utilisateur)
     email = (compte or {}).get("email", "") if compte else ""
 
     header = {"alg": "EdDSA", "typ": "JWT"}
@@ -133,6 +141,8 @@ def jeton_sso(nom_app):
         "iat": maintenant,
         "exp": maintenant + SSO_TOKEN_TTL,
     }
+    if tournage:
+        payload["tournage"] = True
     if email:
         payload["email"] = email
         # Confirmee ou non : une application ne relie un compte local a

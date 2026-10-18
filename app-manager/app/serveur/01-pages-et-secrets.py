@@ -254,6 +254,9 @@ def ecrire_bloc_panneau(pw, key, totp):
         "#   panneau (e-mails, serveur d'envoi, surveillance), en base comme",
         "#   dans la copie locale. La perdre rend ces reglages illisibles :",
         "#   la sauvegarder avec ce fichier, ne jamais la regenerer.",
+        "# APP_MANAGER_TOURNAGE_CLE : « codelab video » la presente pour obtenir",
+        "#   un laissez-passer de tournage (une application, dix minutes). La",
+        "#   changer et redemarrer codelab-dev suffit a revoquer l'ancienne.",
     ]
     valeurs = {
         "APP_MANAGER_URL": "http://<IP-du-serveur>:9001",
@@ -263,6 +266,8 @@ def ecrire_bloc_panneau(pw, key, totp):
     }
     if _cle_chiffrement:
         valeurs["APP_MANAGER_CHIFFREMENT_CLE"] = _cle_chiffrement
+    if _cle_tournage:
+        valeurs["APP_MANAGER_TOURNAGE_CLE"] = _cle_tournage
     if totp:
         commentaires.append(
             "# APP_MANAGER_TOTP_SECRET : double authentification activee. Vider")
@@ -317,6 +322,12 @@ def bootstrap_secrets():
     # desactivee, et la connexion se fait au seul mot de passe.
     global _totp_secret
     _totp_secret = read_shared_value("APP_MANAGER_TOTP_SECRET") or ""
+
+    # La cle des laissez-passer de tournage (voir « le laissez-passer de
+    # tournage », dans le proxy). Generee une fois, gardee ensuite : le poste
+    # de developpement la recopie pour sa session.
+    global _cle_tournage
+    _cle_tournage = read_shared_value("APP_MANAGER_TOURNAGE_CLE") or secrets.token_urlsafe(32)
 
     written = ecrire_bloc_panneau(pw, key, _totp_secret)
 

@@ -16,8 +16,8 @@
 // dans le hub (bouton de lecture sur la tuile de l'application).
 
 import { spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
@@ -73,6 +73,48 @@ if (scenario.adresse) {
   }
 }
 const taille = { width: scenario.taille?.largeur || 1600, height: scenario.taille?.hauteur || 900 };
+
+// LE LAISSEZ-PASSER DE TOURNAGE. Vecu : « je ne veux pas avoir a me
+// connecter ». Filmee par le hub (http://codelab-app-manager:9002/<app>/),
+// une application privee reconnait l'administrateur sans formulaire : on
+// presente au panneau la cle que le poste a recopiee (~/.codelab-tournage),
+// il rend un ticket a usage unique pour CETTE application, que le
+// navigateur echange contre un cookie de dix minutes avant de filmer. Voir
+// « le laissez-passer de tournage » dans le proxy du panneau, et la regle
+// 12 ter de SECURITE.md. Sans laissez-passer, le tournage continue : une
+// application publique n'en a pas besoin.
+const HUB_INTERNE = process.env.CODELAB_VIDEO_HUB || "codelab-app-manager:9002";
+const PANNEAU_INTERNE = process.env.CODELAB_PANNEAU_INTERNE || "http://codelab-app-manager:9001";
+const FICHIER_CLE = process.env.CODELAB_TOURNAGE_FICHIER || join(homedir(), ".codelab-tournage");
+
+async function demanderLaissezPasser(adresse) {
+  if (!adresse) return null;
+  const url = new URL(adresse);
+  if (url.host !== HUB_INTERNE) {
+    dire(`adresse locale (${url.host}) : pas de connexion CodeLab. Pour une application privee, ` +
+         `filme-la par le hub (http://${HUB_INTERNE}/<app>/) : tu y seras connecte d'office.`);
+    return null;
+  }
+  const nom = url.pathname.split("/").filter(Boolean)[0];
+  if (!nom) return null;
+  if (!existsSync(FICHIER_CLE)) {
+    dire(`pas de laissez-passer : ${FICHIER_CLE} absent (redemarre codelab-dev apres la mise a jour).`);
+    return null;
+  }
+  try {
+    const r = await fetch(`${PANNEAU_INTERNE}/api/tournage/${encodeURIComponent(nom)}`, {
+      method: "POST", headers: { "X-CodeLab-Tournage": readFileSync(FICHIER_CLE, "utf-8").trim() },
+      signal: AbortSignal.timeout(5000),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ticket) { dire(`pas de laissez-passer : ${d.error || "HTTP " + r.status}`); return null; }
+    return d.ticket;
+  } catch (e) {
+    dire(`pas de laissez-passer : le panneau ne repond pas (${e.message}).`);
+    return null;
+  }
+}
+const ticket = await demanderLaissezPasser(scenario.adresse);
 const travail = mkdtempSync(join(tmpdir(), "codelab-video-"));
 const sortie = join(dossier, "video");
 mkdirSync(sortie, { recursive: true });
@@ -122,6 +164,15 @@ try {
     viewport: taille, deviceScaleFactor: 1, locale: "fr-FR",
     baseURL: scenario.adresse, recordVideo: { dir: travail, size: taille },
   });
+  // Le ticket s'echange HORS de toute page : rien n'apparait a l'image, et
+  // le cookie rejoint ceux du contexte (contexte.request les partage).
+  if (ticket) {
+    const entree = new URL(scenario.adresse);
+    entree.searchParams.set("codelab-tournage", ticket);
+    const r = await contexte.request.get(entree.href, { maxRedirects: 0 });
+    dire(r.status() === 302 ? "connecte par laissez-passer CodeLab (dix minutes)."
+                            : `laissez-passer refuse (HTTP ${r.status()}).`);
+  }
   // Un curseur VISIBLE : un navigateur sans ecran n'en dessine pas, et une
   // demonstration ou les clics viennent de nulle part se suit mal.
   await contexte.addInitScript(() => {

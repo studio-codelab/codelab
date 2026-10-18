@@ -641,16 +641,19 @@ export default {
   personnelles ni de secret a l'ecran.
 - `voix: false` a la racine : video muette. `video/musique.mp3` : une musique
   libre de droits passe doucement sous la voix.
-- **Application privee** (le hub demande une connexion) : lance-la dans un
-  AUTRE terminal du poste, laisse-la tourner pendant tout le tournage, et
-  mets son adresse locale (`http://127.0.0.1:8000/`) dans `adresse`.
-  `codelab video` verifie d'abord qu'elle repond, et lit `localhost` comme
-  `127.0.0.1` (Node viserait sinon l'IPv6, ou l'application n'ecoute pas).
-- **Une connexion dans le scenario** : un compte de demonstration DEDIE,
-  cree pour la video, dont les identifiants arrivent par variables
-  d'environnement (jamais ecrits dans le scenario). Ne reinitialise jamais
-  le mot de passe d'un vrai compte, administrateur encore moins, pour
-  filmer.
+- **Application privee** : filme-la PAR LE HUB, comme dans l'exemple
+  (`http://codelab-app-manager:9002/<adresse>/`), l'application lancee par
+  le panneau. `codelab video` y obtient un laissez-passer de tournage : dix
+  minutes, cette application seule, et l'application recoit l'identite de
+  l'administrateur par « Se connecter avec CodeLab » (`codelab_auth`, avec
+  `"tournage": true` dans l'identite). AUCUNE etape de connexion dans le
+  scenario, aucun mot de passe : l'application doit simplement accepter la
+  connexion CodeLab (section 9).
+- **Une adresse locale** (`http://127.0.0.1:8000/`, application lancee dans
+  un AUTRE terminal et laissee tournant) ne recoit pas d'identite : a
+  reserver aux applications publiques. `codelab video` verifie d'abord
+  qu'elle repond, et lit `localhost` comme `127.0.0.1`.
+- Ne reinitialise jamais le mot de passe d'un vrai compte pour filmer.
 
 Relance `codelab video` apres chaque changement visible de l'application.
 Dans sa fiche, l'administrateur peut masquer la video du hub.

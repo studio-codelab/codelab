@@ -3027,3 +3027,126 @@ def test_rendre_le_focus_ne_fait_pas_sauter_la_page():
     messages = _page_panneau("messages.html")
     assert "if(performance.now()-defileLe < 1500) return;" in messages
     assert "n.focus({preventScroll:true}); try{" in messages
+
+
+# ------------------- le laissez-passer de tournage (regle 12 ter) -------------------
+#
+# Vecu : « je ne veux pas avoir a me connecter » pour filmer la video d'une
+# application privee. « codelab video » presente la cle du poste, recoit un
+# ticket a usage unique pour UNE application, et le navigateur l'echange
+# contre un cookie de dix minutes : l'administrateur est reconnu par
+# l'application, jamais par le panneau.
+
+CLE_TOURNAGE = "cle-de-tournage-de-test"
+
+
+def _ticket(c, nom="prive-refuse", cle=CLE_TOURNAGE):
+    return c.post(f"/api/tournage/{nom}", headers={"X-CodeLab-Tournage": cle})
+
+
+def _charge_utile(jeton):
+    import base64
+    import json as _json
+    p = jeton.split(".")[1]
+    return _json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4)))
+
+
+@pytest.fixture
+def tournage(deux_espaces, monkeypatch):
+    monkeypatch.setattr(app, "_cle_tournage", CLE_TOURNAGE)
+    monkeypatch.setattr(app, "_sso_private_key", app._generer_cle_sso())
+    app._tournage_tickets.clear()
+    app._tournage_sessions.clear()
+    vus = {}
+
+    def amont(port, methode, chemin, entetes, corps):
+        vus.clear()
+        vus.update({k.lower(): v for k, v in entetes.items()})
+        vus["chemin"] = chemin
+        return 200, [("Content-Type", "text/plain")], b"ok"
+    monkeypatch.setattr(app, "demander_a_l_application", amont)
+    return deux_espaces, vus
+
+
+def test_le_laissez_passer_ouvre_une_application_privee_sans_connexion(tournage):
+    c, vus = tournage
+    assert c.get("/prive-refuse/").status_code == 302     # vers la connexion
+    r = _ticket(c)
+    assert r.status_code == 200, r.get_json()
+    ticket = r.get_json()["ticket"]
+    r = c.get(f"/prive-refuse/cave?vue=1&codelab-tournage={ticket}")
+    assert r.status_code == 302 and r.headers["Location"].endswith("/prive-refuse/cave?vue=1")
+    cookie = r.headers["Set-Cookie"]
+    assert "codelab-tournage=" in cookie and "HttpOnly" in cookie and "Max-Age=600" in cookie
+    r = c.get("/prive-refuse/cave")
+    assert r.status_code == 200
+    # L'identite de l'administrateur, signee, marquee « tournage ».
+    charge = _charge_utile(vus["x-codelab-auth"])
+    assert charge["sub"] == "admin" and charge["role"] == "admin" and charge["tournage"] is True
+    assert charge["aud"] == "prive-refuse"
+    # Ni le cookie de tournage ni le ticket n'arrivent a l'application (regle 19).
+    assert "codelab-tournage" not in vus.get("cookie", "") and "codelab-tournage" not in vus["chemin"]
+    # Aucune session du panneau : l'administration reste fermee.
+    assert c.get("/api/apps").status_code in (401, 403)
+
+
+def test_le_ticket_ne_sert_qu_une_fois_et_qu_a_son_application(tournage):
+    c, _vus = tournage
+    ticket = _ticket(c).get_json()["ticket"]
+    # Une autre application : refuse, et le ticket est brule.
+    assert c.get(f"/prive-autorise/?codelab-tournage={ticket}").status_code == 403
+    assert c.get(f"/prive-refuse/?codelab-tournage={ticket}").status_code == 403
+    ticket = _ticket(c).get_json()["ticket"]
+    assert c.get(f"/prive-refuse/?codelab-tournage={ticket}").status_code == 302
+    assert c.get(f"/prive-refuse/?codelab-tournage={ticket}").status_code == 403
+    # Le cookie de prive-refuse n'ouvre pas prive-autorise.
+    assert c.get("/prive-refuse/").status_code == 200
+    assert c.get("/prive-autorise/").status_code == 302
+
+
+def test_le_cookie_de_tournage_expire(tournage, monkeypatch):
+    c, _vus = tournage
+    ticket = _ticket(c).get_json()["ticket"]
+    c.get(f"/prive-refuse/?codelab-tournage={ticket}")
+    assert c.get("/prive-refuse/").status_code == 200
+    for jeton, (nom, _fin) in list(app._tournage_sessions.items()):
+        app._tournage_sessions[jeton] = (nom, 0)
+    assert c.get("/prive-refuse/").status_code == 302
+
+
+def test_le_laissez_passer_refuse_sans_la_cle_et_compte_les_essais(tournage):
+    c, _vus = tournage
+    assert _ticket(c, cle="").status_code == 403
+    for _ in range(4):
+        assert _ticket(c, cle="fausse").status_code == 403
+    assert _ticket(c).status_code == 429, "5 echecs par 5 minutes et par IP (regle 6)"
+    app._login_attempts.clear()
+    # Sans cle cote panneau (jamais generee) : rien ne s'ouvre, pas meme a vide.
+    app._cle_tournage = ""
+    assert _ticket(c, cle="").status_code == 403
+
+
+def test_le_laissez_passer_ne_vaut_ni_hors_reseau_ni_pour_les_apps_reservees(tournage, monkeypatch):
+    c, _vus = tournage
+    monkeypatch.setattr(app, "client_est_local", lambda: False)
+    assert _ticket(c).status_code == 403
+    monkeypatch.setattr(app, "client_est_local", lambda: True)
+    monkeypatch.setattr(app, "est_app_par_defaut", lambda n: n == "prive-refuse")
+    assert _ticket(c).status_code == 404
+    a = app.load()
+    a["prive-autorise"]["archivee_le"] = 1
+    app.save(a)
+    assert _ticket(c, "prive-autorise").status_code == 404
+    assert _ticket(c, "inconnue").status_code == 404
+
+
+def test_la_cle_de_tournage_vit_dans_credentials_env_et_le_poste_la_recopie():
+    """La cle est generee par le panneau, gardee dans son bloc de
+    credentials.env, et recopiee par le gardien du poste pour la session
+    (0600, sous son compte) -- jamais transmise a une application."""
+    source = _source_du_panneau()
+    assert '"APP_MANAGER_TOURNAGE_CLE"' in source.split("def ecrire_bloc_panneau")[1].split("def ")[0]
+    assert "APP_MANAGER_TOURNAGE_CLE" not in source.split("def secrets_partages")[1].split("\ndef ")[0]
+    entree = open(os.path.join(_racine_depot(), "dev", "entrypoint.sh"), encoding="utf-8").read()
+    fonction = entree.split("ecrire_la_cle_de_tournage() {")[1].split("\n}")[0]
+    assert "umask 077" in fonction and "runuser -u" in fonction and ".codelab-tournage" in fonction

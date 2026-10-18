@@ -246,7 +246,8 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
   regroupe les applications de la stack réservées à l'administrateur (Dagster, Mailpit, Messages,
   Diagnostic) ; elle ne se renomme pas, ne se supprime pas et ne se donne pas à un projet.
 - **Vidéo de présentation** : si le projet a une `video/presentation.mp4` (faite par `codelab video`,
-  voir § 6), « Voir la présentation » dans le menu de sa tuile la lit dans une fenêtre, avec « Ouvrir
+  voir § 6 ; une application privée se filme par le hub sans se connecter, grâce à un laissez-passer
+  de tournage de dix minutes), « Voir la présentation » dans le menu de sa tuile la lit dans une fenêtre, avec « Ouvrir
   l'application » en dessous. Servie avec les droits de l'application : un compte qui ne la voit pas
   ne voit pas sa vidéo. La fiche la montre (carte « Présentation ») et l'admin peut la masquer du hub.
   L'admin peut aussi **choisir le fichier** dans la fiche (« Fichier vidéo ») : toute vidéo du dossier
