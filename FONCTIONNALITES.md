@@ -242,7 +242,10 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
 
 - **Démarrer, arrêter, redémarrer.**
 - **Build** à la demande.
-- **Port interne attribué** automatiquement (`9101`–`9140`), passé à l'application dans `$PORT`.
+- **Port interne attribué** automatiquement (`9101`–`9140`), passé à l'application dans `$PORT`. Les
+  commandes proposées écoutent sur `127.0.0.1` ; une application qui écoute sur toutes les
+  interfaces (`0.0.0.0`) le voit signalé dans sa fiche, parce que les autres conteneurs la
+  joindraient sans connexion.
 - **Reprise au redémarrage** du panneau : une application active est relancée.
 - **Redémarrage automatique** après un crash, 5 fois au plus en 10 minutes. Au-delà, la pastille
   passe en « boucle de crash ».

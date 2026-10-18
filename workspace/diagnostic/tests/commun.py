@@ -265,8 +265,7 @@ def _bloc_reconciliation():
     # regression passe inapercue.
     assert _DEBUT_RECONCILIATION in texte, "repere de debut introuvable dans entrypoint.sh"
     assert _FIN_RECONCILIATION in texte, "repere de fin introuvable dans entrypoint.sh"
-    bloc = texte[texte.index(_DEBUT_RECONCILIATION):texte.index(_FIN_RECONCILIATION)]
-    return bloc.replace('SEED_SUMS=/opt/dagster/workspace.sums', 'SEED_SUMS="$SUMS_TEST"')
+    return texte[texte.index(_DEBUT_RECONCILIATION):texte.index(_FIN_RECONCILIATION)]
 
 
 
@@ -296,17 +295,14 @@ class _Atelier:
         self.marqueur = tmp_path / "ws" / ".codelab" / "workspace-v1"
         self.marqueur.write_text("marqueur")
         self.empreintes = tmp_path / "ws" / ".codelab" / "empreintes"
-        self.sums = tmp_path / "figees.sums"
-        self.sums.write_text("", encoding="utf-8")
         self.cible = self.ws / "checks.py"
         self.livre = self.seed / "checks.py"
 
-    def figer(self, *contenus):
-        """Declare des contenus comme "versions livrees autrefois" -- la liste
-        d'amorcage des installations anterieures au mecanisme."""
-        self.sums.write_text("".join(
-            _somme_texte(c) + " diagnostic/checks.py\n" for c in contenus),
-            encoding="utf-8")
+    def noter(self, contenu):
+        """Note ce contenu comme le dernier que CodeLab a ecrit pour
+        checks.py : ce que ferait un demarrage precedent."""
+        self.empreintes.write_text(_somme_texte(contenu) + " diagnostic/checks.py\n",
+                                   encoding="utf-8")
 
     def demarrer(self):
         import subprocess
@@ -314,7 +310,6 @@ class _Atelier:
                    WORKSPACE_SEED=str(self.base / "seed"),
                    WORKSPACE_DIR=str(self.base / "ws"),
                    SEED_MARKER=str(self.marqueur),
-                   SUMS_TEST=str(self.sums),
                    CODELAB_GROUP="root")
         r = subprocess.run(["sh", "-c", _bloc_reconciliation()],
                            capture_output=True, text=True, timeout=60, env=env)

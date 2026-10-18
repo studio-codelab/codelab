@@ -16,7 +16,6 @@ set -e
 
 CONFIG_DIR="${CODELAB_CONFIG_DIR:-/var/lib/codelab/config}"
 ENV_FILE="$CONFIG_DIR/credentials.env"
-LEGACY_PW_FILE="$CONFIG_DIR/postgres_password"
 
 mkdir -p "$CONFIG_DIR"
 touch "$ENV_FILE"
@@ -61,15 +60,10 @@ upsert_block() {
 
 # Ordre de priorite : la valeur deja presente dans credentials.env fait
 # autorite (c'est celle avec laquelle la base a ete initialisee), sinon on
-# reprend l'ancien fichier postgres_password d'une install anterieure, sinon
-# on genere. Ne JAMAIS regenerer par-dessus une valeur existante : la base
+# genere (la reprise de l'ancien fichier postgres_password est partie : voir
+# postgres/README.md). Ne JAMAIS regenerer par-dessus une valeur existante : la base
 # refuserait la connexion.
 PG_PASSWORD="$(get_value POSTGRES_PASSWORD)"
-MIGRATED=0
-if [ -z "$PG_PASSWORD" ] && [ -s "$LEGACY_PW_FILE" ]; then
-  PG_PASSWORD="$(cat "$LEGACY_PW_FILE")"
-  MIGRATED=1
-fi
 if [ -z "$PG_PASSWORD" ]; then
   PG_PASSWORD="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
   echo "[codelab-postgres] mot de passe genere."
@@ -92,15 +86,6 @@ CODELAB_PROJECT_DBS="${CODELAB_PROJECT_DBS:-diagnostic}"
 # nom partout : c'est ce qui permet de copier un projet d'une base a l'autre
 # sans toucher aux requetes.
 CODELAB_PROJECT_SCHEMA="${CODELAB_PROJECT_SCHEMA:-dagster}"
-
-# Retire un bloc entier, marqueurs compris. Pour les blocs que plus aucun
-# service n'ecrit : un bloc sans valeur n'est que du bruit a relire.
-remove_block() {
-  name="$1"
-  awk -v s="# ===== $name =====" -v e="# ===== /$name =====" \
-    '$0==s{skip=1} !skip{print} $0==e{skip=0}' "$ENV_FILE" > "$ENV_FILE.tmp"
-  mv "$ENV_FILE.tmp" "$ENV_FILE"
-}
 
 # Comme upsert_block, mais EN TETE du fichier : c'est le sommaire, il doit se
 # lire en premier. upsert_block ajoute en fin de fichier, et le panneau
@@ -169,20 +154,9 @@ POSTGRES_DB=$CODELAB_INSTANCE_DB
 POSTGRES_USER=codelab
 POSTGRES_PASSWORD=$PG_PASSWORD"
 
-# Plus de bloc « codelab-dev » : il ne portait aucune valeur, seulement une
-# phrase sur SSH, que le sommaire ci-dessus reprend.
-remove_block "codelab-dev"
-
 chmod 600 "$ENV_FILE"
 if command -v flock >/dev/null 2>&1; then flock -u 9; fi
 exec 9>&-
-
-# Migration terminee et ecrite : l'ancien fichier n'a plus de raison
-# d'exister. Supprime seulement apres coup, jamais avant.
-if [ "$MIGRATED" = "1" ]; then
-  rm -f "$LEGACY_PW_FILE"
-  echo "[codelab-postgres] postgres_password migre vers credentials.env puis supprime."
-fi
 
 # L'image officielle refuse POSTGRES_PASSWORD et POSTGRES_PASSWORD_FILE
 # simultanement : on ne passe que la variable, lue du fichier unique.

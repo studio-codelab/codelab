@@ -181,7 +181,7 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 |---|---|---|
 | `9001` | panneau | connexion + second facteur ; administration réservée au réseau local |
 | `9002` | applications, toutes | selon chaque application : publique, ou privée (compte autorisé) |
-| `9101`–`9140` | port interne de chaque application (`$PORT`) | non publiés ; relayés par le `9002` |
+| `9101`–`9140` | port interne de chaque application (`$PORT`) | non publiés ; relayés par le `9002`. L'application écoute sur `127.0.0.1` : sur `0.0.0.0`, les autres conteneurs la joindraient sans le panneau, et sa fiche le signale |
 | `3000` | Dagster (par `codelab-dagster-proxy`) | session d'**administration** du panneau, vérifiée à chaque requête |
 | `8025` | Mailpit (par le même proxy) | idem ; Mailpit exige en plus son propre mot de passe interne |
 | `2222` | SSH (`codelab-dev`) | **clé publique uniquement**, ni mot de passe ni root |

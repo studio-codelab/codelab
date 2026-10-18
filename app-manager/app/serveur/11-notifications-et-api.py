@@ -466,6 +466,10 @@ def api_apps():
             # demarree) : l'interface ne signale "ne repond pas" que sur un
             # False franc, jamais sur une absence de mesure.
             "listening": _listening.get(name) if run else None,
+            # Ecoute sur 0.0.0.0 : joignable sans le panneau (voir
+            # ports_ouverts_au_reseau). Reserve a l'administrateur, comme
+            # toute cette route.
+            "ecoute_large": bool(_ecoute_large.get(name)) if run else False,
             "visibility": visibilite(a),
             "has_build": bool((a.get("build_command") or "").strip()),
             "build_command": a.get("build_command") or "",

@@ -400,6 +400,9 @@ def _tuile_service(nom, description, adresse, debout, port):
         # complet par tuile, a chaque rafraichissement du hub, pour une
         # valeur que rien ne lit (voir _ports_ecoutes).
         "port_listeners": [],
+        # Le panneau ne lance pas ce service : son adresse d'ecoute n'est pas
+        # la sienne a surveiller.
+        "ecoute_large": False,
         "failed": False, "crash_looping": False, "has_build": False, "dernier_echec": None,
         "build_command": "", "max_memory_mb": None, "alertes": [],
         "cpu_percent": 0.0, "memory_mb": 0.0,

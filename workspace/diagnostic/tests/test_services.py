@@ -173,15 +173,30 @@ def test_les_taches_vscode_passent_bien_le_drapeau():
 
 
 def test_une_ancienne_version_livree_est_remplacee(tmp_path):
-    """Le cas qui a motive tout ceci, sur une installation anterieure au
-    mecanisme : rien n'est encore note, c'est la liste figee qui tranche."""
+    """Le cas qui a motive tout ceci : une version livree, restee intacte
+    depuis, recoit la correction de l'image."""
     a = _Atelier(tmp_path)
     a.livre.write_text("corrigee", encoding="utf-8")
     a.cible.write_text("ancienne", encoding="utf-8")
-    a.figer("ancienne", "corrigee")
+    a.noter("ancienne")
     journal = a.demarrer()
     assert a.sur_disque() == "corrigee", "la correction de l'image n'a pas atteint le disque"
     assert "mis a jour" in journal
+
+
+
+
+def test_sans_empreinte_notee_un_fichier_est_laisse_tel_quel(tmp_path):
+    """Depuis le retrait de la liste figee des anciennes versions : un
+    fichier dont rien n'est note est tenu pour modifie. Le doute protege le
+    travail de l'utilisateur ; une installation mise a jour depuis a note
+    ses propres empreintes, et n'est pas concernee."""
+    a = _Atelier(tmp_path)
+    a.livre.write_text("corrigee", encoding="utf-8")
+    a.cible.write_text("ancienne", encoding="utf-8")
+    journal = a.demarrer()
+    assert a.sur_disque() == "ancienne"
+    assert "modifies sur place" in journal
 
 
 
@@ -192,7 +207,7 @@ def test_un_fichier_modifie_par_l_utilisateur_n_est_jamais_ecrase(tmp_path):
     a = _Atelier(tmp_path)
     a.livre.write_text("corrigee", encoding="utf-8")
     a.cible.write_text("MON CODE", encoding="utf-8")
-    a.figer("ancienne", "corrigee")
+    a.noter("ancienne")
     journal = a.demarrer()
     assert a.sur_disque() == "MON CODE", "le travail de l'utilisateur a ete ecrase"
     assert "modifies sur place" in journal
@@ -205,7 +220,7 @@ def test_un_fichier_supprime_expres_ne_ressuscite_pas(tmp_path):
     redemarrage serait insupportable, et c'est la raison d'etre du marqueur."""
     a = _Atelier(tmp_path)
     a.livre.write_text("corrigee", encoding="utf-8")
-    a.figer("ancienne", "corrigee")
+    a.noter("ancienne")
     a.demarrer()
     assert a.sur_disque() is None, "un fichier supprime a ete recree"
 
@@ -218,7 +233,7 @@ def test_rien_ne_bouge_avant_le_premier_amorcage(tmp_path):
     a = _Atelier(tmp_path)
     a.livre.write_text("corrigee", encoding="utf-8")
     a.cible.write_text("ancienne", encoding="utf-8")
-    a.figer("ancienne", "corrigee")
+    a.noter("ancienne")
     a.marqueur.unlink()
     a.demarrer()
     assert a.sur_disque() == "ancienne"
@@ -246,8 +261,6 @@ def test_le_mecanisme_s_entretient_seul_sans_liste_figee(tmp_path):
         "sans liste figee, la mise a jour n'a pas eu lieu : le mecanisme ne "
         "s'entretient pas tout seul")
     assert a.note() == _somme_texte("v2"), "l'empreinte n'a pas suivi la mise a jour"
-    # La liste figee n'a servi a rien ici, et c'est exactement l'objectif.
-    assert a.sums.read_text(encoding="utf-8") == ""
 
 
 
@@ -319,7 +332,7 @@ def test_un_lien_symbolique_a_la_place_du_fichier_est_refuse(tmp_path):
     victime.write_text("intact", encoding="utf-8")
     a.livre.write_text("corrigee", encoding="utf-8")
     os.symlink(str(victime), str(a.cible))
-    a.figer("intact")
+    a.noter("intact")
     a.demarrer()
     assert victime.read_text(encoding="utf-8") == "intact", (
         "le lien a ete suivi : ecriture hors du workspace, en root")
@@ -338,7 +351,7 @@ def test_un_temporaire_pose_d_avance_ne_detourne_pas_l_ecriture(tmp_path):
     victime.write_text("intact", encoding="utf-8")
     a.livre.write_text("corrigee", encoding="utf-8")
     a.cible.write_text("ancienne", encoding="utf-8")
-    a.figer("ancienne")
+    a.noter("ancienne")
     # Le piege, au nom qu'utilisait l'ancienne version du code.
     os.symlink(str(victime), str(a.ws / "checks.py.codelab-tmp"))
     a.demarrer()
@@ -389,7 +402,7 @@ def test_dagster_yaml_se_met_a_jour_sur_les_installations_existantes():
     # Remplace sur preuve de contenu, jamais sur une date, et jamais un
     # fichier que l'utilisateur a modifie.
     assert "sha256sum" in bloc
-    assert "dagster.yaml.sums" in bloc
+    assert "DAGSTER_YAML_NOTE" in bloc
     assert "laisse tel quel" in bloc
     # Renommage atomique : un arret au mauvais moment ne laisse pas une
     # configuration a moitie ecrite.
@@ -1160,85 +1173,31 @@ def test_les_permissions_du_workspace_sont_rattrapees_a_chaque_demarrage():
 def test_le_sommaire_de_credentials_env_est_en_tete_et_les_blocs_vides_partent(tmp_path):
     """Execute les fonctions de codelab-postgres sur un fichier d'une ancienne
     installation : le sommaire doit arriver EN TETE, en un seul exemplaire,
-    le bloc vide « codelab-dev » doit partir, et les blocs des autres
-    services rester intacts."""
+    et les blocs des autres services rester intacts."""
     import subprocess
     source = open(os.path.join(_racine_depot(), "postgres", "entrypoint.sh"),
                   encoding="utf-8").read()
-    fonctions = "".join(re.findall(r"^(?:upsert_block|remove_block|header_block)\(\) \{.*?\n\}\n",
+    fonctions = "".join(re.findall(r"^(?:upsert_block|header_block)\(\) \{.*?\n\}\n",
                                    source, re.S | re.M))
-    assert "header_block()" in fonctions and "remove_block()" in fonctions
+    assert "header_block()" in fonctions
     appel = re.search(r'^header_block "# credentials\.env.*?"\n', source, re.S | re.M).group(0)
-    assert 'remove_block "codelab-dev"' in source
     assert 'upsert_block "codelab-dev"' not in source
     fichier = tmp_path / "credentials.env"
     fichier.write_text(
         "# ===== codelab-app-manager =====\nAPP_MANAGER_ADMIN_PASSWORD=x\n"
         "# ===== /codelab-app-manager =====\n"
-        "# ===== codelab-header =====\n# ancien\n# ===== /codelab-header =====\n"
-        "# ===== codelab-dev =====\n# Pas de mot de passe\n# ===== /codelab-dev =====\n",
+        "# ===== codelab-header =====\n# ancien\n# ===== /codelab-header =====\n",
         encoding="utf-8")
-    script = f'ENV_FILE="{fichier}"\n' + fonctions + appel + 'remove_block "codelab-dev"\n'
+    script = f'ENV_FILE="{fichier}"\n' + fonctions + appel
     subprocess.run(["sh", "-c", script], check=True, timeout=30)
     texte = fichier.read_text(encoding="utf-8")
     assert texte.startswith("# ===== codelab-header =====\n"), texte[:80]
     assert texte.count("# ===== codelab-header =====") == 1
     assert "# ancien" not in texte
-    assert "codelab-dev =====" not in texte
     assert "APP_MANAGER_ADMIN_PASSWORD=x" in texte
     # Le sommaire nomme chaque bloc qui existe encore, et dit s'il va aux apps.
     for bloc in ("codelab-postgres", "codelab-app-manager", "codelab-sso", "codelab-alertes"):
         assert bloc in texte, bloc
-
-
-
-
-def test_le_proxy_dagster_retire_son_ancien_bloc_au_lieu_de_le_reecrire(tmp_path):
-    """Le bloc ne portait plus aucune valeur : il part, les autres restent."""
-    import subprocess
-    source = open(os.path.join(_racine_depot(), "dagster", "proxy", "entrypoint.sh"),
-                  encoding="utf-8").read()
-    assert 'upsert_block "codelab-dagster-proxy"' not in source
-    debut = source.index("CONFIG_DIR=")
-    fin = source.index('mv "$ENV_FILE.tmp" "$ENV_FILE"') + len('mv "$ENV_FILE.tmp" "$ENV_FILE"')
-    fichier = tmp_path / "credentials.env"
-    fichier.write_text(
-        "# ===== codelab-postgres =====\nPOSTGRES_PASSWORD=y\n# ===== /codelab-postgres =====\n"
-        "# ===== codelab-dagster-proxy =====\n# note\n# ===== /codelab-dagster-proxy =====\n",
-        encoding="utf-8")
-    subprocess.run(["sh", "-c", source[debut:fin]], check=True, timeout=30,
-                   env={"CODELAB_CONFIG_DIR": str(tmp_path), "PATH": "/usr/bin:/bin"})
-    texte = fichier.read_text(encoding="utf-8")
-    assert "codelab-dagster-proxy" not in texte
-    assert "POSTGRES_PASSWORD=y" in texte
-
-
-
-
-def test_les_restes_d_openclaw_partent_sauf_ce_qui_a_ete_retouche(tmp_path):
-    """Execute le bloc de l'entrypoint : .openclaw part, les fichiers VS Code
-    ecrits pour OpenClaw partent s'ils sont intacts, et un settings.json
-    complete a la main reste."""
-    import subprocess
-    source = _entrypoint_dev()
-    debut = source.index('rm -rf "$WORKSPACE_DIR/.openclaw"')
-    fin = source.index("\nPYRESTES\n", debut) + len("\nPYRESTES\n")
-    (tmp_path / ".openclaw").mkdir()
-    (tmp_path / ".openclaw" / "openclaw.json").write_text("{}", encoding="utf-8")
-    vs = tmp_path / ".vscode"
-    vs.mkdir()
-    (vs / "extensions.json").write_text(json.dumps(
-        {"recommendations": ["openknot.openclaw-extension"]}), encoding="utf-8")
-    retouche = {"remote.autoForwardPorts": True,
-                "remote.portsAttributes": {"18789": {"label": "OpenClaw - chat",
-                                                     "onAutoForward": "silent"}},
-                "editor.fontSize": 14}
-    (vs / "settings.json").write_text(json.dumps(retouche), encoding="utf-8")
-    subprocess.run(["bash", "-c", source[debut:fin]], check=True, timeout=30,
-                   env={"WORKSPACE_DIR": str(tmp_path), "PATH": "/usr/bin:/bin:/usr/local/bin"})
-    assert not (tmp_path / ".openclaw").exists()
-    assert not (vs / "extensions.json").exists()
-    assert json.loads((vs / "settings.json").read_text(encoding="utf-8")) == retouche
 
 
 

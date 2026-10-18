@@ -85,8 +85,13 @@ un cadre (`/ouvrir.html`).
 ### Les regles qui la rendent joignable
 
 1. **Ecoute sur `$PORT`**, fourni par le panneau. Jamais de port en dur.
-2. **Ecoute sur `0.0.0.0`**, pas sur `127.0.0.1` :
-   `app.run(host="0.0.0.0", port=int(os.environ["PORT"]))`.
+2. **Ecoute sur `127.0.0.1`** :
+   `app.run(host="127.0.0.1", port=int(os.environ["PORT"]))`. Le panneau relaie
+   depuis le meme conteneur. Sur `0.0.0.0`, les autres conteneurs du serveur
+   joignent l'application sans passer par le panneau, donc sans connexion : une
+   application privee ne l'est plus, et sa fiche le signale. Pas `localhost`
+   non plus, qui peut ne donner que l'IPv6 (`::1`), que le panneau ne joint pas.
+   Node : `server.listen(process.env.PORT, "127.0.0.1")`.
 3. **Le panneau retire le prefixe `/<adresse>/`** avant de transmettre la
    requete : l'application recoit `/`, `/factures/12`. Mais le navigateur, lui,
    est sur `/<adresse>/...`.
@@ -649,7 +654,7 @@ Ne dis pas qu'une application est prete a etre deployee sans avoir verifie
 chaque point, et dis lesquels tu n'as pas pu verifier.
 
 **Integration au hub**
-- [ ] Ecoute sur `$PORT` et `0.0.0.0`, pas de serveur de developpement
+- [ ] Ecoute sur `$PORT` et `127.0.0.1`, pas de serveur de developpement
 - [ ] Adresses relatives (ou `base` / `basePath` regle) : aucune page blanche ni
       lien casse sous `/<adresse>/`
 - [ ] Commandes de build et de lancement verifiees ; build reproductible

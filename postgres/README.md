@@ -5,8 +5,10 @@ par toute la stack. Il n'a **aucun port publié** : seul le réseau `codelab` le
 
 ## Ce que fait l'entrypoint
 
-1. **Mot de passe.** Il reprend celui de `credentials.env` (ou d'un ancien
-   `config/postgres_password`), sinon il en génère un. Une valeur existante n'est jamais régénérée.
+1. **Mot de passe.** Il reprend celui de `credentials.env`, sinon il en génère un. Une valeur
+   existante n'est jamais régénérée. La reprise d'un ancien `config/postgres_password`, et le retrait
+   de l'ancien bloc `codelab-dev`, sont partis ; dernière version qui la portait : le commit `f9caf52`. Une installation qui n'a pas démarré depuis
+   longtemps passe d'abord par celle-là, puis par la version courante.
 2. **`credentials.env`.** Il écrit son bloc `codelab-postgres` et le sommaire `codelab-header`, en
    tête du fichier. Le fichier est en `0600`, et chaque écriture se fait sous verrou `flock`.
 3. **Bases de projet**, une fois le serveur à l'écoute : celles de `CODELAB_PROJECT_DBS` sont créées,

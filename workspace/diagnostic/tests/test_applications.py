@@ -30,7 +30,7 @@ def test_un_projet_vite_est_construit_puis_servi_en_statique(tmp_path):
         "package-lock.json": "{}",
     })
     commande, build = app.detect_project(chemin)
-    assert commande == "python3 -m http.server $PORT --directory dist"
+    assert commande == "python3 -m http.server $PORT --bind 127.0.0.1 --directory dist"
     assert build == "npm ci && npm run build"
 
 
@@ -54,6 +54,48 @@ def test_aucune_commande_ne_code_le_port_en_dur(tmp_path):
         assert "$PORT" in commande, commande
 
 
+
+def test_les_commandes_proposees_n_ecoutent_que_sur_127_0_0_1(tmp_path):
+    """Vecu : python3 -m http.server et next start ecoutent partout par
+    defaut, et la commande Django portait 0.0.0.0 en dur. Une application
+    privee etait alors joignable depuis les autres conteneurs du reseau
+    codelab, sans passer par le panneau, donc sans connexion."""
+    cas = [
+        ({"index.html": "<html>"}, "--bind 127.0.0.1"),
+        ({"manage.py": ""}, "runserver 127.0.0.1:$PORT"),
+        ({"package.json": json.dumps({"scripts": {"build": "vite build"},
+                                      "devDependencies": {"vite": "^5"}})}, "--bind 127.0.0.1"),
+        ({"package.json": json.dumps({"scripts": {"build": "next build"},
+                                      "dependencies": {"next": "14"}})}, "--hostname 127.0.0.1"),
+    ]
+    for i, (fichiers, attendu) in enumerate(cas):
+        dossier = tmp_path / f"cas{i}"
+        dossier.mkdir()
+        commande, _ = app.detect_project(_projet(dossier, fichiers))
+        assert attendu in commande and "0.0.0.0" not in commande, commande
+
+
+def test_la_fiche_signale_une_application_qui_ecoute_partout(monkeypatch):
+    """Le panneau ne peut pas choisir l'adresse a la place du code de
+    l'application : il releve les ports ecoutes sur 0.0.0.0 ou :: et le dit
+    dans la fiche, sans compter ceux tenus sur 127.0.0.1."""
+    from types import SimpleNamespace as N
+    ecoute = app.psutil.CONN_LISTEN
+    conns = [N(status=ecoute, laddr=N(ip="0.0.0.0", port=9101)),
+             N(status=ecoute, laddr=N(ip="::", port=9102)),
+             N(status=ecoute, laddr=N(ip="127.0.0.1", port=9103)),
+             N(status="ESTABLISHED", laddr=N(ip="0.0.0.0", port=9104))]
+    monkeypatch.setattr(app.psutil, "net_connections", lambda kind="tcp": conns)
+    assert app.ports_ouverts_au_reseau() == {9101, 9102}
+    monkeypatch.setattr(app, "load", lambda: {"large": {"port": 9101}, "sage": {"port": 9103}})
+    monkeypatch.setattr(app, "is_running", lambda n: True)
+    monkeypatch.setattr(app, "probe_port", lambda p: True)
+    monkeypatch.setattr(app, "_listening", {})
+    monkeypatch.setattr(app, "_ecoute_large", {})
+    app.probe_tick()
+    assert app._ecoute_large == {"large": True, "sage": False}
+    page = _page_panneau("dashboard.html")
+    assert 'id="fa-ecoute-large"' in page and "a.ecoute_large" in page
 
 
 # ------------------- 10. presentation des projets -------------------
