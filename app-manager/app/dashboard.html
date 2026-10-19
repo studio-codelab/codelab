@@ -1839,9 +1839,21 @@ input,select,textarea{border-radius:12px}
 .gl-nom{font-size:12.5px;font-weight:700;color:var(--dim)}
 .bw-titre,.bw-sur{font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
 .bw-vide{margin:auto 0;color:var(--dim)}
-.bw-une{padding:0;background:var(--une-fond,var(--accent));border:0;color:var(--une-txt,var(--sur-accent));position:relative;
- transition:background-color .4s,color .4s}
+/* LA COULEUR SOUS LE BANDEAU, PAS SOUS LA CARTE. Vecu : « J'ai des traces
+   de contour rouge ». Peinte sous toute la carte, la couleur de l'application
+   debordait d'un pixel autour de la video et de l'apercu en direct : le
+   lissage des coins arrondis melange le fond de la carte et celui de
+   l'enfant qui le recouvre. Le fond de la carte reste donc vide ; le bandeau
+   et l'apercu sans direct portent la couleur chacun, et l'apercu qui montre
+   une video ou une page s'arrete un pixel avant le bord (content-box) : son
+   contenu, lui, va jusqu'au bord et le recouvre. Sans fond, plus d'espace
+   entre l'apercu et le bandeau (gap:0) : il laisserait voir la page. */
+.bw-une{padding:0;gap:0;background:none;border:0;color:var(--une-txt,var(--sur-accent));position:relative;
+ transition:color .4s}
+.bw-une-pied,.bw-apercu.sans-direct{background-color:var(--une-fond,var(--accent));transition:background-color .4s}
+.bw-une:hover :is(.bw-une-pied,.bw-apercu.sans-direct){background-color:var(--une-fond-h,var(--accent-h))}
 .bw-apercu{flex:1;min-height:0;position:relative;overflow:hidden;background:var(--surface2);border-radius:24px 24px 0 0}
+.bw-apercu:is(.en-video,:not(.sans-direct)){padding:1px;background-clip:content-box}
 .bw-apercu iframe{position:absolute;inset:0;width:200%;height:200%;border:0;transform:scale(.5);transform-origin:0 0;
  pointer-events:none;background:#fff}
 .bw-une-icone{position:absolute;inset:0;margin:auto;width:96px;height:96px;border-radius:26px;opacity:.9}
@@ -1850,7 +1862,6 @@ input,select,textarea{border-radius:12px}
 .bw-une-ligne{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .bw-une-ligne img{width:40px;height:40px;border-radius:12px}
 .bw-une-nom{font-size:clamp(24px,2.4vw,34px);font-weight:800;letter-spacing:-.04em;line-height:1}
-.bw-une:hover{background:var(--une-fond-h,var(--accent-h))}
 .bw-une .bento-bouton{margin-top:4px}
 .bw-une .badge-maj{background:var(--surface);color:var(--txt)}
 /* La bande-annonce remplit l'apercu ; l'icone attend dessous qu'elle charge. */
@@ -1950,15 +1961,16 @@ a.pj:hover{border-color:var(--accent)}
 @keyframes menu-app-entree{from{opacity:0;transform:scale(.97)}}
 @keyframes menu-app-feuille{from{transform:translateY(24px);opacity:0}}
 @media (prefers-reduced-motion:reduce){ .menu-app-panneau{animation:none} }
-.bw-apercu.sans-direct{background:rgba(255,255,255,.1)}
+.bw-apercu.sans-direct{background-image:linear-gradient(rgba(255,255,255,.1),rgba(255,255,255,.1))}
 /* SANS VIDEO, L'ICONE RESPIRE. Une lueur claire et une ombre derivent
    lentement dans la couleur du widget (celle de l'icone, voir
    teinterALaUne), et l'icone se souleve a peine, au rythme d'un souffle.
    Rien a charger, rien a calculer : deux animations CSS, a l'arret quand
    l'appareil demande moins de mouvement ou que le hub se reorganise. */
 .bw-apercu.sans-direct:not(.en-video){
- background:radial-gradient(circle at 30% 25%,rgba(255,255,255,.32),transparent 55%),
-  radial-gradient(circle at 75% 85%,rgba(0,0,0,.22),transparent 60%),rgba(255,255,255,.06);
+ background-image:radial-gradient(circle at 30% 25%,rgba(255,255,255,.32),transparent 55%),
+  radial-gradient(circle at 75% 85%,rgba(0,0,0,.22),transparent 60%),
+  linear-gradient(rgba(255,255,255,.06),rgba(255,255,255,.06));
  background-size:200% 200%;animation:une-lueur 14s ease-in-out infinite alternate}
 .bw-apercu.sans-direct:not(.en-video) .bw-une-icone{opacity:1;box-shadow:0 18px 40px rgba(0,0,0,.22);
  animation:une-souffle 4.5s ease-in-out infinite}

@@ -2494,11 +2494,40 @@ def test_a_la_une_joue_la_video_de_presentation_en_boucle():
 
 
 
+def test_a_la_une_n_a_pas_de_lisere_de_couleur():
+    """Vecu : « J'ai des traces de contour rouge » autour de la video de
+    WineManager. Le lissage d'un coin arrondi melange le fond de la carte et
+    celui de l'enfant qui le recouvre : peinte sous toute la carte, la
+    couleur de l'application debordait d'un pixel sur les bords.
+
+    La carte n'a donc pas de fond, ni d'espace entre ses deux blocs (il
+    laisserait voir la page), et l'apercu qui montre une video ou une page
+    arrete son fond un pixel avant le bord.
+    """
+    page = _page_panneau("dashboard.html")
+    carte = page.split("\n.bw-une{")[1].split("}")[0]
+    assert "background:none" in carte and "gap:0" in carte
+    assert ".bw-apercu:is(.en-video,:not(.sans-direct)){padding:1px;background-clip:content-box}" in page
+    # Et aucune regle ne repeint la carte au survol.
+    assert ".bw-une:hover{background" not in page
+    # Les fonds de l'apercu sans direct sont des images : la couleur reste
+    # dessous (un raccourci « background: » l'effacerait).
+    assert ".bw-apercu.sans-direct{background:" not in page
+    lueur = page.split(".bw-apercu.sans-direct:not(.en-video){")[1].split("}")[0]
+    assert "background-image:" in lueur and "background:" not in lueur.replace("background-", "")
+
+
+
+
 def test_a_la_une_prend_les_couleurs_de_son_icone():
     page = _page_panneau("dashboard.html")
-    assert "background:var(--une-fond,var(--accent))" in page
+    # La couleur est portee par le bandeau et l'apercu sans direct, plus par
+    # la carte : voir test_a_la_une_n_a_pas_de_lisere_de_couleur.
+    assert (".bw-une-pied,.bw-apercu.sans-direct{background-color:var(--une-fond,var(--accent));"
+            in page)
     assert "color:var(--une-txt,var(--sur-accent))" in page
-    assert ".bw-une:hover{background:var(--une-fond-h,var(--accent-h))}" in page
+    assert (".bw-une:hover :is(.bw-une-pied,.bw-apercu.sans-direct)"
+            "{background-color:var(--une-fond-h,var(--accent-h))}") in page
     teinte = page.split("function teinteDominante(")[1].split("\n}")[0]
     assert "if(sat<.25 || max<40) continue;" in teinte        # ni blanc, ni gris, ni noir
     assert "return null;" in teinte                           # icone grise : l'accent reste
