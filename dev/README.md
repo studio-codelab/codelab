@@ -45,6 +45,7 @@ leur nom (`codelab-postgres`, `codelab-app-manager`…).
 | `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `CODELAB_DB` | **dans le dossier d'un projet seulement** : le compte de SA base (voir « Une base, un compte ») ; `psql` et `psycopg.connect()` sans argument |
 | `REDIS_URL`, `REDISCLI_AUTH` | `redis-cli -h codelab-redis` sans mot de passe à taper |
 | `CODEX_HOME=/workspace/.codex` | la connexion et la configuration de Codex survivent aux mises à jour |
+| `CLAUDE_CONFIG_DIR=/workspace/.claude-code` | de même pour Claude Code ; `~/.claude` et `~/.claude.json` en sont des liens |
 
 ## L'outil `codelab`
 
@@ -150,7 +151,10 @@ code (le tien, ou celui d'un agent) n'a pas à pouvoir le faire.
     (`sandbox_mode = "danger-full-access"`, `approval_policy = "on-request"`).
   - Le jeton `auth.json` est remis en `0600` à chaque démarrage.
   - Hors VS Code, la connexion demande un tunnel : `ssh -p 2222 -L 1455:127.0.0.1:1455 vscode@<serveur>`.
-- **Claude Code** lit `CLAUDE.md`, qui importe `AGENTS.md`.
+- **Claude Code**
+  - Lit `CLAUDE.md`, qui importe `AGENTS.md`.
+  - Sa connexion et ses réglages vivent dans `/workspace/.claude-code` (`0700`) : on se connecte
+    une fois, et une mise à jour de l'image ne la perd plus.
 - **Le manuel** est aussi copié à chaque démarrage dans `/workspace/.codex/AGENTS.md`, comme
   instructions globales de Codex.
 
@@ -171,7 +175,7 @@ code (le tien, ou celui d'un agent) n'a pas à pouvoir le faire.
 | Fichier | Rôle |
 |---|---|
 | `Dockerfile` | `python:3.13-slim`, openssh, git, Node, `postgresql-client`, `codex`, Chromium, Piper, ffmpeg ; utilisateur `vscode` (uid 1000), groupe `codelab` (gid 2000) |
-| `entrypoint.sh` | au démarrage : permissions de `/workspace`, `CODEX_HOME` et manuel, clés hôte, `authorized_keys` reconstruit depuis `authorized_keys.d/`, variables de session, gitconfig, extensions VS Code ; puis `sshd -D -e` en processus principal |
+| `entrypoint.sh` | au démarrage : permissions de `/workspace`, `CODEX_HOME` et manuel, `CLAUDE_CONFIG_DIR`, clés hôte, `authorized_keys` reconstruit depuis `authorized_keys.d/`, variables de session, gitconfig, extensions VS Code ; puis `sshd -D -e` en processus principal |
 | `codelab` | l'outil de projet |
 | `AGENTS.md` | le manuel des projets, livré dans l'image |
 | `modeles/` | les modules déposés par `codelab create` et tenus à jour par `codelab update` |

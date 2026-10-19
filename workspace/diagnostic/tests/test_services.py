@@ -1405,6 +1405,61 @@ def test_le_jeton_chatgpt_n_est_lisible_que_par_vscode(tmp_path):
 
 
 
+def _lier_a_claude(lien, cible):
+    """La fonction lier_a_claude de dev/entrypoint.sh, prise telle quelle."""
+    import subprocess
+    source = open(os.path.join(_racine_depot(), "dev", "entrypoint.sh"),
+                  encoding="utf-8").read()
+    debut = source.index("lier_a_claude() {")
+    fonction = source[debut:source.index("\n}\n", debut) + 3]
+    return subprocess.run(["bash", "-c", fonction + 'lier_a_claude "$1" "$2"', "_",
+                           str(lien), str(cible)],
+                          capture_output=True, text=True, timeout=30)
+
+
+def test_la_connexion_de_claude_code_survit_a_une_mise_a_jour(tmp_path):
+    """Vecu : « je n'arrive pas a me connecter. Claude Code bug constamment ».
+
+    Claude Code rangeait sa connexion sous /home/vscode, efface a chaque
+    mise a jour de l'image. Elle vit desormais dans /workspace/.claude-code
+    (CLAUDE_CONFIG_DIR), ~/.claude et ~/.claude.json n'en sont que des liens,
+    et ce qui s'etait ecrit a leur place est recopie, jamais efface."""
+    source = open(os.path.join(_racine_depot(), "dev", "entrypoint.sh"),
+                  encoding="utf-8").read()
+    assert 'CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$WORKSPACE_DIR/.claude-code}"' in source
+    assert 'echo "export CLAUDE_CONFIG_DIR=$CLAUDE_DIR"' in source
+    assert '"$CODEX_PROFILE" "$CLAUDE_PROFILE" "$PROFILE"; do' in source
+    assert 'chmod 700 "$CLAUDE_DIR"' in source
+
+    cible = tmp_path / "workspace" / ".claude-code"
+    cible.mkdir(parents=True)
+    maison = tmp_path / "home"
+    maison.mkdir()
+    # Avant le lien : un vrai dossier, avec la connexion dedans.
+    (maison / ".claude").mkdir()
+    (maison / ".claude" / ".credentials.json").write_text("jeton", encoding="utf-8")
+    assert _lier_a_claude(maison / ".claude", cible).returncode == 0
+    assert (maison / ".claude").is_symlink()
+    assert (cible / ".credentials.json").read_text(encoding="utf-8") == "jeton"
+
+    # Un fichier reecrit par renommage par-dessus le lien : recopie, puis relie.
+    (maison / ".claude.json").write_text('{"neuf": 1}', encoding="utf-8")
+    assert _lier_a_claude(maison / ".claude.json", cible / ".claude.json").returncode == 0
+    assert (maison / ".claude.json").is_symlink()
+    assert (cible / ".claude.json").read_text(encoding="utf-8") == '{"neuf": 1}'
+
+    # Et au demarrage suivant, rien ne bouge.
+    assert _lier_a_claude(maison / ".claude", cible).returncode == 0
+    assert (cible / ".credentials.json").exists() and not (cible / ".claude-code").exists()
+
+
+def test_l_archive_du_workspace_n_emporte_pas_les_jetons_des_agents():
+    """Les jetons de Codex et de Claude Code restent sur ce disque."""
+    assert {".codex", ".claude-code"} <= app.WORKSPACE_EXCLUS
+
+
+
+
 def test_l_image_dev_n_embarque_pas_de_catalogue_de_modeles():
     racine = _racine_depot()
     dockerfile = open(os.path.join(racine, "dev", "Dockerfile"), encoding="utf-8").read()
