@@ -146,7 +146,10 @@ WORKSPACE_GARDEES = 4
 WORKSPACE_FICHIER_MAX = 50 * 1024 * 1024
 WORKSPACE_EXCLUS = {"node_modules", ".venv", "venv", "__pycache__", ".cache",
                     ".npm", "dist", "build", ".next", ".pytest_cache",
-                    ".mypy_cache", ".vscode-server", ".codex"}
+                    ".mypy_cache", ".vscode-server", ".codex", ".claude-code"}
+# .codex et .claude-code portent les jetons de connexion des agents
+# (dev/entrypoint.sh) : une archive copiee ailleurs ne les emporte pas, et
+# une reconnexion suffit apres une restauration.
 
 
 def _filtre_workspace(membre):

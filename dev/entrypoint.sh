@@ -1,5 +1,5 @@
 #!/bin/bash
-# Entrypoint de codelab-dev. Six roles :
+# Entrypoint de codelab-dev. Sept roles :
 #
 #   1. Cles hote SSH persistantes. Elles sont regenerees par apt au moment du
 #      build : sans les persister, elles changent a chaque recreation du
@@ -26,6 +26,10 @@
 #      de demarrer s'il manque) :
 #      l'authentification et le config.toml survivent ainsi a une recreation
 #      du conteneur, alors qu'ils seraient perdus sous /home/vscode.
+#
+#   4 bis. Environnement Claude Code. CLAUDE_CONFIG_DIR pointe sur
+#      /workspace/.claude-code, pour la meme raison que Codex : la connexion
+#      survit a une mise a jour de l'image.
 #
 #   5. Permissions du workspace. /workspace est partage avec Dagster et
 #      app-manager, qui y ecrivent en root. Le socle (groupe commun, setgid,
@@ -64,6 +68,7 @@ PROFILE=/etc/profile.d/codelab-pg.sh
 BASES_DU_DOSSIER=/usr/local/share/codelab/bases-du-dossier.sh
 UMASK_PROFILE=/etc/profile.d/codelab-umask.sh
 CODEX_PROFILE=/etc/profile.d/codelab-codex.sh
+CLAUDE_PROFILE=/etc/profile.d/codelab-claude.sh
 # Le .gitconfig vit dans /workspace (voir la section git plus bas) ;
 # ~/.gitconfig n'est qu'un lien vers lui.
 GITCONFIG_LIEN=/home/vscode/.gitconfig
@@ -208,6 +213,53 @@ fi
     echo "export CODEX_HOME=$CODEX_HOME_DIR"
 } > "$CODEX_PROFILE"
 chmod 644 "$CODEX_PROFILE"
+
+# --------------------------- Claude Code ---------------------------
+#
+# Vecu : « je n'arrive pas a me connecter. Claude Code bug constamment ».
+# Claude Code range sa connexion et ses reglages dans ~/.claude et
+# ~/.claude.json, sous /home/vscode : un dossier de l'IMAGE, efface a chaque
+# « compose pull ». Apres chaque mise a jour, il fallait se reconnecter, et
+# une session ouverte perdait ses reglages en cours de route.
+#
+# Meme remede que Codex : CLAUDE_CONFIG_DIR dans /workspace, le seul dossier
+# qui survit a une recreation, et des liens depuis ~ pour ce qui demarre
+# sans passer par le profil de session (l'extension VS Code, un script).
+#
+# 0700, pas 2770 comme le dossier de Codex : il ne contient que des donnees
+# du compte vscode, dont le jeton de connexion (.credentials.json), et ni le
+# panneau ni Dagster n'ont a y lire.
+CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$WORKSPACE_DIR/.claude-code}"
+mkdir -p "$CLAUDE_DIR"
+chown "$SSH_USER" "$CLAUDE_DIR" 2>/dev/null || true
+chmod 700 "$CLAUDE_DIR" 2>/dev/null || true
+
+# ~/.claude (dossier) et ~/.claude.json (fichier) vers CLAUDE_DIR. Un vrai
+# fichier ou dossier a leur place -- ecrit avant ce lien, ou un fichier que
+# Claude Code a reecrit par renommage par-dessus le lien -- est d'abord
+# recopie dans CLAUDE_DIR, jamais efface : il porte peut-etre la connexion.
+lier_a_claude() {
+    lien="$1"; cible="$2"
+    if [ -e "$lien" ] && [ ! -L "$lien" ]; then
+        if [ -d "$lien" ]; then
+            cp -a "$lien/." "$cible/" 2>/dev/null || true
+            rm -rf "$lien"
+        else
+            mv -f "$lien" "$cible" 2>/dev/null || true
+        fi
+    fi
+    ln -sfn "$cible" "$lien" 2>/dev/null || true
+    chown -h vscode:vscode "$lien" 2>/dev/null || true
+}
+lier_a_claude /home/vscode/.claude "$CLAUDE_DIR"
+lier_a_claude /home/vscode/.claude.json "$CLAUDE_DIR/.claude.json"
+find "$CLAUDE_DIR" ! -user "$SSH_USER" -exec chown -h "$SSH_USER" {} + 2>/dev/null || true
+
+{
+    echo '# Genere par codelab-dev -- environnement Claude Code.'
+    echo "export CLAUDE_CONFIG_DIR=$CLAUDE_DIR"
+} > "$CLAUDE_PROFILE"
+chmod 644 "$CLAUDE_PROFILE"
 
 # Manuel de l'environnement, lu par Codex comme instructions globales. Recopie
 # a CHAQUE demarrage, contrairement au config.toml : ce fichier decrit la
@@ -637,7 +689,7 @@ chmod 644 "$PROFILE"
 # le contenu du profil dans .bashrc a chaque demarrage : le fichier grossissait
 # d'un jeu d'exports a chaque "docker restart".
 touch "$BASHRC"
-for f in "$UMASK_PROFILE" "$CODEX_PROFILE" "$PROFILE"; do
+for f in "$UMASK_PROFILE" "$CODEX_PROFILE" "$CLAUDE_PROFILE" "$PROFILE"; do
     if ! grep -qxF ". $f" "$BASHRC"; then
         printf '\n. %s\n' "$f" >> "$BASHRC"
     fi

@@ -22,6 +22,7 @@ Les règles complètes qu'un projet doit suivre sont dans le `AGENTS.md` de chaq
 ├── definitions.py       agrégateur Dagster : découvre les projets, ne pas modifier
 ├── .codelab/            marqueurs et configuration git de la stack, ne pas modifier
 ├── .codex/              configuration et connexion de Codex
+├── .claude-code/        configuration et connexion de Claude Code
 ├── diagnostic/          projet modèle et diagnostic de l'installation
 └── mon-projet/          un projet = un dossier
 ```
