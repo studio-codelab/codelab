@@ -257,8 +257,10 @@ with smtplib.SMTP(os.environ["MAIL_HOST"], int(os.environ["MAIL_PORT"])) as s:
 - **Plafond commun** de 50 mails par heure et 200 par jour, pour toute la stack.
   Au-dela, les mails sont gardes sans partir. Pas d'envoi en masse.
 - **Un serveur d'envoi propre au projet** se configure dans son `.env`, avec
-  **sa** cle : le `.env` l'emporte sur les variables recues, et le projet ne
-  passe plus par le hub.
+  **sa** cle. Des que le `.env` nomme un hote (`SMTP_HOST`, `SMTP_URL`,
+  `EMAIL_HOST`, `MAIL_SERVER`, `MAIL_HOST` ou `MAIL_URL`), le panneau ne
+  transmet plus aucune variable du relais : ton `.env` decide seul, port
+  compris, meme avec un chargeur qui n'ecrase rien (python-dotenv, dotenv).
 
 ## 9. Comptes : se connecter avec CodeLab
 

@@ -230,6 +230,46 @@ def test_une_application_sans_smtp_a_elle_prend_le_relais_du_hub(tmp_path, monke
 
 
 
+def test_une_application_avec_son_smtp_ne_recoit_rien_du_relais(tmp_path):
+    """« si je n'en parametre pas dans l'app » : le contraire doit tenir aussi.
+
+    python-dotenv et le dotenv de Node n'ecrasent pas une variable deja
+    recue : avec le SMTP_HOST du relais pose par le panneau, celui du .env
+    du projet etait ignore, et un .env qui ne nommait que l'hote recevait le
+    port 1025 de Mailpit. Un projet qui nomme son serveur ne recoit donc
+    aucune variable du relais ; sans serveur a lui, il les garde toutes."""
+    relais = {"SMTP_HOST": "codelab-mailpit", "SMTP_PORT": "1025",
+              "SMTP_URL": "smtp://codelab-mailpit:1025", "EMAIL_HOST": "codelab-mailpit",
+              "EMAIL_PORT": "1025", "MAIL_SERVER": "codelab-mailpit",
+              "MAIL_HOST": "codelab-mailpit", "MAIL_PORT": "1025",
+              "MAIL_URL": "smtp://codelab-mailpit:1025"}
+    assert set(relais) == app.VARIABLES_DU_RELAIS
+
+    sans = tmp_path / "sans"
+    sans.mkdir()
+    (sans / ".env").write_text("CODELAB_DB=sans\n# SMTP_HOST=commente\nSMTP_HOST=\n",
+                               encoding="utf-8")
+    env = dict(relais, AUTRE="garde")
+    app.retirer_le_relais_si_le_projet_a_son_smtp(env, str(sans))
+    assert env == dict(relais, AUTRE="garde")
+
+    for cle in app.SERVEUR_MAIL_DU_PROJET:
+        avec = tmp_path / cle.lower()
+        avec.mkdir()
+        (avec / ".env").write_text(f"export {cle}=smtp.example.com\n", encoding="utf-8")
+        env = dict(relais, AUTRE="garde")
+        app.retirer_le_relais_si_le_projet_a_son_smtp(env, str(avec))
+        assert env == {"AUTRE": "garde"}, cle
+
+    # Et le lancement passe bien par ce filtre, en dernier.
+    lancement = _source_du_panneau().split("def _environnement_de_lancement(")[1]
+    lancement = lancement.split("\ndef ")[0]
+    assert lancement.rstrip().endswith(
+        'retirer_le_relais_si_le_projet_a_son_smtp(env, a["path"])\n    return env')
+
+
+
+
 def test_le_panneau_lit_toujours_son_propre_bloc_d_alertes(tmp_path, monkeypatch):
     """Le pendant du test precedent, et la raison d'etre de la separation.
 
