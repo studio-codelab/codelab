@@ -402,7 +402,8 @@ Détails : [`mailpit/README.md`](mailpit/README.md).
 - **Relais** par le serveur d'envoi de *Paramètres > E-mail* (un compte Gmail suffit).
 - **Les applications envoient par le hub par défaut**, sans identifiants : `MAIL_HOST`, `MAIL_PORT`, et
   les mêmes sous les noms usuels (`SMTP_HOST`, `EMAIL_HOST`…). Un serveur propre au projet se règle
-  dans son `.env`, qui l'emporte.
+  dans son `.env` : dès qu'il y nomme un hôte (`SMTP_HOST`, `EMAIL_HOST`, `MAIL_HOST`…), le projet ne
+  reçoit plus aucune variable du relais, et seul son `.env` décide, port compris.
 - **Plafond d'envoi** : au-delà de 50 mails par heure ou 200 par jour, les mails sont gardés sans être
   envoyés.
 - **Mode test** : tout est gardé, rien ne part.

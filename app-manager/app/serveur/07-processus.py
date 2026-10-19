@@ -278,10 +278,34 @@ def alias_du_relais_mail(valeurs):
       valeur vient de MAIL_* (le bloc codelab-mailpit), jamais des SMTP_* du
       panneau, que CLES_PANNEAU retire plus haut.
     DEPEND DE : mailpit/entrypoint.sh (ecrire_bloc), qui publie MAIL_*.
-    Le .env du projet l'emporte : l'application le lit elle-meme apres coup.
+    Le .env du projet l'emporte : un projet qui y nomme son serveur ne recoit
+    rien du relais (retirer_le_relais_si_le_projet_a_son_smtp).
     """
     return {alias: valeurs[source] for alias, source in ALIAS_MAIL.items()
             if valeurs.get(source)}
+
+
+# Tout ce qui designe le relais du hub : les MAIL_* de Mailpit et leurs alias.
+VARIABLES_DU_RELAIS = frozenset(ALIAS_MAIL) | frozenset(ALIAS_MAIL.values())
+# Ce qui, dans le .env d'un projet, nomme un serveur d'envoi a lui.
+SERVEUR_MAIL_DU_PROJET = ("SMTP_HOST", "SMTP_URL", "EMAIL_HOST", "MAIL_SERVER",
+                          "MAIL_HOST", "MAIL_URL")
+
+
+def retirer_le_relais_si_le_projet_a_son_smtp(env, chemin):
+    """Sans le relais du hub, des qu'un projet nomme son serveur d'envoi.
+
+    POURQUOI : « si je n'en parametre pas dans l'app ». La plupart des
+      chargeurs de .env (python-dotenv, dotenv de Node) n'ecrasent pas une
+      variable deja recue : avec SMTP_HOST pose par le panneau, le SMTP_HOST
+      du .env du projet etait ignore, et le mail partait par Mailpit. Pire,
+      un .env qui ne posait que l'hote recevait le port 1025 de Mailpit.
+    Le projet qui nomme un serveur (SERVEUR_MAIL_DU_PROJET) ne recoit donc
+    aucune variable du relais : son .env decide seul, port compris.
+    """
+    if any(_valeur_env_projet(chemin, cle) for cle in SERVEUR_MAIL_DU_PROJET):
+        for cle in VARIABLES_DU_RELAIS:
+            env.pop(cle, None)
 
 
 # ------------------------ une base, un compte ------------------------
@@ -898,6 +922,7 @@ def _environnement_de_lancement(name, a):
                # redemarrage du panneau. Le noyau fige l'environnement a
                # l'exec : l'application ne peut pas l'effacer.
                CODELAB_APP=name)
+    retirer_le_relais_si_le_projet_a_son_smtp(env, a["path"])
     return env
 
 
