@@ -582,6 +582,69 @@ def test_le_port_deja_pris_se_dit_avant_de_lancer(tmp_path, monkeypatch):
 
 
 
+def test_les_restes_d_une_application_morte_liberent_son_port(monkeypatch):
+    """Vecu : « Le port 9104 est deja occupe sur la machine », WineManager en
+    erreur et relancee en vain. Le processus lance par le panneau etait
+    mort, mais un enfant tenait encore le port, et le panneau -- sans
+    CAP_SYS_PTRACE -- ne pouvait pas le nommer. Avant de relancer, start()
+    termine ce qui reste du groupe : le port se libere, sans rien d'autre."""
+    import socket as _s
+    import subprocess as _sp
+    import time as _t
+    libre = _s.socket()
+    libre.bind(("127.0.0.1", 0))
+    port = libre.getsockname()[1]
+    libre.close()
+    ecoute = ("import socket,time;s=socket.socket();"
+              "s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1);"
+              f"s.bind(('127.0.0.1',{port}));s.listen(1);time.sleep(60)")
+    # Le chef lance un enfant qui ecoute, puis meurt : le cas de npm, d'un
+    # rechargeur ou d'un serveur a workers.
+    chef = _sp.Popen(["sh", "-c", f'python3 -c "{ecoute}" & exit 0'],
+                     start_new_session=True)
+    chef.wait()
+    monkeypatch.setitem(app.procs, "restes", chef)
+    monkeypatch.setattr(app, "uid_application", lambda nom: None)
+
+    def pris():
+        sonde = _s.socket()
+        sonde.setsockopt(_s.SOL_SOCKET, _s.SO_REUSEADDR, 1)
+        try:
+            sonde.bind(("127.0.0.1", port))
+            return False
+        except OSError:
+            return True
+        finally:
+            sonde.close()
+
+    for _ in range(50):
+        if pris():
+            break
+        _t.sleep(0.1)
+    assert pris(), "l'enfant n'a pas pris le port"
+    try:
+        app.achever_les_restes("restes")
+        assert not pris(), "le port reste tenu par les restes de l'application"
+    finally:
+        try:
+            os.killpg(chef.pid, 9)
+        except ProcessLookupError:
+            pass
+
+    # Branche aux deux endroits : avant de relancer, et a l'arret.
+    src = _page_panneau("app.py")
+    debut = src[src.index("def start(name, attendre=True):"):]
+    assert debut.index("achever_les_restes(name)") < debut.index("port_occupe_par(a[")
+    arret = src[src.index("def stop(name):"):].split("\ndef ")[0]
+    assert "achever_les_restes(name)" in arret
+    # Et le message ne renvoie plus a « ss », absent de l'image et aveugle
+    # depuis l'hote.
+    occupe = src[src.index("def port_occupe_par("):].split("\ndef ")[0]
+    assert "ss -ltnp |" not in occupe
+
+
+
+
 def test_un_port_libere_a_l_instant_ne_bloque_pas_le_redemarrage():
     """Un port fraichement ferme reste en TIME_WAIT. Sans SO_REUSEADDR sur la
     sonde, on refuserait de redemarrer ce qu'on vient d'arreter -- le geste
