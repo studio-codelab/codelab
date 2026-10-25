@@ -36,7 +36,7 @@ def test_la_limite_de_tentatives_ne_se_contourne_pas_par_en_tete(client):
     """X-Forwarded-For est pose par le client quand le service est publie
     directement : le faire varier donnait un compteur neuf a chaque essai, ce
     qui annulait la limite."""
-    assert not app.trust_proxy(), "X-Forwarded-For ne doit jamais etre cru"
+    assert not hasattr(app, "trust_proxy"), "X-Forwarded-For ne doit jamais etre cru"
     for i in range(app.RATE_LIMIT_MAX):
         # 403 : une requete relayee n'atteint pas l'administration. Le refus
         # compte quand meme comme une tentative.
@@ -804,11 +804,9 @@ def test_les_conditions_du_navigateur_sont_annoncees(cles, monkeypatch):
 
     # Une adresse IP ne peut pas servir de relying party id -- meme en HTTPS,
     # et c'est bien la regle de l'IP qui doit refuser, pas celle du TLS.
-    monkeypatch.setattr(app, "trust_proxy", lambda: True)
     d = _etat_passkeys(cles, Host="192.168.1.20:9001", **{"X-Forwarded-Proto": "https"})
     assert d["possible"] is False
     assert "nom de domaine" in d["empechement"]
-    monkeypatch.setattr(app, "trust_proxy", lambda: False)
 
     # localhost est un contexte securise pour le navigateur : ca marche.
     assert _etat_passkeys(cles, Host="localhost:9001")["possible"] is True
@@ -1728,17 +1726,17 @@ def test_une_connexion_admin_depuis_une_adresse_inconnue_est_signalee(journal, m
         def start(self):
             self.t(*self.a, **self.k)
     monkeypatch.setattr(app.threading, "Thread", ThreadImmediat)
-    monkeypatch.setattr(app, "trust_proxy", lambda: True)
+    # L'adresse est celle de la connexion (jamais X-Forwarded-For).
     c = journal
     c.post("/login", json={"nom": "admin", "password": "secret-de-test"},
-           headers={"X-Forwarded-For": "192.168.1.10"})       # l'installation
+           environ_base={"REMOTE_ADDR": "192.168.1.10"})       # l'installation
     c.post("/logout")
     c.post("/login", json={"nom": "admin", "password": "secret-de-test"},
-           headers={"X-Forwarded-For": "192.168.1.10"})       # deja vue
+           environ_base={"REMOTE_ADDR": "192.168.1.10"})       # deja vue
     assert envois == []
     c.post("/logout")
     c.post("/login", json={"nom": "admin", "password": "secret-de-test"},
-           headers={"X-Forwarded-For": "192.168.1.77"})       # nouvelle
+           environ_base={"REMOTE_ADDR": "192.168.1.77"})       # nouvelle
     assert len(envois) == 1 and envois[0][1] == ["moi@example.com"]
     # Une alerte de securite : jamais par Mailpit.
     assert envois[0][2] == {"sensible": True}

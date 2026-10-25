@@ -642,11 +642,9 @@ def passkeys_disponibles():
 def _hote_et_schema():
     """(hote sans port, schema, https_annonce_sans_confiance).
 
-    X-Forwarded-Proto n'est croyable que derriere un proxy declare de
-    confiance : n'importe quel client peut le poser. On ne s'en sert donc
-    que si trust_proxy() est actif -- mais on retient qu'il annoncait HTTPS,
-    parce que c'est exactement le cas ou la marche a suivre n'est pas
-    « mets du TLS » mais « declare ton proxy ».
+    X-Forwarded-Proto, n'importe quel client peut le poser : il ne sert
+    qu'a l'identifiant de la cle, que la signature du navigateur verifie de
+    toute facon (voir plus bas).
     """
     hote = (request.host or "").split(":")[0]
     # Le schema annonce par un proxy suffit ici : la signature d'une cle

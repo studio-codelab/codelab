@@ -273,35 +273,20 @@ RATE_LIMIT_WINDOW = 300  # 5 min
 RATE_LIMIT_MAX = 5
 
 
-# X-Forwarded-For n'est croyable que derriere un proxy de confiance qui le
-# reecrit. Le panneau est publie directement sur le port 9001 : n'importe quel
-# client peut donc poser l'en-tete qu'il veut, et le faire varier a chaque
-# essai -- ce qui donnait a chaque tentative de connexion un compteur neuf et
-# annulait purement et simplement la limite de 5 essais par 5 minutes.
-# Derriere un vrai reverse proxy, cocher la case dans Exposition -- ou poser
-# APP_MANAGER_TRUST_PROXY=1 dans le compose, qui l'emporte.
-#
-# Il n'y a PLUS de constante ici, volontairement : elle etait calculee a
-# l'import, donc un reglage change depuis la page n'aurait ete vu par
-# personne jusqu'au redemarrage. trust_proxy() est definie plus bas, avec
-# l'etat d'exposition qu'elle lit.
-
-
 def _client_ip():
-    """L'adresse du client.
+    """L'adresse du client : celle de la connexion, jamais X-Forwarded-For.
 
-    Derriere un proxy de confiance, c'est la DERNIERE adresse de
-    X-Forwarded-For qui fait foi, jamais la premiere. nginx
-    ($proxy_add_x_forwarded_for) AJOUTE l'adresse qu'il voit a la fin de ce
-    que le client a envoye : la premiere est donc celle que le client a
-    choisie. La prendre laissait n'importe qui, depuis Internet, se dire
-    « 192.168.1.10 » -- et passer la restriction de l'administration au
-    reseau local comme la limite de tentatives.
+    POURQUOI : n'importe quel client pose l'en-tete qu'il veut. S'y fier
+      laissait se dire « 192.168.1.10 » depuis Internet -- et passer la
+      restriction de l'administration au reseau local -- ou changer
+      d'adresse a chaque essai, ce qui annulait la limite de tentatives.
+      Derriere un proxy, tous les visiteurs partagent donc son adresse :
+      plus strict (la limite les compte ensemble), jamais moins.
+    REGLE : 6 (limitation des essais) et la restriction de l'administration.
+    ECARTE : un reglage « proxy de confiance » (Exposition,
+      APP_MANAGER_TRUST_PROXY), retire : la securite la plus stricte n'est
+      pas une option.
     """
-    if trust_proxy():
-        forwarded = request.headers.get("X-Forwarded-For", "")
-        if forwarded:
-            return forwarded.split(",")[-1].strip()
     return request.remote_addr or "unknown"
 
 

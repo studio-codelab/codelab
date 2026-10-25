@@ -661,18 +661,6 @@ def https_actif():
         (request.headers.get("X-Forwarded-Proto") or "").lower() == "https")
 
 
-def trust_proxy():
-    """Croit-on X-Forwarded-For pour l'adresse du visiteur ? JAMAIS.
-
-    C'etait un reglage. Il ne l'est plus : n'importe quel client peut poser
-    cet en-tete, et s'y fier ouvrait la porte a qui se dirait « 192.168.1.10 ».
-    L'adresse du visiteur est celle de la connexion, point. Derriere un
-    proxy, tous les visiteurs partagent donc son adresse -- c'est plus
-    strict (la limite de tentatives les compte ensemble), jamais moins.
-    """
-    return False
-
-
 # ------------- l'administration reste sur le reseau local -------------
 #
 # Le raisonnement : un compte utilisateur est fait pour etre distribue et
@@ -744,8 +732,6 @@ def proxy_non_declare():
     en ne protegeant rien. Une securite qui ment est pire que pas de
     securite : on cesse de se mefier.
     """
-    if trust_proxy():
-        return False
     return bool(request.headers.get("X-Forwarded-For")
                 or request.headers.get("X-Forwarded-Proto"))
 
@@ -786,12 +772,6 @@ def refus_admin_hors_reseau():
                 "depuis chez toi, sur l'adresse locale du panneau.")
     return ("L'administration est limitee au reseau local. Cette requete vient "
             "de " + _client_ip() + ".")
-
-
-def appliquer_cookie_securise():
-    """Le cookie suit la requete (voir SessionSelonLaConnexion) : plus rien
-    a aligner. Gardee pour les appels existants."""
-    return None
 
 
 from flask.sessions import SecureCookieSessionInterface  # noqa: E402

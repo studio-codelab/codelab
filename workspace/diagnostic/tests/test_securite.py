@@ -647,7 +647,7 @@ def test_le_cookie_est_securise_des_que_la_connexion_l_est():
 def test_les_reglages_d_exposition_ne_sont_plus_reglables(exposition):
     """Proxy, HTTPS et administration locale ne sont plus des options : la
     configuration est toujours la plus stricte."""
-    assert app.trust_proxy() is False
+    assert not hasattr(app, "trust_proxy")
     assert app.admin_limite_au_reseau_local() is True
     page = _page_panneau("dashboard.html")
     for trace in ("expo-proxy", "expo-https", "expo-admin-lan", "Proxy de confiance",
@@ -791,7 +791,6 @@ def test_une_adresse_locale_injectee_par_le_client_ne_passe_pas_le_verrou(exposi
 
 
 def test_changer_d_adresse_inventee_ne_contourne_pas_la_limite(client, monkeypatch):
-    monkeypatch.setattr(app, "trust_proxy", lambda: True)
     app._login_attempts.clear()
     for i in range(app.RATE_LIMIT_MAX):
         client.post("/login", json={"nom": "admin", "password": "faux"},

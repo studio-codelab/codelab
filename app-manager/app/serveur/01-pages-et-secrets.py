@@ -97,8 +97,7 @@ flask_app.config.update(
     # Regle au demarrage plutot que depuis l'interface, et c'est delibere :
     # l'activer depuis une page servie en clair deconnecterait sur-le-champ la
     # session qui vient de l'activer, sans moyen de revenir en arriere.
-    # Valeur de depart seulement : appliquer_cookie_securise() la reprend
-    # des que l'etat d'exposition est lisible, et apres chaque changement.
+    # Le cookie suit ensuite chaque requete (voir SessionSelonLaConnexion).
     SESSION_COOKIE_SECURE=os.environ.get("APP_MANAGER_HTTPS", "").lower()
                           in ("1", "true", "yes"),
     # DEUX LIMITES, ET IL FAUT LES DEUX.
