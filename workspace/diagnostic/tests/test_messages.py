@@ -437,10 +437,8 @@ def test_un_projet_s_exporte_en_entier(boite):
     assert md.startswith("# Recettes") and "Partager nos recettes." in md
     assert "- [ ] **Maquette**" in md and "Un carnet de recettes" in md and f"]({piece})" in md
     assert json.loads(z.read("projet.json"))["nom"] == "Recettes"
-    # Tout exporter : un dossier par projet, et un sommaire.
-    r = c.get("/api/projets-export")
-    z = zipfile.ZipFile(io.BytesIO(r.data))
-    assert "LISEZMOI.md" in z.namelist() and "recettes/projet.md" in z.namelist()
+    # « Tout exporter » est retire, a la demande : seul le projet s'exporte.
+    assert c.get("/api/projets-export").status_code == 404
     assert c.get("/api/projets/p-inconnu/export").status_code == 404
     # Reserve a l'administrateur.
     u = app.flask_app.test_client()

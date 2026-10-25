@@ -1629,32 +1629,6 @@ def api_projet_export(cle):
     return _envoyer_zip(tampon, f"{_slug(c['nom'])}-{time.strftime('%Y-%m-%d')}.zip")
 
 
-@flask_app.get("/api/projets-export")
-@require_admin
-def api_projets_export():
-    """Tous les projets, un dossier chacun, et un sommaire."""
-    taches, projets = lire_taches(), lire_projets()
-    messages = lire_messages(limite=100000)
-    tampon = io.BytesIO()
-    sommaire = ["# Projets CodeLab", "",
-                "Exporté le " + datetime.datetime.now().strftime("%d/%m/%Y à %H:%M"), ""]
-    with zipfile.ZipFile(tampon, "w", zipfile.ZIP_DEFLATED) as z:
-        pris = set()
-        for cle in _cles_de_projets(taches, projets):
-            c = _contenu_projet(cle, taches, projets, messages)
-            dossier, k = _slug(c["nom"]), 2
-            while dossier in pris:
-                dossier, k = f"{_slug(c['nom'])}-{k}", k + 1
-            pris.add(dossier)
-            _ecrire_projet(z, dossier + "/", c)
-            ouvertes = sum(1 for t in c["taches"] if t["statut"] != "fait")
-            sommaire.append(f"- [{c['nom']}]({dossier}/projet.md) — {ouvertes} tâche"
-                            f"{'s' if ouvertes > 1 else ''} ouverte{'s' if ouvertes > 1 else ''}, "
-                            f"{len(c['messages'])} message{'s' if len(c['messages']) > 1 else ''}")
-        z.writestr("LISEZMOI.md", "\n".join(sommaire) + "\n")
-    return _envoyer_zip(tampon, f"projets-codelab-{time.strftime('%Y-%m-%d')}.zip")
-
-
 @flask_app.post("/api/projets")
 @require_admin
 def api_projet_creer():

@@ -441,8 +441,7 @@ par le panneau sur `/messages` : même session, mêmes contrôles d'accès, mêm
   seuls l'administrateur et l'auteur y ont accès, et elles partent avec le message.
 - **Exporter un projet** (*Exporter*, en tête d'un projet) : un ZIP avec `projet.md` (description,
   tâches dans l'ordre du planning avec sous-tâches et notes, messages, maquettes en images),
-  `projet.json`, et les pièces jointes dans `pieces/`. *Tout exporter* (bas du menu) rassemble tous
-  les projets, un dossier chacun, avec un sommaire.
+  `projet.json`, et les pièces jointes dans `pieces/`.
 - **Suivre ses messages** (comptes utilisateurs) : *Messages > Mes messages* montre où en
   est chacun, sur une frise **Envoyé → Lu (ou À l'étude) → Planifié → En cours → Réalisé**, ou
   **Non retenu**. L'étape se déduit de ce que fait l'administrateur dans Messages (lire, mettre à
