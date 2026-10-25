@@ -373,10 +373,13 @@ def api_afficher(n):
 # ------------------------------ proxy --------------------------------
 
 def strip_session_cookie(raw):
-    """Retire d'un en-tete Cookie ceux du panneau : la session, et le cookie
-    de tournage (voir « le laissez-passer de tournage ») -- l'un comme
-    l'autre ouvrirait une porte a qui le lirait (regle 19)."""
-    noms = {flask_app.config.get("SESSION_COOKIE_NAME") or "session", TOURNAGE_COOKIE}
+    """Retire d'un en-tete Cookie ceux du panneau : la session, le cookie de
+    tournage (voir « le laissez-passer de tournage ») -- l'un comme l'autre
+    ouvrirait une porte a qui le lirait (regle 19) -- et l'identifiant de
+    l'appareil (COOKIE_APPAREIL), qui suivrait le visiteur d'une application
+    a l'autre."""
+    noms = {flask_app.config.get("SESSION_COOKIE_NAME") or "session", TOURNAGE_COOKIE,
+            COOKIE_APPAREIL}
     gardes = [c.strip() for c in raw.split(";")
               if c.strip() and c.split("=", 1)[0].strip() not in noms]
     return "; ".join(gardes)

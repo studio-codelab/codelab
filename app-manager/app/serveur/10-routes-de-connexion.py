@@ -2610,7 +2610,28 @@ def decrire_agent(agent):
 
 
 def liste_des_appareils(compte, sid_courant=None):
-    return [{"id": id_public_appareil(l["sid"]), "appareil": decrire_agent(l["agent"]),
-             "ip": l["ip"], "ouverte": l["ouverte"], "vue": l["vue"],
-             "courant": l["sid"] == sid_courant}
-            for l in appareils_du_compte(compte)]
+    """Les appareils CONNECTES : une ligne par appareil, sa session en cours.
+
+    Une session sans requete depuis la duree d'inactivite du cookie
+    (PERMANENT_SESSION_LIFETIME, plus le pas de mise a jour de « vue ») est
+    terminee : le navigateur a jete son cookie. Elle n'est plus montree, mais
+    sa ligne reste jusqu'a SESSION_ABSOLUE, le temps que ses notifications
+    suivent (notifier_compte). Les lignes d'avant la migration 9, sans
+    appareil, se regroupent par navigateur decrit : la plus recente seule.
+    """
+    fin = int(time.time()) - int(flask_app.permanent_session_lifetime.total_seconds()) \
+        - APPAREIL_CONTROLE
+    # Les lignes avec un appareil d'abord, la plus recente en tete : elles
+    # couvrent aussi les anciennes lignes du meme navigateur.
+    lignes = sorted(appareils_du_compte(compte), key=lambda l: (not l["appareil"], -l["vue"]))
+    vus, liste = set(), []
+    for l in lignes:
+        courant = l["sid"] == sid_courant
+        cle = l["appareil"] or ("?", l["agent"])
+        if not courant and (l["vue"] < fin or cle in vus):
+            continue
+        vus.update((cle, ("?", l["agent"])))
+        liste.append({"id": id_public_appareil(l["sid"]), "appareil": decrire_agent(l["agent"]),
+                      "ip": l["ip"], "ouverte": l["ouverte"], "vue": l["vue"],
+                      "courant": courant})
+    return liste

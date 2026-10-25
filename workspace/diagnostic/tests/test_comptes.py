@@ -2150,6 +2150,74 @@ def test_l_administrateur_deconnecte_un_compte_partout(appareils):
 
 
 
+def test_un_appareil_est_une_ligne_quelles_que_soient_ses_sessions(appareils):
+    """Vecu : « La liste des appareils connectes recense plusieurs sessions
+    differentes terminees sur un meme appareil. Raisonne en appareil et pas
+    en session ». Une nouvelle session sur le meme navigateur remplace la
+    precedente, qui est deconnectee ; un autre navigateur reste a part."""
+    tel = _marie_sur(IPHONE)
+    pc = _marie_sur(MAC)
+    jar = tel.get_cookie(app.COOKIE_APPAREIL)
+    assert jar is not None and jar.http_only and len(jar.value) == 32
+    # Le telephone se reconnecte (cookie de session perdu, meme appareil),
+    # trois fois.
+    for _ in range(3):
+        tel.delete_cookie(app.flask_app.config.get("SESSION_COOKIE_NAME") or "session")
+        _connecte(tel, "marie", "mot-de-passe-long")
+        assert tel.get("/api/mes-apps").status_code == 200
+    assert tel.get_cookie(app.COOKIE_APPAREIL).value == jar.value   # le meme appareil
+    liste = pc.get("/api/mon-compte/appareils").get_json()["appareils"]
+    assert sorted(a["appareil"] for a in liste) == ["Chrome sur Mac", "Safari sur iPhone"]
+    lignes = app.stockage.lire(app.DB_FILE, "SELECT * FROM appareils WHERE compte = 'marie'")
+    assert len(lignes) == 2
+
+
+def test_une_session_terminee_quitte_la_liste(appareils):
+    """Sans requete depuis la duree d'inactivite du cookie, la session est
+    terminee : le navigateur a jete son cookie. Elle ne se montre plus ; sa
+    ligne reste, pour que ses notifications suivent jusqu'a la limite."""
+    _marie_sur(IPHONE)
+    pc = _marie_sur(MAC)
+    vieux = int(time.time()) - 4 * 86400
+    with app.stockage.transaction(app.DB_FILE) as cx:
+        cx.execute("UPDATE appareils SET vue = ? WHERE agent LIKE '%iPhone%'", (vieux,))
+        # Une ligne d'avant la migration 9 (sans appareil), en double.
+        cx.execute("INSERT INTO appareils (sid, compte, ouverte, vue, ip, agent, appareil) "
+                   "SELECT sid || 'b', compte, ouverte, vue, ip, agent, '' FROM appareils "
+                   "WHERE agent LIKE '%Mac%'")
+    liste = pc.get("/api/mon-compte/appareils").get_json()["appareils"]
+    assert [a["appareil"] for a in liste] == ["Chrome sur Mac"]
+    # La ligne du telephone reste, pour ses notifications.
+    assert app.stockage.lire(app.DB_FILE, "SELECT sid FROM appareils WHERE compte = 'marie' "
+                                          "AND agent LIKE '%iPhone%'")
+
+
+def test_l_identifiant_d_appareil_ne_va_jamais_a_une_application():
+    """Il suivrait le visiteur d'une application a l'autre (regle 19)."""
+    brut = f"a=1; {app.COOKIE_APPAREIL}={'0' * 32}; b=2"
+    assert app.strip_session_cookie(brut) == "a=1; b=2"
+
+
+def test_la_migration_9_garde_les_appareils_existants(tmp_path):
+    """Ajoutee a la fin, jouee sur une base de la version 8 : les lignes
+    existantes restent, avec un appareil vide."""
+    import sqlite3
+    chemin = str(tmp_path / "v8.db")
+    cx = sqlite3.connect(chemin)
+    for script in app.stockage.MIGRATIONS[:8]:
+        for instruction in app.stockage._instructions(script):
+            cx.execute(instruction)
+    cx.execute("PRAGMA user_version = 8")
+    cx.execute("INSERT INTO appareils (sid, compte, ouverte, vue) VALUES ('s', 'marie', 1, 2)")
+    cx.commit()
+    cx.close()
+    (ligne,) = app.stockage.lire(chemin, "SELECT * FROM appareils")
+    assert ligne["sid"] == "s" and ligne["appareil"] == ""
+    assert app.stockage.lire(chemin, "PRAGMA user_version")[0][0] == app.stockage.VERSION
+
+
+
+
 def test_le_registre_survit_aux_comptes_et_aux_mots_de_passe(appareils):
     """Changer de mot de passe fermait deja les autres sessions : la liste
     le reflete aussitot."""

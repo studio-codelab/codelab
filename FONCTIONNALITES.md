@@ -333,7 +333,9 @@ Détails : [`SECURITE.md`](SECURITE.md) et [`app-manager/README.md`](app-manager
 - **Appareils connectés** (*Paramètres > Sécurité*, chaque compte) : où le compte est ouvert (« Safari
   sur iPhone », adresse, dernière activité, « Cet appareil »), un bouton pour déconnecter chacun, et
   « Déconnecter les autres appareils ». Téléphone perdu : on le coupe sans changer de mot de passe.
-  Changer de mot de passe ferme aussi les autres appareils.
+  Changer de mot de passe ou retirer ses clés d'accès ferme aussi les autres appareils.
+  **Une ligne par appareil**, pas par session : se reconnecter sur le même navigateur remplace sa
+  session précédente. Une session terminée (sans activité depuis trois jours) quitte la liste.
 - **Profil** (*Paramètres > Compte*, comptes utilisateurs) : prénom et nom (facultatif), côte à
   côte sur ordinateur. Le compte d'administration garde son nom et n'a pas cette carte. Le prénom
   remplace l'identifiant dans le bonjour du hub, le nom complet dans l'en-tête et dans la liste des

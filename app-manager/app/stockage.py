@@ -341,6 +341,16 @@ MIGRATIONS = [
     );
     CREATE INDEX abonnements_push_compte ON abonnements_push(compte);
     """,
+    # --- version 9 : un appareil, une ligne ---
+    # Vecu : « La liste des appareils connectes recense plusieurs sessions
+    # differentes terminees sur un meme appareil. Raisonne en appareil et
+    # pas en session ». Chaque session porte l'identifiant de son appareil
+    # (cookie codelab-appareil) ; une nouvelle session y remplace l'ancienne.
+    # Les lignes d'avant gardent '' et vieillissent comme avant.
+    """
+    ALTER TABLE appareils ADD COLUMN appareil TEXT NOT NULL DEFAULT '';
+    CREATE INDEX appareils_appareil ON appareils(compte, appareil);
+    """,
 ]
 
 VERSION = len(MIGRATIONS)
