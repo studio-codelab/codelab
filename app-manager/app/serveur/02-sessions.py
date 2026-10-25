@@ -112,47 +112,62 @@ def bootstrap_sso():
     return True
 
 
+def jeton_signe(nom_app, sujet, role, en_plus=None):
+    """Une assertion JWT-like EdDSA valable 60 secondes, pour l'audience
+    « nom_app » : le seul moyen qu'a une application de savoir qui parle."""
+    if _sso_private_key is None:
+        return ""
+    maintenant = int(time.time())
+    payload = {
+        "iss": SSO_ISSUER,
+        "sub": sujet,
+        "preferred_username": sujet,
+        "role": role,
+        "aud": nom_app,
+        "iat": maintenant,
+        "exp": maintenant + SSO_TOKEN_TTL,
+        **(en_plus or {}),
+    }
+    message = _b64json({"alg": "EdDSA", "typ": "JWT"}) + "." + _b64json(payload)
+    signature = _b64url(_sso_private_key.sign(message.encode("ascii")))
+    return message + "." + signature
+
+
 def jeton_sso(nom_app, tournage=False):
-    """Construit une assertion JWT-like EdDSA valable 60 secondes pour une app.
+    """L'identite de la session, pour une application.
 
     tournage : l'identite de l'administrateur, pour un laissez-passer de
     « codelab video » deja verifie par le proxy (voir « le laissez-passer de
     tournage »), avec « tournage »: true pour que l'application le sache.
     """
-    if _sso_private_key is None or not (is_authed() or tournage):
+    if not (is_authed() or tournage):
         return ""
-
-    maintenant = int(time.time())
     if tournage:
-        utilisateur, role, compte = NOM_ADMIN, "admin", None
-    else:
-        utilisateur = utilisateur_courant()
-        role = role_courant() or ""
-        compte = None if est_admin() else lire_utilisateurs().get(utilisateur)
-    email = (compte or {}).get("email", "") if compte else ""
-
-    header = {"alg": "EdDSA", "typ": "JWT"}
-    payload = {
-        "iss": SSO_ISSUER,
-        "sub": utilisateur,
-        "preferred_username": utilisateur,
-        "role": role,
-        "aud": nom_app,
-        "iat": maintenant,
-        "exp": maintenant + SSO_TOKEN_TTL,
-    }
-    if tournage:
-        payload["tournage"] = True
+        return jeton_signe(nom_app, NOM_ADMIN, "admin", {"tournage": True})
+    utilisateur = utilisateur_courant()
+    compte = None if est_admin() else lire_utilisateurs().get(utilisateur)
+    en_plus = {}
+    email = (compte or {}).get("email", "")
     if email:
-        payload["email"] = email
+        en_plus["email"] = email
         # Confirmee ou non : une application ne relie un compte local a
         # celui-ci par l'adresse QUE si elle est confirmee -- sinon, qui
         # saisit l'adresse d'un autre dans CodeLab prendrait son compte.
-        payload["email_verified"] = bool((compte or {}).get("email_verifie"))
+        en_plus["email_verified"] = bool((compte or {}).get("email_verifie"))
+    return jeton_signe(nom_app, utilisateur, role_courant() or "", en_plus)
 
-    message = _b64json(header) + "." + _b64json(payload)
-    signature = _b64url(_sso_private_key.sign(message.encode("ascii")))
-    return message + "." + signature
+
+# LE PANNEAU LUI-MEME, quand il parle a une application par defaut (Messages)
+# hors de toute session : la synchronisation, l'oubli d'un compte, la reprise
+# des donnees. POURQUOI un role a part : l'application ouvre a « panneau »
+# des routes qu'aucun compte n'atteint (/interne/...), et aucune session ne
+# peut porter ce role -- role_courant() ne rend que « admin » ou
+# « utilisateur ». DEPEND DE : verifier_l_identite (workspace/messages/app.py).
+ROLE_PANNEAU = "panneau"
+
+
+def jeton_du_panneau(nom_app):
+    return jeton_signe(nom_app, "codelab", ROLE_PANNEAU)
 
 
 def admin_password():

@@ -90,8 +90,8 @@ async function catEnregistrer(){
 /* ---------------- hub ---------------- */
 let hubApps=[];
 /* ---------------- les messages recus (administrateur) ----------------
-   Ils se traitent dans l'application « Messages » (/messages) : boite de
-   reception, tableau des taches, projets. Le panneau ne fait plus que les
+   Ils se traitent dans l'application « Messages », une application du hub :
+   boite de reception, planning, projets. Le panneau ne fait plus que les
    GUETTER, pour annoncer dans le coin celles qui arrivent pendant qu'on
    travaille ailleurs. */
 let msgDernierVu=0, msgPremierChargement=true;
@@ -99,7 +99,7 @@ let msgDernierVu=0, msgPremierChargement=true;
 async function chargerMessages(){
   if(!estAdmin) return;
   let d;
-  try{ d=await (await fetch('/api/messages')).json(); }catch(e){ return; }
+  try{ d=await (await fetch('/api/messages/nouveaux')).json(); }catch(e){ return; }
   msgDernierVu = Math.max(msgDernierVu, ...(d.messages||[]).map(m=>m.ts||0), 0);
   msgPremierChargement=false;
 }
@@ -111,7 +111,7 @@ async function guetterMessages(){
   if(!estAdmin || msgPremierChargement) return;
   let d;
   try{
-    d=await (await fetch('/api/messages?apres='+encodeURIComponent(msgDernierVu))).json();
+    d=await (await fetch('/api/messages/nouveaux?apres='+encodeURIComponent(msgDernierVu))).json();
   }catch(e){ return; }
   const neufs=d.messages||[];
   if(!neufs.length) return;
@@ -520,6 +520,9 @@ function peindreHub(){
   peindreBento(liste, filtre);
 }
 
+/* Les messages a lire, que la tuile de l'application Messages porte (le
+   serveur ne la remplit que pour l'administrateur). */
+const nonLuesMessages = () => (hubApps.find(a=>a.name==='messages')||{}).non_lues||0;
 /* Le nombre de messages non lus, sur la tuile « Messages ». */
 const pastille = a => a.non_lues
   ? `<span class="hub-pastille" title="${a.non_lues} nouvelle${a.non_lues>1?'s':''} demande${a.non_lues>1?'s':''}">${a.non_lues}</span>` : '';

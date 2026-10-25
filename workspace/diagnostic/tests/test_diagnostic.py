@@ -49,11 +49,11 @@ def test_le_diagnostic_est_inscrit_et_configure(tmp_path, monkeypatch):
     ordre de personne.
     """
     racine = _amorcage(tmp_path, monkeypatch)
-    assert app.amorcer_diagnostic() == "diagnostic"
+    assert app.amorcer_projet("diagnostic") == "diagnostic"
     inscrit = app.load()["diagnostic"]
     assert inscrit["path"] == str(racine / "diagnostic")
-    assert inscrit["command"] == app.DIAGNOSTIC_COMMANDE
-    assert inscrit["build_command"] == app.DIAGNOSTIC_BUILD
+    assert inscrit["command"] == app.COMMANDE_PAR_DEFAUT
+    assert inscrit["build_command"] == app.BUILD_PAR_DEFAUT
     assert inscrit["enabled"] is True
     assert inscrit["titre"] == app.TITRES_PAR_DEFAUT["diagnostic"]
     assert inscrit["description"] == app.DIAGNOSTIC_DESCRIPTION
@@ -71,9 +71,9 @@ def test_un_diagnostic_efface_revient_au_redemarrage(tmp_path, monkeypatch):
     un etat casse, et le seul geste utile est de le reparer.
     """
     _amorcage(tmp_path, monkeypatch)
-    app.amorcer_diagnostic()
+    app.amorcer_projet("diagnostic")
     app.save({})
-    assert app.amorcer_diagnostic() == "diagnostic"
+    assert app.amorcer_projet("diagnostic") == "diagnostic"
     assert "diagnostic" in app.load()
 
 
@@ -89,7 +89,7 @@ def test_une_installation_deja_en_service_le_recoit_aussi(tmp_path, monkeypatch)
     """
     _amorcage(tmp_path, monkeypatch)
     app.save({"mon-site": {"port": 9101}})
-    assert app.amorcer_diagnostic() == "diagnostic"
+    assert app.amorcer_projet("diagnostic") == "diagnostic"
     apres = app.load()
     assert "diagnostic" in apres
     # Et l'application qui etait la n'a pas bouge.
@@ -105,9 +105,9 @@ def test_une_inscription_deja_faite_n_est_pas_recreee(tmp_path, monkeypatch):
     une adresse qu'on ne peut pas noter.
     """
     _amorcage(tmp_path, monkeypatch)
-    app.amorcer_diagnostic()
+    app.amorcer_projet("diagnostic")
     port = app.load()["diagnostic"]["port"]
-    assert app.amorcer_diagnostic() is None
+    assert app.amorcer_projet("diagnostic") is None
     assert app.load()["diagnostic"]["port"] == port
 
 
@@ -122,18 +122,18 @@ def test_une_configuration_derivee_est_remise_droite(tmp_path, monkeypatch):
     visibilite -- n'est pas touche.
     """
     racine = _amorcage(tmp_path, monkeypatch)
-    app.amorcer_diagnostic()
+    app.amorcer_projet("diagnostic")
     apps = app.load()
     apps["diagnostic"]["command"] = "sleep 1"
     apps["diagnostic"]["build_command"] = ""
     apps["diagnostic"]["visibility"] = app.VISIBILITE_PUBLIQUE
     app.save(apps)
 
-    app.amorcer_diagnostic()
+    app.amorcer_projet("diagnostic")
 
     remis = app.load()["diagnostic"]
-    assert remis["command"] == app.DIAGNOSTIC_COMMANDE
-    assert remis["build_command"] == app.DIAGNOSTIC_BUILD
+    assert remis["command"] == app.COMMANDE_PAR_DEFAUT
+    assert remis["build_command"] == app.BUILD_PAR_DEFAUT
     assert remis["path"] == str(racine / "diagnostic")
     assert remis["visibility"] == app.VISIBILITE_PUBLIQUE
 
@@ -147,12 +147,12 @@ def test_un_projet_pas_encore_amorce_est_retente_au_demarrage_suivant(tmp_path, 
     renoncer DEFINITIVEMENT, comme avant, privait du projet pour une simple
     question d'ordre de demarrage."""
     racine = _amorcage(tmp_path, monkeypatch, avec_projet=False)
-    assert app.amorcer_diagnostic() is None
+    assert app.amorcer_projet("diagnostic") is None
     assert app.load() == {}
 
     (racine / "diagnostic").mkdir()
     (racine / "diagnostic" / "app.py").write_text("")
-    assert app.amorcer_diagnostic() == "diagnostic"
+    assert app.amorcer_projet("diagnostic") == "diagnostic"
 
 
 

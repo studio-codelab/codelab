@@ -13,7 +13,7 @@ function widgetApercu(a, taille, surtitre, enDirect=true){
   /* « A la une », l'application qui a une video de presentation la joue en
      boucle, sans le son, comme une bande-annonce (videoALaUne). */
   const video = !enDirect && videoALaUne(a);
-  const apercu = enDirect && (a.running || !estAdmin) && !a.externe && !a.interne
+  const apercu = enDirect && (a.running || !estAdmin) && !a.externe
     ? `<iframe src="${esc(urlApplication(a.name))}" title="Aperçu de ${esc(nomAffiche(a))}"
          loading="lazy" tabindex="-1" aria-hidden="true" referrerpolicy="no-referrer"
          sandbox="allow-scripts allow-same-origin allow-forms"></iframe>`
@@ -319,11 +319,10 @@ document.addEventListener('pointerout', e=>{
 });
 
 function widgetMessages(taille){
-  const d=hubServices.find(s=>s.name==='messages');
-  const n=d ? (d.non_lues||0) : 0;
+  const n=nonLuesMessages();
   return `<div class="bw-titre">Messages</div>
     <div><div class="bento-chiffre">${chiffre('messages', n)}</div><p>${n ? (n>1 ? 'nouveaux messages' : 'nouveau message') : 'Rien de nouveau.'}</p></div>
-    ${taille!=='petit' ? `<a class="bento-bouton" href="/messages">Ouvrir ${SVG_FLECHE}</a>` : ''}`;
+    ${taille!=='petit' ? `<a class="bento-bouton" href="${esc(lienOuverture({name:'messages'}))}">Ouvrir ${SVG_FLECHE}</a>` : ''}`;
 }
 /* NOUVEAUTES : les applications que ce compte n'a pas encore ouvertes
    (« Nouvelle »), puis celles mises a jour depuis sa derniere visite.
@@ -408,7 +407,7 @@ function ouvrirMenuApp(nom, ou){
     ${item('menu-ouvrir', SVG_MENU.ouvrir, "Ouvrir")}
     ${a.presentation ? item('menu-presentation', SVG_MENU.video, 'Voir la présentation') : ''}
     ${item('menu-copier', SVG_MENU.lien, 'Copier le lien')}
-    ${estAdmin && !a.externe && !a.interne ? item('menu-reglages', SVG_MENU.reglages, "Réglages de l'application") : ''}
+    ${estAdmin && !a.externe ? item('menu-reglages', SVG_MENU.reglages, "Réglages de l'application") : ''}
     ${item('menu-ranger', SVG_MENU.ranger, 'Masquer du hub')}`);
   const menu=$('menu-app'), panneau=$('menu-app-panneau');
   menu.classList.toggle('feuille', ou==='feuille');
@@ -711,7 +710,7 @@ function peindreResumeHub(){
   if(estAdmin){
     const enLigne=toutes.filter(a=>etatApp(a)[0]==='on').length;
     const soucis=toutes.filter(a=>['err','warn'].includes(etatApp(a)[0])).length;
-    const msg=(hubServices.find(s=>s.name==='messages')||{}).non_lues||0;
+    const msg=nonLuesMessages();
     morceaux=[`<b>${chiffre('resume-en-ligne', enLigne)}</b> sur ${toutes.length} en ligne`,
       soucis ? `<b class="resume-souci">${chiffre('resume-soucis', soucis)}</b> à regarder` : '',
       msg ? `<b>${chiffre('resume-msg', msg)}</b> message${msg>1?'s':''} à lire` : ''];

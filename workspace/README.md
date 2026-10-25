@@ -24,6 +24,7 @@ Les règles complètes qu'un projet doit suivre sont dans le `AGENTS.md` de chaq
 ├── .codex/              configuration et connexion de Codex
 ├── .claude-code/        configuration et connexion de Claude Code
 ├── diagnostic/          projet modèle et diagnostic de l'installation
+├── messages/            l'application Messages : la boîte de réception du hub
 └── mon-projet/          un projet = un dossier
 ```
 

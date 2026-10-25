@@ -958,7 +958,7 @@ def test_les_descriptions_par_defaut_tiennent_entieres_sur_leur_tuile():
     page = _page_panneau("dashboard.html")
     assert "DESCRIPTION_VISIBLE=45" in page
     for d in (app.DIAGNOSTIC_DESCRIPTION, app.DESCRIPTION_DAGSTER,
-              app.DESCRIPTION_MAILPIT, app.DESCRIPTION_MESSAGERIE):
+              app.DESCRIPTION_MAILPIT, app.MESSAGERIE_DESCRIPTION):
         assert 0 < len(d) <= 40, d
 
 
@@ -979,6 +979,8 @@ def test_le_panneau_tient_ses_applications_par_defaut_debout(hub_dagster):
                              "enabled": False}
     apps[app.DIAGNOSTIC_NOM] = {"path": "/w/diag", "command": "python3 app.py",
                                 "port": 9109, "enabled": False}
+    apps[app.MESSAGERIE_NOM] = {"path": "/w/messages", "command": "python3 app.py",
+                                "port": 9110, "enabled": False}
     app.save(apps)
 
     app.tenir_les_applications_par_defaut()
@@ -989,10 +991,11 @@ def test_le_panneau_tient_ses_applications_par_defaut_debout(hub_dagster):
     # La tuile du diagnostic dit ce qu'elle est : sa fiche n'ayant pas de
     # formulaire, cette phrase ne s'ecrit nulle part ailleurs.
     assert apres[app.DIAGNOSTIC_NOM]["description"] == app.DIAGNOSTIC_DESCRIPTION
+    assert apres[app.MESSAGERIE_NOM]["description"] == app.MESSAGERIE_DESCRIPTION
     # Rien n'est impose a Dagster : ce qu'on repare ici, c'est l'etat mort.
     assert "description" not in apres[app.DAGSTER_NOM]
     # Une application ordinaire arretee le RESTE : un arret volontaire est un
-    # choix, et le rattrapage ne vaut que pour les deux qui n'ont pas le choix.
+    # choix, et le rattrapage ne vaut que pour celles qui n'ont pas le choix.
     assert not apres["site"].get("enabled")
 
 
@@ -2123,7 +2126,7 @@ def test_chaque_tuile_porte_trois_points_qui_ouvrent_son_menu():
                    "\"Réglages de l'application\""):
         assert option in menu, option
     # Les reglages : administrateur, et pas pour un service de la stack.
-    assert "estAdmin && !a.externe && !a.interne ? item('menu-reglages'" in menu
+    assert "estAdmin && !a.externe ? item('menu-reglages'" in menu
     # Ouvrir le menu n'ouvre pas l'application.
     clic = page.split("/* Les trois points sont DANS la tuile")[1].split("\n")[1]
     assert "e.target.closest('.btn-menu-app')" in clic

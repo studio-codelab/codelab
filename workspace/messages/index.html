@@ -4,22 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Messages — CodeLab</title>
-<link rel="icon" href="/api/icon/messages">
-<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=4">
-<link rel="manifest" href="/manifest.webmanifest">
-<!-- L'ecran de demarrage, par taille d'iPhone et d'iPad : pose par le
-     serveur (voir balises_ecran_de_demarrage dans app.py). -->
-__ECRANS_DEMARRAGE__
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="CodeLab">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="stylesheet" href="/theme.css">
 <meta name="theme-color" content="#E9EBEE" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0D1015" media="(prefers-color-scheme: dark)">
-<!-- LE MODE (site web ou application) : mode.js le lit et le pose sur
-     <html>, avant tout affichage. Une seule copie pour les trois pages. -->
-<script src="/mode.js"></script>
+<script>
+try{var m=document.cookie.match(/(?:^|;\s*)codelab-theme=([^;]*)/);
+ var t=m?decodeURIComponent(m[1]):localStorage.getItem('codelab-theme');
+ if(t&&t!=='auto')document.documentElement.setAttribute('data-theme',t);}catch(e){}
+</script>
 
 <!-- =========================================================================
   CodeLab -- L'APPLICATION « MESSAGES » : boite de reception et projets
@@ -42,12 +34,15 @@ __ECRANS_DEMARRAGE__
                                      le temps ;
                 Projets              un projet rassemble des messages et des
                                      taches.
-  SERVIE PAR  page_messagerie (app.py), sur /messages, a l'administrateur
-              seulement (un compte utilisateur a, a la meme adresse, sa
-              rubrique « Messages » du panneau). Le serveur y ecrit le jeton
-              anti-falsification et pose les ecrans de demarrage.
-  CONTRAINTES - Aucune donnee n'est gardee ici : tout passe par l'API du
-                panneau, qui verifie le role a chaque appel.
+  SERVIE PAR  app.py (route /), derriere le proxy du panneau, sur le port des
+              applications : /messages/ et sa barre d'adresse (?vue=...).
+              Le proxy y glisse environnement-app.js et le ruban « ← CodeLab »,
+              comme dans toute application.
+  CONTRAINTES - Aucune donnee n'est gardee ici : tout passe par l'API de
+                app.py, qui verifie l'identite signee a chaque appel.
+              - Toutes les adresses sont RELATIVES (api/..., ?vue=...) : la
+                page vit sous /messages/ en mode port, a la racine en mode
+                sous-domaine.
               - Les couleurs viennent de theme.css ; mode et largeur restent
                 separes (AGENTS.md, section 4).
               - Rien ne se supprime sans demander() : les tests le verifient.
@@ -56,8 +51,7 @@ __ECRANS_DEMARRAGE__
               feuille de route (une fonction par echelle : feuilleJour,
               feuilleSemaines, feuilleMois), un projet, une tache, projets
               et regroupements, un seul aiguillage (data-agir), demarrage.
-  A AMELIORER - Sortir le script dans un fichier mis en cache, comme
-                panneau.js, avec le jeton passe par la page.
+  A AMELIORER - Sortir le script dans un fichier mis en cache.
 ========================================================================== --><style>
 *{box-sizing:border-box}
 html,body{height:100%}
@@ -70,15 +64,11 @@ button,input,select,textarea{font:inherit;color:inherit}
 button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{
  outline:2px solid var(--accent);outline-offset:2px}
 
-/* Le ruban « ← CodeLab » (ruban_retour) se pose au-dessus de la barre de geste
-   et a cote de l'encoche grace a ces deux bords. Dans une application, c'est
-   environnement-app.js qui les pose ; cette page ne le charge pas. */
-:root{--codelab-bord-gauche:env(safe-area-inset-left,0px);--codelab-bord-bas:env(safe-area-inset-bottom,0px)}
 
 /* ---------- la charpente : une barre laterale, un plan de travail ---------- */
 .app{display:grid;grid-template-columns:260px minmax(0,1fr);min-height:100%}
 .cote{position:sticky;top:0;height:100vh;overflow:auto;background:var(--surface);border-right:1px solid var(--line);
- display:flex;flex-direction:column;padding:16px 12px calc(72px + var(--codelab-bord-bas));gap:4px}
+ display:flex;flex-direction:column;padding:16px 12px calc(72px + var(--codelab-bord-bas, 0px));gap:4px}
 /* Le bas de la colonne laisse la place au ruban « ← CodeLab » : sans elle, il
    couvrait la derniere ligne de la liste des projets. */
 .marque{display:flex;align-items:center;gap:10px;padding:4px 8px 14px}
@@ -306,7 +296,7 @@ a.btn{text-decoration:none;color:inherit}
 <div id="defile">
 <div class="app" id="app">
   <nav class="cote" aria-label="Messages">
-    <div class="marque"><img src="/api/icon/messages" alt=""><b>Messages</b></div>
+    <div class="marque"><img src="icon.svg" alt=""><b>Messages</b></div>
     <button class="nav" data-agir="vue" data-cible="boite"><svg viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z"/></svg>Boîte de réception<span class="n" id="n-boite"></span></button>
     <button class="nav" data-agir="vue" data-cible="planning"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>Planning<span class="n" id="n-planning"></span></button>
     <button class="nav" data-agir="vue" data-cible="feuille"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>Feuille de route</button>
@@ -423,19 +413,17 @@ a.btn{text-decoration:none;color:inherit}
 </div>
 
 <script>
-const JETON=__JETON__;
 const $=i=>document.getElementById(i);
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-try{ const t=localStorage.getItem('codelab-theme'); if(t && t!=='auto') document.documentElement.setAttribute('data-theme', t); }catch(e){}
-
-/* Le jeton anti-falsification part avec toute requete qui modifie. */
+/* L'en-tete X-Messages part avec toute requete qui modifie : un autre site
+   ne sait pas le poser, et app.py refuse ce qui ne le porte pas (CSRF). */
 const fetchNu=window.fetch.bind(window);
 window.fetch=function(cible, options){
   options=options||{};
   const m=(options.method||'GET').toUpperCase();
   if(m==='GET' || m==='HEAD') return fetchNu(cible, options);
   const h=new Headers(options.headers||{});
-  h.set('X-CodeLab-Jeton', JETON);
+  h.set('X-Messages', '1');
   return fetchNu(cible, Object.assign({}, options, {headers:h}));
 };
 async function echec(r, defaut){
@@ -480,8 +468,8 @@ function depuis(ts){
 let messages=[], taches=[], projets=[], apps=[];
 async function charger(){
   const lire=u=>fetch(u).then(r=>r.ok?r.json():null).catch(()=>null);
-  const [m,t,p,a]=await Promise.all([lire('/api/messages'), lire('/api/taches'), lire('/api/projets'),
-    apps.length ? Promise.resolve(null) : lire('/api/apps')]);
+  const [m,t,p,a]=await Promise.all([lire('api/messages'), lire('api/taches'), lire('api/projets'),
+    apps.length ? Promise.resolve(null) : lire('api/apps')]);
   if(m) messages=m.messages||[];
   if(t) taches=t.taches||[];
   if(p) projets=p.projets||[];
@@ -565,14 +553,14 @@ function datePrevue(t, plan){
 /* ================= les vues et l'adresse ================= */
 let vue='boite', projetCourant=null;
 function lireAdresse(){
-  const m=location.pathname.split('/').filter(Boolean).map(x=>{ try{ return decodeURIComponent(x); }catch(e){ return ''; } });
-  vue = ['boite','planning','feuille','projet'].includes(m[1]) ? m[1] : 'boite';
-  projetCourant = vue==='projet' ? (m[2]||null) : null;
+  const q=new URLSearchParams(location.search);
+  vue = ['boite','planning','feuille','projet'].includes(q.get('vue')) ? q.get('vue') : 'boite';
+  projetCourant = vue==='projet' ? (q.get('cle')||null) : null;
 }
 function aller(v, cle){
   vue=v; projetCourant = v==='projet' ? cle : null;
-  const adresse = v==='boite' ? '/messages' : '/messages/'+v+(cle ? '/'+encodeURIComponent(cle) : '');
-  if(location.pathname!==adresse) history.pushState(null,'',adresse);
+  const voulu = v==='boite' ? '' : '?vue='+v+(cle ? '&cle='+encodeURIComponent(cle) : '');
+  if(location.search!==voulu) history.pushState(null,'',voulu||location.pathname);
   $('app').classList.remove('menu-ouvert');
   choisis.clear();
   peindre(); window.scrollTo(0,0); $('defile').scrollTo(0,0);
@@ -636,7 +624,7 @@ function messagesVisibles(){
 }
 async function marquerLus(){
   if(!messages.some(m=>!m.lu)) return;
-  if((await fetch('/api/messages/lus',{method:'POST'})).ok)
+  if((await fetch('api/messages/lus',{method:'POST'})).ok)
     setTimeout(()=>{ messages=messages.map(m=>({...m, lu:true})); if(vue==='boite') peindre(); }, 3500);
 }
 
@@ -706,7 +694,7 @@ const SVG_POUBELLE='<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 
 function piecesMessage(m){
   const ps=m.pieces||[]; if(!ps.length) return '';
   return `<div class="pieces">${ps.map(p=>{
-    const url='/api/pieces/'+encodeURIComponent(p.id);
+    const url='api/pieces/'+encodeURIComponent(p.id);
     const vign=(p.type||'').startsWith('image/') ? `<img src="${url}" alt="" loading="lazy">`
       : `<i>${esc((p.nom||'').split('.').pop().toUpperCase().slice(0,4))}</i>`;
     return `<a class="piece" href="${url}" title="${esc(p.nom)}">${vign}<span>${esc(p.nom)}</span></a>`;
@@ -737,7 +725,7 @@ function carteMessage(m){
       </div>
     </div></article>`;
 }
-async function messageModifier(id, corps){ if(await appel('/api/messages/'+encodeURIComponent(id), 'PUT', corps, 'Modification impossible.')) charger(); }
+async function messageModifier(id, corps){ if(await appel('api/messages/'+encodeURIComponent(id), 'PUT', corps, 'Modification impossible.')) charger(); }
 
 /* ================= le planning ================= */
 let filtreProjetPlanning='', voirFaites=false;
@@ -890,7 +878,7 @@ function peindreProjet(){
   const nees=new Set(taches.filter(t=>t.projet===p.id && t.message).map(t=>t.message));
   const msgs=ordreMessages(messages.filter(m=>m.projet===p.id || m.id===p.message || nees.has(m.id)));
   const app=p.application ? apps.find(a=>a.name===p.application) : null;
-  entete(p.nom, '', `<a class="btn" href="/api/projets/${encodeURIComponent(p.id)}/export" download title="Description, tâches, messages et pièces jointes, dans un ZIP"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>Exporter</a>
+  entete(p.nom, '', `<a class="btn" href="api/projets/${encodeURIComponent(p.id)}/export" download title="Description, tâches, messages et pièces jointes, dans un ZIP"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>Exporter</a>
     <button class="btn" data-agir="modifier-projet" data-cible="${esc(p.id)}">Modifier</button>${BTN_TACHE}`);
   $('sous-titre').innerHTML=`<span class="puce projet" style="color:${teinte(p.id)}"><i></i>${esc(ETAPES[p.etape]||p.etape)}</span>
     ${app ? `<span class="puce" style="margin-left:6px">${esc(app.titre||app.name)}</span>` : ''}`;
@@ -960,7 +948,7 @@ async function tacheEnregistrer(){
     echeance:$('t-date').value || null, duree:Number($('t-duree').value)||1, notes:$('t-notes').value};
   if(!corps.titre){ err.textContent='Donne un titre à la tâche.'; err.classList.remove('cache'); return; }
   if(!tacheId && tacheMessage) corps.message=tacheMessage;
-  const r=await fetch(tacheId ? '/api/taches/'+encodeURIComponent(tacheId) : '/api/taches',
+  const r=await fetch(tacheId ? 'api/taches/'+encodeURIComponent(tacheId) : 'api/taches',
     {method:tacheId?'PUT':'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(corps)});
   if(!r.ok){ err.textContent=await echec(r,'Enregistrement impossible.'); err.classList.remove('cache'); return; }
   fermerTout(); notifier(tacheId ? 'Tâche enregistrée.' : 'Tâche ajoutée au planning.');
@@ -978,10 +966,10 @@ async function scinderValider(){
   const t=taches.find(x=>x.id===tacheId); if(!t) return;
   const titres=$('s-lignes').value.split('\n').map(x=>x.trim()).filter(Boolean);
   if(titres.length<2){ $('s-err').textContent='Il faut au moins deux lignes.'; $('s-err').classList.remove('cache'); return; }
-  if(!await appel('/api/taches/'+encodeURIComponent(t.id)+'/scinder','POST',{titres},'Scission impossible.')) return;
+  if(!await appel('api/taches/'+encodeURIComponent(t.id)+'/scinder','POST',{titres},'Scission impossible.')) return;
   if(!$('s-zone-retirer').classList.contains('cache') && $('s-retirer').checked)
     for(const s of t.sous_taches.filter(s=>!s.faite && titres.includes(s.titre)))
-      await fetch('/api/sous-taches/'+encodeURIComponent(s.id),{method:'DELETE'});
+      await fetch('api/sous-taches/'+encodeURIComponent(s.id),{method:'DELETE'});
   fermerTout(); notifier('Tâche scindée en '+titres.length+'.'); charger();
 }
 
@@ -1003,17 +991,17 @@ async function projetEnregistrer(){
   const err=$('p-err'); err.classList.add('cache');
   const corps={nom:$('p-nom').value.trim(), description:$('p-desc').value, etape:$('p-etape').value};
   if(!corps.nom){ err.textContent='Donne un nom au projet.'; err.classList.remove('cache'); return; }
-  const r=await fetch(projetEdite ? '/api/projets/'+encodeURIComponent(projetEdite) : '/api/projets',
+  const r=await fetch(projetEdite ? 'api/projets/'+encodeURIComponent(projetEdite) : 'api/projets',
     {method:projetEdite?'PUT':'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(corps)});
   if(!r.ok){ err.textContent=await echec(r,'Enregistrement impossible.'); err.classList.remove('cache'); return; }
   const id=projetEdite || (await r.json().catch(()=>({}))).id;
-  if(id) await appel('/api/projets/'+encodeURIComponent(id),'PUT',{application:$('p-app').value});
+  if(id) await appel('api/projets/'+encodeURIComponent(id),'PUT',{application:$('p-app').value});
   fermerTout(); await charger();
   if(!projetEdite && id) aller('projet', id);
 }
 async function projetSupprimer(){
   if(!projetEdite || !await demander('Supprimer ce projet ?', 'Ses tâches passent dans « Général », ses messages redeviennent à classer.', 'Supprimer')) return;
-  if(await appel('/api/projets/'+encodeURIComponent(projetEdite),'DELETE',undefined,'Suppression impossible.')){
+  if(await appel('api/projets/'+encodeURIComponent(projetEdite),'DELETE',undefined,'Suppression impossible.')){
     fermerTout(); notifier('Projet supprimé.'); await charger(); aller('boite');
   }
 }
@@ -1043,7 +1031,7 @@ async function grouperValider(){
   if(existant) corps.projet=$('g-projet').value;
   else corps.nouveau_projet={nom:$('g-nom').value.trim(), description:$('g-desc').value};
   if(!existant && !corps.nouveau_projet.nom){ $('g-err').textContent='Donne un nom au projet.'; $('g-err').classList.remove('cache'); return; }
-  const r=await fetch('/api/messages/grouper',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(corps)});
+  const r=await fetch('api/messages/grouper',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(corps)});
   if(!r.ok){ $('g-err').textContent=await echec(r,'Regroupement impossible.'); $('g-err').classList.remove('cache'); return; }
   const d=await r.json();
   fermerTout(); choisis.clear(); notifier('Messages regroupés.'); await charger(); aller('projet', d.projet);
@@ -1094,7 +1082,7 @@ async function enregistrerOrdre(liste){
     /* Les messages visibles prennent leur rang ; les autres gardent le leur,
        a la suite. */
     const reste=ordreMessages(messages).map(m=>m.id).filter(id=>!ids.includes(id));
-    if(await appel('/api/messages/ordre','PUT',{ordre:ids.concat(reste)},'Rangement impossible.')) await charger();
+    if(await appel('api/messages/ordre','PUT',{ordre:ids.concat(reste)},'Rangement impossible.')) await charger();
     return;
   }
   /* Planning (toutes les taches ouvertes) ou projet (les siennes seulement) :
@@ -1105,7 +1093,7 @@ async function enregistrerOrdre(liste){
     const places=ordre.map((id,i)=>ids.includes(id)?i:-1).filter(i=>i>=0);
     places.forEach((place,k)=>{ ordre[place]=ids[k]; });
   }else ordre=ids;
-  if(await appel('/api/taches/plan','PUT',{ordre},'Réorganisation impossible.')) await charger();
+  if(await appel('api/taches/plan','PUT',{ordre},'Réorganisation impossible.')) await charger();
 }
 
 /* ================= un seul aiguillage ================= */
@@ -1119,7 +1107,7 @@ const ACTIONS={
   'modifier-projet': c=>ouvrirProjetFenetre(c),
   'projet-enregistrer': ()=>projetEnregistrer(),
   'projet-supprimer': ()=>projetSupprimer(),
-  'projet-etape': async c=>{ if(await appel('/api/projets/'+encodeURIComponent(projetCourant),'PUT',{etape:c},'Changement impossible.')) charger(); },
+  'projet-etape': async c=>{ if(await appel('api/projets/'+encodeURIComponent(projetCourant),'PUT',{etape:c},'Changement impossible.')) charger(); },
   'filtre-boite': c=>{ filtreBoite=c; choisis.clear(); peindre(); },
   'deplier': c=>{ ouverts.has(c) ? ouverts.delete(c) : ouverts.add(c); peindre(); },
   'message-tache': c=>ouvrirTache(null, c),
@@ -1127,11 +1115,11 @@ const ACTIONS={
   'message-detacher': c=>messageModifier(c,{projet:''}),
   'message-supprimer': async c=>{
     if(!await demander('Supprimer ce message ?', 'Il disparaît définitivement. Les tâches qui en sont nées restent.', 'Supprimer')) return;
-    if(await appel('/api/messages/'+encodeURIComponent(c),'DELETE',undefined,'Suppression impossible.')){ notifier('Message supprimé.'); charger(); }
+    if(await appel('api/messages/'+encodeURIComponent(c),'DELETE',undefined,'Suppression impossible.')){ notifier('Message supprimé.'); charger(); }
   },
   'grouper': ()=>ouvrirGrouper([...choisis]),
   'grouper-valider': ()=>grouperValider(),
-  'choix-archiver': async ()=>{ for(const id of choisis) await fetch('/api/messages/'+encodeURIComponent(id),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({archive:true})});
+  'choix-archiver': async ()=>{ for(const id of choisis) await fetch('api/messages/'+encodeURIComponent(id),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({archive:true})});
     choisis.clear(); notifier('Messages archivés.'); charger(); },
   'choix-vider': ()=>{ choisis.clear(); peindre(); },
   'suggestion-grouper': (c,d)=>ouvrirGrouper(c.split(','), d.mot),
@@ -1140,17 +1128,17 @@ const ACTIONS={
   'tache-enregistrer': ()=>tacheEnregistrer(),
   'tache-supprimer': async ()=>{
     if(!tacheId || !await demander('Supprimer cette tâche ?', 'Ses sous-tâches partent avec elle.', 'Supprimer')) return;
-    if(await appel('/api/taches/'+encodeURIComponent(tacheId),'DELETE',undefined,'Suppression impossible.')){ fermerTout(); notifier('Tâche supprimée.'); charger(); }
+    if(await appel('api/taches/'+encodeURIComponent(tacheId),'DELETE',undefined,'Suppression impossible.')){ fermerTout(); notifier('Tâche supprimée.'); charger(); }
   },
   'tache-scinder': ()=>ouvrirScinder(),
   'scinder-valider': ()=>scinderValider(),
   'echelle': c=>{ echelle=c; try{ localStorage.setItem('codelab-messages-echelle', c); }catch(e){} peindre(); },
   'horizon': c=>{ horizonMois=Number(c); try{ localStorage.setItem('codelab-messages-horizon', c); }catch(e){} peindre(); },
-  'sous-retirer': async c=>{ if(await appel('/api/sous-taches/'+encodeURIComponent(c),'DELETE',undefined,'Retrait impossible.')){ await charger(); peindreSousTaches(); } },
+  'sous-retirer': async c=>{ if(await appel('api/sous-taches/'+encodeURIComponent(c),'DELETE',undefined,'Retrait impossible.')){ await charger(); peindreSousTaches(); } },
   'sous-monter': async c=>{
     const t=taches.find(x=>x.id===tacheId), i=Number(c); if(!t || i<1) return;
     const ids=t.sous_taches.map(s=>s.id); [ids[i-1],ids[i]]=[ids[i],ids[i-1]];
-    if(await appel('/api/taches/'+encodeURIComponent(tacheId)+'/ordre','PUT',{ordre:ids},'Réorganisation impossible.')){ await charger(); peindreSousTaches(); }
+    if(await appel('api/taches/'+encodeURIComponent(tacheId)+'/ordre','PUT',{ordre:ids},'Réorganisation impossible.')){ await charger(); peindreSousTaches(); }
   },
 };
 document.addEventListener('click', e=>{
@@ -1165,11 +1153,11 @@ document.addEventListener('change', async e=>{
   if(quoi==='filtre-planning'){ filtreProjetPlanning=c.value; peindre(); }
   if(quoi==='g-mode') modeGroupe();
   if(quoi==='tache-faite'){
-    if(await appel('/api/taches/'+encodeURIComponent(c.dataset.cible),'PUT',{statut:c.checked?'fait':'a_faire'},'Modification impossible.')){
+    if(await appel('api/taches/'+encodeURIComponent(c.dataset.cible),'PUT',{statut:c.checked?'fait':'a_faire'},'Modification impossible.')){
       notifier(c.checked ? 'Bravo, tâche faite.' : 'Tâche rouverte.'); charger(); }
   }
   if(quoi==='sous-faite'){
-    if(await appel('/api/sous-taches/'+encodeURIComponent(c.dataset.cible),'PUT',{faite:c.checked},'Modification impossible.')){ await charger(); peindreSousTaches(); }
+    if(await appel('api/sous-taches/'+encodeURIComponent(c.dataset.cible),'PUT',{faite:c.checked},'Modification impossible.')){ await charger(); peindreSousTaches(); }
   }
   if(quoi==='message-projet'){
     const id=c.dataset.cible;
@@ -1189,13 +1177,13 @@ document.addEventListener('keydown', async e=>{
   if(e.target.id==='ajout-titre'){
     e.preventDefault();
     const titre=e.target.value.trim(); if(!titre) return;
-    if(await appel('/api/taches','POST',{titre, projet:$('ajout-projet').value||'general'},'Création impossible.')){
+    if(await appel('api/taches','POST',{titre, projet:$('ajout-projet').value||'general'},'Création impossible.')){
       await charger(); const n=$('ajout-titre'); if(n) n.focus({preventScroll:true}); }
   }
   if(e.target.id==='t-sous-ajout' && tacheId){
     e.preventDefault();
     const titre=e.target.value.trim(); if(!titre) return;
-    if(await appel('/api/taches/'+encodeURIComponent(tacheId)+'/sous-taches','POST',{titre},'Ajout impossible.')){
+    if(await appel('api/taches/'+encodeURIComponent(tacheId)+'/sous-taches','POST',{titre},'Ajout impossible.')){
       e.target.value=''; await charger(); peindreSousTaches(); }
   }
 });

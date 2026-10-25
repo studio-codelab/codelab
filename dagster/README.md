@@ -31,10 +31,12 @@ longtemps passe d'abord par celle-là, puis par la version courante.
    `DAGSTER_PG_PASSWORD`.
 2. **`dagster.yaml`.** Il est déposé s'il manque, puis mis à jour tant que personne ne l'a modifié.
 3. **Squelette de `/workspace`.** Il est déposé au premier démarrage : `README.md`, `definitions.py`,
-   `.vscode/` et `diagnostic/`.
+   `diagnostic/` et `messages/`.
    - À chaque démarrage, un fichier dont l'empreinte n'a pas changé est remplacé par la version de
      l'image (empreintes dans `/workspace/.codelab/empreintes`).
    - Un fichier modifié est laissé tel quel, et rien n'est recréé.
+   - Sauf les **projets par défaut** (`diagnostic/`, `messages/`, liste `PROJETS_PAR_DEFAUT`) : ils
+     ne se suppriment pas, un dossier absent est donc recopié entier depuis l'image.
 4. **Permissions.** Groupe `codelab`, setgid et ACL par défaut sur `/workspace`, la première fois.
 5. **Projets isolés** (`isolation.py`), voir plus bas.
 6. **Lancement** sous l'uid 1002 :

@@ -209,6 +209,37 @@ if [ ! -f "$SEED_MARKER" ] && [ -d "$WORKSPACE_SEED" ]; then
   chgrp "$CODELAB_GROUP" "$SEED_MARKER" 2>/dev/null || true
 fi
 
+# --------------------- les projets par defaut, toujours la ---------------------
+#
+# Le bloc suivant ne cree jamais un fichier absent : un projet supprime expres
+# ne doit pas reapparaitre. Les projets par defaut sont l'exception, parce
+# qu'ils ne se suppriment pas : le panneau les inscrit a chaque demarrage et
+# refuse qu'on les retire. Vecu : « Messages » est devenu un projet a lui
+# (workspace/messages) ; une installation deja amorcee ne l'aurait jamais
+# recu, et le hub serait reste sans boite de reception.
+#
+# Un dossier ABSENT est donc copie, entier, depuis l'image. Un dossier
+# present n'est pas touche ici : ses fichiers suivent la regle du bloc
+# suivant (mis a jour s'ils sont intacts), qui note aussi leurs empreintes.
+# Jamais a travers un lien : un lien a cet emplacement reste tel quel.
+PROJETS_PAR_DEFAUT="diagnostic messages"
+
+if [ -d "$WORKSPACE_SEED" ] && [ -f "$SEED_MARKER" ]; then
+  for nom in $PROJETS_PAR_DEFAUT; do
+    source="$WORKSPACE_SEED/$nom"
+    cible="$WORKSPACE_DIR/$nom"
+    [ -d "$source" ] || continue
+    if [ -e "$cible" ] || [ -L "$cible" ]; then
+      continue
+    fi
+    cp -r "$source" "$cible"
+    chgrp -R "$CODELAB_GROUP" "$cible" 2>/dev/null || true
+    chmod -R g+rwX "$cible" 2>/dev/null || true
+    find "$cible" -type d -exec chmod g+s {} + 2>/dev/null || true
+    echo "[codelab]   projet par defaut $nom copie depuis l'image."
+  done
+fi
+
 # ------------------- mise a jour des fichiers non modifies -------------------
 #
 # Le bloc ci-dessus ne s'execute qu'une fois. Pris seul, il a un defaut qui est

@@ -1738,7 +1738,7 @@ REFUS_ATTENDUS = (401, 403)
 # route repondrait 404 ou 400, sans rien toucher.
 ROUTES_ADMIN_PENTEST = [
     ("GET", "/api/apps"), ("GET", "/api/utilisateurs"), ("GET", "/api/securite"),
-    ("GET", "/api/sauvegardes"), ("GET", "/api/invitations"), ("GET", "/api/messages"),
+    ("GET", "/api/sauvegardes"), ("GET", "/api/invitations"), ("GET", "/api/messages/nouveaux"),
     ("GET", "/api/browse"), ("GET", "/api/logs/" + PENTEST_NOM),
     ("GET", "/api/sauvegardes/" + PENTEST_NOM),
     ("POST", "/api/utilisateurs"), ("POST", "/api/invitations"),

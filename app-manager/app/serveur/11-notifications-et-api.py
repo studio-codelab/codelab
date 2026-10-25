@@ -271,44 +271,49 @@ def api_notifications_essai():
 
 
 # L'avancement d'un message, pousse a son auteur : la meme etape que la
-# pastille du hub (suivi_message), annoncee quand elle change. Le moniteur
-# compare chaque minute, et seulement pour les comptes abonnes. Ce qui a
-# deja ete annonce est retenu (preference « suivi_notifie ») : un
-# redemarrage du panneau ne rejoue rien.
+# pastille du hub (suivi_message, dans l'application Messages), annoncee
+# quand elle change. Le moniteur compare chaque minute, et seulement pour
+# les comptes abonnes. Ce qui a deja ete annonce est retenu (preference
+# « suivi_notifie ») : un redemarrage du panneau ne rejoue rien.
 ETAPES_ANNONCEES = {"etude": "est à l'étude", "planifie": "est planifié",
                     "en_cours": "est en cours", "fait": "est fait",
                     "refuse": "n'est pas retenu"}
-_suivi_push = {"dernier": 0}
+_tour_messagerie = {"dernier": 0}
 
 
-def suivi_push_tick(maintenant=None):
+def messagerie_tick(maintenant=None):
+    """Une fois par minute : reprendre les anciennes donnees s'il en reste,
+    effacer ce qui attend de l'etre, synchroniser, puis annoncer le suivi."""
     maintenant = time.time() if maintenant is None else maintenant
-    if maintenant - _suivi_push["dernier"] < 60:
+    if maintenant - _tour_messagerie["dernier"] < 60:
         return
-    _suivi_push["dernier"] = maintenant
+    _tour_messagerie["dernier"] = maintenant
+    if not load().get(MESSAGERIE_NOM) or not is_running(MESSAGERIE_NOM):
+        return
+    reprendre_la_messagerie()
+    oublier_dans_la_messagerie()
+    if synchroniser_la_messagerie():
+        annoncer_le_suivi(_messagerie["suivis"])
+
+
+def annoncer_le_suivi(suivis):
     comptes = {l["compte"] for l in stockage.lire(DB_FILE, "SELECT DISTINCT compte FROM abonnements_push")}
     comptes.discard(NOM_ADMIN)
-    if not comptes:
-        return
-    taches, projets = lire_taches(), lire_projets()
-    par_compte = {}
-    for m in lire_messages(limite=MESSAGES_AFFICHES):
-        if m.get("qui") in comptes:
-            par_compte.setdefault(m["qui"], []).append(m)
     for qui in comptes:
         connues = lire_preference("suivi_notifie", qui)
         premiere = not isinstance(connues, dict)
         connues = connues if isinstance(connues, dict) else {}
         nouvelles = dict(connues)
-        for m in par_compte.get(qui, []):
-            etape = suivi_message(m, taches, projets)["etape"]
-            avant = connues.get(m["id"])
+        for m in suivis.get(qui) or []:
+            if not isinstance(m, dict) or not isinstance(m.get("id"), str):
+                continue
+            etape, avant = m.get("etape"), connues.get(m["id"])
             nouvelles[m["id"]] = etape
             if premiere or avant == etape or etape not in ETAPES_ANNONCEES:
                 continue
-            extrait = (m.get("texte") or "").strip().replace("\n", " ")
             notifier_compte(qui, "Ton message " + ETAPES_ANNONCEES[etape],
-                            extrait[:120] or "Ouvre CodeLab pour voir son avancement.",
+                            str(m.get("extrait") or "")[:120]
+                            or "Ouvre CodeLab pour voir son avancement.",
                             url="/messages", etiquette="suivi-" + m["id"])
         if nouvelles != connues or premiere:
             ecrire_preference("suivi_notifie", nouvelles, qui)
@@ -500,9 +505,7 @@ def api_apps():
     # apps.json -- le panneau ne le lance ni ne l'arrete -- mais c'est une
     # application du point de vue de qui s'en sert : elle doit se trouver la
     # ou on cherche les applications, et pas seulement sur le hub.
-    # Messages n'y figure pas : ce n'est pas un service qui tourne ou tombe,
-    # c'est une page du panneau, sans journal ni metriques a surveiller.
-    out.extend(services_du_hub(avec_messagerie=False))
+    out.extend(services_du_hub())
     out.sort(key=lambda a: a["name"])
     return jsonify({"apps": out, "archivees": archivees})
 
@@ -1128,13 +1131,6 @@ def api_renommer(n):
     apps = load()
     if n not in apps:
         return jsonify({"error": "Application inconnue."}), 404
-    # Meme raison que pour la suppression : l'etat des lieux de
-    # l'installation est inscrit sous ce nom-la, et le marqueur qui evite une
-    # seconde inscription porte dessus.
-    if n == DIAGNOSTIC_NOM:
-        return jsonify({"error": "Le projet de diagnostic ne se renomme pas : "
-                                 "c'est lui qui dit si cette installation va bien, "
-                                 "et le panneau le retrouve par son nom."}), 403
     brut = (request.get_json(force=True, silent=True) or {}).get("nom")
     titre = titre_propre(brut)
     nouveau = valid_name(brut)
@@ -1483,25 +1479,7 @@ ICONE_MAILPIT = (
     'linejoin="round"/></svg>'
 )
 
-# Messages : deux bulles de conversation, la premiere qui ecrit (trois
-# points), sur un degrade sarcelle -- l'accent de CodeLab. On y lit d'abord
-# « messages », ce que l'application recoit, avant le travail qu'on en tire.
-ICONE_MESSAGERIE = (
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs>'
-    '<linearGradient id="cl-ms" x1="0" y1="0" x2="1" y2="1">'
-    '<stop offset="0" stop-color="#2fc7b8"/><stop offset="1" stop-color="#0b6c74"/>'
-    '</linearGradient></defs>'
-    '<rect width="64" height="64" rx="18" fill="url(#cl-ms)"/>'
-    '<path d="M27 13h20a8 8 0 0 1 8 8v10a8 8 0 0 1-8 8h-1v6.5L39.5 39H27a8 8 0 0 1-8-8V21'
-    'a8 8 0 0 1 8-8z" fill="#fff" opacity=".42"/>'
-    '<path d="M17 22h21a8 8 0 0 1 8 8v11a8 8 0 0 1-8 8H26.5L18 56.5V49h-1a8 8 0 0 1-8-8V30'
-    'a8 8 0 0 1 8-8z" fill="#fff"/>'
-    '<circle cx="19.5" cy="35.5" r="2.7" fill="#0b6c74"/>'
-    '<circle cx="27.5" cy="35.5" r="2.7" fill="#0b6c74"/>'
-    '<circle cx="35.5" cy="35.5" r="2.7" fill="#0b6c74"/></svg>')
-
 ICONES_PAR_DEFAUT = {
-    MESSAGERIE_NOM: ICONE_MESSAGERIE,
     DAGSTER_NOM: ICONE_DAGSTER,
     DIAGNOSTIC_NOM: ICONE_DIAGNOSTIC,
     MAILPIT_NOM: ICONE_MAILPIT,

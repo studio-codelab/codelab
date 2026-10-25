@@ -34,14 +34,14 @@ STRUCTURE   Ce fichier : les imports, les chemins et constantes partages,
               03 Dagster
               04 retour apres connexion, appareils, CSP, CSRF
               05 comptes, coffre, invitations, cles d'acces
-              06 messages, journal des acces, miroir Postgres, analyses
+              06 relais vers l'application Messages, journal des acces, miroir Postgres
               07 persistance, privileges, isolation, cycle de vie
               08 sauvegardes, surveillance externe, version, alertes
               09 build, metriques, icones, categories, visibilite
               10 routes de connexion, cles d'acces, invitations
               11 notifications Web Push, API, renommage
-              12 pages, videos, taches, export
-              13 hub, proxy, application fermee, diagnostic
+              12 pages, videos, le hub et l'application Messages
+              13 hub, proxy, application fermee, projets par defaut
               14 serveur HTTP
 CHOIX       - Le cadre /ouvrir.html est un fichier a marqueurs, rempli en un
               seul passage (ouvrir_dans_le_panneau) : sa page et son script,
@@ -54,7 +54,7 @@ CHOIX       - Le cadre /ouvrir.html est un fichier a marqueurs, rempli en un
               script d'application ne lit pas le cookie de session.
             Les pages et scripts servis vivent a cote, lus une fois a
             l'import (_lire_ressource) : dashboard.html, login.html,
-            messages.html, ouvrir.html (a marqueurs), mode.js, theme.css,
+            ouvrir.html (a marqueurs), mode.js, theme.css,
             environnement-app.js (injecte par le proxy).
 A AMELIORER - Fonctions encore longues (60 a 75 lignes de code), a decouper
               avec la meme prudence que login_submit : _proxy,
@@ -68,7 +68,6 @@ import copy
 import datetime
 import fcntl
 import html as _html
-import io
 import functools
 import gzip
 import queue
@@ -101,7 +100,6 @@ import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
-import zipfile
 from collections import deque
 from email.message import EmailMessage
 
@@ -123,8 +121,8 @@ if "codelab_stockage" not in sys.modules:
     _spec_stockage.loader.exec_module(stockage)
 
 STATE_DIR = os.environ.get("APP_MANAGER_STATE", "/var/lib/codelab/app-manager")
-# LA BASE DU PANNEAU. Applications, comptes, droits, cles d'acces, journal,
-# messages et reglages y vivent, chacun dans sa table -- voir stockage.py et
+# LA BASE DU PANNEAU. Applications, comptes, droits, cles d'acces, journal
+# et reglages y vivent (les messages, dans l'application Messages), chacun dans sa table -- voir stockage.py et
 # la section « Donnees » du README.
 DB_FILE = os.path.join(STATE_DIR, "codelab.db")
 LOG_DIR = os.path.join(STATE_DIR, "logs")
@@ -213,15 +211,14 @@ if __name__ == "__main__":
     signaler_adresses_en_conflit()
     publier_relais_mail()
     os.makedirs(LOG_DIR, exist_ok=True)
-    inscrit = amorcer_diagnostic()
+    inscrits = [n for n in PROJETS_PAR_DEFAUT if amorcer_projet(n)]
     # AVANT resume() : les applications survivent a l'arret du panneau, et
     # relancer par-dessus une application deja en vie ferait mourir la
     # nouvelle sur un port occupe -- sans que personne ne comprenne pourquoi.
     adopter_processus_survivants()
     resume()
-    if inscrit:
-        threading.Thread(target=_preparer_diagnostic, args=(inscrit,),
-                         daemon=True).start()
+    for nom in inscrits:
+        threading.Thread(target=preparer_projet, args=(nom,), daemon=True).start()
     start_monitor_thread()
     demarrer_miroir_pg()
     demarrer_les_sauvegardes()

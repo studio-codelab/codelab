@@ -76,10 +76,7 @@ const urlApplication = nom => APPS_MODELE.replace('{nom}', encodeURIComponent(no
    une page du panneau (/ouvrir.html, voir ouvrir_dans_le_panneau). */
 /* Le mode a ete lu une fois, en tete de page (mode.js) : on ne le redevine pas. */
 const enModeApp = window.CODELAB_MODE_APP === true;
-/* Une tuile « interne » (Messages) est une page du panneau : elle s'ouvre a
-   son adresse, sans passer par le sous-domaine d'une application. */
-const lienOuverture = a => a.interne ? a.url
-  : a.externe
+const lienOuverture = a => a.externe
   ? '/' + encodeURIComponent(a.name) + '/'
   : (enModeApp ? '/ouvrir.html?app=' + encodeURIComponent(a.name)
                : urlApplication(a.name));

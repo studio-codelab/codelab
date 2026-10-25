@@ -203,6 +203,30 @@ def test_l_aide_est_un_onglet_des_parametres_reserve_a_l_administrateur():
 
 
 
+def test_un_projet_par_defaut_absent_est_recopie_mais_pas_un_autre(tmp_path):
+    """Vecu : « Messages » est devenu un projet a lui. Une installation deja
+    amorcee ne l'aurait jamais recu : le squelette ne cree aucun fichier
+    absent, pour qu'un projet supprime expres ne revienne pas. Un projet par
+    defaut ne se supprime pas : absent, il est recopie entier, et ses
+    empreintes notees ; un projet d'exemple ordinaire, lui, reste absent."""
+    a = _Atelier(tmp_path)
+    for nom in ("messages", "exemple"):
+        (a.base / "seed" / nom).mkdir()
+        (a.base / "seed" / nom / "app.py").write_text(nom, encoding="utf-8")
+    journal = a.demarrer()
+    assert (a.base / "ws" / "messages" / "app.py").read_text(encoding="utf-8") == "messages"
+    assert not (a.base / "ws" / "exemple").exists()
+    assert "projet par defaut messages copie" in journal
+    assert " messages/app.py" in a.empreintes.read_text(encoding="utf-8")
+    # Present, il n'est plus recopie : un fichier modifie reste a l'utilisateur.
+    (a.base / "ws" / "messages" / "app.py").write_text("MON CODE", encoding="utf-8")
+    (a.base / "seed" / "messages" / "app.py").write_text("nouveau", encoding="utf-8")
+    a.demarrer()
+    assert (a.base / "ws" / "messages" / "app.py").read_text(encoding="utf-8") == "MON CODE"
+
+
+
+
 def test_une_ancienne_version_livree_est_remplacee(tmp_path):
     """Le cas qui a motive tout ceci : une version livree, restee intacte
     depuis, recoit la correction de l'image."""
@@ -673,7 +697,7 @@ def test_dagster_parait_dans_le_hub_et_mene_au_port_3000(hub_dagster):
     services = d["services"]
     # Trois services dans le hub : l'orchestrateur, le courrier, et les
     # messages recus.
-    assert [s["name"] for s in services] == ["dagster", "mailpit", "messages"]
+    assert [s["name"] for s in services] == ["dagster", "mailpit"]
     dagster = services[0]
     # L'adresse est celle du NAVIGATEUR : meme hote, autre port.
     assert dagster["url"].endswith(":3000/"), dagster["url"]
@@ -775,6 +799,11 @@ def test_les_applications_par_defaut_ont_leur_icone(hub_dagster, tmp_path):
     pose est un choix explicite, et l'icone livree n'est qu'un repli.
     """
     hub_dagster.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    # Messages porte son icone dans son projet (icon.svg), qu'elle sert aussi
+    # a sa propre page : inscrite comme le panneau l'inscrit, elle la montre.
+    apps = app.load()
+    apps[app.MESSAGERIE_NOM] = {"path": DOSSIER_MESSAGES, "command": "x", "port": 9703}
+    app.save(apps)
     for nom in app.APPS_PAR_DEFAUT:
         r = hub_dagster.get("/api/icon/" + nom)
         assert r.status_code == 200, nom
@@ -1116,7 +1145,7 @@ def test_remettre_dagster_le_ramene_dans_le_hub(hub, monkeypatch):
     c.post("/api/mes-apps/" + app.DAGSTER_NOM + "/masquer")
     assert c.delete("/api/mes-apps/" + app.DAGSTER_NOM + "/masquer").status_code == 200
     d = c.get("/api/mes-apps").get_json()
-    assert [s["name"] for s in d["services"]] == [app.DAGSTER_NOM, app.MAILPIT_NOM, app.MESSAGERIE_NOM]
+    assert [s["name"] for s in d["services"]] == [app.DAGSTER_NOM, app.MAILPIT_NOM]
     assert d["services_masques"] == []
 
 
@@ -1141,8 +1170,7 @@ def test_seuls_les_services_nommes_passent_par_la_route_de_masquage():
     """Une liste fermee, pas « tout ce qui n'est pas une application » :
     sinon la route accepterait n'importe quel nom et masquees.json se
     remplirait d'entrees qui ne designent rien."""
-    assert app.SERVICES_MASQUABLES == frozenset({app.DAGSTER_NOM, app.MAILPIT_NOM,
-                                                app.MESSAGERIE_NOM})
+    assert app.SERVICES_MASQUABLES == frozenset({app.DAGSTER_NOM, app.MAILPIT_NOM})
 
 
 

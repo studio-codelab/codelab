@@ -24,6 +24,11 @@
 # avec les autres, et elle mene au port 3000.
 DAGSTER_NOM = "dagster"
 DIAGNOSTIC_NOM = "diagnostic"
+# « Messages » : l'application qui recense les messages laisses depuis le hub
+# et en fait des projets, des taches et une feuille de route. Un projet a
+# part entiere, comme le diagnostic (/workspace/messages, sa base, son
+# processus) : voir « la messagerie, une application » (06).
+MESSAGERIE_NOM = "messages"
 
 # LES APPLICATIONS PAR DEFAUT : celles que CodeLab apporte avec lui.
 #
@@ -44,25 +49,20 @@ DIAGNOSTIC_NOM = "diagnostic"
 #      d'executer du code ici ; le diagnostic nomme les conteneurs, les
 #      comptes sans second facteur et ce qui est expose.
 #   2. soumises a la meme regle de reseau local que l'administration. Si
-#      l'administration est limitee au reseau local, ces deux-la le sont
-#      aussi -- meme session, meme frontiere.
-APPS_PAR_DEFAUT = (DAGSTER_NOM, DIAGNOSTIC_NOM)
+#      l'administration est limitee au reseau local, elles le sont aussi --
+#      meme session, meme frontiere.
+APPS_PAR_DEFAUT = (DAGSTER_NOM, DIAGNOSTIC_NOM, MESSAGERIE_NOM)
 # Mailpit : un service de la stack, comme Dagster, mais qui n'a jamais ete
 # declare dans apps.json. Il en a les memes regles -- reserve a
 # l'administrateur (son interface montre TOUS les mails envoyes, liens de
 # reinitialisation compris), rien a configurer, rien a demarrer ni arreter.
 MAILPIT_NOM = "mailpit"
-APPLICATIONS_PROTEGEES = {DAGSTER_NOM, DIAGNOSTIC_NOM, MAILPIT_NOM}
+APPLICATIONS_PROTEGEES = {DAGSTER_NOM, DIAGNOSTIC_NOM, MAILPIT_NOM, MESSAGERIE_NOM}
 
 # Le nom AFFICHE des deux applications par defaut. Leur cle est le chemin --
 # « dagster », « diagnostic » -- et c'est elle qui s'affichait : deux tuiles
 # en minuscules au milieu de projets nommes par leur auteur. Elles n'ont pas
 # de formulaire ou corriger cela, la valeur est donc posee ici.
-# « Messages » : l'application qui recense les messages laisses depuis le hub
-# et en fait des projets, des taches et une feuille de route. Elle est servie
-# par le panneau lui-meme (/messages) -- ses donnees sont celles du panneau,
-# et elle est reservee a l'administrateur, comme Dagster et Mailpit.
-MESSAGERIE_NOM = "messages"
 TITRES_PAR_DEFAUT = {DAGSTER_NOM: "Dagster", DIAGNOSTIC_NOM: "Diagnostic",
                      MAILPIT_NOM: "Mailpit", MESSAGERIE_NOM: "Messages"}
 
@@ -74,6 +74,7 @@ TITRES_PAR_DEFAUT = {DAGSTER_NOM: "Dagster", DIAGNOSTIC_NOM: "Diagnostic",
 # tuile du hub (DESCRIPTION_VISIBLE dans dashboard.html, environ 45
 # caracteres sur deux lignes) : 40 au plus, verifie par les tests.
 DIAGNOSTIC_DESCRIPTION = "L'état de santé de CodeLab"
+MESSAGERIE_DESCRIPTION = "Les messages du hub, rangés en projets."
 
 
 def refus_action_protegee(nom, action):
@@ -83,7 +84,7 @@ def refus_action_protegee(nom, action):
 
 
 def est_app_par_defaut(nom):
-    return nom in APPS_PAR_DEFAUT or nom in (MAILPIT_NOM, MESSAGERIE_NOM)
+    return nom in APPS_PAR_DEFAUT or nom == MAILPIT_NOM
 
 
 def refus_configuration(nom):
@@ -285,14 +286,13 @@ def journal_du_service(nom, ligne):
 # Les services de la stack qu'un compte peut ranger hors de son hub. Une
 # liste nommee plutot qu'un « tout ce qui n'est pas une application » : ce
 # qui est masquable se decide ici, et se lit d'un coup d'oeil.
-SERVICES_MASQUABLES = frozenset({DAGSTER_NOM, MAILPIT_NOM, MESSAGERIE_NOM})
+SERVICES_MASQUABLES = frozenset({DAGSTER_NOM, MAILPIT_NOM})
 
 # La phrase de la tuile Dagster, lue par les deux listes ci-dessous. Deux
 # copies divergeraient, et la tuile rangee ne se decrirait plus comme celle
 # qu'on retrouve en la remettant.
 DESCRIPTION_DAGSTER = "Les jobs de données et leurs plannings."
 DESCRIPTION_MAILPIT = "Les mails envoyés par tes applications."
-DESCRIPTION_MESSAGERIE = "Les messages du hub, rangés en projets."
 
 
 def services_masques():
@@ -309,12 +309,11 @@ def services_masques():
     return [{"name": nom, "titre": TITRES_PAR_DEFAUT[nom],
              "description": description, "externe": True}
             for nom, description in ((DAGSTER_NOM, DESCRIPTION_DAGSTER),
-                                     (MAILPIT_NOM, DESCRIPTION_MAILPIT),
-                                     (MESSAGERIE_NOM, DESCRIPTION_MESSAGERIE))
+                                     (MAILPIT_NOM, DESCRIPTION_MAILPIT))
             if nom in masquees]
 
 
-def services_du_hub(avec_messagerie=True):
+def services_du_hub():
     """Les tuiles du hub qui ne sont pas des applications declarees.
 
     Dagster est RESERVE A L'ADMINISTRATEUR, et ce n'est pas une politesse :
@@ -349,20 +348,6 @@ def services_du_hub(avec_messagerie=True):
             debout = mailpit_repond()
             services.append(_tuile_service(MAILPIT_NOM, DESCRIPTION_MAILPIT,
                                            adresse, debout, MAILPIT_PORT))
-    # Messages : servie par le panneau lui-meme, donc toujours debout. Sa
-    # phrase dit ce qui attend, comme le compteur d'une boite de reception.
-    if avec_messagerie and MESSAGERIE_NOM not in masquees:
-        tuile = _tuile_service(MESSAGERIE_NOM, DESCRIPTION_MESSAGERIE, "/messages", True, PANEL_PORT)
-        nouvelles = sum(1 for m in lire_messages(limite=MESSAGES_AFFICHES)
-                        if not m.get("lu") and not m.get("archive"))
-        if nouvelles:
-            tuile["description"] = (f"{nouvelles} nouveau{'x' if nouvelles > 1 else ''} "
-                                    f"message{'s' if nouvelles > 1 else ''} à lire.")
-        # Une page du panneau, pas un service a son propre port : la tuile
-        # l'ouvre directement, sans passer par le proxy.
-        tuile["interne"] = True
-        tuile["non_lues"] = nouvelles
-        services.append(tuile)
     return services
 
 
