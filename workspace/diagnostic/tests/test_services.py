@@ -1547,7 +1547,7 @@ def test_redis_est_dans_la_stack_sans_port_publie_et_durci():
         assert "$" not in valeurs, chemin
     ci = open(os.path.join(_racine_depot(), ".github", "workflows", "build-images.yml"),
               encoding="utf-8").read()
-    assert "name: codelab-redis" in ci and '"redis/**"' in ci
+    assert "codelab-redis redis/Dockerfile redis/" in ci and '"redis/**"' in ci
 
 
 
@@ -1958,3 +1958,99 @@ def test_l_agregateur_range_chaque_projet_sous_son_nom(tmp_path, monkeypatch):
     assert [s.group_name for s in module.defs] == ["mon_projet", "mon_projet", "choisi"]
     assert all(s.tags["codelab/projet"] == "mon-projet" for s in module.defs)
     assert module.defs[2].tags["k"] == "v"
+
+
+def _images_de_la_ci():
+    """La table de la CI : {image: (Dockerfile, debuts de chemin)}."""
+    import yaml
+    chemin = os.path.join(_racine_depot(), ".github", "workflows", "build-images.yml")
+    if not os.path.exists(chemin):
+        pytest.skip("depot complet absent de cette image")
+    ci = yaml.safe_load(open(chemin, encoding="utf-8"))
+    script = ci["jobs"]["changements"]["steps"][1]["run"]
+    table = script.split("<<'FIN'\n", 1)[1].split("\nFIN", 1)[0]
+    images = {}
+    for ligne in table.splitlines():
+        nom, dockerfile, *chemins = ligne.split()
+        images[nom] = (dockerfile, chemins)
+    return ci, images
+
+
+def test_la_ci_ne_reconstruit_que_les_images_touchees_et_n_en_oublie_aucune():
+    """Vecu : « The job was not started because [...] your spending limit
+    needs to be increased ». Sur le plan gratuit, chaque push reconstruisait
+    les sept images ; une journee epuisait les 2 000 minutes du mois. Une
+    image ne se reconstruit plus que si un fichier qu'elle copie change :
+    la table doit donc couvrir CHAQUE COPY de chaque Dockerfile, sinon une
+    modification partirait en production sans nouvelle image."""
+    ci, images = _images_de_la_ci()
+    racine = _racine_depot()
+    dockerfiles = {os.path.relpath(os.path.join(d, f), racine)
+                   for d, _, fichiers in os.walk(racine) if ".git" not in d
+                   for f in fichiers if f == "Dockerfile"}
+    assert {df for df, _ in images.values()} == dockerfiles
+    for nom, (dockerfile, chemins) in images.items():
+        assert any(dockerfile.startswith(c) for c in chemins), (nom, "son Dockerfile")
+        texte = open(os.path.join(racine, dockerfile), encoding="utf-8").read()
+        for ligne in texte.splitlines():
+            mots = ligne.split()
+            if not mots or mots[0] not in ("COPY", "ADD") or any(m.startswith("--from") for m in mots):
+                continue
+            for source in [m for m in mots[1:-1] if not m.startswith("--")]:
+                assert any(source.startswith(c) or c.startswith(source.rstrip("/") + "/")
+                           for c in chemins), (nom, source)
+    # La matrice vient de la table, et rien ne se construit quand rien n'a change.
+    build = ci["jobs"]["build"]
+    assert build["strategy"]["matrix"] == "${{ fromJSON(needs.changements.outputs.matrice) }}"
+    assert build["if"] == "needs.changements.outputs.nombre != '0'"
+    # L'arm64 (emule, le plus cher) seulement hors pull request, et reglable.
+    assert "vars.CODELAB_PLATEFORMES || 'linux/amd64,linux/arm64'" in build["env"]["PLATEFORMES"]
+    assert "github.event_name == 'pull_request' && 'linux/amd64'" in build["env"]["PLATEFORMES"]
+
+
+def test_la_ci_choisit_ses_images_d_apres_le_diff(tmp_path):
+    """Le script de la CI, joue pour de vrai sur un petit depot : un
+    changement dans redis/ ne reconstruit que Redis ; le workflow lui-meme,
+    un lundi ou un tag, tout ; un commit precedent inconnu, tout."""
+    import subprocess
+    ci, images = _images_de_la_ci()
+    script = ci["jobs"]["changements"]["steps"][1]["run"]
+    depot = tmp_path / "depot"
+    depot.mkdir()
+
+    def git(*a):
+        subprocess.run(["git", "-C", str(depot), *a], check=True, capture_output=True,
+                       env=dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
+                                GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t"))
+    git("init", "-q")
+    (depot / "README.md").write_text("x")
+    git("add", "-A"); git("commit", "-qm", "un")
+    avant = subprocess.run(["git", "-C", str(depot), "rev-parse", "HEAD"],
+                           capture_output=True, text=True).stdout.strip()
+
+    def choisir(evenement, avant_sha, fichier=None):
+        if fichier:
+            (depot / fichier).parent.mkdir(parents=True, exist_ok=True)
+            (depot / fichier).write_text(secrets.token_hex(4))
+            git("add", "-A"); git("commit", "-qm", "deux")
+        sortie = tmp_path / ("sortie-" + secrets.token_hex(3))
+        r = subprocess.run(["bash", "-e", "-c", script], cwd=depot, capture_output=True, text=True,
+                           env=dict(os.environ, EVENEMENT=evenement, AVANT=avant_sha,
+                                    TYPE_REF="branch", BASE_PR="", GITHUB_OUTPUT=str(sortie),
+                                    RUNNER_TEMP=str(tmp_path)))
+        assert r.returncode == 0, r.stderr
+        lignes = dict(l.split("=", 1) for l in sortie.read_text().splitlines())
+        return [i["name"] for i in json.loads(lignes["matrice"])["include"]]
+
+    assert choisir("push", avant, "redis/sante.sh") == ["codelab-redis"]
+    tete = subprocess.run(["git", "-C", str(depot), "rev-parse", "HEAD"],
+                          capture_output=True, text=True).stdout.strip()
+    assert choisir("push", tete, "docker-compose.yml") == []
+    tete = subprocess.run(["git", "-C", str(depot), "rev-parse", "HEAD"],
+                          capture_output=True, text=True).stdout.strip()
+    assert set(choisir("push", tete, "workspace/messages/app.py")) == {"codelab-dagster"}
+    tete = subprocess.run(["git", "-C", str(depot), "rev-parse", "HEAD"],
+                          capture_output=True, text=True).stdout.strip()
+    assert set(choisir("push", tete, ".github/workflows/build-images.yml")) == set(images)
+    assert set(choisir("schedule", "")) == set(images)
+    assert set(choisir("push", "0" * 40)) == set(images)
