@@ -271,6 +271,35 @@ def test_l_inscription_ouvre_la_session_et_persiste_la_cle(deux_espaces):
 
 
 
+def test_une_inscription_perimee_ou_deja_doublee_ne_se_rejoue_pas(deux_espaces, monkeypatch):
+    """Trouve a l'audit de securite (regle 5) : l'etat de l'inscription
+    vivait dans le cookie sans date. Un cookie obtenu quand le compte n'avait
+    aucun facteur restait rejouable trois jours, et inscrivait un nouveau
+    code meme apres que le titulaire eut pose une cle d'acces."""
+    c = deux_espaces
+    secret = c.post("/login", json={"nom": "marie",
+                                    "password": "mot-de-passe-long"}).get_json()["secret"]
+    # Onze minutes plus tard : l'inscription a expire.
+    maintenant = app.time.time()
+    with monkeypatch.context() as m:
+        m.setattr(app.time, "time", lambda: maintenant + app.INSCRIPTION_VALIDITE + 60)
+        r = c.post("/login/second-facteur", json={"code": _code_valide(secret)})
+    assert r.status_code == 400
+    assert not app.lire_utilisateurs()["marie"].get("totp")
+
+    # Dans les temps, mais une cle d'acces a ete posee entre-temps.
+    d = c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long"}).get_json()
+    assert "secret" in d, d
+    secret = d["secret"]
+    app.ecrire_passkeys({"marie": [{"id": "k", "cle_publique": "x", "nom": "iPhone"}]})
+    r = c.post("/login/second-facteur", json={"code": _code_valide(secret)})
+    assert r.status_code == 409
+    assert not app.lire_utilisateurs()["marie"].get("totp")
+    assert c.get("/api/mes-apps").status_code == 401
+
+
+
+
 def test_un_code_faux_n_enregistre_rien(deux_espaces):
     c = deux_espaces
     c.post("/login", json={"nom": "marie", "password": "mot-de-passe-long"})
@@ -831,12 +860,30 @@ def test_un_proxy_non_declare_n_est_pas_cru_sur_parole(cles, monkeypatch):
 
 
 
+def test_un_defi_de_cle_d_acces_ne_sert_qu_une_fois(monkeypatch):
+    """Trouve a l'audit de securite : le defi ne vivait que dans le cookie.
+    Avec une cle dont le compteur reste a 0, une reponse signee capturee
+    avec son cookie se rejouait jusqu'a l'expiration du cookie. Un defi
+    invente, deja servi ou trop vieux n'est plus accepte."""
+    defi = app.emettre_defi(b"une-fois")
+    assert app.consommer_defi(defi) == defi
+    assert app.consommer_defi(defi) is None                       # deja servi
+    import base64 as _b64
+    assert app.consommer_defi(_b64.b64encode(b"invente").decode()) is None
+    vieux = app.emettre_defi(b"vieux")
+    maintenant = app.time.time()
+    monkeypatch.setattr(app.time, "time", lambda: maintenant + app.DEFI_DUREE + 1)
+    assert app.consommer_defi(vieux) is None                      # expire
+
+
+
+
 def test_une_cle_inconnue_n_ouvre_aucune_session(cles):
     """C'est la signature qui fait foi, jamais le nom annonce par le client."""
     pytest.importorskip("webauthn")
     entetes = {"Host": "localhost:9001"}
     with cles.session_transaction() as s:
-        s["passkey_defi"] = base64.b64encode(b"defi").decode()
+        s["passkey_defi"] = app.emettre_defi(b"defi")
     r = cles.post("/login/passkey", headers=entetes, json={
         "credential": {"id": "cle-qui-n-existe-pas", "response": {}}})
     assert r.status_code == 401
@@ -1463,7 +1510,7 @@ def test_un_compte_suspendu_n_entre_pas_par_face_id(comptes_mail, monkeypatch):
         new_sign_count = 1
     monkeypatch.setattr(webauthn, "verify_authentication_response", lambda **k: Verifiee())
     with c.session_transaction() as sess:
-        sess["passkey_defi"] = base64.b64encode(b"defi").decode()
+        sess["passkey_defi"] = app.emettre_defi(b"defi")
     r = c.post("/login/passkey", json={"credential": {"id": "CLE"}})
     assert r.status_code == 403, r.data
     assert c.get("/api/mes-apps").status_code == 401

@@ -42,8 +42,11 @@ Pour le changer, il faut redonner l'ancien, même avec une session déjà ouvert
 
 - une **clé d'accès** (Face ID, Touch ID, empreinte, Windows Hello ; norme WebAuthn). La clé ne signe
   que pour ce domaine et ce compte, et elle exige HTTPS et un nom de domaine. On peut aussi se
-  connecter par clé d'accès seule, sans mot de passe ;
-- un **code TOTP** (RFC 6238, 6 chiffres, 30 s). Le QR code n'apparaît jamais dans une URL ;
+  connecter par clé d'accès seule, sans mot de passe. Chaque défi est tenu par le serveur : il sert
+  une fois, cinq minutes au plus, si bien qu'une réponse signée capturée ne se rejoue pas ;
+- un **code TOTP** (RFC 6238, 6 chiffres, 30 s). Le QR code n'apparaît jamais dans une URL.
+  L'inscription d'un premier code vaut dix minutes, et elle est refusée si le compte a déjà un
+  facteur ;
 - un **code par mail** (comptes utilisateurs seulement). Il vaut 10 minutes, sert une fois, tolère
   5 essais et ne part que vers l'adresse vérifiée du compte, après un mot de passe juste.
 

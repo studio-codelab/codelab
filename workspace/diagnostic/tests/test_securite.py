@@ -814,7 +814,7 @@ def test_une_cle_d_acces_ne_contourne_pas_le_verrou(exposition):
 
     c = app.flask_app.test_client()
     with c.session_transaction() as sess:
-        sess["passkey_defi"] = base64.b64encode(b"defi-de-test").decode()
+        sess["passkey_defi"] = app.emettre_defi(b"defi-de-test")
     r = c.post("/login/passkey", json={"credential": {"id": "cle-de-test"}},
                environ_base=DEHORS)
     assert r.status_code == 403, r.data
