@@ -21,6 +21,8 @@ x-casaos:
     en_US: CodeLab
     fr_FR: CodeLab
 
+x-codelab-workspace: &workspace /DATA/AppData/codelab/workspace:/workspace
+
 services:
 
   codelab-postgres:
@@ -193,7 +195,7 @@ services:
       CODELAB_VSCODE_EXTENSIONS: "mtxr.sqltools mtxr.sqltools-driver-pg cweijan.vscode-database-client2 cweijan.dbclient-jdbc"
 
     volumes:
-      - /DATA/AppData/codelab/workspace:/workspace
+      - *workspace
       - /DATA/AppData/codelab/config/ssh:/var/lib/codelab/ssh
       - /DATA/AppData/codelab/vscode-server:/home/vscode/.vscode-server
       - /DATA/AppData/codelab/config:/var/lib/codelab/config:ro
@@ -241,7 +243,7 @@ services:
 
     volumes:
       - /DATA/AppData/codelab/dagster:/opt/dagster/home
-      - /DATA/AppData/codelab/workspace:/workspace
+      - *workspace
       - /DATA/AppData/codelab/config:/var/lib/codelab/config:ro
 
     depends_on:
@@ -293,7 +295,7 @@ services:
 
     volumes:
       - /DATA/AppData/codelab/app-manager:/var/lib/codelab/app-manager
-      - /DATA/AppData/codelab/workspace:/workspace
+      - *workspace
       - /DATA/AppData/codelab/config:/var/lib/codelab/config
       - /DATA/AppData/codelab/sauvegardes:/sauvegardes
 

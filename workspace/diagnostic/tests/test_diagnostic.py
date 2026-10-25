@@ -1136,6 +1136,25 @@ def test_le_compose_annonce_la_meme_cible_que_les_tests():
 
 
 
+def test_le_dossier_des_projets_s_ecrit_une_seule_fois():
+    """Vecu : « Point de montage /workspace commun a tous les services. Je
+    peux changer le path [...], et tous les autres services pointent vers le
+    nouveau path ». Le chemin hote vit dans x-codelab-workspace ; les trois
+    services qui le montent le reprennent par l'ancre, jamais en dur."""
+    import yaml
+    for nom in ("docker-compose.yml", "docker-compose-casaos.yml"):
+        texte = open(os.path.join(_racine_depot(), nom), encoding="utf-8").read()
+        assert texte.count(":/workspace\n") == 1, f"{nom} : le chemin est recopie"
+        assert texte.count("      - *workspace\n") == 3, nom
+        d = yaml.safe_load(texte)
+        attendu = d["x-codelab-workspace"]
+        montes = {service for service, c in d["services"].items()
+                  if attendu in (c.get("volumes") or [])}
+        assert montes == {"codelab-dev", "codelab-dagster", "codelab-app-manager"}, nom
+
+
+
+
 def test_le_compose_casaos_ne_porte_aucun_commentaire():
     """Ce fichier-la se colle dans une zone de texte, il ne se lit pas.
 

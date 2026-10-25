@@ -77,6 +77,15 @@
 # /DATA/AppData/codelab/, pas dans des volumes nommes par le projet.
 name: codelab
 
+# LE DOSSIER DES PROJETS, ECRIT UNE SEULE FOIS. Vecu : « Point de montage
+# /workspace commun a tous les services. Je peux changer le path [...], et
+# tous les autres services pointent vers le nouveau path ». Les trois
+# services qui le montent (codelab-dev, codelab-dagster, codelab-app-manager)
+# reprennent cette ligne par l'ancre *workspace : pour deplacer les projets,
+# change le chemin hote (avant « : ») ICI, et seulement ici. Le chemin dans
+# les conteneurs, /workspace, ne change jamais.
+x-codelab-workspace: &workspace /DATA/AppData/codelab/workspace:/workspace
+
 services:
 
   codelab-postgres:
@@ -364,10 +373,8 @@ services:
       CODELAB_VSCODE_EXTENSIONS: "mtxr.sqltools mtxr.sqltools-driver-pg cweijan.vscode-database-client2 cweijan.dbclient-jdbc"
 
     volumes:
-      # Chemin hote par defaut : /DATA/AppData/codelab/workspace. Doit rester
-      # identique sur les 3 services qui le montent (dev, dagster,
-      # app-manager).
-      - /DATA/AppData/codelab/workspace:/workspace
+      # Le dossier des projets : voir x-codelab-workspace, en tete de fichier.
+      - *workspace
       # Un seul dossier pour tout le SSH : authorized_keys.d/ (une cle
       # publique par machine autorisee), authorized_keys (fichier derive,
       # reconstruit au demarrage) et host_keys/ (identite du serveur, pour
@@ -461,7 +468,7 @@ services:
 
     volumes:
       - /DATA/AppData/codelab/dagster:/opt/dagster/home
-      - /DATA/AppData/codelab/workspace:/workspace
+      - *workspace
       - /DATA/AppData/codelab/config:/var/lib/codelab/config:ro
 
     depends_on:
@@ -530,7 +537,7 @@ services:
 
     volumes:
       - /DATA/AppData/codelab/app-manager:/var/lib/codelab/app-manager
-      - /DATA/AppData/codelab/workspace:/workspace
+      - *workspace
       # Lecture-ecriture (pas ":ro") : ce service ajoute sa propre ligne
       # dans le credentials.env consolide partage avec codelab-postgres.
       - /DATA/AppData/codelab/config:/var/lib/codelab/config
