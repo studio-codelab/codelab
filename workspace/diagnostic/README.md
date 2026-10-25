@@ -40,7 +40,15 @@ devient une rangée horizontale qui défile.
 | | Quand | Ce que ça fait |
 |---|---|---|
 | **Sondes** (page d'accueil, asset Dagster) | à chaque affichage, et toutes les heures dans Dagster | elles **regardent**, sans effet de bord |
-| **Vérification approfondie** (`/tests`) | à la demande | elles **agissent** : écrivent puis relisent en base, traversent le proxy, vérifient le journal et l'écriture dans le projet, puis lancent la suite de régression |
+| **Vérification approfondie** (`/tests`) | à la demande | elles **agissent** : écrivent puis relisent en base, traversent le proxy, vérifient le journal et l'écriture dans le projet, jouent six pentests, puis lancent la suite de régression |
+
+Les **pentests** attaquent le panneau sans compte, comme un visiteur du réseau : routes
+d'administration, en-têtes de sécurité, traversée de chemin, en-tête Host, laissez-passer de
+tournage, limitation des essais. Chaque attaque vise une cible inexistante, ou une route qui ne
+change rien même si elle passait : une garde cassée se voit à son code de réponse, jamais à un
+dégât. Le dernier pentest met l'adresse du diagnostic en pause cinq minutes, ce qui est
+justement ce qu'il vérifie. Chaque pentest est joué, dans la suite du dépôt, contre le vrai panneau
+(il doit passer) et contre un serveur troué exprès (il doit échouer).
 
 Les deux côtés (application et Dagster) écrivent un battement dans la même table. Les voir tous les
 deux prouve que la chaîne est complète. Un écart entre eux désigne un volume mal monté ou un service

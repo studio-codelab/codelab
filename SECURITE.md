@@ -240,6 +240,11 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 - **Diagnostic** : des sondes en lecture seule vérifient ce qui doit marcher et ce qui doit être
   fermé (panneau sans session, origine des applications, exposition, isolation, sauvegardes, disque,
   surface exposée).
+- **Pentests** (vérification approfondie du diagnostic) : six attaques sans compte contre le panneau
+  en marche. Elles visent les routes d'administration, les en-têtes, la traversée de chemin,
+  l'en-tête Host, le laissez-passer de tournage et la limitation des essais. Chacune vise une cible
+  inexistante : une garde cassée se voit à la réponse, jamais à un dégât. La suite du dépôt les joue
+  contre le vrai panneau et contre un serveur troué exprès.
 - **Bilan de sécurité** (*Paramètres > Sécurité*) : sept contrôles, chacun avec ce qu'il reste à faire.
   Un contrôle sans objet ici n'est pas compté.
 

@@ -583,6 +583,17 @@ Détails : [`workspace/diagnostic/README.md`](workspace/diagnostic/README.md).
   mail.
 - **Vérification approfondie** (`/tests`) : écrit puis relit en base, traverse le proxy, lance la
   suite de régression.
+- **Six pentests**, dans la rubrique Sécurité de la vérification approfondie. Ils attaquent le panneau
+  comme un visiteur du réseau sans compte, et échouent si l'attaque passe :
+  - routes d'administration sans session, puis avec un cookie inventé ;
+  - en-têtes de sécurité (CSP, clickjacking, cookies) ;
+  - traversée de chemin vers `/etc/passwd` ou `credentials.env` ;
+  - en-tête Host falsifié ;
+  - laissez-passer de tournage falsifié ;
+  - limitation des essais de connexion.
+
+  Aucun ne modifie l'installation. Le dernier met l'adresse du diagnostic en pause cinq minutes, sous
+  le nom inventé `pentest-diagnostic`.
 - **Même sondes côté Dagster**, toutes les heures.
 - **Projet modèle** à copier pour démarrer un projet.
 
