@@ -294,7 +294,12 @@ L'identite contient `sub`, `nom`, `role` (`admin` ou `utilisateur`), `email` et
 - `lien_deconnexion` / `lienDeconnexion` : se deconnecter de CodeLab aussi, avec
   confirmation.
 
-Une application privee n'a rien a faire : la connexion est deja imposee.
+Une application privee a deja la connexion imposee par le panneau. Mais les
+applications d'un meme serveur partagent son reseau local : une autre
+application, malveillante ou compromise, peut joindre ton port directement,
+sans passer par le panneau. Si l'application garde des donnees sensibles,
+verifie donc aussi l'identite toi-meme, a chaque requete : sans jeton signe
+valide, `utilisateur(request.headers)` rend `None`, et la requete se refuse.
 
 ## 10. Pages d'erreur et en-tetes de securite
 

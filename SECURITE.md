@@ -320,6 +320,17 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 - **Les applications partagent le groupe `codelab`** sur `/workspace`, pour que ton code reste
   modifiable en SSH. Sans namespaces utilisateur, une application peut lire les fichiers d'une autre
   par ce groupe.
+- **Les applications partagent le réseau local du conteneur.** Une application malveillante ou
+  compromise peut joindre directement le port d'une autre, sans passer par le panneau, donc sans
+  la connexion qu'impose la visibilité *Privée*. Une application aux données sensibles vérifie
+  elle-même le jeton signé `X-CodeLab-Auth` (`codelab_auth.utilisateur`), qu'une autre
+  application ne peut pas fabriquer.
+- **Sur le port des applications (sans VPS), toutes partagent une origine** (`:9002`). Un script
+  d'une application peut donc agir, au nom du visiteur, dans une autre application que ce visiteur
+  ouvre. Derrière le VPS, chaque application a son sous-domaine, donc son origine.
+- **Derrière le VPS, tous les visiteurs d'Internet partagent une adresse** pour la limite des
+  essais : cinq mauvais mots de passe, de qui que ce soit, suspendent les connexions distantes
+  cinq minutes. C'est voulu : croire `X-Forwarded-For` permettrait de contourner la limite.
 - **L'administrateur voit tout** : les applications, le journal, et les mails passés par Mailpit.
   Il ne voit jamais un mot de passe, ni un mail de sécurité : codes, liens d'invitation et alertes
   de connexion partent en direct, sans copie dans Mailpit.
