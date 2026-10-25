@@ -2165,6 +2165,24 @@ def test_le_registre_survit_aux_comptes_et_aux_mots_de_passe(appareils):
 
 
 
+@pytest.mark.parametrize("route", ["/api/mon-compte/passkeys", "/api/mon-compte/passkeys/k-vole"])
+def test_retirer_ses_cles_ferme_les_autres_sessions(appareils, route):
+    """Regle 7, trouvee cassee a l'audit de securite : celui qui soupconne un
+    vol de session retire ses cles d'acces -- et le cookie vole restait
+    valable, la seconde session repondait encore 200."""
+    tel = _marie_sur(IPHONE)
+    pc = _marie_sur(MAC)
+    app.ecrire_passkeys({"marie": [{"id": "k-vole", "cle_publique": "x", "nom": "iPhone"}]})
+    r = pc.delete(route)
+    assert r.status_code == 200, r.data
+    assert tel.get("/api/mes-apps").status_code == 401
+    assert pc.get("/api/mes-apps").status_code == 200
+    assert [a["appareil"] for a in pc.get("/api/mon-compte/appareils").get_json()["appareils"]] \
+        == ["Chrome sur Mac"]
+
+
+
+
 @pytest.mark.parametrize("agent,attendu", [
     (IPHONE, "Safari sur iPhone"), (MAC, "Chrome sur Mac"),
     ("Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 Chrome/130.0 Safari/537.36 Edg/130.0", "Edge sur Windows"),

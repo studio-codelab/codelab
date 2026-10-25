@@ -853,6 +853,29 @@ def api_passkey_liste():
         for k in passkeys_du_compte(utilisateur_courant())]})
 
 
+def _fermer_les_autres_sessions_apres_retrait(nom):
+    """Retirer une cle d'acces ferme les autres sessions du compte.
+
+    POURQUOI : celui qui soupconne un vol de session retire ses cles, comme
+      le dit la regle 7 -- et le cookie vole restait valable : rien ne
+      touchait sessions_depuis. Trouve a l'audit de securite, et confirme :
+      la seconde session repondait encore 200.
+    REGLE : 7 de SECURITE.md.
+    DEPEND DE : fermer_les_autres_sessions et fermer_les_sessions_suspendues
+      (04-requetes.py) pour un compte utilisateur ; revoquer_appareils pour
+      l'administrateur, qui n'a pas de ligne dans la table des comptes.
+    """
+    garder = session.get("sid")
+    if nom == NOM_ADMIN:
+        revoquer_appareils([l["sid"] for l in appareils_du_compte(nom) if l["sid"] != garder])
+        return
+    comptes = lire_utilisateurs()
+    compte = comptes.get(nom)
+    if compte is not None:
+        fermer_les_autres_sessions(compte, garder_celle_ci=True, nom=nom)
+        ecrire_utilisateurs(comptes)
+
+
 @flask_app.delete("/api/mon-compte/passkeys")
 @require_auth
 def api_passkey_tout_retirer():
@@ -869,6 +892,7 @@ def api_passkey_tout_retirer():
         tout[nom] = []
         try:
             ecrire_passkeys(tout)
+            _fermer_les_autres_sessions_apres_retrait(nom)
         except OSError as e:
             return jsonify({"error": f"Clés non retirées : {e}"}), 500
         journaliser("passkey", qui=nom, action="retrait", ip=_adresse_client())
@@ -887,6 +911,7 @@ def api_passkey_supprimer(identifiant):
     tout[nom] = restantes
     try:
         ecrire_passkeys(tout)
+        _fermer_les_autres_sessions_apres_retrait(nom)
     except OSError as e:
         return jsonify({"error": f"Clé non supprimée : {e}"}), 500
     journaliser("passkey", qui=nom, action="retrait", ip=_adresse_client())
