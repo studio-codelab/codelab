@@ -448,7 +448,6 @@ def exposition(tmp_path, monkeypatch):
 @pytest.fixture
 def cles(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "_admin_password", "secret-de-test")
-    monkeypatch.setattr(app, "trust_proxy", lambda: False)
     app.flask_app.secret_key = "cle-de-test"
     app.flask_app.config["TESTING"] = True
     app._login_attempts.clear()

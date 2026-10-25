@@ -310,14 +310,8 @@ _acces_verrou = threading.Lock()
 
 
 def _adresse_client():
-    """L'adresse du visiteur, selon qu'on est derriere un proxy de confiance."""
-    # La meme regle que _client_ip : derriere un proxy de confiance, c'est
-    # l'adresse qu'IL a ajoutee (la derniere) qui fait foi -- la premiere est
-    # celle que le client a choisie, et le journal noterait un mensonge.
-    if trust_proxy():
-        derniere = (request.headers.get("X-Forwarded-For") or "").split(",")[-1].strip()
-        if derniere:
-            return derniere
+    """L'adresse du visiteur pour le journal : celle de la connexion, comme
+    _client_ip, et jamais un en-tete que le client choisit."""
     return request.remote_addr or ""
 
 

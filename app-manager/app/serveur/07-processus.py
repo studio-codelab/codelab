@@ -820,6 +820,46 @@ def adopter_processus_survivants():
     return repris
 
 
+def achever_les_restes(name):
+    """Termine ce qui reste du groupe d'une application dont le chef est mort.
+
+    Vecu : « Le port 9104 est deja occupe sur la machine », WineManager en
+    erreur et relancee en vain. Le processus lance par le panneau (le chef
+    du groupe, start_new_session) etait mort, mais un enfant -- un worker,
+    un rechargeur, le node lance par npm -- tenait encore le port. stop()
+    ne signalait le groupe que si le chef vivait, et le redemarrage
+    automatique trouvait le port pris par un processus que le panneau ne
+    sait pas nommer : il ne lit pas /proc/<pid>/fd d'un autre uid sans
+    CAP_SYS_PTRACE, qu'il n'a pas (cap_drop: ALL).
+    Le numero du chef reste celui du groupe tant qu'un membre survit, et le
+    noyau ne le redonne a personne d'autre entre-temps : le signal ne peut
+    atteindre que les restes de CETTE application. Seulement pour un
+    processus lance ici : un processus adopte (ProcessusAdopte) n'est pas
+    forcement chef de son groupe.
+    """
+    p = procs.get(name)
+    if p is None or isinstance(p, ProcessusAdopte) or p.poll() is None:
+        return
+    uid = uid_application(name)
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            _signaler_groupe(p.pid, sig, uid)
+        except ProcessLookupError:
+            return                  # plus personne dans le groupe
+        except OSError as e:
+            print(f"[app-manager] {name} : restes du groupe {p.pid} "
+                  f"impossibles a signaler ({e}).", flush=True)
+            return
+        for _ in range(30):
+            try:
+                os.killpg(p.pid, 0)
+            except ProcessLookupError:
+                return
+            except PermissionError:
+                pass                # encore la, sous un autre uid
+            time.sleep(0.1)
+
+
 def start(name, attendre=True):
     """Demarre une application. Rend None si tout va bien, sinon POURQUOI.
 
@@ -855,6 +895,7 @@ def start(name, attendre=True):
     # Le cas n'a rien de rare : un processus survivant d'avant un redemarrage
     # brutal, deux applications reglees sur le meme port, ou un service de la
     # machine. Le dire en francais, et nommer le coupable quand on le connait.
+    achever_les_restes(name)
     occupe = port_occupe_par(a["port"], name)
     if occupe:
         return occupe
@@ -1036,8 +1077,14 @@ def port_occupe_par(port, sauf=None):
             pass
         finally:
             sonde.close()
-        return (f"Le port {port} est deja occupe sur la machine. "
-                f"Verifie avec « ss -ltnp | grep {port} ».")
+        # Un ecouteur sans PID : un processus d'un autre uid, que le panneau
+        # ne peut pas nommer (voir achever_les_restes). « ss » n'est pas dans
+        # l'image, et lance sur l'hote il ne verrait rien : le port est dans
+        # le reseau du conteneur.
+        return (f"Le port {port} est encore tenu par un processus que le "
+                f"panneau ne sait pas nommer, souvent un reste d'une "
+                f"application. Redémarre le conteneur : « docker restart "
+                f"codelab-app-manager », ou change le port de l'application.")
 
     apps = load()
     for pid in ecouteurs:
@@ -1069,8 +1116,9 @@ def port_occupe_par(port, sauf=None):
         detail = f"PID {pid} ({nom_proc})"
         if cmd:
             detail += f" : {cmd}"
-        return (f"Le port {port} est deja occupe sur la machine ({detail}). "
-                f"Verifie avec « ss -ltnp | grep {port} ».")
+        return (f"Le port {port} est deja occupe dans le conteneur du panneau "
+                f"({detail}). Arrete ce processus, ou change le port de "
+                f"l'application.")
 
     return None
 
@@ -1201,6 +1249,10 @@ def stop(name):
         if erreur is None and p.poll() is None:
             erreur = (f"Le processus (pid {p.pid}) ne s'arrete ni sur SIGTERM "
                       f"ni sur SIGKILL.")
+    elif p:
+        # Le chef est deja mort : ses enfants, eux, tiennent peut-etre encore
+        # le port (voir achever_les_restes).
+        achever_les_restes(name)
     if erreur:
         # On ne touche NI a procs NI a enabled : marquer "arretee" une
         # application toujours vivante, c'est perdre la seule trace qui

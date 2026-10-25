@@ -368,6 +368,12 @@ def page_messagerie(**_):
     if not est_admin():
         return index()
     page = MESSAGERIE_PAGE.replace("__JETON__", _json_dans_un_script(jeton_session()))
+    # LE MEME RETOUR QUE LES AUTRES APPLICATIONS. Vecu : « Fais en sorte que
+    # le retour CodeLab dans l'app Messages soit pareil que les autres
+    # applications ». Elle avait son propre lien « ← Hub » dans sa colonne ;
+    # elle porte desormais le ruban que le proxy glisse dans chaque
+    # application (ruban_retour), au meme endroit et avec le meme geste.
+    page = page.replace("</body>", ruban_retour().decode() + "</body>", 1)
     return Response(avec_style(page), mimetype="text/html")
 
 
@@ -443,9 +449,7 @@ def ouvrir_dans_le_panneau():
     cible = adresse_application(nom)
     titre = titre_de(nom, a)
 
-    def esc(x):
-        return (str(x).replace("&", "&amp;").replace("<", "&lt;")
-                .replace(">", "&gt;").replace('"', "&quot;"))
+    esc = _echapper
     # Un seul passage : une valeur remplacee n'est jamais relue, donc un
     # titre qui contiendrait « __CIBLE__ » reste du texte. Chaque valeur est
     # echappee pour SON contexte (texte, URL, attribut, script) ; dans le
@@ -1369,34 +1373,6 @@ def api_tache_modifier(ident):
     return jsonify({"ok": True})
 
 
-@flask_app.put("/api/taches/ordre")
-@require_admin
-def api_taches_ordre():
-    """Une colonne du tableau, apres un glisser-deposer : {statut, ordre}.
-
-    « ordre » nomme les taches de la colonne de haut en bas -- la plus haute
-    est la plus prioritaire. Une tache venue d'une autre colonne y change de
-    statut. Chaque id doit exister ; la liste ne peut pas en inventer.
-    """
-    d = request.get_json(force=True, silent=True) or {}
-    statut, ordre = d.get("statut"), d.get("ordre")
-    if statut not in STATUTS_TACHE:
-        return jsonify({"error": "Statut inconnu."}), 400
-    if (not isinstance(ordre, list) or not all(isinstance(x, str) for x in ordre)
-            or len(set(ordre)) != len(ordre) or len(ordre) > TACHES_MAX):
-        return jsonify({"error": "Ordre invalide."}), 400
-    with stockage.transaction(DB_FILE) as cx:
-        connues = {r[0] for r in cx.execute("SELECT id FROM taches")}
-        if not set(ordre) <= connues:
-            return jsonify({"error": "La liste nomme une tâche inconnue."}), 409
-        for rang, tid in enumerate(ordre):
-            cx.execute("UPDATE taches SET statut = ?, faite = ?, ordre = ?, "
-                       "fait_le = CASE WHEN ? = 'fait' THEN COALESCE(fait_le, ?) ELSE NULL END "
-                       "WHERE id = ?",
-                       (statut, 1 if statut == "fait" else 0, rang, statut, int(time.time()), tid))
-    return jsonify({"ok": True})
-
-
 @flask_app.put("/api/taches/plan")
 @require_admin
 def api_taches_plan():
@@ -1623,32 +1599,6 @@ def api_projet_export(cle):
     return _envoyer_zip(tampon, f"{_slug(c['nom'])}-{time.strftime('%Y-%m-%d')}.zip")
 
 
-@flask_app.get("/api/projets-export")
-@require_admin
-def api_projets_export():
-    """Tous les projets, un dossier chacun, et un sommaire."""
-    taches, projets = lire_taches(), lire_projets()
-    messages = lire_messages(limite=100000)
-    tampon = io.BytesIO()
-    sommaire = ["# Projets CodeLab", "",
-                "Exporté le " + datetime.datetime.now().strftime("%d/%m/%Y à %H:%M"), ""]
-    with zipfile.ZipFile(tampon, "w", zipfile.ZIP_DEFLATED) as z:
-        pris = set()
-        for cle in _cles_de_projets(taches, projets):
-            c = _contenu_projet(cle, taches, projets, messages)
-            dossier, k = _slug(c["nom"]), 2
-            while dossier in pris:
-                dossier, k = f"{_slug(c['nom'])}-{k}", k + 1
-            pris.add(dossier)
-            _ecrire_projet(z, dossier + "/", c)
-            ouvertes = sum(1 for t in c["taches"] if t["statut"] != "fait")
-            sommaire.append(f"- [{c['nom']}]({dossier}/projet.md) — {ouvertes} tâche"
-                            f"{'s' if ouvertes > 1 else ''} ouverte{'s' if ouvertes > 1 else ''}, "
-                            f"{len(c['messages'])} message{'s' if len(c['messages']) > 1 else ''}")
-        z.writestr("LISEZMOI.md", "\n".join(sommaire) + "\n")
-    return _envoyer_zip(tampon, f"projets-codelab-{time.strftime('%Y-%m-%d')}.zip")
-
-
 @flask_app.post("/api/projets")
 @require_admin
 def api_projet_creer():
@@ -1699,21 +1649,6 @@ def api_projet_modifier(ident):
                        (*valeurs, ident)).rowcount
     if not n:
         return jsonify({"error": "Projet introuvable."}), 404
-    return jsonify({"ok": True})
-
-
-@flask_app.put("/api/projets/ordre")
-@require_admin
-def api_projets_ordre():
-    ordre = (request.get_json(force=True, silent=True) or {}).get("ordre")
-    if not isinstance(ordre, list) or not all(isinstance(x, str) for x in ordre):
-        return jsonify({"error": "Ordre invalide."}), 400
-    with stockage.transaction(DB_FILE) as cx:
-        connus = {r[0] for r in cx.execute("SELECT id FROM projets")}
-        if set(ordre) != connus or len(ordre) != len(connus):
-            return jsonify({"error": "La liste ne correspond pas aux projets."}), 409
-        for rang, pid in enumerate(ordre):
-            cx.execute("UPDATE projets SET ordre = ? WHERE id = ?", (rang, pid))
     return jsonify({"ok": True})
 
 

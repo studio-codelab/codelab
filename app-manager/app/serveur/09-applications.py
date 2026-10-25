@@ -312,11 +312,46 @@ ICON_CANDIDATES = ["icon.png", "icon.svg", "favicon.png", "favicon.ico", "logo.p
 PALETTE = ["#316dca", "#8957e5", "#bf3989", "#cf222e", "#bc4c00", "#9a6700", "#1a7f37", "#0969da"]
 
 
-def find_icon(path):
+# Une icone, pas un fichier quelconque : au-dela, on ne la lit pas.
+ICONE_MAX_OCTETS = 2 * 1024 * 1024
+
+
+def lire_icone(path):
+    """L'icone deposee dans un projet : (octets, nom du fichier), ou None.
+
+    POURQUOI PAS UN SIMPLE os.path.isfile PUIS send_file. Le panneau lit en
+    root ; le dossier d'un projet, lui, est ecrit par l'application (du
+    code arbitraire) et par les sessions SSH. Un « icon.png » qui serait un
+    lien vers /var/lib/codelab/config/credentials.env etait suivi, et
+    /api/icon servait les secrets de la stack a tout compte qui voit
+    l'application.
+    REGLE : 19 de SECURITE.md (aucun secret du panneau hors du panneau).
+    O_NOFOLLOW refuse un lien au dernier maillon, fstat un fichier qui n'est
+    pas ordinaire (tube, peripherique) ; la lecture se fait sur le
+    descripteur ouvert, donc rien ne peut etre echange entre le controle et
+    la lecture. Les noms sont a la racine du projet, dont l'application ne
+    peut pas remplacer le dossier lui-meme (/workspace ne lui est pas
+    ouvert en ecriture).
+    DEPEND DE / PROTEGE AUSSI : _api_icon et webapp_icone, ses deux lecteurs ;
+    api_logo, qui ecrit l'icone sans suivre de lien.
+    ECARTE : os.path.realpath puis comparaison au dossier -- un lien peut
+    etre pose entre la verification et l'ouverture.
+    """
     for name in ICON_CANDIDATES:
-        p = os.path.join(path, name)
-        if os.path.isfile(p):
-            return p
+        try:
+            fd = os.open(os.path.join(path, name), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        except OSError:
+            continue
+        try:
+            infos = os.fstat(fd)
+            if not stat_mod.S_ISREG(infos.st_mode) or infos.st_size > ICONE_MAX_OCTETS:
+                continue
+            with os.fdopen(os.dup(fd), "rb") as f:
+                return f.read(ICONE_MAX_OCTETS), name
+        except OSError:
+            continue
+        finally:
+            os.close(fd)
     return None
 
 
@@ -626,18 +661,6 @@ def https_actif():
         (request.headers.get("X-Forwarded-Proto") or "").lower() == "https")
 
 
-def trust_proxy():
-    """Croit-on X-Forwarded-For pour l'adresse du visiteur ? JAMAIS.
-
-    C'etait un reglage. Il ne l'est plus : n'importe quel client peut poser
-    cet en-tete, et s'y fier ouvrait la porte a qui se dirait « 192.168.1.10 ».
-    L'adresse du visiteur est celle de la connexion, point. Derriere un
-    proxy, tous les visiteurs partagent donc son adresse -- c'est plus
-    strict (la limite de tentatives les compte ensemble), jamais moins.
-    """
-    return False
-
-
 # ------------- l'administration reste sur le reseau local -------------
 #
 # Le raisonnement : un compte utilisateur est fait pour etre distribue et
@@ -709,8 +732,6 @@ def proxy_non_declare():
     en ne protegeant rien. Une securite qui ment est pire que pas de
     securite : on cesse de se mefier.
     """
-    if trust_proxy():
-        return False
     return bool(request.headers.get("X-Forwarded-For")
                 or request.headers.get("X-Forwarded-Proto"))
 
@@ -751,12 +772,6 @@ def refus_admin_hors_reseau():
                 "depuis chez toi, sur l'adresse locale du panneau.")
     return ("L'administration est limitee au reseau local. Cette requete vient "
             "de " + _client_ip() + ".")
-
-
-def appliquer_cookie_securise():
-    """Le cookie suit la requete (voir SessionSelonLaConnexion) : plus rien
-    a aligner. Gardee pour les appels existants."""
-    return None
 
 
 from flask.sessions import SecureCookieSessionInterface  # noqa: E402

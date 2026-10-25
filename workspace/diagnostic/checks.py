@@ -1037,8 +1037,7 @@ def _hors_de_portee():
 #
 # Le panneau range ses donnees dans une base SQLite, codelab.db (voir
 # app-manager/app/stockage.py). Les sondes la lisent en LECTURE SEULE : un
-# diagnostic ne doit jamais pouvoir modifier ce qu'il observe. Les anciens
-# fichiers JSON restent le repli, pour une installation pas encore migree.
+# diagnostic ne doit jamais pouvoir modifier ce qu'il observe.
 
 def _base_panneau():
     return os.path.join(_etat_panneau(), "codelab.db")
@@ -1710,7 +1709,244 @@ def verif_le_projet_est_ecrivable():
             f"{ici} -- écrit, relu, effacé")
 
 
-# Prefixe "verif_" et non "test_" : ce fichier contient AUSSI la suite de
+# ------------------------------------------------------------ les pentests
+#
+# Vecu : « Assure-toi qu'aucune faille de securite n'est exploitable. Ajoute
+# des pentests aux diagnostics. » Les sondes et les verifications ci-dessus
+# constatent un etat ; celles-ci ATTAQUENT le panneau comme le ferait un
+# visiteur du reseau, sans compte, et echouent si une attaque passe.
+#
+# REGLE : chaque attaque vise une cible qui n'existe pas, ou une route qui
+# ne change rien si elle repondait. Une garde cassee se voit donc a son code
+# de reponse (404, 400, 200 au lieu de 401/403), jamais a un degat : le
+# diagnostic ne doit rien modifier, meme quand il trouve une breche.
+# Seule trace voulue : les echecs de connexion du dernier pentest, sous le
+# nom PENTEST_NOM, qui mettent l'adresse de ce conteneur en pause cinq
+# minutes (regle 6) -- c'est precisement ce qu'il verifie.
+# DEPEND DE : les routes et les messages du panneau (serveur/*.py). Un test
+# du depot (test_les_pentests_visent_de_vraies_routes) tient la liste
+# ROUTES_ADMIN_PENTEST alignee sur la table des routes.
+
+PENTEST_NOM = "pentest-diagnostic"
+# Ce que le panneau doit repondre a une requete sans session : un refus, ou
+# la page de connexion. Tout le reste -- 200, 400, 404 -- veut dire que la
+# requete a passe la garde.
+REFUS_ATTENDUS = (401, 403)
+
+# Des routes d'administration, en lecture et en ecriture. Les ecritures
+# visent une cible inexistante ou un corps vide : si la garde tombait, la
+# route repondrait 404 ou 400, sans rien toucher.
+ROUTES_ADMIN_PENTEST = [
+    ("GET", "/api/apps"), ("GET", "/api/utilisateurs"), ("GET", "/api/securite"),
+    ("GET", "/api/sauvegardes"), ("GET", "/api/invitations"), ("GET", "/api/messages"),
+    ("GET", "/api/browse"), ("GET", "/api/logs/" + PENTEST_NOM),
+    ("GET", "/api/sauvegardes/" + PENTEST_NOM),
+    ("POST", "/api/utilisateurs"), ("POST", "/api/invitations"),
+    ("POST", "/api/restart/" + PENTEST_NOM), ("POST", "/api/add"),
+    ("PUT", "/api/app/" + PENTEST_NOM), ("PUT", "/api/journal/conservation"),
+    ("DELETE", "/api/app/" + PENTEST_NOM), ("DELETE", "/api/utilisateurs/" + PENTEST_NOM),
+]
+
+
+class _SansRedirection(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **kw):
+        return None
+
+
+def _http(methode, url, corps=None, entetes=None, timeout=6):
+    """Une requete, sans suivre les redirections : (code, en-tetes, corps).
+
+    Les en-tetes en minuscules ; le corps borne a 64 Ko -- assez pour y
+    chercher une fuite, pas de quoi encombrer la memoire.
+    """
+    donnees = None if corps is None else json.dumps(corps).encode()
+    req = urllib.request.Request(url, data=donnees, method=methode)
+    if donnees is not None:
+        req.add_header("Content-Type", "application/json")
+    for cle, valeur in (entetes or {}).items():
+        req.add_header(cle, valeur)
+    ouvre = urllib.request.build_opener(_SansRedirection).open
+    try:
+        r = ouvre(req, timeout=timeout)
+        code, h, contenu = r.getcode(), r.headers, r.read(65536)
+    except urllib.error.HTTPError as e:
+        code, h, contenu = e.code, e.headers, e.read(65536)
+    return code, {k.lower(): v for k, v in h.items()}, contenu
+
+
+def _base_du_panneau(port=None):
+    port = port or _port_panneau()
+    hote, info = _joindre_panneau(port)
+    if hote is None:
+        raise RuntimeError(f"panneau injoignable sur le port {port} ({info})")
+    return f"http://{hote}:{port}"
+
+
+def _est_un_refus(code, entetes):
+    return code in REFUS_ATTENDUS or (
+        code in (301, 302, 303, 307, 308) and "/login" in entetes.get("location", ""))
+
+
+def pentest_routes_admin_sans_session():
+    """Chaque route d'administration refuse qui n'a pas de session -- y
+    compris avec un cookie de session invente (rejeu, falsification)."""
+    base = _base_du_panneau()
+    passees = []
+    for methode, chemin in ROUTES_ADMIN_PENTEST:
+        corps = {} if methode in ("POST", "PUT") else None
+        for entetes in ({}, {"Cookie": "session=" + PENTEST_NOM, "X-CodeLab-Jeton": PENTEST_NOM}):
+            code, h, _ = _http(methode, base + chemin, corps, entetes)
+            if not _est_un_refus(code, h):
+                passees.append(f"{methode} {chemin} -> {code}")
+                break
+    if passees:
+        return (False, "pentest : routes d'administration",
+                "réponse sans session : " + ", ".join(passees))
+    return (True, "pentest : routes d'administration",
+            f"{len(ROUTES_ADMIN_PENTEST)} routes, sans session puis avec un cookie "
+            f"inventé : toutes refusent")
+
+
+# L'en-tete et la valeur que la page du panneau doit porter. Le detail de
+# chaque choix est dans poser_les_entetes (serveur/04-requetes.py).
+ENTETES_ATTENDUS = {
+    "x-content-type-options": "nosniff",
+    "x-frame-options": "DENY",
+    "referrer-policy": "no-referrer",
+}
+DIRECTIVES_CSP_ATTENDUES = ("frame-ancestors 'none'", "object-src 'none'", "base-uri 'none'")
+
+
+def pentest_entetes_de_securite():
+    """La page de connexion ne se laisse ni encadrer (clickjacking), ni
+    deviner son type (MIME sniffing), ni charger d'objet ou de base etrangers.
+    Ses cookies ne se lisent pas en JavaScript."""
+    base = _base_du_panneau()
+    _code, h, _ = _http("GET", base + "/login")
+    manques = [f"{k}: {v}" for k, v in ENTETES_ATTENDUS.items() if h.get(k) != v]
+    csp = h.get("content-security-policy", "")
+    manques += [f"CSP sans « {d} »" for d in DIRECTIVES_CSP_ATTENDUES if d not in csp]
+    cookie = h.get("set-cookie", "")
+    if cookie and "httponly" not in cookie.lower():
+        manques.append("cookie sans HttpOnly")
+    if cookie and "samesite" not in cookie.lower():
+        manques.append("cookie sans SameSite")
+    if manques:
+        return False, "pentest : en-têtes de sécurité", "manque : " + ", ".join(manques)
+    return (True, "pentest : en-têtes de sécurité",
+            "CSP, X-Frame-Options, nosniff et Referrer-Policy posés ; "
+            "cookies HttpOnly et SameSite")
+
+
+# Ce qu'une traversee reussie laisserait lire : le compte root du systeme,
+# un secret de credentials.env.
+FUITES_DE_TRAVERSEE = (b"root:x:0:0", b"APP_MANAGER_ADMIN_PASSWORD", b"POSTGRES_PASSWORD=")
+TRAVERSEES = (
+    "/api/icon/..%2f..%2f..%2f..%2fetc%2fpasswd",
+    "/theme.css/../../../../etc/passwd",
+    "/%2e%2e/%2e%2e/%2e%2e/etc/passwd",
+    "/diagnostic/..%2f..%2f..%2f..%2fetc%2fpasswd",
+    "/diagnostic/%2e%2e/%2e%2e/%2e%2e/var/lib/codelab/config/credentials.env",
+)
+
+
+def pentest_traversee_de_chemin():
+    """Aucune adresse ne fait lire un fichier hors de ce qu'elle sert, ni
+    sur le port du panneau, ni sur celui des applications (le proxy)."""
+    fuites, essais = [], 0
+    for port in {_port_panneau(), _port_applications()}:
+        try:
+            base = _base_du_panneau(port)
+        except RuntimeError:
+            continue
+        for chemin in TRAVERSEES:
+            essais += 1
+            _code, _h, contenu = _http("GET", base + chemin)
+            if any(f in contenu for f in FUITES_DE_TRAVERSEE):
+                fuites.append(base + chemin)
+    if fuites:
+        return False, "pentest : traversée de chemin", "fichier lu : " + ", ".join(fuites)
+    if not essais:
+        return False, "pentest : traversée de chemin", "panneau injoignable"
+    return (True, "pentest : traversée de chemin",
+            f"{essais} tentatives (../ encodé ou non) : aucun fichier système ni secret lu")
+
+
+def pentest_hote_falsifie():
+    """Un en-tete Host invente ne se retrouve ni dans une redirection ni dans
+    la page : sinon un lien empoisonne enverrait un visiteur ailleurs.
+
+    Sans en-tete X-Forwarded-* : le panneau n'apprend son adresse publique
+    que d'une requete relayee, et ce pentest ne doit rien lui apprendre."""
+    base = _base_du_panneau()
+    faux = PENTEST_NOM + ".invalid"
+    reprises = []
+    for chemin in ("/", "/login", "/messages"):
+        _code, h, contenu = _http("GET", base + chemin, entetes={"Host": faux})
+        if faux in h.get("location", "") or faux.encode() in contenu:
+            reprises.append(chemin)
+    if reprises:
+        return (False, "pentest : en-tête Host falsifié",
+                "l'hôte inventé est repris par : " + ", ".join(reprises))
+    return (True, "pentest : en-tête Host falsifié",
+            "ni redirection ni page ne reprennent un hôte inventé")
+
+
+def pentest_laissez_passer_falsifie():
+    """Le laissez-passer de tournage (regle 12 ter) ne s'obtient pas sans la
+    cle, et un faux ticket ne donne aucun cookie."""
+    base = _base_du_panneau()
+    code, _h, _ = _http("POST", base + "/api/tournage/diagnostic", {},
+                        {"X-CodeLab-Tournage": PENTEST_NOM})
+    if code not in (403, 429):
+        return (False, "pentest : laissez-passer falsifié",
+                f"une fausse clé obtient la réponse {code}")
+    try:
+        apps = _base_du_panneau(_port_applications())
+    except RuntimeError:
+        apps = base
+    _code, h, _ = _http("GET", apps + "/diagnostic/?codelab-tournage=" + PENTEST_NOM)
+    if "codelab-tournage=" in h.get("set-cookie", ""):
+        return (False, "pentest : laissez-passer falsifié",
+                "un faux ticket est échangé contre un cookie")
+    return (True, "pentest : laissez-passer falsifié",
+            "une fausse clé est refusée, un faux ticket ne donne aucun cookie")
+
+
+def pentest_limitation_des_essais():
+    """Au plus cinq echecs de connexion par adresse et par cinq minutes
+    (regle 6), et un refus qui ne dit pas si le compte existe (regle 10).
+
+    Joue en dernier : il met l'adresse de ce conteneur en pause cinq
+    minutes. Un compte qui n'existe pas (PENTEST_NOM), jamais
+    l'administrateur : aucun compte reel n'est touche."""
+    base = _base_du_panneau()
+    codes, messages = [], set()
+    for _ in range(7):
+        code, _h, contenu = _http("POST", base + "/login",
+                                  {"nom": PENTEST_NOM, "password": PENTEST_NOM})
+        codes.append(code)
+        if code == 429:
+            break
+        try:
+            messages.add(str(json.loads(contenu or b"{}").get("error", "")).lower())
+        except ValueError:
+            pass
+    if 429 not in codes:
+        return (False, "pentest : limitation des essais",
+                f"{len(codes)} échecs sans pause ({codes}) : la force brute est possible")
+    if any(c == 200 for c in codes):
+        return False, "pentest : limitation des essais", "un compte inventé s'est connecté"
+    bavard = [m for m in messages if "inconnu" in m or "existe" in m]
+    if bavard:
+        return (False, "pentest : limitation des essais",
+                "le refus dit si le compte existe : " + bavard[0])
+    return (True, "pentest : limitation des essais",
+            "pause atteinte avant le sixième échec, refus neutre ; cette adresse "
+            "reste en pause cinq minutes")
+
+
+# Prefixe "verif_" et non "test_" : ce fichier contient AUSSI la suite de# Prefixe "verif_" et non "test_" : ce fichier contient AUSSI la suite de
 # tests du panneau, que pytest collecte. Nommees "test_...", ces cinq
 # verifications seraient ramassees par pytest et tourneraient a la
 # construction de l'image -- sans panneau, sans base, sans installation.
@@ -1856,6 +2092,14 @@ TESTS_APPROFONDIS = [
     ("Le proxy sert cette application", verif_proxy_sert_cette_application),
     ("Le journal des accès enregistre", verif_le_journal_enregistre),
     ("Le dossier du projet est écrivable", verif_le_projet_est_ecrivable),
+    # Les pentests, la limitation des essais en dernier : elle met cette
+    # adresse en pause, et le laissez-passer compterait ses refus avec.
+    ("Pentest : routes d'administration", pentest_routes_admin_sans_session),
+    ("Pentest : en-têtes de sécurité", pentest_entetes_de_securite),
+    ("Pentest : traversée de chemin", pentest_traversee_de_chemin),
+    ("Pentest : en-tête Host falsifié", pentest_hote_falsifie),
+    ("Pentest : laissez-passer falsifié", pentest_laissez_passer_falsifie),
+    ("Pentest : limitation des essais", pentest_limitation_des_essais),
 ]
 
 # La suite de regressions du panneau vient toujours en dernier : c'est la
@@ -1875,6 +2119,12 @@ THEME_DES_TESTS = {
     "Le proxy sert cette application": "services",
     "Le journal des accès enregistre": "securite",
     "Le dossier du projet est écrivable": "ressources",
+    "Pentest : routes d'administration": "securite",
+    "Pentest : en-têtes de sécurité": "securite",
+    "Pentest : traversée de chemin": "securite",
+    "Pentest : en-tête Host falsifié": "securite",
+    "Pentest : laissez-passer falsifié": "securite",
+    "Pentest : limitation des essais": "securite",
     NOM_SUITE_PANNEAU: "code",
 }
 

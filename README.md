@@ -102,6 +102,12 @@ sur GitHub et les commandes à copier. En bref :
 `docker pull`). Le nom du projet Compose est fixé à
 `codelab`. Si une installation existe sous un autre nom, fais `docker compose down` avant.
 
+**Déplacer le dossier des projets** : son chemin sur la machine est écrit une seule fois, en tête
+des deux fichiers compose (`x-codelab-workspace`). Les trois services qui le montent le reprennent
+d'eux-mêmes. Change le chemin avant « : », jamais `/workspace`, déplace le contenu, puis
+`docker compose up -d`. L'interface de CasaOS montre ce chemin service par service : pour le
+changer partout d'un coup, édite le fichier compose plutôt que chaque service.
+
 **Taille de la machine** : aucun service ne dépasse le tiers de la mémoire, pour que le panneau reste
 joignable si une application s'emballe. Sur une machine plus grande, remonte les plafonds dans les
 deux fichiers compose, ainsi que `RAM_CIBLE_MO` dans `workspace/diagnostic/checks.py`.

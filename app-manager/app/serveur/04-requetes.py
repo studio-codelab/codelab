@@ -80,9 +80,7 @@ def page_deconnexion():
     cible = (adresse_application(nom, request.args.get("chemin", ""))
              if nom in load() else "/")
 
-    def esc(x):
-        return (str(x).replace("&", "&amp;").replace("<", "&lt;")
-                .replace(">", "&gt;").replace('"', "&quot;"))
+    esc = _echapper
     if is_authed():
         titre = "Se d\u00e9connecter de CodeLab ?"
         texte = ("Tu seras d\u00e9connect\u00e9 du panneau et de toutes les "
@@ -278,6 +276,38 @@ def appareils_du_compte(compte):
                          (compte,))
 
 
+# UN APPAREIL, PAS UNE SESSION. Vecu : « La liste des appareils connectes
+# recense plusieurs sessions differentes terminees sur un meme appareil.
+# Raisonne en appareil et pas en session ». Chaque navigateur recoit un
+# identifiant durable (ce cookie, HttpOnly, sans rien d'autre dedans) ; une
+# session qui s'ouvre sur un appareil deja connu y remplace la precedente,
+# qui est deconnectee, et ses notifications passent a la nouvelle.
+# DEPEND DE : strip_session_cookie, qui le retire avant le proxy (regle 19) ;
+# la migration 9 de stockage.MIGRATIONS (colonne appareil).
+COOKIE_APPAREIL = "codelab-appareil"
+APPAREIL_DUREE = 400 * 86400        # le plafond des navigateurs pour un cookie
+_ID_APPAREIL = re.compile(r"[0-9a-f]{32}")
+
+
+def appareil_du_navigateur():
+    valeur = request.cookies.get(COOKIE_APPAREIL, "")
+    return valeur if _ID_APPAREIL.fullmatch(valeur) else None
+
+
+def _remplacer_les_sessions_de_l_appareil(qui, appareil, sid):
+    """Les sessions precedentes de cet appareil cedent la place a celle-ci."""
+    anciennes = [l["sid"] for l in stockage.lire(
+        DB_FILE, "SELECT sid FROM appareils WHERE compte = ? AND appareil = ? AND sid != ?",
+        (qui, appareil, sid))]
+    if not anciennes:
+        return
+    with stockage.transaction(DB_FILE) as cx:
+        for ancien in anciennes:
+            cx.execute("UPDATE abonnements_push SET sid = ? WHERE compte = ? AND sid = ?",
+                       (sid, qui, ancien))
+    revoquer_appareils(anciennes)
+
+
 @flask_app.before_request
 def suivre_l_appareil():
     if session.get("authed") is not True:
@@ -287,15 +317,19 @@ def suivre_l_appareil():
     maintenant = int(time.time())
     if not sid:
         # Premiere requete d'une session (ou session ouverte avant le
-        # registre) : elle s'inscrit.
+        # registre) : elle s'inscrit, au nom de son appareil.
         sid = secrets.token_hex(16)
         session["sid"] = sid
+        appareil = appareil_du_navigateur()
+        if not appareil:
+            appareil = g.appareil_a_poser = secrets.token_hex(16)
         try:
             with stockage.transaction(DB_FILE) as cx:
-                cx.execute("INSERT OR REPLACE INTO appareils (sid, compte, ouverte, vue, ip, agent) "
-                           "VALUES (?, ?, ?, ?, ?, ?)",
+                cx.execute("INSERT OR REPLACE INTO appareils (sid, compte, ouverte, vue, ip, agent, "
+                           "appareil) VALUES (?, ?, ?, ?, ?, ?, ?)",
                            (sid, qui, int(session.get("ouverte") or maintenant), maintenant,
-                            _adresse_client() or "", _agent_court()))
+                            _adresse_client() or "", _agent_court(), appareil))
+            _remplacer_les_sessions_de_l_appareil(qui, appareil, sid)
         except Exception:                                         # noqa: BLE001
             return None
         _sid_controles[sid] = maintenant
@@ -319,6 +353,19 @@ def suivre_l_appareil():
         _sid_revoques.add(sid)
         session.clear()
     return None
+
+
+@flask_app.after_request
+def poser_le_cookie_d_appareil(reponse):
+    """L'identifiant d'un appareil qui n'en avait pas (voir COOKIE_APPAREIL).
+    HttpOnly : une page n'a pas a le lire ; Secure des que le panneau est
+    servi en TLS, comme la session."""
+    appareil = g.get("appareil_a_poser")
+    if appareil:
+        reponse.set_cookie(COOKIE_APPAREIL, appareil, max_age=APPAREIL_DUREE, path="/",
+                           httponly=True, samesite="Lax",
+                           secure=bool(flask_app.config.get("SESSION_COOKIE_SECURE")))
+    return reponse
 
 
 # Ce que le port des applications accepte de servir. Le proxy et la sonde de

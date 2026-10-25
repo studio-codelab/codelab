@@ -822,41 +822,6 @@ def api_restart(n):
     return jsonify({"ok": True})
 
 
-@flask_app.post("/api/deploy/<n>")
-@require_admin
-@une_action_a_la_fois
-def api_deploy(n):
-    refus = refus_action_protegee(n, "déploiement")
-    if refus:
-        return jsonify({"error": refus}), 403
-    """Build puis mise en ligne, en une action.
-
-    L'enchainement etait a faire a la main en deux entrees de menu, et rien
-    ne rappelait la seconde : on lancait le build, la page ne changeait pas,
-    et on cherchait pourquoi -- le process servait toujours l'ancien dist/.
-
-    L'ordre compte. Le build tourne pendant que l'ancienne version est encore
-    servie, et un build en echec n'arrete rien du tout : on ne remplace une
-    version qui marche que par une version qui compile.
-    """
-    if n not in load():
-        return jsonify({"error": "Application inconnue."}), 404
-    ok, msg = run_build(n)
-    if not ok:
-        return jsonify({"error": msg}), 400
-    # "Deployer" sur une application arretee la met en ligne : c'est le sens
-    # attendu du mot, et l'alternative (builder puis ne rien faire) est
-    # exactement le geste oublie que cette route supprime.
-    marquer_nouvelle_version(n)
-    erreur = restart_app(n) if is_running(n) else start(n)
-    if erreur:
-        # Le build a reussi, la mise en ligne non : la nuance compte, et elle
-        # se perdait entierement -- la route repondait « ok ».
-        return jsonify({"error": "Le build a reussi, mais la mise en ligne a "
-                                 "echoue : " + erreur}), 409
-    return jsonify({"ok": True})
-
-
 @flask_app.post("/api/build/<n>")
 @require_admin
 @une_action_a_la_fois
@@ -1336,18 +1301,27 @@ def api_logo(n):
             except OSError:
                 pass
     cible = os.path.join(dossier, "icon." + ext)
-    tmp = cible + ".tmp"
+    # UN FICHIER TEMPORAIRE NEUF, JAMAIS UN NOM FIXE. Le panneau ecrit en root
+    # dans un dossier que l'application ecrit aussi : un « icon.png.tmp »
+    # pose d'avance en lien vers credentials.env etait suivi, et l'envoi d'un
+    # logo ecrasait le fichier vise. mkstemp cree un nom au hasard avec
+    # O_EXCL, qui ne suit aucun lien ; os.replace remplace ensuite l'entree
+    # du dossier, jamais la cible d'un lien. Voir lire_icone, l'autre sens.
+    tmp = None
     try:
-        with open(tmp, "wb") as f:
+        fd, tmp = tempfile.mkstemp(prefix=".icon-", suffix=".tmp", dir=dossier)
+        with os.fdopen(fd, "wb") as f:
             f.write(donnees)
+            # Le fichier appartient au projet : il doit rester modifiable
+            # depuis une session SSH comme le reste de son dossier.
+            os.fchmod(f.fileno(), 0o664)
         os.replace(tmp, cible)
-        # Le fichier appartient au projet : il doit rester modifiable depuis
-        # une session SSH comme le reste de son dossier.
-        try:
-            os.chmod(cible, 0o664)
-        except OSError:
-            pass
     except OSError as e:
+        if tmp:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
         return jsonify({"error": f"Écriture impossible : {e}"}), 500
     journaliser("logo", qui=utilisateur_courant() or NOM_ADMIN, app=n,
                 action="depose", ip=_adresse_client())
@@ -1494,9 +1468,9 @@ ICONE_DIAGNOSTIC = (
     '</svg>')
 
 # Mailpit : une enveloppe blanche au trait sur un degrade violet -- l'icone
-# des maquettes de son interface. LE MEME dessin que celui de l'interface
-# Mailpit de CodeLab (dagster/proxy/mailpit-ui/logo.svg) : la tuile et
-# l'application se reconnaissent. Dessin original, pas le logo de Mailpit.
+# des maquettes de son interface. LE MEME dessin que la marque de
+# l'interface Mailpit de CodeLab (dagster/proxy/mailpit-ui/index.html) : la
+# tuile et l'application se reconnaissent. Dessin original, pas le logo de Mailpit.
 # Jamais dans un onglet : l'onglet porte toujours le logo CodeLab.
 ICONE_MAILPIT = (
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-'
@@ -2093,17 +2067,20 @@ def _api_icon(n):
         return Response(default_icon_svg(n), mimetype="image/svg+xml")
     apps = load()
     a = apps.get(n)
-    icon_path = find_icon(a["path"]) if a else None
-    if not icon_path and n in ICONES_PAR_DEFAUT:
+    icone = lire_icone(a["path"]) if a else None
+    if not icone and n in ICONES_PAR_DEFAUT:
         return Response(ICONES_PAR_DEFAUT[n], mimetype="image/svg+xml",
                         headers={"X-Content-Type-Options": "nosniff"})
-    if icon_path:
+    if icone:
         # UNE IMAGE, ET RIEN QUE CA. Ce chemin sert un fichier pris dans le
         # dossier d'un projet, dans l'ORIGINE DU PANNEAU. Un SVG depose a la
         # main y executerait son script : la politique ci-dessous le rend
         # inerte, et nosniff empeche le navigateur de deviner un autre type
-        # que celui annonce.
-        reponse = send_file(icon_path)
+        # que celui annonce. Le fichier, lui, est lu sans suivre de lien
+        # (lire_icone).
+        octets, nom = icone
+        reponse = Response(octets, mimetype=mimetypes.guess_type(nom)[0]
+                           or "application/octet-stream")
         reponse.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'"
         reponse.headers["X-Content-Type-Options"] = "nosniff"
         return reponse

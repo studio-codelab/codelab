@@ -42,8 +42,11 @@ Pour le changer, il faut redonner l'ancien, même avec une session déjà ouvert
 
 - une **clé d'accès** (Face ID, Touch ID, empreinte, Windows Hello ; norme WebAuthn). La clé ne signe
   que pour ce domaine et ce compte, et elle exige HTTPS et un nom de domaine. On peut aussi se
-  connecter par clé d'accès seule, sans mot de passe ;
-- un **code TOTP** (RFC 6238, 6 chiffres, 30 s). Le QR code n'apparaît jamais dans une URL ;
+  connecter par clé d'accès seule, sans mot de passe. Chaque défi est tenu par le serveur : il sert
+  une fois, cinq minutes au plus, si bien qu'une réponse signée capturée ne se rejoue pas ;
+- un **code TOTP** (RFC 6238, 6 chiffres, 30 s). Le QR code n'apparaît jamais dans une URL.
+  L'inscription d'un premier code vaut dix minutes, et elle est refusée si le compte a déjà un
+  facteur ;
 - un **code par mail** (comptes utilisateurs seulement). Il vaut 10 minutes, sert une fois, tolère
   5 essais et ne part que vers l'adresse vérifiée du compte, après un mot de passe juste.
 
@@ -240,6 +243,11 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 - **Diagnostic** : des sondes en lecture seule vérifient ce qui doit marcher et ce qui doit être
   fermé (panneau sans session, origine des applications, exposition, isolation, sauvegardes, disque,
   surface exposée).
+- **Pentests** (vérification approfondie du diagnostic) : six attaques sans compte contre le panneau
+  en marche. Elles visent les routes d'administration, les en-têtes, la traversée de chemin,
+  l'en-tête Host, le laissez-passer de tournage et la limitation des essais. Chacune vise une cible
+  inexistante : une garde cassée se voit à la réponse, jamais à un dégât. La suite du dépôt les joue
+  contre le vrai panneau et contre un serveur troué exprès.
 - **Bilan de sécurité** (*Paramètres > Sécurité*) : sept contrôles, chacun avec ce qu'il reste à faire.
   Un contrôle sans objet ici n'est pas compté.
 
@@ -312,6 +320,17 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 - **Les applications partagent le groupe `codelab`** sur `/workspace`, pour que ton code reste
   modifiable en SSH. Sans namespaces utilisateur, une application peut lire les fichiers d'une autre
   par ce groupe.
+- **Les applications partagent le réseau local du conteneur.** Une application malveillante ou
+  compromise peut joindre directement le port d'une autre, sans passer par le panneau, donc sans
+  la connexion qu'impose la visibilité *Privée*. Une application aux données sensibles vérifie
+  elle-même le jeton signé `X-CodeLab-Auth` (`codelab_auth.utilisateur`), qu'une autre
+  application ne peut pas fabriquer.
+- **Sur le port des applications (sans VPS), toutes partagent une origine** (`:9002`). Un script
+  d'une application peut donc agir, au nom du visiteur, dans une autre application que ce visiteur
+  ouvre. Derrière le VPS, chaque application a son sous-domaine, donc son origine.
+- **Derrière le VPS, tous les visiteurs d'Internet partagent une adresse** pour la limite des
+  essais : cinq mauvais mots de passe, de qui que ce soit, suspendent les connexions distantes
+  cinq minutes. C'est voulu : croire `X-Forwarded-For` permettrait de contourner la limite.
 - **L'administrateur voit tout** : les applications, le journal, et les mails passés par Mailpit.
   Il ne voit jamais un mot de passe, ni un mail de sécurité : codes, liens d'invitation et alertes
   de connexion partent en direct, sans copie dans Mailpit.

@@ -1136,6 +1136,25 @@ def test_le_compose_annonce_la_meme_cible_que_les_tests():
 
 
 
+def test_le_dossier_des_projets_s_ecrit_une_seule_fois():
+    """Vecu : « Point de montage /workspace commun a tous les services. Je
+    peux changer le path [...], et tous les autres services pointent vers le
+    nouveau path ». Le chemin hote vit dans x-codelab-workspace ; les trois
+    services qui le montent le reprennent par l'ancre, jamais en dur."""
+    import yaml
+    for nom in ("docker-compose.yml", "docker-compose-casaos.yml"):
+        texte = open(os.path.join(_racine_depot(), nom), encoding="utf-8").read()
+        assert texte.count(":/workspace\n") == 1, f"{nom} : le chemin est recopie"
+        assert texte.count("      - *workspace\n") == 3, nom
+        d = yaml.safe_load(texte)
+        attendu = d["x-codelab-workspace"]
+        montes = {service for service, c in d["services"].items()
+                  if attendu in (c.get("volumes") or [])}
+        assert montes == {"codelab-dev", "codelab-dagster", "codelab-app-manager"}, nom
+
+
+
+
 def test_le_compose_casaos_ne_porte_aucun_commentaire():
     """Ce fichier-la se colle dans une zone de texte, il ne se lit pas.
 
@@ -1229,3 +1248,77 @@ def test_la_ci_et_la_documentation_lancent_la_suite_au_bon_endroit():
         contenu = open(os.path.join(racine, doc), encoding="utf-8").read()
         assert "test_regressions.py" not in contenu, f"{doc} cite l'ancien fichier"
         assert "pytest workspace/diagnostic/tests" in contenu, f"{doc} ne dit pas comment lancer la suite"
+
+
+
+
+# -------------------------------- les pentests --------------------------------
+#
+# Vecu : « Assure-toi qu'aucune faille de securite n'est exploitable. Ajoute
+# des pentests aux diagnostics. » Un pentest qui passe toujours ne prouve
+# rien : chacun est joue contre le vrai panneau (il doit passer) ET contre un
+# serveur troue expres (il doit echouer).
+
+PENTESTS = [(nom, fn) for nom, fn in TESTS_APPROFONDIS if nom.startswith("Pentest")]
+
+
+def _servir(monkeypatch, application):
+    """Un vrai port, pour que les pentests fassent de vraies requetes."""
+    import threading
+    from werkzeug.serving import make_server
+    serveur = make_server("127.0.0.1", 0, application, threaded=True)
+    threading.Thread(target=serveur.serve_forever, daemon=True).start()
+    port = str(serveur.server_port)
+    monkeypatch.setenv("CODELAB_PANNEAU_HOTE", "127.0.0.1")
+    monkeypatch.setenv("MANAGER_PORT", port)
+    monkeypatch.setenv("APP_MANAGER_APPS_PORT", port)
+    return serveur
+
+
+def test_les_pentests_passent_contre_le_vrai_panneau(monkeypatch):
+    """Le panneau tel qu'il est livre resiste a chaque attaque."""
+    monkeypatch.setattr(app, "_login_attempts", {})
+    serveur = _servir(monkeypatch, app.flask_app)
+    try:
+        for nom, fn in PENTESTS:
+            etat, titre, detail = checks._essai(nom, fn)
+            assert etat == Etat.OK, f"{nom} : {detail}"
+    finally:
+        serveur.shutdown()
+
+
+def test_les_pentests_voient_un_panneau_troue(monkeypatch):
+    """Un serveur qui laisse tout passer : chaque pentest doit le dire.
+
+    Il repond 200 partout, sans en-tete de securite, renvoie l'hote recu
+    dans sa redirection, laisse lire /etc/passwd, donne un cookie de
+    tournage a qui le demande et ne limite jamais les essais."""
+    def troue(environ, demarrer):
+        hote = environ.get("HTTP_HOST", "")
+        demarrer("200 OK", [("Content-Type", "text/plain"),
+                            ("Location", f"http://{hote}/"),
+                            ("Set-Cookie", "codelab-tournage=ouvert; Path=/")])
+        return [b'root:x:0:0:root:/root:/bin/bash\n{"ok": true}']
+    serveur = _servir(monkeypatch, troue)
+    try:
+        for nom, fn in PENTESTS:
+            etat, _titre, detail = checks._essai(nom, fn)
+            assert etat == Etat.ECHEC, f"{nom} n'a rien vu : {detail}"
+    finally:
+        serveur.shutdown()
+
+
+def test_les_pentests_visent_de_vraies_routes():
+    """Une route renommee laisserait le pentest frapper a une porte qui
+    n'existe plus -- et compter son 404 comme un succes de la garde. Chaque
+    route visee existe donc, avec sa methode."""
+    carte = app.flask_app.url_map.bind("localhost")
+    for methode, chemin in checks.ROUTES_ADMIN_PENTEST:
+        carte.match(chemin, method=methode)          # leve NotFound / MethodNotAllowed
+    # Et elles sont bien gardees cote administrateur dans le source.
+    source = _source_du_panneau()
+    for methode, chemin in checks.ROUTES_ADMIN_PENTEST:
+        regle, _ = carte.match(chemin, method=methode, return_rule=True)
+        vue = app.flask_app.view_functions[regle.endpoint]
+        bloc = source[:source.index(f"def {vue.__name__}(")].rsplit("\n\n", 1)[-1]
+        assert "@require_admin" in bloc, f"{methode} {chemin} n'est pas réservée à l'administrateur"

@@ -33,7 +33,11 @@
 #                                        les diffuser avec elle.
 SAUVEGARDES_DIR = os.environ.get("APP_MANAGER_SAUVEGARDES", "/sauvegardes")
 SAUVEGARDE_HEURES = int(os.environ.get("APP_MANAGER_SAUVEGARDE_HEURES", "24"))
-SAUVEGARDES_GARDEES = int(os.environ.get("APP_MANAGER_SAUVEGARDES_GARDEES", "7"))
+# UNE SEULE, LA DERNIERE. Vecu : « Gestion des sauvegardes, garder que la
+# derniere pour ne pas encombrer le stockage ». La rotation ne passe
+# qu'APRES l'ecriture et la relecture de la nouvelle : il reste donc
+# toujours une sauvegarde valide. Le reglage permet d'en garder plus.
+SAUVEGARDES_GARDEES = int(os.environ.get("APP_MANAGER_SAUVEGARDES_GARDEES", "1"))
 SAUVEGARDE_PREFIXE = "panneau-"
 
 
@@ -136,13 +140,14 @@ def _rotation_sauvegardes():
 # rien ne le verifie, et un projet commence un soir sans « git init » vit
 # seulement sur ce disque.
 #
-# Une archive par semaine, quatre gardees. Sans ce qui se reconstruit
+# Une archive par semaine, la derniere seule gardee (voir
+# SAUVEGARDES_GARDEES : la rotation suit l'ecriture). Sans ce qui se reconstruit
 # (dependances, caches, builds) ni les fichiers de plus de 50 Mo (jeux de
 # donnees, binaires) : l'archive doit rester petite pour qu'on la copie
 # ailleurs sans y penser. Relue avant d'etre gardee, comme les autres.
 WORKSPACE_PREFIXE = "workspace-"
 WORKSPACE_JOURS = int(os.environ.get("APP_MANAGER_WORKSPACE_JOURS", "7"))
-WORKSPACE_GARDEES = 4
+WORKSPACE_GARDEES = 1
 WORKSPACE_FICHIER_MAX = 50 * 1024 * 1024
 WORKSPACE_EXCLUS = {"node_modules", ".venv", "venv", "__pycache__", ".cache",
                     ".npm", "dist", "build", ".next", ".pytest_cache",
@@ -501,7 +506,6 @@ def demarrer_les_sauvegardes():
 #   le coffre (reglages chiffres de la base) : l'interrupteur et les
 #     destinataires. Une adresse n'est pas un secret, mais c'est une donnee
 #     personnelle, et rien n'est en clair sur le disque (regle 16).
-BLOC_ALERTES = "codelab-alertes"
 
 # Nombre de lignes de journal jointes au mail. Assez pour reconnaitre une
 # trace d'exception, pas assez pour rendre le mail illisible sur telephone.

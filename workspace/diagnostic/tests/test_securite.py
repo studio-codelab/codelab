@@ -352,7 +352,7 @@ def test_un_utilisateur_ne_peut_rien_administrer(deux_espaces):
     c = deux_espaces
     assert _connecte(c, "marie", "mot-de-passe-long")["role"] == "utilisateur"
     for methode, route in [("get", "/api/apps"), ("post", "/api/add"),
-                           ("post", "/api/toggle/public"), ("post", "/api/deploy/public"),
+                           ("post", "/api/toggle/public"),
                            ("delete", "/api/app/public"), ("get", "/api/utilisateurs"),
                            ("post", "/api/utilisateurs"), ("get", "/api/alertes"),
                            ("get", "/api/logs/public"),
@@ -647,7 +647,7 @@ def test_le_cookie_est_securise_des_que_la_connexion_l_est():
 def test_les_reglages_d_exposition_ne_sont_plus_reglables(exposition):
     """Proxy, HTTPS et administration locale ne sont plus des options : la
     configuration est toujours la plus stricte."""
-    assert app.trust_proxy() is False
+    assert not hasattr(app, "trust_proxy")
     assert app.admin_limite_au_reseau_local() is True
     page = _page_panneau("dashboard.html")
     for trace in ("expo-proxy", "expo-https", "expo-admin-lan", "Proxy de confiance",
@@ -791,7 +791,6 @@ def test_une_adresse_locale_injectee_par_le_client_ne_passe_pas_le_verrou(exposi
 
 
 def test_changer_d_adresse_inventee_ne_contourne_pas_la_limite(client, monkeypatch):
-    monkeypatch.setattr(app, "trust_proxy", lambda: True)
     app._login_attempts.clear()
     for i in range(app.RATE_LIMIT_MAX):
         client.post("/login", json={"nom": "admin", "password": "faux"},
@@ -815,7 +814,7 @@ def test_une_cle_d_acces_ne_contourne_pas_le_verrou(exposition):
 
     c = app.flask_app.test_client()
     with c.session_transaction() as sess:
-        sess["passkey_defi"] = base64.b64encode(b"defi-de-test").decode()
+        sess["passkey_defi"] = app.emettre_defi(b"defi-de-test")
     r = c.post("/login/passkey", json={"credential": {"id": "cle-de-test"}},
                environ_base=DEHORS)
     assert r.status_code == 403, r.data
@@ -2668,8 +2667,10 @@ def test_le_contenu_d_un_mail_ne_touche_jamais_la_page():
 def test_mailpit_a_sa_nouvelle_icone_sur_la_tuile_et_dans_la_page():
     """L'enveloppe blanche sur degrade violet des maquettes : la meme sur la
     tuile du hub et dans la barre de l'interface. Jamais dans un onglet."""
-    logo = _mailpit_ui("logo.svg").strip()
-    assert app.ICONE_MAILPIT == logo
+    # Une seule source pour l'enveloppe : ICONE_MAILPIT. La copie
+    # logo.svg de mailpit-ui, que rien ne servait, est partie.
+    logo = app.ICONE_MAILPIT
+    assert not os.path.exists(os.path.join(_racine_depot(), "dagster", "proxy", "mailpit-ui", "logo.svg"))
     assert "#7c6cf6" in logo and "#4f46e5" in logo
     assert 'fill="none" stroke="#fff"' in logo and 'fill="#fff"' not in logo
     assert _mailpit_ui("logo.png", binaire=True)[:8] == b"\x89PNG\r\n\x1a\n"

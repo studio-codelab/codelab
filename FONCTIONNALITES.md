@@ -308,6 +308,7 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
 - **Le bouton « ← CodeLab »**, posé sur chaque page, est replié par défaut : une flèche au bord
   gauche de l'écran, en bas (30 × 46 px). Un appui le déplie ; il n'a pas de bouton pour se
   replier : faute d'appui, il se replie seul au bout de 10 secondes. L'application garde sa place.
+  Messages, Mailpit et Dagster portent le même.
 - **Ouverte depuis le hub installé**, l'application suit **son manifeste**, comme le ferait le
   système : son fond et sa barre peignent l'écran avant sa première image, et son orientation
   (paysage, libre) tourne l'écran sur Android. Sur iPhone, l'écran suit le verrou du Centre de
@@ -332,7 +333,9 @@ Détails : [`SECURITE.md`](SECURITE.md) et [`app-manager/README.md`](app-manager
 - **Appareils connectés** (*Paramètres > Sécurité*, chaque compte) : où le compte est ouvert (« Safari
   sur iPhone », adresse, dernière activité, « Cet appareil »), un bouton pour déconnecter chacun, et
   « Déconnecter les autres appareils ». Téléphone perdu : on le coupe sans changer de mot de passe.
-  Changer de mot de passe ferme aussi les autres appareils.
+  Changer de mot de passe ou retirer ses clés d'accès ferme aussi les autres appareils.
+  **Une ligne par appareil**, pas par session : se reconnecter sur le même navigateur remplace sa
+  session précédente. Une session terminée (sans activité depuis trois jours) quitte la liste.
 - **Profil** (*Paramètres > Compte*, comptes utilisateurs) : prénom et nom (facultatif), côte à
   côte sur ordinateur. Le compte d'administration garde son nom et n'a pas cette carte. Le prénom
   remplace l'identifiant dans le bonjour du hub, le nom complet dans l'en-tête et dans la liste des
@@ -440,8 +443,7 @@ par le panneau sur `/messages` : même session, mêmes contrôles d'accès, mêm
   seuls l'administrateur et l'auteur y ont accès, et elles partent avec le message.
 - **Exporter un projet** (*Exporter*, en tête d'un projet) : un ZIP avec `projet.md` (description,
   tâches dans l'ordre du planning avec sous-tâches et notes, messages, maquettes en images),
-  `projet.json`, et les pièces jointes dans `pieces/`. *Tout exporter* (bas du menu) rassemble tous
-  les projets, un dossier chacun, avec un sommaire.
+  `projet.json`, et les pièces jointes dans `pieces/`.
 - **Suivre ses messages** (comptes utilisateurs) : *Messages > Mes messages* montre où en
   est chacun, sur une frise **Envoyé → Lu (ou À l'étude) → Planifié → En cours → Réalisé**, ou
   **Non retenu**. L'étape se déduit de ce que fait l'administrateur dans Messages (lire, mettre à
@@ -551,10 +553,12 @@ Détails : [`postgres/README.md`](postgres/README.md).
 
 | Sauvegarde | Fréquence | Gardées | Écrite par |
 |---|---|---|---|
-| Chaque base Postgres (`base-<nom>-<date>.dump`) | quotidienne | 7 | `codelab-postgres` |
-| État du panneau (`panneau-<date>.tar.gz`) | quotidienne | 7 | `codelab-app-manager` |
-| Code de `/workspace` (`workspace-<date>.tar.gz`) | hebdomadaire | 4 | `codelab-app-manager` |
+| Chaque base Postgres (`base-<nom>-<date>.dump`) | quotidienne | la dernière | `codelab-postgres` |
+| État du panneau (`panneau-<date>.tar.gz`) | quotidienne | la dernière | `codelab-app-manager` |
+| Code de `/workspace` (`workspace-<date>.tar.gz`) | hebdomadaire | la dernière | `codelab-app-manager` |
 
+- **La dernière seule**, pour ne pas encombrer le disque. L'ancienne ne part qu'une fois la nouvelle
+  écrite et relue : il en reste toujours une valide. Copie-la ailleurs pour remonter plus loin.
 - **Chaque archive est relue** avant d'être gardée.
 - **Restauration d'essai** quotidienne de chaque base dans une base jetable.
 - **Procédures de restauration** écrites, commandes comprises.
@@ -582,6 +586,17 @@ Détails : [`workspace/diagnostic/README.md`](workspace/diagnostic/README.md).
   mail.
 - **Vérification approfondie** (`/tests`) : écrit puis relit en base, traverse le proxy, lance la
   suite de régression.
+- **Six pentests**, dans la rubrique Sécurité de la vérification approfondie. Ils attaquent le panneau
+  comme un visiteur du réseau sans compte, et échouent si l'attaque passe :
+  - routes d'administration sans session, puis avec un cookie inventé ;
+  - en-têtes de sécurité (CSP, clickjacking, cookies) ;
+  - traversée de chemin vers `/etc/passwd` ou `credentials.env` ;
+  - en-tête Host falsifié ;
+  - laissez-passer de tournage falsifié ;
+  - limitation des essais de connexion.
+
+  Aucun ne modifie l'installation. Le dernier met l'adresse du diagnostic en pause cinq minutes, sous
+  le nom inventé `pentest-diagnostic`.
 - **Même sondes côté Dagster**, toutes les heures.
 - **Projet modèle** à copier pour démarrer un projet.
 

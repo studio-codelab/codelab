@@ -77,6 +77,7 @@ import hmac
 import http.client
 import ipaddress
 import json
+import mimetypes
 import os
 import re
 import resource
@@ -91,6 +92,7 @@ import ssl
 import stat as stat_mod
 import struct
 import subprocess
+import tempfile
 import threading
 import time
 import unicodedata

@@ -65,6 +65,9 @@ Le panneau la redémarre seul. Une alerte par mail part quand elle ne redémarre
 3. **Corriger, puis Build et Redémarrer** depuis la fiche. Une dépendance cassée par la dernière
    modification se répare souvent en revenant au commit précédent (`git log`, `git revert`).
 4. **Sa base** se restaure seule, sans toucher aux autres ([7](#7-restaurer)).
+5. **« Le port … est encore tenu »** : un reste de l'application tient son port. Le panneau termine
+   d'office ce qui reste d'une application morte avant de la relancer ; si le message persiste,
+   `docker restart codelab-app-manager` libère tous les ports, ou change le port dans la fiche.
 
 ## 4. Un compte a été piraté, ou un appareil perdu
 

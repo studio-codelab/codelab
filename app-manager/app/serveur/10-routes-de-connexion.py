@@ -48,7 +48,7 @@ def _inscrire_totp_admin(candidat):
     hors = refus_admin_hors_reseau()
     if hors:
         return jsonify({"error": hors}), 403
-    if totp_actif():
+    if totp_actif() or passkeys_du_compte(NOM_ADMIN):
         return jsonify({"error": "Un second facteur a déjà été enregistré. "
                                  "Recommence la connexion."}), 409
     if not ecrire_bloc_panneau(admin_password(), flask_app.secret_key, candidat):
@@ -377,6 +377,7 @@ def _second_facteur_utilisateur(d, nom, compte):
         session["totp_candidat"] = candidat
         session["totp_inscription"] = nom
         session["totp_uri"] = totp_uri(candidat, nom)
+        session["inscription_depuis"] = int(time.time())
         return jsonify({"inscription": True, "secret": candidat,
                         "uri": session["totp_uri"], "compte": nom,
                         "qr": "/qr/totp.svg"})
@@ -544,7 +545,7 @@ def login_facteur_passkey_options():
     options = generate_authentication_options(
         rp_id=rp_id, allow_credentials=_descripteurs(nom),
         user_verification=UserVerificationRequirement.REQUIRED)
-    session["passkey_defi"] = base64.b64encode(options.challenge).decode()
+    session["passkey_defi"] = emettre_defi(options.challenge)
     return Response(options_to_json(options), mimetype="application/json")
 
 
@@ -609,7 +610,14 @@ def login_second_facteur():
         return jsonify({"error": "Trop de tentatives. Réessaie dans quelques minutes."}), 429
     nom = session.get("totp_inscription")
     candidat = session.get("totp_candidat")
-    if not (nom and candidat):
+    # UNE INSCRIPTION A DIX MINUTES, PAS LA VIE DU COOKIE. Trouve a l'audit
+    # de securite : l'etat de l'inscription vivait dans le cookie sans date,
+    # donc un cookie obtenu quand le compte n'avait aucun facteur restait
+    # rejouable trois jours -- et inscrivait un nouveau code meme apres que
+    # le titulaire eut pose une cle d'acces (regle 5). Meme duree que
+    # l'inscription par cle (INSCRIPTION_VALIDITE).
+    depuis = session.get("inscription_depuis") or 0
+    if not (nom and candidat) or time.time() - depuis > INSCRIPTION_VALIDITE:
         return jsonify({"error": "Recommence la connexion : aucune inscription en attente."}), 400
 
     code = (request.get_json(force=True, silent=True) or {}).get("code")
@@ -627,7 +635,7 @@ def login_second_facteur():
     # Course possible : l'administrateur a pu inscrire un secret entre-temps
     # (une autre session du meme compte). Le premier enregistre gagne, plutot
     # que d'ecraser un facteur deja en service sur un autre telephone.
-    if compte.get("totp"):
+    if compte.get("totp") or passkeys_du_compte(nom):
         return jsonify({"error": "Un second facteur a déjà été enregistré. "
                                  "Recommence la connexion."}), 409
     compte["totp"] = candidat
@@ -667,6 +675,41 @@ def _mon_compte():
 
 
 # ------------------------- routes des cles d'acces -------------------------
+#
+# UN DEFI, UNE FOIS. Trouve a l'audit de securite : le defi d'une cle
+# d'acces ne vivait que dans le cookie et n'etait pas consomme. Avec une cle
+# dont le compteur reste a 0 (celles des telephones), une reponse signee
+# capturee avec son cookie se rejouait jusqu'a l'expiration du cookie. Le
+# panneau tient donc la liste des defis emis : chacun sert une fois, et
+# cinq minutes au plus. Un redemarrage du panneau l'oublie : il faut alors
+# recommencer le geste, rien de plus.
+DEFI_DUREE = 300
+DEFIS_MAX = 2000
+_defis_emis = {}
+_defis_verrou = threading.Lock()
+
+
+def emettre_defi(octets):
+    defi = base64.b64encode(octets).decode()
+    maintenant = time.time()
+    with _defis_verrou:
+        for ancien in [d for d, fin in _defis_emis.items() if fin < maintenant]:
+            del _defis_emis[ancien]
+        if len(_defis_emis) >= DEFIS_MAX:
+            del _defis_emis[next(iter(_defis_emis))]
+        _defis_emis[defi] = maintenant + DEFI_DUREE
+    return defi
+
+
+def consommer_defi(defi):
+    """Le defi s'il a ete emis ici, n'a pas servi et n'a pas expire ; sinon
+    None. Dans tous les cas, il ne resservira plus."""
+    if not defi:
+        return None
+    with _defis_verrou:
+        fin = _defis_emis.pop(defi, None)
+    return defi if fin and fin >= time.time() else None
+
 
 @flask_app.get("/api/passkeys/etat")
 def api_passkeys_etat():
@@ -732,7 +775,7 @@ def _options_enregistrement(nom):
             user_verification=UserVerificationRequirement.REQUIRED,
         ),
     )
-    session["passkey_defi"] = base64.b64encode(options.challenge).decode()
+    session["passkey_defi"] = emettre_defi(options.challenge)
     return Response(options_to_json(options), mimetype="application/json")
 
 
@@ -753,7 +796,7 @@ def _enregistrer_cle(nom):
     """
     from webauthn import verify_registration_response
     from webauthn.helpers import bytes_to_base64url
-    defi = session.get("passkey_defi")
+    defi = consommer_defi(session.pop("passkey_defi", None))
     if not defi:
         return jsonify({"error": "Recommence : aucun enregistrement en attente."}), 400
     d = request.get_json(force=True, silent=True) or {}
@@ -853,6 +896,29 @@ def api_passkey_liste():
         for k in passkeys_du_compte(utilisateur_courant())]})
 
 
+def _fermer_les_autres_sessions_apres_retrait(nom):
+    """Retirer une cle d'acces ferme les autres sessions du compte.
+
+    POURQUOI : celui qui soupconne un vol de session retire ses cles, comme
+      le dit la regle 7 -- et le cookie vole restait valable : rien ne
+      touchait sessions_depuis. Trouve a l'audit de securite, et confirme :
+      la seconde session repondait encore 200.
+    REGLE : 7 de SECURITE.md.
+    DEPEND DE : fermer_les_autres_sessions et fermer_les_sessions_suspendues
+      (04-requetes.py) pour un compte utilisateur ; revoquer_appareils pour
+      l'administrateur, qui n'a pas de ligne dans la table des comptes.
+    """
+    garder = session.get("sid")
+    if nom == NOM_ADMIN:
+        revoquer_appareils([l["sid"] for l in appareils_du_compte(nom) if l["sid"] != garder])
+        return
+    comptes = lire_utilisateurs()
+    compte = comptes.get(nom)
+    if compte is not None:
+        fermer_les_autres_sessions(compte, garder_celle_ci=True, nom=nom)
+        ecrire_utilisateurs(comptes)
+
+
 @flask_app.delete("/api/mon-compte/passkeys")
 @require_auth
 def api_passkey_tout_retirer():
@@ -869,6 +935,7 @@ def api_passkey_tout_retirer():
         tout[nom] = []
         try:
             ecrire_passkeys(tout)
+            _fermer_les_autres_sessions_apres_retrait(nom)
         except OSError as e:
             return jsonify({"error": f"Clés non retirées : {e}"}), 500
         journaliser("passkey", qui=nom, action="retrait", ip=_adresse_client())
@@ -887,6 +954,7 @@ def api_passkey_supprimer(identifiant):
     tout[nom] = restantes
     try:
         ecrire_passkeys(tout)
+        _fermer_les_autres_sessions_apres_retrait(nom)
     except OSError as e:
         return jsonify({"error": f"Clé non supprimée : {e}"}), 500
     journaliser("passkey", qui=nom, action="retrait", ip=_adresse_client())
@@ -916,7 +984,7 @@ def login_passkey_options():
         allow_credentials=_descripteurs(nom) if nom else None,
         user_verification=UserVerificationRequirement.REQUIRED,
     )
-    session["passkey_defi"] = base64.b64encode(options.challenge).decode()
+    session["passkey_defi"] = emettre_defi(options.challenge)
     return Response(options_to_json(options), mimetype="application/json")
 
 
@@ -949,7 +1017,7 @@ def _verifier_cle(nom_attendu=None):
     """
     from webauthn import verify_authentication_response
     from webauthn.helpers import base64url_to_bytes
-    defi = session.get("passkey_defi")
+    defi = consommer_defi(session.pop("passkey_defi", None))
     if not defi:
         return None, (jsonify({"error": "Recommence : aucune demande en attente."}), 400)
     d = request.get_json(force=True, silent=True) or {}
@@ -2585,7 +2653,28 @@ def decrire_agent(agent):
 
 
 def liste_des_appareils(compte, sid_courant=None):
-    return [{"id": id_public_appareil(l["sid"]), "appareil": decrire_agent(l["agent"]),
-             "ip": l["ip"], "ouverte": l["ouverte"], "vue": l["vue"],
-             "courant": l["sid"] == sid_courant}
-            for l in appareils_du_compte(compte)]
+    """Les appareils CONNECTES : une ligne par appareil, sa session en cours.
+
+    Une session sans requete depuis la duree d'inactivite du cookie
+    (PERMANENT_SESSION_LIFETIME, plus le pas de mise a jour de « vue ») est
+    terminee : le navigateur a jete son cookie. Elle n'est plus montree, mais
+    sa ligne reste jusqu'a SESSION_ABSOLUE, le temps que ses notifications
+    suivent (notifier_compte). Les lignes d'avant la migration 9, sans
+    appareil, se regroupent par navigateur decrit : la plus recente seule.
+    """
+    fin = int(time.time()) - int(flask_app.permanent_session_lifetime.total_seconds()) \
+        - APPAREIL_CONTROLE
+    # Les lignes avec un appareil d'abord, la plus recente en tete : elles
+    # couvrent aussi les anciennes lignes du meme navigateur.
+    lignes = sorted(appareils_du_compte(compte), key=lambda l: (not l["appareil"], -l["vue"]))
+    vus, liste = set(), []
+    for l in lignes:
+        courant = l["sid"] == sid_courant
+        cle = l["appareil"] or ("?", l["agent"])
+        if not courant and (l["vue"] < fin or cle in vus):
+            continue
+        vus.update((cle, ("?", l["agent"])))
+        liste.append({"id": id_public_appareil(l["sid"]), "appareil": decrire_agent(l["agent"]),
+                      "ip": l["ip"], "ouverte": l["ouverte"], "vue": l["vue"],
+                      "courant": courant})
+    return liste

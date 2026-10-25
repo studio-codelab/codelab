@@ -413,6 +413,23 @@ def test_la_rotation_garde_les_plus_recentes(sauvegardes, monkeypatch):
 
 
 
+def test_par_defaut_seule_la_derniere_sauvegarde_reste(sauvegardes, monkeypatch):
+    """Vecu : « Gestion des sauvegardes, garder que la derniere pour ne pas
+    encombrer le stockage ». La rotation passe APRES l'ecriture et la
+    relecture : la plus recente remplace l'ancienne, jamais l'inverse."""
+    _, cible = sauvegardes
+    assert app.SAUVEGARDES_GARDEES == 1 and app.WORKSPACE_GARDEES == 1
+    ancienne = cible / f"{app.SAUVEGARDE_PREFIXE}20200101-000000.tar.gz"
+    ancienne.write_text("x")
+    nouvelle = app.sauvegarder_l_etat()
+    assert sorted(os.listdir(cible)) == [os.path.basename(nouvelle)]
+    # Et Postgres, par base.
+    entree = open(os.path.join(_racine_depot(), "postgres", "entrypoint.sh"), encoding="utf-8").read()
+    assert 'SAUVEGARDES_GARDEES="${CODELAB_SAUVEGARDES_GARDEES:-1}"' in entree
+
+
+
+
 def test_sans_volume_monte_le_panneau_ne_sauvegarde_pas(monkeypatch, tmp_path):
     """Ecrire dans la couche du conteneur donnerait une sauvegarde qui
     disparait au premier « docker compose down » : pire que rien, parce

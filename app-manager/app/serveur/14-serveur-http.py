@@ -69,11 +69,6 @@ def _ouvrir_port_des_applications(servir_sur):
 
 
 def servir(port):
-    # Le cookie de session suit le reglage d'exposition. Pose ici et non a
-    # l'import : STATE_DIR peut etre redirige (tests, autre installation),
-    # et lire le fichier trop tot donnerait la valeur du mauvais endroit.
-    appliquer_cookie_securise()
-
     try:
         from waitress import serve
         def _sur(p):

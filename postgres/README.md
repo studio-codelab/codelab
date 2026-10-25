@@ -58,7 +58,7 @@ SELECT texte FROM documents ORDER BY plonge <=> $1 LIMIT 5;
 | `CODELAB_PROJECT_SCHEMA` | schéma posé dans chaque base (défaut `dagster`) |
 | `CODELAB_CONFIG_DIR` | dossier de `credentials.env` |
 | `CODELAB_SAUVEGARDE_HEURES` | intervalle des sauvegardes (24 ; `0` désactive) |
-| `CODELAB_SAUVEGARDES_GARDEES` | nombre gardé par base (7) |
+| `CODELAB_SAUVEGARDES_GARDEES` | nombre gardé par base (1, la dernière) |
 
 | Volume | Contenu |
 |---|---|

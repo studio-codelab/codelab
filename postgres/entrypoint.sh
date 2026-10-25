@@ -416,7 +416,9 @@ proteger_les_bases() {
 # RESTAURATION : voir postgres/README.md.
 SAUVEGARDES_DIR="${CODELAB_SAUVEGARDES_DIR:-/sauvegardes}"
 SAUVEGARDE_HEURES="${CODELAB_SAUVEGARDE_HEURES:-24}"
-SAUVEGARDES_GARDEES="${CODELAB_SAUVEGARDES_GARDEES:-7}"
+# La derniere seule, par base : la rotation suit une sauvegarde relue, il en
+# reste donc toujours une valide. CODELAB_SAUVEGARDES_GARDEES en garde plus.
+SAUVEGARDES_GARDEES="${CODELAB_SAUVEGARDES_GARDEES:-1}"
 
 sauvegarder_une_base() {
   db="$1"

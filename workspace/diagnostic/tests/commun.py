@@ -268,7 +268,9 @@ def _ecrire_bloc_alertes(valeurs):
         valeur = valeurs.get(cle) if cle in valeurs else app.read_shared_value(cle)
         if str(valeur or "").strip():
             fusion[cle] = valeur
-    return app.upsert_shared_block(app.BLOC_ALERTES, [], fusion)
+    # Le nom du bloc tel qu'une installation l'ecrit : le panneau, lui, lit
+    # ses cles une par une (read_shared_value), jamais le bloc par son nom.
+    return app.upsert_shared_block("codelab-alertes", [], fusion)
 
 
 
