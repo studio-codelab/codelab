@@ -480,29 +480,14 @@ def test_l_application_messages_a_ses_vues():
 
 # ---------- l'application « Demandes » : tableau, priorites, projets ----------
 
-def test_le_tableau_range_les_taches_par_colonne(boite):
-    """Glisser une carte : la colonne d'arrivee est renvoyee entiere, dans son
-    nouvel ordre ; une carte venue d'ailleurs y change de statut."""
-    c, _ = boite
-    ids = [c.post("/api/taches", json={"projet": "general", "titre": t}).get_json()["id"]
-           for t in ("a", "b", "c")]
-    a, b, cc = ids
-    taches = c.get("/api/taches").get_json()["taches"]
-    assert [t["statut"] for t in taches] == ["a_faire"] * 3
-    assert all(t["priorite"] == 2 and t["echeance"] is None for t in taches)
-    # « c » passe en cours, puis « a » le rejoint, au-dessus.
-    assert c.put("/api/taches/ordre", json={"statut": "en_cours", "ordre": [cc]}).status_code == 200
-    assert c.put("/api/taches/ordre", json={"statut": "en_cours", "ordre": [a, cc]}).status_code == 200
-    taches = {t["id"]: t for t in c.get("/api/taches").get_json()["taches"]}
-    assert taches[a]["statut"] == taches[cc]["statut"] == "en_cours"
-    assert taches[a]["ordre"] < taches[cc]["ordre"] and taches[b]["statut"] == "a_faire"
-    # « fait » tient la vieille case a cocher en accord.
-    assert c.put("/api/taches/ordre", json={"statut": "fait", "ordre": [b]}).status_code == 200
-    assert {t["id"]: t for t in c.get("/api/taches").get_json()["taches"]}[b]["faite"]
-    # Une liste qui invente, repete ou se trompe de colonne est refusee.
-    assert c.put("/api/taches/ordre", json={"statut": "fait", "ordre": ["x"]}).status_code == 409
-    assert c.put("/api/taches/ordre", json={"statut": "fait", "ordre": [a, a]}).status_code == 400
-    assert c.put("/api/taches/ordre", json={"statut": "ailleurs", "ordre": [a]}).status_code == 400
+def test_les_routes_sans_client_sont_retirees(boite):
+    """« pas de code inutile ou Legacy » : l'ordre d'une colonne du vieux
+    tableau et l'ordre des projets n'avaient plus aucun appelant (le planning
+    passe par /api/taches/plan et /api/taches/<id>/ordre)."""
+    regles = {r.rule for r in app.flask_app.url_map.iter_rules()}
+    assert "/api/taches/ordre" not in regles and "/api/projets/ordre" not in regles
+    assert "/api/deploy/<n>" not in regles
+    assert not {"api_taches_ordre", "api_projets_ordre", "api_deploy"} & set(app.flask_app.view_functions)
 
 
 
@@ -560,18 +545,6 @@ def test_un_projet_se_construit_puis_se_concretise(boite):
     assert {t["projet"] for t in c.get("/api/taches").get_json()["taches"]} == {"general"}
     assert c.delete(f"/api/projets/{projet}").status_code == 404
     assert c.post("/api/taches", json={"projet": projet, "titre": "x"}).status_code == 400
-
-
-
-
-def test_les_projets_se_reordonnent_en_entier(boite):
-    c, _ = boite
-    p1 = c.post("/api/projets", json={"nom": "Un"}).get_json()["id"]
-    p2 = c.post("/api/projets", json={"nom": "Deux"}).get_json()["id"]
-    assert c.put("/api/projets/ordre", json={"ordre": [p2, p1]}).status_code == 200
-    assert [p["nom"] for p in c.get("/api/projets").get_json()["projets"]] == ["Deux", "Un"]
-    assert c.put("/api/projets/ordre", json={"ordre": [p2]}).status_code == 409
-    assert c.put("/api/projets/ordre", json={"ordre": "x"}).status_code == 400
 
 
 
@@ -714,7 +687,7 @@ def test_l_application_messages_est_reservee_a_l_administrateur(boite, deux_espa
     assert "function peindrePlanning(" not in page_u
     for route in ("/api/projets", "/api/taches"):
         assert u.get(route).status_code == 403, route
-    assert u.put("/api/taches/ordre", json={"statut": "fait", "ordre": []}).status_code == 403
+    assert u.put("/api/taches/plan", json={"ordre": []}).status_code == 403
     assert app.flask_app.test_client().get("/messages").status_code == 302
     for nom in ("messages", "demandes"):
         assert nom in app.PAGES_DU_PANNEAU and nom in app.adresses_reservees()

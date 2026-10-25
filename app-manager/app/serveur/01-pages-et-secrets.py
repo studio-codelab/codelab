@@ -13,6 +13,14 @@
 
 # ------------------------------ pages servies ------------------------------
 #
+# L'echappement d'une valeur glissee dans une page construite ici (texte, ou
+# attribut entre guillemets doubles) : & < > ". L'apostrophe reste, les
+# textes francais en sont pleins et aucun attribut n'est entre apostrophes.
+# Une seule fonction pour tout le panneau, au lieu de cinq copies.
+def _echapper(x):
+    return _html.escape(str(x), quote=False).replace('"', "&quot;")
+
+#
 # Les deux pages HTML vivent dans leur propre fichier, a cote de ce module.
 # Elles etaient auparavant des chaines Python d'une seule ligne -- 67 Ko pour
 # le tableau de bord : illisibles en revue, impossibles a modifier sans

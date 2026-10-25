@@ -80,9 +80,7 @@ def page_deconnexion():
     cible = (adresse_application(nom, request.args.get("chemin", ""))
              if nom in load() else "/")
 
-    def esc(x):
-        return (str(x).replace("&", "&amp;").replace("<", "&lt;")
-                .replace(">", "&gt;").replace('"', "&quot;"))
+    esc = _echapper
     if is_authed():
         titre = "Se d\u00e9connecter de CodeLab ?"
         texte = ("Tu seras d\u00e9connect\u00e9 du panneau et de toutes les "

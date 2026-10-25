@@ -626,8 +626,7 @@ def injecter_webapp(data, status, entetes, nom, titre):
         return data, entetes
     tete = bas[:i]
     base = racine_application(nom) + PREFIXE_CODELAB
-    titre_html = (titre.replace("&", "&amp;").replace("<", "&lt;")
-                  .replace(">", "&gt;").replace('"', "&quot;"))
+    titre_html = _echapper(titre)
     ajout = ""
     if b'rel="manifest"' not in tete and b"rel='manifest'" not in tete \
             and b"rel=manifest" not in tete:
@@ -1282,9 +1281,7 @@ def _page(title, msg, extra=""):
     volontairement, et la regle qui tient est celle qu'on ne peut pas oublier
     d'appliquer.
     """
-    title, msg, extra = (str(x).replace("&", "&amp;").replace("<", "&lt;")
-                         .replace(">", "&gt;").replace('"', "&quot;")
-                         for x in (title, msg, extra))
+    title, msg, extra = (_echapper(x) for x in (title, msg, extra))
     return ("<!doctype html><meta charset=utf-8><title>" + title + "</title>"
             "<body style=\"margin:0;background:#0d1117;color:#c9d1d9;display:flex;"
             "align-items:center;justify-content:center;height:100vh;font:15px/1.6 "
@@ -1307,11 +1304,6 @@ def _page(title, msg, extra=""):
 # inaccessible, et qu'il peut revenir au hub. Pas un mot technique, pas de
 # code, pas de port. Un visiteur anonyme d'une application publique est
 # traite comme un utilisateur, sans lien vers le hub qu'il n'a pas.
-
-def _echapper(x):
-    return (str(x).replace("&", "&amp;").replace("<", "&lt;")
-            .replace(">", "&gt;").replace('"', "&quot;"))
-
 
 def _page_application(titre, texte, initiale, boutons, pied=""):
     """La mise en page commune : une carte au centre, dans les couleurs du

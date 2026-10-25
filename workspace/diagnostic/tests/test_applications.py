@@ -720,11 +720,6 @@ def test_le_redemarrage_rend_compte_de_son_echec():
     assert "return start(n)" in bloc, "l'erreur de start() repart a la poubelle"
     route = src.split("def api_restart(n):")[1].split("\n\n\n")[0]
     assert "erreur = restart_app(n)" in route and "409" in route
-    # Le deploiement aussi : un build reussi suivi d'une mise en ligne ratee
-    # repondait « ok ».
-    deploiement = src.split("def api_deploy(n):")[1].split("\n\n\n")[0]
-    assert "erreur = restart_app(n) if is_running(n) else start(n)" in deploiement
-    assert "409" in deploiement
 
 
 
@@ -939,7 +934,7 @@ def test_une_application_par_defaut_ne_s_arrete_pas_a_la_main(hub_dagster):
 
     for nom in app.APPS_PAR_DEFAUT:
         for route in (f"/api/toggle/{nom}", f"/api/restart/{nom}",
-                      f"/api/deploy/{nom}", f"/api/build/{nom}"):
+                      f"/api/build/{nom}"):
             r = c.post(route, json={})
             assert r.status_code == 403, f"POST {route} -> {r.status_code}"
             # Le message NOMME l'application et l'action : « 403 » seul
@@ -1699,7 +1694,7 @@ def test_une_seule_action_a_la_fois_par_application(hub, monkeypatch):
         "premier", c2.post("/api/build/compta").status_code))
     fil.start()
     assert entree.wait(5)
-    r = c.post("/api/deploy/compta")
+    r = c.post("/api/build/compta")
     assert r.status_code == 409 and r.get_json()["en_cours"] is True
     assert c.post("/api/toggle/compta").status_code == 409
     # Une AUTRE application n'est pas bloquee.

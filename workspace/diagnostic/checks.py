@@ -1037,8 +1037,7 @@ def _hors_de_portee():
 #
 # Le panneau range ses donnees dans une base SQLite, codelab.db (voir
 # app-manager/app/stockage.py). Les sondes la lisent en LECTURE SEULE : un
-# diagnostic ne doit jamais pouvoir modifier ce qu'il observe. Les anciens
-# fichiers JSON restent le repli, pour une installation pas encore migree.
+# diagnostic ne doit jamais pouvoir modifier ce qu'il observe.
 
 def _base_panneau():
     return os.path.join(_etat_panneau(), "codelab.db")

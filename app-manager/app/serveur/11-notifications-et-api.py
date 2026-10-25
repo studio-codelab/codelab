@@ -822,41 +822,6 @@ def api_restart(n):
     return jsonify({"ok": True})
 
 
-@flask_app.post("/api/deploy/<n>")
-@require_admin
-@une_action_a_la_fois
-def api_deploy(n):
-    refus = refus_action_protegee(n, "déploiement")
-    if refus:
-        return jsonify({"error": refus}), 403
-    """Build puis mise en ligne, en une action.
-
-    L'enchainement etait a faire a la main en deux entrees de menu, et rien
-    ne rappelait la seconde : on lancait le build, la page ne changeait pas,
-    et on cherchait pourquoi -- le process servait toujours l'ancien dist/.
-
-    L'ordre compte. Le build tourne pendant que l'ancienne version est encore
-    servie, et un build en echec n'arrete rien du tout : on ne remplace une
-    version qui marche que par une version qui compile.
-    """
-    if n not in load():
-        return jsonify({"error": "Application inconnue."}), 404
-    ok, msg = run_build(n)
-    if not ok:
-        return jsonify({"error": msg}), 400
-    # "Deployer" sur une application arretee la met en ligne : c'est le sens
-    # attendu du mot, et l'alternative (builder puis ne rien faire) est
-    # exactement le geste oublie que cette route supprime.
-    marquer_nouvelle_version(n)
-    erreur = restart_app(n) if is_running(n) else start(n)
-    if erreur:
-        # Le build a reussi, la mise en ligne non : la nuance compte, et elle
-        # se perdait entierement -- la route repondait « ok ».
-        return jsonify({"error": "Le build a reussi, mais la mise en ligne a "
-                                 "echoue : " + erreur}), 409
-    return jsonify({"ok": True})
-
-
 @flask_app.post("/api/build/<n>")
 @require_admin
 @une_action_a_la_fois
@@ -1503,9 +1468,9 @@ ICONE_DIAGNOSTIC = (
     '</svg>')
 
 # Mailpit : une enveloppe blanche au trait sur un degrade violet -- l'icone
-# des maquettes de son interface. LE MEME dessin que celui de l'interface
-# Mailpit de CodeLab (dagster/proxy/mailpit-ui/logo.svg) : la tuile et
-# l'application se reconnaissent. Dessin original, pas le logo de Mailpit.
+# des maquettes de son interface. LE MEME dessin que la marque de
+# l'interface Mailpit de CodeLab (dagster/proxy/mailpit-ui/index.html) : la
+# tuile et l'application se reconnaissent. Dessin original, pas le logo de Mailpit.
 # Jamais dans un onglet : l'onglet porte toujours le logo CodeLab.
 ICONE_MAILPIT = (
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-'

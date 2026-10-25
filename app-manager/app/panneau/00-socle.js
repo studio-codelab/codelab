@@ -269,7 +269,6 @@ const ACTIONS = {
   'ap-etat':         n => apChoisirEtat(n),
   'ap-trier':        n => apTrier(n),
   'bw-sujet':        n => { hubMessageCible=n; peindreHub(); },
-  'presentation':    n => ouvrirPresentation(n),
   'menu-app':        (n, d, bouton) => ouvrirMenuApp(n, bouton),
   'menu-ouvrir':     n => actionMenuApp('ouvrir', n),
   'menu-presentation': n => actionMenuApp('presentation', n),
@@ -295,7 +294,6 @@ const ACTIONS = {
   'invitation-renvoyer': id => invRenvoyer(id),
   'invitation-annuler':  id => invAnnuler(id),
   'invitation-copier':   (_, d) => copierLien(d.lien),
-  'param-onglet':    o => paramOnglet(o),
   'appareil-deconnecter': (id, d) => apDeconnecter(id, d.courant==='1'),
   'ver-copier':      () => copierLien(COMMANDES_MAJ, 'Commandes copiées.'),
 };

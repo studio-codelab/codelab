@@ -352,7 +352,7 @@ def test_un_utilisateur_ne_peut_rien_administrer(deux_espaces):
     c = deux_espaces
     assert _connecte(c, "marie", "mot-de-passe-long")["role"] == "utilisateur"
     for methode, route in [("get", "/api/apps"), ("post", "/api/add"),
-                           ("post", "/api/toggle/public"), ("post", "/api/deploy/public"),
+                           ("post", "/api/toggle/public"),
                            ("delete", "/api/app/public"), ("get", "/api/utilisateurs"),
                            ("post", "/api/utilisateurs"), ("get", "/api/alertes"),
                            ("get", "/api/logs/public"),
@@ -2667,8 +2667,10 @@ def test_le_contenu_d_un_mail_ne_touche_jamais_la_page():
 def test_mailpit_a_sa_nouvelle_icone_sur_la_tuile_et_dans_la_page():
     """L'enveloppe blanche sur degrade violet des maquettes : la meme sur la
     tuile du hub et dans la barre de l'interface. Jamais dans un onglet."""
-    logo = _mailpit_ui("logo.svg").strip()
-    assert app.ICONE_MAILPIT == logo
+    # Une seule source pour l'enveloppe : ICONE_MAILPIT. La copie
+    # logo.svg de mailpit-ui, que rien ne servait, est partie.
+    logo = app.ICONE_MAILPIT
+    assert not os.path.exists(os.path.join(_racine_depot(), "dagster", "proxy", "mailpit-ui", "logo.svg"))
     assert "#7c6cf6" in logo and "#4f46e5" in logo
     assert 'fill="none" stroke="#fff"' in logo and 'fill="#fff"' not in logo
     assert _mailpit_ui("logo.png", binaire=True)[:8] == b"\x89PNG\r\n\x1a\n"

@@ -449,9 +449,7 @@ def ouvrir_dans_le_panneau():
     cible = adresse_application(nom)
     titre = titre_de(nom, a)
 
-    def esc(x):
-        return (str(x).replace("&", "&amp;").replace("<", "&lt;")
-                .replace(">", "&gt;").replace('"', "&quot;"))
+    esc = _echapper
     # Un seul passage : une valeur remplacee n'est jamais relue, donc un
     # titre qui contiendrait « __CIBLE__ » reste du texte. Chaque valeur est
     # echappee pour SON contexte (texte, URL, attribut, script) ; dans le
@@ -1375,34 +1373,6 @@ def api_tache_modifier(ident):
     return jsonify({"ok": True})
 
 
-@flask_app.put("/api/taches/ordre")
-@require_admin
-def api_taches_ordre():
-    """Une colonne du tableau, apres un glisser-deposer : {statut, ordre}.
-
-    « ordre » nomme les taches de la colonne de haut en bas -- la plus haute
-    est la plus prioritaire. Une tache venue d'une autre colonne y change de
-    statut. Chaque id doit exister ; la liste ne peut pas en inventer.
-    """
-    d = request.get_json(force=True, silent=True) or {}
-    statut, ordre = d.get("statut"), d.get("ordre")
-    if statut not in STATUTS_TACHE:
-        return jsonify({"error": "Statut inconnu."}), 400
-    if (not isinstance(ordre, list) or not all(isinstance(x, str) for x in ordre)
-            or len(set(ordre)) != len(ordre) or len(ordre) > TACHES_MAX):
-        return jsonify({"error": "Ordre invalide."}), 400
-    with stockage.transaction(DB_FILE) as cx:
-        connues = {r[0] for r in cx.execute("SELECT id FROM taches")}
-        if not set(ordre) <= connues:
-            return jsonify({"error": "La liste nomme une tâche inconnue."}), 409
-        for rang, tid in enumerate(ordre):
-            cx.execute("UPDATE taches SET statut = ?, faite = ?, ordre = ?, "
-                       "fait_le = CASE WHEN ? = 'fait' THEN COALESCE(fait_le, ?) ELSE NULL END "
-                       "WHERE id = ?",
-                       (statut, 1 if statut == "fait" else 0, rang, statut, int(time.time()), tid))
-    return jsonify({"ok": True})
-
-
 @flask_app.put("/api/taches/plan")
 @require_admin
 def api_taches_plan():
@@ -1679,21 +1649,6 @@ def api_projet_modifier(ident):
                        (*valeurs, ident)).rowcount
     if not n:
         return jsonify({"error": "Projet introuvable."}), 404
-    return jsonify({"ok": True})
-
-
-@flask_app.put("/api/projets/ordre")
-@require_admin
-def api_projets_ordre():
-    ordre = (request.get_json(force=True, silent=True) or {}).get("ordre")
-    if not isinstance(ordre, list) or not all(isinstance(x, str) for x in ordre):
-        return jsonify({"error": "Ordre invalide."}), 400
-    with stockage.transaction(DB_FILE) as cx:
-        connus = {r[0] for r in cx.execute("SELECT id FROM projets")}
-        if set(ordre) != connus or len(ordre) != len(connus):
-            return jsonify({"error": "La liste ne correspond pas aux projets."}), 409
-        for rang, pid in enumerate(ordre):
-            cx.execute("UPDATE projets SET ordre = ? WHERE id = ?", (rang, pid))
     return jsonify({"ok": True})
 
 

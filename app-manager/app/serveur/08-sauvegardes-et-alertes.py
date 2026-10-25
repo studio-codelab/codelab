@@ -501,7 +501,6 @@ def demarrer_les_sauvegardes():
 #   le coffre (reglages chiffres de la base) : l'interrupteur et les
 #     destinataires. Une adresse n'est pas un secret, mais c'est une donnee
 #     personnelle, et rien n'est en clair sur le disque (regle 16).
-BLOC_ALERTES = "codelab-alertes"
 
 # Nombre de lignes de journal jointes au mail. Assez pour reconnaitre une
 # trace d'exception, pas assez pour rendre le mail illisible sur telephone.
