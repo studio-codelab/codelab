@@ -343,7 +343,7 @@ function peindreSauvegardes(d){
   }else{
     pill.className='pill '+(d.alerte_hors_serveur ? 'warn' : 'on');
     pill.innerHTML='<i></i>'+(d.alerte_hors_serveur ? 'Sur ce serveur seulement' : 'Actives');
-    $('sg-resume').textContent='Toutes les '+d.toutes_les_heures+' h, les '+d.gardees+' dernières gardées. '
+    $('sg-resume').textContent='Toutes les '+d.toutes_les_heures+' h, '+(d.gardees>1 ? 'les '+d.gardees+' dernières gardées. ' : 'la dernière seule gardée. ')
       + (derniere ? 'Dernière : '+ilYA(derniere.date)+'.' : 'Aucune pour le moment.')
       + (d.derniere_copie ? ' Copiée hors du serveur '+ilYA(d.derniere_copie)+'.' : '');
   }

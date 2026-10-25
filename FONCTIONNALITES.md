@@ -553,10 +553,12 @@ Détails : [`postgres/README.md`](postgres/README.md).
 
 | Sauvegarde | Fréquence | Gardées | Écrite par |
 |---|---|---|---|
-| Chaque base Postgres (`base-<nom>-<date>.dump`) | quotidienne | 7 | `codelab-postgres` |
-| État du panneau (`panneau-<date>.tar.gz`) | quotidienne | 7 | `codelab-app-manager` |
-| Code de `/workspace` (`workspace-<date>.tar.gz`) | hebdomadaire | 4 | `codelab-app-manager` |
+| Chaque base Postgres (`base-<nom>-<date>.dump`) | quotidienne | la dernière | `codelab-postgres` |
+| État du panneau (`panneau-<date>.tar.gz`) | quotidienne | la dernière | `codelab-app-manager` |
+| Code de `/workspace` (`workspace-<date>.tar.gz`) | hebdomadaire | la dernière | `codelab-app-manager` |
 
+- **La dernière seule**, pour ne pas encombrer le disque. L'ancienne ne part qu'une fois la nouvelle
+  écrite et relue : il en reste toujours une valide. Copie-la ailleurs pour remonter plus loin.
 - **Chaque archive est relue** avant d'être gardée.
 - **Restauration d'essai** quotidienne de chaque base dans une base jetable.
 - **Procédures de restauration** écrites, commandes comprises.

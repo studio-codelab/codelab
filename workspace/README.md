@@ -162,6 +162,6 @@ docker exec codelab-dev rm -f /workspace/.codelab/permissions-v1 && docker resta
 
 ## Sauvegarde du code
 
-`codelab-app-manager` archive `/workspace` chaque semaine (`workspace-<date>.tar.gz`, quatre gardées).
+`codelab-app-manager` archive `/workspace` chaque semaine (`workspace-<date>.tar.gz`, la dernière seule).
 L'archive exclut les dépendances, les builds, les caches et les fichiers de plus de 50 Mo. Git reste
 la vraie sauvegarde du code.

@@ -208,8 +208,8 @@ Le panneau occupe 50 à 100 Mo en mémoire. Ce qui coûte cher, et ce qu'il ne f
 
 | Archive | Fréquence | Gardées | Réglage |
 |---|---|---|---|
-| `panneau-<date>.tar.gz` : état du panneau, avec un instantané SQLite cohérent ; ni journaux ni `credentials.env` | `APP_MANAGER_SAUVEGARDE_HEURES` (24) | `APP_MANAGER_SAUVEGARDES_GARDEES` (7) | `APP_MANAGER_SAUVEGARDES` (`/sauvegardes`) |
-| `workspace-<date>.tar.gz` : code des projets, sans dépendances, builds, caches ni fichiers de plus de 50 Mo | `APP_MANAGER_WORKSPACE_JOURS` (7 jours) | 4 | — |
+| `panneau-<date>.tar.gz` : état du panneau, avec un instantané SQLite cohérent ; ni journaux ni `credentials.env` | `APP_MANAGER_SAUVEGARDE_HEURES` (24) | `APP_MANAGER_SAUVEGARDES_GARDEES` (1, la dernière) | `APP_MANAGER_SAUVEGARDES` (`/sauvegardes`) |
+| `workspace-<date>.tar.gz` : code des projets, sans dépendances, builds, caches ni fichiers de plus de 50 Mo | `APP_MANAGER_WORKSPACE_JOURS` (7 jours) | 1, la dernière | — |
 
 Chaque archive est en `0600` et relue avant d'être gardée. Pour restaurer, voir
 [`postgres/README.md`](../postgres/README.md#restaurer-létat-du-panneau).
