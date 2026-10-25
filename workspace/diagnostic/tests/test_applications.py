@@ -226,6 +226,46 @@ def test_un_logo_depose_vit_dans_le_dossier_du_projet(logo):
 
 
 
+def test_l_icone_ne_suit_pas_un_lien_vers_un_secret(logo, tmp_path):
+    """Le panneau lit en root ; le dossier d'un projet est ecrit par
+    l'application, du code arbitraire. Un « icon.png » en lien vers
+    credentials.env faisait servir les secrets de la stack par /api/icon
+    -- a tout compte qui voit l'application (regle 19)."""
+    c, projet = logo
+    secret = tmp_path / "credentials.env"
+    secret.write_text("APP_MANAGER_ADMIN_PASSWORD=ne-doit-pas-sortir\n", encoding="utf-8")
+    (projet / "icon.png").symlink_to(secret)
+    (projet / "logo.png").symlink_to("/dev/zero")     # ni un tube, ni un peripherique
+    r = c.get("/api/icon/site")
+    assert r.status_code == 200
+    assert b"ne-doit-pas-sortir" not in r.data
+    assert r.mimetype == "image/svg+xml"              # l'initiale, faute d'icone sure
+    # Un vrai fichier, lui, est servi.
+    (projet / "favicon.png").write_bytes(_png())
+    r = c.get("/api/icon/site")
+    assert r.data == _png() and r.mimetype == "image/png"
+    assert app.lire_icone(str(projet))[1] == "favicon.png"
+
+
+def test_envoyer_un_logo_n_ecrit_pas_a_travers_un_lien(logo, tmp_path):
+    """L'ecriture passait par un nom fixe, « icon.png.tmp » : pose d'avance
+    en lien vers credentials.env, il etait suivi, et l'envoi d'un logo
+    ecrasait le fichier vise en root."""
+    c, projet = logo
+    secret = tmp_path / "credentials.env"
+    secret.write_text("intact\n", encoding="utf-8")
+    for nom in ("icon.png.tmp", "icon.png"):
+        (projet / nom).symlink_to(secret)
+    r = c.put("/api/app/site/logo", data=_png(), content_type="image/png")
+    assert r.status_code == 200, r.data
+    assert secret.read_text(encoding="utf-8") == "intact\n"
+    assert not (projet / "icon.png").is_symlink()
+    assert (projet / "icon.png").read_bytes() == _png()
+    assert not [p for p in projet.iterdir() if p.name.startswith(".icon-")]
+
+
+
+
 def test_un_svg_est_refuse(logo):
     """Une image SVG est un document qui peut porter du script. Servie par
     /api/icon, donc dans l'origine du panneau, elle l'executerait la."""

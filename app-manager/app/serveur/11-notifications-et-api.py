@@ -1336,18 +1336,27 @@ def api_logo(n):
             except OSError:
                 pass
     cible = os.path.join(dossier, "icon." + ext)
-    tmp = cible + ".tmp"
+    # UN FICHIER TEMPORAIRE NEUF, JAMAIS UN NOM FIXE. Le panneau ecrit en root
+    # dans un dossier que l'application ecrit aussi : un « icon.png.tmp »
+    # pose d'avance en lien vers credentials.env etait suivi, et l'envoi d'un
+    # logo ecrasait le fichier vise. mkstemp cree un nom au hasard avec
+    # O_EXCL, qui ne suit aucun lien ; os.replace remplace ensuite l'entree
+    # du dossier, jamais la cible d'un lien. Voir lire_icone, l'autre sens.
+    tmp = None
     try:
-        with open(tmp, "wb") as f:
+        fd, tmp = tempfile.mkstemp(prefix=".icon-", suffix=".tmp", dir=dossier)
+        with os.fdopen(fd, "wb") as f:
             f.write(donnees)
+            # Le fichier appartient au projet : il doit rester modifiable
+            # depuis une session SSH comme le reste de son dossier.
+            os.fchmod(f.fileno(), 0o664)
         os.replace(tmp, cible)
-        # Le fichier appartient au projet : il doit rester modifiable depuis
-        # une session SSH comme le reste de son dossier.
-        try:
-            os.chmod(cible, 0o664)
-        except OSError:
-            pass
     except OSError as e:
+        if tmp:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
         return jsonify({"error": f"Écriture impossible : {e}"}), 500
     journaliser("logo", qui=utilisateur_courant() or NOM_ADMIN, app=n,
                 action="depose", ip=_adresse_client())
@@ -2093,17 +2102,20 @@ def _api_icon(n):
         return Response(default_icon_svg(n), mimetype="image/svg+xml")
     apps = load()
     a = apps.get(n)
-    icon_path = find_icon(a["path"]) if a else None
-    if not icon_path and n in ICONES_PAR_DEFAUT:
+    icone = lire_icone(a["path"]) if a else None
+    if not icone and n in ICONES_PAR_DEFAUT:
         return Response(ICONES_PAR_DEFAUT[n], mimetype="image/svg+xml",
                         headers={"X-Content-Type-Options": "nosniff"})
-    if icon_path:
+    if icone:
         # UNE IMAGE, ET RIEN QUE CA. Ce chemin sert un fichier pris dans le
         # dossier d'un projet, dans l'ORIGINE DU PANNEAU. Un SVG depose a la
         # main y executerait son script : la politique ci-dessous le rend
         # inerte, et nosniff empeche le navigateur de deviner un autre type
-        # que celui annonce.
-        reponse = send_file(icon_path)
+        # que celui annonce. Le fichier, lui, est lu sans suivre de lien
+        # (lire_icone).
+        octets, nom = icone
+        reponse = Response(octets, mimetype=mimetypes.guess_type(nom)[0]
+                           or "application/octet-stream")
         reponse.headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'"
         reponse.headers["X-Content-Type-Options"] = "nosniff"
         return reponse

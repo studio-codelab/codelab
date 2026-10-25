@@ -676,13 +676,9 @@ def webapp_icone(a):
     matricielle. Le logo depose dans le projet sert s'il en est une (PNG ou
     JPEG, reconnu a sa signature) ; sinon, le logo CodeLab.
     """
-    chemin = find_icon(a["path"]) if a.get("path") else None
-    if chemin:
-        try:
-            with open(chemin, "rb") as f:
-                octets = f.read()
-        except OSError:
-            octets = b""
+    icone = lire_icone(a["path"]) if a.get("path") else None
+    if icone:
+        octets = icone[0]
         for signature, type_mime in ((b"\x89PNG\r\n\x1a\n", "image/png"),
                                      (b"\xff\xd8\xff", "image/jpeg")):
             if octets.startswith(signature):
