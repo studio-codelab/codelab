@@ -679,6 +679,24 @@ def test_le_planning_s_ordonne_et_une_tache_se_scinde(boite):
 
 
 
+def test_messages_revient_a_codelab_comme_les_autres_applications(boite):
+    """Vecu : « Fais en sorte que le retour CodeLab dans l'app Messages soit
+    pareil que les autres applications ». Elle avait son propre lien
+    « ← Hub » ; elle porte desormais le ruban du proxy, le meme octet pour
+    octet, et sa colonne laisse la place dessous."""
+    c, _ = boite
+    page = c.get("/messages").get_data(as_text=True)
+    assert app.ruban_retour().decode() in page
+    assert page.count('id="codelab-ruban"') == 1
+    assert "← Hub" not in page
+    # Le ruban se pose au-dessus de la barre de geste, comme dans une
+    # application, ou environnement-app.js pose ces bords.
+    assert "--codelab-bord-bas:env(safe-area-inset-bottom" in page
+    assert "calc(72px + var(--codelab-bord-bas))" in page
+
+
+
+
 def test_l_application_messages_est_reservee_a_l_administrateur(boite, deux_espaces):
     c, _ = boite
     r = c.get("/messages/planning")

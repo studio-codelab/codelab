@@ -308,6 +308,7 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
 - **Le bouton « ← CodeLab »**, posé sur chaque page, est replié par défaut : une flèche au bord
   gauche de l'écran, en bas (30 × 46 px). Un appui le déplie ; il n'a pas de bouton pour se
   replier : faute d'appui, il se replie seul au bout de 10 secondes. L'application garde sa place.
+  Messages, Mailpit et Dagster portent le même.
 - **Ouverte depuis le hub installé**, l'application suit **son manifeste**, comme le ferait le
   système : son fond et sa barre peignent l'écran avant sa première image, et son orientation
   (paysage, libre) tourne l'écran sur Android. Sur iPhone, l'écran suit le verrou du Centre de

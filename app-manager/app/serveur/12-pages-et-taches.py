@@ -368,6 +368,12 @@ def page_messagerie(**_):
     if not est_admin():
         return index()
     page = MESSAGERIE_PAGE.replace("__JETON__", _json_dans_un_script(jeton_session()))
+    # LE MEME RETOUR QUE LES AUTRES APPLICATIONS. Vecu : « Fais en sorte que
+    # le retour CodeLab dans l'app Messages soit pareil que les autres
+    # applications ». Elle avait son propre lien « ← Hub » dans sa colonne ;
+    # elle porte desormais le ruban que le proxy glisse dans chaque
+    # application (ruban_retour), au meme endroit et avec le meme geste.
+    page = page.replace("</body>", ruban_retour().decode() + "</body>", 1)
     return Response(avec_style(page), mimetype="text/html")
 
 
