@@ -1894,8 +1894,7 @@ def test_les_sous_taches_se_priorisent(boite):
     assert c.put(f"/api/taches/{tache}/ordre", json={"ordre": [a, b, "x"]}).status_code == 409
     assert c.put(f"/api/taches/{tache}/ordre", json={"ordre": "abc"}).status_code == 400
     assert c.put("/api/taches/inconnue/ordre", json={"ordre": []}).status_code == 404
-    page = _page_panneau("dashboard.html")
-    page = _page_panneau("messages.html")
+    page = _page_panneau(PAGE_MESSAGES)
     assert "/ordre','PUT'" in page and 'data-agir="sous-monter"' in page
 
 

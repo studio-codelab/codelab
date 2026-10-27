@@ -3067,7 +3067,7 @@ def test_rendre_le_focus_ne_fait_pas_sauter_la_page():
     defilait jusqu'a lui."""
     page = _page_panneau("dashboard.html")
     assert "gardes[actif].focus({preventScroll:true})" in page
-    messages = _page_panneau("messages.html")
+    messages = _page_panneau(PAGE_MESSAGES)
     assert "if(performance.now()-defileLe < 1500) return;" in messages
     assert "n.focus({preventScroll:true}); try{" in messages
 

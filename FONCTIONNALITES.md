@@ -29,7 +29,7 @@ détaillée. La sécurité a son propre document : [`SECURITE.md`](SECURITE.md).
 | Vue d'ensemble | `/apercu` | admin | compteurs (en ligne, arrêtées, en erreur), charge CPU et mémoire |
 | Applications | `/applications`, `/applications/<nom>[/<onglet>]` | admin | liste, puis fiche d'une application |
 | Utilisateurs | `/utilisateurs` | admin | comptes, invitations, journal des accès, carte d'activité |
-| Messages | `/messages`, `/messages/planning`, `/messages/feuille`, `/messages/projet/<id>` | admin | application à part, ouverte depuis sa tuile du hub (voir § 5) |
+| Messages | `/messages` (redirige vers l'application) ; l'application sur `:9002/messages/`, vues `?vue=planning`, `?vue=feuille`, `?vue=projet&cle=<id>` | admin | application à part, ouverte depuis sa tuile du hub (voir § 5) |
 | Paramètres | `/parametres/<onglet>` | tous | onglets selon le rôle (voir plus bas) |
 
 - **Une seule application pour tous les rôles.** Le rôle décide de ce que le menu propose. Chaque
@@ -428,8 +428,15 @@ Détails : [`mailpit/README.md`](mailpit/README.md).
 ## 5. Messages : boîte de réception, projets, planning, feuille de route
 
 Une application du hub, au même rang que Dagster, Mailpit et le diagnostic, réservée à
-l'administrateur. Sa tuile (deux bulles de conversation) porte le nombre de messages non lus. Servie
-par le panneau sur `/messages` : même session, mêmes contrôles d'accès, même base.
+l'administrateur. Sa tuile (deux bulles de conversation) porte le nombre de messages non lus.
+
+C'est un projet à part entière, comme le Diagnostic : son dossier (`/workspace/messages`), son
+processus, sa base Postgres, et le port des applications, avec le ruban « ← CodeLab » de toutes les
+applications. Le hub y écrit pour chaque compte ; l'application ne s'arrête pas et ne se supprime
+pas. Les messages, tâches et projets d'une installation plus ancienne y passent d'eux-mêmes au
+premier démarrage (voir [`workspace/messages/README.md`](workspace/messages/README.md)).
+Si elle redémarre, le hub dit « Messages ne répond pas pour l'instant » et l'envoi se refait un instant
+plus tard.
 
 - **Écrire un message** (tout compte) : dans sa rubrique **Messages** (`/messages`, une entrée du menu, de la
   barre du bas au téléphone ; ce n'est plus un onglet des paramètres), ou le widget « Écrire à
@@ -454,7 +461,7 @@ par le panneau sur `/messages` : même session, mêmes contrôles d'accès, mêm
     leur nombre ; ouvrir la liste les marque vus.
   - Le widget Bento « Mes messages » résume le tout sur le hub (dans la composition par défaut).
   - Un compte ne voit que ses propres messages.
-- **Boîte de réception** (`/messages`) : à classer, tous, archivés ; filtre par sujet et recherche.
+- **Boîte de réception** : à classer, tous, archivés ; filtre par sujet et recherche.
   - Les messages se rangent à la main (glisser par la poignée, ou flèches ↑ ↓ au clavier) ; un message
     neuf arrive en tête.
   - Chacun se range dans un projet (existant ou créé à la volée), devient une tâche, s'archive ou se
@@ -462,7 +469,7 @@ par le panneau sur `/messages` : même session, mêmes contrôles d'accès, mêm
   - **Regrouper** : plusieurs messages choisis forment un projet, neuf ou existant. Le panneau
     **suggère** les messages qui semblent parler de la même chose (mots communs) ; une suggestion
     s'accepte ou s'ignore.
-- **Planning** (`/messages/planning`) : toutes les tâches ouvertes, dans l'ordre où on veut les
+- **Planning** : toutes les tâches ouvertes, dans l'ordre où on veut les
   faire. **La priorité est la place dans la liste**, pas une étiquette d'urgence.
   - Glisser (ou ↑ ↓) pour réordonner ; filtre par projet ; ajout rapide d'une tâche.
   - Une tâche a une **date prévue facultative** et une **durée** en jours ouvrés (1 par défaut).
@@ -470,14 +477,14 @@ par le panneau sur `/messages` : même session, mêmes contrôles d'accès, mêm
   - **Scinder** une tâche en plusieurs (une ligne par tâche, sous-tâches reprises au besoin) : les
     nouvelles la suivent dans le planning, la durée se partage.
   - Cocher une tâche la marque faite et date sa fin ; les tâches faites se replient en bas.
-- **Feuille de route** (`/messages/feuille`) : le planning posé sur un calendrier de jours ouvrés.
+- **Feuille de route** : le planning posé sur un calendrier de jours ouvrés.
   - *Aujourd'hui* : en retard, aujourd'hui, ensuite, fait aujourd'hui.
   - *Semaines* : huit semaines, du lundi au vendredi, chaque tâche sur ses jours.
   - *Mois* : une frise sur 1, 3, 6 ou 12 mois, une ligne par projet.
   - Une tâche datée se place à sa date ; les tâches sans date se suivent dans l'ordre du planning à
     partir d'aujourd'hui. **Tant qu'une tâche n'est pas cochée, elle glisse avec le temps** : une
     date dépassée la ramène à aujourd'hui, marquée « en retard ».
-- **Projets** (`/messages/projet/<id>`, listés dans la barre latérale) : leurs tâches (dans l'ordre du
+- **Projets** (listés dans la barre latérale) : leurs tâches (dans l'ordre du
   planning, réordonnables), leurs messages, leur avancement, leur étape (*idée*, *en construction*,
   *réalisé*) et l'application liée. Supprimer un projet ne perd rien : ses tâches passent dans
   « Général », ses messages redeviennent à classer.

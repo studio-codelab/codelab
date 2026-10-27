@@ -135,8 +135,9 @@ function showSection(name){
      cote -- c'est ce qui evite qu'un clic egare mene a une page vide et a des
      appels refuses. */
   if(!estAdmin && name!=='hub' && name!=='parametres' && name!=='message') name='hub';
-  /* L'administrateur lit les messages dans l'application Messages. */
-  if(estAdmin && name==='message'){ location.href='/messages'; return; }
+  /* L'administrateur lit les messages dans l'application Messages, ouverte
+     comme toute application (encadree dans le panneau installe). */
+  if(estAdmin && name==='message'){ location.href=lienOuverture({name:'messages'}); return; }
   fermerMenuMobile();
   document.querySelectorAll('.section').forEach(s=>{ s.style.display = (s.id==='sec-'+name) ? '' : 'none'; });
   /* La fiche d'une application appartient a "Applications" : l'entree du menu

@@ -68,6 +68,11 @@ Le panneau la redémarre seul. Une alerte par mail part quand elle ne redémarre
 5. **« Le port … est encore tenu »** : un reste de l'application tient son port. Le panneau termine
    d'office ce qui reste d'une application morte avant de la relancer ; si le message persiste,
    `docker restart codelab-app-manager` libère tous les ports, ou change le port dans la fiche.
+6. **Messages ne répond pas** (« Messages ne répond pas pour l'instant » dans le hub) : c'est une
+   application comme une autre, sa fiche et son journal (`logs/messages.log`) disent pourquoi. Le
+   plus souvent, sa base : « La base de Messages ne répond pas » veut dire Postgres arrêté, ou le
+   pilote absent (relance son build). Ses données sont dans la base `messages` ; celles d'avant
+   la séparation restent dans `codelab.db` tant qu'elles n'y sont pas toutes arrivées.
 
 ## 4. Un compte a été piraté, ou un appareil perdu
 

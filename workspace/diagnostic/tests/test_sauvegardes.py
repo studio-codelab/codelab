@@ -585,7 +585,7 @@ def test_mailpit_est_dans_la_stack_ferme_et_derriere_le_proxy():
     racine = _racine_depot()
     ci = open(os.path.join(racine, ".github", "workflows", "build-images.yml"),
               encoding="utf-8").read()
-    assert "name: codelab-mailpit" in ci and '"mailpit/**"' in ci
+    assert "codelab-mailpit mailpit/Dockerfile mailpit/" in ci and '"mailpit/**"' in ci
     conf = open(os.path.join(racine, "dagster", "proxy", "mailpit.conf"), encoding="utf-8").read()
     emplacement = conf[conf.index("location / {"):]
     # L'autorisation du panneau d'abord, puis le mot de passe interne.

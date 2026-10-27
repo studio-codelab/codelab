@@ -1304,8 +1304,8 @@ def tenir_les_applications_par_defaut():
         if not (a.get("titre") or "").strip():
             a["titre"] = TITRES_PAR_DEFAUT[nom]
             change = True
-        if nom == DIAGNOSTIC_NOM and not (a.get("description") or "").strip():
-            a["description"] = DIAGNOSTIC_DESCRIPTION
+        if nom in PROJETS_PAR_DEFAUT and not (a.get("description") or "").strip():
+            a["description"] = PROJETS_PAR_DEFAUT[nom]
             change = True
     if change:
         save(apps)
@@ -1543,8 +1543,8 @@ def start_monitor_thread():
             except Exception as e:
                 print(f"[app-manager] erreur dans les alertes : {e}", flush=True)
             try:
-                suivi_push_tick()
+                messagerie_tick()
             except Exception as e:
-                print(f"[app-manager] erreur dans les notifications de suivi : {e}", flush=True)
+                print(f"[app-manager] erreur dans la messagerie : {e}", flush=True)
     t = threading.Thread(target=_loop, daemon=True)
     t.start()

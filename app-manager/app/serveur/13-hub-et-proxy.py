@@ -8,7 +8,7 @@
 #             rang, apres les morceaux qui le precedent. Une frontiere ne
 #             coupe jamais une fonction ; une section nouvelle va dans le
 #             morceau de son sujet.
-# STRUCTURE   versions et ouvertures, composition du hub, proxy, laissez-passer de tournage, application qu'on ne peut pas ouvrir, inscription du diagnostic.
+# STRUCTURE   versions et ouvertures, composition du hub, proxy, laissez-passer de tournage, application qu'on ne peut pas ouvrir, inscription des projets par defaut.
 #
 
 # ------------------- versions des applications, et ouvertures -------------------
@@ -1443,34 +1443,37 @@ def page_application_fermee(name, a, muette=False):
                             "Démarre-la depuis sa fiche.")
 
 
-# --------------------- inscription du projet de diagnostic ---------------------
+# ------------------- inscription des projets par defaut -------------------
 #
-# Le conteneur dagster depose le projet "diagnostic" dans /workspace au premier
-# demarrage de la stack ; il fallait ensuite l'ajouter a la main dans le
-# panneau, en recopiant deux commandes depuis son README. C'est la seule etape
-# manuelle qui separait une stack fraiche d'une stack verifiee -- et c'est
-# precisement celle qu'on saute quand on est presse, donc celle qui manque le
-# jour ou quelque chose ne marche pas.
+# Le conteneur dagster depose les projets "diagnostic" et "messages" dans
+# /workspace ; il fallait ensuite les ajouter a la main dans le panneau, en
+# recopiant deux commandes depuis leur README. C'est l'etape qu'on saute
+# quand on est presse, donc celle qui manque le jour ou quelque chose ne
+# marche pas.
 #
-# Le projet est donc inscrit tout seul, et il l'est a CHAQUE demarrage --
-# voir amorcer_diagnostic(), qui dit pourquoi ce n'est plus une amorce jouee
-# une seule fois. Une seule condition subsiste : le dossier doit exister.
+# Ils sont donc inscrits tout seuls, a CHAQUE demarrage -- voir
+# amorcer_projet(), qui dit pourquoi ce n'est plus une amorce jouee une
+# seule fois. Une seule condition subsiste : le dossier doit exister.
 # app-manager et dagster demarrent en parallele, c'est dagster qui amorce
 # /workspace, et on ne peut pas inscrire un chemin qui n'est pas la.
 
-# Les deux commandes du README du projet, pas une detection automatique :
-# detect_project() proposerait bien "python3 app.py", mais rendrait une
-# commande de build vide (il cherche un requirements.txt, que ce projet n'a
-# pas), et l'application demarrerait sans pilote Postgres.
-DIAGNOSTIC_COMMANDE = "python3 app.py"
-DIAGNOSTIC_BUILD = 'pip install --target vendor "psycopg[binary]"'
-def amorcer_diagnostic():
-    """Inscrit le projet de diagnostic et le configure. A CHAQUE demarrage.
+# Les deux commandes du README de chaque projet, pas une detection
+# automatique : detect_project() proposerait bien "python3 app.py", mais
+# rendrait une commande de build vide (il cherche un requirements.txt, que
+# ces projets n'ont pas), et l'application demarrerait sans pilote Postgres.
+COMMANDE_PAR_DEFAUT = "python3 app.py"
+BUILD_PAR_DEFAUT = 'pip install --target vendor "psycopg[binary]"'
+PROJETS_PAR_DEFAUT = {DIAGNOSTIC_NOM: DIAGNOSTIC_DESCRIPTION,
+                      MESSAGERIE_NOM: MESSAGERIE_DESCRIPTION}
 
-    CE QUI A CHANGE. L'inscription etait une amorce a jouer UNE FOIS : elle
-    ne se declenchait que sur un registre vide, et un marqueur sur le disque
-    l'empechait de se rejouer. Trois facons de se retrouver sans diagnostic
-    en decoulaient, et aucune ne se voyait :
+
+def amorcer_projet(nom):
+    """Inscrit un projet par defaut et le configure. A CHAQUE demarrage.
+
+    CE QUI A CHANGE. L'inscription du diagnostic etait une amorce a jouer
+    UNE FOIS : elle ne se declenchait que sur un registre vide, et un
+    marqueur sur le disque l'empechait de se rejouer. Trois facons de se
+    retrouver sans diagnostic en decoulaient, et aucune ne se voyait :
 
       - le dossier n'etait pas encore la (dagster amorce /workspace, et les
         deux conteneurs demarrent en parallele) et une autre application
@@ -1479,32 +1482,28 @@ def amorcer_diagnostic():
       - une installation d'avant l'existence du diagnostic gardait un
         registre non vide, donc ne l'a jamais recu.
 
-    Ce n'est plus une amorce, c'est un invariant : le diagnostic est une
-    application PAR DEFAUT, au meme titre que Dagster. Elle ne se supprime
-    pas (est_app_par_defaut la protege), ne se configure pas, ne s'arrete
-    pas -- le marqueur qui evitait de la reinscrire n'a donc plus rien a
-    eviter.
+    Ce n'est plus une amorce, c'est un invariant : un projet par defaut ne
+    se supprime pas (est_app_par_defaut le protege), ne se configure pas, ne
+    s'arrete pas.
 
     Renvoie le nom si l'inscription vient d'avoir lieu (il reste a builder
     et a lancer), None si elle etait deja la ou si le dossier manque encore.
     """
-    chemin = os.path.join(ROOT, DIAGNOSTIC_NOM)
+    chemin = os.path.join(ROOT, nom)
     if not os.path.isfile(os.path.join(chemin, "app.py")):
         # Pas encore amorce par dagster : on retentera au prochain demarrage.
-        # C'est maintenant vrai a chaque fois, et non plus seulement tant que
-        # le registre reste vide.
         return None
 
     apps = load()
-    a = apps.get(DIAGNOSTIC_NOM)
+    a = apps.get(nom)
     if a is not None:
-        # Deja inscrite : on ne recree rien, on remet seulement ce qui doit
+        # Deja inscrit : on ne recree rien, on remet seulement ce qui doit
         # etre vrai. Le chemin et la commande ne sont pas configurables pour
-        # cette application-la ; les laisser deriver n'apporterait rien.
+        # ces applications-la ; les laisser deriver n'apporterait rien.
         change = False
         for cle, valeur in (("path", chemin),
-                            ("command", DIAGNOSTIC_COMMANDE),
-                            ("build_command", DIAGNOSTIC_BUILD)):
+                            ("command", COMMANDE_PAR_DEFAUT),
+                            ("build_command", BUILD_PAR_DEFAUT)):
             if a.get(cle) != valeur:
                 a[cle] = valeur
                 change = True
@@ -1515,29 +1514,28 @@ def amorcer_diagnostic():
             save(apps)
         return None
 
-    apps[DIAGNOSTIC_NOM] = {
-        "titre": TITRES_PAR_DEFAUT[DIAGNOSTIC_NOM],
+    apps[nom] = {
+        "titre": TITRES_PAR_DEFAUT[nom],
         "path": chemin,
-        "command": DIAGNOSTIC_COMMANDE,
+        "command": COMMANDE_PAR_DEFAUT,
         "port": next_port(apps),
         "enabled": True,
         # La commande de build EST la configuration par defaut : sans elle,
         # la fiche n'ayant pas de formulaire, le pilote Postgres ne
         # s'installait sur ordre de personne.
-        "build_command": DIAGNOSTIC_BUILD,
+        "build_command": BUILD_PAR_DEFAUT,
         "max_memory_mb": None,
-        "description": DIAGNOSTIC_DESCRIPTION,
-        # Privee : la page nomme les conteneurs, l'utilisateur SSH et l'etat de
-        # la base. Rien de secret, mais rien non plus a offrir a un visiteur
-        # anonyme le jour ou le port 9001 est publie. L'utilisateur peut la
-        # rendre publique en un clic depuis le panneau.
+        "description": PROJETS_PAR_DEFAUT[nom],
+        # Privee, et reservee a l'administrateur (peut_voir) : le diagnostic
+        # nomme les conteneurs et l'etat de la base, Messages porte les mots
+        # que les comptes adressent a l'administrateur.
         "visibility": VISIBILITE_PRIVEE,
     }
     save(apps)
-    return DIAGNOSTIC_NOM
+    return nom
 
 
-def _preparer_diagnostic(name):
+def preparer_projet(name):
     """Build puis demarrage, en tache de fond.
 
     Le build installe le pilote Postgres (quelques secondes a quelques
@@ -1546,9 +1544,9 @@ def _preparer_diagnostic(name):
     interface depuis laquelle on peut constater ce qui se passe.
 
     Un build en echec (pas de reseau, miroir pip injoignable) n'empeche pas le
-    demarrage : l'application affiche alors "aucun pilote Postgres" sur la
-    ligne concernee et toutes les autres sondes repondent normalement. Une
-    page qui explique ce qui manque vaut mieux qu'une application absente.
+    demarrage : le diagnostic affiche alors "aucun pilote Postgres" sur la
+    ligne concernee, Messages dit que sa base ne repond pas. Une page qui
+    explique ce qui manque vaut mieux qu'une application absente.
 
     LE BUILD MANQUAIT. Ce texte decrivait « build puis demarrage » depuis le
     debut, et la fonction ne faisait que demarrer : la commande de build

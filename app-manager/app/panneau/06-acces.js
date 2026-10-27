@@ -97,7 +97,7 @@ async function notifEssai(bouton){
    message pour un compte. Rien la ou le navigateur ne la connait pas. */
 function majPastilleIcone(){
   if(!('setAppBadge' in navigator)) return;
-  const n = estAdmin ? ((hubServices.find(s=>s.name==='messages')||{}).non_lues||0) : (mesNouveaux||0);
+  const n = estAdmin ? nonLuesMessages() : (mesNouveaux||0);
   try{ (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(()=>{}); }catch(e){}
 }
 /* INSTALLER CODELAB, depuis le navigateur. Chrome, Edge et Android le

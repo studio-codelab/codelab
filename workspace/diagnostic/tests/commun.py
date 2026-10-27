@@ -220,7 +220,7 @@ def _lancer_codelab(tmp_path, args, env_sup=None):
 
 
 
-_DEBUT_RECONCILIATION = "# ------------------- mise a jour des fichiers non modifies"
+_DEBUT_RECONCILIATION = "# --------------------- les projets par defaut, toujours la"
 
 
 _FIN_RECONCILIATION = "# ----------------------- abandon des privileges"
@@ -580,6 +580,8 @@ def _page_panneau(nom):
     """
     if nom == "app.py":
         return _source_du_panneau()
+    if nom == PAGE_MESSAGES:
+        return open(os.path.join(DOSSIER_MESSAGES, "index.html"), encoding="utf-8").read()
     texte = open(os.path.join(DOSSIER_PANNEAU, "app", nom), encoding="utf-8").read()
     if nom == "dashboard.html":
         balise = '<script src="/panneau.js?v=__PANNEAU_VERSION__"></script>'
@@ -1097,12 +1099,76 @@ def _admin(client):
 
 
 def _message(c, cible, texte, app_nom="", qui="marie", quand=None, retenu=False):
-    m = {"id": secrets.token_hex(12), "ts": quand or int(time.time()),
-         "qui": qui, "cible": cible, "app": app_nom, "texte": texte}
-    if retenu:
-        m["retenu"] = True
-    app.enregistrer_message(m)
-    return m["id"]
+    """Range un message dans l'application Messages branchee (appli_messages),
+    sans passer par le hub : pour les tests de la boite, pas du relais."""
+    ident = secrets.token_hex(12)
+    with c.donnees.base() as b:
+        b.executer("INSERT INTO messages (id, ts, qui, cible, app, texte, retenu) "
+                   "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                   (ident, quand or int(time.time()), qui, cible, app_nom, texte,
+                    1 if retenu else 0))
+    return ident
+
+
+DOSSIER_MESSAGES = os.path.join(os.path.dirname(DOSSIER_DIAGNOSTIC), "messages")
+# La page de l'application Messages, lue par _page_panneau comme les pages du
+# panneau : les memes garanties d'affichage la couvrent.
+PAGE_MESSAGES = "messages/index.html"
+_module_messages = {}
+
+
+def _application_messages():
+    """L'application Messages (workspace/messages/app.py), chargee une fois.
+
+    Sous un nom a elle : « app » est deja le panneau dans cette suite."""
+    if "module" not in _module_messages:
+        if not os.path.isfile(os.path.join(DOSSIER_MESSAGES, "app.py")):
+            pytest.skip("projet messages absent de cette installation")
+        spec = importlib.util.spec_from_file_location(
+            "codelab_messages_regression", os.path.join(DOSSIER_MESSAGES, "app.py"))
+        module = importlib.util.module_from_spec(spec)
+        # Son dossier passe en tete de sys.path le temps de l'import (pour
+        # donnees et codelab_auth) : laisse la, il ferait trouver SON app.py a
+        # qui importe celui du diagnostic.
+        avant = list(sys.path)
+        try:
+            spec.loader.exec_module(module)
+        finally:
+            sys.path[:] = avant
+        _module_messages["module"] = module
+    return _module_messages["module"]
+
+
+class ClientMessages:
+    """Un client de l'application Messages qui se presente comme le proxy
+    le ferait : le jeton signe d'un compte (l'administrateur par defaut), et
+    l'en-tete X-Messages que pose la page sur ce qui modifie."""
+
+    def __init__(self, module, sujet="admin", role="admin"):
+        self.module, self.donnees = module, module.donnees
+        self.client = module.app.test_client()
+        self.sujet, self.role = sujet, role
+
+    def entetes(self, en_plus=None):
+        h = {"X-CodeLab-Auth": app.jeton_signe(app.MESSAGERIE_NOM, self.sujet, self.role),
+             "X-Messages": "1"}
+        h.update(en_plus or {})
+        return h
+
+    def open(self, chemin, method="GET", headers=None, **kw):
+        return self.client.open(chemin, method=method, headers=self.entetes(headers), **kw)
+
+    def get(self, chemin, **kw):
+        return self.open(chemin, "GET", **kw)
+
+    def post(self, chemin, **kw):
+        return self.open(chemin, "POST", **kw)
+
+    def put(self, chemin, **kw):
+        return self.open(chemin, "PUT", **kw)
+
+    def delete(self, chemin, **kw):
+        return self.open(chemin, "DELETE", **kw)
 
 
 

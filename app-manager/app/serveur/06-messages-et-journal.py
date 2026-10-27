@@ -1,6 +1,6 @@
 # CodeLab -- LE PANNEAU, MESSAGES ET JOURNAL
 # ---------------------------------------------------------------------------
-# ROLE        la messagerie, les pieces jointes, les applications masquees, le journal des acces, son miroir Postgres, les analyses.
+# ROLE        le dialogue avec l'application Messages, les applications masquees, le journal des acces, son miroir Postgres, les analyses.
 # CHARGE PAR  app.py (MODULES_DU_SERVEUR), dans SA portee : ce fichier n'est
 #             pas un module. Ses noms sont ceux de app, il lit et definit
 #             les memes globales que le reste du panneau.
@@ -8,237 +8,203 @@
 #             rang, apres les morceaux qui le precedent. Une frontiere ne
 #             coupe jamais une fonction ; une section nouvelle va dans le
 #             morceau de son sujet.
-# STRUCTURE   messages, pieces jointes, applications masquees, journal des acces, miroir Postgres, analyses.
+# STRUCTURE   la messagerie (une application), applications masquees, journal des acces, miroir Postgres, analyses.
 #
 
-# ------------------------- messages des utilisateurs -------------------------
+# ---------------------- la messagerie, une application ----------------------
 #
-# Un mot laisse depuis le hub : une remarque sur une application, une
-# remarque sur le hub lui-meme, ou l'idee d'une application qui manque.
+# Un mot laisse depuis le hub : une remarque sur une application, sur le hub
+# lui-meme, ou l'idee d'une application qui manque. Vecu : « L'application
+# Messages doit etre une application a part entiere, exactement comme
+# Diagnostic ». Ses donnees vivaient ici, dans codelab.db ; elles vivent
+# desormais dans le projet /workspace/messages, sa base et son processus.
 #
-# Deux ecritures, comme pour le journal des acces, et pour la meme raison :
-# la base LOCALE d'abord (codelab.db), qui tient sans Postgres et se lit
-# depuis une session SSH, puis Postgres, qui garde tout et s'interroge en
-# SQL. Un message perdu parce que Postgres redemarrait serait un message que
-# personne ne saura jamais avoir ete ecrit.
-MESSAGES_MAX = 5000          # au-dela, les plus anciens non retenus partent
-MESSAGE_LONGUEUR_MAX = 2000
+# Le panneau garde ce que lui seul sait faire, et rien d'autre :
+#   - dire QUI ecrit et SUR QUOI (une application que ce compte peut ouvrir),
+#     tenir le delai entre deux messages ;
+#   - prevenir l'administrateur (mail, notification) et l'auteur (suivi) ;
+#   - effacer les messages d'un compte qu'on efface.
+# Il parle a l'application par HTTP, sur 127.0.0.1, avec un jeton signe :
+# celui du compte connecte (jeton_sso) pour relayer le hub, le sien
+# (jeton_du_panneau) pour le reste. Voir workspace/messages/app.py.
+MESSAGE_CIBLES = ("application", "hub", "idee")
 # Une minute entre deux messages du meme compte : de quoi corriger une faute
 # de frappe, pas de quoi remplir la boite de l'administrateur.
 MESSAGE_DELAI = 60
-MESSAGE_CIBLES = ("application", "hub", "idee")
-# Ce que la page affiche au maximum. Trois cents : au-dela, on ne lit plus
-# une boite, on la trie -- et c'est le role de la suppression, pas du
-# defilement.
-MESSAGES_AFFICHES = 300
+# L'attente d'une reponse de l'application. Courte : la tuile du hub en
+# depend, et une application tombee ne doit pas faire attendre le hub.
+MESSAGERIE_DELAI = 5
+# La tuile du hub et l'icone de l'application en mode installe se repeignent
+# souvent : le compte des non lus est garde vingt secondes.
+MESSAGERIE_FRAICHEUR = 20
 
 _dernier_message = {}
+_messagerie = {"ts": 0, "non_lus": 0, "suivis": {}}
 
 
-# en_attente : nouveau, rien de decide. a_reflechir : mis de cote pour y
-# revenir. accepte / refuse : traite.
-STATUTS_MESSAGE = ("en_attente", "a_reflechir", "accepte", "refuse")
-
-CHAMPS_MESSAGE = (
-    ("id", "id", "txt"), ("ts", "ts", "int"), ("qui", "qui", "txt"),
-    ("cible", "cible", "txt"), ("app", "app", "txt"), ("texte", "texte", "txt"),
-    ("statut", "statut", "txt"), ("lu", "lu", "bool"), ("retenu", "retenu", "bool"),
-    ("archive", "archive", "bool"),
-)
+class MessagerieIndisponible(Exception):
+    """L'application Messages n'est pas inscrite, est arretee ou ne repond
+    pas : rien n'est perdu, la demande est simplement refusee."""
 
 
-def lire_messages(limite=200):
-    """Les plus recents d'abord."""
+def _vers_messagerie(methode, chemin, entetes, corps):
+    """Le transport : une requete HTTP a l'application. (statut, en-tetes, corps)."""
+    a = load().get(MESSAGERIE_NOM)
+    if not a or not a.get("port") or not is_running(MESSAGERIE_NOM):
+        raise MessagerieIndisponible("arretee")
+    cx = http.client.HTTPConnection("127.0.0.1", int(a["port"]), timeout=MESSAGERIE_DELAI)
     try:
-        lignes = stockage.lire(DB_FILE, "SELECT * FROM messages ORDER BY ts DESC, rowid DESC "
-                                        "LIMIT ?", (int(limite),))
-    except Exception:                                             # noqa: BLE001
-        return []
-    return [stockage.depuis_ligne(l, CHAMPS_MESSAGE, l["options"]) for l in lignes]
+        cx.request(methode, chemin, body=corps, headers=entetes)
+        r = cx.getresponse()
+        return r.status, {k.lower(): v for k, v in r.getheaders()}, r.read()
+    except (OSError, http.client.HTTPException) as e:
+        raise MessagerieIndisponible(f"{type(e).__name__}: {e}") from e
+    finally:
+        cx.close()
 
 
-def reecrire_messages(messages):
-    """Remplace l'ensemble des messages, en une transaction."""
-    with stockage.transaction(DB_FILE) as cx:
-        cx.execute("DELETE FROM messages")
-        for m in messages:
-            ligne, options = stockage.vers_ligne(m, CHAMPS_MESSAGE)
-            stockage.inserer(cx, "messages", ligne, options)
-        _oublier_pieces_orphelines(cx)
+def appeler_messagerie(methode, chemin, corps=None, au_nom_du_compte=False, entetes=None):
+    """Une requete a l'application Messages. Rend (statut, en-tetes, corps brut).
 
-
-_INCHANGE = object()
-
-
-def modifier_message(identifiant, retenu=None, lu=None, statut=None, archive=None, supprimer=False,
-                     projet=_INCHANGE):
-    """Met à jour l'état d'un message ou le supprime, sous un seul verrou.
-
-    projet : le projet auquel le message est rattache (None le detache).
+    au_nom_du_compte : l'identite de la session (le hub relaie un compte) ;
+    sinon celle du panneau, pour les routes /interne/.
+    REGLE : 19 de SECURITE.md. Le cookie du panneau ne part jamais : seul le
+    jeton signe, valable 60 secondes et pour cette audience seulement.
     """
-    with _acces_verrou:
-        tous = lire_messages(limite=100000)
-        vise = next((m for m in tous if m.get("id") == identifiant), None)
-        if vise is None:
-            return False
-        if supprimer:
-            tous = [m for m in tous if m.get("id") != identifiant]
-        else:
-            if retenu is not None:
-                if retenu:
-                    vise["retenu"] = True
-                else:
-                    vise.pop("retenu", None)
-            if lu is not None:
-                if lu:
-                    vise["lu"] = True
-                else:
-                    vise.pop("lu", None)
-            if statut is not None:
-                if statut in STATUTS_MESSAGE:
-                    vise["statut"] = statut
-            if archive is not None:
-                if archive:
-                    vise["archive"] = True
-                else:
-                    vise.pop("archive", None)
-            if projet is not _INCHANGE:
-                if projet:
-                    vise["projet"] = projet
-                else:
-                    vise.pop("projet", None)
-        reecrire_messages(tous)
-    if supprimer:
-        _pg_deposer(("message_supprime", identifiant))
-    else:
-        _pg_deposer(("message_modifie", vise.copy()))
+    jeton = jeton_sso(MESSAGERIE_NOM) if au_nom_du_compte else jeton_du_panneau(MESSAGERIE_NOM)
+    if not jeton:
+        raise MessagerieIndisponible("aucune cle de signature")
+    h = {"X-CodeLab-Auth": jeton, **(entetes or {})}
+    if corps is not None and not isinstance(corps, (bytes, bytearray)):
+        corps = json.dumps(corps, ensure_ascii=False).encode("utf-8")
+        h["Content-Type"] = "application/json"
+    return _vers_messagerie(methode, chemin, h, corps)
+
+
+def appeler_messagerie_json(methode, chemin, corps=None, au_nom_du_compte=False, entetes=None):
+    """La meme chose, reponse lue en JSON : (statut, dict)."""
+    statut, _entetes, data = appeler_messagerie(methode, chemin, corps, au_nom_du_compte,
+                                                entetes)
+    try:
+        d = json.loads(data or b"{}")
+    except ValueError:
+        d = {}
+    return statut, d if isinstance(d, dict) else {}
+
+
+def messagerie_injoignable():
+    return jsonify({"error": "Messages ne répond pas pour l'instant : réessaie dans "
+                             "un instant."}), 503
+
+
+def synchroniser_la_messagerie():
+    """Donne a l'application la liste des applications, reprend le compte des
+    non lus et l'etape de chaque message. Rend True si elle a repondu."""
+    catalogue = [{"name": nom, "titre": titre_de(nom, a)}
+                 for nom, a in apps_actives().items() if not est_app_par_defaut(nom)]
+    try:
+        statut, d = appeler_messagerie_json("POST", "/interne/synchroniser",
+                                            {"applications": catalogue})
+    except MessagerieIndisponible:
+        return False
+    if statut != 200:
+        return False
+    _messagerie.update(ts=time.time(), non_lus=int(d.get("non_lus") or 0),
+                       suivis=d.get("suivis") if isinstance(d.get("suivis"), dict) else {})
     return True
 
 
-def modifier_messages(changements):
-    """{id: {cle: valeur}} -- plusieurs messages d'un coup, une ecriture.
-
-    Valeur None : la cle est retiree. Rend le nombre de messages trouves.
-    """
-    with _acces_verrou:
-        tous = lire_messages(limite=100000)
-        trouves = 0
-        for m in tous:
-            ch = changements.get(m.get("id"))
-            if ch is None:
-                continue
-            trouves += 1
-            for cle, valeur in ch.items():
-                if valeur is None:
-                    m.pop(cle, None)
-                else:
-                    m[cle] = valeur
-        if trouves:
-            reecrire_messages(tous)
-    if trouves:
-        _pg_deposer(("messages_modifies", list(changements)))
-    return trouves
+def non_lus_de_la_messagerie():
+    """Le nombre de messages a lire, pour la tuile du hub. 0 si l'application
+    ne repond pas : le hub ne doit pas attendre ni echouer pour elle."""
+    if time.time() - _messagerie["ts"] > MESSAGERIE_FRAICHEUR:
+        if not synchroniser_la_messagerie():
+            _messagerie["ts"] = time.time()
+    return _messagerie["non_lus"]
 
 
-def marquer_messages_lus():
-    """Marque tous les messages comme lus après leur consultation dans le panneau."""
-    with _acces_verrou:
-        tous = lire_messages(limite=100000)
-        changes = 0
-        for message in tous:
-            if not message.get("lu"):
-                message["lu"] = True
-                changes += 1
-        if changes:
-            reecrire_messages(tous)
-            _pg_deposer(("messages_lus",))
-    return changes
-
-
-# ------------------------- les pieces jointes -------------------------
-#
-# Une capture d'ecran, une maquette : ce qu'un message ne sait pas dire en
-# mots. Images (PNG, JPEG, WebP, GIF) et PDF, rien d'autre -- reconnus a
-# leurs premiers octets, pas au nom ni au type annonce. Pas de SVG : c'est
-# du code, qui s'executerait a l'ouverture.
-#
-# Le fichier se depose d'abord, seul (il depasse le plafond des requetes du
-# panneau), puis le message le nomme. Un depot jamais envoye part au bout
-# d'un jour.
-PIECES_PAR_MESSAGE = 6
-PIECES_EN_ATTENTE_MAX = 12
-PIECE_ATTENTE_MAX = 86400
-PIECE_NOM_MAX = 80
-_SIGNATURES_PIECE = (
-    (b"\x89PNG\r\n\x1a\n", "image/png", "png"),
-    (b"\xff\xd8\xff", "image/jpeg", "jpg"),
-    (b"GIF87a", "image/gif", "gif"),
-    (b"GIF89a", "image/gif", "gif"),
-    (b"%PDF-", "application/pdf", "pdf"),
-)
-
-
-def type_de_piece(donnees):
-    """(type, extension) reconnus aux premiers octets, ou (None, None)."""
-    for signature, type_, ext in _SIGNATURES_PIECE:
-        if donnees.startswith(signature):
-            return type_, ext
-    if donnees[:4] == b"RIFF" and donnees[8:12] == b"WEBP":
-        return "image/webp", "webp"
-    return None, None
-
-
-def nom_de_piece(brut, ext):
-    """Un nom lisible et inoffensif, qui finit par la bonne extension."""
-    nom = urllib.parse.unquote(str(brut or ""))
-    nom = re.split(r"[\\/]", nom)[-1]
-    nom = "".join(c for c in nom if c.isprintable() and c not in '<>:"|?*').strip(" .")
-    base = nom.rsplit(".", 1)[0] if "." in nom else nom
-    base = base[:PIECE_NOM_MAX - len(ext) - 1] or "piece"
-    return f"{base}.{ext}"
-
-
-def _oublier_pieces_orphelines(cx):
-    """Les pieces d'un message disparu, et les depots jamais envoyes."""
-    cx.execute("DELETE FROM pieces WHERE message IS NOT NULL "
-               "AND message NOT IN (SELECT id FROM messages)")
-    cx.execute("DELETE FROM pieces WHERE message IS NULL AND ts < ?",
-               (int(time.time()) - PIECE_ATTENTE_MAX,))
-
-
-def pieces_en_attente(qui, ids):
-    """Les depots de « qui » qui attendent un message, dans l'ordre donne."""
-    if not ids:
-        return []
-    lignes = stockage.lire(DB_FILE, f"SELECT id, nom, type, taille FROM pieces "
-                                    f"WHERE message IS NULL AND qui = ? "
-                                    f"AND id IN ({','.join('?' * len(ids))})", (qui, *ids))
-    par_id = {l["id"]: {"id": l["id"], "nom": l["nom"], "type": l["type"],
-                        "taille": l["taille"]} for l in lignes}
-    return [par_id[i] for i in ids if i in par_id]
-
-
-def enregistrer_message(message):
-    """Ecrit le message, et n'echoue jamais bruyamment."""
+# Les messages d'un compte efface partent aussi de l'application. Elle peut
+# ne pas repondre (arretee, en train de redemarrer) : le nom attend dans le
+# coffre, et chaque tour du moniteur retente.
+def oublier_dans_la_messagerie(noms=()):
+    attente = set(reglage("comptes_a_effacer_messagerie", []) or []) | set(noms)
+    if not attente:
+        return
     try:
-        with stockage.transaction(DB_FILE) as cx:
-            ligne, options = stockage.vers_ligne(message, CHAMPS_MESSAGE)
-            stockage.inserer(cx, "messages", ligne, options)
-            # Plafond : une boite qui se remplit en boucle ne doit pas remplir
-            # le disque. Les plus anciens partent, les retenus restent.
-            cx.execute("DELETE FROM messages WHERE rowid IN (SELECT rowid FROM messages "
-                       "WHERE COALESCE(retenu, 0) = 0 ORDER BY ts DESC LIMIT -1 OFFSET ?)",
-                       (MESSAGES_MAX,))
-            # Ses pieces deposees l'attendaient : elles lui appartiennent.
-            ids = [p["id"] for p in message.get("pieces") or []]
-            if ids:
-                cx.execute(f"UPDATE pieces SET message = ? WHERE message IS NULL AND qui = ? "
-                           f"AND id IN ({','.join('?' * len(ids))})",
-                           (message["id"], message.get("qui") or "", *ids))
-            _oublier_pieces_orphelines(cx)
+        statut, _ = appeler_messagerie_json("POST", "/interne/oublier",
+                                            {"comptes": sorted(attente)})
+    except MessagerieIndisponible:
+        statut = 0
+    ecrire_reglage("comptes_a_effacer_messagerie", None if statut == 200 else sorted(attente))
+
+
+# LA REPRISE DES DONNEES. Une installation d'avant la separation garde ses
+# messages, taches, projets et pieces dans codelab.db. Le panneau les envoie
+# a l'application, puis ne les efface chez lui qu'apres avoir verifie que
+# CHAQUE identifiant y est (l'application rend ce qu'elle a). Une coupure au
+# milieu ne perd rien : on recommence au tour suivant, et une ligne deja
+# arrivee n'est pas doublee.
+# A FAIRE : quand plus aucune installation n'a de donnees a reprendre, une
+#   migration de stockage.MIGRATIONS retirera ces tables (et ce code).
+TABLES_DE_LA_MESSAGERIE = ("messages", "pieces", "projets", "taches", "sous_taches")
+
+
+def _lignes_a_reprendre():
+    try:
+        return {t: stockage.lire(DB_FILE, f"SELECT * FROM {t}") for t in TABLES_DE_LA_MESSAGERIE}
     except Exception:                                             # noqa: BLE001
+        return {}
+
+
+def reprendre_la_messagerie():
+    """Rend True s'il ne reste rien a reprendre."""
+    tables = _lignes_a_reprendre()
+    if not any(tables.values()):
+        return True
+    messages = []
+    for l in tables["messages"]:
+        try:
+            options = json.loads(l["options"] or "{}")
+        except ValueError:
+            options = {}
+        messages.append({"id": l["id"], "ts": l["ts"], "qui": l["qui"], "cible": l["cible"],
+                         "app": l["app"], "texte": l["texte"], "statut": l["statut"],
+                         "lu": l["lu"], "retenu": l["retenu"], "archive": l["archive"],
+                         "projet": options.get("projet"), "ordre": options.get("ordre")})
+    envoi = {"messages": messages,
+             "projets": [dict(l) for l in tables["projets"]],
+             "taches": [{k: l[k] for k in l.keys() if k != "faite"} for l in tables["taches"]],
+             "sous_taches": [dict(l) for l in tables["sous_taches"]]}
+    try:
+        statut, d = appeler_messagerie_json("POST", "/interne/importer", envoi)
+        if statut != 200:
+            return False
+        presents = d.get("presents") or {}
+        for p in tables["pieces"]:
+            if p["id"] in (presents.get("pieces") or []):
+                continue
+            meta = {k: p[k] for k in ("id", "message", "qui", "nom", "type", "ts")}
+            statut, _ = appeler_messagerie_json(
+                "POST", "/interne/importer/piece", bytes(p["donnees"]),
+                entetes={"X-Piece": json.dumps(meta), "Content-Type": "application/octet-stream"})
+            if statut != 200:
+                return False
+        statut, d = appeler_messagerie_json("POST", "/interne/importer", {})
+    except MessagerieIndisponible:
         return False
-    _pg_deposer(("message", message))
+    presents = d.get("presents") or {}
+    manquants = sum(1 for t, lignes in tables.items() for l in lignes
+                    if l["id"] not in set(presents.get(t) or []))
+    if statut != 200 or manquants:
+        print(f"[app-manager] messagerie : {manquants} ligne(s) pas encore reprise(s).",
+              flush=True)
+        return False
+    with stockage.transaction(DB_FILE) as cx:
+        for t, lignes in tables.items():
+            for l in lignes:
+                cx.execute(f"DELETE FROM {t} WHERE id = ?", (l["id"],))
+    total = sum(len(lignes) for lignes in tables.values())
+    journaliser("message", qui="", action=f"{total} ligne(s) reprise(s) par l'application Messages")
     return True
 
 
@@ -562,24 +528,10 @@ def _pg_preparer():
         # second facteur, ni cle d'acces. Cette base est joignable par les
         # projets deployes -- elle ne porte que ce qui se lit deja dans le
         # panneau.
-        # Les mots laisses depuis le hub. Ils ne contiennent rien de secret --
-        # ce que quelqu'un a choisi d'ecrire a son administrateur -- mais ils
-        # sont horodates et signes du compte : c'est ce qui permet de
-        # repondre, et de voir qu'une meme gene revient.
-        cx.execute("""
-            CREATE TABLE IF NOT EXISTS messages (
-              id          TEXT PRIMARY KEY,
-              ts          TIMESTAMPTZ NOT NULL,
-              qui         TEXT NOT NULL DEFAULT '',
-              cible       TEXT NOT NULL,
-              application TEXT,
-              texte       TEXT NOT NULL,
-              lu          BOOLEAN NOT NULL DEFAULT FALSE
-            )""")
-        cx.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS lu BOOLEAN NOT NULL DEFAULT FALSE")
-        cx.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS statut TEXT NOT NULL DEFAULT 'en_attente'")
-        cx.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS archive BOOLEAN NOT NULL DEFAULT FALSE")
-        cx.execute("CREATE INDEX IF NOT EXISTS messages_ts ON messages (ts DESC)")
+        # Les messages laisses depuis le hub y etaient recopies. Ils vivent
+        # desormais dans l'application Messages, sa base a elle : cette copie
+        # n'etait qu'un miroir (rien ne la relisait), elle part.
+        cx.execute("DROP TABLE IF EXISTS messages")
         cx.execute("""
             CREATE TABLE IF NOT EXISTS utilisateurs (
               nom            TEXT PRIMARY KEY,
@@ -626,21 +578,6 @@ def _pg_ecrire_acces(cx, evenements):
                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                ON CONFLICT (id) DO NOTHING""", lignes)
     _pg_etat["ecrits"] += len(lignes)
-
-
-def _pg_ecrire_messages(cx, messages):
-    lignes = [(m.get("id") or secrets.token_hex(12),
-               datetime.datetime.fromtimestamp(m.get("ts") or 0, datetime.timezone.utc),
-               m.get("qui") or "", m.get("cible") or "", m.get("app"),
-               m.get("texte") or "", bool(m.get("lu")),
-               m.get("statut") or "en_attente", bool(m.get("archive"))) for m in messages]
-    if not lignes:
-        return
-    with cx.cursor() as cur:
-        cur.executemany(
-            """INSERT INTO messages (id, ts, qui, cible, application, texte, lu, statut, archive)
-               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-               ON CONFLICT (id) DO NOTHING""", lignes)
 
 
 def _pg_ecrire_utilisateurs(cx):
@@ -732,7 +669,6 @@ def _pg_rattraper(cx):
     NOTHING rend l'operation sans consequence quand tout est deja la.
     """
     _pg_ecrire_acces(cx, lire_acces(limite=100000))
-    _pg_ecrire_messages(cx, lire_messages(limite=100000))
     _pg_ecrire_utilisateurs(cx)
     _pg_synchroniser_reglages(cx)
 
@@ -755,20 +691,6 @@ def _pg_boucle():
                     genre, charge = _pg_file.get()
                     if genre == "acces":
                         _pg_ecrire_acces(cx, [charge])
-                    elif genre == "message":
-                        _pg_ecrire_messages(cx, [charge])
-                    elif genre == "message_supprime":
-                        with cx.cursor() as cur:
-                            cur.execute("DELETE FROM messages WHERE id = %s",
-                                        (charge,))
-                    elif genre == "message_modifie":
-                        with cx.cursor() as cur:
-                            cur.execute("DELETE FROM messages WHERE id = %s",
-                                        (charge.get("id"),))
-                        _pg_ecrire_messages(cx, [charge])
-                    elif genre == "messages_lus":
-                        with cx.cursor() as cur:
-                            cur.execute("UPDATE messages SET lu = TRUE WHERE lu = FALSE")
                     elif genre == "utilisateurs":
                         _pg_ecrire_utilisateurs(cx)
                     elif genre == "reglage":

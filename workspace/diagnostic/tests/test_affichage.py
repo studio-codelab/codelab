@@ -361,7 +361,7 @@ def test_chaque_morceau_du_serveur_est_charge_et_s_analyse_seul():
 def test_le_script_des_pages_du_panneau_est_analysable():
     import subprocess
     import tempfile
-    for nom in ("dashboard.html", "login.html", "messages.html"):
+    for nom in ("dashboard.html", "login.html", PAGE_MESSAGES):
         scripts = _scripts_de_la_page(nom)
         assert scripts, f"{nom} n'a plus de script : la page ne ferait plus rien"
         for i, script in enumerate(scripts):
@@ -1551,7 +1551,7 @@ def test_la_feuille_de_style_du_panneau_est_equilibree():
     (le compteur du menu a perdu ses coins arrondis), et aucun autre test ne
     l'a vu. Un commentaire ou une accolade desequilibres font disparaitre des
     regles EN SILENCE : le navigateur ne signale rien."""
-    for nom in ("dashboard.html", "login.html", "messages.html"):
+    for nom in ("dashboard.html", "login.html", PAGE_MESSAGES):
         page = _page_panneau(nom)
         for css in re.findall(r"<style[^>]*>(.*?)</style>", page, re.S):
             assert css.count("/*") == css.count("*/"), f"{nom} : commentaire non ferme"
@@ -2356,7 +2356,9 @@ def test_deployer_a_quitte_la_fiche():
 # zoom [...] Je ne veux pas la barre blanche au dessus qui casse l'effet
 # application ».
 
-@pytest.mark.parametrize("page", ["dashboard.html", "login.html", "messages.html"])
+# Messages n'y est plus : c'est une application, servie par le proxy, qui
+# recoit environnement-app.js et le manifeste du proxy comme les autres.
+@pytest.mark.parametrize("page", ["dashboard.html", "login.html"])
 def test_chaque_page_du_panneau_se_comporte_en_application(page):
     html = _page_panneau(page)
     tete = html.split("</head>")[0]
@@ -2447,7 +2449,7 @@ def test_la_barre_suit_le_theme_choisi():
 # ne laisse masquer que celle d'un bloc interieur, jamais celle de la page :
 # au doigt, c'est #defile qui defile.
 
-@pytest.mark.parametrize("page", ["dashboard.html", "login.html", "messages.html"])
+@pytest.mark.parametrize("page", ["dashboard.html", "login.html", PAGE_MESSAGES])
 def test_au_doigt_un_bloc_interieur_defile_a_la_place_de_la_page(page):
     html = _page_panneau(page)
     corps = re.split(r"<body[^>]*>", html, maxsplit=1)[1]
@@ -2696,7 +2698,7 @@ def test_au_doigt_la_carte_touchee_ne_reste_pas_selectionnee():
     assert ".card-top:active{background:var(--surface2)}" in bloc
 
 
-@pytest.mark.parametrize("page", ["dashboard.html", "login.html", "messages.html"])
+@pytest.mark.parametrize("page", ["dashboard.html", "login.html", PAGE_MESSAGES])
 def test_le_fond_des_pages_est_uni_sans_motif_ni_reglage(page):
     """Vecu : des etoiles, puis des croix, puis « retire completement les
     croix dans le fond d'ecran, ainsi que le reglage ». Le fond est la

@@ -10,6 +10,11 @@ name: Build & push CodeLab images
 #      (ghcr.io/studio-codelab/codelab-<service>:1.0.0). CodeLab est distribue
 #      comme un tout : tous les services sortent ensemble, jamais versionnes
 #      independamment. "latest" n'est pas touche par un tag de version.
+#
+# Sur un push ou une pull request, seules les images touchees se
+# reconstruisent (job « changements ») : le depot est prive, sur le plan
+# gratuit, et ses 2 000 minutes par mois ne tenaient pas sept images a
+# chaque push.
 on:
   push:
     branches: [main]
@@ -130,33 +135,101 @@ jobs:
       - name: pytest
         run: CODELAB_REPO_ROOT=$GITHUB_WORKSPACE python -m pytest workspace/diagnostic/tests -q -rs
 
+  # QUELLES IMAGES CONSTRUIRE. Vecu : « The job was not started because
+  # [...] your spending limit needs to be increased ». Le depot est prive, sur
+  # le plan gratuit : 2 000 minutes par mois, et le plafond de depenses a 0 €.
+  # Chaque push reconstruisait les sept images (et les deux architectures sur
+  # main, l'arm64 emule par QEMU) : une journee de travail epuisait le mois.
+  #
+  # Une image ne se reconstruit plus que si un fichier qu'elle COPIE a change
+  # (la table ci-dessous ; un test verifie qu'elle couvre chaque COPY de
+  # chaque Dockerfile). Tout se reconstruit quand ce fichier change, sur un
+  # tag de version, chaque lundi (les correctifs des images de base) et a la
+  # demande.
+  #
+  # ESSAYE ET ECARTE : ne plus construire du tout sur une pull request. Un
+  # Dockerfile casse ne se verrait qu'apres la fusion, au moment ou « latest »
+  # ne se construit plus ; construire seulement ce qui change garde la
+  # garantie pour une fraction du prix.
+  changements:
+    runs-on: ubuntu-latest
+    outputs:
+      matrice: ${{ steps.choix.outputs.matrice }}
+      nombre: ${{ steps.choix.outputs.nombre }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Images touchees
+        id: choix
+        env:
+          EVENEMENT: ${{ github.event_name }}
+          BASE_PR: ${{ github.base_ref }}
+          AVANT: ${{ github.event.before }}
+          TYPE_REF: ${{ github.ref_type }}
+        # Une image par ligne : son nom, son Dockerfile, puis les debuts de
+        # chemin qui la font reconstruire (ce que son Dockerfile copie).
+        run: |
+          ici="${RUNNER_TEMP:-/tmp}"
+          cat > "$ici/images.txt" <<'FIN'
+          codelab-postgres postgres/Dockerfile postgres/
+          codelab-redis redis/Dockerfile redis/
+          codelab-mailpit mailpit/Dockerfile mailpit/
+          codelab-dev dev/Dockerfile dev/ postgres/proteger-base.sql
+          codelab-dagster dagster/Dockerfile dagster/Dockerfile dagster/dagster.yaml dagster/entrypoint.sh dagster/lancer.sh dagster/isolation.py workspace/
+          codelab-dagster-proxy dagster/proxy/Dockerfile dagster/proxy/ app-manager/app/polices/
+          codelab-app-manager app-manager/Dockerfile app-manager/ postgres/proteger-base.sql
+          FIN
+          tout=non
+          if [ "$EVENEMENT" = pull_request ]; then
+            git diff --name-only "origin/$BASE_PR...HEAD" > "$ici/touches.txt"
+          elif [ "$EVENEMENT" = push ] && [ "$TYPE_REF" != tag ] \
+               && git cat-file -e "$AVANT^{commit}" 2>/dev/null; then
+            git diff --name-only "$AVANT" HEAD > "$ici/touches.txt"
+          else
+            tout=oui
+            : > "$ici/touches.txt"
+          fi
+          grep -qx ".github/workflows/build-images.yml" "$ici/touches.txt" && tout=oui
+          python3 - "$tout" "$ici" <<'FIN'
+          import json, os, sys
+          tout, ici = sys.argv[1] == "oui", sys.argv[2]
+          touches = [l.strip() for l in open(ici + "/touches.txt") if l.strip()]
+          choisies = []
+          for ligne in open(ici + "/images.txt"):
+              nom, dockerfile, *chemins = ligne.split()
+              if tout or any(t.startswith(c) for t in touches for c in chemins):
+                  choisies.append({"name": nom, "dockerfile": dockerfile})
+          print("images :", ", ".join(i["name"] for i in choisies) or "aucune")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write("matrice=" + json.dumps({"include": choisies}) + "\n")
+              f.write(f"nombre={len(choisies)}\n")
+          FIN
+
   build:
-    needs: tests
+    needs: [tests, changements]
+    if: needs.changements.outputs.nombre != '0'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: codelab-postgres
-            dockerfile: postgres/Dockerfile
-          - name: codelab-redis
-            dockerfile: redis/Dockerfile
-          - name: codelab-mailpit
-            dockerfile: mailpit/Dockerfile
-          - name: codelab-dev
-            dockerfile: dev/Dockerfile
-          - name: codelab-dagster
-            dockerfile: dagster/Dockerfile
-          - name: codelab-dagster-proxy
-            dockerfile: dagster/proxy/Dockerfile
-          - name: codelab-app-manager
-            dockerfile: app-manager/Dockerfile
+      matrix: ${{ fromJSON(needs.changements.outputs.matrice) }}
+    env:
+      # Les architectures publiees. Une seule suffit si le serveur est un PC
+      # classique : poser la variable du depot CODELAB_PLATEFORMES a
+      # « linux/amd64 » (Settings > Secrets and variables > Actions >
+      # Variables) divise encore le temps par deux ou plus, l'arm64 etant
+      # emule. Sur une pull request : amd64 seulement, on verifie que le
+      # Dockerfile se construit, pas qu'il se construit deux fois.
+      PLATEFORMES: ${{ github.event_name == 'pull_request' && 'linux/amd64' || vars.CODELAB_PLATEFORMES || 'linux/amd64,linux/arm64' }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: QEMU (pour les builds arm64 sur runner amd64)
+        if: contains(env.PLATEFORMES, 'arm64')
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
 
       - name: Buildx
@@ -196,10 +269,7 @@ jobs:
         with:
           context: .
           file: ${{ matrix.dockerfile }}
-          # Une seule architecture sur une PR : on verifie que le Dockerfile
-          # se construit, pas qu'il se construit deux fois. L'emulation arm64
-          # par QEMU coute plusieurs minutes par image.
-          platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
+          platforms: ${{ env.PLATEFORMES }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

@@ -1,8 +1,9 @@
 """
 CodeLab -- TESTS : LES MESSAGES
 ---------------------------------------------------------------------------
-ROLE        la messagerie, les demandes, les taches, les notifications Web
-            Push.
+ROLE        la messagerie : le relais du hub, l'application Messages
+            (workspace/messages) et sa boite, ses taches et ses projets, la
+            reprise des anciennes donnees ; les notifications Web Push.
 CHARGE PAR  pytest : python3 -m pytest workspace/diagnostic/tests -q
             (depuis la racine du depot), la CI, et la page /tests
             du diagnostic.
@@ -23,8 +24,14 @@ from commun import *  # noqa: F401,F403 -- aides, constantes, modules
 # hub lui-meme, ou l'idee d'une application qui manque. Un champ libre aurait
 # demande a l'administrateur de deviner de quoi on parle -- ce qu'il ne peut
 # pas faire depuis un mail de trois lignes.
+#
+# Le hub du panneau relaie ; l'application Messages (workspace/messages)
+# range. Ces tests passent par les deux, comme dans l'installation
+# (fixture appli_messages).
 
 
+def _ranges():
+    return _application_messages().donnees.lire_messages()
 
 
 def test_un_message_est_range_puis_envoye_a_l_administrateur(messagerie):
@@ -34,7 +41,7 @@ def test_un_message_est_range_puis_envoye_a_l_administrateur(messagerie):
     assert r.status_code == 200, r.data
     assert r.get_json()["envoye"] is True
 
-    garde = app.lire_messages()
+    garde = _ranges()
     assert len(garde) == 1
     assert garde[0]["qui"] == "marie" and garde[0]["app"] == "compta"
     assert garde[0]["texte"] == "Le bouton demande deux clics."
@@ -43,8 +50,6 @@ def test_un_message_est_range_puis_envoye_a_l_administrateur(messagerie):
     assert destinataires == ["chef@example.com"]
     assert "marie" in sujet and "compta" in sujet
     assert "Le bouton demande deux clics." in corps
-
-
 
 
 def test_un_message_survit_a_un_envoi_impossible(messagerie, monkeypatch):
@@ -57,9 +62,21 @@ def test_un_message_survit_a_un_envoi_impossible(messagerie, monkeypatch):
     r = c.post("/api/messages", json={"cible": "hub", "texte": "Le hub est lent."})
     assert r.status_code == 200, r.data
     assert r.get_json()["envoye"] is False
-    assert len(app.lire_messages()) == 1
+    assert len(_ranges()) == 1
 
 
+def test_une_messagerie_arretee_refuse_sans_rien_perdre(messagerie, monkeypatch):
+    """L'application Messages redemarre, ou est tombee : le hub le dit, ne
+    previent personne d'un message qui n'est range nulle part, et laisse
+    reessayer tout de suite (le delai d'une minute ne compte pas)."""
+    c, partis = messagerie
+    def tombee(*a, **kw):
+        raise app.MessagerieIndisponible("arretee")
+    monkeypatch.setattr(app, "_vers_messagerie", tombee)
+    r = c.post("/api/messages", json={"cible": "hub", "texte": "Le hub est lent."})
+    assert r.status_code == 503 and "réessaie" in r.get_json()["error"]
+    assert partis == [] and app._dernier_message == {}
+    assert c.get("/api/mes-messages").status_code == 503
 
 
 def test_on_n_ecrit_que_sur_une_application_qu_on_peut_ouvrir(messagerie):
@@ -70,9 +87,7 @@ def test_on_n_ecrit_que_sur_une_application_qu_on_peut_ouvrir(messagerie):
                                          "texte": "bonjour"}).status_code == 404
     assert c.post("/api/messages", json={"cible": "application", "app": "fantome",
                                          "texte": "bonjour"}).status_code == 404
-    assert app.lire_messages() == [] and partis == []
-
-
+    assert _ranges() == [] and partis == []
 
 
 def test_une_idee_d_application_ne_porte_aucun_projet(messagerie):
@@ -82,28 +97,24 @@ def test_une_idee_d_application_ne_porte_aucun_projet(messagerie):
     r = c.post("/api/messages", json={"cible": "idee", "app": "compta",
                                       "texte": "Il manque un suivi des congés."})
     assert r.status_code == 200, r.data
-    assert app.lire_messages()[0]["app"] == ""
-
-
+    assert _ranges()[0]["app"] == ""
 
 
 def test_un_sujet_invente_est_refuse(messagerie):
     c, _ = messagerie
     assert c.post("/api/messages", json={"cible": "autre chose",
                                          "texte": "bonjour"}).status_code == 400
-    assert app.lire_messages() == []
-
-
+    assert _ranges() == []
 
 
 def test_un_message_vide_ou_trop_long_est_refuse(messagerie):
     c, _ = messagerie
     assert c.post("/api/messages", json={"cible": "hub", "texte": "   "}).status_code == 400
-    trop = "a" * (app.MESSAGE_LONGUEUR_MAX + 1)
+    trop = "a" * (_application_messages().donnees.MESSAGE_LONGUEUR_MAX + 1)
     assert c.post("/api/messages", json={"cible": "hub", "texte": trop}).status_code == 400
-    assert app.lire_messages() == []
-
-
+    assert _ranges() == []
+    # Refuse par l'application : le delai d'une minute n'a pas commence.
+    assert c.post("/api/messages", json={"cible": "hub", "texte": "bonjour"}).status_code == 200
 
 
 def test_un_deuxieme_message_immediat_est_refuse(messagerie):
@@ -113,48 +124,42 @@ def test_un_deuxieme_message_immediat_est_refuse(messagerie):
     assert c.post("/api/messages", json={"cible": "hub", "texte": "un"}).status_code == 200
     r = c.post("/api/messages", json={"cible": "hub", "texte": "deux"})
     assert r.status_code == 429, r.data
-    assert len(app.lire_messages()) == 1 and len(partis) == 1
+    assert len(_ranges()) == 1 and len(partis) == 1
 
 
-
-
-def test_seul_l_administrateur_lit_les_messages(messagerie):
+def test_seul_l_administrateur_lit_les_messages(messagerie, appli_messages):
     """Ce sont des mots qui lui sont adresses, et ils portent le nom de qui
-    les a ecrits."""
+    les a ecrits. Le panneau ne les rend a personne ; l'application ne les
+    rend qu'au jeton de l'administrateur."""
     c, _ = messagerie
     c.post("/api/messages", json={"cible": "hub", "texte": "bonjour"})
-    assert c.get("/api/messages").status_code in (401, 403)
-    admin = app.flask_app.test_client()
-    admin.post("/login", json={"nom": "admin", "password": "secret-de-test"})
-    d = admin.get("/api/messages").get_json()
+    assert c.get("/api/messages").status_code in (404, 405)
+    marie = ClientMessages(appli_messages.module, "marie", "utilisateur")
+    assert marie.get("/api/messages").status_code == 403
+    d = appli_messages.get("/api/messages").get_json()
     assert [m["texte"] for m in d["messages"]] == ["bonjour"]
 
 
-
-
-def test_les_messages_partent_aussi_vers_la_base():
-    """Le fichier tient sans base et se lit en SSH ; la base garde tout et
-    s'interroge en SQL. Le meme couple que pour le journal des acces."""
+def test_les_messages_vivent_dans_la_base_de_l_application():
+    """Vecu : « L'application Messages doit etre une application a part
+    entiere, exactement comme Diagnostic ». Sa base est la sienne, dans
+    Postgres (une base, un compte) ; le panneau n'en garde plus de copie, et
+    retire le miroir qu'il en tenait."""
     src = _page_panneau("app.py")
-    assert "CREATE TABLE IF NOT EXISTS messages" in src
-    assert "_pg_deposer((\"message\"" in src
-    # Et le rattrapage les rejoue apres une coupure de la base.
-    rattrapage = src.split("def _pg_rattraper(")[1].split("\ndef ")[0]
-    assert "_pg_ecrire_messages" in rattrapage
+    assert 'cx.execute("DROP TABLE IF EXISTS messages")' in src
+    assert "_pg_ecrire_messages" not in src and "def lire_messages(" not in src
+    donnees = open(os.path.join(DOSSIER_MESSAGES, "donnees.py"), encoding="utf-8").read()
+    assert "psycopg.connect(" in donnees and 'os.environ.get("CODELAB_DB")' in donnees
+    assert open(os.path.join(DOSSIER_MESSAGES, ".env"), encoding="utf-8").read().count(
+        "CODELAB_DB=messages") == 1
 
 
-# ---------- 35. les messages ont leur rubrique ----------
+# ---------- 35. les messages ont leur boite ----------
 #
 # Demande : « Ajoute une rubrique pour les messages. La vue d'ensemble doit
 # recenser les messages lies au hub par defaut, et je dois pouvoir filtrer sur
 # une autre application. Ajoute la possibilite de supprimer ou retenir les
 # messages, mettre un scroll lorsqu'il y en a trop. »
-#
-# Ils vivaient au bas de la vue d'ensemble, sous les graphiques : on ne les
-# trouvait qu'en descendant, tous sujets meles, et rien ne permettait ni d'en
-# ecarter un ni d'en garder un sous la main.
-
-
 
 
 def test_retenir_un_message_le_garde_en_tete(boite):
@@ -173,13 +178,11 @@ def test_retenir_un_message_le_garde_en_tete(boite):
     assert c.put("/api/messages/" + vieux, json={"retenu": False}).status_code == 200
     liste = c.get("/api/messages").get_json()["messages"]
     assert liste[0]["id"] != vieux
-    assert "retenu" not in liste[0]
+    assert liste[0]["retenu"] is False
 
 
-
-
-def test_supprimer_un_message_le_retire_du_fichier(boite):
-    c, tmp_path = boite
+def test_supprimer_un_message_le_retire_de_la_base(boite, capsys):
+    c, _ = boite
     garde = _message(c, "hub", "on garde")
     parti = _message(c, "idee", "on jette")
 
@@ -188,20 +191,19 @@ def test_supprimer_un_message_le_retire_du_fichier(boite):
     assert restants == [garde]
     # Dans la base aussi, pas seulement dans la reponse : un message qui
     # revient au redemarrage n'a pas ete supprime.
-    ids = [l["id"] for l in app.stockage.lire(app.DB_FILE, "SELECT id FROM messages")]
+    with c.donnees.base() as b:
+        ids = [l["id"] for l in b.lignes("SELECT id FROM messages")]
     assert parti not in ids and garde in ids
-    # Et c'est journalise : supprimer un mot qui vous est adresse se trace.
-    genres = [e.get("genre") for e in app.lire_acces()]
-    assert "message" in genres
-
-
-
+    # Et c'est trace dans le journal de l'application : supprimer un mot qui
+    # vous est adresse se retrouve.
+    assert f"message {parti} supprime" in capsys.readouterr().out
 
 
 def test_le_guet_ne_redemande_que_ce_qui_est_arrive_depuis(boite):
     """La page interroge toutes les vingt secondes : lui renvoyer trois cents
-    messages pour en decouvrir un serait payer cher une notification."""
-    c, _ = boite
+    messages pour en decouvrir un serait payer cher une notification. Le
+    panneau guette de meme, pour l'annoncer dans son coin."""
+    c, panneau = boite
     repere = int(time.time()) - 100
     _message(c, "hub", "avant", quand=repere - 10)
     neuf = _message(c, "hub", "après", quand=repere + 10)
@@ -210,20 +212,47 @@ def test_le_guet_ne_redemande_que_ce_qui_est_arrive_depuis(boite):
     assert [m["id"] for m in liste] == [neuf]
     # Un « apres » illisible ne fait pas tomber la route : elle rend tout.
     assert len(c.get("/api/messages?apres=demain").get_json()["messages"]) == 2
-
-
+    vus = panneau.get("/api/messages/nouveaux?apres=%d" % repere).get_json()["messages"]
+    assert vus == [{"id": neuf, "ts": repere + 10, "qui": "marie"}]
 
 
 def test_les_messages_restent_reserves_a_l_administrateur(boite):
+    """Sans jeton, ou avec celui d'un compte : rien. Le controle tient dans
+    l'application meme, pas seulement dans le proxy."""
     c, _ = boite
     identifiant = _message(c, "hub", "un mot")
-    anonyme = app.flask_app.test_client()
-    assert anonyme.get("/api/messages").status_code in (401, 403)
-    assert anonyme.delete("/api/messages/" + identifiant).status_code in (401, 403)
-    assert anonyme.put("/api/messages/" + identifiant,
-                       json={"retenu": True}).status_code in (401, 403)
+    anonyme = c.module.app.test_client()
+    marie = ClientMessages(c.module, "marie", "utilisateur")
+    for client in (anonyme, marie):
+        assert client.get("/api/messages").status_code == 403
+        assert client.get("/").status_code == 403
+        assert client.delete("/api/messages/" + identifiant).status_code == 403
+        assert client.put("/api/messages/" + identifiant,
+                          json={"retenu": True}).status_code == 403
+    # Un jeton pour une AUTRE application ne vaut rien ici.
+    autre = anonyme.get("/api/messages", headers={
+        "X-CodeLab-Auth": app.jeton_signe("compta", "admin", "admin")})
+    assert autre.status_code == 403
+    # Les routes du panneau ne s'ouvrent qu'au jeton du panneau.
+    assert c.post("/interne/oublier", json={"comptes": ["marie"]}).status_code == 403
+    assert _message(c, "hub", "toujours la") and len(c.donnees.lire_messages()) == 2
 
 
+def test_une_page_d_un_autre_site_ne_fait_pas_agir_l_administrateur(boite):
+    """CSRF : un formulaire d'un autre site poste du texte brut, que l'API
+    lirait ; il ne sait pas poser l'en-tete X-Messages sans la permission du
+    serveur, qui ne la donne pas."""
+    c, _ = boite
+    ident = _message(c, "hub", "un mot")
+    jeton = {"X-CodeLab-Auth": app.jeton_signe(app.MESSAGERIE_NOM, "admin", "admin")}
+    nu = c.module.app.test_client()
+    r = nu.delete("/api/messages/" + ident, headers=jeton)
+    assert r.status_code == 403
+    r = nu.post("/api/messages/lus", headers=jeton, data='{"x":1}', content_type="text/plain")
+    assert r.status_code == 403
+    assert nu.get("/api/messages", headers=jeton).status_code == 200
+    page = open(os.path.join(DOSSIER_MESSAGES, "index.html"), encoding="utf-8").read()
+    assert "h.set('X-Messages', '1');" in page
 
 
 def test_un_message_inconnu_ne_fait_pas_semblant(boite):
@@ -232,13 +261,15 @@ def test_un_message_inconnu_ne_fait_pas_semblant(boite):
     assert c.put("/api/messages/jamais-vu", json={"retenu": True}).status_code == 404
 
 
+def _page_messages():
+    return _page_panneau(PAGE_MESSAGES)
 
 
 def test_l_application_messages_range_et_confirme():
     """La boite de reception : trier, ranger, regrouper ; et rien ne se
     supprime sans confirmation."""
-    page = _page_panneau("messages.html")
-    for trace in ("'/api/messages/ordre'", "'/api/messages/grouper'", 'data-agir="grouper"',
+    page = _page_messages()
+    for trace in ("'api/messages/ordre'", "'api/messages/grouper'", 'data-agir="grouper"',
                   'data-changer="message-projet"', 'data-agir="message-archiver"',
                   'data-agir="message-tache"', "function suggestions(", 'data-triable'):
         assert trace in page, trace
@@ -247,10 +278,9 @@ def test_l_application_messages_range_et_confirme():
         assert "demander(" in corps, action + " supprime sans confirmation"
     corps = page.split("async function projetSupprimer(")[1].split("\n}")[0]
     assert "demander(" in corps
-    # Le jeton anti-falsification part avec toute requete qui modifie.
-    assert "X-CodeLab-Jeton" in page and "const JETON=__JETON__;" in page
-
-
+    # Toutes les adresses sont relatives : la page vit sous /messages/ (port
+    # des applications) comme a la racine d'un sous-domaine.
+    assert "'/api/" not in page and "`/api/" not in page and "/mode.js" not in page
 
 
 def test_un_message_recu_se_signale_dans_le_coin():
@@ -259,17 +289,15 @@ def test_un_message_recu_se_signale_dans_le_coin():
     l'application Messages."""
     page = _page_panneau("dashboard.html")
     bloc = page.split("async function guetterMessages(){")[1].split("\n}")[0]
-    assert "apres=" in bloc, "le guet retelecharge toute la boite"
+    assert "/api/messages/nouveaux?apres=" in bloc, "le guet retelecharge toute la boite"
     assert "notifier" in bloc
-    assert "location.href='/messages'" in page.split("function notifierMessage(")[1].split("\n}")[0]
+    assert "location.href=lienOuverture({name:'messages'})" in page.split("function notifierMessage(")[1].split("\n}")[0]
     # surveiller() et non setInterval() : les minuteries s'arretent quand
     # l'onglet passe en arriere-plan.
     assert "surveiller(guetterMessages" in page
     # Et les notifications paraissent bien en bas a droite.
     style = page.split(".toasts{")[1].split("}")[0]
     assert "bottom" in style and "right" in style, style
-
-
 
 
 # ---------- messages : etats et taches ----------
@@ -280,15 +308,18 @@ def test_accepter_refuser_et_mettre_de_cote_un_message(boite):
     c, _ = boite
     ident = _message(c, "hub", "Une idee", retenu=True)
     assert c.put(f"/api/messages/{ident}", json={"statut": "a_reflechir"}).status_code == 200
-    m = next(x for x in app.lire_messages() if x["id"] == ident)
-    assert m["statut"] == "a_reflechir" and m.get("retenu")
+    m = next(x for x in c.donnees.lire_messages() if x["id"] == ident)
+    assert m["statut"] == "a_reflechir" and m["retenu"]
     assert c.put(f"/api/messages/{ident}", json={"statut": "refuse"}).status_code == 200
     assert c.put(f"/api/messages/{ident}", json={"archive": True}).status_code == 200
-    m = next(x for x in app.lire_messages() if x["id"] == ident)
-    assert m["statut"] == "refuse" and m.get("archive") and m.get("retenu")
+    m = next(x for x in c.donnees.lire_messages() if x["id"] == ident)
+    assert m["statut"] == "refuse" and m["archive"] and m["retenu"]
     assert c.put(f"/api/messages/{ident}", json={"statut": "n-importe"}).status_code == 400
 
 
+def _lignes(c, table):
+    with c.donnees.base() as b:
+        return b.valeur(f"SELECT COUNT(*) FROM {table}")
 
 
 def test_un_message_accepte_devient_une_tache(boite):
@@ -299,7 +330,7 @@ def test_un_message_accepte_devient_une_tache(boite):
                      "sous_taches": ["Lire les journaux", "", "Corriger"]})
     assert r.status_code == 200, r.data
     tache = r.get_json()["tache"]
-    m = next(x for x in app.lire_messages() if x["id"] == ident)
+    m = next(x for x in c.donnees.lire_messages() if x["id"] == ident)
     assert m["statut"] == "accepte"
     (t,) = c.get("/api/taches").get_json()["taches"]
     assert t["id"] == tache and t["titre"] == "Réparer la page" and t["message"] == ident
@@ -314,16 +345,14 @@ def test_un_message_accepte_devient_une_tache(boite):
     # Un projet qui n'existe pas est refuse ; supprimer la tache emporte ses sous-taches.
     assert c.post("/api/taches", json={"projet": "inconnu", "titre": "x"}).status_code == 400
     assert c.delete(f"/api/taches/{tache}").status_code == 200
-    assert stockage_lignes("sous_taches") == 0
-
-
+    assert _lignes(c, "sous_taches") == 0
 
 
 def test_l_utilisateur_suit_ses_messages(boite, deux_espaces):
     """Qui a ecrit voit ce que son message devient -- lu, a l'etude,
     planifie, en cours, realise, non retenu -- deduit de ce que fait
     l'administrateur. Il ne voit que ses messages."""
-    c, _ = boite
+    c, panneau = boite
     u = app.flask_app.test_client()
     _connecte(u, "marie", "mot-de-passe-long")
 
@@ -365,63 +394,62 @@ def test_l_utilisateur_suit_ses_messages(boite, deux_espaces):
     assert c.put(f"/api/messages/{b}", json={"statut": "refuse"}).status_code == 200
     assert suivi()[0]["Un carnet de recettes"]["suivi"]["etape"] == "refuse"
     # L'administrateur ne voit pas les messages de marie dans SON suivi.
-    assert all(m["id"] != autre for m in c.get("/api/mes-messages").get_json()["messages"])
+    panneau.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    assert all(m["id"] != autre for m in panneau.get("/api/mes-messages").get_json()["messages"])
     assert "suivi" in {w["id"] for w in u.get("/api/hub/disposition").get_json()["catalogue"]}
     page = _page_panneau("dashboard.html")
     for trace in ('id="suivi-liste"', "function widgetSuivi(", "/api/mes-messages/vus", 'id="side-count-suivi"'):
         assert trace in page, trace
 
 
-
-
 def test_un_message_porte_des_captures_et_des_maquettes(boite, deux_espaces):
     """Images et PDF, reconnus a leurs octets ; lus par l'administrateur et
     par qui les a deposes, par personne d'autre."""
     c, _ = boite
-    app._dernier_message.clear()
     u = app.flask_app.test_client()
     _connecte(u, "marie", "mot-de-passe-long")
-    h = {}
-    r = u.post("/api/pieces", data=PNG_1PX, headers=dict(h, **{"X-Nom-Fichier": "Capture%20%C3%A9cran.png"}))
+    r = u.post("/api/pieces", data=PNG_1PX, headers={"X-Nom-Fichier": "Capture%20%C3%A9cran.png"})
     assert r.status_code == 200, r.data
     capture = r.get_json()
     assert capture["type"] == "image/png" and capture["nom"] == "Capture écran.png"
-    maquette = u.post("/api/pieces", data=b"%PDF-1.4\n...", headers=dict(h, **{"X-Nom-Fichier": "maquette"})).get_json()
+    maquette = u.post("/api/pieces", data=b"%PDF-1.4\n...", headers={"X-Nom-Fichier": "maquette"}).get_json()
     assert maquette["nom"] == "maquette.pdf"
     # Un SVG (du code), ou un faux PNG : refuses.
-    assert u.post("/api/pieces", data=b"<svg onload=alert(1)>", headers=h).status_code == 415
-    assert u.post("/api/pieces", data=b"pas une image", headers=dict(h, **{"X-Nom-Fichier": "x.png"})).status_code == 415
+    assert u.post("/api/pieces", data=b"<svg onload=alert(1)>").status_code == 415
+    assert u.post("/api/pieces", data=b"pas une image", headers={"X-Nom-Fichier": "x.png"}).status_code == 415
     r = u.post("/api/messages", json={"cible": "idee", "texte": "",
-                                      "pieces": [capture["id"], maquette["id"]]}, headers=h)
+                                      "pieces": [capture["id"], maquette["id"]]})
     assert r.status_code == 200, r.data
     (m,) = [x for x in c.get("/api/messages").get_json()["messages"] if x["qui"] == "marie"]
     assert [p["nom"] for p in m["pieces"]] == ["Capture écran.png", "maquette.pdf"]
     lu = c.get("/api/pieces/" + capture["id"])
     assert lu.status_code == 200 and lu.data == PNG_1PX and lu.mimetype == "image/png"
     assert lu.headers["X-Content-Type-Options"] == "nosniff"
-    assert u.get("/api/pieces/" + capture["id"]).status_code == 200
+    relaye = u.get("/api/pieces/" + capture["id"])
+    assert relaye.status_code == 200 and relaye.data == PNG_1PX
+    assert relaye.mimetype == "image/png" and relaye.headers["X-Content-Type-Options"] == "nosniff"
+    assert "sandbox" in relaye.headers["Content-Security-Policy"]
     # Le suivi de marie montre ses pieces.
     assert u.get("/api/mes-messages").get_json()["messages"][0]["pieces"][0]["id"] == capture["id"]
     # Un autre compte ne lit rien ; une piece deja envoyee ne se rattache pas deux fois.
+    paul = ClientMessages(c.module, "paul", "utilisateur")
+    assert paul.get("/compte/pieces/" + capture["id"]).status_code == 404
     app._dernier_message.clear()
-    assert u.post("/api/messages", json={"cible": "hub", "texte": "x", "pieces": [capture["id"]]},
-                  headers=h).status_code == 400
+    assert u.post("/api/messages", json={"cible": "hub", "texte": "x",
+                                         "pieces": [capture["id"]]}).status_code == 400
     # Supprimer le message emporte ses pieces.
     assert c.delete("/api/messages/" + m["id"]).status_code == 200
     assert c.get("/api/pieces/" + capture["id"]).status_code == 404
-    assert stockage_lignes("pieces") == 0
-
-
+    assert _lignes(c, "pieces") == 0
 
 
 def test_un_projet_s_exporte_en_entier(boite):
     c, _ = boite
     ident = _message(c, "idee", "Un carnet de recettes")
-    with app.stockage.transaction(app.DB_FILE) as cx:
-        cx.execute("INSERT INTO pieces VALUES ('p1', ?, 'marie', 'maquette.png', 'image/png', ?, ?, ?)",
+    with c.donnees.base() as b:
+        b.executer("INSERT INTO pieces (id, message, qui, nom, type, taille, ts, donnees) "
+                   "VALUES ('p1', ?, 'marie', 'maquette.png', 'image/png', ?, ?, ?)",
                    (ident, len(PNG_1PX), int(time.time()), PNG_1PX))
-    app.modifier_messages({ident: {"pieces": [{"id": "p1", "nom": "maquette.png",
-                                               "type": "image/png", "taille": len(PNG_1PX)}]}})
     projet = c.post(f"/api/messages/{ident}/accepter",
                     json={"nouveau_projet": {"nom": "Recettes", "description": "Partager nos recettes."},
                           "taches": ["Maquette", "Base"]}).get_json()["projet"]
@@ -441,10 +469,7 @@ def test_un_projet_s_exporte_en_entier(boite):
     assert c.get("/api/projets-export").status_code == 404
     assert c.get("/api/projets/p-inconnu/export").status_code == 404
     # Reserve a l'administrateur.
-    u = app.flask_app.test_client()
-    assert u.get(f"/api/projets/{projet}/export").status_code == 401
-
-
+    assert c.module.app.test_client().get(f"/api/projets/{projet}/export").status_code == 403
 
 
 def test_accepter_sans_tache_et_droits(boite, deux_espaces):
@@ -453,29 +478,29 @@ def test_accepter_sans_tache_et_droits(boite, deux_espaces):
     r = c.post(f"/api/messages/{ident}/accepter", json={})
     assert r.status_code == 200 and r.get_json()["tache"] is None
     assert c.get("/api/taches").get_json()["taches"] == []
-    # Un compte utilisateur n'y a pas acces.
+    # Un compte utilisateur n'y a pas acces : ni dans l'application, ni par
+    # le panneau, qui n'a plus ces routes.
+    marie = ClientMessages(c.module, "marie", "utilisateur")
+    assert marie.get("/api/taches").status_code == 403
+    assert marie.post(f"/api/messages/{ident}/accepter", json={}).status_code == 403
     u = app.flask_app.test_client()
     _connecte(u, "marie", "mot-de-passe-long")
-    assert u.get("/api/taches").status_code == 403
-    assert u.post(f"/api/messages/{ident}/accepter", json={}).status_code == 403
-
-
+    assert u.get("/api/taches").status_code == 404
 
 
 def test_l_application_messages_a_ses_vues():
-    page = _page_panneau("messages.html")
+    page = _page_messages()
     for trace in ("aller('projet'", "'planning'", "'feuille'", "'boite'", 'id="fen-tache"',
                   'id="fen-projet"', 'id="fen-grouper"', 'id="fen-scinder"', "history.pushState",
-                  "'/api/taches/plan'", "/scinder'", "function planifier("):
+                  "'api/taches/plan'", "/scinder'", "function planifier(",
+                  "new URLSearchParams(location.search)"):
         assert trace in page, trace
     # Pas d'etiquette d'urgence : la priorite, c'est la place dans le planning.
-    assert "priorite" not in "".join(_scripts_de_la_page("messages.html"))
+    scripts = page.split("<script>")[-1].split("</script>")[0]
+    assert "priorite" not in scripts
     # La feuille de route : aujourd'hui, semaine par semaine, sur des mois.
     for echelle in ("'jour'", "'semaines'", "'mois'", "[1,3,6,12]"):
         assert echelle in page, echelle
-
-
-
 
 
 # ---------- l'application « Demandes » : tableau, priorites, projets ----------
@@ -483,13 +508,16 @@ def test_l_application_messages_a_ses_vues():
 def test_les_routes_sans_client_sont_retirees(boite):
     """« pas de code inutile ou Legacy » : l'ordre d'une colonne du vieux
     tableau et l'ordre des projets n'avaient plus aucun appelant (le planning
-    passe par /api/taches/plan et /api/taches/<id>/ordre)."""
+    passe par /api/taches/plan et /api/taches/<id>/ordre). Et le panneau n'a
+    plus aucune route de la boite : elles sont dans l'application."""
+    c, _ = boite
     regles = {r.rule for r in app.flask_app.url_map.iter_rules()}
     assert "/api/taches/ordre" not in regles and "/api/projets/ordre" not in regles
     assert "/api/deploy/<n>" not in regles
     assert not {"api_taches_ordre", "api_projets_ordre", "api_deploy"} & set(app.flask_app.view_functions)
-
-
+    assert not {r for r in regles if r.startswith(("/api/taches", "/api/projets", "/api/sous-taches"))}
+    regles_app = {r.rule for r in c.module.app.url_map.iter_rules()}
+    assert "/api/taches/ordre" not in regles_app and "/api/projets/ordre" not in regles_app
 
 
 def test_une_tache_a_priorite_echeance_et_notes(boite):
@@ -500,7 +528,6 @@ def test_une_tache_a_priorite_echeance_et_notes(boite):
     ident = r.get_json()["id"]
     (t,) = c.get("/api/taches").get_json()["taches"]
     assert (t["priorite"], t["echeance"], t["notes"]) == (0, "2026-12-01", "voir le journal")
-    # Changer de statut envoie la tache en fin de sa nouvelle colonne.
     assert c.put(f"/api/taches/{ident}", json={"statut": "en_cours", "echeance": None}).status_code == 200
     (t,) = c.get("/api/taches").get_json()["taches"]
     assert t["statut"] == "en_cours" and t["echeance"] is None and not t["faite"]
@@ -512,13 +539,15 @@ def test_une_tache_a_priorite_echeance_et_notes(boite):
     assert c.put("/api/taches/inconnue", json={"priorite": 1}).status_code == 404
 
 
-
-
 def test_un_projet_se_construit_puis_se_concretise(boite):
     """Idee, construction, realise : et un projet realise peut nommer
-    l'application qui le concretise -- une application declaree, rien d'autre."""
+    l'application qui le concretise -- une application declaree, rien
+    d'autre. L'application Messages connait la liste par le panneau, qui la
+    lui donne a chaque synchronisation."""
     c, _ = boite
-    app.save({"site": {"port": 8101, "titre": "Site"}})
+    app.save({"site": {"path": "/w/site", "command": "x", "port": 8101, "titre": "Site"}})
+    assert app.synchroniser_la_messagerie()
+    assert c.get("/api/apps").get_json()["apps"] == [{"name": "site", "titre": "Site"}]
     r = c.post("/api/projets", json={"nom": "Agenda partagé", "description": "Un agenda",
                                      "taches": ["Maquette", "", "Base"]})
     assert r.status_code == 200, r.data
@@ -529,8 +558,8 @@ def test_un_projet_se_construit_puis_se_concretise(boite):
     taches = c.get("/api/taches").get_json()["taches"]
     assert [t["titre"] for t in taches] == ["Maquette", "Base"]
     assert {t["projet"] for t in taches} == {projet}
-    # Une tache peut rejoindre le projet par son identifiant.
     assert c.post("/api/taches", json={"projet": projet, "titre": "Tests"}).status_code == 200
+    assert c.post("/api/taches", json={"projet": "site", "titre": "Logo"}).status_code == 200
     assert c.put(f"/api/projets/{projet}", json={"etape": "construction"}).status_code == 200
     assert c.put(f"/api/projets/{projet}", json={"etape": "realise", "application": "site"}).status_code == 200
     (p,) = c.get("/api/projets").get_json()["projets"]
@@ -542,11 +571,9 @@ def test_un_projet_se_construit_puis_se_concretise(boite):
     # Supprimer le projet ne perd aucune tache : elles passent dans « general ».
     assert c.delete(f"/api/projets/{projet}").status_code == 200
     assert c.get("/api/projets").get_json()["projets"] == []
-    assert {t["projet"] for t in c.get("/api/taches").get_json()["taches"]} == {"general"}
+    assert {t["projet"] for t in c.get("/api/taches").get_json()["taches"]} == {"general", "site"}
     assert c.delete(f"/api/projets/{projet}").status_code == 404
     assert c.post("/api/taches", json={"projet": projet, "titre": "x"}).status_code == 400
-
-
 
 
 def test_une_demande_acceptee_devient_un_projet(boite):
@@ -562,20 +589,18 @@ def test_une_demande_acceptee_devient_un_projet(boite):
     assert p["id"] == d["projet"] and p["message"] == ident and p["etape"] == "idee"
     (t,) = c.get("/api/taches").get_json()["taches"]
     assert t["projet"] == p["id"] and t["titre"] == "Recenser les salles"
-    m = next(x for x in app.lire_messages() if x["id"] == ident)
+    m = next(x for x in c.donnees.lire_messages() if x["id"] == ident)
     assert m["statut"] == "accepte"
     # Un projet sans nom ne se cree pas, et la demande reste a traiter.
     autre = _message(c, "idee", "Autre")
     assert c.post(f"/api/messages/{autre}/accepter",
                   json={"nouveau_projet": {"nom": " "}}).status_code == 400
-    assert next(x for x in app.lire_messages() if x["id"] == autre).get("statut", "en_attente") == "en_attente"
+    assert next(x for x in c.donnees.lire_messages() if x["id"] == autre)["statut"] == "en_attente"
     # Accepter en tache garde la priorite choisie.
     r = c.post(f"/api/messages/{autre}/accepter", json={"titre": "Vite", "projet": p["id"], "priorite": 1})
     assert r.status_code == 200
     t = next(x for x in c.get("/api/taches").get_json()["taches"] if x["id"] == r.get_json()["tache"])
     assert t["priorite"] == 1 and t["projet"] == p["id"]
-
-
 
 
 def test_les_messages_se_rangent_et_se_regroupent(boite):
@@ -602,13 +627,11 @@ def test_les_messages_se_rangent_et_se_regroupent(boite):
     assert c.post("/api/messages/grouper", json={"ids": ["x"], "projet": projet}).status_code == 404
     # Rattacher et detacher un seul message.
     assert c.put(f"/api/messages/{h}", json={"projet": ""}).status_code == 200
-    assert "projet" not in {m["id"]: m for m in c.get("/api/messages").get_json()["messages"]}[h]
+    assert {m["id"]: m for m in c.get("/api/messages").get_json()["messages"]}[h]["projet"] is None
     assert c.put(f"/api/messages/{h}", json={"projet": "general"}).status_code == 400
     assert c.put(f"/api/messages/{h}", json={"projet": projet}).status_code == 200
     assert c.delete(f"/api/projets/{projet}").status_code == 200
     assert not any(m.get("projet") for m in c.get("/api/messages").get_json()["messages"])
-
-
 
 
 def test_le_planning_s_ordonne_et_une_tache_se_scinde(boite):
@@ -648,36 +671,44 @@ def test_le_planning_s_ordonne_et_une_tache_se_scinde(boite):
     assert c.post("/api/taches/inconnue/scinder", json={"titres": ["x", "y"]}).status_code == 404
 
 
-
-
-def test_messages_revient_a_codelab_comme_les_autres_applications(boite):
-    """Vecu : « Fais en sorte que le retour CodeLab dans l'app Messages soit
-    pareil que les autres applications ». Elle avait son propre lien
-    « ← Hub » ; elle porte desormais le ruban du proxy, le meme octet pour
-    octet, et sa colonne laisse la place dessous."""
-    c, _ = boite
-    page = c.get("/messages").get_data(as_text=True)
-    assert app.ruban_retour().decode() in page
-    assert page.count('id="codelab-ruban"') == 1
-    assert "← Hub" not in page
-    # Le ruban se pose au-dessus de la barre de geste, comme dans une
-    # application, ou environnement-app.js pose ces bords.
-    assert "--codelab-bord-bas:env(safe-area-inset-bottom" in page
-    assert "calc(72px + var(--codelab-bord-bas))" in page
-
-
+def test_messages_est_une_application_comme_le_diagnostic(boite, tmp_path, monkeypatch):
+    """Vecu : « L'application Messages doit etre une application a part
+    entiere, exactement comme Diagnostic ». Un dossier du workspace, inscrit
+    par le panneau a chaque demarrage, servi par le proxy sur le port des
+    applications : le ruban « ← CodeLab » est donc celui de toutes les
+    applications, pose par le proxy, et rien dans la page ne le recopie."""
+    c, panneau = boite
+    racine = tmp_path / "workspace"
+    (racine / "messages").mkdir(parents=True)
+    (racine / "messages" / "app.py").write_text("")
+    monkeypatch.setattr(app, "ROOT", str(racine))
+    assert app.amorcer_projet(app.MESSAGERIE_NOM) == app.MESSAGERIE_NOM
+    inscrite = app.load()[app.MESSAGERIE_NOM]
+    assert inscrite["path"] == str(racine / "messages")
+    assert inscrite["command"] == app.COMMANDE_PAR_DEFAUT
+    assert inscrite["build_command"] == app.BUILD_PAR_DEFAUT
+    assert inscrite["visibility"] == app.VISIBILITE_PRIVEE
+    assert app.est_app_par_defaut(app.MESSAGERIE_NOM)
+    assert app.MESSAGERIE_NOM in app.APPLICATIONS_PROTEGEES
+    assert app.MESSAGERIE_NOM not in app.SERVICES_MASQUABLES
+    # Ni arretee, ni supprimee, ni configuree a la main.
+    assert panneau.post(f"/api/toggle/{app.MESSAGERIE_NOM}").status_code in (400, 403)
+    page = _page_messages()
+    assert "← Hub" not in page and 'id="codelab-ruban"' not in page
+    assert "calc(72px + var(--codelab-bord-bas, 0px))" in page
+    assert "env(safe-area-inset-bottom" not in page
+    assert os.path.isfile(os.path.join(DOSSIER_MESSAGES, "icon.svg"))
 
 
 def test_l_application_messages_est_reservee_a_l_administrateur(boite, deux_espaces):
-    c, _ = boite
-    r = c.get("/messages/planning")
-    assert r.status_code == 200
-    page = r.get_data(as_text=True)
-    assert "__JETON__" not in page and "function peindrePlanning(" in page
-    assert c.get("/messages/projet/p-abc").status_code == 200
-    # Un compte utilisateur a, a la meme adresse, SA rubrique Messages du
-    # panneau (et jamais la page de l'administrateur) ; un anonyme va a la
-    # connexion.
+    """Dans le panneau, /messages mene l'administrateur a l'application (sur
+    le port des applications) ; un compte utilisateur y a SA rubrique, et
+    jamais la boite ; un anonyme va a la connexion."""
+    c, panneau = boite
+    panneau.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    r = panneau.get("/messages")
+    assert r.status_code == 302 and r.headers["Location"] == app_adresse_messages()
+    assert c.get("/").status_code == 200 and "function peindrePlanning(" in c.get("/").get_data(as_text=True)
     u = app.flask_app.test_client()
     _connecte(u, "marie", "mot-de-passe-long")
     r = u.get("/messages")
@@ -685,35 +716,116 @@ def test_l_application_messages_est_reservee_a_l_administrateur(boite, deux_espa
     page_u = r.get_data(as_text=True)
     assert '<div id="sec-message" class="section"' in page_u
     assert "function peindrePlanning(" not in page_u
-    for route in ("/api/projets", "/api/taches"):
-        assert u.get(route).status_code == 403, route
-    assert u.put("/api/taches/plan", json={"ordre": []}).status_code == 403
+    with app.flask_app.test_request_context("/"):
+        from flask import session
+        session["authed"], session["role"], session["utilisateur"] = True, "utilisateur", "marie"
+        assert not app.peut_voir(app.MESSAGERIE_NOM)
     assert app.flask_app.test_client().get("/messages").status_code == 302
     for nom in ("messages", "demandes"):
         assert nom in app.PAGES_DU_PANNEAU and nom in app.adresses_reservees()
 
 
+def app_adresse_messages():
+    with app.flask_app.test_request_context("/"):
+        return app.adresse_application(app.MESSAGERIE_NOM)
 
 
-def test_la_tuile_messages_compte_les_non_lus(boite):
-    """Une tuile du hub au meme rang que le diagnostic, qui dit combien de
-    demandes attendent -- et que le panneau ouvre chez lui."""
-    c, _ = boite
+def test_la_tuile_messages_compte_les_non_lus(boite, monkeypatch):
+    """La tuile de l'application, dans le hub, dit combien de demandes
+    attendent ; le compte se lit dans l'application, garde vingt secondes."""
+    c, panneau = boite
+    app.save({app.MESSAGERIE_NOM: {"titre": "Messages", "path": "/w/messages", "command": "python3 app.py",
+                                   "port": 9120, "enabled": True, "visibility": "privee"}})
+    monkeypatch.setattr(app, "is_running", lambda n: True)
     _message(c, "hub", "Une")
     _message(c, "hub", "Deux")
-    services = c.get("/api/mes-apps").get_json()["services"]
-    tuile = next(s for s in services if s["name"] == app.MESSAGERIE_NOM)
-    assert tuile["interne"] is True and tuile["url"] == "/messages" and tuile["non_lues"] == 2
-    assert tuile["titre"] == "Messages"
+    tuiles = panneau.get("/api/mes-apps").get_json()["apps"]
+    tuile = next(a for a in tuiles if a["name"] == app.MESSAGERIE_NOM)
+    assert tuile["non_lues"] == 2 and tuile["titre"] == "Messages"
+    assert tuile["description"] == "2 nouveaux messages à lire."
     assert c.post("/api/messages/lus").status_code == 200
-    services = c.get("/api/mes-apps").get_json()["services"]
-    assert next(s for s in services if s["name"] == app.MESSAGERIE_NOM)["non_lues"] == 0
-    # Le tableau des applications, lui, ne la compte pas parmi les siennes.
-    assert app.MESSAGERIE_NOM not in [a.get("name") for a in c.get("/api/apps").get_json().get("apps", [])]
+    app._messagerie["ts"] = 0
+    tuiles = panneau.get("/api/mes-apps").get_json()["apps"]
+    assert next(a for a in tuiles if a["name"] == app.MESSAGERIE_NOM)["non_lues"] == 0
+    # Ce n'est plus un service du panneau.
+    services = panneau.get("/api/mes-apps").get_json()["services"]
+    assert app.MESSAGERIE_NOM not in [s["name"] for s in services]
     page = _page_panneau("dashboard.html")
-    assert "a.interne ? a.url" in page
+    assert "a.interne" not in page
+    # L'application tombee : le hub s'affiche quand meme, sans compte.
+    def tombee(*a, **kw):
+        raise app.MessagerieIndisponible("arretee")
+    monkeypatch.setattr(app, "_vers_messagerie", tombee)
+    app._messagerie["ts"] = 0
+    assert panneau.get("/api/mes-apps").status_code == 200
 
 
+def test_les_anciennes_donnees_passent_dans_l_application(boite):
+    """Une installation d'avant la separation garde ses messages, taches,
+    projets et pieces dans codelab.db. Ils partent dans l'application, et ne
+    sont effaces du panneau qu'une fois CHAQUE ligne arrivee ; rejouer la
+    reprise ne double rien."""
+    c, _ = boite
+    with app.stockage.transaction(app.DB_FILE) as cx:
+        cx.execute("INSERT INTO messages (id, ts, qui, cible, app, texte, statut, lu, retenu, "
+                   "archive, options) VALUES ('m1', 100, 'marie', 'hub', '', 'Ancien', "
+                   "'accepte', 1, 1, NULL, ?)", (json.dumps({"projet": "p-1", "ordre": 3}),))
+        cx.execute("INSERT INTO projets (id, nom, description, etape, application, message, "
+                   "cree, maj, ordre) VALUES ('p-1', 'Vieux', '', 'idee', NULL, 'm1', 1, 1, 0)")
+        cx.execute("INSERT INTO taches (id, projet, titre, message, cree, faite, ordre, statut, "
+                   "priorite, echeance, notes, duree, fait_le) VALUES ('t1', 'p-1', 'Faire', "
+                   "'m1', 1, 0, 0, 'a_faire', 2, NULL, '', 1, NULL)")
+        cx.execute("INSERT INTO sous_taches (id, tache, titre, faite, ordre) "
+                   "VALUES ('s1', 't1', 'Morceau', 1, 0)")
+        cx.execute("INSERT INTO pieces VALUES ('p1', 'm1', 'marie', 'a.png', 'image/png', ?, 5, ?)",
+                   (len(PNG_1PX), PNG_1PX))
+    # L'application ne repond pas : rien n'est efface.
+    vraie = app._vers_messagerie
+    def tombee(*a, **kw):
+        raise app.MessagerieIndisponible("arretee")
+    app._vers_messagerie = tombee
+    try:
+        assert app.reprendre_la_messagerie() is False
+    finally:
+        app._vers_messagerie = vraie
+    assert stockage_lignes("messages") == 1
+    assert app.reprendre_la_messagerie() is True
+    for table in ("messages", "projets", "taches", "sous_taches", "pieces"):
+        assert stockage_lignes(table) == 0, table
+    (m,) = c.get("/api/messages").get_json()["messages"]
+    assert (m["texte"], m["statut"], m["lu"], m["retenu"], m["archive"]) == (
+        "Ancien", "accepte", True, True, False)
+    assert (m["projet"], m["ordre"]) == ("p-1", 3) and m["pieces"][0]["id"] == "p1"
+    (t,) = c.get("/api/taches").get_json()["taches"]
+    assert t["sous_taches"] == [{"id": "s1", "titre": "Morceau", "faite": True}]
+    assert c.get("/api/pieces/p1").data == PNG_1PX
+    # Rejouer : rien de double, rien a reprendre.
+    assert c.donnees.importer({"messages": [{"id": "m1", "ts": 1, "cible": "hub"}]})
+    assert len(c.donnees.lire_messages()) == 1
+    assert app.reprendre_la_messagerie() is True
+
+
+def test_un_compte_efface_part_aussi_de_la_messagerie(boite, deux_espaces, monkeypatch):
+    """Effacer un compte emporte ses messages et leurs pieces, dans
+    l'application aussi ; une application qui ne repond pas l'apprend au
+    tour suivant. Le travail ne de ses messages reste."""
+    c, _ = boite
+    _message(c, "hub", "De marie")
+    _message(c, "hub", "De paul", qui="paul")
+    c.post(f"/api/messages/{_message(c, 'idee', 'Projet de marie')}/accepter",
+           json={"titre": "A faire", "projet": "general"})
+    vraie = app._vers_messagerie
+    def tombee(*a, **kw):
+        raise app.MessagerieIndisponible("arretee")
+    monkeypatch.setattr(app, "_vers_messagerie", tombee)
+    app.effacer_le_compte("marie")
+    assert app.reglage("comptes_a_effacer_messagerie") == ["marie"]
+    assert len(c.donnees.lire_messages()) == 3
+    monkeypatch.setattr(app, "_vers_messagerie", vraie)
+    app.oublier_dans_la_messagerie()
+    assert [m["qui"] for m in c.donnees.lire_messages()] == ["paul"]
+    assert app.reglage("comptes_a_effacer_messagerie") is None
+    assert len(c.get("/api/taches").get_json()["taches"]) == 1
 
 
 # ------------------------ Les notifications (Web Push) ------------------------
@@ -825,7 +937,8 @@ def test_un_appareil_deconnecte_ou_desabonne_ne_recoit_plus_rien(deux_espaces, e
 
 
 
-def test_l_administrateur_est_prevenu_d_un_nouveau_message(deux_espaces, envois_push, monkeypatch):
+def test_l_administrateur_est_prevenu_d_un_nouveau_message(deux_espaces, appli_messages, envois_push,
+                                                           monkeypatch):
     c = deux_espaces
     admin = app.flask_app.test_client()
     admin.post("/login", json={"nom": "admin", "password": "secret-de-test"})
@@ -843,27 +956,31 @@ def test_l_administrateur_est_prevenu_d_un_nouveau_message(deux_espaces, envois_
 
 
 
-def test_l_auteur_d_un_message_suit_son_avancement(deux_espaces, envois_push, monkeypatch):
+def test_l_auteur_d_un_message_suit_son_avancement(deux_espaces, appli_messages, envois_push,
+                                                   monkeypatch):
     c = deux_espaces
     _connecte(c, "marie", "mot-de-passe-long")
     nav = _Navigateur()
     c.post("/api/notifications/abonnement", json=nav.abonnement())
     monkeypatch.setattr(app, "smtp_utilisable", lambda: ({}, False))
-    monkeypatch.setattr(app, "_dernier_message", {})        # un message par minute
     assert c.post("/api/messages", json={"cible": "hub", "texte": "Une idee"}).status_code == 200
-    (m,) = [x for x in app.lire_messages() if x["qui"] == "marie"]
+    (m,) = [x for x in appli_messages.donnees.lire_messages() if x["qui"] == "marie"]
+    # Le tour du moniteur ne parle qu'a une application inscrite et debout.
+    apps = app.load()
+    apps[app.MESSAGERIE_NOM] = {"path": "/w/messages", "command": "x", "port": 9120,
+                                "enabled": True, "visibility": "privee"}
+    app.save(apps)
     # Premier passage : on retient l'etat, on ne rejoue rien.
-    app.suivi_push_tick(maintenant=1e10)
+    app.messagerie_tick(maintenant=1e10)
     assert envois_push == []
-    app.modifier_message(m["id"], statut="refuse")
-    app.suivi_push_tick(maintenant=1e10 + 120)
+    appli_messages.donnees.modifier_message(m["id"], {"statut": "refuse"})
+    app.messagerie_tick(maintenant=1e10 + 120)
     (req,) = envois_push
     assert nav.lire(req.data)["titre"] == "Ton message n'est pas retenu"
+    assert nav.lire(req.data)["texte"] == "Une idee"
     # Une fois annonce, plus rien tant que rien ne change.
-    app.suivi_push_tick(maintenant=1e10 + 240)
+    app.messagerie_tick(maintenant=1e10 + 240)
     assert len(envois_push) == 1
-
-
 
 
 def test_le_manifeste_est_complet(hub):
@@ -946,3 +1063,45 @@ def test_un_compte_est_prevenu_d_une_application_qu_il_ne_connait_pas(deux_espac
     assert nouvelles()["public"] is False
     # L'administrateur ne voit pas « nouvelle » : il les a declarees.
     assert not any(a["nouvelle"] for a in admin.get("/api/mes-apps").get_json()["apps"])
+
+
+def test_l_application_messages_tourne_sur_un_vrai_postgres(pg_reel, monkeypatch):
+    """Les autres tests passent par SQLite (MESSAGES_SQLITE) ; l'installation,
+    elle, range dans Postgres. Le meme SQL doit valoir pour les deux : les
+    « ? » convertis, les octets en BYTEA, ON CONFLICT, la reprise."""
+    pytest.importorskip("psycopg")
+    module = _application_messages()
+    d = module.donnees
+    assert pg_reel["psql"]("-c", "CREATE DATABASE messages", base="postgres").returncode == 0
+    for cle, valeur in (("POSTGRES_HOST", "127.0.0.1"), ("POSTGRES_PORT", str(pg_reel["port"])),
+                        ("CODELAB_DB", "messages"), ("POSTGRES_USER", "codelab"),
+                        ("POSTGRES_PASSWORD", pg_reel["cle"])):
+        monkeypatch.setenv(cle, valeur)
+    monkeypatch.setattr(d, "SQLITE", "")
+    d.preparer()
+    d.preparer()                      # rejouee, elle ne refait rien
+    piece = d.deposer_piece("marie", "capture.png", PNG_1PX)
+    m = d.nouveau_message("marie", "hub", "", "Bonjour", [piece["id"]])
+    assert d.lire_piece(piece["id"])["donnees"] == PNG_1PX
+    assert [x["texte"] for x in d.lire_messages(qui="marie")] == ["Bonjour"]
+    projet = d.accepter_message(m["id"], {"nouveau_projet": {"nom": "Essai"},
+                                          "taches": ["Un", "Deux"]})[1]
+    octets, nom = d.exporter_projet(projet)
+    assert nom.startswith("essai-") and zipfile.ZipFile(io.BytesIO(octets)).read(
+        [n for n in zipfile.ZipFile(io.BytesIO(octets)).namelist() if n.startswith("pieces/")][0]
+    ) == PNG_1PX
+    presents = d.importer({"messages": [{"id": m["id"], "ts": 1, "cible": "hub"}]})
+    assert presents["messages"] == [m["id"]] and len(presents["taches"]) == 2
+    assert d.oublier_comptes(["marie"]) == 1 and d.lire_messages() == []
+
+
+def test_messages_verifie_l_identite_avec_le_module_livre_aux_projets():
+    """L'application verifie le jeton avec codelab_auth.py, le module que
+    « codelab create » depose dans chaque projet. Une copie, et non un
+    module a part : elle doit rester celle de dev/modeles, octet pour octet
+    (« codelab update » la tiendrait a jour dans un projet ordinaire)."""
+    modele = os.path.join(_racine_depot(), "dev", "modeles", "codelab_auth.py")
+    if not os.path.exists(modele):
+        pytest.skip("depot complet absent de cette image")
+    copie = os.path.join(DOSSIER_MESSAGES, "codelab_auth.py")
+    assert open(copie, encoding="utf-8").read() == open(modele, encoding="utf-8").read()

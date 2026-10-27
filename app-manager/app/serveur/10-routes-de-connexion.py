@@ -2554,7 +2554,8 @@ def refuser_un_compte_en_suppression():
 
 
 def effacer_le_compte(nom):
-    """Efface le compte et tout ce qui le designe, ici et dans Postgres.
+    """Efface le compte et tout ce qui le designe, ici, dans Postgres et dans
+    l'application Messages.
 
     Ce qui part : la fiche et ses droits, l'adresse (coffre), les cles
     d'acces, les appareils, les abonnements aux notifications, les
@@ -2573,8 +2574,10 @@ def effacer_le_compte(nom):
     with stockage.transaction(DB_FILE) as cx:
         for table in ("masquees", "apps_vues", "preferences", "appareils", "abonnements_push"):
             cx.execute(f"DELETE FROM {table} WHERE compte = ?", (nom,))
+        # Ses messages pas encore repris par l'application Messages (voir
+        # reprendre_la_messagerie) : ils ne doivent pas y arriver ensuite.
         cx.execute("DELETE FROM pieces WHERE qui = ?", (nom,))
-        cx.execute("DELETE FROM messages WHERE qui = ? OR cible = ?", (nom, nom))
+        cx.execute("DELETE FROM messages WHERE qui = ?", (nom,))
         cx.execute("DELETE FROM journal WHERE qui = ?", (nom,))
     # Postgres peut ne pas repondre : le nom attend dans le coffre, et chaque
     # purge quotidienne retente jusqu'a ce que la base soit nettoyee.
@@ -2582,6 +2585,7 @@ def effacer_le_compte(nom):
     attente.add(nom)
     ecrire_reglage("comptes_a_effacer_pg", sorted(attente))
     _effacer_dans_postgres()
+    oublier_dans_la_messagerie([nom])
     journaliser("compte", qui="", action=f"compte « {nom} » effacé à sa demande")
 
 
@@ -2592,8 +2596,6 @@ def _effacer_dans_postgres():
     try:
         with _pg_connexion(PG_BASE) as cx:
             cx.execute("DELETE FROM acces WHERE qui = ANY(%s)", (attente,))
-            cx.execute("DELETE FROM messages WHERE qui = ANY(%s) OR cible = ANY(%s)",
-                       (attente, attente))
     except Exception as e:                                        # noqa: BLE001
         _pg_etat["erreur"] = f"{type(e).__name__}: {e}"
         return

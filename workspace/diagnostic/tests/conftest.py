@@ -225,7 +225,7 @@ def acces(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def messagerie(tmp_path, monkeypatch):
+def messagerie(tmp_path, monkeypatch, appli_messages):
     monkeypatch.setattr(app, "_admin_password", "secret-de-test")
     monkeypatch.setattr(app, "SHARED_CONFIG_DIR", str(tmp_path))
     monkeypatch.setattr(app, "SHARED_ENV_FILE", str(tmp_path / "credentials.env"))
@@ -692,7 +692,34 @@ def hub_dagster(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def boite(tmp_path, monkeypatch):
+def appli_messages(tmp_path, monkeypatch):
+    """L'application Messages, branchee au panneau comme dans l'installation :
+    sa base (SQLite, dans tmp_path), la cle de signature du panneau, et le
+    transport du panneau (_vers_messagerie) qui la joint par son client de
+    test au lieu de 127.0.0.1. Rend l'administrateur de l'application."""
+    module = _application_messages()
+    _cle_sso(monkeypatch)
+    monkeypatch.setenv("CODELAB_SSO_PUBLIC_KEY", app._sso_public_key)
+    monkeypatch.setenv("CODELAB_SSO_ISSUER", app.SSO_ISSUER)
+    monkeypatch.setenv("CODELAB_SSO_AUDIENCE", app.MESSAGERIE_NOM)
+    monkeypatch.setattr(module.donnees, "SQLITE", str(tmp_path / "messages.db"))
+    module.donnees.preparer()
+    monkeypatch.setattr(module, "_etat", {"prete": True})
+    monkeypatch.setattr(app, "_messagerie", {"ts": 0, "non_lus": 0, "suivis": {}})
+    monkeypatch.setattr(app, "_dernier_message", {})
+    client = module.app.test_client()
+
+    def transport(methode, chemin, entetes, corps):
+        r = client.open(chemin, method=methode, headers=entetes, data=corps)
+        return r.status_code, {k.lower(): v for k, v in r.headers.items()}, r.data
+    monkeypatch.setattr(app, "_vers_messagerie", transport)
+    return ClientMessages(module)
+
+
+@pytest.fixture
+def boite(tmp_path, monkeypatch, appli_messages):
+    """L'administrateur, des deux cotes : dans l'application Messages (la
+    boite, le planning) et dans le panneau (le hub, les notifications)."""
     monkeypatch.setattr(app, "_admin_password", "secret-de-test")
     app._apps_cache["signature"] = None
     app.save({})
@@ -701,7 +728,7 @@ def boite(tmp_path, monkeypatch):
     app._login_attempts.clear()
     c = app.flask_app.test_client()
     c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
-    return c, tmp_path
+    return appli_messages, c
 
 
 

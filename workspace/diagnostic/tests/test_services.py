@@ -203,6 +203,30 @@ def test_l_aide_est_un_onglet_des_parametres_reserve_a_l_administrateur():
 
 
 
+def test_un_projet_par_defaut_absent_est_recopie_mais_pas_un_autre(tmp_path):
+    """Vecu : « Messages » est devenu un projet a lui. Une installation deja
+    amorcee ne l'aurait jamais recu : le squelette ne cree aucun fichier
+    absent, pour qu'un projet supprime expres ne revienne pas. Un projet par
+    defaut ne se supprime pas : absent, il est recopie entier, et ses
+    empreintes notees ; un projet d'exemple ordinaire, lui, reste absent."""
+    a = _Atelier(tmp_path)
+    for nom in ("messages", "exemple"):
+        (a.base / "seed" / nom).mkdir()
+        (a.base / "seed" / nom / "app.py").write_text(nom, encoding="utf-8")
+    journal = a.demarrer()
+    assert (a.base / "ws" / "messages" / "app.py").read_text(encoding="utf-8") == "messages"
+    assert not (a.base / "ws" / "exemple").exists()
+    assert "projet par defaut messages copie" in journal
+    assert " messages/app.py" in a.empreintes.read_text(encoding="utf-8")
+    # Present, il n'est plus recopie : un fichier modifie reste a l'utilisateur.
+    (a.base / "ws" / "messages" / "app.py").write_text("MON CODE", encoding="utf-8")
+    (a.base / "seed" / "messages" / "app.py").write_text("nouveau", encoding="utf-8")
+    a.demarrer()
+    assert (a.base / "ws" / "messages" / "app.py").read_text(encoding="utf-8") == "MON CODE"
+
+
+
+
 def test_une_ancienne_version_livree_est_remplacee(tmp_path):
     """Le cas qui a motive tout ceci : une version livree, restee intacte
     depuis, recoit la correction de l'image."""
@@ -673,7 +697,7 @@ def test_dagster_parait_dans_le_hub_et_mene_au_port_3000(hub_dagster):
     services = d["services"]
     # Trois services dans le hub : l'orchestrateur, le courrier, et les
     # messages recus.
-    assert [s["name"] for s in services] == ["dagster", "mailpit", "messages"]
+    assert [s["name"] for s in services] == ["dagster", "mailpit"]
     dagster = services[0]
     # L'adresse est celle du NAVIGATEUR : meme hote, autre port.
     assert dagster["url"].endswith(":3000/"), dagster["url"]
@@ -775,6 +799,11 @@ def test_les_applications_par_defaut_ont_leur_icone(hub_dagster, tmp_path):
     pose est un choix explicite, et l'icone livree n'est qu'un repli.
     """
     hub_dagster.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    # Messages porte son icone dans son projet (icon.svg), qu'elle sert aussi
+    # a sa propre page : inscrite comme le panneau l'inscrit, elle la montre.
+    apps = app.load()
+    apps[app.MESSAGERIE_NOM] = {"path": DOSSIER_MESSAGES, "command": "x", "port": 9703}
+    app.save(apps)
     for nom in app.APPS_PAR_DEFAUT:
         r = hub_dagster.get("/api/icon/" + nom)
         assert r.status_code == 200, nom
@@ -1116,7 +1145,7 @@ def test_remettre_dagster_le_ramene_dans_le_hub(hub, monkeypatch):
     c.post("/api/mes-apps/" + app.DAGSTER_NOM + "/masquer")
     assert c.delete("/api/mes-apps/" + app.DAGSTER_NOM + "/masquer").status_code == 200
     d = c.get("/api/mes-apps").get_json()
-    assert [s["name"] for s in d["services"]] == [app.DAGSTER_NOM, app.MAILPIT_NOM, app.MESSAGERIE_NOM]
+    assert [s["name"] for s in d["services"]] == [app.DAGSTER_NOM, app.MAILPIT_NOM]
     assert d["services_masques"] == []
 
 
@@ -1141,8 +1170,7 @@ def test_seuls_les_services_nommes_passent_par_la_route_de_masquage():
     """Une liste fermee, pas « tout ce qui n'est pas une application » :
     sinon la route accepterait n'importe quel nom et masquees.json se
     remplirait d'entrees qui ne designent rien."""
-    assert app.SERVICES_MASQUABLES == frozenset({app.DAGSTER_NOM, app.MAILPIT_NOM,
-                                                app.MESSAGERIE_NOM})
+    assert app.SERVICES_MASQUABLES == frozenset({app.DAGSTER_NOM, app.MAILPIT_NOM})
 
 
 
@@ -1519,7 +1547,7 @@ def test_redis_est_dans_la_stack_sans_port_publie_et_durci():
         assert "$" not in valeurs, chemin
     ci = open(os.path.join(_racine_depot(), ".github", "workflows", "build-images.yml"),
               encoding="utf-8").read()
-    assert "name: codelab-redis" in ci and '"redis/**"' in ci
+    assert "codelab-redis redis/Dockerfile redis/" in ci and '"redis/**"' in ci
 
 
 
@@ -1930,3 +1958,99 @@ def test_l_agregateur_range_chaque_projet_sous_son_nom(tmp_path, monkeypatch):
     assert [s.group_name for s in module.defs] == ["mon_projet", "mon_projet", "choisi"]
     assert all(s.tags["codelab/projet"] == "mon-projet" for s in module.defs)
     assert module.defs[2].tags["k"] == "v"
+
+
+def _images_de_la_ci():
+    """La table de la CI : {image: (Dockerfile, debuts de chemin)}."""
+    import yaml
+    chemin = os.path.join(_racine_depot(), ".github", "workflows", "build-images.yml")
+    if not os.path.exists(chemin):
+        pytest.skip("depot complet absent de cette image")
+    ci = yaml.safe_load(open(chemin, encoding="utf-8"))
+    script = ci["jobs"]["changements"]["steps"][1]["run"]
+    table = script.split("<<'FIN'\n", 1)[1].split("\nFIN", 1)[0]
+    images = {}
+    for ligne in table.splitlines():
+        nom, dockerfile, *chemins = ligne.split()
+        images[nom] = (dockerfile, chemins)
+    return ci, images
+
+
+def test_la_ci_ne_reconstruit_que_les_images_touchees_et_n_en_oublie_aucune():
+    """Vecu : « The job was not started because [...] your spending limit
+    needs to be increased ». Sur le plan gratuit, chaque push reconstruisait
+    les sept images ; une journee epuisait les 2 000 minutes du mois. Une
+    image ne se reconstruit plus que si un fichier qu'elle copie change :
+    la table doit donc couvrir CHAQUE COPY de chaque Dockerfile, sinon une
+    modification partirait en production sans nouvelle image."""
+    ci, images = _images_de_la_ci()
+    racine = _racine_depot()
+    dockerfiles = {os.path.relpath(os.path.join(d, f), racine)
+                   for d, _, fichiers in os.walk(racine) if ".git" not in d
+                   for f in fichiers if f == "Dockerfile"}
+    assert {df for df, _ in images.values()} == dockerfiles
+    for nom, (dockerfile, chemins) in images.items():
+        assert any(dockerfile.startswith(c) for c in chemins), (nom, "son Dockerfile")
+        texte = open(os.path.join(racine, dockerfile), encoding="utf-8").read()
+        for ligne in texte.splitlines():
+            mots = ligne.split()
+            if not mots or mots[0] not in ("COPY", "ADD") or any(m.startswith("--from") for m in mots):
+                continue
+            for source in [m for m in mots[1:-1] if not m.startswith("--")]:
+                assert any(source.startswith(c) or c.startswith(source.rstrip("/") + "/")
+                           for c in chemins), (nom, source)
+    # La matrice vient de la table, et rien ne se construit quand rien n'a change.
+    build = ci["jobs"]["build"]
+    assert build["strategy"]["matrix"] == "${{ fromJSON(needs.changements.outputs.matrice) }}"
+    assert build["if"] == "needs.changements.outputs.nombre != '0'"
+    # L'arm64 (emule, le plus cher) seulement hors pull request, et reglable.
+    assert "vars.CODELAB_PLATEFORMES || 'linux/amd64,linux/arm64'" in build["env"]["PLATEFORMES"]
+    assert "github.event_name == 'pull_request' && 'linux/amd64'" in build["env"]["PLATEFORMES"]
+
+
+def test_la_ci_choisit_ses_images_d_apres_le_diff(tmp_path):
+    """Le script de la CI, joue pour de vrai sur un petit depot : un
+    changement dans redis/ ne reconstruit que Redis ; le workflow lui-meme,
+    un lundi ou un tag, tout ; un commit precedent inconnu, tout."""
+    import subprocess
+    ci, images = _images_de_la_ci()
+    script = ci["jobs"]["changements"]["steps"][1]["run"]
+    depot = tmp_path / "depot"
+    depot.mkdir()
+
+    def git(*a):
+        subprocess.run(["git", "-C", str(depot), *a], check=True, capture_output=True,
+                       env=dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
+                                GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t"))
+    git("init", "-q")
+    (depot / "README.md").write_text("x")
+    git("add", "-A"); git("commit", "-qm", "un")
+    avant = subprocess.run(["git", "-C", str(depot), "rev-parse", "HEAD"],
+                           capture_output=True, text=True).stdout.strip()
+
+    def choisir(evenement, avant_sha, fichier=None):
+        if fichier:
+            (depot / fichier).parent.mkdir(parents=True, exist_ok=True)
+            (depot / fichier).write_text(secrets.token_hex(4))
+            git("add", "-A"); git("commit", "-qm", "deux")
+        sortie = tmp_path / ("sortie-" + secrets.token_hex(3))
+        r = subprocess.run(["bash", "-e", "-c", script], cwd=depot, capture_output=True, text=True,
+                           env=dict(os.environ, EVENEMENT=evenement, AVANT=avant_sha,
+                                    TYPE_REF="branch", BASE_PR="", GITHUB_OUTPUT=str(sortie),
+                                    RUNNER_TEMP=str(tmp_path)))
+        assert r.returncode == 0, r.stderr
+        lignes = dict(l.split("=", 1) for l in sortie.read_text().splitlines())
+        return [i["name"] for i in json.loads(lignes["matrice"])["include"]]
+
+    assert choisir("push", avant, "redis/sante.sh") == ["codelab-redis"]
+    tete = subprocess.run(["git", "-C", str(depot), "rev-parse", "HEAD"],
+                          capture_output=True, text=True).stdout.strip()
+    assert choisir("push", tete, "docker-compose.yml") == []
+    tete = subprocess.run(["git", "-C", str(depot), "rev-parse", "HEAD"],
+                          capture_output=True, text=True).stdout.strip()
+    assert set(choisir("push", tete, "workspace/messages/app.py")) == {"codelab-dagster"}
+    tete = subprocess.run(["git", "-C", str(depot), "rev-parse", "HEAD"],
+                          capture_output=True, text=True).stdout.strip()
+    assert set(choisir("push", tete, ".github/workflows/build-images.yml")) == set(images)
+    assert set(choisir("schedule", "")) == set(images)
+    assert set(choisir("push", "0" * 40)) == set(images)

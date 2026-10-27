@@ -301,7 +301,7 @@ def test_l_ecran_de_demarrage_est_fabrique_au_pixel_pres(hub):
 
 
 
-@pytest.mark.parametrize("page", ["dashboard.html", "login.html", "messages.html"])
+@pytest.mark.parametrize("page", ["dashboard.html", "login.html"])
 def test_chaque_page_declare_ses_ecrans_de_demarrage(page):
     html = _page_panneau(page)
     # Posees par le serveur : la page source n'en porte que la marque.

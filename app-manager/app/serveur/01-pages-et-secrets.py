@@ -38,7 +38,6 @@ def _lire_ressource(nom):
 
 
 DASHBOARD_PAGE = _lire_ressource("dashboard.html")
-MESSAGERIE_PAGE = _lire_ressource("messages.html")
 # La seule page d'un compte en attente de suppression (voir « supprimer son
 # propre compte »), a marqueurs : __JETON__, __DATE__.
 SUPPRESSION_PAGE = _lire_ressource("suppression.html")

@@ -101,12 +101,13 @@ dernières vues.
 
 | Donnée | Où | Protection |
 |---|---|---|
-| Comptes, droits, clés d'accès, applications, journal, messages | `codelab.db` (SQLite) dans `/DATA/AppData/codelab/app-manager` | fichier en `0600`, `secure_delete` (une ligne supprimée est effacée du fichier) |
+| Comptes, droits, clés d'accès, applications, journal | `codelab.db` (SQLite) dans `/DATA/AppData/codelab/app-manager` | fichier en `0600`, `secure_delete` (une ligne supprimée est effacée du fichier) |
 | Adresses mail, serveur d'envoi, invitations, destinataires d'alerte, adresse de surveillance | `codelab.db`, table `reglages_chiffres` | **chiffrés** valeur par valeur (Fernet : AES-128 + HMAC-SHA256), clé `APP_MANAGER_CHIFFREMENT_CLE` dans `credentials.env` |
 | Mots de passe des comptes | `codelab.db`, table `comptes` | empreinte PBKDF2 seulement |
 | Codes (connexion, vérification, réinitialisation), jetons d'invitation | `codelab.db` | empreinte seulement, usage unique, expiration |
 | Secrets des services, mot de passe admin, clé de chiffrement, clé privée SSO | `credentials.env` | `0600 root`, jamais transmis aux applications |
 | Historique long (journal, copie des comptes) | Postgres, base `codelab` | ni empreinte de mot de passe, ni adresse en clair |
+| Messages, pièces jointes, tâches et projets de Messages | Postgres, base `messages` (celle de l'application, voir *Applications hébergées*) | le compte de cette base seulement ; repris de `codelab.db` au premier démarrage, puis effacés de `codelab.db` une fois chaque ligne vérifiée |
 | Données des projets | Postgres, une base par projet | **un compte Postgres par base** : seul ce compte (et l'administrateur) peut s'y connecter |
 
 **Une base, un compte.** Le compte administrateur de Postgres (`codelab`, super-utilisateur) n'est
@@ -176,6 +177,15 @@ Sans lui, les réglages chiffrés deviennent illisibles.
   - `codelab_auth` : connexion avec CodeLab, sans faire confiance aux en-têtes non signés ;
   - `codelab_web` : pages d'erreur sans pile d'appels, et en-têtes optionnels (CSP stricte, `nosniff`,
     `Referrer-Policy`, `Permissions-Policy`).
+- **Messages, une application par défaut.** Elle vit dans `/workspace/messages`, sous son uid,
+  avec sa base, comme toute application ; ce qui la distingue, c'est qu'elle vérifie elle-même le
+  jeton signé à **chaque** requête, sans se fier au proxy :
+  - sa page et son API ne répondent qu'au rôle `admin` ;
+  - `/compte/...`, par où le panneau relaie le hub, au compte du jeton, pour ses seuls messages ;
+  - `/interne/...` au seul rôle `panneau`, qu'aucune session ne peut porter (`jeton_du_panneau`).
+  Ce qui modifie exige en plus l'en-tête `X-Messages` (un formulaire d'un autre site ne sait pas le
+  poser). Le panneau garde la vérification des droits (sur quelle application un compte peut
+  écrire), le délai entre deux messages et les envois (mail, notifications).
 - **Logos.** Seuls les PNG, JPEG et GIF sont acceptés (512 Ko au plus), reconnus à leur signature. Le
   SVG est refusé, parce qu'il peut porter du script.
 
@@ -301,6 +311,10 @@ Sans lui, les réglages chiffrés deviennent illisibles.
     disque.
 17. La base du panneau et les archives de sauvegarde sont en `0600`.
 18. Le diagnostic n'ouvre la base du panneau qu'en lecture seule.
+18 bis. L'application Messages ne répond à aucune requête sans le jeton signé du panneau ; ses
+    routes `/interne/` n'acceptent que le rôle `panneau`, que le panneau seul signe et qu'aucune
+    session ne porte. Le panneau n'efface les données qu'il lui transmet qu'après avoir vérifié
+    qu'elles y sont toutes.
 
 **Applications**
 
@@ -327,7 +341,9 @@ Sans lui, les réglages chiffrés deviennent illisibles.
   application ne peut pas fabriquer.
 - **Sur le port des applications (sans VPS), toutes partagent une origine** (`:9002`). Un script
   d'une application peut donc agir, au nom du visiteur, dans une autre application que ce visiteur
-  ouvre. Derrière le VPS, chaque application a son sous-domaine, donc son origine.
+  ouvre. Messages en fait partie depuis qu'elle est une application : un administrateur qui ouvre
+  une application hostile sur `:9002` lui expose sa boîte. Derrière le VPS, chaque application a son
+  sous-domaine, donc son origine.
 - **Derrière le VPS, tous les visiteurs d'Internet partagent une adresse** pour la limite des
   essais : cinq mauvais mots de passe, de qui que ce soit, suspendent les connexions distantes
   cinq minutes. C'est voulu : croire `X-Forwarded-For` permettrait de contourner la limite.
