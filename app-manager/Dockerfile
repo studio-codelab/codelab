@@ -18,7 +18,7 @@
 #   plus, pour le meme binaire, et gnupg a installer puis retirer.
 FROM node:24-trixie-slim AS node
 
-FROM python:3.13-slim
+FROM python:3.15-slim
 
 WORKDIR /opt/codelab/app-manager 
 
