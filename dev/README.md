@@ -10,8 +10,9 @@ ssh vscode@<serveur> -p 2222
 ## Accès
 
 - **Clé publique uniquement** (`PasswordAuthentication no`, `PermitRootLogin no`). Un fichier par
-  machine dans `/DATA/AppData/codelab/config/ssh/authorized_keys.d/`. Retirer le fichier retire
-  l'accès au redémarrage suivant. Sans clé déposée, personne n'entre.
+  machine dans `/DATA/AppData/codelab/config/ssh/authorized_keys.d/`, au nom en `.pub`. Retirer le
+  fichier retire l'accès au redémarrage suivant. Sans clé déposée, personne n'entre. Une clé sans
+  retour à la ligne final, ou venue de Windows (fin de ligne CR LF), est lue comme les autres.
 - **Empreinte stable** : les clés hôte vivent dans `config/ssh/host_keys/` et survivent aux mises à
   jour. Si elle a changé malgré tout : `ssh-keygen -R "[<serveur>]:2222"`.
 - **`Permission denied (publickey)`** alors que la clé est là : `docker logs codelab-dev` donne la
