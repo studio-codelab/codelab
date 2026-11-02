@@ -2054,3 +2054,38 @@ def test_la_ci_choisit_ses_images_d_apres_le_diff(tmp_path):
     assert set(choisir("push", tete, ".github/workflows/build-images.yml")) == set(images)
     assert set(choisir("schedule", "")) == set(images)
     assert set(choisir("push", "0" * 40)) == set(images)
+
+
+def test_une_cle_ssh_sans_retour_a_la_ligne_final_est_autorisee(tmp_path):
+    """Vecu : « Permission denied (publickey) », avec un
+    MacBookAir-Lucas.pub bien present et « AUCUNE cle autorisee » au
+    demarrage. Le fichier n'avait pas de retour a la ligne final, et
+    « read » abandonnait la derniere ligne. Une cle venue de Windows (fin
+    de ligne CR LF) doit aussi passer, sans le CR que sshd prendrait pour
+    une partie de la cle."""
+    import pwd
+    import subprocess
+    entree = os.path.join(_racine_depot(), "dev", "entrypoint.sh")
+    if not os.path.exists(entree):
+        pytest.skip("depot complet absent de cette image")
+    texte = open(entree, encoding="utf-8").read()
+    morceaux = [l for l in texte.splitlines() if l.startswith("CR=")]
+    for nom in ("key_ids", "sync_authorized_keys"):
+        debut = texte.index(nom + "() {")
+        morceaux.append(texte[debut:texte.index("\n}\n", debut) + 3])
+    cles = tmp_path / "authorized_keys.d"
+    cles.mkdir()
+    (cles / "mac.pub").write_bytes(b"ssh-ed25519 AAAAC3Mac lucas@mac")
+    (cles / "pc.pub").write_bytes(b"ssh-ed25519 AAAAC3Pc\r\n")
+    (cles / "deux.pub").write_bytes(b"ssh-ed25519 AAAAC3Un a\nssh-ed25519 AAAAC3Deux b")
+    r = subprocess.run(["sh", "-c", "\n".join(morceaux) + "\nsync_authorized_keys"],
+                       capture_output=True, text=True, timeout=30,
+                       env=dict(os.environ, SSH_USER=pwd.getpwuid(os.getuid()).pw_name, SSH_DIR=str(tmp_path),
+                                AUTHORIZED_KEYS=str(tmp_path / "authorized_keys"),
+                                KEYS_D=str(cles), DERIVED_SNAPSHOT=str(tmp_path / ".derived")))
+    assert r.returncode == 0, r.stderr
+    assert "4 cle(s) autorisee(s)" in r.stdout, r.stdout
+    lignes = [l for l in (tmp_path / "authorized_keys").read_bytes().split(b"\n")
+              if l and not l.startswith(b"#")]
+    assert lignes == [b"ssh-ed25519 AAAAC3Un a", b"ssh-ed25519 AAAAC3Deux b",
+                      b"ssh-ed25519 AAAAC3Mac lucas@mac", b"ssh-ed25519 AAAAC3Pc"]

@@ -545,8 +545,18 @@ chmod 644 /etc/ssh/ssh_host_*_key.pub
 # Deux lignes qui ne different que par le commentaire ("... lucas@portable"
 # vs "... lucas@mac") sont la MEME cle ; sans cette normalisation elles
 # s'accumuleraient toutes les deux.
+# Une cle se depose souvent a la main : copiee depuis un editeur, collee
+# avec printf, venue de Windows. Vecu : « Permission denied (publickey) »,
+# un MacBookAir-Lucas.pub bien la, et « AUCUNE cle autorisee » au
+# demarrage : le fichier n'avait pas de retour a la ligne final, et
+# « read » abandonne la derniere ligne qui n'en a pas. Les deux boucles
+# ci-dessous lisent donc cette derniere ligne (|| [ -n "$line" ]), et
+# retirent le retour chariot d'une fin de ligne Windows (CR), que sshd
+# prendrait pour une partie de la cle.
+CR="$(printf '\r')"
+
 key_ids() {
-    awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^(ssh-|ecdsa-|sk-)/) { print $i " " $(i+1); next } }' "$@" 2>/dev/null
+    awk '{ sub(/\r$/, ""); for (i = 1; i <= NF; i++) if ($i ~ /^(ssh-|ecdsa-|sk-)/) { print $i " " $(i+1); next } }' "$@" 2>/dev/null
 }
 
 sync_authorized_keys() {
@@ -558,7 +568,8 @@ sync_authorized_keys() {
     # 1. Recuperation des lignes ecrites directement dans authorized_keys.
     if [ -s "$AUTHORIZED_KEYS" ]; then
         recovered=0
-        while IFS= read -r line; do
+        while IFS= read -r line || [ -n "$line" ]; do
+            line="${line%"$CR"}"
             case "$line" in ''|\#*) continue ;; esac
             id="$(printf '%s\n' "$line" | key_ids)"
             [ -n "$id" ] || continue
@@ -591,7 +602,8 @@ sync_authorized_keys() {
     for f in "$KEYS_D"/*.pub; do
         [ -f "$f" ] || continue
         name="$(basename "$f" .pub)"
-        while IFS= read -r line; do
+        while IFS= read -r line || [ -n "$line" ]; do
+            line="${line%"$CR"}"
             case "$line" in ''|\#*) continue ;; esac
             id="$(printf '%s\n' "$line" | key_ids)"
             [ -n "$id" ] || continue
