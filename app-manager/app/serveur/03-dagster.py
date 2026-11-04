@@ -394,7 +394,7 @@ def _tuile_service(nom, description, adresse, debout, port):
         # Un service de la stack ne s'archive pas.
         "archivee": False, "archivee_le": None, "effacement_le": None,
         "configuration_effacee": False,
-        "failed": False, "crash_looping": False, "has_build": False, "dernier_echec": None,
+        "failed": False, "crash_looping": False, "has_build": False, "building": False, "dernier_echec": None,
         "build_command": "", "max_memory_mb": None, "alertes": [],
         # CPU/RAM ne sont pas mesurables depuis app-manager : le service vit
         # dans un autre conteneur. En revanche, les sondes suivent sa latence
