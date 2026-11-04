@@ -1222,7 +1222,11 @@ def _proxy(name, sub):
     # publique vue par un visiteur anonyme ne doit pas lui annoncer qu'un
     # panneau existe derriere, ni lui offrir un lien qui le renverrait a une
     # page de connexion dont il n'a que faire.
-    if is_authed():
+    # Messages est reserve a l'administrateur par le proxy lui-meme. On y
+    # conserve donc le meme ruban de retour, meme lorsque l'application est
+    # ouverte depuis son parcours integre (ou le contexte de session du
+    # navigateur peut differer de celui des autres applications).
+    if is_authed() or name == MESSAGERIE_NOM:
         data, sortants = injecter_ruban(data, status, sortants)
         # Meme condition que le ruban : /api/icon exige une session, et un
         # visiteur anonyme n'a pas a voir d'adresse du panneau.
