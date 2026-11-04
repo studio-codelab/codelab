@@ -463,7 +463,7 @@ function peuplerDossiers(zone, d, aller, creation=false){
   };
   if(d.parent) ligne('\u21a9 Dossier parent', d.parent);
   const configures = new Set(d.configured || []);
-  (d.dirs || []).forEach(nom=>{
+  (d.dirs || []).forEach(nom => {
     const chemin=d.path+'/'+nom, bloque=creation && configures.has(nom);
     ligne('\u{1f4c1} '+nom+(bloque?' · déjà configuré':''), chemin, bloque);
   });
@@ -629,17 +629,17 @@ function openAdd(){
   $('f-vis-zone').style.display = adressePublique ? '' : 'none';
   setVisAdd(adressePublique ? 'publique' : 'privee');
   $('ov-add').classList.add('show');
-  browse(ROOT, true);
+  browse(ROOT);
   $('f-name').oninput=()=>{ $('f-url').textContent='/'+(slug($('f-name').value)||'nom')+'/'; };
   $('f-url').textContent='/nom/';
   setTimeout(()=>$('f-name').focus(), 60);
 }
 
-async function browse(p, creation=true){
-  const d=await (await fetch('/api/browse?path='+encodeURIComponent(p)+(creation?'&creation=1':''))).json();
+async function browse(p){
+  const d=await (await fetch('/api/browse?path='+encodeURIComponent(p)+'&creation=1')).json();
   cur=d.path; $('fb-c').textContent=d.label;
   const zone=$('fb-l');
-  if(!peuplerDossiers(zone, d, chemin=>browse(chemin, creation), creation))
+  if(!peuplerDossiers(zone, d, browse, true))
     lignePlate(zone, 'Dossier vide', 'var(--dim)');
   if(d.hasIndex)
     zone.insertBefore(Object.assign(document.createElement('div'),
