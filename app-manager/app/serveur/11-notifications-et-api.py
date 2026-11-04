@@ -480,6 +480,7 @@ def api_apps():
             "ecoute_large": bool(_ecoute_large.get(name)) if run else False,
             "visibility": visibilite(a),
             "has_build": bool((a.get("build_command") or "").strip()),
+            "building": name in _builds_en_cours,
             "build_command": a.get("build_command") or "",
             "max_memory_mb": a.get("max_memory_mb"),
             "description": a.get("description") or "",
@@ -520,12 +521,24 @@ def api_browse():
         entries = os.listdir(path)
     except (PermissionError, FileNotFoundError):
         entries = []
+    creation = request.args.get("creation") == "1"
+    chemins_configures = {
+        os.path.realpath(a.get("path")) for a in load().values()
+        if isinstance(a.get("path"), str) and a.get("path")
+    }
+    dossiers = sorted(d for d in entries
+                      if os.path.isdir(os.path.join(path, d)) and not d.startswith("."))
+    # Diagnostic et Messages sont des applications integrees : leurs dossiers
+    # ne sont jamais des choix pour une nouvelle application.
+    if creation and os.path.realpath(path) == os.path.realpath(ROOT):
+        dossiers = [d for d in dossiers if d not in {DIAGNOSTIC_NOM, MESSAGERIE_NOM}]
     return jsonify({
         "path": path,
         "label": path.replace(ROOT, "") or "/",
         "parent": os.path.dirname(path) if path != ROOT else None,
-        "dirs": sorted(d for d in entries
-                       if os.path.isdir(os.path.join(path, d)) and not d.startswith(".")),
+        "dirs": dossiers,
+        "configured": [os.path.realpath(os.path.join(path, d)) for d in dossiers
+                       if os.path.realpath(os.path.join(path, d)) in chemins_configures],
         "hasIndex": os.path.exists(os.path.join(path, "index.html")),
     })
 
