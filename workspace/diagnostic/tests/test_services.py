@@ -2028,6 +2028,13 @@ def test_la_ci_choisit_ses_images_d_apres_le_diff(tmp_path):
     avant = subprocess.run(["git", "-C", str(depot), "rev-parse", "HEAD"],
                            capture_output=True, text=True).stdout.strip()
 
+    # Un faux « gh » : il rend la derniere construction reussie de main.
+    outils = tmp_path / "outils"
+    outils.mkdir()
+    (outils / "gh").write_text('#!/bin/sh\nprintf "%s\\n" "$FAUX_REUSSI"\n')
+    (outils / "gh").chmod(0o755)
+    reussi = {"sha": ""}
+
     def choisir(evenement, avant_sha, fichier=None):
         if fichier:
             (depot / fichier).parent.mkdir(parents=True, exist_ok=True)
@@ -2036,6 +2043,8 @@ def test_la_ci_choisit_ses_images_d_apres_le_diff(tmp_path):
         sortie = tmp_path / ("sortie-" + secrets.token_hex(3))
         r = subprocess.run(["bash", "-e", "-c", script], cwd=depot, capture_output=True, text=True,
                            env=dict(os.environ, EVENEMENT=evenement, AVANT=avant_sha,
+                                    PATH=f"{outils}:{os.environ['PATH']}",
+                                    FAUX_REUSSI=reussi["sha"], DEPOT="x/y",
                                     TYPE_REF="branch", BASE_PR="", GITHUB_OUTPUT=str(sortie),
                                     RUNNER_TEMP=str(tmp_path)))
         assert r.returncode == 0, r.stderr
@@ -2054,6 +2063,15 @@ def test_la_ci_choisit_ses_images_d_apres_le_diff(tmp_path):
     assert set(choisir("push", tete, ".github/workflows/build-images.yml")) == set(images)
     assert set(choisir("schedule", "")) == set(images)
     assert set(choisir("push", "0" * 40)) == set(images)
+    # Vecu : la fusion de Messages a echoue aux tests sur main ; le push
+    # suivant ne comparait qu'au commit precedent, et l'image du panneau n'a
+    # jamais recu Messages. La base est la derniere construction REUSSIE.
+    reussi["sha"] = subprocess.run(["git", "-C", str(depot), "rev-parse", "HEAD"],
+                                   capture_output=True, text=True).stdout.strip()
+    choisir("push", reussi["sha"], "app-manager/app/app.py")      # echoue : rien de construit
+    tete = subprocess.run(["git", "-C", str(depot), "rev-parse", "HEAD"],
+                          capture_output=True, text=True).stdout.strip()
+    assert set(choisir("push", tete, "redis/sante.sh")) == {"codelab-app-manager", "codelab-redis"}
 
 
 def test_une_cle_ssh_sans_retour_a_la_ligne_final_est_autorisee(tmp_path):

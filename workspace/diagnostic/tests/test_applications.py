@@ -2251,3 +2251,87 @@ def test_une_application_par_defaut_ne_s_archive_pas(hub):
     for action in ("'app-archiver':", "'app-desarchiver':", "'app-supprimer':"):
         assert action in page, action
     assert 'data-agir="app-archiver"' in page
+
+
+def test_une_application_ne_demarre_pas_pendant_son_build(tmp_path, monkeypatch):
+    """Vecu : « Bloquer le bouton demarrer lorsque l'application est en train
+    de build ». Lancee pendant son build, elle partirait sur des
+    dependances a moitie installees. Le serveur refuse, /api/apps le dit,
+    et la page grise « Demarrer »."""
+    projet = tmp_path / "projet"
+    projet.mkdir()
+    app.save({"site": {"path": str(projet), "command": "sleep 60", "port": 9131,
+                       "visibility": "privee"}})
+    monkeypatch.setattr(app, "_builds_en_cours", {"site"})
+    erreur = app.start("site")
+    assert erreur and "build" in erreur and not app.is_running("site")
+    c = app.flask_app.test_client()
+    monkeypatch.setattr(app, "_admin_password", "secret-de-test")
+    app.flask_app.secret_key = "cle-de-test"
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    (d,) = [a for a in c.get("/api/apps").get_json()["apps"] if a["name"] == "site"]
+    assert d["build_en_cours"] is True
+    # Le verrou se pose et se leve avec le build lui-meme.
+    monkeypatch.setattr(app, "_builds_en_cours", set())
+    vus = []
+    monkeypatch.setattr(app, "_construire", lambda n: vus.append(app.build_en_cours(n)) or (True, None))
+    assert app.run_build("site") == (True, None)
+    assert vus == [True] and not app.build_en_cours("site")
+    page = _page_panneau("dashboard.html")
+    assert "const enBuild = a => !!a.build_en_cours && !a.running;" in page
+    bascule = page.split("function apBascule(a){")[1].split("\n}")[0]
+    assert "disabled" in bascule and "enBuild(a)" in bascule
+
+
+def test_le_choix_du_dossier_grise_ceux_deja_pris_et_cache_les_projets_par_defaut(tmp_path,
+                                                                                    monkeypatch,
+                                                                                    client):
+    """Vecu : « Griser les dossiers d'applications qui sont deja configurees
+    dans la configuration d'une nouvelle application. Ne pas montrer les
+    applications par defaut, soient diagnostic et messages ». Le serveur
+    refuse aussi de reprendre un dossier deja pris."""
+    racine = tmp_path / "w"
+    for nom in ("compta", "libre", "diagnostic", "messages"):
+        (racine / nom).mkdir(parents=True)
+    monkeypatch.setattr(app, "ROOT", str(racine))
+    app.save({"compta": {"titre": "Compta", "path": str(racine / "compta"), "command": "x",
+                         "port": 9101}})
+    client.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    d = client.get("/api/browse?path=" + str(racine)).get_json()
+    assert d["dirs"] == ["compta", "libre"]
+    assert d["pris"] == {"compta": "Compta"}
+    # Dans la fiche de compta, son propre dossier n'est pas « pris ».
+    assert client.get(f"/api/browse?path={racine}&pour=compta").get_json()["pris"] == {}
+    r = client.post("/api/add", json={"name": "autre", "path": str(racine / "compta"),
+                                      "command": "x"})
+    assert r.status_code == 400 and "Compta" in r.get_json()["error"]
+    r = client.post("/api/add", json={"name": "diag", "path": str(racine / "diagnostic"),
+                                      "command": "x"})
+    assert r.status_code == 400
+    assert client.post("/api/add", json={"name": "libre", "path": str(racine / "libre"),
+                                         "command": "x"}).status_code == 200
+    # Une fiche garde son dossier ; elle ne prend pas celui d'une autre.
+    assert client.put("/api/app/compta", json={"path": str(racine / "compta"),
+                                               "command": "y"}).status_code == 200
+    r = client.put("/api/app/libre", json={"path": str(racine / "compta"), "command": "y"})
+    assert r.status_code == 400
+    page = _page_panneau("dashboard.html")
+    assert ".fb-l div.dossier-pris{" in page and "n.className = 'dossier-pris';" in page
+
+
+def test_un_port_interne_pris_au_panneau_est_reattribue(monkeypatch):
+    """Vecu : « Je vois des ports 9002, 9003 utilises dans mes apps
+    configurees ». Le 9002 est le port PUBLIC des applications ; une
+    application inscrite dessus ne peut pas l'ouvrir, et le proxy se
+    relaierait a lui-meme. Elle recoit un port interne libre ; un autre port
+    hors plage (9003) reste tel quel."""
+    monkeypatch.setattr(app, "_ports_ecoutes", lambda: {})
+    app.save({"a": {"path": "/w/a", "command": "x", "port": app.APPS_PORT},
+              "b": {"path": "/w/b", "command": "x", "port": app.PANEL_PORT},
+              "c": {"path": "/w/c", "command": "x", "port": 9003}})
+    app.realigner_les_ports()
+    ports = {n: a["port"] for n, a in app.load().items()}
+    assert app.PORT_MIN <= ports["a"] <= app.PORT_MAX
+    assert app.PORT_MIN <= ports["b"] <= app.PORT_MAX and ports["a"] != ports["b"]
+    assert ports["c"] == 9003
+    assert "Port interne ($PORT), relayé par le port des applications" in _page_panneau("dashboard.html")

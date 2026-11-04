@@ -13,7 +13,30 @@
 
 # ------------------------------- build ---------------------------------
 
+# LES BUILDS EN COURS. Vecu : « Bloquer le bouton demarrer lorsque
+# l'application est en train de build ». Lancee pendant son build, une
+# application demarre sur des dependances a moitie installees, et echoue
+# d'une facon qui ne dit pas pourquoi. Le verrou d'une action a la fois
+# (une_action_a_la_fois) ne couvre que les gestes de la page ; un build
+# lance au demarrage du panneau (preparer_projet) lui echappait. Celui-ci
+# est tenu par run_build lui-meme : start() le consulte, /api/apps le dit a
+# la page, qui grise « Demarrer ».
+_builds_en_cours = set()
+
+
+def build_en_cours(name):
+    return name in _builds_en_cours
+
+
 def run_build(name):
+    _builds_en_cours.add(name)
+    try:
+        return _construire(name)
+    finally:
+        _builds_en_cours.discard(name)
+
+
+def _construire(name):
     apps = load()
     a = apps.get(name)
     if not a:
@@ -817,6 +840,19 @@ VISIBILITES = (VISIBILITE_PUBLIQUE, VISIBILITE_PRIVEE)
 def visibilite(a):
     v = (a or {}).get("visibility")
     return v if v in VISIBILITES else VISIBILITE_PUBLIQUE
+
+
+def dossiers_deja_pris(sauf=None):
+    """{chemin absolu : titre} des dossiers qu'une application occupe deja.
+
+    Vecu : « Griser les dossiers d'applications qui sont deja configurees
+    dans la configuration d'une nouvelle application. Ne pas montrer les
+    applications par defaut ». Deux applications sur un meme dossier se
+    disputent ses fichiers, son build et sa base (nommee comme le dossier).
+    « sauf » : l'application dont on modifie la fiche, qui garde le sien.
+    """
+    return {os.path.abspath(a.get("path") or ""): titre_de(nom, a)
+            for nom, a in load().items() if nom != sauf and a.get("path")}
 
 
 def under_root(path):

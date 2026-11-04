@@ -466,6 +466,8 @@ def api_apps():
             "path": a.get("path") or "", "command": a.get("command") or "",
             "port": a.get("port"), "port_listeners": _ecouteurs_port(a.get("port"), releve),
             "running": run,
+            # La page grise « Demarrer » tant qu'il dure (voir run_build).
+            "build_en_cours": build_en_cours(name),
             "failed": bool(a.get("enabled")) and not run,
             # Plantee au lancement (voir start) : la fiche en montre la cause.
             "dernier_echec": None if run else a.get("dernier_echec"),
@@ -520,12 +522,22 @@ def api_browse():
         entries = os.listdir(path)
     except (PermissionError, FileNotFoundError):
         entries = []
+    pris = dossiers_deja_pris(sauf=request.args.get("pour") or None)
+    # Les projets par defaut (Diagnostic, Messages) ne se declarent pas : le
+    # panneau les inscrit lui-meme. Ils n'apparaissent pas du tout.
+    caches = {os.path.join(ROOT, n) for n in PROJETS_PAR_DEFAUT}
+    dirs = sorted(d for d in entries
+                  if os.path.isdir(os.path.join(path, d)) and not d.startswith(".")
+                  and os.path.join(path, d) not in caches)
     return jsonify({
         "path": path,
         "label": path.replace(ROOT, "") or "/",
         "parent": os.path.dirname(path) if path != ROOT else None,
-        "dirs": sorted(d for d in entries
-                       if os.path.isdir(os.path.join(path, d)) and not d.startswith(".")),
+        "dirs": dirs,
+        # Ceux qu'une application occupe deja, avec son nom : la page les
+        # grise. Le serveur refuse aussi de les reprendre (api_add, api_edit).
+        "pris": {d: pris[os.path.join(path, d)] for d in dirs
+                 if os.path.join(path, d) in pris},
         "hasIndex": os.path.exists(os.path.join(path, "index.html")),
     })
 
@@ -538,6 +550,18 @@ def api_detect():
         return jsonify({"command": "", "build_command": ""})
     command, build_command = detect_project(path)
     return jsonify({"command": command, "build_command": build_command})
+
+
+def refus_dossier_pris(path, sauf=None):
+    """Le message de refus si une application occupe deja ce dossier (ou si
+    c'est celui d'un projet par defaut), sinon None."""
+    chemin = os.path.abspath(path)
+    if chemin in {os.path.join(ROOT, n) for n in PROJETS_PAR_DEFAUT} and sauf not in PROJETS_PAR_DEFAUT:
+        return "Ce dossier est celui d'une application de CodeLab."
+    titre = dossiers_deja_pris(sauf).get(chemin)
+    if titre:
+        return f"Ce dossier est déjà celui de l'application « {titre} »."
+    return None
 
 
 @flask_app.post("/api/add")
@@ -581,6 +605,9 @@ def api_add():
         return jsonify({"error": "Dossier introuvable : " + path}), 400
     if not under_root(path):
         return jsonify({"error": "Le dossier doit se trouver dans " + ROOT + "."}), 400
+    refus = refus_dossier_pris(path)
+    if refus:
+        return jsonify({"error": refus}), 400
     if not command:
         return jsonify({"error": "La commande de lancement est obligatoire."}), 400
     port = next_port(apps)
@@ -645,6 +672,9 @@ def api_edit(n):
         return jsonify({"error": "Dossier introuvable : " + path}), 400
     if not under_root(path):
         return jsonify({"error": "Le dossier doit se trouver dans " + ROOT + "."}), 400
+    refus = refus_dossier_pris(path, sauf=n)
+    if refus:
+        return jsonify({"error": refus}), 400
     if not command:
         return jsonify({"error": "La commande de lancement est obligatoire."}), 400
     avant = {c: apps[n].get(c) for c in CHAMPS_AU_DEMARRAGE}

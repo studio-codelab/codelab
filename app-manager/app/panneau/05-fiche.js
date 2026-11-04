@@ -254,17 +254,19 @@ function peindreActionsFiche(a, prive, parDefaut){
     $('fa-actions').innerHTML=b.join('');
     return;
   }
-  if(a.name === 'diagnostic'){
-    if(!a.running) b.push(`<button class="btn btn-demarrer" data-agir="app-basculer" data-cible="${esc(a.name)}">${svgPlay}Démarrer</button>`);
+  if(a.par_defaut){
+    if(!a.running) b.push(`<button class="btn btn-demarrer" data-agir="app-basculer" data-cible="${esc(a.name)}"
+      ${enBuild(a) ? 'disabled aria-busy="true"' : ''}>${svgPlay}${enBuild(a) ? 'Build en cours…' : 'Démarrer'}</button>`);
     if(a.running) b.push(`<a class="btn btn-ouvrir" href="${lienOuverture(a)}">${svgOuvrir}Ouvrir</a>`);
     $('fa-actions').innerHTML=b.join('');
     return;
   }
-  b.push(`<button class="btn ${a.running?'btn-arreter':'btn-demarrer'}" data-agir="app-basculer" data-cible="${esc(a.name)}">
-    ${a.running?svgStop+'Arrêter':svgPlay+'Démarrer'}</button>`);
+  b.push(`<button class="btn ${a.running?'btn-arreter':'btn-demarrer'}" data-agir="app-basculer" data-cible="${esc(a.name)}"
+    ${enBuild(a) ? 'disabled aria-busy="true" title="Le build doit se terminer avant le démarrage."' : ''}>
+    ${a.running?svgStop+'Arrêter':enBuild(a)?svgPlay+'Build en cours…':svgPlay+'Démarrer'}</button>`);
   b.push(`<button class="btn btn-refaire" data-agir="app-redemarrer" data-cible="${esc(a.name)}" ${a.running?'':'disabled'}>
     ${svgRe}Redémarrer</button>`);
-  if(a.has_build) b.push(`<button class="btn btn-refaire" data-agir="app-build" data-cible="${esc(a.name)}">${svgBuild}Build</button>`);
+  if(a.has_build) b.push(`<button class="btn btn-refaire" data-agir="app-build" data-cible="${esc(a.name)}" ${a.build_en_cours?'disabled':''}>${svgBuild}Build</button>`);
   if(!a.par_defaut) b.push(`<button class="btn btn-refaire" data-agir="app-archiver" data-cible="${esc(a.name)}">Archiver</button>`);
   /* « Rendre publique » n'est propose que si le serveur a une adresse
      publique declaree. Sinon le mot promet un partage qui n'existe pas :
@@ -308,20 +310,19 @@ function chargerConfigFiche(){
   /* Le bandeau de redemarrage ne survit pas a un rechargement de la fiche :
      il parle d'un enregistrement precis, pas d'un etat durable. */
   $('e-redemarrage').style.display='none';
-  /* Le projet de diagnostic ne se supprime pas : c'est lui qui dit si cette
-     installation va bien. Le bouton disparait plutot que d'echouer -- mais
-     c'est le serveur qui refuse vraiment, la route reste appelable a la
-     main. */
-  $('e-supprimer').style.display = (a.name === 'diagnostic') ? 'none' : '';
-  $('e-archiver').style.display = (a.name === 'diagnostic' || a.archivee) ? 'none' : '';
+  /* Une application par defaut (Diagnostic, Messages) ne se supprime pas.
+     Le bouton disparait plutot que d'echouer -- mais c'est le serveur qui
+     refuse vraiment, la route reste appelable a la main. */
+  $('e-supprimer').style.display = a.par_defaut ? 'none' : '';
+  $('e-archiver').style.display = (a.par_defaut || a.archivee) ? 'none' : '';
   /* Le nom, et ce qu'il change : l'adresse de l'application en fait partie. */
   $('e-nom').value = a.name;
   $('e-nom-url').textContent = urlApplication(a.name);
   $('e-nom-err').style.display='none';
   $('e-nom-ok').style.display='none';
-  /* Le diagnostic ne se renomme pas plus qu'il ne se supprime : le panneau
-     le retrouve par son nom, et son marqueur d'inscription porte dessus. */
-  const fige = a.name === 'diagnostic';
+  /* Elle ne se renomme pas plus qu'elle ne se supprime : le panneau la
+     retrouve par son nom a chaque demarrage. */
+  const fige = !!a.par_defaut;
   $('e-nom').disabled = fige;
   $('e-renommer').disabled = fige;
 }
@@ -457,7 +458,17 @@ function peuplerDossiers(zone, d, aller){
     zone.appendChild(n);
   };
   if(d.parent) ligne('\u21a9 Dossier parent', d.parent);
-  (d.dirs || []).forEach(nom => ligne('\u{1f4c1} ' + nom, d.path + '/' + nom));
+  /* Un dossier qu'une application occupe deja est grise, avec son nom : on
+     ne le reprend pas (le serveur le refuse aussi). */
+  (d.dirs || []).forEach(nom => {
+    const pris = (d.pris || {})[nom];
+    if(!pris) return ligne('\u{1f4c1} ' + nom, d.path + '/' + nom);
+    const n = document.createElement('div');
+    n.className = 'dossier-pris';
+    n.textContent = '\u{1f4c1} ' + nom + ' \u2014 d\u00e9j\u00e0 configur\u00e9 (' + pris + ')';
+    n.setAttribute('aria-disabled', 'true');
+    zone.appendChild(n);
+  });
   return zone.childElementCount;
 }
 
@@ -470,7 +481,7 @@ function lignePlate(zone, texte, couleur){
 }
 
 async function browseEdit(p){
-  const d=await (await fetch('/api/browse?path='+encodeURIComponent(p))).json();
+  const d=await (await fetch('/api/browse?path='+encodeURIComponent(p)+'&pour='+encodeURIComponent(ficheNom))).json();
   editCur=d.path; $('e-fb-c').textContent=d.label; $('e-path').textContent=d.path;
   /* Cette liste-ci lisait x.path et x.name sur des CHAINES : /api/browse rend
      des noms de dossiers, pas des objets. Elle affichait donc autant de

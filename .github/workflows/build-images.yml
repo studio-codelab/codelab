@@ -80,6 +80,9 @@ concurrency:
 permissions:
   contents: read
   packages: write
+  # Lire les executions passees : le job « changements » compare a la
+  # derniere construction REUSSIE sur main, pas au seul commit precedent.
+  actions: read
 
 jobs:
   # Les tests d'abord : ils tournent en quelques secondes, et rien ne sert de
@@ -169,6 +172,8 @@ jobs:
           BASE_PR: ${{ github.base_ref }}
           AVANT: ${{ github.event.before }}
           TYPE_REF: ${{ github.ref_type }}
+          GH_TOKEN: ${{ github.token }}
+          DEPOT: ${{ github.repository }}
         # Une image par ligne : son nom, son Dockerfile, puis les debuts de
         # chemin qui la font reconstruire (ce que son Dockerfile copie).
         run: |
@@ -185,9 +190,21 @@ jobs:
           tout=non
           if [ "$EVENEMENT" = pull_request ]; then
             git diff --name-only "origin/$BASE_PR...HEAD" > "$ici/touches.txt"
-          elif [ "$EVENEMENT" = push ] && [ "$TYPE_REF" != tag ] \
-               && git cat-file -e "$AVANT^{commit}" 2>/dev/null; then
-            git diff --name-only "$AVANT" HEAD > "$ici/touches.txt"
+          elif [ "$EVENEMENT" = push ] && [ "$TYPE_REF" != tag ]; then
+            # Vecu : la fusion de Messages (#195) a echoue aux tests sur main,
+            # donc rien n'a ete construit ; le push suivant ne comparait qu'a
+            # ce commit-la, et l'image du panneau n'a jamais recu Messages. La
+            # base est donc la derniere construction REUSSIE de main ; a
+            # defaut, le commit precedent.
+            base="$(gh run list -R "$DEPOT" --workflow build-images.yml --branch main \
+                      --status success --limit 1 --json headSha -q '.[0].headSha' 2>/dev/null || true)"
+            git cat-file -e "$base^{commit}" 2>/dev/null || base="$AVANT"
+            if git cat-file -e "$base^{commit}" 2>/dev/null; then
+              git diff --name-only "$base" HEAD > "$ici/touches.txt"
+            else
+              tout=oui
+              : > "$ici/touches.txt"
+            fi
           else
             tout=oui
             : > "$ici/touches.txt"

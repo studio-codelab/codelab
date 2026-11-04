@@ -170,7 +170,10 @@ le panneau y lance les applications, Dagster y charge les `definitions.py`.
 - **Toutes les applications passent par le `9002`**, chacune sous `/<nom>/` (derrière un VPS : un
   sous-domaine par application, `<nom>.<domaine>`). C'est une autre origine que le panneau.
 - Derrière, chacune écoute sur un **port interne** (`$PORT`, de `9101` à `9140`) que le panneau
-  relaie ; ces ports ne sont pas publiés.
+  relaie ; ces ports ne sont pas publiés. C'est lui que montre la colonne « Port » de la page
+  *Applications* : un `9003` ou un `9101` n'y est pas une adresse à ouvrir, on passe toujours par le
+  `9002`. Une application inscrite sur le `9001` ou le `9002` reçoit un port de la plage au
+  démarrage du panneau.
 - Si le `9002` ne s'ouvre pas, ou si `APP_MANAGER_APPS_PORT` vaut `0`, les applications reviennent
   sous `:9001/<nom>/`, dans l'origine du panneau, et le diagnostic le signale.
 - **Dagster (`3000`) et Mailpit (`8025`)** ne sont pas des applications du hub : ils ont leur port,
