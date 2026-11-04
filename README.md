@@ -104,9 +104,10 @@ sur GitHub et les commandes à copier. En bref :
 
 **Déplacer le dossier des projets** : son chemin sur la machine est écrit une seule fois, en tête
 des deux fichiers compose (`x-codelab-workspace`). Les trois services qui le montent le reprennent
-d'eux-mêmes. Change le chemin avant « : », jamais `/workspace`, déplace le contenu, puis
-`docker compose up -d`. L'interface de CasaOS montre ce chemin service par service : pour le
-changer partout d'un coup, édite le fichier compose plutôt que chaque service.
+d'eux-mêmes : `codelab-dev`, `codelab-dagster` et `codelab-app-manager`. Change le chemin avant
+« : », jamais `/workspace`, déplace le contenu, puis `docker compose up -d`. L'interface de CasaOS
+montre ce chemin service par service : pour le changer partout d'un coup, édite l'ancre commune du
+fichier compose plutôt que chaque service. Les deux fichiers compose doivent garder la même valeur.
 
 **Taille de la machine** : aucun service ne dépasse le tiers de la mémoire, pour que le panneau reste
 joignable si une application s'emballe. Sur une machine plus grande, remonte les plafonds dans les
@@ -170,7 +171,9 @@ le panneau y lance les applications, Dagster y charge les `definitions.py`.
 - **Toutes les applications passent par le `9002`**, chacune sous `/<nom>/` (derrière un VPS : un
   sous-domaine par application, `<nom>.<domaine>`). C'est une autre origine que le panneau.
 - Derrière, chacune écoute sur un **port interne** (`$PORT`, de `9101` à `9140`) que le panneau
-  relaie ; ces ports ne sont pas publiés.
+  relaie ; ces ports ne sont pas publiés. Le `9003` n'est pas un port d'application CodeLab :
+  il n'est ni publié ni attribué par le panneau. Une application doit écouter sur `$PORT`, jamais
+  sur `9002` ou `9003` codé en dur.
 - Si le `9002` ne s'ouvre pas, ou si `APP_MANAGER_APPS_PORT` vaut `0`, les applications reviennent
   sous `:9001/<nom>/`, dans l'origine du panneau, et le diagnostic le signale.
 - **Dagster (`3000`) et Mailpit (`8025`)** ne sont pas des applications du hub : ils ont leur port,
