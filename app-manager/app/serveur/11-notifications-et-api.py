@@ -537,7 +537,7 @@ def api_browse():
         "label": path.replace(ROOT, "") or "/",
         "parent": os.path.dirname(path) if path != ROOT else None,
         "dirs": dossiers,
-        "configured": [os.path.realpath(os.path.join(path, d)) for d in dossiers
+        "configured": [d for d in dossiers
                        if os.path.realpath(os.path.join(path, d)) in chemins_configures],
         "hasIndex": os.path.exists(os.path.join(path, "index.html")),
     })
