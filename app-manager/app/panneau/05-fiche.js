@@ -240,6 +240,7 @@ function peindreActionsFiche(a, prive, parDefaut){
   const svgOuvrir='<svg viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 13v6a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h6"/></svg>';
 
   const b=[];
+  const build = !!a.building || buildsEnCours.has(a.name);
   /* Un service externe : le panneau ne le demarre pas, ne l'arrete pas, ne
      le deploie pas. Il ouvre, et c'est tout. */
   if(externe){
@@ -260,11 +261,11 @@ function peindreActionsFiche(a, prive, parDefaut){
     $('fa-actions').innerHTML=b.join('');
     return;
   }
-  b.push(`<button class="btn ${a.running?'btn-arreter':'btn-demarrer'}" data-agir="app-basculer" data-cible="${esc(a.name)}">
-    ${a.running?svgStop+'Arrêter':svgPlay+'Démarrer'}</button>`);
+  b.push(`<button class="btn ${a.running?'btn-arreter':'btn-demarrer'}" data-agir="app-basculer" data-cible="${esc(a.name)}" ${build?'disabled aria-busy="true" title="Build en cours"':''}>
+    ${build?'Build en cours…':a.running?svgStop+'Arrêter':svgPlay+'Démarrer'}</button>`);
   b.push(`<button class="btn btn-refaire" data-agir="app-redemarrer" data-cible="${esc(a.name)}" ${a.running?'':'disabled'}>
     ${svgRe}Redémarrer</button>`);
-  if(a.has_build) b.push(`<button class="btn btn-refaire" data-agir="app-build" data-cible="${esc(a.name)}">${svgBuild}Build</button>`);
+  if(a.has_build) b.push(`<button class="btn btn-refaire" data-agir="app-build" data-cible="${esc(a.name)}" ${build?'disabled aria-busy="true" title="Build en cours"':''}>${svgBuild}${build?'Build en cours…':'Build'}</button>`);
   if(!a.par_defaut) b.push(`<button class="btn btn-refaire" data-agir="app-archiver" data-cible="${esc(a.name)}">Archiver</button>`);
   /* « Rendre publique » n'est propose que si le serveur a une adresse
      publique declaree. Sinon le mot promet un partage qui n'existe pas :
@@ -448,16 +449,24 @@ function toggleEditBrowse(){
    Ici le chemin ne devient jamais du texte de programme. Il est capture par
    une fermeture, et le nom passe par textContent, qui n'interprete rien.
    Aucune regle d'echappement a retenir, donc aucune a oublier. */
-function peuplerDossiers(zone, d, aller){
+function peuplerDossiers(zone, d, aller, creation=false){
   zone.textContent = '';
-  const ligne = (libelle, chemin) => {
+  const ligne = (libelle, chemin, bloque=false) => {
     const n = document.createElement('div');
     n.textContent = libelle;
-    n.onclick = () => aller(chemin);
+    if(bloque){
+      n.className='dossier-deja-configure';
+      n.setAttribute('aria-disabled','true');
+      n.title='Ce dossier est déjà configuré pour une application';
+    }else n.onclick = () => aller(chemin);
     zone.appendChild(n);
   };
   if(d.parent) ligne('\u21a9 Dossier parent', d.parent);
-  (d.dirs || []).forEach(nom => ligne('\u{1f4c1} ' + nom, d.path + '/' + nom));
+  const configures = new Set(d.configured || []);
+  (d.dirs || []).forEach(nom => {
+    const chemin=d.path + '/' + nom, bloque=creation && configures.has(nom);
+    ligne('\u{1f4c1} '+nom+(bloque?' · déjà configuré':''), chemin, bloque);
+  });
   return zone.childElementCount;
 }
 
@@ -627,10 +636,10 @@ function openAdd(){
 }
 
 async function browse(p){
-  const d=await (await fetch('/api/browse?path='+encodeURIComponent(p))).json();
+  const d=await (await fetch('/api/browse?path='+encodeURIComponent(p)+'&creation=1')).json();
   cur=d.path; $('fb-c').textContent=d.label;
   const zone=$('fb-l');
-  if(!peuplerDossiers(zone, d, browse))
+  if(!peuplerDossiers(zone, d, browse, true))
     lignePlate(zone, 'Dossier vide', 'var(--dim)');
   if(d.hasIndex)
     zone.insertBefore(Object.assign(document.createElement('div'),

@@ -1105,3 +1105,27 @@ def test_messages_verifie_l_identite_avec_le_module_livre_aux_projets():
         pytest.skip("depot complet absent de cette image")
     copie = os.path.join(DOSSIER_MESSAGES, "codelab_auth.py")
     assert open(copie, encoding="utf-8").read() == open(modele, encoding="utf-8").read()
+
+
+def test_le_proxy_ajoute_le_ruban_de_retour_a_messages(deux_espaces, monkeypatch):
+    """Messages passe par le meme proxy que les autres applications : le
+    retour au panneau doit etre injecte, pas recode dans sa page."""
+    c = deux_espaces
+    app.save({
+        app.MESSAGERIE_NOM: {
+            "path": "/w/messages", "command": "python3 app.py",
+            "port": 9120, "enabled": True, "visibility": "privee",
+        }
+    })
+    monkeypatch.setattr(app, "is_running", lambda nom: True)
+    monkeypatch.setattr(
+        app, "demander_a_l_application",
+        lambda port, methode, chemin, entetes, corps:
+            (200, [("Content-Type", "text/html; charset=utf-8")],
+             b"<!doctype html><html><head></head><body>Messages</body></html>")
+    )
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    reponse = c.get("/messages/")
+    assert reponse.status_code == 200
+    assert 'id="codelab-ruban"' in reponse.get_data(as_text=True)
+    assert 'id="codelab-retour-hub"' in reponse.get_data(as_text=True)

@@ -18,6 +18,14 @@ Le cœur de CodeLab. Un seul service Flask (servi par waitress) qui :
 Ce que l'utilisateur voit du panneau est décrit dans [`FONCTIONNALITES.md`](../FONCTIONNALITES.md) ;
 ses garanties de sécurité dans [`SECURITE.md`](../SECURITE.md).
 
+`9002` est le port public commun des applications, pas leur port d'écoute. Le panneau attribue aux
+nouvelles applications un port interne de `9101` à `9140` et leur fournit `$PORT`. `9003` n'est pas
+attribué automatiquement : s'il figure dans une configuration existante, c'est un port amont
+manuel/ancien, utilisable uniquement si le processus écoute bien dessus. Il ne remplace pas le
+port public `9002`. Dagster et Mailpit sont des conteneurs distincts ; le panneau mesure leur
+disponibilité et leur temps de réponse HTTP, pas leur CPU ni leur mémoire (à mesurer dans
+Docker/Prometheus).
+
 ## Fichiers
 
 | Fichier | Rôle |

@@ -357,6 +357,9 @@ SERVICES_LOGO_TRANSPARENT = frozenset({DAGSTER_NOM})
 
 def _tuile_service(nom, description, adresse, debout, port):
     """Une tuile de service de la stack, avec les cles d'une application."""
+    historique = get_metrics_history(nom)
+    latence = historique[-1][1] if historique else None
+    disponibilite = historique[-1][2] if historique else (100.0 if debout else 0.0)
     return {
         "name": nom,
         "titre": TITRES_PAR_DEFAUT[nom],
@@ -391,9 +394,14 @@ def _tuile_service(nom, description, adresse, debout, port):
         # Un service de la stack ne s'archive pas.
         "archivee": False, "archivee_le": None, "effacement_le": None,
         "configuration_effacee": False,
-        "failed": False, "crash_looping": False, "has_build": False, "dernier_echec": None,
+        "failed": False, "crash_looping": False, "has_build": False, "building": False, "dernier_echec": None,
         "build_command": "", "max_memory_mb": None, "alertes": [],
+        # CPU/RAM ne sont pas mesurables depuis app-manager : le service vit
+        # dans un autre conteneur. En revanche, les sondes suivent sa latence
+        # HTTP et sa disponibilite, affichees dans la fiche et la liste.
         "cpu_percent": 0.0, "memory_mb": 0.0,
+        "response_ms": round(latence, 1) if latence is not None else None,
+        "availability_percent": round(disponibilite, 1),
         "presentation": None, "presentation_masquee": False, "presentation_fichier": "",
     }
 

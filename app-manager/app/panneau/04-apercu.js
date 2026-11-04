@@ -152,11 +152,16 @@ function apOutils(){
   $('ap-tri').value=apTriCle;
   document.querySelectorAll('.ap-vues button').forEach(b=>b.classList.toggle('active', b.dataset.v===apVueCourante));
 }
+const buildsEnCours=new Set();
 const SVG_PAUSE='<svg viewBox="0 0 24 24"><rect x="7" y="6" width="3.5" height="12" rx="1"/><rect x="13.5" y="6" width="3.5" height="12" rx="1"/></svg>';
 const SVG_LECTURE='<svg viewBox="0 0 24 24"><path d="M8 5.5l10 6.5-10 6.5z"/></svg>';
 function apBascule(a){
-  return (a.externe || a.archivee || a.name === 'diagnostic') ? '' : `<button class="icon-btn ${a.running?'stop':'ok'}" title="${a.running?'Arrêter':'Démarrer'}"
-    aria-label="${a.running?'Arrêter':'Démarrer'} ${esc(nomAffiche(a))}" data-agir="app-basculer" data-cible="${esc(a.name)}">${a.running?SVG_PAUSE:SVG_LECTURE}</button>`;
+  if(a.externe || a.archivee || a.name === 'diagnostic') return '';
+  const build = !!a.building || buildsEnCours.has(a.name);
+  const action = a.running ? 'Arrêter' : 'Démarrer';
+  return `<button class="icon-btn ${a.running?'stop':'ok'}" title="${build?'Build en cours':action}"
+    aria-label="${build?'Build en cours':action+' '+esc(nomAffiche(a))}" ${build?'disabled aria-busy="true"':''}
+    data-agir="app-basculer" data-cible="${esc(a.name)}">${a.running?SVG_PAUSE:SVG_LECTURE}</button>`;
 }
 /* Les gestes de gestion, sur la carte et la ligne : tout se gere depuis la
    page des applications (vecu : « Je ne vois pas de bouton pour archiver. Je
@@ -206,7 +211,7 @@ function render(){
         <div class="ap-carte-haut"><img src="${icone(a.name)}" alt="">
           <div class="ap-carte-titre"><b>${esc(nomAffiche(a))}</b><span>${esc(a.description||a.name)}</span></div></div>
         <div class="ap-carte-pills">${badgeEtat(a)}${badgeVis(a)}${a.categorie?`<span class="pill neutre"><i></i>${esc(a.categorie)}</span>`:''}</div>
-        ${a.externe ? '<div class="hint">Service de la stack : non mesuré.</div>'
+        ${a.externe ? `<div class="hint">CPU/RAM non mesurés dans ce conteneur. Disponibilité : ${a.running?'en ligne':'indisponible'} · réponse : ${a.response_ms==null?'mesure en cours':Math.round(a.response_ms)+' ms'}.</div>`
           : a.archivee ? `<div class="hint">${esc(texteArchive(a))}</div>`
           : `<div class="ap-jauges">${apJauge(a.cpu_percent||0, 100, 'CPU '+(a.cpu_percent||0).toFixed(1)+' %')}
               ${apJauge(a.memory_mb||0, a.max_memory_mb||memMax, 'Mémoire '+Math.round(a.memory_mb||0)+' Mo')}</div>`}
@@ -302,7 +307,10 @@ async function uneAction(n, fn){
     boutons.forEach((b,i)=>{ b.disabled=avant[i]; b.removeAttribute('aria-busy'); });
   }
 }
-async function tg(n){ return uneAction(n, async()=>{
+async function tg(n){
+  const app=apps.find(a=>a.name===n)||{};
+  if(app.building || buildsEnCours.has(n)) return;
+  return uneAction(n, async()=>{
   const arret=(apps.find(a=>a.name===n)||{}).running===true;
   const r=await fetch('/api/toggle/'+n,{method:'POST',
     headers:{'Content-Type':'application/json'},
@@ -320,11 +328,22 @@ async function restartApp(n){ return uneAction(n, async()=>{
   else notifier('« '+n+' » a redémarré.');
   setTimeout(refresh,500);
 }); }
-async function buildApp(n){ return uneAction(n, async()=>{
-  ouvrirFiche(n); ficheOnglet('journal');
-  const r=await fetch('/api/build/'+n,{method:'POST'});
-  if(!r.ok) notifier(await echec(r, 'Le build a échoué.'), 'err');
-}); }
+async function buildApp(n){
+  if(buildsEnCours.has(n)) return;
+  return uneAction(n, async()=>{
+    buildsEnCours.add(n);
+    if(ficheNom===n) peindreFiche();
+    render();
+    try{
+      ouvrirFiche(n); ficheOnglet('journal');
+      const r=await fetch('/api/build/'+n,{method:'POST'});
+      if(!r.ok) notifier(await echec(r, 'Le build a échoué.'), 'err');
+    }finally{
+      buildsEnCours.delete(n);
+      await refresh();
+    }
+  });
+}
 async function basculerVisibilite(n){
   const r=await fetch('/api/visibility/'+n,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
   const d=await r.json();

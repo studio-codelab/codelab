@@ -13,7 +13,7 @@
 
 # ------------------------------- build ---------------------------------
 
-def run_build(name):
+def _run_build(name):
     apps = load()
     a = apps.get(name)
     if not a:
@@ -46,6 +46,24 @@ def run_build(name):
             out.write(b"\n[build] delai depasse (10 min), arrete.\n")
             ok, msg = False, "Le build a depasse le delai de 10 minutes."
     return ok, msg
+
+
+# L'etat du build est expose a l'API pour que toutes les sessions du panneau
+# puissent desactiver le demarrage pendant qu'un build travaille sur le projet.
+_builds_en_cours = set()
+_builds_verrou = threading.Lock()
+
+
+def run_build(name):
+    with _builds_verrou:
+        if name in _builds_en_cours:
+            return False, f"Un build est déjà en cours sur « {name} »."
+        _builds_en_cours.add(name)
+    try:
+        return _run_build(name)
+    finally:
+        with _builds_verrou:
+            _builds_en_cours.discard(name)
 
 
 # ------------------------- historique de metriques ----------------------------

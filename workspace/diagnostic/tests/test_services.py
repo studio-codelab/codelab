@@ -2089,3 +2089,14 @@ def test_une_cle_ssh_sans_retour_a_la_ligne_final_est_autorisee(tmp_path):
               if l and not l.startswith(b"#")]
     assert lignes == [b"ssh-ed25519 AAAAC3Un a", b"ssh-ed25519 AAAAC3Deux b",
                       b"ssh-ed25519 AAAAC3Mac lucas@mac", b"ssh-ed25519 AAAAC3Pc"]
+
+
+def test_les_services_de_stack_exposent_latence_et_disponibilite_sans_fausse_cpu_ram(monkeypatch):
+    monkeypatch.setattr(app, "get_metrics_history",
+                        lambda nom: [(1.0, 37.5, 100.0)])
+    service = app._tuile_service(
+        app.DAGSTER_NOM, "Orchestration", "http://machine:3000/", True, 3000
+    )
+    assert service["response_ms"] == 37.5
+    assert service["availability_percent"] == 100.0
+    assert service["cpu_percent"] == 0.0 and service["memory_mb"] == 0.0

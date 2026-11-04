@@ -2251,3 +2251,67 @@ def test_une_application_par_defaut_ne_s_archive_pas(hub):
     for action in ("'app-archiver':", "'app-desarchiver':", "'app-supprimer':"):
         assert action in page, action
     assert 'data-agir="app-archiver"' in page
+
+
+def test_nouvelle_application_grise_les_dossiers_deja_configures_et_cache_les_integres(
+        deux_espaces, tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "ROOT", str(tmp_path))
+    for nom in ("diagnostic", "messages", "utilise", "libre"):
+        (tmp_path / nom).mkdir()
+    app.save({
+        "utilise": {"path": str(tmp_path / "utilise"), "command": "python3 app.py",
+                    "port": 9101, "enabled": False, "visibility": "privee"}
+    })
+    c = deux_espaces
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+
+    choix = c.get("/api/browse", query_string={
+        "path": str(tmp_path), "creation": "1"
+    }).get_json()
+    assert "diagnostic" not in choix["dirs"] and "messages" not in choix["dirs"]
+    assert "utilise" in choix["dirs"] and "libre" in choix["dirs"]
+    assert "utilise" in choix["configured"]
+
+    # Le serveur applique la meme regle : contourner le navigateur ne permet
+    # pas de declarer deux applications sur le meme dossier.
+    refus = c.post("/api/add", json={
+        "name": "autre", "path": str(tmp_path / "utilise"),
+        "command": "python3 app.py"
+    })
+    assert refus.status_code == 400 and "déjà configuré" in refus.get_json()["error"]
+
+
+def test_un_build_est_signale_a_toutes_les_sessions_et_son_etat_est_nettoye(monkeypatch, deux_espaces):
+    vu_pendant_build = []
+
+    def faux_build(nom):
+        vu_pendant_build.append(nom in app._builds_en_cours)
+        return True, None
+
+    monkeypatch.setattr(app, "_run_build", faux_build)
+    assert app.run_build("prive-autorise") == (True, None)
+    assert vu_pendant_build == [True]
+    assert "prive-autorise" not in app._builds_en_cours
+
+    c = deux_espaces
+    c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    monkeypatch.setattr(app, "services_du_hub", lambda: [])
+    app._builds_en_cours.add("prive-autorise")
+    try:
+        apps = c.get("/api/apps").get_json()["apps"]
+        cible = next(a for a in apps if a["name"] == "prive-autorise")
+        assert cible["building"] is True
+    finally:
+        app._builds_en_cours.discard("prive-autorise")
+
+
+def test_interface_signale_les_builds_et_grise_les_dossiers_deja_pris():
+    page, script = _script_panneau_html()
+    assert "const buildsEnCours=new Set()" in script
+    assert "a.building || buildsEnCours.has(a.name)" in script
+    assert "if(app.building || buildsEnCours.has(n)) return;" in script
+    assert "function peuplerDossiers(zone, d, aller, creation=false)" in script
+    assert "dossier-deja-configure" in script
+    assert ".fb-l div.dossier-deja-configure" in page
+    assert "Service de la stack : non mesuré." not in script
+    assert "a.response_ms" in script
