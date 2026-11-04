@@ -1228,8 +1228,9 @@ def _proxy(name, sub):
     # navigateur peut differer de celui des autres applications).
     if is_authed() or name == MESSAGERIE_NOM:
         data, sortants = injecter_ruban(data, status, sortants)
-        # Meme condition que le ruban : /api/icon exige une session, et un
-        # visiteur anonyme n'a pas a voir d'adresse du panneau.
+    # L'icone renvoie vers une route privee du panneau : elle reste reservee
+    # aux sessions authentifiees, meme pour Messages.
+    if is_authed():
         data, sortants = injecter_icone(data, status, sortants, name)
     # Pour tout le monde, connecte ou non : une application publique doit
     # pouvoir s'installer aussi, et rien de ce qui est pose ici ne pointe
