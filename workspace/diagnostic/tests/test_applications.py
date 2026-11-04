@@ -2303,3 +2303,15 @@ def test_un_build_est_signale_a_toutes_les_sessions_et_son_etat_est_nettoye(monk
         assert cible["building"] is True
     finally:
         app._builds_en_cours.discard("prive-autorise")
+
+
+def test_interface_signale_les_builds_et_grise_les_dossiers_deja_pris():
+    page, script = _script_panneau_html()
+    assert "const buildsEnCours=new Set()" in script
+    assert "a.building || buildsEnCours.has(a.name)" in script
+    assert "if(app.building || buildsEnCours.has(n)) return;" in script
+    assert "function peuplerDossiers(zone, d, aller, creation=false)" in script
+    assert "dossier-deja-configure" in script
+    assert ".fb-l div.dossier-deja-configure" in page
+    assert "Service de la stack : non mesuré." not in script
+    assert "a.response_ms" in script
