@@ -2295,6 +2295,7 @@ def test_un_build_est_signale_a_toutes_les_sessions_et_son_etat_est_nettoye(monk
 
     c = deux_espaces
     c.post("/login", json={"nom": "admin", "password": "secret-de-test"})
+    monkeypatch.setattr(app, "services_du_hub", lambda: [])
     app._builds_en_cours.add("prive-autorise")
     try:
         apps = c.get("/api/apps").get_json()["apps"]
