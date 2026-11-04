@@ -464,7 +464,7 @@ function peuplerDossiers(zone, d, aller, creation=false){
   if(d.parent) ligne('\u21a9 Dossier parent', d.parent);
   const configures = new Set(d.configured || []);
   (d.dirs || []).forEach(nom=>{
-    const chemin=d.path+'/'+nom, bloque=creation && configures.has(chemin);
+    const chemin=d.path+'/'+nom, bloque=creation && configures.has(nom);
     ligne('\u{1f4c1} '+nom+(bloque?' · déjà configuré':''), chemin, bloque);
   });
   return zone.childElementCount;
