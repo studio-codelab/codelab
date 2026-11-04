@@ -594,6 +594,11 @@ def api_add():
         return jsonify({"error": "Dossier introuvable : " + path}), 400
     if not under_root(path):
         return jsonify({"error": "Le dossier doit se trouver dans " + ROOT + "."}), 400
+    chemin_reel = os.path.realpath(path)
+    if os.path.basename(chemin_reel) in {DIAGNOSTIC_NOM, MESSAGERIE_NOM}:
+        return jsonify({"error": "Ce dossier appartient à une application intégrée de CodeLab."}), 400
+    if any(os.path.realpath(a.get("path") or "") == chemin_reel for a in apps.values()):
+        return jsonify({"error": "Ce dossier est déjà configuré pour une application."}), 400
     if not command:
         return jsonify({"error": "La commande de lancement est obligatoire."}), 400
     port = next_port(apps)
