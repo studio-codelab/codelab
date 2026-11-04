@@ -171,9 +171,10 @@ le panneau y lance les applications, Dagster y charge les `definitions.py`.
 - **Toutes les applications passent par le `9002`**, chacune sous `/<nom>/` (derrière un VPS : un
   sous-domaine par application, `<nom>.<domaine>`). C'est une autre origine que le panneau.
 - Derrière, chacune écoute sur un **port interne** (`$PORT`, de `9101` à `9140`) que le panneau
-  relaie ; ces ports ne sont pas publiés. Le `9003` n'est pas un port d'application CodeLab :
-  il n'est ni publié ni attribué par le panneau. Une application doit écouter sur `$PORT`, jamais
-  sur `9002` ou `9003` codé en dur.
+  relaie ; ces ports ne sont pas publiés. Le `9003` n'est pas le port public des applications ni
+  un port attribué automatiquement. S'il apparaît dans une ancienne configuration, c'est un port
+  amont manuel : il fonctionne seulement si le processus écoute réellement dessus. Pour toute
+  nouvelle application, utilise `$PORT` ; `9002` reste l'entrée publique commune.
 - Si le `9002` ne s'ouvre pas, ou si `APP_MANAGER_APPS_PORT` vaut `0`, les applications reviennent
   sous `:9001/<nom>/`, dans l'origine du panneau, et le diagnostic le signale.
 - **Dagster (`3000`) et Mailpit (`8025`)** ne sont pas des applications du hub : ils ont leur port,
