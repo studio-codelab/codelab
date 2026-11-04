@@ -868,6 +868,8 @@ th[aria-sort="ascending"] .ap-th span,th[aria-sort="descending"] .ap-th span{opa
 .fb-l div{padding:7px 12px;cursor:pointer;font-size:13px;border-top:1px solid var(--line)}
 .fb-l div:first-child{border-top:none}
 .fb-l div:hover{background:var(--accent-soft);color:var(--accent)}
+.fb-l div.dossier-deja-configure{color:var(--dim2);opacity:.58;cursor:not-allowed;background:var(--surface2)}
+.fb-l div.dossier-deja-configure:hover{color:var(--dim2);background:var(--surface2)}
 .suggest{margin-top:10px;padding:10px 12px;border-radius:var(--r-s);background:var(--accent-soft);
  border:1px solid transparent;font-size:12.5px;cursor:pointer;color:var(--txt)}
 .suggest:hover{border-color:var(--accent)}
@@ -2091,7 +2093,10 @@ a.pj:hover{border-color:var(--accent)}
 .jauge.err{--arc:var(--err)}
 .jauge-cadran{position:relative;width:clamp(76px,7vw,96px);aspect-ratio:1}
 .bw-petit .jauge-cadran{width:clamp(64px,5.4vw,80px)}
-.bw-petit.bw-serveur{gap:6px}
+.bw-petit.bw-serveur{gap:10px}
+.bw-serveur .bw-tete{margin-bottom:4px}
+.bw-serveur .bw-ligne{margin-top:8px;line-height:1.5}
+.bw-serveur .jauges{gap:14px}
 .bw-moyen .jauge-cadran{width:clamp(68px,5.6vw,84px)}
 .jauge-cadran svg{width:100%;height:100%;rotate:-90deg;overflow:visible}
 .jauge-rail{fill:none;stroke:var(--line);stroke-width:5}
