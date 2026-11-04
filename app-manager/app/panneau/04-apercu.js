@@ -152,22 +152,34 @@ function apOutils(){
   $('ap-tri').value=apTriCle;
   document.querySelectorAll('.ap-vues button').forEach(b=>b.classList.toggle('active', b.dataset.v===apVueCourante));
 }
+/* Vecu : « Pourquoi "Service de la stack : non mesure" sur Mailpit et
+   Dagster ? ». Le panneau mesure les processus qu'il lance lui-meme. Dagster
+   et Mailpit tournent dans leurs propres conteneurs : il ne les voit pas, et
+   ne le pourrait qu'avec le socket Docker, qui donnerait la main sur toute
+   la machine. La phrase dit donc pourquoi, et ou lire leur charge. */
+const TEXTE_SERVICE = a => `Conteneur à part : le panneau ne mesure que ce qu'il lance. Sa charge : docker stats codelab-${a.name}.`;
 const SVG_PAUSE='<svg viewBox="0 0 24 24"><rect x="7" y="6" width="3.5" height="12" rx="1"/><rect x="13.5" y="6" width="3.5" height="12" rx="1"/></svg>';
 const SVG_LECTURE='<svg viewBox="0 0 24 24"><path d="M8 5.5l10 6.5-10 6.5z"/></svg>';
+/* Pendant un build, « Demarrer » est grise : l'application partirait sur des
+   dependances a moitie installees. Le serveur refuse aussi (start). */
+const enBuild = a => !!a.build_en_cours && !a.running;
 function apBascule(a){
-  return (a.externe || a.archivee || a.name === 'diagnostic') ? '' : `<button class="icon-btn ${a.running?'stop':'ok'}" title="${a.running?'Arrêter':'Démarrer'}"
-    aria-label="${a.running?'Arrêter':'Démarrer'} ${esc(nomAffiche(a))}" data-agir="app-basculer" data-cible="${esc(a.name)}">${a.running?SVG_PAUSE:SVG_LECTURE}</button>`;
+  if(a.externe || a.archivee || a.par_defaut) return '';
+  const titre = enBuild(a) ? 'Build en cours…' : (a.running ? 'Arrêter' : 'Démarrer');
+  return `<button class="icon-btn ${a.running?'stop':'ok'}" title="${titre}" ${enBuild(a) ? 'disabled aria-busy="true"' : ''}
+    aria-label="${titre} ${esc(nomAffiche(a))}" data-agir="app-basculer" data-cible="${esc(a.name)}">${a.running?SVG_PAUSE:SVG_LECTURE}</button>`;
 }
 /* Les gestes de gestion, sur la carte et la ligne : tout se gere depuis la
    page des applications (vecu : « Je ne vois pas de bouton pour archiver. Je
    veux tout pouvoir gerer depuis l'onglet Applications »). Une application
    active s'archive ; une archivee se desarchive ou se supprime. Rien pour
-   un service de la stack ni pour le diagnostic, qui ne s'archivent pas. */
+   un service de la stack ni pour une application par defaut (Diagnostic,
+   Messages), qui ne s'archivent pas. */
 const SVG_ARCHIVER='<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9M10 13h4"/></svg>';
 const SVG_RESSORTIR='<svg viewBox="0 0 24 24"><path d="M9 14l-4-4 4-4"/><path d="M5 10h9a5 5 0 0 1 0 10h-2"/></svg>';
 const SVG_SUPPRIMER='<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>';
 function apGestes(a){
-  if(a.externe || a.par_defaut || a.name === 'diagnostic') return '';
+  if(a.externe || a.par_defaut) return '';
   const nom=esc(nomAffiche(a)), cible=esc(a.name);
   if(a.archivee) return `<button class="icon-btn" title="Désarchiver" aria-label="Désarchiver ${nom}"
       data-agir="app-desarchiver" data-cible="${cible}">${SVG_RESSORTIR}</button>
@@ -206,11 +218,11 @@ function render(){
         <div class="ap-carte-haut"><img src="${icone(a.name)}" alt="">
           <div class="ap-carte-titre"><b>${esc(nomAffiche(a))}</b><span>${esc(a.description||a.name)}</span></div></div>
         <div class="ap-carte-pills">${badgeEtat(a)}${badgeVis(a)}${a.categorie?`<span class="pill neutre"><i></i>${esc(a.categorie)}</span>`:''}</div>
-        ${a.externe ? '<div class="hint">Service de la stack : non mesuré.</div>'
+        ${a.externe ? `<div class="hint">${esc(TEXTE_SERVICE(a))}</div>`
           : a.archivee ? `<div class="hint">${esc(texteArchive(a))}</div>`
           : `<div class="ap-jauges">${apJauge(a.cpu_percent||0, 100, 'CPU '+(a.cpu_percent||0).toFixed(1)+' %')}
               ${apJauge(a.memory_mb||0, a.max_memory_mb||memMax, 'Mémoire '+Math.round(a.memory_mb||0)+' Mo')}</div>`}
-        <div class="ap-carte-pied"><span class="tbl-num">${a.port ? ':'+esc(String(a.port)) : '—'}</span><div class="spacer"></div>
+        <div class="ap-carte-pied"><span class="tbl-num" title="${a.externe ? 'Port public du service' : 'Port interne ($PORT), relayé par le port des applications'}">${a.port ? ':'+esc(String(a.port)) : '—'}</span><div class="spacer"></div>
           ${apBascule(a)}${apGestes(a)}
           <button class="icon-btn" title="Ouvrir la fiche" aria-label="Ouvrir la fiche de ${esc(nomAffiche(a))}"
             data-agir="app-ouvrir" data-cible="${esc(a.name)}"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button></div>
@@ -231,9 +243,9 @@ function render(){
       <td>${badgeEtat(a)}</td>
       <td>${badgeVis(a)}</td>
       ${avecCat ? `<td>${a.categorie ? esc(a.categorie) : '<span class="hint">—</span>'}</td>` : ''}
-      <td class="tbl-num">${a.port ? esc(String(a.port)) : '—'}</td>
-      <td class="tbl-num">${a.externe ? '—' : (a.cpu_percent||0).toFixed(1)+'%'}</td>
-      <td class="tbl-num">${a.externe ? '—' : Math.round(a.memory_mb||0)+' Mo'}</td>
+      <td class="tbl-num" title="${a.externe ? 'Port public du service' : 'Port interne ($PORT), relayé par le port des applications'}">${a.port ? esc(String(a.port)) : '—'}</td>
+      <td class="tbl-num"${a.externe ? ` title="${esc(TEXTE_SERVICE(a))}"` : ''}>${a.externe ? '—' : (a.cpu_percent||0).toFixed(1)+'%'}</td>
+      <td class="tbl-num"${a.externe ? ` title="${esc(TEXTE_SERVICE(a))}"` : ''}>${a.externe ? '—' : Math.round(a.memory_mb||0)+' Mo'}</td>
       <td class="tbl-act"><div>${apBascule(a)}${apGestes(a)}
         <button class="icon-btn" title="Ouvrir la fiche"
           data-agir="app-ouvrir" data-cible="${esc(a.name)}">

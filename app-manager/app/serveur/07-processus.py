@@ -875,6 +875,8 @@ def start(name, attendre=True):
         return None
     if est_archivee(a):
         return f"« {name} » est aux archives : désarchive-la avant de la démarrer."
+    if build_en_cours(name):
+        return f"« {name} » est en cours de build : attends qu'il se termine pour la démarrer."
 
     # Le dossier de l'app peut avoir disparu (supprime depuis /workspace,
     # volume non monte, renomme). Sans ce garde-fou, subprocess.Popen leve
@@ -1311,7 +1313,37 @@ def tenir_les_applications_par_defaut():
         save(apps)
 
 
+def realigner_les_ports():
+    """Change le port interne d'une application qui a pris celui du panneau.
+
+    Vecu : « Je vois des ports 9002, 9003 utilises dans mes apps
+    configurees, pourtant la doc me montre que les apps ne sont que sur
+    9002 ». Le 9002 est le port PUBLIC de toutes les applications ; chacune
+    ecoute derriere sur un port INTERNE (9101-9140, $PORT) que le panneau
+    relaie. Une application inscrite sur 9001 ou 9002 (a la main, ou par une
+    ancienne version) ne peut pas l'ouvrir -- le panneau le tient -- et le
+    proxy se relaierait a lui-meme. Elle recoit un port libre de la plage ;
+    une application qui lit $PORT n'a rien a changer. Un autre port hors
+    plage (9003...) fonctionne : il reste tel quel.
+    """
+    apps = load()
+    reserves = {PANEL_PORT, APPS_PORT}
+    change = False
+    for nom, a in apps.items():
+        if a.get("port") in reserves:
+            nouveau = next_port(apps)
+            if not nouveau:
+                continue
+            print(f"[app-manager] {nom} : port interne {a['port']} reserve au panneau, "
+                  f"remplace par {nouveau}.", flush=True)
+            a["port"] = nouveau
+            change = True
+    if change:
+        save(apps)
+
+
 def resume():
+    realigner_les_ports()
     tenir_les_applications_par_defaut()
     for name, a in load().items():
         if a.get("enabled"):

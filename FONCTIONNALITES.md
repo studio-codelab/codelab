@@ -222,6 +222,8 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
 **Déclarer**
 
 - **Ajouter un projet** à partir d'un dossier de `/workspace`. Le panneau ne crée jamais de projet.
+  Dans le choix du dossier, celui d'une application déjà déclarée est grisé, avec son nom, et le
+  serveur refuse de le reprendre ; les dossiers de Diagnostic et Messages n'apparaissent pas.
 - **Détection automatique** des commandes de build et de lancement (Vite, Astro, Parcel, CRA, Angular,
   Next.js, Django, Flask, script `start`, page statique).
 - **Nom libre, adresse dérivée** : `Mon Site` est servi sous `/mon-site/`. Un nom réservé par une
@@ -258,14 +260,22 @@ Détails : [`app-manager/README.md`](app-manager/README.md) et, côté développ
 **Faire tourner**
 
 - **Démarrer, arrêter, redémarrer.**
-- **Build** à la demande.
-- **Port interne attribué** automatiquement (`9101`–`9140`), passé à l'application dans `$PORT`. Les
+- **Build** à la demande. Pendant un build, « Démarrer » est grisé (« Build en cours… ») et le serveur
+  refuse le démarrage : l'application partirait sur des dépendances à moitié installées.
+- **Port interne attribué** automatiquement (`9101`–`9140`), passé à l'application dans `$PORT`.
+  C'est ce port que montre la colonne « Port » (au survol : « Port interne ») ; tous les visiteurs
+  passent par le `9002`, qui le relaie. Pour Dagster et Mailpit, c'est leur port public (`3000`,
+  `8025`). Une application inscrite sur le `9001` ou le `9002` (ceux du panneau) reçoit un port de la
+  plage au démarrage du panneau ; un autre port hors plage, déclaré à la main, reste tel quel. Les
   commandes proposées écoutent sur `127.0.0.1` ; une application qui écoute sur toutes les
   interfaces (`0.0.0.0`) le voit signalé dans sa fiche, parce que les autres conteneurs la
   joindraient sans connexion.
 - **Reprise au redémarrage** du panneau : une application active est relancée.
 - **Redémarrage automatique** après un crash, 5 fois au plus en 10 minutes. Au-delà, la pastille
   passe en « boucle de crash ».
+- **Dagster et Mailpit** tournent dans leurs propres conteneurs : le panneau ne mesure que les
+  applications qu'il lance, et leurs cartes le disent (`docker stats codelab-dagster` donne leur
+  charge). Les mesurer d'ici demanderait le socket Docker, qui donnerait la main sur toute la machine.
 - **Sonde d'écoute** toutes les 10 s : « Ne répond pas » si rien n'écoute sur le port.
 - **Limite mémoire** optionnelle par application.
 - **Isolation** : un uid par application, une vue de `/workspace` réduite à son propre projet, un
