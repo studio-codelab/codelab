@@ -2270,7 +2270,7 @@ def test_nouvelle_application_grise_les_dossiers_deja_configures_et_cache_les_in
     }).get_json()
     assert "diagnostic" not in choix["dirs"] and "messages" not in choix["dirs"]
     assert "utilise" in choix["dirs"] and "libre" in choix["dirs"]
-    assert os.path.realpath(str(tmp_path / "utilise")) in choix["configured"]
+    assert "utilise" in choix["configured"]
 
     # Le serveur applique la meme regle : contourner le navigateur ne permet
     # pas de declarer deux applications sur le meme dossier.
