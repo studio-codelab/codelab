@@ -1,7 +1,7 @@
 # CodeLab -- LE PANNEAU, SERVEUR HTTP
 # ---------------------------------------------------------------------------
 # ROLE        waitress, les deux origines sur leurs ports, et les deux
-#             ecouteurs du tunnel Cloudflare (sur 127.0.0.1).
+#             ecouteurs de Tailscale Funnel (sur 127.0.0.1).
 # CHARGE PAR  app.py (MODULES_DU_SERVEUR), dans SA portee : ce fichier n'est
 #             pas un module. Ses noms sont ceux de app, il lit et definit
 #             les memes globales que le reste du panneau.
@@ -70,11 +70,11 @@ def _ouvrir_port_des_applications(servir_sur):
 
 
 def _ouvrir_les_ports_du_tunnel(servir_sur):
-    """Les deux ecouteurs ou cloudflared depose ce qui vient d'internet
-    (voir 14-tunnel). Sur 127.0.0.1 SEULEMENT : c'est ce qui fait de leur
-    port une preuve que la requete vient du tunnel (regle 12 quater). Ouverts
-    meme tunnel eteint : sans cloudflared, personne n'y parle. Pas sans la
-    separation des origines : le tunnel n'en a pas d'autre."""
+    """Les deux ecouteurs ou tailscaled depose ce qui vient d'internet par
+    Funnel (voir 14-tunnel). Sur 127.0.0.1 SEULEMENT : c'est ce qui fait de
+    leur port une preuve que la requete vient d'internet (regle 12 quater).
+    Ouverts meme Funnel eteint : sans tailscaled, personne n'y parle. Pas
+    sans la separation des origines : Funnel n'en a pas d'autre."""
     if not origines_separees():
         return
     for p in TUNNEL_PORTS:

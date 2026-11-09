@@ -76,13 +76,8 @@ const urlApplication = nom => APPS_MODELE.replace('{nom}', encodeURIComponent(no
    une page du panneau (/ouvrir.html, voir ouvrir_dans_le_panneau). */
 /* Le mode a ete lu une fois, en tete de page (mode.js) : on ne le redevine pas. */
 const enModeApp = window.CODELAB_MODE_APP === true;
-/* Par le tunnel Cloudflare, le panneau et les applications ont deux sites
-   distincts : la session passe par /passage/<nom>/ (voir 14-tunnel), et
-   l'application s'ouvre sans cadre -- un cadre d'un autre site ne recoit
-   pas le cookie de session (SameSite=Lax). */
 const lienOuverture = a => a.externe
   ? '/' + encodeURIComponent(a.name) + '/'
-  : CODELAB_PAGE.passage ? '/passage/' + encodeURIComponent(a.name) + '/'
   : (enModeApp ? '/ouvrir.html?app=' + encodeURIComponent(a.name)
                : urlApplication(a.name));
 const fetchNu = window.fetch.bind(window);

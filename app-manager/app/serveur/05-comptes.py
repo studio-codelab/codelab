@@ -647,9 +647,9 @@ def _hote_et_schema():
     toute facon (voir plus bas).
     """
     hote = (request.host or "").split(":")[0]
-    # Par le tunnel Cloudflare, le navigateur parle TOUJOURS en https, que
-    # Cloudflare l'annonce ou non (voir par_le_tunnel, 14-tunnel). Vecu :
-    # « Je ne peux pas activer Touch ID » apres avoir active le tunnel.
+    # Par Funnel, le navigateur parle TOUJOURS en https, que tailscaled
+    # l'annonce ou non (voir par_le_tunnel, 14-tunnel). Vecu : « Je ne peux
+    # pas activer Touch ID », sur une adresse pourtant en https.
     if par_le_tunnel():
         return hote, "https"
     # Le schema annonce par un proxy suffit ici : la signature d'une cle
@@ -675,15 +675,8 @@ def passkey_contexte():
     if schema != "https" and not local:
         return "", "", ("Les clés d'accès exigent une connexion HTTPS : le navigateur "
                         "refuse de les créer en clair. Ouvre le panneau par une adresse "
-                        "en https (le tunnel Cloudflare, Paramètres > Sécurité), puis "
+                        "en https (l'accès depuis internet, Paramètres > Sécurité), puis "
                         "reviens ici.")
-    # Une cle est liee au nom EXACT du site. Celui d'un Quick Tunnel change a
-    # chaque redemarrage : une cle creee dessus cesserait de marcher sans
-    # prevenir, et Face ID semblerait casse.
-    if par_le_tunnel() and mode_du_tunnel() == "aleatoire":
-        return "", "", ("Avec l'adresse aléatoire du tunnel, une clé d'accès cesserait de "
-                        "marcher au prochain redémarrage : elle est liée à l'adresse. Passe "
-                        "le tunnel sur « Mon domaine », ou connecte-toi avec ton code.")
     # Une adresse IP ne peut pas servir de "relying party id" : la norme
     # exige un nom de domaine. C'est la meme exigence que le certificat.
     if re.fullmatch(r"[0-9.]+|\[[0-9a-fA-F:]+\]", hote) and not local:

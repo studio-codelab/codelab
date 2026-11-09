@@ -629,39 +629,30 @@ Détails : [`app-manager/vps/README.md`](app-manager/vps/README.md).
 - **L'adresse publique s'apprend** : c'est le domaine par lequel le panneau a été ouvert depuis
   internet. Elle sert aux liens d'invitation et permet de rendre une application publique.
 
-- **Sans nom de domaine : le tunnel Cloudflare.** Paramètres > Sécurité > *Accès depuis internet*,
-  un interrupteur (administrateur). Le panneau lance deux tunnels gratuits, sans compte ni réglage
-  sur la box :
-  - deux adresses en `https://….trycloudflare.com`, une pour le panneau, une pour les
-    applications ;
+- **Sans nom de domaine : Tailscale Funnel.** Paramètres > Sécurité > *Accès depuis internet*, un
+  interrupteur (administrateur). Le panneau fait tourner Tailscale et publie, gratuitement et sans
+  rien ouvrir sur la box :
+  - le panneau sur `https://<machine>.<ton réseau>.ts.net`, et les applications sur le même nom
+    en `:8443` ;
+  - une adresse **fixe** : elle survit aux redémarrages, et ne change qu'avec le nom de la machine
+    (champ *Nom de la machine*, `codelab` par défaut) ;
   - la carte montre les deux adresses, et sur demande (bouton *Afficher le QR code*) le QR code de
-    celle du panneau ;
-  - l'adresse change à chaque redémarrage du serveur, et l'administrateur reçoit la nouvelle par
-    mail.
+    celle du panneau. L'administrateur reçoit l'adresse par mail quand elle est prête.
 
-  Ce qui passe par le tunnel :
-  - les comptes utilisateurs s'y connectent et ouvrent leurs applications. Le hub les ouvre par
-    `/passage/<nom>/`, qui reconnaît le compte sur l'adresse des applications, sans cadre même dans
-    l'application installée ;
+  À faire une fois sur tailscale.com, avec un compte gratuit :
+  1. activer *HTTPS* (page DNS) ;
+  2. autoriser *Funnel* (Access controls) ;
+  3. créer une clé d'authentification (Settings > Keys), puis la coller dans la carte.
+
+  Si un réglage manque, la carte affiche le message de Tailscale, qui dit lequel.
+
+  Ce qui passe par Funnel :
+  - les comptes utilisateurs s'y connectent et ouvrent leurs applications ; Face ID / Touch ID s'y
+    active ;
   - les applications publiques sont visibles de tout internet ;
   - l'administration reste réservée au réseau local.
 
-  Cloudflare réserve ces tunnels aux essais : pas de garantie, un plafond de requêtes simultanées.
-- **Avec ton domaine : une adresse fixe.** Même carte, *Adresse* > *Mon domaine*. Il faut un compte
-  Cloudflare (gratuit) et un domaine ajouté à ce compte. Dans Cloudflare (Zero Trust > Networks >
-  Tunnels) :
-  1. crée un tunnel et copie son jeton (la commande d'installation affichée se colle telle quelle) ;
-  2. ajoute deux *Public hostnames* : l'adresse du panneau (ex. `codelab.mondomaine.fr`) vers
-     `http://localhost:9011`, celle des applications (ex. `apps.mondomaine.fr`) vers
-     `http://localhost:9012`.
-
-  Dans CodeLab, colle le jeton, saisis les deux mêmes adresses et enregistre.
-  Sur cette adresse en https, un compte utilisateur peut activer Face ID / Touch ID. Sur l'adresse
-  aléatoire, le panneau le refuse et dit pourquoi : une clé d'accès est liée au nom exact du site,
-  elle cesserait de marcher au redémarrage suivant. Elles ne changent
-  plus, et le passage de connexion, les règles d'accès et l'administration réservée au réseau local
-  sont les mêmes. Le jeton est chiffré et ne réapparaît jamais ; il se remplace en en collant un
-  autre.
+  *Déconnecter la machine* la retire du réseau Tailscale et oublie la clé.
 
 ## 11. Installation et mise à jour
 

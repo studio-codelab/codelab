@@ -71,6 +71,7 @@ def _bac_a_sable(tmp_path, monkeypatch):
         "SSO_PRIVATE_FILE": str(etat / "codelab_sso_private.key"),
         "DB_FILE": str(etat / "codelab.db"),
         "SAUVEGARDES_SUIVI_FILE": str(etat / "sauvegardes-suivi.json"),
+        "TAILSCALE_DIR": str(etat / "tailscale"),
     }
     for nom in CHEMINS_ETAT:
         assert hasattr(app, nom), (

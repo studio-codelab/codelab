@@ -756,7 +756,7 @@ def proxy_non_declare():
     paraitrait locale, et la restriction serait affichee comme active tout
     en ne protegeant rien. Une securite qui ment est pire que pas de
     securite : on cesse de se mefier.
-    Le tunnel Cloudflare EST un intermediaire, quels que soient ses en-tetes :
+    Tailscale Funnel EST un intermediaire, quels que soient ses en-tetes :
     on le reconnait a son port (par_le_tunnel, regle 12 quater).
     """
     if par_le_tunnel():

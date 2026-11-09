@@ -415,7 +415,7 @@ def lien_panneau():
     """
     if not sur_le_port_des_apps():
         return "/"
-    # Par le tunnel des applications : l'adresse du tunnel du panneau.
+    # Par Funnel, sur le port des applications : l'adresse du panneau.
     if sur_le_tunnel_des_apps():
         return (origine_du_tunnel("panneau") or "") + "/"
     # Sous un sous-domaine (blog.toi.duckdns.org), le panneau est au domaine.
