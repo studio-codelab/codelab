@@ -326,3 +326,13 @@ def test_en_local_par_l_adresse_ip_la_raison_dit_quoi_faire():
     assert "HTTPS" in empechement and "Proxy de confiance" not in empechement
     with app.flask_app.test_request_context("/", base_url="http://localhost:9001"):
         assert app.passkey_contexte()[2] == ""
+
+
+def test_la_carte_montre_l_adresse_finale(funnel):
+    """Vecu : « Comment choisir mon url ? Je veux voir simplement l'url
+    final ». L'adresse est le nom de la machine, puis celui du reseau
+    Tailscale : la carte recoit la fin et l'assemble a chaque lettre."""
+    assert app.etat_du_tunnel()["reseau"] == "tail1234.ts.net"
+    js = _lire_source("app-manager/app/panneau/08-reglages.js")
+    assert "function tunnelApercu()" in js and "$('tunnel-apercu').textContent=" in js
+    assert 'oninput="tunnelApercu()"' in _page_panneau("dashboard.html")

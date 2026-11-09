@@ -415,7 +415,11 @@ def etat_du_tunnel():
     else:
         etat = "demarrage"
     pret = etat == "actif"
-    return {"actif": actif, "etat": etat, "nom": nom_de_machine(),
+    # Le nom du reseau Tailscale (tail1234.ts.net) : la fin de l'adresse,
+    # connue apres la premiere connexion. La carte en fait l'apercu de
+    # l'adresse finale pendant qu'on tape le nom de la machine.
+    reseau = _tunnel["hote"].split(".", 1)[1] if _HOTE_TUNNEL.match(_tunnel["hote"] or "") else ""
+    return {"actif": actif, "etat": etat, "nom": nom_de_machine(), "reseau": reseau,
             "cle": bool(cle_de_tailscale()),
             "erreur": _tunnel["erreur"] if etat == "erreur" else "",
             "panneau": origine_du_tunnel("panneau") if pret else "",

@@ -382,7 +382,14 @@ const TUNNEL_ETATS = {
   erreur: 'Tailscale a refusé :',
   actif: 'Actif.',
 };
-let tunnelRelecture=null, tunnelAdresseQr='';
+let tunnelRelecture=null, tunnelAdresseQr='', tunnelReseau='';
+/* L'adresse finale, mise a jour a chaque lettre du nom de la machine. Le
+   nom suit les regles de Tailscale : minuscules, chiffres, tirets. */
+function tunnelApercu(){
+  const nom=($('tunnel-nom').value.trim().toLowerCase() || 'codelab').replace(/[^a-z0-9-]/g, '');
+  $('tunnel-apercu').textContent='https://' + nom + '.'
+    + (tunnelReseau || '<ton-réseau>.ts.net') + '/';
+}
 /* Le QR code de l'adresse du panneau, sur demande (le bouton le montre ou
    le cache). garder : le redessiner sans changer s'il est montre. */
 function tunnelQr(garder){
@@ -407,6 +414,8 @@ function peindreTunnel(d){
   $('tunnel-erreur').style.display=d.erreur ? 'block' : 'none';
   $('tunnel-erreur').textContent=d.erreur || '';
   if(document.activeElement!==$('tunnel-nom')) $('tunnel-nom').value=d.nom||'';
+  tunnelReseau=d.reseau||'';
+  tunnelApercu();
   $('tunnel-cle').placeholder=d.cle ? 'Enregistrée (colle-en une autre pour la changer)' : 'tskey-auth-…';
   $('tunnel-deconnecter').hidden=!d.cle;
   const pret=d.etat==='actif';

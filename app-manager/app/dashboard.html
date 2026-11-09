@@ -3231,8 +3231,14 @@ a.pj:hover{border-color:var(--accent)}
           <input id="tunnel-cle" type="password" autocomplete="off" spellcheck="false"
                  placeholder="tskey-auth-…"></div>
         <div class="field"><label for="tunnel-nom">Nom de la machine</label>
-          <input id="tunnel-nom" placeholder="codelab" autocapitalize="off" spellcheck="false"></div>
+          <input id="tunnel-nom" placeholder="codelab" autocapitalize="off" spellcheck="false"
+                 oninput="tunnelApercu()"></div>
       </div>
+      <!-- L'ADRESSE FINALE, telle qu'elle sera : le nom de la machine, puis
+           celui du reseau Tailscale (connu apres la premiere connexion).
+           Vecu : « Comment choisir mon url ? Je veux voir simplement l'url
+           final ». -->
+      <div class="hint">Ton adresse : <b id="tunnel-apercu"></b></div>
       <div class="actions">
         <button class="btn btn-primary" id="tunnel-save" onclick="tunnelEnregistrer()">Enregistrer</button>
         <button class="btn btn-default" id="tunnel-deconnecter" onclick="tunnelDeconnecter()" hidden>Déconnecter la machine</button>

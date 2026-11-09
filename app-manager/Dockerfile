@@ -23,7 +23,7 @@ FROM node:24-trixie-slim AS node
 # binaires officiels (Go, sans dependance), recopies de l'image de Tailscale
 # comme node ci-dessus : une etape nommee, suivie par Dependabot. Ils ne
 # tournent que si l'administrateur allume l'acces dans les Parametres.
-FROM tailscale/tailscale:v1.104.5 AS tailscale
+FROM tailscale/tailscale:v1.104.4 AS tailscale
 
 FROM python:3.13-slim
 
