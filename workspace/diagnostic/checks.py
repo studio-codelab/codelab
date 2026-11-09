@@ -13,18 +13,9 @@ Le pilote Postgres est resolu par connect_pg(), qui accepte psycopg (v3,
 installe par la commande de build de l'application) ou psycopg2 (deja present
 dans l'image Dagster via dagster-postgres).
 """
-import ast
-import base64
 import importlib.util
-import queue
 import re
-import secrets
 import sys
-
-
-import builtins
-import inspect
-import datetime
 import enum
 import json
 import os
@@ -1363,7 +1354,6 @@ def check_surface_exposee():
     """
     if not _etat_panneau_visible():
         return Etat.SANS_OBJET, "surface exposée", _hors_de_portee()
-    etat = _etat_panneau()
     apps = _apps_panneau()
     expo = _exposition_panneau()
     comptes = _comptes_panneau()

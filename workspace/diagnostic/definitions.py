@@ -289,7 +289,7 @@ def corps_du_mail(context: RunFailureSensorContext):
     return "\n".join([
         f"Job     : {run.job_name}",
         f"Run     : {run.run_id}",
-        f"Statut  : ECHEC",
+        "Statut  : ECHEC",
         f"Lien    : {DAGSTER_URL}/runs/{run.run_id}",
         "",
         "Erreur",
