@@ -370,6 +370,57 @@ async function sgCopieExterne(oui){
   peindreSauvegardes(await r.json());
 }
 
+/* ---------------- l'acces depuis internet (tunnel Cloudflare) ----------------
+   L'interrupteur dit l'etat voulu ; le texte dit ou en est cloudflared. Une
+   adresse met quelques secondes a venir : on relit tant qu'elle manque. */
+const TUNNEL_ETATS = {
+  indisponible: "cloudflared est absent de cette image : mets CodeLab à jour.",
+  'sans-origines': "Indisponible : le port des applications (9002) n'est pas ouvert.",
+  arrete: 'Désactivé.',
+  demarrage: 'Démarrage du tunnel…',
+  actif: 'Actif.',
+};
+let tunnelRelecture=null;
+function peindreTunnel(d){
+  $('zone-tunnel').hidden=false;
+  const b=$('tunnel-bascule');
+  b.checked=d.actif; b.disabled=d.etat==='indisponible' || d.etat==='sans-origines';
+  $('tunnel-etat').textContent=TUNNEL_ETATS[d.etat] || '';
+  const pret=d.etat==='actif';
+  $('tunnel-adresses').hidden=!pret;
+  if(pret){
+    $('tunnel-panneau').value=d.panneau+'/';
+    $('tunnel-apps').value=d.apps+'/';
+    const qr=$('tunnel-qr');
+    qr.onerror=()=>qr.classList.remove('on');
+    qr.onload=()=>qr.classList.add('on');
+    qr.src='/api/tunnel/qr?a='+encodeURIComponent(d.panneau);
+  }
+  clearTimeout(tunnelRelecture);
+  if(d.actif && d.etat==='demarrage') tunnelRelecture=setTimeout(chargerTunnel, 3000);
+}
+async function chargerTunnel(){
+  try{
+    const r=await fetch('/api/tunnel'); if(!r.ok) return;
+    peindreTunnel(await r.json());
+  }catch(e){}
+}
+async function tunnelBasculer(b){
+  const actif=b.checked;
+  if(actif && !await demander('Ouvrir CodeLab sur internet ?',
+      "Une adresse publique en trycloudflare.com mènera à ton panneau et à tes applications. "
+      + "Les comptes utilisateurs pourront s'y connecter ; les applications publiques seront "
+      + "visibles de tous.", 'Ouvrir')){
+    b.checked=false; return;
+  }
+  b.disabled=true;
+  const r=await fetch('/api/tunnel',{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({actif})});
+  b.disabled=false;
+  if(!r.ok){ notifier(await echec(r,'Réglage non enregistré.'),'err'); chargerTunnel(); return; }
+  peindreTunnel(await r.json());
+}
+
 /* ---------------- la conservation du journal ----------------
    Raccourcir la duree efface des lignes, tout de suite et pour de bon : le
    choix se confirme, bouton au verbe. L'allonger n'efface rien : il passe

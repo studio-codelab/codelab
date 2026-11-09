@@ -301,7 +301,19 @@ def _client_ip():
     ECARTE : un reglage « proxy de confiance » (Exposition,
       APP_MANAGER_TRUST_PROXY), retire : la securite la plus stricte n'est
       pas une option.
+    SEULE EXCEPTION, le tunnel Cloudflare (par_le_tunnel) : la connexion vient
+      alors de cloudflared, sur 127.0.0.1, pour TOUS les visiteurs -- un seul
+      qui se trompe cinq fois fermerait la porte a tout le monde. Ce port
+      n'ecoute que sur 127.0.0.1 : seul cloudflared y parle, et Cloudflare
+      remplace CF-Connecting-IP par l'adresse du visiteur (un visiteur ne la
+      choisit pas). Analysee comme une adresse, sinon ignoree.
+    DEPEND DE : TUNNEL_PORTS (14-tunnel).
     """
+    if par_le_tunnel():
+        try:
+            return str(ipaddress.ip_address(request.headers.get("CF-Connecting-IP", "").strip()))
+        except ValueError:
+            return "tunnel"
     return request.remote_addr or "unknown"
 
 
@@ -470,6 +482,9 @@ def origine_applications():
     Chaine vide quand le nom d'hote n'est pas exploitable : l'appelant
     renonce alors a separer plutot que d'ecrire une adresse douteuse.
     """
+    # Par le tunnel : l'adresse du second tunnel, jamais l'hote de la requete.
+    if par_le_tunnel():
+        return origine_du_tunnel("apps")
     hote = hote_demande()
     if not hote:
         return ""
@@ -488,12 +503,15 @@ _SUFFIXES_LOCAUX = (".local", ".lan", ".home", ".internal", ".localhost", ".arpa
 
 def sur_le_port_des_apps():
     return (origines_separees() and has_request_context()
-            and str(request.environ.get("SERVER_PORT", "")) == str(APPS_PORT))
+            and (str(request.environ.get("SERVER_PORT", "")) == str(APPS_PORT)
+                 or sur_le_tunnel_des_apps()))
 
 
 def schema_vu():
     """http ou https, tel que le navigateur le voit (derriere le VPS, nginx
     l'annonce dans X-Forwarded-Proto)."""
+    if par_le_tunnel():
+        return "https"
     annonce = (request.headers.get("X-Forwarded-Proto") or "").lower()
     return "https" if annonce == "https" or request.scheme == "https" else "http"
 
@@ -516,6 +534,10 @@ def domaine_des_applications():
     celui des applications, ce nom d'hote moins l'application.
     """
     if not origines_separees() or not has_request_context():
+        return ""
+    # Par le tunnel : deux adresses *.trycloudflare.com, pas de sous-domaine
+    # par application (Cloudflare n'en donne qu'une par tunnel).
+    if par_le_tunnel():
         return ""
     if not (request.headers.get("X-Forwarded-Proto") or request.headers.get("X-Forwarded-For")):
         return ""

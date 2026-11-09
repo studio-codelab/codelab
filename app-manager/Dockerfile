@@ -18,6 +18,13 @@
 #   plus, pour le meme binaire, et gnupg a installer puis retirer.
 FROM node:24-trixie-slim AS node
 
+# CLOUDFLARED : l'acces depuis internet par un tunnel Cloudflare, sans nom de
+# domaine (voir app/serveur/14-tunnel.py). Le binaire officiel, recopie de
+# l'image de Cloudflare (multi-architecture) comme node ci-dessus : une etape
+# nommee, suivie par Dependabot. Il ne tourne que si l'administrateur
+# allume le tunnel dans les Parametres.
+FROM cloudflare/cloudflared:2026.10.7 AS cloudflared
+
 FROM python:3.13-slim
 
 WORKDIR /opt/codelab/app-manager 
@@ -47,6 +54,9 @@ COPY --from=node /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
     && node --version && npm --version
+
+COPY --from=cloudflared /usr/local/bin/cloudflared /usr/local/bin/cloudflared
+RUN /usr/local/bin/cloudflared --version
 
 # Une base, un compte : au lancement d'une application, le panneau prepare
 # sa base et son compte Postgres avec ce script, le meme que codelab-postgres

@@ -195,6 +195,7 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 |---|---|---|
 | `9001` | panneau | connexion + second facteur ; administration réservée au réseau local |
 | `9002` | applications, toutes | selon chaque application : publique, ou privée (compte autorisé) |
+| `9011`, `9012` | arrivée des deux tunnels Cloudflare (panneau, applications) | sur `127.0.0.1` seulement, jamais publiés : seul `cloudflared`, dans le conteneur, y parle. Leur port prouve que la requête vient d'internet (règle 12 quater) |
 | `9101`–`9140` | port interne de chaque application (`$PORT`) | non publiés ; relayés par le `9002`. L'application écoute sur `127.0.0.1` : sur `0.0.0.0`, les autres conteneurs la joindraient sans le panneau, et sa fiche le signale |
 | `3000` | Dagster (par `codelab-dagster-proxy`) | session d'**administration** du panneau, vérifiée à chaque requête |
 | `8025` | Mailpit (par le même proxy) | idem ; Mailpit exige en plus son propre mot de passe interne |
@@ -213,7 +214,17 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 - **Exposition recommandée** : un VPS qui porte le domaine et le certificat, et un tunnel WireGuard
   vers ton serveur ([`app-manager/vps/README.md`](app-manager/vps/README.md)). Aucun port n'est
   alors ouvert sur ta box.
-- Ne publie pas `3000`, `8025` ni `2222` sur Internet sans besoin.
+- **Accès par le tunnel Cloudflare** (Paramètres > Sécurité, éteint par défaut) : deux Quick Tunnels
+  en `*.trycloudflare.com`, un pour le panneau, un pour les applications. Ce sont donc deux
+  origines distinctes, comme en local. Pour les visiteurs :
+  - Cloudflare voit le trafic en clair : c'est lui qui termine le HTTPS ;
+  - l'adresse change à chaque redémarrage, et l'administrateur la reçoit par mail ;
+  - `cloudflared` tourne sous l'utilisateur des applications, avec un environnement vide (aucun
+    secret du panneau) ;
+  - la session passe du panneau aux applications par un ticket à usage unique d'une minute
+    (`/passage/<app>/`). C'est la même session, avec le même identifiant d'appareil : une
+    déconnexion ou une suspension la ferme des deux côtés.
+- Ne publie pas `3000`, `8025` ni `2222` sur Internet sans besoin. Le tunnel ne les expose pas.
 
 ## Conteneurs et chaîne logicielle
 
@@ -299,6 +310,11 @@ Sans lui, les réglages chiffrés deviennent illisibles.
     dans `/workspace` seulement.
     La session du poste a déjà le compte de chaque base de projet : le laissez-passer ne lui donne
     pas plus.
+12 quater. Par le tunnel Cloudflare, l'administration est fermée : une requête arrivée sur les ports
+    `9011` ou `9012` n'est jamais locale, quels que soient ses en-têtes. Le passage de la session
+    vers l'adresse des applications ne vaut que pour un compte utilisateur, une application et une
+    minute, une seule fois. Ces ports n'écoutent que sur `127.0.0.1`. `CF-Connecting-IP` n'y est
+    cru que pour la limite des essais, et nulle part ailleurs.
 13. Toute route qui modifie quelque chose exige le jeton anti-falsification de la session, sauf les
     routes de connexion et d'invitation, et celle du tournage, qui n'a pas de session et se prouve
     par la clé en en-tête (12 ter).

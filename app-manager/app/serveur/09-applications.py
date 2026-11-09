@@ -680,6 +680,8 @@ def https_actif():
         return True
     if not has_request_context():
         return False
+    if par_le_tunnel():
+        return True
     return request.is_secure or (
         (request.headers.get("X-Forwarded-Proto") or "").lower() == "https")
 
@@ -754,7 +756,11 @@ def proxy_non_declare():
     paraitrait locale, et la restriction serait affichee comme active tout
     en ne protegeant rien. Une securite qui ment est pire que pas de
     securite : on cesse de se mefier.
+    Le tunnel Cloudflare EST un intermediaire, quels que soient ses en-tetes :
+    on le reconnait a son port (par_le_tunnel, regle 12 quater).
     """
+    if par_le_tunnel():
+        return True
     return bool(request.headers.get("X-Forwarded-For")
                 or request.headers.get("X-Forwarded-Proto"))
 
@@ -772,7 +778,7 @@ def client_est_local():
     Repond NON si un proxy non declare s'interpose : on ne sait alors pas
     qui appelle, et ne pas savoir vaut refuser.
     """
-    if proxy_non_declare():
+    if proxy_non_declare() or par_le_tunnel():
         return False
     return adresse_est_locale(_client_ip())
 

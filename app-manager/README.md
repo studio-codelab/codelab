@@ -22,7 +22,7 @@ ses garanties de sécurité dans [`SECURITE.md`](../SECURITE.md).
 
 | Fichier | Rôle |
 |---|---|
-| `Dockerfile` | Python 3.13, Node 24 et npm (binaires officiels, la même branche que `codelab-dev`), git ; Flask, waitress, psutil, qrcode, webauthn, psycopg, cryptography |
+| `Dockerfile` | Python 3.13, Node 24 et npm (binaires officiels, la même branche que `codelab-dev`), `cloudflared` (binaire officiel, pour le tunnel), git ; Flask, waitress, psutil, qrcode, webauthn, psycopg, cryptography |
 | `entrypoint.sh` | permissions partagées sur `/workspace`, puis démarrage |
 | `app/app.py` | le service : imports et constantes partagés, chargeur de `serveur/`, `main` |
 | `app/serveur/` | le reste du service (authentification, API, cycle de vie, proxy, mails, sauvegardes), en morceaux exécutés dans la portée d'`app.py`, dans l'ordre de `MODULES_DU_SERVEUR` |
@@ -90,7 +90,8 @@ Le panneau ne crée jamais de projet : il **déclare** un dossier existant de `/
   - S'y ajoutent, à titre indicatif seulement, `X-CodeLab-User`, `X-CodeLab-Role`, `X-CodeLab-Email`
     et `X-CodeLab-Authenticated`.
 - **Visibilité** : une application privée exige une session autorisée pour elle. Sans session, la
-  personne passe par `/login?suite=/ouvrir.app/<nom>/<chemin>`. Une application ne peut devenir
+  personne passe par `/login?suite=/ouvrir.app/<nom>/<chemin>` ; par le tunnel Cloudflare, par
+  `/passage/<nom>/<chemin>` sur l'adresse du panneau, qui y porte la session. Une application ne peut devenir
   publique que si une adresse publique est déclarée.
 - **Connexions** : le proxy garde ses connexions vers chaque application (au plus une par fil, 4 s
   d'inactivité). `GET` et `HEAD` se rejouent une fois si l'application avait fermé la connexion ;
@@ -235,6 +236,7 @@ Une valeur existante n'est jamais régénérée.
 | `APP_MANAGER_SHARED_CONFIG` | `/var/lib/codelab/config` | dossier de `credentials.env` |
 | `MANAGER_PORT` | `9001` | port du panneau |
 | `APP_MANAGER_APPS_PORT` | `9002` | port des applications ; `0` = sous le port du panneau |
+| `APP_MANAGER_CLOUDFLARED` | `/usr/local/bin/cloudflared` | le binaire du tunnel Cloudflare (Paramètres > Sécurité) ; absent, l'interrupteur est grisé |
 | `APP_MANAGER_PUBLIC_URL` | — | adresse publique ; sinon, le domaine par lequel le panneau a été ouvert depuis internet |
 | `APP_MANAGER_HTTPS` | — | `1` force le cookie `Secure` (sinon constaté à chaque requête) |
 | `APP_MANAGER_ADMIN_2FA` | `1` | `0` : marche arrière si le second facteur admin est perdu |
@@ -256,7 +258,7 @@ Une valeur existante n'est jamais régénérée.
 
 | Montage | Contenu |
 |---|---|
-| `/var/lib/codelab/app-manager` | `codelab.db`, `logs/`, `home/` |
+| `/var/lib/codelab/app-manager` | `codelab.db`, `logs/` (dont `tunnel-panneau.log`, `tunnel-apps.log`), `home/` |
 | `/workspace` | les projets |
 | `/var/lib/codelab/config` | `credentials.env` (lecture-écriture) |
 | `/sauvegardes` | archives du panneau et du code |
@@ -282,13 +284,13 @@ dans le journal du conteneur avec la méthode et la route (`docker logs codelab-
 | Appareils | `GET /api/mon-compte/appareils`, `DELETE /api/mon-compte/appareils/<id>`, `POST /api/mon-compte/appareils/deconnecter-autres` ; `GET/DELETE /api/utilisateurs/<nom>/appareils` (admin) |
 | Mon compte | `GET /api/mon-compte`, `POST/DELETE /api/mon-compte/suppression` (demander, annuler), `PUT /api/mon-compte/profil` (prénom, nom), `POST /api/mon-compte/email[/code\|/confirmer]`, `POST /api/compte/mot-de-passe`, `GET/POST/DELETE /api/mon-compte/passkeys[/options\|/<id>]`, `GET /api/passkeys/etat` (sans session), `GET /qr/totp.svg`, `GET /api/mon-compte/totp`, `POST /api/mon-compte/totp/preparer\|activer\|retirer` (application d'authentification d'un compte) |
 | Version (admin) | `GET /api/version` : le commit de l'image et sa date (aucun appel sortant) |
-| Sécurité | `GET /api/securite`, `PUT /api/securite/exposition`, `POST /api/securite/totp/preparer\|activer\|desactiver`, `GET/PUT /api/vps` ; `GET /api/sauvegardes` (dernières archives, alerte hors serveur), `GET /api/sauvegardes/<nom>` (télécharge, note la copie), `PUT /api/sauvegardes/copie` (`{externe}`), `GET/PUT /api/journal/conservation` (`{mois}` : 3, 6, 12, 24 ou 0) — admin |
+| Sécurité | `GET /api/securite`, `PUT /api/securite/exposition`, `POST /api/securite/totp/preparer\|activer\|desactiver`, `GET/PUT /api/vps` ; `GET /api/sauvegardes` (dernières archives, alerte hors serveur), `GET /api/sauvegardes/<nom>` (télécharge, note la copie), `PUT /api/sauvegardes/copie` (`{externe}`), `GET/PUT /api/journal/conservation` (`{mois}` : 3, 6, 12, 24 ou 0), `GET/PUT /api/tunnel` (`{actif}` ; rend l'état et les deux adresses), `GET /api/tunnel/qr` — admin |
 | Comptes (admin) | `GET/POST /api/utilisateurs`, `PUT/DELETE /api/utilisateurs/<nom>`, `GET/PUT /api/apps/<nom>/acces`, `GET /api/activite`, `GET /api/activite/carte` |
 | Applications (admin) | `GET /api/apps`, `GET /api/browse`, `GET /api/detect`, `POST /api/add`, `PUT/DELETE /api/app/<nom>`, `POST /api/app/<nom>/renommer`, `POST /api/app/<nom>/archiver\|desarchiver` (`GET /api/apps` les rend dans `archivees`), `POST /api/toggle\|restart\|build\|deploy\|visibility/<nom>`, `GET /api/metrics/<nom>`, `GET /api/logs/<nom>[/stream]`, `PUT/DELETE /api/app/<nom>/logo` |
 | Hub | `GET /api/mes-apps` (avec `nouvelle_version`, `ouverte_le` et `presentation` par application), `POST/DELETE /api/mes-apps/<nom>/masquer`, `POST /api/mes-apps/<nom>/ouverte` (note la version vue), `GET/PUT /api/hub/disposition` (la composition du hub et le catalogue des widgets permis), `GET /api/hub/pouls?quoi=serveur,activite` (admin : la charge de la machine, mesurée toutes les dix secondes par le moniteur, et les ouvertures des quatorze derniers jours, pour les widgets Serveur et Activité), `GET /api/icon/<nom>`, `GET /api/presentations/<nom>/video\|affiche` (la vidéo du projet, avec les droits de l'application, requêtes `Range` acceptées), `GET /api/categories` (tous) ; `PUT /api/apps/<nom>/presentation` (admin : `{visible}`, la montrer dans le hub ou non), `PUT /api/categories` (admin) |
 | Messages (relais vers l'application) | `POST /api/messages` (`pieces` : les identifiants déposés), `POST /api/pieces` (le corps est le fichier, son nom dans `X-Nom-Fichier`), `GET /api/pieces/<id>` (l'auteur, ou l'administrateur), `GET /api/mes-messages` (ses messages et leur avancement), `POST /api/mes-messages/vus` (tous) ; `GET /api/messages/nouveaux?apres=<ts>` (admin : ce qui est arrivé, pour l'annoncer). Le reste (boîte, tâches, projets, export) est l'API de l'application Messages : voir [`workspace/messages/README.md`](../workspace/messages/README.md). Elle ne répond pas : 503 |
 | Alertes (admin) | `GET/POST /api/alertes`, `PUT /api/alertes/application/<nom>`, `GET/POST /api/surveillance-externe` |
-| Pages | `/`, `/apercu`, `/applications[/<nom>[/<onglet>]]`, `/utilisateurs`, `/messages` (la rubrique d'un compte ; l'administrateur part dans l'application), `/parametres[/<onglet>]`, `/ouvrir.app/<nom>/<chemin>`, `/deconnexion.html` ; `/espace` redirige vers `/` |
+| Pages | `/`, `/apercu`, `/applications[/<nom>[/<onglet>]]`, `/utilisateurs`, `/messages` (la rubrique d'un compte ; l'administrateur part dans l'application), `/parametres[/<onglet>]`, `/ouvrir.app/<nom>/<chemin>`, `/passage/<nom>/<chemin>` (par le tunnel : ticket d'une minute vers l'adresse des applications, échangé par `?codelab-passage=` ; hors tunnel, l'adresse habituelle), `/deconnexion.html` ; `/espace` redirige vers `/` |
 | Ressources | `/theme.css`, `/couleur.css?c=<6 chiffres hexadécimaux>` (la couleur personnalisée), `/mode.js`, `/icone-192.png`, `/icone-512.png`, `/icone-512-maskable.png`, `/polices/<nom>`, `/favicon.*`, `/apple-touch-icon*.png`, `/manifest.webmanifest` (sans session) ; `POST /api/erreur-navigateur` |
 | Proxy | `/<nom>/...` sur le port des applications |
 

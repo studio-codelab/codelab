@@ -21,6 +21,7 @@ du `docker-compose.yml`). Les données vivent sous `/DATA/AppData/codelab/`.
 | L'administrateur est bloqué dehors, ou son mot de passe a fuité | [5](#5-ladministrateur-est-bloqué-dehors-ou-son-mot-de-passe-a-fuité) |
 | Le disque est plein | [6](#6-le-disque-est-plein) |
 | Il faut restaurer | [7](#7-restaurer) |
+| L'adresse du tunnel Cloudflare ne répond plus, ou est perdue | [8](#8-ladresse-du-tunnel-cloudflare-ne-répond-plus) |
 
 ---
 
@@ -185,6 +186,29 @@ d'alerte), les sessions tombent et le mot de passe administrateur change : tout 
 retrouve.
 
 ---
+
+## 8. L'adresse du tunnel Cloudflare ne répond plus
+
+L'adresse `….trycloudflare.com` change à chaque redémarrage du tunnel. Une ancienne adresse ne
+revient jamais.
+
+1. **Retrouver l'adresse actuelle** : le dernier mail « CodeLab : nouvelle adresse depuis
+   internet », ou Paramètres > Sécurité > *Accès depuis internet* depuis le réseau local, ou :
+   ```bash
+   docker logs codelab-app-manager 2>&1 | grep "tunnel panneau"
+   ```
+2. **Voir ce que dit `cloudflared`** (un journal par tunnel, réécrit à chaque lancement) :
+   ```bash
+   docker exec codelab-app-manager tail -n 30 /var/lib/codelab/app-manager/logs/tunnel-panneau.log
+   docker exec codelab-app-manager tail -n 30 /var/lib/codelab/app-manager/logs/tunnel-apps.log
+   ```
+   Un échec de connexion à Cloudflare indique un réseau sortant filtré : le tunnel a besoin du port
+   `7844` sortant (UDP, ou TCP en repli). Le panneau relance un `cloudflared` arrêté dans les
+   5 secondes.
+3. **Obtenir une nouvelle adresse** : éteindre puis rallumer l'interrupteur, ou redémarrer le
+   conteneur (`docker restart codelab-app-manager`).
+4. **Couper l'accès tout de suite**, par exemple après avoir partagé l'adresse par erreur : éteindre
+   l'interrupteur. Les deux `cloudflared` s'arrêtent, et l'adresse meurt avec eux.
 
 ## Après l'incident
 

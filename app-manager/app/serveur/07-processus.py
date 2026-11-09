@@ -1327,7 +1327,7 @@ def realigner_les_ports():
     plage (9003...) fonctionne : il reste tel quel.
     """
     apps = load()
-    reserves = {PANEL_PORT, APPS_PORT}
+    reserves = {PANEL_PORT, APPS_PORT, *TUNNEL_PORTS}
     change = False
     for nom, a in apps.items():
         if a.get("port") in reserves:

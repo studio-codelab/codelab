@@ -629,6 +629,24 @@ Détails : [`app-manager/vps/README.md`](app-manager/vps/README.md).
 - **L'adresse publique s'apprend** : c'est le domaine par lequel le panneau a été ouvert depuis
   internet. Elle sert aux liens d'invitation et permet de rendre une application publique.
 
+- **Sans nom de domaine : le tunnel Cloudflare.** Paramètres > Sécurité > *Accès depuis internet*,
+  un interrupteur (administrateur). Le panneau lance deux tunnels gratuits, sans compte ni réglage
+  sur la box :
+  - deux adresses en `https://….trycloudflare.com`, une pour le panneau, une pour les
+    applications ;
+  - la carte montre les deux adresses et un QR code de celle du panneau ;
+  - l'adresse change à chaque redémarrage du serveur, et l'administrateur reçoit la nouvelle par
+    mail.
+
+  Ce qui passe par le tunnel :
+  - les comptes utilisateurs s'y connectent et ouvrent leurs applications. Le hub les ouvre par
+    `/passage/<nom>/`, qui reconnaît le compte sur l'adresse des applications, sans cadre même dans
+    l'application installée ;
+  - les applications publiques sont visibles de tout internet ;
+  - l'administration reste réservée au réseau local.
+
+  Cloudflare réserve ces tunnels aux essais : pas de garantie, un plafond de requêtes simultanées.
+
 ## 11. Installation et mise à jour
 
 Détails : [`README.md`](README.md).

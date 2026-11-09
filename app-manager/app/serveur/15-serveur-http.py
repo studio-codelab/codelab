@@ -1,6 +1,7 @@
 # CodeLab -- LE PANNEAU, SERVEUR HTTP
 # ---------------------------------------------------------------------------
-# ROLE        waitress, les deux origines sur leurs ports.
+# ROLE        waitress, les deux origines sur leurs ports, et les deux
+#             ecouteurs du tunnel Cloudflare (sur 127.0.0.1).
 # CHARGE PAR  app.py (MODULES_DU_SERVEUR), dans SA portee : ce fichier n'est
 #             pas un module. Ses noms sont ceux de app, il lit et definit
 #             les memes globales que le reste du panneau.
@@ -68,21 +69,33 @@ def _ouvrir_port_des_applications(servir_sur):
           f"-- origine distincte de celle du panneau.", flush=True)
 
 
+def _ouvrir_les_ports_du_tunnel(servir_sur):
+    """Les deux ecouteurs ou cloudflared depose ce qui vient d'internet
+    (voir 14-tunnel). Sur 127.0.0.1 SEULEMENT : c'est ce qui fait de leur
+    port une preuve que la requete vient du tunnel (regle 12 quater). Ouverts
+    meme tunnel eteint : sans cloudflared, personne n'y parle. Pas sans la
+    separation des origines : le tunnel n'en a pas d'autre."""
+    if not origines_separees():
+        return
+    for p in TUNNEL_PORTS:
+        threading.Thread(target=servir_sur, args=(p, "127.0.0.1"), daemon=True).start()
+
+
 def servir(port):
     try:
         from waitress import serve
-        def _sur(p):
+        def _sur(p, hote="0.0.0.0"):
             # ident : l'en-tete Server annonce "CodeLab" plutot que la version
             # exacte de waitress, qui ne renseigne que celui qui cherche une
             # faille connue.
-            serve(flask_app, host="0.0.0.0", port=p, threads=WSGI_THREADS,
+            serve(flask_app, host=hote, port=p, threads=WSGI_THREADS,
                   channel_timeout=WSGI_TIMEOUT, connection_limit=WSGI_CONNEXIONS,
                   ident="CodeLab")
     except ImportError:
         print("[app-manager] waitress absent : repli sur le serveur de "
               "developpement de Flask (a eviter en service).", flush=True)
-        def _sur(p):
-            flask_app.run(host="0.0.0.0", port=p, threaded=True)
+        def _sur(p, hote="0.0.0.0"):
+            flask_app.run(host=hote, port=p, threaded=True)
 
     # Dans les DEUX cas : le repli sans waitress doit separer les origines
     # comme le service normal. Le premier jet ne le faisait pas -- il rendait
@@ -90,5 +103,6 @@ def servir(port):
     # avec des applications dans l'origine du panneau, sans que rien ne le
     # dise.
     _ouvrir_port_des_applications(_sur)
+    _ouvrir_les_ports_du_tunnel(_sur)
     print(f"[app-manager] panneau sur 0.0.0.0:{port}.", flush=True)
     _sur(port)

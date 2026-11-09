@@ -418,6 +418,13 @@ def separer_les_origines():
         # rond. Le panneau sert alors l'application, comme avant la
         # separation -- degrade, mais joignable.
         if not (domaine_des_applications() or origine_applications()):
+            # Par le tunnel, jamais ce repli : il servirait l'application dans
+            # l'origine du panneau, a tout internet. On attend le second tunnel.
+            if par_le_tunnel():
+                return Response(_page("Encore un instant",
+                                      "L'adresse des applications se prépare.",
+                                      "Réessaie dans quelques secondes."),
+                                503, mimetype="text/html")
             return None
         nom = request.view_args.get("n", "") if request.view_args else ""
         sous = request.view_args.get("sub", "") if request.view_args else ""
