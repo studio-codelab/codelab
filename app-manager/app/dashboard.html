@@ -3213,8 +3213,8 @@ a.pj:hover{border-color:var(--accent)}
       <div class="field" style="margin-top:12px">
         <label for="tunnel-mode">Adresse</label>
         <select id="tunnel-mode" onchange="tunnelMode(this)">
-          <option value="aleatoire">Aléatoire (gratuite, change à chaque redémarrage)</option>
-          <option value="domaine">Mon domaine (fixe, compte Cloudflare)</option>
+          <option value="aleatoire">Aléatoire, gratuite</option>
+          <option value="domaine">Mon domaine, fixe</option>
         </select>
       </div>
       <!-- MON DOMAINE : un tunnel nomme, cree dans le compte Cloudflare de
@@ -3242,6 +3242,10 @@ a.pj:hover{border-color:var(--accent)}
       <div id="tunnel-adresses" hidden>
         <div class="field" style="margin-top:12px"><label for="tunnel-panneau">Adresse du panneau</label>
           <input id="tunnel-panneau" readonly onclick="this.select()"></div>
+        <!-- Le QR code sur demande : l'adresse se copie du champ, et un code
+             affiche d'office prenait la moitie de la carte. -->
+        <button class="btn btn-default" id="tunnel-qr-bouton" onclick="tunnelQr()"
+                style="margin:12px 0 14px;align-self:flex-start" aria-expanded="false">Afficher le QR code</button>
         <img class="qr" id="tunnel-qr" alt="QR code de l'adresse du panneau">
         <div class="field"><label for="tunnel-apps">Adresse des applications</label>
           <input id="tunnel-apps" readonly onclick="this.select()"></div>

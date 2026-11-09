@@ -381,7 +381,22 @@ const TUNNEL_ETATS = {
   demarrage: 'Démarrage du tunnel…',
   actif: 'Actif.',
 };
-let tunnelRelecture=null;
+let tunnelRelecture=null, tunnelAdresseQr='';
+/* Le QR code de l'adresse du panneau, sur demande (le bouton le montre ou
+   le cache). garder : le redessiner sans changer s'il est montre. */
+function tunnelQr(garder){
+  const qr=$('tunnel-qr'), bouton=$('tunnel-qr-bouton');
+  const montrer = garder===true || !qr.classList.contains('on');
+  if(!montrer){
+    qr.classList.remove('on');
+  }else if(tunnelAdresseQr){
+    qr.onerror=()=>{ qr.classList.remove('on'); bouton.textContent='Afficher le QR code'; };
+    qr.onload=()=>qr.classList.add('on');
+    qr.src='/api/tunnel/qr?a='+encodeURIComponent(tunnelAdresseQr);
+  }
+  bouton.textContent=montrer ? 'Masquer le QR code' : 'Afficher le QR code';
+  bouton.setAttribute('aria-expanded', montrer ? 'true' : 'false');
+}
 function peindreTunnel(d){
   $('zone-tunnel').hidden=false;
   const b=$('tunnel-bascule');
@@ -407,10 +422,9 @@ function peindreTunnel(d){
     /* Sur son domaine, les adresses sont deja dans les champs : le QR seul. */
     $('tunnel-panneau').parentElement.hidden=domaine;
     $('tunnel-apps').parentElement.hidden=domaine;
-    const qr=$('tunnel-qr');
-    qr.onerror=()=>qr.classList.remove('on');
-    qr.onload=()=>qr.classList.add('on');
-    qr.src='/api/tunnel/qr?a='+encodeURIComponent(d.panneau);
+    tunnelAdresseQr=d.panneau;
+    /* Deja affiche : il suit l'adresse si elle a change. */
+    if($('tunnel-qr').classList.contains('on')) tunnelQr(true);
   }
   clearTimeout(tunnelRelecture);
   if(d.actif && d.etat==='demarrage') tunnelRelecture=setTimeout(chargerTunnel, 3000);

@@ -634,7 +634,8 @@ Détails : [`app-manager/vps/README.md`](app-manager/vps/README.md).
   sur la box :
   - deux adresses en `https://….trycloudflare.com`, une pour le panneau, une pour les
     applications ;
-  - la carte montre les deux adresses et un QR code de celle du panneau ;
+  - la carte montre les deux adresses, et sur demande (bouton *Afficher le QR code*) le QR code de
+    celle du panneau ;
   - l'adresse change à chaque redémarrage du serveur, et l'administrateur reçoit la nouvelle par
     mail.
 
