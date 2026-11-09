@@ -16,7 +16,7 @@
 #   mesures, contre 146 Mo pour node et npm officiels.
 # ESSAYE ET ECARTE : NodeSource, comme codelab-dev. Un depot apt et sa cle en
 #   plus, pour le meme binaire, et gnupg a installer puis retirer.
-FROM node:24-trixie-slim AS node
+FROM node:26-trixie-slim AS node
 
 # CLOUDFLARED : l'acces depuis internet par un tunnel Cloudflare, sans nom de
 # domaine (voir app/serveur/14-tunnel.py). Le binaire officiel, recopie de
