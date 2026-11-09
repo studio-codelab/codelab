@@ -189,8 +189,9 @@ retrouve.
 
 ## 8. L'adresse du tunnel Cloudflare ne répond plus
 
-L'adresse `….trycloudflare.com` change à chaque redémarrage du tunnel. Une ancienne adresse ne
-revient jamais.
+En mode *Adresse aléatoire*, l'adresse `….trycloudflare.com` change à chaque redémarrage du tunnel.
+Une ancienne adresse ne revient jamais. En mode *Mon domaine*, elle ne change pas : passe à l'étape
+2 (le journal s'appelle alors `tunnel-domaine.log`).
 
 1. **Retrouver l'adresse actuelle** : le dernier mail « CodeLab : nouvelle adresse depuis
    internet », ou Paramètres > Sécurité > *Accès depuis internet* depuis le réseau local, ou :
@@ -202,6 +203,9 @@ revient jamais.
    docker exec codelab-app-manager tail -n 30 /var/lib/codelab/app-manager/logs/tunnel-panneau.log
    docker exec codelab-app-manager tail -n 30 /var/lib/codelab/app-manager/logs/tunnel-apps.log
    ```
+   Un jeton refusé (`Unauthorized`, `invalid token`) : recopie-le depuis Cloudflare dans la carte.
+   Le tunnel tourne mais l'adresse affiche une erreur Cloudflare : vérifie ses deux *Public
+   hostnames* (`http://localhost:9011` et `http://localhost:9012`, pas `9001` ni `9002`).
    Un échec de connexion à Cloudflare indique un réseau sortant filtré : le tunnel a besoin du port
    `7844` sortant (UDP, ou TCP en repli). Le panneau relance un `cloudflared` arrêté dans les
    5 secondes.

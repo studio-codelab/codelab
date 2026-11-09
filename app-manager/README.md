@@ -237,6 +237,7 @@ Une valeur existante n'est jamais régénérée.
 | `MANAGER_PORT` | `9001` | port du panneau |
 | `APP_MANAGER_APPS_PORT` | `9002` | port des applications ; `0` = sous le port du panneau |
 | `APP_MANAGER_CLOUDFLARED` | `/usr/local/bin/cloudflared` | le binaire du tunnel Cloudflare (Paramètres > Sécurité) ; absent, l'interrupteur est grisé |
+| `APP_MANAGER_TUNNEL_UID` | `1002` | l'uid de `cloudflared`, qu'aucune application ne partage (son environnement porte le jeton du tunnel nommé) |
 | `APP_MANAGER_PUBLIC_URL` | — | adresse publique ; sinon, le domaine par lequel le panneau a été ouvert depuis internet |
 | `APP_MANAGER_HTTPS` | — | `1` force le cookie `Secure` (sinon constaté à chaque requête) |
 | `APP_MANAGER_ADMIN_2FA` | `1` | `0` : marche arrière si le second facteur admin est perdu |
@@ -258,7 +259,7 @@ Une valeur existante n'est jamais régénérée.
 
 | Montage | Contenu |
 |---|---|
-| `/var/lib/codelab/app-manager` | `codelab.db`, `logs/` (dont `tunnel-panneau.log`, `tunnel-apps.log`), `home/` |
+| `/var/lib/codelab/app-manager` | `codelab.db`, `logs/` (dont `tunnel-panneau.log`, `tunnel-apps.log`, `tunnel-domaine.log`), `home/` |
 | `/workspace` | les projets |
 | `/var/lib/codelab/config` | `credentials.env` (lecture-écriture) |
 | `/sauvegardes` | archives du panneau et du code |
@@ -284,7 +285,7 @@ dans le journal du conteneur avec la méthode et la route (`docker logs codelab-
 | Appareils | `GET /api/mon-compte/appareils`, `DELETE /api/mon-compte/appareils/<id>`, `POST /api/mon-compte/appareils/deconnecter-autres` ; `GET/DELETE /api/utilisateurs/<nom>/appareils` (admin) |
 | Mon compte | `GET /api/mon-compte`, `POST/DELETE /api/mon-compte/suppression` (demander, annuler), `PUT /api/mon-compte/profil` (prénom, nom), `POST /api/mon-compte/email[/code\|/confirmer]`, `POST /api/compte/mot-de-passe`, `GET/POST/DELETE /api/mon-compte/passkeys[/options\|/<id>]`, `GET /api/passkeys/etat` (sans session), `GET /qr/totp.svg`, `GET /api/mon-compte/totp`, `POST /api/mon-compte/totp/preparer\|activer\|retirer` (application d'authentification d'un compte) |
 | Version (admin) | `GET /api/version` : le commit de l'image et sa date (aucun appel sortant) |
-| Sécurité | `GET /api/securite`, `PUT /api/securite/exposition`, `POST /api/securite/totp/preparer\|activer\|desactiver`, `GET/PUT /api/vps` ; `GET /api/sauvegardes` (dernières archives, alerte hors serveur), `GET /api/sauvegardes/<nom>` (télécharge, note la copie), `PUT /api/sauvegardes/copie` (`{externe}`), `GET/PUT /api/journal/conservation` (`{mois}` : 3, 6, 12, 24 ou 0), `GET/PUT /api/tunnel` (`{actif}` ; rend l'état et les deux adresses), `GET /api/tunnel/qr` — admin |
+| Sécurité | `GET /api/securite`, `PUT /api/securite/exposition`, `POST /api/securite/totp/preparer\|activer\|desactiver`, `GET/PUT /api/vps` ; `GET /api/sauvegardes` (dernières archives, alerte hors serveur), `GET /api/sauvegardes/<nom>` (télécharge, note la copie), `PUT /api/sauvegardes/copie` (`{externe}`), `GET/PUT /api/journal/conservation` (`{mois}` : 3, 6, 12, 24 ou 0), `GET/PUT /api/tunnel` (`{actif, mode: aleatoire|domaine, jeton, oublier_jeton, panneau, apps}`, chaque champ facultatif ; rend l'état, les deux adresses, et seulement *si* un jeton est enregistré), `GET /api/tunnel/qr` — admin |
 | Comptes (admin) | `GET/POST /api/utilisateurs`, `PUT/DELETE /api/utilisateurs/<nom>`, `GET/PUT /api/apps/<nom>/acces`, `GET /api/activite`, `GET /api/activite/carte` |
 | Applications (admin) | `GET /api/apps`, `GET /api/browse`, `GET /api/detect`, `POST /api/add`, `PUT/DELETE /api/app/<nom>`, `POST /api/app/<nom>/renommer`, `POST /api/app/<nom>/archiver\|desarchiver` (`GET /api/apps` les rend dans `archivees`), `POST /api/toggle\|restart\|build\|deploy\|visibility/<nom>`, `GET /api/metrics/<nom>`, `GET /api/logs/<nom>[/stream]`, `PUT/DELETE /api/app/<nom>/logo` |
 | Hub | `GET /api/mes-apps` (avec `nouvelle_version`, `ouverte_le` et `presentation` par application), `POST/DELETE /api/mes-apps/<nom>/masquer`, `POST /api/mes-apps/<nom>/ouverte` (note la version vue), `GET/PUT /api/hub/disposition` (la composition du hub et le catalogue des widgets permis), `GET /api/hub/pouls?quoi=serveur,activite` (admin : la charge de la machine, mesurée toutes les dix secondes par le moniteur, et les ouvertures des quatorze derniers jours, pour les widgets Serveur et Activité), `GET /api/icon/<nom>`, `GET /api/presentations/<nom>/video\|affiche` (la vidéo du projet, avec les droits de l'application, requêtes `Range` acceptées), `GET /api/categories` (tous) ; `PUT /api/apps/<nom>/presentation` (admin : `{visible}`, la montrer dans le hub ou non), `PUT /api/categories` (admin) |

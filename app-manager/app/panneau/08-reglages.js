@@ -377,24 +377,54 @@ const TUNNEL_ETATS = {
   indisponible: "cloudflared est absent de cette image : mets CodeLab à jour.",
   'sans-origines': "Indisponible : le port des applications (9002) n'est pas ouvert.",
   arrete: 'Désactivé.',
+  incomplet: 'En attente : enregistre le jeton et les deux adresses de ton domaine.',
   demarrage: 'Démarrage du tunnel…',
   actif: 'Actif.',
 };
-let tunnelRelecture=null;
+let tunnelRelecture=null, tunnelAdresseQr='';
+/* Le QR code de l'adresse du panneau, sur demande (le bouton le montre ou
+   le cache). garder : le redessiner sans changer s'il est montre. */
+function tunnelQr(garder){
+  const qr=$('tunnel-qr'), bouton=$('tunnel-qr-bouton');
+  const montrer = garder===true || !qr.classList.contains('on');
+  if(!montrer){
+    qr.classList.remove('on');
+  }else if(tunnelAdresseQr){
+    qr.onerror=()=>{ qr.classList.remove('on'); bouton.textContent='Afficher le QR code'; };
+    qr.onload=()=>qr.classList.add('on');
+    qr.src='/api/tunnel/qr?a='+encodeURIComponent(tunnelAdresseQr);
+  }
+  bouton.textContent=montrer ? 'Masquer le QR code' : 'Afficher le QR code';
+  bouton.setAttribute('aria-expanded', montrer ? 'true' : 'false');
+}
 function peindreTunnel(d){
   $('zone-tunnel').hidden=false;
   const b=$('tunnel-bascule');
   b.checked=d.actif; b.disabled=d.etat==='indisponible' || d.etat==='sans-origines';
   $('tunnel-etat').textContent=TUNNEL_ETATS[d.etat] || '';
+  $('tunnel-mode').value=d.mode;
+  const domaine=d.mode==='domaine';
+  $('tunnel-domaine').hidden=!domaine;
+  $('tunnel-change').hidden=domaine;
+  if(domaine){
+    /* Les champs en cours de saisie ne sont pas ecrases par une relecture. */
+    if(document.activeElement!==$('tunnel-d-panneau')) $('tunnel-d-panneau').value=d.domaine.panneau||'';
+    if(document.activeElement!==$('tunnel-d-apps')) $('tunnel-d-apps').value=d.domaine.apps||'';
+    $('tunnel-jeton').placeholder=d.domaine.jeton ? 'Enregistré (colle-en un autre pour le changer)' : 'eyJh…';
+    $('tunnel-cible-panneau').textContent=d.cibles.panneau;
+    $('tunnel-cible-apps').textContent=d.cibles.apps;
+  }
   const pret=d.etat==='actif';
   $('tunnel-adresses').hidden=!pret;
   if(pret){
     $('tunnel-panneau').value=d.panneau+'/';
     $('tunnel-apps').value=d.apps+'/';
-    const qr=$('tunnel-qr');
-    qr.onerror=()=>qr.classList.remove('on');
-    qr.onload=()=>qr.classList.add('on');
-    qr.src='/api/tunnel/qr?a='+encodeURIComponent(d.panneau);
+    /* Sur son domaine, les adresses sont deja dans les champs : le QR seul. */
+    $('tunnel-panneau').parentElement.hidden=domaine;
+    $('tunnel-apps').parentElement.hidden=domaine;
+    tunnelAdresseQr=d.panneau;
+    /* Deja affiche : il suit l'adresse si elle a change. */
+    if($('tunnel-qr').classList.contains('on')) tunnelQr(true);
   }
   clearTimeout(tunnelRelecture);
   if(d.actif && d.etat==='demarrage') tunnelRelecture=setTimeout(chargerTunnel, 3000);
@@ -405,20 +435,37 @@ async function chargerTunnel(){
     peindreTunnel(await r.json());
   }catch(e){}
 }
+async function tunnelEnvoyer(corps, defaut){
+  const r=await fetch('/api/tunnel',{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(corps)});
+  if(!r.ok){ notifier(await echec(r, defaut),'err'); chargerTunnel(); return false; }
+  peindreTunnel(await r.json());
+  return true;
+}
 async function tunnelBasculer(b){
   const actif=b.checked;
   if(actif && !await demander('Ouvrir CodeLab sur internet ?',
-      "Une adresse publique en trycloudflare.com mènera à ton panneau et à tes applications. "
+      "Ton panneau et tes applications auront une adresse publique. "
       + "Les comptes utilisateurs pourront s'y connecter ; les applications publiques seront "
       + "visibles de tous.", 'Ouvrir')){
     b.checked=false; return;
   }
   b.disabled=true;
-  const r=await fetch('/api/tunnel',{method:'PUT',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({actif})});
+  await tunnelEnvoyer({actif}, 'Réglage non enregistré.');
   b.disabled=false;
-  if(!r.ok){ notifier(await echec(r,'Réglage non enregistré.'),'err'); chargerTunnel(); return; }
-  peindreTunnel(await r.json());
+}
+async function tunnelMode(sel){
+  await tunnelEnvoyer({mode: sel.value}, 'Réglage non enregistré.');
+}
+async function tunnelDomaine(){
+  const corps={panneau: $('tunnel-d-panneau').value.trim(), apps: $('tunnel-d-apps').value.trim()};
+  const jeton=$('tunnel-jeton').value.trim();
+  if(jeton) corps.jeton=jeton;
+  const bouton=$('tunnel-d-save');
+  bouton.disabled=true;
+  const ok=await tunnelEnvoyer(corps, 'Domaine non enregistré.');
+  bouton.disabled=false;
+  if(ok){ $('tunnel-jeton').value=''; notifier('Domaine enregistré.'); }
 }
 
 /* ---------------- la conservation du journal ----------------

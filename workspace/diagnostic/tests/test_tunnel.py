@@ -251,7 +251,13 @@ def test_cloudflared_ne_recoit_aucun_secret_et_ne_tourne_pas_en_root(tunnel, mon
     app._lancer_le_tunnel("apps")
     monkeypatch.setitem(app._tunnel["apps"], "proc", None)
     assert set(vus["env"]) == {"HOME", "PATH"}
-    assert vus["preexec_fn"] is app.drop_privileges
+    # Pas root, et pas meme l'uid des applications : le sien (voir le test
+    # du jeton, plus bas).
+    assert vus["preexec_fn"] is app._sans_privileges_tunnel
+    corps = _source_du_panneau().split("def _sans_privileges_tunnel(")[1].split("\ndef ")[0]
+    assert "os.setuid(TUNNEL_UID)" in corps and "os.setgroups([])" in corps
+    assert app.TUNNEL_UID not in (0, app.RUN_AS_UID)
+    assert not (app.UID_APP_BASE <= app.TUNNEL_UID < app.UID_APP_BASE + app.UID_APP_PLAGE)
     assert vus["cmd"][-2:] == ["--url", "http://127.0.0.1:%d" % app.TUNNEL_PORT_APPS]
     assert "127.0.0.1:%d" % app.TUNNEL_METRIQUES["apps"] in vus["cmd"]
 
@@ -302,3 +308,123 @@ def test_la_nouvelle_adresse_part_une_fois_par_mail(tunnel, monkeypatch):
     assert len(envois) == 1 and HOTE_PANNEAU in envois[0]
     app._annoncer_l_adresse("https://autre.trycloudflare.com")
     assert len(envois) == 2
+
+
+# ------------------------------ mon domaine : le tunnel nomme ------------------------------
+
+def _jeton_cloudflare():
+    contenu = {"a": "0" * 32, "t": "11111111-2222-3333-4444-555555555555", "s": "c2VjcmV0" * 6}
+    return base64.b64encode(json.dumps(contenu).encode()).decode().rstrip("=")
+
+
+def test_un_jeton_de_tunnel_se_reconnait_a_sa_forme():
+    """Le jeton se colle depuis Cloudflare, souvent avec la commande qui
+    l'entoure : on le reconnait, et on refuse ce qui n'en est pas un."""
+    jeton = _jeton_cloudflare()
+    assert app.jeton_de_tunnel_valide(jeton) == jeton
+    assert app.jeton_de_tunnel_valide("sudo cloudflared service install " + jeton) == jeton
+    for mauvais in ("", "abc", "x" * 60, "eyJ" + "!" * 50,
+                    base64.b64encode(b'{"a": "1"}' * 5).decode()):
+        assert app.jeton_de_tunnel_valide(mauvais) == "", mauvais
+
+
+def test_une_adresse_de_domaine_est_un_nom_de_domaine_et_rien_d_autre():
+    """Elle part dans des liens, la CSP et des redirections."""
+    assert app.hote_de_domaine_valide(" Codelab.MonDomaine.fr. ") == "codelab.mondomaine.fr"
+    for mauvaise in ("https://codelab.fr", "codelab.fr/x", "a b.fr", "192.168.1.2", "localhost",
+                     'x".fr', "x.trycloudflare.com", "-a.fr", ""):
+        assert app.hote_de_domaine_valide(mauvaise) == "", mauvaise
+
+
+def test_le_jeton_du_tunnel_ne_sort_jamais_du_coffre(tunnel, compte_admin, monkeypatch, tmp_path):
+    """Qui tient le jeton fait passer le tunnel par sa machine. Il est
+    chiffre dans le coffre, ne revient dans aucune reponse, n'est pas dans la
+    ligne de commande (lisible par tout le conteneur dans /proc), seulement
+    dans l'environnement de cloudflared."""
+    monkeypatch.setattr(app, "tunnel_disponible", lambda: True)
+    monkeypatch.setattr(app, "tour_du_tunnel", lambda: None)
+    jeton = _jeton_cloudflare()
+    r = compte_admin.put("/api/tunnel", json={"mode": "domaine", "jeton": jeton,
+                                              "panneau": "codelab.toi.fr", "apps": "apps.toi.fr",
+                                              "actif": True})
+    assert r.status_code == 200, r.get_json()
+    assert jeton not in r.get_data(as_text=True)
+    assert r.get_json()["domaine"] == {"panneau": "codelab.toi.fr", "apps": "apps.toi.fr",
+                                       "jeton": True}
+    assert jeton not in json.dumps(app.lire_tunnel())
+    assert app.reglage("tunnel_jeton") == jeton
+    assert jeton not in compte_admin.get("/api/tunnel").get_data(as_text=True)
+    with app.stockage.transaction(app.DB_FILE) as cx:
+        brut = " ".join(str(tuple(l)) for l in cx.execute("SELECT * FROM reglages_chiffres"))
+    assert jeton not in brut
+    # Un seul cloudflared, « run », le jeton dans l'environnement seulement.
+    assert app.entrees_voulues() == ("domaine",)
+    commande, env = app._commande_du_tunnel("domaine")
+    assert commande[-1] == "run" and not any(jeton in c for c in commande)
+    assert env["TUNNEL_TOKEN"] == jeton
+    # L'oublier.
+    r = compte_admin.put("/api/tunnel", json={"oublier_jeton": True})
+    assert r.get_json()["domaine"]["jeton"] is False and not app.reglage("tunnel_jeton")
+    assert app.entrees_voulues() == () and r.get_json()["etat"] == "incomplet"
+
+
+def test_le_domaine_refuse_ce_qui_ne_se_tient_pas(tunnel, compte_admin, monkeypatch):
+    monkeypatch.setattr(app, "tour_du_tunnel", lambda: None)
+    avant = app.lire_tunnel()
+    for corps in ({"mode": "personnalise"}, {"panneau": "https://codelab.toi.fr/"},
+                  {"panneau": "toi.fr", "apps": "toi.fr"}, {"jeton": "pas-un-jeton"}):
+        r = compte_admin.put("/api/tunnel", json=corps)
+        assert r.status_code == 400, corps
+    # Rien n'a ete ecrit a moitie.
+    assert app.lire_tunnel() == avant and not app.reglage("tunnel_jeton")
+
+
+def test_sur_mon_domaine_les_adresses_sont_celles_que_j_ai_choisies(tunnel, monkeypatch):
+    """« Je dois pouvoir personnaliser le nom de domaine facilement depuis
+    l'interface » : en mode domaine, le panneau ecrit ses liens avec les
+    adresses saisies, sans attendre Cloudflare."""
+    app.ecrire_reglage("tunnel_jeton", _jeton_cloudflare())
+    app.ecrire_parametre("tunnel", {"actif": True, "mode": "domaine",
+                                    "panneau": "codelab.toi.fr", "apps": "apps.toi.fr"})
+    monkeypatch.setitem(app._tunnel["apps"], "hote", "")
+    with app.flask_app.test_request_context("/", **_par_le_tunnel("panneau")):
+        assert app.origine_applications() == "https://apps.toi.fr"
+        assert app.cadres_permis() == "https://apps.toi.fr"
+    with app.flask_app.test_request_context("/public/", **_par_le_tunnel("apps")):
+        assert app.lien_panneau() == "https://codelab.toi.fr/"
+    # L'administration reste fermee par ce tunnel aussi.
+    with app.flask_app.test_request_context("/", environ_overrides={"REMOTE_ADDR": "127.0.0.1"},
+                                            **_par_le_tunnel("panneau")):
+        assert not app.client_est_local()
+    # Sans jeton, aucune adresse : rien ne pointe vers un tunnel qui n'existe pas.
+    app.ecrire_reglage("tunnel_jeton", None)
+    assert app.origine_du_tunnel("apps") == ""
+
+
+def test_changer_de_jeton_relance_le_tunnel_nomme(tunnel, monkeypatch):
+    """Un nouveau jeton, c'est un autre tunnel : l'ancien cloudflared doit
+    s'arreter, sinon il continue de servir l'ancien."""
+    lances, arretes = [], []
+    monkeypatch.setattr(app, "tunnel_disponible", lambda: True)
+    monkeypatch.setattr(app, "_tunnel_en_vie", lambda quoi: quoi in lances)
+    monkeypatch.setattr(app, "_lancer_le_tunnel", lambda quoi: lances.append(quoi))
+    monkeypatch.setattr(app, "_arreter_le_tunnel",
+                        lambda quoi: arretes.append(quoi) or lances.remove(quoi))
+    monkeypatch.setattr(app, "_pids_du_tunnel", lambda quoi: [])
+    monkeypatch.setattr(app, "_tunnel_nomme_connecte", lambda: True)
+    monkeypatch.setattr(app, "_annoncer_l_adresse", lambda adresse: None)
+    monkeypatch.setitem(app._tunnel_signature, "valeur", None)
+    for quoi in app.TUNNEL_METRIQUES:
+        monkeypatch.setitem(app._tunnel[quoi], "proc", None)
+    app.ecrire_reglage("tunnel_jeton", _jeton_cloudflare())
+    app.ecrire_parametre("tunnel", {"actif": True, "mode": "domaine",
+                                    "panneau": "codelab.toi.fr", "apps": "apps.toi.fr"})
+    app.tour_du_tunnel()
+    assert lances == ["domaine"] and not arretes
+    monkeypatch.setitem(app._tunnel["domaine"], "proc", object())
+    app.tour_du_tunnel()
+    assert lances == ["domaine"] and not arretes
+    autre = _jeton_cloudflare().replace("A", "B", 1)
+    app.ecrire_reglage("tunnel_jeton", autre)
+    app.tour_du_tunnel()
+    assert arretes == ["domaine"] and lances == ["domaine"]

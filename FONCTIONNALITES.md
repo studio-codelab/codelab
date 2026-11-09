@@ -634,7 +634,8 @@ Détails : [`app-manager/vps/README.md`](app-manager/vps/README.md).
   sur la box :
   - deux adresses en `https://….trycloudflare.com`, une pour le panneau, une pour les
     applications ;
-  - la carte montre les deux adresses et un QR code de celle du panneau ;
+  - la carte montre les deux adresses, et sur demande (bouton *Afficher le QR code*) le QR code de
+    celle du panneau ;
   - l'adresse change à chaque redémarrage du serveur, et l'administrateur reçoit la nouvelle par
     mail.
 
@@ -646,6 +647,18 @@ Détails : [`app-manager/vps/README.md`](app-manager/vps/README.md).
   - l'administration reste réservée au réseau local.
 
   Cloudflare réserve ces tunnels aux essais : pas de garantie, un plafond de requêtes simultanées.
+- **Avec ton domaine : une adresse fixe.** Même carte, *Adresse* > *Mon domaine*. Il faut un compte
+  Cloudflare (gratuit) et un domaine ajouté à ce compte. Dans Cloudflare (Zero Trust > Networks >
+  Tunnels) :
+  1. crée un tunnel et copie son jeton (la commande d'installation affichée se colle telle quelle) ;
+  2. ajoute deux *Public hostnames* : l'adresse du panneau (ex. `codelab.mondomaine.fr`) vers
+     `http://localhost:9011`, celle des applications (ex. `apps.mondomaine.fr`) vers
+     `http://localhost:9012`.
+
+  Dans CodeLab, colle le jeton, saisis les deux mêmes adresses et enregistre. Elles ne changent
+  plus, et le passage de connexion, les règles d'accès et l'administration réservée au réseau local
+  sont les mêmes. Le jeton est chiffré et ne réapparaît jamais ; il se remplace en en collant un
+  autre.
 
 ## 11. Installation et mise à jour
 
