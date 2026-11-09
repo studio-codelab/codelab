@@ -42,7 +42,8 @@ STRUCTURE   Ce fichier : les imports, les chemins et constantes partages,
               11 notifications Web Push, API, renommage
               12 pages, videos, le hub et l'application Messages
               13 hub, proxy, application fermee, projets par defaut
-              14 serveur HTTP
+              14 acces par le tunnel Cloudflare, passage de la connexion
+              15 serveur HTTP
 CHOIX       - Le cadre /ouvrir.html est un fichier a marqueurs, rempli en un
               seul passage (ouvrir_dans_le_panneau) : sa page et son script,
               ecrits en chaines Python, ne se relisaient plus.
@@ -186,7 +187,8 @@ MODULES_DU_SERVEUR = (
     "11-notifications-et-api.py",
     "12-pages-et-taches.py",
     "13-hub-et-proxy.py",
-    "14-serveur-http.py",
+    "14-tunnel.py",
+    "15-serveur-http.py",
 )
 DOSSIER_DU_SERVEUR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "serveur")
 
@@ -223,5 +225,6 @@ if __name__ == "__main__":
     demarrer_miroir_pg()
     demarrer_les_sauvegardes()
     demarrer_la_surveillance_externe()
+    demarrer_le_tunnel()
     demarrer_la_purge_du_journal()
     servir(int(os.environ.get("MANAGER_PORT", "9001")))

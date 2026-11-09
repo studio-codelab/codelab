@@ -3196,6 +3196,33 @@ a.pj:hover{border-color:var(--accent)}
        des donnees personnelles : il ne les garde que le temps choisi ici, en
        local comme dans Postgres (purge chaque jour, et aussitot le reglage
        change). Administrateur seulement. -->
+  <!-- ACCES DEPUIS INTERNET : deux tunnels Cloudflare (voir 14-tunnel), un
+       interrupteur. Administrateur seulement ; l'administration elle-meme
+       ne passe jamais par le tunnel. -->
+  <div class="zone" id="zone-tunnel" hidden>
+    <div class="zone-title">Accès depuis internet</div>
+    <div class="card settings-card sans-pli">
+      <div class="card-top"><div class="card-name">
+        <b id="tunnel-titre">Tunnel Cloudflare</b>
+        <div class="path">Ouvre CodeLab depuis n'importe où, sans nom de domaine ni réglage sur la box.</div>
+      </div>
+      <label class="interrupteur" onclick="event.stopPropagation()" title="Activer ou désactiver">
+        <input type="checkbox" id="tunnel-bascule" onchange="tunnelBasculer(this)"
+               aria-labelledby="tunnel-titre"><span></span></label></div>
+      <div class="hint" id="tunnel-etat"></div>
+      <div id="tunnel-adresses" hidden>
+        <div class="field" style="margin-top:12px"><label for="tunnel-panneau">Adresse du panneau</label>
+          <input id="tunnel-panneau" readonly onclick="this.select()"></div>
+        <img class="qr" id="tunnel-qr" alt="QR code de l'adresse du panneau">
+        <div class="field"><label for="tunnel-apps">Adresse des applications</label>
+          <input id="tunnel-apps" readonly onclick="this.select()"></div>
+      </div>
+      <div class="hint">L'adresse change à chaque redémarrage : tu reçois la nouvelle par mail.
+        Les comptes utilisateurs s'y connectent ; l'administration reste réservée au réseau local.
+        Une application publique devient visible de tout internet.</div>
+    </div>
+  </div>
+
   <div class="zone" id="zone-conservation" hidden>
     <div class="zone-title">Journal des accès</div>
     <div class="card settings-card sans-pli">
@@ -3777,7 +3804,7 @@ a.pj:hover{border-color:var(--accent)}
 <script>
 window.CODELAB_PAGE = {jeton: __JETON__, appsModele: __APPS_MODELE__, root: __ROOT__,
                        role: __ROLE__, utilisateur: __UTILISATEUR__, smtp: __SMTP__,
-                       profil: __PROFIL__};
+                       profil: __PROFIL__, passage: __PASSAGE__};
 </script>
 <script src="/panneau.js?v=__PANNEAU_VERSION__"></script>
 </div>

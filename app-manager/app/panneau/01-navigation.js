@@ -478,6 +478,7 @@ function paramOnglet(o){
     chargerAppareils();
     if(estAdmin) chargerSauvegardes();
     if(estAdmin) chargerConservation();
+    if(estAdmin) chargerTunnel();
     if(estAdmin) chargerSecurite(); else chargerTotpCompte();
   }
   /* La liste des applications vient du hub : on la relit, sinon le choix
