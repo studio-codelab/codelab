@@ -1,13 +1,15 @@
 # CodeLab -- LE PANNEAU, ACCES PAR LE TUNNEL CLOUDFLARE
 # ---------------------------------------------------------------------------
 # ROLE        rendre le panneau et les applications joignables depuis
-#             internet, sans nom de domaine ni port ouvert sur la box : deux
-#             « Quick Tunnels » Cloudflare (adresses *.trycloudflare.com),
-#             lances, surveilles et arretes par le panneau ; le passage de la
-#             connexion de l'adresse du panneau a celle des applications.
-#             Ne fait PAS : un tunnel nomme (compte Cloudflare, domaine a
-#             soi), Cloudflare Access, ni l'acces de l'administrateur, qui
-#             reste au reseau local.
+#             internet sans port ouvert sur la box : deux « Quick Tunnels »
+#             Cloudflare (adresses *.trycloudflare.com, sans compte), ou un
+#             tunnel nomme sur un domaine a soi ; lances, surveilles et
+#             arretes par le panneau ; le passage de la connexion de
+#             l'adresse du panneau a celle des applications.
+#             Ne fait PAS : la configuration cote Cloudflare (le tunnel nomme
+#             et ses adresses se creent dans son tableau de bord), Cloudflare
+#             Access, ni l'acces de l'administrateur, qui reste au reseau
+#             local.
 # CHARGE PAR  app.py (MODULES_DU_SERVEUR), dans SA portee : ce fichier n'est
 #             pas un module. Ses noms sont ceux de app, il lit et definit
 #             les memes globales que le reste du panneau. Ses fonctions sont
@@ -26,8 +28,11 @@
 #             - Deux tunnels, deux adresses : le panneau et les applications
 #               gardent deux origines distinctes (voir « une origine a part
 #               pour les applications », 02-sessions).
-# A AMELIORER - Un tunnel nomme (adresse fixe) pour qui a un domaine chez
-#               Cloudflare : un jeton dans le compose, la meme supervision.
+#             - Le tunnel nomme se configure chez Cloudflare (tableau de bord)
+#               et se lance avec son seul jeton : le panneau n'a besoin
+#               d'aucune cle d'API Cloudflare, qui ouvrirait tout le compte.
+# A AMELIORER - Un sous-domaine par application en mode domaine (adresse
+#               generique *.domaine chez Cloudflare), comme derriere le VPS.
 #
 
 # ------------------------------ le tunnel Cloudflare ------------------------------
@@ -65,21 +70,56 @@
 TUNNEL_PORT_PANNEAU = 9011
 TUNNEL_PORT_APPS = 9012
 TUNNEL_PORTS = (TUNNEL_PORT_PANNEAU, TUNNEL_PORT_APPS)
-# Le serveur de metriques de chaque cloudflared, sur 127.0.0.1 : sa route
-# /quicktunnel rend {"hostname": "..."}, l'adresse attribuee. Lue la plutot
-# que dans le journal, dont le format n'est pas un contrat.
-TUNNEL_METRIQUES = {"panneau": 20251, "apps": 20252}
 TUNNEL_CIBLES = {"panneau": TUNNEL_PORT_PANNEAU, "apps": TUNNEL_PORT_APPS}
 CLOUDFLARED = os.environ.get("APP_MANAGER_CLOUDFLARED", "/usr/local/bin/cloudflared")
 TUNNEL_VEILLE = 5            # secondes entre deux tours de la supervision
 
-# Une adresse de Quick Tunnel, et rien d'autre : elle part dans des liens,
-# une CSP, un en-tete Location et un mail. La reponse de cloudflared est une
-# donnee comme une autre (AGENTS.md 3.1).
+# DEUX FACONS D'AVOIR UNE ADRESSE.
+#   « aleatoire » : deux Quick Tunnels, sans compte, une adresse
+#     *.trycloudflare.com chacun, tiree au hasard a chaque lancement.
+#   « domaine » : un tunnel NOMME, cree dans le compte Cloudflare de
+#     l'administrateur, sur un domaine a lui. Un seul cloudflared, lance avec
+#     le jeton du tunnel ; les deux adresses (panneau, applications) sont
+#     declarees chez Cloudflare (« Public hostnames ») vers
+#     http://localhost:9011 et http://localhost:9012, et recopiees ici.
+#     Elles ne changent plus.
+# Vecu : « Je dois pouvoir personnaliser le nom de domaine facilement depuis
+# l'interface ». Un Quick Tunnel ne se nomme pas : seul un tunnel nomme le
+# permet, et il exige un domaine dans un compte Cloudflare.
+TUNNEL_MODES = ("aleatoire", "domaine")
+# Un cloudflared par entree, chacun avec son serveur de metriques sur
+# 127.0.0.1 : /quicktunnel y rend l'adresse d'un Quick Tunnel, /ready dit si
+# le tunnel nomme est connecte. Lus la plutot que dans le journal, dont le
+# format n'est pas un contrat.
+TUNNEL_METRIQUES = {"panneau": 20251, "apps": 20252, "domaine": 20253}
+
+# LE JETON DU TUNNEL NOMME est un secret : qui le tient fait passer le
+# tunnel par sa machine. POURQUOI ces precautions :
+#   - dans le coffre (ecrire_reglage, chiffre), jamais en clair sur le disque
+#     ni dans une reponse d'API (« jeton » : present ou non) ;
+#   - transmis par TUNNEL_TOKEN et jamais par --token : la ligne de commande
+#     de tout processus se lit dans /proc par n'importe quel utilisateur du
+#     conteneur, donc par les applications ;
+#   - cloudflared tourne sous un uid A LUI (TUNNEL_UID) : /proc/<pid>/environ
+#     ne se lit que sous le meme uid, et aucune application ni aucun build ne
+#     tourne sous celui-ci.
+# REGLE : 16 (rien en clair sur le disque), 19 (rien de ce secret pour une
+#   application), 12 quater.
+# ECARTE : l'uid partage des applications (RUN_AS_UID) : un build sans
+#   application tourne sous lui, et lirait l'environnement de cloudflared.
+TUNNEL_UID = int(os.environ.get("APP_MANAGER_TUNNEL_UID", "1002"))
+_JETON_TUNNEL = re.compile(r"^[A-Za-z0-9+/=_-]{40,4096}$")
+
+# Une adresse de tunnel, et rien d'autre : elle part dans des liens, une CSP,
+# un en-tete Location et un mail. La reponse de cloudflared comme la saisie
+# de l'administrateur sont des donnees (AGENTS.md 3.1).
 _HOTE_TUNNEL = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*\.trycloudflare\.com$")
+_HOTE_DOMAINE = re.compile(
+    r"^(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 
 _tunnel = {quoi: {"proc": None, "hote": "", "depuis": 0} for quoi in TUNNEL_METRIQUES}
 _tunnel_verrou = threading.Lock()
+_tunnel_signature = {"valeur": None}
 
 
 def lire_tunnel():
@@ -89,6 +129,51 @@ def lire_tunnel():
 
 def tunnel_voulu():
     return lire_tunnel().get("actif") is True
+
+
+def mode_du_tunnel():
+    mode = lire_tunnel().get("mode")
+    return mode if mode in TUNNEL_MODES else "aleatoire"
+
+
+def hote_de_domaine_valide(brut):
+    """Une adresse saisie pour le tunnel nomme, en minuscules, ou ""."""
+    hote = str(brut or "").strip().lower().rstrip(".")
+    if not _HOTE_DOMAINE.match(hote) or hote.endswith(".trycloudflare.com"):
+        return ""
+    return hote
+
+
+def jeton_de_tunnel_valide(brut):
+    """Le jeton tel que Cloudflare le donne (« cloudflared service install
+    <jeton> » se colle aussi), ou "" s'il n'en a pas la forme : du base64
+    d'un JSON qui porte le compte (a), le tunnel (t) et le secret (s)."""
+    jeton = str(brut or "").strip().split()[-1] if str(brut or "").strip() else ""
+    if not _JETON_TUNNEL.match(jeton):
+        return ""
+    try:
+        contenu = json.loads(base64.b64decode(jeton + "=" * (-len(jeton) % 4)))
+    except Exception:                                             # noqa: BLE001
+        return ""
+    if not (isinstance(contenu, dict) and all(contenu.get(k) for k in ("a", "t", "s"))):
+        return ""
+    return jeton
+
+
+def jeton_du_tunnel():
+    return str(reglage("tunnel_jeton", "") or "")
+
+
+def domaine_du_tunnel():
+    """Les deux adresses declarees pour le tunnel nomme : {panneau, apps}."""
+    d = lire_tunnel()
+    return {"panneau": hote_de_domaine_valide(d.get("panneau")),
+            "apps": hote_de_domaine_valide(d.get("apps"))}
+
+
+def domaine_complet():
+    d = domaine_du_tunnel()
+    return bool(jeton_du_tunnel() and d["panneau"] and d["apps"] and d["panneau"] != d["apps"])
 
 
 def tunnel_disponible():
@@ -109,25 +194,48 @@ def sur_le_tunnel_des_apps():
 def origine_du_tunnel(quoi):
     """https://<adresse> du tunnel « panneau » ou « apps », ou "" s'il n'est
     pas (encore) pret."""
+    if mode_du_tunnel() == "domaine":
+        hote = domaine_du_tunnel()[quoi] if domaine_complet() else ""
+        return "https://" + hote if hote else ""
     hote = _tunnel[quoi]["hote"]
     return "https://" + hote if hote and _HOTE_TUNNEL.match(hote) else ""
 
 
-def _adresse_attribuee(quoi):
-    """Ce que dit le serveur de metriques de ce cloudflared, ou ""."""
+def _metriques(quoi, chemin):
+    """(statut, corps) du serveur de metriques de ce cloudflared, ou (0, b"")."""
     try:
         with urllib.request.urlopen(
-                f"http://127.0.0.1:{TUNNEL_METRIQUES[quoi]}/quicktunnel", timeout=2) as r:
-            hote = str(json.loads(r.read(4096).decode("utf-8", "replace")).get("hostname") or "")
+                f"http://127.0.0.1:{TUNNEL_METRIQUES[quoi]}{chemin}", timeout=2) as r:
+            return r.status, r.read(4096)
+    except urllib.error.HTTPError as e:
+        return e.code, b""
+    except Exception:                                             # noqa: BLE001
+        return 0, b""
+
+
+def _adresse_attribuee(quoi):
+    """L'adresse d'un Quick Tunnel, selon son serveur de metriques, ou ""."""
+    statut, corps = _metriques(quoi, "/quicktunnel")
+    if statut != 200:
+        return ""
+    try:
+        hote = str(json.loads(corps.decode("utf-8", "replace")).get("hostname") or "")
     except Exception:                                             # noqa: BLE001
         return ""
     hote = hote.strip().lower()
     return hote if _HOTE_TUNNEL.match(hote) else ""
 
 
+def _tunnel_nomme_connecte():
+    """/ready : 200 quand le tunnel nomme a au moins une connexion a
+    Cloudflare. Un cloudflared qui ne l'expose pas (404) compte comme
+    connecte : il tourne, et c'est tout ce qu'on peut en dire."""
+    return _metriques("domaine", "/ready")[0] in (200, 404)
+
+
 def _pids_du_tunnel(quoi):
-    """Les cloudflared de ce tunnel, reconnus a leur adresse de metriques --
-    y compris ceux d'un panneau precedent (les processus survivent a son
+    """Les cloudflared de cette entree, reconnus a leur adresse de metriques
+    -- y compris ceux d'un panneau precedent (les processus survivent a son
     redemarrage, comme les applications)."""
     marque = f"127.0.0.1:{TUNNEL_METRIQUES[quoi]}".encode()
     pids = []
@@ -145,26 +253,44 @@ def _pids_du_tunnel(quoi):
     return pids
 
 
+def _sans_privileges_tunnel():
+    """preexec de cloudflared : son propre uid et son propre groupe, sans
+    celui de /workspace (voir TUNNEL_UID). Sans effet hors root (tests)."""
+    if os.geteuid() != 0:
+        return
+    os.setgroups([])
+    os.setgid(TUNNEL_UID)
+    os.setuid(TUNNEL_UID)
+    os.umask(0o077)
+
+
+def _commande_du_tunnel(quoi):
+    """(commande, environnement) de cette entree. Environnement VIDE hors
+    PATH, HOME et, pour le tunnel nomme, son jeton : cloudflared n'a besoin
+    d'aucun secret du panneau (meme regle que les applications, section
+    « secrets transmis aux applications »)."""
+    commande = [CLOUDFLARED, "tunnel", "--no-autoupdate",
+                "--metrics", f"127.0.0.1:{TUNNEL_METRIQUES[quoi]}"]
+    env = {"PATH": "/usr/local/bin:/usr/bin:/bin"}
+    if quoi == "domaine":
+        return commande + ["run"], {**env, "TUNNEL_TOKEN": jeton_du_tunnel()}
+    return commande + ["--url", f"http://127.0.0.1:{TUNNEL_CIBLES[quoi]}"], env
+
+
 def _lancer_le_tunnel(quoi):
-    # Sous l'utilisateur des applications (drop_privileges), avec un
-    # environnement VIDE : cloudflared n'a besoin d'aucun secret du panneau,
-    # et un processus qui parle a internet n'en recoit aucun (meme regle que
-    # les applications, section « secrets transmis aux applications »).
     maison = os.path.join(tempfile.gettempdir(), "codelab-tunnel")
-    os.makedirs(maison, exist_ok=True)
+    os.makedirs(maison, mode=0o700, exist_ok=True)
     try:
-        os.chown(maison, RUN_AS_UID, RUN_AS_GID)
+        os.chown(maison, TUNNEL_UID, TUNNEL_UID)
     except OSError:
         pass
+    commande, env = _commande_du_tunnel(quoi)
     journal = open(os.path.join(LOG_DIR, f"tunnel-{quoi}.log"), "wb")
     try:
         proc = subprocess.Popen(
-            [CLOUDFLARED, "tunnel", "--no-autoupdate",
-             "--metrics", f"127.0.0.1:{TUNNEL_METRIQUES[quoi]}",
-             "--url", f"http://127.0.0.1:{TUNNEL_CIBLES[quoi]}"],
-            stdin=subprocess.DEVNULL, stdout=journal, stderr=subprocess.STDOUT,
-            env={"HOME": maison, "PATH": "/usr/local/bin:/usr/bin:/bin"},
-            cwd=maison, preexec_fn=drop_privileges, start_new_session=True)
+            commande, stdin=subprocess.DEVNULL, stdout=journal, stderr=subprocess.STDOUT,
+            env={**env, "HOME": maison}, cwd=maison,
+            preexec_fn=_sans_privileges_tunnel, start_new_session=True)
     finally:
         journal.close()
     _tunnel[quoi].update(proc=proc, hote="", depuis=int(time.time()))
@@ -202,7 +328,8 @@ def _annoncer_l_adresse(adresse):
     POURQUOI : loin de chez soi, l'adresse d'un Quick Tunnel est la seule
     porte, et elle change a chaque redemarrage. Sans ce mail, une coupure de
     courant enferme dehors. Envoye meme alertes eteintes : ce n'est pas une
-    alerte, c'est l'adresse. Une fois par adresse (« annoncee »).
+    alerte, c'est l'adresse. Une fois par adresse (« annoncee ») : un domaine
+    a soi ne s'annonce donc qu'a sa mise en service.
     """
     if lire_tunnel().get("annoncee") == adresse:
         return
@@ -210,14 +337,31 @@ def _annoncer_l_adresse(adresse):
     cibles = alertes_admin()
     if not cibles:
         return
+    change = ("Elle change à chaque redémarrage du tunnel (ou du serveur). "
+              if mode_du_tunnel() == "aleatoire" else "")
     corps = ("La nouvelle adresse de ton panneau CodeLab, depuis n'importe où :\n\n"
-             f"{adresse}\n\n"
-             "Elle change à chaque redémarrage du tunnel (ou du serveur). "
-             "Paramètres > Sécurité > Accès depuis internet la montre aussi, avec un QR code.")
+             f"{adresse}\n\n" + change
+             + "Paramètres > Sécurité > Accès depuis internet la montre aussi, avec un QR code.")
     try:
         envoyer_avec_repli("CodeLab : nouvelle adresse depuis internet", corps, cibles)
     except Exception:                                             # noqa: BLE001
         pass
+
+
+def entrees_voulues():
+    """Les cloudflared qui doivent tourner, selon le reglage."""
+    if not (tunnel_voulu() and tunnel_disponible() and origines_separees()):
+        return ()
+    if mode_du_tunnel() == "domaine":
+        return ("domaine",) if domaine_complet() else ()
+    return ("panneau", "apps")
+
+
+def _signature_voulue():
+    """Ce qui, en changeant, oblige a relancer : le mode et le jeton (une
+    empreinte, pas le jeton). Les adresses du domaine, elles, se reglent chez
+    Cloudflare : les changer ici ne relance rien."""
+    return (mode_du_tunnel(), hashlib.sha256(jeton_du_tunnel().encode()).hexdigest())
 
 
 def tour_du_tunnel():
@@ -225,24 +369,37 @@ def tour_du_tunnel():
     relit les adresses. Ne leve jamais."""
     with _tunnel_verrou:
         try:
-            voulu = tunnel_voulu() and tunnel_disponible() and origines_separees()
+            voulues = entrees_voulues()
+            signature = _signature_voulue()
+            relancer = (_tunnel_signature["valeur"] is not None
+                        and _tunnel_signature["valeur"] != signature)
+            _tunnel_signature["valeur"] = signature
             for quoi in TUNNEL_METRIQUES:
-                if not voulu:
+                if quoi not in voulues or relancer:
                     if _tunnel[quoi]["proc"] is not None or _pids_du_tunnel(quoi):
                         _arreter_le_tunnel(quoi)
-                    continue
+                    if quoi not in voulues:
+                        continue
                 if not _tunnel_en_vie(quoi):
                     _lancer_le_tunnel(quoi)
+                    continue
+                if quoi == "domaine":
+                    _tunnel[quoi]["hote"] = "connecte" if _tunnel_nomme_connecte() else ""
                     continue
                 hote = _adresse_attribuee(quoi)
                 if hote and hote != _tunnel[quoi]["hote"]:
                     _tunnel[quoi]["hote"] = hote
                     print(f"[app-manager] tunnel {quoi} : https://{hote}", flush=True)
-            panneau = origine_du_tunnel("panneau")
-            if voulu and panneau and origine_du_tunnel("apps"):
-                _annoncer_l_adresse(panneau)
+            if voulues and tunnel_pret():
+                _annoncer_l_adresse(origine_du_tunnel("panneau"))
         except Exception as e:                                    # noqa: BLE001
             print(f"[app-manager] tunnel : {type(e).__name__}: {e}", flush=True)
+
+
+def tunnel_pret():
+    if mode_du_tunnel() == "domaine":
+        return domaine_complet() and bool(_tunnel["domaine"]["hote"])
+    return bool(origine_du_tunnel("panneau") and origine_du_tunnel("apps"))
 
 
 def demarrer_le_tunnel():
@@ -254,26 +411,36 @@ def demarrer_le_tunnel():
 
 
 def etat_du_tunnel():
+    """Ce que montre la carte. Le jeton n'en sort jamais : seulement s'il
+    est enregistre."""
     actif = tunnel_voulu()
-    panneau, apps = origine_du_tunnel("panneau"), origine_du_tunnel("apps")
+    mode = mode_du_tunnel()
     if not tunnel_disponible():
         etat = "indisponible"
     elif not origines_separees():
         etat = "sans-origines"
     elif not actif:
         etat = "arrete"
-    elif panneau and apps:
+    elif mode == "domaine" and not domaine_complet():
+        etat = "incomplet"
+    elif tunnel_pret():
         etat = "actif"
     else:
         etat = "demarrage"
-    return {"actif": actif, "etat": etat, "panneau": panneau, "apps": apps}
+    pret = etat == "actif"
+    return {"actif": actif, "mode": mode, "etat": etat,
+            "panneau": origine_du_tunnel("panneau") if pret else "",
+            "apps": origine_du_tunnel("apps") if pret else "",
+            "domaine": {**domaine_du_tunnel(), "jeton": bool(jeton_du_tunnel())},
+            "cibles": {quoi: f"http://localhost:{port}" for quoi, port in TUNNEL_CIBLES.items()}}
 
 
 # ------------------------------ le passage de la connexion ------------------------------
 #
-# Deux tunnels, deux adresses en *.trycloudflare.com. Ce suffixe est sur la
-# liste des suffixes publics : chaque adresse est un SITE a elle, et un
-# cookie pose par l'une ne vaut jamais pour l'autre. La session ouverte sur
+# Deux adresses : en *.trycloudflare.com, un suffixe public, chacune est un
+# SITE a elle ; sur un domaine a soi, le cookie de session reste lie a son
+# hote exact. Dans les deux cas, un cookie pose par l'une ne vaut jamais
+# pour l'autre. La session ouverte sur
 # l'adresse du panneau n'arrive donc pas a celle des applications, et une
 # application privee y renverrait sans fin a la connexion.
 #
@@ -372,17 +539,51 @@ def api_tunnel_lire():
 @flask_app.put("/api/tunnel")
 @require_admin
 def api_tunnel_ecrire():
-    actif = (request.get_json(silent=True) or {}).get("actif")
-    if not isinstance(actif, bool):
-        return jsonify({"error": "Réglage invalide."}), 400
-    if actif and not tunnel_disponible():
+    """{actif?, mode?, jeton?, oublier_jeton?, panneau?, apps?} : chaque
+    champ absent garde sa valeur. Tout est verifie avant d'ecrire quoi que ce
+    soit : un reglage a moitie enregistre laisserait un tunnel incoherent."""
+    corps = request.get_json(silent=True) or {}
+    actuel = lire_tunnel()
+    nouveau = dict(actuel)
+    if "actif" in corps:
+        if not isinstance(corps["actif"], bool):
+            return jsonify({"error": "Réglage invalide."}), 400
+        nouveau["actif"] = corps["actif"]
+    if "mode" in corps:
+        if corps["mode"] not in TUNNEL_MODES:
+            return jsonify({"error": "Type d'adresse inconnu."}), 400
+        nouveau["mode"] = corps["mode"]
+    for quoi in ("panneau", "apps"):
+        if quoi in corps:
+            hote = hote_de_domaine_valide(corps[quoi])
+            if not hote:
+                return jsonify({"error": "Adresse invalide : un nom de domaine, sans https:// "
+                                         "ni chemin (ex. codelab.mondomaine.fr)."}), 400
+            nouveau[quoi] = hote
+    if nouveau.get("panneau") and nouveau.get("panneau") == nouveau.get("apps"):
+        return jsonify({"error": "Le panneau et les applications ont besoin de deux adresses "
+                                 "différentes : c'est ce qui les sépare."}), 400
+    jeton = None
+    if corps.get("jeton"):
+        jeton = jeton_de_tunnel_valide(corps["jeton"])
+        if not jeton:
+            return jsonify({"error": "Ce n'est pas un jeton de tunnel Cloudflare : copie celui "
+                                     "de la page du tunnel (Install connector)."}), 400
+    oublier = corps.get("oublier_jeton") is True
+    if nouveau.get("actif") and not tunnel_disponible():
         return jsonify({"error": "cloudflared est absent de cette image : mets CodeLab à jour."}), 409
     try:
-        ecrire_parametre("tunnel", {**lire_tunnel(), "actif": actif})
+        if jeton or oublier:
+            ecrire_reglage("tunnel_jeton", None if oublier else jeton)
+        ecrire_parametre("tunnel", nouveau)
     except Exception as e:                                        # noqa: BLE001
         return jsonify({"error": f"Réglage non enregistré : {e}"}), 500
+    mode = nouveau.get("mode") or "aleatoire"
     journaliser("reglage", qui=utilisateur_courant() or NOM_ADMIN,
-                action="accès par le tunnel Cloudflare : " + ("activé" if actif else "désactivé"),
+                action=("accès par le tunnel Cloudflare : "
+                        + ("activé" if nouveau.get("actif") else "désactivé")
+                        + (" (mon domaine)" if mode == "domaine" else " (adresse aléatoire)")
+                        + (", jeton changé" if jeton else "") + (", jeton retiré" if oublier else "")),
                 ip=_adresse_client())
     threading.Thread(target=tour_du_tunnel, daemon=True).start()
     return jsonify(etat_du_tunnel())

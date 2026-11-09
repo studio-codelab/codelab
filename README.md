@@ -177,8 +177,8 @@ le panneau y lance les applications, Dagster y charge les `definitions.py`.
 - Si le `9002` ne s'ouvre pas, ou si `APP_MANAGER_APPS_PORT` vaut `0`, les applications reviennent
   sous `:9001/<nom>/`, dans l'origine du panneau, et le diagnostic le signale.
 - **Le tunnel Cloudflare** (Paramètres > Sécurité, éteint par défaut) ouvre le panneau et les
-  applications depuis internet, sans domaine ni port sur la box : deux adresses
-  `….trycloudflare.com`. Il arrive par deux ports internes (`9011`, `9012`, sur `127.0.0.1`), qui ne
+  applications depuis internet, sans port ouvert sur la box : deux adresses `….trycloudflare.com`,
+  ou deux adresses fixes sur ton domaine (tunnel nommé, compte Cloudflare). Il arrive par deux ports internes (`9011`, `9012`, sur `127.0.0.1`), qui ne
   se publient pas.
 - **Dagster (`3000`) et Mailpit (`8025`)** ne sont pas des applications du hub : ils ont leur port,
   derrière la session d'administration, et restent sur le réseau local.

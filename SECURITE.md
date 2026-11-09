@@ -219,8 +219,11 @@ Sans lui, les réglages chiffrés deviennent illisibles.
   origines distinctes, comme en local. Pour les visiteurs :
   - Cloudflare voit le trafic en clair : c'est lui qui termine le HTTPS ;
   - l'adresse change à chaque redémarrage, et l'administrateur la reçoit par mail ;
-  - `cloudflared` tourne sous l'utilisateur des applications, avec un environnement vide (aucun
-    secret du panneau) ;
+  - `cloudflared` tourne sous son propre uid, sans le groupe de `/workspace`, avec un
+    environnement vide (aucun secret du panneau) ;
+  - le mode *Mon domaine* lance un tunnel nommé avec son jeton. Celui-ci est chiffré dans le coffre
+    et n'apparaît dans aucune réponse. `cloudflared` le reçoit par `TUNNEL_TOKEN`, jamais en ligne
+    de commande, sous un uid à lui (`1002`) qu'aucune application ne partage ;
   - la session passe du panneau aux applications par un ticket à usage unique d'une minute
     (`/passage/<app>/`). C'est la même session, avec le même identifiant d'appareil : une
     déconnexion ou une suspension la ferme des deux côtés.
@@ -323,8 +326,8 @@ Sans lui, les réglages chiffrés deviennent illisibles.
 
 **Données**
 
-16. Aucun mot de passe, aucune adresse mail, aucun mot de passe d'envoi n'est écrit en clair sur le
-    disque.
+16. Aucun mot de passe, aucune adresse mail, aucun mot de passe d'envoi, aucun jeton de tunnel n'est
+    écrit en clair sur le disque.
 17. La base du panneau et les archives de sauvegarde sont en `0600`.
 18. Le diagnostic n'ouvre la base du panneau qu'en lecture seule.
 18 bis. L'application Messages ne répond à aucune requête sans le jeton signé du panneau ; ses

@@ -3204,12 +3204,41 @@ a.pj:hover{border-color:var(--accent)}
     <div class="card settings-card sans-pli">
       <div class="card-top"><div class="card-name">
         <b id="tunnel-titre">Tunnel Cloudflare</b>
-        <div class="path">Ouvre CodeLab depuis n'importe où, sans nom de domaine ni réglage sur la box.</div>
+        <div class="path">Ouvre CodeLab depuis n'importe où, sans rien ouvrir sur la box.</div>
       </div>
       <label class="interrupteur" onclick="event.stopPropagation()" title="Activer ou désactiver">
         <input type="checkbox" id="tunnel-bascule" onchange="tunnelBasculer(this)"
                aria-labelledby="tunnel-titre"><span></span></label></div>
       <div class="hint" id="tunnel-etat"></div>
+      <div class="field" style="margin-top:12px">
+        <label for="tunnel-mode">Adresse</label>
+        <select id="tunnel-mode" onchange="tunnelMode(this)">
+          <option value="aleatoire">Aléatoire (gratuite, change à chaque redémarrage)</option>
+          <option value="domaine">Mon domaine (fixe, compte Cloudflare)</option>
+        </select>
+      </div>
+      <!-- MON DOMAINE : un tunnel nomme, cree dans le compte Cloudflare de
+           l'administrateur. Le jeton ne revient jamais du serveur : le champ
+           dit seulement s'il est enregistre. -->
+      <div id="tunnel-domaine" hidden>
+        <div class="hint">Dans Cloudflare (Zero Trust &gt; Networks &gt; Tunnels) : crée un
+          tunnel, copie son jeton, puis ajoute deux <i>Public hostnames</i> :
+          ton adresse du panneau vers <code id="tunnel-cible-panneau">http://localhost:9011</code>,
+          celle des applications vers <code id="tunnel-cible-apps">http://localhost:9012</code>.</div>
+        <div class="field" style="margin-top:12px"><label for="tunnel-jeton">Jeton du tunnel</label>
+          <input id="tunnel-jeton" type="password" autocomplete="off" spellcheck="false"></div>
+        <div class="grid2">
+          <div class="field"><label for="tunnel-d-panneau">Adresse du panneau</label>
+            <input id="tunnel-d-panneau" placeholder="codelab.mondomaine.fr" autocapitalize="off"
+                   spellcheck="false"></div>
+          <div class="field"><label for="tunnel-d-apps">Adresse des applications</label>
+            <input id="tunnel-d-apps" placeholder="apps.mondomaine.fr" autocapitalize="off"
+                   spellcheck="false"></div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-primary" id="tunnel-d-save" onclick="tunnelDomaine()">Enregistrer</button>
+        </div>
+      </div>
       <div id="tunnel-adresses" hidden>
         <div class="field" style="margin-top:12px"><label for="tunnel-panneau">Adresse du panneau</label>
           <input id="tunnel-panneau" readonly onclick="this.select()"></div>
@@ -3217,8 +3246,8 @@ a.pj:hover{border-color:var(--accent)}
         <div class="field"><label for="tunnel-apps">Adresse des applications</label>
           <input id="tunnel-apps" readonly onclick="this.select()"></div>
       </div>
-      <div class="hint">L'adresse change à chaque redémarrage : tu reçois la nouvelle par mail.
-        Les comptes utilisateurs s'y connectent ; l'administration reste réservée au réseau local.
+      <div class="hint" id="tunnel-change">L'adresse change à chaque redémarrage : tu reçois la nouvelle par mail.</div>
+      <div class="hint">Les comptes utilisateurs s'y connectent ; l'administration reste réservée au réseau local.
         Une application publique devient visible de tout internet.</div>
     </div>
   </div>
