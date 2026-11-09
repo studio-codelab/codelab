@@ -43,7 +43,6 @@ import builtins
 import datetime
 
 
-import enum
 
 
 import importlib.util
@@ -252,7 +251,6 @@ def _bloc_reconciliation():
 
 
 def _somme_texte(contenu):
-    import hashlib
     return hashlib.sha256(contenu.encode()).hexdigest()
 
 
